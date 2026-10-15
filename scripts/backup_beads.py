@@ -156,8 +156,9 @@ def fetch_raw(url, gist_id, name):
             while True:
                 if time.monotonic() >= deadline:
                     raise ValueError("Raw response deadline exceeded")
-                # read1 performs at most one underlying read; a no-newline or
-                # unknown-length response cannot allocate an unbounded buffer.
+                # Bound returned body chunks, including no-newline responses.
+                # HTTP setup/framing can perform additional socket reads; this
+                # checked deadline is not a strict total network time bound.
                 chunk = response.read1(min(64 * 1024, MAX_BYTES + 1 - len(data)))
                 if not chunk:
                     break

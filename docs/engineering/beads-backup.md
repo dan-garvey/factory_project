@@ -64,9 +64,11 @@ same configured gist/file at a fixed 40-hex revision on
 queries, fragments, unpinned paths and redirects. The raw request sends no
 account authentication or cookies, uses bounded binary chunks before UTF-8
 decoding, and rejects over-limit, malformed or mismatched content. It has a
-10-second socket timeout and a checked 30-second transfer deadline, which can
-overrun by at most one in-progress socket read. These are bounded cooperating
-network reads, not a host quota or guarantee of network availability.
+10-second socket inactivity timeout and a 30-second deadline checked after
+connection setup and between body reads. DNS, HTTP headers and chunk framing can
+overrun that deadline before control returns; this is not a strict total network
+time bound. The byte limits remain enforced on returned body data. These are
+cooperating network checks, not a host quota or guarantee of availability.
 
 GitHub documents up to 1 MB of inline API content per file, full `raw_url`
 retrieval above that, and cloning for files larger than 10 MB. The 8 MiB bound
