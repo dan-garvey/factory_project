@@ -2,6 +2,7 @@ extends Node3D
 ## Input and presentation only. Every material/build mutation goes to model.gd.
 
 const Model = preload("res://model.gd")
+const Store = preload("res://save-tests/checkpoint_file.gd")
 const STEP_SECONDS := 0.45
 const PITCH := 1.65
 const NAMES := {"collector": "Collector", "belt": "Belt", "processor": "Press", "wheel": "Waterwheel"}
@@ -20,6 +21,11 @@ var request_sequence := 0
 # A fresh view must not restart request IDs into a restored authority's cache.
 # This nonce identifies submitted intents; it never randomizes simulation rules.
 var request_namespace := "opening-" + Crypto.new().generate_random_bytes(16).hex_encode() + "-"
+var save_slot := ""
+var save_slot_ready := false
+var save_slot_owned := false
+var last_save_result: Dictionary = {}
+var last_load_result: Dictionary = {}
 var mode := "collector"
 var pending_link := ""
 var selected := ""
@@ -49,6 +55,8 @@ var confirm_button: Button
 var retrieve_button: Button
 var power_button: Button
 var remove_button: Button
+var save_button: Button
+var load_button: Button
 var lesson_panel: PanelContainer
 var lesson_title: Label
 var lesson_body: Label
@@ -58,10 +66,61 @@ var state: Dictionary = {}
 func _ready() -> void:
 	if model == null:
 		model = Model.new(16, "opening-local-1", 1, {"opening": true})
+	if save_slot.is_empty():
+		for argument in OS.get_cmdline_user_args():
+			if argument.begins_with("--save-slot="):
+				configure_save_slot(argument.trim_prefix("--save-slot="))
 	_build_world()
 	_build_interface()
 	_refresh()
 	_message("Build a small line. Choose a part, then click a grid square.")
+
+func configure_save_slot(path: String) -> void:
+	# The launcher supplies a fresh external session directory. One cooperating
+	# writer owns this slot; this is not a cross-process filesystem lock.
+	save_slot = path
+	save_slot_owned = false
+	save_slot_ready = path.is_absolute_path() and not path.begins_with("res://") and not path.begins_with("user://") and DirAccess.dir_exists_absolute(path.get_base_dir()) and not _path_exists(path) and not _path_exists(path + ".pending")
+
+func _path_exists(path: String) -> bool:
+	return FileAccess.file_exists(path) or DirAccess.dir_exists_absolute(path)
+
+func _save_worksite() -> Dictionary:
+	if explanation_open or not save_slot_ready:
+		last_save_result = {"accepted": false, "reason": "save_unavailable"}
+	elif not save_slot_owned and _path_exists(save_slot):
+		last_save_result = {"accepted": false, "reason": "existing_destination"}
+	else:
+		last_save_result = Store.write(model, save_slot)
+	if last_save_result.accepted:
+		save_slot_owned = true
+		_message("Worksite saved. Load returns to this moment.")
+	else:
+		_message("Save unavailable. Your current worksite and previous save are kept.", true)
+	_refresh_ui()
+	return last_save_result
+
+func _load_worksite(path: String = "") -> Dictionary:
+	if explanation_open or not save_slot_ready:
+		last_load_result = {"accepted": false, "reason": "load_unavailable"}
+	else:
+		last_load_result = Store.read_into(model, save_slot if path.is_empty() else path)
+	if last_load_result.accepted:
+		# Restored revision/order may be lower or equal. Invalidate presentation
+		# caches instead of altering the restored authoritative version.
+		selected = ""
+		pending_link = ""
+		geometry_key = ""
+		visual_revision = -1
+		elapsed = 0.0
+		request_sequence = 0
+		request_namespace = "opening-" + Crypto.new().generate_random_bytes(16).hex_encode() + "-"
+		goal_confirmed = false
+		_refresh()
+		_message("Worksite loaded. Select a machine to continue.")
+	else:
+		_message("Load refused. Your current worksite and previous save are kept.", true)
+	return last_load_result
 
 func issue(action: Dictionary) -> Dictionary:
 	if explanation_open:
@@ -112,11 +171,14 @@ func _process(delta: float) -> void:
 		focus.z = clampf(focus.z, -4, 6)
 
 func _input(event: InputEvent) -> void:
-	# Space is the documented global drive shortcut. Consume both edges so a
+	# Consume both edges of global shortcuts so a
 	# previously focused GUI button cannot also activate on the release.
-	if event is InputEventKey and event.keycode == KEY_SPACE:
+	if event is InputEventKey and event.keycode in [KEY_SPACE, KEY_F5, KEY_F9]:
 		if event.pressed and not event.echo and not explanation_open:
-			_toggle_power()
+			match event.keycode:
+				KEY_SPACE: _toggle_power()
+				KEY_F5: _save_worksite()
+				KEY_F9: _load_worksite()
 		get_viewport().set_input_as_handled()
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -452,6 +514,10 @@ func _refresh_ui() -> void:
 	power_label.text = "DRIVE RUNNING" if state.get("powered", false) else "DRIVE STOPPED / UNCONNECTED"
 	power_button.text = "Stop drive  [Space]" if state.get("power_enabled", true) else "Start drive  [Space]"
 	power_button.disabled = explanation_open
+	save_button.disabled = explanation_open or not save_slot_ready
+	load_button.disabled = explanation_open or not save_slot_ready or not save_slot_owned
+	for button in [save_button, load_button]:
+		button.tooltip_text = "" if save_slot_ready else "Launch a fresh worksite session to enable saving."
 	for tool in tool_buttons:
 		var button: Button = tool_buttons[tool]
 		button.disabled = explanation_open or (NAMES.has(tool) and not state.parts.has(tool))
@@ -547,7 +613,7 @@ func _build_interface() -> void:
 	for tool in ["flow", "drive", "inspect"]:
 		tool_buttons[tool].toggle_mode = true
 	_button(build, "How this line works  [H]", _toggle_explanation)
-	var right := _panel(root, Vector2(990, 18), Vector2(272, 395))
+	var right := _panel(root, Vector2(990, 18), Vector2(272, 490))
 	_label(right, "WORKSITE", 13, Color("a3b8b4"))
 	power_label = _label(right, "", 14, Color("dfbc76"))
 	stock_label = _label(right, "", 16)
@@ -555,6 +621,9 @@ func _build_interface() -> void:
 	retrieve_button = _button(right, "Collect plate  [R]", _retrieve)
 	power_button = _button(right, "Stop drive  [Space]", _toggle_power)
 	remove_button = _button(right, "Dismantle selected", _remove_selected)
+	right.add_child(HSeparator.new())
+	save_button = _button(right, "Save worksite  [F5]", _save_worksite)
+	load_button = _button(right, "Load worksite  [F9]", _load_worksite)
 	var bottom := _panel(root, Vector2(310, 694), Vector2(952, 88))
 	status_label = _label(bottom, "", 16)
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART

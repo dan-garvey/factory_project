@@ -7,12 +7,26 @@ recipe. A four-plate confirmation is a local session acknowledgement derived
 from authoritative player inventory; it neither consumes items nor grants
 technology/story/team credit. That acknowledgement is not a durable quest system.
 
-Open the existing Godot sandbox project with scene
-`res://opening/opening.tscn`. The host must have the separately verified sandbox
-runtime; this consumer downloads or installs nothing. Use the repository's
-`scripts/run_local.py heavy --` wrapper for engine runs. Keep caches and evidence
-in a task-owned external copy of the project, following the sandbox runner's
-pattern. The project and rule owner must come from the same recorded candidate.
+From the repository root, launch with the separately verified existing runtime
+and an external owned artifact root:
+
+```bash
+python3 -B scripts/run_local.py heavy -- python3 -B scripts/run_opening.py \
+  --godot /absolute/verified/Godot_v4.7.2-stable_linux.x86_64 \
+  --artifacts /absolute/owned/opening-sessions
+```
+
+This opens `res://opening/opening.tscn` from a fresh external project copy with
+private cache/profile directories and one new session save slot. The neutral
+project startup remains unchanged. The launcher downloads or installs nothing;
+it records copied source hashes, logs and results and retains the session after
+exit. It uses the shared bounded process supervisor with a 30 minute session,
+8 MiB per log and 256 MiB artifact-root allowance. Time/size refusal preserves
+diagnostics and is a failed run. Sessions share the repository's heavy lane and
+resource floors. These are prototype operating limits, not game performance
+targets. Close the game window to finish a normal session.
+Add `--smoke` for an automated startup check of that same explicit scene; it
+exits after 60 frames and makes no interactive-input or user-play claim.
 
 Controls: 1 collector, 2 belt, 3 press, 4 waterwheel; click a square to place.
 Material ports face +x. F selects a material connection; G selects a drive
@@ -20,6 +34,23 @@ connection; click its two neighboring ends. I selects inspection, R retrieves
 from the selected press, Space starts/stops the drive. Right-drag orbits, mouse
 wheel zooms, WASD pans and Home recenters. H opens a read-only explanation;
 construction controls are unavailable until it closes.
+F5 or **Save worksite** stores this moment; F9 or **Load worksite** returns to
+the latest successful save in this session. Saving again replaces only that
+session's own slot. Save/load controls require the launcher's fresh destination;
+opening the scene directly without it leaves those controls disabled.
+
+Save/load uses the unchanged shared `save-tests/checkpoint_file.gd` adapter.
+It retains paused work, occupied output, exact quantities, machine identities
+and cached request outcomes. A successful load clears selected/half-connected
+machines, refreshes geometry/items even when revision decreases, and assigns
+fresh caller intent IDs. The four-plate session acknowledgement clears; actual
+restored inventory determines whether the player can explicitly confirm again.
+Failed load preserves current authority, selection, pending connection, caller
+IDs and last good file. Failed saving retains the previous file and any blocking
+`.pending` diagnostic; it never silently deletes one. No arbitrary file picker,
+cross-session save browser, autosave or live network-world replacement is added.
+The current slot is retained at the printed session path after exit. A new
+launch creates its own slot and refuses to overwrite an existing user file.
 
 One compact arrangement places wheel/collector/belt/press at x=-1/0/1/2 with
 z=0. Connect collector→belt→press for material, then wheel→collector→belt→press
@@ -52,6 +83,20 @@ and real scene input path to pass. `--import-only` checks project import alone
 and makes no operating/visual claim. No runtime is downloaded. Rejected restore
 checks preserve an existing valid world and its request dispositions. Rendered
 mode requires a real PNG, not a dummy renderer's successful exit.
+
+For the complete single-process input/save/load check, use the launch command
+above with `--check`; add `--render` to require real viewport captures. It runs
+the unchanged neutral assertions, opening model and checkpoint checks, original
+input consumer, and `opening/integration_check.gd`. The latter drives actual
+save/load buttons and F5/F9, resumes paused and blocked work, retrieves after
+load, restores lower revisions/rebuilt identities, recalculates the four-plate
+goal and refuses pending-file collisions. Disposable truncated and contradictory
+files exercise the same Load handler; these negative cases do not claim a file
+picker interaction or alter the good slot. Logs and the good/bad/pending files
+remain in the external session. Interactive launch success is process evidence;
+it does not assess player understanding or enjoyment.
+`consumer.json` records actual paused/blocked/final quantities and phase; the
+Python runner independently checks 16 conserved blanks and four carried plates.
 
 The opening requires the model's agreed wheel/shaft/power/stopped-edit/capacity
 extension. It cannot truthfully demonstrate those features against the earlier
@@ -95,6 +140,6 @@ assertions, 384 checkpoint/metadata/target checks and the actual key/mouse/butto
 Compatibility-rendered runs. Rendered captures were visually inspected. No
 human play session, networked opening, save-file/crash durability, detailed
 contact/injury, moving machinery, native-core portability or scale claim follows.
-The save and network owners still need to replay their consumers against the
+Final integration also needs the save and network owners' receipts against the
 same integrated opening model. Single-placement placeholder geometry and a
 fixed seven-by-seven construction site are intentional prototype limits.

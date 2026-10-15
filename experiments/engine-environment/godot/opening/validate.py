@@ -46,7 +46,7 @@ def main():
     (project / "opening").mkdir(parents=True)
     hashes = {}
     source_bytes = 0
-    for name in (*BASE, *("opening/" + name for name in OPENING)):
+    for name in (*BASE, *("opening/" + name for name in OPENING), "save-tests/checkpoint_file.gd"):
         source = PROJECT / name
         if source.is_symlink() or not source.is_file():
             raise ValueError(f"Missing or unsafe shared project source: {source}")
@@ -54,7 +54,9 @@ def main():
         source_bytes += len(content)
         if source_bytes > 2 * 1024**2:
             raise ValueError("Opening source allowance exceeded")
-        (project / name).write_bytes(content)
+        target = project / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
         hashes[name] = hashlib.sha256(content).hexdigest()
     environment = os.environ.copy()
     for key, name in (("XDG_DATA_HOME", "data"), ("XDG_CONFIG_HOME", "config"),
