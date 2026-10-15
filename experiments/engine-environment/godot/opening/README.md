@@ -26,7 +26,16 @@ diagnostics and is a failed run. Sessions share the repository's heavy lane and
 resource floors. These are prototype operating limits, not game performance
 targets. Close the game window to finish a normal session.
 Add `--smoke` for an automated startup check of that same explicit scene; it
-exits after 60 frames and makes no interactive-input or user-play claim.
+exits after 60 frames and requires a structured read-only observation of the
+actual opening scene: 16 fresh blanks, the starter kit, no built machines and a
+fresh save slot with Save enabled and Load disabled. A missing/invalid report,
+wrong scene or wrong initial state fails even when the engine exits cleanly.
+This is additional regression coverage, not an interactive-input or user-play
+claim. Only smoke mode adds an observer autoload to the external project copy
+after editor import. The receipt keeps original `source_hashes` separate from
+`instrumentation`, which records the copied, post-import and altered project
+hashes plus the observer hash. The tracked project and ordinary launch are
+unchanged; `startup.json` retains the actual observation.
 
 Controls: 1 collector, 2 belt, 3 press, 4 waterwheel; click a square to place.
 Material ports face +x. F selects a material connection; G selects a drive

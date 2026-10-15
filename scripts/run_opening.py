@@ -20,6 +20,66 @@ FILES = bounds.FILES + tuple("opening/" + name for name in (
     "opening.gd", "opening.tscn", "opening_check.gd", "model_check.gd",
     "checkpoint_check.gd", "integration_check.gd")) + ("save-tests/checkpoint_file.gd",)
 MAX_BYTES = 256 * 1024**2
+SMOKE_OBSERVER = "opening/startup_observer.gd"
+SMOKE_SCENE = "res://opening/opening.tscn"
+
+
+def instrument_smoke(project, copied_config_hash):
+    """Attach only to the owned copy; keep original and altered hashes distinct."""
+    config = project / "project.godot"
+    original = config.read_bytes()
+    if b"[autoload]" in original:
+        raise ValueError("Smoke instrumentation needs explicit support for existing autoloads")
+    config.write_bytes(original + b'\n[autoload]\nFactorySmokeObserver="*res://opening/startup_observer.gd"\n')
+    return {"kind": "read_only_startup_autoload",
+            "modified_files": {"project.godot": {
+                "copied_sha256": copied_config_hash,
+                "post_import_sha256": hashlib.sha256(original).hexdigest(),
+                "runtime_sha256": hashlib.sha256(config.read_bytes()).hexdigest()}},
+            "observer": {"path": SMOKE_OBSERVER,
+                         "sha256": hashlib.sha256((project / SMOKE_OBSERVER).read_bytes()).hexdigest()}}
+
+
+def _same_value(actual, expected):
+    # JSON bools/floats must not masquerade as integer item quantities.
+    if type(actual) is not type(expected):
+        return False
+    if isinstance(expected, dict):
+        return actual.keys() == expected.keys() and all(_same_value(actual[k], v) for k, v in expected.items())
+    if isinstance(expected, list):
+        return len(actual) == len(expected) and all(_same_value(a, b) for a, b in zip(actual, expected))
+    return actual == expected
+
+
+def read_smoke_report(path, save_slot):
+    try:
+        if path.stat().st_size > 64 * 1024:
+            raise ValueError("Startup observer report exceeds its small allowance")
+        report = json.loads(path.read_text())
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise ValueError("Smoke needs a readable, valid startup observer report") from error
+    if (not isinstance(report, dict) or not _same_value(report.get("schema"), 1)
+            or report.get("scene") != SMOKE_SCENE
+            or report.get("script") != "res://opening/opening.gd"):
+        raise ValueError("Smoke did not observe the actual opening scene")
+    expected = {
+        "context": "opening-local-1", "initial_feed": 16, "recipe_input": 1,
+        "order": 0, "entities": {}, "links": [], "drive_links": [], "inventories": {},
+        "stock": {"source": 16, "collector": 0, "belt": 0, "input": 0, "held": 0, "output": 0, "player": 0},
+        "parts": {"collector": 1, "belt": 1, "processor": 1, "wheel": 1, "shaft": 3},
+        "remaining": 0, "powered": False, "power_enabled": True, "options": {"opening": True}}
+    state = report.get("state")
+    if (not isinstance(state, dict) or any(not _same_value(state.get(k), v) for k, v in expected.items())
+            or type(state.get("revision")) is not int or state["revision"] < 0):
+        raise ValueError("Smoke startup quantities, identities, parts or power differ from the fresh fixture")
+    view = {"save_slot": str(save_slot), "save_ready": True, "save_owned": False,
+            "save_disabled": False, "load_disabled": True, "confirmed": False,
+            "request_sequence": 0, "namespace_nonempty": True, "machines": 0, "items": 16}
+    if not _same_value(report.get("view"), view):
+        raise ValueError("Smoke startup view or save/load ownership differs from the fresh session")
+    if any(path.exists() or path.is_symlink() for path in (save_slot, Path(str(save_slot) + ".pending"))):
+        raise ValueError("Smoke startup unexpectedly wrote its save slot")
+    return report
 
 
 def main():
@@ -28,7 +88,7 @@ def main():
     parser.add_argument("--artifacts", type=Path, required=True)
     parser.add_argument("--check", action="store_true", help="run actual model and input consumers, then exit")
     parser.add_argument("--render", action="store_true", help="capture the real rendered check viewport")
-    parser.add_argument("--smoke", action="store_true", help="launch the actual opening scene and exit after 60 frames")
+    parser.add_argument("--smoke", action="store_true", help="observe fresh opening scene/state and exit after 60 frames")
     args = parser.parse_args()
     if args.render and not args.check:
         parser.error("--render selects the rendered automated check; normal launch already opens a window")
@@ -60,7 +120,7 @@ def main():
     print(f"Opening session: {session}\nSave/Load: F5 / F9. Close the window to finish.", flush=True)
     try:
         copied = 0
-        for name in FILES:
+        for name in (*FILES, *((SMOKE_OBSERVER,) if args.smoke else ())):
             source = PROJECT / name
             if source.is_symlink() or not source.is_file():
                 raise ValueError(f"Missing or unsafe opening source: {name}")
@@ -129,12 +189,18 @@ def main():
                     if not capture.read_bytes().startswith(b"\x89PNG\r\n\x1a\n"):
                         raise ValueError("Missing actual rendered viewport capture")
         else:
-            arguments = ["--path", str(project), "res://opening/opening.tscn",
+            arguments = ["--path", str(project), SMOKE_SCENE,
                          "--rendering-method", "gl_compatibility"]
+            user_arguments = ["--save-slot=" + str(save_slot)]
             if args.smoke:
+                receipt["instrumentation"] = instrument_smoke(project, receipt["source_hashes"]["project.godot"])
+                startup_report = session / "startup.json"
+                user_arguments.append("--startup-report=" + str(startup_report))
                 arguments += ["--quit-after", "60"]
-            execute("interactive", [*arguments, "--", "--save-slot=" + str(save_slot)],
+            execute("interactive", [*arguments, "--", *user_arguments],
                     timeout=30 if args.smoke else 1800)
+            if args.smoke:
+                receipt["startup"] = read_smoke_report(startup_report, save_slot)
         receipt["status"] = "pass"
     except Exception as error:
         receipt["status"] = "fail"
