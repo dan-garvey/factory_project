@@ -66,6 +66,7 @@ func facts() -> Dictionary:
 		"scene": scene.scene_file_path,
 		"delta": player.get_physics_process_delta_time(),
 		"player": native(player), "deck": native(scene.authority.bodies.B),
+		"auxiliary": native(scene.authority.bodies.U),
 		"ground_id": scene.ground.get_instance_id(), "wall_id": scene.wall.get_instance_id(),
 		"on_floor": player.is_on_floor(), "floor_id": player.floor_id,
 		"floor_normal": array(player.get_floor_normal()), "platform_velocity": array(player.get_platform_velocity()),
@@ -101,6 +102,7 @@ func observe_completed() -> void:
 		var value: Dictionary = requested.duplicate(true)
 		value["player"] = observed.player
 		value["deck"] = observed.deck
+		value["auxiliary"] = observed.auxiliary
 		value["player_mesh"] = observed.player_mesh
 		value["deck_mesh"] = observed.deck_mesh
 		value["observer_state"] = observed.state

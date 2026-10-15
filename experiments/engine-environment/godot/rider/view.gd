@@ -31,6 +31,9 @@ func _display_deck(state: Dictionary) -> void:
 		var at: Array = state.completed.positions.B
 		deck_mesh.position = Vector3(at[0], at[1], at[2])
 
+func _support_text() -> String:
+	return "deck" if player.floor_id == authority.bodies.B.get_instance_id() else "ground" if player.floor_id == ground.get_instance_id() else "air"
+
 func _ready() -> void:
 	var environment := WorldEnvironment.new()
 	var settings := Environment.new()
@@ -137,7 +140,7 @@ func _refresh() -> void:
 	_display_deck(state)
 	run_button.text = "Pause source [F]" if state.running else "Start source [F]"
 	step_button.disabled = not state.running or state.pending
-	var support := "deck" if player.floor_id == authority.bodies.B.get_instance_id() else "ground" if player.floor_id == ground.get_instance_id() else "air"
+	var support := _support_text()
 	stats.text = "%s · %d completed steps\nFeet: %s\nPlayer x %.3f · y %.3f\nWASD walk · Space jump\nF source · N step · R fresh start\nRight-drag orbit · Wheel zoom\n\n%s\nNo items, network or damage rules" % [
 		"Updating drive" if state.native_pending else "Source running" if state.running else "Source paused", state.completed.get("committed", 0), support, player.position.x, player.position.y, _fixture_text().summary]
 
