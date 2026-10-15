@@ -12,7 +12,7 @@ meaningfully different solutions, their tradeoffs and failure modes, and an
 original adaptation worth testing here. Research does not replace delivering the
 stationary chapter or authorize a new game mechanic by itself.
 
-## Initial study registry
+## Study registry
 
 Search all open **and closed** Beads and this registry before starting. Each
 game study records the version/modpack/expansion and scope actually covered;
@@ -28,8 +28,16 @@ paths are planned until their reviewed files land.
 | Opus Magnum | `factory-yau.8.4` | Ops | `games/opus-magnum.md` |
 | SpaceChem | `factory-yau.8.5` | Ops | `games/spacechem.md` |
 | Infinifactory | `factory-yau.8.6` | Chapter | `games/infinifactory.md` |
-| shapez 2 | `factory-yau.8.7` | Recovery | `games/shapez-2.md` |
+| shapez 2: spatial/logistics source survey | `factory-yau.8.7` | Recovery | [games/shapez-2.md](games/shapez-2.md) |
 | Dyson Sphere Program | `factory-yau.8.8` | Platform | `games/dyson-sphere-program.md` |
+| shapez 2: programmable changeovers and retained work | `factory-yau.8.9` | Recovery | `games/shapez-2-changeovers.md` |
+
+The reviewed shapez 2 survey covers dated developer descriptions of spatial
+processing, vertical routing, capacity diagnosis and persistent production. It
+contains five original candidate cards, not adopted mechanics or a thorough
+current-build play study. Exact modern handling, programmable changeovers and
+broader balance remain outside that accepted scope; the separately owned `8.9`
+continues the changeover/retained-work gap while the parent stays open.
 
 These are starting targets, not a verified popularity ranking or an exhaustive
 genre canon. Later targets can include other automation, mechanical, programming,
