@@ -6,6 +6,13 @@ finite blanks into plates and explicitly confirm four collected products.
 Placeholder geometry and a small fixed worksite keep this first feedback loop
 bounded. This is not the complete chapter or a selected production stack.
 
+The next required increment is a controlled physical character with nearby
+construction; the current free-camera opening does **not** implement that yet.
+Early development prioritizes fixed/stationary contraptions and subfactories.
+Godot use is accepted with explicit [framework constraints](docs/engineering/godot-constraints.md),
+not engine defaults treated as game rules. A [continuing research catalogue](docs/research/README.md)
+tracks factory-builder and engineering-puzzle inspiration separately from adopted mechanics.
+
 ## Try the opening
 
 On Linux with a graphical display, use the separately provisioned, verified

@@ -8,6 +8,8 @@ Current user objective (2026-10-15 UTC): a demoable **first chapter over the nex
 
 The user clarified the order: **basic collector → machine → product first**; complete starter machines are acceptable. Player-built motion is welcome later in chapter 1, after the basics work and receive feedback. The first demo does not have to prove every intended-game differentiator. The old motion-first packet recommendation was not an accepted requirement.
 
+The user now requires a **controlled physical character with proximity-limited component placement and machine construction**, with later technology able to extend that access. Fixed/stationary contraptions and subfactories are the early priority; they may contain moving parts. The existing free-camera opening does not satisfy the new character/reach requirement. Godot use is accepted with an explicit [framework constraint register](docs/engineering/godot-constraints.md), not implicit engine-default game rules.
+
 ## Workstreams and immediately useful parallel work
 
 | Subtree | Outcome | Work boundaries; inspect Beads for live readiness |
@@ -19,6 +21,7 @@ The user clarified the order: **basic collector → machine → product first**;
 | `factory-yau.5` | Multiplayer and saves from the outset | `.7` parallel harness → `.3` real two-client validation; `.4` basic continuation; moving-world work stays in `.5`/`.6` |
 | `factory-yau.6` | Shared evidence, integration and player experience | `.12` parallel interactive consumer → `.10` integrated demo → `.5` next increment; `.11` actual user feedback when available, not an idle gate |
 | `factory-yau.7` | Later intended-game scope | Deferred trains/autonomous acquisition, fluids/gases/controls, world/terrain, campaign/endings and numeric scale targets |
+| `factory-yau.8` | Continuing factory/engineering-puzzle research | Per-game studies `.1`–`.8` feed an evidence-backed puzzle catalogue; close thorough game scopes, never the ongoing pipeline after one batch |
 | `factory-wj6` | Project management and sole-machine operation | Resource admission, verified hourly delivery and continuing progenitor review |
 
 Suffixes in the third column are relative to the subtree in the first. This is a workstream map, not a current ready-task count. Read the full task before claiming it. No ready proposal authorizes engine adoption, large downloads or game implementation.
@@ -65,6 +68,12 @@ opening review + platform evidence → revisable first-release boundary
 
 The Beads edges, not this drawing, are authoritative. Parent-child membership organizes scope; it does not require completing an epic first. Routine reversible choices are delegated, not new user-answer gates. A component may develop against an agreed in-flight API, but integration acceptance needs the actual shared implementation; do not create duplicate authority to fill time. Full campaign/progression choices do not block neutral probes. Refine later edges to the chosen extension, not every old proposal. Actual user play remains unclaimed until it happens, without blocking other verified work.
 
+### Current physical-construction increment
+
+`factory-yau.3.11` agrees the thin actor-pose/construction-reach authority contract. It enables **parallel** `.5.21` authoritative reach enforcement (Platform) and `.6.36` physical-character stationary-opening consumer (Chapter), followed by `.6.37` independent actual-consumer validation (Playability, with Recovery). Review preparation may proceed against the agreed interface; its candidate links are non-blocking related edges so it need not wait for implementation closure. Final acceptance still needs the real combined frozen implementation and actual evidence.
+
+`factory-yau.3.10` audits the initial Godot constraint register; an exhaustive engine comparison is not a new blocker for the character increment. Broader production construction/supply task `.6.8` retains its later scope and is not an artificial prerequisite. Historical `.6.10` acceptance covers its original opening, not the newly required avatar/reach join. Record tunable defaults and unknowns without fixing a final camera, movement architecture or technology tree.
+
 Important gates:
 
 - `factory-yau.3.2`: completed record of delegated environment evaluation and the named bounded first sandbox; not production adoption.
@@ -81,7 +90,7 @@ Important gates:
 
 ## Fidelity checks
 
-The opening must first make basic placement, physical transport and processing understandable and usable. Player-built motion may follow later in chapter 1. Across progression, preserve new processes for new products and optional redesign of earlier supply, not just higher output numbers. Test geometry-dependent scaling, cog direction and meaningful vertical construction as those systems are introduced; do not require all of them for the initial demo. Old methods remain useful with practical drawbacks.
+The opening must first make physical-character movement, nearby construction, physical transport and processing understandable and usable. Fixed/stationary contraptions and subfactories take priority; player-built motion may follow later in chapter 1. Across progression, preserve new processes for new products and optional redesign of earlier supply, not just higher output numbers. Test geometry-dependent scaling, cog direction and meaningful vertical construction as those systems are introduced; do not require all of them for the initial demo. Old methods remain useful with practical drawbacks.
 
 Moving factories must ultimately operate, harvest, transfer and carry players while moving; construction in motion is excluded. Early risk evidence includes a train-like constrained assembly and the candidate's actual player movement/collision/authority join, not only a parented transform. Broad connected-drivetrain stall and coupling isolation are accepted; independent pushing, detailed collision feedback, injury severity and docking rules remain deferred.
 
@@ -94,6 +103,8 @@ The later subtree is deliberate deferred refinement, not permission to implement
 Workers own continuing workstream queues and may create/refine/claim bounded follow-ups and coordinate peer reviews without a new PM dispatch. Follow the [autonomous queue contract](CONTRIBUTING.md#autonomous-workstream-queues), search for duplicate work, and keep actual dependencies in Beads. A frozen candidate need not idle its author; advance another useful ready outcome in a separate linked worktree. The PM retains cross-stream prioritization, resource coordination and serialized main publication.
 
 The next increment after shared-opening integration pairs a normal shared-play launcher (`factory-yau.5.13`, independent review `.6.24`) with an optional player-configured mechanical workshop (`factory-yau.6.23`, review `.6.25`). The latter explores motion and arrangement without replacing the basic production opening or pretending non-consuming geometry contacts are produced inventory. These are scoped experiments, not proof of a complete chapter, user play or a production-stack decision. Read the live Beads for current status and subsequent work rather than treating this snapshot as the whole queue.
+
+That launcher/workshop increment is historical. The physical-construction increment above is now the immediate priority. Preserve safely completed/frozen motion probes and their failures, but do not let new mobile-factory work displace stationary chapter development. Continuing research runs through owned per-game queues and safe review/interface waits, with the [catalogue contract](docs/research/README.md) governing evidence and completion.
 
 ## Management
 
