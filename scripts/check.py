@@ -38,7 +38,7 @@ def check_sources(root):
         json.loads(config.read_text())
 
 
-def check_working_tree():
+def check_working_tree(godot=None, prototype_artifacts=None, prototype_render=False):
     check_sources(ROOT)
     if not (ROOT / "tests").is_dir():
         raise ValueError("Missing tooling tests; refusing an empty green check")
@@ -49,10 +49,18 @@ def check_working_tree():
     if result.skipped:
         print("CHECK FAILED: skipped tooling tests are missing acceptance evidence", file=sys.stderr)
         return 1
-    return 0 if result.wasSuccessful() else 1
+    if not result.wasSuccessful():
+        return 1
+    if godot:
+        command = [sys.executable, "-B", str(ROOT / "scripts/check_engine_environment.py"),
+                   "--godot", str(godot), "--artifacts", str(prototype_artifacts)]
+        if prototype_render:
+            command.append("--render")
+        return subprocess.run(command, cwd=ROOT).returncode
+    return 0
 
 
-def check_staged():
+def check_staged(godot=None, prototype_artifacts=None, prototype_render=False):
     # write-tree fails on unresolved merges and respects a commit's temporary
     # GIT_INDEX_FILE. Read raw blobs: checkout-index would apply local smudge
     # filters, and git archive would honor export-ignore attributes.
@@ -87,7 +95,12 @@ def check_staged():
         clean_env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
         clean_env["PYTHONDONTWRITEBYTECODE"] = "1"
         print(f"Checking staged tree {tree.decode()[:12]} (not unstaged files)", flush=True)
-        result = subprocess.run([sys.executable, "-B", str(checker)], cwd=snapshot, env=clean_env)
+        command = [sys.executable, "-B", str(checker)]
+        if godot:
+            command += ["--godot", str(godot), "--prototype-artifacts", str(prototype_artifacts)]
+            if prototype_render:
+                command.append("--prototype-render")
+        result = subprocess.run(command, cwd=snapshot, env=clean_env)
     if git("write-tree").strip() != tree:
         raise ValueError("The Git index changed during checks; review staging and run again")
     return result.returncode
@@ -96,9 +109,15 @@ def check_staged():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--staged", action="store_true", help="test the exact staged candidate")
+    parser.add_argument("--godot", type=Path, help="explicit installed engine: also require prototype checks")
+    parser.add_argument("--prototype-artifacts", type=Path, help="external owned output/cache directory")
+    parser.add_argument("--prototype-render", action="store_true", help="also require the actual 3D renderer")
     args = parser.parse_args()
+    if bool(args.godot) != bool(args.prototype_artifacts) or (args.prototype_render and not args.godot):
+        parser.error("--godot and --prototype-artifacts are required together; rendering also requires them")
     try:
-        return check_staged() if args.staged else check_working_tree()
+        options = (args.godot, args.prototype_artifacts, args.prototype_render)
+        return check_staged(*options) if args.staged else check_working_tree(*options)
     except (OSError, ValueError, SyntaxError, subprocess.CalledProcessError) as error:
         print(f"CHECK FAILED: {error}", file=sys.stderr)
         return 1
