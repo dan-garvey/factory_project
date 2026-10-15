@@ -1,6 +1,6 @@
 # Working on Factory
 
-The project is currently a game design plus repository tooling, not an engine or a playable game. [DESIGN.md](DESIGN.md) owns accepted game requirements and open decisions. [AGENTS.md](AGENTS.md) owns the mandatory Rust Beads/worktree rules. The [HRX study](docs/engineering/hrx-study.md) explains the evidence behind this workflow.
+The project includes an experimental 3D opening alongside game design and repository tooling. This is not a complete chapter or production-stack selection; [README.md](README.md) links runnable checks and their limits. [DESIGN.md](DESIGN.md) owns accepted game requirements and open decisions. [AGENTS.md](AGENTS.md) owns the mandatory Rust Beads/worktree rules. The [HRX study](docs/engineering/hrx-study.md) explains the evidence behind this workflow.
 
 Our aim is useful, independently verifiable progress with a durable record. A larger agent roster, more elaborate process, or more passing checks is not itself progress.
 
