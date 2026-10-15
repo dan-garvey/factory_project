@@ -44,9 +44,9 @@ and runs `br sync --flush-only` with the explicit canonical database and without
 force flags or `BEADS_` environment overrides. It then reads exactly
 `issues.jsonl`, `config.yaml` and
 `metadata.json` from canonical `.beads`. It accepts regular UTF-8 text files of
-at most 512 KiB each, valid nonempty JSONL with unique Factory IDs/titles, and
-metadata naming `beads.db`/`issues.jsonl`. At 384 KiB (75% of the cap) it warns to
-review export growth; above 512 KiB it stops before upload, never truncates.
+at most 8 MiB each, valid nonempty JSONL with unique Factory IDs/titles, and
+metadata naming `beads.db`/`issues.jsonl`. At 6 MiB (75% of the cap) it warns to
+review export growth; above 8 MiB it stops before upload, never truncates.
 Configuration YAML is copied as text, not parsed. Review what is written into
 issues/configuration before authorizing remote storage. There is no generic
 content secret detector: ordinary task discussion of token/credential handling
@@ -56,10 +56,25 @@ Keep actual credentials and account telemetry out of the tracker.
 The tool GETs the explicitly configured existing gist, requires `public=false`
 and exactly those three filenames, then PATCHes those file contents in one
 request. It reads the gist back with a separate GET, rechecks visibility and
-filenames, rejects truncation, and compares each UTF-8 file's SHA-256 against the
-submitted bytes. Success prints only a UTC verification timestamp. API output,
-ledger contents and gist identifiers are captured rather than printed. This
-uses the documented [GitHub Gists API](https://docs.github.com/en/rest/gists/gists).
+filenames, and compares each complete UTF-8 file's SHA-256 against the submitted
+bytes. A truncated **file list** still fails: the allowlist is not verified.
+For file-level content truncation, read the API's `raw_url` only if it names the
+same configured gist/file at a fixed 40-hex revision on
+`https://gist.githubusercontent.com`. Reject other hosts, credentials, ports,
+queries, fragments, unpinned paths and redirects. The raw request sends no
+account authentication or cookies, uses bounded binary chunks before UTF-8
+decoding, and rejects over-limit, malformed or mismatched content. It has a
+10-second socket timeout and a checked 30-second transfer deadline, which can
+overrun by at most one in-progress socket read. These are bounded cooperating
+network reads, not a host quota or guarantee of network availability.
+
+GitHub documents up to 1 MB of inline API content per file, full `raw_url`
+retrieval above that, and cloning for files larger than 10 MB. The 8 MiB bound
+stays below the clone-only range. No new gist, clone, sharded format or restore
+migration is required; the same three portable files remain the backup.
+Success prints only a UTC verification timestamp. API output, ledger contents
+and gist identifiers/URLs are not printed. See the
+[GitHub Gists API truncation contract](https://docs.github.com/en/rest/gists/gists#truncation).
 
 ## Failure, freshness and restore
 
@@ -93,7 +108,10 @@ replacement of a live tracker is a separate integration-owner operation.
 
 `tests/test_beads_backup.py` uses disposable files and fake `br`/`gh` executables,
 including linked-checkout source resolution, flush/upload order, visibility,
-payload allowlisting, readback mismatch/truncation, private paths and failures.
+payload allowlisting, private paths and failures, and full readback of a
+simulated >1 MB UTF-8 export. Additional tests distinguish file/list truncation,
+reject unsafe raw URLs without network access, and cover raw transport,
+deadline/size/text failures, redirects and authentication-header absence.
 It performs no real GitHub writes and no real tracker import. The owner records
 the actual seeded-gist restore evidence and latest successful backup privately
 in Beads after integration; fixture checks alone do not establish recoverability

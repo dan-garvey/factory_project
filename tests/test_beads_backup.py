@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from urllib.error import URLError
 from unittest import mock
 
 
@@ -46,6 +47,12 @@ else:
             value["files"]["issues.jsonl"]["content"] = "unverified content"
         if mode == "truncated":
             value["files"]["issues.jsonl"]["truncated"] = True
+        if mode == "raw_truncated":
+            value["files"]["issues.jsonl"].update(
+                content="partial", truncated=True,
+                raw_url="https://gist.githubusercontent.com/fixture/abc123/raw/" + "a" * 40 + "/issues.jsonl")
+        if mode == "list_truncated":
+            value["truncated"] = True
         if mode == "public_after_patch":
             value["public"] = True
         if mode == "bad_json":
@@ -189,6 +196,98 @@ class BackupTests(unittest.TestCase):
         path.write_bytes(b"a" * (backup.MAX_BYTES + 1))
         with self.assertRaisesRegex(ValueError, "nothing is uploaded or truncated"):
             backup.read_text(path)
+
+    def test_export_above_legacy_cap_is_fully_read(self):
+        path = self.base / "growing-export.jsonl"
+        text = json.dumps({"id": "factory-large", "title": "full ledger",
+                           "description": "\u20ac" * 400000}, ensure_ascii=False) + "\n"
+        self.assertGreater(len(text.encode()), 1024 * 1024)
+        path.write_text(text)
+        self.assertEqual(backup.read_text(path), text)
+
+    def test_file_truncation_uses_full_raw_readback_without_format_change(self):
+        text = json.dumps({"id": "factory-large", "title": "full ledger",
+                           "description": "\u20ac" * 400000}, ensure_ascii=False) + "\n"
+        (self.state / "export").write_text(text)
+        (self.state / "mode").write_text("raw_truncated")
+        url = "https://gist.githubusercontent.com/fixture/abc123/raw/" + "a" * 40 + "/issues.jsonl"
+        with mock.patch.object(backup, "fetch_raw", return_value=text) as fetch:
+            self.run_backup()
+        fetch.assert_called_once_with(url, "abc123", "issues.jsonl")
+        payload = json.loads((self.state / "uploaded.json").read_text())
+        self.assertEqual(set(payload["files"]), set(backup.FILES))
+        self.assertEqual(payload["files"]["issues.jsonl"]["content"], text)
+
+    def test_raw_mismatch_and_list_truncation_do_not_become_verified(self):
+        (self.state / "mode").write_text("raw_truncated")
+        with mock.patch.object(backup, "fetch_raw", return_value="different"):
+            with self.assertRaisesRegex(ValueError, "Readback differs"):
+                self.run_backup()
+        self.assertEqual([call["name"] for call in self.calls()], ["br", "gh", "gh", "gh"])
+        self.write_gist()
+        (self.state / "mode").write_text("list_truncated")
+        with mock.patch.object(backup, "fetch_raw") as fetch:
+            with self.assertRaisesRegex(ValueError, "file list"):
+                self.run_backup()
+        fetch.assert_not_called()
+
+    def test_raw_url_allowlist_rejects_other_targets_before_network(self):
+        valid = "https://gist.githubusercontent.com/fixture/abc123/raw/" + "a" * 40 + "/issues.jsonl"
+        urls = (None, "", valid.replace("https:", "http:"),
+                valid.replace("gist.githubusercontent.com", "other.invalid"),
+                valid.replace("gist.githubusercontent.com", "user@gist.githubusercontent.com"),
+                valid.replace("gist.githubusercontent.com", "gist.githubusercontent.com:443"),
+                valid.replace("abc123", "abc124"), valid.replace("a" * 40 + "/", ""),
+                valid.replace("issues.jsonl", "other.txt"), valid + "?query=1", valid + "#fragment",
+                valid.replace("fixture/", "fixture/../"), valid.replace("issues.jsonl", "%69ssues.jsonl"))
+        with mock.patch.object(backup, "build_opener") as build:
+            for url in urls:
+                with self.subTest(url=url):
+                    with self.assertRaisesRegex(ValueError, "readback URL"):
+                        backup.fetch_raw(url, "abc123", "issues.jsonl")
+        build.assert_not_called()
+
+    def raw_response(self, data, headers=None):
+        response = io.BytesIO(data)
+        response.status = 200
+        response.headers = {} if headers is None else headers
+        return response
+
+    def test_raw_fetch_preserves_utf8_without_auth_or_redirects(self):
+        url = "https://gist.githubusercontent.com/fixture/abc123/raw/" + "a" * 40 + "/issues.jsonl"
+        # Deliberately split a UTF-8 code point at the 64 KiB read boundary.
+        text = "\u20ac" * 30000
+        with mock.patch.object(backup, "build_opener") as build:
+            build.return_value.open.return_value = self.raw_response(text.encode())
+            self.assertEqual(backup.fetch_raw(url, "abc123", "issues.jsonl"), text)
+        self.assertIsInstance(build.call_args.args[0], backup.NoRedirect)
+        request = build.return_value.open.call_args.args[0]
+        self.assertEqual(request.full_url, url)
+        self.assertEqual(dict(request.header_items()), {"Accept": "text/plain"})
+        self.assertEqual(build.return_value.open.call_args.kwargs, {"timeout": 10})
+        self.assertIsNone(backup.NoRedirect().redirect_request(None, None, 302, "", {}, url))
+
+    def test_raw_body_limits_invalid_text_deadline_and_transport_fail_closed(self):
+        url = "https://gist.githubusercontent.com/fixture/abc123/raw/" + "a" * 40 + "/issues.jsonl"
+        cases = ((b"x" * 9, {}), (b"\xff", {}), (b"\x00", {}),
+                 (b"ok", {"Content-Length": "9"}), (b"ok", {"Content-Length": "bad"}))
+        for data, headers in cases:
+            with self.subTest(data=data, headers=headers):
+                with mock.patch.object(backup, "MAX_BYTES", 8), \
+                        mock.patch.object(backup, "build_opener") as build:
+                    build.return_value.open.return_value = self.raw_response(data, headers)
+                    with self.assertRaisesRegex(ValueError, "Raw readback failed"):
+                        backup.fetch_raw(url, "abc123", "issues.jsonl")
+        with mock.patch.object(backup, "build_opener") as build, \
+                mock.patch.object(backup.time, "monotonic", side_effect=[0, 31]):
+            build.return_value.open.return_value = self.raw_response(b"ok")
+            with self.assertRaisesRegex(ValueError, "Raw readback failed"):
+                backup.fetch_raw(url, "abc123", "issues.jsonl")
+        with mock.patch.object(backup, "build_opener") as build:
+            build.return_value.open.side_effect = URLError("private URL and diagnostics")
+            with self.assertRaisesRegex(ValueError, "Raw readback failed") as error:
+                backup.fetch_raw(url, "abc123", "issues.jsonl")
+        self.assertNotIn("private", str(error.exception))
 
     def test_bad_metadata_oversized_binary_and_symlink_inputs_are_refused(self):
         path = self.beads / "metadata.json"
