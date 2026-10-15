@@ -74,6 +74,9 @@ power/drive topology, next entity identities, quantities, phase and request
 outcomes; a rebuilt machine never inherits an old command's identity. This
 prototype uses atomic command admission/application, so it does not claim an
 observable accepted-but-pending command stage. Process-held work is represented.
+A fresh view allocates a new opaque request namespace so its local counter
+cannot collide with requests retained by a restored authority. This is intent
+identity, not simulation randomness or a chosen production transport protocol.
 
 Current validation includes the 22 unchanged neutral assertions, 60 opening-model
 assertions and the actual key/mouse/button consumer path in headless and real

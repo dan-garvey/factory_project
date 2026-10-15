@@ -110,7 +110,22 @@ func _run() -> void:
 	scene._refresh()
 	_check(scene.model.projection().stock.output == 1, "Occupied output must retain exactly one plate.")
 	_check(_conserved(), "Backpressure must preserve per-kind accounting.")
+	# A fresh actual view of restored work must not reuse the old view's IDs.
+	var restored = load("res://model.gd").new()
+	_check(restored.restore_checkpoint(scene.model.checkpoint()).accepted, "The view can attach to restored authoritative work.")
+	scene.free()
+	scene = load("res://opening/opening.tscn").instantiate()
+	scene.model = restored
+	scene.auto_advance = false
+	root.add_child(scene)
+	await process_frame
+	await physics_frame
+	await _key(KEY_I)
+	await _click_cell(2)
 	var collected_before: int = scene.model.projection().inventories.get("P", 0)
+	await _key(KEY_R)
+	_check(int(scene.model.projection().inventories.get("P", 0)) == collected_before + 1,
+		"First eligible retrieval after restored-view creation must succeed without a blind retry.")
 	for _tick in range(50):
 		scene._refresh()
 		if scene.model.projection().stock.output > 0:

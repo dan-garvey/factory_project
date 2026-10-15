@@ -17,6 +17,9 @@ var model
 var auto_advance := true
 var client := "P"
 var request_sequence := 0
+# A fresh view must not restart request IDs into a restored authority's cache.
+# This nonce identifies submitted intents; it never randomizes simulation rules.
+var request_namespace := "opening-" + Crypto.new().generate_random_bytes(16).hex_encode() + "-"
 var mode := "collector"
 var pending_link := ""
 var selected := ""
@@ -66,7 +69,7 @@ func issue(action: Dictionary) -> Dictionary:
 	request_sequence += 1
 	var intent: Dictionary = action.duplicate(true)
 	intent.merge({"context": model.projection().context, "client": client,
-		"request": "opening-%d" % request_sequence}, true)
+		"request": request_namespace + str(request_sequence)}, true)
 	var outcome: Dictionary = model.command(intent)
 	if outcome.accepted:
 		_message({"place": "Placed. Parts stay with this worksite.",
