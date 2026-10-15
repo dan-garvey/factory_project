@@ -65,6 +65,8 @@ identity through actual encoded files. Each must reject without script errors
 or replacement of a live world or prior capture slot. A direct capture containing
 an Object must reject before encoding. These cases preserve the independent
 review's former fail-open validation and mutable-object findings.
+The probe also changes a retained retrieval target to an absent identity or a
+wrong type, requiring clean rejection when it contradicts the recorded result.
 
 No live network world replacement, abandoned post-checkpoint request, moving
 save/rejoin, UI save button, user play or performance result is established here.

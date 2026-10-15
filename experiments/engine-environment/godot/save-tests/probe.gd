@@ -252,6 +252,14 @@ func request_cache_inputs():
 	var repeated_identity: Dictionary = world.checkpoint()
 	repeated_identity.requests[JSON.stringify(["P", "two"])].result.entity = "collector-1"
 	reject_cache_file("cache-repeated-identity", repeated_identity)
+	var retained: Dictionary = references["identity-replay"].checkpoint
+	var retrieve_key: String = JSON.stringify(["P", "applied-before-ack"])
+	verify(retained.requests[retrieve_key].result.accepted, "seed real accepted retrieval history")
+	var wrong_targets := {"absent": "processor-retired", "int": 0, "array": [], "null": null}
+	for label in wrong_targets:
+		var bad: Dictionary = retained.duplicate(true)
+		bad.requests[retrieve_key].intent["entity"] = wrong_targets[label]
+		reject_cache_file("cache-retrieve-target-" + label, bad)
 	# Objects cannot travel through this plain-value codec. The direct capture
 	# boundary must reject them before encoding, rather than silently losing them.
 	var opaque := RefCounted.new()
