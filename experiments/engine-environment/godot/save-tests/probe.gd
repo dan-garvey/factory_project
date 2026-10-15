@@ -54,6 +54,7 @@ func run():
 		for name_value in ["paused", "blocked", "identity-replay"]:
 			consume(name_value)
 		negative_inputs()
+		request_cache_inputs()
 	else:
 		verify(false, "known producer/consumer mode")
 	var report := {"status": "pass" if failures.is_empty() else "fail", "mode": mode,
@@ -99,6 +100,9 @@ func produce(name_value: String):
 	var snapshot: Dictionary = model.checkpoint()
 	var path := artifacts.path_join(name_value + ".save")
 	verify(Store.write(model, path).accepted, "write validated actual checkpoint " + name_value)
+	var replacement := artifacts.path_join(name_value + ".replacement.save")
+	verify(Store.write(Model.new(0, "prior-save-slot", 1), replacement).accepted, "seed prior valid save slot")
+	verify(Store.write(model, replacement).accepted, "publish partial work over prior valid save slot")
 	var saved_serial := serial
 	outcomes = []
 	finish(model, replay)
@@ -137,6 +141,10 @@ func consume(name_value: String):
 	verify(Store.read_into(model, artifacts.path_join(name_value + ".save")).accepted,
 		"fresh process loads actual checkpoint " + name_value)
 	verify(model.checkpoint() == reference.checkpoint, "complete typed ownership/request state restored")
+	var replaced = Model.new()
+	verify(Store.read_into(replaced, artifacts.path_join(name_value + ".replacement.save")).accepted,
+		"fresh process opens successful replacement save " + name_value)
+	verify(replaced.checkpoint() == reference.checkpoint, "replacement slot contains latest partial work")
 	serial = reference.serial
 	outcomes = []
 	finish(model, reference.replay)
@@ -198,6 +206,65 @@ func negative_inputs():
 	finish(model, references["identity-replay"].replay)
 	verify(model.projection() == references["identity-replay"].final,
 		"prior good authority still continues after every rejected load/save")
+
+func reject_cache_file(label: String, snapshot: Dictionary):
+	# Each candidate gets an independent live authority and capture slot. An old
+	# fail-open validator cannot conceal later failures by poisoning their setup.
+	var good := artifacts.path_join("identity-replay.save")
+	var original := FileAccess.get_file_as_bytes(good)
+	var model = Model.new()
+	verify(Store.read_into(model, good).accepted, "seed live authority for " + label)
+	var before: Dictionary = model.checkpoint()
+	var candidate := artifacts.path_join("invalid-" + label + ".save")
+	put(candidate, Store.encode(snapshot))
+	var result: Dictionary = Store.read_into(model, candidate)
+	rejected_files[label] = result
+	verify(not result.accepted, "file boundary rejects " + label)
+	verify(model.checkpoint() == before, "cache rejection preserves live authority " + label)
+	verify(FileAccess.get_file_as_bytes(good) == original, "cache rejection preserves good save " + label)
+	var capture := artifacts.path_join("capture-" + label + ".save")
+	put(capture, original)
+	verify(not Store.write_snapshot(snapshot, capture).accepted, "capture rejects " + label)
+	verify(FileAccess.get_file_as_bytes(capture) == original, "cache capture preserves prior slot " + label)
+
+func request_cache_inputs():
+	# Independent review found these inputs bypassed the former validator. Keep
+	# its actual file consumer covered; do not duplicate the model's validator.
+	var world = Model.new(16, "invalid-cache-1", 1, {"opening": true})
+	var request := {"context": world.context, "client": "P", "request": "one",
+		"action": "place", "kind": "collector", "cell": [0, 0]}
+	verify(world.command(request).accepted, "build actual cache regression fixture")
+	var key: String = JSON.stringify(["P", "one"])
+	var base: Dictionary = world.checkpoint()
+	var values := {"int": 0, "string": "", "array": [], "null": null}
+	for label in values:
+		var bad: Dictionary = base.duplicate(true)
+		bad.requests[key].result.duplicate = values[label]
+		reject_cache_file("cache-duplicate-" + label, bad)
+	var zero_revision: Dictionary = base.duplicate(true)
+	zero_revision.revision = 0
+	zero_revision.requests[key].result.revision = 0
+	reject_cache_file("cache-accepted-at-zero", zero_revision)
+	verify(world.command({"context": world.context, "client": "P", "request": "remove",
+		"action": "remove", "entity": "collector-1"}).accepted, "remove actual first cache identity")
+	verify(world.command({"context": world.context, "client": "P", "request": "two",
+		"action": "place", "kind": "collector", "cell": [0, 0]}).accepted, "build actual second cache identity")
+	var repeated_identity: Dictionary = world.checkpoint()
+	repeated_identity.requests[JSON.stringify(["P", "two"])].result.entity = "collector-1"
+	reject_cache_file("cache-repeated-identity", repeated_identity)
+	# Objects cannot travel through this plain-value codec. The direct capture
+	# boundary must reject them before encoding, rather than silently losing them.
+	var opaque := RefCounted.new()
+	opaque.set_meta("external", "before")
+	var nonpure: Dictionary = base.duplicate(true)
+	nonpure.requests[key].intent["opaque"] = opaque
+	var capture := artifacts.path_join("capture-cache-object.save")
+	var original := FileAccess.get_file_as_bytes(artifacts.path_join("identity-replay.save"))
+	put(capture, original)
+	var result: Dictionary = Store.write_snapshot(nonpure, capture)
+	rejected_files["cache-object-capture"] = result
+	verify(not result.accepted, "object capture is rejected before encoding")
+	verify(FileAccess.get_file_as_bytes(capture) == original, "object capture preserves prior good slot")
 
 func put(path: String, data: PackedByteArray):
 	var file := FileAccess.open(path, FileAccess.WRITE)

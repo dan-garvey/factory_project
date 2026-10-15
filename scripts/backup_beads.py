@@ -4,6 +4,7 @@
 import argparse
 from datetime import datetime, timezone
 import hashlib
+from http.client import HTTPException
 import json
 import os
 from pathlib import Path
@@ -11,11 +12,14 @@ import re
 import stat
 import subprocess
 import sys
+import time
+from urllib.parse import urlsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 
 ROOT = Path(__file__).resolve().parents[1]
 FILES = ("issues.jsonl", "config.yaml", "metadata.json")
-MAX_BYTES = 512 * 1024  # Below the Gist API's per-file truncation boundary.
+MAX_BYTES = 8 * 1024 * 1024  # Below GitHub's documented >10 MB clone-only boundary.
 
 
 def no_symlinks(path):
@@ -37,9 +41,9 @@ def read_text(path, private=False):
             raise ValueError("Private configuration must be owned by this user with mode 0600")
         data = source.read(MAX_BYTES)
         if source.read(1):
-            raise ValueError("Backup input exceeds 512 KiB; nothing is uploaded or truncated")
+            raise ValueError(f"Backup input exceeds {MAX_BYTES:,} bytes; nothing is uploaded or truncated")
         if len(data) >= MAX_BYTES * 3 // 4:
-            print("BACKUP WARNING: input has reached 75% of the 512 KiB limit; review export growth",
+            print(f"BACKUP WARNING: input has reached 75% of the {MAX_BYTES:,}-byte limit; review export growth",
                   file=sys.stderr)
     text = data.decode("utf-8")
     if "\x00" in text:
@@ -109,6 +113,66 @@ def check_gist(value, gist_id):
     files = value.get("files")
     if not isinstance(files, dict) or set(files) != set(FILES) or not all(isinstance(row, dict) for row in files.values()):
         raise ValueError("Configured gist must contain exactly the three named backup files")
+    if value.get("truncated"):
+        raise ValueError("Gist file list is truncated; the complete allowlist is not verified")
+
+
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def fetch_raw(url, gist_id, name):
+    """Read only a pinned file on the approved gist host, without account headers.
+
+    A file-level truncated API result is not the complete backup. Keep the
+    original portable format and verify its full raw contents instead. Do not
+    follow redirects, allow arbitrary URLs, or print private URLs/diagnostics.
+    """
+    if not isinstance(url, str) or name not in FILES:
+        raise ValueError("Missing or unsupported raw readback URL")
+    try:
+        parsed = urlsplit(url)
+    except ValueError as error:
+        raise ValueError("Unsupported raw readback URL") from error
+    parts = parsed.path.split("/")
+    if (parsed.scheme != "https" or parsed.netloc != "gist.githubusercontent.com"
+            or parsed.query or parsed.fragment or len(parts) != 6
+            or not re.fullmatch(r"[A-Za-z0-9-]+", parts[1])
+            or parts[2] != gist_id or parts[3] != "raw"
+            or not re.fullmatch(r"[a-f0-9]{40}", parts[4]) or parts[5] != name):
+        raise ValueError("Unsupported raw readback URL")
+    opener = build_opener(NoRedirect())
+    deadline = time.monotonic() + 30
+    data = bytearray()
+    try:
+        # No gh invocation, auth headers, cookies or URL in a child command line.
+        with opener.open(Request(url, headers={"Accept": "text/plain"}), timeout=10) as response:
+            if response.status != 200:
+                raise ValueError("Unexpected raw response")
+            length = response.headers.get("Content-Length")
+            if length is not None and not 0 <= int(length) <= MAX_BYTES:
+                raise ValueError("Raw response exceeds the readback limit")
+            while True:
+                if time.monotonic() >= deadline:
+                    raise ValueError("Raw response deadline exceeded")
+                # Bound returned body chunks, including no-newline responses.
+                # HTTP setup/framing can perform additional socket reads; this
+                # checked deadline is not a strict total network time bound.
+                chunk = response.read1(min(64 * 1024, MAX_BYTES + 1 - len(data)))
+                if not chunk:
+                    break
+                data.extend(chunk)
+                if len(data) > MAX_BYTES:
+                    raise ValueError("Raw response exceeds the readback limit")
+            if time.monotonic() >= deadline:
+                raise ValueError("Raw response deadline exceeded")
+        text = data.decode("utf-8")
+        if "\x00" in text:
+            raise ValueError("Raw response is not portable text")
+        return text
+    except (OSError, ValueError, HTTPException) as error:
+        raise ValueError("Raw readback failed; remote outcome needs inspection") from error
 
 
 def backup(root, config_path):
@@ -145,14 +209,19 @@ def backup(root, config_path):
     command([*base, "--method", "PATCH", "--input", "-"], main, payload)
     result = json_object(command([*base, "--method", "GET"], main))
     check_gist(result, gist_id)
-    if result.get("truncated") or any(
-        result["files"][name].get("truncated")
-        or not isinstance(result["files"][name].get("content"), str)
-        or hashlib.sha256(result["files"][name]["content"].encode("utf-8")).digest()
-        != hashlib.sha256(text.encode("utf-8")).digest()
-        for name, text in contents.items()
-    ):
-        raise ValueError("Readback differs or is truncated; remote outcome needs inspection")
+    for name, text in contents.items():
+        row = result["files"][name]
+        truncated = row.get("truncated")
+        if truncated is True:
+            remote = fetch_raw(row.get("raw_url"), gist_id, name)
+        elif truncated is None or truncated is False:
+            remote = row.get("content")
+        else:
+            raise ValueError("Unsupported file truncation status; remote outcome needs inspection")
+        if (not isinstance(remote, str)
+                or hashlib.sha256(remote.encode("utf-8")).digest()
+                != hashlib.sha256(text.encode("utf-8")).digest()):
+            raise ValueError("Readback differs; remote outcome needs inspection")
     return datetime.now(timezone.utc).isoformat()
 
 

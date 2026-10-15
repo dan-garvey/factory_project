@@ -6,6 +6,9 @@ the sole schema/rule validator. `write(model, path)` validates a capture through
 that same validator, writes and verifies a sibling `.pending` file, then renames
 it into place. Existing pending files cause refusal. `read_into(model, path)`
 checks a bounded integrity envelope before calling the model's restore method.
+This adapter assumes one cooperating writer and task-owned paths; its pending
+check/open sequence is not a cross-process lock or hostile-path defense. Failed
+pending artifacts are retained and block later writes until explicitly resolved.
 
 The envelope holds plain Godot Variant bytes, preserving integer quantities;
 object encoding/decoding is disabled. The checksum detects accidental corruption,
@@ -41,7 +44,9 @@ The producer saves real opening-mode states with 16 feed and a 1:1 process:
 
 It then continues each original world as an uninterrupted reference. A fresh
 consumer process loads each actual file through the model validator and applies
-the same subsequent commands. Semantic projections, identities, request results,
+the same subsequent commands. It also loads a valid prior slot that the producer
+successfully replaced, checking that it contains the latest partial work.
+Semantic projections, identities, request results,
 parts, power and quantities must match; all 16 feed must become exactly 16 held
 products in player inventories. This tests continuation, not serialized byte
 equality. Byte equality is used only to prove a known good artifact survives a
@@ -53,6 +58,13 @@ current authority and prior good file unchanged. A collision sentinel proves
 pending data is not overwritten. The same prior authority must still finish
 correctly afterward. Malformed logical candidates are test inputs, never a
 second implementation of the core validator.
+
+Request-cache regressions also send incorrectly typed duplicate flags, an
+accepted placement at revision zero, and two accepted placements sharing an
+identity through actual encoded files. Each must reject without script errors
+or replacement of a live world or prior capture slot. A direct capture containing
+an Object must reject before encoding. These cases preserve the independent
+review's former fail-open validation and mutable-object findings.
 
 No live network world replacement, abandoned post-checkpoint request, moving
 save/rejoin, UI save button, user play or performance result is established here.
