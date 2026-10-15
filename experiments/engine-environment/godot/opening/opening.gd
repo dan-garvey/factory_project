@@ -10,8 +10,8 @@ const COLORS := {"collector": Color("d6a34d"), "belt": Color("538e88"), "process
 const LESSONS := [
 	["01  /  BUILD THE PATH", "Place a collector, a belt and a press in a row. Material ports face along the brass arrow. Each placed machine uses a part from your carried kit."],
 	["02  /  CONNECT THE DRIVE", "Place the waterwheel beside your line. Choose Drive link, then click two neighboring machines. Carry its rotation through the whole line; the stream supplies motion without fuel."],
-	["03  /  FOLLOW ONE BLANK", "The collector removes a blank from the finite seam. The belt carries it to the press. A blank held inside the press remains there until its plate can leave."],
-	["04  /  MAKE ROOM", "A full press outlet holds up the line. Select the press and collect its plate to make room. Stopping the drive keeps the parts and unfinished work where they are."]
+	["03  /  FOLLOW ONE BLANK", "The collector removes a blank from the finite seam. The belt carries it to the press. Advance the example one tick at a time. The held blank stays in the press until its plate can leave."],
+	["04  /  MAKE ROOM", "A full press outlet holds up the line. Collect the example plate below: the held blank finishes without being lost. Stopping the drive keeps the parts and unfinished work where they are."]
 ]
 
 var model
@@ -32,6 +32,10 @@ var selected := ""
 var goal_confirmed := false
 var explanation_open := false
 var lesson_index := 0
+var example_presenter
+var lesson_next: Button
+var lesson_previous: Button
+var lesson_return: Button
 var elapsed := 0.0
 var orbit_yaw := 0.68
 var orbit_pitch := 0.82
@@ -162,6 +166,9 @@ func _process(delta: float) -> void:
 		_refresh()
 	if wheel_rotor != null and state.get("powered", false):
 		wheel_rotor.rotation.z += delta * 0.8
+	if explanation_open:
+		example_presenter.pan(delta)
+		return
 	_update_camera()
 	var pan := Vector2(float(Input.is_physical_key_pressed(KEY_D)) - float(Input.is_physical_key_pressed(KEY_A)),
 		float(Input.is_physical_key_pressed(KEY_S)) - float(Input.is_physical_key_pressed(KEY_W)))
@@ -171,6 +178,18 @@ func _process(delta: float) -> void:
 		focus.z = clampf(focus.z, -4, 6)
 
 func _input(event: InputEvent) -> void:
+	if explanation_open:
+		if event is InputEventKey:
+			if event.pressed and not event.echo:
+				match event.keycode:
+					KEY_H, KEY_ESCAPE: _toggle_explanation()
+					KEY_RIGHT: _set_lesson(lesson_index + 1)
+					KEY_LEFT: _set_lesson(lesson_index - 1)
+					KEY_HOME: example_presenter.recenter()
+			get_viewport().set_input_as_handled()
+		elif example_presenter.handle_pointer(event):
+			get_viewport().set_input_as_handled()
+		return
 	# Consume both edges of global shortcuts so a
 	# previously focused GUI button cannot also activate on the release.
 	if event is InputEventKey and event.keycode in [KEY_SPACE, KEY_F5, KEY_F9]:
@@ -182,6 +201,8 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 func _unhandled_input(event: InputEvent) -> void:
+	if explanation_open:
+		return
 	if event is InputEventMouseMotion:
 		if Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
 			orbit_yaw -= event.relative.x * 0.007
@@ -284,13 +305,25 @@ func _toggle_explanation() -> void:
 	explanation_open = not explanation_open
 	lesson_panel.visible = explanation_open
 	if explanation_open:
+		if example_presenter == null:
+			# Lazy loading avoids a static cycle with the geometry-only subclass.
+			example_presenter = load("res://opening/example_presenter.gd").new()
+			example_presenter.position = Vector2(310, 226)
+			example_presenter.size = Vector2(670, 446)
+			lesson_panel.get_parent().add_child(example_presenter)
+		example_presenter.show()
 		_set_lesson(0)
+	else:
+		example_presenter.hide()
+	_update_cursor()
 	_refresh_ui()
 
 func _set_lesson(index: int) -> void:
 	lesson_index = posmod(index, LESSONS.size())
 	lesson_title.text = LESSONS[lesson_index][0]
 	lesson_body.text = LESSONS[lesson_index][1]
+	if example_presenter != null:
+		example_presenter.set_lesson(lesson_index)
 
 func _screen_cell(screen: Vector2) -> Vector2i:
 	var point = Plane(Vector3.UP, 0).intersects_ray(camera.project_ray_origin(screen), camera.project_ray_normal(screen))
@@ -635,7 +668,7 @@ func _build_interface() -> void:
 	lesson_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var row := HBoxContainer.new()
 	lesson_column.add_child(row)
-	_button(row, "Previous", func(): _set_lesson(lesson_index - 1))
-	_button(row, "Next", func(): _set_lesson(lesson_index + 1))
-	_button(row, "Return to building  [H]", _toggle_explanation)
+	lesson_previous = _button(row, "Previous", func(): _set_lesson(lesson_index - 1))
+	lesson_next = _button(row, "Next", func(): _set_lesson(lesson_index + 1))
+	lesson_return = _button(row, "Return to building  [H]", _toggle_explanation)
 	lesson_panel.visible = false

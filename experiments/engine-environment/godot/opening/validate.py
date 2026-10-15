@@ -14,7 +14,8 @@ import tempfile
 
 PROJECT = Path(__file__).resolve().parent.parent
 BASE = ("project.godot", "main.tscn", "model.gd", "scenario.gd", "tests.gd", "view.gd")
-OPENING = ("opening.gd", "opening.tscn", "opening_check.gd", "model_check.gd", "checkpoint_check.gd")
+OPENING = ("opening.gd", "opening.tscn", "opening_check.gd", "model_check.gd", "checkpoint_check.gd",
+           "example_presenter.gd", "example_world.gd")
 
 
 def main():

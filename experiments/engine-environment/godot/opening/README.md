@@ -42,7 +42,19 @@ Material ports face +x. F selects a material connection; G selects a drive
 connection; click its two neighboring ends. I selects inspection, R retrieves
 from the selected press, Space starts/stops the drive. Right-drag orbits, mouse
 wheel zooms, WASD pans and Home recenters. H opens a read-only explanation;
-construction controls are unavailable until it closes.
+construction controls are unavailable until it closes. Help shows a populated
+3D example in its own physics world, with a separate instance of the same rules
+and its own finite 16 blanks and starter parts. It supplies nothing to your
+worksite. Your worksite clock continues while Help is open.
+
+Use Previous/Next (or left/right arrows) to inspect placement, drive, a blank
+held in the press, and a blocked outlet. Each lesson resets the example, as its
+heading states. **Advance example one tick** moves that example through real
+rule transitions; **Collect example plate → resume** removes its blockage and
+continues retained work. Right-drag, wheel, WASD and Home control its camera;
+click a machine to inspect it. H, Escape or Return closes Help. Player build,
+retrieve, power and save/load shortcuts remain unavailable inside the example.
+These are reversible presentation choices, not a permanent tutorial policy.
 F5 or **Save worksite** stores this moment; F9 or **Load worksite** returns to
 the latest successful save in this session. Saving again replaces only that
 session's own slot. Save/load controls require the launcher's fresh destination;
@@ -96,7 +108,8 @@ mode requires a real PNG, not a dummy renderer's successful exit.
 For the complete single-process input/save/load check, use the launch command
 above with `--check`; add `--render` to require real viewport captures. It runs
 the unchanged neutral assertions, opening model and checkpoint checks, original
-input consumer, and `opening/integration_check.gd`. The latter drives actual
+input consumer, `opening/integration_check.gd` and `opening/explanation_check.gd`.
+The integration consumer drives actual
 save/load buttons and F5/F9, resumes paused and blocked work, retrieves after
 load, restores lower revisions/rebuilt identities, recalculates the four-plate
 goal and refuses pending-file collisions. Disposable truncated and contradictory
@@ -106,6 +119,16 @@ remain in the external session. Interactive launch success is process evidence;
 it does not assess player understanding or enjoyment.
 `consumer.json` records actual paused/blocked/final quantities and phase; the
 Python runner independently checks 16 conserved blanks and four carried plates.
+
+`explanation.json` records actual four-lesson states and blocked/recovery
+transitions from an initially empty player factory. The explanation check drives
+H/Next/Previous/Return, actual example inspection/orbit/zoom/pan, and blocked
+player shortcuts. With its declared observation clock frozen, it compares the
+full player checkpoint, requests, selection, goal, save facts and camera before
+and after; a separate check verifies the normal live clock still runs. The
+Python launcher checks an independent finite ledger; rendered mode retains
+working, blocked and recovered viewport images. This is technical consumer
+evidence, not evidence of player understanding.
 
 The opening requires the model's agreed wheel/shaft/power/stopped-edit/capacity
 extension. It cannot truthfully demonstrate those features against the earlier

@@ -18,7 +18,8 @@ import check_engine_environment as bounds
 PROJECT = Path(__file__).resolve().parents[1] / "experiments/engine-environment/godot"
 FILES = bounds.FILES + tuple("opening/" + name for name in (
     "opening.gd", "opening.tscn", "opening_check.gd", "model_check.gd",
-    "checkpoint_check.gd", "integration_check.gd")) + ("save-tests/checkpoint_file.gd",)
+    "checkpoint_check.gd", "integration_check.gd", "example_presenter.gd",
+    "example_world.gd", "explanation_check.gd")) + ("save-tests/checkpoint_file.gd",)
 MAX_BYTES = 256 * 1024**2
 SMOKE_OBSERVER = "opening/startup_observer.gd"
 SMOKE_SCENE = "res://opening/opening.tscn"
@@ -80,6 +81,38 @@ def read_smoke_report(path, save_slot):
     if any(path.exists() or path.is_symlink() for path in (save_slot, Path(str(save_slot) + ".pending"))):
         raise ValueError("Smoke startup unexpectedly wrote its save slot")
     return report
+
+
+def check_explanation_report(report):
+    # Independent finite ledger: source, collector, belt, input, held, output, player.
+    ledgers = ([16, 0, 0, 0, 0, 0, 0], [16, 0, 0, 0, 0, 0, 0],
+               [12, 1, 1, 1, 1, 0, 0], [11, 1, 1, 1, 1, 1, 0])
+    stages = report.get("lessons")
+    if not isinstance(stages, list) or len(stages) != 4:
+        raise ValueError("Explanation needs all four actually observed lesson states")
+    checks = list(zip(stages, ledgers, (False, True, True, True), (0, 0, 2, 0)))
+    checks += [(report.get("step"), [15, 1, 0, 0, 0, 0, 0], True, 0),
+               (report.get("blocked_retained"), ledgers[3], True, 0),
+               (report.get("recovery"), [10, 1, 1, 1, 1, 1, 1], True, 2)]
+    for state, ledger, powered, remaining in checks:
+        if not isinstance(state, dict):
+            raise ValueError("Explanation state missing")
+        stock = dict(zip(("source", "collector", "belt", "input", "held", "output", "player"), ledger))
+        expected = {"context": "opening-example-1", "initial_feed": 16, "recipe_input": 1,
+                    "stock": stock, "remaining": remaining, "powered": powered,
+                    "power_enabled": True, "options": {"opening": True},
+                    "inventories": {"EXAMPLE": 1} if ledger[-1] else {},
+                    "parts": {"collector": 0, "belt": 0, "processor": 0, "wheel": 0,
+                              "shaft": 0 if powered else 3},
+                    "entities": {kind + "-1": {"kind": kind, "cell": [cell, 0]}
+                                 for kind, cell in (("wheel", -1), ("collector", 0), ("belt", 1), ("processor", 2))},
+                    "links": [["collector-1", "belt-1"], ["belt-1", "processor-1"]],
+                    "drive_links": [["wheel-1", "collector-1"], ["collector-1", "belt-1"],
+                                    ["belt-1", "processor-1"]] if powered else []}
+        if any(not _same_value(state.get(k), v) for k, v in expected.items()):
+            raise ValueError("Actual explanation differs from independent finite ownership/phase oracle")
+    if report.get("isolation") is not True or report.get("live_clock") is not True:
+        raise ValueError("Explanation needs isolation and normal live-time evidence")
 
 
 def main():
@@ -161,16 +194,18 @@ def main():
                     ("opening-model", "opening/model_check.gd", "OPENING_MODEL_PASS"),
                     ("checkpoint", "opening/checkpoint_check.gd", "CHECKPOINT_REGRESSION_PASS"),
                     ("opening-input", "opening/opening_check.gd", "OPENING_INPUT_PASS"),
-                    ("save-load-input", "opening/integration_check.gd", "OPENING_SAVE_LOAD_PASS")):
+                    ("save-load-input", "opening/integration_check.gd", "OPENING_SAVE_LOAD_PASS"),
+                    ("explanation-input", "opening/explanation_check.gd", "OPENING_EXPLANATION_PASS")):
                 arguments = ["--path", str(project), "--script", "res://" + script]
-                if args.render and name in ("opening-input", "save-load-input"):
+                stage_slot = session / "example-unwritten.factory" if name == "explanation-input" else save_slot
+                if args.render and name in ("opening-input", "save-load-input", "explanation-input"):
                     capture = session / (name + ".png")
                     arguments += ["--rendering-method", "gl_compatibility", "--audio-driver", "Dummy",
-                                  "--", "--capture=" + str(capture), "--save-slot=" + str(save_slot)]
+                                  "--", "--capture=" + str(capture), "--save-slot=" + str(stage_slot)]
                 else:
-                    arguments = ["--headless", *arguments, "--", "--save-slot=" + str(save_slot)]
+                    arguments = ["--headless", *arguments, "--", "--save-slot=" + str(stage_slot)]
                 output = execute(name, arguments, marker,
-                                 timeout=180 if args.render and name in ("opening-input", "save-load-input") else 30)
+                                 timeout=180 if args.render and name in ("opening-input", "save-load-input", "explanation-input") else 30)
                 if name == "save-load-input":
                     prefix = "OPENING_SAVE_LOAD_STATE "
                     report = json.loads(next(line[len(prefix):] for line in output.splitlines() if line.startswith(prefix)))
@@ -185,7 +220,12 @@ def main():
                             or report["blocked"]["stock"]["output"] != 1 or report["blocked"]["stock"]["held"] != 1):
                         raise ValueError("Actual consumer quantities/phase/goal differ from the independent fixture oracle")
                     (session / "consumer.json").write_text(json.dumps(report, indent=2) + "\n")
-                if args.render and name in ("opening-input", "save-load-input"):
+                if name == "explanation-input":
+                    prefix = "OPENING_EXPLANATION_STATE "
+                    report = json.loads(next(line[len(prefix):] for line in output.splitlines() if line.startswith(prefix)))
+                    check_explanation_report(report)
+                    (session / "explanation.json").write_text(json.dumps(report, indent=2) + "\n")
+                if args.render and name in ("opening-input", "save-load-input", "explanation-input"):
                     if not capture.read_bytes().startswith(b"\x89PNG\r\n\x1a\n"):
                         raise ValueError("Missing actual rendered viewport capture")
         else:
