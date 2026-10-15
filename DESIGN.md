@@ -1,6 +1,6 @@
 # Factory game — working design document
 
-Status: discovery draft, revised 2026-10-14 after the world, campaign, and multiplayer question round. Requirements below come from the user; proposals remain open for review. No implementation stack has been selected.
+Status: discovery draft, revised 2026-10-15 UTC after the user's basics-first chapter clarification. Requirements below come from the user; proposals remain open for review. No implementation stack has been selected.
 
 ## Stated goals
 
@@ -37,6 +37,15 @@ These are test cases for the design. We do not need to reproduce the original re
 
 ## Confirmed requirements and preferences
 
+### First chapter: basics before elaborate machinery
+
+- The immediate objective is a demoable opening that lets the user give feedback on the initial systems. Placeholder assets and rough edges are acceptable.
+- The first playable loop can be as simple as placing a resource collector, feeding its output into a machine, and collecting the machine's product. Complete, single-placement starter machines are acceptable for this phase; constructing a complicated processor or moving factory is not required.
+- Player-built motion is welcome later within chapter 1, after the basic placement, transport, and processing experience works. It need not be deferred to a later chapter, but it must not block the initial loop or feedback on it.
+- The user's resource A → machine B → product C example describes one production chain, not three products or a requirement to fit the earlier new-process/scaling pattern into the opening.
+- The broader engineering identity remains intact. Motion invention, cog routing, meaningful verticality, new-product progression, scaling choices, and eventual full automation can be introduced in stages rather than all being first-demo acceptance criteria.
+- Exact starter resources, recipes, power arrangement, construction access, and completion rules remain open. This scope clarification does not choose an engine or waive multiplayer-first development and authoritative item accounting.
+
 ### World and terrain
 
 - Start with one designed world. This is an initial direction, not a permanent restriction on future world structure or generation.
@@ -55,7 +64,7 @@ These are test cases for the design. We do not need to reproduce the original re
 - Collision should matter. Pushing separate machines is deferred at the user's request; focus first on collision behavior. For this discussion, a gantry and its contraption count as a single machine, rather than an example of one independent machine pushing another.
 - Machinery can injure players. The injury model and detailed player-contact behavior remain open.
 - Camera perspective is flexible. Moving around, working in, and building the world should remain enjoyable over long sessions.
-- The preferred starting construction level is complete functional tool heads, such as saws or press heads. Players construct their power transmission, feeding, and moving assemblies. The exact tool catalogue and the role of other complete machines remain open.
+- Complete functional tool heads, such as saws or press heads, are the preferred vocabulary for constructed machinery. Players construct their power transmission, feeding, and moving assemblies as those systems are introduced. Complete starter machines are also acceptable for the basic opening loop; the exact catalogue and later role of complete machines remain open.
 
 ### Complexity and automation
 
@@ -136,7 +145,7 @@ These are test cases for the design. We do not need to reproduce the original re
 
 ### Machinery assembled from useful parts
 
-Begin with complete functional tool heads that combine with player-built power transmission, feeding, and moving assemblies. Their layout and behavior should matter. Further levels of component construction and any complete starter machines need separate review.
+Develop complete functional tool heads that combine with player-built power transmission, feeding, and moving assemblies. Their layout and behavior should matter. The opening may use complete starter machines before introducing that construction vocabulary; further levels of component construction remain open.
 
 Design question: which tool heads and shared mechanisms provide the most useful construction vocabulary?
 
@@ -210,7 +219,7 @@ Language choice alone is not a performance plan. An eventual prototype should me
 
 1. Receive a comprehensible chapter objective or identify a manual task worth eliminating.
 2. Learn the relevant parts through a visual demonstration and small experiments.
-3. Construct material handling, motion, power transmission, and any necessary controls.
+3. Place or construct the required machines and material handling; add power transmission, player-built motion, and controls as the current stage introduces them.
 4. Observe behavior and diagnose direction, quantity, timing, or capacity problems.
 5. Reach dependable automation and gain a new capability or remove a recurring manual task.
 6. Learn a new process for a new product, then scale, adapt, or combine earlier machinery as new demands and off-site commissions emerge.
@@ -345,7 +354,7 @@ Before choosing, assess the actual edit/build/play loop and one representative m
 
 Continue discovery through question cards with suggested directions when the interface is available. Keep the discussion at the level of the intended experience, identity, and scope before resolving detailed simulation behavior.
 
-- The first chapter and playable experience: core tools/processes that demonstrate invention, new-product progression, and scaling choices.
+- The concrete opening collector/process/product and its minimal build, transport, power, and completion rules; which player-built motion project to introduce later in chapter 1 after basic-loop feedback.
 - Chapter objectives, optional-branch rewards, and the progression milestones that introduce lasting supply.
 - The role of fluid/gas management and alien substances within the mechanical technological arc.
 - The specific designed world, technology-gated areas, and limited terrain-reshaping capabilities.
@@ -366,8 +375,9 @@ No engine, language, world format, camera, art style, simulation model, multipla
 | Topic | Current status | What will resolve it |
 | --- | --- | --- |
 | Essential experience | Motion invention, exact-count controls, cog routing, and geometry-dependent scaling grounded in user examples | New-product processes with optional benefits to earlier production |
+| First playable / chapter 1 | Basic collector → machine → product loop first; complete starter machines allowed; player-built motion welcome later in the same chapter | Concrete opening content and feedback before choosing the chapter extension; not every intended-game mechanic is an opening gate |
 | World and terrain | Start with a designed peaceful frontier; technology gates safe access to some regions/resources and limited terrain reshaping | Concrete world, access technologies, and excavation capabilities; future world structure stays open |
-| Modular machinery | Complete functional tool heads; players construct transmission, feeding, and moving assemblies | Tool catalogue and shared construction vocabulary |
+| Modular machinery | Complete starter machines allowed for the opening; functional tool heads combine with constructed transmission, feeding, and moving assemblies as progression introduces them | Tool catalogue and shared construction vocabulary |
 | Moving contraptions | Required; operation, harvesting, transfers, and passengers in motion; no construction in motion; machinery can injure players | Global-grid construction/docking rules; detailed collision consequences and pushing deferred |
 | Spatial verticality | 3D required; gravity-driven processing plus tool faces/clearance are the first focus | Concrete processes and layouts; decay remains limited to possible special intermediates |
 | Mechanical power | Direction and orientation constraints valued; connected drivetrain stalls without damage; isolation through couplings | Load rules, inspectability, and detailed collision handling |
@@ -383,15 +393,17 @@ No engine, language, world format, camera, art style, simulation model, multipla
 
 ## Candidate prototype — revised proposal, not a commitment
 
-A small mechanical testbed could include a power source, shafts/gears, belts, complete functional tool heads, fixed-cycle rotary/gantry motion, and representative solid obstructions. It should explore arrangement, working clearances, repetition, and the broad connected-drivetrain stall rule before introducing expressive controls. Detailed collision policies remain deferred.
+Start the player-facing prototype with the accepted basic shape: place a collector, physically feed one processor, and obtain its product in a small 3D site. Select only the content and rules needed for that loop. Test placement, connection, readable material flow, processing, and retrieval through actual authoritative state, with a small relevant visual explanation. Obtain user feedback before elaborating the machinery. This is a valid first-chapter opening, not an inferior substitute for a motion demo.
 
-An initial progression slice could then add finite extraction, Item A, a new process required for Item B, and Item C's increased demand for A. Compare scaling the old A route with adapting the new process. Present this within a small guided chapter with an optional project. Lasting-supply availability should follow a technology milestone, not a depleted-node event. Include a minimal visual explanation and the multiplayer test setup from the beginning.
+A later chapter-1 project could introduce player-built motion using a small power source, shafts/gears, belts, complete functional tool heads, and fixed-cycle rotary or gantry motion. Explore arrangement, working clearances, repetition, and the broad connected-drivetrain stall rule before introducing expressive controls. The precise project is not selected; detailed collision policies remain deferred.
 
-Use a small designed site to test early terrain constraints and a placeholder off-site commission. The full campaign, its two endings, multiple-team progression, and later terrain capabilities still require staging; their presence in the game concept does not select an implementation schedule.
+A further progression slice could add a new process required for Item B and Item C's increased demand for earlier Item A. Compare scaling the old A route with adapting the new process. This earlier three-product proposal is not the user's simpler collector/machine/product notation, nor a mandatory opening sequence. Lasting-supply availability should follow a technology milestone, not a depleted-node event; its chapter placement remains open.
+
+Later extensions can use the small designed site to test terrain constraints and a placeholder off-site commission. Neither is an extra requirement for the basic opening. The full campaign, its two endings, multiple-team progression, and later terrain capabilities still require staging; their presence in the game concept does not select an implementation schedule.
 
 A separate later-progression test can introduce sensors, metered input, and an exact-count task based on the user's circuit example. Testing that mechanism early in development does not mean unlocking it early in the player-facing progression.
 
-Stage moving-factory and train development while validating their critical architectural interactions early, particularly passengers and transfers between moving and fixed structures. The testbed is an initial slice of the required game, not a removal of those requirements.
+Keep the authoritative single-player/server path, minimal two-client interaction, and basic save/continuation evidence in early development. Stage moving-factory and train development while validating their critical architectural interactions early, particularly passengers and transfers between moving and fixed structures. These representative technical risk probes run separately from the simple opening's acceptance: they inform later stack adoption without blocking initial user feedback. A basic-loop demo does not establish that the moving-world risks are solved.
 
 Explore a vertical process combining gravity with directional tool faces or working clearance once its physical rule is agreed. Use stationary editing. Keep independent machine pushing outside the current test scope.
 
@@ -413,3 +425,4 @@ These are the named inspirations, not a commitment to reproduce their content or
 - 2026-10-14: Recorded the third-round answers. Corrected progression to include new products requiring new processes, with increased demand for earlier products creating optional redesign/scaling choices. Early node-based extraction permanently depletes nodes; everything should ultimately be automatable through a mix of infinite-source and autonomous finite-source routes, with active recovery cycles reserved for later. Earlier methods remain viable with practical drawbacks. Expressive controls unlock later; early creativity comes from mechanical limits. The global grid governs construction alignment. Deferred independent machine pushing and detailed horizontal decay; limited any decay proposal to selected materials/states and refocused discussion on collisions and ordinary vertical constraints.
 - 2026-10-14: Incorporated the question-card answers. Selected connected-drivetrain stalls without machinery damage and isolation through clutches/slipping couplings. Lasting supply becomes available through progression after initial extraction, with no node-exhaustion trigger or timing dependency. Selected fixed-cycle early motion, complete functional tool heads, and a combined gravity/tool-face/clearance direction for verticality. Machinery can injure players; detailed collision consequences and feedback remain deferred. Selected guided branching chapters with optional branches and a mechanical technological identity expanded by fluids, gases, and alien substances; electricity is excluded. Future discovery should use question cards when available and stay at a higher level.
 - 2026-10-14: Synthesized the world/campaign/multiplayer question session. Start with a designed world while keeping future structure open. Aim for a peaceful industrial frontier with technology-gated safe access and limited, later-unlocked terrain reshaping. A chapter-guide manager commissions off-site deliveries for a mysterious megaproject. The campaign offers a semi-ending and a much harder true ending requiring throughput across several end-game recipes, with continuing play available. Multiple cooperative teams are intended; independent learning pace matters, but sharing within teams remains unresolved. Friendly competition, leaderboards, and selectable manager personalities remain tentative or reserved ideas.
+- 2026-10-15 UTC: Corrected an agent-imposed first-chapter scope inflation. The user accepts an opening as simple as placing a collector, feeding a machine, and obtaining its product, without custom moving factories or elaborate processor assembly. Player-built motion is welcome later in chapter 1, but the basics come first. Separate early playable feedback from broader motion/scaling/supply and platform-risk evidence. Exact content, power, logistics, completion, and engine choices remain open; long-term engineering and multiplayer requirements are unchanged.
