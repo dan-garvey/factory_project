@@ -55,15 +55,15 @@ Append new findings rather than replacing another agent's record. Search closed 
 
 ## Checks and local hooks
 
-Prerequisites for current checks: Linux, Bash, Git, and Python 3.10 or newer. Rust Beads is needed for project work, but checks do not invoke it, access the live database, or use the network.
+Prerequisites for current checks: Linux, Bash, Git, Python 3.10 or newer, and `systemd-analyze` for parsing the generated local scheduler units. Rust Beads is needed for project work, but checks do not invoke it, access the live database, queue real model work, or use the network. Scheduler tests parse disposable units without starting services.
 
 ```bash
 ./scripts/install-hooks.sh
-python3 -B scripts/check.py
-python3 -B scripts/check.py --staged
+python3 -B scripts/run_local.py check -- python3 -B scripts/check.py
+python3 -B scripts/run_local.py check -- python3 -B scripts/check.py --staged
 ```
 
-The installer sets repository-local `core.hooksPath=.githooks`, shared by linked worktrees, and refuses to overwrite a different configured hook path or disable executable default hooks. Install it in a fresh clone; Git does not distribute local configuration automatically. The hook runs the staged command before a commit. It does not auto-format or stage anything.
+The installer sets repository-local `core.hooksPath=.githooks`, shared by linked worktrees, and refuses to overwrite a different configured hook path or disable executable default hooks. Install it in a fresh clone; Git does not distribute local configuration automatically. The hook acquires its own shared check permit and runs the staged command before a commit. Do not wrap `git commit` itself: that would nest resource admission. The hook does not auto-format or stage anything.
 
 The check runner currently validates Python/Bash syntax, optional agent JSON configuration, portable Beads JSONL IDs/parseability, and the tooling integration tests. Missing or skipped tooling tests fail. The staged command also checks diff whitespace, allows only the five current portable Beads files (`.gitignore`, `README.md`, `config.yaml`, `issues.jsonl`, `metadata.json`), and checks an immutable copy of the candidate index using raw Git blobs, without checkout filters or archive exclusions. Passing unstaged files cannot hide a broken staged candidate. Staging changes during the run make it fail. The temporary snapshot contains versioned Beads metadata only, never a live database or a `br` invocation.
 

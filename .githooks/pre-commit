@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
 root=$(git rev-parse --show-toplevel)
-exec python3 -B "$root/scripts/check.py" --staged
+exec python3 -B "$root/scripts/run_local.py" check -- python3 -B "$root/scripts/check.py" --staged

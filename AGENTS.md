@@ -4,7 +4,11 @@
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) for coordination, evidence, review, and integration rules. [DESIGN.md](DESIGN.md) owns game requirements and open choices; do not silently turn tentative choices into commitments. This repository has no game runtime or selected engine yet.
 
+The dependency plan is [ROADMAP.md](ROADMAP.md), rooted at `factory-yau`; use `br ready --type task --json` to find executable next outcomes, not just organizational epics. The original progenitor owns continuing integration/design-fidelity review under [PROJECT_MANAGER.md](PROJECT_MANAGER.md), Bead `factory-wj6.3`. Proposal completion is not user approval; first-playable scope, candidate trial permission, and production stack adoption have distinct gates.
+
 Before starting, inspect Git status, ready/in-progress Beads, related closed work, and recent relevant commits. Claim a bounded task with a distinct actor name; comment the intended scope, worktree/branch, dependencies, and acceptance evidence. Do not take an occupied task or edit another agent's checkout without an agreed handoff. Spawn agents only when authorized. Keep decisions and resumable handoffs in Beads/Git/docs, not solely in chat or ignored `.notes/`.
+
+This is initially the only test machine. Use `python3 -B scripts/run_local.py check|heavy|benchmark -- <command>` for cooperating work: shared cheap checks, one heavy lane, exclusive measurements. Initial supported-tool parallelism is eight jobs; heavy/measurement admission requires 20 GiB free disk and 8 GiB available memory. Do not override floors without a documented resource decision, nest wrappers, unlink live locks, or delete unrelated artifacts. These are operational settings, not game performance targets or complete host isolation. See [resource admission](docs/engineering/local-resources.md).
 
 ## Issue tracking
 
@@ -44,8 +48,8 @@ This sharing policy applies to every agent and every worktree, including tempora
 
 1. Update the relevant Beads issues, record evidence/limits and independent review for substantial changes, and close only when acceptance is satisfied.
 2. Run `br sync --flush-only` to persist the portable export.
-3. Run `python3 -B scripts/check.py`; review and explicitly stage only scoped paths. From the main checkout, include the shared export when appropriate.
-4. Run `python3 -B scripts/check.py --staged` before committing. Install the local hook using `./scripts/install-hooks.sh`; never auto-stage fixes or bypass a failure as acceptance evidence. Changes to safety gates need independent review.
+3. Run `python3 -B scripts/run_local.py check -- python3 -B scripts/check.py`; review and explicitly stage only scoped paths. From the main checkout, include the shared export when appropriate.
+4. Run the resource-wrapped staged check before committing. The installed precommit hook acquires its own check permit; do not wrap `git commit` itself or nest admission. Install the local hook using `./scripts/install-hooks.sh`; never auto-stage fixes or bypass a failure as acceptance evidence. Changes to safety gates need independent review.
 5. The integration owner serializes local-main landing and shared export commits. Validate branches against current main before landing; a clean textual merge is insufficient.
 6. Inspect `git status` and hand off any remaining work or verification limits.
 
