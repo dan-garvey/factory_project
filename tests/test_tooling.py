@@ -30,6 +30,7 @@ class GitFixture(unittest.TestCase):
         self.git("config", "user.name", "Fixture")
         self.git("config", "user.email", "fixture@example.invalid")
         self.git("config", "core.hooksPath", os.devnull)
+        (self.repo / ".gitignore").write_text("/.beads\n")
         (self.repo / ".beads").mkdir()
         (self.repo / ".beads/.gitignore").write_text("*.db\n*.db-*\n")
         (self.repo / ".beads/issues.jsonl").write_text('{"id":"factory-fixture"}\n')
@@ -61,7 +62,6 @@ class GitFixture(unittest.TestCase):
         return self.run_command("git", *args, success=success)
 
 
-class SharedBeadsTests(GitFixture):
     def worktree(self):
         (self.repo / ".beads/beads.db").write_text("canonical sentinel, never open as SQLite")
         target = self.base / "linked checkout"
@@ -71,6 +71,17 @@ class SharedBeadsTests(GitFixture):
     def link(self, target, success=True):
         return self.run_command("bash", str(self.repo / "scripts/link-beads-worktree.sh"),
                                 str(target), success=success)
+
+
+class SharedBeadsTests(GitFixture):
+    """Preserve refusal/archiving behavior for pre-migration checkouts."""
+
+    def setUp(self):
+        super().setUp()
+        (self.repo / ".gitignore").write_text("")
+        self.git("add", ".gitignore")
+        self.git("add", "--force", ".beads/.gitignore", ".beads/issues.jsonl")
+        self.git("commit", "-m", "Model legacy tracked Beads metadata")
 
     def test_main_is_unchanged(self):
         (self.repo / ".beads/beads.db").write_text("sentinel")
@@ -202,10 +213,26 @@ class StagedGateTests(GitFixture):
         result = self.check(success=False)
         self.assertIn("runtime data", result.stdout)
 
+    def test_private_export_and_configuration_are_rejected(self):
+        for name in ("issues.jsonl", ".gitignore", "config.yaml", "metadata.json", "README.md"):
+            with self.subTest(name=name):
+                candidate = self.repo / ".beads" / name
+                if not candidate.exists():
+                    candidate.write_text("private tracker configuration\n")
+                self.git("add", "--force", str(candidate.relative_to(self.repo)))
+                result = self.check(success=False)
+                self.assertIn("private Beads", result.stdout)
+                self.git("rm", "--cached", str(candidate.relative_to(self.repo)))
+
+    def test_source_checks_need_no_private_tracker(self):
+        (self.repo / ".beads").rename(self.base / "private tracker outside checkout")
+        self.run_command(sys.executable, "-B", "scripts/check.py")
+        self.check()
+
     def test_shared_directory_symlink_is_rejected(self):
-        self.git("rm", "-r", ".beads")
+        (self.repo / ".beads").rename(self.base / "private tracker outside checkout")
         (self.repo / ".beads").symlink_to(self.base / "shared", target_is_directory=True)
-        self.git("add", ".beads")
+        self.git("add", "--force", ".beads")
         result = self.check(success=False)
         self.assertIn("symlinks/submodules", result.stdout)
 
@@ -248,6 +275,43 @@ class StagedGateTests(GitFixture):
         self.assertIn("existing executable default hook", result.stdout)
         self.git("config", "--get", "core.hooksPath", success=False)
         self.assertTrue(os.access(hook, os.X_OK))
+
+
+class PrivateBeadsAdvanceTests(GitFixture):
+    def assert_advance_preserves_tracker(self, operation, diverged=False):
+        target = self.worktree()
+        self.link(target)
+        self.run_command("git", "switch", "-c", "feature", cwd=target)
+        export = self.repo / ".beads/issues.jsonl"
+        database = self.repo / ".beads/beads.db"
+        if diverged:
+            (target / "feature.txt").write_text("feature witness\n")
+            self.run_command("git", "add", "feature.txt", cwd=target)
+            self.run_command("git", "commit", "-m", "Feature witness", cwd=target)
+        export.write_text('{"id":"factory-fixture","title":"private progress"}\n')
+        before = (export.read_bytes(), database.read_bytes())
+        (self.repo / "main.txt").write_text("main witness\n")
+        self.git("add", "main.txt")
+        self.git("commit", "-m", "Advance main source")
+        self.run_command("git", *operation, "main", cwd=target)
+        self.assertTrue((target / ".beads").is_symlink())
+        self.assertEqual((target / ".beads").resolve(), (self.repo / ".beads").resolve())
+        self.assertEqual((export.read_bytes(), database.read_bytes()), before)
+        self.assertEqual((target / "main.txt").read_text(), "main witness\n")
+        if diverged:
+            self.assertEqual((target / "feature.txt").read_text(), "feature witness\n")
+        self.assertEqual(self.run_command("git", "status", "--porcelain", cwd=target).stdout, "")
+        self.assertEqual(self.run_command("git", "ls-files", ".beads", cwd=target).stdout, "")
+        self.run_command("git", "check-ignore", ".beads", cwd=target)
+
+    def test_fast_forward_with_shared_private_tracker(self):
+        self.assert_advance_preserves_tracker(("merge", "--ff-only"))
+
+    def test_diverged_merge_with_shared_private_tracker(self):
+        self.assert_advance_preserves_tracker(("merge", "--no-edit"), diverged=True)
+
+    def test_rebase_with_shared_private_tracker(self):
+        self.assert_advance_preserves_tracker(("rebase",), diverged=True)
 
 
 if __name__ == "__main__":

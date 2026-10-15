@@ -1,4 +1,7 @@
 
+# Private shared issue tracker (directory in main, symlink in linked worktrees).
+/.beads
+
 # Local linked worktrees
 .worktrees/
 

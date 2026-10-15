@@ -14,7 +14,7 @@ The public contributor contract does explicitly describe concurrent workstreams 
 
 Submissions must identify a problem and impact, concrete evidence, scope/design intent, verified results, and relevant performance/size costs. Agent assistance does not lower that bar. A maintainer can replace an implementation while preserving its discovery and testing the original reproducer. The #1380/#1377 overlap became an explicit contribution policy in #1385. [Contract](https://github.com/ROCm/hrx-system/blob/e32033b778176f1d918e3209365df3e4039268c3/CONTRIBUTING.md), [original reproducer #1380](https://github.com/ROCm/hrx-system/pull/1380), [policy #1385](https://github.com/ROCm/hrx-system/pull/1385).
 
-Factory adaptation: Beads holds concise evidence and handoffs; accepted contracts live in the design/engineering docs and reasons survive in Git. Preserve reproducers and credit when work is superseded. Private notes help exploration but are not the canonical decision record.
+Factory adaptation: Beads holds concise evidence and handoffs; accepted contracts live in the design/engineering docs and reasons survive in Git. Preserve reproducers and credit when work is superseded. Private notes help exploration but are not the canonical decision record. The user subsequently chose a private Git-ignored tracker with separate portable-export gist backup; public source must remain understandable without the ledger.
 
 ### 2. Test the real boundary, with a discriminating witness
 
@@ -52,7 +52,7 @@ Factory adaptation: run the entire small current tooling suite, name exactly wha
 
 ## What we are adopting now
 
-- One shared Rust Beads database across linked worktrees, as requested; Factory continues versioning its portable JSONL export, unlike HRX's private-ledger policy.
+- One shared Rust Beads database across linked worktrees, as requested. The user's updated policy keeps all tracker contents Git-ignored and backs up the portable text export separately in an unlisted gist.
 - Bounded ownership, dependency-aware workstreams, searchable evidence, explicit handoffs, and independent review of substantial changes.
 - A concise contributor contract and readable final-design commit history.
 - A non-mutating local check command and staged precommit gate, tested against real disposable Git fixtures. No remote or CI enforcement is claimed.

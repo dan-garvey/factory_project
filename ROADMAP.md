@@ -4,6 +4,8 @@ This is a dependency plan derived from [DESIGN.md](DESIGN.md), not a new set of 
 
 The roadmap root is `factory-yau`; operations is `factory-wj6`. The first playable is a milestone, not completion of the whole roadmap. All required intended-game features remain visible, including those delivered later.
 
+Current user objective (2026-10-15 UTC): a demoable **first chapter over the next few days**, with placeholder assets and rough edges acceptable for direct feedback on the initial systems. This prioritizes an integrated, runnable chapter rather than proposal volume. Open gameplay and engine choices still need explicit decisions; this objective is not proof of delivery or automatic approval of existing drafts. Detailed task evidence now lives in the private, shared, Git-ignored Beads tracker with separate gist backup, not in the public repository history.
+
 ## Workstreams and immediately useful parallel work
 
 | Subtree | Outcome | Ready proposal work |

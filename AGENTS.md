@@ -23,7 +23,7 @@ br close <id>
 br sync --flush-only
 ```
 
-Issue IDs use the `factory-` prefix. Read `br robot-docs` for command guidance. Keep the runtime database and its sidecars ignored; version the portable `.beads/issues.jsonl` export and configuration.
+Issue IDs use the `factory-` prefix. Read `br robot-docs` for command guidance. **All of `.beads` is private and Git-ignored**, including JSONL exports and configuration, not just the database. Never force-add it. Back up the portable text export separately to the user-authorized unlisted gist; keep its identifier and account telemetry out of public source. An unlisted gist is accessible to anyone with its URL, not access-controlled private storage.
 
 ## Mandatory shared Beads directory for worktrees
 
@@ -33,7 +33,7 @@ The main checkout owns the canonical `.beads` directory. **Every linked Git work
 - After creating any worktree, run the main checkout's `scripts/link-beads-worktree.sh` before using Beads there.
 - Verify that `.beads` is a symlink and that `br where` resolves to the main checkout's directory.
 - Never replace an existing worktree database without reconciling its issues. The helper refuses databases and locally modified snapshots and archives clean checked-out metadata before linking.
-- Do not stage the `.beads` symlink or `.beads` changes from linked worktrees. Export and stage shared Beads metadata/JSONL from the main checkout; stage source changes explicitly in the relevant worktree.
+- Do not stage the `.beads` symlink, metadata or exports from any checkout. Export/backup from the canonical tracker; stage source changes explicitly in the relevant worktree.
 
 Run these from the main checkout, substituting a branch and worktree path:
 
@@ -44,13 +44,15 @@ git worktree add -b feature/example ../factory-example
 
 This sharing policy applies to every agent and every worktree, including temporary review or test worktrees.
 
+Legacy branches may still track `.beads`. Do not merge/rebase them across its removal while the shared symlink is attached: the current clean-worktree policy does not make that historical transition safe. Preserve their commits and hand source-only changes to the integration owner for a fresh current-main worktree. Never force, stash or unlink the shared tracker to advance an old branch.
+
 ## Session completion
 
 1. Update the relevant Beads issues, record evidence/limits and independent review for substantial changes, and close only when acceptance is satisfied.
-2. Run `br sync --flush-only` to persist the portable export.
-3. Run `python3 -B scripts/run_local.py check -- python3 -B scripts/check.py`; review and explicitly stage only scoped paths. From the main checkout, include the shared export when appropriate.
+2. Run `br sync --flush-only` to persist the private portable export. The progenitor owns separate backup freshness; no ledger content belongs in source commits.
+3. Run `python3 -B scripts/run_local.py check -- python3 -B scripts/check.py`; review and explicitly stage only scoped source paths.
 4. Run the resource-wrapped staged check before committing. The installed precommit hook acquires its own check permit; do not wrap `git commit` itself or nest admission. Install the local hook using `./scripts/install-hooks.sh`; never auto-stage fixes or bypass a failure as acceptance evidence. Changes to safety gates need independent review.
-5. The integration owner serializes local-main landing and shared export commits. Validate branches against current main before landing; a clean textual merge is insufficient.
+5. The integration owner serializes main landing and publication. Validate branches against current main before landing; a clean textual merge is insufficient.
 6. Inspect `git status` and hand off any remaining work or verification limits.
 
-The repository currently has no Git remote. Keep work local unless the user requests remote setup or publication. Rust Beads does not run Git commits or pushes for you.
+The user authorized the public remote `https://github.com/dan-garvey/factory_project`. The progenitor owns reviewed-main publication; do not push private ledger/history, account data or unreviewed work branches. Historical Beads removal was explicitly authorized before the first push, with original history retained locally. Rust Beads does not run Git commits or pushes for you.

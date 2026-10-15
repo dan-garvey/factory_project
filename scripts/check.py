@@ -18,7 +18,6 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PORTABLE_BEADS_FILES = {".gitignore", "README.md", "config.yaml", "issues.jsonl", "metadata.json"}
 
 
 def git(*args, env=None):
@@ -37,13 +36,6 @@ def check_sources(root):
     config = root / ".claude/settings.json"
     if config.exists():
         json.loads(config.read_text())
-    seen = set()
-    for number, line in enumerate((root / ".beads/issues.jsonl").read_text().splitlines(), 1):
-        issue = json.loads(line)
-        issue_id = issue.get("id")
-        if not isinstance(issue_id, str) or not issue_id.startswith("factory-") or issue_id in seen:
-            raise ValueError(f"Invalid or duplicate Beads ID on line {number}: {issue_id!r}")
-        seen.add(issue_id)
 
 
 def check_working_tree():
@@ -78,9 +70,8 @@ def check_staged():
             raise ValueError(f"Unsafe staged path: {path}")
         if mode not in (b"100644", b"100755"):
             raise ValueError(f"Staged symlinks/submodules are not supported by this starter gate: {path}")
-        if path == ".beads" or (path.startswith(".beads/") and
-                                path.removeprefix(".beads/") not in PORTABLE_BEADS_FILES):
-            raise ValueError(f"Do not commit Beads runtime data or the shared symlink: {path}")
+        if path == ".beads" or path.startswith(".beads/"):
+            raise ValueError(f"Do not commit private Beads runtime data, exports or configuration: {path}")
         files.append((mode, object_id, relative))
     with tempfile.TemporaryDirectory(prefix="factory-check-") as temporary:
         snapshot = Path(temporary) / "tree"
