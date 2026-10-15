@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bounded native linear passenger probe; invoke through run_local.py heavy."""
+"""Bounded native passenger probe; invoke through run_local.py heavy."""
 import argparse
 from datetime import datetime, timezone
 import hashlib
@@ -157,7 +157,9 @@ def verify(report):
             'same native controller without platform following stays behind, no scripted carry')
 
 
-def main():
+def main(*, scene_path='res://rider/main.tscn', check_script='res://rider/check.gd',
+         observer_script='res://rider/startup_observer.gd', files=FILES, oracle=verify,
+         comparison_cases=('carried', 'paused', 'air', 'landed', 'off', 'wall'), entry_source=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--godot', type=Path, required=True)
     parser.add_argument('--sha256', required=True)
@@ -192,16 +194,19 @@ def main():
     run = Path(tempfile.mkdtemp(prefix='rider-', dir=artifacts))
     project = run / 'project'
     receipt = {'status': 'running', 'mode': 'check' if args.check else 'smoke' if args.smoke else 'normal',
+               'scene': scene_path, 'check_script': check_script,
                'source_hashes': {}, 'stages': [], 'user_play': 'not_assessed',
                'started': datetime.now(timezone.utc).isoformat(), 'binary': str(binary), 'binary_sha256': args.sha256,
                'revision': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
                'runner_hashes': {'run_rider.py': sha(Path(__file__)), 'check_engine_environment.py': sha(Path(bounds.__file__))}}
+    if entry_source is not None:
+        receipt['runner_hashes'][Path(entry_source).name] = sha(Path(entry_source))
     bounds.MAX_ARTIFACT_BYTES = MAX_BYTES
     deadline = time.monotonic() + 1800
     print('Rider evidence: ' + str(run), flush=True)
     try:
         total = 0
-        for name in FILES:
+        for name in files:
             source = PROJECT / name
             require(source.is_file() and not source.is_symlink(), 'safe source ' + name)
             content = source.read_bytes()
@@ -231,30 +236,30 @@ def main():
         execute('import', ['--headless', '--editor', '--path', str(project), '--import'], timeout=180)
         receipt['post_import_config_sha256'] = sha(project / 'project.godot')
         if args.check:
-            execute('input', ['--headless', '--path', str(project), '--script', 'res://rider/check.gd', '--',
+            execute('input', ['--headless', '--path', str(project), '--script', check_script, '--',
                               '--report=' + str(run / 'input.json')], 'RIDER_PASS', 240)
             physical = json.loads((run / 'input.json').read_text())
-            verify(physical)
+            oracle(physical)
             if args.render:
                 execute('render', ['--path', str(project), '--rendering-method', 'gl_compatibility', '--audio-driver', 'Dummy',
-                                   '--script', 'res://rider/check.gd', '--', '--report=' + str(run / 'render.json'),
+                                   '--script', check_script, '--', '--report=' + str(run / 'render.json'),
                                    '--capture=' + str(run / 'rider.png')], 'RIDER_PASS', 240)
                 rendered = json.loads((run / 'render.json').read_text())
-                verify(rendered)
+                oracle(rendered)
                 # Input duration is measured in each actual controller, not
                 # assumed identical across headless/rendered process frames.
-                for name in ('carried', 'paused', 'air', 'landed', 'off', 'wall'):
+                for name in comparison_cases:
                     for field in ('phases', 'source_phase', 'committed'):
                         require(physical['cases'][name]['state'][field] == rendered['cases'][name]['state'][field],
                                 'consumers agree on inherited drive state at ' + name)
                 require((run / 'rider.png').read_bytes().startswith(b'\x89PNG\r\n\x1a\n'), 'actual standing-rider PNG')
         else:
-            arguments = ['--path', str(project), '--rendering-method', 'gl_compatibility', '--audio-driver', 'Dummy', 'res://rider/main.tscn']
+            arguments = ['--path', str(project), '--rendering-method', 'gl_compatibility', '--audio-driver', 'Dummy', scene_path]
             if args.smoke:
                 config = project / 'project.godot'
-                config.write_text(config.read_text() + '\n[autoload]\nRiderStartupObserver="*res://rider/startup_observer.gd"\n')
+                config.write_text(config.read_text() + '\n[autoload]\nRiderStartupObserver="*' + observer_script + '"\n')
                 receipt['instrumentation'] = {'kind': 'read_only_startup_autoload', 'runtime_config_sha256': sha(config),
-                                              'observer_sha256': receipt['source_hashes']['rider/startup_observer.gd']}
+                                              'observer_sha256': receipt['source_hashes'][observer_script.removeprefix('res://')]}
                 arguments += ['--', '--observer-report=' + str(run / 'startup.json'), '--observer-capture=' + str(run / 'startup.png')]
             try:
                 execute('normal', arguments, 'RIDER_STARTUP_PASS' if args.smoke else None, 30 if args.smoke else duration)
@@ -265,7 +270,7 @@ def main():
                 receipt['completion_reason'] = 'duration_limit'
             if args.smoke:
                 observed = json.loads((run / 'startup.json').read_text())
-                require(observed['status'] == 'pass' and observed['scene'] == 'res://rider/main.tscn'
+                require(observed['status'] == 'pass' and observed['scene'] == scene_path
                         and observed['floor_id'] == observed['ground_id'], 'ordinary positional startup, actual grounded player')
         receipt['status'] = 'pass' if args.check or args.smoke else 'closed'
     except BaseException as error:

@@ -20,6 +20,17 @@ var yaw := 0.38
 var pitch := 0.55
 var distance := 13.0
 
+func _make_authority() -> Node3D:
+	return Drive.new()
+
+func _fixture_text() -> Dictionary:
+	return {"title": "LINEAR RIDER", "deck": "LINEAR DECK · ±2", "summary": "Local linear passenger experiment"}
+
+func _display_deck(state: Dictionary) -> void:
+	if not state.completed.is_empty():
+		var at: Array = state.completed.positions.B
+		deck_mesh.position = Vector3(at[0], at[1], at[2])
+
 func _ready() -> void:
 	var environment := WorldEnvironment.new()
 	var settings := Environment.new()
@@ -40,7 +51,7 @@ func _ready() -> void:
 		_box(self, Vector3(x, 0.003, -2), Vector3(0.025, 0.01, 0.25), Color("b4b595"))
 		_label3d(str(x), Vector3(x, 0.1, -2.35))
 	_box(self, Vector3(0, 0.12, 0), Vector3(7.1, 0.12, 0.14), Color("82958f"))
-	_label3d("LINEAR DECK · ±2", Vector3(0, 0.3, -2.8))
+	_label3d(_fixture_text().deck, Vector3(0, 0.3, -2.8))
 	_label3d("FIXED BOUNDARY", Vector3(5, 2.4, 0))
 	deck_mesh = _box(self, Vector3.ZERO, Drive.DECK_SIZE, Color("b09b64"))
 	_box(deck_mesh, Vector3(0, 0.18, 0), Vector3(2.8, 0.02, 0.04), Color("eddfb6"))
@@ -56,7 +67,7 @@ func fresh() -> void:
 		authority.queue_free()
 		remove_child(player)
 		player.queue_free()
-	authority = Drive.new()
+	authority = _make_authority()
 	authority.name = "Drive"
 	add_child(authority)
 	player = Player.new()
@@ -123,14 +134,12 @@ func _process(delta: float) -> void:
 
 func _refresh() -> void:
 	var state: Dictionary = authority.projection()
-	if not state.completed.is_empty():
-		var at: Array = state.completed.positions.B
-		deck_mesh.position = Vector3(at[0], at[1], at[2])
+	_display_deck(state)
 	run_button.text = "Pause source [F]" if state.running else "Start source [F]"
 	step_button.disabled = not state.running or state.pending
 	var support := "deck" if player.floor_id == authority.bodies.B.get_instance_id() else "ground" if player.floor_id == ground.get_instance_id() else "air"
-	stats.text = "%s · %d completed steps\nFeet: %s\nPlayer x %.3f · y %.3f\nWASD walk · Space jump\nF source · N step · R fresh start\nRight-drag orbit · Wheel zoom\n\nLocal linear passenger experiment\nNo items, network or damage rules" % [
-		"Updating drive" if state.native_pending else "Source running" if state.running else "Source paused", state.committed, support, player.position.x, player.position.y]
+	stats.text = "%s · %d completed steps\nFeet: %s\nPlayer x %.3f · y %.3f\nWASD walk · Space jump\nF source · N step · R fresh start\nRight-drag orbit · Wheel zoom\n\n%s\nNo items, network or damage rules" % [
+		"Updating drive" if state.native_pending else "Source running" if state.running else "Source paused", state.completed.get("committed", 0), support, player.position.x, player.position.y, _fixture_text().summary]
 
 func _box(parent: Node, at: Vector3, size: Vector3, color: Color) -> MeshInstance3D:
 	var node := MeshInstance3D.new()
@@ -178,7 +187,7 @@ func _build_interface() -> void:
 	column.add_theme_constant_override("separation", 8)
 	panel.add_child(column)
 	var title := Label.new()
-	title.text = "LINEAR RIDER"
+	title.text = _fixture_text().title
 	title.add_theme_font_size_override("font_size", 22)
 	column.add_child(title)
 	run_button = Button.new()

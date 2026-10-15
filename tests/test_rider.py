@@ -13,6 +13,9 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 spec = importlib.util.spec_from_file_location('rider_runner', ROOT / 'scripts/run_rider.py')
 rider = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(rider)
+rotary_spec = importlib.util.spec_from_file_location('rotary_runner', ROOT / 'scripts/run_rotary_rider.py')
+rotary = importlib.util.module_from_spec(rotary_spec)
+rotary_spec.loader.exec_module(rotary)
 
 
 class RiderEntryTests(unittest.TestCase):
@@ -26,24 +29,25 @@ class RiderEntryTests(unittest.TestCase):
             (['--duration-seconds', '0'], 'Use a bounded 1..1700 second normal session'),
             (['--duration-seconds', '1701'], 'Use a bounded 1..1700 second normal session'),
         ]
-        for flags, diagnostic in cases:
-            with self.subTest(flags=flags), tempfile.TemporaryDirectory() as folder:
-                base = Path(folder)
-                binary = base / 'engine'
-                binary.write_bytes(b'source-only executable fixture; never run\n')
-                binary.chmod(0o700)
-                target = base / 'artifacts'
-                stderr = io.StringIO()
-                with mock.patch.object(sys, 'argv', ['rider', '--godot', str(binary),
-                        '--sha256', hashlib.sha256(binary.read_bytes()).hexdigest(), '--artifacts', str(target), *flags]), \
-                        redirect_stderr(stderr), mock.patch.object(rider.bounds, 'execute_bounded',
-                            side_effect=AssertionError('Invalid arguments reached engine execution')) as engine:
-                    with self.assertRaises(SystemExit) as error:
-                        rider.main()
-                    self.assertEqual(error.exception.code, 2)
-                    self.assertIn(diagnostic, stderr.getvalue())
-                    self.assertFalse(target.exists())
-                    engine.assert_not_called()
+        for entry in (rider.main, rotary.main):
+            for flags, diagnostic in cases:
+                with self.subTest(entry=entry.__module__, flags=flags), tempfile.TemporaryDirectory() as folder:
+                    base = Path(folder)
+                    binary = base / 'engine'
+                    binary.write_bytes(b'source-only executable fixture; never run\n')
+                    binary.chmod(0o700)
+                    target = base / 'artifacts'
+                    stderr = io.StringIO()
+                    with mock.patch.object(sys, 'argv', ['rider', '--godot', str(binary),
+                            '--sha256', hashlib.sha256(binary.read_bytes()).hexdigest(), '--artifacts', str(target), *flags]), \
+                            redirect_stderr(stderr), mock.patch.object(rider.bounds, 'execute_bounded',
+                                side_effect=AssertionError('Invalid arguments reached engine execution')) as engine:
+                        with self.assertRaises(SystemExit) as error:
+                            entry()
+                        self.assertEqual(error.exception.code, 2)
+                        self.assertIn(diagnostic, stderr.getvalue())
+                        self.assertFalse(target.exists())
+                        engine.assert_not_called()
 
     def test_missing_runtime_and_wrong_pin_leave_no_owned_artifacts(self):
         with tempfile.TemporaryDirectory() as folder:

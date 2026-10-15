@@ -45,6 +45,9 @@ func native(body: PhysicsBody3D) -> Dictionary:
 	var pose: Transform3D = PhysicsServer3D.body_get_state(rid, PhysicsServer3D.BODY_STATE_TRANSFORM)
 	var shape := PhysicsServer3D.body_get_shape(rid, 0)
 	return {"id": body.get_instance_id(), "rid": rid.get_id(), "position": array(pose.origin),
+		"basis": [array(pose.basis.x), array(pose.basis.y), array(pose.basis.z)],
+		"linear_velocity": array(PhysicsServer3D.body_get_state(rid, PhysicsServer3D.BODY_STATE_LINEAR_VELOCITY)),
+		"angular_velocity": array(PhysicsServer3D.body_get_state(rid, PhysicsServer3D.BODY_STATE_ANGULAR_VELOCITY)),
 		"node_position": array(body.global_position), "shape_type": PhysicsServer3D.shape_get_type(shape),
 		"shape_data": shape_data(PhysicsServer3D.shape_get_data(shape)),
 		"layer": PhysicsServer3D.body_get_collision_layer(rid), "mask": PhysicsServer3D.body_get_collision_mask(rid)}
@@ -60,13 +63,18 @@ func facts() -> Dictionary:
 		var collision: KinematicCollision3D = player.get_slide_collision(index)
 		collisions.append({"id": collision.get_collider_id(), "normal": array(collision.get_normal()), "point": array(collision.get_position())})
 	return {"stage": stage, "ticks": player.ticks, "walking_seconds": player.walking_seconds,
+		"scene": scene.scene_file_path,
+		"delta": player.get_physics_process_delta_time(),
 		"player": native(player), "deck": native(scene.authority.bodies.B),
 		"ground_id": scene.ground.get_instance_id(), "wall_id": scene.wall.get_instance_id(),
 		"on_floor": player.is_on_floor(), "floor_id": player.floor_id,
 		"floor_normal": array(player.get_floor_normal()), "platform_velocity": array(player.get_platform_velocity()),
+		"platform_angular_velocity": array(player.get_platform_angular_velocity()),
 		"velocity": array(player.velocity), "input": [player.input_direction.x, player.input_direction.y],
 		"follow_layers": player.platform_floor_layers, "collisions": collisions,
 		"player_mesh": array(player_mesh), "deck_mesh": array(scene.deck_mesh.position),
+		"deck_visible": scene.deck_mesh.visible, "view_status": scene.stats.text,
+		"deck_mesh_basis": [array(scene.deck_mesh.basis.x), array(scene.deck_mesh.basis.y), array(scene.deck_mesh.basis.z)],
 		"state": scene.authority.projection()}
 
 func observe() -> void:
@@ -153,6 +161,9 @@ func ticks(count: int) -> void:
 		await physics_frame
 		await process_frame
 
+func _scene_path() -> String:
+	return "res://rider/main.tscn"
+
 func fresh() -> void:
 	if scene != null:
 		# Close this finite observation epoch and drain its last target before
@@ -162,11 +173,13 @@ func fresh() -> void:
 		check(waiting.is_empty(), "Fresh scene preserves the prior epoch's last native completion")
 		scene.queue_free()
 	await process_frame
-	scene = load("res://rider/main.tscn").instantiate()
+	stage = "startup"
+	scene = load(_scene_path()).instantiate()
 	root.add_child(scene)
 	current_scene = scene
 	capturing = true
 	scene.player.moved.connect(observe)
+	scene.authority.advanced.connect(record_advance)
 	await ticks(8)
 	check(scene.player.get_parent() == scene and scene.player.get_parent() != scene.authority.bodies.B,
 		"Actual player is a separate collision body, never parented to the deck")
@@ -196,19 +209,23 @@ func board() -> void:
 		and scene.player.position.x >= -0.41 and scene.player.position.x < -0.25,
 		"Ordinary walk input places rider near deck center without scripted boarding")
 
+func check_deck_pose(value: Dictionary, at_advance: bool) -> void:
+	var expected := 2 * sin(float(value.state.phases.B))
+	check(absf(value.deck.position[0] - expected) < 0.00002, "Native deck pose matches inherited source phase")
+	if at_advance:
+		check(absf(value.state.completed.positions.B[0] - expected) < 0.00002
+			and absf(value.deck_mesh[0] - expected) < 0.00002,
+			"Exact Drive advanced boundary has matching completed and view deck poses")
+
+func record_advance(_outcome: Dictionary) -> void:
+	var at_advance := facts()
+	at_advance["cut"] = "drive_only_advanced_before_player_callback"
+	advanced_events.append(at_advance)
+	check_deck_pose(at_advance, true)
+
 func step(button := false) -> void:
 	var outcome := {}
-	scene.authority.advanced.connect(func(value: Dictionary):
-		outcome["value"] = value
-		var at_advance := facts()
-		at_advance["cut"] = "drive_only_advanced_before_player_callback"
-		advanced_events.append(at_advance)
-		var expected := 2 * sin(float(at_advance.state.phases.B))
-		check(absf(at_advance.deck.position[0] - expected) < 0.00002
-			and absf(at_advance.state.completed.positions.B[0] - expected) < 0.00002
-			and absf(at_advance.deck_mesh[0] - expected) < 0.00002,
-			"Exact Drive advanced boundary has matching native, phase, completed and view deck poses")
-	, CONNECT_ONE_SHOT)
+	scene.authority.advanced.connect(func(value: Dictionary): outcome["value"] = value, CONNECT_ONE_SHOT)
 	if button:
 		await click(scene.step_button)
 	else:
@@ -221,17 +238,19 @@ func step(button := false) -> void:
 	await ticks(4)
 	var value := facts()
 	check(not value.state.native_pending, "Completed source publication is settled in actual native world")
-	check(absf(value.deck.position[0] - 2 * sin(value.state.phases.B)) < 0.00002,
-		"Sync-enabled deck still publishes native pose matching inherited source phase")
+	check_deck_pose(value, false)
 	check(value.player.position == value.player.node_position, "Player view transform and raw native RID pose agree")
 
-func _run() -> void:
+func start_observers() -> void:
 	root.size = Vector2i(1280, 800)
 	physics_frame.connect(observe_completed)
 	var observer := ViewObserver.new()
 	observer.sample = observe_view
 	observer.process_priority = 1000
 	root.add_child(observer)
+
+func _run() -> void:
+	start_observers()
 	await fresh()
 	cases.initial = facts()
 	await key(KEY_N)

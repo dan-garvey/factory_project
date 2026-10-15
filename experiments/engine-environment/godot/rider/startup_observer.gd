@@ -3,6 +3,9 @@ extends Node
 var started := 0
 var captured := false
 
+func _scene_path() -> String:
+	return "res://rider/main.tscn"
+
 func _ready() -> void:
 	started = Time.get_ticks_msec()
 
@@ -15,7 +18,7 @@ func _process(_delta: float) -> void:
 		get_tree().quit(1)
 		return
 	var scene = get_tree().current_scene
-	if scene == null or scene.scene_file_path != "res://rider/main.tscn" or scene.player == null:
+	if scene == null or scene.scene_file_path != _scene_path() or scene.player == null:
 		return
 	if scene.authority.projection().native_pending or not scene.player.is_on_floor():
 		return
