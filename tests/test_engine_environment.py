@@ -1,4 +1,5 @@
 import importlib.util
+import errno
 import os
 from pathlib import Path
 import subprocess
@@ -18,6 +19,62 @@ spec.loader.exec_module(probe)
 
 
 class EngineEnvironmentTests(unittest.TestCase):
+    def test_artifact_file_disappearing_after_measurement_keeps_measured_bytes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            transient, retained = root / "transient", root / "retained"
+            transient.write_bytes(b"measured")
+            retained.write_bytes(b"retained")
+            actual_stat = Path.stat
+
+            def remove_after_stat(path, *args, **kwargs):
+                measured = actual_stat(path, *args, **kwargs)
+                if path == transient:
+                    transient.unlink()
+                return measured
+
+            with mock.patch.object(Path, "stat", remove_after_stat):
+                # The file existed at its measurement. Keeping those bytes is
+                # conservative; asking for a second stat races engine renames.
+                self.assertEqual(probe.owned_bytes(root), 16)
+            self.assertFalse(transient.exists())
+
+    def test_artifact_file_missing_before_measurement_does_not_hide_retained_bytes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            retained = root / "retained"
+            retained.write_bytes(b"retained")
+            (root / "directory").mkdir()
+            actual_stat = Path.stat
+
+            def vanished_stat(path, *args, **kwargs):
+                if path == retained:
+                    raise FileNotFoundError(errno.ENOENT, "removed before stat", str(path))
+                return actual_stat(path, *args, **kwargs)
+
+            other = root / "other"
+            other.write_bytes(b"still counted")
+            with mock.patch.object(Path, "stat", vanished_stat):
+                self.assertEqual(probe.owned_bytes(root), 13)
+
+    def test_artifact_measurement_propagates_permission_and_other_io_errors(self):
+        for error in (PermissionError(errno.EACCES, "permission denied"),
+                      OSError(errno.EIO, "I/O failure")):
+            with self.subTest(error=error), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                target = root / "unreadable"
+                target.write_bytes(b"must not silently skip")
+                actual_stat = Path.stat
+
+                def failing_stat(path, *args, **kwargs):
+                    if path == target:
+                        raise error
+                    return actual_stat(path, *args, **kwargs)
+
+                with mock.patch.object(Path, "stat", failing_stat):
+                    with self.assertRaises(type(error)):
+                        probe.owned_bytes(root)
+
     def test_partial_line_output_is_capped_and_fails(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

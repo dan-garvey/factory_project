@@ -13,6 +13,7 @@ from pathlib import Path
 import shutil
 import selectors
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -27,7 +28,16 @@ MAX_ARTIFACT_BYTES = 384 * 1024**2
 
 
 def owned_bytes(directory):
-    return sum(path.stat().st_size for path in directory.rglob("*") if path.is_file())
+    total = 0
+    for path in directory.rglob("*"):
+        try:
+            measured = path.stat()
+        except FileNotFoundError:
+            # Engine imports rename/remove temporary cache files during scans.
+            continue
+        if stat.S_ISREG(measured.st_mode):
+            total += measured.st_size
+    return total
 
 
 def execute_bounded(command, *, cwd, env, log, artifacts, timeout):
