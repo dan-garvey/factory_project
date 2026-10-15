@@ -36,6 +36,8 @@ the group leader exits. It checks the 384 MiB run artifact allowance during
 execution; periodic checks can overshoot and are not a filesystem quota.
 Processes that deliberately escape their group are outside this local probe's
 contract. Synthetic tooling tests cover these limits without running Godot.
+Those tests require Linux `pidfd_open` support exposed through Python's
+`os.pidfd_open`; unavailable support fails the checks rather than skipping them.
 
 ## Try the sandbox
 
