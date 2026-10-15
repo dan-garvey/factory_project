@@ -194,6 +194,8 @@ func _settle_pending() -> void:
 				"remove": "Part returned to the shared kit."}.get(item.action.action, "Action accepted."))
 		else:
 			_message("Not applied: " + {"occupied": "that square is occupied.", "no_part": "that part is already placed.",
+				"not_at_seam": "place the collector on the brass seam strip.",
+				"not_at_stream": "place the waterwheel beside the stream bank.",
 				"unavailable_output": "there is no finished plate to collect.", "not_stopped": "stop the drive before editing.",
 				"powered": "stop the drive before editing.", "held_stock": "material remains in that machine.",
 				"ports_not_adjacent": "choose neighboring ports in the arrow's direction.",

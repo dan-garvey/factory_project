@@ -21,6 +21,8 @@ command; it applies the outcome only when a matching server result and current
 context/revision/order projection are available. A refusal displays the server's
 reason and current worksite. Placement selects an entity only after actual
 acceptance; a pending placement creates no machine or part debit locally.
+Refused collector or waterwheel placement points to the brass seam strip or
+stream bank; correcting the location submits a fresh intent using the same part.
 
 The participant label identifies whose inventory supplies the four-plate goal.
 P's plates do not satisfy Q's inventory check, even though both may use the same
