@@ -1,6 +1,6 @@
 # Factory game — working design document
 
-Status: discovery draft, revised 2026-10-15 UTC after the user's basics-first chapter clarification. Requirements below come from the user; proposals remain open for review. No implementation stack has been selected.
+Status: discovery draft, revised 2026-10-15 UTC after basics-first staging and delegated reversible prototype decisions. Requirements come from the user; demo defaults are identified separately. No production implementation stack has been selected.
 
 ## Stated goals
 
@@ -159,6 +159,8 @@ The quantities and work-cycle duration are tunable fixture values, not game perf
 - The user starts with little game-design or 3D-graphics experience and no fixed engine preference. Rapid iteration is a major priority.
 - Heavy use of AI-generated assets is acceptable. No art style or asset pipeline has been selected.
 - Portability of game mechanics is desired if a future budget or ambition justifies switching engines. It should be pursued without assuming an engine switch will be inexpensive.
+- The user explicitly delegates reversible design and technical choices toward the demo. Agents and the PM should use the documented preferences, record assumptions, keep implementation moving and allow later course correction instead of awaiting routine decisions. User play remains valuable evidence, not a prerequisite for all further development.
+- Research UE5 and promising free 3D environments and establish a sandbox/tests on the most promising route. This is a reversible trial, not production lock-in. A first engine-native rules baseline may expose coupling/portability costs; it must not be reported as proof of an engine-independent core.
 
 ## Candidate design pillars — not yet agreed
 
@@ -367,13 +369,13 @@ Godot with a separately maintained native simulation core is a candidate for a p
 
 Unreal is another candidate. As checked on 2026-10-14, Epic's published roadmap targets UE6 Early Access for the end of 2027, with full release 12–18 months later. UE6 should therefore not be assumed to be a production-ready starting point today: [Epic's roadmap](https://www.unrealengine.com/news/the-road-to-ue-6).
 
-Before choosing, assess the actual edit/build/play loop and one representative mechanical scene, including a moving platform and multiplayer. Compare the integration burden as well as the visuals. No language, engine version, or networking library has been chosen.
+Before production adoption, assess the actual edit/build/play loop and one representative mechanical scene, including a moving platform and multiplayer. Compare integration burden as well as visuals. Reversible trial selection is delegated; the current first baseline is Godot with engine-native rules kept separate from scene mutation. No production language, engine version or networking library is selected, and the baseline is not native-core portability evidence.
 
 ## Open design topics
 
 Continue discovery through question cards with suggested directions when the interface is available. Keep the discussion at the level of the intended experience, identity, and scope before resolving detailed simulation behavior.
 
-- The concrete opening collector/process/product and its minimal build, transport, power, and completion rules; which player-built motion project to introduce later in chapter 1 after basic-loop feedback.
+- Revise the documented opening defaults from implementation/play evidence and choose the next bounded chapter increment, potentially player-built motion. Use user feedback when available without waiting on routine approvals.
 - Chapter objectives, optional-branch rewards, and the progression milestones that introduce lasting supply.
 - The role of fluid/gas management and alien substances within the mechanical technological arc.
 - The specific designed world, technology-gated areas, and limited terrain-reshaping capabilities.
@@ -389,12 +391,12 @@ Ideas held in reserve: selectable manager personalities and possible industrial 
 
 ## Scope ledger
 
-No engine, language, world format, camera, art style, simulation model, multiplayer architecture, numerical performance target, or production schedule has been selected.
+No production engine/language, world format, final camera/art style, multiplayer architecture, numerical performance target or release schedule has been selected. Reversible prototype choices are delegated and recorded separately.
 
 | Topic | Current status | What will resolve it |
 | --- | --- | --- |
 | Essential experience | Motion invention, exact-count controls, cog routing, and geometry-dependent scaling grounded in user examples | New-product processes with optional benefits to earlier production |
-| First playable / chapter 1 | Basic collector → machine → product loop first; complete starter machines allowed; player-built motion welcome later in the same chapter | Concrete opening content and feedback before choosing the chapter extension; not every intended-game mechanic is an opening gate |
+| First playable / chapter 1 | Basic collector → machine → product first; complete starter machines and delegated opening defaults; player-built motion welcome later in chapter 1 | Implement and validate basics, incorporate available user feedback, then iterate; not every intended-game mechanic or approval card is an opening gate |
 | World and terrain | Start with a designed peaceful frontier; technology gates safe access to some regions/resources and limited terrain reshaping | Concrete world, access technologies, and excavation capabilities; future world structure stays open |
 | Modular machinery | Complete starter machines allowed for the opening; functional tool heads combine with constructed transmission, feeding, and moving assemblies as progression introduces them | Tool catalogue and shared construction vocabulary |
 | Moving contraptions | Required; operation, harvesting, transfers, and passengers in motion; no construction in motion; machinery can injure players | Global-grid construction/docking rules; detailed collision consequences and pushing deferred |
@@ -412,7 +414,7 @@ No engine, language, world format, camera, art style, simulation model, multipla
 
 ## Candidate prototype — revised proposal, not a commitment
 
-Start the player-facing prototype with the accepted basic shape: place a collector, physically feed one processor, and obtain its product in a small 3D site. Select only the content and rules needed for that loop. Test placement, connection, readable material flow, processing, and retrieval through actual authoritative state, with a small relevant visual explanation. Obtain user feedback before elaborating the machinery. This is a valid first-chapter opening, not an inferior substitute for a motion demo.
+Start the player-facing prototype with the basic shape and delegated defaults: place a collector, physically feed one processor, and obtain its product in a small 3D site. Test placement, connection, readable material flow, processing, and retrieval through actual authoritative state, with a small relevant visual explanation. Validate basics before elaborating machinery; obtain user feedback when available while continuing scoped development. This is a valid first-chapter opening, not an inferior substitute for a motion demo.
 
 A later chapter-1 project could introduce player-built motion using a small power source, shafts/gears, belts, complete functional tool heads, and fixed-cycle rotary or gantry motion. Explore arrangement, working clearances, repetition, and the broad connected-drivetrain stall rule before introducing expressive controls. The precise project is not selected; detailed collision policies remain deferred.
 
