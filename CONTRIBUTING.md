@@ -30,6 +30,14 @@ Keep continuing responsibility for design/integration, focused implementation, a
 
 Use one linked worktree per concurrent writer. Follow the mandatory shared `.beads` symlink procedure in AGENTS before using Beads. Declare overlapping contracts early; coordinate sequencing rather than silently editing another writer's checkout. Ask the integration owner to resolve cross-cutting choices. The user owns the direction and has delegated routine reversible prototype decisions to the team: choose from DESIGN, record defaults and limits, and continue rather than waiting on routine cards. Permanent commitments, new paid services, destructive actions and publication beyond existing authority are not implied.
 
+### Autonomous workstream queues
+
+Workers may choose, create, refine and claim their next bounded task without a PM dispatch. Own an ongoing queue: Platform covers authoritative rules, sessions and launch integration; Chapter covers playable experience, teaching and optional mechanical expansion; Ops covers independent consumer validation and local operation. These are coordination defaults, not silos: agree cross-stream ownership directly in Beads. Search existing open and closed work first, explain the player benefit or concrete risk being addressed, name intended paths/contracts, and retain real prerequisite edges. Do not invent duplicate state owners or process-only work merely to appear busy.
+
+Arrange peer reviews directly and resolve findings with evidence. A frozen handoff must remain reproducible, but its author should take a useful ready task in a separate linked worktree while review or landing proceeds. Reviewers may prepare independent oracles against an agreed in-flight contract; final acceptance still requires the actual frozen implementation. Never close an implementation as accepted just to unblock its review, self-approve, or bypass a failed check. If every useful next task genuinely depends on unfinished work, record the specific blocker and coordinate with its owner; temporary idle time is then honest, not an excuse to expand scope arbitrarily.
+
+Notify the PM for an exact handoff ready to land, an unexpected failure/material finding, resource contention, or a decision outside delegated authority. Routine task selection, scope refinement and peer coordination belong in the owning Beads, not repeated PM permission requests. The PM can redirect priorities and retains main integration/publication and hourly design/evidence audits. Resource admission and paid/destructive/permanent-choice limits remain unchanged.
+
 ## Durable memory and handoffs
 
 Use the smallest appropriate record:

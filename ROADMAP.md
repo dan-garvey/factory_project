@@ -89,6 +89,12 @@ Precision controls can be probed early by developers without becoming mandatory 
 
 The later subtree is deliberate deferred refinement, not permission to implement everything at once. It preserves required trains, autonomous finite acquisition, fluids/gases, later expressive controls, designed terrain/access/reshaping, off-site mystery commissions, semi-ending and harder multi-recipe-throughput true ending. Reserved manager-selection and leaderboard ideas remain uncommitted.
 
+## Continuing work selection
+
+Workers own continuing workstream queues and may create/refine/claim bounded follow-ups and coordinate peer reviews without a new PM dispatch. Follow the [autonomous queue contract](CONTRIBUTING.md#autonomous-workstream-queues), search for duplicate work, and keep actual dependencies in Beads. A frozen candidate need not idle its author; advance another useful ready outcome in a separate linked worktree. The PM retains cross-stream prioritization, resource coordination and serialized main publication.
+
+The next increment after shared-opening integration pairs a normal shared-play launcher (`factory-yau.5.13`, independent review `.6.24`) with an optional player-configured mechanical workshop (`factory-yau.6.23`, review `.6.25`). The latter explores motion and arrangement without replacing the basic production opening or pretending non-consuming geometry contacts are produced inventory. These are scoped experiments, not proof of a complete chapter, user play or a production-stack decision. Read the live Beads for current status and subsequent work rather than treating this snapshot as the whole queue.
+
 ## Management
 
 The original progenitor remains the integration/design-fidelity owner. [PROJECT_MANAGER.md](PROJECT_MANAGER.md) defines hourly review, explicit revision evidence, resource coordination, phone recovery and limitations. [CONTRIBUTING.md](CONTRIBUTING.md) remains the contributor contract. Accepted design changes go into DESIGN.md; project-management authority does not confer authority to choose unresolved gameplay on the user's behalf.

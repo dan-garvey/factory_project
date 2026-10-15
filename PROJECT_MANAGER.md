@@ -18,6 +18,8 @@ The user separately directed Ops to compare UE5 and promising free 3D environmen
 
 Dispatched workers are fresh, named Codex sessions, visible to the user remotely. Preserve and reuse their conversations; do not reset/archive them on task completion or impose artificial lifetime limits. Initial sessions are Factory — Chapter / Player Experience (`01a13d78-1406-7ed2-9cee-ee46cd444779`), Factory — Core / Platform Review (`01a13d78-1627-7890-87c1-b30a5df2672f`), and Factory — Operations / Usage (`01a13d78-1835-7fe2-8b8d-6f309cfd1543`). Bounded tasks, source-only handoffs and independent review still apply.
 
+The user additionally delegates ongoing task autonomy to these workers. They may discover/create/refine/claim scoped follow-ups, coordinate contracts and arrange independent peer review without waiting for the PM to assign every next task. Prioritize useful playable increments over proposal or process volume. Maintain duplicate searches, real dependencies, ownership and evidence in Beads. Freeze a candidate, not a whole worker: while a handoff is reviewed or integrated, its author continues non-overlapping ready work in a separate linked worktree. The PM checks the queues and resolves cross-stream/resource conflicts rather than becoming their task-selection gate. Main integration/publication, substantive independent acceptance and authority limits remain unchanged; peer agreement cannot turn an experiment into permanent design canon.
+
 All `.beads` contents are now private and Git-ignored; the shared directory/symlink rule remains. The user selected a separate gist for portable text backups. Use the [verified backup updater](docs/engineering/beads-backup.md) during each hourly review:
 
 ```bash
