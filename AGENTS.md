@@ -51,7 +51,7 @@ Legacy branches may still track `.beads`. Do not merge/rebase them across its re
 1. Update the relevant Beads issues, record evidence/limits and independent review for substantial changes, and close only when acceptance is satisfied.
 2. Run `br sync --flush-only` to persist the private portable export. The progenitor owns separate backup freshness; no ledger content belongs in source commits.
 3. Run `python3 -B scripts/run_local.py check -- python3 -B scripts/check.py`; review and explicitly stage only scoped source paths.
-4. Run the resource-wrapped staged check before committing. The installed precommit hook acquires its own check permit; do not wrap `git commit` itself or nest admission. Install the local hook using `./scripts/install-hooks.sh`; never auto-stage fixes or bypass a failure as acceptance evidence. Changes to safety gates need independent review.
+4. Run `python3 -B scripts/check_commit.py` before committing. This top-level staged coordinator and the installed precommit hook acquire one check permit for non-GDScript changes or one heavy permit for staged GDScript compilation. Do not wrap either command or `git commit` itself, or nest admission. Install the local hook using `./scripts/install-hooks.sh`; never auto-stage fixes or bypass a failure as acceptance evidence. Changes to safety gates need independent review.
 5. The integration owner serializes main landing and publication. Validate branches against current main before landing; a clean textual merge is insufficient.
 6. Inspect `git status` and hand off any remaining work or verification limits.
 

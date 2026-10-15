@@ -8,6 +8,16 @@ python3 -B scripts/run_local.py heavy -- <build-or-test-command>
 python3 -B scripts/run_local.py benchmark -- <measurement-command>
 ```
 
+For commits use `python3 -B scripts/check_commit.py` directly, or let the
+installed precommit hook invoke it. That coordinator captures the staged tree
+and takes one permit: check for non-GDScript changes, heavy for staged `.gd`
+changes requiring the pinned compiler. It fails if staging changes before or
+during validation. Do not wrap the coordinator or `git commit`, and do not call
+another resource wrapper inside their checks. `check.py --staged` refuses game
+changes without the explicit compiler path; it cannot silently run Godot under
+a cheap permit. Runtime selection and retained compiler diagnostics are described
+in [CONTRIBUTING](../../CONTRIBUTING.md#checks-and-local-hooks).
+
 Cheap checks can coexist with each other and one heavy command. Heavy commands
 share one lane. A benchmark excludes all wrapped checks, heavy commands, and
 other benchmarks until its child exits. Locks live in the common Git directory,

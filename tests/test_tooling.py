@@ -35,7 +35,8 @@ class GitFixture(unittest.TestCase):
         (self.repo / ".beads/.gitignore").write_text("*.db\n*.db-*\n")
         (self.repo / ".beads/issues.jsonl").write_text('{"id":"factory-fixture"}\n')
         (self.repo / "scripts").mkdir()
-        for name in ("link-beads-worktree.sh", "install-hooks.sh", "check.py", "run_local.py"):
+        for name in ("link-beads-worktree.sh", "install-hooks.sh", "check.py", "run_local.py",
+                     "check_commit.py", "check_gdscript.py", "check_engine_environment.py"):
             shutil.copy2(ROOT / "scripts" / name, self.repo / "scripts" / name)
         (self.repo / ".githooks").mkdir()
         shutil.copy2(ROOT / ".githooks/pre-commit", self.repo / ".githooks/pre-commit")

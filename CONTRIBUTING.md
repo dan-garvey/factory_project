@@ -60,12 +60,24 @@ Prerequisites for current checks: Linux, Bash, Git, Python 3.10 or newer, and `s
 ```bash
 ./scripts/install-hooks.sh
 python3 -B scripts/run_local.py check -- python3 -B scripts/check.py
-python3 -B scripts/run_local.py check -- python3 -B scripts/check.py --staged
+python3 -B scripts/check_commit.py
 ```
 
-The installer sets repository-local `core.hooksPath=.githooks`, shared by linked worktrees, and refuses to overwrite a different configured hook path or disable executable default hooks. Install it in a fresh clone; Git does not distribute local configuration automatically. The hook acquires its own shared check permit and runs the staged command before a commit. Do not wrap `git commit` itself: that would nest resource admission. The hook does not auto-format or stage anything.
+The installer sets repository-local `core.hooksPath=.githooks`, shared by linked worktrees, and refuses to overwrite a different configured hook path or disable executable default hooks. Install it in a fresh clone; Git does not distribute local configuration automatically. The hook calls `check_commit.py`, which takes exactly one top-level permit: shared check for non-GDScript changes, heavy for staged `.gd` changes. Do not wrap that coordinator or `git commit` itself: either would nest resource admission. The hook does not auto-format or stage anything.
 
-The check runner currently validates Python/Bash syntax, optional agent JSON configuration, and the tooling integration tests. Missing or skipped tooling tests fail. Source checks do not need a private tracker, so a clean public clone can run them. The staged command also checks diff whitespace, rejects every `.beads` path (including exports/configuration), and checks an immutable copy of the candidate index using raw Git blobs, without checkout filters or archive exclusions. Passing unstaged files cannot hide a broken staged candidate. Staging changes during the run make it fail. The temporary snapshot never contains private tracker data or invokes `br`.
+The cheap check runner validates Python/Bash syntax, optional agent JSON configuration, and the tooling integration tests. Missing or skipped tooling tests fail. Source checks do not need a private tracker or engine, so a clean public clone can run them. The staged command also checks diff whitespace, rejects every `.beads` path (including exports/configuration), and checks an immutable copy of the candidate index using raw Git blobs, without checkout filters or archive exclusions. Passing unstaged files cannot hide a broken staged candidate. Staging changes before admission or during the run make the commit coordinator fail. The temporary snapshot never contains private tracker data or invokes `br`.
+
+For staged `.gd` changes, the coordinator also requires real GDScript parsing. The integration owner configures the existing verified runtime locally after safety-gate review; no runtime is downloaded or selected through global settings. Replace these illustrative values with the absolute existing executable, its verified lowercase SHA256 and an owned external artifact directory:
+
+```bash
+git config --local factory.godotExecutable /absolute/verified/Godot_v4.7.2-stable_linux.x86_64
+git config --local factory.godotSHA256 'verified-executable-sha256'
+git config --local factory.godotArtifacts /absolute/owned/staged-compiler-evidence
+```
+
+Verify the installed release before pinning it, using the [environment trial](docs/engineering/engine-environment.md) provenance. The current compiler contract accepts only the separately verified `4.7.2.stable.official.ed1daf0bf`. Missing executable/configuration, a changed hash, wrong version or parse error refuses the game commit. Non-GDScript commits remain engine-free. Ordinary `check.py --staged` remains a cheap source gate for other changes and explicitly refuses staged GDScript with instructions to use the coordinator; it never starts an engine inside an existing check permit.
+
+The compiler copies the immutable staged prototype project to an owned external session, imports it, then runs `--headless --check-only --script` on **every** staged project `.gd` file. Editor import alone missed the retained mechanics compile failure. Original input hashes, staged tree, binary/runner pins, post-import configuration hash, individual commands/logs and refusal receipts survive outside Git. The parser has a 5 minute/128 MiB allowance, 8 MiB logs and one engine at a time; sources are limited to 2 MiB/512 files/128 scripts for this small prototype. Only `experiments/engine-environment/godot` is supported; another script root or removal of the entire project needs an explicit contract update rather than a silent skip. Compilation is separate from actual rule, input, rendering, network and save/continuation evidence.
 
 This intentionally simple snapshot gate copies the small tracked tree. It currently rejects staged symlinks and submodules, including the shared `.beads` symlink. Deliberate support for legitimate source symlinks/submodules requires extending the gate and tests first. If assets or build costs make whole-tree snapshots expensive, replace this mechanism with measured, cache-aware validation; do not blindly copy large assets on every commit. No game build, playtest, performance result, remote CI or branch protection is implied by a green tooling check or public remote. Local hooks can be bypassed; do not use a bypass as acceptance evidence.
 
