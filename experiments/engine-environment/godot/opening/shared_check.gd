@@ -16,6 +16,7 @@ var started := 0
 var checks := 0
 var defer_connect := false
 var fatal := false
+var transport_disconnect_reason := ""
 
 func _initialize() -> void:
 	call_deferred("_run")
@@ -35,6 +36,7 @@ func _run() -> void:
 	scene = load("res://opening/shared_opening.tscn").instantiate()
 	scene.connect_on_ready = not defer_connect
 	root.add_child(scene)
+	scene.session.disconnected.connect(func(reason: String): transport_disconnect_reason = reason)
 	current_scene = scene
 	await process_frame
 	await physics_frame
@@ -184,6 +186,11 @@ func facts() -> Dictionary:
 		"last_local_result": scene.last_local_result.duplicate(true), "confirmed": scene.goal_confirmed,
 		"goal": scene.goal_label.text, "confirm_disabled": scene.confirm_button.disabled,
 		"connection_label": scene.connection_label.text, "message": scene.status_label.text,
+		"transport_disconnect_reason": transport_disconnect_reason,
+		"inspector": scene.inspector.text, "power_label": scene.power_label.text,
+		"inspector_rect": [scene.inspector.get_global_rect().position.x, scene.inspector.get_global_rect().position.y,
+			scene.inspector.size.x, scene.inspector.size.y],
+		"worksite_bottom": scene.disconnect_button.get_global_rect().end.y,
 		"save_slot": scene.save_slot, "save_ready": scene.save_slot_ready, "save_owned": scene.save_slot_owned,
 		"save_disabled": scene.save_button.disabled, "load_disabled": scene.load_button.disabled,
 		"save_result": scene.last_save_result.duplicate(true), "load_result": scene.last_load_result.duplicate(true),

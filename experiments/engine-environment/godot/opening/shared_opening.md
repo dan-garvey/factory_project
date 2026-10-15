@@ -30,7 +30,9 @@ model.
 
 Before readiness, no state is invented. After disconnect, the last confirmed
 worksite remains visible and read-only. Uncertain actions remain explicitly
-uncertain and never retry automatically. Reconnecting obtains a server-generated
+uncertain and never retry automatically. Connection failures show their cause
+alongside that warning; a failed reconnect does not decide the earlier action.
+Reconnecting obtains a server-generated
 fresh namespace and current projection and resets selection, link selection and
 local objective acknowledgement. Camera and Help remain local presentation.
 

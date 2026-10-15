@@ -47,6 +47,13 @@ construction controls are unavailable until it closes. Help shows a populated
 and its own finite 16 blanks and starter parts. It supplies nothing to your
 worksite. Your worksite clock continues while Help is open.
 
+The selected-machine inspector explains the next local step: a missing material
+inlet/outlet names the pair to link with F, an unconnected drive calls for G, and
+a switched-off drive calls for Space. A full press outlet calls for R to make
+room; unfinished work stays in the press. These hints describe confirmed state
+and do not grant permission to edit. In shared play, a pending action shows that
+the server decision is still awaited, and a disconnected view remains read only.
+
 Use Previous/Next (or left/right arrows) to inspect placement, drive, a blank
 held in the press, and a blocked outlet. Each lesson resets the example, as its
 heading states. **Advance example one tick** moves that example through real

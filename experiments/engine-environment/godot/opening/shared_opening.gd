@@ -125,9 +125,17 @@ func _disconnected(reason: String) -> void:
 	pending_actions.clear()
 	selected = ""
 	pending_link = ""
-	_message("Disconnected. Last confirmed worksite is read-only. %s" % reason, true)
+	var cause: String = {"closed": "Disconnected locally.", "Closed locally": "Disconnected locally.",
+		"server_disconnected": "The server closed the connection.",
+		"connection_failed": "Could not connect to the worksite.",
+		"connection_timeout": "The worksite did not respond in time.",
+		"role_unavailable": "That participant is already connected.",
+		"already_joined": "This connection has already joined.",
+		"not_joined": "The server has not admitted this connection.",
+		"invalid_welcome": "The server did not send a usable worksite."}.get(reason, "Connection ended.")
 	if _has_unknown_actions():
-		_message("Disconnected. The last action's outcome is unknown; it will not retry automatically.", true)
+		cause += " An earlier action's outcome is unknown; it will not retry automatically."
+	_message(cause + " Last confirmed worksite is read-only.", true)
 	_refresh_ui()
 	_update_cursor()
 
@@ -262,11 +270,22 @@ func _load_worksite(_path: String = "") -> Dictionary:
 	_message("Loading is unavailable in this shared-session prototype.", true)
 	return last_load_result.duplicate(true)
 
+func _inspection_hint() -> String:
+	if not session.is_ready():
+		return "Last confirmed state only.\nReconnect before interacting."
+	if not pending_actions.is_empty():
+		return "Action awaiting the server.\nWait for its decision."
+	return super._inspection_hint()
+
 func _refresh_ui() -> void:
 	if stock_label == null:
 		return
 	if _usable_snapshot():
 		super._refresh_ui()
+		if not session.is_ready():
+			inspector.text = "Last confirmed state only.\nReconnect before interacting."
+		elif not pending_actions.is_empty() and not state.entities.has(selected):
+			inspector.text = "Action awaiting the server.\nWait for its decision."
 	else:
 		goal_label.text = "FIRST SHIFT\nWaiting for the shared worksite"
 		stock_label.text = "No server state received"

@@ -562,7 +562,7 @@ func _refresh_ui() -> void:
 	confirm_button.text = "Objective confirmed" if goal_confirmed else "Confirm four plates"
 	stock_label.text = "SEAM  %d blanks\nIN THE LINE  %d blanks\nPRESS OUTLET  %d plate" % [state.stock.source,
 		state.stock.collector + state.stock.belt + state.stock.input + state.stock.held, state.stock.output]
-	power_label.text = "DRIVE RUNNING" if state.get("powered", false) else "DRIVE STOPPED / UNCONNECTED"
+	power_label.text = "DRIVE RUNNING" if state.get("powered", false) else "DRIVE SWITCHED OFF" if not state.get("power_enabled", true) else "DRIVE NEEDS CONNECTIONS"
 	power_button.text = "Stop drive  [Space]" if state.get("power_enabled", true) else "Start drive  [Space]"
 	power_button.disabled = explanation_open
 	save_button.disabled = explanation_open or not save_slot_ready
@@ -585,8 +585,47 @@ func _refresh_ui() -> void:
 		inspector.text = "%s\nSquare %s" % [NAMES.get(state.entities[selected].kind, selected), str(state.entities[selected].cell)]
 		if state.entities[selected].kind == "processor":
 			inspector.text += "\n%d in · %d held · %d ready" % [state.stock.input, state.stock.held, state.stock.output]
+		inspector.text += "\n" + _inspection_hint()
 	else:
 		inspector.text = "Select a machine to inspect\nor collect its finished work."
+
+func _inspection_hint() -> String:
+	# Describe confirmed projection facts only. This is advice, never admission
+	# or a second power solver; the authority still decides every command.
+	var kind: String = state.entities[selected].kind
+	if kind == "processor" and state.stock.output > 0:
+		return "Outlet full; plate ready.\n[R] collect to make room."
+	if not state.get("power_enabled", true):
+		return "Drive switched off.\n[Space] enables the drive."
+	if kind == "processor" and state.stock.held > 0 and state.get("powered", false):
+		if state.remaining == 0:
+			return "Work done; blank retained.\nNext drive tick releases plate."
+		return "Working: %d ticks remaining.\nHeld blank stays in the press." % state.remaining
+	if kind in ["belt", "processor"] and not _has_material_connection(true):
+		return ("Inlet missing. Stop [Space].\n" if state.get("powered", false) else "No material inlet linked.\n") + "[F] link " + ("Collector → Belt." if kind == "belt" else "Belt → Press.")
+	if kind in ["collector", "belt"] and not _has_material_connection(false):
+		return ("Outlet missing. Stop [Space].\n" if state.get("powered", false) else "No material outlet linked.\n") + "[F] link " + ("Collector → Belt." if kind == "collector" else "Belt → Press.")
+	if not state.get("powered", false):
+		return "Drive needs connections.\n[G] link wheel + all machines."
+	if kind == "processor":
+		if state.stock.input > 0:
+			return "Blank ready to press.\nNext drive tick starts work."
+		return "Waiting for a blank.\nInspect the Belt upstream."
+	if kind == "collector":
+		if state.stock.source == 0:
+			return "Seam depleted.\nNo blanks remain to collect."
+		if state.stock.collector > 0:
+			return "Collector outlet occupied.\nInspect the Belt downstream."
+		return "Collecting finite seam blanks.\nBelt takes the next blank."
+	if kind == "belt":
+		return "Belt carrying a blank.\nInspect the Press downstream." if state.stock.belt > 0 else "Waiting for a blank.\nInspect the Collector upstream."
+	return "Wheel powers the whole line.\n[Space] stops it for editing."
+
+func _has_material_connection(incoming: bool) -> bool:
+	for pair in state.links:
+		if pair[1 if incoming else 0] == selected:
+			return true
+	return false
 
 func _update_cursor() -> void:
 	hover.visible = hover_cell.x >= -2 and hover_cell.x <= 4 and hover_cell.y >= -2 and hover_cell.y <= 4 and not explanation_open
@@ -669,6 +708,8 @@ func _build_interface() -> void:
 	power_label = _label(right, "", 14, Color("dfbc76"))
 	stock_label = _label(right, "", 16)
 	inspector = _label(right, "", 15)
+	inspector.custom_minimum_size.x = 238
+	inspector.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	retrieve_button = _button(right, "Collect plate  [R]", _retrieve)
 	power_button = _button(right, "Stop drive  [Space]", _toggle_power)
 	remove_button = _button(right, "Dismantle selected", _remove_selected)
