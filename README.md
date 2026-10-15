@@ -51,3 +51,5 @@ and [fresh-process save continuation](experiments/engine-environment/godot/save-
 [DESIGN.md](DESIGN.md) owns requirements and open decisions;
 [ROADMAP.md](ROADMAP.md) records staged work. Contributors should read
 [AGENTS.md](AGENTS.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
+The [proposed delivery stages](docs/proposals/release-stage-map.md) compare two
+release envelopes while retaining later requirements and unresolved choices.
