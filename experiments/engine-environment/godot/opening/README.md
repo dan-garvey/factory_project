@@ -74,12 +74,19 @@ power/drive topology, next entity identities, quantities, phase and request
 outcomes; a rebuilt machine never inherits an old command's identity. This
 prototype uses atomic command admission/application, so it does not claim an
 observable accepted-but-pending command stage. Process-held work is represented.
+Command metadata and checkpoint contents must be acyclic plain values: scalar
+null/bool/int/finite float/string, arrays, and dictionaries with string keys.
+Unsupported objects are refused before request retention rather than silently
+dropped. The prototype traversal limits are 32 nested levels and 100,000 values;
+these are input-format bounds, not game performance targets. Restore requires
+an explicit positive validation result, typed correlators and consistent retained
+revision, generation, entity, connection, power and retrieval histories.
 A fresh view allocates a new opaque request namespace so its local counter
 cannot collide with requests retained by a restored authority. This is intent
 identity, not simulation randomness or a chosen production transport protocol.
 
 Current validation includes the 22 unchanged neutral assertions, 60 opening-model
-assertions and the actual key/mouse/button consumer path in headless and real
+assertions, 124 malformed-checkpoint/metadata regressions and the actual key/mouse/button consumer path in headless and real
 Compatibility-rendered runs. Rendered captures were visually inspected. No
 human play session, networked opening, save-file/crash durability, detailed
 contact/injury, moving machinery, native-core portability or scale claim follows.

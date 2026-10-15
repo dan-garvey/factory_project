@@ -14,7 +14,7 @@ import tempfile
 
 PROJECT = Path(__file__).resolve().parent.parent
 BASE = ("project.godot", "main.tscn", "model.gd", "scenario.gd", "tests.gd", "view.gd")
-OPENING = ("opening.gd", "opening.tscn", "opening_check.gd", "model_check.gd")
+OPENING = ("opening.gd", "opening.tscn", "opening_check.gd", "model_check.gd", "checkpoint_check.gd")
 
 
 def main():
@@ -88,6 +88,7 @@ def main():
         if not args.import_only:
             execute("baseline", ["--headless", "--path", str(project), "--script", "res://tests.gd"], "FACTORY_HEADLESS_PASS")
             execute("opening-model", ["--headless", "--path", str(project), "--script", "res://opening/model_check.gd"], "OPENING_MODEL_PASS")
+            execute("checkpoint-regression", ["--headless", "--path", str(project), "--script", "res://opening/checkpoint_check.gd"], "CHECKPOINT_REGRESSION_PASS")
             arguments = ["--path", str(project), "--script", "res://opening/opening_check.gd"]
             if args.render:
                 arguments += ["--rendering-method", "gl_compatibility", "--audio-driver", "Dummy",
