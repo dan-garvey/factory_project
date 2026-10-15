@@ -97,5 +97,8 @@ core integration, packaging/distribution, factory scale and comparative engine
 iteration. UI/world picking here is a grid-plane intersection, not a tested
 player movement/collision join; finite source stock is a fixture, not terrain
 harvest eligibility. Source/client assertions are not proof of
-adversarial network safety. User feedback and independent review of this exact
-sandbox/checker change must precede broader use or production recommendations.
+adversarial network safety. Independent exact-source/runtime review precedes
+broader use of this baseline; Chapter/Platform work can then proceed under the
+user's reversible-decision mandate. Actual user play is needed for usability or
+enjoyment claims, not permission to continue prototyping. Production adoption
+remains a separate evidence-based decision.
