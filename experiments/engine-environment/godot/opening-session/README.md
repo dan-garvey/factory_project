@@ -49,19 +49,19 @@ material owner.
 
 The initial network UI explicitly disables Save/Load and F5/F9. It does not
 write a client worksite slot or roll back the live server. Full offline
-save/reopen remains available separately. Server-owned persistence needs a
-separate scope.
+save/reopen remains available separately. Optional host checkpoints capture
+the authoritative worksite at an orderly stop, as described below.
 
 The server's optional initial `--frozen-clock` is for controlled observation;
 it is not a client command. A separate ordinary-clock run must establish live
-shared continuation. Local ready/status/stop/report paths only coordinate the
-owned automated process lifecycle. Diagnostic JSON is not a compatible saved
+shared continuation. Local ready/status/stop/report paths coordinate the
+owned host process lifecycle. Diagnostic JSON is not a compatible saved
 worksite. `transport_check.gd` has private local file controls for transport
 proofs; graphical input belongs to the actual shared-opening UI consumer.
 
 This is trusted same-host loopback work, not public hosting, production netcode,
 prediction, authentication, high-rate/scale evidence, moving-world networking,
-network persistence, campaign policy or human play. Bounded orchestration and
+campaign policy or human play. Bounded orchestration and
 actual two-UI evidence are required before accepting the integrated mode.
 
 ## Normal shared play
@@ -81,8 +81,35 @@ connect automatically. The ordinary mode has no input controller, copied
 observer, delivery holds or frozen clock. The server keeps the existing live
 clock and sole Model. Construction, material/drive links, retrieval, explicit
 actor-owned confirmation and Help use the same controls as the offline opening.
-Shared Save/Load remains unavailable. Each launch is a fresh finite16 fixture;
-closing a session does not save it.
+Client Save/Load remains unavailable. By default each launch is a fresh
+finite16 fixture and closing it does not save. Add `--save-on-close` to publish
+the actual host's checkpoint at an orderly session end. Its new
+`worksite.factory` path is printed and retained in the run directory. Reopen
+that compatible opening with `--resume /absolute/previous/worksite.factory`.
+Resume implies save-on-close into a **new** output slot. The input is captured
+read only and preserved, and no client can load over a running world.
+
+The host retains quantities and their locations, per-actor inventories,
+construction identities and topology, held work/remaining phase, power and
+cached command dispositions/order. P's pocket remains P's, and Q's remains Q's
+even when only one participant joins. Logical Core context survives; transport
+serial, socket bindings and caller namespaces are fresh. Old connection
+requests refuse rather than automatically replay. Selection and the local
+non-consuming goal confirmation start fresh; a qualified actor can confirm
+again. The factory does not catch up elapsed real time while stopped.
+
+Only the existing bounded Model/Store format is supported, with the opening's
+16 blanks, one-blank recipe and P/Q roles. A bad or incompatible input fails
+before server readiness or client admission, without creating a fresh fallback.
+Existing output or `.pending` collisions refuse without overwriting an earlier
+file. Checkpoint paths also reserve the lifecycle/control paths and their
+temporary `.writing` buffers. If an error report would itself overwrite a
+checkpoint path, the server retains its refusal in stderr and suppresses that
+JSON report. A refused/failed publication makes the launcher fail, never a saved or
+completed result. Ctrl-C after readiness asks for an orderly host stop/save
+before cleanup; an interrupted preparation can have no checkpoint. This is not
+crash/power-loss durability, autosave retention, cross-version migration or a
+moving-factory persistence claim.
 
 Closing **either** game window ends the entire session, including the server
 and the other window. Ctrl-C also stops all owned processes. The launcher
@@ -108,8 +135,10 @@ For a bounded automated normal-entry smoke check, add `--smoke`. This keeps the
 ordinary scene entry and auto-connect, but appends the tracked
 `launch_observer.gd` as an autoload **only in the copied client configuration
 after import**. Its captured bytes and original/post-import/runtime configuration
-hashes are disclosed. The default observer reads the real scene, waits for two
-server revisions, captures its window and reports without game commands. It
+hashes are disclosed. The default observer reads the real scene, records its
+connected revision, waits for two **additional** server revisions, captures its
+window and reports without game commands. A large restored revision alone
+cannot satisfy that clock check. It
 closes/publishes its report before emitting the tagged completion marker; the
 supervisor reads it once and releases the observers to exit only after all
 participants were observed. This is startup/lifecycle evidence, not human play.
@@ -122,6 +151,30 @@ observer and launcher validator. Extra ordinary-input stages can be retained
 in its report. Normal mode refuses `--observer`; it never depends on diagnostic
 controls. The separate transport and full UI checks below retain their own
 coverage and attribution.
+
+The low-level dedicated entry accepts optional `--resume-input` and
+`--save-file` paths in the same owned directory as its lifecycle files. These
+are host process options, never RPCs. Input is decoded into the one actual
+server Model through the existing Store before readiness/welcome; output uses
+that same Store once at the completed stop boundary. No-option entry does not
+load the Store, preserving the accepted minimal transport consumer. Ready and
+final reports distinguish the loaded checkpoint, original input hash and
+actual publication/refusal. Their JSON remains diagnostics, not a saved game.
+
+For controlled authority restart evidence, `scripts/check_shared_checkpoint.py`
+uses explicit accepted producer fixtures and the real diagnostic peers. It
+labels that seed reuse, verifies original Model/Store pins and file hashes,
+then runs new actual hosts through Store capture and restart. The same two
+peer processes reconnect to successive authorities with fresh namespaces;
+old applied requests refuse and a new live clock completes retained work.
+Add `--negative` to run the separate pre-admission refusal controls: corrupt or
+truncated input, valid Core files outside the opening/P/Q contract, occupied
+output/pending paths and invalid host paths. The tracked
+`checkpoint_controls.gd` creates the valid incompatible files through the real
+Core and Store. Expected host failures retain their original `fail` reports;
+the checker separately records whether each refusal and preservation matched
+its expectation. This is separate from normal-scene smoke/input evidence and
+human play.
 
 ## Bounded transport proof
 

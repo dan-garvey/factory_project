@@ -16,19 +16,24 @@ func _ready() -> void:
 		return
 	var deadline := Time.get_ticks_msec() + 15000
 	var scene
+	var connected_revision := -1
 	while Time.get_ticks_msec() < deadline:
 		await get_tree().process_frame
 		scene = get_tree().current_scene
 		if scene != null and scene.scene_file_path == "res://opening/shared_opening.tscn":
 			var session = scene.get("session")
-			# This observer sends no commands. Two real revisions therefore
-			# witness the ordinary server clock after the normal auto-connect.
-			if session != null and session.is_ready() and session.projection().get("revision", -1) >= 2:
-				break
+			if session != null and session.is_ready():
+				var revision: int = session.projection().get("revision", -1)
+				if connected_revision < 0:
+					connected_revision = revision
+				# A restored revision can already be large. Observe two NEW
+				# revisions after connection; this observer sends no commands.
+				if revision >= connected_revision + 2:
+					break
 	if scene == null or scene.get("session") == null or not scene.session.is_ready():
 		fail("Normal shared scene did not auto-connect")
 		return
-	if scene.session.projection().get("revision", -1) < 2:
+	if connected_revision < 0 or scene.session.projection().get("revision", -1) < connected_revision + 2:
 		fail("Actual server clock did not advance")
 		return
 	await get_tree().physics_frame
@@ -39,10 +44,13 @@ func _ready() -> void:
 	var value := {"schema": 1, "status": "pass", "actor": scene.client, "pid": OS.get_process_id(),
 		"scene": scene.scene_file_path, "script": scene.get_script().resource_path,
 		"session_path": str(scene.session.get_path()), "projection": scene.session.projection(),
+		"connected_revision": connected_revision,
 		"view": {"ready": scene.session.is_ready(), "connecting": scene.connecting,
 			"model_is_session": scene.model == scene.session, "client_world_is_null": scene.session.world == null,
 			"auto_advance": scene.auto_advance, "model_script": scene.model.get_script().resource_path,
 			"namespace": scene.request_namespace, "sequence": scene.request_sequence,
+			"selected": scene.selected, "pending_link": scene.pending_link, "confirmed": scene.goal_confirmed,
+			"goal": scene.goal_label.text, "confirm_disabled": scene.confirm_button.disabled,
 			"session_namespace": scene.session.request_namespace, "session_sequence": scene.session.request_sequence,
 			"save_slot": scene.save_slot, "save_ready": scene.save_slot_ready, "save_owned": scene.save_slot_owned,
 			"save_disabled": scene.save_button.disabled, "load_disabled": scene.load_button.disabled}}

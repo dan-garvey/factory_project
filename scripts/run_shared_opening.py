@@ -19,6 +19,7 @@ import time
 
 import check_engine_environment as bounds
 from check_opening_session import ActorGroup, ledger, publish, read_json, sha
+from run_opening import capture_resume
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT = ROOT / 'experiments/engine-environment/godot'
@@ -235,6 +236,24 @@ def instrument(project, observer):
             'runtime_config_sha256': sha(config), 'observer_sha256': sha(target)}
 
 
+def verify_host_checkpoint(server, slot, resumed=None):
+    """Verify the publisher boundary; Core/Store alone own the binary schema."""
+    persisted = server.get('persistence', {})
+    if (persisted.get('accepted') is not True or persisted.get('save', {}).get('accepted') is not True
+            or persisted.get('save_file') != str(slot) or persisted.get('input_preserved') is not True):
+        raise ValueError('Host did not publish the requested checkpoint: ' + str(persisted.get('save', {})))
+    if (not slot.is_file() or Path(str(slot) + '.pending').exists()
+            or slot.stat().st_size > 1024**2 or sha(slot) != persisted.get('saved_sha256')):
+        raise ValueError('Host checkpoint is absent, pending, oversized or differs from the published hash')
+    if resumed:
+        if (persisted.get('resume', {}).get('accepted') is not True
+                or persisted.get('input_sha256') != resumed['source_sha256']
+                or persisted.get('resume_input') != resumed['incoming']
+                or sha(Path(resumed['incoming'])) != resumed['source_sha256']):
+            raise ValueError('Host did not preserve the actual captured resume input')
+    return {'file': str(slot), 'sha256': sha(slot)}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--godot', type=Path, required=True)
@@ -245,6 +264,8 @@ def main(argv=None):
     parser.add_argument('--duration-seconds', type=int, default=900, help='1..1100 seconds after admission; default15min')
     parser.add_argument('--smoke', action='store_true', help='observe normal entry using a disclosed copied-only autoload, then exit')
     parser.add_argument('--observer', type=Path, help='smoke-only captured independent observer, never a replacement scene')
+    parser.add_argument('--save-on-close', action='store_true', help='save the host on orderly session end into this fresh run')
+    parser.add_argument('--resume', type=Path, help='reopen a compatible checkpoint; preserve input and save to a fresh output on close')
     args = parser.parse_args(argv)
     if args.observer and not args.smoke:
         parser.error('--observer requires --smoke')
@@ -266,17 +287,21 @@ def main(argv=None):
     if shutil.disk_usage(artifacts).free < 22 * 1024**3 or bounds.owned_bytes(artifacts) >= MAX_BYTES:
         parser.error('Require22GiB free and less than256MiB retained evidence')
     run = Path(tempfile.mkdtemp(prefix='shared-', dir=artifacts))
+    save_slot = run / 'worksite.factory' if args.save_on_close or args.resume is not None else None
     roles = ('P',) if args.clients == 1 else ('P', 'Q')
     receipt = {'schema': 1, 'status': 'running', 'mode': 'smoke' if args.smoke else 'interactive',
                'revision': subprocess.check_output(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], text=True).strip(),
                'started': datetime.now(timezone.utc).isoformat(), 'source_hashes': {}, 'stages': [],
                'runner_hashes': {name: sha(ROOT / 'scripts' / name) for name in
-                   ('run_shared_opening.py', 'check_opening_session.py', 'check_engine_environment.py')},
+                   ('run_shared_opening.py', 'check_opening_session.py', 'check_engine_environment.py', 'run_opening.py')},
                'binary': str(args.godot), 'binary_sha256': args.sha256, 'roles': roles, 'user_play': 'not_assessed'}
     publish(run / 'controller.json', {'schema': 1, 'controller_pid': os.getpid(), 'run': str(run),
                                     'revision': receipt['revision'], 'mode': receipt['mode']})
     print('Shared opening session: ' + str(run), flush=True)
-    print('Closing either window ends this session. Ctrl-C stops all owned processes. Shared saving is unavailable.', flush=True)
+    print('Closing either window ends this session. Ctrl-C stops all owned processes. Client Save/Load is unavailable.', flush=True)
+    if save_slot is not None:
+        receipt['save_slot'] = str(save_slot)
+        print('The host will save on orderly close to: ' + str(save_slot), flush=True)
     bounds.MAX_ARTIFACT_BYTES = MAX_BYTES
     deadline = time.monotonic() + 1800
     phase = ['preparing']
@@ -284,6 +309,12 @@ def main(argv=None):
     code = 0
     try:
         with interrupt_control(run, phase) as interruptions:
+            if args.resume is not None:
+                incoming = run / 'incoming.factory'
+                incoming.write_bytes(capture_resume(args.resume))
+                incoming.chmod(0o400)
+                receipt['resume'] = {'source': str(args.resume), 'incoming': str(incoming),
+                                     'source_sha256': sha(incoming), 'bytes': incoming.stat().st_size}
             runners = run / 'runners'
             runners.mkdir()
             for name, digest in receipt['runner_hashes'].items():
@@ -343,6 +374,10 @@ def main(argv=None):
                                 '--session-port=' + str(port), '--ready-file=' + str(run / 'server-ready.json'),
                                 '--status-file=' + str(run / 'server-status.json'), '--stop-file=' + str(run / 'server.stop'),
                                 '--report-file=' + str(run / 'server-report.json')]
+                    if save_slot is not None:
+                        command += ['--save-file=' + str(save_slot)]
+                    if args.resume is not None:
+                        command += ['--resume-input=' + receipt['resume']['incoming']]
                 else:
                     command += [SCENE, '--rendering-method', 'gl_compatibility', '--audio-driver', 'Dummy', '--',
                                 '--session-port=' + str(port), '--session-role=' + role]
@@ -370,12 +405,34 @@ def main(argv=None):
                 if server.get('status') != 'pass' or server.get('clock_frozen') is not False:
                     raise ValueError('Server did not finish its actual ordinary live session')
                 ledger(server['snapshot'])
+                if save_slot is not None:
+                    receipt['saved_checkpoint'] = verify_host_checkpoint(server, save_slot, receipt.get('resume'))
             if server is not None and receipt['cohort']['status'] == 'pass' and args.smoke and receipt['observer']['default']:
                 snapshot = server['snapshot']
-                if (server['tick_count'] < 2 or snapshot['order'] != 0 or snapshot['entities']
-                        or snapshot['stock']['source'] != 16 or server['checkpoint']['requests']):
-                    raise ValueError('Read-only startup observer changed the real fresh worksite')
+                if server['tick_count'] < 2:
+                    raise ValueError('Read-only observer did not witness the current host clock')
+                if args.resume is None:
+                    if snapshot['order'] != 0 or snapshot['entities'] or snapshot['stock']['source'] != 16 or server['checkpoint']['requests']:
+                        raise ValueError('Read-only startup observer changed the real fresh worksite')
+                else:
+                    loaded = receipt['cohort']['ready']['persistence']['loaded_checkpoint']
+                    current = server['checkpoint']
+                    if (current['order'] != loaded['order'] or current['revision'] != loaded['revision'] + server['tick_count']
+                            or any(current[key] != loaded[key] for key in
+                                   ('context', 'entities', 'links', 'parts', 'inventories', 'requests',
+                                    'options', 'drive_links', 'power_enabled', 'next_ids'))):
+                        raise ValueError('Read-only resumed observer changed retained identities/requests/ownership')
                 for role in roles:
+                    observed = receipt['cohort']['observations'][role]
+                    if (type(observed.get('connected_revision')) is not int
+                            or observed['projection']['revision'] < observed['connected_revision'] + 2):
+                        raise ValueError('Stored revision was substituted for new host clock observations')
+                    view = observed['view']
+                    inventory = observed['projection']['inventories'].get(role, 0)
+                    if (view.get('sequence') != 0 or view.get('selected') != '' or view.get('pending_link') != ''
+                            or view.get('confirmed') is not False or view.get('confirm_disabled') is not (inventory < 4)
+                            or view.get('goal', '').splitlines()[-1:] != [f'{inventory} / 4 collected']):
+                        raise ValueError('Restored actor goal, selection or fresh caller identity differs')
                     if not (run / role / 'observation.json.png').read_bytes().startswith(b'\x89PNG\r\n\x1a\n'):
                         raise ValueError('Missing actual normal-window capture')
             if any(not x['reaped'] or x['pgid_at_launch'] != receipt['cohort']['worker_pgid']
@@ -410,6 +467,15 @@ def main(argv=None):
         receipt.update(status='fail', error=str(error))
         print('Shared opening failed: ' + str(error), file=sys.stderr)
     finally:
+        if 'resume' in receipt:
+            try:
+                preserved = hashlib.sha256(capture_resume(args.resume)).hexdigest() == receipt['resume']['source_sha256']
+            except (OSError, ValueError, subprocess.SubprocessError):
+                preserved = False
+            receipt['resume']['original_unchanged'] = preserved
+            if not preserved:
+                code = 1
+                receipt.update(status='fail', error='Original resume input changed during this run')
         if (run / 'cohort.json').exists() and 'cohort' not in receipt:
             receipt['cohort'] = read_json(run / 'cohort.json')
         receipt.update(finished=datetime.now(timezone.utc).isoformat(), owned_bytes=bounds.owned_bytes(artifacts))

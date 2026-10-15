@@ -39,14 +39,21 @@ python3 -B scripts/run_local.py heavy -- python3 -B scripts/run_shared_opening.p
 This opens ordinary P and Q game windows connected to one live loopback server.
 Add `--clients 1` for a single window. Both participants use the same finite
 starter kit, while collected plates and the four-plate confirmation belong to
-the individual participant. Shared Save/Load is unavailable; use the original
-offline launcher above for saves and reopening. Each command starts a fresh
-16-blank worksite. Closing either window ends the whole shared session; Ctrl-C
+the individual participant. Client Save/Load is unavailable. Add
+`--save-on-close` to save the whole host worksite when the session ends; the
+console prints its new `worksite.factory` path. To reopen it, add
+`--resume /absolute/path/to/prior/shared-run/worksite.factory`. The original
+stays read only, and the resumed host saves to a fresh output on close. The
+offline launcher above retains its individual F5/F9 controls.
+Without `--resume`, each command starts a fresh 16-blank worksite.
+Closing either window ends the whole shared session; Ctrl-C
 also stops it. The default session lasts at most 15 minutes. See the
 [shared launch controls and limits](experiments/engine-environment/godot/opening-session/README.md#normal-shared-play).
 
 The shared UI is a trusted same-host prototype without a lobby, accounts or
-remote hosting. Larger factories, durable cross-version saves and native-core
+remote hosting. Host checkpoints cover orderly stops, rather than crashes or
+power loss; clients cannot roll back the live server. Larger factories,
+durable cross-version saves and native-core
 portability remain future work. Automated checks do not establish player
 understanding or enjoyment.
 

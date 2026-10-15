@@ -14,6 +14,12 @@ var outcome_hold := ""
 var observe_request := ""
 var observe_response := ""
 var observed := 0
+var save_path := ""
+var resume_path := ""
+var checkpoint_store
+var resume_result: Dictionary = {}
+var incoming_sha256 := ""
+var loaded_checkpoint: Dictionary = {}
 
 func _initialize() -> void:
 	for argument in OS.get_cmdline_user_args():
@@ -27,6 +33,8 @@ func _initialize() -> void:
 		elif argument.begins_with("--outcome-hold-file="): outcome_hold = argument.trim_prefix("--outcome-hold-file=")
 		elif argument.begins_with("--observe-request="): observe_request = argument.trim_prefix("--observe-request=")
 		elif argument.begins_with("--observe-response="): observe_response = argument.trim_prefix("--observe-response=")
+		elif argument.begins_with("--save-file="): save_path = argument.trim_prefix("--save-file=")
+		elif argument.begins_with("--resume-input="): resume_path = argument.trim_prefix("--resume-input=")
 	call_deferred("_boot")
 	process_frame.connect(_poll)
 
@@ -49,6 +57,17 @@ func _boot() -> void:
 			push_error("Local observation/barrier paths must be owned absolute paths")
 			quit(1)
 			return
+	if checkpoint_enabled():
+		var option_error := checkpoint_options_error()
+		if not option_error.is_empty():
+			checkpoint_failure(option_error)
+			return
+		# The accepted minimal nine-file transport consumer has no Store.
+		# Keep its no-option path independent of this optional host boundary.
+		checkpoint_store = load("res://save-tests/checkpoint_file.gd")
+		if checkpoint_store == null:
+			checkpoint_failure("store_unavailable")
+			return
 	var container := Node.new()
 	container.name = "OpeningShared"
 	session = Session.new()
@@ -62,16 +81,115 @@ func _boot() -> void:
 		push_error("Loopback bind refused: " + str(error))
 		quit(1)
 		return
+	if not resume_path.is_empty():
+		incoming_sha256 = FileAccess.get_sha256(resume_path)
+		var restored = checkpoint_store.read_into(session.world, resume_path)
+		if not restored is Dictionary or not restored.get("accepted") is bool or not restored.accepted:
+			checkpoint_failure("resume_refused:" + str(restored.get("reason", "invalid_result") if restored is Dictionary else "invalid_result"))
+			return
+		if FileAccess.get_sha256(resume_path) != incoming_sha256:
+			checkpoint_failure("resume_input_changed")
+			return
+		loaded_checkpoint = session.world.checkpoint()
+		if not compatible_opening(loaded_checkpoint):
+			checkpoint_failure("incompatible_opening")
+			return
+		# Logical world/request identity belongs to the restored Core, while
+		# transport serial, socket bindings and join namespaces start fresh.
+		session.context = session.world.context
+		resume_result = {"accepted": true, "reason": "restored", "source_sha256": incoming_sha256}
 	started = Time.get_ticks_msec()
 	session.server_joined.connect(func(_actor): _status())
 	session.server_lost.connect(func(_actor): _status())
 	session.server_event.connect(_status)
-	if not write_json(ready_path, {"schema": 1, "port": port, "pid": OS.get_process_id(), "context": session.context, "clock_frozen": frozen}):
+	var ready := {"schema": 1, "port": port, "pid": OS.get_process_id(), "context": session.context, "clock_frozen": frozen}
+	if checkpoint_enabled():
+		ready["persistence"] = {"resume": resume_result, "loaded_checkpoint": loaded_checkpoint,
+			"save_file": save_path, "resume_input": resume_path}
+	if not write_json(ready_path, ready):
 		push_error("Cannot write server readiness diagnostic")
 		quit(1)
 		return
 	_status()
 	print("OPENING_SESSION_SERVER_READY")
+
+func checkpoint_enabled() -> bool:
+	return not save_path.is_empty() or not resume_path.is_empty()
+
+func fresh_destination() -> bool:
+	for path in [save_path, save_path + ".pending"]:
+		if FileAccess.file_exists(path) or DirAccess.dir_exists_absolute(path):
+			return false
+	return true
+
+func checkpoint_paths() -> Array[String]:
+	var paths: Array[String] = []
+	if not resume_path.is_empty(): paths.append(resume_path)
+	if not save_path.is_empty(): paths.append_array([save_path, save_path + ".pending"])
+	return paths
+
+func checkpoint_options_error() -> String:
+	var owned := ready_path.get_base_dir().simplify_path()
+	for path in [save_path, resume_path]:
+		if not path.is_empty() and (not path.is_absolute_path() or path != path.simplify_path()
+			or path.get_base_dir() != owned):
+			return "checkpoint_path_outside_owned_run"
+	for checkpoint in checkpoint_paths():
+		for reserved in [ready_path, stop_path, report_path, status_path, admission_hold, outcome_hold, observe_request, observe_response]:
+			if not reserved.is_empty() and checkpoint in [reserved.simplify_path(), (reserved + ".writing").simplify_path()]:
+				return "checkpoint_path_conflicts_with_lifecycle"
+	if not save_path.is_empty() and not fresh_destination():
+		return "save_destination_or_pending_exists"
+	if not resume_path.is_empty() and not FileAccess.file_exists(resume_path):
+		return "resume_input_missing"
+	return ""
+
+func compatible_opening(capture: Dictionary) -> bool:
+	if capture.initial_feed != 16 or capture.recipe_input != 1 or capture.options.get("opening") != true:
+		return false
+	for actor in capture.inventories:
+		if not actor in ["P", "Q"]:
+			return false
+	for entry in capture.requests.values():
+		if not entry.intent.client in ["P", "Q"]:
+			return false
+	return true
+
+func checkpoint_failure(reason: String) -> void:
+	# Refusing an alias must not use the aliased diagnostic buffer itself.
+	var report_safe := true
+	for checkpoint in checkpoint_paths():
+		if checkpoint.simplify_path() in [report_path.simplify_path(), (report_path + ".writing").simplify_path()]:
+			report_safe = false
+	if report_safe:
+		write_json(report_path, {"schema": 1, "status": "fail", "pid": OS.get_process_id(),
+			"ready": false, "persistence": {"accepted": false, "reason": reason}})
+	else:
+		print("HOST_CHECKPOINT_REPORT_SUPPRESSED")
+	if session != null:
+		session.close()
+	push_error("Host checkpoint refused: " + reason)
+	quit(1)
+
+func checkpoint_finish(capture: Dictionary, expired: bool) -> Dictionary:
+	var preserved := resume_path.is_empty() or FileAccess.get_sha256(resume_path) == incoming_sha256
+	var result := {"accepted": preserved and not expired, "resume": resume_result,
+		"resume_input": resume_path, "input_preserved": preserved, "input_sha256": incoming_sha256,
+		"save_file": save_path, "save": {"accepted": false, "reason": "not_requested"}}
+	if not save_path.is_empty():
+		if expired:
+			result.save = {"accepted": false, "reason": "lifetime_expired"}
+		elif not preserved:
+			result.save = {"accepted": false, "reason": "resume_input_changed"}
+		elif not fresh_destination():
+			result.save = {"accepted": false, "reason": "save_destination_or_pending_exists"}
+		else:
+			var saved = checkpoint_store.write_snapshot(capture, save_path)
+			result.save = saved if saved is Dictionary else {"accepted": false, "reason": "invalid_result"}
+		result.accepted = result.save.get("accepted") is bool and result.save.accepted and preserved and not expired
+		if result.accepted:
+			result["saved_sha256"] = FileAccess.get_sha256(save_path)
+	return result
 
 func _status() -> void:
 	var evidence: Dictionary = session.server_evidence()
@@ -99,7 +217,12 @@ func _poll() -> void:
 	var expired := Time.get_ticks_msec() - started >= 1200000
 	if expired or FileAccess.file_exists(stop_path):
 		var evidence: Dictionary = session.server_evidence()
-		evidence["status"] = "fail" if expired else "pass"
+		var failed := expired
+		if checkpoint_enabled():
+			var persisted := checkpoint_finish(evidence.checkpoint, expired)
+			evidence["persistence"] = persisted
+			failed = failed or not persisted.accepted
+		evidence["status"] = "fail" if failed else "pass"
 		evidence["schema"] = 1
 		evidence["pid"] = OS.get_process_id()
 		if not write_json(report_path, evidence):
@@ -108,4 +231,4 @@ func _poll() -> void:
 		else:
 			print("OPENING_SESSION_SERVER_FINISHED")
 			session.close()
-			quit(1 if expired else 0)
+			quit(1 if failed else 0)
