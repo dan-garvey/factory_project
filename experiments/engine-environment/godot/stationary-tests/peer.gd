@@ -22,10 +22,10 @@ var trace: Array = []
 var transport_events: Array = []
 var port := 0
 
-func listen(listen_port: int) -> Error:
+func listen(listen_port: int, opening := false) -> Error:
 	port = listen_port
 	context = "stationary-fixture-1"
-	world = Model.new(16, context, 1)
+	world = Model.new(16, context, 1, {"opening": true}) if opening else Model.new(16, context, 1)
 	var transport := ENetMultiplayerPeer.new()
 	transport.set_bind_ip("127.0.0.1")
 	var error := transport.create_server(port, 2)
