@@ -1,5 +1,11 @@
 # Agent Instructions
 
+## Project contract
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) for coordination, evidence, review, and integration rules. [DESIGN.md](DESIGN.md) owns game requirements and open choices; do not silently turn tentative choices into commitments. This repository has no game runtime or selected engine yet.
+
+Before starting, inspect Git status, ready/in-progress Beads, related closed work, and recent relevant commits. Claim a bounded task with a distinct actor name; comment the intended scope, worktree/branch, dependencies, and acceptance evidence. Do not take an occupied task or edit another agent's checkout without an agreed handoff. Spawn agents only when authorized. Keep decisions and resumable handoffs in Beads/Git/docs, not solely in chat or ignored `.notes/`.
+
 ## Issue tracking
 
 Use **Rust Beads (`br`)** for project task tracking. This repository uses SQLite and JSONL, not the Go `bd` CLI or Dolt.
@@ -36,9 +42,11 @@ This sharing policy applies to every agent and every worktree, including tempora
 
 ## Session completion
 
-1. Update or close the relevant Beads issues and run appropriate checks.
+1. Update the relevant Beads issues, record evidence/limits and independent review for substantial changes, and close only when acceptance is satisfied.
 2. Run `br sync --flush-only` to persist the portable export.
-3. Review and commit only the changes in scope, including the shared export from the main checkout when appropriate.
-4. Inspect `git status` and hand off any remaining work or verification limits.
+3. Run `python3 -B scripts/check.py`; review and explicitly stage only scoped paths. From the main checkout, include the shared export when appropriate.
+4. Run `python3 -B scripts/check.py --staged` before committing. Install the local hook using `./scripts/install-hooks.sh`; never auto-stage fixes or bypass a failure as acceptance evidence. Changes to safety gates need independent review.
+5. The integration owner serializes local-main landing and shared export commits. Validate branches against current main before landing; a clean textual merge is insufficient.
+6. Inspect `git status` and hand off any remaining work or verification limits.
 
 The repository currently has no Git remote. Keep work local unless the user requests remote setup or publication. Rust Beads does not run Git commits or pushes for you.

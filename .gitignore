@@ -1,3 +1,10 @@
 
 # Local linked worktrees
 .worktrees/
+
+# Worktree-private scratch notes, not the durable project record
+.notes/
+
+# Python tooling must not leave generated artifacts in the checkout
+__pycache__/
+*.py[cod]
