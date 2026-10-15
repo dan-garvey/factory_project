@@ -123,6 +123,11 @@ func _run() -> void:
 	await _click_screen(scene.lesson_next.get_global_rect().get_center())
 	ledger([11, 1, 1, 1, 1, 1, 0], true, 0)
 	report.lessons.append(presenter.model.projection())
+	local = presenter.world.camera.unproject_position(Vector3(2 * scene.PITCH, 0.8, 0))
+	point = presenter.surface.global_position + local * presenter.surface.size / Vector2(presenter.viewport.size)
+	await _click_screen(point)
+	_check(presenter.inspected == "processor-1" and presenter.inspect_label.text.contains("1 held / 1 ready"),
+		"Actual blocked press inspection displays retained work and occupied outlet.")
 	await capture("blocked")
 	# A real tick cannot discard unfinished work while the one-slot outlet is full.
 	await _click_screen(presenter.step_button.get_global_rect().get_center())
@@ -139,23 +144,30 @@ func _run() -> void:
 	await _click_screen(scene.lesson_return.get_global_rect().get_center())
 	_check(not scene.explanation_open and not presenter.visible and facts() == before,
 		"Actual Return button restores the ordinary empty worksite without side effects.")
-	# Declared deterministic observation clock above; normal live-time remains active below.
-	scene.auto_advance = true
-	scene.elapsed = 0.0
+	# Return must leave ordinary building usable. Build through actual input,
+	# then separately prove the existing live clock moves PLAYER stock in Help.
+	for entry in [[KEY_4, -1], [KEY_1, 0], [KEY_2, 1], [KEY_3, 2]]:
+		await _key(entry[0])
+		await _click_cell(entry[1])
+	await _connect(KEY_F, 0, 1)
+	await _connect(KEY_F, 1, 2)
+	for pair in [[-1, 0], [0, 1], [1, 2]]:
+		await _connect(KEY_G, pair[0], pair[1])
+	_check(scene.state.entities.size() == 4 and scene.state.parts.collector == 0 and scene.state.powered,
+		"Returning leaves actual ordinary player placement/connections usable.")
+	report.player_after_return = scene.model.projection()
 	await _key(KEY_H)
 	var revision: int = scene.model.projection().revision
+	scene.auto_advance = true
+	scene.elapsed = 0.0
 	scene._process(scene.STEP_SECONDS)
 	scene.auto_advance = false
-	_check(scene.model.projection().revision == revision + 1 and scene.state.stock.source == 16,
-		"Existing live worksite clock still advances while the explanation is open.")
+	_check(scene.model.projection().revision == revision + 1 and scene.state.stock.source == 15 and scene.state.stock.collector == 1,
+		"Existing live worksite clock still moves actual player material while Help is open.")
 	report.live_clock = true
+	report.live_clock_state = scene.model.projection()
 	await _key(KEY_ESCAPE)
 	_check(not scene.explanation_open, "Actual Escape returns from example.")
-	await _key(KEY_1)
-	await _click_cell(0)
-	_check(scene.state.entities.has("collector-1") and scene.state.parts.collector == 0,
-		"Returning leaves actual ordinary player building usable.")
-	report.player_after_return = scene.model.projection()
 	if failures.is_empty():
 		print("OPENING_EXPLANATION_STATE " + JSON.stringify(report))
 		print("OPENING_EXPLANATION_PASS: actual help/navigation/inspection/orbit/zoom/isolation/blockage/recovery/return")

@@ -312,9 +312,13 @@ func _toggle_explanation() -> void:
 			example_presenter.size = Vector2(670, 446)
 			lesson_panel.get_parent().add_child(example_presenter)
 		example_presenter.show()
+		example_presenter.viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+		example_presenter.world.set_process(true)
 		_set_lesson(0)
 	else:
 		example_presenter.hide()
+		example_presenter.viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
+		example_presenter.world.set_process(false)
 	_update_cursor()
 	_refresh_ui()
 

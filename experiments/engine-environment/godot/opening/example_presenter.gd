@@ -19,6 +19,12 @@ var inspected := ""
 var transitions: Array = []
 
 func _ready() -> void:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color("111f26")
+	style.border_color = Color("536565")
+	style.set_border_width_all(1)
+	style.set_content_margin_all(10)
+	add_theme_stylebox_override("panel", style)
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 8)
 	add_child(column)
@@ -27,12 +33,12 @@ func _ready() -> void:
 	heading.add_theme_font_size_override("font_size", 13)
 	column.add_child(heading)
 	surface = SubViewportContainer.new()
-	surface.custom_minimum_size = Vector2(650, 310)
+	surface.custom_minimum_size = Vector2(650, 250)
 	surface.stretch = true
 	surface.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	column.add_child(surface)
 	viewport = SubViewport.new()
-	viewport.size = Vector2i(650, 310)
+	viewport.size = Vector2i(650, 250)
 	viewport.own_world_3d = true
 	viewport.handle_input_locally = false
 	viewport.gui_disable_input = true
@@ -120,7 +126,15 @@ func _refresh() -> void:
 	inspect_label.text = "Click a machine in the example to inspect its material and drive connections."
 	if state.entities.has(inspected):
 		var kind: String = state.entities[inspected].kind
-		inspect_label.text = "EXAMPLE %s · square %s" % [world.NAMES[kind], str(state.entities[inspected].cell)]
+		var material_links := 0
+		var drive_links := 0
+		for pair in state.links:
+			if inspected in pair:
+				material_links += 1
+		for pair in state.drive_links:
+			if inspected in pair:
+				drive_links += 1
+		inspect_label.text = "EXAMPLE %s · %d material / %d drive connections" % [world.NAMES[kind], material_links, drive_links]
 		if kind == "processor":
 			inspect_label.text += " · %d input / %d held / %d ready · %d ticks left" % [stock.input, stock.held, stock.output, state.remaining]
 	step_button.disabled = lesson < 1
