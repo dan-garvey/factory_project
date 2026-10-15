@@ -2,8 +2,9 @@
 
 Updated 2026-10-15 UTC against accepted source `ecd80b486066fe78d7e8e3ed6483981c3599f438`.
 Godot use is approved for current development. This register prevents the
-modeling framework from silently defining the game. It is an initial inventory,
-**not an exhaustive engine audit**; `factory-yau.3.10` owns that first audit.
+modeling framework from silently defining the game. The bounded first audit is
+owned by `factory-yau.3.10`; this maintained register is not a claim that every
+engine subsystem or production requirement is proven.
 
 [DESIGN](../../DESIGN.md) owns intended behavior. Classify each discovery as:
 
@@ -19,6 +20,34 @@ Current runtime provenance is in the [environment record](engine-environment.md)
 the pinned 4.7.2 build is a test dependency, not a permanent game requirement.
 The official `stable` documentation linked below was checked on this date; it
 can advance independently of our pin and is not exact-build executable evidence.
+Version-specific XML links below come from the upstream `4.7.2-stable` tag;
+reading its API contract is distinct from exercising our installed binary.
+
+## Audited evidence and confidence
+
+Source inspection uses `ecd80b486066fe78d7e8e3ed6483981c3599f438` for the
+shared opening, mechanics, rider and tooling. The verified executable reports
+`4.7.2.stable.official.ed1daf0bf`, SHA-256
+`8d106cbe6144c2dc7e881d61d2429c1a8a76e6b22ef48bd5e48dcf934953f71e`.
+Its [original trial](engine-environment.md) records installation provenance;
+that page's first-trial coverage is historical. Subsequent proofs are scoped below.
+No new engine invocation, backend switch, download or precision build was used
+for this document audit.
+
+| Evidence anchor | What it supports | What it does not establish |
+| --- | --- | --- |
+| `a7d4cce` rotary rider, [authority](../../experiments/engine-environment/godot/rotary/authority.gd) and [fixture](../../experiments/engine-environment/godot/rotary/README.md) | Real native operating poses and an unparented local passenger, with explicit request/completion clocks | Arbitrary angular clearance, networked passengers or a complete physical factory |
+| `e967cbc` [train probe](../../experiments/engine-environment/godot/train/README.md) | Coupled kinematic carriages and a real local passenger | Freely simulated train dynamics, moving-save or multiplayer movement |
+| `d1e32f0` [retrieval continuation](opening-recovery.md) and `e7eb73e` [shared opening](../../experiments/engine-environment/godot/opening/shared_opening.md) | One bounded stationary authority, interrupted retrieval custody, inspection/reconnect feedback | Adversarial movement admission, internet reliability, crash durability or user play |
+| `ecd80b4` [moving-port probe](../../experiments/engine-environment/godot/moving-transfer/README.md) | Native sampled port geometry and finite transfer ownership | Continuous contact, real item bodies, campaign logistics or a production network join |
+| `2e8665f` [exact-count bench](../../experiments/engine-environment/godot/precision/README.md) | Exact material quantities, retained work and recovery | Floating-point spatial precision: its directory name is not a coordinate-precision benchmark |
+
+**Observed** below means a named code path or retained bounded consumer witness.
+**Documented** means an upstream API contract, with no broader runtime result.
+**Unknown** means the current evidence cannot decide it. These confidence labels
+qualify the claim, not a score for the engine. Full local receipts and independent
+review pins remain in the owning Beads; the linked tracked consumers are reusable.
+
 
 ## GDC-01: engine-coupled rules are not an independent core
 
@@ -46,6 +75,19 @@ The fixture's 24 updates, 20:40 ratio and dimensions are not required machine
 rules or production timing. Backend/version changes require consumer revalidation.
 Owners: Platform and Ops.
 
+**Exact contract and local evidence:** the pinned
+[AnimatableBody3D XML](https://raw.githubusercontent.com/godotengine/godot/4.7.2-stable/doc/classes/AnimatableBody3D.xml)
+describes estimated velocity and `sync_to_physics`;
+[SceneTree XML](https://raw.githubusercontent.com/godotengine/godot/4.7.2-stable/doc/classes/SceneTree.xml)
+places `physics_frame` before node physics callbacks. Our
+[mechanics authority](../../experiments/engine-environment/godot/mechanics/authority.gd)
+retains pending geometry/native completion; rotary adds a finite operating path.
+The proven next-frame observation belongs to these consumers and settings,
+rather than a universal rule that every command must wait exactly one frame.
+Published completed poses, current native queries and rendered samples must keep
+separate revision/clock labels. A source pause can leave already requested motion
+to drain; it does not imply an immediate native freeze.
+
 ## GDC-03: a character API is not the game's movement design
 
 **Engine/API plus fixture.**
@@ -61,6 +103,16 @@ still needs that integrated controller/authority/reach join; a rider success doe
 not supply it. Owners: Chapter and Platform; `3.11`, `5.21`, `6.36`, `6.37`
 under `factory-yau`.
 
+**Exact contract and consequence:** the pinned
+[CharacterBody3D XML](https://raw.githubusercontent.com/godotengine/godot/4.7.2-stable/doc/classes/CharacterBody3D.xml)
+specifies scripted motion, physics-step `move_and_slide`, post-move floor/contact
+facts and platform velocity contribution. It does not supply our construction
+permission or automatically validate a remote actor. The rider controller is
+observed local integration, not an input-to-authoritative-actor construction join.
+That join must identify the actual admitted pose and operation target in 3D;
+changing camera distance must not increase building reach. Capsule dimensions,
+mask bits, snap distance and the `.015` rider-test tolerance remain fixture values.
+
 ## GDC-04: limited contact probes are not a universal collision policy
 
 **Adapter/fixture, observed.**
@@ -75,6 +127,17 @@ drivetrain stall/isolation behavior and deferred detailed collision choices.
 Refine the relevant native query/body/authority contract when needed. Owners:
 Platform and Ops; [declared transfer limits](../../experiments/engine-environment/godot/moving-transfer/README.md).
 
+**Documented query boundary:** the pinned
+[direct-space API](https://raw.githubusercontent.com/godotengine/godot/4.7.2-stable/doc/classes/PhysicsDirectSpaceState3D.xml)
+explicitly says `intersect_shape` ignores query motion. `cast_motion` tests a
+linear motion and ignores shapes already overlapping; it is not proof of a
+rotating volume's swept clearance. Our mechanics `test_move` sweep covers its
+declared linear sliders; rotary and moving ports retain narrower samples.
+Result limits, collision layers, body/area flags, shape-local transforms and world
+space are query inputs to audit, not engine-selected game eligibility rules.
+Use initial-overlap handling and a separately validated angular/contact strategy
+when the intended mechanic requires them. No claim that Godot cannot provide it.
+
 ## GDC-05: coordinate precision needs a scale strategy, not an invented world cap
 
 **Engine/API risk; factory-scale result unknown.**
@@ -88,7 +151,19 @@ clearance, vertical reach accuracy or factory capacity. Audit the actual build
 and choose measured coordinate/representation boundaries when scale requires it;
 no double build, world cap or origin-shifting architecture is adopted here.
 Keep integral material accounting distinct from approximate geometry. Owners:
-Platform and Ops; first build/backend/precision audit in `factory-yau.3.10`.
+Platform and Ops; build/backend/precision characterization remains a future
+measured follow-up when the intended scale requires it.
+
+**Confidence and impact:** documented risk, with no far-origin runtime witness.
+The linked stable guide distinguishes default 32-bit vectors from GDScript's
+64-bit scalar floats; double builds require different editor/export builds and
+compatible extension/network precision. Our retained version and renderer logs
+do not directly measure `real_t` precision, safe world dimensions or smallest
+workable gap. Those remain unknown for the intended game. A global integer
+construction coordinate and local approximate native pose can be separated without
+adopting origin shifting now; the authority must define conversions explicitly.
+Do not trade away 3D building, exact material custody or nearby construction to
+make a small near-origin fixture easier.
 
 ## GDC-06: scene mutation and data parallelism are separate problems
 
@@ -102,6 +177,13 @@ but do not infer that all simulation must be single-threaded. Keep authoritative
 data and scene application boundaries explicit; evaluate batching, server APIs or
 native processing against measured needs. No thread model or benchmark result
 is selected by this register. Owners: Platform and Ops.
+
+**Evidence/confidence:** documented API restrictions, no concurrent-factory
+benchmark. The shared Session currently advances the Model from `_process`;
+that is observed adapter scheduling. A mutex or deferred scene update by itself
+does not choose command order, make shared mutable containers safe or prove a
+parallel data model. Native/server batching is a possible exit path to measure,
+not a requirement to rewrite the current stationary opening.
 
 ## GDC-07: transport and runtime identities are not a complete multiplayer model
 
@@ -117,6 +199,26 @@ diagnostic instance/RID values. Confirmed actor state must govern construction
 reach, not a camera or an unvalidated client position. Reuse one authority for
 single-player/server play; test correction and continuation through actual
 consumers before broadening claims. Owners: Platform and Recovery; `5.21`.
+
+**Documented identity/lifetime:** pinned
+[RID XML](https://raw.githubusercontent.com/godotengine/godot/4.7.2-stable/doc/classes/RID.xml)
+and [Object XML](https://raw.githubusercontent.com/godotengine/godot/4.7.2-stable/doc/classes/Object.xml)
+qualify RID/instance IDs as current-session handles. Model context, entity
+counter, request namespace and checkpoint identity are separate adapter data;
+restoration must recreate/remap native handles. A diagnostic native ID staying
+stable during one run does not prove a persistent identity.
+
+**Ordering and authority:** pinned
+[MultiplayerAPI XML](https://raw.githubusercontent.com/godotengine/godot/4.7.2-stable/doc/classes/MultiplayerAPI.xml)
+says polling executes RPCs in the polling context, and sender identity is only
+available inside the active RPC. The
+[Session](../../experiments/engine-environment/godot/opening-session/session.gd)
+captures its peer binding before deferring admission, then the one Model owns
+accepted order and cached dispositions. Reliable RPC alone does not give a
+cross-client gameplay order or application-level exactly-once effects. The two
+trusted loopback roles, `.45` clock and 10-second connect bound are fixture policy.
+Prediction, rollback, WAN behavior and cross-platform native determinism remain
+unknown; none is inferred from stationary snapshot convergence.
 
 ## GDC-08: a planar construction fixture does not make this a flat game
 
@@ -146,10 +248,62 @@ runtime/physics/network test; a bounded probe pass is not a scale certification.
 Change operational limits only through their reviewed contract, not as an
 undocumented engine workaround. Owners: Ops and PM.
 
+## GDC-10: the physics backend is a qualified dependency
+
+**Unknown runtime selection; documented interface.** The project does not set
+`physics/3d/physics_engine`. Retained renderer/version logs identify the binary
+and graphics path, not the selected 3D physics server. Upstream source registering
+a default is insufficient to identify this runtime's backend/settings. This first
+audit makes no Godot Physics-versus-Jolt comparison or claim of identical behavior.
+
+For example, the pinned
+[WorldBoundaryShape3D XML](https://raw.githubusercontent.com/godotengine/godot/4.7.2-stable/doc/classes/WorldBoundaryShape3D.xml)
+documents a finite, origin-centered boundary under Jolt, controlled by
+`physics/jolt_physics_3d/limits/world_boundary_shape_size`. A plane-shaped floor
+in a small fixture therefore does not certify collision support at arbitrary
+coordinates. The character consumer must capture its actual backend and relevant
+setting when testing its declared site; extending that site needs an explicit
+floor/coordinate strategy. This documents an engine dependency, not a game-world
+size limit or a reason to run another engine just for this audit.
+
+The pinned [PhysicsServer3D API](https://raw.githubusercontent.com/godotengine/godot/4.7.2-stable/doc/classes/PhysicsServer3D.xml)
+exposes native bodies, areas, transformed shapes and queries independently of scene
+nodes. This supports observing the actual world; it does not replace testing the
+selected backend or create a shared-engine-independent authority.
+
+**Affected promise / exit:** character support, contact eligibility and tiny
+clearances must survive any backend/build/settings change. When such a change is
+proposed, capture the actual backend and relevant physics settings in that
+bounded consumer's ordinary report, then rerun its discriminating cases. Do not
+launch an extra engine merely to fill this documentation gap. Owners: Platform
+and Ops; new consumer follow-up before a backend change, existing character/reach
+work `3.11`/`5.21`/`6.36`/`6.37` proceeds against its declared interface.
+
+## GDC-11: save and UI evidence have explicit coverage boundaries
+
+**Adapter/fixture, observed; broader support unknown.**
+The Model/Store checkpoint serializes explicit game state, with supported orderly
+continuation. It does not serialize an arbitrary live scene, every native body,
+remote player motion or an unrestricted engine resource graph. Quantity-safe
+stationary restore is useful evidence without proving crash/power-loss durability,
+concurrent writers, cross-version migration or moving-world reconstruction.
+Owners: Recovery and Platform; refine the save contract when these become scope.
+
+The actual Compatibility/WSLg captures establish the inspected 1280×800 controls
+and text. Pending inspection and disconnect feedback have their own declared cuts;
+a decorative panel entering a footer edge is not a whole-window layout proof.
+There is no current certification of other resolutions, input devices, rendering
+backends, packaging or accessibility. Keep picking/camera and authority separate;
+validate the actual character-building consumer as its UI changes. Owners: Chapter,
+Playability and Ops; `6.36`/`6.37` and actual-user feedback `6.11`.
+
 ## Required follow-through
 
-Ops audits exact backend/build behavior, precision, lifecycle and source citations;
-unknowns stay visible rather than being resolved by assumption. New engine/backend
+This first source/API/evidence audit leaves actual backend identification,
+far-origin precision, concurrent factory scale, predictive movement and moving-save
+behavior explicitly unknown. Owners must add a scoped measured follow-up when
+one becomes necessary; unknown is not a claim of impossibility. No exhaustive
+runtime characterization was performed for this register. New engine/backend
 versions, authority/controller changes and newly discovered restrictions must
 update this register with their actual impact and evidence. PM checks it during
 hourly reviews. Do not postpone stationary chapter work for an exhaustive engine

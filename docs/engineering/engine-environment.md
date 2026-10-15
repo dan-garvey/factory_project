@@ -1,6 +1,12 @@
 # Demo environment comparison and first sandbox
 
-Checked 2026-10-15 UTC. User authority: evaluate UE5 and promising free 3D options,
+Historical first-trial comparison and observations, checked 2026-10-15 UTC.
+The coverage and “still unrun” list below describe that initial trial. Later
+reviewed probes and current engine/adapter/fixture boundaries are indexed in the
+[maintained Godot constraint register](godot-constraints.md); current requirements
+remain in [DESIGN](../../DESIGN.md).
+
+User authority: evaluate UE5 and promising free 3D options,
 choose a promising reversible route, and establish a sandbox/tests; **prototyping,
 not lock-in**. PM recorded trial permission separately from production adoption.
 The current target begins collector → machine → product with placeholder art;
