@@ -119,7 +119,8 @@ def main():
                     raw = sum(stock[key] for key in ("source", "collector", "belt", "input", "held"))
                     if (final["initial_feed"] != 16 or final["inventories"] != {"P": 4}
                             or raw + stock["output"] + sum(final["inventories"].values()) != 16
-                            or not report["confirmed"] or report["paused"]["remaining"] <= 0
+                            or not report["confirmed"] or report["paused"]["remaining"] != 2
+                            or report["paused"]["restored_remaining"] != report["paused"]["remaining"]
                             or report["paused"]["power_enabled"] or report["paused"]["stock"]["held"] != 1
                             or report["blocked"]["stock"]["output"] != 1 or report["blocked"]["stock"]["held"] != 1):
                         raise ValueError("Actual consumer quantities/phase/goal differ from the independent fixture oracle")

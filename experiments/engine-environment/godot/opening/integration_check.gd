@@ -26,6 +26,9 @@ func _run() -> void:
 	await _connect(KEY_F, 1, 2)
 	for pair in [[-1, 0], [0, 1], [1, 2]]:
 		await _connect(KEY_G, pair[0], pair[1])
+	# auto_advance is disabled before the scene enters the tree. Stop at the
+	# first explicit advance that transfers input into held work: that starts
+	# the declared two-tick cycle at remaining=2, with no later tick before Space.
 	for _tick in range(6):
 		scene.model.advance()
 		if scene.model.projection().stock.held > 0:
@@ -33,7 +36,7 @@ func _run() -> void:
 	await _key(KEY_SPACE)
 	scene._refresh()
 	var paused: Dictionary = scene.model.checkpoint()
-	_check(paused.stock.held == 1 and paused.remaining > 0 and not paused.power_enabled,
+	_check(paused.stock.held == 1 and paused.remaining == 2 and not paused.power_enabled,
 		"Save fixture contains actual paused partial production.")
 	var item_count: int = scene.item_root.get_child_count()
 	await _click_screen(scene.save_button.get_global_rect().get_center())
@@ -55,6 +58,8 @@ func _run() -> void:
 	_check(scene.last_load_result.get("accepted", false), "Actual F9 loads paused work.")
 	_check(scene.model.checkpoint() == paused and scene.state == scene.model.projection(),
 		"Load restores exact authority and refreshes the actual lower-version projection.")
+	var restored_remaining: int = scene.model.checkpoint().remaining
+	_check(restored_remaining == paused.remaining, "Load retains the captured two-tick unfinished phase exactly.")
 	_check(scene.item_root.get_child_count() == item_count and not scene.state.entities.has("wheel-2"),
 		"Restored meshes and item presentation replace the later worksite.")
 	_check(scene.selected.is_empty() and scene.pending_link.is_empty() and not scene.selection_ring.visible,
@@ -63,7 +68,11 @@ func _run() -> void:
 		"Successful load starts a fresh opaque intent namespace.")
 	_check(FileAccess.get_file_as_bytes(slot) == saved_bytes, "Loading leaves the good save byte-identical.")
 	await _key(KEY_SPACE)
-	scene.model.advance(4)
+	scene.model.advance()
+	_check(scene.model.projection().remaining == 1 and scene.model.projection().stock.output == 0,
+		"First resumed tick continues captured work without premature output.")
+	scene.model.advance()
+	_check(scene.model.projection().stock.output == 1, "Second resumed tick completes exactly the retained plate.")
 	scene._refresh()
 	await _key(KEY_I)
 	await _click_cell(2)
@@ -146,7 +155,7 @@ func _run() -> void:
 		"Actual Save shortcut refuses an existing pending artifact.")
 	_check(scene.model.checkpoint() == four and FileAccess.get_file_as_bytes(slot) == saved_bytes and FileAccess.file_exists(slot + ".pending") and scene.request_namespace == old_namespace,
 		"Save refusal preserves authority, good file, pending diagnostic and input identity.")
-	print("OPENING_SAVE_LOAD_STATE " + JSON.stringify({"paused": {"stock": paused.stock, "remaining": paused.remaining, "power_enabled": paused.power_enabled},
+	print("OPENING_SAVE_LOAD_STATE " + JSON.stringify({"paused": {"stock": paused.stock, "remaining": paused.remaining, "restored_remaining": restored_remaining, "power_enabled": paused.power_enabled},
 		"blocked": {"stock": blocked.stock, "remaining": blocked.remaining},
 		"final": scene.model.projection(), "confirmed": scene.goal_confirmed}))
 	for argument in OS.get_cmdline_user_args():
