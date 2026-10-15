@@ -29,6 +29,13 @@ of the six sandbox source files, source hashes, isolated XDG/temp/cache state,
 logs, assertions, stage durations and `result.json`; rendered runs add
 `scene.json` and `scene.png`. Failures retain their evidence. The run requires
 22 GiB free and the outer wrapper's memory floor; no engine-scale claim follows.
+Each stage retains at most 8 MiB of combined output, including unterminated
+lines. Its deadline also covers descendants holding the output pipe open. The
+runner terminates its own process group on completion or failure, even after
+the group leader exits. It checks the 384 MiB run artifact allowance during
+execution; periodic checks can overshoot and are not a filesystem quota.
+Processes that deliberately escape their group are outside this local probe's
+contract. Synthetic tooling tests cover these limits without running Godot.
 
 ## Try the sandbox
 

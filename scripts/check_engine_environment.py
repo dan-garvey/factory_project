@@ -11,6 +11,8 @@ import json
 import os
 from pathlib import Path
 import shutil
+import selectors
+import signal
 import subprocess
 import sys
 import tempfile
@@ -20,6 +22,67 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT = ROOT / "experiments/engine-environment/godot"
 FILES = ("project.godot", "main.tscn", "model.gd", "scenario.gd", "tests.gd", "view.gd")
+MAX_LOG_BYTES = 8 * 1024**2
+MAX_ARTIFACT_BYTES = 384 * 1024**2
+
+
+def owned_bytes(directory):
+    return sum(path.stat().st_size for path in directory.rglob("*") if path.is_file())
+
+
+def execute_bounded(command, *, cwd, env, log, artifacts, timeout):
+    """Supervise our process group and retain bounded output, including partial lines.
+
+    Periodic disk checks are cooperating-child admission limits, not a filesystem
+    quota. A child that escapes its process group is outside this local contract.
+    """
+    started = time.monotonic()
+    with log.open("xb") as output:
+        process = subprocess.Popen(command, cwd=cwd, env=env, stdout=subprocess.PIPE,
+                                   stderr=subprocess.STDOUT, start_new_session=True)
+        try:
+            with selectors.DefaultSelector() as selector:
+                os.set_blocking(process.stdout.fileno(), False)
+                selector.register(process.stdout, selectors.EVENT_READ)
+                retained = 0
+                while selector.get_map() or process.poll() is None:
+                    remaining = timeout - (time.monotonic() - started)
+                    if remaining <= 0:
+                        raise subprocess.TimeoutExpired(command, timeout)
+                    if owned_bytes(artifacts) > MAX_ARTIFACT_BYTES:
+                        raise ValueError("Run artifact/cache allowance exceeded during execution")
+                    for key, _events in selector.select(min(0.1, remaining)):
+                        chunk = os.read(key.fd, 64 * 1024)
+                        if not chunk:
+                            selector.unregister(key.fileobj)
+                            continue
+                        allowed = MAX_LOG_BYTES - retained
+                        output.write(chunk[:allowed])
+                        output.flush()
+                        retained += min(len(chunk), allowed)
+                        if len(chunk) > allowed:
+                            raise ValueError(f"Stage log allowance exceeded; inspect retained {log}")
+                if owned_bytes(artifacts) > MAX_ARTIFACT_BYTES:
+                    raise ValueError("Run artifact/cache allowance exceeded during execution")
+                return subprocess.CompletedProcess(command, process.returncode)
+        finally:
+            # Signal the owned group even after its leader has exited: a descendant
+            # may still hold stdout open or have ignored the first termination.
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                pass
+            finally:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.wait(timeout=2)
+                process.stdout.close()
 
 
 def run(binary, artifacts, render=False):
@@ -56,9 +119,8 @@ def run(binary, artifacts, render=False):
     def execute(name, args, marker=None, report=None, timeout=30):
         started = time.monotonic()
         log = directory / f"{name}.log"
-        with log.open("x") as output:
-            result = subprocess.run([str(binary), *args], cwd=project, env=environment,
-                                    stdout=output, stderr=subprocess.STDOUT, timeout=timeout)
+        result = execute_bounded([str(binary), *args], cwd=project, env=environment,
+                                 log=log, artifacts=directory, timeout=timeout)
         text = log.read_text(errors="replace")
         results.append({"stage": name, "exit": result.returncode, "elapsed_seconds": time.monotonic() - started})
         if result.returncode or "SCRIPT ERROR:" in text or "ERROR:" in text or (marker and marker not in text):
@@ -89,8 +151,8 @@ def run(binary, artifacts, render=False):
                     raise ValueError(f"Headless and real scene disagree at {key}")
             if not (directory / "scene.png").read_bytes().startswith(b"\x89PNG\r\n\x1a\n"):
                 raise ValueError("Real rendered scene capture is missing/invalid")
-        total = sum(path.stat().st_size for path in directory.rglob("*") if path.is_file())
-        if total > 384 * 1024**2:
+        total = owned_bytes(directory)
+        if total > MAX_ARTIFACT_BYTES:
             raise ValueError("Run artifact/cache allowance exceeded; preserve evidence and stop")
         receipt = {"status": "pass", "godot": version, "render": "pass" if render else "not_run",
                    "headless_checks": headless["checks"], "stages": results, "owned_bytes": total,
