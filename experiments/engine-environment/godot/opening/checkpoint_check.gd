@@ -1,5 +1,5 @@
 extends SceneTree
-## Concrete regressions from independent review of candidate 2aea9ae.
+## Concrete regressions from independent review of 2aea9ae and 6c47ebd.
 
 const Model = preload("res://model.gd")
 var checks := 0
@@ -22,6 +22,56 @@ func reject_unchanged(label: String, candidate: Dictionary) -> void:
 	check(result.get("accepted") is bool and not result.accepted, label + ": reject")
 	check(target.projection() == before_projection and target.checkpoint() == before_checkpoint,
 		label + ": preserve complete prior world")
+
+func target_case(world, request: String, intent: Dictionary) -> Dictionary:
+	intent.merge({"context": world.context, "client": "P", "request": request})
+	var outcome: Dictionary = world.command(intent)
+	check(outcome.accepted, request + ": actual command accepted")
+	var snapshot: Dictionary = world.checkpoint()
+	var restored = Model.new()
+	check(restored.restore_checkpoint(snapshot).accepted and restored.checkpoint() == snapshot,
+		request + ": positive history restores exactly")
+	var retry: Dictionary = restored.command(intent)
+	check(retry.accepted and retry.duplicate and retry.entity == outcome.entity,
+		request + ": restored retry retains actual target")
+	for wrong in ["wrong-target", "", 0, [], null]:
+		# Empty is correct for actions whose outcome deliberately has no entity.
+		if wrong is String and wrong == outcome.entity:
+			continue
+		var invalid: Dictionary = snapshot.duplicate(true)
+		invalid.requests[JSON.stringify(["P", request])].result.entity = wrong
+		reject_unchanged(request + ": contradictory result target " + str(wrong), invalid)
+	return snapshot
+
+func check_targets() -> void:
+	var world = Model.new(16, "target-correlations", 1, {"opening": true})
+	# Power results follow the historical wheel, not the final live wheel.
+	target_case(world, "power-empty", {"action": "set_power", "active": false})
+	target_case(world, "wheel", {"action": "place", "kind": "wheel", "cell": [-1, 0]})
+	for row in [["collector", 0], ["belt", 1], ["processor", 2]]:
+		target_case(world, row[0], {"action": "place", "kind": row[0], "cell": [row[1], 0]})
+	target_case(world, "material", {"action": "connect", "from": "collector-1", "to": "belt-1"})
+	target_case(world, "material-two", {"action": "connect", "from": "belt-1", "to": "processor-1"})
+	for pair in [["wheel-1", "collector-1"], ["collector-1", "belt-1"], ["belt-1", "processor-1"]]:
+		target_case(world, pair[1] + "-drive", {"action": "connect_drive", "from": pair[0], "to": pair[1]})
+	target_case(world, "power-live", {"action": "set_power", "active": true})
+	world.advance(7)
+	var snapshot: Dictionary = target_case(world, "take", {"action": "retrieve", "entity": "processor-1"})
+	for wrong in ["processor-retired", "collector-1", "", 0, [], null]:
+		var invalid: Dictionary = snapshot.duplicate(true)
+		invalid.requests[JSON.stringify(["P", "take"])].intent.entity = wrong
+		reject_unchanged("explicit retrieve target " + str(wrong), invalid)
+	# Omitting the optional target remains valid and uses the live processor.
+	world.advance(2)
+	target_case(world, "take-implicit", {"action": "retrieve"})
+	target_case(world, "power-stop", {"action": "set_power", "active": false})
+	target_case(world, "unlink", {"action": "disconnect", "from": "collector-1", "to": "belt-1"})
+	# Reverse direction is accepted by the real undirected drive disconnector.
+	target_case(world, "unlink-drive", {"action": "disconnect_drive", "from": "collector-1", "to": "wheel-1"})
+	target_case(world, "wheel-remove", {"action": "remove", "entity": "wheel-1"})
+	target_case(world, "power-removed", {"action": "set_power", "active": false})
+	target_case(world, "wheel-rebuild", {"action": "place", "kind": "wheel", "cell": [-1, 0]})
+	target_case(world, "power-rebuilt", {"action": "set_power", "active": false})
 
 func _initialize() -> void:
 	source = Model.new(16, "review-checkpoint", 1, {"opening": true})
@@ -102,5 +152,6 @@ func _initialize() -> void:
 	check(plain.checkpoint() == stored, "Pure metadata is deeply owned")
 	check(positive.restore_checkpoint(stored).accepted and positive.checkpoint() == stored,
 		"Pure nested metadata survives restoration")
+	check_targets()
 	print("CHECKPOINT_REGRESSION_PASS: %d checks" % checks if failures.is_empty() else "CHECKPOINT_REGRESSION_FAIL: " + JSON.stringify(failures))
 	quit(0 if failures.is_empty() else 1)

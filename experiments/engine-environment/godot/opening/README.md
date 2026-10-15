@@ -81,12 +81,17 @@ dropped. The prototype traversal limits are 32 nested levels and 100,000 values;
 these are input-format bounds, not game performance targets. Restore requires
 an explicit positive validation result, typed correlators and consistent retained
 revision, generation, entity, connection, power and retrieval histories.
+Retained outcome targets must match their command: explicit retrieval names the
+same processor, drive connection names its destination, and power changes name
+the wheel live at command time (empty before placement or after removal).
+Material connection and both disconnection outcomes have no entity target.
+Historical outcomes remain valid after the named machine is later removed.
 A fresh view allocates a new opaque request namespace so its local counter
 cannot collide with requests retained by a restored authority. This is intent
 identity, not simulation randomness or a chosen production transport protocol.
 
 Current validation includes the 22 unchanged neutral assertions, 60 opening-model
-assertions, 124 malformed-checkpoint/metadata regressions and the actual key/mouse/button consumer path in headless and real
+assertions, 384 checkpoint/metadata/target checks and the actual key/mouse/button consumer path in headless and real
 Compatibility-rendered runs. Rendered captures were visually inspected. No
 human play session, networked opening, save-file/crash durability, detailed
 contact/injury, moving machinery, native-core portability or scale claim follows.

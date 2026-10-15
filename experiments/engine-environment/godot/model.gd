@@ -539,6 +539,8 @@ func _validate_history(data: Dictionary, kinds: Array, history: Array) -> Dictio
 				var amount = intent.get("amount", 1)
 				if not _count(amount) or amount < 1 or not live.has(result.entity) or live[result.entity].kind != "processor":
 					return _invalid_checkpoint("contradictory_retrieval")
+				if intent.has("entity") and (not intent.entity is String or intent.entity != result.entity):
+					return _invalid_checkpoint("contradictory_retrieval_target")
 				var prior: int = collected.get(intent.client, 0)
 				if amount > data.initial_feed - prior:
 					return _invalid_checkpoint("contradictory_retrieval")
@@ -546,6 +548,9 @@ func _validate_history(data: Dictionary, kinds: Array, history: Array) -> Dictio
 			"connect", "connect_drive", "disconnect", "disconnect_drive":
 				if not intent.get("from") is String or not intent.get("to") is String or not live.has(intent.from) or not live.has(intent.to) or intent.from == intent.to:
 					return _invalid_checkpoint("contradictory_connection")
+				var expected_target: String = intent.to if action == "connect_drive" else ""
+				if result.entity != expected_target:
+					return _invalid_checkpoint("contradictory_connection_target")
 				var pair := [intent.from, intent.to]
 				var is_drive: bool = action in ["connect_drive", "disconnect_drive"]
 				var edges: Array = drives if is_drive else material_links
@@ -562,6 +567,14 @@ func _validate_history(data: Dictionary, kinds: Array, history: Array) -> Dictio
 			"set_power":
 				if not intent.get("active") is bool:
 					return _invalid_checkpoint("contradictory_power")
+				# This is the wheel at command time, which may since be removed
+				# or rebuilt. An empty result is valid before any wheel exists.
+				var expected_wheel := ""
+				for entity_id in live:
+					if live[entity_id].kind == "wheel":
+						expected_wheel = entity_id
+				if result.entity != expected_wheel:
+					return _invalid_checkpoint("contradictory_power_target")
 				enabled = intent.active
 	if not _same_plain(live, data.entities) or not _same_plain(generated, data.next_ids):
 		return _invalid_checkpoint("contradictory_entity_history")
