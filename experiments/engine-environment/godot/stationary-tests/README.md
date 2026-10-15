@@ -46,6 +46,12 @@ shafts remain placed; carried parts are zero. These expectations are independent
 of the same-model trace replay. Optional rendering shows these diagnostic
 consumers, not the opening gameplay UI or a human multiplayer session.
 
+Recorded runs against shared model `2f08fb8` passed 42 neutral checks and 100
+opening checks in both headless and Compatibility-rendered modes. Both actual
+client reports converged at the pause, blockage and rebuilt-wheel barriers;
+their final diagnostic PNGs were visually inspected. These are automated
+stationary consumer results, separate from integrated gameplay or user play.
+
 The server waits for the required intents before admitting each controlled
 schedule. Cases include missing-before/present-after dependencies, conflicting
 and independent placements, a contested product, and two valid retrievals with
