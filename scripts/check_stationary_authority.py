@@ -128,6 +128,8 @@ def run(args):
                     "--artifacts=" + str(args.artifacts)]
         if rejoin:
             command.append("--rejoin")
+        if args.opening:
+            command.append("--opening")
         commands[name] = command
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                    text=True, bufsize=1, env=environment, start_new_session=True)
@@ -156,7 +158,8 @@ def run(args):
     manifest = {"model_revision": model_revision, "files": files, "port": port,
                 "fixture_parent_commit": git("rev-parse", "HEAD").strip().decode(),
                 "runner_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-                "render_clients": args.render, "fixture": {"feed": 16, "recipe_input": 1},
+                "render_clients": args.render,
+                "fixture": {"feed": 16, "recipe_input": 1, "opening": args.opening},
                 "max_live_engine_processes": 3, "disk_limit_bytes": LIMIT}
     result = None
     try:
@@ -209,6 +212,13 @@ def run(args):
         report = json.loads((args.artifacts / "server.json").read_text())
         if not rejoined or report.get("status") != "pass" or report.get("checks", 0) < 20:
             raise ValueError("Missing actual reconnect or complete authoritative evidence")
+        if report.get("opening", False) != args.opening:
+            raise ValueError("Server did not exercise the requested fixture mode")
+        if args.opening:
+            for actor in ("P", "Q"):
+                for phase in ("opening-paused", "opening-blocked", "opening-rebuilt"):
+                    if actor + ":" + phase not in report.get("clients", {}):
+                        raise ValueError("Missing actual opening client observation: " + actor + ":" + phase)
         for required in ("client-P-before-disconnect.json", "client-P-final.json", "client-Q-final.json"):
             if not (args.artifacts / required).is_file():
                 raise ValueError("Missing actual client artifact: " + required)
@@ -242,6 +252,7 @@ def main():
     parser.add_argument("--model-revision", required=True)
     parser.add_argument("--artifacts", required=True, type=Path)
     parser.add_argument("--render", action="store_true", help="render both real client views")
+    parser.add_argument("--opening", action="store_true", help="exercise shared wheel/power/edit rules with both clients")
     args = parser.parse_args()
     try:
         print(json.dumps(run(args)))

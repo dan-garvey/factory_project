@@ -15,6 +15,10 @@ python3 -B scripts/run_local.py heavy -- python3 -B scripts/check_stationary_aut
 ```
 
 Add `--render` to render both actual client consumers and save their final PNGs.
+Add `--opening` to use the exact model's optional opening fixture rather than
+the default neutral fixture. It requires the shared wheel/power/stopped-edit
+extension and its corrected checkpoint API revision; source preparation alone
+does not establish runtime acceptance.
 The parent artifact directory must already exist. Existing destinations and
 paths inside any registered checkout are refused. There are no downloads or
 automatic retries. The runner copies dependency sources from raw Git blobs at
@@ -23,8 +27,24 @@ a mutable model from another worktree or modifies that checkout.
 
 The first trial uses 16 feed and a 1:1 recipe through the same three-argument
 model constructor. Source capacities and advancement order belong to that
-model. This fixture does not exercise wheel/power, stopped edits, save, story,
+model. The default neutral fixture does not exercise wheel/power, stopped edits, save, story,
 progression, actual player input or the four-plate opening objective.
+
+Opening mode retains those schedules and adds real client commands for a
+contested wheel, three finite shaft connections, a power pause with unfinished
+work, blocked-output backpressure and refused running/occupied edits. Both
+clients report the paused and blocked authoritative state before the next phase
+can begin. A stopped wheel removal refunds one wheel and its endpoint shaft;
+replacement at the same cell gets `wheel-2`. Replaying the old removal cannot
+refund again or remove the replacement, and a fresh command naming `wheel-1`
+must refuse. Actual client meshes remove the old ID and display the replacement.
+
+The controlled opening schedule expects final inventory P=2/Q=1, nine source
+blanks and one each in collector, belt, processor input and held work, with no
+output plate waiting. All 16 units are accounted for. Four machines and three
+shafts remain placed; carried parts are zero. These expectations are independent
+of the same-model trace replay. Optional rendering shows these diagnostic
+consumers, not the opening gameplay UI or a human multiplayer session.
 
 The server waits for the required intents before admitting each controlled
 schedule. Cases include missing-before/present-after dependencies, conflicting
