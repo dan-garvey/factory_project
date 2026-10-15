@@ -70,8 +70,16 @@ Failed load preserves current authority, selection, pending connection, caller
 IDs and last good file. Failed saving retains the previous file and any blocking
 `.pending` diagnostic; it never silently deletes one. No arbitrary file picker,
 cross-session save browser, autosave or live network-world replacement is added.
-The current slot is retained at the printed session path after exit. A new
-launch creates its own slot and refuses to overwrite an existing user file.
+The current slot is retained at the printed session path after exit. Add
+`--resume /absolute/path/to/previous/session/worksite.factory` to reopen a
+compatible worksite in a new process. Its original file is read only; new F5
+writes go to the newly printed session slot. The selected input must be a
+bounded regular local file outside Git/checkouts/administration/private tracker
+paths, without symlinks. Corrupt or unsupported inputs refuse explicitly; they
+never silently become a fresh world. The retained `incoming.factory` is a
+diagnostic capture, separate from a successfully validated output save.
+No implicit latest-file selection, browser, format migration or offline catch-up
+is provided. A new launch without `--resume` still begins a fresh worksite.
 
 One compact arrangement places wheel/collector/belt/press at x=-1/0/1/2 with
 z=0. Connect collector→belt→press for material, then wheel→collector→belt→press
@@ -129,6 +137,14 @@ and after; a separate check verifies the normal live clock still runs. The
 Python launcher checks an independent finite ledger; rendered mode retains
 working, blocked and recovered viewport images. This is technical consumer
 evidence, not evidence of player understanding.
+
+`--smoke --resume PATH` checks the actual resumed scene against that saved
+checkpoint, with separately recorded observer/configuration instrumentation;
+fresh-start smoke keeps its existing oracle. `--check --resume PATH` instead
+runs a focused input consumer for a paused or blocked connected opening, resumes
+its retained work, retrieves one product and saves the new owned slot. Add
+`--render` for its viewport capture. The usual `--check` fixture suite remains
+the default when no resume source is selected.
 
 The opening requires the model's agreed wheel/shaft/power/stopped-edit/capacity
 extension. It cannot truthfully demonstrate those features against the earlier

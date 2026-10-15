@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import tempfile
 import time
@@ -23,6 +24,68 @@ FILES = bounds.FILES + tuple("opening/" + name for name in (
 MAX_BYTES = 256 * 1024**2
 SMOKE_OBSERVER = "opening/startup_observer.gd"
 SMOKE_SCENE = "res://opening/opening.tscn"
+RESUME_LIMIT = 2 * 1024**2  # Local input allowance; Store owns format/1 MiB validation.
+RESUME_SCRIPTS = ("opening/resume_prepare.gd", "opening/resume_observer.gd", "opening/resume_check.gd")
+
+
+def capture_resume(path):
+    """Read a bounded regular local input without ever opening it for writing."""
+    if (not path.is_absolute() or ".." in path.parts or path.resolve() != path
+            or any(part.casefold() in (".git", ".beads") for part in path.parts)):
+        raise ValueError("Resume requires an absolute local save outside Git/tracker paths, without symlinks")
+    for parent in path.parents:
+        if (parent / ".git").exists() or (parent / ".git").is_symlink():
+            raise ValueError("Resume input cannot be inside a Git checkout")
+    environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    ownership = subprocess.run(["git", "-C", str(path.parent), "rev-parse", "--is-inside-work-tree", "--is-inside-git-dir"],
+                               capture_output=True, text=True, timeout=5, env=environment)
+    if ownership.returncode == 0 and "true" in ownership.stdout.splitlines():
+        raise ValueError("Resume input cannot be inside Git administration or a checkout")
+    descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+    if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+        os.close(descriptor)
+        raise ValueError("Resume input must be a regular local file")
+    with os.fdopen(descriptor, "rb") as source:
+        content = source.read(RESUME_LIMIT + 1)
+    if len(content) > RESUME_LIMIT:
+        raise ValueError("Resume input exceeds the bounded local input allowance")
+    return content
+
+
+def read_resume_report(path, expected, save_slot):
+    if path.stat().st_size > 8 * 1024**2:
+        raise ValueError("Resume observer report exceeds its allowance")
+    report = json.loads(path.read_text())
+    if (not isinstance(report, dict) or not _same_value(report.get("schema"), 1)
+            or report.get("scene") != SMOKE_SCENE or report.get("script") != "res://opening/opening.gd"
+            or not _same_value(report.get("loaded"), expected["checkpoint"])
+            or report.get("continued_from_source") is not True or report.get("slot_matches_loaded") is not True):
+        raise ValueError("Resume did not observe the actual restored opening state")
+    state = report.get("state", {})
+    view = report.get("view", {})
+    if not isinstance(state, dict) or any(not _same_value(state.get(key), value)
+            for key, value in expected["state"].items() if key not in ("revision", "stock", "remaining")):
+        raise ValueError("Resumed observer topology, ownership or inventory changed before input")
+    stock = state.get("stock", {})
+    if (not isinstance(stock, dict) or any(type(stock.get(key)) is not int or stock[key] < 0
+            for key in ("source", "collector", "belt", "input", "held", "output", "player"))
+            or sum(stock[key] for key in ("source", "collector", "belt", "input", "held"))
+            + state["recipe_input"] * (stock["output"] + stock["player"]) != state["initial_feed"]
+            or type(state.get("revision")) is not int or state["revision"] < expected["state"]["revision"]):
+        raise ValueError("Resumed observer material accounting or version differs")
+    if (not isinstance(state, dict) or not isinstance(view, dict)
+            or not _same_value(view.get("save_slot"), str(save_slot))
+            or any(view.get(key) is not value for key, value in (
+                ("save_ready", True), ("save_owned", True), ("save_disabled", False),
+                ("load_disabled", False), ("confirmed", False), ("namespace_nonempty", True)))
+            or not _same_value(view.get("request_sequence"), 0)
+            or view.get("selected") != "" or view.get("pending") != ""
+            or not isinstance(view.get("entity_ids"), list) or any(not isinstance(key, str) for key in view["entity_ids"])
+            or not _same_value(sorted(view.get("entity_ids", [])), sorted(expected["state"]["entities"]))
+            or view.get("confirm_disabled") is not (expected["state"]["inventories"].get("P", 0) < 4)
+            or not save_slot.is_file() or Path(str(save_slot) + ".pending").exists()):
+        raise ValueError("Resume view, goal or new-slot ownership differs from restored state")
+    return report
 
 
 def instrument_smoke(project, copied_config_hash):
@@ -122,6 +185,7 @@ def main():
     parser.add_argument("--check", action="store_true", help="run actual model and input consumers, then exit")
     parser.add_argument("--render", action="store_true", help="capture the real rendered check viewport")
     parser.add_argument("--smoke", action="store_true", help="observe fresh opening scene/state and exit after 60 frames")
+    parser.add_argument("--resume", type=Path, help="reopen an explicitly selected compatible save in a new session")
     args = parser.parse_args()
     if args.render and not args.check:
         parser.error("--render selects the rendered automated check; normal launch already opens a window")
@@ -152,8 +216,16 @@ def main():
     bounds.MAX_ARTIFACT_BYTES = MAX_BYTES
     print(f"Opening session: {session}\nSave/Load: F5 / F9. Close the window to finish.", flush=True)
     try:
+        if args.resume is not None:
+            incoming = capture_resume(args.resume)
+            incoming_path = session / "incoming.factory"
+            incoming_path.write_bytes(incoming)
+            incoming_path.chmod(0o400)
+            receipt["resume"] = {"source": str(args.resume), "source_sha256": hashlib.sha256(incoming).hexdigest(),
+                                 "incoming": str(incoming_path), "bytes": len(incoming)}
         copied = 0
-        for name in (*FILES, *((SMOKE_OBSERVER,) if args.smoke else ())):
+        for name in (*FILES, *((SMOKE_OBSERVER,) if args.smoke and args.resume is None else ()),
+                     *(RESUME_SCRIPTS if args.resume is not None else ())):
             source = PROJECT / name
             if source.is_symlink() or not source.is_file():
                 raise ValueError(f"Missing or unsafe opening source: {name}")
@@ -188,24 +260,50 @@ def main():
         if not version.startswith("4.7.2.stable."):
             raise ValueError("This experiment uses the separately verified Godot 4.7.2 stable")
         execute("import", ["--headless", "--editor", "--path", str(project), "--import"], timeout=180)
+        resume_arguments = []
+        if args.resume is not None:
+            expected_path = session / "resume-expected.json"
+            resume_arguments = ["--resume-input=" + str(incoming_path)]
+            execute("resume-prepare", ["--headless", "--path", str(project), "--script", "res://opening/resume_prepare.gd",
+                                      "--", *resume_arguments, "--resume-report=" + str(expected_path)], "OPENING_RESUME_VALID")
+            expected_resume = json.loads(expected_path.read_text())
+            if expected_resume.get("accepted") is not True:
+                raise ValueError("Selected save was refused by the actual Model/Store")
         if args.check:
-            for name, script, marker in (
+            checks = (("resume-input", "opening/resume_check.gd", "OPENING_RESUME_INPUT_PASS"),) if args.resume is not None else (
                     ("neutral", "tests.gd", "FACTORY_HEADLESS_PASS"),
                     ("opening-model", "opening/model_check.gd", "OPENING_MODEL_PASS"),
                     ("checkpoint", "opening/checkpoint_check.gd", "CHECKPOINT_REGRESSION_PASS"),
                     ("opening-input", "opening/opening_check.gd", "OPENING_INPUT_PASS"),
                     ("save-load-input", "opening/integration_check.gd", "OPENING_SAVE_LOAD_PASS"),
-                    ("explanation-input", "opening/explanation_check.gd", "OPENING_EXPLANATION_PASS")):
+                    ("explanation-input", "opening/explanation_check.gd", "OPENING_EXPLANATION_PASS"))
+            for name, script, marker in checks:
                 arguments = ["--path", str(project), "--script", "res://" + script]
                 stage_slot = session / "example-unwritten.factory" if name == "explanation-input" else save_slot
-                if args.render and name in ("opening-input", "save-load-input", "explanation-input"):
+                if args.render and name in ("opening-input", "save-load-input", "explanation-input", "resume-input"):
                     capture = session / (name + ".png")
                     arguments += ["--rendering-method", "gl_compatibility", "--audio-driver", "Dummy",
-                                  "--", "--capture=" + str(capture), "--save-slot=" + str(stage_slot)]
+                                  "--", "--capture=" + str(capture), "--save-slot=" + str(stage_slot), *resume_arguments]
                 else:
-                    arguments = ["--headless", *arguments, "--", "--save-slot=" + str(stage_slot)]
+                    arguments = ["--headless", *arguments, "--", "--save-slot=" + str(stage_slot), *resume_arguments]
                 output = execute(name, arguments, marker,
-                                 timeout=180 if args.render and name in ("opening-input", "save-load-input", "explanation-input") else 30)
+                                 timeout=180 if args.render and name in ("opening-input", "save-load-input", "explanation-input", "resume-input") else 30)
+                if name == "resume-input":
+                    prefix = "OPENING_RESUME_STATE "
+                    report = json.loads(next(line[len(prefix):] for line in output.splitlines() if line.startswith(prefix)))
+                    final = report["final"]
+                    inventories = dict(expected_resume["state"]["inventories"])
+                    inventories["P"] = inventories.get("P", 0) + 1
+                    stock = final["stock"]
+                    if (not _same_value(report.get("loaded"), expected_resume["checkpoint"])
+                            or report.get("failures") != [] or report.get("checks", 0) < 10
+                            or not _same_value(final["inventories"], inventories)
+                            or any(not _same_value(final[k], expected_resume["state"][k])
+                                   for k in ("initial_feed", "recipe_input", "entities", "links", "drive_links", "parts"))
+                            or sum(stock[k] for k in ("source", "collector", "belt", "input", "held"))
+                            + final["recipe_input"] * (stock["output"] + sum(inventories.values())) != final["initial_feed"]):
+                        raise ValueError("Actual resumed input differs from saved state and independent material/identity oracle")
+                    receipt["resume_consumer"] = report
                 if name == "save-load-input":
                     prefix = "OPENING_SAVE_LOAD_STATE "
                     report = json.loads(next(line[len(prefix):] for line in output.splitlines() if line.startswith(prefix)))
@@ -225,31 +323,55 @@ def main():
                     report = json.loads(next(line[len(prefix):] for line in output.splitlines() if line.startswith(prefix)))
                     check_explanation_report(report)
                     (session / "explanation.json").write_text(json.dumps(report, indent=2) + "\n")
-                if args.render and name in ("opening-input", "save-load-input", "explanation-input"):
+                if args.render and name in ("opening-input", "save-load-input", "explanation-input", "resume-input"):
                     if not capture.read_bytes().startswith(b"\x89PNG\r\n\x1a\n"):
                         raise ValueError("Missing actual rendered viewport capture")
         else:
             arguments = ["--path", str(project), SMOKE_SCENE,
                          "--rendering-method", "gl_compatibility"]
-            user_arguments = ["--save-slot=" + str(save_slot)]
+            user_arguments = ["--save-slot=" + str(save_slot), *resume_arguments]
             if args.smoke:
-                receipt["instrumentation"] = instrument_smoke(project, receipt["source_hashes"]["project.godot"])
+                if args.resume is None:
+                    receipt["instrumentation"] = instrument_smoke(project, receipt["source_hashes"]["project.godot"])
+                else:
+                    config = project / "project.godot"
+                    original = config.read_bytes()
+                    if b"[autoload]" in original:
+                        raise ValueError("Resume smoke needs explicit support for existing autoloads")
+                    config.write_bytes(original + b'\n[autoload]\nFactoryResumeObserver="*res://opening/resume_observer.gd"\n')
+                    receipt["instrumentation"] = {"kind": "read_only_resume_observer",
+                        "modified_files": {"project.godot": {"copied_sha256": receipt["source_hashes"]["project.godot"],
+                            "post_import_sha256": hashlib.sha256(original).hexdigest(),
+                            "runtime_sha256": hashlib.sha256(config.read_bytes()).hexdigest()}},
+                        "observer": {"path": "opening/resume_observer.gd", "sha256": receipt["source_hashes"]["opening/resume_observer.gd"]}}
                 startup_report = session / "startup.json"
                 user_arguments.append("--startup-report=" + str(startup_report))
                 arguments += ["--quit-after", "60"]
             execute("interactive", [*arguments, "--", *user_arguments],
                     timeout=30 if args.smoke else 1800)
             if args.smoke:
-                receipt["startup"] = read_smoke_report(startup_report, save_slot)
+                receipt["startup"] = (read_smoke_report(startup_report, save_slot) if args.resume is None
+                                      else read_resume_report(startup_report, expected_resume, save_slot))
         receipt["status"] = "pass"
     except Exception as error:
         receipt["status"] = "fail"
         receipt["error"] = str(error)
         raise
     finally:
+        if "resume" in receipt:
+            try:
+                unchanged = hashlib.sha256(capture_resume(args.resume)).hexdigest() == receipt["resume"]["source_sha256"]
+            except (OSError, ValueError, subprocess.SubprocessError):
+                unchanged = False
+            receipt["resume"]["source_unchanged"] = unchanged
+            if not unchanged:
+                receipt["status"] = "fail"
+                receipt["error"] = "The selected source changed during this session; inspect retained evidence"
         receipt["owned_bytes"] = bounds.owned_bytes(artifacts)
         receipt["finished"] = datetime.now(timezone.utc).isoformat()
         (session / "result.json").write_text(json.dumps(receipt, indent=2) + "\n")
+    if receipt["status"] != "pass":
+        raise ValueError(receipt.get("error", "Opening failed"))
     print(f"Opening {receipt['mode']} finished; evidence and save retained at {session}")
 
 

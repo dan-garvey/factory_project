@@ -21,8 +21,10 @@ python3 -B scripts/run_local.py heavy -- python3 -B scripts/run_opening.py \
 The artifact root must be outside Git checkouts. Each launch creates a fresh
 project copy, private profile and save slot there. Close the window to finish;
 experimental sessions are capped at 30 minutes. Save with F5 and load with F9
-within that run. Files remain after exit, but reopening a prior run is not yet
-provided. See the [controls and construction example](experiments/engine-environment/godot/opening/README.md).
+within that run. To reopen a compatible saved worksite, add
+`--resume /absolute/path/to/previous/session/worksite.factory` to the command.
+The original is read only; the reopened world gets a new session and save slot.
+See the [controls and construction example](experiments/engine-environment/godot/opening/README.md).
 
 The gameplay UI is local. Controlled two-client fixtures exercise the same
 authoritative model, not a multiplayer lobby or networked gameplay UI. Motion,

@@ -26,6 +26,7 @@ var save_slot_ready := false
 var save_slot_owned := false
 var last_save_result: Dictionary = {}
 var last_load_result: Dictionary = {}
+var startup_resume_checkpoint: Dictionary = {}
 var mode := "collector"
 var pending_link := ""
 var selected := ""
@@ -78,6 +79,19 @@ func _ready() -> void:
 	_build_interface()
 	_refresh()
 	_message("Build a small line. Choose a part, then click a grid square.")
+	for argument in OS.get_cmdline_user_args():
+		if argument.begins_with("--resume-input="):
+			var result: Dictionary = _load_worksite(argument.trim_prefix("--resume-input="))
+			if not result.accepted or not model.projection().options.get("opening", false):
+				push_error("Opening resume refused; no fresh-world fallback")
+				get_tree().quit(1)
+				return
+			startup_resume_checkpoint = model.checkpoint()
+			if not _save_worksite().accepted:
+				push_error("Resumed worksite could not publish its new session slot")
+				get_tree().quit(1)
+				return
+			_message("Worksite reopened in this session. Your original save is kept.")
 
 func configure_save_slot(path: String) -> void:
 	# The launcher supplies a fresh external session directory. One cooperating
