@@ -26,10 +26,29 @@ within that run. To reopen a compatible saved worksite, add
 The original is read only; the reopened world gets a new session and save slot.
 See the [controls and construction example](experiments/engine-environment/godot/opening/README.md).
 
-The gameplay UI is local. Controlled two-client fixtures exercise the same
-authoritative model, not a multiplayer lobby or networked gameplay UI. Motion,
-larger factories, durable cross-version saves and native-core portability remain
-future work. Automated checks do not establish player understanding or enjoyment.
+To play the shared opening on this computer, use the same verified executable
+and its SHA256:
+
+```bash
+python3 -B scripts/run_local.py heavy -- python3 -B scripts/run_shared_opening.py \
+  --godot /absolute/path/to/Godot_v4.7.2-stable_linux.x86_64 \
+  --sha256 verified-lowercase-executable-sha256 \
+  --artifacts /absolute/owned/shared-opening-sessions
+```
+
+This opens ordinary P and Q game windows connected to one live loopback server.
+Add `--clients 1` for a single window. Both participants use the same finite
+starter kit, while collected plates and the four-plate confirmation belong to
+the individual participant. Shared Save/Load is unavailable; use the original
+offline launcher above for saves and reopening. Each command starts a fresh
+16-blank worksite. Closing either window ends the whole shared session; Ctrl-C
+also stops it. The default session lasts at most 15 minutes. See the
+[shared launch controls and limits](experiments/engine-environment/godot/opening-session/README.md#normal-shared-play).
+
+The shared UI is a trusted same-host prototype without a lobby, accounts or
+remote hosting. Larger factories, durable cross-version saves and native-core
+portability remain future work. Automated checks do not establish player
+understanding or enjoyment.
 
 ## Verify
 

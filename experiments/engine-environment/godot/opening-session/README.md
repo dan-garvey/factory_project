@@ -64,6 +64,65 @@ prediction, authentication, high-rate/scale evidence, moving-world networking,
 network persistence, campaign policy or human play. Bounded orchestration and
 actual two-UI evidence are required before accepting the integrated mode.
 
+## Normal shared play
+
+Use `scripts/run_shared_opening.py` for ordinary play on this computer:
+
+```bash
+python3 -B scripts/run_local.py heavy -- python3 -B scripts/run_shared_opening.py \
+  --godot /absolute/verified/Godot_v4.7.2-stable_linux.x86_64 \
+  --sha256 verified-lowercase-executable-sha256 \
+  --artifacts /absolute/owned/shared-opening-sessions
+```
+
+The default opens two normal game windows, P and Q, and one headless server.
+`--clients 1` opens only P. Clients enter `shared_opening.tscn` normally and
+connect automatically. The ordinary mode has no input controller, copied
+observer, delivery holds or frozen clock. The server keeps the existing live
+clock and sole Model. Construction, material/drive links, retrieval, explicit
+actor-owned confirmation and Help use the same controls as the offline opening.
+Shared Save/Load remains unavailable. Each launch is a fresh finite16 fixture;
+closing a session does not save it.
+
+Closing **either** game window ends the entire session, including the server
+and the other window. Ctrl-C also stops all owned processes. The launcher
+records the actual reason and exit codes; a remaining window terminated during
+cohort cleanup is not reported as a graceful user close. The default limit is
+900 seconds after both requested participants join. `--duration-seconds` accepts
+1 through1100, below the existing server lifetime. The whole launcher also has
+an outer30-minute allowance. `--port` accepts one explicit port, or0 for one
+kernel-selected candidate; a bind conflict fails without scanning or retrying.
+
+The artifact root must be an owned absolute directory outside Git and without
+symlinks. Each run retains original source hashes, captured runner hashes,
+private projects/profiles, bounded logs, lifecycle PIDs/process groups and the
+server's final report. `controller.json` identifies the launcher process;
+atomic `cohort-state.json` records starting/ready/stopping/finished boundaries.
+Ready means the actual server admitted all requested fixture roles. After
+cleanup, `result.json` records the outcome and listener release. Ordinary play
+is labelled `completed` or `interrupted`, rather than a gameplay test pass.
+One outer resource permit and unchanged bounded helper own at most three
+engines; the aggregate evidence root is capped at256MiB.
+
+For a bounded automated normal-entry smoke check, add `--smoke`. This keeps the
+ordinary scene entry and auto-connect, but appends the tracked
+`launch_observer.gd` as an autoload **only in the copied client configuration
+after import**. Its captured bytes and original/post-import/runtime configuration
+hashes are disclosed. The default observer reads the real scene, waits for two
+server revisions, captures its window and reports without game commands. It
+closes/publishes its report before emitting the tagged completion marker; the
+supervisor reads it once and releases the observers to exit only after all
+participants were observed. This is startup/lifecycle evidence, not human play.
+
+An independent test consumer may use `--smoke --observer /absolute/observer.gd`.
+That explicit regular script is captured and limited to128KiB. It remains an
+autoload observing/driving the normal scene, never a replacement client entry.
+The exact report and finish protocol is implemented in the tracked default
+observer and launcher validator. Extra ordinary-input stages can be retained
+in its report. Normal mode refuses `--observer`; it never depends on diagnostic
+controls. The separate transport and full UI checks below retain their own
+coverage and attribution.
+
 ## Bounded transport proof
 
 Run the diagnostic transport consumer through one outer resource permit:
