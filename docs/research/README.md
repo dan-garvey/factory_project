@@ -31,15 +31,17 @@ paths are planned until their reviewed files land.
 | shapez 2: spatial/logistics source survey | `factory-yau.8.7` | Recovery | [games/shapez-2.md](games/shapez-2.md) |
 | Dyson Sphere Program: dated source survey | `factory-yau.8.8` | Platform | [games/dyson-sphere-program.md](games/dyson-sphere-program.md) |
 | shapez 2: programmable changeovers and retained work | `factory-yau.8.9` | Recovery | `games/shapez-2-changeovers.md` |
-| Factory Town: stationary gravity and terrain | `factory-yau.8.10` | Platform | `games/factory-town.md` |
+| Factory Town: partial dated source survey | `factory-yau.8.10` | Platform | [games/factory-town.md](games/factory-town.md) |
 
 The reviewed Factorio and Dyson Sphere Program notes complete only their declared
 source-study scopes, not current-build play or every system in either game.
 The published Satisfactory and Opus Magnum notes remain partial; their study
 leaves stay open for the recorded control, process/recovery and progression gaps.
-Factory Town is a distinct, owned gravity/terrain study, not a completed note.
-Its scope excludes Factory Town Idle and Factory Town 2. None of these candidates
-changes game requirements, and physical-character delivery retains priority.
+The Factory Town note is independently reviewed for partial publication; current
+chute/merge behavior, rates, unlocks and direct play remain gaps. Its original-game
+scope excludes Factory Town Idle and Factory Town 2; its study leaf remains open.
+None of these candidates changes game requirements, and physical-character
+delivery retains priority.
 
 The reviewed shapez 2 survey covers dated developer descriptions of spatial
 processing, vertical routing, capacity diagnosis and persistent production. It
