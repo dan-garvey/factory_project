@@ -22,15 +22,24 @@ paths are planned until their reviewed files land.
 
 | Study | Bead | Continuing owner | Per-game note path |
 | --- | --- | --- | --- |
-| Factorio | `factory-yau.8.1` | Playability | `games/factorio.md` |
-| Satisfactory | `factory-yau.8.2` | Playability | `games/satisfactory.md` |
+| Factorio: base 2.0 stationary source study | `factory-yau.8.1` | Playability | [games/factorio.md](games/factorio.md) |
+| Satisfactory: partial source study | `factory-yau.8.2` | Playability | [games/satisfactory.md](games/satisfactory.md) |
 | Create + Above and Beyond + CABIN | `factory-yau.8.3` | Chapter | `games/create-packs.md` |
-| Opus Magnum | `factory-yau.8.4` | Ops | `games/opus-magnum.md` |
+| Opus Magnum: partial source study | `factory-yau.8.4` | Ops | [games/opus-magnum.md](games/opus-magnum.md) |
 | SpaceChem | `factory-yau.8.5` | Ops | `games/spacechem.md` |
 | Infinifactory | `factory-yau.8.6` | Chapter | `games/infinifactory.md` |
 | shapez 2: spatial/logistics source survey | `factory-yau.8.7` | Recovery | [games/shapez-2.md](games/shapez-2.md) |
-| Dyson Sphere Program | `factory-yau.8.8` | Platform | `games/dyson-sphere-program.md` |
+| Dyson Sphere Program: dated source survey | `factory-yau.8.8` | Platform | [games/dyson-sphere-program.md](games/dyson-sphere-program.md) |
 | shapez 2: programmable changeovers and retained work | `factory-yau.8.9` | Recovery | `games/shapez-2-changeovers.md` |
+| Factory Town: stationary gravity and terrain | `factory-yau.8.10` | Platform | `games/factory-town.md` |
+
+The reviewed Factorio and Dyson Sphere Program notes complete only their declared
+source-study scopes, not current-build play or every system in either game.
+The published Satisfactory and Opus Magnum notes remain partial; their study
+leaves stay open for the recorded control, process/recovery and progression gaps.
+Factory Town is a distinct, owned gravity/terrain study, not a completed note.
+Its scope excludes Factory Town Idle and Factory Town 2. None of these candidates
+changes game requirements, and physical-character delivery retains priority.
 
 The reviewed shapez 2 survey covers dated developer descriptions of spatial
 processing, vertical routing, capacity diagnosis and persistent production. It
