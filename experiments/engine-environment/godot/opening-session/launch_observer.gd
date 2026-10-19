@@ -58,7 +58,7 @@ func _ready() -> void:
 	if file == null:
 		fail("Cannot open owned normal-entry report")
 		return
-	file.store_string(JSON.stringify(value))
+	file.store_string(JSON.stringify(value, "", true, true))
 	file.close()
 	if DirAccess.rename_absolute(report_path + ".writing", report_path) != OK:
 		fail("Cannot publish normal-entry report")

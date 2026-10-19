@@ -75,4 +75,7 @@ class OpeningSequencesTests(unittest.TestCase):
             receipt = json.loads(next((root / "runs").glob("run-*/result.json")).read_text())
             self.assertEqual(receipt["status"], "fail")
             self.assertEqual(receipt["stages"][-1]["exit"], 0)
-            self.assertEqual(len(receipt["source_hashes"]), 8)
+            self.assertIn("opening/site_geometry.gd", receipt["source_hashes"])
+            self.assertEqual(receipt["source_hashes"], {
+                name: hashlib.sha256((runner.PROJECT / name).read_bytes()).hexdigest()
+                for name in runner.FILES})

@@ -1,6 +1,12 @@
 # Godot and prototype constraint register
 
-Updated 2026-10-15 UTC against accepted source `ecd80b486066fe78d7e8e3ed6483981c3599f438`.
+First source/API audit: 2026-10-15 UTC, accepted source
+`ecd80b486066fe78d7e8e3ed6483981c3599f438`. Physical-adapter addendum:
+2026-10-19 UTC, source candidate `18bef7dfa013e0ead8c7c4c74f89d8802bb845d0`.
+Shared-runtime addendum: 2026-10-19 UTC, tested candidate
+`df8446387088da522221cc7972f0aab91a646c45`.
+Normal P/Q save/reopen addendum: 2026-10-19 UTC, tested candidate
+`250941dc0ecce70ef1eab5055cc4f46ef49c5f59`.
 Godot use is approved for current development. This register prevents the
 modeling framework from silently defining the game. The bounded first audit is
 owned by `factory-yau.3.10`; this maintained register is not a claim that every
@@ -18,7 +24,7 @@ mitigation/exit path, owner and follow-up. A workaround that changes gameplay
 requires an explicit design decision. Preserve the original failure and limits.
 Current runtime provenance is in the [environment record](engine-environment.md);
 the pinned 4.7.2 build is a test dependency, not a permanent game requirement.
-The official `stable` documentation linked below was checked on this date; it
+The official `stable` documentation linked below was checked on 2026-10-15; it
 can advance independently of our pin and is not exact-build executable evidence.
 Version-specific XML links below come from the upstream `4.7.2-stable` tag;
 reading its API contract is distinct from exercising our installed binary.
@@ -31,8 +37,15 @@ shared opening, mechanics, rider and tooling. The verified executable reports
 `8d106cbe6144c2dc7e881d61d2429c1a8a76e6b22ef48bd5e48dcf934953f71e`.
 Its [original trial](engine-environment.md) records installation provenance;
 that page's first-trial coverage is historical. Subsequent proofs are scoped below.
-No new engine invocation, backend switch, download or precision build was used
+No new engine invocation, backend switch, runtime download or precision build was used
 for this document audit.
+The physical addenda read `18bef7d`, including the `ed2b6cf` actor/view join,
+the corrected `df84463` worksite layout, and the separate `250941d` normal
+save/reopen consumer. The independent `6.37` review
+accepts its declared frozen/live shared consumers; whole implementation acceptance
+and incorporation into main remain separate under `factory-yau.5.21`, `.6.36`
+and `.6.37`. The tested source and this register must land together; the addendum
+does not assert that current main already contains the physical join.
 
 | Evidence anchor | What it supports | What it does not establish |
 | --- | --- | --- |
@@ -41,6 +54,11 @@ for this document audit.
 | `d1e32f0` [retrieval continuation](opening-recovery.md) and `e7eb73e` [shared opening](../../experiments/engine-environment/godot/opening/shared_opening.md) | One bounded stationary authority, interrupted retrieval custody, inspection/reconnect feedback | Adversarial movement admission, internet reliability, crash durability or user play |
 | `ecd80b4` [moving-port probe](../../experiments/engine-environment/godot/moving-transfer/README.md) | Native sampled port geometry and finite transfer ownership | Continuous contact, real item bodies, campaign logistics or a production network join |
 | `2e8665f` [exact-count bench](../../experiments/engine-environment/godot/precision/README.md) | Exact material quantities, retained work and recovery | Floating-point spatial precision: its directory name is not a coordinate-precision benchmark |
+| `18bef7d` physical candidate, [opening limits](../../experiments/engine-environment/godot/opening/README.md) and [contract](physical-construction-contract.md) | Actor/reach/save interfaces and explicitly scoped offline/shared fixtures | Complete ordinary two-player behavior, live replacement, cross-roster migration or user play |
+| `18bef7d` [control-wire cases](../../scripts/opening_control_wire_cases.py) | Forty malformed real-client control packets, sequence/rebind handling and selected native input/release sentinels, with unchanged finite custody | Ordinary keyboard play, live production, nonempty material-cache continuation, fresh-process physical reopening or a complete movement-security model |
+| `ed2b6cf` [offline character check](../../experiments/engine-environment/godot/opening/character_check.gd) | P-only fresh-process floor/wall save reopen and deep-overlap refusal | Shared P/Q host-file reopening, accepted small-positive saved overlap, live replacement or momentum continuation |
+| `df84463` [shared physical consumer](../../experiments/engine-environment/godot/opening/shared_check.gd), independent `6.37` review | Actual movement/native admission cuts, camera-independent reach, fixed collision, finite live P4/Q1 plate custody, selected/pending controls and reconnect | Human play, physical P/Q host-file reopening, OS-focus transitions, other resolutions, internet behavior or game-scale acceptance |
+| `250941d` [normal P/Q save/reopen consumer](../../scripts/check_physical_shared_resume.py), independent retained-evidence reviews | First normal host's actual binary save, a fresh host's exact Store load and native P/Q restoration, with historical accepted/refused requests retained | Disk continuation of the earlier live P4/Q1 production: this witness has one collector, two old requests, 16 unprocessed blanks and empty pockets; no momentum, crash or human-play proof |
 
 **Observed** below means a named code path or retained bounded consumer witness.
 **Documented** means an upstream API contract, with no broader runtime result.
@@ -88,6 +106,14 @@ Published completed poses, current native queries and rendered samples must keep
 separate revision/clock labels. A source pause can leave already requested motion
 to drain; it does not imply an immediate native freeze.
 
+The physical adapter retains at most 2,048 read-only native observations globally
+across actors and refreshes. Its shared review captures each admitted epoch with
+the actual body/world/pose, rather than substituting a later sample. The corrected
+frozen/live cases reconstructed 22 and 17 admissions respectively; five corrupt
+evidence controls were rejected. Missing or evicted native evidence is a failed
+observation, not permission to use the latest pose. This history bound is probe
+policy, not a game history or actor-count limit.
+
 ## GDC-03: a character API is not the game's movement design
 
 **Engine/API plus fixture.**
@@ -95,12 +121,18 @@ to drain; it does not imply an immediate native freeze.
 provides scripted collision/movement APIs with floor, slope and platform settings.
 Our [rider controller](../../experiments/engine-environment/godot/rider/player.gd)
 chooses a capsule, gravity, walk/jump values and collision masks for a local probe.
+The physical opening now has its own
+[ActorBody](../../experiments/engine-environment/godot/opening/actor_body.gd),
+with the same single producer used offline or on the dedicated shared host;
+shared clients render confirmed proxies. Its actual movement and construction
+join has bounded consumer evidence at `df84463`, independently of the rider.
 
 **Boundary/exit:** these choices do not fix the game's body dimensions, speed,
 jumping, camera or injury model. A physical controlled character and limited
-construction proximity are user requirements, not Godot defaults. The opening
-still needs that integrated controller/authority/reach join; a rider success does
-not supply it. Owners: Chapter and Platform; `3.11`, `5.21`, `6.36`, `6.37`
+construction proximity are user requirements, not Godot defaults. The physical
+candidate supplies a controller/authority/reach join with its own fixtures;
+a rider success does not validate that join. Owners: Chapter and Platform;
+`3.11`, `5.21`, `6.36`, `6.37`
 under `factory-yau`.
 
 **Exact contract and consequence:** the pinned
@@ -112,6 +144,26 @@ observed local integration, not an input-to-authoritative-actor construction joi
 That join must identify the actual admitted pose and operation target in 3D;
 changing camera distance must not increase building reach. Capsule dimensions,
 mask bits, snap distance and the `.015` rider-test tolerance remain fixture values.
+
+**Physical adapter impact/exit:** [ActorWorld](../../experiments/engine-environment/godot/opening/actor_world.gd)
+publishes current native body origins to Model; camera picking identifies only
+the requested target. Its [documented masks](../../experiments/engine-environment/godot/opening/README.md)
+put actors on collision bit16 with mask1|2, excluding actor-actor collision. Actor-actor
+saved-overlap rejection is also unsupported. The separate `actor_occupied`
+placement rule checks a new machine against ready actors; it does not supply
+actor-actor contact. Add and validate those contact/restore policies when needed,
+rather than making these adapter omissions game requirements. Owners: Chapter
+and Platform, with Recovery/Playability consumer review.
+
+**Chosen motor/input defaults:** [site geometry](../../experiments/engine-environment/godot/opening/site_geometry.gd)
+sets capsule radius 0.3/height 1.8, walk speed 3, gravity 14, jump speed 6, floor snap 0.1
+and safe margin 0.001. These are reversible adapter values, not final movement
+design. Bounded direction/jump/release input reaches the trusted actor binding;
+the producer owns physics delta and clamps horizontal magnitude. Release clears
+horizontal motion and queued jump while gravity continues. Freezing Model
+production does not freeze this body. The construction rule separately checks
+the latest native origin against the declared 3D work anchors, including height;
+camera orbit supplies no extra range. See the [physical contract](physical-construction-contract.md).
 
 ## GDC-04: limited contact probes are not a universal collision policy
 
@@ -137,6 +189,15 @@ Result limits, collision layers, body/area flags, shape-local transforms and wor
 space are query inputs to audit, not engine-selected game eligibility rules.
 Use initial-overlap handling and a separately validated angular/contact strategy
 when the intended mechanic requires them. No claim that Godot cannot provide it.
+
+**Physical saved-contact limit:** ActorWorld's initial query covers its upright
+capsule against a floor plane and uniform axis-aligned machine boxes. Its
+analytical overlap measure and chosen 0.001 contact allowance are not a general
+native penetration-depth result. The accepted offline floor/wall reopens had
+empty contact-query results; they do not exercise the small-positive-overlap
+acceptance branch. Deep-overlap refusal is separate negative evidence. A broader
+contact/restore policy needs its own discriminating consumer; fixed-box collision
+and `actor_occupied` do not establish actor contact, pushing or injury rules.
 
 ## GDC-05: coordinate precision needs a scale strategy, not an invented world cap
 
@@ -190,7 +251,7 @@ not a requirement to rewrite the current stationary opening.
 **Adapter coverage limit, observed.**
 The [shared-session fixture](../../experiments/engine-environment/godot/opening-session/README.md)
 proves a bounded trusted same-host authority/request/snapshot path and orderly
-checkpoint continuation. It does not establish adversarial movement validation,
+checkpoint continuation. It does not establish a complete adversarial movement model,
 internet deployment, prediction/rollback, deterministic cross-platform physics
 or durable cross-version saves.
 
@@ -220,13 +281,33 @@ trusted loopback roles, `.45` clock and 10-second connect bound are fixture poli
 Prediction, rollback, WAN behavior and cross-platform native determinism remain
 unknown; none is inferred from stationary snapshot convergence.
 
+**Physical input admission versus application, observed adapter/probe limit:**
+the Session's `control_trace.accepted` records RPC schema, binding and sequence
+admission. That bit does not record the return from the native producer's
+`set_control`, or prove that a later body step applied the input. The
+[control-wire fixture](../../scripts/opening_control_wire_cases.py) separately
+checks producer control/release counters and later native poses for its positive
+sentinels. Its paired jump/release calls use existing Session APIs in one test
+callback; the actual same-frame RPC trace and later floor sample do not include
+an intermediate native `jump_queued=true` observation or an airborne peak.
+
+**Affected promise / exit:** keep admission, producer application and native
+observation distinct when validating controlled movement. Use the declared
+native cuts in GDC-02; add an explicit application result if a future consumer
+needs one. This is a diagnostic/adapter boundary, not a selected player input
+rule or networking architecture. Owners: Platform, Chapter and Recovery.
+
 ## GDC-08: a planar construction fixture does not make this a flat game
 
 **Adapter/fixture, observed.**
 The opening's [model](../../experiments/engine-environment/godot/model.gd) accepts
 a small two-coordinate placement grid; its [view](../../experiments/engine-environment/godot/opening/opening.gd)
-picks a worksite plane. The current builder has no integrated physical character
-or proximity admission. These are current implementation gaps, not Godot limits.
+picks a worksite plane. The first audit's unrestricted builder lacked a physical
+character and proximity admission. At `df84463`, the actual shared controlled
+body and proximity join have bounded native evidence, including an airborne
+refusal and fresh grounded acceptance at the same horizontal position. That
+adapter retains the planar placement fixture; it does not yet
+implement stacked construction. Neither fixture defines a Godot or game-world limit.
 
 **Boundary/exit:** preserve the intended global 3D construction alignment and
 meaningful vertical factory design. Prioritize physical-character/3D-reach
@@ -289,13 +370,84 @@ stationary restore is useful evidence without proving crash/power-loss durabilit
 concurrent writers, cross-version migration or moving-world reconstruction.
 Owners: Recovery and Platform; refine the save contract when these become scope.
 
-The actual Compatibility/WSLg captures establish the inspected 1280×800 controls
-and text. Pending inspection and disconnect feedback have their own declared cuts;
-a decorative panel entering a footer edge is not a whole-window layout proof.
+**Physical profile impact/exit:** the [physical contract](physical-construction-contract.md#persistence-and-the-unrestricted-baseline)
+persists actor positions/capabilities, then rebuilds fresh native bodies with
+released controls and zero restored velocity. Continuous saved momentum or jump
+phase is unsupported. Offline physical live Load refuses `load_requires_restart`; use
+a fresh-process reopen. Cross-roster migration also refuses explicitly rather
+than inventing or dropping actors. These are adapter limits, not Godot limits.
+Later live replacement needs native geometry preflight and atomic Model/adapter
+replacement; migration and momentum need explicit continuation policies and
+consumer evidence. Owners: Platform, Chapter and Recovery; `.6.37` retains the
+independent combined-consumer scope. See the [opening limits](../../experiments/engine-environment/godot/opening/README.md).
+
+The `ed2b6cf` new-process physical save/reopen evidence is P-only offline,
+including floor/wall reopening and deep-overlap refusal. The shared `6.37` disconnect/rejoin
+keeps the host/native world alive; it is not host-file restoration in a new
+process. The separate `250941d` / `factory-yau.5.23` consumer passed two normal
+P/Q launcher runs: actual ordinary refusal/placement and walking produced the
+first host's binary save, then a fresh host Store-loaded that exact preserved
+input. Fresh native bodies were registered and stepped from the saved poses;
+their final released floor poses matched exactly in this witness. Actor
+capabilities, parts, generated IDs, context and the accepted/refused cache were
+unchanged; only the new live clock advanced revision. Reopened clients issued
+no material commands. This is one collector, two historical requests and 16
+unprocessed blanks with empty pockets, not a disk reopen of the earlier live
+P4/Q1 production. It does not establish velocity/jump continuity, crash recovery
+or human play. Offline P and a shared P or P/Q roster are declared
+profiles; schema-1 physical reopen and cross-roster migration refuse explicitly.
+
+The first shared physical `18bef7d` run failed with settled selected-press controls
+at707 crossing the status area at694. That original failure remains retained;
+no failed-state screenshot is claimed. The `df84463` correction passed the same
+frozen driver, followed by a distinct live-production consumer. All 490 retained
+closed raw responses satisfied `worksite_bottom <= 644 < 694`, where 694 is the
+status area's top. The live case includes selected press
+and two-line pending-connection observations at Q33/34/35, plus P4/Q1 individual
+plate custody; these are actual declared cuts, not a whole-window layout theorem.
+The independent retained-evidence audit reports 4,129 checks with five corrupt
+evidence controls rejected. It is agent event injection in Compatibility/WSLg
+at 1280×800 with two loopback peers, not actual user play or enjoyment evidence.
 There is no current certification of other resolutions, input devices, rendering
 backends, packaging or accessibility. Keep picking/camera and authority separate;
 validate the actual character-building consumer as its UI changes. Owners: Chapter,
 Playability and Ops; `6.36`/`6.37` and actual-user feedback `6.11`.
+
+Help/disconnect release has bounded actual consumer evidence. The focus-release
+fixture injects `Window.focus_exited`; a real operating-system focus transition
+remains untested. Near-origin floor/contact and two-client success do not resolve
+the backend-identification, far-origin or factory-scale unknowns in GDC-05/06/10.
+
+## GDC-12: JSON control files do not preserve RPC Variant types
+
+**Engine/API, documented for 4.7.2; fixture conversions observed.** The pinned
+[JSON XML](https://raw.githubusercontent.com/godotengine/godot/4.7.2-stable/doc/classes/JSON.xml),
+checked 2026-10-19, documents floating-point number parsing. A control-file JSON
+number therefore does not attest a native integer Variant in a later RPC.
+The normal Session constructs its own integer control sequence; the private
+[test controller](../../experiments/engine-environment/godot/opening/shared_check.gd)
+uses explicit `int` or `preserve` descriptors to construct the intended valid or
+malformed Variant before sending the existing RPC. This is test setup, not
+receiver-side coercion or a game rule about acceptable player values.
+
+The same API documents different nonfinite serialization: NaN becomes JSON
+null, while signed infinities use overflowing numeric tokens. The private probe
+constructs named nonfinite direction Variants and retains actual field types
+and nonfinite classifications before RPC submission and JSON observation.
+Treat those fields as controlled-test diagnostics, never client authority.
+Reading the serialized numeric value alone can lose the distinction the test
+was meant to exercise. The retained first control-wire execution has three
+nonfinite negative variants and explicit server refusals. Constructing these
+malformed values is confined to the private test controller.
+
+**Affected promise / exit:** retain actual payload types and original raw
+evidence when checking a typed transport contract. Reify only the test values
+explicitly selected by its descriptor, and preserve malformed types in negative
+cases. A different codec or engine version needs its own consumer checks;
+these conversions select no production wire/save format or material policy.
+The bounded wire case has frozen production and an empty material request
+cache; use the separate continuation and ordinary physical consumers for their
+declared behavior. Owners: Recovery and Platform; Ops reviews retained evidence.
 
 ## Required follow-through
 

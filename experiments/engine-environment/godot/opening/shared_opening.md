@@ -52,6 +52,12 @@ the live server/other participant can continue while an example is open. Full
 checkpoint isolation observations use an explicitly frozen server test clock;
 powering off alone does not stop the Model's revision clock.
 
+If the first machine chosen for a connection is dismantled before the second
+point is chosen, its confirmed removal clears that local choice. A replacement
+at the same square needs an explicit new choice; unrelated updates keep a valid one.
+Other actions still wait for their own server result; only the unsubmitted local
+choice is cleared.
+
 ## Scene and adapter seam
 
 `shared_opening.tscn` has root `OpeningShared` and child `Session`, giving both

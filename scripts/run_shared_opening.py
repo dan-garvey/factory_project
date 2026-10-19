@@ -28,7 +28,8 @@ OBSERVER = 'opening-session/launch_observer.gd'
 FILES = bounds.FILES + (
     'opening/opening.gd', 'opening/example_presenter.gd', 'opening/example_world.gd',
     'opening/shared_opening.gd', 'opening/shared_opening.tscn',
-    'opening-session/session.gd', 'opening-session/server.gd', 'save-tests/checkpoint_file.gd')
+    'opening-session/session.gd', 'opening-session/server.gd', 'save-tests/checkpoint_file.gd',
+    'opening/actor_world.gd', 'opening/actor_body.gd', 'opening/character_presenter.gd')
 MAX_BYTES = 256 * 1024**2
 
 
@@ -65,7 +66,7 @@ def regular_bytes(path, limit):
     return data
 
 
-def validate_observation(value, role, pid, context):
+def validate_observation(value, role, pid, context, physical_profile=False, expected_actors=('P', 'Q')):
     if (type(value.get('schema')) is not int or value['schema'] != 1 or value.get('status') != 'pass'
             or value.get('actor') != role or type(value.get('pid')) is not int or value['pid'] != pid
             or value.get('scene') != SCENE or value.get('script') != 'res://opening/shared_opening.gd'
@@ -92,6 +93,17 @@ def validate_observation(value, role, pid, context):
             or not set(snapshot.get('inventories', {})).issubset(('P', 'Q'))):
         raise ValueError('Observer did not return the actual opening fixture')
     ledger(snapshot)
+    if physical_profile:
+        import math
+        if snapshot.get('options', {}).get('physical') is not True or set(snapshot.get('actors', {})) != set(expected_actors):
+            raise ValueError('Normal physical opening omitted its authoritative actors')
+        for state in snapshot['actors'].values():
+            position = state.get('position')
+            if (state.get('ready') is not True or type(state.get('native_epoch')) is not int or state['native_epoch'] < 1
+                    or not isinstance(position, list) or len(position) != 3
+                    or any(type(x) not in (int, float) or not math.isfinite(x) for x in position)
+                    or state.get('capabilities') != {'build_reach': 4.0}):
+                raise ValueError('Normal physical opening returned an unready/invalid actor')
     return value
 
 
@@ -162,7 +174,7 @@ def cohort_worker(spec):
                 # Marker follows closed/atomic publication. Never retry JSON.
                 value = read_json(run / role / 'observation.json')
                 result['observations'][role] = validate_observation(value, role,
-                    group.actors[role]['process'].pid, ready['context'])
+                    group.actors[role]['process'].pid, ready['context'], spec.get('physical_profile', False), roles)
             (run / 'observers.finish').touch()
             wait(lambda: all(group.actors[role]['process'].poll() is not None for role in roles))
             result.update(status='pass', reason='observed_normal_entry')
@@ -266,6 +278,7 @@ def main(argv=None):
     parser.add_argument('--observer', type=Path, help='smoke-only captured independent observer, never a replacement scene')
     parser.add_argument('--save-on-close', action='store_true', help='save the host on orderly session end into this fresh run')
     parser.add_argument('--resume', type=Path, help='reopen a compatible checkpoint; preserve input and save to a fresh output on close')
+    parser.add_argument('--legacy-fixture', action='store_true', help='explicit unrestricted schema-1 historical fixture; not normal physical play')
     args = parser.parse_args(argv)
     if args.observer and not args.smoke:
         parser.error('--observer requires --smoke')
@@ -294,7 +307,8 @@ def main(argv=None):
                'started': datetime.now(timezone.utc).isoformat(), 'source_hashes': {}, 'stages': [],
                'runner_hashes': {name: sha(ROOT / 'scripts' / name) for name in
                    ('run_shared_opening.py', 'check_opening_session.py', 'check_engine_environment.py', 'run_opening.py')},
-               'binary': str(args.godot), 'binary_sha256': args.sha256, 'roles': roles, 'user_play': 'not_assessed'}
+               'binary': str(args.godot), 'binary_sha256': args.sha256, 'roles': roles, 'user_play': 'not_assessed',
+               'physical_profile': not args.legacy_fixture}
     publish(run / 'controller.json', {'schema': 1, 'controller_pid': os.getpid(), 'run': str(run),
                                     'revision': receipt['revision'], 'mode': receipt['mode']})
     print('Shared opening session: ' + str(run), flush=True)
@@ -350,7 +364,7 @@ def main(argv=None):
                 captured.write_bytes(observer)
                 receipt['observer'] = {'source': str(source), 'captured': str(captured), 'sha256': sha(captured),
                                        'default': args.observer is None}
-            spec = {'run': str(run), 'roles': roles, 'smoke': args.smoke, 'actors': {},
+            spec = {'run': str(run), 'roles': roles, 'smoke': args.smoke, 'actors': {}, 'physical_profile': not args.legacy_fixture,
                     'duration_seconds': args.duration_seconds, 'controller_pid': os.getpid()}
             for role in ('server', *roles):
                 directory = run / role
@@ -371,7 +385,7 @@ def main(argv=None):
                 command = [str(args.godot), '--path', str(project)]
                 if role == 'server':
                     command += ['--headless', '--script', 'res://opening-session/server.gd', '--',
-                                '--session-port=' + str(port), '--ready-file=' + str(run / 'server-ready.json'),
+                                '--session-port=' + str(port), '--actor-roster=' + ','.join(roles), '--ready-file=' + str(run / 'server-ready.json'),
                                 '--status-file=' + str(run / 'server-status.json'), '--stop-file=' + str(run / 'server.stop'),
                                 '--report-file=' + str(run / 'server-report.json')]
                     if save_slot is not None:
@@ -384,6 +398,8 @@ def main(argv=None):
                     if args.smoke:
                         command += ['--launch-report=' + str(directory / 'observation.json'),
                                     '--launch-finish-file=' + str(run / 'observers.finish')]
+                if args.legacy_fixture:
+                    command += ['--legacy-fixture']
                 spec['actors'][role] = {'project': str(project), 'environment': environment, 'command': command,
                                        'instrumentation': instrumentation}
             spec_path = run / 'cohort-spec.json'

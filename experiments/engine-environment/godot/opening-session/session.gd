@@ -38,6 +38,14 @@ var _incoming: Array = []
 var _held: Array = []
 var _received := 0
 var _connect_started_msec := -1
+var actor_world
+var actor_error := ""
+var control_trace: Array = []
+var control_trace_dropped := 0
+var _control_sequence := 0
+var _control_direction := Vector2.ZERO
+var _control_initialized := false
+var _control_received: Dictionary = {}
 
 func _ready() -> void:
 	assert(str(get_path()) == "/root/OpeningShared/Session")
@@ -49,7 +57,7 @@ func _ready() -> void:
 	multiplayer.server_disconnected.connect(func(): _lost("server_disconnected"))
 	multiplayer.peer_disconnected.connect(_peer_lost)
 
-func serve_loopback(port: int, frozen_clock := false) -> Error:
+func serve_loopback(port: int, frozen_clock := false, physical_profile := false, actor_ids: Array = ["P", "Q"]) -> Error:
 	if _transport != null or world != null:
 		return ERR_ALREADY_IN_USE
 	if port < 1 or port > 65535:
@@ -65,10 +73,140 @@ func serve_loopback(port: int, frozen_clock := false) -> Error:
 	_authoritative = true
 	_ready_for_commands = true
 	context = "opening-shared-" + Crypto.new().generate_random_bytes(16).hex_encode()
-	world = Model.new(16, context, 1, {"opening": true})
+	world = Model.new(16, context, 1, {"opening": true, "physical": true} if physical_profile else {"opening": true}, actor_ids)
 	_tick_seconds = 0.0 if frozen_clock else 0.45
 	last_serial = 0
 	return OK
+
+func start_physical_world() -> Error:
+	# The host invokes this AFTER validating/restoring Model. Creating spawn
+	# bodies before restore would silently retain the wrong native positions.
+	if not _authoritative or world == null or not world.projection().options.get("physical", false):
+		return ERR_UNAVAILABLE
+	if actor_world != null:
+		return ERR_ALREADY_IN_USE
+	var adapter = load("res://opening/actor_world.gd")
+	if adapter == null:
+		return ERR_UNAVAILABLE
+	actor_world = adapter.new()
+	actor_world.name = "ActorWorld"
+	var configured: Dictionary = actor_world.configure(world)
+	if not configured.accepted:
+		actor_error = "actor_configure_refused:" + str(configured.get("reason", "invalid_result"))
+		actor_world.free()
+		actor_world = null
+		return ERR_INVALID_DATA
+	actor_world.pose_published.connect(_actor_pose)
+	actor_world.initialization_failed.connect(_actor_initialization_failed)
+	add_child(actor_world)
+	var topology: Dictionary = actor_world.sync_topology()
+	if not topology.accepted:
+		actor_error = "actor_topology_refused:" + str(topology.get("reason", "invalid_result"))
+		return ERR_INVALID_DATA
+	for actor_id in world.projection().actors:
+		var created: Dictionary = actor_world.ensure_actor(actor_id)
+		if not created.accepted:
+			actor_error = actor_id + ":" + str(created.get("reason", "actor_creation_failed"))
+			return ERR_CANT_CREATE
+	return OK
+
+func physical_ready() -> bool:
+	if world == null or not world.projection().options.get("physical", false):
+		return false
+	var states: Dictionary = world.projection().actors
+	if states.is_empty():
+		return false
+	for actor_id in states:
+		if not states.get(actor_id, {}).get("ready", false):
+			return false
+	return actor_error.is_empty()
+
+func _actor_pose(actor_id: String, sample: Dictionary) -> void:
+	if not _authoritative or world == null:
+		return
+	if not sample.get("ready", false):
+		world.invalidate_actor(actor_id)
+		_broadcast(_frame())
+		return
+	var result: Dictionary = world.publish_actor(actor_id, sample.get("position", []), sample.get("native_epoch", 0))
+	if not result.accepted:
+		actor_error = result.reason
+		world.invalidate_actor(actor_id)
+	_broadcast(_frame())
+
+func _actor_initialization_failed(actor_id: String, reason: String) -> void:
+	actor_error = actor_id + ":" + reason
+	world.invalidate_actor(actor_id)
+	_broadcast(_frame())
+
+func set_control(world_xz: Vector2, jump: bool) -> Dictionary:
+	return _send_control(world_xz, jump, false)
+
+func _send_control(world_xz: Vector2, jump: bool, release: bool) -> Dictionary:
+	# A separate bounded input stream. Pending construction acknowledgements do
+	# not freeze walking, and inputs never enter material command history.
+	if _authoritative or not is_ready() or not _cache.get("options", {}).get("physical", false):
+		return {"accepted": false, "reason": "physical_control_unavailable"}
+	if not world_xz.is_finite():
+		return {"accepted": false, "reason": "invalid_control"}
+	var direction := world_xz.limit_length(1.0)
+	if _control_initialized and direction == _control_direction and not jump and not release:
+		return {"accepted": true, "reason": "unchanged_control"}
+	_control_sequence += 1
+	var payload := {"namespace": request_namespace, "sequence": _control_sequence,
+		"direction": [direction.x, direction.y], "jump": jump, "release": release}
+	var error: Error = rpc_id(1, "_wire_control", payload)
+	if error != OK:
+		return {"accepted": false, "reason": "control_send_failed"}
+	_control_direction = direction
+	_control_initialized = true
+	return {"accepted": true, "reason": "control_sent"}
+
+func release_control() -> Dictionary:
+	# A release must clear a queued jump as well as horizontal input; merely
+	# sending jump=false would leave ActorBody's one-shot edge latched.
+	return _send_control(Vector2.ZERO, false, true)
+
+func _record_control(entry: Dictionary) -> void:
+	if control_trace.size() >= 4096:
+		control_trace.pop_front()
+		control_trace_dropped += 1
+	control_trace.append(entry)
+
+@rpc("any_peer", "call_remote", "reliable")
+func _wire_control(payload: Dictionary) -> void:
+	if not _authoritative:
+		return
+	# Capture sender identity in this RPC, never after a deferred callback.
+	var sender := multiplayer.get_remote_sender_id()
+	var refusal := ""
+	if not _bindings.has(sender) or actor_world == null:
+		refusal = "not_joined"
+	elif payload.size() != 5 or not payload.get("namespace") is String or payload.namespace != _bindings[sender].namespace:
+		refusal = "invalid_control_binding"
+	elif not payload.get("sequence") is int or payload.sequence <= _control_received.get(sender, 0):
+		refusal = "stale_control"
+	elif not payload.get("jump") is bool or not payload.get("release") is bool or not payload.get("direction") is Array or payload.direction.size() != 2:
+		refusal = "invalid_control"
+	else:
+		for value in payload.direction:
+			if not (value is int or value is float) or not is_finite(float(value)) or absf(float(value)) > 1.0:
+				refusal = "invalid_control"
+		if payload.release and (payload.jump or payload.direction != [0.0, 0.0]):
+			refusal = "invalid_control_release"
+	if not refusal.is_empty():
+		_record_control({"peer": sender, "accepted": false, "reason": refusal})
+		return
+	var actor_id: String = _bindings[sender].actor
+	var direction := Vector2(float(payload.direction[0]), float(payload.direction[1])).limit_length(1.0)
+	_control_received[sender] = payload.sequence
+	if payload.release:
+		actor_world.release_control(actor_id)
+	else:
+		actor_world.set_control(actor_id, direction, payload.jump)
+	_record_control({"peer": sender, "actor": actor_id, "namespace": _bindings[sender].namespace,
+		"sequence": payload.sequence, "direction": [direction.x, direction.y], "jump": payload.jump, "release": payload.release,
+		"accepted": true, "physics_frame": Engine.get_physics_frames()})
 
 func join_loopback(port: int, requested_role: String) -> Error:
 	if _authoritative or port < 1 or port > 65535 or not requested_role in ["P", "Q"]:
@@ -164,6 +302,12 @@ func _wire_join(requested_role: String) -> void:
 		_wire_refused.rpc_id(sender, "role_unavailable")
 		server_event.emit()
 		return
+	if world.projection().options.get("physical", false) and not world.projection().actors.has(requested_role):
+		_wire_refused.rpc_id(sender, "actor_not_provisioned")
+		return
+	if world.projection().options.get("physical", false) and not physical_ready():
+		_wire_refused.rpc_id(sender, "actor_unready")
+		return
 	var namespace_value := "session-" + Crypto.new().generate_random_bytes(16).hex_encode() + "-"
 	_bindings[sender] = {"actor": requested_role, "namespace": namespace_value}
 	_roles[requested_role] = sender
@@ -212,13 +356,24 @@ func _admit(item: Dictionary) -> void:
 		if not suffix.is_valid_int() or int(suffix) < 1 or str(int(suffix)) != suffix:
 			refusal = "invalid_request"
 	var result: Dictionary
+	if refusal.is_empty() and actor_world != null:
+		# Fresh native observation only; ensure_actor cannot re-establish initial
+		# readiness outside its natural registration boundary or force a flush.
+		for actor_id in actor_world.bodies:
+			actor_world.ensure_actor(actor_id)
 	var before: Dictionary = world.projection()
+	var admission_native: Dictionary = {}
+	if actor_world != null:
+		for actor_id in before.actors:
+			admission_native[actor_id] = actor_world.diagnostics(actor_id, before.actors[actor_id].native_epoch)
 	if refusal.is_empty():
 		result = world.command(intent)
 	else:
 		var state: Dictionary = world.projection()
 		result = {"accepted": false, "reason": refusal, "entity": "", "context": context,
 			"revision": state.revision, "order": state.order, "duplicate": false}
+	if result.accepted and not result.duplicate and actor_world != null and intent.get("action") in ["place", "remove"]:
+		actor_world.sync_topology()
 	result["client"] = binding.actor
 	result["request"] = request if request is String and request.length() <= 128 else ""
 	var frame := _frame()
@@ -227,7 +382,7 @@ func _admit(item: Dictionary) -> void:
 	envelope["serial"] = frame.serial
 	var held: bool = _locally_held(outcome_hold_path, binding.actor)
 	trace.append({"peer": sender, "received": item.received, "intent": intent.duplicate(true), "before": before,
-		"tick_count": tick_count, "outcome_held": held, "outcome": envelope.duplicate(true)})
+		"tick_count": tick_count, "outcome_held": held, "outcome": envelope.duplicate(true), "admission_native": admission_native})
 	if held:
 		_held.append({"peer": sender, "namespace": binding.namespace, "actor": binding.actor, "envelope": envelope})
 	else:
@@ -286,6 +441,9 @@ func _wire_welcome(frame: Dictionary) -> void:
 	context = frame.context
 	request_namespace = frame.namespace
 	request_sequence = 0
+	_control_sequence = 0
+	_control_direction = Vector2.ZERO
+	_control_initialized = false
 	_sent.clear()
 	_cache = frame.snapshot.duplicate(true)
 	last_serial = frame.serial
@@ -331,6 +489,10 @@ func _wire_refused(reason: String) -> void:
 func _peer_lost(peer: int) -> void:
 	if _authoritative and _bindings.has(peer):
 		var binding: Dictionary = _bindings[peer]
+		if actor_world != null:
+			actor_world.release_control(binding.actor)
+			_record_control({"peer": peer, "actor": binding.actor, "accepted": true, "reason": "disconnect_release", "physics_frame": Engine.get_physics_frames()})
+		_control_received.erase(peer)
 		_roles.erase(binding.actor)
 		_bindings.erase(peer)
 		lifecycle.append({"event": "lost", "actor": binding.actor, "peer": peer})
@@ -354,8 +516,23 @@ func _lost(reason: String) -> void:
 		disconnected.emit(reason)
 
 func close() -> void:
+	if actor_world != null:
+		for actor_id in actor_world.bodies:
+			actor_world.release_control(actor_id)
 	_authoritative = false
 	_lost("closed")
+
+func prepare_checkpoint() -> Dictionary:
+	if world == null or not _authoritative:
+		return {"accepted": false, "reason": "not_authority"}
+	if not world.projection().options.get("physical", false):
+		return {"accepted": true, "reason": "legacy_fixture"}
+	if actor_world == null or not actor_error.is_empty():
+		return {"accepted": false, "reason": "actor_unready"}
+	# The producer reads and publishes a CURRENT native observation for every
+	# declared body before the caller captures Model. Last-frame poses can lag
+	# a real move or a pending collider registration; neither can be silently saved.
+	return actor_world.checkpoint_status()
 
 func server_evidence() -> Dictionary:
 	if world == null:
@@ -367,4 +544,7 @@ func server_evidence() -> Dictionary:
 		"serial": last_serial, "roles": _roles.duplicate(), "bindings": _bindings.duplicate(true),
 		"snapshot": world.projection(), "checkpoint": world.checkpoint(),
 		"trace": trace.duplicate(true), "lifecycle": lifecycle.duplicate(true),
+		"control_trace": control_trace.duplicate(true), "control_trace_dropped": control_trace_dropped,
+		"physical_ready": physical_ready(), "actor_error": actor_error,
+		"native_actors": actor_world.diagnostics() if actor_world != null else {},
 		"pending_transport": _incoming.duplicate(true), "held_outcomes": _held.duplicate(true)}

@@ -7,7 +7,15 @@ perspective, the final range, movement tuning, line of sight and technology
 recipes remain open. These are reversible demo defaults, not production
 architecture or requirements imposed by Godot.
 
-The current baseline has no opening character. `model.gd` owns entities,
+This implementation amendment refines the contract published at
+`fee78e32f014480d39391a3a41feae54216bc5b1` (authored as
+`6c5037a8bed9fe4fe531a6687f974bf7dc017167`, document SHA-256
+`d62824cc834973b384eaee14edd7b45051af31ead826516a71e110c49ae5b025`).
+It makes P/PQ rosters, current native save/contact checks and cached placement
+clearance outcomes explicit. Combined implementation/consumer acceptance
+remains separate from agreement on this contract.
+
+At the original contract baseline, the opening has no character. `model.gd` owns entities,
 carried parts, material, command order/cache and checkpoint validation;
 `opening-session/session.gd` binds P/Q connections to commands and publishes
 projections. `opening/opening.gd` currently converts a camera ray to grid cells
@@ -42,8 +50,15 @@ Agreed prototype producer API:
 | `release_control(actor)` | Clear held direction/jump on focus loss, disconnect and rebinding; keep position and inventory. |
 | `sync_topology()` | Reconcile stationary colliders from authoritative entities after accepted build/load operations. |
 | `pose_published(actor, sample)` | Signal a plain-value actual native position/readiness/epoch to the trusted Model bridge; this is not a game command or RPC. |
+| `initialization_failed(actor, reason)` | Invalidate readiness and abort an unrealizable fresh startup without a fallback pose. |
+| `checkpoint_status()` | Read/publish current native poses and check registered geometry/contact before the caller captures Model or writes a save. |
+| `diagnostics(actor, native_epoch)` | Read the exact retained observation for an admission receipt; diagnostic history is bounded and never grants permission. |
 
-The offline binding controls P; shared Session binds P/Q. A trusted callback
+The offline binding controls P; shared Session binds its explicitly provisioned
+P or P/Q roster. `Model.new(..., settings, initial_actors)` takes an optional
+fifth actor-list argument, defaulting to P only. Normal shared launch provisions
+exactly its planned participants; serializing an unrealized Q seed or creating
+an invisible body merely to fill a save schema is not allowed. A trusted callback
 passes the sample to `Model.publish_actor(actor, position, native_epoch)` and
 controls readiness. Missing actors do not fall back to camera position. The
 producer exposes read-only diagnostic native body RID/origin/world/epoch and
@@ -59,8 +74,13 @@ at its declared initial/restored position. Until then, construction refuses
 `actor_unready`. Subsequent samples describe actual completed native state.
 No forced physics flush or Node pose is accepted as a completed native sample.
 
-The admission boundary must use the latest actual native sample available to
-that authority and record its epoch. An adapter publication and a command cannot
+Initial readiness is established only at a natural next-physics boundary. Once
+ready, `ensure_actor` also takes a fresh actual native observation immediately
+before admission. `native_epoch` is a strictly increasing observation ordinal,
+including multiple observations in one physics frame; the engine physics frame
+is a separate diagnostic clock. The admission boundary refreshes all actual
+bodies so another actor cannot block placement using an avoidably old pose.
+It records the exact observation used. An adapter publication and a command cannot
 be interleaved through user callbacks to use a stale desired pose. Producer and
 consumer must agree their sampling/admission order before their first trial.
 Movement updates do not consume material request IDs or increment build order;
@@ -109,6 +129,14 @@ construction has one. Explanation-world interactions remain separate from the
 worksite. No line-of-sight rule is introduced. The existing power, adjacency,
 site, stock, kit and identity checks remain in force; reach cannot override one.
 
+A separate reversible placement default refuses `actor_occupied` when the new
+fixture machine box intersects any ready actor's upright capsule at admission.
+Use shared declared capsule/box geometry; strict intersection blocks, tangency
+is allowed. Unregistered seed positions are not blockers. The refusal precedes
+identity/part mutation and preserves cached historical blocker positions and
+epochs. It causes no scripted relocation, part debit or automatic retry. This is
+a chosen demo clearance policy, not a Godot requirement or permanent game rule.
+
 ## Admission, refusals and recovery
 
 Model keeps its existing context/client/request identity checks and exact
@@ -127,6 +155,9 @@ original target and identity, and uses current authority position when it is
 actually admitted. Moving the camera, moving another player, rebuilding a
 selected entity or changing an unsubmitted endpoint cannot retarget an already
 issued command. A vanished entity keeps its original missing-target refusal.
+Cache lookup also precedes new readiness, roster and placement-clearance checks.
+An old accepted placement remains an inert historical result even after its
+entity was explicitly removed; returning it never places the component again.
 
 Each reach-evaluated fresh outcome retains a plain-value admission receipt:
 actor, actual position, native epoch, capability and resolved target points.
@@ -137,6 +168,10 @@ pose and the relevant historical targets. It must not replay an old build
 against the actor's final saved position. Existing topology, custody and command
 history validation remains mandatory. The checkpoint is not an authenticated
 movement log; actual native evidence is required independently.
+An `actor_occupied` outcome retains the actual blocking actor IDs, positions and
+ordinals. Validate that historical evidence against the original target rather
+than the actors' final saved positions. Refusing because of occupancy before
+reach evaluation does not invent a successful reach receipt.
 
 On shared rejoin, use a fresh connection namespace and the current actor
 projection. Keep the body's position and inventory, clear held controls and do
@@ -149,6 +184,9 @@ remote sender/binding inside its RPC before any defer/await; never recover actor
 identity from a later callback's RPC context.
 Movement continues independently of pending build acknowledgements. Opening
 help releases held movement without pausing authoritative factory production.
+The shared input protocol sends an explicit release edge so queued jump input
+is cleared too; sending only a zero direction and `jump=false` is insufficient
+for the producer's latched jump edge.
 
 ## Persistence and the unrestricted baseline
 
@@ -161,19 +199,34 @@ This first increment saves pose and capability only: restored velocity starts
 released at zero, with no claim of continuous saved momentum or jump phase.
 On reopen, rebuild bodies at the saved positions,
 release controls and establish fresh native readiness before admitting work.
+The physical caller fixes its P or P/Q roster before reading input. Same-roster
+continuation is supported; `actor_roster_mismatch` refuses cross-roster loading
+without adding a new Q, dropping a saved actor/pocket or changing the live world.
+Cross-roster migration is an explicit unsupported adapter case for this increment.
 Do not snap a body into a safe spawn if its saved position cannot be realized.
 The first physical increment supports save and reopen in a fresh isolated
 session. In-scene Load explicitly refuses `load_requires_restart`, preserving
 the current world and save; UI explains reopening instead. This is a scoped
 adapter/prototype limitation, not a Godot restriction or permanent game rule.
-A new session must
-validate the candidate and realize its saved bodies without overlap before
+A new session must validate the candidate and realize its saved bodies without
+unsupported penetration before
 publishing a playable world or accepting construction. Failure aborts that new
 session and preserves the original input, with no fresh-world fallback. Natural
 gravity after an evidenced correct initial registration is motion, not a spawn
 conversion. Later live replacement requires geometry/native preflight before
 atomically replacing Model and adapter; accepting Model first and failing after
 losing the live world is not an acceptable implementation.
+
+Before saving, `checkpoint_status()` synchronizes topology and reads/publishes
+fresh native observations for every declared body; then the caller captures
+Model. A last-frame pose is insufficient after a real move. Pending geometry,
+unready bodies or unsupported penetration refuse the save before file writing.
+Keep all raw query hits and label capsule/plane/box overlap calculations as
+analytical measures, not native-reported contact depths. The initial native
+contact allowance is the existing motor `SAFE_MARGIN = 0.001`, a declared
+adapter default to cover legitimate resting contacts. Test ground/wall reopen
+and deep-overlap refusal; this allowance never increases the exact
+4-world-unit reach radius.
 
 The normal offline and shared launchers select the physical profile explicitly;
 legacy unrestricted harnesses must identify their fixture profile. Absence of

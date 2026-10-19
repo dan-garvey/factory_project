@@ -20,7 +20,7 @@ import check_engine_environment as bounds
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT = ROOT / 'experiments/engine-environment/godot'
 FILES = bounds.FILES + tuple('opening-session/' + name for name in ('session.gd', 'server.gd', 'transport_check.gd'))
-UI_FILES = ('opening/shared_opening.gd', 'opening/shared_opening.tscn', 'opening/shared_check.gd')
+UI_FILES = ('opening/shared_opening.gd', 'opening/shared_opening.tscn', 'opening/shared_check.gd', 'opening/character_presenter.gd')
 MAX_BYTES = 256 * 1024**2
 MAX_LOG_BYTES = 8 * 1024**2
 
@@ -487,9 +487,12 @@ def main():
     parser.add_argument('--artifacts', type=Path, required=True)
     parser.add_argument('--port', type=int, default=0, help='zero chooses one unused loopback UDP port; bind conflict fails')
     parser.add_argument('--ui', action='store_true', help='actual two-UI consumer; no transport-only substitute')
+    parser.add_argument('--physical', action='store_true', help='physical P/Q profile; requires --ui and an explicit physical UI driver')
     parser.add_argument('--clock', choices=('frozen', 'live'), default='frozen')
     parser.add_argument('--ui-driver', type=Path, help='explicit sealed local pure case driver; default scripts/opening_ui_cases.py')
     args = parser.parse_args()
+    if args.physical and (not args.ui or not args.ui_driver):
+        parser.error('--physical requires --ui and an explicit physical UI driver')
     if not args.ui and (args.ui_driver or args.clock != 'frozen'):
         parser.error('UI driver/live clock requires --ui; transport proof is explicitly frozen')
     binary, artifacts = args.godot, args.artifacts
@@ -513,6 +516,7 @@ def main():
             port = reservation.getsockname()[1]
     run = Path(tempfile.mkdtemp(prefix='session-', dir=artifacts))
     receipt = {'status': 'running', 'mode': 'actual_ui' if args.ui else 'transport_only', 'started': datetime.now(timezone.utc).isoformat(),
+               'profile': 'physical' if args.physical else 'legacy_fixture',
                'source_hashes': {}, 'runner_hashes': {name: sha(path) for name, path in
                [('check_opening_session.py', Path(__file__)), ('check_engine_environment.py', Path(bounds.__file__))]},
                'port': port, 'loopback': '127.0.0.1', 'user_play': 'not_assessed', 'stages': [],
@@ -540,7 +544,8 @@ def main():
             receipt['source_hashes'][name] = hashlib.sha256(originals[name]).hexdigest()
         if sum(map(len, originals.values())) > 2 * 1024**2:
             raise ValueError('Session sources exceed2MiB allowance')
-        spec = {'run': str(run), 'port': port, 'actors': {}, 'ui': args.ui, 'frozen_clock': args.clock == 'frozen'}
+        spec = {'run': str(run), 'port': port, 'actors': {}, 'ui': args.ui, 'frozen_clock': args.clock == 'frozen',
+                'profile': 'physical' if args.physical else 'legacy_fixture'}
         if args.ui:
             driver = args.ui_driver or ROOT / 'scripts/opening_ui_cases.py'
             if not driver.is_absolute() or driver.resolve() != driver or not driver.is_file() or driver.stat().st_size > 128 * 1024:
@@ -575,7 +580,11 @@ def main():
             command += ['--script', 'res://opening-session/server.gd' if role == 'server'
                         else 'res://opening/shared_check.gd' if args.ui else 'res://opening-session/transport_check.gd',
                         '--', '--session-port=' + str(port)]
+            if not args.physical:
+                command += ['--legacy-fixture']
             if role == 'server':
+                if args.physical:
+                    command += ['--actor-roster=P,Q']
                 if args.clock == 'frozen':
                     command += ['--frozen-clock']
                 command += ['--ready-file=' + str(run / 'server-ready.json'),

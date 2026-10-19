@@ -35,6 +35,49 @@ def observed_start(slot):
 
 
 class OpeningStartupTests(unittest.TestCase):
+    def test_distributed_source_provenance_does_not_require_git_metadata(self):
+        with tempfile.TemporaryDirectory() as temporary, mock.patch.object(launcher, "PROJECT", Path(temporary)):
+            self.assertEqual(launcher.git_provenance(), {"available": False, "reason": "git_metadata_unavailable"})
+
+    def test_normal_profile_rejects_historical_unrestricted_observation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            slot = root / "worksite.factory"
+            report = root / "startup.json"
+            report.write_text(json.dumps(observed_start(slot)))
+            with self.assertRaises(ValueError):
+                launcher.read_smoke_report(report, slot)
+
+    def test_physical_observation_requires_native_cut_and_declared_seed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            slot = root / "worksite.factory"
+            path = root / "startup.json"
+            report = observed_start(slot)
+            report["profile"] = "physical"
+            report["state"]["options"]["physical"] = True
+            report["view"]["load_disabled"] = False
+            seed = [-1.65, 1.0, 3.3]
+            sample = {"position": seed, "seed": seed, "ready": True, "registered": True,
+                      "native_epoch": 7, "rid": 11, "shape_rid": 12, "space": 13,
+                      "expected_space": 13, "physics_frame": 5, "cut": "initial_physics_boundary"}
+            report["initial_native"] = sample.copy()
+            report["native"] = {"samples": {"P": sample.copy()}, "failures": {}}
+            report["state"]["actors"] = {"P": {"position": seed, "ready": True,
+                                              "native_epoch": 7, "capabilities": {"build_reach": 4.0}}}
+            path.write_text(json.dumps(report))
+            self.assertEqual(launcher.read_smoke_report(path, slot), report)
+            for change in (lambda r: r["native"]["samples"]["P"].update(position=[0.0, 1.0, 0.0]),
+                           lambda r: r["native"]["samples"]["P"].update(native_epoch=8),
+                           lambda r: r["native"]["samples"]["P"].update(space=14),
+                           lambda r: r["initial_native"].update(seed=[0.0, 1.0, 0.0]),
+                           lambda r: r["state"]["actors"]["P"].update(ready=False)):
+                bad = json.loads(json.dumps(report))
+                change(bad)
+                path.write_text(json.dumps(bad))
+                with self.assertRaises(ValueError):
+                    launcher.read_smoke_report(path, slot)
+
     def test_valid_report_cannot_mask_an_engine_error(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -81,7 +124,7 @@ class OpeningStartupTests(unittest.TestCase):
             report = root / "startup.json"
             valid = observed_start(slot)
             report.write_text(json.dumps(valid))
-            self.assertEqual(launcher.read_smoke_report(report, slot), valid)
+            self.assertEqual(launcher.read_smoke_report(report, slot, legacy_fixture=True), valid)
             for label, change in (
                     ("wrong scene", lambda r: r.update(scene="res://main.tscn")),
                     ("wrong script", lambda r: r.update(script="res://view.gd")),
@@ -95,11 +138,11 @@ class OpeningStartupTests(unittest.TestCase):
                     change(invalid)
                     report.write_text(json.dumps(invalid))
                     with self.assertRaises(ValueError):
-                        launcher.read_smoke_report(report, slot)
+                        launcher.read_smoke_report(report, slot, legacy_fixture=True)
             report.write_text(json.dumps(valid))
             slot.write_bytes(b"preserved user sentinel")
             with self.assertRaisesRegex(ValueError, "unexpectedly wrote"):
-                launcher.read_smoke_report(report, slot)
+                launcher.read_smoke_report(report, slot, legacy_fixture=True)
             self.assertEqual(slot.read_bytes(), b"preserved user sentinel")
 
     def test_invalid_report_never_becomes_evidence(self):

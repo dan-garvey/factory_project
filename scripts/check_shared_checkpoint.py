@@ -388,7 +388,7 @@ def main():
                     candidate.bind(('127.0.0.1', 0))
                     port = candidate.getsockname()[1]
                 command = [str(args.godot), '--headless', '--path', str(project), '--script', 'res://opening-session/server.gd',
-                           '--', '--session-port=' + str(port), '--ready-file=' + str(ready), '--status-file=' + str(status),
+                           '--', '--legacy-fixture', '--session-port=' + str(port), '--ready-file=' + str(ready), '--status-file=' + str(status),
                            '--report-file=' + str(report), '--stop-file=' + str(stop), '--resume-input=' + str(incoming),
                            '--save-file=' + str(output), *observation]
                 execute('refuse-' + name, command, project, dict(os.environ, **environment), 10, expected_exit=1)
@@ -430,7 +430,7 @@ def main():
                 project, environment = prepare(directory, name + '-' + role)
                 command = [str(args.godot), '--headless', '--path', str(project), '--script',
                            'res://opening-session/server.gd' if role.startswith('authority') else 'res://opening-session/transport_check.gd',
-                           '--', '--session-port=' + str(port)]
+                           '--', '--legacy-fixture', '--session-port=' + str(port)]
                 if role.startswith('authority'):
                     if role != 'authority-3': command += ['--frozen-clock']
                     command += ['--ready-file=' + str(directory / 'ready.json'), '--status-file=' + str(directory / 'status.json'),

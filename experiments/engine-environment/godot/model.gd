@@ -1,6 +1,7 @@
 extends RefCounted
 ## Experimental engine-coupled rule owner. No scene nodes or rendering callbacks.
 ## Neutral recipe/capacities are fixture values, not accepted chapter content.
+const Site = preload("res://opening/site_geometry.gd")
 
 var context: String
 var initial_feed: int
@@ -18,8 +19,13 @@ var options: Dictionary = {}
 var drive_links: Array = []
 var power_enabled := true
 var next_ids: Dictionary = {}
+# Persistent positions/capabilities; native registration and observation ordinals
+# are deliberately separate from saved actor state and material request order.
+var actors: Dictionary = {}
+var actor_runtime: Dictionary = {}
+var _admission_receipt: Dictionary = {}
 
-func _init(feed: int = 8, world_context: String = "engine-fixture-1", required: int = 2, settings: Dictionary = {}):
+func _init(feed: int = 8, world_context: String = "engine-fixture-1", required: int = 2, settings: Dictionary = {}, initial_actors: Array = ["P"]):
 	assert(feed >= 0 and required > 0)
 	initial_feed = feed
 	context = world_context
@@ -31,6 +37,97 @@ func _init(feed: int = 8, world_context: String = "engine-fixture-1", required: 
 		if kind != "shaft":
 			next_ids[kind] = 1
 	stock = {"source": feed, "collector": 0, "belt": 0, "input": 0, "held": 0, "output": 0}
+	if _physical():
+		assert(initial_actors.size() in [1, 2] and initial_actors.has("P"))
+		for actor in initial_actors:
+			assert(actor is String and actor in ["P", "Q"] and not actors.has(actor))
+			actors[actor] = {"position": Site.spawn(actor), "capabilities": {"build_reach": Site.BASE_REACH}}
+
+func _physical() -> bool:
+	return _opening() and options.get("physical") is bool and options.physical
+
+func publish_actor(actor: String, position: Array, native_epoch: int) -> Dictionary:
+	# Trusted native adapter bridge only. Neither command() nor Session RPCs can
+	# supply a pose/capability/epoch. This does not consume a build request.
+	if not _physical() or not actors.has(actor):
+		return {"accepted": false, "reason": "unknown_actor"}
+	if not _finite_point(position) or not Site.valid_position(position) or native_epoch < 1:
+		invalidate_actor(actor)
+		return {"accepted": false, "reason": "invalid_actor_sample"}
+	if native_epoch <= actor_runtime.get(actor, {}).get("native_epoch", 0):
+		return {"accepted": false, "reason": "stale_actor_sample"}
+	actors[actor].position = position.duplicate()
+	actor_runtime[actor] = {"ready": true, "native_epoch": native_epoch}
+	return {"accepted": true, "reason": "actor_published"}
+
+func invalidate_actor(actor: String) -> void:
+	if actors.has(actor):
+		actor_runtime[actor] = {"ready": false, "native_epoch": 0}
+
+func _finite_point(value: Variant) -> bool:
+	if not value is Array or value.size() != 3:
+		return false
+	for coordinate in value:
+		if not (coordinate is int or coordinate is float) or not is_finite(float(coordinate)):
+			return false
+	return true
+
+func _squared_distance(a: Array, b: Array) -> float:
+	# Scalar arithmetic keeps the declared interaction anchor distinct from
+	# approximate Vector3 rendering/collision coordinates; no permission epsilon.
+	var result := 0.0
+	for axis in range(3):
+		var difference := float(a[axis]) - float(b[axis])
+		result += difference * difference
+	return result
+
+func _reach_guard(intent: Dictionary, cells: Array) -> Dictionary:
+	if not _physical():
+		return {}
+	var actor: String = intent.client
+	if not actors.has(actor) or not actor_runtime.get(actor, {}).get("ready", false):
+		return _outcome(false, "actor_unready")
+	var state: Dictionary = actors[actor]
+	var targets: Array = []
+	var distances: Array = []
+	var reachable := true
+	var radius: float = state.capabilities.build_reach
+	for cell in cells:
+		var target: Array = Site.work_anchor(cell)
+		targets.append(target)
+		var squared := _squared_distance(state.position, target)
+		if not is_finite(squared):
+			# Malformed trusted samples must not poison the plain-value cache with
+			# Infinity. Real native representability is checked by the adapter.
+			invalidate_actor(actor)
+			return _outcome(false, "invalid_actor_sample")
+		distances.append(squared)
+		reachable = reachable and squared <= radius * radius
+	_admission_receipt = {"actor": actor, "position": state.position.duplicate(),
+		"native_epoch": actor_runtime[actor].native_epoch, "build_reach": radius,
+		"targets": targets, "distances_squared": distances, "reachable": reachable}
+	return {} if reachable else _outcome(false, "out_of_reach")
+
+func _actor_intersects_cell(position: Array, cell: Array) -> bool:
+	# Chosen physical-demo placement policy, not a Godot constraint: never build
+	# the fixture box through a ready actor's upright capsule. Tangency is allowed.
+	var anchor: Array = Site.work_anchor(cell)
+	var radius: float = Site.CAPSULE_RADIUS
+	var segment_half: float = Site.CAPSULE_HEIGHT / 2.0 - radius
+	var dx := maxf(absf(float(position[0]) - float(anchor[0])) - Site.MACHINE_SIZE[0] / 2.0, 0.0)
+	var dz := maxf(absf(float(position[2]) - float(anchor[2])) - Site.MACHINE_SIZE[2] / 2.0, 0.0)
+	var below: float = Site.MACHINE_CENTER_HEIGHT - Site.MACHINE_SIZE[1] / 2.0 - (float(position[1]) + segment_half)
+	var above: float = float(position[1]) - segment_half - (Site.MACHINE_CENTER_HEIGHT + Site.MACHINE_SIZE[1] / 2.0)
+	var dy := maxf(maxf(below, above), 0.0)
+	return dx * dx + dy * dy + dz * dz < radius * radius
+
+func _placement_blockers(cell: Array) -> Array:
+	var blockers: Array = []
+	for actor in actors:
+		var runtime: Dictionary = actor_runtime.get(actor, {})
+		if runtime.get("ready", false) and _actor_intersects_cell(actors[actor].position, cell):
+			blockers.append({"actor": actor, "position": actors[actor].position.duplicate(), "native_epoch": runtime.native_epoch})
+	return blockers
 
 func command(intent: Dictionary) -> Dictionary:
 	if not _plain_value(intent, [100000]):
@@ -51,6 +148,7 @@ func command(intent: Dictionary) -> Dictionary:
 		repeated["duplicate"] = true
 		return repeated
 	order += 1
+	_admission_receipt = {}
 	var result: Dictionary
 	match intent.get("action", ""):
 		"place": result = _place(intent)
@@ -62,6 +160,8 @@ func command(intent: Dictionary) -> Dictionary:
 		"disconnect": result = _disconnect(intent, false)
 		"disconnect_drive": result = _disconnect(intent, true)
 		_: result = _outcome(false, "unsupported_action")
+	if not _admission_receipt.is_empty():
+		result["reach"] = _admission_receipt.duplicate(true)
 	if result.accepted:
 		revision += 1
 		result.revision = revision
@@ -95,6 +195,15 @@ func _place(intent: Dictionary) -> Dictionary:
 		return _outcome(false, "not_at_stream")
 	if _opening() and kind == "collector" and cell[0] != 0:
 		return _outcome(false, "not_at_seam")
+	if _physical() and actor_runtime.get(intent.client, {}).get("ready", false):
+		var blockers := _placement_blockers(cell)
+		if not blockers.is_empty():
+			var refusal := _outcome(false, "actor_occupied")
+			refusal["blockers"] = blockers
+			return refusal
+	var guard := _reach_guard(intent, [cell])
+	if not guard.is_empty():
+		return guard
 	var entity_id: String = kind + "-" + str(next_ids[kind])
 	next_ids[kind] += 1
 	entities[entity_id] = {"kind": kind, "cell": cell.duplicate()}
@@ -117,6 +226,9 @@ func _connect(intent: Dictionary) -> Dictionary:
 	var pair := [source, target]
 	if links.has(pair):
 		return _outcome(false, "already_connected")
+	var guard := _reach_guard(intent, [a, b])
+	if not guard.is_empty():
+		return guard
 	links.append(pair)
 	return _outcome(true, "connected")
 
@@ -126,6 +238,9 @@ func _retrieve(intent: Dictionary) -> Dictionary:
 	var amount = intent.get("amount", 1)
 	if not amount is int or amount < 1 or amount > stock.output:
 		return _outcome(false, "unavailable_output")
+	var guard := _reach_guard(intent, [entities[_kind_id("processor")].cell]) if _physical() else {}
+	if not guard.is_empty():
+		return guard
 	stock.output -= amount
 	inventories[intent.client] = inventories.get(intent.client, 0) + amount
 	return _outcome(true, "retrieved", _kind_id("processor"))
@@ -173,6 +288,9 @@ func _connect_drive(intent: Dictionary) -> Dictionary:
 		return _outcome(false, "already_connected")
 	if parts.shaft < 1:
 		return _outcome(false, "no_shaft")
+	var guard := _reach_guard(intent, [a, b])
+	if not guard.is_empty():
+		return guard
 	drive_links.append([source, target])
 	parts.shaft -= 1
 	return _outcome(true, "connected", target)
@@ -180,6 +298,13 @@ func _connect_drive(intent: Dictionary) -> Dictionary:
 func _set_power(intent: Dictionary) -> Dictionary:
 	if not _opening() or not intent.get("active") is bool:
 		return _outcome(false, "unsupported_action")
+	if _physical():
+		var wheel := _kind_id("wheel")
+		if wheel.is_empty():
+			return _outcome(false, "missing_entity")
+		var guard := _reach_guard(intent, [entities[wheel].cell])
+		if not guard.is_empty():
+			return guard
 	power_enabled = intent.active
 	return _outcome(true, "power_changed", _kind_id("wheel"))
 
@@ -196,6 +321,11 @@ func _disconnect(intent: Dictionary, drive: bool) -> Dictionary:
 		pair.reverse()
 	if not connections.has(pair):
 		return _outcome(false, "missing_connection")
+	# Receipts retain original intent endpoint order even when the undirected
+	# drive edge was stored in reverse. Historical validation uses that order.
+	var guard := _reach_guard(intent, [entities[intent.from].cell, entities[intent.to].cell])
+	if not guard.is_empty():
+		return guard
 	connections.erase(pair)
 	if drive:
 		parts.shaft += 1
@@ -215,6 +345,9 @@ func _remove(intent: Dictionary) -> Dictionary:
 		occupied = stock.input + stock.held + stock.output
 	if occupied > 0:
 		return _outcome(false, "held_stock")
+	var guard := _reach_guard(intent, [entities[entity_id].cell])
+	if not guard.is_empty():
+		return guard
 	for pair in links.duplicate(true):
 		if pair.has(entity_id):
 			links.erase(pair)
@@ -259,16 +392,21 @@ func projection() -> Dictionary:
 	counts["player"] = 0
 	for quantity in inventories.values():
 		counts.player += quantity
-	return {"context": context, "revision": revision, "order": order,
+	var value := {"context": context, "revision": revision, "order": order,
 		"initial_feed": initial_feed, "recipe_input": recipe_input,
 		"entities": entities.duplicate(true), "links": links.duplicate(true),
 		"stock": counts, "inventories": inventories.duplicate(true),
 		"remaining": remaining, "powered": _powered(), "power_enabled": power_enabled,
 		"drive_links": drive_links.duplicate(true), "options": options.duplicate(true),
 		"parts": parts.duplicate(true)}
+	if _physical():
+		value["actors"] = actors.duplicate(true)
+		for actor in value.actors:
+			value.actors[actor].merge(actor_runtime.get(actor, {"ready": false, "native_epoch": 0}), true)
+	return value
 
 func checkpoint() -> Dictionary:
-	return {"schema": 1, "context": context, "initial_feed": initial_feed,
+	var value := {"schema": 2 if _physical() else 1, "context": context, "initial_feed": initial_feed,
 		"recipe_input": recipe_input, "revision": revision, "order": order,
 		"entities": entities.duplicate(true), "links": links.duplicate(true),
 		"parts": parts.duplicate(true), "stock": stock.duplicate(true),
@@ -276,8 +414,22 @@ func checkpoint() -> Dictionary:
 		"requests": requests.duplicate(true), "options": options.duplicate(true),
 		"drive_links": drive_links.duplicate(true), "power_enabled": power_enabled,
 		"next_ids": next_ids.duplicate(true)}
+	if _physical():
+		value["actors"] = actors.duplicate(true)
+	return value
 
 func restore_checkpoint(snapshot: Variant) -> Dictionary:
+	# The live caller selects its profile BEFORE reading input. A saved option
+	# cannot turn the normal physical opening back into the unrestricted fixture.
+	if _physical() and (not snapshot is Dictionary or snapshot.get("schema") != 2
+		or not snapshot.get("options") is Dictionary or snapshot.options.get("physical") != true):
+		return {"accepted": false, "reason": "physical_state_required"}
+	if _physical() and snapshot.get("actors") is Dictionary:
+		if snapshot.actors.size() != actors.size():
+			return {"accepted": false, "reason": "actor_roster_mismatch"}
+		for actor in actors:
+			if not snapshot.actors.has(actor):
+				return {"accepted": false, "reason": "actor_roster_mismatch"}
 	var validation: Variant = _validate_checkpoint(snapshot)
 	# Runtime failure/implicit empty return can never become a positive verdict.
 	if not validation is Dictionary or not validation.get("valid") is bool:
@@ -285,6 +437,9 @@ func restore_checkpoint(snapshot: Variant) -> Dictionary:
 	if not validation.valid:
 		return {"accepted": false, "reason": validation.get("reason", "invalid_checkpoint")}
 	# Validation has no side effects. Publish only a complete owned candidate.
+	actors = {}
+	actor_runtime = {}
+	_admission_receipt = {}
 	for field in snapshot:
 		if field == "schema":
 			continue
@@ -344,12 +499,14 @@ func _validate_checkpoint(data: Variant) -> Dictionary:
 		return _invalid_checkpoint("non_value_checkpoint")
 	var fields := ["schema", "context", "initial_feed", "recipe_input", "revision", "order", "entities",
 		"links", "parts", "stock", "inventories", "remaining", "requests", "options", "drive_links", "power_enabled", "next_ids"]
+	if data is Dictionary and data.get("schema") is int and data.schema == 2:
+		fields.append("actors")
 	if not data is Dictionary or data.size() != fields.size():
 		return _invalid_checkpoint("invalid_fields")
 	for field in fields:
 		if not data.has(field):
 			return _invalid_checkpoint("missing_field")
-	if not data.schema is int or data.schema != 1:
+	if not data.schema is int or not data.schema in [1, 2]:
 		return _invalid_checkpoint("unsupported_schema")
 	if not data.context is String or data.context.is_empty():
 		return _invalid_checkpoint("invalid_context")
@@ -363,8 +520,23 @@ func _validate_checkpoint(data: Variant) -> Dictionary:
 			return _invalid_checkpoint("invalid_dictionary")
 	if not data.links is Array or not data.drive_links is Array or not data.power_enabled is bool:
 		return _invalid_checkpoint("invalid_topology")
-	if data.options.size() > 1 or (data.options.size() == 1 and (not data.options.has("opening") or not data.options.opening is bool)):
-		return _invalid_checkpoint("invalid_options")
+	if data.schema == 1:
+		if data.options.size() > 1 or (data.options.size() == 1 and (not data.options.has("opening") or not data.options.opening is bool)):
+			return _invalid_checkpoint("invalid_options")
+	else:
+		if data.options.size() != 2 or not data.options.get("opening") is bool or not data.options.opening or not data.options.get("physical") is bool or not data.options.physical:
+			return _invalid_checkpoint("invalid_physical_profile")
+		if not data.actors is Dictionary or not data.actors.size() in [1, 2] or not data.actors.has("P"):
+			return _invalid_checkpoint("invalid_actors")
+		for actor in data.actors:
+			if not actor in ["P", "Q"]:
+				return _invalid_checkpoint("invalid_actors")
+		for state in data.actors.values():
+			if not state is Dictionary or state.size() != 2 or not _finite_point(state.get("position")) or not Site.valid_position(state.position):
+				return _invalid_checkpoint("invalid_actor_position")
+			var capabilities = state.get("capabilities")
+			if not capabilities is Dictionary or capabilities.size() != 1 or not capabilities.get("build_reach") is float or capabilities.build_reach != Site.BASE_REACH:
+				return _invalid_checkpoint("invalid_actor_capability")
 	var opening: bool = data.options.get("opening", false)
 	var kinds: Array = ["collector", "belt", "processor", "wheel"] if opening else ["collector", "belt", "processor"]
 	if data.next_ids.size() != kinds.size() or data.parts.size() != kinds.size() + (1 if opening else 0):
@@ -483,6 +655,96 @@ func _validate_checkpoint(data: Variant) -> Dictionary:
 				return _invalid_checkpoint("invalid_identity_history")
 	return _validate_history(data, kinds, history)
 
+func _historical_reach_targets(intent: Dictionary, live: Dictionary) -> Array:
+	var cells: Array = []
+	match intent.get("action", ""):
+		"place":
+			var cell = intent.get("cell")
+			if not cell is Array or cell.size() != 2:
+				return []
+			for coordinate in cell:
+				if not coordinate is int or coordinate < -2 or coordinate > 4:
+					return []
+			cells.append(cell)
+		"connect", "connect_drive", "disconnect", "disconnect_drive":
+			for endpoint in ["from", "to"]:
+				var entity = intent.get(endpoint)
+				if not entity is String or not live.has(entity):
+					return []
+				cells.append(live[entity].cell)
+		"remove":
+			var entity = intent.get("entity")
+			if not entity is String or not live.has(entity):
+				return []
+			cells.append(live[entity].cell)
+		"retrieve", "set_power":
+			var kind := "processor" if intent.action == "retrieve" else "wheel"
+			for entity in live.values():
+				if entity.kind == kind:
+					cells.append(entity.cell)
+		_: return []
+	var points: Array = []
+	for cell in cells:
+		points.append(Site.work_anchor(cell))
+	return points
+
+func _validate_reach_history(record: Dictionary, live: Dictionary, saved_actors: Dictionary) -> Dictionary:
+	var intent: Dictionary = record.intent
+	var result: Dictionary = record.result
+	if not result.has("reach"):
+		return _invalid_checkpoint("missing_reach_receipt") if result.accepted or result.reason == "out_of_reach" else {"valid": true}
+	var receipt = result.reach
+	var fields := ["actor", "position", "native_epoch", "build_reach", "targets", "distances_squared", "reachable"]
+	if not receipt is Dictionary or receipt.size() != fields.size():
+		return _invalid_checkpoint("invalid_reach_receipt")
+	for field in fields:
+		if not receipt.has(field):
+			return _invalid_checkpoint("invalid_reach_receipt")
+	if not receipt.actor is String or receipt.actor != intent.client or not saved_actors.has(receipt.actor):
+		return _invalid_checkpoint("invalid_reach_actor")
+	if not _finite_point(receipt.position) or not Site.valid_position(receipt.position) or not receipt.native_epoch is int or receipt.native_epoch < 1:
+		return _invalid_checkpoint("invalid_reach_pose")
+	if not receipt.build_reach is float or receipt.build_reach != Site.BASE_REACH or not receipt.reachable is bool:
+		return _invalid_checkpoint("invalid_reach_capability")
+	var targets := _historical_reach_targets(intent, live)
+	if targets.is_empty() or not _same_plain(receipt.targets, targets) or not receipt.distances_squared is Array or receipt.distances_squared.size() != targets.size():
+		return _invalid_checkpoint("invalid_reach_targets")
+	var reachable := true
+	for index in range(targets.size()):
+		var squared := _squared_distance(receipt.position, targets[index])
+		if not receipt.distances_squared[index] is float or receipt.distances_squared[index] != squared:
+			return _invalid_checkpoint("invalid_reach_distance")
+		reachable = reachable and squared <= receipt.build_reach * receipt.build_reach
+	if receipt.reachable != reachable or result.accepted != reachable or (not reachable and result.reason != "out_of_reach"):
+		return _invalid_checkpoint("contradictory_reach")
+	# Receipt epochs describe their original native process, not the newly
+	# restored actor. Never compare them with current/final positions or epochs.
+	return {"valid": true}
+
+func _validate_blocked_history(record: Dictionary, saved_actors: Dictionary) -> Dictionary:
+	var result: Dictionary = record.result
+	var intent: Dictionary = record.intent
+	if result.accepted or result.reason != "actor_occupied" or intent.get("action") != "place" or result.has("reach"):
+		return _invalid_checkpoint("invalid_occupied_outcome")
+	var cell = intent.get("cell")
+	if not cell is Array or cell.size() != 2:
+		return _invalid_checkpoint("invalid_occupied_target")
+	for coordinate in cell:
+		if not coordinate is int or coordinate < -2 or coordinate > 4:
+			return _invalid_checkpoint("invalid_occupied_target")
+	var blockers = result.get("blockers")
+	if not blockers is Array or blockers.is_empty() or blockers.size() > saved_actors.size():
+		return _invalid_checkpoint("invalid_blocker_receipt")
+	var seen: Array = []
+	for blocker in blockers:
+		if not blocker is Dictionary or blocker.size() != 3 or not blocker.get("actor") is String or not saved_actors.has(blocker.actor) or seen.has(blocker.actor):
+			return _invalid_checkpoint("invalid_blocker_actor")
+		if not _finite_point(blocker.get("position")) or not blocker.get("native_epoch") is int or blocker.native_epoch < 1 or not _actor_intersects_cell(blocker.position, cell):
+			return _invalid_checkpoint("invalid_blocker_pose")
+		seen.append(blocker.actor)
+	# Blocker positions are historical admission evidence, not final actor poses.
+	return {"valid": true}
+
 func _validate_history(data: Dictionary, kinds: Array, history: Array) -> Dictionary:
 	history.sort_custom(func(a, b): return a.result.order < b.result.order)
 	var previous_revision := 0
@@ -503,6 +765,14 @@ func _validate_history(data: Dictionary, kinds: Array, history: Array) -> Dictio
 		if result.revision < previous_revision or (result.accepted and result.revision <= previous_revision):
 			return _invalid_checkpoint("contradictory_revision_history")
 		previous_revision = result.revision
+		if data.schema == 2:
+			if result.has("blockers") or result.reason == "actor_occupied":
+				var blocked_validation := _validate_blocked_history(record, data.actors)
+				if not blocked_validation.valid:
+					return blocked_validation
+			var reach_validation := _validate_reach_history(record, live, data.actors)
+			if not reach_validation.valid:
+				return reach_validation
 		if not result.accepted:
 			if not result.entity.is_empty():
 				return _invalid_checkpoint("contradictory_rejection")

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check the actual opening scene in an external owned project copy; no setup."""
+"""Historical unrestricted opening fixture; use run_opening.py for physical play."""
 
 import argparse
 from datetime import datetime, timezone
@@ -13,9 +13,9 @@ import tempfile
 
 
 PROJECT = Path(__file__).resolve().parent.parent
-BASE = ("project.godot", "main.tscn", "model.gd", "scenario.gd", "tests.gd", "view.gd")
+BASE = ("project.godot", "main.tscn", "model.gd", "scenario.gd", "tests.gd", "view.gd", "opening/site_geometry.gd")
 OPENING = ("opening.gd", "opening.tscn", "opening_check.gd", "model_check.gd", "checkpoint_check.gd",
-           "example_presenter.gd", "example_world.gd")
+           "example_presenter.gd", "example_world.gd", "actor_world.gd", "actor_body.gd", "character_presenter.gd")
 
 
 def main():
@@ -66,6 +66,7 @@ def main():
         directory.mkdir()
         environment[key] = str(directory)
     receipt = {"status": "running", "started": datetime.now(timezone.utc).isoformat(),
+               "profile": "legacy_fixture",
                "mode": "import_only" if args.import_only else "rendered" if args.render else "headless",
                "source_hashes": hashes, "stages": [], "render": "not_run"}
     print(f"Opening evidence: {run}", flush=True)
@@ -95,9 +96,10 @@ def main():
             arguments = ["--path", str(project), "--script", "res://opening/opening_check.gd"]
             if args.render:
                 arguments += ["--rendering-method", "gl_compatibility", "--audio-driver", "Dummy",
-                              "--", "--capture=" + str(run / "opening.png")]
+                              "--", "--legacy-fixture", "--capture=" + str(run / "opening.png")]
             else:
                 arguments.insert(0, "--headless")
+                arguments += ["--", "--legacy-fixture"]
             execute("opening", arguments, "OPENING_INPUT_PASS", 180 if args.render else 30)
             if args.render and not (run / "opening.png").read_bytes().startswith(b"\x89PNG\r\n\x1a\n"):
                 raise ValueError("Actual rendered viewport capture is missing or invalid")

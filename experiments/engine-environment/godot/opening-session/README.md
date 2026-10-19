@@ -5,8 +5,11 @@ opening Model and its 0.45-second clock. P and Q have shared fixture access;
 these labels are not accounts, authentication or a permanent team policy.
 Clients retain server projections, send intents and display actual outcomes.
 They never create or advance a live worksite Model. The existing isolated Help
-example is a separate teaching world. Offline input, saving and reopening use
-the original files and behavior.
+example is a separate teaching world. The normal offline and shared opening use
+the same physical actor producer; on shared play only the dedicated host runs
+it. Clients render confirmed actor proxies, not a second authority or a
+caller-reported pose. The historical unrestricted consumers name their legacy
+fixture explicitly.
 
 Every process uses the same RPC script at `/root/OpeningShared/Session`.
 The server entry creates that root and Session child. The client scene owns
@@ -81,6 +84,17 @@ connect automatically. The ordinary mode has no input controller, copied
 observer, delivery holds or frozen clock. The server keeps the existing live
 clock and sole Model. Construction, material/drive links, retrieval, explicit
 actor-owned confirmation and Help use the same controls as the offline opening.
+WASD moves the bound physical character, Space jumps, and P operates the nearby
+waterwheel. Right-drag orbits and the mouse wheel zooms the following camera; neither
+changes construction authority. Building, dismantling, retrieval, power control
+and both link endpoints require the current native body origin within the
+provisional four-unit 3D reach. Move closer and deliberately retry a refusal.
+Help releases held movement without pausing the server's production. The
+current planar grid, capsule/motor values, fixed boxes and excluded actor-actor
+contact are adapter/fixture limits; see the
+[physical contract](../../../../docs/engineering/physical-construction-contract.md)
+and [constraint register](../../../../docs/engineering/godot-constraints.md).
+
 Client Save/Load remains unavailable. By default each launch is a fresh
 finite16 fixture and closing it does not save. Add `--save-on-close` to publish
 the actual host's checkpoint at an orderly session end. Its new
@@ -91,12 +105,21 @@ read only and preserved, and no client can load over a running world.
 
 The host retains quantities and their locations, per-actor inventories,
 construction identities and topology, held work/remaining phase, power and
-cached command dispositions/order. P's pocket remains P's, and Q's remains Q's
-even when only one participant joins. Logical Core context survives; transport
+cached command dispositions/order, plus physical actor poses and capabilities.
+The declared roster must match the saved profile: use `--clients 1` for a P-only
+shared save or the default two clients for P/Q. Cross-roster migration and
+schema-1/unrestricted saves refuse in the normal physical profile; a missing
+actor never grants unrestricted construction. P's pocket remains P's and Q's
+remains Q's within that declared roster. Logical Core context survives; transport
 serial, socket bindings and caller namespaces are fresh. Old connection
 requests refuse rather than automatically replay. Selection and the local
 non-consuming goal confirmation start fresh; a qualified actor can confirm
 again. The factory does not catch up elapsed real time while stopped.
+Native registration/readiness is rebuilt from saved positions, with controls
+and velocity released; momentum and jump-phase continuation are not promised.
+Unsupported contact aborts before admission without a safe-spawn fallback.
+An explicit `--legacy-fixture` retains the historical unrestricted launcher
+profile for regression work, not physical-character evidence.
 
 Only the existing bounded Model/Store format is supported, with the opening's
 16 blanks, one-blank recipe and P/Q roles. A bad or incompatible input fails
@@ -151,6 +174,17 @@ observer and launcher validator. Extra ordinary-input stages can be retained
 in its report. Normal mode refuses `--observer`; it never depends on diagnostic
 controls. The separate transport and full UI checks below retain their own
 coverage and attribution.
+
+Physical movement/reach and same-server rejoin have bounded two-client input
+evidence, separate from actual human play. Offline P fresh-process restoration
+does not prove normal shared P/Q host-file reopening. The independently reviewed
+`scripts/check_physical_shared_resume.py` source defines that separate consumer:
+ordinary Q refusal/P placement and movement produce the first real host save,
+then a second normal host reopens the unchanged input with read-only clients.
+It uses the existing launcher twice under one heavy admission and one retained
+artifact family; it adds no replacement game entry, process supervisor or
+state authority.
+Source or compiler acceptance alone is not its runtime verdict.
 
 The low-level dedicated entry accepts optional `--resume-input` and
 `--save-file` paths in the same owned directory as its lifecycle files. These

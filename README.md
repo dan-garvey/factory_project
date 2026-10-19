@@ -6,8 +6,10 @@ finite blanks into plates and explicitly confirm four collected products.
 Placeholder geometry and a small fixed worksite keep this first feedback loop
 bounded. This is not the complete chapter or a selected production stack.
 
-The next required increment is a controlled physical character with nearby
-construction; the current free-camera opening does **not** implement that yet.
+The default opening controls a physical character and limits construction to
+nearby targets. Walk with WASD, jump with Space, and use P to operate the nearby
+waterwheel. Right-drag orbits the following camera; its position grants no build
+reach. The four-world-unit reach and movement tuning are provisional demo values.
 Early development prioritizes fixed/stationary contraptions and subfactories.
 Godot use is accepted with explicit [framework constraints](docs/engineering/godot-constraints.md),
 not engine defaults treated as game rules. A [continuing research catalogue](docs/research/README.md)
@@ -27,10 +29,15 @@ python3 -B scripts/run_local.py heavy -- python3 -B scripts/run_opening.py \
 
 The artifact root must be outside Git checkouts. Each launch creates a fresh
 project copy, private profile and save slot there. Close the window to finish;
-experimental sessions are capped at 30 minutes. Save with F5 and load with F9
-within that run. To reopen a compatible saved worksite, add
+experimental sessions are capped at 30 minutes. F5 saves the current worksite;
+F9 explains reopening rather than replacing the live physical world. Close the
+session, then add
 `--resume /absolute/path/to/previous/session/worksite.factory` to the command.
 The original is read only; the reopened world gets a new session and save slot.
+Native bodies must be realized at the saved positions before building is
+available; failed restoration never falls back to a fresh world or safe spawn.
+Old unrestricted saves require the explicit `--legacy-fixture` regression
+profile, not the normal physical opening. No automatic migration is supplied.
 See the [controls and construction example](experiments/engine-environment/godot/opening/README.md).
 
 To play the shared opening on this computer, use the same verified executable
@@ -51,7 +58,10 @@ the individual participant. Client Save/Load is unavailable. Add
 console prints its new `worksite.factory` path. To reopen it, add
 `--resume /absolute/path/to/prior/shared-run/worksite.factory`. The original
 stays read only, and the resumed host saves to a fresh output on close. The
-offline launcher above retains its individual F5/F9 controls.
+offline launcher above retains its own F5 save and restart-based reopen controls.
+Physical saves require the same declared roster: reopen a P-only shared save
+with `--clients 1`, or a P/Q save with the default two clients. Offline P and
+shared P or P/Q are fixture profiles, not an account or roster-migration system.
 Without `--resume`, each command starts a fresh 16-blank worksite.
 Closing either window ends the whole shared session; Ctrl-C
 also stops it. The default session lasts at most 15 minutes. See the
@@ -60,9 +70,13 @@ also stops it. The default session lasts at most 15 minutes. See the
 The shared UI is a trusted same-host prototype without a lobby, accounts or
 remote hosting. Host checkpoints cover orderly stops, rather than crashes or
 power loss; clients cannot roll back the live server. Larger factories,
-durable cross-version saves and native-core
-portability remain future work. Automated checks do not establish player
-understanding or enjoyment.
+durable cross-version saves and native-core portability remain future work.
+Construction is still a single ground grid with fixed machine boxes; this does
+not implement the intended stacked 3D factory. Actor-actor collision, pushing
+and live physical-world replacement are unsupported adapter cases, not chosen
+game rules. The shared finite starter kit is a fixture, not proof of a final
+personal-carried-parts or construction-delivery policy. Automated checks do not
+establish player understanding or enjoyment.
 
 ## Verify
 
@@ -72,8 +86,12 @@ The source-only tooling suite needs no engine or private tracker:
 python3 -B scripts/run_local.py check -- python3 -B scripts/check.py
 ```
 
-Add `--check --render` to the opening launch command for actual model/input and
-save/load consumer checks with viewport captures. Use `--smoke` instead for
+Add `--check --render` to the offline launch command for bounded physical
+movement/reach and fresh-process save/reopen checks with viewport captures.
+They do not prove P/Q host-file reopening; same-server disconnect/rejoin is also
+different from starting a new host. The separate normal-launcher consumer is
+`scripts/check_physical_shared_resume.py`; its evidence must be reviewed for
+that specific claim. Use `--smoke` instead for
 explicit scene startup only. These are distinct from the source-only suite and
 from a real user session. Further bounded witnesses cover
 [two stationary clients](experiments/engine-environment/godot/stationary-tests/README.md)

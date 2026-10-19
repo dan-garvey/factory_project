@@ -27,7 +27,9 @@ func _ready() -> void:
 	model = session # projection() only; there is no client advance/restore.
 	var offline_argument := false
 	for argument in OS.get_cmdline_user_args():
-		if argument.begins_with("--session-port="):
+		if argument == "--legacy-fixture":
+			legacy_fixture = true
+		elif argument.begins_with("--session-port="):
 			var value := argument.trim_prefix("--session-port=")
 			session_port = value.to_int() if value.is_valid_int() else 0
 		elif argument.begins_with("--session-role="):
@@ -48,6 +50,8 @@ func _ready() -> void:
 	session.changed.connect(_changed)
 	session.outcome.connect(_outcome_received)
 	session.disconnected.connect(_disconnected)
+	if not legacy_fixture:
+		_start_character_presenter()
 	_refresh_ui()
 	_message("Connect to the shared worksite to begin.")
 	if offline_argument:
@@ -59,7 +63,20 @@ func _ready() -> void:
 		_reconnect()
 
 func _usable_snapshot() -> bool:
-	return state.has("entities") and state.has("stock") and state.has("inventories") and state.has("parts")
+	return state.has("entities") and state.has("stock") and state.has("inventories") and state.has("parts") and (legacy_fixture or (state.get("options", {}).get("physical", false) and state.has("actors")))
+
+func _can_control_character() -> bool:
+	# Build acknowledgements do not stop movement. Only the current connected
+	# binding supplies input; the server alone owns the body's pose.
+	return session != null and session.is_ready() and _usable_snapshot() and super._can_control_character()
+
+func _send_character_input(direction: Vector2, jump: bool) -> void:
+	if session != null and session.is_ready():
+		session.set_control(direction, jump)
+
+func _release_character_input() -> void:
+	if session != null:
+		session.release_control()
 
 func _can_mutate() -> bool:
 	return session != null and session.is_ready() and _usable_snapshot() and not explanation_open and pending_actions.is_empty()
@@ -81,10 +98,17 @@ func _reconnect() -> void:
 	_refresh_ui()
 
 func _disconnect() -> void:
+	_release_character_controls()
 	session.close()
 	_disconnected("Closed locally")
 
 func _welcomed(actor: String, namespace_value: String, _snapshot: Dictionary) -> void:
+	_release_character_controls()
+	if _snapshot.get("options", {}).get("physical", false) == legacy_fixture or (not legacy_fixture and not _snapshot.get("actors", {}).has(actor)):
+		push_error("Shared opening profile must match its declared authority and actor; no unrestricted fallback")
+		session.close()
+		get_tree().quit(1)
+		return
 	connecting = false
 	client = actor
 	request_namespace = namespace_value
@@ -100,12 +124,21 @@ func _welcomed(actor: String, namespace_value: String, _snapshot: Dictionary) ->
 	visual_revision = -1
 	elapsed = 0.0
 	_refresh()
-	_message("Connected as %s. The shared worksite is ready." % client)
+	_message(("Connected as %s. The shared worksite is ready." if legacy_fixture else "Connected as %s. WASD walks; Space jumps. Approach the wheel to operate it [P].") % client)
 	if _has_unknown_actions():
 		_message("Reconnected as %s. Earlier action is uncertain; inspect the current worksite." % client)
 
-func _changed(_snapshot: Dictionary) -> void:
+func _changed(confirmed: Dictionary) -> void:
+	var removed_first: bool = (session.is_ready() and not pending_link.is_empty()
+		and not confirmed.entities.has(pending_link))
+	var show_removed: bool = removed_first and pending_actions.is_empty()
+	if removed_first:
+		if selected == pending_link:
+			selected = ""
+		pending_link = ""
 	_refresh()
+	if show_removed:
+		_message("The first machine was removed. Choose the first connection point again.", true)
 
 func _has_unknown_actions() -> bool:
 	for entry in uncertain_actions:
@@ -114,6 +147,7 @@ func _has_unknown_actions() -> bool:
 	return false
 
 func _disconnected(reason: String) -> void:
+	_release_character_controls()
 	connecting = false
 	for request in pending_actions:
 		uncertain_actions.append({"request": request, "action": pending_actions[request].action.duplicate(true),
@@ -197,6 +231,9 @@ func _settle_pending() -> void:
 				"not_at_seam": "place the collector on the brass seam strip.",
 				"not_at_stream": "place the waterwheel beside the stream bank.",
 				"unavailable_output": "there is no finished plate to collect.", "not_stopped": "stop the drive before editing.",
+				"out_of_reach": "move closer to the target before building or interacting.",
+				"actor_unready": "your character is not ready yet; wait a moment.",
+				"actor_occupied": "a character is in that square; move clear before placing the machine.",
 				"powered": "stop the drive before editing.", "held_stock": "material remains in that machine.",
 				"ports_not_adjacent": "choose neighboring ports in the arrow's direction.",
 				"no_shaft": "all shared shafts are in use."}.get(result.reason, str(result.reason)), true)
@@ -267,7 +304,7 @@ func _save_worksite() -> Dictionary:
 	_message("Saving is unavailable in this shared-session prototype.", true)
 	return last_save_result.duplicate(true)
 
-func _load_worksite(_path: String = "") -> Dictionary:
+func _load_worksite(_path: String = "", _startup_resume: bool = false) -> Dictionary:
 	last_load_result = {"accepted": false, "reason": "network_load_unavailable"}
 	_message("Loading is unavailable in this shared-session prototype.", true)
 	return last_load_result.duplicate(true)

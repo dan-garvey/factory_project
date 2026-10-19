@@ -1,5 +1,77 @@
 # Opening worksite consumer
 
+The normal offline and shared opening now select the **physical** profile.
+WASD walks a native capsule, Space jumps, and the orbit camera follows your
+confirmed character. Right-drag changes the view; the mouse wheel zooms and
+Home restores follow distance. Clicked targets never stand in for your body.
+Build, dismantle, retrieve and both ends of a connection must be within the
+authority's provisional four-world-unit sphere. Move closer after a refusal
+and deliberately retry. P (or the drive button) operates the wheel from nearby;
+it does not promise a global stop from the press. Read-only inspection, Help,
+saving and the non-consuming four-plate confirmation remain available at distance.
+
+The launch command below uses this profile by default. `--check` drives actual
+ordinary walking/build/interaction input, checks current native cuts, saves,
+then reopens that save in another engine process. `--render` additionally retains
+the actual view. `--smoke` observes fresh physical startup only. These consumers
+are technical evidence, not a human play session. `character.json` and
+`character-reopen.json` retain the initial native registration, immediate
+admission samples, finite custody, contact/save results and process IDs.
+The same batch retains `wall.factory` before later saves, reopens that contact
+in another fresh process, then checks a separately generated schema-valid deep
+overlap fixture. The latter is explicit malformed persistence data, never a
+live pose setter or positive native evidence. Its actual startup must refuse
+before readiness or output writing; the raw failed native query is retained.
+The check controls production ticks for most assertions; its Help interval uses
+the real production clock while movement always uses natural native physics.
+The Window focus-release case injects its signal and is labelled accordingly;
+it does not claim an actual operating-system focus transition.
+
+F5 saves the current worksite after native pose/geometry/contact preflight.
+F9 explains how to reopen it: close the session, then launch with
+`--resume /absolute/path/to/session/worksite.factory`. This first physical
+adapter refuses live Load as `load_requires_restart` before changing anything.
+The selected source remains read only; the new process writes its own slot only
+after realizing the saved body. Unsupported saved overlap aborts that new launch
+without a spawn fallback. The schema-2 checkpoint saves position/capability;
+input, native RIDs, readiness and velocity are not restored as live state.
+Offline declares P; shared declares its planned P or P/Q roster. Cross-roster
+reopen and old schema-1 saves refuse explicitly; migration is not supplied.
+
+These reversible demo values are recorded in `site_geometry.gd`: pitch1.65,
+work-anchor height0.5, reach4, capsule radius0.3/height1.8, speed3, gravity14,
+jump6, floor snap0.1 and native motor safe margin0.001. New P starts at
+[-1.65,1,3.3], Q at[-1.65,1,4.95], then gravity settles them naturally.
+Follow distance14 and zoom8..24 are presentation choices. Native seed matching
+uses1e-5 observation tolerance; contact classification allows the declared
+0.001 numerical motor margin. Neither increases the exact scalar reach sphere.
+
+ActorWorld alone supplies native floor layer1 and uniform machine-box layer2;
+view picking uses layer4. Actor bodies use layer16 and mask1|2. **Actor-actor
+collision and actor-actor saved-overlap rejection are not implemented.** The
+chosen Model placement rule still refuses a new machine intersecting any ready
+actor (`actor_occupied`) before parts/IDs change; it does not push or snap them.
+Machine boxes are1.45×1.65×1.45, centre height0.8, not precise art collision.
+The displayed grid[-2,4] and terrain256 are fixture presentation extents, not
+controller clamps or a selected game-world cap. WorldBoundary floor extent is
+backend-specific; diagnostics retain the actual backend setting and size.
+Read-only native history holds2048 observations **globally across all actors
+and refreshes**. Consumers capture each admission sample immediately; missing or
+evicted evidence never falls back to a newer pose. Shared views render confirmed
+proxies only; the dedicated server runs the same single native producer.
+Help/focus loss/disconnect releases held movement and queued jump, while gravity
+and authoritative production continue. Build acknowledgement waits do not halt
+movement. Final movement tuning, camera perspective and game collision policy
+remain open. See the [physical contract](../../../../docs/engineering/physical-construction-contract.md).
+
+## Historical unrestricted fixture
+
+The following retained baseline description and old counts apply only to the
+explicit `--legacy-fixture` profile. Its free camera, Space power key, live Load
+and schema1 are not evidence of physical-character construction. Use
+`scripts/run_opening.py --legacy-fixture --check` for that regression suite.
+The older `opening/validate.py` entry point also names this fixture explicitly.
+
 The scene uses the shared `res://model.gd` authority. It owns camera, input,
 meshes and UI; no recipe, material transfer or finite-part mutation lives here.
 The model's opening fixture selects 16 initial blanks and a 1:1 blank/plate

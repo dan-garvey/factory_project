@@ -1,5 +1,6 @@
 import importlib.util
 import errno
+import hashlib
 import os
 from pathlib import Path
 import subprocess
@@ -19,6 +20,33 @@ spec.loader.exec_module(probe)
 
 
 class EngineEnvironmentTests(unittest.TestCase):
+    def test_actual_source_copy_keeps_nested_dependency_before_first_child(self):
+        class CopyBoundaryReached(RuntimeError):
+            pass
+
+        expected = {name: (probe.PROJECT / name).read_bytes() for name in probe.FILES}
+        self.assertIn("opening/site_geometry.gd", expected)
+        calls = []
+
+        def inspect_copy(command, **kwargs):
+            calls.append(command)
+            self.assertEqual(command[1:], ["--version"])
+            project = kwargs["cwd"]
+            for name, content in expected.items():
+                self.assertEqual(hashlib.sha256((project / name).read_bytes()).digest(),
+                                 hashlib.sha256(content).digest(), name)
+            raise CopyBoundaryReached("all actual source bytes copied; no engine launched")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with mock.patch.object(probe, "execute_bounded", side_effect=inspect_copy), mock.patch.object(
+                    probe.shutil, "disk_usage", return_value=SimpleNamespace(free=64 * 1024**3)):
+                with self.assertRaisesRegex(CopyBoundaryReached, "all actual source bytes copied"):
+                    probe.run(Path(sys.executable).resolve(), root / "evidence")
+            self.assertEqual(len(calls), 1)
+            run = next((root / "evidence").glob("run-*"))
+            self.assertIn('"status": "fail"', (run / "result.json").read_text())
+
     def test_artifact_file_disappearing_after_measurement_keeps_measured_bytes(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -184,8 +212,9 @@ class EngineEnvironmentTests(unittest.TestCase):
                               "print('4.7.2.stable.fake' if '--version' in sys.argv else 'FACTORY_HEADLESS_PASS')\n")
             binary.chmod(0o700)
             with mock.patch.object(probe.shutil, "disk_usage", return_value=SimpleNamespace(free=64 * 1024**3)):
-                with self.assertRaises(FileNotFoundError):
+                with self.assertRaises(FileNotFoundError) as failure:
                     probe.run(binary, root / "evidence")
+            self.assertEqual(Path(failure.exception.filename).name, "headless.json")
             receipt = next((root / "evidence").glob("run-*/result.json"))
             self.assertIn('"status": "fail"', receipt.read_text())
 

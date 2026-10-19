@@ -17,6 +17,16 @@ with mock.patch.object(sys, 'path', [str(ROOT / 'scripts'), *sys.path]):
 
 
 class OpeningSessionTests(unittest.TestCase):
+    def test_physical_profile_requires_actual_ui_and_explicit_driver(self):
+        for extra in (['--physical'], ['--physical', '--ui']):
+            with self.subTest(extra=extra), mock.patch.object(sys, 'argv', [
+                    'check_opening_session.py', '--godot', sys.executable, '--sha256', 'unused',
+                    '--artifacts', '/unused', *extra]), mock.patch.object(session.subprocess, 'Popen') as child:
+                with self.assertRaises(SystemExit) as refused:
+                    session.main()
+                self.assertEqual(refused.exception.code, 2)
+                child.assert_not_called()
+
     def test_ui_waits_for_closed_response_marker_before_single_parse(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)

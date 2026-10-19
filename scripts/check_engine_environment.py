@@ -22,7 +22,8 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT = ROOT / "experiments/engine-environment/godot"
-FILES = ("project.godot", "main.tscn", "model.gd", "scenario.gd", "tests.gd", "view.gd")
+FILES = ("project.godot", "main.tscn", "model.gd", "scenario.gd", "tests.gd", "view.gd",
+         "opening/site_geometry.gd")
 MAX_LOG_BYTES = 8 * 1024**2
 MAX_ARTIFACT_BYTES = 384 * 1024**2
 
@@ -116,6 +117,7 @@ def run(binary, artifacts, render=False):
         source = PROJECT / name
         if source.is_symlink() or not source.is_file():
             raise ValueError(f"Missing/unsafe prototype source: {name}")
+        (project / name).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, project / name)
         source_hashes[name] = hashlib.sha256((project / name).read_bytes()).hexdigest()
     environment = os.environ.copy()

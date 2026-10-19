@@ -5,6 +5,7 @@ import argparse
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import shutil
@@ -20,12 +21,28 @@ PROJECT = Path(__file__).resolve().parents[1] / "experiments/engine-environment/
 FILES = bounds.FILES + tuple("opening/" + name for name in (
     "opening.gd", "opening.tscn", "opening_check.gd", "model_check.gd",
     "checkpoint_check.gd", "integration_check.gd", "example_presenter.gd",
-    "example_world.gd", "explanation_check.gd")) + ("save-tests/checkpoint_file.gd",)
+    "example_world.gd", "explanation_check.gd", "actor_body.gd", "actor_world.gd",
+    "character_presenter.gd", "character_check.gd")) + ("save-tests/checkpoint_file.gd",)
 MAX_BYTES = 256 * 1024**2
 SMOKE_OBSERVER = "opening/startup_observer.gd"
 SMOKE_SCENE = "res://opening/opening.tscn"
 RESUME_LIMIT = 2 * 1024**2  # Local input allowance; Store owns format/1 MiB validation.
 RESUME_SCRIPTS = ("opening/resume_prepare.gd", "opening/resume_observer.gd", "opening/resume_check.gd")
+
+
+def git_provenance():
+    # Immutable source-check copies and distributed source trees need no .git.
+    # Missing metadata stays explicit; it is never a fabricated revision pin.
+    result = {"available": True}
+    environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    for key, command in (("revision", ["rev-parse", "HEAD"]), ("tree", ["rev-parse", "HEAD^{tree}"]),
+                         ("source_status", ["status", "--short"])):
+        probe = subprocess.run(["git", "-C", str(PROJECT), *command], capture_output=True, text=True,
+                               timeout=5, env=environment)
+        if probe.returncode:
+            return {"available": False, "reason": "git_metadata_unavailable"}
+        result[key] = probe.stdout.strip()
+    return result
 
 
 def capture_resume(path):
@@ -52,7 +69,32 @@ def capture_resume(path):
     return content
 
 
-def read_resume_report(path, expected, save_slot):
+def _native_actor(state, native, initial, seed):
+    """Require an actual same-cut native body; tolerances never grant reach."""
+    actors = state.get("actors", {})
+    if not isinstance(actors, dict) or set(actors) != {"P"}:
+        raise ValueError("Physical opening requires its declared P roster")
+    actor = actors["P"]
+    sample = native.get("samples", {}).get("P", {}) if isinstance(native, dict) else {}
+    for point in (actor.get("position"), sample.get("position"), initial.get("position"), seed):
+        if (not isinstance(point, list) or len(point) != 3
+                or any(type(value) not in (int, float) or not math.isfinite(value) for value in point)):
+            raise ValueError("Physical observation requires finite three-coordinate positions")
+    if (actor.get("ready") is not True or type(actor.get("native_epoch")) is not int
+            or actor["native_epoch"] < 1 or actor.get("capabilities") != {"build_reach": 4.0}
+            or sample.get("ready") is not True or sample.get("registered") is not True
+            or sample.get("native_epoch") != actor["native_epoch"] or sample.get("position") != actor["position"]
+            or any(type(sample.get(key)) is not int or sample[key] < 1 for key in ("rid", "shape_rid", "space", "expected_space", "physics_frame"))
+            or sample["space"] != sample["expected_space"]
+            or initial.get("registered") is not True or initial.get("ready") is not True
+            or initial.get("cut") != "initial_physics_boundary"
+            or initial.get("seed") != seed
+            or any(abs(a - b) > 0.00001 for a, b in zip(initial["position"], seed))
+            or native.get("failures") != {}):
+        raise ValueError("Physical observation differs from registered native authority or original seed")
+
+
+def read_resume_report(path, expected, save_slot, *, legacy_fixture=False):
     if path.stat().st_size > 8 * 1024**2:
         raise ValueError("Resume observer report exceeds its allowance")
     report = json.loads(path.read_text())
@@ -64,7 +106,8 @@ def read_resume_report(path, expected, save_slot):
     state = report.get("state", {})
     view = report.get("view", {})
     if not isinstance(state, dict) or any(not _same_value(state.get(key), value)
-            for key, value in expected["state"].items() if key not in ("revision", "stock", "remaining")):
+            for key, value in expected["state"].items() if key not in (
+                "revision", "stock", "remaining", *(('actors',) if not legacy_fixture else ()))):
         raise ValueError("Resumed observer topology, ownership or inventory changed before input")
     stock = state.get("stock", {})
     if (not isinstance(stock, dict) or any(type(stock.get(key)) is not int or stock[key] < 0
@@ -85,6 +128,11 @@ def read_resume_report(path, expected, save_slot):
             or view.get("confirm_disabled") is not (expected["state"]["inventories"].get("P", 0) < 4)
             or not save_slot.is_file() or Path(str(save_slot) + ".pending").exists()):
         raise ValueError("Resume view, goal or new-slot ownership differs from restored state")
+    if not legacy_fixture:
+        if report.get("profile") != "physical":
+            raise ValueError("Resume needs explicit physical-profile evidence")
+        _native_actor(state, report.get("native", {}), report.get("initial_native", {}),
+                      expected["state"]["actors"]["P"]["position"])
     return report
 
 
@@ -115,7 +163,7 @@ def _same_value(actual, expected):
     return actual == expected
 
 
-def read_smoke_report(path, save_slot):
+def read_smoke_report(path, save_slot, *, legacy_fixture=False):
     try:
         if path.stat().st_size > 64 * 1024:
             raise ValueError("Startup observer report exceeds its small allowance")
@@ -131,18 +179,89 @@ def read_smoke_report(path, save_slot):
         "order": 0, "entities": {}, "links": [], "drive_links": [], "inventories": {},
         "stock": {"source": 16, "collector": 0, "belt": 0, "input": 0, "held": 0, "output": 0, "player": 0},
         "parts": {"collector": 1, "belt": 1, "processor": 1, "wheel": 1, "shaft": 3},
-        "remaining": 0, "powered": False, "power_enabled": True, "options": {"opening": True}}
+        "remaining": 0, "powered": False, "power_enabled": True,
+        "options": {"opening": True} if legacy_fixture else {"opening": True, "physical": True}}
     state = report.get("state")
     if (not isinstance(state, dict) or any(not _same_value(state.get(k), v) for k, v in expected.items())
             or type(state.get("revision")) is not int or state["revision"] < 0):
         raise ValueError("Smoke startup quantities, identities, parts or power differ from the fresh fixture")
     view = {"save_slot": str(save_slot), "save_ready": True, "save_owned": False,
-            "save_disabled": False, "load_disabled": True, "confirmed": False,
+            "save_disabled": False, "load_disabled": legacy_fixture, "confirmed": False,
             "request_sequence": 0, "namespace_nonempty": True, "machines": 0, "items": 16}
     if not _same_value(report.get("view"), view):
         raise ValueError("Smoke startup view or save/load ownership differs from the fresh session")
     if any(path.exists() or path.is_symlink() for path in (save_slot, Path(str(save_slot) + ".pending"))):
         raise ValueError("Smoke startup unexpectedly wrote its save slot")
+    if not legacy_fixture:
+        if report.get("profile") != "physical":
+            raise ValueError("Smoke needs explicit physical-profile evidence")
+        _native_actor(state, report.get("native", {}), report.get("initial_native", {}), [-1.65, 1.0, 3.3])
+    return report
+
+
+def read_character_report(path, *, resumed=False):
+    if path.stat().st_size > 8 * 1024**2:
+        raise ValueError("Physical consumer report exceeds its allowance")
+    report = json.loads(path.read_text())
+    if (not isinstance(report, dict) or not _same_value(report.get("schema"), 1) or report.get("profile") != "physical"
+            or report.get("status") != "pass" or report.get("failures") != []
+            or report.get("resumed") is not resumed or type(report.get("checks")) is not int
+            or report["checks"] < (10 if resumed else 60) or type(report.get("pid")) is not int):
+        raise ValueError("Physical input consumer lacks actual successful coverage")
+    cuts = {cut["label"]: cut for cut in report.get("cuts", [])}
+    labels = {"ready_ground", "reopened_saved"} if resumed else {
+        "ready_ground", "underfoot_refused_saved", "machine_wall_contact", "jump_landed",
+        "paused_retained_work", "four_plate_saved"}
+    if set(cuts) != labels:
+        raise ValueError("Physical input consumer lacks its declared actual cuts")
+    for cut in cuts.values():
+        observed = cut["native"]
+        if observed.get("available") is not True:
+            raise ValueError("Physical cut cannot substitute a latest-pose fallback")
+        actor = cut["state"]["actors"]["P"]
+        sample = observed["sample"]
+        _native_actor(cut["state"], {"samples": {"P": sample}, "failures": report.get("native", {}).get("failures")},
+                      report.get("first_native", {}).get("P", {}),
+                      report["loaded"]["actors"]["P"]["position"] if resumed else [-1.65, 1.0, 3.3])
+        if (observed.get("actor") != "P" or sample.get("position") != actor["position"]
+                or sample.get("native_epoch") != actor["native_epoch"] or sample.get("registered") is not True):
+            raise ValueError("Physical cut disagrees with actual native observation")
+        stock = cut["state"]["stock"]
+        if (any(type(stock.get(key)) is not int or stock[key] < 0 for key in (
+                "source", "collector", "belt", "input", "held", "output", "player"))
+                or sum(stock[key] for key in ("source", "collector", "belt", "input", "held", "output", "player")) != 16):
+            raise ValueError("Physical consumer must retain literal finite16 custody")
+    for admission in report.get("admissions", []):
+        result = admission["result"]
+        if "reach" not in result:
+            continue
+        receipt = result["reach"]
+        observed = admission.get("native", {})
+        sample = observed.get("sample", {})
+        if (observed.get("available") is not True or observed.get("actor") != receipt["actor"]
+                or sample.get("position") != receipt["position"] or sample.get("native_epoch") != receipt["native_epoch"]
+                or sample.get("registered") is not True or receipt.get("build_reach") != 4.0):
+            raise ValueError("Admission requires its immediately pinned native sample")
+        distances = []
+        for target in receipt["targets"]:
+            squared = 0.0
+            for actual, wanted in zip(receipt["position"], target):
+                difference = float(actual) - float(wanted)
+                squared += difference * difference
+            distances.append(squared)
+        reachable = all(squared <= 16.0 for squared in distances)
+        if (distances != receipt["distances_squared"] or reachable is not receipt["reachable"]
+                or reachable is not result["accepted"]):
+            raise ValueError("Actual native admission disagrees with exact scalar radius4")
+    if not resumed:
+        final = cuts["four_plate_saved"]["state"]
+        results = [entry["result"] for entry in report["admissions"]]
+        if (final["inventories"] != {"P": 4} or report.get("goal_confirmed") is not True
+                or len(final["entities"]) != 4 or len(final["links"]) != 2 or len(final["drive_links"]) != 3
+                or not any(result["reason"] == "out_of_reach" for result in results)
+                or not any(result["reason"] == "actor_occupied" for result in results)
+                or not report.get("save", {}).get("native_preflight", {}).get("accepted")):
+            raise ValueError("Physical consumer needs finite production, actual refusals and current native save")
     return report
 
 
@@ -186,6 +305,7 @@ def main():
     parser.add_argument("--render", action="store_true", help="capture the real rendered check viewport")
     parser.add_argument("--smoke", action="store_true", help="observe fresh opening scene/state and exit after 60 frames")
     parser.add_argument("--resume", type=Path, help="reopen an explicitly selected compatible save in a new session")
+    parser.add_argument("--legacy-fixture", action="store_true", help="explicit historical unrestricted profile; no physical-character evidence")
     args = parser.parse_args()
     if args.render and not args.check:
         parser.error("--render selects the rendered automated check; normal launch already opens a window")
@@ -208,13 +328,16 @@ def main():
     save_slot = session / "worksite.factory"
     environment = os.environ.copy()
     receipt = {"status": "running", "mode": "check" if args.check else "startup_smoke" if args.smoke else "interactive",
+               "profile": "legacy_fixture" if args.legacy_fixture else "physical",
+               "engine": {"path": str(args.godot), "sha256": hashlib.sha256(args.godot.read_bytes()).hexdigest()},
+               "git": git_provenance(),
                "started": datetime.now(timezone.utc).isoformat(), "source_hashes": {}, "stages": [],
                "runner_hashes": {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in (
                    ("run_opening.py", Path(__file__)), ("check_engine_environment.py", Path(bounds.__file__)))},
                "save_slot": str(save_slot), "user_play": "not_assessed"}
     deadline = time.monotonic() + 1800
     bounds.MAX_ARTIFACT_BYTES = MAX_BYTES
-    print(f"Opening session: {session}\nSave/Load: F5 / F9. Close the window to finish.", flush=True)
+    print(f"Opening session: {session}\nSave: F5. " + ("Load: F9." if args.legacy_fixture else "Reopen with --resume PATH in a fresh session.") + " Close the window to finish.", flush=True)
     try:
         if args.resume is not None:
             incoming = capture_resume(args.resume)
@@ -243,7 +366,7 @@ def main():
             directory.mkdir()
             environment[key] = str(directory)
 
-        def execute(name, arguments, marker=None, timeout=30):
+        def execute(name, arguments, marker=None, timeout=30, expected_refusal=None):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise ValueError("Opening session reached its 30 minute allowance")
@@ -252,24 +375,105 @@ def main():
                                             log=log, artifacts=artifacts, timeout=min(timeout, remaining))
             output = log.read_text(errors="replace")
             receipt["stages"].append({"name": name, "exit": result.returncode})
+            if expected_refusal is not None:
+                receipt["stages"][-1]["expected_refusal"] = expected_refusal
+                other_errors = [line for line in output.splitlines() if "ERROR:" in line and expected_refusal not in line]
+                if result.returncode == 0 or expected_refusal not in output or other_errors:
+                    raise ValueError(f"{name} did not establish the declared native refusal; inspect {log}")
+                return output
             if result.returncode or "ERROR:" in output or (marker and marker not in output):
                 raise ValueError(f"{name} failed; inspect {log}")
             return output
 
         version = execute("version", ["--version"]).strip()
+        receipt["engine"]["version"] = version
         if not version.startswith("4.7.2.stable."):
             raise ValueError("This experiment uses the separately verified Godot 4.7.2 stable")
         execute("import", ["--headless", "--editor", "--path", str(project), "--import"], timeout=180)
+        profile_arguments = ["--legacy-fixture"] if args.legacy_fixture else []
         resume_arguments = []
         if args.resume is not None:
             expected_path = session / "resume-expected.json"
             resume_arguments = ["--resume-input=" + str(incoming_path)]
             execute("resume-prepare", ["--headless", "--path", str(project), "--script", "res://opening/resume_prepare.gd",
-                                      "--", *resume_arguments, "--resume-report=" + str(expected_path)], "OPENING_RESUME_VALID")
+                                      "--", *profile_arguments, *resume_arguments, "--resume-report=" + str(expected_path)], "OPENING_RESUME_VALID")
             expected_resume = json.loads(expected_path.read_text())
             if expected_resume.get("accepted") is not True:
                 raise ValueError("Selected save was refused by the actual Model/Store")
-        if args.check:
+        if args.check and not args.legacy_fixture:
+            character_report = session / "character.json"
+            wall_save = session / "wall.factory"
+            negative_save = session / "deep-overlap.factory"
+            arguments = ["--path", str(project), "--script", "res://opening/character_check.gd"]
+            capture_arguments = []
+            if args.render:
+                capture = session / "character.png"
+                arguments += ["--rendering-method", "gl_compatibility", "--audio-driver", "Dummy"]
+                capture_arguments = ["--capture=" + str(capture)]
+            else:
+                arguments = ["--headless", *arguments]
+            fixture_arguments = (["--wall-save=" + str(wall_save), "--negative-save=" + str(negative_save)]
+                                 if args.resume is None else [])
+            execute("character-input", [*arguments, "--", "--save-slot=" + str(save_slot),
+                    "--character-report=" + str(character_report), *capture_arguments, *resume_arguments, *fixture_arguments],
+                    "OPENING_CHARACTER_PASS", timeout=240)
+            physical = read_character_report(character_report, resumed=args.resume is not None)
+            receipt["character"] = {"report": str(character_report), "checks": physical["checks"], "pid": physical["pid"]}
+            if not save_slot.is_file() or Path(str(save_slot) + ".pending").exists():
+                raise ValueError("Physical input needs its successful owned save")
+            if args.render and not capture.read_bytes().startswith(b"\x89PNG\r\n\x1a\n"):
+                raise ValueError("Physical input needs an actual rendered viewport")
+            if args.resume is None:
+                saved_hash = hashlib.sha256(save_slot.read_bytes()).hexdigest()
+                reopened_report = session / "character-reopen.json"
+                execute("character-fresh-reopen", ["--headless", "--path", str(project), "--script",
+                        "res://opening/character_check.gd", "--", "--resume-input=" + str(save_slot),
+                        "--save-slot=" + str(session / "reopened.factory"), "--character-report=" + str(reopened_report)],
+                        "OPENING_CHARACTER_PASS", timeout=60)
+                reopened = read_character_report(reopened_report, resumed=True)
+                if (reopened["pid"] == physical["pid"] or reopened["loaded"] != physical["checkpoint"]
+                        or hashlib.sha256(save_slot.read_bytes()).hexdigest() != saved_hash):
+                    raise ValueError("Fresh process must preserve source and exactly reopen the saved physical state")
+                receipt["character_reopen"] = {"report": str(reopened_report), "checks": reopened["checks"],
+                                                "pid": reopened["pid"], "source_unchanged": True}
+                wall_hash = hashlib.sha256(wall_save.read_bytes()).hexdigest()
+                wall_report = session / "character-wall-reopen.json"
+                execute("character-wall-reopen", ["--headless", "--path", str(project), "--script",
+                        "res://opening/character_check.gd", "--", "--resume-input=" + str(wall_save),
+                        "--save-slot=" + str(session / "wall-reopened.factory"), "--character-report=" + str(wall_report)],
+                        "OPENING_CHARACTER_PASS", timeout=60)
+                wall = read_character_report(wall_report, resumed=True)
+                if (wall["pid"] in (physical["pid"], reopened["pid"]) or wall["loaded"] != physical["wall_checkpoint"]
+                        or hashlib.sha256(wall_save.read_bytes()).hexdigest() != wall_hash):
+                    raise ValueError("Wall reopen must be a fresh native process preserving its source")
+                receipt["wall_reopen"] = {"report": str(wall_report), "checks": wall["checks"],
+                                           "pid": wall["pid"], "source_unchanged": True}
+                negative_hash = hashlib.sha256(negative_save.read_bytes()).hexdigest()
+                failed_report = session / "character-deep-refusal.json"
+                failed_slot = session / "deep-refused-unwritten.factory"
+                execute("character-deep-refusal", ["--headless", "--path", str(project), "--script",
+                        "res://opening/character_check.gd", "--", "--resume-input=" + str(negative_save),
+                        "--save-slot=" + str(failed_slot), "--character-report=" + str(failed_report)],
+                        timeout=60, expected_refusal="actor_saved_pose_overlaps")
+                refused = json.loads(failed_report.read_text())
+                final_state = physical["cuts"][-1]["state"]
+                sample = refused.get("native", {}).get("sample", {})
+                overlaps = sample.get("initial_overlaps", [])
+                if (refused.get("status") != "refused" or refused.get("reason") != "actor_saved_pose_overlaps"
+                        or refused.get("first_native") != {} or refused.get("save_owned") is not False
+                        or refused.get("state", {}).get("actors", {}).get("P", {}).get("ready") is not False
+                        or sample.get("registered") is not True or sample.get("ready") is not False
+                        or not overlaps or not any(hit.get("unsupported_overlap") is True
+                            and hit.get("analytical_overlap_measure", 0) > 0.001 for hit in overlaps)
+                        or failed_slot.exists() or Path(str(failed_slot) + ".pending").exists()
+                        or hashlib.sha256(negative_save.read_bytes()).hexdigest() != negative_hash
+                        or hashlib.sha256(save_slot.read_bytes()).hexdigest() != saved_hash
+                        or any(refused.get("state", {}).get(key) != final_state[key] for key in (
+                            "entities", "parts", "links", "drive_links", "inventories", "stock", "order", "revision", "remaining", "power_enabled"))):
+                    raise ValueError("Deep-overlap native refusal must precede readiness/save and preserve inputs")
+                receipt["deep_refusal"] = {"report": str(failed_report), "reason": refused["reason"],
+                                            "source_unchanged": True, "output_unwritten": True}
+        elif args.check:
             checks = (("resume-input", "opening/resume_check.gd", "OPENING_RESUME_INPUT_PASS"),) if args.resume is not None else (
                     ("neutral", "tests.gd", "FACTORY_HEADLESS_PASS"),
                     ("opening-model", "opening/model_check.gd", "OPENING_MODEL_PASS"),
@@ -283,9 +487,9 @@ def main():
                 if args.render and name in ("opening-input", "save-load-input", "explanation-input", "resume-input"):
                     capture = session / (name + ".png")
                     arguments += ["--rendering-method", "gl_compatibility", "--audio-driver", "Dummy",
-                                  "--", "--capture=" + str(capture), "--save-slot=" + str(stage_slot), *resume_arguments]
+                                  "--", *profile_arguments, "--capture=" + str(capture), "--save-slot=" + str(stage_slot), *resume_arguments]
                 else:
-                    arguments = ["--headless", *arguments, "--", "--save-slot=" + str(stage_slot), *resume_arguments]
+                    arguments = ["--headless", *arguments, "--", *profile_arguments, "--save-slot=" + str(stage_slot), *resume_arguments]
                 output = execute(name, arguments, marker,
                                  timeout=180 if args.render and name in ("opening-input", "save-load-input", "explanation-input", "resume-input") else 30)
                 if name == "resume-input":
@@ -329,7 +533,7 @@ def main():
         else:
             arguments = ["--path", str(project), SMOKE_SCENE,
                          "--rendering-method", "gl_compatibility"]
-            user_arguments = ["--save-slot=" + str(save_slot), *resume_arguments]
+            user_arguments = [*profile_arguments, "--save-slot=" + str(save_slot), *resume_arguments]
             if args.smoke:
                 if args.resume is None:
                     receipt["instrumentation"] = instrument_smoke(project, receipt["source_hashes"]["project.godot"])
@@ -346,12 +550,11 @@ def main():
                         "observer": {"path": "opening/resume_observer.gd", "sha256": receipt["source_hashes"]["opening/resume_observer.gd"]}}
                 startup_report = session / "startup.json"
                 user_arguments.append("--startup-report=" + str(startup_report))
-                arguments += ["--quit-after", "60"]
             execute("interactive", [*arguments, "--", *user_arguments],
                     timeout=30 if args.smoke else 1800)
             if args.smoke:
-                receipt["startup"] = (read_smoke_report(startup_report, save_slot) if args.resume is None
-                                      else read_resume_report(startup_report, expected_resume, save_slot))
+                receipt["startup"] = (read_smoke_report(startup_report, save_slot, legacy_fixture=args.legacy_fixture) if args.resume is None
+                                      else read_resume_report(startup_report, expected_resume, save_slot, legacy_fixture=args.legacy_fixture))
         receipt["status"] = "pass"
     except Exception as error:
         receipt["status"] = "fail"

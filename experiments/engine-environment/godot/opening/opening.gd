@@ -3,8 +3,11 @@ extends Node3D
 
 const Model = preload("res://model.gd")
 const Store = preload("res://save-tests/checkpoint_file.gd")
+const ActorWorld = preload("res://opening/actor_world.gd")
+const CharacterPresenter = preload("res://opening/character_presenter.gd")
+const Geometry = preload("res://opening/site_geometry.gd")
 const STEP_SECONDS := 0.45
-const PITCH := 1.65
+const PITCH := Geometry.PITCH
 const NAMES := {"collector": "Collector", "belt": "Belt", "processor": "Press", "wheel": "Waterwheel"}
 const COLORS := {"collector": Color("d6a34d"), "belt": Color("538e88"), "processor": Color("bd7054"), "wheel": Color("8b9caa")}
 const LESSONS := [
@@ -15,6 +18,12 @@ const LESSONS := [
 ]
 
 var model
+var legacy_fixture := false
+var actor_world
+var character_presenter
+var actor_label: Label
+var startup_save_pending := false
+var startup_save_scheduled := false
 var auto_advance := true
 var client := "P"
 var request_sequence := 0
@@ -69,8 +78,11 @@ var tool_buttons: Dictionary = {}
 var state: Dictionary = {}
 
 func _ready() -> void:
+	for argument in OS.get_cmdline_user_args():
+		if argument == "--legacy-fixture":
+			legacy_fixture = true
 	if model == null:
-		model = Model.new(16, "opening-local-1", 1, {"opening": true})
+		model = Model.new(16, "opening-local-1", 1, {"opening": true} if legacy_fixture else {"opening": true, "physical": true})
 	if save_slot.is_empty():
 		for argument in OS.get_cmdline_user_args():
 			if argument.begins_with("--save-slot="):
@@ -78,20 +90,96 @@ func _ready() -> void:
 	_build_world()
 	_build_interface()
 	_refresh()
-	_message("Build a small line. Choose a part, then click a grid square.")
+	_message("Build a small line. Choose a part, then click a grid square." if legacy_fixture else "WASD walks. Build nearby; approach the wheel to operate the drive [P].")
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--resume-input="):
-			var result: Dictionary = _load_worksite(argument.trim_prefix("--resume-input="))
+			var result: Dictionary = _load_worksite(argument.trim_prefix("--resume-input="), true)
 			if not result.accepted or not model.projection().options.get("opening", false):
 				push_error("Opening resume refused; no fresh-world fallback")
 				get_tree().quit(1)
 				return
 			startup_resume_checkpoint = model.checkpoint()
-			if not _save_worksite().accepted:
+			if legacy_fixture and not _save_worksite().accepted:
 				push_error("Resumed worksite could not publish its new session slot")
 				get_tree().quit(1)
 				return
+			startup_save_pending = not legacy_fixture
 			_message("Worksite reopened in this session. Your original save is kept.")
+	if not legacy_fixture:
+		if not _start_character_world():
+			return
+		_start_character_presenter()
+
+func _start_character_world() -> bool:
+	actor_world = ActorWorld.new()
+	actor_world.name = "OpeningActors"
+	actor_world.pose_published.connect(_actor_pose)
+	actor_world.initialization_failed.connect(_actor_failed)
+	var configured: Dictionary = actor_world.configure(model)
+	if not configured.accepted:
+		actor_world.free()
+		actor_world = null
+		_actor_failed(client, configured.reason)
+		return false
+	add_child(actor_world)
+	for actor in model.projection().actors:
+		if not actor_world.ensure_actor(actor).accepted:
+			return false
+	return true
+
+func _start_character_presenter() -> void:
+	distance = 14.0
+	character_presenter = CharacterPresenter.new()
+	character_presenter.name = "Characters"
+	character_presenter.configure(self)
+	add_child(character_presenter)
+
+func _actor_pose(actor: String, sample: Dictionary) -> void:
+	var result: Dictionary = model.publish_actor(actor, sample.position, sample.native_epoch)
+	if not result.accepted:
+		_actor_failed(actor, result.reason)
+		return
+	_refresh()
+	if startup_save_pending and not startup_save_scheduled:
+		var all_ready := true
+		for current in model.projection().actors.values():
+			all_ready = all_ready and current.ready
+		if all_ready:
+			startup_save_scheduled = true
+			call_deferred("_finish_startup_save")
+
+func _finish_startup_save() -> void:
+	var saved: Dictionary = _save_worksite()
+	if not saved.accepted:
+		_actor_failed(client, "resume_save_failed:" + str(saved.reason))
+		return
+	startup_save_pending = false
+	_refresh_ui()
+	_message("Worksite reopened in this session. Your original save is kept.")
+
+func _actor_failed(actor: String, reason: String) -> void:
+	if model != null and model.has_method("invalidate_actor"):
+		model.invalidate_actor(actor)
+	push_error("Physical character unavailable for " + actor + ": " + reason)
+	get_tree().quit(1)
+
+func _can_control_character() -> bool:
+	return not legacy_fixture and not explanation_open and not startup_save_pending and state.get("actors", {}).get(client, {}).get("ready", false)
+
+func _send_character_input(direction: Vector2, jump: bool) -> void:
+	if actor_world != null:
+		actor_world.set_control(client, direction, jump)
+
+func _release_character_input() -> void:
+	if actor_world != null:
+		actor_world.release_control(client)
+
+func _release_character_controls() -> void:
+	if character_presenter != null:
+		character_presenter.release()
+
+func _power_key() -> String:
+	return "Space" if legacy_fixture else "P"
 
 func configure_save_slot(path: String) -> void:
 	# The launcher supplies a fresh external session directory. One cooperating
@@ -109,16 +197,25 @@ func _save_worksite() -> Dictionary:
 	elif not save_slot_owned and _path_exists(save_slot):
 		last_save_result = {"accepted": false, "reason": "existing_destination"}
 	else:
-		last_save_result = Store.write(model, save_slot)
+		var physical := {"accepted": true}
+		if not legacy_fixture:
+			physical = actor_world.checkpoint_status() if actor_world != null else {"accepted": false, "reason": "actor_unready"}
+		last_save_result = Store.write(model, save_slot) if physical.accepted else {"accepted": false, "reason": physical.reason}
+		if not legacy_fixture:
+			last_save_result["native_preflight"] = physical.duplicate(true)
 	if last_save_result.accepted:
 		save_slot_owned = true
-		_message("Worksite saved. Load returns to this moment.")
+		_message("Worksite saved. Load returns to this moment." if legacy_fixture else "Worksite saved. Reopen this save through the launcher in a new session.")
 	else:
 		_message("Save unavailable. Your current worksite and previous save are kept.", true)
 	_refresh_ui()
 	return last_save_result
 
-func _load_worksite(path: String = "") -> Dictionary:
+func _load_worksite(path: String = "", startup_resume := false) -> Dictionary:
+	if not legacy_fixture and not startup_resume:
+		last_load_result = {"accepted": false, "reason": "load_requires_restart"}
+		_message("Reopen the saved worksite through the launcher in a new session. The live worksite is kept.", true)
+		return last_load_result
 	if explanation_open or not save_slot_ready:
 		last_load_result = {"accepted": false, "reason": "load_unavailable"}
 	else:
@@ -143,11 +240,19 @@ func _load_worksite(path: String = "") -> Dictionary:
 func issue(action: Dictionary) -> Dictionary:
 	if explanation_open:
 		return {"accepted": false, "reason": "explanation_open"}
+	if startup_save_pending:
+		_message("Finishing the saved worksite's opening. Wait a moment.")
+		return {"accepted": false, "reason": "worksite_starting"}
+	if not legacy_fixture and actor_world != null:
+		for actor in model.projection().actors:
+			actor_world.ensure_actor(actor)
 	request_sequence += 1
 	var intent: Dictionary = action.duplicate(true)
 	intent.merge({"context": model.projection().context, "client": client,
 		"request": request_namespace + str(request_sequence)}, true)
 	var outcome: Dictionary = model.command(intent)
+	if not legacy_fixture and actor_world != null:
+		actor_world.sync_topology()
 	if outcome.accepted:
 		_message({"place": "Placed. Parts stay with this worksite.",
 			"connect": "Material path connected.", "connect_drive": "Drive shaft connected.",
@@ -161,6 +266,9 @@ func issue(action: Dictionary) -> Dictionary:
 			"missing_entity": "Choose a placed machine at each end.",
 			"already_connected": "Those ports are already connected.",
 			"unavailable_output": "There is no finished plate to collect yet.",
+			"out_of_reach": "Move closer to the target before building or interacting.",
+			"actor_unready": "Your character is not ready yet. Wait a moment.",
+			"actor_occupied": "A character is in that square. Move clear before placing the machine.",
 			"powered": "Stop the drive before changing the machinery.",
 			"not_stopped": "Stop the drive before changing the machinery.",
 			"held_stock": "Retrieve the material before removing this machine.",
@@ -184,6 +292,8 @@ func _process(delta: float) -> void:
 		example_presenter.pan(delta)
 		return
 	_update_camera()
+	if not legacy_fixture:
+		return
 	var pan := Vector2(float(Input.is_physical_key_pressed(KEY_D)) - float(Input.is_physical_key_pressed(KEY_A)),
 		float(Input.is_physical_key_pressed(KEY_S)) - float(Input.is_physical_key_pressed(KEY_W)))
 	if not Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
@@ -206,11 +316,13 @@ func _input(event: InputEvent) -> void:
 		return
 	# Consume both edges of global shortcuts so a
 	# previously focused GUI button cannot also activate on the release.
-	if event is InputEventKey and event.keycode in [KEY_SPACE, KEY_F5, KEY_F9]:
+	if event is InputEventKey and (event.keycode in [KEY_F5, KEY_F9] or event.keycode == (KEY_SPACE if legacy_fixture else KEY_P)):
 		if event.pressed and not event.echo and not explanation_open:
 			match event.keycode:
-				KEY_SPACE: _toggle_power()
-				KEY_F5: _save_worksite()
+				KEY_SPACE, KEY_P: _toggle_power()
+				KEY_F5:
+					if not startup_save_pending:
+						_save_worksite()
 				KEY_F9: _load_worksite()
 		get_viewport().set_input_as_handled()
 
@@ -226,9 +338,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			_update_cursor()
 	elif event is InputEventMouseButton and event.pressed:
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
-			distance = maxf(10, distance - 1)
+			distance = maxf(10 if legacy_fixture else 8, distance - 1)
 		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			distance = minf(28, distance + 1)
+			distance = minf(28 if legacy_fixture else 24, distance + 1)
 		elif event.button_index == MOUSE_BUTTON_LEFT:
 			_world_click(_screen_cell(event.position), _screen_entity(event.position))
 	elif event is InputEventKey and event.pressed and not event.echo:
@@ -243,8 +355,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_R: _retrieve()
 			KEY_H: _toggle_explanation()
 			KEY_HOME:
-				focus = Vector3(1.3, 0, 1.1)
-				distance = 18.5
+				if legacy_fixture:
+					focus = Vector3(1.3, 0, 1.1)
+				distance = 18.5 if legacy_fixture else 14.0
 	_update_camera()
 
 func _select_tool(tool: String) -> void:
@@ -319,6 +432,7 @@ func _toggle_explanation() -> void:
 	explanation_open = not explanation_open
 	lesson_panel.visible = explanation_open
 	if explanation_open:
+		_release_character_controls()
 		if example_presenter == null:
 			# Lazy loading avoids a static cycle with the geometry-only subclass.
 			example_presenter = load("res://opening/example_presenter.gd").new()
@@ -352,6 +466,7 @@ func _screen_cell(screen: Vector2) -> Vector2i:
 func _screen_entity(screen: Vector2) -> String:
 	var origin := camera.project_ray_origin(screen)
 	var query := PhysicsRayQueryParameters3D.create(origin, origin + camera.project_ray_normal(screen) * 80)
+	query.collision_mask = Geometry.PICK_LAYER
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
 	return str(hit.collider.get_meta("entity", "")) if not hit.is_empty() else ""
 
@@ -384,6 +499,19 @@ func _build_world() -> void:
 	sun.light_energy = 1.6
 	sun.shadow_enabled = true
 	add_child(sun)
+	if not legacy_fixture:
+		# Presentation extent only. ActorWorld owns the native floor, whose
+		# backend-specific extent is recorded separately in its diagnostics.
+		var terrain := MeshInstance3D.new()
+		var plane := PlaneMesh.new()
+		plane.size = Vector2(Geometry.DISPLAY_TERRAIN_SIZE, Geometry.DISPLAY_TERRAIN_SIZE)
+		terrain.mesh = plane
+		terrain.position.y = Geometry.GROUND_HEIGHT - 0.01
+		var material := StandardMaterial3D.new()
+		material.albedo_color = Color("394641")
+		material.roughness = 1.0
+		terrain.material_override = material
+		add_child(terrain)
 	_box(self, Vector3(1.65, -0.55, 1.65), Vector3(13.4, 0.8, 13.4), Color("394641"))
 	for x in range(-2, 5):
 		for z in range(-2, 5):
@@ -504,12 +632,14 @@ func _rebuild_machines() -> void:
 					var spoke := _box(wheel_rotor, Vector3.ZERO, Vector3(0.12, 1.48, 0.16), Color("c2a86d"))
 					spoke.rotation.z = n * PI / 4
 		var body := StaticBody3D.new()
+		body.collision_layer = Geometry.PICK_LAYER
+		body.collision_mask = 0
 		body.set_meta("entity", entity_id)
 		var collider := CollisionShape3D.new()
 		var shape := BoxShape3D.new()
-		shape.size = Vector3(1.45, 1.65, 1.45)
+		shape.size = Vector3(Geometry.MACHINE_SIZE[0], Geometry.MACHINE_SIZE[1], Geometry.MACHINE_SIZE[2])
 		collider.shape = shape
-		collider.position.y = 0.8
+		collider.position.y = Geometry.MACHINE_CENTER_HEIGHT
 		body.add_child(collider)
 		anchor.add_child(body)
 		_text(anchor, NAMES.get(kind, kind).to_upper(), Vector3(0, 1.9, 0), Color("f2e5c5"))
@@ -544,6 +674,8 @@ func _redraw_items() -> void:
 
 func _refresh() -> void:
 	state = model.projection()
+	if actor_world != null:
+		actor_world.sync_topology()
 	var next_key := JSON.stringify([state.entities, state.links, state.get("drive_links", [])])
 	if next_key != geometry_key:
 		geometry_key = next_key
@@ -551,6 +683,8 @@ func _refresh() -> void:
 	if int(state.revision) != visual_revision:
 		visual_revision = int(state.revision)
 		_redraw_items()
+	if character_presenter != null:
+		character_presenter.refresh()
 	_refresh_ui()
 
 func _refresh_ui() -> void:
@@ -563,12 +697,17 @@ func _refresh_ui() -> void:
 	stock_label.text = "SEAM  %d blanks\nIN THE LINE  %d blanks\nPRESS OUTLET  %d plate" % [state.stock.source,
 		state.stock.collector + state.stock.belt + state.stock.input + state.stock.held, state.stock.output]
 	power_label.text = "DRIVE RUNNING" if state.get("powered", false) else "DRIVE SWITCHED OFF" if not state.get("power_enabled", true) else "DRIVE NEEDS CONNECTIONS"
-	power_button.text = "Stop drive  [Space]" if state.get("power_enabled", true) else "Start drive  [Space]"
+	power_button.text = ("Stop drive  [%s]" if state.get("power_enabled", true) else "Start drive  [%s]") % _power_key()
+	power_button.tooltip_text = "" if legacy_fixture else "Approach the waterwheel to operate the drive."
 	power_button.disabled = explanation_open
-	save_button.disabled = explanation_open or not save_slot_ready
-	load_button.disabled = explanation_open or not save_slot_ready or not save_slot_owned
+	save_button.disabled = explanation_open or not save_slot_ready or startup_save_pending or (not legacy_fixture and not state.get("actors", {}).get(client, {}).get("ready", false))
+	load_button.disabled = explanation_open or not save_slot_ready or (legacy_fixture and not save_slot_owned)
+	load_button.text = "Load worksite  [F9]" if legacy_fixture else "How to reopen save  [F9]"
 	for button in [save_button, load_button]:
 		button.tooltip_text = "" if save_slot_ready else "Launch a fresh worksite session to enable saving."
+	if actor_label != null:
+		actor_label.visible = not legacy_fixture
+		actor_label.text = "CHARACTER READY · BUILD NEARBY" if state.get("actors", {}).get(client, {}).get("ready", false) else "CHARACTER STARTING…"
 	for tool in tool_buttons:
 		var button: Button = tool_buttons[tool]
 		button.disabled = explanation_open or (NAMES.has(tool) and not state.parts.has(tool))
@@ -596,15 +735,15 @@ func _inspection_hint() -> String:
 	if kind == "processor" and state.stock.output > 0:
 		return "Outlet full; plate ready.\n[R] collect to make room."
 	if not state.get("power_enabled", true):
-		return "Drive switched off.\n[Space] enables the drive."
+		return "Drive switched off.\n[%s] enables the drive%s." % [_power_key(), "" if legacy_fixture else " near wheel"]
 	if kind == "processor" and state.stock.held > 0 and state.get("powered", false):
 		if state.remaining == 0:
 			return "Work done; blank retained.\nNext drive tick releases plate."
 		return "Working: %d ticks remaining.\nHeld blank stays in the press." % state.remaining
 	if kind in ["belt", "processor"] and not _has_material_connection(true):
-		return ("Inlet missing. Stop [Space].\n" if state.get("powered", false) else "No material inlet linked.\n") + "[F] link " + ("Collector → Belt." if kind == "belt" else "Belt → Press.")
+		return (("Inlet missing. Stop [%s].\n" % _power_key()) if state.get("powered", false) else "No material inlet linked.\n") + "[F] link " + ("Collector → Belt." if kind == "belt" else "Belt → Press.")
 	if kind in ["collector", "belt"] and not _has_material_connection(false):
-		return ("Outlet missing. Stop [Space].\n" if state.get("powered", false) else "No material outlet linked.\n") + "[F] link " + ("Collector → Belt." if kind == "collector" else "Belt → Press.")
+		return (("Outlet missing. Stop [%s].\n" % _power_key()) if state.get("powered", false) else "No material outlet linked.\n") + "[F] link " + ("Collector → Belt." if kind == "collector" else "Belt → Press.")
 	if not state.get("powered", false):
 		return "Drive needs connections.\n[G] link wheel + all machines."
 	if kind == "processor":
@@ -619,7 +758,7 @@ func _inspection_hint() -> String:
 		return "Collecting finite seam blanks.\nBelt takes the next blank."
 	if kind == "belt":
 		return "Belt carrying a blank.\nInspect the Press downstream." if state.stock.belt > 0 else "Waiting for a blank.\nInspect the Collector upstream."
-	return "Wheel powers the whole line.\n[Space] stops it for editing."
+	return "Wheel powers the whole line.\n[%s] stops it%s." % [_power_key(), " for editing" if legacy_fixture else " from nearby"]
 
 func _has_material_connection(incoming: bool) -> bool:
 	for pair in state.links:
@@ -704,7 +843,14 @@ func _build_interface() -> void:
 		tool_buttons[tool].toggle_mode = true
 	_button(build, "How this line works  [H]", _toggle_explanation)
 	var right := _panel(root, Vector2(990, 18), Vector2(272, 490))
-	_label(right, "WORKSITE", 13, Color("a3b8b4"))
+	if legacy_fixture:
+		_label(right, "WORKSITE", 13, Color("a3b8b4"))
+	else:
+		# The actor/connection rows identify the physical worksite. Leave room
+		# for a selected press and pending-server advice above the status panel.
+		right.add_theme_constant_override("separation", 6)
+	actor_label = _label(right, "", 11, Color("a3b8b4"))
+	actor_label.visible = not legacy_fixture
 	power_label = _label(right, "", 14, Color("dfbc76"))
 	stock_label = _label(right, "", 16)
 	inspector = _label(right, "", 15)
@@ -719,7 +865,7 @@ func _build_interface() -> void:
 	var bottom := _panel(root, Vector2(310, 694), Vector2(952, 88))
 	status_label = _label(bottom, "", 16)
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_label(bottom, "1–4 build  ·  F material / G drive  ·  Right-drag orbit  ·  Wheel zoom  ·  WASD pan  ·  Home recenter", 12, Color("9eb4b2"))
+	_label(bottom, "1–4 build  ·  F material / G drive  ·  Right-drag orbit  ·  Wheel zoom  ·  WASD pan  ·  Home recenter" if legacy_fixture else "WASD walk · Space jump · P wheel · 1–4 build · F / G links · Right-drag orbit · Wheel zoom · H help", 12, Color("9eb4b2"))
 	var lesson_column := _panel(root, Vector2(346, 18), Vector2(600, 192))
 	lesson_panel = lesson_column.get_parent()
 	lesson_title = _label(lesson_column, "", 17, Color("edcc8d"))

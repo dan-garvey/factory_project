@@ -79,7 +79,7 @@ class OpeningResumeTests(unittest.TestCase):
                                "request_sequence": 0, "namespace_nonempty": True}}
             path = root / "report.json"
             path.write_text(json.dumps(report))
-            self.assertEqual(launcher.read_resume_report(path, expected, slot), report)
+            self.assertEqual(launcher.read_resume_report(path, expected, slot, legacy_fixture=True), report)
             for change in (lambda d: d.update(schema=True), lambda d: d.update(loaded={}),
                            lambda d: d.update(continued_from_source=False), lambda d: d.update(slot_matches_loaded=False),
                            lambda d: d["view"].update(save_owned=False), lambda d: d["view"].update(selected="retired"),
@@ -89,10 +89,10 @@ class OpeningResumeTests(unittest.TestCase):
                 change(invalid)
                 path.write_text(json.dumps(invalid))
                 with self.assertRaises(ValueError):
-                    launcher.read_resume_report(path, expected, slot)
+                    launcher.read_resume_report(path, expected, slot, legacy_fixture=True)
             path.write_text(json.dumps(observed_start(slot)))
             with self.assertRaises(ValueError):
-                launcher.read_resume_report(path, expected, slot)
+                launcher.read_resume_report(path, expected, slot, legacy_fixture=True)
 
 
 if __name__ == "__main__":
