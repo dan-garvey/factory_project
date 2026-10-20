@@ -67,6 +67,7 @@ var parts_label: Label
 var goal_label: Label
 var power_label: Label
 var inspector: Label
+var recovery_actions
 var confirm_button: Button
 var retrieve_button: Button
 var power_button: Button
@@ -871,6 +872,8 @@ func _refresh_ui() -> void:
 	else:
 		inspector.text = "Select a machine to inspect\nor collect its finished work."
 	_refresh_guided_tools()
+	if recovery_actions != null:
+		recovery_actions.refresh()
 
 func _toggle_all_tools() -> void:
 	if not explanation_open:
@@ -1151,6 +1154,13 @@ func _build_interface() -> void:
 	retrieve_button = _button(right, "Collect plate  [R]", _retrieve)
 	power_button = _button(right, "Stop drive  [Space]", _toggle_power)
 	remove_button = _button(right, "Dismantle selected", _remove_selected)
+	# Older scripted launch payloads have a fixed roster without this native UI.
+	var recovery_path := "res://opening/recovery_actions.gd"
+	if ResourceLoader.exists(recovery_path, "Script"):
+		var recovery_script = load(recovery_path)
+		recovery_actions = recovery_script.new()
+		right.add_child(recovery_actions)
+		recovery_actions.configure(self)
 	right.add_child(HSeparator.new())
 	save_button = _button(right, "Save worksite  [F5]", _save_worksite)
 	load_button = _button(right, "Load worksite  [F9]", _load_worksite)

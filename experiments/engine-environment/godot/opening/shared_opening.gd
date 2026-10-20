@@ -354,6 +354,8 @@ func _refresh_ui() -> void:
 			connection_label.text += "\nWAITING FOR SERVER DECISION"
 		reconnect_button.disabled = connecting or session.is_ready() or explanation_open
 		disconnect_button.disabled = not session.is_ready() or explanation_open
+	if recovery_actions != null:
+		recovery_actions.refresh()
 
 func _update_cursor() -> void:
 	super._update_cursor()
