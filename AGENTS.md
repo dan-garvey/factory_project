@@ -41,11 +41,25 @@ permission requests for delegated choices, or treat review as approval by defaul
 The current user-directed trial decentralizes landing. Each workstream owner
 builds, tests and commits their scoped code, resolves its current-main joins, and
 lands and publishes it without waiting for the progenitor or pre-merge review.
-Independent review may happen after merge. A completed relevant review already
-counts; do not require another reviewer, PM sign-off, plan, source-freeze, receipt
-or other approval chain. Reuse passing checks and reviews for unchanged relevant
-inputs. Never bypass the installed hook, hide a failed check or ignore a known
-correctness finding merely because review is asynchronous.
+Independent review happens after merge. For every commit you author, open an
+unassigned Bead labelled `review-request` that names the exact commit, implementing
+agent, scope and relevant test results. Do not review your own commits or claim
+review requests that you authored.
+
+After committing and opening its request, check for unclaimed review-request Beads
+from other authors. If one is available, claim it and review that commit before
+returning to your own task. Complete concrete fixes in your own linked worktree,
+run the relevant tests, commit and merge them, and open a separate review request
+for each fix commit you author. Record the review outcome and any fix commits in
+the original request, then resume your own task and repeat this loop. If no
+eligible request is available, continue your own work instead of waiting.
+
+An existing relevant review already counts; do not require another reviewer, PM
+sign-off, plan, source-freeze, receipt or other approval chain. Reuse passing checks
+and reviews for unchanged relevant inputs. Never bypass the installed hook, hide a
+failed check or ignore a known correctness finding merely because review is
+asynchronous. Track remaining concrete findings in Beads without making review a
+pre-merge approval gate.
 
 Keep concurrent workstreams narrow and non-overlapping. Agree shared interfaces
 directly and coordinate edits to shared files rather than creating competing
@@ -136,7 +150,7 @@ Legacy branches may still track `.beads`. Do not merge/rebase them across its re
 
 1. Update the owning Bead with new results, verification limits and the actual landed commit. Close implementation work when its declared outcome is satisfied; post-merge review and any concrete fix Beads are separate, not a hidden landing or closure approval.
 2. Run `br sync --flush-only` to persist the private portable export. The progenitor owns separate backup freshness; no ledger content belongs in source commits.
-3. Run focused checks needed to validate the changed behavior, then review and explicitly stage only scoped source paths. Do not duplicate the commit hook's full suite on unchanged relevant inputs.
+3. Run focused checks needed to validate the changed behavior, then inspect and explicitly stage only scoped source paths. Do not duplicate the commit hook's full suite on unchanged relevant inputs.
 4. Commit through the installed precommit hook, which invokes `python3 -B scripts/check_commit.py` as the single mandatory staged check. Do not run the same coordinator manually before the hook on unchanged inputs; a manual run is optional diagnostics. The coordinator acquires one check permit for non-GDScript changes or one heavy permit for staged GDScript compilation. Do not wrap the coordinator or `git commit` itself, or nest admission. Install the local hook using `./scripts/install-hooks.sh`; never auto-stage fixes or bypass a failure as acceptance evidence. Changes to safety gates preserve their validation contracts and receive independent review under the same asynchronous policy, not an extra landing approval.
 5. Land and publish your checked scoped branch using CONTRIBUTING.md's short shared Git transaction. Resolve conflicts and validate affected joins in your own worktree first; do not hold the landing lock during checks or reviews. A clean textual merge alone is insufficient.
 6. Inspect `git status` and hand off any remaining work or verification limits.
