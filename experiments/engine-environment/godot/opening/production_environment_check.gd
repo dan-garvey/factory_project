@@ -15,6 +15,18 @@ class FixtureView:
 		set_process(false)
 		set_physics_process(false)
 
+class WaterFrameView extends Opening:
+	var frame_seconds := 0.0
+	func _ready() -> void:
+		set_process(false)
+	func _water_time_seconds() -> float:
+		return frame_seconds
+	func _refresh_machine_preview() -> void: pass
+	func _refresh_endpoint_cue() -> void: pass
+	func _refresh_mechanical_audio() -> void: pass
+	func _animate_wheel(_delta: float) -> void: pass
+	func _update_camera() -> void: pass
+
 func verify(condition: bool, message: String) -> void:
 	checks += 1
 	if not condition:
@@ -89,6 +101,7 @@ func check_multimesh(instances: MultiMesh, min_pad_clearance: float, label: Stri
 func finish() -> void:
 	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks, "mode": mode,
 		"scope": {"surface-composition": "shared renderer/physical geometry and bed/water composition",
+			"water-flow": "changed cosmetic water material and ordinary frame consumer",
 			"flat-fallback": "historical flat source-roster fallback", "foliage": "changed foliage bulk upload",
 			"environment": "3D valley terrain, millrace, architecture and foundation"}.get(mode, "unknown"),
 		"rendered_quality": "not_assessed", "desktop": "not_used", "authority_started": false}))
@@ -162,6 +175,58 @@ func check_surface_composition() -> void:
 		"visible_boxes": rendered.size(), "rock_instances": 64, "triangle_vertices": water.size()}))
 	view.free()
 
+func check_water_flow() -> void:
+	var water := Scenery.water_material()
+	var texture := water.normal_texture
+	var mesh := Scenery.stream_mesh()
+	var vertices: PackedVector3Array = mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX].duplicate()
+	verify(water == Scenery.water_material() and water.metallic == 0.0,
+		"The water keeps a shared dielectric material rather than metallic shading.")
+	verify(water.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED and water.normal_enabled
+		and texture != null and texture.get_image().has_mipmaps() and water.texture_repeat,
+		"Moving detail retains the existing opaque, repeated and mipmapped normal surface.")
+	verify(Scenery.animate_water(0.0) and water.uv1_offset == Vector3.ZERO, "The visual phase starts at the original normal-map coordinates.")
+	var before := water.uv1_offset
+	verify(Scenery.animate_water(1.0) and water.uv1_offset.y < before.y,
+		"The actual texture transform advances the pattern toward positive downstream Z.")
+	var travelled := -(water.uv1_offset.y - before.y) / (0.08 * water.uv1_scale.y)
+	verify(absf(travelled - 0.4) < 0.000001, "The declared environmental ripple speed is 0.4 metres per second in the authored stream UVs.")
+	var once := water.uv1_offset
+	verify(Scenery.animate_water(1.0) and water.uv1_offset == once,
+		"Repeated updates at the same absolute time cannot accelerate the shared texture.")
+	verify(Scenery.animate_water(3.90625) and water.uv1_offset.length() < 0.000001,
+		"One complete normal-texture period wraps to its initial coordinates.")
+	verify(Scenery.animate_water(1000000.25) and water.uv1_offset.is_finite()
+		and water.uv1_offset.y <= 0.0 and water.uv1_offset.y > -1.0, "Long-running presentation retains a bounded finite offset.")
+	var valid := water.uv1_offset
+	for invalid in [-1.0, NAN, INF]:
+		verify(not Scenery.animate_water(invalid) and water.uv1_offset == valid,
+			"Invalid presentation time preserves the last valid material phase.")
+	var view := WaterFrameView.new()
+	view.auto_advance = false
+	root.add_child(view)
+	view.frame_seconds = 2.0
+	view._process(0.016)
+	verify(water.uv1_offset.distance_to(Vector3(0.0, -0.512, 0.0)) < 0.000001
+		and view.model == null and view.state.is_empty() and view.elapsed == 0.0,
+		"The actual ordinary frame path moves water without creating or advancing a Model.")
+	var second := WaterFrameView.new()
+	second.auto_advance = false
+	root.add_child(second)
+	second.frame_seconds = 2.0
+	second._process(1.0)
+	verify(water.uv1_offset.distance_to(Vector3(0.0, -0.512, 0.0)) < 0.000001,
+		"A second view and a different frame delta preserve the same shared visual phase.")
+	view.legacy_fixture = true
+	view.frame_seconds = 0.0
+	view._refresh_water()
+	verify(water.uv1_offset.distance_to(Vector3(0.0, -0.512, 0.0)) < 0.000001,
+		"Historical explicit fixtures do not change the new water material.")
+	verify(Scenery.stream_mesh() == mesh and mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX] == vertices
+		and water.normal_texture == texture, "Animation preserves every water vertex and the shared normal resource.")
+	second.free()
+	view.free()
+
 func collect_solids(node: Node, result: Dictionary) -> void:
 	if node.has_meta("site_solid_id"):
 		var id: String = node.get_meta("site_solid_id")
@@ -187,6 +252,10 @@ func clip_polygon(polygon: Array[Vector3], axis: int, boundary: float, keep_abov
 	return result
 
 func run() -> void:
+	if mode == "water-flow":
+		check_water_flow()
+		finish()
+		return
 	if mode == "flat-fallback":
 		verify(Scenery.Surface == null, "The historical fixed-roster fixture deliberately has no site helper.")
 		var flat := FixtureView.new()

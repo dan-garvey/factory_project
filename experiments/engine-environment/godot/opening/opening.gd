@@ -320,7 +320,7 @@ class ProductionEnvironment:
 			water_finish = StandardMaterial3D.new()
 			water_finish.albedo_color = Color("245866")
 			water_finish.vertex_color_use_as_albedo = true
-			water_finish.metallic = 0.32
+			water_finish.metallic = 0.0
 			water_finish.roughness = 0.16
 			water_finish.normal_enabled = true
 			water_finish.normal_texture = ImageTexture.create_from_image(image)
@@ -328,6 +328,16 @@ class ProductionEnvironment:
 			water_finish.uv1_scale = Vector3(2, 8, 1)
 			water_finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 		return water_finish
+
+	static func animate_water(seconds: float) -> bool:
+		# The existing mesh UV grows downstream. A negative texture offset
+		# moves the repeated ripple pattern downstream at a cosmetic 0.4 m/s.
+		# Absolute time makes shared material updates idempotent across views.
+		# It is never a production clock or an estimate of waterwheel speed.
+		if water_finish == null or not is_finite(seconds) or seconds < 0.0:
+			return false
+		water_finish.uv1_offset = Vector3(0.0, -fposmod(seconds * 0.256, 1.0), 0.0)
+		return true
 
 	static func foam_material() -> StandardMaterial3D:
 		if foam_finish == null:
@@ -1660,6 +1670,7 @@ func _process(delta: float) -> void:
 		_refresh()
 	_refresh_machine_preview()
 	_refresh_endpoint_cue()
+	_refresh_water()
 	_refresh_mechanical_audio()
 	_animate_wheel(delta)
 	if explanation_open:
@@ -1674,6 +1685,13 @@ func _process(delta: float) -> void:
 		focus += Vector3(pan.x, 0, pan.y) * delta * 4.0
 		focus.x = clampf(focus.x, -4, 6)
 		focus.z = clampf(focus.z, -4, 6)
+
+func _water_time_seconds() -> float:
+	return float(Time.get_ticks_msec()) * 0.001
+
+func _refresh_water() -> void:
+	if not legacy_fixture and ProductionEnvironment.Surface != null:
+		ProductionEnvironment.animate_water(_water_time_seconds())
 
 func _refresh_mechanical_audio() -> void:
 	var ready := _can_control_character() and _native_transmission() and camera != null

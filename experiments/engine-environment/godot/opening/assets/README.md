@@ -213,3 +213,13 @@ preservation and assigned-color contrast, not pixel appearance or human usabilit
 ## Shared terrain and millrace
 
 The worksite uses the contoured valley, stream, sluice and stepped tailrace from the retained millrace candidate. Terrain triangles, flat deck rectangles, wharf beams, architectural boxes and rock transforms are shared immutable inputs in `site_surface.gd`; ActorWorld alone constructs their native collision. Water, foam, foliage and small turned ornaments remain visual details. The scanned steel cache and floor channels are unchanged. The displayed finite site is adapter geometry, not a gameplay world boundary. Human visual quality has not been assessed.
+
+The shared opaque water material now scrolls its repeated normal detail downstream
+through the existing view frame callback. The absolute visual phase is idempotent
+across views and wraps by a texture period, using the documented
+[UV offset](https://docs.godotengine.org/en/4.7/classes/class_basematerial3d.html#class-basematerial3d-property-uv1-offset).
+Its 0.4 metres per second is an environmental art choice, never a production clock,
+waterwheel rate or fluid simulation. The water remains dielectric and retains its
+vertices, opaque depth behavior and shared normal resource. Historical fixed-roster
+and explicit legacy views keep their earlier static surface. Headless material and
+frame-consumer checks do not establish the rendered effect or GPU cost.
