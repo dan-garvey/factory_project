@@ -209,3 +209,10 @@ but directional transport and rate-dependent throughput remain separate work.
 The same checkpoint formats and finite profile remain in use. Old cell commands
 retain their default orientation, and old receipts replay before present geometry
 or pose checks. No second material owner, fallback or checkpoint migration is added.
+
+`opening/native_cog_check.gd` adds a headless integration consumer of the ordinary
+scene's command boundary, using real ActorWorld cuts and a fresh Store reopen.
+It retains exact typed observations on failure and independently checks scalar
+three-dimensional reach. Its scope is native-body cog admission, geometry and
+custody. It does not operate desktop controls or establish the separate cog UI's
+discoverability, shared construction, human play or direction-sensitive throughput.
