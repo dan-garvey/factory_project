@@ -737,6 +737,7 @@ var inspector: Label
 var recovery_actions
 var transmission_controls
 var transmission_presenter
+var transmission_endpoint_cue
 var construction_audio
 var engineering_presenter
 var mechanical_ambience
@@ -865,6 +866,7 @@ func _refresh_transmission() -> void:
 			transmission_controls.refresh()
 		if transmission_presenter != null:
 			transmission_presenter.refresh()
+		_refresh_endpoint_cue()
 		return
 	if transmission_controls == null:
 		# Historical fixed-roster runtimes do not include the native helpers.
@@ -886,6 +888,7 @@ func _refresh_transmission() -> void:
 		transmission_presenter.configure(self)
 	transmission_controls.refresh()
 	transmission_presenter.refresh()
+	_refresh_endpoint_cue()
 	var active: bool = not transmission_controls.active_tool.is_empty()
 	transmission_controls.visible = active or show_all_tools or goal_confirmed or int(state.get("inventories", {}).get(client, 0)) > 0 or not state.get("transmission_parts", {}).is_empty()
 	if not active and mode in ["gear", "drive"]:
@@ -956,8 +959,29 @@ func _transmission_center(screen: Vector2) -> Array:
 		return []
 	return [roundi(point.x * 4.0 / PITCH), height, roundi(point.z * 4.0 / PITCH)]
 
+func _refresh_endpoint_cue() -> void:
+	var endpoint: Dictionary = transmission_controls.pending_endpoint() if _native_transmission() and transmission_controls != null else {}
+	if endpoint.is_empty():
+		if transmission_endpoint_cue != null:
+			transmission_endpoint_cue.refresh({})
+		return
+	if transmission_endpoint_cue == null:
+		# Native captures include this helper; historical fixed rosters need none.
+		var path := "res://opening/native_transmission_endpoint_cue.gd"
+		if not ResourceLoader.exists(path, "Script"):
+			push_error("Native endpoint cue requires the complete captured project")
+			get_tree().quit(1)
+			return
+		transmission_endpoint_cue = load(path).new()
+		transmission_endpoint_cue.name = "TransmissionEndpointCue"
+		add_child(transmission_endpoint_cue)
+	transmission_endpoint_cue.refresh(endpoint)
+
 func _transmission_click(center: Array, entity_id: String) -> bool:
-	return _native_transmission() and transmission_controls != null and transmission_controls.handle_world_click(center, entity_id)
+	var consumed: bool = _native_transmission() and transmission_controls != null and transmission_controls.handle_world_click(center, entity_id)
+	if consumed:
+		_refresh_endpoint_cue()
+	return consumed
 
 func _send_character_input(direction: Vector2, jump: bool) -> void:
 	if actor_world != null:
