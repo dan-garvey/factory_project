@@ -199,14 +199,34 @@ space are query inputs to audit, not engine-selected game eligibility rules.
 Use initial-overlap handling and a separately validated angular/contact strategy
 when the intended mechanic requires them. No claim that Godot cannot provide it.
 
-**Physical saved-contact limit:** ActorWorld's initial query covers its upright
-capsule against a floor plane and uniform axis-aligned machine boxes. Its
+**Physical saved-contact limit:** The original fixtures cover an upright capsule
+against a floor plane and uniform axis-aligned machine boxes. Complete current
+captures also share the displayed terrain triangles and rigid site-box descriptors
+between `site_surface.gd`, the renderer and ActorWorld. Historical fixed-roster
+captures retain their original flat presentation and plane; the native profile
+refuses a missing shared helper. The finite displayed site is adapter data, not a
+game-world boundary. Scenery nodes remain free of controllers and colliders.
+ActorWorld registers the terrain faces, backface flag, box transforms and extents
+before admitting saved bodies. Concave terrain is a hollow surface: an explicitly
+labelled analytical burial guard also refuses a saved capsule wholly below it,
+without inventing a native query hit or resetting the pose. Box contact uses the
+actual rigid transform, including rotated rocks. All native query hits remain
+visible, and reaching the bounded query-result limit fails closed. The adapter's
 analytical overlap measure and chosen 0.001 contact allowance are not a general
 native penetration-depth result. The accepted offline floor/wall reopens had
 empty contact-query results; they do not exercise the small-positive-overlap
 acceptance branch. Deep-overlap refusal is separate negative evidence. A broader
 contact/restore policy needs its own discriminating consumer; fixed-box collision
 and `actor_occupied` do not establish actor contact, pushing or injury rules.
+
+The shared-site witness retains the original hill counterexample, exact emitted
+triangle relation and rotated-solid controls. An actual walk/jump/save prefix is
+retained separately from its later harness-path assertion; the corrected shared
+reopen stage loads that preserved binary through the ordinary Session producer.
+An explicit buried-pose negative retains the declared source pose and refuses
+readiness. These bounded headless records do not establish fresh-process client
+play, positive-overlap policy, backend identity, far-origin support, frame cost,
+human usability or rendered quality.
 
 **Chosen native transmission adapter:** the
 [native Host](../../native/factory-godot-world/README.md#oriented-transmission-api)

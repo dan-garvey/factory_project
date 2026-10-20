@@ -221,12 +221,22 @@ Before saving, `checkpoint_status()` synchronizes topology and reads/publishes
 fresh native observations for every declared body; then the caller captures
 Model. A last-frame pose is insufficient after a real move. Pending geometry,
 unready bodies or unsupported penetration refuse the save before file writing.
-Keep all raw query hits and label capsule/plane/box overlap calculations as
+Keep all raw query hits and label capsule/plane/triangle/box overlap calculations as
 analytical measures, not native-reported contact depths. The initial native
 contact allowance is the existing motor `SAFE_MARGIN = 0.001`, a declared
 adapter default to cover legitimate resting contacts. Test ground/wall reopen
 and deep-overlap refusal; this allowance never increases the exact
 4-world-unit reach radius.
+
+In complete current captures, immutable `site_surface.gd` geometry supplies both
+the displayed terrain triangles and ActorWorld's static terrain, deck, architecture
+and rock boxes. Rendering never supplies poses or contact authority. The saved
+capsule is also checked against being buried beneath a hollow terrain surface;
+this analytical guard is labelled separately from actual native query hits.
+Historical fixed-roster captures retain their flat view and plane. A native
+capture missing the shared geometry refuses startup, rather than silently
+substituting a different ground. Changed scenery can therefore make an old pose
+unsupported; preserve the input and refuse it instead of moving the saved actor.
 
 The normal offline and shared launchers select the physical profile explicitly;
 legacy unrestricted harnesses must identify their fixture profile. Absence of

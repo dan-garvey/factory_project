@@ -108,12 +108,13 @@ The physical worksite creates an original HDR panorama with atmospheric colors,
 distant silhouettes and a sun aligned to the key light. The silhouettes are sky
 detail, not solid scenery or an implied traversable mountain. A restrained cool
 fill supports shadowed faces without another shadow map, and distance haze starts
-beyond the normal worksite. Ground color and normal detail, a reflective ripple
-surface in the existing stream footprint, and low noncolliding foliage outside
-the pad replace the bare surroundings. Ground height, grid, construction anchors
-and physical collision remain unchanged. The explicit legacy fixture retains its
-earlier sky and stream. All resources are constructed inside the already captured
-opening script, with no external sky or launcher file dependency. The isolated
+beyond the normal worksite. The current complete capture adds a contoured valley,
+recessed stream and millrace architecture around the flat construction pad.
+The grid, construction anchors and machine envelopes retain their coordinates;
+ActorWorld realizes the same displayed terrain and solid structures. Low foliage,
+water and foam remain visual details. Historical fixed-roster captures retain
+their flat surroundings and plane, and the explicit legacy fixture retains its
+earlier sky and stream. No external sky download is required. The isolated
 environment check validates assembly and resource/spatial contracts; it does not
 establish the rendered balance, reflection quality or Satisfactory-level result.
 
@@ -208,3 +209,7 @@ minimum sizes remain unchanged. The existing panel margins and control actions
 are preserved. Styles are built inside the captured opening script and add no
 font or image dependency. Isolated style/inheritance controls establish metric
 preservation and assigned-color contrast, not pixel appearance or human usability.
+
+## Shared terrain and millrace
+
+The worksite uses the contoured valley, stream, sluice and stepped tailrace from the retained millrace candidate. Terrain triangles, flat deck rectangles, wharf beams, architectural boxes and rock transforms are shared immutable inputs in `site_surface.gd`; ActorWorld alone constructs their native collision. Water, foam, foliage and small turned ornaments remain visual details. The scanned steel cache and floor channels are unchanged. The displayed finite site is adapter geometry, not a gameplay world boundary. Human visual quality has not been assessed.

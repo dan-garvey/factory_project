@@ -259,6 +259,468 @@ class ProductionSteelFloor:
 
 class ProductionEnvironment:
 	extends RefCounted
+	## Visual scenery only. ActorWorld owns collision from the same immutable site geometry.
+	static var Surface = load("res://opening/site_surface.gd") if ResourceLoader.exists("res://opening/site_surface.gd", "Script") else null
+	static var ground_finish: StandardMaterial3D
+	static var water_finish: StandardMaterial3D
+	static var foam_finish: StandardMaterial3D
+	static var stone_finish: StandardMaterial3D
+	static var timber_finish: StandardMaterial3D
+	static var iron_finish: StandardMaterial3D
+	static var sky_finish: PanoramaSkyMaterial
+	static var terrain_surface_mesh: ArrayMesh
+	static var stream_volume_mesh: ArrayMesh
+	static var foliage_cluster_mesh: ArrayMesh
+	static var rock_boulder_mesh: ArrayMesh
+
+	static func _noise_texture(seed_value: int, normal_map: bool) -> NoiseTexture2D:
+		var noise := FastNoiseLite.new()
+		noise.seed = seed_value
+		noise.frequency = 0.025 if not normal_map else 0.12
+		noise.fractal_octaves = 4 if not normal_map else 3
+		var texture := NoiseTexture2D.new()
+		texture.width = 256
+		texture.height = 256
+		texture.seamless = true
+		texture.generate_mipmaps = true
+		texture.noise = noise
+		texture.as_normal_map = normal_map
+		texture.bump_strength = 0.8
+		if not normal_map:
+			var ramp := Gradient.new()
+			ramp.offsets = PackedFloat32Array([0.0, 0.48, 1.0])
+			ramp.colors = PackedColorArray([Color("4c5344"), Color("787b64"), Color("b2aa90")])
+			texture.color_ramp = ramp
+		return texture
+
+	static func ground_material() -> StandardMaterial3D:
+		if ground_finish == null:
+			ground_finish = StandardMaterial3D.new()
+			ground_finish.albedo_texture = _noise_texture(3471, false)
+			ground_finish.vertex_color_use_as_albedo = true
+			ground_finish.roughness = 0.94
+			ground_finish.normal_enabled = true
+			ground_finish.normal_texture = _noise_texture(3471, true)
+			ground_finish.normal_scale = 0.32
+			ground_finish.uv1_scale = Vector3(48, 48, 1)
+			ground_finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		return ground_finish
+
+	static func water_material() -> StandardMaterial3D:
+		if water_finish == null:
+			var image := Image.create(128, 128, false, Image.FORMAT_RGB8)
+			for y in range(128):
+				for x in range(128):
+					var u := float(x) / 128.0 * TAU
+					var v := float(y) / 128.0 * TAU
+					# Periodic analytic ripples; shading only, no displaced floor.
+					var normal := Vector3(-0.16 * cos(u + v * 2.0), -0.28 * cos(v * 4.0) - 0.12 * cos(u + v * 2.0), 1).normalized()
+					image.set_pixel(x, y, Color(normal.x * 0.5 + 0.5, normal.y * 0.5 + 0.5, normal.z * 0.5 + 0.5))
+			image.generate_mipmaps()
+			water_finish = StandardMaterial3D.new()
+			water_finish.albedo_color = Color("245866")
+			water_finish.vertex_color_use_as_albedo = true
+			water_finish.metallic = 0.32
+			water_finish.roughness = 0.16
+			water_finish.normal_enabled = true
+			water_finish.normal_texture = ImageTexture.create_from_image(image)
+			water_finish.normal_scale = 0.42
+			water_finish.uv1_scale = Vector3(2, 8, 1)
+			water_finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		return water_finish
+
+	static func foam_material() -> StandardMaterial3D:
+		if foam_finish == null:
+			foam_finish = ProductionVisuals.material(Color("bdd6d8"), 0.04, 0.55)
+		return foam_finish
+
+	static func stone_material() -> StandardMaterial3D:
+		if stone_finish == null:
+			stone_finish = ProductionVisuals.material(Color("5c635c"), 0.05, 0.88)
+		return stone_finish
+
+	static func timber_material() -> StandardMaterial3D:
+		if timber_finish == null:
+			timber_finish = ProductionVisuals.material(Color("6e5339"), 0.04, 0.84)
+		return timber_finish
+
+	static func iron_material() -> StandardMaterial3D:
+		if iron_finish == null:
+			iron_finish = ProductionVisuals.material(Color("3b4b50"), 0.78, 0.42)
+		return iron_finish
+
+	static func river_center_x(z: float) -> float:
+		return Surface.river_center_x(z)
+
+	static func channel_half_width(z: float) -> float:
+		return Surface.channel_half_width(z)
+
+	static func terrain_height(x: float, z: float) -> float:
+		return Surface.raw_height(x, z)
+
+	static func terrain_normal(x: float, z: float) -> Vector3:
+		return Surface.normal(x, z)
+
+	static func _terrain_vertex_color(x: float, y: float, z: float, normal: Vector3) -> Color:
+		var gorge := smoothstep(-0.25, -1.05, y)
+		var slope := clampf(1.0 - normal.y, 0.0, 1.0)
+		var high := smoothstep(1.2, 11.5, y)
+		var base := Color("626852").lerp(Color("8a846c"), high)
+		base = base.lerp(Color("555b56"), clampf(slope * 2.6 + high * 0.35, 0.0, 1.0))
+		var moisture := smoothstep(4.2, 0.8, absf(x - river_center_x(z)))
+		base = base.lerp(Color("3d4a3d"), moisture * 0.45)
+		return base.lerp(Color("2c3638"), gorge)
+
+	static func terrain_mesh() -> ArrayMesh:
+		if terrain_surface_mesh != null:
+			return terrain_surface_mesh
+		var subdivisions: int = Surface.SUBDIVISIONS
+		var positions: PackedVector3Array = Surface.vertices()
+		var normals: Array[Vector3] = []
+		var uvs: Array[Vector2] = []
+		var colors: Array[Color] = []
+		var stride := subdivisions + 1
+		for position in positions:
+			var n := terrain_normal(position.x, position.z)
+			normals.append(n)
+			uvs.append(Vector2((position.x + Surface.HALF) / Surface.SIZE, (position.z + Surface.HALF) / Surface.SIZE))
+			colors.append(_terrain_vertex_color(position.x, position.y, position.z, n))
+		var surface := SurfaceTool.new()
+		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+		for gz in range(subdivisions):
+			for gx in range(subdivisions):
+				var i00 := gz * stride + gx
+				var i10 := i00 + 1
+				var i01 := (gz + 1) * stride + gx
+				var i11 := i01 + 1
+				for tri in [[i00, i10, i11], [i00, i11, i01]]:
+					for idx in tri:
+						surface.set_normal(normals[idx])
+						surface.set_uv(uvs[idx])
+						surface.set_color(colors[idx])
+						surface.add_vertex(positions[idx])
+		surface.generate_tangents()
+		terrain_surface_mesh = surface.commit()
+		return terrain_surface_mesh
+
+	static func stream_surface_height(x_world: float, z_world: float) -> float:
+		var rc := river_center_x(z_world)
+		var across := x_world - rc
+		var upstream_slope := maxf(0.0, (-5.55 - z_world) * 0.0022)
+		var sluice_drop := 0.25 * smoothstep(-5.65, -4.25, z_world)
+		var race_grade := 0.045 * smoothstep(-4.25, 8.35, z_world)
+		var weir_step_a := 0.24 * smoothstep(8.35, 9.05, z_world)
+		var weir_step_b := 0.24 * smoothstep(9.15, 9.85, z_world)
+		var tail_grade := 0.16 * smoothstep(9.85, 61.0, z_world)
+		var base := 0.13 + upstream_slope - sluice_drop - race_grade - weir_step_a - weir_step_b - tail_grade
+		var wave := 0.018 * sin(z_world * 2.6 + across * 4.2) + 0.011 * cos(z_world * 4.8 - across * 3.4)
+		var crown := -0.016 * clampf(across * across, 0.0, 1.5)
+		return base + wave + crown
+
+	static func stream_mesh() -> ArrayMesh:
+		if stream_volume_mesh != null:
+			return stream_volume_mesh
+		var rows := 88
+		var cols := 8
+		var z_start := -58.0
+		var z_end := 61.0
+		var stride := cols + 1
+		var positions: Array[Vector3] = []
+		var normals: Array[Vector3] = []
+		var uvs: Array[Vector2] = []
+		var colors: Array[Color] = []
+		for r in range(rows + 1):
+			var tz := float(r) / float(rows)
+			var z_world := lerpf(z_start, z_end, tz)
+			var z_local := z_world - 1.65
+			var rc_local := river_center_x(z_world) - (-2.7)
+			var half_w := lerpf(0.56, 1.62, smoothstep(5.5, 22.0, absf(z_world - 1.65)))
+			for c in range(stride):
+				var x_local := rc_local
+				var y := 0.0
+				var normal := Vector3.UP
+				var color := Color.WHITE
+				if c == 0:
+					x_local = rc_local - half_w - 0.06
+					y = stream_surface_height(-2.7 + rc_local - half_w, z_world) - 0.34
+					normal = Vector3(-0.86, 0.51, 0.0).normalized()
+					color = Color("183842")
+				elif c == cols:
+					x_local = rc_local + half_w + 0.06
+					y = stream_surface_height(-2.7 + rc_local + half_w, z_world) - 0.34
+					normal = Vector3(0.86, 0.51, 0.0).normalized()
+					color = Color("183842")
+				else:
+					var tc := float(c - 1) / float(cols - 2) * 2.0 - 1.0
+					x_local = rc_local + tc * half_w
+					var x_world := -2.7 + x_local
+					y = stream_surface_height(x_world, z_world)
+					var dz := 0.25
+					var dy_dz := stream_surface_height(x_world, z_world + dz) - stream_surface_height(x_world, z_world - dz)
+					var dy_dx := stream_surface_height(x_world + 0.12, z_world) - stream_surface_height(x_world - 0.12, z_world)
+					normal = Vector3(-dy_dx / 0.24, 1.0, -dy_dz / (2.0 * dz)).normalized()
+					var rapid := smoothstep(-5.6, -4.4, z_world) * (1.0 - smoothstep(-4.4, -2.8, z_world))
+					rapid = maxf(rapid, smoothstep(8.2, 9.2, z_world) * (1.0 - smoothstep(9.2, 11.2, z_world)))
+					var edge_foam := smoothstep(0.65, 1.0, absf(tc)) * 0.28
+					color = Color("235361").lerp(Color("8ec2c7"), clampf(rapid * 0.65 + edge_foam, 0.0, 1.0))
+				var x_world_uv := -2.7 + x_local
+				positions.append(Vector3(x_local, y, z_local))
+				normals.append(normal)
+				uvs.append(Vector2((x_world_uv + 16.0) * 0.22, (z_world - z_start) * 0.08))
+				colors.append(color)
+		var surface := SurfaceTool.new()
+		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+		for r in range(rows):
+			for c in range(cols):
+				var i00 := r * stride + c
+				var i10 := i00 + 1
+				var i01 := (r + 1) * stride + c
+				var i11 := i01 + 1
+				for tri in [[i00, i10, i11], [i00, i11, i01]]:
+					for idx in tri:
+						surface.set_normal(normals[idx])
+						surface.set_uv(uvs[idx])
+						surface.set_color(colors[idx])
+						surface.add_vertex(positions[idx])
+		surface.generate_tangents()
+		stream_volume_mesh = surface.commit()
+		return stream_volume_mesh
+
+	static func panorama_material() -> PanoramaSkyMaterial:
+		if sky_finish != null:
+			return sky_finish
+		var image := Image.create(512, 256, false, Image.FORMAT_RGBF)
+		var sun_direction := Basis.from_euler(Vector3(deg_to_rad(-48), deg_to_rad(-30), 0)).z
+		for y in range(256):
+			var elevation := PI * (0.5 - float(y) / 255.0)
+			var height := sin(elevation)
+			for x in range(512):
+				var azimuth := TAU * float(x) / 511.0
+				# Match Godot's SKY_COORDS atan(direction.x, -direction.z).
+				var direction := Vector3(cos(elevation) * sin(azimuth), height, -cos(elevation) * cos(azimuth))
+				var haze := Color("c0c7b5")
+				var color := haze.lerp(Color("3f6a88"), pow(clampf(height, 0, 1), 0.45))
+				# Original distant silhouettes live in the sky, never as solid
+				# scenery that an actor could walk through on the flat floor.
+				for ridge in range(3):
+					var horizon := 0.015 + float(ridge) * 0.018 + 0.018 * sin(azimuth * 3.0 + ridge * 2.0) + 0.012 * sin(azimuth * 7.0 + ridge)
+					if height < horizon:
+						color = [Color("667970"), Color("7e8c7d"), Color("9ca696")][ridge]
+				if height < -0.08:
+					color = Color("565f4d")
+				var alignment := maxf(0.0, direction.dot(sun_direction))
+				color += Color(0.55, 0.36, 0.17) * pow(alignment, 128.0)
+				if alignment > 0.9998:
+					color += Color(5.0, 4.6, 3.8)
+				image.set_pixel(x, y, color)
+		image.generate_mipmaps()
+		sky_finish = PanoramaSkyMaterial.new()
+		sky_finish.panorama = ImageTexture.create_from_image(image)
+		return sky_finish
+
+	static func _scenery_box(parent: Node3D, part_name: String, at: Vector3, dimensions: Vector3,
+			finish: StandardMaterial3D, rotation_rad: Vector3 = Vector3.ZERO) -> MeshInstance3D:
+		var part := MeshInstance3D.new()
+		part.name = part_name
+		part.mesh = ProductionVisuals.box_mesh(dimensions)
+		part.position = at
+		part.rotation = rotation_rad
+		part.material_override = finish
+		parent.add_child(part)
+		return part
+
+	static func _scenery_turned(parent: Node3D, part_name: String, at: Vector3,
+			profile: PackedVector2Array, finish: StandardMaterial3D, axis: Vector3 = Vector3.UP) -> MeshInstance3D:
+		var part := MeshInstance3D.new()
+		part.name = part_name
+		part.position = at
+		part.basis = Basis(Quaternion(Vector3.UP, axis))
+		part.mesh = ProductionVisuals.turned_mesh(profile, 24)
+		part.material_override = finish
+		parent.add_child(part)
+		return part
+
+	static func _build_millrace_architecture(scenery: Node3D) -> Node3D:
+		var arch := Node3D.new()
+		arch.name = "MillraceArchitecture"
+		scenery.add_child(arch)
+		var groups := {"MillraceArchitecture": arch}
+		for group in ["HeadraceSluice", "TailraceWeir"]:
+			var node := Node3D.new()
+			node.name = group
+			node.position = Surface.group_origin(group)
+			arch.add_child(node)
+			groups[group] = node
+		var finishes := {"stone": stone_material(), "dark_stone": ProductionVisuals.material(Color("38403e"), 0.06, 0.92),
+			"timber": timber_material(), "iron": iron_material(), "foam": foam_material()}
+		for spec in Surface.architecture_boxes():
+			var part := _scenery_box(groups[spec.group], spec.label,
+				spec.center - Surface.group_origin(spec.group), spec.size, finishes[spec.finish])
+			part.basis = spec.basis
+			if spec.solid:
+				part.set_meta("site_solid_id", spec.id)
+		var headrace: Node3D = groups.HeadraceSluice
+		var iron := iron_material()
+		var brass := ProductionVisuals.material(Color("b69252"), 0.72, 0.38)
+		var stem_profile := PackedVector2Array([
+			Vector2(0.0, -0.58), Vector2(0.038, -0.58), Vector2(0.038, 0.58), Vector2(0.0, 0.58)])
+		_scenery_turned(headrace, "SluiceLiftStem", Vector3(0.0, 1.32, 0.0), stem_profile, brass)
+		var wheel_profile := PackedVector2Array([
+			Vector2(0.0, -0.03), Vector2(0.24, -0.03), Vector2(0.26, -0.015),
+			Vector2(0.26, 0.015), Vector2(0.24, 0.03), Vector2(0.0, 0.03)])
+		_scenery_turned(headrace, "SluiceHandwheel", Vector3(0.0, 1.72, 0.0), wheel_profile, iron)
+		return arch
+
+	static func _foliage() -> MultiMeshInstance3D:
+		if foliage_cluster_mesh == null:
+			var surface := SurfaceTool.new()
+			surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+			for ring in [[0.0, 0.24, 0.08, 0.045], [0.12, 0.42, 0.14, 0.065]]:
+				var y_base: float = ring[0]
+				var y_tip: float = ring[1]
+				var spread: float = ring[2]
+				var half_blade: float = ring[3]
+				for idx in range(6):
+					var angle := float(idx) * TAU / 6.0 + y_base * 1.7
+					var radial := Vector3(cos(angle), 0, sin(angle))
+					var tangent := Vector3(-sin(angle), 0, cos(angle)) * half_blade
+					var base_center := radial * 0.03 + Vector3.UP * y_base
+					var tip := radial * spread + Vector3.UP * y_tip
+					var normal := (radial + Vector3.UP * 0.55).normalized()
+					surface.set_normal(normal)
+					for vertex in [base_center - tangent, tip, base_center + tangent]:
+						surface.add_vertex(vertex)
+			foliage_cluster_mesh = surface.commit()
+		var finish := StandardMaterial3D.new()
+		finish.albedo_color = Color.WHITE
+		finish.vertex_color_use_as_albedo = true
+		finish.cull_mode = BaseMaterial3D.CULL_DISABLED
+		finish.roughness = 0.92
+		var instances := MultiMesh.new()
+		instances.transform_format = MultiMesh.TRANSFORM_3D
+		instances.use_colors = true
+		instances.mesh = foliage_cluster_mesh
+		instances.instance_count = 96
+		var buffer := PackedFloat32Array()
+		for n in range(96):
+			var angle := float(n) * 2.399963
+			var radius := 11.2 + float(posmod(n * 13, 37)) * 0.52
+			var px := 1.65 + cos(angle) * radius
+			var pz := 1.65 + sin(angle) * radius
+			if absf(px - river_center_x(pz)) < channel_half_width(pz) + 1.1:
+				px += 2.4 if px >= river_center_x(pz) else -2.4
+			var py: float = Surface.height_at(px, pz)
+			var position := Vector3(px, py, pz)
+			var scale := 0.85 + float(posmod(n * 7, 13)) * 0.08
+			var basis := Basis(Vector3.UP, angle).scaled(Vector3.ONE * scale)
+			var color := Color("4b643e").lerp(Color("8f8b62"), float(n % 5) / 4.0)
+			# Upload once: three matrix rows, each with its translation, then RGBA.
+			buffer.append_array(PackedFloat32Array([
+				basis.x.x, basis.y.x, basis.z.x, position.x,
+				basis.x.y, basis.y.y, basis.z.y, position.y,
+				basis.x.z, basis.y.z, basis.z.z, position.z,
+				color.r, color.g, color.b, color.a]))
+		instances.buffer = buffer
+		var foliage := MultiMeshInstance3D.new()
+		foliage.name = "GroundFoliage"
+		foliage.multimesh = instances
+		foliage.material_override = finish
+		foliage.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		return foliage
+
+	static func _rock_outcrops() -> MultiMeshInstance3D:
+		if rock_boulder_mesh == null:
+			rock_boulder_mesh = ProductionVisuals.box_mesh(Vector3(1.35, 0.88, 1.12))
+		var finish := StandardMaterial3D.new()
+		finish.albedo_color = Color.WHITE
+		finish.vertex_color_use_as_albedo = true
+		finish.roughness = 0.9
+		finish.normal_enabled = true
+		finish.normal_texture = ProductionVisuals.SURFACE_NORMAL
+		finish.normal_scale = 0.28
+		finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		var instances := MultiMesh.new()
+		instances.transform_format = MultiMesh.TRANSFORM_3D
+		instances.use_colors = true
+		instances.mesh = rock_boulder_mesh
+		instances.instance_count = 64
+		var buffer := PackedFloat32Array()
+		for spec in Surface.rock_boxes():
+			var position: Vector3 = spec.center
+			var basis: Basis = spec.basis.scaled(spec.scale)
+			var color: Color = spec.color
+			buffer.append_array(PackedFloat32Array([
+				basis.x.x, basis.y.x, basis.z.x, position.x,
+				basis.x.y, basis.y.y, basis.z.y, position.y,
+				basis.x.z, basis.y.z, basis.z.z, position.z,
+				color.r, color.g, color.b, color.a]))
+		instances.buffer = buffer
+		var outcrops := MultiMeshInstance3D.new()
+		outcrops.name = "RockOutcrops"
+		outcrops.multimesh = instances
+		outcrops.material_override = finish
+		return outcrops
+
+	static func build(parent: Node3D) -> Node3D:
+		var scenery := Node3D.new()
+		scenery.name = "ProductionScenery"
+		parent.add_child(scenery)
+		var world := WorldEnvironment.new()
+		world.name = "WorksiteEnvironment"
+		var environment := Environment.new()
+		environment.background_mode = Environment.BG_SKY
+		var sky := Sky.new()
+		sky.sky_material = panorama_material()
+		environment.sky = sky
+		environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+		environment.ambient_light_energy = 0.6
+		environment.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
+		environment.tonemap_mode = Environment.TONE_MAPPER_ACES
+		environment.tonemap_exposure = 1.0
+		environment.fog_enabled = true
+		environment.fog_mode = Environment.FOG_MODE_DEPTH
+		environment.fog_depth_begin = 35.0
+		environment.fog_depth_end = 95.0
+		environment.fog_density = 0.85
+		environment.fog_light_color = Color("bbc5b3")
+		environment.fog_sky_affect = 0.0
+		world.environment = environment
+		scenery.add_child(world)
+		var sun := DirectionalLight3D.new()
+		sun.name = "WorksiteSun"
+		sun.rotation_degrees = Vector3(-48, -30, 0)
+		sun.light_color = Color("fff0d4")
+		sun.light_energy = 1.25
+		sun.shadow_enabled = true
+		sun.directional_shadow_max_distance = 45.0
+		scenery.add_child(sun)
+		var fill := DirectionalLight3D.new()
+		fill.name = "WorksiteFill"
+		fill.rotation_degrees = Vector3(-32, 135, 0)
+		fill.light_color = Color("b9d2ea")
+		fill.light_energy = 0.18
+		fill.shadow_enabled = false
+		scenery.add_child(fill)
+		var terrain := MeshInstance3D.new()
+		terrain.name = "GroundSurface"
+		terrain.mesh = terrain_mesh()
+		terrain.position = Vector3.ZERO
+		terrain.material_override = ground_material()
+		scenery.add_child(terrain)
+		var stream := MeshInstance3D.new()
+		stream.name = "StreamSurface"
+		stream.mesh = stream_mesh()
+		stream.position = Vector3(-2.7, 0.0, 1.65)
+		stream.material_override = water_material()
+		stream.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		scenery.add_child(stream)
+		_build_millrace_architecture(scenery)
+		scenery.add_child(_rock_outcrops())
+		scenery.add_child(_foliage())
+		return scenery
+
+class FlatFixtureEnvironment:
+	extends RefCounted
 	## Visual scenery only. ActorWorld retains the flat floor and all collision.
 	static var ground_finish: StandardMaterial3D
 	static var water_finish: StandardMaterial3D
@@ -1545,8 +2007,10 @@ func _update_camera() -> void:
 	camera.look_at(focus)
 
 func _build_world() -> void:
-	if not legacy_fixture:
+	if not legacy_fixture and ProductionEnvironment.Surface != null:
 		ProductionEnvironment.build(self)
+	elif not legacy_fixture:
+		FlatFixtureEnvironment.build(self)
 	else:
 		var environment := WorldEnvironment.new()
 		var settings := Environment.new()
@@ -1577,28 +2041,49 @@ func _build_world() -> void:
 		fill.light_energy = 0.35
 		fill.shadow_enabled = false
 		add_child(fill)
-	_box(self, Vector3(1.65, -0.55, 1.65), Vector3(13.4, 0.8, 13.4), Color("394641"))
-	var foundation_finish: StandardMaterial3D = ProductionSteelFloor.material() if not legacy_fixture else null
-	set_meta("foundation_surface", ProductionSteelFloor.source_status if not legacy_fixture else "legacy")
-	for x in range(-2, 5):
-		for z in range(-2, 5):
-			# Subtle panel variation replaces the debug checkerboard. Existing
-			# seams, grid dimensions and physical ground stay unchanged.
-			var tint := Color("74766b").darkened(float(posmod(x * 17 + z * 31, 5)) * 0.018)
-			var panel := _machine_box(self, "FoundationPanel", Vector3(x * PITCH, -0.08, z * PITCH),
-				Vector3(PITCH - 0.035, 0.12, PITCH - 0.035), tint, 0.0, 0.95)
-			panel.set_meta("surface_role", "foundation")
-			if foundation_finish != null:
-				panel.material_override = foundation_finish
-	if legacy_fixture:
+	if legacy_fixture or ProductionEnvironment.Surface == null:
+		_box(self, Vector3(1.65, -0.55, 1.65), Vector3(13.4, 0.8, 13.4), Color("394641"))
+		var foundation_finish: StandardMaterial3D = ProductionSteelFloor.material() if not legacy_fixture else null
+		set_meta("foundation_surface", "legacy")
+		for x in range(-2, 5):
+			for z in range(-2, 5):
+				# Subtle panel variation replaces the debug checkerboard. Existing
+				# seams, grid dimensions and physical ground stay unchanged.
+				var tint := Color("74766b").darkened(float(posmod(x * 17 + z * 31, 5)) * 0.018)
+				var panel := _machine_box(self, "FoundationPanel", Vector3(x * PITCH, -0.08, z * PITCH),
+					Vector3(PITCH - 0.035, 0.12, PITCH - 0.035), tint, 0.0, 0.95)
+				panel.set_meta("surface_role", "foundation")
+				if foundation_finish != null:
+					panel.material_override = foundation_finish
 		_box(self, Vector3(-2.7, 0.0, 1.65), Vector3(1.2, 0.06, 13.4), Color("396c76"))
 		for z in range(-3, 6):
 			_box(self, Vector3(-2.7, 0.04, z * 1.3), Vector3(0.85, 0.018, 0.035), Color("72a5a7"))
-	_box(self, Vector3(0, 0.005, 1.65), Vector3(0.12, 0.035, 13.4), Color("a58c59"))
+		_box(self, Vector3(0, 0.005, 1.65), Vector3(0.12, 0.035, 13.4), Color("a58c59"))
+		for z in [-1.8, -1.4, -1.0]:
+			_box(self, Vector3(-3.75, 0.02, z), Vector3(0.12, 0.08, 0.22), Color("be9957"))
+	else:
+		var surface = ProductionEnvironment.Surface
+		var foundation_finish: StandardMaterial3D = ProductionSteelFloor.material()
+		set_meta("foundation_surface", ProductionSteelFloor.source_status)
+		var groups := {"": self}
+		var headwall := Node3D.new()
+		headwall.name = "NorthSeamOutcrop"
+		headwall.position = surface.group_origin("NorthSeamOutcrop")
+		add_child(headwall)
+		groups.NorthSeamOutcrop = headwall
+		for spec in surface.foundation_boxes():
+			var part := _machine_box(groups[spec.group], spec.label,
+				spec.center - surface.group_origin(spec.group), spec.size, spec.tint, spec.metallic, spec.roughness)
+			part.set_meta("site_solid_id", spec.id)
+		for spec in surface.pad_panels():
+			var tint := Color("74766b").darkened(float(posmod(spec.cell.x * 17 + spec.cell.y * 31, 5)) * 0.018)
+			var panel := _machine_box(self, "FoundationPanel", spec.center, spec.size, tint, 0.04, 0.92)
+			panel.set_meta("surface_role", "foundation")
+			panel.set_meta("site_solid_id", spec.id)
+			if foundation_finish != null:
+				panel.material_override = foundation_finish
 	var arrow := _text(self, "MATERIAL  →", Vector3(1.6, 0.08, -4.15), Color("e4bc70"), 0.005)
 	arrow.rotation_degrees.x = -90
-	for z in [-1.8, -1.4, -1.0]:
-		_box(self, Vector3(-3.75, 0.02, z), Vector3(0.12, 0.08, 0.22), Color("be9957"))
 	machine_root = Node3D.new()
 	add_child(machine_root)
 	item_root = Node3D.new()

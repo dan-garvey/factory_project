@@ -20,6 +20,11 @@ var failures: Dictionary = {}
 var control_counts: Dictionary = {}
 var release_counts: Dictionary = {}
 var floor_body: StaticBody3D
+var site_surface
+var site_bodies: Dictionary = {}
+var site_specs: Dictionary = {}
+var terrain_faces := PackedVector3Array()
+var floor_error := ""
 var observation_ordinal := 0
 var sample_history: Dictionary = {}
 var last_checkpoint_check: Dictionary = {}
@@ -34,29 +39,69 @@ func configure(authority) -> Dictionary:
 		return {"accepted": false, "reason": "physical_state_required"}
 	model = authority
 	if is_inside_tree():
-		_create_floor()
+		if not _create_floor():
+			return {"accepted": false, "reason": floor_error}
 		return sync_topology()
 	return {"accepted": true, "reason": "configured"}
 
 func _ready() -> void:
 	get_tree().physics_frame.connect(_on_native_cut)
 	if model != null:
-		_create_floor()
+		if not _create_floor():
+			for actor in model.projection().get("actors", {}):
+				_fail(actor, floor_error)
+			return
 		sync_topology()
 
-func _create_floor() -> void:
+func _create_floor() -> bool:
 	if floor_body != null:
-		return
+		return true
+	var native_site: bool = model.projection().get("options", {}).get("native", false) or ResourceLoader.exists("res://opening/site_surface.gd", "Script")
+	if native_site:
+		# Complete current captures use the same site as their renderer.
+		# Historical fixed rosters retain their plane; native never falls back.
+		var path := "res://opening/site_surface.gd"
+		if not ResourceLoader.exists(path, "Script"):
+			floor_error = "native_site_geometry_missing"
+			return false
+		site_surface = load(path)
+		if site_surface == null:
+			floor_error = "native_site_geometry_invalid"
+			return false
+		terrain_faces = site_surface.faces()
 	floor_body = StaticBody3D.new()
 	floor_body.name = "PhysicalGround"
 	floor_body.collision_layer = Geometry.GROUND_LAYER
 	floor_body.collision_mask = Geometry.ACTOR_LAYER
 	var collider := CollisionShape3D.new()
-	var boundary := WorldBoundaryShape3D.new()
-	boundary.plane = Plane(Vector3.UP, Geometry.GROUND_HEIGHT)
-	collider.shape = boundary
+	if native_site:
+		var terrain := ConcavePolygonShape3D.new()
+		terrain.backface_collision = true
+		terrain.set_faces(terrain_faces)
+		collider.shape = terrain
+	else:
+		var boundary := WorldBoundaryShape3D.new()
+		boundary.plane = Plane(Vector3.UP, Geometry.GROUND_HEIGHT)
+		collider.shape = boundary
 	floor_body.add_child(collider)
 	add_child(floor_body)
+	if native_site:
+		for spec in site_surface.support_boxes():
+			var body := StaticBody3D.new()
+			body.name = spec.id
+			body.collision_layer = Geometry.GROUND_LAYER
+			body.collision_mask = Geometry.ACTOR_LAYER
+			body.position = spec.center
+			body.basis = spec.basis
+			var panel := CollisionShape3D.new()
+			var box := BoxShape3D.new()
+			box.size = spec.size
+			panel.shape = box
+			body.add_child(panel)
+			site_bodies[spec.id] = body
+			site_specs[spec.id] = spec.duplicate(true)
+			add_child(body)
+	return true
 
 func sync_topology() -> Dictionary:
 	if model == null or not is_inside_tree():
@@ -93,6 +138,8 @@ func sync_topology() -> Dictionary:
 func ensure_actor(actor: String) -> Dictionary:
 	if model == null or not is_inside_tree():
 		return {"accepted": false, "reason": "not_configured"}
+	if not floor_error.is_empty():
+		return _fail(actor, floor_error)
 	if failures.has(actor):
 		return {"accepted": false, "reason": failures[actor]}
 	if bodies.has(actor):
@@ -154,13 +201,31 @@ func _geometry_registered() -> bool:
 		var at: Transform3D = PhysicsServer3D.body_get_state(rid, PhysicsServer3D.BODY_STATE_TRANSFORM)
 		if at.basis != Basis.IDENTITY or not _same_position(_array(at.origin), _array(body.global_position)):
 			return false
+		if PhysicsServer3D.body_get_shape_transform(rid, 0) != Transform3D.IDENTITY:
+			return false
 		var data = PhysicsServer3D.shape_get_data(PhysicsServer3D.body_get_shape(rid, 0))
 		if body == floor_body:
-			if PhysicsServer3D.body_get_collision_layer(rid) != Geometry.GROUND_LAYER or not data is Plane:
+			if PhysicsServer3D.body_get_collision_layer(rid) != Geometry.GROUND_LAYER:
 				return false
-			if data.normal.distance_to(Vector3.UP) > Geometry.NATIVE_POSE_EPSILON or absf(data.d - Geometry.GROUND_HEIGHT) > Geometry.NATIVE_POSE_EPSILON:
-				return false
+			if site_surface != null:
+				if not data is Dictionary or data.get("faces") != terrain_faces or data.get("backface_collision") != true:
+					return false
+			else:
+				if not data is Plane or data.normal.distance_to(Vector3.UP) > Geometry.NATIVE_POSE_EPSILON or absf(data.d - Geometry.GROUND_HEIGHT) > Geometry.NATIVE_POSE_EPSILON:
+					return false
 		elif PhysicsServer3D.body_get_collision_layer(rid) != Geometry.MACHINE_LAYER or not data is Vector3 or data.distance_to(expected_half) > Geometry.NATIVE_POSE_EPSILON:
+			return false
+	for id in site_bodies:
+		var body: StaticBody3D = site_bodies[id]
+		var rid: RID = body.get_rid()
+		if PhysicsServer3D.body_get_space(rid) != space or PhysicsServer3D.body_get_shape_count(rid) != 1 or PhysicsServer3D.body_get_collision_layer(rid) != Geometry.GROUND_LAYER:
+			return false
+		var at: Transform3D = PhysicsServer3D.body_get_state(rid, PhysicsServer3D.BODY_STATE_TRANSFORM)
+		if not at.basis.is_equal_approx(site_specs[id].basis) or not _same_position(_array(at.origin), _array(site_specs[id].center)) or PhysicsServer3D.body_get_shape_transform(rid, 0) != Transform3D.IDENTITY:
+			return false
+		var data: Variant = PhysicsServer3D.shape_get_data(PhysicsServer3D.body_get_shape(rid, 0))
+		var expected: Vector3 = site_specs[id].size / 2.0
+		if not data is Vector3 or data.distance_to(expected) > Geometry.NATIVE_POSE_EPSILON:
 			return false
 	return true
 
@@ -207,10 +272,23 @@ func _initial_overlaps(actor: String) -> Array:
 	query.exclude = [body.get_rid()]
 	var hits: Array = get_world_3d().direct_space_state.intersect_shape(query, 32)
 	var result: Array = []
+	var terrain_hit := false
 	for hit in hits:
 		var measured := _penetration(actor, hit.rid)
-		measured.merge({"rid": hit.rid.get_id(), "collider_id": hit.collider_id, "shape": hit.shape})
+		terrain_hit = terrain_hit or hit.rid == floor_body.get_rid()
+		measured.merge({"rid": hit.rid.get_id(), "collider_id": hit.collider_id, "shape": hit.shape, "native_query_hit": true})
 		result.append(measured)
+	if site_surface != null:
+		if hits.size() == 32:
+			result.append({"unsupported_overlap": true, "kind": "site_contact_query_limit", "native_query_hit": false})
+		if not terrain_hit:
+			# A trimesh query cannot see a capsule wholly below its hollow
+			# surface. Label this guard separately from genuine native hits.
+			var below := _penetration(actor, floor_body.get_rid())
+			if below.get("geometric_overlap", false):
+				below.merge({"rid": floor_body.get_rid().get_id(), "native_query_hit": false,
+					"analytical_burial_guard": true})
+				result.append(below)
 	return result
 
 func _penetration(actor: String, other: RID) -> Dictionary:
@@ -223,6 +301,11 @@ func _penetration(actor: String, other: RID) -> Dictionary:
 	var capsule: Dictionary = PhysicsServer3D.shape_get_data(PhysicsServer3D.body_get_shape(body.get_rid(), 0))
 	var target: Transform3D = PhysicsServer3D.body_get_state(other, PhysicsServer3D.BODY_STATE_TRANSFORM)
 	var shape = PhysicsServer3D.shape_get_data(PhysicsServer3D.body_get_shape(other, 0))
+	if other == floor_body.get_rid() and site_surface != null:
+		var measured: Dictionary = site_surface.capsule_overlap(at.origin, float(capsule.radius), float(capsule.height))
+		measured.merge({"unsupported_overlap": measured.analytical_overlap_measure > Geometry.SAFE_MARGIN,
+			"contact_tolerance": Geometry.SAFE_MARGIN, "kind": "terrain", "actor_position": _array(at.origin)})
+		return measured
 	if other == floor_body.get_rid() and shape is Plane:
 		var gap: float = at.origin.y - float(capsule.height) / 2.0 - target.origin.y - shape.d
 		return {"unsupported_overlap": gap < -Geometry.SAFE_MARGIN,
@@ -232,6 +315,16 @@ func _penetration(actor: String, other: RID) -> Dictionary:
 	var owned := false
 	for machine in machines.values():
 		owned = owned or machine.get_rid() == other
+	var site_owned := false
+	for panel in site_bodies.values():
+		site_owned = site_owned or panel.get_rid() == other
+	owned = owned or site_owned
+	if site_owned and shape is Vector3:
+		var overlap: float = site_surface.capsule_box_overlap(at.origin, float(capsule.radius), float(capsule.height), target, shape)
+		return {"unsupported_overlap": overlap > Geometry.SAFE_MARGIN, "geometric_overlap": overlap > 0.0,
+			"analytical_overlap_measure": overlap, "contact_tolerance": Geometry.SAFE_MARGIN,
+			"kind": "site_box", "actor_position": _array(at.origin), "site_position": _array(target.origin),
+			"site_half_extents": _array(shape), "site_basis": [_array(target.basis.x), _array(target.basis.y), _array(target.basis.z)]}
 	if owned and shape is Vector3 and target.basis == Basis.IDENTITY:
 		var radius: float = capsule.radius
 		var segment_half: float = float(capsule.height) / 2.0 - radius
@@ -245,7 +338,7 @@ func _penetration(actor: String, other: RID) -> Dictionary:
 		return {"unsupported_overlap": overlap_measure > Geometry.SAFE_MARGIN,
 			"geometric_overlap": distance_squared < radius * radius,
 			"contact_tolerance": Geometry.SAFE_MARGIN, "analytical_overlap_measure": overlap_measure,
-			"kind": "machine",
+			"kind": "site_panel" if site_owned else "machine",
 			"distance_squared": distance_squared, "radius_squared": radius * radius,
 			"actor_position": _array(at.origin), "radius": radius, "height": capsule.height,
 			"machine_position": _array(target.origin), "machine_half_extents": _array(shape)}
