@@ -1335,11 +1335,15 @@ func _select_tool(tool: String) -> void:
 		transmission_controls.choose_tool("gear" if tool == "gear" else "shaft")
 	_update_cursor()
 	_refresh_ui()
-	_message({"flow": "Click the upstream machine, then its neighbor toward the brass arrow.",
+	var instructions := {"flow": "Click the upstream machine, then its neighbor toward the brass arrow.",
 		"drive": "Click two neighboring machines to connect a drive shaft.",
 		"inspect": "Click a machine to inspect it or collect its finished work.",
 		"collector": "Place the collector on the brass seam strip.",
-		"wheel": "Place the waterwheel on the stream bank beside the seam."}.get(tool,
+		"wheel": "Place the waterwheel on the stream bank beside the seam."}
+	if _native_transmission():
+		instructions["drive"] = "Choose a machine or cogwheel, then its partner. The amber ring marks the first endpoint."
+		instructions["gear"] = "Place a cogwheel at the highlighted point. Set axis and height in the cogwheel menu."
+	_message(instructions.get(tool,
 		"Place %s on an empty grid square." % NAMES.get(tool, tool)))
 
 func _world_click(cell: Vector2i, entity_id: String = "") -> void:
