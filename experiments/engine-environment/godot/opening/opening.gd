@@ -63,6 +63,7 @@ var placement_hint: Node3D
 var wheel_rotor: Node3D
 var status_label: Label
 var stock_label: Label
+var parts_label: Label
 var goal_label: Label
 var power_label: Label
 var inspector: Label
@@ -819,10 +820,21 @@ func _refresh() -> void:
 		character_presenter.refresh()
 	_refresh_ui()
 
+func _display_parts() -> Dictionary:
+	if state.get("options", {}).get("native", false):
+		return state.get("part_kits", {}).get(client, {})
+	return state.get("parts", {})
+
+func _parts_are_shared() -> bool:
+	return false
+
 func _refresh_ui() -> void:
 	if stock_label == null:
 		return
 	var inventory := int(state.inventories.get(client, 0))
+	var parts := _display_parts()
+	var part_scope := "shared" if _parts_are_shared() else "carried"
+	parts_label.text = "BUILD FROM SHARED KIT" if _parts_are_shared() else "BUILD FROM CARRIED PARTS"
 	goal_label.text = "FIRST SHIFT\nBring back 4 plates\n%d / 4 collected" % inventory
 	confirm_button.disabled = inventory < 4 or goal_confirmed or explanation_open
 	confirm_button.text = "Objective confirmed" if goal_confirmed else "Confirm four plates"
@@ -842,12 +854,11 @@ func _refresh_ui() -> void:
 		actor_label.text = "CHARACTER READY · BUILD NEARBY" if state.get("actors", {}).get(client, {}).get("ready", false) else "CHARACTER STARTING…"
 	for tool in tool_buttons:
 		var button: Button = tool_buttons[tool]
-		button.disabled = explanation_open or (NAMES.has(tool) and not state.parts.has(tool))
+		button.disabled = explanation_open or (NAMES.has(tool) and not parts.has(tool))
 		button.button_pressed = mode == tool
 		if NAMES.has(tool):
-			button.text = "%s    ·    %d carried" % [NAMES[tool], int(state.parts.get(tool, 0))]
-	if state.parts.has("shaft"):
-		tool_buttons.drive.text = "Drive link  [G]    ·    %d shafts" % int(state.parts.shaft)
+			button.text = "%s    ·    %d %s" % [NAMES[tool], int(parts.get(tool, 0)), part_scope]
+	tool_buttons.drive.text = "Drive link  [G]    ·    %d shafts" % int(parts.get("shaft", 0))
 	retrieve_button.disabled = explanation_open or state.stock.output < 1 or not state.entities.has(selected) or state.entities[selected].kind != "processor"
 	remove_button.disabled = explanation_open or not state.entities.has(selected)
 	selection_ring.visible = state.entities.has(selected)
@@ -932,7 +943,7 @@ func _placement_hint_ready() -> bool:
 func _guided_placement_cell() -> Array:
 	if legacy_fixture or show_all_tools or explanation_open or not _placement_hint_ready():
 		return []
-	if not mode in ["belt", "processor"] or int(state.get("parts", {}).get(mode, 0)) < 1:
+	if not mode in ["belt", "processor"] or int(_display_parts().get(mode, 0)) < 1:
 		return []
 	# A suggestion for this starter path only, never a placement/reach decision.
 	var upstream_kind := "collector" if mode == "belt" else "belt"
@@ -1100,7 +1111,7 @@ func _build_interface() -> void:
 		goal_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	confirm_button = _button(build, "Confirm four plates", _confirm_goal)
 	build.add_child(HSeparator.new())
-	_label(build, "BUILD FROM CARRIED PARTS", 12, Color("9eb4b2"))
+	parts_label = _label(build, "BUILD FROM SHARED KIT" if _parts_are_shared() else "BUILD FROM CARRIED PARTS", 12, Color("9eb4b2"))
 	for kind in ["collector", "belt", "processor", "wheel"]:
 		var button := _button(build, NAMES[kind], _select_tool.bind(kind))
 		button.toggle_mode = true

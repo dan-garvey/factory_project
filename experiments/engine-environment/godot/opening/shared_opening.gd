@@ -38,9 +38,6 @@ func _ready() -> void:
 			offline_argument = true
 	_build_world()
 	_build_interface()
-	for child in tool_buttons.collector.get_parent().get_children():
-		if child is Label and child.text == "BUILD FROM CARRIED PARTS":
-			child.text = "BUILD FROM SHARED KIT"
 	var column := power_button.get_parent()
 	connection_label = _label(column, "NOT CONNECTED", 14)
 	column.move_child(connection_label, 1)
@@ -80,6 +77,9 @@ func _release_character_input() -> void:
 
 func _can_mutate() -> bool:
 	return session != null and session.is_ready() and _usable_snapshot() and not explanation_open and pending_actions.is_empty()
+
+func _parts_are_shared() -> bool:
+	return not state.get("options", {}).get("native", false)
 
 func _placement_hint_ready() -> bool:
 	return _can_mutate() and super._placement_hint_ready()
@@ -343,8 +343,6 @@ func _refresh_ui() -> void:
 	for button in [confirm_button, retrieve_button, remove_button, power_button]:
 		button.disabled = button.disabled or not enabled
 	for tool in tool_buttons:
-		if _usable_snapshot() and NAMES.has(tool):
-			tool_buttons[tool].text = "%s    ·    %d shared" % [NAMES[tool], int(state.parts.get(tool, 0))]
 		tool_buttons[tool].disabled = tool_buttons[tool].disabled or not enabled
 	save_button.disabled = true
 	load_button.disabled = true
