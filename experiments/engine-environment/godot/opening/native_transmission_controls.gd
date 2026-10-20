@@ -55,6 +55,15 @@ func choose_tool(tool: String) -> void:
 
 func _tool_selected(id: int) -> void:
 	choose_tool({1: "gear", 2: "shaft", 3: "disconnect", 4: "remove"}.get(id, ""))
+	var context := _context()
+	if context.is_empty() or not context.usable:
+		return
+	_feedback({
+		"gear": "Place a cogwheel at the highlighted point. Set axis and height in this menu.",
+		"shaft": "Choose a machine or cogwheel, then its partner. The amber ring marks the first endpoint.",
+		"disconnect": "Choose the two endpoints of the shaft link to disconnect.",
+		"remove": "Choose a cogwheel or shaft to remove."
+	}.get(active_tool, "Choose a construction tool or Inspect."), false)
 
 func _axis_selected(id: int) -> void:
 	if id in [0, 1, 2]:
