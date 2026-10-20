@@ -47,6 +47,13 @@ character quality, readable confirmed motion and the complete lighting result.
 The existing flat terrain and simple stream remain unfinished. Headless mesh or
 material checks cannot establish visual quality or Satisfactory parity.
 
+The environment increment in `factory-yau.6.45.4` replaces the bare surroundings
+with ground and ripple surfaces, a shared original HDR panorama, restrained
+lighting and low foliage outside the pad. Distant silhouettes are sky detail;
+they do not add terrain or collision. The physical floor remains flat. Isolated
+resource and spatial checks do not establish the visible result or complete
+environment quality.
+
 ## Sound and interaction
 
 The user specifically calls out the sound of a belt snapping into place. Follow
@@ -56,6 +63,13 @@ sound. Duplicate replies, reconnect and load must not replay construction audio.
 Mechanical ambience should follow observed operating state and have a deliberate
 mix; it must not suggest a rate, motion phase or material transfer absent from the
 authority. No audio result is claimed by the first material slice.
+
+The `factory-yau.6.45.5` increment adds original synthesized belt, assembly,
+coupling and release cues through the existing confirmed-decision paths. Its
+isolated controls distinguish fresh acceptance from pending, duplicate and stale
+events, and export the exact generated streams for human listening. This is local
+construction feedback; spatial ambience and audible production quality remain
+unfinished.
 
 ## Engine and evidence
 

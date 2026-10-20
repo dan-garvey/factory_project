@@ -13,6 +13,18 @@ are seamless and mipmapped. Painted housings use low metallic response while
 exposed bearings retain their steel finish. Shapes stay within the existing
 envelope; no visual mesh is a physics or construction authority.
 
+Shared revolved profiles supply continuous wheel rims, bevelled washers and
+bearing collars. Fitted hex fasteners, service covers, cutter flutes and press
+joints express how the existing machines are assembled. These details stay
+inside the conservative machine envelope and retain the same native spindle
+axes. The geometry is authored presentation, not tooth-contact, drive, torque or
+angular-phase authority. The isolated detail fixture checks closed profiles,
+usable surface attributes, actual machine assembly and unchanged collision
+separation; it cannot establish the visible quality at normal play distance.
+The project selects four-sample 3D multisample antialiasing for mesh edges. This
+is a revisable rendering default, not a measured performance result; it does not
+remove normal-map or specular aliasing. The backend remains Compatibility.
+
 These original project scene assets prepare the visual work in
 `factory-yau.6.45`. The character presenter constructs the playable worker from
 built-in meshes in its existing script. The scenes here are optional previews;
@@ -63,12 +75,28 @@ resources. No external artwork, model download or new runtime dependency is
 included. The palette and geometry remain revisable until normal-distance
 in-game evidence and user visual feedback support them.
 
-The worksite uses a built-in procedural sky for its background, ambient light
-and metallic reflections. A warm key light keeps its existing direction; a weak
-cool fill lights the opposite faces without casting another set of shadows.
-These are revisable presentation defaults. No screen-space effects or external
-sky texture are required by the Compatibility renderer. Headless startup checks
-resource initialization, not the rendered balance or quality of these choices.
+Construction feedback uses original short PCM sounds synthesized in the captured
+opening script: a belt latch, heavier machine assembly, coupling and release.
+Only the local caller's fresh accepted decision can play a cue. Shared requests
+wait for both the matching decision and confirmed snapshot; refused, pending,
+duplicate, stale-world and unrelated actions stay silent. Refresh and reopening
+do not synthesize construction events. These are local nonspatial acknowledgements,
+not machinery ambience or a simulation of material speed. The isolated fixture
+retains WAV previews and checks event guards and digital headroom; the quality
+and balance of the audible result still need human listening.
+
+The physical worksite creates an original HDR panorama with atmospheric colors,
+distant silhouettes and a sun aligned to the key light. The silhouettes are sky
+detail, not solid scenery or an implied traversable mountain. A restrained cool
+fill supports shadowed faces without another shadow map, and distance haze starts
+beyond the normal worksite. Ground color and normal detail, a reflective ripple
+surface in the existing stream footprint, and low noncolliding foliage outside
+the pad replace the bare surroundings. Ground height, grid, construction anchors
+and physical collision remain unchanged. The explicit legacy fixture retains its
+earlier sky and stream. All resources are constructed inside the already captured
+opening script, with no external sky or launcher file dependency. The isolated
+environment check validates assembly and resource/spatial contracts; it does not
+establish the rendered balance, reflection quality or Satisfactory-level result.
 
 The fixed-roster launchers already include `character_presenter.gd` and
 `opening.gd`, so the worker and machined surfaces have no new file dependencies.

@@ -361,6 +361,16 @@ negative controls. This is a render-attribute observation allowance only. It
 changes no mesh envelope, physical pose, construction reach or game rule, and
 does not establish rendered material quality.
 
+**Headless instance readback, observed and source-qualified.** The pinned dummy
+renderer ignores individual `MultiMesh` transform writes and returns identity
+from the corresponding getter. Its
+[bulk-buffer implementation](https://github.com/godotengine/godot/blob/ed1daf0bf001b61586d9930840f2f1394092c079/servers/rendering/dummy/storage/mesh_storage.cpp#L89-L101)
+retains submitted data. The environment fixture therefore inspects the actual
+bulk buffer for foliage placement, without claiming a GPU draw or rendered
+position. Its first per-instance readback failure is retained under
+`production-worksite-environment-20261020`. This harness boundary changes no
+physical collision, construction range or game rule.
+
 The native bridge's initial engine call inherited a 2 GiB compiler address-space
 limit and aborted during initialization. Its separate engine-only ABI check passed
 with an explicit 8 GiB address-space envelope. A later first full-project import

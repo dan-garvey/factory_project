@@ -222,6 +222,9 @@ func _settle_pending() -> void:
 			continue
 		pending_actions.erase(request)
 		if result.accepted:
+			var feedback: Dictionary = item.action.duplicate(true)
+			feedback.merge({"context": result.context, "client": client, "request": request}, true)
+			_construction_feedback(feedback, result)
 			if item.action.action in ["place", "place_gear"] and _contains_target(state, result.entity):
 				selected = result.entity
 			elif item.action.action == "remove" and selected == result.entity:

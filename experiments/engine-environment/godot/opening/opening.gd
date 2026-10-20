@@ -135,6 +135,352 @@ class ProductionVisuals:
 		meshes[dimensions] = mesh
 		return mesh
 
+
+	static func turned_mesh(profile: PackedVector2Array, segments: int = 48) -> ArrayMesh:
+		var key := "turned/" + Marshalls.raw_to_base64(var_to_bytes([profile, segments]))
+		if meshes.has(key):
+			return meshes[key]
+		var low := INF
+		var high := -INF
+		for point in profile:
+			low = minf(low, point.y)
+			high = maxf(high, point.y)
+		var height := maxf(0.000001, high - low)
+		var surface := SurfaceTool.new()
+		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+		for row in range(profile.size() - 1):
+			var a := profile[row]
+			var b := profile[row + 1]
+			var slope := Vector2(b.y - a.y, a.x - b.x).normalized()
+			for n in range(segments):
+				var angles := [float(n) * TAU / segments, float(n + 1) * TAU / segments]
+				var points: Array[Vector3] = []
+				var normals: Array[Vector3] = []
+				var coordinates: Array[Vector2] = []
+				for corner in [[a, 0], [a, 1], [b, 1], [b, 0]]:
+					var p: Vector2 = corner[0]
+					var angle: float = angles[corner[1]]
+					var position := Vector3(cos(angle) * p.x, p.y, sin(angle) * p.x)
+					points.append(position)
+					normals.append(Vector3(cos(angle) * slope.x, slope.y, sin(angle) * slope.x))
+					coordinates.append(Vector2(position.x, position.z) if absf(b.y - a.y) < 0.000001
+						else Vector2(float(n + corner[1]) / segments, (p.y - low) / height))
+				for triangle in [[0, 2, 3], [0, 1, 2]]:
+					if (points[triangle[1]] - points[triangle[0]]).cross(points[triangle[2]] - points[triangle[0]]).length_squared() < 0.00000000000001:
+						continue
+					for index in triangle:
+						surface.set_normal(normals[index])
+						surface.set_uv(coordinates[index])
+						surface.add_vertex(points[index])
+		surface.generate_tangents()
+		var mesh := surface.commit()
+		meshes[key] = mesh
+		return mesh
+
+	static func fastener_head_mesh() -> CylinderMesh:
+		if not meshes.has("fastener/hex"):
+			var head := CylinderMesh.new()
+			head.top_radius = 0.035
+			head.bottom_radius = 0.035
+			head.height = 0.024
+			head.radial_segments = 6
+			meshes["fastener/hex"] = head
+		return meshes["fastener/hex"]
+
+class ProductionEnvironment:
+	extends RefCounted
+	## Visual scenery only. ActorWorld retains the flat floor and all collision.
+	static var ground_finish: StandardMaterial3D
+	static var water_finish: StandardMaterial3D
+	static var sky_finish: PanoramaSkyMaterial
+
+	static func _noise_texture(seed_value: int, normal_map: bool) -> NoiseTexture2D:
+		var noise := FastNoiseLite.new()
+		noise.seed = seed_value
+		noise.frequency = 0.025 if not normal_map else 0.12
+		noise.fractal_octaves = 4 if not normal_map else 3
+		var texture := NoiseTexture2D.new()
+		texture.width = 256
+		texture.height = 256
+		texture.seamless = true
+		texture.generate_mipmaps = true
+		texture.noise = noise
+		texture.as_normal_map = normal_map
+		texture.bump_strength = 0.8
+		if not normal_map:
+			var ramp := Gradient.new()
+			ramp.offsets = PackedFloat32Array([0.0, 0.48, 1.0])
+			ramp.colors = PackedColorArray([Color("383e32"), Color("656852"), Color("9a9278")])
+			texture.color_ramp = ramp
+		return texture
+
+	static func ground_material() -> StandardMaterial3D:
+		if ground_finish == null:
+			ground_finish = StandardMaterial3D.new()
+			ground_finish.albedo_texture = _noise_texture(3471, false)
+			ground_finish.roughness = 0.96
+			ground_finish.normal_enabled = true
+			ground_finish.normal_texture = _noise_texture(3471, true)
+			ground_finish.normal_scale = 0.22
+			ground_finish.uv1_scale = Vector3(48, 48, 1)
+			ground_finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		return ground_finish
+
+	static func water_material() -> StandardMaterial3D:
+		if water_finish == null:
+			var image := Image.create(128, 128, false, Image.FORMAT_RGB8)
+			for y in range(128):
+				for x in range(128):
+					var u := float(x) / 128.0 * TAU
+					var v := float(y) / 128.0 * TAU
+					# Periodic analytic ripples; shading only, no displaced floor.
+					var normal := Vector3(-0.16 * cos(u + v * 2.0), -0.28 * cos(v * 4.0) - 0.12 * cos(u + v * 2.0), 1).normalized()
+					image.set_pixel(x, y, Color(normal.x * 0.5 + 0.5, normal.y * 0.5 + 0.5, normal.z * 0.5 + 0.5))
+			image.generate_mipmaps()
+			water_finish = StandardMaterial3D.new()
+			water_finish.albedo_color = Color("285763")
+			water_finish.metallic = 0.28
+			water_finish.roughness = 0.2
+			water_finish.normal_enabled = true
+			water_finish.normal_texture = ImageTexture.create_from_image(image)
+			water_finish.normal_scale = 0.35
+			water_finish.uv1_scale = Vector3(2, 8, 1)
+			water_finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		return water_finish
+
+	static func panorama_material() -> PanoramaSkyMaterial:
+		if sky_finish != null:
+			return sky_finish
+		var image := Image.create(512, 256, false, Image.FORMAT_RGBF)
+		var sun_direction := Basis.from_euler(Vector3(deg_to_rad(-48), deg_to_rad(-30), 0)).z
+		for y in range(256):
+			var elevation := PI * (0.5 - float(y) / 255.0)
+			var height := sin(elevation)
+			for x in range(512):
+				var azimuth := TAU * float(x) / 511.0
+				# Match Godot's SKY_COORDS atan(direction.x, -direction.z).
+				var direction := Vector3(cos(elevation) * sin(azimuth), height, -cos(elevation) * cos(azimuth))
+				var haze := Color("c0c7b5")
+				var color := haze.lerp(Color("3f6a88"), pow(clampf(height, 0, 1), 0.45))
+				# Original distant silhouettes live in the sky, never as solid
+				# scenery that an actor could walk through on the flat floor.
+				for ridge in range(3):
+					var horizon := 0.015 + float(ridge) * 0.018 + 0.018 * sin(azimuth * 3.0 + ridge * 2.0) + 0.012 * sin(azimuth * 7.0 + ridge)
+					if height < horizon:
+						color = [Color("667970"), Color("7e8c7d"), Color("9ca696")][ridge]
+				if height < -0.08:
+					color = Color("565f4d")
+				var alignment := maxf(0.0, direction.dot(sun_direction))
+				color += Color(0.55, 0.36, 0.17) * pow(alignment, 128.0)
+				if alignment > 0.9998:
+					color += Color(5.0, 4.6, 3.8)
+				image.set_pixel(x, y, color)
+		image.generate_mipmaps()
+		sky_finish = PanoramaSkyMaterial.new()
+		sky_finish.panorama = ImageTexture.create_from_image(image)
+		return sky_finish
+
+	static func _foliage() -> MultiMeshInstance3D:
+		var surface := SurfaceTool.new()
+		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+		for angle in [0.0, PI / 3.0, PI * 2.0 / 3.0]:
+			var right := Vector3(cos(angle), 0, sin(angle)) * 0.025
+			var tip := Vector3(0.04 * cos(angle), 0.18, 0.04 * sin(angle))
+			surface.set_normal(Vector3(-sin(angle), 0, cos(angle)))
+			for vertex in [-right, tip, right]:
+				surface.add_vertex(vertex)
+		var finish := StandardMaterial3D.new()
+		finish.albedo_color = Color.WHITE
+		finish.vertex_color_use_as_albedo = true
+		finish.cull_mode = BaseMaterial3D.CULL_DISABLED
+		finish.roughness = 1.0
+		var instances := MultiMesh.new()
+		instances.transform_format = MultiMesh.TRANSFORM_3D
+		instances.use_colors = true
+		instances.mesh = surface.commit()
+		instances.instance_count = 96
+		var buffer := PackedFloat32Array()
+		for n in range(96):
+			var angle := float(n) * 2.399963
+			var radius := 11.0 + float(posmod(n * 13, 29)) * 0.28
+			var position := Vector3(1.65 + cos(angle) * radius, Geometry.GROUND_HEIGHT, 1.65 + sin(angle) * radius)
+			var scale := 0.65 + float(posmod(n * 7, 13)) * 0.05
+			var basis := Basis(Vector3.UP, angle).scaled(Vector3.ONE * scale)
+			var color := Color("5e714e").lerp(Color("9b9570"), float(n % 5) / 4.0)
+			# Upload once: three matrix rows, each with its translation, then RGBA.
+			buffer.append_array(PackedFloat32Array([
+				basis.x.x, basis.y.x, basis.z.x, position.x,
+				basis.x.y, basis.y.y, basis.z.y, position.y,
+				basis.x.z, basis.y.z, basis.z.z, position.z,
+				color.r, color.g, color.b, color.a]))
+		instances.buffer = buffer
+		var foliage := MultiMeshInstance3D.new()
+		foliage.name = "GroundFoliage"
+		foliage.multimesh = instances
+		foliage.material_override = finish
+		foliage.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		return foliage
+
+	static func build(parent: Node3D) -> Node3D:
+		var scenery := Node3D.new()
+		scenery.name = "ProductionScenery"
+		parent.add_child(scenery)
+		var world := WorldEnvironment.new()
+		world.name = "WorksiteEnvironment"
+		var environment := Environment.new()
+		environment.background_mode = Environment.BG_SKY
+		var sky := Sky.new()
+		sky.sky_material = panorama_material()
+		environment.sky = sky
+		environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+		environment.ambient_light_energy = 0.6
+		environment.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
+		environment.tonemap_mode = Environment.TONE_MAPPER_ACES
+		environment.tonemap_exposure = 1.0
+		environment.fog_enabled = true
+		environment.fog_mode = Environment.FOG_MODE_DEPTH
+		environment.fog_depth_begin = 35.0
+		environment.fog_depth_end = 95.0
+		environment.fog_density = 0.85
+		environment.fog_light_color = Color("bbc5b3")
+		environment.fog_sky_affect = 0.0
+		world.environment = environment
+		scenery.add_child(world)
+		var sun := DirectionalLight3D.new()
+		sun.name = "WorksiteSun"
+		sun.rotation_degrees = Vector3(-48, -30, 0)
+		sun.light_color = Color("fff0d4")
+		sun.light_energy = 1.25
+		sun.shadow_enabled = true
+		sun.directional_shadow_max_distance = 45.0
+		scenery.add_child(sun)
+		var fill := DirectionalLight3D.new()
+		fill.name = "WorksiteFill"
+		fill.rotation_degrees = Vector3(-32, 135, 0)
+		fill.light_color = Color("b9d2ea")
+		fill.light_energy = 0.18
+		fill.shadow_enabled = false
+		scenery.add_child(fill)
+		var terrain := MeshInstance3D.new()
+		terrain.name = "GroundSurface"
+		var plane := PlaneMesh.new()
+		plane.size = Vector2(Geometry.DISPLAY_TERRAIN_SIZE, Geometry.DISPLAY_TERRAIN_SIZE)
+		terrain.mesh = plane
+		terrain.position.y = Geometry.GROUND_HEIGHT - 0.01
+		terrain.material_override = ground_material()
+		scenery.add_child(terrain)
+		var stream := MeshInstance3D.new()
+		stream.name = "StreamSurface"
+		var water := PlaneMesh.new()
+		water.size = Vector2(1.2, 13.4)
+		stream.mesh = water
+		stream.position = Vector3(-2.7, 0.03, 1.65)
+		stream.material_override = water_material()
+		stream.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		scenery.add_child(stream)
+		scenery.add_child(_foliage())
+		return scenery
+
+class ConstructionAudio:
+	extends AudioStreamPlayer
+	## Local acknowledgement only. No command, stock or simulation authority.
+	signal cue_emitted(cue: String, identity: Array)
+	static var streams: Dictionary = {}
+	var current_context := ""
+	var heard: Dictionary = {}
+
+	func _init() -> void:
+		volume_db = -13.0
+		max_polyphony = 3
+
+	static func cue_for(action: Dictionary) -> String:
+		match action.get("action", ""):
+			"place":
+				if action.get("kind") == "belt":
+					return "belt_snap"
+				if action.get("kind") in ["collector", "processor", "wheel"]:
+					return "assembly"
+			"place_gear", "connect_drive", "connect":
+				return "coupling"
+			"remove", "disconnect_drive", "disconnect":
+				return "release"
+		return ""
+
+	static func make_stream(cue: String) -> AudioStreamWAV:
+		if streams.has(cue):
+			return streams[cue]
+		if cue not in ["belt_snap", "assembly", "coupling", "release"]:
+			return null
+		var rate := 44100
+		var duration: float = {"belt_snap": 0.24, "assembly": 0.42, "coupling": 0.18, "release": 0.16}[cue]
+		var count := roundi(duration * rate)
+		var bytes := PackedByteArray()
+		bytes.resize(count * 2)
+		var random := RandomNumberGenerator.new()
+		random.seed = {"belt_snap": 1627, "assembly": 3471, "coupling": 619, "release": 937}[cue]
+		var low_noise := 0.0
+		for n in range(count):
+			var t := float(n) / float(rate)
+			var noise := random.randf_range(-1, 1)
+			low_noise = lerpf(low_noise, noise, 0.18)
+			var sample := 0.0
+			match cue:
+				"belt_snap":
+					sample = 0.22 * sin(TAU * 155.0 * t) * exp(-22.0 * t)
+					sample += 0.19 * sin(TAU * (720.0 - 500.0 * t) * t) * exp(-46.0 * t)
+					sample += 0.25 * (noise - low_noise) * exp(-110.0 * t)
+					if t > 0.045:
+						var latch := t - 0.045
+						sample += 0.19 * sin(TAU * 1850.0 * latch) * exp(-65.0 * latch)
+				"assembly":
+					for mode in [[140.0, 0.22, 14.0], [480.0, 0.18, 23.0], [913.0, 0.1, 27.0], [1810.0, 0.06, 36.0]]:
+						sample += mode[1] * sin(TAU * mode[0] * t) * exp(-mode[2] * t)
+					sample += 0.18 * low_noise * exp(-30.0 * t)
+				"coupling":
+					sample = 0.23 * sin(TAU * 950.0 * t) * exp(-52.0 * t)
+					sample += 0.13 * sin(TAU * 2410.0 * t) * exp(-65.0 * t)
+					sample += 0.2 * (noise - low_noise) * exp(-95.0 * t)
+				"release":
+					sample = 0.2 * sin(TAU * (1500.0 - 2400.0 * t) * t) * exp(-48.0 * t)
+					sample += 0.22 * low_noise * exp(-35.0 * t)
+			var envelope := minf(1.0, t / 0.002) * clampf((duration - t) / 0.03, 0.0, 1.0)
+			sample = 0.85 * sample * envelope if n > 0 and n < count - 1 else 0.0
+			bytes.encode_s16(n * 2, clampi(roundi(sample * 32767.0), -32767, 32767))
+		var stream := AudioStreamWAV.new()
+		stream.format = AudioStreamWAV.FORMAT_16_BITS
+		stream.mix_rate = rate
+		stream.stereo = false
+		stream.loop_mode = AudioStreamWAV.LOOP_DISABLED
+		stream.data = bytes
+		streams[cue] = stream
+		return stream
+
+	func confirmed(action: Dictionary, outcome: Dictionary, live_context: String) -> bool:
+		var cue := cue_for(action)
+		if cue.is_empty() or typeof(outcome.get("accepted")) != TYPE_BOOL or not outcome.accepted:
+			return false
+		for flag in ["queued", "duplicate"]:
+			if typeof(outcome.get(flag, false)) != TYPE_BOOL or outcome.get(flag, false):
+				return false
+		var identity: Array[String] = []
+		for field in ["context", "client", "request"]:
+			if typeof(action.get(field)) != TYPE_STRING or action[field].is_empty() or outcome.get(field) != action[field]:
+				return false
+			identity.append(action[field])
+		if live_context.is_empty() or identity[0] != live_context:
+			return false
+		if current_context != live_context:
+			current_context = live_context
+			heard.clear()
+		var key := JSON.stringify(identity)
+		if heard.has(key):
+			return false
+		heard[key] = true
+		stream = make_stream(cue)
+		play()
+		cue_emitted.emit(cue, identity)
+		return true
+
 const STEP_SECONDS := 0.45
 const PITCH := Geometry.PITCH
 const NAMES := {"collector": "Collector", "belt": "Belt", "processor": "Press", "wheel": "Waterwheel"}
@@ -199,6 +545,7 @@ var inspector: Label
 var recovery_actions
 var transmission_controls
 var transmission_presenter
+var construction_audio
 var confirm_button: Button
 var retrieve_button: Button
 var power_button: Button
@@ -432,6 +779,15 @@ func _load_worksite(path: String = "", startup_resume := false) -> Dictionary:
 		_message("Load refused. Your current worksite and previous save are kept.", true)
 	return last_load_result
 
+func _construction_feedback(intent: Dictionary, outcome: Dictionary) -> void:
+	if ConstructionAudio.cue_for(intent).is_empty() or not outcome.get("accepted", false):
+		return
+	if construction_audio == null:
+		construction_audio = ConstructionAudio.new()
+		construction_audio.name = "ConstructionAudio"
+		add_child(construction_audio)
+	construction_audio.confirmed(intent, outcome, str(model.projection().get("context", "")))
+
 func issue(action: Dictionary) -> Dictionary:
 	if explanation_open:
 		return {"accepted": false, "reason": "explanation_open"}
@@ -453,6 +809,7 @@ func issue(action: Dictionary) -> Dictionary:
 			selected = str(outcome.get("entity", ""))
 		elif action.action == "remove" and selected == action.get("entity", ""):
 			selected = ""
+		_construction_feedback(intent, outcome)
 		_message({"place": "Placed. Parts stay with this worksite.",
 			"connect": "Material path connected.", "connect_drive": "Drive shaft connected.",
 			"retrieve": "Plate collected.", "set_power": "Drive updated.",
@@ -722,48 +1079,38 @@ func _update_camera() -> void:
 	camera.look_at(focus)
 
 func _build_world() -> void:
-	var environment := WorldEnvironment.new()
-	var settings := Environment.new()
-	var sky_material := ProceduralSkyMaterial.new()
-	sky_material.sky_top_color = Color("536f86")
-	sky_material.sky_horizon_color = Color("d8cbb2")
-	sky_material.ground_bottom_color = Color("394641")
-	sky_material.ground_horizon_color = Color("b5b8a1")
-	var sky := Sky.new()
-	sky.sky_material = sky_material
-	settings.background_mode = Environment.BG_SKY
-	settings.sky = sky
-	settings.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	settings.ambient_light_energy = 0.5
-	settings.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
-	environment.environment = settings
-	add_child(environment)
-	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-48, -30, 0)
-	sun.light_color = Color("fff1d6")
-	sun.light_energy = 1.35
-	sun.shadow_enabled = true
-	add_child(sun)
-	# Keep the back of machinery readable without adding a second shadow map.
-	var fill := DirectionalLight3D.new()
-	fill.rotation_degrees = Vector3(-32, 135, 0)
-	fill.light_color = Color("b9d2ea")
-	fill.light_energy = 0.35
-	fill.shadow_enabled = false
-	add_child(fill)
 	if not legacy_fixture:
-		# Presentation extent only. ActorWorld owns the native floor, whose
-		# backend-specific extent is recorded separately in its diagnostics.
-		var terrain := MeshInstance3D.new()
-		var plane := PlaneMesh.new()
-		plane.size = Vector2(Geometry.DISPLAY_TERRAIN_SIZE, Geometry.DISPLAY_TERRAIN_SIZE)
-		terrain.mesh = plane
-		terrain.position.y = Geometry.GROUND_HEIGHT - 0.01
-		var material := StandardMaterial3D.new()
-		material.albedo_color = Color("394641")
-		material.roughness = 1.0
-		terrain.material_override = material
-		add_child(terrain)
+		ProductionEnvironment.build(self)
+	else:
+		var environment := WorldEnvironment.new()
+		var settings := Environment.new()
+		var sky_material := ProceduralSkyMaterial.new()
+		sky_material.sky_top_color = Color("536f86")
+		sky_material.sky_horizon_color = Color("d8cbb2")
+		sky_material.ground_bottom_color = Color("394641")
+		sky_material.ground_horizon_color = Color("b5b8a1")
+		var sky := Sky.new()
+		sky.sky_material = sky_material
+		settings.background_mode = Environment.BG_SKY
+		settings.sky = sky
+		settings.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+		settings.ambient_light_energy = 0.5
+		settings.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
+		environment.environment = settings
+		add_child(environment)
+		var sun := DirectionalLight3D.new()
+		sun.rotation_degrees = Vector3(-48, -30, 0)
+		sun.light_color = Color("fff1d6")
+		sun.light_energy = 1.35
+		sun.shadow_enabled = true
+		add_child(sun)
+		# Keep the back of machinery readable without adding a second shadow map.
+		var fill := DirectionalLight3D.new()
+		fill.rotation_degrees = Vector3(-32, 135, 0)
+		fill.light_color = Color("b9d2ea")
+		fill.light_energy = 0.35
+		fill.shadow_enabled = false
+		add_child(fill)
 	_box(self, Vector3(1.65, -0.55, 1.65), Vector3(13.4, 0.8, 13.4), Color("394641"))
 	for x in range(-2, 5):
 		for z in range(-2, 5):
@@ -772,9 +1119,10 @@ func _build_world() -> void:
 			var tint := Color("74766b").darkened(float(posmod(x * 17 + z * 31, 5)) * 0.018)
 			_machine_box(self, "FoundationPanel", Vector3(x * PITCH, -0.08, z * PITCH),
 				Vector3(PITCH - 0.035, 0.12, PITCH - 0.035), tint, 0.0, 0.95)
-	_box(self, Vector3(-2.7, 0.0, 1.65), Vector3(1.2, 0.06, 13.4), Color("396c76"))
-	for z in range(-3, 6):
-		_box(self, Vector3(-2.7, 0.04, z * 1.3), Vector3(0.85, 0.018, 0.035), Color("72a5a7"))
+	if legacy_fixture:
+		_box(self, Vector3(-2.7, 0.0, 1.65), Vector3(1.2, 0.06, 13.4), Color("396c76"))
+		for z in range(-3, 6):
+			_box(self, Vector3(-2.7, 0.04, z * 1.3), Vector3(0.85, 0.018, 0.035), Color("72a5a7"))
 	_box(self, Vector3(0, 0.005, 1.65), Vector3(0.12, 0.035, 13.4), Color("a58c59"))
 	var arrow := _text(self, "MATERIAL  →", Vector3(1.6, 0.08, -4.15), Color("e4bc70"), 0.005)
 	arrow.rotation_degrees.x = -90
@@ -918,6 +1266,79 @@ func _machine_drive_stub(anchor: Node3D, entity: Dictionary) -> void:
 		_machine_cylinder(anchor, "DriveStub", Vector3(0, 0.35, 0.55), 0.085, 0.18,
 			Color("b87945"), Vector3(PI / 2, 0, 0))
 
+func _machine_turned(parent: Node3D, part_name: String, at: Vector3,
+		profile: PackedVector2Array, color: Color, axis: Vector3 = Vector3.UP) -> MeshInstance3D:
+	var part := MeshInstance3D.new()
+	part.name = part_name
+	part.position = at
+	part.basis = Basis(Quaternion(Vector3.UP, axis))
+	part.mesh = ProductionVisuals.turned_mesh(profile)
+	part.material_override = ProductionVisuals.material(color, 0.85, 0.38)
+	part.set_meta("detail_role", part_name)
+	parent.add_child(part)
+	return part
+
+func _machine_fastener(parent: Node3D, part_name: String, at: Vector3, normal: Vector3 = Vector3.UP) -> void:
+	var assembly := Node3D.new()
+	assembly.name = part_name
+	assembly.position = at
+	assembly.basis = Basis(Quaternion(Vector3.UP, normal))
+	assembly.set_meta("surface_detail", true)
+	assembly.set_meta("detail_role", part_name)
+	parent.add_child(assembly)
+	_machine_turned(assembly, "Washer", Vector3.ZERO, PackedVector2Array([
+		Vector2(0, 0), Vector2(0.038, 0), Vector2(0.043, 0.002),
+		Vector2(0.043, 0.004), Vector2(0.038, 0.006), Vector2(0, 0.006)]), Color("778b8c"))
+	var head := MeshInstance3D.new()
+	head.name = "HexHead"
+	head.position.y = 0.018
+	head.mesh = ProductionVisuals.fastener_head_mesh()
+	head.material_override = ProductionVisuals.material(Color("b8c3bb"), 0.85, 0.38)
+	assembly.add_child(head)
+	_machine_box(assembly, "HeadSlot", Vector3(0, 0.03, 0), Vector3(0.03, 0.002, 0.006), Color("28383d"), 0.1, 0.8)
+
+func _machine_surface_detail(machine: Node3D, kind: String) -> void:
+	var anchor := Node3D.new()
+	anchor.name = "SurfaceDetail"
+	machine.add_child(anchor)
+	for x in [-0.55, 0.55]:
+		for z in [-0.55, 0.55]:
+			_machine_fastener(anchor, "FoundationFastener", Vector3(x, 0.24, z))
+	match kind:
+		"collector":
+			var frame: Color = COLORS.collector
+			_machine_box(anchor, "ServiceCover", Vector3(-0.22, 0.68, -0.35), Vector3(0.65, 0.5, 0.035), frame.darkened(0.14))
+			for n in range(5):
+				var vent := _machine_box(anchor, "ServiceVent", Vector3(-0.22, 0.55 + n * 0.06, -0.326), Vector3(0.42, 0.014, 0.006), Color("28383d"), 0.1, 0.8)
+				vent.set_meta("detail_role", "ServiceVent")
+			for x in [-0.48, 0.04]:
+				for y in [0.49, 0.87]:
+					_machine_fastener(anchor, "ServiceFastener", Vector3(x, y, -0.32), Vector3.BACK)
+			for n in range(8):
+				var angle := float(n) * TAU / 8.0
+				var tooth := _machine_box(anchor, "CutterFlute",
+					Vector3(-0.22 + cos(angle) * 0.235, 1.1 + sin(angle) * 0.235, -0.19),
+					Vector3(0.04, 0.045, 0.29), Color("a6b4af"), 0.85, 0.32)
+				tooth.rotation.z = angle - PI / 2.0
+				tooth.set_meta("detail_role", "CutterFlute")
+		"belt":
+			var profile := PackedVector2Array([Vector2(0, -0.025), Vector2(0.11, -0.025),
+				Vector2(0.135, -0.015), Vector2(0.135, 0.015), Vector2(0.11, 0.025), Vector2(0, 0.025)])
+			for x in [-0.57, 0.57]:
+				for side in [-1.0, 1.0]:
+					_machine_turned(anchor, "RollerBearing", Vector3(x, 0.465, side * 0.405), profile, Color("778b8c"), Vector3.BACK)
+					_machine_fastener(anchor, "BearingFastener", Vector3(x, 0.465, side * 0.435), Vector3.BACK * side)
+		"processor":
+			var profile := PackedVector2Array([Vector2(0, -0.02), Vector2(0.052, -0.02),
+				Vector2(0.065, -0.01), Vector2(0.065, 0.01), Vector2(0.052, 0.02), Vector2(0, 0.02)])
+			for x in [-0.34, 0.34]:
+				for y in [0.82, 1.32]:
+					_machine_turned(anchor, "GuideCollar", Vector3(x, y, -0.19), profile, Color("778b8c"))
+			for x in [-0.48, 0.48]:
+				_machine_box(anchor, "FrameJoint", Vector3(x, 0.46, -0.215), Vector3(0.23, 0.17, 0.035), COLORS.processor.darkened(0.14))
+				for y in [0.41, 0.51]:
+					_machine_fastener(anchor, "FrameFastener", Vector3(x, y, -0.19), Vector3.BACK)
+
 func _collector_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	var frame: Color = COLORS.collector
 	var steel := Color("a6b4af")
@@ -995,14 +1416,20 @@ func _wheel_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	elif native_profile and axis == Vector3.UP:
 		wheel_rotor.rotation.x = -PI / 2
 	anchor.add_child(wheel_rotor)
+	var rim_profile := PackedVector2Array([
+		Vector2(0.51, -0.022), Vector2(0.518, -0.03), Vector2(0.582, -0.03),
+		Vector2(0.59, -0.022), Vector2(0.59, 0.022), Vector2(0.582, 0.03),
+		Vector2(0.518, 0.03), Vector2(0.51, 0.022), Vector2(0.51, -0.022)])
+	for z in [-0.15, 0.15]:
+		_machine_turned(wheel_rotor, "WheelRim", Vector3(0, 0, z), rim_profile, frame, Vector3.BACK)
+		for n in range(12):
+			var angle := float(n) * TAU / 12.0
+			_machine_fastener(wheel_rotor, "RimFastener",
+				Vector3(cos(angle) * 0.55, sin(angle) * 0.55, z + signf(z) * 0.03), Vector3.BACK * signf(z))
 	# An open rim exposes the spokes. Meshes never supply drive relationships.
 	for n in range(12):
 		var angle := n * TAU / 12.0
 		var radial := Vector3(cos(angle), sin(angle), 0)
-		for z in [-0.15, 0.15]:
-			var rim := _machine_box(wheel_rotor, "WheelRim", radial * 0.55 + Vector3(0, 0, z),
-				Vector3(0.075, 0.3, 0.06), frame)
-			rim.rotation.z = angle
 		var paddle := _machine_box(wheel_rotor, "WheelPaddle", radial * 0.62,
 			Vector3(0.14, 0.16, 0.28), wood, 0.05, 0.88)
 		paddle.rotation.z = angle
@@ -1033,6 +1460,7 @@ func _rebuild_machines() -> void:
 				_press_visual(anchor, entity)
 			"wheel":
 				_wheel_visual(anchor, entity)
+		_machine_surface_detail(anchor, kind)
 		var body := StaticBody3D.new()
 		body.collision_layer = Geometry.PICK_LAYER
 		body.collision_mask = 0
