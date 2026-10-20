@@ -13,6 +13,8 @@ class OfflineHarness:
 class SharedHarness:
 	extends "res://opening/shared_opening.gd"
 	var requests: Array = []
+	func _update_camera() -> void:
+		pass # Detached callback controls create no camera or viewport input.
 	func issue(wire: Dictionary) -> Dictionary:
 		requests.append(wire.duplicate(true))
 		return {"accepted": false, "queued": true}
@@ -152,12 +154,37 @@ func check_invalid() -> void:
 		verify(not cue.visible, "Malformed annotation data creates no usable cue.")
 	cue.free()
 
+func check_common_frame() -> void:
+	var view := SharedHarness.new()
+	view.session = Connection.new()
+	mount(view)
+	for action in ["cancel", "change_tool", "disconnect"]:
+		view.session.ready = true
+		first(view)
+		verify(view.transmission_endpoint_cue.visible, "The first endpoint is initially displayed before the local change.")
+		match action:
+			"cancel": view.transmission_controls.cancel()
+			"change_tool": view.transmission_controls.choose_tool("gear")
+			"disconnect": view.session.ready = false
+		# No server snapshot or manual annotation refresh occurs here. Exercise
+		# the real shared/common presentation callback with no Model attached.
+		view._process(0.016)
+		verify(not view.transmission_endpoint_cue.visible,
+			"The next common frame hides the obsolete shared annotation: " + action)
+	verify(view.requests.is_empty() and view.model == null,
+		"Common-frame cancellation sends no request and creates no Model.")
+	view.free()
+
 func _initialize() -> void:
 	call_deferred("_run")
 
 func _run() -> void:
-	check_offline()
-	check_shared()
-	check_invalid()
+	if "--common-frame-only" in OS.get_cmdline_user_args():
+		check_common_frame()
+	else:
+		check_offline()
+		check_shared()
+		check_invalid()
+		check_common_frame()
 	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks, "failures": failures, "evidence": "isolated_endpoint_annotation", "models": 0, "desktop_operations": 0}))
 	quit(0 if failures == 0 else 1)

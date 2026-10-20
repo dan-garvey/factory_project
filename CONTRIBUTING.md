@@ -93,7 +93,7 @@ exact source/compiler provenance and independent review. Build outside the sourc
 checkout, declare the build/test scope before execution and retain first failures.
 Do not redirect a safety gate or replace its coverage through a documentation edit.
 
-Prerequisites for current checks: Linux, Bash, Git, Python 3.10 or newer, and `systemd-analyze` for parsing the generated local scheduler units. Rust Beads is needed for project work, but checks do not invoke it, access the live database, queue real model work, or use the network. Scheduler tests parse disposable units without starting services.
+Prerequisites for current checks: Linux, Bash, Git, and Python 3.10 or newer. Rust Beads is needed for project work, but checks do not invoke it, access the live database, queue real model work, or use the network. The retired hourly PM command and its scheduler tests have been removed, so these checks no longer require `systemd-analyze`.
 
 ```bash
 ./scripts/install-hooks.sh
