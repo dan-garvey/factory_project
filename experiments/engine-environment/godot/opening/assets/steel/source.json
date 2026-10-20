@@ -1,0 +1,72 @@
+{
+  "asset": "Metal Plate 02",
+  "author": "Rob Tuytel",
+  "asset_url": "https://polyhaven.com/a/metal_plate_02",
+  "license": "CC0",
+  "license_url": "https://polyhaven.com/license",
+  "source_extent_metres": [
+    2,
+    2
+  ],
+  "source_files": {
+    "albedo": {
+      "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/metal_plate_02/metal_plate_02_diff_1k.jpg",
+      "bytes": 625917,
+      "sha256": "6e80877d0e9d5973d96298c6091df7ace906b0a6760afc4f3592e4855f3f1d4c"
+    },
+    "normal_gl": {
+      "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/metal_plate_02/metal_plate_02_nor_gl_1k.png",
+      "bytes": 3580368,
+      "sha256": "a39eee156a992afef4f1453010f2f2ff3c01cd6b5e0ce408259954ce25dd049f"
+    },
+    "arm": {
+      "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/metal_plate_02/metal_plate_02_arm_1k.jpg",
+      "bytes": 1075839,
+      "sha256": "e099a8385d53f4a515b7e0ce94f85d88657fcac49c23979474f5394b22dd550b"
+    }
+  },
+  "processed_files": {
+    "steel_albedo.webp": {
+      "bytes": 35810,
+      "sha256": "aac3140aedc9b5c369c114a2e7e5279fa3a7cc96c887d775dec2d9fd635e8424",
+      "role": "sRGB albedo",
+      "resolution": [
+        1024,
+        1024
+      ],
+      "processing": "WebP quality 0.50 from original provider; no resize or color-space transform."
+    },
+    "steel_arm.webp": {
+      "bytes": 426526,
+      "sha256": "e975b6875f37aff877523a997af8f72d71675474690514059f57c94cb4d5f683",
+      "role": "Linear red occlusion, green roughness, blue metallic",
+      "resolution": [
+        512,
+        512
+      ],
+      "processing": "Lossless WebP repack of the prepared PNG; exact decoded pixels, same dimensions and channel order."
+    },
+    "steel_normal_gl.webp": {
+      "bytes": 344902,
+      "sha256": "6bdd3350c4324f0a450aa352bd28a7cfa8b53a8533660431195958ae929d722e",
+      "role": "OpenGL tangent normal, linear data",
+      "resolution": [
+        1024,
+        1024
+      ],
+      "processing": "Lossless WebP repack of the prepared PNG; exact decoded pixels, same dimensions and channel order."
+    }
+  },
+  "preparation": {
+    "engine": "4.7.2.stable.official.ed1daf0bf",
+    "albedo_rmse_srgb": 0.0169580921911869,
+    "normal_exr_variant": "Original TinyEXR rejection preserved externally; the PNG source representation is used instead.",
+    "material_descriptor_url": "https://dl.polyhaven.org/file/ph-assets/Textures/gltf/1k/metal_plate_02/metal_plate_02_1k.gltf",
+    "material_descriptor_sha256": "1019f17f67953a46cfd834af51bbbd7fe78adf56fac3a7320cc0c1f5cc1d3b04",
+    "data_map_repack": "Exact decoded pixel equality against the prepared PNGs; no second resize or channel transform.",
+    "representation_api": "https://docs.godotengine.org/en/stable/classes/class_image.html#class-image-method-save-webp",
+    "budget_choice": "The measured quality-0.70 alternative left only 335 source bytes after composition with current main. The quality-0.50 alternative preserves resolution and the existing error bound while leaving room for the pending press-clearance fix."
+  },
+  "runtime": "Mipmaps generated once, with normal renormalization. World-space triplanar scale 0.5 maps the source over two metres. No displacement geometry is applied.",
+  "limits": "Source data and image tests do not establish rendered quality or GPU cost."
+}

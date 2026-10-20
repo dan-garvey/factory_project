@@ -11,6 +11,9 @@ This combines the personal capability rule and optional shared commission record
 from the [ownership comparison](../proposals/progression-ownership-models.md).
 It selects an experiment rather than a permanent campaign policy.
 
+The [chapter interface boundaries](chapter-interfaces.md) map this experiment and
+accepted source-lifecycle requirements to later responsibilities and scenarios.
+
 The existing opening keeps its four-plate, nonconsuming session confirmation.
 An off-site delivery, team system or technology unlock is not a new requirement
 for that demo. The [accepted learning scenarios](../proposals/learning-pace-scenarios.md)

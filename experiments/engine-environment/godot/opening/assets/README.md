@@ -134,6 +134,15 @@ Rendered lighting, composition and human visual feedback remain unfinished. This
 increment does not complete the visual task, introduce geometric cogwheel
 authority, repair window resizing or change the opening's teaching flow.
 
+The physical foundation panels use the sourced
+[steel surface set](steel/CREDITS.md), with continuous world-space mapping and
+separate albedo, OpenGL normal and packed scalar material data. Panel geometry,
+machine finishes and all construction/collision rules stay unchanged. One cached
+material serves the whole foundation, with mipmaps for the normal playable
+camera. Current complete native captures include the images; historical rosters
+without them keep their explicitly identified procedural floor. Source/image
+checks do not establish rendered quality, reflection balance or GPU cost.
+
 Machine placement now previews the fitted assembly at the pointer's grid square,
 including the selected native spindle axis. Neutral translucent amber shows form
 and footprint, not accepted placement or construction reach. It reuses the placed
