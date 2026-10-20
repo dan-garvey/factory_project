@@ -1,4 +1,4 @@
-load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -14,5 +14,26 @@ cc_test(
     name = "scenarios_test",
     srcs = ["tests/scenarios_test.cpp"],
     deps = [":scenarios"],
+    size = "small",
+)
+
+cc_library(
+    name = "workbench",
+    srcs = ["src/workbench.cpp"],
+    hdrs = ["include/factory/repair_workbench.hpp"],
+    strip_include_prefix = "include",
+    deps = [":scenarios", "//native/gear-repairs:scenarios", "//native/co-drive-repairs:scenarios"],
+)
+
+cc_binary(
+    name = "repair_workbench",
+    srcs = ["src/main.cpp"],
+    deps = [":workbench"],
+)
+
+cc_test(
+    name = "workbench_test",
+    srcs = ["tests/workbench_test.cpp"],
+    deps = [":workbench"],
     size = "small",
 )
