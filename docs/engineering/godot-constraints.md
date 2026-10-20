@@ -436,6 +436,25 @@ fixture injects `Window.focus_exited`; a real operating-system focus transition
 remains untested. Near-origin floor/contact and two-client success do not resolve
 the backend-identification, far-origin or factory-scale unknowns in GDC-05/06/10.
 
+**Window resizing is an adapter responsibility.** The actual user report in
+`6.40` showed the inspector and footer left inside an enlarged viewport. Their
+original fixed pixel positions explain that layout; the report does not prove a
+button-hit, state-loss or DPI defect. The opening now uses right/bottom anchors
+and offsets for those panels and central anchors for Help. The pinned
+[Control API](https://raw.githubusercontent.com/godotengine/godot/4.7.2-stable/doc/classes/Control.xml)
+defines parent/viewport anchors; the
+[Window API](https://raw.githubusercontent.com/godotengine/godot/4.7.2-stable/doc/classes/Window.xml)
+separates native window size from content scaling. The opening's 1280×800 minimum
+is a revisable adapter policy, while larger windows remain resizable. The private
+[layout observer](../../experiments/engine-environment/godot/opening/layout_observer.gd)
+records actual viewport bounds, edge margins, rendered text, button signals and
+ordinary input across size changes and maximize/restore. Its pending-view fixture
+temporarily pauses only client multiplayer polling around an ordinary request;
+the server and its authority remain live. Treat that pause as a disclosed fixture
+shortcut, not natural network-delay evidence. Runtime verdicts and supported
+display/backend limits belong to the exact retained `6.40` cases; source or parser
+success alone does not certify resizing, DPI, accessibility or actual user play.
+
 ## GDC-12: JSON control files do not preserve RPC Variant types
 
 **Engine/API, documented for 4.7.2; fixture conversions observed.** The pinned
@@ -466,6 +485,30 @@ these conversions select no production wire/save format or material policy.
 The bounded wire case has frozen production and an empty material request
 cache; use the separate continuation and ordinary physical consumers for their
 declared behavior. Owners: Recovery and Platform; Ops reviews retained evidence.
+
+## GDC-13: a dictionary key is not a lexical tool-name oracle
+
+**Engine/API, documented for 4.7.2; observer limitation found by source review.**
+The pinned [named setter](https://raw.githubusercontent.com/godotengine/godot/4.7.2-stable/core/variant/variant_setget.cpp#L222-L245)
+passes a `StringName` key into a dictionary. The default
+[`StringName` comparison](https://raw.githubusercontent.com/godotengine/godot/4.7.2-stable/core/string/string_name.h#L91-L145)
+orders interned pointers; its separate alphabetical comparator orders characters.
+The [Variant less-than registration](https://raw.githubusercontent.com/godotengine/godot/4.7.2-stable/core/variant/variant_op.cpp#L662-L668)
+also distinguishes String and StringName comparisons. Sorting raw keys therefore
+does not establish lexical order of displayed names.
+
+The original `0deb66c` layout observer used that assumption when checking All
+tools. Its first shared attempt retained one enabled-button pressed signal and
+then failed the visibility assertion, but omitted the disputed post-click values.
+That is failed coverage, not proof of a product visibility defect or of the sole
+runtime cause. The original failed packet remains intact in `factory-yau.6.40`.
+
+**Affected promise / exit:** compare explicit String names when the oracle means
+names, and retain actual flags, key types, visibility and a settled image before
+the assertion. This changes only the test observer and leaves game dictionaries,
+ordinary input and authoritative state unchanged. Source review is not a passing
+native result; the successor requires its own reviewed gates and bounded case.
+Owner: Playability, with Chapter source review and Ops operational reconciliation.
 
 ## Required follow-through
 

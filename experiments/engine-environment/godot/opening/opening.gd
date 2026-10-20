@@ -76,6 +76,11 @@ var lesson_title: Label
 var lesson_body: Label
 var tool_buttons: Dictionary = {}
 var state: Dictionary = {}
+var show_all_tools := false
+var show_details := false
+var all_tools_button: Button
+var details_button: Button
+var controls_label: Label
 
 func _ready() -> void:
 	for argument in OS.get_cmdline_user_args():
@@ -436,9 +441,12 @@ func _toggle_explanation() -> void:
 		if example_presenter == null:
 			# Lazy loading avoids a static cycle with the geometry-only subclass.
 			example_presenter = load("res://opening/example_presenter.gd").new()
-			example_presenter.position = Vector2(310, 226)
-			example_presenter.size = Vector2(670, 446)
 			lesson_panel.get_parent().add_child(example_presenter)
+			# Set the far anchor first so the near anchor is not clamped.
+			example_presenter.set_anchor_and_offset(SIDE_RIGHT, 0.5, 340)
+			example_presenter.set_anchor_and_offset(SIDE_LEFT, 0.5, -330)
+			example_presenter.set_anchor_and_offset(SIDE_TOP, 0.0, 226)
+			example_presenter.set_anchor_and_offset(SIDE_BOTTOM, 1.0, -128)
 		example_presenter.show()
 		example_presenter.viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 		example_presenter.world.set_process(true)
@@ -727,6 +735,93 @@ func _refresh_ui() -> void:
 		inspector.text += "\n" + _inspection_hint()
 	else:
 		inspector.text = "Select a machine to inspect\nor collect its finished work."
+	_refresh_guided_tools()
+
+func _toggle_all_tools() -> void:
+	if not explanation_open:
+		show_all_tools = not show_all_tools
+		_refresh_ui()
+
+func _toggle_details() -> void:
+	if not explanation_open:
+		show_details = not show_details
+		_refresh_ui()
+
+func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
+	if legacy_fixture:
+		return
+	# This is a view of confirmed facts, not persistent progression or admission.
+	var kinds: Dictionary = {}
+	for entity in state.get("entities", {}).values():
+		kinds[String(entity.kind)] = true
+	var offered := {"collector": true}
+	if not kinds.is_empty():
+		offered.inspect = true
+	if kinds.has("collector"):
+		offered.belt = true
+	if kinds.has("belt"):
+		offered.processor = true
+	if kinds.has("processor"):
+		offered.wheel = true
+	if (kinds.has("collector") and kinds.has("belt")) or (kinds.has("belt") and kinds.has("processor")):
+		offered.flow = true
+	if kinds.has("wheel") and kinds.size() > 1:
+		offered.drive = true
+	var step := _guided_step(kinds)
+	for tool in tool_buttons:
+		var button: Button = tool_buttons[tool]
+		# Keyboard selection stays visible even when it precedes the suggestion.
+		button.visible = show_all_tools or offered.has(tool) or mode == tool
+		for color_name in ["font_color", "font_focus_color", "font_hover_color", "font_pressed_color", "font_hover_pressed_color"]:
+			if tool == step.tool:
+				button.add_theme_color_override(color_name, Color("edcc8d"))
+			else:
+				button.remove_theme_color_override(color_name)
+	var inventory := int(state.get("inventories", {}).get(client, 0))
+	goal_label.text = "Make 4 plates\n%s\n%d / 4 collected" % [step.text, inventory] if snapshot_ready else "Connect to the worksite."
+	confirm_button.visible = snapshot_ready and (inventory >= 4 or goal_confirmed)
+	all_tools_button.text = "Guided tools" if show_all_tools else "All tools"
+	all_tools_button.disabled = explanation_open or not snapshot_ready
+	details_button.text = "Less detail" if show_details else "Details"
+	details_button.disabled = explanation_open
+	for control in [stock_label, power_label, save_button, load_button]:
+		control.visible = show_details
+	actor_label.visible = show_details or not state.get("actors", {}).get(client, {}).get("ready", false)
+	power_button.visible = show_all_tools or kinds.has("wheel")
+	controls_label.text = "WASD walk · Space jump · Right-drag view · Wheel zoom · H help"
+	if show_all_tools:
+		controls_label.text = "WASD walk · Space jump · P wheel · 1–4 build · F / G links · I inspect · H help"
+
+func _guided_step(kinds: Dictionary) -> Dictionary:
+	if goal_confirmed:
+		return {"text": "Four plates confirmed. Keep building or try another layout.", "tool": "inspect"}
+	if int(state.get("inventories", {}).get(client, 0)) >= 4:
+		return {"text": "Four plates ready. Confirm when you are ready.", "tool": "inspect"}
+	if int(state.get("stock", {}).get("output", 0)) > 0:
+		return {"text": "Plate ready. Select the press, then collect [R].", "tool": "inspect"}
+	if not kinds.has("collector"):
+		return {"text": "Place a collector on the brass strip near you.", "tool": "collector"}
+	if not kinds.has("belt"):
+		return {"text": "Add a belt beside the collector.", "tool": "belt"}
+	if not kinds.has("processor"):
+		return {"text": "Add a press at the belt outlet.", "tool": "processor"}
+	var material_pairs: Dictionary = {}
+	for pair in state.get("links", []):
+		var entities: Dictionary = state.get("entities", {})
+		if entities.has(pair[0]) and entities.has(pair[1]):
+			material_pairs["%s:%s" % [entities[pair[0]].kind, entities[pair[1]].kind]] = true
+	if not material_pairs.has("collector:belt") or not material_pairs.has("belt:processor"):
+		return {"text": "Connect the material path. Help [H] shows an example.", "tool": "flow"}
+	if not kinds.has("wheel"):
+		return {"text": "Add a waterwheel by the stream.", "tool": "wheel"}
+	if not state.get("power_enabled", true):
+		return {"text": "Switch on the drive near the wheel [P].", "tool": "inspect"}
+	if not state.get("powered", false):
+		return {"text": "Bring power to the line. Help [H] shows the current setup.", "tool": "drive"}
+	var stock: Dictionary = state.get("stock", {})
+	if int(stock.get("source", 0)) + int(stock.get("collector", 0)) + int(stock.get("belt", 0)) + int(stock.get("input", 0)) + int(stock.get("held", 0)) == 0:
+		return {"text": "No blanks remain here. All tools stays available for experimenting.", "tool": "inspect"}
+	return {"text": "Follow a blank to the press. Select a machine to inspect it.", "tool": "inspect"}
 
 func _inspection_hint() -> String:
 	# Describe confirmed projection facts only. This is advice, never admission
@@ -815,20 +910,25 @@ func _panel(parent: Node, at: Vector2, dimensions: Vector2) -> VBoxContainer:
 	return column
 
 func _build_interface() -> void:
+	# A revisable opening adapter limit, not a fixed window or a game-world rule.
+	get_window().min_size = Vector2i(1280, 800)
 	var canvas := CanvasLayer.new()
 	add_child(canvas)
 	var root := Control.new()
-	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	canvas.add_child(root)
+	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var theme := Theme.new()
 	theme.default_font_size = 15
 	root.theme = theme
 	var build := _panel(root, Vector2(18, 18), Vector2(275, 620))
 	_label(build, "FACTORY / FIRST SHIFT", 20, Color("edcc8d"))
-	_label(build, "A small line. Real materials.", 14, Color("9eb4b2"))
+	var tagline := _label(build, "A small line. Real materials.", 14, Color("9eb4b2"))
+	tagline.visible = legacy_fixture
 	build.add_child(HSeparator.new())
 	goal_label = _label(build, "", 18)
+	if not legacy_fixture:
+		goal_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	confirm_button = _button(build, "Confirm four plates", _confirm_goal)
 	build.add_child(HSeparator.new())
 	_label(build, "BUILD FROM CARRIED PARTS", 12, Color("9eb4b2"))
@@ -841,8 +941,20 @@ func _build_interface() -> void:
 	tool_buttons.inspect = _button(build, "Inspect  [I]", _select_tool.bind("inspect"))
 	for tool in ["flow", "drive", "inspect"]:
 		tool_buttons[tool].toggle_mode = true
+	var view_options := HBoxContainer.new()
+	build.add_child(view_options)
+	view_options.visible = not legacy_fixture
+	all_tools_button = _button(view_options, "All tools", _toggle_all_tools)
+	all_tools_button.tooltip_text = "Choose any available part."
+	details_button = _button(view_options, "Details", _toggle_details)
+	details_button.tooltip_text = "Show worksite counters and save options."
 	_button(build, "How this line works  [H]", _toggle_explanation)
 	var right := _panel(root, Vector2(990, 18), Vector2(272, 490))
+	var right_panel: Control = right.get_parent()
+	# Set the far anchor first so the near anchor is not clamped.
+	right_panel.set_anchor_and_offset(SIDE_RIGHT, 1.0, -18)
+	right_panel.set_anchor_and_offset(SIDE_LEFT, 1.0, -290)
+	right_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	if legacy_fixture:
 		_label(right, "WORKSITE", 13, Color("a3b8b4"))
 	else:
@@ -863,11 +975,18 @@ func _build_interface() -> void:
 	save_button = _button(right, "Save worksite  [F5]", _save_worksite)
 	load_button = _button(right, "Load worksite  [F9]", _load_worksite)
 	var bottom := _panel(root, Vector2(310, 694), Vector2(952, 88))
+	var bottom_panel: Control = bottom.get_parent()
+	bottom_panel.set_anchor_and_offset(SIDE_RIGHT, 1.0, -18)
+	bottom_panel.set_anchor_and_offset(SIDE_BOTTOM, 1.0, -18)
+	bottom_panel.set_anchor_and_offset(SIDE_TOP, 1.0, -106)
+	bottom_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	status_label = _label(bottom, "", 16)
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_label(bottom, "1–4 build  ·  F material / G drive  ·  Right-drag orbit  ·  Wheel zoom  ·  WASD pan  ·  Home recenter" if legacy_fixture else "WASD walk · Space jump · P wheel · 1–4 build · F / G links · Right-drag orbit · Wheel zoom · H help", 12, Color("9eb4b2"))
+	controls_label = _label(bottom, "1–4 build  ·  F material / G drive  ·  Right-drag orbit  ·  Wheel zoom  ·  WASD pan  ·  Home recenter" if legacy_fixture else "WASD walk · Space jump · P wheel · 1–4 build · F / G links · Right-drag orbit · Wheel zoom · H help", 12, Color("9eb4b2"))
 	var lesson_column := _panel(root, Vector2(346, 18), Vector2(600, 192))
 	lesson_panel = lesson_column.get_parent()
+	lesson_panel.set_anchor_and_offset(SIDE_RIGHT, 0.5, 306)
+	lesson_panel.set_anchor_and_offset(SIDE_LEFT, 0.5, -294)
 	lesson_title = _label(lesson_column, "", 17, Color("edcc8d"))
 	lesson_body = _label(lesson_column, "", 16)
 	lesson_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART

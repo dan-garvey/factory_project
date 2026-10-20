@@ -323,14 +323,19 @@ func _refresh_ui() -> void:
 		super._refresh_ui()
 		if not session.is_ready():
 			inspector.text = "Last confirmed state only.\nReconnect before interacting."
+			if not legacy_fixture:
+				goal_label.text = "Reconnect to continue."
 		elif not pending_actions.is_empty() and not state.entities.has(selected):
 			inspector.text = "Action awaiting the server.\nWait for its decision."
+		if not legacy_fixture and session.is_ready() and not pending_actions.is_empty():
+			goal_label.text = "Waiting for the server decision."
 	else:
 		goal_label.text = "FIRST SHIFT\nWaiting for the shared worksite"
 		stock_label.text = "No server state received"
 		power_label.text = "NOT CONNECTED"
 		inspector.text = "Connect before interacting."
 		selection_ring.visible = false
+		_refresh_guided_tools(false)
 	var enabled := _can_mutate()
 	for button in [confirm_button, retrieve_button, remove_button, power_button]:
 		button.disabled = button.disabled or not enabled

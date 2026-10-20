@@ -10,7 +10,43 @@ and deliberately retry. P (or the drive button) operates the wheel from nearby;
 it does not promise a global stop from the press. Read-only inspection, Help,
 saving and the non-consuming four-plate confirmation remain available at distance.
 
-The launch command below uses this profile by default. `--check` drives actual
+The physical view starts with one build choice, Collector, and a short next-step
+prompt. Existing confirmed machines reveal the next useful tools; the suggested
+tool uses a warm label color. **All tools** exposes every existing choice at any
+time, and the original number, F, G and I shortcuts remain available. Choosing an
+early tool by keyboard also keeps its button visible. This is a revisable view
+order, not a technology unlock or a saved progression rule. Reopening a worksite
+derives the suggestions again from its actual machines, links and inventory.
+
+**Details** shows global stock/drive counters and the original save controls;
+it does not change their eligibility. Machine inspection, retrieval, dismantling,
+connection status, refusal messages and Help remain accessible without it. Help
+retains the same separate read-only example. Pending and disconnected shared
+views replace the next-action prompt with their current waiting/reconnect state.
+The full original interface remains available in the historical legacy fixture.
+These view changes need actual rendered and ordinary-input review; source checks
+alone do not establish that a new player understands the opening.
+
+From the repository root, launch the normal physical worksite with the separately
+verified existing runtime and an external owned artifact root:
+
+```bash
+python3 -B scripts/run_local.py heavy -- python3 -B scripts/run_opening.py \
+  --godot /absolute/verified/Godot_v4.7.2-stable_linux.x86_64 \
+  --artifacts /absolute/owned/opening-sessions
+```
+
+This opens `res://opening/opening.tscn` from a fresh external project copy with
+private cache/profile directories and one new session save slot. The neutral
+project startup remains unchanged. The launcher downloads or installs nothing;
+it records copied source hashes, logs and results and retains the session after
+exit. It uses the shared bounded process supervisor with a 30 minute session,
+8 MiB per log and 256 MiB artifact-root allowance. Time/size refusal preserves
+diagnostics and is a failed run. Sessions share the repository's heavy lane and
+resource floors. These are prototype operating limits, not game performance
+targets. Close the game window to finish a normal session.
+
+The command uses the physical profile by default. With `--check`, it drives actual
 ordinary walking/build/interaction input, checks current native cuts, saves,
 then reopens that save in another engine process. `--render` additionally retains
 the actual view. `--smoke` observes fresh physical startup only. These consumers
@@ -38,24 +74,24 @@ input, native RIDs, readiness and velocity are not restored as live state.
 Offline declares P; shared declares its planned P or P/Q roster. Cross-roster
 reopen and old schema-1 saves refuse explicitly; migration is not supplied.
 
-These reversible demo values are recorded in `site_geometry.gd`: pitch1.65,
-work-anchor height0.5, reach4, capsule radius0.3/height1.8, speed3, gravity14,
-jump6, floor snap0.1 and native motor safe margin0.001. New P starts at
-[-1.65,1,3.3], Q at[-1.65,1,4.95], then gravity settles them naturally.
-Follow distance14 and zoom8..24 are presentation choices. Native seed matching
-uses1e-5 observation tolerance; contact classification allows the declared
-0.001 numerical motor margin. Neither increases the exact scalar reach sphere.
+These reversible demo values are recorded in `site_geometry.gd`: pitch 1.65,
+work-anchor height 0.5, reach 4, capsule radius 0.3 and height 1.8, speed 3,
+gravity 14, jump speed 6, floor snap 0.1 and native motor safe margin 0.001. New P starts
+at [-1.65, 1, 3.3] and Q at [-1.65, 1, 4.95], then gravity settles them naturally.
+Follow distance 14 and zoom range 8–24 are presentation choices. Native seed
+matching uses a 1e-5 observation tolerance. Contact classification allows the
+declared 0.001 numerical motor margin. Neither increases the exact scalar reach sphere.
 
-ActorWorld alone supplies native floor layer1 and uniform machine-box layer2;
-view picking uses layer4. Actor bodies use layer16 and mask1|2. **Actor-actor
+ActorWorld alone supplies native floor layer 1 and uniform machine-box layer 2;
+view picking uses layer 4. Actor bodies use layer 16 and mask 1 | 2. **Actor-actor
 collision and actor-actor saved-overlap rejection are not implemented.** The
 chosen Model placement rule still refuses a new machine intersecting any ready
 actor (`actor_occupied`) before parts/IDs change; it does not push or snap them.
-Machine boxes are1.45×1.65×1.45, centre height0.8, not precise art collision.
-The displayed grid[-2,4] and terrain256 are fixture presentation extents, not
-controller clamps or a selected game-world cap. WorldBoundary floor extent is
+Machine boxes are 1.45 × 1.65 × 1.45, with centre height 0.8; they are not precise
+art collision. The displayed grid [-2, 4] and terrain extent 256 are fixture
+presentation extents, not controller clamps or a selected game-world cap. WorldBoundary floor extent is
 backend-specific; diagnostics retain the actual backend setting and size.
-Read-only native history holds2048 observations **globally across all actors
+Read-only native history holds 2048 observations **globally across all actors
 and refreshes**. Consumers capture each admission sample immediately; missing or
 evicted evidence never falls back to a newer pose. Shared views render confirmed
 proxies only; the dedicated server runs the same single native producer.
@@ -68,7 +104,7 @@ remain open. See the [physical contract](../../../../docs/engineering/physical-c
 
 The following retained baseline description and old counts apply only to the
 explicit `--legacy-fixture` profile. Its free camera, Space power key, live Load
-and schema1 are not evidence of physical-character construction. Use
+and schema 1 are not evidence of physical-character construction. Use
 `scripts/run_opening.py --legacy-fixture --check` for that regression suite.
 The older `opening/validate.py` entry point also names this fixture explicitly.
 
@@ -79,25 +115,8 @@ recipe. A four-plate confirmation is a local session acknowledgement derived
 from authoritative player inventory; it neither consumes items nor grants
 technology/story/team credit. That acknowledgement is not a durable quest system.
 
-From the repository root, launch with the separately verified existing runtime
-and an external owned artifact root:
-
-```bash
-python3 -B scripts/run_local.py heavy -- python3 -B scripts/run_opening.py \
-  --godot /absolute/verified/Godot_v4.7.2-stable_linux.x86_64 \
-  --artifacts /absolute/owned/opening-sessions
-```
-
-This opens `res://opening/opening.tscn` from a fresh external project copy with
-private cache/profile directories and one new session save slot. The neutral
-project startup remains unchanged. The launcher downloads or installs nothing;
-it records copied source hashes, logs and results and retains the session after
-exit. It uses the shared bounded process supervisor with a 30 minute session,
-8 MiB per log and 256 MiB artifact-root allowance. Time/size refusal preserves
-diagnostics and is a failed run. Sessions share the repository's heavy lane and
-resource floors. These are prototype operating limits, not game performance
-targets. Close the game window to finish a normal session.
-Add `--smoke` for an automated startup check of that same explicit scene; it
+Add `--legacy-fixture` to the launcher above to select this profile. Together
+with that flag, `--smoke` checks startup of the historical explicit scene; it
 exits after 60 frames and requires a structured read-only observation of the
 actual opening scene: 16 fresh blanks, the starter kit, no built machines and a
 fresh save slot with Save enabled and Load disabled. A missing/invalid report,
