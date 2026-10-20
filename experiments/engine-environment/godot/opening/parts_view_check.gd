@@ -1,5 +1,6 @@
 extends SceneTree
-## Read-only view cases. No scene enters the tree and no live Model is created.
+## Default cases inspect unmounted views. --buttons-only mounts actual widgets
+## over invented projections. Neither mode creates a live Model.
 
 const Opening = preload("res://opening/opening.gd")
 const SharedOpening = preload("res://opening/shared_opening.gd")
