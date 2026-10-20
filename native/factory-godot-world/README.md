@@ -152,13 +152,23 @@ with their existing port/role arguments. All tracked adapter scripts and the
 exact descriptor/library must be present. The legacy fixed-roster Python shared
 launcher does not prepare this native profile.
 
-The headless shared consumer runs that real server and ordinary P/Q client scenes
+The original headless shared consumer ran that real server and ordinary P/Q client scenes
 in distinct processes. It tests natural collection into a buffer, authenticated
 Q recovery, an actual native host save, and fresh-host P/Q restoration before
 either client submits material input. Q then reinserts its original raw unit and
 P recovers it once. Six old requests, per-actor custody and the sixteen-unit total
 survive. This is a raw-unit recovery witness, not press/product continuation,
 walking, desktop input, actor contact, crash recovery or human play.
+
+The current `opening-session/native_shared_check.gd` consumer extends the existing
+shared-cog client's typed records, initial barriers and RPC assertions. It uses
+the same `--cog-phase`, `--cog-directory` and `--cog-previous` arguments. Its separate
+production case collects a real product into Q, pauses and recovers a positively
+progressed workpiece into Q's Cargo, and rejects P's attempt to insert that lot.
+A fresh server must load the original host save before either client submits a
+material request. Q then reinserts the same lot and P collects three more products.
+The fixture asserts individual custody, exact progress and sixteen-unit accounting;
+its source is not a claim that this new case has passed or that humans tested it.
 
 The original consumer explicitly predeclared the runtime extension catalogue
 before import. Two first cold imports without it failed; debugger captures show
