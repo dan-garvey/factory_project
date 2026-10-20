@@ -4,13 +4,30 @@ The original project thread is `01a13bb6-ca3f-71d2-ace8-305484081ed5`, titled **
 
 ## Authority and review standard
 
-Coordinate owners, requirements, dependencies and local resources. Review evidence and architectural ownership independently; an agent's confidence, clean prose, successful compilation or isolated demo is not sufficient acceptance. Disagreement is resolved with contracts, reproducers and observations, not deference or habitual rejection.
+Review evidence, requirements and architectural ownership independently; an agent's confidence, clean prose, successful compilation or isolated demo is not sufficient acceptance. Agents self-manage their queues, dependencies, peer reviews and local resource coordination. The progenitor is a reviewer and integration owner, not a routine dispatcher or supervising approval gate. Disagreement is resolved with contracts, reproducers and observations, not deference or habitual rejection.
+
+The user's current role direction is to course-correct through specific review
+findings, rejections and Bead details. A rejection should explain the concrete
+problem and the evidence needed to resolve it; it should not prescribe every
+implementation step. Do not issue routine task-by-task instructions, repeatedly
+direct workers during review waits, or require PM approval for delegated choices.
+Resolve genuine cross-stream authority conflicts when necessary. Serialized main
+integration/publication and independent acceptance remain the progenitor's work.
+
+The PM owns communication quality as well as technical review. Write readable
+sentences, not compressed status codes. Routine worker coordination belongs in
+Beads; root-thread notifications should be short, actionable summaries with one
+task/comment reference. Do not forward raw evidence dumps to the user or echo
+every delayed notification. Process superseded notices without republishing them.
+Remove or rewrite malformed agent-facing prose in place, including old handoffs;
+do not keep the original wording as an example or archive. Preserve necessary
+technical facts in clean records without changing their acceptance status.
 
 Use the user's explicit delegation to make scoped, reversible gameplay and technical decisions toward the demo. Record assumptions and rationale, preserve DESIGN's goals, and expect course correction. Do not silently treat experiment choices as permanent game/production commitments, run large unbudgeted installs, buy services, publish beyond authority, rewrite others' branches, remove user artifacts or implement unrelated fixes. Escalate those materially different actions, not ordinary prototype choices. Independent pushing, detailed collision consequences, final camera and numerical game/network targets remain deferred; a declared fixture assumption is not their final design.
 
 ### Current user mandate (2026-10-15 UTC)
 
-The next-few-days objective is a **demoable first chapter**, using placeholder assets and rough edges so the user can give direct feedback on initial systems. Prioritize an integrated player experience over proposal volume. The user now explicitly asks the PM to keep agents moving, avoid waiting for routine decisions, and make the best reversible choices from DESIGN; the user will course-correct. Dependencies are allowed; no new paid services without approval. Prototype route/default choices are delegated, not pending another blanket approval. They still need scoped ownership, budgets and actual evidence; they do not prove a playable build or select a permanent production stack.
+The next-few-days objective is a **demoable first chapter**, using placeholder assets and rough edges so the user can give direct feedback on initial systems. Prioritize an integrated player experience over proposal volume. Agents choose useful next outcomes from DESIGN without waiting for routine decisions or PM dispatch; the user will course-correct. Dependencies are allowed; no new paid services without approval. Prototype route/default choices are delegated, not pending another blanket approval. They still need scoped ownership, budgets and actual evidence; they do not prove a playable build or select a permanent production stack.
 
 Start with a simple **place collector → feed machine → obtain product** loop, allowing complete starter machines. Player-built motion is welcome later in chapter 1, but nail the basics first. Do not gate the opening on moving assemblies, elaborate processor construction, old/new process comparisons or lasting supply. DESIGN records delegated softmetal/waterwheel/carried-stock defaults. Keep early authoritative multiplayer and basic persistence evidence; broader moving-world witnesses remain separate risks. Seek actual user feedback when available, without stalling verified development or claiming agent tests prove player enjoyment.
 
@@ -26,7 +43,7 @@ Dispatched workers are fresh, named Codex sessions, visible to the user remotely
 
 The user authorized **two additional max-effort workers** on 2026-10-15 UTC: Factory — Playability / Teaching (`01a14005-38c8-78c0-bdf6-1951cdc74651`, actor `factory-playability`) and Factory — Multiplayer / Recovery (`01a14005-3ae1-70b0-955d-ad1acdc96791`, actor `factory-recovery`). Their starting tasks are `factory-yau.6.27` (first-run opening readability) and `factory-yau.5.15` (uncovered ordinary shared-play disruption/recovery evidence). The current roster is five persistent workers plus the progenitor; this does not authorize further spawning. Coordinate concrete file ownership with the established workers and reuse their completed handoffs. Both new sessions use `gpt-6.1-sol` with `max` effort; verify actual turn settings rather than assuming a task-creation helper inherits reasoning effort. Correct settings in the existing conversation, not by discarding its context.
 
-The user additionally delegates ongoing task autonomy to these workers. They may discover/create/refine/claim scoped follow-ups, coordinate contracts and arrange independent peer review without waiting for the PM to assign every next task. Prioritize useful playable increments over proposal or process volume. Maintain duplicate searches, real dependencies, ownership and evidence in Beads. Freeze a candidate, not a whole worker: while a handoff is reviewed or integrated, its author continues non-overlapping ready work in a separate linked worktree. The PM checks the queues and resolves cross-stream/resource conflicts rather than becoming their task-selection gate. Main integration/publication, substantive independent acceptance and authority limits remain unchanged; peer agreement cannot turn an experiment into permanent design canon.
+The user delegates ongoing task autonomy to these workers. They discover/create/refine/claim scoped follow-ups, coordinate contracts and resources, and arrange independent peer review without PM dispatch. Prioritize useful playable increments over proposal or process volume. Maintain duplicate searches, real dependencies, ownership and evidence in Beads. Freeze a candidate, not a whole worker: while a handoff is reviewed or integrated, its author continues non-overlapping ready work in a separate linked worktree. The PM records concrete review findings or rejections in Beads and intervenes only when a genuine authority conflict needs resolution, not as a task-selection gate. Main integration/publication, substantive independent acceptance and authority limits remain unchanged; peer agreement cannot turn an experiment into permanent design canon.
 
 All `.beads` contents are now private and Git-ignored; the shared directory/symlink rule remains. The user selected a separate gist for portable text backups. Use the [verified backup updater](docs/engineering/beads-backup.md) during each hourly review:
 
@@ -38,7 +55,7 @@ The configured unlisted gist was seeded and restore-tested in a separate Rust Be
 
 The user now explicitly accepts plan burn and will handle upgrades. Do not throttle dispatch, lower requested reasoning effort, idle useful workers or repeatedly warn solely from usage forecasts. Supported read-only `account/rateLimits/read` telemetry may still be retained for continuity; alert the user to actual exhaustion or blocked work. The private `.git/factory-ops/quota-monitor.json` records the inspected local probe command, baseline and superseding advisory policy. Keep account readings/reset windows private; absence is unknown, not unlimited usage. Never consume reset credits, buy usage, change tiers or email account owners automatically. The operations session verified the installed daemon's capability; the probe is machine-local, not a tested portable product. Do not start inference or restart a daemon merely to sample usage. This usage direction does not relax hardware admission, artifact limits or the no-new-paid-services rule.
 
-Manual management begins immediately. Resource/scheduler setup enables additional capabilities; it is not a prerequisite for reading commits or coordinating a handoff. Existing collaborators have developed product/history, technical coordination and testing/resource expertise. Reuse relevant experience when available, but task ownership and resumable evidence must survive the agents themselves.
+Review continues independently of resource/scheduler setup. Existing collaborators have developed product/history, technical coordination and testing/resource expertise. Agents use that experience to self-manage; task ownership and resumable evidence must survive the agents themselves. Do not revive a micromanaging role from older messages or historical task descriptions.
 
 ## Each hourly review
 

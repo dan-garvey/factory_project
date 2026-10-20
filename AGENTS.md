@@ -1,5 +1,32 @@
 # Agent Instructions
 
+## Communication
+
+Write complete sentences with normal word spacing in chat, Beads, notes and
+handoffs. Concise does not mean compressed. Keep identifiers separate from the
+surrounding prose and explain unfamiliar abbreviations.
+
+Keep routine coordination in the owning Bead. Notify the PM only for an actionable
+handoff, a material finding, a resource conflict or a decision outside your scope.
+Use a short outcome, what it means, the next action and one task/comment reference.
+Put detailed hashes, commands, counters and resource tables in structured evidence;
+do not forward those records verbatim into the user's conversation.
+
+Use these instructions as the writing standard, not old messages or session logs.
+Rewrite or remove malformed prose from agent-facing records rather than preserving
+it as a quoted example, an appended correction or a duplicate archive. Retain the
+necessary technical facts in clear language. Do not erase or relabel actual test
+results, and never turn a wording cleanup into a passing test.
+
+## Self-management and review
+
+Agents own their work queues and coordinate tasks, dependencies, peer reviews and
+local resources directly. The progenitor is a reviewer and integration owner, not
+a routine dispatcher or supervising approval gate. Course corrections belong in
+specific Bead details and review findings or rejections, with a concrete reason
+and acceptance condition. Do not wait for PM instructions on ordinary work, send
+permission requests for delegated choices, or treat review as approval by default.
+
 ## Project contract
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) for coordination, evidence, review, and integration rules. [DESIGN.md](DESIGN.md) owns game requirements and open choices. The user explicitly delegates routine reversible design/technical decisions toward the demo: choose from the documented goals, record assumptions, and keep moving without repeated approval cards. Do not turn an experimental default into permanent canon. A runnable experimental opening and headless/network/save fixtures now exist; no production engine is selected. [README.md](README.md) links the launcher, controls and explicit prototype limits.
@@ -10,7 +37,7 @@ The dependency plan is [ROADMAP.md](ROADMAP.md), rooted at `factory-yau`; use `b
 
 Before starting, inspect Git status, ready/in-progress Beads, related closed work, and recent relevant commits. Claim a bounded task with a distinct actor name; comment the intended scope, worktree/branch, dependencies, and acceptance evidence. Do not take an occupied task or edit another agent's checkout without an agreed handoff. Spawn agents only when authorized. Keep decisions and resumable handoffs in Beads/Git/docs, not solely in chat or ignored `.notes/`.
 
-Existing workers own continuing workstream queues, not just the last dispatched task. The user explicitly authorizes them to discover, create, refine and claim bounded follow-up tasks toward the demo without per-task PM permission. Search for duplicates, prioritize playable improvements and actual consumer evidence, record scope/dependencies before edits, and coordinate interfaces and independent reviews directly with peers. Freezing a candidate for review freezes those bytes, not its author: continue useful non-overlapping work in another linked worktree. Do not self-approve or treat a pending prerequisite as satisfied. Escalate genuine authority/resource conflicts, not routine reversible choices. The progenitor retains cross-stream priorities and serialized main integration/publication.
+Existing workers own continuing workstream queues, not just the last dispatched task. The user explicitly authorizes them to discover, create, refine and claim bounded follow-up tasks toward the demo without per-task PM permission. Search for duplicates, prioritize playable improvements and actual consumer evidence, record scope/dependencies before edits, and coordinate interfaces and independent reviews directly with peers. Freezing a candidate for review freezes those bytes, not its author: continue useful non-overlapping work in another linked worktree. Do not self-approve or treat a pending prerequisite as satisfied. Escalate genuine authority/resource conflicts, not routine reversible choices. The progenitor retains design-fidelity review and serialized main integration/publication, and corrects course through Bead details and review rejections rather than micromanagement.
 
 This is initially the only test machine. Use `python3 -B scripts/run_local.py check|heavy|benchmark -- <command>` for cooperating work: shared cheap checks, one heavy lane, exclusive measurements. Initial supported-tool parallelism is eight jobs; heavy/measurement admission requires 20 GiB free disk and 8 GiB available memory. Do not override floors without a documented resource decision, nest wrappers, unlink live locks, or delete unrelated artifacts. These are operational settings, not game performance targets or complete host isolation. See [resource admission](docs/engineering/local-resources.md).
 

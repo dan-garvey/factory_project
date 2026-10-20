@@ -36,9 +36,17 @@ Workers may choose, create, refine and claim their next bounded task without a P
 
 Arrange peer reviews directly and resolve findings with evidence. A frozen handoff must remain reproducible, but its author should take a useful ready task in a separate linked worktree while review or landing proceeds. Reviewers may prepare independent oracles against an agreed in-flight contract; final acceptance still requires the actual frozen implementation. Never close an implementation as accepted just to unblock its review, self-approve, or bypass a failed check. If every useful next task genuinely depends on unfinished work, record the specific blocker and coordinate with its owner; temporary idle time is then honest, not an excuse to expand scope arbitrarily.
 
-Notify the PM for an exact handoff ready to land, an unexpected failure/material finding, resource contention, or a decision outside delegated authority. Routine task selection, scope refinement and peer coordination belong in the owning Beads, not repeated PM permission requests. The PM can redirect priorities and retains main integration/publication and hourly design/evidence audits. Resource admission and paid/destructive/permanent-choice limits remain unchanged.
+Notify the PM for an exact handoff ready to land, an unexpected failure/material finding, an unresolved resource conflict, or a decision outside delegated authority. Routine task selection, scope refinement, resource coordination and peer review belong to the agents and the owning Beads, not repeated PM permission requests. The PM reviews design/evidence and owns serialized main integration/publication. Course correction uses concrete review findings, rejections and Bead details, not routine dispatch or micromanagement. Resource admission and paid/destructive/permanent-choice limits remain unchanged.
 
 ## Durable memory and handoffs
+
+Readable prose is a project requirement. Use complete sentences and normal
+spacing, including in internal coordination. Give the outcome and next action
+first; keep long evidence inventories in structured artifacts and link to them.
+Do not use old status messages or session logs as writing templates. When cleaning
+malformed prose, replace it in place or remove it; do not retain the old wording
+beside a correction or in a new archive. Keep the underlying task and test facts
+accurate and distinguish the cleanup from a change in technical acceptance.
 
 Use the smallest appropriate record:
 
