@@ -1,0 +1,23 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "metering",
+    srcs = ["src/metering.cpp"],
+    hdrs = ["include/factory/metering.hpp"],
+    strip_include_prefix = "include",
+)
+
+cc_binary(
+    name = "meter_case",
+    srcs = ["src/meter_case.cpp"],
+    deps = [":metering"],
+)
+
+cc_test(
+    name = "metering_test",
+    srcs = ["tests/metering_test.cpp"],
+    deps = [":metering"],
+    size = "small",
+)
