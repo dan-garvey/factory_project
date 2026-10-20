@@ -73,6 +73,18 @@ original Store file. Add `--resume-input` pointing at that new output's
 `--save-slot`; do not reuse the launcher's existing `worksite.factory`.
 The automated headless consumer is not a rendered or human-play result.
 
+The separate `opening-session/native_shared_cog_check.gd` consumer exercises the
+ordinary shared view through menu, key, button and projected click callbacks in
+independent P and Q processes. Clients retain their raw initial projections
+before validation and use separate passed markers before releasing material
+input. `native_shared_cog_server_check.gd` inherits the ordinary server without
+changing its commands, clock, body producer or Store lifecycle; it retains the
+original ready/final dictionaries and native observations in typed binary files.
+The selected continuation loads the original host save before fresh client input,
+then inspects, removes and reconstructs a real cog with confirmed actor-specific
+custody. These scripts are bounded automated consumers, not desktop control,
+human usability, tooth-contact physics or rate-scaled production evidence.
+
 Bazel targets are `//native/factory-godot-world:factory-native-world.so`,
 `//native/factory-godot-world:host_test` and
 `//native/factory-godot-world:gear_host_test`. The separate
