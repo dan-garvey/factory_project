@@ -1,0 +1,29 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "local_resources",
+    srcs = ["local_resources.cpp"],
+    hdrs = ["local_resources.hpp"],
+    copts = ["-pthread"],
+    linkopts = ["-pthread"],
+)
+
+cc_binary(
+    name = "factory-local",
+    srcs = ["main.cpp"],
+    deps = [":local_resources"],
+)
+
+cc_test(
+    name = "local_resources_test",
+    srcs = ["tests.cpp"],
+    args = ["$(rootpath :factory-local)"],
+    data = [":factory-local"],
+    deps = [":local_resources"],
+    size = "small",
+    timeout = "short",
+    # Exercises real host /proc and writes only to an explicit owned fixture root.
+    tags = ["local"],
+)

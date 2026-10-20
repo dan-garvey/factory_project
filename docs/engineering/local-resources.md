@@ -3,9 +3,10 @@
 Use the wrapper from any checkout of this repository:
 
 ```bash
-python3 -B scripts/run_local.py check -- python3 -B scripts/check.py
-python3 -B scripts/run_local.py heavy -- <build-or-test-command>
-python3 -B scripts/run_local.py benchmark -- <measurement-command>
+FACTORY_LOCAL="$(git rev-parse --path-format=absolute --git-common-dir)/factory-local-resources/factory-local"
+"$FACTORY_LOCAL" --root "$PWD" check -- python3 -B scripts/check.py
+"$FACTORY_LOCAL" --root "$PWD" heavy -- <build-or-test-command>
+"$FACTORY_LOCAL" --root "$PWD" benchmark -- <measurement-command>
 ```
 
 For commits, let the installed precommit hook invoke
@@ -19,8 +20,8 @@ changes without the explicit compiler path; it cannot silently run Godot under
 a cheap permit. Runtime selection and retained compiler diagnostics are described
 in [CONTRIBUTING](../../CONTRIBUTING.md#checks-and-local-hooks).
 
-Cheap checks can coexist with each other and one heavy command. Heavy commands
-share one lane. A benchmark excludes all wrapped checks, heavy commands, and
+Cheap checks can coexist with each other and up to four heavy commands. Each
+heavy command holds one of four slots. A benchmark excludes all wrapped checks, heavy commands, and
 other benchmarks until its child exits. Locks live in the common Git directory,
 so linked worktrees cooperate. Lock files are retained; never unlink them while
 commands might be using them. Do not nest wrappers against the same repository.
@@ -29,6 +30,10 @@ Heavy and benchmark commands check the checkout filesystem's free disk and
 Linux `MemAvailable` after admission. Initial settings are an eight-job budget,
 20 GiB free-disk floor, and 8 GiB available-memory reserve. These are operational
 settings for the current machine, not game targets or workload memory estimates.
+The four-slot default is the user's operational choice for the current demo,
+not a measured guarantee for every workload or GPU. Jobs remain eight per admitted
+command; four commands can therefore request up to 32 supported tool jobs.
+Foreground ownership and the suspension of agent desktop playtests still apply.
 Cheap checks remain available below the floors for diagnosis. Override settings
 with `--jobs`, `--disk-floor-gib`, and `--memory-reserve-gib` before `--`.
 
@@ -48,3 +53,12 @@ other repositories, background services, and host activity are unaffected.
 Agree quiet periods before measurements and record the environment and observed
 variation. The wrapper never deletes artifacts, kills unrelated processes,
 changes host settings, or proves benchmark-quality isolation.
+
+The native executable is installed at
+`<common-git-dir>/factory-local-resources/factory-local`. Existing Python commands
+and commit hooks remain unchanged and retain exclusive legacy admission.
+Legacy and native commands coordinate on the same
+retained `heavy.lock` and `activity.lock` inodes: native heavy jobs share the
+legacy gate and hold distinct open-file-description byte locks on the heavy
+descriptor. Both permits survive in the immediate child. No lock file is replaced
+or unlinked during rollout. Older serial checkouts may reduce concurrency.
