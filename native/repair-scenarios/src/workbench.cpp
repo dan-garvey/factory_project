@@ -4,6 +4,7 @@
 #include "factory/co_drive_scenarios.hpp"
 #include "factory/service_scenarios.hpp"
 #include "factory/spindle_scenarios.hpp"
+#include "factory/drive_diagnostics.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -78,6 +79,22 @@ void status(const Host& host, const w::State& state, std::ostream& out) {
     if (host.source_choice) {
         const auto choice = co_drive_scenarios::inspect(state);
         out << "Source arrangement: " << co_drive_scenarios::mode_name(choice.mode) << "; registered sources=" << choice.sources << '\n';
+        if (choice.mode == co_drive_scenarios::Mode::stalled) {
+            std::vector<mechanics::Part> parts;
+            for (const auto& part : state.topology.parts) parts.push_back(part.geometry);
+            const auto report = drive_diagnostics::inspect(parts, state.topology.sources);
+            for (const auto& witness : report.witnesses) {
+                if (witness.kind == drive_diagnostics::Kind::incompatible_sources)
+                    out << "With only source " << witness.source << ", " << witness.hub << " has rate "
+                        << witness.first_rate.numerator << '/' << witness.first_rate.denominator
+                        << "; with only source " << witness.other_source << ", its rate is "
+                        << witness.second_rate.numerator << '/' << witness.second_rate.denominator << ".\n";
+                else if (witness.kind == drive_diagnostics::Kind::single_source_stall)
+                    out << "The same component still stalls with only source " << witness.source << ". Inspect its cog and shaft loop.\n";
+                else
+                    out << "The conflicting source or loop could not be isolated.\n";
+            }
+        }
     }
     if (host.service) {
         out << "Service relocation: " << (service_scenarios::relocated(*host.service, state) ? "complete" : "pending") << '\n'

@@ -1,0 +1,18 @@
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "diagnostics",
+    srcs = ["src/diagnostics.cpp"],
+    hdrs = ["include/factory/drive_diagnostics.hpp"],
+    strip_include_prefix = "include",
+    deps = ["//native/factory-mechanics:mechanics"],
+)
+
+cc_test(
+    name = "diagnostics_test",
+    srcs = ["tests/diagnostics_test.cpp"],
+    deps = [":diagnostics", "//native/co-drive-repairs:scenarios"],
+    size = "small",
+)
