@@ -495,19 +495,33 @@ func _update_camera() -> void:
 func _build_world() -> void:
 	var environment := WorldEnvironment.new()
 	var settings := Environment.new()
-	settings.background_mode = Environment.BG_COLOR
-	settings.background_color = Color("17232a")
-	settings.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	settings.ambient_light_color = Color("bdd4d9")
-	settings.ambient_light_energy = 0.6
+	var sky_material := ProceduralSkyMaterial.new()
+	sky_material.sky_top_color = Color("536f86")
+	sky_material.sky_horizon_color = Color("d8cbb2")
+	sky_material.ground_bottom_color = Color("394641")
+	sky_material.ground_horizon_color = Color("b5b8a1")
+	var sky := Sky.new()
+	sky.sky_material = sky_material
+	settings.background_mode = Environment.BG_SKY
+	settings.sky = sky
+	settings.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+	settings.ambient_light_energy = 0.5
+	settings.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	environment.environment = settings
 	add_child(environment)
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-48, -30, 0)
 	sun.light_color = Color("fff1d6")
-	sun.light_energy = 1.6
+	sun.light_energy = 1.35
 	sun.shadow_enabled = true
 	add_child(sun)
+	# Keep the back of machinery readable without adding a second shadow map.
+	var fill := DirectionalLight3D.new()
+	fill.rotation_degrees = Vector3(-32, 135, 0)
+	fill.light_color = Color("b9d2ea")
+	fill.light_energy = 0.35
+	fill.shadow_enabled = false
+	add_child(fill)
 	if not legacy_fixture:
 		# Presentation extent only. ActorWorld owns the native floor, whose
 		# backend-specific extent is recorded separately in its diagnostics.
@@ -600,6 +614,135 @@ func _bar(parent: Node, a: Vector3, b: Vector3, width: float, color: Color) -> v
 	var bar := _box(parent, (a + b) / 2, Vector3(width, width, a.distance_to(b)), color)
 	bar.look_at(b)
 
+func _route_segment(parent: Node3D, part_name: String, a: Vector3, b: Vector3,
+		width: float, color: Color) -> MeshInstance3D:
+	var offset := b - a
+	var part := _box(parent, (a + b) / 2.0, Vector3(width, width, offset.length()), color)
+	part.name = part_name
+	# Material routes join equal-height grid anchors. Local rotation keeps this
+	# mesh construction independent of a camera or an attached scene tree.
+	part.rotation.y = atan2(offset.x, offset.z)
+	return part
+
+func _material_route(parent: Node3D, a: Vector3, b: Vector3) -> Node3D:
+	var route := Node3D.new()
+	route.name = "MaterialRoute"
+	parent.add_child(route)
+	if a.distance_to(b) < 0.01:
+		return route
+	var direction := (b - a).normalized()
+	var start := a + direction * 0.55 + Vector3.UP * 0.45
+	var finish := b - direction * 0.55 + Vector3.UP * 0.45
+	_route_segment(route, "Rail", start, finish, 0.17, Color("929e91"))
+	var side := Vector3(-direction.z, 0, direction.x)
+	var tip := start.lerp(finish, 0.7) + Vector3.UP * 0.115
+	_route_segment(route, "ArrowLeft", tip - direction * 0.15 + side * 0.1, tip,
+		0.035, Color("e2c48b"))
+	_route_segment(route, "ArrowRight", tip - direction * 0.15 - side * 0.1, tip,
+		0.035, Color("e2c48b"))
+	return route
+
+func _machine_box(parent: Node3D, part_name: String, at: Vector3, dimensions: Vector3,
+		color: Color, metal: float = 0.55, roughness: float = 0.5) -> MeshInstance3D:
+	var part := _box(parent, at, dimensions, color)
+	part.name = part_name
+	var finish := part.material_override as StandardMaterial3D
+	finish.metallic = metal
+	finish.roughness = roughness
+	return part
+
+func _machine_cylinder(parent: Node3D, part_name: String, at: Vector3, radius: float,
+		height: float, color: Color, orientation: Vector3 = Vector3.ZERO) -> MeshInstance3D:
+	var part := _cylinder(parent, at, radius, height, color)
+	part.name = part_name
+	part.rotation = orientation
+	var finish := part.material_override as StandardMaterial3D
+	finish.metallic = 0.75
+	finish.roughness = 0.4
+	return part
+
+func _collector_visual(anchor: Node3D) -> void:
+	var frame: Color = COLORS.collector
+	var steel := Color("a6b4af")
+	_machine_box(anchor, "StockBed", Vector3(0, 0.51, 0), Vector3(1.25, 0.1, 0.67), steel)
+	_machine_box(anchor, "BackHousing", Vector3(-0.22, 0.66, -0.44), Vector3(0.84, 0.78, 0.14), frame)
+	for x in [-0.57, 0.18]:
+		_machine_box(anchor, "HeadSupport", Vector3(x, 0.87, -0.38), Vector3(0.12, 1.1, 0.14), frame)
+	_machine_box(anchor, "HeadCover", Vector3(-0.22, 1.42, -0.25), Vector3(0.86, 0.12, 0.64), frame)
+	_machine_cylinder(anchor, "CutterDrum", Vector3(-0.22, 1.1, -0.19), 0.24, 0.34,
+		Color("465a60"), Vector3(PI / 2, 0, 0))
+	_machine_cylinder(anchor, "CutterHub", Vector3(-0.22, 1.1, 0.01), 0.085, 0.08,
+		steel, Vector3(PI / 2, 0, 0))
+	for z in [-0.37, 0.37]:
+		_machine_box(anchor, "StockGuide", Vector3(0.05, 0.6, z), Vector3(1.15, 0.08, 0.06), frame)
+	_machine_cylinder(anchor, "DriveStub", Vector3(0, 0.35, 0.55), 0.085, 0.18,
+		Color("b87945"), Vector3(PI / 2, 0, 0))
+
+func _belt_visual(anchor: Node3D) -> void:
+	var frame: Color = COLORS.belt
+	for x in [-0.52, 0.52]:
+		for z in [-0.26, 0.26]:
+			_machine_box(anchor, "ConveyorLeg", Vector3(x, 0.315, z), Vector3(0.09, 0.21, 0.09), frame)
+	_machine_box(anchor, "ConveyorBand", Vector3(0, 0.465, 0), Vector3(1.38, 0.12, 0.64), Color("28383d"), 0.05, 0.9)
+	for n in range(-3, 4):
+		_machine_box(anchor, "ConveyorCleat", Vector3(n * 0.18, 0.54, 0), Vector3(0.06, 0.03, 0.62), Color("b2c5b7"), 0.3)
+	for z in [-0.36, 0.36]:
+		_machine_box(anchor, "ConveyorRail", Vector3(0, 0.57, z), Vector3(1.38, 0.08, 0.05), frame)
+	for x in [-0.57, 0.57]:
+		_machine_cylinder(anchor, "ConveyorRoller", Vector3(x, 0.465, 0), 0.1, 0.7,
+			Color("5b7275"), Vector3(PI / 2, 0, 0))
+	_machine_cylinder(anchor, "DriveStub", Vector3(0, 0.35, 0.55), 0.085, 0.18,
+		Color("b87945"), Vector3(PI / 2, 0, 0))
+
+func _press_visual(anchor: Node3D) -> void:
+	var frame: Color = COLORS.processor
+	var steel := Color("a6b4af")
+	var dark := Color("29393f")
+	for x in [-0.48, 0.48]:
+		_machine_box(anchor, "PressUpright", Vector3(x, 0.82, -0.38), Vector3(0.15, 1.24, 0.28), frame)
+	_machine_box(anchor, "PressBridge", Vector3(0, 1.5, -0.3), Vector3(1.2, 0.2, 0.36), frame)
+	_machine_box(anchor, "Anvil", Vector3(0, 0.46, 0.05), Vector3(0.7, 0.16, 0.63), dark)
+	_machine_box(anchor, "ToolHead", Vector3(0, 0.84, 0), Vector3(0.56, 0.17, 0.55), steel, 0.85, 0.32)
+	_machine_cylinder(anchor, "Piston", Vector3(0, 1.14, -0.08), 0.075, 0.45, steel)
+	for x in [-0.34, 0.34]:
+		_machine_cylinder(anchor, "ToolGuide", Vector3(x, 1.06, -0.19), 0.04, 0.6, Color("b87945"))
+	_machine_box(anchor, "OutputTray", Vector3(0.46, 0.33, 0.15), Vector3(0.48, 0.05, 0.58), Color("aaa993"))
+	_machine_cylinder(anchor, "DriveStub", Vector3(0, 0.35, 0.55), 0.085, 0.18,
+		Color("b87945"), Vector3(PI / 2, 0, 0))
+	for x in [-0.48, 0.48]:
+		_machine_cylinder(anchor, "BridgeBolt", Vector3(x, 1.5, -0.1075), 0.035, 0.025,
+			steel, Vector3(PI / 2, 0, 0))
+
+func _wheel_visual(anchor: Node3D) -> void:
+	var frame := Color("465a60")
+	var wood := Color("b48c52")
+	for z in [-0.42, 0.42]:
+		_machine_box(anchor, "WheelStand", Vector3(0, 0.51, z), Vector3(0.16, 0.54, 0.16), frame)
+		_machine_cylinder(anchor, "AxleBearing", Vector3(0, 0.78, z), 0.145, 0.18,
+			Color("a6b4af"), Vector3(PI / 2, 0, 0))
+	wheel_rotor = Node3D.new()
+	wheel_rotor.name = "WheelRotor"
+	wheel_rotor.position = Vector3(0, 0.78, 0)
+	anchor.add_child(wheel_rotor)
+	# An open rim exposes the spokes. This is the existing decorative rotor;
+	# no rendered contact or mesh position supplies a drive relationship.
+	for n in range(12):
+		var angle := n * TAU / 12.0
+		var radial := Vector3(cos(angle), sin(angle), 0)
+		for z in [-0.15, 0.15]:
+			var rim := _machine_box(wheel_rotor, "WheelRim", radial * 0.55 + Vector3(0, 0, z),
+				Vector3(0.075, 0.3, 0.06), frame)
+			rim.rotation.z = angle
+		var paddle := _machine_box(wheel_rotor, "WheelPaddle", radial * 0.62,
+			Vector3(0.14, 0.16, 0.28), wood, 0.05, 0.88)
+		paddle.rotation.z = angle
+	for n in range(3):
+		var spoke := _machine_box(wheel_rotor, "WheelSpoke", Vector3.ZERO,
+			Vector3(0.065, 1.0, 0.085), wood, 0.05, 0.88)
+		spoke.rotation.z = n * PI / 3.0
+	_machine_cylinder(wheel_rotor, "WheelHub", Vector3.ZERO, 0.13, 0.45,
+		Color("b87945"), Vector3(PI / 2, 0, 0))
+
 func _rebuild_machines() -> void:
 	for child in machine_root.get_children():
 		child.free()
@@ -610,37 +753,16 @@ func _rebuild_machines() -> void:
 		var anchor := Node3D.new()
 		anchor.position = _cell_position(entity.cell)
 		machine_root.add_child(anchor)
-		_box(anchor, Vector3(0, 0.12, 0), Vector3(1.35, 0.24, 1.35), Color("273c41"))
+		_machine_box(anchor, "Plinth", Vector3(0, 0.12, 0), Vector3(1.35, 0.24, 1.35), Color("273c41"))
 		match kind:
 			"collector":
-				_box(anchor, Vector3(-0.12, 0.65, 0), Vector3(0.8, 0.85, 0.9), COLORS[kind])
-				_box(anchor, Vector3(0.5, 0.4, 0), Vector3(0.5, 0.15, 0.62), Color("c9c8ac"))
-				var saw := _cylinder(anchor, Vector3(-0.1, 1.18, 0), 0.36, 0.1, Color("314249"))
-				saw.rotation.x = PI / 2
+				_collector_visual(anchor)
 			"belt":
-				_box(anchor, Vector3(0, 0.38, 0), Vector3(1.54, 0.18, 0.74), COLORS[kind])
-				for x in range(-3, 4):
-					_box(anchor, Vector3(x * 0.19, 0.49, 0), Vector3(0.065, 0.045, 0.71), Color("99b6a5"))
-				_box(anchor, Vector3(0, 0.52, -0.4), Vector3(1.55, 0.16, 0.06), Color("2a4447"))
-				_box(anchor, Vector3(0, 0.52, 0.4), Vector3(1.55, 0.16, 0.06), Color("2a4447"))
+				_belt_visual(anchor)
 			"processor":
-				for x in [-0.45, 0.45]:
-					_box(anchor, Vector3(x, 0.85, -0.31), Vector3(0.16, 1.5, 0.3), COLORS[kind])
-				_box(anchor, Vector3(0, 1.56, -0.3), Vector3(1.1, 0.22, 0.46), COLORS[kind])
-				_box(anchor, Vector3(0, 0.84, 0), Vector3(0.68, 0.18, 0.65), Color("c2bca9"))
-				_cylinder(anchor, Vector3(0, 1.2, -0.15), 0.1, 0.55, Color("35484d"))
-				_box(anchor, Vector3(0, 0.35, 0), Vector3(0.82, 0.24, 0.82), Color("30434a"))
-				_box(anchor, Vector3(0.6, 0.29, 0.15), Vector3(0.65, 0.08, 0.72), Color("c9c8ac"))
+				_press_visual(anchor)
 			"wheel":
-				_box(anchor, Vector3(0, 0.62, 0.25), Vector3(0.16, 1.2, 0.35), Color("38464b"))
-				wheel_rotor = Node3D.new()
-				wheel_rotor.position = Vector3(0, 0.72, 0)
-				anchor.add_child(wheel_rotor)
-				var rim := _cylinder(wheel_rotor, Vector3.ZERO, 0.67, 0.12, Color("6d7f83"))
-				rim.rotation.x = PI / 2
-				for n in range(8):
-					var spoke := _box(wheel_rotor, Vector3.ZERO, Vector3(0.12, 1.48, 0.16), Color("c2a86d"))
-					spoke.rotation.z = n * PI / 4
+				_wheel_visual(anchor)
 		var body := StaticBody3D.new()
 		body.collision_layer = Geometry.PICK_LAYER
 		body.collision_mask = 0
@@ -655,8 +777,8 @@ func _rebuild_machines() -> void:
 		_text(anchor, NAMES.get(kind, kind).to_upper(), Vector3(0, 1.9, 0), Color("f2e5c5"))
 	for pair in state.links:
 		if state.entities.has(pair[0]) and state.entities.has(pair[1]):
-			_bar(machine_root, _cell_position(state.entities[pair[0]].cell) + Vector3(0.5, 0.45, 0),
-				_cell_position(state.entities[pair[1]].cell) + Vector3(-0.5, 0.45, 0), 0.18, Color("b9c1a8"))
+			_material_route(machine_root, _cell_position(state.entities[pair[0]].cell),
+				_cell_position(state.entities[pair[1]].cell))
 	for pair in state.get("drive_links", []):
 		if state.entities.has(pair[0]) and state.entities.has(pair[1]):
 			_bar(machine_root, _cell_position(state.entities[pair[0]].cell) + Vector3(0, 0.35, 0.55),
@@ -676,7 +798,7 @@ func _redraw_items() -> void:
 		for n in range(amount):
 			_box(item_root, pos + Vector3(-0.17 + n * 0.32, 0.65, 0), Vector3(0.27, 0.18, 0.36), Color("e2c48b"))
 		if entity.kind == "processor" and state.stock.output > 0:
-			_box(item_root, pos + Vector3(0.6, 0.39, 0.15), Vector3(0.44, 0.07, 0.53), Color("e4d8b3"))
+			_box(item_root, pos + Vector3(0.46, 0.39, 0.15), Vector3(0.44, 0.07, 0.53), Color("e4d8b3"))
 	# The finite seam stays in its marked column when machinery is rebuilt.
 	for n in range(mini(16, int(state.stock.source))):
 		_box(item_root, Vector3(-0.16 + (n % 2) * 0.32, 0.11, -2.9 + int(n / 2.0) * 1.15),
