@@ -19,20 +19,21 @@ library uses C++20. These are bounded choices for these increments, not a perman
 production engine or language commitment. Godot remains accepted.
 
 Bazel is the user-required canonical build system. Correct incremental builds and
-cached validation should shorten the path between reviewed commits landing without
+cached validation should shorten the path between tested commits landing without
 weakening dependency invalidation or mandatory checks. The [initial canonical
 graph and bounded runner](native-builds.md) now cover the material foundation;
 their corrected local build/cache validation passed. Ops owns the remaining
 package and gate integration in `factory-yau.3.17.8`. This is not yet a measured
 commit-turnaround improvement. The retained CMake definitions and commands document the
 original fixture campaign, not the canonical ongoing build interface or permission
-to expand a parallel build system. Keep existing checks active until their reviewed
-replacements take over.
+to expand a parallel build system. Keep existing checks active until validated
+replacements preserve their contracts.
 
 Keep the current commands and mandatory gates enforced while replacing them in
-reviewed increments. Do not expand their Python implementation or silently admit a
-pending Python candidate under historical approval. Retain its original runtime
-evidence and failures. A rewritten reader does not create a new gameplay run.
+checked increments with asynchronous review. Do not expand their Python
+implementation or silently admit a pending Python candidate under historical
+approval. Retain its original runtime evidence and failures. A rewritten reader
+does not create a new gameplay run.
 
 ## One authority through the transition
 
@@ -75,7 +76,7 @@ No GDScript mirror of new native quantity rules is allowed.
 
 | Task | Current responsibility | Completion boundary |
 | --- | --- | --- |
-| `factory-yau.3.17.1` | Ops owns native resource admission. | Replace one actual Python entry point with independently reviewed lock, child-lifetime, floor, refusal and exit parity. |
+| `factory-yau.3.17.1` | Ops owns native resource admission. | Replace one actual Python entry point with lock, child-lifetime, floor, refusal and exit parity; use the shared post-merge review policy. |
 | `factory-yau.3.17.2` | Platform owns the reviewed C++ material foundation. | The standalone native campaign and final peer bindings passed; live demo adoption remains separate. |
 | `factory-yau.3.17.3` | Native launch and supervision queue. | Replace ordinary offline/shared lifecycle and resume/save entry points with parity. |
 | `factory-yau.3.17.4` | Native mandatory-gate queue. | Preserve raw staged bytes, source/test coverage, compiler provenance and fail-closed activation. |
@@ -88,7 +89,7 @@ The following inventory records every tracked Python file at the baseline. Activ
 tools have executable queue entries; the retired hourly PM launcher and its tests
 need no native replacement. Their existing source and mandatory checks remain
 intact. Claim and refine an increment before editing; a queue entry does not
-reserve a lane or waive source review. Existing tests migrate with active behavior.
+reserve a lane or waive post-merge review. Existing tests migrate with active behavior.
 The parent migration remains partial until its active work is delivered; writing
 this inventory does not complete it.
 
@@ -123,9 +124,14 @@ and stop on the first failure. Independent source agreement is not native build 
 runtime acceptance. A compiled headless material fixture is not ordinary input,
 native character movement, persistence, human play or a performance measurement.
 
-Before replacing a live boundary, retain meaningful success and refusal witnesses,
-failure cleanup, exact source/runtime closure and independent review. Source gate
-activation uses relevant tests and the same single independent reviewer, not an
-additional safety approval; a textual merge is insufficient.
-Original freezes and first failures keep their original revisions. Root reviews and
-integrates current main serially, without becoming a routine permission gate.
+Validate live-boundary replacements with relevant success and refusal checks,
+failure cleanup and exact source/runtime closure. Activation uses the relevant
+automated tests and installed hook, not a pre-merge approval. Preserve validation
+contracts and reuse passing checks for unchanged relevant inputs; a textual merge
+alone is insufficient. Independent review follows AGENTS.md's post-merge rotation,
+with concrete findings tracked as fixes rather than another approval chain.
+
+Workstream owners resolve their joins and land and publish scoped changes using
+CONTRIBUTING.md's short shared Git transaction. The progenitor reviews landed work
+and records actionable fix Beads, not a serialized human landing queue. Original
+freezes and first failures keep their original revisions and evidence limits.

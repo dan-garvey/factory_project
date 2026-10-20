@@ -133,6 +133,31 @@ func _part(context: Dictionary, id: String) -> Dictionary:
 		return {}
 	return value
 
+func pending_endpoint() -> Dictionary:
+	# A view of the existing first-click stamp, never a reach or engagement verdict.
+	if active_tool not in ["shaft", "disconnect"] or _first.is_empty():
+		return {}
+	var context := _context()
+	if context.is_empty() or not context.usable:
+		return {}
+	if active_tool == "shaft" and _count(context, "shaft", 0, 2) == 0:
+		return {}
+	var part := _part(context, _first.id)
+	if _first.world != context.world or _first.actor != context.actor or part.is_empty() or part.generation != _first.generation:
+		return {}
+	var center: Variant = part.get("center")
+	var axis: Variant = part.get("axis")
+	var kind: Variant = part.get("kind")
+	if not center is Array or center.size() != 3 or typeof(axis) != TYPE_INT or axis not in [0, 1, 2] or kind not in ["collector", "belt", "processor", "wheel", "gear"]:
+		return {}
+	for coordinate: Variant in center:
+		if typeof(coordinate) != TYPE_INT or coordinate < -1048576 or coordinate > 1048576:
+			return {}
+	var teeth: Variant = part.get("teeth", 0)
+	if kind == "gear" and (typeof(teeth) != TYPE_INT or teeth < 1 or teeth > 256):
+		return {}
+	return {"id": _first.id, "center": center.duplicate(), "axis": axis, "kind": kind, "teeth": teeth}
+
 func _feedback(words: String, refused: bool = true) -> void:
 	tooltip_text = words
 	if _host != null and is_instance_valid(_host.get_ref()) and _host.get_ref().has_method("_message"):
