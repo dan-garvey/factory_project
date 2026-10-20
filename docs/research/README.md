@@ -132,7 +132,7 @@ decisions promote an experiment into our requirements.
 ## Continuing operation and boundaries
 
 Keep research useful and alive through owned queues, peer exchange and the
-existing hourly PM review, not a one-off report marked done. When a round ends,
+normal integration work, not a one-off report marked done. When a round ends,
 select a new gap, deeper clearly distinct scope, cross-game synthesis, or a
 bounded adaptation experiment. Do not manufacture duplicate research or process
 work merely to appear active.

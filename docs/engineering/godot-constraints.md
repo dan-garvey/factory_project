@@ -518,7 +518,7 @@ behavior explicitly unknown. Owners must add a scoped measured follow-up when
 one becomes necessary; unknown is not a claim of impossibility. No exhaustive
 runtime characterization was performed for this register. New engine/backend
 versions, authority/controller changes and newly discovered restrictions must
-update this register with their actual impact and evidence. PM checks it during
-hourly reviews. Do not postpone stationary chapter work for an exhaustive engine
+update this register with their actual impact and evidence during ordinary
+integration and review. Do not postpone stationary chapter work for an exhaustive engine
 comparison, and do not mark this maintained register permanently finished after
 its initial audit.

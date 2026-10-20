@@ -34,10 +34,10 @@ python3 -B scripts/backup_beads.py --config /absolute/private/beads-backup.json
 
 For the configured Git-admin location, pass the absolute common Git directory
 followed by `/factory-ops/beads-backup.json`. Do not copy the private configuration
-into a linked worktree. There is no automatic schedule or retry; the PM runs
-backups serially. The hourly PM review will invoke this verified updater; that is
-part of the existing review workflow, not an independent backup timer or proof
-that a future review completed.
+into a linked worktree. Backups are separate, serialized manual operations with
+no automatic schedule or retry. The hourly PM timer is retired; disabling it
+does not create a backup schedule or authorize an upload outside the existing
+privacy and export constraints.
 
 The updater resolves the main checkout through Git, validates metadata paths,
 and runs `br sync --flush-only` with the explicit canonical database and without
