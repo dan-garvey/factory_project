@@ -44,6 +44,21 @@ cc_test(
 )
 
 cc_test(
+    name = "source_budget_test",
+    srcs = ["tests/source_budget_test.cpp"],
+    args = [
+        "$(rootpath //:scripts/check_gdscript.py)",
+        "$(rootpath //:scripts/check_engine_environment.py)",
+    ],
+    data = [
+        "//:scripts/check_gdscript.py",
+        "//:scripts/check_engine_environment.py",
+    ],
+    deps = [":opening"],
+    size = "small",
+)
+
+cc_test(
     name = "extension_test",
     srcs = ["tests/extension_test.cpp"],
     args = ["$(rootpath :factory-opening-startup)"],
@@ -63,5 +78,5 @@ cc_test(
 
 test_suite(
     name = "tests",
-    tests = [":capture_test", ":opening_test", ":extension_test"],
+    tests = [":capture_test", ":opening_test", ":extension_test", ":source_budget_test"],
 )

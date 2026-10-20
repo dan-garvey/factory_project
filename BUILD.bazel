@@ -1,5 +1,10 @@
 package(default_visibility = ["//visibility:public"])
 
+exports_files([
+    "scripts/check_gdscript.py",
+    "scripts/check_engine_environment.py",
+])
+
 test_suite(
     name = "native_tests",
     tests = ["//native/factory-core:materials_test"],
