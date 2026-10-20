@@ -138,16 +138,38 @@ func _targets(before: Dictionary, action: Dictionary) -> Array:
 		output.append([float(cell[0]) * 1.65, 0.5, float(cell[1]) * 1.65])
 	return output
 
+func _finite_point3(value: Variant) -> bool:
+	if not value is Array or value.size() != 3:
+		return false
+	for coordinate: Variant in value:
+		if typeof(coordinate) != TYPE_FLOAT or not is_finite(coordinate):
+			return false
+	return true
+
 func _native_admission(before: Dictionary, action: Dictionary, reply: Dictionary, cut: Dictionary) -> bool:
 	var reach: Dictionary = reply.get("reach", {})
-	if not _expect(reach.get("actor") == "P" and reach.get("build_reach") == 4.0 and typeof(reach.get("native_epoch")) == TYPE_INT, "The original command has a physical P admission"):
+	if not _expect(reach.get("actor") == "P" and reach.get("build_reach") == 4.0
+		and typeof(reach.get("native_epoch")) == TYPE_INT and reach.native_epoch > 0
+		and typeof(reply.get("native_epoch")) == TYPE_INT and reply.native_epoch == reach.native_epoch,
+		"The original command has a physical P admission with one positive native epoch"):
 		return false
-	if not _expect(cut.get("available", false) and cut.actor == "P" and cut.sample.get("registered", false) and cut.sample.get("ready", false) and cut.sample.native_epoch == reach.native_epoch and _same(cut.sample.position, reach.position), "The receipt is bound to the retained ready registered native sample"):
+	var sample: Dictionary = cut.get("sample", {})
+	if not _expect(cut.get("available", false) and cut.get("actor") == "P"
+		and sample.get("registered", false) and sample.get("ready", false)
+		and typeof(sample.get("native_epoch")) == TYPE_INT and sample.native_epoch == reach.native_epoch,
+		"The receipt is bound to the retained ready registered native sample"):
+		return false
+	if not _expect(_finite_point3(sample.get("position")) and _finite_point3(sample.get("node_position"))
+		and _finite_point3(reach.get("position")) and _finite_point3(reply.get("actor_position"))
+		and _same(sample.position, sample.node_position) and _same(sample.position, reach.position)
+		and _same(sample.position, reply.actor_position), "Admission retains exactly three finite native coordinates"):
 		return false
 	var targets: Array = _targets(before, action)
 	if not _expect(_same(targets, reach.targets) and targets.size() == reach.distances_squared.size(), "Admission uses the literal original construction targets"):
 		return false
 	for index: int in range(targets.size()):
+		if not _expect(_finite_point3(targets[index]), "Each literal construction target has exactly three finite coordinates"):
+			return false
 		var squared: float = 0.0
 		for axis: int in range(3):
 			var difference: float = float(reach.position[axis]) - float(targets[index][axis])
