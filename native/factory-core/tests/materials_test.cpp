@@ -4,218 +4,215 @@
 #include <limits>
 #include <string>
 
-namespace material = factory::materials;
-
+namespace m = factory::materials;
 namespace {
 int checks = 0;
 int failures = 0;
-const material::Path complete{true, true, true, true, true, true};
+const m::Path complete{true, true, true, true, true, true};
 
 void check(bool condition, const std::string& label) {
     ++checks;
-    if (!condition) {
-        ++failures;
-        std::cerr << "FAIL: " << label << '\n';
-    }
+    if (!condition) { ++failures; std::cerr << "FAIL: " << label << '\n'; }
 }
-
-material::State fresh(material::Quantity amount) {
-    return {amount, {amount, 0, 0, 0, 0, 0}, {}, 0};
+m::WorkLot lot(m::WorkId id, m::Quantity remaining) { return {id, {2, 2}, remaining}; }
+m::State snapshot(m::Quantity initial, m::Stock stock,
+                  std::optional<m::WorkLot> work = {}, m::WorkId next = 1) {
+    return {initial, stock, {{"P", {}}, {"Q", {}}}, work, next};
 }
+m::State fresh(m::Quantity amount) { return snapshot(amount, {amount, 0, 0, 0, 0}); }
 
-void advance(material::State& state, const material::Config& config,
-             const material::Path& path, int count) {
-    for (int tick = 0; tick < count; ++tick) {
-        check(material::step(state, config, path) == material::Error::none,
-              "A valid material step succeeds and conserves all input units.");
-    }
+void advance(m::State& state, const m::Config& config, const m::Path& path, int count) {
+    for (int tick = 0; tick < count; ++tick)
+        check(m::step(state, config, path) == m::Error::none, "A valid tick preserves all finite material.");
 }
-
-void refusal(material::State state, const material::Config& config,
-             const material::Path& path, material::Error expected, const std::string& label) {
+void refusal(m::State state, const m::Config& config, const m::Path& path,
+             m::Error error, const std::string& label) {
     const auto before = state;
-    check(material::step(state, config, path) == expected, label);
-    check(state == before, "A refused step leaves the entire state unchanged.");
+    check(m::step(state, config, path) == error, label);
+    check(state == before, "A refused tick leaves the complete state unchanged.");
 }
 
 void processing() {
-    const material::Config config{2, 2, 2};
+    const m::Config pair{2, 2, 2};
     auto state = fresh(8);
-    advance(state, config, complete, 3);
-    check(state.stock == material::Stock{5, 1, 1, 1, 0, 0} && state.remaining == 0,
-          "One input cannot begin the two-input recipe, and transport moves one location per tick.");
-    advance(state, config, complete, 4);
-    check(state.stock == material::Stock{1, 1, 1, 1, 2, 1} && state.remaining == 2,
-          "The first product and next held cycle match the full literal seven-tick snapshot.");
-    advance(state, config, complete, 5);
-    check(state.stock == material::Stock{0, 1, 1, 2, 2, 1} && state.remaining == 0,
-          "A blocked output retains the completed two-input held cycle.");
+    advance(state, pair, complete, 3);
+    check(state == snapshot(8, {5, 1, 1, 1, 0}),
+          "The original three-tick snapshot cannot start a recipe from only one input.");
+    advance(state, pair, complete, 4);
+    check(state == snapshot(8, {1, 1, 1, 1, 1}, lot(2, 2), 3),
+          "The original seven-tick holdings retain the second lot and its full new timer.");
+    advance(state, pair, complete, 5);
+    check(state == snapshot(8, {0, 1, 1, 2, 1}, lot(2, 0), 3),
+          "The original blocked holdings retain one ready whole lot, not duplicated raw stock.");
     const auto blocked = state;
-    advance(state, config, complete, 5);
-    check(state == blocked, "A full path cannot duplicate, destroy or keep extracting feed.");
+    advance(state, pair, complete, 5);
+    check(state == blocked, "Full output preserves the entire blocked state, including serials.");
     for (int tick = 0; tick < 32; ++tick) {
-        if (state.stock.output > 0) {
-            check(material::retrieve(state, config, complete, "P", 1) == material::Error::none,
-                  "A product moves into the named player inventory.");
-        }
-        advance(state, config, complete, 1);
+        if (state.stock.output > 0)
+            check(m::retrieve(state, pair, complete, "P", 1) == m::Error::none,
+                  "Only the named admitted actor receives the finished product.");
+        advance(state, pair, complete, 1);
     }
-    if (state.stock.output > 0) {
-        check(material::retrieve(state, config, complete, "P", 1) == material::Error::none,
-              "The final output can be collected.");
-    }
-    check(state.stock == material::Stock{} && state.remaining == 0 &&
-          state.inventories == std::map<std::string, material::Quantity>{{"P", 4}},
-          "Eight raw units end as exactly four products, with every other holder empty.");
+    if (state.stock.output > 0)
+        check(m::retrieve(state, pair, complete, "P", 1) == m::Error::none, "The last product is retrievable.");
+    auto expected = snapshot(8, {}, {}, 5);
+    expected.cargo.at("P").products = 4;
+    check(state == expected, "The original eight-input fixture ends as four products and four allocated lots.");
 
-    auto one_input = fresh(4);
-    const material::Config single{1, 1, 2};
+    auto single = fresh(4);
+    const m::Config one{1, 1, 2};
     for (int tick = 0; tick < 32; ++tick) {
-        if (one_input.stock.output > 0) {
-            check(material::retrieve(one_input, single, complete, "Q", 1) == material::Error::none,
-                  "The same rules support a separately declared one-input fixture.");
-        }
-        advance(one_input, single, complete, 1);
+        if (single.stock.output > 0)
+            check(m::retrieve(single, one, complete, "Q", 1) == m::Error::none, "The one-input fixture preserves Q custody.");
+        advance(single, one, complete, 1);
     }
-    check(one_input.stock == material::Stock{} && one_input.inventories.at("Q") == 4,
-          "Four one-input products are conserved without changing the rule path.");
+    expected = snapshot(4, {}, {}, 5);
+    expected.cargo.at("Q").products = 4;
+    check(single == expected, "Four one-input units end as four products without another material rule.");
 
-    auto pressured = fresh(20);
-    advance(pressured, config, complete, 12);
-    check(pressured.stock == material::Stock{11, 2, 1, 2, 2, 1} && pressured.remaining == 0,
-          "Backpressure leaves the exact remaining source and all five physical holders.");
-    const auto pressure_limit = pressured;
-    advance(pressured, config, complete, 4);
-    check(pressured == pressure_limit, "A full path retains source stock instead of discarding it.");
+    auto pressure = fresh(20);
+    advance(pressure, pair, complete, 12);
+    check(pressure == snapshot(20, {11, 2, 1, 2, 1}, lot(2, 0), 3),
+          "The original twenty-input backpressure snapshot retains every physical holder.");
+    const auto limit = pressure;
+    advance(pressure, pair, complete, 4);
+    check(pressure == limit, "Backpressure does not discard source stock or allocate more work.");
 }
 
 void topology_and_power() {
-    const material::Config config{1, 1, 2};
-    auto disconnected = fresh(5);
+    const m::Config one{1, 1, 2};
     auto path = complete;
     path.collector_to_belt = false;
     path.belt_to_processor = false;
-    advance(disconnected, config, path, 8);
-    check(disconnected.stock == material::Stock{4, 1, 0, 0, 0, 0},
-          "Disconnected machinery does not route stock or manufacture products.");
+    auto disconnected = fresh(5);
+    advance(disconnected, one, path, 8);
+    check(disconnected == snapshot(5, {4, 1, 0, 0, 0}), "Disconnected machines do not route material.");
     auto absent = fresh(5);
-    advance(absent, config, {}, 8);
-    check(absent == fresh(5), "Without a collector no feed is extracted.");
+    advance(absent, one, {}, 8);
+    check(absent == fresh(5), "Absent collection machinery cannot extract finite feed.");
 
-    material::State ready{4, {0, 0, 0, 0, 2, 1}, {}, 0};
-    const material::Config pair{2, 2, 2};
+    const m::Config pair{2, 2, 2};
     auto stopped = complete;
     stopped.powered = false;
-    material::State partial{2, {0, 0, 0, 0, 2, 0}, {}, 1};
+    auto partial = snapshot(2, {}, lot(1, 1), 2);
     const auto partial_before = partial;
     advance(partial, pair, stopped, 3);
-    check(partial == partial_before, "Stopped power also preserves distinct positive remaining work.");
+    check(partial == partial_before, "Stopped power preserves positive partial-cycle work exactly.");
     advance(partial, pair, complete, 1);
-    check(partial.stock == material::Stock{0, 0, 0, 0, 0, 1} && partial.remaining == 0,
-          "A single remaining tick completes once after power resumes in this logical fixture.");
+    check(partial == snapshot(2, {0, 0, 0, 0, 1}, {}, 2), "One remaining tick completes the same lot exactly once.");
+
+    auto ready = snapshot(4, {0, 0, 0, 0, 1}, lot(1, 0), 2);
     const auto before = ready;
     advance(ready, pair, stopped, 5);
-    check(ready == before, "Stopped power preserves literal blocked ready work.");
     advance(ready, pair, complete, 5);
-    check(ready == before, "Blocked ready work also stays held while the output is full.");
-    check(material::retrieve(ready, pair, complete, "Q", 1) == material::Error::none,
-          "Q can collect the original product.");
+    check(ready == before, "Both stopped and powered full-output cases preserve ready work.");
+    check(m::retrieve(ready, pair, complete, "Q", 1) == m::Error::none, "Q receives the existing output.");
+    check(ready.processing == lot(1, 0) && m::validate(ready, pair, complete) == m::Error::none,
+          "Ready work remains valid after retrieval and before the next tick.");
     advance(ready, pair, complete, 1);
-    check(ready.stock == material::Stock{0, 0, 0, 0, 0, 1} && ready.remaining == 0,
-          "Released output receives the original completed held work exactly once.");
-    check(material::retrieve(ready, pair, complete, "P", 1) == material::Error::none,
-          "P can collect the second product.");
-    check(ready.inventories == std::map<std::string, material::Quantity>{{"P", 1}, {"Q", 1}},
-          "Individual custody retains both named recipients.");
+    check(ready.stock.output == 1 && !ready.processing, "The original ready lot releases once.");
+    check(m::retrieve(ready, pair, complete, "P", 1) == m::Error::none, "P receives the released product.");
+    auto expected = snapshot(4, {}, {}, 2);
+    expected.cargo.at("P").products = expected.cargo.at("Q").products = 1;
+    check(ready == expected, "Both individual recipients and the original next serial remain exact.");
 }
 
 void refusals() {
-    const material::Config config{1, 1, 2};
-    auto invalid = fresh(8);
-    invalid.stock.source = -1;
-    refusal(invalid, config, complete, material::Error::invalid_state, "Negative raw stock is refused.");
-    invalid = fresh(8);
-    invalid.stock.source = 7;
-    refusal(invalid, config, complete, material::Error::invalid_state, "Missing material is refused.");
-    invalid = fresh(8);
-    invalid.stock.source = 9;
-    refusal(invalid, config, complete, material::Error::invalid_state, "Duplicated material is refused.");
-    invalid = fresh(8);
-    invalid.inventories["P"] = -1;
-    refusal(invalid, config, complete, material::Error::invalid_state, "Negative product custody is refused.");
-    invalid = fresh(8);
-    invalid.inventories[""] = 0;
-    refusal(invalid, config, complete, material::Error::invalid_state, "An empty inventory owner is refused.");
-    invalid = fresh(8);
-    invalid.remaining = 1;
-    refusal(invalid, config, complete, material::Error::invalid_state, "A timer without held work is refused.");
-    invalid = {2, {0, 0, 0, 0, 2, 0}, {}, 0};
-    refusal(invalid, config, complete, material::Error::invalid_state, "A held batch with the wrong recipe size is refused.");
-    invalid = {2, {0, 2, 0, 0, 0, 0}, {}, 0};
-    refusal(invalid, config, complete, material::Error::invalid_state, "Holder capacity is enforced.");
-    invalid = {5, {0, 0, 0, 0, 0, 1}, {{"P", 1}}, 0};
-    refusal(invalid, {2, 2, 2}, complete, material::Error::invalid_state,
-            "Products use recipe-weighted units instead of their unweighted item count.");
-    invalid = {1, {0, 0, 0, 0, 1, 0}, {}, 3};
-    refusal(invalid, config, complete, material::Error::invalid_state, "A timer beyond its declared cycle is refused.");
-    refusal(fresh(8), {0, 1, 2}, complete, material::Error::invalid_configuration, "A zero-input recipe is refused.");
-    refusal(fresh(8), {1, 0, 2}, complete, material::Error::invalid_configuration, "Zero collector capacity is refused.");
-    refusal(fresh(8), {1, 1, 0}, complete, material::Error::invalid_configuration, "A zero-length cycle is refused.");
-    auto invalid_path = complete;
-    invalid_path.processor_present = false;
-    refusal(fresh(8), config, invalid_path, material::Error::invalid_path,
-            "An edge cannot connect an absent processor.");
-    invalid_path = {};
-    invalid = {1, {0, 1, 0, 0, 0, 0}, {}, 0};
-    refusal(invalid, config, invalid_path, material::Error::invalid_path,
-            "An absent collector cannot hide material.");
+    const m::Config one{1, 1, 2}, pair{2, 2, 2};
+    auto bad = fresh(8);
+    bad.stock.source = -1;
+    refusal(bad, one, complete, m::Error::invalid_state, "Negative stock refuses.");
+    bad = fresh(8); bad.stock.source = 7;
+    refusal(bad, one, complete, m::Error::invalid_state, "Missing material refuses.");
+    bad = fresh(8); bad.stock.source = 9;
+    refusal(bad, one, complete, m::Error::invalid_state, "Duplicated material refuses.");
+    bad = fresh(8); bad.cargo.at("P").raw_units = -1;
+    refusal(bad, one, complete, m::Error::invalid_state, "Negative carried raw stock refuses.");
+    bad = fresh(8); bad.cargo.at("P").products = -1;
+    refusal(bad, one, complete, m::Error::invalid_state, "Negative carried products refuse.");
+    bad = fresh(8); bad.cargo.emplace("", m::Cargo{});
+    refusal(bad, one, complete, m::Error::invalid_state, "An empty Cargo owner refuses.");
+    bad = snapshot(2, {}, lot(0, 1), 2);
+    refusal(bad, pair, complete, m::Error::invalid_state, "A lot without a positive identity refuses.");
+    bad = snapshot(2, {}, lot(1, 3), 2);
+    refusal(bad, pair, complete, m::Error::invalid_state, "Progress beyond the original duration refuses.");
+    bad = snapshot(2, {}, lot(1, -1), 2);
+    refusal(bad, pair, complete, m::Error::invalid_state, "Negative remaining progress refuses.");
+    bad = snapshot(2, {}, m::WorkLot{1, {1, 2}, 1}, 2);
+    refusal(bad, pair, complete, m::Error::invalid_state, "A different work recipe refuses.");
+    bad = snapshot(2, {}, lot(1, 1), 1);
+    refusal(bad, pair, complete, m::Error::invalid_state, "The next serial must exceed current work.");
+    bad = snapshot(4, {}, {}, 2);
+    bad.cargo.at("P").work_lots.push_back(lot(1, 0));
+    bad.cargo.at("Q").work_lots.push_back(lot(1, 0));
+    refusal(bad, pair, complete, m::Error::invalid_state, "Two actors cannot own the same work serial.");
+    bad = snapshot(4, {}, lot(1, 0), 2);
+    bad.cargo.at("P").work_lots.push_back(lot(1, 1));
+    refusal(bad, pair, complete, m::Error::invalid_state, "Carried and processing work cannot share an identity.");
+    bad = snapshot(2, {0, 2, 0, 0, 0});
+    refusal(bad, one, complete, m::Error::invalid_state, "Machine capacity refuses.");
+    bad = snapshot(5, {0, 0, 0, 0, 1});
+    bad.cargo.at("P").products = 1;
+    refusal(bad, pair, complete, m::Error::invalid_state, "Products must use recipe-weighted conservation.");
+    refusal(fresh(8), {0, 1, 2}, complete, m::Error::invalid_configuration, "Zero recipe input refuses.");
+    refusal(fresh(8), {1, 0, 2}, complete, m::Error::invalid_configuration, "Zero collector capacity refuses.");
+    refusal(fresh(8), {1, 1, 0}, complete, m::Error::invalid_configuration, "Zero duration refuses.");
+    auto no_processor = complete; no_processor.processor_present = false;
+    refusal(fresh(8), one, no_processor, m::Error::invalid_path, "An edge cannot target absent machinery.");
+    refusal(snapshot(1, {0, 1, 0, 0, 0}), one, {}, m::Error::invalid_path, "Absent machinery cannot hide stock.");
 
     for (const auto amount : {-1, 0, 2}) {
-        material::State output{1, {0, 0, 0, 0, 0, 1}, {}, 0};
+        auto output = snapshot(1, {0, 0, 0, 0, 1});
         const auto before = output;
-        check(material::retrieve(output, config, complete, "P", amount) == material::Error::unavailable_output,
-              "Unavailable or nonpositive retrieval is refused.");
-        check(output == before, "Refused retrieval preserves every field, including inventory keys.");
+        check(m::retrieve(output, one, complete, "P", amount) == m::Error::unavailable_output, "Nonpositive or unavailable product amounts refuse.");
+        check(output == before, "A refused retrieval changes no custody or identity.");
     }
     auto empty = fresh(1);
     const auto before = empty;
-    check(material::retrieve(empty, config, complete, "P", 1) == material::Error::unavailable_output,
-          "Raw source stock cannot be retrieved as a product.");
-    check(empty == before, "An empty-output refusal does not convert or move raw material.");
-    material::State output{1, {0, 0, 0, 0, 0, 1}, {}, 0};
+    check(m::retrieve(empty, one, complete, "P", 1) == m::Error::unavailable_output && empty == before,
+          "Raw stock cannot be retrieved as a product.");
+    for (const std::string actor : {"", "not-in-roster"}) {
+        auto output = snapshot(1, {0, 0, 0, 0, 1});
+        const auto original = output;
+        check(m::retrieve(output, one, complete, actor, 1) == m::Error::invalid_actor && output == original,
+              "Retrieval never silently creates an actor.");
+    }
+    auto output = snapshot(1, {0, 0, 0, 0, 2});
     const auto original = output;
-    check(material::retrieve(output, config, complete, "", 1) == material::Error::invalid_actor,
-          "An empty retrieval recipient is refused.");
-    check(output == original, "Invalid identity leaves output and inventories intact.");
-    output.stock.output = 2;
-    const auto invalid_output = output;
-    check(material::retrieve(output, config, complete, "P", 1) == material::Error::invalid_state,
-          "Retrieval also rejects malformed input before any debit.");
-    check(output == invalid_output, "Malformed input cannot be repaired or consumed by retrieval.");
+    check(m::retrieve(output, one, complete, "P", 1) == m::Error::invalid_state && output == original,
+          "Malformed input cannot be repaired or consumed by retrieval.");
 }
 
 void integer_boundaries() {
-    const auto maximum = std::numeric_limits<material::Quantity>::max();
-    const material::Config config{1, 1, 2};
+    const auto maximum = std::numeric_limits<m::Quantity>::max();
+    const m::Config one{1, 1, 2}, pair{2, 1, 2};
     auto state = fresh(maximum);
-    advance(state, config, complete, 1);
+    advance(state, one, complete, 1);
     check(state.stock.source == maximum - 1 && state.stock.collector == 1,
-          "The exact largest signed quantity moves without overflow or floating-point conversion.");
-    auto invalid = fresh(maximum);
-    invalid.stock.collector = 1;
-    refusal(invalid, config, complete, material::Error::quantity_overflow, "Raw summation overflow is refused.");
-    invalid = {maximum, {0, 0, 0, 0, 0, 1}, {{"P", maximum}}, 0};
-    refusal(invalid, config, complete, material::Error::quantity_overflow, "Product summation overflow is refused.");
-    invalid = {maximum, {}, {{"P", maximum / 2 + 1}}, 0};
-    refusal(invalid, {2, 1, 2}, complete, material::Error::quantity_overflow,
-            "Recipe-weighted product overflow is refused before multiplication.");
-    material::State large_product{maximum, {0, 0, 0, 0, 0, 1}, {}, 0};
-    const material::Config large_recipe{maximum, 1, 2};
-    check(material::retrieve(large_product, large_recipe, complete, "P", 1) == material::Error::none,
-          "One product can represent the exact largest recipe quantity.");
-    check(large_product.inventories.at("P") == 1 && large_product.stock.output == 0 &&
-          material::validate(large_product, large_recipe, complete) == material::Error::none,
-          "Recipe-weighted custody remains exact at the integer boundary.");
+          "The largest exact signed raw quantity moves without floating-point conversion.");
+    auto bad = fresh(maximum); bad.stock.collector = 1;
+    refusal(bad, one, complete, m::Error::quantity_overflow, "Raw sum overflow refuses.");
+    bad = snapshot(maximum, {0, 0, 0, 0, 1});
+    bad.cargo.at("P").products = maximum;
+    refusal(bad, one, complete, m::Error::quantity_overflow, "Product addition overflow refuses.");
+    bad = snapshot(maximum, {});
+    bad.cargo.at("P").products = maximum / 2 + 1;
+    refusal(bad, pair, complete, m::Error::quantity_overflow, "Weighted multiplication overflow refuses.");
+    auto large = snapshot(maximum, {0, 0, 0, 0, 1});
+    const m::Config large_recipe{maximum, 1, 2};
+    check(m::retrieve(large, large_recipe, complete, "P", 1) == m::Error::none &&
+          large.cargo.at("P").products == 1 && m::validate(large, large_recipe, complete) == m::Error::none,
+          "One product can retain the largest exact recipe weight.");
+
+    auto exhausted = snapshot(2, {0, 0, 0, 2, 0}, {}, maximum);
+    refusal(exhausted, pair, complete, m::Error::work_id_overflow, "Serial exhaustion refuses a fresh lot atomically.");
+    exhausted = snapshot(4, {0, 0, 0, 2, 0}, lot(1, 1), maximum);
+    refusal(exhausted, pair, complete, m::Error::work_id_overflow,
+            "A late serial failure rolls back an earlier completion in the same candidate tick.");
+    auto last = snapshot(2, {0, 0, 0, 2, 0}, {}, maximum - 1);
+    advance(last, pair, complete, 1);
+    check(last == snapshot(2, {}, lot(maximum - 1, 2), maximum),
+          "The final allocatable serial is preserved exactly with a checked next counter.");
 }
 }  // namespace
 

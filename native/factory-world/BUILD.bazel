@@ -1,0 +1,52 @@
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "transactions",
+    hdrs = ["include/factory/transactions.hpp"],
+    strip_include_prefix = "include",
+    deps = ["//native/factory-authority:authority_boundary"],
+)
+
+cc_test(
+    name = "transactions_test",
+    srcs = ["tests/transactions_test.cpp"],
+    deps = [":transactions"],
+    size = "small",
+)
+
+cc_library(
+    name = "world",
+    srcs = ["src/world.cpp"],
+    hdrs = ["include/factory/world.hpp"],
+    strip_include_prefix = "include",
+    deps = [
+        ":transactions",
+        "//native/factory-core:materials",
+        "//native/factory-core:recovery",
+        "//native/factory-stationary:stationary",
+    ],
+)
+
+cc_test(
+    name = "world_test",
+    srcs = ["tests/world_test.cpp"],
+    deps = [":world"],
+    size = "small",
+)
+
+cc_library(
+    name = "checkpoint",
+    srcs = ["src/checkpoint.cpp"],
+    hdrs = ["include/factory/checkpoint.hpp"],
+    strip_include_prefix = "include",
+    deps = [":world", "//native/factory-core:material_state_codec"],
+)
+
+cc_test(
+    name = "checkpoint_test",
+    srcs = ["tests/checkpoint_test.cpp"],
+    deps = [":checkpoint"],
+    size = "small",
+)

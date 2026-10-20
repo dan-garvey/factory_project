@@ -1,64 +1,135 @@
-# Finite material core foundation
+# Finite material and recovery core
 
-This C++20 library extracts the existing collector, belt and press material rules
-from the experimental Model. It has no engine dependency or downloaded package.
-It is not yet used by the playable demo. The current Model, Session and Store
-remain the live owners of their existing boundaries.
+This unadopted C++20 fixture evolves the reviewed finite material foundation with
+typed actor cargo and pure recovery/insertion plans. It is not connected to the
+playable demo. The existing Model, Session and Store retain their live authority,
+connection and file boundaries until the separately reviewed native World joins
+them. No GDScript recovery mirror or fallback world is introduced.
 
-`State` contains literal raw holdings, completed products in named inventories and
-the remaining held-work ticks. `Config` supplies recipe input, collector capacity
-and cycle duration. `Path` supplies already resolved component, connection and power
-facts. One step finishes held work, starts eligible work, moves belt stock, moves
-collector stock and extracts finite feed, in that order. A full output preserves
-completed held work with zero remaining ticks. Stopped power leaves material state
-unchanged. Quantities use signed 64-bit integers with checked conservation sums.
+## Canonical custody
 
-The validator rejects negative counts, invalid capacities and held batches, missing
-holders, invalid edges, overflow and conservation disagreement. Step and retrieval
-validate before committing a replacement state, so a refused transition is atomic.
-Products count as their recipe's input units for conservation. Raw material cannot
-be collected through the product retrieval operation.
+One State contains raw source, collector, belt and processor-input stock, completed
+processor output, one optional processing WorkLot, and one Cargo per admitted
+actor. Cargo distinguishes raw units, completed products and whole work lots.
+The old mutable product inventories and held-plus-timer representation are
+replaced rather than kept as parallel owners.
 
-These functions are not a command-admission API. The caller must first establish
-actor identity, actual reach and request identity, and return historical cached
-outcomes without invoking the material transition again. Revisions, topology
-editing, kit ownership, native body registration, projections and disk import are
-explicit adapter work, tracked in `factory-yau.3.17.7`. The current scalar product
-inventory is not a recovery container for raw or partly processed material.
+A WorkLot owns its original recipe input exactly once. It carries a positive
+world-local serial, original recipe signature and remaining ticks. Zero remaining
+ticks means ready work, including the valid boundary after output retrieval and
+before the next tick. Carried work pauses. Moving or reinserting a lot neither
+allocates a new identity nor resets or advances its timer.
 
-## Historical foundation build
+This first profile still has one raw material, one product recipe, and one
+collector/belt/processor fixture. Config supplies recipe weight, cycle duration
+and collector capacity. Path supplies already resolved component, edge and power
+facts; it is not another transmission solver. Per-component mechanical operation
+and general multi-recipe cargo remain separate work.
 
-The original standalone campaign passed 206 logical native checks and the separate
-four-product consumer. Its final source, material and operational bindings are
-complete; this does not establish live adoption or measured performance.
+Validation checks signed 64-bit counts, capacities, exact recipe-weighted
+conservation, valid progress, unique current work ownership and next_work_id above
+every present serial. It allocates no memory, preserving its noexcept contract.
+The duplicate check is quadratic in simultaneous lots; this small finite fixture
+does not establish factory-scale performance. World must also validate the
+expected roster, World context and every work serial in retained history.
 
-Bazel is the canonical build system required by the user. The [current graph and
-build instructions](../../docs/engineering/native-builds.md) cover this foundation
-and have passed bounded build/cache validation. Ops owns further package integration
-and commit-turnaround measurements in `factory-yau.3.17.8`. See the
-[migration contract](../../docs/engineering/native-migration.md). The CMake files
-and commands below are retained to explain or reproduce the historical fixture,
-not as the default for new native work or a competing build-system commitment.
+## Tick and product retrieval
 
-That fixture used the installed C++ compiler, CMake and Ninja in an owned external
-directory. The command has one cooperating heavy admission, not nested wrappers.
-Any declared reproduction still needs the agreed bounded supervisor and retained
-source, compiler, command and result provenance; no additional run is requested here.
+The fixed order remains: advance or finish existing machine work; start eligible
+new work; move belt input; move collector stock; extract finite source feed.
+New work receives its full original duration and one checked fresh serial. A full
+output retains the same ready lot. Stopped power preserves the complete State,
+and ordinary powered ticks never visit carried work.
 
-```bash
-factory_core_build=/absolute/owned/external/build
-python3 -B scripts/run_local.py heavy -- sh -eu -c '
-  cmake -S native/factory-core -B "$1" -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
-  cmake --build "$1" --parallel 2
-  ctest --test-dir "$1" --output-on-failure --no-tests=error --parallel 1
-  "$1/factory-material-case"
-' sh "$factory_core_build"
-```
+The additive MachinePower overload accepts already resolved local drive facts.
+The existing Path.powered flag remains the coarse fixture enable; the old
+three-argument call retains its behavior. Collector power gates collection and
+collector dispatch, belt power gates belt dispatch, and processor power gates
+work advancement/start. Receiving raw buffers may accept input while stopped.
+For example, stopping a processor need not stop an independently driven sender.
+Positive partial work and blocked ready work remain paused under that machine's
+local stop. An active absent machine is refused before a candidate is published.
+These are explicit fixture choices, not permanent energy or mechanical rules.
+World still derives component motion and performs one trusted step/commit; the
+material library adds no solver, source, timer or second live authority.
 
-The native tests exercise complete literal snapshots, one- and two-input recipes,
-output backpressure, stopped and disconnected paths, named product custody, atomic
-refusals and integer boundaries. The separate headless consumer completes the
-existing eight-input/two-input-recipe fixture as four products. Neither program
-claims ordinary input, Godot character physics, request replay, Store restoration,
-human play, portability or performance. Existing mandatory repository gates remain
-in force and do not yet compile this separate C++ project automatically.
+Product retrieval credits only an already admitted actor's Cargo.products.
+It cannot create a new actor, collect raw material as a plate or consume a work
+lot. Every tick and retrieval validates a complete candidate before replacing the
+input State. Serial or quantity overflow leaves the original State unchanged.
+
+## Pure recovery and insertion
+
+prepare_recovery evacuates the selected machine's contents into the bound actor's
+existing Cargo. A processor contributes input raw, its whole processing lot and
+completed output together. No viable press route or global drive shutdown is
+required. Source stock is never recoverable or refillable through this interface.
+
+prepare_insertion moves a positive explicit raw amount into an eligible raw slot,
+or selects one existing carried WorkLot by serial for a compatible empty
+processing slot. The processor's input and output are separate buffers: existing
+raw input or a full product output does not replace or split the inserted lot.
+A full output can still block a reinserted ready lot. Products remain products.
+
+Both functions return either a refusal or a complete uncommitted State with
+typed transfer facts and the affected entity identity. Receipt Cargo is an owned
+description of the move, not another live holder. Insufficient cargo/capacity,
+occupied processing, incompatible work acceptance, malformed state, invalid
+target shape and arithmetic failure publish no partial candidate.
+
+These are authority-internal planners, not command-admission APIs. World must
+bind the actor through Session, resolve stable entity/generation to the fixture
+holder, and supply current Path and compatible-recipe facts. The planner cannot
+prove that a nonempty target identity is current topology. World rejects unknown
+or stale targets before planning and revalidates identity, reach, revision and
+native admission before commit.
+
+The sole World must resolve historical requests before evaluating new rules and
+commit its complete material/topology candidate with exactly one cached outcome.
+Old transfers return their original receipt rather than being repeated against
+moved actors or a rebuilt machine. Store remains the file owner; complete typed
+logical checkpoint composition lives in the native World package, while Store
+publication and native registration remain separate Platform work.
+No legacy save is silently reinterpreted by these functions.
+
+## Validation and build status
+
+The new literal C++ tests preserve the original one- and two-input material
+snapshots and four-product consumer. Additional source controls cover raw
+recovery without a processor, combined processor contents, positive partial-cycle
+pause/resume, blocked ready work, selected lot identity, actor custody, atomic
+refusals, serial exhaustion and exact signed-integer limits. These are pure
+logical fixtures, not ordinary input or human play.
+
+The separate recovery_transaction_test.cpp consumer composes these real transfer
+functions with the reviewed single-snapshot transaction owner. Its fixed invented
+domain checks individual raw custody on an incomplete route, accepted and refused
+historical retries after later transfers, strict typed request reuse, whole partial
+work and atomic rejection of a nonconserving candidate. It does not implement the
+game command adapter, Session authentication, target admission or checkpoint codec.
+The later five-consumer direct-compiler campaign passed these material,
+recovery/history and local-power fixtures, including the four-product consumer.
+
+The separate material_power_test.cpp consumer has literal per-holder snapshots
+for independent senders and passive buffers, paused partial/ready work, finite
+backpressure, global fixture disable and serial exhaustion. The earlier material,
+recovery and request-consumer test sources remain unchanged. These logical
+controls do not establish ordinary running edits or live authority adoption.
+
+Bazel is the canonical build system. Ops owns native/factory-core/BUILD.bazel,
+root configuration, toolchain/cache provenance and bounded supervision. The
+explicit material, recovery, local-power and material-codec targets are present
+in that graph. The strict material codec also passed its 129-check native
+campaign. A material-only root suite cannot establish recovery-test coverage;
+select the relevant package targets. Existing source checks do not execute C++.
+
+The original foundation campaign at c51bd28 passed 206 logical checks and the
+separate four-product consumer. Its CMake/Ninja definition, results and first
+failures remain historical component evidence. They are not a validation of this
+representation successor, the current build interface or permission for another
+campaign. Existing mandatory repository gates remain enforced.
+
+Actual bad-line reproduction, ordinary same-worksite recovery, shared request
+behavior, complete saved custody/progress and fresh-process continuation remain
+required under factory-yau.6.42 and factory-yau.3.17.7. This library alone does not
+satisfy those gameplay or adoption outcomes.

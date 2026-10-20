@@ -4,6 +4,11 @@ Status: the standalone C++ material foundation passed its original bounded nativ
 campaign and final independent material, policy and operational reviews. Its 206
 logical checks and separate four-product consumer do not establish live demo
 adoption or performance. Native adoption and Python retirement remain incomplete.
+The native World and logical checkpoint now have passing component tests and a
+canonical Bazel package build. Typed recovery, independent machine power and
+stationary geometry are available to that World. The live Godot bridge, native
+body registration and Store integration remain unfinished; publishing these
+libraries does not switch the demo's authority.
 The inventory baseline is main commit `380d211637cdd2eeb2df5674d73f32f6e35adc44`.
 
 The user requires a high-performance implementation path such as C++ or Rust and

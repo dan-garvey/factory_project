@@ -1,10 +1,11 @@
 # Native builds with Bazel
 
 Bazel is the user-directed build system for migrated native code. This first
-graph covers the reviewed finite material foundation. It does not replace the
-installed commit gates, activate a native game authority or migrate the other
-native packages. Their build definitions belong to the continuing migration in
-`factory-yau.3.17.8`.
+graph began with the reviewed finite material foundation and now also exposes
+typed values, authority, geometric mechanics, stationary edits and the logical
+World/checkpoint packages. It does not replace installed commit gates or activate
+a native game authority. Further package/gate integration belongs to the
+continuing migration in `factory-yau.3.17.8`.
 
 The corrected local validation completed on 2026-10-20 using the reviewed graph
 and bounded runner. It exercised a cold build, a no-action cache hit, relevant

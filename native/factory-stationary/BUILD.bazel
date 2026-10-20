@@ -1,0 +1,43 @@
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "stationary",
+    srcs = ["src/stationary.cpp"],
+    hdrs = ["include/factory/stationary.hpp"],
+    strip_include_prefix = "include",
+    deps = [
+        "//native/factory-core:material_types",
+        "//native/factory-mechanics:mechanics",
+    ],
+)
+
+cc_test(
+    name = "stationary_test",
+    srcs = ["tests/stationary_test.cpp"],
+    deps = [":stationary"],
+    size = "small",
+)
+
+cc_test(
+    name = "placement_test",
+    srcs = ["tests/placement_test.cpp"],
+    deps = [":stationary"],
+    size = "small",
+)
+
+test_suite(
+    name = "tests",
+    tests = [":stationary_test", ":placement_test", ":recovery_rebuild_test"],
+)
+
+cc_test(
+    name = "recovery_rebuild_test",
+    srcs = ["tests/recovery_rebuild_test.cpp"],
+    deps = [
+        ":stationary",
+        "//native/factory-core:recovery",
+    ],
+    size = "small",
+)

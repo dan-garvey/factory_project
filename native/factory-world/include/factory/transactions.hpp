@@ -1,0 +1,211 @@
+#pragma once
+
+#include "factory/authority_boundary.hpp"
+
+#include <functional>
+#include <limits>
+#include <memory>
+#include <optional>
+#include <string>
+#include <type_traits>
+#include <utility>
+
+namespace factory::world {
+
+enum class TransactionError {
+    none, history, invalid_decision, invalid_candidate, reentrant, preparation_failed,
+};
+
+struct Delivery {
+    TransactionError error{TransactionError::none};
+    authority::Error history_error{authority::Error::none};
+    std::optional<authority::Object> result;
+    // Separate from the original historical revision inside a cached result.
+    authority::Integer current_revision{};
+    [[nodiscard]] bool completed() const noexcept {
+        return error == TransactionError::none && result.has_value();
+    }
+};
+
+struct Advance {
+    TransactionError error{TransactionError::none};
+    bool changed{};
+    authority::Integer current_revision{};
+};
+
+// Nothing after the pointer swap may allocate or throw while returning delivery.
+static_assert(std::is_nothrow_move_constructible_v<Delivery>);
+
+// Unadopted native building block. State must be a complete, deeply owned value:
+// copying it must not share mutable world data, and its destructor must not throw.
+// The future game instantiation contains the one canonical material State, actor
+// kits, topology and identity metadata. This template defines no competing schema.
+// Calls are serialized on the owning authority thread; this is not a mutex or a
+// hostile callback sandbox. Handler and validator are trusted native domain code.
+template<class State>
+class TransactionOwner final {
+public:
+    static_assert(std::is_copy_constructible_v<State>);
+    static_assert(std::is_move_constructible_v<State>);
+    static_assert(std::is_nothrow_destructible_v<State>);
+
+    struct Snapshot {
+        State state;
+        authority::History history;
+        authority::Integer revision{};
+    };
+
+    struct Decision {
+        // Present exactly when outcome.accepted is true. A refused command has
+        // no replacement State, but its original outcome is still cached.
+        std::optional<State> candidate;
+        authority::Outcome outcome;
+    };
+
+    // Validate the complete candidate: domain conservation, topology, identity
+    // generations, roster and operation-specific history relationships belong
+    // here. The owner also validates its generic history envelope independently.
+    using Validator = std::function<bool(const Snapshot&)>;
+
+    // Fresh initialization only: no import, history reset or fallback path.
+    // Invalid input returns null. Allocation and validator exceptions propagate
+    // before an owner is returned; caller values remain unchanged.
+    [[nodiscard]] static std::unique_ptr<TransactionOwner> create_new(
+            std::string context, const State& seed, Validator validator) {
+        if (!validator) return nullptr;
+        auto initial = std::make_unique<Snapshot>(
+            Snapshot{seed, {std::move(context), 0, {}}, 0});
+        if (authority::validate_history(initial->history, 0) != authority::Error::none ||
+            !validator(*initial)) return nullptr;
+        return std::unique_ptr<TransactionOwner>(
+            new TransactionOwner(std::move(initial), std::move(validator)));
+    }
+
+    // Explicit import of a complete already decoded snapshot. Validate before
+    // constructing an owner; preserve every saved revision, request and outcome.
+    // There is no fallback to create_new when this path refuses.
+    [[nodiscard]] static std::unique_ptr<TransactionOwner> restore(
+            const Snapshot& saved, Validator validator) {
+        if (!validator || authority::validate_history(saved.history, saved.revision) != authority::Error::none ||
+            !validator(saved)) return nullptr;
+        auto initial = std::make_unique<Snapshot>(saved);
+        return std::unique_ptr<TransactionOwner>(
+            new TransactionOwner(std::move(initial), std::move(validator)));
+    }
+
+    TransactionOwner(const TransactionOwner&) = delete;
+    TransactionOwner& operator=(const TransactionOwner&) = delete;
+    TransactionOwner(TransactionOwner&&) = delete;
+    TransactionOwner& operator=(TransactionOwner&&) = delete;
+    ~TransactionOwner() = default;
+
+    // Return an owned copy. No public method exposes a mutable live borrow.
+    // Copy failures propagate without modifying the owner.
+    [[nodiscard]] Snapshot snapshot() const { return *current_; }
+    [[nodiscard]] authority::Integer current_revision() const noexcept {
+        return current_->revision;
+    }
+
+    // Authority-thread stepping only. This is not a command or client clock.
+    // A null candidate is an unchanged step. A changed candidate increments the
+    // revision while retaining every historical request and original outcome.
+    template<class Step>
+    [[nodiscard]] Advance advance(Step&& step) noexcept {
+        if (applying_) return {TransactionError::reentrant, false, current_->revision};
+        Active guard(applying_);
+        try {
+            auto candidate = std::invoke(std::forward<Step>(step), std::as_const(*current_));
+            if (!candidate) return {TransactionError::none, false, current_->revision};
+            if (current_->revision == std::numeric_limits<authority::Integer>::max())
+                return {TransactionError::invalid_candidate, false, current_->revision};
+            auto next = std::make_unique<Snapshot>(Snapshot{
+                std::move(*candidate), current_->history, current_->revision + 1});
+            if (authority::validate_history(next->history, next->revision) != authority::Error::none ||
+                !validator_(*next))
+                return {TransactionError::invalid_candidate, false, current_->revision};
+            Advance result{TransactionError::none, true, next->revision};
+            current_.swap(next);
+            return result;
+        } catch (...) {
+            return {TransactionError::preparation_failed, false, current_->revision};
+        }
+    }
+
+    // Session must already bind the actor/request to its authenticated caller.
+    // The handler receives only const current facts and runs only for a fresh
+    // valid request. It derives targets and applies current native/reach/rule
+    // admission before returning an uncommitted State and outcome. Neither this
+    // API nor the generic history helper accepts a client pose as authority.
+    template<class Handler>
+    [[nodiscard]] Delivery apply(const authority::Object& intent, Handler&& handler) noexcept {
+        if (applying_) return failure(TransactionError::reentrant);
+        Active guard(applying_);
+        try {
+            const auto lookup = authority::inspect_request(
+                current_->history, intent, current_->revision);
+            if (lookup.error != authority::Error::none)
+                return failure(TransactionError::history, lookup.error);
+            if (lookup.cached) {
+                auto result = lookup.cached->result;
+                result.at("duplicate") = values::Value(true);
+                return {TransactionError::none, authority::Error::none,
+                        std::move(result), current_->revision};
+            }
+
+            Decision decision = std::invoke(std::forward<Handler>(handler),
+                                            std::as_const(*current_), intent);
+            if (decision.outcome.accepted != decision.candidate.has_value())
+                return failure(TransactionError::invalid_decision);
+
+            auto prepared = authority::prepare_record(current_->history, intent,
+                decision.outcome, current_->revision);
+            if (prepared.error != authority::Error::none)
+                return failure(TransactionError::history, prepared.error);
+            if (prepared.duplicate || !prepared.next || !prepared.record)
+                return failure(TransactionError::invalid_decision);
+
+            State next_state = decision.candidate
+                ? std::move(*decision.candidate) : current_->state;
+            auto next = std::make_unique<Snapshot>(Snapshot{
+                std::move(next_state), std::move(*prepared.next),
+                prepared.resulting_revision});
+            if (!validator_(*next)) return failure(TransactionError::invalid_candidate);
+
+            // Prepare delivery before the only commit. Stored duplicate remains
+            // false, and every returned map is owned independently of history.
+            Delivery delivery{TransactionError::none, authority::Error::none,
+                              std::move(prepared.record->result), next->revision};
+            current_.swap(next);
+            return delivery;
+        } catch (...) {
+            // Preparation, handler and validator failures publish no result or
+            // partial State/history. Diagnostics are a bounded category only.
+            return failure(TransactionError::preparation_failed);
+        }
+    }
+
+private:
+    class Active {
+    public:
+        explicit Active(bool& flag) noexcept : flag_(flag) { flag_ = true; }
+        ~Active() noexcept { flag_ = false; }
+        Active(const Active&) = delete;
+        Active& operator=(const Active&) = delete;
+    private:
+        bool& flag_;
+    };
+
+    TransactionOwner(std::unique_ptr<Snapshot> initial, Validator validator) noexcept
+        : current_(std::move(initial)), validator_(std::move(validator)) {}
+
+    [[nodiscard]] Delivery failure(TransactionError error,
+            authority::Error history_error = authority::Error::none) const noexcept {
+        return {error, history_error, std::nullopt, current_->revision};
+    }
+
+    std::unique_ptr<Snapshot> current_;
+    Validator validator_;
+    bool applying_{};
+};
+
+}  // namespace factory::world

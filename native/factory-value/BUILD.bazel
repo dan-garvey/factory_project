@@ -1,0 +1,18 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+
+cc_library(
+    name = "value",
+    srcs = ["src/value.cpp"],
+    hdrs = ["include/factory/value.hpp"],
+    includes = ["include"],
+    copts = ["-std=c++20", "-Wall", "-Wextra", "-Wpedantic", "-Werror"],
+    visibility = ["//visibility:public"],
+)
+
+cc_test(
+    name = "value_test",
+    srcs = ["tests/value_test.cpp"],
+    copts = ["-std=c++20", "-Wall", "-Wextra", "-Wpedantic", "-Werror"],
+    deps = [":value"],
+)

@@ -22,7 +22,7 @@ The user now requires a **controlled physical character with proximity-limited c
 | `factory-yau.6` | Shared evidence, integration and player experience | `.12` parallel interactive consumer → `.10` integrated demo → `.5` next increment; `.11` actual user feedback when available, not an idle gate |
 | `factory-yau.7` | Later intended-game scope | Deferred trains/autonomous acquisition, fluids/gases/controls, world/terrain, campaign/endings and numeric scale targets |
 | `factory-yau.8` | Continuing factory/engineering-puzzle research | Per-game studies `.1`–`.8` feed an evidence-backed puzzle catalogue; close thorough game scopes, never the ongoing pipeline after one batch |
-| `factory-wj6` | Project management and sole-machine operation | Resource admission, verified hourly delivery and continuing progenitor review |
+| `factory-wj6` | Cadence and sole-machine operation | Resource admission and queue maintenance; source integration follows the demo goal |
 
 Suffixes in the third column are relative to the subtree in the first. This is a workstream map, not a current ready-task count. Read the full task before claiming it. No ready proposal authorizes engine adoption, large downloads or game implementation.
 

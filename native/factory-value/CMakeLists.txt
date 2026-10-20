@@ -1,0 +1,22 @@
+cmake_minimum_required(VERSION 3.20)
+project(factory_value LANGUAGES CXX)
+
+add_library(factory_value STATIC src/value.cpp)
+add_library(Factory::Value ALIAS factory_value)
+target_include_directories(factory_value PUBLIC include)
+target_compile_features(factory_value PUBLIC cxx_std_20)
+set_target_properties(factory_value PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+include(CTest)
+if(BUILD_TESTING)
+  add_executable(factory-value-tests tests/value_test.cpp)
+  target_link_libraries(factory-value-tests PRIVATE Factory::Value)
+  add_test(NAME typed-value-boundary COMMAND factory-value-tests)
+  set_tests_properties(typed-value-boundary PROPERTIES TIMEOUT 30)
+endif()
+
+foreach(target factory_value factory-value-tests)
+  if(TARGET ${target} AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+endforeach()

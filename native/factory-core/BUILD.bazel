@@ -3,10 +3,29 @@ load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
 package(default_visibility = ["//visibility:public"])
 
 cc_library(
+    name = "material_types",
+    hdrs = ["include/factory/materials.hpp", "include/factory/recovery.hpp"],
+    strip_include_prefix = "include",
+)
+
+cc_library(
     name = "materials",
     srcs = ["src/materials.cpp"],
-    hdrs = ["include/factory/materials.hpp"],
+    deps = [":material_types"],
+)
+
+cc_library(
+    name = "recovery",
+    srcs = ["src/recovery.cpp"],
+    deps = [":material_types", ":materials"],
+)
+
+cc_library(
+    name = "material_state_codec",
+    srcs = ["src/material_state_codec.cpp"],
+    hdrs = ["include/factory/material_state_codec.hpp"],
     strip_include_prefix = "include",
+    deps = [":materials", "//native/factory-value:value"],
 )
 
 cc_binary(

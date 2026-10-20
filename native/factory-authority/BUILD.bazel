@@ -1,0 +1,18 @@
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "authority_boundary",
+    srcs = ["src/authority_boundary.cpp"],
+    hdrs = ["include/factory/authority_boundary.hpp"],
+    strip_include_prefix = "include",
+    deps = ["//native/factory-value:value"],
+)
+
+cc_test(
+    name = "authority_boundary_test",
+    srcs = ["tests/authority_boundary_test.cpp"],
+    deps = [":authority_boundary"],
+    size = "small",
+)

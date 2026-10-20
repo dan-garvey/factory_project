@@ -1,0 +1,17 @@
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "mechanics",
+    srcs = ["src/mechanics.cpp"],
+    hdrs = ["include/factory/mechanics.hpp"],
+    strip_include_prefix = "include",
+)
+
+cc_test(
+    name = "mechanics_test",
+    srcs = ["tests/mechanics_test.cpp"],
+    deps = [":mechanics"],
+    size = "small",
+)

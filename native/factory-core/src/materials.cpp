@@ -1,5 +1,6 @@
 #include "factory/materials.hpp"
 
+#include <initializer_list>
 #include <limits>
 #include <utility>
 
@@ -7,11 +8,35 @@ namespace factory::materials {
 namespace {
 
 bool add(Quantity& total, Quantity value) noexcept {
-    if (value < 0 || total > std::numeric_limits<Quantity>::max() - value) {
-        return false;
-    }
+    if (value < 0 || total > std::numeric_limits<Quantity>::max() - value) return false;
     total += value;
     return true;
+}
+
+bool products(Quantity& total, Quantity count, Quantity weight) noexcept {
+    return count >= 0 && count <= std::numeric_limits<Quantity>::max() / weight
+        && add(total, count * weight);
+}
+
+bool valid_lot(const WorkLot& lot, const State& state, const Config& config) noexcept {
+    return lot.id > 0 && lot.id < state.next_work_id
+        && lot.recipe == RecipeSignature{config.input_units_per_product, config.cycle_ticks}
+        && lot.remaining_ticks >= 0 && lot.remaining_ticks <= lot.recipe.cycle_ticks;
+}
+
+// Validation is allocation-free to preserve its noexcept contract. The first
+// finite fixture has few simultaneous lots; no factory-scale cost is claimed.
+bool unique_lot(const State& state, WorkId id) noexcept {
+    bool seen = state.processing && state.processing->id == id;
+    for (const auto& [actor, cargo] : state.cargo) {
+        (void)actor;
+        for (const auto& lot : cargo.work_lots) {
+            if (lot.id != id) continue;
+            if (seen) return false;
+            seen = true;
+        }
+    }
+    return seen;
 }
 
 }  // namespace
@@ -25,78 +50,94 @@ const char* error_name(Error error) noexcept {
         case Error::quantity_overflow: return "quantity_overflow";
         case Error::invalid_actor: return "invalid_actor";
         case Error::unavailable_output: return "unavailable_output";
+        case Error::work_id_overflow: return "work_id_overflow";
     }
     return "unknown_error";
 }
 
 Error validate(const State& state, const Config& config, const Path& path) noexcept {
     if (config.input_units_per_product < 1 || config.collector_capacity < 1 ||
-        config.cycle_ticks < 1) {
-        return Error::invalid_configuration;
-    }
+        config.cycle_ticks < 1) return Error::invalid_configuration;
     const auto& stock = state.stock;
     if (state.initial_units < 0 || stock.source < 0 || stock.collector < 0 ||
-        stock.belt < 0 || stock.input < 0 || stock.held < 0 || stock.output < 0 ||
+        stock.belt < 0 || stock.input < 0 || stock.output < 0 ||
         stock.collector > config.collector_capacity || stock.belt > 1 ||
         stock.input > config.input_units_per_product || stock.output > 1 ||
-        (stock.held != 0 && stock.held != config.input_units_per_product) ||
-        state.remaining < 0 || state.remaining > config.cycle_ticks ||
-        (stock.held == 0 && state.remaining != 0)) {
-        return Error::invalid_state;
-    }
+        state.next_work_id < 1) return Error::invalid_state;
     if ((path.collector_to_belt && (!path.collector_present || !path.belt_present)) ||
         (path.belt_to_processor && (!path.belt_present || !path.processor_present)) ||
         (!path.collector_present && stock.collector != 0) ||
         (!path.belt_present && stock.belt != 0) ||
-        (!path.processor_present && (stock.input != 0 || stock.held != 0 || stock.output != 0))) {
+        (!path.processor_present && (stock.input != 0 || state.processing || stock.output != 0))) {
         return Error::invalid_path;
     }
-    Quantity raw = 0;
-    for (const auto value : {stock.source, stock.collector, stock.belt, stock.input, stock.held}) {
-        if (!add(raw, value)) return Error::quantity_overflow;
+    if (state.processing && (!valid_lot(*state.processing, state, config) ||
+                             !unique_lot(state, state.processing->id))) return Error::invalid_state;
+    Quantity total = 0;
+    for (const auto value : {stock.source, stock.collector, stock.belt, stock.input}) {
+        if (!add(total, value)) return Error::quantity_overflow;
     }
-    Quantity products = stock.output;
-    for (const auto& [actor, amount] : state.inventories) {
-        if (actor.empty() || amount < 0) return Error::invalid_state;
-        if (!add(products, amount)) return Error::quantity_overflow;
-    }
-    if (products > std::numeric_limits<Quantity>::max() / config.input_units_per_product) {
+    if (state.processing && !add(total, state.processing->recipe.input_units_per_product)) {
         return Error::quantity_overflow;
     }
-    if (!add(raw, products * config.input_units_per_product)) return Error::quantity_overflow;
-    return raw == state.initial_units ? Error::none : Error::invalid_state;
+    if (!products(total, stock.output, config.input_units_per_product)) return Error::quantity_overflow;
+    for (const auto& [actor, cargo] : state.cargo) {
+        if (actor.empty() || cargo.raw_units < 0 || cargo.products < 0) return Error::invalid_state;
+        if (!add(total, cargo.raw_units) || !products(total, cargo.products, config.input_units_per_product)) {
+            return Error::quantity_overflow;
+        }
+        for (const auto& lot : cargo.work_lots) {
+            if (!valid_lot(lot, state, config) || !unique_lot(state, lot.id)) return Error::invalid_state;
+            if (!add(total, lot.recipe.input_units_per_product)) return Error::quantity_overflow;
+        }
+    }
+    return total == state.initial_units ? Error::none : Error::invalid_state;
 }
 
 Error step(State& state, const Config& config, const Path& path) {
+    return step(state, config, path,
+                MachinePower{path.collector_present, path.belt_present, path.processor_present});
+}
+
+Error step(State& state, const Config& config, const Path& path,
+           const MachinePower& power) {
     const auto input_error = validate(state, config, path);
     if (input_error != Error::none) return input_error;
-    if (!path.powered) return Error::none;
-
+    if ((power.collector && !path.collector_present) ||
+        (power.belt && !path.belt_present) ||
+        (power.processor && !path.processor_present)) return Error::invalid_path;
+    if (!path.powered || (!power.collector && !power.belt && !power.processor))
+        return Error::none;
     auto next = state;
     auto& stock = next.stock;
-    // Preserve the current explicit order: finish held work, start the next
-    // cycle, move belt input, move collector stock, then extract finite feed.
-    if (stock.held > 0) {
-        if (next.remaining > 0) --next.remaining;
-        if (next.remaining == 0 && stock.output < 1) {
-            stock.held = 0;
+    // Preserve the existing order. Carried work is deliberately not visited.
+    if (power.processor && next.processing) {
+        auto& lot = *next.processing;
+        if (lot.remaining_ticks > 0) --lot.remaining_ticks;
+        if (lot.remaining_ticks == 0 && stock.output < 1) {
+            next.processing.reset();
             ++stock.output;
         }
     }
-    if (path.processor_present && stock.held == 0 && stock.input >= config.input_units_per_product) {
+    if (power.processor && path.processor_present && !next.processing &&
+        stock.input >= config.input_units_per_product) {
+        if (next.next_work_id == std::numeric_limits<WorkId>::max()) return Error::work_id_overflow;
         stock.input -= config.input_units_per_product;
-        stock.held = config.input_units_per_product;
-        next.remaining = config.cycle_ticks;
+        next.processing = WorkLot{next.next_work_id,
+            {config.input_units_per_product, config.cycle_ticks}, config.cycle_ticks};
+        ++next.next_work_id;
     }
-    if (path.belt_to_processor && stock.belt > 0 && stock.input < config.input_units_per_product) {
+    if (power.belt && path.belt_to_processor && stock.belt > 0 &&
+        stock.input < config.input_units_per_product) {
         --stock.belt;
         ++stock.input;
     }
-    if (path.collector_to_belt && stock.collector > 0 && stock.belt < 1) {
+    if (power.collector && path.collector_to_belt && stock.collector > 0 && stock.belt < 1) {
         --stock.collector;
         ++stock.belt;
     }
-    if (path.collector_present && stock.source > 0 && stock.collector < config.collector_capacity) {
+    if (power.collector && path.collector_present && stock.source > 0 &&
+        stock.collector < config.collector_capacity) {
         --stock.source;
         ++stock.collector;
     }
@@ -110,12 +151,10 @@ Error retrieve(State& state, const Config& config, const Path& path,
                const std::string& actor, Quantity amount) {
     const auto input_error = validate(state, config, path);
     if (input_error != Error::none) return input_error;
-    if (actor.empty()) return Error::invalid_actor;
+    if (actor.empty() || !state.cargo.contains(actor)) return Error::invalid_actor;
     if (amount < 1 || amount > state.stock.output) return Error::unavailable_output;
-
     auto next = state;
-    auto& held = next.inventories[actor];
-    if (!add(held, amount)) return Error::quantity_overflow;
+    if (!add(next.cargo.at(actor).products, amount)) return Error::quantity_overflow;
     next.stock.output -= amount;
     const auto output_error = validate(next, config, path);
     if (output_error != Error::none) return output_error;
