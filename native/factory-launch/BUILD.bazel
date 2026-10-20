@@ -1,0 +1,67 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+# OpenSSL is an explicit installed-host dependency, not a fetched package.
+# The admitted command must seal its headers and runtime with the host toolchain.
+cc_library(
+    name = "capture",
+    srcs = ["src/capture.cpp"],
+    hdrs = ["include/factory/capture.hpp"],
+    strip_include_prefix = "include",
+    linkopts = ["-lcrypto"],
+)
+
+cc_binary(
+    name = "factory-project-capture",
+    srcs = ["src/main.cpp"],
+    deps = [":capture"],
+)
+
+cc_library(
+    name = "opening",
+    srcs = ["src/opening.cpp"],
+    hdrs = ["include/factory/opening.hpp"],
+    strip_include_prefix = "include",
+    deps = [":capture"],
+)
+
+# Ops owns the narrow runner visibility join. Do not replace or fork its
+# lifetime implementation to bypass that source interface review.
+cc_binary(
+    name = "factory-opening-startup",
+    srcs = ["src/opening_main.cpp"],
+    deps = [":opening", "//native/build-support:runner"],
+)
+
+cc_test(
+    name = "capture_test",
+    srcs = ["tests/capture_test.cpp"],
+    args = ["$(rootpath :factory-project-capture)"],
+    data = [":factory-project-capture"],
+    deps = [":capture"],
+    size = "small",
+)
+
+cc_test(
+    name = "extension_test",
+    srcs = ["tests/extension_test.cpp"],
+    args = ["$(rootpath :factory-opening-startup)"],
+    data = [":factory-opening-startup"],
+    deps = [":opening"],
+    size = "small",
+)
+
+cc_test(
+    name = "opening_test",
+    srcs = ["tests/opening_test.cpp"],
+    args = ["$(rootpath :factory-opening-startup)"],
+    data = [":factory-opening-startup"],
+    deps = [":opening"],
+    size = "small",
+)
+
+test_suite(
+    name = "tests",
+    tests = [":capture_test", ":opening_test", ":extension_test"],
+)
