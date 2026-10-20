@@ -6,6 +6,135 @@ const Store = preload("res://save-tests/checkpoint_file.gd")
 const ActorWorld = preload("res://opening/actor_world.gd")
 const CharacterPresenter = preload("res://opening/character_presenter.gd")
 const Geometry = preload("res://opening/site_geometry.gd")
+class ProductionVisuals:
+	extends RefCounted
+	## Presentation is self-contained in this already captured opening script.
+
+	static func _surface_noise() -> FastNoiseLite:
+		var noise := FastNoiseLite.new()
+		noise.seed = 1627
+		noise.frequency = 0.13
+		noise.fractal_octaves = 3
+		return noise
+
+	static var SURFACE_HEIGHT := _surface_noise()
+
+	static func _surface_texture(normal_map: bool) -> NoiseTexture2D:
+		var texture := NoiseTexture2D.new()
+		texture.width = 256
+		texture.height = 256
+		texture.seamless = true
+		texture.generate_mipmaps = true
+		texture.noise = SURFACE_HEIGHT
+		if normal_map:
+			texture.as_normal_map = true
+			texture.bump_strength = 1.5
+		else:
+			var ramp := Gradient.new()
+			ramp.colors = PackedColorArray([Color(0.72, 0.72, 0.72, 1), Color.WHITE])
+			texture.color_ramp = ramp
+		return texture
+
+	static var SURFACE_GRAIN := _surface_texture(false)
+	static var SURFACE_NORMAL := _surface_texture(true)
+
+	static var meshes: Dictionary = {}
+	static var finishes: Dictionary = {}
+
+	static func material(color: Color, metal: float, roughness: float) -> StandardMaterial3D:
+		var key := [color, metal, roughness]
+		if finishes.has(key):
+			return finishes[key]
+		var finish := StandardMaterial3D.new()
+		finish.albedo_color = color
+		finish.metallic = metal
+		finish.roughness = roughness
+		finish.roughness_texture = SURFACE_GRAIN
+		finish.normal_enabled = true
+		finish.normal_texture = SURFACE_NORMAL
+		finish.normal_scale = 0.18
+		finish.uv1_scale = Vector3(3, 3, 1)
+		finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		finishes[key] = finish
+		return finish
+
+	static func _uv(point: Vector3, normal: Vector3) -> Vector2:
+		var direction := normal.abs()
+		if direction.x >= direction.y and direction.x >= direction.z:
+			return Vector2(point.y, point.z)
+		if direction.y >= direction.z:
+			return Vector2(point.x, point.z)
+		return Vector2(point.x, point.y)
+
+	static func _face(surface: SurfaceTool, points: Array[Vector3], normal: Vector3) -> void:
+		# Godot uses clockwise front faces. Explicit flat normals keep machined
+		# shoulders crisp; tangents are generated from the actual planar UVs.
+		if (points[1] - points[0]).cross(points[2] - points[0]).dot(normal) > 0:
+			points.reverse()
+		for index in range(1, points.size() - 1):
+			for point in [points[0], points[index], points[index + 1]]:
+				surface.set_normal(normal)
+				surface.set_uv(_uv(point, normal))
+				surface.add_vertex(point)
+
+	static func box_mesh(dimensions: Vector3) -> ArrayMesh:
+		if meshes.has(dimensions):
+			return meshes[dimensions]
+		var half := dimensions / 2.0
+		var bevel := minf(0.014, minf(dimensions.x, minf(dimensions.y, dimensions.z)) * 0.12)
+		var inner := half - Vector3.ONE * bevel
+		var surface := SurfaceTool.new()
+		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+		# Six broad faces, twelve chamfer shoulders and eight closed corners.
+		for axis in range(3):
+			var u := (axis + 1) % 3
+			var v := (axis + 2) % 3
+			for side in [-1.0, 1.0]:
+				var normal := Vector3.ZERO
+				normal[axis] = side
+				var points: Array[Vector3] = []
+				for corner in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
+					var point := Vector3.ZERO
+					point[axis] = side * half[axis]
+					point[u] = corner.x * inner[u]
+					point[v] = corner.y * inner[v]
+					points.append(point)
+				_face(surface, points, normal)
+		# Each pair of face axes meets in one shoulder on either side.
+		for a in range(3):
+			for b in range(a + 1, 3):
+				var along := 3 - a - b
+				for sa in [-1.0, 1.0]:
+					for sb in [-1.0, 1.0]:
+						var normal := Vector3.ZERO
+						normal[a] = sa
+						normal[b] = sb
+						var points: Array[Vector3] = []
+						for end in [-1.0, 1.0]:
+							var p := Vector3.ZERO
+							p[a] = sa * half[a]
+							p[b] = sb * inner[b]
+							p[along] = end * inner[along]
+							var q := p
+							q[a] = sa * inner[a]
+							q[b] = sb * half[b]
+							if end < 0:
+								points.append_array([p, q])
+							else:
+								points.append_array([q, p])
+						_face(surface, points, normal.normalized())
+		for x in [-1.0, 1.0]:
+			for y in [-1.0, 1.0]:
+				for z in [-1.0, 1.0]:
+					var signs := Vector3(x, y, z)
+					_face(surface, [Vector3(x * half.x, y * inner.y, z * inner.z),
+						Vector3(x * inner.x, y * half.y, z * inner.z),
+						Vector3(x * inner.x, y * inner.y, z * half.z)], signs.normalized())
+		surface.generate_tangents()
+		var mesh := surface.commit()
+		meshes[dimensions] = mesh
+		return mesh
+
 const STEP_SECONDS := 0.45
 const PITCH := Geometry.PITCH
 const NAMES := {"collector": "Collector", "belt": "Belt", "processor": "Press", "wheel": "Waterwheel"}
@@ -294,8 +423,7 @@ func _process(delta: float) -> void:
 			elapsed -= STEP_SECONDS
 			model.advance()
 		_refresh()
-	if wheel_rotor != null and state.get("powered", false):
-		wheel_rotor.rotation.z += delta * 0.8
+	_animate_wheel(delta)
 	if explanation_open:
 		example_presenter.pan(delta)
 		return
@@ -308,6 +436,12 @@ func _process(delta: float) -> void:
 		focus += Vector3(pan.x, 0, pan.y) * delta * 4.0
 		focus.x = clampf(focus.x, -4, 6)
 		focus.z = clampf(focus.z, -4, 6)
+
+func _animate_wheel(delta: float) -> void:
+	# Native motion publishes exact rates but no saved rotation phase yet.
+	# Keep its rotor still rather than inventing an independent phase clock.
+	if wheel_rotor != null and state.get("powered", false) and not state.get("options", {}).get("native", false):
+		wheel_rotor.rotation.z += delta * 0.8
 
 func _input(event: InputEvent) -> void:
 	if explanation_open:
@@ -540,8 +674,11 @@ func _build_world() -> void:
 	_box(self, Vector3(1.65, -0.55, 1.65), Vector3(13.4, 0.8, 13.4), Color("394641"))
 	for x in range(-2, 5):
 		for z in range(-2, 5):
-			var tint := Color("57605a") if (x + z) % 2 == 0 else Color("505a55")
-			_box(self, Vector3(x * PITCH, -0.08, z * PITCH), Vector3(PITCH - 0.035, 0.12, PITCH - 0.035), tint)
+			# Subtle panel variation replaces the debug checkerboard. Existing
+			# seams, grid dimensions and physical ground stay unchanged.
+			var tint := Color("74766b").darkened(float(posmod(x * 17 + z * 31, 5)) * 0.018)
+			_machine_box(self, "FoundationPanel", Vector3(x * PITCH, -0.08, z * PITCH),
+				Vector3(PITCH - 0.035, 0.12, PITCH - 0.035), tint, 0.0, 0.95)
 	_box(self, Vector3(-2.7, 0.0, 1.65), Vector3(1.2, 0.06, 13.4), Color("396c76"))
 	for z in range(-3, 6):
 		_box(self, Vector3(-2.7, 0.04, z * 1.3), Vector3(0.85, 0.018, 0.035), Color("72a5a7"))
@@ -645,12 +782,13 @@ func _material_route(parent: Node3D, a: Vector3, b: Vector3) -> Node3D:
 	return route
 
 func _machine_box(parent: Node3D, part_name: String, at: Vector3, dimensions: Vector3,
-		color: Color, metal: float = 0.55, roughness: float = 0.5) -> MeshInstance3D:
-	var part := _box(parent, at, dimensions, color)
+		color: Color, metal: float = 0.08, roughness: float = 0.5) -> MeshInstance3D:
+	var part := MeshInstance3D.new()
+	part.mesh = ProductionVisuals.box_mesh(dimensions)
+	part.position = at
 	part.name = part_name
-	var finish := part.material_override as StandardMaterial3D
-	finish.metallic = metal
-	finish.roughness = roughness
+	part.material_override = ProductionVisuals.material(color, metal, roughness)
+	parent.add_child(part)
 	return part
 
 func _machine_cylinder(parent: Node3D, part_name: String, at: Vector3, radius: float,
@@ -658,15 +796,35 @@ func _machine_cylinder(parent: Node3D, part_name: String, at: Vector3, radius: f
 	var part := _cylinder(parent, at, radius, height, color)
 	part.name = part_name
 	part.rotation = orientation
-	var finish := part.material_override as StandardMaterial3D
-	finish.metallic = 0.75
-	finish.roughness = 0.4
+	(part.mesh as CylinderMesh).radial_segments = 48
+	part.material_override = ProductionVisuals.material(color, 0.85, 0.4)
 	return part
 
-func _collector_visual(anchor: Node3D) -> void:
+func _machine_axis(entity: Dictionary) -> Vector3:
+	# Native projections use the Host's X/Y/Z enumeration. Older projections
+	# without an axis retain the original X default.
+	return [Vector3.RIGHT, Vector3.UP, Vector3.BACK][int(entity.get("axis", 0))]
+
+func _spindle_rotation(axis: Vector3) -> Vector3:
+	if axis == Vector3.UP:
+		return Vector3.ZERO
+	return Vector3(0, 0, PI / 2) if axis == Vector3.RIGHT else Vector3(PI / 2, 0, 0)
+
+func _machine_drive_stub(anchor: Node3D, entity: Dictionary) -> void:
+	if state.get("options", {}).get("native", false):
+		var axis := _machine_axis(entity)
+		# The vertical stub stays above the base inside the same pick envelope.
+		var height := 0.9 if axis == Vector3.UP else 1.35
+		_machine_cylinder(anchor, "DriveStub", Vector3(0, Geometry.ANCHOR_HEIGHT, 0),
+			0.085, height, Color("b87945"), _spindle_rotation(axis))
+	else:
+		_machine_cylinder(anchor, "DriveStub", Vector3(0, 0.35, 0.55), 0.085, 0.18,
+			Color("b87945"), Vector3(PI / 2, 0, 0))
+
+func _collector_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	var frame: Color = COLORS.collector
 	var steel := Color("a6b4af")
-	_machine_box(anchor, "StockBed", Vector3(0, 0.51, 0), Vector3(1.25, 0.1, 0.67), steel)
+	_machine_box(anchor, "StockBed", Vector3(0, 0.51, 0), Vector3(1.25, 0.1, 0.67), steel, 0.85, 0.45)
 	_machine_box(anchor, "BackHousing", Vector3(-0.22, 0.66, -0.44), Vector3(0.84, 0.78, 0.14), frame)
 	for x in [-0.57, 0.18]:
 		_machine_box(anchor, "HeadSupport", Vector3(x, 0.87, -0.38), Vector3(0.12, 1.1, 0.14), frame)
@@ -677,10 +835,9 @@ func _collector_visual(anchor: Node3D) -> void:
 		steel, Vector3(PI / 2, 0, 0))
 	for z in [-0.37, 0.37]:
 		_machine_box(anchor, "StockGuide", Vector3(0.05, 0.6, z), Vector3(1.15, 0.08, 0.06), frame)
-	_machine_cylinder(anchor, "DriveStub", Vector3(0, 0.35, 0.55), 0.085, 0.18,
-		Color("b87945"), Vector3(PI / 2, 0, 0))
+	_machine_drive_stub(anchor, entity)
 
-func _belt_visual(anchor: Node3D) -> void:
+func _belt_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	var frame: Color = COLORS.belt
 	for x in [-0.52, 0.52]:
 		for z in [-0.26, 0.26]:
@@ -693,10 +850,9 @@ func _belt_visual(anchor: Node3D) -> void:
 	for x in [-0.57, 0.57]:
 		_machine_cylinder(anchor, "ConveyorRoller", Vector3(x, 0.465, 0), 0.1, 0.7,
 			Color("5b7275"), Vector3(PI / 2, 0, 0))
-	_machine_cylinder(anchor, "DriveStub", Vector3(0, 0.35, 0.55), 0.085, 0.18,
-		Color("b87945"), Vector3(PI / 2, 0, 0))
+	_machine_drive_stub(anchor, entity)
 
-func _press_visual(anchor: Node3D) -> void:
+func _press_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	var frame: Color = COLORS.processor
 	var steel := Color("a6b4af")
 	var dark := Color("29393f")
@@ -708,26 +864,41 @@ func _press_visual(anchor: Node3D) -> void:
 	_machine_cylinder(anchor, "Piston", Vector3(0, 1.14, -0.08), 0.075, 0.45, steel)
 	for x in [-0.34, 0.34]:
 		_machine_cylinder(anchor, "ToolGuide", Vector3(x, 1.06, -0.19), 0.04, 0.6, Color("b87945"))
-	_machine_box(anchor, "OutputTray", Vector3(0.46, 0.33, 0.15), Vector3(0.48, 0.05, 0.58), Color("aaa993"))
-	_machine_cylinder(anchor, "DriveStub", Vector3(0, 0.35, 0.55), 0.085, 0.18,
-		Color("b87945"), Vector3(PI / 2, 0, 0))
+	_machine_box(anchor, "OutputTray", Vector3(0.46, 0.33, 0.15), Vector3(0.48, 0.05, 0.58), Color("aaa993"), 0.85, 0.5)
+	_machine_drive_stub(anchor, entity)
 	for x in [-0.48, 0.48]:
 		_machine_cylinder(anchor, "BridgeBolt", Vector3(x, 1.5, -0.1075), 0.035, 0.025,
 			steel, Vector3(PI / 2, 0, 0))
 
-func _wheel_visual(anchor: Node3D) -> void:
+func _wheel_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	var frame := Color("465a60")
 	var wood := Color("b48c52")
-	for z in [-0.42, 0.42]:
-		_machine_box(anchor, "WheelStand", Vector3(0, 0.51, z), Vector3(0.16, 0.54, 0.16), frame)
-		_machine_cylinder(anchor, "AxleBearing", Vector3(0, 0.78, z), 0.145, 0.18,
-			Color("a6b4af"), Vector3(PI / 2, 0, 0))
+	var native_profile: bool = state.get("options", {}).get("native", false)
+	var scale_factor: float = Geometry.ANCHOR_HEIGHT / 0.78 if native_profile else 1.0
+	var axis := _machine_axis(entity) if native_profile else Vector3.BACK
+	var bearing_rotation := _spindle_rotation(axis)
+	if native_profile and axis == Vector3.UP:
+		# A vertical axle rests on a pedestal below the horizontal rotor.
+		_machine_box(anchor, "WheelStand", Vector3(0, 0.27, 0), Vector3(0.24, 0.3, 0.24), frame)
+		_machine_cylinder(anchor, "AxleBearing", Vector3.UP * (Geometry.ANCHOR_HEIGHT - 0.25 * scale_factor),
+			0.145 * scale_factor, 0.18 * scale_factor, Color("a6b4af"), bearing_rotation)
+	else:
+		for side in [-1.0, 1.0]:
+			var offset: Vector3 = axis * float(side) * 0.42 * scale_factor
+			_machine_box(anchor, "WheelStand", offset + Vector3.UP * 0.51 * scale_factor,
+				Vector3(0.16, 0.54, 0.16) * scale_factor, frame)
+			_machine_cylinder(anchor, "AxleBearing", offset + Vector3.UP * 0.78 * scale_factor,
+				0.145 * scale_factor, 0.18 * scale_factor, Color("a6b4af"), bearing_rotation)
 	wheel_rotor = Node3D.new()
 	wheel_rotor.name = "WheelRotor"
-	wheel_rotor.position = Vector3(0, 0.78, 0)
+	wheel_rotor.position = Vector3.UP * 0.78 * scale_factor
+	wheel_rotor.scale = Vector3.ONE * scale_factor
+	if native_profile and axis == Vector3.RIGHT:
+		wheel_rotor.rotation.y = PI / 2
+	elif native_profile and axis == Vector3.UP:
+		wheel_rotor.rotation.x = -PI / 2
 	anchor.add_child(wheel_rotor)
-	# An open rim exposes the spokes. This is the existing decorative rotor;
-	# no rendered contact or mesh position supplies a drive relationship.
+	# An open rim exposes the spokes. Meshes never supply drive relationships.
 	for n in range(12):
 		var angle := n * TAU / 12.0
 		var radial := Vector3(cos(angle), sin(angle), 0)
@@ -758,13 +929,13 @@ func _rebuild_machines() -> void:
 		_machine_box(anchor, "Plinth", Vector3(0, 0.12, 0), Vector3(1.35, 0.24, 1.35), Color("273c41"))
 		match kind:
 			"collector":
-				_collector_visual(anchor)
+				_collector_visual(anchor, entity)
 			"belt":
-				_belt_visual(anchor)
+				_belt_visual(anchor, entity)
 			"processor":
-				_press_visual(anchor)
+				_press_visual(anchor, entity)
 			"wheel":
-				_wheel_visual(anchor)
+				_wheel_visual(anchor, entity)
 		var body := StaticBody3D.new()
 		body.collision_layer = Geometry.PICK_LAYER
 		body.collision_mask = 0

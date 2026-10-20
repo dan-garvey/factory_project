@@ -332,6 +332,18 @@ Compatibility rendering and a 1280×800 window. The [environment record](engine-
 describes the observed Linux/WSLg renderer; [resource admission](local-resources.md)
 and the staged compiler impose deliberate test/source/log budgets.
 
+**Render-attribute readback, observed in an isolated asset fixture.** The pinned
+4.7.2 runtime returned finite unit tangents with normal-dot error up to
+`0.00012452` after `SurfaceTool` committed an `ArrayMesh`. Its matching
+[rendering-server source](https://github.com/godotengine/godot/blob/ed1daf0bf001b61586d9930840f2f1394092c079/servers/rendering/rendering_server.cpp#L562-L602)
+packs normals and tangents into 16-bit octahedral attributes even without
+compressed vertex positions. The initial `0.00001` asset assertion failed and
+is retained under `production-worksite-finishes-20261020`; the successor uses
+`0.0002` for decoded tangent orthogonality, with missing/non-finite/misoriented
+negative controls. This is a render-attribute observation allowance only. It
+changes no mesh envelope, physical pose, construction reach or game rule, and
+does not establish rendered material quality.
+
 The native bridge's initial engine call inherited a 2 GiB compiler address-space
 limit and aborted during initialization. Its separate engine-only ABI check passed
 with an explicit 8 GiB address-space envelope. A later first full-project import
