@@ -1197,6 +1197,7 @@ func _process(delta: float) -> void:
 			model.advance()
 		_refresh()
 	_refresh_machine_preview()
+	_refresh_endpoint_cue()
 	_refresh_mechanical_audio()
 	_animate_wheel(delta)
 	if explanation_open:
