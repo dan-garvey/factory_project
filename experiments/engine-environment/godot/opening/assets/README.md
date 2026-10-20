@@ -45,8 +45,12 @@ precise limb contact and human-visible animation quality are not established.
 output tray, feet and visible fasteners. The playable view constructs the frame,
 guides, anvil, head and tray directly in `opening.gd`; it does not load this optional
 scene. The outlet plate now sits on that tray within the original conservative
-machine envelope. The ram is stationary visual geometry; later motion must follow
-the confirmed work phase. The drive stub is a visible interface, not a cogwheel
+machine envelope. In the native profile, the head eases down by 0.14 metres only
+when confirmed held work is present, and rises only after held work is empty.
+Blocked READY work retains the lowered pose. The rod extends with its top fixed;
+this is an observed held/empty pose, not a predicted stroke or processing clock.
+Fresh contexts and replacement generations start at their observed pose, while
+an unrelated geometry refresh retains the current travel. The drive stub is a visible interface, not a cogwheel
 or evidence of mechanical engagement.
 
 The same existing view script builds an open collector stock bed, supported
@@ -68,6 +72,12 @@ rates with local cosmetic angles; these freeze when motion is unknown or stalled
 or the view is in Help, unready or disconnected. This view-only animation does
 not advance production or establish tooth-contact phase. It changes no power
 rule, contact, shaft geometry or collision envelope.
+
+The collector drum, hub and eight cutter flutes share that same cached cosmetic
+angle about their existing drum center. The press and cutter reuse the view's
+freshness gates and leave their pick bodies, item counts and item positions
+unchanged. The conveyor remains static: no belt surface speed or direction has
+been inferred from the separate material-transfer rules.
 
 Confirmed material links have static arrowheads and endpoints aligned with their
 actual ordered grid direction, including routes along either axis. These indicate
@@ -168,3 +178,22 @@ captured project and reports missing assets instead of taking that fallback.
 invented projection facts, including stock changes, item cleanup, resource reuse
 and an explicitly incomplete historical payload. These controls establish callback
 integration without human visual, native gameplay or shared-network acceptance.
+
+The physical environment enables restrained screen-space ambient occlusion to
+support the fitted bearings, frame joints and machine feet. The effect changes
+ambient shading only; sun, exposure, geometry, collision and construction remain
+unchanged. The [Godot 4.7 renderer table](https://docs.godotengine.org/en/4.7/tutorials/rendering/renderers.html)
+lists this effect for Compatibility, and the
+[Environment properties](https://docs.godotengine.org/en/stable/classes/class_environment.html#class-environment-property-ssao-enabled)
+describe its radius and strength controls. The current values are a reversible
+presentation default. Their rendered balance, edge artifacts and GPU cost remain
+unassessed; source compilation is not a pixel or performance result.
+
+The worksite controls share an industrial drawing theme with restrained dark
+surfaces, warm selected states, readable disabled text and a distinct keyboard
+focus outline. Button and native MenuButton styles clone their own resolved
+engine padding before changing borders, so effective content metrics, fonts and
+minimum sizes remain unchanged. The existing panel margins and control actions
+are preserved. Styles are built inside the captured opening script and add no
+font or image dependency. Isolated style/inheritance controls establish metric
+preservation and assigned-color contrast, not pixel appearance or human usability.

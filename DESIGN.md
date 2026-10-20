@@ -174,6 +174,13 @@ The quantities and work-cycle duration are tunable fixture values, not game perf
 - Dedicated servers, high tick rates, and rollback or better are explicit technical targets. Numerical budgets and the scope of rollback are open.
 - Detailed performance targets are deferred to a later conversation. The user's rig can serve as an initial baseline; its specifications have not been collected.
 
+The [stationary delivery ownership experiment](docs/engineering/progression-ownership-trial.md)
+selects personal learning and recipe entitlement with explicitly optional shared
+campaign credit for a later reversible trial. It does not implement those systems,
+change the current four-plate session goal or settle permanent campaign policy.
+Its physical custody, consumption and team-change rules remain experimental;
+source review does not establish implementation or user-play evidence.
+
 ### Development approach
 
 - The user starts with little game-design or 3D-graphics experience and no fixed engine preference. Rapid iteration is a major priority.
