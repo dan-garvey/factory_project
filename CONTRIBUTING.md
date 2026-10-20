@@ -34,9 +34,9 @@ Use one linked worktree per concurrent writer. Follow the mandatory shared `.bea
 
 Workers may choose, create, refine and claim their next bounded task without a PM dispatch. Own an ongoing queue: Platform covers authoritative rules, sessions and launch integration; Chapter covers playable experience, teaching and optional mechanical expansion; Ops covers independent consumer validation and local operation. The additional Playability worker focuses on first-run interaction/teaching, and Recovery focuses on ordinary multiplayer disruption/continuation. These are coordination defaults, not silos or overlapping file ownership: agree concrete boundaries and peer reviews directly in Beads. See PROJECT_MANAGER for the current authorized roster. Search existing open and closed work first, explain the player benefit or concrete risk being addressed, name intended paths/contracts, and retain real prerequisite edges. Do not invent duplicate state owners or process-only work merely to appear busy.
 
-Arrange peer reviews directly and resolve findings with evidence. A frozen handoff must remain reproducible, but its author should take a useful ready task in a separate linked worktree while review or landing proceeds. Reviewers may prepare independent oracles against an agreed in-flight contract; final acceptance still requires the actual frozen implementation. Never close an implementation as accepted just to unblock its review, self-approve, or bypass a failed check. If every useful next task genuinely depends on unfinished work, record the specific blocker and coordinate with its owner; temporary idle time is then honest, not an excuse to expand scope arbitrarily.
+Arrange one independent review directly and resolve concrete findings through the relevant tests and that reviewer. Share a reproducible patch and its results; a plan, source freeze or receipt does not need separate approval. The author can continue useful work in another linked worktree while review or landing proceeds. Reuse passing checks and reviews when their relevant inputs are unchanged. Never close an implementation as accepted just to unblock its review, self-approve, or bypass a failed check. If every useful next task genuinely depends on unfinished work, record the specific blocker once and coordinate with its owner; temporary idle time is then honest, not an excuse to expand scope arbitrarily.
 
-Notify the PM for an exact handoff ready to land, an unexpected failure/material finding, an unresolved resource conflict, or a decision outside delegated authority. Routine task selection, scope refinement, resource coordination and peer review belong to the agents and the owning Beads, not repeated PM permission requests. The PM reviews design/evidence and owns serialized main integration/publication. Course correction uses concrete review findings, rejections and Bead details, not routine dispatch or micromanagement. Resource admission and paid/destructive/permanent-choice limits remain unchanged.
+Notify the PM for an exact handoff ready to land, an unexpected failure/material finding, an unresolved resource conflict, or a decision outside delegated authority. Routine task selection, scope refinement, resource coordination and peer review belong to the agents and the owning Beads, not repeated PM permission requests. The PM serializes main integration/publication and may serve as the single independent reviewer, but adds no approval gate after another independent reviewer has completed the review. Course correction uses concrete review findings, rejections and Bead details, not routine dispatch or micromanagement. Resource admission and paid/destructive/permanent-choice limits remain unchanged.
 
 ## Durable memory and handoffs
 
@@ -55,7 +55,7 @@ Use the smallest appropriate record:
 - Design/engineering documents: accepted requirements and reusable contracts, with rationale and superseded decisions where useful.
 - `.notes/` in each worktree: ignored scratch notes. Other local agents may read a deliberately shared note, but it must not be the only copy of a decision, blocker, or test result.
 
-Do not depend on access to a long chat log. Record a meaningful transition, finding, or handoff, not every tool call. A compact ledger entry is enough:
+Do not depend on access to a long chat log. Follow AGENTS' material-information-only rule: record a new result, finding, decision, ownership change or actionable handoff, never an unchanged status or duplicate summary. Link existing evidence rather than restating it. Use only the relevant fields of this compact entry:
 
 ```text
 Problem/trigger:
@@ -81,7 +81,7 @@ Godot remains accepted, with GDScript serving existing integration and presentat
 while authoritative rules move into the native core. Do not create a parallel
 mutable world or silently keep a second implementation as a fallback.
 
-Existing Python commands below remain required until reviewed native replacements
+Existing Python-backed checks remain in use until reviewed native replacements
 preserve their contracts. Running them is not permission to extend their Python
 implementation. Review pending Python candidates against the new direction rather
 than automatically landing them because historical evidence passed. Preserve that
@@ -97,15 +97,16 @@ Prerequisites for current checks: Linux, Bash, Git, Python 3.10 or newer, and `s
 
 ```bash
 ./scripts/install-hooks.sh
-python3 -B scripts/run_local.py check -- python3 -B scripts/check.py
-python3 -B scripts/check_commit.py
+git commit
 ```
 
-The installer sets repository-local `core.hooksPath=.githooks`, shared by linked worktrees, and refuses to overwrite a different configured hook path or disable executable default hooks. Install it in a fresh clone; Git does not distribute local configuration automatically. The hook calls `check_commit.py`, which takes exactly one top-level permit: shared check for non-GDScript changes, heavy for staged `.gd` changes. Do not wrap that coordinator or `git commit` itself: either would nest resource admission. The hook does not auto-format or stage anything.
+Install the hook once per clone. Review and explicitly stage only scoped paths before committing. Run focused tests needed for changed behavior; do not duplicate the hook's suite on unchanged relevant inputs. A manual `python3 -B scripts/check_commit.py` run is optional diagnostics, not a required step before committing.
+
+The installer sets repository-local `core.hooksPath=.githooks`, shared by linked worktrees, and refuses to overwrite a different configured hook path or disable executable default hooks. Git does not distribute local configuration automatically. The installed hook invokes `check_commit.py` as the single mandatory staged check, taking exactly one top-level permit: shared check for non-GDScript changes, heavy for staged `.gd` changes. Do not wrap that coordinator or `git commit` itself: either would nest resource admission. The hook does not auto-format or stage anything.
 
 The cheap check runner validates Python/Bash syntax, optional agent JSON configuration, and the tooling integration tests. Missing or skipped tooling tests fail. Source checks do not need a private tracker or engine, so a clean public clone can run them. The staged command also checks diff whitespace, rejects every `.beads` path (including exports/configuration), and checks an immutable copy of the candidate index using raw Git blobs, without checkout filters or archive exclusions. Passing unstaged files cannot hide a broken staged candidate. Staging changes before admission or during the run make the commit coordinator fail. The temporary snapshot never contains private tracker data or invokes `br`.
 
-For staged `.gd` changes, the coordinator also requires real GDScript parsing. The integration owner configures the existing verified runtime locally after safety-gate review; no runtime is downloaded or selected through global settings. Replace these illustrative values with the absolute existing executable, its verified lowercase SHA256 and an owned external artifact directory:
+For staged `.gd` changes, the coordinator also requires real GDScript parsing. The integration owner configures the existing verified runtime locally; no runtime is downloaded or selected through global settings. Replace these illustrative values with the absolute existing executable, its verified lowercase SHA256 and an owned external artifact directory:
 
 ```bash
 git config --local factory.godotExecutable /absolute/verified/Godot_v4.7.2-stable_linux.x86_64
@@ -119,7 +120,7 @@ The compiler copies the immutable staged prototype project to an owned external 
 
 This intentionally simple snapshot gate copies the small tracked tree. It currently rejects staged symlinks and submodules, including the shared `.beads` symlink. Deliberate support for legitimate source symlinks/submodules requires extending the gate and tests first. If assets or build costs make whole-tree snapshots expensive, replace this mechanism with measured, cache-aware validation; do not blindly copy large assets on every commit. No game build, playtest, performance result, remote CI or branch protection is implied by a green tooling check or public remote. Local hooks can be bypassed; do not use a bypass as acceptance evidence.
 
-Changes to the checker, tests, or hooks need independent review: an arbitrary candidate can weaken its own checks. Keep tests in the same integration surface they protect. In a future CI setup, run the same canonical command and configure required checks deliberately rather than treating a workflow file as enforcement.
+Changes to the checker, tests, or hooks use the same single independent reviewer, who checks that the candidate does not weaken its own checks; they do not need an additional specialist approval. Keep tests in the same integration surface they protect. In a future CI setup, run the same canonical command and configure required checks deliberately rather than treating a workflow file as enforcement.
 
 ## Testing and review habits
 
@@ -137,12 +138,12 @@ When review finds a repeatable class of failure, prefer a focused test or static
 
 ## Integration and history
 
-One integration owner serializes landing into local `main` and the main checkout's shared Beads export. Reviewers get the patch, relevant contracts, evidence, and known limits—not an instruction to approve the author's reasoning. Record review findings and resolutions in the task. A small documentation correction need not summon a new agent; substantial implementation and changes to safety gates need independent review.
+One integration owner serializes landing into local `main` and the main checkout's shared Beads export. Code landing requires only relevant automated tests and one independent reviewer, as specified in AGENTS. The reviewer gets the patch, relevant contracts, evidence, and known limits—not an instruction to approve the author's reasoning. Record new findings and resolutions in the task. Do not require a second reviewer, PM sign-off, plan approval, source-freeze approval or receipt approval. A small documentation correction need not summon a new agent.
 
-Before landing a branch, integrate current `main` in its worktree, resolve conflicts, and validate the resulting candidate. Textual mergeability is not proof of compatibility. Keep commits focused and each accepted commit buildable/checkable to the extent of the current project. Do not rewrite other agents' published/shared branches without agreement.
+Before landing, compare the candidate with current `main` and resolve any incompatibility in the integration worktree. Reuse passing tests and review for unchanged relevant inputs; changed inputs need only the relevant tests and the same independent reviewer, not another approval tier. Textual mergeability alone is not proof of compatibility. Keep commits focused and each accepted commit buildable/checkable to the extent of the current project. Do not rewrite other agents' published/shared branches without agreement.
 
 Use the existing readable subject convention, for example `chore: validate staged tooling before commits`. For nontrivial changes, the body should explain the problem/cause, accepted solution and boundaries, and verification/limits. Use task links when useful, but make the public change understandable without private Beads access. JSONL is now backed up separately rather than versioned. Remove obsolete exploratory narrative and chat/session links from final history. Do not copy HRX's tags or length rules just for resemblance.
 
-Close tasks only after their acceptance evidence is satisfied; otherwise leave an honest handoff. Flush the private shared export, but never stage it. Stage source paths explicitly from the relevant worktree. Inspect the candidate, run the staged gate, commit, then inspect status. Record code commits and closures in the private ledger; the progenitor maintains its separate gist backup. Do not expose gist identifiers or account-usage readings in public commits. Legacy tracked-ledger branches need a source-only handoff into a fresh current-main worktree, not a forced merge/rebase across removal of `.beads`.
+Close tasks only after their acceptance evidence is satisfied; otherwise leave an honest handoff. Flush the private shared export, but never stage it. Stage source paths explicitly from the relevant worktree, inspect the candidate, commit through the installed hook once, then inspect status. Record code commits and closures in the private ledger; the progenitor maintains its separate gist backup. Do not expose gist identifiers or account-usage readings in public commits. Legacy tracked-ledger branches need a source-only handoff into a fresh current-main worktree, not a forced merge/rebase across removal of `.beads`.
 
 The user authorized a public GitHub remote at `dan-garvey/factory_project`. The progenitor publishes reviewed main after excluding historical tracker data. This does not authorize other remote repositories, unreviewed branches/PRs, paid services or contact with upstream maintainers.

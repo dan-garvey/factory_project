@@ -6,13 +6,22 @@ The original project thread is `01a13bb6-ca3f-71d2-ace8-305484081ed5`, titled **
 
 Review evidence, requirements and architectural ownership independently; an agent's confidence, clean prose, successful compilation or isolated demo is not sufficient acceptance. Agents self-manage their queues, dependencies, peer reviews and local resource coordination. The progenitor is a reviewer and integration owner, not a routine dispatcher or supervising approval gate. Disagreement is resolved with contracts, reproducers and observations, not deference or habitual rejection.
 
+Code landing requires only relevant automated tests and one independent reviewer.
+The progenitor may be that reviewer or reuse a completed independent review, not
+add PM, specialist, plan, source-freeze or receipt approvals. Reuse passing checks
+and reviews for unchanged relevant inputs. This rule supersedes older approval
+chains in task descriptions or handoffs; remove those redundant requirements
+from active work rather than waiting for them. User authorization, actual resource
+limits and desktop ownership remain operating constraints, not landing approvals.
+
 The user's current role direction is to course-correct through specific review
 findings, rejections and Bead details. A rejection should explain the concrete
 problem and the evidence needed to resolve it; it should not prescribe every
 implementation step. Do not issue routine task-by-task instructions, repeatedly
 direct workers during review waits, or require PM approval for delegated choices.
 Resolve genuine cross-stream authority conflicts when necessary. Serialized main
-integration/publication and independent acceptance remain the progenitor's work.
+integration/publication remains the progenitor's work, without a second acceptance
+gate after the single independent review.
 
 The PM owns communication quality as well as technical review. Write readable
 sentences, not compressed status codes. Routine worker coordination belongs in
@@ -43,7 +52,7 @@ Dispatched workers are fresh, named Codex sessions, visible to the user remotely
 
 The user authorized **two additional max-effort workers** on 2026-10-15 UTC: Factory — Playability / Teaching (`01a14005-38c8-78c0-bdf6-1951cdc74651`, actor `factory-playability`) and Factory — Multiplayer / Recovery (`01a14005-3ae1-70b0-955d-ad1acdc96791`, actor `factory-recovery`). Their starting tasks are `factory-yau.6.27` (first-run opening readability) and `factory-yau.5.15` (uncovered ordinary shared-play disruption/recovery evidence). The current roster is five persistent workers plus the progenitor; this does not authorize further spawning. Coordinate concrete file ownership with the established workers and reuse their completed handoffs. Both new sessions use `gpt-6.1-sol` with `max` effort; verify actual turn settings rather than assuming a task-creation helper inherits reasoning effort. Correct settings in the existing conversation, not by discarding its context.
 
-The user delegates ongoing task autonomy to these workers. They discover/create/refine/claim scoped follow-ups, coordinate contracts and resources, and arrange independent peer review without PM dispatch. Prioritize useful playable increments over proposal or process volume. Maintain duplicate searches, real dependencies, ownership and evidence in Beads. Freeze a candidate, not a whole worker: while a handoff is reviewed or integrated, its author continues non-overlapping ready work in a separate linked worktree. The PM records concrete review findings or rejections in Beads and intervenes only when a genuine authority conflict needs resolution, not as a task-selection gate. Main integration/publication, substantive independent acceptance and authority limits remain unchanged; peer agreement cannot turn an experiment into permanent design canon.
+The user delegates ongoing task autonomy to these workers. They discover/create/refine/claim scoped follow-ups, coordinate contracts and resources, and arrange one independent review without PM dispatch. Prioritize useful playable increments over proposal or process volume. Maintain duplicate searches, real dependencies, ownership and evidence in Beads. Share a reproducible candidate, not an idle worker: while a handoff is reviewed or integrated, its author continues non-overlapping ready work in a separate linked worktree. The PM records concrete review findings or rejections in Beads and intervenes only when a genuine authority conflict needs resolution, not as a task-selection gate. Main integration/publication and authority limits remain unchanged; peer agreement cannot turn an experiment into permanent design canon.
 
 All `.beads` contents are now private and Git-ignored; the shared directory/symlink rule remains. The user selected a separate gist for portable text backups. Use the [verified backup updater](docs/engineering/beads-backup.md) during each hourly review:
 
@@ -63,10 +72,10 @@ Review continues independently of resource/scheduler setup. Existing collaborato
 2. Capture the exact `refs/heads/*` revisions using `git for-each-ref --format='%(refname) %(objectname)' refs/heads`. Inspect new commits on main **and work branches**, including cross-stream dependencies. Detect rewritten/non-ancestor histories; do not assume a linear `old..new` range contains everything. The scheduler's captured refs are a starting snapshot, not proof of what was reviewed.
 3. Compare code and evidence with accepted task scope and DESIGN. Check real consumers, state ownership, conserved quantities, failure/recovery, moving-world/network/save joins, and whether proposed rules accidentally became canon. Distinguish additional coverage, regression proof, experimental behavior, known unsupported cases and game-scale claims.
    Check the physical-character/reach join and stationary-first priority, new entries in the framework constraint register, and continuity/deduplication of the research queue. Do not close the recurring research epic when individual studies complete.
-4. Run proportionate checks on the captured candidate. If code execution requires checkout, create an isolated review worktree, immediately link its `.beads` with the mandatory helper, and follow shared-export rules. Do not run the working main checkout and claim it validates a different commit. A tooling-only ledger/doc change does not require a fictitious game playtest.
+4. Reuse passing checks and the completed independent review when relevant inputs are unchanged. Run only missing or changed-input checks needed for the candidate, not a routine PM revalidation suite. If code execution requires checkout, create an isolated review worktree, immediately link its `.beads` with the mandatory helper, and follow shared-export rules. Do not run the working main checkout and claim it validates a different commit. A tooling-only ledger/doc change does not require a fictitious game playtest.
 5. Inspect disk/memory and cooperating workloads. Use the resource wrapper for tests/builds/measurements; defer expensive work rather than competing with a benchmark. Preserve diagnostics. A retry is not a flake fix. Do not re-run expensive work another owner has already evidenced without a specific reason.
-6. Append a concise Beads review record: branch and exact reviewed SHA/range, source requirements, commands/results, findings/severity, limits, owners/follow-ups and next action. Even a no-change cycle can update the local heartbeat; avoid generating repetitive ledger commits solely to prove wakefulness. Do not mark unexamined revisions reviewed or close the recurring PM responsibility.
-7. When a queued request has been handled, acknowledge its **exact** ID with `scripts/pm.py acknowledge --request <id> --summary '<Bead/comment and exact reviewed revisions>'`. Acknowledgement records completion of that request, not automatic approval of every captured ref. If work arrived during review, leave it explicitly pending for the next pass. Flush and separately back up the private Beads export; never stage it or absorb another agent's WIP.
+6. Record only a new material result, finding, decision, ownership change or actionable handoff in Beads, concisely and with links to existing evidence. No unchanged-status entries, duplicate acceptance summaries, repeated blockers or heartbeat comments. An unchanged cycle needs no Beads entry; local scheduler state can track completion. Do not mark unexamined revisions reviewed or close the recurring PM responsibility.
+7. When a queued request has been handled, acknowledge its **exact** ID with `scripts/pm.py acknowledge --request <id> --summary '<Bead/comment and exact reviewed revisions>'`. Reuse the existing review reference when nothing material changed; do not post a duplicate Beads acknowledgement. The command records request completion, not a code-landing approval or automatic acceptance of every captured ref. If work arrived during review, leave it explicitly pending for the next pass. Flush and separately back up the private Beads export; never stage it or absorb another agent's WIP.
 
 Escalate material architecture/design drift, broken gates, flakes, unverified acceptance, exhausted disk budgets, blocked user decisions or unsafe resource contention. Give the user a short actionable summary on the phone; put detailed evidence in Beads.
 

@@ -12,6 +12,15 @@ Use a short outcome, what it means, the next action and one task/comment referen
 Put detailed hashes, commands, counters and resource tables in structured evidence;
 do not forward those records verbatim into the user's conversation.
 
+Beads MUST contain new, material information only. Repetitive comments, notes,
+descriptions and status updates are forbidden. Never post an update whose result
+is "nothing has changed": no unchanged-condition restatements, duplicate evidence
+or approval summaries, repeated blocker notices, heartbeat comments or receipts
+that merely confirm an existing record. Link the original once when needed for a
+new finding or decision. Record a new result, finding, decision, ownership change
+or actionable handoff concisely; otherwise say nothing. Prune redundant history
+while preserving distinct findings, actual test results and their evidence.
+
 Use these instructions as the writing standard, not old messages or session logs.
 Rewrite or remove malformed prose from agent-facing records rather than preserving
 it as a quoted example, an appended correction or a duplicate archive. Retain the
@@ -26,6 +35,15 @@ a routine dispatcher or supervising approval gate. Course corrections belong in
 specific Bead details and review findings or rejections, with a concrete reason
 and acceptance condition. Do not wait for PM instructions on ordinary work, send
 permission requests for delegated choices, or treat review as approval by default.
+
+Code landing may require only the relevant automated tests and a single
+independent reviewer. Agents MUST NOT create additional gates: no second required
+reviewer, review panel, PM sign-off, plan approval, source-freeze approval, receipt
+approval or other approval chain. The integrator serializes landing and publication
+without adding another review gate. Fix concrete defects through the same tests
+and reviewer. Do not repeat passing checks or reviews of unchanged relevant
+inputs. Respect user authorization, desktop ownership and actual resource limits;
+do not turn these operating constraints into additional code-landing approvals.
 
 ## Project contract
 
@@ -89,8 +107,8 @@ Legacy branches may still track `.beads`. Do not merge/rebase them across its re
 
 1. Update the relevant Beads issues, record evidence/limits and independent review for substantial changes, and close only when acceptance is satisfied.
 2. Run `br sync --flush-only` to persist the private portable export. The progenitor owns separate backup freshness; no ledger content belongs in source commits.
-3. Run `python3 -B scripts/run_local.py check -- python3 -B scripts/check.py`; review and explicitly stage only scoped source paths.
-4. Run `python3 -B scripts/check_commit.py` before committing. This top-level staged coordinator and the installed precommit hook acquire one check permit for non-GDScript changes or one heavy permit for staged GDScript compilation. Do not wrap either command or `git commit` itself, or nest admission. Install the local hook using `./scripts/install-hooks.sh`; never auto-stage fixes or bypass a failure as acceptance evidence. Changes to safety gates need independent review.
+3. Run focused checks needed to validate the changed behavior, then review and explicitly stage only scoped source paths. Do not duplicate the commit hook's full suite on unchanged relevant inputs.
+4. Commit through the installed precommit hook, which invokes `python3 -B scripts/check_commit.py` as the single mandatory staged check. Do not run the same coordinator manually before the hook on unchanged inputs; a manual run is optional diagnostics. The coordinator acquires one check permit for non-GDScript changes or one heavy permit for staged GDScript compilation. Do not wrap the coordinator or `git commit` itself, or nest admission. Install the local hook using `./scripts/install-hooks.sh`; never auto-stage fixes or bypass a failure as acceptance evidence. Changes to safety gates use the same single independent reviewer.
 5. The integration owner serializes main landing and publication. Validate branches against current main before landing; a clean textual merge is insufficient.
 6. Inspect `git status` and hand off any remaining work or verification limits.
 

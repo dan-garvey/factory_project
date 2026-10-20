@@ -8,8 +8,9 @@ python3 -B scripts/run_local.py heavy -- <build-or-test-command>
 python3 -B scripts/run_local.py benchmark -- <measurement-command>
 ```
 
-For commits use `python3 -B scripts/check_commit.py` directly, or let the
-installed precommit hook invoke it. That coordinator captures the staged tree
+For commits, let the installed precommit hook invoke
+`python3 -B scripts/check_commit.py` once. A manual coordinator run is optional
+diagnostics, not an additional required check before the hook. It captures the staged tree
 and takes one permit: check for non-GDScript changes, heavy for staged `.gd`
 changes requiring the pinned compiler. It fails if staging changes before or
 during validation. Do not wrap the coordinator or `git commit`, and do not call
