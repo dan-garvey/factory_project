@@ -59,6 +59,7 @@ var machine_root: Node3D
 var item_root: Node3D
 var hover: MeshInstance3D
 var selection_ring: MeshInstance3D
+var placement_hint: Node3D
 var wheel_rotor: Node3D
 var status_label: Label
 var stock_label: Label
@@ -541,6 +542,7 @@ func _build_world() -> void:
 	hover.visible = false
 	selection_ring = _box(self, Vector3.ZERO, Vector3(1.54, 0.035, 1.54), Color("c9bb86"))
 	selection_ring.visible = false
+	_build_placement_hint()
 	camera = Camera3D.new()
 	camera.fov = 45
 	camera.near = 0.1
@@ -748,6 +750,7 @@ func _toggle_details() -> void:
 		_refresh_ui()
 
 func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
+	_refresh_placement_hint(snapshot_ready)
 	if legacy_fixture:
 		return
 	# This is a view of confirmed facts, not persistent progression or admission.
@@ -791,6 +794,50 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	controls_label.text = "WASD walk · Space jump · Right-drag view · Wheel zoom · H help"
 	if show_all_tools:
 		controls_label.text = "WASD walk · Space jump · P wheel · 1–4 build · F / G links · I inspect · H help"
+
+func _build_placement_hint() -> void:
+	placement_hint = Node3D.new()
+	placement_hint.name = "GuidedPlacementHint"
+	placement_hint.visible = false
+	add_child(placement_hint)
+	for side in [-0.7, 0.7]:
+		_box(placement_hint, Vector3(0, 0, side), Vector3(1.45, 0.035, 0.055), Color("edcc8d"))
+		_box(placement_hint, Vector3(side, 0, 0), Vector3(0.055, 0.035, 1.45), Color("edcc8d"))
+
+func _placement_hint_ready() -> bool:
+	return _can_control_character()
+
+func _guided_placement_cell() -> Array:
+	if legacy_fixture or show_all_tools or explanation_open or not _placement_hint_ready():
+		return []
+	if not mode in ["belt", "processor"] or int(state.get("parts", {}).get(mode, 0)) < 1:
+		return []
+	# A suggestion for this starter path only, never a placement/reach decision.
+	var upstream_kind := "collector" if mode == "belt" else "belt"
+	var upstream: Array = []
+	var kinds: Dictionary = {}
+	for entity in state.get("entities", {}).values():
+		kinds[String(entity.kind)] = true
+		if entity.kind == upstream_kind:
+			if not upstream.is_empty():
+				return []
+			upstream = entity.cell
+	if upstream.is_empty() or _guided_step(kinds).tool != mode:
+		return []
+	var cell := [int(upstream[0]) + 1, int(upstream[1])]
+	if cell[0] < -2 or cell[0] > 4 or cell[1] < -2 or cell[1] > 4:
+		return []
+	if not _entity_at_cell(Vector2i(cell[0], cell[1])).is_empty():
+		return []
+	return cell
+
+func _refresh_placement_hint(snapshot_ready: bool = true) -> void:
+	if placement_hint == null:
+		return
+	var cell: Array = _guided_placement_cell() if snapshot_ready else []
+	placement_hint.visible = not cell.is_empty()
+	if placement_hint.visible:
+		placement_hint.position = _cell_position(cell) + Vector3(0, 0.055, 0)
 
 func _guided_step(kinds: Dictionary) -> Dictionary:
 	if goal_confirmed:

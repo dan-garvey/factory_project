@@ -18,6 +18,11 @@ early tool by keyboard also keeps its button visible. This is a revisable view
 order, not a technology unlock or a saved progression rule. Reopening a worksite
 derives the suggestions again from its actual machines, links and inventory.
 
+Selecting the suggested Belt or Press also outlines the empty square at the
+confirmed upstream machine's outlet. This cue is a layout suggestion, not a
+construction permission or reach indicator. It hides in Help, All tools and
+pending/disconnected views, and when the next square is occupied or ambiguous.
+
 **Details** shows global stock/drive counters and the original save controls;
 it does not change their eligibility. Machine inspection, retrieval, dismantling,
 connection status, refusal messages and Help remain accessible without it. Help

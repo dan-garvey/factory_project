@@ -81,6 +81,9 @@ func _release_character_input() -> void:
 func _can_mutate() -> bool:
 	return session != null and session.is_ready() and _usable_snapshot() and not explanation_open and pending_actions.is_empty()
 
+func _placement_hint_ready() -> bool:
+	return _can_mutate() and super._placement_hint_ready()
+
 func _reconnect() -> void:
 	if session.is_ready() or connecting:
 		return
