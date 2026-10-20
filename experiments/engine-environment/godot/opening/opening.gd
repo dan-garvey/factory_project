@@ -187,6 +187,76 @@ class ProductionVisuals:
 			meshes["fastener/hex"] = head
 		return meshes["fastener/hex"]
 
+class ProductionSteelFloor:
+	extends RefCounted
+	## Image/material presentation only. No geometry or physical displacement.
+	const ROOT := "res://opening/assets/steel"
+	const FILES := {"albedo": "steel_albedo.webp", "arm": "steel_arm.webp", "normal": "steel_normal_gl.webp"}
+	static var finish: StandardMaterial3D
+	static var source_status := "uninitialized"
+
+	static func read_images(directory: String = ROOT) -> Dictionary:
+		var present := 0
+		for name_value in FILES.values():
+			if FileAccess.file_exists(directory.path_join(name_value)):
+				present += 1
+		if present == 0:
+			return {"status": "missing", "images": {}}
+		if present != FILES.size():
+			return {"status": "invalid", "reason": "incomplete_material_set", "images": {}}
+		var images: Dictionary = {}
+		for role in FILES:
+			var image := Image.load_from_file(directory.path_join(FILES[role]))
+			var expected := Vector2i(512, 512) if role == "arm" else Vector2i(1024, 1024)
+			if image == null or image.is_empty() or image.get_size() != expected:
+				return {"status": "invalid", "reason": "invalid_" + role, "images": {}}
+			images[role] = image
+		return {"status": "ready", "images": images}
+
+	static func material() -> StandardMaterial3D:
+		if source_status != "uninitialized":
+			return finish
+		var loaded := read_images()
+		source_status = loaded.status
+		if source_status == "missing":
+			# Historical fixed rosters have no bitmap assets. Keep their earlier
+			# procedural floor explicit; current native capture includes all files.
+			return null
+		if source_status != "ready":
+			push_error("Incomplete or invalid scanned foundation material: " + str(loaded.get("reason", "unknown")))
+			return null
+		for role in loaded.images:
+			var image: Image = loaded.images[role]
+			if image.generate_mipmaps(role == "normal") != OK:
+				source_status = "invalid"
+				push_error("Cannot generate foundation material mipmaps.")
+				return null
+		var arm := ImageTexture.create_from_image(loaded.images.arm)
+		finish = StandardMaterial3D.new()
+		finish.albedo_color = Color.WHITE
+		finish.albedo_texture = ImageTexture.create_from_image(loaded.images.albedo)
+		finish.metallic = 1.0
+		finish.metallic_texture = arm
+		finish.metallic_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_BLUE
+		finish.roughness = 1.0
+		finish.roughness_texture = arm
+		finish.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_GREEN
+		finish.ao_enabled = true
+		finish.ao_texture = arm
+		finish.ao_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
+		finish.ao_light_affect = 0.0
+		finish.normal_enabled = true
+		finish.normal_texture = ImageTexture.create_from_image(loaded.images.normal)
+		finish.normal_scale = 1.0
+		# The source covers two metres. World-space mapping keeps its pattern
+		# continuous across static panels instead of resetting at each tile.
+		finish.uv1_triplanar = true
+		finish.uv1_world_triplanar = true
+		finish.uv1_triplanar_sharpness = 8.0
+		finish.uv1_scale = Vector3.ONE * 0.5
+		finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		return finish
+
 class ProductionEnvironment:
 	extends RefCounted
 	## Visual scenery only. ActorWorld retains the flat floor and all collision.
@@ -1501,13 +1571,18 @@ func _build_world() -> void:
 		fill.shadow_enabled = false
 		add_child(fill)
 	_box(self, Vector3(1.65, -0.55, 1.65), Vector3(13.4, 0.8, 13.4), Color("394641"))
+	var foundation_finish: StandardMaterial3D = ProductionSteelFloor.material() if not legacy_fixture else null
+	set_meta("foundation_surface", ProductionSteelFloor.source_status if not legacy_fixture else "legacy")
 	for x in range(-2, 5):
 		for z in range(-2, 5):
 			# Subtle panel variation replaces the debug checkerboard. Existing
 			# seams, grid dimensions and physical ground stay unchanged.
 			var tint := Color("74766b").darkened(float(posmod(x * 17 + z * 31, 5)) * 0.018)
-			_machine_box(self, "FoundationPanel", Vector3(x * PITCH, -0.08, z * PITCH),
+			var panel := _machine_box(self, "FoundationPanel", Vector3(x * PITCH, -0.08, z * PITCH),
 				Vector3(PITCH - 0.035, 0.12, PITCH - 0.035), tint, 0.0, 0.95)
+			panel.set_meta("surface_role", "foundation")
+			if foundation_finish != null:
+				panel.material_override = foundation_finish
 	if legacy_fixture:
 		_box(self, Vector3(-2.7, 0.0, 1.65), Vector3(1.2, 0.06, 13.4), Color("396c76"))
 		for z in range(-3, 6):
