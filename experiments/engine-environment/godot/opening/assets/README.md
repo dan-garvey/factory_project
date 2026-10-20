@@ -62,9 +62,12 @@ Older native projections without an axis retain X. The wheel is scaled to keep
 its rim above the ground; a Y-axis wheel has a horizontal rotor on a pedestal,
 and vertical machine stubs are shorter to fit the unchanged machine envelope.
 Historical scripted views keep their original decorative stubs and wheel
-dimensions. Native rotational phase is not published yet, so that rotor stays
-still; the view does not invent a second phase clock from the global powered
-flag. This changes no power rule, contact, shaft geometry or collision envelope.
+dimensions. The native projection publishes signed rotation rates, not saved or
+synchronized rotational phase. The wheel and drivetrain illustrate confirmed
+rates with local cosmetic angles; these freeze when motion is unknown or stalled,
+or the view is in Help, unready or disconnected. This view-only animation does
+not advance production or establish tooth-contact phase. It changes no power
+rule, contact, shaft geometry or collision envelope.
 
 Confirmed material links have static arrowheads and endpoints aligned with their
 actual ordered grid direction, including routes along either axis. These indicate
