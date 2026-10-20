@@ -662,6 +662,7 @@ var geometry_key := ""
 var camera: Camera3D
 var machine_root: Node3D
 var item_root: Node3D
+var workpiece_item_assets
 var hover: MeshInstance3D
 var selection_ring: MeshInstance3D
 var placement_hint: Node3D
@@ -1701,6 +1702,19 @@ func _rebuild_machines() -> void:
 				_cell_position(state.entities[pair[1]].cell) + Vector3(0, 0.35, 0.55), 0.09, Color("d1b56e"))
 
 func _redraw_items() -> void:
+	# The asset helper uses this script's shared surfaces, so load it after
+	# the opening class is available instead of creating a preload cycle.
+	var path := "res://opening/workpiece_item_assets.gd"
+	if ResourceLoader.exists(path, "Script"):
+		if workpiece_item_assets == null:
+			workpiece_item_assets = load(path)
+		workpiece_item_assets.populate_items(item_root, state, PITCH)
+		return
+	if state.get("options", {}).get("native", false):
+		push_error("Native item presentation requires the complete captured project.")
+		return
+	# Historical scripted payloads have fixed file rosters. Preserve their
+	# existing presentation until those entry points are replaced.
 	for child in item_root.get_children():
 		child.free()
 	for entity_id in state.entities:

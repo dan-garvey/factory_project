@@ -155,3 +155,16 @@ shaft fittings stay inside the unchanged pick radius and endpoint length. All
 assemblies use shared machined surfaces and cached meshes, with no collider or
 input node. The presenter retains mounting, direction, animation and pick
 ownership. Isolated mesh checks do not establish the ordinary rendered result.
+
+The ordinary offline and shared item redraw uses `workpiece_item_assets.gd` for
+seam blanks, in-line billets and the visible press-outlet plate. The fitted
+assemblies retain the original counts, world positions and item envelopes, using
+shared machined surfaces and cached meshes without collision or state authority.
+The helper loads after the opening script to reuse its existing surface library.
+Historical scripted payloads with fixed file rosters keep their existing primitive
+items when the optional helper is absent. Native presentation requires the complete
+captured project and reports missing assets instead of taking that fallback.
+`workpiece_item_mount_check.gd` exercises the actual refresh callbacks with
+invented projection facts, including stock changes, item cleanup, resource reuse
+and an explicitly incomplete historical payload. These controls establish callback
+integration without human visual, native gameplay or shared-network acceptance.
