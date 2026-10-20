@@ -26,7 +26,7 @@ paths are planned until their reviewed files land.
 | Satisfactory: partial source study | `factory-yau.8.2` | Playability | [games/satisfactory.md](games/satisfactory.md) |
 | Create + Above and Beyond + CABIN | `factory-yau.8.3` | Chapter | `games/create-packs.md` |
 | Opus Magnum: partial source study | `factory-yau.8.4` | Ops | [games/opus-magnum.md](games/opus-magnum.md) |
-| SpaceChem | `factory-yau.8.5` | Ops | `games/spacechem.md` |
+| SpaceChem: partial dated source study | `factory-yau.8.5` | Ops | [games/spacechem.md](games/spacechem.md) |
 | Infinifactory | `factory-yau.8.6` | Chapter | `games/infinifactory.md` |
 | shapez 2: spatial/logistics source survey | `factory-yau.8.7` | Recovery | [games/shapez-2.md](games/shapez-2.md) |
 | Dyson Sphere Program: dated source survey | `factory-yau.8.8` | Platform | [games/dyson-sphere-program.md](games/dyson-sphere-program.md) |
@@ -37,6 +37,10 @@ The reviewed Factorio and Dyson Sphere Program notes complete only their declare
 source-study scopes, not current-build play or every system in either game.
 The published Satisfactory and Opus Magnum notes remain partial; their study
 leaves stay open for the recorded control, process/recovery and progression gaps.
+The independently reviewed SpaceChem note covers historical design accounts and
+teaching sources. Its one new interface question and three refinements remain
+candidates; instruction semantics, representative recovery and current-build play
+remain gaps, so its study leaf stays open.
 The Factory Town note is independently reviewed for partial publication; current
 chute/merge behavior, rates, unlocks and direct play remain gaps. Its original-game
 scope excludes Factory Town Idle and Factory Town 2; its study leaf remains open.
