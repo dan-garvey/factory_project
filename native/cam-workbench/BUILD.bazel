@@ -1,0 +1,32 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "puzzles",
+    srcs = ["src/puzzles.cpp"],
+    hdrs = ["include/factory/cam_puzzles.hpp"],
+    strip_include_prefix = "include",
+    deps = ["//native/mechanisms:cycle"],
+)
+
+cc_library(
+    name = "workbench",
+    srcs = ["src/workbench.cpp"],
+    hdrs = ["include/factory/cam_workbench.hpp"],
+    strip_include_prefix = "include",
+    deps = [":puzzles"],
+)
+
+cc_binary(
+    name = "cam_workbench",
+    srcs = ["src/main.cpp"],
+    deps = [":workbench"],
+)
+
+cc_test(
+    name = "puzzles_test",
+    srcs = ["tests/puzzles_test.cpp"],
+    deps = [":workbench"],
+    size = "small",
+)
