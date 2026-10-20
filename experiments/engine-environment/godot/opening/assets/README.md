@@ -30,12 +30,16 @@ These original project scene assets prepare the visual work in
 built-in meshes in its existing script. The scenes here are optional previews;
 neither public launcher needs to capture them to display the worker.
 
-`worker.tscn` previews the worker's clothes, boots, safety helmet, visor and tool
-pouch. The playable construction uses the same dimensions, with a slightly finer
-glove sphere. Its origin is the confirmed actor-body origin. Both versions contain
-only meshes and materials: no scripts, physics bodies,
-collision shapes, input handlers or gameplay state. The existing native capsule
-remains the collision proxy; visual geometry is not construction authority.
+`worker.tscn` retains an earlier static clothing and equipment preview. The actual
+captured character presenter now constructs a rounded torso, fitted harness and
+reflective bands, articulated sleeves/trousers, boots, helmet, visor and tool pack.
+Its cached meshes and fabric materials add no resource file dependency. Facing
+and cosmetic stride use only confirmed body displacement; held input alone cannot
+advance them. Stops settle to neutral, while world changes and discontinuous poses
+reset the disposable animation state. The visible root stays at the original
+projected actor-body origin. No visual limb changes input, physical pose, collision,
+construction reach or saved state. The native capsule remains the collision proxy;
+precise limb contact and human-visible animation quality are not established.
 
 `press.tscn` previews a cast-frame press with separate guides, a tool head, anvil,
 output tray, feet and visible fasteners. The playable view constructs the frame,
@@ -114,3 +118,26 @@ human understanding.
 Rendered lighting, composition and human visual feedback remain unfinished. This
 increment does not complete the visual task, introduce geometric cogwheel
 authority, repair window resizing or change the opening's teaching flow.
+
+Machine placement now previews the fitted assembly at the pointer's grid square,
+including the selected native spindle axis. Neutral translucent amber shows form
+and footprint, not accepted placement or construction reach. It reuses the placed
+mesh resources with instance-only material overrides and has no collider, script,
+command or shadow. Moving the pointer repositions a cached assembly. The preview
+is hidden over interface controls and in Help, non-machine tools, pending or
+disconnected views, occupied squares and exhausted kits. The existing guided
+outlet-square suggestion remains separate. Isolated geometry and visibility
+controls do not establish rendered readability or human usability.
+
+The native physical worksite adds quiet original spatial machinery loops only
+for explicit confirmed rotating motion. Four cached two-second mono streams
+distinguish collector, conveyor, press bearings and wheel. They do not imply a
+press impact, successful material transfer or an authoritative rotation phase.
+Mechanical stalls, unknown rates, disconnected/unready views and Help are silent;
+a material backlog alone does not imply stopped shaft motion. The listener uses
+the confirmed local body position plus a small ear offset, with camera orientation
+used only for stereo direction. A bounded pitch change is disposable sound
+presentation, never a limit on native mechanical ratios. Context changes and
+machine removal clear old playback identities. The generated WAV files support
+human listening; finite digital levels and isolated Dummy-audio controls cannot
+establish the audible mix or production quality.

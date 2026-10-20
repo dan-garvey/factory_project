@@ -481,6 +481,136 @@ class ConstructionAudio:
 		cue_emitted.emit(cue, identity)
 		return true
 
+class MechanicalAmbience:
+	extends Node3D
+	## Disposable audio from confirmed motion, never a simulation clock.
+	static var loops: Dictionary = {}
+	var emitters: Dictionary = {}
+	var listener: AudioListener3D
+	var context := ""
+
+	func _init() -> void:
+		listener = AudioListener3D.new()
+		listener.name = "WorkerAudioListener"
+		add_child(listener)
+
+	static func make_loop(kind: String) -> AudioStreamWAV:
+		if kind not in ["collector", "belt", "processor", "wheel"]:
+			return null
+		if loops.has(kind):
+			return loops[kind]
+		var cycles: int = {"collector": 190, "belt": 124, "processor": 98, "wheel": 76}[kind]
+		var random := RandomNumberGenerator.new()
+		random.seed = {"collector": 3461, "belt": 6127, "processor": 1987, "wheel": 4231}[kind]
+		var partials: Array = []
+		for n in range(24):
+			partials.append([random.randi_range(180, 5200), random.randf_range(0, TAU)])
+		var count := 88200
+		var bytes := PackedByteArray()
+		bytes.resize(count * 2)
+		for n in range(count):
+			var phase := float(n) / count
+			# Every component has an integer number of cycles in this two-second
+			# loop. Its seam is continuous; it does not claim a physical phase.
+			var tone := 0.11 * sin(TAU * cycles * phase) + 0.035 * sin(TAU * cycles * 2 * phase)
+			var grain := 0.0
+			for partial in partials:
+				grain += sin(TAU * int(partial[0]) * phase + float(partial[1])) * 0.0025
+			var envelope := 0.78 + 0.22 * cos(TAU * phase * 3.0)
+			var sample := clampf((tone + grain) * envelope, -0.25, 0.25)
+			bytes.encode_s16(n * 2, roundi(sample * 32767.0))
+		var stream := AudioStreamWAV.new()
+		stream.format = AudioStreamWAV.FORMAT_16_BITS
+		stream.mix_rate = 44100
+		stream.stereo = false
+		stream.data = bytes
+		stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
+		stream.loop_begin = 0
+		stream.loop_end = count
+		loops[kind] = stream
+		return stream
+
+	static func _numeric(value: Variant) -> bool:
+		return (typeof(value) == TYPE_INT or typeof(value) == TYPE_FLOAT) and is_finite(float(value))
+
+	static func _pose(value: Variant) -> bool:
+		return value is Array and value.size() == 3 and _numeric(value[0]) and _numeric(value[1]) and _numeric(value[2])
+
+	static func _rotating(value: Variant) -> bool:
+		return value is Dictionary and value.get("state") == "rotating" and typeof(value.get("numerator")) == TYPE_INT \
+			and typeof(value.get("denominator")) == TYPE_INT and value.denominator > 0 and value.numerator != 0
+
+	func silence() -> void:
+		for emitter in emitters.values():
+			emitter.stop()
+			emitter.free()
+		emitters.clear()
+		if is_inside_tree() and listener.is_current():
+			listener.clear_current()
+		context = ""
+
+	func sync(snapshot: Dictionary, actor: String, ready: bool, camera_basis: Basis) -> void:
+		var options: Variant = snapshot.get("options")
+		var actors: Variant = snapshot.get("actors")
+		var body: Variant = actors.get(actor) if actors is Dictionary else null
+		var entities: Variant = snapshot.get("entities")
+		var motions: Variant = snapshot.get("motion")
+		var world: Variant = snapshot.get("context")
+		if not ready or not is_inside_tree() or not options is Dictionary or typeof(options.get("native")) != TYPE_BOOL \
+			or not options.native or not body is Dictionary or typeof(body.get("ready")) != TYPE_BOOL or not body.ready \
+			or not _pose(body.get("position")) or not entities is Dictionary or not motions is Dictionary \
+			or typeof(world) != TYPE_STRING or world.is_empty() or not camera_basis.is_finite() or absf(camera_basis.determinant()) < 0.5:
+			silence()
+			return
+		if world != context:
+			silence()
+			context = world
+		# Body origin plus a presentation-only ear offset. Camera distance cannot
+		# move the listener away from the worker or grant construction reach.
+		listener.position = Vector3(body.position[0], body.position[1], body.position[2]) + Vector3.UP * 0.55
+		listener.basis = camera_basis.orthonormalized()
+		if not listener.is_current():
+			listener.make_current()
+		var audible: Dictionary = {}
+		for id: Variant in entities:
+			var entity: Variant = entities[id]
+			var motion: Variant = motions.get(id)
+			if typeof(id) != TYPE_STRING or not entity is Dictionary or not _rotating(motion):
+				continue
+			var kind: Variant = entity.get("kind")
+			var cell: Variant = entity.get("cell")
+			if typeof(kind) != TYPE_STRING or kind not in ["collector", "belt", "processor", "wheel"] \
+				or not cell is Array or cell.size() != 2 or typeof(cell[0]) != TYPE_INT or typeof(cell[1]) != TYPE_INT:
+				continue
+			audible[id] = true
+			if emitters.has(id) and emitters[id].get_meta("kind") != kind:
+				emitters[id].stop()
+				emitters[id].free()
+				emitters.erase(id)
+			if not emitters.has(id):
+				var emitter := AudioStreamPlayer3D.new()
+				emitter.set_meta("entity", id)
+				emitter.set_meta("kind", kind)
+				emitter.stream = make_loop(kind)
+				emitter.volume_db = -23.0
+				emitter.max_db = -14.0
+				emitter.unit_size = 2.5
+				emitter.max_distance = 16.0
+				emitter.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
+				emitter.doppler_tracking = AudioStreamPlayer3D.DOPPLER_TRACKING_DISABLED
+				add_child(emitter)
+				emitters[id] = emitter
+			# A bounded timbre change, not a rate clamp in the native mechanics.
+			emitters[id].pitch_scale = clampf(absf(float(motion.numerator) / float(motion.denominator)), 0.6, 1.8)
+			emitters[id].position = Vector3(cell[0] * Geometry.PITCH, 0.7, cell[1] * Geometry.PITCH)
+			if not emitters[id].playing:
+				emitters[id].play()
+		for id in emitters.keys():
+			if not audible.has(id):
+				emitters[id].stop()
+				emitters[id].free()
+				emitters.erase(id)
+
 const STEP_SECONDS := 0.45
 const PITCH := Geometry.PITCH
 const NAMES := {"collector": "Collector", "belt": "Belt", "processor": "Press", "wheel": "Waterwheel"}
@@ -535,6 +665,9 @@ var item_root: Node3D
 var hover: MeshInstance3D
 var selection_ring: MeshInstance3D
 var placement_hint: Node3D
+var machine_preview: Node3D
+var machine_preview_key := ""
+var machine_preview_material: StandardMaterial3D
 var wheel_rotor: Node3D
 var status_label: Label
 var stock_label: Label
@@ -546,6 +679,8 @@ var recovery_actions
 var transmission_controls
 var transmission_presenter
 var construction_audio
+var engineering_presenter
+var mechanical_ambience
 var confirm_button: Button
 var retrieve_button: Button
 var power_button: Button
@@ -697,6 +832,60 @@ func _refresh_transmission() -> void:
 	if not active and mode in ["gear", "drive"]:
 		mode = "inspect"
 	_update_cursor()
+
+func _engineering_progress() -> Dictionary:
+	if not _native_transmission():
+		return {}
+	var records: Variant = state.get("opening_engineering", {})
+	if not records is Dictionary:
+		return {}
+	var report: Variant = records.get(client, {})
+	if not report is Dictionary or report.get("schema") != 1 or report.get("format") != "factory-opening-engineering" or report.get("actor") != client or report.get("known_actor") != true:
+		return {}
+	var cell: Variant = report.get("wheel_cell")
+	if not cell is Array or cell.size() != 2 or typeof(cell[0]) != TYPE_INT or typeof(cell[1]) != TYPE_INT:
+		return {}
+	if typeof(report.get("products")) != TYPE_INT or typeof(report.get("target")) != TYPE_INT or not report.get("phase", "") in ["first_shift", "move_source", "restore_drive", "deliver_more", "ready"]:
+		return {}
+	return report
+
+func _refresh_engineering(snapshot_ready: bool) -> void:
+	var report := _engineering_progress() if snapshot_ready else {}
+	if report.is_empty():
+		if engineering_presenter != null:
+			engineering_presenter.visible = false
+		goal_label.tooltip_text = ""
+		return
+	if engineering_presenter == null:
+		var path := "res://opening/upstream_drive_challenge.gd"
+		if not ResourceLoader.exists(path, "Script"):
+			push_error("Native engineering content requires the complete captured project")
+			get_tree().quit(1)
+			return
+		engineering_presenter = load(path).new()
+		add_child(engineering_presenter)
+		engineering_presenter.configure(self, Vector2i(report.wheel_cell[0], report.wheel_cell[1]))
+	var cell := Vector2i(report.wheel_cell[0], report.wheel_cell[1])
+	if engineering_presenter.target_wheel_cell != cell:
+		engineering_presenter.set_target_wheel_cell(cell)
+	engineering_presenter.refresh()
+	# Confirmation only dismisses the introductory view. All challenge facts,
+	# including eligibility after reopen, come from the native projection.
+	var active: bool = goal_confirmed and report.phase != "first_shift"
+	engineering_presenter.visible = active
+	if not active:
+		goal_label.tooltip_text = ""
+		return
+	var step: String = {
+		"move_source": "Move power upstream.",
+		"restore_drive": "Restore the drive.",
+		"deliver_more": "Collect four more plates.",
+		"ready": "Upstream drive restored.",
+	}[report.phase]
+	goal_label.text = "UPSTREAM DRIVE\n%s\n%d / %d collected" % [step, report.products, report.target]
+	var details: Dictionary = engineering_presenter.evaluate()
+	goal_label.tooltip_text = str(details.get("diagnostic_text", "")) + "\n" + str(details.get("tradeoff_text", ""))
+	confirm_button.visible = false
 
 func _transmission_center(screen: Vector2) -> Array:
 	if transmission_controls == null:
@@ -854,6 +1043,8 @@ func _process(delta: float) -> void:
 			elapsed -= STEP_SECONDS
 			model.advance()
 		_refresh()
+	_refresh_machine_preview()
+	_refresh_mechanical_audio()
 	_animate_wheel(delta)
 	if explanation_open:
 		example_presenter.pan(delta)
@@ -867,6 +1058,18 @@ func _process(delta: float) -> void:
 		focus += Vector3(pan.x, 0, pan.y) * delta * 4.0
 		focus.x = clampf(focus.x, -4, 6)
 		focus.z = clampf(focus.z, -4, 6)
+
+func _refresh_mechanical_audio() -> void:
+	var ready := _can_control_character() and _native_transmission() and camera != null
+	if not ready:
+		if mechanical_ambience != null:
+			mechanical_ambience.silence()
+		return
+	if mechanical_ambience == null:
+		mechanical_ambience = MechanicalAmbience.new()
+		mechanical_ambience.name = "MechanicalAmbience"
+		add_child(mechanical_ambience)
+	mechanical_ambience.sync(state, client, true, camera.global_basis)
 
 func _animate_wheel(delta: float) -> void:
 	if _native_transmission():
@@ -1456,6 +1659,15 @@ func _wheel_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	_machine_cylinder(wheel_rotor, "WheelHub", Vector3.ZERO, 0.13, 0.45,
 		Color("b87945"), Vector3(PI / 2, 0, 0))
 
+func _assemble_machine(anchor: Node3D, entity: Dictionary) -> void:
+	_machine_box(anchor, "Plinth", Vector3(0, 0.12, 0), Vector3(1.35, 0.24, 1.35), Color("273c41"))
+	match entity.kind:
+		"collector": _collector_visual(anchor, entity)
+		"belt": _belt_visual(anchor, entity)
+		"processor": _press_visual(anchor, entity)
+		"wheel": _wheel_visual(anchor, entity)
+	_machine_surface_detail(anchor, entity.kind)
+
 func _rebuild_machines() -> void:
 	for child in machine_root.get_children():
 		child.free()
@@ -1466,17 +1678,7 @@ func _rebuild_machines() -> void:
 		var anchor := Node3D.new()
 		anchor.position = _cell_position(entity.cell)
 		machine_root.add_child(anchor)
-		_machine_box(anchor, "Plinth", Vector3(0, 0.12, 0), Vector3(1.35, 0.24, 1.35), Color("273c41"))
-		match kind:
-			"collector":
-				_collector_visual(anchor, entity)
-			"belt":
-				_belt_visual(anchor, entity)
-			"processor":
-				_press_visual(anchor, entity)
-			"wheel":
-				_wheel_visual(anchor, entity)
-		_machine_surface_detail(anchor, kind)
+		_assemble_machine(anchor, entity)
 		var body := StaticBody3D.new()
 		body.collision_layer = Geometry.PICK_LAYER
 		body.collision_mask = 0
@@ -1655,6 +1857,7 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	controls_label.text = "WASD walk · Space jump · Right-drag view · Wheel zoom · H help"
 	if show_all_tools:
 		controls_label.text = "WASD walk · Space jump · P wheel · 1–4 build · F / G links · I inspect · H help"
+	_refresh_engineering(snapshot_ready)
 
 func _build_placement_hint() -> void:
 	placement_hint = Node3D.new()
@@ -1702,6 +1905,67 @@ func _refresh_placement_hint(snapshot_ready: bool = true) -> void:
 	placement_hint.visible = not cell.is_empty()
 	if placement_hint.visible:
 		placement_hint.position = _cell_position(cell) + Vector3(0, 0.055, 0)
+
+func _preview_pointer_clear() -> bool:
+	# This query does not consume input or move the pointer. The live preview
+	# follows the current camera ray, including when the view moves under it.
+	return is_inside_tree() and get_viewport().gui_get_hovered_control() == null
+
+func _machine_preview_cell() -> Vector2i:
+	return _screen_cell(get_viewport().get_mouse_position())
+
+func _preview_axis() -> int:
+	if not _native_transmission() or transmission_controls == null:
+		return 0
+	return ["x", "y", "z"].find(transmission_controls.selected_axis)
+
+func _refresh_machine_preview() -> void:
+	if machine_preview != null:
+		machine_preview.visible = false
+	if legacy_fixture or explanation_open or not _placement_hint_ready() or not _preview_pointer_clear():
+		return
+	if not NAMES.has(mode) or int(_display_parts().get(mode, 0)) < 1:
+		return
+	if transmission_controls != null and not transmission_controls.active_tool.is_empty():
+		return
+	var cell := _machine_preview_cell()
+	if cell.x < -2 or cell.x > 4 or cell.y < -2 or cell.y > 4 or not _entity_at_cell(cell).is_empty():
+		return
+	var axis := _preview_axis()
+	if axis < 0:
+		return
+	var key := "%s:%d:%s" % [mode, axis, str(_native_transmission())]
+	if machine_preview == null:
+		machine_preview = Node3D.new()
+		machine_preview.name = "MachinePlacementPreview"
+		add_child(machine_preview)
+	if key != machine_preview_key:
+		for child in machine_preview.get_children():
+			child.free()
+		# The placed wheel's observed animation target must not be replaced by
+		# the visual-only assembly. Preview construction changes no projection.
+		var placed_rotor := wheel_rotor
+		_assemble_machine(machine_preview, {"kind": mode, "axis": axis})
+		wheel_rotor = placed_rotor
+		if machine_preview_material == null:
+			machine_preview_material = StandardMaterial3D.new()
+			machine_preview_material.albedo_color = Color(0.88, 0.75, 0.49, 0.32)
+			machine_preview_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			machine_preview_material.roughness = 0.75
+			machine_preview_material.metallic = 0.0
+		_style_machine_preview(machine_preview)
+		machine_preview_key = key
+	machine_preview.position = _cell_position([cell.x, cell.y])
+	machine_preview.visible = true
+
+func _style_machine_preview(node: Node) -> void:
+	# Per-instance overrides leave shared placed materials and meshes intact.
+	# Neutral amber is a form/footprint preview, never an admission verdict.
+	if node is MeshInstance3D:
+		node.material_override = machine_preview_material
+		node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	for child in node.get_children():
+		_style_machine_preview(child)
 
 func _guided_step(kinds: Dictionary) -> Dictionary:
 	if goal_confirmed:
@@ -1774,6 +2038,7 @@ func _has_material_connection(incoming: bool) -> bool:
 	return false
 
 func _update_cursor() -> void:
+	_refresh_machine_preview()
 	if _native_transmission() and transmission_controls != null and not transmission_controls.active_tool.is_empty():
 		hover.visible = false
 		if transmission_controls.active_tool == "gear" and not explanation_open and _can_control_character():

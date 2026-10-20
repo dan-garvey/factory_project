@@ -44,6 +44,17 @@ The native profile currently treats either turning direction as powered and
 does not scale material throughput by angular rate. Its two equal gears and
 three shafts, dimensions and height limits are revisable fixture choices.
 
+After confirming four plates, the native opening marks an upstream wheel site
+at `[-1, 0]` and asks for eight carried plates in total. The row-1 starter line
+cannot satisfy that location condition just by making more plates. Move and
+recover the stocked machines to keep both cogs spare, or use both cogs to power
+the existing line across the rows. Hover the short goal for the current
+diagnostic and the two tradeoffs. Other valid arrangements are not prohibited.
+The same native definition supplies the marker target and per-actor eligibility
+through offline and shared projections; no view-local completion state is saved.
+The current ideal hub mounts do not establish housing or floor clearance, and
+the geared route does not earn an invented processing-speed bonus.
+
 Selecting the suggested Belt or Press also outlines the empty square at the
 confirmed upstream machine's outlet. This cue is a layout suggestion, not a
 construction permission or reach indicator. It hides in Help, All tools and

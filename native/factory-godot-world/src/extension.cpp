@@ -1,5 +1,6 @@
 #include "factory/godot_world.hpp"
 #include "factory/godot_value.hpp"
+#include "factory/opening_engineering.hpp"
 
 #include <array>
 #include <atomic>
@@ -107,6 +108,25 @@ template<class T> const T& typed(const std::vector<Value>& values, std::size_t i
     return *value;
 }
 
+Value with_opening_engineering(const factory::godot_world::Host& host, Value state) {
+    const auto* original = std::get_if<Object>(&state.storage());
+    if (!original) return state;
+    Object root = *original;
+    const auto found = root.find("inventories");
+    if (found == root.end()) return state;
+    const auto* inventories = std::get_if<Object>(&found->second.storage());
+    if (!inventories) return state;
+    Object progress;
+    for (const auto& [actor, count] : *inventories) {
+        (void)count;
+        progress.emplace(actor, factory::opening_engineering::projection(host, actor));
+    }
+    // A derived view only: no command, actor registration, progress flag or
+    // checkpoint mutation. Session publishes these same per-actor facts.
+    root.emplace("opening_engineering", Value(std::move(progress)));
+    return Value(std::move(root));
+}
+
 Value invoke(Instance& instance, Method method, const std::vector<Value>& args) {
     auto& host = instance.host;
     switch (method) {
@@ -122,8 +142,8 @@ Value invoke(Instance& instance, Method method, const std::vector<Value>& args) 
         case Method::command: return host.command(typed<std::string>(args, 0), typed<Object>(args, 1));
         case Method::publish: return host.publish_actor(typed<std::string>(args, 0), typed<Value::Array>(args, 1), typed<Value::Integer>(args, 2));
         case Method::invalidate: return host.invalidate_actor(typed<std::string>(args, 0));
-        case Method::advance: return host.advance();
-        case Method::projection: return host.projection();
+        case Method::advance: return with_opening_engineering(host, host.advance());
+        case Method::projection: return with_opening_engineering(host, host.projection());
         case Method::checkpoint: return host.checkpoint();
         case Method::restore: return host.restore_checkpoint(args.at(0));
         case Method::validate: return host.validate_checkpoint(args.at(0));

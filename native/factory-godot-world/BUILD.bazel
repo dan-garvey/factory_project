@@ -15,7 +15,7 @@ cc_binary(
     srcs = ["src/extension.cpp"],
     linkshared = True,
     linkstatic = True,
-    deps = [":host", "//native/factory-godot-values:godot_values"],
+    deps = [":host", "//native/factory-godot-values:godot_values", "//native/opening-engineering:challenge"],
 )
 
 cc_binary(
@@ -24,7 +24,7 @@ cc_binary(
     defines = ["FACTORY_NATIVE_WORLD_SELF_TEST"],
     linkshared = True,
     linkstatic = True,
-    deps = [":host", "//native/factory-godot-values:godot_values"],
+    deps = [":host", "//native/factory-godot-values:godot_values", "//native/opening-engineering:challenge"],
 )
 
 filegroup(

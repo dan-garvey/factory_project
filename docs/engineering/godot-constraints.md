@@ -234,6 +234,20 @@ on replacement or a new world, and are not checkpoint fields or contact data.
 Unknown/stalled parts and unavailable/Help/unready/shared-disconnected views do
 not invent continued operation. The unchanged axisymmetric pick cylinders stay
 pick-only; spinning their visuals adds no actor collision or moving mechanism.
+**Opening engineering fixture:** the [upstream-drive prototype](../../native/opening-engineering/include/factory/opening_engineering.hpp)
+uses ideal pitch/coax geometry, including a cog at the collector's hub anchor.
+The native cog Host at `e4f1b31` permits that mount; it does not test interference
+with a machine housing or floor. Its C++ comparison supplies actor observations and makes
+no engine/body calls. This is an adapter/fixture shortcut, not a Godot limit or a
+selected physical mounting rule. Ordinary presentation and housing clearance
+remain outside that evidence under `factory-yau.6.51`; Workhorse owns the prototype.
+
+The ordinary composition uses starter row 1 and upstream wheel cell `[-1, 0]`.
+These are reversible content coordinates, not engine rules or a placement ban.
+The native inspector supplies per-actor eligibility and the extension publishes
+it as a derived view for the existing offline/shared adapter. The scene adds no
+clock, inventory, saved progression flag or second authority. Its geometric
+diagnostics remain presentation, not permission to place a part.
 
 ## GDC-05: coordinate precision needs a scale strategy, not an invented world cap
 

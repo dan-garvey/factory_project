@@ -1,0 +1,25 @@
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "challenge",
+    srcs = ["src/challenge.cpp", "src/projection.cpp"],
+    hdrs = ["include/factory/opening_engineering.hpp"],
+    strip_include_prefix = "include",
+    deps = ["//native/factory-godot-world:host"],
+)
+
+cc_test(
+    name = "challenge_test",
+    srcs = ["tests/challenge_test.cpp"],
+    deps = [":challenge"],
+    size = "small",
+)
+
+cc_test(
+    name = "projection_test",
+    srcs = ["tests/projection_test.cpp"],
+    deps = [":challenge"],
+    size = "small",
+)

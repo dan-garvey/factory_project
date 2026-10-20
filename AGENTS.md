@@ -36,6 +36,12 @@ specific Bead details and review findings or rejections, with a concrete reason
 and acceptance condition. Do not wait for PM instructions on ordinary work, send
 permission requests for delegated choices, or treat review as approval by default.
 
+Never hand off work you could complete yourself. Carry owned work through
+implementation, conflict resolution, relevant checks and a committed result ready
+for integration. Request required independent review or serialized landing and
+publication only after completing every step within your authority. If another
+owner must take over, state the concrete constraint and remaining action.
+
 Code landing may require only the relevant automated tests and a single
 independent reviewer. Agents MUST NOT create additional gates: no second required
 reviewer, review panel, PM sign-off, plan approval, source-freeze approval, receipt
