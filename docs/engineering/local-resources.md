@@ -37,6 +37,16 @@ Foreground ownership and the suspension of agent desktop playtests still apply.
 Cheap checks remain available below the floors for diagnosis. Override settings
 with `--jobs`, `--disk-floor-gib`, and `--memory-reserve-gib` before `--`.
 
+Choose separate compiler and engine resource profiles when a command includes
+both. An optional compiler virtual-address-space cap must not carry into a
+Godot import or startup unless that memory limit is itself under test. Shared
+admission requires the disk and available-memory floors; it does not require a
+per-process virtual-address-space cap. Retain the workload's deadlines,
+artifact/log bounds and owned-process cleanup under either profile. If an
+inherited cap prevents useful engine validation, preserve the first failure and
+record the engine-profile correction in the owning task. Reuse passing
+compilation for unchanged inputs; no new PM approval is required.
+
 The child receives `CMAKE_BUILD_PARALLEL_LEVEL`, `CARGO_BUILD_JOBS`, and
 `CTEST_PARALLEL_LEVEL` set to the selected jobs value, replacing inherited values.
 Explicit tool flags and other tools can exceed that budget. Available memory
