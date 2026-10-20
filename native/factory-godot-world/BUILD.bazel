@@ -43,3 +43,10 @@ cc_test(
     srcs = ["tests/gear_host_test.cpp"],
     deps = [":host"],
 )
+
+cc_test(
+    name = "material_attachment_test",
+    srcs = ["tests/material_attachment_test.cpp"],
+    deps = [":host"],
+    size = "small",
+)

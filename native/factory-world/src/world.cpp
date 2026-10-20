@@ -29,6 +29,42 @@ bool identity(const std::string& value) {
     return !value.empty() && value.size() <= 128 && value.find('\0') == std::string::npos;
 }
 
+bool placement(const std::string& action) {
+    return action == "place" || action == "place_connected";
+}
+
+bool material_machine(Role role) {
+    return role == Role::collector || role == Role::belt || role == Role::processor;
+}
+
+// The opening's existing material ports face along +X and are four integer
+// quarter-pitch units apart. This does not derive a mechanical engagement.
+bool adjacent_ports(const mechanics::Point& from, const mechanics::Point& to) {
+    return to[0] == from[0] + 4 && to[1] == from[1] && to[2] == from[2];
+}
+
+bool material_pair(Role from, Role to) {
+    return (from == Role::collector && to == Role::belt) ||
+           (from == Role::belt && to == Role::processor);
+}
+
+struct Attachment {
+    const stationary::PlacedPart* neighbor;
+    bool new_part_is_source;
+};
+
+std::vector<Attachment> placement_attachments(const stationary::Topology& topology,
+                                             Role role, const mechanics::Point& center) {
+    std::vector<Attachment> result;
+    for (const auto& other : topology.parts) {
+        if (material_pair(role, other.role) && adjacent_ports(center, other.geometry.center))
+            result.push_back({&other, true});
+        else if (material_pair(other.role, role) && adjacent_ports(other.geometry.center, center))
+            result.push_back({&other, false});
+    }
+    return result;
+}
+
 bool spec_valid(const stationary::PartSpec& spec) {
     switch (spec.role) {
         case Role::collector: case Role::belt: case Role::processor: case Role::waterwheel:
@@ -71,7 +107,7 @@ bool shape(const Object& intent, const std::string& action) {
         return keys(intent, {"target", "generation", "work_id"}) && field<Integer>(intent, "work_id");
     if (action == "set_drive")
         return keys(intent, {"target", "generation", "enabled"}) && field<bool>(intent, "enabled");
-    if (action == "place")
+    if (placement(action))
         return keys(intent, {"role", "center", "axis", "teeth", "half_span"});
     if (action == "link" || action == "unlink" || action == "shaft_between" || action == "remove_shaft_between")
         return keys(intent, {"target", "generation", "to", "to_generation"});
@@ -201,7 +237,9 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
     const auto* points = field<Value::Array>(result, "targets");
     const auto* distances = field<Value::Array>(result, "distances_squared");
     if (!reason || *reason != "ok" || !epoch || *epoch <= 0 || !reach || *reach != profile.build_reach ||
-        !position || !points || !distances || points->size() != (two_endpoints(action) ? 2 : 1) ||
+        !position || !points || !distances ||
+        (action == "place_connected" ? points->empty() || points->size() > 3 :
+                                     points->size() != (two_endpoints(action) ? 2 : 1)) ||
         distances->size() != points->size()) return false;
     const auto point = [](const Value::Array& array) -> std::optional<authority::Point> {
         if (array.size() != 3) return std::nullopt;
@@ -229,7 +267,7 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         const auto* distance = std::get_if<double>(&distances->at(index).storage());
         if (!distance || *distance != checked.receipt->distances_squared[index]) return false;
     }
-    if (action == "place") {
+    if (placement(action)) {
         const auto location = grid_point(record.intent);
         const auto* role_name = field<std::string>(record.intent, "role");
         const auto* axis_name = field<std::string>(record.intent, "axis");
@@ -238,6 +276,22 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         const auto selected_role = role_name ? role(*role_name) : std::nullopt;
         if (!location || !selected_role || !axis_name || !axis(*axis_name) || !teeth || !span ||
             !spec_valid({*selected_role, *teeth, *span}) || targets.front() != anchor(profile, *location)) return false;
+        if (action == "place_connected") {
+            if (!material_machine(*selected_role)) return false;
+            auto left = *location;
+            auto right = *location;
+            left[0] -= 4;
+            right[0] += 4;
+            bool used_input = false;
+            bool used_output = false;
+            for (std::size_t index = 1; index < targets.size(); ++index) {
+                if (*selected_role != Role::collector && !used_input && targets[index] == anchor(profile, left))
+                    used_input = true;
+                else if (*selected_role != Role::processor && !used_output && targets[index] == anchor(profile, right))
+                    used_output = true;
+                else return false;
+            }
+        }
     } else if (action != "shaft_between" && action != "remove_shaft_between") {
         const auto* target = field<std::string>(record.intent, "target");
         const auto* generation = field<Integer>(record.intent, "generation");
@@ -468,8 +522,9 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
     std::optional<mechanics::Point> location;
     std::optional<Role> selected_role;
     std::optional<mechanics::Axis> selected_axis;
+    std::vector<Attachment> attachments;
     std::vector<authority::Point> targets;
-    if (*action == "place") {
+    if (placement(*action)) {
         const auto* role_name = field<std::string>(intent, "role");
         const auto* axis_name = field<std::string>(intent, "axis");
         const auto* teeth = field<Integer>(intent, "teeth");
@@ -479,6 +534,12 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             !(selected_role = role(*role_name)) || !(selected_axis = axis(*axis_name)) ||
             !spec_valid({*selected_role, *teeth, *span})) return refused("invalid_part");
         targets.push_back(anchor(profile_, *location));
+        if (*action == "place_connected") {
+            if (!material_machine(*selected_role)) return refused("invalid_part");
+            attachments = placement_attachments(state.topology, *selected_role, *location);
+            for (const auto& attachment : attachments)
+                targets.push_back(anchor(profile_, attachment.neighbor->geometry.center));
+        }
     } else {
         const auto* id = field<std::string>(intent, "target");
         const auto* generation = field<Integer>(intent, "generation");
@@ -516,7 +577,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         transmission = shaft_between(*selected, *destination);
         if (!transmission) return refused("incompatible_shaft", selected->geometry.id, std::move(facts));
     }
-    if (*action == "place" || *action == "shaft_between") {
+    if (placement(*action) || *action == "shaft_between") {
         if (candidate.issued_entities.size() == maximum_issued_entities ||
             candidate.next_entity_serial == std::numeric_limits<Integer>::max())
             return refused("identity_limit");
@@ -542,6 +603,12 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         candidate.topology = std::move(ready.candidate);
         candidate.kits.at(binding.actor) = std::move(ready.candidate_kit);
         candidate.issued_entities.emplace(entity, generation);
+        for (const auto& attachment : attachments) {
+            const materials::EntityRef created{entity, generation};
+            const materials::EntityRef existing{attachment.neighbor->geometry.id, attachment.neighbor->generation};
+            candidate.topology.material_links.push_back(attachment.new_part_is_source ?
+                stationary::MaterialLink{created, existing} : stationary::MaterialLink{existing, created});
+        }
     } else {
         entity = selected->geometry.id;
         generation = selected->generation;

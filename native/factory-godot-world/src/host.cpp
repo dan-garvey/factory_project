@@ -104,12 +104,12 @@ bool historical_wire(const authority::Record& record) {
         return left != wire->end() && right != intent.end() &&
             !values::typed_difference(left->second, right->second);
     };
-    if (*action == "place") {
+    if (*action == "place" || *action == "place_connected") {
         if (*original_action == "place_gear") {
             const auto* center = field<Array>(*wire, "center");
             const auto* axis = field<std::string>(*wire, "axis");
             const auto* teeth = field<Integer>(*wire, "teeth");
-            return keys(*wire, {"center", "axis", "teeth"}) && center && gear_center(*center) &&
+            return *action == "place" && keys(*wire, {"center", "axis", "teeth"}) && center && gear_center(*center) &&
                 axis && axis_value(*axis) && teeth && *teeth > 0 && *teeth <= mechanics::maximum_dimension &&
                 same("center", "center") && same("axis", "axis") && same("teeth", "teeth") &&
                 field<std::string>(intent, "role") && *field<std::string>(intent, "role") == "gear" &&
@@ -125,6 +125,8 @@ bool historical_wire(const authority::Record& record) {
         const auto* z = std::get_if<Integer>(&cell->at(1).storage());
         if (!x || !z || *x < -2 || *x > 4 || *z < -2 || *z > 4 ||
             (*name != "collector" && *name != "belt" && *name != "processor" && *name != "wheel" && *name != "gear"))
+            return false;
+        if (*action == "place_connected" && *name != "collector" && *name != "belt" && *name != "processor")
             return false;
         const Object expected{{"role", Value(*name == "wheel" ? "waterwheel" : *name)},
             {"center", Value(Array{Value(4 * *x), Value(Integer{0}), Value(4 * *z)})},
@@ -331,7 +333,8 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         const auto half = is_gear ? gear_half_extents(selected_axis, 2) :
             authority::Point{machine_width / 2, machine_height / 2, machine_width / 2};
         if (placement_blocked(at, half)) return refuse("actor_occupied");
-        normalized.at("action") = Value("place");
+        normalized.at("action") = Value(*kind_name == "collector" || *kind_name == "belt" || *kind_name == "processor" ?
+                                        "place_connected" : "place");
         normalized.emplace("role", Value(*kind_name == "wheel" ? "waterwheel" : *kind_name));
         normalized.emplace("center", Value(Array{Value(center[0]), Value(center[1]), Value(center[2])}));
         normalized.emplace("axis", Value(axis ? *axis : "x"));
