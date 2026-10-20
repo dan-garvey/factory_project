@@ -32,9 +32,10 @@ The original standalone campaign passed 206 logical native checks and the separa
 four-product consumer. Its final source, material and operational bindings are
 complete; this does not establish live adoption or measured performance.
 
-Bazel is the canonical build system required by the user. Ops owns its build graph,
-incremental dependency/cache validation and commit-turnaround measurements in
-`factory-yau.3.17.8`; they are not implemented by this foundation. See the
+Bazel is the canonical build system required by the user. The [current graph and
+build instructions](../../docs/engineering/native-builds.md) cover this foundation
+and have passed bounded build/cache validation. Ops owns further package integration
+and commit-turnaround measurements in `factory-yau.3.17.8`. See the
 [migration contract](../../docs/engineering/native-migration.md). The CMake files
 and commands below are retained to explain or reproduce the historical fixture,
 not as the default for new native work or a competing build-system commitment.

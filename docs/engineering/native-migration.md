@@ -15,9 +15,11 @@ production engine or language commitment. Godot remains accepted.
 
 Bazel is the user-required canonical build system. Correct incremental builds and
 cached validation should shorten the path between reviewed commits landing without
-weakening dependency invalidation or mandatory checks. Ops owns that implementation
-in `factory-yau.3.17.8`; this foundation does not supply the Bazel graph or prove a
-build-time improvement. The retained CMake definitions and commands document the
+weakening dependency invalidation or mandatory checks. The [initial canonical
+graph and bounded runner](native-builds.md) now cover the material foundation;
+their corrected local build/cache validation passed. Ops owns the remaining
+package and gate integration in `factory-yau.3.17.8`. This is not yet a measured
+commit-turnaround improvement. The retained CMake definitions and commands document the
 original fixture campaign, not the canonical ongoing build interface or permission
 to expand a parallel build system. Keep existing checks active until their reviewed
 replacements take over.
@@ -109,6 +111,7 @@ native character movement, persistence, human play or a performance measurement.
 
 Before replacing a live boundary, retain meaningful success and refusal witnesses,
 failure cleanup, exact source/runtime closure and independent review. Source gate
-activation needs independent safety review; a textual merge is insufficient.
+activation uses relevant tests and the same single independent reviewer, not an
+additional safety approval; a textual merge is insufficient.
 Original freezes and first failures keep their original revisions. Root reviews and
 integrates current main serially, without becoming a routine permission gate.

@@ -1,0 +1,11 @@
+package(default_visibility = ["//visibility:public"])
+
+test_suite(
+    name = "native_tests",
+    tests = ["//native/factory-core:materials_test"],
+)
+
+alias(
+    name = "material_demo",
+    actual = "//native/factory-core:material_case",
+)

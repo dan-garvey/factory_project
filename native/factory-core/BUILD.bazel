@@ -1,0 +1,23 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "materials",
+    srcs = ["src/materials.cpp"],
+    hdrs = ["include/factory/materials.hpp"],
+    strip_include_prefix = "include",
+)
+
+cc_binary(
+    name = "material_case",
+    srcs = ["src/material_case.cpp"],
+    deps = [":materials"],
+)
+
+cc_test(
+    name = "materials_test",
+    srcs = ["tests/materials_test.cpp"],
+    deps = [":materials"],
+    size = "small",
+)

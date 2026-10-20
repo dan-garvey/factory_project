@@ -80,6 +80,10 @@ establish player understanding or enjoyment.
 
 ## Verify
 
+The standalone C++ material core uses the pinned [Bazel build and local
+caches](docs/engineering/native-builds.md). Its passing component validation does
+not activate it in the playable demo or replace the installed commit hook.
+
 The source-only tooling suite needs no engine or private tracker:
 
 ```bash

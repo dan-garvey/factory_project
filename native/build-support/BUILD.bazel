@@ -1,0 +1,24 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+exports_files(["offline-downloader.cfg"])
+
+cc_library(
+    name = "runner",
+    srcs = ["runner.cpp"],
+    hdrs = ["runner.hpp"],
+    visibility = ["//native/factory-launch:__pkg__"],
+)
+
+cc_binary(
+    name = "factory-build-run",
+    srcs = ["main.cpp"],
+    deps = [":runner"],
+)
+
+cc_test(
+    name = "runner_test",
+    srcs = ["tests.cpp"],
+    deps = [":runner"],
+    size = "small",
+    timeout = "short",
+)

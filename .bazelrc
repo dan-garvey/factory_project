@@ -1,0 +1,21 @@
+# Local native development. Admission is still owned by scripts/run_local.py.
+common --enable_bzlmod
+common --lockfile_mode=error
+common --incompatible_autoload_externally=
+build --jobs=8
+build --cxxopt=-std=c++20
+build --cxxopt=-Wall
+build --cxxopt=-Wextra
+build --cxxopt=-Wpedantic
+build --cxxopt=-Werror
+build --compilation_mode=opt
+build --incompatible_strict_action_env
+build --action_env=PATH=/usr/bin:/bin
+build --repo_env=CC=/usr/bin/gcc-11
+build --repo_env=CXX=/usr/bin/g++-11
+build --remote_cache=
+build --remote_executor=
+build --guard_against_concurrent_changes=full
+build --symlink_prefix=/
+test --test_output=errors
+test --test_timeout=30
