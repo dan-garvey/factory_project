@@ -45,6 +45,18 @@ and reviewer. Do not repeat passing checks or reviews of unchanged relevant
 inputs. Respect user authorization, desktop ownership and actual resource limits;
 do not turn these operating constraints into additional code-landing approvals.
 
+## Playtesting
+
+Agent-controlled desktop playtests are disabled until the user explicitly
+re-enables them. Use human playtesting for gameplay and usability feedback. Do not
+queue or execute agent desktop tests, their availability probes or game launches,
+or perform foreground acquisition, activation, input or capture for those tests.
+This suspension supersedes prior standing playtest authorization and pending
+requests. Preserve existing evidence and verdicts without replay. Ordinary
+automated checks and development continue; human playtesting is not an additional
+code-landing approval gate. The suspended workflow is recorded in
+`factory-yau.6.46`.
+
 ## Project contract
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) for coordination, evidence, review, and integration rules. [DESIGN.md](DESIGN.md) owns game requirements and open choices. The user explicitly delegates routine reversible design/technical decisions toward the demo: choose from the documented goals, record assumptions, and keep moving without repeated approval cards. Do not turn an experimental default into permanent canon. A runnable experimental opening and headless/network/save fixtures now exist; no production engine is selected. [README.md](README.md) links the launcher, controls and explicit prototype limits.
