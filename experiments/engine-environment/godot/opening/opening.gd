@@ -2050,7 +2050,10 @@ func _refresh_ui() -> void:
 		actor_label.text = "CHARACTER READY · BUILD NEARBY" if state.get("actors", {}).get(client, {}).get("ready", false) else "CHARACTER STARTING…"
 	for tool in tool_buttons:
 		var button: Button = tool_buttons[tool]
-		button.disabled = explanation_open or (NAMES.has(tool) and not parts.has(tool))
+		var unavailable := NAMES.has(tool) and not parts.has(tool)
+		if _native_transmission() and (NAMES.has(tool) or tool == "drive"):
+			unavailable = int(parts.get("shaft" if tool == "drive" else tool, 0)) < 1
+		button.disabled = explanation_open or unavailable
 		button.button_pressed = mode == tool
 		if transmission_controls != null and not transmission_controls.active_tool.is_empty():
 			button.button_pressed = tool == "drive" and transmission_controls.active_tool == "shaft"
