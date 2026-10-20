@@ -1,0 +1,24 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "clearance",
+    srcs = ["src/clearance.cpp"],
+    hdrs = ["include/factory/clearance.hpp"],
+    strip_include_prefix = "include",
+    deps = ["//native/factory-mechanics:mechanics"],
+)
+
+cc_binary(
+    name = "clearance_case",
+    srcs = ["src/clearance_case.cpp"],
+    deps = [":clearance", "//native/mechanisms:cycle"],
+)
+
+cc_test(
+    name = "clearance_test",
+    srcs = ["tests/clearance_test.cpp"],
+    deps = [":clearance", "//native/mechanisms:cycle"],
+    size = "small",
+)
