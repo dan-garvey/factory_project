@@ -234,6 +234,11 @@ on replacement or a new world, and are not checkpoint fields or contact data.
 Unknown/stalled parts and unavailable/Help/unready/shared-disconnected views do
 not invent continued operation. The unchanged axisymmetric pick cylinders stay
 pick-only; spinning their visuals adds no actor collision or moving mechanism.
+The collector's existing cutter meshes consume the same angle cache. The press
+only eases toward a confirmed held/empty tool pose, including retained blocked
+READY work; that pose never advances remaining ticks or releases material. These
+render transforms and their disposable pose cache are not checkpoint state,
+moving collision or evidence of a synchronized mechanical stroke.
 **Opening engineering fixture:** the [upstream-drive prototype](../../native/opening-engineering/include/factory/opening_engineering.hpp)
 uses ideal pitch/coax geometry, including a cog at the collector's hub anchor.
 The native cog Host at `e4f1b31` permits that mount; it does not test interference

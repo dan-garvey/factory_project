@@ -337,6 +337,11 @@ class ProductionEnvironment:
 		environment.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 		environment.tonemap_mode = Environment.TONE_MAPPER_ACES
 		environment.tonemap_exposure = 1.0
+		# Restrained ambient contact shading; direct sun and geometry stay exact.
+		environment.ssao_enabled = true
+		environment.ssao_radius = 0.55
+		environment.ssao_intensity = 0.85
+		environment.ssao_power = 1.2
 		environment.fog_enabled = true
 		environment.fog_mode = Environment.FOG_MODE_DEPTH
 		environment.fog_depth_begin = 35.0
@@ -611,6 +616,57 @@ class MechanicalAmbience:
 				emitters[id].free()
 				emitters.erase(id)
 
+class ProductionInterface:
+	extends RefCounted
+	## Draw styles only. Effective content metrics remain the engine defaults.
+	static var shared_theme: Theme
+
+	static func _style(source: StyleBox, fill: Color, line: Color, focus: bool = false) -> StyleBoxFlat:
+		var style := source.duplicate() as StyleBoxFlat
+		if style == null:
+			style = StyleBoxFlat.new()
+		for side in range(4):
+			# get_margin resolves a negative raw content margin through the old
+			# border. Freeze that effective metric before drawing new borders.
+			style.set_content_margin(side, source.get_margin(side))
+		style.bg_color = fill
+		style.border_color = line
+		style.set_border_width_all(2 if focus else 1)
+		style.set_corner_radius_all(4)
+		style.corner_detail = 4
+		style.draw_center = not focus
+		return style
+
+	static func make_theme() -> Theme:
+		if shared_theme != null:
+			return shared_theme
+		var theme := Theme.new()
+		theme.default_font_size = 15
+		var original := ThemeDB.get_default_theme()
+		var fills := {"normal": Color("1c2a30"), "hover": Color("2d4149"),
+			"pressed": Color("5a472d"), "hover_pressed": Color("685337"), "disabled": Color("172126")}
+		var borders := {"normal": Color("41565e"), "hover": Color("8ca7a8"),
+			"pressed": Color("d6ab64"), "hover_pressed": Color("edcc8d"), "disabled": Color("2c3b41")}
+		for control_type in ["Button", "MenuButton"]:
+			# Resolve the actual inherited defaults. MenuButton has its own
+			# zero-padding styles; borrowing Button metrics would widen it.
+			var probe: Button = MenuButton.new() if control_type == "MenuButton" else Button.new()
+			for name_value in fills:
+				theme.set_stylebox(name_value, control_type, _style(probe.get_theme_stylebox(name_value), fills[name_value], borders[name_value]))
+			theme.set_stylebox("focus", control_type, _style(probe.get_theme_stylebox("focus"), Color.TRANSPARENT, Color("efc78a"), true))
+			for name_value in ["font_color", "font_hover_color", "font_focus_color"]:
+				theme.set_color(name_value, control_type, Color("e4ebe4"))
+			for name_value in ["font_pressed_color", "font_hover_pressed_color"]:
+				theme.set_color(name_value, control_type, Color("fff2d6"))
+			theme.set_color("font_disabled_color", control_type, Color("879895"))
+			probe.free()
+		var separator := original.get_stylebox("separator", "HSeparator").duplicate() as StyleBox
+		if separator is StyleBoxLine:
+			separator.color = Color("41565e")
+		theme.set_stylebox("separator", "HSeparator", separator)
+		shared_theme = theme
+		return theme
+
 const STEP_SECONDS := 0.45
 const PITCH := Geometry.PITCH
 const NAMES := {"collector": "Collector", "belt": "Belt", "processor": "Press", "wheel": "Waterwheel"}
@@ -670,6 +726,8 @@ var machine_preview: Node3D
 var machine_preview_key := ""
 var machine_preview_material: StandardMaterial3D
 var wheel_rotor: Node3D
+var machine_body_context := ""
+var machine_press_poses: Dictionary = {}
 var status_label: Label
 var stock_label: Label
 var parts_label: Label
@@ -1085,11 +1143,98 @@ func _animate_wheel(delta: float) -> void:
 					wheel_rotor.set_meta("visual_base_basis", wheel_rotor.basis)
 				var base: Basis = wheel_rotor.get_meta("visual_base_basis")
 				wheel_rotor.basis = base * Basis(Vector3.BACK, transmission_presenter.visual_angle(id))
+		_animate_machine_bodies(delta)
 		return
 	# Historical scripted presentation remains separate. Native cosmetic
 	# angles above are neither a simulation clock nor saved/contact phase.
 	if wheel_rotor != null and state.get("powered", false) and not state.get("options", {}).get("native", false):
 		wheel_rotor.rotation.z += delta * 0.8
+
+func _remember_machine_motion(node: Node3D, kind: String, pose: Transform3D,
+		rows: Array[Dictionary]) -> void:
+	if node is MeshInstance3D:
+		var part_name := str(node.name)
+		var role := ""
+		if kind == "collector" and (part_name in ["CutterDrum", "CutterHub"] or node.get_meta("detail_role", "") == "CutterFlute"):
+			role = "cutter"
+		elif kind == "processor" and part_name in ["ToolHead", "Piston"]:
+			role = "head" if part_name == "ToolHead" else "rod"
+		if not role.is_empty():
+			rows.append({"node": node, "role": role, "rest": pose,
+				"parent_inverse": (pose * node.transform.affine_inverse()).affine_inverse()})
+	for child in node.get_children():
+		if child is Node3D:
+			_remember_machine_motion(child, kind, pose * child.transform, rows)
+
+func _animate_machine_bodies(delta: float) -> void:
+	if not _can_present_confirmed_motion() or not is_finite(delta) or delta <= 0 or machine_root == null or transmission_presenter == null:
+		return
+	_sync_machine_body_context()
+	for anchor in machine_root.get_children():
+		var kind: String = anchor.get_meta("machine_kind", "")
+		var id: String = anchor.get_meta("machine_entity", "")
+		var rows: Array = anchor.get_meta("motion_meshes", [])
+		if kind == "collector":
+			var angle: float = transmission_presenter.visual_angle(id)
+			if angle == float(anchor.get_meta("cutter_angle", NAN)):
+				continue
+			_apply_cutter_pose(anchor, rows, angle)
+		elif kind == "processor":
+			var target: Variant = _observed_press_target()
+			var generation: Variant = state.get("entities", {}).get(id, {}).get("generation")
+			if target == null or typeof(generation) != TYPE_INT or generation < 1:
+				continue
+			# A pose follows observed held work, including blocked READY. It does
+			# not predict a cycle, release a plate or advance remaining ticks.
+			if not machine_press_poses.has(id):
+				machine_press_poses[id] = {"generation": generation, "travel": target}
+				_apply_press_pose(rows, target)
+				continue
+			var previous: float = machine_press_poses[id].travel
+			var travel: float = move_toward(previous, float(target), minf(delta, 0.1) * 1.2)
+			if travel == previous:
+				continue
+			_apply_press_pose(rows, travel)
+			machine_press_poses[id].travel = travel
+
+func _sync_machine_body_context() -> void:
+	var context: Variant = state.get("context")
+	if typeof(context) != TYPE_STRING or context != machine_body_context:
+		machine_press_poses.clear()
+		machine_body_context = context if typeof(context) == TYPE_STRING else ""
+	for id in machine_press_poses.keys():
+		var entity: Dictionary = state.get("entities", {}).get(id, {})
+		if entity.get("kind") != "processor" or typeof(entity.get("generation")) != TYPE_INT or entity.get("generation") != machine_press_poses[id].generation:
+			machine_press_poses.erase(id)
+
+func _observed_press_target() -> Variant:
+	var stock: Variant = state.get("stock")
+	var held: Variant = stock.get("held") if stock is Dictionary else null
+	var remaining: Variant = state.get("remaining")
+	if typeof(held) != TYPE_INT or held < 0 or typeof(remaining) != TYPE_INT or remaining < 0:
+		return null
+	return 0.14 if held > 0 else 0.0
+
+func _apply_cutter_pose(anchor: Node3D, rows: Array, angle: float) -> void:
+	var pivot := Vector3(-0.22, 1.1, -0.19)
+	var spin := Transform3D(Basis(Vector3.BACK, angle), Vector3.ZERO)
+	spin.origin = pivot - spin.basis * pivot
+	for row in rows:
+		if is_instance_valid(row.node) and row.role == "cutter":
+			row.node.transform = row.parent_inverse * spin * row.rest
+	anchor.set_meta("cutter_angle", angle)
+
+func _apply_press_pose(rows: Array, travel: float) -> void:
+	for row in rows:
+		if not is_instance_valid(row.node):
+			continue
+		var pose: Transform3D = row.rest
+		if row.role == "head":
+			pose.origin.y -= travel
+		elif row.role == "rod":
+			pose.origin.y -= travel / 2.0
+			pose.basis = pose.basis.scaled(Vector3(1, 1 + travel / 0.45, 1))
+		row.node.transform = row.parent_inverse * pose
 
 func _input(event: InputEvent) -> void:
 	if explanation_open:
@@ -1670,6 +1815,7 @@ func _assemble_machine(anchor: Node3D, entity: Dictionary) -> void:
 	_machine_surface_detail(anchor, entity.kind)
 
 func _rebuild_machines() -> void:
+	_sync_machine_body_context()
 	for child in machine_root.get_children():
 		child.free()
 	wheel_rotor = null
@@ -1680,6 +1826,20 @@ func _rebuild_machines() -> void:
 		anchor.position = _cell_position(entity.cell)
 		machine_root.add_child(anchor)
 		_assemble_machine(anchor, entity)
+		anchor.set_meta("machine_entity", entity_id)
+		anchor.set_meta("machine_kind", kind)
+		var motion_meshes: Array[Dictionary] = []
+		_remember_machine_motion(anchor, kind, Transform3D.IDENTITY, motion_meshes)
+		anchor.set_meta("motion_meshes", motion_meshes)
+		if kind == "collector" and transmission_presenter != null:
+			_apply_cutter_pose(anchor, motion_meshes, transmission_presenter.visual_angle(entity_id))
+		elif kind == "processor" and _native_transmission():
+			var target: Variant = _observed_press_target()
+			var generation: Variant = entity.get("generation")
+			if target != null and typeof(generation) == TYPE_INT and generation > 0:
+				if not machine_press_poses.has(entity_id):
+					machine_press_poses[entity_id] = {"generation": generation, "travel": target}
+				_apply_press_pose(motion_meshes, machine_press_poses[entity_id].travel)
 		var body := StaticBody3D.new()
 		body.collision_layer = Geometry.PICK_LAYER
 		body.collision_mask = 0
@@ -2093,8 +2253,9 @@ func _panel(parent: Node, at: Vector2, dimensions: Vector2) -> VBoxContainer:
 	panel.position = at
 	panel.size = dimensions
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.07, 0.12, 0.14, 0.96)
-	style.border_color = Color("536565")
+	style.bg_color = Color(0.078, 0.129, 0.157, 0.96)
+	style.border_color = Color("41565e")
+	style.set_corner_radius_all(5)
 	style.border_width_left = 1
 	style.border_width_right = 1
 	style.border_width_top = 1
@@ -2119,9 +2280,7 @@ func _build_interface() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	canvas.add_child(root)
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	var theme := Theme.new()
-	theme.default_font_size = 15
-	root.theme = theme
+	root.theme = ProductionInterface.make_theme()
 	var build := _panel(root, Vector2(18, 18), Vector2(275, 620))
 	if not legacy_fixture:
 		build.add_theme_constant_override("separation", 6)
