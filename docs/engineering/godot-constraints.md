@@ -400,6 +400,14 @@ position. Its first per-instance readback failure is retained under
 `production-worksite-environment-20261020`. This harness boundary changes no
 physical collision, construction range or game rule.
 
+**Asset import, observed for one source representation.** During the
+[scanned steel surface preparation](../../experiments/engine-environment/godot/opening/assets/steel/CREDITS.md),
+the pinned runtime's TinyEXR loader rejected the provider's normal EXR with an
+unknown compression type. The same provider's OpenGL normal PNG decoded and
+prepared successfully without a green-channel flip. The original EXR and first
+failure remain in `scanned-steel-materials-20261020`. This is a specific format
+adapter limitation, not a ban on EXR, a texture-quality ceiling or a game rule.
+
 The native bridge's initial engine call inherited a 2 GiB compiler address-space
 limit and aborted during initialization. Its separate engine-only ABI check passed
 with an explicit 8 GiB address-space envelope. A later first full-project import
