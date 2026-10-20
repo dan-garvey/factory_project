@@ -89,6 +89,7 @@ func check_multimesh(instances: MultiMesh, min_pad_clearance: float, label: Stri
 func finish() -> void:
 	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks, "mode": mode,
 		"scope": {"surface-composition": "shared renderer/physical geometry and bed/water composition",
+			"rock-collision-shape": "visible rock corners versus rigid collision descriptors",
 			"flat-fallback": "historical flat source-roster fallback", "foliage": "changed foliage bulk upload",
 			"environment": "3D valley terrain, millrace, architecture and foundation"}.get(mode, "unknown"),
 		"rendered_quality": "not_assessed", "desktop": "not_used", "authority_started": false}))
@@ -125,15 +126,7 @@ func check_surface_composition() -> void:
 				and mesh.get_meta("surface_role") == "foundation", "The changed wharf rectangles retain the scanned steel material.")
 	verify(rendered.size() == expected.size() - 64, "The shared descriptor set has no invisible architecture boxes.")
 	var rocks: MultiMesh = scenery.get_node("RockOutcrops").multimesh
-	var buffer := rocks.buffer
-	for index in range(64):
-		var spec: Dictionary = expected["rock_%d" % index]
-		var offset := index * 16
-		var origin := Vector3(buffer[offset + 3], buffer[offset + 7], buffer[offset + 11])
-		var basis := Basis(Vector3(buffer[offset], buffer[offset + 4], buffer[offset + 8]),
-			Vector3(buffer[offset + 1], buffer[offset + 5], buffer[offset + 9]), Vector3(buffer[offset + 2], buffer[offset + 6], buffer[offset + 10]))
-		verify(origin.is_equal_approx(spec.center) and basis.is_equal_approx(spec.basis.scaled(spec.scale)),
-			"Every visible rock retains the same native box transform and scale.")
+	check_rock_shapes(rocks)
 	var bed: MeshInstance3D = scenery.get_node("MillraceArchitecture/ChannelBed")
 	var bed_bounds := bed.mesh.get_aabb()
 	var top := bed.global_position.y + bed_bounds.end.y
@@ -162,6 +155,32 @@ func check_surface_composition() -> void:
 		"visible_boxes": rendered.size(), "rock_instances": 64, "triangle_vertices": water.size()}))
 	view.free()
 
+func check_rock_shapes(rocks: MultiMesh) -> void:
+	var specs: Array[Dictionary] = Scenery.Surface.rock_boxes()
+	var buffer := rocks.buffer
+	verify(rocks.instance_count == specs.size() and specs.size() == 64,
+		"Every shared rock collision descriptor has one visible instance.")
+	verify(buffer.size() == specs.size() * 16, "Read the actual uploaded rock transforms and colors.")
+	if buffer.size() != specs.size() * 16:
+		return
+	var half := rocks.mesh.get_aabb().size / 2.0
+	for index in range(specs.size()):
+		var spec: Dictionary = specs[index]
+		var offset := index * 16
+		var origin := Vector3(buffer[offset + 3], buffer[offset + 7], buffer[offset + 11])
+		var uploaded := Basis(Vector3(buffer[offset], buffer[offset + 4], buffer[offset + 8]),
+			Vector3(buffer[offset + 1], buffer[offset + 5], buffer[offset + 9]),
+			Vector3(buffer[offset + 2], buffer[offset + 6], buffer[offset + 10]))
+		verify(origin.is_equal_approx(spec.center), "Visible and physical rock origins agree: " + spec.id)
+		for x in [-1.0, 1.0]:
+			for y in [-1.0, 1.0]:
+				for z in [-1.0, 1.0]:
+					var sign := Vector3(x, y, z)
+					var visible_corner := origin + uploaded * (half * sign)
+					var physical_corner: Vector3 = spec.center + spec.basis * (spec.size * sign / 2.0)
+					verify(visible_corner.is_equal_approx(physical_corner),
+						"The uploaded visible corner matches the rigid collision box: " + spec.id + " " + str(sign))
+
 func collect_solids(node: Node, result: Dictionary) -> void:
 	if node.has_meta("site_solid_id"):
 		var id: String = node.get_meta("site_solid_id")
@@ -187,6 +206,12 @@ func clip_polygon(polygon: Array[Vector3], axis: int, boundary: float, keep_abov
 	return result
 
 func run() -> void:
+	if mode == "rock-collision-shape":
+		var rocks := Scenery._rock_outcrops()
+		check_rock_shapes(rocks.multimesh)
+		rocks.free()
+		finish()
+		return
 	if mode == "flat-fallback":
 		verify(Scenery.Surface == null, "The historical fixed-roster fixture deliberately has no site helper.")
 		var flat := FixtureView.new()
