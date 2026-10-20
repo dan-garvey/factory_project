@@ -93,6 +93,11 @@ func _reconnect() -> void:
 	if session_port < 1 or session_port > 65535 or not session_role in ["P", "Q"]:
 		_message("Session unavailable. Supply a loopback port and participant P or Q.", true)
 		return
+	# Prepare reusable presentation data before receiving live snapshots. Cold
+	# waveform synthesis must not block the first running drive's network poll.
+	if not legacy_fixture:
+		for kind: String in ["collector", "belt", "processor", "wheel"]:
+			MechanicalAmbience.make_loop(kind)
 	connecting = true
 	var error: Error = session.join_loopback(session_port, session_role)
 	if error != OK:
