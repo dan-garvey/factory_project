@@ -1,0 +1,7 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://opening/assets/index_drive_visual.gd" id="1_visual"]
+
+[node name="IndexDriveVisual" type="Node3D"]
+script = ExtResource("1_visual")
+metadata/prototype_visual = true
