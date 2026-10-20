@@ -22,6 +22,7 @@ struct Profile {
     stationary::Kit finite_parts;
     mechanics::Rate waterwheel_rate{1, 1};
     double meters_per_grid_unit{1.0};
+    authority::Point anchor_offset{};
     double build_reach{4.0};
 };
 
@@ -71,6 +72,10 @@ public:
     // its registered producer; no client-supplied observation enters this API.
     [[nodiscard]] Delivery command(const Binding&, const authority::Object&,
                                    const ObserveActor&) noexcept;
+    // Cache a trusted adapter's schema/site refusal in this same request owner.
+    // The adapter still authenticates the caller, and exact retries win first.
+    [[nodiscard]] Delivery refuse(const Binding&, const authority::Object&,
+                                  std::string reason) noexcept;
 
     // Called only by the owning host's simulation loop. Local machine power is
     // derived from current geometry, with no client tick or arbitrary edge API.

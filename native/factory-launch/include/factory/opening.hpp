@@ -63,7 +63,9 @@ struct OpeningExternalResource {
 
 // Add only the explicitly pinned bridge descriptor and Linux shared library.
 // A tracked descriptor may already exist if its bytes match; never replace an
-// existing source or a previously created runtime file.
+// existing source or a previously created runtime file. Declare the descriptor
+// in a fresh runtime-only .godot/extension_list.cfg before the first import.
+// Verification includes that exact generated entry and its safe path/mode.
 std::vector<OpeningExternalResource> copy_opening_extension(
     const OpeningCopy&, const OpeningExtensionInputs&);
 void verify_opening_extension(const std::vector<OpeningExternalResource>&);

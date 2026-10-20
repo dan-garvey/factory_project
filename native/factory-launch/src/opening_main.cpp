@@ -92,7 +92,7 @@ int main(int argc, char** argv) {
     std::string error, source_tree, engine_digest, capture_digest, plan_digest;
     std::optional<factory_launch::OpeningResume> resume;
     std::vector<factory_launch::OpeningExternalResource> extension;
-    std::string published_digest;
+    std::string published_digest, catalogue_digest;
     try {
         struct sigaction action{};
         action.sa_handler = request_stop;
@@ -151,6 +151,8 @@ int main(int argc, char** argv) {
                 options.at("--native-descriptor"), options.at("--native-library"),
                 options.at("--native-descriptor-relative"), options.at("--native-library-relative"),
                 options.at("--native-descriptor-sha256"), options.at("--native-library-sha256")});
+        if (!extension.empty())
+            catalogue_digest = sha256(read_regular(copy.runtime / ".godot/extension_list.cfg", 64 * 1024));
         const auto commands = opening_commands(engine, copy.runtime, output / "worksite.factory",
                                                resume ? resume->incoming : fs::path{});
         std::ostringstream plan;
@@ -174,6 +176,10 @@ int main(int argc, char** argv) {
                  << ",\"original\":" << json_string(resource.original.string())
                  << ",\"sha256\":" << json_string(resource.sha256) << ",\"bytes\":" << resource.bytes << '}';
         }
+        plan << "],\"generated_resources\":[";
+        if (!extension.empty())
+            plan << "{\"path\":\".godot/extension_list.cfg\",\"kind\":\"extension_catalogue\",\"sha256\":"
+                 << json_string(catalogue_digest) << '}';
         plan << "]}\n";
         write_once(output / "launch-plan.json", plan.str());
         plan_digest = sha256(plan.str());
@@ -226,6 +232,7 @@ int main(int argc, char** argv) {
                    << ",\"resume_sha256\":" << (resume ? json_string(resume->sha256) : "null")
                    << ",\"published_save_sha256\":" << (published_digest.empty() ? "null" : json_string(published_digest))
                    << ",\"native_resource_count\":" << extension.size()
+                   << ",\"extension_catalogue_sha256\":" << (catalogue_digest.empty() ? "null" : json_string(catalogue_digest))
                    << ",\"user_play\":\"not_assessed\",\"rendering\":\"not_assessed\",\"stages\":[";
             for (std::size_t i = 0; i < stages.size(); ++i) {
                 const auto& stage = stages[i];

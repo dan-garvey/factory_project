@@ -1,5 +1,12 @@
 # Shared opening session adapter
 
+The explicit `--native-world` server option uses one C++ World with the existing
+Session and ActorWorld producer. Its [native guide](../../../../native/factory-godot-world/README.md#shared-native-profile)
+records complete-payload requirements and the bounded headless P/Q raw-recovery
+and fresh-host continuation. Clients create no live World. The historical
+scripted profile and Python launcher below remain distinct; a missing native
+payload never silently selects them when the native option was requested.
+
 This experimental loopback adapter gives one dedicated process the existing
 opening Model and its 0.45-second clock. P and Q have shared fixture access;
 these labels are not accounts, authentication or a permanent team policy.

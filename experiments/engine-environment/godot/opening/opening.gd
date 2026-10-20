@@ -1010,6 +1010,7 @@ func _inspection_hint() -> String:
 	# Describe confirmed projection facts only. This is advice, never admission
 	# or a second power solver; the authority still decides every command.
 	var kind: String = state.entities[selected].kind
+	var stop_before_link: bool = state.get("powered", false) and not state.get("options", {}).get("native", false)
 	if kind == "processor" and state.stock.output > 0:
 		return "Outlet full; plate ready.\n[R] collect to make room."
 	if not state.get("power_enabled", true):
@@ -1019,9 +1020,9 @@ func _inspection_hint() -> String:
 			return "Work done; blank retained.\nNext drive tick releases plate."
 		return "Working: %d ticks remaining.\nHeld blank stays in the press." % state.remaining
 	if kind in ["belt", "processor"] and not _has_material_connection(true):
-		return (("Inlet missing. Stop [%s].\n" % _power_key()) if state.get("powered", false) else "No material inlet linked.\n") + "[F] link " + ("Collector → Belt." if kind == "belt" else "Belt → Press.")
+		return (("Inlet missing. Stop [%s].\n" % _power_key()) if stop_before_link else "No material inlet linked.\n") + "[F] link " + ("Collector → Belt." if kind == "belt" else "Belt → Press.")
 	if kind in ["collector", "belt"] and not _has_material_connection(false):
-		return (("Outlet missing. Stop [%s].\n" % _power_key()) if state.get("powered", false) else "No material outlet linked.\n") + "[F] link " + ("Collector → Belt." if kind == "collector" else "Belt → Press.")
+		return (("Outlet missing. Stop [%s].\n" % _power_key()) if stop_before_link else "No material outlet linked.\n") + "[F] link " + ("Collector → Belt." if kind == "collector" else "Belt → Press.")
 	if not state.get("powered", false):
 		return "Drive needs connections.\n[G] link wheel + all machines."
 	if kind == "processor":

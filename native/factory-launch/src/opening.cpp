@@ -3,8 +3,12 @@
 
 #include <algorithm>
 #include <array>
+#include <cerrno>
+#include <fcntl.h>
 #include <fstream>
 #include <stdexcept>
+#include <sys/stat.h>
+#include <unistd.h>
 
 namespace factory_launch {
 namespace {
@@ -43,6 +47,55 @@ std::string read(const fs::path& path, std::size_t limit = source_limit) {
             "The opening input changed during its read.");
     result.resize(static_cast<std::size_t>(bytes));
     return result;
+}
+
+void write_extension_catalogue(const fs::path& runtime, const fs::path& descriptor) {
+    const auto cache = runtime / ".godot";
+    require(fs::create_directory(cache), "The generated extension cache must be fresh.");
+    fs::permissions(cache, fs::perms::owner_all);
+    struct Descriptor {
+        int value;
+        ~Descriptor() { if (value >= 0) ::close(value); }
+    } directory{::open(cache.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)};
+    require(directory.value >= 0, "Cannot open the fresh extension cache.");
+    Descriptor output{::openat(directory.value, "extension_list.cfg",
+        O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600)};
+    require(output.value >= 0 && ::fchmod(output.value, 0600) == 0,
+            "Cannot create the fresh extension catalogue.");
+    const auto content = "res://" + descriptor.generic_string() + '\n';
+    std::size_t offset = 0;
+    while (offset < content.size()) {
+        const auto count = ::write(output.value, content.data() + offset, content.size() - offset);
+        if (count < 0 && errno == EINTR) continue;
+        require(count > 0, "Cannot finish the generated extension catalogue.");
+        offset += static_cast<std::size_t>(count);
+    }
+    require(::fsync(output.value) == 0 && ::fsync(directory.value) == 0,
+            "Cannot retain the generated extension catalogue.");
+}
+
+void verify_extension_catalogue(const OpeningExternalResource& descriptor) {
+    const auto& relative = descriptor.relative;
+    require(!relative.empty() && !relative.is_absolute() && relative.lexically_normal() == relative &&
+            relative.extension() == ".gdextension", "The catalogue requires a relative extension descriptor.");
+    for (const auto& component : relative)
+        require(component != "." && component != ".." && component != ".godot" &&
+                component != ".git" && component != ".beads", "The descriptor path cannot escape its project.");
+    auto runtime = descriptor.runtime;
+    for (auto part = relative.begin(); part != relative.end(); ++part) runtime = runtime.parent_path();
+    require(runtime.is_absolute() && fs::canonical(runtime) == runtime && runtime / relative == descriptor.runtime,
+            "The descriptor must remain inside its original runtime project.");
+    const auto cache = runtime / ".godot";
+    const auto catalogue = cache / "extension_list.cfg";
+    require(fs::is_directory(fs::symlink_status(cache)) && fs::canonical(cache) == cache &&
+            fs::status(cache).permissions() == fs::perms::owner_all,
+            "The generated extension cache changed its path or mode.");
+    struct stat status{};
+    require(::lstat(catalogue.c_str(), &status) == 0 && S_ISREG(status.st_mode) &&
+            status.st_nlink == 1 && status.st_uid == ::geteuid() && (status.st_mode & 07777) == 0600,
+            "The generated extension catalogue changed its type, ownership or mode.");
+    require(read(catalogue, 64 * 1024) == "res://" + relative.generic_string() + '\n',
+            "The generated catalogue differs from the pinned descriptor entry.");
 }
 
 std::vector<OpeningSource> roster(const fs::path& root) {
@@ -156,6 +209,8 @@ void verify_opening_resume(const OpeningResume& resume) {
 std::vector<OpeningExternalResource> copy_opening_extension(
     const OpeningCopy& copy, const OpeningExtensionInputs& inputs) {
     verify_opening_sources(copy);
+    require(!fs::exists(fs::symlink_status(copy.runtime / ".godot")),
+            "Declare the extension before import in a fresh generated cache.");
     const std::array sources{inputs.descriptor, inputs.library};
     const std::array targets{inputs.descriptor_relative, inputs.library_relative};
     const std::array pins{inputs.descriptor_sha256, inputs.library_sha256};
@@ -200,6 +255,7 @@ std::vector<OpeningExternalResource> copy_opening_extension(
                              fs::symlink_status(destination).permissions()});
     }
     verify_opening_sources(copy);
+    write_extension_catalogue(copy.runtime, inputs.descriptor_relative);
     verify_opening_extension(resources);
     return resources;
 }
@@ -218,6 +274,7 @@ void verify_opening_extension(const std::vector<OpeningExternalResource>& resour
                 sha256(original) == resource.sha256 && sha256(runtime) == resource.sha256,
                 "A native extension resource changed after it was pinned.");
     }
+    verify_extension_catalogue(resources.front());
 }
 
 OpeningCommands opening_commands(const fs::path& engine, const fs::path& project,

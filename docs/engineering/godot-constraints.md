@@ -73,6 +73,15 @@ review pins remain in the owning Beads; the linked tracked consumers are reusabl
 uses GDScript, `RefCounted` and Godot value/container APIs. Running it headlessly
 removes graphics, not its runtime dependency. Scene physics has additional coupling.
 
+The native offline increment now uses one
+[C++ World bridge](../../native/factory-godot-world/README.md), with GDScript
+forwarding commands and actual ActorWorld observations. Store keeps the binary
+file boundary while native code validates the complete typed checkpoint. The
+shared server's explicit `--native-world` profile uses that same owner with
+Session's existing authenticated actor binding. Historical scripted profiles
+remain separate. The bridge and its site profile still depend
+on the pinned Godot API; this is not whole-game portability or a second authority.
+
 **Boundary/exit:** retain explicit commands, quantities, identifiers and state
 ownership; record migration costs when an interface changes. A future native or
 different-engine core needs adaptation and parity tests. Do not claim portability
@@ -322,6 +331,23 @@ Owners: Chapter and Platform; `factory-yau.3.11` and its consumer tasks.
 Compatibility rendering and a 1280×800 window. The [environment record](engine-environment.md)
 describes the observed Linux/WSLg renderer; [resource admission](local-resources.md)
 and the staged compiler impose deliberate test/source/log budgets.
+
+The native bridge's initial engine call inherited a 2 GiB compiler address-space
+limit and aborted during initialization. Its separate engine-only ABI check passed
+with an explicit 8 GiB address-space envelope. A later first full-project import
+also aborted without a unique cause in its log; a traced copy exited normally.
+The corrected offline scene passed its own import, ordinary startup and physical
+save/reopen consumer. These scoped results do not diagnose the earlier abort or
+establish an engine memory target. Keep compiler and engine envelopes distinct;
+the normal helper's 22 GiB free-disk requirement is a separate quantity.
+
+The import abort recurred in the shared candidate. Debugger captures stopped at
+a native segmentation fault before game startup. A fresh import with the exact
+extension declared in generated `.godot/extension_list.cfg` before launch passed;
+the original ABI fixture also used an explicit early catalogue. The native P/Q
+consumer reused that imported runtime. Keep this controlled configuration and
+the first failures distinct from acceptance of the launcher correction; the
+stripped engine backtrace does not establish a unique symbolic engine cause.
 
 **Boundary/exit:** no fixed game resolution, target OS/GPU, session duration,
 factory object count or performance target follows. A parser pass is not a

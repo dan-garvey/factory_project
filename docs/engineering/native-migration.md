@@ -1,14 +1,14 @@
 # Native implementation and migration
 
-Status: the standalone C++ material foundation passed its original bounded native
-campaign and final independent material, policy and operational reviews. Its 206
-logical checks and separate four-product consumer do not establish live demo
-adoption or performance. Native adoption and Python retirement remain incomplete.
-The native World and logical checkpoint now have passing component tests and a
-canonical Bazel package build. Typed recovery, independent machine power and
-stationary geometry are available to that World. The live Godot bridge, native
-body registration and Store integration remain unfinished; publishing these
-libraries does not switch the demo's authority.
+Status: the C++ material foundation, native World and logical checkpoint have
+component validation and canonical Bazel builds. Typed recovery, independent
+machine power and stationary geometry are available to that World. The offline
+Godot bridge and shared Session are distinct adoption increments; [the opening
+guide](../../README.md#try-the-opening) identifies the current entry and limits.
+Publishing a library alone does not switch the demo's authority. The original
+206 logical checks and separate four-product consumer do not establish ordinary
+input, shared adoption, human play or performance. Python retirement remains
+incomplete.
 The inventory baseline is main commit `380d211637cdd2eeb2df5674d73f32f6e35adc44`.
 
 The user requires a high-performance implementation path such as C++ or Rust and
@@ -36,20 +36,25 @@ evidence and failures. A rewritten reader does not create a new gameplay run.
 
 ## One authority through the transition
 
-The current GDScript Model owns material quantities, topology, kit, request order
-and cached intent/outcomes. Session owns connection binding, request namespaces and
-transport. Its native adapter supplies trusted body observations for admission.
-Store persists one complete authoritative checkpoint. The engine handles rendering,
-input, UI and the chosen character/collision integration.
+For a native profile, the [C++ World](../../native/factory-world/README.md) owns
+material quantities, topology, per-actor kits, request order and cached
+intent/outcomes. The [Godot bridge](../../native/factory-godot-world/README.md)
+forwards commands and trusted ActorWorld observations and presents detached
+projections. Session retains connection binding, request namespaces and transport;
+Store retains the file envelope and atomic publication, using native validation
+for the complete native checkpoint. The engine owns rendering, input, UI and the
+chosen character/collision integration. Historical scripted profiles keep their
+explicit Model and save format; they are not an automatic fallback for a failed
+native startup.
 
 The [C++ material foundation](../../native/factory-core/README.md) extracts fixed
-material transitions and exact conservation. It remains unadopted. It neither runs
-alongside the live Model nor supplies an automatic fallback world. Its typed state
-contains raw holders, product inventories and held-work timing; it does not yet own
-the command/cache or checkpoint boundary. The raw and product counts must never be
+material transitions and exact conservation. Its typed state contains raw holders,
+product inventories and held-work timing; the native World supplies the complete
+command/cache and logical checkpoint boundary. The foundation must not run beside
+another mutable material authority. Raw and product counts must never be
 interchanged to make a recovery or conservation assertion pass.
 
-Before native adoption, `factory-yau.3.17.7` must replace one mutable authority and
+Each adoption increment in `factory-yau.3.17.7` must replace one mutable authority and
 provide validated state import, commands, read-only projections and checkpoint
 export. Preserve world context, stable entity/actor identities, part generations,
 topology, typed per-holder custody, recipe progress, exact request identity and
@@ -58,12 +63,13 @@ the native bodies. Failure must preserve the original save, not reset a world or
 select another authority. Session and Store remain the single connection and file
 owners. Actual character observations remain process- and registration-bound.
 
-Trapped-material recovery (`factory-yau.6.42`) needs a later typed recovery API: raw
-stock, completed products and held work with remaining progress are different forms
-of custody. Recovery owns that gameplay outcome after the interface and concrete
-files are agreed. Running stationary edits (`factory-yau.6.43`) and geometric
-cogwheels (`factory-yau.6.44`) are distinct user requirements; the material library
-does not implement them. No GDScript mirror of new native quantity rules is allowed.
+Typed recovery is available in the native World: raw stock, completed products and
+held work with remaining progress remain different forms of custody. Usable
+recovery controls (`factory-yau.6.42`), running stationary edits
+(`factory-yau.6.43`) and individual geometric cogwheel construction
+(`factory-yau.6.44`) remain distinct gameplay outcomes. A component test, a menu or
+a terminal gear puzzle does not by itself establish their integrated behavior.
+No GDScript mirror of new native quantity rules is allowed.
 
 ## Executable migration queue
 

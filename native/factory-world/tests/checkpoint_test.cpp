@@ -166,7 +166,7 @@ void round_trip_restore_and_continue() {
 void schema_and_authority_mutations() {
     auto f = fixture();
     refusal(f.profile, edited(f.checkpoint, {"schema"}, V(1.0)), w::CheckpointReason::wrong_type);
-    refusal(f.profile, edited(f.checkpoint, {"schema"}, V(I{2})), w::CheckpointReason::unsupported_schema);
+    refusal(f.profile, edited(f.checkpoint, {"schema"}, V(I{99})), w::CheckpointReason::unsupported_schema);
     refusal(f.profile, edited(f.checkpoint, {"state"}, std::nullopt), w::CheckpointReason::missing_field);
     refusal(f.profile, edited(f.checkpoint, {"unexpected"}, V(nullptr)), w::CheckpointReason::unexpected_field);
     refusal(f.profile, edited(f.checkpoint, {"revision"}, V(true)), w::CheckpointReason::wrong_type);

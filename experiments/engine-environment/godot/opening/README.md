@@ -1,6 +1,11 @@
 # Opening worksite consumer
 
-The normal offline and shared opening now select the **physical** profile.
+The normal offline and shared opening select the **physical** profile. Offline
+now uses the native World through `native_model.gd`; the shared server can select
+the same owner explicitly with `--native-world`. Historical shared launch retains
+its separate scripted profile. Native drives
+consume independent finite shafts, and native checkpoints retain typed custody,
+original history and physical seeds. See the [native bridge](../../../../native/factory-godot-world/README.md).
 WASD walks a native capsule, Space jumps, and the orbit camera follows your
 confirmed character. Right-drag changes the view; the mouse wheel zooms and
 Home restores follow distance. Clicked targets never stand in for your body.
@@ -32,7 +37,13 @@ The full original interface remains available in the historical legacy fixture.
 These view changes need actual rendered and ordinary-input review; source checks
 alone do not establish that a new player understands the opening.
 
-From the repository root, launch the normal physical worksite with the separately
+The current native offline launch and manual human-entry commands are in the
+[native guide](../../../../native/factory-godot-world/README.md#build-and-consume).
+The Python launcher description and physical consumer results below belong to
+the earlier scripted source revisions. That fixed roster does not deliver the
+new bridge, so it is not the current offline entry.
+
+Historically, the scripted physical worksite used the separately
 verified existing runtime and an external owned artifact root:
 
 ```bash
@@ -74,7 +85,7 @@ F9 explains how to reopen it: close the session, then launch with
 adapter refuses live Load as `load_requires_restart` before changing anything.
 The selected source remains read only; the new process writes its own slot only
 after realizing the saved body. Unsupported saved overlap aborts that new launch
-without a spawn fallback. The schema-2 checkpoint saves position/capability;
+without a spawn fallback. The earlier scripted schema-2 checkpoint saves position/capability;
 input, native RIDs, readiness and velocity are not restored as live state.
 Offline declares P; shared declares its planned P or P/Q roster. Cross-roster
 reopen and old schema-1 saves refuse explicitly; migration is not supplied.
@@ -149,6 +160,12 @@ a switched-off drive calls for Space. A full press outlet calls for R to make
 room; unfinished work stays in the press. These hints describe confirmed state
 and do not grant permission to edit. In shared play, a pending action shows that
 the server decision is still awaited, and a disconnected view remains read only.
+
+For a native-authority projection, missing material-link advice does not require
+stopping the drive: the stationary native rules allow linking while it runs.
+The explicit historical scripted profiles retain their stopped-edit advice.
+These are profile-specific hints, not permission or a replacement for the
+authority's reach, identity, topology and material checks.
 
 Use Previous/Next (or left/right arrows) to inspect placement, drive, a blank
 held in the press, and a blocked outlet. Each lesson resets the example, as its

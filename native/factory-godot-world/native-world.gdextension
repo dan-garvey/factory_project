@@ -1,0 +1,8 @@
+[configuration]
+entry_symbol = "factory_native_world_init"
+compatibility_minimum = "4.7"
+reloadable = false
+
+[libraries]
+linux.debug.x86_64 = "res://factory-native-world.so"
+linux.release.x86_64 = "res://factory-native-world.so"

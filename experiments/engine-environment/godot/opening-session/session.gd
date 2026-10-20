@@ -57,11 +57,22 @@ func _ready() -> void:
 	multiplayer.server_disconnected.connect(func(): _lost("server_disconnected"))
 	multiplayer.peer_disconnected.connect(_peer_lost)
 
-func serve_loopback(port: int, frozen_clock := false, physical_profile := false, actor_ids: Array = ["P", "Q"]) -> Error:
+func serve_loopback(port: int, frozen_clock := false, physical_profile := false, actor_ids: Array = ["P", "Q"], native_authority := false) -> Error:
 	if _transport != null or world != null:
 		return ERR_ALREADY_IN_USE
-	if port < 1 or port > 65535:
+	if port < 1 or port > 65535 or (native_authority and not physical_profile):
 		return ERR_INVALID_PARAMETER
+	var next_context := "opening-shared-" + Crypto.new().generate_random_bytes(16).hex_encode()
+	var candidate
+	if native_authority:
+		var adapter = load("res://opening/native_model.gd")
+		if adapter == null:
+			return ERR_UNAVAILABLE
+		candidate = adapter.new(next_context, actor_ids)
+		if not candidate.boot_result.get("accepted", false):
+			return ERR_UNAVAILABLE
+	else:
+		candidate = Model.new(16, next_context, 1, {"opening": true, "physical": true} if physical_profile else {"opening": true}, actor_ids)
 	var peer := ENetMultiplayerPeer.new()
 	peer.set_bind_ip("127.0.0.1")
 	var error := peer.create_server(port, 2)
@@ -72,8 +83,8 @@ func serve_loopback(port: int, frozen_clock := false, physical_profile := false,
 	multiplayer.multiplayer_peer = peer
 	_authoritative = true
 	_ready_for_commands = true
-	context = "opening-shared-" + Crypto.new().generate_random_bytes(16).hex_encode()
-	world = Model.new(16, context, 1, {"opening": true, "physical": true} if physical_profile else {"opening": true}, actor_ids)
+	context = next_context
+	world = candidate
 	_tick_seconds = 0.0 if frozen_clock else 0.45
 	last_serial = 0
 	return OK
@@ -367,7 +378,7 @@ func _admit(item: Dictionary) -> void:
 		for actor_id in before.actors:
 			admission_native[actor_id] = actor_world.diagnostics(actor_id, before.actors[actor_id].native_epoch)
 	if refusal.is_empty():
-		result = world.command(intent)
+		result = world.command_as(binding.actor, intent) if world.has_method("command_as") else world.command(intent)
 	else:
 		var state: Dictionary = world.projection()
 		result = {"accepted": false, "reason": refusal, "entity": "", "context": context,

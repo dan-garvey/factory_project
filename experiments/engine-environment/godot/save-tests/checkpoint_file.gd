@@ -19,6 +19,12 @@ static func encode(snapshot: Dictionary) -> PackedByteArray:
 	return MAGIC.to_ascii_buffer() + _digest(payload) + PackedByteArray([10]) + payload
 
 static func write(model, path: String) -> Dictionary:
+	if model.has_method("validate_checkpoint"):
+		var snapshot: Dictionary = model.checkpoint()
+		var validation = model.validate_checkpoint(snapshot)
+		if not validation is Dictionary or not validation.get("accepted") is bool or not validation.accepted:
+			return _result(false, "invalid_native_capture")
+		return _write_validated(snapshot, path)
 	return write_snapshot(model.checkpoint(), path)
 
 static func write_snapshot(snapshot: Dictionary, path: String) -> Dictionary:
@@ -26,6 +32,9 @@ static func write_snapshot(snapshot: Dictionary, path: String) -> Dictionary:
 	var validation: Dictionary = validator.restore_checkpoint(snapshot)
 	if not validation.accepted:
 		return _result(false, "invalid_capture:" + validation.reason)
+	return _write_validated(snapshot, path)
+
+static func _write_validated(snapshot: Dictionary, path: String) -> Dictionary:
 	var bytes := encode(snapshot)
 	if bytes.size() > MAX_BYTES:
 		return _result(false, "capture_too_large")

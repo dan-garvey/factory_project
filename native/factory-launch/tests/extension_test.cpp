@@ -44,8 +44,8 @@ int main(int argc, char** argv) {
             std::chrono::seconds(5), 8192, nullptr, true);
         check(partial.exit_code == 1 && partial.output.find("all six compiled-extension") != std::string::npos,
               "A partial bridge specification refuses before any engine or filesystem work.");
-        const auto* directory = std::getenv("TEST_UNDECLARED_OUTPUTS_DIR");
-        check(directory && *directory, "Use the declared external fixture directory.");
+        const auto* directory = std::getenv("TEST_TMPDIR");
+        check(directory && *directory, "Use the disposable external fixture directory.");
         const auto root = fs::canonical(directory) / "extension";
         check(fs::create_directory(root), "The extension fixture must be fresh.");
         const auto original = root / "pristine";
@@ -75,6 +75,40 @@ int main(int argc, char** argv) {
         check(fs::status(resources[1].runtime).permissions() == fs::perms::owner_read &&
               fs::status(library_path).permissions() == source_mode,
               "The runtime copy is read-only while the original mode is preserved.");
+        const auto catalogue = copy.runtime / ".godot/extension_list.cfg";
+        const auto entry = "res://" + inputs.descriptor_relative.generic_string() + '\n';
+        check(read(catalogue) == entry, "The descriptor is declared exactly before any import.");
+        check(!fs::exists(original / ".godot"), "Generated metadata never changes the pristine capture.");
+        check(fs::status(catalogue.parent_path()).permissions() == fs::perms::owner_all &&
+              fs::status(catalogue).permissions() == (fs::perms::owner_read | fs::perms::owner_write),
+              "Generated paths have explicit owner-only modes.");
+        const auto restore_catalogue = [&] {
+            write(catalogue, entry);
+            fs::permissions(catalogue, fs::perms::owner_read | fs::perms::owner_write);
+        };
+        write(catalogue, "res://another.gdextension\n");
+        refuses([&] { verify_opening_extension(resources); }, "A substituted descriptor entry refuses.");
+        write(catalogue, entry + "res://extra.gdextension\n");
+        refuses([&] { verify_opening_extension(resources); }, "An extra extension entry refuses.");
+        restore_catalogue();
+        fs::permissions(catalogue, fs::perms::owner_read);
+        refuses([&] { verify_opening_extension(resources); }, "Catalogue permission drift refuses.");
+        fs::permissions(catalogue, fs::perms::owner_read | fs::perms::owner_write);
+        fs::permissions(catalogue.parent_path(), fs::perms::owner_read | fs::perms::owner_exec);
+        refuses([&] { verify_opening_extension(resources); }, "Generated-directory mode drift refuses.");
+        fs::permissions(catalogue.parent_path(), fs::perms::owner_all);
+        fs::remove(catalogue);
+        refuses([&] { verify_opening_extension(resources); }, "A missing catalogue refuses.");
+        const auto external_catalogue = root / "inputs/external-catalogue.cfg";
+        write(external_catalogue, entry);
+        fs::permissions(external_catalogue, fs::perms::owner_read | fs::perms::owner_write);
+        fs::create_symlink(external_catalogue, catalogue);
+        refuses([&] { verify_opening_extension(resources); }, "A catalogue symlink refuses.");
+        fs::remove(catalogue);
+        fs::create_hard_link(external_catalogue, catalogue);
+        refuses([&] { verify_opening_extension(resources); }, "A catalogue hard-link alias refuses.");
+        fs::remove(catalogue);
+        restore_catalogue();
         verify_opening_sources(copy);
         verify_opening_extension(resources);
         refuses([&] { copy_opening_extension(copy, inputs); }, "A second copy cannot replace existing runtime files.");
@@ -116,6 +150,23 @@ int main(int argc, char** argv) {
         const auto redirected = fresh();
         fs::create_directory_symlink(root / "inputs", redirected.runtime / "native");
         refuses([&] { copy_opening_extension(redirected, inputs); }, "A runtime parent alias cannot redirect the copy.");
+        const auto used_cache = fresh();
+        write(used_cache.runtime / ".godot/extension_list.cfg", "existing catalogue\n");
+        refuses([&] { copy_opening_extension(used_cache, inputs); }, "A preexisting generated cache refuses.");
+        check(read(used_cache.runtime / ".godot/extension_list.cfg") == "existing catalogue\n" &&
+              !fs::exists(used_cache.runtime / inputs.descriptor_relative),
+              "Refusal preserves existing metadata and precedes external-resource copying.");
+        const auto aliased_cache = fresh();
+        fs::create_directory_symlink(root / "inputs", aliased_cache.runtime / ".godot");
+        refuses([&] { copy_opening_extension(aliased_cache, inputs); }, "A generated cache alias refuses.");
+        const auto dangling_cache = fresh();
+        fs::create_directory_symlink(root / "absent", dangling_cache.runtime / ".godot");
+        refuses([&] { copy_opening_extension(dangling_cache, inputs); }, "A dangling generated cache alias refuses.");
+        check(!fs::exists(root / "absent"), "A rejected alias creates no outside directory.");
+        const auto file_cache = fresh();
+        write(file_cache.runtime / ".godot", "existing file");
+        refuses([&] { copy_opening_extension(file_cache, inputs); }, "A generated cache file refuses.");
+        check(read(file_cache.runtime / ".godot") == "existing file", "A rejected cache file remains intact.");
         write(root / "inputs/oversized.gdextension", std::string(65537, 'x'));
         bad = inputs;
         bad.descriptor = root / "inputs/oversized.gdextension";
@@ -125,6 +176,8 @@ int main(int argc, char** argv) {
         const auto tracked = fresh();
         const auto tracked_resources = copy_opening_extension(tracked, inputs);
         verify_opening_sources(tracked);
+        check(read(tracked.runtime / ".godot/extension_list.cfg") == entry,
+              "An already captured matching descriptor is declared before import too.");
         check(tracked_resources[0].runtime_permissions == fs::status(original / inputs.descriptor_relative).permissions(),
               "An already captured matching descriptor retains its exact mode and bytes.");
         bad = inputs;

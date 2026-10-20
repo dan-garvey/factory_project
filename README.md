@@ -17,6 +17,17 @@ tracks factory-builder and engineering-puzzle inspiration separately from adopte
 
 ## Try the opening
 
+The current offline scene uses one C++ World through a thin Godot bridge. Follow
+the [native build, resource capture and human-entry instructions](native/factory-godot-world/README.md#build-and-consume).
+Missing native resources fail startup. The shared server can explicitly select
+the same owner with `--native-world`; the historical Python shared launcher keeps
+its scripted profile. Neither format automatically migrates the other's saves.
+
+The Python offline command below is retained documentation of the earlier
+scripted profile. Its fixed roster does not deliver the new bridge or library,
+so it is not the current native offline entry. The associated scripted tests
+retain their original revision and evidence scope.
+
 On Linux with a graphical display, use the separately provisioned, verified
 Godot 4.7.2 stable executable. The launcher does not download an engine.
 From the repository root:
@@ -80,9 +91,12 @@ establish player understanding or enjoyment.
 
 ## Verify
 
-The standalone C++ material core uses the pinned [Bazel build and local
-caches](docs/engineering/native-builds.md). Its passing component validation does
-not activate it in the playable demo or replace the installed commit hook.
+The C++ material core uses the pinned [Bazel build and local
+caches](docs/engineering/native-builds.md). The offline native bridge uses that
+authority; the shared Session and installed commit hook have separate migrations.
+Its automated headless consumer covers actual body admission, running recovery,
+rebuilding, original request replay and typed save/reopen. It does not establish
+desktop input, shared adoption or human play.
 
 The source-only tooling suite needs no engine or private tracker:
 
@@ -90,7 +104,7 @@ The source-only tooling suite needs no engine or private tracker:
 python3 -B scripts/run_local.py check -- python3 -B scripts/check.py
 ```
 
-Add `--check --render` to the offline launch command for bounded physical
+For the historical scripted revisions, `--check --render` on the offline launcher provided bounded physical
 movement/reach and fresh-process save/reopen checks with viewport captures.
 They do not prove P/Q host-file reopening; same-server disconnect/rejoin is also
 different from starting a new host. The separate normal-launcher consumer is

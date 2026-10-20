@@ -179,6 +179,14 @@ outputs, aliases, metadata/cache destinations and changed pins refuse. The curre
 input bounds are 64 KiB for the descriptor and 64 MiB for the library, inside the
 existing 256 MiB session limit. Both original inputs and runtime resources are
 rechecked around each engine stage. The plan records their paths and hashes.
+Before the first import, the launcher also creates a fresh runtime-only
+`.godot/extension_list.cfg` containing exactly the pinned descriptor's `res://`
+path. Early declaration avoids relying on first-scan discovery for class
+registration. Existing caches and aliased generated paths refuse; the catalogue
+and its owner-only mode are verified around each stage. Its hash is recorded as
+a generated resource, separately from captured sources and external inputs.
+The pristine project is unchanged. This is the current single-extension startup
+profile, not a game rule or a claim that the underlying importer fault is fixed.
 This is resource delivery, without a second World, automatic authority adoption
 or evidence that an arbitrary library has the expected ABI. The focused extension
 consumer uses invented file bytes and invokes no engine.

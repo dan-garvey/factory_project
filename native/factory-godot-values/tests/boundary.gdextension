@@ -1,0 +1,8 @@
+[configuration]
+entry_symbol = "factory_value_fixture_init"
+compatibility_minimum = "4.7"
+reloadable = false
+
+[libraries]
+linux.debug.x86_64 = "res://factory-value-abi-fixture.so"
+linux.release.x86_64 = "res://factory-value-abi-fixture.so"

@@ -21,6 +21,7 @@ var resume_result: Dictionary = {}
 var incoming_sha256 := ""
 var loaded_checkpoint: Dictionary = {}
 var legacy_fixture := false
+var native_authority := false
 var actor_roster: Array = ["P", "Q"]
 
 func _initialize() -> void:
@@ -28,6 +29,7 @@ func _initialize() -> void:
 		if argument.begins_with("--session-port="): port = int(argument.trim_prefix("--session-port="))
 		elif argument == "--frozen-clock": frozen = true
 		elif argument == "--legacy-fixture": legacy_fixture = true
+		elif argument == "--native-world": native_authority = true
 		elif argument.begins_with("--actor-roster="): actor_roster = Array(argument.trim_prefix("--actor-roster=").split(","))
 		elif argument.begins_with("--ready-file="): ready_path = argument.trim_prefix("--ready-file=")
 		elif argument.begins_with("--stop-file="): stop_path = argument.trim_prefix("--stop-file=")
@@ -64,6 +66,9 @@ func _boot() -> void:
 	if not actor_roster in [["P"], ["P", "Q"]]:
 		checkpoint_failure("invalid_actor_roster")
 		return
+	if native_authority and legacy_fixture:
+		checkpoint_failure("native_world_requires_physical_profile")
+		return
 	if checkpoint_enabled():
 		var option_error := checkpoint_options_error()
 		if not option_error.is_empty():
@@ -83,7 +88,7 @@ func _boot() -> void:
 	session.outcome_hold_path = outcome_hold
 	container.add_child(session)
 	root.add_child(container)
-	var error: Error = session.serve_loopback(port, frozen, not legacy_fixture, actor_roster)
+	var error: Error = session.serve_loopback(port, frozen, not legacy_fixture, actor_roster, native_authority)
 	if error != OK:
 		push_error("Loopback bind refused: " + str(error))
 		quit(1)
@@ -166,6 +171,10 @@ func checkpoint_options_error() -> String:
 	return ""
 
 func compatible_opening(capture: Dictionary) -> bool:
+	if native_authority:
+		var validated: Dictionary = session.world.validate_checkpoint(capture)
+		var snapshot: Dictionary = session.world.projection()
+		return validated.get("accepted", false) and snapshot.initial_feed == 16 and snapshot.recipe_input == 1 and snapshot.options.get("native", false) and Array(capture.get("actors", {}).keys()) == actor_roster
 	if capture.initial_feed != 16 or capture.recipe_input != 1 or capture.options.get("opening") != true:
 		return false
 	if not legacy_fixture and (capture.schema != 2 or capture.options.get("physical") != true):
@@ -212,7 +221,7 @@ func checkpoint_finish(capture: Dictionary, expired: bool, native_preflight: Dic
 		elif not fresh_destination():
 			result.save = {"accepted": false, "reason": "save_destination_or_pending_exists"}
 		else:
-			var saved = checkpoint_store.write_snapshot(capture, save_path)
+			var saved = checkpoint_store.write(session.world, save_path) if native_authority else checkpoint_store.write_snapshot(capture, save_path)
 			result.save = saved if saved is Dictionary else {"accepted": false, "reason": "invalid_result"}
 		result.accepted = result.save.get("accepted") is bool and result.save.accepted and preserved and not expired
 		if result.accepted:

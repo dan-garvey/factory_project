@@ -1,0 +1,39 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "host",
+    srcs = ["src/host.cpp"],
+    hdrs = ["include/factory/godot_world.hpp"],
+    strip_include_prefix = "include",
+    deps = ["//native/factory-world:checkpoint"],
+)
+
+cc_binary(
+    name = "factory-native-world.so",
+    srcs = ["src/extension.cpp"],
+    linkshared = True,
+    linkstatic = True,
+    deps = [":host", "//native/factory-godot-values:godot_values"],
+)
+
+cc_binary(
+    name = "factory-native-world-abi-test.so",
+    srcs = ["src/extension.cpp", "tests/abi_test.cpp"],
+    defines = ["FACTORY_NATIVE_WORLD_SELF_TEST"],
+    linkshared = True,
+    linkstatic = True,
+    deps = [":host", "//native/factory-godot-values:godot_values"],
+)
+
+filegroup(
+    name = "runtime_config",
+    srcs = ["native-world.gdextension"],
+)
+
+cc_test(
+    name = "host_test",
+    srcs = ["tests/host_test.cpp"],
+    deps = [":host"],
+)

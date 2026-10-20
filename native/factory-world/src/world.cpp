@@ -55,7 +55,9 @@ const stationary::PlacedPart* part(const stationary::Topology& topology, const s
 
 bool keys(const Object& object, std::initializer_list<const char*> extra) {
     constexpr const char* base[] = {"context", "client", "request", "actor", "action"};
-    if (object.size() != std::size(base) + extra.size()) return false;
+    const auto wire = object.find("wire");
+    if (wire != object.end() && !std::get_if<Object>(&wire->second.storage())) return false;
+    if (object.size() != std::size(base) + extra.size() + (wire != object.end() ? 1 : 0)) return false;
     for (const auto* key : base) if (!object.contains(key)) return false;
     for (const auto* key : extra) if (!object.contains(key)) return false;
     return true;
@@ -71,7 +73,7 @@ bool shape(const Object& intent, const std::string& action) {
         return keys(intent, {"target", "generation", "enabled"}) && field<bool>(intent, "enabled");
     if (action == "place")
         return keys(intent, {"role", "center", "axis", "teeth", "half_span"});
-    if (action == "link")
+    if (action == "link" || action == "unlink" || action == "shaft_between" || action == "remove_shaft_between")
         return keys(intent, {"target", "generation", "to", "to_generation"});
     return false;
 }
@@ -107,9 +109,39 @@ std::optional<mechanics::Point> grid_point(const Object& intent) {
 }
 
 authority::Point anchor(const Profile& profile, const mechanics::Point& point) {
-    return {static_cast<double>(point[0]) * profile.meters_per_grid_unit,
-            static_cast<double>(point[1]) * profile.meters_per_grid_unit,
-            static_cast<double>(point[2]) * profile.meters_per_grid_unit};
+    return {static_cast<double>(point[0]) * profile.meters_per_grid_unit + profile.anchor_offset[0],
+            static_cast<double>(point[1]) * profile.meters_per_grid_unit + profile.anchor_offset[1],
+            static_cast<double>(point[2]) * profile.meters_per_grid_unit + profile.anchor_offset[2]};
+}
+
+bool two_endpoints(const std::string& action) {
+    return action == "link" || action == "unlink" || action == "shaft_between" || action == "remove_shaft_between";
+}
+
+std::optional<stationary::PlacedPart> shaft_between(
+        const stationary::PlacedPart& from, const stationary::PlacedPart& to) {
+    if (from.geometry.axis != to.geometry.axis || from.geometry.kind == mechanics::Kind::shaft ||
+        to.geometry.kind == mechanics::Kind::shaft) return std::nullopt;
+    const auto axis = static_cast<std::size_t>(from.geometry.axis);
+    for (std::size_t index = 0; index < 3; ++index)
+        if (index != axis && from.geometry.center[index] != to.geometry.center[index]) return std::nullopt;
+    const auto difference = to.geometry.center[axis] - from.geometry.center[axis];
+    if (difference == 0 || difference % 2 != 0) return std::nullopt;
+    const auto half = difference > 0 ? difference / 2 : -difference / 2;
+    if (half > mechanics::maximum_dimension) return std::nullopt;
+    auto center = from.geometry.center;
+    center[axis] += difference / 2;
+    return stationary::PlacedPart{{"", mechanics::Kind::shaft, center, from.geometry.axis, 0, half},
+                                  0, Role::shaft};
+}
+
+const stationary::PlacedPart* matching_shaft(const stationary::Topology& topology,
+                                            const stationary::PlacedPart& specification) {
+    const auto found = std::find_if(topology.parts.begin(), topology.parts.end(), [&](const auto& item) {
+        return item.role == Role::shaft && item.geometry.center == specification.geometry.center &&
+            item.geometry.axis == specification.geometry.axis && item.geometry.half_span == specification.geometry.half_span;
+    });
+    return found == topology.parts.end() ? nullptr : &*found;
 }
 
 Value point_value(const authority::Point& point) {
@@ -169,7 +201,7 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
     const auto* points = field<Value::Array>(result, "targets");
     const auto* distances = field<Value::Array>(result, "distances_squared");
     if (!reason || *reason != "ok" || !epoch || *epoch <= 0 || !reach || *reach != profile.build_reach ||
-        !position || !points || !distances || points->size() != (action == "link" ? 2 : 1) ||
+        !position || !points || !distances || points->size() != (two_endpoints(action) ? 2 : 1) ||
         distances->size() != points->size()) return false;
     const auto point = [](const Value::Array& array) -> std::optional<authority::Point> {
         if (array.size() != 3) return std::nullopt;
@@ -206,7 +238,7 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         const auto selected_role = role_name ? role(*role_name) : std::nullopt;
         if (!location || !selected_role || !axis_name || !axis(*axis_name) || !teeth || !span ||
             !spec_valid({*selected_role, *teeth, *span}) || targets.front() != anchor(profile, *location)) return false;
-    } else {
+    } else if (action != "shaft_between" && action != "remove_shaft_between") {
         const auto* target = field<std::string>(record.intent, "target");
         const auto* generation = field<Integer>(record.intent, "generation");
         if (!target || *target != *field<std::string>(result, "entity") ||
@@ -247,6 +279,15 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
         const auto* action = field<std::string>(record.intent, "action");
         const auto* accepted_value = field<bool>(record.result, "accepted");
         if (!actor || !profile.actors.contains(*actor) || !action || !accepted_value) return false;
+        if (record.intent.contains("wire")) {
+            const auto* wire = field<Object>(record.intent, "wire");
+            if (!wire) return false;
+            for (const auto* key : {"context", "client", "request"}) {
+                const auto* original = field<std::string>(*wire, key);
+                const auto* normalized = field<std::string>(record.intent, key);
+                if (!original || !normalized || *original != *normalized) return false;
+            }
+        }
         // Malformed/refused commands retain their exact original intent too.
         if (!*accepted_value) continue;
         if (!shape(record.intent, *action)) return false;
@@ -256,12 +297,16 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
         if (!result_actor || *result_actor != *actor || !entity || !generation) return false;
         const auto issued = snapshot.state.issued_entities.find(*entity);
         if (issued == snapshot.state.issued_entities.end() || issued->second != *generation) return false;
-        if (*action == "link") {
+        if (two_endpoints(*action)) {
+            const auto* from = field<std::string>(record.intent, "target");
+            const auto* from_generation = field<Integer>(record.intent, "generation");
             const auto* to = field<std::string>(record.intent, "to");
             const auto* to_generation = field<Integer>(record.intent, "to_generation");
-            if (!to || !to_generation) return false;
+            if (!from || !from_generation || !to || !to_generation) return false;
+            const auto source = snapshot.state.issued_entities.find(*from);
             const auto destination = snapshot.state.issued_entities.find(*to);
-            if (destination == snapshot.state.issued_entities.end() || destination->second != *to_generation) return false;
+            if (source == snapshot.state.issued_entities.end() || source->second != *from_generation ||
+                destination == snapshot.state.issued_entities.end() || destination->second != *to_generation) return false;
         }
         if (!historical_facts(profile, record, *actor, *action)) return false;
         if (const auto* lots = field<Value::Array>(record.result, "moved_work")) {
@@ -324,6 +369,7 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
         profile.meters_per_grid_unit > 1000 || !std::isfinite(profile.build_reach) ||
         profile.build_reach <= 0 || profile.build_reach > 1000000) return false;
     for (const auto& actor : profile.actors) if (!identity(actor)) return false;
+    for (const auto coordinate : profile.anchor_offset) if (!std::isfinite(coordinate)) return false;
     const auto& state = snapshot.state;
     if (state.material.initial_units != profile.initial_units ||
         state.material.cargo.size() != profile.actors.size() || state.kits.size() != profile.actors.size() ||
@@ -403,6 +449,15 @@ Delivery World::command(const Binding& binding, const Object& intent, const Obse
     });
 }
 
+Delivery World::refuse(const Binding& binding, const Object& intent, std::string reason) noexcept {
+    const auto* actor = field<std::string>(intent, "actor");
+    const auto* client = field<std::string>(intent, "client");
+    if (!profile_.actors.contains(binding.actor) || !identity(binding.client) ||
+        !actor || *actor != binding.actor || !client || *client != binding.client)
+        return {TransactionError::history, authority::Error::wrong_actor, std::nullopt, owner_->current_revision()};
+    return owner_->apply(intent, [&](const Snapshot&, const Object&) { return refused(std::move(reason)); });
+}
+
 Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
                             const Object& intent, const ObserveActor& observe) const {
     const auto* action = field<std::string>(intent, "action");
@@ -432,7 +487,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         if (!selected) return refused("unknown_target", *id);
         if (selected->generation != *generation) return refused("stale_generation", *id);
         targets.push_back(anchor(profile_, selected->geometry.center));
-        if (*action == "link") {
+        if (two_endpoints(*action)) {
             const auto* to = field<std::string>(intent, "to");
             const auto* to_generation = field<Integer>(intent, "to_generation");
             if (!to || !to_generation) return refused("invalid_target");
@@ -456,19 +511,28 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
     State candidate = state;
     std::string entity;
     Integer generation{};
-    if (*action == "place") {
+    std::optional<stationary::PlacedPart> transmission;
+    if (*action == "shaft_between" || *action == "remove_shaft_between") {
+        transmission = shaft_between(*selected, *destination);
+        if (!transmission) return refused("incompatible_shaft", selected->geometry.id, std::move(facts));
+    }
+    if (*action == "place" || *action == "shaft_between") {
         if (candidate.issued_entities.size() == maximum_issued_entities ||
             candidate.next_entity_serial == std::numeric_limits<Integer>::max())
             return refused("identity_limit");
         generation = candidate.next_entity_serial++;
         entity = std::string(allocated_prefix) + std::to_string(generation);
         if (candidate.issued_entities.contains(entity)) return refused("identity_conflict");
-        const auto kind = *selected_role == Role::gear ? mechanics::Kind::gear :
+        if (transmission && matching_shaft(state.topology, *transmission)) return refused("existing_shaft");
+        const auto kind = transmission ? mechanics::Kind::shaft : *selected_role == Role::gear ? mechanics::Kind::gear :
                           *selected_role == Role::shaft ? mechanics::Kind::shaft : mechanics::Kind::hub;
-        stationary::PlacedPart placed{{entity, kind, *location, *selected_axis,
-            *field<Integer>(intent, "teeth"), *field<Integer>(intent, "half_span")}, generation, *selected_role};
+        stationary::PlacedPart placed = transmission ? *transmission : stationary::PlacedPart{
+            {entity, kind, *location, *selected_axis, *field<Integer>(intent, "teeth"),
+             *field<Integer>(intent, "half_span")}, generation, *selected_role};
+        placed.geometry.id = entity;
+        placed.generation = generation;
         stationary::PlacementSelection selection{placed, std::nullopt};
-        if (*selected_role == Role::waterwheel)
+        if (placed.role == Role::waterwheel)
             selection.source = mechanics::Drive{entity, profile_.waterwheel_rate};
         auto proposal = stationary::prepare_placement(state.topology, state.kits.at(binding.actor),
                                                      state.material, selection);
@@ -481,7 +545,13 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
     } else {
         entity = selected->geometry.id;
         generation = selected->generation;
-        if (*action == "remove") {
+        if (*action == "remove" || *action == "remove_shaft_between") {
+            if (transmission) {
+                const auto* shaft = matching_shaft(state.topology, *transmission);
+                if (!shaft) return refused("missing_shaft", entity, std::move(facts));
+                entity = shaft->geometry.id;
+                generation = shaft->generation;
+            }
             auto proposal = stationary::prepare_removal(state.topology, state.kits.at(binding.actor),
                 state.material, {{entity, generation}});
             if (const auto* error = std::get_if<stationary::RemovalRefusal>(&proposal))
@@ -492,15 +562,20 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         } else if (*action == "set_drive") {
             if (selected->role != Role::waterwheel) return refused("unsupported_target", entity);
             candidate.topology.drive_enabled = *field<bool>(intent, "enabled");
-        } else if (*action == "link") {
+        } else if (*action == "link" || *action == "unlink") {
             const bool compatible = (selected->role == Role::collector && destination->role == Role::belt) ||
                                     (selected->role == Role::belt && destination->role == Role::processor);
             if (!compatible) return refused("incompatible_link", entity);
             const stationary::MaterialLink link{{entity, generation},
                 {destination->geometry.id, destination->generation}};
-            if (std::find(candidate.topology.material_links.begin(), candidate.topology.material_links.end(), link) !=
-                candidate.topology.material_links.end()) return refused("existing_link", entity);
-            candidate.topology.material_links.push_back(link);
+            const auto found = std::find(candidate.topology.material_links.begin(), candidate.topology.material_links.end(), link);
+            if (*action == "unlink") {
+                if (found == candidate.topology.material_links.end()) return refused("missing_link", entity);
+                candidate.topology.material_links.erase(found);
+            } else {
+                if (found != candidate.topology.material_links.end()) return refused("existing_link", entity);
+                candidate.topology.material_links.push_back(link);
+            }
         } else {
             auto target = material_target(profile_, *selected, state.topology);
             if (!target) return refused("unsupported_target", entity);

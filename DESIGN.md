@@ -1,6 +1,6 @@
 # Factory game — working design document
 
-Status: discovery draft, revised 2026-10-15 UTC after the user's physical-character, stationary-first, framework-boundary and continuing-research directions. Requirements come from the user; demo defaults are identified separately. Godot use is accepted for current development, with its constraints explicitly recorded; no permanent production implementation stack has been selected.
+Status: discovery draft, revised 2026-10-20 UTC to include feedback from the user's first played demo. Requirements come from the user; demo defaults are identified separately. Godot use is accepted for current development, with its constraints explicitly recorded; no permanent production implementation stack has been selected.
 
 ## Stated goals
 
@@ -48,6 +48,18 @@ These are test cases for the design. We do not need to reproduce the original re
 - The broader engineering identity remains intact. Motion invention, cog routing, meaningful verticality, new-product progression, scaling choices, and eventual full automation can be introduced in stages rather than all being first-demo acceptance criteria.
 - The delegated opening defaults below resolve only the next reversible demo. Wider resources, recipes, reach distances, construction-supply details and progression remain open. Physical-character/proximity construction is confirmed, not an open choice. This scope clarification does not waive multiplayer-first development and authoritative item accounting.
 
+#### Feedback from the first played demo
+
+The user's subsequent play feedback revises the original opening defaults:
+
+- Reduce visible text and introduce construction tools progressively. Keep the next action readable without presenting the whole catalogue at once.
+- A bad or incomplete line must remain recoverable. Let the player remove retained material from the collector or other occupied machine, rather than directing every retrieval to the press or trapping the machine behind its contents. Preserve the material's actual form and ownership.
+- Removing stationary equipment must not require stopping the whole drive. Reject destructive edits without losing material, and provide a usable recovery route. This does not authorize construction on travelling machinery.
+- Offer individually placed cogwheels and shafts with meaningful orientation, engagement and rotation. Arbitrary cell-to-cell drive links, even with decorative gears, do not satisfy this requirement. Exact sizes, kits and introductory arrangements remain revisable.
+- Improve character, machine and environment presentation into a coherent prototype, including readable silhouettes and flow. Responsive layout must keep controls usable when the window is resized. Final art style and production assets remain open.
+
+These are requested outcomes, not claims that the current implementation or any automated fixture fulfills them. The native implementation and Bazel requirements below also follow the user's later directions.
+
 #### Delegated defaults for the basic opening demo
 
 The user has asked agents to choose from the documented preferences and wait for permission less often, with later course correction available. Use that authority for reversible prototype content and implementation decisions, recording assumptions and evidence. Do not turn an experimental default into a permanent game or production-stack commitment. Keep the established local resource limits, task ownership and independent integration review; ask about new paid commitments, destructive actions or publication beyond the already authorized scope.
@@ -57,10 +69,10 @@ Start with the following bounded defaults. They are chosen for the opening exper
 | Surface | Opening default |
 | --- | --- |
 | Production | A complete softmetal cutter/collector removes standardized blanks from a finite exposed seam. A short player-placed belt feeds a complete press; one blank becomes one plate. No channel rolls, component kits or custom carrier are required. |
-| Starter power | A complete waterwheel on the site's marked stream connection provides rotation. The player connects the collector, belt and press with simple shaft connections; starter orientation needs no ratio puzzle. Treat the stream as a declared non-consuming power fixture, with no fluid simulation, fuel or repeated cranking. |
+| Starter power | A complete waterwheel on the site's marked stream connection provides rotation. The player places individual shafts and cogwheels; power follows their geometric engagement rather than arbitrary drive links. An introductory arrangement need not require advanced ratios. Exact transmission sizes and kit remain revisable. Treat the stream as a declared non-consuming power fixture, with no fluid simulation, fuel or repeated cranking. |
 | Site and construction | One small 3D site with an accessible seam and stream. A controlled physical character places nearby stationary complete machines and transport on the global construction grid. Camera/raycast location alone cannot grant reach. Choose and record a tunable initial range, rather than a permanent number. Begin with physically carried parts sufficient for one working path and a rebuild; placement consumes actual carried parts, dismantling returns them without loss. No remote withdrawal or hidden part refill. |
 | Material handling | The seam starts with 16 blanks for this test fixture. Collector output, processor input, held work, belt contents and processor output have explicit authoritative owners. Use one-item machine input/output buffers; a full destination pauses upstream delivery or processing and retains the work. Removing the blockage resumes the same work without duplicate consumption/output. |
-| Processing and editing | A fixed configured work cycle produces one plate from one blank; no scrap, wear, fuel or additional ingredients in this experiment. Missing power pauses work without clearing it. Stop the affected unit before dismantling or changing its connections; reject changes that would delete held material, leaving its parts and stock intact for retrieval. No construction in motion is introduced. |
+| Processing and editing | A fixed configured work cycle produces one plate from one blank; no scrap, wear, fuel or additional ingredients in this experiment. Missing power pauses work without clearing it. Stationary edits and dismantling do not require stopping the global drive. Reject changes that would delete retained material and offer recovery of raw stock, products and unfinished work without silently changing their forms or progress. No construction in motion is introduced. |
 | Objective and credit | Retrieve four plates into the player's inventory and explicitly confirm the objective. Confirmation does not consume them. This is a session goal, with no technology unlock, off-site dispatch, shared campaign credit or proof-of-automation requirement. |
 | Two-client access | Both provisional test participants may build and interact with the fixture stock and machinery. Construction requests are validated against their authoritative character location/reach and actual parts/quantities; show concurrent refusals and corrections. Shared fixture access does not select the game's team, learning or progression model. |
 | Explanation and evidence | A small read-only rotate/zoom explanation shows placement, mechanical connection, the blank's path and occupied-output recovery. Verify the same rules headlessly, through two clients constructing stationary equipment, and across partial-work save/continuation; then observe the user's actual first session. |
@@ -352,6 +364,11 @@ reversible native increments use the existing C++ toolchain. Godot remains accep
 the present GDScript authority and Python launch/check infrastructure are migration
 baselines, not permanent architecture. See the [migration contract](docs/engineering/native-migration.md).
 
+Bazel is the canonical build system. Use incremental builds and dependency-correct
+cache reuse to shorten iteration; a faster build does not waive relevant tests or
+independent review. Existing mandatory checks remain active until reviewed
+replacements preserve their contracts.
+
 Preserve one authoritative simulation, exact material ownership and the existing
 mandatory checks while replacing boundaries in reviewed increments. A standalone
 native rule library is a foundation, not evidence that the playable demo uses it.
@@ -479,3 +496,4 @@ These are the named inspirations, not a commitment to reproduce their content or
 - 2026-10-15 UTC: Corrected an agent-imposed first-chapter scope inflation. The user accepts an opening as simple as placing a collector, feeding a machine, and obtaining its product, without custom moving factories or elaborate processor assembly. Player-built motion is welcome later in chapter 1, but the basics come first. Separate early playable feedback from broader motion/scaling/supply and platform-risk evidence. Exact content, power, logistics, completion, and engine choices remain open; long-term engineering and multiplayer requirements are unchanged.
 - 2026-10-15 UTC: The user delegated reversible choices from the documented preferences and asked for fewer permission waits. Selected a finite softmetal collector/belt/complete-press/plate opening, simple waterwheel power, physically carried starter parts, retained work under backpressure or loss of power, and a four-plate non-consuming inventory goal. These are course-correctable demo defaults, not permanent content, progression, production-stack or long-term supply decisions. Keep resource limits and independent integration review; do not repeatedly seek user approval for routine decisions within this delegated scope.
 - 2026-10-15 UTC: The user accepted Godot use while requiring explicit documentation of framework-imposed constraints so they do not become assumed game rules. Required a controlled physical character and proximity restrictions for placing components/building machinery, with technology overcoming reach restrictions later; final camera and numerical reach remain open. Reaffirmed fixed/stationary contraptions and subfactories as early chapter priority. Established continuing factory-builder/Zachtronics-adjacent puzzle research, with thoroughly scoped per-game completion for deduplication and an ongoing pipeline that does not close after one round.
+- 2026-10-20 UTC: Incorporated feedback from the user's first played opening: reduce text and simultaneous tools; recover material from bad lines; allow stationary removal without stopping the global drive; replace arbitrary drive links with individually placed geometric transmission parts; improve prototype graphics and resized layouts. Exact transmission content and final art style remain open. Recorded C++/Rust for new implementation and canonical incremental Bazel builds without treating either as proof of completed adoption or performance.
