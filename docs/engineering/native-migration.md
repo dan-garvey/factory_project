@@ -86,10 +86,12 @@ No GDScript mirror of new native quantity rules is allowed.
 | `factory-yau.3.17.8` | Ops owns canonical Bazel builds and incremental validation. | Pin the build graph, prove correct cache reuse and invalidation, and measure cold/warm commit-validation latency without weakening checks. |
 
 The following inventory records every tracked Python file at the baseline. Active
-tools have executable queue entries; the retired hourly PM launcher and its tests
-need no native replacement. Their existing source and mandatory checks remain
-intact. Claim and refine an increment before editing; a queue entry does not
-reserve a lane or waive post-merge review. Existing tests migrate with active behavior.
+tools have executable queue entries and retain their checks while they migrate.
+The retired hourly PM command and its exclusive tests have been removed; their
+historical source and outcomes remain in Git and the original external evidence.
+No native replacement or scheduler reactivation is required. Claim and refine an
+increment before editing; a queue entry does not reserve resources. Existing tests
+migrate with active behavior, and independent review follows the current policy.
 The parent migration remains partial until its active work is delivered; writing
 this inventory does not complete it.
 
@@ -99,7 +101,7 @@ this inventory does not complete it.
 | `3.17.3` | `scripts/run_opening.py`; `scripts/run_shared_opening.py`; `scripts/check_engine_environment.py`; `scripts/check_opening_session.py`; `tests/test_engine_environment.py`; `tests/test_opening_session.py`; `tests/test_opening_startup.py`; `tests/test_opening_resume.py`; `tests/test_shared_opening_launcher.py`. |
 | `3.17.4` | `scripts/check.py`; `scripts/check_commit.py`; `scripts/check_gdscript.py`; `experiments/engine-environment/godot/opening/validate.py`; `tests/test_gdscript_gate.py`; `tests/test_tooling.py`. |
 | `3.17.5` | `scripts/backup_beads.py`; `tests/test_beads_backup.py`. |
-| Retired PM baseline | `scripts/pm.py`; `tests/test_pm.py`. Retain their existing source and checks; do not port or reactivate the retired workflow. |
+| Retired PM baseline | Removed `scripts/pm.py` and `tests/test_pm.py`; their historical source and results remain attributable. No replacement or reactivation is required. |
 | `3.17.6` | `scripts/check_mechanics.py`; `scripts/check_opening_sequences.py`; `scripts/check_physical_build.py`; `scripts/check_physical_shared_resume.py`; `scripts/check_save_continuation.py`; `scripts/check_scaling.py`; `scripts/check_shared_checkpoint.py`; `scripts/check_stationary_authority.py`. |
 | `3.17.6` | `scripts/opening_control_wire_cases.py`; `scripts/opening_inspection_cases.py`; `scripts/opening_link_recovery_cases.py`; `scripts/opening_pending_link_cases.py`; `scripts/opening_placement_feedback_cases.py`; `scripts/opening_recovery_cases.py`; `scripts/opening_recovery_feedback_cases.py`; `scripts/opening_ui_cases.py`. |
 | `3.17.6` | `scripts/run_moving_transfer.py`; `scripts/run_precision.py`; `scripts/run_rider.py`; `scripts/run_rotary_rider.py`; `scripts/run_train_rider.py`; `scripts/run_workshop.py`. |
