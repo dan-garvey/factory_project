@@ -208,6 +208,23 @@ acceptance branch. Deep-overlap refusal is separate negative evidence. A broader
 contact/restore policy needs its own discriminating consumer; fixed-box collision
 and `actor_occupied` do not establish actor contact, pushing or injury rules.
 
+**Chosen native transmission adapter:** the
+[native Host](../../native/factory-godot-world/README.md#oriented-transmission-api)
+uses integer quarter-pitch centers, explicit X/Y/Z axes, equal carried gears and
+finite shaft spans. Those dimensions, kit and bounded construction heights are
+revisable modeling choices, not Godot restrictions. The C++ geometric solver
+derives engagement and signed rational rates; it does not simulate tooth contact,
+torque or angular phase. Current material stepping accepts either rotating
+direction as power and does not scale throughput with angular rate.
+
+The ordinary view's gear/shaft bodies are pick-only geometry on layer 4. They
+do not add actor collision shapes or make a rendered contact authoritative.
+Static direction arrows and engagement markers use confirmed native facts;
+the translucent placement cursor is only a requested grid point. ActorWorld
+continues to supply real body origins for the exact 3D reach decision. Precise
+part collision, pushing, dynamic phase and rate-dependent production remain
+separate implementation work, not limitations inferred from these fixtures.
+
 ## GDC-05: coordinate precision needs a scale strategy, not an invented world cap
 
 **Engine/API risk; factory-scale result unknown.**

@@ -46,7 +46,8 @@ private:
 
     [[nodiscard]] world::ObserveActor observe() const;
     [[nodiscard]] Decoded decode(const values::Value&) const;
-    [[nodiscard]] bool placement_blocked(const authority::Point&) const;
+    [[nodiscard]] bool placement_blocked(const authority::Point& center,
+                                        const authority::Point& half_extents) const;
 
     world::Profile profile_;
     std::unique_ptr<Owned> owned_;

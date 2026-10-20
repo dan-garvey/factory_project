@@ -133,7 +133,7 @@ func _welcomed(actor: String, namespace_value: String, _snapshot: Dictionary) ->
 
 func _changed(confirmed: Dictionary) -> void:
 	var removed_first: bool = (session.is_ready() and not pending_link.is_empty()
-		and not confirmed.entities.has(pending_link))
+		and not _contains_target(confirmed, pending_link))
 	var show_removed: bool = removed_first and pending_actions.is_empty()
 	if removed_first:
 		if selected == pending_link:
@@ -222,7 +222,7 @@ func _settle_pending() -> void:
 			continue
 		pending_actions.erase(request)
 		if result.accepted:
-			if item.action.action == "place" and state.entities.has(result.entity):
+			if item.action.action in ["place", "place_gear"] and _contains_target(state, result.entity):
 				selected = result.entity
 			elif item.action.action == "remove" and selected == result.entity:
 				selected = ""
@@ -230,7 +230,7 @@ func _settle_pending() -> void:
 				"retrieve": "Plate collected into your inventory.", "set_power": "Drive updated.",
 				"remove": "Part returned to the shared kit."}.get(item.action.action, "Action accepted."))
 		else:
-			_message("Not applied: " + {"occupied": "that square is occupied.", "no_part": "that part is already placed.",
+			_message(_material_refusal_message(result, "Not applied: " + {"occupied": "that square is occupied.", "no_part": "that part is already placed.",
 				"not_at_seam": "place the collector on the brass seam strip.",
 				"not_at_stream": "place the waterwheel beside the stream bank.",
 				"unavailable_output": "there is no finished plate to collect.", "not_stopped": "stop the drive before editing.",
@@ -239,7 +239,7 @@ func _settle_pending() -> void:
 				"actor_occupied": "a character is in that square; move clear before placing the machine.",
 				"powered": "stop the drive before editing.", "held_stock": "material remains in that machine.",
 				"ports_not_adjacent": "choose neighboring ports in the arrow's direction.",
-				"no_shaft": "all shared shafts are in use."}.get(result.reason, str(result.reason)), true)
+				"no_shaft": "all shared shafts are in use."}.get(result.reason, str(result.reason))), true)
 	_refresh_ui()
 
 func _refresh() -> void:
@@ -356,6 +356,7 @@ func _refresh_ui() -> void:
 		disconnect_button.disabled = not session.is_ready() or explanation_open
 	if recovery_actions != null:
 		recovery_actions.refresh()
+	_refresh_transmission()
 
 func _update_cursor() -> void:
 	super._update_cursor()

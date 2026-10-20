@@ -21,8 +21,9 @@ present poses or generations. Malformed adapter refusals retain their exact wire
 Drive connections consume independent finite shaft parts and derive motion from
 their actual geometry. The projection includes those parts, rational motion,
 engagements, typed cargo and per-actor kits. It is a detached view, never authority.
-The existing view still needs the separate real-cog construction controls and
-presentation increment. Mechanical parts do not yet have precise actor colliders;
+The ordinary offline and native shared views mount thin individual-cog controls
+and a confirmed transmission presenter; see the [opening controls](../../experiments/engine-environment/godot/opening/README.md).
+Mechanical parts do not yet have precise actor colliders;
 ActorWorld keeps its existing uniform machine boxes and floor.
 
 The physical checkpoint has schema 3 and format `factory-native-physical`. Its
@@ -72,8 +73,9 @@ original Store file. Add `--resume-input` pointing at that new output's
 `--save-slot`; do not reuse the launcher's existing `worksite.factory`.
 The automated headless consumer is not a rendered or human-play result.
 
-Bazel targets are `//native/factory-godot-world:factory-native-world.so` and
-`//native/factory-godot-world:host_test`. The separate
+Bazel targets are `//native/factory-godot-world:factory-native-world.so`,
+`//native/factory-godot-world:host_test` and
+`//native/factory-godot-world:gear_host_test`. The separate
 `factory-native-world-abi-test.so` runs invented ABI controls at extension
 initialization and must never be supplied as the gameplay library. Use the
 existing [native build profile](../../docs/engineering/native-builds.md).
@@ -133,3 +135,47 @@ before import. Two first cold imports without it failed; debugger captures show
 a native importer fault. A fresh early-catalogue control passed. Keep that
 instrumentation boundary and the original failures separate from acceptance of
 the launcher correction. No unique symbolic engine cause is asserted.
+
+## Oriented transmission API
+
+Commands retain the same context, client and request identity. They enter the
+existing World planner, finite kit and two-endpoint reach checks.
+
+| Command | Additional fields | Meaning |
+| --- | --- | --- |
+| `place_gear` | `center: [int, int, int]`, `axis: "x"`, `"y"` or `"z"`, `teeth: int` | Place one carried gear at an exact grid center. |
+| `place` | Existing `kind` and `cell`, optional `axis` string | Orient a machine while retaining the existing cell wire. Omitted axis remains `"x"`. |
+| `connect_drive` | Existing `from` and `to` identifiers | Consume a carried shaft that actually spans the two endpoints. |
+| `disconnect_drive` | Existing `from` and `to` identifiers | Return the matching shaft through the same World removal planner. |
+| `remove` | Existing `entity` identifier | Remove a selected individual gear or machine, preserving custody rules. |
+
+One grid unit is `pitch / 4`, currently 0.4125 world units. Map a center to
+`center * pitch / 4 + [0, anchor_height, 0]`. The axis is the rotation axis,
+normal to the gear plane. This fixture accepts integer X/Z coordinates from -8
+through 16 and integer Y from 0 through 16. These are revisable adapter bounds,
+not requirements for the eventual world scale. Placement uses a conservative
+disc bounding box against registered actor capsules; precise tooth or part
+colliders are not implemented.
+
+The read-only `part_specifications` projection maps each actor to entries with
+`kind`, `teeth`, `half_span` and remaining `count`. The finite profile is unchanged:
+P starts with two equal two-tooth gears and three shafts of half-span two; Q has
+no parts. Uncarried specifications refuse without changing that kit. Gears and
+shafts appear in `transmission_parts`, with integer `axis` values 0, 1 and 2 for
+X, Y and Z. Use `engagements` and exact signed `motion` for transmission facts;
+the historical `drive_links` shortcut describes machine-to-machine shafts only.
+
+A first horizontal train places a Y-axis wheel at cell `[-1, 1]`, a Y-axis
+collector at `[0, 1]`, and Y-axis gears at `[-4, 4, 4]` and `[0, 4, 4]`. Join each
+machine to the gear above it using a real vertical shaft. The equal gears mesh
+and reverse rotation. Moving the second gear by one grid unit breaks engagement.
+The focused native unit verifies this geometry, running removal/rebuilding,
+finite kit, historical retries and exact typed checkpoint restore. Its actor
+observations and tick are synthetic unit inputs, not physical gameplay evidence.
+
+Current material stepping treats either rotating direction as powered and does
+not scale production by angular rate. The signed motion is real kinematic output,
+but directional transport and rate-dependent throughput remain separate work.
+The same checkpoint formats and finite profile remain in use. Old cell commands
+retain their default orientation, and old receipts replay before present geometry
+or pose checks. No second material owner, fallback or checkpoint migration is added.

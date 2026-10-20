@@ -37,3 +37,9 @@ cc_test(
     srcs = ["tests/host_test.cpp"],
     deps = [":host"],
 )
+
+cc_test(
+    name = "gear_host_test",
+    srcs = ["tests/gear_host_test.cpp"],
+    deps = [":host"],
+)

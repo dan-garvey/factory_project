@@ -23,6 +23,23 @@ early tool by keyboard also keeps its button visible. This is a revisable view
 order, not a technology unlock or a saved progression rule. Reopening a worksite
 derives the suggestions again from its actual machines, links and inventory.
 
+In the native profile, G selects a **finite shaft**, not an arbitrary power edge.
+Click its two machine or cogwheel endpoints; only the native geometric planner
+can accept the span. **Cogwheels and shafts…** offers individual gears, shaft
+connection/disconnection and transmission removal. All tools exposes the menu
+immediately; otherwise it appears with placed transmission parts or collected
+plates. Key 5 also selects a cogwheel. The menu chooses X/Y/Z rotation axis and
+gear height in quarter-pitch grid steps. That axis also applies to subsequent
+machine placement. A translucent cursor marks the requested gear plane, not
+permission to build there. Real character proximity remains authoritative.
+
+The inspector can select a cogwheel or shaft and return it to the carried kit.
+Static arrows show the confirmed signed rate, and contact marks use confirmed
+engagements. There is no rendered tooth-contact or rotation-phase simulation.
+The native profile currently treats either turning direction as powered and
+does not scale material throughput by angular rate. Its two equal gears and
+three shafts, dimensions and height limits are revisable fixture choices.
+
 Selecting the suggested Belt or Press also outlines the empty square at the
 confirmed upstream machine's outlet. This cue is a layout suggestion, not a
 construction permission or reach indicator. It hides in Help, All tools and

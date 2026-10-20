@@ -18,6 +18,27 @@ func configure(host: Object) -> void:
 	_host = weakref(host)
 	refresh()
 
+func refusal_text(outcome: Dictionary) -> String:
+	# Only explain a definitive native refusal. Transport uncertainty and the
+	# historical scripted profile keep the view's original feedback.
+	if typeof(outcome.get("accepted")) != TYPE_BOOL or outcome.accepted or outcome.get("reason") != "occupied_target":
+		return ""
+	var uncertain: Variant = outcome.get("uncertain", false)
+	if typeof(uncertain) != TYPE_BOOL or uncertain:
+		return ""
+	if _host == null or not is_instance_valid(_host.get_ref()):
+		return ""
+	var host: Object = _host.get_ref()
+	if host.get("legacy_fixture") != false:
+		return ""
+	var snapshot: Variant = host.get("state")
+	if not snapshot is Dictionary:
+		return ""
+	var options: Variant = snapshot.get("options")
+	if not options is Dictionary or typeof(options.get("native")) != TYPE_BOOL or not options.native:
+		return ""
+	return "Use the material menu to recover its contents, then dismantle the machine."
+
 func refresh() -> void:
 	var context: Dictionary = _context()
 	if context.is_empty():

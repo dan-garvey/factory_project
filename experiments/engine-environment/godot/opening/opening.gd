@@ -197,6 +197,8 @@ var goal_label: Label
 var power_label: Label
 var inspector: Label
 var recovery_actions
+var transmission_controls
+var transmission_presenter
 var confirm_button: Button
 var retrieve_button: Button
 var power_button: Button
@@ -303,6 +305,62 @@ func _actor_failed(actor: String, reason: String) -> void:
 func _can_control_character() -> bool:
 	return not legacy_fixture and not explanation_open and not startup_save_pending and state.get("actors", {}).get(client, {}).get("ready", false)
 
+func _native_transmission() -> bool:
+	return not legacy_fixture and state.get("options", {}).get("native", false)
+
+func _contains_target(snapshot: Dictionary, id: String) -> bool:
+	return snapshot.get("entities", {}).has(id) or (snapshot.get("options", {}).get("native", false)
+		and snapshot.get("transmission_parts", {}).has(id))
+
+func _refresh_transmission() -> void:
+	if not _native_transmission():
+		if transmission_controls != null:
+			if not transmission_controls.active_tool.is_empty():
+				transmission_controls.cancel()
+				mode = "inspect"
+			transmission_controls.refresh()
+		if transmission_presenter != null:
+			transmission_presenter.refresh()
+		return
+	if transmission_controls == null:
+		# Historical fixed-roster runtimes do not include the native helpers.
+		# A native worksite requires the complete captured native project.
+		var controls_path := "res://opening/native_transmission_controls.gd"
+		var presenter_path := "res://opening/native_transmission_presenter.gd"
+		if not ResourceLoader.exists(controls_path, "Script") or not ResourceLoader.exists(presenter_path, "Script"):
+			push_error("Native transmission requires the complete captured project")
+			get_tree().quit(1)
+			return
+		transmission_controls = load(controls_path).new()
+		transmission_controls.custom_minimum_size.y = 37
+		var column: Node = tool_buttons.drive.get_parent()
+		column.add_child(transmission_controls)
+		column.move_child(transmission_controls, tool_buttons.inspect.get_index() + 1)
+		transmission_controls.configure(self)
+		transmission_presenter = load(presenter_path).new()
+		add_child(transmission_presenter)
+		transmission_presenter.configure(self)
+	transmission_controls.refresh()
+	transmission_presenter.refresh()
+	var active: bool = not transmission_controls.active_tool.is_empty()
+	transmission_controls.visible = active or show_all_tools or goal_confirmed or int(state.get("inventories", {}).get(client, 0)) > 0 or not state.get("transmission_parts", {}).is_empty()
+	if not active and mode in ["gear", "drive"]:
+		mode = "inspect"
+	_update_cursor()
+
+func _transmission_center(screen: Vector2) -> Array:
+	if transmission_controls == null:
+		return []
+	var height: int = transmission_controls.gear_height
+	var plane := Plane(Vector3.UP, Geometry.ANCHOR_HEIGHT + height * PITCH / 4.0)
+	var point: Variant = plane.intersects_ray(camera.project_ray_origin(screen), camera.project_ray_normal(screen))
+	if point == null:
+		return []
+	return [roundi(point.x * 4.0 / PITCH), height, roundi(point.z * 4.0 / PITCH)]
+
+func _transmission_click(center: Array, entity_id: String) -> bool:
+	return _native_transmission() and transmission_controls != null and transmission_controls.handle_world_click(center, entity_id)
+
 func _send_character_input(direction: Vector2, jump: bool) -> void:
 	if actor_world != null:
 		actor_world.set_control(client, direction, jump)
@@ -391,6 +449,10 @@ func issue(action: Dictionary) -> Dictionary:
 	if not legacy_fixture and actor_world != null:
 		actor_world.sync_topology()
 	if outcome.accepted:
+		if action.action == "place_gear":
+			selected = str(outcome.get("entity", ""))
+		elif action.action == "remove" and selected == action.get("entity", ""):
+			selected = ""
 		_message({"place": "Placed. Parts stay with this worksite.",
 			"connect": "Material path connected.", "connect_drive": "Drive shaft connected.",
 			"retrieve": "Plate collected.", "set_power": "Drive updated.",
@@ -398,7 +460,7 @@ func issue(action: Dictionary) -> Dictionary:
 			"disconnect": "Material connection removed.",
 			"disconnect_drive": "Drive shaft returned."}.get(action.action, "Done."))
 	else:
-		_message({"occupied": "That square is occupied.", "no_part": "That part is already placed.",
+		_message(_material_refusal_message(outcome, {"occupied": "That square is occupied.", "no_part": "That part is already placed.",
 			"ports_not_adjacent": "Connect neighboring ports, following the arrow.",
 			"missing_entity": "Choose a placed machine at each end.",
 			"already_connected": "Those ports are already connected.",
@@ -412,9 +474,18 @@ func issue(action: Dictionary) -> Dictionary:
 			"contains_stock": "Retrieve the material before removing this machine.",
 			"not_at_stream": "Place the waterwheel beside the stream bank.",
 			"not_at_seam": "Place the collector on the brass seam strip.",
-			"no_shaft": "All carried shafts are in use."}.get(outcome.reason, "That action is unavailable here."), true)
+			"no_shaft": "All carried shafts are in use."}.get(outcome.reason, "That action is unavailable here.")), true)
 	_refresh()
 	return outcome
+
+func _material_refusal_message(outcome: Dictionary, fallback: String) -> String:
+	# Fixed-roster historical payloads may omit the helper or carry its older
+	# API. Formatting must never add a resource requirement or change admission.
+	if recovery_actions != null and recovery_actions.has_method("refusal_text"):
+		var text: Variant = recovery_actions.call("refusal_text", outcome)
+		if typeof(text) == TYPE_STRING and not text.is_empty():
+			return text
+	return fallback
 
 func _process(delta: float) -> void:
 	if auto_advance:
@@ -484,13 +555,18 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 			distance = minf(28 if legacy_fixture else 24, distance + 1)
 		elif event.button_index == MOUSE_BUTTON_LEFT:
-			_world_click(_screen_cell(event.position), _screen_entity(event.position))
+			var entity_id := _screen_entity(event.position)
+			if not _transmission_click(_transmission_center(event.position), entity_id):
+				_world_click(_screen_cell(event.position), entity_id)
 	elif event is InputEventKey and event.pressed and not event.echo:
 		match event.keycode:
 			KEY_1: _select_tool("collector")
 			KEY_2: _select_tool("belt")
 			KEY_3: _select_tool("processor")
 			KEY_4: _select_tool("wheel")
+			KEY_5:
+				if _native_transmission():
+					_select_tool("gear")
 			KEY_F: _select_tool("flow")
 			KEY_G: _select_tool("drive")
 			KEY_I, KEY_ESCAPE: _select_tool("inspect")
@@ -505,8 +581,12 @@ func _unhandled_input(event: InputEvent) -> void:
 func _select_tool(tool: String) -> void:
 	if explanation_open:
 		return
+	if transmission_controls != null:
+		transmission_controls.cancel()
 	mode = tool
 	pending_link = ""
+	if _native_transmission() and transmission_controls != null and tool in ["gear", "drive"]:
+		transmission_controls.choose_tool("gear" if tool == "gear" else "shaft")
 	_update_cursor()
 	_refresh_ui()
 	_message({"flow": "Click the upstream machine, then its neighbor toward the brass arrow.",
@@ -519,6 +599,14 @@ func _select_tool(tool: String) -> void:
 func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 	if explanation_open:
 		return
+	if _native_transmission():
+		var height: int = transmission_controls.gear_height if transmission_controls != null else 0
+		if _transmission_click([cell.x * 4, height, cell.y * 4], entity_id):
+			return
+		if mode == "inspect" and state.get("transmission_parts", {}).has(entity_id):
+			selected = entity_id
+			_refresh_ui()
+			return
 	if state.entities.has(entity_id):
 		var actual: Array = state.entities[entity_id].cell
 		cell = Vector2i(actual[0], actual[1])
@@ -540,7 +628,12 @@ func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 			issue({"action": "connect" if mode == "flow" else "connect_drive", "from": pending_link, "to": target})
 			pending_link = ""
 	else:
-		var outcome := issue({"action": "place", "kind": mode, "cell": [cell.x, cell.y]})
+		var action := {"action": "place", "kind": mode, "cell": [cell.x, cell.y]}
+		if _native_transmission() and transmission_controls != null:
+			# Dot assignment creates a StringName key; the native wire deliberately
+			# accepts only exact String dictionary keys, without coercion.
+			action["axis"] = transmission_controls.selected_axis
+		var outcome := issue(action)
 		if outcome.accepted:
 			selected = outcome.entity
 	_refresh_ui()
@@ -751,7 +844,11 @@ func _bar(parent: Node, a: Vector3, b: Vector3, width: float, color: Color) -> v
 	if a.distance_to(b) < 0.01:
 		return
 	var bar := _box(parent, (a + b) / 2, Vector3(width, width, a.distance_to(b)), color)
-	bar.look_at(b)
+	# Both endpoints are local to the parent. A vertical shaft needs a
+	# noncollinear up vector, and its orientation must not depend on the tree.
+	var direction := (b - a).normalized()
+	var up := Vector3.RIGHT if absf(direction.dot(Vector3.UP)) > 0.99 else Vector3.UP
+	bar.basis = Basis.looking_at(direction, up)
 
 func _route_segment(parent: Node3D, part_name: String, a: Vector3, b: Vector3,
 		width: float, color: Color) -> MeshInstance3D:
@@ -953,7 +1050,7 @@ func _rebuild_machines() -> void:
 			_material_route(machine_root, _cell_position(state.entities[pair[0]].cell),
 				_cell_position(state.entities[pair[1]].cell))
 	for pair in state.get("drive_links", []):
-		if state.entities.has(pair[0]) and state.entities.has(pair[1]):
+		if not _native_transmission() and state.entities.has(pair[0]) and state.entities.has(pair[1]):
 			_bar(machine_root, _cell_position(state.entities[pair[0]].cell) + Vector3(0, 0.35, 0.55),
 				_cell_position(state.entities[pair[1]].cell) + Vector3(0, 0.35, 0.55), 0.09, Color("d1b56e"))
 
@@ -1003,6 +1100,7 @@ func _parts_are_shared() -> bool:
 func _refresh_ui() -> void:
 	if stock_label == null:
 		return
+	_refresh_transmission()
 	var inventory := int(state.inventories.get(client, 0))
 	var parts := _display_parts()
 	var part_scope := "shared" if _parts_are_shared() else "carried"
@@ -1028,11 +1126,15 @@ func _refresh_ui() -> void:
 		var button: Button = tool_buttons[tool]
 		button.disabled = explanation_open or (NAMES.has(tool) and not parts.has(tool))
 		button.button_pressed = mode == tool
+		if transmission_controls != null and not transmission_controls.active_tool.is_empty():
+			button.button_pressed = tool == "drive" and transmission_controls.active_tool == "shaft"
 		if NAMES.has(tool):
 			button.text = "%s    ·    %d %s" % [NAMES[tool], int(parts.get(tool, 0)), part_scope]
 	tool_buttons.drive.text = "Drive link  [G]    ·    %d shafts" % int(parts.get("shaft", 0))
+	if _native_transmission():
+		tool_buttons.drive.text = "Shaft  [G]    ·    %d carried" % int(parts.get("shaft", 0))
 	retrieve_button.disabled = explanation_open or state.stock.output < 1 or not state.entities.has(selected) or state.entities[selected].kind != "processor"
-	remove_button.disabled = explanation_open or not state.entities.has(selected)
+	remove_button.disabled = explanation_open or not _contains_target(state, selected)
 	selection_ring.visible = state.entities.has(selected)
 	if selection_ring.visible:
 		selection_ring.position = _cell_position(state.entities[selected].cell) + Vector3(0, 0.02, 0)
@@ -1040,6 +1142,14 @@ func _refresh_ui() -> void:
 		if state.entities[selected].kind == "processor":
 			inspector.text += "\n%d in · %d held · %d ready" % [state.stock.input, state.stock.held, state.stock.output]
 		inspector.text += "\n" + _inspection_hint()
+	elif _native_transmission() and state.get("transmission_parts", {}).has(selected):
+		var part: Dictionary = state.transmission_parts[selected]
+		var motion: Dictionary = state.get("motion", {}).get(selected, {})
+		inspector.text = "%s · %s axis\nGrid %s" % ["Cogwheel" if part.kind == "gear" else "Shaft", ["X", "Y", "Z"][part.axis], str(part.center)]
+		if motion.get("state") == "rotating":
+			inspector.text += "\nRate %d / %d" % [motion.numerator, motion.denominator]
+		else:
+			inspector.text += "\n" + str(motion.get("state", "disconnected")).capitalize()
 	else:
 		inspector.text = "Select a machine to inspect\nor collect its finished work."
 	_refresh_guided_tools()
@@ -1141,6 +1251,9 @@ func _guided_placement_cell() -> Array:
 func _refresh_placement_hint(snapshot_ready: bool = true) -> void:
 	if placement_hint == null:
 		return
+	if transmission_controls != null and not transmission_controls.active_tool.is_empty():
+		placement_hint.visible = false
+		return
 	var cell: Array = _guided_placement_cell() if snapshot_ready else []
 	placement_hint.visible = not cell.is_empty()
 	if placement_hint.visible:
@@ -1217,6 +1330,16 @@ func _has_material_connection(incoming: bool) -> bool:
 	return false
 
 func _update_cursor() -> void:
+	if _native_transmission() and transmission_controls != null and not transmission_controls.active_tool.is_empty():
+		hover.visible = false
+		if transmission_controls.active_tool == "gear" and not explanation_open and _can_control_character():
+			var center := _transmission_center(get_viewport().get_mouse_position())
+			if center.size() == 3 and center[0] >= -8 and center[0] <= 16 and center[2] >= -8 and center[2] <= 16:
+				hover.visible = true
+				hover.position = Vector3(center[0] * PITCH / 4.0, Geometry.ANCHOR_HEIGHT + center[1] * PITCH / 4.0, center[2] * PITCH / 4.0)
+				hover.basis = transmission_presenter.axis_basis(["x", "y", "z"].find(transmission_controls.selected_axis))
+		return
+	hover.basis = Basis.IDENTITY
 	hover.visible = hover_cell.x >= -2 and hover_cell.x <= 4 and hover_cell.y >= -2 and hover_cell.y <= 4 and not explanation_open
 	if hover.visible:
 		hover.position = _cell_position([hover_cell.x, hover_cell.y]) + Vector3(0, 0.03, 0)
@@ -1277,6 +1400,8 @@ func _build_interface() -> void:
 	theme.default_font_size = 15
 	root.theme = theme
 	var build := _panel(root, Vector2(18, 18), Vector2(275, 620))
+	if not legacy_fixture:
+		build.add_theme_constant_override("separation", 6)
 	_label(build, "FACTORY / FIRST SHIFT", 20, Color("edcc8d"))
 	var tagline := _label(build, "A small line. Real materials.", 14, Color("9eb4b2"))
 	tagline.visible = legacy_fixture

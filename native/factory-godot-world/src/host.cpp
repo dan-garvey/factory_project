@@ -42,6 +42,31 @@ bool keys(const Object& object, std::initializer_list<const char*> extras) {
     return true;
 }
 
+std::optional<mechanics::Axis> axis_value(const std::string& name) {
+    if (name == "x") return mechanics::Axis::x;
+    if (name == "y") return mechanics::Axis::y;
+    if (name == "z") return mechanics::Axis::z;
+    return std::nullopt;
+}
+
+authority::Point gear_half_extents(mechanics::Axis axis, Integer teeth) {
+    const auto radius = static_cast<double>(teeth) * pitch / 4;
+    authority::Point half{radius, radius, radius};
+    half[static_cast<std::size_t>(axis)] = 0.04; // Fixture disc half-thickness, not tooth physics.
+    return half;
+}
+
+std::optional<mechanics::Point> gear_center(const Array& input) {
+    if (input.size() != 3) return std::nullopt;
+    mechanics::Point output;
+    for (std::size_t index = 0; index < 3; ++index) {
+        const auto* value = std::get_if<Integer>(&input[index].storage());
+        if (!value || *value < (index == 1 ? 0 : -8) || *value > 16) return std::nullopt;
+        output[index] = *value;
+    }
+    return output;
+}
+
 std::optional<authority::Point> point(const Array& values) {
     if (values.size() != 3) return std::nullopt;
     authority::Point output;
@@ -80,9 +105,21 @@ bool historical_wire(const authority::Record& record) {
             !values::typed_difference(left->second, right->second);
     };
     if (*action == "place") {
+        if (*original_action == "place_gear") {
+            const auto* center = field<Array>(*wire, "center");
+            const auto* axis = field<std::string>(*wire, "axis");
+            const auto* teeth = field<Integer>(*wire, "teeth");
+            return keys(*wire, {"center", "axis", "teeth"}) && center && gear_center(*center) &&
+                axis && axis_value(*axis) && teeth && *teeth > 0 && *teeth <= mechanics::maximum_dimension &&
+                same("center", "center") && same("axis", "axis") && same("teeth", "teeth") &&
+                field<std::string>(intent, "role") && *field<std::string>(intent, "role") == "gear" &&
+                field<Integer>(intent, "half_span") && *field<Integer>(intent, "half_span") == 0;
+        }
         const auto* name = field<std::string>(*wire, "kind");
         const auto* cell = field<Array>(*wire, "cell");
-        if (*original_action != "place" || !keys(*wire, {"kind", "cell"}) || !name || !cell || cell->size() != 2)
+        const auto* axis = field<std::string>(*wire, "axis");
+        if (*original_action != "place" || !(wire->contains("axis") ? keys(*wire, {"kind", "cell", "axis"}) : keys(*wire, {"kind", "cell"})) ||
+            (wire->contains("axis") && (!axis || !axis_value(*axis))) || !name || !cell || cell->size() != 2)
             return false;
         const auto* x = std::get_if<Integer>(&cell->at(0).storage());
         const auto* z = std::get_if<Integer>(&cell->at(1).storage());
@@ -91,7 +128,7 @@ bool historical_wire(const authority::Record& record) {
             return false;
         const Object expected{{"role", Value(*name == "wheel" ? "waterwheel" : *name)},
             {"center", Value(Array{Value(4 * *x), Value(Integer{0}), Value(4 * *z)})},
-            {"axis", Value("x")}, {"teeth", Value(Integer{*name == "gear" ? 2 : 0})},
+            {"axis", Value(axis ? *axis : "x")}, {"teeth", Value(Integer{*name == "gear" ? 2 : 0})},
             {"half_span", Value(Integer{0})}};
         for (const auto& [key, value] : expected) {
             const auto found = intent.find(key);
@@ -222,15 +259,15 @@ world::ObserveActor Host::observe() const {
     };
 }
 
-bool Host::placement_blocked(const authority::Point& target) const {
+bool Host::placement_blocked(const authority::Point& target, const authority::Point& half_extents) const {
     for (const auto& [actor, state] : owned_->actors) {
         (void)actor;
         if (!state.ready) continue;
-        const auto dx = std::max(std::abs(state.position[0] - target[0]) - machine_width / 2, 0.0);
-        const auto dz = std::max(std::abs(state.position[2] - target[2]) - machine_width / 2, 0.0);
+        const auto dx = std::max(std::abs(state.position[0] - target[0]) - half_extents[0], 0.0);
+        const auto dz = std::max(std::abs(state.position[2] - target[2]) - half_extents[2], 0.0);
         const auto segment_half = capsule_height / 2 - capsule_radius;
-        const auto below = machine_center_height - machine_height / 2 - (state.position[1] + segment_half);
-        const auto above = state.position[1] - segment_half - (machine_center_height + machine_height / 2);
+        const auto below = target[1] - half_extents[1] - (state.position[1] + segment_half);
+        const auto above = state.position[1] - segment_half - (target[1] + half_extents[1]);
         const auto dy = std::max({below, above, 0.0});
         if (dx * dx + dy * dy + dz * dz < capsule_radius * capsule_radius) return true;
     }
@@ -271,7 +308,10 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         return true;
     };
     if (*action == "place") {
-        if (!keys(wire, {"kind", "cell"})) return refuse("invalid_command");
+        if (!(wire.contains("axis") ? keys(wire, {"kind", "cell", "axis"}) : keys(wire, {"kind", "cell"})))
+            return refuse("invalid_command");
+        const auto* axis = field<std::string>(wire, "axis");
+        if (wire.contains("axis") && (!axis || !axis_value(*axis))) return refuse("invalid_axis");
         const auto* kind_name = field<std::string>(wire, "kind");
         const auto* cell = field<Array>(wire, "cell");
         if (!kind_name || !cell || cell->size() != 2) return refuse("invalid_cell");
@@ -285,12 +325,35 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         const mechanics::Point center{4 * *x, 0, 4 * *z};
         for (const auto& part : snapshot.state.topology.parts)
             if (part.geometry.center == center) return refuse("occupied");
-        if (placement_blocked({*x * pitch, anchor_height, *z * pitch})) return refuse("actor_occupied");
+        const auto selected_axis = axis ? *axis_value(*axis) : mechanics::Axis::x;
+        const auto is_gear = *kind_name == "gear";
+        const authority::Point at{*x * pitch, is_gear ? anchor_height : machine_center_height, *z * pitch};
+        const auto half = is_gear ? gear_half_extents(selected_axis, 2) :
+            authority::Point{machine_width / 2, machine_height / 2, machine_width / 2};
+        if (placement_blocked(at, half)) return refuse("actor_occupied");
         normalized.at("action") = Value("place");
         normalized.emplace("role", Value(*kind_name == "wheel" ? "waterwheel" : *kind_name));
         normalized.emplace("center", Value(Array{Value(center[0]), Value(center[1]), Value(center[2])}));
-        normalized.emplace("axis", Value("x"));
+        normalized.emplace("axis", Value(axis ? *axis : "x"));
         normalized.emplace("teeth", Value(Integer{*kind_name == "gear" ? 2 : 0}));
+        normalized.emplace("half_span", Value(Integer{0}));
+    } else if (*action == "place_gear") {
+        if (!keys(wire, {"center", "axis", "teeth"})) return refuse("invalid_command");
+        const auto* input = field<Array>(wire, "center");
+        const auto center = input ? gear_center(*input) : std::nullopt;
+        const auto* axis = field<std::string>(wire, "axis");
+        const auto selected_axis = axis ? axis_value(*axis) : std::nullopt;
+        const auto* teeth = field<Integer>(wire, "teeth");
+        if (!center) return refuse("invalid_center");
+        if (!selected_axis) return refuse("invalid_axis");
+        if (!teeth || *teeth < 1 || *teeth > mechanics::maximum_dimension) return refuse("invalid_gear");
+        const authority::Point at{(*center)[0] * pitch / 4, anchor_height + (*center)[1] * pitch / 4, (*center)[2] * pitch / 4};
+        if (placement_blocked(at, gear_half_extents(*selected_axis, *teeth))) return refuse("actor_occupied");
+        normalized.at("action") = Value("place");
+        normalized.emplace("role", Value("gear"));
+        normalized.emplace("center", wire.at("center"));
+        normalized.emplace("axis", wire.at("axis"));
+        normalized.emplace("teeth", wire.at("teeth"));
         normalized.emplace("half_span", Value(Integer{0}));
     } else if (*action == "connect" || *action == "disconnect" || *action == "connect_drive" || *action == "disconnect_drive") {
         if (!keys(wire, {"from", "to"}) || !target("from", "target", "generation") ||
@@ -359,7 +422,7 @@ Value Host::projection() const {
     if (!owned_) return result(false, "not_initialized");
     const auto snapshot = owned_->world->snapshot();
     const auto& state = snapshot.state;
-    Object entities, transmissions, inventories, cargo, kits, actors;
+    Object entities, transmissions, inventories, cargo, kits, specifications, actors;
     Array links, drive_links, engagements;
     for (const auto& part : state.topology.parts) {
         Object projected{{"kind", Value(kind(part.role))}, {"generation", Value(part.generation)},
@@ -399,7 +462,18 @@ Value Host::projection() const {
         inventories.emplace(actor, Value(contents.products)); player += contents.products;
         cargo.emplace(actor, cargo_value(contents));
     }
-    for (const auto& [actor, kit] : state.kits) kits.emplace(actor, kit_value(kit));
+    for (const auto& [actor, kit] : state.kits) {
+        kits.emplace(actor, kit_value(kit));
+        Array entries;
+        for (const auto& [specification, initial] : profile_.finite_parts) {
+            (void)initial;
+            const auto found = kit.find(specification);
+            entries.emplace_back(Object{{"kind", Value(kind(specification.role))},
+                {"teeth", Value(specification.teeth)}, {"half_span", Value(specification.half_span)},
+                {"count", Value(found == kit.end() ? 0 : found->second)}});
+        }
+        specifications.emplace(actor, Value(std::move(entries)));
+    }
     for (const auto& [actor, sample] : owned_->actors) actors.emplace(actor, Value(Object{
         {"position", point_value(sample.position)}, {"capabilities", Value(Object{{"build_reach", Value(reach)}})},
         {"ready", Value(sample.ready)}, {"native_epoch", Value(sample.epoch)}}));
@@ -412,6 +486,7 @@ Value Host::projection() const {
         {"drive_links", Value(std::move(drive_links))}, {"engagements", Value(std::move(engagements))},
         {"motion", Value(std::move(motions))}, {"inventories", Value(std::move(inventories))},
         {"cargo", Value(std::move(cargo))}, {"part_kits", Value(std::move(kits))},
+        {"part_specifications", Value(std::move(specifications))},
         {"parts", kit_value(state.kits.at("P"))}, {"actors", Value(std::move(actors))},
         {"stock", Value(Object{{"source", Value(stock.source)}, {"collector", Value(stock.collector)},
             {"belt", Value(stock.belt)}, {"input", Value(stock.input)},
@@ -457,12 +532,14 @@ Host::Decoded Host::decode(const Value& input) const {
     }
     for (const auto& part : snapshot.state.topology.parts) {
         const auto& center = part.geometry.center;
-        if (part.geometry.axis != mechanics::Axis::x || center[1] != 0 || center[2] % 4 != 0 ||
-            center[2] / 4 < -2 || center[2] / 4 > 4) return {nullptr, "incompatible_geometry"};
+        if (center[0] < -8 || center[0] > 16 || center[1] < 0 || center[1] > 16 ||
+            center[2] < -8 || center[2] > 16) return {nullptr, "incompatible_geometry"};
         if (part.role == Role::shaft) {
-            if (center[0] % 2 != 0 || part.geometry.half_span != 2 || center[0] < -8 || center[0] > 16)
+            if (part.geometry.half_span != 2)
                 return {nullptr, "incompatible_geometry"};
-        } else if (center[0] % 4 != 0 || center[0] / 4 < -2 || center[0] / 4 > 4 ||
+        } else if (part.role == Role::gear) {
+            if (part.geometry.teeth != 2) return {nullptr, "incompatible_geometry"};
+        } else if (center[1] != 0 || center[0] % 4 != 0 || center[2] % 4 != 0 ||
             (part.role == Role::collector && center[0] != 0) ||
             (part.role == Role::waterwheel && center[0] != -4)) return {nullptr, "incompatible_geometry"};
     }
