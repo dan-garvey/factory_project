@@ -1,0 +1,166 @@
+[gd_scene load_steps=17 format=3]
+
+[sub_resource type="StandardMaterial3D" id="Material_frame"]
+albedo_color = Color(0.16, 0.32, 0.35, 1)
+metallic = 0.48
+roughness = 0.58
+
+[sub_resource type="StandardMaterial3D" id="Material_steel"]
+albedo_color = Color(0.56, 0.62, 0.61, 1)
+metallic = 0.85
+roughness = 0.32
+
+[sub_resource type="StandardMaterial3D" id="Material_dark"]
+albedo_color = Color(0.075, 0.095, 0.11, 1)
+metallic = 0.45
+roughness = 0.7
+
+[sub_resource type="StandardMaterial3D" id="Material_copper"]
+albedo_color = Color(0.69, 0.38, 0.2, 1)
+metallic = 0.72
+roughness = 0.46
+
+[sub_resource type="StandardMaterial3D" id="Material_tray"]
+albedo_color = Color(0.64, 0.63, 0.49, 1)
+metallic = 0.7
+roughness = 0.42
+
+[sub_resource type="BoxMesh" id="Mesh_plinth"]
+size = Vector3(1.36, 0.16, 1.32)
+
+[sub_resource type="CylinderMesh" id="Mesh_foot"]
+top_radius = 0.105
+bottom_radius = 0.12
+height = 0.05
+radial_segments = 12
+
+[sub_resource type="BoxMesh" id="Mesh_upright"]
+size = Vector3(0.15, 1.24, 0.28)
+
+[sub_resource type="BoxMesh" id="Mesh_bridge"]
+size = Vector3(1.2, 0.2, 0.36)
+
+[sub_resource type="BoxMesh" id="Mesh_anvil"]
+size = Vector3(0.7, 0.16, 0.63)
+
+[sub_resource type="BoxMesh" id="Mesh_ram"]
+size = Vector3(0.56, 0.17, 0.55)
+
+[sub_resource type="CylinderMesh" id="Mesh_piston"]
+top_radius = 0.075
+bottom_radius = 0.075
+height = 0.45
+radial_segments = 16
+
+[sub_resource type="CylinderMesh" id="Mesh_guide"]
+top_radius = 0.04
+bottom_radius = 0.04
+height = 0.6
+radial_segments = 12
+
+[sub_resource type="CylinderMesh" id="Mesh_drive_stub"]
+top_radius = 0.085
+bottom_radius = 0.085
+height = 0.18
+radial_segments = 12
+
+[sub_resource type="BoxMesh" id="Mesh_tray"]
+size = Vector3(0.48, 0.05, 0.58)
+
+[sub_resource type="CylinderMesh" id="Mesh_fastener"]
+top_radius = 0.035
+bottom_radius = 0.035
+height = 0.025
+radial_segments = 6
+
+[node name="PressVisual" type="Node3D"]
+
+[node name="Plinth" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.13, 0)
+mesh = SubResource("Mesh_plinth")
+material_override = SubResource("Material_dark")
+
+[node name="FrontLeftFoot" type="MeshInstance3D" parent="."]
+position = Vector3(-0.52, 0.025, 0.5)
+mesh = SubResource("Mesh_foot")
+material_override = SubResource("Material_dark")
+
+[node name="FrontRightFoot" type="MeshInstance3D" parent="."]
+position = Vector3(0.52, 0.025, 0.5)
+mesh = SubResource("Mesh_foot")
+material_override = SubResource("Material_dark")
+
+[node name="BackLeftFoot" type="MeshInstance3D" parent="."]
+position = Vector3(-0.52, 0.025, -0.5)
+mesh = SubResource("Mesh_foot")
+material_override = SubResource("Material_dark")
+
+[node name="BackRightFoot" type="MeshInstance3D" parent="."]
+position = Vector3(0.52, 0.025, -0.5)
+mesh = SubResource("Mesh_foot")
+material_override = SubResource("Material_dark")
+
+[node name="LeftUpright" type="MeshInstance3D" parent="."]
+position = Vector3(-0.48, 0.82, -0.38)
+mesh = SubResource("Mesh_upright")
+material_override = SubResource("Material_frame")
+
+[node name="RightUpright" type="MeshInstance3D" parent="."]
+position = Vector3(0.48, 0.82, -0.38)
+mesh = SubResource("Mesh_upright")
+material_override = SubResource("Material_frame")
+
+[node name="Bridge" type="MeshInstance3D" parent="."]
+position = Vector3(0, 1.5, -0.3)
+mesh = SubResource("Mesh_bridge")
+material_override = SubResource("Material_frame")
+
+[node name="Anvil" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.46, 0.05)
+mesh = SubResource("Mesh_anvil")
+material_override = SubResource("Material_dark")
+
+[node name="Ram" type="Node3D" parent="."]
+
+[node name="ToolHead" type="MeshInstance3D" parent="Ram"]
+position = Vector3(0, 0.84, 0)
+mesh = SubResource("Mesh_ram")
+material_override = SubResource("Material_steel")
+
+[node name="Piston" type="MeshInstance3D" parent="Ram"]
+position = Vector3(0, 1.14, -0.08)
+mesh = SubResource("Mesh_piston")
+material_override = SubResource("Material_steel")
+
+[node name="LeftGuide" type="MeshInstance3D" parent="."]
+position = Vector3(-0.34, 1.06, -0.19)
+mesh = SubResource("Mesh_guide")
+material_override = SubResource("Material_copper")
+
+[node name="RightGuide" type="MeshInstance3D" parent="."]
+position = Vector3(0.34, 1.06, -0.19)
+mesh = SubResource("Mesh_guide")
+material_override = SubResource("Material_copper")
+
+[node name="DriveStub" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.35, 0.55)
+rotation = Vector3(1.5707963, 0, 0)
+mesh = SubResource("Mesh_drive_stub")
+material_override = SubResource("Material_copper")
+
+[node name="OutputTray" type="MeshInstance3D" parent="."]
+position = Vector3(0.46, 0.33, 0.15)
+mesh = SubResource("Mesh_tray")
+material_override = SubResource("Material_tray")
+
+[node name="BridgeLeftBolt" type="MeshInstance3D" parent="."]
+position = Vector3(-0.48, 1.5, -0.1075)
+rotation = Vector3(1.5707963, 0, 0)
+mesh = SubResource("Mesh_fastener")
+material_override = SubResource("Material_steel")
+
+[node name="BridgeRightBolt" type="MeshInstance3D" parent="."]
+position = Vector3(0.48, 1.5, -0.1075)
+rotation = Vector3(1.5707963, 0, 0)
+mesh = SubResource("Mesh_fastener")
+material_override = SubResource("Material_steel")

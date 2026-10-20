@@ -1,0 +1,183 @@
+[gd_scene load_steps=22 format=3]
+
+[sub_resource type="StandardMaterial3D" id="Material_cloth"]
+albedo_color = Color(0.16, 0.32, 0.35, 1)
+roughness = 0.88
+
+[sub_resource type="StandardMaterial3D" id="Material_rubber"]
+albedo_color = Color(0.075, 0.095, 0.11, 1)
+roughness = 0.92
+
+[sub_resource type="StandardMaterial3D" id="Material_brass"]
+albedo_color = Color(0.52, 0.36, 0.17, 1)
+metallic = 0.7
+roughness = 0.42
+
+[sub_resource type="StandardMaterial3D" id="Material_skin"]
+albedo_color = Color(0.63, 0.43, 0.29, 1)
+roughness = 0.86
+
+[sub_resource type="StandardMaterial3D" id="Material_helmet"]
+albedo_color = Color(0.92, 0.56, 0.18, 1)
+metallic = 0.12
+roughness = 0.43
+
+[sub_resource type="StandardMaterial3D" id="Material_reflective"]
+albedo_color = Color(0.84, 0.86, 0.7, 1)
+roughness = 0.48
+
+[sub_resource type="StandardMaterial3D" id="Material_visor"]
+albedo_color = Color(0.08, 0.16, 0.18, 1)
+metallic = 0.2
+roughness = 0.18
+
+[sub_resource type="BoxMesh" id="Mesh_torso"]
+size = Vector3(0.44, 0.64, 0.28)
+
+[sub_resource type="BoxMesh" id="Mesh_pelvis"]
+size = Vector3(0.37, 0.16, 0.26)
+
+[sub_resource type="BoxMesh" id="Mesh_leg"]
+size = Vector3(0.16, 0.44, 0.18)
+
+[sub_resource type="BoxMesh" id="Mesh_boot"]
+size = Vector3(0.2, 0.1, 0.29)
+
+[sub_resource type="BoxMesh" id="Mesh_arm"]
+size = Vector3(0.11, 0.46, 0.14)
+
+[sub_resource type="SphereMesh" id="Mesh_glove"]
+radius = 0.055
+height = 0.11
+radial_segments = 12
+rings = 6
+
+[sub_resource type="CylinderMesh" id="Mesh_neck"]
+top_radius = 0.075
+bottom_radius = 0.085
+height = 0.12
+radial_segments = 12
+
+[sub_resource type="SphereMesh" id="Mesh_head"]
+radius = 0.16
+height = 0.32
+radial_segments = 16
+rings = 8
+
+[sub_resource type="CylinderMesh" id="Mesh_helmet"]
+top_radius = 0.16
+bottom_radius = 0.21
+height = 0.16
+radial_segments = 16
+
+[sub_resource type="CylinderMesh" id="Mesh_brim"]
+top_radius = 0.24
+bottom_radius = 0.24
+height = 0.035
+radial_segments = 20
+
+[sub_resource type="BoxMesh" id="Mesh_visor"]
+size = Vector3(0.235, 0.085, 0.035)
+
+[sub_resource type="BoxMesh" id="Mesh_belt"]
+size = Vector3(0.45, 0.055, 0.295)
+
+[sub_resource type="BoxMesh" id="Mesh_stripe"]
+size = Vector3(0.425, 0.045, 0.012)
+
+[sub_resource type="BoxMesh" id="Mesh_pouch"]
+size = Vector3(0.11, 0.16, 0.065)
+
+[node name="BodyView" type="MeshInstance3D"]
+mesh = SubResource("Mesh_torso")
+material_override = SubResource("Material_cloth")
+
+[node name="Pelvis" type="MeshInstance3D" parent="."]
+position = Vector3(0, -0.33, 0)
+mesh = SubResource("Mesh_pelvis")
+material_override = SubResource("Material_rubber")
+
+[node name="LeftLeg" type="MeshInstance3D" parent="."]
+position = Vector3(-0.105, -0.56, 0)
+mesh = SubResource("Mesh_leg")
+material_override = SubResource("Material_cloth")
+
+[node name="RightLeg" type="MeshInstance3D" parent="."]
+position = Vector3(0.105, -0.56, 0)
+mesh = SubResource("Mesh_leg")
+material_override = SubResource("Material_cloth")
+
+[node name="LeftBoot" type="MeshInstance3D" parent="."]
+position = Vector3(-0.105, -0.825, 0.035)
+mesh = SubResource("Mesh_boot")
+material_override = SubResource("Material_rubber")
+
+[node name="RightBoot" type="MeshInstance3D" parent="."]
+position = Vector3(0.105, -0.825, 0.035)
+mesh = SubResource("Mesh_boot")
+material_override = SubResource("Material_rubber")
+
+[node name="LeftArm" type="MeshInstance3D" parent="."]
+position = Vector3(-0.24, 0.02, 0)
+mesh = SubResource("Mesh_arm")
+material_override = SubResource("Material_cloth")
+
+[node name="RightArm" type="MeshInstance3D" parent="."]
+position = Vector3(0.24, 0.02, 0)
+mesh = SubResource("Mesh_arm")
+material_override = SubResource("Material_cloth")
+
+[node name="LeftGlove" type="MeshInstance3D" parent="."]
+position = Vector3(-0.24, -0.25, 0.015)
+mesh = SubResource("Mesh_glove")
+material_override = SubResource("Material_rubber")
+
+[node name="RightGlove" type="MeshInstance3D" parent="."]
+position = Vector3(0.24, -0.25, 0.015)
+mesh = SubResource("Mesh_glove")
+material_override = SubResource("Material_rubber")
+
+[node name="Neck" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.37, 0)
+mesh = SubResource("Mesh_neck")
+material_override = SubResource("Material_skin")
+
+[node name="Head" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.56, 0)
+mesh = SubResource("Mesh_head")
+material_override = SubResource("Material_skin")
+
+[node name="Helmet" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.76, 0)
+mesh = SubResource("Mesh_helmet")
+material_override = SubResource("Material_helmet")
+
+[node name="HelmetBrim" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.69, 0.01)
+mesh = SubResource("Mesh_brim")
+material_override = SubResource("Material_helmet")
+
+[node name="SafetyVisor" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.575, 0.151)
+mesh = SubResource("Mesh_visor")
+material_override = SubResource("Material_visor")
+
+[node name="Belt" type="MeshInstance3D" parent="."]
+position = Vector3(0, -0.255, 0)
+mesh = SubResource("Mesh_belt")
+material_override = SubResource("Material_brass")
+
+[node name="UpperReflectiveBand" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.135, 0.146)
+mesh = SubResource("Mesh_stripe")
+material_override = SubResource("Material_reflective")
+
+[node name="LowerReflectiveBand" type="MeshInstance3D" parent="."]
+position = Vector3(0, -0.1, 0.146)
+mesh = SubResource("Mesh_stripe")
+material_override = SubResource("Material_reflective")
+
+[node name="ToolPouch" type="MeshInstance3D" parent="."]
+position = Vector3(0.145, -0.3, 0.18)
+mesh = SubResource("Mesh_pouch")
+material_override = SubResource("Material_rubber")
