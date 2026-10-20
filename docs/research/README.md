@@ -30,7 +30,7 @@ paths are planned until their reviewed files land.
 | Infinifactory | `factory-yau.8.6` | Chapter | `games/infinifactory.md` |
 | shapez 2: spatial/logistics source survey | `factory-yau.8.7` | Recovery | [games/shapez-2.md](games/shapez-2.md) |
 | Dyson Sphere Program: dated source survey | `factory-yau.8.8` | Platform | [games/dyson-sphere-program.md](games/dyson-sphere-program.md) |
-| shapez 2: programmable changeovers and retained work | `factory-yau.8.9` | Recovery | `games/shapez-2-changeovers.md` |
+| shapez 2: partial programmable-changeover source study | `factory-yau.8.9` | Recovery | [games/shapez-2-changeovers.md](games/shapez-2-changeovers.md) |
 | Factory Town: partial dated source survey | `factory-yau.8.10` | Platform | [games/factory-town.md](games/factory-town.md) |
 
 The reviewed Factorio and Dyson Sphere Program notes complete only their declared
@@ -49,6 +49,12 @@ contains five original candidate cards, not adopted mechanics or a thorough
 current-build play study. Exact modern handling, programmable changeovers and
 broader balance remain outside that accepted scope; the separately owned `8.9`
 continues the changeover/retained-work gap while the parent stays open.
+
+The separately reviewed partial changeover note adds two **deferred** mechanical
+candidates: finishing admitted work before changing tools, and addressing a
+work request without moving its stock. Its historical developer accounts do not
+establish current timing, retained-work/continuation rules or the Codex's contents.
+The `8.9` leaf remains in progress; no control medium or gameplay rule is adopted.
 
 These are starting targets, not a verified popularity ranking or an exhaustive
 genre canon. Later targets can include other automation, mechanical, programming,
