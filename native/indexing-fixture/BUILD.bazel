@@ -30,3 +30,10 @@ cc_test(
     deps = [":workbench"],
     size = "small",
 )
+
+cc_test(
+    name = "interactive_test",
+    srcs = ["tests/interactive_test.cpp"],
+    deps = [":workbench"],
+    size = "small",
+)
