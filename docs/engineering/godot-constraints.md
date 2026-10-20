@@ -413,6 +413,24 @@ backends, packaging or accessibility. Keep picking/camera and authority separate
 validate the actual character-building consumer as its UI changes. Owners: Chapter,
 Playability and Ops; `6.36`/`6.37` and actual-user feedback `6.11`.
 
+At component `5aa680c`, the [shared UI consumer](../../experiments/engine-environment/godot/opening/shared_check.gd)
+waits for `RenderingServer.frame_post_draw` before reporting readiness and sampling
+button geometry. It sends one ordinary mouse press and release and records the actual
+`Button.pressed` notification, bounds, enabled state, input point and sampled focus
+state. The first declared live case recorded one press for each of two reconnects
+and two dismantle clicks. The unchanged stock-recovery oracle also completed all
+16 plates and returned the empty collector and two shafts on the same worksite.
+The separate fresh-worksite case with the material clock frozen recorded two
+enabled reconnects and seven disabled clicks across the two peers. Each disabled
+click emitted no pressed signal and left the namespace, stock, parts and material
+request cache unchanged. This covers the tested controls in that fixture without
+adding live-production evidence. Cancelled clicks still lack native coverage.
+Sampled focus state does not establish a real operating-system focus transition,
+and these passes do not identify the earlier reconnect failure's cause or
+eliminate intermittent failures. Keep these adapter observations separate from construction permission,
+transport admission, native material application and human-play claims. Owners:
+Playability and Ops; `6.39` retains the bounded consumer evidence.
+
 Help/disconnect release has bounded actual consumer evidence. The focus-release
 fixture injects `Window.focus_exited`; a real operating-system focus transition
 remains untested. Near-origin floor/contact and two-client success do not resolve

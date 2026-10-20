@@ -19,6 +19,8 @@ var defer_connect := false
 var fatal := false
 var transport_disconnect_reason := ""
 var wire_control_probe: Dictionary = {}
+var ui_readiness: Dictionary = {}
+var button_probe: Dictionary = {}
 
 func _initialize() -> void:
 	call_deferred("_run")
@@ -42,6 +44,9 @@ func _run() -> void:
 	current_scene = scene
 	await process_frame
 	await physics_frame
+	await RenderingServer.frame_post_draw
+	ui_readiness = {"process_frame": Engine.get_process_frames(),
+		"window_size": [root.size.x, root.size.y], "window_focused": root.has_focus()}
 	print("OPENING_UI_READY " + JSON.stringify(facts()))
 
 func _poll() -> void:
@@ -50,7 +55,7 @@ func _poll() -> void:
 	if Time.get_ticks_msec() - started > 240000:
 		fail("Automated UI controller reached its four-minute allowance")
 		return
-	if busy:
+	if busy or ui_readiness.is_empty():
 		return
 	var path := control_root.path_join("control.json")
 	if not FileAccess.file_exists(path):
@@ -99,6 +104,41 @@ func click(at: Vector2) -> void:
 	Input.parse_input_event(event)
 	await physics_frame
 	await process_frame
+
+func button_state(button: Button) -> Dictionary:
+	var rectangle := button.get_global_rect()
+	return {"rect": [rectangle.position.x, rectangle.position.y, rectangle.size.x, rectangle.size.y],
+		"visible": button.is_visible_in_tree(), "disabled": button.disabled,
+		"window_focused": root.has_focus(), "process_frame": Engine.get_process_frames()}
+
+func click_button(name: String) -> bool:
+	# Sample rendered geometry and observe the real signal from one ordinary click.
+	# These observations do not identify the cause of a historical missed click.
+	await RenderingServer.frame_post_draw
+	button_probe = {"id": last_id, "button": name, "pressed_count": 0}
+	var button: Button = scene.get(name)
+	if button == null:
+		fail("UI button does not exist: " + name)
+		return false
+	button_probe["before"] = button_state(button)
+	var rectangle := button.get_global_rect()
+	var viewport := Rect2(Vector2.ZERO, Vector2(root.size))
+	if not button.is_visible_in_tree() or rectangle.size.x <= 0 or rectangle.size.y <= 0 or not viewport.encloses(rectangle):
+		fail("UI button has no usable rendered bounds: " + name)
+		return false
+	var at := rectangle.get_center()
+	button_probe["point"] = [at.x, at.y]
+	var observed_pressed: Callable = func() -> void:
+		button_probe.pressed_count += 1
+	button.pressed.connect(observed_pressed)
+	await click(at)
+	button.pressed.disconnect(observed_pressed)
+	button_probe["after"] = button_state(button)
+	var expected := 0 if button_probe.before.disabled else 1
+	if button_probe.pressed_count != expected:
+		fail("UI button activation count differs from its rendered enabled state: " + name)
+		return false
+	return true
 
 func _barrier(command: Dictionary) -> bool:
 	var deadline := Time.get_ticks_msec() + 30000
@@ -264,11 +304,8 @@ func execute(command: Dictionary) -> void:
 			if not command.get("button", "") in BUTTONS:
 				fail("Unknown UI button")
 				return
-			var button: Button = scene.get(command.button)
-			if button == null or not button.is_visible_in_tree():
-				fail("UI button is not visible")
+			if not await click_button(command.button):
 				return
-			await click(button.get_global_rect().get_center())
 		"barrier":
 			var reached: bool = await _barrier(command)
 			if not reached:
@@ -307,6 +344,7 @@ func execute(command: Dictionary) -> void:
 func facts() -> Dictionary:
 	var result := {"state": scene.state.duplicate(true), "projection": scene.session.projection(),
 		"wire_control_probe": wire_control_probe.duplicate(true),
+		"ui_readiness": ui_readiness.duplicate(true), "button_probe": button_probe.duplicate(true),
 		"ready": scene.session.is_ready(), "connecting": scene.connecting, "actor": scene.client,
 		"namespace": scene.request_namespace, "sequence": scene.request_sequence,
 		"session_namespace": scene.session.request_namespace, "session_sequence": scene.session.request_sequence,
@@ -355,6 +393,7 @@ func fail(reason: String) -> void:
 	if not control_root.is_empty() and DirAccess.dir_exists_absolute(control_root):
 		var file := FileAccess.open(control_root.path_join("failure.json"), FileAccess.WRITE)
 		if file != null:
-			file.store_string(JSON.stringify({"status": "fail", "id": last_id, "error": reason}))
+			file.store_string(JSON.stringify({"status": "fail", "id": last_id, "error": reason,
+				"ui_readiness": ui_readiness.duplicate(true), "button_probe": button_probe.duplicate(true)}))
 	print("OPENING_UI_FAIL " + reason)
 	quit(1)
