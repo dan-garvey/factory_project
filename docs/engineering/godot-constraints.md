@@ -222,8 +222,18 @@ do not add actor collision shapes or make a rendered contact authoritative.
 Static direction arrows and engagement markers use confirmed native facts;
 the translucent placement cursor is only a requested grid point. ActorWorld
 continues to supply real body origins for the exact 3D reach decision. Precise
-part collision, pushing, dynamic phase and rate-dependent production remain
+part collision, pushing, authoritative dynamic phase and rate-dependent production remain
 separate implementation work, not limitations inferred from these fixtures.
+
+**Chosen motion presentation:** the wheel, cog and shaft-keyway illustrations
+integrate cosmetic angles from confirmed native signed rates. The source rate's
+visual reference is 0.8 radians per second, not a selected physical RPM or
+processing rate. Long frame gaps are capped at 0.1 seconds for this illustration.
+Local angles survive a mesh refresh for the same context/part generation, reset
+on replacement or a new world, and are not checkpoint fields or contact data.
+Unknown/stalled parts and unavailable/Help/unready/shared-disconnected views do
+not invent continued operation. The unchanged axisymmetric pick cylinders stay
+pick-only; spinning their visuals adds no actor collision or moving mechanism.
 
 ## GDC-05: coordinate precision needs a scale strategy, not an invented world cap
 

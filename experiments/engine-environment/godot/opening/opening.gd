@@ -655,6 +655,9 @@ func _can_control_character() -> bool:
 func _native_transmission() -> bool:
 	return not legacy_fixture and state.get("options", {}).get("native", false)
 
+func _can_present_confirmed_motion() -> bool:
+	return _native_transmission() and not explanation_open and not startup_save_pending and state.get("actors", {}).get(client, {}).get("ready", false)
+
 func _contains_target(snapshot: Dictionary, id: String) -> bool:
 	return snapshot.get("entities", {}).has(id) or (snapshot.get("options", {}).get("native", false)
 		and snapshot.get("transmission_parts", {}).has(id))
@@ -866,8 +869,21 @@ func _process(delta: float) -> void:
 		focus.z = clampf(focus.z, -4, 6)
 
 func _animate_wheel(delta: float) -> void:
-	# Native motion publishes exact rates but no saved rotation phase yet.
-	# Keep its rotor still rather than inventing an independent phase clock.
+	if _native_transmission():
+		if transmission_presenter == null:
+			return
+		transmission_presenter.advance_visual_motion(delta)
+		if wheel_rotor != null:
+			for id: String in state.get("entities", {}):
+				if state.entities[id].kind != "wheel":
+					continue
+				if not wheel_rotor.has_meta("visual_base_basis"):
+					wheel_rotor.set_meta("visual_base_basis", wheel_rotor.basis)
+				var base: Basis = wheel_rotor.get_meta("visual_base_basis")
+				wheel_rotor.basis = base * Basis(Vector3.BACK, transmission_presenter.visual_angle(id))
+		return
+	# Historical scripted presentation remains separate. Native cosmetic
+	# angles above are neither a simulation clock nor saved/contact phase.
 	if wheel_rotor != null and state.get("powered", false) and not state.get("options", {}).get("native", false):
 		wheel_rotor.rotation.z += delta * 0.8
 

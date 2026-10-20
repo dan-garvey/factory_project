@@ -35,7 +35,11 @@ permission to build there. Real character proximity remains authoritative.
 
 The inspector can select a cogwheel or shaft and return it to the carried kit.
 Static arrows show the confirmed signed rate, and contact marks use confirmed
-engagements. There is no rendered tooth-contact or rotation-phase simulation.
+engagements. Cosmetic wheel, cog and shaft motion illustrates those rates at a
+revisable visual reference speed; it does not supply a physics or processing
+clock. Angles are local presentation only, retained across ordinary refreshes
+but not saved or synchronized as tooth-contact phase. Unknown/stalled parts,
+Help, unready actors and disconnected shared views stop the illustration.
 The native profile currently treats either turning direction as powered and
 does not scale material throughput by angular rate. Its two equal gears and
 three shafts, dimensions and height limits are revisable fixture choices.

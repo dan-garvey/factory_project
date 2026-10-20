@@ -1,19 +1,91 @@
 extends Node3D
-## Confirmed geometry and direction only. No local clock, phase or actor collider.
+## Confirmed geometry/rates with cosmetic angles only. No simulation clock,
+## saved/contact phase, material operation or actor collider.
 const Geometry = preload("res://opening/site_geometry.gd")
 const UNIT := Geometry.PITCH / 4.0
+const VISUAL_RADIANS_PER_SECOND := 0.8
 
 var _host: WeakRef
 var _view_key := ""
+var _motion_context := ""
+var _generations: Dictionary = {}
+var _visual_angles: Dictionary = {}
 
 func configure(host: Object) -> void:
 	_host = weakref(host)
 	_view_key = ""
+	_clear_motion()
 	refresh()
 
 func _clear() -> void:
 	for child in get_children():
 		child.free()
+
+func _clear_motion() -> void:
+	_motion_context = ""
+	_generations.clear()
+	_visual_angles.clear()
+
+func _sync_motion(snapshot: Dictionary) -> void:
+	var context: Variant = snapshot.get("context")
+	if typeof(context) != TYPE_STRING or context.is_empty():
+		_clear_motion()
+		return
+	if _motion_context != context:
+		_clear_motion()
+		_motion_context = context
+	var current: Dictionary = {}
+	for group: String in ["entities", "transmission_parts"]:
+		var parts: Variant = snapshot.get(group, {})
+		if not parts is Dictionary:
+			continue
+		for id: Variant in parts:
+			var part: Variant = parts[id]
+			if typeof(id) != TYPE_STRING or not part is Dictionary or typeof(part.get("generation")) != TYPE_INT or part.generation < 1:
+				continue
+			current[id] = part.generation
+	for id: Variant in _visual_angles.keys():
+		if not current.has(id) or current[id] != _generations.get(id):
+			_visual_angles.erase(id)
+	_generations = current
+
+static func signed_rate(motion: Variant) -> float:
+	if not motion is Dictionary or motion.get("state") != "rotating" or typeof(motion.get("numerator")) != TYPE_INT or typeof(motion.get("denominator")) != TYPE_INT or motion.denominator <= 0:
+		return 0.0
+	return float(motion.numerator) / float(motion.denominator)
+
+func visual_angle(id: String) -> float:
+	return float(_visual_angles.get(id, 0.0))
+
+func _apply_angles() -> void:
+	for child: Node in get_children():
+		if not child is Node3D or not child.has_meta("axis"):
+			continue
+		var id: String = str(child.get_meta("entity", ""))
+		var angle := visual_angle(id)
+		child.basis = axis_basis(int(child.get_meta("axis"))) * Basis(Vector3.UP, angle)
+		var arrow := child.get_node_or_null("ConfirmedDirection")
+		if arrow != null:
+			# Keep the signed-rate annotation fixed while its rotor turns.
+			arrow.rotation.y = -angle
+
+func advance_visual_motion(delta: float) -> void:
+	if not is_finite(delta) or delta <= 0.0 or _host == null or not is_instance_valid(_host.get_ref()):
+		return
+	var host: Object = _host.get_ref()
+	# The owning view handles shared freshness. Pending construction does not
+	# change a confirmed drive; a lost connection cannot keep inventing motion.
+	if not host.has_method("_can_present_confirmed_motion") or not host.call("_can_present_confirmed_motion"):
+		return
+	var snapshot: Variant = host.get("state")
+	if not snapshot is Dictionary or not snapshot.get("motion") is Dictionary:
+		return
+	_sync_motion(snapshot)
+	for id: String in _generations:
+		var rate := signed_rate(snapshot.motion.get(id))
+		if rate != 0.0:
+			_visual_angles[id] = wrapf(visual_angle(id) + minf(delta, 0.1) * rate * VISUAL_RADIANS_PER_SECOND, -PI, PI)
+	_apply_angles()
 
 static func axis_basis(axis: int) -> Basis:
 	match axis:
@@ -111,6 +183,7 @@ func _pick(parent: Node3D, id: String, radius: float, height: float) -> void:
 func refresh() -> void:
 	if _host == null or not is_instance_valid(_host.get_ref()):
 		_clear()
+		_clear_motion()
 		_view_key = ""
 		visible = false
 		return
@@ -118,6 +191,7 @@ func refresh() -> void:
 	var options: Variant = snapshot.get("options") if snapshot is Dictionary else null
 	if not snapshot is Dictionary or not options is Dictionary or typeof(options.get("native")) != TYPE_BOOL or not options.native:
 		_clear()
+		_clear_motion()
 		_view_key = ""
 		visible = false
 		return
@@ -125,10 +199,12 @@ func refresh() -> void:
 	var motions: Variant = snapshot.get("motion", {})
 	if not parts is Dictionary or not motions is Dictionary:
 		_clear()
+		_clear_motion()
 		_view_key = ""
 		visible = false
 		return
 	visible = true
+	_sync_motion(snapshot)
 	var next_key := JSON.stringify([snapshot.get("context"), parts, motions, snapshot.get("engagements", [])])
 	if next_key == _view_key:
 		return
@@ -143,6 +219,7 @@ func refresh() -> void:
 		anchor.name = "Part%d" % rendered.size()
 		anchor.set_meta("entity", id)
 		anchor.set_meta("kind", part.kind)
+		anchor.set_meta("axis", part.axis)
 		anchor.position = world_center(part.center)
 		anchor.basis = axis_basis(part.axis)
 		add_child(anchor)
@@ -171,6 +248,14 @@ func refresh() -> void:
 		else:
 			var length: float = float(part.half_span) * UNIT * 2.0
 			_cylinder(anchor, "Shaft", 0.045, length, color)
+			var keyway := MeshInstance3D.new()
+			keyway.name = "Keyway"
+			var key_shape := BoxMesh.new()
+			key_shape.size = Vector3(0.012, length * 0.92, 0.006)
+			keyway.mesh = key_shape
+			keyway.position.z = 0.045
+			_finish(keyway, Color("e2c58a"))
+			anchor.add_child(keyway)
 			_pick(anchor, id, 0.08, length)
 	# Contact marks come only from confirmed gear engagements, never a second
 	# proximity solver or an arbitrary decorative power edge.
@@ -188,3 +273,4 @@ func refresh() -> void:
 			mark.basis = axis_basis(a.axis)
 			mark.set_meta("from", edge.a)
 			mark.set_meta("to", edge.b)
+	_apply_angles()

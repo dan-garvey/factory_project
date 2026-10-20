@@ -81,6 +81,9 @@ func _can_mutate() -> bool:
 func _parts_are_shared() -> bool:
 	return not state.get("options", {}).get("native", false)
 
+func _can_present_confirmed_motion() -> bool:
+	return session != null and session.is_ready() and _usable_snapshot() and super._can_present_confirmed_motion()
+
 func _placement_hint_ready() -> bool:
 	return _can_mutate() and super._placement_hint_ready()
 
