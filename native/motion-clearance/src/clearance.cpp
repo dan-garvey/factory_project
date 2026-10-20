@@ -75,6 +75,7 @@ const char* error_name(Error error) noexcept {
         case Error::too_many_obstacles: return "too_many_obstacles";
         case Error::invalid_id: return "invalid_id";
         case Error::duplicate_id: return "duplicate_id";
+        case Error::arithmetic_limit: return "arithmetic_limit";
     }
     return "unknown";
 }

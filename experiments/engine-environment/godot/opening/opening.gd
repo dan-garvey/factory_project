@@ -2296,6 +2296,8 @@ func _inspection_hint() -> String:
 	if kind in ["collector", "belt"] and not _has_material_connection(false):
 		return (("Outlet missing. Stop [%s].\n" % _power_key()) if stop_before_link else "No material outlet linked.\n") + "[F] link " + ("Collector → Belt." if kind == "collector" else "Belt → Press.")
 	if not state.get("powered", false):
+		if _native_transmission():
+			return "Bring rotation to the line.\n[G] shafts; mesh cogwheels."
 		return "Drive needs connections.\n[G] link wheel + all machines."
 	if kind == "processor":
 		if state.stock.input > 0:

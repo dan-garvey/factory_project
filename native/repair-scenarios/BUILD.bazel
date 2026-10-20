@@ -22,7 +22,12 @@ cc_library(
     srcs = ["src/workbench.cpp"],
     hdrs = ["include/factory/repair_workbench.hpp"],
     strip_include_prefix = "include",
-    deps = [":scenarios", "//native/gear-repairs:scenarios", "//native/co-drive-repairs:scenarios"],
+    deps = [
+        ":scenarios",
+        "//native/gear-repairs:scenarios",
+        "//native/co-drive-repairs:scenarios",
+        "//native/service-repairs:scenarios",
+    ],
 )
 
 cc_binary(

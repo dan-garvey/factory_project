@@ -4,10 +4,16 @@ package(default_visibility = ["//visibility:public"])
 
 cc_library(
     name = "clearance",
-    srcs = ["src/clearance.cpp"],
+    srcs = ["src/clearance.cpp", "src/rotation.cpp", "src/quarter_turn.cpp"],
     hdrs = ["include/factory/clearance.hpp"],
     strip_include_prefix = "include",
-    deps = ["//native/factory-mechanics:mechanics"],
+    deps = [":arc_math", "//native/factory-mechanics:mechanics"],
+)
+
+cc_library(
+    name = "arc_math",
+    hdrs = ["src/arc_math.hpp"],
+    visibility = ["//visibility:private"],
 )
 
 cc_binary(
@@ -20,5 +26,31 @@ cc_test(
     name = "clearance_test",
     srcs = ["tests/clearance_test.cpp"],
     deps = [":clearance", "//native/mechanisms:cycle"],
+    size = "small",
+)
+
+cc_binary(
+    name = "rotation_case",
+    srcs = ["src/rotation_case.cpp"],
+    deps = [":clearance"],
+)
+
+cc_test(
+    name = "rotation_test",
+    srcs = ["tests/rotation_test.cpp"],
+    deps = [":clearance"],
+    size = "small",
+)
+
+cc_binary(
+    name = "arc_case",
+    srcs = ["src/arc_case.cpp"],
+    deps = [":clearance"],
+)
+
+cc_test(
+    name = "quarter_turn_test",
+    srcs = ["tests/quarter_turn_test.cpp"],
+    deps = [":clearance", ":arc_math"],
     size = "small",
 )

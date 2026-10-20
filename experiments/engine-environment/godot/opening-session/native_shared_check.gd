@@ -110,7 +110,8 @@ func _peer(name: String) -> Dictionary:
 	return record
 
 func _walk_to_line() -> bool:
-	# Q uses a separate lane past the placed wheel and stationary P. All legs
+	# Q stays outside the wheel's 1.45-wide collision box and capsule radius.
+	# Its approach waypoint changes no reach or collision tolerance. All legs
 	# use the ordinary presenter's held-key path and the server's real motor.
 	var legs := [[KEY_D, KEY_S]] if actor == "P" else [[KEY_D, KEY_W], [KEY_D, KEY_S]]
 	for index: int in range(legs.size()):
@@ -120,7 +121,7 @@ func _walk_to_line() -> bool:
 			edge.pressed = true
 			opening.character_presenter._input(edge)
 		var moved := await _until(func():
-			return opening.state.actors[actor].position[2] <= 2.65 if actor == "Q" and index == 0 else opening.state.actors[actor].position[0] >= 0.7,
+			return opening.state.actors[actor].position[2] <= 3.0 if actor == "Q" and index == 0 else opening.state.actors[actor].position[0] >= 0.7,
 			"The actual server motor reaches the declared approach lane")
 		for code: Key in legs[index]:
 			var edge := InputEventKey.new()
