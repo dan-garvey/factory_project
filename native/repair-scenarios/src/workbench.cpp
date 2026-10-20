@@ -3,6 +3,7 @@
 #include "factory/geared_scenarios.hpp"
 #include "factory/co_drive_scenarios.hpp"
 #include "factory/service_scenarios.hpp"
+#include "factory/spindle_scenarios.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -30,6 +31,7 @@ struct Host {
     I x{}, z{}, epoch{1}, request{};
     bool source_choice{};
     const service_scenarios::Goal* service{};
+    bool spindle{};
 };
 
 bool integer(const std::string& text, I& value) {
@@ -80,6 +82,11 @@ void status(const Host& host, const w::State& state, std::ostream& out) {
     if (host.service) {
         out << "Service relocation: " << (service_scenarios::relocated(*host.service, state) ? "complete" : "pending") << '\n'
             << "Service drive and route: " << (service_scenarios::ready(*host.service, state) ? "ready" : "incomplete") << '\n';
+    }
+    if (host.spindle) {
+        const auto calibration = spindle_scenarios::inspect(state);
+        out << "Spindle: " << spindle_scenarios::mode_name(calibration.mode)
+            << " rate=" << calibration.rate.numerator << '/' << calibration.rate.denominator << " target=+2/1\n";
     }
 }
 
@@ -249,6 +256,7 @@ int workbench(std::span<const std::string_view> arguments, std::istream& input, 
             for (const auto& entry : geared_scenarios::catalogue()) out << entry.id << ": " << entry.title << '\n';
             for (const auto& entry : co_drive_scenarios::catalogue()) out << entry.id << ": " << entry.title << '\n';
             for (const auto& entry : service_scenarios::catalogue()) out << entry.id << ": " << entry.title << '\n';
+            for (const auto& entry : spindle_scenarios::catalogue()) out << entry.id << ": " << entry.title << '\n';
             return out ? 0 : 2;
         }
         if (arguments.size() != 2 || arguments[0] != "play") {
@@ -258,11 +266,13 @@ int workbench(std::span<const std::string_view> arguments, std::istream& input, 
         if (!content) content = geared_scenarios::make(arguments[1]);
         if (!content) content = co_drive_scenarios::make(arguments[1]);
         if (!content) content = service_scenarios::make(arguments[1]);
+        if (!content) content = spindle_scenarios::make(arguments[1]);
         if (!content) { errors << "Unknown repair scenario. Use list.\n"; return 2; }
         const std::string context = "terminal-repair-" + std::string(content->definition->id);
         Host host{*content->definition, content->profile, w::World::create(context, content->profile, content->seed), context};
         host.source_choice = host.definition.id == co_drive_scenarios::definition().id;
         host.service = service_scenarios::goal(arguments[1]);
+        host.spindle = host.definition.id == spindle_scenarios::definition().id;
         if (!host.simulation) { errors << "Native repair scenario could not start.\n"; return 2; }
         out << host.definition.title << '\n' << host.definition.objective << '\n'
             << "Type inspect to trace the line, help for actions, or hint if stuck.\n";
@@ -282,8 +292,11 @@ int workbench(std::span<const std::string_view> arguments, std::istream& input, 
             const auto current = host.simulation->snapshot().state;
             if (current.material.cargo.at("P").products >= 4 &&
                 (!host.source_choice || co_drive_scenarios::inspect(current).ready()) &&
-                (!host.service || service_scenarios::ready(*host.service, current))) {
-                if (host.service)
+                (!host.service || service_scenarios::ready(*host.service, current)) &&
+                (!host.spindle || spindle_scenarios::inspect(current).ready())) {
+                if (host.spindle)
+                    out << "Complete: spindle calibrated and four plates retrieved from the original finite stock.\n";
+                else if (host.service)
                     out << "Complete: service relocation and four plates retrieved from the original finite stock.\n";
                 else if (host.source_choice)
                     out << "Complete: source conflict repaired and four plates retrieved from the original finite stock.\n";

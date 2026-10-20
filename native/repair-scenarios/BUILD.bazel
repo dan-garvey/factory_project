@@ -27,6 +27,7 @@ cc_library(
         "//native/gear-repairs:scenarios",
         "//native/co-drive-repairs:scenarios",
         "//native/service-repairs:scenarios",
+        "//native/spindle-calibration:scenarios",
     ],
 )
 
