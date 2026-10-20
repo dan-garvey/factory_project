@@ -50,8 +50,13 @@ func _call(label: String, wire: Dictionary, targets: Array, callback: Callable) 
 
 func _place(kind: String, cell: Vector2i) -> String:
 	opening.tool_buttons[kind].pressed.emit()
+	var targets := [_anchor([cell.x * 4, 0, cell.y * 4])]
+	# This fixture builds Collector, Wheel, Belt, then Press. Placement also
+	# admits the original neighboring material port in the same transaction.
+	if kind in ["belt", "processor"]:
+		targets.append(_anchor([0 if kind == "belt" else 4, 0, 4]))
 	var outcome := await _call("Place " + kind, {"action": "place", "kind": kind, "cell": [cell.x, cell.y], "axis": "x"},
-		[_anchor([cell.x * 4, 0, cell.y * 4])], func(): opening._world_click(cell))
+		targets, func(): opening._world_click(cell))
 	return outcome.get("entity", "")
 
 func _link(tool: String, from: String, to: String) -> bool:
@@ -104,23 +109,31 @@ func _peer(name: String) -> Dictionary:
 		return {}
 	return record
 
-func _walk_p() -> bool:
-	for code: Key in [KEY_D, KEY_S]:
-		var edge := InputEventKey.new()
-		edge.keycode = code
-		edge.pressed = true
-		opening.character_presenter._input(edge)
-	var moved: bool = await _until(func(): return opening.state.actors.P.position[0] >= 0.7, "P walks through its actual server motor")
-	for code: Key in [KEY_D, KEY_S]:
-		var edge := InputEventKey.new()
-		edge.keycode = code
-		edge.pressed = false
-		opening.character_presenter._input(edge)
-	opening.character_presenter.release()
-	for _frame in range(4):
-		await physics_frame
-	facts["walked_actor"] = opening.state.actors.P.duplicate(true)
-	return moved
+func _walk_to_line() -> bool:
+	# Q uses a separate lane past the placed wheel and stationary P. All legs
+	# use the ordinary presenter's held-key path and the server's real motor.
+	var legs := [[KEY_D, KEY_S]] if actor == "P" else [[KEY_D, KEY_W], [KEY_D, KEY_S]]
+	for index: int in range(legs.size()):
+		for code: Key in legs[index]:
+			var edge := InputEventKey.new()
+			edge.keycode = code
+			edge.pressed = true
+			opening.character_presenter._input(edge)
+		var moved := await _until(func():
+			return opening.state.actors[actor].position[2] <= 2.65 if actor == "Q" and index == 0 else opening.state.actors[actor].position[0] >= 0.7,
+			"The actual server motor reaches the declared approach lane")
+		for code: Key in legs[index]:
+			var edge := InputEventKey.new()
+			edge.keycode = code
+			edge.pressed = false
+			opening.character_presenter._input(edge)
+		opening.character_presenter.release()
+		if not moved:
+			return false
+		for _frame in range(4):
+			await physics_frame
+	facts["walked_actor"] = opening.state.actors[actor].duplicate(true)
+	return true
 
 func _foreign_work(press: String, lot: Dictionary) -> bool:
 	var before: Dictionary = _material_view(session.projection())
@@ -146,7 +159,7 @@ func _foreign_work(press: String, lot: Dictionary) -> bool:
 
 func _produce_p() -> bool:
 	opening.transmission_controls._axes.id_pressed.emit(0)
-	if not await _walk_p():
+	if not await _walk_to_line():
 		return false
 	var collector := await _place("collector", Vector2i(0, 1))
 	var wheel := await _place("wheel", Vector2i(-1, 1))
@@ -154,11 +167,15 @@ func _produce_p() -> bool:
 	var press := await _place("processor", Vector2i(2, 1))
 	if written or collector.is_empty() or wheel.is_empty() or belt.is_empty() or press.is_empty():
 		return false
-	for link: Array in [["flow", collector, belt], ["flow", belt, press], ["drive", wheel, collector], ["drive", collector, belt], ["drive", belt, press]]:
-		if not await _link(link[0], link[1], link[2]):
+	if not _expect(_same(opening.state.links, [[collector, belt], [belt, press]]), "Placement already attached the two literal material links"):
+		return false
+	for link: Array in [[wheel, collector], [collector, belt], [belt, press]]:
+		if not await _link("drive", link[0], link[1]):
 			return false
 	var ids := {"press": press, "wheel": wheel}
-	if not _marker("line-built.bin", {"ids": ids}) or not await _power(true, wheel) or (await _peer("Q-product.bin")).is_empty():
+	if not _marker("line-built.bin", {"ids": ids}) or (await _peer("Q-positioned.bin")).is_empty():
+		return false
+	if not await _power(true, wheel) or (await _peer("Q-product.bin")).is_empty():
 		return false
 	if not await _until(func(): return opening.state.stock.held == 1 and opening.state.remaining == 1, "Natural ticks partially process the next workpiece"):
 		return false
@@ -178,7 +195,9 @@ func _partial_lot(lot: Variant) -> bool:
 
 func _produce_q() -> bool:
 	var line := await _peer("line-built.bin")
-	if line.is_empty() or not await _until(func(): return opening.state.stock.output == 1, "The real line produces Q's first plate"):
+	if line.is_empty() or not await _walk_to_line() or not _marker("Q-positioned.bin"):
+		return false
+	if not await _until(func(): return opening.state.stock.output == 1, "The real line produces Q's first plate"):
 		return false
 	if not await _collect(line.ids.press) or not _marker("Q-product.bin"):
 		return false

@@ -239,8 +239,30 @@ func _direction_basis() -> void:
 			verify(signed_normal * float(sign_value) > 0.9, "The actual direction arc follows signed right-hand rotation on every declared axis.")
 	view.free()
 
+func _tool_guidance() -> void:
+	var host := HostStub.new()
+	host.state = fixture()
+	host.messages.append("Previous machine-placement advice.")
+	var view := Controls.new()
+	view.configure(host)
+	var before: Dictionary = host.state.duplicate(true)
+	for choice in [[1, "cogwheel"], [2, "first endpoint"], [3, "disconnect"], [4, "remove"], [5, "construction tool"]]:
+		var count: int = host.messages.size()
+		view.get_popup().id_pressed.emit(choice[0])
+		verify(host.messages.size() == count + 1 and str(host.messages.back()).contains(choice[1]),
+			"Popup selection replaces stale advice for operation " + str(choice[0]))
+	verify(host.calls.is_empty() and host.state == before, "Popup advice sends no request and changes no confirmed facts.")
+	host.mutate_allowed = false
+	var count: int = host.messages.size()
+	view.get_popup().id_pressed.emit(1)
+	verify(host.messages.size() == count, "An unusable view preserves connection advice.")
+	print(JSON.stringify({"popup_messages": host.messages, "requests": host.calls.size()}))
+	view.free()
+
 func _run() -> void:
-	if "--refresh-cache-only" in OS.get_cmdline_user_args():
+	if "--tool-guidance-only" in OS.get_cmdline_user_args():
+		_tool_guidance()
+	elif "--refresh-cache-only" in OS.get_cmdline_user_args():
 		_cache_regression()
 	elif "--direction-basis-only" in OS.get_cmdline_user_args():
 		_direction_basis()

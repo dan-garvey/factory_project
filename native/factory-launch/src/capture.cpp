@@ -28,7 +28,6 @@ namespace fs = std::filesystem;
 using Clock = std::chrono::steady_clock;
 constexpr std::size_t maximum_files = 512;
 constexpr std::size_t maximum_scripts = 128;
-constexpr std::size_t maximum_source_bytes = 2 * 1024 * 1024;
 constexpr const char* project_prefix = "experiments/engine-environment/godot/";
 constexpr const char* git_executable = "/usr/bin/git";
 
@@ -354,7 +353,7 @@ CaptureResult capture_project(const CaptureOptions& options) {
                     && component != ".." && component != ".",
                     "Private metadata and generated caches are excluded.");
         require(sources.size() < maximum_files, "The project exceeds its file allowance.");
-        auto bytes = read_git({"cat-file", "blob", blob}, maximum_source_bytes - total);
+        auto bytes = read_git({"cat-file", "blob", blob}, maximum_project_source_bytes - total);
         total += bytes.size();
         if (path.extension() == ".gd") ++scripts;
         require(scripts <= maximum_scripts, "The project exceeds its script allowance.");
@@ -386,7 +385,7 @@ CaptureResult capture_project(const CaptureOptions& options) {
         const auto target = project / source.path;
         fs::create_directories(target.parent_path());
         write_once(target, source.bytes, source.mode == "100755" ? 0755 : 0644);
-        require(sha256(file_bytes(target, maximum_source_bytes)) == source.digest,
+        require(sha256(file_bytes(target, maximum_project_source_bytes)) == source.digest,
                 "The captured source differs from the immutable blob.");
         manifest << "    {\"path\": " << json_string(source.path) << ", \"mode\": " << json_string(source.mode)
                  << ", \"blob\": " << json_string(source.blob) << ", \"bytes\": " << source.bytes.size()

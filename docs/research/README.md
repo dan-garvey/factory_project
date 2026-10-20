@@ -89,20 +89,22 @@ scope gets a linked follow-up rather than silently duplicating a closed study.
    game's actual rule from a proposed translation. Identify trivial shortcuts,
    compulsory upkeep, arbitrary waiting and ways the puzzle could destroy useful
    logistical meaning.
-6. Arrange direct independent peer scrutiny of sources and adaptation reasoning.
-   Preserve disagreements, rejected ideas and limits. Hand off exact source and
-   catalogue links for normal root publication; authors do not self-approve.
+6. Publish the checked note and catalogue changes through the
+   [author-owned workflow](../../CONTRIBUTING.md#integration-and-history).
+   Request independent post-merge scrutiny of sources and adaptation reasoning.
+   Preserve disagreements, rejected ideas and limits, and reuse relevant completed
+   reviews. Authors do not review their own commits.
 7. Close the per-game leaf only when its declared scope is thoroughly covered,
    useful patterns and gaps are recorded, independent review is complete and
-   root has recorded catalogue integration. Record scope, version/date, accepted
+   catalogue integration is recorded. Record scope, version/date, accepted
    note revision and reviewer in Beads. The recurring parent stays
    open and has an owned next target or useful synthesis/adaptation task.
 
 Separate per-game paths permit parallel work without several writers owning the
-same catalogue file. Coordinate new registry entries with PM; do not wait for an
-index edit to do already-scoped research. Cross-link duplicate patterns instead
-of rewriting them for every game. Game-note authors and peers can discover and
-claim their next bounded study autonomously.
+same catalogue file. Coordinate concurrent registry edits directly in the owning
+Beads; do not wait for an index edit to do already-scoped research. Cross-link
+duplicate patterns instead of rewriting them for every game. Game-note authors
+and peers can discover and claim their next bounded study autonomously.
 
 ## Pattern cards: minimum useful content
 

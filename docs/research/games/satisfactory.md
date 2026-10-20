@@ -1,13 +1,14 @@
 # Study: Satisfactory — stationary 3D routing and construction
 
 Status: **partial**, source research in progress; not thoroughly studied.
-Study Bead: `factory-yau.8.2`. Owner: factory-playability. Checked 2026-10-15 UTC.
+Study Bead: `factory-yau.8.2`. Owner: factory-playability. Original passes checked
+2026-10-15 UTC; historical fluid-diagnosis follow-up checked 2026-10-20 UTC.
 
 Scope so far: selected stationary construction/logistics changes documented in
-the 1.0 and 1.1 releases, their 1.2 context, and five original puzzle adaptations.
+the 1.0 and 1.1 releases, their 1.2 context, and six original puzzle adaptations.
 The second pass adds a documented input-substitution example and the developer's
 research-choice rationale; it remains a source study rather than actual play.
-The official publisher feed includes maintenance version **1.2.4.1**, posted
+The original publisher-feed window includes maintenance version **1.2.4.1**, posted
 2026-10-12. No executable or changelist/build was tested. The older search listing
 ending at 1.2.4.0 was insufficient to establish the current release; the dated
 publisher feed was checked directly. [S01], [S02], [S03], [S04]
@@ -19,6 +20,11 @@ as such, not represented as a full manual read or current-build validation.
 No first-hand play, installation, purchase, watched video/timestamp or popularity
 claim is included. A written announcement's embedded trailer was not watched.
 
+The third pass reads selected sections of McGalleon's complete plumbing manual,
+version 1.4, dated 2022-08-21 for Update 5/6. It is an unofficial community guide,
+not a current developer specification. Its public PDF is accessible from the
+older wiki asset host; direct current wiki pages remain inaccessible. [S12]
+
 This follows the [continuing research contract](../README.md) and
 [template](../STUDY_TEMPLATE.md). The physical-character/stationary opening in
 [DESIGN](../../../DESIGN.md) takes priority. Factorio has a separate owned study;
@@ -29,7 +35,8 @@ this first pass, rather than assumed absent from Satisfactory.
 
 ## Evidence and source map
 
-All access dates are 2026-10-15 UTC. Developer announcements are primary evidence
+S01–S11 were accessed on 2026-10-15 UTC. S12 and the retained publisher body for
+S13 were read on 2026-10-20 UTC. Developer announcements are primary evidence
 of the documented release changes. Wiki material is collaborative reference
 evidence and currently limited to the returned cached text. Analysis and original
 adaptations are distinguished from both.
@@ -47,6 +54,8 @@ adaptations are distinguished from both.
 | S09 | [Official wiki: Head lift](https://satisfactory.wiki.gg/wiki/Head_lift), cached introduction; [Pipeline](https://satisfactory.wiki.gg/wiki/Pipeline), cached fluctuations section | Qualitative height/flow distinction and a version-change caveat. Numeric limits, old exploit advice and complete 1.2 fluid behavior remain unverified; no fluid pattern is claimed thoroughly studied. |
 | S10 | [Official 1.0 preview: Only 2 weeks left](https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/5875595438703071739), 2024-08-26; ALT. RECIPES AND HARD DRIVES | Developer rationale for separating pending recipe choices from later research, a once-per-drive replacement choice and progression-filtered options. A preview and design rationale, cross-checked against shipped S01; not a current exhaustive reward-pool model. |
 | S11 | [Official wiki: Wire](https://satisfactory.wiki.gg/wiki/Wire), cached Obtaining / Crafting table | Default copper-based Wire and alternate Iron Wire use different ingredients and output rates. Unversioned cached table only; no claim of an installed 1.2 recipe test, universal best choice or complete upstream-cost comparison. |
+| S12 | [McGalleon: The FICSIT Inc. Plumbing Manual, v1.4](https://static.wikia.nocookie.net/satisfactory_gamepedia_en/images/3/39/Pipeline_Manual.pdf), 2022-08-21; printed pages 2, 5, 7 and 12 | Full historical community PDF; separates connection, lift and flow diagnosis. Not current-build validation or developer-approved fluid rules. |
+| S13 | [Official 1.0.0.5 fixes](https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/6146943657174033384), 2024-11-04; BUGFIXES | Reports pipe-to-floor-hole connections breaking during upgrades as a bug. Full publisher-feed body retained; individual post open failed. Not an intended upgrade cost or a current defect claim. |
 
 The dated publisher metadata and relevant announcement text are retained in the
 study's external evidence handoff. Individual post links above are the sources,
@@ -293,6 +302,65 @@ and unrestricted access are not proposed imports. [S01], [S07]; DESIGN.
 - **Disposition:** retain compare-and-defer as a candidate presentation lesson;
   reject importing random unlock gambling as a prerequisite for this demo.
 
+## Pattern satisfactory-06: diagnose the fault before adding capacity
+
+- **Goal and setup:** restore a stopped feed using evidence about its actual
+  failure. The historical manual separates connection, lift and flow faults and
+  suggests flush resets during diagnosis. A developer patch separately documents
+  lost upgrade connections as a bug, not an intended transport rule. [S12], [S13]
+- **Player verbs:** in the proposed mechanical task, inspect the sending and
+  receiving ports, follow the actual carrier, compare its stroke with the outlet,
+  and repair the identified obstruction or transfer limit.
+- **Constraints:** finite stock, available parts, actual handoff geometry and
+  sustained delivery are separate constraints. A larger stock buffer cannot
+  complete a missing connection or make a carrier reach a higher receiver.
+  Keep the fault observable rather than hiding a required repair in a menu.
+- **Solution families:** repair the handoff; rebuild the receiving workbench at a lower site or
+  add a reachable intermediate transfer; or widen the constrained transport path.
+  Reducing demand can also solve a rate mismatch. These alternatives address
+  different observations, with different footprint, part and service-access costs.
+- **Appeal:** design inference: the player develops an explanation, rules out an
+  attractive wrong repair, and chooses a small useful change. More machinery is
+  not automatically the answer. The inspection itself must be quick enough that
+  repeated checking does not become a tax on every ordinary build.
+- **Failure and recovery:** a suggested flush is not evidence that contents are
+  refunded. The adaptation must first account for material in the feeder,
+  carrier and receiver. Prefer inspection and a visible catch/return path before
+  disassembly. Do not turn clearing a diagnostic state into deleting or cloning
+  finite stock. Existing trapped-material work owns the actual recovery behavior.
+- **Teaching and progression:** show one working handoff before introducing a
+  fault. Present one cause at a time, with visible evidence at both ends; later
+  combine causes only after each diagnosis has been taught. Distinguish a stale
+  report from the physical fault before prescribing a product correction.
+- **Adaptation here:** original paper task: deliver twelve blanks to two stationary
+  workbenches, each requesting one blank per transfer cycle, over six cycles.
+  Bench sites may change during construction or repair; installed benches do not
+  move during operation.
+  Prepare three separate variants: a missing receiver connection; a lift that
+  stops below its receiving port; and a connected, reachable route that admits
+  only one blank per cycle. These are invented task quantities and constraints,
+  not Satisfactory recipes, current Factory rules or a running prototype.
+- **Engineering risks:** the authoritative connection, carrier pose, stock and
+  observation must describe the same boundary. Request acceptance alone does not
+  prove a physical handoff. Reuse the existing material owner; do not create a
+  diagnostic copy that can spend stock. Native recovery, moving parts, shared
+  views and saved observations still need their own actual consumers.
+- **Falsifier / smallest experiment:** in the paper rate variant, six cycles can
+  deliver at most six of the requested twelve blanks through a one-blank path;
+  at least six remain outside the benches, and all twelve must stay accounted
+  for. Doubling storage does not change that bound. A later prototype must
+  distinguish all three faults from actual
+  observations and retain every blank through a repair. Reject a version where
+  waiting or a generic reset fixes every cause, or where the necessary evidence
+  is unavailable to a physically present player.
+- **Sources / related patterns:** S12 and S13 supply the scoped diagnostic lesson.
+  `satisfactory-01` addresses service geometry; `satisfactory-02` addresses the
+  filling/rate branch after a valid path exists. This card adds choosing the
+  correct repair and preserving custody, rather than another buffering recipe.
+- **Disposition:** retain as a diagnostic-teaching candidate. Defer fluid-specific
+  machinery, numerical head limits and simulation/exploit rules. This paper
+  analysis changes no game requirement and does not establish successful play.
+
 ## Synthesis and proposed follow-ups
 
 The immediate useful transfer is legible physical targeting and failure feedback,
@@ -305,9 +373,11 @@ The second pass has one documented alternate-input example and an original
 finite-stock comparison. It does not establish all upstream costs, actual recipe
 switching/refunds or whole-game progression. Before a more complete study,
 investigate representative process changeover and retained-work behavior.
-Check the current fluid-height/flow model from primary developer or accessible
-manual evidence and retain version differences. Deep simulation advice and old
-water-tower exploits should not be imported from a cached guide.
+The third pass adds a historical diagnostic lesson and an original finite-stock
+repair task. It does not settle current fluid behavior, flushing custody or
+unattended recovery. Check those against current developer/manual evidence and
+actual consumers before selecting a fluid experiment. Deep simulation advice and
+old water-tower exploits should not be imported from a historical guide.
 
 The shipped 1.1 primary announcement explicitly removes the distance limit on
 preview nudging. The cached Build Gun excerpt separately describes a finite
@@ -321,10 +391,11 @@ candidates remain below the existing physical-character/stationary-loop priority
 ## Coverage and review ledger
 
 - Covered so far: dated 1.0/1.1 construction/logistics introductions and 1.2
-  release context; five original stationary cards on service volume, startup
+  release context; six original stationary cards on service volume, startup
   versus capacity, construction with physical delivery, alternate input choices
-  and informed deferral. The cached recipe and original paper process comparisons
-  have explicit access/version limits; neither is an actual play result.
+  and informed deferral, plus historical fault diagnosis. The cached recipe and
+  original paper process comparisons have explicit access/version limits;
+  neither is an actual play result.
 - Version readback: official publisher feed contains 1.2.4.1 on 2026-10-12;
   changelist/runtime build not tested. The 2025-04-01 experimental and 2025-06-10
   shipped 1.1 announcements are distinguished.
@@ -332,7 +403,7 @@ candidates remain below the existing physical-character/stationary-loop priority
   production and alternate-recipe cases; exact failure/repair and unattended
   behavior; complete fluid/head-lift/version-change analysis. Cached recipe
   counts conflict, and several full manual pages were inaccessible. The study
-  is not thorough and must not close on these five cards.
+  is not thorough and must not close on these six cards.
 - Independent review: Ops accepted the original three-card partial note at
   `51c41e073553f619aed92a3a35faa7954dd894dd`, then separately reviewed and accepted
   the `a831c8f` successor's new cards and source qualifications for partial
@@ -341,6 +412,12 @@ candidates remain below the existing physical-character/stationary-loop priority
 - Exact note revision/check/publication: source freeze `a831c8f`; integration
   changes review/publication metadata only. Exact revision and source/index/hook
   results remain in the integration record.
+- Third-pass review: independent source/custody review of `718325f` identified
+  an ambiguity in whether bench sites may change. The accepted clarification
+  at `b04f769` resolves it: sites may change during construction or repair, while
+  installed benches stay stationary during operation. These reviews cover the
+  qualified historical study and paper candidate; they do not establish current
+  fluid rules, executable recovery or successful play.
 - Closure: `factory-yau.8.2` remains in progress; recurring `factory-yau.8`
   remains open. Completing this partial pass is not retiring the research queue.
 - Next owned action: resolve the missing current source/representative cases
@@ -357,3 +434,5 @@ candidates remain below the existing physical-character/stationary-loop priority
 [S09]: https://satisfactory.wiki.gg/wiki/Head_lift
 [S10]: https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/5875595438703071739
 [S11]: https://satisfactory.wiki.gg/wiki/Wire
+[S12]: https://static.wikia.nocookie.net/satisfactory_gamepedia_en/images/3/39/Pipeline_Manual.pdf
+[S13]: https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/6146943657174033384

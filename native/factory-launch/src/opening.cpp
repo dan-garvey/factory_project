@@ -13,7 +13,8 @@
 namespace factory_launch {
 namespace {
 namespace fs = std::filesystem;
-constexpr std::size_t source_limit = 2 * 1024 * 1024;
+constexpr std::size_t source_limit = maximum_project_source_bytes;
+constexpr std::size_t resume_limit = 2 * 1024 * 1024;
 
 void require(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(message);
@@ -182,7 +183,7 @@ OpeningResume copy_opening_resume(const fs::path& original, const fs::path& inco
             "Resume input and destination parent must be canonical.");
     require(original != incoming && !fs::exists(fs::symlink_status(incoming)),
             "The resume copy must be a fresh separate file.");
-    const auto content = read(original);
+    const auto content = read(original, resume_limit);
     require(!content.empty(), "The resume binary must not be empty.");
     OpeningResume result{original, incoming, sha256(content), content.size(),
                          fs::symlink_status(original).permissions()};
@@ -199,8 +200,8 @@ void verify_opening_resume(const OpeningResume& resume) {
             fs::symlink_status(resume.original).permissions() == resume.original_permissions &&
             fs::symlink_status(resume.incoming).permissions() == fs::perms::owner_read,
             "The original resume input or read-only copy changed path or mode.");
-    const auto original = read(resume.original);
-    const auto incoming = read(resume.incoming);
+    const auto original = read(resume.original, resume_limit);
+    const auto incoming = read(resume.incoming, resume_limit);
     require(original.size() == resume.bytes && incoming.size() == resume.bytes &&
             sha256(original) == resume.sha256 && sha256(incoming) == resume.sha256,
             "The original resume binary or incoming copy changed.");
