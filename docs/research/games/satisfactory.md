@@ -412,9 +412,12 @@ candidates remain below the existing physical-character/stationary-loop priority
 - Exact note revision/check/publication: source freeze `a831c8f`; integration
   changes review/publication metadata only. Exact revision and source/index/hook
   results remain in the integration record.
-- Third-pass review: the new historical sources and `satisfactory-06` are a
-  separate candidate awaiting independent review. Earlier acceptance covers the
-  unchanged first five cards and does not approve this addition.
+- Third-pass review: independent source/custody review of `718325f` identified
+  an ambiguity in whether bench sites may change. The accepted clarification
+  at `b04f769` resolves it: sites may change during construction or repair, while
+  installed benches stay stationary during operation. These reviews cover the
+  qualified historical study and paper candidate; they do not establish current
+  fluid rules, executable recovery or successful play.
 - Closure: `factory-yau.8.2` remains in progress; recurring `factory-yau.8`
   remains open. Completing this partial pass is not retiring the research queue.
 - Next owned action: resolve the missing current source/representative cases

@@ -95,10 +95,10 @@ int main(int argc, char** argv) {
     try {
         check(argc == 2 || argc == 3, "The test requires the CLI and an explicit or Bazel-owned artifact parent.");
         const fs::path executable = fs::canonical(argv[1]);
-        const char* artifact_parent = argc == 3 ? argv[2] : std::getenv("TEST_UNDECLARED_OUTPUTS_DIR");
+        const char* artifact_parent = argc == 3 ? argv[2] : std::getenv("TEST_TMPDIR");
         check(artifact_parent != nullptr && artifact_parent[0] != '\0', "The test must have an owned artifact directory.");
-        // Bazel supplies an existing private writable directory. Resolve its
-        // sandbox aliases before exercising the capture's canonical-path rule.
+        // Intentional alias fixtures belong in disposable test storage, not
+        // Bazel's archived outputs. Resolve its sandbox aliases for capture.
         const auto parent = argc == 2 ? fs::canonical(artifact_parent)
                                       : fs::absolute(fs::path(artifact_parent));
         const fs::path root = parent / ("first-" + std::to_string(::getpid()));
@@ -198,7 +198,7 @@ int main(int argc, char** argv) {
         const auto private_tree = commit(repository);
         no_output_refusal({repository, private_tree, root / "private-source"}, "Tracked private metadata.");
         fs::remove_all(project / ".beads");
-        write(project / "oversized.bin", std::string(2 * 1024 * 1024 + 1, 'x'));
+        write(project / "oversized.bin", std::string(maximum_project_source_bytes + 1, 'x'));
         const auto oversized = commit(repository);
         no_output_refusal({repository, oversized, root / "oversized-source"}, "Source byte allowance.");
         fs::remove(project / "oversized.bin");

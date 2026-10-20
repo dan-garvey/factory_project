@@ -32,6 +32,7 @@ The package exports these explicit targets:
 //native/factory-launch:capture_test
 //native/factory-launch:opening_test
 //native/factory-launch:extension_test
+//native/factory-launch:source_budget_test
 //native/factory-launch:tests
 ```
 
@@ -40,13 +41,15 @@ Build the CLI and run the named test through the current
 external output base and the reviewed cache-safe supervisor. Declare the exact
 commands, applicable host inputs, safe environment and cumulative cache/artifact/
 log bounds before admission. Keep source, toolchain and test results associated
-with the tested revision. The current validation used direct GCC component tests,
-not a passing canonical Bazel invocation.
+with the tested revision. The project-budget update passed the canonical capture
+target and focused source-budget target. Earlier direct GCC results retain their
+original scope; they are not relabelled as Bazel runs.
 
 The Bazel test finds its declared CLI runfile with `rootpath` and stores its
-disposable repositories and retained fixtures under `TEST_UNDECLARED_OUTPUTS_DIR`.
-It refuses a missing test-output directory rather than writing into the runfiles
-tree. A legacy explicit artifact-parent argument remains available for the
+disposable repositories and intentional alias fixtures under `TEST_TMPDIR`;
+the original test result remains in Bazel's retained test log. It refuses a
+missing test directory rather than writing into the runfiles tree.
+A legacy explicit artifact-parent argument remains available for the
 preserved CMake fixture; that plan was never executed and is not a second default
 build path. See the [Bazel test contract](https://bazel.build/reference/test-encyclopedia)
 and [runfile path variables](https://bazel.build/reference/be/make-variables).
@@ -55,6 +58,12 @@ The repository source gate does not compile this C++ implementation.
 Native tests create disposable Git repositories and utility children; they do not
 invoke a game, engine, live tracker or network socket. Root test-suite integration
 and shared build configuration remain the Bazel owner's responsibility.
+
+`source_budget_test` covers 3 MiB and exact 4 MiB captures and runtime copies,
+one-byte aggregate overflow, and the unchanged 2 MiB resume-file boundary. Its C++
+fixture also invokes the existing staged parser with a disclosed fake executable
+to check input admission and byte preservation. That utility does not import
+resources or establish actual Godot compilation.
 
 ## Capture
 
@@ -87,10 +96,13 @@ represented as a complete capture. Existing outputs are never replaced.
 
 ## Bounds and limits
 
-- The current small-project limits are 2 MiB of source, 512 files and 128 `.gd`
+- The current small-project limits are 4 MiB of source, 512 files and 128 `.gd`
   scripts, matching the existing staged project allowance. All tracked resources
   are captured, including scenes and binary assets; this is not a dependency
   parser or permission to load untracked resources.
+  The source allowance covers the complete authored project and is separate
+  from the unchanged 2 MiB opaque resume-input bound. The staged compiler retains
+  its 128 MiB output-family bound, deadline and log limits.
 - Symlinks, submodules, private metadata and generated `.godot` caches are refused.
   This first adapter accepts printable ASCII paths. That is a tool limitation,
   not a game-world or permanent asset-naming requirement.
