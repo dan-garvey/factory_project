@@ -2,6 +2,7 @@ extends Node3D
 ## Confirmed geometry/rates with cosmetic angles only. No simulation clock,
 ## saved/contact phase, material operation or actor collider.
 const Geometry = preload("res://opening/site_geometry.gd")
+const Assets = preload("res://opening/native_transmission_assets.gd")
 const UNIT := Geometry.PITCH / 4.0
 const VISUAL_RADIANS_PER_SECOND := 0.8
 
@@ -230,24 +231,13 @@ func refresh() -> void:
 		var color := Color("ba9459") if rotating else Color("687a7b")
 		if part.kind == "gear":
 			var radius: float = float(part.teeth) * UNIT
-			_cylinder(anchor, "Gear", radius * 0.88, 0.14, color)
-			_cylinder(anchor, "Hub", 0.12, 0.22, Color("c6bfa6"))
-			for tooth in range(part.teeth):
-				var angle := TAU * float(tooth) / float(part.teeth)
-				var mesh := MeshInstance3D.new()
-				var shape := BoxMesh.new()
-				shape.size = Vector3(UNIT * 0.35, 0.14, UNIT * 0.45)
-				mesh.mesh = shape
-				mesh.position = Vector3(cos(angle), 0, sin(angle)) * radius * 0.9
-				mesh.rotation.y = -angle
-				_finish(mesh, color)
-				anchor.add_child(mesh)
+			Assets.gear(anchor, radius, part.teeth, color)
 			_pick(anchor, id, radius + UNIT * 0.25, 0.24)
 			if rotating:
 				_direction(anchor, radius * 0.65, 1 if motion.numerator > 0 else -1)
 		else:
 			var length: float = float(part.half_span) * UNIT * 2.0
-			_cylinder(anchor, "Shaft", 0.045, length, color)
+			Assets.shaft(anchor, length, color)
 			var keyway := MeshInstance3D.new()
 			keyway.name = "Keyway"
 			var key_shape := BoxMesh.new()

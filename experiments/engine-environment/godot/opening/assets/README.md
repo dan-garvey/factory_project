@@ -144,3 +144,14 @@ presentation, never a limit on native mechanical ratios. Context changes and
 machine removal clear old playback identities. The generated WAV files support
 human listening; finite digital levels and isolated Dummy-audio controls cannot
 establish the audible mix or production quality.
+
+`native_transmission_assets.gd` supplies fitted render assemblies for the native
+presenter: a closed turned gear rim, hub, four spokes, beveled trapezoidal teeth
+and repeated fasteners, plus higher-resolution shafts with collars and keys.
+Eight decorative teeth per native ratio/radius unit keep the visible density
+proportional. This does not reinterpret the native wire, add a contact solver or
+establish tooth phase. Gear surfaces stay inside the native radial envelope;
+shaft fittings stay inside the unchanged pick radius and endpoint length. All
+assemblies use shared machined surfaces and cached meshes, with no collider or
+input node. The presenter retains mounting, direction, animation and pick
+ownership. Isolated mesh checks do not establish the ordinary rendered result.
