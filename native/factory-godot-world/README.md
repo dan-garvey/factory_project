@@ -18,6 +18,15 @@ process cannot retarget an old receipt. Checkpoint import validates the original
 action and typed payload against that historical translation without using
 present poses or generations. Malformed adapter refusals retain their exact wire.
 
+Ordinary collector, belt and press placement also attaches their directly mating
+material ports. The existing +X, one-cell, same-row layout still applies; nearby
+unrelated machines do not connect. Every affected endpoint must be in the same
+admitted reach cut. Placement, links and the carried part commit atomically,
+without creating a shaft or advancing material. The exact optional mechanical
+axis stays in the original wire and typed history. Adjacent material machines
+therefore need no separate Connect request; old manual links and receipts remain
+supported by the sole native World, Session and Store.
+
 Drive connections consume independent finite shaft parts and derive motion from
 their actual geometry. The projection includes those parts, rational motion,
 engagements, typed cargo and per-actor kits. It is a detached view, never authority.
@@ -72,6 +81,15 @@ original Store file. Add `--resume-input` pointing at that new output's
 `incoming.factory` when manually opening its runtime. Use a separate fresh
 `--save-slot`; do not reuse the launcher's existing `worksite.factory`.
 The automated headless consumer is not a rendered or human-play result.
+
+The focused `opening/native_material_attachment_check.gd` consumer uses ordinary
+construction callbacks and actual native walking to test an atomic unreachable
+endpoint refusal, a fresh connected belt, removal and reconstruction. It retains
+typed facts and tests the existing confirmed-link guidance. Its fresh-process
+mode checks the original Store binary and history before new material input.
+This is headless adapter coverage, not desktop input or human play. The first
+Store continuation and the later axis-bearing current-main construction keep
+their own source revisions rather than being reported as one unchanged case.
 
 The separate `opening-session/native_shared_cog_check.gd` consumer exercises the
 ordinary shared view through menu, key, button and projected click callbacks in

@@ -89,6 +89,32 @@ the domain does not prove registration, collision clearance or process lifetime.
 Native body integration and the switch from the current scripted authority are
 unfinished. This native format does not decode the old scripted save format.
 
+## Material construction attachment
+
+The opening's Host translates ordinary collector, belt and press placement into
+`place_connected`. This internal native operation derives only compatible ports
+involving the new part. It reuses the opening's existing directed port layout:
+collector to belt and belt to press, one cell along +X, at the same height and
+depth. A cell is four integer quarter-pitch units. Gaps, reverse layouts,
+diagonals, other heights and nearby power components do not attach. This is a
+revisable adapter layout, not a general material-routing rule.
+
+The planner checks reach to the new part and every existing endpoint before
+preparing one replacement state. Placement, finite kit and the added links
+commit together, or none do. Material attachment creates no shaft, mechanical
+engagement, power or material tick. Placing the belt first, last or between the
+other two placements produces the same directed path without separate link
+requests. Existing removal still removes the affected links and refunds the
+exact carried specification.
+
+The original internal `place` operation remains unchanged for historical
+receipts and other construction. Its accepted history still requires exactly
+one reach target. `place_connected` retains the new part first, followed by its
+actual attached endpoints; historical validation permits only the corresponding
+distinct input and output anchors. Restoration and exact retry preserve the
+original identities and targets, including a removed belt, rather than deriving
+new attachments from the current worksite.
+
 ## Typed logical checkpoints
 
 The checkpoint codec composes Recovery's canonical material subrecord with the

@@ -80,8 +80,12 @@ void historical_translation() {
     const auto belt = place("belt", 1, "belt");
     const auto press = place("processor", 2, "press");
     const auto wheel = place("wheel", -1, "wheel");
-    check(accepted(host.command("P", link("connect", "flow-A", collector, belt))), "The first material link succeeds.");
-    check(accepted(host.command("P", link("connect", "flow-B", belt, press))), "The second material link succeeds.");
+    const auto flow_a = host.command("P", link("connect", "flow-A", collector, belt));
+    const auto flow_b = host.command("P", link("connect", "flow-B", belt, press));
+    check(!accepted(flow_a) && field<std::string>(flow_a, "reason") == "existing_link",
+          "Collector-to-belt placement already attached the first material path.");
+    check(!accepted(flow_b) && field<std::string>(flow_b, "reason") == "existing_link",
+          "Belt-to-press placement already attached the second material path.");
     check(accepted(host.command("P", link("connect_drive", "shaft-A", wheel, collector))), "The first physical shaft succeeds.");
     check(accepted(host.command("P", link("connect_drive", "shaft-B", collector, belt))), "The second physical shaft succeeds.");
     check(accepted(host.command("P", link("connect_drive", "shaft-C", belt, press))), "The third physical shaft succeeds.");
