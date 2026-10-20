@@ -1,0 +1,18 @@
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "scenarios",
+    srcs = ["src/scenarios.cpp"],
+    hdrs = ["include/factory/repair_scenarios.hpp"],
+    strip_include_prefix = "include",
+    deps = ["//native/factory-world:world"],
+)
+
+cc_test(
+    name = "scenarios_test",
+    srcs = ["tests/scenarios_test.cpp"],
+    deps = [":scenarios"],
+    size = "small",
+)
