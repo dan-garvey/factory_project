@@ -2,6 +2,7 @@
 #include "factory/repair_scenarios.hpp"
 #include "factory/geared_scenarios.hpp"
 #include "factory/co_drive_scenarios.hpp"
+#include "factory/service_scenarios.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -28,6 +29,7 @@ struct Host {
     std::string context;
     I x{}, z{}, epoch{1}, request{};
     bool source_choice{};
+    const service_scenarios::Goal* service{};
 };
 
 bool integer(const std::string& text, I& value) {
@@ -75,12 +77,20 @@ void status(const Host& host, const w::State& state, std::ostream& out) {
         const auto choice = co_drive_scenarios::inspect(state);
         out << "Source arrangement: " << co_drive_scenarios::mode_name(choice.mode) << "; registered sources=" << choice.sources << '\n';
     }
+    if (host.service) {
+        out << "Service relocation: " << (service_scenarios::relocated(*host.service, state) ? "complete" : "pending") << '\n'
+            << "Service drive and route: " << (service_scenarios::ready(*host.service, state) ? "ready" : "incomplete") << '\n';
+    }
 }
 
 void inspect(const Host& host, std::ostream& out) {
     const auto state = host.simulation->snapshot().state;
     const auto power = s::power_view(state.topology);
     status(host, state, out);
+    if (host.service) {
+        out << "Rebuild " << host.service->original << " at one service site:\n";
+        for (const auto& site : host.service->sites) out << "  " << site[0] << ',' << site[1] << ',' << site[2] << '\n';
+    }
     out << "Parts:\n";
     for (const auto& part : state.topology.parts) {
         const auto& geometry = part.geometry;
@@ -110,6 +120,7 @@ void help(std::ostream& out) {
            "walk <east|west|north|south> [1..8] | wait [1..32]\n"
            "place shaft <x> <y> <z> <axis:x|y|z> <half_span>\n"
            "place gear <x> <y> <z> <axis:x|y|z> <teeth>\n"
+           "place machine <collector|belt|processor> <x> <y> <z> <axis:x|y|z>\n"
            "link <from> <to> | remove <part> | drive <waterwheel> <on|off>\n"
            "collect <processor> [amount] | recover <machine>\n"
            "insert_raw <machine> <amount> | insert_work <processor> <work_id>\n"
@@ -171,7 +182,14 @@ Step act(Host& host, const Tokens& tokens, std::ostream& out, std::ostream& erro
 
     a::Object intent;
     const auto state = host.simulation->snapshot().state;
-    if (verb == "place") {
+    if (verb == "place" && tokens.size() > 1 && tokens[1] == "machine") {
+        I x{}, y{}, z{};
+        if (tokens.size() != 7 || (tokens[2] != "collector" && tokens[2] != "belt" && tokens[2] != "processor") ||
+            !integer(tokens[3], x) || !integer(tokens[4], y) || !integer(tokens[5], z) ||
+            (tokens[6] != "x" && tokens[6] != "y" && tokens[6] != "z")) return syntax();
+        intent = {{"action", V("place")}, {"role", V(tokens[2])},
+            {"center", V(V::Array{V(x), V(y), V(z)})}, {"axis", V(tokens[6])}, {"teeth", V(I{0})}, {"half_span", V(I{0})}};
+    } else if (verb == "place") {
         I x{}, y{}, z{}, dimension{};
         if (tokens.size() != 7 || (tokens[1] != "shaft" && tokens[1] != "gear") || !integer(tokens[2], x) || !integer(tokens[3], y) ||
             !integer(tokens[4], z) || !integer(tokens[6], dimension) ||
@@ -230,6 +248,7 @@ int workbench(std::span<const std::string_view> arguments, std::istream& input, 
             for (const auto& entry : catalogue()) out << entry.id << ": " << entry.title << '\n';
             for (const auto& entry : geared_scenarios::catalogue()) out << entry.id << ": " << entry.title << '\n';
             for (const auto& entry : co_drive_scenarios::catalogue()) out << entry.id << ": " << entry.title << '\n';
+            for (const auto& entry : service_scenarios::catalogue()) out << entry.id << ": " << entry.title << '\n';
             return out ? 0 : 2;
         }
         if (arguments.size() != 2 || arguments[0] != "play") {
@@ -238,10 +257,12 @@ int workbench(std::span<const std::string_view> arguments, std::istream& input, 
         auto content = make(arguments[1]);
         if (!content) content = geared_scenarios::make(arguments[1]);
         if (!content) content = co_drive_scenarios::make(arguments[1]);
+        if (!content) content = service_scenarios::make(arguments[1]);
         if (!content) { errors << "Unknown repair scenario. Use list.\n"; return 2; }
         const std::string context = "terminal-repair-" + std::string(content->definition->id);
         Host host{*content->definition, content->profile, w::World::create(context, content->profile, content->seed), context};
         host.source_choice = host.definition.id == co_drive_scenarios::definition().id;
+        host.service = service_scenarios::goal(arguments[1]);
         if (!host.simulation) { errors << "Native repair scenario could not start.\n"; return 2; }
         out << host.definition.title << '\n' << host.definition.objective << '\n'
             << "Type inspect to trace the line, help for actions, or hint if stuck.\n";
@@ -260,9 +281,14 @@ int workbench(std::span<const std::string_view> arguments, std::istream& input, 
             if (step == Step::quit) { out << "Unfinished.\n"; return out ? 1 : 2; }
             const auto current = host.simulation->snapshot().state;
             if (current.material.cargo.at("P").products >= 4 &&
-                (!host.source_choice || co_drive_scenarios::inspect(current).ready())) {
-                out << (host.source_choice ? "Complete: source conflict repaired and four plates retrieved from the original finite stock.\n" :
-                                             "Complete: four plates retrieved from the original finite stock.\n");
+                (!host.source_choice || co_drive_scenarios::inspect(current).ready()) &&
+                (!host.service || service_scenarios::ready(*host.service, current))) {
+                if (host.service)
+                    out << "Complete: service relocation and four plates retrieved from the original finite stock.\n";
+                else if (host.source_choice)
+                    out << "Complete: source conflict repaired and four plates retrieved from the original finite stock.\n";
+                else
+                    out << "Complete: four plates retrieved from the original finite stock.\n";
                 return out ? 0 : 2;
             }
         }
