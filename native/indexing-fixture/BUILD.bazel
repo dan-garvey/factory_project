@@ -1,0 +1,32 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "indexing",
+    srcs = ["src/indexing.cpp"],
+    hdrs = ["include/factory/indexing.hpp"],
+    strip_include_prefix = "include",
+    deps = ["//native/factory-core:material_types"],
+)
+
+cc_library(
+    name = "workbench",
+    srcs = ["src/workbench.cpp"],
+    hdrs = ["include/factory/index_workbench.hpp"],
+    strip_include_prefix = "include",
+    deps = [":indexing"],
+)
+
+cc_binary(
+    name = "index_workbench",
+    srcs = ["src/main.cpp"],
+    deps = [":workbench"],
+)
+
+cc_test(
+    name = "indexing_test",
+    srcs = ["tests/indexing_test.cpp"],
+    deps = [":workbench"],
+    size = "small",
+)
