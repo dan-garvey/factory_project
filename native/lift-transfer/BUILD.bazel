@@ -1,0 +1,30 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "lift",
+    srcs = ["src/lift.cpp"],
+    hdrs = ["include/factory/lift_transfer.hpp"],
+    strip_include_prefix = "include",
+    deps = ["//native/mechanisms:cycle", "//native/motion-clearance:clearance"],
+)
+
+cc_library(
+    name = "workbench",
+    srcs = ["src/workbench.cpp"],
+    deps = [":lift", "//native/gravity-chutes:gravity"],
+)
+
+cc_binary(
+    name = "lift_workbench",
+    srcs = ["src/main.cpp"],
+    deps = [":workbench"],
+)
+
+cc_test(
+    name = "lift_test",
+    srcs = ["tests/lift_test.cpp"],
+    deps = [":workbench"],
+    size = "small",
+)
