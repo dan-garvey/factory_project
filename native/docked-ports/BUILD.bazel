@@ -1,0 +1,24 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "coupling",
+    srcs = ["src/coupling.cpp"],
+    hdrs = ["include/factory/docked_ports.hpp"],
+    strip_include_prefix = "include",
+    deps = ["//native/factory-core:material_types", "//native/factory-mechanics:mechanics"],
+)
+
+cc_binary(
+    name = "coupling_case",
+    srcs = ["src/coupling_case.cpp"],
+    deps = [":coupling", "//native/mechanisms:cycle"],
+)
+
+cc_test(
+    name = "coupling_test",
+    srcs = ["tests/coupling_test.cpp"],
+    deps = [":coupling", "//native/mechanisms:cycle"],
+    size = "small",
+)

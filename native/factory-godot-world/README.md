@@ -167,8 +167,15 @@ production case collects a real product into Q, pauses and recovers a positively
 progressed workpiece into Q's Cargo, and rejects P's attempt to insert that lot.
 A fresh server must load the original host save before either client submits a
 material request. Q then reinserts the same lot and P collects three more products.
-The fixture asserts individual custody, exact progress and sixteen-unit accounting;
-its source is not a claim that this new case has passed or that humans tested it.
+The controlled-clock case passed both cohorts with all sixteen units accounted
+for, the original twelve cached outcomes preserved, and final products P3/Q1.
+The server used the engine's explicit `--time-scale 0.25` argument; clients kept
+normal time. This lets the test stop an observed partial cycle before network
+latency advances it again, without changing the native recipe or phase checks.
+The earlier default-speed attempt remains a failed phase-capture witness: its
+stop arrived after that observed lot finished. The passing case establishes
+typed shared custody and actual Store continuation, not default-speed pause
+timing, performance, desktop interaction or human usability.
 
 The original consumer explicitly predeclared the runtime extension catalogue
 before import. Two first cold imports without it failed; debugger captures show

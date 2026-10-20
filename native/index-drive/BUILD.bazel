@@ -1,0 +1,24 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "drive",
+    srcs = ["src/drive.cpp", "src/workbench.cpp"],
+    hdrs = ["include/factory/index_drive.hpp"],
+    strip_include_prefix = "include",
+    deps = ["//native/mechanisms:cycle", "//native/indexing-fixture:indexing"],
+)
+
+cc_binary(
+    name = "index_drive",
+    srcs = ["src/main.cpp"],
+    deps = [":drive"],
+)
+
+cc_test(
+    name = "drive_test",
+    srcs = ["tests/drive_test.cpp"],
+    deps = [":drive"],
+    size = "small",
+)

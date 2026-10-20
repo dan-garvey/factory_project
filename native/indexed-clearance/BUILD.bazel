@@ -1,0 +1,24 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "fixture",
+    srcs = ["src/fixture.cpp", "src/workbench.cpp"],
+    hdrs = ["include/factory/indexed_clearance.hpp"],
+    strip_include_prefix = "include",
+    deps = ["//native/indexing-fixture:indexing", "//native/motion-clearance:clearance"],
+)
+
+cc_binary(
+    name = "indexed_cycle",
+    srcs = ["src/main.cpp"],
+    deps = [":fixture"],
+)
+
+cc_test(
+    name = "fixture_test",
+    srcs = ["tests/fixture_test.cpp"],
+    deps = [":fixture"],
+    size = "small",
+)
