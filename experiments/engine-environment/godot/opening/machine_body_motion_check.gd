@@ -87,7 +87,66 @@ func hold(view: Node3D) -> void:
 	view.state.stock.held = 1
 	view.state.remaining = 2
 
+func bounds_in_view(mesh: MeshInstance3D, view: Node3D) -> AABB:
+	var transform := mesh.transform
+	var ancestor := mesh.get_parent()
+	while ancestor != null and ancestor != view:
+		if ancestor is Node3D:
+			transform = ancestor.transform * transform
+		ancestor = ancestor.get_parent()
+	return transform * mesh.mesh.get_aabb()
+
+func check_held_workpiece_clearance() -> void:
+	var view := Opening.new()
+	mount(view)
+	hold(view)
+	view.item_root = Node3D.new()
+	view.add_child(view.item_root)
+	var observed: Dictionary = view.state.duplicate(true)
+	var picks := pick_facts(view)
+	view._redraw_items()
+	view._animate_wheel(0.1)
+	view._animate_wheel(0.1)
+	var head: MeshInstance3D
+	for row in meshes(view, "press"):
+		if row.role == "head":
+			head = row.node
+	verify(head != null, "The clearance case uses the actual moving press head.")
+	if head == null:
+		view.free()
+		return
+	var head_bounds := bounds_in_view(head, view)
+	var workpiece_top := -INF
+	var billet_count := 0
+	var boss_found := false
+	for item in view.item_root.get_children():
+		if item.get_meta("item_kind", "") != "workpiece_billet":
+			continue
+		billet_count += 1
+		for part in item.get_children():
+			if not part is MeshInstance3D:
+				continue
+			var part_bounds := bounds_in_view(part, view)
+			if part_bounds.position.x < head_bounds.end.x and part_bounds.end.x > head_bounds.position.x and part_bounds.position.z < head_bounds.end.z and part_bounds.end.z > head_bounds.position.z:
+				workpiece_top = maxf(workpiece_top, part_bounds.end.y)
+				boss_found = boss_found or part.get_meta("asset_role", "") == "CenterBoss"
+	verify(billet_count == 1 and boss_found and is_finite(workpiece_top),
+		"The actual item redraw supplies the held billet and its raised boss under the head.")
+	verify(head_bounds.position.y >= workpiece_top + 0.002,
+		"The lowered head clears every overlapping held-workpiece part by at least two millimetres.")
+	verify(head_bounds.position.y < 0.754 and view.state == observed and pick_facts(view) == picks and view.request_sequence == 0,
+		"The head moves while stock, requests and pick geometry remain unchanged.")
+	print(JSON.stringify({"phase": "held workpiece clearance", "head_bottom": head_bounds.position.y,
+		"workpiece_top": workpiece_top, "gap": head_bounds.position.y - workpiece_top}))
+	view.free()
+
 func _initialize() -> void:
+	if "--clearance-only" in OS.get_cmdline_user_args():
+		check_held_workpiece_clearance()
+		print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
+			"scope": "actual head and redrawn billet clearance", "native_gameplay": "not_run", "desktop": "not_used"}))
+		quit(1 if failed else 0)
+		return
 	var view := Opening.new()
 	mount(view)
 	var original: Dictionary = view.state.duplicate(true)
@@ -113,11 +172,11 @@ func _initialize() -> void:
 	hold(view)
 	var held: Dictionary = view.state.duplicate(true)
 	view._animate_wheel(0.1)
-	verify(is_equal_approx(pose(view, "head").origin.y, 0.72), "A newly observed held blank eases the head down rather than snapping or inventing a cycle.")
+	verify(is_equal_approx(pose(view, "head").origin.y, 0.828), "A newly observed held blank eases the head down rather than snapping or inventing a cycle.")
 	view._rebuild_machines()
-	verify(is_equal_approx(pose(view, "head").origin.y, 0.72), "An unrelated geometry refresh retains the in-progress render pose.")
+	verify(is_equal_approx(pose(view, "head").origin.y, 0.828), "An unrelated geometry refresh retains the in-progress render pose.")
 	view._animate_wheel(0.1)
-	verify(is_equal_approx(pose(view, "head").origin.y, 0.70), "The held pose reaches the bounded 0.14 metre travel.")
+	verify(is_equal_approx(pose(view, "head").origin.y, 0.825), "The held pose reaches the bounded 0.015 metre travel.")
 	var rod := pose(view, "rod")
 	verify(is_equal_approx(rod.origin.y + rod.basis.y.length() * 0.225, 1.365),
 		"The extending rod retains its original fixed top endpoint.")
@@ -136,7 +195,7 @@ func _initialize() -> void:
 	view.state.stock.held = 0
 	view.state.inventories.P = 1
 	view._animate_wheel(0.1)
-	verify(is_equal_approx(pose(view, "head").origin.y, 0.82), "Only a new empty-held observation lets the head rise.")
+	verify(is_equal_approx(pose(view, "head").origin.y, 0.837), "Only a new empty-held observation lets the head rise.")
 	view._animate_wheel(0.1)
 	verify(is_equal_approx(pose(view, "head").origin.y, 0.84), "The empty pose returns to the exact original rest transform.")
 	for invalid in [true, 1.0, -1]:
@@ -167,7 +226,7 @@ func _initialize() -> void:
 		verify(pose_list(view) == before, "Nonpositive and nonfinite frame deltas cannot move a render part.")
 	view.state.context = "new-observed-context"
 	view._rebuild_machines()
-	verify(is_equal_approx(pose(view, "head").origin.y, 0.70), "A fresh context starts at its observed held pose without replaying an operation.")
+	verify(is_equal_approx(pose(view, "head").origin.y, 0.825), "A fresh context starts at its observed held pose without replaying an operation.")
 	view.state.entities.press.generation = 2
 	view.state.stock.held = 0
 	view._rebuild_machines()
@@ -180,12 +239,13 @@ func _initialize() -> void:
 	hold(shared)
 	shared.pending_actions = {"unrelated-build": {"status": "pending"}}
 	shared._animate_wheel(0.1)
-	verify(is_equal_approx(pose(shared, "head").origin.y, 0.72), "An unrelated pending shared request does not stop confirmed work presentation.")
+	verify(is_equal_approx(pose(shared, "head").origin.y, 0.828), "An unrelated pending shared request does not stop confirmed work presentation.")
 	facts.ready = false
 	var disconnected := pose_list(shared)
 	shared._animate_wheel(0.1)
 	verify(pose_list(shared) == disconnected, "Lost shared freshness freezes both cutter and tool.")
 	shared.free()
+	check_held_workpiece_clearance()
 	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
 		"scope": "actual mesh transforms over invented observations", "native_gameplay": "not_run", "desktop": "not_used"}))
 	quit(1 if failed else 0)
