@@ -343,6 +343,21 @@ The severity of player injury, contact with dropped items or other moving assemb
 
 ## Technical direction — proposed, not selected
 
+### Native implementation direction
+
+After actual demo play, the user directed implementation toward a high-performance
+language such as C++ or Rust and rejected further Python scaffolding. New project,
+test-harness and operations implementation must not be written in Python. The first
+reversible native increments use the existing C++ toolchain. Godot remains accepted;
+the present GDScript authority and Python launch/check infrastructure are migration
+baselines, not permanent architecture. See the [migration contract](docs/engineering/native-migration.md).
+
+Preserve one authoritative simulation, exact material ownership and the existing
+mandatory checks while replacing boundaries in reviewed increments. A standalone
+native rule library is a foundation, not evidence that the playable demo uses it.
+Replacing a launcher does not improve simulation or rendering by itself. Production
+engine adoption, measured performance and cross-platform support remain separate.
+
 ### Separate rules from their presentation
 
 Keep authoritative factory state, processing, mechanical topology, control signals, and machine definitions in a simulation core that can run without the graphics engine. Expose explicit commands and state/events to presentation and networking adapters.

@@ -33,6 +33,14 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) for coordination, evidence, review, and 
 
 Current priorities: a controlled physical character with proximity-restricted construction, and fixed/stationary contraptions/subfactories before mobile-factory expansion. Camera position is not construction authority. Godot use is accepted; record engine/API behavior, adapter limitations and probe shortcuts in the [constraint register](docs/engineering/godot-constraints.md), never silently as game requirements. Follow the [continuing research contract](docs/research/README.md) for factory/engineering-puzzle studies: deduplicate per game/coverage, close thorough game leaves, keep the recurring pipeline open.
 
+The user requires a native implementation path. Do not add or expand Python
+project code, test harnesses or operations tools. Use C++ or Rust for replacements
+and new authoritative rules; the first owned toolchain is the existing C++ compiler.
+Keep existing mandatory checks active until independently reviewed replacements
+take over. Assess pending Python additions against this direction before landing.
+The current GDScript demo and Godot adapters are transitional, not a permanent
+authority choice. See the [native migration contract](docs/engineering/native-migration.md).
+
 The dependency plan is [ROADMAP.md](ROADMAP.md), rooted at `factory-yau`; use `br ready --type task --json` to find executable next outcomes, not just organizational epics. The original progenitor owns continuing integration/design-fidelity review under [PROJECT_MANAGER.md](PROJECT_MANAGER.md), Bead `factory-wj6.3`. Proposal completion is not user approval; delegated choices, runtime evidence, integration review and production adoption are distinct. Do not leave ordinary prototype work blocked on an approval the user has delegated. Actual user play cannot be fabricated, but waiting for it need not stop other development.
 
 Before starting, inspect Git status, ready/in-progress Beads, related closed work, and recent relevant commits. Claim a bounded task with a distinct actor name; comment the intended scope, worktree/branch, dependencies, and acceptance evidence. Do not take an occupied task or edit another agent's checkout without an agreed handoff. Spawn agents only when authorized. Keep decisions and resumable handoffs in Beads/Git/docs, not solely in chat or ignored `.notes/`.

@@ -71,6 +71,28 @@ Append new findings rather than replacing another agent's record. Search closed 
 
 ## Checks and local hooks
 
+### Native implementation and migration
+
+The user has directed new implementation toward C++ or Rust. Do not add or expand
+Python project implementation, including launchers, test harnesses and operations
+tools. The first native increments use the installed C++ toolchain; a language
+choice alone does not prove performance, portability or simulation correctness.
+Godot remains accepted, with GDScript serving existing integration and presentation
+while authoritative rules move into the native core. Do not create a parallel
+mutable world or silently keep a second implementation as a fallback.
+
+Existing Python commands below remain required until reviewed native replacements
+preserve their contracts. Running them is not permission to extend their Python
+implementation. Review pending Python candidates against the new direction rather
+than automatically landing them because historical evidence passed. Preserve that
+evidence and its original source revision. The [migration inventory](docs/engineering/native-migration.md)
+names executable follow-ups, the current authority boundary and adoption evidence.
+
+Native builds and tests also require ordinary resource admission, bounded commands,
+exact source/compiler provenance and independent review. Build outside the source
+checkout, declare the build/test scope before execution and retain first failures.
+Do not redirect a safety gate or replace its coverage through a documentation edit.
+
 Prerequisites for current checks: Linux, Bash, Git, Python 3.10 or newer, and `systemd-analyze` for parsing the generated local scheduler units. Rust Beads is needed for project work, but checks do not invoke it, access the live database, queue real model work, or use the network. Scheduler tests parse disposable units without starting services.
 
 ```bash

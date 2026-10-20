@@ -1,0 +1,25 @@
+cmake_minimum_required(VERSION 3.20)
+project(factory_core LANGUAGES CXX)
+
+add_library(factory_materials STATIC src/materials.cpp)
+add_library(Factory::Materials ALIAS factory_materials)
+target_include_directories(factory_materials PUBLIC include)
+target_compile_features(factory_materials PUBLIC cxx_std_20)
+set_target_properties(factory_materials PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+add_executable(factory-material-case src/material_case.cpp)
+target_link_libraries(factory-material-case PRIVATE Factory::Materials)
+
+include(CTest)
+if(BUILD_TESTING)
+  add_executable(factory-material-tests tests/materials_test.cpp)
+  target_link_libraries(factory-material-tests PRIVATE Factory::Materials)
+  add_test(NAME finite-material-rules COMMAND factory-material-tests)
+  set_tests_properties(finite-material-rules PROPERTIES TIMEOUT 30)
+endif()
+
+foreach(target factory_materials factory-material-case factory-material-tests)
+  if(TARGET ${target} AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+endforeach()
