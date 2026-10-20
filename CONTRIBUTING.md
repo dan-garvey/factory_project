@@ -26,17 +26,17 @@ br comments add <task> --author <agent-name> "Plan: scope, branch/worktree, cont
 
 `task` depends on `prerequisite` in the dependency example. Check the current assignee before claiming: do not steal an occupied task. Agree a handoff in comments, then change the assignee explicitly. A claim coordinates responsibility; it is not a filesystem lock.
 
-Keep continuing responsibility for design/integration, focused implementation, and independent review. The user requests fresh, named, remotely observable Codex sessions for dispatched workers. Reuse those persistent conversations rather than resetting or archiving them after each task; give them bounded Beads outcomes without imposing artificial conversation-lifetime limits. Start with a small team and add parallel work only where boundaries and available resources support it. Spawn additional agents only when authorized by the user or applicable instructions. New agents read one relevant completed task/change and take a bounded first task with owner review; an existing owner can pair with them when available.
+Keep continuing responsibility for design/integration, focused implementation, and independent review. The user requests fresh, named, remotely observable Codex sessions for dispatched workers. Reuse those persistent conversations rather than resetting or archiving them after each task; give them bounded Beads outcomes without imposing artificial conversation-lifetime limits. Start with a small team and add parallel work only where boundaries and available resources support it. Spawn additional agents only when authorized by the user or applicable instructions. New agents read one relevant completed task/change and take a bounded first task; an existing owner can pair with them, and review follows the same asynchronous policy rather than becoming a new onboarding gate.
 
-Use one linked worktree per concurrent writer. Follow the mandatory shared `.beads` symlink procedure in AGENTS before using Beads. Declare overlapping contracts early; coordinate sequencing rather than silently editing another writer's checkout. Ask the integration owner to resolve cross-cutting choices. The user owns the direction and has delegated routine reversible prototype decisions to the team: choose from DESIGN, record defaults and limits, and continue rather than waiting on routine cards. Permanent commitments, new paid services, destructive actions and publication beyond existing authority are not implied.
+Use one linked worktree per concurrent writer. Follow the mandatory shared `.beads` symlink procedure in AGENTS before using Beads. Keep workstreams narrow and avoid overlapping source ownership; agree interfaces and sequence shared-file edits directly rather than silently editing another writer's checkout. Escalate only unresolved cross-stream conflicts or choices outside delegated authority. The user owns the direction and has delegated routine reversible prototype decisions to the team: choose from DESIGN, record defaults and limits, and continue rather than waiting on routine cards. Permanent commitments, new paid services, destructive actions and publication beyond existing authority are not implied.
 
 ### Autonomous workstream queues
 
 Workers may choose, create, refine and claim their next bounded task without a PM dispatch. Own an ongoing queue: Platform covers authoritative rules, sessions and launch integration; Chapter covers playable experience, teaching and optional mechanical expansion; Ops covers independent consumer validation and local operation. The additional Playability worker focuses on first-run interaction/teaching, and Recovery focuses on ordinary multiplayer disruption/continuation. These are coordination defaults, not silos or overlapping file ownership: agree concrete boundaries and peer reviews directly in Beads. Reuse the existing named worker sessions; cadence maintenance belongs to `factory-cadence`. Search existing open and closed work first, explain the player benefit or concrete risk being addressed, name intended paths/contracts, and retain real prerequisite edges. Do not invent duplicate state owners or process-only work merely to appear busy.
 
-Arrange one independent review directly and resolve concrete findings through the relevant tests and that reviewer. Share a reproducible patch and its results; a plan, source freeze or receipt does not need separate approval. The author can continue useful work in another linked worktree while review or landing proceeds. Reuse passing checks and reviews when their relevant inputs are unchanged. Never close an implementation as accepted just to unblock its review, self-approve, or bypass a failed check. If every useful next task genuinely depends on unfinished work, record the specific blocker once and coordinate with its owner; temporary idle time is then honest, not an excuse to expand scope arbitrarily.
+Authors own implementation, build, relevant tests, commits, current-main conflict resolution and publication. Under the current user-directed trial, routine landing does not wait for a peer review or the progenitor. Independent review is asynchronous and may follow merge; completed relevant reviews still count. Resolve concrete findings through their owning Beads and relevant checks, not a new approval chain. Reuse passing checks and reviews when their relevant inputs are unchanged. Do not self-label author checks as independent review, hide failed checks or declare missing runtime/human evidence complete. If every useful next task genuinely depends on unfinished implementation, record the specific blocker once and coordinate with its owner; do not turn pending review into an artificial dependency.
 
-Notify the integration owner for an exact handoff ready to land, an unexpected failure/material finding, an unresolved resource conflict, or a decision outside delegated authority. Routine task selection, scope refinement, resource coordination and peer review belong to the agents and the owning Beads, not repeated permission requests. The integration owner serializes main landing/publication and may serve as the single independent reviewer, but adds no approval gate after another independent reviewer has completed the review. Cadence maintenance corrects queue/process hangups without owning source integration. Course correction uses concrete review findings, rejections and Bead details, not routine dispatch or micromanagement. Resource admission and paid/destructive/permanent-choice limits remain unchanged.
+Keep routine coordination and the actual published commit in the owning Bead. Do not send the progenitor ready-to-land notifications, repeated review receipts or acknowledgement-only messages. Notify them only for an actionable cross-stream finding, unresolved ownership/resource conflict or decision outside delegated authority. The progenitor reviews landed work against DESIGN and files specific fix Beads; they are not the main integration queue. Cadence maintenance corrects process hangups without becoming another gate. Resource admission, privacy and paid/destructive/permanent-choice limits remain unchanged.
 
 ## Durable memory and handoffs
 
@@ -106,7 +106,7 @@ The installer sets repository-local `core.hooksPath=.githooks`, shared by linked
 
 The cheap check runner validates Python/Bash syntax, optional agent JSON configuration, and the tooling integration tests. Missing or skipped tooling tests fail. Source checks do not need a private tracker or engine, so a clean public clone can run them. The staged command also checks diff whitespace, rejects every `.beads` path (including exports/configuration), and checks an immutable copy of the candidate index using raw Git blobs, without checkout filters or archive exclusions. Passing unstaged files cannot hide a broken staged candidate. Staging changes before admission or during the run make the commit coordinator fail. The temporary snapshot never contains private tracker data or invokes `br`.
 
-For staged `.gd` changes, the coordinator also requires real GDScript parsing. The integration owner configures the existing verified runtime locally; no runtime is downloaded or selected through global settings. Replace these illustrative values with the absolute existing executable, its verified lowercase SHA256 and an owned external artifact directory:
+For staged `.gd` changes, the coordinator also requires real GDScript parsing. Linked worktrees share the configured verified runtime; coordinate any necessary local setting change, rather than creating competing configuration or weakening the gate. No runtime is downloaded or selected through global settings. Replace these illustrative values with the absolute existing executable, its verified lowercase SHA256 and an owned external artifact directory:
 
 ```bash
 git config --local factory.godotExecutable /absolute/verified/Godot_v4.7.2-stable_linux.x86_64
@@ -120,7 +120,7 @@ The compiler copies the immutable staged prototype project to an owned external 
 
 This intentionally simple snapshot gate copies the small tracked tree. It currently rejects staged symlinks and submodules, including the shared `.beads` symlink. Deliberate support for legitimate source symlinks/submodules requires extending the gate and tests first. If assets or build costs make whole-tree snapshots expensive, replace this mechanism with measured, cache-aware validation; do not blindly copy large assets on every commit. No game build, playtest, performance result, remote CI or branch protection is implied by a green tooling check or public remote. Local hooks can be bypassed; do not use a bypass as acceptance evidence.
 
-Changes to the checker, tests, or hooks use the same single independent reviewer, who checks that the candidate does not weaken its own checks; they do not need an additional specialist approval. Keep tests in the same integration surface they protect. In a future CI setup, run the same canonical command and configure required checks deliberately rather than treating a workflow file as enforcement.
+Changes to the checker, tests or hooks remain subject to independent review under the asynchronous trial, without an additional specialist approval. They must preserve or explicitly validate replacement contracts, not weaken checks to obtain green results. Keep tests in the same integration surface they protect. In a future CI setup, run the same canonical command and configure required checks deliberately rather than treating a workflow file as enforcement.
 
 ## Testing and review habits
 
@@ -138,12 +138,56 @@ When review finds a repeatable class of failure, prefer a focused test or static
 
 ## Integration and history
 
-One integration owner serializes landing into local `main` and the main checkout's shared Beads export. Code landing requires only relevant automated tests and one independent reviewer, as specified in AGENTS. The reviewer gets the patch, relevant contracts, evidence, and known limits—not an instruction to approve the author's reasoning. Record new findings and resolutions in the task. Do not require a second reviewer, PM sign-off, plan approval, source-freeze approval or receipt approval. A small documentation correction need not summon a new agent.
+Each workstream owner lands and publishes their own checked work. The progenitor's
+role is post-merge quality/design review and actionable fix Beads, not pre-merge
+approval or routine patch assembly. This user-directed trial supersedes older
+single-integrator and review-before-landing instructions. Existing reviews and
+passing checks remain reusable; no second reviewer, PM sign-off, plan, freeze or
+receipt approval is required.
 
-Before landing, compare the candidate with current `main` and resolve any incompatibility in the integration worktree. Reuse passing tests and review for unchanged relevant inputs; changed inputs need only the relevant tests and the same independent reviewer, not another approval tier. Textual mergeability alone is not proof of compatibility. Keep commits focused and each accepted commit buildable/checkable to the extent of the current project. Do not rewrite other agents' published/shared branches without agreement.
+Start from recent main and claim narrow files/contracts to avoid overlapping
+workstreams. If main advances, merge the missing local/remote main changes into
+your own branch instead of routinely rebasing shared work. Resolve actual
+conflicts there, check affected interactions and commit through the installed hook.
+Do not replay passing cases for unchanged relevant inputs or rewrite another
+author's branch. A textual merge alone does not establish compatibility.
+
+Only the short canonical-main update and push are serialized. After committing
+and testing in your own linked worktree, use the same shared advisory lock for
+this transaction. There is no person to ask for the lock and no landing roster:
+
+```bash
+factory_main_checkout=/home/dan/factory_project
+factory_common_git=$(git rev-parse --path-format=absolute --git-common-dir)
+factory_tested_commit=$(git rev-parse HEAD)
+flock --timeout 30 "$factory_common_git/factory-main-landing.lock" \
+  bash -c '
+    set -euo pipefail
+    landing_checkout=$1
+    landing_commit=$2
+    test "$(git -C "$landing_checkout" branch --show-current)" = main
+    test -z "$(git -C "$landing_checkout" status --porcelain)"
+    git -C "$landing_checkout" merge --ff-only "$landing_commit"
+    git -C "$landing_checkout" push origin main
+  ' factory-land "$factory_main_checkout" "$factory_tested_commit"
+```
+
+Never build, test or wait for review while holding this lock; never delete or
+replace the lock file. If the lock is busy, the main checkout is dirty, main has
+advanced or the push refuses, release it and reconcile in your own worktree.
+Do not force, reset, stash someone else's changes or bypass a failure. A temporary
+lock wait needs no Bead heartbeat. The lock prevents Git races, not development
+or concurrent builds, and does not replace ordinary resource admission.
+
+Record the actual landed revision and new results once in the owning Bead.
+Post-merge review identifies the exact commit, violated contract and actionable
+correction, with a reproducer or discriminating test when feasible. Authors own
+fixes; a regression blocking others takes priority over expansion. Fix it or
+coordinate a scoped revert promptly, preserving the original results and history.
+Review findings are work to address, not a new ceremonial approval chain.
 
 Use the existing readable subject convention, for example `chore: validate staged tooling before commits`. For nontrivial changes, the body should explain the problem/cause, accepted solution and boundaries, and verification/limits. Use task links when useful, but make the public change understandable without private Beads access. JSONL is now backed up separately rather than versioned. Remove obsolete exploratory narrative and chat/session links from final history. Do not copy HRX's tags or length rules just for resemblance.
 
 Close tasks only after their acceptance evidence is satisfied; otherwise leave an honest handoff. Flush the private shared export, but never stage it. Stage source paths explicitly from the relevant worktree, inspect the candidate, commit through the installed hook once, then inspect status. Record code commits and closures in the private ledger; the progenitor maintains its separate gist backup. Do not expose gist identifiers or account-usage readings in public commits. Legacy tracked-ledger branches need a source-only handoff into a fresh current-main worktree, not a forced merge/rebase across removal of `.beads`.
 
-The user authorized a public GitHub remote at `dan-garvey/factory_project`. The progenitor publishes reviewed main after excluding historical tracker data. This does not authorize other remote repositories, unreviewed branches/PRs, paid services or contact with upstream maintainers.
+The user authorized the public GitHub remote at `dan-garvey/factory_project` and now delegates routine checked-main publication to workstream owners. This does not authorize other remotes, work-branch/PR publication, private ledger/account data, paid services or contact with upstream maintainers. Historical tracker data stays excluded.
