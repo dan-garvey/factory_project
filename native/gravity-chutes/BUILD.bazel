@@ -1,0 +1,31 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "gravity",
+    srcs = ["src/gravity.cpp"],
+    hdrs = ["include/factory/gravity.hpp"],
+    strip_include_prefix = "include",
+)
+
+cc_library(
+    name = "workbench",
+    srcs = ["src/workbench.cpp"],
+    hdrs = ["include/factory/gravity_workbench.hpp"],
+    strip_include_prefix = "include",
+    deps = [":gravity"],
+)
+
+cc_binary(
+    name = "gravity_workbench",
+    srcs = ["src/main.cpp"],
+    deps = [":workbench"],
+)
+
+cc_test(
+    name = "gravity_test",
+    srcs = ["tests/gravity_test.cpp"],
+    deps = [":workbench"],
+    size = "small",
+)
