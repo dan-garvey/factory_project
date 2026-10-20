@@ -1215,7 +1215,7 @@ func _animate_machine_bodies(delta: float) -> void:
 				_apply_press_pose(rows, target)
 				continue
 			var previous: float = machine_press_poses[id].travel
-			var travel: float = move_toward(previous, float(target), minf(delta, 0.1) * 1.2)
+			var travel: float = move_toward(previous, float(target), minf(delta, 0.1) * 0.12)
 			if travel == previous:
 				continue
 			_apply_press_pose(rows, travel)
@@ -1237,7 +1237,9 @@ func _observed_press_target() -> Variant:
 	var remaining: Variant = state.get("remaining")
 	if typeof(held) != TYPE_INT or held < 0 or typeof(remaining) != TYPE_INT or remaining < 0:
 		return null
-	return 0.14 if held > 0 else 0.0
+	# The fitted billet boss reaches y = 0.732; the resting head's lower face
+	# is at y = 0.755. Keep this pose clear of the unchanged workpiece.
+	return 0.015 if held > 0 else 0.0
 
 func _apply_cutter_pose(anchor: Node3D, rows: Array, angle: float) -> void:
 	var pivot := Vector3(-0.22, 1.1, -0.19)

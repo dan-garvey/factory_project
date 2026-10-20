@@ -45,8 +45,10 @@ precise limb contact and human-visible animation quality are not established.
 output tray, feet and visible fasteners. The playable view constructs the frame,
 guides, anvil, head and tray directly in `opening.gd`; it does not load this optional
 scene. The outlet plate now sits on that tray within the original conservative
-machine envelope. In the native profile, the head eases down by 0.14 metres only
+machine envelope. In the native profile, the head eases down by 0.015 metres only
 when confirmed held work is present, and rises only after held work is empty.
+The lowered head retains eight millimetres of clearance above the fitted billet's
+raised boss; a composed control compares the actual head and redrawn item meshes.
 Blocked READY work retains the lowered pose. The rod extends with its top fixed;
 this is an observed held/empty pose, not a predicted stroke or processing clock.
 Fresh contexts and replacement generations start at their observed pose, while
