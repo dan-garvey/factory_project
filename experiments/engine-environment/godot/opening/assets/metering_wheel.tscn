@@ -1,0 +1,225 @@
+[gd_scene load_steps=15 format=3]
+
+[sub_resource type="StandardMaterial3D" id="Frame"]
+albedo_color = Color(0.16, 0.32, 0.35, 1)
+metallic = 0.48
+roughness = 0.58
+
+[sub_resource type="StandardMaterial3D" id="Steel"]
+albedo_color = Color(0.56, 0.62, 0.61, 1)
+metallic = 0.85
+roughness = 0.32
+
+[sub_resource type="StandardMaterial3D" id="Dark"]
+albedo_color = Color(0.075, 0.095, 0.11, 1)
+metallic = 0.45
+roughness = 0.7
+
+[sub_resource type="StandardMaterial3D" id="Copper"]
+albedo_color = Color(0.69, 0.38, 0.2, 1)
+metallic = 0.72
+roughness = 0.46
+
+[sub_resource type="BoxMesh" id="Stand"]
+size = Vector3(0.85, 0.12, 0.65)
+
+[sub_resource type="BoxMesh" id="Upright"]
+size = Vector3(0.2, 0.62, 0.24)
+
+[sub_resource type="CylinderMesh" id="Housing"]
+top_radius = 0.16
+bottom_radius = 0.16
+height = 0.2
+radial_segments = 16
+
+[sub_resource type="CylinderMesh" id="Disc"]
+top_radius = 0.44
+bottom_radius = 0.44
+height = 0.09
+radial_segments = 24
+
+[sub_resource type="CylinderMesh" id="Hub"]
+top_radius = 0.095
+bottom_radius = 0.095
+height = 0.22
+radial_segments = 12
+
+[sub_resource type="BoxMesh" id="Spoke"]
+size = Vector3(0.09, 0.3, 0.05)
+
+[sub_resource type="BoxMesh" id="PocketFloor"]
+size = Vector3(0.18, 0.16, 0.04)
+
+[sub_resource type="BoxMesh" id="PocketLong"]
+size = Vector3(0.2, 0.025, 0.09)
+
+[sub_resource type="BoxMesh" id="PocketShort"]
+size = Vector3(0.025, 0.15, 0.09)
+
+[sub_resource type="CylinderMesh" id="Bolt"]
+top_radius = 0.023
+bottom_radius = 0.023
+height = 0.018
+radial_segments = 6
+
+[node name="MeteringWheelVisual" type="Node3D"]
+metadata/prototype_visual = true
+
+[node name="Stand" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.06, -0.08)
+mesh = SubResource("Stand")
+material_override = SubResource("Dark")
+
+[node name="Upright" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.41, -0.18)
+mesh = SubResource("Upright")
+material_override = SubResource("Frame")
+
+[node name="BearingHousing" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.68, -0.12)
+rotation = Vector3(1.5707963, 0, 0)
+mesh = SubResource("Housing")
+material_override = SubResource("Copper")
+
+[node name="Rotor" type="Node3D" parent="."]
+position = Vector3(0, 0.68, 0)
+
+[node name="Disc" type="MeshInstance3D" parent="Rotor"]
+rotation = Vector3(1.5707963, 0, 0)
+mesh = SubResource("Disc")
+material_override = SubResource("Frame")
+
+[node name="Hub" type="MeshInstance3D" parent="Rotor"]
+position = Vector3(0, 0, 0.05)
+rotation = Vector3(1.5707963, 0, 0)
+mesh = SubResource("Hub")
+material_override = SubResource("Copper")
+
+[node name="ArmA1" type="Node3D" parent="Rotor"]
+
+[node name="Spoke" type="MeshInstance3D" parent="Rotor/ArmA1"]
+position = Vector3(0, 0.17, 0.055)
+mesh = SubResource("Spoke")
+material_override = SubResource("Copper")
+
+[node name="Pocket" type="Node3D" parent="Rotor/ArmA1"]
+position = Vector3(0, 0.32, 0)
+
+[node name="Floor" type="MeshInstance3D" parent="Rotor/ArmA1/Pocket"]
+position = Vector3(0, 0, 0.085)
+mesh = SubResource("PocketFloor")
+material_override = SubResource("Steel")
+
+[node name="Top" type="MeshInstance3D" parent="Rotor/ArmA1/Pocket"]
+position = Vector3(0, 0.0875, 0.1)
+mesh = SubResource("PocketLong")
+material_override = SubResource("Copper")
+
+[node name="Bottom" type="MeshInstance3D" parent="Rotor/ArmA1/Pocket"]
+position = Vector3(0, -0.0875, 0.1)
+mesh = SubResource("PocketLong")
+material_override = SubResource("Copper")
+
+[node name="Left" type="MeshInstance3D" parent="Rotor/ArmA1/Pocket"]
+position = Vector3(-0.0875, 0, 0.1)
+mesh = SubResource("PocketShort")
+material_override = SubResource("Copper")
+
+[node name="Right" type="MeshInstance3D" parent="Rotor/ArmA1/Pocket"]
+position = Vector3(0.0875, 0, 0.1)
+mesh = SubResource("PocketShort")
+material_override = SubResource("Copper")
+
+[node name="ArmA2" type="Node3D" parent="Rotor"]
+rotation = Vector3(0, 0, 2.0943951)
+
+[node name="Spoke" type="MeshInstance3D" parent="Rotor/ArmA2"]
+position = Vector3(0, 0.17, 0.055)
+mesh = SubResource("Spoke")
+material_override = SubResource("Copper")
+
+[node name="Pocket" type="Node3D" parent="Rotor/ArmA2"]
+position = Vector3(0, 0.32, 0)
+
+[node name="Floor" type="MeshInstance3D" parent="Rotor/ArmA2/Pocket"]
+position = Vector3(0, 0, 0.085)
+mesh = SubResource("PocketFloor")
+material_override = SubResource("Steel")
+
+[node name="Top" type="MeshInstance3D" parent="Rotor/ArmA2/Pocket"]
+position = Vector3(0, 0.0875, 0.1)
+mesh = SubResource("PocketLong")
+material_override = SubResource("Copper")
+
+[node name="Bottom" type="MeshInstance3D" parent="Rotor/ArmA2/Pocket"]
+position = Vector3(0, -0.0875, 0.1)
+mesh = SubResource("PocketLong")
+material_override = SubResource("Copper")
+
+[node name="Left" type="MeshInstance3D" parent="Rotor/ArmA2/Pocket"]
+position = Vector3(-0.0875, 0, 0.1)
+mesh = SubResource("PocketShort")
+material_override = SubResource("Copper")
+
+[node name="Right" type="MeshInstance3D" parent="Rotor/ArmA2/Pocket"]
+position = Vector3(0.0875, 0, 0.1)
+mesh = SubResource("PocketShort")
+material_override = SubResource("Copper")
+
+[node name="ArmB" type="Node3D" parent="Rotor"]
+rotation = Vector3(0, 0, 4.1887902)
+
+[node name="Spoke" type="MeshInstance3D" parent="Rotor/ArmB"]
+position = Vector3(0, 0.17, 0.055)
+mesh = SubResource("Spoke")
+material_override = SubResource("Steel")
+
+[node name="Pocket" type="Node3D" parent="Rotor/ArmB"]
+position = Vector3(0, 0.32, 0)
+
+[node name="Floor" type="MeshInstance3D" parent="Rotor/ArmB/Pocket"]
+position = Vector3(0, 0, 0.085)
+mesh = SubResource("PocketFloor")
+material_override = SubResource("Steel")
+
+[node name="Top" type="MeshInstance3D" parent="Rotor/ArmB/Pocket"]
+position = Vector3(0, 0.0875, 0.1)
+mesh = SubResource("PocketLong")
+material_override = SubResource("Frame")
+
+[node name="Bottom" type="MeshInstance3D" parent="Rotor/ArmB/Pocket"]
+position = Vector3(0, -0.0875, 0.1)
+mesh = SubResource("PocketLong")
+material_override = SubResource("Frame")
+
+[node name="Left" type="MeshInstance3D" parent="Rotor/ArmB/Pocket"]
+position = Vector3(-0.0875, 0, 0.1)
+mesh = SubResource("PocketShort")
+material_override = SubResource("Frame")
+
+[node name="Right" type="MeshInstance3D" parent="Rotor/ArmB/Pocket"]
+position = Vector3(0.0875, 0, 0.1)
+mesh = SubResource("PocketShort")
+material_override = SubResource("Frame")
+
+[node name="LeftStandBolt" type="MeshInstance3D" parent="."]
+position = Vector3(-0.3, 0.129, 0.12)
+mesh = SubResource("Bolt")
+material_override = SubResource("Copper")
+
+[node name="RightStandBolt" type="MeshInstance3D" parent="."]
+position = Vector3(0.3, 0.129, 0.12)
+mesh = SubResource("Bolt")
+material_override = SubResource("Copper")
+
+[node name="InputPort" type="Marker3D" parent="."]
+position = Vector3(0, 1.2, 0.15)
+
+[node name="OutletA" type="Marker3D" parent="."]
+position = Vector3(-0.7, 0.35, 0.12)
+
+[node name="OutletB" type="Marker3D" parent="."]
+position = Vector3(0.7, 0.35, 0.12)
+
+[node name="DrivePort" type="Marker3D" parent="."]
+position = Vector3(0, 0.68, -0.28)

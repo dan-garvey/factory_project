@@ -1,0 +1,282 @@
+[gd_scene load_steps=22 format=3]
+
+[sub_resource type="StandardMaterial3D" id="Frame"]
+albedo_color = Color(0.16, 0.32, 0.35, 1)
+metallic = 0.48
+roughness = 0.58
+
+[sub_resource type="StandardMaterial3D" id="Steel"]
+albedo_color = Color(0.56, 0.62, 0.61, 1)
+metallic = 0.85
+roughness = 0.32
+
+[sub_resource type="StandardMaterial3D" id="Dark"]
+albedo_color = Color(0.075, 0.095, 0.11, 1)
+metallic = 0.45
+roughness = 0.7
+
+[sub_resource type="StandardMaterial3D" id="Copper"]
+albedo_color = Color(0.69, 0.38, 0.2, 1)
+metallic = 0.72
+roughness = 0.46
+
+[sub_resource type="BoxMesh" id="Bed"]
+size = Vector3(4.8, 0.16, 0.22)
+
+[sub_resource type="BoxMesh" id="Cross"]
+size = Vector3(0.2, 0.16, 1.45)
+
+[sub_resource type="CylinderMesh" id="Foot"]
+top_radius = 0.11
+bottom_radius = 0.14
+height = 0.12
+radial_segments = 12
+
+[sub_resource type="CylinderMesh" id="Rail"]
+top_radius = 0.055
+bottom_radius = 0.055
+height = 4.2
+radial_segments = 16
+
+[sub_resource type="CylinderMesh" id="Bearing"]
+top_radius = 0.105
+bottom_radius = 0.105
+height = 0.18
+radial_segments = 12
+
+[sub_resource type="BoxMesh" id="Side"]
+size = Vector3(0.94, 0.12, 0.16)
+
+[sub_resource type="BoxMesh" id="Floor"]
+size = Vector3(0.8, 0.045, 1.02)
+
+[sub_resource type="BoxMesh" id="WallLong"]
+size = Vector3(0.07, 0.16, 0.85)
+
+[sub_resource type="BoxMesh" id="WallEnd"]
+size = Vector3(0.66, 0.16, 0.07)
+
+[sub_resource type="BoxMesh" id="Anvil"]
+size = Vector3(0.6, 0.34, 0.62)
+
+[sub_resource type="BoxMesh" id="Column"]
+size = Vector3(0.16, 1.7, 0.26)
+
+[sub_resource type="BoxMesh" id="Bridge"]
+size = Vector3(1.2, 0.2, 0.38)
+
+[sub_resource type="BoxMesh" id="Ram"]
+size = Vector3(0.52, 0.12, 0.58)
+
+[sub_resource type="CylinderMesh" id="Piston"]
+top_radius = 0.065
+bottom_radius = 0.065
+height = 0.65
+radial_segments = 16
+
+[sub_resource type="CylinderMesh" id="Guide"]
+top_radius = 0.035
+bottom_radius = 0.035
+height = 0.9
+radial_segments = 12
+
+[sub_resource type="CylinderMesh" id="Sleeve"]
+top_radius = 0.11
+bottom_radius = 0.11
+height = 0.5
+radial_segments = 16
+
+[sub_resource type="CylinderMesh" id="Bolt"]
+top_radius = 0.035
+bottom_radius = 0.035
+height = 0.025
+radial_segments = 6
+
+[node name="IndexedCarriageVisual" type="Node3D"]
+metadata/prototype_visual = true
+
+[node name="FrontBed" type="MeshInstance3D" parent="."]
+position = Vector3(1.8, 0.18, 0.62)
+mesh = SubResource("Bed")
+material_override = SubResource("Frame")
+
+[node name="BackBed" type="MeshInstance3D" parent="."]
+position = Vector3(1.8, 0.18, -0.62)
+mesh = SubResource("Bed")
+material_override = SubResource("Frame")
+
+[node name="MiddleCross" type="MeshInstance3D" parent="."]
+position = Vector3(1.8, 0.18, 0)
+mesh = SubResource("Cross")
+material_override = SubResource("Frame")
+
+[node name="WorkCross" type="MeshInstance3D" parent="."]
+position = Vector3(3.6, 0.18, 0)
+mesh = SubResource("Cross")
+material_override = SubResource("Frame")
+
+[node name="DockFrontFoot" type="MeshInstance3D" parent="."]
+position = Vector3(-0.25, 0.06, 0.62)
+mesh = SubResource("Foot")
+material_override = SubResource("Dark")
+
+[node name="DockBackFoot" type="MeshInstance3D" parent="."]
+position = Vector3(-0.25, 0.06, -0.62)
+mesh = SubResource("Foot")
+material_override = SubResource("Dark")
+
+[node name="WorkFrontFoot" type="MeshInstance3D" parent="."]
+position = Vector3(3.85, 0.06, 0.62)
+mesh = SubResource("Foot")
+material_override = SubResource("Dark")
+
+[node name="WorkBackFoot" type="MeshInstance3D" parent="."]
+position = Vector3(3.85, 0.06, -0.62)
+mesh = SubResource("Foot")
+material_override = SubResource("Dark")
+
+[node name="FrontRail" type="MeshInstance3D" parent="."]
+position = Vector3(1.8, 0.38, 0.46)
+rotation = Vector3(0, 0, 1.5707963)
+mesh = SubResource("Rail")
+material_override = SubResource("Steel")
+
+[node name="BackRail" type="MeshInstance3D" parent="."]
+position = Vector3(1.8, 0.38, -0.46)
+rotation = Vector3(0, 0, 1.5707963)
+mesh = SubResource("Rail")
+material_override = SubResource("Steel")
+
+[node name="Anvil" type="MeshInstance3D" parent="."]
+position = Vector3(3.6, 0.4275, 0)
+mesh = SubResource("Anvil")
+material_override = SubResource("Dark")
+
+[node name="LeftColumn" type="MeshInstance3D" parent="."]
+position = Vector3(3.12, 1.12, -0.55)
+mesh = SubResource("Column")
+material_override = SubResource("Frame")
+
+[node name="RightColumn" type="MeshInstance3D" parent="."]
+position = Vector3(4.08, 1.12, -0.55)
+mesh = SubResource("Column")
+material_override = SubResource("Frame")
+
+[node name="Crosshead" type="MeshInstance3D" parent="."]
+position = Vector3(3.6, 2, -0.24)
+mesh = SubResource("Bridge")
+material_override = SubResource("Frame")
+
+[node name="LeftGuide" type="MeshInstance3D" parent="."]
+position = Vector3(3.3, 1.3, -0.14)
+mesh = SubResource("Guide")
+material_override = SubResource("Copper")
+
+[node name="RightGuide" type="MeshInstance3D" parent="."]
+position = Vector3(3.9, 1.3, -0.14)
+mesh = SubResource("Guide")
+material_override = SubResource("Copper")
+
+[node name="PistonSleeve" type="MeshInstance3D" parent="."]
+position = Vector3(3.6, 1.72, 0)
+mesh = SubResource("Sleeve")
+material_override = SubResource("Copper")
+
+[node name="Carriage" type="Node3D" parent="."]
+
+[node name="FrontSide" type="MeshInstance3D" parent="Carriage"]
+position = Vector3(0, 0.54, 0.48)
+mesh = SubResource("Side")
+material_override = SubResource("Frame")
+
+[node name="BackSide" type="MeshInstance3D" parent="Carriage"]
+position = Vector3(0, 0.54, -0.48)
+mesh = SubResource("Side")
+material_override = SubResource("Frame")
+
+[node name="FrontLeftBearing" type="MeshInstance3D" parent="Carriage"]
+position = Vector3(-0.28, 0.38, 0.46)
+rotation = Vector3(0, 0, 1.5707963)
+mesh = SubResource("Bearing")
+material_override = SubResource("Copper")
+
+[node name="FrontRightBearing" type="MeshInstance3D" parent="Carriage"]
+position = Vector3(0.28, 0.38, 0.46)
+rotation = Vector3(0, 0, 1.5707963)
+mesh = SubResource("Bearing")
+material_override = SubResource("Copper")
+
+[node name="BackLeftBearing" type="MeshInstance3D" parent="Carriage"]
+position = Vector3(-0.28, 0.38, -0.46)
+rotation = Vector3(0, 0, 1.5707963)
+mesh = SubResource("Bearing")
+material_override = SubResource("Copper")
+
+[node name="BackRightBearing" type="MeshInstance3D" parent="Carriage"]
+position = Vector3(0.28, 0.38, -0.46)
+rotation = Vector3(0, 0, 1.5707963)
+mesh = SubResource("Bearing")
+material_override = SubResource("Copper")
+
+[node name="NestFloor" type="Node3D" parent="Carriage"]
+position = Vector3(0, 0.62, 0)
+
+[node name="Plate" type="MeshInstance3D" parent="Carriage/NestFloor"]
+mesh = SubResource("Floor")
+material_override = SubResource("Steel")
+
+[node name="LeftNestWall" type="MeshInstance3D" parent="Carriage"]
+position = Vector3(-0.36, 0.72, 0)
+mesh = SubResource("WallLong")
+material_override = SubResource("Frame")
+
+[node name="RightNestWall" type="MeshInstance3D" parent="Carriage"]
+position = Vector3(0.36, 0.72, 0)
+mesh = SubResource("WallLong")
+material_override = SubResource("Frame")
+
+[node name="FrontNestWall" type="MeshInstance3D" parent="Carriage"]
+position = Vector3(0, 0.72, 0.425)
+mesh = SubResource("WallEnd")
+material_override = SubResource("Frame")
+
+[node name="BackNestWall" type="MeshInstance3D" parent="Carriage"]
+position = Vector3(0, 0.72, -0.425)
+mesh = SubResource("WallEnd")
+material_override = SubResource("Frame")
+
+[node name="FrontLeftFastener" type="MeshInstance3D" parent="Carriage"]
+position = Vector3(-0.3, 0.6125, 0.48)
+mesh = SubResource("Bolt")
+material_override = SubResource("Copper")
+
+[node name="FrontRightFastener" type="MeshInstance3D" parent="Carriage"]
+position = Vector3(0.3, 0.6125, 0.48)
+mesh = SubResource("Bolt")
+material_override = SubResource("Copper")
+
+[node name="Ram" type="Node3D" parent="."]
+position = Vector3(3.6, 1.18, 0)
+
+[node name="Tool" type="MeshInstance3D" parent="Ram"]
+mesh = SubResource("Ram")
+material_override = SubResource("Steel")
+
+[node name="Piston" type="MeshInstance3D" parent="Ram"]
+position = Vector3(0, 0.38, 0)
+mesh = SubResource("Piston")
+material_override = SubResource("Steel")
+
+[node name="DockPose" type="Marker3D" parent="."]
+
+[node name="WorkPose" type="Marker3D" parent="."]
+position = Vector3(3.6, 0, 0)
+
+[node name="FeedPort" type="Marker3D" parent="."]
+position = Vector3(0, 1.25, 0)
+
+[node name="DischargePort" type="Marker3D" parent="."]
+position = Vector3(0, 0.32, 0)
+
+[node name="DrivePort" type="Marker3D" parent="."]
+position = Vector3(3.6, 1.72, -0.25)

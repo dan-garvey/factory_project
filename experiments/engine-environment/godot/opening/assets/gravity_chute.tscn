@@ -1,0 +1,114 @@
+[gd_scene load_steps=10 format=3]
+
+[sub_resource type="StandardMaterial3D" id="Frame"]
+albedo_color = Color(0.16, 0.32, 0.35, 1)
+metallic = 0.48
+roughness = 0.58
+
+[sub_resource type="StandardMaterial3D" id="Steel"]
+albedo_color = Color(0.56, 0.62, 0.61, 1)
+metallic = 0.85
+roughness = 0.32
+
+[sub_resource type="StandardMaterial3D" id="Dark"]
+albedo_color = Color(0.075, 0.095, 0.11, 1)
+metallic = 0.45
+roughness = 0.7
+
+[sub_resource type="StandardMaterial3D" id="Copper"]
+albedo_color = Color(0.69, 0.38, 0.2, 1)
+metallic = 0.72
+roughness = 0.46
+
+[sub_resource type="BoxMesh" id="Floor"]
+size = Vector3(1.4142136, 0.06, 0.56)
+
+[sub_resource type="BoxMesh" id="Wall"]
+size = Vector3(1.4142136, 0.24, 0.045)
+
+[sub_resource type="BoxMesh" id="Rib"]
+size = Vector3(0.08, 0.1, 0.62)
+
+[sub_resource type="BoxMesh" id="Flange"]
+size = Vector3(0.08, 0.09, 0.72)
+
+[sub_resource type="CylinderMesh" id="Bolt"]
+top_radius = 0.025
+bottom_radius = 0.025
+height = 0.02
+radial_segments = 6
+
+[node name="GravityChuteVisual" type="Node3D"]
+metadata/prototype_visual = true
+
+[node name="SlidingFace" type="MeshInstance3D" parent="."]
+position = Vector3(0.5, 0.45, 0)
+rotation = Vector3(0, 0, -0.7853982)
+mesh = SubResource("Floor")
+material_override = SubResource("Steel")
+
+[node name="FrontWall" type="MeshInstance3D" parent="."]
+position = Vector3(0.5, 0.54, 0.29)
+rotation = Vector3(0, 0, -0.7853982)
+mesh = SubResource("Wall")
+material_override = SubResource("Frame")
+
+[node name="BackWall" type="MeshInstance3D" parent="."]
+position = Vector3(0.5, 0.54, -0.29)
+rotation = Vector3(0, 0, -0.7853982)
+mesh = SubResource("Wall")
+material_override = SubResource("Frame")
+
+[node name="UpperRib" type="MeshInstance3D" parent="."]
+position = Vector3(0.22, 0.67, 0)
+rotation = Vector3(0, 0, -0.7853982)
+mesh = SubResource("Rib")
+material_override = SubResource("Dark")
+
+[node name="LowerRib" type="MeshInstance3D" parent="."]
+position = Vector3(0.78, 0.11, 0)
+rotation = Vector3(0, 0, -0.7853982)
+mesh = SubResource("Rib")
+material_override = SubResource("Dark")
+
+[node name="UpperFlange" type="MeshInstance3D" parent="."]
+position = Vector3(0.1, 0.82, 0)
+rotation = Vector3(0, 0, -0.7853982)
+mesh = SubResource("Flange")
+material_override = SubResource("Frame")
+
+[node name="LowerFlange" type="MeshInstance3D" parent="."]
+position = Vector3(0.9, 0.02, 0)
+rotation = Vector3(0, 0, -0.7853982)
+mesh = SubResource("Flange")
+material_override = SubResource("Frame")
+
+[node name="UpperFrontBolt" type="MeshInstance3D" parent="."]
+position = Vector3(0.1, 0.9, 0.33)
+rotation = Vector3(0, 0, -0.7853982)
+mesh = SubResource("Bolt")
+material_override = SubResource("Copper")
+
+[node name="UpperBackBolt" type="MeshInstance3D" parent="."]
+position = Vector3(0.1, 0.9, -0.33)
+rotation = Vector3(0, 0, -0.7853982)
+mesh = SubResource("Bolt")
+material_override = SubResource("Copper")
+
+[node name="LowerFrontBolt" type="MeshInstance3D" parent="."]
+position = Vector3(0.9, 0.1, 0.33)
+rotation = Vector3(0, 0, -0.7853982)
+mesh = SubResource("Bolt")
+material_override = SubResource("Copper")
+
+[node name="LowerBackBolt" type="MeshInstance3D" parent="."]
+position = Vector3(0.9, 0.1, -0.33)
+rotation = Vector3(0, 0, -0.7853982)
+mesh = SubResource("Bolt")
+material_override = SubResource("Copper")
+
+[node name="Inlet" type="Marker3D" parent="."]
+position = Vector3(0, 1, 0)
+
+[node name="Outlet" type="Marker3D" parent="."]
+position = Vector3(1, 0, 0)
