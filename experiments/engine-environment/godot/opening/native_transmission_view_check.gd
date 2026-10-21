@@ -17,10 +17,13 @@ class HostStub extends RefCounted:
 	var explanation_open := false
 	var startup_save_pending := false
 	var mutate_allowed := true
+	var motion_fresh := true
 	var calls: Array = []
 	var messages: Array = []
 	func _can_mutate() -> bool:
 		return mutate_allowed
+	func _can_present_confirmed_motion() -> bool:
+		return motion_fresh
 	func issue(wire: Dictionary) -> Dictionary:
 		calls.append(wire.duplicate(true))
 		return {"queued": true, "accepted": false, "request": "request-%d" % calls.size()}
@@ -512,6 +515,70 @@ func _presentation() -> void:
 	view.refresh()
 	verify(not view.visible and view.get_child_count() == 0, "A scripted projection cannot retain old native geometry.")
 	view.free()
+
+func _belt_surface_motion() -> void:
+	var host := HostStub.new()
+	host.state = fixture()
+	host.state.transmission_parts = {
+		"a0": {"kind": "shaft", "generation": 10, "center": [0, 0, 0], "axis": 2, "half_span": 2},
+		"a1": {"kind": "shaft", "generation": 11, "center": [8, 0, 0], "axis": 2, "half_span": 2},
+		"b0": {"kind": "shaft", "generation": 12, "center": [0, 0, 8], "axis": 2, "half_span": 2},
+		"b1": {"kind": "shaft", "generation": 13, "center": [8, 0, 8], "axis": 2, "half_span": 2}}
+	host.state.motion = {"a0": {"state": "rotating", "numerator": 1, "denominator": 1},
+		"a1": {"state": "rotating", "numerator": 1, "denominator": 1},
+		"b0": {"state": "rotating", "numerator": -2, "denominator": 1},
+		"b1": {"state": "rotating", "numerator": -2, "denominator": 1}}
+	host.state.belt_spans = {"belt-a": {"from": "a0", "to": "a1"}, "belt-b": {"from": "b0", "to": "b1"}}
+	var before: Dictionary = host.state.duplicate(true)
+	var view := Presenter.new()
+	view.configure(host)
+	var loop_a: MeshInstance3D = _part(view, "belt-a").get_node("BeltLoop")
+	var loop_b: MeshInstance3D = _part(view, "belt-b").get_node("BeltLoop")
+	var material_a := loop_a.material_override as StandardMaterial3D
+	var material_b := loop_b.material_override as StandardMaterial3D
+	verify(material_a != material_b, "Each belt has its own surface phase without changing the cached rubber material.")
+	view.advance_visual_motion(0.1)
+	var a_delta := wrapf(material_a.uv1_offset.x, -0.5, 0.5)
+	var b_delta := wrapf(material_b.uv1_offset.x, -0.5, 0.5)
+	verify(a_delta > 0.0 and b_delta < 0.0 and is_equal_approx(b_delta, -2.0 * a_delta),
+		"Belt surfaces follow independent signed shaft rates.")
+	var prior_a := material_a.uv1_offset.x
+	host.motion_fresh = false
+	view.advance_visual_motion(0.1)
+	verify(is_equal_approx(material_a.uv1_offset.x, prior_a), "A stale view cannot invent belt movement.")
+	host.motion_fresh = true
+	host.state.motion.a0 = {"state": "stalled", "numerator": 0, "denominator": 1}
+	view.refresh()
+	material_a = _part(view, "belt-a").get_node("BeltLoop").material_override
+	verify(is_equal_approx(material_a.uv1_offset.x, prior_a), "A rebuilt stopped belt preserves its cosmetic phase.")
+	view.advance_visual_motion(0.1)
+	verify(is_equal_approx(material_a.uv1_offset.x, prior_a), "A stalled belt surface remains still.")
+	verify(before.transmission_parts == host.state.transmission_parts and host.calls.is_empty(),
+		"Cosmetic belt motion does not submit commands or alter transmission geometry.")
+	view.free()
+	for example in [
+		{"axis": 2, "end": [8, 0, 0], "sign": 1.0},
+		{"axis": 0, "end": [0, 0, 8], "sign": -1.0},
+		{"axis": 2, "end": [8, 8, 0], "sign": 1.0},
+		{"axis": 2, "end": [0, 8, 0], "sign": 1.0},
+		{"axis": 1, "end": [8, 0, 0], "sign": 1.0}]:
+		for reversed in [false, true]:
+			var oriented := HostStub.new()
+			oriented.state = fixture()
+			oriented.state.transmission_parts = {
+				"first": {"kind": "shaft", "generation": 1, "center": [0, 0, 0], "axis": example.axis, "half_span": 2},
+				"last": {"kind": "shaft", "generation": 2, "center": example.end, "axis": example.axis, "half_span": 2}}
+			oriented.state.motion = {"first": {"state": "rotating", "numerator": 1, "denominator": 1},
+				"last": {"state": "rotating", "numerator": 1, "denominator": 1}}
+			oriented.state.belt_spans = {"span": {"from": "last" if reversed else "first", "to": "first" if reversed else "last"}}
+			var presenter := Presenter.new()
+			presenter.configure(oriented)
+			var loop: MeshInstance3D = _part(presenter, "span").get_node("BeltLoop")
+			presenter.advance_visual_motion(0.1)
+			var offset: float = (loop.material_override as StandardMaterial3D).uv1_offset.x
+			verify(wrapf(offset, -0.5, 0.5) * example.sign > 0.0,
+				"Surface travel respects axle orientation and is independent of endpoint order.")
+			presenter.free()
 
 func _cache_regression() -> void:
 	var host := HostStub.new()
@@ -1032,6 +1099,8 @@ func _run() -> void:
 		_tool_guidance()
 	elif "--refresh-cache-only" in OS.get_cmdline_user_args():
 		_cache_regression()
+	elif "--belt-surface-only" in OS.get_cmdline_user_args():
+		_belt_surface_motion()
 	elif "--direction-basis-only" in OS.get_cmdline_user_args():
 		_direction_basis()
 	elif "--loose-material-only" in OS.get_cmdline_user_args():
@@ -1057,6 +1126,7 @@ func _run() -> void:
 		_gear_sizes()
 		_shaft_segments()
 		_belt_spans()
+		_belt_surface_motion()
 		_presentation()
 	print("NATIVE_TRANSMISSION_VIEW_%s %d" % ["PASS" if failures == 0 else "FAIL", checks])
 	quit(0 if failures == 0 else 1)
