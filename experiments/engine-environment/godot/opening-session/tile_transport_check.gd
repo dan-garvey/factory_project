@@ -8,7 +8,9 @@ extends SceneTree
 ## and resume-Q with the same directory and port, after the first server exits.
 ## Require all six processes to pass. Add --span-belt for a constructed
 ## mechanical span and its restored removal over the Session transport. Add
-## --powered-span instead to exercise a native waterwheel-driven span.
+## --powered-span instead to exercise a native waterwheel-driven span, or
+## --inclined-span to construct its elevated 45-degree counterpart. Add
+## --reverse-endpoints to submit either span in the opposite endpoint order.
 ## Add --reverse-belt to every process for
 ## generated-site reverse deposition and pickup after restart. The resumed Session uses the Store but
 ## does not exercise the ordinary server lifecycle or physical actor bodies.
@@ -25,6 +27,8 @@ var failed := false
 var reverse_belt := false
 var span_belt := false
 var powered_span := false
+var inclined_span := false
+var reverse_endpoints := false
 var serial := 0
 var epoch := 0
 
@@ -38,6 +42,11 @@ func _initialize() -> void:
 		elif arg == "--powered-span":
 			span_belt = true
 			powered_span = true
+		elif arg == "--inclined-span":
+			span_belt = true
+			powered_span = true
+			inclined_span = true
+		elif arg == "--reverse-endpoints": reverse_endpoints = true
 	call_deferred("run")
 
 func verify(ok: bool, message: String) -> void:
@@ -241,13 +250,14 @@ func run_span() -> void:
 					verify(wheel.get("accepted", false), "P constructs the native waterwheel: " + str(wheel))
 					if failed: quit(1); return
 				var first_center := [-4, 4, 4] if powered_span else [0, 0, 0]
-				var last_center := [-4, 4, 12] if powered_span else [8, 0, 0]
+				var last_center := ([-4, 8, 8] if inclined_span else [-4, 4, 12]) if powered_span else [8, 0, 0]
 				var axis := "x" if powered_span else "z"
 				var first := await issue({"action": "place_shaft", "center": first_center, "axis": axis, "half_span": 2})
 				var last := await issue({"action": "place_shaft", "center": last_center, "axis": axis, "half_span": 2})
 				verify(first.get("accepted", false) and last.get("accepted", false), "P constructs both shaft tiles through Session")
 				if failed: quit(1); return
-				var span := await issue({"action": "place_belt_span", "from": first.entity, "to": last.entity})
+				var span := await issue({"action": "place_belt_span", "from": last.entity if reverse_endpoints else first.entity,
+					"to": first.entity if reverse_endpoints else last.entity})
 				verify(span.get("accepted", false), "P constructs the belt through Session: " + str(span))
 				if failed: quit(1); return
 				var request: String = span.request
@@ -282,7 +292,7 @@ func run_span() -> void:
 					var disconnected := ""
 					for id in view.transmission_parts:
 						if view.transmission_parts[id].center == [-4, 4, 4]: driven = str(id)
-						if view.transmission_parts[id].center == [-4, 4, 12]: disconnected = str(id)
+						if view.transmission_parts[id].center == ([-4, 8, 8] if inclined_span else [-4, 4, 12]): disconnected = str(id)
 					verify(not driven.is_empty() and not disconnected.is_empty() and view.motion[driven].state == "rotating"
 						and view.motion[disconnected].state == "unpowered", "Q observes the far shaft stop while the source shaft remains driven")
 			if failed: quit(1); return
