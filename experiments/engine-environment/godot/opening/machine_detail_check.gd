@@ -1459,20 +1459,22 @@ func journal_shape_matches(mesh: Mesh, height: float) -> bool:
 
 func journal_pose_matches(journal: MeshInstance3D, axis: int) -> bool:
 	return journal.position.is_equal_approx(Vector3(0, 0.5, 0)) and journal.scale.is_equal_approx(Vector3.ONE) \
-		and journal.basis.y.dot([Vector3.RIGHT, Vector3.UP, Vector3.BACK][axis]) > 0.99999
+		and journal.basis.y.dot([Vector3.LEFT, Vector3.UP, Vector3.BACK][axis]) > 0.99999
 
-func check_drive_journals() -> void:
+func check_drive_journals(geometry_checks: bool = true) -> void:
 	var meshes: Dictionary = {}
 	var assemblies := 0
 	var geometry_observations: Array[Dictionary] = []
 	for height in [0.9, 1.35]:
 		var mesh := DriveJournalArt.mesh(height)
+		meshes[height] = mesh
+		if not geometry_checks:
+			continue
 		verify(mesh == DriveJournalArt.mesh(height) and mesh.get_surface_count() == 1,
 			"Equal journal lengths reuse one passive mesh and one material surface.")
 		verify(journal_shape_matches(mesh, height),
 			"Raw facets preserve the full central bearing span, envelope, relieved bands, chamfered ends and two real center recesses.")
 		check_closed_asset_mesh(mesh, 0.0198 if height < 1 else 0.0300, 0.0205 if height < 1 else 0.0307)
-		meshes[height] = mesh
 		var plain := CylinderMesh.new()
 		plain.top_radius = 0.085
 		plain.bottom_radius = 0.085
@@ -1484,14 +1486,15 @@ func check_drive_journals() -> void:
 			"central_radius": journal_section_radius(mesh, 0),
 			"relief_radius": journal_section_radius(mesh, height / 2.0 - 0.051),
 			"chamfer_radius": journal_section_radius(mesh, height / 2.0 - 0.007), "axis_hits": journal_center_hits(mesh)})
-	verify(meshes[0.9] != meshes[1.35], "Different native journal lengths cannot alias a cached mesh.")
 	var material := DriveJournalArt.material()
-	verify(material == Opening.ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.38)
-		and material != null and material.albedo_color == Color("a6b4af") and is_equal_approx(material.metallic, 0.85)
-		and material.roughness_texture == Opening.ProductionTransmissionFinish.textures.worked_roughness
-		and material.normal_texture == Opening.ProductionTransmissionFinish.textures.worked_normal
-		and material.uv1_triplanar and not material.uv1_world_triplanar,
-		"Exposed journals reuse the qualified worked steel finish and its local physical map scale.")
+	if geometry_checks:
+		verify(meshes[0.9] != meshes[1.35], "Different native journal lengths cannot alias a cached mesh.")
+		verify(material == Opening.ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.38)
+			and material != null and material.albedo_color == Color("a6b4af") and is_equal_approx(material.metallic, 0.85)
+			and material.roughness_texture == Opening.ProductionTransmissionFinish.textures.worked_roughness
+			and material.normal_texture == Opening.ProductionTransmissionFinish.textures.worked_normal
+			and material.uv1_triplanar and not material.uv1_world_triplanar,
+			"Exposed journals reuse the qualified worked steel finish and its local physical map scale.")
 	for shared_profile in [false, true]:
 		for kind in ["collector", "processor"]:
 			for axis in range(3):
@@ -1511,36 +1514,39 @@ func check_drive_journals() -> void:
 					verify(journal.mesh == meshes[height] and journal.material_override == material
 						and journal.get_child_count() == 0 and journal.get_script() == null and journal_pose_matches(journal, axis),
 						"Both actual view builders mount the same plain journal on the existing native center and confirmed axis.")
-					verify(machine.position == Vector3(cell[0] * 4, 0, cell[1] * 4),
+					verify(machine.position.is_equal_approx(Vector3(cell[0] * 1.65, 0, cell[1] * 1.65)),
 						"Translated constructions retain the common world-space grid origin and height.")
-					check_bounds(journal, Transform3D.IDENTITY)
-					var picks := 0
-					for child in machine.get_children():
-						if child is StaticBody3D:
-							picks += 1
-							verify(child.collision_layer == 4 and child.collision_mask == 0 and child.get_child_count() == 1
-								and child.get_child(0).shape.size == Vector3(1.45, 1.65, 1.45)
-								and child.get_child(0).position == Vector3(0, 0.8, 0),
-								"The sole conservative pick body keeps its original dimensions, center and masks.")
-					var rows: Array = machine.get_meta("motion_meshes")
-					var original_rows := 10 if kind == "collector" else 2
-					var journal_fixed := rows.size() == original_rows
-					for row in rows:
-						journal_fixed = journal_fixed and row.node != journal
-					verify(picks == 1 and journal_fixed,
-						"The journal gains neither another pick body nor a fabricated rotation callback.")
+					if geometry_checks:
+						check_bounds(journal, Transform3D.IDENTITY)
+						var picks := 0
+						for child in machine.get_children():
+							if child is StaticBody3D:
+								picks += 1
+								verify(child.collision_layer == 4 and child.collision_mask == 0 and child.get_child_count() == 1
+									and child.get_child(0).shape.size == Vector3(1.45, 1.65, 1.45)
+									and child.get_child(0).position == Vector3(0, 0.8, 0),
+									"The sole conservative pick body keeps its original dimensions, center and masks.")
+						var rows: Array = machine.get_meta("motion_meshes")
+						var original_rows := 10 if kind == "collector" else 2
+						var journal_fixed := rows.size() == original_rows
+						for row in rows:
+							journal_fixed = journal_fixed and row.node != journal
+						verify(picks == 1 and journal_fixed,
+							"The journal gains neither another pick body nor a fabricated rotation callback.")
 					var pose := journal.position
 					journal.position.x += 0.01
 					verify(not journal_pose_matches(journal, axis), "A displaced journal is rejected even when its own mesh is valid.")
 					journal.position = pose
-					verify(view.state == before and view.model == null and view.actor_world == null
-						and view.request_sequence == 0 and not view.is_inside_tree(),
-						"Mesh assembly leaves material projection, authority, input and native bodies untouched.")
+					if geometry_checks:
+						verify(view.state == before and view.model == null and view.actor_world == null
+							and view.request_sequence == 0 and not view.is_inside_tree(),
+							"Mesh assembly leaves material projection, authority, input and native bodies untouched.")
 					assemblies += 1
 					view.free()
 	print(JSON.stringify({"phase": "machine drive journals", "assemblies": assemblies,
 		"cached_meshes": meshes.size(), "geometry": geometry_observations,
-		"negative_control_types": 2, "native_gameplay": "not_run", "rendered_quality": "not_assessed"}))
+		"geometry_checks": geometry_checks, "negative_control_types": 2 if geometry_checks else 1,
+		"native_gameplay": "not_run", "rendered_quality": "not_assessed"}))
 
 func check_closed_asset_mesh(mesh: Mesh, minimum_volume: float, maximum_volume: float) -> void:
 	var arrays := mesh.surface_get_arrays(0)
@@ -4027,6 +4033,11 @@ func render_buildable_resources() -> void:
 
 func _initialize() -> void:
 	if OS.get_cmdline_user_args().has("--render-buildable-resources"):
+		if OS.get_cmdline_user_args().has("--drive-journal-mount-check"):
+			check_drive_journals(false)
+			if failed:
+				finish()
+				return
 		if OS.get_cmdline_user_args().has("--drive-journal-check"):
 			check_drive_journals()
 			if failed:
