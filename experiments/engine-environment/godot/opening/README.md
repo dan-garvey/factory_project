@@ -27,12 +27,14 @@ technology unlocks or saved progression. F, G and I retain material, shaft and
 inspection selection. Reopening derives goal advice from the actual worksite.
 
 **Foundation** builds a level surface from the carried kit. Its height controls
-and Page Up / Page Down move by one height step, initially at world level zero. Every
+and Page Up / Page Down select whole-tile factory floors, initially at 1.65 m.
+Enable **Access steps** for quarter-height walking steps; turn it off to snap the
+selected height back to a factory floor without moving anything already built. Every
 foundation and machine uses the same quarter-pitch height unit, currently
 0.4125 m on 1.65 m horizontal tiles. Machines require a whole-tile height: a
 foundation top at level 0, 4, 8 and so on can support a machine and align its
 axle with tile-snapped transmission. Intermediate foundation heights remain
-available for steps, but cannot support a powered machine. A 0.825 m foundation stacks two
+available for steps, but do not show a machine preview or support a powered machine. A 0.825 m foundation stacks two
 height units above another foundation. The 1.65 m machines remain two foundation
 depths tall. At gravity 14 and jump speed 6, the ideal jump rise is about 1.29 m,
 leaving about 0.46 m of clearance above one foundation. Foundations may float

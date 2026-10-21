@@ -116,8 +116,18 @@ func check_foundation_view() -> void:
 	view._refresh_guided_tools()
 	view._adjust_foundation_level(1)
 	await settle_footer()
-	verify(view.foundation_level == 1 and view.foundation_level_controls.visible,
-		"The foundation tool exposes an absolute height in the real controls.")
+	verify(view.foundation_level == 4 and view.foundation_level_controls.visible
+		and view.foundation_level_label.text == "Factory floor · 1.65 m",
+		"The ordinary height control chooses a machine-aligned factory floor.")
+	view.foundation_steps_toggle.button_pressed = true
+	view._adjust_foundation_level(-1)
+	verify(view.foundation_level == 3 and view.foundation_level_label.text.begins_with("Access step"),
+		"Explicit access steps use the same quarter-height denominator for traversal.")
+	view.foundation_steps_toggle.button_pressed = false
+	verify(view.foundation_level == 4 and not view.foundation_steps and not view.foundation_area_started,
+		"Leaving step mode snaps the selected height without moving an existing surface.")
+	verify(view.state.foundations.left.level == 1 and view.state.foundations.right.level == 1,
+		"The height controls do not migrate or move previously built foundations.")
 	var bounds: Rect2 = view.build_column.get_parent().get_global_rect()
 	verify(root.get_visible_rect().encloses(bounds), "The expanded foundation controls fit the viewport.")
 	verify(view.model == null and view.actor_world == null, "All pointer and UI observations stay read-only.")
@@ -132,7 +142,7 @@ func check_foundation_view() -> void:
 		"A current shared foundation acknowledgement selects the confirmed surface without a client authority.")
 	verify(ack._material_refusal_message({"reason": "invalid_area"}, "missing advice").begins_with("Choose a rectangle"),
 		"Shared refusal advice explains the recovery action in ordinary language.")
-	verify("whole-tile height" in ack._material_refusal_message({"reason": "unaligned_elevation"}, "missing advice"),
+	verify("Access steps off" in ack._material_refusal_message({"reason": "unaligned_elevation"}, "missing advice"),
 		"Both shared and ordinary views explain how to align a machine with transmission tiles.")
 	ack.free()
 	view.free()

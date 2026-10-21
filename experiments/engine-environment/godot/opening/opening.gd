@@ -3350,7 +3350,9 @@ var lesson_body: Label
 var tool_buttons: Dictionary = {}
 var building_hotbar
 var build_column: VBoxContainer
-var foundation_level := 0
+var foundation_level := Geometry.HEIGHT_DENOMINATOR
+var foundation_steps := false
+var foundation_steps_toggle: CheckButton
 var foundation_area_mode := false
 var foundation_area_started := false
 var foundation_area_start := Vector2i.ZERO
@@ -3706,7 +3708,7 @@ func issue(action: Dictionary) -> Dictionary:
 
 func _material_refusal_message(outcome: Dictionary, fallback: String) -> String:
 	var foundation_advice: String = {
-		"unaligned_elevation": "This height is between transmission tiles. Build the machine or wheel at a whole-tile height.",
+		"unaligned_elevation": "Machines and wheels need a whole-tile height. Build a factory floor with Access steps off, or adjust the wheel's drive height.",
 		"axles_already_touch": "These axle ends already touch; no shaft is needed.",
 		"overlapping_shafts": "A shaft already occupies that length. Place the new segment end to end.",
 		"foundation_required": "Build a foundation here first so the machine has a level surface.",
@@ -3988,7 +3990,7 @@ func _select_tool(tool: String) -> void:
 		instructions["flow"] = "Choose the upstream machine, then its neighbor at the material outlet."
 		instructions["drive"] = "Place a shaft on the highlighted tile. Set its axis and height in the cogwheel and shaft menu."
 		instructions["gear"] = "Place a cogwheel at the highlighted point. Set axis and height in the cogwheel menu."
-		instructions["foundation"] = "Place foundations through ground and scenery. Page Up / Page Down move one quarter-height step. Enable Area to choose two corners; Esc cancels."
+		instructions["foundation"] = "Place a factory floor at the displayed world height. Page Up / Page Down move one full tile; Access steps enables smaller walking steps. Area chooses two corners; Esc cancels."
 	_message(instructions.get(tool,
 		"Place %s on an empty grid square." % NAMES.get(tool, tool)))
 
@@ -4165,13 +4167,32 @@ func _adjust_foundation_level(delta: int) -> void:
 	if mode not in ["foundation", "wheel"] or not _native_transmission() or explanation_open:
 		return
 	if mode == "wheel":
-		wheel_level = clampi(wheel_level + delta * 4, -1000000, 1000000)
+		wheel_level = clampi(wheel_level + delta * Geometry.HEIGHT_DENOMINATOR, -1000000, 1000000)
 	else:
-		foundation_level = clampi(foundation_level + delta, -1000000, 1000000)
+		var step := 1 if foundation_steps else Geometry.HEIGHT_DENOMINATOR
+		foundation_level = clampi(foundation_level + delta * step, -1000000, 1000000)
 	foundation_area_started = false
+	foundation_level_label.text = _construction_height_text()
+	_message(_construction_height_text() + ". Access steps are for walking; machines need a factory floor.")
+
+func _set_foundation_steps(enabled: bool) -> void:
+	foundation_steps = enabled
+	if not enabled:
+		foundation_level = roundi(float(foundation_level) / Geometry.HEIGHT_DENOMINATOR) * Geometry.HEIGHT_DENOMINATOR
+	foundation_area_started = false
+	foundation_level_label.text = _construction_height_text()
+	_message(_construction_height_text() + ". Existing foundations stay at their built heights.")
+
+func _construction_height_text() -> String:
 	var level := wheel_level if mode == "wheel" else foundation_level
-	foundation_level_label.text = "Level %d · %.2f m" % [level, level * Geometry.HEIGHT_STEP]
-	_message("Construction level %d (%.2f m). Wheels and machines use the same shaft height above this level." % [level, level * Geometry.HEIGHT_STEP])
+	var caption := "Drive height" if mode == "wheel" else "Factory floor" if level % Geometry.HEIGHT_DENOMINATOR == 0 else "Access step"
+	return "%s · %.2f m" % [caption, level * Geometry.HEIGHT_STEP]
+
+func _machine_floor_aligned(cell: Vector2i) -> bool:
+	# Only suppress a known impossible height. Host still decides support,
+	# terrain, occupancy and reach; an amber preview never promises admission.
+	return not _native_transmission() or mode not in ["collector", "belt", "processor", "wheel"] \
+		or _construction_level(cell) % Geometry.HEIGHT_DENOMINATOR == 0
 
 func _adjust_wheel_size(delta: int) -> void:
 	if mode != "wheel" or not _native_transmission() or explanation_open:
@@ -4833,7 +4854,8 @@ func _refresh_ui() -> void:
 		var surface: Dictionary = state.foundations[selected]
 		selection_ring.visible = true
 		selection_ring.position = _entity_position(surface) + Vector3(0, 0.02, 0)
-		inspector.text = "Foundation\nSquare %s · level %d\nTop %.2f m\nRemove to reclaim the carried part." % [str(surface.cell), surface.level, surface.level * Geometry.HEIGHT_STEP]
+		var floor_type := "Factory floor" if int(surface.level) % Geometry.HEIGHT_DENOMINATOR == 0 else "Access step · machines need a factory floor"
+		inspector.text = "%s\nSquare %s\nTop %.2f m\nRemove to reclaim the carried part." % [floor_type, str(surface.cell), surface.level * Geometry.HEIGHT_STEP]
 	elif _native_transmission() and state.get("transmission_parts", {}).has(selected):
 		var part: Dictionary = state.transmission_parts[selected]
 		var motion: Dictionary = state.get("motion", {}).get(selected, {})
@@ -4869,8 +4891,8 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	if foundation_level_controls != null:
 		foundation_level_controls.visible = _native_transmission() and mode in ["foundation", "wheel"] and not explanation_open and snapshot_ready
 		foundation_area_toggle.visible = foundation_level_controls.visible and mode == "foundation"
-		var level := wheel_level if mode == "wheel" else foundation_level
-		foundation_level_label.text = "Level %d · %.2f m" % [level, level * Geometry.HEIGHT_STEP]
+		foundation_steps_toggle.visible = foundation_area_toggle.visible
+		foundation_level_label.text = _construction_height_text()
 		wheel_size_controls.visible = foundation_level_controls.visible and mode == "wheel"
 	_refresh_placement_hint(snapshot_ready)
 	footer_snapshot_ready = snapshot_ready
@@ -5020,7 +5042,7 @@ func _refresh_machine_preview() -> void:
 	if transmission_controls != null and not transmission_controls.active_tool.is_empty():
 		return
 	var cell := _machine_preview_cell()
-	if not _build_cell_allowed(cell) or (mode != "foundation" and not _entity_at_cell(cell).is_empty()):
+	if not _build_cell_allowed(cell) or not _machine_floor_aligned(cell) or (mode != "foundation" and not _entity_at_cell(cell).is_empty()):
 		return
 	var area_size := Vector2i.ONE
 	var area_origin := cell
@@ -5193,7 +5215,7 @@ func _update_cursor() -> void:
 				hover.basis = transmission_presenter.axis_basis(["x", "y", "z"].find(transmission_controls.selected_axis))
 		return
 	hover.basis = Basis.IDENTITY
-	hover.visible = mode != "inspect" and _build_cell_allowed(hover_cell) and not explanation_open
+	hover.visible = mode != "inspect" and _build_cell_allowed(hover_cell) and _machine_floor_aligned(hover_cell) and not explanation_open
 	if hover.visible:
 		hover.position = _cell_position([hover_cell.x, hover_cell.y]) + Vector3(0, 0.03 + _construction_level(hover_cell) * Geometry.HEIGHT_STEP, 0)
 
@@ -5314,9 +5336,15 @@ func _build_interface() -> void:
 	foundation_level_controls = HBoxContainer.new()
 	build.add_child(foundation_level_controls)
 	_button(foundation_level_controls, "−", _adjust_foundation_level.bind(-1))
-	foundation_level_label = _label(foundation_level_controls, "Level 0 · 0.00 m", 14)
+	foundation_level_label = _label(foundation_level_controls, _construction_height_text(), 14)
 	_button(foundation_level_controls, "+", _adjust_foundation_level.bind(1))
 	foundation_level_controls.visible = false
+	foundation_steps_toggle = CheckButton.new()
+	foundation_steps_toggle.text = "Access steps"
+	foundation_steps_toggle.tooltip_text = "Use smaller height increments for walking. Machines need whole-tile factory floors. Turning this off snaps the selected height to a factory floor."
+	foundation_steps_toggle.toggled.connect(_set_foundation_steps)
+	build.add_child(foundation_steps_toggle)
+	foundation_steps_toggle.visible = false
 	wheel_size_controls = HBoxContainer.new()
 	build.add_child(wheel_size_controls)
 	_button(wheel_size_controls, "−", _adjust_wheel_size.bind(-1))

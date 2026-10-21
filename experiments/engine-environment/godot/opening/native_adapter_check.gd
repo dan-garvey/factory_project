@@ -183,9 +183,10 @@ func _foundations() -> void:
 		await physics_frame
 		await process_frame
 	opening._select_tool("foundation")
-	opening._adjust_foundation_level(2)
-	if not _expect(opening.foundation_level == 2 and opening.foundation_level_label.text.begins_with("Level 2"),
-			"The actual controls show an absolute world height rather than a local terrain offset"):
+	opening.foundation_steps_toggle.button_pressed = true
+	opening._adjust_foundation_level(-2)
+	if not _expect(opening.foundation_level == 2 and opening.foundation_level_label.text.begins_with("Access step"),
+			"The actual controls distinguish a traversable intermediate step from a machine floor"):
 		return
 	if not _expect(opening.actor_world._geometry_registered(), "Displayed foundation levels match registered native box bodies"):
 		return
@@ -209,6 +210,18 @@ func _foundations() -> void:
 		return
 	if not await _walk_to(Vector2(9.0, 6.0)):
 		return
+	opening.foundation_steps_toggle.button_pressed = false
+	if not _expect(opening.foundation_level == 4 and opening.foundation_level_label.text.begins_with("Factory floor"),
+			"Leaving step mode selects the common whole-tile machine floor"):
+		return
+	opening._world_click(Vector2i(5, 2))
+	if not _expect(opening.model.projection().foundations.size() == 3,
+			"The first ordinary foundation click adds the aligned floor above the access step"):
+		return
+	opening._world_click(Vector2i(6, 2))
+	if not _expect(opening.model.projection().foundations.size() == 4,
+			"An independent ordinary foundation click joins the adjacent floor at the same world height"):
+		return
 	opening._select_tool("belt")
 	opening._world_click(Vector2i(5, 2))
 	if not _expect(opening.model.projection().entities.size() == 1, "The first ordinary machine placement succeeds before dependent probing"):
@@ -219,19 +232,23 @@ func _foundations() -> void:
 		await physics_frame
 		await process_frame
 	var current: Dictionary = opening.model.projection()
-	if not _expect(current.entities.size() == 2 and current.links.size() == 1 and current.part_kits.P.foundation == 22,
+	if not _expect(current.entities.size() == 2 and current.links.size() == 1 and current.part_kits.P.foundation == 20,
 			"The ordinary scene placement path aligns a belt and press on separately built foundations"):
 		return
 	for id in current.entities:
 		var entity: Dictionary = current.entities[id]
 		var physical: StaticBody3D = opening.actor_world.machines[id]
-		if not _expect(entity.level == 2 and absf(physical.position.y - OpeningGeometry.MACHINE_CENTER_HEIGHT - 2.0 * OpeningGeometry.HEIGHT_STEP) < 0.00001,
+		if not _expect(entity.level == 4 and absf(physical.position.y - OpeningGeometry.MACHINE_CENTER_HEIGHT - 4.0 * OpeningGeometry.HEIGHT_STEP) < 0.00001,
 				"Machine projection, mesh and native contact share the foundation height"):
 			return
-	if not _expect(current.stock.source == before.stock.source and current.stock.source == 16 and current.remaining == 0,
+	if not _expect(current.stock.source == before.stock.source and current.remaining == 0,
 			"Construction changes no mineral quantity or material clock"):
 		return
-	if not _expect(_issue({"action": "remove", "entity": first.entity}).reason == "foundation_in_use",
+	var upper := ""
+	for id: String in current.foundations:
+		if current.foundations[id].cell == [5, 2] and current.foundations[id].level == 4:
+			upper = id
+	if not _expect(not upper.is_empty() and _issue({"action": "remove", "entity": upper}).reason == "foundation_in_use",
 			"A supporting foundation cannot disappear beneath a machine"):
 		return
 	_record("pass")
