@@ -54,6 +54,15 @@ Fresh contexts and replacement generations start at their observed pose, while
 an unrelated geometry refresh retains the current travel. The drive stub is a visible interface, not a cogwheel
 or evidence of mechanical engagement.
 
+Complete captures replace the two rectangular press uprights with a reused
+sourced [cast support](press-support/CREDITS.md). Its column, collar and mounting
+hardware retain their original shape and atlas, sharing one mesh and material.
+The source datum meets the existing plinth and bridge; the head, piston, anvil,
+guides, outlet and drive coordinates remain. Old upright service covers give way
+to the component's own mounting detail. Historical missing-resource rosters retain
+their original frame. Isolated visual clearance does not establish native contact
+or rendered production quality.
+
 The same existing view script builds an open collector stock bed, supported
 conveyor with contrasting cleats, and waterwheel with an open rim, spokes,
 paddles and axle bearings. Shared frame/steel/copper finishes keep the silhouettes

@@ -1,0 +1,52 @@
+{
+  "asset": "Drill Press 01",
+  "author": "Viktor",
+  "asset_url": "https://polyhaven.com/a/drill_press_01",
+  "license": "CC0",
+  "license_url": "https://polyhaven.com/license",
+  "metadata_url": "https://api.polyhaven.com/info/drill_press_01",
+  "file_index_url": "https://api.polyhaven.com/files/drill_press_01",
+  "source_files": {
+    "scene": {"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/drill_press_01/drill_press_01_1k.gltf", "bytes": 21382, "sha256": "36f27d2d25c748b9d6a7ecbad1603435c23d2b08e66a33daf6ed70b06a9f6e93"},
+    "geometry": {"url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/8k/drill_press_01/drill_press_01.bin", "bytes": 1911136, "sha256": "3c786cf21c206d1edb7df970067421fa692bbc1a941b279cd21605c33057f9ad"},
+    "albedo": {"url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/drill_press_01/drill_press_01_diff_1k.jpg", "bytes": 610938, "sha256": "bc0971499313e295fa25279a41c3f0891df644c1d09bdefee0c7bbe9407c5aaf"},
+    "normal_gl": {"url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/drill_press_01/drill_press_01_nor_gl_1k.png", "bytes": 4826415, "sha256": "c5e71e7054cb6baec33df9c80ba1fb560d734f9aa3fc31e846cef8c573b523b6"},
+    "arm": {"url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/drill_press_01/drill_press_01_arm_1k.png", "bytes": 4106986, "sha256": "88291b1e6f2b3c0d4f2f4c1203b9468d0c5482654077628968f49259c1eb80a8"}
+  },
+  "extraction": {
+    "source_node": "drill_press_01",
+    "source_body_vertices": 25765,
+    "source_body_triangles": 31210,
+    "selected_components": "Column, cast mounting collar, flange plate and associated mounting fasteners.",
+    "component_vertex_seeds": [4270, 3485, 2601, 2765, 2790, 3005, 3030, 3245, 3270, 4024, 4106, 4188, 2343, 2367],
+    "discovery_position_grid": 0.00001,
+    "origin": "X/Z centre of the column seeded 4270; Y is the lower mounting-plate plane from component 2601.",
+    "uniform_scale": 2.2376268628306879,
+    "top_above_mount_metres": 1.16,
+    "vertices": 1977,
+    "triangles": 2094,
+    "attributes": "Source shape, UV records and triangle order retained; normals normalized. Discovery welding does not merge delivered vertices. Godot performs its normal glTF conversion and tangent generation."
+  },
+  "processed_files": {
+    "press_support.gltf": {"bytes": 984, "sha256": "0cdc7e3015236753d6d2ab29d48a126de245ec81c230d1e07749accd3607a3db"},
+    "press_support.bin": {"bytes": 75828, "sha256": "264f4fd2d6e9a803f521c062af1b27ffea2b63a9ab272962198cb67bcb4dfc17"},
+    "cast_albedo.jpg": {"bytes": 610938, "sha256": "bc0971499313e295fa25279a41c3f0891df644c1d09bdefee0c7bbe9407c5aaf", "resolution": [1024, 1024], "role": "Original provider sRGB JPEG; no resize or re-encoding."},
+    "cast_normal.webp": {"bytes": 302018, "sha256": "e0a101c60c959278a2dd9a580466e51ac13cf69f2586c5003883ad2c1ce78851", "resolution": [512, 512], "role": "Linear OpenGL tangent normal; resized in float precision and renormalized before nearest RGB8 encoding.", "maximum_encoding_length_error": 0.00603127479553223, "maximum_encoding_angle_degrees": 0.376385382362936},
+    "cast_arm.webp": {"bytes": 327986, "sha256": "fc1b1a9772e6b419c46241f36c63f75ead83e89e655d76467d0d55e9fdd73b82", "resolution": [512, 512], "role": "Linear red occlusion, green roughness and blue metallic; float Lanczos resize and nearest RGB8 encoding."}
+  },
+  "preparation": {
+    "engine": "4.7.2.stable.official.ed1daf0bf",
+    "geometry_recipe": "native/asset-preparation/press_support.cpp",
+    "read_only_inventory": "native/asset-preparation/inspect_press.cpp",
+    "map_recipe": "opening/machine_detail_check.gd --prepare-press-support-maps",
+    "data_delivery": "Lossless WebP decodes to the exact prepared pixels. No channel reorder, normal-axis flip or color-space conversion.",
+    "source_material": "Original double-sided shading with default unit color, metallic and roughness factors; selected packed maps retain their channel meanings."
+  },
+  "assembly": {
+    "mounts": [[-0.48, 0.24, -0.38], [0.48, 0.24, -0.38]],
+    "right_rotation_y_radians": 3.141592653589793,
+    "bridge_bottom_metres": 1.4,
+    "choice": "Reuse one complete support twice. Keep the current plinth and work interfaces; source mounting hardware replaces the old rectangular upright covers."
+  },
+  "limits": "Presentation only. No source scene, collider, controller, drive relationship, quantity or state authority is instantiated. Raw captured assets are supported; packaged exports, native positive contact, rendered quality, GPU cost and human acceptance are unverified."
+}

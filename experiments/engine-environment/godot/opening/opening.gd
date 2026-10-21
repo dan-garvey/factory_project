@@ -348,6 +348,99 @@ class ProductionSteelFloor:
 		finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 		return finish
 
+class ProductionPressArt:
+	extends RefCounted
+	## Authored support components for the existing confirmed processor.
+	const ROOT := "res://opening/assets/press-support"
+	const IMAGES := {"albedo": "cast_albedo.jpg", "normal": "cast_normal.webp", "arm": "cast_arm.webp"}
+	static var mesh: ArrayMesh
+	static var finish: StandardMaterial3D
+	static var source_status := "uninitialized"
+
+	static func resource_status(directory: String = ROOT) -> String:
+		var files: Array = ["press_support.gltf", "press_support.bin"]
+		files.append_array(IMAGES.values())
+		var present := 0
+		for name_value: String in files:
+			if FileAccess.file_exists(directory.path_join(name_value)):
+				present += 1
+		if present == 0:
+			return "missing"
+		return "complete" if present == files.size() else "incomplete"
+
+	static func _prepare() -> void:
+		source_status = resource_status()
+		if source_status == "missing":
+			return
+		if source_status != "complete":
+			push_error("The sourced press support resource set is incomplete.")
+			return
+		source_status = "invalid"
+		var images := ProductionSteelFloor.read_images(ROOT, IMAGES, Vector2i(512, 512))
+		if images.status != "ready":
+			push_error("Cannot decode the sourced press support material.")
+			return
+		var document := GLTFDocument.new()
+		var imported := GLTFState.new()
+		if document.append_from_file(ROOT.path_join("press_support.gltf"), imported) != OK:
+			push_error("Cannot load the prepared press support component.")
+			return
+		var sources := imported.get_meshes()
+		if sources.size() != 1 or sources[0].mesh == null or sources[0].mesh.get_surface_count() != 1:
+			push_error("The press support must contain one prepared visual mesh.")
+			return
+		var prepared: ArrayMesh = sources[0].mesh.get_mesh()
+		var arrays := prepared.surface_get_arrays(0)
+		if arrays[Mesh.ARRAY_TANGENT] == null or arrays[Mesh.ARRAY_TANGENT].is_empty():
+			var surface := SurfaceTool.new()
+			surface.create_from(prepared, 0)
+			surface.generate_tangents()
+			prepared = surface.commit()
+		for role: String in images.images:
+			var image: Image = images.images[role]
+			if image.generate_mipmaps(role == "normal") != OK:
+				push_error("Cannot generate press support mipmaps.")
+				return
+		var material := StandardMaterial3D.new()
+		material.cull_mode = BaseMaterial3D.CULL_DISABLED
+		material.albedo_color = Color.WHITE
+		material.albedo_texture = ImageTexture.create_from_image(images.images.albedo)
+		var arm := ImageTexture.create_from_image(images.images.arm)
+		material.metallic = 1.0
+		material.metallic_texture = arm
+		material.metallic_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_BLUE
+		material.roughness = 1.0
+		material.roughness_texture = arm
+		material.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_GREEN
+		material.ao_enabled = true
+		material.ao_texture = arm
+		material.ao_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
+		material.ao_light_affect = 0.0
+		material.normal_enabled = true
+		material.normal_texture = ImageTexture.create_from_image(images.images.normal)
+		material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		mesh = prepared
+		finish = material
+		source_status = "ready"
+
+	static func mount(parent: Node3D) -> bool:
+		if source_status == "uninitialized":
+			_prepare()
+		if source_status != "ready":
+			return false
+		for side in [-1.0, 1.0]:
+			var support := MeshInstance3D.new()
+			support.name = "CastPressSupportLeft" if side < 0 else "CastPressSupportRight"
+			support.mesh = mesh
+			support.material_override = finish
+			support.position = Vector3(side * 0.48, 0.24, -0.38)
+			if side > 0:
+				support.rotation.y = PI
+			support.set_meta("detail_role", "CastPressSupport")
+			support.set_meta("source_asset", "Poly Haven drill_press_01")
+			parent.add_child(support)
+		return true
+
 class ProductionEnvironment:
 	extends RefCounted
 	## Visual scenery only. ActorWorld owns collision from the same immutable site geometry.
@@ -2757,10 +2850,11 @@ func _machine_surface_detail(machine: Node3D, kind: String) -> void:
 			for x in [-0.34, 0.34]:
 				for y in [0.82, 1.32]:
 					_machine_turned(anchor, "GuideCollar", Vector3(x, y, -0.19), profile, Color("778b8c"))
-			for x in [-0.48, 0.48]:
-				_machine_box(anchor, "FrameJoint", Vector3(x, 0.46, -0.215), Vector3(0.23, 0.17, 0.035), COLORS.processor.darkened(0.14))
-				for y in [0.41, 0.51]:
-					_machine_fastener(anchor, "FrameFastener", Vector3(x, y, -0.19), Vector3.BACK)
+			if ProductionPressArt.source_status != "ready":
+				for x in [-0.48, 0.48]:
+					_machine_box(anchor, "FrameJoint", Vector3(x, 0.46, -0.215), Vector3(0.23, 0.17, 0.035), COLORS.processor.darkened(0.14))
+					for y in [0.41, 0.51]:
+						_machine_fastener(anchor, "FrameFastener", Vector3(x, y, -0.19), Vector3.BACK)
 
 func _collector_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	var frame: Color = COLORS.collector
@@ -2797,9 +2891,13 @@ func _press_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	var frame: Color = COLORS.processor
 	var steel := Color("a6b4af")
 	var dark := Color("29393f")
-	for x in [-0.48, 0.48]:
-		_machine_box(anchor, "PressUpright", Vector3(x, 0.82, -0.38), Vector3(0.15, 1.24, 0.28), frame)
-	_machine_box(anchor, "PressBridge", Vector3(0, 1.5, -0.3), Vector3(1.2, 0.2, 0.36), frame)
+	var sourced := ProductionPressArt.mount(anchor)
+	if sourced:
+		frame = Color("58634c")
+	else:
+		for x in [-0.48, 0.48]:
+			_machine_box(anchor, "PressUpright", Vector3(x, 0.82, -0.38), Vector3(0.15, 1.24, 0.28), frame)
+	_machine_box(anchor, "PressBridge", Vector3(0, 1.5, -0.3), Vector3(1.2, 0.2, 0.36), frame, 0.05 if sourced else 0.08)
 	_machine_box(anchor, "Anvil", Vector3(0, 0.46, 0.05), Vector3(0.7, 0.16, 0.63), dark)
 	_machine_box(anchor, "ToolHead", Vector3(0, 0.84, 0), Vector3(0.56, 0.17, 0.55), steel, 0.85, 0.32)
 	_machine_cylinder(anchor, "Piston", Vector3(0, 1.14, -0.08), 0.075, 0.45, steel)

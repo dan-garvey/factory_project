@@ -1,6 +1,7 @@
 // Extract the wooden rotor from Poly Haven's CC0 Spinning Wheel 01.
 // This deliberately accepts one exact source layout, not arbitrary glTF input.
 #include <openssl/evp.h>
+#include "components.hpp"
 
 #include <algorithm>
 #include <array>
@@ -72,15 +73,6 @@ void write(const std::filesystem::path& path, const std::string& bytes) {
     require(bool(out), "Cannot finish the prepared asset.");
 }
 
-struct Components {
-    std::vector<std::size_t> parent = std::vector<std::size_t>(source_vertices);
-    Components() { std::iota(parent.begin(), parent.end(), 0); }
-    std::size_t root(std::size_t i) {
-        while (parent[i] != i) { parent[i] = parent[parent[i]]; i = parent[i]; }
-        return i;
-    }
-    void join(std::size_t a, std::size_t b) { a = root(a); b = root(b); if (a != b) parent[b] = a; }
-};
 } // namespace
 
 int main(int argc, char** argv) {
@@ -94,7 +86,7 @@ int main(int argc, char** argv) {
         require(digest(bytes) == source_hash, "Source SHA256 differs from the documented recipe.");
         require(!std::filesystem::exists(std::filesystem::symlink_status(output)), "The output must be fresh.");
 
-        Components components;
+        factory_art::Components components(source_vertices);
         std::vector<Point> positions(source_vertices);
         std::map<std::array<long long, 3>, std::size_t> welded;
         for (std::size_t i = 0; i < source_vertices; ++i) {
