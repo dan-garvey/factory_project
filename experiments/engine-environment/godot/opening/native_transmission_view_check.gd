@@ -1212,10 +1212,11 @@ func _belt_actor_transport() -> void:
 		await physics_frame
 	verify(physical.bodies.P.position.x > reversed + 0.1, "Synthetic walking control still moves the character on the belt.")
 	physical.bodies.P.release_control()
+	var before_jump: float = physical.bodies.P.position.y
 	physical.bodies.P.set_control(Vector2.ZERO, true)
 	for frame in 8:
 		await physics_frame
-	verify(physical.bodies.P.position.y > 4.95, "Synthetic jump control still lifts the character off the belt.")
+	verify(physical.bodies.P.position.y > before_jump + 0.1, "Synthetic jump control still lifts the character off the belt.")
 	physical.queue_free()
 	await process_frame
 	# Exercise the actual host setup with no actors or network/game startup.
@@ -1263,16 +1264,21 @@ func _inclined_belt_actor() -> void:
 			authority.state.motion.left.state = "rotating"
 			authority.state.motion.left.numerator = 1 if axle == 0 else -1
 			authority.state.motion.left.denominator = 4
-			for frame in 55:
+			for frame in 35:
 				await physics_frame
 			var forward: Vector3 = body.position
+			verify(physical.checkpoint_status().accepted, "A moving actor on an inclined belt remains checkpoint-safe.")
 			var travel := forward.z - start.z if axle == 0 else forward.x - start.x
-			verify(travel > 0.15 and (forward.y - start.y) * slope > 0.1, "The inclined belt carries an uncommanded actor along and up or down its slope.")
+			var speed := floorf(1024.0 * 2896.0 / 4096.0) / 4096.0 * Geometry.PITCH / 0.45
+			var expected_forward := speed * 34.0 / float(Engine.physics_ticks_per_second)
+			verify(absf(travel - expected_forward) < 0.04 and (forward.y - start.y) * slope > 0.1, "Inclined carry matches the confirmed belt speed in either slope direction.")
 			authority.state.motion.left.numerator *= -1
 			for frame in 50:
 				await physics_frame
 			var reverse: Vector3 = body.position
-			verify((reverse.z - forward.z if axle == 0 else reverse.x - forward.x) < -0.1, "Reversing the shaft reverses inclined actor transport.")
+			var reverse_travel := reverse.z - forward.z if axle == 0 else reverse.x - forward.x
+			var expected_reverse := speed * 49.0 / float(Engine.physics_ticks_per_second)
+			verify(absf(reverse_travel + expected_reverse) < 0.04, "Reversing the shaft reverses inclined actor transport at the same speed.")
 			authority.state.motion.left.state = "stopped"
 			for frame in 12:
 				await physics_frame
@@ -1284,6 +1290,12 @@ func _inclined_belt_actor() -> void:
 				await physics_frame
 			var frozen: Vector3 = body.position
 			verify(absf(frozen.z - stopped.z if axle == 0 else frozen.x - stopped.x) < 0.05, "A frozen clock stops inclined actor transport.")
+			physical.set_belt_step_seconds(0.45)
+			var before_jump: float = body.position.y
+			body.set_control(Vector2.ZERO, true)
+			for frame in 8:
+				await physics_frame
+			verify(body.position.y > before_jump + 0.1, "The actor can jump from the moving inclined belt.")
 			physical.queue_free()
 			await process_frame
 

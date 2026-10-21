@@ -48,6 +48,12 @@ func _physics_process(delta: float) -> void:
 	velocity.x = direction.x * Geometry.WALK_SPEED + surface_velocity.x
 	velocity.z = direction.y * Geometry.WALK_SPEED + surface_velocity.y
 	velocity.y -= Geometry.GRAVITY * delta
+	# Carry along the actual belt tangent so the slope does not project away
+	# horizontal belt speed or add gravity-driven speed to the conveyor.
+	if is_on_floor() and surface_velocity != Vector2.ZERO:
+		var normal := get_floor_normal()
+		if normal.y > 0.01 and normal.y < 0.9999:
+			velocity.y = -(normal.x * surface_velocity.x + normal.z * surface_velocity.y) / normal.y
 	if jump_requested and is_on_floor():
 		velocity.y = Geometry.JUMP_SPEED
 	jump_requested = false
