@@ -23,6 +23,209 @@ class PaddleSessionFacts extends RefCounted:
 	func is_ready() -> bool:
 		return ready
 
+func segment_radius(a: Vector2, b: Vector2) -> float:
+	var edge := b - a
+	if edge.length_squared() == 0:
+		return a.length()
+	return (a + edge * clampf(-a.dot(edge) / edge.length_squared(), 0, 1)).length()
+
+func triangle_radius(a: Vector2, b: Vector2, c: Vector2) -> float:
+	if absf((b - a).cross(c - a)) > 0.000000000001:
+		var first := (b - a).cross(-a)
+		var second := (c - b).cross(-b)
+		var third := (a - c).cross(-c)
+		if (first >= 0 and second >= 0 and third >= 0) or (first <= 0 and second <= 0 and third <= 0):
+			return 0
+	return minf(segment_radius(a, b), minf(segment_radius(b, c), segment_radius(c, a)))
+
+func wheel_mesh_envelope(mesh: Mesh, pose: Transform3D, about_y: bool = false) -> Dictionary:
+	var arrays := mesh.surface_get_arrays(0)
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX] if arrays[Mesh.ARRAY_INDEX] != null else PackedInt32Array()
+	var points: Array[Vector2] = []
+	var low := INF
+	var high := -INF
+	var minimum_radius := INF
+	for vertex in vertices:
+		var point := pose * vertex
+		low = minf(low, point.y if about_y else point.z)
+		high = maxf(high, point.y if about_y else point.z)
+		points.append(Vector2(point.x, point.z) if about_y else Vector2(point.x, point.y))
+	var corners := vertices.size() if indices.is_empty() else indices.size()
+	for n in range(0, corners, 3):
+		var a: Vector2 = points[n if indices.is_empty() else indices[n]]
+		var b: Vector2 = points[n + 1 if indices.is_empty() else indices[n + 1]]
+		var c: Vector2 = points[n + 2 if indices.is_empty() else indices[n + 2]]
+		minimum_radius = minf(minimum_radius, triangle_radius(a, b, c))
+	return {"low": low, "high": high, "minimum_radius": minimum_radius if not vertices.is_empty() else 0.0}
+
+func wheel_rotating_envelopes(node: Node3D, parent_pose: Transform3D, rows: Array[Dictionary]) -> void:
+	var pose := parent_pose * node.transform
+	if node is MeshInstance3D and str(node.name) != "WheelHub":
+		rows.append(wheel_mesh_envelope(node.mesh, pose))
+	for child in node.get_children():
+		if child is Node3D:
+			wheel_rotating_envelopes(child, pose, rows)
+
+func wheel_support_separates(mesh: Mesh, pose: Transform3D, rotating: Array[Dictionary]) -> bool:
+	var low := INF
+	var high := -INF
+	var maximum_radius := 0.0
+	for n in range(8):
+		var point := pose * mesh.get_aabb().get_endpoint(n)
+		low = minf(low, point.z)
+		high = maxf(high, point.z)
+		maximum_radius = maxf(maximum_radius, Vector2(point.x, point.y).length())
+	for row in rotating:
+		if not (high < row.low or low > row.high or maximum_radius < row.minimum_radius):
+			return false
+	return true
+
+func check_wheel_supports() -> void:
+	var cached: Dictionary = {}
+	var scale_factor := 0.5 / 0.78
+	var minimum_gap := INF
+	var entries: Array[float] = []
+	var assemblies := 0
+	var controls := 0
+	for shared_profile in [false, true]:
+		for axis_index in range(3):
+			var axis: Vector3 = [Vector3.RIGHT, Vector3.UP, Vector3.BACK][axis_index]
+			var view: Variant = Shared.new() if shared_profile else Opening.new()
+			view.machine_root = Node3D.new()
+			view.add_child(view.machine_root)
+			view.state = {"context": "wheel-support-fixture", "options": {"native": true},
+				"actors": {"P": {"ready": true}}, "transmission_parts": {}, "motion": {},
+				"entities": {"fixture": {"kind": "wheel", "cell": [0, 0], "axis": axis_index, "generation": 1}},
+				"links": [], "drive_links": [], "engagements": []}
+			var before: Dictionary = view.state.duplicate(true)
+			view._rebuild_machines()
+			var machine: Node3D = view.machine_root.get_child(0)
+			var rotor: Node3D = view.wheel_rotor
+			var source: MeshInstance3D = rotor.get_node("SourcedTimberRotor")
+			var hub: MeshInstance3D = rotor.get_node("WheelHub")
+			verify(source.mesh == WheelArt.mesh and source.material_override == WheelArt.finish
+				and source.transform == Transform3D.IDENTITY and hub.mesh is CylinderMesh
+				and is_equal_approx(hub.mesh.top_radius, 0.13) and is_equal_approx(hub.mesh.height, 0.45),
+				"The new fixed castings retain the exact original sourced rotor, atlas and literal journal cylinder.")
+			verify(rotor.position.is_equal_approx(Vector3(0, 0.5, 0))
+				and rotor.basis.z.normalized().dot(axis) > 0.99999
+				and rotor.scale.is_equal_approx(Vector3.ONE * scale_factor),
+				"The original native rotor center, scale and projected spindle axis remain.")
+			var rotating: Array[Dictionary] = []
+			for child in rotor.get_children():
+				if child is Node3D:
+					wheel_rotating_envelopes(child, Transform3D.IDENTITY, rotating)
+			var inverse: Transform3D = rotor.transform.affine_inverse()
+			var counts := {"WheelStand": 0, "AxleBearing": 0, "BearingLiner": 0, "WheelFootBolt": 0}
+			var picks := 0
+			for child in machine.get_children():
+				if child is StaticBody3D:
+					picks += 1
+					verify(child.collision_layer == Geometry.PICK_LAYER and child.collision_mask == 0
+						and child.get_meta("entity") == "fixture" and child.get_child_count() == 1
+						and child.get_child(0).shape is BoxShape3D
+						and child.get_child(0).shape.size == Vector3(1.45, 1.65, 1.45),
+						"The unchanged machine pick box remains separate from the detailed bearing artwork.")
+				if not child is MeshInstance3D or not child.has_meta("wheel_support_role"):
+					continue
+				var role: String = child.get_meta("wheel_support_role")
+				counts[role] += 1
+				verify(child.get_script() == null and child.get_child_count() == 0 and child.scale.is_equal_approx(Vector3.ONE),
+					"Fixed hardware is plain cached render geometry with its scale baked in metres.")
+				check_bounds(child, Transform3D.IDENTITY)
+				var cache_key := role + ("Vertical" if role == "WheelStand" and axis_index == 1 else "")
+				if not cached.has(cache_key):
+					var limits: Array = {"WheelStand": [0.010, 0.020], "WheelStandVertical": [0.014, 0.024],
+						"AxleBearing": [0.002, 0.009], "BearingLiner": [0.002, 0.004],
+						"WheelFootBolt": [0.000020, 0.000025]}[cache_key]
+					check_closed_asset_mesh(child.mesh, limits[0] * pow(scale_factor, 3), limits[1] * pow(scale_factor, 3))
+					cached[cache_key] = [child.mesh, child.material_override]
+				verify(child.mesh == cached[cache_key][0] and child.material_override == cached[cache_key][1],
+					"Every view and compatible native axis reuses the same exact hardware resources.")
+				var finish_value := child.material_override as StandardMaterial3D
+				var surface_role := "worked" if role in ["BearingLiner", "WheelFootBolt"] else "cast"
+				verify(finish_value != null and is_equal_approx(finish_value.metallic, 0.85)
+					and finish_value.normal_texture == Opening.ProductionTransmissionFinish.textures[surface_role + "_normal"]
+					and finish_value.roughness_texture == Opening.ProductionTransmissionFinish.textures[surface_role + "_roughness"],
+					"Fixed castings and exposed liners/fasteners use their distinct qualified metal image roles.")
+				verify(wheel_support_separates(child.mesh, inverse * child.transform, rotating),
+					"Every fixed hardware envelope clears all nonjournal rotor facets throughout a complete turn.")
+				if role == "BearingLiner":
+					var bore: Dictionary = wheel_mesh_envelope(child.mesh, Transform3D.IDENTITY, true)
+					var delta: Vector3 = child.position - rotor.position
+					var radial_offset: float = (delta - axis * delta.dot(axis)).length()
+					var gap: float = bore.minimum_radius - hub.mesh.top_radius * scale_factor - radial_offset
+					minimum_gap = minf(minimum_gap, gap)
+					verify(absf(child.basis.y.dot(axis)) > 0.99999 and gap > 0.004 * scale_factor,
+						"The complete actual faceted liner bore is coaxial and clears the original rotating journal.")
+					var axial_center: float = delta.dot(axis)
+					var entry := minf(axial_center + bore.high, 0.225 * scale_factor) \
+						- maxf(axial_center + bore.low, -0.225 * scale_factor)
+					entries.append(entry)
+					verify(entry > 0.07 * scale_factor and entry < 0.09 * scale_factor,
+						"The original journal enters each actual liner instead of ending short of a floating bearing.")
+					if not shared_profile and axis_index == 0 and controls == 0:
+						var filled := CylinderMesh.new()
+						filled.top_radius = 0.16 * scale_factor
+						filled.bottom_radius = filled.top_radius
+						filled.height = 0.2 * scale_factor
+						verify(wheel_mesh_envelope(filled, Transform3D.IDENTITY, true).minimum_radius < 0.001 * scale_factor,
+							"A deliberately filled bearing cap fails the actual-facet bore discriminator.")
+						verify(gap - 0.03 * scale_factor < 0, "The clearance oracle rejects a liner displaced across the journal.")
+						controls += 2
+				if role == "WheelStand":
+					var high := -INF
+					for corner in range(8):
+						high = maxf(high, (child.transform * child.mesh.get_aabb().get_endpoint(corner)).y)
+					verify(high < rotor.position.y - (0.225 if axis_index == 1 else 0.13) * scale_factor,
+						"The fixed stand stays below the journal's actual swept cylinder.")
+					if not shared_profile and axis_index == 0 and controls == 2:
+						var displaced: Transform3D = child.transform
+						displaced.origin = Vector3.ZERO
+						verify(not wheel_support_separates(child.mesh, inverse * displaced, rotating),
+							"Moving a stand into the rotor fails the conservative whole-turn separation oracle.")
+						controls += 1
+			verify(picks == 1 and counts.WheelStand == (1 if axis_index == 1 else 2)
+				and counts.AxleBearing == counts.WheelStand and counts.BearingLiner == counts.WheelStand
+				and counts.WheelFootBolt == 4, "The actual native axis has its declared supports, liners and four fitted foot bolts.")
+			verify(view.state == before and view.model == null and view.actor_world == null
+				and view.request_sequence == 0 and not view.is_inside_tree(),
+				"Hardware construction changes no projection, request, native body or authority.")
+			assemblies += 1
+			view.free()
+	verify(controls == 3 and cached.size() == 5, "The three discriminating controls and five unique mesh roles were exercised.")
+	var legacy_assemblies := 0
+	for shared_profile in [false, true]:
+		var view: Variant = Shared.new() if shared_profile else Opening.new()
+		view.state = {"options": {"native": false}}
+		var machine := Node3D.new()
+		view.add_child(machine)
+		view._assemble_machine(machine, {"kind": "wheel", "axis": 0})
+		var counts := {"stands": 0, "bearings": 0}
+		for child in machine.get_children():
+			verify(not child.has_meta("wheel_support_role"), "The nonnative assembly does not mount native support artwork.")
+			if not child is MeshInstance3D:
+				continue
+			if child.mesh == Visuals.box_mesh(Vector3(0.16, 0.54, 0.16)):
+				counts.stands += 1
+				verify(is_equal_approx(child.position.y, 0.51) and is_equal_approx(absf(child.position.z), 0.42)
+					and child.material_override == Visuals.material(Color("465a60"), 0.08, 0.5),
+					"Historical support posts keep their original positions, shape and finish.")
+			elif child.mesh is CylinderMesh and is_equal_approx(child.mesh.top_radius, 0.145):
+				counts.bearings += 1
+				verify(is_equal_approx(child.mesh.height, 0.18) and is_equal_approx(child.position.y, 0.78)
+					and child.material_override == Visuals.material(Color("a6b4af"), 0.85, 0.4),
+					"Historical solid bearings retain their exact earlier primitive and material.")
+		verify(counts.stands == 2 and counts.bearings == 2, "Both nonnative view classes retain the earlier two-support layout.")
+		legacy_assemblies += 1
+		view.free()
+	print(JSON.stringify({"phase": "waterwheel supports", "assemblies": assemblies, "unique_mesh_roles": cached.size(),
+		"minimum_journal_clearance_metres": minimum_gap, "journal_entries_metres": entries, "controls": controls,
+		"legacy_assemblies": legacy_assemblies,
+		"full_turn_check": "Conservative separation of actual facet envelopes, not native contact or force proof.",
+		"observations": "invented", "native_gameplay": "not_run", "rendered_quality": "not_assessed"}))
+
 func check_collector_coating(historical: bool) -> void:
 	var surface := Opening.ProductionTransmissionFinish
 	var cached: Dictionary = {}
@@ -696,8 +899,9 @@ func check_wheel_axes() -> void:
 		for child in anchor.get_children():
 			if child is MeshInstance3D and str(child.name).begins_with("AxleBearing"):
 				bearings += 1
-				verify(child.mesh is CylinderMesh and absf(child.basis.y.normalized().dot(axis)) > 0.99999,
-					"The existing bearing follows its actual projected axle.")
+				verify(child.mesh is ArrayMesh and child.get_meta("wheel_support_role", "") == "AxleBearing"
+					and absf(child.basis.y.normalized().dot(axis)) > 0.99999,
+					"The open bearing follows its actual projected axle.")
 		verify(bearings == (1 if axis_index == 1 else 2), "The original vertical and horizontal bearing layouts remain intact.")
 		check_bounds(rotor, Transform3D.IDENTITY)
 		var original: Transform3D = rotor.transform
@@ -873,6 +1077,14 @@ func check_historical_wheel() -> void:
 		var before: Dictionary = view.state.duplicate(true)
 		view._rebuild_machines()
 		var rotor: Node3D = view.machine_root.get_child(0).get_node("WheelRotor")
+		var old_supports := 0
+		for child in view.machine_root.get_child(0).get_children():
+			verify(not child.has_meta("wheel_support_role"),
+				"The missing-source roster does not mount supports fitted to a different rotor.")
+			if child is MeshInstance3D and child.mesh == Visuals.box_mesh(Vector3(0.16, 0.54, 0.16)
+					* (0.5 / 0.78 if native_profile else 1.0)):
+				old_supports += 1
+		verify(old_supports == 2, "The historical native and scripted wheel retain their original two posts.")
 		verify(WheelArt.source_status == "missing" and rotor.get_node_or_null("SourcedTimberRotor") == null,
 			"Historical native and scripted views explicitly retain their earlier procedural art.")
 		verify(count_role(rotor, "WheelRim") == 2 and count_role(rotor, "RimFastener") == 24,
@@ -1343,6 +1555,10 @@ func prepare_paddle_maps() -> void:
 	quit(0)
 
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--wheel-supports-only"):
+		check_wheel_supports()
+		finish()
+		return
 	if OS.get_cmdline_user_args().has("--collector-coating-only") or OS.get_cmdline_user_args().has("--historical-coating-only"):
 		check_collector_coating(OS.get_cmdline_user_args().has("--historical-coating-only"))
 		finish()

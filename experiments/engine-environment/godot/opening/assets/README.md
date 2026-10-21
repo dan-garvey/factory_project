@@ -367,6 +367,19 @@ remain limitations to assess. The separate historical flat fixture keeps its opa
 surface. Headless material and frame-consumer checks establish resource behavior,
 not the rendered effect or GPU cost.
 
+The native waterwheel has original flared cast stands and open worked journal
+liners. Their fixed bearing centers are fitted over the unchanged visible hub;
+the horizontal arrangement has two supports, while the vertical axle has one
+turned pedestal. Beveled rings, feet and hex heads share the existing qualified
+[cast/worked surfaces](transmission-surfaces/CREDITS.md). Geometry is baked in
+metres so scaling the fixture does not shrink their material repeat. The annular
+liners clear the actual old journal, and fixed feet remain outside the rotor's
+whole-turn envelope. These are presentation parts of the existing wheel, not
+independent structures, additional shaft reach, collision or force authority.
+Historical captures without the sourced rotor and nonnative wheels keep their
+earlier support assemblies. Geometry
+checks do not establish rendered quality, lubrication or a bearing simulation.
+
 The optional [fern component](ferns/CREDITS.md) adds modest broad-leaf undergrowth
 to the natural river banks. One compact licensed clump retains its original scale,
 uses the existing foliage import/mipmap path and shares a two-sided cutout finish.

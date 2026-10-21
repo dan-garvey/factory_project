@@ -86,6 +86,6 @@
     "budget_choice": "The original one-kilopixel lossless data maps were also prepared and retained externally. The shipped half-resolution data maps fit the current shared source allowance without another lossy encoding of the photographed color.",
     "runtime_api": "https://docs.godotengine.org/en/stable/classes/class_gltfdocument.html"
   },
-  "runtime": "One cached static mesh and material, with source UVs and generated mipmaps. Existing paddle, spindle, bearing and native projected axis/motion paths remain. No source scene, skeleton, animation, collider or controller is instantiated.",
+  "runtime": "One cached static rotor mesh and material, with source UVs and generated mipmaps. The original paddle positions, spindle and native projected axis/motion paths remain. Native fixed supports use original Factory cast stands and open worked liners, fitted around the unchanged journal. Historical captures without the sourced rotor, and nonnative wheels, retain their earlier support assemblies. No source scene, skeleton, animation, collider or controller is instantiated.",
   "limits": "This is a source-derived art adaptation, not a mechanical waterwheel model or gameplay authority. The current native launcher captures raw source assets; packaged Godot exports are unverified. Asset and headless fixture checks do not establish rendered quality, GPU cost or human acceptance."
 }
