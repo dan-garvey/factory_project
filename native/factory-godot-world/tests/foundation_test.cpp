@@ -170,10 +170,50 @@ void rectangular_placement() {
           "Reversed corners produce the same aligned footprint exactly one block above.");
     outcome(host.validate_checkpoint(host.checkpoint()), true, "valid");
 }
+
+void import_checks_current_machine_site() {
+    Host original; initialize(original);
+    outcome(original.publish_actor("P", {V(9.0), V(1.5), V(6.0)}, 1), true, "actor_published");
+    outcome(original.command("P", machine("ground-belt", "belt", 5, 2, 0)), true, "ok");
+    const auto saved = original.checkpoint();
+    Host same_site; initialize(same_site);
+    outcome(same_site.restore_checkpoint(saved), true, "restored");
+    check(!factory::values::typed_difference(saved, same_site.checkpoint()),
+          "An unchanged valid ground-machine checkpoint preserves its complete typed state and history.");
+
+    const auto rejects = [&](O site, const char* name, const char* reason) {
+        Host placement; initialize(placement, site);
+        outcome(placement.publish_actor("P", {V(9.0), V(1.5), V(6.0)}, 1), true, "actor_published");
+        outcome(placement.command("P", machine("new-ground-belt", "belt", 5, 2, 0)), false, reason);
+
+        Host loading; initialize(loading, std::move(site));
+        const auto before = loading.checkpoint();
+        const auto validation = loading.validate_checkpoint(saved);
+        std::cout << "{\"site_case\":\"" << name << "\",\"import_accepted\":"
+                  << (accepted(validation) ? "true" : "false") << ",\"reason\":\""
+                  << get<std::string>(validation, "reason") << "\"}\n";
+        outcome(validation, false, reason);
+        outcome(loading.restore_checkpoint(saved), false, reason);
+        check(!factory::values::typed_difference(before, loading.checkpoint()),
+              "A site-invalid import leaves the fresh Host's full state and history unchanged.");
+    };
+    auto raised = factory::godot_world::tests::flat_site();
+    raised.at("heights") = V(A(4, V(0.3)));
+    rejects(std::move(raised), "raised", "foundation_required");
+    auto lowered = factory::godot_world::tests::flat_site();
+    lowered.at("heights") = V(A(4, V(-1.0)));
+    rejects(std::move(lowered), "lowered", "foundation_required");
+    auto absent = factory::godot_world::tests::flat_site();
+    absent.at("axis") = V(A{V(-2.0), V(2.0)});
+    rejects(std::move(absent), "absent", "terrain_unavailable");
+    auto occupied = factory::godot_world::tests::flat_site();
+    occupied.at("obstacles") = V(A{V(A{V(A{V(8.0), V(0.1), V(3.0)}), V(A{V(8.5), V(0.8), V(3.6)})})});
+    rejects(std::move(occupied), "occupied", "site_occupied");
+}
 }
 int main() {
     try {
-        construction_and_custody(); terrain_and_stacking(); rectangular_placement();
+        construction_and_custody(); terrain_and_stacking(); rectangular_placement(); import_checks_current_machine_site();
         std::cout << "{\"status\":\"pass\",\"checks\":" << checks << ",\"evidence\":\"synthetic_native_foundation_rules\",\"engine_calls\":0}\n";
         return 0;
     } catch (const std::exception& failure) {
