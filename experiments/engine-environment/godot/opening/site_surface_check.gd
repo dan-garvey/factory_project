@@ -89,15 +89,17 @@ func _initialize() -> void:
 func check_structures() -> void:
 	var specs := Surface.support_boxes()
 	var identities := {}
-	var wharf_count := 0
+	var bank_ledge_count := 0
 	for spec in specs:
 		verify(not identities.has(spec.id), "Shared solid identities are unique: " + spec.id)
 		identities[spec.id] = true
 		verify(spec.center.is_finite() and spec.size.is_finite() and spec.size.x > 0.0 and spec.size.y > 0.0
 			and spec.size.z > 0.0 and spec.basis.is_equal_approx(spec.basis.orthonormalized()), "Every native box descriptor is finite and rigid.")
-		if spec.get("label") == "MillraceWharfBeam":
-			wharf_count += 1
-	verify(wharf_count == 42, "All 42 visible open-span wharf beams have actual support descriptors.")
+		verify(spec.get("finish", "stone") in ["stone", "dark_stone"],
+			"Solid canyon descriptors use natural stone finishes rather than timber or iron: " + spec.id)
+		if spec.get("label") == "StreamBankLedge":
+			bank_ledge_count += 1
+	verify(bank_ledge_count == 42, "All 42 visible stream-bank rock ledges have actual support descriptors.")
 	verify(identities.has("rock_63") and not identities.has("architecture_foam"), "Rock support is present; water/foam is excluded.")
 	var first: Vector3 = specs[0].center
 	specs[0].center = Vector3(999, 999, 999)
