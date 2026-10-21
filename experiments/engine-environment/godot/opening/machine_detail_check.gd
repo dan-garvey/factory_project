@@ -1195,9 +1195,41 @@ func check_wheel_supports() -> void:
 						"The actual journal facets fail the bore predicate when the old radial-growth transform is restored.")
 					rejected_rim_scale = true
 				verify(source.mesh == WheelArt.mesh and source.material_override == WheelArt.finish
-					and source.transform == Transform3D.IDENTITY and hub.mesh is CylinderMesh
-					and is_equal_approx(hub.mesh.top_radius, 0.13) and is_equal_approx(hub.mesh.height, 0.45),
-					"The fitted assembly retains the original sourced rotor, atlas and literal journal cylinder.")
+					and source.transform == Transform3D.IDENTITY,
+					"The fitted assembly retains the original sourced rotor and atlas.")
+				verify(hub.mesh is ArrayMesh and journal_shape_matches(hub.mesh, expected_half_span * 2.0, expected_radius),
+					"The actual journal retains its outer planes with real end chamfers, relieved bands and recessed centres.")
+				var finish := hub.material_override as StandardMaterial3D
+				verify(finish == DriveJournalArt.material() and finish != null
+					and finish.normal_texture == Opening.ProductionTransmissionFinish.textures.worked_normal
+					and finish.roughness_texture == Opening.ProductionTransmissionFinish.textures.worked_roughness
+					and finish.uv1_triplanar and not finish.uv1_world_triplanar
+					and finish.uv1_scale.is_equal_approx(Vector3.ONE / Opening.ProductionTransmissionFinish.WORKED_METRES),
+					"The journal reuses the qualified local worked-metal maps at their physical repeat.")
+				if not cached.has("Journal"):
+					check_closed_asset_mesh(hub.mesh, 0.0108, 0.0116)
+					cached.Journal = [hub.mesh, finish]
+					var plain := CylinderMesh.new()
+					plain.top_radius = expected_radius
+					plain.bottom_radius = expected_radius
+					plain.height = expected_half_span * 2.0
+					plain.radial_segments = 48
+					verify(not journal_shape_matches(plain, plain.height, expected_radius),
+						"The prior plain cylinder fails the same machining and recessed-centre predicate.")
+				verify(hub.mesh == cached.Journal[0] and finish == cached.Journal[1],
+					"Every admitted axis and diameter reuses the one fixed machined mesh and finish.")
+				var rotor_rest := rotor.transform
+				for angle in [0.0, 0.7, -1.6]:
+					rotor.basis = rotor_rest.basis * Basis(Vector3.BACK, angle)
+					var pose: Transform3D = machine.transform * rotor.transform * hub.transform
+					verify(absf(pose.basis.x.length() - 1.0) < 0.000001
+						and absf(pose.basis.y.length() - 1.0) < 0.000001
+						and absf(pose.basis.z.length() - 1.0) < 0.000001
+						and absf(pose.basis.x.dot(pose.basis.y)) < 0.000001
+						and absf(pose.basis.y.dot(pose.basis.z)) < 0.000001
+						and absf(pose.basis.z.dot(pose.basis.x)) < 0.000001,
+						"Invented rotor poses keep the journal rigid and its local material scale in metres.")
+				rotor.transform = rotor_rest
 				verify(rotor.position.is_equal_approx(Vector3(0, 0.5, 0))
 					and rotor.basis.z.normalized().dot(axis) > 0.99999
 					and rotor.scale.is_equal_approx(Vector3(Geometry.WATERWHEEL_RADIUS / 0.70 * sample.tiles,
@@ -1290,7 +1322,7 @@ func check_wheel_supports() -> void:
 					"Hardware construction changes no projection, request, native body or authority.")
 				assemblies += 1
 				view.free()
-	verify(controls == 3 and rejected_rim_scale and cached.size() == 4 and assemblies == 24,
+	verify(controls == 3 and rejected_rim_scale and cached.size() == 5 and assemblies == 24,
 		"Both admitted axes, three diameters and two absolute placements exercise all fixed mesh roles and negative controls.")
 	var legacy_assemblies := 0
 	for shared_profile in [false, true]:
@@ -1318,6 +1350,7 @@ func check_wheel_supports() -> void:
 		legacy_assemblies += 1
 		view.free()
 	print(JSON.stringify({"phase": "waterwheel supports", "assemblies": assemblies, "unique_mesh_roles": cached.size(),
+		"checks": checks, "checked_detail_parts": detail_meshes, "maximum_packed_tangent_dot": max_tangent_dot,
 		"minimum_journal_clearance_metres": minimum_gap, "journal_entries_metres": entries, "controls": controls,
 		"old_radial_growth_rejected": rejected_rim_scale,
 		"legacy_assemblies": legacy_assemblies,
@@ -1657,18 +1690,19 @@ func journal_center_hits(mesh: Mesh) -> Array[float]:
 	hits.sort()
 	return hits
 
-func journal_shape_matches(mesh: Mesh, height: float) -> bool:
+func journal_shape_matches(mesh: Mesh, height: float, radius: float = 0.085) -> bool:
 	var half := height / 2.0
+	var ratio := radius / 0.085
 	var bounds := mesh.get_aabb()
-	if not bounds.position.is_equal_approx(Vector3(-0.085, -half, -0.085)) \
-		or not bounds.size.is_equal_approx(Vector3(0.17, height, 0.17)):
+	if not bounds.position.is_equal_approx(Vector3(-radius, -half, -radius)) \
+		or not bounds.size.is_equal_approx(Vector3(radius * 2.0, height, radius * 2.0)):
 		return false
 	for level in [0.0, -half + 0.08, half - 0.08]:
-		if absf(journal_section_radius(mesh, level) - 0.085) > 0.000001:
+		if absf(journal_section_radius(mesh, level) - radius) > 0.000001:
 			return false
 	for sign_value in [-1.0, 1.0]:
-		if absf(journal_section_radius(mesh, sign_value * (half - 0.051)) - 0.081) > 0.000001 \
-			or absf(journal_section_radius(mesh, sign_value * (half - 0.007)) - 0.078) > 0.000001:
+		if absf(journal_section_radius(mesh, sign_value * (half - 0.051)) - 0.081 * ratio) > 0.000001 \
+			or absf(journal_section_radius(mesh, sign_value * (half - 0.007)) - 0.078 * ratio) > 0.000001:
 			return false
 	var hits := journal_center_hits(mesh)
 	return hits.size() == 2 and absf(hits[0] + half - 0.020) < 0.000001 \
