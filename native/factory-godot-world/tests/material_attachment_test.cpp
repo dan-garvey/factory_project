@@ -84,7 +84,7 @@ void every_build_order() {
         check(field<I>(host.projection(), "order") == 3, "Three placements need exactly three material requests.");
         const auto parts = child(host.projection(), "parts");
         check(field<I>(parts, "collector") == 0 && field<I>(parts, "belt") == 0 &&
-              field<I>(parts, "processor") == 0 && field<I>(parts, "shaft") == 3,
+              field<I>(parts, "processor") == 0 && field<I>(parts, "shaft") == 4,
               "The three placements consume their original kit and no shafts.");
         check(accepted(host.validate_checkpoint(host.checkpoint())), "Every construction order produces a valid typed checkpoint.");
     } while (std::next_permutation(order.begin(), order.end()));

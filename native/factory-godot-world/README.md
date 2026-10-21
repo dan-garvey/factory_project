@@ -239,8 +239,8 @@ disc bounding box against registered actor capsules; precise tooth or part
 colliders are not implemented.
 
 The read-only `part_specifications` projection maps each actor to entries with
-`kind`, `teeth`, `half_span` and remaining `count`. P starts with two two-tooth
-gears, one four-tooth gear and three shafts of half-span two; Q has
+`kind`, `teeth`, `half_span` and remaining `count`. P starts with four two-tooth
+gears, one four-tooth gear and four shafts of half-span two; Q has
 no parts. Uncarried specifications refuse without changing that kit. Gears and
 shafts appear in `transmission_parts`, with integer `axis` values 0, 1 and 2 for
 X, Y and Z. Use `engagements` and exact signed `motion` for transmission facts;

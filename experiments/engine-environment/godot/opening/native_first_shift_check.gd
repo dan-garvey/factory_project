@@ -117,7 +117,7 @@ func _conserved(snapshot: Dictionary) -> bool:
 		if not _expect(part_totals.has(part.kind), "Every placed construction part has a declared kind"):
 			return false
 		part_totals[part.kind] += 1
-	return _expect(_same(part_totals, {"collector": 1, "belt": 1, "processor": 1, "wheel": 1, "shaft": 3, "gear": 3}), "Construction and refunds preserve the declared finite physical kit")
+	return _expect(_same(part_totals, {"collector": 1, "belt": 1, "processor": 1, "wheel": 1, "shaft": 4, "gear": 5}), "Construction and refunds preserve the declared finite physical kit")
 
 func _targets(before: Dictionary, action: Dictionary) -> Array:
 	var cells: Array = []
