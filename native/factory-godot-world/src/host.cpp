@@ -245,16 +245,16 @@ bool historical_wire(const authority::Record& record) {
         const auto* tiles = field<Integer>(*wire, "tiles");
         if (!x || !z || *x < -250000 || *x > 250000 || *z < -250000 || *z > 250000 ||
             (wire->contains("level") && (!level || *level < -1000000 || *level > 1000000)) ||
-            (*name != "collector" && *name != "belt" && *name != "processor" && *name != "wheel" && *name != "gear"))
+            (*name != "collector" && *name != "processor" && *name != "wheel" && *name != "gear"))
             return false;
         if (wire->contains("tiles") != intent.contains("wheel_tiles")) return false;
         if (wire->contains("tiles") && (!tiles || *tiles < 3 || *tiles > mechanics::maximum_dimension ||
             !field<Integer>(intent, "wheel_tiles") || *field<Integer>(intent, "wheel_tiles") != *tiles)) return false;
-        if (*action == "place_connected" && *name != "collector" && *name != "belt" && *name != "processor")
+        if (*action == "place_connected" && *name != "collector" && *name != "processor")
             return false;
         const Object expected{{"role", Value(*name == "wheel" ? "waterwheel" : *name)},
             {"center", Value(Array{Value(4 * *x), Value(level ? *level : Integer{0}), Value(4 * *z)})},
-            {"axis", Value(axis ? *axis : (*name == "belt" ? "z" : "x"))}, {"teeth", Value(Integer{*name == "gear" ? 2 : 0})},
+            {"axis", Value(axis ? *axis : "x")}, {"teeth", Value(Integer{*name == "gear" ? 2 : 0})},
             {"half_span", Value(Integer{0})}};
         for (const auto& [key, value] : expected) {
             const auto found = intent.find(key);
@@ -838,16 +838,15 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         const auto* tiles = field<Integer>(wire, "tiles");
         if (!x || !z || *x < -250000 || *x > 250000 || *z < -250000 || *z > 250000 ||
             (wire.contains("level") && (!level || *level < -1000000 || *level > 1000000))) return refuse("invalid_cell");
-        if (*kind_name != "collector" && *kind_name != "belt" && *kind_name != "processor" &&
+        if (*kind_name != "collector" && *kind_name != "processor" &&
             *kind_name != "wheel" && *kind_name != "gear") return refuse("unknown_kind");
         if (*kind_name == "gear" && level && *level % 4 != 0) return refuse("invalid_cell");
         if (*kind_name != "gear" && level && *level % 4 != 0) return refuse("unaligned_elevation");
         if (wire.contains("tiles") && (!tiles || *tiles < 3 || *tiles > mechanics::maximum_dimension)) return refuse("invalid_wheel_size");
-        if (*kind_name == "belt" && axis && *axis == "y") return refuse("invalid_belt_axis");
         const mechanics::Point center{4 * *x, level ? *level : 0, 4 * *z};
         if (*kind_name == "collector")
             if (const auto* refusal = collector_site_refusal(center)) return refuse(refusal);
-        const auto selected_axis = axis ? *axis_value(*axis) : (*kind_name == "belt" ? mechanics::Axis::z : mechanics::Axis::x);
+        const auto selected_axis = axis ? *axis_value(*axis) : mechanics::Axis::x;
         const stationary::PlacedPart proposed{{"proposed", mechanics::Kind::hub, center, selected_axis, 0, 0},
             1, *kind_name == "wheel" ? Role::waterwheel : Role::collector, tiles ? *tiles : 3};
         if (*kind_name == "wheel")
@@ -887,11 +886,11 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         if (placement_blocked(at, half)) return refuse("actor_occupied");
         if (is_gear && intersects_belt(snapshot.state, {at, gear_axle_half_extents(selected_axis)})) return refuse("occupied");
         if (is_gear && placement_blocked(at, gear_axle_half_extents(selected_axis))) return refuse("actor_occupied");
-        normalized.at("action") = Value(*kind_name == "collector" || *kind_name == "belt" || *kind_name == "processor" ?
+        normalized.at("action") = Value(*kind_name == "collector" || *kind_name == "processor" ?
                                         "place_connected" : "place");
         normalized.emplace("role", Value(*kind_name == "wheel" ? "waterwheel" : *kind_name));
         normalized.emplace("center", Value(Array{Value(center[0]), Value(center[1]), Value(center[2])}));
-        normalized.emplace("axis", Value(axis ? *axis : (*kind_name == "belt" ? "z" : "x")));
+        normalized.emplace("axis", Value(axis ? *axis : "x"));
         normalized.emplace("teeth", Value(Integer{*kind_name == "gear" ? 2 : 0}));
         normalized.emplace("half_span", Value(Integer{0}));
         if (tiles) normalized.emplace("wheel_tiles", Value(*tiles));
@@ -1220,8 +1219,8 @@ Host::Decoded Host::decode(const Value& input) const {
                 return {nullptr, "incompatible_geometry"};
         } else if (part.role == Role::gear) {
             if (part.geometry.teeth != 2 && part.geometry.teeth != 4) return {nullptr, "incompatible_geometry"};
-        } else if ((part.role == Role::belt && part.geometry.axis == mechanics::Axis::y) ||
-            center[0] % 4 != 0 || center[2] % 4 != 0) return {nullptr, "incompatible_geometry"};
+        } else if (part.role == Role::belt || center[0] % 4 != 0 || center[2] % 4 != 0)
+            return {nullptr, "incompatible_geometry"};
         if (part.role == Role::collector)
             if (const auto* refusal = collector_site_refusal(center)) return {nullptr, refusal};
         if (part.role == Role::waterwheel) {

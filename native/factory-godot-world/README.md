@@ -58,23 +58,21 @@ Clear flat ground can support machines throughout the represented site. There is
 including for cogwheels. The current changed profile deliberately provides no old
 save migration. Store still owns persistence and atomic file publication.
 
-Ordinary collector, belt and press placement also attaches their directly mating
-material ports. The belt's horizontal axle selects a one-cell +X or +Z route;
-nearby unrelated machines do not connect. Every affected endpoint must be in the same
-admitted reach cut. Placement, links and the carried part commit atomically,
-without creating a shaft or advancing material. The exact optional mechanical
-axis stays in the original wire and typed history. Adjacent material machines
-therefore need no separate Connect request; old manual links and receipts remain
-supported by the sole native World, Session and Store.
+The native Host constructs a mechanical belt by connecting two confirmed,
+parallel shaft tiles. The span consumes one carried belt and uses its actual
+path and shaft motion for power and material travel. The older single-cell belt
+machine is refused by the Host, including when validating retained Host history
+or geometry. The lower-level World still contains legacy belt behavior and is
+not yet fully migrated. Session and Store continue to use the same native World.
 
 Drive connections consume independent finite shaft parts and derive motion from
 their actual geometry. The projection includes those parts, rational motion,
 engagements, typed cargo and per-actor kits. It is a detached view, never authority.
 The ordinary offline and native shared views mount thin individual-cog controls
 and a confirmed transmission presenter; see the [opening controls](../../experiments/engine-environment/godot/opening/README.md).
-Mechanical parts do not yet have precise actor colliders;
-ActorWorld uses uniform machine boxes, matching foundation blocks and the shared
-terrain. These remain prototype contact shapes.
+ActorWorld represents shafts, cog discs and cog axles with conservative boxes,
+alongside machine and foundation bodies and the shared terrain. The shapes do
+not model individual teeth and remain prototype contact geometry.
 
 Mechanical belt spans can also run vertically, sideways or at 45 degrees.
 The Host uses the same path for construction, subsequent obstruction and save
@@ -262,7 +260,7 @@ existing World planner, finite kit and reach checks.
 | `place_shaft` | `center: [int, int, int]`, `axis: "x"`, `"y"` or `"z"`, `half_span: 2` | Place one carried, one-tile shaft at a grid center. Segments transmit when their geometry engages. |
 | `place_belt_span` | `from: string`, `to: string` | Consume one belt to connect two aligned shaft tiles; actor reach and the complete path are checked. |
 | `remove_belt_span` | `entity: string` | Remove an identified span and return one belt to the actor's kit. |
-| `place` | Existing `kind` and `cell`, optional `axis` string | Orient a machine while retaining the existing cell wire. Belts use the Z spindle perpendicular to their X material path; other omitted axes default to X. |
+| `place` | Existing `kind` and `cell`, optional `axis` string | Orient a machine while retaining the existing cell wire. An omitted axis defaults to X; belt spans use their endpoint shaft axes. |
 | `remove` | Existing `entity` identifier | Remove a selected individual shaft, gear or machine, preserving custody rules. |
 | `pickup_material` | `center: [int, int, int]`, `expected: cargo` | Collect the matching loose material at a reach-checked grid point into the bound actor's cargo. |
 
@@ -270,9 +268,8 @@ One grid unit is `pitch / 4`, currently 0.4125 world units. Map a center to
 `center * pitch / 4 + [0, anchor_height, 0]`. The axis is the rotation axis,
 normal to the gear plane. Shaft and cog centers must be multiples of four on
 all axes, so each part occupies one common 1.65 m tile. Endpoint-based shaft
-construction is refused. Placement uses a conservative
-disc bounding box against registered actor capsules; precise tooth or part
-colliders are not implemented.
+construction is refused. Placement checks conservative disc and axle boxes
+against registered actor capsules; individual tooth contact is not modeled.
 
 The read-only `part_specifications` projection maps each actor to entries with
 `kind`, `teeth`, `half_span` and remaining `count`. P starts with eight two-tooth
