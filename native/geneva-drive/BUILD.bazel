@@ -1,0 +1,32 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "drive",
+    srcs = ["src/drive.cpp"],
+    hdrs = ["include/factory/geneva_drive.hpp"],
+    strip_include_prefix = "include",
+    deps = ["//native/slider-crank:crank"],
+)
+
+cc_library(
+    name = "workbench",
+    srcs = ["src/workbench.cpp"],
+    hdrs = ["include/factory/geneva_drive_workbench.hpp"],
+    strip_include_prefix = "include",
+    deps = [":drive", "//native/geared-cycle:workbench"],
+)
+
+cc_binary(
+    name = "geneva_case",
+    srcs = ["src/main.cpp"],
+    deps = [":workbench"],
+)
+
+cc_test(
+    name = "drive_test",
+    size = "small",
+    srcs = ["tests/drive_test.cpp"],
+    deps = [":workbench"],
+)
