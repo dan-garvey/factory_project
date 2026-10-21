@@ -5405,7 +5405,8 @@ func _rebuild_machines() -> void:
 		collider.position.y = Geometry.ANCHOR_HEIGHT if kind == "wheel" and _native_transmission() else Geometry.MACHINE_CENTER_HEIGHT
 		body.add_child(collider)
 		anchor.add_child(body)
-		var caption := _text(anchor, NAMES.get(kind, kind).to_upper(), Vector3(0, 1.9, 0), Color("f2e5c5"))
+		var caption_height := collider.position.y + shape.size.y * 0.5 + 0.275
+		var caption := _text(anchor, NAMES.get(kind, kind).to_upper(), Vector3(0, caption_height, 0), Color("f2e5c5"))
 		caption.name = "MachineCaption"
 		caption.visible = not _native_transmission()
 	for pair in state.links:
