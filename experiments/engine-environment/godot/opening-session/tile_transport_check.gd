@@ -7,7 +7,8 @@ extends SceneTree
 ## all three exit statuses and PASS markers. Then start server-resume, resume-P
 ## and resume-Q with the same directory and port, after the first server exits.
 ## Require all six processes to pass. Add --span-belt for a constructed
-## mechanical span and its restored removal over the Session transport.
+## mechanical span and its restored removal over the Session transport. Add
+## --powered-span instead to exercise a native waterwheel-driven span.
 ## Add --reverse-belt to every process for
 ## generated-site reverse deposition and pickup after restart. The resumed Session uses the Store but
 ## does not exercise the ordinary server lifecycle or physical actor bodies.
@@ -23,6 +24,7 @@ var checks := 0
 var failed := false
 var reverse_belt := false
 var span_belt := false
+var powered_span := false
 var serial := 0
 var epoch := 0
 
@@ -33,6 +35,9 @@ func _initialize() -> void:
 		elif arg.begins_with("--port="): port = int(arg.trim_prefix("--port="))
 		elif arg == "--reverse-belt": reverse_belt = true
 		elif arg == "--span-belt": span_belt = true
+		elif arg == "--powered-span":
+			span_belt = true
+			powered_span = true
 	call_deferred("run")
 
 func verify(ok: bool, message: String) -> void:
@@ -198,7 +203,8 @@ func run_span() -> void:
 			saved_hash = FileAccess.get_sha256(save_path)
 			verify(not saved_hash.is_empty() and Store.read_into(session.world, save_path).get("accepted", false), "A fresh authority restores the belt Store")
 			session.context = session.world.context
-		verify(session.world.publish_actor("P", [1.65, 1.0, -1.65], 1).get("accepted", false), "Synthetic P remains within reach")
+		var p_pose := [0.0, 2.15, 3.3] if powered_span else [1.65, 1.0, -1.65]
+		verify(session.world.publish_actor("P", p_pose, 1).get("accepted", false), "Synthetic P remains within reach")
 		verify(session.world.publish_actor("Q", [20.0, 1.0, 20.0], 1).get("accepted", false), "Synthetic Q remains clear")
 		if failed: quit(1); return
 		mark(prefix + "server-ready")
@@ -224,11 +230,21 @@ func run_span() -> void:
 				verify(restored.belt_spans.size() == 1 and restored.part_kits.P.belt == 0, "P receives the exact saved belt custody")
 				if failed: quit(1); return
 				var id: String = str(restored.belt_spans.keys()[0])
+				if powered_span:
+					var saved_span: Dictionary = restored.belt_spans[id]
+					verify(_span_powered(restored, saved_span), "P receives equal signed shaft rates after restore")
 				var removed := await issue({"action": "remove_belt_span", "entity": id})
 				verify(removed.get("accepted", false), "P removes the restored span through Session: " + str(removed))
 			else:
-				var first := await issue({"action": "place_shaft", "center": [0, 0, 0], "axis": "z", "half_span": 2})
-				var last := await issue({"action": "place_shaft", "center": [8, 0, 0], "axis": "z", "half_span": 2})
+				if powered_span:
+					var wheel := await issue({"action": "place", "kind": "wheel", "cell": [-2, 1], "axis": "x", "level": 4})
+					verify(wheel.get("accepted", false), "P constructs the native waterwheel: " + str(wheel))
+					if failed: quit(1); return
+				var first_center := [-4, 4, 4] if powered_span else [0, 0, 0]
+				var last_center := [-4, 4, 12] if powered_span else [8, 0, 0]
+				var axis := "x" if powered_span else "z"
+				var first := await issue({"action": "place_shaft", "center": first_center, "axis": axis, "half_span": 2})
+				var last := await issue({"action": "place_shaft", "center": last_center, "axis": axis, "half_span": 2})
 				verify(first.get("accepted", false) and last.get("accepted", false), "P constructs both shaft tiles through Session")
 				if failed: quit(1); return
 				var span := await issue({"action": "place_belt_span", "from": first.entity, "to": last.entity})
@@ -239,6 +255,9 @@ func run_span() -> void:
 				if await until(func(): return replies.has(request), "The belt retry receives its receipt"):
 					verify(replies[request].get("accepted", false) and replies[request].get("duplicate", false), "The belt retry spends no second item")
 					replies.erase(request)
+				if powered_span:
+					var power := await issue({"action": "set_power", "active": true})
+					verify(power.get("accepted", false), "P starts the native wheel: " + str(power))
 			if failed: quit(1); return
 			mark(prefix + "P-done")
 		else:
@@ -254,13 +273,29 @@ func run_span() -> void:
 					if edge.kind == 2 and ((edge.a == span.from and edge.b == span.to) or (edge.b == span.from and edge.a == span.to)):
 						belt_edge = true
 				verify(belt_edge, "Q observes the native belt transmission engagement")
+				if powered_span:
+					verify(_span_powered(view, span), "Q observes equal nonzero signed rates across the belt")
 			else:
 				verify(not view.engagements.any(func(edge: Dictionary): return edge.kind == 2), "Removing the span removes its belt transmission engagement")
+				if powered_span:
+					var driven := ""
+					var disconnected := ""
+					for id in view.transmission_parts:
+						if view.transmission_parts[id].center == [-4, 4, 4]: driven = str(id)
+						if view.transmission_parts[id].center == [-4, 4, 12]: disconnected = str(id)
+					verify(not driven.is_empty() and not disconnected.is_empty() and view.motion[driven].state == "rotating"
+						and view.motion[disconnected].state == "unpowered", "Q observes the far shaft stop while the source shaft remains driven")
 			if failed: quit(1); return
 			mark(prefix + "clients-done")
 			if not await until(func(): return FileAccess.file_exists(directory.path_join(prefix + "server-done")), "The authority completes the span phase"): quit(1); return
 	print("BELT_SPAN_SESSION_%s %s %d" % ["FAIL" if failed else "PASS", role, checks])
 	quit(1 if failed else 0)
+
+func _span_powered(view: Dictionary, span: Dictionary) -> bool:
+	var first: Dictionary = view.motion.get(span.from, {})
+	var last: Dictionary = view.motion.get(span.to, {})
+	return first.get("state") == "rotating" and last.get("state") == "rotating" and first.get("numerator", 0) != 0 \
+		and first.get("numerator") == last.get("numerator") and first.get("denominator") == last.get("denominator")
 
 func run() -> void:
 	if not directory.is_absolute_path() or not DirAccess.dir_exists_absolute(directory) or not role in ["server", "P", "Q", "server-resume", "resume-P", "resume-Q"]:
