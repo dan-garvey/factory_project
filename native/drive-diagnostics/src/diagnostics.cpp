@@ -12,7 +12,8 @@ struct Solo {
     std::string source;
     g::Result result;
 };
-Witness explain(const g::Component& component, const std::vector<g::Part>& parts, const std::vector<g::Drive>& sources) {
+Witness explain(const g::Component& component, const std::vector<g::Part>& parts,
+                const std::vector<g::Drive>& sources, const std::vector<g::BeltSpan>& belts) {
     Witness witness;
     witness.component = component.parts;
     const std::set<std::string> members(component.parts.begin(), component.parts.end());
@@ -20,11 +21,14 @@ Witness explain(const g::Component& component, const std::vector<g::Part>& parts
     for (const auto& part : parts) if (members.contains(part.id)) local.push_back(part);
     std::vector<g::Drive> drives;
     for (const auto& source : sources) if (members.contains(source.hub)) drives.push_back(source);
+    std::vector<g::BeltSpan> local_belts;
+    for (const auto& belt : belts)
+        if (members.contains(belt.first_shaft) && members.contains(belt.last_shaft)) local_belts.push_back(belt);
     std::sort(drives.begin(), drives.end(), [](const auto& left, const auto& right) { return left.hub < right.hub; });
     std::vector<Solo> prior;
     std::optional<Witness> limit;
     for (const auto& drive : drives) {
-        auto alone = g::evaluate(local, {drive});
+        auto alone = g::evaluate(local, {drive}, local_belts);
         if (!alone.accepted()) {
             if (!limit) {
                 auto failed = witness;
@@ -59,11 +63,12 @@ Witness explain(const g::Component& component, const std::vector<g::Part>& parts
 }
 }  // namespace
 
-Report inspect(const std::vector<g::Part>& parts, const std::vector<g::Drive>& sources) {
-    Report report{g::evaluate(parts, sources), {}};
+Report inspect(const std::vector<g::Part>& parts, const std::vector<g::Drive>& sources,
+               const std::vector<g::BeltSpan>& belts) {
+    Report report{g::evaluate(parts, sources, belts), {}};
     if (!report.current.accepted()) return report;
     for (const auto& component : report.current.components)
-        if (component.state == g::MotionState::stalled) report.witnesses.push_back(explain(component, parts, sources));
+        if (component.state == g::MotionState::stalled) report.witnesses.push_back(explain(component, parts, sources, belts));
     return report;
 }
 }  // namespace factory::drive_diagnostics
