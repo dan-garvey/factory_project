@@ -266,12 +266,14 @@ human usability or rendered quality.
 
 **Chosen native transmission adapter:** the
 [native Host](../../native/factory-godot-world/README.md#oriented-transmission-api)
-uses integer quarter-pitch centers, explicit X/Y/Z axes, equal carried gears and
-finite shaft spans. Those dimensions, kit and bounded construction heights are
-revisable modeling choices, not Godot restrictions. The C++ geometric solver
+uses quarter-pitch integer coordinates to represent the common world grid, with
+shaft and cog centers at multiples of four, explicit X/Y/Z axes, two finite cog
+sizes and individual one-tile shafts. Those dimensions and the kit are revisable
+modeling choices, not Godot restrictions. The C++ geometric solver
 derives engagement and signed rational rates; it does not simulate tooth contact,
-torque or angular phase. Current material stepping accepts either rotating
-direction as power and does not scale throughput with angular rate.
+torque or angular phase. Belt material moves according to the signed spindle
+direction; reverse-end blanks become recoverable loose material. Processor work
+scales with the derived rate, while belt throughput remains a fixture step.
 
 The ordinary view's gear/shaft bodies are pick-only geometry on layer 4. They
 do not add actor collision shapes or make a rendered contact authoritative.

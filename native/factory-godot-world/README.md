@@ -242,28 +242,27 @@ the launcher correction. No unique symbolic engine cause is asserted.
 ## Oriented transmission API
 
 Commands retain the same context, client and request identity. They enter the
-existing World planner, finite kit and two-endpoint reach checks.
+existing World planner, finite kit and reach checks.
 
 | Command | Additional fields | Meaning |
 | --- | --- | --- |
 | `place_gear` | `center: [int, int, int]`, `axis: "x"`, `"y"` or `"z"`, `teeth: int` | Place one carried gear at an exact grid center. |
-| `place_shaft` | `center: [int, int, int]`, `axis: "x"`, `"y"` or `"z"`, `half_span: 2` or `4` | Place one carried shaft segment at an exact grid center. Segments transmit when their geometry engages; no endpoints are required to place one. |
+| `place_shaft` | `center: [int, int, int]`, `axis: "x"`, `"y"` or `"z"`, `half_span: 2` | Place one carried, one-tile shaft at a grid center. Segments transmit when their geometry engages. |
 | `place` | Existing `kind` and `cell`, optional `axis` string | Orient a machine while retaining the existing cell wire. Belts use the Z spindle perpendicular to their X material path; other omitted axes default to X. |
-| `connect_drive` | Existing `from` and `to` identifiers | Consume a carried shaft that actually spans the two endpoints. |
-| `disconnect_drive` | Existing `from` and `to` identifiers | Return the matching shaft through the same World removal planner. |
-| `remove` | Existing `entity` identifier | Remove a selected individual gear or machine, preserving custody rules. |
+| `remove` | Existing `entity` identifier | Remove a selected individual shaft, gear or machine, preserving custody rules. |
 | `pickup_raw` | `center: [int, int, int]` | Collect the loose blank stack at a reach-checked world grid point into the bound actor's cargo. |
 
 One grid unit is `pitch / 4`, currently 0.4125 world units. Map a center to
 `center * pitch / 4 + [0, anchor_height, 0]`. The axis is the rotation axis,
-normal to the gear plane. The adapter accepts integer coordinates within the
-native geometry limits. Placement uses a conservative
+normal to the gear plane. Shaft and cog centers must be multiples of four on
+all axes, so each part occupies one common 1.65 m tile. Endpoint-based shaft
+construction is refused. Placement uses a conservative
 disc bounding box against registered actor capsules; precise tooth or part
 colliders are not implemented.
 
 The read-only `part_specifications` projection maps each actor to entries with
-`kind`, `teeth`, `half_span` and remaining `count`. P starts with five two-tooth
-gears, two four-tooth gears, and four shafts each of half-span two and four; Q has
+`kind`, `teeth`, `half_span` and remaining `count`. P starts with eight two-tooth
+gears, two four-tooth gears, and eight shafts of half-span two; Q has
 no parts. Uncarried specifications refuse without changing that kit. Gears and
 shafts appear in `transmission_parts`, with integer `axis` values 0, 1 and 2 for
 X, Y and Z. Use `engagements` and exact signed `motion` for transmission facts;

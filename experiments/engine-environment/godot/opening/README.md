@@ -62,18 +62,18 @@ site choices, not a volume-conserving fluid simulation. The animated ripple
 normal follows the river's downstream direction but does not display a
 per-cell speed measurement.
 
-In the native profile, G selects a **finite shaft**, not an arbitrary power edge.
-Click its two machine or cogwheel endpoints; only the native geometric planner
-can accept the span. **Cogwheels and shafts…** offers individual gears, shaft
-connection/disconnection and transmission removal. All tools exposes the menu
+In the native profile, G selects an individual **finite shaft tile**. Click a
+highlighted tile to place it; **Cogwheels and shafts…** also offers individual
+cogs and transmission removal. All tools exposes the menu
 immediately; otherwise it appears with placed transmission parts or collected
 plates. Key 5 also selects a cogwheel. The menu chooses X/Y/Z rotation axis and
-gear height in quarter-pitch grid steps. That axis also applies to subsequent
+placement height in full-tile steps. Shafts and cogs each occupy one 1.65 m
+tile and snap to the common world grid in all three dimensions. That axis also applies to subsequent
 machine placement, except for the belt: its fixed material path runs along X,
 so its drive spindle runs across the belt along Z. A translucent cursor marks
 the requested gear plane, not permission to build there. Real character
-proximity remains authoritative. Adjacent aligned cog and machine axle ends
-connect directly; a gap needs a shaft of the matching length.
+proximity remains authoritative. Adjacent aligned cog, shaft and machine axle
+ends connect directly; fill a longer gap with individual shaft tiles.
 
 The inspector can select a cogwheel or shaft and return it to the carried kit.
 Static arrows show the confirmed signed rate, and contact marks use confirmed
