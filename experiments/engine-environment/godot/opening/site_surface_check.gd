@@ -20,45 +20,60 @@ func _initialize() -> void:
 		return
 	var points := Surface.vertices()
 	var faces := Surface.faces()
-	verify(points.size() == 5329 and faces.size() == 31104,
-		"The original 72-cell terrain lattice and triangle count are preserved.")
-	verify(faces[0] == points[0] and faces[1] == points[1] and faces[2] == points[74]
-		and faces[3] == points[0] and faces[4] == points[74] and faces[5] == points[73],
-		"The original diagonal and clockwise render triangle ordering are preserved.")
+	var stride := Surface.grid_size()
+	verify(stride > 73 and points.size() == stride * stride and faces.size() == (stride - 1) * (stride - 1) * 6,
+		"Local refinement has one complete shared vertex/triangle lattice.")
+	verify(faces[0] == points[0] and faces[1] == points[1] and faces[2] == points[stride + 1]
+		and faces[3] == points[0] and faces[4] == points[stride + 1] and faces[5] == points[stride],
+		"Refinement preserves the clockwise diagonal used by both consumers.")
 	verify(absf(Surface.raw_height(30.0, 1.65) - 5.944855778225841) < 0.000001,
 		"The original analytical terrain value remains unchanged.")
-	verify(absf(Surface.height_at(30.0, 1.65) - 6.222421626752348) < 0.00001,
-		"The counterexample uses the actual emitted triangle height rather than the smooth function.")
-	verify(Surface.height_at(30.0, 1.65) > 1.78,
-		"The fix does not hide or lower the hill to evade the original buried-capsule finding.")
+	verify(Surface.height_at(30.0, 1.65) > 5.5,
+		"Refinement does not hide the original hill or evade its buried-capsule finding.")
 	var first := points[0]
 	points[0] = Vector3.ZERO
 	faces[0] = Vector3.ZERO
 	verify(Surface.vertex(0, 0) == first and Surface.faces()[0] == first,
 		"Renderer and physics callers receive copies rather than mutable cache aliases.")
 	for corner in [Vector2(-128, -128), Vector2(128, -128), Vector2(-128, 128), Vector2(128, 128)]:
-		var gx := 0 if corner.x < 0 else 72
-		var gz := 0 if corner.y < 0 else 72
+		var gx := 0 if corner.x < 0 else stride - 1
+		var gz := 0 if corner.y < 0 else stride - 1
 		verify(is_equal_approx(Surface.height_at(corner.x, corner.y), Surface.vertex(gx, gz).y),
 			"Closed-domain edge coordinates retain their actual endpoint height.")
 	verify(is_nan(Surface.height_at(129, 0)) and is_nan(Surface.height_at(NAN, 0)),
 		"An absent terrain surface is explicit instead of inventing a flat extension.")
-	var panels := Surface.pad_panels()
-	var flat := panels.size() == 49
-	var east := false
-	var west := false
-	for panel in panels:
-		flat = flat and is_equal_approx(panel.center.y + panel.size.y / 2.0, -0.02)
-		if panel.cell == Vector2i(-1, 1):
-			east = panel.center.is_equal_approx(Vector3(-1.41, -0.08, 1.65)) and panel.size.is_equal_approx(Vector3(1.13, 0.12, 1.615))
-		if panel.cell == Vector2i(-2, 1):
-			west = panel.center.is_equal_approx(Vector3(-3.76, -0.08, 1.65)) and panel.size.is_equal_approx(Vector3(0.69, 0.12, 1.615))
-	verify(flat and east and west, "The real deck rectangles retain the flat pad and visible wharf openings.")
+	verify(Surface.pad_panels().is_empty() and Surface.foundation_boxes().is_empty()
+		and Surface.architecture_boxes().is_empty(), "The unbuilt site has no hidden or visible platform/canal catalogue.")
+	for x in [-1.65, 0.0, 1.65, 3.3, 6.6]:
+		for z in [-3.3, 0.0, 3.3, 6.6]:
+			verify(absf(Surface.height_at(x, z) - (-0.02)) < 0.00001,
+				"The emitted natural clearing supports the existing character and construction anchors.")
+	for z in [-3.3, 0.0, 3.3, 6.6]:
+		var x := Surface.river_center_x(z)
+		var at := Surface.cell(x, z)
+		verify(Surface.vertex(at.x + 1, at.y).x - Surface.vertex(at.x, at.y).x <= 0.25001
+			and Surface.vertex(at.x, at.y + 1).z - Surface.vertex(at.x, at.y).z <= 0.25001,
+			"The actual narrow bank uses local samples rather than a hidden box strip.")
+		verify(Surface.height_at(x, z) < -0.9, "The visible stream retains a real recessed terrain bed.")
+	verify(Surface.river_center_x(-4.0) < Surface.river_center_x(1.65) - 0.9
+		and Surface.river_center_x(8.0) < Surface.river_center_x(1.65) - 1.0,
+		"The unbuilt stream bends west of the worksite rather than retaining a straight canal cut.")
+	for sample in [Vector2(-2.7, 1.65), Vector2(-1.65, 3.3), Vector2(0.125, 2.125),
+		Vector2(11.99, -9.99), Vector2(12.01, -10.01), Vector2(30.0, 1.65), Vector2(30.0, 30.0)]:
+		var at := Surface.cell(sample.x, sample.y)
+		var a := Surface.vertex(at.x, at.y)
+		var b := Surface.vertex(at.x + 1, at.y)
+		var c := Surface.vertex(at.x + 1, at.y + 1)
+		var d := Surface.vertex(at.x, at.y + 1)
+		for center in [(a + b + c) / 3.0, (a + c + d) / 3.0]:
+			verify(absf(Surface.height_at(center.x, center.z) - center.y) < 0.00002,
+				"The height query agrees with the centroid plane of each actual emitted triangle.")
 	# An independent geometric construction places the lower capsule sphere
 	# tangent to the interior of the literal counterexample cell's triangle.
-	var a := Surface.vertex(44, 36)
-	var b := Surface.vertex(45, 37)
-	var c := Surface.vertex(44, 37)
+	var far_cell := Surface.cell(30.0, 30.0)
+	var a := Surface.vertex(far_cell.x, far_cell.y)
+	var b := Surface.vertex(far_cell.x + 1, far_cell.y + 1)
+	var c := Surface.vertex(far_cell.x, far_cell.y + 1)
 	var center := (a + b + c) / 3.0
 	var normal := (b - a).cross(c - a).normalized()
 	if normal.y < 0:
@@ -73,7 +88,7 @@ func _initialize() -> void:
 	verify(penetrated.valid and penetrated.analytical_overlap_measure > 0.015,
 		"A positive capsule/face penetration cannot hide behind a center-height-only check.")
 	var buried: Dictionary = Surface.capsule_overlap(Vector3(30, 0.88, 1.65), radius, 1.8)
-	verify(buried.valid and buried.subsurface_depth > 6.0 and buried.geometric_overlap,
+	verify(buried.valid and buried.subsurface_depth > 5.5 and buried.geometric_overlap,
 		"The original saved pose wholly beneath a hollow trimesh remains a positive burial.")
 	verify(not Surface.capsule_overlap(Vector3(NAN, 0, 0), radius, 1.8).valid
 		and not Surface.capsule_overlap(tangent, -1, 1.8).valid,
@@ -89,7 +104,7 @@ func _initialize() -> void:
 func check_structures() -> void:
 	var specs := Surface.support_boxes()
 	var identities := {}
-	var bank_ledge_count := 0
+	verify(specs.size() == 64, "Only the real natural rock obstacles remain in the box catalogue.")
 	for spec in specs:
 		verify(not identities.has(spec.id), "Shared solid identities are unique: " + spec.id)
 		identities[spec.id] = true
@@ -97,9 +112,7 @@ func check_structures() -> void:
 			and spec.size.z > 0.0 and spec.basis.is_equal_approx(spec.basis.orthonormalized()), "Every native box descriptor is finite and rigid.")
 		verify(spec.get("finish", "stone") in ["stone", "dark_stone"],
 			"Solid canyon descriptors use natural stone finishes rather than timber or iron: " + spec.id)
-		if spec.get("label") == "StreamBankLedge":
-			bank_ledge_count += 1
-	verify(bank_ledge_count == 42, "All 42 visible stream-bank rock ledges have actual support descriptors.")
+		verify(spec.id.begins_with("rock_"), "No invisible old canal, platform or seam barrier survives.")
 	verify(identities.has("rock_63") and not identities.has("architecture_foam"), "Rock support is present; water/foam is excluded.")
 	var first: Vector3 = specs[0].center
 	specs[0].center = Vector3(999, 999, 999)

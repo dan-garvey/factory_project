@@ -704,7 +704,7 @@ class ProductionEnvironment:
 	static func terrain_mesh() -> ArrayMesh:
 		if terrain_surface_mesh != null:
 			return terrain_surface_mesh
-		var subdivisions: int = Surface.SUBDIVISIONS
+		var subdivisions: int = Surface.grid_size() - 1
 		var positions: PackedVector3Array = Surface.vertices()
 		var normals: Array[Vector3] = []
 		var uvs: Array[Vector2] = []
@@ -1850,7 +1850,10 @@ func _ready() -> void:
 	_build_world()
 	_build_interface()
 	_refresh()
-	_message("Build a small line. Choose a part, then click a grid square." if legacy_fixture else "WASD walks. Build nearby; approach the wheel to operate the drive [P].")
+	if _native_transmission():
+		_message("WASD walks. Approach the mineral seam to place your collector.")
+	else:
+		_message("Build a small line. Choose a part, then click a grid square." if legacy_fixture else "WASD walks. Build nearby; approach the wheel to operate the drive [P].")
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--resume-input="):
 			var result: Dictionary = _load_worksite(argument.trim_prefix("--resume-input="), true)
@@ -2196,6 +2199,8 @@ func _material_refusal_message(outcome: Dictionary, fallback: String) -> String:
 		var text: Variant = recovery_actions.call("refusal_text", outcome)
 		if typeof(text) == TYPE_STRING and not text.is_empty():
 			return text
+	if _native_transmission() and outcome.get("reason") == "not_at_seam":
+		return "Place the collector at the exposed mineral seam."
 	return fallback
 
 func _process(delta: float) -> void:
@@ -2431,6 +2436,8 @@ func _select_tool(tool: String) -> void:
 		"collector": "Place the collector on the brass seam strip.",
 		"wheel": "Place the waterwheel on the stream bank beside the seam."}
 	if _native_transmission():
+		instructions["collector"] = "Place the collector at the exposed mineral seam."
+		instructions["flow"] = "Choose the upstream machine, then its neighbor at the material outlet."
 		instructions["drive"] = "Choose a machine or cogwheel, then its partner. The amber ring marks the first endpoint."
 		instructions["gear"] = "Place a cogwheel at the highlighted point. Set axis and height in the cogwheel menu."
 	_message(instructions.get(tool,
@@ -3194,6 +3201,11 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	if show_all_tools:
 		controls_label.text = "WASD walk · Space jump · P wheel · 1–4 build · F / G links · I inspect · H help"
 	_refresh_engineering(snapshot_ready)
+	# Keep the real world visible when progressive disclosure leaves only a
+	# few controls. Preserve the fixed widths and grow naturally with content.
+	for column: Control in [tool_buttons.collector.get_parent(), inspector.get_parent()]:
+		var panel: Control = column.get_parent()
+		panel.size.y = panel.get_combined_minimum_size().y
 
 func _build_placement_hint() -> void:
 	placement_hint = Node3D.new()
@@ -3311,7 +3323,7 @@ func _guided_step(kinds: Dictionary) -> Dictionary:
 	if int(state.get("stock", {}).get("output", 0)) > 0:
 		return {"text": "Plate ready. Select the press, then collect [R].", "tool": "inspect"}
 	if not kinds.has("collector"):
-		return {"text": "Place a collector on the brass strip near you.", "tool": "collector"}
+		return {"text": "Place a collector at the exposed mineral seam." if _native_transmission() else "Place a collector on the brass strip near you.", "tool": "collector"}
 	if not kinds.has("belt"):
 		return {"text": "Add a belt beside the collector.", "tool": "belt"}
 	if not kinds.has("processor"):
@@ -3451,7 +3463,7 @@ func _build_interface() -> void:
 	canvas.add_child(root)
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.theme = ProductionInterface.make_theme()
-	var build := _panel(root, Vector2(18, 18), Vector2(275, 620))
+	var build := _panel(root, Vector2(18, 18), Vector2(275, 620 if legacy_fixture else 0))
 	if not legacy_fixture:
 		build.add_theme_constant_override("separation", 6)
 	_label(build, "FACTORY / FIRST SHIFT", 20, Color("edcc8d"))
@@ -3481,7 +3493,7 @@ func _build_interface() -> void:
 	details_button = _button(view_options, "Details", _toggle_details)
 	details_button.tooltip_text = "Show worksite counters and save options."
 	_button(build, "How this line works  [H]", _toggle_explanation)
-	var right := _panel(root, Vector2(990, 18), Vector2(272, 490))
+	var right := _panel(root, Vector2(990, 18), Vector2(272, 490 if legacy_fixture else 0))
 	var right_panel: Control = right.get_parent()
 	# Set the far anchor first so the near anchor is not clamped.
 	right_panel.set_anchor_and_offset(SIDE_RIGHT, 1.0, -18)

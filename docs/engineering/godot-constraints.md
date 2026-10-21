@@ -217,6 +217,14 @@ between `site_surface.gd`, the renderer and ActorWorld. Historical fixed-roster
 captures retain their original flat presentation and plane; the native profile
 refuses a missing shared helper. The finite displayed site is adapter data, not a
 game-world boundary. Scenery nodes remain free of controllers and colliders.
+The native unbuilt site now uses a nonuniform lattice with quarter-metre local
+samples around the clearing and river banks. Rendering, height queries and
+collision use the same emitted float32 coordinates and triangle diagonal; callers
+must use the actual cell endpoints rather than assume uniform spacing. The old
+tile, slab and canal-box catalogues are empty in this profile, while visible rock
+obstacles retain shared rigid descriptors. Local refinement and the natural bank
+profile are revisable adapter choices, not build-grid rules or measured frame-cost
+targets.
 ActorWorld registers the terrain faces, backface flag, box transforms and extents
 before admitting saved bodies. Concave terrain is a hollow surface: an explicitly
 labelled analytical burial guard also refuses a saved capsule wholly below it,

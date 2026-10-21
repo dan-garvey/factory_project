@@ -152,32 +152,25 @@ func check_surface_composition() -> void:
 	verify(rendered.size() == expected.size() - 64, "The shared descriptor set has no invisible architecture boxes.")
 	var rocks: MultiMesh = scenery.get_node("RockOutcrops").multimesh
 	check_rock_shapes(rocks)
-	var bed: MeshInstance3D = scenery.get_node("MillraceArchitecture/ChannelBed")
-	var bed_bounds := bed.mesh.get_aabb()
-	var top := bed.global_position.y + bed_bounds.end.y
+	verify(shared.pad_panels().is_empty() and shared.foundation_boxes().is_empty()
+		and shared.architecture_boxes().is_empty(), "No old platform or canal survives in the physical site catalogue.")
 	var stream: MeshInstance3D = scenery.get_node("StreamSurface")
 	var water: PackedVector3Array = stream.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
 	var covered := 0
 	var minimum_gap := INF
-	# A linear triangle attains its minimum at a vertex. Clipping its actual
-	# world-space polygon to the bed footprint also tests boundary intersections.
-	var low := Vector2(bed.global_position.x + bed_bounds.position.x, bed.global_position.z + bed_bounds.position.z)
-	var high := Vector2(bed.global_position.x + bed_bounds.end.x, bed.global_position.z + bed_bounds.end.z)
 	for first in range(0, water.size(), 3):
-		var polygon: Array[Vector3] = [water[first] + stream.global_position,
-			water[first + 1] + stream.global_position, water[first + 2] + stream.global_position]
-		# Exclude the two vertical skirt strips, which are below the water top.
 		var column := floori(float(first) / 6.0) % 8
 		if column == 0 or column == 7:
 			continue
-		for boundary in [[0, low.x, true], [0, high.x, false], [2, low.y, true], [2, high.y, false]]:
-			polygon = clip_polygon(polygon, boundary[0], boundary[1], boundary[2])
-		for point in polygon:
-			covered += 1
-			minimum_gap = minf(minimum_gap, point.y - top)
-	verify(covered > 0 and minimum_gap > 0.05, "The whole bed stays below overlapping emitted water triangles, including the original downstream defect.")
-	print(JSON.stringify({"relation": "bed_below_emitted_water", "minimum_gap": minimum_gap, "clipped_vertices": covered,
-		"visible_boxes": rendered.size(), "rock_instances": 64, "triangle_vertices": water.size()}))
+		for offset in range(3):
+			var point: Vector3 = water[first + offset] + stream.global_position
+			if point.z >= -4.0 and point.z <= 7.0:
+				covered += 1
+				minimum_gap = minf(minimum_gap, point.y - shared.height_at(point.x, point.z))
+	verify(covered > 0 and minimum_gap > 0.05,
+		"The emitted river surface clears its actual natural terrain bed throughout the working reach.")
+	print(JSON.stringify({"relation": "natural_bed_below_water", "minimum_gap": minimum_gap,
+		"sampled_vertices": covered, "visible_boxes": rendered.size(), "rock_instances": 64}))
 	view.free()
 
 func check_bank_ferns() -> void:
@@ -656,7 +649,7 @@ func check_meadow_patches() -> void:
 			var local := Vector3(data[at + 3], data[at + 7], data[at + 11])
 			var position := local + patch.global_position
 			var cell: Vector2i = Scenery.Surface.cell(position.x, position.z)
-			var offset: int = (cell.y * Scenery.Surface.SUBDIVISIONS + cell.x) * 6
+			var offset: int = (cell.y * (Scenery.Surface.grid_size() - 1) + cell.x) * 6
 			var found := false
 			for triangle in range(2):
 				var a := faces[offset + triangle * 3]
@@ -930,38 +923,15 @@ func run() -> void:
 			"Millrace water flows inside the recessed channel below the walkway deck and above the stone bed.")
 	verify(Scenery.stream_surface_height(-2.7, 8.1) - Scenery.stream_surface_height(-2.7, 10.2) > 0.42,
 		"The river drops over a 3D stepped waterfall weir at the south tailrace.")
-	var arch: Node3D = scenery.get_node("MillraceArchitecture")
-	var channel_bed: MeshInstance3D = arch.get_node("ChannelBed")
-	var west_wall: MeshInstance3D = arch.get_node("WestChannelWall")
-	var east_wall: MeshInstance3D = arch.get_node("EastChannelWall")
-	var headrace: Node3D = arch.get_node("HeadraceGorge")
-	var tailrace: Node3D = arch.get_node("TailraceCascade")
-	verify(channel_bed != null and west_wall != null and east_wall != null
-		and headrace != null and tailrace != null,
-		"MillraceArchitecture includes the bedrock channel bed, canyon walls, upstream gorge narrows and downstream cascade.")
-	verify(west_wall.position.y + west_wall.mesh.get_aabb().size.y * 0.5 <= Geometry.GROUND_HEIGHT
-		and east_wall.position.y + east_wall.mesh.get_aabb().size.y * 0.5 <= Geometry.GROUND_HEIGHT,
-		"Recessed canyon channel walls stay at or below the physical floor height.")
-	verify(headrace.position.z < -5.2 and tailrace.position.z > 8.4
-		and headrace.get_node("WestGorgeCrag") != null and headrace.get_node("EastGorgeCrag") != null
-		and tailrace.get_node("UpperCascadeLedge") != null and tailrace.get_node("LowerCascadeLedge") != null,
-		"Natural upstream gorge crags and downstream stepped cascade ledges frame the north and south ends of the stream.")
-	var east_sub: MeshInstance3D = view.get_node("EastBedrockShelf")
-	var west_sub: MeshInstance3D = view.get_node("WestBankBedrockShelf")
-	var seam_headwall: Node3D = view.get_node("NorthSeamOutcrop")
-	verify(east_sub != null and west_sub != null and seam_headwall != null
-		and seam_headwall.get_node("SeamCragWest") != null and seam_headwall.get_node("SeamOverhangLedge") != null,
-		"The worksite builds split east/west natural bedrock shelves and a 3D north ore-vein rock outcrop.")
-	for forbidden in ["HeadraceSluice", "TailraceWeir", "SluiceHandwheel", "SluiceLiftStem",
-			"SluiceGateLeaf", "SluiceHeadbeam", "TrashRackBar", "FlumePost", "FlumeCapBeam",
-			"ChannelTimberSill", "MinePortalPost", "MinePortalCap", "FoundryCrossGirder",
-			"SeamCurbRail", "WestBankSurveyMarker", "MillraceWharfBeam", "FoundationPanel"]:
+	verify(Scenery.Surface.pad_panels().is_empty() and Scenery.Surface.foundation_boxes().is_empty()
+		and Scenery.Surface.architecture_boxes().is_empty(),
+		"An unbuilt worksite contains terrain and rocks, never manufactured support geometry.")
+	verify(scenery.get_node("MillraceArchitecture").find_children("*", "MeshInstance3D", true, false).is_empty(),
+		"No renamed piers, bank rungs or straight channel walls remain visible.")
+	for forbidden in ["FoundationPanel", "BedrockTerracePanel", "EastBedrockShelf", "WestBankBedrockShelf",
+		"SeamVeinBed", "SeamHostRockLip", "SeamOreOutcrop", "StreamBankLedge"]:
 		verify(view.find_child(forbidden, true, false) == null,
-			"Unbuilt worksite contains no pre-existing man-made structure node: " + forbidden)
-	var east_min_x := east_sub.position.x - east_sub.mesh.get_aabb().size.x * 0.5
-	var west_max_x := west_sub.position.x + west_sub.mesh.get_aabb().size.x * 0.5
-	verify(east_min_x > -2.0 and west_max_x < -3.4,
-		"The split bedrock shelf leaves the recessed stream gorge open around x=-2.7.")
+			"The actual builder removes the old engineered silhouette: " + forbidden)
 	verify(ground.material_override == Scenery.ground_material()
 		and stream.material_override == Scenery.water_material(),
 		"Repeated world views share the authored material resources.")

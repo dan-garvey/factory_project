@@ -134,10 +134,13 @@ func check_foundation(legacy: bool) -> void:
 			var half_width: float = node.mesh.get_aabb().size.x * 0.5
 			river_clear = river_clear and (node.position.x + half_width <= -3.32 or node.position.x - half_width >= -2.08)
 			material_correct = material_correct and ground != null and node.material_override == ground
-	verify(panels == 49 and seen.size() == 49 and geometry_unchanged,
-		"The historical floor retains its literal grid; current panels match their shared support descriptors.")
+	var expected_panels := 49 if legacy else 0
+	verify(panels == expected_panels and seen.size() == expected_panels and geometry_unchanged,
+		"Only the explicit historical floor retains a tile grid; the native site has continuous terrain.")
 	if not legacy:
-		verify(river_clear, "The current terrace leaves the literal central river corridor open.")
+		verify(current_panels.is_empty() and river_clear, "The native site has no invisible floor panels over its stream.")
+		verify(view.get_node("ProductionScenery/GroundSurface").material_override == ground,
+			"The actual continuous terrain consumes the shared rocky-ground surface.")
 	verify(material_correct and view.get_meta("foundation_surface") == ("legacy" if legacy else "ready"),
 		"The current terrace shares rocky ground; the historical floor remains procedural.")
 	verify(view.model == null and view.actor_world == null and view.state.is_empty() and view.request_sequence == 0,

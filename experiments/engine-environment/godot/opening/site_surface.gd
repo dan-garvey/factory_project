@@ -5,22 +5,29 @@ const Geometry = preload("res://opening/site_geometry.gd")
 const SUBDIVISIONS := 72
 const SIZE := Geometry.DISPLAY_TERRAIN_SIZE
 const HALF := SIZE * 0.5
+const LOCAL_STEP := 0.25
+const LOCAL_MIN := -10.0
+const LOCAL_MAX := 12.0
+static var _axis := PackedFloat32Array()
 static var _vertices := PackedVector3Array()
 static var _faces := PackedVector3Array()
 
 static func river_center_x(z: float) -> float:
 	var reach := maxf(0.0, absf(z - 1.65) - 14.5)
 	var bend := smoothstep(0.0, 26.0, reach)
-	return -2.7 + bend * (sin(z * 0.042) * 8.0 + cos(z * 0.019) * 3.8)
+	# Bend away from the construction bank, retaining its existing anchors.
+	var near_bend := -0.9 * (1.0 - cos((z - 1.65) * 0.30)) - 0.05 * (1.0 - cos(z * 0.85))
+	return -2.7 + bend * (sin(z * 0.042) * 8.0 + cos(z * 0.019) * 3.8) + (1.0 - bend) * near_bend
 
 static func channel_half_width(z: float) -> float:
 	var flare := smoothstep(5.5, 22.0, absf(z - 1.65))
-	return lerpf(0.62, 1.85, flare)
+	var bank_variation := 0.06 * sin(z * 0.82) + 0.025 * sin(z * 2.31)
+	return lerpf(0.62 + bank_variation, 1.85, flare)
 
 static func raw_height(x: float, z: float) -> float:
-	# Preserve the original environment's samples. Physics and rendering use
-	# the same emitted triangles, rather than treating this smooth function
-	# as the height of a coarsely tessellated surface between its vertices.
+	# Preserve the original distant hills while resolving the natural worksite.
+	# Physics and rendering use the same emitted triangles, rather than this
+	# smooth vertex-height function between the emitted vertices.
 	var rc := river_center_x(z)
 	var half_w := channel_half_width(z)
 	var dx_river := absf(x - rc)
@@ -30,10 +37,7 @@ static func raw_height(x: float, z: float) -> float:
 	var pad_dz := maxf(0.0, absf(z - 1.65) - 6.85)
 	var pad_dist := sqrt(pad_dx * pad_dx + pad_dz * pad_dz)
 	var base_y := Geometry.GROUND_HEIGHT
-	if pad_dist <= 0.0:
-		var edge := maxf(absf(x - 1.65), absf(z - 1.65))
-		base_y = lerpf(-0.62, Geometry.GROUND_HEIGHT, smoothstep(6.2, 6.85, edge))
-	else:
+	if pad_dist > 0.0:
 		var valley := smoothstep(2.2, 44.0, pad_dist)
 		var far_rise := pow(smoothstep(7.5, 76.0, pad_dist), 1.15)
 		var wave := (sin(x * 0.055 + z * 0.038) * 1.85
@@ -47,7 +51,8 @@ static func raw_height(x: float, z: float) -> float:
 		base_y = Geometry.GROUND_HEIGHT + maxf(0.0, terraced)
 	if dx_river <= half_w:
 		return bed_y
-	var bank_span := 1.35 + 3.85 * smoothstep(5.5, 24.0, absf(z - 1.65))
+	var near_bank := 0.78 + 0.12 * sin(z * 0.63) if x < rc else 0.24 + 0.03 * cos(z * 0.75)
+	var bank_span := lerpf(near_bank, 5.2, smoothstep(5.5, 24.0, absf(z - 1.65)))
 	var bank_t := smoothstep(half_w, half_w + bank_span, dx_river)
 	return lerpf(bed_y, base_y, bank_t)
 
@@ -60,14 +65,25 @@ static func normal(x: float, z: float) -> Vector3:
 static func _prepare() -> void:
 	if not _vertices.is_empty():
 		return
-	for gz in range(SUBDIVISIONS + 1):
-		var z := -HALF + float(gz) / SUBDIVISIONS * SIZE
-		for gx in range(SUBDIVISIONS + 1):
-			var x := -HALF + float(gx) / SUBDIVISIONS * SIZE
+	# Retain the distant lattice samples and resolve the actual clearing/banks.
+	# Both renderer and collision consume these same float32 coordinates.
+	var coordinates: Dictionary = {}
+	for n in range(SUBDIVISIONS + 1):
+		var rounded := PackedFloat32Array([-HALF + float(n) / SUBDIVISIONS * SIZE])
+		coordinates[rounded[0]] = true
+	for n in range(roundi(LOCAL_MIN / LOCAL_STEP), roundi(LOCAL_MAX / LOCAL_STEP) + 1):
+		coordinates[float(n) * LOCAL_STEP] = true
+	var ordered: Array = coordinates.keys()
+	ordered.sort()
+	_axis = PackedFloat32Array(ordered)
+	var stride := _axis.size()
+	for gz in range(stride):
+		var z := _axis[gz]
+		for gx in range(stride):
+			var x := _axis[gx]
 			_vertices.append(Vector3(x, raw_height(x, z), z))
-	var stride := SUBDIVISIONS + 1
-	for gz in range(SUBDIVISIONS):
-		for gx in range(SUBDIVISIONS):
+	for gz in range(stride - 1):
+		for gx in range(stride - 1):
 			var i00 := gz * stride + gx
 			var i10 := i00 + 1
 			var i01 := i00 + stride
@@ -85,22 +101,28 @@ static func faces() -> PackedVector3Array:
 
 static func vertex(gx: int, gz: int) -> Vector3:
 	_prepare()
-	return _vertices[gz * (SUBDIVISIONS + 1) + gx]
+	return _vertices[gz * _axis.size() + gx]
+
+static func grid_size() -> int:
+	_prepare()
+	return _axis.size()
+
+static func _axis_cell(value: float) -> int:
+	var low := 0
+	var high := _axis.size() - 1
+	while low + 1 < high:
+		var middle := (low + high) >> 1
+		if value < _axis[middle]:
+			high = middle
+		else:
+			low = middle
+	return clampi(low, 0, _axis.size() - 2)
 
 static func cell(x: float, z: float) -> Vector2i:
 	# Bounds and interpolation use the emitted float32 coordinates, not an
 	# unrounded analytical grid or an added gameplay/reach epsilon.
-	var gx := clampi(floori((x + HALF) / SIZE * SUBDIVISIONS), 0, SUBDIVISIONS - 1)
-	var gz := clampi(floori((z + HALF) / SIZE * SUBDIVISIONS), 0, SUBDIVISIONS - 1)
-	while gx > 0 and x < vertex(gx, 0).x:
-		gx -= 1
-	while gx < SUBDIVISIONS - 1 and x > vertex(gx + 1, 0).x:
-		gx += 1
-	while gz > 0 and z < vertex(0, gz).z:
-		gz -= 1
-	while gz < SUBDIVISIONS - 1 and z > vertex(0, gz + 1).z:
-		gz += 1
-	return Vector2i(gx, gz)
+	_prepare()
+	return Vector2i(_axis_cell(x), _axis_cell(z))
 
 static func contains(x: float, z: float) -> bool:
 	return is_finite(x) and is_finite(z) and x >= -HALF and x <= HALF and z >= -HALF and z <= HALF
@@ -178,7 +200,7 @@ static func capsule_overlap(at: Vector3, radius: float, height: float) -> Dictio
 		var high := cell(at.x + radius, at.z + radius)
 		for gz in range(low.y, high.y + 1):
 			for gx in range(low.x, high.x + 1):
-				var first := (gz * SUBDIVISIONS + gx) * 6
+				var first := (gz * (_axis.size() - 1) + gx) * 6
 				for offset in [0, 3]:
 					distance = minf(distance, _segment_triangle_distance(p, q,
 						_faces[first + offset], _faces[first + offset + 1], _faces[first + offset + 2]))
@@ -191,22 +213,8 @@ static func capsule_overlap(at: Vector3, radius: float, height: float) -> Dictio
 		"subsurface_depth": buried, "triangles_measured": count, "valid": true}
 
 static func pad_panels() -> Array[Dictionary]:
-	# The renderer and physical producer share these exact flat deck rectangles.
-	# Open spans over the millrace must not become an invisible solid plane.
-	var result: Array[Dictionary] = []
-	for x in range(-2, 5):
-		for z in range(-2, 5):
-			var center := Vector3(x * Geometry.PITCH, -0.08, z * Geometry.PITCH)
-			var size := Vector3(Geometry.PITCH - 0.035, 0.12, Geometry.PITCH - 0.035)
-			if x == -1:
-				center.x = -1.41
-				size.x = 1.13
-			elif x == -2:
-				center.x = -3.76
-				size.x = 0.69
-			result.append({"id": "pad_%d_%d" % [x, z], "cell": Vector2i(x, z),
-				"center": center, "size": size})
-	return result
+	# Unbuilt ground is the continuous terrain, never a hidden tiled platform.
+	return []
 
 static func group_origin(group: String) -> Vector3:
 	match group:
@@ -215,119 +223,13 @@ static func group_origin(group: String) -> Vector3:
 		"NorthSeamOutcrop": return Vector3(0.0, 0.0, -5.48)
 	return Vector3.ZERO
 
-static func _structure(result: Array[Dictionary], group: String, label: String,
-		local: Vector3, dimensions: Vector3, finish: String, rotation: Vector3 = Vector3.ZERO) -> void:
-	result.append({"id": "architecture_%d" % result.size(), "group": group, "label": label,
-		"center": group_origin(group) + local, "size": dimensions,
-		"basis": Basis.from_euler(rotation), "finish": finish, "solid": finish != "foam"})
-
 static func architecture_boxes() -> Array[Dictionary]:
-	var result: Array[Dictionary] = []
-	# Recessed bedrock canyon channel bed, rock walls, rim ledges and riverbed strata ribs.
-	_structure(result, "MillraceArchitecture", "ChannelBed", Vector3(-2.7, -1.08, 1.4), Vector3(1.58, 0.16, 29.6), "dark_stone")
-	for side in [-1.0, 1.0]:
-		var wall_name := "WestChannelWall" if side < 0.0 else "EastChannelWall"
-		var rim_name := "WestCanyonRimLedge" if side < 0.0 else "EastCanyonRimLedge"
-		_structure(result, "MillraceArchitecture", wall_name, Vector3(-2.7 + side * 0.71, -0.32, 1.4),
-			Vector3(0.22, 0.56, 28.4), "stone")
-		_structure(result, "MillraceArchitecture", rim_name, Vector3(-2.7 + side * 0.69, -0.065, 1.65),
-			Vector3(0.26, 0.08, 13.6), "dark_stone")
-	for n in range(10):
-		var rib_z := -4.6 + float(n) * 1.42
-		_structure(result, "MillraceArchitecture", "RiverbedRockRib", Vector3(-2.7, -0.52, rib_z),
-			Vector3(1.18, 0.09, 0.22), "dark_stone", Vector3(0.0, sin(float(n) * 1.9) * 0.08, 0.0))
-	# Natural upstream gorge narrows and canyon rock outcrops north of the clearing.
-	for side in [-1.0, 1.0]:
-		var bank_tag := "West" if side < 0.0 else "East"
-		_structure(result, "HeadraceGorge", bank_tag + "GorgeCrag", Vector3(side * 0.78, 0.42, 0.0),
-			Vector3(0.46, 1.44, 0.76), "stone", Vector3(0.0, side * 0.08, 0.0))
-		_structure(result, "HeadraceGorge", bank_tag + "GorgeCrown", Vector3(side * 0.82, 1.18, -0.12),
-			Vector3(0.38, 0.36, 0.58), "dark_stone", Vector3(0.0, side * 0.14, 0.0))
-		_structure(result, "HeadraceGorge", bank_tag + "GorgeLedge", Vector3(side * 0.62, -0.08, 0.14),
-			Vector3(0.24, 0.48, 0.88), "dark_stone")
-	_structure(result, "HeadraceGorge", "UpstreamBedrockSill", Vector3(0.0, -0.22, 0.12), Vector3(1.36, 0.24, 0.58), "dark_stone")
-	_structure(result, "HeadraceGorge", "UpstreamRapidsFoam", Vector3(0.0, -0.05, 0.46), Vector3(1.12, 0.06, 0.42), "foam")
-	for outcrop in range(4):
-		var bz := -1.85 - float(outcrop) * 2.1
-		for side in [-1.0, 1.0]:
-			_structure(result, "HeadraceGorge", "UpstreamCanyonBoulder", Vector3(side * 0.78, 0.12, bz),
-				Vector3(0.28, 0.68, 0.52), "stone" if outcrop % 2 == 0 else "dark_stone",
-				Vector3(0.0, side * (0.1 + float(outcrop) * 0.04), 0.0))
-	# Natural downstream waterfall rock ledges and plunge-pool boulders south of the clearing.
-	_structure(result, "TailraceCascade", "UpperCascadeLedge", Vector3(0.0, -0.34, 0.0), Vector3(1.38, 0.38, 0.56), "stone")
-	_structure(result, "TailraceCascade", "LowerCascadeLedge", Vector3(0.0, -0.56, 0.68), Vector3(1.54, 0.42, 0.68), "dark_stone")
-	_structure(result, "TailraceCascade", "UpperCascadeFoam", Vector3(0.0, -0.14, 0.24), Vector3(1.18, 0.08, 0.32), "foam")
-	_structure(result, "TailraceCascade", "LowerCascadeFoam", Vector3(0.0, -0.36, 0.96), Vector3(1.32, 0.09, 0.44), "foam")
-	_structure(result, "TailraceCascade", "PlungePoolFoam", Vector3(0.0, -0.58, 1.56), Vector3(1.48, 0.07, 0.58), "foam")
-	for side in [-1.0, 1.0]:
-		var bank_tag := "West" if side < 0.0 else "East"
-		_structure(result, "TailraceCascade", bank_tag + "CascadeBluff", Vector3(side * 0.84, -0.14, 0.55),
-			Vector3(0.38, 0.76, 2.2), "stone")
-		_structure(result, "TailraceCascade", bank_tag + "PlungeBoulder", Vector3(side * 0.92, -0.38, 2.25),
-			Vector3(0.28, 0.68, 1.45), "dark_stone", Vector3(0.0, side * 0.08, 0.0))
-	return result
-
-static func _foundation(result: Array[Dictionary], group: String, label: String,
-		local: Vector3, dimensions: Vector3, tint: Color, metallic: float, roughness: float) -> void:
-	result.append({"id": "foundation_%d" % result.size(), "group": group, "label": label,
-		"center": group_origin(group) + local, "size": dimensions, "basis": Basis.IDENTITY,
-		"tint": tint, "metallic": metallic, "roughness": roughness})
+	# River banks and bed come from the same natural terrain used by physics.
+	return []
 
 static func foundation_boxes() -> Array[Dictionary]:
-	var result: Array[Dictionary] = []
-	# Natural bedrock river shelves split around the recessed x=-2.7 stream gorge.
-	_foundation(result, "", "EastBedrockShelf", Vector3(3.21, -0.55, 1.65),
-		Vector3(10.28, 0.8, 13.4), Color("585d55"), 0.0, 0.94)
-	_foundation(result, "", "WestBankBedrockShelf", Vector3(-4.25, -0.55, 1.65),
-		Vector3(1.60, 0.8, 13.4), Color("585d55"), 0.0, 0.94)
-	_foundation(result, "", "EastBedrockRim", Vector3(8.38, -0.11, 1.65),
-		Vector3(0.18, 0.18, 13.56), Color("5b6158"), 0.0, 0.92)
-	_foundation(result, "", "WestBedrockRim", Vector3(-5.08, -0.11, 1.65),
-		Vector3(0.18, 0.18, 13.56), Color("5b6158"), 0.0, 0.92)
-	for z_idx in range(-2, 5):
-		var z_pos := float(z_idx) * Geometry.PITCH
-		_foundation(result, "", "EastShelfOutcrop", Vector3(8.48, -0.52, z_pos),
-			Vector3(0.32, 0.86, 0.36), Color("525851"), 0.0, 0.92)
-		_foundation(result, "", "WestShelfOutcrop", Vector3(-5.18, -0.52, z_pos),
-			Vector3(0.32, 0.86, 0.36), Color("525851"), 0.0, 0.92)
-	# Natural exposed mineral vein fissure along x=0 with raw ore clusters and north rock outcrop.
-	_foundation(result, "", "SeamVeinBed", Vector3(0.0, -0.012, 1.65),
-		Vector3(0.26, 0.03, 13.4), Color("2d3536"), 0.04, 0.92)
-	for side in [-1.0, 1.0]:
-		_foundation(result, "", "SeamHostRockLip", Vector3(side * 0.155, 0.002, 1.65),
-			Vector3(0.055, 0.032, 13.4), Color("535954"), 0.0, 0.92)
-	for n in range(14):
-		var oz := -3.35 + float(n) * 0.78
-		var ox := (-0.045 if n % 2 == 0 else 0.045)
-		_foundation(result, "", "SeamOreOutcrop", Vector3(ox, 0.018, oz),
-			Vector3(0.11, 0.048, 0.28), Color("b89752"), 0.58, 0.44)
-	_foundation(result, "NorthSeamOutcrop", "SeamRockMass", Vector3(0.0, 0.46, -0.24),
-		Vector3(1.52, 1.32, 0.74), Color("4b524e"), 0.0, 0.92)
-	_foundation(result, "NorthSeamOutcrop", "SeamRockShoulderWest", Vector3(-0.78, 0.28, -0.18),
-		Vector3(0.68, 0.92, 0.58), Color("585f59"), 0.0, 0.92)
-	_foundation(result, "NorthSeamOutcrop", "SeamRockShoulderEast", Vector3(0.78, 0.32, -0.18),
-		Vector3(0.68, 0.98, 0.58), Color("585f59"), 0.0, 0.92)
-	for side in [-1.0, 1.0]:
-		var crag_name := "SeamCragWest" if side < 0.0 else "SeamCragEast"
-		_foundation(result, "NorthSeamOutcrop", crag_name, Vector3(side * 0.46, 0.44, 0.10),
-			Vector3(0.24, 0.92, 0.22), Color("525853"), 0.0, 0.92)
-	_foundation(result, "NorthSeamOutcrop", "SeamOverhangLedge", Vector3(0.0, 0.96, 0.08),
-		Vector3(1.22, 0.20, 0.26), Color("4d544f"), 0.0, 0.92)
-	for v_idx in range(3):
-		_foundation(result, "NorthSeamOutcrop", "ExposedOreVein",
-			Vector3(-0.18 + float(v_idx) * 0.18, 0.24 + float(v_idx) * 0.24, 0.12),
-			Vector3(0.22, 0.18, 0.14), Color("c7a35a"), 0.62, 0.42)
-	for idx in range(3):
-		var boulder_z := -1.8 + float(idx) * 0.4
-		_foundation(result, "", "WestBankBoulder", Vector3(-3.75, 0.02, boulder_z),
-			Vector3(0.20, 0.08, 0.24), Color("5b6159"), 0.0, 0.92)
-	for row in range(-2, 5):
-		for offset in [-0.52, 0.0, 0.52]:
-			for side in [0, 1]:
-				_foundation(result, "", "StreamBankLedge",
-					Vector3(-2.22 if side == 0 else -2.95, -0.06, row * Geometry.PITCH + offset),
-					Vector3(0.50 if side == 0 else 0.94, 0.08, 0.22), Color("555c56"), 0.0, 0.93)
-	return result
+	# There are no player-unbuilt slabs, rails, crags shaped as piers or ledges.
+	return []
 
 static func rock_boxes() -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
@@ -347,15 +249,7 @@ static func rock_boxes() -> Array[Dictionary]:
 	return result
 
 static func support_boxes() -> Array[Dictionary]:
-	var result := pad_panels()
-	for spec in result:
-		spec.basis = Basis.IDENTITY
-	result.append_array(foundation_boxes())
-	for spec in architecture_boxes():
-		if spec.solid:
-			result.append(spec)
-	result.append_array(rock_boxes())
-	return result
+	return rock_boxes()
 
 static func capsule_box_overlap(at: Vector3, radius: float, height: float,
 		box: Transform3D, half: Vector3) -> float:
