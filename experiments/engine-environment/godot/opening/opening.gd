@@ -3951,8 +3951,9 @@ func _transmission_snap_target(entity_id: String, normal: Vector3, eye: Vector3)
 	var surface: Dictionary = state.get("foundations", {}).get(entity_id, {})
 	if not surface.is_empty():
 		var level: int = int(surface.get("level", 0))
-		if level % Geometry.HEIGHT_DENOMINATOR != 0:
-			return []
+		# Foundation slabs can end halfway between transmission tile levels.
+		# Select the first shared tile at or above the top, including below zero.
+		level = ceili(float(level) / Geometry.HEIGHT_DENOMINATOR) * Geometry.HEIGHT_DENOMINATOR
 		transmission_controls.snapped_height = level
 		return [int(surface.cell[0]) * 4, level if transmission_controls.auto_height else transmission_controls.gear_height,
 			int(surface.cell[1]) * 4]
