@@ -19,6 +19,10 @@ class SharedPointerView extends SharedOpening:
 	func _machine_preview_cell() -> Vector2i:
 		return target
 
+class MarkerView extends Opening:
+	func _update_camera() -> void:
+		pass
+
 class ControlsStub extends RefCounted:
 	var selected_axis := "x"
 	var active_tool := ""
@@ -79,7 +83,8 @@ func check_assemblies() -> void:
 	view.machine_root = Node3D.new()
 	view.wheel_rotor = Node3D.new()
 	var live_rotor := view.wheel_rotor
-	for kind in ["collector", "belt", "processor", "wheel"]:
+	# Native belts use shaft spans now; only placeable machines have forms.
+	for kind in ["collector", "processor", "wheel"]:
 		for axis in range(3):
 			assembly_cases += 1
 			view.mode = kind
@@ -211,6 +216,11 @@ func check_inspection_cursor(view) -> void:
 	view._update_cursor()
 	verify(view.hover.visible and view.machine_preview != null and view.machine_preview.visible,
 		"Selecting a carried machine keeps its deliberate construction previews.")
+	view.state.entities = {"placed": {"kind": "belt", "cell": [0, 0], "level": 0}}
+	view._update_cursor()
+	verify(not view.hover.visible,
+		"A confirmed machine clears the filled construction tile at its occupied square.")
+	view.state.entities.clear()
 	view.mode = "inspect"
 	view._update_cursor()
 	verify(not view.hover.visible and not view.machine_preview.visible,
@@ -222,6 +232,34 @@ func check_inspection_cursor(view) -> void:
 		"Help still hides construction previews.")
 	verify(view.state == before and view.request_sequence == 0 and view.pending_link.is_empty(),
 		"Cursor changes do not alter facts, submit requests or start links.")
+	view.free()
+
+func check_selection_marker() -> void:
+	var view := MarkerView.new()
+	view.legacy_fixture = true
+	view._build_world()
+	var marker: MeshInstance3D = view.selection_ring
+	var covered := false
+	for surface in range(marker.mesh.get_surface_count()):
+		var arrays: Array = marker.mesh.surface_get_arrays(surface)
+		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+		for triangle in range((indices.size() if not indices.is_empty() else vertices.size()) / 3):
+			var a: int = indices[triangle * 3] if not indices.is_empty() else triangle * 3
+			var b: int = indices[triangle * 3 + 1] if not indices.is_empty() else triangle * 3 + 1
+			var c: int = indices[triangle * 3 + 2] if not indices.is_empty() else triangle * 3 + 2
+			var pa := Vector2(vertices[a].x, vertices[a].z)
+			var pb := Vector2(vertices[b].x, vertices[b].z)
+			var pc := Vector2(vertices[c].x, vertices[c].z)
+			var cross_a := (pb - pa).cross(-pa)
+			var cross_b := (pc - pb).cross(-pb)
+			var cross_c := (pa - pc).cross(-pc)
+			if (cross_a >= -0.0001 and cross_b >= -0.0001 and cross_c >= -0.0001) \
+					or (cross_a <= 0.0001 and cross_b <= 0.0001 and cross_c <= 0.0001):
+				covered = true
+	verify(not covered, "The selected-object marker has an open center rather than a pale filled square.")
+	verify(marker.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF,
+		"The selection outline does not cast a square shadow.")
 	view.free()
 
 func check_partial_drive_guidance() -> void:
@@ -271,6 +309,16 @@ func check_foundation_heights(view) -> void:
 	view.free()
 
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--selection-cursor-only"):
+		check_inspection_cursor(PointerView.new())
+		var cursor_shared := SharedPointerView.new()
+		cursor_shared.session = SessionStub.new()
+		check_inspection_cursor(cursor_shared)
+		check_selection_marker()
+		print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
+			"observations": "invented", "desktop": "not_used", "mode": "selection_cursor"}))
+		quit(1 if failed else 0)
+		return
 	if OS.get_cmdline_user_args().has("--foundation-heights-only"):
 		check_foundation_heights(PointerView.new())
 		var floor_shared := SharedPointerView.new()
@@ -292,6 +340,7 @@ func _initialize() -> void:
 	var cursor_shared := SharedPointerView.new()
 	cursor_shared.session = SessionStub.new()
 	check_inspection_cursor(cursor_shared)
+	check_selection_marker()
 	check_partial_drive_guidance()
 	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
 		"assembly_cases": assembly_cases, "observations": "invented", "desktop": "not_used",
