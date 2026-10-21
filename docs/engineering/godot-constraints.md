@@ -808,7 +808,7 @@ size. Previous coarse face-list results retain their actual scope and revision.
 ## GDC-16: appending mixed mesh indexing can omit whole components
 
 **Engine/API and adapter, source-confirmed.** In the pinned Godot 4.7.2
-[SurfaceTool implementation](https://github.com/godotengine/godot/blob/ed1daf0bf001b61586d9930840f2f1394092c079/scene/resources/surface_tool.cpp#L953),
+[SurfaceTool implementation](https://github.com/godotengine/godot/blob/ed1daf0bf001b61586d9930840f2f1394092c079/scene/resources/surface_tool.cpp#L1021),
 `append_from()` appends vertices and any supplied indices; it does not generate
 indices for an unindexed input when another input is indexed. A combined indexed
 surface therefore leaves the unindexed component's vertices unreferenced. Its
