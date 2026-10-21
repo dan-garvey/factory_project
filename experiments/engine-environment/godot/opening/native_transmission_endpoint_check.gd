@@ -6,6 +6,10 @@ const Cue = preload("res://opening/native_transmission_endpoint_cue.gd")
 class OfflineHarness:
 	extends "res://opening/opening.gd"
 	var requests: Array = []
+	func _update_cursor() -> void:
+		pass
+	func _refresh_ui() -> void:
+		pass
 	func issue(wire: Dictionary) -> Dictionary:
 		requests.append(wire.duplicate(true))
 		return {"accepted": false, "queued": true}
@@ -13,6 +17,10 @@ class OfflineHarness:
 class SharedHarness:
 	extends "res://opening/shared_opening.gd"
 	var requests: Array = []
+	func _update_cursor() -> void:
+		pass
+	func _refresh_ui() -> void:
+		pass
 	func _update_camera() -> void:
 		pass # Detached callback controls create no camera or viewport input.
 	func issue(wire: Dictionary) -> Dictionary:
@@ -190,6 +198,24 @@ func check_common_frame() -> void:
 		"Common-frame cancellation sends no request and creates no Model.")
 	view.free()
 
+func check_direct_shaft_entry(shared: bool) -> void:
+	var view = SharedHarness.new() if shared else OfflineHarness.new()
+	if shared:
+		view.session = Connection.new()
+	mount(view)
+	var before: Dictionary = view.state.duplicate(true)
+	view._select_tool("drive")
+	verify(view.transmission_controls.active_tool == "place_shaft" and "highlighted grid point" in view.status_label.text,
+		"The ordinary Shaft entry selects direct placement and explains its grid point.")
+	view._transmission_click([2, 0, 4], "")
+	view._transmission_click([6, 0, 4], "")
+	verify(view.requests == [{"action": "place_shaft", "center": [2, 0, 4], "axis": "x", "half_span": 2},
+		{"action": "place_shaft", "center": [6, 0, 4], "axis": "x", "half_span": 2}],
+		"Two individual clicks submit touching segment centers without endpoint selection.")
+	verify(view.state == before and view.transmission_endpoint_cue == null and view.model == null,
+		"The view neither invents authority nor creates an endpoint cue for direct segments.")
+	view.free()
+
 func _initialize() -> void:
 	call_deferred("_run")
 
@@ -201,5 +227,7 @@ func _run() -> void:
 		check_shared()
 		check_invalid()
 		check_common_frame()
+		check_direct_shaft_entry(false)
+		check_direct_shaft_entry(true)
 	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks, "failures": failures, "evidence": "isolated_endpoint_annotation", "models": 0, "desktop_operations": 0}))
 	quit(0 if failures == 0 else 1)
