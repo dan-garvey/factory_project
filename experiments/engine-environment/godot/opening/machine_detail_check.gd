@@ -28,6 +28,99 @@ var foundation_art_complete := false
 var press_input_checks_complete := false
 var wheel_support_checks_complete := false
 var span_belt_checks_complete := false
+var paddle_grain_checks_complete := false
+
+func paddle_grain_range(node: MeshInstance3D, pose: Transform3D, mesh_override: Mesh = null) -> Vector2:
+	var mesh: Mesh = node.mesh if mesh_override == null else mesh_override
+	var arrays := mesh.surface_get_arrays(0)
+	var points: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+	var uv: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+	var scale: Vector3 = node.material_override.uv1_scale
+	var minimum := INF
+	var maximum := 0.0
+	for n in range(0, points.size(), 3):
+		var direction := normals[n].abs()
+		if direction[direction.max_axis_index()] < 0.99999:
+			continue
+		for pair in [[n, n + 1], [n + 1, n + 2], [n + 2, n]]:
+			var difference: Vector2 = (uv[pair[1]] - uv[pair[0]]) * Vector2(scale.x, scale.y)
+			if (absf(difference.x) < 0.000001) == (absf(difference.y) < 0.000001):
+				continue
+			var physical_repeat: float = (pose.basis * (points[pair[1]] - points[pair[0]])).length() / difference.length()
+			minimum = minf(minimum, physical_repeat)
+			maximum = maxf(maximum, physical_repeat)
+	return Vector2(minimum, maximum)
+
+func check_paddle_grain() -> void:
+	paddle_grain_checks_complete = false
+	var cache: Dictionary = {}
+	var observations: Array = []
+	var assemblies := 0
+	for shared_profile in [false, true]:
+		for axis in [0, 2]:
+			for tiles in [3, 5, 8]:
+				var view: Variant = Shared.new() if shared_profile else Opening.new()
+				if shared_profile:
+					view.session = PaddleSessionFacts.new()
+				view.state = {"context": "paddle-grain-fixture", "options": {"native": true, "physical": true},
+					"actors": {"P": {"ready": true}}, "stock": {}, "entities": {}, "parts": {},
+					"transmission_parts": {}, "motion": {}, "links": [], "drive_links": [], "engagements": []}
+				var before: Dictionary = view.state.duplicate(true)
+				var machine := Node3D.new()
+				view._assemble_machine(machine, {"kind": "wheel", "axis": axis, "tiles": tiles, "cell": [0, 0], "generation": 1})
+				var rows: Array[Dictionary] = []
+				hub_mesh_rows(machine, Transform3D.IDENTITY, rows)
+				var timber_parts := 0
+				var minimum_repeat := INF
+				var maximum_repeat := 0.0
+				for row in rows:
+					var part: MeshInstance3D = row.node
+					var role: String = part.get_meta("detail_role", "")
+					if role not in ["WheelPaddle", "PaddleRootCleat"]:
+						continue
+					var size := Vector3(0.14, 0.018, 0.28) if role == "WheelPaddle" else Vector3(0.04, 0.06, 0.10)
+					var original := Visuals.box_mesh(size)
+					var arrays := part.mesh.surface_get_arrays(0)
+					var old_arrays := original.surface_get_arrays(0)
+					verify(arrays[Mesh.ARRAY_VERTEX] == old_arrays[Mesh.ARRAY_VERTEX]
+						and arrays[Mesh.ARRAY_NORMAL] == old_arrays[Mesh.ARRAY_NORMAL]
+						and arrays[Mesh.ARRAY_TANGENT] == old_arrays[Mesh.ARRAY_TANGENT],
+						"Timber UV preparation preserves every original vertex, normal and tangent exactly.")
+					var measured := paddle_grain_range(part, row.pose)
+					minimum_repeat = minf(minimum_repeat, measured.x)
+					maximum_repeat = maxf(maximum_repeat, measured.y)
+					verify(absf(measured.x - 0.6) < 0.00001 and absf(measured.y - 0.6) < 0.00001,
+						"Actual transformed broad-face edges keep the chosen 0.6 m repeat in both texture directions.")
+					var key := [role, tiles]
+					if not cache.has(key):
+						cache[key] = part.mesh
+						var limits := Vector2(0.00065, 0.00071) if role == "WheelPaddle" else Vector2(0.00021, 0.000241)
+						check_closed_asset_mesh(part.mesh, limits.x, limits.y)
+						var old_repeat := paddle_grain_range(part, row.pose, original)
+						verify(old_repeat.y > 2.0 and old_repeat.x > 0.7,
+							"The original uncorrected coordinates still fail the same physical-repeat measurement.")
+						for angle in [0.0, 0.83, 2.2]:
+							var moved: Transform3D = Transform3D(Basis(Vector3.UP, angle), Vector3(4, 2, -7)) * row.pose
+							var rotated := paddle_grain_range(part, moved)
+							verify(rotated.is_equal_approx(measured), "Rigid rotation and translation leave local grain attached to the board.")
+					verify(part.mesh == cache[key] and part.material_override == PaddleArt.finish
+						and not part.material_override.uv1_triplanar,
+						"Equal diameters reuse the exact mesh and unchanged board-local timber material in both views.")
+					timber_parts += 1
+				verify(timber_parts == 24 and view.state == before and view.model == null and view.actor_world == null
+					and view.request_sequence == 0 and not view.is_inside_tree(),
+					"All twelve blades and cleats remain passive and change no native authority, observation or request.")
+				observations.append({"shared_profile": shared_profile, "axis": axis, "tiles": tiles,
+					"timber_parts": timber_parts, "minimum_repeat_metres": minimum_repeat, "maximum_repeat_metres": maximum_repeat})
+				machine.free()
+				view.free()
+				assemblies += 1
+	verify(cache.size() == 6 and PaddleArt.timber_mesh(Vector3(0.14, 0.018, 0.28)) == Visuals.box_mesh(Vector3(0.14, 0.018, 0.28)),
+		"Six diameter/role variants are cached while the nonnative default retains its original mesh.")
+	paddle_grain_checks_complete = not failed and assemblies == 12
+	print(JSON.stringify({"phase": "native paddle grain", "assemblies": observations, "cached_timber_meshes": cache.size(),
+		"completed": paddle_grain_checks_complete, "checks": checks, "native_world": false, "game_entry": false}))
 
 func span_shell_closed(mesh: Mesh) -> bool:
 	var edges: Dictionary = {}
@@ -2354,8 +2447,8 @@ func check_timber_paddles(historical: bool = false) -> void:
 							for n in range(positions.size()):
 								if absf(normals[n].y) > 0.99999:
 									broad_faces += 1
-									aligned = aligned and uv[n].is_equal_approx(Vector2(positions[n].x, positions[n].z))
-							verify(aligned and broad_faces > 0, "The actual broad blade UVs put source grain V along its longer axial span.")
+									aligned = aligned and uv[n].is_equal_approx(Vector2(positions[n].x * rotor.scale.x, positions[n].z * rotor.scale.z))
+							verify(aligned and broad_faces > 0, "The actual broad blade UVs retain axial grain V at the declared physical repeat.")
 					verify(part.mesh == cached[role][0] and part.material_override == cached[role][1],
 						"All blade assemblies reuse their exact role-specific mesh and material resources.")
 					var material := part.material_override as StandardMaterial3D
@@ -4478,6 +4571,8 @@ func render_buildable_resources() -> void:
 		{"name": "conveyor", "kind": "belt"}, {"name": "waterwheel", "kind": "wheel"},
 		{"name": "belt-span", "kind": "belt_span"}, {"name": "belt-pulley", "kind": "belt_pulley"},
 		{"name": "waterwheel-journal", "kind": "wheel", "cutaway": true},
+		{"name": "paddle-small", "kind": "wheel", "tiles": 3, "paddle_cutaway": true, "cutaway": true},
+		{"name": "paddle-large", "kind": "wheel", "tiles": 8, "paddle_cutaway": true, "cutaway": true},
 		{"name": "foundation", "kind": "foundation"}, {"name": "foundation-patch", "kind": "foundation"}]
 	var selected_subject := OS.get_environment("FACTORY_RESOURCE_RENDER_SUBJECT")
 	if not selected_subject.is_empty():
@@ -4516,8 +4611,17 @@ func render_buildable_resources() -> void:
 			TransmissionAssets.shaft(shaft, Geometry.PITCH, Color("a6b4af"))
 			TransmissionAssets.belt_pulley(shaft)
 		else:
-			view._assemble_machine(model, {"kind": subject.kind, "cell": [0, 0], "axis": 0, "generation": 1})
-		if subject.get("cutaway", false):
+			view._assemble_machine(model, {"kind": subject.kind, "cell": [0, 0], "axis": 0, "tiles": subject.get("tiles", 3), "generation": 1})
+		if subject.get("paddle_cutaway", false):
+			# Keep one actual native paddle in its complete ordinary transform.
+			# Only other artwork is hidden for this disclosed component study.
+			for child in model.get_children():
+				if child != view.wheel_rotor:
+					child.free()
+			for child in view.wheel_rotor.get_children():
+				if child.get_meta("paddle_index", -1) != 0:
+					child.free()
+		elif subject.get("cutaway", false):
 			# A disclosed passive journal study. Hide only the rotating timber
 			# and paddle artwork in this fixture, leaving the assembled hub and
 			# all fixed supports in their ordinary transforms.
@@ -4538,6 +4642,15 @@ func render_buildable_resources() -> void:
 			quit(1)
 			return
 		var bounds := feed_item_bounds(model, Transform3D.IDENTITY)
+		if subject.get("paddle_cutaway", false):
+			# Empty ancestor origins are not part of the visible cutaway. Frame
+			# the actual mesh bounds without relocating or scaling the paddle.
+			var pieces: Array[Dictionary] = []
+			hub_mesh_rows(model, Transform3D.IDENTITY, pieces)
+			bounds = pieces[0].pose * pieces[0].node.mesh.get_aabb()
+			for piece in pieces:
+				var box: AABB = piece.pose * piece.node.mesh.get_aabb()
+				bounds = bounds.merge(box)
 		var centre := bounds.get_center()
 		var diagonal := bounds.size.length()
 		var viewport := SubViewport.new()
@@ -4677,6 +4790,11 @@ func render_buildable_resources() -> void:
 	quit(0)
 
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--paddle-grain-only"):
+		check_paddle_grain()
+		verify(paddle_grain_checks_complete, "All twelve native paddle assemblies must complete.")
+		finish()
+		return
 	if OS.get_cmdline_user_args().has("--span-belt-only"):
 		check_span_belt_art()
 		verify(span_belt_checks_complete, "All eight span assemblies must complete.")
@@ -4687,6 +4805,12 @@ func _initialize() -> void:
 		finish()
 		return
 	if OS.get_cmdline_user_args().has("--render-buildable-resources"):
+		if OS.get_cmdline_user_args().has("--paddle-grain-check"):
+			check_paddle_grain()
+			if failed or not paddle_grain_checks_complete:
+				verify(paddle_grain_checks_complete, "All twelve native paddle assemblies must pass before rendering.")
+				finish()
+				return
 		if OS.get_cmdline_user_args().has("--span-belt-check"):
 			check_span_belt_art()
 			if failed or not span_belt_checks_complete:

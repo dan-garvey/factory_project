@@ -172,6 +172,13 @@ unassessed. The beveled profile helper is shared with the collector casting.
 The sourced rotor now carries twelve thin [timber paddle blades](wheel-paddles/CREDITS.md)
 with fitted root cleats, iron straps and hexagonal fasteners. Their qualified
 wood grain follows the longer blade span with local mapping as the rotor turns.
+For resized native wheels, per-diameter timber coordinates compensate the
+rotor's radial and axial scale while every vertex and attachment stays exact.
+The selected 0.6 m repeat remains stable across the blade and root-cleat broad
+faces. This is an artistic mapping, not a source-certified timber dimension.
+Grain stays attached to each board as it turns; no world-space projection or
+animation clock is added. Isolated small- and large-paddle views hide the other
+wheel art to expose the material, and do not establish complete scene quality.
 The original rotor, paddle positions, native axes, conservative envelope and
 signed cosmetic motion remain. The new art changes no power or working rule.
 Historical fixed resource rosters keep their earlier block paddles. Technical

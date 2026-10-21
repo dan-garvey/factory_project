@@ -8,15 +8,16 @@ namespace factory::waterflow {
 namespace {
 using Integer = mechanics::Integer;
 
+std::size_t cell_index(const std::vector<double>& axis, double point) {
+    const auto next = std::upper_bound(axis.begin(), axis.end(), point);
+    return std::min(axis.size() - 2, static_cast<std::size_t>(next - axis.begin() - (next != axis.begin())));
+}
+
 std::optional<double> ground(const Terrain& terrain, double x, double z) {
     const auto& axis = terrain.axis;
     if (axis.size() < 2 || terrain.heights.size() != axis.size() * axis.size() ||
         x < axis.front() || x > axis.back() || z < axis.front() || z > axis.back()) return std::nullopt;
-    const auto cell = [&](double point) {
-        const auto next = std::upper_bound(axis.begin(), axis.end(), point);
-        return std::min(axis.size() - 2, static_cast<std::size_t>(next - axis.begin() - (next != axis.begin())));
-    };
-    const auto ix = cell(x), iz = cell(z), stride = axis.size();
+    const auto ix = cell_index(axis, x), iz = cell_index(axis, z), stride = axis.size();
     const auto u = (x - axis[ix]) / (axis[ix + 1] - axis[ix]);
     const auto v = (z - axis[iz]) / (axis[iz + 1] - axis[iz]);
     const auto a = terrain.heights[iz * stride + ix];
@@ -32,11 +33,38 @@ bool clear_path(const Terrain& terrain, const Cell& from, const Cell& to) {
     const auto z0 = from.z * terrain.meters_per_step;
     const auto x1 = to.x * terrain.meters_per_step;
     const auto z1 = to.z * terrain.meters_per_step;
-    for (int index = 0; index <= 16; ++index) {
-        const auto t = index / 16.0;
+    const auto wet = [&](double t) {
         const auto bed = ground(terrain, x0 + (x1 - x0) * t, z0 + (z1 - z0) * t);
         const auto water = (from.surface + (to.surface - from.surface) * t) * terrain.meters_per_step / 100.0;
-        if (!bed || *bed >= water) return false;
+        return bed && *bed < water;
+    };
+    // Bed and proposed water level are affine inside each terrain triangle.
+    // Their clearance can attain its maximum at an endpoint only. Split at
+    // every grid crossing and at each traversed cell's triangle diagonal.
+    std::vector<double> cuts{0.0, 1.0};
+    for (const auto coordinate : terrain.axis) {
+        for (const auto endpoints : {std::array{x0, x1}, std::array{z0, z1}}) {
+            if (endpoints[0] == endpoints[1]) continue;
+            const auto t = (coordinate - endpoints[0]) / (endpoints[1] - endpoints[0]);
+            if (t > 0.0 && t < 1.0) cuts.push_back(t);
+        }
+    }
+    std::sort(cuts.begin(), cuts.end());
+    cuts.erase(std::unique(cuts.begin(), cuts.end()), cuts.end());
+    if (!wet(0.0)) return false;
+    for (std::size_t index = 1; index < cuts.size(); ++index) {
+        const auto first = cuts[index - 1], last = cuts[index];
+        if (!wet(last)) return false;
+        const auto middle = (first + last) * 0.5;
+        const auto ix = cell_index(terrain.axis, x0 + (x1 - x0) * middle);
+        const auto iz = cell_index(terrain.axis, z0 + (z1 - z0) * middle);
+        const auto width = terrain.axis[ix + 1] - terrain.axis[ix];
+        const auto depth = terrain.axis[iz + 1] - terrain.axis[iz];
+        const auto du = (x1 - x0) / width, dv = (z1 - z0) / depth;
+        if (du == dv) continue;
+        const auto diagonal = ((z0 - terrain.axis[iz]) / depth -
+                               (x0 - terrain.axis[ix]) / width) / (du - dv);
+        if (diagonal > first && diagonal < last && !wet(diagonal)) return false;
     }
     return true;
 }
