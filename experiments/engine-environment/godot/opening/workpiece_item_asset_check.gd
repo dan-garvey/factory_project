@@ -321,6 +321,7 @@ func check_mineral_seam() -> void:
 		var rock: MeshInstance3D = exposure.get_node("ExposedRock")
 		if rock_mesh == null:
 			rock_mesh = rock.mesh
+			check_exposure_boundary(rock)
 		verify(rock.mesh == rock_mesh, "The exhausted host exposure reuses the same geometry throughout depletion.")
 		for part in exposure.get_children():
 			verify(part is MeshInstance3D and part.get_child_count() == 0 and part.get_script() == null
@@ -355,3 +356,35 @@ func check_mineral_seam() -> void:
 		"cache_entries": Assets.source_meshes.size(), "maximum_relief_metres": 0.04,
 		"authority_started": false, "rendered_quality": "not_assessed", "desktop": "not_used"}))
 	quit(1 if failed else 0)
+
+
+func check_exposure_boundary(rock: MeshInstance3D) -> void:
+	var arrays: Array = rock.mesh.surface_get_arrays(0)
+	var colors := PackedColorArray()
+	if arrays[Mesh.ARRAY_COLOR] != null:
+		colors = arrays[Mesh.ARRAY_COLOR]
+	var core := false
+	var edge := false
+	for color in colors:
+		core = core or color.a > 0.99
+		edge = edge or color.a < 0.01
+	verify(core and edge and rock.material_override.vertex_color_use_as_albedo
+		and rock.material_override.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA,
+		"Exposed rock has an opaque core and a transparent ground transition consumed by its real material.")
+	var furthest := {}
+	for point: Vector3 in arrays[Mesh.ARRAY_VERTEX]:
+		# Normalize by the actual two-cell extraction footprint, independently
+		# of the art helper's ring spacing or radial shape formula.
+		var at := Vector2(point.x, point.z - Geometry.PITCH * 0.5) / Vector2(Geometry.PITCH * 0.5, Geometry.PITCH)
+		if at.length_squared() > 0.000001:
+			var sector := posmod(roundi(at.angle() * 32.0 / TAU), 32)
+			furthest[sector] = maxf(furthest.get(sector, 0.0), at.length())
+	var nearest_edge := INF
+	var farthest_edge := 0.0
+	for radius: float in furthest.values():
+		nearest_edge = minf(nearest_edge, radius)
+		farthest_edge = maxf(farthest_edge, radius)
+	verify(furthest.size() >= 24 and farthest_edge - nearest_edge > 0.2,
+		"The actual extraction footprint has distinct irregular insets rather than a nearly elliptical marker.")
+	verify(rock.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF,
+		"The thin ground transition cannot cast an artificial solid rim shadow.")
