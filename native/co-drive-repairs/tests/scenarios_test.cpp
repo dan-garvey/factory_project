@@ -33,6 +33,7 @@ void conserved(const Fixture& fixture) {
     auto totals = fixture.profile.finite_parts;
     for (auto& [spec, count] : totals) { (void)spec; count = 0; }
     for (const auto& part : saved.state.topology.parts) ++totals.at({part.role, part.geometry.teeth, part.geometry.half_span});
+    for (const auto& span : saved.state.topology.belt_spans) { (void)span; ++totals.at({s::Role::belt, 0, 0}); }
     for (const auto& [actor, kit] : saved.state.kits) {
         (void)actor;
         for (const auto& [spec, count] : kit) totals.at(spec) += count;
@@ -52,7 +53,7 @@ Fixture fresh(const std::string& suffix) {
     const auto power = s::power_view(state.topology).mechanical;
     factory::materials::Quantity parts{};
     for (const auto& [spec, count] : fixture.profile.finite_parts) { (void)spec; parts += count; }
-    check(parts == 11 && state.material.stock.source == 16 && progress.sources == 2 && progress.products == 0 &&
+    check(parts == 16 && state.material.stock.source == 16 && progress.sources == 2 && progress.products == 0 &&
           progress.mode == c::Mode::stalled && power.motion.at("wheel-left").state == g::MotionState::stalled &&
           power.motion.at("wheel-right").state == g::MotionState::stalled, "Two equal-rate sources through one reversal actually stall their shared finite line.");
     return fixture;
@@ -117,7 +118,7 @@ void produce(Fixture& fixture) {
     for (int step = 0; step < 64 && fixture.world->snapshot().state.material.cargo.at("P").products < 4; ++step) {
         if (fixture.world->snapshot().state.material.stock.output > 0) {
             check(accepted(send(fixture, {{"action", V("collect")}, {"target", V("processor")},
-                {"generation", V(I{1})}, {"amount", V(I{1})}}, {8, 0, 4})), "A nearby actor retrieves one actual native plate into individual cargo.");
+                {"generation", V(I{1})}, {"amount", V(I{1})}}, {12, 0, 4})), "A nearby actor retrieves one actual native plate into individual cargo.");
         }
         ticks(fixture, 1);
     }
@@ -141,7 +142,7 @@ void retirement(bool left) {
     const auto motion = s::power_view(state.topology).mechanical;
     check(progress.mode == c::Mode::isolated && progress.ready() == left && state.topology.drive_enabled &&
           state.material == material && state.kits.at("P").at({s::Role::waterwheel, 0, 0}) == 1 &&
-          motion.motion.at("processor").rate == g::Rate{left ? 1 : -1, 1},
+          motion.motion.at("processor").rate == g::Rate{left ? -1 : 1, 1},
           "Retirement refunds the exact wheel, preserves material and derives the remaining signed line rate.");
     restore(fixture);
     if (!left) {
@@ -170,7 +171,7 @@ void coherent(const Fixture& fixture, const std::string& idler) {
     const auto motion = s::power_view(state.topology).mechanical;
     check(progress.mode == c::Mode::co_driven && progress.sources == 2 && progress.ready() &&
           motion.motion.at("native-part-1").rate == g::Rate{1, 1} && motion.motion.at("wheel-right").rate == g::Rate{1, 1} &&
-          motion.motion.at(idler).rate == g::Rate{-1, 2} && motion.motion.at("processor").rate == g::Rate{1, 1},
+          motion.motion.at(idler).rate == g::Rate{-1, 2} && motion.motion.at("processor").rate == g::Rate{-1, 1},
           "Two diagonal small-to-large meshes coherently share the line with the expected rational idler rate.");
 }
 void misplaced_and_current_goal() {
@@ -248,6 +249,15 @@ void actual_parser() {
                                "Accepted: ok (native-part-5)");
     check(corrected.find("Source arrangement: choose_source") != std::string::npos && corrected.find("Source arrangement: co_driven") != std::string::npos,
           "The same terminal run diagnoses and repairs the wrong plane with the original carried products.");
+    const auto recovery = run("walk west 4\nwalk south 4\nremove wheel-left\nwalk east 8\nwalk north 8\n"
+        "wait 1\ninspect\nremove_belt belt\nrecover_belt belt 0\nremove_belt belt\ninspect\nquit\n",
+        1, "Cargo raw=1 products=0/4");
+    const auto recovered_at = recovery.find("Accepted: ok (belt)");
+    check(recovery.find("Power collector=1 belt=1 processor=1") != std::string::npos &&
+          recovery.find("slot 0: raw=1 products=0 workpieces=0") != std::string::npos &&
+          recovery.find("Held: occupied_target (belt)") != std::string::npos &&
+          recovered_at != std::string::npos && recovery.find("Accepted: ok (belt)", recovered_at + 1) != std::string::npos,
+          "The terminal exposes and recovers the occupied slot before World permits span removal.");
     run("wait 32\ninspect\nquit\n", 1, "Stock source=16 collector=0 belt=0 input=0 output=0");
 }
 }  // namespace

@@ -67,7 +67,12 @@ void lot(std::ostream& out, std::string_view holder, const materials::WorkLot& w
 void status(const Host& host, const w::State& state, std::ostream& out) {
     const auto& stock = state.material.stock;
     const auto& cargo = state.material.cargo.at("P");
-    const auto power = w::machine_power(state.topology);
+    auto power = w::machine_power(state.topology);
+    const auto motion = s::power_view(state.topology).mechanical.motion;
+    for (const auto& span : state.topology.belt_spans) {
+        const auto shaft = motion.find(span.geometry.first_shaft);
+        power.belt |= shaft != motion.end() && shaft->second.state == mechanics::MotionState::rotating;
+    }
     out << "Position (" << host.x << ",0," << host.z << "), reach " << host.profile.build_reach << ".\n"
         << "Stock source=" << stock.source << " collector=" << stock.collector << " belt=" << stock.belt
         << " input=" << stock.input << " output=" << stock.output << '\n'

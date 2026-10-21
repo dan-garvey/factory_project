@@ -37,14 +37,20 @@ std::optional<r::Scenario> make(std::string_view id) {
     add(*result, "gear-left", s::Role::gear, {-4, 0, 0}, 2);
     add(*result, "gear-right", s::Role::gear, {0, 0, 0}, 2);
     add(*result, "collector", s::Role::collector, {0, 0, 4});
-    // Each machine touches its own cog, and neighboring cogs carry rotation
-    // across the row while the belt axle stays perpendicular to material.
+    // The belt runs across two globally aligned shaft tiles. A separate cog
+    // branch drives the press without meshing the belt's two pulley axles.
     add(*result, "gear-belt", s::Role::gear, {4, 0, 0}, 2);
-    add(*result, "gear-press", s::Role::gear, {8, 0, 0}, 2);
-    add(*result, "belt", s::Role::belt, {4, 0, 4});
-    add(*result, "processor", s::Role::processor, {8, 0, 4});
+    add(*result, "gear-branch", s::Role::gear, {4, 0, -4}, 2);
+    add(*result, "gear-mid", s::Role::gear, {8, 0, -4}, 2);
+    add(*result, "gear-outer", s::Role::gear, {12, 0, -4}, 2);
+    add(*result, "gear-press", s::Role::gear, {12, 0, 0}, 2);
+    add(*result, "pulley-first", s::Role::shaft, {4, 0, 4}, 0, 2);
+    add(*result, "pulley-last", s::Role::shaft, {8, 0, 4}, 0, 2);
+    add(*result, "processor", s::Role::processor, {12, 0, 4});
     topology.sources = {{"wheel-left", result->profile.waterwheel_rate}, {"wheel-right", result->profile.waterwheel_rate}};
-    topology.material_links = {{{"collector", 1}, {"belt", 1}}, {{"belt", 1}, {"processor", 1}}};
+    topology.material_links.clear();
+    topology.belt_spans = {{{"belt", "pulley-first", "pulley-last"}, 1}};
+    result->seed.material.belt_lanes = {{"belt", materials::BeltLane{{std::nullopt, std::nullopt}, 0}}};
     result->seed.kits.at("P").clear();
     result->seed.kits.at("P").emplace(s::PartSpec{s::Role::gear, 4, 0}, 2);
     // Declare every original part once. Native World preserves these totals
@@ -54,6 +60,8 @@ std::optional<r::Scenario> make(std::string_view id) {
         ++result->profile.finite_parts[{part.role, part.geometry.teeth, part.geometry.half_span}];
         result->seed.issued_entities.emplace(part.geometry.id, part.generation);
     }
+    ++result->profile.finite_parts[{s::Role::belt, 0, 0}];
+    result->seed.issued_entities.emplace("belt", 1);
     for (const auto& [actor, kit] : result->seed.kits) {
         (void)actor;
         for (const auto& [spec, quantity] : kit) result->profile.finite_parts[spec] += quantity;
@@ -84,8 +92,32 @@ Progress inspect(const world::State& state, const std::string& actor) {
     if (!power.mechanical.accepted()) return result;
     if (!state.topology.drive_enabled) { result.mode = Mode::drive_off; return result; }
     const auto machines = world::machine_power(state.topology);
-    result.belt_forward = machines.belt && machines.belt_forward;
-    if (!machines.collector || !machines.belt || !machines.processor) {
+    bool connected_span = false;
+    for (const auto& span : state.topology.belt_spans) {
+        const auto first = std::find_if(state.topology.parts.begin(), state.topology.parts.end(),
+            [&](const auto& part) { return part.geometry.id == span.geometry.first_shaft; });
+        const auto last = std::find_if(state.topology.parts.begin(), state.topology.parts.end(),
+            [&](const auto& part) { return part.geometry.id == span.geometry.last_shaft; });
+        if (first == state.topology.parts.end() || last == state.topology.parts.end()) continue;
+        const auto path = g::belt_path(first->geometry, last->geometry);
+        const auto motion = power.mechanical.motion.find(first->geometry.id);
+        if (!path || path->kind != g::BeltPathKind::horizontal || motion == power.mechanical.motion.end()) continue;
+        auto before = first->geometry.center, after = last->geometry.center;
+        for (std::size_t axis = 0; axis < 3; ++axis) {
+            const auto step = path->tiles[1][axis] - path->tiles[0][axis];
+            before[axis] -= step; after[axis] += step;
+        }
+        const auto at = [&](s::Role role, const g::Point& point) {
+            return std::any_of(state.topology.parts.begin(), state.topology.parts.end(),
+                [&](const auto& part) { return part.role == role && part.geometry.center == point; });
+        };
+        if (!at(s::Role::collector, before) || !at(s::Role::processor, after)) continue;
+        connected_span = true;
+        const auto direction = g::belt_cargo_direction(first->geometry, last->geometry, motion->second.rate);
+        result.belt_forward = motion->second.state == g::MotionState::rotating && direction && *direction > 0;
+        break;
+    }
+    if (!machines.collector || !connected_span || !machines.processor) {
         const bool stalled = std::any_of(power.mechanical.components.begin(), power.mechanical.components.end(),
             [](const auto& component) { return component.state == g::MotionState::stalled; });
         result.mode = stalled ? Mode::stalled : Mode::incomplete_line;
