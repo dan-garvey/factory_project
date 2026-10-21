@@ -274,8 +274,8 @@ Value Host::initialize(const std::string& context, const std::vector<std::string
     profile.build_reach = reach;
     profile.foundation_parts = 24;
     profile.finite_parts = {{{Role::collector, 0, 0}, 1}, {{Role::belt, 0, 0}, 1},
-        {{Role::processor, 0, 0}, 1}, {{Role::waterwheel, 0, 0}, 1}, {{Role::shaft, 0, 2}, 3},
-        {{Role::gear, 2, 0}, 2}, {{Role::gear, 4, 0}, 1}};
+        {{Role::processor, 0, 0}, 1}, {{Role::waterwheel, 0, 0}, 1}, {{Role::shaft, 0, 2}, 4},
+        {{Role::gear, 2, 0}, 4}, {{Role::gear, 4, 0}, 1}};
     world::State seed;
     seed.material.initial_units = 16;
     seed.material.stock.source = 16;

@@ -171,7 +171,7 @@ void run() {
         check(accepted(issue(host, power)), "A near actor can enable the registered waterwheel source.");
         auto projection = host.call("projection", {});
         check(field<bool>(projection, "powered") && field<Object>(projection, "transmission_parts").size() == 3 &&
-              field<Integer>(Value(field<Object>(projection, "parts")), "shaft") == 0,
+              field<Integer>(Value(field<Object>(projection, "parts")), "shaft") == 1,
               "Projection must expose actual geometry and exact finite shaft custody.");
         for (int tick = 0; tick < 8; ++tick) projection = host.call("advance", {});
         const auto stock = Value(field<Object>(projection, "stock"));
