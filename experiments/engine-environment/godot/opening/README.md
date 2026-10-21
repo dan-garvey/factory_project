@@ -15,13 +15,26 @@ and deliberately retry. P (or the drive button) operates the wheel from nearby;
 it does not promise a global stop from the press. Read-only inspection, Help,
 saving and the non-consuming four-plate confirmation remain available at distance.
 
-The physical view starts with one build choice, Collector, and a short next-step
-prompt. Existing confirmed machines reveal the next useful tools; the suggested
+The native physical view starts with Collector and Foundation choices and a short
+next-step prompt. Existing confirmed machines reveal the next useful tools; the suggested
 tool uses a warm label color. **All tools** exposes every existing choice at any
 time, and the original number, F, G and I shortcuts remain available. Choosing an
 early tool by keyboard also keeps its button visible. This is a revisable view
 order, not a technology unlock or a saved progression rule. Reopening a worksite
 derives the suggestions again from its actual machines, links and inventory.
+
+**Foundation [6]** builds a level surface from the carried kit. Its height controls
+and Page Up / Page Down select an absolute world level, initially zero. Every
+foundation and machine uses the same quarter-pitch height unit, currently
+0.4125 m on 1.65 m horizontal tiles. Machinery snaps to a confirmed foundation's
+top. Independent sections can meet on that grid; a full-height block stacks four
+height units above its supporting block. Clear flat ground also supports ordinary
+construction throughout the represented site. Uneven ground needs a foundation;
+there is no special building rectangle. The native owner refuses buried,
+unsupported, occupied or out-of-reach placements. Inspect and Remove reclaim a
+block after its dependent machinery or stacked block has been removed. The
+twenty-four carried blocks and dimensions are experimental defaults. Old saves
+are not migrated to this changed feature profile.
 
 In the native profile, G selects a **finite shaft**, not an arbitrary power edge.
 Click its two machine or cogwheel endpoints; only the native geometric planner

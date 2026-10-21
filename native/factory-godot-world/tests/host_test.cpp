@@ -1,4 +1,5 @@
 #include "factory/godot_world.hpp"
+#include "native/factory-godot-world/tests/site_fixture.hpp"
 
 #include <functional>
 #include <iostream>
@@ -68,6 +69,7 @@ V alter_wire(const V& saved, const std::string& request_id, const std::string& k
 void historical_translation() {
     Host host;
     check(accepted(host.initialize("host-boundary", {"P"})), "The finite test World initializes.");
+    check(accepted(host.configure_terrain(factory::godot_world::tests::flat_site())), "The test binds its explicit synthetic terrain.");
     check(accepted(host.publish_actor("P", {V(0.8), V(1.0), V(1.65)}, 1)), "The disclosed synthetic observation is ready.");
     const auto place = [&](const char* kind, I x, const char* id) {
         auto wire = request("place", id);

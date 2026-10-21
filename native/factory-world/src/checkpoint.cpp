@@ -102,7 +102,7 @@ Value profile_value(const Profile& profile) {
         refuse(CheckpointReason::profile_mismatch, "$.profile");
     Array actors;
     for (const auto& actor : profile.actors) actors.emplace_back(actor);
-    return Value(Object{
+    Object output{
         {"recipe_weight", Value(profile.material.input_units_per_product)},
         {"cycle_ticks", Value(profile.material.cycle_ticks)},
         {"collector_capacity", Value(profile.material.collector_capacity)},
@@ -112,7 +112,9 @@ Value profile_value(const Profile& profile) {
         {"waterwheel_denominator", Value(profile.waterwheel_rate.denominator)},
         {"meters_per_grid_unit", Value(profile.meters_per_grid_unit)},
         {"anchor_offset", Value(Array{Value(profile.anchor_offset[0]), Value(profile.anchor_offset[1]), Value(profile.anchor_offset[2])})},
-        {"build_reach", Value(profile.build_reach)}});
+        {"build_reach", Value(profile.build_reach)}};
+    if (profile.foundation_parts > 0) output.emplace("foundation_parts", Value(profile.foundation_parts));
+    return Value(std::move(output));
 }
 
 Value ref_value(const materials::EntityRef& reference) {
@@ -219,6 +221,20 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
                 {"topology", topology_value(snapshot.state.topology)}, {"kits", Value(std::move(kits))},
                 {"issued_entities", Value(std::move(issued))},
                 {"next_entity_serial", Value(snapshot.state.next_entity_serial)}})}});
+        if (profile.foundation_parts > 0) {
+            Object foundations, foundation_kits;
+            for (const auto& [id, foundation] : snapshot.state.foundations)
+                foundations.emplace(id, Value(Object{{"center", Value(Array{Value(foundation.center[0]),
+                    Value(foundation.center[1]), Value(foundation.center[2])})},
+                    {"generation", Value(foundation.generation)}}));
+            for (const auto& [actor, count] : snapshot.state.foundation_kits) foundation_kits.emplace(actor, Value(count));
+            auto root = std::get<Object>(output.storage());
+            auto state = std::get<Object>(root.at("state").storage());
+            state.emplace("foundations", Value(std::move(foundations)));
+            state.emplace("foundation_kits", Value(std::move(foundation_kits)));
+            root.at("state") = Value(std::move(state));
+            output = Value(std::move(root));
+        }
         Budget{}.visit(output);
         return output;
     } catch (const CheckpointRefusal& failure) { return failure; }
@@ -238,8 +254,26 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
         if (!history.history) refuse(CheckpointReason::invalid_history, "$.history");
         candidate.history = std::move(*history.history);
         if (candidate.history.context != expected_context) refuse(CheckpointReason::wrong_context, "$.history.context");
-        const auto& state = fields(root.at("state"), "$.state",
-            {"material", "topology", "kits", "issued_entities", "next_entity_serial"});
+        const auto& state = profile.foundation_parts > 0 ? fields(root.at("state"), "$.state",
+            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "foundations", "foundation_kits"}) :
+            fields(root.at("state"), "$.state", {"material", "topology", "kits", "issued_entities", "next_entity_serial"});
+        if (profile.foundation_parts > 0) {
+            const auto& foundations = object(state.at("foundations"), "$.state.foundations");
+            if (foundations.size() > 256) refuse(CheckpointReason::limit, "$.state.foundations");
+            for (const auto& [id, value] : foundations) {
+                const auto& entry = fields(value, "$.state.foundations", {"center", "generation"});
+                const auto& center = array(entry.at("center"), "$.state.foundations.center", 3);
+                if (center.size() != 3) refuse(CheckpointReason::invalid_world, "$.state.foundations.center");
+                candidate.state.foundations.emplace(id, Foundation{{
+                    scalar<Integer>(center[0], "$.state.foundations.center"),
+                    scalar<Integer>(center[1], "$.state.foundations.center"),
+                    scalar<Integer>(center[2], "$.state.foundations.center")}, integer(entry, "generation", "$.state.foundations")});
+            }
+            const auto& kits = object(state.at("foundation_kits"), "$.state.foundation_kits");
+            if (kits.size() > 16) refuse(CheckpointReason::limit, "$.state.foundation_kits");
+            for (const auto& [actor, count] : kits)
+                candidate.state.foundation_kits.emplace(actor, scalar<Integer>(count, "$.state.foundation_kits"));
+        }
         candidate.state.topology = decode_topology(state.at("topology"));
         material_collection_limits(state.at("material"));
         auto material = materials::decode_material_state(state.at("material"), profile.material,

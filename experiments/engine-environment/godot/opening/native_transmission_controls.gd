@@ -1,5 +1,6 @@
 extends MenuButton
 ## View-local tools over confirmed native state. host.issue owns every request.
+const Geometry = preload("res://opening/site_geometry.gd")
 
 var selected_axis := "x"
 var gear_height := 4
@@ -72,7 +73,7 @@ func _axis_selected(id: int) -> void:
 		refresh()
 
 func _height_selected(id: int) -> void:
-	gear_height = clampi(gear_height + (-1 if id == 0 else 1), 0, 16)
+	gear_height = clampi(gear_height + (-1 if id == 0 else 1), -Geometry.GRID_COORDINATE_LIMIT, Geometry.GRID_COORDINATE_LIMIT)
 	refresh()
 
 func _context() -> Dictionary:
@@ -129,8 +130,8 @@ func refresh() -> void:
 	menu.set_item_text(menu.get_item_index(101), "Gear height: %d quarter steps" % gear_height)
 	for index in range(3):
 		_axes.set_item_checked(index, selected_axis == ["x", "y", "z"][index])
-	_heights.set_item_disabled(0, gear_height <= 0)
-	_heights.set_item_disabled(1, gear_height >= 16)
+	_heights.set_item_disabled(0, gear_height <= -Geometry.GRID_COORDINATE_LIMIT)
+	_heights.set_item_disabled(1, gear_height >= Geometry.GRID_COORDINATE_LIMIT)
 	text = {"gear": "Place cogwheel", "shaft": "Connect shaft", "disconnect": "Disconnect shaft", "remove": "Remove transmission"}.get(active_tool, "Cogwheels and shafts…")
 	tooltip_text = "Axis %s · gear height %d quarter steps. %d cogwheels and %d shafts carried." % [selected_axis.to_upper(), gear_height, gears, shafts]
 	if not context.usable:
@@ -190,9 +191,9 @@ func handle_world_click(center: Array, entity_id: String) -> bool:
 	if active_tool == "gear":
 		var valid := center.size() == 3 and selected_axis in ["x", "y", "z"]
 		for coordinate: Variant in center:
-			valid = valid and typeof(coordinate) == TYPE_INT
+			valid = valid and typeof(coordinate) == TYPE_INT and coordinate >= -Geometry.GRID_COORDINATE_LIMIT and coordinate <= Geometry.GRID_COORDINATE_LIMIT
 		if valid:
-			valid = center[0] >= -8 and center[0] <= 16 and center[1] == gear_height and gear_height >= 0 and gear_height <= 16 and center[2] >= -8 and center[2] <= 16
+			valid = center[1] == gear_height
 		if not valid or _count(context, "gear", gear_teeth, 0) == 0:
 			_feedback("Choose an available cogwheel at an integer grid point on the selected height.")
 			return true

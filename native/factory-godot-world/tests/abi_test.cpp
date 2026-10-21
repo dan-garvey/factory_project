@@ -1,4 +1,5 @@
 #include "factory/godot_value.hpp"
+#include "native/factory-godot-world/tests/site_fixture.hpp"
 
 #include <array>
 #include <cstddef>
@@ -132,6 +133,8 @@ void run() {
               "The native class must initialize one finite World through the real ABI.");
         check(!accepted(host.call("initialize", {Value("second"), Value(Array{Value("P")})})),
               "A host cannot create another World beside its existing authority.");
+        check(accepted(host.call("configure_terrain", {Value(factory::godot_world::tests::flat_site())})),
+              "The ABI test explicitly binds its synthetic terrain before construction.");
         const auto original = host.call("projection", {});
         check(field<Integer>(Value(field<Object>(original, "stock")), "source") == 16 &&
               !field<bool>(Value(field<Object>(Value(field<Object>(original, "actors")), "P")), "ready"),

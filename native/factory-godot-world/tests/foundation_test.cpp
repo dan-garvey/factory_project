@@ -1,0 +1,134 @@
+#include "native/factory-godot-world/tests/site_fixture.hpp"
+
+#include <cmath>
+#include <iostream>
+#include <stdexcept>
+
+namespace {
+using V = factory::values::Value;
+using O = V::Object;
+using A = V::Array;
+using I = V::Integer;
+using Host = factory::godot_world::Host;
+int checks{};
+void check(bool condition, const char* message) {
+    ++checks;
+    if (!condition) throw std::runtime_error(message);
+}
+template<class T> const T& get(const V& value, const char* key) {
+    return std::get<T>(std::get<O>(value.storage()).at(key).storage());
+}
+bool accepted(const V& value) { return get<bool>(value, "accepted"); }
+void outcome(const V& value, bool success, const char* reason) {
+    check(accepted(value) == success && get<std::string>(value, "reason") == reason, reason);
+}
+O request(const char* action, const std::string& id, const char* actor = "P") {
+    return {{"context", V("foundation-case")}, {"client", V(actor)}, {"request", V(id)}, {"action", V(action)}};
+}
+O foundation(const std::string& id, I x, I z, I level) {
+    auto wire = request("place_foundation", id);
+    wire.emplace("cell", V(A{V(x), V(z)})); wire.emplace("level", V(level));
+    return wire;
+}
+O machine(const std::string& id, const char* kind, I x, I z, I level) {
+    auto wire = request("place", id);
+    wire.emplace("kind", V(kind)); wire.emplace("cell", V(A{V(x), V(z)})); wire.emplace("level", V(level));
+    return wire;
+}
+O removal(const std::string& id, const std::string& entity) {
+    auto wire = request("remove", id); wire.emplace("entity", V(entity)); return wire;
+}
+I carried(const Host& host, const char* actor = "P") {
+    return get<I>(V(get<O>(V(get<O>(host.projection(), "part_kits")), actor)), "foundation");
+}
+void initialize(Host& host, O site = factory::godot_world::tests::flat_site()) {
+    outcome(host.initialize("foundation-case", {"P", "Q"}), true, "initialized");
+    outcome(host.configure_terrain(site), true, "terrain_bound");
+}
+
+void construction_and_custody() {
+    Host host; initialize(host);
+    outcome(host.publish_actor("P", {V(9.0), V(1.5), V(6.0)}, 1), true, "actor_published");
+    check(carried(host) == 24 && carried(host, "Q") == 0, "The finite kit is assigned once, not shared or manufactured.");
+    outcome(host.publish_actor("Q", {V(9.0), V(1.5), V(6.0)}, 1), true, "actor_published");
+    auto no_kit = foundation("no-kit", 7, 2, 1); no_kit.at("client") = V("Q");
+    outcome(host.command("Q", no_kit), false, "no_part");
+    auto remote = foundation("far", 60, 2, 1);
+    outcome(host.command("P", remote), false, "out_of_reach");
+    check(carried(host) == 24, "A far refusal leaves construction custody unchanged.");
+    outcome(host.command("P", machine("unsupported", "belt", 5, 2, 1)), false, "foundation_required");
+    const auto a_wire = foundation("island-a", 5, 2, 1);
+    const auto a = host.command("P", a_wire); outcome(a, true, "ok");
+    const auto b = host.command("P", foundation("island-b", 6, 2, 1)); outcome(b, true, "ok");
+    const auto a_id = get<std::string>(a, "entity"), b_id = get<std::string>(b, "entity");
+    const auto islands = get<O>(host.projection(), "foundations");
+    check(get<I>(islands.at(a_id), "level") == 1 && get<I>(islands.at(b_id), "level") == 1,
+          "Independent construction retains one absolute height grid.");
+    const auto retry = host.command("P", a_wire);
+    check(accepted(retry) && get<bool>(retry, "duplicate") && carried(host) == 22, "An exact retry never consumes another block.");
+    auto changed = a_wire; changed.at("level") = V(I{2});
+    check(!accepted(host.command("P", changed)) && carried(host) == 22, "Changed reuse cannot reinterpret a prior request.");
+    outcome(host.command("P", foundation("overlap", 5, 2, 2)), false, "occupied");
+    outcome(host.command("P", foundation("floating", 7, 2, 9)), false, "foundation_unsupported");
+    outcome(host.command("P", foundation("buried", 7, 2, -1)), false, "foundation_buried");
+    const auto belt = host.command("P", machine("belt", "belt", 5, 2, 1)); outcome(belt, true, "ok");
+    const auto press = host.command("P", machine("press", "processor", 6, 2, 1)); outcome(press, true, "ok");
+    const auto entities = get<O>(host.projection(), "entities");
+    check(std::get<I>(get<A>(entities.at(get<std::string>(belt, "entity")), "center")[1].storage()) == 1,
+          "Machine height uses the same native integer level as its foundation.");
+    check(get<A>(host.projection(), "links").size() == 1, "Independent same-height foundations preserve aligned material ports.");
+    outcome(host.command("P", removal("loaded-base", a_id)), false, "foundation_in_use");
+    const auto saved = host.checkpoint();
+    outcome(host.validate_checkpoint(saved), true, "valid");
+    Host restored; initialize(restored);
+    outcome(restored.restore_checkpoint(saved), true, "restored");
+    check(!factory::values::typed_difference(saved, restored.checkpoint()), "Current-format persistence retains exact custody, geometry and request history.");
+    check(get<bool>(restored.command("P", a_wire), "duplicate") && carried(restored) == 22,
+          "A saved exact retry resolves before new body readiness without refilling stock.");
+    outcome(host.command("P", removal("remove-belt", get<std::string>(belt, "entity"))), true, "ok");
+    outcome(host.command("P", removal("remove-press", get<std::string>(press, "entity"))), true, "ok");
+    outcome(host.command("P", removal("reclaim-a", a_id)), true, "ok");
+    outcome(host.command("P", removal("reclaim-b", b_id)), true, "ok");
+    check(carried(host) == 24 && get<O>(host.projection(), "foundations").empty(), "Reclamation returns the exact carried supply.");
+    const auto bare = host.command("P", machine("bare-global", "belt", 5, 2, 0)); outcome(bare, true, "ok");
+    outcome(host.command("P", removal("bare-refund", get<std::string>(bare, "entity"))), true, "ok");
+    check(get<I>(V(get<O>(host.projection(), "stock")), "source") == 16, "Construction never consumes or replenishes the mineral source.");
+}
+
+void terrain_and_stacking() {
+    Host host; initialize(host);
+    outcome(host.publish_actor("P", {V(9.0), V(2.8), V(6.0)}, 1), true, "actor_published");
+    const auto lower = host.command("P", foundation("lower", 5, 2, 1)); outcome(lower, true, "ok");
+    const auto upper = host.command("P", foundation("upper", 5, 2, 5)); outcome(upper, true, "ok");
+    outcome(host.command("P", removal("dependent-base", get<std::string>(lower, "entity"))), false, "foundation_in_use");
+    check(carried(host) == 22, "Vertical attachment uses four common height units and consumes two blocks.");
+    outcome(host.validate_checkpoint(host.checkpoint()), true, "valid");
+    outcome(host.command("P", removal("upper-refund", get<std::string>(upper, "entity"))), true, "ok");
+    outcome(host.command("P", removal("lower-refund", get<std::string>(lower, "entity"))), true, "ok");
+    Host peak;
+    A heights(25, V(-0.02)); heights[12] = V(0.3);
+    O site{{"axis", V(A{V(-128.0), V(7.4), V(8.25), V(9.1), V(128.0)})},
+        {"heights", V(std::move(heights))},
+        {"obstacles", V(A{})}};
+    initialize(peak, site);
+    outcome(peak.command("P", foundation("interior-peak", 5, 5, 0)), false, "foundation_buried");
+    check(carried(peak) == 24, "The whole footprint catches a peak between its outside corners.");
+    Host blocked;
+    auto solid = factory::godot_world::tests::flat_site();
+    solid.at("obstacles") = V(A{V(A{V(A{V(8.0), V(-0.1), V(3.0)}), V(A{V(8.5), V(0.2), V(3.6)})})});
+    initialize(blocked, solid);
+    outcome(blocked.command("P", foundation("rock", 5, 2, 1)), false, "site_occupied");
+    outcome(blocked.configure_terrain(solid), false, "terrain_already_bound");
+    auto malformed = foundation("float-level", 5, 2, 1); malformed.at("level") = V(1.0);
+    outcome(host.command("P", malformed), false, "invalid_cell");
+}
+}
+int main() {
+    try {
+        construction_and_custody(); terrain_and_stacking();
+        std::cout << "{\"status\":\"pass\",\"checks\":" << checks << ",\"evidence\":\"synthetic_native_foundation_rules\",\"engine_calls\":0}\n";
+        return 0;
+    } catch (const std::exception& failure) {
+        std::cerr << failure.what() << '\n'; return 1;
+    }
+}

@@ -204,7 +204,7 @@ static func populate_items(item_root: Node3D, state: Dictionary, pitch: float = 
 		var cell: Variant = entity.get("cell", [])
 		if not (cell is Array and cell.size() == 2):
 			continue
-		var pos := Vector3(float(cell[0]) * pitch, 0.0, float(cell[1]) * pitch)
+		var pos := Vector3(float(cell[0]) * pitch, float(entity.get("level", 0)) * Geometry.HEIGHT_STEP, float(cell[1]) * pitch)
 		var kind := str(entity.get("kind", ""))
 		var amount := 0
 		if kind in ["collector", "belt"]:

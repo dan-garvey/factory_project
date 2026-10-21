@@ -13,6 +13,8 @@ var model
 var bodies: Dictionary = {}
 var machines: Dictionary = {}
 var machine_specs: Dictionary = {}
+var foundations: Dictionary = {}
+var foundation_specs: Dictionary = {}
 var seeds: Dictionary = {}
 var created_frames: Dictionary = {}
 var samples: Dictionary = {}
@@ -112,7 +114,8 @@ func _create_floor() -> bool:
 func sync_topology() -> Dictionary:
 	if model == null or not is_inside_tree():
 		return {"accepted": false, "reason": "not_configured"}
-	var entities: Dictionary = model.projection().get("entities", {})
+	var snapshot: Dictionary = model.projection()
+	var entities: Dictionary = snapshot.get("entities", {})
 	for entity in machines.keys():
 		if not entities.has(entity) or machine_specs[entity] != entities[entity]:
 			var old: StaticBody3D = machines[entity]
@@ -130,7 +133,7 @@ func sync_topology() -> Dictionary:
 		body.set_meta("entity", entity)
 		body.collision_layer = Geometry.MACHINE_LAYER
 		body.collision_mask = Geometry.ACTOR_LAYER
-		body.position = Vector3(anchor[0], Geometry.MACHINE_CENTER_HEIGHT, anchor[2])
+		body.position = Vector3(anchor[0], Geometry.MACHINE_CENTER_HEIGHT + float(entities[entity].get("level", 0)) * Geometry.HEIGHT_STEP, anchor[2])
 		var collider := CollisionShape3D.new()
 		var box := BoxShape3D.new()
 		box.size = Vector3(Geometry.MACHINE_SIZE[0], Geometry.MACHINE_SIZE[1], Geometry.MACHINE_SIZE[2])
@@ -138,6 +141,32 @@ func sync_topology() -> Dictionary:
 		body.add_child(collider)
 		machines[entity] = body
 		machine_specs[entity] = entities[entity].duplicate(true)
+		add_child(body)
+	var surfaces: Dictionary = snapshot.get("foundations", {})
+	for id in foundations.keys():
+		if not surfaces.has(id) or foundation_specs[id] != surfaces[id]:
+			var old: StaticBody3D = foundations[id]
+			remove_child(old)
+			old.queue_free()
+			foundations.erase(id)
+			foundation_specs.erase(id)
+	for id in surfaces:
+		if foundations.has(id):
+			continue
+		var spec: Dictionary = surfaces[id]
+		var body := StaticBody3D.new()
+		body.name = "Foundation_" + str(id)
+		body.set_meta("foundation", id)
+		body.collision_layer = Geometry.GROUND_LAYER
+		body.collision_mask = Geometry.ACTOR_LAYER
+		body.position = Vector3(spec.cell[0] * Geometry.PITCH, float(spec.level) * Geometry.HEIGHT_STEP - Geometry.PITCH / 2.0, spec.cell[1] * Geometry.PITCH)
+		var collider := CollisionShape3D.new()
+		var shape := BoxShape3D.new()
+		shape.size = Vector3.ONE * Geometry.PITCH
+		collider.shape = shape
+		body.add_child(collider)
+		foundations[id] = body
+		foundation_specs[id] = spec.duplicate(true)
 		add_child(body)
 	return {"accepted": true, "reason": "topology_synchronized"}
 
@@ -199,6 +228,21 @@ func _geometry_registered() -> bool:
 	if floor_body == null or global_transform != Transform3D.IDENTITY:
 		return false
 	var space: RID = get_world_3d().space
+	for id in foundations:
+		var body: StaticBody3D = foundations[id]
+		var rid: RID = body.get_rid()
+		var spec: Dictionary = foundation_specs[id]
+		var expected := Vector3(spec.cell[0] * Geometry.PITCH, float(spec.level) * Geometry.HEIGHT_STEP - Geometry.PITCH / 2.0, spec.cell[1] * Geometry.PITCH)
+		var pose: Transform3D = PhysicsServer3D.body_get_state(rid, PhysicsServer3D.BODY_STATE_TRANSFORM)
+		if PhysicsServer3D.body_get_space(rid) != space or PhysicsServer3D.body_get_shape_count(rid) != 1 or PhysicsServer3D.body_get_collision_layer(rid) != Geometry.GROUND_LAYER:
+			return false
+		if pose.basis != Basis.IDENTITY or pose.origin.distance_to(expected) > Geometry.NATIVE_POSE_EPSILON or body.position.distance_to(expected) > Geometry.NATIVE_POSE_EPSILON:
+			return false
+		if PhysicsServer3D.body_get_shape_transform(rid, 0) != Transform3D.IDENTITY:
+			return false
+		var data = PhysicsServer3D.shape_get_data(PhysicsServer3D.body_get_shape(rid, 0))
+		if not data is Vector3 or data.distance_to(Vector3.ONE * Geometry.PITCH / 2.0) > Geometry.NATIVE_POSE_EPSILON:
+			return false
 	var expected_half := Vector3(Geometry.MACHINE_SIZE[0], Geometry.MACHINE_SIZE[1], Geometry.MACHINE_SIZE[2]) / 2
 	for body in [floor_body] + machines.values():
 		var rid: RID = body.get_rid()
@@ -330,6 +374,10 @@ func _penetration(actor: String, other: RID) -> Dictionary:
 	var owned := false
 	for machine in machines.values():
 		owned = owned or machine.get_rid() == other
+	var foundation_owned := false
+	for foundation in foundations.values():
+		foundation_owned = foundation_owned or foundation.get_rid() == other
+	owned = owned or foundation_owned
 	var site_owned := false
 	var site_id := ""
 	for id in site_bodies:
@@ -364,7 +412,7 @@ func _penetration(actor: String, other: RID) -> Dictionary:
 		return {"unsupported_overlap": overlap_measure > Geometry.SAFE_MARGIN,
 			"geometric_overlap": distance_squared < radius * radius,
 			"contact_tolerance": Geometry.SAFE_MARGIN, "analytical_overlap_measure": overlap_measure,
-			"kind": "site_panel" if site_owned else "machine",
+			"kind": "foundation" if foundation_owned else "site_panel" if site_owned else "machine",
 			"distance_squared": distance_squared, "radius_squared": radius * radius,
 			"actor_position": _array(at.origin), "radius": radius, "height": capsule.height,
 			"machine_position": _array(target.origin), "machine_half_extents": _array(shape)}

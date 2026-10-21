@@ -3174,7 +3174,7 @@ class ProductionInterface:
 
 const STEP_SECONDS := 0.45
 const PITCH := Geometry.PITCH
-const NAMES := {"collector": "Collector", "belt": "Belt", "processor": "Press", "wheel": "Waterwheel"}
+const NAMES := {"collector": "Collector", "belt": "Belt", "processor": "Press", "wheel": "Waterwheel", "foundation": "Foundation"}
 const COLORS := {"collector": Color("d6a34d"), "belt": Color("538e88"), "processor": Color("bd7054"), "wheel": Color("8b9caa")}
 const LESSONS := [
 	["01  /  BUILD THE PATH", "Place a collector, a belt and a press in a row. Material ports face along the brass arrow. Each placed machine uses a part from your carried kit."],
@@ -3262,6 +3262,9 @@ var lesson_panel: PanelContainer
 var lesson_title: Label
 var lesson_body: Label
 var tool_buttons: Dictionary = {}
+var foundation_level := 0
+var foundation_level_controls: HBoxContainer
+var foundation_level_label: Label
 var state: Dictionary = {}
 var show_all_tools := false
 var show_details := false
@@ -3368,7 +3371,7 @@ func _can_present_confirmed_motion() -> bool:
 	return _native_transmission() and not explanation_open and not startup_save_pending and state.get("actors", {}).get(client, {}).get("ready", false)
 
 func _contains_target(snapshot: Dictionary, id: String) -> bool:
-	return snapshot.get("entities", {}).has(id) or (snapshot.get("options", {}).get("native", false)
+	return snapshot.get("entities", {}).has(id) or snapshot.get("foundations", {}).has(id) or (snapshot.get("options", {}).get("native", false)
 		and snapshot.get("transmission_parts", {}).has(id))
 
 func _refresh_transmission() -> void:
@@ -3600,6 +3603,7 @@ func issue(action: Dictionary) -> Dictionary:
 			selected = ""
 		_construction_feedback(intent, outcome)
 		_message({"place": "Placed. Parts stay with this worksite.",
+			"place_foundation": "Foundation placed. Its surface shares the machine grid.",
 			"connect": "Material path connected.", "connect_drive": "Drive shaft connected.",
 			"retrieve": "Plate collected.", "set_power": "Drive updated.",
 			"remove": "Part returned to your carried kit.",
@@ -3619,12 +3623,21 @@ func issue(action: Dictionary) -> Dictionary:
 			"held_stock": "Retrieve the material before removing this machine.",
 			"contains_stock": "Retrieve the material before removing this machine.",
 			"not_at_stream": "Place the waterwheel beside the stream bank.",
-			"not_at_seam": "Place the collector on the brass seam strip.",
+			"not_at_seam": "Place the collector at the exposed mineral seam.",
 			"no_shaft": "All carried shafts are in use."}.get(outcome.reason, "That action is unavailable here.")), true)
 	_refresh()
 	return outcome
 
 func _material_refusal_message(outcome: Dictionary, fallback: String) -> String:
+	var foundation_advice: String = {
+		"foundation_required": "Build a foundation here first so the machine has a level surface.",
+		"foundation_buried": "Raise the foundation height so its top clears the ground.",
+		"foundation_unsupported": "Lower the foundation height so its base reaches the ground or a supporting block.",
+		"foundation_in_use": "Remove the machinery or stacked block before reclaiming this foundation.",
+		"site_occupied": "Rock or vegetation occupies this space. Choose a clear location.",
+		"terrain_unavailable": "There is no confirmed building surface here."}.get(outcome.get("reason", ""), "")
+	if not foundation_advice.is_empty():
+		return foundation_advice
 	# Fixed-roster historical payloads may omit the helper or carry its older
 	# API. Formatting must never add a resource requirement or change admission.
 	if recovery_actions != null and recovery_actions.has_method("refusal_text"):
@@ -3840,6 +3853,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_5:
 				if _native_transmission():
 					_select_tool("gear")
+			KEY_6:
+				if state.get("options", {}).get("foundations", false):
+					_select_tool("foundation")
+			KEY_PAGEUP: _adjust_foundation_level(1)
+			KEY_PAGEDOWN: _adjust_foundation_level(-1)
 			KEY_F: _select_tool("flow")
 			KEY_G: _select_tool("drive")
 			KEY_I, KEY_ESCAPE: _select_tool("inspect")
@@ -3872,6 +3890,7 @@ func _select_tool(tool: String) -> void:
 		instructions["flow"] = "Choose the upstream machine, then its neighbor at the material outlet."
 		instructions["drive"] = "Choose a machine or cogwheel, then its partner. The amber ring marks the first endpoint."
 		instructions["gear"] = "Place a cogwheel at the highlighted point. Set axis and height in the cogwheel menu."
+		instructions["foundation"] = "Build a level surface from carried foundations. Page Up / Page Down adjust height; nearby tiles snap to the same world grid."
 	_message(instructions.get(tool,
 		"Place %s on an empty grid square." % NAMES.get(tool, tool)))
 
@@ -3889,7 +3908,7 @@ func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 	if state.entities.has(entity_id):
 		var actual: Array = state.entities[entity_id].cell
 		cell = Vector2i(actual[0], actual[1])
-	if cell.x < -2 or cell.x > 4 or cell.y < -2 or cell.y > 4:
+	if not _build_cell_allowed(cell):
 		return
 	if mode == "inspect":
 		selected = entity_id if not entity_id.is_empty() else _entity_at_cell(cell)
@@ -3908,10 +3927,15 @@ func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 			pending_link = ""
 	else:
 		var action := {"action": "place", "kind": mode, "cell": [cell.x, cell.y]}
+		if _native_transmission() and mode == "foundation":
+			action = {"action": "place_foundation", "cell": [cell.x, cell.y], "level": _construction_level(cell)}
+		elif _native_transmission():
+			action["level"] = _construction_level(cell)
 		if _native_transmission() and transmission_controls != null:
 			# Dot assignment creates a StringName key; the native wire deliberately
 			# accepts only exact String dictionary keys, without coercion.
-			action["axis"] = transmission_controls.selected_axis
+			if mode != "foundation":
+				action["axis"] = transmission_controls.selected_axis
 		var outcome := issue(action)
 		if outcome.accepted:
 			selected = outcome.entity
@@ -3975,9 +3999,18 @@ func _set_lesson(index: int) -> void:
 		example_presenter.set_lesson(lesson_index)
 
 func _screen_cell(screen: Vector2) -> Vector2i:
-	var point = Plane(Vector3.UP, 0).intersects_ray(camera.project_ray_origin(screen), camera.project_ray_normal(screen))
+	if _native_transmission():
+		var id := _screen_entity(screen)
+		var surface: Dictionary = state.get("foundations", {}).get(id, state.get("entities", {}).get(id, {}))
+		if not surface.is_empty():
+			return Vector2i(surface.cell[0], surface.cell[1])
+	# Select a requested construction datum, not permission or terrain contact.
+	# Shared clients need no duplicate ground collider. Native support and reach
+	# checks decide whether this requested tile can actually be built.
+	var height := foundation_level * Geometry.HEIGHT_STEP if _native_transmission() and mode == "foundation" else 0.0
+	var point = Plane(Vector3.UP, height).intersects_ray(camera.project_ray_origin(screen), camera.project_ray_normal(screen))
 	if point == null:
-		return Vector2i(99, 99)
+		return Vector2i(999999, 999999)
 	return Vector2i(roundi(point.x / PITCH), roundi(point.z / PITCH))
 
 func _screen_entity(screen: Vector2) -> String:
@@ -3995,6 +4028,37 @@ func _entity_at_cell(cell: Vector2i) -> String:
 
 func _cell_position(cell: Array) -> Vector3:
 	return Vector3(cell[0] * PITCH, 0, cell[1] * PITCH)
+
+func _entity_position(entity: Dictionary) -> Vector3:
+	return _cell_position(entity.cell) + Vector3.UP * float(entity.get("level", 0)) * Geometry.HEIGHT_STEP
+
+func _build_cell_allowed(cell: Vector2i) -> bool:
+	if _native_transmission() and ProductionEnvironment.Surface != null:
+		var half: float = ProductionEnvironment.Surface.HALF - PITCH / 2.0
+		return absf(cell.x * PITCH) <= half and absf(cell.y * PITCH) <= half
+	return absi(cell.x) <= 250000 and absi(cell.y) <= 250000
+
+func _construction_level(cell: Vector2i) -> int:
+	if mode == "foundation":
+		return foundation_level
+	var top := -1000001
+	for surface: Dictionary in state.get("foundations", {}).values():
+		if surface.cell == [cell.x, cell.y]:
+			top = maxi(top, int(surface.level))
+	return top if top > -1000001 else 0
+
+func _adjust_foundation_level(delta: int) -> void:
+	if mode != "foundation" or not _native_transmission() or explanation_open:
+		return
+	foundation_level = clampi(foundation_level + delta, -1000000, 1000000)
+	foundation_level_label.text = "Level %d · %.2f m" % [foundation_level, foundation_level * Geometry.HEIGHT_STEP]
+	_message("Foundation top: level %d (%.2f m). Every tile and machine uses this world height grid." % [foundation_level, foundation_level * Geometry.HEIGHT_STEP])
+
+func _assemble_foundation(parent: Node3D) -> void:
+	# Only confirmed player-built surfaces or an explicit placement preview
+	# call this; the unbuilt site receives no manufactured structures.
+	_machine_box(parent, "FoundationBlock", Vector3(0, -PITCH / 2.0, 0), Vector3.ONE * PITCH, Color("747369"), 0.0, 0.95)
+	_machine_box(parent, "FoundationTop", Vector3(0, -0.012, 0), Vector3(PITCH - 0.025, 0.024, PITCH - 0.025), Color("aaa598"), 0.0, 0.9)
 
 func _update_camera() -> void:
 	camera.position = focus + Vector3(sin(orbit_yaw) * cos(orbit_pitch), sin(orbit_pitch), cos(orbit_yaw) * cos(orbit_pitch)) * distance
@@ -4455,11 +4519,28 @@ func _rebuild_machines() -> void:
 	for child in machine_root.get_children():
 		child.free()
 	wheel_rotor = null
+	for id in state.get("foundations", {}):
+		var surface: Dictionary = state.foundations[id]
+		var anchor := Node3D.new()
+		anchor.position = _entity_position(surface)
+		machine_root.add_child(anchor)
+		_assemble_foundation(anchor)
+		var body := StaticBody3D.new()
+		body.collision_layer = Geometry.PICK_LAYER
+		body.collision_mask = 0
+		body.set_meta("entity", id)
+		var collider := CollisionShape3D.new()
+		var shape := BoxShape3D.new()
+		shape.size = Vector3.ONE * PITCH
+		collider.shape = shape
+		collider.position.y = -PITCH / 2.0
+		body.add_child(collider)
+		anchor.add_child(body)
 	for entity_id in state.entities:
 		var entity: Dictionary = state.entities[entity_id]
 		var kind: String = entity.kind
 		var anchor := Node3D.new()
-		anchor.position = _cell_position(entity.cell)
+		anchor.position = _entity_position(entity)
 		machine_root.add_child(anchor)
 		_assemble_machine(anchor, entity)
 		anchor.set_meta("machine_entity", entity_id)
@@ -4492,8 +4573,8 @@ func _rebuild_machines() -> void:
 		caption.visible = not _native_transmission()
 	for pair in state.links:
 		if state.entities.has(pair[0]) and state.entities.has(pair[1]):
-			_material_route(machine_root, _cell_position(state.entities[pair[0]].cell),
-				_cell_position(state.entities[pair[1]].cell))
+			_material_route(machine_root, _entity_position(state.entities[pair[0]]),
+				_entity_position(state.entities[pair[1]]))
 	for pair in state.get("drive_links", []):
 		if not _native_transmission() and state.entities.has(pair[0]) and state.entities.has(pair[1]):
 			_bar(machine_root, _cell_position(state.entities[pair[0]].cell) + Vector3(0, 0.35, 0.55),
@@ -4542,7 +4623,7 @@ func _refresh() -> void:
 			orbit_pitch = 0.60
 	if actor_world != null:
 		actor_world.sync_topology()
-	var next_key := JSON.stringify([state.entities, state.links, state.get("drive_links", [])])
+	var next_key := JSON.stringify([state.entities, state.links, state.get("drive_links", []), state.get("foundations", {})])
 	if next_key != geometry_key:
 		geometry_key = next_key
 		_rebuild_machines()
@@ -4597,6 +4678,7 @@ func _refresh_ui() -> void:
 			button.button_pressed = tool == "drive" and transmission_controls.active_tool == "shaft"
 		if NAMES.has(tool):
 			button.text = "%s    ·    %d %s" % [NAMES[tool], int(parts.get(tool, 0)), part_scope]
+	tool_buttons.foundation.visible = state.get("options", {}).get("foundations", false)
 	tool_buttons.drive.text = "Drive link  [G]    ·    %d shafts" % int(parts.get("shaft", 0))
 	if _native_transmission():
 		tool_buttons.drive.text = "Shaft  [G]    ·    %d carried" % int(parts.get("shaft", 0))
@@ -4604,11 +4686,16 @@ func _refresh_ui() -> void:
 	remove_button.disabled = explanation_open or not _contains_target(state, selected)
 	selection_ring.visible = state.entities.has(selected)
 	if selection_ring.visible:
-		selection_ring.position = _cell_position(state.entities[selected].cell) + Vector3(0, 0.02, 0)
+		selection_ring.position = _entity_position(state.entities[selected]) + Vector3(0, 0.02, 0)
 		inspector.text = "%s\nSquare %s" % [NAMES.get(state.entities[selected].kind, selected), str(state.entities[selected].cell)]
 		if state.entities[selected].kind == "processor":
 			inspector.text += "\n%d in · %d held · %d ready" % [state.stock.input, state.stock.held, state.stock.output]
 		inspector.text += "\n" + _inspection_hint()
+	elif state.get("foundations", {}).has(selected):
+		var surface: Dictionary = state.foundations[selected]
+		selection_ring.visible = true
+		selection_ring.position = _entity_position(surface) + Vector3(0, 0.02, 0)
+		inspector.text = "Foundation\nSquare %s · level %d\nTop %.2f m\nRemove to reclaim the carried part." % [str(surface.cell), surface.level, surface.level * Geometry.HEIGHT_STEP]
 	elif _native_transmission() and state.get("transmission_parts", {}).has(selected):
 		var part: Dictionary = state.transmission_parts[selected]
 		var motion: Dictionary = state.get("motion", {}).get(selected, {})
@@ -4634,6 +4721,8 @@ func _toggle_details() -> void:
 		_refresh_ui()
 
 func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
+	if foundation_level_controls != null:
+		foundation_level_controls.visible = _native_transmission() and mode == "foundation" and not explanation_open and snapshot_ready
 	_refresh_placement_hint(snapshot_ready)
 	footer_snapshot_ready = snapshot_ready
 	_queue_footer_fit()
@@ -4657,10 +4746,14 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	if kinds.has("wheel") and kinds.size() > 1:
 		offered.drive = true
 	var step := _guided_step(kinds)
+	if state.get("options", {}).get("foundations", false):
+		offered.foundation = true
 	for tool in tool_buttons:
 		var button: Button = tool_buttons[tool]
 		# Keyboard selection stays visible even when it precedes the suggestion.
 		button.visible = show_all_tools or offered.has(tool) or mode == tool
+		if tool == "foundation" and not state.get("options", {}).get("foundations", false):
+			button.visible = false
 		for color_name in ["font_color", "font_focus_color", "font_hover_color", "font_pressed_color", "font_hover_pressed_color"]:
 			if tool == step.tool:
 				button.add_theme_color_override(color_name, Color("edcc8d"))
@@ -4684,7 +4777,7 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	# Introduce inspection when it can help. Keep waiting notices and explicit
 	# disclosure available even before the first machine has been built.
 	var unused_inspector: bool = _native_transmission() and snapshot_ready and _placement_hint_ready() \
-		and kinds.is_empty() and state.get("transmission_parts", {}).is_empty() \
+		and kinds.is_empty() and state.get("transmission_parts", {}).is_empty() and state.get("foundations", {}).is_empty() \
 		and not show_all_tools and not show_details and mode != "inspect"
 	var inspector_panel: Control = inspector.get_parent().get_parent()
 	inspector_panel.visible = not unused_inspector
@@ -4733,7 +4826,7 @@ func _guided_placement_cell() -> Array:
 	if upstream.is_empty() or _guided_step(kinds).tool != mode:
 		return []
 	var cell := [int(upstream[0]) + 1, int(upstream[1])]
-	if cell[0] < -2 or cell[0] > 4 or cell[1] < -2 or cell[1] > 4:
+	if not _build_cell_allowed(Vector2i(cell[0], cell[1])):
 		return []
 	if not _entity_at_cell(Vector2i(cell[0], cell[1])).is_empty():
 		return []
@@ -4781,7 +4874,7 @@ func _refresh_machine_preview() -> void:
 	if transmission_controls != null and not transmission_controls.active_tool.is_empty():
 		return
 	var cell := _machine_preview_cell()
-	if cell.x < -2 or cell.x > 4 or cell.y < -2 or cell.y > 4 or not _entity_at_cell(cell).is_empty():
+	if not _build_cell_allowed(cell) or not _entity_at_cell(cell).is_empty():
 		return
 	var axis := _preview_axis()
 	if axis < 0:
@@ -4797,7 +4890,10 @@ func _refresh_machine_preview() -> void:
 		# The placed wheel's observed animation target must not be replaced by
 		# the visual-only assembly. Preview construction changes no projection.
 		var placed_rotor := wheel_rotor
-		_assemble_machine(machine_preview, {"kind": mode, "axis": axis})
+		if mode == "foundation":
+			_assemble_foundation(machine_preview)
+		else:
+			_assemble_machine(machine_preview, {"kind": mode, "axis": axis})
 		wheel_rotor = placed_rotor
 		if machine_preview_material == null:
 			machine_preview_material = StandardMaterial3D.new()
@@ -4807,7 +4903,7 @@ func _refresh_machine_preview() -> void:
 			machine_preview_material.metallic = 0.0
 		_style_machine_preview(machine_preview)
 		machine_preview_key = key
-	machine_preview.position = _cell_position([cell.x, cell.y])
+	machine_preview.position = _cell_position([cell.x, cell.y]) + Vector3.UP * _construction_level(cell) * Geometry.HEIGHT_STEP
 	machine_preview.visible = true
 
 func _style_machine_preview(node: Node) -> void:
@@ -4918,15 +5014,15 @@ func _update_cursor() -> void:
 		hover.visible = false
 		if transmission_controls.active_tool == "gear" and not explanation_open and _can_control_character():
 			var center := _transmission_center(get_viewport().get_mouse_position())
-			if center.size() == 3 and center[0] >= -8 and center[0] <= 16 and center[2] >= -8 and center[2] <= 16:
+			if center.size() == 3 and absi(center[0]) <= Geometry.GRID_COORDINATE_LIMIT and absi(center[2]) <= Geometry.GRID_COORDINATE_LIMIT:
 				hover.visible = true
 				hover.position = Vector3(center[0] * PITCH / 4.0, Geometry.ANCHOR_HEIGHT + center[1] * PITCH / 4.0, center[2] * PITCH / 4.0)
 				hover.basis = transmission_presenter.axis_basis(["x", "y", "z"].find(transmission_controls.selected_axis))
 		return
 	hover.basis = Basis.IDENTITY
-	hover.visible = hover_cell.x >= -2 and hover_cell.x <= 4 and hover_cell.y >= -2 and hover_cell.y <= 4 and not explanation_open
+	hover.visible = _build_cell_allowed(hover_cell) and not explanation_open
 	if hover.visible:
-		hover.position = _cell_position([hover_cell.x, hover_cell.y]) + Vector3(0, 0.03, 0)
+		hover.position = _cell_position([hover_cell.x, hover_cell.y]) + Vector3(0, 0.03 + _construction_level(hover_cell) * Geometry.HEIGHT_STEP, 0)
 
 func _message(words: String, refused: bool = false) -> void:
 	status_label.text = words
@@ -5023,10 +5119,16 @@ func _build_interface() -> void:
 	confirm_button = _button(build, "Confirm four plates", _confirm_goal)
 	build.add_child(HSeparator.new())
 	parts_label = _label(build, "BUILD FROM SHARED KIT" if _parts_are_shared() else "BUILD FROM CARRIED PARTS", 12, Color("9eb4b2"))
-	for kind in ["collector", "belt", "processor", "wheel"]:
+	for kind in ["collector", "foundation", "belt", "processor", "wheel"]:
 		var button := _button(build, NAMES[kind], _select_tool.bind(kind))
 		button.toggle_mode = true
 		tool_buttons[kind] = button
+	foundation_level_controls = HBoxContainer.new()
+	build.add_child(foundation_level_controls)
+	_button(foundation_level_controls, "−", _adjust_foundation_level.bind(-1))
+	foundation_level_label = _label(foundation_level_controls, "Level 0 · 0.00 m", 14)
+	_button(foundation_level_controls, "+", _adjust_foundation_level.bind(1))
+	foundation_level_controls.visible = false
 	tool_buttons.flow = _button(build, "Material link  [F]", _select_tool.bind("flow"))
 	tool_buttons.drive = _button(build, "Drive link  [G]", _select_tool.bind("drive"))
 	tool_buttons.inspect = _button(build, "Inspect  [I]", _select_tool.bind("inspect"))

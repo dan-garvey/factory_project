@@ -1,4 +1,5 @@
 #include "factory/godot_world.hpp"
+#include "native/factory-godot-world/tests/site_fixture.hpp"
 
 #include <algorithm>
 #include <array>
@@ -46,6 +47,7 @@ O placement(const char* kind, I x, I z, const std::string& id, const char* actor
 
 void initialize(Host& host) {
     check(accepted(host.initialize("attachment-test", {"P", "Q"})), "The finite native Host initializes.");
+    check(accepted(host.configure_terrain(factory::godot_world::tests::flat_site())), "The test binds explicit synthetic terrain.");
     check(accepted(host.publish_actor("P", {V(1.65), V(1.0), V(1.65)}, 1)),
           "The fixture supplies its disclosed synthetic observation.");
 }
@@ -197,6 +199,7 @@ void checkpoint_and_removed_identity() {
     saved = host.checkpoint();
     Host fresh;
     check(accepted(fresh.initialize("fresh-host", {"P", "Q"})), "A separate typed Host fixture initializes.");
+    check(accepted(fresh.configure_terrain(factory::godot_world::tests::flat_site())), "The restored fixture binds the same explicit terrain.");
     check(accepted(fresh.restore_checkpoint(saved)) && same(saved, fresh.checkpoint()),
           "Typed restoration preserves all old topology, kit, history and saved positions.");
     const auto retry = fresh.command("P", old_belt_wire);

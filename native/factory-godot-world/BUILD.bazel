@@ -3,6 +3,20 @@ load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
 package(default_visibility = ["//visibility:public"])
 
 cc_library(
+    name = "test_site",
+    testonly = True,
+    hdrs = ["tests/site_fixture.hpp"],
+    deps = [":host"],
+)
+
+cc_test(
+    name = "foundation_test",
+    srcs = ["tests/foundation_test.cpp"],
+    deps = [":test_site"],
+    size = "small",
+)
+
+cc_library(
     name = "host",
     srcs = ["src/host.cpp"],
     hdrs = ["include/factory/godot_world.hpp"],
@@ -20,11 +34,12 @@ cc_binary(
 
 cc_binary(
     name = "factory-native-world-abi-test.so",
+    testonly = True,
     srcs = ["src/extension.cpp", "tests/abi_test.cpp"],
     defines = ["FACTORY_NATIVE_WORLD_SELF_TEST"],
     linkshared = True,
     linkstatic = True,
-    deps = [":host", "//native/factory-godot-values:godot_values", "//native/opening-engineering:challenge"],
+    deps = [":host", ":test_site", "//native/factory-godot-values:godot_values", "//native/opening-engineering:challenge"],
 )
 
 filegroup(
@@ -35,18 +50,18 @@ filegroup(
 cc_test(
     name = "host_test",
     srcs = ["tests/host_test.cpp"],
-    deps = [":host"],
+    deps = [":host", ":test_site"],
 )
 
 cc_test(
     name = "gear_host_test",
     srcs = ["tests/gear_host_test.cpp"],
-    deps = [":host"],
+    deps = [":host", ":test_site"],
 )
 
 cc_test(
     name = "material_attachment_test",
     srcs = ["tests/material_attachment_test.cpp"],
-    deps = [":host"],
+    deps = [":host", ":test_site"],
     size = "small",
 )

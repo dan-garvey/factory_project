@@ -100,6 +100,7 @@ The quantities and work-cycle duration are tunable fixture values, not game perf
 - Three-dimensional space is essential. Use a mix of mandatory vertical processes and softer constraints rewarding verticality through efficiency or scalability.
 - Explore gravity-driven processing together with directional tool faces and working clearances as the first ordinary reasons to use height.
 - A global grid governs construction alignment; it does not require moving mechanisms to remain aligned at every operating position. Block/voxel dimensions and alignment/docking details are not selected.
+- Player-built foundations create level factory surfaces across uneven ground. Foundations, machines and other constructables share a world origin and height denominator, so independently built sections can align horizontally and vertically. The former special construction rectangle is removed. Exact foundation dimensions, supply and height step remain tunable prototype choices.
 - Collision should matter. Pushing separate machines is deferred at the user's request; focus first on collision behavior. For this discussion, a gantry and its contraption count as a single machine, rather than an example of one independent machine pushing another.
 - Machinery can injure players. The injury model and detailed player-contact behavior remain open.
 - Camera perspective is flexible. Moving around, working in, and building the world should remain enjoyable over long sessions.

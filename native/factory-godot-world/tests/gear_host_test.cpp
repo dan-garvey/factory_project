@@ -1,4 +1,5 @@
 #include "factory/godot_world.hpp"
+#include "native/factory-godot-world/tests/site_fixture.hpp"
 
 #include <iostream>
 #include <array>
@@ -69,6 +70,7 @@ void observe(Host& host, double x, double z, I epoch) {
 void finite_oriented_train_and_restore() {
     Host host;
     check(accepted(host.initialize("cog-api", {"P", "Q"})), "The original finite profile initializes.");
+    check(accepted(host.configure_terrain(factory::godot_world::tests::flat_site())), "The test binds explicit synthetic terrain.");
     observe(host, -1.65, 3.3, 1);
     const auto specs = field<O>(host.projection(), "part_specifications");
     bool saw_gear = false;
@@ -134,6 +136,7 @@ void finite_oriented_train_and_restore() {
 void refusals_and_legacy_shape() {
     Host host;
     check(accepted(host.initialize("cog-api", {"P"})), "The refusal fixture initializes.");
+    check(accepted(host.configure_terrain(factory::godot_world::tests::flat_site())), "The refusal fixture binds explicit synthetic terrain.");
     observe(host, -1.65, 3.3, 1);
     const auto state_before = field<O>(V(field<O>(host.checkpoint(), "world")), "state");
     const auto reject = [&](O command, const char* reason) {
@@ -149,7 +152,7 @@ void refusals_and_legacy_shape() {
     floating.at("center") = V(A{V(0.0), V(I{4}), V(I{4})});
     reject(floating, "invalid_center");
     reject(gear(0, 4, 4, "invalid-axis", "bad"), "invalid_axis");
-    reject(gear(0, 17, 4, "outside-fixture"), "invalid_center");
+    reject(gear(0, 1000001, 4, "outside-native-integer-range"), "invalid_center");
     reject(gear(-4, 8, 4, "uncarried-size", "y", 4), "unavailable_part");
     auto boolean = machine("collector", 0, "boolean-axis"); boolean.at("axis") = V(false);
     reject(boolean, "invalid_axis");
@@ -231,12 +234,22 @@ void equivalent_gear_exclusion() {
               "Both typed checkpoints validate with their original accepted and refused histories.");
     }
 }
+void global_grid() {
+    Host host;
+    check(accepted(host.initialize("cog-api", {"P"})), "The global-grid fixture initializes.");
+    check(accepted(host.publish_actor("P", {V(16.5), V(6.0), V(6.0)}, 1)),
+          "A disclosed synthetic actor is near the new absolute grid point.");
+    const auto placed = host.command("P", gear(40, 17, 8, "global-grid"));
+    check(accepted(placed), "Cogwheels are no longer clipped to the old construction rectangle or height range.");
+    check(accepted(host.validate_checkpoint(host.checkpoint())), "Global gear coordinates retain typed save and history validity.");
+}
 }  // namespace
 
 int main(int argc, char** argv) {
     try {
         if (argc == 1) {
             finite_oriented_train_and_restore(); refusals_and_legacy_shape();
+            global_grid();
         } else if (argc != 2 || std::string(argv[1]) != "--placement-alias-only") {
             throw std::runtime_error("Expected no arguments or --placement-alias-only.");
         }

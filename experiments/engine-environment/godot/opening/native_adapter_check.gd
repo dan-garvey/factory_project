@@ -1,6 +1,7 @@
 extends SceneTree
 ## Automated headless consumer of the ordinary scene, not a desktop playtest.
 const NativeModel = preload("res://opening/native_model.gd")
+const OpeningGeometry = preload("res://opening/site_geometry.gd")
 var opening
 var destination := ""
 var mode := ""
@@ -15,7 +16,7 @@ func _init() -> void:
 			destination = argument.trim_prefix("--native-check-output=")
 		if argument.begins_with("--native-check-mode="):
 			mode = argument.trim_prefix("--native-check-mode=")
-	deadline = Time.get_ticks_msec() + 15000
+	deadline = Time.get_ticks_msec() + (45000 if mode == "foundations" else 15000)
 	call_deferred("_run")
 
 func _same(expected: Variant, actual: Variant, depth: int = 0) -> bool:
@@ -75,7 +76,7 @@ func _issue(action: Dictionary) -> Dictionary:
 	return reply
 
 func _run() -> void:
-	if destination.is_empty() or mode not in ["produce", "resume"]:
+	if destination.is_empty() or mode not in ["produce", "resume", "foundations"]:
 		push_error("The native adapter check requires an output and a declared mode")
 		quit(1)
 		return
@@ -96,6 +97,9 @@ func _run() -> void:
 		return
 	facts["initial_projection"] = opening.model.projection()
 	facts["initial_native"] = opening.actor_world.diagnostics("P")
+	if mode == "foundations":
+		await _foundations()
+		return
 	if mode == "resume":
 		_resume()
 		return
@@ -135,6 +139,90 @@ func _run() -> void:
 	facts["save_result"] = saved
 	facts["save_slot"] = opening.save_slot
 	if not _expect(saved.accepted and saved.native_preflight.accepted and FileAccess.file_exists(opening.save_slot), "Store publishes the native-validated checkpoint after a real body preflight"):
+		return
+	_record("pass")
+
+func _walk_to(target: Vector2, jump: bool = false) -> bool:
+	var first := true
+	while Time.get_ticks_msec() < deadline:
+		var at: Vector3 = opening.actor_world.bodies.P.global_position
+		var gap := target - Vector2(at.x, at.z)
+		if gap.length() < 0.08:
+			opening.actor_world.release_control("P")
+			return true
+		if not _expect(opening.actor_world.set_control("P", gap.normalized(), jump and first).accepted,
+				"The fixture walks through the real character motor without setting a pose"):
+			return false
+		first = false
+		await physics_frame
+		await process_frame
+	opening.actor_world.release_control("P")
+	return _expect(false, "The bounded native walk must reach its declared target")
+
+func _foundations() -> void:
+	# A new automated construction case, not a replay of produce/resume, a
+	# desktop-input test or evidence that a human understood the interaction.
+	opening.auto_advance = false
+	opening.set_process(false)
+	if not await _walk_to(Vector2(9.0, 6.0)):
+		return
+	var before: Dictionary = opening.model.projection()
+	var first: Dictionary = _issue({"action": "place_foundation", "cell": [5, 2], "level": 1})
+	if not _expect(first.accepted, "The real nearby actor can build beyond the removed local rectangle"):
+		return
+	var second: Dictionary = _issue({"action": "place_foundation", "cell": [6, 2], "level": 1})
+	if not _expect(second.accepted, "An independently placed foundation shares the absolute height grid"):
+		return
+	for _frame in range(3):
+		await physics_frame
+		await process_frame
+	opening._select_tool("foundation")
+	opening._adjust_foundation_level(1)
+	if not _expect(opening.foundation_level == 1 and opening.foundation_level_label.text.begins_with("Level 1"),
+			"The actual controls show an absolute world height rather than a local terrain offset"):
+		return
+	if not _expect(opening.actor_world._geometry_registered(), "Displayed foundation levels match registered native box bodies"):
+		return
+	if not await _walk_to(Vector2(8.25, 3.3), true):
+		return
+	for _frame in range(40):
+		await physics_frame
+		await process_frame
+	var body = opening.actor_world.bodies.P
+	facts["standing_on_foundation"] = opening.actor_world.diagnostics("P")
+	if not _expect(body.is_on_floor() and absf(body.global_position.y - OpeningGeometry.CAPSULE_HEIGHT / 2.0 - OpeningGeometry.HEIGHT_STEP) < 0.02,
+			"The real capsule walks and lands on the constructed surface at the common height"):
+		return
+	var saved: Dictionary = opening._save_worksite()
+	facts["foundation_save"] = saved
+	if not _expect(saved.accepted and saved.native_preflight.accepted, "Store accepts the real registered pose and foundation custody"):
+		return
+	if not await _walk_to(Vector2(9.0, 6.0)):
+		return
+	opening._select_tool("belt")
+	opening._world_click(Vector2i(5, 2))
+	if not _expect(opening.model.projection().entities.size() == 1, "The first ordinary machine placement succeeds before dependent probing"):
+		return
+	opening._select_tool("processor")
+	opening._world_click(Vector2i(6, 2))
+	for _frame in range(3):
+		await physics_frame
+		await process_frame
+	var current: Dictionary = opening.model.projection()
+	if not _expect(current.entities.size() == 2 and current.links.size() == 1 and current.part_kits.P.foundation == 22,
+			"The ordinary scene placement path aligns a belt and press on separately built foundations"):
+		return
+	for id in current.entities:
+		var entity: Dictionary = current.entities[id]
+		var physical: StaticBody3D = opening.actor_world.machines[id]
+		if not _expect(entity.level == 1 and absf(physical.position.y - OpeningGeometry.MACHINE_CENTER_HEIGHT - OpeningGeometry.HEIGHT_STEP) < 0.00001,
+				"Machine projection, mesh and native contact share the foundation height"):
+			return
+	if not _expect(current.stock.source == before.stock.source and current.stock.source == 16 and current.remaining == 0,
+			"Construction changes no mineral quantity or material clock"):
+		return
+	if not _expect(_issue({"action": "remove", "entity": first.entity}).reason == "foundation_in_use",
+			"A supporting foundation cannot disappear beneath a machine"):
 		return
 	_record("pass")
 

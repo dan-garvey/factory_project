@@ -6,6 +6,7 @@
 #include <limits>
 #include <optional>
 #include <stdexcept>
+#include <tuple>
 #include <utility>
 
 namespace factory::godot_world {
@@ -18,6 +19,8 @@ using Role = stationary::Role;
 
 // Current opening geometry, explicitly checked by the thin scene adapter.
 constexpr double pitch = 1.65;
+constexpr Integer height_denominator = 4;
+constexpr double height_step = pitch / height_denominator;
 constexpr double anchor_height = 0.5;
 constexpr double reach = 4.0;
 constexpr double capsule_radius = 0.3;
@@ -42,6 +45,12 @@ bool keys(const Object& object, std::initializer_list<const char*> extras) {
     return true;
 }
 
+bool place_keys(const Object& object) {
+    if (object.contains("level")) return object.contains("axis") ?
+        keys(object, {"kind", "cell", "axis", "level"}) : keys(object, {"kind", "cell", "level"});
+    return object.contains("axis") ? keys(object, {"kind", "cell", "axis"}) : keys(object, {"kind", "cell"});
+}
+
 std::optional<mechanics::Axis> axis_value(const std::string& name) {
     if (name == "x") return mechanics::Axis::x;
     if (name == "y") return mechanics::Axis::y;
@@ -61,7 +70,7 @@ std::optional<mechanics::Point> gear_center(const Array& input) {
     mechanics::Point output;
     for (std::size_t index = 0; index < 3; ++index) {
         const auto* value = std::get_if<Integer>(&input[index].storage());
-        if (!value || *value < (index == 1 ? 0 : -8) || *value > 16) return std::nullopt;
+        if (!value || *value < -mechanics::maximum_coordinate || *value > mechanics::maximum_coordinate) return std::nullopt;
         output[index] = *value;
     }
     return output;
@@ -104,6 +113,18 @@ bool historical_wire(const authority::Record& record) {
         return left != wire->end() && right != intent.end() &&
             !values::typed_difference(left->second, right->second);
     };
+    if (*action == "place_foundation") {
+        const auto* cell = field<Array>(*wire, "cell");
+        const auto* level = field<Integer>(*wire, "level");
+        const auto* center = field<Array>(intent, "center");
+        if (*original_action != "place_foundation" || !keys(*wire, {"cell", "level"}) ||
+            !cell || cell->size() != 2 || !level || !center || center->size() != 3) return false;
+        const auto* x = std::get_if<Integer>(&cell->at(0).storage());
+        const auto* z = std::get_if<Integer>(&cell->at(1).storage());
+        return x && z && *x >= -250000 && *x <= 250000 && *z >= -250000 && *z <= 250000 &&
+            *level >= -1000000 && *level <= 1000000 &&
+            !values::typed_difference(Value(*center), Value(Array{Value(4 * *x), Value(*level), Value(4 * *z)}));
+    }
     if (*action == "place" || *action == "place_connected") {
         if (*original_action == "place_gear") {
             const auto* center = field<Array>(*wire, "center");
@@ -118,18 +139,20 @@ bool historical_wire(const authority::Record& record) {
         const auto* name = field<std::string>(*wire, "kind");
         const auto* cell = field<Array>(*wire, "cell");
         const auto* axis = field<std::string>(*wire, "axis");
-        if (*original_action != "place" || !(wire->contains("axis") ? keys(*wire, {"kind", "cell", "axis"}) : keys(*wire, {"kind", "cell"})) ||
+        if (*original_action != "place" || !place_keys(*wire) ||
             (wire->contains("axis") && (!axis || !axis_value(*axis))) || !name || !cell || cell->size() != 2)
             return false;
         const auto* x = std::get_if<Integer>(&cell->at(0).storage());
         const auto* z = std::get_if<Integer>(&cell->at(1).storage());
-        if (!x || !z || *x < -2 || *x > 4 || *z < -2 || *z > 4 ||
+        const auto* level = field<Integer>(*wire, "level");
+        if (!x || !z || *x < -250000 || *x > 250000 || *z < -250000 || *z > 250000 ||
+            (wire->contains("level") && (!level || *level < -1000000 || *level > 1000000)) ||
             (*name != "collector" && *name != "belt" && *name != "processor" && *name != "wheel" && *name != "gear"))
             return false;
         if (*action == "place_connected" && *name != "collector" && *name != "belt" && *name != "processor")
             return false;
         const Object expected{{"role", Value(*name == "wheel" ? "waterwheel" : *name)},
-            {"center", Value(Array{Value(4 * *x), Value(Integer{0}), Value(4 * *z)})},
+            {"center", Value(Array{Value(4 * *x), Value(level ? *level : Integer{0}), Value(4 * *z)})},
             {"axis", Value(axis ? *axis : "x")}, {"teeth", Value(Integer{*name == "gear" ? 2 : 0})},
             {"half_span", Value(Integer{0})}};
         for (const auto& [key, value] : expected) {
@@ -148,6 +171,8 @@ bool historical_wire(const authority::Record& record) {
         return *original_action == "set_power" && keys(*wire, {"active"}) && same("active", "enabled");
     if (*action == "remove" || *action == "recover")
         return *original_action == *action && keys(*wire, {"entity"}) && same("entity", "target");
+    if (*action == "remove_foundation")
+        return *original_action == "remove" && keys(*wire, {"entity"}) && same("entity", "target");
     if (*action == "collect" || *action == "insert_raw")
         return *original_action == (*action == "collect" ? "retrieve" : "insert_raw") &&
             keys(*wire, {"entity", "amount"}) && same("entity", "target") && same("amount", "amount");
@@ -231,6 +256,7 @@ Value Host::initialize(const std::string& context, const std::vector<std::string
     profile.meters_per_grid_unit = pitch / 4.0;
     profile.anchor_offset = {0, anchor_height, 0};
     profile.build_reach = reach;
+    profile.foundation_parts = 24;
     profile.finite_parts = {{{Role::collector, 0, 0}, 1}, {{Role::belt, 0, 0}, 1},
         {{Role::processor, 0, 0}, 1}, {{Role::waterwheel, 0, 0}, 1}, {{Role::shaft, 0, 2}, 3},
         {{Role::gear, 2, 0}, 2}};
@@ -243,6 +269,7 @@ Value Host::initialize(const std::string& context, const std::vector<std::string
             return result(false, "invalid_roster");
         seed.material.cargo.emplace(actor, materials::Cargo{});
         seed.kits.emplace(actor, actor == "P" ? profile.finite_parts : stationary::Kit{});
+        seed.foundation_kits.emplace(actor, actor == "P" ? profile.foundation_parts : 0);
         candidate->actors.emplace(actor, Actor{{-pitch, 1.0, (actor == "P" ? 2.0 : 3.0) * pitch}, 0, false});
     }
     candidate->world = world::World::create(context, profile, seed);
@@ -250,6 +277,93 @@ Value Host::initialize(const std::string& context, const std::vector<std::string
     profile_ = std::move(profile);
     owned_ = std::move(candidate);
     return result(true, "initialized");
+}
+
+Value Host::configure_terrain(const Object& input) {
+    if (!owned_ || owned_->native_started || !terrain_axis_.empty()) return result(false, "terrain_already_bound");
+    const auto* axis = field<Array>(input, "axis");
+    const auto* heights = field<Array>(input, "heights");
+    const auto* obstacles = field<Array>(input, "obstacles");
+    if (input.size() != 3 || !axis || !heights || !obstacles || obstacles->size() > 1024 || axis->size() < 2 || axis->size() > 200 ||
+        heights->size() != axis->size() * axis->size()) return result(false, "invalid_terrain");
+    std::vector<double> coordinates, elevations;
+    std::vector<std::pair<authority::Point, authority::Point>> solids;
+    for (const auto& value : *axis) {
+        const auto* number = std::get_if<double>(&value.storage());
+        if (!number || !std::isfinite(*number) || std::abs(*number) > 1000000 ||
+            (!coordinates.empty() && coordinates.back() >= *number)) return result(false, "invalid_terrain");
+        coordinates.push_back(*number);
+    }
+    for (const auto& value : *heights) {
+        const auto* number = std::get_if<double>(&value.storage());
+        if (!number || !std::isfinite(*number) || std::abs(*number) > 1000000) return result(false, "invalid_terrain");
+        elevations.push_back(*number);
+    }
+    for (const auto& value : *obstacles) {
+        const auto* ends = std::get_if<Array>(&value.storage());
+        if (!ends || ends->size() != 2) return result(false, "invalid_terrain");
+        const auto* low_array = std::get_if<Array>(&ends->at(0).storage());
+        const auto* high_array = std::get_if<Array>(&ends->at(1).storage());
+        const auto low = low_array ? point(*low_array) : std::nullopt;
+        const auto high = high_array ? point(*high_array) : std::nullopt;
+        if (!low || !high) return result(false, "invalid_terrain");
+        for (std::size_t axis = 0; axis < 3; ++axis)
+            if ((*low)[axis] >= (*high)[axis]) return result(false, "invalid_terrain");
+        solids.emplace_back(*low, *high);
+    }
+    terrain_axis_ = std::move(coordinates);
+    terrain_heights_ = std::move(elevations);
+    terrain_obstacles_ = std::move(solids);
+    return result(true, "terrain_bound");
+}
+
+bool Host::site_blocked(const authority::Point& low, const authority::Point& high) const {
+    return std::any_of(terrain_obstacles_.begin(), terrain_obstacles_.end(), [&](const auto& obstacle) {
+        for (std::size_t axis = 0; axis < 3; ++axis)
+            if (high[axis] <= obstacle.first[axis] || low[axis] >= obstacle.second[axis]) return false;
+        return true;
+    });
+}
+
+std::optional<std::pair<double, double>> Host::terrain_range(double x, double z) const {
+    if (terrain_axis_.empty()) return std::nullopt;
+    const double left = x - pitch / 2, right = x + pitch / 2;
+    const double near = z - pitch / 2, far = z + pitch / 2;
+    if (left < terrain_axis_.front() || right > terrain_axis_.back() ||
+        near < terrain_axis_.front() || far > terrain_axis_.back()) return std::nullopt;
+    const auto cell = [&](double at) {
+        return std::min(terrain_axis_.size() - 2, static_cast<std::size_t>(
+            std::upper_bound(terrain_axis_.begin(), terrain_axis_.end(), at) - terrain_axis_.begin() - 1));
+    };
+    const auto vertex = [&](std::size_t gx, std::size_t gz) {
+        return authority::Point{terrain_axis_[gx], terrain_heights_[gz * terrain_axis_.size() + gx], terrain_axis_[gz]};
+    };
+    double low = std::numeric_limits<double>::infinity(), high = -low;
+    for (auto gz = cell(near); gz <= cell(far); ++gz) for (auto gx = cell(left); gx <= cell(right); ++gx) {
+        const auto a = vertex(gx, gz), b = vertex(gx + 1, gz), c = vertex(gx + 1, gz + 1), d = vertex(gx, gz + 1);
+        for (auto polygon : {std::vector<authority::Point>{a, b, c}, std::vector<authority::Point>{a, c, d}}) {
+            // Clip both actual emitted triangles to the complete tile footprint.
+            // A linear triangle's extreme height is at a clipped polygon vertex.
+            for (const auto& [axis, boundary, sign] : {std::tuple{0, left, 1.0}, {0, right, -1.0},
+                    {2, near, 1.0}, {2, far, -1.0}}) {
+                std::vector<authority::Point> clipped;
+                for (std::size_t n = 0; n < polygon.size(); ++n) {
+                    const auto& p = polygon[n];
+                    const auto& q = polygon[(n + 1) % polygon.size()];
+                    const bool inside = (p[axis] - boundary) * sign >= 0;
+                    const bool next = (q[axis] - boundary) * sign >= 0;
+                    if (inside) clipped.push_back(p);
+                    if (inside != next) {
+                        const auto t = (boundary - p[axis]) / (q[axis] - p[axis]);
+                        clipped.push_back({p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1]), p[2] + t * (q[2] - p[2])});
+                    }
+                }
+                polygon = std::move(clipped);
+            }
+            for (const auto& p : polygon) { low = std::min(low, p[1]); high = std::max(high, p[1]); }
+        }
+    }
+    return std::pair{low, high};
 }
 
 world::ObserveActor Host::observe() const {
@@ -309,8 +423,37 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.emplace(generation, Value(selected ? selected->generation : 0));
         return true;
     };
-    if (*action == "place") {
-        if (!(wire.contains("axis") ? keys(wire, {"kind", "cell", "axis"}) : keys(wire, {"kind", "cell"})))
+    if (*action == "place_foundation") {
+        if (!keys(wire, {"cell", "level"})) return refuse("invalid_command");
+        const auto* cell = field<Array>(wire, "cell");
+        const auto* level = field<Integer>(wire, "level");
+        if (!cell || cell->size() != 2 || !level || *level < -1000000 || *level > 1000000) return refuse("invalid_cell");
+        const auto* x = std::get_if<Integer>(&cell->at(0).storage());
+        const auto* z = std::get_if<Integer>(&cell->at(1).storage());
+        if (!x || !z || *x < -250000 || *x > 250000 || *z < -250000 || *z > 250000) return refuse("invalid_cell");
+        const auto terrain = terrain_range(*x * pitch, *z * pitch);
+        if (!terrain) return refuse("terrain_unavailable");
+        const auto top = *level * pitch / 4;
+        if (top < terrain->second) return refuse("foundation_buried");
+        const bool stacked = std::any_of(snapshot.state.foundations.begin(), snapshot.state.foundations.end(), [&](const auto& entry) {
+            return entry.second.center == mechanics::Point{4 * *x, *level - 4, 4 * *z};
+        });
+        if (top - pitch > terrain->first && !stacked) return refuse("foundation_unsupported");
+        if (site_blocked({*x * pitch - pitch / 2, top - pitch, *z * pitch - pitch / 2},
+                         {*x * pitch + pitch / 2, top, *z * pitch + pitch / 2})) return refuse("site_occupied");
+        const authority::Point at{*x * pitch, top - pitch / 2, *z * pitch};
+        if (placement_blocked(at, {pitch / 2, pitch / 2, pitch / 2})) return refuse("actor_occupied");
+        for (const auto& part : snapshot.state.topology.parts) {
+            const auto& center = part.geometry.center;
+            if (std::abs(center[0] * pitch / 4 - at[0]) < pitch &&
+                std::abs(center[2] * pitch / 4 - at[2]) < pitch &&
+                center[1] * pitch / 4 < top && center[1] * pitch / 4 + machine_height > top - pitch)
+                return refuse("occupied");
+        }
+        normalized.at("action") = Value("place_foundation");
+        normalized.emplace("center", Value(Array{Value(4 * *x), Value(*level), Value(4 * *z)}));
+    } else if (*action == "place") {
+        if (!place_keys(wire))
             return refuse("invalid_command");
         const auto* axis = field<std::string>(wire, "axis");
         if (wire.contains("axis") && (!axis || !axis_value(*axis))) return refuse("invalid_axis");
@@ -319,17 +462,43 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         if (!kind_name || !cell || cell->size() != 2) return refuse("invalid_cell");
         const auto* x = std::get_if<Integer>(&cell->at(0).storage());
         const auto* z = std::get_if<Integer>(&cell->at(1).storage());
-        if (!x || !z || *x < -2 || *x > 4 || *z < -2 || *z > 4) return refuse("invalid_cell");
+        const auto* level = field<Integer>(wire, "level");
+        if (!x || !z || *x < -250000 || *x > 250000 || *z < -250000 || *z > 250000 ||
+            (wire.contains("level") && (!level || *level < -1000000 || *level > 1000000))) return refuse("invalid_cell");
         if (*kind_name != "collector" && *kind_name != "belt" && *kind_name != "processor" &&
             *kind_name != "wheel" && *kind_name != "gear") return refuse("unknown_kind");
         if (*kind_name == "collector" && *x != 0) return refuse("not_at_seam");
         if (*kind_name == "wheel" && *x != -1) return refuse("not_at_stream");
-        const mechanics::Point center{4 * *x, 0, 4 * *z};
+        if ((*kind_name == "collector" || *kind_name == "wheel") && level && *level != 0)
+            return refuse(*kind_name == "collector" ? "not_at_seam" : "not_at_stream");
+        const mechanics::Point center{4 * *x, level ? *level : 0, 4 * *z};
+        for (const auto& [id, foundation] : snapshot.state.foundations) {
+            (void)id;
+            if (foundation.center[0] == center[0] && foundation.center[2] == center[2] &&
+                foundation.center[1] > center[1] && foundation.center[1] - 4 < center[1] + 4)
+                return refuse("occupied");
+        }
+        if (*kind_name != "gear") {
+            const bool supported = std::any_of(snapshot.state.foundations.begin(), snapshot.state.foundations.end(),
+                [&](const auto& entry) { return entry.second.center == center; });
+            if (!supported) {
+                const auto terrain = terrain_range(*x * pitch, *z * pitch);
+                if (!terrain) return refuse("terrain_unavailable");
+                const auto floor = center[1] * height_step;
+                // Ground-supported construction is available across the site;
+                // there is no privileged rectangle. The small seating tolerance
+                // is an adapter fit, never an extension of character reach.
+                if (terrain->second > floor || terrain->first < floor - 0.04) return refuse("foundation_required");
+            }
+            const auto floor = center[1] * height_step;
+            if (site_blocked({*x * pitch - machine_width / 2, floor, *z * pitch - machine_width / 2},
+                {*x * pitch + machine_width / 2, floor + machine_height, *z * pitch + machine_width / 2})) return refuse("site_occupied");
+        }
         for (const auto& part : snapshot.state.topology.parts)
             if (part.geometry.center == center) return refuse("occupied");
         const auto selected_axis = axis ? *axis_value(*axis) : mechanics::Axis::x;
         const auto is_gear = *kind_name == "gear";
-        const authority::Point at{*x * pitch, is_gear ? anchor_height : machine_center_height, *z * pitch};
+        const authority::Point at{*x * pitch, center[1] * pitch / 4 + (is_gear ? anchor_height : machine_center_height), *z * pitch};
         const auto half = is_gear ? gear_half_extents(selected_axis, 2) :
             authority::Point{machine_width / 2, machine_height / 2, machine_width / 2};
         if (placement_blocked(at, half)) return refuse("actor_occupied");
@@ -385,7 +554,12 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         const bool work = *action == "insert_work";
         if (!(amount ? keys(wire, {"entity", "amount"}) : work ? keys(wire, {"entity", "work_id"}) : keys(wire, {"entity"})) ||
             !target("entity", "target", "generation")) return refuse("invalid_command");
-        normalized.at("action") = Value(*action == "retrieve" ? "collect" : *action);
+        const auto* id = field<std::string>(wire, "entity");
+        const auto foundation = id ? snapshot.state.foundations.find(*id) : snapshot.state.foundations.end();
+        if (*action == "remove" && foundation != snapshot.state.foundations.end()) {
+            normalized.at("action") = Value("remove_foundation");
+            normalized.at("generation") = Value(foundation->second.generation);
+        } else normalized.at("action") = Value(*action == "retrieve" ? "collect" : *action);
         if (amount) normalized.emplace("amount", wire.at("amount"));
         if (work) normalized.emplace("work_id", wire.at("work_id"));
     } else return refuse("unsupported_action");
@@ -425,7 +599,7 @@ Value Host::projection() const {
     if (!owned_) return result(false, "not_initialized");
     const auto snapshot = owned_->world->snapshot();
     const auto& state = snapshot.state;
-    Object entities, transmissions, inventories, cargo, kits, specifications, actors;
+    Object entities, transmissions, inventories, cargo, kits, specifications, actors, foundations;
     Array links, drive_links, engagements;
     for (const auto& part : state.topology.parts) {
         Object projected{{"kind", Value(kind(part.role))}, {"generation", Value(part.generation)},
@@ -435,6 +609,7 @@ Value Host::projection() const {
         if (part.role == Role::shaft || part.role == Role::gear) transmissions.emplace(part.geometry.id, Value(projected));
         else {
             projected.emplace("cell", Value(Array{Value(part.geometry.center[0] / 4), Value(part.geometry.center[2] / 4)}));
+            if (part.geometry.center[1] != 0) projected.emplace("level", Value(part.geometry.center[1]));
             entities.emplace(part.geometry.id, Value(std::move(projected)));
         }
     }
@@ -466,7 +641,9 @@ Value Host::projection() const {
         cargo.emplace(actor, cargo_value(contents));
     }
     for (const auto& [actor, kit] : state.kits) {
-        kits.emplace(actor, kit_value(kit));
+        auto projected_kit = std::get<Object>(kit_value(kit).storage());
+        projected_kit.emplace("foundation", Value(state.foundation_kits.at(actor)));
+        kits.emplace(actor, Value(std::move(projected_kit)));
         Array entries;
         for (const auto& [specification, initial] : profile_.finite_parts) {
             (void)initial;
@@ -482,6 +659,11 @@ Value Host::projection() const {
         {"ready", Value(sample.ready)}, {"native_epoch", Value(sample.epoch)}}));
     const auto& stock = state.material.stock;
     const auto local = world::machine_power(state.topology);
+    for (const auto& [id, foundation] : state.foundations)
+        foundations.emplace(id, Value(Object{{"cell", Value(Array{Value(foundation.center[0] / 4), Value(foundation.center[2] / 4)})},
+            {"level", Value(foundation.center[1])}, {"generation", Value(foundation.generation)}}));
+    auto player_parts = std::get<Object>(kit_value(state.kits.at("P")).storage());
+    player_parts.emplace("foundation", Value(state.foundation_kits.at("P")));
     return Value(Object{{"context", Value(snapshot.history.context)}, {"revision", Value(snapshot.revision)},
         {"order", Value(snapshot.history.order)}, {"initial_feed", Value(profile_.initial_units)},
         {"recipe_input", Value(profile_.material.input_units_per_product)}, {"entities", Value(std::move(entities))},
@@ -490,7 +672,8 @@ Value Host::projection() const {
         {"motion", Value(std::move(motions))}, {"inventories", Value(std::move(inventories))},
         {"cargo", Value(std::move(cargo))}, {"part_kits", Value(std::move(kits))},
         {"part_specifications", Value(std::move(specifications))},
-        {"parts", kit_value(state.kits.at("P"))}, {"actors", Value(std::move(actors))},
+        {"parts", Value(std::move(player_parts))}, {"actors", Value(std::move(actors))},
+        {"foundations", Value(std::move(foundations))},
         {"stock", Value(Object{{"source", Value(stock.source)}, {"collector", Value(stock.collector)},
             {"belt", Value(stock.belt)}, {"input", Value(stock.input)},
             {"held", Value(state.material.processing ? state.material.processing->recipe.input_units_per_product : 0)},
@@ -498,8 +681,9 @@ Value Host::projection() const {
         {"remaining", Value(state.material.processing ? state.material.processing->remaining_ticks : 0)},
         {"powered", Value(local.collector || local.belt || local.processor)},
         {"power_enabled", Value(state.topology.drive_enabled)},
-        {"options", Value(Object{{"opening", Value(true)}, {"physical", Value(true)}, {"native", Value(true)}})},
+        {"options", Value(Object{{"opening", Value(true)}, {"physical", Value(true)}, {"native", Value(true)}, {"foundations", Value(true)}})},
         {"adapter_profile", Value(Object{{"pitch", Value(pitch)}, {"anchor_height", Value(anchor_height)},
+            {"height_denominator", Value(height_denominator)}, {"height_step", Value(height_step)},
             {"capsule_radius", Value(capsule_radius)}, {"capsule_height", Value(capsule_height)}})}});
 }
 
@@ -525,7 +709,7 @@ Host::Decoded Host::decode(const Value& input) const {
     if (!context) return {nullptr, "invalid_context"};
     auto decoded = world::decode_checkpoint(profile_, *context, root->at("world"));
     if (!std::holds_alternative<world::Snapshot>(decoded)) return {nullptr, "native_checkpoint_refused"};
-    const auto& snapshot = std::get<world::Snapshot>(decoded);
+    auto snapshot = std::get<world::Snapshot>(decoded);
     for (const auto& record : snapshot.history.records) {
         if (!field<Object>(record.intent, "wire")) return {nullptr, "missing_wire_history"};
         if (!historical_wire(record)) return {nullptr, "inconsistent_wire_history"};
@@ -533,23 +717,40 @@ Host::Decoded Host::decode(const Value& input) const {
         const auto* client = field<std::string>(record.intent, "client");
         if (!actor || !client || *actor != *client) return {nullptr, "invalid_actor_binding"};
     }
+    for (const auto& [id, foundation] : snapshot.state.foundations) {
+        (void)id;
+        const auto terrain = terrain_range(foundation.center[0] * height_step, foundation.center[2] * height_step);
+        const auto top = foundation.center[1] * height_step;
+        const bool stacked = std::any_of(snapshot.state.foundations.begin(), snapshot.state.foundations.end(), [&](const auto& entry) {
+            auto below = foundation.center;
+            below[1] -= 4;
+            return entry.second.center == below;
+        });
+        if (!terrain || top < terrain->second || (top - pitch > terrain->first && !stacked))
+            return {nullptr, "unsupported_foundation"};
+        if (site_blocked({foundation.center[0] * height_step - pitch / 2, top - pitch, foundation.center[2] * height_step - pitch / 2},
+                         {foundation.center[0] * height_step + pitch / 2, top, foundation.center[2] * height_step + pitch / 2}))
+            return {nullptr, "site_occupied"};
+    }
     for (const auto& part : snapshot.state.topology.parts) {
         const auto& center = part.geometry.center;
-        if (center[0] < -8 || center[0] > 16 || center[1] < 0 || center[1] > 16 ||
-            center[2] < -8 || center[2] > 16) return {nullptr, "incompatible_geometry"};
+        if (std::any_of(center.begin(), center.end(), [](auto value) {
+            return value < -mechanics::maximum_coordinate || value > mechanics::maximum_coordinate;
+        })) return {nullptr, "incompatible_geometry"};
         if (part.role == Role::shaft) {
             if (part.geometry.half_span != 2)
                 return {nullptr, "incompatible_geometry"};
         } else if (part.role == Role::gear) {
             if (part.geometry.teeth != 2) return {nullptr, "incompatible_geometry"};
-        } else if (center[1] != 0 || center[0] % 4 != 0 || center[2] % 4 != 0 ||
-            (part.role == Role::collector && center[0] != 0) ||
-            (part.role == Role::waterwheel && center[0] != -4)) return {nullptr, "incompatible_geometry"};
+        } else if (center[0] % 4 != 0 || center[2] % 4 != 0 ||
+            (part.role == Role::collector && (center[0] != 0 || center[1] != 0)) ||
+            (part.role == Role::waterwheel && (center[0] != -4 || center[1] != 0))) return {nullptr, "incompatible_geometry"};
     }
     for (const auto& link : snapshot.state.topology.material_links) {
         const auto* from = find(snapshot.state, link.from.id);
         const auto* to = find(snapshot.state, link.to.id);
         if (!from || !to || to->geometry.center[0] != from->geometry.center[0] + 4 ||
+            to->geometry.center[1] != from->geometry.center[1] ||
             to->geometry.center[2] != from->geometry.center[2]) return {nullptr, "incompatible_geometry"};
     }
     const auto& actors = *field<Object>(*root, "actors");

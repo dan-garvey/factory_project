@@ -24,6 +24,14 @@ struct Profile {
     double meters_per_grid_unit{1.0};
     authority::Point anchor_offset{};
     double build_reach{4.0};
+    // Separate construction custody; foundations are not mechanical hubs.
+    authority::Integer foundation_parts{};
+};
+
+struct Foundation {
+    mechanics::Point center{}; // X/Z tile centers, Y quarter-pitch top level.
+    authority::Integer generation{};
+    bool operator==(const Foundation&) const = default;
 };
 
 struct State {
@@ -34,6 +42,8 @@ struct State {
     // rather than retargeting historical receipts to a new physical object.
     std::map<std::string, authority::Integer> issued_entities;
     authority::Integer next_entity_serial{1};
+    std::map<std::string, Foundation> foundations;
+    std::map<std::string, authority::Integer> foundation_kits;
     bool operator==(const State&) const = default;
 };
 

@@ -65,6 +65,13 @@ physical-part conservation, exact roster agreement, current generations, issued
 identities, canonical topology and historical work references before every commit.
 There is no mutable compatibility inventory or separately authoritative projection.
 
+Foundations share this same transaction owner, identity sequence and request
+history. Their finite per-actor custody and grid-aligned placed blocks are part
+of the complete State and checkpoint, outside the mechanical topology. Removal
+cannot orphan a supported machine or stacked block. The trusted site adapter
+validates terrain support; the World retains exact reach, conservation, overlap,
+generation and history checks. There is no old-save migration for this feature.
+
 Session supplies the authenticated actor and request namespace. Fresh commands
 use exact integer fields and known keys. They resolve current entity generations,
 derive native interaction anchors and obtain an observation from the host's

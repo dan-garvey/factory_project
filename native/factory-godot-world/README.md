@@ -18,6 +18,23 @@ process cannot retarget an old receipt. Checkpoint import validates the original
 action and typed payload against that historical translation without using
 present poses or generations. Malformed adapter refusals retain their exact wire.
 
+Player-built foundations are native World state and finite construction custody,
+not mechanical hubs or prebuilt scenery. The current kit carries twenty-four
+1.65 m blocks. The world origin and quarter-pitch integer height unit are shared
+with machinery and transmission. `place_foundation` takes an integer `cell` and
+absolute `level`; machine placement uses the same level. Ordinary `remove`
+reclaims a foundation only after its dependents are removed. Exact retries use
+the existing request history and never consume another block.
+
+At startup the trusted adapter binds the actual emitted terrain vertices and
+conservative rock/tree bounds once through `configure_terrain`. This interface is
+not a Session command. Native placement clips both terrain triangles throughout
+the complete footprint, refusing burial, unsupported bases and occupied scenery.
+Blocks can stack directly on other blocks; clear flat ground can support machines
+throughout the represented site. There is no privileged construction rectangle,
+including for cogwheels. The current changed profile deliberately provides no old
+save migration. Store still owns persistence and atomic file publication.
+
 Ordinary collector, belt and press placement also attaches their directly mating
 material ports. The existing +X, one-cell, same-row layout still applies; nearby
 unrelated machines do not connect. Every affected endpoint must be in the same
@@ -33,7 +50,8 @@ engagements, typed cargo and per-actor kits. It is a detached view, never author
 The ordinary offline and native shared views mount thin individual-cog controls
 and a confirmed transmission presenter; see the [opening controls](../../experiments/engine-environment/godot/opening/README.md).
 Mechanical parts do not yet have precise actor colliders;
-ActorWorld keeps its existing uniform machine boxes and floor.
+ActorWorld uses uniform machine boxes, matching foundation blocks and the shared
+terrain. These remain prototype contact shapes.
 
 The physical checkpoint has schema 3 and format `factory-native-physical`. Its
 logical World checkpoint has schema 2, including the trusted interaction offset.

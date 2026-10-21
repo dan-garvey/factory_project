@@ -16,6 +16,9 @@ class Host final {
 public:
     [[nodiscard]] values::Value initialize(const std::string& context,
                                           const std::vector<std::string>& actors);
+    // Trusted terrain producer, separate from the authenticated command wire.
+    // Immutable emitted grid vertices are shared with rendered/native collision.
+    [[nodiscard]] values::Value configure_terrain(const values::Value::Object&);
     [[nodiscard]] values::Value command(const std::string& bound_actor,
                                        const values::Value::Object& wire);
     [[nodiscard]] values::Value publish_actor(const std::string& actor,
@@ -50,6 +53,10 @@ private:
                                         const authority::Point& half_extents) const;
 
     world::Profile profile_;
+    std::vector<double> terrain_axis_, terrain_heights_;
+    std::vector<std::pair<authority::Point, authority::Point>> terrain_obstacles_;
+    [[nodiscard]] bool site_blocked(const authority::Point& low, const authority::Point& high) const;
+    [[nodiscard]] std::optional<std::pair<double, double>> terrain_range(double x, double z) const;
     std::unique_ptr<Owned> owned_;
 };
 

@@ -17,8 +17,29 @@ func _init(world_context: String = "opening-native", actor_ids: Array = ["P"]):
 	boot_result = _invoke("initialize", [world_context, actor_ids])
 	if not boot_result.get("accepted", false):
 		return
+	# Supply the actual emitted terrain to the native placement adapter once.
+	# This trusted startup call is never exposed through Session's command wire.
+	var surface = load("res://opening/site_surface.gd")
+	var vertices: PackedVector3Array = surface.vertices()
+	var width: int = surface.grid_size()
+	var axis: Array = []
+	var heights: Array = []
+	for x in range(width):
+		axis.append(float(vertices[x].x))
+	for vertex in vertices:
+		heights.append(float(vertex.y))
+	var obstacles: Array = []
+	for solid in surface.support_boxes():
+		var bounds: AABB = Transform3D(solid.basis, solid.center) * AABB(-solid.size * 0.5, solid.size)
+		obstacles.append([[bounds.position.x, bounds.position.y, bounds.position.z], [bounds.end.x, bounds.end.y, bounds.end.z]])
+	for fir in surface.fir_specs():
+		var bounds: AABB = fir.bounds
+		obstacles.append([[bounds.position.x, bounds.position.y, bounds.position.z], [bounds.end.x, bounds.end.y, bounds.end.z]])
+	boot_result = _invoke("configure_terrain", [{"axis": axis, "heights": heights, "obstacles": obstacles}])
+	if not boot_result.get("accepted", false):
+		return
 	var profile: Dictionary = projection().get("adapter_profile", {})
-	if profile.get("pitch") != Site.PITCH or profile.get("anchor_height") != Site.ANCHOR_HEIGHT or profile.get("capsule_radius") != Site.CAPSULE_RADIUS or profile.get("capsule_height") != Site.CAPSULE_HEIGHT:
+	if profile.get("pitch") != Site.PITCH or profile.get("height_denominator") != Site.HEIGHT_DENOMINATOR or profile.get("height_step") != Site.HEIGHT_STEP or profile.get("anchor_height") != Site.ANCHOR_HEIGHT or profile.get("capsule_radius") != Site.CAPSULE_RADIUS or profile.get("capsule_height") != Site.CAPSULE_HEIGHT:
 		boot_result = {"accepted": false, "reason": "native_scene_profile_mismatch"}
 
 func _invoke(method: String, arguments: Array) -> Dictionary:

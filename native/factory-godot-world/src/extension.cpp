@@ -93,10 +93,11 @@ struct EmptyText {
     void* get() { return storage.data(); }
 };
 
-enum class Method { initialize, command, publish, invalidate, advance, projection, checkpoint, restore, validate };
+enum class Method { initialize, terrain, command, publish, invalidate, advance, projection, checkpoint, restore, validate };
 struct Description { const char* name; Method method; std::uint32_t arguments; };
 std::array methods{
     Description{"initialize", Method::initialize, 2}, Description{"command", Method::command, 2},
+    Description{"configure_terrain", Method::terrain, 1},
     Description{"publish_actor", Method::publish, 3}, Description{"invalidate_actor", Method::invalidate, 1},
     Description{"advance", Method::advance, 0}, Description{"projection", Method::projection, 0},
     Description{"checkpoint", Method::checkpoint, 0}, Description{"restore_checkpoint", Method::restore, 1},
@@ -130,6 +131,7 @@ Value with_opening_engineering(const factory::godot_world::Host& host, Value sta
 Value invoke(Instance& instance, Method method, const std::vector<Value>& args) {
     auto& host = instance.host;
     switch (method) {
+        case Method::terrain: return host.configure_terrain(typed<Object>(args, 0));
         case Method::initialize: {
             std::vector<std::string> actors;
             for (const auto& value : typed<Value::Array>(args, 1)) {

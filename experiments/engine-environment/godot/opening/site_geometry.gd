@@ -3,6 +3,9 @@ extends RefCounted
 ## movement tuning, construction range or eventual world representation.
 
 const PITCH := 1.65
+const HEIGHT_DENOMINATOR := 4
+const HEIGHT_STEP := PITCH / HEIGHT_DENOMINATOR
+const GRID_COORDINATE_LIMIT := 1000000 # Native integer representation bound.
 const ANCHOR_HEIGHT := 0.5
 const BASE_REACH := 4.0
 

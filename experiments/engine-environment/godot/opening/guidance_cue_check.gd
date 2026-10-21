@@ -22,6 +22,77 @@ class FooterView extends Opening:
 	func _process(_delta: float) -> void:
 		pass
 
+class AckView extends SharedOpening:
+	var advice := ""
+	func _refresh_ui() -> void:
+		pass
+	func _message(words: String, _refused: bool = false) -> void:
+		advice = words
+
+func check_foundation_view() -> void:
+	# Read-only world geometry without Model, ActorWorld, Session or input.
+	# This exercises the pointer path also inherited by shared clients.
+	root.size = Vector2i(1280, 800)
+	var view := FooterView.new()
+	view.state = first_target_fixture()
+	view.state.options["foundations"] = true
+	view.state.part_kits.P["foundation"] = 24
+	view.state["links"] = []
+	root.add_child(view)
+	view._build_world()
+	view._build_interface()
+	view._refresh_guided_tools()
+	for _frame in range(3):
+		await physics_frame
+		await process_frame
+	verify(view.model == null and view.actor_world == null, "Client picking creates no authority or local physical character.")
+	var terrain_point := Vector3(8.25, Opening.ProductionEnvironment.Surface.height_at(8.25, 3.3), 3.3)
+	var screen := view.camera.unproject_position(terrain_point)
+	verify(view._screen_cell(screen) == Vector2i(5, 2), "The client requests a tile beyond the retired build rectangle.")
+	view.mode = "foundation"
+	view.foundation_level = 5
+	var upper_point := Vector3(8.25, 5 * Opening.Geometry.HEIGHT_STEP, 3.3)
+	verify(view._screen_cell(view.camera.unproject_position(upper_point)) == Vector2i(5, 2),
+		"The selected absolute height maps to the same global tile without a terrain collider.")
+	view.foundation_level = 0
+	view.state["foundations"] = {
+		"left": {"cell": [5, 2], "level": 1, "generation": 1},
+		"right": {"cell": [6, 2], "level": 1, "generation": 2}}
+	view._rebuild_machines()
+	for _frame in range(3):
+		await physics_frame
+		await process_frame
+	var top_point := Vector3(8.25, Opening.Geometry.HEIGHT_STEP, 3.3)
+	var top_screen := view.camera.unproject_position(top_point)
+	verify(view._screen_cell(top_screen) == Vector2i(5, 2) and view._screen_entity(top_screen) == "left",
+		"A projected foundation remains pickable at its real top height without ActorWorld.")
+	view.mode = "belt"
+	verify(view._construction_level(Vector2i(5, 2)) == 1 and view._construction_level(Vector2i(6, 2)) == 1,
+		"Independent projected surfaces select the same machine height.")
+	view.mode = "foundation"
+	view._refresh_guided_tools()
+	view._adjust_foundation_level(1)
+	await settle_footer()
+	verify(view.foundation_level == 1 and view.foundation_level_controls.visible,
+		"The foundation tool exposes an absolute height in the real controls.")
+	var bounds: Rect2 = view.tool_buttons.foundation.get_parent().get_parent().get_global_rect()
+	verify(root.get_visible_rect().encloses(bounds), "The expanded foundation controls fit the viewport.")
+	verify(view.model == null and view.actor_world == null, "All pointer and UI observations stay read-only.")
+	var ack := AckView.new()
+	ack.session = SessionStub.new()
+	ack.state = view.state.duplicate(true)
+	ack.state.merge({"context": "view-only", "revision": 1, "order": 1})
+	ack.pending_actions["foundation-ack"] = {"action": {"action": "place_foundation"},
+		"outcome": {"accepted": true, "context": "view-only", "revision": 1, "order": 1, "entity": "left"}}
+	ack._settle_pending()
+	verify(ack.selected == "left" and ack.pending_actions.is_empty() and ack.model == null,
+		"A current shared foundation acknowledgement selects the confirmed surface without a client authority.")
+	verify(ack._material_refusal_message({"reason": "foundation_buried"}, "missing advice").begins_with("Raise the foundation"),
+		"Shared refusal advice explains the recovery action in ordinary language.")
+	ack.free()
+	view.free()
+	finish_checks()
+
 func settle_footer() -> void:
 	for _frame in range(4):
 		await process_frame
@@ -276,6 +347,9 @@ func fixture() -> Dictionary:
 		"options": {"physical": true}}
 
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--foundation-view-only"):
+		check_foundation_view.call_deferred()
+		return
 	if OS.get_cmdline_user_args().has("--footer-layout-only"):
 		call_deferred("check_footer_layout")
 		return
@@ -340,7 +414,7 @@ func _initialize() -> void:
 	verify(view._guided_placement_cell().is_empty(), "Multiple upstream choices do not select an arbitrary route.")
 	view.state = fixture()
 	view.state.entities["collector-1"].cell = [4, 1]
-	verify(view._guided_placement_cell().is_empty(), "The cue stays within the displayed grid.")
+	verify(view._guided_placement_cell() == [5, 1], "The cue can continue beyond the retired construction rectangle.")
 	view.state = fixture()
 	view.state.stock.output = 1
 	verify(view._guided_placement_cell().is_empty(), "An available plate takes priority over construction advice.")

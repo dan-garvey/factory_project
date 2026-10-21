@@ -100,6 +100,8 @@ bool keys(const Object& object, std::initializer_list<const char*> extra) {
 }
 
 bool shape(const Object& intent, const std::string& action) {
+    if (action == "place_foundation") return keys(intent, {"center"});
+    if (action == "remove_foundation") return keys(intent, {"target", "generation"});
     if (action == "recover" || action == "remove") return keys(intent, {"target", "generation"});
     if (action == "collect" || action == "insert_raw")
         return keys(intent, {"target", "generation", "amount"}) && field<Integer>(intent, "amount");
@@ -267,8 +269,11 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         const auto* distance = std::get_if<double>(&distances->at(index).storage());
         if (!distance || *distance != checked.receipt->distances_squared[index]) return false;
     }
-    if (placement(action)) {
+    if (placement(action) || action == "place_foundation") {
         const auto location = grid_point(record.intent);
+        if (action == "place_foundation")
+            return location && (*location)[0] % 4 == 0 && (*location)[2] % 4 == 0 &&
+                targets.front() == anchor(profile, *location) && result.size() == 16;
         const auto* role_name = field<std::string>(record.intent, "role");
         const auto* axis_name = field<std::string>(record.intent, "axis");
         const auto* teeth = field<Integer>(record.intent, "teeth");
@@ -421,7 +426,8 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
         profile.waterwheel_rate.numerator == 0 || profile.waterwheel_rate.denominator <= 0 ||
         !std::isfinite(profile.meters_per_grid_unit) || profile.meters_per_grid_unit <= 0 ||
         profile.meters_per_grid_unit > 1000 || !std::isfinite(profile.build_reach) ||
-        profile.build_reach <= 0 || profile.build_reach > 1000000) return false;
+        profile.build_reach <= 0 || profile.build_reach > 1000000 ||
+        profile.foundation_parts < 0 || profile.foundation_parts > 256) return false;
     for (const auto& actor : profile.actors) if (!identity(actor)) return false;
     for (const auto coordinate : profile.anchor_offset) if (!std::isfinite(coordinate)) return false;
     const auto& state = snapshot.state;
@@ -432,6 +438,30 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
         return false;
     std::size_t current_work = state.material.processing ? 1 : 0;
     stationary::Kit totals;
+    Integer foundation_total = static_cast<Integer>(state.foundations.size());
+    if (profile.foundation_parts == 0) {
+        if (!state.foundations.empty() || !state.foundation_kits.empty()) return false;
+    } else {
+        if (state.foundation_kits.size() != profile.actors.size()) return false;
+        for (const auto& actor : profile.actors) {
+            const auto kit = state.foundation_kits.find(actor);
+            if (kit == state.foundation_kits.end() || !add(foundation_total, kit->second)) return false;
+        }
+        if (foundation_total != profile.foundation_parts) return false;
+    }
+    std::vector<mechanics::Point> foundation_centers;
+    for (const auto& [id, foundation] : state.foundations) {
+        const auto issued = state.issued_entities.find(id);
+        if (issued == state.issued_entities.end() || issued->second != foundation.generation ||
+            foundation.generation <= 0 || foundation.center[0] % 4 != 0 || foundation.center[2] % 4 != 0) return false;
+        for (const auto coordinate : foundation.center)
+            if (coordinate < -mechanics::maximum_coordinate || coordinate > mechanics::maximum_coordinate) return false;
+        if (part(state.topology, id)) return false;
+        for (const auto& center : foundation_centers)
+            if (center[0] == foundation.center[0] && center[2] == foundation.center[2] &&
+                std::abs(center[1] - foundation.center[1]) < 4) return false;
+        foundation_centers.push_back(foundation.center);
+    }
     for (const auto& [spec, count] : profile.finite_parts) {
         if (!spec_valid(spec) || count <= 0) return false;
         totals.emplace(spec, 0);
@@ -460,6 +490,10 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
         }
     }
     for (const auto& item : state.topology.parts) {
+        if (profile.foundation_parts > 0 && material_machine(item.role) && item.geometry.center[1] != 0 &&
+            std::none_of(state.foundations.begin(), state.foundations.end(), [&](const auto& entry) {
+                return entry.second.center == item.geometry.center;
+            })) return false;
         const auto issued = state.issued_entities.find(item.geometry.id);
         const auto total = totals.find({item.role, item.geometry.teeth, item.geometry.half_span});
         if (issued == state.issued_entities.end() || issued->second != item.generation ||
@@ -517,6 +551,67 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
     const auto* action = field<std::string>(intent, "action");
     if (!action || !shape(intent, *action)) return refused("invalid_command");
     const auto& state = snapshot.state;
+    if (*action == "place_foundation" || *action == "remove_foundation") {
+        if (profile_.foundation_parts == 0) return refused("foundations_unavailable");
+        auto location = grid_point(intent);
+        std::string entity;
+        Integer generation{};
+        if (*action == "remove_foundation") {
+            const auto* id = field<std::string>(intent, "target");
+            const auto* expected = field<Integer>(intent, "generation");
+            if (!id || !expected) return refused("invalid_target");
+            const auto found = state.foundations.find(*id);
+            if (found == state.foundations.end()) return refused("unknown_target", *id);
+            if (found->second.generation != *expected) return refused("stale_generation", *id);
+            location = found->second.center;
+            entity = *id;
+            generation = *expected;
+        }
+        if (!location || (*location)[0] % 4 != 0 || (*location)[2] % 4 != 0) return refused("invalid_cell");
+        const auto cut = observe ? observe(binding.actor) : std::nullopt;
+        if (!cut) return refused("actor_unready");
+        auto checked_cut = *cut;
+        checked_cut.build_reach = profile_.build_reach;
+        const auto checked = authority::check_reach(binding.actor, checked_cut, {anchor(profile_, *location)});
+        Object facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
+        if (checked.error != authority::Error::none) return refused(authority::error_name(checked.error), entity, std::move(facts));
+        auto candidate = state;
+        if (*action == "place_foundation") {
+            for (const auto& placed : state.topology.parts)
+                if (std::abs(placed.geometry.center[0] - (*location)[0]) < 4 &&
+                    std::abs(placed.geometry.center[2] - (*location)[2]) < 4 &&
+                    placed.geometry.center[1] < (*location)[1] && placed.geometry.center[1] + 4 > (*location)[1] - 4)
+                    return refused("occupied", "", std::move(facts));
+            for (const auto& [id, foundation] : state.foundations) {
+                (void)id;
+                if (foundation.center[0] == (*location)[0] && foundation.center[2] == (*location)[2] &&
+                    std::abs(foundation.center[1] - (*location)[1]) < 4)
+                    return refused("occupied", "", std::move(facts));
+            }
+            if (state.foundation_kits.at(binding.actor) == 0) return refused("no_part", "", std::move(facts));
+            if (state.issued_entities.size() == maximum_issued_entities ||
+                state.next_entity_serial == std::numeric_limits<Integer>::max()) return refused("identity_limit");
+            generation = candidate.next_entity_serial++;
+            entity = std::string(allocated_prefix) + std::to_string(generation);
+            if (candidate.issued_entities.contains(entity)) return refused("identity_conflict");
+            candidate.foundations.emplace(entity, Foundation{*location, generation});
+            candidate.issued_entities.emplace(entity, generation);
+            --candidate.foundation_kits.at(binding.actor);
+        } else {
+            for (const auto& [id, foundation] : state.foundations)
+                if (id != entity && foundation.center[0] == (*location)[0] && foundation.center[2] == (*location)[2] &&
+                    foundation.center[1] == (*location)[1] + 4)
+                    return refused("foundation_in_use", entity, std::move(facts));
+            for (const auto& placed : state.topology.parts)
+                if (placed.geometry.center[0] == (*location)[0] && placed.geometry.center[2] == (*location)[2] &&
+                    placed.geometry.center[1] >= (*location)[1] && placed.geometry.center[1] < (*location)[1] + 4)
+                    return refused("foundation_in_use", entity, std::move(facts));
+            candidate.foundations.erase(entity);
+            ++candidate.foundation_kits.at(binding.actor);
+        }
+        facts.emplace("generation", Value(generation));
+        return accepted(std::move(candidate), entity, std::move(facts));
+    }
     const stationary::PlacedPart* selected = nullptr;
     const stationary::PlacedPart* destination = nullptr;
     std::optional<mechanics::Point> location;
@@ -534,6 +629,11 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             !(selected_role = role(*role_name)) || !(selected_axis = axis(*axis_name)) ||
             !spec_valid({*selected_role, *teeth, *span})) return refused("invalid_part");
         targets.push_back(anchor(profile_, *location));
+        if (profile_.foundation_parts > 0 && material_machine(*selected_role) && (*location)[1] != 0) {
+            const bool supported = std::any_of(state.foundations.begin(), state.foundations.end(),
+                [&](const auto& entry) { return entry.second.center == *location; });
+            if (!supported) return refused("foundation_required");
+        }
         if (*action == "place_connected") {
             if (!material_machine(*selected_role)) return refused("invalid_part");
             attachments = placement_attachments(state.topology, *selected_role, *location);

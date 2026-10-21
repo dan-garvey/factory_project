@@ -826,6 +826,25 @@ mechanical-contact, construction or material rule. Owner: Platform, under
 `factory-yau.6.45.23.25`. Other future compound meshes must preserve each input's
 topology rather than infer completeness from bounds or a nonempty surface.
 
+## GDC-17: construction pointers request a datum, not terrain permission
+
+**Retained engine observation and adapter choice.** In the pinned 4.7.2
+foundation view fixture, an oblique 400 m physics ray returned no terrain hit
+while a vertical ray through the same requested point hit the emitted surface.
+The concave shape was registered in the correct space with back faces enabled.
+The cause and generality are unestablished; this is not a claim that terrain
+contact or every terrain ray fails. The original failures and diagnostic source
+are retained in `native-grid-foundations-20261021/view-new-v1-sources`,
+`view-new-v2.log`, `view-new-v3.log` and `view-new-v3-sources` under the local
+prototype evidence root. Owner: Playability, `factory-yau.6.53`.
+
+The view selects a confirmed constructable surface or the chosen absolute grid
+height plane. It needs no duplicate terrain collider on a shared client. This
+requests coordinates only: the native Host checks actual emitted triangles,
+support, occupied space and the real character's reach. A selected plane never
+grants construction permission. The foundation and machine height denominator
+is a user requirement, independent of this observed query behavior.
+
 ## Required follow-through
 
 This first source/API/evidence audit leaves actual backend identification,
