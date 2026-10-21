@@ -72,7 +72,7 @@ func _motion(id: String, numerator: int) -> bool:
 func _custody(gears_in_kit: int, raw_in_cargo: int, raw_in_collector: int) -> bool:
 	var state: Dictionary = opening.model.projection()
 	var expected_stock := {"source": 15, "collector": raw_in_collector, "belt": 0, "input": 0, "held": 0, "output": 0, "player": 0}
-	var expected_kit := {"collector": 0, "belt": 1, "processor": 1, "wheel": 0, "gear": gears_in_kit, "shaft": 1}
+	var expected_kit := {"collector": 0, "belt": 1, "processor": 1, "wheel": 0, "gear": gears_in_kit + 1, "shaft": 1}
 	if not _expect(_same(state.stock, expected_stock) and _same(state.parts, expected_kit) and _same(state.cargo.P, {"raw": raw_in_cargo, "products": 0, "work_lots": []}) and state.inventories.P == 0 and 15 + raw_in_cargo + raw_in_collector == 16,
 		"The literal raw custody and carried physical kit must remain exact"):
 		return false
@@ -89,7 +89,7 @@ func _custody(gears_in_kit: int, raw_in_cargo: int, raw_in_collector: int) -> bo
 				return false
 		else:
 			return _expect(false, "The transmission view must not invent another part kind")
-	return _expect(gears + gears_in_kit == 2 and shafts == 2, "Placed and carried transmission parts conserve both original gears and all three shafts")
+	return _expect(gears + gears_in_kit == 2 and shafts == 2, "Placed and carried small cogs and all three shafts remain conserved; the large cog stays in the kit")
 
 func _save() -> bool:
 	var result: Dictionary = opening._save_worksite()
