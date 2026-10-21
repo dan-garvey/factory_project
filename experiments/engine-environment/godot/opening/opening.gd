@@ -1916,7 +1916,11 @@ class ConstructionAudio:
 	extends AudioStreamPlayer
 	## Local acknowledgement only. No command, stock or simulation authority.
 	signal cue_emitted(cue: String, identity: Array)
+	const ROOT := "res://opening/assets/construction-audio"
+	const FILES := {"belt_snap": "belt_snap.wav", "assembly": "assembly.wav",
+		"coupling": "coupling.wav", "release": "release.wav"}
 	static var streams: Dictionary = {}
+	static var source_status := "uninitialized"
 	var current_context := ""
 	var heard: Dictionary = {}
 
@@ -1937,11 +1941,50 @@ class ConstructionAudio:
 				return "release"
 		return ""
 
+	static func read_samples(directory: String = ROOT) -> Dictionary:
+		var present := 0
+		for file in FILES.values():
+			if FileAccess.file_exists(directory.path_join(file)):
+				present += 1
+		if present == 0:
+			return {"status": "missing", "streams": {}}
+		if present != FILES.size():
+			return {"status": "invalid", "reason": "incomplete_cues", "streams": {}}
+		var loaded: Dictionary = {}
+		for cue in FILES:
+			var path := directory.path_join(FILES[cue])
+			var file := FileAccess.open(path, FileAccess.READ)
+			if file == null:
+				return {"status": "invalid", "reason": "unreadable_" + cue, "streams": {}}
+			var size := file.get_length()
+			file.close()
+			# Fixed local PCM clips, not arbitrary or unbounded user audio.
+			if size < 44 or size > 65536:
+				return {"status": "invalid", "reason": "cue_size_" + cue, "streams": {}}
+			var sample := AudioStreamWAV.load_from_file(path)
+			if sample == null or sample.stereo or sample.mix_rate != 44100 or sample.format != AudioStreamWAV.FORMAT_16_BITS \
+					or sample.loop_mode != AudioStreamWAV.LOOP_DISABLED or sample.get_length() < 0.1 or sample.get_length() > 0.5:
+				return {"status": "invalid", "reason": "cue_format_" + cue, "streams": {}}
+			loaded[cue] = sample
+		return {"status": "ready", "streams": loaded}
+
 	static func make_stream(cue: String) -> AudioStreamWAV:
+		if not FILES.has(cue):
+			return null
 		if streams.has(cue):
 			return streams[cue]
-		if cue not in ["belt_snap", "assembly", "coupling", "release"]:
+		if source_status == "uninitialized":
+			var loaded := read_samples()
+			source_status = loaded.status
+			if source_status == "ready":
+				streams = loaded.streams
+			elif source_status == "invalid":
+				push_error("Invalid construction samples: " + str(loaded.reason))
+		if source_status == "ready":
+			return streams[cue]
+		if source_status != "missing":
 			return null
+		# Historical fixed-roster captures retain their original generated cue.
 		var rate := 44100
 		var duration: float = {"belt_snap": 0.24, "assembly": 0.42, "coupling": 0.18, "release": 0.16}[cue]
 		var count := roundi(duration * rate)
@@ -2006,8 +2049,11 @@ class ConstructionAudio:
 		var key := JSON.stringify(identity)
 		if heard.has(key):
 			return false
+		var next_stream := make_stream(cue)
+		if next_stream == null:
+			return false
 		heard[key] = true
-		stream = make_stream(cue)
+		stream = next_stream
 		play()
 		cue_emitted.emit(cue, identity)
 		return true

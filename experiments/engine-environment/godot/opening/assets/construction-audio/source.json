@@ -1,0 +1,105 @@
+{
+  "provider": "Kenney",
+  "pack": "Impact Sounds 1.0",
+  "source_date": "2019-12-19",
+  "primary": "https://kenney.nl/assets/impact-sounds",
+  "license": "CC0-1.0",
+  "archive": {
+    "url": "https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip",
+    "bytes": 800850,
+    "sha256": "029d734af1582474edf3a694d1b0cebc97c1c152f2f39fa34d4c2bafc5de77f8"
+  },
+  "selected_source": [
+    {
+      "archive_path": "Audio/impactMetal_light_001.ogg",
+      "path": "source/impactMetal_light_001.ogg",
+      "bytes": 6967,
+      "sha256": "fba69c467ddd85da7b1d82e259f936b876d9ba6a3d6f1b24bdd10468e46bfe08"
+    },
+    {
+      "archive_path": "Audio/impactMetal_light_003.ogg",
+      "path": "source/impactMetal_light_003.ogg",
+      "bytes": 9023,
+      "sha256": "92d5db6bfc672d9dc1b4f390b2900504f013187fa36335472554fafefa9050b1"
+    },
+    {
+      "archive_path": "Audio/impactMetal_light_004.ogg",
+      "path": "source/impactMetal_light_004.ogg",
+      "bytes": 6675,
+      "sha256": "9b1c35820fba507081261f19ab5f461f69a5e2627a7d91acdb73ca3cfc997979"
+    },
+    {
+      "archive_path": "Audio/impactMetal_medium_002.ogg",
+      "path": "source/impactMetal_medium_002.ogg",
+      "bytes": 5857,
+      "sha256": "7e89ce2ca0dbda95ea2b78d4b50791cab35c10d20e9f5ccd45dd0b00e99ff548"
+    },
+    {
+      "archive_path": "Audio/impactSoft_heavy_000.ogg",
+      "path": "source/impactSoft_heavy_000.ogg",
+      "bytes": 6570,
+      "sha256": "49e7ca88743fca974bb8676ea138b751cfd8f9033b5e7af8736c2a215d6edbc1"
+    },
+    {
+      "archive_path": "Audio/impactSoft_medium_001.ogg",
+      "path": "source/impactSoft_medium_001.ogg",
+      "bytes": 5506,
+      "sha256": "7642a4fd43e547afe4f7adfadb3dabb681c0ff512f52c1674bae30a726841faf"
+    },
+    {
+      "archive_path": "Audio/impactWood_heavy_001.ogg",
+      "path": "source/impactWood_heavy_001.ogg",
+      "bytes": 6239,
+      "sha256": "f1b07a53ac10c615fff9ba470511fdeb722b5902e1a8520759fc20ad6f546015"
+    }
+  ],
+  "preparation": {
+    "entry": "opening/construction_audio_check.gd --prepare-impact-cues SOURCE OUTPUT",
+    "engine": "4.7.2.stable.official.ed1daf0bf",
+    "mix_rate": 44100,
+    "channels": "Arithmetic mean of source stereo channels.",
+    "peak": 0.62,
+    "attack_seconds": 0.0025,
+    "tail_fade_seconds": 0.03,
+    "recipe": "Exact filenames, layer gains, delays and durations are the IMPACT_RECIPE constant in the preparation entry. No runtime mixing."
+  },
+  "delivered": {
+    "assembly.wav": {
+      "bytes": 37088,
+      "duration": 0.42,
+      "exact_pcm_roundtrip": true,
+      "frames": 18522,
+      "peak": 0.62,
+      "rms": 0.0511158016185678,
+      "sha256": "b64eba120ff3f3af181bc90526e5127c7e4b36dc344a62ab03499b1ea3bc10d9"
+    },
+    "belt_snap.wav": {
+      "bytes": 37088,
+      "duration": 0.42,
+      "exact_pcm_roundtrip": true,
+      "frames": 18522,
+      "peak": 0.62,
+      "rms": 0.10928789136013,
+      "sha256": "30fb3ddd602ccf6d1ecafbc7b0e6cd4f56085423b4bbc59c3bc2ef1e507a55a8"
+    },
+    "coupling.wav": {
+      "bytes": 24740,
+      "duration": 0.28,
+      "exact_pcm_roundtrip": true,
+      "frames": 12348,
+      "peak": 0.62,
+      "rms": 0.0618971745969364,
+      "sha256": "27b9f793d9a59aa273e28f020480d7824bddd5f51f471adb04af3b402c0a2cce"
+    },
+    "release.wav": {
+      "bytes": 22976,
+      "duration": 0.26,
+      "exact_pcm_roundtrip": true,
+      "frames": 11466,
+      "peak": 0.62,
+      "rms": 0.105828160344748,
+      "sha256": "4355316f210ed7bed4f25ef7a1bffcbce1db76b414126e05aee44445973e6fe1"
+    }
+  },
+  "limits": "A fixed adaptation of impact samples. Physical recording technique, particular object, complete game mix, human listening and packaged exports remain unverified."
+}

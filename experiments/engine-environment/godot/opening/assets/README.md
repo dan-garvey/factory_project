@@ -1,5 +1,12 @@
 # Opening presentation assets
 
+[Construction impact samples](construction-audio/CREDITS.md) now give confirmed
+belts, assemblies, couplings and removals material-based feedback. The four short
+PCM clips are prepared offline from a qualified CC0 source. Existing acknowledgement
+identity and silence for refused, pending or duplicate actions remain. Historical
+missing-file captures retain generated cues. Waveform and callback checks do not
+establish human listening quality or the complete game mix.
+
 Physical source clusters seat against the same emitted ground used by the
 character, with a 15-millimetre visual embed at the host rock's lowest vertex.
 Their horizontal seam positions, finite counts, shapes and mineral inclusions
