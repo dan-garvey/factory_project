@@ -165,9 +165,9 @@ void help(std::ostream& out) {
            "walk <east|west|north|south> [1..8] | wait [1..32]\n"
            "place shaft <x> <y> <z> <axis:x|y|z> <half_span>\n"
            "place gear <x> <y> <z> <axis:x|y|z> <teeth>\n"
-           "place machine <waterwheel|collector|belt|processor> <x> <y> <z> <axis:x|y|z>\n"
+           "place machine <waterwheel|collector|processor> <x> <y> <z> <axis:x|y|z>\n"
            "belt <first shaft> <last shaft> | recover_belt <span> <slot> | remove_belt <span>\n"
-           "link <from> <to> | remove <part> | drive <waterwheel> <on|off>\n"
+           "remove <part> | drive <waterwheel> <on|off>\n"
            "collect <processor> [amount] | recover <machine>\n"
            "pickup <x> <y> <z> | insert_raw <machine> <amount>\n"
            "insert_raw <machine> <amount> | insert_work <processor> <work_id>\n"
@@ -243,7 +243,7 @@ Step act(Host& host, const Tokens& tokens, std::ostream& out, std::ostream& erro
             {"expected", V(V::Object{{"raw", V(found->second.raw_units)}, {"products", V(found->second.products)}, {"work_lots", V(std::move(lots))}})}};
     } else if (verb == "place" && tokens.size() > 1 && tokens[1] == "machine") {
         I x{}, y{}, z{};
-        if (tokens.size() != 7 || (tokens[2] != "waterwheel" && tokens[2] != "collector" && tokens[2] != "belt" && tokens[2] != "processor") ||
+        if (tokens.size() != 7 || (tokens[2] != "waterwheel" && tokens[2] != "collector" && tokens[2] != "processor") ||
             !integer(tokens[3], x) || !integer(tokens[4], y) || !integer(tokens[5], z) ||
             (tokens[6] != "x" && tokens[6] != "y" && tokens[6] != "z")) return syntax();
         intent = {{"action", V("place")}, {"role", V(tokens[2])},
@@ -285,10 +285,6 @@ Step act(Host& host, const Tokens& tokens, std::ostream& out, std::ostream& erro
             intent.emplace("expected", V(V::Object{{"raw", V(cargo.raw_units)}, {"products", V(cargo.products)},
                                                    {"work_lots", V(std::move(lots))}}));
         }
-    } else if (verb == "link") {
-        if (tokens.size() != 3) return syntax();
-        if (!target(intent, state, tokens[1], false, out) || !target(intent, state, tokens[2], true, out)) return Step::keep;
-        intent.emplace("action", V("link"));
     } else if (verb == "collect" || verb == "recover" || verb == "remove" || verb == "insert_raw" || verb == "insert_work" || verb == "drive") {
         const bool parameter = verb == "insert_raw" || verb == "insert_work" || verb == "drive";
         const std::size_t minimum = parameter ? 3 : 2;

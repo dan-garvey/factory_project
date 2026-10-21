@@ -57,7 +57,7 @@ void finish(w::World& world, const std::string& context, const w::Profile& profi
         if (world.snapshot().state.material.stock.output > 0) {
             auto collect = target(context, "collect", "plate-" + std::to_string(i), "processor");
             collect.emplace("amount", V(I{1}));
-            check(accepted(send(world, collect, {8, 0, 8}, observations)), "A nearby admitted actor can retrieve one real plate.");
+            check(accepted(send(world, collect, {12, 0, 8}, observations)), "A nearby admitted actor can retrieve one real plate.");
         }
         ticks(world, 1, profile);
     }
@@ -82,7 +82,8 @@ void scenario(const r::Definition& definition) {
     int observations{};
     if (definition.id == "coupling") {
         const auto power = w::machine_power(world->snapshot().state.topology);
-        check(!power.collector && power.belt && power.processor, "Only the cutter is disconnected from its rotating drive.");
+        check(!power.collector && power.processor &&
+              s::power_view(world->snapshot().state.topology).mechanical.motion.at("pulley-first").state == factory::mechanics::MotionState::rotating, "Only the cutter is disconnected from its rotating drive.");
         ticks(*world, 8, content->profile);
         check(world->snapshot().state.material == content->seed.material,
               "Waiting cannot extract a blank through a missing coupling.");
@@ -104,24 +105,27 @@ void scenario(const r::Definition& definition) {
               "Retrying the same repair neither observes a new pose nor consumes or builds another shaft.");
     } else if (definition.id == "link") {
         ticks(*world, 8, content->profile);
-        check(world->snapshot().state.material.stock == m::Stock{14, 1, 1, 0, 0},
-              "The broken handoff retains its exact two upstream blanks and leaves the press empty.");
-        auto link = target(context, "link", "restore-handoff", "belt");
-        link.emplace("to", V("processor"));
-        link.emplace("to_generation", V(I{1}));
+        check(world->snapshot().state.material.stock == m::Stock{15, 1, 0, 0, 0},
+              "The missing span leaves one blank in the collector and the press empty.");
+        auto link = target(context, "place_belt_span", "restore-handoff", "pulley-first");
+        link.emplace("to", V("pulley-last")); link.emplace("to_generation", V(I{1}));
         const auto stock = world->snapshot().state.material;
-        check(accepted(send(*world, link, {6, 0, 8}, observations)), "Both endpoints can be reached while restoring the real material link.");
-        check(world->snapshot().state.material == stock, "Repairing a link cannot teleport, consume or replace the trapped blanks.");
+        check(accepted(send(*world, link, {6, 0, 8}, observations)), "Both shafts are reachable while restoring the span.");
+        auto repaired = world->snapshot().state.material;
+        repaired.belt_lanes.clear();
+        check(repaired == stock, "Building a span creates an empty lane without consuming or replacing held blanks.");
     } else {
         ticks(*world, 8, content->profile);
-        check(world->snapshot().state.material == content->seed.material,
-              "The full output preserves ready work and every upstream holder instead of deleting the blockage.");
-        const auto refusal = send(*world, target(context, "remove", "cannot-delete-billet", "processor"), {8, 0, 8}, observations);
+        const auto blocked = world->snapshot().state.material;
+        check(blocked.stock.input == 1 && blocked.stock.output == 1 && blocked.processing == content->seed.material.processing &&
+              blocked.belt_lanes.at("belt").slots.back() == m::Cargo{1, 0, {}} && w::validate(content->profile, world->snapshot()),
+              "The full output preserves ready work and the blocked upstream belt item.");
+        const auto refusal = send(*world, target(context, "remove", "cannot-delete-billet", "processor"), {12, 0, 8}, observations);
         check(!accepted(refusal) && world->snapshot().state.material.processing == content->seed.material.processing,
               "Dismantling occupied machinery cannot solve the puzzle by discarding the billet.");
         auto collect = target(context, "collect", "free-output", "processor");
         collect.emplace("amount", V(I{1}));
-        check(accepted(send(*world, collect, {8, 0, 8}, observations)), "Collecting the existing output frees the real buffer.");
+        check(accepted(send(*world, collect, {12, 0, 8}, observations)), "Collecting the existing output frees the real buffer.");
         check(world->snapshot().state.material.processing == m::WorkLot{7, {1, 2}, 0},
               "Retrieval preserves the waiting lot's exact identity, recipe and completed progress.");
         ticks(*world, 1, content->profile);

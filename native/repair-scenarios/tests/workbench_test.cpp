@@ -41,7 +41,7 @@ std::string plates(int number) {
 }
 
 void solutions() {
-    const auto coupling = run("coupling", "collect processor\nplace shaft 0 0 4 z 2\nwalk east 6\nwalk north 8\n" + plates(4));
+    const auto coupling = run("coupling", "collect processor\nplace shaft 0 0 4 z 2\nwalk east 8\nwalk north 8\n" + plates(4));
     check(coupling.code == 0 && coupling.errors.empty(), "A complete coupling repair works through actual interactive commands.");
     check(contains(coupling, "Held: out_of_reach") && contains(coupling, "Accepted: ok (native-part-1)"),
           "A far retrieval refuses before a real finite-kit placement succeeds.");
@@ -50,15 +50,15 @@ void solutions() {
     check(contains(coupling, "Cargo raw=0 products=4/4") && contains(coupling, "Complete: four plates retrieved"),
           "Four products are held by the bound actor before completion.");
 
-    const auto link = run("link", "wait 8\nlink belt processor\nwalk north 8\nwalk east 4\nlink belt processor\n" + plates(4));
+    const auto link = run("link", "wait 8\nbelt pulley-first pulley-last\nwalk north 8\nwalk east 6\nbelt pulley-first pulley-last\nwalk east 2\n" + plates(4));
     check(link.code == 0 && link.errors.empty(), "The handoff scenario completes through native linking and finite production.");
-    check(contains(link, "Stock source=14 collector=1 belt=1 input=0 output=0"),
+    check(contains(link, "Stock source=15 collector=1 belt=0 input=0 output=0"),
           "Inspection exposes the real retained upstream blockage before repair.");
-    check(contains(link, "Held: out_of_reach (belt)") && contains(link, "Accepted: ok (belt)"),
+    check(contains(link, "Held: out_of_reach") && contains(link, "Accepted: ok (native-part-1)"),
           "A link requires a corrected actor position within reach of both current endpoints.");
     check(count(link.out, "Complete:") == 1, "The same run completes once after four real collections.");
 
-    const auto outlet = run("outlet", "walk east 6\nwalk north 8\nremove processor\nrecover processor\ninspect\n"
+    const auto outlet = run("outlet", "walk east 8\nwalk north 8\nremove processor\nrecover processor\ninspect\n"
         "insert_work processor 7\ninspect\ninsert_work processor 7\ninsert_raw processor 1\n" + plates(3));
     check(outlet.code == 0 && outlet.errors.empty(), "Ready-work recovery and reinsertion can complete the outlet puzzle.");
     check(contains(outlet, "Held: occupied_target (processor)"), "Dismantling cannot discard the obstructing original billet.");
@@ -71,14 +71,13 @@ void solutions() {
 }
 
 void shaft_span_commands() {
-    const auto result = run("coupling", "place shaft 0 0 4 z 2\nwalk north 8\nwalk east 4\nremove belt\n"
-        "walk south 8\nbelt native-part-1 shaft-belt\nwalk north 4\nbelt native-part-1 shaft-belt\n"
-        "inspect\nrecover_belt native-part-2 0\nremove_belt native-part-2\ninspect\nquit\n");
+    const auto result = run("link", "belt pulley-first pulley-last\nwalk north 8\nwalk east 6\n"
+        "belt pulley-first pulley-last\ninspect\nrecover_belt native-part-1 0\nremove_belt native-part-1\ninspect\nquit\n");
     check(result.code == 1 && result.errors.empty(), "The unfinished repair can construct and remove a shaft span.");
-    check(contains(result, "Held: out_of_reach") && contains(result, "Accepted: ok (native-part-2)"),
+    check(contains(result, "Held: out_of_reach") && contains(result, "Accepted: ok (native-part-1)"),
           "The real World requires reach to both shafts before allocating a span.");
-    check(contains(result, "native-part-2 generation=2 shafts=native-part-1 -> shaft-belt") &&
-          contains(result, "No material in that belt slot.") && count(result.out, "Accepted: ok (native-part-2)") == 2,
+    check(contains(result, "native-part-1 generation=1 shafts=pulley-first -> pulley-last") &&
+          contains(result, "No material in that belt slot.") && count(result.out, "Accepted: ok (native-part-1)") == 2,
           "Inspection names the live span, empty recovery is harmless, and removal uses its current identity.");
     const auto invalid = run("coupling", "belt missing shaft-belt\nrecover_belt missing 0\nremove_belt missing\n"
         "recover_belt missing -1\nquit\n");
@@ -90,17 +89,17 @@ void shaft_span_commands() {
 void retained_refusals() {
     const auto readonly = run("outlet", "help\nhint\ninspect\ninspect\nquit\n");
     check(readonly.code == 1 && readonly.errors.empty(), "Help, hints and inspection do not finish or run the puzzle.");
-    check(count(readonly.out, "Stock source=11 collector=1 belt=1 input=1 output=1") == 3 &&
+    check(count(readonly.out, "Stock source=11 collector=1 belt=0 input=1 output=1") == 3 &&
           count(readonly.out, "Press work=7 remaining=0 recipe_units=1 cycle=2") == 3,
           "Every read-only inspection sees the unchanged stock and ready work.");
     const auto bad = run("outlet", "reset\nwait 0\nwait 33\nwait 1x\nwalk east -1\nwalk up\nwalk east 9\n"
         "collect processor 0\ninsert_work processor 9223372036854775808\nplace shaft 0 0 2 q 2\n"
-        "link no-part processor\n" + std::string(513, 'x') + "\ninspect\nquit\n");
+        "belt no-part processor\n" + std::string(513, 'x') + "\ninspect\nquit\n");
     check(bad.code == 1 && bad.errors.empty() && count(bad.out, "Invalid command.") == 10,
           "Bad syntax, oversized integers and nonexistent reset are recoverable instead of replacing the World.");
     check(contains(bad, "No current part named no-part.") && contains(bad, "Command too long. Work unchanged."),
           "Unknown current selections and overlong input cannot create targets or run production.");
-    check(count(bad.out, "Stock source=11 collector=1 belt=1 input=1 output=1") == 2 &&
+    check(count(bad.out, "Stock source=11 collector=1 belt=0 input=1 output=1") == 2 &&
           count(bad.out, "Press work=7 remaining=0 recipe_units=1 cycle=2") == 2,
           "All invalid actions preserve the original billet and every material holder.");
 
@@ -114,12 +113,12 @@ void retained_refusals() {
           contains(walking, "Position (8,0,8)") && contains(walking, "Cargo raw=0 products=1/4"),
           "A refused boundary crossing retains the actor position used by the next admitted collection.");
 
-    const auto empty = run("coupling", "walk east 6\nwalk north 8\ncollect processor\nwait 8\ninspect\n");
+    const auto empty = run("coupling", "walk east 8\nwalk north 8\ncollect processor\nwait 8\ninspect\n");
     check(empty.code == 1 && contains(empty, "Held: unavailable_output (processor)"), "An empty output produces a retained native refusal.");
     check(count(empty.out, "Stock source=16 collector=0 belt=0 input=0 output=0") >= 4,
           "Waiting cannot produce through a drive that is still disconnected.");
 
-    const auto paused = run("outlet", "walk east 6\ndrive wheel-processor off\nwalk north 8\ncollect processor\nwait 8\ninspect\nquit\n");
+    const auto paused = run("outlet", "walk east 8\ndrive wheel-processor off\nwalk north 8\ncollect processor\nwait 8\ninspect\nquit\n");
     check(paused.code == 1 && contains(paused, "Power collector=0 belt=0 processor=0") &&
           contains(paused, "Cargo raw=0 products=1/4") && contains(paused, "Press work=7 remaining=0"),
           "The declared coarse drive switch pauses work without destroying the finished held lot.");
