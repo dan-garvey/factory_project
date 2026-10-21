@@ -2340,8 +2340,8 @@ class ProductionEnvironment:
 		for foundation: Dictionary in state.get("foundations", {}).values():
 			var top := Vector3(foundation.cell[0] * Geometry.PITCH,
 				foundation.level * Geometry.HEIGHT_STEP, foundation.cell[1] * Geometry.PITCH)
-			volumes.append(AABB(top - Vector3(Geometry.PITCH * 0.5, Geometry.PITCH, Geometry.PITCH * 0.5),
-				Vector3.ONE * Geometry.PITCH).grow(0.08))
+			volumes.append(AABB(top - Vector3(Geometry.PITCH * 0.5, Geometry.FOUNDATION_DEPTH, Geometry.PITCH * 0.5),
+				Vector3(Geometry.PITCH, Geometry.FOUNDATION_DEPTH, Geometry.PITCH)).grow(0.08))
 		return volumes
 
 	static func _refresh_plant_patch(patch: MultiMeshInstance3D, volumes: Array[AABB]) -> void:
