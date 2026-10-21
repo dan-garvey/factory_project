@@ -47,7 +47,8 @@ func _ready():
 				"save_disabled": scene.save_button.disabled, "load_disabled": scene.load_button.disabled,
 				"confirmed": scene.goal_confirmed, "request_sequence": scene.request_sequence,
 				"namespace_nonempty": not scene.request_namespace.is_empty(),
-				"machines": scene.machine_root.get_child_count(), "items": scene.item_root.get_child_count(),
+				"machines": report.state.get("entities", {}).size(), "foundations": report.state.get("foundations", {}).size(),
+				"items": scene.item_root.get_child_count(),
 				"goal_text": scene.goal_label.text, "status_text": scene.status_label.text}
 			if not scene.legacy_fixture:
 				report["profile"] = "physical"

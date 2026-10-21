@@ -4127,8 +4127,10 @@ func _adjust_foundation_level(delta: int) -> void:
 func _assemble_foundation(parent: Node3D) -> void:
 	# Only confirmed player-built surfaces or an explicit placement preview
 	# call this; the unbuilt site receives no manufactured structures.
-	_machine_box(parent, "FoundationBlock", Vector3(0, -PITCH / 2.0, 0), Vector3.ONE * PITCH, Color("747369"), 0.0, 0.95)
-	_machine_box(parent, "FoundationTop", Vector3(0, -0.012, 0), Vector3(PITCH - 0.025, 0.024, PITCH - 0.025), Color("aaa598"), 0.0, 0.9)
+	if not ProductionFoundationArt.mount(parent):
+		push_error("The foundation needs its complete concrete and steel art kit.")
+		if is_inside_tree():
+			get_tree().quit(1)
 
 func _update_camera() -> void:
 	camera.position = focus + Vector3(sin(orbit_yaw) * cos(orbit_pitch), sin(orbit_pitch), cos(orbit_yaw) * cos(orbit_pitch)) * distance
