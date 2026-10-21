@@ -1064,12 +1064,13 @@ Value Host::projection() const {
             entities.emplace(part.geometry.id, Value(std::move(projected)));
         }
     }
+    Integer span_order = 0;
     for (const auto& span : state.topology.belt_spans) {
         const auto& lane = state.material.belt_lanes.at(span.geometry.id);
         Array slots;
         for (const auto& item : lane.slots) slots.push_back(item ? cargo_value(*item) : Value(nullptr));
         belt_spans.emplace(span.geometry.id, Value(Object{{"generation", Value(span.generation)},
-            {"from", Value(span.geometry.first_shaft)}, {"to", Value(span.geometry.last_shaft)},
+            {"order", Value(span_order++)}, {"from", Value(span.geometry.first_shaft)}, {"to", Value(span.geometry.last_shaft)},
             {"phase", Value(lane.phase)}, {"slots", Value(std::move(slots))}}));
     }
     for (const auto& link : state.topology.material_links) links.emplace_back(Array{Value(link.from.id), Value(link.to.id)});

@@ -1,6 +1,7 @@
 extends SceneTree
 ## Invented confirmed samples check a visual rig, never a physical actor.
 const Presenter = preload("res://opening/character_presenter.gd")
+const Geometry = preload("res://opening/site_geometry.gd")
 var checks := 0
 var failed := false
 var mesh_count := 0
@@ -214,8 +215,8 @@ func inspect_adult(body: Node3D, other: Node3D, presenter: Node) -> void:
 	verify(not skeleton.get_bone_pose_rotation(skeleton.find_bone("Bip01 Spine1")).is_equal_approx(resting_spine),
 		"Confirmed-distance movement articulates the upper body as well as the legs.")
 	presenter._set_gait(body, 0.0, 1.0)
-	verify(body.position.y > 0.0 and body.position.y < 0.056,
-		"Captured root motion lifts only the visual body inside a small bounded range.")
+	verify(body.position.y > -0.051 and body.position.y < 0.056,
+		"Captured root motion and stance correction shift only the visual body inside a small bounded range.")
 	presenter._set_gait(body, 3.0 * PI / 4.0, 1.0)
 	skeleton.force_update_all_bone_transforms()
 	var to_body := body.global_transform.affine_inverse() * skeleton.global_transform
@@ -224,12 +225,45 @@ func inspect_adult(body: Node3D, other: Node3D, presenter: Node) -> void:
 	verify(absf(left_hand.z - right_hand.z) > 0.08 and absf(left_hand.y - right_hand.y) > 0.04,
 		"The captured running cycle separates the two arms in depth and height.")
 	for mix in [0.0, 0.5, 1.0]:
-		presenter._set_gait(body, PI / 2.0, 1.0, 0.0, 0.0, 0.0, mix)
-		verify(knee_forward_offset(body, "L") > 0.10,
-			"The leading left knee bends forward during walking, blending and running.")
-		presenter._set_gait(body, 3.0 * PI / 4.0, 1.0, 0.0, 0.0, 0.0, mix)
-		verify(knee_forward_offset(body, "R") > 0.08,
-			"The right knee bends forward during walking, blending and running.")
+		var maximum := {"L": -INF, "R": -INF}
+		var minimum := {"L": INF, "R": INF}
+		for sample in range(24):
+			presenter._set_gait(body, float(sample) * TAU / 24.0, 1.0, 0.0, 0.0, 0.0, mix)
+			for side in ["L", "R"]:
+				var offset := knee_forward_offset(body, side)
+				maximum[side] = maxf(maximum[side], offset)
+				minimum[side] = minf(minimum[side], offset)
+			if mix == 0.0:
+				var toe_to_body: Transform3D = body.global_transform.affine_inverse() * skeleton.global_transform
+				var left_toe: Vector3 = toe_to_body * skeleton.get_bone_global_pose(skeleton.find_bone("Bip01 L Toe0")).origin
+				var right_toe: Vector3 = toe_to_body * skeleton.get_bone_global_pose(skeleton.find_bone("Bip01 R Toe0")).origin
+				var support_height := Geometry.CAPSULE_HEIGHT / 2.0 + body.position.y \
+					+ minf(left_toe.y, right_toe.y) - 0.007
+				verify(support_height > -0.035 and support_height < 0.04,
+					"Every captured walking phase keeps a toe near the unchanged support plane.")
+		verify(maximum.L > 0.14 and maximum.R > 0.14
+			and minimum.L > -0.03 and minimum.R > -0.03,
+			"Both knees flex forward and avoid visible hyperextension across each grounded gait cycle.")
+	var contact_samples := []
+	for phase in [0.0, PI / 2.0, PI, 3.0 * PI / 2.0]:
+		presenter._set_gait(body, phase, 1.0, 0.0, 0.0, 0.0, 0.0)
+		skeleton.force_update_all_bone_transforms()
+		var sample_to_body: Transform3D = body.global_transform.affine_inverse() * skeleton.global_transform
+		contact_samples.append({"L": sample_to_body * skeleton.get_bone_global_pose(skeleton.find_bone("Bip01 L Toe0")).origin,
+			"R": sample_to_body * skeleton.get_bone_global_pose(skeleton.find_bone("Bip01 R Toe0")).origin})
+	var quarter_travel := Presenter.WALK_CYCLE_DISTANCE / 4.0
+	verify(absf(contact_samples[1].R.z - contact_samples[0].R.z + quarter_travel) < 0.08
+		and absf(contact_samples[3].L.z - contact_samples[2].L.z + quarter_travel) < 0.08,
+		"Each planted walking toe nearly cancels confirmed forward travel over its stance quarter-cycle.")
+	presenter._set_gait(body, TAU / 24.0, 1.0)
+	skeleton.force_update_all_bone_transforms()
+	var run_to_body: Transform3D = body.global_transform.affine_inverse() * skeleton.global_transform
+	var run_left_toe: Vector3 = run_to_body * skeleton.get_bone_global_pose(skeleton.find_bone("Bip01 L Toe0")).origin
+	var run_right_toe: Vector3 = run_to_body * skeleton.get_bone_global_pose(skeleton.find_bone("Bip01 R Toe0")).origin
+	var running_support := Geometry.CAPSULE_HEIGHT / 2.0 + body.position.y \
+		+ minf(run_left_toe.y, run_right_toe.y) - 0.007
+	verify(running_support > -0.035 and running_support < 0.04,
+		"The captured running stance approaches the support plane without moving the actor root.")
 	presenter._set_gait(body, 0.0, 0.0, 0.0, 0.0, 1.0)
 	var impact_bounds := point_bounds(skin_points(body))
 	verify(impact_bounds.position.y + body.position.y >= -0.901

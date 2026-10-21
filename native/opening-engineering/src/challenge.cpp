@@ -1,5 +1,6 @@
 #include "factory/opening_engineering.hpp"
 #include "factory/mechanics.hpp"
+#include "factory/materials.hpp"
 
 #include <algorithm>
 #include <optional>
@@ -49,15 +50,16 @@ std::optional<mechanics::Part> shaft(const O& parts, const std::string& id) {
 // handoff used by World::tick. A rotating but disconnected or backwards span
 // must not satisfy the challenge.
 bool forward_route(const O& spans, const O& parts, const O& motion,
-                   const mechanics::Point& collector, const mechanics::Point& processor) {
-    struct Lane { mechanics::BeltPath path; int direction; mechanics::Point before, after; };
+                   const mechanics::Point& collector, const mechanics::Point& processor, const V::Array& drops) {
+    struct Lane { mechanics::BeltPath path; int direction; mechanics::Point before, after; Count order; bool fast; };
     std::vector<Lane> lanes;
     for (const auto& [id, value] : spans) {
         (void)id;
         const auto* span = std::get_if<O>(&value.storage());
         const auto* from = span ? field<std::string>(*span, "from") : nullptr;
         const auto* to = span ? field<std::string>(*span, "to") : nullptr;
-        if (!from || !to) return false;
+        const auto* order = span ? field<Count>(*span, "order") : nullptr;
+        if (!from || !to || !order || *order < 0) return false;
         const auto first = shaft(parts, *from), last = shaft(parts, *to);
         const auto found = motion.find(*from);
         const auto* entry = found == motion.end() ? nullptr : std::get_if<O>(&found->second.storage());
@@ -76,27 +78,57 @@ bool forward_route(const O& spans, const O& parts, const O& motion,
             before[axis] -= step;
             after[axis] += step;
         }
-        lanes.push_back({*path, *direction, before, after});
+        __extension__ using Wide = __int128;
+        Wide magnitude = *numerator;
+        if (magnitude < 0) magnitude = -magnitude;
+        const bool fast = path->kind == mechanics::BeltPathKind::horizontal && magnitude >= *denominator;
+        lanes.push_back({*path, *direction, before, after, *order, fast});
     }
-    std::vector<bool> reached(lanes.size());
-    std::vector<std::size_t> pending;
-    for (std::size_t i = 0; i < lanes.size(); ++i) {
-        if ((lanes[i].direction > 0 && lanes[i].before == collector) ||
-            (lanes[i].direction < 0 && lanes[i].after == collector)) {
-            reached[i] = true;
-            pending.push_back(i);
-        }
-    }
-    for (std::size_t cursor = 0; cursor < pending.size(); ++cursor) {
-        const auto& lane = lanes[pending[cursor]];
-        const auto& output = lane.direction > 0 ? lane.after : lane.before;
-        if (output == processor) return true;
-        for (std::size_t i = 0; i < lanes.size(); ++i) {
-            if (!reached[i] && std::find(lanes[i].path.tiles.begin(), lanes[i].path.tiles.end(), output) != lanes[i].path.tiles.end()) {
-                reached[i] = true;
-                pending.push_back(i);
+    // World offers collector output in construction order, after advancing each lane.
+    // A horizontal lane that moves at least one tile per tick and drops into
+    // open space can continuously take every output. Do not report a later
+    // route as working in that case. Slower lanes can leave their inlet occupied,
+    // while stopped and backward lanes eventually fill, so they remain eligible.
+    std::sort(lanes.begin(), lanes.end(), [](const Lane& a, const Lane& b) { return a.order < b.order; });
+    const auto reaches_processor = [&](std::size_t start) {
+        std::vector<bool> reached(lanes.size());
+        std::vector<std::size_t> pending{start};
+        reached[start] = true;
+        for (std::size_t cursor = 0; cursor < pending.size(); ++cursor) {
+            const auto& current = lanes[pending[cursor]];
+            const auto& output = current.direction > 0 ? current.after : current.before;
+            if (output == processor) return true;
+            for (std::size_t i = 0; i < lanes.size(); ++i) {
+                if (!reached[i] && std::find(lanes[i].path.tiles.begin(), lanes[i].path.tiles.end(), output) != lanes[i].path.tiles.end()) {
+                    reached[i] = true;
+                    pending.push_back(i);
+                }
             }
         }
+        return false;
+    };
+    for (std::size_t index = 0; index < lanes.size(); ++index) {
+        const auto& lane = lanes[index];
+        const bool collector_input = (lane.direction > 0 && lane.before == collector) ||
+                                     (lane.direction < 0 && lane.after == collector);
+        if (!collector_input) continue;
+        if (reaches_processor(index)) return true;
+        const auto& output = lane.direction > 0 ? lane.after : lane.before;
+        bool transfers_to_lane = false;
+        for (const auto& target : lanes) {
+            if (std::find(target.path.tiles.begin(), target.path.tiles.end(), output) != target.path.tiles.end())
+                transfers_to_lane = true;
+        }
+        bool existing_drop = false;
+        for (const auto& value : drops) {
+            const auto* drop = std::get_if<O>(&value.storage());
+            if (drop && point(*drop) == output) existing_drop = true;
+        }
+        const bool valid_drop = std::all_of(output.begin(), output.end(), [](Count coordinate) {
+            return coordinate >= -materials::maximum_drop_coordinate && coordinate <= materials::maximum_drop_coordinate;
+        });
+        if (lane.fast && output != processor && !transfers_to_lane && valid_drop &&
+            (existing_drop || drops.size() < materials::maximum_drop_points)) return false;
     }
     return false;
 }
@@ -125,7 +157,8 @@ Progress inspect(const godot_world::Host& host, const std::string& actor) {
     const auto* motion = field<O>(*root, "motion");
     const auto* transmission = field<O>(*root, "transmission_parts");
     const auto* spans = field<O>(*root, "belt_spans");
-    if (!inventories || !entities || !motion || !transmission || !spans) return {};
+    const auto* drops = field<V::Array>(*root, "dropped_material");
+    if (!inventories || !entities || !motion || !transmission || !spans || !drops) return {};
     const auto inventory = inventories->find(actor);
     if (inventory == inventories->end()) return {};
     const auto* products = std::get_if<Count>(&inventory->second.storage());
@@ -167,7 +200,7 @@ Progress inspect(const godot_world::Host& host, const std::string& actor) {
         else if (*kind == "shaft") ++progress.placed_shafts;
     }
     progress.machines_running = machines == 2 && running == 2;
-    if (collector && processor) progress.belt_forward = forward_route(*spans, *transmission, *motion, *collector, *processor);
+    if (collector && processor) progress.belt_forward = forward_route(*spans, *transmission, *motion, *collector, *processor, *drops);
     if (*products < content.first_target) progress.phase = Phase::first_shift;
     else if (!progress.source_at_target) progress.phase = Phase::move_source;
     else if (!progress.machines_running || !progress.belt_forward) progress.phase = Phase::restore_drive;
