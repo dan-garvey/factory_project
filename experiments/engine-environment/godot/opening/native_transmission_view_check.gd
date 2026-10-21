@@ -697,6 +697,8 @@ func _belt_actor_transport() -> void:
 	sample.transmission_parts.left.axis = 0
 	sample.motion.left.numerator = 1
 	verify(physical._belt_surface_velocity(sample, belt_id).is_equal_approx(Vector2(0, expected_speed)), "The other horizontal shaft axis transports along Z with the correct sign.")
+	sample.transmission_parts.right.center = [0, 16, 0]
+	verify(physical._belt_surface_velocity(sample, belt_id) == Vector2.ZERO, "A vertical power-only belt does not carry actors.")
 	verify(physical._belt_surface_velocity(sample, 0) == Vector2.ZERO, "A character without belt floor contact receives no transport.")
 	for frame in 40:
 		await physics_frame
@@ -747,6 +749,57 @@ func _belt_actor_transport() -> void:
 		await process_frame
 	host_root.queue_free()
 
+func _inclined_belt_actor() -> void:
+	for axle in [0, 2]:
+		for slope in [-1, 1]:
+			var authority := PhysicalProjection.new()
+			var first_y := 8 if slope > 0 else 16
+			var last_y := 16 if slope > 0 else 8
+			var end := [8 if axle == 2 else 0, last_y, 8 if axle == 0 else 0]
+			var actor_position := [1.65 if axle == 2 else 0.0, 6.78, 1.65 if axle == 0 else 0.0]
+			authority.state = {"options": {"native": true, "physical": true}, "entities": {}, "foundations": {},
+				"actors": {"P": {"position": actor_position, "ready": false, "native_epoch": 0}},
+				"transmission_parts": {"left": {"kind": "shaft", "center": [0, first_y, 0], "axis": axle, "half_span": 2},
+					"right": {"kind": "shaft", "center": end, "axis": axle, "half_span": 2}},
+				"belt_spans": {"belt": {"from": "left", "to": "right"}},
+				"motion": {"left": {"state": "stopped", "numerator": 0, "denominator": 1}}}
+			var physical := ActorWorld.new()
+			physical.set_belt_step_seconds(0.45)
+			physical.pose_published.connect(authority.observe)
+			root.add_child(physical)
+			verify(physical.configure(authority).accepted and physical.ensure_actor("P").accepted, "The inclined fixture creates its physical actor.")
+			for frame in 55:
+				await physics_frame
+			var body = physical.bodies.P
+			verify(not physical.failures.has("P") and body.motion_enabled and body.is_on_floor() and body.floor_id == physical.mechanical_bodies.belt.get_instance_id(), "An actor registers stable floor contact on an inclined belt.")
+			var start: Vector3 = body.position
+			authority.state.motion.left.state = "rotating"
+			authority.state.motion.left.numerator = 1 if axle == 0 else -1
+			authority.state.motion.left.denominator = 4
+			for frame in 35:
+				await physics_frame
+			var forward: Vector3 = body.position
+			var travel := forward.z - start.z if axle == 0 else forward.x - start.x
+			verify(travel > 0.15 and (forward.y - start.y) * slope > 0.1, "The inclined belt carries an uncommanded actor along and up or down its slope.")
+			authority.state.motion.left.numerator *= -1
+			for frame in 30:
+				await physics_frame
+			var reverse: Vector3 = body.position
+			verify((reverse.z - forward.z if axle == 0 else reverse.x - forward.x) < -0.1, "Reversing the shaft reverses inclined actor transport.")
+			authority.state.motion.left.state = "stopped"
+			for frame in 12:
+				await physics_frame
+			var stopped: Vector3 = body.position
+			verify(absf(stopped.z - reverse.z if axle == 0 else stopped.x - reverse.x) < 0.05, "A stopped inclined belt holds the actor.")
+			authority.state.motion.left.state = "rotating"
+			physical.set_belt_step_seconds(0.0)
+			for frame in 12:
+				await physics_frame
+			var frozen: Vector3 = body.position
+			verify(absf(frozen.z - stopped.z if axle == 0 else frozen.x - stopped.x) < 0.05, "A frozen clock stops inclined actor transport.")
+			physical.queue_free()
+			await process_frame
+
 func _run() -> void:
 	if "--tool-guidance-only" in OS.get_cmdline_user_args():
 		_tool_guidance()
@@ -762,6 +815,8 @@ func _run() -> void:
 		await _collision_body_lifecycle()
 	elif "--belt-actor-only" in OS.get_cmdline_user_args():
 		await _belt_actor_transport()
+	elif "--inclined-belt-actor-only" in OS.get_cmdline_user_args():
+		await _inclined_belt_actor()
 	else:
 		_controls()
 		_gear_sizes()

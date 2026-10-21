@@ -16,6 +16,8 @@ func _ready() -> void:
 	collision_mask = Geometry.GROUND_LAYER | Geometry.MACHINE_LAYER
 	platform_floor_layers = collision_mask
 	platform_wall_layers = 0
+	# One extra degree tolerates numerical contact normals on exact 45-degree belts.
+	floor_max_angle = deg_to_rad(46.0)
 	floor_snap_length = Geometry.FLOOR_SNAP
 	safe_margin = Geometry.SAFE_MARGIN
 	var collider := CollisionShape3D.new()
@@ -51,7 +53,9 @@ func _physics_process(delta: float) -> void:
 	jump_requested = false
 	move_and_slide()
 	floor_id = 0
+	var best_normal_y := cos(floor_max_angle)
 	for index in range(get_slide_collision_count()):
 		var collision := get_slide_collision(index)
-		if collision.get_normal().y > 0.9:
+		if collision.get_normal().y > best_normal_y:
 			floor_id = collision.get_collider_id()
+			best_normal_y = collision.get_normal().y

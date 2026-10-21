@@ -263,11 +263,15 @@ func _belt_surface_velocity(snapshot: Dictionary, floor_id: int) -> Vector2:
 		if not mechanical_bodies.has(id) or mechanical_bodies[id].get_instance_id() != floor_id:
 			continue
 		var span: Variant = spans[id]
-		if not span is Dictionary or typeof(span.get("from")) != TYPE_STRING:
+		if not span is Dictionary or typeof(span.get("from")) != TYPE_STRING or typeof(span.get("to")) != TYPE_STRING:
 			return Vector2.ZERO
 		var shaft: Variant = parts.get(span.from)
+		var endpoint: Variant = parts.get(span.to)
 		var rate: Variant = motion.get(span.from)
-		if not shaft is Dictionary or shaft.get("kind") != "shaft" or typeof(shaft.get("axis")) != TYPE_INT or shaft.axis not in [0, 2] or not rate is Dictionary or rate.get("state") != "rotating" or typeof(rate.get("numerator")) != TYPE_INT or typeof(rate.get("denominator")) != TYPE_INT or rate.denominator <= 0 or rate.numerator == 0:
+		if not shaft is Dictionary or shaft.get("kind") != "shaft" or typeof(shaft.get("axis")) != TYPE_INT or shaft.axis not in [0, 2] or not endpoint is Dictionary or not shaft.get("center") is Array or not endpoint.get("center") is Array or shaft.center.size() != 3 or endpoint.center.size() != 3 or not rate is Dictionary or rate.get("state") != "rotating" or typeof(rate.get("numerator")) != TYPE_INT or typeof(rate.get("denominator")) != TYPE_INT or rate.denominator <= 0 or rate.numerator == 0:
+			return Vector2.ZERO
+		# Vertical power-only spans do not carry entities.
+		if shaft.center[0] == endpoint.center[0] and shaft.center[2] == endpoint.center[2]:
 			return Vector2.ZERO
 		# Match World::tick's bounded fixed-point lane speed and world direction.
 		var subticks := clampf(floorf(absf(float(rate.numerator) / float(rate.denominator)) * 4096.0), 1.0, 65536.0)
