@@ -26,7 +26,10 @@ func verify(condition: bool, message: String) -> void:
 
 func _initialize() -> void:
 	if "--belt-water-native-only" in OS.get_cmdline_user_args():
-		check_belt_water_native()
+		check_belt_water_native(false)
+		return
+	if "--belt-water-native-forward-only" in OS.get_cmdline_user_args():
+		check_belt_water_native(true)
 		return
 	if "--water-samples-only" in OS.get_cmdline_user_args():
 		check_water_samples()
@@ -348,7 +351,8 @@ func expect(value: bool, message: String) -> bool:
 		quit(1)
 	return value
 
-func check_belt_water_native() -> void:
+func check_belt_water_native(forward: bool) -> void:
+	var side := -1 if forward else 1
 	var model = NativeModel.new("belt-water-site", ["P"])
 	if not expect(model.boot_result.get("accepted", false), "Bind the generated river site: " + str(model.boot_result)):
 		return
@@ -374,22 +378,25 @@ func check_belt_water_native() -> void:
 	var input: Dictionary = issue.call("place_gear", {"center": [-12, 0, 4], "axis": "x", "teeth": 4})
 	if not expect(input.get("accepted", false), "Place large input cog: " + str(input)):
 		return
-	if not expect(observe.call(-3.3, 1.65), "Reach output cog"):
+	if not expect(observe.call(-3.3, side * 1.65), "Reach output cog"):
 		return
-	var output: Dictionary = issue.call("place_gear", {"center": [-8, 0, 8], "axis": "z", "teeth": 4})
+	var output: Dictionary = issue.call("place_gear", {"center": [-8, 0, 4 + side * 4], "axis": "z", "teeth": 4})
 	if not expect(output.get("accepted", false), "Place large output cog: " + str(output)):
 		return
 	var small: Array[String] = []
 	for n in range(5):
 		var x: int = n * 4 - 8
-		if not expect(observe.call(float(x) * 1.65 / 4.0, 3.3), "Reach small cog"):
+		if not expect(observe.call(float(x) * 1.65 / 4.0, side * 3.3), "Reach small cog"):
 			return
-		var cog: Dictionary = issue.call("place_gear", {"center": [x, 0, 12], "axis": "z", "teeth": 2})
+		var cog: Dictionary = issue.call("place_gear", {"center": [x, 0, 4 + side * 8], "axis": "z", "teeth": 2})
 		if not expect(cog.get("accepted", false), "Place small cog: " + str(cog)):
 			return
 		small.append(cog.entity)
 	for n in range(3):
-		if not expect(observe.call(float(n) * 1.65, 3.3) and issue.call("connect_drive", {"from": hubs[n + 1], "to": small[n + 2]}).get("accepted", false), "Connect machine to cog row"):
+		if not expect(observe.call(float(n) * 1.65 + (1.0 if forward else 0.0), 0.0 if forward else 3.3), "Reach machine and cog row"):
+			return
+		var connection: Dictionary = issue.call("connect_drive", {"from": hubs[n + 1], "to": small[n + 2]})
+		if not expect(connection.get("accepted", false), "Connect machine to cog row: " + str(connection)):
 			return
 	if not expect(model.projection().parts.shaft == 5, "Adjacent wheel and cog axle faces connect without spending two extra shafts"):
 		return
@@ -397,7 +404,8 @@ func check_belt_water_native() -> void:
 		return
 	for n in range(1, 4):
 		var motion: Dictionary = model.projection().motion[hubs[n]]
-		if not expect(motion.state == "rotating" and (motion.numerator < 0 if n % 2 == 1 else motion.numerator > 0), "Generated river powers machine with the expected sign: " + str(motion)):
+		var negative: bool = (n % 2 == 0) if forward else (n % 2 == 1)
+		if not expect(motion.state == "rotating" and (motion.numerator < 0 if negative else motion.numerator > 0), "Generated river powers machine with the expected sign: " + str(motion)):
 			return
 	model.advance()
 	if not expect(model.projection().stock.collector == 1, "Collector advances actual-site material"):
@@ -406,7 +414,7 @@ func check_belt_water_native() -> void:
 		model.advance()
 	if not expect(model.projection().stock.output > 0, "The complete actual-site line produces a finished plate"):
 		return
-	if not expect(observe.call(3.3, 3.3), "Reach the press for retrieval"):
+	if not expect(observe.call(3.3, 0.0 if forward else 3.3), "Reach the press for retrieval"):
 		return
 	for turn in range(128):
 		if model.projection().inventories.P >= 4:
@@ -422,7 +430,7 @@ func check_belt_water_native() -> void:
 	var fresh = NativeModel.new("fresh-belt-water-site", ["P"])
 	if not expect(fresh.boot_result.get("accepted", false) and fresh.restore_checkpoint(saved).get("accepted", false), "Restore actual-site route"):
 		return
-	if not expect(observe.call(-3.3, 1.65) and issue.call("remove", {"entity": output.entity}).get("accepted", false), "Remove the corner cog"):
+	if not expect(observe.call(-3.3, side * 1.65) and issue.call("remove", {"entity": output.entity}).get("accepted", false), "Remove the corner cog"):
 		return
 	if not expect(model.projection().motion[hubs[2]].state != "rotating", "Removing the corner cog stops the belt"):
 		return

@@ -24,6 +24,7 @@ var detail_meshes := 0
 var minimum_press_gap := INF
 var minimum_collector_gap := INF
 var foundation_art_complete := false
+var press_input_checks_complete := false
 
 class PaddleSessionFacts extends RefCounted:
 	var ready := true
@@ -1675,6 +1676,7 @@ func press_input_bore_radius(mesh: Mesh) -> float:
 	return radius
 
 func check_press_input_clearance() -> void:
+	press_input_checks_complete = false
 	var cache: Dictionary = {}
 	var assemblies := 0
 	var minimum_gap := INF
@@ -1807,6 +1809,7 @@ func check_press_input_clearance() -> void:
 		"minimum_anvil_gap_metres": minimum_gap if is_finite(minimum_gap) else null,
 		"minimum_support_overlap_metres": minimum_support if is_finite(minimum_support) else null,
 		"vertical_layout": "unchanged and not accepted by this case", "native_gameplay": "not_run"}))
+	press_input_checks_complete = assemblies == 16 and not failed
 
 func check_drive_journals(geometry_checks: bool = true) -> void:
 	var meshes: Dictionary = {}
@@ -4396,7 +4399,8 @@ func _initialize() -> void:
 	if OS.get_cmdline_user_args().has("--render-buildable-resources"):
 		if OS.get_cmdline_user_args().has("--press-input-clearance-check"):
 			check_press_input_clearance()
-			if failed:
+			if failed or not press_input_checks_complete:
+				verify(press_input_checks_complete, "All sixteen press input assemblies must complete before resource rendering.")
 				finish()
 				return
 		if OS.get_cmdline_user_args().has("--foundation-art-check"):
@@ -4431,6 +4435,7 @@ func _initialize() -> void:
 		return
 	if OS.get_cmdline_user_args().has("--press-input-clearance-only"):
 		check_press_input_clearance()
+		verify(press_input_checks_complete, "The dedicated press input case completes all sixteen required assemblies.")
 		finish()
 		return
 	if OS.get_cmdline_user_args().has("--satin-coating-only"):
