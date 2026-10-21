@@ -605,16 +605,45 @@ class ProductionPaddleArt:
 		parent.add_child(part)
 		return part
 
-	static func mount(parent: Node3D, angle: float, index: int) -> bool:
+	static func timber_mesh(size: Vector3, physical_scale: Vector3 = Vector3.ONE) -> ArrayMesh:
+		var original := ProductionVisuals.box_mesh(size)
+		if physical_scale == Vector3.ONE:
+			return original
+		var key := [size, physical_scale]
+		if meshes.has(key):
+			return meshes[key]
+		var arrays := original.surface_get_arrays(0)
+		var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+		var coordinates: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+		for n in range(coordinates.size()):
+			# Keep the original face projection and board-local grain phase.
+			# The rotor scales its two radial axes equally, so paddle rotation
+			# does not change these physical lengths or make the grain swim.
+			var direction := normals[n].abs()
+			var repeat_scale := Vector2(physical_scale.x, physical_scale.y)
+			if direction.x >= direction.y and direction.x >= direction.z:
+				repeat_scale = Vector2(physical_scale.y, physical_scale.z)
+			elif direction.y >= direction.z:
+				repeat_scale = Vector2(physical_scale.x, physical_scale.z)
+			coordinates[n] *= repeat_scale
+		arrays[Mesh.ARRAY_TEX_UV] = coordinates
+		# Positive per-face UV scaling preserves the original tangent directions,
+		# vertex geometry, normals and clockwise winding.
+		var prepared := ArrayMesh.new()
+		prepared.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		meshes[key] = prepared
+		return prepared
+
+	static func mount(parent: Node3D, angle: float, index: int, physical_scale: Vector3 = Vector3.ONE) -> bool:
 		if source_status == "uninitialized":
 			_prepare()
 		if source_status != "ready":
 			return false
-		var blade := _part(parent, "WheelPaddle", ProductionVisuals.box_mesh(Vector3(0.14, 0.018, 0.28)),
+		var blade := _part(parent, "WheelPaddle", timber_mesh(Vector3(0.14, 0.018, 0.28), physical_scale),
 			Vector3(cos(angle), sin(angle), 0) * 0.62, finish)
 		blade.rotation.z = angle
 		blade.set_meta("paddle_index", index)
-		_part(blade, "PaddleRootCleat", ProductionVisuals.box_mesh(Vector3(0.04, 0.06, 0.10)),
+		_part(blade, "PaddleRootCleat", timber_mesh(Vector3(0.04, 0.06, 0.10), physical_scale),
 			Vector3(-0.05, 0, 0), finish)
 		var iron := ProductionTransmissionFinish.material("worked", Color("46504e"), 0.85, 0.48)
 		if iron == null:
@@ -4647,7 +4676,7 @@ func _wheel_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	# An open rim exposes the spokes. Meshes never supply drive relationships.
 	for n in range(12):
 		var angle := n * TAU / 12.0
-		if not ProductionPaddleArt.mount(wheel_rotor, angle, n):
+		if not ProductionPaddleArt.mount(wheel_rotor, angle, n, wheel_rotor.scale if native_profile else Vector3.ONE):
 			# Historical fixed rosters retain their exact earlier block paddles.
 			var radial := Vector3(cos(angle), sin(angle), 0)
 			var paddle := _machine_box(wheel_rotor, "WheelPaddle", radial * 0.62,
