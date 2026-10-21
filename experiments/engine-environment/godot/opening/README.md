@@ -7,13 +7,19 @@ its separate scripted profile. Native drives
 consume independent finite shafts, and native checkpoints retain typed custody,
 original history and physical seeds. See the [native bridge](../../../../native/factory-godot-world/README.md).
 WASD walks a native capsule, Space jumps, and the orbit camera follows your
-confirmed character. Right-drag changes the view; the mouse wheel zooms and
-Home restores follow distance. Clicked targets never stand in for your body.
+confirmed character. Right-drag changes the view; the mouse wheel zooms all the
+way to eye-level first person, and Home restores follow distance. At the closest
+view, right-drag can also look upward. The local character model disappears at
+close range and returns as you zoom out. Clicked targets never stand in for your
+body.
 Build, dismantle, retrieve and connection targets must be within the
 authority's provisional four-world-unit sphere. Move closer after a refusal
 and deliberately retry. P (or the drive button) operates the wheel from nearby;
 it does not promise a global stop from the press. Read-only inspection, Help,
 saving and the non-consuming four-plate confirmation remain available at distance.
+The detached `--script res://opening/guidance_cue_check.gd -- --camera-zoom-only`
+verifies offline and shared camera transitions without launching a controlled
+game session.
 
 The native physical view has eight quick-select slots and a short next-step
 prompt. **Build [B]** opens the catalog: choose a destination slot and a carried

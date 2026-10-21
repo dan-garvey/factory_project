@@ -3531,6 +3531,8 @@ var orbit_pitch := 0.82
 var native_camera_initialized := false
 var distance := 18.5
 var focus := Vector3(1.3, 0.0, 1.1)
+const FIRST_PERSON_EYE_OFFSET := 0.35
+const FIRST_PERSON_BLEND_DISTANCE := 4.0
 var hover_cell := Vector2i(99, 99)
 var visual_revision := -1
 var geometry_key := ""
@@ -4161,15 +4163,18 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
 		if Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
 			orbit_yaw -= event.relative.x * 0.007
-			orbit_pitch = clampf(orbit_pitch + event.relative.y * 0.005, 0.35, 1.25)
+			orbit_pitch = clampf(orbit_pitch + event.relative.y * 0.005,
+				-1.25 if not legacy_fixture and distance == 0.0 else 0.35, 1.25)
 		else:
 			hover_cell = _screen_cell(event.position)
 			_update_cursor()
 	elif event is InputEventMouseButton and event.pressed:
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
-			distance = maxf(10 if legacy_fixture else 8, distance - 1)
+			distance = maxf(10 if legacy_fixture else 0, distance - 1)
 		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 			distance = minf(28 if legacy_fixture else 24, distance + 1)
+			if not legacy_fixture and distance > 0.0:
+				orbit_pitch = maxf(orbit_pitch, 0.35)
 		elif event.button_index == MOUSE_BUTTON_LEFT:
 			var entity_id := _screen_entity(event.position)
 			if not _transmission_click(_transmission_center(event.position), entity_id):
@@ -4442,8 +4447,17 @@ func _assemble_foundation(parent: Node3D, neighbor_mask: int = 0) -> void:
 			get_tree().quit(1)
 
 func _update_camera() -> void:
-	camera.position = focus + Vector3(sin(orbit_yaw) * cos(orbit_pitch), sin(orbit_pitch), cos(orbit_yaw) * cos(orbit_pitch)) * distance
-	camera.look_at(focus)
+	var back := Vector3(sin(orbit_yaw) * cos(orbit_pitch), sin(orbit_pitch), cos(orbit_yaw) * cos(orbit_pitch))
+	var eye_offset := 0.0 if legacy_fixture else FIRST_PERSON_EYE_OFFSET * (1.0 - clampf(distance / FIRST_PERSON_BLEND_DISTANCE, 0.0, 1.0))
+	camera.position = focus + Vector3.UP * eye_offset + back * distance
+	# At zero distance look along the same orbit ray instead of looking at the
+	# camera's own position. The local mesh remains real but cannot fill the view.
+	camera.look_at(camera.position - back)
+	if character_presenter != null and character_presenter.views.has(client):
+		var local_view: Node3D = character_presenter.views[client]
+		var local_actor: Dictionary = state.get("actors", {}).get(client, {})
+		local_view.visible = distance > 1.0 and local_actor.get("ready", false) \
+			and Geometry.valid_position(local_actor.get("position"))
 
 func _build_world() -> void:
 	if not legacy_fixture and ProductionEnvironment.Surface != null:
