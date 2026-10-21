@@ -10,6 +10,7 @@ const FULL_GAIT_SPEED := 2.4
 const RUN_BLEND_START := 1.15
 const RUN_BLEND_END := 2.35
 const STOP_HOLD_SECONDS := 2.0 / 60.0
+const STALE_SAMPLE_SETTLE_SECONDS := 0.15
 const TAKEOFF_DELTA := 0.025
 const DROP_DELTA := 0.075
 const LANDING_SECONDS := 0.24
@@ -729,20 +730,31 @@ func _set_gait(body: Node3D, phase: float, weight: float,
 		body.get_node(prefix + "Shoulder").rotation.x = swing * 0.28 * weight
 		body.get_node(prefix + "Shoulder/Elbow").rotation.x = -0.12 * weight
 
-func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float) -> void:
+func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
+		native_epoch: int = -1) -> void:
 	var body: Node3D = view.get_node("BodyView")
 	var previous: Dictionary = motion.get(actor, {"position": at, "phase": 0.0, "weight": 0.0,
 		"age": 1.0, "mode": "grounded", "ground_y": at.y, "peak_y": at.y,
 		"vertical_speed": 0.0, "air": 0.0, "impact_age": LANDING_SECONDS,
-		"run_mix": 0.0, "horizontal_speed": 0.0, "landing_stride": 0.0})
+		"run_mix": 0.0, "horizontal_speed": 0.0, "landing_stride": 0.0,
+		"native_epoch": -1, "sample_elapsed": 0.0})
 	var displacement: Vector3 = at - previous.position
 	var horizontal := Vector2(displacement.x, displacement.z)
-	var horizontal_speed := horizontal.length() / maxf(delta, 0.0001)
+	var repeated_sample := native_epoch >= 0 and native_epoch == int(previous.native_epoch) \
+		and displacement.length_squared() < 0.000000000001
+	var sample_elapsed: float = float(previous.sample_elapsed) + delta
+	# The native epoch identifies a fresh confirmed pose, not its time. Use the
+	# elapsed presentation time since that pose instead of one render interval.
+	var horizontal_speed := horizontal.length() / maxf(
+		sample_elapsed if native_epoch >= 0 else delta, 0.0001)
+	previous.sample_elapsed = sample_elapsed if repeated_sample else 0.0
+	previous.native_epoch = native_epoch
 	if horizontal.length() > DISCONTINUITY_HORIZONTAL or absf(displacement.y) > DISCONTINUITY_VERTICAL:
 		previous = {"position": at, "phase": 0.0, "weight": 0.0, "age": 1.0,
 			"mode": "grounded", "ground_y": at.y, "peak_y": at.y,
 			"vertical_speed": 0.0, "air": 0.0, "impact_age": LANDING_SECONDS,
-			"run_mix": 0.0, "horizontal_speed": 0.0, "landing_stride": 0.0}
+			"run_mix": 0.0, "horizontal_speed": 0.0, "landing_stride": 0.0,
+			"native_epoch": native_epoch, "sample_elapsed": 0.0}
 		body.rotation.y = 0
 	else:
 		var vertical_speed: float = displacement.y / maxf(delta, 0.0001)
@@ -790,15 +802,19 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float) -> v
 				1.0 if mode == "ascent" or mode == "descent" else 0.0, delta * 14.0)
 		previous.vertical_speed = vertical_speed if mode == "ascent" or mode == "descent" else 0.0
 		var starting_from_rest := (mode == "grounded" or mode == "landing") \
-			and float(previous.age) >= STOP_HOLD_SECONDS
+			and float(previous.age) >= STOP_HOLD_SECONDS \
+			and float(previous.horizontal_speed) < 0.01
 		previous.age = 0.0 if horizontal.length() > 0.00001 else previous.age + delta
-		var speed := horizontal_speed
+		# Brief gaps between native poses are still the same confirmed motion.
+		# A longer gap settles the visual stride without predicting actor travel.
+		var speed := float(previous.horizontal_speed) if repeated_sample \
+			and sample_elapsed <= STALE_SAMPLE_SETTLE_SECONDS else horizontal_speed
 		var target_run_mix := clampf((speed - RUN_BLEND_START) / (RUN_BLEND_END - RUN_BLEND_START), 0.0, 1.0)
 		previous.run_mix = move_toward(float(previous.run_mix), target_run_mix, delta * 5.0)
 		if mode == "grounded" or mode == "landing":
 			previous.phase += horizontal.length() * TAU / lerpf(WALK_CYCLE_DISTANCE, GAIT_CYCLE_DISTANCE, float(previous.run_mix))
 		var target_weight := 0.0
-		if horizontal.length() > 0.00001:
+		if horizontal.length() > 0.00001 or repeated_sample and speed > 0.00001:
 			# The captured walk completes one stride over 1.30 m. At its ordinary
 			# 1.05 m/s cadence it needs the full leg travel to hold a support foot;
 			# the run retains its separate full-pose speed through the blend.
@@ -819,7 +835,7 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float) -> v
 			var turn_rate := lerpf(12.0, 30.0, float(previous.run_mix))
 			body.rotation.y = facing if starting_from_rest else \
 				lerp_angle(body.rotation.y, facing, minf(1.0, delta * turn_rate))
-		previous.horizontal_speed = horizontal_speed
+		previous.horizontal_speed = speed
 		previous.position = at
 	motion[actor] = previous
 	var impact := 0.0
@@ -881,7 +897,9 @@ func refresh(delta: float = 0.0) -> void:
 				body.rotation.y = 0
 				_set_gait(body, 0, 0)
 			if delta > 0.0:
-				_animate_actor(actor, view, view.position, delta)
+				var observed_epoch: Variant = data.get("native_epoch", -1)
+				_animate_actor(actor, view, view.position, delta,
+					int(observed_epoch) if typeof(observed_epoch) == TYPE_INT else -1)
 		else:
 			motion.erase(actor)
 	if not host.explanation_open and actors.has(host.client) and Geometry.valid_position(actors[host.client].get("position")):
