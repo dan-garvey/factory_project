@@ -805,6 +805,27 @@ the acceptance tolerance. It does not establish collision-backend precision,
 mechanical contact, native reach, force behavior or a general minimum feature
 size. Previous coarse face-list results retain their actual scope and revision.
 
+## GDC-16: appending mixed mesh indexing can omit whole components
+
+**Engine/API and adapter, source-confirmed.** In the pinned Godot 4.7.2
+[SurfaceTool implementation](https://github.com/godotengine/godot/blob/ed1daf0bf001b61586d9930840f2f1394092c079/scene/resources/surface_tool.cpp#L953),
+`append_from()` appends vertices and any supplied indices; it does not generate
+indices for an unindexed input when another input is indexed. A combined indexed
+surface therefore leaves the unindexed component's vertices unreferenced. Its
+bounds can still include those vertices, and checking only the referenced closed
+components does not prove that every intended component is present.
+
+The shared press/service hardware helper combined unindexed authored washers
+with indexed primitive bolt heads. The first rear-service consumer retained zero
+matched washer-foot area. The helper now indexes the washers before appending
+either input. The focused fixture requires the complete input triangle count and
+all four actual washer-foot areas, and reproduces the previous mixed-index
+omission as a negative control. The affected press tooling is checked separately
+from unchanged native gameplay. This is render-resource assembly, not a physics,
+mechanical-contact, construction or material rule. Owner: Platform, under
+`factory-yau.6.45.23.25`. Other future compound meshes must preserve each input's
+topology rather than infer completeness from bounds or a nonempty surface.
+
 ## Required follow-through
 
 This first source/API/evidence audit leaves actual backend identification,

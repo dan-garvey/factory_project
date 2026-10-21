@@ -1273,6 +1273,12 @@ class ProductionPressDieArt:
 		var washer := ProductionVisuals.turned_mesh(PackedVector2Array([
 			Vector2(0.014, 0), Vector2(0.038, 0), Vector2(0.043, 0.002),
 			Vector2(0.043, 0.004), Vector2(0.038, 0.006), Vector2(0.014, 0.006), Vector2(0.014, 0)]), 24)
+		# append_from does not supply indices for earlier unindexed pieces
+		# when an indexed primitive is appended. Keep both inputs indexed.
+		var indexed_washer := SurfaceTool.new()
+		indexed_washer.create_from(washer, 0)
+		indexed_washer.index()
+		washer = indexed_washer.commit()
 		var pieces: Array = []
 		for pose in poses:
 			pieces.append([washer, pose])

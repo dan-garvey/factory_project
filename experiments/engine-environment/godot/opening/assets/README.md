@@ -109,6 +109,10 @@ the existing complete envelope and behind the cutter sweep. The panel shares
 the qualified coating and worked hardware finishes. This is visual assembly
 detail, without a service action, new part, collider or authoritative state.
 Historical fixtures keep their earlier rear casting.
+The common press/service fastener builder indexes its authored washers before
+combining them with indexed bolt heads, preserving both sets of render triangles.
+Complete-face contact and input-triangle controls guard against invisible washers;
+bounding boxes alone include the unreferenced vertices and miss that omission.
 
 The new tooling consumer bounds every raw facet through a complete turn and
 checks that conservative sweep against the actual cast frame, bearing opening

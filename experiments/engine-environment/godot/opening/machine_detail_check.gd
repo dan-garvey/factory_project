@@ -3555,6 +3555,17 @@ func check_collector_rear_service() -> void:
 					and view.model == null and view.actor_world == null and view.request_sequence == 0,
 					"Fixed service artwork changes no motion rows, observations, authority, requests or pick ownership.")
 				if assemblies == 0:
+					var washer := Visuals.turned_mesh(PackedVector2Array([
+						Vector2(0.014, 0), Vector2(0.038, 0), Vector2(0.043, 0.002),
+						Vector2(0.043, 0.004), Vector2(0.038, 0.006), Vector2(0.014, 0.006), Vector2(0.014, 0)]), 24)
+					var expected_corners := die_faces(washer, 0).size() + die_faces(Visuals.fastener_head_mesh(), 0).size()
+					var predecessor := SurfaceTool.new()
+					predecessor.begin(Mesh.PRIMITIVE_TRIANGLES)
+					predecessor.append_from(washer, 0, Transform3D.IDENTITY)
+					predecessor.append_from(Visuals.fastener_head_mesh(), 0, Transform3D.IDENTITY)
+					verify(die_faces(predecessor.commit(), 0).size() < expected_corners
+						and die_faces(hardware.mesh, 0).size() == expected_corners * 4,
+						"The original mixed-index pattern omits washer faces; the corrected hardware retains every input triangle.")
 					verify(not collector_service_foot_contact(panel, hardware, Vector3(0.5, 0, 0)).seated,
 						"A washer assembly moved beyond the panel fails the complete-foot contact oracle.")
 					verify(not collector_service_foot_contact(panel, hardware, Vector3(0, 0, -0.002)).seated,
@@ -3571,7 +3582,7 @@ func check_collector_rear_service() -> void:
 		verify(old_machine.get_node("SurfaceDetail").get_node_or_null("RearServicePanel") == null,
 			"Historical and nonnative profiles retain their original rear casting.")
 		old_view.free()
-	print(JSON.stringify({"collector_service_assemblies": assemblies, "negative_controls": 2,
+	print(JSON.stringify({"collector_service_assemblies": assemblies, "negative_controls": 2, "mixed_index_control": 1,
 		"minimum_full_turn_axial_gap_metres": minimum_gap, "maximum_washer_foot_area_error": maximum_seat_error,
 		"observations": "invented read-only", "gameplay": "not_run"}))
 
@@ -3638,8 +3649,9 @@ func render_buildable_resources() -> void:
 		{"name": "conveyor", "kind": "belt"}, {"name": "waterwheel", "kind": "wheel"}]
 	var selected_subject := OS.get_environment("FACTORY_RESOURCE_RENDER_SUBJECT")
 	if not selected_subject.is_empty():
-		subjects = subjects.filter(func(subject): return subject.name == selected_subject)
-		if subjects.is_empty():
+		var wanted := selected_subject.split(",")
+		subjects = subjects.filter(func(subject): return subject.name in wanted)
+		if subjects.size() != wanted.size():
 			report.status = "fail"
 			report.reason = "The requested resource-render subject is unknown."
 			resource_render_write(manifest, report)
@@ -3811,6 +3823,7 @@ func render_buildable_resources() -> void:
 func _initialize() -> void:
 	if OS.get_cmdline_user_args().has("--render-buildable-resources"):
 		if OS.get_cmdline_user_args().has("--collector-rear-service-check"):
+			check_press_die()
 			check_collector_rear_service()
 			if failed:
 				finish()
