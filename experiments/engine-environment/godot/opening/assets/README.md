@@ -61,6 +61,16 @@ coherent. The old decorative wheel rotation still follows the confirmed powered
 flag. No rendered mesh supplies power, contact, placement, collision or reach.
 Pick bodies, labels, interaction anchors and gameplay state are unchanged.
 
+Complete captures now use a sourced CC0 [timber rotor](waterwheel/CREDITS.md)
+for the waterwheel rim, hub and twelve spokes. Its original modeled components
+and atlas replace the procedural rim silhouette. Existing paddles, spindle,
+bearings, axes and confirmed motion remain in the ordinary view. One cached
+static mesh and mipmapped material are shared between all orientations; source
+scene controllers and physical bodies are never instantiated. Historical fixed
+rosters retain their earlier procedural rotor, while a partial resource set is
+reported explicitly. This increment has isolated asset checks, not a rendered
+quality or human-approval result.
+
 For the native scene profile, machine spindles, waterwheel axle and bearings
 follow each entity's projected X, Y or Z axis through the confirmed hub height.
 Older native projections without an axis retain X. The wheel is scaled to keep

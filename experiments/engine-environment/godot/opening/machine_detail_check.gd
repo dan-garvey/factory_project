@@ -2,6 +2,7 @@ extends SceneTree
 ## Authored mesh and visual assembly checks. No game authority or desktop.
 const Opening = preload("res://opening/opening.gd")
 const Visuals = Opening.ProductionVisuals
+const WheelArt = Opening.ProductionWheelArt
 const Geometry = preload("res://opening/site_geometry.gd")
 var checks := 0
 var failed := false
@@ -83,7 +84,256 @@ func count_role(node: Node, role: String) -> int:
 		count += count_role(child, role)
 	return count
 
+func check_sourced_mesh(instance: MeshInstance3D) -> void:
+	verify(instance.get_script() == null and instance.get_child_count() == 0,
+		"The sourced rotor is a plain mesh without a controller, skeleton or physical children.")
+	var arrays := instance.mesh.surface_get_arrays(0)
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+	var coordinates: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+	var tangents: PackedFloat32Array = arrays[Mesh.ARRAY_TANGENT]
+	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+	verify(vertices.size() == 5632 and indices.size() == 8574 * 3,
+		"The loaded mesh contains exactly the extracted rim, hub and twelve spokes.")
+	verify(normals.size() == vertices.size() and coordinates.size() == vertices.size()
+		and tangents.size() == vertices.size() * 4,
+		"The sourced mesh has complete normal-mapped attributes.")
+	if normals.size() != vertices.size() or tangents.size() != vertices.size() * 4:
+		return
+	var attributes_ok := true
+	var radius := 0.0
+	var uv_low := Vector2.ONE
+	var uv_high := Vector2.ZERO
+	for n in range(vertices.size()):
+		var tangent := Vector3(tangents[n * 4], tangents[n * 4 + 1], tangents[n * 4 + 2])
+		max_tangent_dot = maxf(max_tangent_dot, absf(tangent.dot(normals[n])))
+		attributes_ok = attributes_ok and vertices[n].is_finite() and normals[n].is_finite()
+		attributes_ok = attributes_ok and absf(normals[n].length() - 1.0) < 0.002
+		attributes_ok = attributes_ok and tangent.is_finite() and absf(tangent.length() - 1.0) < 0.002
+		attributes_ok = attributes_ok and absf(tangent.dot(normals[n])) < 0.003 and coordinates[n].is_finite()
+		radius = maxf(radius, Vector2(vertices[n].x, vertices[n].y).length())
+		uv_low = uv_low.min(coordinates[n])
+		uv_high = uv_high.max(coordinates[n])
+	verify(attributes_ok, "Actual imported source normals, tangents, positions and UVs remain finite and usable.")
+	verify(radius > 0.5699 and radius < 0.5701 and instance.mesh.get_aabb().size.z < 0.14,
+		"The source rotor has the normalized radial and axial envelope, without its stand or drive belt.")
+	verify((uv_high - uv_low).x > 0.5 and (uv_high - uv_low).y > 0.5,
+		"The original atlas coordinates retain a nontrivial surface footprint.")
+	var material := instance.material_override as StandardMaterial3D
+	verify(material != null and material == WheelArt.finish,
+		"All sourced instances use the cached original material.")
+	if material == null:
+		return
+	verify(material.albedo_texture.get_size() == Vector2(1024, 1024)
+		and material.normal_texture.get_size() == Vector2(512, 512)
+		and material.roughness_texture.get_size() == Vector2(512, 512),
+		"The decoded source color and prepared data maps retain their declared resolutions.")
+	verify(material.metallic_texture == material.roughness_texture and material.ao_texture == material.roughness_texture
+		and material.ao_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_RED
+		and material.roughness_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_GREEN
+		and material.metallic_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_BLUE,
+		"Occlusion, roughness and metallic use the correct shared linear packed channels.")
+	verify(material.normal_enabled and not material.uv1_triplanar
+		and material.albedo_texture.get_image().has_mipmaps() and material.normal_texture.get_image().has_mipmaps()
+		and material.roughness_texture.get_image().has_mipmaps(),
+		"The atlas retains source UVs and has mipmapped normal, color and scalar textures.")
+
+func check_wheel_axes() -> void:
+	verify(WheelArt.resource_status() == "complete", "The complete source set is present in this captured project.")
+	var cached_mesh: Mesh
+	var cached_material: Material
+	for axis_index in range(3):
+		var axis: Vector3 = [Vector3.RIGHT, Vector3.UP, Vector3.BACK][axis_index]
+		var view := Opening.new()
+		view.machine_root = Node3D.new()
+		view.state = {"options": {"native": true}, "powered": true,
+			"entities": {"fixture": {"kind": "wheel", "cell": [0, 0], "axis": axis_index}}, "links": [], "drive_links": []}
+		var before: Dictionary = view.state.duplicate(true)
+		view._rebuild_machines()
+		var anchor: Node3D = view.machine_root.get_child(0)
+		var rotor: Node3D = anchor.get_node("WheelRotor")
+		var sourced := rotor.get_node_or_null("SourcedTimberRotor") as MeshInstance3D
+		verify(WheelArt.source_status == "ready" and sourced != null,
+			"Every supported wheel axis mounts the actual sourced rotor.")
+		if sourced != null:
+			check_sourced_mesh(sourced)
+			if cached_mesh == null:
+				cached_mesh = sourced.mesh
+				cached_material = sourced.material_override
+			verify(sourced.mesh == cached_mesh and sourced.material_override == cached_material,
+				"All wheel axes share their exact mesh and material resources.")
+		verify(count_role(rotor, "WheelRim") == 0 and count_role(rotor, "RimFastener") == 0,
+			"The new source replaces the old rim instead of stacking duplicate silhouettes.")
+		verify(rotor.position.distance_to(Vector3.UP * Geometry.ANCHOR_HEIGHT) < 0.00001
+			and rotor.basis.z.normalized().dot(axis) > 0.99999,
+			"The actual sourced rotor follows the confirmed native hub and projected axis.")
+		var hub: MeshInstance3D = rotor.get_node("WheelHub")
+		verify(hub.mesh is CylinderMesh and hub.position == Vector3.ZERO
+			and absf((rotor.basis * hub.basis.y).normalized().dot(axis)) > 0.99999,
+			"The existing visible spindle still lies on the native hub axis.")
+		var bearings := 0
+		for child in anchor.get_children():
+			if child is MeshInstance3D and str(child.name).begins_with("AxleBearing"):
+				bearings += 1
+				verify(child.mesh is CylinderMesh and absf(child.basis.y.normalized().dot(axis)) > 0.99999,
+					"The existing bearing follows its actual projected axle.")
+		verify(bearings == (1 if axis_index == 1 else 2), "The original vertical and horizontal bearing layouts remain intact.")
+		check_bounds(rotor, Transform3D.IDENTITY)
+		var original: Transform3D = rotor.transform
+		view._animate_wheel(1.0)
+		verify(rotor.transform == original, "Powered state alone cannot invent a native wheel phase.")
+		verify(view.state == before and view.model == null and view.actor_world == null,
+			"Asset assembly preserves the projection and creates no game or character authority.")
+		view.machine_root.free()
+		view.free()
+	var missing := "user://wheel-resource-controls/missing"
+	verify(WheelArt.resource_status(missing) == "missing", "An absent historical source set is distinguishable from a complete asset.")
+	var partial := "user://wheel-resource-controls/partial"
+	DirAccess.make_dir_recursive_absolute(partial)
+	var file := FileAccess.open(partial.path_join("rotor.gltf"), FileAccess.WRITE)
+	if file != null:
+		file.store_string("{}")
+		file.close()
+	verify(file != null and WheelArt.resource_status(partial) == "incomplete",
+		"A partial asset set cannot be reported as sourced success.")
+
+func finish() -> void:
+	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks, "detail_meshes": detail_meshes,
+		"maximum_packed_tangent_dot": max_tangent_dot, "source_status": WheelArt.source_status,
+		"rendered_quality": "not_assessed", "desktop": "not_used"}))
+	quit(1 if failed else 0)
+
+func check_historical_wheel() -> void:
+	verify(WheelArt.resource_status() == "missing", "This deliberately reduced historical roster has no sourced wheel files.")
+	var view := Opening.new()
+	view.machine_root = Node3D.new()
+	for native_profile in [true, false]:
+		view.state = {"options": {"native": native_profile}, "powered": true,
+			"entities": {"fixture": {"kind": "wheel", "cell": [0, 0], "axis": 0}}, "links": [], "drive_links": []}
+		var before: Dictionary = view.state.duplicate(true)
+		view._rebuild_machines()
+		var rotor: Node3D = view.machine_root.get_child(0).get_node("WheelRotor")
+		verify(WheelArt.source_status == "missing" and rotor.get_node_or_null("SourcedTimberRotor") == null,
+			"Historical native and scripted views explicitly retain their earlier procedural art.")
+		verify(count_role(rotor, "WheelRim") == 2 and count_role(rotor, "RimFastener") == 24,
+			"The actual fallback still mounts both original rims and their fasteners.")
+		verify(view.state == before and view.model == null and view.actor_world == null,
+			"Missing artwork does not create authority or change the projection.")
+	view.machine_root.free()
+	view.free()
+
+func prepare_waterwheel_maps() -> void:
+	var args := OS.get_cmdline_user_args()
+	args.remove_at(0)
+	if args.size() != 2:
+		push_error("Use SOURCE_DIRECTORY PREPARED_ASSET_DIRECTORY.")
+		quit(1)
+		return
+	var source := args[0]
+	var output := args[1]
+	var report: Dictionary = {"status": "pass", "source_size": [1024, 1024], "maps": {}}
+	for name_value in ["normal", "arm"]:
+		var target := output.path_join("wood_" + name_value + ".webp")
+		if FileAccess.file_exists(target):
+			push_error("Refuse to replace a prepared map: " + target)
+			quit(1)
+			return
+		var original := Image.load_from_file(source.path_join(name_value + ".png"))
+		if original == null or original.get_size() != Vector2i(1024, 1024):
+			push_error("Expected the pinned one-kilopixel source PNG: " + name_value)
+			quit(1)
+			return
+		var decoded_format := original.get_format()
+		# Resize linear data in float precision. Renormalize tangent normals,
+		# then round once to RGB8. Packed scalar channel meanings stay intact.
+		original.convert(Image.FORMAT_RGBF)
+		original.resize(512, 512, Image.INTERPOLATE_LANCZOS)
+		var pixels := PackedByteArray()
+		pixels.resize(512 * 512 * 3)
+		var maximum_normal_error := 0.0
+		var maximum_normal_angle := 0.0
+		for y in range(512):
+			for x in range(512):
+				var color := original.get_pixel(x, y)
+				var normal := Vector3.ZERO
+				if name_value == "normal":
+					normal = Vector3(color.r * 2 - 1, color.g * 2 - 1, color.b * 2 - 1)
+					if not normal.is_finite() or normal.length_squared() < 0.000001:
+						push_error("The resized source normal cannot be normalized.")
+						quit(1)
+						return
+					normal = normal.normalized()
+					color = Color(normal.x * 0.5 + 0.5, normal.y * 0.5 + 0.5, normal.z * 0.5 + 0.5)
+				var at := (y * 512 + x) * 3
+				pixels[at] = clampi(roundi(color.r * 255), 0, 255)
+				pixels[at + 1] = clampi(roundi(color.g * 255), 0, 255)
+				pixels[at + 2] = clampi(roundi(color.b * 255), 0, 255)
+				if name_value == "normal":
+					var decoded := Vector3(pixels[at], pixels[at + 1], pixels[at + 2]) / 255.0 * 2.0 - Vector3.ONE
+					maximum_normal_error = maxf(maximum_normal_error, absf(decoded.length() - 1.0))
+					maximum_normal_angle = maxf(maximum_normal_angle, rad_to_deg(acos(clampf(decoded.normalized().dot(normal), -1, 1))))
+		var prepared := Image.create_from_data(512, 512, false, Image.FORMAT_RGB8, pixels)
+		if maximum_normal_error >= 0.01 or maximum_normal_angle >= 0.5:
+			push_error("The prepared normal exceeds its encoding bound.")
+			quit(1)
+			return
+		if prepared.save_webp(target, false) != OK:
+			push_error("Cannot encode the lossless data map: " + name_value)
+			quit(1)
+			return
+		var packed := Image.load_from_file(target)
+		if packed == null:
+			push_error("Cannot decode the prepared map: " + name_value)
+			quit(1)
+			return
+		packed.convert(Image.FORMAT_RGB8)
+		if packed.get_size() != prepared.get_size() or packed.get_data() != pixels:
+			push_error("The lossless data-map pixels differ from the prepared representation: " + name_value)
+			quit(1)
+			return
+		report.maps[name_value] = {"source_decoded_format": decoded_format,
+			"runtime_format": Image.FORMAT_RGB8, "size": [512, 512], "prepared_pixel_equality": true,
+			"maximum_normal_length_error": maximum_normal_error, "maximum_normal_encoding_angle_degrees": maximum_normal_angle,
+			"bytes": FileAccess.get_file_as_bytes(target).size()}
+	var albedo_target := output.path_join("wood_albedo.jpg")
+	if FileAccess.file_exists(albedo_target) or DirAccess.copy_absolute(
+			source.path_join("albedo.jpg"), albedo_target) != OK:
+		push_error("Cannot copy the original provider albedo into a fresh path.")
+		quit(1)
+		return
+	if FileAccess.get_file_as_bytes(albedo_target) != FileAccess.get_file_as_bytes(source.path_join("albedo.jpg")):
+		push_error("Albedo copy differs from the original provider bytes.")
+		quit(1)
+		return
+	report.maps.albedo = {"representation": "original provider JPEG", "reencoded": false,
+		"bytes": FileAccess.get_file_as_bytes(albedo_target).size()}
+	report.processing = "Float-precision Lanczos data-map resize, normalized OpenGL normals, nearest RGB8 encoding and lossless WebP. No channel reorder, normal-axis flip or color-space conversion."
+	print(JSON.stringify(report))
+	quit(0)
+
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().size() > 0 and OS.get_cmdline_user_args()[0] == "--prepare-waterwheel-maps":
+		prepare_waterwheel_maps()
+		return
+	if OS.get_cmdline_user_args().has("--sourced-wheel-material-only"):
+		var parent := Node3D.new()
+		verify(WheelArt.mount(parent), "The changed material loads through the shipped source helper.")
+		var rotor := parent.get_node_or_null("SourcedTimberRotor") as MeshInstance3D
+		if rotor != null:
+			check_sourced_mesh(rotor)
+			verify((rotor.material_override as StandardMaterial3D).cull_mode == BaseMaterial3D.CULL_DISABLED,
+				"The source material retains its documented double-sided shading.")
+		parent.free()
+		finish()
+		return
+	if OS.get_cmdline_user_args().has("--historical-wheel-only"):
+		check_historical_wheel()
+		finish()
+		return
+	if OS.get_cmdline_user_args().has("--sourced-wheel-only"):
+		check_wheel_axes()
+		finish()
+		return
 	var washer := PackedVector2Array([Vector2(0, 0), Vector2(0.038, 0), Vector2(0.043, 0.002),
 		Vector2(0.043, 0.004), Vector2(0.038, 0.006), Vector2(0, 0.006)])
 	check_profile(washer, 0.00002, 0.00004)
@@ -117,12 +367,14 @@ func _initialize() -> void:
 				verify(count_role(details, "GuideCollar") == 4, "The actual press has fitted collars at both guide ends.")
 			"wheel":
 				var rotor: Node3D = machine.get_node("WheelRotor")
-				verify(count_role(rotor, "WheelRim") == 2 and count_role(rotor, "RimFastener") == 24,
-					"The actual wheel has two continuous rims with fitted fasteners.")
+				if WheelArt.source_status == "ready":
+					verify(count_role(rotor, "SourcedTimberRotor") == 1 and count_role(rotor, "WheelRim") == 0,
+						"The actual wheel mounts the sourced component instead of procedural rims.")
+				else:
+					verify(count_role(rotor, "WheelRim") == 2 and count_role(rotor, "RimFastener") == 24,
+						"A historical capture retains its two continuous procedural rims and fitted fasteners.")
 				check_bounds(rotor, Transform3D.IDENTITY)
 		verify(view.state == before and view.model == null, "Detail assembly cannot mutate the projection or create a Model.")
 	view.machine_root.free()
 	view.free()
-	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks, "detail_meshes": detail_meshes,
-		"maximum_packed_tangent_dot": max_tangent_dot, "rendered_quality": "not_assessed", "desktop": "not_used"}))
-	quit(1 if failed else 0)
+	finish()
