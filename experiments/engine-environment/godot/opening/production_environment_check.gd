@@ -111,7 +111,7 @@ func finish() -> void:
 			"sourced-sky": "original HDR radiance, cached sky and ordinary key-light binding",
 			"stone-material": "sourced natural-stone material, cache and unchanged shape consumer",
 			"ground-material": "scanned ground material, data channels and cache separation",
-			"water-flow": "changed cosmetic water material and ordinary frame consumer",
+			"water-flow": "layered translucent river resources and ordinary frame consumer",
 			"rock-collision-shape": "visible rock corners versus rigid collision descriptors",
 			"flat-fallback": "historical flat source-roster fallback", "foliage": "changed foliage bulk upload",
 			"environment": "3D valley terrain, millrace, architecture and foundation"}.get(mode, "unknown"),
@@ -184,28 +184,73 @@ func check_water_flow() -> void:
 	var texture := water.normal_texture
 	var mesh := Scenery.stream_mesh()
 	var vertices: PackedVector3Array = mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX].duplicate()
+	var fine := water.detail_normal
 	verify(water == Scenery.water_material() and water.metallic == 0.0,
 		"The water keeps a shared dielectric material rather than metallic shading.")
-	verify(water.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED and water.normal_enabled
+	verify(water.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA and water.normal_enabled
 		and texture != null and texture.get_image().has_mipmaps() and water.texture_repeat,
-		"Moving detail retains the existing opaque, repeated and mipmapped normal surface.")
+		"Moving detail uses repeated mipmapped normals with explicit alpha transmission.")
+	verify(water.albedo_color.r == 1.0 and water.albedo_color.g == 1.0 and water.albedo_color.b == 1.0
+		and water.albedo_color.a > 0.4 and water.albedo_color.a < 0.9 and water.vertex_color_use_as_albedo,
+		"The existing river palette is applied once, with partial transmission instead of a second dark tint.")
+	verify(water.roughness > 0.05 and water.roughness < 0.3 and water.metallic_specular > 0.0
+		and water.metallic_specular < 0.5 and not water.refraction_enabled
+		and water.depth_draw_mode == BaseMaterial3D.DEPTH_DRAW_OPAQUE_ONLY,
+		"The lit dielectric surface retains reflections without screen refraction or a transparent depth occluder.")
+	verify(water.detail_enabled and water.detail_uv_layer == BaseMaterial3D.DETAIL_UV_2
+		and water.detail_blend_mode == BaseMaterial3D.BLEND_MODE_MUL and fine != texture
+		and fine != null and fine.get_image().has_mipmaps(),
+		"Independent secondary coordinates blend a distinct mipmapped fine-normal layer.")
+	var blend := water.detail_albedo.get_image().get_pixel(0, 0)
+	verify(blend.r == 1.0 and blend.g == 1.0 and blend.b == 1.0 and blend.a > 0.34 and blend.a < 0.36,
+		"The detail blend preserves albedo and retains both normal layers.")
+	var arrays := mesh.surface_get_arrays(0)
+	verify(arrays[Mesh.ARRAY_TEX_UV2] == arrays[Mesh.ARRAY_TEX_UV],
+		"Every actual stream vertex supplies matching undeformed secondary texture coordinates.")
+	for ripple in [texture, fine]:
+		var original: Image = ripple.get_image()
+		var bytes := original.get_data()
+		verify(original.get_format() == Image.FORMAT_RGB8 and original.get_size() == Vector2i(128, 128),
+			"Both authored normal maps use the declared RGB8 extent.")
+		for level in range(original.get_mipmap_count() + 1):
+			var dimension := maxi(1, original.get_width() >> level)
+			var offset := original.get_mipmap_offset(level)
+			var mip := Image.create_from_data(dimension, dimension, false, Image.FORMAT_RGB8,
+				bytes.slice(offset, offset + dimension * dimension * 3))
+			for y in range(0, mip.get_height(), maxi(1, mip.get_height() >> 4)):
+				for x in range(0, mip.get_width(), maxi(1, mip.get_width() >> 4)):
+					var pixel := mip.get_pixel(x, y)
+					var normal := Vector3(pixel.r, pixel.g, pixel.b) * 2.0 - Vector3.ONE
+					verify(normal.is_finite() and absf(normal.length() - 1.0) < 0.02 and normal.z > 0.9,
+						"Both ripple layers retain finite forward unit normals through every mip level.")
 	verify(Scenery.animate_water(0.0) and water.uv1_offset == Vector3.ZERO, "The visual phase starts at the original normal-map coordinates.")
+	verify(water.uv2_offset == Vector3.ZERO, "The fine layer also starts at its original coordinates.")
 	var before := water.uv1_offset
 	verify(Scenery.animate_water(1.0) and water.uv1_offset.y < before.y,
 		"The actual texture transform advances the pattern toward positive downstream Z.")
 	var travelled := -(water.uv1_offset.y - before.y) / (0.08 * water.uv1_scale.y)
 	verify(absf(travelled - 0.4) < 0.000001, "The declared environmental ripple speed is 0.4 metres per second in the authored stream UVs.")
+	verify(absf(-water.uv2_offset.y - 0.536) < 0.000001
+		and absf(-water.uv2_offset.x / (0.22 * water.uv2_scale.x) - 0.025) < 0.000001,
+		"The higher-density normal advects one full period plus 0.536 downstream and drifts gently across the river.")
 	var once := water.uv1_offset
+	var fine_once := water.uv2_offset
 	verify(Scenery.animate_water(1.0) and water.uv1_offset == once,
 		"Repeated updates at the same absolute time cannot accelerate the shared texture.")
+	verify(water.uv2_offset == fine_once, "The fine-layer phase is also idempotent across views.")
 	verify(Scenery.animate_water(3.90625) and water.uv1_offset.length() < 0.000001,
 		"One complete normal-texture period wraps to its initial coordinates.")
 	verify(Scenery.animate_water(1000000.25) and water.uv1_offset.is_finite()
 		and water.uv1_offset.y <= 0.0 and water.uv1_offset.y > -1.0, "Long-running presentation retains a bounded finite offset.")
 	var valid := water.uv1_offset
+	var fine_valid := water.uv2_offset
 	for invalid in [-1.0, NAN, INF]:
-		verify(not Scenery.animate_water(invalid) and water.uv1_offset == valid,
-			"Invalid presentation time preserves the last valid material phase.")
+		verify(not Scenery.animate_water(invalid) and water.uv1_offset == valid and water.uv2_offset == fine_valid,
+			"Invalid presentation time preserves both last valid material phases.")
+	verify(Scenery.animate_water(1e308) and water.uv1_offset.is_finite() and water.uv2_offset.is_finite()
+		and water.uv2_offset.x <= 0.0 and water.uv2_offset.x > -1.0
+		and water.uv2_offset.y <= 0.0 and water.uv2_offset.y > -1.0,
+		"Even an extreme finite presentation time cannot overflow the faster layer.")
 	var view := WaterFrameView.new()
 	view.auto_advance = false
 	root.add_child(view)
@@ -226,8 +271,19 @@ func check_water_flow() -> void:
 	view._refresh_water()
 	verify(water.uv1_offset.distance_to(Vector3(0.0, -0.512, 0.0)) < 0.000001,
 		"Historical explicit fixtures do not change the new water material.")
+	var historical := Opening.FlatFixtureEnvironment.water_material()
+	verify(historical != water and historical.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED,
+		"The separate historical flat fixture keeps its original opaque water.")
+	view.legacy_fixture = false
+	view._build_world()
+	var stream: MeshInstance3D = view.get_node("ProductionScenery/StreamSurface")
+	verify(stream.material_override == water and stream.mesh == mesh
+		and stream.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		and view.model == null and view.actor_world == null and view.state.is_empty(),
+		"The ordinary scene binds the layered finish without starting authority or creating a shadow occluder.")
 	verify(Scenery.stream_mesh() == mesh and mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX] == vertices
-		and water.normal_texture == texture, "Animation preserves every water vertex and the shared normal resource.")
+		and water.normal_texture == texture and water.detail_normal == fine,
+		"Animation preserves every water vertex and both shared normal resources.")
 	second.free()
 	view.free()
 
@@ -815,8 +871,8 @@ func run() -> void:
 	var water: StandardMaterial3D = stream.material_override
 	var ripples: Image = water.normal_texture.get_image()
 	verify(ripples.get_width() == 128 and ripples.get_height() == 128 and ripples.has_mipmaps()
-		and water.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED,
-		"Water uses an opaque mipmapped ripple surface without a sorting dependency.")
+		and water.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA and water.detail_enabled,
+		"Water uses the explicit translucent layered-ripple finish.")
 	for y in range(0, 128, 16):
 		for x in range(0, 128, 16):
 			var pixel := ripples.get_pixel(x, y)

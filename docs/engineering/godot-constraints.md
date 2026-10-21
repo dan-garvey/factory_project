@@ -605,6 +605,15 @@ coordinates. Source radiance and node binding do not establish rendered lighting
 balance or photometric calibration. Resource/geometry checks establish neither
 rendered quality nor GPU cost. See the [foliage asset record](../../experiments/engine-environment/godot/opening/assets/foliage/CREDITS.md).
 
+**River transmission is an adapter art approximation.** The ordinary natural
+river blends two mipmapped normal layers through the standard material's separate
+texture-coordinate channels. Its alpha surface can reveal the opaque bed and uses
+the existing sky reflection path, without changing water vertices, actor contact,
+power or simulation time. This is ordinary alpha blending, not depth-dependent
+absorption or refraction; transparent-object sorting, underwater viewing and final
+rendered balance remain unassessed. Resource and frame-consumer checks do not
+establish pixel quality or GPU cost. The historical flat fixture stays opaque.
+
 ## GDC-12: JSON control files do not preserve RPC Variant types
 
 **Engine/API, documented for 4.7.2; fixture conversions observed.** The pinned

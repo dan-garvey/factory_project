@@ -269,12 +269,19 @@ remain visual details. These checks establish geometry alignment; natural-lookin
 appearance remains unassessed. The finite displayed site is adapter geometry,
 not a gameplay world boundary.
 
-The shared opaque water material now scrolls its repeated normal detail downstream
-through the existing view frame callback. The absolute visual phase is idempotent
-across views and wraps by a texture period, using the documented
+The natural river uses a shared translucent dielectric finish with two mipmapped
+normal layers. Its existing river/rapid palette is applied once, instead of being
+multiplied by another dark tint. The larger ripples and finer cross-current detail
+move through separate texture coordinates in the existing view frame callback.
+The absolute visual phases are idempotent across views and wrap by their texture
+periods, using the documented
 [UV offset](https://docs.godotengine.org/en/4.7/classes/class_basematerial3d.html#class-basematerial3d-property-uv1-offset).
 Its 0.4 metres per second is an environmental art choice, never a production clock,
-waterwheel rate or fluid simulation. The water remains dielectric and retains its
-vertices, opaque depth behavior and shared normal resource. Historical fixed-roster
-and explicit legacy views keep their earlier static surface. Headless material and
-frame-consumer checks do not establish the rendered effect or GPU cost.
+waterwheel rate or fluid simulation; the finer layer also has a small lateral drift.
+The lit surface receives the shared sky reflections and retains every original
+vertex and physical descriptor. Standard alpha transmission reveals the opaque
+bed beneath it, but is an art approximation without physical absorption, refraction
+or an underwater camera model. Transparent-object ordering and final visual balance
+remain limitations to assess. The separate historical flat fixture keeps its opaque
+surface. Headless material and frame-consumer checks establish resource behavior,
+not the rendered effect or GPU cost.

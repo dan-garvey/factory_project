@@ -465,16 +465,39 @@ class ProductionEnvironment:
 					# Periodic analytic ripples; shading only, no displaced floor.
 					var normal := Vector3(-0.16 * cos(u + v * 2.0), -0.28 * cos(v * 4.0) - 0.12 * cos(u + v * 2.0), 1).normalized()
 					image.set_pixel(x, y, Color(normal.x * 0.5 + 0.5, normal.y * 0.5 + 0.5, normal.z * 0.5 + 0.5))
-			image.generate_mipmaps()
+			image.generate_mipmaps(true)
 			water_finish = StandardMaterial3D.new()
-			water_finish.albedo_color = Color("245866")
+			# The mesh already carries the river/rapid palette. Do not multiply
+			# it by a second dark teal tint. Transmission is an art approximation,
+			# not depth-dependent absorption or a second water simulation.
+			water_finish.albedo_color = Color(1.0, 1.0, 1.0, 0.74)
 			water_finish.vertex_color_use_as_albedo = true
+			water_finish.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 			water_finish.metallic = 0.0
-			water_finish.roughness = 0.16
+			water_finish.metallic_specular = 0.255
+			water_finish.roughness = 0.12
 			water_finish.normal_enabled = true
 			water_finish.normal_texture = ImageTexture.create_from_image(image)
 			water_finish.normal_scale = 0.42
 			water_finish.uv1_scale = Vector3(2, 8, 1)
+			var fine := Image.create(128, 128, false, Image.FORMAT_RGB8)
+			for y in range(128):
+				for x in range(128):
+					var u := float(x) / 128.0 * TAU
+					var v := float(y) / 128.0 * TAU
+					var dx := -0.14 * cos(3.0 * u + 2.0 * v) - 0.08 * cos(5.0 * u - v)
+					var dy := -0.17 * cos(v * 5.0) - 0.09 * cos(3.0 * u + 2.0 * v)
+					var normal := Vector3(dx, dy, 1.0).normalized()
+					fine.set_pixel(x, y, Color(normal.x * 0.5 + 0.5, normal.y * 0.5 + 0.5, normal.z * 0.5 + 0.5))
+			fine.generate_mipmaps(true)
+			var blend := Image.create(1, 1, false, Image.FORMAT_RGBA8)
+			blend.set_pixel(0, 0, Color(1.0, 1.0, 1.0, 0.35))
+			water_finish.detail_enabled = true
+			water_finish.detail_blend_mode = BaseMaterial3D.BLEND_MODE_MUL
+			water_finish.detail_albedo = ImageTexture.create_from_image(blend)
+			water_finish.detail_normal = ImageTexture.create_from_image(fine)
+			water_finish.detail_uv_layer = BaseMaterial3D.DETAIL_UV_2
+			water_finish.uv2_scale = Vector3(7, 48, 1)
 			water_finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 		return water_finish
 
@@ -486,6 +509,11 @@ class ProductionEnvironment:
 		if water_finish == null or not is_finite(seconds) or seconds < 0.0:
 			return false
 		water_finish.uv1_offset = Vector3(0.0, -fposmod(seconds * 0.256, 1.0), 0.0)
+		# UV2 has six times the downstream density. Both layers advect at
+		# 0.4 m/s, with a small lateral drift on the fine layer. Reduce time
+		# before the faster multiplication so every finite time remains valid.
+		water_finish.uv2_offset = Vector3(-fposmod(seconds * 0.0385, 1.0),
+			-fposmod(fposmod(seconds, 1.0 / 1.536) * 1.536, 1.0), 0.0)
 		return true
 
 	static func foam_material() -> StandardMaterial3D:
@@ -685,6 +713,7 @@ class ProductionEnvironment:
 					for idx in tri:
 						surface.set_normal(normals[idx])
 						surface.set_uv(uvs[idx])
+						surface.set_uv2(uvs[idx])
 						surface.set_color(colors[idx])
 						surface.add_vertex(positions[idx])
 		surface.generate_tangents()
