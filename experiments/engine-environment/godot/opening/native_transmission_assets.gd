@@ -257,10 +257,22 @@ static func _belt_frame(loop: MeshInstance3D, distance: float) -> void:
 			Vector2(0.078, 0.014), Vector2(0.072, 0.020),
 			Vector2(0.037, 0.020), Vector2(0.034, 0.017),
 			Vector2(0.034, -0.020)]))
+	# A closed formed channel exposes two narrow flanges and a recessed web.
+	# The open side faces away from the cargo lane; the profile stays rigid as
+	# only its undecorated length changes between confirmed shaft centres.
+	var section := PackedVector2Array([
+		Vector2(-0.026, -0.055), Vector2(0.026, -0.055),
+		Vector2(0.026, -0.043), Vector2(-0.014, -0.043),
+		Vector2(-0.014, 0.043), Vector2(0.026, 0.043),
+		Vector2(0.026, 0.055), Vector2(-0.026, 0.055)])
 	for side in [-1.0, 1.0]:
+		var profile := section.duplicate()
+		for index in range(profile.size()):
+			profile[index].x *= -side
 		var rail := MeshInstance3D.new()
 		rail.name = "SpanFrameRailN" if side < 0 else "SpanFrameRailP"
-		rail.mesh = Visuals.box_mesh(Vector3(distance, 0.11, 0.04))
+		rail.mesh = Visuals.prism_mesh(profile, distance, 0.002)
+		rail.basis = Basis(Vector3.UP, PI / 2.0)
 		rail.position = Vector3(0, 0, side * 0.515)
 		rail.material_override = rail_finish
 		rail.set_meta("span_frame_role", "Rail")
