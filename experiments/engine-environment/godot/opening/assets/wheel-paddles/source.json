@@ -1,0 +1,100 @@
+{
+  "asset": "Original Factory waterwheel paddle assembly",
+  "surface": {
+    "asset": "Poly Haven Fine Grained Wood",
+    "author": "Rob Tuytel",
+    "license": "CC0-1.0",
+    "primary": "https://polyhaven.com/a/fine_grained_wood",
+    "license_url": "https://polyhaven.com/license",
+    "api_info": "https://api.polyhaven.com/info/fine_grained_wood",
+    "api_files": "https://api.polyhaven.com/files/fine_grained_wood",
+    "metadata_qualification": "The current page and numeric dimensions indicate about 0.6 m; the older API scale string says 30x30CM. The selected 0.6 m mapping is an experimental art choice, not a measured geometry fact.",
+    "source_capture_date": "2026-10-21"
+  },
+  "geometry": {
+    "original_factory_art": true,
+    "paddles": 12,
+    "blade_dimensions_metres": [
+      0.14,
+      0.018,
+      0.28
+    ],
+    "root_dimensions_metres": [
+      0.04,
+      0.06,
+      0.1
+    ],
+    "attachment": "Two original iron straps and two hexagonal bolt heads per blade.",
+    "center_radius_metres": 0.62,
+    "preserved": "Source rotor, atlas, center, native axis, scale, signed cosmetic presenter, original paddle envelope and native rules.",
+    "end_grain": "No separate end-grain source is claimed."
+  },
+  "source_files": [
+    {
+      "role": "albedo",
+      "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/fine_grained_wood/fine_grained_wood_col_1k.jpg",
+      "bytes": 336305,
+      "md5": "3db9decdde678e087e67ff99d30c0a73",
+      "sha256": "d171f45ef01bc6e239b00dfaa4961bcd27f7d8e93e3962da3bd3d0ce703d802c",
+      "representation": "Original 1024-square RGB8 JPEG, not reencoded."
+    },
+    {
+      "role": "normal",
+      "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/fine_grained_wood/fine_grained_wood_nor_gl_1k.png",
+      "bytes": 810317,
+      "md5": "35c4f86b7fbd91eba54a4d6e88fb16d7",
+      "sha256": "ed173765ea09b3f19ddb2ab71e8d205815b980263c3dcb71695c13f704663514",
+      "representation": "1024-square RGBA8 OpenGL normal PNG. Unused alpha spans 253 to 255.",
+      "decoded_rgb_sha256": "8f381633310af70a23a4779a32050d2b7383b94b970d3a6eec211b831710c4fb"
+    },
+    {
+      "role": "roughness",
+      "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/fine_grained_wood/fine_grained_wood_rough_1k.png",
+      "bytes": 516076,
+      "md5": "c1b63d1d9092c6bcd524c2ae690cca83",
+      "sha256": "0e8cd8d6f16e7a05278ed45f11b51fb6e5d227e71c71d5a556f1a939d513694d",
+      "representation": "1024-square grey-plus-alpha PNG. Unused alpha spans 251 to 255.",
+      "decoded_rgb_sha256": "f17b032cc08cbc36b76d59eaeb3448de458bb98756246ed4dc596f88f5d2672e"
+    }
+  ],
+  "preparation": {
+    "implementation": "opening/machine_detail_check.gd --prepare-paddle-maps SOURCE_DIRECTORY FRESH_OUTPUT_DIRECTORY",
+    "source_pins_checked_before_writing": true,
+    "unused_alpha": "Full loaded RGB hash matches independent raw PNG decoding, and all data pixels compare exactly before/after conversion to float RGB. Alpha is unused by these data roles.",
+    "normal": "Float Lanczos resize to 512 square, positive-Z OpenGL normal renormalization and nearest RGB8 encoding.",
+    "roughness": "Float Lanczos resize to 512 square and nearest L8 encoding.",
+    "delivery": "Lossless WebP pixels compare exactly with the prepared representation. This is not equality to the larger original PNGs.",
+    "maximum_normal_length_error": 0.00431215763092041,
+    "maximum_normal_encoding_angle_degrees": 0.321425416403911
+  },
+  "delivered": [
+    {
+      "file": "timber_albedo.jpg",
+      "bytes": 336305,
+      "sha256": "d171f45ef01bc6e239b00dfaa4961bcd27f7d8e93e3962da3bd3d0ce703d802c"
+    },
+    {
+      "file": "timber_normal_gl.webp",
+      "bytes": 183830,
+      "sha256": "437cd9dfd74ee7029902ce37c6729c21777151458ce9617788a4a9e0916adc58"
+    },
+    {
+      "file": "timber_roughness.webp",
+      "bytes": 103572,
+      "sha256": "33d094eb167fa9d3aea5b735f7fca14ef806a88a992b3b7fd3e44c3f8d55143e"
+    }
+  ],
+  "runtime": {
+    "local_uv": true,
+    "tile_metres": 0.6,
+    "grain": "Image V follows the blade's longer axial span.",
+    "metallic": 0,
+    "roughness_channel": "red",
+    "mipmaps": true,
+    "normal_mips_renormalized": true,
+    "missing_all_maps": "Historical fixed rosters retain the original block paddles and generated wood finish.",
+    "partial_set": "Explicit invalid resource status; not sourced success.",
+    "export": "The exercised native launcher uses raw project capture. Godot export packaging remains outside this verified resource closure."
+  },
+  "evidence": "Source, exact preparation and asset fixtures establish only their technical scope. No human quality, force, efficiency, collision or power claim is implied."
+}

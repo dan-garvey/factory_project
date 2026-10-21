@@ -1,8 +1,10 @@
 extends SceneTree
 ## Authored mesh and visual assembly checks. No game authority or desktop.
 const Opening = preload("res://opening/opening.gd")
+const Shared = preload("res://opening/shared_opening.gd")
 const Visuals = Opening.ProductionVisuals
 const WheelArt = Opening.ProductionWheelArt
+const PaddleArt = Opening.ProductionPaddleArt
 const PressArt = Opening.ProductionPressArt
 const ConveyorArt = Opening.ProductionConveyorArt
 const CollectorArt = Opening.ProductionCollectorArt
@@ -16,7 +18,12 @@ var detail_meshes := 0
 var minimum_press_gap := INF
 var minimum_collector_gap := INF
 
-func check_closed_asset_mesh(mesh: ArrayMesh, minimum_volume: float, maximum_volume: float) -> void:
+class PaddleSessionFacts extends RefCounted:
+	var ready := true
+	func is_ready() -> bool:
+		return ready
+
+func check_closed_asset_mesh(mesh: Mesh, minimum_volume: float, maximum_volume: float) -> void:
 	var arrays := mesh.surface_get_arrays(0)
 	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
 	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
@@ -58,6 +65,196 @@ func check_closed_asset_mesh(mesh: ArrayMesh, minimum_volume: float, maximum_vol
 	verify(valid, "Casting normals, tangents and UVs remain finite and usable after mesh packing.")
 	verify(absf(volume) > minimum_volume and absf(volume) < maximum_volume,
 		"The solid or annular casting retains an independently bounded volume.")
+
+func paddle_local_bounds(node: Node3D, parent_pose: Transform3D) -> void:
+	var pose := parent_pose * node.transform
+	verify(node.get_script() == null and not node is CollisionObject3D and not node is CollisionShape3D,
+		"Paddle pieces are plain render nodes without a controller or collider.")
+	if node is MeshInstance3D:
+		var bounded := true
+		for corner in range(8):
+			var point: Vector3 = pose * node.mesh.get_aabb().get_endpoint(corner)
+			bounded = bounded and absf(point.x) <= 0.07001 and absf(point.y) <= 0.08001 and absf(point.z) <= 0.14001
+		verify(bounded, "Every blade, cleat, strap and bolt fits the original paddle's literal local envelope.")
+	for child in node.get_children():
+		if child is Node3D:
+			paddle_local_bounds(child, pose)
+
+func check_paddle_maps() -> void:
+	var finish_value: StandardMaterial3D = PaddleArt.finish
+	verify(finish_value != null and finish_value.albedo_color == Color.WHITE and finish_value.metallic == 0
+		and finish_value.metallic_texture == null and not finish_value.ao_enabled
+		and finish_value.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED,
+		"The actual timber material is opaque nonmetallic wood without invented occlusion or opacity.")
+	verify(finish_value.normal_enabled and finish_value.normal_scale == 1
+		and finish_value.roughness == 1 and finish_value.roughness_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_RED
+		and not finish_value.uv1_triplanar and finish_value.uv1_scale.is_equal_approx(Vector3.ONE / 0.6),
+		"The explicit red scalar and local authored UVs preserve the declared visual grain scale.")
+	var normal := finish_value.normal_texture.get_image()
+	var roughness := finish_value.roughness_texture.get_image()
+	verify(finish_value.albedo_texture.get_size() == Vector2(1024, 1024)
+		and normal.get_size() == Vector2i(512, 512) and roughness.get_size() == Vector2i(512, 512)
+		and normal.get_format() == Image.FORMAT_RGB8 and roughness.get_format() == Image.FORMAT_L8
+		and normal.has_mipmaps() and roughness.has_mipmaps() and finish_value.albedo_texture.get_image().has_mipmaps(),
+		"Actual cached image textures retain their dimensions, data formats and mip chains.")
+	var valid := true
+	var maximum_error := 0.0
+	var low := INF
+	var high := -INF
+	for y in range(0, 512, 32):
+		for x in range(0, 512, 32):
+			var color := normal.get_pixel(x, y)
+			var decoded := Vector3(color.r, color.g, color.b) * 2 - Vector3.ONE
+			maximum_error = maxf(maximum_error, absf(decoded.length() - 1))
+			valid = valid and decoded.is_finite() and decoded.z > 0 and absf(decoded.length() - 1) < 0.01
+			low = minf(low, roughness.get_pixel(x, y).r)
+			high = maxf(high, roughness.get_pixel(x, y).r)
+	verify(valid and low >= 0 and high <= 1 and high - low > 0.05,
+		"Actual normal texels remain finite outward unit vectors and roughness has nonconstant scalar content.")
+	var missing: Dictionary = PaddleArt.read_images("user://paddle-controls/missing")
+	verify(missing.status == "missing", "An absent historical timber set is explicitly distinguishable.")
+	var partial := "user://paddle-controls/partial"
+	DirAccess.make_dir_recursive_absolute(partial)
+	verify(DirAccess.copy_absolute(PaddleArt.ROOT.path_join("timber_albedo.jpg"), partial.path_join("timber_albedo.jpg")) == OK,
+		"The partial-set control contains an actual valid color file.")
+	verify(PaddleArt.read_images(partial).status == "invalid", "A partial source set cannot become sourced timber success.")
+	var wrong := "user://paddle-controls/wrong-size"
+	DirAccess.make_dir_recursive_absolute(wrong)
+	var small := Image.create(8, 8, false, Image.FORMAT_RGB8)
+	small.fill(Color(0.5, 0.5, 1))
+	for role in PaddleArt.FILES:
+		var path := wrong.path_join(PaddleArt.FILES[role])
+		verify((DirAccess.copy_absolute(PaddleArt.ROOT.path_join(PaddleArt.FILES.albedo), path)
+			if role == "albedo" else small.save_webp(path, false)) == OK,
+			"The size control uses valid encoded images rather than a decoder failure.")
+	verify(PaddleArt.read_images(wrong).status == "invalid", "A complete but wrongly sized image set is refused.")
+	print(JSON.stringify({"phase": "paddle material", "maximum_sampled_normal_length_error": maximum_error,
+		"roughness_sample_range": [low, high], "resource_controls": 3}))
+
+func check_timber_paddles(historical: bool = false) -> void:
+	verify(PaddleArt.read_images().status == ("missing" if historical else "ready"),
+		"This captured project has the explicitly declared timber resource presence.")
+	var cached: Dictionary = {}
+	var root_counts: Array[int] = []
+	var assemblies := 0
+	for shared_profile in [false, true]:
+		for axis in range(3):
+			var view: Variant = Shared.new() if shared_profile else Opening.new()
+			var facts := PaddleSessionFacts.new()
+			if shared_profile:
+				view.session = facts
+			view.machine_root = Node3D.new()
+			view.add_child(view.machine_root)
+			view.state = {"context": "paddle-asset-fixture", "options": {"native": true, "physical": true},
+				"actors": {"P": {"ready": true}}, "parts": {}, "inventories": {"P": 0},
+				"stock": {"source": 16, "collector": 0, "belt": 0, "input": 0, "held": 0, "output": 0},
+				"entities": {"fixture": {"kind": "wheel", "cell": [0, 0], "axis": axis, "generation": 1}},
+				"transmission_parts": {}, "links": [], "drive_links": [], "engagements": [],
+				"motion": {"fixture": {"state": "rotating", "numerator": -2, "denominator": 1}}}
+			var before: Dictionary = view.state.duplicate(true)
+			view.transmission_presenter = Presenter.new()
+			view.add_child(view.transmission_presenter)
+			view.transmission_presenter.configure(view)
+			view._rebuild_machines()
+			var machine: Node3D = view.machine_root.get_child(0)
+			var rotor: Node3D = view.wheel_rotor
+			var source: MeshInstance3D = rotor.get_node("SourcedTimberRotor")
+			verify(source.mesh == WheelArt.mesh and source.material_override == WheelArt.finish
+				and source.transform == Transform3D.IDENTITY and source.get_child_count() == 0,
+				"The original sourced rotor mesh, atlas and rigid placement remain exact.")
+			print(JSON.stringify({"phase": "paddle mount observation", "shared_class": shared_profile, "axis": axis,
+				"center": [rotor.position.x, rotor.position.y, rotor.position.z],
+				"axis_vector": [rotor.basis.z.normalized().x, rotor.basis.z.normalized().y, rotor.basis.z.normalized().z]}))
+			verify(rotor.position.is_equal_approx(Vector3(0, 0.5, 0))
+				and rotor.basis.z.normalized().dot([Vector3.RIGHT, Vector3.UP, Vector3.BACK][axis]) > 0.99999,
+				"The ordinary wheel keeps its literal native center and projected spindle axis.")
+			var blades := 0
+			for child in rotor.get_children():
+				if not child is MeshInstance3D:
+					continue
+				if historical:
+					if child.mesh == Visuals.box_mesh(Vector3(0.14, 0.16, 0.28)):
+						blades += 1
+						verify(child.get_child_count() == 0 and child.material_override == Visuals.material(Color("b48c52"), 0.05, 0.88),
+							"Historical missing-map captures retain their exact earlier blocks and finish.")
+					continue
+				if child.get_meta("detail_role", "") != "WheelPaddle":
+					continue
+				blades += 1
+				var index: int = child.get_meta("paddle_index")
+				var angle := float(index) * TAU / 12
+				verify(index >= 0 and index < 12 and child.position.is_equal_approx(Vector3(cos(angle), sin(angle), 0) * 0.62)
+					and child.basis.is_equal_approx(Basis(Vector3.BACK, angle)),
+					"Each original paddle position and angular frame remains fixed to the rotor.")
+				paddle_local_bounds(child, child.transform.affine_inverse())
+				verify(child.get_child_count() == 5 and count_role(child, "PaddleRootCleat") == 1
+					and count_role(child, "PaddleIronStrap") == 2 and count_role(child, "PaddleBolt") == 2,
+					"Every timber blade has one fitted root, two iron straps and two bolts.")
+				var pieces: Array = [child]
+				pieces.append_array(child.get_children())
+				for part: MeshInstance3D in pieces:
+					var role: String = part.get_meta("detail_role")
+					if not cached.has(role):
+						cached[role] = [part.mesh, part.material_override]
+						var limits: Array = {"WheelPaddle": [0.00065, 0.00071], "PaddleRootCleat": [0.00021, 0.000241],
+							"PaddleIronStrap": [0.0000095, 0.0000106], "PaddleBolt": [0.0000049, 0.0000052]}[role]
+						check_closed_asset_mesh(part.mesh, limits[0], limits[1])
+						if role == "WheelPaddle":
+							verify(part.mesh.get_aabb().size.is_equal_approx(Vector3(0.14, 0.018, 0.28)),
+								"The original blade span now has a literal eighteen-millimetre timber thickness.")
+							var arrays: Array = part.mesh.surface_get_arrays(0)
+							var positions: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+							var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+							var uv: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+							var broad_faces := 0
+							var aligned := true
+							for n in range(positions.size()):
+								if absf(normals[n].y) > 0.99999:
+									broad_faces += 1
+									aligned = aligned and uv[n].is_equal_approx(Vector2(positions[n].x, positions[n].z))
+							verify(aligned and broad_faces > 0, "The actual broad blade UVs put source grain V along its longer axial span.")
+					verify(part.mesh == cached[role][0] and part.material_override == cached[role][1],
+						"All blade assemblies reuse their exact role-specific mesh and material resources.")
+					var material := part.material_override as StandardMaterial3D
+					verify(material != null and (material == PaddleArt.finish if role in ["WheelPaddle", "PaddleRootCleat"]
+						else is_equal_approx(material.metallic, 0.85) and material.albedo_color == Color("46504e")),
+						"Timber and attachment iron retain distinct actual material bindings.")
+				if not shared_profile and axis == 0:
+					var vertices: PackedVector3Array = source.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+					var inverse: Transform3D = child.transform.affine_inverse()
+					var cleat: MeshInstance3D = child.get_child(0)
+					var inside := 0
+					for point in vertices:
+						var local: Vector3 = inverse * point - cleat.position
+						if absf(local.x) < 0.015 and absf(local.y) < 0.025 and absf(local.z) < 0.045:
+							inside += 1
+					root_counts.append(inside)
+					verify(inside > 0, "The actual unchanged imported rotor intersects every new root's conservative interior.")
+			verify(blades == 12 and PaddleArt.source_status == ("missing" if historical else "ready"),
+				"The ordinary builder keeps exactly twelve paddles and the declared source qualification.")
+			var base := rotor.basis
+			for sample in range(24):
+				rotor.basis = base * Basis(Vector3.BACK, float(sample) * TAU / 24)
+				check_bounds(rotor, Transform3D.IDENTITY)
+			rotor.basis = base
+			view._animate_wheel(0.1)
+			verify(rotor.basis.is_equal_approx(base * Basis(Vector3.BACK, -0.16)) and view.state == before,
+				"The complete paddle assembly consumes the existing signed cosmetic angle without changing native observations.")
+			view.state.motion.fixture.state = "stalled"
+			var stopped: Dictionary = view.state.duplicate(true)
+			var held := rotor.basis
+			view._animate_wheel(0.2)
+			verify(rotor.basis == held and view.state == stopped,
+				"A confirmed mechanical stall freezes the whole timber assembly.")
+			verify(view.model == null and view.actor_world == null and view.request_sequence == 0,
+				"The asset fixture creates no state authority, character body or material request.")
+			view.free()
+			assemblies += 1
+	if not historical:
+		check_paddle_maps()
+	print(JSON.stringify({"phase": "timber paddles", "assemblies": assemblies, "paddles_per_assembly": 12,
+		"historical_missing_set": historical, "original_source_vertices_inside_each_root": root_counts,
+		"observations": "invented", "native_gameplay": "not_run"}))
 
 func point_triangle_distance(point: Vector2, a: Vector2, b: Vector2, c: Vector2) -> float:
 	var area := absf((b - a).cross(c - a))
@@ -941,7 +1138,149 @@ func prepare_component_maps(prefix: String) -> void:
 	print(JSON.stringify(report))
 	quit(0)
 
+func prepare_paddle_maps() -> void:
+	var args := OS.get_cmdline_user_args()
+	if args.size() != 3:
+		push_error("Use --prepare-paddle-maps SOURCE_DIRECTORY FRESH_OUTPUT_DIRECTORY.")
+		quit(1)
+		return
+	var source := args[1]
+	var output := args[2]
+	var directory := DirAccess.open(output)
+	if directory == null or not directory.get_files().is_empty() or not directory.get_directories().is_empty():
+		push_error("The prepared paddle directory must already exist and be empty.")
+		quit(1)
+		return
+	var pins := {"albedo.jpg": "d171f45ef01bc6e239b00dfaa4961bcd27f7d8e93e3962da3bd3d0ce703d802c",
+		"normal.png": "ed173765ea09b3f19ddb2ab71e8d205815b980263c3dcb71695c13f704663514",
+		"roughness.png": "0e8cd8d6f16e7a05278ed45f11b51fb6e5d227e71c71d5a556f1a939d513694d"}
+	for name_value in pins:
+		if FileAccess.get_sha256(source.path_join(name_value)) != pins[name_value]:
+			push_error("The paddle source hash differs: " + name_value)
+			quit(1)
+			return
+	var originals: Dictionary = {}
+	var formats: Dictionary = {}
+	var source_alpha: Dictionary = {}
+	# Independent raw PNG8 row-filter decoding supplies these RGB byte hashes.
+	var decoded_pins := {"normal": "8f381633310af70a23a4779a32050d2b7383b94b970d3a6eec211b831710c4fb",
+		"roughness": "f17b032cc08cbc36b76d59eaeb3448de458bb98756246ed4dc596f88f5d2672e"}
+	for role in ["normal", "roughness"]:
+		var original := Image.load_from_file(source.path_join(role + ".png"))
+		if original == null or original.get_size() != Vector2i(1024, 1024):
+			push_error("Expected the pinned one-kilopixel paddle data map: " + role)
+			quit(1)
+			return
+		formats[role] = original.get_format()
+		var raw: Image = original.duplicate()
+		original.convert(Image.FORMAT_RGBF)
+		var minimum_alpha := 255
+		var maximum_alpha := 0
+		var nonopaque := 0
+		var raw_rgb := PackedByteArray()
+		raw_rgb.resize(1024 * 1024 * 3)
+		# Material normals ignore alpha; roughness explicitly selects red. Keep
+		# every data component unchanged when dropping this unused channel.
+		# A full pixel comparison also rejects accidental premultiplication.
+		for y in range(1024):
+			for x in range(1024):
+				var before := raw.get_pixel(x, y)
+				var after := original.get_pixel(x, y)
+				if Vector3(before.r, before.g, before.b) != Vector3(after.r, after.g, after.b):
+					push_error("Dropping unused alpha changed the paddle data channels: " + role)
+					quit(1)
+					return
+				var at := (y * 1024 + x) * 3
+				for channel in range(3):
+					raw_rgb[at + channel] = clampi(roundi(before[channel] * 255), 0, 255)
+				var alpha := clampi(roundi(before.a * 255), 0, 255)
+				minimum_alpha = mini(minimum_alpha, alpha)
+				maximum_alpha = maxi(maximum_alpha, alpha)
+				if alpha != 255:
+					nonopaque += 1
+		var hash_context := HashingContext.new()
+		if hash_context.start(HashingContext.HASH_SHA256) != OK or hash_context.update(raw_rgb) != OK:
+			push_error("Cannot verify the original paddle data channels.")
+			quit(1)
+			return
+		var raw_digest := hash_context.finish().hex_encode()
+		if raw_digest != decoded_pins[role]:
+			push_error("Paddle image loading changed the pinned PNG data channels: " + role)
+			quit(1)
+			return
+		source_alpha[role] = {"minimum": minimum_alpha, "maximum": maximum_alpha,
+			"nonopaque_pixels": nonopaque, "all_data_channels_preserved": true, "original_rgb_sha256": raw_digest}
+		original.resize(512, 512, Image.INTERPOLATE_LANCZOS)
+		originals[role] = original
+	var report: Dictionary = {"status": "pass", "source_size": [1024, 1024], "source_alpha": source_alpha, "maps": {}}
+	for role in originals:
+		var normal_map: bool = role == "normal"
+		var channels := 3 if normal_map else 1
+		var pixels := PackedByteArray()
+		pixels.resize(512 * 512 * channels)
+		var maximum_length_error := 0.0
+		var maximum_angle := 0.0
+		for y in range(512):
+			for x in range(512):
+				var color: Color = originals[role].get_pixel(x, y)
+				var at := (y * 512 + x) * channels
+				if normal_map:
+					var normal := Vector3(color.r * 2 - 1, color.g * 2 - 1, color.b * 2 - 1)
+					if not normal.is_finite() or normal.length_squared() < 0.000001:
+						push_error("The prepared paddle normal cannot be normalized.")
+						quit(1)
+						return
+					normal = normal.normalized()
+					for axis in range(3):
+						pixels[at + axis] = clampi(roundi((normal[axis] * 0.5 + 0.5) * 255), 0, 255)
+					var decoded := Vector3(pixels[at], pixels[at + 1], pixels[at + 2]) / 255.0 * 2.0 - Vector3.ONE
+					maximum_length_error = maxf(maximum_length_error, absf(decoded.length() - 1))
+					maximum_angle = maxf(maximum_angle, rad_to_deg(acos(clampf(decoded.normalized().dot(normal), -1, 1))))
+				else:
+					pixels[at] = clampi(roundi(color.r * 255), 0, 255)
+		if maximum_length_error >= 0.01 or maximum_angle >= 0.5:
+			push_error("The prepared paddle normal exceeds its encoding bound.")
+			quit(1)
+			return
+		var format := Image.FORMAT_RGB8 if normal_map else Image.FORMAT_L8
+		var prepared := Image.create_from_data(512, 512, false, format, pixels)
+		var target := output.path_join("timber_normal_gl.webp" if normal_map else "timber_roughness.webp")
+		if prepared.save_webp(target, false) != OK:
+			push_error("Cannot encode the paddle data map: " + role)
+			quit(1)
+			return
+		var packed := Image.load_from_file(target)
+		if packed == null:
+			push_error("Cannot decode the prepared paddle map: " + role)
+			quit(1)
+			return
+		packed.convert(format)
+		if packed.get_size() != Vector2i(512, 512) or packed.get_data() != pixels:
+			push_error("Prepared paddle pixels changed in lossless encoding: " + role)
+			quit(1)
+			return
+		report.maps[role] = {"source_decoded_format": formats[role], "runtime_format": format,
+			"prepared_pixel_equality": true, "maximum_normal_length_error": maximum_length_error,
+			"maximum_normal_encoding_angle_degrees": maximum_angle, "bytes": FileAccess.get_file_as_bytes(target).size()}
+	var albedo := output.path_join("timber_albedo.jpg")
+	if DirAccess.copy_absolute(source.path_join("albedo.jpg"), albedo) != OK \
+			or FileAccess.get_sha256(albedo) != pins["albedo.jpg"]:
+		push_error("Cannot preserve the original paddle albedo bytes.")
+		quit(1)
+		return
+	report.maps.albedo = {"original_jpeg_bytes_preserved": true, "bytes": FileAccess.get_file_as_bytes(albedo).size()}
+	report.processing = "Unused alpha dropped with exact full-image RGB preservation. Float Lanczos resize, normalized OpenGL normals, nearest RGB8/L8 encoding and exact lossless WebP roundtrip. Original color JPEG is not reencoded."
+	print(JSON.stringify(report))
+	quit(0)
+
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--paddles-only") or OS.get_cmdline_user_args().has("--historical-paddles-only"):
+		check_timber_paddles(OS.get_cmdline_user_args().has("--historical-paddles-only"))
+		finish()
+		return
+	if OS.get_cmdline_user_args().size() > 0 and OS.get_cmdline_user_args()[0] == "--prepare-paddle-maps":
+		prepare_paddle_maps()
+		return
 	if OS.get_cmdline_user_args().has("--machine-skid-only"):
 		check_machine_support_skid()
 		check_collector_cast_frame()

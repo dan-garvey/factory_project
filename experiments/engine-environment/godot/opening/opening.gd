@@ -492,6 +492,102 @@ class ProductionWheelArt:
 		parent.add_child(rotor)
 		return true
 
+class ProductionPaddleArt:
+	extends RefCounted
+	## Original blade joinery and qualified timber. No power or work authority.
+	const ROOT := "res://opening/assets/wheel-paddles"
+	const FILES := {"albedo": "timber_albedo.jpg", "normal": "timber_normal_gl.webp", "roughness": "timber_roughness.webp"}
+	const TILE_METRES := 0.6
+	static var finish: StandardMaterial3D
+	static var source_status := "uninitialized"
+	static var meshes: Dictionary = {}
+
+	static func read_images(directory: String = ROOT) -> Dictionary:
+		var present := 0
+		for name_value in FILES.values():
+			if FileAccess.file_exists(directory.path_join(name_value)):
+				present += 1
+		if present == 0:
+			return {"status": "missing", "images": {}}
+		if present != FILES.size():
+			return {"status": "invalid", "reason": "incomplete_timber_set", "images": {}}
+		var images: Dictionary = {}
+		for role in FILES:
+			var image := Image.load_from_file(directory.path_join(FILES[role]))
+			var extent := 1024 if role == "albedo" else 512
+			if image == null or image.is_empty() or image.get_size() != Vector2i(extent, extent):
+				return {"status": "invalid", "reason": "invalid_" + role, "images": {}}
+			image.convert(Image.FORMAT_L8 if role == "roughness" else Image.FORMAT_RGB8)
+			images[role] = image
+		return {"status": "ready", "images": images}
+
+	static func _prepare() -> void:
+		var loaded := read_images()
+		source_status = loaded.status
+		if source_status == "missing":
+			return
+		if source_status != "ready":
+			push_error("Invalid paddle timber: " + str(loaded.get("reason", "unknown")))
+			return
+		for role in loaded.images:
+			var image: Image = loaded.images[role]
+			if image.generate_mipmaps(role == "normal") != OK:
+				source_status = "invalid"
+				push_error("Cannot generate paddle timber mipmaps.")
+				return
+		finish = StandardMaterial3D.new()
+		finish.albedo_color = Color.WHITE
+		finish.albedo_texture = ImageTexture.create_from_image(loaded.images.albedo)
+		finish.metallic = 0.0
+		finish.roughness = 1.0
+		finish.roughness_texture = ImageTexture.create_from_image(loaded.images.roughness)
+		finish.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
+		finish.normal_enabled = true
+		finish.normal_texture = ImageTexture.create_from_image(loaded.images.normal)
+		# The source's current page and older scale metadata disagree. This is
+		# an explicit visual mapping, never a measured native dimension. Broad
+		# blade faces use UV=(radial X, axial Z), so grain V runs along the span.
+		finish.uv1_scale = Vector3.ONE / TILE_METRES
+		finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+
+	static func _part(parent: Node3D, role: String, mesh: Mesh, at: Vector3, material: Material) -> MeshInstance3D:
+		var part := MeshInstance3D.new()
+		part.name = role
+		part.mesh = mesh
+		part.position = at
+		part.material_override = material
+		part.set_meta("detail_role", role)
+		parent.add_child(part)
+		return part
+
+	static func mount(parent: Node3D, angle: float, index: int) -> bool:
+		if source_status == "uninitialized":
+			_prepare()
+		if source_status != "ready":
+			return false
+		var blade := _part(parent, "WheelPaddle", ProductionVisuals.box_mesh(Vector3(0.14, 0.018, 0.28)),
+			Vector3(cos(angle), sin(angle), 0) * 0.62, finish)
+		blade.rotation.z = angle
+		blade.set_meta("paddle_index", index)
+		_part(blade, "PaddleRootCleat", ProductionVisuals.box_mesh(Vector3(0.04, 0.06, 0.10)),
+			Vector3(-0.05, 0, 0), finish)
+		var iron := ProductionTransmissionFinish.material("worked", Color("46504e"), 0.85, 0.48)
+		if iron == null:
+			blade.free()
+			return false
+		if not meshes.has("bolt"):
+			var bolt := CylinderMesh.new()
+			bolt.top_radius = 0.014
+			bolt.bottom_radius = 0.014
+			bolt.height = 0.01
+			bolt.radial_segments = 6
+			meshes["bolt"] = bolt
+		for z in [-0.04, 0.04]:
+			_part(blade, "PaddleIronStrap", ProductionVisuals.box_mesh(Vector3(0.07, 0.006, 0.025)),
+				Vector3(-0.035, -0.033, z), iron)
+			_part(blade, "PaddleBolt", meshes.bolt, Vector3(-0.05, -0.041, z), iron)
+		return true
+
 class ProductionSteelFloor:
 	extends RefCounted
 	## Image/material presentation only. No geometry or physical displacement.
@@ -3453,10 +3549,12 @@ func _wheel_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	# An open rim exposes the spokes. Meshes never supply drive relationships.
 	for n in range(12):
 		var angle := n * TAU / 12.0
-		var radial := Vector3(cos(angle), sin(angle), 0)
-		var paddle := _machine_box(wheel_rotor, "WheelPaddle", radial * 0.62,
-			Vector3(0.14, 0.16, 0.28), wood, 0.05, 0.88)
-		paddle.rotation.z = angle
+		if not ProductionPaddleArt.mount(wheel_rotor, angle, n):
+			# Historical fixed rosters retain their exact earlier block paddles.
+			var radial := Vector3(cos(angle), sin(angle), 0)
+			var paddle := _machine_box(wheel_rotor, "WheelPaddle", radial * 0.62,
+				Vector3(0.14, 0.16, 0.28), wood, 0.05, 0.88)
+			paddle.rotation.z = angle
 	if not sourced:
 		for n in range(3):
 			var spoke := _machine_box(wheel_rotor, "WheelSpoke", Vector3.ZERO,
