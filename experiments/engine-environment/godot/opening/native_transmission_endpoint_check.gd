@@ -2,6 +2,7 @@ extends SceneTree
 ## Detached callbacks over invented projections and a request sink, never a game.
 const Controls = preload("res://opening/native_transmission_controls.gd")
 const Geometry = preload("res://opening/site_geometry.gd")
+const Presenter = preload("res://opening/native_transmission_presenter.gd")
 
 class OfflineHarness:
 	extends "res://opening/opening.gd"
@@ -270,6 +271,55 @@ func check_raised_pointer() -> void:
 	verify(view.state.transmission_parts["raised-cog"].center == [80, 8, 0], "Pointer targeting leaves the confirmed cog unchanged.")
 	view.queue_free()
 
+func check_actual_belt_pointer() -> void:
+	for path in [
+		{"axis": 2, "first": [0, 8, 0], "last": [8, 8, 0], "middle": [4, 8, 0]},
+		{"axis": 2, "first": [0, 8, 0], "last": [8, 16, 0], "middle": [4, 12, 0]},
+		{"axis": 0, "first": [0, 16, 0], "last": [0, 8, 8], "middle": [0, 12, 4]},
+		{"axis": 2, "first": [0, 8, 0], "last": [0, 16, 0], "middle": [0, 12, 0]},
+		{"axis": 1, "first": [0, 8, 0], "last": [8, 8, 0], "middle": [4, 8, 0]}]:
+		var view := OfflineHarness.new()
+		root.add_child(view)
+		mount(view)
+		view.state.entities = {}
+		view.state.transmission_parts = {
+			"first": {"kind": "shaft", "generation": 1, "center": path.first, "axis": path.axis, "half_span": 2},
+			"last": {"kind": "shaft", "generation": 2, "center": path.last, "axis": path.axis, "half_span": 2}}
+		view.state.belt_spans = {"belt": {"generation": 3, "from": "first", "to": "last"}}
+		view.transmission_controls.choose_tool("place_shaft")
+		view.transmission_controls.selected_axis = ["x", "y", "z"][path.axis]
+		view.camera = Camera3D.new()
+		view.add_child(view.camera)
+		view.camera.make_current()
+		var presenter := Presenter.new()
+		view.add_child(presenter)
+		presenter.configure(view)
+		await physics_frame
+		await physics_frame
+		var belt: Node3D
+		for child: Node in presenter.get_children():
+			if child.get_meta("entity", "") == "belt":
+				belt = child
+		if belt == null:
+			verify(false, "The confirmed belt has a real presenter pick body.")
+			view.queue_free()
+			await process_frame
+			continue
+		var point := Presenter.world_center(path.middle)
+		var normal: Vector3 = belt.get_node("BeltLoop").basis.y
+		view.camera.position = point + normal * 3.0
+		view.camera.look_at(point, Vector3.FORWARD if absf(normal.y) > 0.9 else Vector3.UP)
+		var screen := view.camera.unproject_position(point)
+		verify(view._screen_entity(screen) == "belt", "A passive ray reaches the actual belt picker.")
+		var target: Array = view._transmission_center(screen)
+		verify(target == path.middle, "The actual belt picker selects its middle global tile.")
+		view._transmission_click(target, "belt")
+		verify(view.requests.back() == {"action": "place_shaft", "center": path.middle,
+			"axis": ["x", "y", "z"][path.axis], "half_span": 2},
+			"The resulting pulley request preserves the path tile and axle.")
+		view.queue_free()
+		await process_frame
+
 func _initialize() -> void:
 	call_deferred("_run")
 
@@ -279,5 +329,6 @@ func _run() -> void:
 		check_direct_shaft_entry(false)
 		check_direct_shaft_entry(true)
 		await check_raised_pointer()
+		await check_actual_belt_pointer()
 	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks, "failures": failures, "evidence": "isolated_shaft_tile_controls_and_pointer", "models": 0, "desktop_operations": 0}))
 	quit(0 if failures == 0 else 1)
