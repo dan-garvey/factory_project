@@ -505,6 +505,15 @@ func _nonhorizontal_presentation() -> void:
 			presenter.free()
 			continue
 		var loop: Node3D = span.get_node("BeltLoop")
+		var near_rail: MeshInstance3D = loop.get_node_or_null("SpanFrameRailN")
+		var far_rail: MeshInstance3D = loop.get_node_or_null("SpanFrameRailP")
+		verify(near_rail != null and far_rail != null
+			and loop.has_node("SpanFrameSeatNN") and loop.has_node("SpanFrameSeatPP")
+			and near_rail.get_meta("span_frame_role", "") == "Rail"
+			and far_rail.get_meta("span_frame_role", "") == "Rail"
+			and near_rail.position.z < -Assets.SPAN_HALF_WIDTH
+			and far_rail.position.z > Assets.SPAN_HALF_WIDTH,
+			"The same loop carries its fixed outboard frame through horizontal and inclined orientations.")
 		var start := Presenter.world_center(case.first)
 		var finish := Presenter.world_center(case.last)
 		var axis := Vector3.ZERO
