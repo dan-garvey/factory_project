@@ -1,114 +1,85 @@
 {
-  "asset": "Brown Mud Leaves 01",
-  "author": "Rob Tuytel",
-  "asset_url": "https://polyhaven.com/a/brown_mud_leaves_01",
+  "asset": "Grass001",
+  "provider": "ambientCG",
+  "asset_url": "https://ambientcg.com/view?id=Grass001",
   "license": "CC0-1.0",
-  "license_url": "https://polyhaven.com/license",
+  "license_url": "https://docs.ambientcg.com/license/",
   "checked_utc": "2026-10-21",
   "source_extent_metres": [
-    1.3,
-    1.3
+    1.4,
+    1.4
   ],
-  "source_method": "The primary page/API identify author, texture, extent and license; the acquisition technique is unverified.",
-  "provider_info_sha256": "994e5b5a33349b2f191bcaac0a4cc17912feec9dd801c99deffadffdf7075cf1",
-  "provider_files_sha256": "a1529e39aade7ccf239181261d76f1c1bc41df27b6ab0edfcf6a5de95d3c0f8a",
+  "source_archive": {
+    "url": "https://ambientcg.com/get?file=Grass001_1K-JPG.zip",
+    "sha256": "902f447a64171c8099589642d5bf2d1d6e52c40e94d957eb78eae722084b0cfb"
+  },
   "source_files": {
-    "descriptor": {
-      "url": "https://dl.polyhaven.org/file/ph-assets/Textures/gltf/1k/brown_mud_leaves_01/brown_mud_leaves_01_1k.gltf",
-      "bytes": 2836,
-      "sha256": "7da88e6354aa1f67566e7aca803642641b8247ddbbfc81c5dd64067961daa194",
-      "md5": "f5ca63305547735e84bfd90709e4dfc9"
-    },
     "albedo": {
-      "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/brown_mud_leaves_01/brown_mud_leaves_01_diff_1k.jpg",
-      "bytes": 1206953,
-      "sha256": "c598c555f13cd5328409fd5e2a45496a26e319e52299e3959042f1449c2f1b06",
-      "md5": "5340848384f9bb19bfa6e7ac459683d7"
+      "member": "Grass001_1K-JPG_Color.jpg",
+      "sha256": "b9b6d61bc3b6137b868a3447eef18737896acd26d58fe2f4b83ce8c0e9d3f8ad"
     },
     "normal_gl": {
-      "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/brown_mud_leaves_01/brown_mud_leaves_01_nor_gl_1k.png",
-      "bytes": 6109028,
-      "sha256": "0c5c37348830b6a36024a114359e26aaf2f48bf2b435a5ef2d6999bcd4b530b7",
-      "md5": "bfa4b76dc2218b8b953d3eb2055fafad",
-      "source_png_bit_depth": 16,
-      "godot_decoded_format": "RGB8"
+      "member": "Grass001_1K-JPG_NormalGL.jpg",
+      "sha256": "eef0b56db5f00a6fcb3d0e0f8463e4e141e88aa85b26527a04d617b75a4ab5d2"
     },
-    "arm": {
-      "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/brown_mud_leaves_01/brown_mud_leaves_01_arm_1k.png",
-      "bytes": 4619226,
-      "sha256": "939f98687379b70fe2f2e1daf0965d46080d00bb4bbe9afb9e2108ce456ad9ab",
-      "md5": "3f4caa35a07e94a20508e51d3d4aba89",
-      "source_png_bit_depth": 16,
-      "godot_decoded_format": "RGB8"
+    "ambient_occlusion": {
+      "member": "Grass001_1K-JPG_AmbientOcclusion.jpg",
+      "sha256": "a5e6e6a1c4329562e99f009313f09e44dd179dedbfb5dd679feeaf17ca122ab9"
+    },
+    "roughness": {
+      "member": "Grass001_1K-JPG_Roughness.jpg",
+      "sha256": "8810effd44756341170d551501b7d0c645dc2395dbce46a8c7f1e61045258a06"
     }
   },
   "processed_files": {
-    "ground_albedo.webp": {
-      "bytes": 1740502,
+    "albedo": {
+      "bytes": 1805034,
       "decoded_rgb_exact": true,
       "extent": 1024,
       "file": "ground_albedo.webp",
-      "maximum_normal_length_error": 0,
-      "sha256": "8029721a7ca3cc7e9ebe9aa0a307a5cd89f7e42a24ab2040877c8bd18533b339",
-      "source_decoded_format": 4,
-      "width": 1024,
-      "height": 1024,
-      "lossless_webp": true
+      "maximum_normal_length_error": 0.0,
+      "sha256": "c053eff08e3d227bd7db5570559ae71aa052bc61eef8fb0f0b1e528a47b1e1b5",
+      "source_decoded_format": 4
     },
-    "ground_arm.webp": {
-      "bytes": 373924,
+    "arm": {
+      "bytes": 404638,
       "decoded_rgb_exact": true,
       "extent": 512,
       "file": "ground_arm.webp",
-      "maximum_normal_length_error": 0,
-      "sha256": "69b938291b32dce3417ee36c9b9cf518d2b0536bc777e6ceb51691b5a242a7b7",
-      "source_decoded_format": 4,
-      "width": 512,
-      "height": 512,
-      "lossless_webp": true
+      "maximum_normal_length_error": 0.0,
+      "sha256": "941f30e9e35935c4e392d7bf2258f128457673609e33af7de59aab7f467258bb",
+      "source_decoded_format": 0
     },
-    "ground_normal_gl.webp": {
-      "bytes": 645280,
+    "normal": {
+      "bytes": 586980,
       "decoded_rgb_exact": true,
       "extent": 512,
       "file": "ground_normal_gl.webp",
-      "maximum_normal_length_error": 0.00640267133712769,
-      "sha256": "6c135aab06c5a490b9471bdab4dfb26d4939bd2b6ecbbcd76287c6edfd108bb9",
-      "source_decoded_format": 4,
-      "width": 512,
-      "height": 512,
-      "lossless_webp": true
+      "maximum_normal_length_error": 0.00639247894287109,
+      "sha256": "93f63bacac4ae4ab5fb5d81c0741d63f94245a5a2e6786cf90a2022d1733545e",
+      "source_decoded_format": 4
     }
   },
   "preparation": {
     "fixture": "../foliage/prepare_maps.gd",
     "mode": "--material=forest-ground",
-    "color": "Decoded JPEG RGB8 retained without resize or gamma change; lossless WebP roundtrip exact.",
-    "data": "Pinned Godot 4.7.2 PNG decoder returns RGB8 from the original 16-bit RGB data. Float Lanczos resize to 512, normal renormalization, nearest RGB8 packing and exact lossless WebP roundtrip. No data gamma or normal green flip.",
-    "prepared_bytes": 2759706,
-    "source_scene_imported": false
+    "method": "Decoded 1024-pixel JPEG albedo retained as lossless WebP. OpenGL normal, ambient occlusion and roughness are separately resampled in float to 512 pixels. Red ARM is occlusion, green is roughness, blue is zero metallic. Normal vectors are renormalized, then all data are packed to exact lossless RGB8 WebP.",
+    "prepared_bytes": 2796652
   },
   "runtime": {
-    "mapping": "World triplanar, scale 1 / 1.3, without geometry displacement.",
-    "mipmaps": "Generated once, with normal renormalization.",
+    "mapping": "Stationary stochastic world triplanar mapping at 1.4 metres per source tile.",
+    "mipmaps": "Generated once, normal renormalized.",
     "metallic_factor": 0,
-    "packed_channels": {
-      "red": "Ambient occlusion, ambient lighting only.",
-      "green": "Roughness.",
-      "blue": "Retained metallic channel; descriptor factor remains zero."
-    },
-    "occlusion_choice": "The descriptor has no occlusion binding. Using the separately provided red ARM channel is an explicit adapter choice.",
-    "resource_cache": "Existing shared ground material; independent steel, stone and vegetation resources unchanged.",
-    "file_names": "Existing captured filenames retained."
+    "resource_cache": "Existing shared ground material; independent stone, steel and vegetation resources unchanged."
   },
   "previous_surface": {
-    "asset": "Rocky Trail",
-    "author": "Amal Kumar",
-    "evidence": "Original revisions and scanned-valley-ground-20261020 retain all source conversions, original normal-packing failure and prior accepted scope."
+    "asset": "Brown Mud Leaves 01",
+    "author": "Rob Tuytel",
+    "evidence": "Original prepared maps and provenance remain in Git history and the forest-ground-finish-20261021 evidence family."
   },
   "limits": [
-    "Reversible art default, not permanent biome or engine selection.",
-    "No raised leaf geometry, terrain/collision/quantity/state change.",
-    "Resource/pixel checks are not rendered-quality, contact, performance or human acceptance."
+    "Reversible grass surface default, not a permanent biome choice.",
+    "No raised blades, terrain or collision change from this material increment.",
+    "Map and pixel checks do not establish complete rendered or human-play quality."
   ]
 }

@@ -126,8 +126,9 @@ func finish() -> void:
 			"fir-resource": "complete sourced fir, generated distance detail and common resource interface",
 			"bank-firs": "ordinary fir mounting, deterministic terrain poses and matching woody triangles",
 			"bank-fir-lifecycle": "ordinary scene mounting inside the actual node tree",
-			"ground-material": "qualified forest-floor material, data channels and cache separation",
+			"ground-material": "qualified grass material, data channels and cache separation",
 			"ground-render": "source-period and frame-stability observations on separate passive planes",
+			"site-render": "passive terrain and mature fir view from the worksite",
 			"water-flow": "layered translucent river resources and ordinary frame consumer",
 			"water-pattern": "straight-band normal energy and actual water-surface geometry",
 			"water-render": "isolated actual terrain and water with a fixed camera and presentation phases",
@@ -731,8 +732,8 @@ func check_ground_material() -> void:
 		"The bounded albedo, OpenGL normal and scalar map retain their declared resolutions.")
 	verify(albedo.get_image().has_mipmaps() and normal.get_image().has_mipmaps()
 		and scalars.get_image().has_mipmaps(), "All shared terrain resources have mipmaps.")
-	verify(ground.shader == Scenery.GROUND_SHADER and is_equal_approx(ground.get_shader_parameter("source_extent"), 1.3),
-		"The cached stochastic surface binds the same qualified 1.3-metre source scale and stationary world-space shader.")
+	verify(ground.shader == Scenery.GROUND_SHADER and is_equal_approx(ground.get_shader_parameter("source_extent"), 1.4),
+		"The cached stochastic surface binds the qualified 1.4-metre source scale and stationary world-space shader.")
 	var packed := Image.load_from_file(Scenery.GROUND_ROOT.path_join(Scenery.GROUND_FILES.arm))
 	var actual := scalars.get_image()
 	for pixel in [Vector2i(0, 0), Vector2i(117, 239), Vector2i(511, 511)]:
@@ -806,7 +807,7 @@ func check_ground_render() -> void:
 	world.add_child(environment)
 	var camera := Camera3D.new()
 	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
-	camera.size = 6.5
+	camera.size = 7.0
 	camera.position = Vector3(0, 10, 0)
 	camera.rotation_degrees.x = -90
 	world.add_child(camera)
@@ -817,12 +818,12 @@ func check_ground_render() -> void:
 	reference.albedo_texture = ground.get_shader_parameter("albedo_map")
 	reference.uv1_triplanar = true
 	reference.uv1_world_triplanar = true
-	reference.uv1_scale = Vector3.ONE / 1.3
+	reference.uv1_scale = Vector3.ONE / 1.4
 	var planes: Array[MeshInstance3D] = []
-	for x in [-5.2, 5.2]:
+	for x in [-5.6, 5.6]:
 		var plane := MeshInstance3D.new()
 		var mesh := PlaneMesh.new()
-		mesh.size = Vector2(10.4, 6.5)
+		mesh.size = Vector2(11.2, 7.0)
 		plane.mesh = mesh
 		plane.position.x = x
 		plane.material_override = reference
@@ -843,7 +844,7 @@ func check_ground_render() -> void:
 		var path: String = fixture_directory.path_join(entry[0])
 		verify(not FileAccess.file_exists(path) and entry[1].save_png(path) == OK,
 			"Retain each original own-viewport observation without replacing a previous image.")
-	# The 20.8-metre view has 64 pixels per original 1.3-metre source period.
+	# The 22.4-metre view has 64 pixels per 1.4-metre source period.
 	var periodic_error := image_difference(repeated, repeated, 64)
 	var varied_error := image_difference(varied, varied, 64)
 	var frame_error := image_difference(varied, stable)
@@ -852,7 +853,8 @@ func check_ground_render() -> void:
 	var beat_error := image_difference(varied, varied, 320)
 	var nonperiodic_error := image_difference(varied, varied, 352)
 	verify(periodic_error < 0.003, "The independent repeating reference proves that the source period is resolved by the viewport.")
-	verify(varied_error > maxf(0.01, periodic_error * 8.0),
+	# The denser grass scan has lower broad color contrast than the old leaf map.
+	verify(varied_error > maxf(0.004, periodic_error * 8.0),
 		"The actual shader breaks the source-period repeat across separately positioned terrain meshes.")
 	verify(frame_error < 0.00001, "Stationary ground shading is stable across completed rendered frames.")
 	verify(beat_error > nonperiodic_error * 0.75,
@@ -860,8 +862,36 @@ func check_ground_render() -> void:
 	print(JSON.stringify({"phase": "ground-render", "reference_period_error": periodic_error,
 		"stochastic_period_error": varied_error, "frame_error": frame_error, "display": DisplayServer.get_name(),
 		"five_tile_error": beat_error, "nonperiodic_error": nonperiodic_error,
-		"source_extent_metres": 1.3, "source_period_pixels": 64, "viewport": [1024, 320],
+		"source_extent_metres": 1.4, "source_period_pixels": 64, "viewport": [1024, 320],
 		"game_entry": "not_run", "input": "not_used", "human_quality": "not_assessed"}))
+	viewport.free()
+
+func check_site_render() -> void:
+	if not verify(DisplayServer.get_name().to_lower() != "headless" and fixture_directory.is_absolute_path(),
+		"The site image needs a real renderer and an owned artifact directory."):
+		return
+	var viewport := SubViewport.new()
+	viewport.size = Vector2i(1280, 720)
+	viewport.own_world_3d = true
+	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	root.add_child(viewport)
+	var view := FixtureView.new()
+	viewport.add_child(view)
+	view._build_world()
+	view.camera.position = Vector3(8.0, 11.0, 15.0)
+	view.camera.look_at(Vector3(-12.0, 3.0, 0.0))
+	await process_frame
+	await RenderingServer.frame_post_draw
+	await process_frame
+	await RenderingServer.frame_post_draw
+	var image := viewport.get_texture().get_image()
+	var destination := fixture_directory.path_join("site-passive.png")
+	verify(image.get_size() == viewport.size and not FileAccess.file_exists(destination)
+		and image.save_png(destination) == OK, "Retain the passive terrain and fir view without replacing prior evidence.")
+	verify(view.model == null and view.actor_world == null and view.request_sequence == 0,
+		"The passive view starts no game authority or player command.")
+	print(JSON.stringify({"phase": "site-render", "view": "west bank from east worksite", "viewport": [1280, 720],
+		"input": "not_used", "gameplay": "not_run"}))
 	viewport.free()
 
 func check_rock_shapes(rocks: MultiMesh) -> void:
@@ -1694,6 +1724,10 @@ func run() -> void:
 		return
 	if mode == "ground-render":
 		await check_ground_render()
+		finish()
+		return
+	if mode == "site-render":
+		await check_site_render()
 		finish()
 		return
 	if mode == "water-flow":

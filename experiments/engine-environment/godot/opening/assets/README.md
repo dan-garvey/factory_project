@@ -576,9 +576,9 @@ not a world or construction boundary. Patch bounds enclose the transformed mesh;
 the original sparse foliage and historical fallback remain intact. No density,
 culling or triangle count is a measured GPU-performance or human-quality result.
 
-Complete current captures use the CC0 [Brown Mud Leaves 01](ground/CREDITS.md) surface
+Complete current captures use the CC0 [Grass 001](ground/CREDITS.md) surface
 for the valley ground. Shared albedo, packed scalar and OpenGL normal maps use
-world-space mapping at the source's declared 1.3-metre scale. Three overlapping
+world-space mapping at the source's declared 1.4-metre scale. Three overlapping
 patches use stable local offsets and quarter-turns on a triangular lattice;
 adjacent triangles share their edge patches. This removes the old pair of fixed
 coordinate frames, which realigned every 6.5 metres. All channels use the same
