@@ -1737,7 +1737,7 @@ class ProductionEnvironment:
 	const SKY_SUN_DIRECTION := Vector3(-0.3070684373, 0.8529605865, 0.4220985472)
 	static var sky_source_status := "uninitialized"
 	static var terrain_surface_mesh: ArrayMesh
-	static var stream_volume_mesh: ArrayMesh
+	static var stream_surface_mesh: ArrayMesh
 	static var foliage_cluster_mesh: ArrayMesh
 	const FOLIAGE_FILE := "res://opening/assets/foliage/grass_tuft.glb"
 	static var foliage_source_status := "uninitialized"
@@ -1778,47 +1778,49 @@ class ProductionEnvironment:
 		ground_finish.set_shader_parameter("source_extent", 1.3)
 		return ground_finish
 
+	static func _ripple_normals(seed: int, frequency: float) -> ImageTexture:
+		# A cached two-dimensional height field breaks straight wave bands.
+		# Wrapped derivatives and normalized mips keep repeat edges smooth.
+		var noise := FastNoiseLite.new()
+		noise.seed = seed
+		noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+		noise.frequency = frequency
+		noise.fractal_octaves = 3
+		noise.fractal_gain = 0.45
+		var heights := noise.get_seamless_image(256, 256)
+		var image := Image.create(256, 256, false, Image.FORMAT_RGB8)
+		for y in range(256):
+			for x in range(256):
+				var dx := heights.get_pixel((x + 1) % 256, y).r - heights.get_pixel((x + 255) % 256, y).r
+				var dy := heights.get_pixel(x, (y + 1) % 256).r - heights.get_pixel(x, (y + 255) % 256).r
+				var slope := (Vector2(dx, dy) * 12.0).limit_length(0.34)
+				var normal := Vector3(-slope.x, -slope.y, 1).normalized()
+				image.set_pixel(x, y, Color(normal.x * 0.5 + 0.5, normal.y * 0.5 + 0.5, normal.z * 0.5 + 0.5))
+		image.generate_mipmaps(true)
+		return ImageTexture.create_from_image(image)
+
 	static func water_material() -> StandardMaterial3D:
 		if water_finish == null:
-			var image := Image.create(128, 128, false, Image.FORMAT_RGB8)
-			for y in range(128):
-				for x in range(128):
-					var u := float(x) / 128.0 * TAU
-					var v := float(y) / 128.0 * TAU
-					# Periodic analytic ripples; shading only, no displaced floor.
-					var normal := Vector3(-0.16 * cos(u + v * 2.0), -0.28 * cos(v * 4.0) - 0.12 * cos(u + v * 2.0), 1).normalized()
-					image.set_pixel(x, y, Color(normal.x * 0.5 + 0.5, normal.y * 0.5 + 0.5, normal.z * 0.5 + 0.5))
-			image.generate_mipmaps(true)
 			water_finish = StandardMaterial3D.new()
 			# The mesh already carries the river/rapid palette. Do not multiply
 			# it by a second dark teal tint. Transmission is an art approximation,
 			# not depth-dependent absorption or a second water simulation.
-			water_finish.albedo_color = Color(1.0, 1.0, 1.0, 0.74)
+			water_finish.albedo_color = Color(1.0, 1.0, 1.0, 0.68)
 			water_finish.vertex_color_use_as_albedo = true
 			water_finish.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 			water_finish.metallic = 0.0
 			water_finish.metallic_specular = 0.255
-			water_finish.roughness = 0.12
+			water_finish.roughness = 0.20
 			water_finish.normal_enabled = true
-			water_finish.normal_texture = ImageTexture.create_from_image(image)
+			water_finish.normal_texture = _ripple_normals(338453, 0.016)
 			water_finish.normal_scale = 0.42
 			water_finish.uv1_scale = Vector3(2, 8, 1)
-			var fine := Image.create(128, 128, false, Image.FORMAT_RGB8)
-			for y in range(128):
-				for x in range(128):
-					var u := float(x) / 128.0 * TAU
-					var v := float(y) / 128.0 * TAU
-					var dx := -0.14 * cos(3.0 * u + 2.0 * v) - 0.08 * cos(5.0 * u - v)
-					var dy := -0.17 * cos(v * 5.0) - 0.09 * cos(3.0 * u + 2.0 * v)
-					var normal := Vector3(dx, dy, 1.0).normalized()
-					fine.set_pixel(x, y, Color(normal.x * 0.5 + 0.5, normal.y * 0.5 + 0.5, normal.z * 0.5 + 0.5))
-			fine.generate_mipmaps(true)
 			var blend := Image.create(1, 1, false, Image.FORMAT_RGBA8)
 			blend.set_pixel(0, 0, Color(1.0, 1.0, 1.0, 0.35))
 			water_finish.detail_enabled = true
 			water_finish.detail_blend_mode = BaseMaterial3D.BLEND_MODE_MUL
 			water_finish.detail_albedo = ImageTexture.create_from_image(blend)
-			water_finish.detail_normal = ImageTexture.create_from_image(fine)
+			water_finish.detail_normal = _ripple_normals(596043, 0.025)
 			water_finish.detail_uv_layer = BaseMaterial3D.DETAIL_UV_2
 			water_finish.uv2_scale = Vector3(7, 48, 1)
 			water_finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
@@ -1964,10 +1966,10 @@ class ProductionEnvironment:
 		return Surface.stream_surface_height(x_world, z_world)
 
 	static func stream_mesh() -> ArrayMesh:
-		if stream_volume_mesh != null:
-			return stream_volume_mesh
+		if stream_surface_mesh != null:
+			return stream_surface_mesh
 		var rows := 238
-		var cols := 8
+		var cols := 6
 		var z_start := -58.0
 		var z_end := 61.0
 		var stride := cols + 1
@@ -1991,33 +1993,20 @@ class ProductionEnvironment:
 			var west_w: float = Surface.wet_half_width(z_world, -1.0)
 			var east_w: float = Surface.wet_half_width(z_world, 1.0)
 			for c in range(stride):
-				var x_local := rc_local
-				var y := 0.0
-				var normal := Vector3.UP
-				var color := Color.WHITE
-				if c == 0:
-					x_local = rc_local - west_w - 0.06
-					y = stream_surface_height(-2.7 + rc_local - west_w, z_world) - 0.34
-					normal = Vector3(-0.86, 0.51, 0.0).normalized()
-					color = Color("183842")
-				elif c == cols:
-					x_local = rc_local + east_w + 0.06
-					y = stream_surface_height(-2.7 + rc_local + east_w, z_world) - 0.34
-					normal = Vector3(0.86, 0.51, 0.0).normalized()
-					color = Color("183842")
-				else:
-					var tc := float(c - 1) / float(cols - 2) * 2.0 - 1.0
-					x_local = rc_local + tc * (west_w if tc < 0.0 else east_w)
-					var x_world := -2.7 + x_local
-					y = stream_surface_height(x_world, z_world)
-					var dz := 0.25
-					var dy_dz := stream_surface_height(x_world, z_world + dz) - stream_surface_height(x_world, z_world - dz)
-					var dy_dx := stream_surface_height(x_world + 0.12, z_world) - stream_surface_height(x_world - 0.12, z_world)
-					normal = Vector3(-dy_dx / 0.24, 1.0, -dy_dz / (2.0 * dz)).normalized()
-					var rapid := smoothstep(-5.6, -4.4, z_world) * (1.0 - smoothstep(-4.4, -2.8, z_world))
-					rapid = maxf(rapid, smoothstep(8.2, 9.2, z_world) * (1.0 - smoothstep(9.2, 11.2, z_world)))
-					var edge_foam := smoothstep(0.65, 1.0, absf(tc)) * 0.28
-					color = Color("235361").lerp(Color("8ec2c7"), clampf(rapid * 0.65 + edge_foam, 0.0, 1.0))
+				var tc := float(c) / float(cols) * 2.0 - 1.0
+				var x_local := rc_local + tc * (west_w if tc < 0.0 else east_w)
+				var x_world := -2.7 + x_local
+				var y := stream_surface_height(x_world, z_world)
+				var dz := 0.25
+				var dy_dz := stream_surface_height(x_world, z_world + dz) - stream_surface_height(x_world, z_world - dz)
+				var dy_dx := stream_surface_height(x_world + 0.12, z_world) - stream_surface_height(x_world - 0.12, z_world)
+				var normal := Vector3(-dy_dx / 0.24, 1.0, -dy_dz / (2.0 * dz)).normalized()
+				var rapid := smoothstep(-5.6, -4.4, z_world) * (1.0 - smoothstep(-4.4, -2.8, z_world))
+				rapid = maxf(rapid, smoothstep(8.2, 9.2, z_world) * (1.0 - smoothstep(9.2, 11.2, z_world)))
+				var color := Color("235361").lerp(Color("8ec2c7"), rapid * 0.65)
+				# Thin shoreline water blends into the real bank. This is visual
+				# opacity, not depth simulation or additional underwater geometry.
+				color.a = 0.25 if c == 0 or c == cols else 1.0
 				var x_world_uv := -2.7 + x_local
 				positions.append(Vector3(x_local, y, z_local))
 				normals.append(normal)
@@ -2039,8 +2028,8 @@ class ProductionEnvironment:
 						surface.set_color(colors[idx])
 						surface.add_vertex(positions[idx])
 		surface.generate_tangents()
-		stream_volume_mesh = surface.commit()
-		return stream_volume_mesh
+		stream_surface_mesh = surface.commit()
+		return stream_surface_mesh
 
 	static func read_sky(path: String = SKY_FILE) -> Dictionary:
 		if not FileAccess.file_exists(path):

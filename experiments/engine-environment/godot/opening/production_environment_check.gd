@@ -129,6 +129,8 @@ func finish() -> void:
 			"ground-material": "qualified forest-floor material, data channels and cache separation",
 			"ground-render": "source-period and frame-stability observations on separate passive planes",
 			"water-flow": "layered translucent river resources and ordinary frame consumer",
+			"water-pattern": "straight-band normal energy and actual water-surface geometry",
+			"water-render": "isolated actual terrain and water with a fixed camera and presentation phases",
 			"rock-collision-shape": "visible rock facets versus the shared convex collision hull",
 			"flat-fallback": "historical flat source-roster fallback", "foliage": "changed foliage bulk upload",
 			"environment": "3D valley terrain, millrace, architecture and foundation"}.get(mode, "unknown"),
@@ -178,9 +180,7 @@ func check_surface_composition() -> void:
 	var interior_gap := INF
 	var minimum_triangle_gap := INF
 	for first in range(0, water.size(), 3):
-		var column := floori(float(first) / 6.0) % 8
-		if column == 0 or column == 7:
-			continue
+		var column := floori(float(first) / 6.0) % 6
 		var centroid: Vector3 = (water[first] + water[first + 1] + water[first + 2]) / 3.0 + stream.global_position
 		minimum_triangle_gap = minf(minimum_triangle_gap,
 			centroid.y - shared.height_at(centroid.x, centroid.z))
@@ -191,7 +191,7 @@ func check_surface_composition() -> void:
 			minimum_gap = minf(minimum_gap, gap)
 			if point.z >= -4.0 and point.z <= 7.0:
 				covered += 1
-				if column >= 2 and column <= 5:
+				if column >= 1 and column <= 4:
 					interior_gap = minf(interior_gap, gap)
 	verify(covered > 0 and minimum_gap >= 0.0 and interior_gap > 0.05 and minimum_triangle_gap >= 0.0,
 		"The emitted river meets its banks while clearing the natural bed in the wet interior.")
@@ -501,6 +501,99 @@ func check_bank_ferns() -> void:
 	view.free()
 	group.free()
 
+func check_water_pattern() -> void:
+	var water := Scenery.water_material()
+	var ratios: Array[float] = []
+	for texture: Texture2D in [water.normal_texture, water.detail_normal]:
+		var image := texture.get_image()
+		var energy := 0.0
+		var bands := 0.0
+		var mean := 0.0
+		var rows: Array[float] = []
+		for y in range(image.get_height()):
+			var row := 0.0
+			for x in range(image.get_width()):
+				var sample := image.get_pixel(x, y).g - 0.5
+				row += sample
+				energy += sample * sample
+			row /= image.get_width()
+			rows.append(row)
+			mean += row
+		mean /= image.get_height()
+		energy = energy / (image.get_width() * image.get_height()) - mean * mean
+		for row: float in rows:
+			bands += (row - mean) * (row - mean)
+		var ratio := bands / image.get_height() / maxf(energy, 0.0000001)
+		ratios.append(ratio)
+		verify(energy > 0.00002 and ratio < 0.25,
+			"Water normals contain real detail without a dominant straight cross-channel band.")
+	var maximum_error := 0.0
+	for point: Vector3 in Scenery.stream_mesh().surface_get_arrays(0)[Mesh.ARRAY_VERTEX]:
+		maximum_error = maxf(maximum_error, absf(point.y - Scenery.Surface.stream_surface_height(point.x - 2.7, point.z + 1.65)))
+	verify(maximum_error < 0.00001, "Visible water ends at its actual surface rather than an extruded decorative side wall.")
+	print(JSON.stringify({"case": "water-pattern", "straight_band_energy": ratios, "maximum_surface_error": maximum_error,
+		"authority": "not_started", "rendered_quality": "separate_observation"}))
+
+func check_water_render() -> void:
+	print("WATER_RENDER_SETUP")
+	if not verify(DisplayServer.get_name().to_lower() != "headless" and fixture_directory.is_absolute_path(),
+		"Water rendering requires an owned renderer and absolute artifact directory."):
+		return
+	var viewport := SubViewport.new()
+	viewport.size = Vector2i(1024, 768)
+	viewport.own_world_3d = true
+	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	root.add_child(viewport)
+	var world := Node3D.new()
+	viewport.add_child(world)
+	var environment := WorldEnvironment.new()
+	environment.environment = Environment.new()
+	environment.environment.background_mode = Environment.BG_SKY
+	environment.environment.sky = Sky.new()
+	environment.environment.sky.sky_material = Scenery.panorama_material()
+	environment.environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+	environment.environment.ambient_light_energy = 0.62
+	world.add_child(environment)
+	var sun := DirectionalLight3D.new()
+	sun.rotation_degrees = Vector3(-46, -28, 0)
+	sun.light_energy = 1.7
+	world.add_child(sun)
+	var ground := MeshInstance3D.new()
+	ground.mesh = Scenery.terrain_mesh()
+	ground.material_override = Scenery.ground_material()
+	world.add_child(ground)
+	var stream := MeshInstance3D.new()
+	stream.mesh = Scenery.stream_mesh()
+	stream.material_override = Scenery.water_material()
+	stream.position = Vector3(-2.7, 0, 1.65)
+	world.add_child(stream)
+	var camera := Camera3D.new()
+	camera.position = Vector3(14, 13, 22)
+	world.add_child(camera)
+	camera.look_at(Vector3(-2.7, -0.2, 5))
+	camera.current = true
+	print("WATER_RENDER_GEOMETRY_READY")
+	var images: Array[Image] = []
+	for phase in [0.0, 0.65, 0.0]:
+		Scenery.animate_water(phase)
+		await process_frame
+		await RenderingServer.frame_post_draw
+		images.append(viewport.get_texture().get_image())
+		print("WATER_RENDER_PHASE ", phase)
+	for index in range(2):
+		var path := fixture_directory.path_join("water-%d.png" % index)
+		verify(not FileAccess.file_exists(path) and images[index].save_png(path) == OK,
+			"Retain each original own-viewport water observation.")
+	var moving := image_difference(images[0], images[1])
+	var stable := image_difference(images[0], images[2])
+	verify(moving > 0.00001, "The real water material produces visible downstream surface motion.")
+	verify(stable < 0.00001, "Returning to the same phase restores the same surface image.")
+	print(JSON.stringify({"case": "water-render", "phase_change": moving, "same_phase_error": stable,
+		"camera": [14,13,22], "target": [-2.7,-0.2,5], "phases": [0,0.65,0],
+		"geometry": "actual terrain and stream", "authority": "not_started", "desktop": "not_used"}))
+	viewport.queue_free()
+	await process_frame
+
 func check_water_flow() -> void:
 	var water := Scenery.water_material()
 	var texture := water.normal_texture
@@ -532,7 +625,7 @@ func check_water_flow() -> void:
 	for ripple in [texture, fine]:
 		var original: Image = ripple.get_image()
 		var bytes := original.get_data()
-		verify(original.get_format() == Image.FORMAT_RGB8 and original.get_size() == Vector2i(128, 128),
+		verify(original.get_format() == Image.FORMAT_RGB8 and original.get_size() == Vector2i(256, 256),
 			"Both authored normal maps use the declared RGB8 extent.")
 		for level in range(original.get_mipmap_count() + 1):
 			var dimension := maxi(1, original.get_width() >> level)
@@ -554,7 +647,7 @@ func check_water_flow() -> void:
 	var visual_speeds := {}
 	for z in [1.65, 22.0, 38.0]:
 		var row: int = clampi(floori((z + 58.0) / 119.0 * 238.0), 0, 237)
-		var density: float = (river_uvs[(row + 1) * 48 + 6].y - river_uvs[row * 48 + 6].y) / 0.5
+		var density: float = (river_uvs[(row + 1) * 36 + 6].y - river_uvs[row * 36 + 6].y) / 0.5
 		var speed: float = -(water.uv1_offset.y - before.y) / (density * water.uv1_scale.y)
 		visual_speeds[z] = speed
 		verify(absf(speed - Scenery.Surface.display_flow_speed(z)) < 0.05,
@@ -1598,6 +1691,14 @@ func run() -> void:
 		return
 	if mode == "water-flow":
 		check_water_flow()
+		finish()
+		return
+	if mode == "water-pattern":
+		check_water_pattern()
+		finish()
+		return
+	if mode == "water-render":
+		await check_water_render()
 		finish()
 		return
 	if mode == "bank-ferns":
