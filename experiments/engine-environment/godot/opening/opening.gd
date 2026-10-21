@@ -1412,6 +1412,75 @@ class ProductionPressTrayArt:
 			bracket.set_meta("press_tray_role", "FixedBracket")
 			parent.add_child(bracket)
 
+class ProductionCollectorToolingArt:
+	extends RefCounted
+	## Passive rigid tooling. The existing cutter rows and presenter own its pose.
+	static var meshes: Dictionary = {}
+
+	static func drum_mesh() -> ArrayMesh:
+		if not meshes.has("drum"):
+			var section := PackedVector2Array([
+				Vector2(0.085, -0.17), Vector2(0.218, -0.17), Vector2(0.228, -0.164),
+				Vector2(0.24, -0.15), Vector2(0.24, -0.13), Vector2(0.228, -0.12),
+				Vector2(0.228, 0.12), Vector2(0.24, 0.13), Vector2(0.24, 0.15),
+				Vector2(0.228, 0.164), Vector2(0.218, 0.17), Vector2(0.085, 0.17), Vector2(0.085, -0.17)])
+			meshes.drum = ProductionVisuals.turned_mesh(section)
+		return meshes.drum
+
+	static func hub_mesh() -> ArrayMesh:
+		if not meshes.has("hub"):
+			var section := PackedVector2Array([
+				Vector2(0, -0.04), Vector2(0.074, -0.04), Vector2(0.085, -0.033),
+				Vector2(0.085, 0.017), Vector2(0.077, 0.025), Vector2(0.068, 0.025),
+				Vector2(0.068, 0.04), Vector2(0, 0.04)])
+			meshes.hub = ProductionVisuals.turned_mesh(section)
+		return meshes.hub
+
+	static func flute_mesh() -> ArrayMesh:
+		if meshes.has("flute"):
+			return meshes.flute
+		var holder := PackedVector2Array([
+			Vector2(-0.02, -0.0225), Vector2(0.02, -0.0225), Vector2(0.02, 0.0025),
+			Vector2(0.012, 0.0075), Vector2(-0.012, 0.0075), Vector2(-0.02, 0.0025)])
+		var insert := PackedVector2Array([
+			Vector2(-0.012, 0.0075), Vector2(0.012, 0.0075), Vector2(0.02, 0.0175),
+			Vector2(0.014, 0.0225), Vector2(-0.014, 0.0225), Vector2(-0.02, 0.0175)])
+		var mesh := ArrayMesh.new()
+		ProductionPressDieArt._surface(mesh, "InsertHolder", [[ProductionVisuals.prism_mesh(holder, 0.29, 0.001), Transform3D.IDENTITY]])
+		ProductionPressDieArt._surface(mesh, "CuttingInsert", [[ProductionVisuals.prism_mesh(insert, 0.27, 0.0006), Transform3D.IDENTITY]])
+		var heads: Array = []
+		for z in [-0.14, 0.14]:
+			heads.append([ProductionVisuals.fastener_head_mesh(),
+				Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * 0.12), Vector3(0, 0.00894, z))])
+		ProductionPressDieArt._surface(mesh, "RetainingHeads", heads)
+		meshes.flute = mesh
+		return mesh
+
+	static func mount_body(drum: MeshInstance3D, hub: MeshInstance3D) -> void:
+		var dark := ProductionTransmissionFinish.material("worked", Color("465a60"), 0.85, 0.4)
+		var steel := ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.4)
+		if dark == null or steel == null:
+			return
+		drum.mesh = drum_mesh()
+		drum.material_override = dark
+		drum.set_meta("collector_tooling_role", "BoredDrum")
+		hub.mesh = hub_mesh()
+		hub.material_override = steel
+		hub.set_meta("collector_tooling_role", "SteppedHub")
+
+	static func mount_flute(flute: MeshInstance3D) -> void:
+		var holder := ProductionTransmissionFinish.material("worked", Color("465a60"), 0.85, 0.4)
+		var insert := ProductionTransmissionFinish.material("worked", Color("b8c3bb"), 0.9, 0.3)
+		var hardware := ProductionTransmissionFinish.material("worked", Color("778b8c"), 0.85, 0.4)
+		if holder == null or insert == null or hardware == null:
+			return
+		flute.mesh = flute_mesh()
+		flute.material_override = null
+		flute.set_surface_override_material(0, holder)
+		flute.set_surface_override_material(1, insert)
+		flute.set_surface_override_material(2, hardware)
+		flute.set_meta("collector_tooling_role", "FittedInsert")
+
 class ProductionEnvironment:
 	extends RefCounted
 	## Visual scenery only. ActorWorld owns collision from the same immutable site geometry.
@@ -4107,6 +4176,8 @@ func _machine_surface_detail(machine: Node3D, kind: String) -> void:
 					Vector3(0.04, 0.045, 0.29), Color("a6b4af"), 0.85, 0.32)
 				tooth.rotation.z = angle - PI / 2.0
 				tooth.set_meta("detail_role", "CutterFlute")
+				if _native_transmission():
+					ProductionCollectorToolingArt.mount_flute(tooth)
 		"belt":
 			if not machine.get_meta("conveyor_frame", false):
 				var profile := PackedVector2Array([Vector2(0, -0.025), Vector2(0.11, -0.025),
@@ -4132,10 +4203,12 @@ func _collector_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	var steel := Color("a6b4af")
 	_machine_box(anchor, "StockBed", Vector3(0, 0.51, 0), Vector3(1.25, 0.1, 0.67), steel, 0.85, 0.45)
 	ProductionCollectorArt.mount(anchor, frame)
-	_machine_cylinder(anchor, "CutterDrum", Vector3(-0.22, 1.1, -0.19), 0.24, 0.34,
+	var drum := _machine_cylinder(anchor, "CutterDrum", Vector3(-0.22, 1.1, -0.19), 0.24, 0.34,
 		Color("465a60"), Vector3(PI / 2, 0, 0))
-	_machine_cylinder(anchor, "CutterHub", Vector3(-0.22, 1.1, 0.01), 0.085, 0.08,
+	var hub := _machine_cylinder(anchor, "CutterHub", Vector3(-0.22, 1.1, 0.01), 0.085, 0.08,
 		steel, Vector3(PI / 2, 0, 0))
+	if _native_transmission():
+		ProductionCollectorToolingArt.mount_body(drum, hub)
 	for z in [-0.37, 0.37]:
 		_machine_box(anchor, "StockGuide", Vector3(0.05, 0.6, z), Vector3(1.15, 0.08, 0.06), frame)
 	_machine_drive_stub(anchor, entity)

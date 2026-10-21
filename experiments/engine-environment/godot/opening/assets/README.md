@@ -55,18 +55,37 @@ nonmetallic coating materials. Their original colors remain; reduced normal
 strength gives the coating finer relief than exposed cast transmission parts.
 The images are shared without mutating those metal finishes. This is authored
 coating art over cast detail, not a new paint scan, physical wear or damage model.
-The original exposed liner and cutter keep their earlier metal surfaces.
+The exposed liner retains its finish; native cutter tooling uses the qualified
+worked surfaces described below.
 Historical captures without the map set retain their generated coating.
 
 The collector uses an original cast-frame kit with flared feet, tapered side
 cheeks, a chamfered hood and lower housing, and a fixed bearing hung from the
 hood. Closed extruded profiles preserve deliberate edge widths instead of
 stretching boxes. The bearing has a true annular opening around the original
-rotating hub, with a separate worked-steel liner. The drum, eight cutter flutes,
-feed bed, guides, service cover and native drive projection remain unchanged.
+rotating hub, with a separate worked-steel liner. The drum, hub and eight cutter
+flutes retain their original centres, motion envelope and callback. The feed
+bed, guides, service cover and native drive projection remain unchanged.
 The frame shares cached meshes and painted materials and adds no resource or
-collision dependency. Isolated controls check closed surfaces and clearance over
-a full sampled turn; the ordinary rendered appearance remains unassessed.
+collision dependency. Isolated controls check closed surfaces and moving
+clearance; the ordinary rendered appearance remains unassessed.
+
+Native cutter tooling now has a stepped annular drum and a fitted spindle hub,
+with a real bore instead of a painted dark cap. Eight cartridges separate dark
+metal holders, exposed cutting inserts and small retaining heads. The insert
+and fastener feet meet the holder's actual support planes. Three cached mesh
+resources retain the original complete local bounds and ten moving mesh rows,
+using the accepted presenter angle without another processing clock. Historical
+nonnative views keep their original cylinders and block flutes.
+
+The new tooling consumer bounds every raw facet through a complete turn and
+checks that conservative sweep against the actual cast frame, bearing opening
+and redrawn stock. It also checks the mating drum/hub facets and rejects a
+filled bore, floating insert, misplaced hub and painted cutting surface. These
+are passive parts of the complete collector; they add no tool inventory,
+material outcome, physical cutting/contact model or native authority. Headless
+geometry and resource checks leave rendered quality, export and human preference
+unverified.
 
 The common machine base now has a thin mounting deck, two open formed channels
 and internal cross ties instead of a solid block. These closed pieces share one

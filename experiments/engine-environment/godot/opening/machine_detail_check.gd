@@ -10,6 +10,7 @@ const DieArt = Opening.ProductionPressDieArt
 const TrayArt = Opening.ProductionPressTrayArt
 const ConveyorArt = Opening.ProductionConveyorArt
 const CollectorArt = Opening.ProductionCollectorArt
+const CollectorToolingArt = Opening.ProductionCollectorToolingArt
 const SkidArt = Opening.ProductionSkidArt
 const Presenter = preload("res://opening/native_transmission_presenter.gd")
 const Geometry = preload("res://opening/site_geometry.gd")
@@ -1320,8 +1321,10 @@ func check_collector_coating(historical: bool) -> void:
 			verify(count == 6, "Exactly six existing painted casting roles receive the coating.")
 			coated_parts += count
 			var drum: MeshInstance3D = machine.get_node("CutterDrum")
-			verify(drum.material_override == Visuals.material(Color("465a60"), 0.85, 0.4),
-				"The original moving cutter's metal finish is not recolored or treated as paint.")
+			var expected_metal := Visuals.material(Color("465a60"), 0.85, 0.4) if historical \
+				else Opening.ProductionTransmissionFinish.material("worked", Color("465a60"), 0.85, 0.4)
+			verify(drum.material_override == expected_metal,
+				"The moving cutter remains metal, with the current qualified worked finish or the exact historical fallback.")
 			verify(view.state == before and view.model == null and view.actor_world == null
 				and view.request_sequence == 0 and not view.is_inside_tree(),
 				"Material construction changes no projection, authority, native body or request.")
@@ -1575,8 +1578,26 @@ func point_triangle_distance(point: Vector2, a: Vector2, b: Vector2, c: Vector2)
 		minf(point.distance_to(Geometry2D.get_closest_point_to_segment(point, b, c)),
 		point.distance_to(Geometry2D.get_closest_point_to_segment(point, c, a))))
 
+func collector_tooling_extent(mesh: Mesh) -> Vector2:
+	var radius_squared := 0.0
+	var half_height := 0.0
+	for surface in range(mesh.get_surface_count()):
+		var points: PackedVector3Array = mesh.surface_get_arrays(surface)[Mesh.ARRAY_VERTEX]
+		for point in points:
+			radius_squared = maxf(radius_squared, point.x * point.x + point.z * point.z)
+			half_height = maxf(half_height, absf(point.y))
+	return Vector2(sqrt(radius_squared), half_height)
+
 func collector_clearance(frame: Node3D, moving: Array) -> float:
 	var minimum := INF
+	var rotary_extents: Dictionary = {}
+	for row in moving:
+		var node: MeshInstance3D = row.node
+		if node.mesh is CylinderMesh:
+			var cylinder := node.mesh as CylinderMesh
+			rotary_extents[node] = Vector2(cylinder.top_radius, cylinder.height / 2)
+		elif node.get_meta("collector_tooling_role", "") in ["BoredDrum", "SteppedHub"]:
+			rotary_extents[node] = collector_tooling_extent(node.mesh)
 	for part: MeshInstance3D in frame.get_children():
 		var vertices: PackedVector3Array = part.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
 		for n in range(0, vertices.size(), 3):
@@ -1589,15 +1610,14 @@ func collector_clearance(frame: Node3D, moving: Array) -> float:
 				var node: MeshInstance3D = row.node
 				var transform: Transform3D = row.parent_inverse.affine_inverse() * node.transform
 				var gap := -INF
-				if node.mesh is CylinderMesh:
-					# The unchanged drum and hub are circular about Z. Their true
-					# radial envelope avoids filling the bearing's annular hole.
-					var cylinder: CylinderMesh = node.mesh
+				if rotary_extents.has(node):
+					# The native tooling stays inside a raw-vertex cylinder about
+					# the same Z axis. Do not fill the fixed bearing's empty bore.
+					var extent: Vector2 = rotary_extents[node]
 					var center := transform.origin
 					var radial := point_triangle_distance(Vector2(center.x, center.y),
-						Vector2(a.x, a.y), Vector2(b.x, b.y), Vector2(c.x, c.y)) - cylinder.top_radius
-					var axial := maxf(low.z - center.z - cylinder.height / 2,
-						center.z - cylinder.height / 2 - high.z)
+						Vector2(a.x, a.y), Vector2(b.x, b.y), Vector2(c.x, c.y)) - extent.x
+					var axial := maxf(low.z - center.z - extent.y, center.z - extent.y - high.z)
 					gap = maxf(radial, axial)
 				else:
 					# Conservative transformed flute bounds, sampled over a turn.
@@ -1659,11 +1679,9 @@ func check_collector_cast_frame() -> void:
 			"Only the original drum, hub and eight flutes belong to the moving group.")
 		var drum: MeshInstance3D = machine.get_node("CutterDrum")
 		var hub: MeshInstance3D = machine.get_node("CutterHub")
-		verify(drum.position == Vector3(-0.22, 1.1, -0.19) and drum.mesh is CylinderMesh
-			and is_equal_approx(drum.mesh.top_radius, 0.24) and is_equal_approx(drum.mesh.height, 0.34)
-			and hub.position == Vector3(-0.22, 1.1, 0.01) and hub.mesh is CylinderMesh
-			and is_equal_approx(hub.mesh.top_radius, 0.085) and is_equal_approx(hub.mesh.height, 0.08),
-			"The original literal drum and hub define the clearance oracle, with no moving-geometry replacement.")
+		verify(drum.position == Vector3(-0.22, 1.1, -0.19) and collector_tooling_extent(drum.mesh).is_equal_approx(Vector2(0.24, 0.17))
+			and hub.position == Vector3(-0.22, 1.1, 0.01) and collector_tooling_extent(hub.mesh).is_equal_approx(Vector2(0.085, 0.04)),
+			"The current native tooling keeps the original literal radial and axial clearance envelopes and centres.")
 		var picks: Array = []
 		for child in machine.get_children():
 			if child is StaticBody3D:
@@ -3049,7 +3067,294 @@ func check_press_output_tray() -> void:
 		"receiving_plane_metres": 0.355, "existing_plate_sheet_gap_metres": 0.005,
 		"observations": "invented read-only", "native_gameplay": "not_run", "rendered_quality": "not_assessed"}))
 
+func collector_tooling_sweeps(rows: Array) -> Array[Dictionary]:
+	# Every facet is contained by its vertices' maximum radial and axial extent.
+	# This bounds a COMPLETE turn, rather than inferring it from sampled poses.
+	var result: Array[Dictionary] = []
+	var pivot := Vector2(-0.22, 1.1)
+	for row in rows:
+		var node: MeshInstance3D = row.node
+		var pose: Transform3D = row.parent_inverse.affine_inverse() * node.transform
+		var radius := 0.0
+		var low := INF
+		var high := -INF
+		for surface in range(node.mesh.get_surface_count()):
+			var points: PackedVector3Array = node.mesh.surface_get_arrays(surface)[Mesh.ARRAY_VERTEX]
+			for point in points:
+				var at := pose * point
+				radius = maxf(radius, Vector2(at.x, at.y).distance_to(pivot))
+				low = minf(low, at.z)
+				high = maxf(high, at.z)
+		result.append({"radius": radius, "low": low, "high": high, "name": str(node.name)})
+	return result
+
+func collector_tooling_frame_gap(frame: Node3D, sweeps: Array[Dictionary]) -> float:
+	var minimum := INF
+	var pivot := Vector2(-0.22, 1.1)
+	for part: MeshInstance3D in frame.get_children():
+		var pose := frame.transform * part.transform
+		for surface in range(part.mesh.get_surface_count()):
+			var faces := die_faces(part.mesh, surface)
+			for n in range(0, faces.size(), 3):
+				var a := pose * faces[n]
+				var b := pose * faces[n + 1]
+				var c := pose * faces[n + 2]
+				var radial := point_triangle_distance(pivot, Vector2(a.x, a.y), Vector2(b.x, b.y), Vector2(c.x, c.y))
+				for sweep in sweeps:
+					var axial := maxf(minf(a.z, minf(b.z, c.z)) - float(sweep.high),
+						float(sweep.low) - maxf(a.z, maxf(b.z, c.z)))
+					minimum = minf(minimum, maxf(radial - float(sweep.radius), axial))
+	return minimum
+
+func collector_tooling_stock_gap(box: AABB, sweeps: Array[Dictionary]) -> float:
+	var nearest := Vector2(clampf(-0.22, box.position.x, box.end.x), clampf(1.1, box.position.y, box.end.y))
+	var radial := nearest.distance_to(Vector2(-0.22, 1.1))
+	var result := INF
+	for sweep in sweeps:
+		var axial := maxf(box.position.z - float(sweep.high), float(sweep.low) - box.end.z)
+		result = minf(result, maxf(radial - float(sweep.radius), axial))
+	return result
+
+func collector_tooling_seated(mesh: Mesh) -> bool:
+	for z in [-0.10, 0.0, 0.10]:
+		var probe := Vector2(0, z)
+		var holder := die_height(mesh, 0, Transform3D.IDENTITY, probe, true)
+		var insert := die_height(mesh, 1, Transform3D.IDENTITY, probe, false)
+		if not is_finite(holder) or not is_finite(insert) or absf(holder - 0.0075) > 0.000001 or absf(insert - holder) > 0.000001:
+			return false
+	for z in [-0.14, 0.14]:
+		var probe := Vector2(0, z)
+		var holder := die_height(mesh, 0, Transform3D.IDENTITY, probe, true)
+		var head := die_height(mesh, 2, Transform3D.IDENTITY, probe, false)
+		if not is_finite(head) or absf(head - holder) > 0.000001:
+			return false
+	return true
+
+func collector_tooling_bore(mesh: Mesh) -> float:
+	var minimum := INF
+	for surface in range(mesh.get_surface_count()):
+		var faces := die_faces(mesh, surface)
+		for n in range(0, faces.size(), 3):
+			minimum = minf(minimum, point_triangle_distance(Vector2.ZERO, Vector2(faces[n].x, faces[n].z),
+				Vector2(faces[n + 1].x, faces[n + 1].z), Vector2(faces[n + 2].x, faces[n + 2].z)))
+	return minimum
+
+func collector_tooling_section(mesh: Mesh, height: float, angle: float) -> float:
+	# Use raw facets and a long ray. Short unnormalised triangle probes can
+	# miss small faces under the separately recorded GDC-14 adapter behavior.
+	var start := Vector3(0, height, 0)
+	var end := start + Vector3(cos(angle), 0, sin(angle)) * 2.0
+	var first := INF
+	for surface in range(mesh.get_surface_count()):
+		var faces := die_faces(mesh, surface)
+		for n in range(0, faces.size(), 3):
+			var cut: Variant = Geometry3D.segment_intersects_triangle(start, end, faces[n], faces[n + 1], faces[n + 2])
+			if typeof(cut) == TYPE_VECTOR3:
+				first = minf(first, start.distance_to(cut))
+	return first
+
+func collector_tooling_materials(flute: MeshInstance3D) -> bool:
+	return flute.material_override == null \
+		and flute.get_surface_override_material(0) == Opening.ProductionTransmissionFinish.material("worked", Color("465a60"), 0.85, 0.4) \
+		and flute.get_surface_override_material(1) == Opening.ProductionTransmissionFinish.material("worked", Color("b8c3bb"), 0.9, 0.3) \
+		and flute.get_surface_override_material(2) == Opening.ProductionTransmissionFinish.material("worked", Color("778b8c"), 0.85, 0.4)
+
+func check_collector_tooling() -> void:
+	var cache: Dictionary = {}
+	var assemblies := 0
+	var controls := 0
+	var minimum_frame_gap := INF
+	var minimum_stock_gap := INF
+	var maximum_moving_radius := 0.0
+	var bore_radius := INF
+	for shared_profile in [false, true]:
+		for axis in range(3):
+			for cell in [[0, 0], [2, -1]]:
+				var view: Variant = Shared.new() if shared_profile else Opening.new()
+				view.client = "P"
+				if shared_profile:
+					view.session = PaddleSessionFacts.new()
+				view.machine_root = Node3D.new()
+				view.item_root = Node3D.new()
+				view.add_child(view.machine_root)
+				view.add_child(view.item_root)
+				view.transmission_presenter = Presenter.new()
+				view.add_child(view.transmission_presenter)
+				view.transmission_presenter.configure(view)
+				view.state = {"context": "collector-tooling-fixture", "options": {"native": true, "physical": true},
+					"actors": {"P": {"ready": true}}, "parts": {}, "inventories": {"P": 0},
+					"stock": {"source": 15, "collector": 1, "belt": 0, "input": 0, "held": 0, "output": 0}, "remaining": 0,
+					"entities": {"fixture": {"kind": "collector", "cell": cell, "axis": axis, "generation": 1}},
+					"transmission_parts": {}, "motion": {"fixture": {"state": "rotating", "numerator": 1, "denominator": 1}},
+					"links": [], "drive_links": [], "engagements": []}
+				var before: Dictionary = view.state.duplicate(true)
+				view._rebuild_machines()
+				view._redraw_items()
+				var machine: Node3D = view.machine_root.get_child(0)
+				var frame: Node3D = machine.get_node("CollectorCastFrame")
+				var drum: MeshInstance3D = machine.get_node("CutterDrum")
+				var hub: MeshInstance3D = machine.get_node("CutterHub")
+				var rows: Array = machine.get_meta("motion_meshes")
+				verify(rows.size() == 10 and count_role(machine, "CutterFlute") == 8,
+					"The native builder keeps the original ten moving observations and all eight flute identities.")
+				verify(drum.position == Vector3(-0.22, 1.1, -0.19) and hub.position == Vector3(-0.22, 1.1, 0.01)
+					and drum.mesh == CollectorToolingArt.drum_mesh() and hub.mesh == CollectorToolingArt.hub_mesh()
+					and drum.mesh.get_aabb().size.is_equal_approx(Vector3(0.48, 0.34, 0.48))
+					and hub.mesh.get_aabb().size.is_equal_approx(Vector3(0.17, 0.08, 0.17)),
+					"The stepped native drum and hub preserve their original centres and complete local envelopes.")
+				verify(drum.material_override == Opening.ProductionTransmissionFinish.material("worked", Color("465a60"), 0.85, 0.4)
+					and hub.material_override == Opening.ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.4),
+					"The rotating metal uses the qualified worked surfaces without changing the frame's coating.")
+				var flutes: Array[MeshInstance3D] = []
+				for row in rows:
+					verify(row.role == "cutter" and row.node.get_script() == null and row.node.get_child_count() == 0,
+						"All moving tooling remains passive rigid meshes consumed by the existing cutter callback.")
+					if row.node.get_meta("detail_role", "") == "CutterFlute":
+						flutes.append(row.node)
+						verify(row.node.mesh == CollectorToolingArt.flute_mesh() and row.node.mesh.get_surface_count() == 3
+							and row.node.mesh.surface_get_name(1) == "CuttingInsert" and row.node.mesh.surface_get_name(2) == "RetainingHeads"
+							and row.node.mesh.get_aabb().size.is_equal_approx(Vector3(0.04, 0.045, 0.29))
+							and collector_tooling_seated(row.node.mesh) and collector_tooling_materials(row.node),
+							"Each fitted cartridge keeps its old envelope while separating a seated cutting insert, holder and retaining heads.")
+				verify(flutes.size() == 8, "Every original flute receives the same fitted tooling rather than extra moving nodes.")
+				if cache.is_empty():
+					cache = {"drum": drum.mesh, "hub": hub.mesh, "flute": flutes[0].mesh}
+					check_closed_asset_mesh(drum.mesh, 0.047, 0.053)
+					check_closed_asset_mesh(hub.mesh, 0.0014, 0.0018)
+					var volumes: Array = [[0.00032, 0.00035], [0.000125, 0.000135], [0.00000023, 0.00000030]]
+					for surface in range(3):
+						var isolated := SurfaceTool.new()
+						isolated.create_from(flutes[0].mesh, surface)
+						check_closed_asset_mesh(isolated.commit(), volumes[surface][0], volumes[surface][1])
+					bore_radius = collector_tooling_bore(drum.mesh)
+					verify(bore_radius > 0.0847, "The actual annular facets leave a real open drum bore instead of a dark filled cap.")
+					for index in range(8):
+						var angle := PI / 48.0 + float(index) * TAU / 8.0
+						var bore := collector_tooling_section(drum.mesh, 0.168, angle)
+						var plug := collector_tooling_section(hub.mesh, -0.032, angle)
+						verify(is_finite(bore) and is_finite(plug) and absf(bore - plug) < 0.000001,
+							"The raw drum bore and stepped hub share the same mating facets in their existing axial overlap.")
+				verify(drum.mesh == cache.drum and hub.mesh == cache.hub and flutes[0].mesh == cache.flute,
+					"Both ordinary view classes and every placement reuse the complete cached tooling resources.")
+				var sweeps := collector_tooling_sweeps(rows)
+				for sweep in sweeps:
+					maximum_moving_radius = maxf(maximum_moving_radius, float(sweep.radius))
+					verify(float(sweep.radius) <= sqrt(0.2575 * 0.2575 + 0.02 * 0.02) + 0.000001
+						and float(sweep.low) >= -0.360001 and float(sweep.high) <= 0.050001,
+						"Every actual raw facet remains inside the original complete continuous-turn radial and axial envelope.")
+				var frame_gap := collector_tooling_frame_gap(frame, sweeps)
+				minimum_frame_gap = minf(minimum_frame_gap, frame_gap)
+				verify(frame_gap > 0.006, "Conservative full-turn cylinders derived from actual vertices clear every raw fixed-frame facet, including the annular bearing.")
+				var billet_count := 0
+				for item in view.item_root.get_children():
+					if item.get_meta("item_kind", "") == "workpiece_billet":
+						billet_count += 1
+					var box := machine.transform.affine_inverse() * feed_item_bounds(item, Transform3D.IDENTITY)
+					var stock_gap := collector_tooling_stock_gap(box, sweeps)
+					minimum_stock_gap = minf(minimum_stock_gap, stock_gap)
+					verify(stock_gap > 0.000001, "The complete continuous tooling envelope clears every actually redrawn stock and source-item box.")
+				verify(billet_count == 1, "The observed collector buffer keeps one original billet without changing stock ownership or pose.")
+				var picks := 0
+				for child in machine.get_children():
+					if child is StaticBody3D:
+						picks += 1
+						verify(child.get_meta("entity", "") == "fixture" and child.collision_layer == Geometry.PICK_LAYER
+							and child.collision_mask == 0 and child.get_child_count() == 1
+							and child.get_child(0).shape.size == Vector3(1.45, 1.65, 1.45)
+							and child.get_child(0).position == Vector3(0, 0.8, 0),
+							"The sole original entity pick keeps its identity, dimensions, centre and masks.")
+				verify(picks == 1 and view.model == null and view.actor_world == null and view.request_sequence == 0,
+					"The art builder creates no authority, native body, material request or extra collider.")
+				var fixed: Array[Transform3D] = []
+				for part in frame.get_children():
+					fixed.append(part.transform)
+				for step in range(24):
+					var angle := float(step) * TAU / 24.0
+					view._apply_cutter_pose(machine, rows, angle)
+					var spin := Transform3D(Basis(Vector3.BACK, angle), Vector3.ZERO)
+					var pivot := Vector3(-0.22, 1.1, -0.19)
+					spin.origin = pivot - spin.basis * pivot
+					var correct := true
+					for row in rows:
+						var actual: Transform3D = row.parent_inverse.affine_inverse() * row.node.transform
+						var expected: Transform3D = spin * row.rest
+						correct = correct and actual.is_equal_approx(expected)
+					for index in range(fixed.size()):
+						correct = correct and frame.get_child(index).transform == fixed[index]
+					verify(correct and view.state == before, "The original callback turns all fitted tooling rigidly about the same centre while frame and observed state stay fixed.")
+				view._apply_cutter_pose(machine, rows, 0.0)
+				if controls == 0:
+					var floated := ArrayMesh.new()
+					for surface in range(3):
+						var piece := SurfaceTool.new()
+						piece.begin(Mesh.PRIMITIVE_TRIANGLES)
+						piece.append_from(flutes[0].mesh, surface, Transform3D(Basis.IDENTITY, Vector3.UP * (0.01 if surface == 1 else 0.0)))
+						piece.commit(floated)
+					verify(not collector_tooling_seated(floated), "A floating insert fails the same actual holder and fastener support-plane oracle.")
+					var filled := CylinderMesh.new()
+					filled.top_radius = 0.24
+					filled.bottom_radius = 0.24
+					filled.height = 0.34
+					filled.radial_segments = 48
+					verify(collector_tooling_bore(filled) == 0.0, "The former filled cylinder cannot pass the raw open-bore requirement.")
+					var saved := hub.transform
+					hub.position.x += 0.03
+					verify(collector_tooling_frame_gap(frame, collector_tooling_sweeps(rows)) < 0,
+						"An off-centre hub fails the same whole-turn bearing clearance oracle.")
+					hub.transform = saved
+					var finish_value := flutes[0].get_surface_override_material(1)
+					flutes[0].set_surface_override_material(1, CollectorArt.coating(Color("465a60")))
+					verify(not collector_tooling_materials(flutes[0]), "A painted cutting insert fails the qualified metal-role requirement.")
+					flutes[0].set_surface_override_material(1, finish_value)
+					controls = 4
+				view.state.entities.fixture.generation = 2
+				view._rebuild_machines()
+				var rebuilt: Node3D = view.machine_root.get_child(0)
+				verify(rebuilt.get_node("CutterDrum").mesh == cache.drum and rebuilt.get_node("CutterHub").mesh == cache.hub
+					and count_role(rebuilt, "CutterFlute") == 8,
+					"Replacement generations reuse geometry and rebuild their own original motion group.")
+				view.state.entities.clear()
+				view.state.stock.source = 16
+				view.state.stock.collector = 0
+				before = view.state.duplicate(true)
+				view._rebuild_machines()
+				verify(view.machine_root.get_child_count() == 0 and view.state == before,
+					"Observed removal clears the entire collector without generating material, tools or an orphaned motion owner.")
+				assemblies += 1
+				view.free()
+	for shared_profile in [false, true]:
+		var historical: Variant = Shared.new() if shared_profile else Opening.new()
+		historical.legacy_fixture = true
+		var old_root := Node3D.new()
+		historical._collector_visual(old_root)
+		historical._machine_surface_detail(old_root, "collector")
+		var drum: MeshInstance3D = old_root.get_node("CutterDrum")
+		verify(drum.mesh is CylinderMesh and is_equal_approx(drum.mesh.top_radius, 0.24)
+			and is_equal_approx(drum.mesh.height, 0.34) and not drum.has_meta("collector_tooling_role")
+			and drum.material_override == Visuals.material(Color("465a60"), 0.85, 0.4),
+			"Both historical nonnative view classes retain the exact original drum primitive and finish.")
+		var details: Node3D = old_root.get_node("SurfaceDetail")
+		var old_flutes := 0
+		for part in details.get_children():
+			if part.get_meta("detail_role", "") == "CutterFlute":
+				old_flutes += 1
+				verify(part.mesh == Visuals.box_mesh(Vector3(0.04, 0.045, 0.29)) and not part.has_meta("collector_tooling_role"),
+					"The historical eight flutes keep their original boxes without new native tooling.")
+		verify(old_flutes == 8, "The original nonnative flute roster is preserved.")
+		old_root.free()
+		historical.free()
+	print(JSON.stringify({"assemblies": assemblies, "axes": 3, "unique_meshes": cache.size(), "negative_controls": controls,
+		"poses_per_assembly": 24, "moving_rows": 10, "maximum_actual_moving_radius_metres": maximum_moving_radius,
+		"minimum_continuous_frame_gap_metres": minimum_frame_gap, "minimum_continuous_stock_gap_metres": minimum_stock_gap,
+		"minimum_actual_bore_facet_radius_metres": bore_radius, "observations": "invented read-only",
+		"continuous_clearance": "Conservative raw-vertex full-turn cylinders against actual frame facets and item boxes.",
+		"native_gameplay": "not_run", "rendered_quality": "not_assessed"}))
+
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--collector-tooling-only"):
+		check_collector_tooling()
+		finish()
+		return
 	if OS.get_cmdline_user_args().has("--press-output-tray-only"):
 		check_press_output_tray()
 		finish()
