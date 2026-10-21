@@ -684,6 +684,82 @@ class ProductionWheelSupportArt:
 					_part(parent, "WheelFootBolt", suffix + ("L" if x < 0 else "R"), fasteners[scale_factor],
 						offset + stand_frame * (Vector3(x, 0.369, 0) * scale_factor), Basis.IDENTITY, worked)
 
+class ProductionFeedSleeveArt:
+	extends RefCounted
+	## Render the existing confirmed feed link. No stock, transfer or power rule.
+	const CACHE_LENGTH_STEP := 0.00001
+	const MINIMUM_RENDER_SPAN := 0.28
+	const FLOOR_HEIGHT := 0.09
+	static var bolt_mesh: CylinderMesh
+	static var marking: StandardMaterial3D
+
+	static func _part(parent: Node3D, role: String, suffix: String, mesh: Mesh,
+			at: Vector3, orientation: Basis, finish: Material) -> MeshInstance3D:
+		var part := MeshInstance3D.new()
+		part.name = role + suffix
+		part.set_meta("feed_sleeve_role", role)
+		part.mesh = mesh
+		part.position = at
+		part.basis = orientation
+		part.material_override = finish
+		parent.add_child(part)
+		return part
+
+	static func mount(parent: Node3D, start: Vector3, finish: Vector3) -> bool:
+		var offset: Vector3 = finish - start
+		var span: float = offset.length()
+		if not start.is_finite() or not finish.is_finite() or not offset.is_finite() \
+				or not is_finite(span) or offset.y != 0 or span < MINIMUM_RENDER_SPAN:
+			return false
+		# Cache equivalent render lengths despite float packing at different
+		# grid positions. This does not round a native pose, command or reach.
+		var length: float = snappedf(span, CACHE_LENGTH_STEP)
+		var direction: Vector3 = offset / span
+		var across := Vector3(direction.z, 0, -direction.x)
+		var channel := PackedVector2Array([Vector2(-0.292, -0.012), Vector2(0.292, -0.012),
+			Vector2(0.292, 0.07), Vector2(0.28, 0.07), Vector2(0.28, 0),
+			Vector2(-0.28, 0), Vector2(-0.28, 0.07), Vector2(-0.292, 0.07)])
+		var cuff := PackedVector2Array([Vector2(-0.306, -0.026), Vector2(0.306, -0.026),
+			Vector2(0.306, 0.07), Vector2(0.292, 0.07), Vector2(0.292, -0.012),
+			Vector2(-0.292, -0.012), Vector2(-0.292, 0.07), Vector2(-0.306, 0.07)])
+		var arrow := PackedVector2Array([Vector2(-0.09, -0.03), Vector2(-0.025, -0.03),
+			Vector2(-0.025, -0.12), Vector2(0.025, -0.12), Vector2(0.025, -0.03),
+			Vector2(0.09, -0.03), Vector2(0, 0.07)])
+		var worked := ProductionTransmissionFinish.material("worked", Color("929e91"), 0.85, 0.52)
+		var cast := ProductionTransmissionFinish.material("cast", Color("465a60"), 0.85, 0.55)
+		var hardware := ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.38)
+		if worked == null or cast == null or hardware == null:
+			return false
+		if bolt_mesh == null:
+			bolt_mesh = CylinderMesh.new()
+			bolt_mesh.top_radius = 0.0115
+			bolt_mesh.bottom_radius = 0.0115
+			bolt_mesh.height = 0.014
+			bolt_mesh.radial_segments = 6
+		if marking == null:
+			marking = StandardMaterial3D.new()
+			marking.albedo_color = Color("e2c48b")
+			marking.metallic = 0
+			marking.roughness = 0.85
+		parent.position = (start + finish) / 2.0
+		parent.basis = Basis(across, Vector3.UP, direction)
+		parent.set_meta("feed_sleeve", true)
+		parent.set_meta("render_span", length)
+		_part(parent, "FeedChannel", "", ProductionVisuals.prism_mesh(channel, length, 0.001),
+			Vector3(0, FLOOR_HEIGHT, 0), Basis.IDENTITY, worked)
+		for end in [-1.0, 1.0]:
+			var suffix := "N" if end < 0 else "P"
+			var z: float = end * (length / 2.0 - 0.0225)
+			_part(parent, "FeedCuff", suffix, ProductionVisuals.prism_mesh(cuff, 0.045, 0.001),
+				Vector3(0, FLOOR_HEIGHT, z), Basis.IDENTITY, cast)
+			for side in [-1.0, 1.0]:
+				_part(parent, "FeedBolt", suffix + ("N" if side < 0 else "P"), bolt_mesh,
+					Vector3(side * 0.313, FLOOR_HEIGHT + 0.035, z),
+					Basis(Quaternion(Vector3.UP, Vector3.RIGHT * side)), hardware)
+		_part(parent, "FeedDirection", "", ProductionVisuals.prism_mesh(arrow, 0.002, 0.0002),
+			Vector3(0, FLOOR_HEIGHT + 0.001, length * 0.2), Basis(Vector3.RIGHT, PI / 2), marking)
+		return true
+
 class ProductionSteelFloor:
 	extends RefCounted
 	## Image/material presentation only. No geometry or physical displacement.
@@ -3546,6 +3622,8 @@ func _material_route(parent: Node3D, a: Vector3, b: Vector3) -> Node3D:
 	var direction := (b - a).normalized()
 	var start := a + direction * 0.55 + Vector3.UP * 0.45
 	var finish := b - direction * 0.55 + Vector3.UP * 0.45
+	if _native_transmission() and ProductionFeedSleeveArt.mount(route, start, finish):
+		return route
 	_route_segment(route, "Rail", start, finish, 0.17, Color("929e91"))
 	var side := Vector3(-direction.z, 0, direction.x)
 	var tip := start.lerp(finish, 0.7) + Vector3.UP * 0.115
