@@ -236,6 +236,7 @@ func _belt_span(id: String, span: Variant, parts: Dictionary, rendered: Dictiona
 	var loop := Assets.belt_loop(anchor, distance, 0)
 	if loop != null:
 		loop.basis = loop_basis
+	var pulley_offsets: Array[float] = []
 	for part_id: Variant in parts:
 		var pulley: Variant = parts[part_id]
 		if not rendered.has(part_id) or not _valid_part(pulley) or pulley.kind != "shaft" or pulley.axis != first.axis:
@@ -244,6 +245,8 @@ func _belt_span(id: String, span: Variant, parts: Dictionary, rendered: Dictiona
 		for index in range(steps + 1):
 			if point == first_point + step * index:
 				Assets.belt_pulley(rendered[part_id])
+				if index > 0 and index < steps:
+					pulley_offsets.append((world_center(pulley.center) - anchor.position).dot(loop_basis.x))
 				break
 	var slots: Variant = span.get("slots", [])
 	var expected_slots := steps + 1
@@ -272,13 +275,29 @@ func _belt_span(id: String, span: Variant, parts: Dictionary, rendered: Dictiona
 	body.collision_layer = Geometry.PICK_LAYER
 	body.collision_mask = 0
 	body.set_meta("entity", id)
+	body.basis = loop_basis
+	# Leave a small gap around each intermediate pulley so a ray aimed at its
+	# shaft does not hit the belt's selection body first. The endpoint margins
+	# keep the original independent endpoint selection behavior.
+	pulley_offsets.sort()
+	var cursor := -distance / 2.0 + Geometry.PITCH * 0.35
+	var end := distance / 2.0 - Geometry.PITCH * 0.35
+	for offset in pulley_offsets:
+		var gap_start := clampf(offset - 0.18, cursor, end)
+		_add_belt_pick_section(body, cursor, gap_start)
+		cursor = clampf(offset + 0.18, cursor, end)
+	_add_belt_pick_section(body, cursor, end)
+	anchor.add_child(body)
+
+func _add_belt_pick_section(body: StaticBody3D, start: float, end: float) -> void:
+	if end - start <= 0.001:
+		return
 	var collider := CollisionShape3D.new()
 	var box := BoxShape3D.new()
-	box.size = Vector3(maxf(distance - Geometry.PITCH * 0.7, 0.1), 0.3, Geometry.PITCH * 0.55)
+	box.size = Vector3(end - start, 0.3, Geometry.PITCH * 0.55)
+	collider.position.x = (start + end) / 2.0
 	collider.shape = box
-	body.basis = loop_basis
 	body.add_child(collider)
-	anchor.add_child(body)
 
 static func belt_slot_fraction(slots: Array, index: int, phase: Variant) -> float:
 	# The shared phase advances a whole chain together. If the chain reaches a
