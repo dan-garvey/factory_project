@@ -1,0 +1,32 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "couplings",
+    srcs = ["src/couplings.cpp"],
+    hdrs = ["include/factory/sliding_couplings.hpp"],
+    strip_include_prefix = "include",
+    deps = ["//native/factory-mechanics:mechanics"],
+)
+
+cc_library(
+    name = "puzzles",
+    srcs = ["src/puzzles.cpp", "src/workbench.cpp"],
+    hdrs = ["include/factory/coupling_puzzles.hpp"],
+    strip_include_prefix = "include",
+    deps = [":couplings"],
+)
+
+cc_binary(
+    name = "coupling_workbench",
+    srcs = ["src/main.cpp"],
+    deps = [":puzzles"],
+)
+
+cc_test(
+    name = "couplings_test",
+    srcs = ["tests/couplings_test.cpp"],
+    deps = [":puzzles"],
+    size = "small",
+)
