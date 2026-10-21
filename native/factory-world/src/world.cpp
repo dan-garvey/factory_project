@@ -648,10 +648,11 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
             if (coordinate < -mechanics::maximum_coordinate || coordinate > mechanics::maximum_coordinate) return false;
         for (const auto coordinate : last->geometry.center)
             if (coordinate < -mechanics::maximum_coordinate || coordinate > mechanics::maximum_coordinate) return false;
-        const auto axis = first->geometry.axis == mechanics::Axis::x ? 2 : 0;
-        const auto length = std::abs(first->geometry.center[axis] - last->geometry.center[axis]) / 4 + 1;
-        if (length < 2 || length > static_cast<Integer>(materials::maximum_belt_slots) ||
-            lane->second.slots.size() != static_cast<std::size_t>(length)) return false;
+        const auto path = mechanics::belt_path(first->geometry, last->geometry);
+        // Material, physical and presentation consumers currently use horizontal paths.
+        if (!path || path->kind != mechanics::BeltPathKind::horizontal ||
+            path->tiles.size() > materials::maximum_belt_slots ||
+            lane->second.slots.size() != path->tiles.size()) return false;
         for (const auto& item : lane->second.slots) {
             if (item && item->work_lots.size() > maximum_current_work - current_work) return false;
             if (item) current_work += item->work_lots.size();
@@ -889,6 +890,9 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             if (!first || !last) return refused("unknown_target");
             if (first->generation != *expected || last->generation != *to_generation)
                 return refused("stale_generation");
+            const auto path = mechanics::belt_path(first->geometry, last->geometry);
+            if (!path || path->kind != mechanics::BeltPathKind::horizontal)
+                return refused("invalid_belt_geometry");
         } else {
             const auto found = std::find_if(state.topology.belt_spans.begin(), state.topology.belt_spans.end(),
                 [&](const auto& span) { return span.geometry.id == *id; });

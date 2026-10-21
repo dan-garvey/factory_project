@@ -314,10 +314,9 @@ Result evaluate(const std::vector<Part>& input, const std::vector<Drive>& source
         const auto* first = parts[indices.at(belt->first_shaft)];
         const auto* last = parts[indices.at(belt->last_shaft)];
         auto path = belt_path(*first, *last);
-        // The current World and physical consumers admit horizontal paths only.
-        if (!path || path->kind != BeltPathKind::horizontal) return failure(Error::invalid_belt, belt->id);
-        const auto travel = first->axis == Axis::x ? std::size_t{2} : std::size_t{0};
-        if (first->center[travel] > last->center[travel]) std::reverse(path->tiles.begin(), path->tiles.end());
+        if (!path) return failure(Error::invalid_belt, belt->id);
+        // Canonical endpoint order keeps engagements stable on every path.
+        if (path->tiles.front() > path->tiles.back()) std::reverse(path->tiles.begin(), path->tiles.end());
         std::vector<std::size_t> pulleys;
         for (const auto& point : path->tiles) {
             if (!belt_tiles.insert(point).second) return failure(Error::invalid_belt, belt->id);

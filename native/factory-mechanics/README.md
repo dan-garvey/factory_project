@@ -92,8 +92,9 @@ An invalid shape, identity, source or unrepresentable rate returns an error
 without publishing partial motion or engagement. Input values are unchanged.
 Allocation exceptions can propagate before the authority commits anything.
 
-The pure solver also accepts explicit horizontal belt spans between parallel
-one-tile shafts. Each span validates aligned grid centers, a maximum of twenty
+The pure solver accepts explicit belt spans between parallel one-tile shafts,
+including horizontal, vertical, 45-degree inclined and sideways paths. Each
+span validates aligned grid centers, a maximum of twenty
 tiles, unobstructed tile centers and exclusive belt occupancy. Aligned shafts
 within the span are pulleys; their signed angular rates match, including when
 the drive enters at either end. Incompatible sources stall the connected
@@ -104,7 +105,7 @@ check is not full terrain or body collision clearance.
 The separate `belt_path` primitive derives ordered global tile centers for
 horizontal, vertical, 45-degree inclined and sideways paths. It rejects paths
 along the axle, unequal diagonal steps, off-grid endpoints and paths longer
-than twenty tiles. The solver and playable consumers still admit only horizontal
+than twenty tiles. The World and playable consumers still admit only horizontal
 paths; the other geometries are groundwork, not placeable belts. See Create's
 [belt connector](https://github.com/Creators-of-Create/Create/blob/mc1.21.1/dev/src/main/java/com/simibubi/create/content/kinetics/belt/item/BeltConnectorItem.java)
 for the referenced axle and path constraints.

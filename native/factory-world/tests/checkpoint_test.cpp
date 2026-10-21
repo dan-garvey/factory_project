@@ -458,6 +458,23 @@ void belt_span_commands() {
         {{"right", g::Kind::shaft, {8, 0, 0}, g::Axis::z, 0, 2}, 1, s::Role::shaft}};
     state.topology.sources = {{"wheel", {1, 1}}}; state.topology.drive_enabled = true;
     state.issued_entities = {{"wheel", 1}, {"left", 1}, {"right", 1}};
+    auto inclined = state;
+    inclined.topology.parts.back().geometry.center[1] = 8;
+    auto incomplete_world = w::World::create("saved-world", profile, inclined);
+    check(incomplete_world != nullptr, "The World accepts the separate inclined shaft endpoints.");
+    auto inclined_command = command("place_belt_span", "inclined-refusal", "left");
+    inclined_command.emplace("to", V("right")); inclined_command.emplace("to_generation", V(I{1}));
+    const auto incomplete = send(*incomplete_world, inclined_command);
+    check(incomplete.completed() && !field<bool>(*incomplete.result, "accepted") &&
+              field<std::string>(*incomplete.result, "reason") == "invalid_belt_geometry" &&
+              incomplete_world->snapshot().state == inclined,
+          "The World refuses unsupported inclined construction without spending a belt.");
+    inclined.topology.belt_spans = {{{"incline", "left", "right"}, 2}};
+    inclined.issued_entities.emplace("incline", 2);
+    inclined.kits.at("P").at({s::Role::belt, 0, 0}) = 0;
+    inclined.material.belt_lanes.emplace("incline", m::BeltLane{std::vector<std::optional<m::Cargo>>(3), 0});
+    check(w::World::create("saved-world", profile, inclined) == nullptr,
+          "An unsupported inclined span cannot enter through a seeded World.");
     auto world = w::World::create("saved-world", profile, state);
     check(world != nullptr, "The belt command fixture creates the single World.");
     auto place = command("place_belt_span", "belt-place", "left");

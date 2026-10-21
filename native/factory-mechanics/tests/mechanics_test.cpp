@@ -410,6 +410,36 @@ void belt_path_geometry() {
     check(!mechanical::belt_path(a, b), "Out-of-bounds coordinates are refused before subtraction.");
 }
 
+void nonhorizontal_belt_power() {
+    for (const auto axle : {Axis::x, Axis::y, Axis::z}) {
+        const auto axial = static_cast<std::size_t>(axle);
+        for (const Point end : {Point{0, 8, 0}, Point{8, 0, 0}, Point{0, 0, 8},
+                                Point{8, 8, 0}, Point{-8, 8, 0}, Point{0, 8, 8}, Point{0, 8, -8}}) {
+            Part a{"a", Kind::shaft, {0, 0, 0}, axle, 0, 2};
+            Part c{"c", Kind::shaft, end, axle, 0, 2};
+            const auto path = mechanical::belt_path(a, c);
+            if (!path || path->kind == mechanical::BeltPathKind::horizontal) continue;
+            auto source = a.center; source[axial] -= 4;
+            auto sink = c.center; sink[axial] += 4;
+            std::vector<Part> parts{a, {"b", Kind::shaft, path->tiles[1], axle, 0, 2}, c,
+                {"source", Kind::hub, source, axle, 0, 0}, {"sink", Kind::hub, sink, axle, 0, 0}};
+            const std::vector<mechanical::BeltSpan> belt{{"belt", "a", "c"}};
+            const auto forward = mechanical::evaluate(parts, {{"source", {3, 2}}}, belt);
+            motion(forward, "b", MotionState::rotating, {3, 2});
+            motion(forward, "sink", MotionState::rotating, {3, 2});
+            motion(mechanical::evaluate(parts, {{"sink", {-2, 3}}}, belt), "a", MotionState::rotating, {-2, 3});
+            motion(mechanical::evaluate(parts, {{"source", {1, 1}}, {"sink", {-1, 1}}}, belt),
+                   "b", MotionState::stalled, {0, 1});
+            std::reverse(parts.begin(), parts.end());
+            check(mechanical::evaluate(parts, {{"source", {3, 2}}}, {{"belt", "c", "a"}}) == forward,
+                  "Nonhorizontal pulley engagements are stable under endpoint and input reversal.");
+            part(parts, "b").axis = axle == Axis::x ? Axis::z : Axis::x;
+            check(mechanical::evaluate(parts, {}, belt).error == Error::invalid_belt,
+                  "A misaligned intermediate pulley obstructs a nonhorizontal belt.");
+        }
+    }
+}
+
 void horizontal_belt_spans() {
     for (const auto axle : {Axis::x, Axis::z}) {
         const auto travel = axle == Axis::x ? std::size_t{2} : std::size_t{0};
@@ -446,7 +476,7 @@ void horizontal_belt_spans() {
               "A misaligned intermediate shaft obstructs the belt.");
         blocked = parts; part(blocked, "c").center[1] += 4;
         check(mechanical::evaluate(blocked, {}, belt).error == Error::invalid_belt,
-              "The horizontal profile refuses a sloping span.");
+              "An unequal slope is refused.");
         blocked = parts; part(blocked, "c").center[travel] = 80;
         check(mechanical::evaluate(blocked, {}, belt).error == Error::invalid_belt,
               "The bounded profile refuses more than twenty tiles.");
@@ -475,6 +505,7 @@ int main() {
         one_tile_shaft_faces();
         one_tile_large_cogs();
         belt_path_geometry();
+        nonhorizontal_belt_power();
         horizontal_belt_spans();
         local_conflicts();
         bounded_diagnostics();
