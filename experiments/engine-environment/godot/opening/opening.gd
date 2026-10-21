@@ -187,6 +187,97 @@ class ProductionVisuals:
 			meshes["fastener/hex"] = head
 		return meshes["fastener/hex"]
 
+class ProductionWheelArt:
+	extends RefCounted
+	## A reusable visual component. Native geometry and motion never read this mesh.
+	const ROOT := "res://opening/assets/waterwheel"
+	const FILES := ["rotor.gltf", "rotor.bin", "wood_albedo.jpg", "wood_normal.webp", "wood_arm.webp"]
+	static var mesh: ArrayMesh
+	static var finish: StandardMaterial3D
+	static var source_status := "uninitialized"
+
+	static func resource_status(directory: String = ROOT) -> String:
+		var present := 0
+		for name_value in FILES:
+			if FileAccess.file_exists(directory.path_join(name_value)):
+				present += 1
+		if present == 0:
+			return "missing"
+		return "complete" if present == FILES.size() else "incomplete"
+
+	static func _prepare() -> void:
+		source_status = resource_status()
+		if source_status == "missing":
+			# Old fixed source rosters have no art resources. Their earlier
+			# procedural rotor remains explicit rather than claiming sourced art.
+			return
+		if source_status != "complete":
+			push_error("The sourced waterwheel resource set is incomplete.")
+			return
+		source_status = "invalid"
+		# Read only mesh data. This creates no asset scene, requires no editor
+		# import cache, and cannot mount a source controller or collision body.
+		var document := GLTFDocument.new()
+		var imported := GLTFState.new()
+		if document.append_from_file(ROOT.path_join("rotor.gltf"), imported) != OK:
+			push_error("Cannot load the prepared waterwheel component.")
+			return
+		var sources := imported.get_meshes()
+		if sources.size() != 1 or sources[0].mesh == null or sources[0].mesh.get_surface_count() != 1:
+			push_error("The waterwheel must contain one prepared visual mesh.")
+			return
+		var prepared: ArrayMesh = sources[0].mesh.get_mesh()
+		var arrays := prepared.surface_get_arrays(0)
+		if arrays[Mesh.ARRAY_TANGENT] == null or arrays[Mesh.ARRAY_TANGENT].is_empty():
+			var surface := SurfaceTool.new()
+			surface.create_from(prepared, 0)
+			surface.generate_tangents()
+			prepared = surface.commit()
+		var images: Dictionary = {}
+		for role: String in ["albedo", "normal", "arm"]:
+			var name_value: String = "wood_albedo.jpg" if role == "albedo" else "wood_" + role + ".webp"
+			var image := Image.load_from_file(ROOT.path_join(name_value))
+			var expected := Vector2i(1024, 1024) if role == "albedo" else Vector2i(512, 512)
+			if image == null or image.get_size() != expected or image.generate_mipmaps(role == "normal") != OK:
+				push_error("Cannot prepare the waterwheel material: " + role)
+				return
+			images[role] = image
+		var material := StandardMaterial3D.new()
+		material.cull_mode = BaseMaterial3D.CULL_DISABLED
+		material.albedo_color = Color.WHITE
+		material.albedo_texture = ImageTexture.create_from_image(images.albedo)
+		var arm := ImageTexture.create_from_image(images.arm)
+		material.metallic = 1.0
+		material.metallic_texture = arm
+		material.metallic_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_BLUE
+		material.roughness = 1.0
+		material.roughness_texture = arm
+		material.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_GREEN
+		material.ao_enabled = true
+		material.ao_texture = arm
+		material.ao_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
+		material.ao_light_affect = 0.0
+		material.normal_enabled = true
+		material.normal_texture = ImageTexture.create_from_image(images.normal)
+		material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		mesh = prepared
+		finish = material
+		source_status = "ready"
+
+	static func mount(parent: Node3D) -> bool:
+		if source_status == "uninitialized":
+			_prepare()
+		if source_status != "ready":
+			return false
+		var rotor := MeshInstance3D.new()
+		rotor.name = "SourcedTimberRotor"
+		rotor.mesh = mesh
+		rotor.material_override = finish
+		rotor.set_meta("detail_role", "SourcedTimberRotor")
+		rotor.set_meta("source_asset", "Poly Haven spinning_wheel_01")
+		parent.add_child(rotor)
+		return true
+
 class ProductionSteelFloor:
 	extends RefCounted
 	## Image/material presentation only. No geometry or physical displacement.
@@ -2611,16 +2702,18 @@ func _wheel_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	elif native_profile and axis == Vector3.UP:
 		wheel_rotor.rotation.x = -PI / 2
 	anchor.add_child(wheel_rotor)
-	var rim_profile := PackedVector2Array([
-		Vector2(0.51, -0.022), Vector2(0.518, -0.03), Vector2(0.582, -0.03),
-		Vector2(0.59, -0.022), Vector2(0.59, 0.022), Vector2(0.582, 0.03),
-		Vector2(0.518, 0.03), Vector2(0.51, 0.022), Vector2(0.51, -0.022)])
-	for z in [-0.15, 0.15]:
-		_machine_turned(wheel_rotor, "WheelRim", Vector3(0, 0, z), rim_profile, frame, Vector3.BACK)
-		for n in range(12):
-			var angle := float(n) * TAU / 12.0
-			_machine_fastener(wheel_rotor, "RimFastener",
-				Vector3(cos(angle) * 0.55, sin(angle) * 0.55, z + signf(z) * 0.03), Vector3.BACK * signf(z))
+	var sourced := ProductionWheelArt.mount(wheel_rotor)
+	if not sourced:
+		var rim_profile := PackedVector2Array([
+			Vector2(0.51, -0.022), Vector2(0.518, -0.03), Vector2(0.582, -0.03),
+			Vector2(0.59, -0.022), Vector2(0.59, 0.022), Vector2(0.582, 0.03),
+			Vector2(0.518, 0.03), Vector2(0.51, 0.022), Vector2(0.51, -0.022)])
+		for z in [-0.15, 0.15]:
+			_machine_turned(wheel_rotor, "WheelRim", Vector3(0, 0, z), rim_profile, frame, Vector3.BACK)
+			for n in range(12):
+				var angle := float(n) * TAU / 12.0
+				_machine_fastener(wheel_rotor, "RimFastener",
+					Vector3(cos(angle) * 0.55, sin(angle) * 0.55, z + signf(z) * 0.03), Vector3.BACK * signf(z))
 	# An open rim exposes the spokes. Meshes never supply drive relationships.
 	for n in range(12):
 		var angle := n * TAU / 12.0
@@ -2628,10 +2721,11 @@ func _wheel_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 		var paddle := _machine_box(wheel_rotor, "WheelPaddle", radial * 0.62,
 			Vector3(0.14, 0.16, 0.28), wood, 0.05, 0.88)
 		paddle.rotation.z = angle
-	for n in range(3):
-		var spoke := _machine_box(wheel_rotor, "WheelSpoke", Vector3.ZERO,
-			Vector3(0.065, 1.0, 0.085), wood, 0.05, 0.88)
-		spoke.rotation.z = n * PI / 3.0
+	if not sourced:
+		for n in range(3):
+			var spoke := _machine_box(wheel_rotor, "WheelSpoke", Vector3.ZERO,
+				Vector3(0.065, 1.0, 0.085), wood, 0.05, 0.88)
+			spoke.rotation.z = n * PI / 3.0
 	_machine_cylinder(wheel_rotor, "WheelHub", Vector3.ZERO, 0.13, 0.45,
 		Color("b87945"), Vector3(PI / 2, 0, 0))
 

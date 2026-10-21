@@ -61,6 +61,16 @@ coherent. The old decorative wheel rotation still follows the confirmed powered
 flag. No rendered mesh supplies power, contact, placement, collision or reach.
 Pick bodies, labels, interaction anchors and gameplay state are unchanged.
 
+Complete captures now use a sourced CC0 [timber rotor](waterwheel/CREDITS.md)
+for the waterwheel rim, hub and twelve spokes. Its original modeled components
+and atlas replace the procedural rim silhouette. Existing paddles, spindle,
+bearings, axes and confirmed motion remain in the ordinary view. One cached
+static mesh and mipmapped material are shared between all orientations; source
+scene controllers and physical bodies are never instantiated. Historical fixed
+rosters retain their earlier procedural rotor, while a partial resource set is
+reported explicitly. This increment has isolated asset checks, not a rendered
+quality or human-approval result.
+
 For the native scene profile, machine spindles, waterwheel axle and bearings
 follow each entity's projected X, Y or Z axis through the confirmed hub height.
 Older native projections without an axis retain X. The wheel is scaled to keep
@@ -103,19 +113,16 @@ not machinery ambience or a simulation of material speed. The isolated fixture
 retains WAV previews and checks event guards and digital headroom; the quality
 and balance of the audible result still need human listening.
 
-The physical worksite creates an original HDR panorama with atmospheric colors,
-distant silhouettes and a sun aligned to the key light. The silhouettes are sky
-detail, not solid scenery or an implied traversable mountain. A restrained cool
-fill supports shadowed faces without another shadow map, and distance haze starts
-beyond the normal worksite. The current complete capture adds a contoured valley,
-recessed stream and millrace architecture around the flat construction pad.
-The grid, construction anchors and machine envelopes retain their coordinates;
-ActorWorld realizes the same displayed terrain and solid structures. Low foliage,
-water and foam remain visual details. Historical fixed-roster captures retain
-their flat surroundings and plane, and the explicit legacy fixture retains its
-earlier sky and stream. No external sky download is required. The isolated
-environment check validates assembly and resource/spatial contracts; it does not
-establish the rendered balance, reflection quality or Satisfactory-level result.
+The [current terrain and sky profiles](#shared-terrain-and-stream) supply the
+ordinary worksite. A restrained cool fill supports shadowed faces without another
+shadow map, and distance haze starts beyond the normal worksite. The grid,
+construction anchors and machine envelopes retain their coordinates. Historical
+fixed-roster captures retain their flat surroundings and generated panorama;
+its distant silhouettes are sky detail without terrain or collision. The explicit
+legacy fixture keeps its earlier sky and stream. All required resources are
+captured locally. Environment checks establish assembly and resource/spatial
+contracts; rendered balance, reflections and the Satisfactory-level target remain
+unassessed.
 
 The fixed-roster launchers already include `character_presenter.gd` and
 `opening.gd`, retaining their identified procedural worker and machined surfaces.
@@ -134,14 +141,13 @@ Rendered lighting, composition and human visual feedback remain unfinished. This
 increment does not complete the visual task, introduce geometric cogwheel
 authority, repair window resizing or change the opening's teaching flow.
 
-The physical foundation panels use the sourced
-[steel surface set](steel/CREDITS.md), with continuous world-space mapping and
-separate albedo, OpenGL normal and packed scalar material data. Panel geometry,
-machine finishes and all construction/collision rules stay unchanged. One cached
-material serves the whole foundation, with mipmaps for the normal playable
-camera. Current complete native captures include the images; historical rosters
-without them keep their explicitly identified procedural floor. Source/image
-checks do not establish rendered quality, reflection balance or GPU cost.
+Earlier floor profiles use the sourced [steel surface set](steel/CREDITS.md),
+with continuous world-space mapping and separate albedo, OpenGL normal and packed
+scalar data. Its cached mipmapped material and image controls remain available.
+Current natural terraces use the shared rocky-ground material described below;
+historical fixed rosters keep their procedural floor. Material choice changes no
+construction or collision authority. Source/image checks leave rendered quality,
+reflection balance and GPU cost unassessed.
 
 Machine placement now previews the fitted assembly at the pointer's grid square,
 including the selected native spindle axis. Neutral translucent amber shows form
@@ -209,7 +215,7 @@ are preserved. Styles are built inside the captured opening script and add no
 font or image dependency. Isolated style/inheritance controls establish metric
 preservation and assigned-color contrast, not pixel appearance or human usability.
 
-## Shared terrain and millrace
+## Shared terrain and stream
 
 The ordinary environment uses the original CC0
 [Kloppenheim daylight HDR](sky/CREDITS.md) for its panorama, ambient and reflection
@@ -246,7 +252,14 @@ cache and files; both use the same bounded decoder with their declared normal
 resolutions. Source packaging and material checks do not establish rendered
 quality or GPU performance.
 
-The worksite uses the contoured valley, stream, sluice and stepped tailrace from the retained millrace candidate. Terrain triangles, flat deck rectangles, wharf beams, architectural boxes and rock transforms are shared immutable inputs in `site_surface.gd`; ActorWorld alone constructs their native collision. Water, foam, foliage and small turned ornaments remain visual details. The scanned steel cache and floor channels are unchanged. The displayed finite site is adapter geometry, not a gameplay world boundary. Human visual quality has not been assessed.
+The current worksite combines the contoured valley and stream with bedrock
+shelves, upstream gorge crags, downstream cascade ledges and an exposed ore-rock
+outcrop. Terrain triangles, river-cleared terrace rectangles, bank ledges and rock
+transforms are shared immutable inputs in `site_surface.gd`; ActorWorld constructs
+their collision. Terraces share the rocky-ground material. Water, foam and foliage
+remain visual details. These checks establish geometry alignment; natural-looking
+appearance remains unassessed. The finite displayed site is adapter geometry,
+not a gameplay world boundary.
 
 The shared opaque water material now scrolls its repeated normal detail downstream
 through the existing view frame callback. The absolute visual phase is idempotent

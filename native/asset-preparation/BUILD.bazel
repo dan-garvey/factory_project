@@ -1,0 +1,10 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary")
+
+package(default_visibility = ["//visibility:public"])
+
+# A source-specific offline art recipe. It never runs in the game.
+cc_binary(
+    name = "prepare-waterwheel",
+    srcs = ["waterwheel.cpp"],
+    linkopts = ["-lcrypto"],
+)

@@ -1,0 +1,91 @@
+{
+  "asset": "Spinning Wheel 01",
+  "author": "Sofia Pahaoja",
+  "asset_url": "https://polyhaven.com/a/spinning_wheel_01",
+  "license": "CC0",
+  "license_url": "https://polyhaven.com/license",
+  "metadata_url": "https://api.polyhaven.com/info/spinning_wheel_01",
+  "file_index_url": "https://api.polyhaven.com/files/spinning_wheel_01",
+  "source_files": {
+    "scene": {
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/spinning_wheel_01/spinning_wheel_01_1k.gltf",
+      "bytes": 2737,
+      "sha256": "a56305f75df7a6cb143875c2b5c3c4cf736b2d8ad0f040f942188b7fcc847a93"
+    },
+    "geometry": {
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/8k/spinning_wheel_01/spinning_wheel_01.bin",
+      "bytes": 1444300,
+      "sha256": "2764af36cbfcf6ba26e5175f63ba9aa72347bb52a7b7f06ad26895d89b14f099"
+    },
+    "albedo": {
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/spinning_wheel_01/spinning_wheel_01_diff_1k.jpg",
+      "bytes": 233457,
+      "sha256": "b81f7849d93841e34c68292a26cb7825ceeff204b51717c3703b6c6a0b86450e"
+    },
+    "normal_gl": {
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/spinning_wheel_01/spinning_wheel_01_nor_gl_1k.png",
+      "bytes": 5289672,
+      "sha256": "b8714ea0190d084721eef6636e25c37f107b2d3e8f5d5c8b110c47003aba9df1"
+    },
+    "arm": {
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/spinning_wheel_01/spinning_wheel_01_arm_1k.png",
+      "bytes": 3930465,
+      "sha256": "2316e5c2d32567bfd62611b209700e65d62f801067eb4cc42b94408aeb2da9e1"
+    }
+  },
+  "extraction": {
+    "source_vertices": 35380,
+    "source_triangles": 52023,
+    "selected_components": "Rim, hub and twelve spokes. Stand, drive belt, treadle and other components are excluded.",
+    "component_vertex_seeds": [9310, 2231, 5389, 4630, 4813, 4909, 5005, 5101, 5197, 3426, 5485, 5581, 5677, 3966],
+    "discovery_position_grid": 0.00001,
+    "source_origin": [-0.02135125920176506, 0.6647235751152039, 0.25105417519807816],
+    "rotation": "After subtracting the source origin, (x,y,z) becomes (-z,y,x), mapping the source X axle to local Z without a reflection.",
+    "uniform_scale": 1.8808079527426631,
+    "maximum_output_radius_metres": 0.57,
+    "vertices": 5632,
+    "triangles": 8574,
+    "attributes": "Source vertex shape and UV records retained; normals rotated and normalized. Triangle order retained. No simplification or discovery-weld vertex merging. Godot applies ordinary glTF import conversion and tangent generation."
+  },
+  "processed_files": {
+    "rotor.gltf": {
+      "bytes": 969,
+      "sha256": "5fdfe94db4e28d4f7d3c0de9e0e21689b4075e9d3be575a4ce503e6426ed9912"
+    },
+    "rotor.bin": {
+      "bytes": 231668,
+      "sha256": "b449e7e18369dcf17b07da831f8298d542c4487bdf031c2f6ea87f6432a193ca"
+    },
+    "wood_albedo.jpg": {
+      "bytes": 233457,
+      "sha256": "b81f7849d93841e34c68292a26cb7825ceeff204b51717c3703b6c6a0b86450e",
+      "resolution": [1024, 1024],
+      "role": "sRGB color, original provider JPEG with no resize or re-encoding"
+    },
+    "wood_normal.webp": {
+      "bytes": 380164,
+      "sha256": "5ea97a2502ac00ab4ccf5a448b5c5f303dbe42e3977aae10a1384c19f9265a2d",
+      "resolution": [512, 512],
+      "role": "Linear OpenGL tangent normal, float Lanczos resize, vector renormalization and nearest RGB8 encoding",
+      "maximum_encoding_length_error": 0.00614798069000244,
+      "maximum_encoding_angle_degrees": 0.377941778020937
+    },
+    "wood_arm.webp": {
+      "bytes": 294656,
+      "sha256": "078946de65f742cd5af1686c6892cc0ba8110d852eb0076edba4337b8773e0bd",
+      "resolution": [512, 512],
+      "role": "Linear red occlusion, green roughness and blue metallic, float Lanczos resize and nearest RGB8 encoding"
+    }
+  },
+  "preparation": {
+    "engine": "4.7.2.stable.official.ed1daf0bf",
+    "source_material": "The original glTF material is double-sided with default unit color, metallic and roughness factors. Runtime preserves those factors and sidedness, using the selected packed maps.",
+    "geometry_recipe": "native/asset-preparation/waterwheel.cpp",
+    "map_recipe": "opening/machine_detail_check.gd --prepare-waterwheel-maps",
+    "data_delivery": "Lossless WebP decodes to the exact prepared RGB8 pixels; no channel reorder, green flip or color-space conversion. Resizing does not preserve all original spatial detail.",
+    "budget_choice": "The original one-kilopixel lossless data maps were also prepared and retained externally. The shipped half-resolution data maps fit the current shared source allowance without another lossy encoding of the photographed color.",
+    "runtime_api": "https://docs.godotengine.org/en/stable/classes/class_gltfdocument.html"
+  },
+  "runtime": "One cached static mesh and material, with source UVs and generated mipmaps. Existing paddle, spindle, bearing and native projected axis/motion paths remain. No source scene, skeleton, animation, collider or controller is instantiated.",
+  "limits": "This is a source-derived art adaptation, not a mechanical waterwheel model or gameplay authority. The current native launcher captures raw source assets; packaged Godot exports are unverified. Asset and headless fixture checks do not establish rendered quality, GPU cost or human acceptance."
+}
