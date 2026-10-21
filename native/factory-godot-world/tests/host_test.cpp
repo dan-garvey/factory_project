@@ -70,68 +70,79 @@ V alter_wire(const V& saved, const std::string& request_id, const std::string& k
 
 void historical_translation() {
     Host host;
-    auto site = factory::godot_world::tests::channel_site();
-    auto water = std::get<A>(site.at("water").storage());
-    for (auto& row : water) {
-        auto sample = std::get<A>(row.storage());
-        sample[4] = V(I{200});
-        row = V(std::move(sample));
+    A axis{V(-128.0), V(-2.8), V(-2.0), V(128.0)}, heights;
+    for (int row = 0; row < 4; ++row) {
+        heights.emplace_back(-1.65); heights.emplace_back(-1.65);
+        heights.emplace_back(-0.02); heights.emplace_back(-0.02);
     }
-    site.at("water") = V(std::move(water));
+    const O site{{"axis", V(axis)}, {"heights", V(heights)}, {"obstacles", V(A{})},
+        {"water", V(A{V(A{V(I{-8}), V(I{0}), V(I{-20}), V(I{-400}), V(I{0}), V(I{200})})})}};
     check(accepted(host.initialize("host-boundary", {"P"})), "The finite test World initializes.");
     check(accepted(host.configure_terrain(site)), "The test binds its explicit forward-driving synthetic terrain.");
-    check(accepted(host.publish_actor("P", {V(1.65), V(1.0), V(1.65)}, 1)), "The disclosed synthetic observation is ready.");
-    const auto place = [&](const char* kind, I x, const char* id) {
+    I epoch{};
+    const auto at = [&](double x, double z) {
+        check(accepted(host.publish_actor("P", {V(x), V(1.0), V(z)}, ++epoch)),
+              "The disclosed synthetic observation reaches the next construction.");
+    };
+    const auto place = [&](const char* kind, I x, I z, I level, const char* axis_name, const char* id) {
         auto wire = request("place", id);
-        wire.emplace("kind", V(kind)); wire.emplace("cell", V(A{V(x), V(I{0})})); wire.emplace("axis", V("z"));
-        wire.emplace("level", V(I{4}));
+        wire.emplace("kind", V(kind)); wire.emplace("cell", V(A{V(x), V(z)})); wire.emplace("axis", V(axis_name));
+        wire.emplace("level", V(level));
         const auto reply = host.command("P", wire);
         check(accepted(reply), (std::string("The starter placement succeeds: ") + kind + ", " + field<std::string>(reply, "reason")).c_str());
         return field<std::string>(reply, "entity");
     };
-    auto base = request("place_foundations", "collector-base");
-    base.emplace("cell", V(A{V(I{0}), V(I{0})}));
-    base.emplace("end_cell", V(A{V(I{2}), V(I{0})})); base.emplace("level", V(I{4}));
-    check(accepted(host.command("P", base)), "The synthetic stream bank supports the raised machine foundations.");
-    const auto collector = place("collector", 0, "collector");
-    const auto belt = place("belt", 1, "belt");
-    const auto press = place("processor", 2, "press");
-    check(accepted(host.publish_actor("P", {V(-1.65), V(1.0), V(-1.65)}, 2)), "The actor reaches the raised wheel.");
-    const auto wheel = place("wheel", -2, "wheel");
-    for (const auto& [id, x, y] : std::array<std::tuple<const char*, I, I>, 1>{{{"bridge", -4, 4}}}) {
-        auto cog = request("place_gear", id);
-        cog.emplace("center", V(A{V(x), V(y), V(I{4})}));
-        cog.emplace("axis", V("z")); cog.emplace("teeth", V(I{2}));
-        check(accepted(host.command("P", cog)), "The height transfer cog is placed.");
+    const auto foundation = [&](I x, const char* id) {
+        auto base = request("place_foundation", id);
+        base.emplace("cell", V(A{V(x), V(I{1})})); base.emplace("level", V(I{4}));
+        check(accepted(host.command("P", base)), "The machine's raised foundation is placed.");
+    };
+    const auto cog = [&](I x, I z, const char* axis_name, I teeth, const char* id) {
+        auto gear = request("place_gear", id);
+        gear.emplace("center", V(A{V(x), V(I{4}), V(z)}));
+        gear.emplace("axis", V(axis_name)); gear.emplace("teeth", V(teeth));
+        const auto placed = host.command("P", gear);
+        check(accepted(placed), ("The cog placement succeeds: " + field<std::string>(placed, "reason")).c_str());
+        return field<std::string>(placed, "entity");
+    };
+    const auto shaft = [&](I x, I z, const char* id) {
+        auto wire = request("place_shaft", id);
+        wire.emplace("center", V(A{V(x), V(I{4}), V(z)})); wire.emplace("axis", V("z"));
+        wire.emplace("half_span", V(I{2}));
+        const auto placed = host.command("P", wire);
+        check(accepted(placed), ("The shaft placement succeeds: " + field<std::string>(placed, "reason")).c_str());
+        return field<std::string>(placed, "entity");
+    };
+    at(-1.65, 3.3);
+    const auto wheel = place("wheel", -2, 0, 4, "x", "wheel");
+    at(0, 0); foundation(0, "collector-base");
+    const auto collector = place("collector", 0, 1, 4, "z", "collector");
+    at(-3.3, 0); cog(-4, 0, "x", 4, "input-cog");
+    at(-3.3, -1.65); cog(0, -4, "z", 4, "output-cog");
+    for (I x : {I{0}, I{4}}) {
+        at(static_cast<double>(x) * 1.65 / 4.0, -3.3);
+        const auto id = "front-cog-" + std::to_string(x);
+        cog(x, 0, "z", 2, id.c_str());
     }
-    check(accepted(host.publish_actor("P", {V(1.65), V(1.0), V(1.65)}, 3)), "The actor reaches both material links.");
-    const auto flow_a = host.command("P", link("connect", "flow-A", collector, belt));
-    const auto flow_b = host.command("P", link("connect", "flow-B", belt, press));
-    check(!accepted(flow_a) && field<std::string>(flow_a, "reason") == "existing_link",
-          "Collector-to-belt placement already attached the first material path.");
-    check(!accepted(flow_b) && field<std::string>(flow_b, "reason") == "existing_link",
-          "Belt-to-press placement already attached the second material path.");
-    const std::array<std::string, 4> hubs{wheel, collector, belt, press};
-    const std::array<const char*, 4> shaft_ids{"shaft-A", "shaft-B", "shaft-C", "shaft-D"};
-    for (std::size_t n = 0; n < hubs.size(); ++n) {
-        const I x = n == 0 ? -2 : static_cast<I>(n) - 1;
-        check(accepted(host.publish_actor("P", {V(static_cast<double>(x) * 1.65), V(1.0), V(-1.65)}, static_cast<I>(n) + 4)),
-              "The synthetic actor reaches each cog and its machine.");
-        auto cog = request("place_gear", shaft_ids[n]);
-        cog.at("request") = V(std::string("gear-") + std::to_string(n));
-        cog.emplace("center", V(A{V(4 * x), V(I{4}), V(I{4})}));
-        cog.emplace("axis", V("z")); cog.emplace("teeth", V(I{2}));
-        const auto placed = host.command("P", cog);
-        check(accepted(placed), "The finite adjacent cog is placed.");
-        const auto touching = host.command("P", link("connect_drive", shaft_ids[n], hubs[n], field<std::string>(placed, "entity")));
-        check(!accepted(touching) && field<std::string>(touching, "reason") == "individual_shaft_required",
-              "Endpoint construction does not consume a shaft.");
+    for (I x : {I{4}, I{8}, I{12}}) {
+        at(static_cast<double>(x) * 1.65 / 4.0, -3.3);
+        const auto id = "rear-cog-" + std::to_string(x);
+        cog(x, -4, "z", 2, id.c_str());
     }
-    check(accepted(host.publish_actor("P", {V(-1.65), V(1.0), V(-1.4)}, 8)), "The actor reaches the source control.");
+    at(4.95, -3.3); shaft(12, 0, "press-drive");
+    at(1.65, 0); const auto first = shaft(4, 4, "first-shaft");
+    at(3.3, 0); const auto last = shaft(8, 4, "last-shaft");
+    at(2.475, 0);
+    const auto belt_reply = host.command("P", link("place_belt_span", "span", first, last));
+    check(accepted(belt_reply), "The physical belt joins both shafts.");
+    const auto belt = field<std::string>(belt_reply, "entity");
+    at(4.95, 0); foundation(3, "press-base");
+    const auto press = place("processor", 3, 1, 4, "z", "press");
+    at(-1.65, 0);
     auto power = request("set_power", "power"); power.emplace("active", V(true));
     check(accepted(host.command("P", power)), "The existing wheel supplies the test line.");
-    for (int index = 0; index < 32; ++index) (void)host.advance();
-    check(accepted(host.publish_actor("P", {V(3.3), V(1.0), V(-1.4)}, 9)), "The actor reaches the press.");
+    for (int index = 0; index < 150; ++index) (void)host.advance();
+    at(4.95, 0);
     auto collect = target("retrieve", "collect", press); collect.emplace("amount", V(I{1}));
     check(accepted(host.command("P", collect)), "The checkpoint includes an accepted product amount.");
     const auto recovery = target("recover", "recover", press);
@@ -145,17 +156,18 @@ void historical_translation() {
         const auto changed = alter_wire(saved, id, key, std::move(value));
         const auto reply = host.validate_checkpoint(changed);
         check(!accepted(reply) && field<std::string>(reply, "reason") == "inconsistent_wire_history",
-              "An inconsistent original wire cannot import a normalized cached receipt.");
+              (std::string("Tampered ") + id + "." + key + " must reject as inconsistent wire history; got " +
+               field<std::string>(reply, "reason")).c_str());
         check(!factory::values::typed_difference(saved, host.checkpoint()), "Refused validation never changes the live authority.");
     };
     reject("recover", "entity", V(belt));
     reject("collect", "amount", V(I{2}));
     reject("collect", "amount", V(1.0));
     reject("collect", "action", V("recover"));
-    reject("flow-A", "to", V(wheel));
-    reject("shaft-A", "from", V(belt));
+    reject("span", "to", V(wheel));
+    reject("span", "from", V(collector));
     reject("power", "active", V(false));
-    reject("collector", "cell", V(A{V(I{0}), V(I{1})}));
+    reject("collector", "cell", V(A{V(I{0}), V(I{0})}));
     reject("collector", "kind", V("belt"));
     Host fresh;
     check(accepted(fresh.initialize("new-host", {"P"})), "A separate fresh Host initializes.");
