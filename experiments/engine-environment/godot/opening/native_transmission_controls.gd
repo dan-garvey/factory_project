@@ -177,7 +177,7 @@ func pending_endpoint() -> Dictionary:
 	var context := _context()
 	if context.is_empty() or not context.usable:
 		return {}
-	if active_tool == "shaft" and _count(context, "shaft", 0, 2) == 0:
+	if active_tool == "shaft" and _shaft_count(context) == 0:
 		return {}
 	var part := _part(context, _first.id)
 	if _first.world != context.world or _first.actor != context.actor or part.is_empty() or part.generation != _first.generation:

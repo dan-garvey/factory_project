@@ -123,6 +123,14 @@ func check_offline() -> void:
 		verify((cue.basis * cue.get_node("EndpointCaption").position).is_equal_approx(Vector3.UP * 1.155), "The caption remains above the spindle on every axis.")
 		verify(is_equal_approx(ring.mesh.inner_radius, 0.905) and is_equal_approx(ring.mesh.outer_radius, 0.945), "The cog cue outlines its confirmed view radius.")
 	verify(view.state.stock.is_empty() and view.model == null, "Axis controls add no material or authority.")
+	view.state = fixture()
+	view.state.part_specifications.P = [{"kind": "shaft", "teeth": 0, "half_span": 4, "count": 2}]
+	first(view)
+	verify(cue.visible and view.transmission_controls.pending_endpoint().get("id") == "wheel",
+		"A long-only kit keeps the first endpoint marker visible.")
+	view.state.part_specifications.P[0].count = 0
+	view._refresh_endpoint_cue()
+	verify(not cue.visible, "The marker still disappears when the last long shaft is gone.")
 	view.free()
 
 func check_shared() -> void:
@@ -143,6 +151,13 @@ func check_shared() -> void:
 		view._refresh_endpoint_cue()
 		verify(not view.transmission_endpoint_cue.visible and view.requests.is_empty(), "Shared freshness hides the cue without a request: " + blocker)
 	verify(view.model == null, "Shared annotation creates no Model or transport.")
+	view.session.ready = true
+	view.pending_actions.clear()
+	view.state = fixture()
+	view.state.part_specifications.P = [{"kind": "shaft", "teeth": 0, "half_span": 4, "count": 1}]
+	first(view)
+	verify(view.transmission_endpoint_cue.visible and view.requests.is_empty(),
+		"A shared long-only kit displays the selected endpoint without issuing a request.")
 	view.free()
 
 func check_invalid() -> void:
