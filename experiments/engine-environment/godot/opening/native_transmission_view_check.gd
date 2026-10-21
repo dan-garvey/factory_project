@@ -415,6 +415,41 @@ func _belt_picking() -> void:
 		presenter.queue_free()
 		await process_frame
 
+func _cog_axles() -> void:
+	var axes := [Vector3.RIGHT, Vector3.UP, Vector3.BACK]
+	for axis in range(3):
+		for next_kind in ["gear", "shaft"]:
+			var host := HostStub.new()
+			host.state = fixture()
+			var next_center := [0, 0, 0]
+			next_center[axis] = 4
+			host.state.transmission_parts = {
+				"first": {"kind": "gear", "generation": 1, "center": [0, 0, 0], "axis": axis, "teeth": 2},
+				"next": {"kind": next_kind, "generation": 2, "center": next_center, "axis": axis, "teeth": 4, "half_span": 2}}
+			host.state.belt_spans = {}
+			host.state.engagements = []
+			var presenter := Presenter.new()
+			root.add_child(presenter)
+			presenter.configure(host)
+			await physics_frame
+			await physics_frame
+			var first := _part(presenter, "first")
+			var next := _part(presenter, "next")
+			var first_shaft: CylinderMesh = first.get_node("Shaft").mesh
+			var next_shaft: CylinderMesh = next.get_node("Shaft").mesh
+			verify(is_equal_approx(first_shaft.height, Geometry.PITCH) and is_equal_approx(next_shaft.height, Geometry.PITCH)
+				and (first.position + axes[axis] * first_shaft.height / 2.0).is_equal_approx(next.position - axes[axis] * next_shaft.height / 2.0),
+				"Adjacent cog and %s integral axles meet exactly at their common tile face." % next_kind)
+			var normal := Vector3.UP if axis != 1 else Vector3.RIGHT
+			for probe in [{"part": first, "id": "first"}, {"part": next, "id": "next"}]:
+				var point: Vector3 = probe.part.position + axes[axis] * 0.5
+				var ray := PhysicsRayQueryParameters3D.create(point + normal * 0.4, point - normal * 0.4, Geometry.PICK_LAYER)
+				var hit := presenter.get_world_3d().direct_space_state.intersect_ray(ray)
+				verify(not hit.is_empty() and hit.collider.get_meta("entity", "") == probe.id,
+					"The exposed axle selects its own confirmed %s tile." % probe.id)
+			presenter.queue_free()
+			await process_frame
+
 func _belt_item(span: Node3D, slot: int) -> Node3D:
 	if span == null:
 		return null
@@ -961,6 +996,8 @@ func _run() -> void:
 		_nonhorizontal_presentation()
 	elif "--belt-picking-only" in OS.get_cmdline_user_args():
 		await _belt_picking()
+	elif "--cog-axles-only" in OS.get_cmdline_user_args():
+		await _cog_axles()
 	else:
 		_controls()
 		_gear_sizes()

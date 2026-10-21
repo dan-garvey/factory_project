@@ -177,7 +177,7 @@ func _direction(parent: Node3D, radius: float, sign_value: int) -> void:
 	_segment(arrow, end - tangent * 0.13 + radial * 0.07, end, 0.035, Color("f4df94"))
 	_segment(arrow, end - tangent * 0.13 - radial * 0.07, end, 0.035, Color("f4df94"))
 
-func _pick(parent: Node3D, id: String, radius: float, height: float) -> void:
+func _pick(parent: Node3D, id: String, radius: float, height: float, axle_length: float = 0.0) -> void:
 	var body := StaticBody3D.new()
 	body.name = "Pick"
 	body.collision_layer = Geometry.PICK_LAYER
@@ -189,6 +189,13 @@ func _pick(parent: Node3D, id: String, radius: float, height: float) -> void:
 	shape.height = height
 	collider.shape = shape
 	body.add_child(collider)
+	if axle_length > 0.0:
+		var axle_collider := CollisionShape3D.new()
+		var axle_shape := CylinderShape3D.new()
+		axle_shape.radius = 0.08
+		axle_shape.height = axle_length
+		axle_collider.shape = axle_shape
+		body.add_child(axle_collider)
 	parent.add_child(body)
 
 func _belt_span(id: String, span: Variant, parts: Dictionary, rendered: Dictionary) -> void:
@@ -406,7 +413,8 @@ func refresh() -> void:
 		if part.kind == "gear":
 			var radius: float = Geometry.PITCH / 2.0
 			Assets.gear(anchor, radius, part.teeth, color)
-			_pick(anchor, id, radius, 0.24)
+			Assets.shaft(anchor, Geometry.PITCH, color)
+			_pick(anchor, id, radius, 0.24, Geometry.PITCH)
 			if rotating:
 				_direction(anchor, radius * 0.65, 1 if motion.numerator > 0 else -1)
 		else:
