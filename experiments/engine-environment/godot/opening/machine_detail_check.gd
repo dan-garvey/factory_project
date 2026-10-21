@@ -1243,11 +1243,13 @@ func check_wheel_foot_seats() -> void:
 					stands.append(child)
 					var bounds: AABB = child.mesh.get_aabb()
 					var expected := AABB(Vector3(-0.195, 0.24, -0.195), Vector3(0.39, 0.22, 0.39)) if axis_index == 1 else AABB(Vector3(-0.19, 0.24, -0.09), Vector3(0.38, 0.38, 0.18))
-					verify(bounds.position.is_equal_approx(expected.position * scale_factor) and bounds.size.is_equal_approx(expected.size * scale_factor),
-						"Changed seats retain the old exact stand bounds, preserving the conservative swept-clearance proof.")
+					var stand_scale := Vector3(scale_factor, scale_factor if axis_index == 1 else Geometry.ANCHOR_HEIGHT / 0.78, scale_factor)
+					verify(bounds.position.is_equal_approx(expected.position * stand_scale) and bounds.size.is_equal_approx(expected.size * stand_scale),
+						"Stand bounds retain the original width while reaching the shared axle height.")
 					if OS.get_cmdline_user_args().has("--foot-seat-geometry") and not checked_shapes.has(axis_index == 1):
-						check_closed_asset_mesh(child.mesh, (0.014 if axis_index == 1 else 0.010) * pow(scale_factor, 3),
-							(0.024 if axis_index == 1 else 0.020) * pow(scale_factor, 3))
+						var volume_scale := pow(scale_factor, 3) * (1.0 if axis_index == 1 else Geometry.ANCHOR_HEIGHT / 0.5)
+						check_closed_asset_mesh(child.mesh, (0.014 if axis_index == 1 else 0.010) * volume_scale,
+							(0.024 if axis_index == 1 else 0.020) * volume_scale)
 						checked_shapes[axis_index == 1] = true
 			for child in machine.get_children():
 				if not child is MeshInstance3D or child.get_meta("wheel_support_role", "") != "WheelFootBolt":
@@ -1636,7 +1638,7 @@ func check_wheel_supports() -> void:
 						and absf(pose.basis.z.dot(pose.basis.x)) < 0.000001,
 						"Invented rotor poses keep the journal rigid and its local material scale in metres.")
 				rotor.transform = rotor_rest
-				verify(rotor.position.is_equal_approx(Vector3(0, 0.5, 0))
+				verify(rotor.position.is_equal_approx(Vector3.UP * Geometry.ANCHOR_HEIGHT)
 					and rotor.basis.z.normalized().dot(axis) > 0.99999
 					and rotor.scale.is_equal_approx(Vector3(Geometry.WATERWHEEL_RADIUS / 0.70 * sample.tiles,
 						Geometry.WATERWHEEL_RADIUS / 0.70 * sample.tiles, Geometry.WATERWHEEL_RADIUS / 0.70))
@@ -1671,7 +1673,8 @@ func check_wheel_supports() -> void:
 						var limits: Array = {"WheelStand": [0.010, 0.020],
 							"AxleBearing": [0.002, 0.009], "BearingLiner": [0.002, 0.004],
 							"WheelFootBolt": [0.000020, 0.000025]}[cache_key]
-						check_closed_asset_mesh(child.mesh, limits[0] * pow(scale_factor, 3), limits[1] * pow(scale_factor, 3))
+						var volume_scale := pow(scale_factor, 3) * (Geometry.ANCHOR_HEIGHT / 0.5 if cache_key == "WheelStand" else 1.0)
+						check_closed_asset_mesh(child.mesh, limits[0] * volume_scale, limits[1] * volume_scale)
 						cached[cache_key] = [child.mesh, child.material_override]
 					verify(child.mesh == cached[cache_key][0] and child.material_override == cached[cache_key][1],
 						"Every view and compatible native axis reuses the same exact hardware resources.")

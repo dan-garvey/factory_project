@@ -689,7 +689,7 @@ class ProductionWheelSupportArt:
 		parent.add_child(part)
 		return part
 
-	static func mount(parent: Node3D, axis: Vector3, scale_factor: float) -> void:
+	static func mount(parent: Node3D, axis: Vector3, scale_factor: float, height_factor: float) -> void:
 		var cast := ProductionTransmissionFinish.material("cast", Color("465a60"), 0.85, 0.55)
 		var worked := ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.38)
 		# Bake scale into the mesh coordinates so the shared local material's
@@ -731,19 +731,21 @@ class ProductionWheelSupportArt:
 				Vector2(0.19, 0.32), Vector2(0.18, 0.36), Vector2(0.075, 0.36),
 				Vector2(0.065, 0.58), Vector2(0.065, 0.62), Vector2(-0.065, 0.62),
 				Vector2(-0.065, 0.58), Vector2(-0.075, 0.36), Vector2(-0.18, 0.36), Vector2(-0.19, 0.32)])
-			var stand_mesh := ProductionVisuals.prism_mesh(_scaled(outline, scale_factor),
+			for n in range(outline.size()):
+				outline[n] = Vector2(outline[n].x * scale_factor, outline[n].y * height_factor)
+			var stand_mesh := ProductionVisuals.prism_mesh(outline,
 				0.18 * scale_factor, 0.008 * scale_factor)
 			var stand_frame := Basis(Vector3.UP, PI / 2) if axis == Vector3.RIGHT else Basis.IDENTITY
 			for side in [-1.0, 1.0]:
 				var suffix := "N" if side < 0 else "P"
 				var offset: Vector3 = axis * side * 0.24 * scale_factor
 				_part(parent, "WheelStand", suffix, stand_mesh, offset, stand_frame, cast)
-				var center: Vector3 = offset + Vector3.UP * 0.78 * scale_factor
+				var center: Vector3 = offset + Vector3.UP * 0.78 * height_factor
 				_part(parent, "AxleBearing", suffix, housing_mesh, center, bearing_frame, cast)
 				_part(parent, "BearingLiner", suffix, liner_mesh, center, bearing_frame, worked)
 				for x in [-0.13, 0.13]:
 					_part(parent, "WheelFootBolt", suffix + ("L" if x < 0 else "R"), fasteners[scale_factor],
-						offset + stand_frame * (Vector3(x, 0.369, 0) * scale_factor), Basis.IDENTITY, worked)
+						offset + stand_frame * Vector3(x * scale_factor, 0.36 * height_factor + 0.009 * scale_factor, 0), Basis.IDENTITY, worked)
 
 class ProductionFeedSleeveArt:
 	extends RefCounted
@@ -4791,7 +4793,8 @@ func _wheel_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	var axis := _machine_axis(entity) if native_profile else Vector3.BACK
 	var bearing_rotation := _spindle_rotation(axis)
 	if native_profile and ProductionWheelArt.resource_status() == "complete":
-		ProductionWheelSupportArt.mount(anchor, axis, scale_factor)
+		# Preserve the bearing width while raising the shared mechanical center.
+		ProductionWheelSupportArt.mount(anchor, axis, 0.5 / 0.78, scale_factor)
 	elif native_profile and axis == Vector3.UP:
 		# Fixed historical rosters retain the support fitted to their old rim.
 		_machine_box(anchor, "WheelStand", Vector3(0, 0.27, 0), Vector3(0.24, 0.3, 0.24), frame)
@@ -4806,7 +4809,7 @@ func _wheel_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 				0.145 * scale_factor, 0.18 * scale_factor, Color("a6b4af"), bearing_rotation)
 	wheel_rotor = Node3D.new()
 	wheel_rotor.name = "WheelRotor"
-	wheel_rotor.position = Vector3.UP * 0.78 * scale_factor
+	wheel_rotor.position = Vector3.UP * (Geometry.ANCHOR_HEIGHT if native_profile else 0.78)
 	# Paddle tips use a 0.70-unit source radius. The larger rotor reaches the
 	# water while its center stays at the common machine spindle height.
 	var rotor_scale := Geometry.WATERWHEEL_RADIUS / 0.70 if native_profile else scale_factor
@@ -4848,7 +4851,7 @@ func _wheel_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	if native_profile:
 		# Bake the fitted journal in metres, then cancel the rotor's scale.
 		# Its local worked-metal repeat stays physical as the rim grows.
-		journal.mesh = ProductionDriveJournalArt.mesh(0.45 * rotor_scale, 0.13 * scale_factor)
+		journal.mesh = ProductionDriveJournalArt.mesh(0.45 * rotor_scale, 0.13 * 0.5 / 0.78)
 		journal.material_override = ProductionDriveJournalArt.material()
 		journal.scale = Vector3(1.0 / radial_scale, 1.0 / rotor_scale, 1.0 / radial_scale)
 

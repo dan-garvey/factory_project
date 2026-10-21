@@ -189,7 +189,7 @@ Offline declares P; shared declares its planned P or P/Q roster. Cross-roster
 reopen and old schema-1 saves refuse explicitly; migration is not supplied.
 
 These reversible demo values are recorded in `site_geometry.gd`: pitch 1.65,
-work-anchor height 0.5, reach 4, capsule radius 0.3 and height 1.8, speed 3,
+work-anchor height 0.825 (half a tile), reach 4, capsule radius 0.3 and height 1.8, speed 3,
 gravity 14, jump speed 6, floor snap 0.1 and native motor safe margin 0.001. New P starts
 at [-1.65, 1, 3.3] and Q at [-1.65, 1, 4.95], then gravity settles them naturally.
 Follow distance 14 and zoom range 8–24 are presentation choices. Native seed

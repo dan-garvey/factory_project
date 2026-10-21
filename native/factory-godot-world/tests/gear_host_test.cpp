@@ -592,13 +592,13 @@ void nonhorizontal_span_host() {
         const auto observe_at = [&](double x, double y, double z, I epoch) {
             check(accepted(host.publish_actor("P", {V(x), V(y), V(z)}, epoch)), "Synthetic actor observation is accepted.");
         };
-        observe_at(0, 0.5 + example.start_y * 1.65 / 4, -1.65, 1);
+        observe_at(0, 0.825 + example.start_y * 1.65 / 4, -1.65, 1);
         const auto first = create(host, shaft(0, example.start_y, 0, "3d-first", example.axis));
-        observe_at(example.x * 1.65 / 4, 0.5 + example.y * 1.65 / 4, example.z * 1.65 / 4 - 1.65, 2);
+        observe_at(example.x * 1.65 / 4, 0.825 + example.y * 1.65 / 4, example.z * 1.65 / 4 - 1.65, 2);
         const auto last = create(host, shaft(example.x, example.y, example.z, "3d-last", example.axis));
         auto install = wire("place_belt_span", "3d-blocked");
         install.emplace("from", V(first)); install.emplace("to", V(last));
-        const double mx = example.x * 1.65 / 8, my = 0.5 + (example.start_y + example.y) * 1.65 / 8, mz = example.z * 1.65 / 8;
+        const double mx = example.x * 1.65 / 8, my = 0.825 + (example.start_y + example.y) * 1.65 / 8, mz = example.z * 1.65 / 8;
         observe_at(mx, my, mz, 3);
         const auto blocked = host.command("P", install);
         check(!accepted(blocked) && field<std::string>(blocked, "reason") == "actor_occupied", "A body intersecting the path refuses placement.");
@@ -626,8 +626,8 @@ void nonhorizontal_span_host() {
                   !accepted(obstructed.validate_checkpoint(checkpoint)), "Restore refuses a site obstacle through the physical path.");
         if (std::string(example.axis) == "z" && example.x == 8 && example.start_y == 4) {
             auto clear_below = low_flat_site();
-            clear_below.at("obstacles") = V(A{V(A{V(A{V(mx - 0.1), V(1.5), V(-0.1)}),
-                                                    V(A{V(mx + 0.1), V(1.6), V(0.1)})})});
+            clear_below.at("obstacles") = V(A{V(A{V(A{V(mx - 0.1), V(1.8), V(-0.1)}),
+                                                    V(A{V(mx + 0.1), V(1.9), V(0.1)})})});
             Host below;
             check(accepted(below.initialize("fresh", {"P"})) && accepted(below.configure_terrain(clear_below)) &&
                       accepted(below.validate_checkpoint(checkpoint)), "Clearance does not fill the empty space below an incline.");
@@ -1073,7 +1073,7 @@ void transmission_site_clearance() {
         const auto clear = host.command("P", shaft_part ? shaft(0, 4, 0, "clear-shaft", axes[axis]) :
             gear(0, 4, 0, "clear-cog", axes[axis]));
         check(accepted(clear), "An elevated transmission part with clear terrain is accepted.");
-        std::array<double, 3> obstacle{0.0, 2.15, 0.0};
+        std::array<double, 3> obstacle{0.0, 2.475, 0.0};
         obstacle[part_case == 2 ? (axis + 1) % 3 : axis] += 0.5;
         auto obstructed_site = factory::godot_world::tests::flat_site();
         obstructed_site.at("obstacles") = V(A{V(A{
@@ -1115,14 +1115,14 @@ void transmission_terrain_clearance() {
         };
         Host clear;
         check(accepted(clear.initialize("cog-api", {"P"})) &&
-              accepted(clear.configure_terrain(site_at(0.5 - half_height))), "The contact site binds.");
+              accepted(clear.configure_terrain(site_at(0.825 - half_height))), "The contact site binds.");
         observe(clear, 0, -1.65, 1);
         check(accepted(clear.command("P", command("contact"))),
               "A transmission part may touch the terrain without penetrating it.");
         const auto saved = clear.checkpoint();
         Host buried;
         check(accepted(buried.initialize("cog-api", {"P"})) &&
-              accepted(buried.configure_terrain(site_at(0.5 - half_height + 0.01))), "The penetrating site binds.");
+              accepted(buried.configure_terrain(site_at(0.825 - half_height + 0.01))), "The penetrating site binds.");
         observe(buried, 0, -1.65, 1);
         const auto before = world_state(buried);
         const auto refusal = buried.command("P", command("buried"));
@@ -1154,13 +1154,13 @@ void transmission_foundation_clearance() {
     for (std::size_t axis = 0; axis < axes.size(); ++axis) for (const bool is_gear : {false, true}) {
         const auto base = [] (const char* id) {
             auto command = wire("place_foundation", id);
-            command.emplace("cell", V(A{V(I{0}), V(I{0})})); command.emplace("level", V(I{4}));
+            command.emplace("cell", V(A{V(I{0}), V(I{0})})); command.emplace("level", V(I{6}));
             return command;
         };
         const auto part = [&] (const char* id) {
             return is_gear ? gear(0, 4, 0, id, axes[axis]) : shaft(0, 4, 0, id, axes[axis]);
         };
-        const bool penetrates = is_gear || axis == 1;
+        const bool penetrates = true; // The raised foundation cuts through the part's center.
         for (const bool foundation_first : {false, true}) {
             Host host;
             check(accepted(host.initialize("cog-api", {"P"})) &&
@@ -1198,7 +1198,7 @@ void transmission_foundation_clearance() {
             auto state = std::get<O>(world.at("state").storage());
             auto foundations = std::get<O>(state.at("foundations").storage());
             auto moved = std::get<O>(foundations.at(base_id).storage());
-            moved.at("center") = V(A{V(I{0}), V(I{4}), V(I{0})});
+            moved.at("center") = V(A{V(I{0}), V(I{6}), V(I{0})});
             foundations.at(base_id) = V(std::move(moved)); state.at("foundations") = V(std::move(foundations));
             world.at("state") = V(std::move(state)); envelope.at("world") = V(std::move(world));
             const auto refused = host.validate_checkpoint(V(envelope));
@@ -1215,13 +1215,13 @@ void transmission_foundation_clearance() {
     const auto before = world_state(host);
     auto area = wire("place_foundations", "blocked-area");
     area.emplace("cell", V(A{V(I{-1}), V(I{0})})); area.emplace("end_cell", V(A{V(I{1}), V(I{0})}));
-    area.emplace("level", V(I{4}));
+    area.emplace("level", V(I{6}));
     const auto rejected = host.command("P", area);
     check(!accepted(rejected) && field<std::string>(rejected, "reason") == "occupied" &&
               !factory::values::typed_difference(before, world_state(host)),
           "An obstructed foundation area refuses atomically without consuming any blocks.");
     auto touching = wire("place_foundation", "touching-base");
-    touching.emplace("cell", V(A{V(I{1}), V(I{0})})); touching.emplace("level", V(I{4}));
+    touching.emplace("cell", V(A{V(I{1}), V(I{0})})); touching.emplace("level", V(I{6}));
     check(accepted(host.command("P", touching)) && accepted(host.validate_checkpoint(host.checkpoint())),
           "A foundation may touch a cog at an adjacent tile face without overlapping it.");
 }
@@ -1254,10 +1254,27 @@ void one_tile_placement() {
           "The tile-aligned parts and custody restore exactly.");
 }
 
+void transmission_tile_center() {
+    for (const bool cog : {false, true}) for (const auto* axis : {"x", "y", "z"}) {
+        Host host;
+        check(accepted(host.initialize("cog-api", {"P"})) &&
+                  accepted(host.configure_terrain(factory::godot_world::tests::flat_site())), "The tile-center fixture binds its site.");
+        observe(host, 2.5, 0, 1);
+        auto base = wire("place_foundation", "tile-base");
+        base.emplace("cell", V(A{V(I{0}), V(I{0})})); base.emplace("level", V(I{4}));
+        create(host, base);
+        const auto placed = host.command("P", cog ? gear(0, 4, 0, "tile-cog", axis) : shaft(0, 4, 0, "tile-shaft", axis));
+        check(accepted(placed), "A full-tile transmission part fits immediately above its supporting foundation; reason=" +
+              field<std::string>(placed, "reason") + ".");
+        check(accepted(host.validate_checkpoint(host.checkpoint())), "The supported transmission part survives checkpoint validation.");
+    }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::string(argv[1]) == "--tile-center-only") { transmission_tile_center(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--foundation-only") { transmission_foundation_clearance(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--terrain-only") { transmission_terrain_clearance(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--raised-route-only") { complete_span_route_host(); return 0; }
@@ -1273,7 +1290,7 @@ int main(int argc, char** argv) {
         }
         if (argc == 1) {
             finite_oriented_train_and_restore(); adjacent_axle_faces(); refusals_and_legacy_shape(); cog_axle_actor_clearance(); cog_at_belt_face(); transmission_site_clearance(); transmission_terrain_clearance(); transmission_foundation_clearance(); one_tile_placement();
-            global_grid(); finite_large_cog(); perpendicular_belt_line(); belt_spindle_orientation(); typed_loose_host(); belt_span_host_commands(); nonhorizontal_span_host(); complete_span_route_host(); rotated_belt_host(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
+            transmission_tile_center(); global_grid(); finite_large_cog(); perpendicular_belt_line(); belt_spindle_orientation(); typed_loose_host(); belt_span_host_commands(); nonhorizontal_span_host(); complete_span_route_host(); rotated_belt_host(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
         } else if (argc != 2 || std::string(argv[1]) != "--placement-alias-only") {
             throw std::runtime_error("Expected no arguments or --placement-alias-only.");
         }

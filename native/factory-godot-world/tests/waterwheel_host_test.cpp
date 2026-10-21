@@ -96,7 +96,7 @@ int main() {
         check(accepted(different.initialize("different", {"P"})) && accepted(different.configure_terrain(site(-200))), "reversed site");
         check(!accepted(different.restore_checkpoint(saved)), "changed flow rejects checkpoint");
         auto raised_site = site(200);
-        raised_site.at("heights") = V(A(16, V(-0.02)));
+        raised_site.at("heights") = V(A(16, V(0.1)));
         Host raised;
         check(accepted(raised.initialize("water-test", {"P"})) && accepted(raised.configure_terrain(raised_site)) &&
               accepted(raised.publish_actor("P", {V(-1.65), V(1.0), V(1.65)}, 1)), "raised terrain site");
