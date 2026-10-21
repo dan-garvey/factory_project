@@ -6,11 +6,12 @@ Write complete sentences with normal word spacing in chat, Beads, notes and
 handoffs. Concise does not mean compressed. Keep identifiers separate from the
 surrounding prose and explain unfamiliar abbreviations.
 
-Keep routine coordination and publication results in the owning Bead. Do not send
-the progenitor routine ready-to-land messages, review receipts or acknowledgements.
-Notify them only for a material cross-stream finding, an unresolved resource or
-ownership conflict, or a decision outside delegated authority.
-Use a short outcome, what it means, the next action and one task/comment reference.
+Use the owning Bead for all agent-to-agent coordination and publication results.
+Do not queue thread messages or send direct peer-session notifications. Record
+material cross-stream findings, resource or ownership conflicts, and decisions
+outside delegated authority in the relevant Bead, naming the affected owners.
+Do not post routine ready-to-land messages, review receipts or acknowledgements.
+Keep user-facing updates to a short outcome, what it means and the next action.
 Put detailed hashes, commands, counters and resource tables in structured evidence;
 do not forward those records verbatim into the user's conversation.
 
@@ -151,7 +152,7 @@ Legacy branches may still track `.beads`. Do not merge/rebase them across its re
 1. Update the owning Bead with new results, verification limits and the actual landed commit. Close implementation work when its declared outcome is satisfied; post-merge review and any concrete fix Beads are separate, not a hidden landing or closure approval.
 2. Run `br sync --flush-only` to persist the private portable export. The progenitor owns separate backup freshness; no ledger content belongs in source commits.
 3. Run focused checks needed to validate the changed behavior, then inspect and explicitly stage only scoped source paths. Do not duplicate the commit hook's full suite on unchanged relevant inputs.
-4. Commit through the installed precommit hook, which invokes `python3 -B scripts/check_commit.py` as the single mandatory staged check. Do not run the same coordinator manually before the hook on unchanged inputs; a manual run is optional diagnostics. The coordinator acquires one check permit for non-GDScript changes or one heavy permit for staged GDScript compilation. Do not wrap the coordinator or `git commit` itself, or nest admission. Install the local hook using `./scripts/install-hooks.sh`; never auto-stage fixes or bypass a failure as acceptance evidence. Changes to safety gates preserve their validation contracts and receive independent review under the same asynchronous policy, not an extra landing approval.
+4. Commit through the installed precommit hook. It selects the repository-local pinned native coordinator when configured, otherwise `python3 -B scripts/check_commit.py`, as the single mandatory staged check. Both run the existing immutable staged source/compiler checks. Do not run the same coordinator manually before the hook on unchanged inputs; a manual run is optional diagnostics. The native coordinator takes one shared check permit or one of the four heavy slots; the legacy coordinator retains exclusive heavy admission for GDScript. Do not wrap either coordinator or `git commit` itself, or nest admission. Install the local hook using `./scripts/install-hooks.sh`; never auto-stage fixes or bypass a failure as acceptance evidence. Changes to safety gates preserve their validation contracts and receive independent review under the same asynchronous policy, not an extra landing approval.
 5. Land and publish your checked scoped branch using CONTRIBUTING.md's short shared Git transaction. Resolve conflicts and validate affected joins in your own worktree first; do not hold the landing lock during checks or reviews. A clean textual merge alone is insufficient.
 6. Inspect `git status` and hand off any remaining work or verification limits.
 

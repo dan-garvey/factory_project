@@ -1,4 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 root=$(git rev-parse --show-toplevel)
-exec python3 -B "$root/scripts/check_commit.py"
+factory_commit_executable_status=0
+factory_commit_digest_status=0
+factory_commit_executable=$(git config --local --get factory.commitGateExecutable) || factory_commit_executable_status=$?
+factory_commit_digest=$(git config --local --get factory.commitGateSHA256) || factory_commit_digest_status=$?
+if [[ "$factory_commit_executable_status" == 1 && "$factory_commit_digest_status" == 1 ]]; then
+    exec python3 -B "$root/scripts/check_commit.py"
+fi
+if [[ "$factory_commit_executable_status" != 0 || "$factory_commit_digest_status" != 0 ||
+      "$factory_commit_executable" != /* || ! -f "$factory_commit_executable" || ! -x "$factory_commit_executable" ||
+      ! "$factory_commit_digest" =~ ^[0-9a-f]{64}$ ]]; then
+    printf 'COMMIT CHECK FAILED: configure both local native coordinator pins with an absolute executable and lowercase SHA256.\n' >&2
+    exit 1
+fi
+if [[ "$(readlink -e -- "$factory_commit_executable")" != "$factory_commit_executable" ]]; then
+    printf 'COMMIT CHECK FAILED: the native coordinator path must be canonical, without symlinks.\n' >&2
+    exit 1
+fi
+factory_commit_actual=$(sha256sum < "$factory_commit_executable")
+if [[ "${factory_commit_actual%% *}" != "$factory_commit_digest" ]]; then
+    printf 'COMMIT CHECK FAILED: the native coordinator changed from its local SHA256 pin.\n' >&2
+    exit 1
+fi
+exec "$factory_commit_executable" --root "$root"
