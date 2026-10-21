@@ -1741,7 +1741,8 @@ class ProductionPressDieArt:
 		surface.commit(target)
 		target.surface_set_name(target.get_surface_count() - 1, role)
 
-	static func _hardware(target: ArrayMesh, poses: Array[Transform3D]) -> void:
+	static func _hardware(target: ArrayMesh, poses: Array[Transform3D],
+			extra_pieces: Array = []) -> void:
 		var washer := ProductionVisuals.turned_mesh(PackedVector2Array([
 			Vector2(0.014, 0), Vector2(0.038, 0), Vector2(0.043, 0.002),
 			Vector2(0.043, 0.004), Vector2(0.038, 0.006), Vector2(0.014, 0.006), Vector2(0.014, 0)]), 24)
@@ -1752,14 +1753,24 @@ class ProductionPressDieArt:
 		indexed_washer.index()
 		washer = indexed_washer.commit()
 		var pieces: Array = []
+		for piece: Array in extra_pieces:
+			# SurfaceTool drops an earlier unindexed append when a later indexed
+			# piece is added. Index every lock before combining it with the heads.
+			var indexed_lock := SurfaceTool.new()
+			indexed_lock.create_from(piece[0], 0)
+			indexed_lock.index()
+			pieces.append([indexed_lock.commit(), piece[1]])
 		for pose in poses:
 			pieces.append([washer, pose])
 			pieces.append([ProductionVisuals.fastener_head_mesh(), pose * Transform3D(Basis.IDENTITY, Vector3(0, 0.018, 0))])
 		_surface(target, "MountingHardware", pieces)
 
-	static func tool_mesh() -> ArrayMesh:
-		if meshes.has("tool"):
-			return meshes.tool
+	static func tool_mesh(kind: String = "press") -> ArrayMesh:
+		if kind not in ["press", "cut_sample"]:
+			return null
+		var key := "tool_" + kind
+		if meshes.has(key):
+			return meshes[key]
 		var mesh := ArrayMesh.new()
 		var holder := PackedVector2Array([
 			Vector2(-0.28, -0.025), Vector2(-0.27, -0.045), Vector2(-0.25, -0.045),
@@ -1767,16 +1778,32 @@ class ProductionPressDieArt:
 			Vector2(0.27, -0.045), Vector2(0.28, -0.025), Vector2(0.28, 0.060),
 			Vector2(0.255, 0.085), Vector2(-0.255, 0.085), Vector2(-0.28, 0.060)])
 		_surface(mesh, "ToolHolder", [[ProductionVisuals.prism_mesh(holder, 0.48, 0.004), Transform3D.IDENTITY]])
-		# This separate working insert retains the old lower plane and full
-		# front/back extent. The holder and hardware fit inside the same envelope.
-		_surface(mesh, "WorkingFace", [[ProductionVisuals.box_mesh(Vector3(0.50, 0.05, 0.55)),
-			Transform3D(Basis.IDENTITY, Vector3(0, -0.06, 0))]])
+		# Both complete heads use the same rigid carrier and mounting sites.
+		# Only the press face is installed in the native machine. The narrow
+		# cutter is an isolated art comparison, not a cutting command or rule.
+		if kind == "press":
+			_surface(mesh, "WorkingFace", [[ProductionVisuals.box_mesh(Vector3(0.50, 0.05, 0.55)),
+				Transform3D(Basis.IDENTITY, Vector3(0, -0.06, 0))]])
+		else:
+			# A replaceable wedge runs across the head. Its narrow lower edge is
+			# perpendicular to feed, unlike the press's complete flat plate.
+			var blade := PackedVector2Array([Vector2(-0.06, -0.035), Vector2(0.06, -0.035),
+				Vector2(0.04, -0.055), Vector2(0.001, -0.085),
+				Vector2(-0.001, -0.085), Vector2(-0.04, -0.055)])
+			_surface(mesh, "WorkingFace", [[ProductionVisuals.prism_mesh(blade, 0.50, 0.0005),
+				Transform3D(Basis(Quaternion(Vector3.UP, PI / 2.0)), Vector3.ZERO)]])
 		var poses: Array[Transform3D] = []
 		for side in [-1.0, 1.0]:
 			for x in [-0.205, 0.205]:
 				poses.append(Transform3D(Basis(Quaternion(Vector3.UP, Vector3.BACK * side)), Vector3(x, 0.025, side * 0.24)))
-		_hardware(mesh, poses)
-		meshes.tool = mesh
+		var locks: Array = []
+		for side in [-1.0, 1.0]:
+			locks.append([ProductionVisuals.box_mesh(Vector3(0.02, 0.06, 0.38)),
+				Transform3D(Basis.IDENTITY, Vector3(side * 0.27, 0.025, 0))])
+			locks.append([ProductionVisuals.box_mesh(Vector3(0.36, 0.045, 0.025)),
+				Transform3D(Basis.IDENTITY, Vector3(0, 0.035, side * 0.255))])
+		_hardware(mesh, poses, locks)
+		meshes[key] = mesh
 		return mesh
 
 	static func anvil_mesh() -> ArrayMesh:

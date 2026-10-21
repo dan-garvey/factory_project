@@ -3963,6 +3963,36 @@ func check_press_die() -> void:
 	var controls := 0
 	var minimum_item_gap := INF
 	var minimum_drive_gap := INF
+	var press_cartridge: Mesh = DieArt.tool_mesh()
+	var cutter_sample: Mesh = DieArt.tool_mesh("cut_sample")
+	verify(press_cartridge != null and cutter_sample != null and press_cartridge != cutter_sample
+		and DieArt.tool_mesh("cut_sample") == cutter_sample and DieArt.tool_mesh("unsupported") == null,
+		"The installed press and disclosed cutter sample are distinct cached heads; unsupported tools have no art substitute.")
+	if press_cartridge != null and cutter_sample != null:
+		verify(cutter_sample.get_surface_count() == 3
+			and cutter_sample.surface_get_name(1) == "WorkingFace"
+			and cutter_sample.surface_get_arrays(0) == press_cartridge.surface_get_arrays(0)
+			and cutter_sample.surface_get_arrays(2) == press_cartridge.surface_get_arrays(2),
+			"Both complete tool heads have the same actual carrier and locking hardware mesh data.")
+		verify(cutter_sample.get_aabb().size.x == press_cartridge.get_aabb().size.x
+			and cutter_sample.get_aabb().size.y == press_cartridge.get_aabb().size.y
+			and cutter_sample.get_aabb().size.z < press_cartridge.get_aabb().size.z,
+			"The sample changes the working insert inside the same rigid mount envelope.")
+		verify(absf(die_height(cutter_sample, 1, Transform3D.IDENTITY, Vector2.ZERO, false) + 0.085) < 0.000001
+			and die_height(cutter_sample, 1, Transform3D.IDENTITY, Vector2(0, 0.05), false) > -0.07
+			and not is_finite(die_height(cutter_sample, 1, Transform3D.IDENTITY, Vector2(0, 0.20), false))
+			and is_finite(die_height(press_cartridge, 1, Transform3D.IDENTITY, Vector2(0, 0.20), false)),
+			"A narrow cutter edge has the same lower reference plane but cannot masquerade as the full press face.")
+		for cartridge in [press_cartridge, cutter_sample]:
+			verify(absf(die_height(cartridge, 2, Transform3D.IDENTITY, Vector2(0.27, 0), true) - 0.055) < 0.000001
+				and absf(die_height(cartridge, 2, Transform3D.IDENTITY, Vector2(0, 0.255), true) - 0.0575) < 0.000001,
+				"Actual side rails and end locks are present on both cartridge meshes, rather than only in their source builder.")
+		var cutter_face := SurfaceTool.new()
+		cutter_face.create_from(cutter_sample, 1)
+		check_closed_asset_mesh(cutter_face.commit(), 0.0015, 0.0018)
+		var cutter_hardware := SurfaceTool.new()
+		cutter_hardware.create_from(cutter_sample, 2)
+		check_closed_asset_mesh(cutter_hardware.commit(), 0.0020, 0.0025)
 	for shared_profile in [false, true]:
 		for axis in range(3):
 			for cell in [[0, 0], [2, -1]]:
@@ -4005,7 +4035,7 @@ func check_press_die() -> void:
 						and part.mesh.surface_get_name(2) == "MountingHardware" and part.get_child_count() == 0 and part.get_script() == null,
 						"Each rigid tool keeps three material surfaces in one passive cached mesh, without extra controllers or detail-node motion.")
 					if not cache.has(role):
-						var volumes: Array = [[0.030, 0.036], [0.013, 0.014], [0.0003, 0.0006]] if is_head else [[0.039, 0.0401], [0.010, 0.011], [0.0003, 0.0006]]
+						var volumes: Array = [[0.030, 0.036], [0.013, 0.014], [0.0020, 0.0025]] if is_head else [[0.039, 0.0401], [0.010, 0.011], [0.0003, 0.0006]]
 						for surface in range(3):
 							var isolated := SurfaceTool.new()
 							isolated.create_from(part.mesh, surface)
@@ -4939,6 +4969,8 @@ func render_buildable_resources() -> void:
 		return
 	Engine.max_fps = 30
 	var subjects: Array = [{"name": "collector", "kind": "collector"}, {"name": "press", "kind": "processor"},
+		{"name": "press-cartridge", "kind": "tool_cartridge", "tool": "press", "sample_only": true},
+		{"name": "cutter-cartridge-sample", "kind": "tool_cartridge", "tool": "cut_sample", "sample_only": true},
 		{"name": "conveyor", "kind": "belt"}, {"name": "waterwheel", "kind": "wheel"},
 		{"name": "belt-span", "kind": "belt_span"}, {"name": "belt-pulley", "kind": "belt_pulley"},
 		{"name": "waterwheel-journal", "kind": "wheel", "cutaway": true},
@@ -4989,6 +5021,16 @@ func render_buildable_resources() -> void:
 			model.add_child(shaft)
 			TransmissionAssets.shaft(shaft, Geometry.PITCH, Color("a6b4af"))
 			TransmissionAssets.belt_pulley(shaft)
+		elif subject.kind == "tool_cartridge":
+			var cartridge := MeshInstance3D.new()
+			cartridge.name = subject.name
+			cartridge.mesh = DieArt.tool_mesh(subject.tool)
+			cartridge.set_surface_override_material(0, CollectorArt.coating(Color("58634c")))
+			cartridge.set_surface_override_material(1,
+				Opening.ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.32))
+			cartridge.set_surface_override_material(2,
+				Opening.ProductionTransmissionFinish.material("worked", Color("b8c3bb"), 0.85, 0.38))
+			model.add_child(cartridge)
 		else:
 			view._assemble_machine(model, {"kind": subject.kind, "cell": [0, 0], "axis": 0, "tiles": subject.get("tiles", 3), "generation": 1})
 		if subject.get("paddle_cutaway", false):
@@ -5079,8 +5121,14 @@ func render_buildable_resources() -> void:
 		camera.far = 100.0
 		studio.add_child(camera)
 		camera.current = true
-		for direction in [{"name": "front-right", "offset": Vector3(3, 1.8, 4)},
-			{"name": "back-left", "offset": Vector3(-4, 1.5, -3)}]:
+		var directions: Array = [{"name": "front-right", "offset": Vector3(3, 1.8, 4)},
+			{"name": "back-left", "offset": Vector3(-4, 1.5, -3)}]
+		if subject.kind == "tool_cartridge":
+			# Show the actual working surface rather than letting the common
+			# carrier hide the only difference between the two head samples.
+			directions = [{"name": "front-below", "offset": Vector3(3, -2.2, 4)},
+				{"name": "back-below", "offset": Vector3(-4, -1.8, -3)}]
+		for direction in directions:
 			var direction_offset: Vector3 = direction.offset
 			camera.position = centre + direction_offset.normalized() * diagonal * 2.0
 			camera.look_at(centre, Vector3.UP)
@@ -5139,6 +5187,7 @@ func render_buildable_resources() -> void:
 				return
 			var frame := {"subject": subject.name, "kind": subject.kind, "view": direction.name, "file": file_name,
 				"cutaway": subject.get("cutaway", false),
+				"sample_only": subject.get("sample_only", false),
 				"sha256": FileAccess.get_sha256(image_path), "pixels": pixels, "geometry": counts,
 				"profile": {"legacy_fixture": view.legacy_fixture, "native_transmission": view._native_transmission(),
 					"native_options": view.state.options.native, "request_sequence": view.request_sequence},
@@ -5159,7 +5208,7 @@ func render_buildable_resources() -> void:
 		await process_frame
 	report.status = "pass"
 	report.images_expected = subjects.size() * 2
-	report.limits = "Studio lighting and passive mesh observations. No actual app, game state, user understanding, export, performance or human-quality verdict."
+	report.limits = "Studio lighting and passive mesh observations. The cutter cartridge is an isolated visual sample, not native cutting or interchangeable gameplay. No actual app, game state, user understanding, export, performance or human-quality verdict."
 	if not resource_render_write(manifest, report):
 		push_error("The final resource-render result cannot be retained.")
 		quit(1)
