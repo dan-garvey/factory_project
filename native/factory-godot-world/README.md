@@ -103,6 +103,15 @@ then inspects, removes and reconstructs a real cog with confirmed actor-specific
 custody. These scripts are bounded automated consumers, not desktop control,
 human usability, tooth-contact physics or rate-scaled production evidence.
 
+`opening-session/native_shared_rejoin_check.gd` targets a different boundary:
+live reconnection while Q carries raw material, a product and a partially
+processed workpiece. It starts from the original shared-work producer save,
+keeps the drive stopped, and uses the ordinary Disconnect, Reconnect and material
+menu callbacks. It checks fresh request identity, foreign-custody refusal while
+Q is absent, and exact work reinsertion and recovery. It adds no authority,
+production clock or automatic retry. Its results must be attributed separately
+from the original producer and fresh-host continuation.
+
 Bazel targets are `//native/factory-godot-world:factory-native-world.so`,
 `//native/factory-godot-world:host_test` and
 `//native/factory-godot-world:gear_host_test`. The separate
