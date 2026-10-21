@@ -68,6 +68,12 @@ func visual_rotation(id: String) -> float:
 
 func _apply_angles() -> void:
 	for child: Node in get_children():
+		if child is Node3D and child.has_meta("belt_shaft"):
+			var loop := child.get_node_or_null("BeltLoop") as MeshInstance3D
+			if loop != null and loop.material_override is StandardMaterial3D:
+				var finish := loop.material_override as StandardMaterial3D
+				var offset := float(child.get_meta("belt_uv_origin")) + visual_rotation(str(child.get_meta("belt_shaft"))) * float(child.get_meta("belt_uv_factor"))
+				finish.uv1_offset.x = fposmod(offset, 1.0)
 		if not child is Node3D or not child.has_meta("axis"):
 			continue
 		var id: String = str(child.get_meta("entity", ""))
@@ -243,6 +249,17 @@ func _belt_span(id: String, span: Variant, parts: Dictionary, rendered: Dictiona
 	var loop := Assets.belt_loop(anchor, distance, 0)
 	if loop != null:
 		loop.basis = loop_basis
+		# The source material is cached across spans. A private material keeps
+		# differently driven loops from overwriting each other's UV phase.
+		loop.material_override = loop.material_override.duplicate()
+		var finish := loop.material_override as StandardMaterial3D
+		var length := 2.0 * distance + TAU * Assets.SPAN_OUTER_RADIUS
+		var repeats := maxi(1, roundi(length / Assets.ConveyorArt.SOURCE_METRES))
+		anchor.set_meta("belt_shaft", span.from)
+		anchor.set_meta("belt_uv_origin", finish.uv1_offset.x)
+		# The top run's increasing U follows tangent. A positive axle rotation
+		# moves that run in the opposite direction to the spindle cross normal.
+		anchor.set_meta("belt_uv_factor", spindle[first.axis] * Assets.SPAN_OUTER_RADIUS * repeats / length)
 	var pulley_offsets: Array[float] = []
 	for part_id: Variant in parts:
 		var pulley: Variant = parts[part_id]
