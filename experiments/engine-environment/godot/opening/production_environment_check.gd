@@ -119,6 +119,7 @@ func finish() -> void:
 			"bank-ferns": "sourced low-fern import, whole-clump terrain placement and ordinary scene consumer",
 			"foreground-bank": "near-bank placement and confirmed offline/shared machine-footprint suppression",
 			"pine-understory": "complete pine resource, terrain and confirmed-machine visibility consumer",
+			"construction-vegetation": "detached offline/shared plant clearance at confirmed construction heights",
 			"pine-roots": "focused edge-inclusive terrain-root oracle correction",
 			"pine-reflectance": "source-derived normal-incidence dielectric reflectance and cache isolation",
 			"fir-resource": "complete sourced fir, generated distance detail and common resource interface",
@@ -185,6 +186,154 @@ func check_surface_composition() -> void:
 	print(JSON.stringify({"relation": "natural_bed_below_water", "minimum_gap": minimum_gap,
 		"sampled_vertices": covered, "visible_boxes": rendered.size(), "rock_instances": 64}))
 	view.free()
+
+func _plant_patches(view: Node3D) -> Array[MultiMeshInstance3D]:
+	var scenery: Node3D = view.get_node("ProductionScenery")
+	var patches: Array[MultiMeshInstance3D] = []
+	for name in ["GroundFoliage", "ForegroundBank", "PineUnderstory"]:
+		patches.append(scenery.get_node(name) as MultiMeshInstance3D)
+	for patch: MultiMeshInstance3D in scenery.get_node("MeadowPatches").get_children():
+		patches.append(patch)
+	return patches
+
+func _plant_bounds(patch: MultiMeshInstance3D, data: PackedFloat32Array, offset: int) -> AABB:
+	# Independent corner extrema of the actual mesh and uploaded transform.
+	# Do not obtain a prediction from the production construction filter.
+	var local := Transform3D(Basis(
+		Vector3(data[offset], data[offset + 4], data[offset + 8]),
+		Vector3(data[offset + 1], data[offset + 5], data[offset + 9]),
+		Vector3(data[offset + 2], data[offset + 6], data[offset + 10])),
+		Vector3(data[offset + 3], data[offset + 7], data[offset + 11]))
+	var transform := patch.global_transform * local
+	var mesh_bounds := patch.multimesh.mesh.get_aabb()
+	var low := Vector3(INF, INF, INF)
+	var high := Vector3(-INF, -INF, -INF)
+	for x in [mesh_bounds.position.x, mesh_bounds.end.x]:
+		for y in [mesh_bounds.position.y, mesh_bounds.end.y]:
+			for z in [mesh_bounds.position.z, mesh_bounds.end.z]:
+				var at: Vector3 = transform * Vector3(x, y, z)
+				low = low.min(at)
+				high = high.max(at)
+	return AABB(low, high - low)
+
+func _expected_plants(patch: MultiMeshInstance3D, original: PackedFloat32Array, volumes: Array[AABB]) -> PackedFloat32Array:
+	var kept := PackedFloat32Array()
+	var stride := 16 if patch.multimesh.use_colors else 12
+	for offset in range(0, original.size(), stride):
+		var bounds := _plant_bounds(patch, original, offset)
+		var intersects := false
+		for volume: AABB in volumes:
+			if bounds.intersects(volume.grow(0.08)):
+				intersects = true
+				break
+		if not intersects:
+			kept.append_array(original.slice(offset, offset + stride))
+	return kept
+
+func check_construction_vegetation() -> void:
+	# Invented confirmed facts exercise the ordinary detached view callback.
+	# No command, native body, Model, Store or network host is created.
+	for shared in [false, true]:
+		var view: Variant = SharedBankView.new() if shared else FixtureView.new()
+		root.add_child(view)
+		view._build_world()
+		var snapshots: Array[Dictionary] = []
+		for patch: MultiMeshInstance3D in _plant_patches(view):
+			if not verify(patch.multimesh != null and patch.multimesh.instance_count > 0,
+					"The actual sourced plant population is available for the construction case."):
+				view.free()
+				return
+			snapshots.append({"patch": patch, "buffer": patch.multimesh.buffer,
+				"mesh": patch.multimesh.mesh, "material": patch.material_override,
+				"aabb": patch.multimesh.custom_aabb})
+		var bank: MultiMeshInstance3D = view.get_node("ProductionScenery/ForegroundBank")
+		var original := bank.multimesh.buffer
+		var sample := _plant_bounds(bank, original, 0)
+		var cell := Vector2i(roundi(original[3] / Geometry.PITCH), roundi(original[11] / Geometry.PITCH))
+		var level := ceili((sample.position.y + minf(sample.size.y * 0.5, 0.25)) / Geometry.HEIGHT_STEP)
+		var top := Vector3(cell.x * Geometry.PITCH, level * Geometry.HEIGHT_STEP, cell.y * Geometry.PITCH)
+		var foundation := AABB(top - Vector3(Geometry.PITCH * 0.5, Geometry.PITCH, Geometry.PITCH * 0.5), Vector3.ONE * Geometry.PITCH)
+		verify(sample.intersects(foundation), "The regression fixture actually intersects its original source clump.")
+		view.state = {"entities": {}, "foundations": {"surface": {"cell": [cell.x, cell.y], "level": level}}, "links": []}
+		view._rebuild_machines()
+		print(JSON.stringify({"case": "foundation_overlap", "shared": shared,
+			"before": original.size() / 16, "after": bank.multimesh.instance_count,
+			"cell": [cell.x, cell.y], "level": level}))
+		if not verify(bank.multimesh.instance_count < original.size() / 16,
+				"Confirmed foundations suppress intersecting soft plants before they clip through the surface."):
+			view.free()
+			return
+		var machine_level := floori((sample.get_center().y - Geometry.MACHINE_CENTER_HEIGHT) / Geometry.HEIGHT_STEP)
+		var machine_size := Vector3(Geometry.MACHINE_SIZE[0], Geometry.MACHINE_SIZE[1], Geometry.MACHINE_SIZE[2])
+		var machine_center := Vector3(top.x, machine_level * Geometry.HEIGHT_STEP + Geometry.MACHINE_CENTER_HEIGHT, top.z)
+		var cases: Array[Dictionary] = [
+			{"name": "foundation", "entities": {}, "foundations": {"surface": {"cell": [cell.x, cell.y], "level": level}},
+				"volumes": [foundation]},
+			{"name": "elevated_machine", "entities": {"belt": {"kind": "belt", "cell": [cell.x, cell.y], "level": 1000}},
+				"foundations": {}, "volumes": [AABB(Vector3(top.x, 1000 * Geometry.HEIGHT_STEP + Geometry.MACHINE_CENTER_HEIGHT, top.z) - machine_size * 0.5, machine_size)]},
+			{"name": "machine_at_plant_height", "entities": {"belt": {"kind": "belt", "cell": [cell.x, cell.y], "level": machine_level}},
+				"foundations": {}, "volumes": [AABB(machine_center - machine_size * 0.5, machine_size)]},
+			{"name": "high_foundation", "entities": {}, "foundations": {"high": {"cell": [cell.x, cell.y], "level": 1000}},
+				"volumes": [AABB(Vector3(top.x - Geometry.PITCH * 0.5, 1000 * Geometry.HEIGHT_STEP - Geometry.PITCH, top.z - Geometry.PITCH * 0.5), Vector3.ONE * Geometry.PITCH)]},
+			{"name": "buried_foundation", "entities": {}, "foundations": {"low": {"cell": [cell.x, cell.y], "level": -1000}},
+				"volumes": [AABB(Vector3(top.x - Geometry.PITCH * 0.5, -1000 * Geometry.HEIGHT_STEP - Geometry.PITCH, top.z - Geometry.PITCH * 0.5), Vector3.ONE * Geometry.PITCH)]}]
+		# Give every actual patch an intersecting confirmed block in one state.
+		var all_foundations := {}
+		var all_volumes: Array[AABB] = []
+		for index in range(snapshots.size()):
+			var patch: MultiMeshInstance3D = snapshots[index].patch
+			var data: PackedFloat32Array = snapshots[index].buffer
+			var root_at: Vector3 = patch.global_transform * Vector3(data[3], data[7], data[11])
+			var plant := _plant_bounds(patch, data, 0)
+			var patch_cell := Vector2i(roundi(root_at.x / Geometry.PITCH), roundi(root_at.z / Geometry.PITCH))
+			var patch_level := ceili((plant.position.y + minf(plant.size.y * 0.5, 0.25)) / Geometry.HEIGHT_STEP)
+			all_foundations[str(index)] = {"cell": [patch_cell.x, patch_cell.y], "level": patch_level}
+			all_volumes.append(AABB(Vector3(patch_cell.x * Geometry.PITCH - Geometry.PITCH * 0.5,
+				patch_level * Geometry.HEIGHT_STEP - Geometry.PITCH, patch_cell.y * Geometry.PITCH - Geometry.PITCH * 0.5), Vector3.ONE * Geometry.PITCH))
+		cases.append({"name": "all_patch_kinds", "entities": {}, "foundations": all_foundations, "volumes": all_volumes})
+		for scenario in cases:
+			view.state = {"entities": scenario.entities, "foundations": scenario.foundations, "links": []}
+			var supplied: Dictionary = view.state.duplicate(true)
+			var volumes: Array[AABB] = []
+			volumes.assign(scenario.volumes)
+			view._rebuild_machines()
+			for snapshot in snapshots:
+				var patch: MultiMeshInstance3D = snapshot.patch
+				var expected := _expected_plants(patch, snapshot.buffer, volumes)
+				verify(patch.multimesh.buffer == expected,
+					"Actual complete plant records match independent world-space clearance: " + scenario.name + "/" + str(patch.name))
+				verify(patch.multimesh.mesh == snapshot.mesh and patch.material_override == snapshot.material
+					and patch.multimesh.custom_aabb == snapshot.aabb,
+					"Filtering preserves sourced resources and the conservative original visibility bounds.")
+				if scenario.name == "all_patch_kinds":
+					verify(expected.size() < snapshot.buffer.size(), "Every plant population participates in construction clearance.")
+			view._rebuild_machines()
+			verify(view.state == supplied and view.model == null and view.actor_world == null and view.request_sequence == 0,
+				"Repeated offline/shared presentation leaves confirmed facts intact and creates no authority or requests.")
+			for snapshot in snapshots:
+				verify(snapshot.patch.multimesh.buffer == _expected_plants(snapshot.patch, snapshot.buffer, volumes),
+					"Repeated filtering always uses the original candidates.")
+		var moved: MultiMeshInstance3D = snapshots.back().patch
+		var old_position := moved.position
+		moved.position += Vector3(2.0 * Geometry.PITCH, 8.0 * Geometry.HEIGHT_STEP, -Geometry.PITCH)
+		var moved_data: PackedFloat32Array = snapshots.back().buffer
+		var moved_root: Vector3 = moved.global_transform * Vector3(moved_data[3], moved_data[7], moved_data[11])
+		var moved_bounds := _plant_bounds(moved, moved_data, 0)
+		var moved_cell := Vector2i(roundi(moved_root.x / Geometry.PITCH), roundi(moved_root.z / Geometry.PITCH))
+		var moved_level := ceili((moved_bounds.position.y + minf(moved_bounds.size.y * 0.5, 0.25)) / Geometry.HEIGHT_STEP)
+		var moved_volume := AABB(Vector3(moved_cell.x * Geometry.PITCH - Geometry.PITCH * 0.5,
+			moved_level * Geometry.HEIGHT_STEP - Geometry.PITCH, moved_cell.y * Geometry.PITCH - Geometry.PITCH * 0.5), Vector3.ONE * Geometry.PITCH)
+		view.state = {"entities": {}, "foundations": {"moved": {"cell": [moved_cell.x, moved_cell.y], "level": moved_level}}, "links": []}
+		view._rebuild_machines()
+		var moved_expected := _expected_plants(moved, moved_data, [moved_volume])
+		verify(moved_expected.size() < moved_data.size() and moved.multimesh.buffer == moved_expected,
+			"Translated local meadow records are cleared at their world-space height and position.")
+		moved.position = old_position
+		view.state = {"entities": {}, "foundations": {}, "links": []}
+		view._rebuild_machines()
+		for snapshot in snapshots:
+			verify(snapshot.patch.multimesh.buffer == snapshot.buffer, "Removing construction restores every original candidate byte.")
+		view.free()
 
 func check_bank_ferns() -> void:
 	var group := Scenery._bank_ferns()
@@ -1238,6 +1387,10 @@ func check_bank_fir_lifecycle() -> void:
 		view.free()
 
 func run() -> void:
+	if mode == "construction-vegetation":
+		check_construction_vegetation()
+		finish()
+		return
 	if mode == "bank-fir-lifecycle":
 		check_bank_fir_lifecycle()
 		finish()
