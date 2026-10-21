@@ -255,7 +255,8 @@ Value cargo_value(const materials::Cargo& cargo) {
     Array lots;
     for (const auto& lot : cargo.work_lots) lots.emplace_back(Object{
         {"id", Value(lot.id)}, {"recipe_input", Value(lot.recipe.input_units_per_product)},
-        {"cycle_ticks", Value(lot.recipe.cycle_ticks)}, {"remaining", Value(lot.remaining_ticks)}});
+        {"cycle_ticks", Value(lot.recipe.cycle_ticks)}, {"remaining", Value(lot.remaining_ticks)},
+        {"completed_subticks", Value(lot.completed_subticks)}});
     return Value(Object{{"raw", Value(cargo.raw_units)}, {"products", Value(cargo.products)},
                          {"work_lots", Value(std::move(lots))}});
 }

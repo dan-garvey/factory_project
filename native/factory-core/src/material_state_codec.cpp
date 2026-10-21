@@ -86,18 +86,20 @@ Value encode_lot(const WorkLot& lot) {
         {"recipe", Value(Object{
             {"input_units_per_product", Value(lot.recipe.input_units_per_product)},
             {"cycle_ticks", Value(lot.recipe.cycle_ticks)}})},
-        {"remaining_ticks", Value(lot.remaining_ticks)}});
+        {"remaining_ticks", Value(lot.remaining_ticks)},
+        {"completed_subticks", Value(lot.completed_subticks)}});
 }
 
 WorkLot decode_lot(const Value& value, const std::string& path) {
-    const auto& lot = fields(value, path, {"id", "recipe", "remaining_ticks"});
+    const auto& lot = fields(value, path, {"id", "recipe", "remaining_ticks", "completed_subticks"});
     const auto& recipe = fields(lot.at("recipe"), path + ".recipe",
                                 {"input_units_per_product", "cycle_ticks"});
     return WorkLot{
         integer(lot.at("id"), path + ".id"),
         {integer(recipe.at("input_units_per_product"), path + ".recipe.input_units_per_product"),
          integer(recipe.at("cycle_ticks"), path + ".recipe.cycle_ticks")},
-        integer(lot.at("remaining_ticks"), path + ".remaining_ticks")};
+        integer(lot.at("remaining_ticks"), path + ".remaining_ticks"),
+        integer(lot.at("completed_subticks"), path + ".completed_subticks")};
 }
 
 Value encode_cargo(const Cargo& cargo) {
@@ -149,7 +151,7 @@ MaterialEncoding encode_material_state(const State& state, const Config& config,
             cargo.emplace(actor, encode_cargo(contents));
         const auto& stock = state.stock;
         return Value(Object{
-            {"schema", Value(Value::Integer{1})},
+            {"schema", Value(Value::Integer{2})},
             {"initial_units", Value(state.initial_units)},
             {"stock", Value(Object{
                 {"source", Value(stock.source)}, {"collector", Value(stock.collector)},
@@ -167,7 +169,7 @@ MaterialDecoding decode_material_state(const Value& value, const Config& config,
         const auto roster = expected_roster(actors);
         const auto& root = fields(value, "$",
             {"schema", "initial_units", "stock", "cargo", "processing", "next_work_id"});
-        if (integer(root.at("schema"), "$.schema") != 1)
+        if (integer(root.at("schema"), "$.schema") != 2)
             refuse(CodecReason::unsupported_schema, "$.schema");
         const auto& stock = fields(root.at("stock"), "$.stock",
                                     {"source", "collector", "belt", "input", "output"});

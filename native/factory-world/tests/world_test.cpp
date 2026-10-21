@@ -236,7 +236,7 @@ void running_removal_rebuild_and_tick() {
 void preserve_work_through_recovery_and_rebuild() {
     auto f = fixture();
     f.state.material.stock = {14, 0, 0, 1, 0};
-    f.state.material.processing = m::WorkLot{1, {1, 2}, 1};
+    f.state.material.processing = m::WorkLot{1, {1, 2}, 1, m::work_subticks_per_tick / 2};
     f.state.material.next_work_id = 2;
     auto owner = world(f);
     Observer observer;
@@ -245,7 +245,7 @@ void preserve_work_through_recovery_and_rebuild() {
     const auto recovery = send(*owner, recovery_request, observer);
     outcome(recovery, true, "ok");
     const auto recovered = owner->snapshot();
-    check(recovered.state.material.cargo.at("P") == m::Cargo{1, 0, {{1, {1, 2}, 1}}} &&
+    check(recovered.state.material.cargo.at("P") == m::Cargo{1, 0, {{1, {1, 2}, 1, m::work_subticks_per_tick / 2}}} &&
           recovered.state.material.stock == m::Stock{14, 0, 0, 0, 0} && !recovered.state.material.processing,
           "Recovery moves raw and the original partial whole lot into one actor's canonical Cargo.");
     outcome(send(*owner, target("remove", "empty-processor", "processor"), observer), true, "ok");
@@ -254,7 +254,7 @@ void preserve_work_through_recovery_and_rebuild() {
     auto insert = target("insert_work", "resume-work", "native-part-1");
     insert.emplace("work_id", V(I{1}));
     outcome(send(*owner, insert, observer), true, "ok");
-    check(owner->snapshot().state.material.processing == m::WorkLot{1, {1, 2}, 1},
+    check(owner->snapshot().state.material.processing == m::WorkLot{1, {1, 2}, 1, m::work_subticks_per_tick / 2},
           "Insertion preserves work identity, recipe and remaining progress exactly.");
     const auto before_tick = owner->snapshot();
     const auto tick = owner->tick();

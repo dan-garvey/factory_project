@@ -11,7 +11,7 @@ namespace {
 constexpr std::array<r::Definition, 1> definitions{{
     {"spindle", "The line runs, but the spindle is wrong",
      "Retrieve four plates with the connected line's spindle calibrated to signed rate +2/1.",
-     "A direct 2-to-1 mesh reverses rotation. Bridge the two axial planes with your radius-3 cogs and short shaft: a 3-4-5 mesh reaches the input, and a 3+1 mesh reaches the output. The target is a fixture specification; material timing and yield stay fixed."},
+     "A direct 2-to-1 mesh reverses rotation. Bridge the two axial planes with your radius-3 cogs and short shaft: a 3-4-5 mesh reaches the input, and a 3+1 mesh reaches the output. The target and recipe duration are fixture specifications; gearing changes processing speed, not yield."},
 }};
 void add(r::Scenario& scenario, const std::string& id, s::Role role, g::Point center, g::Integer teeth = 0, g::Integer span = 0) {
     const auto kind = role == s::Role::gear ? g::Kind::gear : role == s::Role::shaft ? g::Kind::shaft : g::Kind::hub;
@@ -27,6 +27,9 @@ std::optional<r::Scenario> make(std::string_view id) {
     auto result = r::make("link");
     if (!result) return std::nullopt;
     result->definition = &definition();
+    // At the required double-speed spindle, a four-unit recipe retains a
+    // genuine partial-work cut for the continuation and recovery challenge.
+    result->profile.material.cycle_ticks = 4;
     auto& topology = result->seed.topology;
     topology.parts.clear(); topology.sources.clear();
     add(*result, "wheel", s::Role::waterwheel, {0, 0, 0});

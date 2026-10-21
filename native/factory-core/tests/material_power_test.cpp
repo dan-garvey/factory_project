@@ -30,6 +30,40 @@ void tick(m::State& state, m::MachinePower power) {
             "The complete candidate retains valid finite custody.");
 }
 
+void fractional_gear_speed() {
+    auto slow = seed();
+    slow.stock.source = 14;
+    slow.processing = m::WorkLot{1, {2, 4}, 4};
+    slow.next_work_id = 2;
+    const m::MachinePower half{false, false, true, m::work_subticks_per_tick / 2};
+    tick(slow, half);
+    require(slow.processing->remaining_ticks == 4 &&
+            slow.processing->completed_subticks == m::work_subticks_per_tick / 2,
+            "Half speed retains fractional progress on the original workpiece.");
+    const auto partial = slow;
+    tick(slow, {false, false, false});
+    require(slow == partial, "Stopped work retains its fractional progress.");
+    tick(slow, half);
+    require(slow.processing->remaining_ticks == 3 && slow.processing->completed_subticks == 0,
+            "Two half-speed ticks advance one normal unit of work.");
+    const m::MachinePower twice{false, false, true, 2 * m::work_subticks_per_tick};
+    tick(slow, twice);
+    require(slow.processing->remaining_ticks == 1 && slow.processing->completed_subticks == 0,
+            "Double speed advances two units of the same workpiece.");
+    slow.stock.output = 1;
+    slow.stock.source -= 2;
+    tick(slow, twice);
+    require(slow.processing->remaining_ticks == 0 && slow.processing->completed_subticks == 0 &&
+            slow.stock.output == 1, "A full output holds the completed workpiece without duplication.");
+    const auto blocked = slow;
+    tick(slow, twice);
+    require(slow == blocked, "A blocked ready workpiece cannot accumulate extra progress.");
+    for (const auto invalid : {m::Quantity{0}, m::maximum_work_subticks_per_tick + 1}) {
+        require(m::step(slow, config, line, {false, false, true, invalid}) == m::Error::invalid_path && slow == blocked,
+                "A malformed speed is refused without changing work or material custody.");
+    }
+}
+
 void legacy_order_and_carried_work() {
     auto state = seed();
     for (int cycle = 0; cycle < 3; ++cycle)
@@ -157,6 +191,7 @@ void absent_masks_and_exhausted_identity() {
 
 int main() {
     try {
+        fractional_gear_speed();
         legacy_order_and_carried_work();
         independent_senders_and_partial_pause();
         ready_work_and_disable();

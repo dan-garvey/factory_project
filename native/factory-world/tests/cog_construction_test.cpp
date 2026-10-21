@@ -114,6 +114,80 @@ void construction(bool corner) {
           "Q rebuilds a fresh identity and restores belt power.");
 }
 
+void geared_processor(bool fast) {
+    namespace mat = factory::materials;
+    w::Profile profile;
+    profile.material = {1, 1, 2};
+    profile.initial_units = 2;
+    profile.actors = {"P", "Q"};
+    profile.meters_per_grid_unit = 0.1;
+    profile.build_reach = 4;
+    profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, 1}, {{s::Role::processor, 0, 0}, 1},
+        {{s::Role::shaft, 0, 1}, 2}, {{s::Role::gear, 2, 0}, 1}, {{s::Role::gear, 4, 0}, 1}};
+    w::State seed;
+    seed.material.initial_units = 2;
+    seed.material.stock.output = 1;
+    seed.material.processing = mat::WorkLot{1, {1, 2}, 2};
+    seed.material.next_work_id = 2;
+    seed.material.cargo = {{"P", {}}, {"Q", {}}};
+    seed.kits = {{"P", {{{s::Role::gear, 2, 0}, 1}, {{s::Role::gear, 4, 0}, 1}}}, {"Q", {}}};
+    seed.topology.parts = {
+        {{"wheel", m::Kind::hub, {0, 0, 0}, m::Axis::z, 0, 0}, 1, s::Role::waterwheel},
+        {{"in-shaft", m::Kind::shaft, {0, 0, 0}, m::Axis::z, 0, 1}, 1, s::Role::shaft},
+        {{"press", m::Kind::hub, {4, 4, 0}, m::Axis::z, 0, 0}, 1, s::Role::processor},
+        {{"out-shaft", m::Kind::shaft, {4, 4, 0}, m::Axis::z, 0, 1}, 1, s::Role::shaft}};
+    seed.topology.sources = {{"wheel", {1, 1}}};
+    seed.topology.drive_enabled = true;
+    for (const auto& item : seed.topology.parts) seed.issued_entities.emplace(item.geometry.id, item.generation);
+    auto world = w::World::create("cog-world", profile, seed);
+    check(world != nullptr, "The geared press uses the existing World and finite part custody.");
+    accepted(send(*world, place("speed-input", {0, 0, 0}, "z", fast ? 4 : 2)));
+    accepted(send(*world, place("speed-output", {4, 4, 0}, "z", fast ? 2 : 4)));
+    const auto drive = w::machine_power(world->snapshot().state.topology);
+    check(drive.processor && drive.processor_work_per_tick ==
+          (fast ? 2 * mat::work_subticks_per_tick : mat::work_subticks_per_tick / 2),
+          "Actual mixed-size cogs set the processor work rate.");
+    check(world->tick().changed, "The powered World advances the original workpiece.");
+    const auto cut = world->snapshot();
+    check(cut.state.material.processing && cut.state.material.stock.output == 1 &&
+          cut.state.material.processing->remaining_ticks == (fast ? 0 : 2) &&
+          cut.state.material.processing->completed_subticks == (fast ? 0 : mat::work_subticks_per_tick / 2),
+          "Half and double rates change real work while the output remains full.");
+    const auto encoded = w::encode_checkpoint(profile, cut);
+    check(std::holds_alternative<V>(encoded), "Fractional and blocked work checkpoint encodes.");
+    const auto decoded = w::decode_checkpoint(profile, "cog-world", std::get<V>(encoded));
+    check(std::holds_alternative<w::Snapshot>(decoded), "Fractional and blocked work checkpoint decodes.");
+    auto restored = w::World::restore("cog-world", profile, std::get<w::Snapshot>(decoded));
+    check(restored && restored->snapshot().state == cut.state, "A fresh World retains exact work progress and cog custody.");
+    O recover{{"context", V("cog-world")}, {"client", V("P-session")}, {"request", V("recover-speed")},
+              {"actor", V("P")}, {"action", V("recover")}, {"target", V("press")}, {"generation", V(I{1})}};
+    const auto receipt = accepted(send(*restored, recover));
+    const auto& moved = field<V::Array>(receipt, "moved_work");
+    check(moved.size() == 1 && field<I>(std::get<O>(moved[0].storage()), "completed_subticks") ==
+          (fast ? 0 : mat::work_subticks_per_tick / 2), "Recovery receipt carries the original fractional progress.");
+    const auto recovered = restored->snapshot();
+    const auto saved = w::encode_checkpoint(profile, recovered);
+    check(std::holds_alternative<V>(saved), "The receipt and carried work validate in a checkpoint.");
+    const auto resumed = w::decode_checkpoint(profile, "cog-world", std::get<V>(saved));
+    check(std::holds_alternative<w::Snapshot>(resumed), "The recovered checkpoint decodes.");
+    auto fresh = w::World::restore("cog-world", profile, std::get<w::Snapshot>(resumed));
+    check(fresh && fresh->snapshot().state == recovered.state,
+          "A fresh World restores the carried work and recovery history.");
+    const auto replay = send(*fresh, recover);
+    check(replay.completed() && field<bool>(*replay.result, "duplicate") &&
+          !factory::values::typed_difference(receipt.at("moved_work"), replay.result->at("moved_work")),
+          "A retried recovery returns the same fractional receipt without moving anything twice.");
+    O insert{{"context", V("cog-world")}, {"client", V("P-session")}, {"request", V("insert-speed")},
+             {"actor", V("P")}, {"action", V("insert_work")}, {"target", V("press")},
+             {"generation", V(I{1})}, {"work_id", V(I{1})}};
+    accepted(send(*fresh, insert));
+    for (int step = 0; step < (fast ? 1 : 3); ++step) check(fresh->tick().changed, "Reinserted work advances.");
+    const auto finished = fresh->snapshot();
+    check(!finished.state.material.processing && finished.state.material.stock.output == 1 &&
+          finished.state.material.cargo.at("P").products == 1 && finished.state.material.next_work_id == 2,
+          "The same recovered workpiece finishes once at its geared rate without resetting custody.");
+}
+
 void perpendicular_belt_line() {
     w::Profile profile;
     profile.material = {1, 1, 2};
@@ -253,6 +327,8 @@ int main() {
     try {
         construction(false);
         construction(true);
+        geared_processor(false);
+        geared_processor(true);
         perpendicular_belt_line();
         cross_axis_belt_line();
         std::cout << checks << " native World cog construction checks passed.\n";

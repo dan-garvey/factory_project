@@ -53,6 +53,16 @@ These are explicit fixture choices, not permanent energy or mechanical rules.
 World still derives component motion and performs one trusted step/commit; the
 material library adds no solver, source, timer or second live authority.
 
+World maps the magnitude of the press's signed rational rotation rate to work
+per step, using 4,096 subticks per baseline work tick. The experimental mapping
+rounds down to a minimum of one subtick for a nonzero rate and caps at sixteen
+baseline ticks per step. Opposite directions work equally; an unpowered or
+stalled press does no work. This makes gear ratios affect processing but does
+not claim Create's exact press timing, load, or stress behavior. Fractional
+progress belongs to the WorkLot and follows it through recovery and insertion.
+The material checkpoint schema is 2; schema 1 is refused because it lacks that
+progress, rather than inventing a compatibility migration.
+
 Product retrieval credits only an already admitted actor's Cargo.products.
 It cannot create a new actor, collect raw material as a plate or consume a work
 lot. Every tick and retrieval validates a complete candidate before replacing the
