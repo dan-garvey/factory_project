@@ -66,3 +66,37 @@ press modules on a shared frame in the ordinary worksite, verify their distinct
 tool and output clearance at rest and held work, and compare close and normal
 camera views with human feedback. These are future acceptance conditions, not
 claims made by this isolated sample.
+
+## Fitted joint art increment
+
+The next isolated sample adds `ProductionPressFrameJointArt` beside the existing
+press presentation classes in `opening.gd`. It accepts an ordered list of two to
+eight rigid bay centers and mounts only the visual pieces between or at their
+ends. It rejects nonfinite, reversed, overlapping and out-of-envelope spacing
+before creating a node. The existing sourced supports, detailed crowns, die,
+anvil, tray and rigid skid bays keep their original size and pose. The connector
+generates the actual gap length for C-channel webs and flanges, a deck tongue,
+and an open flanged upper crosshead. Fixed-size clamps, exposed bolts, rear knee
+braces, center stiffeners and end caps mark how the bays meet. The knee braces
+terminate near the existing inner uprights; an earlier render with short braces
+hanging from the beam is retained as a rejected visual iteration.
+
+The final detached sample uses the same two close, two wide and three close bay
+poses as the baseline, plus the two duplicated presses for comparison. It
+checks the joint roster and refuses five malformed center lists without adding
+partial geometry. Twelve passive front, rear and construction-distance images
+are retained under `fitted-press-frame-20261021/frames-v3` in the local prototype
+evidence directory. In those images the wide crosshead has a visible web and
+rear support instead of a blank bar, the lower bay gap shows continuous channel
+sections, and each exposed end has a cap. The close seams remain small at
+construction distance. Tool faces and output pans still have their previous
+clearance, but no native assembly, shared drive, item route, player edit or
+ordinary worksite view has been added. This helper is deliberately not called
+by the current single-press mounting path.
+
+The final render completed without script or import errors. It still emitted
+the existing source project’s direct-image export warnings, so it does not
+establish a packaged asset. The source-derived working-plane comparison remains
+an arithmetic estimate, not a held-work animation or contact test. The sample
+improves the visual component vocabulary, but the production-quality decision
+still needs a native-confirmed assembly and human viewing in the playable scene.
