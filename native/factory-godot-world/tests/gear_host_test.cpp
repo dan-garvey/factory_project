@@ -498,13 +498,50 @@ void individual_shafts() {
           "A fresh Host restores individual segment geometry, custody and request history exactly.");
     check(field<bool>(fresh.command("P", first_wire), "duplicate"), "A removed shaft request remains an exact historical replay.");
 }
+
+void forward_belt_route() {
+    Host host;
+    A axis{V(-128.0), V(-2.8), V(-2.0), V(128.0)}, heights;
+    for (int row = 0; row < 4; ++row) {
+        heights.emplace_back(-1.65); heights.emplace_back(-1.65);
+        heights.emplace_back(-0.02); heights.emplace_back(-0.02);
+    }
+    const O stream{{"axis", V(axis)}, {"heights", V(heights)}, {"obstacles", V(A{})},
+        {"water", V(A{V(A{V(I{-8}), V(I{4}), V(I{-20}), V(I{-400}), V(I{200}), V(I{0})})})}};
+    check(accepted(host.initialize("cog-api", {"P"})) && accepted(host.configure_terrain(stream)),
+          "The alternate belt route binds an explicit invented stream.");
+    I epoch{};
+    const auto at = [&](double x, double z) { observe(host, x, z, ++epoch); };
+    const std::array<const char*, 4> roles{"wheel", "collector", "belt", "processor"};
+    std::array<std::string, 4> hubs;
+    for (std::size_t n = 0; n < hubs.size(); ++n) {
+        const I x = n == 0 ? -2 : static_cast<I>(n) - 1;
+        at(static_cast<double>(x) * 1.65, 0);
+        const auto id = "forward-machine-" + std::to_string(n);
+        hubs[n] = create(host, machine(roles[n], x, id.c_str(), "z"));
+    }
+    for (I x = -2; x <= 2; ++x) {
+        at(static_cast<double>(x) * 1.65, 0);
+        const auto id = "forward-cog-" + std::to_string(x + 2);
+        create(host, gear(4 * x, 0, 8, id.c_str(), "z", 2));
+    }
+    at(-3.3, 0);
+    auto power = wire("set_power", "forward-start"); power.emplace("active", V(true));
+    check(accepted(host.command("P", power)), "The extended cog train can start.");
+    const auto wheel_rate = field<I>(motion(host, hubs[0]), "numerator");
+    const auto belt_rate = field<I>(motion(host, hubs[2]), "numerator");
+    check(wheel_rate > 0 && belt_rate < 0 &&
+              field<I>(V(field<O>(host.projection(), "parts")), "gear") == 2,
+          "The extra cog reverses the belt relative to a positive wheel within the finite kit; wheel=" +
+          std::to_string(wheel_rate) + ", belt=" + std::to_string(belt_rate) + ".");
+}
 }  // namespace
 
 int main(int argc, char** argv) {
     try {
         if (argc == 1) {
             finite_oriented_train_and_restore(); adjacent_axle_faces(); refusals_and_legacy_shape();
-            global_grid(); finite_large_cog(); perpendicular_belt_line(); belt_spindle_orientation(); cross_axis_belt_line(); individual_shafts();
+            global_grid(); finite_large_cog(); perpendicular_belt_line(); belt_spindle_orientation(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
         } else if (argc != 2 || std::string(argv[1]) != "--placement-alias-only") {
             throw std::runtime_error("Expected no arguments or --placement-alias-only.");
         }
