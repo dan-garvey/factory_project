@@ -52,6 +52,14 @@ The frame shares cached meshes and painted materials and adds no resource or
 collision dependency. Isolated controls check closed surfaces and clearance over
 a full sampled turn; the ordinary rendered appearance remains unassessed.
 
+The common machine base now has a thin mounting deck, two open formed channels
+and internal cross ties instead of a solid block. These closed pieces share one
+cached mesh and the original opaque finish. Its outer envelope, top plane,
+mounting fasteners and pick body stay exact, and placement previews use the same
+resource. The visual underside openings do not add collision or a new structural,
+cargo or player-foundation rule. Their actual play-distance appearance remains
+unassessed. The beveled profile helper is shared with the collector casting.
+
 These original project scene assets prepare the visual work in
 `factory-yau.6.45`. Current complete captures use the sourced
 [adult worker](worker/README.md). The other scenes here remain optional previews.

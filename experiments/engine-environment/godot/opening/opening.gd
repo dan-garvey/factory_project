@@ -177,6 +177,59 @@ class ProductionVisuals:
 		meshes[key] = mesh
 		return mesh
 
+	static func prism_mesh(profile: PackedVector2Array, depth: float, bevel: float) -> ArrayMesh:
+		var key := "prism/" + Marshalls.raw_to_base64(var_to_bytes([profile, depth, bevel]))
+		if meshes.has(key):
+			return meshes[key]
+		var outline := profile.duplicate()
+		var signed_area := 0.0
+		for n in range(outline.size()):
+			signed_area += outline[n].cross(outline[(n + 1) % outline.size()])
+		if signed_area < 0:
+			outline.reverse()
+		# The fixed art profiles have generous corners. Intersect their inward
+		# edge offsets rather than scaling a whole cap and distorting the bevel.
+		var inset := PackedVector2Array()
+		for n in range(outline.size()):
+			var before := (outline[n] - outline[posmod(n - 1, outline.size())]).normalized()
+			var after := (outline[(n + 1) % outline.size()] - outline[n]).normalized()
+			var first := Vector2(-before.y, before.x)
+			var second := Vector2(-after.y, after.x)
+			inset.append(outline[n] + (first + second) * bevel / (1.0 + first.dot(second)))
+		var triangles := Geometry2D.triangulate_polygon(inset)
+		if triangles.size() != (inset.size() - 2) * 3:
+			push_error("The authored casting cap cannot be triangulated.")
+			return null
+		var surface := SurfaceTool.new()
+		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+		var half := depth / 2.0
+		for side in [-1.0, 1.0]:
+			for n in range(0, triangles.size(), 3):
+				var cap: Array[Vector3] = []
+				for corner in range(3):
+					var p := inset[triangles[n + corner]]
+					cap.append(Vector3(p.x, p.y, side * half))
+				ProductionVisuals._face(surface, cap, Vector3.BACK * side)
+		for n in range(outline.size()):
+			var next := (n + 1) % outline.size()
+			var a := outline[n]
+			var b := outline[next]
+			var ia := inset[n]
+			var ib := inset[next]
+			var edge := (b - a).normalized()
+			var normal := Vector3(edge.y, -edge.x, 0)
+			ProductionVisuals._face(surface, [Vector3(a.x, a.y, -half + bevel),
+				Vector3(b.x, b.y, -half + bevel), Vector3(b.x, b.y, half - bevel),
+				Vector3(a.x, a.y, half - bevel)], normal)
+			for side in [-1.0, 1.0]:
+				ProductionVisuals._face(surface, [Vector3(a.x, a.y, side * (half - bevel)),
+					Vector3(b.x, b.y, side * (half - bevel)), Vector3(ib.x, ib.y, side * half),
+					Vector3(ia.x, ia.y, side * half)], (normal + Vector3.BACK * side).normalized())
+		surface.generate_tangents()
+		var mesh := surface.commit()
+		meshes[key] = mesh
+		return mesh
+
 	static func fastener_head_mesh() -> CylinderMesh:
 		if not meshes.has("fastener/hex"):
 			var head := CylinderMesh.new()
@@ -267,7 +320,6 @@ class ProductionTransmissionFinish:
 class ProductionCollectorArt:
 	extends RefCounted
 	## Original rigid casting kit. These meshes never define work or collision.
-	static var meshes: Dictionary = {}
 
 	static func cheek_profile(right: bool) -> PackedVector2Array:
 		var points := PackedVector2Array([Vector2(-0.65, 0.24), Vector2(-0.65, 0.40),
@@ -279,58 +331,6 @@ class ProductionCollectorArt:
 				points[n].x = -0.39 - points[n].x
 		return points
 
-	static func prism_mesh(profile: PackedVector2Array, depth: float, bevel: float) -> ArrayMesh:
-		var key := Marshalls.raw_to_base64(var_to_bytes([profile, depth, bevel]))
-		if meshes.has(key):
-			return meshes[key]
-		var outline := profile.duplicate()
-		var signed_area := 0.0
-		for n in range(outline.size()):
-			signed_area += outline[n].cross(outline[(n + 1) % outline.size()])
-		if signed_area < 0:
-			outline.reverse()
-		# The fixed art profiles have generous corners. Intersect their inward
-		# edge offsets rather than scaling a whole cap and distorting the bevel.
-		var inset := PackedVector2Array()
-		for n in range(outline.size()):
-			var before := (outline[n] - outline[posmod(n - 1, outline.size())]).normalized()
-			var after := (outline[(n + 1) % outline.size()] - outline[n]).normalized()
-			var first := Vector2(-before.y, before.x)
-			var second := Vector2(-after.y, after.x)
-			inset.append(outline[n] + (first + second) * bevel / (1.0 + first.dot(second)))
-		var triangles := Geometry2D.triangulate_polygon(inset)
-		if triangles.size() != (inset.size() - 2) * 3:
-			push_error("The authored casting cap cannot be triangulated.")
-			return null
-		var surface := SurfaceTool.new()
-		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
-		var half := depth / 2.0
-		for side in [-1.0, 1.0]:
-			for n in range(0, triangles.size(), 3):
-				var cap: Array[Vector3] = []
-				for corner in range(3):
-					var p := inset[triangles[n + corner]]
-					cap.append(Vector3(p.x, p.y, side * half))
-				ProductionVisuals._face(surface, cap, Vector3.BACK * side)
-		for n in range(outline.size()):
-			var next := (n + 1) % outline.size()
-			var a := outline[n]
-			var b := outline[next]
-			var ia := inset[n]
-			var ib := inset[next]
-			var edge := (b - a).normalized()
-			var normal := Vector3(edge.y, -edge.x, 0)
-			ProductionVisuals._face(surface, [Vector3(a.x, a.y, -half + bevel),
-				Vector3(b.x, b.y, -half + bevel), Vector3(b.x, b.y, half - bevel),
-				Vector3(a.x, a.y, half - bevel)], normal)
-			for side in [-1.0, 1.0]:
-				ProductionVisuals._face(surface, [Vector3(a.x, a.y, side * (half - bevel)),
-					Vector3(b.x, b.y, side * (half - bevel)), Vector3(ib.x, ib.y, side * half),
-					Vector3(ia.x, ia.y, side * half)], (normal + Vector3.BACK * side).normalized())
-		surface.generate_tangents()
-		var mesh := surface.commit()
-		meshes[key] = mesh
-		return mesh
 
 	static func _part(parent: Node3D, role: String, mesh: Mesh, at: Vector3,
 			finish: StandardMaterial3D) -> MeshInstance3D:
@@ -350,17 +350,17 @@ class ProductionCollectorArt:
 		var paint := ProductionVisuals.material(color, 0.08, 0.72)
 		for right in [false, true]:
 			_part(frame, "CastCheekRight" if right else "CastCheekLeft",
-				prism_mesh(cheek_profile(right), 0.18, 0.008), Vector3(0, 0, -0.40), paint)
+				ProductionVisuals.prism_mesh(cheek_profile(right), 0.18, 0.008), Vector3(0, 0, -0.40), paint)
 		var housing := PackedVector2Array([Vector2(-0.62, 0.24), Vector2(0.23, 0.24),
 			Vector2(0.23, 0.84), Vector2(0.12, 1.02), Vector2(-0.50, 1.02), Vector2(-0.62, 0.84)])
-		_part(frame, "CastLowerHousing", prism_mesh(housing, 0.14, 0.012),
+		_part(frame, "CastLowerHousing", ProductionVisuals.prism_mesh(housing, 0.14, 0.012),
 			Vector3(0, 0, -0.44), ProductionVisuals.material(color.darkened(0.09), 0.08, 0.72))
 		var hood := PackedVector2Array([Vector2(-0.65, 1.39), Vector2(0.26, 1.39),
 			Vector2(0.26, 1.45), Vector2(0.20, 1.51), Vector2(-0.59, 1.51), Vector2(-0.65, 1.45)])
-		_part(frame, "CastUpperHood", prism_mesh(hood, 0.64, 0.012), Vector3(0, 0, -0.25), paint)
+		_part(frame, "CastUpperHood", ProductionVisuals.prism_mesh(hood, 0.64, 0.012), Vector3(0, 0, -0.25), paint)
 		var hanger := PackedVector2Array([Vector2(-0.26, 1.21), Vector2(-0.18, 1.21),
 			Vector2(-0.15, 1.32), Vector2(-0.13, 1.43), Vector2(-0.31, 1.43), Vector2(-0.29, 1.32)])
-		_part(frame, "BearingHanger", prism_mesh(hanger, 0.07, 0.007), Vector3(0, 0, 0.045), paint)
+		_part(frame, "BearingHanger", ProductionVisuals.prism_mesh(hanger, 0.07, 0.007), Vector3(0, 0, 0.045), paint)
 		var bearing := PackedVector2Array([Vector2(0.109, -0.025), Vector2(0.125, -0.025),
 			Vector2(0.14, -0.015), Vector2(0.14, 0.015), Vector2(0.125, 0.025),
 			Vector2(0.109, 0.025), Vector2(0.109, -0.025)])
@@ -372,6 +372,34 @@ class ProductionCollectorArt:
 		var liner_part := _part(frame, "FixedBearingLiner", ProductionVisuals.turned_mesh(liner),
 			Vector3(-0.22, 1.1, 0.045), ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.38))
 		liner_part.basis = housing_part.basis
+
+class ProductionSkidArt:
+	extends RefCounted
+	## One original shared base resource. Empty channels are visual only.
+	static var shared_mesh: ArrayMesh
+
+	static func skid_mesh() -> ArrayMesh:
+		if shared_mesh != null:
+			return shared_mesh
+		var surface := SurfaceTool.new()
+		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+		# The mounting deck retains the exact old top and outer footprint.
+		surface.append_from(ProductionVisuals.box_mesh(Vector3(1.35, 0.04, 1.35)), 0,
+			Transform3D(Basis.IDENTITY, Vector3(0, 0.10, 0)))
+		var channel := PackedVector2Array([Vector2(-0.105, -0.12), Vector2(0.105, -0.12),
+			Vector2(0.105, -0.08), Vector2(-0.045, -0.08), Vector2(-0.045, 0.055),
+			Vector2(0.105, 0.055), Vector2(0.105, 0.095), Vector2(-0.105, 0.095)])
+		for side in [-1.0, 1.0]:
+			var profile := channel.duplicate()
+			for n in range(profile.size()):
+				profile[n].x *= -side
+			surface.append_from(ProductionVisuals.prism_mesh(profile, 1.35, 0.004), 0,
+				Transform3D(Basis.IDENTITY, Vector3(side * 0.53, 0, 0)))
+		for z in [-0.38, 0.38]:
+			surface.append_from(ProductionVisuals.box_mesh(Vector3(1.08, 0.045, 0.06)), 0,
+				Transform3D(Basis.IDENTITY, Vector3(0, 0.045, z)))
+		shared_mesh = surface.commit()
+		return shared_mesh
 
 class ProductionWheelArt:
 	extends RefCounted
@@ -3392,7 +3420,13 @@ func _wheel_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 		Color("b87945"), Vector3(PI / 2, 0, 0))
 
 func _assemble_machine(anchor: Node3D, entity: Dictionary) -> void:
-	_machine_box(anchor, "Plinth", Vector3(0, 0.12, 0), Vector3(1.35, 0.24, 1.35), Color("273c41"))
+	var plinth := MeshInstance3D.new()
+	plinth.name = "Plinth"
+	plinth.position = Vector3(0, 0.12, 0)
+	plinth.mesh = ProductionSkidArt.skid_mesh()
+	plinth.material_override = ProductionVisuals.material(Color("273c41"), 0.08, 0.5)
+	plinth.set_meta("asset_role", "MachineSupportSkid")
+	anchor.add_child(plinth)
 	match entity.kind:
 		"collector": _collector_visual(anchor, entity)
 		"belt": _belt_visual(anchor, entity)
