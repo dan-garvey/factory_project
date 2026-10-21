@@ -586,8 +586,13 @@ diagonal/vertical logistics, rendered quality and GPU cost remain unverified.
 
 The native waterwheel has original flared cast stands and open worked journal
 liners. Its two horizontal supports keep a fixed bore as the confirmed rim
-diameter grows. The journal cancels only the rotor's radial scaling, preserving
-the current axial ends and native spindle reference. Beveled rings, feet and hex heads share the existing qualified
+diameter grows. The fitted journal preserves the current axial ends and native
+spindle reference. Its turned mesh has end
+chamfers, relieved bands and recessed centres, using the same worked-metal maps
+as the other exposed journals. Mesh coordinates are baked in metres and the
+enclosing rotor scale is cancelled, so the local material repeat stays physical
+as diameter changes. Default collector and press profiles retain their geometry.
+Beveled rings, feet and hex heads share the existing qualified
 [cast/worked surfaces](transmission-surfaces/CREDITS.md). Geometry is baked in
 metres so scaling the fixture does not shrink their material repeat. The annular
 liners clear the actual transformed journal, and fixed feet remain outside the rotor's

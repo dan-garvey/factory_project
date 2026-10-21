@@ -1520,7 +1520,7 @@ class ProductionDriveJournalArt:
 	extends RefCounted
 	## Turned presentation inside the original native journal cylinder.
 	static var horizontal_press_mesh: ArrayMesh
-	static func mesh(height: float) -> ArrayMesh:
+	static func mesh(height: float, radius: float = 0.085) -> ArrayMesh:
 		var half := height / 2.0
 		# Keep the full central bearing span. End relief and center marks are
 		# visual machining details, without a new coupling or contact rule.
@@ -1534,6 +1534,10 @@ class ProductionDriveJournalArt:
 			Vector2(0.085, half - 0.040), Vector2(0.085, half - 0.014),
 			Vector2(0.071, half), Vector2(0.028, half),
 			Vector2(0.014, half - 0.020), Vector2(0, half - 0.020)])
+		if radius != 0.085:
+			var ratio := radius / 0.085
+			for n in range(profile.size()):
+				profile[n] = Vector2(profile[n].x * ratio, profile[n].y)
 		return ProductionVisuals.turned_mesh(profile)
 
 	static func material() -> StandardMaterial3D:
@@ -4617,11 +4621,11 @@ func _wheel_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	var journal := _machine_cylinder(wheel_rotor, "WheelHub", Vector3.ZERO, 0.13, 0.45,
 		Color("b87945"), Vector3(PI / 2, 0, 0))
 	if native_profile:
-		# The rim grows with its confirmed diameter; the existing fixed bore
-		# and current journal ends do not. Cylinder-local Y follows the rotor's
-		# unchanged axial scale; its two radial directions cancel rim growth.
-		journal.scale = Vector3(scale_factor / radial_scale, 1.0,
-			scale_factor / radial_scale)
+		# Bake the fitted journal in metres, then cancel the rotor's scale.
+		# Its local worked-metal repeat stays physical as the rim grows.
+		journal.mesh = ProductionDriveJournalArt.mesh(0.45 * rotor_scale, 0.13 * scale_factor)
+		journal.material_override = ProductionDriveJournalArt.material()
+		journal.scale = Vector3(1.0 / radial_scale, 1.0 / rotor_scale, 1.0 / radial_scale)
 
 func _assemble_machine(anchor: Node3D, entity: Dictionary) -> void:
 	var water_wheel: bool = entity.kind == "wheel" and _native_transmission()
