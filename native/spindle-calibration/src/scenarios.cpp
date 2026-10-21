@@ -10,7 +10,7 @@ namespace g = mechanics;
 namespace {
 constexpr std::array<r::Definition, 1> definitions{{
     {"spindle", "The line runs, but the spindle is wrong",
-     "Retrieve four plates with the connected line's spindle calibrated to signed rate +2/1.",
+     "Retrieve four plates with the connected line's spindle calibrated to signed rate -2/1.",
      "A coaxial shortcut and small-cog mesh reverse the line at the wrong speed. Bridge the two axial planes with a diagonal small-to-large mesh and one-tile shaft to reach the signed target. The target and recipe duration are fixture specifications; gearing changes processing speed, not yield."},
 }};
 void add(r::Scenario& scenario, const std::string& id, s::Role role, g::Point center, g::Integer teeth = 0, g::Integer span = 0) {
@@ -39,11 +39,17 @@ std::optional<r::Scenario> make(std::string_view id) {
     add(*result, "gear-output", s::Role::gear, {4, 0, 0}, 2);
     add(*result, "collector", s::Role::collector, {4, 0, 4});
     add(*result, "gear-belt", s::Role::gear, {8, 0, 0}, 2);
-    add(*result, "gear-press", s::Role::gear, {12, 0, 0}, 2);
-    add(*result, "belt", s::Role::belt, {8, 0, 4});
-    add(*result, "processor", s::Role::processor, {12, 0, 4});
+    add(*result, "gear-branch", s::Role::gear, {8, 0, -4}, 2);
+    add(*result, "gear-mid", s::Role::gear, {12, 0, -4}, 2);
+    add(*result, "gear-outer", s::Role::gear, {16, 0, -4}, 2);
+    add(*result, "gear-press", s::Role::gear, {16, 0, 0}, 2);
+    add(*result, "pulley-first", s::Role::shaft, {8, 0, 4}, 0, 2);
+    add(*result, "pulley-last", s::Role::shaft, {12, 0, 4}, 0, 2);
+    add(*result, "processor", s::Role::processor, {16, 0, 4});
     topology.sources = {{"wheel", result->profile.waterwheel_rate}};
-    topology.material_links = {{{"collector", 1}, {"belt", 1}}, {{"belt", 1}, {"processor", 1}}};
+    topology.material_links.clear();
+    topology.belt_spans = {{{"belt", "pulley-first", "pulley-last"}, 1}};
+    result->seed.material.belt_lanes = {{"belt", materials::BeltLane{{std::nullopt, std::nullopt}, 0}}};
     auto& kit = result->seed.kits.at("P");
     kit.clear();
     kit.emplace(s::PartSpec{s::Role::gear, 2, 0}, 2);
@@ -53,6 +59,8 @@ std::optional<r::Scenario> make(std::string_view id) {
         ++result->profile.finite_parts[{part.role, part.geometry.teeth, part.geometry.half_span}];
         result->seed.issued_entities.emplace(part.geometry.id, part.generation);
     }
+    ++result->profile.finite_parts[{s::Role::belt, 0, 0}];
+    result->seed.issued_entities.emplace("belt", 1);
     for (const auto& [actor, carried] : result->seed.kits) {
         (void)actor;
         for (const auto& [spec, count] : carried) result->profile.finite_parts[spec] += count;
@@ -86,8 +94,29 @@ Progress inspect(const world::State& state, const std::string& actor) {
         if (motion != power.mechanical.motion.end()) result.rate = motion->second.rate;
     }
     const auto machines = world::machine_power(state.topology);
-    const auto path = world::material_path(state.topology);
-    if (!machines.collector || !machines.belt || !machines.processor || !path.collector_to_belt || !path.belt_to_processor) {
+    bool connected_span = false;
+    for (const auto& span : state.topology.belt_spans) {
+        const auto first = std::find_if(state.topology.parts.begin(), state.topology.parts.end(),
+            [&](const auto& part) { return part.geometry.id == span.geometry.first_shaft; });
+        const auto last = std::find_if(state.topology.parts.begin(), state.topology.parts.end(),
+            [&](const auto& part) { return part.geometry.id == span.geometry.last_shaft; });
+        if (first == state.topology.parts.end() || last == state.topology.parts.end()) continue;
+        const auto path = g::belt_path(first->geometry, last->geometry);
+        const auto motion = power.mechanical.motion.find(first->geometry.id);
+        if (!path || path->kind != g::BeltPathKind::horizontal || motion == power.mechanical.motion.end() ||
+            motion->second.state != g::MotionState::rotating) continue;
+        auto before = first->geometry.center, after = last->geometry.center;
+        for (std::size_t axis = 0; axis < 3; ++axis) {
+            const auto step = path->tiles[1][axis] - path->tiles[0][axis];
+            before[axis] -= step; after[axis] += step;
+        }
+        const auto at = [&](s::Role role, const g::Point& point) {
+            return std::any_of(state.topology.parts.begin(), state.topology.parts.end(),
+                [&](const auto& part) { return part.role == role && part.geometry.center == point; });
+        };
+        if (at(s::Role::collector, before) && at(s::Role::processor, after)) { connected_span = true; break; }
+    }
+    if (!machines.collector || !connected_span || !machines.processor) {
         result.mode = Mode::incomplete_line; return result;
     }
     result.mode = result.rate == required_rate ? Mode::calibrated : Mode::wrong_rate;

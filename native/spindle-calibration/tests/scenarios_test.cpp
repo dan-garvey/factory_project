@@ -33,6 +33,7 @@ void conserved(const Fixture& fixture) {
     auto totals = fixture.profile.finite_parts;
     for (auto& [spec, count] : totals) { (void)spec; count = 0; }
     for (const auto& part : cut.state.topology.parts) ++totals.at({part.role, part.geometry.teeth, part.geometry.half_span});
+    for (const auto& span : cut.state.topology.belt_spans) { (void)span; ++totals.at({s::Role::belt, 0, 0}); }
     for (const auto& [actor, kit] : cut.state.kits) {
         (void)actor;
         for (const auto& [spec, count] : kit) totals.at(spec) += count;
@@ -43,7 +44,12 @@ void conserved(const Fixture& fixture) {
 Fixture fresh(const char* suffix, bool missing_link = false) {
     auto content = c::make("spindle");
     check(content && content->definition == &c::definition(), "Only the explicit trusted spindle startup is selected.");
-    if (missing_link) content->seed.topology.material_links.pop_back();
+    if (missing_link) {
+        content->seed.topology.belt_spans.clear();
+        content->seed.material.belt_lanes.clear();
+        content->seed.issued_entities.erase("belt");
+        content->seed.kits.at("P").emplace(s::PartSpec{s::Role::belt, 0, 0}, 1);
+    }
     std::string context = std::string("spindle-") + suffix;
     Fixture fixture{context, content->profile, w::World::create(context, content->profile, content->seed)};
     check(fixture.world != nullptr, "The real World accepts the authored two-plane finite seed.");
@@ -51,10 +57,10 @@ Fixture fresh(const char* suffix, bool missing_link = false) {
     I parts{};
     for (const auto& [spec, count] : fixture.profile.finite_parts) { (void)spec; parts += count; }
     const auto state = fixture.world->snapshot().state;
-    check(parts == 12 && state.topology.sources.size() == 1 && state.material.stock.source == 16 &&
+    check(parts == 17 && state.topology.sources.size() == 1 && state.material.stock.source == 16 &&
           state.kits.at("P").at({s::Role::gear, 2, 0}) == 2 && state.kits.at("P").at({s::Role::shaft, 0, 2}) == 1 &&
           state.kits.at("Q").empty() && c::inspect(state).mode == c::Mode::incomplete_line,
-          "Twelve exact original parts, sixteen blanks and one source begin without a powered output train.");
+          "Seventeen exact original parts, sixteen blanks and one source begin without a powered output train.");
     return fixture;
 }
 bool accepted(const a::Object& result) { return std::get<bool>(result.at("accepted").storage()); }
@@ -106,7 +112,7 @@ void produce(Fixture& fixture) {
     for (int n = 0; n < 64 && fixture.world->snapshot().state.material.cargo.at("P").products < 4; ++n) {
         if (fixture.world->snapshot().state.material.stock.output > 0)
             check(accepted(send(fixture, {{"action", V("collect")}, {"target", V("processor")},
-                {"generation", V(I{1})}, {"amount", V(I{1})}}, {12, 0, 4})), "A nearby actor collects one original-stock plate into individual cargo.");
+                {"generation", V(I{1})}, {"amount", V(I{1})}}, {16, 0, 4})), "A nearby actor collects one original-stock plate into individual cargo.");
         ticks(fixture, 1);
     }
     const auto state = fixture.world->snapshot().state;
@@ -125,8 +131,8 @@ std::string bridge(Fixture& fixture, bool reverse = false) {
           "The final original cog completes the geometric bridge in either construction order.");
     const auto state = fixture.world->snapshot().state;
     const auto motion = s::power_view(state.topology).mechanical.motion;
-    check(motion.at(first_id).rate == g::Rate{-2, 1} && motion.at("processor").rate == g::Rate{2, 1},
-          "Literal exact gear rates are minus two on the bridge and plus two on the output spindle.");
+    check(motion.at(first_id).rate == g::Rate{-2, 1} && motion.at("processor").rate == g::Rate{-2, 1},
+          "Literal exact gear rates are minus two on both the bridge and output spindle.");
     return first_id;
 }
 void wrong_rate_correction() {
@@ -143,7 +149,7 @@ void wrong_rate_correction() {
     check(accepted(wrong) && accepted(wrong_end), "The tempting coaxial and small-cog shortcut is legal finite construction.");
     const auto wrong_id = std::get<std::string>(wrong.at("entity").storage());
     const auto wrong_end_id = std::get<std::string>(wrong_end.at("entity").storage());
-    check(c::inspect(fixture.world->snapshot().state).rate == g::Rate{-1, 1}, "The shortcut has the literal negative-one rate.");
+    check(c::inspect(fixture.world->snapshot().state).rate == g::Rate{1, 1}, "The shortcut has the literal positive-one rate.");
     ticks(fixture, 8);
     auto state = fixture.world->snapshot().state;
     check(c::inspect(state).mode == c::Mode::wrong_rate && !c::inspect(state).complete() &&
@@ -196,8 +202,8 @@ void partial_work_and_links() {
     auto disconnected = fresh("handoff", true);
     bridge(disconnected);
     check(!c::inspect(disconnected.world->snapshot().state).ready(), "Correct mechanical rate alone cannot hide an absent material handoff.");
-    check(accepted(send(disconnected, {{"action", V("link")}, {"target", V("belt")}, {"generation", V(I{1})},
-        {"to", V("processor")}, {"to_generation", V(I{1})}}, {10, 0, 4})), "Current generations restore the real handoff through World.");
+    check(accepted(send(disconnected, {{"action", V("place_belt_span")}, {"target", V("pulley-first")}, {"generation", V(I{1})},
+        {"to", V("pulley-last")}, {"to_generation", V(I{1})}}, {10, 0, 4})), "Current shafts restore the physical handoff through World.");
     check(c::inspect(disconnected.world->snapshot().state).ready(), "Readiness derives the repaired current link without a progress flag.");
 }
 void terminal() {
@@ -215,17 +221,17 @@ void terminal() {
     };
     run("place gear 4 4 -8 z 2\n" + bridge_commands + "walk east 8\nwalk north 4\n" + collect, 0, "Complete: spindle calibrated and four plates retrieved");
     const std::string wrong = "walk south 4\nplace gear 0 0 -4 z 2\nwalk north 4\nplace gear 0 0 0 z 2\nwalk east 6\nwalk north 4\nwait 8\n";
-    run(wrong + "inspect\nquit\n", 1, "Spindle: wrong_rate rate=-1/1");
-    const auto recovered = run(wrong + "pickup 6 0 4\ninspect\nquit\n", 1, "products=0/4");
+    run(wrong + "inspect\nquit\n", 1, "Spindle: wrong_rate rate=1/1");
+    const auto recovered = run(wrong + "pickup 4 0 4\ninspect\nquit\n", 1, "products=0/4");
     const auto last_cargo = recovered.rfind("Cargo raw=");
     check(last_cargo != std::string::npos && recovered.compare(last_cargo, 12, "Cargo raw=0 ") != 0,
           "The terminal pickup actually moves loose raw material into the actor's cargo.");
     const auto corrected = run(wrong + "walk west 6\nwalk south 4\nremove native-part-2\nremove native-part-1\n" + bridge_commands +
         "walk east 8\nwalk north 4\n" + collect, 0, "Accepted: ok (native-part-5)");
-    check(corrected.find("Cargo raw=0 products=4/4") != std::string::npos && corrected.find("Spindle: calibrated rate=2/1") != std::string::npos,
+    check(corrected.find("Cargo raw=0 products=4/4") != std::string::npos && corrected.find("Spindle: calibrated rate=-2/1") != std::string::npos,
           "The same terminal run produces plates after correcting the bridge.");
     run("wait 32\nreset\nplace gear 4 4 0 q 2\ninspect\nquit\n", 1, "Stock source=16 collector=0 belt=0 input=0 output=0");
-    run(bridge_commands + "quit\n", 1, "Spindle: calibrated rate=2/1");
+    run(bridge_commands + "quit\n", 1, "Spindle: calibrated rate=-2/1");
 }
 }  // namespace
 
