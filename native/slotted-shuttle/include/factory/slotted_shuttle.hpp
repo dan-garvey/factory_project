@@ -1,6 +1,6 @@
 #pragma once
 
-#include "factory/slotted_pairs.hpp"
+#include "factory/slotted_workcell.hpp"
 
 namespace factory::slotted_shuttle {
 inline constexpr std::size_t maximum_stops = 16;
@@ -17,6 +17,7 @@ enum class Error { invalid_profile, invalid_cursor, invalid_bound, parent_refuse
 struct Refusal {
     Error reason;
     std::optional<slotted_pairs::Refusal> parent_error;
+    std::optional<slotted_workcell::Refusal> workcell_error{};
     bool operator==(const Refusal&) const = default;
 };
 enum class Stop { unpowered, obstructed, endstop };
@@ -31,6 +32,7 @@ struct Hold {
     Stop reason;
     std::optional<Conflict> conflict;
     std::optional<slotted_bank::Limit> limit;
+    std::optional<slotted_workcell::StationaryContact> stationary_contact{};
     bool operator==(const Hold&) const = default;
 };
 struct Step {
@@ -45,14 +47,18 @@ using Plan = std::variant<Refusal, Hold, Step>;
 [[nodiscard]] const char* stop_name(Stop) noexcept;
 
 // Pure alternating-stop proposal. Validate the entire bounded stop list and
-// current cursor even while paused; existing pair admission validates the whole
-// rig. Consume a stop only after actual arrival, including powered rest at that
-// stop. A clipped moving prefix preserves the pending stop. Pause and collision
+// current cursor even while paused; existing work-cell admission validates the
+// whole rig, stationary set and moving pairs. Consume a stop only after actual
+// arrival, including powered rest there. A clipped moving prefix preserves the
+// pending stop. Pause and collision
 // retain the original ENTIRE bank/cursor and expose no proposed movement effects.
 // The caller admits other constraints and commits this single state atomically.
+// Supply the COMPLETE relevant stationary set. The default empty set grants no
+// stationary protection; it preserves existing frame-free source calls. Holds
+// retain owned stationary or moving contact details, never a proposed stop phase.
 [[nodiscard]] Plan prepare(const Profile&, std::span<const slotted_bank::Link>, const State&,
                            const slotted_clearance::Rig&, std::span<const slotted_pairs::Pair>,
-                           bool powered = true);
+                           bool powered = true, std::span<const clearance::Obstacle> stationary = {});
 
 struct Loop {
     std::size_t begin{}, period{};  // Indices in Report::path; final state repeats begin.
@@ -69,7 +75,8 @@ struct Report {
     std::optional<Refusal> refusal;
 };
 
-// Read-only bounded trajectory under FIXED profile, geometry, pairs and power.
+// Read-only bounded trajectory under FIXED profile, geometry, pairs, stationary
+// obstacles and power. The same complete observation reaches EVERY path edge.
 // Every path edge uses prepare(). Detect recurrence using the entire bank AND
 // cursor; a pause or hard stop is a hold, not a closed motion cycle. Report each
 // follower that remains parked in the actual repeated interval, excluding any
@@ -80,5 +87,6 @@ struct Report {
 // It creates no live state owner, quantities or force/contact response rules.
 [[nodiscard]] Report inspect(const Profile&, std::span<const slotted_bank::Link>, const State&,
                              const slotted_clearance::Rig&, std::span<const slotted_pairs::Pair>,
-                             std::size_t steps, bool powered = true);
+                             std::size_t steps, bool powered = true,
+                             std::span<const clearance::Obstacle> stationary = {});
 }  // namespace factory::slotted_shuttle

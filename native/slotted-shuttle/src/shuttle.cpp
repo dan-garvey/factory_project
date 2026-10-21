@@ -5,6 +5,7 @@
 namespace factory::slotted_shuttle {
 namespace b = slotted_bank;
 namespace p = slotted_pairs;
+namespace w = slotted_workcell;
 
 const char* error_name(Error error) noexcept {
     switch (error) {
@@ -25,7 +26,8 @@ const char* stop_name(Stop stop) noexcept {
 }
 
 Plan prepare(const Profile& profile, std::span<const b::Link> links, const State& state,
-             const slotted_clearance::Rig& rig, std::span<const p::Pair> pairs, bool powered) {
+             const slotted_clearance::Rig& rig, std::span<const p::Pair> pairs, bool powered,
+             std::span<const clearance::Obstacle> stationary) {
     if (profile.stops.empty() || profile.stops.size() > maximum_stops)
         return Refusal{Error::invalid_profile, {}};
     for (const auto stop : profile.stops)
@@ -33,11 +35,20 @@ Plan prepare(const Profile& profile, std::span<const b::Link> links, const State
             return Refusal{Error::invalid_profile, {}};
     if (state.cursor >= profile.stops.size()) return Refusal{Error::invalid_cursor, {}};
     const auto destination = profile.stops[state.cursor];
-    const auto candidate = p::prepare(links, state.bank, rig, {destination, powered}, pairs);
-    if (const auto* error = std::get_if<p::Refusal>(&candidate))
-        return Refusal{Error::parent_refused, *error};
-    if (const auto* blocked = std::get_if<p::Blocked>(&candidate))
-        return Hold{state, Stop::obstructed, Conflict{blocked->pair, blocked->time, blocked->initially_overlapping}, {}};
+    const auto candidate = w::prepare(links, state.bank, rig, {{destination, powered}, stationary}, pairs);
+    if (const auto* error = std::get_if<w::Refusal>(&candidate)) {
+        Refusal refused{Error::parent_refused, error->moving_error};
+        // Keep existing empty-set error values compatible, while exposing both
+        // constraint families for newly supplied stationary observations.
+        if (!stationary.empty() || !error->moving_error) refused.workcell_error = *error;
+        return refused;
+    }
+    if (const auto* blocked = std::get_if<w::Blocked>(&candidate)) {
+        if (const auto* fixed = std::get_if<w::StationaryContact>(&blocked->contact))
+            return Hold{state, Stop::obstructed, {}, {}, *fixed};
+        const auto& moving = std::get<w::MovingContact>(blocked->contact);
+        return Hold{state, Stop::obstructed, Conflict{moving.pair, moving.time, moving.initially_overlapping}, {}};
+    }
     if (const auto* advancing = std::get_if<b::Advance>(&candidate)) {
         const bool reached = advancing->next.pin == destination;
         const auto cursor = reached ? (state.cursor + 1) % profile.stops.size() : state.cursor;
@@ -52,7 +63,7 @@ Plan prepare(const Profile& profile, std::span<const b::Link> links, const State
 
 Report inspect(const Profile& profile, std::span<const b::Link> links, const State& state,
                const slotted_clearance::Rig& rig, std::span<const p::Pair> pairs,
-               std::size_t steps, bool powered) {
+               std::size_t steps, bool powered, std::span<const clearance::Obstacle> stationary) {
     Report report;
     report.path.push_back(state);
     if (steps == 0 || steps > maximum_steps) {
@@ -61,7 +72,7 @@ Report inspect(const Profile& profile, std::span<const b::Link> links, const Sta
         return report;
     }
     for (std::size_t step = 0; step < steps; ++step) {
-        const auto proposal = prepare(profile, links, report.path.back(), rig, pairs, powered);
+        const auto proposal = prepare(profile, links, report.path.back(), rig, pairs, powered, stationary);
         if (const auto* error = std::get_if<Refusal>(&proposal)) {
             report.outcome = Outcome::refused;
             report.refusal = *error;
