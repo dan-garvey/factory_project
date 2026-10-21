@@ -74,7 +74,7 @@ void historical_translation() {
     auto water = std::get<A>(site.at("water").storage());
     for (auto& row : water) {
         auto sample = std::get<A>(row.storage());
-        sample[4] = V(I{-200});
+        sample[4] = V(I{200});
         row = V(std::move(sample));
     }
     site.at("water") = V(std::move(water));
@@ -84,20 +84,21 @@ void historical_translation() {
     const auto place = [&](const char* kind, I x, const char* id) {
         auto wire = request("place", id);
         wire.emplace("kind", V(kind)); wire.emplace("cell", V(A{V(x), V(I{0})})); wire.emplace("axis", V("z"));
-        if (std::string(kind) == "wheel") wire.emplace("level", V(I{4}));
+        wire.emplace("level", V(I{4}));
         const auto reply = host.command("P", wire);
         check(accepted(reply), (std::string("The starter placement succeeds: ") + kind + ", " + field<std::string>(reply, "reason")).c_str());
         return field<std::string>(reply, "entity");
     };
-    auto base = request("place_foundation", "collector-base");
-    base.emplace("cell", V(A{V(I{0}), V(I{0})})); base.emplace("level", V(I{0}));
-    check(accepted(host.command("P", base)), "The synthetic stream bank supports a collector foundation.");
+    auto base = request("place_foundations", "collector-base");
+    base.emplace("cell", V(A{V(I{0}), V(I{0})}));
+    base.emplace("end_cell", V(A{V(I{2}), V(I{0})})); base.emplace("level", V(I{4}));
+    check(accepted(host.command("P", base)), "The synthetic stream bank supports the raised machine foundations.");
     const auto collector = place("collector", 0, "collector");
     const auto belt = place("belt", 1, "belt");
     const auto press = place("processor", 2, "press");
     check(accepted(host.publish_actor("P", {V(-1.65), V(1.0), V(-1.65)}, 2)), "The actor reaches the raised wheel.");
     const auto wheel = place("wheel", -2, "wheel");
-    for (const auto& [id, x, y] : std::array<std::tuple<const char*, I, I>, 2>{{{"lower", -8, 0}, {"bridge", -4, 0}}}) {
+    for (const auto& [id, x, y] : std::array<std::tuple<const char*, I, I>, 1>{{{"bridge", -4, 4}}}) {
         auto cog = request("place_gear", id);
         cog.emplace("center", V(A{V(x), V(y), V(I{4})}));
         cog.emplace("axis", V("z")); cog.emplace("teeth", V(I{2}));
@@ -118,7 +119,7 @@ void historical_translation() {
               "The synthetic actor reaches each cog and its machine.");
         auto cog = request("place_gear", shaft_ids[n]);
         cog.at("request") = V(std::string("gear-") + std::to_string(n));
-        cog.emplace("center", V(A{V(4 * x), V(I{n == 0 ? 4 : 0}), V(I{4})}));
+        cog.emplace("center", V(A{V(4 * x), V(I{4}), V(I{4})}));
         cog.emplace("axis", V("z")); cog.emplace("teeth", V(I{2}));
         const auto placed = host.command("P", cog);
         check(accepted(placed), "The finite adjacent cog is placed.");

@@ -1940,7 +1940,7 @@ func foundation_contact(footing: MeshInstance3D, deck: MeshInstance3D) -> Dictio
 	var contact: float = overlap.x * overlap.y
 	var ratio: float = contact / foot.area if foot.area > 0 else 0.0
 	var gap: float = foot.height - support.height
-	return {"valid": support.triangles == 2 and foot.triangles == 2 and absf(gap) < 0.000001 and ratio >= 0.97,
+	return {"valid": support.triangles == 2 and foot.triangles == 18 and absf(gap) < 0.000001 and ratio >= 0.97,
 		"gap": gap, "contact_area": contact, "deck_foot_area": foot.area, "supported_fraction": ratio,
 		"support_plane": support.height, "deck_foot_plane": foot.height}
 
@@ -2037,16 +2037,81 @@ func check_foundation_art() -> void:
 		footing.scale = Vector3.ONE
 		parent.free()
 	var patch := Node3D.new()
-	for cell in [Vector2i.ZERO, Vector2i.RIGHT, Vector2i.DOWN, Vector2i.ONE]:
+	var confirmed := {"a": {"cell": [0, 0], "level": 0}, "b": {"cell": [1, 0], "level": 0},
+		"c": {"cell": [0, 1], "level": 0}, "d": {"cell": [1, 1], "level": 0},
+		"raised": {"cell": [0, -1], "level": 2}}
+	var masks: Dictionary = FoundationArt.neighbor_masks(confirmed)
+	verify(masks == {"a": FoundationArt.EAST | FoundationArt.SOUTH, "b": FoundationArt.WEST | FoundationArt.SOUTH,
+		"c": FoundationArt.EAST | FoundationArt.NORTH, "d": FoundationArt.WEST | FoundationArt.NORTH,
+		"raised": 0}, "Only confirmed same-level cardinal neighbors close a foundation edge.")
+	for id in ["a", "b", "c", "d"]:
+		var cell := Vector2i(confirmed[id].cell[0], confirmed[id].cell[1])
 		var tile := Node3D.new()
 		tile.position = Vector3(cell.x * Geometry.PITCH, 0, cell.y * Geometry.PITCH)
 		patch.add_child(tile)
-		verify(FoundationArt.mount(tile), "Each joined tile uses the same qualified kit.")
+		verify(FoundationArt.mount(tile, masks[id]), "Each joined tile uses its confirmed same-level perimeter kit.")
 	var patch_bounds := feed_item_bounds(patch, Transform3D.IDENTITY)
 	verify(patch_bounds.position.is_equal_approx(Vector3(-0.825, -Geometry.FOUNDATION_DEPTH, -0.825))
 		and patch_bounds.size.is_equal_approx(Vector3(3.3, Geometry.FOUNDATION_DEPTH, 3.3)),
 		"A two-by-two assembly joins on the one world grid without cumulative local offsets.")
 	patch.free()
+	var perimeter_meshes := 0
+	for mask in range(16):
+		var mesh: ArrayMesh = FoundationArt.deck_mesh(mask)
+		check_closed_asset_mesh(mesh, 0.063, 0.066)
+		verify(mesh == FoundationArt.deck_mesh(mask), "Each of the sixteen edge variants is cached without another state owner.")
+		var tile := Node3D.new()
+		verify(FoundationArt.mount(tile, mask) and foundation_contact(tile.get_node("FoundationBlock"),
+			tile.get_node("FoundationTop")).valid and foundation_bounds_match(tile),
+			"Every perimeter combination preserves closed deck, footing support and the original tile envelope.")
+		tile.free()
+		perimeter_meshes += 1
+	var half := Geometry.PITCH / 2.0
+	var top := FoundationArt.DECK_THICKNESS / 2.0
+	var joined_vertices := 0
+	for vertex: Vector3 in FoundationArt.deck_mesh(FoundationArt.EAST).surface_get_arrays(0)[Mesh.ARRAY_VERTEX]:
+		if absf(vertex.x - half) < 0.000001:
+			joined_vertices += 1
+			verify(absf(vertex.y - top) < 0.000001,
+				"Every vertex on a joined east edge reaches the common unbroken deck plane.")
+	var exposed_recess := false
+	for vertex: Vector3 in FoundationArt.deck_mesh().surface_get_arrays(0)[Mesh.ARRAY_VERTEX]:
+		if absf(vertex.x - half) < 0.000001 and vertex.y < top - 0.001:
+			exposed_recess = true
+	verify(joined_vertices >= 4 and exposed_recess,
+		"A true perimeter keeps the edge bevel while a joined edge does not recreate a groove.")
+	confirmed.erase("b")
+	var removed_masks: Dictionary = FoundationArt.neighbor_masks(confirmed)
+	verify(removed_masks.a == FoundationArt.SOUTH and removed_masks.d == FoundationArt.WEST,
+		"Removing a tile re-exposes the missing side on the next projection rebuild.")
+	var view := Opening.new()
+	view.machine_root = Node3D.new()
+	view.state = {"options": {"native": true, "physical": true}, "foundations": confirmed,
+		"entities": {}, "links": [], "drive_links": [], "transmission_parts": {}, "motion": {}, "engagements": []}
+	var before_state: Dictionary = view.state.duplicate(true)
+	view._rebuild_machines()
+	var actual_masks: Dictionary = {}
+	for anchor: Node3D in view.machine_root.get_children():
+		var found_id := ""
+		for id in confirmed:
+			if anchor.position.is_equal_approx(view._entity_position(confirmed[id])):
+				found_id = id
+		if not found_id.is_empty():
+			actual_masks[found_id] = anchor.get_node("FoundationTop").mesh
+			var picking := false
+			for child in anchor.get_children():
+				if child is StaticBody3D:
+					picking = child.get_meta("entity", "") == found_id and child.collision_layer == Geometry.PICK_LAYER
+			verify(picking,
+				"Presentation selection leaves the original per-tile picking body in place.")
+	verify(actual_masks.size() == confirmed.size() and view.state == before_state
+		and view.model == null and view.actor_world == null and view.request_sequence == 0,
+		"The ordinary rebuild uses only confirmed projection rows and changes no native authority or requests.")
+	for id in confirmed:
+		verify(actual_masks[id] == FoundationArt.deck_mesh(removed_masks[id]),
+			"The ordinary rebuilt foundation mounts the exact edge variant for its confirmed neighbors.")
+	view.machine_root.free()
+	view.free()
 	var lower := Node3D.new()
 	var upper := Node3D.new()
 	upper.position.y = Geometry.FOUNDATION_DEPTH
@@ -2060,6 +2125,7 @@ func check_foundation_art() -> void:
 	lower.free()
 	upper.free()
 	print(JSON.stringify({"phase": "foundation art", "checks": checks, "cached_meshes": seen.size(),
+		"perimeter_meshes": perimeter_meshes,
 		"contact_observations": contacts, "normal_pixels": 512 * 512, "roughness_range": [rough_low, rough_high],
 		"negative_control_types": 3, "native_foundation_gameplay": "not_run", "rendered_quality": "not_assessed"}))
 	foundation_art_complete = true
@@ -4716,7 +4782,8 @@ func render_buildable_resources() -> void:
 		{"name": "waterwheel-journal", "kind": "wheel", "cutaway": true},
 		{"name": "paddle-small", "kind": "wheel", "tiles": 3, "paddle_cutaway": true, "cutaway": true},
 		{"name": "paddle-large", "kind": "wheel", "tiles": 8, "paddle_cutaway": true, "cutaway": true},
-		{"name": "foundation", "kind": "foundation"}, {"name": "foundation-patch", "kind": "foundation"}]
+		{"name": "foundation", "kind": "foundation"}, {"name": "foundation-patch", "kind": "foundation"},
+		{"name": "foundation-corner", "kind": "foundation"}]
 	var selected_subject := OS.get_environment("FACTORY_RESOURCE_RENDER_SUBJECT")
 	if not selected_subject.is_empty():
 		var wanted := selected_subject.split(",")
@@ -4739,12 +4806,19 @@ func render_buildable_resources() -> void:
 		var model := Node3D.new()
 		model.name = "ResourceModel"
 		if subject.kind == "foundation":
-			var cells := [Vector2i.ZERO] if subject.name == "foundation" else [Vector2i.ZERO, Vector2i.RIGHT, Vector2i.DOWN, Vector2i.ONE]
-			for cell: Vector2i in cells:
+			var cells := [Vector2i.ZERO] if subject.name == "foundation" else [Vector2i.ZERO, Vector2i.RIGHT, Vector2i.DOWN]
+			if subject.name == "foundation-patch":
+				cells.append(Vector2i.ONE)
+			var projected: Dictionary = {}
+			for index in range(cells.size()):
+				projected[str(index)] = {"cell": [cells[index].x, cells[index].y], "level": 0}
+			var edge_masks: Dictionary = FoundationArt.neighbor_masks(projected)
+			for index in range(cells.size()):
+				var cell: Vector2i = cells[index]
 				var tile := Node3D.new()
 				tile.position = Vector3(cell.x * Geometry.PITCH, 0, cell.y * Geometry.PITCH)
 				model.add_child(tile)
-				FoundationArt.mount(tile)
+				FoundationArt.mount(tile, edge_masks[str(index)])
 		elif subject.kind == "belt_span":
 			resource_span(model)
 		elif subject.kind == "belt_pulley":

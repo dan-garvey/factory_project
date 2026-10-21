@@ -184,7 +184,8 @@ void full_finite_depletion() {
     const auto site = wet_site();
     Host host; initialize(host, site); observe(host, 1.0, 1.65, -1.65);
     outcome(host.publish_actor("Q", {V(1.65), V(1.0), V(1.65)}, 1), true, "actor_published");
-    const auto collector_reply = host.command("P", place("collector", "collector", 0, 0));
+    check(accepted(host.command("P", foundation("collector-base", 4))), "The collector has a raised foundation.");
+    const auto collector_reply = host.command("P", place("collector", "collector", 0, 0, 4));
     check(accepted(collector_reply), "The depletion case places its real native collector.");
     const auto collector = field<std::string>(collector_reply, "entity");
     const auto wheel_reply = host.command("P", place("wheel", "wheel", -2, 0, 4));
@@ -193,12 +194,8 @@ void full_finite_depletion() {
     upper.emplace("center", V(A{V(I{-4}), V(I{4}), V(I{0})}));
     upper.emplace("axis", V("x")); upper.emplace("teeth", V(I{2}));
     const auto upper_reply = host.command("P", upper);
-    auto lower = request("place_gear", "lower");
-    lower.emplace("center", V(A{V(I{-4}), V(I{0}), V(I{0})}));
-    lower.emplace("axis", V("x")); lower.emplace("teeth", V(I{2}));
-    const auto lower_reply = host.command("P", lower);
-    check(accepted(upper_reply) && accepted(lower_reply), "The two cogs transfer the raised wheel to the ground collector.");
-    const auto lower_id = field<std::string>(lower_reply, "entity");
+    check(accepted(upper_reply), "The cog transfers the wheel's rotation to the raised collector.");
+    const auto gear_id = field<std::string>(upper_reply, "entity");
     auto power = request("set_power", "power"); power.emplace("active", V(true));
     check(accepted(host.command("P", power)), "The extraction case starts through the normal native command boundary.");
     for (I batch = 0; batch < 128; ++batch) {
@@ -236,11 +233,11 @@ void full_finite_depletion() {
     }
     observe(fresh, 1.0, 1.65, -1.65);
     check(accepted(fresh.command("P", targeted("remove", "remove", collector))), "The empty collector is removable after depletion.");
-    const auto rebuilt = fresh.command("P", place("rebuilt", "collector", 0, 0));
+    const auto rebuilt = fresh.command("P", place("rebuilt", "collector", 0, 0, 4));
     check(accepted(rebuilt) && field<std::string>(rebuilt, "entity") != collector, "Rebuilding the collector allocates a new identity rather than a new deposit.");
-    check(field<bool>(fresh.projection(), "powered"), "The rebuilt collector uses the lower cog left in place by removal.");
+    check(field<bool>(fresh.projection(), "powered"), "The rebuilt collector uses the cog left in place by removal.");
     const auto before_duplicate_shaft = material_state(fresh);
-    outcome(fresh.command("P", drive("new-shaft", lower_id, field<std::string>(rebuilt, "entity"))), false, "individual_shaft_required");
+    outcome(fresh.command("P", drive("new-shaft", gear_id, field<std::string>(rebuilt, "entity"))), false, "individual_shaft_required");
     check(same(before_duplicate_shaft, material_state(fresh)), "A duplicate shaft request preserves the depleted stock, kits and identities.");
     for (int tick = 0; tick < 40; ++tick) (void)fresh.advance();
     const auto final = fresh.projection();

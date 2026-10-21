@@ -897,9 +897,14 @@ class ProductionFoundationArt:
 	const ROOT := "res://opening/assets/foundation-concrete"
 	const FILES := {"albedo": "concrete_albedo.jpg", "normal": "concrete_normal_gl.webp", "arm": "concrete_arm.webp"}
 	const DECK_THICKNESS := 0.024
+	const WEST := 1
+	const EAST := 2
+	const NORTH := 4
+	const SOUTH := 8
 	static var finish: StandardMaterial3D
 	static var textures: Dictionary = {}
 	static var source_status := "uninitialized"
+	static var deck_meshes: Dictionary = {}
 
 	static func read_images(directory: String = ROOT) -> Dictionary:
 		return ProductionSteelFloor.read_images(directory, FILES, Vector2i(512, 512))
@@ -939,10 +944,102 @@ class ProductionFoundationArt:
 	static func footing_mesh() -> ArrayMesh:
 		return ProductionVisuals.box_mesh(Vector3(Geometry.PITCH, Geometry.FOUNDATION_DEPTH - DECK_THICKNESS, Geometry.PITCH))
 
-	static func deck_mesh() -> ArrayMesh:
-		return ProductionVisuals.box_mesh(Vector3(Geometry.PITCH, DECK_THICKNESS, Geometry.PITCH))
+	static func neighbor_masks(foundations: Dictionary) -> Dictionary:
+		# The native projection owns placement and height. This only selects art
+		# for edges shared by already confirmed tiles at exactly the same level.
+		var occupied: Dictionary = {}
+		for id in foundations:
+			var tile: Dictionary = foundations[id]
+			occupied[Vector3i(int(tile.cell[0]), int(tile.level), int(tile.cell[1]))] = true
+		var masks: Dictionary = {}
+		for id in foundations:
+			var tile: Dictionary = foundations[id]
+			var cell := Vector3i(int(tile.cell[0]), int(tile.level), int(tile.cell[1]))
+			var mask := 0
+			if occupied.has(cell + Vector3i(-1, 0, 0)):
+				mask |= WEST
+			if occupied.has(cell + Vector3i(1, 0, 0)):
+				mask |= EAST
+			if occupied.has(cell + Vector3i(0, 0, -1)):
+				mask |= NORTH
+			if occupied.has(cell + Vector3i(0, 0, 1)):
+				mask |= SOUTH
+			masks[id] = mask
+		return masks
 
-	static func mount(parent: Node3D) -> bool:
+	static func _deck_top_point(x_index: int, z_index: int, mask: int) -> Vector3:
+		var half := Geometry.PITCH / 2.0
+		var bevel := minf(0.014, DECK_THICKNESS * 0.12)
+		var positions := [-half, -half + bevel, half - bevel, half]
+		var joined := (x_index == 0 and mask & WEST != 0) or (x_index == 3 and mask & EAST != 0) \
+			or (z_index == 0 and mask & NORTH != 0) or (z_index == 3 and mask & SOUTH != 0)
+		var edge := x_index == 0 or x_index == 3 or z_index == 0 or z_index == 3
+		return Vector3(positions[x_index], DECK_THICKNESS / 2.0 - (bevel if edge and not joined else 0.0), positions[z_index])
+
+	static func _deck_triangle(surface: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, outward: Vector3) -> void:
+		ProductionVisuals._face(surface, [a, b, c], outward)
+
+	static func _deck_bottom_point(x_index: int, z_index: int) -> Vector3:
+		var half := Geometry.PITCH / 2.0
+		var bevel := minf(0.014, DECK_THICKNESS * 0.12)
+		var inset := half - bevel
+		var positions := [-inset, -inset + bevel, inset - bevel, inset]
+		return Vector3(positions[x_index], -DECK_THICKNESS / 2.0, positions[z_index])
+
+	static func _deck_side(surface: SurfaceTool, top: Array[Vector3], bottom: Array[Vector3], outward: Vector3) -> void:
+		for index in range(3):
+			_deck_triangle(surface, top[index], top[index + 1], bottom[index + 1], outward)
+			_deck_triangle(surface, top[index], bottom[index + 1], bottom[index], outward)
+
+	static func deck_mesh(mask: int = 0) -> ArrayMesh:
+		assert(mask >= 0 and mask < 16)
+		if deck_meshes.has(mask):
+			return deck_meshes[mask]
+		var surface := SurfaceTool.new()
+		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+		for x in range(3):
+			for z in range(3):
+				var a := _deck_top_point(x, z, mask)
+				var b := _deck_top_point(x + 1, z, mask)
+				var c := _deck_top_point(x, z + 1, mask)
+				var d := _deck_top_point(x + 1, z + 1, mask)
+				_deck_triangle(surface, a, c, b, Vector3.UP)
+				_deck_triangle(surface, b, c, d, Vector3.UP)
+		for x in range(3):
+			for z in range(3):
+				var a := _deck_bottom_point(x, z)
+				var b := _deck_bottom_point(x + 1, z)
+				var c := _deck_bottom_point(x, z + 1)
+				var d := _deck_bottom_point(x + 1, z + 1)
+				_deck_triangle(surface, a, b, c, Vector3.DOWN)
+				_deck_triangle(surface, b, d, c, Vector3.DOWN)
+		var north: Array[Vector3] = []
+		var south: Array[Vector3] = []
+		var west: Array[Vector3] = []
+		var east: Array[Vector3] = []
+		var north_bottom: Array[Vector3] = []
+		var south_bottom: Array[Vector3] = []
+		var west_bottom: Array[Vector3] = []
+		var east_bottom: Array[Vector3] = []
+		for index in range(4):
+			north.append(_deck_top_point(index, 0, mask))
+			south.append(_deck_top_point(index, 3, mask))
+			west.append(_deck_top_point(0, index, mask))
+			east.append(_deck_top_point(3, index, mask))
+			north_bottom.append(_deck_bottom_point(index, 0))
+			south_bottom.append(_deck_bottom_point(index, 3))
+			west_bottom.append(_deck_bottom_point(0, index))
+			east_bottom.append(_deck_bottom_point(3, index))
+		_deck_side(surface, north, north_bottom, Vector3.FORWARD)
+		_deck_side(surface, east, east_bottom, Vector3.RIGHT)
+		_deck_side(surface, south, south_bottom, Vector3.BACK)
+		_deck_side(surface, west, west_bottom, Vector3.LEFT)
+		surface.generate_tangents()
+		var mesh := surface.commit()
+		deck_meshes[mask] = mesh
+		return mesh
+
+	static func mount(parent: Node3D, neighbor_mask: int = 0) -> bool:
 		var concrete := material()
 		var steel := ProductionSteelFloor.material()
 		if concrete == null or steel == null:
@@ -955,7 +1052,7 @@ class ProductionFoundationArt:
 		parent.add_child(footing)
 		var deck := MeshInstance3D.new()
 		deck.name = "FoundationTop"
-		deck.mesh = deck_mesh()
+		deck.mesh = deck_mesh(neighbor_mask)
 		deck.position.y = -DECK_THICKNESS / 2.0
 		deck.material_override = steel
 		parent.add_child(deck)
@@ -4229,10 +4326,10 @@ func _adjust_wheel_size(delta: int) -> void:
 	wheel_size_label.text = "Wheel diameter: %d squares" % wheel_tiles
 	_refresh_placement_hint(true)
 
-func _assemble_foundation(parent: Node3D) -> void:
+func _assemble_foundation(parent: Node3D, neighbor_mask: int = 0) -> void:
 	# Only confirmed player-built surfaces or an explicit placement preview
 	# call this; the unbuilt site receives no manufactured structures.
-	if not ProductionFoundationArt.mount(parent):
+	if not ProductionFoundationArt.mount(parent, neighbor_mask):
 		push_error("The foundation needs its complete concrete and steel art kit.")
 		if is_inside_tree():
 			get_tree().quit(1)
@@ -4735,6 +4832,7 @@ func _assemble_machine(anchor: Node3D, entity: Dictionary, rotated := false) -> 
 
 func _rebuild_machines() -> void:
 	_sync_machine_body_context()
+	var foundation_masks := ProductionFoundationArt.neighbor_masks(state.get("foundations", {}))
 	var scenery := get_node_or_null("ProductionScenery")
 	if scenery != null and not legacy_fixture and ProductionEnvironment.Surface != null:
 		ProductionEnvironment.refresh_vegetation(scenery, state)
@@ -4746,7 +4844,7 @@ func _rebuild_machines() -> void:
 		var anchor := Node3D.new()
 		anchor.position = _entity_position(surface)
 		machine_root.add_child(anchor)
-		_assemble_foundation(anchor)
+		_assemble_foundation(anchor, foundation_masks[id])
 		var body := StaticBody3D.new()
 		body.collision_layer = Geometry.PICK_LAYER
 		body.collision_mask = 0
