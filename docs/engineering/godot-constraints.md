@@ -275,8 +275,8 @@ torque or angular phase. Belt material moves according to the signed spindle
 direction; reverse-end blanks become recoverable loose material. Processor work
 and span-belt throughput scale with the derived rate. A 45-degree span uses the
 fixed-point factor 2896/4096 to approximate the extra length per diagonal tile;
-actor carry uses the same horizontal progress. The single-cell legacy belt remains
-a fixture step.
+actor carry uses the same horizontal progress. The active native World uses
+shaft spans; the single-cell belt remains only in standalone material fixtures.
 
 The ordinary view's layer-4 gear/shaft picking geometry does not make a rendered
 contact authoritative. ActorWorld separately registers transmission collision

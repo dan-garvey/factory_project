@@ -61,9 +61,11 @@ save migration. Store still owns persistence and atomic file publication.
 The native Host constructs a mechanical belt by connecting two confirmed,
 parallel shaft tiles. The span consumes one carried belt and uses its actual
 path and shaft motion for power and material travel. The older single-cell belt
-machine is refused by the Host, including when validating retained Host history
-or geometry. The lower-level World still contains legacy belt behavior and is
-not yet fully migrated. Session and Store continue to use the same native World.
+machine is refused by the Host and World, including retained accepted history
+and geometry. Stationary construction also rejects that machine and its old
+material links; a carried belt item is used to build a shaft span. The standalone
+material library still has a legacy single-slot fixture. Session and Store
+continue to use the same native World.
 
 Drive connections consume independent finite shaft parts and derive motion from
 their actual geometry. The projection includes those parts, rational motion,
