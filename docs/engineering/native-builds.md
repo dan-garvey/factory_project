@@ -141,6 +141,13 @@ Failed builds leave the previous installation intact. The stale-library guard
 remains active; this command does not launch the game or replay tests. A plain
 Bazel build still only produces artifacts.
 
+The Windows shortcut now calls `scripts/ensure-gameplay-library.sh` before
+starting a game. If integrated main changed the World production inputs, the
+shortcut performs that build-and-install step once, reloads its pins and then
+continues. A failed build or another source change stops launch. Use its
+`--prepare-only` mode to verify the same preparation without starting Godot.
+Pre-merge branch builds do not install into the current-main human launcher.
+
 Do not clean the output tree for every change. Bazel uses declared source,
 header, dependency and command inputs to decide which actions to repeat.
 Public headers are explicit library inputs, and test sources are separate from
