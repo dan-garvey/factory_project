@@ -1922,6 +1922,7 @@ class ProductionDriveJournalArt:
 	## Turned presentation inside the original native journal cylinder.
 	static var horizontal_press_mesh: ArrayMesh
 	static var z_input_post_mesh: ArrayMesh
+	static var collector_bearing_mesh: ArrayMesh
 	static func mesh(height: float, radius: float = 0.085) -> ArrayMesh:
 		var half := height / 2.0
 		# Keep the full central bearing span. End relief and center marks are
@@ -2010,6 +2011,39 @@ class ProductionDriveJournalArt:
 					z_input_post_mesh = ProductionVisuals.prism_mesh(cheek, 0.10, 0.004)
 				_press_fixed(parent, "PressInputPost" + suffix, "Post",
 					z_input_post_mesh, at)
+
+	static func _collector_fixed(parent: Node3D, name_value: String, role: String,
+			mesh_value: Mesh, at: Vector3, basis_value: Basis = Basis.IDENTITY) -> void:
+		var part := MeshInstance3D.new()
+		part.name = name_value
+		part.position = at
+		part.basis = basis_value
+		part.mesh = mesh_value
+		part.material_override = ProductionTransmissionFinish.material("worked", Color("878d7f"), 0.85, 0.42) \
+			if role == "Bearing" else ProductionCollectorArt.coating(Color("394a44"))
+		part.set_meta("collector_input_role", role)
+		parent.add_child(part)
+
+	static func mount_collector_bearings(parent: Node3D, axis: Vector3) -> void:
+		if collector_bearing_mesh == null:
+			collector_bearing_mesh = ProductionVisuals.turned_mesh(PackedVector2Array([
+				Vector2(0.087, -0.010), Vector2(0.089, -0.015), Vector2(0.096, -0.015),
+				Vector2(0.100, -0.011), Vector2(0.100, 0.011), Vector2(0.096, 0.015),
+				Vector2(0.089, 0.015), Vector2(0.087, 0.010), Vector2(0.087, -0.010)]))
+		var along_x := axis == Vector3.RIGHT
+		for side in [-1.0, 1.0]:
+			var suffix := "Left" if side < 0 else "Right"
+			var at: Vector3 = axis * float(side) * 0.66
+			_collector_fixed(parent, "CollectorInputBearing" + suffix, "Bearing", collector_bearing_mesh,
+				at + Vector3.UP * Geometry.ANCHOR_HEIGHT, Basis(Quaternion(Vector3.UP, axis)))
+			# The post and skid foot touch below the bearing. Their narrow axial
+			# faces remain outboard of the stock bed at both confirmed input axes.
+			_collector_fixed(parent, "CollectorInputPost" + suffix, "Post",
+				ProductionVisuals.box_mesh(Vector3(0.08, 0.50, 0.16) if along_x else Vector3(0.16, 0.50, 0.08)),
+				axis * float(side) * 0.675 + Vector3.UP * 0.49)
+			_collector_fixed(parent, "CollectorInputFoot" + suffix, "Foot",
+				ProductionVisuals.box_mesh(Vector3(0.26, 0.10, 0.20) if along_x else Vector3(0.20, 0.10, 0.26)),
+				axis * float(side) * 0.58 + Vector3.UP * 0.20)
 
 class ProductionCollectorFeedArt:
 	extends RefCounted
@@ -5026,7 +5060,8 @@ func _spindle_rotation(axis: Vector3) -> Vector3:
 		return Vector3.ZERO
 	return Vector3(0, 0, PI / 2) if axis == Vector3.RIGHT else Vector3(PI / 2, 0, 0)
 
-func _machine_drive_stub(anchor: Node3D, entity: Dictionary, press_input: bool = false) -> void:
+func _machine_drive_stub(anchor: Node3D, entity: Dictionary, press_input: bool = false,
+		collector_input: bool = false) -> void:
 	if state.get("options", {}).get("native", false):
 		var axis := _machine_axis(entity)
 		# The vertical stub stays above the base inside the same pick envelope.
@@ -5036,11 +5071,14 @@ func _machine_drive_stub(anchor: Node3D, entity: Dictionary, press_input: bool =
 		journal.position = Vector3(0, Geometry.ANCHOR_HEIGHT, 0)
 		journal.rotation = _spindle_rotation(axis)
 		var horizontal_press := press_input and axis != Vector3.UP
-		journal.mesh = ProductionDriveJournalArt.press_mesh() if horizontal_press else ProductionDriveJournalArt.mesh(height)
+		var horizontal_collector := collector_input and axis != Vector3.UP
+		journal.mesh = ProductionDriveJournalArt.press_mesh() if horizontal_press or horizontal_collector else ProductionDriveJournalArt.mesh(height)
 		journal.material_override = ProductionDriveJournalArt.material()
 		anchor.add_child(journal)
 		if horizontal_press:
 			ProductionDriveJournalArt.mount_press_bearings(anchor, axis)
+		if horizontal_collector:
+			ProductionDriveJournalArt.mount_collector_bearings(anchor, axis)
 	else:
 		_machine_cylinder(anchor, "DriveStub", Vector3(0, 0.35, 0.55), 0.085, 0.18,
 			Color("b87945"), Vector3(PI / 2, 0, 0))
@@ -5138,7 +5176,7 @@ func _collector_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	if not (_native_transmission() and ProductionCollectorFeedArt.mount(anchor, frame)):
 		for z in [-0.37, 0.37]:
 			_machine_box(anchor, "StockGuide", Vector3(0.05, 0.6, z), Vector3(1.15, 0.08, 0.06), frame)
-	_machine_drive_stub(anchor, entity)
+	_machine_drive_stub(anchor, entity, false, true)
 
 func _belt_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	var frame: Color = COLORS.belt

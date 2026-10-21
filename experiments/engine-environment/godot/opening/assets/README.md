@@ -105,9 +105,12 @@ separation; it cannot establish the visible quality at normal play distance.
 The exposed native collector and press input journals now use a shared turned
 steel profile instead of a plain copper-colored cylinder. Chamfered ends, narrow
 relief bands and shallow center-drilled marks catch light without enlarging the
-original radius or outer attachment ends. Collector and vertical press journals
+original radius or outer attachment ends. Vertical collector and press journals
 retain their continuous spans. Horizontal press inputs instead expose two short
 closed ends with fitted open bearings, clearing the anvil and tool opening.
+Horizontal collector inputs now use those same external ends with separate cast
+posts and feet beneath their bearings. The central stock bed and cutter remain
+visible between them; neither the supports nor the feet carry material or power.
 Their fixed supports meet the skid; rear brackets on X inputs leave the original
 finished-plate tray clear. The reference frame stays on the confirmed axis, and
 all journals share the qualified worked finish. These passive details add no
