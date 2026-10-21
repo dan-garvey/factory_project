@@ -120,7 +120,7 @@ func finish() -> void:
 			"foreground-bank": "near-bank placement and confirmed offline/shared machine-footprint suppression",
 			"ground-material": "scanned ground material, data channels and cache separation",
 			"water-flow": "layered translucent river resources and ordinary frame consumer",
-			"rock-collision-shape": "visible rock corners versus rigid collision descriptors",
+			"rock-collision-shape": "visible rock facets versus the shared convex collision hull",
 			"flat-fallback": "historical flat source-roster fallback", "foliage": "changed foliage bulk upload",
 			"environment": "3D valley terrain, millrace, architecture and foundation"}.get(mode, "unknown"),
 		"rendered_quality": "not_assessed", "desktop": "not_used", "authority_started": false}))
@@ -469,7 +469,9 @@ func check_rock_shapes(rocks: MultiMesh) -> void:
 	verify(buffer.size() == specs.size() * 16, "Read the actual uploaded rock transforms and colors.")
 	if buffer.size() != specs.size() * 16:
 		return
-	var half := rocks.mesh.get_aabb().size / 2.0
+	var vertices: PackedVector3Array = rocks.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	verify(vertices == Scenery.Surface.rock_faces(), "The actual rendered mesh uses the shared convex facets.")
+	check_mesh_attributes(rocks.mesh, "Natural convex rock")
 	for index in range(specs.size()):
 		var spec: Dictionary = specs[index]
 		var offset := index * 16
@@ -478,14 +480,12 @@ func check_rock_shapes(rocks: MultiMesh) -> void:
 			Vector3(buffer[offset + 1], buffer[offset + 5], buffer[offset + 9]),
 			Vector3(buffer[offset + 2], buffer[offset + 6], buffer[offset + 10]))
 		verify(origin.is_equal_approx(spec.center), "Visible and physical rock origins agree: " + spec.id)
-		for x in [-1.0, 1.0]:
-			for y in [-1.0, 1.0]:
-				for z in [-1.0, 1.0]:
-					var sign := Vector3(x, y, z)
-					var visible_corner := origin + uploaded * (half * sign)
-					var physical_corner: Vector3 = spec.center + spec.basis * (spec.size * sign / 2.0)
-					verify(visible_corner.is_equal_approx(physical_corner),
-						"The uploaded visible corner matches the rigid collision box: " + spec.id + " " + str(sign))
+		for point in vertices:
+			var visible_point := origin + uploaded * point
+			var found := false
+			for physical_point in spec.points:
+				found = found or visible_point.is_equal_approx(spec.center + spec.basis * physical_point)
+			verify(found, "Every actually uploaded rock facet vertex belongs to the same native convex hull: " + spec.id)
 
 func collect_solids(node: Node, result: Dictionary) -> void:
 	if node.has_meta("site_solid_id"):

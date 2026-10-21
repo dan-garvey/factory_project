@@ -6,6 +6,7 @@ const WheelArt = Opening.ProductionWheelArt
 const PressArt = Opening.ProductionPressArt
 const ConveyorArt = Opening.ProductionConveyorArt
 const CollectorArt = Opening.ProductionCollectorArt
+const SkidArt = Opening.ProductionSkidArt
 const Presenter = preload("res://opening/native_transmission_presenter.gd")
 const Geometry = preload("res://opening/site_geometry.gd")
 var checks := 0
@@ -15,25 +16,28 @@ var detail_meshes := 0
 var minimum_press_gap := INF
 var minimum_collector_gap := INF
 
-func collector_mesh(mesh: ArrayMesh, minimum_volume: float, maximum_volume: float) -> void:
+func check_closed_asset_mesh(mesh: ArrayMesh, minimum_volume: float, maximum_volume: float) -> void:
 	var arrays := mesh.surface_get_arrays(0)
 	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
 	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
 	var tangents: PackedFloat32Array = arrays[Mesh.ARRAY_TANGENT]
 	var uv: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
-	verify(vertices.size() > 0 and vertices.size() % 3 == 0 and normals.size() == vertices.size()
+	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX] if arrays[Mesh.ARRAY_INDEX] != null else PackedInt32Array()
+	var corners := vertices.size() if indices.is_empty() else indices.size()
+	verify(vertices.size() > 0 and corners % 3 == 0 and normals.size() == vertices.size()
 		and tangents.size() == vertices.size() * 4 and uv.size() == vertices.size(),
 		"Each original casting has complete normal-mapped triangle attributes.")
 	var edges: Dictionary = {}
 	var volume := 0.0
 	var valid := true
 	var winding := true
-	for n in range(0, vertices.size(), 3):
-		var a := vertices[n]
-		var b := vertices[n + 1]
-		var c := vertices[n + 2]
+	for n in range(0, corners, 3):
+		var first_index: int = n if indices.is_empty() else indices[n]
+		var a := vertices[first_index]
+		var b := vertices[n + 1 if indices.is_empty() else indices[n + 1]]
+		var c := vertices[n + 2 if indices.is_empty() else indices[n + 2]]
 		var cross := (b - a).cross(c - a)
-		winding = winding and cross.length_squared() > 0.00000000000001 and cross.dot(normals[n]) < 0
+		winding = winding and cross.length_squared() > 0.00000000000001 and cross.dot(normals[first_index]) < 0
 		volume += a.dot(b.cross(c)) / 6.0
 		for pair in [[a, b], [b, c], [c, a]]:
 			var first := vertex_key(pair[0])
@@ -131,7 +135,7 @@ func check_collector_cast_frame() -> void:
 			if not limits.has(role):
 				continue
 			if axis == 0:
-				collector_mesh(part.mesh, limits[role][0], limits[role][1])
+				check_closed_asset_mesh(part.mesh, limits[role][0], limits[role][1])
 				cached[role] = [part.mesh, part.material_override]
 			verify(part.mesh == cached[role][0] and part.material_override == cached[role][1],
 				"All projected spindle axes reuse the exact frame meshes and finishes.")
@@ -190,6 +194,75 @@ func check_collector_cast_frame() -> void:
 		view.free()
 	print(JSON.stringify({"phase": "collector cast frame", "minimum_separating_gap": minimum_collector_gap,
 		"axes": 3, "rotation_samples_per_axis": 24, "altered_asset_controls": 2}))
+
+func skid_ray(mesh: Mesh, x: float, z: float, from_y: float, to_y: float) -> Variant:
+	var faces := mesh.get_faces()
+	var from := Vector3(x, from_y, z)
+	var to := Vector3(x, to_y, z)
+	var closest: Variant = null
+	for n in range(0, faces.size(), 3):
+		var at: Variant = Geometry3D.segment_intersects_triangle(from, to, faces[n], faces[n + 1], faces[n + 2])
+		if at != null and (closest == null or from.distance_squared_to(at) < from.distance_squared_to(closest)):
+			closest = at
+	return closest
+
+func check_machine_support_skid() -> void:
+	var mesh := SkidArt.skid_mesh()
+	verify(mesh == SkidArt.skid_mesh() and mesh.get_surface_count() == 1,
+		"All base components share one cached mesh surface and material binding.")
+	check_closed_asset_mesh(mesh, 0.13, 0.15)
+	var bounds := mesh.get_aabb()
+	verify(bounds.position.is_equal_approx(Vector3(-0.675, -0.12, -0.675))
+		and bounds.size.is_equal_approx(Vector3(1.35, 0.24, 1.35)),
+		"The open support skid keeps the exact old plinth outer envelope.")
+	var open: Variant = skid_ray(mesh, 0, 0, -0.3, 0.07)
+	verify(open == null, "The actual combined geometry leaves the central underside open below its mounting deck.")
+	verify(skid_ray(Visuals.box_mesh(Vector3(1.35, 0.24, 1.35)), 0, 0, -0.3, 0.07) != null,
+		"The earlier solid block does not satisfy the new open-underside art requirement.")
+	var rail: Variant = skid_ray(mesh, -0.61, 0, -0.3, 0.07)
+	var cross_tie: Variant = skid_ray(mesh, 0, 0.38, -0.3, 0.07)
+	var deck: Variant = skid_ray(mesh, 0, 0, 0.3, 0.07)
+	verify(rail != null and absf(rail.y + 0.12) < 0.00001,
+		"The formed rail web provides actual closed support down to the original base plane.")
+	verify(cross_tie != null and absf(cross_tie.y - 0.0225) < 0.00001,
+		"The internal cross ties are actual geometry across the two side channels.")
+	verify(deck != null and absf(deck.y - 0.12) < 0.00001,
+		"The actual mounting deck retains the literal top plane.")
+	var instances := 0
+	for kind in ["collector", "belt", "processor", "wheel"]:
+		for axis in range(3):
+			var view := Opening.new()
+			view.machine_root = Node3D.new()
+			view.state = {"options": {"native": true}, "remaining": 0, "stock": {"held": 0},
+				"entities": {"fixture": {"kind": kind, "cell": [0, 0], "axis": axis, "generation": 1}},
+				"links": [], "drive_links": []}
+			var before: Dictionary = view.state.duplicate(true)
+			view._rebuild_machines()
+			var machine: Node3D = view.machine_root.get_child(0)
+			var plinth := machine.get_node("Plinth") as MeshInstance3D
+			verify(plinth != null and plinth.mesh == mesh and plinth.position == Vector3(0, 0.12, 0)
+				and plinth.basis == Basis.IDENTITY and plinth.get_meta("asset_role", "") == "MachineSupportSkid",
+				"Every actual machine family and projected spindle axis mounts the same base at the original pose.")
+			verify(plinth.get_script() == null and plinth.get_child_count() == 0
+				and plinth.material_override == Visuals.material(Color("273c41"), 0.08, 0.5),
+				"The base retains its original opaque finish and has no physical or control children.")
+			var picks := 0
+			for child in machine.get_children():
+				if child is StaticBody3D:
+					picks += 1
+					verify(child.collision_layer == Geometry.PICK_LAYER and child.collision_mask == 0
+						and child.get_meta("entity", "") == "fixture" and child.get_child_count() == 1
+						and child.get_child(0).shape.size == Vector3(1.45, 1.65, 1.45),
+						"The base changes neither the original pick dimensions nor its entity, layers or masks.")
+			verify(picks == 1 and count_role(machine, "FoundationFastener") == 4,
+				"The original four mounting fasteners and sole entity pick body remain.")
+			verify(view.state == before and view.model == null and view.actor_world == null and view.request_sequence == 0,
+				"The shared base cannot change observed quantities, construction, requests or authority.")
+			instances += 1
+			view.machine_root.free()
+			view.free()
+	print(JSON.stringify({"phase": "machine support skid", "machine_instances": instances,
+		"underside_open": open == null, "mounting_plane": 0.24, "triangles": mesh.get_faces().size() / 3}))
 
 func verify(condition: bool, message: String) -> void:
 	checks += 1
@@ -436,7 +509,7 @@ func check_press_supports() -> void:
 			"The sourced supports replace the old upright geometry.")
 		verify(machine.get_node("Plinth").position == Vector3(0, 0.12, 0)
 			and machine.get_node("Plinth").mesh.get_aabb().size.is_equal_approx(Vector3(1.35, 0.24, 1.35)),
-			"The original foundation geometry and mounting height stay intact.")
+			"The original foundation envelope and mounting height stay intact.")
 		verify(machine.get_node("Anvil").position == Vector3(0, 0.46, 0.05)
 			and machine.get_node("OutputTray").position == Vector3(0.46, 0.33, 0.15),
 			"The actual anvil and outlet retain their original working coordinates.")
@@ -869,6 +942,11 @@ func prepare_component_maps(prefix: String) -> void:
 	quit(0)
 
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--machine-skid-only"):
+		check_machine_support_skid()
+		check_collector_cast_frame()
+		finish()
+		return
 	if OS.get_cmdline_user_args().has("--collector-frame-only"):
 		check_collector_cast_frame()
 		finish()

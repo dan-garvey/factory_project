@@ -224,12 +224,29 @@ must use the actual cell endpoints rather than assume uniform spacing. The old
 tile, slab and canal-box catalogues are empty in this profile, while visible rock
 obstacles retain shared rigid descriptors. Local refinement and the natural bank
 profile are revisable adapter choices, not build-grid rules or measured frame-cost
-targets.
-ActorWorld registers the terrain faces, backface flag, box transforms and extents
+targets. Natural rocks share one asymmetric convex template between their visible
+facets and native hull points. The existing descriptor size remains a conservative
+plant-clearance envelope; it is not an invisible surrounding collider. The pinned
+[convex-shape API](https://raw.githubusercontent.com/godotengine/godot/4.7.2-stable/doc/classes/ConvexPolygonShape3D.xml)
+accepts the points of a solid hull. ActorWorld verifies the native shape type and
+point set, with an explicit zero shape margin, against the shared descriptor.
+The source points remain exact in the shape resource. The pinned GodotPhysics3D
+[hull conversion](https://raw.githubusercontent.com/godotengine/godot/4.7.2-stable/core/math/convex_hull.cpp)
+truncates coordinates on a per-AABB integer grid of 10,216 intervals, and its
+[shape-data getter](https://raw.githubusercontent.com/godotengine/godot/4.7.2-stable/modules/godot_physics_3d/godot_shape_3d.cpp)
+returns those cooked vertices. Registration therefore requires a one-to-one point
+match within one native grid interval per axis plus the existing observation
+epsilon. It does not enlarge contact or construction-reach margins. The analytical
+contact guard uses the actual cooked vertices after matching, rather than the
+nominal render facets. This adapter projection is specific to the pinned backend;
+an unsupported conversion fails closed rather than silently accepting another hull.
+ActorWorld registers the terrain faces, backface flag and rigid site transforms
 before admitting saved bodies. Concave terrain is a hollow surface: an explicitly
 labelled analytical burial guard also refuses a saved capsule wholly below it,
 without inventing a native query hit or resetting the pose. Box contact uses the
-actual rigid transform, including rotated rocks. All native query hits remain
+actual rigid transform. Rock contact measures capsule distance to the shared
+convex facets and explicitly detects the solid interior. These are analytical
+adapter measures rather than a general native penetration-depth API. All native query hits remain
 visible, and reaching the bounded query-result limit fails closed. The adapter's
 analytical overlap measure and chosen 0.001 contact allowance are not a general
 native penetration-depth result. The accepted offline floor/wall reopens had
