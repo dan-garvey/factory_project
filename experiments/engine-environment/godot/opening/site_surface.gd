@@ -20,6 +20,25 @@ const ROCK_TRIANGLES := [
 static var _rock_points := PackedVector3Array()
 static var _rock_faces := PackedVector3Array()
 
+const FIR_FILE := "res://opening/assets/fir/fir_tree.res"
+const FIR_SHA256 := "c7566da63c49d07c8ed21a9dd073bf546a262698ada717a3b2a58826f8c6c346"
+
+static func read_fir(path: String = FIR_FILE) -> Dictionary:
+	# Optional prepared art, not a tree population or a physical fixture.
+	# Keep one resource interface for a later matched visual/collision join.
+	if not FileAccess.file_exists(path):
+		return {"status": "missing"}
+	var file := FileAccess.open(path, FileAccess.READ)
+	if file == null or file.get_length() > 12582912:
+		return {"status": "invalid", "reason": "Fir exceeds its twelve-MiB component allocation."}
+	file.close()
+	if FileAccess.get_sha256(path) != FIR_SHA256:
+		return {"status": "invalid", "reason": "Fir does not match the prepared resource identity."}
+	var mesh := ResourceLoader.load(path, "ArrayMesh") as ArrayMesh
+	if mesh == null or mesh.get_surface_count() != 3 or not ResourceLoader.get_dependencies(path).is_empty():
+		return {"status": "invalid", "reason": "Fir requires one self-contained three-surface mesh."}
+	return {"status": "ready", "mesh": mesh}
+
 static func _prepare_rock() -> void:
 	if not _rock_points.is_empty():
 		return

@@ -121,6 +121,7 @@ func finish() -> void:
 			"pine-understory": "complete pine resource, terrain and confirmed-machine visibility consumer",
 			"pine-roots": "focused edge-inclusive terrain-root oracle correction",
 			"pine-reflectance": "source-derived normal-incidence dielectric reflectance and cache isolation",
+			"fir-resource": "complete sourced fir, generated distance detail and common resource interface",
 			"ground-material": "qualified forest-floor material, data channels and cache separation",
 			"water-flow": "layered translucent river resources and ordinary frame consumer",
 			"rock-collision-shape": "visible rock facets versus the shared convex collision hull",
@@ -1090,7 +1091,73 @@ func check_stone_material() -> void:
 	view.free()
 	rocks.free()
 
+func check_fir_resource() -> void:
+	var loaded: Dictionary = Scenery.Surface.read_fir()
+	if not verify(loaded.status == "ready", "The actual shared fixture interface loads the qualified fir resource."):
+		return
+	var mesh: ArrayMesh = loaded.mesh
+	var imported := ImporterMesh.from_mesh(mesh)
+	var descriptor: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(fixture_directory.path_join("source/fir_sapling_medium_1k.gltf")))
+	var full_triangles := 0
+	var wood_triangles := 0
+	var levels: Array = []
+	for surface in range(3):
+		var arrays := mesh.surface_get_arrays(surface)
+		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+		verify(vertices.size() == [2157, 476454, 1211][surface] and indices.size() == [11130, 1245906, 5430][surface],
+			"The local source model retains all original surfaces and base triangles.")
+		full_triangles += indices.size() / 3
+		if surface != 1:
+			wood_triangles += indices.size() / 3
+		var source_accessor: Dictionary = descriptor.accessors[descriptor.meshes[1].primitives[surface].attributes.POSITION]
+		var source_bounds := AABB(Vector3(source_accessor.min[0], source_accessor.min[1], source_accessor.min[2]), Vector3.ZERO)
+		source_bounds.end = Vector3(source_accessor.max[0], source_accessor.max[1], source_accessor.max[2])
+		for vertex in vertices:
+			if not source_bounds.grow(0.0005).has_point(vertex):
+				verify(false, "The resource remains in its original local source bounds.")
+				return
+		verify(imported.get_surface_lod_count(surface) >= 2, "Each actual runtime surface retains generated distance detail.")
+		var counts: Array = []
+		for level in range(imported.get_surface_lod_count(surface)):
+			counts.append(imported.get_surface_lod_indices(surface, level).size() / 3)
+		levels.append(counts)
+		var finish := mesh.surface_get_material(surface) as StandardMaterial3D
+		verify(finish != null and finish.metallic == 0 and not finish.ao_enabled,
+			"The descriptor's dielectric and absence of an occlusion binding stay explicit.")
+		if finish == null:
+			return
+		var source: Dictionary = descriptor.materials[surface]
+		var extensions: Dictionary = source.get("extensions", {})
+		var ior: float = extensions.get("KHR_materials_ior", {}).get("ior", 1.5)
+		var factor: float = extensions.get("KHR_materials_specular", {}).get("specularFactor", 1.0)
+		var f0 := pow((ior - 1) / (ior + 1), 2) * factor
+		verify(absf(0.16 * pow(finish.metallic_specular, 2) - f0) < 0.00000001,
+			"Actual prepared normal-incidence reflectance follows each source material, including the dead wood default.")
+		var expected_scale := Vector3(1.2, 0.1, 1) if surface == 0 else (Vector3(0.8, 0.8, 1) if surface == 2 else Vector3.ONE)
+		var expected_offset := Vector3(0, 0.9, 0) if surface == 0 else (Vector3(0, 0.2, 0) if surface == 2 else Vector3.ZERO)
+		verify(finish.uv1_scale.is_equal_approx(expected_scale) and finish.uv1_offset.is_equal_approx(expected_offset),
+			"The original per-material texture transforms survive resource packaging.")
+		for field in ["albedo_texture", "normal_texture", "roughness_texture"]:
+			var image: Image = finish.get(field).get_image()
+			verify(image.has_mipmaps() and image.get_size() == (Vector2i(384, 384) if field == "albedo_texture" else Vector2i(256, 256)),
+				"The delivered resource carries its prepared mipmapped color and data images.")
+	verify(Scenery.Surface.read_fir().mesh == mesh, "Repeated reads reuse the same immutable resource.")
+	verify(Scenery.Surface.read_fir(fixture_directory.path_join("absent-fir.res")).status == "missing", "An older roster can omit this optional resource.")
+	var bad_path := fixture_directory.path_join("wrong-fir.res")
+	var file := FileAccess.open(bad_path, FileAccess.WRITE)
+	file.store_string("Untrusted resource bytes must never be deserialized.")
+	file.close()
+	verify(Scenery.Surface.read_fir(bad_path).status == "invalid", "Changed bytes are refused before native deserialization.")
+	verify(full_triangles == 420822 and wood_triangles == 5520, "The full canopy and the separate woody source surfaces remain available for the later matched fixture.")
+	print(JSON.stringify({"base_triangles": full_triangles, "woody_triangles": wood_triangles, "lod_triangle_counts": levels,
+		"mounted_trees": 0, "physics": "not_started", "rendered_quality": "not_assessed"}))
+
 func run() -> void:
+	if mode == "fir-resource":
+		check_fir_resource()
+		finish()
+		return
 	if mode == "pine-reflectance":
 		check_pine_reflectance()
 		finish()

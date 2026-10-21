@@ -426,6 +426,13 @@ channel and existing solids. Low plants add no collision or authority; historica
 captures without the asset omit this group. Placement and resource checks do not
 establish rendered balance or alpha-overdraw cost.
 
+The [qualified full-size fir resource](fir/CREDITS.md) retains a complete
+7.8-metre local source tree, its material transforms and generated distance
+detail. It is self-contained and available through the shared terrain-resource
+reader. It is not mounted yet: visible woody trunks and their collision must
+share the same prepared geometry in the later scene join. Its resource checks
+do not establish rendered quality or a performance result.
+
 The optional [young pine component](pine/CREDITS.md) frames the opposite bank
 with at most six near-source-scale saplings. Each shares the complete selected
 bark and three-dimensional needle mesh, embedded prepared maps and a 32-metre
