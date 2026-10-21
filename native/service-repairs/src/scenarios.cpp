@@ -62,22 +62,14 @@ std::optional<r::Scenario> make(std::string_view id) {
             ++result->profile.finite_parts[{s::Role::waterwheel, 0, 0}];
             ++result->profile.finite_parts[{s::Role::shaft, 0, 2}];
         }
-        // The original service line is a two-pulley span. The actor carries
-        // two extra one-tile shafts for the selected replacement row.
+        // The original line already uses shaft pulleys. Carry two additional
+        // shaft tiles for the selected replacement service row.
         auto& topology = result->seed.topology;
-        std::erase_if(topology.parts, [](const auto& part) { return part.geometry.id == "belt"; });
-        for (auto& part : topology.parts)
-            if (part.geometry.id == "processor" || part.geometry.id == "shaft-processor" ||
-                part.geometry.id == "wheel-processor") part.geometry.center[0] += 4;
-        topology.parts.push_back({{"pulley-first", mechanics::Kind::shaft, {4, 0, 8}, mechanics::Axis::z, 0, 2}, 1, s::Role::shaft});
-        topology.parts.push_back({{"pulley-last", mechanics::Kind::shaft, {8, 0, 8}, mechanics::Axis::z, 0, 2}, 1, s::Role::shaft});
-        topology.material_links.clear();
         topology.belt_spans = {{{"belt", "pulley-first", "pulley-last"}, 1}};
         result->seed.material.belt_lanes = {{"belt", materials::BeltLane{{std::nullopt, std::nullopt}, 0}}};
-        result->seed.issued_entities.emplace("pulley-first", 1);
-        result->seed.issued_entities.emplace("pulley-last", 1);
         result->seed.issued_entities.emplace("belt", 1);
-        result->profile.finite_parts[{s::Role::shaft, 0, 2}] += 4;
+        result->seed.kits.at("P").erase({s::Role::belt, 0, 0});
+        result->profile.finite_parts[{s::Role::shaft, 0, 2}] += 2;
         result->seed.kits.at("P")[{s::Role::shaft, 0, 2}] += 2;
         if (id == "service-collector") {
             result->seed.material.stock = {15, 1, 0, 0, 0};

@@ -84,7 +84,7 @@ std::optional<r::Scenario> make(std::string_view id) {
     });
     if (collector == topology.parts.end()) return std::nullopt;
     const auto origin = collector->geometry.center;
-    for (const auto& [machine, offset] : std::array<std::pair<std::string, g::Integer>, 2>{{{"belt", 4}, {"processor", 12}}}) {
+    for (const auto& [machine, offset] : std::array<std::pair<std::string, g::Integer>, 2>{{{"pulley-first", 4}, {"processor", 12}}}) {
         const auto found = std::find_if(topology.parts.begin(), topology.parts.end(), [&](const auto& part) {
             return part.geometry.id == machine;
         });
@@ -92,12 +92,13 @@ std::optional<r::Scenario> make(std::string_view id) {
         const g::Point delta{origin[0] + offset - found->geometry.center[0],
             origin[1] - found->geometry.center[1], origin[2] - found->geometry.center[2]};
         for (auto& part : topology.parts)
-            if (part.geometry.id == machine || part.geometry.id == "wheel-" + machine || part.geometry.id == "shaft-" + machine)
+            if (part.geometry.id == machine || part.geometry.id == "wheel-" + (machine == "pulley-first" ? "belt" : machine) ||
+                part.geometry.id == "shaft-" + (machine == "pulley-first" ? "belt" : machine))
                 for (std::size_t coordinate = 0; coordinate < 3; ++coordinate) part.geometry.center[coordinate] += delta[coordinate];
     }
-    std::erase_if(topology.parts, [](const auto& part) { return part.geometry.id == "belt"; });
-    add(*result, "pulley-first", s::Role::shaft, {origin[0] + 4, origin[1], origin[2]}, g::Axis::z, 0, 2);
-    add(*result, "pulley-last", s::Role::shaft, {origin[0] + 8, origin[1], origin[2]}, g::Axis::z, 0, 2);
+    for (auto& part : topology.parts)
+        if (part.geometry.id == "pulley-last") part.geometry.center = {origin[0] + 8, origin[1], origin[2]};
+    kit.erase({s::Role::belt, 0, 0});
     topology.belt_spans = {{{"belt", "pulley-first", "pulley-last"}, 1}};
     result->seed.material.belt_lanes = {{"belt", materials::BeltLane{{std::nullopt, std::nullopt}, 0}}};
     // Declare this new content's exact startup supply once. World validates
