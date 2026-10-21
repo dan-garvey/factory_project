@@ -1445,6 +1445,28 @@ class ProductionPressTrayArt:
 			bracket.set_meta("press_tray_role", "FixedBracket")
 			parent.add_child(bracket)
 
+class ProductionDriveJournalArt:
+	extends RefCounted
+	## Turned presentation inside the original native journal cylinder.
+	static func mesh(height: float) -> ArrayMesh:
+		var half := height / 2.0
+		# Keep the full central bearing span. End relief and center marks are
+		# visual machining details, without a new coupling or contact rule.
+		var profile := PackedVector2Array([
+			Vector2(0, -half + 0.020), Vector2(0.014, -half + 0.020),
+			Vector2(0.028, -half), Vector2(0.071, -half),
+			Vector2(0.085, -half + 0.014), Vector2(0.085, -half + 0.040),
+			Vector2(0.081, -half + 0.044), Vector2(0.081, -half + 0.058),
+			Vector2(0.085, -half + 0.062), Vector2(0.085, half - 0.062),
+			Vector2(0.081, half - 0.058), Vector2(0.081, half - 0.044),
+			Vector2(0.085, half - 0.040), Vector2(0.085, half - 0.014),
+			Vector2(0.071, half), Vector2(0.028, half),
+			Vector2(0.014, half - 0.020), Vector2(0, half - 0.020)])
+		return ProductionVisuals.turned_mesh(profile)
+
+	static func material() -> StandardMaterial3D:
+		return ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.38)
+
 class ProductionCollectorToolingArt:
 	extends RefCounted
 	## Passive rigid tooling. The existing cutter rows and presenter own its pose.
@@ -4195,8 +4217,13 @@ func _machine_drive_stub(anchor: Node3D, entity: Dictionary) -> void:
 		var axis := _machine_axis(entity)
 		# The vertical stub stays above the base inside the same pick envelope.
 		var height := 0.9 if axis == Vector3.UP else 1.35
-		_machine_cylinder(anchor, "DriveStub", Vector3(0, Geometry.ANCHOR_HEIGHT, 0),
-			0.085, height, Color("b87945"), _spindle_rotation(axis))
+		var journal := MeshInstance3D.new()
+		journal.name = "DriveStub"
+		journal.position = Vector3(0, Geometry.ANCHOR_HEIGHT, 0)
+		journal.rotation = _spindle_rotation(axis)
+		journal.mesh = ProductionDriveJournalArt.mesh(height)
+		journal.material_override = ProductionDriveJournalArt.material()
+		anchor.add_child(journal)
 	else:
 		_machine_cylinder(anchor, "DriveStub", Vector3(0, 0.35, 0.55), 0.085, 0.18,
 			Color("b87945"), Vector3(PI / 2, 0, 0))

@@ -67,6 +67,14 @@ axes. The geometry is authored presentation, not tooth-contact, drive, torque or
 angular-phase authority. The isolated detail fixture checks closed profiles,
 usable surface attributes, actual machine assembly and unchanged collision
 separation; it cannot establish the visible quality at normal play distance.
+
+The exposed native collector and press input journals now use a shared turned
+steel profile instead of a plain copper-colored cylinder. Chamfered ends, narrow
+relief bands and shallow center-drilled marks catch light without enlarging the
+original radius or length. The central bearing span remains at its full original
+radius, and both native lengths share the qualified worked finish. These are
+passive details at the confirmed center and axis; they add no coupling, contact,
+rotation callback or authoritative state. The compact conveyor hub is unchanged.
 The project selects four-sample 3D multisample antialiasing for mesh edges. This
 is a revisable rendering default, not a measured performance result; it does not
 remove normal-map or specular aliasing. The backend remains Compatibility.

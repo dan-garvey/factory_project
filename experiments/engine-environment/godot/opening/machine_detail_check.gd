@@ -11,6 +11,7 @@ const TrayArt = Opening.ProductionPressTrayArt
 const ConveyorArt = Opening.ProductionConveyorArt
 const CollectorArt = Opening.ProductionCollectorArt
 const CollectorToolingArt = Opening.ProductionCollectorToolingArt
+const DriveJournalArt = Opening.ProductionDriveJournalArt
 const SkidArt = Opening.ProductionSkidArt
 const Presenter = preload("res://opening/native_transmission_presenter.gd")
 const Geometry = preload("res://opening/site_geometry.gd")
@@ -456,8 +457,10 @@ func check_conveyor_frame() -> void:
 					"The literal original turned roller envelope and centre remain unchanged.")
 			var drive: MeshInstance3D = machine.get_node("DriveStub")
 			var compact: bool = machine.get_meta("conveyor_hub", false)
-			verify(drive.mesh is CylinderMesh and is_equal_approx(drive.mesh.top_radius, 0.028 if compact else 0.085)
-				and is_equal_approx(drive.mesh.height, (0.08 if axis == 1 else 0.12) if compact else (0.9 if axis == 1 else 1.35))
+			var journal_height := (0.08 if axis == 1 else 0.12) if compact else (0.9 if axis == 1 else 1.35)
+			var journal_art: bool = (drive.mesh is CylinderMesh and is_equal_approx(drive.mesh.top_radius, 0.028)
+				and is_equal_approx(drive.mesh.height, journal_height)) if compact else drive.mesh == DriveJournalArt.mesh(journal_height)
+			verify(journal_art
 				and drive.position.is_equal_approx(Vector3(0, 0.5, 0))
 				and absf(drive.basis.y.dot([Vector3.RIGHT, Vector3.UP, Vector3.BACK][axis])) > 0.99999,
 				"The native hub point and confirmed axis remain exact, with the declared current journal artwork.")
@@ -1404,6 +1407,140 @@ func check_collector_coating(historical: bool) -> void:
 		"coating_materials": cached.size(), "historical_missing_set": historical,
 		"maps": "historical generated coating" if historical else "qualified cast normal and authored satin roughness", "geometry_changed": false,
 		"native_gameplay": "not_run", "rendered_quality": "not_assessed"}))
+
+func journal_section_radius(mesh: Mesh, height: float) -> float:
+	var maximum := -INF
+	for surface in range(mesh.get_surface_count()):
+		var faces := die_faces(mesh, surface)
+		for n in range(0, faces.size(), 3):
+			for edge in [[0, 1], [1, 2], [2, 0]]:
+				var a := faces[n + edge[0]]
+				var b := faces[n + edge[1]]
+				if absf(a.y - height) < 0.000001:
+					maximum = maxf(maximum, Vector2(a.x, a.z).length())
+				if (a.y < height and b.y > height) or (a.y > height and b.y < height):
+					var cut := a.lerp(b, (height - a.y) / (b.y - a.y))
+					maximum = maxf(maximum, Vector2(cut.x, cut.z).length())
+	return maximum
+
+func journal_center_hits(mesh: Mesh) -> Array[float]:
+	var hits: Array[float] = []
+	for surface in range(mesh.get_surface_count()):
+		var faces := die_faces(mesh, surface)
+		for n in range(0, faces.size(), 3):
+			var hit: Variant = Geometry3D.segment_intersects_triangle(Vector3(0, -1, 0), Vector3(0, 1, 0),
+				faces[n], faces[n + 1], faces[n + 2])
+			if hit == null:
+				continue
+			var known := false
+			for previous in hits:
+				known = known or absf(previous - hit.y) < 0.000001
+			if not known:
+				hits.append(hit.y)
+	hits.sort()
+	return hits
+
+func journal_shape_matches(mesh: Mesh, height: float) -> bool:
+	var half := height / 2.0
+	var bounds := mesh.get_aabb()
+	if not bounds.position.is_equal_approx(Vector3(-0.085, -half, -0.085)) \
+		or not bounds.size.is_equal_approx(Vector3(0.17, height, 0.17)):
+		return false
+	for level in [0.0, -half + 0.08, half - 0.08]:
+		if absf(journal_section_radius(mesh, level) - 0.085) > 0.000001:
+			return false
+	for sign_value in [-1.0, 1.0]:
+		if absf(journal_section_radius(mesh, sign_value * (half - 0.051)) - 0.081) > 0.000001 \
+			or absf(journal_section_radius(mesh, sign_value * (half - 0.007)) - 0.078) > 0.000001:
+			return false
+	var hits := journal_center_hits(mesh)
+	return hits.size() == 2 and absf(hits[0] + half - 0.020) < 0.000001 \
+		and absf(hits[1] - half + 0.020) < 0.000001
+
+func journal_pose_matches(journal: MeshInstance3D, axis: int) -> bool:
+	return journal.position.is_equal_approx(Vector3(0, 0.5, 0)) and journal.scale.is_equal_approx(Vector3.ONE) \
+		and journal.basis.y.dot([Vector3.RIGHT, Vector3.UP, Vector3.BACK][axis]) > 0.99999
+
+func check_drive_journals() -> void:
+	var meshes: Dictionary = {}
+	var assemblies := 0
+	var geometry_observations: Array[Dictionary] = []
+	for height in [0.9, 1.35]:
+		var mesh := DriveJournalArt.mesh(height)
+		verify(mesh == DriveJournalArt.mesh(height) and mesh.get_surface_count() == 1,
+			"Equal journal lengths reuse one passive mesh and one material surface.")
+		verify(journal_shape_matches(mesh, height),
+			"Raw facets preserve the full central bearing span, envelope, relieved bands, chamfered ends and two real center recesses.")
+		check_closed_asset_mesh(mesh, 0.0198 if height < 1 else 0.0300, 0.0205 if height < 1 else 0.0307)
+		meshes[height] = mesh
+		var plain := CylinderMesh.new()
+		plain.top_radius = 0.085
+		plain.bottom_radius = 0.085
+		plain.height = height
+		plain.radial_segments = 48
+		verify(not journal_shape_matches(plain, height),
+			"A plain cylinder cannot pass the actual machining and recessed-end controls.")
+		geometry_observations.append({"height": height, "bounds": str(mesh.get_aabb()),
+			"central_radius": journal_section_radius(mesh, 0),
+			"relief_radius": journal_section_radius(mesh, height / 2.0 - 0.051),
+			"chamfer_radius": journal_section_radius(mesh, height / 2.0 - 0.007), "axis_hits": journal_center_hits(mesh)})
+	verify(meshes[0.9] != meshes[1.35], "Different native journal lengths cannot alias a cached mesh.")
+	var material := DriveJournalArt.material()
+	verify(material == Opening.ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.38)
+		and material != null and material.albedo_color == Color("a6b4af") and is_equal_approx(material.metallic, 0.85)
+		and material.roughness_texture == Opening.ProductionTransmissionFinish.textures.worked_roughness
+		and material.normal_texture == Opening.ProductionTransmissionFinish.textures.worked_normal
+		and material.uv1_triplanar and not material.uv1_world_triplanar,
+		"Exposed journals reuse the qualified worked steel finish and its local physical map scale.")
+	for shared_profile in [false, true]:
+		for kind in ["collector", "processor"]:
+			for axis in range(3):
+				for cell in [[0, 0], [2, -1]]:
+					var view: Variant = Shared.new() if shared_profile else Opening.new()
+					view.machine_root = Node3D.new()
+					view.add_child(view.machine_root)
+					view.state = {"context": "drive-journal-fixture", "options": {"native": true, "physical": true},
+						"actors": {}, "parts": {}, "inventories": {}, "stock": {}, "remaining": 0,
+						"entities": {"fixture": {"kind": kind, "cell": cell, "axis": axis, "generation": 1}},
+						"transmission_parts": {}, "motion": {}, "links": [], "drive_links": [], "engagements": []}
+					var before: Dictionary = view.state.duplicate(true)
+					view._rebuild_machines()
+					var machine: Node3D = view.machine_root.get_child(0)
+					var journal: MeshInstance3D = machine.get_node("DriveStub")
+					var height := 0.9 if axis == 1 else 1.35
+					verify(journal.mesh == meshes[height] and journal.material_override == material
+						and journal.get_child_count() == 0 and journal.get_script() == null and journal_pose_matches(journal, axis),
+						"Both actual view builders mount the same plain journal on the existing native center and confirmed axis.")
+					verify(machine.position == Vector3(cell[0] * 4, 0, cell[1] * 4),
+						"Translated constructions retain the common world-space grid origin and height.")
+					check_bounds(journal, Transform3D.IDENTITY)
+					var picks := 0
+					for child in machine.get_children():
+						if child is StaticBody3D:
+							picks += 1
+							verify(child.collision_layer == 4 and child.collision_mask == 0 and child.get_child_count() == 1
+								and child.get_child(0).shape.size == Vector3(1.45, 1.65, 1.45)
+								and child.get_child(0).position == Vector3(0, 0.8, 0),
+								"The sole conservative pick body keeps its original dimensions, center and masks.")
+					var rows: Array = machine.get_meta("motion_meshes")
+					var original_rows := 10 if kind == "collector" else 2
+					var journal_fixed := rows.size() == original_rows
+					for row in rows:
+						journal_fixed = journal_fixed and row.node != journal
+					verify(picks == 1 and journal_fixed,
+						"The journal gains neither another pick body nor a fabricated rotation callback.")
+					var pose := journal.position
+					journal.position.x += 0.01
+					verify(not journal_pose_matches(journal, axis), "A displaced journal is rejected even when its own mesh is valid.")
+					journal.position = pose
+					verify(view.state == before and view.model == null and view.actor_world == null
+						and view.request_sequence == 0 and not view.is_inside_tree(),
+						"Mesh assembly leaves material projection, authority, input and native bodies untouched.")
+					assemblies += 1
+					view.free()
+	print(JSON.stringify({"phase": "machine drive journals", "assemblies": assemblies,
+		"cached_meshes": meshes.size(), "geometry": geometry_observations,
+		"negative_control_types": 2, "native_gameplay": "not_run", "rendered_quality": "not_assessed"}))
 
 func check_closed_asset_mesh(mesh: Mesh, minimum_volume: float, maximum_volume: float) -> void:
 	var arrays := mesh.surface_get_arrays(0)
@@ -3890,6 +4027,11 @@ func render_buildable_resources() -> void:
 
 func _initialize() -> void:
 	if OS.get_cmdline_user_args().has("--render-buildable-resources"):
+		if OS.get_cmdline_user_args().has("--drive-journal-check"):
+			check_drive_journals()
+			if failed:
+				finish()
+				return
 		if OS.get_cmdline_user_args().has("--satin-coating-check"):
 			check_satin_coating()
 			check_collector_coating(false)
