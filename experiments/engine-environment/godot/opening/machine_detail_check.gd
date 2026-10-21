@@ -2221,7 +2221,7 @@ func journal_shape_matches(mesh: Mesh, height: float, radius: float = 0.085) -> 
 		and absf(hits[1] - half + 0.020) < 0.000001
 
 func journal_pose_matches(journal: MeshInstance3D, axis: int) -> bool:
-	return journal.position.is_equal_approx(Vector3(0, 0.5, 0)) and journal.scale.is_equal_approx(Vector3.ONE) \
+	return journal.position.is_equal_approx(Vector3(0, Geometry.ANCHOR_HEIGHT, 0)) and journal.scale.is_equal_approx(Vector3.ONE) \
 		and journal.basis.y.dot([Vector3.LEFT, Vector3.UP, Vector3.BACK][axis]) > 0.99999
 
 func press_input_hits(part: MeshInstance3D, from: Vector3, to: Vector3) -> Array[float]:
@@ -2279,6 +2279,7 @@ func check_press_input_clearance() -> void:
 	press_input_checks_complete = false
 	var cache: Dictionary = {}
 	var assemblies := 0
+	var displaced_support_controls := 0
 	var minimum_gap := INF
 	var minimum_support := INF
 	for shared_profile in [false, true]:
@@ -2330,8 +2331,11 @@ func check_press_input_clearance() -> void:
 						var former := MeshInstance3D.new()
 						former.mesh = DriveJournalArt.mesh(1.35)
 						former.transform = journal.transform
+						# The earlier lower axle crossed the working body. The current
+						# confirmed shaft height is tested separately above.
+						former.position.y = 0.5
 						verify(tray_mesh_gap(former, anvil.transform * anvil.mesh.get_aabb()) <= 0,
-							"The exact former full-width journal fails the same raw-facet clearance predicate.")
+							"The former lower full-width journal fails the raw-facet clearance predicate.")
 						former.free()
 					verify(journal.mesh == cache.journal and journal.material_override == DriveJournalArt.material(),
 						"Both axes and view classes reuse the same complete journal mesh and qualified worked finish.")
@@ -2365,7 +2369,7 @@ func check_press_input_clearance() -> void:
 							verify(tray_mesh_gap(journal, part.transform * part.mesh.get_aabb()) > 0.003,
 								"Actual journal facets clear their fixed supporting brackets.")
 						if role == "Post":
-							var probe := Vector2(part.position.x, part.position.z)
+							var probe := Vector2(part.position.x + (0.12 if axis == 2 else 0.0), part.position.z)
 							var deck: MeshInstance3D = machine.get_node("Plinth")
 							verify(absf(die_height(part.mesh, 0, part.transform, probe, false)
 								- die_height(deck.mesh, 0, deck.transform, probe, true)) < 0.000001,
@@ -2378,13 +2382,31 @@ func check_press_input_clearance() -> void:
 						if axis == 0:
 							var bracket: MeshInstance3D = machine.get_node("PressInputBracket" + suffix)
 							var ear_join := press_input_overlap(bearing, bracket,
-								Vector3(side * 0.66, 0.503, -1), Vector3(side * 0.66, 0.503, 1))
+								Vector3(side * 0.66, Geometry.ANCHOR_HEIGHT - 0.035, -1),
+								Vector3(side * 0.66, Geometry.ANCHOR_HEIGHT - 0.035, 1))
 							var foot_join := press_input_overlap(post, bracket,
 								Vector3(side * 0.66, -0.1, -0.175), Vector3(side * 0.66, 1, -0.175))
 							support = minf(ear_join, foot_join)
+							if not shared_profile and cell == [0, 0] and level == 0 and side < 0:
+								var original_bracket_position := bracket.position
+								bracket.position.y += 0.20
+								verify(press_input_overlap(bearing, bracket,
+									Vector3(side * 0.66, Geometry.ANCHOR_HEIGHT - 0.035, -1),
+									Vector3(side * 0.66, Geometry.ANCHOR_HEIGHT - 0.035, 1)) <= 0,
+									"The raw contact oracle rejects a lifted X-axis bearing ear.")
+								bracket.position = original_bracket_position
+								displaced_support_controls += 1
 						else:
 							support = press_input_overlap(bearing, post,
-								Vector3(0.02, -0.1, side * 0.66), Vector3(0.02, 1, side * 0.66))
+								Vector3(0.095, -0.1, side * 0.66), Vector3(0.095, 1, side * 0.66))
+							if not shared_profile and cell == [0, 0] and level == 0 and side < 0:
+								var original_post_position := post.position
+								post.position.x += 0.20
+								verify(press_input_overlap(bearing, post,
+									Vector3(0.095, -0.1, side * 0.66), Vector3(0.095, 1, side * 0.66)) <= 0,
+									"The raw contact oracle rejects a displaced Z-axis support cheek.")
+								post.position = original_post_position
+								displaced_support_controls += 1
 						minimum_support = minf(minimum_support, support)
 						verify(support > 0.001, "Raw closed-mesh probes establish finite bearing-to-frame contact.")
 					var item_rows: Array[Dictionary] = []
@@ -2417,6 +2439,7 @@ func check_press_input_clearance() -> void:
 	print(JSON.stringify({"phase": "horizontal press inputs", "assemblies": assemblies, "axes": ["x", "z"],
 		"minimum_anvil_gap_metres": minimum_gap if is_finite(minimum_gap) else null,
 		"minimum_support_overlap_metres": minimum_support if is_finite(minimum_support) else null,
+		"displaced_support_controls": displaced_support_controls,
 		"vertical_layout": "unchanged and not accepted by this case", "native_gameplay": "not_run"}))
 	press_input_checks_complete = assemblies == 16 and not failed
 
