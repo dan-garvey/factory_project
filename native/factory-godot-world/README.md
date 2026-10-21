@@ -176,15 +176,23 @@ production case collects a real product into Q, pauses and recovers a positively
 progressed workpiece into Q's Cargo, and rejects P's attempt to insert that lot.
 A fresh server must load the original host save before either client submits a
 material request. Q then reinserts the same lot and P collects three more products.
-The controlled-clock case passed both cohorts with all sixteen units accounted
-for, the original twelve cached outcomes preserved, and final products P3/Q1.
-The server used the engine's explicit `--time-scale 0.25` argument; clients kept
-normal time. This lets the test stop an observed partial cycle before network
-latency advances it again, without changing the native recipe or phase checks.
-The earlier default-speed attempt remains a failed phase-capture witness: its
-stop arrived after that observed lot finished. The passing case establishes
-typed shared custody and actual Store continuation, not default-speed pause
-timing, performance, desktop interaction or human usability.
+The original controlled-clock case passed both cohorts with all sixteen units
+accounted for, the twelve cached outcomes preserved, and final products P3/Q1.
+Its server used `--time-scale 0.25`; clients kept normal time. The original
+default-speed failure remains distinct: Stop arrived after the observed lot
+finished.
+
+The corrected default-speed case also passed both cohorts at engine scale 1 and
+the existing 0.45-second Session cadence. Shared clients prepare their unchanged
+cached mechanical audio before connecting, so first playback does not synthesize
+the four waveforms during live snapshot reception. The consumer reacts once to a
+fresh confirmed partial-work transition and requires Stop's original receipt to
+preserve remaining 1 with exactly one new revision. Q's validated product barrier,
+native reach, exact custody, original save and twelve-outcome history prefix remain
+required. Fresh P/Q clients finish with products P3/Q1 and all sixteen units
+accounted for. These are bounded headless shared-custody and Store witnesses,
+not an arbitrary-latency guarantee, performance measurement, desktop interaction
+or human usability result.
 
 The original consumer explicitly predeclared the runtime extension catalogue
 before import. Two first cold imports without it failed; debugger captures show
