@@ -21,6 +21,7 @@ using Role = stationary::Role;
 constexpr double pitch = 1.65;
 constexpr Integer height_denominator = 4;
 constexpr double height_step = pitch / height_denominator;
+constexpr double foundation_depth = 2 * height_step;
 constexpr double anchor_height = 0.5;
 constexpr double reach = 4.0;
 constexpr double capsule_radius = 0.3;
@@ -44,8 +45,8 @@ Bounds part_bounds(const world::Profile& profile, const stationary::PlacedPart& 
 }
 
 Bounds foundation_bounds(const world::Foundation& foundation) {
-    return {{foundation.center[0] * height_step, foundation.center[1] * height_step - pitch / 2,
-             foundation.center[2] * height_step}, {pitch / 2, pitch / 2, pitch / 2}};
+    return {{foundation.center[0] * height_step, foundation.center[1] * height_step - foundation_depth / 2,
+             foundation.center[2] * height_step}, {pitch / 2, foundation_depth / 2, pitch / 2}};
 }
 
 bool overlap(const Bounds& a, const Bounds& b) {
@@ -584,7 +585,8 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         // no gravity support. Constructed parts and actual actors still block.
         for (auto px = std::min(*x, *end_x); px <= std::max(*x, *end_x); ++px)
             for (auto pz = std::min(*z, *end_z); pz <= std::max(*z, *end_z); ++pz)
-                if (placement_blocked({px * pitch, top - pitch / 2, pz * pitch}, {pitch / 2, pitch / 2, pitch / 2}))
+                if (placement_blocked({px * pitch, top - foundation_depth / 2, pz * pitch},
+                    {pitch / 2, foundation_depth / 2, pitch / 2}))
                     return refuse("actor_occupied");
         for (const auto& part : snapshot.state.topology.parts) {
             const auto& center = part.geometry.center;
@@ -599,7 +601,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                 center[0] * pitch / 4 < std::max(*x, *end_x) * pitch + pitch &&
                 center[2] * pitch / 4 > std::min(*z, *end_z) * pitch - pitch &&
                 center[2] * pitch / 4 < std::max(*z, *end_z) * pitch + pitch &&
-                center[1] * pitch / 4 < top && center[1] * pitch / 4 + machine_height > top - pitch)
+                center[1] * pitch / 4 < top && center[1] * pitch / 4 + machine_height > top - foundation_depth)
                 return refuse("occupied");
         }
         normalized.at("action") = Value(*action);
@@ -636,7 +638,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             if (*kind_name == "wheel" &&
                 overlap(part_bounds(profile_, proposed), foundation_bounds(foundation))) return refuse("occupied");
             if (foundation.center[0] == center[0] && foundation.center[2] == center[2] &&
-                foundation.center[1] > center[1] && foundation.center[1] - 4 < center[1] + 4)
+                foundation.center[1] > center[1] && foundation.center[1] - 2 < center[1] + 4)
                 return refuse("occupied");
         }
         if (*kind_name != "gear" && !(*kind_name == "wheel")) {
@@ -862,6 +864,7 @@ Value Host::projection() const {
         {"options", Value(Object{{"opening", Value(true)}, {"physical", Value(true)}, {"native", Value(true)}, {"foundations", Value(true)}})},
         {"adapter_profile", Value(Object{{"pitch", Value(pitch)}, {"anchor_height", Value(anchor_height)},
             {"height_denominator", Value(height_denominator)}, {"height_step", Value(height_step)},
+            {"foundation_depth", Value(foundation_depth)},
             {"capsule_radius", Value(capsule_radius)}, {"capsule_height", Value(capsule_height)}})}});
 }
 

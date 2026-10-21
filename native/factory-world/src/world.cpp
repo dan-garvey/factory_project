@@ -18,6 +18,7 @@ using Role = stationary::Role;
 constexpr std::size_t maximum_actors = 16;
 constexpr std::size_t maximum_issued_entities = 4096;
 constexpr std::size_t maximum_current_work = 256;
+constexpr Integer foundation_depth_levels = 2;
 constexpr std::string_view allocated_prefix = "native-part-";
 
 template<class T> const T* field(const Object& object, const char* name) {
@@ -532,7 +533,7 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
         if (part(state.topology, id)) return false;
         for (const auto& center : foundation_centers)
             if (center[0] == foundation.center[0] && center[2] == foundation.center[2] &&
-                std::abs(center[1] - foundation.center[1]) < 4) return false;
+                std::abs(center[1] - foundation.center[1]) < foundation_depth_levels) return false;
         foundation_centers.push_back(foundation.center);
     }
     for (const auto& [spec, count] : profile.finite_parts) {
@@ -650,12 +651,12 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             for (const auto& placed : state.topology.parts)
                 if (std::abs(placed.geometry.center[0] - cell[0]) < 4 &&
                     std::abs(placed.geometry.center[2] - cell[2]) < 4 &&
-                    placed.geometry.center[1] < cell[1] && placed.geometry.center[1] + 4 > cell[1] - 4)
+                    placed.geometry.center[1] < cell[1] && placed.geometry.center[1] + 4 > cell[1] - foundation_depth_levels)
                     return refused("occupied");
             for (const auto& [id, foundation] : state.foundations) {
                 (void)id;
                 if (foundation.center[0] == cell[0] && foundation.center[2] == cell[2] &&
-                    std::abs(foundation.center[1] - cell[1]) < 4) return refused("occupied");
+                    std::abs(foundation.center[1] - cell[1]) < foundation_depth_levels) return refused("occupied");
             }
             if (candidate.issued_entities.size() == maximum_issued_entities ||
                 candidate.next_entity_serial == std::numeric_limits<Integer>::max()) return refused("identity_limit");
@@ -699,12 +700,12 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             for (const auto& placed : state.topology.parts)
                 if (std::abs(placed.geometry.center[0] - (*location)[0]) < 4 &&
                     std::abs(placed.geometry.center[2] - (*location)[2]) < 4 &&
-                    placed.geometry.center[1] < (*location)[1] && placed.geometry.center[1] + 4 > (*location)[1] - 4)
+                    placed.geometry.center[1] < (*location)[1] && placed.geometry.center[1] + 4 > (*location)[1] - foundation_depth_levels)
                     return refused("occupied", "", std::move(facts));
             for (const auto& [id, foundation] : state.foundations) {
                 (void)id;
                 if (foundation.center[0] == (*location)[0] && foundation.center[2] == (*location)[2] &&
-                    std::abs(foundation.center[1] - (*location)[1]) < 4)
+                    std::abs(foundation.center[1] - (*location)[1]) < foundation_depth_levels)
                     return refused("occupied", "", std::move(facts));
             }
             if (state.foundation_kits.at(binding.actor) == 0) return refused("no_part", "", std::move(facts));
@@ -719,7 +720,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         } else {
             for (const auto& placed : state.topology.parts)
                 if (placed.geometry.center[0] == (*location)[0] && placed.geometry.center[2] == (*location)[2] &&
-                    placed.geometry.center[1] >= (*location)[1] && placed.geometry.center[1] < (*location)[1] + 4)
+                    placed.geometry.center[1] >= (*location)[1] && placed.geometry.center[1] < (*location)[1] + foundation_depth_levels)
                     return refused("foundation_in_use", entity, std::move(facts));
             candidate.foundations.erase(entity);
             ++candidate.foundation_kits.at(binding.actor);

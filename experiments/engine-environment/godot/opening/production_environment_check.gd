@@ -260,7 +260,8 @@ func check_construction_vegetation() -> void:
 		var cell := Vector2i(roundi(original[3] / Geometry.PITCH), roundi(original[11] / Geometry.PITCH))
 		var level := ceili((sample.position.y + minf(sample.size.y * 0.5, 0.25)) / Geometry.HEIGHT_STEP)
 		var top := Vector3(cell.x * Geometry.PITCH, level * Geometry.HEIGHT_STEP, cell.y * Geometry.PITCH)
-		var foundation := AABB(top - Vector3(Geometry.PITCH * 0.5, Geometry.PITCH, Geometry.PITCH * 0.5), Vector3.ONE * Geometry.PITCH)
+		var foundation := AABB(top - Vector3(Geometry.PITCH * 0.5, Geometry.FOUNDATION_DEPTH, Geometry.PITCH * 0.5),
+			Vector3(Geometry.PITCH, Geometry.FOUNDATION_DEPTH, Geometry.PITCH))
 		verify(sample.intersects(foundation), "The regression fixture actually intersects its original source clump.")
 		view.state = {"entities": {}, "foundations": {"surface": {"cell": [cell.x, cell.y], "level": level}}, "links": []}
 		view._rebuild_machines()

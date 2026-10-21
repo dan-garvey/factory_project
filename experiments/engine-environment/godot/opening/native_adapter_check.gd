@@ -143,17 +143,23 @@ func _run() -> void:
 	_record("pass")
 
 func _walk_to(target: Vector2, jump: bool = false) -> bool:
-	var first := true
+	var jumped := false
+	var highest_foot := -INF
 	while Time.get_ticks_msec() < deadline:
-		var at: Vector3 = opening.actor_world.bodies.P.global_position
+		var body = opening.actor_world.bodies.P
+		var at: Vector3 = body.global_position
+		highest_foot = maxf(highest_foot, at.y - OpeningGeometry.CAPSULE_HEIGHT / 2.0)
 		var gap := target - Vector2(at.x, at.z)
 		if gap.length() < 0.08:
 			opening.actor_world.release_control("P")
+			if jump:
+				facts["foundation_jump"] = {"edge_sent": jumped, "highest_foot": highest_foot}
 			return true
-		if not _expect(opening.actor_world.set_control("P", gap.normalized(), jump and first).accepted,
+		var jump_edge: bool = jump and not jumped and gap.length() < 1.2 and body.is_on_floor()
+		if not _expect(opening.actor_world.set_control("P", gap.normalized(), jump_edge).accepted,
 				"The fixture walks through the real character motor without setting a pose"):
 			return false
-		first = false
+		jumped = jumped or jump_edge
 		await physics_frame
 		await process_frame
 	opening.actor_world.release_control("P")
@@ -167,35 +173,39 @@ func _foundations() -> void:
 	if not await _walk_to(Vector2(9.0, 6.0)):
 		return
 	var before: Dictionary = opening.model.projection()
-	var first: Dictionary = _issue({"action": "place_foundation", "cell": [5, 2], "level": 1})
+	var first: Dictionary = _issue({"action": "place_foundation", "cell": [5, 2], "level": 2})
 	if not _expect(first.accepted, "The real nearby actor can build beyond the removed local rectangle"):
 		return
-	var second: Dictionary = _issue({"action": "place_foundation", "cell": [6, 2], "level": 1})
+	var second: Dictionary = _issue({"action": "place_foundation", "cell": [6, 2], "level": 2})
 	if not _expect(second.accepted, "An independently placed foundation shares the absolute height grid"):
 		return
 	for _frame in range(3):
 		await physics_frame
 		await process_frame
 	opening._select_tool("foundation")
-	opening._adjust_foundation_level(1)
-	if not _expect(opening.foundation_level == 1 and opening.foundation_level_label.text.begins_with("Level 1"),
+	opening._adjust_foundation_level(2)
+	if not _expect(opening.foundation_level == 2 and opening.foundation_level_label.text.begins_with("Level 2"),
 			"The actual controls show an absolute world height rather than a local terrain offset"):
 		return
 	if not _expect(opening.actor_world._geometry_registered(), "Displayed foundation levels match registered native box bodies"):
 		return
 	if not await _walk_to(Vector2(8.25, 3.3), true):
 		return
+	if not _expect(facts.foundation_jump.edge_sent and facts.foundation_jump.highest_foot > 2.0 * OpeningGeometry.HEIGHT_STEP + 0.05,
+			"The actual jump lifts the capsule feet above one full foundation before landing"):
+		return
 	for _frame in range(40):
 		await physics_frame
 		await process_frame
 	var body = opening.actor_world.bodies.P
 	facts["standing_on_foundation"] = opening.actor_world.diagnostics("P")
-	if not _expect(body.is_on_floor() and absf(body.global_position.y - OpeningGeometry.CAPSULE_HEIGHT / 2.0 - OpeningGeometry.HEIGHT_STEP) < 0.02,
+	if not _expect(body.is_on_floor() and absf(body.global_position.y - OpeningGeometry.CAPSULE_HEIGHT / 2.0 - 2.0 * OpeningGeometry.HEIGHT_STEP) < 0.02,
 			"The real capsule walks and lands on the constructed surface at the common height"):
 		return
 	var saved: Dictionary = opening._save_worksite()
 	facts["foundation_save"] = saved
-	if not _expect(saved.accepted and saved.native_preflight.accepted, "Store accepts the real registered pose and foundation custody"):
+	if not _expect(saved.accepted and saved.native_preflight.accepted,
+			"Store accepts the real registered pose and foundation custody: " + str(saved)):
 		return
 	if not await _walk_to(Vector2(9.0, 6.0)):
 		return
@@ -215,7 +225,7 @@ func _foundations() -> void:
 	for id in current.entities:
 		var entity: Dictionary = current.entities[id]
 		var physical: StaticBody3D = opening.actor_world.machines[id]
-		if not _expect(entity.level == 1 and absf(physical.position.y - OpeningGeometry.MACHINE_CENTER_HEIGHT - OpeningGeometry.HEIGHT_STEP) < 0.00001,
+		if not _expect(entity.level == 2 and absf(physical.position.y - OpeningGeometry.MACHINE_CENTER_HEIGHT - 2.0 * OpeningGeometry.HEIGHT_STEP) < 0.00001,
 				"Machine projection, mesh and native contact share the foundation height"):
 			return
 	if not _expect(current.stock.source == before.stock.source and current.stock.source == 16 and current.remaining == 0,
