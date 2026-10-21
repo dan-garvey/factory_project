@@ -76,7 +76,7 @@ not establish the user's graphical-quality target.
 
 | Family | Current reusable content | Boundary still to solve |
 | --- | --- | --- |
-| Foundation surfaces | Authored fixed panels use the qualified steel surface at its declared physical scale. | The worksite panels are not player-buildable foundations. Neighbor-dependent edges, holes and structural joins need native construction interfaces. |
+| Foundation surface resource | The qualified steel finish and fixed-panel art remain available in the historical terrain fallback. The current [native site](../../experiments/engine-environment/godot/opening/site_surface.gd) mounts natural ground, with no foundation panels or boxes. | There is no player-buildable foundation catalogue. Neighbor-dependent edges, holes and structural joins need native construction interfaces. |
 | Waterwheel | Selected sourced rim, hub and spokes combine with shaped timber paddles, cast stands and open journal bearings. | Player-selected radius, blade count and new power behavior are not supplied by the source model. |
 | Press | Selected drill-press columns and mounting pieces combine with an authored crown, open ram housing, guide sockets and existing tool motion. | One fitted press does not provide multi-press frames, interchangeable cutters or shared tool timing. |
 | Collector and supports | Shaped cast cheeks, service details and an open skid replace undifferentiated blocks. | These remain parts of existing machines, without independent structural inventory or collision rules. |
