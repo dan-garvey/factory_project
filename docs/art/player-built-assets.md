@@ -1,0 +1,265 @@
+# Production-quality assets for player construction
+
+Research date: 2026-10-20. This is a source-based recommendation and a proposed
+production workflow. It includes no new rendered comparison, asset import,
+performance measurement or gameplay implementation.
+
+## Direction
+
+Use a coherent kit of deliberately modeled components, shared materials and
+controlled geometry generators. Players assemble the components; presentation
+chooses the right joints, spans, exposed ends and moving pieces from confirmed
+construction. Good source assets can supply materials and suitable components.
+Original art remains necessary for the distinctive functional parts and their
+interfaces. Geometry generation must preserve that art direction as dimensions
+and arrangements change.
+
+This applies to everything players build: foundations, structural supports,
+frames, belts, cogwheels, shafts, tools and complete contraptions. A waterwheel,
+multi-press or combined press/cut machine is an example of the system. The
+construction vocabulary must also accommodate new families without requiring a
+new bespoke renderer for every complete machine.
+
+The visual target remains the [production presentation target](production-quality.md).
+Successful mesh generation alone cannot establish it. A beautiful source model
+also needs appropriate composition, lighting and motion in the actual worksite.
+
+## What exists and what is missing
+
+The inspected baseline is main `42adffeb4a09b0a605cff5e2b0cb1fd857363873`.
+These are source observations, with no new game execution:
+
+- [The opening](../../experiments/engine-environment/godot/opening/opening.gd)
+  constructs collector, belt, press and wheel visuals through separate functions.
+  Its fitted details provide reusable modeling techniques, but each function
+  still describes a particular complete asset.
+- [Transmission assets](../../experiments/engine-environment/godot/opening/native_transmission_assets.gd)
+  already parameterize gear radius and shaft length, reuse some meshes and keep
+  decorative geometry inside established envelopes. The visible gear uses eight
+  decorative teeth per native ratio unit. That is an adapter convention, not
+  evidence of exact visible tooth contact or a general gear-design tool.
+- [The transmission presenter](../../experiments/engine-environment/godot/opening/native_transmission_presenter.gd)
+  consumes confirmed identities, axes, dimensions, engagements and signed rates.
+  This is a useful authority boundary for a richer component kit. Its current
+  refresh key includes motion state; the proposed cache below must distinguish
+  geometry changes from changes that only need instance updates.
+- [The native Host projection](../../native/factory-godot-world/src/host.cpp)
+  exposes entities, transmission parts, material links and mechanical motion.
+  [The stationary profile](../../native/factory-stationary/include/factory/stationary.hpp)
+  has roles for collector, belt, processor, waterwheel, gear and shaft. Its first
+  material profile has at most one collector, belt and processor. It does not
+  implement a general multi-tool assembly, player-built foundation catalogue or
+  freely routed conveyor system.
+- [The mechanical kernel](../../native/factory-mechanics/include/factory/mechanics.hpp)
+  describes exact geometry and rational rates. Its current power result does
+  not model phase or load. A detailed animated assembly must not imply that
+  coupled stroke timing or torque has already been simulated.
+
+Those profile limits are implementation boundaries. They do not narrow the
+user's requested construction system. Visual research can cover the wider
+system now; adopting new functional assemblies requires appropriate native
+outcomes later.
+
+## Primary sources and what they establish
+
+Sources were consulted on the research date. Blender pages identify a 5.2 LTS
+manual; Godot links use the rolling stable documentation. These describe
+available workflows, not a verified local Blender installation or a new runtime
+result. A future implementation must select and check its actual tool versions.
+
+| Primary source | Supported observation and limit |
+| --- | --- |
+| [Blender: instances](https://docs.blender.org/manual/en/latest/modeling/geometry_nodes/instances.html) | Geometry Nodes can reference repeated geometry with independent transforms. Realizing instances creates unique geometry and increases memory use. This supports an authoring approach; no Geometry Nodes asset was built here. |
+| [Blender: glTF export](https://docs.blender.org/manual/en/latest/addons/scene_gltf2.html) | The exporter can emit evaluated meshes with modifiers applied. Geometry Nodes instance export is marked experimental, and GPU instance export has hierarchy restrictions. An authoring graph is not a portable runtime construction program. |
+| [Godot: available 3D formats](https://docs.godotengine.org/en/stable/tutorials/assets_pipeline/importing_3d_scenes/available_formats.html) | glTF is a recommended scene format. Direct `.blend` import calls Blender to convert the scene. Exported `.glb` resources offer a route that does not require Blender on every runtime machine. |
+| [Godot: import configuration](https://docs.godotengine.org/en/stable/tutorials/assets_pipeline/importing_3d_scenes/import_configuration.html) | Imported scenes have explicit customization and inherited-scene workflows. Shared material resources and a separate runtime wrapper can preserve local bindings through reimport. Their exact behavior still needs implementation checks. |
+| [Godot: ArrayMesh](https://docs.godotengine.org/en/stable/tutorials/3d/procedural_geometry/arraymesh.html) | Generated surfaces can supply positions, normals, tangents, texture coordinates and indices. Variable spans can therefore receive proper surface data rather than relying on stretched primitive materials. |
+| [Godot: MultiMesh](https://docs.godotengine.org/en/stable/classes/class_multimesh.html) | GPU instancing reduces submission overhead for repeated meshes. Visibility is handled for the group, and blend shapes are ignored. One world-sized group is an unsuitable default for independently edited, widely dispersed parts. |
+| [Godot: mesh level of detail](https://docs.godotengine.org/en/stable/tutorials/3d/mesh_lod.html) | Imported scenes can receive automatic mesh simplification. Spatial grouping matters for instanced detail selection. Generated meshes require an explicit detail strategy; these facilities establish no frame-rate budget for our factory. |
+| [Epic: spline components](https://dev.epicgames.com/documentation/en-us/unreal-engine/blueprint-spline-components-overview-in-unreal-engine) | A spline path and a mesh deformed between two spline points serve different purposes. The transferable idea is to separate route geometry from the pieces arranged along it; this is not a proposed engine switch. |
+| [Epic: populating meshes along a spline](https://dev.epicgames.com/community/learning/tutorials/39/unreal-engine-populating-meshes-along-a-spline-with-blueprints) | The official tutorial transcript demonstrates instancing rigid pieces along a path. This is a useful reference for rollers and supports that should retain their shape while a belt follows a route. |
+| [Poly Haven: asset license](https://polyhaven.com/license) | The provider permits commercial use and redistribution of its CC0 assets. This makes it a candidate source for surfaces and suitable props. No particular machine component, complete industrial kit or import quality was verified. |
+
+The first two complete HTML captures are retained outside source control under
+`player-built-assets-research-20261020` in the local prototype evidence directory.
+Earlier requests to obsolete manual paths failed; they supplied no evidence.
+The GDC session abstract for *Fallout 4's Modular Level Design* was also found,
+but its full presentation was not read or watched and is not used for detailed
+production claims here.
+
+## Compare the practical approaches
+
+The following assessment and recommendation are original inferences from those
+sources and our construction requirements.
+
+| Approach | Useful contribution | Remaining problem |
+| --- | --- | --- |
+| Finished machine assets | A reference for silhouette, surface treatment and plausible detail; potentially usable separated subcomponents when the license and editable source permit it. | A fixed complete model cannot cover player-selected dimensions or arrangements. Motion, working openings and component boundaries may require substantial reauthoring. |
+| Authored modular component kit | High-quality feet, frame joints, bearings, hubs, rollers, guards, sockets and tool heads can be reused across many builds. | Quality depends on compatible interfaces, proportion rules and enough corner/end variants. Raw mesh reuse alone leaves obvious seams or intersections. |
+| Controlled geometry generation | Profiles, repeated sections, arcs and paths adapt spans and repetition while preserving a common surface language. | UV scale, thickness, normals, caps and short-span behavior must be designed. Arbitrary scaling of an entire detailed part damages its proportions. |
+| One bespoke procedural generator for each complete machine | Can produce a chosen demonstration quickly. | Each new combination adds another special case. It does not establish a shared construction vocabulary. |
+
+Use the modular kit and controlled generators together. Author the parts whose
+silhouette carries identity, then let code assemble and adapt them. A bearing
+keeps its modeled shape; a shaft between bearings changes length. A conveyor
+retains its end drums and rollers while its central surface follows an admitted
+route. Generated art can be sophisticated, but an algorithm does not remove the
+need to design its proportions, joints and materials.
+
+## A common component and connection vocabulary
+
+The following is a proposed presentation contract, not an implemented native
+schema. It should extend existing part facts where necessary rather than
+introducing a second construction state.
+
+| Record | Required meaning |
+| --- | --- |
+| Part identity and generation | Refer to the admitted object. Rebuilding must not retarget old selection or receipts to a new part. |
+| Asset family and revision | Select compatible art, material slots and generator behavior. Artwork revisions do not silently alter mechanical rules. |
+| Confirmed dimensions and local transform | Define the part's size and assembly-local mount using declared units and axes. World transforms come from its confirmed parent or part placement. |
+| Connection frames | Name a mechanical port, material port or structural join with its position, orientation and compatible envelope. Renderer sockets visualize authoritative geometry or links; they do not independently grant a connection. |
+| Body and tool separation | Identify rigid frames, rotating groups, sliding carriages and functional tool heads. Moving one member must not deform unrelated pieces. |
+| Surface assignment | Map a small shared palette of paint, cast metal, machined metal, timber and rubber onto the part, with a declared physical texture scale. |
+| Collision, picking and working envelopes | Keep decorative surfaces, physical obstruction, selection proxies and actual tool work distinguishable and mutually consistent. Detailed render triangles do not automatically become authoritative contact geometry. |
+| Instance state | Carry confirmed motion, selection and bounded cosmetic variation separately from reusable mesh data. Stable visual variation cannot create holes, wear states or broken mechanisms that have gameplay consequences. |
+
+Connection variants deserve as much art effort as the middle of a part. Provide
+exposed ends, mating flanges, corner pieces, terminal plates and supported changes
+of direction. A connected part must visibly meet its neighbor. A disconnected
+part must not receive a decorative bridge that suggests a working route.
+
+Use local transform composition for assemblies:
+`part_world = assembly_world × part_mount × member_motion`.
+This is a presentation design for future compound structures. The current
+stationary projection does not already provide every term. Construction grids,
+operating motion and camera transforms remain distinct.
+
+## Apply the system across construction families
+
+This is an initial coverage map, not an exhaustive part catalogue or a decision
+to add every listed gameplay feature immediately.
+
+| Construction family | Authored kit content | Adaptation and difficult cases |
+| --- | --- | --- |
+| Foundations and floors | Surfaces, perimeter trims, corners, underside beams, feet and accessible edge treatments. | Tile or extend the interior at consistent texture scale. Select exposed-edge variants from confirmed neighbors; preserve gaps, height changes and holes. Existing fixed floor panels are not evidence of player-buildable foundations. |
+| Frames, beams and supports | Foot plates, end connections, elbows, braces and load-bearing silhouettes. | Change a plain middle span or repeat compatible bays while keeping end details rigid. Very short spans need explicit variants. Automatic supports must never create free structural inventory or unmodeled collision. |
+| Belts and material routing | End drums, rollers, side frames, junction fittings and support brackets. | Generate the admitted route surface with arc-length texture coordinates; place rigid rollers and supports separately. Turns, grades, short segments and direction reversals expose bad joins. Future curved routes require authority support; the current single belt is not that feature. |
+| Cogwheels and shafts | Hub, spokes, rim profiles, tooth profiles, collars, bearings and couplers. | Parameterize compatible sizes and spans. Preserve circular profiles and signed axes. Visible tooth pitch and phase alignment need explicit treatment; the current decorative tooth multiplier is insufficient proof of meshing appearance. |
+| Player-built waterwheels | Axle, hubs, spokes, rim sections, paddles or buckets, bearings and frame joins. | Assemble around an admitted axis with compatible dimensions. Player-selected paddle count or radius must remain separate from any unimplemented effect on power. Rim closure, water intersection and bearing support need visual scrutiny. |
+| Presses and multi-press structures | Columns, crossheads, anvils, guide rails, rams, dies, guards and feed openings. | Reuse frame bays and individual tool modules for different layouts. Each ram follows its own confirmed work state. Shared framing must not invent a common stroke, capacity or synchronization rule. |
+| Combined press/cut assemblies | Compatible mounting interfaces and distinct press dies, cutters, carriages and work supports. | Fit tools to the player's confirmed arrangement and maintain working clearance. A shared cosmetic enclosure cannot merge recipes or move material between tools. Different operation orders need independently meaningful native behavior. |
+| Further construction families | Reuse the same surface, connection, identity and rigid-motion conventions. | Introduce genuinely new geometry families deliberately. Rails, gantries and travelling assemblies retain the broader design requirements and their own unresolved mechanics. |
+
+For a multi-press, this permits the player to arrange multiple press modules on a
+common frame, choose spacing and route shafts or belts to them. The art workload
+is a frame kit and a press module with compatible joins, rather than a separately
+modeled mesh for every possible whole machine. For a press/cut combination, the
+same mount vocabulary accepts different authored tool heads. Native rules must
+still determine which combinations can actually work.
+
+## Materials, motion and assembly editing
+
+Adopt a shared trim sheet for repeated edge and flange details, tileable material
+sets for broad surfaces, and dedicated textures where a distinctive tool or
+housing needs them. These are proposed art choices. Keep bolts, edge bevels and
+rubber thickness at a stable physical scale when spans change. Encode UV density
+along the generated surface instead of scaling a complete UV-mapped assembly.
+Avoid baking an entire fixed machine's shadowing into parts that can separate.
+
+Keep rigid machinery as transformable subparts. Skinning is useful for genuinely
+deforming components, but a single skeleton for every possible player assembly
+would introduce unnecessary coupling. Confirmed stopped, stalled and unpowered
+states must remain visually distinct. Until the authority supplies phase and
+coupled work timing, animation can illustrate rate or state but cannot claim
+exact tooth contact, shared press timing or rate-scaled production.
+
+Separate the reusable mesh cache key from instance state. A candidate mesh key is
+`asset_revision + family + geometry_parameters + detail_level`. Identity,
+selection, current angle and changing inventory are instance inputs. Cache
+material resources separately. Rebuild only affected geometry and neighboring
+join variants after a confirmed edit. Removal and reconstruction must release
+the old instance binding. A preview may show proposed geometry but must not
+alter confirmed support, connection, stock or work.
+
+## Source assets, import and resource ownership
+
+Search for usable modular components and surfaces before authoring every detail.
+Prefer assets with editable parts, useful pivots, plausible thickness, materials
+that transfer, and licenses that permit adaptation and distribution inside the
+public game repository. A CAD-looking download is not enough: its license,
+tessellation, hidden internals and independent moving pieces need assessment.
+No specific external industrial component kit has yet been qualified here.
+
+One immediately reusable sourced surface is the existing
+[Metal Plate 02 set](../../experiments/engine-environment/godot/opening/assets/steel/CREDITS.md).
+The [provider page](https://polyhaven.com/a/metal_plate_02) identifies its author,
+CC0 terms, two-metre extent and available material maps. It can inform foundation
+and broad sheet-metal surfaces. A coherent kit still needs distinct machined,
+painted, timber and rubber finishes; using the same weathered plate everywhere
+would erase those differences. This study downloads no additional asset maps.
+
+Keep editable authoring sources and export settings reproducible. Use Blender
+Geometry Nodes as an optional authoring tool for repeated variants; export
+evaluated component meshes. Do not depend on an experimental instance export or
+expect Godot to execute the Blender graph. A bounded native generator can later
+implement the necessary variable shapes, with the existing Godot adapter binding
+mesh buffers and presentation. This proposal adds no Python tool or dependency.
+
+Import `.glb` components through a separate scene wrapper that owns presentation
+bindings, material overrides, port metadata and selection proxies. Share surfaces
+across compatible components and verify pivots and axis conversion explicitly.
+Preserve the original source and provider terms for adopted assets. The normal
+capture and launcher path must include the resources and metadata; a source-only
+asset beside a fixed capture list is not a runnable integration.
+
+For large builds, group repeated decoration by spatial area and shared mesh and
+material. Keep independently editable identity and picking outside render batches.
+Select simplified detail that preserves openings, gear silhouettes and tool
+positions. Generated variants need their own detail path; imported automatic
+detail selection does not automatically solve it. Measure vertices, submissions,
+texture memory, edit rebuilding and frame time on a representative factory before
+choosing numerical budgets. No such costs were measured in this study.
+
+## Bounded next prototype
+
+Build a small reusable component sample before another complete custom machine:
+a foundation surface with edge/corner variants, a rigid bearing and hub, a shaft
+with rigid ends and variable middle span, and one conveyor end/roller kit with a
+separate adaptable middle surface. Give them the same material palette and
+connection conventions. This spans structures, transmission and logistics, and
+tests the system before committing to a large content catalogue.
+
+Start with a deterministic asset-comparison scene that consumes disclosed
+construction descriptors and submits no gameplay commands. Exercise existing
+admitted shaft dimensions and axes. Label proposed foundation and belt-route
+descriptors explicitly as presentation examples, with no claim of implemented
+placement, transport or saved gameplay. Then mount the applicable components in
+the ordinary native scene through the existing confirmed projection. A later
+native outcome owns new functional construction capabilities.
+
+The next increment should distinguish these failures:
+
+1. Long and short spans stretch bolt heads, change metal texture scale, invert
+   normals or leave uncapped ends.
+2. Neighbor addition/removal leaves a floating foundation trim, duplicated corner,
+   stale selection binding or an invented support.
+3. Axis changes rotate bearings, shafts or gear faces inconsistently with their
+   confirmed connection frames.
+4. Curves distort rigid rollers, leave seams at end drums or create a visible
+   material route absent from the native state.
+5. Motion-only updates allocate new meshes, rebuild the whole assembly or keep
+   moving a stalled member.
+6. A beautiful close-up becomes unreadable at normal construction distance, or a
+   large repetition exposes tiling and disproportionate detail costs.
+
+Relevant automated controls can verify geometric joins, physical material scale,
+identity, resource reuse and authority boundaries. Human comparison must assess
+whether the sample actually looks convincing in the worksite, including ugly
+arrangements. Human feedback is not an extra code-landing approval. Agent desktop
+testing remains disabled.
+
+After that sample, extend the same component contract to a configurable wheel
+and interchangeable press/cut tool mounts. Record any missing native geometry,
+phase or process interfaces as specific implementation outcomes. The recommendation
+is ready to guide that work; production asset quality, a qualified industrial kit,
+exact tooth appearance and general multi-tool gameplay remain unproved.
