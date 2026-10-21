@@ -1519,6 +1519,7 @@ class ProductionPressTrayArt:
 class ProductionDriveJournalArt:
 	extends RefCounted
 	## Turned presentation inside the original native journal cylinder.
+	static var horizontal_press_mesh: ArrayMesh
 	static func mesh(height: float) -> ArrayMesh:
 		var half := height / 2.0
 		# Keep the full central bearing span. End relief and center marks are
@@ -1537,6 +1538,62 @@ class ProductionDriveJournalArt:
 
 	static func material() -> StandardMaterial3D:
 		return ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.38)
+
+	static func press_mesh() -> ArrayMesh:
+		if horizontal_press_mesh == null:
+			var surface := SurfaceTool.new()
+			surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+			# The inboard shoulder clears the original stamped-plate hardware;
+			# the outer cuff keeps the established attachment radius and plane.
+			var end_mesh := ProductionVisuals.turned_mesh(PackedVector2Array([
+				Vector2(0, -0.070), Vector2(0.014, -0.070), Vector2(0.028, -0.090),
+				Vector2(0.065, -0.090), Vector2(0.077, -0.078), Vector2(0.077, 0.050),
+				Vector2(0.078, 0.055), Vector2(0.085, 0.060), Vector2(0.085, 0.076),
+				Vector2(0.071, 0.090), Vector2(0.028, 0.090), Vector2(0.014, 0.070),
+				Vector2(0, 0.070)]))
+			# Preserve the two original external ends. The working body between
+			# them is not an exposed through-shaft across the anvil.
+			for side in [-1.0, 1.0]:
+				var basis := Basis(Vector3.RIGHT, PI) if side < 0 else Basis.IDENTITY
+				surface.append_from(end_mesh, 0, Transform3D(basis, Vector3(0, side * 0.585, 0)))
+			horizontal_press_mesh = surface.commit()
+		return horizontal_press_mesh
+
+	static func _press_fixed(parent: Node3D, name_value: String, role: String,
+			mesh_value: ArrayMesh, at: Vector3, basis_value: Basis = Basis.IDENTITY) -> void:
+		var part := MeshInstance3D.new()
+		part.name = name_value
+		part.position = at
+		part.basis = basis_value
+		part.mesh = mesh_value
+		part.material_override = ProductionTransmissionFinish.material("worked", Color("878d7f"), 0.85, 0.42) \
+			if role == "Bearing" else ProductionCollectorArt.coating(Color("58634c"))
+		part.set_meta("press_input_role", role)
+		parent.add_child(part)
+
+	static func mount_press_bearings(parent: Node3D, axis: Vector3) -> void:
+		var ring := ProductionVisuals.turned_mesh(PackedVector2Array([
+			Vector2(0.087, -0.010), Vector2(0.089, -0.015), Vector2(0.096, -0.015),
+			Vector2(0.100, -0.011), Vector2(0.100, 0.011), Vector2(0.096, 0.015),
+			Vector2(0.089, 0.015), Vector2(0.087, 0.010), Vector2(0.087, -0.010)]))
+		for side in [-1.0, 1.0]:
+			var suffix := "Left" if side < 0 else "Right"
+			var at: Vector3 = axis * float(side) * 0.66
+			_press_fixed(parent, "PressInputBearing" + suffix, "Bearing", ring,
+				at + Vector3.UP * Geometry.ANCHOR_HEIGHT, Basis(Quaternion(Vector3.UP, axis)))
+			if axis == Vector3.RIGHT:
+				# Rear brackets leave both the receiving pan and all original
+				# finished-plate pieces clear, without moving either interface.
+				_press_fixed(parent, "PressInputPost" + suffix, "Post",
+					ProductionVisuals.box_mesh(Vector3(0.10, 0.26, 0.12)),
+					at + Vector3(0, 0.37, -0.23))
+				_press_fixed(parent, "PressInputBracket" + suffix, "Bracket",
+					ProductionVisuals.box_mesh(Vector3(0.06, 0.08, 0.09)),
+					at + Vector3(0, 0.50, -0.135))
+			else:
+				_press_fixed(parent, "PressInputPost" + suffix, "Post",
+					ProductionVisuals.box_mesh(Vector3(0.12, 0.165, 0.10)),
+					at + Vector3.UP * 0.3225)
 
 class ProductionCollectorToolingArt:
 	extends RefCounted
@@ -1760,15 +1817,16 @@ class ProductionEnvironment:
 		return water_finish
 
 	static func animate_water(seconds: float) -> bool:
-		# The existing mesh UV grows downstream. A negative texture offset
-		# moves the repeated ripple pattern downstream at a cosmetic 0.4 m/s.
+		# The mesh UV grows downstream at a density estimated from the same
+		# terrain and staged water used for native current. A negative texture
+		# offset moves the ripple faster through narrow reaches.
 		# Absolute time makes shared material updates idempotent across views.
-		# It is never a production clock or an estimate of waterwheel speed.
+		# It is never a production clock or waterwheel authority.
 		if water_finish == null or not is_finite(seconds) or seconds < 0.0:
 			return false
 		water_finish.uv1_offset = Vector3(0.0, -fposmod(seconds * 0.256, 1.0), 0.0)
 		# UV2 has six times the downstream density. Both layers advect at
-		# 0.4 m/s, with a small lateral drift on the fine layer. Reduce time
+		# the same local estimated speed, with a small lateral drift. Reduce time
 		# before the faster multiplication so every finite time remains valid.
 		water_finish.uv2_offset = Vector3(-fposmod(seconds * 0.0385, 1.0),
 			-fposmod(fposmod(seconds, 1.0 / 1.536) * 1.536, 1.0), 0.0)
@@ -1900,7 +1958,7 @@ class ProductionEnvironment:
 	static func stream_mesh() -> ArrayMesh:
 		if stream_volume_mesh != null:
 			return stream_volume_mesh
-		var rows := 88
+		var rows := 238
 		var cols := 8
 		var z_start := -58.0
 		var z_end := 61.0
@@ -1909,30 +1967,39 @@ class ProductionEnvironment:
 		var normals: Array[Vector3] = []
 		var uvs: Array[Vector2] = []
 		var colors: Array[Color] = []
+		var uv_v := 0.0
+		var previous_uv_density := 0.0
 		for r in range(rows + 1):
 			var tz := float(r) / float(rows)
 			var z_world := lerpf(z_start, z_end, tz)
+			# Both normal layers scroll by 0.032 UV units per second after
+			# material scaling. Wider, slower reaches need denser UVs.
+			var uv_density := 0.032 / maxf(Surface.display_flow_speed(z_world), 0.05)
+			if r > 0:
+				uv_v += (previous_uv_density + uv_density) * 0.5 * (z_end - z_start) / float(rows)
+			previous_uv_density = uv_density
 			var z_local := z_world - 1.65
 			var rc_local := river_center_x(z_world) - (-2.7)
-			var half_w := lerpf(0.56, 1.62, smoothstep(5.5, 22.0, absf(z_world - 1.65)))
+			var west_w: float = Surface.wet_half_width(z_world, -1.0)
+			var east_w: float = Surface.wet_half_width(z_world, 1.0)
 			for c in range(stride):
 				var x_local := rc_local
 				var y := 0.0
 				var normal := Vector3.UP
 				var color := Color.WHITE
 				if c == 0:
-					x_local = rc_local - half_w - 0.06
-					y = stream_surface_height(-2.7 + rc_local - half_w, z_world) - 0.34
+					x_local = rc_local - west_w - 0.06
+					y = stream_surface_height(-2.7 + rc_local - west_w, z_world) - 0.34
 					normal = Vector3(-0.86, 0.51, 0.0).normalized()
 					color = Color("183842")
 				elif c == cols:
-					x_local = rc_local + half_w + 0.06
-					y = stream_surface_height(-2.7 + rc_local + half_w, z_world) - 0.34
+					x_local = rc_local + east_w + 0.06
+					y = stream_surface_height(-2.7 + rc_local + east_w, z_world) - 0.34
 					normal = Vector3(0.86, 0.51, 0.0).normalized()
 					color = Color("183842")
 				else:
 					var tc := float(c - 1) / float(cols - 2) * 2.0 - 1.0
-					x_local = rc_local + tc * half_w
+					x_local = rc_local + tc * (west_w if tc < 0.0 else east_w)
 					var x_world := -2.7 + x_local
 					y = stream_surface_height(x_world, z_world)
 					var dz := 0.25
@@ -1946,7 +2013,7 @@ class ProductionEnvironment:
 				var x_world_uv := -2.7 + x_local
 				positions.append(Vector3(x_local, y, z_local))
 				normals.append(normal)
-				uvs.append(Vector2((x_world_uv + 16.0) * 0.22, (z_world - z_start) * 0.08))
+				uvs.append(Vector2((x_world_uv + 16.0) * 0.22, uv_v))
 				colors.append(color)
 		var surface := SurfaceTool.new()
 		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -2159,8 +2226,10 @@ class ProductionEnvironment:
 			var radius := 11.2 + float(posmod(n * 13, 37)) * 0.52
 			var px := 1.65 + cos(angle) * radius
 			var pz := 1.65 + sin(angle) * radius
-			if absf(px - river_center_x(pz)) < channel_half_width(pz) + 1.1:
-				px += 2.4 if px >= river_center_x(pz) else -2.4
+			var river_x := river_center_x(pz)
+			var bank_clearance := channel_half_width(pz) + 1.1
+			if absf(px - river_x) < bank_clearance:
+				px = river_x + bank_clearance * (1.0 if px >= river_x else -1.0)
 			var py: float = Surface.height_at(px, pz)
 			var position := Vector3(px, py, pz)
 			var scale := 0.85 + float(posmod(n * 7, 13)) * 0.08
@@ -4321,7 +4390,7 @@ func _spindle_rotation(axis: Vector3) -> Vector3:
 		return Vector3.ZERO
 	return Vector3(0, 0, PI / 2) if axis == Vector3.RIGHT else Vector3(PI / 2, 0, 0)
 
-func _machine_drive_stub(anchor: Node3D, entity: Dictionary) -> void:
+func _machine_drive_stub(anchor: Node3D, entity: Dictionary, press_input: bool = false) -> void:
 	if state.get("options", {}).get("native", false):
 		var axis := _machine_axis(entity)
 		# The vertical stub stays above the base inside the same pick envelope.
@@ -4330,9 +4399,12 @@ func _machine_drive_stub(anchor: Node3D, entity: Dictionary) -> void:
 		journal.name = "DriveStub"
 		journal.position = Vector3(0, Geometry.ANCHOR_HEIGHT, 0)
 		journal.rotation = _spindle_rotation(axis)
-		journal.mesh = ProductionDriveJournalArt.mesh(height)
+		var horizontal_press := press_input and axis != Vector3.UP
+		journal.mesh = ProductionDriveJournalArt.press_mesh() if horizontal_press else ProductionDriveJournalArt.mesh(height)
 		journal.material_override = ProductionDriveJournalArt.material()
 		anchor.add_child(journal)
+		if horizontal_press:
+			ProductionDriveJournalArt.mount_press_bearings(anchor, axis)
 	else:
 		_machine_cylinder(anchor, "DriveStub", Vector3(0, 0.35, 0.55), 0.085, 0.18,
 			Color("b87945"), Vector3(PI / 2, 0, 0))
@@ -4476,7 +4548,7 @@ func _press_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	var tray := _machine_box(anchor, "OutputTray", Vector3(0.46, 0.33, 0.15), Vector3(0.48, 0.05, 0.58), Color("aaa993"), 0.85, 0.5)
 	if _native_transmission():
 		ProductionPressTrayArt.mount(anchor, tray)
-	_machine_drive_stub(anchor, entity)
+	_machine_drive_stub(anchor, entity, true)
 	for x in [-0.48, 0.48]:
 		_machine_cylinder(anchor, "BridgeBolt", Vector3(x, 1.5, -0.1075), 0.035, 0.025,
 			steel, Vector3(PI / 2, 0, 0))

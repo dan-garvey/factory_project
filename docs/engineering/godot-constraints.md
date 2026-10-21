@@ -652,6 +652,21 @@ absorption or refraction; transparent-object sorting, underwater viewing and fin
 rendered balance remain unassessed. Resource and frame-consumer checks do not
 establish pixel quality or GPU cost. The historical flat fixture stays opaque.
 
+**Terrain-guided water is a bounded stationary model.** The ordinary scene sends
+wet grid cells and staged water levels through the trusted Godot adapter. Native
+code samples the exact emitted terrain triangles for bed depth, looks for a
+connected lower wet neighbor across a clear path, and derives a local current
+from slope and wetted width. A solid bank blocks that connection; level or
+rising water without an outlet remains still. The renderer clips its water edge
+against the same terrain and varies ripple texture density from a presentation
+estimate of the same slope, depth and width. The texture is not current
+authority. The staged surface is authored for the demo and does not solve mass
+conservation, rainfall, water pressure, erosion, dynamic flooding or lateral
+transport around obstacles. These are native model and adapter limits, not
+intended-game restrictions. Isolated checks cover the synthetic bank and basin,
+three real riverbed widths/speeds and the source geometry; rendered quality and
+human usability remain unassessed.
+
 The current [forest-floor surface](../../experiments/engine-environment/godot/opening/assets/ground/CREDITS.md)
 uses provider-declared 1.3-metre mapping and preserves the source albedo's decoded
 RGB8 values through lossless packing. The pinned loader decodes the 16-bit data

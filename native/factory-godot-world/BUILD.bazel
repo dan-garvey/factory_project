@@ -21,7 +21,7 @@ cc_library(
     srcs = ["src/host.cpp"],
     hdrs = ["include/factory/godot_world.hpp"],
     strip_include_prefix = "include",
-    deps = ["//native/factory-world:checkpoint", "//native/mineral-site:mineral_site"],
+    deps = ["//native/factory-world:checkpoint", "//native/mineral-site:mineral_site", "//native/waterflow:waterflow"],
 )
 
 cc_test(

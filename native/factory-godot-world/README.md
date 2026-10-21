@@ -45,6 +45,11 @@ not a Session command. Native machine placement clips both terrain triangles
 throughout the complete footprint, refusing burial, unsupported bases and occupied
 scenery. Foundations can intersect natural ground/scenery and need no lower block
 or gravity support; constructed parts and actors still block their placement.
+The ordinary site also supplies wet grid cells and water levels. Native waterflow
+uses those same terrain triangles to derive bed depth, bank-clear downstream
+neighbors and local current; the waterwheel samples that result at its actual
+center. The direct fixed-current input remains available for synthetic Host
+fixtures. No water state is submitted through Session commands.
 Clear flat ground can support machines throughout the represented site. There is no privileged construction rectangle,
 including for cogwheels. The current changed profile deliberately provides no old
 save migration. Store still owns persistence and atomic file publication.

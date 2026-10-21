@@ -52,8 +52,15 @@ immersed and clear of the bed. The wheel tool adjusts its diameter in whole grid
 squares, starting at a three-square diameter, and its level on the shared height grid. Choose a horizontal axle across
 the current; the sampled flow controls the wheel's signed rotation, and a larger
 wheel turns more slowly in the same current. A wheel can be wet yet stationary
-when the flow is parallel to its axle. The current is an experimental fixed site
-field, not a fluid simulation.
+when the flow is parallel to its axle. The displayed river has a narrow starter
+reach, a deeper and broader reach for a larger wheel, and a downstream rapid
+that narrows again. Native current is derived from the emitted terrain bed and
+the staged water surface at each wet cell: downhill direction, depth and wetted
+width determine local speed. A bank interrupts the route, and a basin without a
+lower outlet stays still. The staged surface and speed rule are experimental
+site choices, not a volume-conserving fluid simulation. The animated ripple
+normal follows the river's downstream direction but does not display a
+per-cell speed measurement.
 
 In the native profile, G selects a **finite shaft**, not an arbitrary power edge.
 Click its two machine or cogwheel endpoints; only the native geometric planner
@@ -80,8 +87,9 @@ direction. Reversing the drive carries them off the other end. A loose stack is
 shown at that end; stand nearby and use **Pick up loose blanks…** to collect it,
 then insert the blanks at a machine. Loose stacks survive saving and belt removal.
 This prototype represents their fixed grid locations without gravity. Belt
-throughput remains a fixture step. Cog and shaft quantities and dimensions are
-revisable fixture choices.
+throughput remains a fixture step. The press's work per tick scales with its
+confirmed angular rate and works in either turning direction. Cog and shaft
+quantities and dimensions are revisable fixture choices.
 
 After confirming four plates, the native opening marks an upstream waterwheel
 site at `[-2, 0]` and asks for eight carried plates in total. The wheel must be
