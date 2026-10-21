@@ -179,6 +179,10 @@ faces. This is an artistic mapping, not a source-certified timber dimension.
 Grain stays attached to each board as it turns; no world-space projection or
 animation clock is added. Isolated small- and large-paddle views hide the other
 wheel art to expose the material, and do not establish complete scene quality.
+The two machined heads on each blade retain a regular 13 mm corner radius and
+10 mm height as wheel diameter changes. Their upper faces meet the flat underside
+of the existing iron straps. These dimensions are provisional visual choices;
+the heads add no fastener torque, stock cost or collision rule.
 The original rotor, paddle positions, native axes, conservative envelope and
 signed cosmetic motion remain. The new art changes no power or working rule.
 Historical fixed resource rosters keep their earlier block paddles. Technical

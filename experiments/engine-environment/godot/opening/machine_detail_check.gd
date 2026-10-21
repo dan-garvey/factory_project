@@ -29,6 +29,148 @@ var press_input_checks_complete := false
 var wheel_support_checks_complete := false
 var span_belt_checks_complete := false
 var paddle_grain_checks_complete := false
+var paddle_hardware_checks_complete := false
+
+func paddle_fastener_bounds(mesh: Mesh, pose: Transform3D) -> AABB:
+	var points: PackedVector3Array = mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	var minimum := Vector3(INF, INF, INF)
+	var maximum := Vector3(-INF, -INF, -INF)
+	for point in points:
+		var world_point := pose * point
+		minimum = minimum.min(world_point)
+		maximum = maximum.max(world_point)
+	return AABB(minimum, maximum - minimum)
+
+func paddle_fastener_facts(mesh: Mesh, pose: Transform3D, strap_pose: Transform3D) -> Dictionary:
+	var points: PackedVector3Array = mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	var axis := (pose.basis * Vector3.UP).normalized()
+	var inverse_strap := strap_pose.affine_inverse()
+	var minimum_radius := INF
+	var maximum_radius := 0.0
+	var minimum_axial := INF
+	var maximum_axial := -INF
+	var cap_points := 0
+	var seated_points := 0
+	var largest_gap := 0.0
+	for point in points:
+		var mapped := pose.basis * point
+		var axial := mapped.dot(axis)
+		minimum_axial = minf(minimum_axial, axial)
+		maximum_axial = maxf(maximum_axial, axial)
+		if Vector2(point.x, point.z).length() < 0.005:
+			continue
+		var radius := (mapped - axis * axial).length()
+		minimum_radius = minf(minimum_radius, radius)
+		maximum_radius = maxf(maximum_radius, radius)
+		if absf(point.y - 0.005) < 0.000001:
+			cap_points += 1
+			var on_strap: Vector3 = inverse_strap * (pose * point)
+			largest_gap = maxf(largest_gap, absf(on_strap.y + 0.003))
+			if absf(on_strap.y + 0.003) < 0.00001 and absf(on_strap.x) < 0.03428 \
+				and absf(on_strap.z) < 0.01178:
+				seated_points += 1
+	return {"minimum_radius": minimum_radius, "maximum_radius": maximum_radius,
+		"height": maximum_axial - minimum_axial, "cap_points": cap_points,
+		"seated_points": seated_points, "largest_gap": largest_gap}
+
+func check_paddle_hardware() -> void:
+	paddle_hardware_checks_complete = false
+	var observations: Array = []
+	var assemblies := 0
+	var cached_mesh: Mesh
+	var cached_finish: Material
+	var old_head := CylinderMesh.new()
+	old_head.top_radius = 0.014
+	old_head.bottom_radius = 0.014
+	old_head.height = 0.01
+	old_head.radial_segments = 6
+	for shared_profile in [false, true]:
+		for axis in [0, 2]:
+			for tiles in [3, 5, 8]:
+				var view: Variant = Shared.new() if shared_profile else Opening.new()
+				if shared_profile:
+					view.session = PaddleSessionFacts.new()
+				view.state = {"context": "paddle-hardware-fixture", "options": {"native": true, "physical": true},
+					"actors": {"P": {"ready": true}}, "stock": {}, "entities": {}, "parts": {},
+					"transmission_parts": {}, "motion": {}, "links": [], "drive_links": [], "engagements": []}
+				var before: Dictionary = view.state.duplicate(true)
+				var machine := Node3D.new()
+				view._assemble_machine(machine, {"kind": "wheel", "axis": axis, "tiles": tiles,
+					"cell": [0, 0], "generation": 1})
+				var rotor: Node3D = view.wheel_rotor
+				var blade: MeshInstance3D
+				for child in rotor.get_children():
+					if child is MeshInstance3D and child.get_meta("paddle_index", -1) == 0:
+						blade = child
+						break
+				verify(blade != null, "The ordinary wheel provides a first mounted paddle.")
+				if blade == null:
+					machine.free()
+					view.free()
+					continue
+				var paddle_pose := rotor.transform * blade.transform
+				var bolt_count := 0
+				for part in blade.get_children():
+					if part.get_meta("detail_role", "") != "PaddleBolt":
+						continue
+					var bolt: MeshInstance3D = part
+					var strap: MeshInstance3D
+					for candidate in blade.get_children():
+						if candidate.get_meta("detail_role", "") == "PaddleIronStrap" \
+							and is_equal_approx(candidate.position.z, bolt.position.z):
+							strap = candidate
+							break
+					verify(strap != null, "Every head has the original matching formed strap.")
+					if strap == null:
+						continue
+					var pose := paddle_pose * bolt.transform
+					var strap_pose := paddle_pose * strap.transform
+					var facts := paddle_fastener_facts(bolt.mesh, pose, strap_pose)
+					verify(facts.cap_points >= 6 and facts.seated_points == facts.cap_points
+						and facts.largest_gap < 0.00001,
+						"Every upper hex corner sits on the existing strap underside and inside its flat face.")
+					verify(absf(facts.minimum_radius - 0.013) < 0.00001
+						and absf(facts.maximum_radius - 0.013) < 0.00001
+						and absf(facts.height - 0.01) < 0.00001,
+						"The mounted fastener keeps its regular 13 mm corners and 10 mm height.")
+					var old_pose := paddle_pose * Transform3D(Basis(), Vector3(-0.05, -0.041, bolt.position.z))
+					var old_bounds := paddle_fastener_bounds(old_head, old_pose)
+					var new_bounds := paddle_fastener_bounds(bolt.mesh, pose)
+					for coordinate in 3:
+						verify(new_bounds.position[coordinate] >= old_bounds.position[coordinate] - 0.00001
+							and new_bounds.end[coordinate] <= old_bounds.end[coordinate] + 0.00001,
+							"The rigid head stays inside the previous conservative visual envelope.")
+					var distorted := bolt.transform
+					distorted.basis = Basis()
+					var distortion := paddle_fastener_facts(bolt.mesh, paddle_pose * distorted, strap_pose)
+					verify(distortion.maximum_radius - distortion.minimum_radius > 0.01
+						and distortion.height > 0.03,
+						"The original inherited scale is rejected as a distorted head.")
+					var lifted := bolt.transform
+					lifted.origin.y += 0.002 / rotor.scale.y
+					var lift := paddle_fastener_facts(bolt.mesh, paddle_pose * lifted, strap_pose)
+					verify(lift.seated_points < lift.cap_points and lift.largest_gap > 0.0019,
+						"A lifted head cannot pass the full-face seat test.")
+					if cached_mesh == null:
+						cached_mesh = bolt.mesh
+						cached_finish = bolt.material_override
+						check_closed_asset_mesh(cached_mesh, 0.0000042, 0.0000046)
+					verify(bolt.mesh == cached_mesh and bolt.material_override == cached_finish,
+						"Both straps and every wheel size reuse the same head mesh and worked finish.")
+					bolt_count += 1
+					observations.append({"shared_profile": shared_profile, "axis": axis, "tiles": tiles,
+						"radius_min_metres": facts.minimum_radius, "radius_max_metres": facts.maximum_radius,
+						"height_metres": facts.height, "full_face_seated": facts.seated_points == facts.cap_points})
+				verify(bolt_count == 2 and view.state == before and view.model == null
+					and view.actor_world == null and view.request_sequence == 0,
+					"The two fitted heads change no native authority, material or player command.")
+				machine.free()
+				view.free()
+				assemblies += 1
+	paddle_hardware_checks_complete = not failed and assemblies == 12 and observations.size() == 24
+	print(JSON.stringify({"phase": "native paddle hardware", "assemblies": assemblies,
+		"heads": observations, "completed": paddle_hardware_checks_complete, "checks": checks,
+		"native_world": false, "game_entry": false}))
 
 func paddle_grain_range(node: MeshInstance3D, pose: Transform3D, mesh_override: Mesh = null) -> Vector2:
 	var mesh: Mesh = node.mesh if mesh_override == null else mesh_override
@@ -2433,7 +2575,7 @@ func check_timber_paddles(historical: bool = false) -> void:
 					if not cached.has(role):
 						cached[role] = [part.mesh, part.material_override]
 						var limits: Array = {"WheelPaddle": [0.00065, 0.00071], "PaddleRootCleat": [0.00021, 0.000241],
-							"PaddleIronStrap": [0.0000095, 0.0000106], "PaddleBolt": [0.0000049, 0.0000052]}[role]
+						"PaddleIronStrap": [0.0000095, 0.0000106], "PaddleBolt": [0.0000042, 0.0000046]}[role]
 						check_closed_asset_mesh(part.mesh, limits[0], limits[1])
 						if role == "WheelPaddle":
 							verify(part.mesh.get_aabb().size.is_equal_approx(Vector3(0.14, 0.018, 0.28)),
@@ -4790,6 +4932,11 @@ func render_buildable_resources() -> void:
 	quit(0)
 
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--paddle-hardware-only"):
+		check_paddle_hardware()
+		verify(paddle_hardware_checks_complete, "All twelve fitted wheel assemblies must pass.")
+		finish()
+		return
 	if OS.get_cmdline_user_args().has("--paddle-grain-only"):
 		check_paddle_grain()
 		verify(paddle_grain_checks_complete, "All twelve native paddle assemblies must complete.")
@@ -4805,6 +4952,12 @@ func _initialize() -> void:
 		finish()
 		return
 	if OS.get_cmdline_user_args().has("--render-buildable-resources"):
+		if OS.get_cmdline_user_args().has("--paddle-hardware-check"):
+			check_paddle_hardware()
+			if failed or not paddle_hardware_checks_complete:
+				verify(paddle_hardware_checks_complete, "All fitted heads must pass before rendering.")
+				finish()
+				return
 		if OS.get_cmdline_user_args().has("--paddle-grain-check"):
 			check_paddle_grain()
 			if failed or not paddle_grain_checks_complete:
