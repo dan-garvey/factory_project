@@ -85,13 +85,16 @@ directory. A new staged-copy path also creates another output base, even when
 the authoring worktree and caches are reused. Keep concurrent writers in
 separate workspaces.
 
-Before reuse, retain the prior raw-Git archive, seals, results and any binaries
-or runfiles needed by evidence or installed consumers outside mutable build
-outputs; keep their references valid. Finish prior operations and readers before
-replacing staged source. If a consumer still needs an output in place, preserve
-that workspace. Seal and verify each new candidate before and after its
-invocation as usual. Reuse preserves dependency invalidation, toolchain isolation
-and resource limits.
+Before reuse, retain the prior raw-Git archive, seals, results and any binaries,
+required project shared libraries or runfiles outside mutable build outputs;
+keep their runtime layout and consumer references valid. A copied executable
+alone may still depend on libraries in the old output base. On Linux, the ELF
+loader's `--list` mode checks dependency resolution without executing test main;
+reuse the original passing tests when only verifying the retained copy.
+Finish prior operations and readers before replacing staged source. If a
+consumer still needs an output in place, preserve that workspace. Seal and verify
+each new candidate before and after its invocation as usual. Reuse preserves
+dependency invalidation, toolchain isolation and resource limits.
 
 The first targets are:
 
