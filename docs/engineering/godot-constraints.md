@@ -649,9 +649,13 @@ rendered quality nor GPU cost. See the [foliage asset record](../../experiments/
 
 **River transmission is an adapter art approximation.** The ordinary natural
 river blends two mipmapped normal layers through the standard material's separate
-texture-coordinate channels. Its alpha surface can reveal the opaque bed and uses
-the existing sky reflection path, without changing water vertices, actor contact,
-power or simulation time. This is ordinary alpha blending, not depth-dependent
+texture-coordinate channels. Cached seamless two-dimensional noise gradients
+replace coherent analytic wave bands, with wrapped derivatives and normalized
+mips. The mesh ends at the terrain-clipped water surface; decorative submerged
+side faces are removed. Shore vertex opacity softens that edge. The alpha surface
+can reveal the opaque bed and uses the existing sky reflection path, without
+changing terrain, actual water elevations, actor contact, power or simulation
+time. This is ordinary alpha blending, not depth-dependent
 absorption or refraction; transparent-object sorting, underwater viewing and final
 rendered balance remain unassessed. Resource and frame-consumer checks do not
 establish pixel quality or GPU cost. The historical flat fixture stays opaque.

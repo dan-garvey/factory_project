@@ -67,7 +67,10 @@ width determine local speed. A bank interrupts the route, and a basin without a
 lower outlet stays still. The staged surface and speed rule are experimental
 site choices, not a volume-conserving fluid simulation. The animated ripple
 normal follows the river's downstream direction but does not display a
-per-cell speed measurement.
+per-cell speed measurement. Cached seamless two-dimensional ripples replace
+straight repeating wave bands. The visible water ends at the terrain-clipped
+shoreline with a thin opacity transition; it has no decorative extruded sides.
+This is surface presentation, not additional water depth or flow simulation.
 
 In the native profile, G selects an individual **finite shaft tile**. Click the
 highlighted tile to place it. Selecting a Cogwheel or Shaft hotbar slot exposes
