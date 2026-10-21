@@ -305,13 +305,40 @@ void rotated_belt_line() {
             check(!w::World::restore("cog-world", profile, bad), "A saved +Z route cannot claim an X-travel belt.");
             auto restored = w::World::restore("cog-world", profile, running);
             check(restored && restored->snapshot().state == running.state, "Rotated belt and custody survive World restore.");
+
+            auto stop = power; stop.at("request") = V("rotated-stop"); stop.at("enabled") = V(false);
+            accepted(send(*restored, stop));
+            const auto stopped_stock = restored->snapshot().state.material;
+            check(restored->tick().error == w::TransactionError::none &&
+                      restored->snapshot().state.material == stopped_stock,
+                  "Stopping the rotated line prevents material motion.");
+            auto restart = power; restart.at("request") = V("rotated-restart");
+            accepted(send(*restored, restart));
             for (int n = 0; n < 12; ++n) check(restored->tick().error == w::TransactionError::none, "Rotated line ticks safely.");
             const auto state = restored->snapshot().state;
             if (source_rate > 0)
                 check(state.material.stock.output == 1 && state.material.dropped_raw.empty(), "Positive X rotation carries the blank to the press.");
-            else
+            else {
                 check(state.material.stock.output == 0 && state.material.dropped_raw.contains({4, 0, 2}),
                       "Negative X rotation deposits the blank at the -Z end.");
+                auto reloaded = w::World::restore("cog-world", profile, restored->snapshot());
+                check(reloaded != nullptr, "The rotated reverse drop survives restoration.");
+                O pickup{{"context", V("cog-world")}, {"client", V("P-session")}, {"request", V("rotated-pickup")},
+                    {"actor", V("P")}, {"action", V("pickup_raw")},
+                    {"center", V(V::Array{V(I{4}), V(I{0}), V(I{2})})}};
+                const auto received = accepted(send(*reloaded, pickup));
+                check(field<I>(received, "moved_raw") == 1 && reloaded->snapshot().state.material.dropped_raw.empty(),
+                      "The reverse-end blank moves into the actor's finite cargo.");
+                auto competing = pickup;
+                competing.at("client") = V("Q-session"); competing.at("actor") = V("Q");
+                competing.at("request") = V("rotated-competing-pickup");
+                const auto refused = send(*reloaded, competing);
+                check(refused.completed() && !field<bool>(*refused.result, "accepted") &&
+                          field<std::string>(*refused.result, "reason") == "unavailable_drop",
+                      "A competing actor cannot take the same blank twice.");
+                check(w::World::restore("cog-world", profile, reloaded->snapshot()) != nullptr,
+                      "The rotated pickup and competing refusal remain valid after restoration.");
+            }
         }
     } while (std::next_permutation(order.begin(), order.end()));
 }
