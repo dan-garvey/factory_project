@@ -691,12 +691,12 @@ intended-game restrictions. Isolated checks cover the synthetic bank and basin,
 three real riverbed widths/speeds and the source geometry; rendered quality and
 human usability remain unassessed.
 
-The current [forest-floor surface](../../experiments/engine-environment/godot/opening/assets/ground/CREDITS.md)
-uses provider-declared 1.3-metre mapping and preserves the source albedo's decoded
-RGB8 values through lossless packing. The pinned loader decodes the 16-bit data
-PNGs to RGB8 before normal/scalar resampling; original bit precision is not retained.
-Red-channel ambient occlusion is an explicit adapter choice, since the provider's
-descriptor does not bind it. These are shading/data boundaries, not terrain
+The current [grass surface](../../experiments/engine-environment/godot/opening/assets/ground/CREDITS.md)
+uses provider-declared 1.4-metre mapping and preserves the source albedo's decoded
+RGB8 values through lossless packing. The pinned loader resamples separate JPEG
+OpenGL normal, occlusion and roughness maps; red-channel ambient occlusion and
+green-channel roughness are packed as an explicit adapter choice. These are
+shading/data boundaries, not terrain
 displacement, collision or biome requirements. Stable triangular patch blending
 replaces the two fixed texture frames, whose common period was 6.5 metres.
 Each patch rotates all sampled channels together and returns the decoded normal

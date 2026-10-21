@@ -2029,7 +2029,7 @@ class ProductionEnvironment:
 		for role in loaded.images:
 			ground_finish.set_shader_parameter(role + "_map", ImageTexture.create_from_image(loaded.images[role]))
 		# The stochastic mapping retains each source sample's physical scale.
-		ground_finish.set_shader_parameter("source_extent", 1.3)
+		ground_finish.set_shader_parameter("source_extent", 1.4)
 		return ground_finish
 
 	static func _ripple_normals(seed: int, frequency: float) -> ImageTexture:
