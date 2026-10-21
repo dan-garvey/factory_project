@@ -97,12 +97,17 @@ one-tile shafts. Each span validates aligned grid centers, a maximum of twenty
 tiles, unobstructed tile centers and exclusive belt occupancy. Aligned shafts
 within the span are pulleys; their signed angular rates match, including when
 the drive enters at either end. Incompatible sources stall the connected
-component. Stationary plans account for a carried belt and the World checkpoint
-stores spans, and native World commands can place and remove them. Ordinary
-player controls and belt cargo movement remain unimplemented. This geometry check is
-not full terrain or body collision clearance. Create's documented belt behavior
-also includes slopes and vertical spans, which this initial horizontal profile
-does not implement.
+component. Stationary plans account for a carried belt, the World stores spans
+and cargo lanes, and ordinary controls can place and remove spans. This geometry
+check is not full terrain or body collision clearance.
+
+The separate `belt_path` primitive derives ordered global tile centers for
+horizontal, vertical, 45-degree inclined and sideways paths. It rejects paths
+along the axle, unequal diagonal steps, off-grid endpoints and paths longer
+than twenty tiles. The solver and playable consumers still admit only horizontal
+paths; the other geometries are groundwork, not placeable belts. See Create's
+[belt connector](https://github.com/Creators-of-Create/Create/blob/mc1.21.1/dev/src/main/java/com/simibubi/create/content/kinetics/belt/item/BeltConnectorItem.java)
+for the referenced axle and path constraints.
 
 Full collision clearance, arbitrary bevel gears, clutches, tooth phase/contact, load,
 material feed direction, persisted phase and actual gameplay remain unfinished.

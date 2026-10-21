@@ -365,6 +365,51 @@ void one_tile_large_cogs() {
     }
 }
 
+void belt_path_geometry() {
+    using mechanical::BeltPathKind;
+    for (const auto axle : {Axis::x, Axis::z}) {
+        const auto travel = axle == Axis::x ? std::size_t{2} : std::size_t{0};
+        Part a{"a", Kind::shaft, {0, 0, 0}, axle, 0, 2};
+        Part b{"b", Kind::shaft, {0, 0, 0}, axle, 0, 2};
+        for (const auto vertical : {-1, 0, 1}) for (const auto horizontal : {-1, 0, 1}) {
+            if (vertical == 0 && horizontal == 0) continue;
+            b.center = {}; b.center[1] = 8 * vertical; b.center[travel] = 8 * horizontal;
+            const auto path = mechanical::belt_path(a, b);
+            const auto kind = vertical == 0 ? BeltPathKind::horizontal :
+                (horizontal == 0 ? BeltPathKind::vertical : BeltPathKind::inclined);
+            check(path && path->kind == kind && path->tiles.size() == 3 &&
+                  path->tiles.front() == a.center && path->tiles.back() == b.center,
+                  "A straight or 45-degree belt has ordered global tile centers.");
+            const auto reverse = mechanical::belt_path(b, a);
+            auto expected = path->tiles; std::reverse(expected.begin(), expected.end());
+            check(reverse && reverse->kind == kind && reverse->tiles == expected,
+                  "Reversing endpoints reverses the path without changing its geometry.");
+        }
+        b.center = {}; b.center[1] = 4; b.center[travel] = 8;
+        check(!mechanical::belt_path(a, b), "Unequal diagonal steps are refused.");
+        b.center = {}; b.center[static_cast<std::size_t>(axle)] = 4;
+        check(!mechanical::belt_path(a, b), "A path cannot run along its shaft axis.");
+        b.center = {}; b.center[travel] = 76;
+        check(mechanical::belt_path(a, b)->tiles.size() == 20, "Twenty tile centers are admitted.");
+        b.center[travel] = 80;
+        check(!mechanical::belt_path(a, b), "More than twenty tiles are refused.");
+        b.center[travel] = 5;
+        check(!mechanical::belt_path(a, b), "Off-grid endpoints are refused.");
+        b.center = a.center;
+        check(!mechanical::belt_path(a, b), "Coincident endpoints are refused.");
+    }
+    Part a{"a", Kind::shaft, {0, 0, 0}, Axis::y, 0, 2};
+    Part b{"b", Kind::shaft, {0, 0, 8}, Axis::y, 0, 2};
+    check(mechanical::belt_path(a, b)->kind == BeltPathKind::sideways,
+          "Vertical shafts allow a straight sideways belt.");
+    b.center = {8, 0, 8};
+    check(!mechanical::belt_path(a, b), "Vertical shafts cannot form a diagonal sideways path.");
+    b.center = {8, 0, 0}; b.axis = Axis::x;
+    check(!mechanical::belt_path(a, b), "Endpoint shaft axes must match.");
+    b.axis = Axis::y; b.center = {1000004, 0, 0};
+    check(!mechanical::belt_path(a, b), "Out-of-bounds coordinates are refused before subtraction.");
+}
+
 void horizontal_belt_spans() {
     for (const auto axle : {Axis::x, Axis::z}) {
         const auto travel = axle == Axis::x ? std::size_t{2} : std::size_t{0};
@@ -429,6 +474,7 @@ int main() {
         shafts_and_sources();
         one_tile_shaft_faces();
         one_tile_large_cogs();
+        belt_path_geometry();
         horizontal_belt_spans();
         local_conflicts();
         bounded_diagnostics();

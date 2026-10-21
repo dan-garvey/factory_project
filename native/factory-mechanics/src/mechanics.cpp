@@ -162,6 +162,39 @@ struct Link {
 
 }  // namespace
 
+std::optional<BeltPath> belt_path(const Part& first, const Part& last) {
+    constexpr Integer cell = 4;
+    constexpr Integer max_tiles = 20;
+    if (!valid(first) || !valid(last) || first.kind != Kind::shaft || last.kind != Kind::shaft ||
+        first.half_span != 2 || last.half_span != 2 || first.axis != last.axis) return std::nullopt;
+    Point delta{}, step{};
+    Integer distance = 0;
+    std::size_t changed = 0;
+    for (std::size_t i = 0; i < 3; ++i) {
+        if (first.center[i] % cell != 0 || last.center[i] % cell != 0) return std::nullopt;
+        delta[i] = last.center[i] - first.center[i];
+        const auto magnitude = delta[i] < 0 ? -delta[i] : delta[i];
+        if (magnitude != 0) {
+            if (distance != 0 && magnitude != distance) return std::nullopt;
+            distance = magnitude;
+            ++changed;
+            step[i] = delta[i] > 0 ? cell : -cell;
+        }
+    }
+    if (delta[coordinate(first.axis)] != 0 || changed == 0 || changed > 2 ||
+        distance / cell + 1 > max_tiles || (first.axis == Axis::y && changed != 1)) return std::nullopt;
+    BeltPathKind kind = BeltPathKind::horizontal;
+    if (first.axis == Axis::y) kind = BeltPathKind::sideways;
+    else if (delta[1] != 0) kind = changed == 1 ? BeltPathKind::vertical : BeltPathKind::inclined;
+    BeltPath path{kind, {}};
+    for (Integer n = 0; n <= distance / cell; ++n) {
+        Point point{};
+        for (std::size_t i = 0; i < 3; ++i) point[i] = first.center[i] + n * step[i];
+        path.tiles.push_back(point);
+    }
+    return path;
+}
+
 const char* error_name(Error error) noexcept {
     switch (error) {
         case Error::none: return "none";
@@ -274,28 +307,19 @@ Result evaluate(const std::vector<Part>& input, const std::vector<Drive>& source
               [](const BeltSpan* a, const BeltSpan* b) { return a->id < b->id; });
     std::set<std::string> belt_ids;
     std::set<Point> belt_tiles;
-    constexpr Integer cell = 4;
-    constexpr Integer maximum_belt_tiles = 20;
     for (const auto* belt : ordered_belts) {
         if (!valid_identity(belt->id) || !belt_ids.insert(belt->id).second ||
             !indices.contains(belt->first_shaft) || !indices.contains(belt->last_shaft) ||
             belt->first_shaft == belt->last_shaft) return failure(Error::invalid_belt, belt->id);
         const auto* first = parts[indices.at(belt->first_shaft)];
         const auto* last = parts[indices.at(belt->last_shaft)];
-        if (first->kind != Kind::shaft || last->kind != Kind::shaft || first->half_span != 2 ||
-            last->half_span != 2 || first->axis != last->axis || first->axis == Axis::y)
-            return failure(Error::invalid_belt, belt->id);
-        for (const auto value : first->center) if (value % cell != 0) return failure(Error::invalid_belt, belt->id);
-        for (const auto value : last->center) if (value % cell != 0) return failure(Error::invalid_belt, belt->id);
+        auto path = belt_path(*first, *last);
+        // The current World and physical consumers admit horizontal paths only.
+        if (!path || path->kind != BeltPathKind::horizontal) return failure(Error::invalid_belt, belt->id);
         const auto travel = first->axis == Axis::x ? std::size_t{2} : std::size_t{0};
-        for (std::size_t i = 0; i < 3; ++i)
-            if (i != travel && first->center[i] != last->center[i]) return failure(Error::invalid_belt, belt->id);
-        const auto low = std::min(first->center[travel], last->center[travel]);
-        const auto high = std::max(first->center[travel], last->center[travel]);
-        if (high == low || (high - low) / cell + 1 > maximum_belt_tiles) return failure(Error::invalid_belt, belt->id);
+        if (first->center[travel] > last->center[travel]) std::reverse(path->tiles.begin(), path->tiles.end());
         std::vector<std::size_t> pulleys;
-        for (auto position = low; position <= high; position += cell) {
-            auto point = first->center; point[travel] = position;
+        for (const auto& point : path->tiles) {
             if (!belt_tiles.insert(point).second) return failure(Error::invalid_belt, belt->id);
             std::optional<std::size_t> pulley;
             for (std::size_t i = 0; i < parts.size(); ++i) {

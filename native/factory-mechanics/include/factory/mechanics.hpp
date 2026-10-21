@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -54,6 +55,18 @@ struct BeltSpan {
     std::string last_shaft;
     bool operator==(const BeltSpan&) const = default;
 };
+
+enum class BeltPathKind { horizontal, vertical, inclined, sideways };
+struct BeltPath {
+    BeltPathKind kind;
+    // Tile centers in endpoint order, including both endpoints.
+    std::vector<Point> tiles;
+    bool operator==(const BeltPath&) const = default;
+};
+
+// Geometry only: does not grant placement or check occupants, custody or power.
+// Axles must be perpendicular to a straight or 45-degree path in their plane.
+[[nodiscard]] std::optional<BeltPath> belt_path(const Part& first, const Part& last);
 
 enum class EngagementKind { external_mesh, coaxial_shaft, belt };
 struct Engagement {
