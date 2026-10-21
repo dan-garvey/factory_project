@@ -1,0 +1,32 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "linkage",
+    srcs = ["src/linkage.cpp"],
+    hdrs = ["include/factory/four_bar.hpp"],
+    strip_include_prefix = "include",
+    deps = ["//native/slider-crank:crank"],
+)
+
+cc_library(
+    name = "workbench",
+    srcs = ["src/workbench.cpp"],
+    hdrs = ["include/factory/four_bar_workbench.hpp"],
+    strip_include_prefix = "include",
+    deps = [":linkage", "//native/geared-cycle:workbench"],
+)
+
+cc_binary(
+    name = "four_bar_case",
+    srcs = ["src/main.cpp"],
+    deps = [":workbench"],
+)
+
+cc_test(
+    name = "linkage_test",
+    size = "small",
+    srcs = ["tests/linkage_test.cpp"],
+    deps = [":workbench"],
+)
