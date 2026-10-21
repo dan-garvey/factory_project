@@ -97,6 +97,29 @@ func check_shared_barriers() -> void:
 	verify(view.model == null, "Shared controls create no local Model.")
 	view.free()
 
+func check_transmission_guidance(shared: bool) -> void:
+	var view = SharedHarness.new() if shared else OfflineHarness.new()
+	if shared:
+		view.session = Connection.new()
+	mount(view)
+	view._select_tool("drive")
+	verify("part face" in view.status_label.text and "belt" in view.status_label.text,
+		"Shaft guidance describes part-face snapping and belt pulleys.")
+	view._select_tool("gear")
+	verify("part face" in view.status_label.text, "Cog guidance describes part-face snapping.")
+	view.transmission_controls._tool_selected(6)
+	verify("part face" in view.status_label.text and "belt" in view.status_label.text,
+		"The transmission menu gives the same usable shaft targets.")
+	view.lesson_title = Label.new()
+	view.lesson_body = Label.new()
+	view.add_child(view.lesson_title)
+	view.add_child(view.lesson_body)
+	view._set_lesson(1)
+	verify("matching axes" in view.lesson_body.text and "diagonally" in view.lesson_body.text
+		and "reverses rotation" in view.lesson_body.text and "change speed" in view.lesson_body.text,
+		"The native drive lesson explains the supported cog placement, direction and speed relationship.")
+	view.free()
+
 func pick_body(view: Node3D, id: String, position: Vector3, size: Vector3, offset: Vector3) -> void:
 	var body := StaticBody3D.new()
 	body.collision_layer = Geometry.PICK_LAYER
@@ -368,6 +391,8 @@ func _run() -> void:
 	if "--common-frame-only" not in OS.get_cmdline_user_args():
 		check_direct_shaft_entry(false)
 		check_direct_shaft_entry(true)
+		check_transmission_guidance(false)
+		check_transmission_guidance(true)
 		await check_raised_pointer()
 		await check_actual_belt_pointer()
 		await check_actual_part_pointer()
