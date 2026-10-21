@@ -490,6 +490,27 @@ void belt_span_host_commands() {
               field<std::string>(projected.at(id), "to") == right &&
               field<I>(V(field<O>(host.projection(), "parts")), "belt") == 0,
           "The projection identifies the actual endpoints and consumed finite belt.");
+    const auto before_pulley = world_state(host);
+    const auto wrong_pulley = host.command("P", shaft(4, 0, 0, "span-wrong-pulley", "x"));
+    check(!accepted(wrong_pulley) && !factory::values::typed_difference(before_pulley, world_state(host)),
+          "A shaft across the belt spindle is refused without changing the world or kit.");
+    const auto shaft_stock = field<I>(V(field<O>(host.projection(), "parts")), "shaft");
+    const auto pulley = create(host, shaft(4, 0, 0, "span-add-pulley"));
+    check(field<O>(host.projection(), "belt_spans").contains(id) &&
+              field<I>(V(field<O>(host.projection(), "parts")), "shaft") == shaft_stock - 1,
+          "A matching shaft can be added to the middle of an existing belt from the finite kit.");
+    const auto pulley_checkpoint = host.checkpoint();
+    Host pulley_restored;
+    check(accepted(pulley_restored.initialize("fresh", {"P"})) &&
+              accepted(pulley_restored.configure_terrain(low_flat_site())) &&
+              accepted(pulley_restored.restore_checkpoint(pulley_checkpoint)) &&
+              !factory::values::typed_difference(pulley_checkpoint, pulley_restored.checkpoint()),
+          "The installed intermediate pulley and belt survive checkpoint restoration.");
+    check(accepted(host.command("P", target("remove", pulley, "span-remove-pulley"))) &&
+              field<O>(host.projection(), "belt_spans").contains(id) &&
+              field<I>(V(field<O>(host.projection(), "parts")), "shaft") == shaft_stock &&
+              accepted(host.validate_checkpoint(host.checkpoint())),
+          "Removing the intermediate shaft refunds it and leaves the belt and a valid checkpoint.");
     const auto intrusion = host.command("P", gear(4, 0, 0, "span-obstruction", "z"));
     check(!accepted(intrusion) && field<std::string>(intrusion, "reason") == "occupied",
           "A later cog cannot be placed through the installed belt.");
@@ -606,6 +627,8 @@ void nonhorizontal_span_host() {
         install.at("request") = V("3d-clear");
         const auto span = create(host, install);
         check(field<O>(host.projection(), "belt_spans").contains(span), "The Host admits the nonhorizontal span.");
+        const auto pulley = create(host, shaft(example.x / 2, (example.start_y + example.y) / 2,
+                                                example.z / 2, "3d-add-pulley", example.axis));
         if (std::string(example.axis) == "z" && example.x == 8 && example.start_y == 4) {
             const auto obstruction = host.command("P", gear(4, 8, 0, "3d-cog-intersection", "z"));
             check(!accepted(obstruction) && field<std::string>(obstruction, "reason") == "occupied",
@@ -618,6 +641,10 @@ void nonhorizontal_span_host() {
                   accepted(loaded.configure_terrain(low_flat_site())) &&
                   accepted(loaded.restore_checkpoint(checkpoint)) &&
                   !factory::values::typed_difference(checkpoint, loaded.checkpoint()), "The span survives a fresh Host restore.");
+        observe_at(mx, my, mz - 1.65, 5);
+        check(accepted(host.command("P", target("remove", pulley, "3d-remove-pulley"))) &&
+                  field<O>(host.projection(), "belt_spans").contains(span),
+              "Removing an intermediate pulley preserves each nonhorizontal belt.");
         auto blocked_site = low_flat_site();
         blocked_site.at("obstacles") = V(A{V(A{V(A{V(mx - 0.1), V(my - 0.1), V(mz - 0.1)}),
                                                  V(A{V(mx + 0.1), V(my + 0.1), V(mz + 0.1)})})});
