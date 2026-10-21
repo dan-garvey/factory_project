@@ -605,6 +605,84 @@ class ProductionPaddleArt:
 			_part(blade, "PaddleBolt", meshes.bolt, Vector3(-0.05, -0.041, z), iron)
 		return true
 
+class ProductionWheelSupportArt:
+	extends RefCounted
+	## Original fixed castings. The existing rotor and native journal stay exact.
+	static var fasteners: Dictionary = {}
+
+	static func _scaled(profile: PackedVector2Array, scale_factor: float) -> PackedVector2Array:
+		var result := profile.duplicate()
+		for n in range(result.size()):
+			result[n] *= scale_factor
+		return result
+
+	static func _part(parent: Node3D, role: String, suffix: String, mesh: Mesh, at: Vector3,
+			orientation: Basis, finish: Material) -> MeshInstance3D:
+		var part := MeshInstance3D.new()
+		part.name = role + suffix
+		part.set_meta("wheel_support_role", role)
+		part.mesh = mesh
+		part.position = at
+		part.basis = orientation
+		part.material_override = finish
+		parent.add_child(part)
+		return part
+
+	static func mount(parent: Node3D, axis: Vector3, scale_factor: float) -> void:
+		var cast := ProductionTransmissionFinish.material("cast", Color("465a60"), 0.85, 0.55)
+		var worked := ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.38)
+		# Bake scale into the mesh coordinates so the shared local material's
+		# quarter-metre repeat is not shrunk by a node transform.
+		var housing := PackedVector2Array([Vector2(0.15, -0.09), Vector2(0.17, -0.09),
+			Vector2(0.185, -0.075), Vector2(0.185, -0.055), Vector2(0.17, -0.04),
+			Vector2(0.17, 0.04), Vector2(0.185, 0.055), Vector2(0.185, 0.075),
+			Vector2(0.17, 0.09), Vector2(0.15, 0.09), Vector2(0.15, -0.09)])
+		var liner := PackedVector2Array([Vector2(0.135, -0.10), Vector2(0.156, -0.10),
+			Vector2(0.16, -0.096), Vector2(0.16, -0.091), Vector2(0.1495, -0.085),
+			Vector2(0.1495, 0.085), Vector2(0.16, 0.091), Vector2(0.16, 0.096),
+			Vector2(0.156, 0.10), Vector2(0.135, 0.10), Vector2(0.135, -0.10)])
+		var housing_mesh := ProductionVisuals.turned_mesh(_scaled(housing, scale_factor))
+		var liner_mesh := ProductionVisuals.turned_mesh(_scaled(liner, scale_factor))
+		if not fasteners.has(scale_factor):
+			var bolt := CylinderMesh.new()
+			bolt.top_radius = 0.022 * scale_factor
+			bolt.bottom_radius = bolt.top_radius
+			bolt.height = 0.018 * scale_factor
+			bolt.radial_segments = 6
+			fasteners[scale_factor] = bolt
+		var bearing_frame := Basis(Quaternion(Vector3.UP, axis))
+		if axis == Vector3.UP:
+			var pedestal := PackedVector2Array([Vector2(0, 0.24), Vector2(0.18, 0.24),
+				Vector2(0.195, 0.25), Vector2(0.195, 0.34), Vector2(0.18, 0.36),
+				Vector2(0.145, 0.39), Vector2(0.14, 0.44), Vector2(0.14, 0.46), Vector2(0, 0.46)])
+			_part(parent, "WheelStand", "Vertical", ProductionVisuals.turned_mesh(_scaled(pedestal, scale_factor)),
+				Vector3.ZERO, Basis.IDENTITY, cast)
+			var center := Vector3.UP * 0.53 * scale_factor
+			_part(parent, "AxleBearing", "Vertical", housing_mesh, center, bearing_frame, cast)
+			_part(parent, "BearingLiner", "Vertical", liner_mesh, center, bearing_frame, worked)
+			for x in [-0.12, 0.12]:
+				for z in [-0.12, 0.12]:
+					_part(parent, "WheelFootBolt", ("N" if x < 0 else "P") + ("N" if z < 0 else "P"), fasteners[scale_factor],
+						Vector3(x, 0.378, z) * scale_factor, Basis.IDENTITY, worked)
+		else:
+			var outline := PackedVector2Array([Vector2(-0.19, 0.24), Vector2(0.19, 0.24),
+				Vector2(0.19, 0.32), Vector2(0.16, 0.36), Vector2(0.10, 0.38),
+				Vector2(0.065, 0.58), Vector2(0.065, 0.62), Vector2(-0.065, 0.62),
+				Vector2(-0.065, 0.58), Vector2(-0.10, 0.38), Vector2(-0.16, 0.36), Vector2(-0.19, 0.32)])
+			var stand_mesh := ProductionVisuals.prism_mesh(_scaled(outline, scale_factor),
+				0.18 * scale_factor, 0.008 * scale_factor)
+			var stand_frame := Basis(Vector3.UP, PI / 2) if axis == Vector3.RIGHT else Basis.IDENTITY
+			for side in [-1.0, 1.0]:
+				var suffix := "N" if side < 0 else "P"
+				var offset: Vector3 = axis * side * 0.24 * scale_factor
+				_part(parent, "WheelStand", suffix, stand_mesh, offset, stand_frame, cast)
+				var center: Vector3 = offset + Vector3.UP * 0.78 * scale_factor
+				_part(parent, "AxleBearing", suffix, housing_mesh, center, bearing_frame, cast)
+				_part(parent, "BearingLiner", suffix, liner_mesh, center, bearing_frame, worked)
+				for x in [-0.13, 0.13]:
+					_part(parent, "WheelFootBolt", suffix + ("L" if x < 0 else "R"), fasteners[scale_factor],
+						offset + stand_frame * (Vector3(x, 0.379, 0) * scale_factor), Basis.IDENTITY, worked)
+
 class ProductionSteelFloor:
 	extends RefCounted
 	## Image/material presentation only. No geometry or physical displacement.
@@ -3651,8 +3729,10 @@ func _wheel_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	var scale_factor: float = Geometry.ANCHOR_HEIGHT / 0.78 if native_profile else 1.0
 	var axis := _machine_axis(entity) if native_profile else Vector3.BACK
 	var bearing_rotation := _spindle_rotation(axis)
-	if native_profile and axis == Vector3.UP:
-		# A vertical axle rests on a pedestal below the horizontal rotor.
+	if native_profile and ProductionWheelArt.resource_status() == "complete":
+		ProductionWheelSupportArt.mount(anchor, axis, scale_factor)
+	elif native_profile and axis == Vector3.UP:
+		# Fixed historical rosters retain the support fitted to their old rim.
 		_machine_box(anchor, "WheelStand", Vector3(0, 0.27, 0), Vector3(0.24, 0.3, 0.24), frame)
 		_machine_cylinder(anchor, "AxleBearing", Vector3.UP * (Geometry.ANCHOR_HEIGHT - 0.25 * scale_factor),
 			0.145 * scale_factor, 0.18 * scale_factor, Color("a6b4af"), bearing_rotation)
