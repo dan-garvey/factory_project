@@ -23,6 +23,14 @@ divided by the second. A 20-tooth source driving a 40-tooth gear yields -1/2;
 an inserted idler changes parity to +1/2. Tooth counts here are fixture examples,
 not a selected starter inventory.
 
+The experimental small/large pair (tooth counts 2 and 4) is an exception to
+the generic pitch-distance rule: on matching axes and in one axial plane, its
+centers must differ by one four-unit construction cell in both radial
+directions. Its signed ratio is -1/2 from small to large and -2 in reverse.
+Straight pitch-radius tangency does not connect this pair. This discrete
+placement follows Create's large-to-small cog connection; it is not a claim
+that pitch circles physically touch at that distance.
+
 For the experimental large-cog profile (tooth count 4, construction cell 4
 grid units), two cogs on perpendicular axes also engage when their centers
 are one cell apart along each cog's axis and share the third coordinate. They
