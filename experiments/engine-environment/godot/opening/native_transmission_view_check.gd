@@ -2,6 +2,7 @@ extends SceneTree
 ## Invented confirmed projections and a request sink, never a Model or game.
 const Controls = preload("res://opening/native_transmission_controls.gd")
 const Geometry = preload("res://opening/site_geometry.gd")
+const ActorWorld = preload("res://opening/actor_world.gd")
 const Presenter = preload("res://opening/native_transmission_presenter.gd")
 const LooseControls = preload("res://opening/recovery_actions.gd").LooseMaterialControls
 const Session = preload("res://opening-session/session.gd")
@@ -24,6 +25,11 @@ class HostStub extends RefCounted:
 		return {"queued": true, "accepted": false}
 	func _message(words: String, _refused: bool) -> void:
 		messages.append(words)
+
+class PhysicalProjection extends RefCounted:
+	var state: Dictionary
+	func projection() -> Dictionary:
+		return state.duplicate(true)
 
 func verify(condition: bool, reason: String) -> void:
 	checks += 1
@@ -508,6 +514,70 @@ func _mechanical_collision_geometry() -> void:
 		verify(not Geometry.mechanical_boxes(bad).accepted, "Malformed %s topology fails closed." % fault)
 	verify(Geometry.mechanical_boxes({"options": {"native": false}}).boxes.is_empty(), "Legacy fixtures do not invent transmission bodies.")
 
+func _collision_body_lifecycle() -> void:
+	var authority := PhysicalProjection.new()
+	authority.state = {"options": {"native": true, "physical": true}, "actors": {}, "entities": {}, "foundations": {},
+		"transmission_parts": {
+			"left": {"kind": "shaft", "center": [0, 8, 0], "axis": 2, "half_span": 2},
+			"right": {"kind": "shaft", "center": [8, 8, 0], "axis": 2, "half_span": 2},
+			"cog": {"kind": "gear", "center": [0, 8, 4], "axis": 2, "teeth": 2}},
+		"belt_spans": {"belt": {"from": "left", "to": "right"}}}
+	var physical := ActorWorld.new()
+	root.add_child(physical)
+	verify(physical.configure(authority).accepted, "A synthetic projection initializes the physical geometry.")
+	await physics_frame
+	await physics_frame
+	verify(physical._geometry_registered() and physical.mechanical_bodies.size() == 4, "Confirmed parts and span have registered native bodies.")
+	var query := PhysicsShapeQueryParameters3D.new()
+	var probe := SphereShape3D.new()
+	probe.radius = 0.05
+	query.shape = probe
+	query.collision_mask = Geometry.MACHINE_LAYER
+	query.transform.origin = Vector3(1.65, 3.8, 0)
+	var hits := physical.get_world_3d().direct_space_state.intersect_shape(query)
+	verify(hits.any(func(hit: Dictionary): return hit.rid == physical.mechanical_bodies.belt.get_rid()), "The native physics query intersects the belt body.")
+	var capsule := CapsuleShape3D.new()
+	capsule.radius = Geometry.CAPSULE_RADIUS
+	capsule.height = Geometry.CAPSULE_HEIGHT
+	query.shape = capsule
+	query.transform.origin = Vector3(1.65, 4.35, 0)
+	hits = physical.get_world_3d().direct_space_state.intersect_shape(query)
+	verify(hits.any(func(hit: Dictionary): return hit.rid == physical.mechanical_bodies.belt.get_rid()), "The actual character-sized capsule detects the belt body.")
+	query.shape = probe
+	query.transform.origin = Vector3(0, 3.8, 0)
+	hits = physical.get_world_3d().direct_space_state.intersect_shape(query)
+	verify(hits.any(func(hit: Dictionary): return hit.rid == physical.mechanical_bodies.left.get_rid()), "The native physics query intersects the shaft body.")
+	query.transform.origin = Vector3(0, 3.8, 1.65)
+	hits = physical.get_world_3d().direct_space_state.intersect_shape(query)
+	verify(hits.any(func(hit: Dictionary): return hit.rid == physical.mechanical_bodies.cog.get_rid()), "The native physics query intersects the cog body.")
+	var belt: StaticBody3D = physical.mechanical_bodies.belt
+	var belt_shape: BoxShape3D = belt.get_child(0).shape
+	var original := belt_shape.size
+	belt_shape.size = Vector3(0.1, 0.1, 0.1)
+	verify(not physical._geometry_registered(), "A changed native collision shape fails the registration guard.")
+	belt_shape.size = original
+	belt.position.x += 1.0
+	verify(not physical._geometry_registered(), "A displaced collision body fails the registration guard.")
+	belt.position.x -= 1.0
+	authority.state.belt_spans.clear()
+	authority.state.transmission_parts.erase("right")
+	verify(physical.sync_topology().accepted, "The removed span and shaft synchronize.")
+	await physics_frame
+	await physics_frame
+	verify(physical._geometry_registered() and not physical.mechanical_bodies.has("belt") and not physical.mechanical_bodies.has("right"), "Removed bodies leave the native world without damaging remaining registrations.")
+	query.transform.origin = Vector3(1.65, 3.8, 0)
+	hits = physical.get_world_3d().direct_space_state.intersect_shape(query)
+	verify(hits.is_empty(), "The removed belt no longer blocks its former center.")
+	authority.state.transmission_parts["right"] = {"kind": "shaft", "center": [8, 8, 0], "axis": 2, "half_span": 2}
+	authority.state.belt_spans["belt"] = {"from": "left", "to": "right"}
+	verify(physical.sync_topology().accepted, "A restored projection rebuilds its span and shaft bodies.")
+	await physics_frame
+	await physics_frame
+	hits = physical.get_world_3d().direct_space_state.intersect_shape(query)
+	verify(physical._geometry_registered() and hits.any(func(hit: Dictionary): return hit.rid == physical.mechanical_bodies.belt.get_rid()), "Restored bodies register and block the belt center again.")
+	physical.queue_free()
+	await process_frame
+
 func _run() -> void:
 	if "--tool-guidance-only" in OS.get_cmdline_user_args():
 		_tool_guidance()
@@ -519,6 +589,8 @@ func _run() -> void:
 		_loose_material()
 	elif "--mechanical-collision-only" in OS.get_cmdline_user_args():
 		_mechanical_collision_geometry()
+	elif "--collision-lifecycle-only" in OS.get_cmdline_user_args():
+		await _collision_body_lifecycle()
 	else:
 		_controls()
 		_gear_sizes()
