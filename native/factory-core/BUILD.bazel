@@ -40,3 +40,31 @@ cc_test(
     deps = [":materials"],
     size = "small",
 )
+
+cc_test(
+    name = "recovery_test",
+    srcs = ["tests/recovery_test.cpp"],
+    deps = [":recovery"],
+    size = "small",
+)
+
+cc_test(
+    name = "recovery_transaction_test",
+    srcs = ["tests/recovery_transaction_test.cpp"],
+    deps = [":recovery", "//native/factory-world:transactions"],
+    size = "small",
+)
+
+cc_test(
+    name = "material_state_codec_test",
+    srcs = ["tests/material_state_codec_test.cpp"],
+    deps = [":material_state_codec"],
+    size = "small",
+)
+
+cc_test(
+    name = "material_power_test",
+    srcs = ["tests/material_power_test.cpp"],
+    deps = [":materials"],
+    size = "small",
+)

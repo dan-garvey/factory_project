@@ -25,5 +25,5 @@ cc_test(
     size = "small",
     timeout = "short",
     # Exercises real host /proc and writes only to an explicit owned fixture root.
-    tags = ["local"],
+    tags = ["host", "local"],
 )

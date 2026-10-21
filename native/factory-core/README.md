@@ -118,10 +118,13 @@ controls do not establish ordinary running edits or live authority adoption.
 
 Bazel is the canonical build system. Ops owns native/factory-core/BUILD.bazel,
 root configuration, toolchain/cache provenance and bounded supervision. The
-explicit material, recovery, local-power and material-codec targets are present
-in that graph. The strict material codec also passed its 129-check native
-campaign. A material-only root suite cannot establish recovery-test coverage;
-select the relevant package targets. Existing source checks do not execute C++.
+package exposes `materials_test`, `recovery_test`, `recovery_transaction_test`,
+`material_power_test` and `material_state_codec_test`. These logical tests are
+included by the recursive [native test command](../../docs/engineering/native-builds.md);
+use their explicit package targets for focused iteration. The strict material
+codec passed its original 129-check native
+campaign. Earlier material-only suite results retain that narrower coverage.
+Existing source checks do not execute C++.
 
 The original foundation campaign at c51bd28 passed 206 logical checks and the
 separate four-product consumer. Its CMake/Ninja definition, results and first

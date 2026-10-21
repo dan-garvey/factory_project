@@ -132,6 +132,8 @@ Keep ordinary correctness tests repeatable. An unexpected flake blocks integrati
 
 As game code arrives, wire its real build/test commands into the entrypoint immediately. Grow tests around the first representative production path, not speculative subsystems: for example, resource accounting and stall/recovery through an actual contraption, then save/load and a minimal multiplayer interaction as those exist. The simulation/network implementation and engine remain undecided; this guide does not select determinism or rollback architecture.
 
+The canonical native command is `bazel test --build_tests_only --test_tag_filters=-host //native/...`, using the pinned setup in [native builds](docs/engineering/native-builds.md). It discovers new package tests automatically. Tag tests that require host integration fixtures with `host` and run them with their declared fixtures. Use relevant package targets for focused iteration.
+
 For performance claims, record the baseline and candidate commits, scenario/seed, build settings, hardware/environment, warmup, repetitions, run order, and observed variation. Compare equivalent work and correctness. Keep timing runs exclusive on the measured resource and agree quiet periods in the task before starting expensive experiments. Do not call small noisy changes a win. Share one result rather than having several agents rerun the same expensive test. Add caching, execution limits, remote workers, or benchmark leases only after measured contention justifies them.
 
 When review finds a repeatable class of failure, prefer a focused test or static rule over repeated admonitions. Give the guardrail its own failure witness and tests; avoid rules that merely enforce ceremony or mirror implementation details.

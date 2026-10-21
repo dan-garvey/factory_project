@@ -52,7 +52,8 @@ python3 -B scripts/run_local.py heavy -- \
   --host_jvm_args=-Xmx1024m \
   --output_user_root="$FACTORY_BAZEL_ROOT/output" \
   test --repository_cache="$FACTORY_BAZEL_ROOT/repositories" \
-  --disk_cache="$FACTORY_BAZEL_ROOT/actions" //:native_tests
+  --disk_cache="$FACTORY_BAZEL_ROOT/actions" \
+  --build_tests_only --test_tag_filters=-host //native/...
 ```
 
 The existing Python admission command remains in use until its independently
@@ -85,8 +86,26 @@ The first targets are:
 | `//native/factory-core:materials` | Typed finite material library |
 | `//native/factory-core:materials_test` | Original logical material tests |
 | `//native/factory-core:material_case` | Separate finite headless consumer |
-| `//:native_tests` | Finite material foundation test suite |
+| `//:native_tests` | Focused bootstrap suite: materials and tree metadata |
 | `//:material_demo` | Alias for the material consumer binary |
+
+The canonical native test command selects `//native/...` with
+`--build_tests_only --test_tag_filters=-host`. New package tests join this
+selection automatically. It covers the migrated material/recovery, authority,
+mechanics, World, value-adapter, terminal-fixture and asset tests. Use a relevant
+package target for focused iteration; Bazel can reuse unchanged actions. The
+older `//:native_tests` label retains its bootstrap scope and reports a
+deprecation warning directing callers to the complete command.
+
+Linux host integration tests retain their separate fixture requirements:
+`//native/build-support:runner_test`, `//native/factory-launch:tests` and
+`//native/tooling:local_resources_test`. These six tests exercise host processes,
+namespaces, filesystem capture or admission. The admission test takes an actual
+canonically linked checkout and an owned external artifact root after its
+declared CLI argument; supply them as
+`--test_arg=/absolute/linked/checkout --test_arg=/absolute/owned/artifacts`.
+Select these host tests explicitly for their relevant changes.
+Mark new tests that require host integration fixtures with the `host` tag.
 
 The C++ sources retain their independently reviewed component bytes. Their
 historical CMake files remain attributable; those old builds do not establish
