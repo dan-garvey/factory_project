@@ -230,6 +230,44 @@ func check_raised_pointer() -> void:
 	view._transmission_center(slope_screen)
 	view.transmission_controls._height_selected(1)
 	verify(view._transmission_center(slope_screen) == [32, 12, 0], "An explicit height overrides the belt's surface height.")
+	view.transmission_controls._height_selected(2)
+	view.state.transmission_parts["raised-shaft"] = {"kind": "shaft", "axis": 1, "center": [64, 8, 0]}
+	view.state.transmission_parts["raised-cog"] = {"kind": "gear", "axis": 2, "center": [80, 8, 0]}
+	var shaft_position := Vector3(16 * Geometry.PITCH, 2 * Geometry.PITCH + Geometry.ANCHOR_HEIGHT, 0)
+	var cog_position := Vector3(20 * Geometry.PITCH, 2 * Geometry.PITCH + Geometry.ANCHOR_HEIGHT, 0)
+	pick_body(view, "raised-shaft", shaft_position, Vector3(0.3, Geometry.PITCH, 0.3), Vector3.ZERO)
+	pick_body(view, "raised-cog", cog_position, Vector3(Geometry.PITCH, Geometry.PITCH, 0.2), Vector3.ZERO)
+	await physics_frame
+	view.transmission_controls.selected_axis = "y"
+	view.camera.position = shaft_position + Vector3(0.2, 5, 0)
+	view.camera.look_at(shaft_position)
+	var shaft_screen := view.camera.unproject_position(shaft_position)
+	var shaft_target: Array = view._transmission_center(shaft_screen)
+	verify(shaft_target == [64, 12, 0], "The top face of an elevated shaft targets the adjacent upper global tile.")
+	view._transmission_click(shaft_target, "raised-shaft")
+	verify(view.requests.back() == {"action": "place_shaft", "center": [64, 12, 0], "axis": "y", "half_span": 2},
+		"The upper shaft request retains its selected axle and global tile.")
+	view.transmission_controls.choose_tool("gear")
+	view.transmission_controls.selected_axis = "z"
+	view.camera.position = cog_position + Vector3(0, 0, 5)
+	view.camera.look_at(cog_position)
+	var cog_screen := view.camera.unproject_position(cog_position)
+	var cog_target: Array = view._transmission_center(cog_screen)
+	verify(cog_target == [80, 8, 4], "The face of an elevated cog targets the neighboring global tile.")
+	view._transmission_click(cog_target, "raised-cog")
+	verify(view.requests.back() == {"action": "place_gear", "center": [80, 8, 4], "axis": "z", "teeth": 2},
+		"The adjacent cog request retains its selected axle and global tile.")
+	for face in [
+		{"normal": Vector3.RIGHT, "target": [84, 8, 0]}, {"normal": Vector3.LEFT, "target": [76, 8, 0]},
+		{"normal": Vector3.UP, "target": [80, 12, 0]}, {"normal": Vector3.DOWN, "target": [80, 4, 0]},
+		{"normal": Vector3.BACK, "target": [80, 8, 4]}, {"normal": Vector3.FORWARD, "target": [80, 8, -4]}]:
+		verify(view._transmission_snap_target("raised-cog", face.normal, Vector3.ZERO) == face.target,
+			"Each cog face selects its neighboring global tile.")
+	view.transmission_controls.auto_height = false
+	view.transmission_controls.gear_height = -4
+	verify(view._transmission_snap_target("raised-cog", Vector3.RIGHT, Vector3.ZERO) == [84, -4, 0],
+		"An explicit height overrides the part face without changing its horizontal tile.")
+	verify(view.state.transmission_parts["raised-cog"].center == [80, 8, 0], "Pointer targeting leaves the confirmed cog unchanged.")
 	view.queue_free()
 
 func _initialize() -> void:
