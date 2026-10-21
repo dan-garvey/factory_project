@@ -56,6 +56,18 @@ func cancel() -> void:
 	_belt_start.clear()
 	refresh()
 
+func clear_belt_selection() -> void:
+	_belt_start.clear()
+
+func settle_belt_selection(request: String, accepted: bool) -> void:
+	if _belt_start.is_empty() or _belt_start.request != request:
+		return
+	if not accepted:
+		_belt_start.clear()
+		return
+	_belt_start.pending = false
+	_feedback("Move to the second parallel shaft and choose it within reach.", false)
+
 func choose_tool(tool: String) -> void:
 	if tool not in ["", "gear", "remove", "place_shaft", "belt_span"]:
 		return
@@ -207,8 +219,11 @@ func handle_world_click(center: Array, entity_id: String) -> bool:
 			var receipt := _submit(context, {"action": "select_belt_shaft", "entity": entity_id})
 			var request: Variant = receipt.get("request")
 			if (receipt.get("accepted", false) or receipt.get("queued", false)) and typeof(request) == TYPE_STRING and not request.is_empty():
-				_belt_start = {"id": entity_id, "generation": shaft.generation, "world": context.world, "actor": context.actor, "request": request}
-				_feedback("Move to the second parallel shaft and choose it within reach.", false)
+				_belt_start = {"id": entity_id, "generation": shaft.generation, "world": context.world, "actor": context.actor, "request": request, "pending": not receipt.get("accepted", false)}
+				_feedback("Waiting for the first shaft selection…" if _belt_start.pending else "Move to the second parallel shaft and choose it within reach.", false)
+			return true
+		if _belt_start.pending:
+			_feedback("Waiting for the server to confirm the first shaft.", false)
 			return true
 		var first: Variant = context.snapshot.transmission_parts.get(_belt_start.id, {})
 		if context.world != _belt_start.world or context.actor != _belt_start.actor or not first is Dictionary or first.get("kind") != "shaft" or first.get("generation") != _belt_start.generation:
