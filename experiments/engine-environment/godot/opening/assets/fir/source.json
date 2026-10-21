@@ -10,7 +10,7 @@
   "source_scale": 1,
   "selected_node": "fir_sapling_medium_b_LOD0",
   "catalogue_translation_omitted": [
-    1,
+    5,
     0,
     0
   ],
@@ -83,10 +83,11 @@
       "url": "https://raw.githubusercontent.com/godotengine/godot/ed1daf0bf001b61586d9930840f2f1394092c079/scene/resources/3d/importer_mesh.cpp",
       "sha256": "a11ab59337da075187f0ddadee082eb0f023f2046f73a4966ba7cef2e956254e"
     },
+    "report_qualification": "The catalogue offset below is corrected from the pinned descriptor. Original external preparation reports and outcomes remain intact; all geometry, image and resource result fields remain exact.",
     "report": {
       "base_triangles": 420822,
       "catalogue_translation_omitted": [
-        1,
+        5,
         0,
         0
       ],

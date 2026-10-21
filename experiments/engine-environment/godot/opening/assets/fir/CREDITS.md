@@ -11,10 +11,14 @@ layout becomes game content.
 `fir_tree.res` contains the complete local `fir_sapling_medium_b_LOD0` mesh,
 with its three materials and all 420,822 base triangles. Its source height is
 about 7.8 metres, including the small below-origin root extent. Scale is one;
-the catalogue's one-metre X translation is omitted. The provider's combined
+the catalogue's five-metre X translation is omitted. The provider's combined
 catalogue width is not the width of this individual tree. This component is
 qualified art; its bank adoption is described below, separately from the
 original source/resource result.
+
+The catalogue-offset metadata was corrected after initial qualification. The
+original external reports remain intact; the prepared resource, source-local
+geometry, textures and later bank poses did not change.
 
 Preparation uses the pinned Godot 4.7.2 glTF importer and
 [ImporterMesh](https://docs.godotengine.org/en/stable/classes/class_importermesh.html).
