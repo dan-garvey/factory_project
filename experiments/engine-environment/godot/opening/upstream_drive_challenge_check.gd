@@ -47,6 +47,9 @@ func _initialize() -> void:
 	call_deferred("_run")
 
 func _run() -> void:
+	if "--native-example-only" in OS.get_cmdline_user_args():
+		_run_native_example()
+		return
 	var host := HostStub.new()
 	host.state = fixture()
 	var before := host.state.duplicate(true)
@@ -109,4 +112,54 @@ func _run() -> void:
 	challenge.free()
 	var ok := failures == 0 and checks >= 17
 	print("UPSTREAM_DRIVE_CHALLENGE_%s %d" % ["PASS" if ok else "FAIL", checks])
+	quit(0 if ok else 1)
+
+
+func _run_native_example() -> void:
+	# Isolated Help component against the production native authority; no
+	# game scene, player input, foreground acquisition or desktop interaction.
+	var native_model = load("res://opening/native_model.gd")
+	var example_script = load("res://opening/example_presenter.gd")
+	var player = native_model.new("separate-player", ["P"])
+	verify(player.boot_result.get("accepted", false), "Independent native player world starts.")
+	var original: Dictionary = player.checkpoint()
+	var example = example_script.new()
+	root.add_child(example)
+	var first: Dictionary = example.model.projection()
+	verify(first.get("options", {}).get("native", false), "Example uses the native worksite rules.")
+	verify(first.get("belt_spans", {}).size() == 1 and first.get("entities", {}).size() == 3,
+		"The example constructs a span and three machines without a belt machine.")
+	verify(first.get("transmission_parts", {}).size() == 12 and first.stock.source == first.initial_feed,
+		"The finite kit places seven cogs and five shafts before production.")
+	var has_belt := false
+	for child in example.world.transmission_presenter.get_children():
+		if child.get_meta("kind", "") == "belt_span":
+			has_belt = true
+	verify(has_belt, "The confirmed transmission presenter draws the shaft span.")
+	verify(not first.powered and example.step_button.disabled, "First lesson leaves the drive off.")
+	example.set_lesson(1)
+	var running: Dictionary = example.model.projection()
+	verify(running.powered and not example.step_button.disabled, "Drive lesson starts the actual waterwheel.")
+	var moving_shaft := str(running.belt_spans.values()[0].from)
+	example.world._process(0.05)
+	verify(example.world.transmission_presenter.visual_rotation(moving_shaft) != 0.0,
+		"The example animates the belt from its confirmed native shaft rate.")
+	var before_step: int = running.revision
+	example._step()
+	verify(example.model.projection().revision > before_step and example.ticks == 1, "One example step advances its native clock.")
+	example.set_lesson(2)
+	var working: Dictionary = example.model.projection()
+	verify(working.stock.held > 0 and example.ticks > 0, "The work lesson contains an actual in-progress lot.")
+	example.set_lesson(3)
+	var full: Dictionary = example.model.projection()
+	verify(full.stock.output > 0 and full.stock.held > 0 and not example.recover_button.disabled,
+		"The blocked lesson has a finished plate and retained work.")
+	example._recover()
+	var resumed: Dictionary = example.model.projection()
+	verify(resumed.inventories.P == 1 and resumed.stock.source <= full.stock.source,
+		"Retrieving the plate credits only the example and resumes its clock.")
+	verify(player.checkpoint() == original, "Lesson setup, ticks and retrieval do not mutate the player's native state.")
+	example.queue_free()
+	var ok := failures == 0 and checks >= 13
+	print("NATIVE_EXAMPLE_%s %d" % ["PASS" if ok else "FAIL", checks])
 	quit(0 if ok else 1)
