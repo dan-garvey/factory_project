@@ -11,6 +11,7 @@ var checks := 0
 var failed := false
 var controls_dir := ""
 var material_only := false
+var foundation_only := false
 
 func verify(condition: bool, message: String) -> void:
 	checks += 1
@@ -102,20 +103,43 @@ func check_foundation(legacy: bool) -> void:
 	var seen: Dictionary = {}
 	var geometry_unchanged := true
 	var material_correct := true
+	var river_clear := true
+	var current_panels: Dictionary = {}
+	var ground: StandardMaterial3D
+	if not legacy:
+		for spec in Opening.ProductionEnvironment.Surface.pad_panels():
+			current_panels[spec.id] = spec
+		ground = Opening.ProductionEnvironment.ground_material()
 	for node in view.get_children():
 		if not node is MeshInstance3D or node.get_meta("surface_role", "") != "foundation":
 			continue
 		panels += 1
-		var x := roundi(node.position.x / 1.65)
-		var z := roundi(node.position.z / 1.65)
-		seen[Vector2i(x, z)] = true
-		geometry_unchanged = geometry_unchanged and x >= -2 and x <= 4 and z >= -2 and z <= 4
-		geometry_unchanged = geometry_unchanged and node.position.is_equal_approx(Vector3(x * 1.65, -0.08, z * 1.65))
-		geometry_unchanged = geometry_unchanged and node.mesh.get_aabb().size.is_equal_approx(Vector3(1.615, 0.12, 1.615))
-		material_correct = material_correct and (node.material_override != Steel.material() if legacy else node.material_override == Steel.material())
-	verify(panels == 49 and seen.size() == 49 and geometry_unchanged, "The actual world builder retains all literal panel cells, dimensions and elevations.")
+		if legacy:
+			var cell := Vector2i(roundi(node.position.x / 1.65), roundi(node.position.z / 1.65))
+			geometry_unchanged = geometry_unchanged and not seen.has(cell)
+			seen[cell] = true
+			geometry_unchanged = geometry_unchanged and cell.x >= -2 and cell.x <= 4 and cell.y >= -2 and cell.y <= 4
+			geometry_unchanged = geometry_unchanged and node.position.is_equal_approx(Vector3(cell.x * 1.65, -0.08, cell.y * 1.65))
+			geometry_unchanged = geometry_unchanged and node.mesh.get_aabb().size.is_equal_approx(Vector3(1.615, 0.12, 1.615))
+			var procedural := node.material_override as StandardMaterial3D
+			material_correct = material_correct and procedural != null and procedural.albedo_texture == null
+		else:
+			var identity: String = node.get_meta("site_solid_id", "")
+			var spec: Dictionary = current_panels.get(identity, {})
+			geometry_unchanged = geometry_unchanged and not seen.has(identity) and not spec.is_empty()
+			seen[identity] = true
+			if not spec.is_empty():
+				geometry_unchanged = geometry_unchanged and node.position.is_equal_approx(spec.center)
+				geometry_unchanged = geometry_unchanged and node.mesh.get_aabb().size.is_equal_approx(spec.size)
+			var half_width: float = node.mesh.get_aabb().size.x * 0.5
+			river_clear = river_clear and (node.position.x + half_width <= -3.32 or node.position.x - half_width >= -2.08)
+			material_correct = material_correct and ground != null and node.material_override == ground
+	verify(panels == 49 and seen.size() == 49 and geometry_unchanged,
+		"The historical floor retains its literal grid; current panels match their shared support descriptors.")
+	if not legacy:
+		verify(river_clear, "The current terrace leaves the literal central river corridor open.")
 	verify(material_correct and view.get_meta("foundation_surface") == ("legacy" if legacy else "ready"),
-		"Only the physical presentation chooses the scanned material; the legacy fixture remains procedural.")
+		"The current terrace shares rocky ground; the historical floor remains procedural.")
 	verify(view.model == null and view.actor_world == null and view.state.is_empty() and view.request_sequence == 0,
 		"Foundation assembly creates no Model, native actor, request or projected state.")
 	view.free()
@@ -126,15 +150,22 @@ func _initialize() -> void:
 			controls_dir = argument.trim_prefix("--controls-dir=")
 		elif argument == "--material-only":
 			material_only = true
+		elif argument == "--foundation-only":
+			foundation_only = true
 	call_deferred("_check")
 
 func _check() -> void:
-	check_material()
-	check_invalid_sets()
+	if material_only and foundation_only:
+		push_error("Choose either material-only or foundation-only checks.")
+		quit(2)
+		return
+	if not foundation_only:
+		check_material()
+		check_invalid_sets()
 	if not material_only:
 		check_foundation(false)
 		check_foundation(true)
 	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
-		"scope": "image/material and literal foundation assembly", "native_gameplay": "not_run",
+		"scope": "current and historical foundation assembly" if foundation_only else "image/material and literal foundation assembly", "native_gameplay": "not_run",
 		"rendered_quality": "not_assessed", "desktop": "not_used"}))
 	quit(1 if failed else 0)
