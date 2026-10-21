@@ -1,0 +1,32 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "bank",
+    srcs = ["src/bank.cpp"],
+    hdrs = ["include/factory/slotted_bank.hpp"],
+    strip_include_prefix = "include",
+    deps = ["//native/slotted-link:link"],
+)
+
+cc_library(
+    name = "workbench",
+    srcs = ["src/workbench.cpp"],
+    hdrs = ["include/factory/slotted_bank_workbench.hpp"],
+    strip_include_prefix = "include",
+    deps = [":bank"],
+)
+
+cc_binary(
+    name = "slotted_bank_workbench",
+    srcs = ["src/main.cpp"],
+    deps = [":workbench"],
+)
+
+cc_test(
+    name = "bank_test",
+    srcs = ["tests/bank_test.cpp"],
+    deps = [":workbench"],
+    size = "small",
+)
