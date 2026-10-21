@@ -4,6 +4,7 @@ const Opening = preload("res://opening/opening.gd")
 const Visuals = Opening.ProductionVisuals
 const WheelArt = Opening.ProductionWheelArt
 const PressArt = Opening.ProductionPressArt
+const ConveyorArt = Opening.ProductionConveyorArt
 const Geometry = preload("res://opening/site_geometry.gd")
 var checks := 0
 var failed := false
@@ -363,6 +364,242 @@ func check_historical_wheel() -> void:
 	view.machine_root.free()
 	view.free()
 
+func check_conveyor_loop() -> void:
+	var mesh := ConveyorArt.loop_mesh()
+	verify(mesh == ConveyorArt.loop_mesh(), "Every conveyor shares the same authored loop mesh.")
+	var arrays := mesh.surface_get_arrays(0)
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+	var coordinates: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+	var tangents: PackedFloat32Array = arrays[Mesh.ARRAY_TANGENT]
+	verify(vertices.size() == 2400 and normals.size() == vertices.size()
+		and coordinates.size() == vertices.size() and tangents.size() == vertices.size() * 4,
+		"The loop has the complete attributes of its eight-sided section and two sampled return arcs.")
+	var edges: Dictionary = {}
+	var seam: Dictionary = {}
+	var volume := 0.0
+	var faces_ok := true
+	var attributes_ok := true
+	var hollow_ok := true
+	for n in range(0, vertices.size(), 3):
+		var a := vertices[n]
+		var b := vertices[n + 1]
+		var c := vertices[n + 2]
+		var cross := (b - a).cross(c - a)
+		faces_ok = faces_ok and cross.length_squared() > 0.00000000000001
+		faces_ok = faces_ok and cross.dot(normals[n] + normals[n + 1] + normals[n + 2]) < 0
+		volume += a.dot(b.cross(c)) / 6.0
+		for pair in [[a, b], [b, c], [c, a]]:
+			var first := vertex_key(pair[0])
+			var second := vertex_key(pair[1])
+			var key := first + "/" + second if first < second else second + "/" + first
+			edges[key] = int(edges.get(key, 0)) + 1
+	for n in range(vertices.size()):
+		var tangent := Vector3(tangents[n * 4], tangents[n * 4 + 1], tangents[n * 4 + 2])
+		max_tangent_dot = maxf(max_tangent_dot, absf(tangent.dot(normals[n])))
+		attributes_ok = attributes_ok and vertices[n].is_finite() and normals[n].is_finite()
+		attributes_ok = attributes_ok and absf(normals[n].length() - 1.0) < 0.0002
+		attributes_ok = attributes_ok and tangent.is_finite() and absf(tangent.length() - 1.0) < 0.0002
+		attributes_ok = attributes_ok and absf(tangent.dot(normals[n])) < 0.0002 and coordinates[n].is_finite()
+		var xy := Vector2(vertices[n].x, vertices[n].y)
+		var center := Vector2(clampf(xy.x, -0.57, 0.57), 0)
+		var radial_distance := xy.distance_to(center)
+		hollow_ok = hollow_ok and radial_distance >= 0.07799 and radial_distance <= 0.09001
+		if coordinates[n].x < 0.00001 or coordinates[n].x > 3.99999:
+			var key := vertex_key(vertices[n])
+			if not seam.has(key):
+				seam[key] = [INF, -INF]
+			seam[key][0] = minf(seam[key][0], coordinates[n].x)
+			seam[key][1] = maxf(seam[key][1], coordinates[n].x)
+	var closed := true
+	for count in edges.values():
+		closed = closed and count == 2
+	var seam_ok := seam.size() == 8
+	for row in seam.values():
+		seam_ok = seam_ok and absf(float(row[1]) - float(row[0]) - 4.0) < 0.00001
+	verify(faces_ok and closed, "Every actual belt face has clockwise outward winding and every geometric edge closes twice.")
+	verify(absf(volume) > 0.0213 and absf(volume) < 0.0218,
+		"The closed mesh has the independently bounded rubber-shell volume rather than a solid filled block.")
+	verify(hollow_ok, "All actual vertices retain the empty loop interior and twelve-millimetre radial thickness.")
+	verify(attributes_ok, "Actual loop UVs, unit normals and orthogonal unit tangents remain finite.")
+	verify(seam_ok, "All eight section corners close the longitudinal seam at exactly four texture repeats.")
+	var bounds := mesh.get_aabb()
+	verify(bounds.position.is_equal_approx(Vector3(-0.66, -0.09, -0.32))
+		and bounds.end.is_equal_approx(Vector3(0.66, 0.09, 0.32)),
+		"The authored loop retains its declared span, return radius and original belt width.")
+	verify(absf(bounds.end.y + ConveyorArt.HEIGHT - 0.555) < 0.00001,
+		"The top stays at the original cleat height instead of entering the workpiece.")
+	for axis in range(3):
+		var view := Opening.new()
+		view.machine_root = Node3D.new()
+		view.state = {"options": {"native": true}, "entities": {"fixture": {"kind": "belt", "cell": [0, 0], "axis": axis}},
+			"links": [], "drive_links": [], "stock": {"belt": 1}}
+		var before: Dictionary = view.state.duplicate(true)
+		view._rebuild_machines()
+		var anchor: Node3D = view.machine_root.get_child(0)
+		var loop := anchor.get_node("ConveyorLoop") as MeshInstance3D
+		verify(loop != null and loop.mesh == mesh and loop.material_override == ConveyorArt.material(),
+			"The ordinary belt assembly mounts the exact shared loop and cached rubber material.")
+		verify(anchor.get_node_or_null("ConveyorBand") == null and anchor.get_node_or_null("ConveyorCleat") == null,
+			"The closed loop replaces the old solid band and floating top blocks.")
+		var legs := 0
+		var channels := 0
+		var rollers := 0
+		for child in anchor.get_children():
+			if child is MeshInstance3D:
+				check_bounds(child, Transform3D.IDENTITY)
+				var role := str(child.get_meta("detail_role", ""))
+				if role.begins_with("ConveyorLeg"):
+					legs += 1
+					var box: AABB = child.transform * child.mesh.get_aabb()
+					verify(is_equal_approx(absf(child.position.z), 0.36) and minf(absf(box.position.z), absf(box.end.z)) >= 0.32999,
+						"The supports stay outside the returning rubber instead of intersecting it.")
+				elif role.begins_with("ConveyorChannel"):
+					channels += 1
+					verify(is_equal_approx(absf(child.position.z), 0.36) and is_equal_approx(child.position.y, 0.43),
+						"Both structural channels connect the side supports outside the belt path.")
+				elif role.begins_with("ConveyorRoller"):
+					rollers += 1
+					verify(child.mesh is ArrayMesh and is_equal_approx(absf(child.position.x), 0.57) and is_equal_approx(child.position.y, 0.465),
+						"Both turned end drums retain their existing centers and fit inside the loop.")
+		print(JSON.stringify({"axis": axis, "supports": legs, "channels": channels, "drums": rollers}))
+		verify(legs == 4 and channels == 2 and rollers == 2,
+			"The actual assembly contains four supports, two channels and two end drums.")
+		var drive := anchor.get_node("DriveStub") as MeshInstance3D
+		var direction: Vector3 = [Vector3.RIGHT, Vector3.UP, Vector3.BACK][axis]
+		verify(absf(drive.basis.y.normalized().dot(direction)) > 0.99999,
+			"The original native drive interface still follows its projected axis.")
+		view.item_root = Node3D.new()
+		view._redraw_items()
+		var lowest := INF
+		var pending: Array = [[view.item_root, Transform3D.IDENTITY]]
+		while not pending.is_empty():
+			var row: Array = pending.pop_back()
+			var node: Node3D = row[0]
+			var pose: Transform3D = row[1] * node.transform
+			if node is MeshInstance3D:
+				var box: AABB = pose * node.mesh.get_aabb()
+				lowest = minf(lowest, box.position.y)
+			for child in node.get_children():
+				if child is Node3D:
+					pending.append([child, pose])
+		verify(view.item_root.get_child_count() == 1 and lowest - (bounds.end.y + ConveyorArt.HEIGHT) > 0.00499,
+			"The actual unchanged workpiece redraw remains at least five millimetres above the new rubber surface.")
+		verify(view.state == before and view.model == null and view.actor_world == null,
+			"The asset changes no projection, input, material authority or physical character.")
+		view.item_root.free()
+		view.machine_root.free()
+		view.free()
+	var material := ConveyorArt.material()
+	if OS.get_cmdline_user_args().has("--historical-conveyor-only"):
+		verify(ConveyorArt.source_status == "missing" and material.albedo_texture == null and material.metallic == 0.0,
+			"An actual missing-resource capture uses explicit generated dielectric rubber, without claiming a sourced material.")
+	else:
+		verify(ConveyorArt.source_status == "ready" and material.albedo_color == Color.WHITE and material.metallic == 0.0,
+			"The complete source set uses its original albedo with dielectric rubber shading.")
+		verify(material.albedo_texture.get_size() == Vector2(1024, 1024)
+			and material.normal_texture.get_size() == Vector2(512, 512)
+			and material.roughness_texture.get_size() == Vector2(512, 512),
+			"The actual color, OpenGL normal and roughness images have the declared resolutions.")
+		verify(material.roughness == 1.0 and material.roughness_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_RED
+			and material.normal_enabled and not material.uv1_triplanar and not material.ao_enabled,
+			"Scalar roughness and tangent normals use their own channels without invented metallic or occlusion maps.")
+		verify(material.albedo_texture.get_image().has_mipmaps() and material.normal_texture.get_image().has_mipmaps()
+			and material.roughness_texture.get_image().has_mipmaps(), "Every decoded source image has mipmaps.")
+	var missing := "user://conveyor-controls/missing"
+	verify(ConveyorArt.read_images(missing).status == "missing", "A missing source set is explicit.")
+	var partial := "user://conveyor-controls/partial"
+	DirAccess.make_dir_recursive_absolute(partial)
+	var file := FileAccess.open(partial.path_join("rubber_albedo.webp"), FileAccess.WRITE)
+	if file != null:
+		file.store_string("invalid partial fixture")
+		file.close()
+	verify(file != null and ConveyorArt.read_images(partial).status == "invalid",
+		"A partial source set is rejected rather than reported as valid artwork.")
+	print(JSON.stringify({"loop_volume": absf(volume), "longitudinal_repeats": 4,
+		"longitudinal_texture_metres": (4.0 * 0.57 + TAU * 0.09) / 4.0}))
+
+func prepare_conveyor_maps() -> void:
+	var args := OS.get_cmdline_user_args()
+	args.remove_at(0)
+	if args.size() != 2:
+		push_error("Use SOURCE_DIRECTORY PREPARED_ASSET_DIRECTORY.")
+		quit(1)
+		return
+	var source := args[0]
+	var output := args[1]
+	var pins := {"albedo": "559ddef0d43572ff96015da9a12a218d8fcff3be9fb2a1febf00731d5b31e121",
+		"normal": "3a20ce99ec4cb929d96c0f4643c5484bdede6537b3448900d841f94fb20def70",
+		"roughness": "3969d0cd375fa94f849bcbc7fe836ebc619aed4b80673cb59ce823e1423db699"}
+	var report: Dictionary = {"status": "pass", "maps": {}}
+	for role in pins:
+		var target: String = output.path_join(ConveyorArt.FILES[role])
+		var source_path: String = source.path_join(role + ".png")
+		if FileAccess.file_exists(target) or FileAccess.get_sha256(source_path) != pins[role]:
+			push_error("Refuse an existing output or unpinned conveyor source: " + role)
+			quit(1)
+			return
+		var image := Image.load_from_file(source_path)
+		if image == null or image.get_size() != Vector2i(1024, 1024):
+			push_error("Expected the pinned one-kilopixel source image: " + role)
+			quit(1)
+			return
+		var decoded_format := image.get_format()
+		var maximum_normal_error := 0.0
+		var maximum_normal_angle := 0.0
+		if role == "albedo":
+			image.convert(Image.FORMAT_RGB8)
+		elif role == "roughness":
+			image.convert(Image.FORMAT_RF)
+			image.resize(512, 512, Image.INTERPOLATE_LANCZOS)
+			var scalar := PackedByteArray()
+			scalar.resize(512 * 512)
+			for y in range(512):
+				for x in range(512):
+					scalar[y * 512 + x] = clampi(roundi(image.get_pixel(x, y).r * 255), 0, 255)
+			image = Image.create_from_data(512, 512, false, Image.FORMAT_L8, scalar)
+		else:
+			image.convert(Image.FORMAT_RGBF)
+			image.resize(512, 512, Image.INTERPOLATE_LANCZOS)
+			var pixels := PackedByteArray()
+			pixels.resize(512 * 512 * 3)
+			for y in range(512):
+				for x in range(512):
+					var color := image.get_pixel(x, y)
+					var normal := Vector3(color.r * 2 - 1, color.g * 2 - 1, color.b * 2 - 1)
+					if not normal.is_finite() or normal.length_squared() < 0.000001:
+						push_error("Invalid resized conveyor normal.")
+						quit(1)
+						return
+					normal = normal.normalized()
+					var at := (y * 512 + x) * 3
+					for axis in range(3):
+						pixels[at + axis] = clampi(roundi((normal[axis] * 0.5 + 0.5) * 255), 0, 255)
+					var decoded := Vector3(pixels[at], pixels[at + 1], pixels[at + 2]) / 255.0 * 2.0 - Vector3.ONE
+					maximum_normal_error = maxf(maximum_normal_error, absf(decoded.length() - 1.0))
+					maximum_normal_angle = maxf(maximum_normal_angle, rad_to_deg(acos(clampf(decoded.normalized().dot(normal), -1, 1))))
+			image = Image.create_from_data(512, 512, false, Image.FORMAT_RGB8, pixels)
+		if maximum_normal_error >= 0.01 or maximum_normal_angle >= 0.5 or image.save_webp(target, false) != OK:
+			push_error("Cannot encode conveyor map within its normal representation bounds: " + role)
+			quit(1)
+			return
+		var packed := Image.load_from_file(target)
+		if packed == null:
+			push_error("Cannot decode the prepared conveyor map: " + role)
+			quit(1)
+			return
+		packed.convert(image.get_format())
+		if packed.get_size() != image.get_size() or packed.get_data() != image.get_data():
+			push_error("The lossless conveyor map pixels differ: " + role)
+			quit(1)
+			return
+		report.maps[role] = {"source_decoded_format": decoded_format, "prepared_format": image.get_format(),
+			"width": image.get_width(), "height": image.get_height(), "prepared_pixel_equality": true,
+			"maximum_normal_length_error": maximum_normal_error, "maximum_normal_encoding_angle_degrees": maximum_normal_angle,
+			"bytes": FileAccess.get_file_as_bytes(target).size()}
+	print(JSON.stringify(report))
+	quit(0)
+
 func prepare_component_maps(prefix: String) -> void:
 	var args := OS.get_cmdline_user_args()
 	args.remove_at(0)
@@ -453,6 +690,13 @@ func prepare_component_maps(prefix: String) -> void:
 	quit(0)
 
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().size() > 0 and OS.get_cmdline_user_args()[0] == "--prepare-conveyor-maps":
+		prepare_conveyor_maps()
+		return
+	if OS.get_cmdline_user_args().has("--conveyor-only") or OS.get_cmdline_user_args().has("--historical-conveyor-only"):
+		check_conveyor_loop()
+		finish()
+		return
 	if OS.get_cmdline_user_args().has("--sourced-press-only"):
 		check_press_supports()
 		finish()

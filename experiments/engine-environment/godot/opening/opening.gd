@@ -348,6 +348,136 @@ class ProductionSteelFloor:
 		finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 		return finish
 
+class ProductionConveyorArt:
+	extends RefCounted
+	## Closed visual belt and source rubber. No transport clock or contact rules.
+	const ROOT := "res://opening/assets/conveyor"
+	const FILES := {"albedo": "rubber_albedo.webp", "normal": "rubber_normal_gl.webp", "roughness": "rubber_roughness.webp"}
+	const HALF_SPAN := 0.57
+	const HALF_WIDTH := 0.32
+	const RADIUS := 0.09
+	const THICKNESS := 0.012
+	const BEVEL := 0.0015
+	const HEIGHT := 0.465
+	const ARC_SEGMENTS := 24
+	const SOURCE_METRES := 0.75
+	static var mesh: ArrayMesh
+	static var finish: StandardMaterial3D
+	static var source_status := "uninitialized"
+
+	static func read_images(directory: String = ROOT) -> Dictionary:
+		var present := 0
+		for file_name in FILES.values():
+			if FileAccess.file_exists(directory.path_join(file_name)):
+				present += 1
+		if present == 0:
+			return {"status": "missing", "images": {}}
+		if present != FILES.size():
+			return {"status": "invalid", "reason": "incomplete_material_set", "images": {}}
+		var images: Dictionary = {}
+		for role in FILES:
+			var image := Image.load_from_file(directory.path_join(FILES[role]))
+			var size_value := Vector2i(1024, 1024) if role == "albedo" else Vector2i(512, 512)
+			if image == null or image.is_empty() or image.get_size() != size_value:
+				return {"status": "invalid", "reason": "invalid_" + role, "images": {}}
+			images[role] = image
+		return {"status": "ready", "images": images}
+
+	static func material() -> StandardMaterial3D:
+		if source_status != "uninitialized":
+			return finish
+		var loaded := read_images()
+		source_status = loaded.status
+		if source_status == "missing":
+			# Historical rosters retain generated rubber on the same visual loop.
+			finish = ProductionVisuals.material(Color("28383d"), 0.0, 0.9)
+			return finish
+		if source_status != "ready":
+			push_error("Invalid conveyor rubber material: " + str(loaded.get("reason", "unknown")))
+			return null
+		for role in loaded.images:
+			var image: Image = loaded.images[role]
+			if image.generate_mipmaps(role == "normal") != OK:
+				source_status = "invalid"
+				push_error("Cannot generate conveyor material mipmaps.")
+				return null
+		finish = StandardMaterial3D.new()
+		finish.albedo_color = Color.WHITE
+		finish.albedo_texture = ImageTexture.create_from_image(loaded.images.albedo)
+		finish.metallic = 0.0
+		finish.roughness = 1.0
+		finish.roughness_texture = ImageTexture.create_from_image(loaded.images.roughness)
+		finish.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
+		finish.normal_enabled = true
+		finish.normal_texture = ImageTexture.create_from_image(loaded.images.normal)
+		finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		return finish
+
+	static func loop_mesh() -> ArrayMesh:
+		if mesh != null:
+			return mesh
+		var profile := PackedVector2Array([
+			Vector2(RADIUS - THICKNESS + BEVEL, -HALF_WIDTH), Vector2(RADIUS - BEVEL, -HALF_WIDTH),
+			Vector2(RADIUS, -HALF_WIDTH + BEVEL), Vector2(RADIUS, HALF_WIDTH - BEVEL),
+			Vector2(RADIUS - BEVEL, HALF_WIDTH), Vector2(RADIUS - THICKNESS + BEVEL, HALF_WIDTH),
+			Vector2(RADIUS - THICKNESS, HALF_WIDTH - BEVEL), Vector2(RADIUS - THICKNESS, -HALF_WIDTH + BEVEL)])
+		var directions := PackedVector2Array()
+		var centers := PackedVector2Array()
+		var distances := PackedFloat32Array()
+		for side in [1.0, -1.0]:
+			for n in range(ARC_SEGMENTS + 1):
+				var angle := (PI / 2.0 if side > 0 else -PI / 2.0) - PI * float(n) / ARC_SEGMENTS
+				directions.append(Vector2(cos(angle), sin(angle)))
+				centers.append(Vector2(side * HALF_SPAN, 0))
+				distances.append(RADIUS * PI * float(n) / ARC_SEGMENTS + (0.0 if side > 0 else PI * RADIUS + 2.0 * HALF_SPAN))
+		var length_value := 4.0 * HALF_SPAN + TAU * RADIUS
+		# Four complete repeats close the visible longitudinal texture seam.
+		var repeats := maxi(1, roundi(length_value / SOURCE_METRES))
+		var surface := SurfaceTool.new()
+		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+		var cross_distance := 0.0
+		for section in range(profile.size()):
+			var a := profile[section]
+			var b := profile[(section + 1) % profile.size()]
+			var across := a.distance_to(b)
+			var slope := Vector2(b.y - a.y, a.x - b.x).normalized()
+			for n in range(centers.size()):
+				var next := (n + 1) % centers.size()
+				var points: Array[Vector3] = []
+				var normals: Array[Vector3] = []
+				var coordinates: Array[Vector2] = []
+				for corner in [[n, a, 0.0], [next, a, 0.0], [next, b, across], [n, b, across]]:
+					var at: int = corner[0]
+					var p: Vector2 = corner[1]
+					var xy: Vector2 = centers[at] + directions[at] * p.x
+					var normal := Vector3(directions[at].x * slope.x, directions[at].y * slope.x, slope.y)
+					var along: float = distances[at] if not (n == centers.size() - 1 and at == 0) else length_value
+					points.append(Vector3(xy.x, xy.y, p.y))
+					normals.append(normal)
+					coordinates.append(Vector2(along / length_value * repeats, (cross_distance + float(corner[2])) / SOURCE_METRES))
+				for triangle in [[0, 1, 2], [0, 2, 3]]:
+					var order: Array = triangle.duplicate()
+					var cross := (points[order[1]] - points[order[0]]).cross(points[order[2]] - points[order[0]])
+					if cross.dot(normals[order[0]] + normals[order[1]] + normals[order[2]]) > 0:
+						order.reverse()
+					for index in order:
+						surface.set_normal(normals[index])
+						surface.set_uv(coordinates[index])
+						surface.add_vertex(points[index])
+			cross_distance += across
+		surface.generate_tangents()
+		mesh = surface.commit()
+		return mesh
+
+	static func mount(parent: Node3D) -> void:
+		var belt := MeshInstance3D.new()
+		belt.name = "ConveyorLoop"
+		belt.position.y = HEIGHT
+		belt.mesh = loop_mesh()
+		belt.material_override = material()
+		belt.set_meta("detail_role", "ConveyorLoop")
+		parent.add_child(belt)
+
 class ProductionPressArt:
 	extends RefCounted
 	## Authored support components for the existing confirmed processor.
@@ -2875,16 +3005,20 @@ func _collector_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 func _belt_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	var frame: Color = COLORS.belt
 	for x in [-0.52, 0.52]:
-		for z in [-0.26, 0.26]:
-			_machine_box(anchor, "ConveyorLeg", Vector3(x, 0.315, z), Vector3(0.09, 0.21, 0.09), frame)
-	_machine_box(anchor, "ConveyorBand", Vector3(0, 0.465, 0), Vector3(1.38, 0.12, 0.64), Color("28383d"), 0.05, 0.9)
-	for n in range(-3, 4):
-		_machine_box(anchor, "ConveyorCleat", Vector3(n * 0.18, 0.54, 0), Vector3(0.06, 0.03, 0.62), Color("b2c5b7"), 0.3)
+		for z in [-0.36, 0.36]:
+			var leg := _machine_box(anchor, "ConveyorLeg", Vector3(x, 0.315, z), Vector3(0.09, 0.21, 0.06), frame)
+			leg.set_meta("detail_role", "ConveyorLeg")
+	ProductionConveyorArt.mount(anchor)
 	for z in [-0.36, 0.36]:
 		_machine_box(anchor, "ConveyorRail", Vector3(0, 0.57, z), Vector3(1.38, 0.08, 0.05), frame)
+		var channel := _machine_box(anchor, "ConveyorChannel", Vector3(0, 0.43, z), Vector3(1.34, 0.08, 0.05), frame)
+		channel.set_meta("detail_role", "ConveyorChannel")
+	var roller_profile := PackedVector2Array([Vector2(0, -0.35), Vector2(0.055, -0.35),
+		Vector2(0.06, -0.345), Vector2(0.06, -0.305), Vector2(0.077, -0.3),
+		Vector2(0.077, 0.3), Vector2(0.06, 0.305), Vector2(0.06, 0.345),
+		Vector2(0.055, 0.35), Vector2(0, 0.35)])
 	for x in [-0.57, 0.57]:
-		_machine_cylinder(anchor, "ConveyorRoller", Vector3(x, 0.465, 0), 0.1, 0.7,
-			Color("5b7275"), Vector3(PI / 2, 0, 0))
+		_machine_turned(anchor, "ConveyorRoller", Vector3(x, 0.465, 0), roller_profile, Color("a6b4af"), Vector3.BACK)
 	_machine_drive_stub(anchor, entity)
 
 func _press_visual(anchor: Node3D, entity: Dictionary = {}) -> void:

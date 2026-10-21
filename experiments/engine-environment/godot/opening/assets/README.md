@@ -63,8 +63,8 @@ to the component's own mounting detail. Historical missing-resource rosters reta
 their original frame. Isolated visual clearance does not establish native contact
 or rendered production quality.
 
-The same existing view script builds an open collector stock bed, supported
-conveyor with contrasting cleats, and waterwheel with an open rim, spokes,
+The same existing view script builds an open collector stock bed, a supported
+conveyor with a closed [rubber loop](conveyor/CREDITS.md), and waterwheel with an open rim, spokes,
 paddles and axle bearings. Shared frame/steel/copper finishes keep the silhouettes
 coherent. The old decorative wheel rotation still follows the confirmed powered
 flag. No rendered mesh supplies power, contact, placement, collision or reach.
