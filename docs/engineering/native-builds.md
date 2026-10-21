@@ -79,6 +79,20 @@ execution directory. A cache shared across worktrees must stay within the same
 verified toolchain boundary. Never point two concurrent workspaces at an
 explicitly identical `--output_base`.
 
+For sequential tasks, prefer one owned canonical build workspace. This can be a
+clean Git worktree on a fresh current-main branch or a private source staging
+directory. A new staged-copy path also creates another output base, even when
+the authoring worktree and caches are reused. Keep concurrent writers in
+separate workspaces.
+
+Before reuse, retain the prior raw-Git archive, seals, results and any binaries
+or runfiles needed by evidence or installed consumers outside mutable build
+outputs; keep their references valid. Finish prior operations and readers before
+replacing staged source. If a consumer still needs an output in place, preserve
+that workspace. Seal and verify each new candidate before and after its
+invocation as usual. Reuse preserves dependency invalidation, toolchain isolation
+and resource limits.
+
 The first targets are:
 
 | Target | Purpose |
