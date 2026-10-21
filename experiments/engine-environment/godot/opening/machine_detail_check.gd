@@ -3,11 +3,13 @@ extends SceneTree
 const Opening = preload("res://opening/opening.gd")
 const Visuals = Opening.ProductionVisuals
 const WheelArt = Opening.ProductionWheelArt
+const PressArt = Opening.ProductionPressArt
 const Geometry = preload("res://opening/site_geometry.gd")
 var checks := 0
 var failed := false
 var max_tangent_dot := 0.0
 var detail_meshes := 0
+var minimum_press_gap := INF
 
 func verify(condition: bool, message: String) -> void:
 	checks += 1
@@ -197,9 +199,148 @@ func check_wheel_axes() -> void:
 	verify(file != null and WheelArt.resource_status(partial) == "incomplete",
 		"A partial asset set cannot be reported as sourced success.")
 
+func press_protected(node: Node3D, parent_pose: Transform3D, rows: Array[Dictionary]) -> void:
+	var pose := parent_pose * node.transform
+	if node is MeshInstance3D:
+		var name_value := str(node.name)
+		if name_value in ["Anvil", "ToolHead", "Piston", "OutputTray", "DriveStub"] or name_value.begins_with("ToolGuide") or node.get_meta("detail_role", "") == "GuideCollar":
+			rows.append({"bounds": pose * node.mesh.get_aabb(), "name": name_value})
+	for child in node.get_children():
+		if child is Node3D:
+			press_protected(child, pose, rows)
+
+func press_clearance(support: MeshInstance3D, protected_rows: Array[Dictionary]) -> void:
+	var arrays := support.mesh.surface_get_arrays(0)
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+	var clear := true
+	var first_overlap := ""
+	# Individual triangle boxes keep the wide mounting collar at its actual
+	# low height; a whole-column box would falsely fill the empty upper space.
+	for n in range(0, indices.size(), 3):
+		var a: Vector3 = support.transform * vertices[indices[n]]
+		var b: Vector3 = support.transform * vertices[indices[n + 1]]
+		var c: Vector3 = support.transform * vertices[indices[n + 2]]
+		var low := a.min(b).min(c)
+		var high := a.max(b).max(c)
+		for row in protected_rows:
+			var box: AABB = row.bounds
+			var gap := maxf(maxf(maxf(box.position.x - high.x, low.x - box.end.x),
+				maxf(box.position.y - high.y, low.y - box.end.y)), maxf(box.position.z - high.z, low.z - box.end.z))
+			minimum_press_gap = minf(minimum_press_gap, gap)
+			if gap <= 0:
+				clear = false
+				if first_overlap.is_empty():
+					first_overlap = row.name
+	verify(clear, "The sourced support leaves the existing work, guide and drive meshes clear: " + first_overlap)
+
+func check_press_supports() -> void:
+	verify(PressArt.resource_status() == "complete", "The actual captured press resource set is complete.")
+	var shared_mesh: Mesh
+	var shared_material: Material
+	for axis in range(3):
+		var view := Opening.new()
+		view.machine_root = Node3D.new()
+		view.state = {"options": {"native": true}, "remaining": 0, "stock": {"held": 0},
+			"entities": {"fixture": {"kind": "processor", "cell": [0, 0], "axis": axis, "generation": 1}}, "links": [], "drive_links": []}
+		var before: Dictionary = view.state.duplicate(true)
+		view._rebuild_machines()
+		var machine: Node3D = view.machine_root.get_child(0)
+		var supports: Array[MeshInstance3D] = []
+		for child in machine.get_children():
+			if child is MeshInstance3D and child.get_meta("detail_role", "") == "CastPressSupport":
+				supports.append(child)
+		verify(PressArt.source_status == "ready" and supports.size() == 2,
+			"The ordinary processor mounts two actual sourced support components.")
+		verify(machine.get_node_or_null("PressUpright") == null,
+			"The sourced supports replace the old upright geometry.")
+		verify(machine.get_node("Plinth").position == Vector3(0, 0.12, 0)
+			and machine.get_node("Plinth").mesh.get_aabb().size.is_equal_approx(Vector3(1.35, 0.24, 1.35)),
+			"The original foundation geometry and mounting height stay intact.")
+		verify(machine.get_node("Anvil").position == Vector3(0, 0.46, 0.05)
+			and machine.get_node("OutputTray").position == Vector3(0.46, 0.33, 0.15),
+			"The actual anvil and outlet retain their original working coordinates.")
+		var rows: Array = machine.get_meta("motion_meshes")
+		verify(rows.size() == 2, "Only the original head and piston join the existing press pose path.")
+		for support in supports:
+			verify(support.get_script() == null and support.get_child_count() == 0,
+				"The source creates no controller, collision child or state owner.")
+			if shared_mesh == null:
+				shared_mesh = support.mesh
+				shared_material = support.material_override
+			verify(support.mesh == shared_mesh and support.material_override == shared_material,
+				"Both supports and all projected drive axes share the same mesh and material.")
+			var arrays := support.mesh.surface_get_arrays(0)
+			var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+			var coordinates: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+			var tangents: PackedFloat32Array = arrays[Mesh.ARRAY_TANGENT]
+			verify(vertices.size() == 1977 and arrays[Mesh.ARRAY_INDEX].size() == 6282,
+				"The loaded support has the declared source column, collar and mounting fasteners.")
+			var usable := normals.size() == vertices.size() and coordinates.size() == vertices.size() and tangents.size() == vertices.size() * 4
+			if usable:
+				for n in range(vertices.size()):
+					var tangent := Vector3(tangents[n * 4], tangents[n * 4 + 1], tangents[n * 4 + 2])
+					max_tangent_dot = maxf(max_tangent_dot, absf(tangent.dot(normals[n])))
+					usable = usable and vertices[n].is_finite() and normals[n].is_finite() and coordinates[n].is_finite()
+					usable = usable and absf(normals[n].length() - 1) < 0.002 and tangent.is_finite()
+					usable = usable and absf(tangent.length() - 1) < 0.002 and absf(tangent.dot(normals[n])) < 0.003
+			verify(usable, "The actual source support retains usable normals, tangents and atlas coordinates.")
+			verify(is_equal_approx(support.position.y, 0.24) and is_equal_approx(support.position.z, -0.38)
+				and is_equal_approx(absf(support.position.x), 0.48)
+				and absf((support.transform * support.mesh.get_aabb()).end.y - 1.4) < 0.00001,
+				"The source mounting plane meets the original foundation and its top meets the bridge.")
+			check_bounds(support, Transform3D.IDENTITY)
+		for travel in [0.0, 0.015]:
+			view._apply_press_pose(rows, travel)
+			var protected_rows: Array[Dictionary] = []
+			press_protected(machine, Transform3D.IDENTITY, protected_rows)
+			verify(protected_rows.size() >= 10, "The clearance check includes actual head, work, guide and drive meshes.")
+			for support in supports:
+				press_clearance(support, protected_rows)
+		verify(view.state == before and view.model == null and view.actor_world == null,
+			"The asset and existing end-pose checks preserve projection and create no game authority.")
+		view.machine_root.free()
+		view.free()
+	var material := shared_material as StandardMaterial3D
+	verify(material != null and material.albedo_color == Color.WHITE and material.cull_mode == BaseMaterial3D.CULL_DISABLED,
+		"The original source color and double-sided shading remain intact.")
+	if material != null:
+		verify(material.albedo_texture.get_size() == Vector2(1024, 1024)
+			and material.normal_texture.get_size() == Vector2(512, 512) and material.roughness_texture.get_size() == Vector2(512, 512),
+			"The actual source color and prepared data maps retain their declared sizes.")
+		verify(material.roughness_texture == material.metallic_texture and material.ao_texture == material.roughness_texture
+			and material.metallic_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_BLUE
+			and material.roughness_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_GREEN
+			and material.ao_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_RED,
+			"The cached material uses the original packed scalar channel meanings.")
+		verify(material.normal_enabled and not material.uv1_triplanar and material.albedo_texture.get_image().has_mipmaps()
+			and material.normal_texture.get_image().has_mipmaps() and material.roughness_texture.get_image().has_mipmaps(),
+			"The source atlas and normalized normal mip chain remain active.")
+
+func check_historical_press() -> void:
+	verify(PressArt.resource_status() == "missing", "This deliberately reduced roster omits the sourced press assets.")
+	var view := Opening.new()
+	view.machine_root = Node3D.new()
+	view.state = {"options": {"native": true}, "entities": {"fixture": {"kind": "processor", "cell": [0, 0], "axis": 0}}, "links": [], "drive_links": []}
+	var before: Dictionary = view.state.duplicate(true)
+	view._rebuild_machines()
+	var machine: Node3D = view.machine_root.get_child(0)
+	verify(PressArt.source_status == "missing" and machine.get_node_or_null("PressUpright") != null
+		and machine.get_node_or_null("CastPressSupportLeft") == null, "The actual historical source roster retains its original upright assembly.")
+	verify(machine.get_node("SurfaceDetail").get_node_or_null("FrameJoint") != null,
+		"The historical rectangular frame retains its fitted service cover.")
+	verify(is_equal_approx((machine.get_node("PressBridge").material_override as StandardMaterial3D).metallic, 0.08),
+		"The historical frame retains its original low-metal paint response.")
+	verify(view.state == before and view.model == null and view.actor_world == null,
+		"The historical art path preserves state and has no game authority.")
+	view.machine_root.free()
+	view.free()
+
 func finish() -> void:
 	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks, "detail_meshes": detail_meshes,
 		"maximum_packed_tangent_dot": max_tangent_dot, "source_status": WheelArt.source_status,
+		"press_source_status": PressArt.source_status, "minimum_press_separating_gap": minimum_press_gap if is_finite(minimum_press_gap) else null,
 		"rendered_quality": "not_assessed", "desktop": "not_used"}))
 	quit(1 if failed else 0)
 
@@ -222,7 +363,7 @@ func check_historical_wheel() -> void:
 	view.machine_root.free()
 	view.free()
 
-func prepare_waterwheel_maps() -> void:
+func prepare_component_maps(prefix: String) -> void:
 	var args := OS.get_cmdline_user_args()
 	args.remove_at(0)
 	if args.size() != 2:
@@ -233,7 +374,7 @@ func prepare_waterwheel_maps() -> void:
 	var output := args[1]
 	var report: Dictionary = {"status": "pass", "source_size": [1024, 1024], "maps": {}}
 	for name_value in ["normal", "arm"]:
-		var target := output.path_join("wood_" + name_value + ".webp")
+		var target := output.path_join(prefix + "_" + name_value + ".webp")
 		if FileAccess.file_exists(target):
 			push_error("Refuse to replace a prepared map: " + target)
 			quit(1)
@@ -295,7 +436,7 @@ func prepare_waterwheel_maps() -> void:
 			"runtime_format": Image.FORMAT_RGB8, "size": [512, 512], "prepared_pixel_equality": true,
 			"maximum_normal_length_error": maximum_normal_error, "maximum_normal_encoding_angle_degrees": maximum_normal_angle,
 			"bytes": FileAccess.get_file_as_bytes(target).size()}
-	var albedo_target := output.path_join("wood_albedo.jpg")
+	var albedo_target := output.path_join(prefix + "_albedo.jpg")
 	if FileAccess.file_exists(albedo_target) or DirAccess.copy_absolute(
 			source.path_join("albedo.jpg"), albedo_target) != OK:
 		push_error("Cannot copy the original provider albedo into a fresh path.")
@@ -312,8 +453,19 @@ func prepare_waterwheel_maps() -> void:
 	quit(0)
 
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--sourced-press-only"):
+		check_press_supports()
+		finish()
+		return
+	if OS.get_cmdline_user_args().has("--historical-press-only"):
+		check_historical_press()
+		finish()
+		return
 	if OS.get_cmdline_user_args().size() > 0 and OS.get_cmdline_user_args()[0] == "--prepare-waterwheel-maps":
-		prepare_waterwheel_maps()
+		prepare_component_maps("wood")
+		return
+	if OS.get_cmdline_user_args().size() > 0 and OS.get_cmdline_user_args()[0] == "--prepare-press-support-maps":
+		prepare_component_maps("cast")
 		return
 	if OS.get_cmdline_user_args().has("--sourced-wheel-material-only"):
 		var parent := Node3D.new()

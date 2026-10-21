@@ -1,10 +1,30 @@
-load("@rules_cc//cc:defs.bzl", "cc_binary")
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
 
 package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "components",
+    hdrs = ["components.hpp"],
+)
 
 # A source-specific offline art recipe. It never runs in the game.
 cc_binary(
     name = "prepare-waterwheel",
     srcs = ["waterwheel.cpp"],
     linkopts = ["-lcrypto"],
+    deps = [":components"],
+)
+
+cc_binary(
+    name = "inspect-press-components",
+    srcs = ["inspect_press.cpp"],
+    linkopts = ["-lcrypto"],
+    deps = [":components"],
+)
+
+cc_binary(
+    name = "prepare-press-support",
+    srcs = ["press_support.cpp"],
+    linkopts = ["-lcrypto"],
+    deps = [":components"],
 )

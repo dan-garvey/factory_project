@@ -63,3 +63,43 @@ image conversion and isolated wheel fixture are retained in
 The fixture verifies real resources, all three native axes, material channels,
 mesh reuse and unchanged authority. It does not assess rendering, human
 preference, production quality or a new ordinary gameplay campaign.
+
+## Cast press support
+
+`//native/asset-preparation:inspect-press-components` inventories disconnected
+components in the pinned Drill Press 01 body without writing assets or creating
+a scene. `//native/asset-preparation:prepare-press-support` extracts the selected
+column, cast collar and mounting hardware. Source and delivered identities are
+in the [press record](../../experiments/engine-environment/godot/opening/assets/press-support/source.json).
+
+Both writers use the same topology-discovery helper. Extracting that helper
+retained the complete rotor buffer and descriptor exactly. The previous tool
+and source remain outside mutable build outputs. Discovery preserves separate
+delivered UV/normal vertices and changes no gameplay geometry or admission.
+
+Build and run through the existing bounded Bazel and admission path:
+
+```bash
+"$FACTORY_INSPECT_PRESS" "$PRESS_SOURCE/original.bin"
+"$FACTORY_PREPARE_PRESS" "$PRESS_SOURCE/original.bin" "$PRESS_PREPARED"
+"$FACTORY_GODOT" --headless --path "$CAPTURED_IMAGE_PROJECT" \
+  --script res://opening/machine_detail_check.gd \
+  -- --prepare-press-support-maps "$PRESS_SOURCE" "$PRESS_PREPARED"
+```
+
+The source directory contains verified provider files as `original.bin`,
+`albedo.jpg`, `normal.png` and `arm.png`. Outputs must be fresh. Geometry keeps
+the source Y axis and centres X/Z on the actual column. Its mounting datum is the
+underside of the source flange plate, retaining the small lower bolt penetration.
+One uniform scale fits 1.16 metres from that plane to the original bridge. Runtime
+repeats it at the original support positions and turns the right copy by half a
+revolution. The current plinth, anvil, head, guides, outlet, spindle and physical
+envelope remain. The complete donor foot and electrical/drive parts are excluded.
+
+The image adapter now takes an internal filename prefix. Its original waterwheel
+command and delivered map bytes remain exact. Both assets retain original albedo
+JPEGs, prepared 512-pixel normal/scalar maps and explicit source/processing records.
+The isolated fit check compares actual imported support triangle boxes with the
+existing work meshes at both visual head end poses. This is a reusable support
+component and visual fit result, not a structural-force, native-contact, general
+freeform-machine or rendered-quality result.
