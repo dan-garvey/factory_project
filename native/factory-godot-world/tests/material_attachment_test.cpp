@@ -289,7 +289,9 @@ void oriented_wire_join() {
               "One connected-placement record preserves the exact incoming axis and original wire.");
         check(accepted(host.validate_checkpoint(saved)), "The joined Host validates its typed oriented history.");
         Host fresh;
-        check(accepted(fresh.initialize("fresh", {"P", "Q"})) && accepted(fresh.restore_checkpoint(saved)),
+        check(accepted(fresh.initialize("fresh", {"P", "Q"})) &&
+                  accepted(fresh.configure_terrain(factory::godot_world::tests::flat_site())) &&
+                  accepted(fresh.restore_checkpoint(saved)),
               "A fresh native Host restores the joined checkpoint before native readiness.");
         check(same(saved, fresh.checkpoint()), "Typed state and all original records restore exactly.");
         const auto retry = fresh.command("P", belt_wire);

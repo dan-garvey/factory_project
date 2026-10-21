@@ -382,6 +382,24 @@ std::optional<std::pair<double, double>> Host::terrain_range(double x, double z)
     return std::pair{low, high};
 }
 
+const char* Host::machine_site_refusal(const world::State& state, const mechanics::Point& center) const {
+    const auto x = center[0] * height_step;
+    const auto floor = center[1] * height_step;
+    const auto z = center[2] * height_step;
+    const bool supported = std::any_of(state.foundations.begin(), state.foundations.end(),
+        [&](const auto& entry) { return entry.second.center == center; });
+    if (!supported) {
+        const auto terrain = terrain_range(x, z);
+        if (!terrain) return "terrain_unavailable";
+        // This is the existing seating fit, not additional character reach.
+        if (terrain->second > floor || terrain->first < floor - 0.04) return "foundation_required";
+    }
+    if (site_blocked({x - machine_width / 2, floor, z - machine_width / 2},
+                     {x + machine_width / 2, floor + machine_height, z + machine_width / 2}))
+        return "site_occupied";
+    return nullptr;
+}
+
 world::ObserveActor Host::observe() const {
     return [this](const std::string& actor) -> std::optional<authority::ActorCut> {
         const auto found = owned_->actors.find(actor);
@@ -503,20 +521,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                 return refuse("occupied");
         }
         if (*kind_name != "gear") {
-            const bool supported = std::any_of(snapshot.state.foundations.begin(), snapshot.state.foundations.end(),
-                [&](const auto& entry) { return entry.second.center == center; });
-            if (!supported) {
-                const auto terrain = terrain_range(*x * pitch, *z * pitch);
-                if (!terrain) return refuse("terrain_unavailable");
-                const auto floor = center[1] * height_step;
-                // Ground-supported construction is available across the site;
-                // there is no privileged rectangle. The small seating tolerance
-                // is an adapter fit, never an extension of character reach.
-                if (terrain->second > floor || terrain->first < floor - 0.04) return refuse("foundation_required");
-            }
-            const auto floor = center[1] * height_step;
-            if (site_blocked({*x * pitch - machine_width / 2, floor, *z * pitch - machine_width / 2},
-                {*x * pitch + machine_width / 2, floor + machine_height, *z * pitch + machine_width / 2})) return refuse("site_occupied");
+            if (const auto* refusal = machine_site_refusal(snapshot.state, center)) return refuse(refusal);
         }
         for (const auto& part : snapshot.state.topology.parts)
             if (part.geometry.center == center) return refuse("occupied");
@@ -754,6 +759,8 @@ Host::Decoded Host::decode(const Value& input) const {
         } else if (center[0] % 4 != 0 || center[2] % 4 != 0 ||
             (part.role == Role::collector && (center[0] != 0 || center[1] != 0)) ||
             (part.role == Role::waterwheel && (center[0] != -4 || center[1] != 0))) return {nullptr, "incompatible_geometry"};
+        if (part.role != Role::shaft && part.role != Role::gear)
+            if (const auto* refusal = machine_site_refusal(snapshot.state, center)) return {nullptr, refusal};
     }
     for (const auto& link : snapshot.state.topology.material_links) {
         const auto* from = find(snapshot.state, link.from.id);

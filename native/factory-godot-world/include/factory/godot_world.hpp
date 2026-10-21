@@ -57,6 +57,7 @@ private:
     std::vector<std::pair<authority::Point, authority::Point>> terrain_obstacles_;
     [[nodiscard]] bool site_blocked(const authority::Point& low, const authority::Point& high) const;
     [[nodiscard]] std::optional<std::pair<double, double>> terrain_range(double x, double z) const;
+    [[nodiscard]] const char* machine_site_refusal(const world::State&, const mechanics::Point& center) const;
     std::unique_ptr<Owned> owned_;
 };
 

@@ -125,7 +125,9 @@ void finite_oriented_train_and_restore() {
     const auto saved = host.checkpoint();
     check(accepted(host.validate_checkpoint(saved)), "The complete oriented train and original wire histories validate.");
     Host fresh;
-    check(accepted(fresh.initialize("fresh", {"P", "Q"})) && accepted(fresh.restore_checkpoint(saved)),
+    check(accepted(fresh.initialize("fresh", {"P", "Q"})) &&
+              accepted(fresh.configure_terrain(factory::godot_world::tests::flat_site())) &&
+              accepted(fresh.restore_checkpoint(saved)),
           "A fresh native Host restores the original profile without resetting its kit.");
     check(!factory::values::typed_difference(saved, fresh.checkpoint()),
           "Every typed quantity, axis, height, shaft, identity and old receipt survives exactly.");

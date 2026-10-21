@@ -121,6 +121,7 @@ void historical_translation() {
     reject("collector", "kind", V("belt"));
     Host fresh;
     check(accepted(fresh.initialize("new-host", {"P"})), "A separate fresh Host initializes.");
+    check(accepted(fresh.configure_terrain(factory::godot_world::tests::flat_site())), "The fresh Host binds the same synthetic terrain.");
     check(accepted(fresh.restore_checkpoint(saved)), "The unchanged complete checkpoint restores.");
     check(!factory::values::typed_difference(saved, fresh.checkpoint()), "Restore preserves the original typed history and state.");
     const auto retry = fresh.command("P", recovery);
