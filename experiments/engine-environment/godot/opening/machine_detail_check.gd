@@ -375,9 +375,16 @@ func check_span_belt_art() -> void:
 			verify(frame_parts == 6, "A span has exactly two rigid side rails and four open shaft seats.")
 			for side in [-1.0, 1.0]:
 				var rail: MeshInstance3D = loop.get_node("SpanFrameRailN" if side < 0 else "SpanFrameRailP")
+				verify(span_ray_hits(rail.mesh, rail.transform,
+					Vector3(0, -0.1, side * 0.535), Vector3(0, 0.1, side * 0.535)) == 4
+					and span_ray_hits(rail.mesh, rail.transform,
+					Vector3(0, -0.1, side * 0.495), Vector3(0, 0.1, side * 0.495)) == 2,
+					"Each closed side channel has two open-side flanges and one continuous inward web, not a solid bar.")
 				for end in [-1.0, 1.0]:
 					var seat: MeshInstance3D = loop.get_node("SpanFrameSeat" + ("N" if end < 0 else "P") + ("N" if side < 0 else "P"))
-					var from := Vector3(end * distance / 2.0, -0.2, side * 0.515)
+					# Sample inside the channel's bevelled end cap, still within
+					# the bored seat surrounding this confirmed shaft centre.
+					var from := Vector3(end * (distance / 2.0 - 0.01), -0.2, side * 0.515)
 					var overlap := press_input_overlap(rail, seat, from, from + Vector3.UP * 0.4)
 					minimum_frame_contact = minf(minimum_frame_contact, overlap)
 					verify(overlap > 0.005 and seat.mesh == loop.get_node("SpanFrameSeatNN").mesh,
@@ -390,6 +397,7 @@ func check_span_belt_art() -> void:
 						rail.position = original_rail
 						displaced_frame_controls += 1
 			if tiles == 1 and travel_axis == 0:
+				check_closed_asset_mesh(loop.get_node("SpanFrameRailN").mesh, 0.0025, 0.004)
 				check_closed_asset_mesh(loop.get_node("SpanFrameSeatNN").mesh, 0.0005, 0.0008)
 			# A rubber shell's volume is its stadium perimeter times the radial
 			# section. These bounds allow bevel/facet loss, not a filled loop.

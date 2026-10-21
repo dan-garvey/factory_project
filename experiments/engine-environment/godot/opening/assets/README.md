@@ -334,13 +334,13 @@ shaft's existing cosmetic phase; the art supplies no transport clock, mechanical
 contact, stock, command, pick body or actor collision. Isolated geometry controls
 and studio views are separate from actual gameplay and human-quality evidence.
 
-The active shaft-span belt now carries two fixed cast side rails with four open
-worked-metal seats on the confirmed shafts outside their pulley faces. Only the
-plain rail middle
-changes length; the bored seats keep their profile for horizontal and inclined
-routes. These pieces sit outside the moving rubber and cargo lane, within the
-existing occupied span envelope. They are visual furniture attached to the
-admitted belt, not extra structural inventory or another power path.
+The active shaft-span belt now carries two fixed, closed cast side channels with
+four open worked-metal seats on the confirmed shafts outside their pulley faces.
+Each channel exposes a recessed web and two narrow flanges; only its plain
+middle changes length, while the bored seats keep their profile for horizontal
+and inclined routes. These pieces sit outside the moving rubber and cargo lane,
+within the existing occupied span envelope. They are visual furniture attached
+to the admitted belt, not extra structural inventory or another power path.
 
 Complete captures now use a sourced CC0 [timber rotor](waterwheel/CREDITS.md)
 for the waterwheel rim, hub and twelve spokes. Its original modeled components

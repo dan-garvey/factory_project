@@ -469,6 +469,7 @@ func check_landing_contact_from_motion() -> void:
 	var still := landing_contact_case(0.0)
 	var slow := landing_contact_case(0.015)
 	var moving := landing_contact_case(0.03)
+	adult_measurements["landing_contact"] = {"still": still, "slow": slow, "moving": moving}
 	verify(still.mode == "landing" and slow.mode == "landing" and moving.mode == "landing"
 		and still.stride < 0.01 and slow.stride > 0.1 and slow.stride < 0.9
 		and moving.stride > 0.99 and still.toe_spread < 0.18
@@ -479,6 +480,49 @@ func check_landing_contact_from_motion() -> void:
 		and is_equal_approx(float(moving.root_x), 0.15)
 		and still.control_calls == 0 and slow.control_calls == 0 and moving.control_calls == 0,
 		"Landing changes only the visual contact pose, never the confirmed actor or input.")
+
+func check_landing_recovery_profile() -> void:
+	var host := HostFixture.new()
+	host.state.context = "landing-recovery-profile"
+	root.add_child(host)
+	var presenter := Presenter.new()
+	presenter.configure(host)
+	host.add_child(presenter)
+	presenter.set_process(false)
+	presenter.set_physics_process(false)
+	var view: Node3D = presenter.views.P
+	var body: Node3D = view.get_node("BodyView")
+	var skeleton: Skeleton3D = skeleton_of(body)
+	var approach := [0.9, 1.12, 1.42, 1.78, 1.68, 1.38, 0.9]
+	for y: float in approach:
+		host.state.actors.P.position = [0.0, y, 0.0]
+		presenter.refresh(1.0 / 60.0)
+	var heads := []
+	var lowest_toe := INF
+	var roots_exact := true
+	for frame in range(24):
+		presenter.refresh(1.0 / 60.0)
+		skeleton.force_update_all_bone_transforms()
+		var head: Vector3 = body.to_global(presenter._adult_joint(body, skeleton,
+			skeleton.find_bone("Bip01 Head")))
+		var left_toe: Vector3 = body.to_global(presenter._adult_joint(body, skeleton,
+			skeleton.find_bone("Bip01 L Toe0")))
+		var right_toe: Vector3 = body.to_global(presenter._adult_joint(body, skeleton,
+			skeleton.find_bone("Bip01 R Toe0")))
+		heads.append(head.y)
+		if frame < 10:
+			lowest_toe = minf(lowest_toe, minf(left_toe.y, right_toe.y))
+		roots_exact = roots_exact and view.position.is_equal_approx(Vector3(0.0, 0.9, 0.0))
+	adult_measurements["landing_recovery"] = {"head_first": heads[0],
+		"head_low": heads.slice(1, 8).min(), "head_final": heads.back(),
+		"lowest_toe": lowest_toe}
+	verify(heads.slice(1, 8).min() < heads[0] - 0.01 and heads.back() > heads[0] + 0.06
+		and presenter.motion.P.mode == "grounded",
+		"Landing takes load after first contact, then rises to a supported neutral stance.")
+	verify(lowest_toe > -0.03 and lowest_toe < 0.04
+		and roots_exact and host.control_calls == 0,
+		"Landing recovery keeps the boot near ground and the confirmed actor root and input untouched.")
+	host.free()
 
 func _initialize() -> void:
 	call_deferred("run")
@@ -515,6 +559,7 @@ func run() -> void:
 		check_walking_support()
 		check_sparse_confirmed_walk()
 		check_landing_contact_from_motion()
+		check_landing_recovery_profile()
 	else:
 		verify(body.mesh == q.get_node("BodyView").mesh and body.material_override != q.get_node("BodyView").material_override,
 			"Legacy workers share geometry while retaining distinct local and remote clothing.")
