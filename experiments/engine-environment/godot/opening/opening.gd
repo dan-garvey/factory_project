@@ -3531,6 +3531,8 @@ var orbit_pitch := 0.82
 var native_camera_initialized := false
 var distance := 18.5
 var focus := Vector3(1.3, 0.0, 1.1)
+const FIRST_PERSON_EYE_OFFSET := 0.35
+const FIRST_PERSON_BLEND_DISTANCE := 4.0
 var hover_cell := Vector2i(99, 99)
 var visual_revision := -1
 var geometry_key := ""
@@ -4199,15 +4201,18 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
 		if Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
 			orbit_yaw -= event.relative.x * 0.007
-			orbit_pitch = clampf(orbit_pitch + event.relative.y * 0.005, 0.35, 1.25)
+			orbit_pitch = clampf(orbit_pitch + event.relative.y * 0.005,
+				-1.25 if not legacy_fixture and distance == 0.0 else 0.35, 1.25)
 		else:
 			hover_cell = _screen_cell(event.position)
 			_update_cursor()
 	elif event is InputEventMouseButton and event.pressed:
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
-			distance = maxf(10 if legacy_fixture else 8, distance - 1)
+			distance = maxf(10 if legacy_fixture else 0, distance - 1)
 		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 			distance = minf(28 if legacy_fixture else 24, distance + 1)
+			if not legacy_fixture and distance > 0.0:
+				orbit_pitch = maxf(orbit_pitch, 0.35)
 		elif event.button_index == MOUSE_BUTTON_LEFT:
 			var entity_id := _screen_entity(event.position)
 			if not _transmission_click(_transmission_center(event.position), entity_id):
@@ -4255,7 +4260,7 @@ func _select_tool(tool: String) -> void:
 		instructions["flow"] = "Choose the upstream machine, then its neighbor at the material outlet."
 		instructions["drive"] = "Point at a floor to match its height or at a machine to snap beside it. Set the shaft axis in the cogwheel and shaft menu."
 		instructions["gear"] = "Point at a floor to match its height or at a machine to snap beside it. Set the cogwheel axis in its menu."
-		instructions["foundation"] = "Place a factory floor at the displayed world height. Page Up / Page Down move one full tile; Access steps enables smaller walking steps. Area chooses two corners; Esc cancels."
+		instructions["foundation"] = "Place a foundation at the displayed world height. Page Up / Page Down move one foundation thickness so stacked blocks touch; Access steps enables smaller walking steps. Machines need whole-tile factory floors. Area chooses two corners; Esc cancels."
 	_message(instructions.get(tool,
 		"Place %s on an empty grid square." % NAMES.get(tool, tool)))
 
@@ -4444,7 +4449,7 @@ func _adjust_foundation_level(delta: int) -> void:
 	if mode == "wheel":
 		wheel_level = clampi(wheel_level + delta * Geometry.HEIGHT_DENOMINATOR, -1000000, 1000000)
 	else:
-		var step := 1 if foundation_steps else Geometry.HEIGHT_DENOMINATOR
+		var step := 1 if foundation_steps else Geometry.FOUNDATION_HEIGHT_UNITS
 		foundation_level = clampi(foundation_level + delta * step, -1000000, 1000000)
 	foundation_area_started = false
 	foundation_level_label.text = _construction_height_text()
@@ -4485,8 +4490,17 @@ func _assemble_foundation(parent: Node3D, neighbor_mask: int = 0) -> void:
 			get_tree().quit(1)
 
 func _update_camera() -> void:
-	camera.position = focus + Vector3(sin(orbit_yaw) * cos(orbit_pitch), sin(orbit_pitch), cos(orbit_yaw) * cos(orbit_pitch)) * distance
-	camera.look_at(focus)
+	var back := Vector3(sin(orbit_yaw) * cos(orbit_pitch), sin(orbit_pitch), cos(orbit_yaw) * cos(orbit_pitch))
+	var eye_offset := 0.0 if legacy_fixture else FIRST_PERSON_EYE_OFFSET * (1.0 - clampf(distance / FIRST_PERSON_BLEND_DISTANCE, 0.0, 1.0))
+	camera.position = focus + Vector3.UP * eye_offset + back * distance
+	# At zero distance look along the same orbit ray instead of looking at the
+	# camera's own position. The local mesh remains real but cannot fill the view.
+	camera.look_at(camera.position - back)
+	if character_presenter != null and character_presenter.views.has(client):
+		var local_view: Node3D = character_presenter.views[client]
+		var local_actor: Dictionary = state.get("actors", {}).get(client, {})
+		local_view.visible = distance > 1.0 and local_actor.get("ready", false) \
+			and Geometry.valid_position(local_actor.get("position"))
 
 func _build_world() -> void:
 	if not legacy_fixture and ProductionEnvironment.Surface != null:
@@ -5747,7 +5761,7 @@ func _build_interface() -> void:
 	foundation_level_controls.visible = false
 	foundation_steps_toggle = CheckButton.new()
 	foundation_steps_toggle.text = "Access steps"
-	foundation_steps_toggle.tooltip_text = "Use smaller height increments for walking. Machines need whole-tile factory floors. Turning this off snaps the selected height to a factory floor."
+	foundation_steps_toggle.tooltip_text = "Use one height unit for walking steps. Normal height changes move one foundation thickness. Machines need whole-tile factory floors; turning this off snaps the selected height to one."
 	foundation_steps_toggle.toggled.connect(_set_foundation_steps)
 	build.add_child(foundation_steps_toggle)
 	foundation_steps_toggle.visible = false

@@ -7,13 +7,19 @@ its separate scripted profile. Native drives
 consume independent finite shafts, and native checkpoints retain typed custody,
 original history and physical seeds. See the [native bridge](../../../../native/factory-godot-world/README.md).
 WASD walks a native capsule, Space jumps, and the orbit camera follows your
-confirmed character. Right-drag changes the view; the mouse wheel zooms and
-Home restores follow distance. Clicked targets never stand in for your body.
+confirmed character. Right-drag changes the view; the mouse wheel zooms all the
+way to eye-level first person, and Home restores follow distance. At the closest
+view, right-drag can also look upward. The local character model disappears at
+close range and returns as you zoom out. Clicked targets never stand in for your
+body.
 Build, dismantle, retrieve and connection targets must be within the
 authority's provisional four-world-unit sphere. Move closer after a refusal
 and deliberately retry. P (or the drive button) operates the wheel from nearby;
 it does not promise a global stop from the press. Read-only inspection, Help,
 saving and the non-consuming four-plate confirmation remain available at distance.
+The detached `--script res://opening/guidance_cue_check.gd -- --camera-zoom-only`
+verifies offline and shared camera transitions without launching a controlled
+game session.
 
 The native physical view has eight quick-select slots and a short next-step
 prompt. **Build [B]** opens the catalog: choose a destination slot and a carried
@@ -27,10 +33,13 @@ technology unlocks or saved progression. F, G and I retain material, shaft and
 inspection selection. Reopening derives goal advice from the actual worksite.
 
 **Foundation** builds a level surface from the carried kit. Its height controls
-and Page Up / Page Down select whole-tile factory floors, initially at 1.65 m.
-Enable **Access steps** for quarter-height walking steps; turn it off to snap the
-selected height back to a factory floor without moving anything already built. Every
-foundation and machine uses the same quarter-pitch height unit, currently
+and Page Up / Page Down move one foundation thickness (0.825 m, or two shared
+height units), so foundations at successive selected heights touch vertically.
+The initial selection is 1.65 m. Two normal height changes reach the next
+whole-tile machine floor. Enable **Access steps** for quarter-height walking
+steps; turn it off to snap the selected height back to a machine floor without
+moving anything already built. Every foundation and machine uses the same
+quarter-pitch height unit, currently
 0.4125 m on 1.65 m horizontal tiles. Machines require a whole-tile height: a
 foundation top at level 0, 4, 8 and so on can support a machine and align its
 axle with tile-snapped transmission. Intermediate foundation heights remain
