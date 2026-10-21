@@ -3501,6 +3501,7 @@ func render_buildable_resources() -> void:
 	for subject in [{"name": "collector", "kind": "collector"}, {"name": "press", "kind": "processor"},
 		{"name": "conveyor", "kind": "belt"}, {"name": "waterwheel", "kind": "wheel"}]:
 		var view := Opening.new()
+		view.legacy_fixture = false
 		view.state = {"context": "resource-studio", "options": {"native": true, "physical": true},
 			"actors": {"P": {"ready": true}}, "parts": {}, "inventories": {"P": 0},
 			"stock": {"source": 0, "collector": 0, "belt": 0, "input": 0, "held": 0, "output": 0}, "remaining": 0,
@@ -3511,7 +3512,8 @@ func render_buildable_resources() -> void:
 		view._assemble_machine(model, {"kind": subject.kind, "cell": [0, 0], "axis": 0, "generation": 1})
 		var counts := {"meshes": 0, "triangles": 0, "active_nodes": 0}
 		resource_render_counts(model, counts)
-		if counts.meshes == 0 or counts.active_nodes != 0 or view.state != before or view.model != null \
+		if view.legacy_fixture or not view._native_transmission() or counts.meshes == 0 \
+			or counts.active_nodes != 0 or view.state != before or view.model != null \
 			or view.actor_world != null or view.request_sequence != 0 or view.is_inside_tree():
 			report.status = "fail"
 			report.reason = "The resource builder produced active nodes, no meshes or changed observations."
@@ -3631,6 +3633,8 @@ func render_buildable_resources() -> void:
 				return
 			var frame := {"subject": subject.name, "kind": subject.kind, "view": direction.name, "file": file_name,
 				"sha256": FileAccess.get_sha256(image_path), "pixels": pixels, "geometry": counts,
+				"profile": {"legacy_fixture": view.legacy_fixture, "native_transmission": view._native_transmission(),
+					"native_options": view.state.options.native, "request_sequence": view.request_sequence},
 				"camera_position": [camera.position.x, camera.position.y, camera.position.z],
 				"camera_target": [centre.x, centre.y, centre.z], "orthographic_size": camera.size,
 				"qualified_worked_maps": Opening.ProductionTransmissionFinish.source_status,
