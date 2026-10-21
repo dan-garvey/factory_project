@@ -5595,14 +5595,14 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	power_button.visible = kinds.has("wheel")
 	controls_label.text = "WASD walk · Space jump · Right-drag view · Wheel zoom · H help"
 	_refresh_engineering(snapshot_ready)
-	# Introduce inspection when it can help. Keep waiting notices and explicit
-	# disclosure available even before the first machine has been built.
-	# Foundations alone do not need the machine panel while building.
-	var unused_inspector: bool = _native_transmission() and snapshot_ready and _can_choose_tool() \
-		and kinds.is_empty() and state.get("transmission_parts", {}).is_empty() \
-		and not show_details and mode != "inspect"
-	var inspector_panel: Control = inspector.get_parent().get_parent()
-	inspector_panel.visible = not unused_inspector
+	var target_selected: bool = _contains_target(state, selected)
+	inspector.visible = target_selected or show_details or mode == "inspect" \
+		or not snapshot_ready or not _can_choose_tool()
+	retrieve_button.visible = state.get("entities", {}).get(selected, {}).get("kind") == "processor"
+	remove_button.visible = target_selected
+	for divider in inspector.get_parent().get_children():
+		if divider is HSeparator:
+			divider.visible = show_details
 
 func _build_placement_hint() -> void:
 	placement_hint = Node3D.new()
@@ -5988,6 +5988,13 @@ func _fit_guided_footer() -> void:
 	for column in [build_column, inspector.get_parent() if inspector != null else null]:
 		if column != null:
 			var panel: Control = column.get_parent()
+			if column == inspector.get_parent():
+				var content_visible := false
+				for control in column.get_children():
+					if control is Control and control.visible and not control is HSeparator:
+						content_visible = true
+						break
+				panel.visible = content_visible
 			var height: float = panel.get_combined_minimum_size().y
 			if not is_equal_approx(panel.size.y, height):
 				panel.size.y = height
