@@ -123,6 +123,22 @@ git config --local factory.godotSHA256 'verified-executable-sha256'
 git config --local factory.godotArtifacts /absolute/owned/staged-compiler-evidence
 ```
 
+With the native coordinator, each checkout can own its artifact destination.
+Enable [Git worktree configuration](https://git-scm.com/docs/git-worktree#_configuration_file)
+once for the repository, then set the destination from the checkout that owns it:
+
+```bash
+git config --local extensions.worktreeConfig true
+git config --worktree factory.godotArtifacts /absolute/owned/staged-compiler-evidence
+```
+
+The native coordinator prefers that worktree value and uses the common local
+value when absent. An empty value or configuration error refuses without fallback.
+Engine executable and hash pins stay shared; the legacy coordinator continues
+using the common setting. Separate destinations prevent one worker's batch
+selection from changing another's. Retain the same per-batch limits and ordinary
+allocation, evidence-retention and admission rules.
+
 Verify the installed release before pinning it, using the [environment trial](docs/engineering/engine-environment.md) provenance. The current compiler contract accepts only the separately verified `4.7.2.stable.official.ed1daf0bf`. Missing executable/configuration, a changed hash, wrong version or parse error refuses the game commit. Non-GDScript commits remain engine-free. Ordinary `check.py --staged` remains a cheap source gate for other changes and explicitly refuses staged GDScript with instructions to use the coordinator; it never starts an engine inside an existing check permit.
 
 The compiler copies the immutable staged prototype project to an owned external session, imports it, then runs `--headless --check-only --script` on **every** staged project `.gd` file. Editor import alone missed the retained mechanics compile failure. Original input hashes, staged tree, binary/runner pins, post-import configuration hash, individual commands/logs and refusal receipts survive outside Git. The parser has a 5 minute/128 MiB allowance, 8 MiB logs and one engine at a time; sources are limited to 16 MiB/512 files/128 scripts for this small prototype, matching native capture and runtime copying. The input allowance accommodates the combined sourced environment, mechanical assets and representative adult character; it does not expand retained outputs or the native launcher's 2 MiB save-input bound. Only `experiments/engine-environment/godot` is supported; another script root or removal of the entire project needs an explicit contract update rather than a silent skip. Compilation is separate from actual rule, input, rendering, network and save/continuation evidence.
