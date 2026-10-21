@@ -97,6 +97,17 @@ func leg_rotation(body: Node3D) -> Quaternion:
 		return skeleton_of(body).get_bone_pose_rotation(skeleton_of(body).find_bone("Bip01 L Thigh"))
 	return body.get_node("LeftHip").quaternion
 
+func knee_forward_offset(body: Node3D, side: String) -> float:
+	var skeleton := skeleton_of(body)
+	skeleton.force_update_all_bone_transforms()
+	var to_body: Transform3D = body.global_transform.affine_inverse() * skeleton.global_transform
+	var hip: Vector3 = to_body * skeleton.get_bone_global_pose(skeleton.find_bone("Bip01 " + side + " Thigh")).origin
+	var knee: Vector3 = to_body * skeleton.get_bone_global_pose(skeleton.find_bone("Bip01 " + side + " Calf")).origin
+	var ankle: Vector3 = to_body * skeleton.get_bone_global_pose(skeleton.find_bone("Bip01 " + side + " Foot")).origin
+	var reach := (ankle - hip).normalized()
+	var forward := (Vector3.BACK - reach * reach.dot(Vector3.BACK)).normalized()
+	return (knee - hip).dot(forward)
+
 func skin_points(body: Node3D) -> PackedVector3Array:
 	# Independent vertex oracle: use each exported skin bind and its current
 	# named bone pose, then the actual scene transform into BodyView space.
@@ -171,6 +182,10 @@ func inspect_adult(body: Node3D, other: Node3D, presenter: Node) -> void:
 		and absf(Presenter.adult_run_clip.length - 0.83333333333333) < 0.00001
 		and body.get_meta("run_bindings").size() >= 28,
 		"The captured run clip is directly available without an editor import cache and binds to the adult skeleton.")
+	verify(Presenter.adult_walk_clip != null and Presenter.adult_walk_clip.get_track_count() >= 30
+		and absf(Presenter.adult_walk_clip.length - 1.23333333333333) < 0.00001
+		and body.get_meta("walk_channels").size() >= 28,
+		"The captured walk clip is directly available and binds to the adult skeleton.")
 	var neutral := point_bounds(skin_points(body))
 	var appearance: Node3D = body.get_node("AdultHuman")
 	var source_rest: AABB = body.get_meta("source_rest_bounds")
@@ -208,6 +223,13 @@ func inspect_adult(body: Node3D, other: Node3D, presenter: Node) -> void:
 	var right_hand: Vector3 = to_body * skeleton.get_bone_global_pose(skeleton.find_bone("Bip01 R Hand")).origin
 	verify(absf(left_hand.z - right_hand.z) > 0.08 and absf(left_hand.y - right_hand.y) > 0.04,
 		"The captured running cycle separates the two arms in depth and height.")
+	for mix in [0.0, 0.5, 1.0]:
+		presenter._set_gait(body, PI / 2.0, 1.0, 0.0, 0.0, 0.0, mix)
+		verify(knee_forward_offset(body, "L") > 0.10,
+			"The leading left knee bends forward during walking, blending and running.")
+		presenter._set_gait(body, 3.0 * PI / 4.0, 1.0, 0.0, 0.0, 0.0, mix)
+		verify(knee_forward_offset(body, "R") > 0.08,
+			"The right knee bends forward during walking, blending and running.")
 	presenter._set_gait(body, 0.0, 0.0, 0.0, 0.0, 1.0)
 	var impact_bounds := point_bounds(skin_points(body))
 	verify(impact_bounds.position.y + body.position.y >= -0.901
@@ -288,8 +310,11 @@ func run() -> void:
 		"The visible root remains exactly at the projected body origin without prediction.")
 	verify(presenter.motion.P.phase > 0.0 and not leg_rotation(body).is_equal_approx(neutral_leg),
 		"Only confirmed displacement advances the actual visual rig.")
-	verify(absf(float(presenter.motion.P.phase) - 0.15 * TAU / Presenter.GAIT_CYCLE_DISTANCE) < 0.00001,
-		"Two observed steps use the longer distance-based cycle rather than an overly fast cadence.")
+	var first_run_mix := (1.0 / 60.0) * 5.0
+	verify(absf(float(presenter.motion.P.run_mix) - first_run_mix) < 0.00001
+		and absf(float(presenter.motion.P.phase) - 0.15 * TAU
+		/ lerpf(Presenter.WALK_CYCLE_DISTANCE, Presenter.GAIT_CYCLE_DISTANCE, first_run_mix)) < 0.00001,
+		"Confirmed travel advances the blended walk/run phase without an abrupt first-frame switch.")
 	var phase: float = presenter.motion.P.phase
 	var caches := [Presenter.mesh_cache.size(), Presenter.material_cache.size()]
 	for n in range(30):
@@ -305,7 +330,8 @@ func run() -> void:
 		presenter.refresh(1.0 / 60.0)
 	verify(float(presenter.motion.P.weight) > float(presenter.motion.Q.weight)
 		and float(presenter.motion.Q.weight) > 0.0 and absf(p.position.x - 0.75) < 0.00001
-		and absf(other.position.x - 2.096) < 0.00001,
+		and absf(other.position.x - 2.096) < 0.00001
+		and float(presenter.motion.P.run_mix) > 0.95 and float(presenter.motion.Q.run_mix) < 0.05,
 		"Separate actors animate from their own observed travel speed and exact roots.")
 	for n in range(30):
 		presenter.refresh(1.0 / 60.0)
