@@ -470,6 +470,18 @@ prepared successfully without a green-channel flip. The original EXR and first
 failure remain in `scanned-steel-materials-20261020`. This is a specific format
 adapter limitation, not a ban on EXR, a texture-quality ceiling or a game rule.
 
+**Project images use imported resources.** The pinned 4.7.2 runtime warns when
+`Image.load_from_file()` reads project bitmap paths because an exported package
+can retain imported data without its original image file. Runtime material
+loaders use `ResourceLoader.exists()` and an imported `Texture2D.get_image()`
+copy; external preparation inputs still use filesystem decoding. This follows
+the [image-resource API](https://docs.godotengine.org/en/4.7/classes/class_imagetexture.html).
+The worker opacity map disables import-time alpha-border processing to preserve
+the original pixels. The focused controls compare every loaded channel, including
+HDR data and character mipmaps, and exercise imported remaps in a package without
+raw bitmap files. This is an image-loading contract, not a complete standalone
+game-export or human appearance verdict. Evidence: `imported-material-images-20261021`.
+
 **Data-map alpha is not surface opacity.** The
 [paddle timber source](../../experiments/engine-environment/godot/opening/assets/wheel-paddles/CREDITS.md)
 contains slightly nonopaque alpha in its normal and roughness PNGs. An initial

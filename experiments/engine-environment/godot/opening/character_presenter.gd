@@ -249,11 +249,20 @@ func _make_legacy_worker_visual() -> MeshInstance3D:
 	_worker_part(body, "ToolPack", _worker_box(Vector3(0.28, 0.29, 0.1)), Vector3(0, -0.04, -0.17), cloth, 0.9, 0, true)
 	return body
 
+func _adult_image(path: String) -> Image:
+	if not ResourceLoader.exists(path, "Texture2D"):
+		return null
+	var texture := ResourceLoader.load(path, "Texture2D") as Texture2D
+	var image := texture.get_image() if texture != null else null
+	if image != null and image.is_compressed() and image.decompress() != OK:
+		return null
+	return image
+
 func _adult_material(material_name: String) -> StandardMaterial3D:
 	var stem: String = {"f001_body": "body", "f001_head": "head", "f001_opacity": "opacity"}.get(material_name, "")
 	if stem.is_empty():
 		return null
-	var color := Image.load_from_file(ADULT_ASSETS + stem + "_color.webp")
+	var color := _adult_image(ADULT_ASSETS + stem + "_color.webp")
 	if color == null or color.is_empty():
 		return null
 	color.generate_mipmaps()
@@ -267,7 +276,7 @@ func _adult_material(material_name: String) -> StandardMaterial3D:
 		material.cull_mode = BaseMaterial3D.CULL_DISABLED
 		material.metallic_specular = 0.0
 	else:
-		var normal := Image.load_from_file(ADULT_ASSETS + stem + "_normal.webp")
+		var normal := _adult_image(ADULT_ASSETS + stem + "_normal.webp")
 		if normal == null or normal.is_empty():
 			return null
 		normal.generate_mipmaps(true)

@@ -3,6 +3,7 @@ extends SceneTree
 const Assets = preload("res://opening/native_transmission_assets.gd")
 const Presenter = preload("res://opening/native_transmission_presenter.gd")
 const Finish = Assets.Finish
+const Opening = preload("res://opening/opening.gd")
 const WORKED_SIZE := 256
 const WORKED_RELIEF_METRES := 0.00001
 var checks := 0
@@ -10,6 +11,83 @@ var failed := false
 var checked_meshes: Dictionary = {}
 var max_tangent_dot := 0.0
 var visual_instances := 0
+
+func check_resource_images() -> void:
+	var args := OS.get_cmdline_user_args()
+	var offset := args.find("--resource-images")
+	if not verify(offset >= 0 and args.size() > offset + 2, "Image controls require external reference and report paths."):
+		return
+	var family: String = args[offset + 1]
+	var paths: Array = JSON.parse_string(FileAccess.get_file_as_string(family.path_join("image-paths.json")))
+	var packed := args.has("--packed-images")
+	var records: Array[Dictionary] = []
+	for relative: String in paths:
+		var path := "res://" + relative
+		verify(Opening.ProductionVisuals.image_exists(path), "Imported project images remain available: " + relative)
+		if packed:
+			verify(not FileAccess.file_exists(path), "The packed control excludes the original image file: " + relative)
+		var expected := Image.load_from_file(family.path_join("reference").path_join(relative))
+		var actual := Opening.ProductionVisuals.read_image(path)
+		if not verify(actual != null and expected != null, "Both independent image paths decode: " + relative):
+			continue
+		verify(actual.get_size() == expected.get_size(), "Imported image dimensions are unchanged: " + relative)
+		actual.clear_mipmaps()
+		actual.convert(expected.get_format())
+		var equal := actual.get_data() == expected.get_data()
+		verify(equal, "Imported pixels and scalar/alpha channels match the original decoding: " + relative)
+		# Material preparation may convert formats and generate mipmaps, so it
+		# must receive its own image rather than mutate the cached resource.
+		actual.resize(1, 1)
+		var again := Opening.ProductionVisuals.read_image(path)
+		verify(again != null and again.get_size() == expected.get_size(), "Preparing one image does not mutate its cached resource: " + relative)
+		records.append({"path": relative, "pixels_equal": equal, "format": expected.get_format(),
+			"size": [expected.get_width(), expected.get_height()]})
+	verify(not Opening.ProductionVisuals.image_exists("res://opening/assets/missing-material.webp")
+		and Opening.ProductionVisuals.read_image("res://opening/assets/missing-material.webp") == null,
+		"An absent resource remains an explicit absence without raw-file fallback.")
+	verify(Opening.ProductionVisuals.read_image(family.path_join("reference").path_join(paths[0])) != null,
+		"External preparation inputs retain filesystem decoding.")
+	for source in [Opening.ProductionTransmissionFinish, Opening.ProductionPaddleArt,
+			Opening.ProductionSteelFloor, Opening.ProductionFoundationArt, Opening.ProductionConveyorArt]:
+		verify(source.read_images().status == "ready", "The complete runtime material set uses imported resources.")
+	var cast: StandardMaterial3D = Finish.material("cast", Color("76644d"), 0.8, 0.7)
+	verify(cast != null and cast.roughness_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_RED
+		and cast.normal_enabled and cast.roughness_texture == Finish.textures.cast_roughness
+		and cast.normal_texture == Finish.textures.cast_normal,
+		"The transmission still binds the original normal and red-channel roughness maps.")
+	verify(cast == Finish.material("cast", Color("76644d"), 0.8, 0.7), "Imported material preparation preserves finish reuse.")
+	Opening.ProductionWheelArt._prepare()
+	verify(Opening.ProductionWheelArt.source_status == "ready", "The rotor still receives its complete imported material.")
+	var sky: Dictionary = Opening.ProductionEnvironment.read_sky()
+	verify(sky.status == "ready" and sky.image.get_format() == Image.FORMAT_RGBF,
+		"Imported sky preparation preserves floating HDR radiance.")
+	var presenter := Opening.CharacterPresenter.new()
+	for role: String in ["body", "head", "opacity"]:
+		var material: StandardMaterial3D = presenter._adult_material("f001_" + role)
+		if not verify(material != null, "The adult material uses imported images: " + role):
+			continue
+		var color := Image.load_from_file(family.path_join("reference/opening/assets/worker/" + role + "_color.webp"))
+		color.generate_mipmaps()
+		verify(material.albedo_texture.get_image().get_data() == color.get_data(),
+			"Adult color and alpha mipmaps retain their original pixels: " + role)
+		if role != "opacity":
+			var normal := Image.load_from_file(family.path_join("reference/opening/assets/worker/" + role + "_normal.webp"))
+			normal.generate_mipmaps(true)
+			verify(material.normal_texture.get_image().get_data() == normal.get_data(),
+				"Adult normal mipmaps retain their original vectors: " + role)
+		else:
+			verify(material.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+				and is_equal_approx(material.alpha_scissor_threshold, 0.4),
+				"The hair and eyelash alpha rule remains unchanged.")
+	presenter.free()
+	var report := {"status": "fail" if failed else "pass", "checks": checks, "packed_without_raw_images": packed,
+		"images": records, "native_gameplay": "not_run", "desktop": "not_used"}
+	var file := FileAccess.open(args[offset + 2], FileAccess.WRITE)
+	if verify(file != null, "The imported-image report is retained."):
+		file.store_string(JSON.stringify(report, "\t") + "\n")
+		file.close()
+	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks, "images": records.size(),
+		"packed_without_raw_images": packed, "native_gameplay": "not_run", "desktop": "not_used"}))
 
 class MaterialHost extends RefCounted:
 	var state: Dictionary = {}
@@ -156,11 +234,12 @@ func prepare_material_maps() -> void:
 	print(JSON.stringify(report))
 	quit(0)
 
-func verify(condition: bool, message: String) -> void:
+func verify(condition: bool, message: String) -> bool:
 	checks += 1
 	if not condition:
 		failed = true
 		push_error(message)
+	return condition
 
 func key(point: Vector3) -> String:
 	return "%d,%d,%d" % [roundi(point.x * 1000000), roundi(point.y * 1000000), roundi(point.z * 1000000)]
@@ -933,6 +1012,10 @@ func check_shaft_couplings() -> void:
 		"native_contact_force_and_general_machine_routing": "not_established"}))
 
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--resource-images"):
+		check_resource_images()
+		quit(1 if failed else 0)
+		return
 	if OS.get_cmdline_user_args().has("--shaft-coupling-only"):
 		check_shaft_couplings()
 		print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
