@@ -1243,7 +1243,7 @@ func _inclined_belt_actor() -> void:
 			var first_y := 8 if slope > 0 else 16
 			var last_y := 16 if slope > 0 else 8
 			var end := [8 if axle == 2 else 0, last_y, 8 if axle == 0 else 0]
-			var actor_position := [1.65 if axle == 2 else 0.0, 6.78, 1.65 if axle == 0 else 0.0]
+			var actor_position := [1.65 if axle == 2 else 0.0, 7.605, 1.65 if axle == 0 else 0.0]
 			authority.state = {"options": {"native": true, "physical": true}, "entities": {}, "foundations": {},
 				"actors": {"P": {"position": actor_position, "ready": false, "native_epoch": 0}},
 				"transmission_parts": {"left": {"kind": "shaft", "center": [0, first_y, 0], "axis": axle, "half_span": 2},
@@ -1263,13 +1263,13 @@ func _inclined_belt_actor() -> void:
 			authority.state.motion.left.state = "rotating"
 			authority.state.motion.left.numerator = 1 if axle == 0 else -1
 			authority.state.motion.left.denominator = 4
-			for frame in 35:
+			for frame in 55:
 				await physics_frame
 			var forward: Vector3 = body.position
 			var travel := forward.z - start.z if axle == 0 else forward.x - start.x
 			verify(travel > 0.15 and (forward.y - start.y) * slope > 0.1, "The inclined belt carries an uncommanded actor along and up or down its slope.")
 			authority.state.motion.left.numerator *= -1
-			for frame in 30:
+			for frame in 50:
 				await physics_frame
 			var reverse: Vector3 = body.position
 			verify((reverse.z - forward.z if axle == 0 else reverse.x - forward.x) < -0.1, "Reversing the shaft reverses inclined actor transport.")
