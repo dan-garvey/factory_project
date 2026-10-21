@@ -440,6 +440,32 @@ void nonhorizontal_belt_power() {
     }
 }
 
+void belt_cargo_directions() {
+    for (const auto axle : {Axis::x, Axis::z}) {
+        const auto travel = axle == Axis::x ? std::size_t{2} : std::size_t{0};
+        const Integer positive_rate = axle == Axis::x ? 1 : -1;
+        Part first{"first", Kind::shaft, {0, 0, 0}, axle, 0, 2};
+        Part last{"last", Kind::shaft, {0, 0, 0}, axle, 0, 2};
+        for (const auto horizontal : {-1, 1}) for (const auto vertical : {-1, 0, 1}) {
+            last.center = {}; last.center[travel] = horizontal * 8; last.center[1] = vertical * 8;
+            const auto forward = mechanical::belt_cargo_direction(first, last, {positive_rate, 2});
+            check(forward && *forward == horizontal, "Shaft sign determines world cargo direction on horizontal and inclined paths.");
+            check(mechanical::belt_cargo_direction(first, last, {-positive_rate, 2}) == -horizontal,
+                  "Reversing the source reverses cargo direction.");
+            check(mechanical::belt_cargo_direction(last, first, {positive_rate, 2}) == -horizontal,
+                  "Reversing endpoints changes lane sign without changing world movement.");
+            check(mechanical::belt_cargo_direction(first, last, {0, 1}) == 0, "A stopped shaft holds cargo.");
+        }
+        last.center = {0, 8, 0};
+        check(!mechanical::belt_cargo_direction(first, last, {1, 1}), "A vertical belt does not carry objects.");
+        last.center = {}; last.center[travel] = 8;
+        check(!mechanical::belt_cargo_direction(first, last, {1, 0}), "An invalid denominator cannot produce cargo direction.");
+    }
+    Part first{"first", Kind::shaft, {0, 0, 0}, Axis::y, 0, 2};
+    Part last{"last", Kind::shaft, {8, 0, 0}, Axis::y, 0, 2};
+    check(!mechanical::belt_cargo_direction(first, last, {1, 1}), "A sideways belt does not carry objects.");
+}
+
 void horizontal_belt_spans() {
     for (const auto axle : {Axis::x, Axis::z}) {
         const auto travel = axle == Axis::x ? std::size_t{2} : std::size_t{0};
@@ -506,6 +532,7 @@ int main() {
         one_tile_large_cogs();
         belt_path_geometry();
         nonhorizontal_belt_power();
+        belt_cargo_directions();
         horizontal_belt_spans();
         local_conflicts();
         bounded_diagnostics();

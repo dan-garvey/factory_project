@@ -110,6 +110,12 @@ paths; the other geometries are groundwork, not placeable belts. See Create's
 [belt connector](https://github.com/Creators-of-Create/Create/blob/mc1.21.1/dev/src/main/java/com/simibubi/create/content/kinetics/belt/item/BeltConnectorItem.java)
 for the referenced axle and path constraints.
 
+`belt_cargo_direction` returns a signed lane direction for horizontal and
+inclined paths, matching shaft sign and endpoint order. Vertical and sideways
+paths carry rotation but cannot carry objects, as in Create's
+[belt block](https://github.com/Creators-of-Create/Create/blob/mc1.21.1/dev/src/main/java/com/simibubi/create/content/kinetics/belt/BeltBlock.java).
+This rule does not itself admit cargo or provide physical collision.
+
 Full collision clearance, arbitrary bevel gears, clutches, tooth phase/contact, load,
 material feed direction, persisted phase and actual gameplay remain unfinished.
 A solver result cannot establish physical clearance for perpendicular parts.

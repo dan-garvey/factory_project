@@ -68,6 +68,11 @@ struct BeltPath {
 // Axles must be perpendicular to a straight or 45-degree path in their plane.
 [[nodiscard]] std::optional<BeltPath> belt_path(const Part& first, const Part& last);
 
+// Signed cargo movement relative to endpoint order: +1 toward last, -1 toward
+// first, 0 when stopped. Vertical and sideways belts cannot transport objects.
+// Invalid paths and invalid rates also return no direction.
+[[nodiscard]] std::optional<int> belt_cargo_direction(const Part& first, const Part& last, Rate rate);
+
 enum class EngagementKind { external_mesh, coaxial_shaft, belt };
 struct Engagement {
     std::string a;

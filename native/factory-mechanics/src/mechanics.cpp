@@ -195,6 +195,16 @@ std::optional<BeltPath> belt_path(const Part& first, const Part& last) {
     return path;
 }
 
+std::optional<int> belt_cargo_direction(const Part& first, const Part& last, Rate rate) {
+    const auto path = belt_path(first, last);
+    if (!path || rate.denominator <= 0 || path->kind == BeltPathKind::vertical ||
+        path->kind == BeltPathKind::sideways) return std::nullopt;
+    if (rate.numerator == 0) return 0;
+    const auto travel = first.axis == Axis::x ? std::size_t{2} : std::size_t{0};
+    const bool positive_world = first.axis == Axis::x ? rate.numerator > 0 : rate.numerator < 0;
+    return positive_world == (last.center[travel] > first.center[travel]) ? 1 : -1;
+}
+
 const char* error_name(Error error) noexcept {
     switch (error) {
         case Error::none: return "none";

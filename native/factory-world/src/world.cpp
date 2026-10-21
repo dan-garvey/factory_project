@@ -849,9 +849,9 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         const auto lane = state.material.belt_lanes.find(*id);
         if (!first || !last || lane == state.material.belt_lanes.end()) return refused("invalid_mechanics", *id);
         if (*index < 0 || static_cast<std::size_t>(*index) >= lane->second.slots.size()) return refused("invalid_slot", *id);
-        const auto direction = first->geometry.axis == mechanics::Axis::x ? 2 : 0;
-        auto center = first->geometry.center;
-        center[direction] += (last->geometry.center[direction] > center[direction] ? 4 : -4) * *index;
+        const auto path = mechanics::belt_path(first->geometry, last->geometry);
+        if (!path || static_cast<std::size_t>(*index) >= path->tiles.size()) return refused("invalid_mechanics", *id);
+        const auto center = path->tiles[static_cast<std::size_t>(*index)];
         auto cut = observe ? observe(binding.actor) : std::nullopt;
         if (!cut) return refused("actor_unready");
         cut->build_reach = profile_.build_reach;
@@ -1139,13 +1139,17 @@ Advance World::tick() noexcept {
             auto lane = candidate.material.belt_lanes.find(span.geometry.id);
             if (!first || !last || rate == motion.motion.end() || lane == candidate.material.belt_lanes.end())
                 throw materials::Error::invalid_state;
-            const bool along_z = first->geometry.axis == mechanics::Axis::x;
-            const int travel_axis = along_z ? 2 : 0;
-            const auto step = last->geometry.center[travel_axis] > first->geometry.center[travel_axis] ? 4 : -4;
+            const auto path = mechanics::belt_path(first->geometry, last->geometry);
+            const auto direction = mechanics::belt_cargo_direction(first->geometry, last->geometry, rate->second.rate);
+            if (!path || !direction || path->tiles.size() != lane->second.slots.size())
+                throw materials::Error::invalid_state;
             auto before = first->geometry.center;
             auto after = last->geometry.center;
-            before[travel_axis] -= step;
-            after[travel_axis] += step;
+            for (std::size_t axis = 0; axis < 3; ++axis) {
+                const auto step = path->tiles[1][axis] - path->tiles[0][axis];
+                before[axis] -= step;
+                after[axis] += step;
+            }
             const auto at = [&](Role role, const mechanics::Point& point) {
                 return std::any_of(candidate.topology.parts.begin(), candidate.topology.parts.end(),
                     [&](const auto& part) { return part.role == role && part.geometry.center == point; });
@@ -1159,8 +1163,8 @@ Advance World::tick() noexcept {
                 const auto speed = static_cast<Integer>(std::clamp<Wide>(
                     magnitude * materials::work_subticks_per_tick / rate->second.rate.denominator,
                     1, materials::maximum_work_subticks_per_tick));
-                const bool positive_world = along_z ? rate->second.rate.numerator > 0 : rate->second.rate.numerator < 0;
-                const bool toward_last = positive_world == (step > 0);
+                if (*direction == 0) throw materials::Error::invalid_state;
+                const bool toward_last = *direction > 0;
                 const auto& receiver_point = toward_last ? after : before;
                 const auto& slots = lane->second.slots;
                 const auto leading = std::find_if(slots.rbegin(), slots.rend(),
