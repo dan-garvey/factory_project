@@ -10,6 +10,14 @@ these are art choices, not measured casting dimensions. Color, metalness and
 displacement maps are deliberately omitted. The presenter's existing operating
 tint remains unchanged and does not identify a chemical alloy.
 
+The collector's painted castings reuse these normal and roughness images through
+separate cached coating materials. They preserve their original color, select
+zero metalness, retain the 0.25 metre art scale and reduce normal strength to
+0.12. This is an authored surface adaptation, not a measured paint product or a
+separate paint scan. The exposed transmission materials and bearing liner are
+unchanged. See [Godot's material model](https://docs.godotengine.org/en/4.7/tutorials/3d/standard_material_3d.html#metallic)
+for the renderer parameters; no chemical or mechanical rule follows from them.
+
 Original source bytes and license evidence stay outside Git under
 `machined-transmission-surfaces-20261021`; [source.json](source.json) identifies
 the selected files. The original normal PNG is 16-bit, but the pinned engine

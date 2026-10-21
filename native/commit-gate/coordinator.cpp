@@ -197,7 +197,20 @@ Plan prepare(const fs::path& root, const GitReader& git, const std::string& inte
         };
         const auto binary = local("factory.godotExecutable");
         const auto digest = local("factory.godotSHA256");
-        const auto artifacts = local("factory.godotArtifacts");
+        const auto extension = git({"config", "--local", "--bool", "--get", "extensions.worktreeConfig"});
+        const auto extension_value = stripped(extension.output);
+        require(extension.exit_code == 1 || (extension.exit_code == 0 &&
+                (extension_value == "true" || extension_value == "false")),
+                "Cannot read the repository worktree configuration extension; see CONTRIBUTING.md.");
+        // Git 2.34 refuses --worktree without the extension in a linked repository.
+        auto artifact_config = extension.exit_code == 0 && extension_value == "true"
+            ? git({"config", "--worktree", "--get", "factory.godotArtifacts"})
+            : GitResult{1, {}};
+        if (artifact_config.exit_code == 1)
+            artifact_config = git({"config", "--local", "--get", "factory.godotArtifacts"});
+        const auto artifacts = stripped(artifact_config.output);
+        require(artifact_config.exit_code == 0 && !artifacts.empty(),
+                "Staged GDScript needs a worktree or common local factory.godotArtifacts; see CONTRIBUTING.md.");
         require(digest.size() == 64 && digest.find_first_not_of("0123456789abcdef") == std::string::npos,
                 "factory.godotSHA256 must pin the verified executable with 64 lowercase hex digits.");
         plan.command.insert(plan.command.end(), {"--parse-gdscript", "--godot", binary,

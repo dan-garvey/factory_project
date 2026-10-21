@@ -7,6 +7,14 @@ GDScript deltas also carry the same three repository-local Godot settings and
 compiler flags as the legacy coordinator. A temporary `GIT_INDEX_FILE` remains
 in effect for selection and the outer checker.
 
+The native coordinator prefers a worktree-specific `factory.godotArtifacts`
+setting, with the common local value as fallback when absent. An empty value or
+configuration read error refuses instead of selecting another destination.
+With worktree configuration absent or disabled, it reads the common setting
+directly, including in repositories with several linked checkouts.
+Executable and digest pins remain common. See the [setup](../../CONTRIBUTING.md#checks-and-local-hooks)
+for Git worktree configuration; compiler budgets and checks are unchanged.
+
 The native resource library supplies the existing four heavy slots, jobs,
 capacity floors, shared lock files and child lifetime. Source checks, raw blob
 export, snapshot isolation, index guards and compiler validation still belong

@@ -464,6 +464,19 @@ prepared successfully without a green-channel flip. The original EXR and first
 failure remain in `scanned-steel-materials-20261020`. This is a specific format
 adapter limitation, not a ban on EXR, a texture-quality ceiling or a game rule.
 
+**Data-map alpha is not surface opacity.** The
+[paddle timber source](../../experiments/engine-environment/godot/opening/assets/wheel-paddles/CREDITS.md)
+contains slightly nonopaque alpha in its normal and roughness PNGs. An initial
+preparation guard rejected that unused channel. The pinned asset preparation now
+checks every loaded RGB value against independent raw PNG decoding and preserves
+all data components while dropping alpha before resizing. The
+[material API](https://docs.godotengine.org/en/4.7/classes/class_basematerial3d.html#class-basematerial3d-property-normal-texture)
+uses red and green for normals and ignores their blue/alpha channels; this
+roughness adapter explicitly selects red. Its material remains opaque. The
+original refusal and corrected pixel evidence remain under
+`timber-waterwheel-paddles-20261021`. This is a data-channel boundary, not a game
+transparency rule or a rendered-quality result.
+
 The native bridge's initial engine call inherited a 2 GiB compiler address-space
 limit and aborted during initialization. Its separate engine-only ABI check passed
 with an explicit 8 GiB address-space envelope. A later first full-project import

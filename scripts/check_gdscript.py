@@ -81,12 +81,12 @@ def main():
                 continue
             if not source.is_file() or len(receipt["source_hashes"]) >= 512:
                 raise ValueError("Invalid or excessive staged project inputs")
-            if source.stat().st_size > 16 * 1024**2 - total:
-                raise ValueError("Staged prototype sources exceed the explicit 16 MiB allowance")
+            if source.stat().st_size > 32 * 1024**2 - total:
+                raise ValueError("Staged prototype sources exceed the explicit 32 MiB allowance")
             data = source.read_bytes()
             total += len(data)
-            if total > 16 * 1024**2:
-                raise ValueError("Staged prototype sources exceed the explicit 16 MiB allowance")
+            if total > 32 * 1024**2:
+                raise ValueError("Staged prototype sources exceed the explicit 32 MiB allowance")
             target = project / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)

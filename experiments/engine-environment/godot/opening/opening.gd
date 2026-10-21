@@ -320,6 +320,23 @@ class ProductionTransmissionFinish:
 class ProductionCollectorArt:
 	extends RefCounted
 	## Original rigid casting kit. These meshes never define work or collision.
+	static var coatings: Dictionary = {}
+
+	static func coating(color: Color) -> StandardMaterial3D:
+		if coatings.has(color):
+			return coatings[color]
+		var source := ProductionTransmissionFinish.material("cast", color, 0.0, 0.72)
+		if ProductionTransmissionFinish.source_status == "missing":
+			# Retain the exact earlier finish for historical fixed rosters.
+			return ProductionVisuals.material(color, 0.08, 0.72)
+		if source == null:
+			return null
+		# Share qualified image resources, never the mutable metal material.
+		# This is an authored coating over cast detail, not a paint scan.
+		var finish := source.duplicate(false) as StandardMaterial3D
+		finish.normal_scale = 0.12
+		coatings[color] = finish
+		return finish
 
 	static func cheek_profile(right: bool) -> PackedVector2Array:
 		var points := PackedVector2Array([Vector2(-0.65, 0.24), Vector2(-0.65, 0.40),
@@ -347,14 +364,14 @@ class ProductionCollectorArt:
 		var frame := Node3D.new()
 		frame.name = "CollectorCastFrame"
 		parent.add_child(frame)
-		var paint := ProductionVisuals.material(color, 0.08, 0.72)
+		var paint := coating(color)
 		for right in [false, true]:
 			_part(frame, "CastCheekRight" if right else "CastCheekLeft",
 				ProductionVisuals.prism_mesh(cheek_profile(right), 0.18, 0.008), Vector3(0, 0, -0.40), paint)
 		var housing := PackedVector2Array([Vector2(-0.62, 0.24), Vector2(0.23, 0.24),
 			Vector2(0.23, 0.84), Vector2(0.12, 1.02), Vector2(-0.50, 1.02), Vector2(-0.62, 0.84)])
 		_part(frame, "CastLowerHousing", ProductionVisuals.prism_mesh(housing, 0.14, 0.012),
-			Vector3(0, 0, -0.44), ProductionVisuals.material(color.darkened(0.09), 0.08, 0.72))
+			Vector3(0, 0, -0.44), coating(color.darkened(0.09)))
 		var hood := PackedVector2Array([Vector2(-0.65, 1.39), Vector2(0.26, 1.39),
 			Vector2(0.26, 1.45), Vector2(0.20, 1.51), Vector2(-0.59, 1.51), Vector2(-0.65, 1.45)])
 		_part(frame, "CastUpperHood", ProductionVisuals.prism_mesh(hood, 0.64, 0.012), Vector3(0, 0, -0.25), paint)
@@ -490,6 +507,102 @@ class ProductionWheelArt:
 		rotor.set_meta("detail_role", "SourcedTimberRotor")
 		rotor.set_meta("source_asset", "Poly Haven spinning_wheel_01")
 		parent.add_child(rotor)
+		return true
+
+class ProductionPaddleArt:
+	extends RefCounted
+	## Original blade joinery and qualified timber. No power or work authority.
+	const ROOT := "res://opening/assets/wheel-paddles"
+	const FILES := {"albedo": "timber_albedo.jpg", "normal": "timber_normal_gl.webp", "roughness": "timber_roughness.webp"}
+	const TILE_METRES := 0.6
+	static var finish: StandardMaterial3D
+	static var source_status := "uninitialized"
+	static var meshes: Dictionary = {}
+
+	static func read_images(directory: String = ROOT) -> Dictionary:
+		var present := 0
+		for name_value in FILES.values():
+			if FileAccess.file_exists(directory.path_join(name_value)):
+				present += 1
+		if present == 0:
+			return {"status": "missing", "images": {}}
+		if present != FILES.size():
+			return {"status": "invalid", "reason": "incomplete_timber_set", "images": {}}
+		var images: Dictionary = {}
+		for role in FILES:
+			var image := Image.load_from_file(directory.path_join(FILES[role]))
+			var extent := 1024 if role == "albedo" else 512
+			if image == null or image.is_empty() or image.get_size() != Vector2i(extent, extent):
+				return {"status": "invalid", "reason": "invalid_" + role, "images": {}}
+			image.convert(Image.FORMAT_L8 if role == "roughness" else Image.FORMAT_RGB8)
+			images[role] = image
+		return {"status": "ready", "images": images}
+
+	static func _prepare() -> void:
+		var loaded := read_images()
+		source_status = loaded.status
+		if source_status == "missing":
+			return
+		if source_status != "ready":
+			push_error("Invalid paddle timber: " + str(loaded.get("reason", "unknown")))
+			return
+		for role in loaded.images:
+			var image: Image = loaded.images[role]
+			if image.generate_mipmaps(role == "normal") != OK:
+				source_status = "invalid"
+				push_error("Cannot generate paddle timber mipmaps.")
+				return
+		finish = StandardMaterial3D.new()
+		finish.albedo_color = Color.WHITE
+		finish.albedo_texture = ImageTexture.create_from_image(loaded.images.albedo)
+		finish.metallic = 0.0
+		finish.roughness = 1.0
+		finish.roughness_texture = ImageTexture.create_from_image(loaded.images.roughness)
+		finish.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
+		finish.normal_enabled = true
+		finish.normal_texture = ImageTexture.create_from_image(loaded.images.normal)
+		# The source's current page and older scale metadata disagree. This is
+		# an explicit visual mapping, never a measured native dimension. Broad
+		# blade faces use UV=(radial X, axial Z), so grain V runs along the span.
+		finish.uv1_scale = Vector3.ONE / TILE_METRES
+		finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+
+	static func _part(parent: Node3D, role: String, mesh: Mesh, at: Vector3, material: Material) -> MeshInstance3D:
+		var part := MeshInstance3D.new()
+		part.name = role
+		part.mesh = mesh
+		part.position = at
+		part.material_override = material
+		part.set_meta("detail_role", role)
+		parent.add_child(part)
+		return part
+
+	static func mount(parent: Node3D, angle: float, index: int) -> bool:
+		if source_status == "uninitialized":
+			_prepare()
+		if source_status != "ready":
+			return false
+		var blade := _part(parent, "WheelPaddle", ProductionVisuals.box_mesh(Vector3(0.14, 0.018, 0.28)),
+			Vector3(cos(angle), sin(angle), 0) * 0.62, finish)
+		blade.rotation.z = angle
+		blade.set_meta("paddle_index", index)
+		_part(blade, "PaddleRootCleat", ProductionVisuals.box_mesh(Vector3(0.04, 0.06, 0.10)),
+			Vector3(-0.05, 0, 0), finish)
+		var iron := ProductionTransmissionFinish.material("worked", Color("46504e"), 0.85, 0.48)
+		if iron == null:
+			blade.free()
+			return false
+		if not meshes.has("bolt"):
+			var bolt := CylinderMesh.new()
+			bolt.top_radius = 0.014
+			bolt.bottom_radius = 0.014
+			bolt.height = 0.01
+			bolt.radial_segments = 6
+			meshes["bolt"] = bolt
+		for z in [-0.04, 0.04]:
+			_part(blade, "PaddleIronStrap", ProductionVisuals.box_mesh(Vector3(0.07, 0.006, 0.025)),
+				Vector3(-0.035, -0.033, z), iron)
+			_part(blade, "PaddleBolt", meshes.bolt, Vector3(-0.05, -0.041, z), iron)
 		return true
 
 class ProductionSteelFloor:
@@ -3560,10 +3673,12 @@ func _wheel_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	# An open rim exposes the spokes. Meshes never supply drive relationships.
 	for n in range(12):
 		var angle := n * TAU / 12.0
-		var radial := Vector3(cos(angle), sin(angle), 0)
-		var paddle := _machine_box(wheel_rotor, "WheelPaddle", radial * 0.62,
-			Vector3(0.14, 0.16, 0.28), wood, 0.05, 0.88)
-		paddle.rotation.z = angle
+		if not ProductionPaddleArt.mount(wheel_rotor, angle, n):
+			# Historical fixed rosters retain their exact earlier block paddles.
+			var radial := Vector3(cos(angle), sin(angle), 0)
+			var paddle := _machine_box(wheel_rotor, "WheelPaddle", radial * 0.62,
+				Vector3(0.14, 0.16, 0.28), wood, 0.05, 0.88)
+			paddle.rotation.z = angle
 	if not sourced:
 		for n in range(3):
 			var spoke := _machine_box(wheel_rotor, "WheelSpoke", Vector3.ZERO,
@@ -3628,7 +3743,9 @@ func _rebuild_machines() -> void:
 		collider.position.y = Geometry.MACHINE_CENTER_HEIGHT
 		body.add_child(collider)
 		anchor.add_child(body)
-		_text(anchor, NAMES.get(kind, kind).to_upper(), Vector3(0, 1.9, 0), Color("f2e5c5"))
+		var caption := _text(anchor, NAMES.get(kind, kind).to_upper(), Vector3(0, 1.9, 0), Color("f2e5c5"))
+		caption.name = "MachineCaption"
+		caption.visible = not _native_transmission()
 	for pair in state.links:
 		if state.entities.has(pair[0]) and state.entities.has(pair[1]):
 			_material_route(machine_root, _cell_position(state.entities[pair[0]].cell),
@@ -3812,6 +3929,13 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	if show_all_tools:
 		controls_label.text = "WASD walk · Space jump · P wheel · 1–4 build · F / G links · I inspect · H help"
 	_refresh_engineering(snapshot_ready)
+	# Introduce inspection when it can help. Keep waiting notices and explicit
+	# disclosure available even before the first machine has been built.
+	var unused_inspector: bool = _native_transmission() and snapshot_ready and _placement_hint_ready() \
+		and kinds.is_empty() and state.get("transmission_parts", {}).is_empty() \
+		and not show_all_tools and not show_details and mode != "inspect"
+	var inspector_panel: Control = inspector.get_parent().get_parent()
+	inspector_panel.visible = not unused_inspector
 	# Keep the real world visible when progressive disclosure leaves only a
 	# few controls. Preserve the fixed widths and grow naturally with content.
 	for column: Control in [tool_buttons.collector.get_parent(), inspector.get_parent()]:
@@ -4004,8 +4128,23 @@ func _has_material_connection(incoming: bool) -> bool:
 			return true
 	return false
 
+func _refresh_machine_captions() -> void:
+	if not _native_transmission() or machine_root == null:
+		return
+	var pointed := ""
+	if not explanation_open and not show_details and _preview_pointer_clear():
+		pointed = _screen_entity(get_viewport().get_mouse_position())
+	for anchor in machine_root.get_children():
+		var caption := anchor.get_node_or_null("MachineCaption") as Label3D
+		if caption == null:
+			continue
+		var entity_id: String = anchor.get_meta("machine_entity", "")
+		caption.visible = not explanation_open and (show_details or entity_id == selected \
+			or entity_id == pending_link or entity_id == pointed)
+
 func _update_cursor() -> void:
 	_refresh_machine_preview()
+	_refresh_machine_captions()
 	if _native_transmission() and transmission_controls != null and not transmission_controls.active_tool.is_empty():
 		hover.visible = false
 		if transmission_controls.active_tool == "gear" and not explanation_open and _can_control_character():

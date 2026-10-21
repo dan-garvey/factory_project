@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <limits>
+#include <numeric>
 
 namespace h = factory::slotted_shuttle;
 namespace b = factory::slotted_bank;
@@ -14,7 +15,7 @@ namespace c = factory::clearance;
 namespace g = factory::mechanics;
 using I = g::Integer;
 namespace {
-std::size_t assertions{}, model_cases{};
+std::size_t assertions{}, model_cases{}, frame_model_cases{};
 void require(bool condition, const char* message) {
     ++assertions;
     if (!condition) { std::cerr << "Assertion " << assertions << " failed: " << message << '\n'; std::exit(1); }
@@ -119,6 +120,90 @@ void controls() {
     require(owned.path == original_path && owned.loop == original_loop, "report owns its path and recurrence rather than input views");
 }
 
+void stationary_controls() {
+    const h::Profile long_stroke{{5, 0}}, short_stroke{{4, 0}}, staged{{1, 4, 0}};
+    const std::array<c::Obstacle, 1> near_frame{{{11, box(5, 0)}}}, far_frame{{{11, box(8, 0)}}};
+    const auto omitted = h::inspect(long_stroke, links, initial, shapes(), pairs, 16);
+    require(omitted.loop && omitted.loop->unmoved_followers.empty(), "empty stationary set admits the frame-free control");
+    const auto observed = h::inspect(long_stroke, links, initial, shapes(), pairs, 16, true, near_frame);
+    require(observed.outcome == h::Outcome::held && !observed.loop && observed.path == std::vector<h::State>{initial},
+        "the actual frame observation prevents the otherwise reported recurrence");
+    const auto& hold = *observed.hold;
+    require(hold.state == initial && hold.reason == h::Stop::obstructed && hold.stationary_contact &&
+        hold.stationary_contact->member == p::Member{7} && hold.stationary_contact->hit == c::Hit{11, {3, 5}, false} &&
+        !hold.conflict && !hold.limit, "frame hold keeps the whole original bank and pending stop with an owned typed witness");
+    const auto later = h::inspect(staged, links, initial, shapes(), pairs, 16, true, near_frame);
+    const h::State first_stop{{1, {{3, 0}, {7, 0}}}, 1};
+    require(later.outcome == h::Outcome::held && later.path == std::vector<h::State>{initial, first_stop} &&
+        later.hold && later.hold->state == first_stop && later.hold->stationary_contact &&
+        later.hold->stationary_contact->hit == c::Hit{11, {2, 3}, false} && !later.loop,
+        "later blocked leg preserves its accepted prefix without consuming the blocked stop");
+    const auto far = h::inspect(long_stroke, links, initial, shapes(), pairs, 16, true, far_frame);
+    require(far.outcome == h::Outcome::recurrent && far.loop == omitted.loop && far.path == omitted.path,
+        "farther frame restores the complete original trajectory and recurrence");
+    auto raised = shapes(2);
+    raised.followers[1].at_zero = box(2, 3);
+    const auto high = h::inspect(long_stroke, links, initial, raised, pairs, 16, true, near_frame);
+    require(high.loop && high.loop->pin_moves && high.loop->unmoved_followers.empty(),
+        "raised guide clears the near frame and sustains both followers");
+
+    const auto accepted = h::prepare(long_stroke, links, initial, shapes(), pairs, true, far_frame);
+    const auto workcell = factory::slotted_workcell::prepare(links, initial.bank, shapes(), {{5, true}, far_frame}, pairs);
+    const auto& step = std::get<h::Step>(accepted);
+    const auto& bank_step = std::get<b::Advance>(workcell);
+    require(step.next.bank == bank_step.next && step.traces == bank_step.traces && step.limit == bank_step.limit &&
+        step.reached && step.next.cursor == 1, "clear observed frame preserves the exact parent effects and reached-stop phase");
+    const auto moving = h::prepare(short_stroke, links, initial, shapes(2), pairs, true, near_frame);
+    const auto& moving_hold = std::get<h::Hold>(moving);
+    require(moving_hold.conflict && !moving_hold.stationary_contact && moving_hold.state == initial &&
+        moving_hold.conflict->time == c::Fraction{1, 2}, "moving contact details remain intact with stationary observations present");
+
+    const std::array<c::Obstacle, 1> penetration{{{11, box(4, 0)}}};
+    for (const bool powered : {false, true}) {
+        const auto resting = h::inspect(h::Profile{{0, 0}}, links, initial, shapes(), pairs, 16, powered, penetration);
+        require(resting.outcome == h::Outcome::held && resting.path.size() == 1 && resting.hold &&
+            resting.hold->state == initial && resting.hold->stationary_contact &&
+            resting.hold->stationary_contact->hit == c::Hit{11, {0, 1}, true} && !resting.loop,
+            "initial stationary penetration holds phase even paused or already at the stop");
+    }
+    const std::array<c::Obstacle, 2> invalid{{{11, box(5, 0)}, {99, {{0, 0, 0}, {0, 1, 1}}}}};
+    for (const bool powered : {false, true}) {
+        const auto candidate = h::prepare(short_stroke, links, initial, shapes(2), pairs, powered, invalid);
+        const auto* refused = std::get_if<h::Refusal>(&candidate);
+        require(refused && refused->reason == h::Error::parent_refused && !refused->parent_error &&
+            refused->workcell_error && refused->workcell_error->stationary_error,
+            "bad later obstacle refuses before an earlier pair hit or pause");
+    }
+    const auto refused_trace = h::inspect(staged, links, initial, shapes(), pairs, 16, true, invalid);
+    require(refused_trace.outcome == h::Outcome::refused && refused_trace.path == std::vector<h::State>{initial} &&
+        refused_trace.refusal && !refused_trace.hold && !refused_trace.loop, "invalid fixed observations grant no accepted prefix");
+    const std::array<p::Pair, 2> bad_pairs{{{3, 7}, {3, 99}}};
+    const auto both = h::prepare(short_stroke, links, initial, shapes(), bad_pairs, false, invalid);
+    const auto& both_error = std::get<h::Refusal>(both);
+    require(both_error.parent_error && both_error.workcell_error && both_error.workcell_error->stationary_error &&
+        both_error.workcell_error->moving_error, "both parent refusal families remain inspectable");
+    std::vector<c::Obstacle> excessive(g::maximum_parts + 1, near_frame[0]);
+    require(std::holds_alternative<h::Refusal>(h::prepare(long_stroke, links, initial, shapes(), pairs, false, excessive)),
+        "complete oversized stationary set refuses instead of truncating");
+
+    auto invalid_rig = shapes();
+    invalid_rig.followers[0].at_zero.maximum[0] = invalid_rig.followers[0].at_zero.minimum[0];
+    const auto old_error = p::prepare(links, initial.bank, invalid_rig, {5, false}, pairs);
+    const auto compatible = h::prepare(long_stroke, links, initial, invalid_rig, pairs, false);
+    require(std::get<h::Refusal>(compatible) == h::Refusal{h::Error::parent_refused, std::get<p::Refusal>(old_error)},
+        "empty-set source calls preserve original refusal values without new details");
+    const h::Hold old_hold{initial, h::Stop::obstructed, h::Conflict{pairs[0], {1, 2}, false}, {}};
+    require(std::get<h::Hold>(h::prepare(short_stroke, links, initial, shapes(2), pairs)) == old_hold,
+        "empty-set source calls preserve original moving hold values");
+    auto mutable_frames = near_frame;
+    auto mutable_state = initial;
+    const auto owned = h::inspect(long_stroke, links, mutable_state, shapes(), pairs, 16, true, mutable_frames);
+    const auto owned_hold = *owned.hold;
+    mutable_state.bank.followers.clear();
+    mutable_frames[0].id = 99;
+    require(*owned.hold == owned_hold, "retained stationary hold owns identities, original state and witness values");
+}
+
 h::State rigid_state(I pin, std::size_t cursor) { return {{pin, {{3, pin}, {7, pin}}}, cursor}; }
 // Independent finite sequencer model for rigid slots: all positions equal the
 // pin, and guide bounds are [-2,2]. There is no slot, pair or shuttle API call.
@@ -129,14 +214,36 @@ struct Expected {
     std::vector<std::pair<I, std::size_t>> path;
     std::optional<h::Loop> loop;
     std::optional<h::Stop> hold;
+    std::optional<factory::slotted_workcell::StationaryContact> stationary;
 };
-Expected model(const h::Profile& profile, I pin, std::size_t cursor, std::size_t bound, bool powered) {
+Expected model(const h::Profile& profile, I pin, std::size_t cursor, std::size_t bound, bool powered,
+               std::optional<I> frame = {}) {
     Expected result;
     result.path.emplace_back(pin, cursor);
     for (std::size_t tick = 0; tick < bound; ++tick) {
-        if (!powered) { result.outcome = h::Outcome::held; result.hold = h::Stop::unpowered; break; }
         const I target = profile.stops[cursor];
-        const I next = std::clamp(target, I{-2}, I{2});
+        const I next = powered ? std::clamp(target, I{-2}, I{2}) : pin;
+        // Independent unit-interval contact along the rigid guides. A's box
+        // starts at pin; B's starts four units farther along. The pin occupies
+        // a separate lane. Initial interior overlap is a hold even paused.
+        if (frame) for (const auto& [identity, offset] : std::array<std::pair<b::Id, I>, 2>{{{3, 0}, {7, 4}}}) {
+            const I start = pin + offset, finish = next + offset;
+            std::optional<c::Fraction> hit;
+            if (start == *frame) hit = c::Fraction{0, 1};
+            else if ((finish > start && start < *frame && finish >= *frame) ||
+                     (finish < start && start > *frame && finish <= *frame)) {
+                const I numerator = finish > start ? *frame - 1 - start : start - *frame - 1;
+                const I denominator = std::abs(target - pin);
+                const auto divisor = std::gcd(numerator, denominator);
+                hit = c::Fraction{numerator / divisor, denominator / divisor};
+            }
+            if (!hit) continue;
+            const factory::slotted_workcell::StationaryContact contact{identity, {11, *hit, start == *frame}};
+            if (!result.stationary || hit->numerator * result.stationary->hit.time.denominator <
+                result.stationary->hit.time.numerator * hit->denominator) result.stationary = contact;
+        }
+        if (result.stationary) { result.outcome = h::Outcome::held; result.hold = h::Stop::obstructed; break; }
+        if (!powered) { result.outcome = h::Outcome::held; result.hold = h::Stop::unpowered; break; }
         if (next == pin && target != pin) { result.outcome = h::Outcome::held; result.hold = h::Stop::endstop; break; }
         pin = next;
         if (pin == target) cursor = cursor + 1 == profile.stops.size() ? 0 : cursor + 1;
@@ -184,10 +291,42 @@ void exhaustive() {
         }
     }
 }
+
+void stationary_exhaustive() {
+    const std::array<b::Link, 2> rigid{{{3, {-2, 2, 0, 0}}, {7, {-2, 2, 0, 0}}}};
+    const std::array<I, 5> choices{{-3, -1, 0, 1, 3}};
+    for (std::size_t count = 1, combinations = 5; count <= 2; ++count, combinations *= 5)
+    for (std::size_t encoding = 0; encoding < combinations; ++encoding) {
+        h::Profile profile;
+        profile.stops.clear();
+        auto code = encoding;
+        for (std::size_t stop = 0; stop < count; ++stop) { profile.stops.push_back(choices[code % 5]); code /= 5; }
+        for (I pin = -2; pin <= 2; ++pin) for (std::size_t cursor = 0; cursor < count; ++cursor)
+        for (const auto bound : {std::size_t{1}, std::size_t{4}}) for (const bool powered : {false, true})
+        for (const I frame : {-1, 1, 4, 6}) {
+            const std::array<c::Obstacle, 1> obstacles{{{11, box(frame, 0)}}};
+            const auto expected = model(profile, pin, cursor, bound, powered, frame);
+            const auto actual = h::inspect(profile, rigid, rigid_state(pin, cursor), shapes(), pairs, bound, powered, obstacles);
+            ++frame_model_cases;
+            require(actual.outcome == expected.outcome && actual.path.size() == expected.path.size(),
+                "frame observation and phase outcome agree with independent interval sequencer");
+            for (std::size_t index = 0; index < actual.path.size(); ++index)
+                require(actual.path[index] == rigid_state(expected.path[index].first, expected.path[index].second),
+                    "each observed-frame accepted prefix retains the independent bank and cursor");
+            require(actual.loop == expected.loop && !actual.refusal, "obstruction cannot become a recurrence or a spurious refusal");
+            require(actual.hold.has_value() == expected.hold.has_value(), "observed-frame hold presence matches the independent model");
+            if (actual.hold) require(actual.hold->reason == *expected.hold && actual.hold->state == actual.path.back() &&
+                actual.hold->stationary_contact == expected.stationary && !actual.hold->conflict,
+                "actual stationary witness and retained stop match independent interval contact");
+        }
+    }
+}
 }  // namespace
 int main() {
     controls();
+    stationary_controls();
     exhaustive();
+    stationary_exhaustive();
     std::cout << assertions << " slotted-shuttle assertions passed, including " << model_cases
-              << " independent bounded-sequencer cases.\n";
+              << " independent bounded-sequencer cases and " << frame_model_cases << " independent stationary-frame cases.\n";
 }

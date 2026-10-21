@@ -49,6 +49,15 @@ The project selects four-sample 3D multisample antialiasing for mesh edges. This
 is a revisable rendering default, not a measured performance result; it does not
 remove normal-map or specular aliasing. The backend remains Compatibility.
 
+The collector's six painted castings share the qualified
+[cast surface maps](transmission-surfaces/CREDITS.md) with their own cached
+nonmetallic coating materials. Their original colors remain; reduced normal
+strength gives the coating finer relief than exposed cast transmission parts.
+The images are shared without mutating those metal finishes. This is authored
+coating art over cast detail, not a new paint scan, physical wear or damage model.
+The original exposed liner and cutter keep their earlier metal surfaces.
+Historical captures without the map set retain their generated coating.
+
 The collector uses an original cast-frame kit with flared feet, tapered side
 cheeks, a chamfered hood and lower housing, and a fixed bearing hung from the
 hood. Closed extruded profiles preserve deliberate edge widths instead of
@@ -66,6 +75,14 @@ mounting fasteners and pick body stay exact, and placement previews use the same
 resource. The visual underside openings do not add collision or a new structural,
 cargo or player-foundation rule. Their actual play-distance appearance remains
 unassessed. The beveled profile helper is shared with the collector casting.
+
+The sourced rotor now carries twelve thin [timber paddle blades](wheel-paddles/CREDITS.md)
+with fitted root cleats, iron straps and hexagonal fasteners. Their qualified
+wood grain follows the longer blade span with local mapping as the rotor turns.
+The original rotor, paddle positions, native axes, conservative envelope and
+signed cosmetic motion remain. The new art changes no power or working rule.
+Historical fixed resource rosters keep their earlier block paddles. Technical
+asset checks leave the rendered and human quality target open.
 
 These original project scene assets prepare the visual work in
 `factory-yau.6.45`. Current complete captures use the sourced

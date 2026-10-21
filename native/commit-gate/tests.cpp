@@ -60,7 +60,12 @@ struct Reader {
         if (args == std::vector<std::string>{"rev-parse", "--verify", "--quiet", "HEAD"}) return {head_exit, head + "\n"};
         if (args == std::vector<std::string>{"diff-tree", "--no-commit-id", "--name-only", "--no-renames", "-r", "-z", head, tree}) return {0, names};
         if (args == std::vector<std::string>{"ls-tree", "-rz", "--name-only", tree}) return {0, names};
-        if (args.size() == 4 && args[0] == "config" && args[1] == "--local" && args[2] == "--get") {
+        if (args == std::vector<std::string>{"config", "--local", "--bool", "--get", "extensions.worktreeConfig"}) {
+            const auto value = config.find("extensions.worktreeConfig");
+            return value == config.end() ? gate::GitResult{1, {}} : gate::GitResult{0, value->second};
+        }
+        if (args.size() == 4 && args[0] == "config" && args[2] == "--get" &&
+            (args[1] == "--local" || (args[1] == "--worktree" && args[3] == "factory.godotArtifacts"))) {
             const auto value = config.find(args[3]);
             return value == config.end() ? gate::GitResult{1, {}} : gate::GitResult{0, value->second};
         }
@@ -82,7 +87,7 @@ void plans() {
                               nul({"experiments/engine-environment/godot/name with\nspace.gd"})}) {
         Reader game; game.names = paths;
         const auto heavy = game.plan();
-        check(heavy.compile_gdscript && game.calls == 6, "A NUL-delimited script delta selects heavy and three local runtime settings.");
+        check(heavy.compile_gdscript && game.calls == 7, "A NUL-delimited script delta selects heavy, common runtime settings and extension metadata.");
         const std::vector<std::string> expected{"/usr/bin/python3", "-B", "/fixture checkout/scripts/check.py", "--staged", "--expected-tree", game.tree,
             "--parse-gdscript", "--godot", "/fixture engine/godot", "--godot-sha256", std::string(64, 'a'), "--prototype-artifacts", "/fixture artifacts/compiler"};
         check(heavy.command == expected, "Pinned compiler arguments and paths remain separate, with no shell or nested wrapper.");
@@ -98,6 +103,25 @@ void plans() {
     Reader git_failed; git_failed.tree_exit = 1; refuses([&] { (void)git_failed.plan(); });
     Reader head_failed; head_failed.head_exit = 128; refuses([&] { (void)head_failed.plan(); });
     Reader bad_tree; bad_tree.tree = "not-a-tree"; refuses([&] { (void)bad_tree.plan(); });
+    Reader broken_worktree; broken_worktree.names = nul({"experiments/engine-environment/godot/fixture.gd"});
+    broken_worktree.config["extensions.worktreeConfig"] = "true\n";
+    refuses([&] {
+        (void)gate::prepare("/fixture checkout", [&](const auto& args) {
+            if (args == std::vector<std::string>{"config", "--worktree", "--get", "factory.godotArtifacts"})
+                return gate::GitResult{128, {}};
+            return broken_worktree(args);
+        });
+    });
+    for (const auto& result : {gate::GitResult{128, {}}, gate::GitResult{0, "invalid\n"}}) {
+        Reader broken_extension; broken_extension.names = initial.names;
+        refuses([&] {
+            (void)gate::prepare("/fixture checkout", [&](const auto& args) {
+                if (args == std::vector<std::string>{"config", "--local", "--bool", "--get", "extensions.worktreeConfig"})
+                    return result;
+                return broken_extension(args);
+            });
+        });
+    }
     for (const auto& key : {"factory.godotExecutable", "factory.godotSHA256", "factory.godotArtifacts"}) {
         Reader absent; absent.names = initial.names; absent.config.erase(key); refuses([&] { (void)absent.plan(); });
         Reader empty; empty.names = initial.names; empty.config[key] = " \n\t"; refuses([&] { (void)empty.plan(); });
@@ -156,6 +180,69 @@ void runtime_config(const fs::path& root) {
     (void)git(root, {"config", "--local", "factory.godotSHA256", std::string(64, 'a')});
     (void)git(root, {"config", "--local", "factory.godotArtifacts", (root / "compiler artifacts").string()});
 }
+void worktree_artifacts(const fs::path& base) {
+    const auto root = base / "worktree config";
+    repository(root);
+    runtime_config(root);
+    write(root / "experiments/engine-environment/godot/fixture.gd", "");
+    (void)git(root, {"add", "experiments/engine-environment/godot/fixture.gd"});
+    const auto common = (root / "compiler artifacts").string();
+    const auto owned = (root / "private compiler evidence").string();
+    check(gate::prepare(root).command.back() == common,
+          "A repository without worktree configuration keeps its common artifact destination.");
+    (void)git(root, {"config", "--local", "extensions.worktreeConfig", "true"});
+    check(gate::prepare(root).command.back() == common,
+          "An absent worktree artifact setting falls back to common local configuration.");
+    (void)git(root, {"config", "--worktree", "factory.godotArtifacts", owned});
+    const auto selected = gate::prepare(root);
+    std::cout << "Worktree artifact destination: expected " << owned
+              << "; selected " << selected.command.back() << '\n';
+    check(selected.command.back() == owned,
+          "The current worktree selects its own artifact destination before the common setting.");
+    check(git(root, {"config", "--local", "--get", "factory.godotArtifacts"}) == common,
+          "Selecting a worktree destination does not rewrite the shared batch.");
+    (void)git(root, {"config", "--worktree", "factory.godotArtifacts", ""});
+    refuses([&] { (void)gate::prepare(root); });
+    (void)git(root, {"config", "--worktree", "factory.godotArtifacts", owned});
+    (void)git(root, {"config", "--local", "--unset", "factory.godotArtifacts"});
+    check(gate::prepare(root).command.back() == owned,
+          "A valid worktree destination does not require a shared artifact setting.");
+    (void)git(root, {"config", "--worktree", "factory.godotExecutable", "/unused worktree engine"});
+    (void)git(root, {"config", "--worktree", "factory.godotSHA256", "invalid worktree pin"});
+    const auto pinned = gate::prepare(root);
+    check(pinned.command[8] == "/fixture engine/godot" && pinned.command[10] == std::string(64, 'a'),
+          "Executable and digest pins remain common repository-local settings.");
+    (void)git(root, {"config", "--worktree", "--unset", "factory.godotArtifacts"});
+    refuses([&] { (void)gate::prepare(root); });
+}
+void linked_worktree_artifacts(const fs::path& base) {
+    const auto root = base / "linked config main";
+    const auto linked = base / "linked config checkout";
+    repository(root);
+    runtime_config(root);
+    (void)git(root, {"worktree", "add", "--detach", linked.string(), "HEAD"});
+    for (const auto& checkout : {root, linked}) {
+        write(checkout / "experiments/engine-environment/godot/fixture.gd", "");
+        (void)git(checkout, {"add", "experiments/engine-environment/godot/fixture.gd"});
+    }
+    const auto common = (root / "compiler artifacts").string();
+    const auto owned = (linked / "private compiler evidence").string();
+    check(gate::prepare(linked).command.back() == common,
+          "A linked checkout without the worktree extension uses common artifacts.");
+    (void)git(root, {"config", "--local", "extensions.worktreeConfig", "false"});
+    check(gate::prepare(linked).command.back() == common,
+          "An explicitly disabled worktree extension keeps common artifacts.");
+    (void)git(root, {"config", "--local", "extensions.worktreeConfig", "true"});
+    check(gate::prepare(linked).command.back() == common,
+          "An enabled extension without a checkout override keeps common artifacts.");
+    (void)git(linked, {"config", "--worktree", "factory.godotArtifacts", owned});
+    check(gate::prepare(linked).command.back() == owned,
+          "An enabled linked checkout uses its private artifact destination.");
+    check(gate::prepare(root).command.back() == common,
+          "The main checkout keeps its common destination after a linked override.");
+    check(git(root, {"config", "--local", "--get", "factory.godotArtifacts"}) == common,
+          "Linked selection leaves the common artifact setting unchanged.");
+}
 int compiled_checker(int argc, char** argv) {
     if (argc < 6) return 99;
     const fs::path root = fs::path(argv[2]).parent_path().parent_path();
@@ -211,6 +298,9 @@ void actual(const fs::path& base, const std::string& self, const std::string& ex
     (void)git(root, {"add", "experiments/engine-environment/godot/fixture.gd"}, alternate);
     const auto game_tree = git(root, {"write-tree"}, alternate);
     runtime_config(root);
+    const auto owned_artifacts = (root / "owned compiler evidence").string();
+    (void)git(root, {"config", "--local", "extensions.worktreeConfig", "true"});
+    (void)git(root, {"config", "--worktree", "factory.godotArtifacts", owned_artifacts});
     check(!gate::prepare(root).compile_gdscript && gate::prepare(root).tree == doc_tree,
           "An unstaged script does not turn a staged documentation change into heavy work.");
     check(::setenv("GIT_INDEX_FILE", alternate.c_str(), 1) == 0, "The temporary hook index is selected.");
@@ -222,6 +312,8 @@ void actual(const fs::path& base, const std::string& self, const std::string& ex
     const auto observed = read(root / "observed-arguments");
     check(observed.find(game_tree) != std::string::npos && observed.find("index=" + alternate.string()) != std::string::npos,
           "The exact temporary tree and hook environment reach the admitted outer checker.");
+    check(observed.find(owned_artifacts) != std::string::npos,
+          "The worktree destination reaches the same admitted temporary-index checker.");
     ::unsetenv("GIT_INDEX_FILE");
     const auto doc_index = root / "documentation index";
     fs::copy_file(root / ".git/index", doc_index);
@@ -261,14 +353,20 @@ int main(int argc, char** argv) {
         const auto self = fs::canonical(argv[0]).string();
         if (argc > 1 && std::string(argv[1]) == "-B") return compiled_checker(argc, argv);
         if (argc == 3 && std::string(argv[1]) == "--run-fixture") return gate::run(argv[2], self);
-        check(argc == 2, "Provide the native coordinator executable fixture.");
+        const bool worktree_only = argc == 3 && std::string(argv[2]) == "--worktree-only";
+        const bool linked_only = argc == 3 && std::string(argv[2]) == "--linked-worktree-only";
+        check(argc == 2 || worktree_only || linked_only, "Provide the native coordinator executable fixture.");
         Environment clean_git;
         auto pattern = (fs::temp_directory_path() / "factory-native-commit-XXXXXX").string();
         const auto* created = ::mkdtemp(pattern.data());
         check(created != nullptr, "The fixture has one private owned directory.");
         const fs::path root(created);
-        plans();
-        actual(root, self, fs::canonical(argv[1]).string());
+        if (!worktree_only) linked_worktree_artifacts(root);
+        if (!linked_only) worktree_artifacts(root);
+        if (!worktree_only && !linked_only) {
+            plans();
+            actual(root, self, fs::canonical(argv[1]).string());
+        }
         fs::remove_all(root);
         std::cout << checks << " native commit coordinator controls passed; no engine ran.\n";
     } catch (const std::exception& error) {
