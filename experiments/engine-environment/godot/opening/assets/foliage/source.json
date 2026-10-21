@@ -1,0 +1,148 @@
+{
+  "asset": "Grass Medium 01",
+  "authors": {
+    "modeling": "Rico Cilliers",
+    "photography": "Rob Tuytel"
+  },
+  "asset_url": "https://polyhaven.com/a/grass_medium_01",
+  "license": "CC0",
+  "license_url": "https://polyhaven.com/license",
+  "provider_info_sha256": "57f41058d2a9c8d373669b4829794846b94f33ab5a53b77c13e353445d1c4017",
+  "provider_files_sha256": "daa882bd7a3925042501536763269b064f66c736779dd90fd9bd1cb405cb4d53",
+  "source_files": {
+    "geometry": {
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/8k/grass_medium_01/grass_medium_01.bin",
+      "md5": "e0527a0561c2dae5b7b5c1b478d8c6bf",
+      "sha256": "f4587cabdb96a2e96d8be644923dc954a248edfaaa717a0ff224cacb898bee1f",
+      "bytes": 1006632
+    },
+    "albedo": {
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/grass_medium_01/grass_medium_01_diff_1k.jpg",
+      "md5": "6b18ed50d776fd20c1304d9994bd764e",
+      "sha256": "71495bd6a11fddcab0aaff38246fea1a7b802a705483f1c7cbca53955daa8050",
+      "bytes": 395673
+    },
+    "alpha": {
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/grass_medium_01/grass_medium_01_alpha_1k.png",
+      "md5": "6b5b251ef1ca9a69ab9f49def66d758a",
+      "sha256": "711a8e49af758d6a6ce1f610db858899a27be19da6d1866bd35c13bc7b8ffeff",
+      "bytes": 648718
+    },
+    "normal": {
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/grass_medium_01/grass_medium_01_nor_gl_1k.png",
+      "md5": "d5ef0db60918d8b9cf352eaf18989080",
+      "sha256": "33caffef5ef221202d9d3b79198093c9f53a5389ecb48e6bac98ce0faa1a2b65",
+      "bytes": 4088939
+    },
+    "arm": {
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/grass_medium_01/grass_medium_01_arm_1k.png",
+      "md5": "84187acd826997f121014d211538dfa9",
+      "sha256": "e6a43adddd2379befaebfcbd8ba965e7a3ad95c156fb225261b0a4f7af80849f",
+      "bytes": 797987
+    },
+    "descriptor": {
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/grass_medium_01/grass_medium_01_1k.gltf",
+      "bytes": 27110,
+      "sha256": "3e5e2a314c94e16de54fd7c28e41709731fbd2b1613ab539f1544f622ddb6a85"
+    }
+  },
+  "selection": {
+    "name": "grass_medium_01_mid_b_LOD0",
+    "node_index": 2,
+    "mesh_index": 2,
+    "vertices": 1386,
+    "indices": 3771,
+    "triangles": 1257,
+    "source_buffer_accessors": {
+      "positions": {
+        "offset": 215508,
+        "bytes": 16632
+      },
+      "normals": {
+        "offset": 232140,
+        "bytes": 16632
+      },
+      "uv": {
+        "offset": 248772,
+        "bytes": 11088
+      },
+      "indices": {
+        "offset": 259860,
+        "bytes": 7542,
+        "component_type": "uint16"
+      }
+    },
+    "transform": "Uniform scale 2 in source-local metres. Omit catalogue translation [-0.7999995946884155,0,0]. No simplification, root recentering, UV, normal or index changes.",
+    "minimum": [
+      -0.1529102474,
+      -0.006688762,
+      -0.1753695011
+    ],
+    "maximum": [
+      0.2226673961,
+      0.3487543762,
+      0.2266876996
+    ]
+  },
+  "maps": {
+    "limits": "Asset preparation and decode evidence only; no rendered quality or game authority.",
+    "maps": {
+      "albedo": {
+        "bytes": 217700,
+        "decoded_bytes_exact": true,
+        "extent": 384,
+        "prepared_cutout_coverage": 0.160257975260417,
+        "sha256": "ddea817e93c291957b2f60b38731e94d9fed1a92cf8c541c9deb84cb1730743f",
+        "source_cutout_coverage": 0.159963607788086
+      },
+      "arm": {
+        "bytes": 83905,
+        "decoded_bytes_exact": true,
+        "extent": 256,
+        "sha256": "124f8f74a13d6deb8b9a61234dacb629bdb8ab32d0d4a33d9caee766d6bbae9a"
+      },
+      "normal": {
+        "bytes": 134795,
+        "decoded_bytes_exact": true,
+        "extent": 256,
+        "maximum_unit_length_error": 0.00609308481216431,
+        "sha256": "4ff140e1573977145284c2a101ca41d46d8ed44d1591dafbe861327a25ecebe7"
+      }
+    },
+    "processing": "Lanczos resize; photographed sRGB color plus separate linear opacity; normalized OpenGL normal with nearest RGB8 encoding; packed linear ARM unchanged in channel meaning. Lossless PNG delivery, no normal green flip.",
+    "status": "pass"
+  },
+  "processed_file": {
+    "path": "grass_tuft.glb",
+    "bytes": 490112,
+    "sha256": "7c10110cd380871f066fd59afc0817140792e31a9c0cb6ca712d85543c5f67ea",
+    "self_contained": true
+  },
+  "material": {
+    "alpha_mode": "MASK",
+    "alpha_cutoff": 0.5,
+    "double_sided": true,
+    "metallic_factor": 0,
+    "packed_channels": {
+      "red": "ambient occlusion",
+      "green": "roughness",
+      "blue": "metallic; factor zero"
+    },
+    "normal": "OpenGL. No green flip or data-map gamma conversion.",
+    "runtime": "Single cached runtime buffer import; explicit mipmaps, with normal-vector renormalization. No editor import cache."
+  },
+  "presentation": {
+    "instances": 96,
+    "triangles_before_culling": 120672,
+    "placement": "Existing terrain anchors and scale/rotation variation, outside pad and river.",
+    "collision": false,
+    "authority": "None. Existing ActorWorld and immutable site geometry unchanged."
+  },
+  "preparation": {
+    "writer": "native/foliage-assets",
+    "image_api": "Godot 4.7.2-stable (ed1daf0bf)",
+    "source_family": "sourced-worksite-foliage-20261021",
+    "first_failure": "First runtime material check found missing mipmaps. Passing geometry checks remain at the original result; the mipmap correction has a separate focused result."
+  },
+  "limits": "No rendered-quality, frame-time, human-play or Satisfactory-parity claim."
+}

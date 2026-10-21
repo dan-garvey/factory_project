@@ -105,6 +105,8 @@ func check_multimesh(instances: MultiMesh, min_pad_clearance: float, label: Stri
 func finish() -> void:
 	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks, "mode": mode,
 		"scope": {"surface-composition": "shared renderer/physical geometry and bed/water composition",
+			"sourced-foliage": "runtime tuft import, cutout material and existing terrain placement",
+			"foliage-mipmaps": "corrected runtime texture mipmap generation and binding",
 			"ground-material": "scanned ground material, data channels and cache separation",
 			"water-flow": "changed cosmetic water material and ordinary frame consumer",
 			"rock-collision-shape": "visible rock corners versus rigid collision descriptors",
@@ -346,7 +348,131 @@ func clip_polygon(polygon: Array[Vector3], axis: int, boundary: float, keep_abov
 		previous_inside = inside
 	return result
 
+func check_sourced_foliage() -> void:
+	var node := Scenery._foliage()
+	if not verify(Scenery.foliage_source_status == "ready", "The ordinary foliage path imports the captured self-contained GLB."):
+		node.free()
+		return
+	inspect_visual(node)
+	var mesh := node.multimesh.mesh as ArrayMesh
+	var material := node.material_override as StandardMaterial3D
+	verify(node.multimesh.instance_count == 96 and mesh == Scenery.foliage_cluster_mesh,
+		"The selected mesh retains the existing 96 terrain-anchored instances.")
+	check_multimesh(node.multimesh, 6.9, "Sourced grass")
+	var bounds := mesh.get_aabb()
+	verify(bounds.position.distance_to(Vector3(-0.1529102474, -0.0066887620, -0.1753695011)) < 0.00001
+		and bounds.end.distance_to(Vector3(0.2226673961, 0.3487543762, 0.2266876996)) < 0.00001,
+		"The imported source mesh has the declared uniform scale and omits catalogue placement.")
+	var arrays := mesh.surface_get_arrays(0)
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+	var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+	var tangents: PackedFloat32Array = arrays[Mesh.ARRAY_TANGENT]
+	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+	if verify(vertices.size() == 1386 and normals.size() == 1386 and uvs.size() == 1386
+		and tangents.size() == 5544 and indices.size() == 3771, "The runtime importer preserves geometry and generates tangent space for the normal map."):
+		for index in range(vertices.size()):
+			var tangent := Vector3(tangents[index * 4], tangents[index * 4 + 1], tangents[index * 4 + 2])
+			verify(vertices[index].is_finite() and normals[index].is_finite() and uvs[index].is_finite()
+				and absf(normals[index].length() - 1.0) < 0.003 and absf(tangent.length() - 1.0) < 0.003
+				and absf(tangent.dot(normals[index])) < 0.003 and absf(tangents[index * 4 + 3]) == 1.0,
+				"Imported source vertices retain finite unit normal/tangent frames.")
+		for index in indices:
+			verify(index >= 0 and index < vertices.size(), "Every triangle index refers to an actual imported vertex.")
+	if verify(material != null, "The actual MultiMesh has the imported shared material."):
+		verify(material.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+			and is_equal_approx(material.alpha_scissor_threshold, 0.5) and material.cull_mode == BaseMaterial3D.CULL_DISABLED
+			and material.metallic == 0.0 and material.normal_enabled and material.ao_enabled,
+			"Grass is a double-sided dielectric cutout with normal and occlusion maps.")
+		var color := material.albedo_texture.get_image()
+		verify(color.get_size() == Vector2i(384, 384) and color.has_mipmaps()
+			and material.normal_texture.get_image().get_size() == Vector2i(256, 256)
+			and material.normal_texture.get_image().has_mipmaps(), "Runtime color and normal textures retain their prepared extents and mipmaps.")
+		var coverage := 0
+		for y in range(384):
+			for x in range(384):
+				if color.get_pixel(x, y).a >= 0.5:
+					coverage += 1
+		verify(absf(float(coverage) / (384 * 384) - 0.160257975260417) < 0.00001,
+			"The actual material retains the prepared transparent spaces between blades.")
+		verify(material.roughness_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_GREEN
+			and material.ao_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_RED and material.vertex_color_use_as_albedo,
+			"The retained scalar channels and restrained instance tint reach the actual material.")
+	verify(node.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED,
+		"The cutout participates in ordinary two-sided shadow presentation.")
+	var second := Scenery._foliage()
+	verify(second.multimesh.mesh == mesh and second.material_override == material,
+		"A second view reuses the mesh and material rather than decoding the asset again.")
+	for index in range(96):
+		var at := index * 16
+		for channel in range(3):
+			verify(node.multimesh.buffer[at + 12 + channel] >= 0.8, "The scanned color is not multiplied by the old dark generated-blade tint.")
+	verify(Scenery.read_foliage(fixture_directory.path_join("missing.glb")).status == "missing",
+		"Missing historical payloads retain an explicit source status.")
+	var small_path := fixture_directory.path_join("short.glb")
+	var file := FileAccess.open(small_path, FileAccess.WRITE)
+	if verify(file != null, "The negative import fixture retains its own disposable input."):
+		file.store_string("incomplete")
+		file.close()
+		verify(Scenery.read_foliage(small_path).status == "invalid", "A present invalid asset is not reported as ready or missing.")
+	var view := FixtureView.new()
+	root.add_child(view)
+	view._build_world()
+	verify(view.model == null and view.actor_world == null and view.state.is_empty(),
+		"The ordinary environment assembles sourced grass without creating any gameplay authority.")
+	verify(view.get_node("ProductionScenery/GroundFoliage").multimesh.mesh == mesh,
+		"The ordinary worksite consumes the same sourced cached mesh.")
+	view.free()
+	second.free()
+	node.free()
+	print(JSON.stringify({"vertices_per_tuft": vertices.size(), "triangles_per_tuft": indices.size() / 3,
+		"instances": 96, "authored_triangles_before_culling": indices.size() / 3 * 96,
+		"imported_bounds": str(bounds), "limits": "No frame-time, rendered quality, gameplay or desktop claim."}))
+
+func check_foliage_mipmaps() -> void:
+	var node := Scenery._foliage()
+	if not verify(Scenery.foliage_source_status == "ready", "The corrected ordinary foliage material initializes successfully."):
+		node.free()
+		return
+	var material := node.material_override as StandardMaterial3D
+	for texture in [material.albedo_texture, material.normal_texture, material.roughness_texture]:
+		var image: Image = texture.get_image()
+		verify(image.has_mipmaps() and image.get_mipmap_count() == 8,
+			"Each corrected texture has its complete eight-level mip chain.")
+	verify(material.roughness_texture == material.metallic_texture and material.roughness_texture == material.ao_texture,
+		"Packed scalar channels share the corrected mipmapped image.")
+	var normal := material.normal_texture.get_image()
+	normal.convert(Image.FORMAT_RGB8)
+	var maximum_error := 0.0
+	var extent := 256
+	var data := normal.get_data()
+	for level in range(1, normal.get_mipmap_count() + 1):
+		extent = maxi(1, extent / 2)
+		var first := normal.get_mipmap_offset(level)
+		for pixel in range(extent * extent):
+			var at := first + pixel * 3
+			var vector := Vector3(data[at], data[at + 1], data[at + 2]) / 255.0 * 2.0 - Vector3.ONE
+			maximum_error = maxf(maximum_error, absf(vector.length() - 1.0))
+	verify(maximum_error < 0.015, "Generated normal mip levels retain bounded unit vectors after RGB8 quantization.")
+	verify(material.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR and material.metallic == 0
+		and material.roughness_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_GREEN
+		and material.ao_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_RED,
+		"Rebinding mipmapped textures retains cutout and dielectric channel semantics.")
+	var second := Scenery._foliage()
+	verify(second.material_override == material, "The corrected material is generated once and reused by later scenery.")
+	print(JSON.stringify({"maximum_normal_mip_length_error": maximum_error, "geometry_checks": "reused from the retained first import", "rendered_quality": "not_assessed"}))
+	second.free()
+	node.free()
+
 func run() -> void:
+	if mode == "foliage-mipmaps":
+		check_foliage_mipmaps()
+		finish()
+		return
+	if mode == "sourced-foliage":
+		check_sourced_foliage()
+		finish()
+		return
 	if mode == "ground-material":
 		check_ground_material()
 		finish()

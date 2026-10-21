@@ -274,6 +274,9 @@ class ProductionEnvironment:
 	static var terrain_surface_mesh: ArrayMesh
 	static var stream_volume_mesh: ArrayMesh
 	static var foliage_cluster_mesh: ArrayMesh
+	const FOLIAGE_FILE := "res://opening/assets/foliage/grass_tuft.glb"
+	static var foliage_source_status := "uninitialized"
+	static var foliage_finish: StandardMaterial3D
 	static var rock_boulder_mesh: ArrayMesh
 
 	static func _noise_texture(seed_value: int, normal_map: bool) -> NoiseTexture2D:
@@ -633,8 +636,61 @@ class ProductionEnvironment:
 		_scenery_turned(headrace, "SluiceHandwheel", Vector3(0.0, 1.72, 0.0), wheel_profile, iron)
 		return arch
 
+	static func read_foliage(path: String = FOLIAGE_FILE) -> Dictionary:
+		if not FileAccess.file_exists(path):
+			return {"status": "missing"}
+		var bytes := FileAccess.get_file_as_bytes(path)
+		if bytes.size() < 1000 or bytes.size() > 650000:
+			return {"status": "invalid", "reason": "package_size"}
+		# Runtime buffer import keeps the captured asset self-contained. It does
+		# not require an editor-generated .import file or instantiate a scene.
+		var document := GLTFDocument.new()
+		var imported := GLTFState.new()
+		imported.handle_binary_image_mode = GLTFState.HANDLE_BINARY_IMAGE_MODE_EMBED_AS_UNCOMPRESSED
+		if document.append_from_buffer(bytes, "", imported) != OK:
+			return {"status": "invalid", "reason": "glb_decode"}
+		var meshes := imported.get_meshes()
+		if meshes.size() != 1 or meshes[0].mesh == null or meshes[0].mesh.get_surface_count() != 1:
+			return {"status": "invalid", "reason": "mesh_set"}
+		var mesh: ArrayMesh = meshes[0].mesh.get_mesh()
+		var arrays := mesh.surface_get_arrays(0)
+		if arrays[Mesh.ARRAY_VERTEX].size() != 1386 or arrays[Mesh.ARRAY_INDEX].size() != 3771:
+			return {"status": "invalid", "reason": "geometry_count"}
+		var finish := mesh.surface_get_material(0) as StandardMaterial3D
+		if finish == null or finish.albedo_texture == null or finish.normal_texture == null or finish.roughness_texture == null:
+			return {"status": "invalid", "reason": "material_set"}
+		var color := finish.albedo_texture.get_image()
+		var normal := finish.normal_texture.get_image()
+		var scalars := finish.roughness_texture.get_image()
+		if color == null or normal == null or scalars == null or color.get_size() != Vector2i(384, 384) or normal.get_size() != Vector2i(256, 256) or scalars.get_size() != Vector2i(256, 256):
+			return {"status": "invalid", "reason": "texture_extent"}
+		# Runtime GLB buffer import preserves images but does not create their
+		# mip chains. Build them once with vector renormalization for normals.
+		if color.generate_mipmaps() != OK or normal.generate_mipmaps(true) != OK or scalars.generate_mipmaps() != OK:
+			return {"status": "invalid", "reason": "texture_mipmaps"}
+		finish.albedo_texture = ImageTexture.create_from_image(color)
+		finish.normal_texture = ImageTexture.create_from_image(normal)
+		var packed := ImageTexture.create_from_image(scalars)
+		finish.metallic_texture = packed
+		finish.roughness_texture = packed
+		finish.ao_texture = packed
+		finish.albedo_color = Color.WHITE
+		finish.vertex_color_use_as_albedo = true
+		finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		return {"status": "ready", "mesh": mesh, "material": finish}
+
 	static func _foliage() -> MultiMeshInstance3D:
 		if foliage_cluster_mesh == null:
+			var loaded := read_foliage()
+			foliage_source_status = loaded.status
+			if loaded.status == "ready":
+				foliage_cluster_mesh = loaded.mesh
+				foliage_finish = loaded.material
+			elif loaded.status == "invalid":
+				push_error("Invalid sourced foliage: " + str(loaded.reason))
+		if foliage_cluster_mesh == null:
+			# Historical fixed launch rosters omit new bitmap/mesh assets. Their
+			# earlier generated blades remain explicit instead of claiming import.
 			var surface := SurfaceTool.new()
 			surface.begin(Mesh.PRIMITIVE_TRIANGLES)
 			for ring in [[0.0, 0.24, 0.08, 0.045], [0.12, 0.42, 0.14, 0.065]]:
@@ -653,11 +709,13 @@ class ProductionEnvironment:
 					for vertex in [base_center - tangent, tip, base_center + tangent]:
 						surface.add_vertex(vertex)
 			foliage_cluster_mesh = surface.commit()
-		var finish := StandardMaterial3D.new()
-		finish.albedo_color = Color.WHITE
-		finish.vertex_color_use_as_albedo = true
-		finish.cull_mode = BaseMaterial3D.CULL_DISABLED
-		finish.roughness = 0.92
+		var finish := foliage_finish
+		if finish == null:
+			finish = StandardMaterial3D.new()
+			finish.albedo_color = Color.WHITE
+			finish.vertex_color_use_as_albedo = true
+			finish.cull_mode = BaseMaterial3D.CULL_DISABLED
+			finish.roughness = 0.92
 		var instances := MultiMesh.new()
 		instances.transform_format = MultiMesh.TRANSFORM_3D
 		instances.use_colors = true
@@ -676,6 +734,8 @@ class ProductionEnvironment:
 			var scale := 0.85 + float(posmod(n * 7, 13)) * 0.08
 			var basis := Basis(Vector3.UP, angle).scaled(Vector3.ONE * scale)
 			var color := Color("4b643e").lerp(Color("8f8b62"), float(n % 5) / 4.0)
+			if foliage_source_status == "ready":
+				color = Color.WHITE.lerp(Color("e3e5cf"), float(n % 5) / 4.0)
 			# Upload once: three matrix rows, each with its translation, then RGBA.
 			buffer.append_array(PackedFloat32Array([
 				basis.x.x, basis.y.x, basis.z.x, position.x,
@@ -687,7 +747,7 @@ class ProductionEnvironment:
 		foliage.name = "GroundFoliage"
 		foliage.multimesh = instances
 		foliage.material_override = finish
-		foliage.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		foliage.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED if foliage_source_status == "ready" else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		return foliage
 
 	static func _rock_outcrops() -> MultiMeshInstance3D:

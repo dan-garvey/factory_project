@@ -212,6 +212,14 @@ preservation and assigned-color contrast, not pixel appearance or human usabilit
 
 ## Shared terrain and millrace
 
+Complete captures replace primitive grass blades with a bounded CC0
+[Grass Medium 01 tuft](foliage/CREDITS.md). One self-contained mesh and three
+embedded maps are imported once and shared by the existing 96 terrain anchors.
+The photographed double-sided cutout retains transparent blade gaps, dielectric
+shading and normal mipmaps. This is noncolliding scenery; terrain, construction
+pad and actor authority remain unchanged. Historical fixed rosters retain their
+generated fallback. Import checks do not establish rendered production quality.
+
 Complete current captures use the CC0 [Rocky Trail](ground/CREDITS.md) surface
 for the valley ground. Shared albedo, packed scalar and OpenGL normal maps use
 world-space mapping at the source's two-metre scale. Restrained elevation tint
