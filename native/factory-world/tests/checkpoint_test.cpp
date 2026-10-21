@@ -346,6 +346,55 @@ void belt_span_checkpoint() {
           "Reversing the shaft reverses lane travel.");
 }
 
+void inclined_material_route() {
+    for (const bool reverse_endpoints : {false, true}) {
+        w::Profile profile;
+        profile.material = {1, 1, 2}; profile.initial_units = 3; profile.actors = {"P"};
+        profile.meters_per_grid_unit = 0.1;
+        profile.waterwheel_rate = {-1, 1};
+        profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, 2}, {{s::Role::collector, 0, 0}, 1},
+            {{s::Role::processor, 0, 0}, 1}, {{s::Role::shaft, 0, 2}, 2}, {{s::Role::belt, 0, 0}, 1}};
+        w::State state;
+        state.material.initial_units = 3; state.material.stock.source = 3;
+        state.material.cargo = {{"P", {}}}; state.kits = {{"P", {}}};
+        state.topology.parts = {
+            {{"collector-wheel", g::Kind::hub, {-4, 0, -4}, g::Axis::z, 0, 0}, 1, s::Role::waterwheel},
+            {{"collector", g::Kind::hub, {-4, 0, 0}, g::Axis::z, 0, 0}, 1, s::Role::collector},
+            {{"belt-wheel", g::Kind::hub, {0, 4, -4}, g::Axis::z, 0, 0}, 1, s::Role::waterwheel},
+            {{"low", g::Kind::shaft, {0, 4, 0}, g::Axis::z, 0, 2}, 1, s::Role::shaft},
+            {{"high", g::Kind::shaft, {8, 12, 0}, g::Axis::z, 0, 2}, 1, s::Role::shaft},
+            {{"processor", g::Kind::hub, {12, 16, 0}, g::Axis::z, 0, 0}, 1, s::Role::processor}};
+        state.topology.sources = {{"collector-wheel", {-1, 1}}, {"belt-wheel", {-1, 1}}};
+        state.topology.drive_enabled = true;
+        state.topology.belt_spans = {{{"span", reverse_endpoints ? "high" : "low", reverse_endpoints ? "low" : "high"}, 1}};
+        state.material.belt_lanes.emplace("span", m::BeltLane{{std::nullopt, std::nullopt, std::nullopt}, 0});
+        for (const auto& part : state.topology.parts) state.issued_entities.emplace(part.geometry.id, 1);
+        state.issued_entities.emplace("span", 1);
+        auto world = w::World::create("inclined-route", profile, state);
+        check(world != nullptr && w::machine_power(world->snapshot().state.topology).collector,
+              "A powered collector and independently driven inclined belt form a conserved route.");
+        for (int i = 0; i < 2; ++i)
+            check(world->tick().error == w::TransactionError::none, "The inclined collector route advances.");
+        const auto in_flight = world->snapshot();
+        const auto& lane = in_flight.state.material.belt_lanes.at("span");
+        check(std::any_of(lane.slots.begin(), lane.slots.end(), [](const auto& item) { return item.has_value(); }),
+              "A real collector deposits a blank into the inclined lane.");
+        const auto checkpoint = w::encode_checkpoint(profile, world->snapshot());
+        check(std::holds_alternative<V>(checkpoint), "The in-flight inclined route encodes.");
+        const auto decoded = w::decode_checkpoint(profile, "inclined-route", std::get<V>(checkpoint));
+        check(std::holds_alternative<w::Snapshot>(decoded), "The in-flight inclined route decodes.");
+        auto restored = w::World::restore("inclined-route", profile, std::get<w::Snapshot>(decoded));
+        check(restored != nullptr, "A fresh World restores the in-flight route.");
+        for (int i = 0; i < 8; ++i) {
+            check(world->tick().error == w::TransactionError::none && restored->tick().error == w::TransactionError::none &&
+                      world->snapshot().state == restored->snapshot().state,
+                  "Original and restored inclined routes retain identical custody.");
+        }
+        check(restored->snapshot().state.material.stock.input == 1,
+              "The elevated processor receives a collector blank from either endpoint order.");
+    }
+}
+
 void belt_span_material_route() {
     for (const bool reverse : {false, true}) {
         for (const bool reverse_parts : {false, true}) {
@@ -588,7 +637,7 @@ int main() {
         schema_and_authority_mutations();
         bounds_and_large_integers();
         belt_span_checkpoint();
-        belt_span_material_route();
+        belt_span_material_route(); inclined_material_route();
         belt_span_commands();
         std::cout << "{\"status\":\"pass\",\"evidence\":\"invented_native_checkpoint\",\"checks\":" << checks << "}\n";
         return 0;

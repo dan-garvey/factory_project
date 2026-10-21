@@ -112,7 +112,8 @@ part inventory as a conveyor. `place_belt_span` consumes a belt and checks
 reach to both shaft identities; `remove_belt_span` refunds it. Both retain
 generation and retry history. The native Host checks actor and site clearance.
 World owns canonical multi-slot lane custody; vertical and sideways power-only
-spans require empty lanes. The Godot Host still permits only horizontal spans.
+spans require empty lanes. The Godot Host admits all four path kinds with
+physical-body site and actor clearance.
 A powered collector adjacent to
 either outer endpoint can feed raw material into an empty endpoint, even while
 the span is stopped. Rotation carries raw material to an adjacent processor at
