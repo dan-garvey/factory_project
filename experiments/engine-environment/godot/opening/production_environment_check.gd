@@ -126,6 +126,7 @@ func finish() -> void:
 			"bank-firs": "ordinary fir mounting, deterministic terrain poses and matching woody triangles",
 			"bank-fir-lifecycle": "ordinary scene mounting inside the actual node tree",
 			"ground-material": "qualified forest-floor material, data channels and cache separation",
+			"ground-render": "source-period and frame-stability observations on separate passive planes",
 			"water-flow": "layered translucent river resources and ordinary frame consumer",
 			"rock-collision-shape": "visible rock facets versus the shared convex collision hull",
 			"flat-fallback": "historical flat source-roster fallback", "foliage": "changed foliage bulk upload",
@@ -557,34 +558,25 @@ func check_ground_material() -> void:
 		verify(false, "Use the declared external material-test artifact directory.")
 		return
 	var ground := Scenery.ground_material()
-	verify(Scenery.ground_source_status == "ready" and ground != null,
+	verify(Scenery.ground_source_status == "ready" and ground is ShaderMaterial,
 		"The ordinary ground material loads the complete sourced bitmap set.")
 	if ground == null:
 		return
 	verify(ground == Scenery.ground_material() and Opening.ProductionSteelFloor.source_status == "uninitialized",
 		"Terrain material reuse does not consume or poison the independent steel cache.")
-	verify(ground.albedo_texture.get_image().get_size() == Vector2i(1024, 1024)
-		and ground.normal_texture.get_image().get_size() == Vector2i(512, 512)
-		and ground.roughness_texture.get_image().get_size() == Vector2i(512, 512),
+	var albedo: Texture2D = ground.get_shader_parameter("albedo_map")
+	var normal: Texture2D = ground.get_shader_parameter("normal_map")
+	var scalars: Texture2D = ground.get_shader_parameter("arm_map")
+	verify(albedo.get_image().get_size() == Vector2i(1024, 1024)
+		and normal.get_image().get_size() == Vector2i(512, 512)
+		and scalars.get_image().get_size() == Vector2i(512, 512),
 		"The bounded albedo, OpenGL normal and scalar map retain their declared resolutions.")
-	verify(ground.albedo_texture.get_image().has_mipmaps() and ground.normal_texture.get_image().has_mipmaps()
-		and ground.roughness_texture.get_image().has_mipmaps(), "All shared terrain resources have mipmaps.")
-	verify(ground.ao_enabled and ground.ao_texture == ground.roughness_texture
-		and ground.metallic_texture == ground.roughness_texture and ground.metallic == 0.0
-		and ground.roughness == 1.0 and ground.ao_light_affect == 0.0,
-		"One packed linear map supplies ambient occlusion and roughness while preserving the provider's dielectric factor.")
-	verify(ground.ao_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_RED
-		and ground.roughness_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_GREEN
-		and ground.metallic_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_BLUE,
-		"Packed scalar roles remain red occlusion, green roughness and blue metallic.")
-	verify(ground.normal_enabled and ground.normal_scale == 1.0 and ground.vertex_color_use_as_albedo
-		and ground.albedo_color == Color.WHITE and ground.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED,
-		"The qualified finish remains opaque and uses its original normal convention with restrained vertex tint.")
-	verify(ground.uv1_triplanar and ground.uv1_world_triplanar and ground.uv1_scale.is_equal_approx(Vector3.ONE / 1.3)
-		and ground.texture_filter == BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC,
-		"World-space mapping preserves the declared 1.3-metre extent across steep terrain faces.")
+	verify(albedo.get_image().has_mipmaps() and normal.get_image().has_mipmaps()
+		and scalars.get_image().has_mipmaps(), "All shared terrain resources have mipmaps.")
+	verify(ground.shader == Scenery.GROUND_SHADER and is_equal_approx(ground.get_shader_parameter("source_extent"), 1.3),
+		"The cached stochastic surface binds the same qualified 1.3-metre source scale and stationary world-space shader.")
 	var packed := Image.load_from_file(Scenery.GROUND_ROOT.path_join(Scenery.GROUND_FILES.arm))
-	var actual := ground.ao_texture.get_image()
+	var actual := scalars.get_image()
 	for pixel in [Vector2i(0, 0), Vector2i(117, 239), Vector2i(511, 511)]:
 		verify(actual.get_pixelv(pixel) == packed.get_pixelv(pixel), "Material construction preserves decoded scalar channels without a color transform.")
 	var mesh := Scenery.terrain_mesh()
@@ -601,7 +593,7 @@ func check_ground_material() -> void:
 			"Negative material cases preserve existing outputs."):
 			return
 	var missing := Opening.ProductionSteelFloor.read_images(empty, Scenery.GROUND_FILES, Vector2i(512, 512))
-	verify(missing.status == "missing" and missing.images.is_empty(), "An absent bitmap set is an explicit procedural fallback.")
+	verify(missing.status == "missing" and missing.images.is_empty(), "An absent bitmap set cannot masquerade as a qualified surface.")
 	var albedo_path: String = Scenery.GROUND_ROOT.path_join(Scenery.GROUND_FILES.albedo)
 	if not verify(DirAccess.copy_absolute(albedo_path, partial.path_join(Scenery.GROUND_FILES.albedo)) == OK,
 		"Retain the real partial-set negative input."):
@@ -622,6 +614,90 @@ func check_ground_material() -> void:
 		"A valid image with the wrong normal extent fails the declared material contract.")
 	verify(Opening.ProductionSteelFloor.read_images().status == "ready",
 		"The shared decoder's original default filenames still load the unchanged steel set.")
+
+
+func image_difference(first: Image, second: Image, shift: int = 0) -> float:
+	var difference := 0.0
+	var samples := 0
+	for y in range(8, first.get_height() - 8, 4):
+		for x in range(8, first.get_width() - shift - 8, 4):
+			var a := first.get_pixel(x, y)
+			var b := second.get_pixel(x + shift, y)
+			difference += (absf(a.r - b.r) + absf(a.g - b.g) + absf(a.b - b.b)) / 3.0
+			samples += 1
+	return difference / float(maxi(1, samples))
+
+
+func check_ground_render() -> void:
+	if not verify(DisplayServer.get_name().to_lower() != "headless" and fixture_directory.is_absolute_path(),
+		"Shader rendering requires an owned viewport on a real renderer and an absolute artifact directory."):
+		return
+	var viewport := SubViewport.new()
+	viewport.size = Vector2i(1024, 320)
+	viewport.own_world_3d = true
+	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	root.add_child(viewport)
+	var world := Node3D.new()
+	viewport.add_child(world)
+	var environment := WorldEnvironment.new()
+	environment.environment = Environment.new()
+	environment.environment.background_mode = Environment.BG_COLOR
+	environment.environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	environment.environment.ambient_light_color = Color.WHITE
+	environment.environment.ambient_light_energy = 1.0
+	world.add_child(environment)
+	var camera := Camera3D.new()
+	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
+	camera.size = 6.5
+	camera.position = Vector3(0, 10, 0)
+	camera.rotation_degrees.x = -90
+	world.add_child(camera)
+	camera.current = true
+	var ground := Scenery.ground_material()
+	var reference := StandardMaterial3D.new()
+	reference.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	reference.albedo_texture = ground.get_shader_parameter("albedo_map")
+	reference.uv1_triplanar = true
+	reference.uv1_world_triplanar = true
+	reference.uv1_scale = Vector3.ONE / 1.3
+	var planes: Array[MeshInstance3D] = []
+	for x in [-5.2, 5.2]:
+		var plane := MeshInstance3D.new()
+		var mesh := PlaneMesh.new()
+		mesh.size = Vector2(10.4, 6.5)
+		plane.mesh = mesh
+		plane.position.x = x
+		plane.material_override = reference
+		world.add_child(plane)
+		planes.append(plane)
+	await process_frame
+	await RenderingServer.frame_post_draw
+	var repeated := viewport.get_texture().get_image()
+	for plane in planes:
+		plane.material_override = ground
+	await process_frame
+	await RenderingServer.frame_post_draw
+	var varied := viewport.get_texture().get_image()
+	await process_frame
+	await RenderingServer.frame_post_draw
+	var stable := viewport.get_texture().get_image()
+	for entry in [["ground-reference.png", repeated], ["ground-stochastic.png", varied], ["ground-stable.png", stable]]:
+		var path: String = fixture_directory.path_join(entry[0])
+		verify(not FileAccess.file_exists(path) and entry[1].save_png(path) == OK,
+			"Retain each original own-viewport observation without replacing a previous image.")
+	# The 20.8-metre view has 64 pixels per original 1.3-metre source period.
+	var periodic_error := image_difference(repeated, repeated, 64)
+	var varied_error := image_difference(varied, varied, 64)
+	var frame_error := image_difference(varied, stable)
+	verify(periodic_error < 0.003, "The independent repeating reference proves that the source period is resolved by the viewport.")
+	verify(varied_error > maxf(0.01, periodic_error * 8.0),
+		"The actual shader breaks the source-period repeat across separately positioned terrain meshes.")
+	verify(frame_error < 0.00001, "Stationary ground shading is stable across completed rendered frames.")
+	print(JSON.stringify({"phase": "ground-render", "reference_period_error": periodic_error,
+		"stochastic_period_error": varied_error, "frame_error": frame_error, "display": DisplayServer.get_name(),
+		"source_extent_metres": 1.3, "source_period_pixels": 64, "viewport": [1024, 320],
+		"game_entry": "not_run", "input": "not_used", "human_quality": "not_assessed"}))
+	viewport.free()
 
 func check_rock_shapes(rocks: MultiMesh) -> void:
 	var specs: Array[Dictionary] = Scenery.Surface.rock_boxes()
@@ -1446,6 +1522,10 @@ func run() -> void:
 		check_ground_material()
 		finish()
 		return
+	if mode == "ground-render":
+		await check_ground_render()
+		finish()
+		return
 	if mode == "water-flow":
 		check_water_flow()
 		finish()
@@ -1544,16 +1624,10 @@ func run() -> void:
 	verify(ground.material_override == Scenery.ground_material()
 		and stream.material_override == Scenery.water_material(),
 		"Repeated world views share the authored material resources.")
-	var soil: StandardMaterial3D = ground.material_override
-	if Scenery.ground_source_status == "ready":
-		verify(soil.albedo_texture is ImageTexture and soil.normal_texture is ImageTexture
-			and soil.normal_enabled and soil.uv1_world_triplanar and soil.vertex_color_use_as_albedo,
-			"The scanned ground uses shared world-space color/normal maps with restrained elevation tint.")
-	else:
-		verify(soil.albedo_texture is NoiseTexture2D and soil.normal_texture is NoiseTexture2D
-			and soil.normal_enabled and soil.albedo_texture.seamless and soil.normal_texture.seamless
-			and soil.vertex_color_use_as_albedo,
-			"Missing historical ground maps retain the repeating procedural finish.")
+	var soil: ShaderMaterial = ground.material_override
+	verify(Scenery.ground_source_status == "ready" and soil.shader == Scenery.GROUND_SHADER
+		and soil.get_shader_parameter("albedo_map") is ImageTexture and soil.get_shader_parameter("normal_map") is ImageTexture,
+		"The terrain uses the qualified cached stochastic ground surface without a generated fallback.")
 	var water: StandardMaterial3D = stream.material_override
 	var ripples: Image = water.normal_texture.get_image()
 	verify(ripples.get_width() == 128 and ripples.get_height() == 128 and ripples.has_mipmaps()

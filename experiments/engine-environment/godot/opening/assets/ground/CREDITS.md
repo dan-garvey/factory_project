@@ -17,7 +17,14 @@ loader to RGB8 before float Lanczos resampling to 512 pixels. Normal vectors are
 renormalized and packed with nearest-integer RGB8 encoding; maximum unit-length
 error is 0.006403. Lossless WebP preserves the prepared bytes exactly. Neither
 data map receives a gamma operation or green-channel flip. Runtime generates
-mipmaps, with normal renormalization, and maps the surface at `1 / 1.3` per metre.
+mipmaps, with normal renormalization. The world-space shader retains the
+1.3-metre source extent while blending coordinate frames at two different angles
+to break the visible repeat. Color, normal and scalar channels share those
+coordinates; tangent normals turn back into the original projection frame
+before the terrain normal is perturbed. Broad stationary tint adds variation
+over tens of metres. Color variance is restored after blending to retain source
+contrast; the packaged source pixels remain untouched. No animation or
+geometric displacement is introduced.
 
 Packed red occlusion affects ambient lighting only, green supplies roughness and
 the material retains the descriptor's zero metallic factor. The source descriptor
@@ -29,5 +36,5 @@ contact physics, performance or the overall production-quality target.
 The prior Rocky Trail finish by Amal Kumar remains in Git history and the original
 `scanned-valley-ground-20261020` evidence family. Its successful conversions and
 first normal-packing failure retain their original scope and revision. Historical
-captures without any bitmap set still use the procedural finish; partial or invalid
-sets remain explicit failures.
+captures retain their original evidence. The current demo requires the complete
+qualified bitmap set and shader; the procedural compatibility finish is removed.

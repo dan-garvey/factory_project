@@ -105,7 +105,7 @@ func check_foundation(legacy: bool) -> void:
 	var material_correct := true
 	var river_clear := true
 	var current_panels: Dictionary = {}
-	var ground: StandardMaterial3D
+	var ground: ShaderMaterial
 	if not legacy:
 		for spec in Opening.ProductionEnvironment.Surface.pad_panels():
 			current_panels[spec.id] = spec
