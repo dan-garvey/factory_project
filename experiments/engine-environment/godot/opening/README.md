@@ -33,10 +33,13 @@ technology unlocks or saved progression. F, G and I retain material, shaft and
 inspection selection. Reopening derives goal advice from the actual worksite.
 
 **Foundation** builds a level surface from the carried kit. Its height controls
-and Page Up / Page Down select whole-tile factory floors, initially at 1.65 m.
-Enable **Access steps** for quarter-height walking steps; turn it off to snap the
-selected height back to a factory floor without moving anything already built. Every
-foundation and machine uses the same quarter-pitch height unit, currently
+and Page Up / Page Down move one foundation thickness (0.825 m, or two shared
+height units), so foundations at successive selected heights touch vertically.
+The initial selection is 1.65 m. Two normal height changes reach the next
+whole-tile machine floor. Enable **Access steps** for quarter-height walking
+steps; turn it off to snap the selected height back to a machine floor without
+moving anything already built. Every foundation and machine uses the same
+quarter-pitch height unit, currently
 0.4125 m on 1.65 m horizontal tiles. Machines require a whole-tile height: a
 foundation top at level 0, 4, 8 and so on can support a machine and align its
 axle with tile-snapped transmission. Intermediate foundation heights remain

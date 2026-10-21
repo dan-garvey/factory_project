@@ -4222,7 +4222,7 @@ func _select_tool(tool: String) -> void:
 		instructions["flow"] = "Choose the upstream machine, then its neighbor at the material outlet."
 		instructions["drive"] = "Place a shaft on the highlighted tile. Set its axis and height in the cogwheel and shaft menu."
 		instructions["gear"] = "Place a cogwheel at the highlighted point. Set axis and height in the cogwheel menu."
-		instructions["foundation"] = "Place a factory floor at the displayed world height. Page Up / Page Down move one full tile; Access steps enables smaller walking steps. Area chooses two corners; Esc cancels."
+		instructions["foundation"] = "Place a foundation at the displayed world height. Page Up / Page Down move one foundation thickness so stacked blocks touch; Access steps enables smaller walking steps. Machines need whole-tile factory floors. Area chooses two corners; Esc cancels."
 	_message(instructions.get(tool,
 		"Place %s on an empty grid square." % NAMES.get(tool, tool)))
 
@@ -4344,6 +4344,8 @@ func _set_lesson(index: int) -> void:
 	lesson_index = posmod(index, LESSONS.size())
 	lesson_title.text = LESSONS[lesson_index][0]
 	lesson_body.text = LESSONS[lesson_index][1]
+	if lesson_index == 0 and _native_transmission():
+		lesson_body.text = "Place a collector and a press. Place one-tile shafts at the ends of the route, then connect those shafts with a belt. The belt carries blanks when its shafts rotate toward the press."
 	if lesson_index == 1 and _native_transmission():
 		lesson_body.text = "Place the waterwheel in the stream with its lower rim wet and clear of the bed. Set its diameter, height and axle. Choose Shaft and place one-tile segments; set axis and height in the cogwheel and shaft menu. Aligned parts carry rotation."
 	if example_presenter != null:
@@ -4406,7 +4408,7 @@ func _adjust_foundation_level(delta: int) -> void:
 	if mode == "wheel":
 		wheel_level = clampi(wheel_level + delta * Geometry.HEIGHT_DENOMINATOR, -1000000, 1000000)
 	else:
-		var step := 1 if foundation_steps else Geometry.HEIGHT_DENOMINATOR
+		var step := 1 if foundation_steps else Geometry.FOUNDATION_HEIGHT_UNITS
 		foundation_level = clampi(foundation_level + delta * step, -1000000, 1000000)
 	foundation_area_started = false
 	foundation_level_label.text = _construction_height_text()
@@ -5714,7 +5716,7 @@ func _build_interface() -> void:
 	foundation_level_controls.visible = false
 	foundation_steps_toggle = CheckButton.new()
 	foundation_steps_toggle.text = "Access steps"
-	foundation_steps_toggle.tooltip_text = "Use smaller height increments for walking. Machines need whole-tile factory floors. Turning this off snaps the selected height to a factory floor."
+	foundation_steps_toggle.tooltip_text = "Use one height unit for walking steps. Normal height changes move one foundation thickness. Machines need whole-tile factory floors; turning this off snaps the selected height to one."
 	foundation_steps_toggle.toggled.connect(_set_foundation_steps)
 	build.add_child(foundation_steps_toggle)
 	foundation_steps_toggle.visible = false

@@ -122,9 +122,13 @@ func check_foundation_view() -> void:
 	view._refresh_guided_tools()
 	view._adjust_foundation_level(1)
 	await settle_footer()
-	verify(view.foundation_level == 4 and view.foundation_level_controls.visible
-		and view.foundation_level_label.text == "Factory floor · 1.65 m",
-		"The ordinary height control chooses a machine-aligned factory floor.")
+	verify(view.foundation_level == 2 and view.foundation_level_controls.visible
+		and is_equal_approx(Opening.Geometry.FOUNDATION_HEIGHT_UNITS * Opening.Geometry.HEIGHT_STEP,
+			Opening.Geometry.FOUNDATION_DEPTH),
+		"One ordinary height change places the next foundation exactly one block thickness above the previous top.")
+	view._adjust_foundation_level(1)
+	verify(view.foundation_level == 4 and view.foundation_level_label.text == "Factory floor · 1.65 m",
+		"Two ordinary height changes reach the whole-tile machine floor.")
 	view.foundation_steps_toggle.button_pressed = true
 	view._adjust_foundation_level(-1)
 	verify(view.foundation_level == 3 and view.foundation_level_label.text.begins_with("Access step"),
