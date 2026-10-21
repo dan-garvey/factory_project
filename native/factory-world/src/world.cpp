@@ -110,6 +110,8 @@ bool shape(const Object& intent, const std::string& action) {
     if (action == "place_foundation") return keys(intent, {"center"});
     if (action == "remove_foundation") return keys(intent, {"target", "generation"});
     if (action == "recover" || action == "remove" || action == "remove_belt_span") return keys(intent, {"target", "generation"});
+    if (action == "recover_belt_slot") return keys(intent, {"target", "generation", "slot", "expected"}) &&
+        field<Integer>(intent, "slot") && field<Object>(intent, "expected");
     if (action == "collect" || action == "insert_raw")
         return keys(intent, {"target", "generation", "amount"}) && field<Integer>(intent, "amount");
     if (action == "insert_work")
@@ -231,6 +233,16 @@ Value lots_value(const std::vector<materials::WorkLot>& lots) {
     return Value(std::move(output));
 }
 
+Value belt_cargo_value(const materials::Cargo& cargo) {
+    Value::Array lots;
+    for (const auto& lot : cargo.work_lots) lots.emplace_back(Object{
+        {"id", Value(lot.id)}, {"recipe_input", Value(lot.recipe.input_units_per_product)},
+        {"cycle_ticks", Value(lot.recipe.cycle_ticks)}, {"remaining", Value(lot.remaining_ticks)},
+        {"completed_subticks", Value(lot.completed_subticks)}});
+    return Value(Object{{"raw", Value(cargo.raw_units)}, {"products", Value(cargo.products)},
+                        {"work_lots", Value(std::move(lots))}});
+}
+
 bool historical_facts(const Profile& profile, const authority::Record& record,
                       const std::string& actor, const std::string& action) {
     if (action == "shaft_between" || action == "remove_shaft_between") return false;
@@ -332,8 +344,15 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         if (!target || *target != *field<std::string>(result, "entity") ||
             !generation || *generation != *field<Integer>(result, "generation")) return false;
     }
-    const bool transfer = action == "recover" || action == "insert_raw" || action == "insert_work";
-    if (result.size() != (transfer ? 19 : action == "collect" ? 17 : 16)) return false;
+    const bool transfer = action == "recover" || action == "recover_belt_slot" || action == "insert_raw" || action == "insert_work";
+    if (result.size() != (action == "recover_belt_slot" ? 20 : transfer ? 19 : action == "collect" ? 17 : 16)) return false;
+    if (action == "recover_belt_slot") {
+        const auto* slot = field<Integer>(record.intent, "slot");
+        const auto* center = field<Value::Array>(result, "slot_center");
+        const auto location = center ? grid_point(Object{{"center", Value(*center)}}) : std::nullopt;
+        if (!slot || *slot < 0 || *slot >= static_cast<Integer>(materials::maximum_belt_slots) || !location ||
+            targets.front() != anchor(profile, *location)) return false;
+    }
     if (action == "collect") {
         const auto* products = field<Integer>(result, "moved_products");
         return products && *products > 0 && *products == *field<Integer>(record.intent, "amount");
@@ -351,6 +370,21 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         if (!lot || lot->size() != 5 || !add(weighted, profile.material.input_units_per_product)) return false;
     }
     if (weighted == 0 || weighted > profile.initial_units) return false;
+    if (action == "recover_belt_slot") {
+        const auto* expected = field<Object>(record.intent, "expected");
+        if (!expected || expected->size() != 3 || !field<Integer>(*expected, "raw") || !field<Integer>(*expected, "products") ||
+            !field<Value::Array>(*expected, "work_lots") || *field<Integer>(*expected, "raw") != *raw ||
+            *field<Integer>(*expected, "products") != *products || field<Value::Array>(*expected, "work_lots")->size() != work->size()) return false;
+        for (std::size_t i = 0; i < work->size(); ++i) {
+            const auto* a = std::get_if<Object>(&work->at(i).storage());
+            const auto* b = std::get_if<Object>(&field<Value::Array>(*expected, "work_lots")->at(i).storage());
+            if (!a || !b || b->size() != 5) return false;
+            for (const auto& [left, right] : {std::pair{"id", "id"}, {"input_units_per_product", "recipe_input"},
+                    {"cycle_ticks", "cycle_ticks"}, {"remaining_ticks", "remaining"}, {"completed_subticks", "completed_subticks"}}) {
+                if (!a->contains(left) || !b->contains(right) || values::typed_difference(a->at(left), b->at(right))) return false;
+            }
+        }
+    }
     if (action == "insert_raw")
         return *raw == *field<Integer>(record.intent, "amount") && *products == 0 && work->empty();
     if (action == "insert_work") {
@@ -798,6 +832,47 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         }
         facts.emplace("generation", Value(generation));
         return accepted(std::move(candidate), entity, std::move(facts));
+    }
+    if (*action == "recover_belt_slot") {
+        const auto* id = field<std::string>(intent, "target");
+        const auto* generation = field<Integer>(intent, "generation");
+        const auto* index = field<Integer>(intent, "slot");
+        const auto* expected = field<Object>(intent, "expected");
+        if (!id || !generation || !index || !expected) return refused("invalid_target");
+        const auto span = std::find_if(state.topology.belt_spans.begin(), state.topology.belt_spans.end(),
+            [&](const auto& item) { return item.geometry.id == *id; });
+        if (span == state.topology.belt_spans.end()) return refused("unknown_target", *id);
+        if (span->generation != *generation) return refused("stale_generation", *id);
+        const auto first = part(state.topology, span->geometry.first_shaft);
+        const auto last = part(state.topology, span->geometry.last_shaft);
+        const auto lane = state.material.belt_lanes.find(*id);
+        if (!first || !last || lane == state.material.belt_lanes.end()) return refused("invalid_mechanics", *id);
+        if (*index < 0 || static_cast<std::size_t>(*index) >= lane->second.slots.size()) return refused("invalid_slot", *id);
+        const auto direction = first->geometry.axis == mechanics::Axis::x ? 2 : 0;
+        auto center = first->geometry.center;
+        center[direction] += (last->geometry.center[direction] > center[direction] ? 4 : -4) * *index;
+        auto cut = observe ? observe(binding.actor) : std::nullopt;
+        if (!cut) return refused("actor_unready");
+        cut->build_reach = profile_.build_reach;
+        const auto checked = authority::check_reach(binding.actor, *cut, {anchor(profile_, center)});
+        auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
+        if (checked.error != authority::Error::none) return refused(authority::error_name(checked.error), *id, std::move(facts));
+        const auto& item = lane->second.slots.at(static_cast<std::size_t>(*index));
+        if (!item || values::typed_difference(Value(*expected), belt_cargo_value(*item)))
+            return refused("slot_changed", *id, std::move(facts));
+        auto candidate = state;
+        auto& cargo = candidate.material.cargo.at(binding.actor);
+        if (!add(cargo.raw_units, item->raw_units) || !add(cargo.products, item->products) ||
+            cargo.work_lots.size() + item->work_lots.size() > maximum_current_work)
+            return refused("quantity_overflow", *id, std::move(facts));
+        cargo.work_lots.insert(cargo.work_lots.end(), item->work_lots.begin(), item->work_lots.end());
+        candidate.material.belt_lanes.at(*id).slots.at(static_cast<std::size_t>(*index)).reset();
+        facts.emplace("generation", Value(*generation));
+        facts.emplace("moved_raw", Value(item->raw_units));
+        facts.emplace("moved_products", Value(item->products));
+        facts.emplace("moved_work", lots_value(item->work_lots));
+        facts.emplace("slot_center", Value(Value::Array{Value(center[0]), Value(center[1]), Value(center[2])}));
+        return accepted(std::move(candidate), *id, std::move(facts));
     }
     if (*action == "place_belt_span" || *action == "remove_belt_span") {
         const auto* id = field<std::string>(intent, "target");

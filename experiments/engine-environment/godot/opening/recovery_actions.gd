@@ -24,7 +24,7 @@ func refusal_text(outcome: Dictionary) -> String:
 	if typeof(outcome.get("accepted")) != TYPE_BOOL or outcome.accepted:
 		return ""
 	var explanations := {
-		"occupied_target": "Use the material menu to recover its contents, then dismantle the machine.",
+		"occupied_target": "Use the material menu to recover its contents, then dismantle it.",
 		"collector_below_source": "Raise the collector above the mineral surface, using a foundation if needed.",
 		"source_too_deep": "Lower the collector: the mineral surface is beyond its extraction depth.",
 		"invalid_source_surface": "The mineral surface is unavailable. Choose another place on the deposit."}
@@ -57,7 +57,7 @@ func refresh() -> void:
 	var lots: Array = cargo.work_lots
 	var carrying: bool = cargo.raw > 0 or not lots.is_empty()
 	var occupied: bool = _has_contents(context)
-	visible = carrying or occupied
+	visible = occupied if context.kind == "belt_span" else carrying or occupied
 	# Keep this inspector addition to one action row, including expanded Details.
 	# The exact carried forms remain available without another wrapping label.
 	var summary: String = "%s, %s and %s carried." % [
@@ -123,16 +123,29 @@ func _context() -> Dictionary:
 	var kind: String = ""
 	if entity is Dictionary and typeof(entity.get("kind")) == TYPE_STRING:
 		kind = entity.kind
+	var slots: Array = []
+	var spans: Variant = snapshot.get("belt_spans", {})
+	if spans is Dictionary and spans.get(selected) is Dictionary:
+		var span_slots: Variant = spans[selected].get("slots")
+		if not span_slots is Array or span_slots.size() > 21:
+			return {}
+		slots = span_slots
+		kind = "belt_span"
 	var usable: bool = host.get("explanation_open") == false and host.get("startup_save_pending") == false
 	if host.has_method("_can_mutate"):
 		var permission: Variant = host.call("_can_mutate")
 		usable = usable and typeof(permission) == TYPE_BOOL and permission
 	usable = usable and typeof(actor_sample.get("ready")) == TYPE_BOOL and actor_sample.ready
 	return {"world": world_context, "actor": actor, "target": selected, "kind": kind,
-		"cargo": cargo, "stock": stock, "usable": usable}
+		"cargo": cargo, "stock": stock, "slots": slots, "usable": usable}
 
 func _has_contents(context: Dictionary) -> bool:
 	match context.kind:
+		"belt_span":
+			for item: Variant in context.slots:
+				if item is Dictionary:
+					return true
+			return false
 		"collector": return context.stock.collector > 0
 		"belt": return context.stock.belt > 0
 		"processor": return context.stock.input > 0 or context.stock.held > 0 or context.stock.output > 0
@@ -140,6 +153,15 @@ func _has_contents(context: Dictionary) -> bool:
 
 func _offers(context: Dictionary) -> Array[Dictionary]:
 	var offers: Array[Dictionary] = []
+	if context.kind == "belt_span":
+		for index: int in context.slots.size():
+			var item: Variant = context.slots[index]
+			if not item is Dictionary or _quantity(item, "raw") < 0 or _quantity(item, "products") < 0 or not item.get("work_lots") is Array:
+				continue
+			var label: String = "blank" if item.raw > 0 else "plate" if item.products > 0 else "workpiece"
+			offers.append({"text": "Recover %s from belt position %d" % [label, index + 1],
+				"wire": {"action": "recover_belt_slot", "entity": context.target, "slot": index, "expected": item.duplicate(true)}})
+		return offers
 	if not context.kind in ["collector", "belt", "processor"]:
 		return offers
 	if _has_contents(context):

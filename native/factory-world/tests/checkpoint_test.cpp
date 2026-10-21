@@ -286,6 +286,26 @@ void belt_span_checkpoint() {
           field<std::string>(*occupied.result, "reason") == "occupied_target" &&
           restored->snapshot().state.material.belt_lanes.at("belt") == state.material.belt_lanes.at("belt"),
           "An occupied restored span cannot be removed or lose its item.");
+    for (const bool work : {false, true}) {
+        auto carried_state = state;
+        carried_state.material.belt_lanes.at("belt").slots[2] = work ? m::Cargo{0, 0, {{1, {1, 2}, 1, 123}}} : m::Cargo{0, 1, {}};
+        carried_state.material.next_work_id = work ? 2 : 1;
+        auto carried_world = w::World::create("saved-world", profile, carried_state);
+        check(carried_world != nullptr, "A belt slot can own a product or whole partial workpiece.");
+        auto recover = command("recover_belt_slot", work ? "recover-work" : "recover-product", "belt");
+        recover.emplace("slot", V(I{2}));
+        V::Array lots;
+        if (work) lots.emplace_back(O{{"id", V(I{1})}, {"recipe_input", V(I{1})}, {"cycle_ticks", V(I{2})},
+                                      {"remaining", V(I{1})}, {"completed_subticks", V(I{123})}});
+        recover.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{work ? 0 : 1})}, {"work_lots", V(lots)}}));
+        accepted(send(*carried_world, recover));
+        check(carried_world->snapshot().state.material.cargo.at("P") == *carried_state.material.belt_lanes.at("belt").slots[2],
+              "Recovery retains the exact product or partial workpiece in actor custody.");
+        accepted(send(*carried_world, command("remove_belt_span", work ? "remove-work" : "remove-product", "belt")));
+        const auto saved = w::encode_checkpoint(profile, carried_world->snapshot());
+        check(std::holds_alternative<V>(saved) && std::holds_alternative<w::Snapshot>(w::decode_checkpoint(profile, "saved-world", std::get<V>(saved))),
+              "Recovered product and partial-work histories survive span removal and checkpoint validation.");
+    }
     const auto moving = restored->tick();
     check(moving.error == w::TransactionError::none && moving.changed &&
           restored->snapshot().state.material.belt_lanes.at("belt").slots[1] == m::Cargo{1, 0, {}} &&

@@ -188,12 +188,29 @@ func _malformed_projection_is_not_coerced() -> void:
 		var popup: PopupMenu = _open()
 		_expect(popup.item_count == 0 and sent.is_empty(), "An invalid projection emits no material intent.")
 
+func _belt_span_recovery() -> void:
+	_new_fixture()
+	fixture.selected = "span"
+	var item := {"raw": 0, "products": 0, "work_lots": [{"id": LARGE_ID, "recipe_input": 1, "cycle_ticks": 4, "remaining": 2, "completed_subticks": 123}]}
+	fixture.snapshot.belt_spans = {"span": {"slots": [null, item, {"raw": 1, "products": 0, "work_lots": []}]}}
+	controls.refresh()
+	var popup := _open()
+	_expect(controls.visible and popup.item_count == 2, "Only occupied span positions offer recovery.")
+	fixture.snapshot.belt_spans.span.slots[1] = null
+	_choose("recover_belt_slot")
+	_expect(sent.is_empty(), "A moved workpiece cannot be replaced by the next menu item.")
+	fixture.snapshot.belt_spans.span.slots[1] = item
+	_open()
+	_choose("recover_belt_slot")
+	_expect(sent == [{"action": "recover_belt_slot", "entity": "span", "slot": 1, "expected": item}], "The request retains the original whole workpiece and position.")
+
 func _run() -> void:
 	_collector_recovery()
 	_raw_and_whole_work()
 	_changed_context_and_disabled_views()
 	_stale_holdings_do_not_retarget()
 	_malformed_projection_is_not_coerced()
+	_belt_span_recovery()
 	controls.free()
 	print(JSON.stringify({"status": "fail" if failed else "pass", "evidence": "invented_recovery_ui", "checks": checks}))
 	quit(1 if failed else 0)

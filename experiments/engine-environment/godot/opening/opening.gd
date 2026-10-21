@@ -3471,7 +3471,7 @@ func _can_present_confirmed_motion() -> bool:
 
 func _contains_target(snapshot: Dictionary, id: String) -> bool:
 	return snapshot.get("entities", {}).has(id) or snapshot.get("foundations", {}).has(id) or (snapshot.get("options", {}).get("native", false)
-		and snapshot.get("transmission_parts", {}).has(id))
+		and (snapshot.get("transmission_parts", {}).has(id) or snapshot.get("belt_spans", {}).has(id)))
 
 func _refresh_transmission() -> void:
 	if not _native_transmission():
@@ -3673,7 +3673,7 @@ func issue(action: Dictionary) -> Dictionary:
 	if outcome.accepted:
 		if action.action in ["place_gear", "place_shaft"]:
 			selected = str(outcome.get("entity", ""))
-		elif action.action == "remove" and selected == action.get("entity", ""):
+		elif action.action in ["remove", "remove_belt_span"] and selected == action.get("entity", ""):
 			selected = ""
 		_construction_feedback(intent, outcome)
 		_message({"place": "Placed. Parts stay with this worksite.",
@@ -3999,7 +3999,7 @@ func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 		var height: int = transmission_controls.gear_height if transmission_controls != null else 0
 		if _transmission_click([cell.x * 4, height, cell.y * 4], entity_id):
 			return
-		if mode == "inspect" and state.get("transmission_parts", {}).has(entity_id):
+		if mode == "inspect" and (state.get("transmission_parts", {}).has(entity_id) or state.get("belt_spans", {}).has(entity_id)):
 			selected = entity_id
 			_refresh_ui()
 			return
@@ -4062,7 +4062,8 @@ func _toggle_power() -> void:
 
 func _remove_selected() -> void:
 	if not selected.is_empty():
-		var outcome := issue({"action": "remove", "entity": selected})
+		var removal := "remove_belt_span" if _native_transmission() and state.get("belt_spans", {}).has(selected) else "remove"
+		var outcome := issue({"action": removal, "entity": selected})
 		if outcome.accepted:
 			selected = ""
 			_refresh_ui()
@@ -4841,6 +4842,13 @@ func _refresh_ui() -> void:
 			inspector.text += "\nRate %d / %d" % [motion.numerator, motion.denominator]
 		else:
 			inspector.text += "\n" + str(motion.get("state", "disconnected")).capitalize()
+	elif _native_transmission() and state.get("belt_spans", {}).has(selected):
+		var slots: Array = state.belt_spans[selected].get("slots", [])
+		var occupied := 0
+		for slot: Variant in slots:
+			if slot is Dictionary:
+				occupied += 1
+		inspector.text = "Mechanical belt\n%d occupied positions\nRecover contents before dismantling." % occupied
 	else:
 		inspector.text = "Select a machine to inspect\nor collect its finished work."
 	_refresh_guided_tools()

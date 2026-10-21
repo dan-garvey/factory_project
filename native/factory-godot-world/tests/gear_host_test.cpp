@@ -428,6 +428,23 @@ void belt_span_host_commands() {
     check(projected_slots.size() == 3 && projected_slots[0].type() == factory::values::Type::null &&
               field<I>(projected_slots[1], "raw") == 1 && field<I>(projected_span, "phase") == 321,
           "The Host projects the exact confirmed lane slot and retained phase.");
+    auto recover = target("recover_belt_slot", id, "span-recover-far");
+    recover.emplace("slot", V(I{1})); recover.emplace("expected", projected_slots[1]);
+    observe(loaded, 50, 50, 1);
+    check(!accepted(loaded.command("P", recover)), "Recovery refuses an actor far from the occupied slot.");
+    observe(loaded, 1.65, -1.65, 2);
+    recover.at("request") = V("span-recover-stale");
+    recover.at("expected") = V(O{{"raw", V(I{0})}, {"products", V(I{1})}, {"work_lots", V(A{})}});
+    check(!accepted(loaded.command("P", recover)) && field<I>(field<A>(field<O>(loaded.projection(), "belt_spans").at(id), "slots")[1], "raw") == 1,
+          "A changed selection cannot take a replacement item.");
+    recover.at("request") = V("span-recover"); recover.at("expected") = projected_slots[1];
+    check(accepted(loaded.command("P", recover)) &&
+              field<I>(field<O>(loaded.projection(), "cargo").at("P"), "raw") == 1 &&
+              field<A>(field<O>(loaded.projection(), "belt_spans").at(id), "slots")[1].type() == factory::values::Type::null,
+          "The confirmed item moves into the actor's canonical custody.");
+    check(accepted(loaded.command("P", target("remove_belt_span", id, "span-remove-recovered"))) &&
+              field<bool>(loaded.command("P", recover), "duplicate") && accepted(loaded.validate_checkpoint(loaded.checkpoint())),
+          "The emptied span can be removed and the recovery history survives removal and validation.");
     auto obstructed_site = factory::godot_world::tests::flat_site();
     obstructed_site.at("obstacles") = V(A{V(A{V(A{V(1.5), V(0.4), V(-0.2)}),
                                                  V(A{V(1.8), V(0.7), V(0.2)})})});

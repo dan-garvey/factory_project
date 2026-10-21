@@ -245,6 +245,9 @@ bool historical_wire(const authority::Record& record) {
             same("from", "target") && same("to", "to");
     if (*action == "remove_belt_span")
         return *original_action == "remove_belt_span" && keys(*wire, {"entity"}) && same("entity", "target");
+    if (*action == "recover_belt_slot")
+        return *original_action == "recover_belt_slot" && keys(*wire, {"entity", "slot", "expected"}) &&
+            same("entity", "target") && same("slot", "slot") && same("expected", "expected");
     if (*action == "set_drive")
         return *original_action == "set_power" && keys(*wire, {"active"}) && same("active", "enabled");
     if (*action == "remove" || *action == "recover")
@@ -853,6 +856,12 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             if (from && to && !world::material_ports_adjacent(*from, *to))
                 return refuse("ports_not_adjacent");
         }
+    } else if (*action == "recover_belt_slot") {
+        if (!keys(wire, {"entity", "slot", "expected"}) || !field<Integer>(wire, "slot") ||
+            !field<Object>(wire, "expected") || !target("entity", "target", "generation")) return refuse("invalid_command");
+        normalized.at("action") = Value("recover_belt_slot");
+        normalized.emplace("slot", wire.at("slot"));
+        normalized.emplace("expected", wire.at("expected"));
     } else if (*action == "set_power") {
         if (!keys(wire, {"active"}) || !field<bool>(wire, "active")) return refuse("invalid_command");
         const auto wheel = std::find_if(snapshot.state.topology.parts.begin(), snapshot.state.topology.parts.end(),
