@@ -1446,11 +1446,42 @@ void transmission_tile_center() {
     }
 }
 
+void transmission_above_half_foundation() {
+    for (const auto* axis : {"x", "y", "z"}) for (const I teeth : {I{0}, I{2}, I{4}}) {
+        Host host;
+        check(accepted(host.initialize("cog-api", {"P"})) &&
+                  accepted(host.configure_terrain(factory::godot_world::tests::flat_site())),
+              "The half-height foundation fixture binds its site.");
+        observe(host, 2.5, 0, 1);
+        auto base = wire("place_foundation", "half-base");
+        base.emplace("cell", V(A{V(I{0}), V(I{0})})); base.emplace("level", V(I{2}));
+        create(host, base);
+        const auto before = world_state(host);
+        const auto intersecting = teeth == 0 ? shaft(0, 0, 0, "below", axis) : gear(0, 0, 0, "below", axis, teeth);
+        const auto refused = host.command("P", intersecting);
+        check(!accepted(refused) && field<std::string>(refused, "reason") == "occupied" &&
+                  !factory::values::typed_difference(before, world_state(host)),
+              "The lower global tile intersects the slab and is refused without consuming a part.");
+        const auto before_kit = field<I>(V(field<O>(host.projection(), "part_kits").at("P")), teeth == 0 ? "shaft" : "gear");
+        const auto command = teeth == 0 ? shaft(0, 4, 0, "above", axis) : gear(0, 4, 0, "above", axis, teeth);
+        create(host, command);
+        const auto after_kit = field<I>(V(field<O>(host.projection(), "part_kits").at("P")), teeth == 0 ? "shaft" : "gear");
+        check(after_kit == before_kit - 1,
+              "The snapped global tile consumes exactly one matching transmission part.");
+        const auto saved = host.checkpoint();
+        Host restored;
+        check(accepted(restored.initialize("fresh", {"P"})) &&
+                  accepted(restored.configure_terrain(factory::godot_world::tests::flat_site())) &&
+                  accepted(restored.restore_checkpoint(saved)) && !factory::values::typed_difference(saved, restored.checkpoint()),
+              "The half-height slab and aligned transmission part restore exactly.");
+    }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
     try {
-        if (argc == 2 && std::string(argv[1]) == "--tile-center-only") { transmission_tile_center(); return 0; }
+        if (argc == 2 && std::string(argv[1]) == "--tile-center-only") { transmission_tile_center(); transmission_above_half_foundation(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--foundation-only") { transmission_foundation_clearance(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--terrain-only") { transmission_terrain_clearance(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--raised-route-only") { complete_span_route_host(); return 0; }
@@ -1467,7 +1498,7 @@ int main(int argc, char** argv) {
         }
         if (argc == 1) {
             finite_oriented_train_and_restore(); adjacent_axle_faces(); refusals_and_legacy_shape(); cog_axle_actor_clearance(); cog_at_belt_face(); transmission_site_clearance(); transmission_terrain_clearance(); transmission_foundation_clearance(); one_tile_placement(); restored_transmission_geometry();
-            transmission_tile_center(); global_grid(); finite_large_cog(); perpendicular_belt_line(); belt_spindle_orientation(); typed_loose_host(); select_belt_shaft_host(); long_selected_belt_host(); belt_span_host_commands(); nonhorizontal_span_host(); complete_span_route_host(); complete_span_route_host(true); rotated_span_build_orders(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
+            transmission_tile_center(); transmission_above_half_foundation(); global_grid(); finite_large_cog(); perpendicular_belt_line(); belt_spindle_orientation(); typed_loose_host(); select_belt_shaft_host(); long_selected_belt_host(); belt_span_host_commands(); nonhorizontal_span_host(); complete_span_route_host(); complete_span_route_host(true); rotated_span_build_orders(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
         } else if (argc != 2 || std::string(argv[1]) != "--placement-alias-only") {
             throw std::runtime_error("Expected no arguments or --placement-alias-only.");
         }
