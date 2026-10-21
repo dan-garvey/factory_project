@@ -1,0 +1,32 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "clock",
+    srcs = ["src/clock.cpp"],
+    hdrs = ["include/factory/geared_cycle.hpp"],
+    strip_include_prefix = "include",
+    deps = ["//native/factory-mechanics:mechanics"],
+)
+
+cc_library(
+    name = "workbench",
+    srcs = ["src/workbench.cpp"],
+    hdrs = ["include/factory/geared_cycle_workbench.hpp"],
+    strip_include_prefix = "include",
+    deps = [":clock", "//native/mechanisms:cycle"],
+)
+
+cc_binary(
+    name = "geared_cycle_case",
+    srcs = ["src/main.cpp"],
+    deps = [":workbench"],
+)
+
+cc_test(
+    name = "clock_test",
+    srcs = ["tests/clock_test.cpp"],
+    deps = [":workbench"],
+    size = "small",
+)
