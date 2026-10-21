@@ -4,6 +4,7 @@ exports_files([
     ".githooks/pre-commit",
     "scripts/check_gdscript.py",
     "scripts/check_engine_environment.py",
+    "scripts/ensure-gameplay-library.sh",
 ])
 
 test_suite(

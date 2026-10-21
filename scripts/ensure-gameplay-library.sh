@@ -30,6 +30,7 @@ production_paths=(
     native/factory-world/src native/factory-world/include native/factory-world/BUILD.bazel
     native/mineral-site/src native/mineral-site/include native/mineral-site/BUILD.bazel
     native/waterwheel/src native/waterwheel/include native/waterwheel/BUILD.bazel
+    native/waterflow/src native/waterflow/include native/waterflow/BUILD.bazel
     native/factory-core/src native/factory-core/include native/factory-core/BUILD.bazel
     native/factory-stationary/src native/factory-stationary/include native/factory-stationary/BUILD.bazel
     native/factory-authority/src native/factory-authority/include native/factory-authority/BUILD.bazel
