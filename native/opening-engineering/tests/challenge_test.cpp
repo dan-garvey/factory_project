@@ -1,4 +1,5 @@
 #include "factory/opening_engineering.hpp"
+#include "native/factory-godot-world/tests/site_fixture.hpp"
 
 #include <array>
 #include <iostream>
@@ -63,14 +64,15 @@ void conserved(const Host& host) {
         for (const auto& lot : field<A>(cargo, "work_lots")) total += field<I>(lot, "recipe_input");
     }
     check(total == 16 && products == std::get<I>(stock.at("player").storage()), "Every original material unit has exactly one owner.");
-    std::map<std::string, I> parts{{"collector", 0}, {"belt", 0}, {"processor", 0}, {"wheel", 0}, {"shaft", 0}, {"gear", 0}};
+    std::map<std::string, I> parts{{"collector", 0}, {"belt", 0}, {"processor", 0}, {"wheel", 0}, {"shaft", 0}, {"gear", 0}, {"foundation", 0}};
     for (const auto& [actor, kit] : field<O>(projection, "part_kits")) {
         (void)actor;
         for (const auto& [kind, count] : std::get<O>(kit.storage())) parts.at(kind) += std::get<I>(count.storage());
     }
     for (const auto* name : {"entities", "transmission_parts"})
         for (const auto& [id, part] : field<O>(projection, name)) { (void)id; ++parts.at(field<std::string>(part, "kind")); }
-    check(parts == std::map<std::string, I>{{"collector", 1}, {"belt", 1}, {"processor", 1}, {"wheel", 1}, {"shaft", 3}, {"gear", 2}},
+    parts.at("foundation") += static_cast<I>(field<O>(projection, "foundations").size());
+    check(parts == std::map<std::string, I>{{"collector", 1}, {"belt", 1}, {"processor", 1}, {"wheel", 1}, {"shaft", 3}, {"gear", 2}, {"foundation", 24}},
           "The actual opening kit is conserved without new parts or a different scenario profile.");
 }
 
@@ -80,6 +82,8 @@ struct Run {
     I serial{}, epoch{};
     explicit Run(std::string name, const std::optional<V>& saved = std::nullopt) : prefix(std::move(name)) {
         check(accepted(host.initialize("upstream-drive", {"P", "Q"})), "The real opening Host initializes its existing finite profile.");
+        check(accepted(host.configure_terrain(factory::godot_world::tests::flat_site())),
+              "The native fixture binds explicit synthetic terrain before placement or restore.");
         if (saved) check(accepted(host.restore_checkpoint(*saved)), "A fresh unobserved Host restores the retained comparison checkpoint.");
     }
     void observe(I row) {
@@ -130,7 +134,8 @@ V baseline() {
     const auto collector = run.place("collector", 0, starter_row);
     const auto belt = run.place("belt", 1, starter_row);
     const auto press = run.place("processor", 2, starter_row);
-    run.connect("connect", collector, belt); run.connect("connect", belt, press);
+    check(field<A>(run.host.projection(), "links").size() == 2,
+          "Placing the adjacent machines connects both material ports.");
     run.connect("connect_drive", wheel, collector); run.connect("connect_drive", collector, belt); run.connect("connect_drive", belt, press);
     (void)run.action("set_power", {{"active", V(true)}});
     run.collect_until(4);
@@ -205,7 +210,8 @@ void relocate(const V& baseline) {
     run.observe(upstream_row);
     const auto collector = run.place("collector", 0, upstream_row), belt = run.place("belt", 1, upstream_row), press = run.place("processor", 2, upstream_row);
     check(collector != old_collector && belt != old_belt && press != old_press, "The relocation route genuinely rebuilds all three machines under fresh identities.");
-    run.connect("connect", collector, belt); run.connect("connect", belt, press);
+    check(field<A>(run.host.projection(), "links").size() == 2,
+          "Rebuilding adjacent machines reconnects both material ports.");
     run.connect("connect_drive", wheel, collector); run.connect("connect_drive", collector, belt); run.connect("connect_drive", belt, press);
     (void)run.action("insert_work", {{"entity", V(press)}, {"work_id", V(work_id)}});
     for (const auto& id : {collector, belt, press}) (void)run.action("insert_raw", {{"entity", V(id)}, {"amount", V(I{1})}});
