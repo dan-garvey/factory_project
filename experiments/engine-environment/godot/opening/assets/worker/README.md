@@ -34,8 +34,14 @@ The [neutral female run clip](https://github.com/microsoft/Microsoft-Rocketbox/b
 comes from the same Rocketbox library. Its compact native Godot animation resource
 keeps 34 named-skeleton rotation and translation tracks. At runtime, each track
 is applied relative to the clip's first pose and the worker's lowered-arm standing
-pose. One clip cycle advances per 1.65 metres of confirmed horizontal travel;
-observed speed blends the run toward rest. The forearms retain extra flex and
+pose. The matching [neutral female walk clip](https://github.com/microsoft/Microsoft-Rocketbox/blob/0943055db6ec570bcef9f2c8b41c9e5467c808f9/Assets/Animations/all_animations_max_motextr_xy/f_walk_neutral.max.fbx)
+contributes 56 named-skeleton tracks. One walk cycle advances per 1.30 metres
+and one run cycle per 1.65 metres of confirmed horizontal travel. Observed
+speed blends the walk into the run from 1.15 to 2.35 metres per second; the
+pose then settles toward rest when travel stops. The source calf motion bends
+behind the leg after retargeting. A presentation-only two-bone correction
+places each bent knee ahead of its hip-to-ankle line while retaining the
+captured ankle path and foot orientation. The forearms retain extra flex and
 the captured torso sway is bounded after retargeting. The clip's vertical root
 variation is cosmetic, and its horizontal root travel does not move the physical
 or visual actor root. The original FBX remains available at the pinned source
@@ -45,7 +51,8 @@ Confirmed rising and falling samples switch the visual skeleton into distinct
 takeoff, ascent, descent and compressed landing poses. The running takeoff lifts
 one knee while the trailing leg extends; the legs fold near the apex, reach
 down on descent and compress at impact. The arms drive asymmetrically on takeoff
-and open for balance in flight. Landing settles over 0.24 seconds. These poses
+and open for balance in flight. Landing compression peaks after the first
+support sample and settles over 0.24 seconds. These poses
 evolve with observed vertical speed rather than holding one shape throughout
 flight. A confirmed teleport, world
 change or unready actor discards its motion history. Because the shared
@@ -63,7 +70,8 @@ contact and full-scene performance remain separate work. Historical fixed source
 rosters that omit this folder retain their identified procedural worker.
 
 `worker_rig_check.gd` exercises the actual presentation adapter using invented
-confirmed samples. It checks source bindings, captured run poses, skinned dimensions,
+confirmed samples. It checks source bindings, captured walk and run poses,
+forward knee bending, skinned dimensions,
 ascent, descent and landing transitions, per-player isolation, projection
 immutability and the absence of input calls. It also preserves the original
 procedural-worker controls. A passively rendered contact sheet in the retained
