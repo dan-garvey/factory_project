@@ -150,9 +150,13 @@ map. The five loadable files total 1,446,125 bytes; an isolated import and
 passive repeat of the six join views retained their visible flange detail.
 They are tracked presentation resources within the inspected capture budget,
 but are not mounted in the playable opening. The full original bundle still
-does not fit the earlier
-2,220,333-byte headroom. The next step is an in-worksite view and an ordinary
-native project capture of the exact adopted tree, with explicit construction
+does not fit the earlier 2,220,333-byte headroom. An actual native project
+capture of art commit `1316b6b` retained all six new asset files from raw Git:
+264 project files, 128 scripts and 32,784,501 source bytes, leaving 769,931
+bytes under the present 32 MiB limit. The retained capture and rehashed resource
+copies are under `pipe-component-kit-20261021/capture-actual` in the local
+prototype evidence directory. This proves source packaging, not use in the
+playable scene. The next step is an in-worksite view with explicit construction
 interfaces and exposed-end behavior before gameplay use. The art kit supplies
 no fluid, pressure, attachment or construction authority.
 
