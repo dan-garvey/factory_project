@@ -778,6 +778,8 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
     if (*action == "shaft_between" || *action == "remove_shaft_between") {
         transmission = shaft_between(*selected, *destination);
         if (!transmission) return refused("incompatible_shaft", selected->geometry.id, std::move(facts));
+        if (*action == "shaft_between" && transmission->geometry.half_span == 2)
+            return refused("axles_already_touch", selected->geometry.id, std::move(facts));
     }
     if (placement(*action) || *action == "shaft_between") {
         if (candidate.issued_entities.size() == maximum_issued_entities ||

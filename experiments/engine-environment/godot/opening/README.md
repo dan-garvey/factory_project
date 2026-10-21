@@ -62,7 +62,8 @@ gear height in quarter-pitch grid steps. That axis also applies to subsequent
 machine placement, except for the belt: its fixed material path runs along X,
 so its drive spindle runs across the belt along Z. A translucent cursor marks
 the requested gear plane, not permission to build there. Real character
-proximity remains authoritative.
+proximity remains authoritative. Adjacent aligned cog and machine axle ends
+connect directly; a gap needs a shaft of the matching length.
 
 The inspector can select a cogwheel or shaft and return it to the carried kit.
 Static arrows show the confirmed signed rate, and contact marks use confirmed

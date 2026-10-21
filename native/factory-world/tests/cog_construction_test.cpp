@@ -147,11 +147,6 @@ void perpendicular_belt_line() {
         if (n != 0) machine.at("action") = V("place_connected");
         hubs[n] = accepted(send(*world, machine));
         cogs[n] = accepted(send(*world, place(("cog-" + std::to_string(n)).c_str(), {x, 0, 8}, "z", 2)));
-        O shaft{{"context", V("cog-world")}, {"client", V("P-session")},
-            {"request", V("shaft-" + std::to_string(n))}, {"actor", V("P")}, {"action", V("shaft_between")},
-            {"target", hubs[n].at("entity")}, {"generation", hubs[n].at("generation")},
-            {"to", cogs[n].at("entity")}, {"to_generation", cogs[n].at("generation")}};
-        accepted(send(*world, shaft));
     }
     O power{{"context", V("cog-world")}, {"client", V("P-session")}, {"request", V("power")},
         {"actor", V("P")}, {"action", V("set_drive")}, {"target", hubs[0].at("entity")},
@@ -166,7 +161,7 @@ void perpendicular_belt_line() {
     const auto view = s::power_view(snapshot.state.topology);
     const auto powered = w::machine_power(snapshot.state.topology);
     check(powered.collector && powered.belt && powered.processor && snapshot.state.topology.material_links.size() == 2,
-          "Four adjacent small cogs and four perpendicular shafts power the full connected material line.");
+          "Four adjacent small cogs and touching perpendicular axles power the full connected material line.");
     for (std::size_t n = 0; n < hubs.size(); ++n) {
         const auto id = field<std::string>(hubs[n], "entity");
         check(view.mechanical.motion.at(id) == m::Motion{m::MotionState::rotating, {n % 2 ? -1 : 1, 1}},
@@ -225,8 +220,6 @@ void cross_axis_belt_line() {
             {"to", to.at("entity")}, {"to_generation", to.at("generation")}};
         accepted(send(*world, shaft));
     };
-    connect(hubs[0], input, "cross-source-shaft");
-    connect(output, small[0], "cross-cog-shaft");
     for (std::size_t n = 1; n < hubs.size(); ++n)
         connect(hubs[n], small[n + 1], "cross-machine-shaft-" + std::to_string(n));
     O power{{"context", V("cog-world")}, {"client", V("P-session")}, {"request", V("cross-power")},

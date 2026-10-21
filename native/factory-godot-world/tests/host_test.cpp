@@ -104,8 +104,9 @@ void historical_translation() {
         cog.emplace("axis", V("z")); cog.emplace("teeth", V(I{2}));
         const auto placed = host.command("P", cog);
         check(accepted(placed), "The finite adjacent cog is placed.");
-        check(accepted(host.command("P", link("connect_drive", shaft_ids[n], hubs[n], field<std::string>(placed, "entity")))),
-              "The physical shaft joins the cog to its machine.");
+        const auto touching = host.command("P", link("connect_drive", shaft_ids[n], hubs[n], field<std::string>(placed, "entity")));
+        check(!accepted(touching) && field<std::string>(touching, "reason") == "axles_already_touch",
+              "Touching axles do not consume a shaft.");
     }
     check(accepted(host.publish_actor("P", {V(-1.65), V(1.0), V(-1.4)}, 6)), "The actor reaches the source control.");
     auto power = request("set_power", "power"); power.emplace("active", V(true));

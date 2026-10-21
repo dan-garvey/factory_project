@@ -374,8 +374,6 @@ func check_belt_water_native() -> void:
 	var input: Dictionary = issue.call("place_gear", {"center": [-12, 0, 4], "axis": "x", "teeth": 4})
 	if not expect(input.get("accepted", false), "Place large input cog: " + str(input)):
 		return
-	if not expect(issue.call("connect_drive", {"from": hubs[0], "to": input.entity}).get("accepted", false), "Connect wheel shaft"):
-		return
 	if not expect(observe.call(-3.3, 1.65), "Reach output cog"):
 		return
 	var output: Dictionary = issue.call("place_gear", {"center": [-8, 0, 8], "axis": "z", "teeth": 4})
@@ -390,11 +388,11 @@ func check_belt_water_native() -> void:
 		if not expect(cog.get("accepted", false), "Place small cog: " + str(cog)):
 			return
 		small.append(cog.entity)
-	if not expect(observe.call(-3.3, 3.3) and issue.call("connect_drive", {"from": output.entity, "to": small[0]}).get("accepted", false), "Connect corner to cog row"):
-		return
 	for n in range(3):
 		if not expect(observe.call(float(n) * 1.65, 3.3) and issue.call("connect_drive", {"from": hubs[n + 1], "to": small[n + 2]}).get("accepted", false), "Connect machine to cog row"):
 			return
+	if not expect(model.projection().parts.shaft == 5, "Adjacent wheel and cog axle faces connect without spending two extra shafts"):
+		return
 	if not expect(observe.call(-1.65, 0.0) and issue.call("set_power", {"active": true}).get("accepted", false), "Start the actual current"):
 		return
 	for n in range(1, 4):
@@ -497,7 +495,7 @@ func check_water_native() -> void:
 	if not expect(line_wheel.get("accepted", false) and collector.get("accepted", false) and cog.get("accepted", false), "The actual worksite admits the immersed wheel, collector and bridge cog"):
 		return
 	for link in [["shaft-a", line_wheel.entity, cog.entity], ["shaft-b", cog.entity, collector.entity]]:
-		if not expect(line.command({"context": "actual-water-line", "client": "P", "request": link[0], "action": "connect_drive", "from": link[1], "to": link[2]}).get("accepted", false), "The finite shaft connects the actual-site route"):
+		if not expect(line.command({"context": "actual-water-line", "client": "P", "request": link[0], "action": "connect_drive", "from": link[1], "to": link[2]}).get("reason", "") == "axles_already_touch", "The adjacent axles need no shaft"):
 			return
 	if not expect(line.command({"context": "actual-water-line", "client": "P", "request": "start", "action": "set_power", "active": true}).get("accepted", false) and line.projection().powered, "River current reaches the collector through the built train"):
 		return

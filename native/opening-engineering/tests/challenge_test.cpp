@@ -141,12 +141,11 @@ struct Run {
     }
 };
 
-void build_route(Run& run, const std::string& wheel, I wheel_row, I machine_row, const std::array<std::string, 3>& machines) {
+void build_route(Run& run, I wheel_row, I machine_row, const std::array<std::string, 3>& machines) {
     const double wheel_z = static_cast<double>(wheel_row) * 1.65;
     const double small_z = static_cast<double>(machine_row + 2) * 1.65;
     run.observe_at(-3.3, wheel_z - 1.65);
     const auto input = run.gear(-12, wheel_row * 4, "x", 4);
-    run.connect("connect_drive", wheel, input);
     run.observe_at(-3.3, wheel_z);
     const auto output = run.gear(-8, wheel_row * 4 + 4, "z", 4);
     std::array<std::string, 5> small;
@@ -156,7 +155,7 @@ void build_route(Run& run, const std::string& wheel, I wheel_row, I machine_row,
         small[n] = run.gear(x, (machine_row + 2) * 4, "z", 2);
     }
     run.observe_at(-3.3, (wheel_z + 1.65 + small_z) / 2.0);
-    run.connect("connect_drive", output, small[0]);
+    if (wheel_row != machine_row) run.connect("connect_drive", output, small[0]);
     for (std::size_t n = 0; n < machines.size(); ++n) {
         run.observe_at(static_cast<double>(n) * 1.65, small_z - 1.65);
         run.connect("connect_drive", machines[n], small[n + 2]);
@@ -181,13 +180,13 @@ V baseline() {
     check(e::inspect(run.host, "missing").phase == e::Phase::unavailable, "An unknown actor cannot borrow another player's objective.");
     check(e::inspect(run.host, "P").phase == e::Phase::first_shift, "A fresh game preserves its existing first objective.");
     run.observe(starter_row);
-    const auto wheel = run.place("wheel", -2, starter_row);
+    (void)run.place("wheel", -2, starter_row);
     const auto collector = run.place("collector", 0, starter_row);
     const auto belt = run.place("belt", 1, starter_row);
     const auto press = run.place("processor", 2, starter_row);
     check(field<A>(run.host.projection(), "links").size() == 2,
           "Placing the adjacent machines connects both material ports.");
-    build_route(run, wheel, starter_row, starter_row, {collector, belt, press});
+    build_route(run, starter_row, starter_row, {collector, belt, press});
     run.observe_at(-1.65, 0.0);
     (void)run.action("set_power", {{"active", V(true)}});
     run.observe(starter_row);
@@ -200,7 +199,7 @@ V baseline() {
     check(std::get<I>(processing.at("remaining_ticks").storage()) == 1,
           "The shared comparison cut has a real partial workpiece, not a fresh empty line.");
     check(e::inspect(run.host, "P").phase == e::Phase::move_source &&
-          e::inspect(run.host, "P").placed_gears == 7 && e::inspect(run.host, "P").placed_shafts == 5,
+          e::inspect(run.host, "P").placed_gears == 7 && e::inspect(run.host, "P").placed_shafts == 3,
           "The first four products do not bypass the upstream constraint.");
     check(same(saved, run.host.checkpoint()), "Repeated eligibility reads neither step the world nor record progress.");
     check(accepted(run.host.validate_checkpoint(saved)), "The original partial-work checkpoint is valid for both comparisons.");
@@ -231,7 +230,7 @@ void resume_and_finish(Run& run, const std::string& press, const char* layout) {
     check(entity(resumed.host, "processor") == press, "Continuation retains the current actual press identity.");
     resumed.collect_until(8);
     const auto progress = e::inspect(resumed.host, "P");
-    check(progress.phase == e::Phase::ready && progress.source_at_target && progress.machines_running && progress.placed_shafts == 5,
+    check(progress.phase == e::Phase::ready && progress.source_at_target && progress.machines_running && progress.placed_shafts == (std::string(layout) == "relocated" ? 3 : 4),
           "The current upstream layout and eight individually carried plates satisfy native eligibility.");
     check(e::inspect(resumed.host, "Q").products == 0 && e::inspect(resumed.host, "Q").phase == e::Phase::first_shift,
           "Aggregate player stock does not award P's completed objective to Q.");
@@ -243,12 +242,12 @@ void resume_and_finish(Run& run, const std::string& press, const char* layout) {
     check(e::inspect(resumed.host, "P").phase == e::Phase::restore_drive && e::inspect(resumed.host, "P").products == 8,
           "Current drive facts are reread rather than cached from an earlier success.");
     std::cout << "{\"layout\":\"" << layout << "\",\"products\":8,\"placed_gears\":" << progress.placed_gears
-              << ",\"placed_shafts\":5,\"engine_calls\":0,\"physical_producers\":0}\n";
+              << ",\"placed_shafts\":" << progress.placed_shafts << ",\"engine_calls\":0,\"physical_producers\":0}\n";
 }
 
 void relocate(const V& baseline) {
     Run run("relocated", baseline);
-    const auto wheel = move_source(run);
+    (void)move_source(run);
     run.observe(starter_row);
     const auto old_collector = entity(run.host, "collector"), old_belt = entity(run.host, "belt"), old_press = entity(run.host, "processor");
     for (const auto& id : {old_collector, old_belt, old_press}) run.target("recover", id);
@@ -265,7 +264,7 @@ void relocate(const V& baseline) {
     check(collector != old_collector && belt != old_belt && press != old_press, "The relocation route genuinely rebuilds all three machines under fresh identities.");
     check(field<A>(run.host.projection(), "links").size() == 2,
           "Rebuilding adjacent machines reconnects both material ports.");
-    build_route(run, wheel, upstream_row, upstream_row, {collector, belt, press});
+    build_route(run, upstream_row, upstream_row, {collector, belt, press});
     run.observe(upstream_row);
     (void)run.action("insert_work", {{"entity", V(press)}, {"work_id", V(work_id)}});
     for (const auto& id : {collector, belt, press}) (void)run.action("insert_raw", {{"entity", V(id)}, {"amount", V(I{1})}});
@@ -277,14 +276,14 @@ void relocate(const V& baseline) {
 
 void gear_route(const V& baseline) {
     Run run("geared", baseline);
-    const auto wheel = move_source(run);
+    (void)move_source(run);
     const auto collector = entity(run.host, "collector"), belt = entity(run.host, "belt"), press = entity(run.host, "processor");
     run.observe(upstream_row);
     run.observe_at(-1.65, -1.65);
     const auto wrong = run.gear(-3, upstream_row * 4);
     check(e::inspect(run.host, "P").phase == e::Phase::restore_drive, "An unconnected, misaligned cog cannot power the original line.");
     run.target("remove", wrong);
-    build_route(run, wheel, upstream_row, starter_row, {collector, belt, press});
+    build_route(run, upstream_row, starter_row, {collector, belt, press});
     check(e::inspect(run.host, "P").machines_running, "The refunded cog supports a corrected cross-axis route.");
     const auto projection = run.host.projection();
     const auto motion = field<O>(projection, "motion");

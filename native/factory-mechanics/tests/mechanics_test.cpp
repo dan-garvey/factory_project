@@ -132,6 +132,29 @@ void direction_and_geometry() {
 
 void shafts_and_sources() {
     const std::vector<Drive> source{{"drive", {1, 1}}};
+    for (const auto axis : {Axis::x, Axis::y, Axis::z}) {
+        const auto coordinate = static_cast<std::size_t>(axis);
+        for (const Integer direction : {-1, 1}) {
+            Point cog_center{}, sink_center{};
+            cog_center[coordinate] = direction * 4;
+            sink_center[coordinate] = direction * 8;
+            std::vector<Part> direct{
+                {"drive", Kind::hub, {0, 0, 0}, axis, 0, 0},
+                gear("cog", cog_center, 2, axis),
+                {"sink", Kind::hub, sink_center, axis, 0, 0}};
+            motion(mechanical::evaluate(direct, source), "cog", MotionState::rotating, {1, 1});
+            motion(mechanical::evaluate(direct, source), "sink", MotionState::rotating, {1, 1});
+            auto gap = direct;
+            gap[1].center[coordinate] += direction;
+            motion(mechanical::evaluate(gap, source), "cog", MotionState::unpowered, {0, 1});
+            auto offset = direct;
+            offset[1].center[(coordinate + 1) % 3] = 1;
+            motion(mechanical::evaluate(offset, source), "cog", MotionState::unpowered, {0, 1});
+            auto misaligned = direct;
+            misaligned[1].axis = static_cast<Axis>((coordinate + 1) % 3);
+            motion(mechanical::evaluate(misaligned, source), "cog", MotionState::unpowered, {0, 1});
+        }
+    }
     auto changed = baseline();
     part(changed, "input-shaft").center[2] = 1;
     motion(mechanical::evaluate(changed, source), "A", MotionState::unpowered, {0, 1});

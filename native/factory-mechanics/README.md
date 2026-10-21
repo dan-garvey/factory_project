@@ -40,11 +40,13 @@ This is a discrete gameplay connection, not a calculation of physical tooth
 contact. The opening's finite kit and construction rules are owned by the World
 and Host, not by this kernel.
 
-A shaft couples only coaxial parts whose axial spans touch or overlap. A hub or
-gear has a point hub for this coupling. Two gears or hubs do not couple merely
-because their centers or names match: an actual shaft must join their hubs.
-Touching shaft endpoints couple; a gap does not. Different gear axes or planes
-do not create an external spur mesh. Coplanar overlapping pitch disks refuse.
+A shaft couples only coaxial parts whose axial spans touch or overlap. Two
+coaxial hubs or cogs also connect through their facing axle ends when their
+centers are exactly one construction cell (four grid units) apart along their
+shared axis. That connection carries the same signed rate and consumes no
+separate shaft. A greater gap or lateral offset does not connect them. Touching
+shaft endpoints couple; a gap does not. Different gear axes or planes do not
+create an external spur mesh. Coplanar overlapping pitch disks refuse.
 
 The kernel solves exact signed rational rates. An incompatible driven loop or
 conflicting sources stall only the connected component, with zero derived rates.

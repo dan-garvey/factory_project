@@ -67,9 +67,9 @@ int main() {
         const auto collector_id = field<std::string>(collector, "entity");
         O link{{"context", V("water-test")}, {"client", V("P")}, {"request", V("shaft-a")},
             {"action", V("connect_drive")}, {"from", V(id)}, {"to", V(middle_id)}};
-        check(accepted(host.command("P", link)), "wheel to cog shaft");
+        check(field<std::string>(host.command("P", link), "reason") == "axles_already_touch", "wheel touches cog");
         link.at("request") = V("shaft-b"); link.at("from") = V(middle_id); link.at("to") = V(collector_id);
-        check(accepted(host.command("P", link)), "cog to collector shaft");
+        check(field<std::string>(host.command("P", link), "reason") == "axles_already_touch", "cog touches collector");
         O power{{"context", V("water-test")}, {"client", V("P")}, {"request", V("power")},
             {"action", V("set_power")}, {"active", V(true)}};
         check(accepted(host.command("P", power)), "enable wheel drive");

@@ -93,17 +93,14 @@ void finite_oriented_train_and_restore() {
     const auto a = create(host, gear(-4, 0, 8, "gear-A", "z"));
     const auto original_b = gear(0, 0, 8, "gear-B", "z");
     const auto b = create(host, original_b);
-    check(accepted(host.command("P", connection(wheel, a, "shaft-A"))) &&
-          accepted(host.command("P", connection(b, collector, "shaft-B"))),
-          "Two finite Z-axis shafts join actual machine and gear identifiers.");
     auto power = wire("set_power", "start"); power.emplace("active", V(true));
     check(accepted(host.command("P", power)), "The source enables the actual geometry train.");
     check(field<I>(motion(host, a), "numerator") == 1 && field<I>(motion(host, a), "denominator") == 1 &&
           field<I>(motion(host, b), "numerator") == -1 && field<I>(motion(host, b), "denominator") == 1 &&
           field<I>(motion(host, collector), "numerator") == -1,
-          "Meshing equal gears reverses the exact signed rate through the independent shafts.");
+          "Meshing equal gears reverses the exact signed rate through the touching axles.");
     check(field<bool>(host.projection(), "powered") &&
-          field<I>(V(field<O>(host.projection(), "parts")), "shaft") == 6 &&
+          field<I>(V(field<O>(host.projection(), "parts")), "shaft") == 8 &&
           field<I>(V(field<O>(host.projection(), "parts")), "gear") == 5,
           "The powered train retains the remaining shafts and cogs.");
     const auto ticked = host.advance();
@@ -112,7 +109,7 @@ void finite_oriented_train_and_restore() {
           "The current direction-insensitive machine adapter moves one of sixteen raw units.");
     check(accepted(host.command("P", target("remove", b, "remove-B"))),
           "An individual gear can be removed while the source stays enabled.");
-    check(!field<bool>(host.projection(), "powered"), "An orphaned shaft cannot invent a source connection.");
+    check(!field<bool>(host.projection(), "powered"), "Removing a gear disconnects the source.");
     const auto misaligned = create(host, gear(1, 0, 8, "misaligned", "z"));
     check(!field<bool>(host.projection(), "powered"), "A one-grid-unit displacement cannot mesh or power the collector.");
     check(accepted(host.command("P", target("remove", misaligned, "remove-misaligned"))),
@@ -140,6 +137,43 @@ void finite_oriented_train_and_restore() {
           "Every typed quantity, axis, height, shaft, identity and old receipt survives exactly.");
     check(field<bool>(fresh.command("P", original_b), "duplicate"),
           "Restored historical gear lookup precedes fresh native readiness.");
+}
+
+void adjacent_axle_faces() {
+    Host host;
+    check(accepted(host.initialize("cog-api", {"P"})) &&
+              accepted(host.configure_terrain(factory::godot_world::tests::channel_site())),
+          "The direct-axle control binds an invented flowing channel.");
+    observe(host, -1.65, 3.3, 1);
+    auto base = wire("place_foundation", "direct-collector-base");
+    base.emplace("cell", V(A{V(I{0}), V(I{1})})); base.emplace("level", V(I{0}));
+    check(accepted(host.command("P", base)), "The fixture supports the collector foundation.");
+    const auto wheel = create(host, machine("wheel", -1, "direct-wheel", "z"));
+    const auto collector = create(host, machine("collector", 0, "direct-collector", "z"));
+    observe(host, 0, 0, 2);
+    const auto a = create(host, gear(-4, 0, 8, "direct-cog-a", "z"));
+    const auto b = create(host, gear(0, 0, 8, "direct-cog-b", "z"));
+    const auto redundant = host.command("P", connection(wheel, a, "direct-redundant"));
+    check(!accepted(redundant) && field<std::string>(redundant, "reason") == "axles_already_touch" &&
+              field<I>(V(field<O>(host.projection(), "parts")), "shaft") == 8,
+          "Touching axle faces refuse a redundant shaft without consuming a part.");
+    auto power = wire("set_power", "direct-start"); power.emplace("active", V(true));
+    check(accepted(host.command("P", power)), "The current is enabled without installing a shaft.");
+    check(field<I>(motion(host, wheel), "numerator") == 1 &&
+              field<I>(motion(host, a), "numerator") == 1 &&
+              field<I>(motion(host, b), "numerator") == -1 &&
+              field<I>(motion(host, collector), "numerator") == -1 &&
+              field<I>(V(field<O>(host.projection(), "parts")), "shaft") == 8,
+          "Adjacent axle faces carry signed rotation without consuming any finite shaft.");
+    const auto saved = host.checkpoint();
+    Host fresh;
+    check(accepted(fresh.initialize("fresh", {"P"})) &&
+              accepted(fresh.configure_terrain(factory::godot_world::tests::channel_site())) &&
+              accepted(fresh.restore_checkpoint(saved)) && !factory::values::typed_difference(saved, fresh.checkpoint()),
+          "Fresh Host restore retains direct axle geometry and part custody exactly.");
+    check(accepted(host.command("P", target("remove", b, "direct-remove"))) &&
+              field<std::string>(motion(host, collector), "state") != "rotating",
+          "Removing the actual cog interrupts the adjacent-axle route.");
 }
 
 void refusals_and_legacy_shape() {
@@ -218,20 +252,17 @@ void perpendicular_belt_line() {
         observe(host, static_cast<double>(x) * 1.65, 0, static_cast<I>(n) + 2);
         const auto machine_id = "line-machine-" + std::to_string(n);
         const auto gear_id = "line-gear-" + std::to_string(n);
-        const auto shaft_id = "line-shaft-" + std::to_string(n);
         hubs[n] = create(host, machine(roles[n], x, machine_id.c_str(), "z"));
         cogs[n] = create(host, gear(4 * x, 0, 8, gear_id.c_str(), "z", 2));
-        check(accepted(host.command("P", connection(hubs[n], cogs[n], shaft_id.c_str()))),
-              "The actor connects each real machine to its perpendicular cog with one carried shaft.");
     }
     observe(host, -1.65, 0, 6);
     auto power = wire("set_power", "line-start"); power.emplace("active", V(true));
     check(accepted(host.command("P", power)), "The actor enables the source for the perpendicular line.");
     const auto projected = host.projection();
     check(field<A>(projected, "links").size() == 2 &&
-              field<I>(V(field<O>(projected, "parts")), "shaft") == 4 &&
+              field<I>(V(field<O>(projected, "parts")), "shaft") == 8 &&
               field<I>(V(field<O>(projected, "parts")), "gear") == 3,
-          "The connected line uses exactly four small cogs and short shafts, retaining its other parts.");
+          "The connected line uses four small cogs and retains its shafts.");
     for (std::size_t n = 0; n < hubs.size(); ++n)
         check(field<I>(motion(host, hubs[n]), "numerator") == (n % 2 ? -1 : 1) &&
                   field<I>(motion(host, hubs[n]), "denominator") == 1,
@@ -296,8 +327,6 @@ void cross_axis_belt_line() {
     }
     at(-3.3, 0);
     const auto input = create(host, gear(-12, 0, 4, "cross-input", "x", 4));
-    check(accepted(host.command("P", connection(hubs[0], input, "cross-wheel-shaft"))),
-          "The actor installs the short X-axis wheel shaft.");
     at(-3.3, 1.65);
     const auto output = create(host, gear(-8, 0, 8, "cross-output", "z", 4));
     std::array<std::string, 5> small;
@@ -308,8 +337,6 @@ void cross_axis_belt_line() {
         small[n] = create(host, gear(x, 0, 12, id.c_str(), "z", 2));
     }
     at(-3.3, 3.3);
-    check(accepted(host.command("P", connection(output, small[0], "cross-small-shaft"))),
-          "The actor joins the turned large cog to the small-cog train.");
     for (std::size_t n = 1; n < hubs.size(); ++n) {
         at(static_cast<double>(n - 1) * 1.65, 3.3);
         const auto id = "cross-machine-shaft-" + std::to_string(n);
@@ -419,7 +446,7 @@ void global_grid() {
 int main(int argc, char** argv) {
     try {
         if (argc == 1) {
-            finite_oriented_train_and_restore(); refusals_and_legacy_shape();
+            finite_oriented_train_and_restore(); adjacent_axle_faces(); refusals_and_legacy_shape();
             global_grid(); finite_large_cog(); perpendicular_belt_line(); belt_spindle_orientation(); cross_axis_belt_line();
         } else if (argc != 2 || std::string(argv[1]) != "--placement-alias-only") {
             throw std::runtime_error("Expected no arguments or --placement-alias-only.");
