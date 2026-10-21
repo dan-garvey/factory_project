@@ -53,6 +53,7 @@
     "prepared_pixel_roundtrip_equal": true,
     "limits": "The source normal decodes to RGB8 before processing. This is not full source-bit preservation or a claim of cross-platform bit identity."
   },
-  "runtime": "Shared materials and mipmapped images; local-space triplanar mapping. Existing albedo tints and metallic scalar remain. No albedo texture, fake occlusion, geometric displacement, native mutation, contact solver or phase authority.",
+  "runtime": "Shared materials and mipmapped images; local-space triplanar mapping. Transmission roles keep their existing albedo tints and metallic scalar. No albedo texture, fake occlusion, geometric displacement, native mutation, contact solver or phase authority.",
+  "collector_coating": {"adaptation": "Six existing painted castings share the original cast normal and roughness images through distinct cached materials. This is authored coating art, not a paint scan.", "metallic": 0, "normal_strength": 0.12, "tile_metres": 0.25, "colors": "Original collector tint and darker lower housing.", "historical_missing_set": "Exact earlier generated coating material.", "unchanged": "Geometry, maps, exposed transmission finishes, bearing liner, cutter and all native rules."},
   "limits": "Source and isolated asset evidence only. Rendered appearance, human quality, packaged export and GPU cost remain open."
 }

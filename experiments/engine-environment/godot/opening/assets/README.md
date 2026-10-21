@@ -49,6 +49,15 @@ The project selects four-sample 3D multisample antialiasing for mesh edges. This
 is a revisable rendering default, not a measured performance result; it does not
 remove normal-map or specular aliasing. The backend remains Compatibility.
 
+The collector's six painted castings share the qualified
+[cast surface maps](transmission-surfaces/CREDITS.md) with their own cached
+nonmetallic coating materials. Their original colors remain; reduced normal
+strength gives the coating finer relief than exposed cast transmission parts.
+The images are shared without mutating those metal finishes. This is authored
+coating art over cast detail, not a new paint scan, physical wear or damage model.
+The original exposed liner and cutter keep their earlier metal surfaces.
+Historical captures without the map set retain their generated coating.
+
 The collector uses an original cast-frame kit with flared feet, tapered side
 cheeks, a chamfered hood and lower housing, and a fixed bearing hung from the
 hood. Closed extruded profiles preserve deliberate edge widths instead of

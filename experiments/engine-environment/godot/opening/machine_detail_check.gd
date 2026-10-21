@@ -23,6 +23,75 @@ class PaddleSessionFacts extends RefCounted:
 	func is_ready() -> bool:
 		return ready
 
+func check_collector_coating(historical: bool) -> void:
+	var surface := Opening.ProductionTransmissionFinish
+	var cached: Dictionary = {}
+	var assemblies := 0
+	var coated_parts := 0
+	for shared_profile in [false, true]:
+		for axis in range(3):
+			var view: Variant = Shared.new() if shared_profile else Opening.new()
+			view.state = {"options": {"native": true}, "entities": {}, "transmission_parts": {},
+				"motion": {}, "actors": {"P": {"ready": true}}}
+			var before: Dictionary = view.state.duplicate(true)
+			var machine := Node3D.new()
+			view.add_child(machine)
+			view._assemble_machine(machine, {"kind": "collector", "axis": axis})
+			var frame: Node3D = machine.get_node("CollectorCastFrame")
+			var count := 0
+			for part: MeshInstance3D in frame.get_children():
+				var role: String = part.get_meta("collector_frame_role")
+				var finish_value := part.material_override as StandardMaterial3D
+				if role == "FixedBearingLiner":
+					verify(finish_value == surface.material("worked", Color("a6b4af"), 0.85, 0.38),
+						"The real bearing liner retains its original exposed worked-metal material.")
+					continue
+				count += 1
+				var color := Color("d6a34d").darkened(0.09) if role == "CastLowerHousing" else Color("d6a34d")
+				verify(finish_value != null and finish_value.albedo_color == color,
+					"Each actual cast role preserves its original design color and housing shade.")
+				if historical:
+					verify(finish_value == Visuals.material(color, 0.08, 0.72),
+						"A missing historical map set retains the exact original generated coating resource.")
+				else:
+					verify(finish_value.metallic == 0 and finish_value.metallic_texture == null
+						and finish_value.metallic_specular == 0.5 and finish_value.albedo_texture == null
+						and finish_value.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED
+						and not finish_value.clearcoat_enabled and not finish_value.ao_enabled,
+						"The authored opaque paint is a dielectric without a second coat, metallic mask or invented occlusion.")
+					verify(finish_value.normal_enabled and is_equal_approx(finish_value.normal_scale, 0.12)
+						and finish_value.normal_texture == surface.textures.cast_normal
+						and finish_value.roughness_texture == surface.textures.cast_roughness
+						and finish_value.roughness == 1 and finish_value.roughness_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_RED,
+						"The coating reuses the exact qualified cast maps with reduced normal strength and explicit scalar roughness.")
+					verify(finish_value.uv1_triplanar and not finish_value.uv1_world_triplanar
+						and finish_value.uv1_scale == Vector3(4, 4, 4)
+						and finish_value.texture_filter == BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC,
+						"Local mapping retains the declared quarter-metre art scale and mip filtering.")
+					var original := surface.material("cast", color, 0.0, 0.72)
+					verify(finish_value != original and is_equal_approx(original.normal_scale, 0.35),
+						"Reducing coating relief does not mutate the independently cached source material.")
+				if cached.has(color):
+					verify(finish_value == cached[color], "Every view and axis shares one coating material per original tint.")
+				else:
+					cached[color] = finish_value
+			verify(count == 6, "Exactly six existing painted casting roles receive the coating.")
+			coated_parts += count
+			var drum: MeshInstance3D = machine.get_node("CutterDrum")
+			verify(drum.material_override == Visuals.material(Color("465a60"), 0.85, 0.4),
+				"The original moving cutter's metal finish is not recolored or treated as paint.")
+			verify(view.state == before and view.model == null and view.actor_world == null
+				and view.request_sequence == 0 and not view.is_inside_tree(),
+				"Material construction changes no projection, authority, native body or request.")
+			assemblies += 1
+			view.free()
+	verify(cached.size() == 2 and surface.source_status == ("missing" if historical else "ready"),
+		"Two original tints and the declared resource presence remain explicit.")
+	print(JSON.stringify({"phase": "collector coating", "assemblies": assemblies, "coated_parts": coated_parts,
+		"coating_materials": cached.size(), "historical_missing_set": historical,
+		"maps": "existing qualified cast normal and roughness", "geometry_changed": false,
+		"native_gameplay": "not_run", "rendered_quality": "not_assessed"}))
+
 func check_closed_asset_mesh(mesh: Mesh, minimum_volume: float, maximum_volume: float) -> void:
 	var arrays := mesh.surface_get_arrays(0)
 	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
@@ -1274,6 +1343,10 @@ func prepare_paddle_maps() -> void:
 	quit(0)
 
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--collector-coating-only") or OS.get_cmdline_user_args().has("--historical-coating-only"):
+		check_collector_coating(OS.get_cmdline_user_args().has("--historical-coating-only"))
+		finish()
+		return
 	if OS.get_cmdline_user_args().has("--paddles-only") or OS.get_cmdline_user_args().has("--historical-paddles-only"):
 		check_timber_paddles(OS.get_cmdline_user_args().has("--historical-paddles-only"))
 		finish()

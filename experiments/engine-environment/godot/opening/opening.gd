@@ -320,6 +320,23 @@ class ProductionTransmissionFinish:
 class ProductionCollectorArt:
 	extends RefCounted
 	## Original rigid casting kit. These meshes never define work or collision.
+	static var coatings: Dictionary = {}
+
+	static func coating(color: Color) -> StandardMaterial3D:
+		if coatings.has(color):
+			return coatings[color]
+		var source := ProductionTransmissionFinish.material("cast", color, 0.0, 0.72)
+		if ProductionTransmissionFinish.source_status == "missing":
+			# Retain the exact earlier finish for historical fixed rosters.
+			return ProductionVisuals.material(color, 0.08, 0.72)
+		if source == null:
+			return null
+		# Share qualified image resources, never the mutable metal material.
+		# This is an authored coating over cast detail, not a paint scan.
+		var finish := source.duplicate(false) as StandardMaterial3D
+		finish.normal_scale = 0.12
+		coatings[color] = finish
+		return finish
 
 	static func cheek_profile(right: bool) -> PackedVector2Array:
 		var points := PackedVector2Array([Vector2(-0.65, 0.24), Vector2(-0.65, 0.40),
@@ -347,14 +364,14 @@ class ProductionCollectorArt:
 		var frame := Node3D.new()
 		frame.name = "CollectorCastFrame"
 		parent.add_child(frame)
-		var paint := ProductionVisuals.material(color, 0.08, 0.72)
+		var paint := coating(color)
 		for right in [false, true]:
 			_part(frame, "CastCheekRight" if right else "CastCheekLeft",
 				ProductionVisuals.prism_mesh(cheek_profile(right), 0.18, 0.008), Vector3(0, 0, -0.40), paint)
 		var housing := PackedVector2Array([Vector2(-0.62, 0.24), Vector2(0.23, 0.24),
 			Vector2(0.23, 0.84), Vector2(0.12, 1.02), Vector2(-0.50, 1.02), Vector2(-0.62, 0.84)])
 		_part(frame, "CastLowerHousing", ProductionVisuals.prism_mesh(housing, 0.14, 0.012),
-			Vector3(0, 0, -0.44), ProductionVisuals.material(color.darkened(0.09), 0.08, 0.72))
+			Vector3(0, 0, -0.44), coating(color.darkened(0.09)))
 		var hood := PackedVector2Array([Vector2(-0.65, 1.39), Vector2(0.26, 1.39),
 			Vector2(0.26, 1.45), Vector2(0.20, 1.51), Vector2(-0.59, 1.51), Vector2(-0.65, 1.45)])
 		_part(frame, "CastUpperHood", ProductionVisuals.prism_mesh(hood, 0.64, 0.012), Vector3(0, 0, -0.25), paint)
