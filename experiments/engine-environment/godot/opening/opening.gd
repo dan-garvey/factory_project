@@ -3651,6 +3651,7 @@ func issue(action: Dictionary) -> Dictionary:
 func _material_refusal_message(outcome: Dictionary, fallback: String) -> String:
 	var foundation_advice: String = {
 		"axles_already_touch": "These axle ends already touch; no shaft is needed.",
+		"overlapping_shafts": "A shaft already occupies that length. Place the new segment end to end.",
 		"foundation_required": "Build a foundation here first so the machine has a level surface.",
 		"invalid_area": "Choose a rectangle of at most 256 foundation tiles.",
 		"foundation_in_use": "Remove the machinery on this foundation before reclaiming it.",

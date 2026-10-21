@@ -50,6 +50,21 @@ bool has_role(const Topology& topology, Role role) noexcept {
         [&](const auto& part) { return part.role == role; });
 }
 
+bool overlapping_shafts(const PlacedPart& a, const PlacedPart& b) noexcept {
+    if (a.role != Role::shaft || b.role != Role::shaft || a.geometry.axis != b.geometry.axis)
+        return false;
+    const auto axis = static_cast<std::size_t>(a.geometry.axis);
+    if (axis >= 3) return false; // The mechanics evaluator diagnoses invalid axes.
+    for (std::size_t i = 0; i < 3; ++i) {
+        if (a.geometry.center[i] < -mechanics::maximum_coordinate || a.geometry.center[i] > mechanics::maximum_coordinate ||
+            b.geometry.center[i] < -mechanics::maximum_coordinate || b.geometry.center[i] > mechanics::maximum_coordinate)
+            return false; // Avoid arithmetic on invalid coordinates.
+        if (i != axis && a.geometry.center[i] != b.geometry.center[i]) return false;
+    }
+    return a.geometry.center[axis] - a.geometry.half_span < b.geometry.center[axis] + b.geometry.half_span &&
+           b.geometry.center[axis] - b.geometry.half_span < a.geometry.center[axis] + a.geometry.half_span;
+}
+
 // Reject size/identity profiles before copying any caller-controlled string.
 // Geometry dimensions/axes/coordinates are validated by the shared evaluator.
 bool structure(const Topology& topology) {
@@ -71,6 +86,10 @@ bool structure(const Topology& topology) {
              part.role == Role::processor) && !machines.insert(part.role).second)
             return false;
     }
+
+    for (std::size_t i = 0; i < topology.parts.size(); ++i)
+        for (std::size_t j = i + 1; j < topology.parts.size(); ++j)
+            if (overlapping_shafts(topology.parts[i], topology.parts[j])) return false;
 
     std::set<std::pair<std::string, std::string>> links;
     for (const auto& link : topology.material_links) {
@@ -233,6 +252,7 @@ const char* placement_error_name(PlacementError error) noexcept {
         case PlacementError::part_limit: return "part_limit";
         case PlacementError::unavailable_part: return "unavailable_part";
         case PlacementError::incompatible_source: return "incompatible_source";
+        case PlacementError::overlapping_shafts: return "overlapping_shafts";
         case PlacementError::invalid_mechanics: return "invalid_mechanics";
     }
     return "unknown";
@@ -277,6 +297,9 @@ PlacementPlan prepare_placement(const Topology& topology, const Kit& kit,
     const auto carried = kit.find(spec);
     if (carried == kit.end() || carried->second == 0)
         return PlacementRefusal{PlacementError::unavailable_part};
+    if (std::any_of(topology.parts.begin(), topology.parts.end(),
+                    [&](const auto& existing) { return overlapping_shafts(existing, part); }))
+        return PlacementRefusal{PlacementError::overlapping_shafts};
 
     PreparedPlacement plan;
     plan.candidate = topology;

@@ -24,6 +24,9 @@ the shared kernel. Material links are the two directed opening relationships.
 The union of placed and carried part specifications is bounded to 512; counting
 that union before planning ensures every valid world's refund fits the profile.
 These are explicit adapter limits, not permanent game or carrying-capacity rules.
+Coaxial shafts may meet at their ends, but two placed shafts cannot occupy a
+positive length of the same axis. This check does not establish body clearance
+for crossing shafts or for other part types.
 
 The input is the one validated canonical Cargo/WorkLot State. Collector and belt
 raw slots occupy their machine. Processor input, output or any processing lot

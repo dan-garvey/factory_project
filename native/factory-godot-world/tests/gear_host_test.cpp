@@ -459,6 +459,15 @@ void individual_shafts() {
     observe(host, 0, 0, 2);
     const auto first_wire = shaft(-4, 0, 6, "first-segment");
     const auto first = create(host, first_wire);
+    const auto before_parts = field<O>(host.projection(), "transmission_parts");
+    const auto duplicate = shaft(-4, 0, 6, "overlap-identical");
+    check(field<std::string>(host.command("P", duplicate), "reason") == "overlapping_shafts" &&
+              field<std::string>(host.command("P", shaft(-4, 0, 7, "overlap-partial")), "reason") == "overlapping_shafts" &&
+              !factory::values::typed_difference(V(field<O>(host.projection(), "transmission_parts")), V(before_parts)) &&
+              field<I>(V(field<O>(host.projection(), "parts")), "shaft") == 7,
+          "Identical and partly overlapping shafts are refused without consuming parts.");
+    check(field<bool>(host.command("P", duplicate), "duplicate"),
+          "An overlapping placement refusal is stable on replay.");
     observe(host, 0, 2.5, 3);
     const auto second = create(host, shaft(-4, 0, 10, "second-segment"));
     auto power = wire("set_power", "shaft-start"); power.emplace("active", V(true));

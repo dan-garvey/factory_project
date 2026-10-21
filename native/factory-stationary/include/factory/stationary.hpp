@@ -160,6 +160,7 @@ enum class PlacementError {
     part_limit,
     unavailable_part,
     incompatible_source,
+    overlapping_shafts,
     invalid_mechanics,
 };
 
