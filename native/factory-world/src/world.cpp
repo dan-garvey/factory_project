@@ -49,29 +49,6 @@ std::optional<mechanics::Rate> wheel_rate(const Profile& profile, const stationa
                             profile.wheel_radius * placed.wheel_tiles, part.axis, sample->second);
 }
 
-bool material_pair(Role from, Role to) {
-    return (from == Role::collector && to == Role::belt) ||
-           (from == Role::belt && to == Role::processor);
-}
-
-struct Attachment {
-    const stationary::PlacedPart* neighbor;
-    bool new_part_is_source;
-};
-
-std::vector<Attachment> placement_attachments(const stationary::Topology& topology,
-                                             Role role, const mechanics::Point& center, mechanics::Axis axis) {
-    std::vector<Attachment> result;
-    const stationary::PlacedPart proposed{{"proposed", mechanics::Kind::hub, center, axis, 0, 0}, 1, role};
-    for (const auto& other : topology.parts) {
-        if (material_ports_adjacent(proposed, other))
-            result.push_back({&other, true});
-        else if (material_ports_adjacent(other, proposed))
-            result.push_back({&other, false});
-    }
-    return result;
-}
-
 bool spec_valid(const stationary::PartSpec& spec) {
     switch (spec.role) {
         case Role::collector: case Role::belt: case Role::processor: case Role::waterwheel:
@@ -124,7 +101,7 @@ bool shape(const Object& intent, const std::string& action) {
     if (placement(action))
         return intent.contains("wheel_tiles") ? keys(intent, {"role", "center", "axis", "teeth", "half_span", "wheel_tiles"}) :
             keys(intent, {"role", "center", "axis", "teeth", "half_span"});
-    if (action == "link" || action == "unlink" || action == "shaft_between" || action == "remove_shaft_between" || action == "place_belt_span")
+    if (action == "shaft_between" || action == "remove_shaft_between" || action == "place_belt_span")
         return keys(intent, {"target", "generation", "to", "to_generation"});
     if (action == "place_selected_belt_span")
         return keys(intent, {"target", "generation", "to", "to_generation", "selection"}) && field<std::string>(intent, "selection");
@@ -187,7 +164,7 @@ std::vector<mechanics::Point> foundation_area(const Object& intent) {
 }
 
 bool two_endpoints(const std::string& action) {
-    return action == "link" || action == "unlink" || action == "shaft_between" || action == "remove_shaft_between" ||
+    return action == "shaft_between" || action == "remove_shaft_between" ||
         action == "place_belt_span" || action == "place_selected_belt_span";
 }
 
@@ -218,7 +195,6 @@ std::optional<materials::ResolvedTarget> material_target(
     materials::Holder holder;
     switch (selected.role) {
         case Role::collector: holder = materials::Holder::collector; break;
-        case Role::belt: holder = materials::Holder::belt; break;
         case Role::processor: holder = materials::Holder::processor; break;
         default: return std::nullopt;
     }
@@ -261,8 +237,7 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
     const auto* distances = field<Value::Array>(result, "distances_squared");
     if (!reason || *reason != "ok" || !epoch || *epoch <= 0 || !reach || *reach != profile.build_reach ||
         !position || !points || !distances ||
-        (action == "place_connected" ? points->empty() || points->size() > 3 :
-         action == "remove_belt_span" ? points->size() != 1 && points->size() != 2 :
+        (action == "remove_belt_span" ? points->size() != 1 && points->size() != 2 :
          points->size() != ((two_endpoints(action) && action != "place_selected_belt_span") ? 2 : 1)) ||
         distances->size() != points->size()) return false;
     const auto point = [](const Value::Array& array) -> std::optional<authority::Point> {
@@ -350,27 +325,7 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         if ((*selected_role == Role::gear || *selected_role == Role::shaft) &&
             std::any_of(location->begin(), location->end(),
                         [](Integer coordinate) { return coordinate % 4 != 0; })) return false;
-        if (action == "place_connected") {
-            if (!material_machine(*selected_role)) return false;
-            bool used_input = false;
-            bool used_output = false;
-            std::optional<std::size_t> direction;
-            for (std::size_t index = 1; index < targets.size(); ++index) {
-                bool matched = false;
-                for (const std::size_t coordinate : {std::size_t{0}, std::size_t{2}}) {
-                    if (direction && *direction != coordinate) continue;
-                    if (*selected_role == Role::belt && coordinate != (*axis_name == "x" ? 2U : 0U)) continue;
-                    auto left = *location; left[coordinate] -= 4;
-                    auto right = *location; right[coordinate] += 4;
-                    if (*selected_role != Role::collector && !used_input && targets[index] == anchor(profile, left))
-                        used_input = matched = true;
-                    else if (*selected_role != Role::processor && !used_output && targets[index] == anchor(profile, right))
-                        used_output = matched = true;
-                    if (matched) { direction = coordinate; break; }
-                }
-                if (!matched) return false;
-            }
-        }
+        if (action == "place_connected" && !material_machine(*selected_role)) return false;
     } else if (action != "shaft_between" && action != "remove_shaft_between" && action != "place_belt_span" && action != "place_selected_belt_span") {
         const auto* target = field<std::string>(record.intent, "target");
         const auto* generation = field<Integer>(record.intent, "generation");
@@ -465,7 +420,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
         }
         // Malformed/refused commands retain their exact original intent too.
         if (!*accepted_value) continue;
-        if (!shape(record.intent, *action) || *action == "link" || *action == "unlink") return false;
+        if (!shape(record.intent, *action)) return false;
         const auto* result_actor = field<std::string>(record.result, "actor");
         const auto* entity = field<std::string>(record.result, "entity");
         const auto* generation = field<Integer>(record.result, "generation");
@@ -576,30 +531,12 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
 }
 }  // namespace
 
-bool material_ports_adjacent(const stationary::PlacedPart& from, const stationary::PlacedPart& to) noexcept {
-    if (!material_pair(from.role, to.role)) return false;
-    const auto axis = (from.role == Role::belt ? from : to).geometry.axis;
-    const auto& a = from.geometry.center;
-    const auto& b = to.geometry.center;
-    if (axis == mechanics::Axis::z) return b[0] == a[0] + 4 && b[1] == a[1] && b[2] == a[2];
-    if (axis == mechanics::Axis::x) return b[2] == a[2] + 4 && b[1] == a[1] && b[0] == a[0];
-    return false;
-}
-
 materials::Path material_path(const stationary::Topology& topology) {
     materials::Path path;
     path.powered = topology.drive_enabled;
     for (const auto& item : topology.parts) {
         path.collector_present |= item.role == Role::collector;
-        path.belt_present |= item.role == Role::belt;
         path.processor_present |= item.role == Role::processor;
-    }
-    for (const auto& link : topology.material_links) {
-        const auto* from = part(topology, link.from.id);
-        const auto* to = part(topology, link.to.id);
-        if (!from || !to) continue;  // Complete validation rejects stale links.
-        path.collector_to_belt |= from->role == Role::collector && to->role == Role::belt;
-        path.belt_to_processor |= from->role == Role::belt && to->role == Role::processor;
     }
     return path;
 }
@@ -613,17 +550,6 @@ materials::MachinePower machine_power(const stationary::Topology& topology) {
         const bool rotating = found != view.mechanical.motion.end() &&
             found->second.state == mechanics::MotionState::rotating;
         if (item.role == Role::collector) power.collector = rotating;
-        if (item.role == Role::belt) {
-            power.belt = rotating;
-            if (rotating) {
-                // In a Y-up world, +Z rotation drives the top toward -X;
-                // +X rotation drives it toward +Z.
-                const bool along_z = item.geometry.axis == mechanics::Axis::x;
-                power.belt_forward = along_z ? found->second.rate.numerator > 0 : found->second.rate.numerator < 0;
-                power.reverse_drop = materials::DropPoint{item.geometry.center[0] - (along_z ? 0 : 2),
-                    item.geometry.center[1], item.geometry.center[2] - (along_z ? 2 : 0)};
-            }
-        }
         if (item.role == Role::processor) {
             power.processor = rotating;
             if (rotating) {
@@ -774,11 +700,7 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
             total == totals.end() || !add(total->second, 1)) return false;
     }
     if (state.material.belt_lanes.size() != state.topology.belt_spans.size()) return false;
-    for (const auto& link : state.topology.material_links) {
-        const auto* from = part(state.topology, link.from.id);
-        const auto* to = part(state.topology, link.to.id);
-        if (!from || !to || !material_ports_adjacent(*from, *to)) return false;
-    }
+    if (!state.topology.material_links.empty()) return false;
     if (totals != profile.finite_parts || !stationary::power_view(state.topology).mechanical.accepted() ||
         materials::validate(state.material, profile.material, material_path(state.topology)) != materials::Error::none)
         return false;
@@ -1130,7 +1052,6 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
     std::optional<mechanics::Point> location;
     std::optional<Role> selected_role;
     std::optional<mechanics::Axis> selected_axis;
-    std::vector<Attachment> attachments;
     std::vector<authority::Point> targets;
     if (placement(*action)) {
         const auto* role_name = field<std::string>(intent, "role");
@@ -1156,12 +1077,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
                 [&](const auto& entry) { return entry.second.center == *location; });
             if (!supported) return refused("foundation_required");
         }
-        if (*action == "place_connected") {
-            if (!material_machine(*selected_role)) return refused("invalid_part");
-            attachments = placement_attachments(state.topology, *selected_role, *location, *selected_axis);
-            for (const auto& attachment : attachments)
-                targets.push_back(anchor(profile_, attachment.neighbor->geometry.center));
-        }
+        if (*action == "place_connected" && !material_machine(*selected_role)) return refused("invalid_part");
     } else {
         const auto* id = field<std::string>(intent, "target");
         const auto* generation = field<Integer>(intent, "generation");
@@ -1232,12 +1148,6 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         candidate.topology = std::move(ready.candidate);
         candidate.kits.at(binding.actor) = std::move(ready.candidate_kit);
         candidate.issued_entities.emplace(entity, generation);
-        for (const auto& attachment : attachments) {
-            const materials::EntityRef created{entity, generation};
-            const materials::EntityRef existing{attachment.neighbor->geometry.id, attachment.neighbor->generation};
-            candidate.topology.material_links.push_back(attachment.new_part_is_source ?
-                stationary::MaterialLink{created, existing} : stationary::MaterialLink{existing, created});
-        }
     } else {
         entity = selected->geometry.id;
         generation = selected->generation;
@@ -1252,22 +1162,6 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         } else if (*action == "set_drive") {
             if (selected->role != Role::waterwheel) return refused("unsupported_target", entity);
             candidate.topology.drive_enabled = *field<bool>(intent, "enabled");
-        } else if (*action == "link" || *action == "unlink") {
-            const bool compatible = (selected->role == Role::collector && destination->role == Role::belt) ||
-                                    (selected->role == Role::belt && destination->role == Role::processor);
-            if (!compatible) return refused("incompatible_link", entity);
-            const stationary::MaterialLink link{{entity, generation},
-                {destination->geometry.id, destination->generation}};
-            const auto found = std::find(candidate.topology.material_links.begin(), candidate.topology.material_links.end(), link);
-            if (*action == "unlink") {
-                if (found == candidate.topology.material_links.end()) return refused("missing_link", entity);
-                candidate.topology.material_links.erase(found);
-            } else {
-                if (!material_ports_adjacent(*selected, *destination))
-                    return refused("ports_not_adjacent", entity, std::move(facts));
-                if (found != candidate.topology.material_links.end()) return refused("existing_link", entity);
-                candidate.topology.material_links.push_back(link);
-            }
         } else {
             auto target = material_target(profile_, *selected, state.topology);
             if (!target) return refused("unsupported_target", entity);

@@ -68,10 +68,6 @@ using ObserveActor = std::function<std::optional<authority::ActorCut>(const std:
 
 [[nodiscard]] materials::Path material_path(const stationary::Topology&);
 [[nodiscard]] materials::MachinePower machine_power(const stationary::Topology&);
-// Source and destination are the current collector/belt or belt/processor.
-// The belt spindle determines which global horizontal direction carries raw material.
-[[nodiscard]] bool material_ports_adjacent(const stationary::PlacedPart& from,
-                                           const stationary::PlacedPart& to) noexcept;
 [[nodiscard]] bool validate(const Profile&, const Snapshot&);
 
 // Native domain implementation, still unadopted. Session remains the transport
