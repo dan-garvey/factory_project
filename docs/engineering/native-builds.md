@@ -130,7 +130,9 @@ For review, seal the exact raw-Git source and toolchain before the build, retain
 the original command and status, and verify that the source is unchanged after
 it. Normal mutable development commands are not an immutable staged acceptance
 gate. The native gate replacement in `factory-yau.3.17.4` must preserve that
-boundary through its relevant tests and one independent review before activation.
+boundary through its relevant tests before replacing the installed checks.
+Authors own checked current-main joins and publication; independent review
+follows merge under [AGENTS.md](../../AGENTS.md).
 
 The first bootstrap retained source, Bazel, flags and action results but omitted
 the original host compiler, linker, runtime and header identity seal. That is an
@@ -179,8 +181,9 @@ Batch mode has no idle server to perform background cache collection. Check
 the complete family before a new command; a full cache is a resource decision,
 not permission to delete another worktree's output or evidence. Do not silently
 start a fresh family to escape a limit. A future shared development-cache
-manager uses the same relevant tests and single independent reviewer before
-replacing this bounded arrangement.
+manager must pass the relevant tests and preserve these resource and evidence
+contracts before replacing this bounded arrangement. Independent review follows
+the same post-merge policy.
 
 This increment uses local execution and local caches. Remote execution, remote
 caches, paid services, performance claims and automatic retirement of the old

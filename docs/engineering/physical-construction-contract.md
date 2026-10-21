@@ -259,8 +259,10 @@ under 5.21. Chapter owns the adapter, site geometry and offline/shared character
 views under 6.36. Coordinate new source paths and concrete signatures before
 editing; do not alter another owner's frozen checkout. Recovery reviews identity,
 history, continuation and legacy handling. Playability's 6.37 independently
-validates the combined actual character and enforcement candidate. Root owns
-current-main integration and the Godot/game-requirements register.
+validates the combined actual character and enforcement candidate. Workstream
+authors own their current-main joins, relevant checks and main publication through
+[CONTRIBUTING.md](../../CONTRIBUTING.md)'s shared Git lock; independent review
+follows publication. Root maintains the Godot/game-requirements register.
 
 Concrete source ownership: Chapter owns new `opening/actor_world.gd`,
 `opening/actor_body.gd`, `opening/site_geometry.gd` and the opening view changes;
