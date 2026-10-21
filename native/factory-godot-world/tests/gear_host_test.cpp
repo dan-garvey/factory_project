@@ -1398,6 +1398,38 @@ void one_tile_placement() {
           "The tile-aligned parts and custody restore exactly.");
 }
 
+void restored_transmission_geometry() {
+    for (const bool cog : {false, true}) for (int defect = 0; defect < (cog ? 3 : 4); ++defect) {
+        Host host;
+        check(accepted(host.initialize("cog-api", {"P"})) &&
+                  accepted(host.configure_terrain(factory::godot_world::tests::flat_site())),
+              "The restore-grid fixture binds its site.");
+        observe(host, 2.5, 0, 1);
+        create(host, cog ? gear(0, 4, 0, "part", "z") : shaft(0, 4, 0, "part", "z"));
+        const auto saved = host.checkpoint();
+        auto envelope = std::get<O>(saved.storage());
+        auto world = std::get<O>(envelope.at("world").storage());
+        auto state = std::get<O>(world.at("state").storage());
+        auto topology = std::get<O>(state.at("topology").storage());
+        auto parts = std::get<A>(topology.at("parts").storage());
+        auto part = std::get<O>(parts.front().storage());
+        if (defect == 3) part.at("half_span") = V(I{4});
+        else {
+            auto center = std::get<A>(part.at("center").storage());
+            center[defect] = V(std::get<I>(center[defect].storage()) + 1);
+            part.at("center") = V(std::move(center));
+        }
+        parts.front() = V(std::move(part)); topology.at("parts") = V(std::move(parts));
+        state.at("topology") = V(std::move(topology)); world.at("state") = V(std::move(state));
+        envelope.at("world") = V(std::move(world));
+        const V altered(std::move(envelope));
+        check(!accepted(host.validate_checkpoint(altered)) && !accepted(host.restore_checkpoint(altered)) &&
+                  !factory::values::typed_difference(saved, host.checkpoint()),
+              "Off-grid or oversized restored transmission is refused without changing the live world.");
+        check(accepted(host.validate_checkpoint(saved)), "The original aligned one-tile checkpoint remains valid.");
+    }
+}
+
 void transmission_tile_center() {
     for (const bool cog : {false, true}) for (const auto* axis : {"x", "y", "z"}) {
         Host host;
@@ -1429,11 +1461,12 @@ int main(int argc, char** argv) {
         }
         if (argc == 2 && std::string(argv[1]) == "--one-tile-only") {
             one_tile_placement();
+            restored_transmission_geometry();
             std::cout << "{\"status\":\"pass\",\"evidence\":\"native_one_tile_host\",\"checks\":" << checks << "}" << std::endl;
             return 0;
         }
         if (argc == 1) {
-            finite_oriented_train_and_restore(); adjacent_axle_faces(); refusals_and_legacy_shape(); cog_axle_actor_clearance(); cog_at_belt_face(); transmission_site_clearance(); transmission_terrain_clearance(); transmission_foundation_clearance(); one_tile_placement();
+            finite_oriented_train_and_restore(); adjacent_axle_faces(); refusals_and_legacy_shape(); cog_axle_actor_clearance(); cog_at_belt_face(); transmission_site_clearance(); transmission_terrain_clearance(); transmission_foundation_clearance(); one_tile_placement(); restored_transmission_geometry();
             transmission_tile_center(); global_grid(); finite_large_cog(); perpendicular_belt_line(); belt_spindle_orientation(); typed_loose_host(); select_belt_shaft_host(); long_selected_belt_host(); belt_span_host_commands(); nonhorizontal_span_host(); complete_span_route_host(); complete_span_route_host(true); rotated_span_build_orders(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
         } else if (argc != 2 || std::string(argv[1]) != "--placement-alias-only") {
             throw std::runtime_error("Expected no arguments or --placement-alias-only.");
