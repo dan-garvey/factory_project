@@ -2498,6 +2498,9 @@ func _start_character_world() -> bool:
 
 func _start_character_presenter() -> void:
 	distance = 14.0
+	if _native_transmission():
+		# Reversible art default: reveal the working faces below the roofs.
+		orbit_pitch = 0.60
 	character_presenter = CharacterPresenter.new()
 	character_presenter.name = "Characters"
 	character_presenter.configure(self)
