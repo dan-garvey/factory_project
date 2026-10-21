@@ -3704,7 +3704,7 @@ func issue(action: Dictionary) -> Dictionary:
 			"place_foundation": "Foundation placed. Its surface shares the machine grid.",
 			"place_foundations": "Foundation area placed on the world grid.",
 			"connect": "Material path connected.", "connect_drive": "Drive shaft connected.",
-			"retrieve": "Plate collected.", "pickup_raw": "Blank collected.", "set_power": "Drive updated.",
+			"retrieve": "Plate collected.", "pickup_material": "Loose material collected.", "set_power": "Drive updated.",
 			"remove": "Part returned to your carried kit.",
 			"disconnect": "Material connection removed.",
 			"disconnect_drive": "Drive shaft returned."}.get(action.action, "Done."))
@@ -5154,7 +5154,7 @@ func _guided_step(kinds: Dictionary) -> Dictionary:
 	elif not state.get("powered", false):
 		return {"text": "Bring power to the line. Help [H] shows the current setup.", "tool": "drive"}
 	var stock: Dictionary = state.get("stock", {})
-	if _native_transmission() and not state.get("dropped_raw", []).is_empty() and int(stock.get("source", 0)) + int(stock.get("collector", 0)) + int(stock.get("belt", 0)) + int(stock.get("input", 0)) + int(stock.get("held", 0)) == 0:
+	if _native_transmission() and state.get("dropped_material", []).any(func(drop: Variant): return drop is Dictionary and int(drop.get("raw", 0)) > 0) and int(stock.get("source", 0)) + int(stock.get("collector", 0)) + int(stock.get("belt", 0)) + int(stock.get("input", 0)) + int(stock.get("held", 0)) == 0:
 		return {"text": "Pick up loose blanks from the worksite menu, then insert them into the press.", "tool": "inspect"}
 	if int(stock.get("source", 0)) + int(stock.get("collector", 0)) + int(stock.get("belt", 0)) + int(stock.get("input", 0)) + int(stock.get("held", 0)) == 0:
 		if _native_transmission():

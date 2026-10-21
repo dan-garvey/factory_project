@@ -361,23 +361,30 @@ func refresh() -> void:
 		return
 	visible = true
 	_sync_motion(snapshot)
-	var next_key := JSON.stringify([snapshot.get("context"), parts, motions, snapshot.get("belt_spans", {}), snapshot.get("engagements", []), snapshot.get("dropped_raw", [])])
+	var next_key := JSON.stringify([snapshot.get("context"), parts, motions, snapshot.get("belt_spans", {}), snapshot.get("engagements", []), snapshot.get("dropped_material", [])])
 	if next_key == _view_key:
 		return
 	_clear()
 	_view_key = next_key
-	var drops: Variant = snapshot.get("dropped_raw", [])
+	var drops: Variant = snapshot.get("dropped_material", [])
 	if drops is Array:
 		for drop: Variant in drops:
-			if not drop is Dictionary or not drop.get("center") is Array or drop.center.size() != 3 or typeof(drop.get("raw")) != TYPE_INT or drop.raw <= 0:
+			if not drop is Dictionary or not drop.get("center") is Array or drop.center.size() != 3 or typeof(drop.get("raw")) != TYPE_INT or drop.raw < 0 or typeof(drop.get("products")) != TYPE_INT or drop.products < 0 or not drop.get("work_lots") is Array or (drop.raw == 0 and drop.products == 0 and drop.work_lots.is_empty()):
 				continue
-			var blank := _cylinder(self, "LooseBlank", 0.15, 0.08, Color("b9a88c"))
-			blank.position = world_center(drop.center)
+			var location := world_center(drop.center)
+			var visual: Node3D
+			if drop.raw > 0:
+				visual = _cylinder(self, "LooseBlank", 0.15, 0.08, Color("b9a88c"))
+				visual.position = location
+			elif drop.products > 0:
+				visual = Items.stamped_plate(self, location)
+			else:
+				visual = Items.workpiece_billet(self, location)
 			var label := Label3D.new()
-			label.text = "%d blank(s) · pick up in menu" % drop.raw
+			label.text = "%d blank(s), %d plate(s), %d workpiece(s) · pick up in menu" % [drop.raw, drop.products, drop.work_lots.size()]
 			label.position.y = 0.3
 			label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-			blank.add_child(label)
+			visual.add_child(label)
 	var rendered: Dictionary = {}
 	for id: Variant in parts:
 		var part: Variant = parts[id]

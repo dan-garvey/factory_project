@@ -75,8 +75,9 @@ void status(const Host& host, const w::State& state, std::ostream& out) {
     if (state.material.processing) lot(out, "Press", *state.material.processing);
     else out << "Press empty.\n";
     out << "Cargo raw=" << cargo.raw_units << " products=" << cargo.products << "/4\n";
-    for (const auto& [point, amount] : state.material.dropped_raw)
-        out << "Loose blanks at " << point[0] << ',' << point[1] << ',' << point[2] << ": " << amount << '\n';
+    for (const auto& [point, contents] : state.material.dropped_material)
+        out << "Loose material at " << point[0] << ',' << point[1] << ',' << point[2] << ": "
+            << contents.raw_units << " blanks, " << contents.products << " plates, " << contents.work_lots.size() << " workpieces\n";
     for (const auto& work : cargo.work_lots) lot(out, "Carried", work);
     if (host.source_choice) {
         const auto choice = co_drive_scenarios::inspect(state);
@@ -213,7 +214,15 @@ Step act(Host& host, const Tokens& tokens, std::ostream& out, std::ostream& erro
     if (verb == "pickup") {
         I x{}, y{}, z{};
         if (tokens.size() != 4 || !integer(tokens[1], x) || !integer(tokens[2], y) || !integer(tokens[3], z)) return syntax();
-        intent = {{"action", V("pickup_raw")}, {"center", V(V::Array{V(x), V(y), V(z)})}};
+        const auto found = state.material.dropped_material.find({x, y, z});
+        if (found == state.material.dropped_material.end()) { out << "No loose material at that point.\n"; return Step::keep; }
+        V::Array lots;
+        for (const auto& item : found->second.work_lots)
+            lots.emplace_back(V::Object{{"id", V(item.id)}, {"recipe_input", V(item.recipe.input_units_per_product)},
+                {"cycle_ticks", V(item.recipe.cycle_ticks)}, {"remaining", V(item.remaining_ticks)},
+                {"completed_subticks", V(item.completed_subticks)}});
+        intent = {{"action", V("pickup_material")}, {"center", V(V::Array{V(x), V(y), V(z)})},
+            {"expected", V(V::Object{{"raw", V(found->second.raw_units)}, {"products", V(found->second.products)}, {"work_lots", V(std::move(lots))}})}};
     } else if (verb == "place" && tokens.size() > 1 && tokens[1] == "machine") {
         I x{}, y{}, z{};
         if (tokens.size() != 7 || (tokens[2] != "waterwheel" && tokens[2] != "collector" && tokens[2] != "belt" && tokens[2] != "processor") ||

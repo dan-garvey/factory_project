@@ -105,7 +105,7 @@ bool keys(const Object& object, std::initializer_list<const char*> extra) {
 }
 
 bool shape(const Object& intent, const std::string& action) {
-    if (action == "pickup_raw") return keys(intent, {"center"});
+    if (action == "pickup_material") return keys(intent, {"center", "expected"}) && field<Object>(intent, "expected");
     if (action == "place_foundations") return keys(intent, {"center", "end"});
     if (action == "place_foundation") return keys(intent, {"center"});
     if (action == "remove_foundation") return keys(intent, {"target", "generation"});
@@ -290,13 +290,39 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         return !cells.empty() && count && *count == static_cast<Integer>(cells.size()) &&
             targets.front() == *actor_position && result.size() == 17;
     }
-    if (action == "pickup_raw") {
+    if (action == "pickup_material") {
         const auto location = grid_point(record.intent, materials::maximum_drop_coordinate);
-        const auto* amount = field<Integer>(result, "moved_raw");
+        const auto* raw = field<Integer>(result, "moved_raw");
+        const auto* products = field<Integer>(result, "moved_products");
+        const auto* work = field<Value::Array>(result, "moved_work");
         const auto* entity = field<std::string>(result, "entity");
         const auto* generation = field<Integer>(result, "generation");
-        return location && targets.front() == anchor(profile, *location) && amount && *amount > 0 &&
-            *amount <= profile.initial_units && entity && entity->empty() && generation && *generation == 0 && result.size() == 17;
+        if (!location || targets.front() != anchor(profile, *location) || !raw || *raw < 0 || !products || *products < 0 ||
+            !work || work->size() > maximum_current_work || !entity || !entity->empty() || !generation || *generation != 0 ||
+            result.size() != 19 || *products > std::numeric_limits<Integer>::max() / profile.material.input_units_per_product)
+            return false;
+        Integer weighted = *raw;
+        if (!add(weighted, *products * profile.material.input_units_per_product)) return false;
+        for (const auto& value : *work) {
+            const auto* lot = std::get_if<Object>(&value.storage());
+            if (!lot || lot->size() != 5 || !add(weighted, profile.material.input_units_per_product)) return false;
+        }
+        const auto* expected = field<Object>(record.intent, "expected");
+        if (!expected || expected->size() != 3 || !field<Integer>(*expected, "raw") || !field<Integer>(*expected, "products") ||
+            !field<Value::Array>(*expected, "work_lots") || *field<Integer>(*expected, "raw") != *raw ||
+            *field<Integer>(*expected, "products") != *products || field<Value::Array>(*expected, "work_lots")->size() != work->size())
+            return false;
+        const auto& selected_work = *field<Value::Array>(*expected, "work_lots");
+        for (std::size_t index = 0; index < work->size(); ++index) {
+            const auto* selected = std::get_if<Object>(&selected_work[index].storage());
+            const auto* moved = std::get_if<Object>(&(*work)[index].storage());
+            if (!selected || !moved || selected->size() != 5) return false;
+            for (const auto& [left, right] : {std::pair{"id", "id"}, {"recipe_input", "input_units_per_product"},
+                    {"cycle_ticks", "cycle_ticks"}, {"remaining", "remaining_ticks"}, {"completed_subticks", "completed_subticks"}})
+                if (!selected->contains(left) || !moved->contains(right) || values::typed_difference(selected->at(left), moved->at(right)))
+                    return false;
+        }
+        return weighted > 0 && weighted <= profile.initial_units;
     }
     if (placement(action) || action == "place_foundation") {
         const auto location = grid_point(record.intent);
@@ -417,7 +443,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
         const auto* entity = field<std::string>(record.result, "entity");
         const auto* generation = field<Integer>(record.result, "generation");
         if (!result_actor || *result_actor != *actor || !entity || !generation) return false;
-        if (*action != "pickup_raw") {
+        if (*action != "pickup_material") {
             const auto issued = snapshot.state.issued_entities.find(*entity);
             if (issued == snapshot.state.issued_entities.end() || issued->second != *generation) return false;
         }
@@ -714,7 +740,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
     const auto* action = field<std::string>(intent, "action");
     if (!action || !shape(intent, *action)) return refused("invalid_command");
     const auto& state = snapshot.state;
-    if (*action == "pickup_raw") {
+    if (*action == "pickup_material") {
         const auto point = grid_point(intent, materials::maximum_drop_coordinate);
         if (!point) return refused("invalid_center");
         if (!observe) return refused("actor_unready");
@@ -724,15 +750,20 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         auto reach = authority::check_reach(binding.actor, *cut, {anchor(profile_, *point)});
         Object facts = reach.receipt ? reach_facts(binding, *reach.receipt) : Object{};
         if (reach.error != authority::Error::none) return refused(authority::error_name(reach.error), "", std::move(facts));
-        const auto found = state.material.dropped_raw.find(*point);
-        if (found == state.material.dropped_raw.end()) return refused("unavailable_drop", "", std::move(facts));
-        const auto amount = found->second;
+        const auto found = state.material.dropped_material.find(*point);
+        if (found == state.material.dropped_material.end()) return refused("unavailable_drop", "", std::move(facts));
+        const auto* expected = field<Object>(intent, "expected");
+        if (!expected || values::typed_difference(Value(*expected), belt_cargo_value(found->second)))
+            return refused("drop_changed", "", std::move(facts));
+        const auto contents = found->second;
         State candidate = state;
-        const auto error = materials::pickup_raw(candidate.material, profile_.material,
+        const auto error = materials::pickup_material(candidate.material, profile_.material,
                                                   material_path(candidate.topology), binding.actor, *point);
         if (error != materials::Error::none) return refused(materials::error_name(error), "", std::move(facts));
         facts.emplace("generation", Value(Integer{0}));
-        facts.emplace("moved_raw", Value(amount));
+        facts.emplace("moved_raw", Value(contents.raw_units));
+        facts.emplace("moved_products", Value(contents.products));
+        facts.emplace("moved_work", lots_value(contents.work_lots));
         return accepted(std::move(candidate), "", std::move(facts));
     }
     if (*action == "place_foundations") {
@@ -1185,18 +1216,26 @@ Advance World::tick() noexcept {
                 const bool valid_drop_point = std::all_of(receiver_point.begin(), receiver_point.end(), [](auto coordinate) {
                     return coordinate >= -materials::maximum_drop_coordinate && coordinate <= materials::maximum_drop_coordinate;
                 });
-                const auto existing_drop = candidate.material.dropped_raw.find(receiver_point);
-                const bool drop_space = existing_drop != candidate.material.dropped_raw.end() ?
-                    existing_drop->second < std::numeric_limits<Integer>::max() :
-                    candidate.material.dropped_raw.size() < materials::maximum_drop_points;
-                const bool can_drop = raw && !has_receiver && valid_drop_point && drop_space;
+                const auto existing_drop = candidate.material.dropped_material.find(receiver_point);
+                const bool drop_space = existing_drop != candidate.material.dropped_material.end() ?
+                    (!item || (existing_drop->second.raw_units <= std::numeric_limits<Integer>::max() - item->raw_units &&
+                               existing_drop->second.products <= std::numeric_limits<Integer>::max() - item->products)) :
+                    candidate.material.dropped_material.size() < materials::maximum_drop_points;
+                const bool can_drop = item && !has_receiver && valid_drop_point && drop_space;
                 auto proposal = materials::advance_belt_lane(lane->second, toward_last ? speed : -speed,
                                                             can_receive || can_drop ? 1 : 0);
                 if (!proposal || proposal->delivered.size() > 1) throw materials::Error::invalid_state;
                 if (!proposal->delivered.empty()) {
-                    if (proposal->delivered.front() != materials::Cargo{1, 0, {}}) throw materials::Error::invalid_state;
-                    if (can_receive) ++candidate.material.stock.input;
-                    else ++candidate.material.dropped_raw[receiver_point];
+                    const auto& delivered = proposal->delivered.front();
+                    if (can_receive) {
+                        if (delivered != materials::Cargo{1, 0, {}}) throw materials::Error::invalid_state;
+                        ++candidate.material.stock.input;
+                    } else {
+                        auto& dropped = candidate.material.dropped_material[receiver_point];
+                        dropped.raw_units += delivered.raw_units;
+                        dropped.products += delivered.products;
+                        dropped.work_lots.insert(dropped.work_lots.end(), delivered.work_lots.begin(), delivered.work_lots.end());
+                    }
                 }
                 lane->second = std::move(proposal->candidate);
             }

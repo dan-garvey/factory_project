@@ -111,9 +111,9 @@ func build_reverse_route() -> bool:
 		push_error("Reverse belt motion: " + str(motion))
 		return false
 	for turn in range(96):
-		if not session.world.projection().dropped_raw.is_empty(): break
+		if not session.world.projection().dropped_material.is_empty(): break
 		session.world.advance()
-	return not session.world.projection().dropped_raw.is_empty()
+	return not session.world.projection().dropped_material.is_empty()
 
 func run_reverse() -> void:
 	var resumed := role.begins_with("resume-") or role == "server-resume"
@@ -128,9 +128,9 @@ func run_reverse() -> void:
 			verify(build_reverse_route(), "Generated river route deposits a reversed blank")
 		if failed: quit(1); return
 		var snapshot: Dictionary = session.world.projection()
-		verify(not snapshot.dropped_raw.is_empty() and snapshot.stock.output == 0, "Reversed route has loose raw material and no output")
+		verify(not snapshot.dropped_material.is_empty() and snapshot.stock.output == 0, "Reversed route has loose raw material and no output")
 		if failed: quit(1); return
-		var point: Array = snapshot.dropped_raw[0].center
+		var point: Array = snapshot.dropped_material[0].center
 		verify(pose(float(point[0]) * 1.65 / 4.0, float(point[2]) * 1.65 / 4.0 - 1.65), "P can reach the reverse-end stack")
 		verify(session.world.publish_actor("Q", [20.0, 1.0, 20.0], 1).get("accepted", false), "Synthetic Q observation is accepted")
 		if failed: quit(1); return
@@ -150,11 +150,13 @@ func run_reverse() -> void:
 		if actor == "P":
 			if not await until(func(): return FileAccess.file_exists(directory.path_join("resume-Q-ready" if resumed else "Q-ready")), "Q joins the reverse-belt phase"): quit(1); return
 			var snapshot: Dictionary = session.projection()
-			verify(not snapshot.dropped_raw.is_empty() and snapshot.cargo.P.raw == 0, "P sees the loose stack and empty cargo")
+			verify(not snapshot.dropped_material.is_empty() and snapshot.cargo.P.raw == 0, "P sees the loose stack and empty cargo")
 			if failed: quit(1); return
 			if resumed:
-				var before: int = snapshot.dropped_raw[0].raw
-				var pickup := await issue({"action": "pickup_raw", "center": snapshot.dropped_raw[0].center})
+				var before: int = snapshot.dropped_material[0].raw
+				var expected_drop: Dictionary = snapshot.dropped_material[0].duplicate(true)
+				expected_drop.erase("center")
+				var pickup := await issue({"action": "pickup_material", "center": snapshot.dropped_material[0].center, "expected": expected_drop})
 				verify(pickup.get("accepted", false), "P collects the restored stack over Session: " + str(pickup))
 				var request: String = pickup.get("request", "")
 				verify(session.retry(request).get("queued", false), "Retry the pickup request")
@@ -162,7 +164,7 @@ func run_reverse() -> void:
 					verify(replies[request].get("accepted", false) and replies[request].get("duplicate", false), "Pickup retry is deduplicated")
 					replies.erase(request)
 				verify(session.projection().cargo.P.raw == before, "Pickup transfers the stack once")
-				verify(session.projection().dropped_raw.is_empty(), "The recovered stack leaves the ground")
+				verify(session.projection().dropped_material.is_empty(), "The recovered stack leaves the ground")
 			if failed: quit(1); return
 			mark("resume-P-done" if resumed else "P-done")
 		else:
@@ -170,10 +172,10 @@ func run_reverse() -> void:
 			if not await until(func(): return FileAccess.file_exists(directory.path_join("resume-P-done" if resumed else "P-done")), "P finishes the reverse-belt phase"): quit(1); return
 			if resumed:
 				if not await until(func(): return session.projection().get("cargo", {}).get("P", {}).get("raw", 0) > 0, "Q observes recovered cargo"): quit(1); return
-				verify(not original.dropped_raw.is_empty() and session.projection().cargo.P.raw == original.dropped_raw[0].raw
-					and session.projection().dropped_raw.is_empty(), "Q sees the exact stack transfer and no remaining ground cargo")
+				verify(not original.dropped_material.is_empty() and session.projection().cargo.P.raw == original.dropped_material[0].raw
+					and session.projection().dropped_material.is_empty(), "Q sees the exact stack transfer and no remaining ground cargo")
 			else:
-				verify(not session.projection().dropped_raw.is_empty(), "Q sees the reverse-end stack")
+				verify(not session.projection().dropped_material.is_empty(), "Q sees the reverse-end stack")
 			if failed: quit(1); return
 			mark("resume-clients-done" if resumed else "clients-done")
 			if not await until(func(): return FileAccess.file_exists(directory.path_join("resume-server-done" if resumed else "server-done")), "Authority completes the reverse-belt phase"): quit(1); return

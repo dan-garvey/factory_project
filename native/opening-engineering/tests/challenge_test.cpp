@@ -64,7 +64,7 @@ void conserved(const Host& host) {
         check(field<I>(cargo, "products") == std::get<I>(inventories.at(actor).storage()), "Product projection aliases are counted only once.");
         for (const auto& lot : field<A>(cargo, "work_lots")) total += field<I>(lot, "recipe_input");
     }
-    for (const auto& drop : field<A>(projection, "dropped_raw")) total += field<I>(drop, "raw");
+    for (const auto& drop : field<A>(projection, "dropped_material")) total += field<I>(drop, "raw");
     check(total == field<I>(projection, "initial_feed") && products == std::get<I>(stock.at("player").storage()),
           "Every original material unit has exactly one owner.");
     std::map<std::string, I> parts{{"collector", 0}, {"belt", 0}, {"processor", 0}, {"wheel", 0}, {"shaft", 0}, {"gear", 0}, {"foundation", 0}};

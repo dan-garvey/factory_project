@@ -300,9 +300,9 @@ void perpendicular_belt_line() {
     for (int tick = 0; tick < 3; ++tick) (void)host.advance();
     const auto reversed = host.projection();
     check(field<I>(V(field<O>(reversed, "stock")), "input") == 0 &&
-              field<A>(reversed, "dropped_raw").size() == 1,
+              field<A>(reversed, "dropped_material").size() == 1,
           "Positive Z belt rotation sends a blank to the reverse end instead of the press.");
-    const auto drop = field<A>(reversed, "dropped_raw").front();
+    const auto drop = field<A>(reversed, "dropped_material").front();
     check(!factory::values::typed_difference(V(field<A>(drop, "center")), V(A{V(I{2}), V(I{0}), V(I{4})})) && field<I>(drop, "raw") == 1,
           "The loose blank has the native world-space reverse-end point.");
     const auto reverse_save = host.checkpoint();
@@ -312,22 +312,32 @@ void perpendicular_belt_line() {
               accepted(loaded.restore_checkpoint(reverse_save)),
           "The reverse-end blank survives a fresh Host checkpoint restore.");
     observe(loaded, 100.0, 100.0, 1);
-    auto far_pickup = wire("pickup_raw", "pickup-too-far");
+    auto far_pickup = wire("pickup_material", "pickup-too-far");
     far_pickup.emplace("center", V(A{V(I{2}), V(I{0}), V(I{4})}));
+    far_pickup.emplace("expected", V(O{{"raw", V(I{1})}, {"products", V(I{0})}, {"work_lots", V(A{})}}));
     const auto far_result = loaded.command("P", far_pickup);
     check(!accepted(far_result) && field<std::string>(far_result, "reason") == "out_of_reach" &&
-              field<A>(loaded.projection(), "dropped_raw").size() == 1,
+              field<A>(loaded.projection(), "dropped_material").size() == 1,
           "A distant actor cannot pick up or consume the stack.");
     observe(loaded, 0.0, 0.0, 2);
-    auto pickup = wire("pickup_raw", "pickup-reverse");
+    auto pickup = wire("pickup_material", "pickup-reverse");
     pickup.emplace("center", V(A{V(I{2}), V(I{0}), V(I{4})}));
+    pickup.emplace("expected", far_pickup.at("expected"));
+    auto stale = pickup;
+    stale.at("request") = V("pickup-stale");
+    stale.at("expected") = V(O{{"raw", V(I{0})}, {"products", V(I{1})}, {"work_lots", V(A{})}});
+    const auto stale_result = loaded.command("P", stale);
+    check(!accepted(stale_result) && field<std::string>(stale_result, "reason") == "drop_changed" &&
+              field<A>(loaded.projection(), "dropped_material").size() == 1,
+          "A stale selection cannot collect replacement material at the same point.");
     const auto result = loaded.command("P", pickup);
-    check(accepted(result) && field<I>(result, "moved_raw") == 1 && field<A>(loaded.projection(), "dropped_raw").empty(),
+    check(accepted(result) && field<I>(result, "moved_raw") == 1 && field<A>(loaded.projection(), "dropped_material").empty(),
           "A reachable actor collects the original blank into canonical cargo.");
     check(accepted(loaded.publish_actor("Q", {V(0.0), V(1.0), V(0.0)}, 1)), "Q has a separate nearby synthetic observation.");
-    auto competing = wire("pickup_raw", "pickup-competing");
+    auto competing = wire("pickup_material", "pickup-competing");
     competing.at("client") = V("Q");
     competing.emplace("center", V(A{V(I{2}), V(I{0}), V(I{4})}));
+    competing.emplace("expected", far_pickup.at("expected"));
     const auto denied = loaded.command("Q", competing);
     check(!accepted(denied) && field<std::string>(denied, "reason") == "unavailable_drop" &&
               field<I>(field<O>(loaded.projection(), "cargo").at("Q"), "raw") == 0,
@@ -340,7 +350,7 @@ void perpendicular_belt_line() {
           "Removing the belt cog breaks belt power and returns the physical part.");
     check(accepted(host.command("P", target("recover", hubs[2], "line-recover-belt"))) &&
               accepted(host.command("P", target("remove", hubs[2], "line-remove-belt"))) &&
-              field<A>(host.projection(), "dropped_raw").size() == 1,
+              field<A>(host.projection(), "dropped_material").size() == 1,
           "Recovering and dismantling the belt leaves its reverse-end blank in world custody.");
     const auto after_removal = host.checkpoint();
     Host after;
@@ -349,8 +359,9 @@ void perpendicular_belt_line() {
               accepted(after.restore_checkpoint(after_removal)),
           "A fresh Host retains loose material after its belt has been removed.");
     observe(after, 0.0, 0.0, 1);
-    auto pickup_after = wire("pickup_raw", "pickup-after-removal");
+    auto pickup_after = wire("pickup_material", "pickup-after-removal");
     pickup_after.emplace("center", V(A{V(I{2}), V(I{0}), V(I{4})}));
+    pickup_after.emplace("expected", far_pickup.at("expected"));
     check(accepted(after.command("P", pickup_after)), "The independent loose stack remains reachable after belt removal.");
 }
 

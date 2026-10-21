@@ -70,7 +70,7 @@ baseline ticks per step. Opposite directions work equally; an unpowered or
 stalled press does no work. This makes gear ratios affect processing but does
 not claim Create's exact press timing, load, or stress behavior. Fractional
 progress belongs to the WorkLot and follows it through recovery and insertion.
-The material checkpoint schema is 4 and includes belt-lane custody; earlier
+The material checkpoint schema is 5 and includes belt-lane and typed loose-material custody; earlier
 schemas are refused rather than inventing a compatibility migration.
 
 Product retrieval credits only an already admitted actor's Cargo.products.

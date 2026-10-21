@@ -84,9 +84,9 @@ very close to the body even when the exact rotated boxes do not overlap.
 Vertical and sideways spans transmit rotation without carrying cargo or actors.
 
 The physical checkpoint has schema 3 and format `factory-native-physical`. Its
-logical World checkpoint has schema 3, including the trusted interaction offset
+logical World checkpoint has schema 4, including the trusted interaction offset
 and identified belt spans. The physical envelope remains schema 3.
-Its material payload has schema 3, including loose blanks; older material
+Its material payload has schema 5, including typed loose material; older material
 payloads are refused rather than migrated.
 It retains typed material, kits, topology, issued identities, original history and
 actor seed positions. Native readiness, epochs, object identifiers and velocity
@@ -264,7 +264,7 @@ existing World planner, finite kit and reach checks.
 | `remove_belt_span` | `entity: string` | Remove an identified span and return one belt to the actor's kit. |
 | `place` | Existing `kind` and `cell`, optional `axis` string | Orient a machine while retaining the existing cell wire. Belts use the Z spindle perpendicular to their X material path; other omitted axes default to X. |
 | `remove` | Existing `entity` identifier | Remove a selected individual shaft, gear or machine, preserving custody rules. |
-| `pickup_raw` | `center: [int, int, int]` | Collect the loose blank stack at a reach-checked world grid point into the bound actor's cargo. |
+| `pickup_material` | `center: [int, int, int]`, `expected: cargo` | Collect the matching loose material at a reach-checked grid point into the bound actor's cargo. |
 
 One grid unit is `pitch / 4`, currently 0.4125 world units. Map a center to
 `center * pitch / 4 + [0, anchor_height, 0]`. The axis is the rotation axis,

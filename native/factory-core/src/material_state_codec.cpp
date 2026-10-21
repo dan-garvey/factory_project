@@ -150,9 +150,9 @@ MaterialEncoding encode_material_state(const State& state, const Config& config,
         for (const auto& [actor, contents] : state.cargo)
             cargo.emplace(actor, encode_cargo(contents));
         Value::Array drops;
-        for (const auto& [point, count] : state.dropped_raw)
+        for (const auto& [point, contents] : state.dropped_material)
             drops.emplace_back(Object{{"point", Value(Value::Array{Value(point[0]), Value(point[1]), Value(point[2])})},
-                                      {"raw_units", Value(count)}});
+                                      {"cargo", encode_cargo(contents)}});
         Object lanes;
         for (const auto& [id, lane] : state.belt_lanes) {
             Value::Array slots;
@@ -161,14 +161,14 @@ MaterialEncoding encode_material_state(const State& state, const Config& config,
         }
         const auto& stock = state.stock;
         return Value(Object{
-            {"schema", Value(Value::Integer{4})},
+            {"schema", Value(Value::Integer{5})},
             {"initial_units", Value(state.initial_units)},
             {"stock", Value(Object{
                 {"source", Value(stock.source)}, {"collector", Value(stock.collector)},
                 {"belt", Value(stock.belt)}, {"input", Value(stock.input)},
                 {"output", Value(stock.output)}})},
             {"cargo", Value(std::move(cargo))},
-            {"dropped_raw", Value(std::move(drops))},
+            {"dropped_material", Value(std::move(drops))},
             {"belt_lanes", Value(std::move(lanes))},
             {"processing", state.processing ? encode_lot(*state.processing) : Value(nullptr)},
             {"next_work_id", Value(state.next_work_id)}});
@@ -180,8 +180,8 @@ MaterialDecoding decode_material_state(const Value& value, const Config& config,
     try {
         const auto roster = expected_roster(actors);
         const auto& root = fields(value, "$",
-            {"schema", "initial_units", "stock", "cargo", "dropped_raw", "belt_lanes", "processing", "next_work_id"});
-        if (integer(root.at("schema"), "$.schema") != 4)
+            {"schema", "initial_units", "stock", "cargo", "dropped_material", "belt_lanes", "processing", "next_work_id"});
+        if (integer(root.at("schema"), "$.schema") != 5)
             refuse(CodecReason::unsupported_schema, "$.schema");
         const auto& stock = fields(root.at("stock"), "$.stock",
                                     {"source", "collector", "belt", "input", "output"});
@@ -216,19 +216,19 @@ MaterialDecoding decode_material_state(const Value& value, const Config& config,
             }
             candidate.belt_lanes.emplace(id, std::move(lane));
         }
-        if (root.at("dropped_raw").type() != Type::array) refuse(CodecReason::wrong_type, "$.dropped_raw");
-        const auto& drops = std::get<Value::Array>(root.at("dropped_raw").storage());
+        if (root.at("dropped_material").type() != Type::array) refuse(CodecReason::wrong_type, "$.dropped_material");
+        const auto& drops = std::get<Value::Array>(root.at("dropped_material").storage());
         if (drops.size() > maximum_drop_points) refuse(CodecReason::invalid_material_state, "$");
         for (std::size_t i = 0; i < drops.size(); ++i) {
-            const auto path = "$.dropped_raw[" + std::to_string(i) + "]";
-            const auto& entry = fields(drops[i], path, {"point", "raw_units"});
+            const auto path = "$.dropped_material[" + std::to_string(i) + "]";
+            const auto& entry = fields(drops[i], path, {"point", "cargo"});
             if (entry.at("point").type() != Type::array) refuse(CodecReason::wrong_type, path + ".point");
             const auto& coordinates = std::get<Value::Array>(entry.at("point").storage());
             if (coordinates.size() != 3) refuse(CodecReason::invalid_material_state, path + ".point");
             DropPoint point{};
             for (std::size_t j = 0; j < 3; ++j)
                 point[j] = integer(coordinates[j], path + ".point[" + std::to_string(j) + "]");
-            if (!candidate.dropped_raw.emplace(point, integer(entry.at("raw_units"), path + ".raw_units")).second)
+            if (!candidate.dropped_material.emplace(point, decode_cargo(entry.at("cargo"), path + ".cargo")).second)
                 refuse(CodecReason::invalid_material_state, path + ".point");
         }
         const auto& cargo = object(root.at("cargo"), "$.cargo");

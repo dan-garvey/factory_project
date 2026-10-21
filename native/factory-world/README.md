@@ -118,9 +118,9 @@ A powered collector adjacent to
 either outer endpoint can feed raw material into an empty endpoint, even while
 the span is stopped. Rotation carries raw material to an adjacent processor at
 the outgoing endpoint, subject to its input capacity. Attachment follows grid
-geometry regardless of construction order. Raw blanks leaving an open end enter
-the existing loose-material store and can be picked up; a full processor and
-other cargo types currently retain their items on the lane. The Host projects confirmed lane slots and the shared
+geometry regardless of construction order. Items leaving an open end enter the
+typed loose-material store and can be picked up; a full processor retains its
+queued cargo on the lane. The Host projects confirmed lane slots and the shared
 presenter shows those confirmed items at their confirmed slot and phase positions.
 Manual recovery uses the selected slot's current confirmed cargo. Earlier logical
 schema payloads are refused.

@@ -36,7 +36,7 @@ m::State fixture() {
 // lot and P's raw unit plus ready carried lot account for all sixteen raw units.
 Value literal() {
     return Value(Object{
-        {"schema", integer(4)}, {"initial_units", integer(16)}, {"dropped_raw", Value(Value::Array{})},
+        {"schema", integer(5)}, {"initial_units", integer(16)}, {"dropped_material", Value(Value::Array{})},
         {"belt_lanes", Value(Object{})},
         {"stock", Value(Object{{"source", integer(6)}, {"collector", integer(1)},
             {"belt", integer(1)}, {"input", integer(1)}, {"output", integer(1)}})},
@@ -105,8 +105,17 @@ int main() {
 
         auto dropped = state;
         dropped.stock.source -= 2;
-        dropped.dropped_raw.emplace(m::DropPoint{-2, 0, 4}, 2);
+        dropped.dropped_material.emplace(m::DropPoint{-2, 0, 4}, m::Cargo{2, 0, {}});
         round_trip(dropped); // Loose custody survives without a machine owner.
+
+        auto typed_drop = state;
+        typed_drop.stock.source -= 2;
+        auto carried_work = typed_drop.cargo.at("P").work_lots.front();
+        typed_drop.cargo.at("P").work_lots.clear();
+        typed_drop.dropped_material.emplace(m::DropPoint{-2, 0, 4}, m::Cargo{0, 1, {carried_work}});
+        round_trip(typed_drop); // Plates and exact workpiece identity share the same loose store.
+        typed_drop.cargo.at("P").work_lots.push_back(carried_work);
+        check(m::validate(typed_drop, config, path) == m::Error::invalid_state);
 
         auto on_belt = state;
         on_belt.stock.source -= 1;
@@ -136,16 +145,17 @@ int main() {
         bad(edited(literal(), {"schema"}, integer(1)), m::CodecReason::unsupported_schema, "$.schema");
         bad(edited(literal(), {"schema"}, integer(2)), m::CodecReason::unsupported_schema, "$.schema");
         bad(edited(literal(), {"schema"}, integer(3)), m::CodecReason::unsupported_schema, "$.schema");
-        bad(edited(literal(), {"dropped_raw"}, std::nullopt), m::CodecReason::missing_field, "$.dropped_raw");
-        bad(edited(literal(), {"dropped_raw"}, Value(Object{})), m::CodecReason::wrong_type, "$.dropped_raw");
+        bad(edited(literal(), {"schema"}, integer(4)), m::CodecReason::unsupported_schema, "$.schema");
+        bad(edited(literal(), {"dropped_material"}, std::nullopt), m::CodecReason::missing_field, "$.dropped_material");
+        bad(edited(literal(), {"dropped_material"}, Value(Object{})), m::CodecReason::wrong_type, "$.dropped_material");
         const Value drop(Object{{"point", Value(Value::Array{integer(-2), integer(0), integer(4)})},
-                                {"raw_units", integer(1)}});
-        bad(edited(literal(), {"dropped_raw"}, Value(Value::Array{drop, drop})),
-            m::CodecReason::invalid_material_state, "$.dropped_raw[1].point");
+                                {"cargo", Value(Object{{"raw_units", integer(1)}, {"products", integer(0)}, {"work_lots", Value(Value::Array{})}})}});
+        bad(edited(literal(), {"dropped_material"}, Value(Value::Array{drop, drop})),
+            m::CodecReason::invalid_material_state, "$.dropped_material[1].point");
         const Value malformed_drop(Object{{"point", Value(Value::Array{integer(-2), integer(0)})},
-                                          {"raw_units", integer(1)}});
-        bad(edited(literal(), {"dropped_raw"}, Value(Value::Array{malformed_drop})),
-            m::CodecReason::invalid_material_state, "$.dropped_raw[0].point");
+                                          {"cargo", Value(Object{{"raw_units", integer(1)}, {"products", integer(0)}, {"work_lots", Value(Value::Array{})}})}});
+        bad(edited(literal(), {"dropped_material"}, Value(Value::Array{malformed_drop})),
+            m::CodecReason::invalid_material_state, "$.dropped_material[0].point");
         bad(edited(literal(), {"schema"}, Value(1.0)), m::CodecReason::wrong_type, "$.schema");
         bad(edited(literal(), {"unknown"}, integer(0)), m::CodecReason::unexpected_field, "$");
         bad(edited(literal(), {"stock", "source"}, std::nullopt), m::CodecReason::missing_field, "$.stock.source");

@@ -145,7 +145,7 @@ void wrong_rate_correction() {
     ticks(fixture, 8);
     auto state = fixture.world->snapshot().state;
     check(c::inspect(state).mode == c::Mode::wrong_rate && !c::inspect(state).complete() &&
-          !state.material.dropped_raw.empty() && state.material.stock.output == 0,
+          !state.material.dropped_material.empty() && state.material.stock.output == 0,
           "The wrong signed rate reverses the belt and leaves recoverable blanks, rather than producing plates.");
     const auto retained = state.material;
     restore(fixture);

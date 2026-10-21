@@ -212,7 +212,7 @@ func _choose(id: int) -> void:
 
 class LooseMaterialControls:
 	extends MenuButton
-	## Lists confirmed loose blanks. The host remains responsible for reach and custody.
+	## Lists confirmed loose material. The host remains responsible for reach and custody.
 
 	var _host: WeakRef
 	var _offers: Array = []
@@ -220,8 +220,8 @@ class LooseMaterialControls:
 	var _actor := ""
 
 	func _init() -> void:
-		text = "Pick up loose blanks…"
-		tooltip_text = "Stand near a loose blank, then choose it here."
+		text = "Pick up loose material…"
+		tooltip_text = "Stand near loose material, then choose it here."
 		get_popup().about_to_popup.connect(_open)
 		get_popup().id_pressed.connect(_choose)
 		visible = false
@@ -238,7 +238,7 @@ class LooseMaterialControls:
 		if host.get("legacy_fixture") != false or not snapshot is Dictionary:
 			return {}
 		var options: Variant = snapshot.get("options")
-		var drops: Variant = snapshot.get("dropped_raw")
+		var drops: Variant = snapshot.get("dropped_material")
 		var actor: Variant = host.get("client")
 		var actors: Variant = snapshot.get("actors")
 		if not options is Dictionary or options.get("native") != true or not drops is Array or not actors is Dictionary or typeof(actor) != TYPE_STRING or typeof(snapshot.get("context")) != TYPE_STRING:
@@ -263,19 +263,21 @@ class LooseMaterialControls:
 		_world = context.world
 		_actor = context.actor
 		for drop: Variant in context.drops:
-			if not drop is Dictionary or not drop.get("center") is Array or drop.center.size() != 3 or typeof(drop.get("raw")) != TYPE_INT or drop.raw <= 0:
+			if not drop is Dictionary or not drop.get("center") is Array or drop.center.size() != 3 or typeof(drop.get("raw")) != TYPE_INT or drop.raw < 0 or typeof(drop.get("products")) != TYPE_INT or drop.products < 0 or not drop.get("work_lots") is Array or (drop.raw == 0 and drop.products == 0 and drop.work_lots.is_empty()):
 				continue
 			var point: Array = drop.center
 			if typeof(point[0]) != TYPE_INT or typeof(point[1]) != TYPE_INT or typeof(point[2]) != TYPE_INT:
 				continue
-			get_popup().add_item("%d blank(s) at grid %s" % [drop.raw, str(point)], _offers.size())
-			_offers.append(point.duplicate())
+			get_popup().add_item("%d blank(s), %d plate(s), %d workpiece(s) at %s" % [drop.raw, drop.products, drop.work_lots.size(), str(point)], _offers.size())
+			_offers.append(drop.duplicate(true))
 
 	func _choose(id: int) -> void:
 		var context := _context()
 		if context.is_empty() or not context.usable or context.world != _world or context.actor != _actor or id < 0 or id >= _offers.size():
 			return
 		for drop: Variant in context.drops:
-			if drop is Dictionary and drop.get("center") == _offers[id] and typeof(drop.get("raw")) == TYPE_INT and drop.raw > 0:
-				_host.get_ref().issue({"action": "pickup_raw", "center": _offers[id].duplicate()})
+			if drop is Dictionary and drop == _offers[id]:
+				var expected: Dictionary = _offers[id].duplicate(true)
+				expected.erase("center")
+				_host.get_ref().issue({"action": "pickup_material", "center": _offers[id].center.duplicate(), "expected": expected})
 				return

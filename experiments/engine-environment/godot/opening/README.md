@@ -103,7 +103,7 @@ but not saved or synchronized as tooth-contact phase. Unknown/stalled parts,
 Help, unready actors and disconnected shared views stop the illustration.
 The belt carries blanks toward the press only when its top surface moves in that
 direction. Reversing the drive carries them off the other end. A loose stack is
-shown at that end; stand nearby and use **Pick up loose blanks…** to collect it,
+shown at that end; stand nearby and use **Pick up loose material…** to collect it,
 then insert the blanks at a machine. Loose stacks survive saving and belt removal.
 This prototype represents their fixed grid locations without gravity. Belt
 throughput remains a fixture step. The press's work per tick scales with its

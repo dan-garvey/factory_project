@@ -91,8 +91,8 @@ struct State {
     std::map<std::string, Cargo> cargo;
     std::optional<WorkLot> processing;
     WorkId next_work_id{1};
-    // Loose raw units remain owned by this state even if their belt is removed.
-    std::map<DropPoint, Quantity> dropped_raw{};
+    // Loose material remains owned by this state even if its belt is removed.
+    std::map<DropPoint, Cargo> dropped_material{};
     // Live custody belongs to the one canonical material State, keyed by the
     // World-owned belt span identity. World validates matching geometry.
     std::map<std::string, BeltLane> belt_lanes{};
@@ -156,7 +156,7 @@ enum class Error {
 [[nodiscard]] Error step(State&, const Config&, const Path&, const MachinePower&);
 
 // World must first authenticate the actor and admit reach to the exact point.
-[[nodiscard]] Error pickup_raw(State&, const Config&, const Path&, const std::string&, const DropPoint&);
+[[nodiscard]] Error pickup_material(State&, const Config&, const Path&, const std::string&, const DropPoint&);
 
 // Call only after the authoritative adapter has admitted this actor and reach
 // and has excluded a cached request. This function is not an admission API.

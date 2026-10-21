@@ -317,17 +317,18 @@ void rotated_belt_line() {
             for (int n = 0; n < 12; ++n) check(restored->tick().error == w::TransactionError::none, "Rotated line ticks safely.");
             const auto state = restored->snapshot().state;
             if (source_rate > 0)
-                check(state.material.stock.output == 1 && state.material.dropped_raw.empty(), "Positive X rotation carries the blank to the press.");
+                check(state.material.stock.output == 1 && state.material.dropped_material.empty(), "Positive X rotation carries the blank to the press.");
             else {
-                check(state.material.stock.output == 0 && state.material.dropped_raw.contains({4, 0, 2}),
+                check(state.material.stock.output == 0 && state.material.dropped_material.contains({4, 0, 2}),
                       "Negative X rotation deposits the blank at the -Z end.");
                 auto reloaded = w::World::restore("cog-world", profile, restored->snapshot());
                 check(reloaded != nullptr, "The rotated reverse drop survives restoration.");
                 O pickup{{"context", V("cog-world")}, {"client", V("P-session")}, {"request", V("rotated-pickup")},
-                    {"actor", V("P")}, {"action", V("pickup_raw")},
-                    {"center", V(V::Array{V(I{4}), V(I{0}), V(I{2})})}};
+                    {"actor", V("P")}, {"action", V("pickup_material")},
+                    {"center", V(V::Array{V(I{4}), V(I{0}), V(I{2})})},
+                    {"expected", V(O{{"raw", V(I{1})}, {"products", V(I{0})}, {"work_lots", V(V::Array{})}})}};
                 const auto received = accepted(send(*reloaded, pickup));
-                check(field<I>(received, "moved_raw") == 1 && reloaded->snapshot().state.material.dropped_raw.empty(),
+                check(field<I>(received, "moved_raw") == 1 && reloaded->snapshot().state.material.dropped_material.empty(),
                       "The reverse-end blank moves into the actor's finite cargo.");
                 auto competing = pickup;
                 competing.at("client") = V("Q-session"); competing.at("actor") = V("Q");

@@ -49,6 +49,14 @@ bool unique_lot(const State& state, WorkId id) noexcept {
             }
         }
     }
+    for (const auto& [point, cargo] : state.dropped_material) {
+        (void)point;
+        for (const auto& lot : cargo.work_lots) {
+            if (lot.id != id) continue;
+            if (seen) return false;
+            seen = true;
+        }
+    }
     return seen;
 }
 
@@ -136,6 +144,11 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
             current_work += item->work_lots.size();
         }
     }
+    for (const auto& [point, cargo] : state.dropped_material) {
+        (void)point;
+        if (cargo.work_lots.size() > 256 - current_work) return Error::invalid_state;
+        current_work += cargo.work_lots.size();
+    }
     const auto& stock = state.stock;
     if (state.initial_units < 0 || stock.source < 0 || stock.collector < 0 ||
         stock.belt < 0 || stock.input < 0 || stock.output < 0 ||
@@ -155,13 +168,19 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
     for (const auto value : {stock.source, stock.collector, stock.belt, stock.input}) {
         if (!add(total, value)) return Error::quantity_overflow;
     }
-    if (state.dropped_raw.size() > maximum_drop_points) return Error::invalid_state;
-    for (const auto& [point, count] : state.dropped_raw) {
+    if (state.dropped_material.size() > maximum_drop_points) return Error::invalid_state;
+    for (const auto& [point, cargo] : state.dropped_material) {
         for (const auto coordinate : point)
             if (coordinate < -maximum_drop_coordinate || coordinate > maximum_drop_coordinate)
                 return Error::invalid_state;
-        if (count <= 0) return Error::invalid_state;
-        if (!add(total, count)) return Error::quantity_overflow;
+        if (cargo.raw_units < 0 || cargo.products < 0 ||
+            (cargo.raw_units == 0 && cargo.products == 0 && cargo.work_lots.empty())) return Error::invalid_state;
+        if (!add(total, cargo.raw_units) || !products(total, cargo.products, config.input_units_per_product))
+            return Error::quantity_overflow;
+        for (const auto& lot : cargo.work_lots) {
+            if (!valid_lot(lot, state, config) || !unique_lot(state, lot.id)) return Error::invalid_state;
+            if (!add(total, lot.recipe.input_units_per_product)) return Error::quantity_overflow;
+        }
     }
     if (state.processing && !add(total, state.processing->recipe.input_units_per_product)) {
         return Error::quantity_overflow;
@@ -255,9 +274,9 @@ Error step(State& state, const Config& config, const Path& path,
         for (const auto coordinate : point)
             if (coordinate < -maximum_drop_coordinate || coordinate > maximum_drop_coordinate)
                 return Error::invalid_path;
-        const auto existing = next.dropped_raw.find(point);
-        if (existing != next.dropped_raw.end() || next.dropped_raw.size() < maximum_drop_points) {
-            if (!add(next.dropped_raw[point], 1)) return Error::quantity_overflow;
+        const auto existing = next.dropped_material.find(point);
+        if (existing != next.dropped_material.end() || next.dropped_material.size() < maximum_drop_points) {
+            if (!add(next.dropped_material[point].raw_units, 1)) return Error::quantity_overflow;
             --stock.belt;
         }
     }
@@ -276,16 +295,19 @@ Error step(State& state, const Config& config, const Path& path,
     return Error::none;
 }
 
-Error pickup_raw(State& state, const Config& config, const Path& path,
+Error pickup_material(State& state, const Config& config, const Path& path,
                  const std::string& actor, const DropPoint& point) {
     const auto input_error = validate(state, config, path);
     if (input_error != Error::none) return input_error;
     if (actor.empty() || !state.cargo.contains(actor)) return Error::invalid_actor;
-    const auto found = state.dropped_raw.find(point);
-    if (found == state.dropped_raw.end()) return Error::unavailable_drop;
+    const auto found = state.dropped_material.find(point);
+    if (found == state.dropped_material.end()) return Error::unavailable_drop;
     auto next = state;
-    if (!add(next.cargo.at(actor).raw_units, found->second)) return Error::quantity_overflow;
-    next.dropped_raw.erase(point);
+    auto& destination = next.cargo.at(actor);
+    if (!add(destination.raw_units, found->second.raw_units) || !add(destination.products, found->second.products))
+        return Error::quantity_overflow;
+    destination.work_lots.insert(destination.work_lots.end(), found->second.work_lots.begin(), found->second.work_lots.end());
+    next.dropped_material.erase(point);
     const auto output_error = validate(next, config, path);
     if (output_error != Error::none) return output_error;
     state = std::move(next);

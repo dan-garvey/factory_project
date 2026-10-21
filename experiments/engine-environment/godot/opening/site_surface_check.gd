@@ -426,14 +426,16 @@ func check_belt_water_native(forward: bool) -> void:
 		model.advance()
 	if not forward:
 		var reverse: Dictionary = model.projection()
-		if not expect(reverse.stock.output == 0 and reverse.stock.input == 0 and not reverse.dropped_raw.is_empty(), "Reverse belt deposits blanks at its upstream end"):
+		if not expect(reverse.stock.output == 0 and reverse.stock.input == 0 and not reverse.dropped_material.is_empty(), "Reverse belt deposits blanks at its upstream end"):
 			return
 		var saved_reverse: Dictionary = model.checkpoint()
 		var restored = NativeModel.new("fresh-reverse-belt", ["P"])
-		if not expect(restored.boot_result.get("accepted", false) and restored.restore_checkpoint(saved_reverse).get("accepted", false) and restored.projection().dropped_raw == reverse.dropped_raw, "Reverse-end blanks survive checkpoint restore"):
+		if not expect(restored.boot_result.get("accepted", false) and restored.restore_checkpoint(saved_reverse).get("accepted", false) and restored.projection().dropped_material == reverse.dropped_material, "Reverse-end blanks survive checkpoint restore"):
 			return
-		var point: Array = reverse.dropped_raw[0].center
-		if not expect(observe.call(float(point[0]) * 1.65 / 4.0, float(point[2]) * 1.65 / 4.0 - 1.65) and issue.call("pickup_raw", {"center": point}).get("accepted", false), "Pick up a reverse-end blank"):
+		var point: Array = reverse.dropped_material[0].center
+		var expected_drop: Dictionary = reverse.dropped_material[0].duplicate(true)
+		expected_drop.erase("center")
+		if not expect(observe.call(float(point[0]) * 1.65 / 4.0, float(point[2]) * 1.65 / 4.0 - 1.65) and issue.call("pickup_material", {"center": point, "expected": expected_drop}).get("accepted", false), "Pick up a reverse-end blank"):
 			return
 		if not expect(model.projection().cargo.P.raw > 0, "Picked-up blank belongs to the actor"):
 			return

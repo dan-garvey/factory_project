@@ -554,14 +554,14 @@ func _tool_guidance() -> void:
 func _loose_material() -> void:
 	var host := HostStub.new()
 	host.state = fixture()
-	host.state.dropped_raw = [{"center": [2, 0, 4], "raw": 3}]
+	host.state.dropped_material = [{"center": [2, 0, 4], "raw": 3, "products": 0, "work_lots": []}]
 	var menu := LooseControls.new()
 	menu.configure(host)
 	verify(menu.visible and not menu.disabled, "A confirmed loose stack is offered to the ready actor.")
 	menu._open()
 	var before: Dictionary = host.state.duplicate(true)
 	menu._choose(0)
-	verify(host.calls == [{"action": "pickup_raw", "center": [2, 0, 4]}] and host.state == before,
+	verify(host.calls == [{"action": "pickup_material", "center": [2, 0, 4], "expected": {"raw": 3, "products": 0, "work_lots": []}}] and host.state == before,
 		"Pickup submits the exact confirmed location without speculatively changing custody.")
 	menu._open()
 	host.state.context = "another-world"
@@ -569,10 +569,10 @@ func _loose_material() -> void:
 	verify(host.calls.size() == 1, "A menu opened for another world cannot submit a stale selection.")
 	host.state.context = "helper-fixture"
 	menu._open()
-	host.state.dropped_raw = []
+	host.state.dropped_material = []
 	menu._choose(0)
 	verify(host.calls.size() == 1, "A vanished stack cannot be selected from an old menu.")
-	host.state.dropped_raw = [{"center": [2, 0, 4], "raw": 3}]
+	host.state.dropped_material = [{"center": [2, 0, 4], "raw": 3, "products": 0, "work_lots": []}]
 	menu._open()
 	host.mutate_allowed = false
 	menu._choose(0)
@@ -582,7 +582,23 @@ func _loose_material() -> void:
 	var blank := presenter.get_node_or_null("LooseBlank")
 	verify(blank is MeshInstance3D and blank.position == Presenter.world_center([2, 0, 4]),
 		"The confirmed stack is rendered at its world location without requiring the belt to exist.")
-	host.state.dropped_raw = []
+	host.mutate_allowed = true
+	for drop in [{"center": [2, 0, 4], "raw": 0, "products": 1, "work_lots": []},
+		{"center": [2, 0, 4], "raw": 0, "products": 0, "work_lots": [{"id": 7}]}]:
+		host.state.dropped_material = [drop]
+		presenter.refresh()
+		menu._open()
+		verify(menu.get_popup().item_count == 1 and not presenter.get_node_or_null("LooseBlank"), "A plate or workpiece has a loose-material offer and a distinct visual.")
+		menu._choose(0)
+		var expected: Dictionary = drop.duplicate(true)
+		expected.erase("center")
+		verify(host.calls.back() == {"action": "pickup_material", "center": [2, 0, 4], "expected": expected}, "Typed loose cargo uses the confirmed pickup request.")
+		menu._open()
+		host.state.dropped_material = [{"center": [2, 0, 4], "raw": 1, "products": 0, "work_lots": []}]
+		var count := host.calls.size()
+		menu._choose(0)
+		verify(host.calls.size() == count, "A replacement at the same location cannot use an outdated menu offer.")
+	host.state.dropped_material = []
 	presenter.refresh()
 	verify(presenter.get_node_or_null("LooseBlank") == null, "The presentation removes a picked-up stack after confirmed state changes.")
 	menu.free()
@@ -590,17 +606,17 @@ func _loose_material() -> void:
 	var session := Session.new()
 	session.context = "helper-fixture"
 	session._ready_for_commands = true
-	host.state.dropped_raw = [{"center": [2, 0, 4], "raw": 3}]
+	host.state.dropped_material = [{"center": [2, 0, 4], "raw": 3, "products": 0, "work_lots": []}]
 	host.state.revision = 1
 	host.state.order = 1
 	session._apply_frame({"context": "helper-fixture", "serial": 1, "snapshot": host.state})
-	verify(session.projection().dropped_raw == host.state.dropped_raw,
+	verify(session.projection().dropped_material == host.state.dropped_material,
 		"The read-only Session frame retains the server's loose-material projection.")
-	host.state.dropped_raw = []
+	host.state.dropped_material = []
 	host.state.revision = 2
 	host.state.order = 2
 	session._apply_frame({"context": "helper-fixture", "serial": 2, "snapshot": host.state})
-	verify(session.projection().dropped_raw.is_empty(), "A later confirmed Session frame removes the picked-up stack.")
+	verify(session.projection().dropped_material.is_empty(), "A later confirmed Session frame removes the picked-up stack.")
 	session.free()
 
 func _mechanical_collision_geometry() -> void:

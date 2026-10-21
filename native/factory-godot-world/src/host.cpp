@@ -147,9 +147,9 @@ bool historical_wire(const authority::Record& record) {
         return left != wire->end() && right != intent.end() &&
             !values::typed_difference(left->second, right->second);
     };
-    if (*action == "pickup_raw") {
+    if (*action == "pickup_material") {
         const auto* center = field<Array>(*wire, "center");
-        if (*original_action != "pickup_raw" || !keys(*wire, {"center"}) || !center || center->size() != 3 || !same("center", "center")) return false;
+        if (*original_action != "pickup_material" || !keys(*wire, {"center", "expected"}) || !field<Object>(*wire, "expected") || !center || center->size() != 3 || !same("center", "center") || !same("expected", "expected")) return false;
         for (const auto& value : *center) {
             const auto* coordinate = std::get_if<Integer>(&value.storage());
             if (!coordinate || *coordinate < -materials::maximum_drop_coordinate || *coordinate > materials::maximum_drop_coordinate) return false;
@@ -686,8 +686,8 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             belt != snapshot.state.topology.belt_spans.end() ? belt->generation : 0));
         return true;
     };
-    if (*action == "pickup_raw") {
-        if (!keys(wire, {"center"})) return refuse("invalid_command");
+    if (*action == "pickup_material") {
+        if (!keys(wire, {"center", "expected"}) || !field<Object>(wire, "expected")) return refuse("invalid_command");
         const auto* center = field<Array>(wire, "center");
         if (!center || center->size() != 3) return refuse("invalid_center");
         for (const auto& value : *center) {
@@ -695,8 +695,9 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             if (!coordinate || *coordinate < -materials::maximum_drop_coordinate || *coordinate > materials::maximum_drop_coordinate)
                 return refuse("invalid_center");
         }
-        normalized.at("action") = Value("pickup_raw");
+        normalized.at("action") = Value("pickup_material");
         normalized.emplace("center", wire.at("center"));
+        normalized.emplace("expected", wire.at("expected"));
     } else if (*action == "place_foundation" || *action == "place_foundations") {
         const bool area = *action == "place_foundations";
         if (!(area ? keys(wire, {"cell", "end_cell", "level"}) : keys(wire, {"cell", "level"})))
@@ -961,9 +962,12 @@ Value Host::projection() const {
     const auto snapshot = owned_->world->snapshot();
     const auto& state = snapshot.state;
     Object entities, transmissions, belt_spans, inventories, cargo, kits, specifications, actors, foundations;
-    Array links, drive_links, engagements, dropped_raw;
-    for (const auto& [point, count] : state.material.dropped_raw)
-        dropped_raw.emplace_back(Object{{"center", Value(Array{Value(point[0]), Value(point[1]), Value(point[2])})}, {"raw", Value(count)}});
+    Array links, drive_links, engagements, dropped_material;
+    for (const auto& [point, contents] : state.material.dropped_material) {
+        auto drop = std::get<Object>(cargo_value(contents).storage());
+        drop.emplace("center", Value(Array{Value(point[0]), Value(point[1]), Value(point[2])}));
+        dropped_material.emplace_back(std::move(drop));
+    }
     for (const auto& part : state.topology.parts) {
         Object projected{{"kind", Value(kind(part.role))}, {"generation", Value(part.generation)},
             {"center", Value(Array{Value(part.geometry.center[0]), Value(part.geometry.center[1]), Value(part.geometry.center[2])})},
@@ -1047,7 +1051,7 @@ Value Host::projection() const {
         {"drive_links", Value(std::move(drive_links))}, {"engagements", Value(std::move(engagements))},
         {"motion", Value(std::move(motions))}, {"inventories", Value(std::move(inventories))},
         {"cargo", Value(std::move(cargo))}, {"part_kits", Value(std::move(kits))},
-        {"dropped_raw", Value(std::move(dropped_raw))},
+        {"dropped_material", Value(std::move(dropped_material))},
         {"part_specifications", Value(std::move(specifications))},
         {"parts", Value(std::move(player_parts))}, {"actors", Value(std::move(actors))},
         {"foundations", Value(std::move(foundations))},
