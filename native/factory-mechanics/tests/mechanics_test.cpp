@@ -325,12 +325,36 @@ void validation_and_arithmetic() {
     check(mechanical::evaluate({}, {}).accepted(), "An empty mechanism has no fabricated power.");
 }
 
+void one_tile_shaft_faces() {
+    for (const auto axis : {Axis::x, Axis::y, Axis::z}) {
+        for (const Integer sign : {-1, 1}) {
+            const auto axial = static_cast<std::size_t>(axis);
+            Point source{0, 0, 0}, shaft_center{0, 0, 0}, cog_center{0, 0, 0};
+            shaft_center[axial] = 4 * sign;
+            cog_center[axial] = 8 * sign;
+            std::vector<Part> parts{{"source", Kind::hub, source, axis, 0, 0},
+                {"shaft", Kind::shaft, shaft_center, axis, 0, 2},
+                {"cog", Kind::gear, cog_center, axis, 2, 0}};
+            motion(mechanical::evaluate(parts, {{"source", {1, 1}}}),
+                   "cog", MotionState::rotating, {1, 1});
+            part(parts, "cog").center[axial] += 4 * sign;
+            motion(mechanical::evaluate(parts, {{"source", {1, 1}}}),
+                   "cog", MotionState::unpowered, {0, 1});
+            part(parts, "cog").center[axial] -= 4 * sign;
+            part(parts, "shaft").center[(axial + 1) % 3] += 4;
+            motion(mechanical::evaluate(parts, {{"source", {1, 1}}}),
+                   "cog", MotionState::unpowered, {0, 1});
+        }
+    }
+}
+
 }  // namespace
 
 int main() {
     try {
         direction_and_geometry();
         shafts_and_sources();
+        one_tile_shaft_faces();
         local_conflicts();
         bounded_diagnostics();
         validation_and_arithmetic();

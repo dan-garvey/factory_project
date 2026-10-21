@@ -114,6 +114,13 @@ bool shaft_contact(const Part& a, const Part& b) noexcept {
     }
     const auto a_span = a.kind == Kind::shaft ? a.half_span : 0;
     const auto b_span = b.kind == Kind::shaft ? b.half_span : 0;
+    // A one-tile shaft and an adjacent hub or cog meet at their tile faces.
+    // Existing shaft-to-shaft contact remains based on their literal spans.
+    if ((a.kind == Kind::shaft) != (b.kind == Kind::shaft)) {
+        const auto shaft_span = a.kind == Kind::shaft ? a_span : b_span;
+        const auto distance = b.center[axis] - a.center[axis];
+        if (shaft_span == 2 && (distance == 4 || distance == -4)) return true;
+    }
     return a.center[axis] - a_span <= b.center[axis] + b_span &&
            b.center[axis] - b_span <= a.center[axis] + a_span;
 }
