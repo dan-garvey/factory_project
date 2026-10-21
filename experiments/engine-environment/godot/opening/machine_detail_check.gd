@@ -2799,6 +2799,52 @@ func collector_clearance(frame: Node3D, moving: Array) -> float:
 				minimum = minf(minimum, gap)
 	return minimum
 
+func collector_feed_fit(feed: Node3D, bed: MeshInstance3D) -> bool:
+	if feed.get_child_count() != 10:
+		return false
+	var top := bed.position.y + bed.mesh.get_aabb().end.y
+	var bed_edge := bed.mesh.get_aabb().end.z
+	var rails: Array[MeshInstance3D] = []
+	var clamps: Array[MeshInstance3D] = []
+	var heads: Array[MeshInstance3D] = []
+	for child in feed.get_children():
+		if not child is MeshInstance3D:
+			return false
+		match child.get_meta("collector_feed_role", ""):
+			"FormedGuide": rails.append(child)
+			"GuideClamp": clamps.append(child)
+			"ClampHead": heads.append(child)
+			_: return false
+	if rails.size() != 2 or clamps.size() != 4 or heads.size() != 4:
+		return false
+	var inner_faces: Array[float] = []
+	for rail in rails:
+		var box: AABB = rail.mesh.get_aabb()
+		if absf(rail.position.y + box.position.y - top) > 0.0001:
+			return false
+		var inner := rail.position.z - signf(rail.position.z) * box.size.z / 2.0
+		if absf(inner) > bed_edge or absf(inner) < 0.29:
+			return false
+		inner_faces.append(inner)
+	if absf(inner_faces[1] - inner_faces[0]) < 0.58:
+		return false
+	for clamp in clamps:
+		var box: AABB = clamp.mesh.get_aabb()
+		var low := clamp.position + box.position
+		var high := clamp.position + box.end
+		if low.y >= top or high.y <= top or high.y < rails[0].mesh.get_aabb().position.y:
+			return false
+		if absf(clamp.position.z) - box.size.z / 2.0 >= bed_edge:
+			return false
+		if absf(clamp.position.z - rails[0].position.z) > 0.001 \
+				and absf(clamp.position.z - rails[1].position.z) > 0.001:
+			return false
+	for head in heads:
+		var bottom := head.position.y + head.scale.y * head.mesh.get_aabb().position.y
+		if absf(bottom - rails[0].mesh.get_aabb().end.y) > 0.0001:
+			return false
+	return true
+
 func check_collector_cast_frame() -> void:
 	var cached: Dictionary = {}
 	var limits := {"CastCheekLeft": [0.020, 0.045], "CastCheekRight": [0.020, 0.045],
@@ -2845,6 +2891,20 @@ func check_collector_cast_frame() -> void:
 		var bed: MeshInstance3D = machine.get_node("StockBed")
 		verify(bed.position == Vector3(0, 0.51, 0) and bed.mesh == Visuals.box_mesh(Vector3(1.25, 0.1, 0.67)),
 			"The literal feed bed and its top plane remain unchanged.")
+		var feed: Node3D = machine.get_node("CollectorFeedGuides")
+		verify(machine.get_node_or_null("StockGuide") == null and collector_feed_fit(feed, bed),
+			"Both formed guides leave a clear lane and their clamps seat on the original bed.")
+		check_bounds(feed, Transform3D.IDENTITY)
+		if axis == 0:
+			var clamp: MeshInstance3D = feed.get_child(1)
+			clamp.position.y += 0.12
+			verify(not collector_feed_fit(feed, bed), "The feed fit check rejects a detached clamp.")
+			clamp.position.y -= 0.12
+			var rail: MeshInstance3D = feed.get_child(0)
+			rail.position.z += 0.10
+			verify(not collector_feed_fit(feed, bed), "The feed fit check rejects a guide outside the bed edge.")
+			rail.position.z -= 0.10
+			verify(collector_feed_fit(feed, bed), "The original clamp fit is restored.")
 		if axis == 0:
 			var hood: MeshInstance3D = frame.get_node("CastUpperHood")
 			var vertices: PackedVector3Array = hood.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
