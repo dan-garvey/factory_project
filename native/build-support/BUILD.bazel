@@ -17,6 +17,7 @@ cc_binary(
 
 cc_test(
     name = "runner_test",
+    tags = ["host"],
     srcs = ["tests.cpp"],
     deps = [":runner"],
     size = "small",

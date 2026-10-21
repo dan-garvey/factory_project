@@ -7,6 +7,7 @@ exports_files([
 
 test_suite(
     name = "native_tests",
+    deprecation = "Bootstrap scope; use bazel test --build_tests_only --test_tag_filters=-host //native/... for the native suite.",
     tests = [
         "//native/factory-core:materials_test",
         "//native/validation:tree_manifest_tests",
