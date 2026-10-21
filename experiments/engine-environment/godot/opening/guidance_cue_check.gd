@@ -532,7 +532,44 @@ func fixture() -> Dictionary:
 		"inventories": {"P": 0}, "actors": {"P": {"ready": true}},
 		"options": {"physical": true}}
 
+func check_native_route_report() -> void:
+	for view in [Opening.new(), SharedOpening.new()]:
+		view.client = "P"
+		view.state = {"options": {"native": true}, "inventories": {"P": 0}, "power_enabled": true,
+			"stock": {"source": 16, "collector": 0, "belt": 0, "input": 0, "held": 0, "output": 0},
+			"entities": {"collector": {"kind": "collector", "center": [0, 4, 4]},
+				"press": {"kind": "processor", "center": [12, 4, 4]}, "wheel": {"kind": "wheel"}},
+			"transmission_parts": {"a": {"kind": "shaft", "center": [4, 4, 4], "axis": 2},
+				"b": {"kind": "shaft", "center": [8, 4, 4], "axis": 2},
+				"c": {"kind": "shaft", "center": [0, 4, 8], "axis": 0},
+				"d": {"kind": "shaft", "center": [0, 4, 12], "axis": 0}},
+			"belt_spans": {"route": {"from": "a", "to": "b", "slots": [null, null]},
+				"diversion": {"from": "c", "to": "d", "slots": [null, null]}},
+			"motion": {"collector": {"state": "rotating"}, "press": {"state": "rotating"},
+				"a": {"state": "rotating", "numerator": -1}, "c": {"state": "rotating", "numerator": 1}},
+			"opening_engineering": {"P": {"schema": 1, "format": "factory-opening-engineering",
+				"actor": "P", "known_actor": true, "belt_forward": false}}}
+		var kinds := {"collector": true, "processor": true, "wheel": true}
+		var routes: Dictionary = view._guided_span_routes()
+		verify(routes.physical and not routes.powered, "Native diversion assessment overrides a geometric forward path.")
+		var advice: Dictionary = view._guided_step(kinds)
+		verify(advice.tool == "drive" and "branch" in advice.text, "The next step explains a possible diverting branch.")
+		view.state.opening_engineering.P.belt_forward = true
+		verify(view._guided_span_routes().powered, "A valid forward report preserves the working route.")
+		view.state.opening_engineering.P.actor = "Q"
+		verify(view._guided_span_routes().powered, "A report for another actor cannot change local route advice.")
+		view.state.erase("opening_engineering")
+		verify(view._guided_span_routes().powered, "A projection without a report retains geometric advice.")
+		view.free()
+
+func run_native_route_report() -> void:
+	check_native_route_report()
+	finish_checks()
+
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--route-report-only"):
+		run_native_route_report.call_deferred()
+		return
 	if OS.get_cmdline_user_args().has("--foundation-inspector-only"):
 		call_deferred("check_foundation_inspector")
 		return
@@ -646,4 +683,5 @@ func _initialize() -> void:
 	shared.state.erase("stock")
 	verify(shared._guided_placement_cell().is_empty(), "An unusable shared snapshot has no cue.")
 	shared.free()
+	check_native_route_report()
 	finish_checks()
