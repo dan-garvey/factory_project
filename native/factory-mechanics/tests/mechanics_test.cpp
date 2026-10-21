@@ -365,6 +365,62 @@ void one_tile_large_cogs() {
     }
 }
 
+void horizontal_belt_spans() {
+    for (const auto axle : {Axis::x, Axis::z}) {
+        const auto travel = axle == Axis::x ? std::size_t{2} : std::size_t{0};
+        const auto axial = static_cast<std::size_t>(axle);
+        Point start{}, middle{}, end{}, source{}, sink{};
+        middle[travel] = 8; end[travel] = 16;
+        source[axial] = -4; sink = end; sink[axial] = 4;
+        std::vector<Part> parts{{"a", Kind::shaft, start, axle, 0, 2},
+            {"b", Kind::shaft, middle, axle, 0, 2}, {"c", Kind::shaft, end, axle, 0, 2},
+            {"source", Kind::hub, source, axle, 0, 0}, {"sink", Kind::hub, sink, axle, 0, 0}};
+        const std::vector<mechanical::BeltSpan> belt{{"belt", "a", "c"}};
+        motion(mechanical::evaluate(parts, {{"source", {3, 2}}}), "c", MotionState::unpowered, {0, 1});
+        const auto driven = mechanical::evaluate(parts, {{"source", {3, 2}}}, belt);
+        motion(driven, "b", MotionState::rotating, {3, 2});
+        motion(driven, "sink", MotionState::rotating, {3, 2});
+        motion(mechanical::evaluate(parts, {{"sink", {-2, 3}}}, belt), "a", MotionState::rotating, {-2, 3});
+        motion(mechanical::evaluate(parts, {{"source", {0, 1}}}, belt), "c", MotionState::stopped, {0, 1});
+        motion(mechanical::evaluate(parts, {{"source", {1, 1}}, {"sink", {-1, 1}}}, belt),
+               "b", MotionState::stalled, {0, 1});
+        auto reversed_parts = parts;
+        std::reverse(reversed_parts.begin(), reversed_parts.end());
+        check(mechanical::evaluate(reversed_parts, {{"source", {3, 2}}}, {{"belt", "c", "a"}}) == driven,
+              "Belt engagement and exact motion are independent of input and endpoint order.");
+        auto without_middle = parts;
+        without_middle.erase(std::find_if(without_middle.begin(), without_middle.end(),
+            [](const Part& item) { return item.id == "b"; }));
+        motion(mechanical::evaluate(without_middle, {{"source", {1, 1}}}, belt), "c", MotionState::rotating, {1, 1});
+        auto blocked = parts; part(blocked, "b").kind = Kind::hub; part(blocked, "b").half_span = 0;
+        const auto refusal = mechanical::evaluate(blocked, {{"source", {1, 1}}}, belt);
+        check(refusal.error == Error::invalid_belt && refusal.motion.empty() && refusal.engagements.empty(),
+              "An obstructed span is refused without partial motion.");
+        blocked = parts; part(blocked, "b").axis = axle == Axis::x ? Axis::z : Axis::x;
+        check(mechanical::evaluate(blocked, {}, belt).error == Error::invalid_belt,
+              "A misaligned intermediate shaft obstructs the belt.");
+        blocked = parts; part(blocked, "c").center[1] += 4;
+        check(mechanical::evaluate(blocked, {}, belt).error == Error::invalid_belt,
+              "The horizontal profile refuses a sloping span.");
+        blocked = parts; part(blocked, "c").center[travel] = 80;
+        check(mechanical::evaluate(blocked, {}, belt).error == Error::invalid_belt,
+              "The bounded profile refuses more than twenty tiles.");
+        part(blocked, "c").center[travel] = 76;
+        part(blocked, "sink").center[travel] = 76;
+        motion(mechanical::evaluate(blocked, {{"source", {1, 1}}}, belt), "sink", MotionState::rotating, {1, 1});
+        blocked = parts; part(blocked, "c").center[travel] += 1;
+        check(mechanical::evaluate(blocked, {}, belt).error == Error::invalid_belt,
+              "A shaft endpoint between common tile centers is refused.");
+        blocked = parts; part(blocked, "c").kind = Kind::hub; part(blocked, "c").half_span = 0;
+        check(mechanical::evaluate(blocked, {}, belt).error == Error::invalid_belt,
+              "A machine hub cannot impersonate an endpoint shaft tile.");
+        check(mechanical::evaluate(parts, {}, {{"belt", "a", "c"}, {"second", "a", "b"}}).error == Error::invalid_belt,
+              "Two spans cannot occupy the same belt tile.");
+        check(mechanical::evaluate(parts, {}, {{"belt", "a", "missing"}}).error == Error::invalid_belt,
+              "A span requires both real shaft identities.");
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -373,6 +429,7 @@ int main() {
         shafts_and_sources();
         one_tile_shaft_faces();
         one_tile_large_cogs();
+        horizontal_belt_spans();
         local_conflicts();
         bounded_diagnostics();
         validation_and_arithmetic();

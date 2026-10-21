@@ -46,7 +46,16 @@ struct Drive {
     bool operator==(const Drive&) const = default;
 };
 
-enum class EngagementKind { external_mesh, coaxial_shaft };
+// A placed belt is an explicit span, not an arbitrary power edge. Its ends
+// identify shaft tiles; intermediate aligned shaft tiles also participate.
+struct BeltSpan {
+    std::string id;
+    std::string first_shaft;
+    std::string last_shaft;
+    bool operator==(const BeltSpan&) const = default;
+};
+
+enum class EngagementKind { external_mesh, coaxial_shaft, belt };
 struct Engagement {
     std::string a;
     std::string b;
@@ -74,6 +83,7 @@ enum class Error {
     invalid_part,
     duplicate_identity,
     invalid_drive,
+    invalid_belt,
     overlapping_gears,
     rate_overflow,
 };
@@ -91,10 +101,11 @@ struct Result {
 [[nodiscard]] const char* error_name(Error) noexcept;
 [[nodiscard]] const char* motion_state_name(MotionState) noexcept;
 
-// Pure, bounded derivation. There is deliberately no input edge list.
+// Pure, bounded derivation. Belt spans are validated geometry, not input edges.
 // Validation or arithmetic failure publishes no partial engagement/motion map.
 // Ratio conflicts stall only their connected component. Contact/load/phase,
 // quantities, construction admission and persistence belong to the authority.
-[[nodiscard]] Result evaluate(const std::vector<Part>&, const std::vector<Drive>&);
+[[nodiscard]] Result evaluate(const std::vector<Part>&, const std::vector<Drive>&,
+                              const std::vector<BeltSpan>& belts = {});
 
 }  // namespace factory::mechanics
