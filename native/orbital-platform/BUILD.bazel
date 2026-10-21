@@ -1,0 +1,32 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "platform",
+    srcs = ["src/platform.cpp"],
+    hdrs = ["include/factory/orbital_platform.hpp"],
+    strip_include_prefix = "include",
+    deps = ["//native/scotch-yoke:yoke"],
+)
+
+cc_library(
+    name = "workbench",
+    srcs = ["src/workbench.cpp"],
+    hdrs = ["include/factory/orbital_platform_workbench.hpp"],
+    strip_include_prefix = "include",
+    deps = [":platform", "//native/geared-cycle:workbench"],
+)
+
+cc_binary(
+    name = "orbital_case",
+    srcs = ["src/main.cpp"],
+    deps = [":workbench"],
+)
+
+cc_test(
+    name = "platform_test",
+    size = "small",
+    srcs = ["tests/platform_test.cpp"],
+    deps = [":workbench"],
+)
