@@ -13,6 +13,8 @@ var model
 var bodies: Dictionary = {}
 var machines: Dictionary = {}
 var machine_specs: Dictionary = {}
+var mechanical_bodies: Dictionary = {}
+var mechanical_specs: Dictionary = {}
 var foundations: Dictionary = {}
 var foundation_specs: Dictionary = {}
 var seeds: Dictionary = {}
@@ -115,6 +117,33 @@ func sync_topology() -> Dictionary:
 	if model == null or not is_inside_tree():
 		return {"accepted": false, "reason": "not_configured"}
 	var snapshot: Dictionary = model.projection()
+	var derived: Dictionary = Geometry.mechanical_boxes(snapshot)
+	if not derived.get("accepted", false):
+		return {"accepted": false, "reason": "invalid_transmission_topology"}
+	var boxes: Dictionary = derived.boxes
+	for id in mechanical_bodies.keys():
+		if not boxes.has(id) or mechanical_specs[id] != boxes[id]:
+			var old: StaticBody3D = mechanical_bodies[id]
+			remove_child(old)
+			old.queue_free()
+			mechanical_bodies.erase(id)
+			mechanical_specs.erase(id)
+	for id in boxes:
+		if mechanical_bodies.has(id):
+			continue
+		var body := StaticBody3D.new()
+		body.set_meta("transmission", id)
+		body.collision_layer = Geometry.MACHINE_LAYER
+		body.collision_mask = Geometry.ACTOR_LAYER
+		body.position = boxes[id].center
+		var collider := CollisionShape3D.new()
+		var shape := BoxShape3D.new()
+		shape.size = boxes[id].size
+		collider.shape = shape
+		body.add_child(collider)
+		mechanical_bodies[id] = body
+		mechanical_specs[id] = boxes[id].duplicate(true)
+		add_child(body)
 	var entities: Dictionary = snapshot.get("entities", {})
 	for entity in machines.keys():
 		if not entities.has(entity) or machine_specs[entity] != entities[entity]:
@@ -229,6 +258,23 @@ func _geometry_registered() -> bool:
 	if floor_body == null or global_transform != Transform3D.IDENTITY:
 		return false
 	var space: RID = get_world_3d().space
+	var derived: Dictionary = Geometry.mechanical_boxes(model.projection())
+	if not derived.get("accepted", false) or derived.boxes != mechanical_specs or mechanical_bodies.size() != mechanical_specs.size():
+		return false
+	for id in mechanical_bodies:
+		var body: StaticBody3D = mechanical_bodies[id]
+		var rid: RID = body.get_rid()
+		var spec: Dictionary = mechanical_specs[id]
+		var pose: Transform3D = PhysicsServer3D.body_get_state(rid, PhysicsServer3D.BODY_STATE_TRANSFORM)
+		if PhysicsServer3D.body_get_space(rid) != space or PhysicsServer3D.body_get_shape_count(rid) != 1 or PhysicsServer3D.body_get_collision_layer(rid) != Geometry.MACHINE_LAYER:
+			return false
+		if pose.basis != Basis.IDENTITY or pose.origin.distance_to(spec.center) > Geometry.NATIVE_POSE_EPSILON or body.position.distance_to(spec.center) > Geometry.NATIVE_POSE_EPSILON:
+			return false
+		if PhysicsServer3D.body_get_shape_transform(rid, 0) != Transform3D.IDENTITY:
+			return false
+		var data: Variant = PhysicsServer3D.shape_get_data(PhysicsServer3D.body_get_shape(rid, 0))
+		if not data is Vector3 or data.distance_to(spec.size / 2.0) > Geometry.NATIVE_POSE_EPSILON:
+			return false
 	for id in foundations:
 		var body: StaticBody3D = foundations[id]
 		var rid: RID = body.get_rid()
@@ -381,6 +427,8 @@ func _penetration(actor: String, other: RID) -> Dictionary:
 	var owned := false
 	for machine in machines.values():
 		owned = owned or machine.get_rid() == other
+	for mechanical in mechanical_bodies.values():
+		owned = owned or mechanical.get_rid() == other
 	var foundation_owned := false
 	for foundation in foundations.values():
 		foundation_owned = foundation_owned or foundation.get_rid() == other

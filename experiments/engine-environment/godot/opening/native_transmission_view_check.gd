@@ -1,6 +1,7 @@
 extends SceneTree
 ## Invented confirmed projections and a request sink, never a Model or game.
 const Controls = preload("res://opening/native_transmission_controls.gd")
+const Geometry = preload("res://opening/site_geometry.gd")
 const Presenter = preload("res://opening/native_transmission_presenter.gd")
 const LooseControls = preload("res://opening/recovery_actions.gd").LooseMaterialControls
 const Session = preload("res://opening-session/session.gd")
@@ -472,6 +473,41 @@ func _loose_material() -> void:
 	verify(session.projection().dropped_raw.is_empty(), "A later confirmed Session frame removes the picked-up stack.")
 	session.free()
 
+func _mechanical_collision_geometry() -> void:
+	var state := {"options": {"native": true}, "transmission_parts": {
+		"a": {"kind": "shaft", "center": [0, 0, 0], "axis": 2, "half_span": 2},
+		"b": {"kind": "shaft", "center": [8, 0, 0], "axis": 2, "half_span": 2},
+		"c": {"kind": "gear", "center": [0, 4, 4], "axis": 0, "teeth": 4}},
+		"belt_spans": {"belt": {"from": "a", "to": "b"}}}
+	var result := Geometry.mechanical_boxes(state)
+	verify(result.accepted and result.boxes.size() == 4, "Every confirmed mechanical part receives exactly one body.")
+	verify(result.boxes.a.center.is_equal_approx(Vector3(0, 0.5, 0)) and result.boxes.a.size.is_equal_approx(Vector3(0.2, 0.2, 1.65)), "Shaft bounds match Host placement dimensions.")
+	verify(result.boxes.c.center.is_equal_approx(Vector3(0, 2.15, 1.65)) and result.boxes.c.size.is_equal_approx(Vector3(0.08, 1.65, 1.65)), "Cog bounds use the axle plane and shared height origin.")
+	verify(result.boxes.belt.center.is_equal_approx(Vector3(1.65, 0.5, 0)) and result.boxes.belt.size.is_equal_approx(Vector3(4.95, 0.3, 0.6)), "Belt bounds cover every tile including both pulleys.")
+	var reversed: Dictionary = state.duplicate(true)
+	reversed.belt_spans.belt = {"from": "b", "to": "a"}
+	verify(Geometry.mechanical_boxes(reversed).boxes.belt == result.boxes.belt, "Reversing endpoints preserves physical bounds.")
+	var moved: Dictionary = state.duplicate(true)
+	moved.transmission_parts.b.center = [0, 0, 8]
+	moved.transmission_parts.a.axis = 0
+	moved.transmission_parts.b.axis = 0
+	var rotated := Geometry.mechanical_boxes(moved)
+	verify(rotated.accepted and rotated.boxes.belt.size.is_equal_approx(Vector3(0.6, 0.3, 4.95)), "The other horizontal direction rotates the span bounds.")
+	var removed: Dictionary = state.duplicate(true)
+	removed.belt_spans.clear()
+	removed.transmission_parts.erase("b")
+	verify(Geometry.mechanical_boxes(removed).boxes.size() == 2, "Removing a span and shaft removes their derived bodies.")
+	for fault: String in ["missing_endpoint", "off_grid", "invalid_axis", "too_long", "duplicate_identity"]:
+		var bad: Dictionary = state.duplicate(true)
+		match fault:
+			"missing_endpoint": bad.belt_spans.belt.to = "missing"
+			"off_grid": bad.transmission_parts.a.center = [1, 0, 0]
+			"invalid_axis": bad.transmission_parts.a.axis = true
+			"too_long": bad.transmission_parts.b.center = [80, 0, 0]
+			"duplicate_identity": bad.belt_spans = {"a": {"from": "a", "to": "b"}}
+		verify(not Geometry.mechanical_boxes(bad).accepted, "Malformed %s topology fails closed." % fault)
+	verify(Geometry.mechanical_boxes({"options": {"native": false}}).boxes.is_empty(), "Legacy fixtures do not invent transmission bodies.")
+
 func _run() -> void:
 	if "--tool-guidance-only" in OS.get_cmdline_user_args():
 		_tool_guidance()
@@ -481,6 +517,8 @@ func _run() -> void:
 		_direction_basis()
 	elif "--loose-material-only" in OS.get_cmdline_user_args():
 		_loose_material()
+	elif "--mechanical-collision-only" in OS.get_cmdline_user_args():
+		_mechanical_collision_geometry()
 	else:
 		_controls()
 		_gear_sizes()
