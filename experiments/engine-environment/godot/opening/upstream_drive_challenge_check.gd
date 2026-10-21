@@ -140,13 +140,31 @@ func _run_native_example() -> void:
 	example.set_lesson(1)
 	var running: Dictionary = example.model.projection()
 	verify(running.powered and not example.step_button.disabled, "Drive lesson starts the actual waterwheel.")
-	var moving_shaft := str(running.belt_spans.values()[0].from)
+	var belt: Dictionary = running.belt_spans.values()[0]
+	var moving_shaft := str(belt.from)
+	var start: Dictionary = running.transmission_parts[moving_shaft]
+	var end: Dictionary = running.transmission_parts[str(belt.to)]
+	var rate: Dictionary = running.motion[moving_shaft]
+	verify(start.axis == 2 and end.axis == 2 and start.center == [4, 4, 4] and end.center == [8, 4, 4],
+		"The working example's one-tile shaft axles cross its +X material path.")
+	verify(rate.state == "rotating" and rate.numerator < 0 and rate.denominator > 0,
+		"The confirmed -Z shaft rotation moves the belt top toward the press.")
 	example.world._process(0.05)
 	verify(example.world.transmission_presenter.visual_rotation(moving_shaft) != 0.0,
 		"The example animates the belt from its confirmed native shaft rate.")
 	var before_step: int = running.revision
 	example._step()
 	verify(example.model.projection().revision > before_step and example.ticks == 1, "One example step advances its native clock.")
+	var saw_belt_blank := false
+	for turn in range(64):
+		var current: Dictionary = example.model.projection()
+		for slot: Variant in current.belt_spans.values()[0].slots:
+			if slot is Dictionary and int(slot.get("raw", 0)) > 0:
+				saw_belt_blank = true
+		if saw_belt_blank:
+			break
+		example._step()
+	verify(saw_belt_blank, "A real collected blank enters the illustrated shaft-driven belt before the lesson reset.")
 	example.set_lesson(2)
 	var working: Dictionary = example.model.projection()
 	verify(working.stock.held > 0 and example.ticks > 0, "The work lesson contains an actual in-progress lot.")
@@ -160,6 +178,6 @@ func _run_native_example() -> void:
 		"Retrieving the plate credits only the example and resumes its clock.")
 	verify(player.checkpoint() == original, "Lesson setup, ticks and retrieval do not mutate the player's native state.")
 	example.queue_free()
-	var ok := failures == 0 and checks >= 13
+	var ok := failures == 0 and checks >= 16
 	print("NATIVE_EXAMPLE_%s %d" % ["PASS" if ok else "FAIL", checks])
 	quit(0 if ok else 1)
