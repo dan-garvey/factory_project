@@ -7,7 +7,10 @@ exports_files([
 
 test_suite(
     name = "native_tests",
-    tests = ["//native/factory-core:materials_test"],
+    tests = [
+        "//native/factory-core:materials_test",
+        "//native/validation:tree_manifest_tests",
+    ],
 )
 
 alias(

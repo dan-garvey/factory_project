@@ -1,0 +1,22 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "tree_manifest",
+    srcs = ["tree_manifest.cpp"],
+    hdrs = ["tree_manifest.hpp"],
+)
+
+cc_binary(
+    name = "tree_manifest_cli",
+    srcs = ["tree_manifest_main.cpp"],
+    deps = [":tree_manifest"],
+)
+
+cc_test(
+    name = "tree_manifest_tests",
+    srcs = ["tree_manifest_tests.cpp"],
+    deps = [":tree_manifest"],
+    size = "small",
+)
