@@ -6,6 +6,111 @@ var checks := 0
 var failed := false
 var preview_directory := ""
 var samples: Array = []
+const IMPACT_PINS := {
+	"impactMetal_light_001.ogg": "fba69c467ddd85da7b1d82e259f936b876d9ba6a3d6f1b24bdd10468e46bfe08",
+	"impactMetal_light_003.ogg": "92d5db6bfc672d9dc1b4f390b2900504f013187fa36335472554fafefa9050b1",
+	"impactMetal_light_004.ogg": "9b1c35820fba507081261f19ab5f461f69a5e2627a7d91acdb73ca3cfc997979",
+	"impactMetal_medium_002.ogg": "7e89ce2ca0dbda95ea2b78d4b50791cab35c10d20e9f5ccd45dd0b00e99ff548",
+	"impactSoft_heavy_000.ogg": "49e7ca88743fca974bb8676ea138b751cfd8f9033b5e7af8736c2a215d6edbc1",
+	"impactSoft_medium_001.ogg": "7642a4fd43e547afe4f7adfadb3dabb681c0ff512f52c1674bae30a726841faf",
+	"impactWood_heavy_001.ogg": "f1b07a53ac10c615fff9ba470511fdeb722b5902e1a8520759fc20ad6f546015"}
+const IMPACT_RECIPE := {
+	"belt_snap": {"duration": 0.42, "layers": [["impactSoft_heavy_000.ogg", 0.0, 0.72], ["impactMetal_light_003.ogg", 0.035, 0.38]]},
+	"assembly": {"duration": 0.42, "layers": [["impactWood_heavy_001.ogg", 0.0, 0.65], ["impactMetal_medium_002.ogg", 0.015, 0.7]]},
+	"coupling": {"duration": 0.28, "layers": [["impactMetal_light_001.ogg", 0.0, 1.0]]},
+	"release": {"duration": 0.26, "layers": [["impactSoft_medium_001.ogg", 0.0, 0.55], ["impactMetal_light_004.ogg", 0.012, 0.35]]}}
+
+func prepare_impact_cues() -> void:
+	var args := OS.get_cmdline_user_args()
+	if args.size() != 3 or AudioServer.get_mix_rate() != 44100:
+		push_error("Use --prepare-impact-cues SOURCE OUTPUT with the pinned 44100 Hz mixer.")
+		quit(1)
+		return
+	var source := args[1]
+	var output := args[2]
+	for cue in IMPACT_RECIPE:
+		if FileAccess.file_exists(output.path_join(cue + ".wav")):
+			push_error("Refuse an existing prepared construction cue.")
+			quit(1)
+			return
+	for file in IMPACT_PINS:
+		if FileAccess.get_sha256(source.path_join(file)) != IMPACT_PINS[file]:
+			push_error("Refuse an unpinned impact source: " + file)
+			quit(1)
+			return
+	var decoded: Dictionary = {}
+	var report := {"status": "pass", "mix_rate": 44100, "sources": {}, "cues": {}}
+	for file in IMPACT_PINS:
+		var input := AudioStreamOggVorbis.load_from_file(source.path_join(file))
+		if input == null or input.get_length() <= 0.0 or input.get_length() > 1.0:
+			push_error("Invalid bounded source impact: " + file)
+			quit(1)
+			return
+		input.loop = false
+		var playback := input.instantiate_playback()
+		playback.start()
+		var frames := playback.mix_audio(1.0, ceili(input.get_length() * 44100.0) + 256)
+		playback.stop()
+		var mono := PackedFloat32Array()
+		mono.resize(frames.size())
+		var peak := 0.0
+		var valid := true
+		for n in range(frames.size()):
+			mono[n] = (frames[n].x + frames[n].y) * 0.5
+			valid = valid and is_finite(mono[n])
+			peak = maxf(peak, absf(mono[n]))
+		if mono.is_empty() or not valid or not is_finite(peak) or peak < 0.001 or peak > 2.0:
+			push_error("The decoded impact is silent or invalid: " + file)
+			quit(1)
+			return
+		decoded[file] = mono
+		report.sources[file] = {"frames": frames.size(), "mono_peak": peak}
+	for cue in IMPACT_RECIPE:
+		var recipe: Dictionary = IMPACT_RECIPE[cue]
+		var count := roundi(recipe.duration * 44100.0)
+		var mixed := PackedFloat32Array()
+		mixed.resize(count)
+		for layer in recipe.layers:
+			var input: PackedFloat32Array = decoded[layer[0]]
+			var offset := roundi(layer[1] * 44100.0)
+			for n in range(mini(input.size(), count - offset)):
+				mixed[n + offset] += input[n] * layer[2]
+		var peak := 0.0
+		for n in range(count):
+			var t := float(n) / 44100.0
+			mixed[n] *= minf(1.0, t / 0.0025) * clampf((recipe.duration - t) / 0.03, 0.0, 1.0)
+			peak = maxf(peak, absf(mixed[n]))
+		if not is_finite(peak) or peak < 0.001:
+			push_error("The impact mix has no usable signal: " + cue)
+			quit(1)
+			return
+		var pcm := PackedByteArray()
+		pcm.resize(count * 2)
+		var sum_squares := 0.0
+		for n in range(count):
+			var sample := mixed[n] * (0.62 / peak) if n > 0 and n < count - 1 else 0.0
+			pcm.encode_s16(n * 2, roundi(sample * 32767.0))
+			sum_squares += sample * sample
+		var wav := AudioStreamWAV.new()
+		wav.format = AudioStreamWAV.FORMAT_16_BITS
+		wav.mix_rate = 44100
+		wav.stereo = false
+		wav.loop_mode = AudioStreamWAV.LOOP_DISABLED
+		wav.data = pcm
+		var path := output.path_join(cue + ".wav")
+		if wav.save_to_wav(path) != OK:
+			push_error("Cannot save prepared impact cue: " + cue)
+			quit(1)
+			return
+		var loaded := AudioStreamWAV.load_from_file(path)
+		if loaded == null or loaded.data != pcm or loaded.mix_rate != 44100 or loaded.stereo or loaded.format != AudioStreamWAV.FORMAT_16_BITS:
+			push_error("Prepared cue PCM changed on roundtrip: " + cue)
+			quit(1)
+			return
+		report.cues[cue] = {"frames": count, "duration": recipe.duration, "peak": 0.62,
+			"rms": sqrt(sum_squares / count), "exact_pcm_roundtrip": true, "sha256": FileAccess.get_sha256(path)}
+	print(JSON.stringify(report))
+	quit(0)
 
 class AuthorityStub:
 	extends RefCounted
@@ -57,6 +162,12 @@ func verify(condition: bool, message: String) -> void:
 		push_error(message)
 
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().size() > 0 and OS.get_cmdline_user_args()[0] == "--prepare-impact-cues":
+		prepare_impact_cues()
+		return
+	if OS.get_cmdline_user_args().has("--cache-release-only"):
+		call_deferred("run_cache_release")
+		return
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--audio-preview-directory="):
 			preview_directory = argument.trim_prefix("--audio-preview-directory=")
@@ -142,7 +253,7 @@ func check_samples() -> void:
 		var stream: AudioStreamWAV = Audio.make_stream(cue)
 		verify(stream == Audio.make_stream(cue) and stream.mix_rate == 44100
 			and not stream.stereo and stream.format == AudioStreamWAV.FORMAT_16_BITS
-			and stream.loop_mode == AudioStreamWAV.LOOP_DISABLED, "Original short sound resources are shared and never loop.")
+			and stream.loop_mode == AudioStreamWAV.LOOP_DISABLED, "Short sound resources are shared and never loop.")
 		var data := stream.data
 		var peak := 0.0
 		var energy := 0.0
@@ -152,15 +263,71 @@ func check_samples() -> void:
 			energy += value * value
 		var rms := sqrt(energy / float(data.size() / 2))
 		verify(stream.get_length() >= 0.15 and stream.get_length() <= 0.43 and peak < 0.8 and rms > 0.005,
-			"Each authored cue has finite duration, audible signal energy and digital headroom.")
+			"Each prepared or historical cue has finite duration, signal energy and digital headroom.")
 		verify(data.decode_s16(0) == 0 and data.decode_s16(data.size() - 2) == 0,
-			"Authored cues start and end at zero to avoid a hard boundary click.")
+			"Cues start and end at zero to avoid a hard boundary click.")
 		if not preview_directory.is_empty():
 			var target := preview_directory.path_join(cue + ".wav")
 			verify(not FileAccess.file_exists(target) and stream.save_to_wav(target) == OK,
 				"Retain each original cue for later human listening without replacing an artifact.")
 		samples.append({"cue": cue, "bytes": data.size(), "seconds": stream.get_length(), "peak": peak, "rms": rms})
 	verify(Audio.make_stream("unrecognized") == null, "Unknown events cannot invent an audio asset.")
+	var historical := OS.get_cmdline_user_args().has("--historical-samples")
+	verify(Audio.source_status == ("missing" if historical else "ready"),
+		"The actual captured file set, not a runtime switch, selects prepared or historical cues.")
+	if not historical:
+		for cue in Audio.FILES:
+			var data := Audio.make_stream(cue).data
+			verify(data == AudioStreamWAV.load_from_file(Audio.ROOT.path_join(Audio.FILES[cue])).data,
+				"Actual playback consumes the prepared PCM without runtime mixing or normalization.")
+	verify(Audio.read_samples("user://cue-controls/missing").status == "missing", "An absent set is explicit.")
+	var partial := "user://cue-controls/partial"
+	DirAccess.make_dir_recursive_absolute(partial)
+	var file := FileAccess.open(partial.path_join("belt_snap.wav"), FileAccess.WRITE)
+	if file != null:
+		file.store_string("partial control")
+		file.close()
+	verify(file != null and Audio.read_samples(partial).status == "invalid", "Partial sets cannot claim prepared cues.")
+	var old_streams: Dictionary = Audio.streams
+	var old_status := Audio.source_status
+	Audio.streams = {}
+	Audio.source_status = "invalid"
+	var silent := Audio.new()
+	root.add_child(silent)
+	var action := {"action": "place", "kind": "belt", "context": "unavailable", "client": "P", "request": "1"}
+	verify(not silent.confirmed(action, receipt(action), "unavailable") and silent.heard.is_empty(),
+		"Unavailable audio neither emits a cue nor remembers an unplayed acknowledgement.")
+	silent.free()
+	Audio.streams = old_streams
+	Audio.source_status = old_status
+
+func release_samples() -> bool:
+	var references: Array[WeakRef] = []
+	for cue in Audio.streams.keys():
+		references.append(weakref(Audio.streams[cue]))
+	Audio.streams.clear()
+	Audio.source_status = "uninitialized"
+	var deadline := Time.get_ticks_msec() + 2000
+	while true:
+		var remaining := 0
+		for reference in references:
+			if reference.get_ref() != null:
+				remaining += 1
+		if remaining == 0:
+			return true
+		if Time.get_ticks_msec() >= deadline:
+			push_error("Audio fixture still owns %d sample resources after release." % remaining)
+			return false
+		await process_frame
+	return false
+
+func run_cache_release() -> void:
+	for cue in Audio.FILES:
+		verify(Audio.make_stream(cue) != null, "The actual prepared sample enters its shared cache.")
+	verify(await release_samples(), "Fixture teardown releases every actual sample through weak-reference observation.")
+	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
+		"mode": "cache-release-only", "authority_started": false, "desktop": "not_used"}))
+	quit(1 if failed else 0)
 
 func run() -> void:
 	if not preview_directory.is_empty():
@@ -172,7 +339,9 @@ func run() -> void:
 	check_guards()
 	check_actual_hooks()
 	check_samples()
-	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks, "samples": samples,
-		"scope": "invented confirmation guards, actual view callbacks and original PCM assets",
+	var observed_source_status := Audio.source_status
+	verify(await release_samples(), "The fixture releases its sample cache before exiting.")
+	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks, "samples": samples, "source_status": observed_source_status,
+		"scope": "invented confirmation guards, actual view callbacks and captured PCM assets",
 		"native_decisions": "not_run", "audible_quality": "not_assessed", "desktop": "not_used"}))
 	quit(1 if failed else 0)
