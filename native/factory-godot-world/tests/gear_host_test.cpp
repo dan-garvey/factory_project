@@ -850,37 +850,57 @@ void complete_span_route_host(bool two_spans = false) {
           "The constructed route yields a finished product in the actor's custody.");
 }
 
-void rotated_belt_host() {
+void rotated_span_build_orders() {
     const std::array<std::array<int, 3>, 6> orders{{
         {{0, 1, 2}}, {{0, 2, 1}}, {{1, 0, 2}},
         {{1, 2, 0}}, {{2, 0, 1}}, {{2, 1, 0}}
     }};
-    const std::array<const char*, 3> kinds{{"collector", "belt", "processor"}};
     for (const auto& order : orders) {
         Host host;
         check(accepted(host.initialize("cog-api", {"P"})) &&
                   accepted(host.configure_terrain(factory::godot_world::tests::flat_site())),
               "The rotated route binds a synthetic flat site.");
-        std::array<std::string, 3> ids;
         I epoch = 0;
+        const auto at = [&](double z) { observe(host, -1.65, z, ++epoch); };
+        for (const I z : {I{0}, I{3}}) {
+            at(static_cast<double>(z) * 1.65);
+            const auto id = "rotated-base-" + std::to_string(z);
+            auto base = wire("place_foundation", id.c_str());
+            base.emplace("cell", V(A{V(I{0}), V(z)})); base.emplace("level", V(I{4}));
+            create(host, base);
+        }
+        at(1.65);
+        const auto first = create(host, shaft(0, 4, 4, "rotated-first", "x"));
+        at(3.3);
+        const auto last = create(host, shaft(0, 4, 8, "rotated-last", "x"));
+        std::array<std::string, 3> ids;
         for (int index : order) {
-            observe(host, -1.65, 1.65 * (index + 1), ++epoch);
+            at(1.65 * (index == 0 ? 0 : index == 1 ? 1.5 : 3));
             const auto request = "rotated-" + std::to_string(index);
-            auto command = machine(kinds[index], 0, request.c_str(), index == 1 ? "x" : "z");
-            command.at("cell") = V(A{V(I{0}), V(I{index + 1})});
+            auto command = index == 1 ? wire("place_belt_span", request.c_str()) :
+                machine(index == 0 ? "collector" : "processor", 0, request.c_str(), "x");
+            if (index == 1) {
+                command.emplace("from", V(first)); command.emplace("to", V(last));
+            } else {
+                command.at("cell") = V(A{V(I{0}), V(I{index == 0 ? 0 : 3})});
+                command.emplace("level", V(I{4}));
+            }
             ids[index] = create(host, command);
         }
         const auto projection = host.projection();
-        const auto& links = field<A>(projection, "links");
-        check(links.size() == 2 && field<I>(V(field<O>(projection, "entities").at(ids[1])), "axis") == 0,
-              "The Z material line auto-connects for every placement order and projects an X axle.");
+        const auto span = field<O>(projection, "belt_spans").at(ids[1]);
+        check(field<A>(projection, "links").empty() && field<std::string>(span, "from") == first &&
+                  field<std::string>(span, "to") == last &&
+                  field<I>(field<O>(projection, "transmission_parts").at(first), "axis") == 0 &&
+                  field<I>(V(field<O>(projection, "parts")), "belt") == 1,
+              "Each order constructs the Z span on X-axis shafts and consumes one finite belt without machine links.");
         const auto saved = host.checkpoint();
         Host restored;
         check(accepted(restored.initialize("fresh", {"P"})) &&
                   accepted(restored.configure_terrain(factory::godot_world::tests::flat_site())) &&
                   accepted(restored.restore_checkpoint(saved)) &&
                   !factory::values::typed_difference(saved, restored.checkpoint()),
-              "The rotated line and its historical requests restore exactly.");
+              "The rotated span, machines and their historical requests restore exactly.");
     }
 }
 
@@ -1418,7 +1438,7 @@ int main(int argc, char** argv) {
         }
         if (argc == 1) {
             finite_oriented_train_and_restore(); adjacent_axle_faces(); refusals_and_legacy_shape(); cog_axle_actor_clearance(); cog_at_belt_face(); transmission_site_clearance(); transmission_terrain_clearance(); transmission_foundation_clearance(); one_tile_placement();
-            transmission_tile_center(); global_grid(); finite_large_cog(); perpendicular_belt_line(); belt_spindle_orientation(); typed_loose_host(); select_belt_shaft_host(); long_selected_belt_host(); belt_span_host_commands(); nonhorizontal_span_host(); complete_span_route_host(); complete_span_route_host(true); rotated_belt_host(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
+            transmission_tile_center(); global_grid(); finite_large_cog(); perpendicular_belt_line(); belt_spindle_orientation(); typed_loose_host(); select_belt_shaft_host(); long_selected_belt_host(); belt_span_host_commands(); nonhorizontal_span_host(); complete_span_route_host(); complete_span_route_host(true); rotated_span_build_orders(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
         } else if (argc != 2 || std::string(argv[1]) != "--placement-alias-only") {
             throw std::runtime_error("Expected no arguments or --placement-alias-only.");
         }
