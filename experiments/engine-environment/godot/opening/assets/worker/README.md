@@ -34,7 +34,9 @@ The [neutral female run clip](https://github.com/microsoft/Microsoft-Rocketbox/b
 comes from the same Rocketbox library. Its compact native Godot animation resource
 keeps 34 named-skeleton rotation and translation tracks. The matching [neutral female walk clip](https://github.com/microsoft/Microsoft-Rocketbox/blob/0943055db6ec570bcef9f2c8b41c9e5467c808f9/Assets/Animations/all_animations_max_motextr_xy/f_walk_neutral.max.fbx)
 contributes 56 named-skeleton tracks. One walk cycle advances per 1.30 metres
-and one run cycle per 1.65 metres of confirmed horizontal travel. Observed
+and one run cycle per 2.30 metres of confirmed horizontal travel. The run
+distance matches the captured low-toe travel during support; the previous
+1.65-metre timing moved the low toes backward against confirmed travel. Observed
 speed blends the walk into the run from 1.15 to 2.35 metres per second; the
 pose then settles toward rest when travel stops. Both imported clips begin
 in a stride pose. Their leg rotations retain those absolute source poses in

@@ -3,7 +3,7 @@ extends Node3D
 ## every physical pose; these meshes never grant construction permission.
 const Geometry = preload("res://opening/site_geometry.gd")
 const ADULT_ASSETS := "res://opening/assets/worker/"
-const GAIT_CYCLE_DISTANCE := 1.65
+const GAIT_CYCLE_DISTANCE := 2.30
 const WALK_CYCLE_DISTANCE := 1.30
 const FULL_GAIT_SPEED := 2.4
 const RUN_BLEND_START := 1.15
