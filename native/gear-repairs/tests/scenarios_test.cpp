@@ -41,7 +41,9 @@ Fixture fixture(const std::string& id, const std::string& suffix) {
     check(state.material.initial_units == 16 && state.material.stock.source == 16 && state.material.cargo.at("P").products == 0,
           "Every new puzzle starts with original finite stock and no credited product.");
     const auto power = w::machine_power(state.topology);
-    check(!power.collector && power.belt && power.processor, "Only the collector's geometric drive is incomplete.");
+    check(!power.collector && power.processor &&
+          s::power_view(state.topology).mechanical.motion.at("pulley-first").state == g::MotionState::rotating,
+          "Only the collector's geometric drive is incomplete.");
     return result;
 }
 
@@ -89,7 +91,8 @@ void repair_power(Fixture& fixture, g::Rate rate) {
     const auto state = fixture.simulation->snapshot().state;
     const auto power = w::machine_power(state.topology);
     const auto motion = s::power_view(state.topology).mechanical;
-    check(power.collector && power.belt && power.processor && motion.motion.at("collector").rate == rate,
+    check(power.collector && power.processor && motion.motion.at("pulley-first").state == g::MotionState::rotating &&
+          motion.motion.at("collector").rate == rate,
           "The repaired geometry supplies the exact expected signed rate and real local production power.");
     for (const auto& [specification, amount] : state.kits.at("P")) {
         (void)specification;
@@ -192,17 +195,17 @@ std::string plates() {
 
 void terminal() {
     const auto idler = run("gear-idler", "walk west 4\nplace gear -4 0 0 z 3\nplace gear -4 4 0 z 2\nwait 8\n"
-        "remove native-part-1\nplace gear -4 0 0 z 2\ninspect\nwalk east 8\nwalk east 2\nwalk south 4\n" + plates());
+        "remove native-part-1\nplace gear -4 0 0 z 2\ninspect\nwalk east 8\nwalk east 6\nwalk south 4\n" + plates());
     check(idler.code == 0 && idler.errors.empty() && idler.output.find("Held: unavailable_part") != std::string::npos &&
           idler.output.find("native-part-2 generation=2 gear at=-4,0,0 axis=z teeth=2 rotation=rotating rate=1/1") != std::string::npos,
           "Interactive gear construction exposes finite refusal, correction, fresh identity and actual derived motion.");
     const auto bend = run("gear-bend", "place gear -12 0 0 y 2\nwalk west 8\nwalk west 4\nplace gear -12 0 0 y 2\n"
-        "wait 8\nplace gear -12 0 4 y 2\ninspect\nwalk east 8\nwalk east 4\nwalk north 4\n" + plates());
+        "wait 8\nplace gear -12 0 4 y 2\ninspect\nwalk east 8\nwalk east 8\nwalk north 4\n" + plates());
     check(bend.code == 0 && bend.errors.empty() && bend.output.find("Held: out_of_reach") != std::string::npos &&
           bend.output.find("collector generation=1 collector at=-8,4,4 axis=y rotation=rotating rate=1/1") != std::string::npos,
           "The terminal completes a real two-gear route after nearby construction, with signed rate inspection.");
     const auto riser = run("gear-riser", "walk west 4\nplace shaft -4 4 0 y 2\nwait 8\ninspect\nremove native-part-1\n"
-        "place shaft -4 -4 0 y 2\ninspect\nwalk east 8\nwalk east 4\n" + plates());
+        "place shaft -4 -4 0 y 2\ninspect\nwalk east 8\nwalk east 8\n" + plates());
     check(riser.code == 0 && riser.errors.empty() &&
           riser.output.find("gear-high generation=1 gear at=-4,0,0 axis=y teeth=2 rotation=unpowered rate=0/1") != std::string::npos &&
           riser.output.find("gear-high generation=1 gear at=-4,0,0 axis=y teeth=2 rotation=rotating rate=1/1") != std::string::npos,
