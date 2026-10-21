@@ -2,12 +2,21 @@
 
 `factory-gameplay-build` builds the canonical native World target and refreshes
 the human launcher's gameplay-library pins after success. It never launches Godot
-or controls a desktop. A plain `bazel build` remains an artifact-only operation;
-use this command when delivering a native change to the human demo.
+or controls a desktop. The Windows shortcut uses the tracked
+`scripts/ensure-gameplay-library.sh` check: when current main has newer
+production inputs, it invokes this build once, reloads the updated pins and
+then continues. A failed build leaves the shortcut closed and retains the old
+installation. `--prepare-only` exercises that preparation without starting the
+game; `--check` only validates the existing installation.
+
+A pre-merge Bazel test or build checks an agent's branch, which may never reach
+main. It does not update the human shortcut. A plain `bazel build` remains an
+artifact-only operation. The shortcut prepares its own current-main library
+when the human opens it.
 
 After one-time repository-local configuration, the normal entry point is
 `./scripts/build-gameplay.sh`. It takes one native heavy admission, builds, then
-installs on verified success; no manual launcher edit is needed. Configure the
+installs on verified success; the shortcut calls it when needed. Configure the
 absolute owned paths and the retained tool's verified hash:
 
 ```bash
