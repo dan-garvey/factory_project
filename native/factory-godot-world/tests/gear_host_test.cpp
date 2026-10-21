@@ -958,50 +958,59 @@ void cross_axis_belt_line() {
     I epoch{};
     const auto at = [&](double x, double z) { observe(host, x, z, ++epoch); };
     at(0, 0);
-    auto base = wire("place_foundations", "cross-bases");
-    base.emplace("cell", V(A{V(I{0}), V(I{1})}));
-    base.emplace("end_cell", V(A{V(I{2}), V(I{1})})); base.emplace("level", V(I{4}));
+    auto base = wire("place_foundation", "cross-collector-base");
+    base.emplace("cell", V(A{V(I{0}), V(I{1})})); base.emplace("level", V(I{4}));
     create(host, base);
-    const std::array<const char*, 4> roles{"wheel", "collector", "belt", "processor"};
-    std::array<std::string, 4> hubs;
-    for (std::size_t n = 0; n < hubs.size(); ++n) {
-        const I x = n == 0 ? -2 : static_cast<I>(n) - 1;
-        at(n == 0 ? -1.65 : static_cast<double>(x) * 1.65, n == 0 ? 3.3 : 0);
-        const auto id = "cross-machine-" + std::to_string(n);
-        auto machine_wire = machine(roles[n], x, id.c_str(), n ? "z" : "x");
-        if (n) machine_wire.emplace("level", V(I{4}));
-        hubs[n] = create(host, machine_wire);
-    }
+    auto collector_wire = machine("collector", 0, "cross-collector", "z");
+    collector_wire.emplace("level", V(I{4}));
+    const auto collector = create(host, collector_wire);
+    at(4.95, 0);
+    auto press_base = wire("place_foundation", "cross-press-base");
+    press_base.emplace("cell", V(A{V(I{3}), V(I{1})})); press_base.emplace("level", V(I{4}));
+    create(host, press_base);
+    auto press_wire = machine("processor", 3, "cross-press", "z");
+    press_wire.emplace("level", V(I{4}));
+    const auto press = create(host, press_wire);
+    at(-1.65, 3.3);
+    const auto wheel = create(host, machine("wheel", -2, "cross-wheel", "x"));
     at(-3.3, 0);
     const auto input = create(host, gear(-4, 4, 4, "cross-input", "x", 4));
     at(-3.3, 1.65);
     const auto output = create(host, gear(0, 4, 8, "cross-output", "z", 4));
-    std::array<std::string, 3> small;
+    std::array<std::string, 4> small;
     for (std::size_t n = 0; n < small.size(); ++n) {
         const I x = static_cast<I>(n) * 4;
         at(static_cast<double>(x) * 1.65 / 4.0, 3.3);
         const auto id = "cross-small-" + std::to_string(n);
         small[n] = create(host, gear(x, 4, 12, id.c_str(), "z", 2));
     }
-    at(-3.3, 3.3);
-    for (std::size_t n = 2; n < hubs.size(); ++n) {
-        at(static_cast<double>(n - 1) * 1.65, 0);
-        const auto id = "cross-machine-shaft-" + std::to_string(n);
-        check(accepted(host.command("P", shaft(static_cast<I>(n - 1) * 4, 4, 8, id.c_str()))),
-              "The actor installs one shaft tile between each machine and its cog.");
-    }
+    at(1.65, 0);
+    create(host, shaft(4, 4, 8, "cross-belt-drive"));
+    const auto first = create(host, shaft(4, 4, 4, "cross-belt-first"));
+    at(3.3, 0);
+    const auto last = create(host, shaft(8, 4, 4, "cross-belt-last"));
+    at(2.475, 0);
+    auto belt_wire = wire("place_belt_span", "cross-span");
+    belt_wire.emplace("from", V(first)); belt_wire.emplace("to", V(last));
+    const auto span = create(host, belt_wire);
+    at(4.95, 0);
+    create(host, shaft(12, 4, 8, "cross-press-drive"));
     at(-1.65, 0);
     auto power = wire("set_power", "cross-start"); power.emplace("active", V(true));
     check(accepted(host.command("P", power)), "The source starts the cross-axis line.");
-    for (std::size_t n = 1; n < hubs.size(); ++n) {
-        check(field<I>(motion(host, hubs[n]), "numerator") == (n % 2 ? -1 : 1) &&
-                  field<I>(motion(host, hubs[n]), "denominator") == 3,
-              "Every machine reports its signed cross-axis motion.");
-    }
+    check(field<I>(motion(host, wheel), "numerator") != 0 &&
+              field<I>(motion(host, collector), "numerator") == -1 &&
+              field<I>(motion(host, first), "numerator") == 1 &&
+              field<I>(motion(host, last), "numerator") == 1 &&
+              field<I>(motion(host, press), "numerator") == 1 &&
+              field<I>(motion(host, first), "denominator") == 3,
+          "The corner drives the collector, both parallel belt shafts and the press at the expected signed rates.");
     const auto advanced = host.advance();
+    const auto slots = field<A>(field<O>(advanced, "belt_spans").at(span), "slots");
     check(field<I>(V(field<O>(advanced, "stock")), "source") == 4095 &&
-              field<I>(V(field<O>(advanced, "stock")), "collector") == 1,
-          "The flowing wheel powers the collector and advances one source unit.");
+              field<I>(V(field<O>(advanced, "stock")), "collector") == 0 &&
+              field<I>(slots.front(), "raw") == 1,
+          "The flowing wheel powers the collector and transfers one source unit to the shaft span.");
     const auto saved = host.checkpoint();
     Host fresh;
     check(accepted(fresh.initialize("fresh", {"P"})) &&
@@ -1010,7 +1019,7 @@ void cross_axis_belt_line() {
           "The complete one-tile shaft route restores exactly in a fresh Host.");
     at(-3.3, 1.65);
     check(accepted(host.command("P", target("remove", output, "cross-remove"))) &&
-              field<std::string>(motion(host, hubs[2]), "state") != "rotating",
+              field<std::string>(motion(host, first), "state") != "rotating",
           "Removing the corner cog interrupts belt power.");
 }
 
@@ -1155,45 +1164,53 @@ void forward_belt_route() {
     I epoch{};
     const auto at = [&](double x, double z) { observe(host, x, z, ++epoch); };
     at(0, 0);
-    auto base = wire("place_foundations", "forward-bases");
-    base.emplace("cell", V(A{V(I{0}), V(I{1})}));
-    base.emplace("end_cell", V(A{V(I{2}), V(I{1})})); base.emplace("level", V(I{4}));
+    auto base = wire("place_foundation", "forward-collector-base");
+    base.emplace("cell", V(A{V(I{0}), V(I{1})})); base.emplace("level", V(I{4}));
     create(host, base);
-    const std::array<const char*, 4> roles{"wheel", "collector", "belt", "processor"};
-    std::array<std::string, 4> hubs;
-    for (std::size_t n = 0; n < hubs.size(); ++n) {
-        const I x = n == 0 ? -2 : static_cast<I>(n) - 1;
-        at(n == 0 ? -1.65 : static_cast<double>(x) * 1.65, n == 0 ? 3.3 : 0);
-        const auto id = "forward-machine-" + std::to_string(n);
-        auto machine_wire = machine(roles[n], x, id.c_str(), n ? "z" : "x");
-        if (n) machine_wire.emplace("level", V(I{4}));
-        hubs[n] = create(host, machine_wire);
-    }
+    auto collector_wire = machine("collector", 0, "forward-collector", "z");
+    collector_wire.emplace("level", V(I{4}));
+    const auto collector = create(host, collector_wire);
+    at(4.95, 0);
+    auto press_base = wire("place_foundation", "forward-press-base");
+    press_base.emplace("cell", V(A{V(I{3}), V(I{1})})); press_base.emplace("level", V(I{4}));
+    create(host, press_base);
+    auto press_wire = machine("processor", 3, "forward-press", "z");
+    press_wire.emplace("level", V(I{4}));
+    const auto press = create(host, press_wire);
+    at(-1.65, 3.3);
+    const auto wheel = create(host, machine("wheel", -2, "forward-wheel", "x"));
     at(-3.3, 0);
     create(host, gear(-4, 4, 4, "forward-input", "x", 4));
     at(-3.3, -1.65);
     create(host, gear(0, 4, 0, "forward-output", "z", 4));
-    std::array<std::string, 3> cogs;
+    std::array<std::string, 4> cogs;
     for (std::size_t n = 0; n < cogs.size(); ++n) {
         const I x = static_cast<I>(n) * 4;
         at(static_cast<double>(x) * 1.65 / 4.0, -3.3);
         const auto id = "forward-cog-" + std::to_string(n);
         cogs[n] = create(host, gear(x, 4, -4, id.c_str(), "z", 2));
     }
-    for (std::size_t n = 2; n < hubs.size(); ++n) {
-        at(static_cast<double>(n - 1) * 1.65, -3.3);
-        const auto id = "forward-shaft-" + std::to_string(n);
-        check(accepted(host.command("P", shaft(static_cast<I>(n - 1) * 4, 4, 0, id.c_str()))),
-              "The forward route connects each machine to its cog with one shaft tile.");
-    }
+    at(1.65, 0);
+    create(host, shaft(4, 4, 0, "forward-belt-drive"));
+    const auto first = create(host, shaft(4, 4, 4, "forward-first"));
+    at(3.3, 0);
+    const auto last = create(host, shaft(8, 4, 4, "forward-last"));
+    at(2.475, 0);
+    auto belt_wire = wire("place_belt_span", "forward-span");
+    belt_wire.emplace("from", V(first)); belt_wire.emplace("to", V(last));
+    create(host, belt_wire);
+    at(4.95, 0);
+    create(host, shaft(12, 4, 0, "forward-press-drive"));
     at(-3.3, 0);
     auto power = wire("set_power", "forward-start"); power.emplace("active", V(true));
     check(accepted(host.command("P", power)), "The extended cog train can start.");
-    const auto wheel_rate = field<I>(motion(host, hubs[0]), "numerator");
-    const auto belt_rate = field<I>(motion(host, hubs[2]), "numerator");
-    check(wheel_rate < 0 && belt_rate < 0 &&
-              field<I>(V(field<O>(host.projection(), "parts")), "gear") == 5,
-          "The raised corner cogs drive the belt forward within the finite kit; wheel=" +
+    const auto wheel_rate = field<I>(motion(host, wheel), "numerator");
+    const auto belt_rate = field<I>(motion(host, first), "numerator");
+    check(wheel_rate < 0 && belt_rate < 0 && field<I>(motion(host, last), "numerator") == belt_rate &&
+              field<std::string>(motion(host, collector), "state") == "rotating" &&
+              field<std::string>(motion(host, press), "state") == "rotating" &&
+              field<I>(V(field<O>(host.projection(), "parts")), "gear") == 4,
+          "The raised corner cogs drive the shaft span and press forward within the finite kit; wheel=" +
           std::to_string(wheel_rate) + ", belt=" + std::to_string(belt_rate) + ".");
 }
 void cog_at_belt_face() {
