@@ -232,6 +232,27 @@ func inspect_adult(body: Node3D, other: Node3D, presenter: Node) -> void:
 		and running_hands[0].L.y < running_hands[0].R.y - 0.10
 		and running_hands[1].L.y > running_hands[1].R.y + 0.10,
 		"The captured run alternates opposite arm positions and height through a complete stride.")
+	var walking_elbow_max := 0.0
+	var walking_hand_extent := {"L": [INF, -INF], "R": [INF, -INF]}
+	for sample in range(24):
+		presenter._set_gait(body, float(sample) * TAU / 24.0, 1.0, 0.0, 0.0, 0.0, 0.0)
+		skeleton.force_update_all_bone_transforms()
+		var arm_to_body := body.global_transform.affine_inverse() * skeleton.global_transform
+		for side in ["L", "R"]:
+			var shoulder: Vector3 = arm_to_body * skeleton.get_bone_global_pose(
+				skeleton.find_bone("Bip01 " + side + " UpperArm")).origin
+			var elbow: Vector3 = arm_to_body * skeleton.get_bone_global_pose(
+				skeleton.find_bone("Bip01 " + side + " Forearm")).origin
+			var wrist: Vector3 = arm_to_body * skeleton.get_bone_global_pose(
+				skeleton.find_bone("Bip01 " + side + " Hand")).origin
+			walking_elbow_max = maxf(walking_elbow_max,
+				rad_to_deg((shoulder - elbow).angle_to(wrist - elbow)))
+			walking_hand_extent[side][0] = minf(walking_hand_extent[side][0], wrist.z)
+			walking_hand_extent[side][1] = maxf(walking_hand_extent[side][1], wrist.z)
+			verify(absf(wrist.x) < 0.31, "Walking hands remain beside the trunk.")
+	verify(walking_elbow_max < 165.0 and walking_hand_extent.L[1] - walking_hand_extent.L[0] > 0.30
+		and walking_hand_extent.R[1] - walking_hand_extent.R[0] > 0.30,
+		"Walking elbows remain relaxed while both hands swing through a full stride.")
 	for mix in [0.0, 0.5, 1.0]:
 		var maximum := {"L": -INF, "R": -INF}
 		var minimum := {"L": INF, "R": INF}

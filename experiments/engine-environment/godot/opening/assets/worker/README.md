@@ -44,7 +44,10 @@ second; the pose then settles toward rest when travel stops. Both imported
 clips begin in a stride pose. Their leg rotations retain those absolute source
 poses in the matching named rig; subtracting the first frame removed the walk's left
 support step. Walk arm channels and non-leg torso channels remain relative to
-the first clip frame and the worker's lowered-arm standing pose. At run speed,
+the first clip frame and the worker's lowered-arm standing pose. The walking
+shoulder swing is shortened and both forearms retain a modest bend, so the
+hands move opposite each other without the clip's long, nearly locked reach.
+This adjustment fades through the walk-to-run blend. At run speed,
 the source upper-arm pose retains its absolute stride position; the forearms
 blend that pose toward a less raised elbow angle. A small forward spine pitch
 develops with the run blend, while the hands continue to swing opposite each
@@ -69,7 +72,7 @@ down on descent and compress at impact. The arms drive asymmetrically on takeoff
 and open for balance in flight. When recent confirmed horizontal travel reaches
 contact, the left boot reaches forward and takes the first load while the right
 leg trails. The torso leans over that support, both knees absorb the fall, and
-the trailing boot joins as the body recovers over 0.24 seconds. A stationary
+the trailing boot joins as the body recovers over 0.32 seconds. A stationary
 jump settles both boots under the body without inventing a forward recovery
 step. The airborne pose fades through this recovery
 instead of disappearing in four frames. The lower of the two posed toes anchors
@@ -94,7 +97,7 @@ rosters that omit this folder retain their identified procedural worker.
 `worker_rig_check.gd` exercises the actual presentation adapter using invented
 confirmed samples. It checks source bindings, captured walk and run poses,
 forward knee bending, planted toe height and horizontal stance travel,
-opposing running hands and bounded lateral carriage,
+opposing running hands, relaxed walking elbows and bounded lateral carriage,
 skinned dimensions,
 ascent, descent, staged landing contact and skinned support height, per-player
 isolation, projection

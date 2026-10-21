@@ -477,6 +477,9 @@ func _apply_adult_locomotion(body: Node3D, phase: float, weight: float,
 				var walk_frame := adult_walk_clip.rotation_track_interpolate(walk_binding.track, walk_sample)
 				walk_target = walk_frame if source_leg else \
 					(original * walk_binding.reference.inverse() * walk_frame).normalized()
+				if binding.key == "L UpperArm" or binding.key == "R UpperArm":
+					# Retain the clip's opposing swing without its stiff, long reach.
+					walk_target = original.slerp(walk_target, 0.72)
 			skeleton.set_bone_pose_rotation(index, from.slerp(walk_target.slerp(run_target, run_mix), influence))
 		else:
 			var original: Vector3 = binding.base
@@ -512,6 +515,13 @@ func _apply_adult_locomotion(body: Node3D, phase: float, weight: float,
 	body.position.y += (lerpf(walk_lift, run_lift, run_mix) + 0.006
 		- 0.05 * run_mix) * strength
 	if strength > 0.01:
+		var walk_bend := strength * (1.0 - run_mix)
+		if walk_bend > 0.01:
+			# The relative walk tracks almost straighten both elbows at the reach
+			# extremes. Bend in the sagittal plane without spreading the hands.
+			for side in ["L", "R"]:
+				_adult_turn_joint(body, skeleton, skeleton.find_bone("Bip01 " + side + " Forearm"),
+					Quaternion(Vector3.RIGHT, -0.26 * walk_bend))
 		_adult_correct_grounded_knees(body, skeleton)
 
 func _adult_pose_frames(skeleton: Skeleton3D) -> Array[Transform3D]:
