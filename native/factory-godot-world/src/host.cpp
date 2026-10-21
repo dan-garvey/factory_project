@@ -262,9 +262,8 @@ bool historical_wire(const authority::Record& record) {
         }
         return true;
     }
-    if (*action == "link" || *action == "unlink" || *action == "shaft_between" || *action == "remove_shaft_between") {
-        const auto mapped = *action == "link" ? "connect" : *action == "unlink" ? "disconnect" :
-            *action == "shaft_between" ? "connect_drive" : "disconnect_drive";
+    if (*action == "shaft_between" || *action == "remove_shaft_between") {
+        const auto mapped = *action == "shaft_between" ? "connect_drive" : "disconnect_drive";
         return *original_action == mapped && keys(*wire, {"from", "to"}) &&
             same("from", "target") && same("to", "to");
     }
@@ -989,17 +988,10 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
     } else if (*action == "remove_belt_span") {
         if (!keys(wire, {"entity"}) || !target("entity", "target", "generation")) return refuse("invalid_command");
         normalized.at("action") = Value("remove_belt_span");
-    } else if (*action == "connect" || *action == "disconnect" || *action == "connect_drive" || *action == "disconnect_drive") {
+    } else if (*action == "connect_drive" || *action == "disconnect_drive") {
         if (!keys(wire, {"from", "to"}) || !target("from", "target", "generation") ||
             !target("to", "to", "to_generation")) return refuse("invalid_command");
-        normalized.at("action") = Value(*action == "connect" ? "link" : *action == "disconnect" ? "unlink" :
-                                        *action == "connect_drive" ? "shaft_between" : "remove_shaft_between");
-        if (*action == "connect") {
-            const auto* from = find(snapshot.state, *field<std::string>(wire, "from"));
-            const auto* to = find(snapshot.state, *field<std::string>(wire, "to"));
-            if (from && to && !world::material_ports_adjacent(*from, *to))
-                return refuse("ports_not_adjacent");
-        }
+        normalized.at("action") = Value(*action == "connect_drive" ? "shaft_between" : "remove_shaft_between");
     } else if (*action == "recover_belt_slot") {
         if (!keys(wire, {"entity", "slot", "expected"}) || !field<Integer>(wire, "slot") ||
             !field<Object>(wire, "expected") || !target("entity", "target", "generation")) return refuse("invalid_command");
@@ -1241,11 +1233,7 @@ Host::Decoded Host::decode(const Value& input) const {
                 return {nullptr, refusal};
         }
     }
-    for (const auto& link : snapshot.state.topology.material_links) {
-        const auto* from = find(snapshot.state, link.from.id);
-        const auto* to = find(snapshot.state, link.to.id);
-        if (!from || !to || !world::material_ports_adjacent(*from, *to)) return {nullptr, "incompatible_geometry"};
-    }
+    if (!snapshot.state.topology.material_links.empty()) return {nullptr, "incompatible_geometry"};
     // Validate the same path geometry used by construction and physical bodies.
     for (const auto& span : snapshot.state.topology.belt_spans) {
         const auto* first = find(snapshot.state, span.geometry.first_shaft);

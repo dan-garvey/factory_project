@@ -216,6 +216,13 @@ void authentication_reach_and_replay() {
     outcome(send(*owner, old_belt, observer), false, "invalid_part");
     check(owner->snapshot().state == belt_before && w::World::restore("fixture-world", f.profile, owner->snapshot()) != nullptr,
           "Refused belt-machine construction consumes nothing and remains restorable as a refusal.");
+    auto old_link = target("link", "old-material-link", "collector");
+    old_link.emplace("to", V("processor")); old_link.emplace("to_generation", V(I{1}));
+    observer.calls = 0;
+    outcome(send(*owner, old_link, observer), false, "invalid_command");
+    check(observer.calls == 0 && owner->snapshot().state == belt_before &&
+          w::World::restore("fixture-world", f.profile, owner->snapshot()) != nullptr,
+          "An obsolete link is refused before observation and its refusal survives restore.");
     auto gear = place("historical-gear", "gear", 20, 8); gear.at("teeth") = V(I{8});
     outcome(send(*owner, gear, observer), true, "ok");
     auto old_history = owner->snapshot();
