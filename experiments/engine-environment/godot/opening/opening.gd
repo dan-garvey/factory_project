@@ -3815,12 +3815,50 @@ func _refresh_engineering(snapshot_ready: bool) -> void:
 func _transmission_center(screen: Vector2) -> Array:
 	if transmission_controls == null:
 		return []
-	var height: int = transmission_controls.gear_height
+	var origin := camera.project_ray_origin(screen)
+	var hit := _screen_pick(screen)
+	if not hit.is_empty():
+		var target := _transmission_snap_target(str(hit.collider.get_meta("entity", "")), hit.normal, origin)
+		if not target.is_empty():
+			return target
+	transmission_controls.snapped_height = 0
+	var height: int = 0 if transmission_controls.auto_height else transmission_controls.gear_height
 	var plane := Plane(Vector3.UP, Geometry.ANCHOR_HEIGHT + height * PITCH / 4.0)
-	var point: Variant = plane.intersects_ray(camera.project_ray_origin(screen), camera.project_ray_normal(screen))
+	var point: Variant = plane.intersects_ray(origin, camera.project_ray_normal(screen))
 	if point == null:
 		return []
 	return [roundi(point.x / PITCH) * 4, height, roundi(point.z / PITCH) * 4]
+
+func _transmission_snap_target(entity_id: String, normal: Vector3, eye: Vector3) -> Array:
+	# Pick bodies identify confirmed construction. Use their common grid height
+	# when following surfaces; the menu can still choose an absolute air level.
+	var surface: Dictionary = state.get("foundations", {}).get(entity_id, {})
+	if not surface.is_empty():
+		var level: int = int(surface.get("level", 0))
+		if level % Geometry.HEIGHT_DENOMINATOR != 0:
+			return []
+		transmission_controls.snapped_height = level
+		return [int(surface.cell[0]) * 4, level if transmission_controls.auto_height else transmission_controls.gear_height,
+			int(surface.cell[1]) * 4]
+	var machine: Dictionary = state.get("entities", {}).get(entity_id, {})
+	if machine.is_empty():
+		return []
+	var level: int = int(machine.get("level", 0))
+	if level % Geometry.HEIGHT_DENOMINATOR != 0:
+		return []
+	var axis: int = ["x", "y", "z"].find(transmission_controls.selected_axis)
+	if axis < 0:
+		return []
+	var center := Vector3(machine.cell[0] * PITCH, level * Geometry.HEIGHT_STEP + Geometry.ANCHOR_HEIGHT,
+		machine.cell[1] * PITCH)
+	var side: float = normal[axis]
+	if absf(side) < 0.5:
+		side = (eye - center)[axis]
+	var point := [int(machine.cell[0]) * 4, level, int(machine.cell[1]) * 4]
+	point[axis] += 4 if side >= 0.0 else -4
+	transmission_controls.snapped_height = point[1]
+	point[1] = point[1] if transmission_controls.auto_height else transmission_controls.gear_height
+	return point
 
 func _transmission_click(center: Array, entity_id: String) -> bool:
 	return _native_transmission() and transmission_controls != null and transmission_controls.handle_world_click(center, entity_id)
@@ -4239,8 +4277,8 @@ func _select_tool(tool: String) -> void:
 		instructions["collector"] = "Place the collector at the exposed mineral seam."
 		instructions["belt"] = "Choose each parallel shaft within reach to connect them with a belt."
 		instructions["flow"] = "Choose the upstream machine, then its neighbor at the material outlet."
-		instructions["drive"] = "Place a shaft on the highlighted tile. Set its axis and height in the cogwheel and shaft menu."
-		instructions["gear"] = "Place a cogwheel at the highlighted point. Set axis and height in the cogwheel menu."
+		instructions["drive"] = "Point at a floor to match its height or at a machine to snap beside it. Set the shaft axis in the cogwheel and shaft menu."
+		instructions["gear"] = "Point at a floor to match its height or at a machine to snap beside it. Set the cogwheel axis in its menu."
 		instructions["foundation"] = "Place a foundation at the displayed world height. Page Up / Page Down move one foundation thickness so stacked blocks touch; Access steps enables smaller walking steps. Machines need whole-tile factory floors. Area chooses two corners; Esc cancels."
 	_message(instructions.get(tool,
 		"Place %s on an empty grid square." % NAMES.get(tool, tool)))
@@ -4386,11 +4424,14 @@ func _screen_cell(screen: Vector2) -> Vector2i:
 	return Vector2i(roundi(point.x / PITCH), roundi(point.z / PITCH))
 
 func _screen_entity(screen: Vector2) -> String:
+	var hit := _screen_pick(screen)
+	return str(hit.collider.get_meta("entity", "")) if not hit.is_empty() else ""
+
+func _screen_pick(screen: Vector2) -> Dictionary:
 	var origin := camera.project_ray_origin(screen)
 	var query := PhysicsRayQueryParameters3D.create(origin, origin + camera.project_ray_normal(screen) * 80)
 	query.collision_mask = Geometry.PICK_LAYER
-	var hit := get_world_3d().direct_space_state.intersect_ray(query)
-	return str(hit.collider.get_meta("entity", "")) if not hit.is_empty() else ""
+	return get_world_3d().direct_space_state.intersect_ray(query)
 
 func _entity_at_cell(cell: Vector2i) -> String:
 	for entity_id in state.get("entities", {}):
@@ -5601,17 +5642,21 @@ func _update_cursor() -> void:
 	if _native_transmission() and transmission_controls != null and not transmission_controls.active_tool.is_empty():
 		hover.visible = false
 		if transmission_controls.active_tool in ["gear", "place_shaft"] and not explanation_open and _can_control_character():
-			var center := _transmission_center(get_viewport().get_mouse_position())
-			if center.size() == 3 and absi(center[0]) <= Geometry.GRID_COORDINATE_LIMIT and absi(center[2]) <= Geometry.GRID_COORDINATE_LIMIT:
-				hover.visible = true
-				hover.position = Vector3(center[0] * PITCH / 4.0, Geometry.ANCHOR_HEIGHT + center[1] * PITCH / 4.0, center[2] * PITCH / 4.0)
-				hover.basis = transmission_presenter.axis_basis(["x", "y", "z"].find(transmission_controls.selected_axis))
+			_set_transmission_hover(_transmission_center(get_viewport().get_mouse_position()))
 		return
 	hover.basis = Basis.IDENTITY
 	hover.visible = NAMES.has(mode) and _build_cell_allowed(hover_cell) and _machine_floor_aligned(hover_cell) \
 		and (mode == "foundation" or _entity_at_cell(hover_cell).is_empty()) and not explanation_open
 	if hover.visible:
 		hover.position = _cell_position([hover_cell.x, hover_cell.y]) + Vector3(0, 0.03 + _construction_level(hover_cell) * Geometry.HEIGHT_STEP, 0)
+
+func _set_transmission_hover(center: Array) -> void:
+	if center.size() != 3 or absi(center[0]) > Geometry.GRID_COORDINATE_LIMIT or absi(center[1]) > Geometry.GRID_COORDINATE_LIMIT or absi(center[2]) > Geometry.GRID_COORDINATE_LIMIT:
+		return
+	hover.visible = true
+	hover.position = Vector3(center[0] * Geometry.HEIGHT_STEP,
+		0.03 + center[1] * Geometry.HEIGHT_STEP, center[2] * Geometry.HEIGHT_STEP)
+	hover.basis = Basis.IDENTITY
 
 func _message(words: String, refused: bool = false) -> void:
 	status_label.text = words

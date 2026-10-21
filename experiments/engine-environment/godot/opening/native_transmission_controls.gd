@@ -4,6 +4,8 @@ const Geometry = preload("res://opening/site_geometry.gd")
 
 var selected_axis := "x"
 var gear_height := 0
+var auto_height := true
+var snapped_height := 0
 var gear_teeth := 2
 var shaft_half_span := 2
 var active_tool := ""
@@ -34,8 +36,9 @@ func _init() -> void:
 	menu.add_child(_heights)
 	_heights.add_item("Lower one tile", 0)
 	_heights.add_item("Raise one tile", 1)
+	_heights.add_item("Follow pointed surface", 2)
 	_heights.id_pressed.connect(_height_selected)
-	menu.add_submenu_item("Gear height: 0", "Height", 101)
+	menu.add_submenu_item("Placement height: Follow surface", "Height", 101)
 	_sizes = PopupMenu.new()
 	_sizes.name = "CogSize"
 	menu.add_child(_sizes)
@@ -88,8 +91,8 @@ func _tool_selected(id: int) -> void:
 	if context.is_empty() or not context.usable:
 		return
 	_feedback({
-		"gear": "Place a cogwheel at the highlighted point. Set axis and height in this menu.",
-		"place_shaft": "Place one shaft tile at the highlighted point. Set its axis and height in this menu.",
+		"gear": "Point at a floor to follow its height, or at a machine to snap beside it. Set axis or an exact height here.",
+		"place_shaft": "Point at a floor to follow its height, or at a machine to snap beside it. Set axis or an exact height here.",
 		"belt_span": "Choose each parallel shaft while within reach, on a straight or 45-degree path.",
 		"remove": "Choose a cogwheel, shaft or belt to remove."
 	}.get(active_tool, "Choose a construction tool or Inspect."), false)
@@ -100,6 +103,15 @@ func _axis_selected(id: int) -> void:
 		refresh()
 
 func _height_selected(id: int) -> void:
+	if id == 2:
+		auto_height = true
+		refresh()
+		return
+	if id not in [0, 1]:
+		return
+	if auto_height:
+		gear_height = snapped_height
+		auto_height = false
 	gear_height = clampi(gear_height + (-4 if id == 0 else 4), -Geometry.GRID_COORDINATE_LIMIT, Geometry.GRID_COORDINATE_LIMIT)
 	refresh()
 
@@ -162,7 +174,7 @@ func refresh() -> void:
 	menu.set_item_checked(menu.get_item_index(7), active_tool == "belt_span")
 	menu.set_item_checked(menu.get_item_index(4), active_tool == "remove")
 	menu.set_item_text(menu.get_item_index(100), "Axis: " + selected_axis.to_upper())
-	menu.set_item_text(menu.get_item_index(101), "Placement height: %d tiles" % (gear_height / 4))
+	menu.set_item_text(menu.get_item_index(101), "Placement height: %s" % ("Follow surface" if auto_height else "%d tiles" % (gear_height / 4)))
 	menu.set_item_text(menu.get_item_index(102), "Cog size: " + ("Small" if gear_teeth == 2 else "Large"))
 	for index in range(2):
 		var teeth: int = [2, 4][index]
@@ -170,10 +182,12 @@ func refresh() -> void:
 		_sizes.set_item_text(index, ("Small" if teeth == 2 else "Large") + " cogwheel · %d carried" % _count(context, "gear", teeth, 0))
 	for index in range(3):
 		_axes.set_item_checked(index, selected_axis == ["x", "y", "z"][index])
-	_heights.set_item_disabled(0, gear_height <= -Geometry.GRID_COORDINATE_LIMIT)
-	_heights.set_item_disabled(1, gear_height >= Geometry.GRID_COORDINATE_LIMIT)
+	var height: int = snapped_height if auto_height else gear_height
+	_heights.set_item_disabled(0, height <= -Geometry.GRID_COORDINATE_LIMIT)
+	_heights.set_item_disabled(1, height >= Geometry.GRID_COORDINATE_LIMIT)
+	_heights.set_item_disabled(2, auto_height)
 	text = {"gear": "Place cogwheel", "place_shaft": "Place shaft segment", "belt_span": "Connect shafts with belt", "remove": "Remove transmission"}.get(active_tool, "Cogwheels and shafts…")
-	tooltip_text = "Axis %s · placement height %d tiles. %d cogwheels and %d shafts carried." % [selected_axis.to_upper(), gear_height / 4, gears, selected_shafts]
+	tooltip_text = "Axis %s · height %s. %d cogwheels and %d shafts carried." % [selected_axis.to_upper(), "follows surface" if auto_height else "%d tiles" % (gear_height / 4), gears, selected_shafts]
 
 func _part(context: Dictionary, id: String) -> Dictionary:
 	var value: Variant = context.snapshot.transmission_parts.get(id, context.snapshot.entities.get(id))
@@ -205,11 +219,11 @@ func handle_world_click(center: Array, entity_id: String) -> bool:
 		var valid := center.size() == 3 and selected_axis in ["x", "y", "z"]
 		for coordinate: Variant in center:
 			valid = valid and typeof(coordinate) == TYPE_INT and coordinate >= -Geometry.GRID_COORDINATE_LIMIT and coordinate <= Geometry.GRID_COORDINATE_LIMIT and coordinate % 4 == 0
-		if valid:
+		if valid and not auto_height:
 			valid = center[1] == gear_height
 		var available := _count(context, "gear", gear_teeth, 0) if active_tool == "gear" else _count(context, "shaft", 0, shaft_half_span)
 		if not valid or available == 0:
-			_feedback("Choose an available part at an integer grid point on the selected height.")
+			_feedback("Choose an available part at a whole-tile grid point on the shown height.")
 			return true
 		var wire := {"action": "place_gear", "center": center.duplicate(), "axis": selected_axis, "teeth": gear_teeth} if active_tool == "gear" else {"action": "place_shaft", "center": center.duplicate(), "axis": selected_axis, "half_span": shaft_half_span}
 		_submit(context, wire)
