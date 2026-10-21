@@ -5,11 +5,15 @@ const Opening = preload("res://opening/opening.gd")
 const SharedOpening = preload("res://opening/shared_opening.gd")
 var checks := 0
 var camera_failed := false
+var failed := false
 
 class SessionStub extends RefCounted:
 	var ready := true
 	func is_ready() -> bool:
 		return ready
+
+class ToolStub extends RefCounted:
+	var active_tool := "gear"
 
 class CameraProjection extends RefCounted:
 	var snapshot := {"options": {}, "entities": {}, "links": [], "revision": 0}
@@ -82,9 +86,97 @@ func check_camera_profiles() -> void:
 func verify(condition: bool, reason: String) -> void:
 	checks += 1
 	if not condition:
+		failed = true
 		push_error(reason)
-		quit(1)
-		assert(condition, reason)
+
+func finish_checks() -> void:
+	print("OPENING_GUIDANCE_CUE_%s %d" % ["FAIL" if failed else "PASS", checks])
+	quit(1 if failed else 0)
+
+func nested_failure_control() -> void:
+	verify(false, "The explicit negative control must survive its nested return.")
+
+func first_target_fixture() -> Dictionary:
+	var snapshot := fixture()
+	snapshot.entities.clear()
+	snapshot.options.native = true
+	snapshot.stock.source = 16
+	snapshot.parts.collector = 1
+	snapshot.part_kits = {"P": {"collector": 1, "belt": 1, "processor": 1}}
+	snapshot.transmission_parts = {}
+	return snapshot
+
+func check_first_target() -> void:
+	var view = Opening.new()
+	view.state = first_target_fixture()
+	view.mode = "collector"
+	view.request_sequence = 23
+	view._build_placement_hint()
+	var original: Dictionary = view.state.duplicate(true)
+	var original_namespace: String = view.request_namespace
+	verify(view._guided_placement_cell() == [0, 1], "A fresh native collector has a concrete starter-path suggestion.")
+	view._refresh_placement_hint()
+	var label := view.placement_hint.get_node_or_null("MineralSeamTarget") as Label3D
+	verify(label != null and label.visible and label.text == "MINERAL SEAM", "The first target identifies the mineral seam in the world.")
+	var ground: float = Opening.ProductionEnvironment.Surface.height_at(0.0, 1.65)
+	verify(view.placement_hint.visible and view.placement_hint.position.is_equal_approx(Vector3(0.0, ground + 0.055, 1.65)),
+		"The advisory footprint follows the shared natural surface at the source column.")
+	verify(view.state == original and view.model == null and view.actor_world == null and view.request_sequence == 23 \
+		and view.request_namespace == original_namespace and view.selected.is_empty() and view.pending_link.is_empty(),
+		"Target presentation leaves confirmed facts, authority and intent unchanged.")
+	var original_hint_id: int = view.placement_hint.get_instance_id()
+	view._refresh_placement_hint()
+	verify(view.placement_hint.get_instance_id() == original_hint_id and label != null \
+		and view.placement_hint.get_node_or_null("MineralSeamTarget") == label, "Repeated refresh reuses the footprint and annotation.")
+	view.transmission_controls = ToolStub.new()
+	view._refresh_placement_hint()
+	verify(not view.placement_hint.visible and (label == null or not label.visible), "An active transmission tool clears the first target.")
+	view.transmission_controls = null
+	view.state.actors.P.position = [-100, 1, 100]
+	verify(view._guided_placement_cell() == [0, 1], "A target annotation is advice, never a reach permission.")
+	view.state = first_target_fixture()
+	for unavailable in ["help", "all_tools", "reopening", "actor", "kit", "source", "nonnative", "legacy", "built", "shaft", "goal"]:
+		view.state = first_target_fixture()
+		view.explanation_open = unavailable == "help"
+		view.show_all_tools = unavailable == "all_tools"
+		view.startup_save_pending = unavailable == "reopening"
+		view.legacy_fixture = unavailable == "legacy"
+		match unavailable:
+			"actor": view.state.actors.P.ready = false
+			"kit": view.state.part_kits.P.collector = 0
+			"source": view.state.stock.source = 0
+			"nonnative": view.state.options.native = false
+			"built": view.state.entities["collector-1"] = {"kind": "collector", "cell": [0, 1]}
+			"shaft": view.state.transmission_parts["shaft-1"] = {"kind": "shaft"}
+			"goal": view.state.inventories.P = 4
+		view._refresh_placement_hint()
+		verify(not view.placement_hint.visible and (label == null or not label.visible), "Unavailable first-target advice clears: " + unavailable)
+	view.state = first_target_fixture()
+	view.legacy_fixture = false
+	view._refresh_placement_hint(false)
+	verify(not view.placement_hint.visible, "An unavailable confirmed snapshot clears the first target.")
+	view.state.entities["collector-1"] = {"kind": "collector", "cell": [0, 1]}
+	view.mode = "belt"
+	view._refresh_placement_hint()
+	verify(view.placement_hint.visible and (label == null or not label.visible), "The next Belt footprint clears the first-target annotation.")
+	view.free()
+	var shared = SharedOpening.new()
+	var session := SessionStub.new()
+	shared.session = session
+	shared.client = "P"
+	shared.mode = "collector"
+	shared.state = first_target_fixture()
+	shared._build_placement_hint()
+	shared._refresh_placement_hint()
+	verify(shared.placement_hint.visible, "A ready shared native projection can identify the first target.")
+	shared.pending_actions["request-1"] = {"action": {"action": "place"}, "outcome": {}}
+	shared._refresh_placement_hint()
+	verify(not shared.placement_hint.visible, "A pending shared command clears first-target advice.")
+	shared.pending_actions.clear()
+	session.ready = false
+	shared._refresh_placement_hint()
+	verify(not shared.placement_hint.visible, "Disconnected first-target advice is unavailable.")
+	shared.free()
 
 func fixture() -> Dictionary:
 	return {"entities": {"collector-1": {"kind": "collector", "cell": [0, 1]}},
@@ -98,6 +190,11 @@ func _initialize() -> void:
 		print("OPENING_CAMERA_PROFILE_%s %d" % ["FAIL" if camera_failed else "PASS", checks])
 		quit(1 if camera_failed else 0)
 		return
+	if OS.get_cmdline_user_args().has("--verifier-negative-control"):
+		nested_failure_control()
+		finish_checks()
+		return
+	check_first_target()
 	var view = Opening.new()
 	view.mode = "belt"
 	view.state = fixture()
@@ -110,9 +207,14 @@ func _initialize() -> void:
 	verify(view._guided_placement_cell() == [1, 1], "A Collector suggests its +x outlet for a Belt.")
 	view._refresh_placement_hint()
 	verify(view.placement_hint.visible and view.placement_hint.position.is_equal_approx(Vector3(1.65, 0.055, 1.65)), "The outline uses the world-space grid position.")
-	verify(view.placement_hint.get_child_count() == 4, "The outline consists of four mesh edges.")
+	var edge_count := 0
 	for edge in view.placement_hint.get_children():
-		verify(edge is MeshInstance3D and edge.get_child_count() == 0, "Cue edges contain no input or collision nodes.")
+		if edge is MeshInstance3D:
+			edge_count += 1
+			verify(edge.get_child_count() == 0, "Cue edges contain no input or collision nodes.")
+		else:
+			verify(edge is Label3D and not edge.visible and edge.get_child_count() == 0, "The nonnative cue keeps its target annotation hidden and passive.")
+	verify(edge_count == 4, "The outline consists of four mesh edges.")
 	verify(view.state == before and view.model == null and view.request_sequence == 17 and view.request_namespace == original_namespace and view.selected == "collector-1" and view.pending_link == "collector-1", "Drawing the cue leaves projection, authority and intent state unchanged.")
 	view._refresh_placement_hint(false)
 	verify(not view.placement_hint.visible, "An unavailable snapshot clears an already drawn cue.")
@@ -183,5 +285,4 @@ func _initialize() -> void:
 	shared.state.erase("stock")
 	verify(shared._guided_placement_cell().is_empty(), "An unusable shared snapshot has no cue.")
 	shared.free()
-	print("OPENING_GUIDANCE_CUE_PASS %d" % checks)
-	quit(0)
+	finish_checks()

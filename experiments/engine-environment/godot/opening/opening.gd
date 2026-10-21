@@ -3132,6 +3132,7 @@ var workpiece_item_assets
 var hover: MeshInstance3D
 var selection_ring: MeshInstance3D
 var placement_hint: Node3D
+var placement_target_label: Label3D
 var machine_preview: Node3D
 var machine_preview_key := ""
 var machine_preview_material: StandardMaterial3D
@@ -4592,6 +4593,9 @@ func _build_placement_hint() -> void:
 	for side in [-0.7, 0.7]:
 		_box(placement_hint, Vector3(0, 0, side), Vector3(1.45, 0.035, 0.055), Color("edcc8d"))
 		_box(placement_hint, Vector3(side, 0, 0), Vector3(0.055, 0.035, 1.45), Color("edcc8d"))
+	placement_target_label = _text(placement_hint, "MINERAL SEAM", Vector3(0, 0.65, 0), Color("ffdb94"), 0.006)
+	placement_target_label.name = "MineralSeamTarget"
+	placement_target_label.visible = false
 
 func _placement_hint_ready() -> bool:
 	return _can_control_character()
@@ -4599,9 +4603,15 @@ func _placement_hint_ready() -> bool:
 func _guided_placement_cell() -> Array:
 	if legacy_fixture or show_all_tools or explanation_open or not _placement_hint_ready():
 		return []
-	if not mode in ["belt", "processor"] or int(_display_parts().get(mode, 0)) < 1:
+	if not mode in ["collector", "belt", "processor"] or int(_display_parts().get(mode, 0)) < 1:
 		return []
 	# A suggestion for this starter path only, never a placement/reach decision.
+	if mode == "collector":
+		if not _native_transmission() or not state.get("entities", {}).is_empty() \
+				or not state.get("transmission_parts", {}).is_empty() or int(state.get("stock", {}).get("source", 0)) < 1 \
+				or _guided_step({}).tool != "collector":
+			return []
+		return [0, 1]
 	var upstream_kind := "collector" if mode == "belt" else "belt"
 	var upstream: Array = []
 	var kinds: Dictionary = {}
@@ -4623,6 +4633,7 @@ func _guided_placement_cell() -> Array:
 func _refresh_placement_hint(snapshot_ready: bool = true) -> void:
 	if placement_hint == null:
 		return
+	placement_target_label.visible = false
 	if transmission_controls != null and not transmission_controls.active_tool.is_empty():
 		placement_hint.visible = false
 		return
@@ -4630,6 +4641,13 @@ func _refresh_placement_hint(snapshot_ready: bool = true) -> void:
 	placement_hint.visible = not cell.is_empty()
 	if placement_hint.visible:
 		placement_hint.position = _cell_position(cell) + Vector3(0, 0.055, 0)
+		if mode == "collector":
+			var ground: float = ProductionEnvironment.Surface.height_at(placement_hint.position.x, placement_hint.position.z)
+			if not is_finite(ground):
+				placement_hint.visible = false
+				return
+			placement_hint.position.y += ground
+			placement_target_label.visible = true
 
 func _preview_pointer_clear() -> bool:
 	# This query does not consume input or move the pointer. The live preview
