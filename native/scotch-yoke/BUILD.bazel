@@ -1,0 +1,32 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "yoke",
+    srcs = ["src/yoke.cpp"],
+    hdrs = ["include/factory/scotch_yoke.hpp"],
+    strip_include_prefix = "include",
+    deps = ["//native/geared-cycle:clock", "//native/motion-clearance:clearance"],
+)
+
+cc_library(
+    name = "workbench",
+    srcs = ["src/workbench.cpp"],
+    hdrs = ["include/factory/scotch_yoke_workbench.hpp"],
+    strip_include_prefix = "include",
+    deps = [":yoke", "//native/geared-cycle:workbench"],
+)
+
+cc_binary(
+    name = "yoke_case",
+    srcs = ["src/main.cpp"],
+    deps = [":workbench"],
+)
+
+cc_test(
+    name = "yoke_test",
+    size = "small",
+    srcs = ["tests/yoke_test.cpp"],
+    deps = [":workbench"],
+)
