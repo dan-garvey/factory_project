@@ -322,6 +322,46 @@ func _belt_spans() -> void:
 	controls.free()
 	presenter.free()
 
+func _nonhorizontal_presentation() -> void:
+	var raw := {"raw": 1, "products": 0, "work_lots": []}
+	for case in [
+		{"axis": 2, "first": [0, 8, 0], "middle": [4, 12, 0], "last": [8, 16, 0], "cargo": true},
+		{"axis": 0, "first": [0, 16, 0], "middle": [0, 12, 4], "last": [0, 8, 8], "cargo": true},
+		{"axis": 2, "first": [0, 8, 0], "middle": [0, 12, 0], "last": [0, 16, 0], "cargo": false},
+		{"axis": 1, "first": [0, 8, 0], "middle": [4, 8, 0], "last": [8, 8, 0], "cargo": false}]:
+		var host := HostStub.new()
+		host.state = fixture()
+		host.state.transmission_parts = {}
+		for id in ["first", "middle", "last"]:
+			host.state.transmission_parts[id] = {"kind": "shaft", "generation": 1, "center": case[id], "axis": case.axis, "half_span": 2}
+		host.state.belt_spans = {"span": {"generation": 1, "from": "first", "to": "last", "slots": [raw, null, null], "phase": 2048}}
+		var presenter := Presenter.new()
+		presenter.configure(host)
+		var span := _part(presenter, "span")
+		verify(span != null and span.has_node("BeltLoop"), "A confirmed nonhorizontal path renders a loop.")
+		if span == null or not span.has_node("BeltLoop"):
+			presenter.free()
+			continue
+		var loop: Node3D = span.get_node("BeltLoop")
+		var start := Presenter.world_center(case.first)
+		var finish := Presenter.world_center(case.last)
+		var axis := Vector3.ZERO
+		axis[case.axis] = 1.0
+		verify(absf(loop.basis.x.dot((finish - start).normalized())) > 0.999 and absf(loop.basis.z.dot(axis)) > 0.999 and loop.basis.determinant() > 0.999, "The loop follows the path and rotates about its shaft axis.")
+		verify(_part(presenter, "middle").has_node("BeltPulley") and span.get_node("Pick").basis.is_equal_approx(loop.basis), "The intermediate pulley and selection body follow the path.")
+		var item := _belt_item(span, 0)
+		if case.cargo:
+			verify(item != null and (span.position + item.position).is_equal_approx(start.lerp(finish, 0.25) + Vector3.UP * 0.24), "Inclined cargo follows the confirmed half-slot phase.")
+		else:
+			verify(item == null, "Power-only vertical and sideways paths do not display cargo.")
+		var original_basis := loop.basis
+		host.state.belt_spans.span.from = "last"
+		host.state.belt_spans.span.to = "first"
+		presenter.refresh()
+		span = _part(presenter, "span")
+		verify(span.get_node("BeltLoop").basis.is_equal_approx(original_basis), "Endpoint order does not flip the loop.")
+		presenter.free()
+
 func _belt_item(span: Node3D, slot: int) -> Node3D:
 	if span == null:
 		return null
@@ -833,6 +873,8 @@ func _run() -> void:
 		await _belt_actor_transport()
 	elif "--inclined-belt-actor-only" in OS.get_cmdline_user_args():
 		await _inclined_belt_actor()
+	elif "--nonhorizontal-presentation-only" in OS.get_cmdline_user_args():
+		_nonhorizontal_presentation()
 	else:
 		_controls()
 		_gear_sizes()
