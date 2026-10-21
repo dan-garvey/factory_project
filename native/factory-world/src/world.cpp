@@ -37,7 +37,7 @@ bool placement(const std::string& action) {
 }
 
 bool material_machine(Role role) {
-    return role == Role::collector || role == Role::belt || role == Role::processor;
+    return role == Role::collector || role == Role::processor;
 }
 
 std::optional<mechanics::Rate> wheel_rate(const Profile& profile, const stationary::PlacedPart& placed) {
@@ -344,7 +344,7 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         const auto selected_role = role_name ? role(*role_name) : std::nullopt;
         if (!location || !selected_role || !axis_name || !axis(*axis_name) || !teeth || !span ||
             !spec_valid({*selected_role, *teeth, *span}) || targets.front() != anchor(profile, *location) ||
-            (*selected_role == Role::belt && *axis_name == "y") ||
+            *selected_role == Role::belt ||
             (record.intent.contains("wheel_tiles") && (!wheel_tiles || *selected_role != Role::waterwheel ||
                 *wheel_tiles < 3 || *wheel_tiles > mechanics::maximum_dimension))) return false;
         if ((*selected_role == Role::gear || *selected_role == Role::shaft) &&
@@ -465,7 +465,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
         }
         // Malformed/refused commands retain their exact original intent too.
         if (!*accepted_value) continue;
-        if (!shape(record.intent, *action)) return false;
+        if (!shape(record.intent, *action) || *action == "link" || *action == "unlink") return false;
         const auto* result_actor = field<std::string>(record.result, "actor");
         const auto* entity = field<std::string>(record.result, "entity");
         const auto* generation = field<Integer>(record.result, "generation");
@@ -724,7 +724,7 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
     for (const auto& item : state.topology.parts) {
         if (item.wheel_tiles < (item.role == Role::waterwheel ? 3 : 1) || item.wheel_tiles > mechanics::maximum_dimension ||
             (item.role != Role::waterwheel && item.wheel_tiles != 1)) return false;
-        if (item.role == Role::belt && item.geometry.axis == mechanics::Axis::y) return false;
+        if (item.role == Role::belt) return false;
         if ((material_machine(item.role) || item.role == Role::waterwheel) && item.geometry.center[1] % 4 != 0) return false;
         if ((item.role == Role::shaft || item.role == Role::gear) &&
             std::any_of(item.geometry.center.begin(), item.geometry.center.end(),
@@ -1144,7 +1144,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             !spec_valid({*selected_role, *teeth, *span}) ||
             (intent.contains("wheel_tiles") && (!wheel_tiles || *selected_role != Role::waterwheel ||
                 *wheel_tiles < 3 || *wheel_tiles > mechanics::maximum_dimension))) return refused("invalid_part");
-        if (*selected_role == Role::belt && *selected_axis == mechanics::Axis::y) return refused("invalid_belt_axis");
+        if (*selected_role == Role::belt) return refused("invalid_part");
         if ((material_machine(*selected_role) || *selected_role == Role::waterwheel) && (*location)[1] % 4 != 0)
             return refused("unaligned_elevation");
         if ((*selected_role == Role::gear || *selected_role == Role::shaft) &&

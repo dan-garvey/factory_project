@@ -153,6 +153,17 @@ void startup_and_complete_validation() {
         if (item.geometry.id == "pulley-B") item.geometry.axis = g::Axis::x;
     check(!w::World::restore("fixture-world", fixture().profile, altered),
           "A restored checkpoint cannot preserve a span between mismatched shaft axes.");
+    f = fixture();
+    f.profile.finite_parts[{s::Role::belt, 0, 0}] = 2;
+    f.state.kits.at("P").emplace(s::PartSpec{s::Role::processor, 0, 0}, 1);
+    for (auto& item : f.state.topology.parts) if (item.geometry.id == "processor") item.role = s::Role::belt;
+    check(bad(f), "A finite seed cannot introduce an obsolete single-cell belt machine.");
+    auto legacy = world(fixture())->snapshot();
+    for (auto& item : legacy.state.topology.parts) if (item.geometry.id == "processor") item.role = s::Role::belt;
+    legacy.state.kits.at("P").emplace(s::PartSpec{s::Role::processor, 0, 0}, 1);
+    auto legacy_profile = fixture().profile; legacy_profile.finite_parts[{s::Role::belt, 0, 0}] = 2;
+    check(!w::World::restore("fixture-world", legacy_profile, legacy),
+          "A checkpoint cannot restore an obsolete single-cell belt machine.");
     f = fixture(); f.state.topology.sources.front().rate = {2, 1}; check(bad(f), "Client-selected source speed is not profile authority.");
     f = fixture(); f.state.topology.parts.front().wheel_tiles = 2;
     check(bad(f), "An undersized saved wheel is not a valid World state.");
@@ -200,6 +211,18 @@ void authentication_reach_and_replay() {
     observer.calls = 0;
     outcome(send(*owner, extra, observer), false, "invalid_command");
     check(observer.calls == 0, "A client pose field does not reach native admission.");
+    const auto belt_before = owner->snapshot().state;
+    auto old_belt = place("old-belt-machine", "belt", 20, 8);
+    outcome(send(*owner, old_belt, observer), false, "invalid_part");
+    check(owner->snapshot().state == belt_before && w::World::restore("fixture-world", f.profile, owner->snapshot()) != nullptr,
+          "Refused belt-machine construction consumes nothing and remains restorable as a refusal.");
+    auto gear = place("historical-gear", "gear", 20, 8); gear.at("teeth") = V(I{8});
+    outcome(send(*owner, gear, observer), true, "ok");
+    auto old_history = owner->snapshot();
+    auto& old_intent = old_history.history.records.back().intent;
+    old_intent.at("role") = V("belt"); old_intent.at("teeth") = V(I{0});
+    check(!w::World::restore("fixture-world", f.profile, old_history),
+          "Accepted obsolete belt construction history cannot survive after its machine is gone.");
     auto malformed = target("remove", "float-generation", "shaft-A");
     malformed.at("generation") = V(1.0);
     outcome(send(*owner, malformed, observer), false, "invalid_target");
