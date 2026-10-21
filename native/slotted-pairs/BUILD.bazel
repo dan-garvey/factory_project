@@ -1,0 +1,32 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "pairs",
+    srcs = ["src/pairs.cpp"],
+    hdrs = ["include/factory/slotted_pairs.hpp"],
+    strip_include_prefix = "include",
+    deps = ["//native/slotted-clearance:admission"],
+)
+
+cc_library(
+    name = "workbench",
+    srcs = ["src/workbench.cpp"],
+    hdrs = ["include/factory/slotted_pairs_workbench.hpp"],
+    strip_include_prefix = "include",
+    deps = [":pairs"],
+)
+
+cc_binary(
+    name = "slotted_pairs_workbench",
+    srcs = ["src/main.cpp"],
+    deps = [":workbench"],
+)
+
+cc_test(
+    name = "pairs_test",
+    size = "small",
+    srcs = ["tests/pairs_test.cpp"],
+    deps = [":pairs"],
+)
