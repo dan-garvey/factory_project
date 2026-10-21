@@ -1,5 +1,24 @@
 # Opening presentation assets
 
+The existing `machine_detail_check.gd` fixture also has a
+`--render-buildable-resources` mode for inspecting the current native collector,
+press, conveyor and waterwheel as passive resources. It reads each of its own
+960 by 960 pixel viewports after completed draw barriers and retains two studio
+views per buildable, image hashes, framing and renderer information. The normal
+material maps and sky illumination remain; a flat background makes silhouettes
+and blank readbacks easy to inspect. These are invented read-only resource
+observations, without a game entry, native World, input or simulation.
+
+This mode requires `FACTORY_RESOURCE_RENDER_MODE=isolated` and an existing
+absolute external `FACTORY_RESOURCE_RENDER_OUTPUT` directory. Run it only on a
+private virtual display with the verified engine, normal resource admission and
+a bounded owned supervisor. Headless dummy rendering cannot supply these images.
+The fixture refuses existing results and retains failed images when available.
+Its pixel checks detect empty or clipped output; personal inspection still needs
+to assess visible defects. Studio results do not establish ordinary app delivery,
+desktop play, human preference, export readiness or GPU performance. The separate
+ordinary-demo review remains necessary for app-scale visual evidence.
+
 [Construction impact samples](construction-audio/CREDITS.md) now give confirmed
 belts, assemblies, couplings and removals material-based feedback. The four short
 PCM clips are prepared offline from a qualified CC0 source. Existing acknowledgement
