@@ -481,6 +481,8 @@ func run() -> void:
 		"The visible root remains exactly at the projected body origin without prediction.")
 	verify(presenter.motion.P.phase > 0.0 and not leg_rotation(body).is_equal_approx(neutral_leg),
 		"Only confirmed displacement advances the actual visual rig.")
+	verify(absf(angle_difference(body.rotation.y, PI / 2.0)) < 0.00001,
+		"The first confirmed step faces sideways travel immediately after rest.")
 	var first_run_mix := (1.0 / 60.0) * 5.0
 	verify(absf(float(presenter.motion.P.run_mix) - first_run_mix) < 0.00001
 		and absf(float(presenter.motion.P.phase) - 0.15 * TAU
@@ -538,6 +540,11 @@ func run() -> void:
 		verify(presenter.motion.P.mode == "grounded" and body.position == Vector3.ZERO
 			and leg_rotation(body).is_equal_approx(still_leg),
 			"Landing settles back to an unmoving neutral skeleton and body origin.")
+		host.state.actors.P.position[0] -= 0.05
+		presenter.refresh(1.0 / 60.0)
+		verify(absf(angle_difference(body.rotation.y, -PI / 2.0)) < 0.00001
+			and is_equal_approx(p.position.x, host.state.actors.P.position[0]),
+			"The first opposite step after landing faces confirmed travel without moving the actor root.")
 		host.state.actors.P.position[1] = 2.1
 		presenter.refresh(1.0 / 60.0)
 		verify(presenter.motion.P.mode == "ascent" and is_equal_approx(p.position.y, 2.1),
