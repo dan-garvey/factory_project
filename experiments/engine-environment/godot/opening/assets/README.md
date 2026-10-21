@@ -55,18 +55,39 @@ nonmetallic coating materials. Their original colors remain; reduced normal
 strength gives the coating finer relief than exposed cast transmission parts.
 The images are shared without mutating those metal finishes. This is authored
 coating art over cast detail, not a new paint scan, physical wear or damage model.
-The original exposed liner and cutter keep their earlier metal surfaces.
+The exposed liner retains its finish; native cutter tooling uses the qualified
+worked surfaces described below.
 Historical captures without the map set retain their generated coating.
 
 The collector uses an original cast-frame kit with flared feet, tapered side
 cheeks, a chamfered hood and lower housing, and a fixed bearing hung from the
 hood. Closed extruded profiles preserve deliberate edge widths instead of
 stretching boxes. The bearing has a true annular opening around the original
-rotating hub, with a separate worked-steel liner. The drum, eight cutter flutes,
-feed bed, guides, service cover and native drive projection remain unchanged.
+rotating hub, with a separate worked-steel liner. The drum, hub and eight cutter
+flutes retain their original centres, motion envelope and callback. The feed
+bed, guides, service cover and native drive projection remain unchanged.
 The frame shares cached meshes and painted materials and adds no resource or
-collision dependency. Isolated controls check closed surfaces and clearance over
-a full sampled turn; the ordinary rendered appearance remains unassessed.
+collision dependency. Isolated controls check closed surfaces and moving
+clearance; the ordinary rendered appearance remains unassessed.
+
+Native cutter tooling now has a stepped annular drum and a fitted spindle hub,
+with a real bore instead of a painted dark cap. Eight cartridges separate dark
+metal holders, exposed cutting inserts and small retaining heads. The insert
+and fastener feet meet the holder's actual support planes. Three cached mesh
+resources retain the original complete local bounds and ten moving mesh rows,
+using the accepted presenter angle without another processing clock. Historical
+nonnative views keep their original cylinders and block flutes.
+The spindle relief lies outside the bearing seat; the supported span retains
+the original radius and its existing clearance inside the fixed liner.
+
+The new tooling consumer bounds every raw facet through a complete turn and
+checks that conservative sweep against the actual cast frame, bearing opening
+and redrawn stock. It also checks the mating drum/hub facets and rejects a
+filled bore, floating insert, misplaced hub and painted cutting surface. These
+are passive parts of the complete collector; they add no tool inventory,
+material outcome, physical cutting/contact model or native authority. Headless
+geometry and resource checks leave rendered quality, export and human preference
+unverified.
 
 The common machine base now has a thin mounting deck, two open formed channels
 and internal cross ties instead of a solid block. These closed pieces share one
@@ -122,6 +143,51 @@ to the component's own mounting detail. Historical missing-resource rosters reta
 their original frame. Isolated visual clearance does not establish native contact
 or rendered production quality.
 
+The native sourced press also has an original fitted crown instead of the plain
+top bridge. Tapered cast shoulders meet the same column datum, with a rear tie,
+an open ram housing and worked liner, and two guide sockets. The central bore
+stays open; the original shaft lengths enter the sockets without intersecting
+their facets. The crown reuses the qualified cast coating and worked surfaces.
+Its fixed pieces change no tool, piston, guide, stock, drive or motion rule.
+Nonnative profiles and historical missing-support rosters keep their earlier
+bridge. Headless geometry and resource checks leave rendered appearance,
+contact behavior and human quality assessment open.
+
+The native die and anvil now separate coated holders, exposed working inserts
+and mounting hardware. A stepped upper holder clamps a broad machined face;
+the lower saddle supports its own working plate. Each rigid assembly is one
+cached mesh with three material surfaces, using the existing qualified cast and
+worked finishes. Their complete original bounds, centres and working planes
+remain exact. The complete upper assembly follows the existing `ToolHead`
+motion anchor; it creates no extra stroke or processing clock.
+
+Two fixed cast ribs close the former fourteen-centimetre gap between the skid
+deck and the anvil bottom, clear of all three original drive-journal axes. Narrow
+sections sit inward of the outlet tray, and the saddle's lower outlet flange is
+relieved above the actual output plate with its existing bolts reseated on that
+flange. This corrects intersections missed by the earlier held-work-only check;
+the complete anvil bounds and working face, plate pose and receiving datum stay
+unchanged. The composed outlet check includes the complete redrawn plate and
+rejects both former intersecting support profiles. The ribs
+are passive parts of the complete press, without structural inventory, collision
+or force rules. Historical profiles retain their prior tooling. The isolated
+consumer checks raw facets, support planes, the actual redrawn held billet and
+its raised boss, cache reuse and changed-part controls. The existing eight-
+millimetre held-work clearance remains; this is presentation, not a new native
+contact or stamping-force model. Rendered quality and human preference remain
+unverified.
+
+The native output tray is a thin formed pan with folded sides and returned lips,
+open at both ends. Its original centre, horizontal footprint and receiving datum
+stay fixed. The existing plate sheet keeps its five-millimetre allowance above
+that datum; the folds stay outside its complete declared footprint. Two fixed
+brackets meet both the actual skid surface and pan underside, with small foot
+fasteners and separate coated and worked finishes. Pan and bracket meshes are
+cached and use existing qualified maps. They add no motion, inventory, collision
+or authority, and historical nonnative profiles retain their original tray.
+Headless checks cover raw facets, support planes, actual output clearance and
+all drive axes. Rendered quality and human preference remain unverified.
+
 The same existing view script builds an open collector stock bed, a supported
 conveyor with a closed [rubber loop](conveyor/CREDITS.md), and waterwheel with an open rim, spokes,
 paddles and axle bearings. Shared frame/steel/copper finishes keep the silhouettes
@@ -157,6 +223,34 @@ angle about their existing drum center. The press and cutter reuse the view's
 freshness gates and leave their pick bodies, item counts and item positions
 unchanged. The conveyor remains static: no belt surface speed or direction has
 been inferred from the separate material-transfer rules.
+
+Native conveyor furniture uses original flared cast end frames with fitted
+bearing cups, worked liners, retaining caps and rigid hexagonal fasteners. Lower
+formed side members join the frames while clearing the original roller tips.
+The upper guards retain a central opening for the existing Z-axis drive. Their
+paint and exposed metal reuse the qualified cast/worked maps. The original rubber
+loop, roller geometry, drive, picks, items and authority remain unchanged; these
+visual bearings add no contact, force or transport simulation. Nonnative views
+retain their earlier posts and bearing disks. Technical geometry checks do not
+establish rendered quality, GPU cost or human assessment.
+
+The native conveyor's drive artwork is a compact journal and supported open
+housing at the confirmed hub point and axis. Twin carrier rails sit inside the
+empty belt return, with cleats joining the existing side members. A vertical
+hub uses a forked mount. This replaces the old long decorative bar that crossed
+the rubber. The native hub supplies no cylinder dimensions; the artwork adds
+no shaft, new connection point or power path.
+
+Reusable shaft artwork now has a 30-millimetre core radius, fitted narrower
+collars and keys, and a matching longitudinal keyway. Its prescribed centre,
+axis and length remain exact, and the original 80-millimetre selection radius
+stays unchanged. These are revisable art dimensions, not native collision or
+mechanical rules. Qualified finishes and signed cosmetic motion are reused.
+Local fit checks compare actual shaft envelopes with the fixed hub furniture
+and compare the new hub pieces with the belt and workpiece. They do not prove
+general shaft routing through an entire machine, native contact, torque or
+working phase. Nonnative conveyors keep their old stub. Rendered quality and
+human assessment remain open.
 
 Confirmed material links have static arrowheads and endpoints aligned with their
 actual ordered grid direction, including routes along either axis. These indicate
@@ -251,6 +345,43 @@ assemblies use shared machined surfaces and cached meshes, with no collider or
 input node. The presenter retains mounting, direction, animation and pick
 ownership. Isolated mesh checks do not establish the ordinary rendered result.
 
+Cog hubs have open 78-millimetre through-bores with five-millimetre entry
+chamfers on both faces. The existing shaft, collars and keys clear the actual
+faceted bore across their complete rotating radial envelope. Hub outer sizes,
+spokes, fasteners, gear teeth, picks, native centres and axis mounts remain
+unchanged. The shared machined finish follows the rigid hub. An empty cog shows
+the same open passage without inventing a shaft or connection. This is a fitted
+visual interface, not proof of key locking, tooth contact, physical forces or
+general shaft routing through a complete machine.
+
+Confirmed coaxial shaft/cog engagements now add a pair of source-derived flange
+halves from Poly Haven's **Modular Industrial Pipes 01**, by Jorge Camacho. The
+[source record](shaft-coupling/source.json) identifies the CC0 geometry, original
+material maps and native preparation recipe. Actual source inspection found
+blind caps, so the recipe removes them and closes the retained tube with an
+authored annulus. The source flange, eight fasteners and UVs keep their rigid
+proportions. One uniform scale fits the compact pair outside the existing cog
+hub and within the shaft's unchanged selection radius and length.
+
+The presenter consumes the native engagement row and both confirmed part IDs;
+nearby coaxial parts alone receive no fitting. Both halves share one cached mesh
+and follow the shaft's existing cosmetic phase. The original 1024-pixel albedo
+and prepared 512-pixel OpenGL normal and packed scalar maps shade the donor
+surface; the new cut uses the existing worked-metal finish. No fluid system,
+additional connection rule, pick body, collision, quantity or saved state is
+introduced. Headless resource and fit checks leave rendered appearance, GPU
+cost, arbitrary machine routing and human quality acceptance open.
+
+Each cog batches its repeated teeth, four spokes and eight hub fasteners into
+three local [MultiMesh groups](https://docs.godotengine.org/en/4.7/classes/class_multimesh.html).
+The original meshes, transforms and shared surface roles are retained. Rim and
+hub remain separate, and the existing part anchor owns motion and picking.
+Equivalent dimensions reuse the same immutable batch data while each part keeps
+its own material override. A two-unit cog represents thirty detailed pieces with
+five render objects, without removing geometry. Its custom culling bounds enclose
+every instance and remain local to that cog. Grouped visibility and light limits
+are adapter boundaries; fewer objects do not establish a GPU or frame-time gain.
+
 Complete captures now separate [cast and worked transmission finishes](transmission-surfaces/CREDITS.md).
 Rims and spokes use qualified cast-surface detail; teeth, hubs, fasteners, shafts
 and collars use finer original maps. The old moving/stopped tint and copper keys
@@ -331,10 +462,11 @@ not a world or construction boundary. Patch bounds enclose the transformed mesh;
 the original sparse foliage and historical fallback remain intact. No density,
 culling or triangle count is a measured GPU-performance or human-quality result.
 
-Complete current captures use the CC0 [Rocky Trail](ground/CREDITS.md) surface
+Complete current captures use the CC0 [Brown Mud Leaves 01](ground/CREDITS.md) surface
 for the valley ground. Shared albedo, packed scalar and OpenGL normal maps use
-world-space mapping at the source's two-metre scale. Restrained elevation tint
-preserves the photograph's brightness rather than applying another dark base
+world-space mapping at the source's declared 1.3-metre scale. Loam and moss replace
+the earlier uniform pale trail as a reversible art choice. Restrained elevation tint
+preserves source color values rather than applying another dark base
 coat. This changes shading only: terrain triangles, support geometry, native
 poses and construction anchors are unchanged. The steel material has its own
 cache and files; both use the same bounded decoder with their declared normal
@@ -367,6 +499,20 @@ remain limitations to assess. The separate historical flat fixture keeps its opa
 surface. Headless material and frame-consumer checks establish resource behavior,
 not the rendered effect or GPU cost.
 
+Confirmed native material links use original open feed sleeves instead of floating
+annotation bars. An open worked-metal channel bridges the existing trimmed ports;
+cast end cuffs and small fasteners stay fixed while only the middle span varies.
+The warm direction mark lies on its floor. Existing billet and plate artwork fits
+the clear opening for the current cardinal routes. All metal maps reuse the
+qualified [cast/worked surfaces](transmission-surfaces/CREDITS.md).
+
+These sleeves visualize the same confirmed links and add no crafted transport
+unit, stock, item movement, gravity, power or collider. Pending and removed links
+create no sleeve. The old nonnative annotation and unsupported short or nonlevel
+render spans keep their prior path. Mesh lengths are rounded to 0.01 millimetres
+for cache reuse only; native poses, commands and reach remain exact. General
+diagonal/vertical logistics, rendered quality and GPU cost remain unverified.
+
 The native waterwheel has original flared cast stands and open worked journal
 liners. Their fixed bearing centers are fitted over the unchanged visible hub;
 the horizontal arrangement has two supports, while the vertical axle has one
@@ -376,6 +522,9 @@ metres so scaling the fixture does not shrink their material repeat. The annular
 liners clear the actual old journal, and fixed feet remain outside the rotor's
 whole-turn envelope. These are presentation parts of the existing wheel, not
 independent structures, additional shaft reach, collision or force authority.
+Foot bolts sit on flat mounting pads rather than crossing sloped shoulders.
+The focused contact oracle clips each complete hexagonal lower face against the
+actual casting triangles, checking full support and absence of penetration.
 Historical captures without the sourced rotor and nonnative wheels keep their
 earlier support assemblies. Geometry
 checks do not establish rendered quality, lubrication or a bearing simulation.
@@ -387,6 +536,16 @@ Actual transformed clump envelopes remain outside construction space, the river
 channel and existing solids. Low plants add no collision or authority; historical
 captures without the asset omit this group. Placement and resource checks do not
 establish rendered balance or alpha-overdraw cost.
+
+The [qualified full-size fir resource](fir/CREDITS.md) retains a complete
+7.8-metre local source tree, its material transforms and generated distance
+detail. Three gravity-upright instances now frame the opposite bank, outside
+the working ring and clear of the river and existing rock envelopes. Both views
+and the physical adapter use the same deterministic terrain poses. Actual
+woody triangles join the existing two-sided floor shape; needles remain soft
+visual foliage. No harvesting, stock, growth or new controller is introduced.
+Resource, scene and isolated contact checks do not establish rendered balance,
+ordinary traversal, frame cost or the overall production-quality target.
 
 The optional [young pine component](pine/CREDITS.md) frames the opposite bank
 with at most six near-source-scale saplings. Each shares the complete selected

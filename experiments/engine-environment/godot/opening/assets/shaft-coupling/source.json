@@ -1,0 +1,102 @@
+{
+  "asset": "Modular Industrial Pipes 01",
+  "author": "Jorge Camacho",
+  "asset_url": "https://polyhaven.com/a/modular_industrial_pipes_01",
+  "license": "CC0-1.0",
+  "license_url": "https://polyhaven.com/license",
+  "metadata_url": "https://api.polyhaven.com/info/modular_industrial_pipes_01",
+  "file_index_url": "https://api.polyhaven.com/files/modular_industrial_pipes_01",
+  "source_files": {
+    "scene": {
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/modular_industrial_pipes_01/modular_industrial_pipes_01_1k.gltf",
+      "bytes": 15014,
+      "md5": "cb30fdf4d471374ba439bfd5a0c8105d",
+      "sha256": "455d3a0fe95b7900a08cbebb23cfb2c341672fcb67ae7355d776e53cfa3d0688"
+    },
+    "geometry": {
+      "size": 515160,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/8k/modular_industrial_pipes_01/modular_industrial_pipes_01.bin",
+      "md5": "a18d063dc719e19b9c20d2f8c0a8bec4",
+      "filename": "original.bin",
+      "sha256": "2e11e1a7dabd56b1e158364f48b0b388bf316fcab61a01274740db75dbafa448"
+    },
+    "albedo": {
+      "size": 553576,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/modular_industrial_pipes_01/modular_industrial_pipes_01_group01_diff_1k.jpg",
+      "md5": "28678434837d64476cb8d75d0314166e",
+      "filename": "albedo.jpg",
+      "sha256": "c0233f66b18e3374dfbbb8c8078a41f6571a0809d3eb14dd9d3c332265cfde7b"
+    },
+    "normal": {
+      "size": 1439922,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/modular_industrial_pipes_01/modular_industrial_pipes_01_group01_nor_gl_1k.png",
+      "md5": "8adb80a130ff0d8074e9dfb3a3449aad",
+      "filename": "normal.png",
+      "sha256": "c9e9b28ffb9ddb76ab7ff5e9ea366d5e973ca41d7340dcb9080a18cd30353884"
+    },
+    "arm": {
+      "size": 1501825,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/modular_industrial_pipes_01/modular_industrial_pipes_01_group01_arm_1k.png",
+      "md5": "e1bccb9d36bde80adf6495612bdacf2d",
+      "filename": "arm.png",
+      "sha256": "ff99b36c84959c52c56ff8e2f82ab9ef1cabcb67621e107e48f1160d3a9c7d39"
+    }
+  },
+  "adaptation": {
+    "source_node": "modular_industrial_pipes_01_pipe01",
+    "source_vertices": 810,
+    "source_triangles": 600,
+    "selection": "First straight body and upper eight fasteners; selected triangle vertex IDs below 562.",
+    "source_cut_y": 0.39,
+    "authored_source_y_datum": 0.42954,
+    "uniform_scale": 0.72,
+    "source_triangles_retained": 312,
+    "authored_closure_triangles": 48,
+    "blind_cap": "Removed by the cut. Two unchanged nested star-shaped contours receive a checked annular closure; no bore plug or convexified contour.",
+    "attributes": "Retained source UVs and normalized normals. New cut vertices interpolate source attributes. Separate authored cut UVs and hard outward normals.",
+    "discovery_grid_metres": 1e-8,
+    "normalization": "Translate by the authored flange datum; retain source Y; uniformly scale all coordinates. Two copies mate using a proper half-turn about X."
+  },
+  "processed_files": {
+    "coupling.gltf": {
+      "bytes": 1485,
+      "sha256": "07e3c330ce9984ffaf352dbaee502fdd17108d6e3536f37f897473909eb975f2"
+    },
+    "coupling.bin": {
+      "bytes": 34560,
+      "sha256": "08ae7666de5dbd8061c0b91f3605ac6e9b99a0513b17da4759568692a0f0d04e"
+    },
+    "coupling_albedo.jpg": {
+      "bytes": 553576,
+      "sha256": "c0233f66b18e3374dfbbb8c8078a41f6571a0809d3eb14dd9d3c332265cfde7b"
+    },
+    "coupling_normal.webp": {
+      "bytes": 297806,
+      "sha256": "a01a9ddb0be355227de469fcbe820a396a290bf4546164ef7b415a2cadd03190"
+    },
+    "coupling_arm.webp": {
+      "bytes": 348746,
+      "sha256": "d4dedc8fa401e8c9a0bf53d252ea21a61a0d399445f7b62b91853dc1bdfce7a7"
+    }
+  },
+  "preparation": {
+    "geometry_recipe": "native/asset-preparation/coupling.cpp",
+    "writer": "//native/asset-preparation:prepare-coupling",
+    "non_host_test": "//native/asset-preparation:coupling_test",
+    "engine": "4.7.2.stable.official.ed1daf0bf",
+    "map_recipe": "opening/machine_detail_check.gd --prepare-coupling-maps",
+    "albedo": "Original provider 1024-pixel sRGB JPEG; no resize or re-encoding.",
+    "linear_maps": "Float Lanczos resize to 512 pixels; normalize OpenGL vectors, round to RGB8 and use lossless WebP with exact prepared-pixel equality. Packed channels remain red occlusion, green roughness and blue metallic.",
+    "maximum_normal_encoding_length_error": 0.00627028942108154,
+    "maximum_normal_encoding_angle_degrees": 0.373253122200151,
+    "source_material": "Original double-sided shading, unit factors, original UV mapping and no normal-axis flip."
+  },
+  "assembly": {
+    "authority": "Only explicit native coaxial engagement rows between a confirmed shaft and cog.",
+    "pair_seam_distance_from_gear_center_metres": 0.146,
+    "direction": "Towards shaft interior; refuse placement without full original shaft span.",
+    "motion": "Both halves follow the existing shaft cosmetic phase; no independent clock or new native contact.",
+    "preserved": "Native centres, axes, dimensions, gear bores, picks, collision, quantities and saved state."
+  },
+  "limits": "Presentation only. This is an adapted industrial flange, not a provider mechanical socket or fluid feature. Raw captured resources and isolated invented-projection fit checks do not establish rendered quality, GPU cost, contact force, general machine routing or human acceptance."
+}

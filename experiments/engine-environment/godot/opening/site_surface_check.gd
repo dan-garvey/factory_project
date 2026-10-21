@@ -1,9 +1,13 @@
 extends SceneTree
-## Adapter geometry checks only; no Model, bodies, game or desktop starts.
+## Adapter geometry and isolated physical-fixture checks; no game or desktop.
 const Surface = preload("res://opening/site_surface.gd")
 const ActorWorld = preload("res://opening/actor_world.gd")
 var checks := 0
 var failed := false
+
+class EmptyPhysicalFacts extends RefCounted:
+	func projection() -> Dictionary:
+		return {"context": "fir-physics-fixture", "options": {"physical": true, "native": true}, "actors": {}, "entities": {}}
 
 func verify(condition: bool, message: String) -> void:
 	checks += 1
@@ -12,6 +16,9 @@ func verify(condition: bool, message: String) -> void:
 		push_error(message)
 
 func _initialize() -> void:
+	if "--bank-firs-physics-only" in OS.get_cmdline_user_args():
+		call_deferred("check_bank_firs_physics")
+		return
 	if "--native-hull-matching-only" in OS.get_cmdline_user_args():
 		check_native_hull_matching()
 		print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
@@ -197,6 +204,76 @@ func check_convex_rocks() -> void:
 	verify(is_inf(Surface.capsule_convex_overlap(Vector3(NAN, 0, 0), 0.3, 1.8, Transform3D.IDENTITY, Surface.rock_faces()))
 		and is_inf(Surface.capsule_convex_overlap(Vector3.ZERO, 0.3, 1.8, Transform3D.IDENTITY, PackedVector3Array())),
 		"Invalid contact inputs fail closed.")
+
+func check_bank_firs_physics() -> void:
+	var world := ActorWorld.new()
+	verify(world.configure(EmptyPhysicalFacts.new()).accepted, "The existing physical producer accepts the empty invented fixture.")
+	root.add_child(world)
+	for frame in range(3):
+		await physics_frame
+		await process_frame
+	verify(world._geometry_registered(), "The actual registered floor contains the complete matching terrain and woody fixture.")
+	var rid: RID = world.floor_body.get_rid()
+	var shape_rid := PhysicsServer3D.body_get_shape(rid, 0)
+	var registered: Dictionary = PhysicsServer3D.shape_get_data(shape_rid)
+	var expected := Surface.faces()
+	expected.append_array(Surface.fir_collision_faces())
+	verify(registered.faces == expected and registered.backface_collision == true,
+		"Original terrain plus exact transformed woody facets is the actual native two-sided floor shape.")
+	var query := PhysicsShapeQueryParameters3D.new()
+	var capsule := CapsuleShape3D.new()
+	capsule.radius = 0.3
+	capsule.height = 1.8
+	query.shape = capsule
+	query.collision_mask = 1
+	query.margin = 0.0
+	var contacts: Array = []
+	for spec in Surface.fir_specs():
+		var at: Vector3 = spec.center + Vector3.UP * 1.2
+		query.transform = Transform3D(Basis.IDENTITY, at)
+		var hits := world.get_world_3d().direct_space_state.intersect_shape(query, 128)
+		var native_hit := false
+		for hit in hits:
+			native_hit = native_hit or hit.rid == rid
+		var measured := Surface.capsule_overlap(at, capsule.radius, capsule.height)
+		verify(native_hit and measured.geometric_overlap and measured.nearest_fir == spec.id and measured.fir_triangles_measured > 0,
+			"A real capsule intersects the woody trunk and the matching analytical contact is retained.")
+		verify(measured.subsurface_depth == 0.0, "The positive witness is above the ground, so terrain burial cannot substitute for wood contact.")
+		contacts.append({"tree": spec.id, "at": at, "native_hit": native_hit, "measure": measured})
+	query.transform = Transform3D(Basis.IDENTITY, Vector3(1.65, 2, 1.65))
+	var clear := world.get_world_3d().direct_space_state.intersect_shape(query, 128)
+	verify(clear.is_empty() and not Surface.capsule_overlap(query.transform.origin, 0.3, 1.8).geometric_overlap,
+		"The original working area remains clear in both native and analytical queries.")
+	var floor_shape := world.floor_body.get_child(0).shape as ConcavePolygonShape3D
+	floor_shape.set_faces(Surface.faces())
+	for frame in range(2):
+		await physics_frame
+		await process_frame
+	verify(not world._geometry_registered(), "Removing tree triangles from the actual native floor fails the existing exact geometry guard.")
+	floor_shape.set_faces(expected)
+	for frame in range(2):
+		await physics_frame
+		await process_frame
+	verify(world._geometry_registered(), "Restoring the exact expected facets restores registration.")
+	world.floor_body.position.x = 0.02
+	for frame in range(2):
+		await physics_frame
+		await process_frame
+	var shifted: Transform3D = PhysicsServer3D.body_get_state(rid, PhysicsServer3D.BODY_STATE_TRANSFORM)
+	verify(absf(shifted.origin.x - 0.02) < 0.000001 and shifted.origin == world.floor_body.position,
+		"The altered-pose control moves the real native body and its node together.")
+	verify(not world._geometry_registered(), "A consistent but shifted floor cannot pass for the immutable world-space fixture.")
+	world.floor_body.position = Vector3.ZERO
+	for frame in range(2):
+		await physics_frame
+		await process_frame
+	verify(world._geometry_registered() and world.bodies.is_empty() and world.machines.is_empty(),
+		"The restored fixture remains registered without a player, machine or second state owner.")
+	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks, "scope": "actual static fixture registration and capsule queries",
+		"tree_contacts": contacts, "terrain_triangles": Surface.faces().size() / 3, "wood_triangles": Surface.fir_collision_faces().size() / 3,
+		"authority": "invented empty facts only", "gameplay": "not_run", "desktop": "not_used"}))
+	world.free()
+	quit(1 if failed else 0)
 
 func check_native_hull_matching() -> void:
 	var source := Surface.rock_vertices()

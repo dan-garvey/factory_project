@@ -653,22 +653,23 @@ class ProductionWheelSupportArt:
 		var bearing_frame := Basis(Quaternion(Vector3.UP, axis))
 		if axis == Vector3.UP:
 			var pedestal := PackedVector2Array([Vector2(0, 0.24), Vector2(0.18, 0.24),
-				Vector2(0.195, 0.25), Vector2(0.195, 0.34), Vector2(0.18, 0.36),
-				Vector2(0.145, 0.39), Vector2(0.14, 0.44), Vector2(0.14, 0.46), Vector2(0, 0.46)])
+				Vector2(0.195, 0.25), Vector2(0.195, 0.32), Vector2(0.19, 0.34),
+				Vector2(0.14, 0.34), Vector2(0.14, 0.44), Vector2(0.14, 0.46), Vector2(0, 0.46)])
 			_part(parent, "WheelStand", "Vertical", ProductionVisuals.turned_mesh(_scaled(pedestal, scale_factor)),
 				Vector3.ZERO, Basis.IDENTITY, cast)
 			var center := Vector3.UP * 0.53 * scale_factor
 			_part(parent, "AxleBearing", "Vertical", housing_mesh, center, bearing_frame, cast)
 			_part(parent, "BearingLiner", "Vertical", liner_mesh, center, bearing_frame, worked)
-			for x in [-0.12, 0.12]:
-				for z in [-0.12, 0.12]:
+			# The entire hexagonal lower face rests on the annular flat flange.
+			for x in [-0.117, 0.117]:
+				for z in [-0.117, 0.117]:
 					_part(parent, "WheelFootBolt", ("N" if x < 0 else "P") + ("N" if z < 0 else "P"), fasteners[scale_factor],
-						Vector3(x, 0.378, z) * scale_factor, Basis.IDENTITY, worked)
+						Vector3(x, 0.349, z) * scale_factor, Basis.IDENTITY, worked)
 		else:
 			var outline := PackedVector2Array([Vector2(-0.19, 0.24), Vector2(0.19, 0.24),
-				Vector2(0.19, 0.32), Vector2(0.16, 0.36), Vector2(0.10, 0.38),
+				Vector2(0.19, 0.32), Vector2(0.18, 0.36), Vector2(0.075, 0.36),
 				Vector2(0.065, 0.58), Vector2(0.065, 0.62), Vector2(-0.065, 0.62),
-				Vector2(-0.065, 0.58), Vector2(-0.10, 0.38), Vector2(-0.16, 0.36), Vector2(-0.19, 0.32)])
+				Vector2(-0.065, 0.58), Vector2(-0.075, 0.36), Vector2(-0.18, 0.36), Vector2(-0.19, 0.32)])
 			var stand_mesh := ProductionVisuals.prism_mesh(_scaled(outline, scale_factor),
 				0.18 * scale_factor, 0.008 * scale_factor)
 			var stand_frame := Basis(Vector3.UP, PI / 2) if axis == Vector3.RIGHT else Basis.IDENTITY
@@ -681,7 +682,83 @@ class ProductionWheelSupportArt:
 				_part(parent, "BearingLiner", suffix, liner_mesh, center, bearing_frame, worked)
 				for x in [-0.13, 0.13]:
 					_part(parent, "WheelFootBolt", suffix + ("L" if x < 0 else "R"), fasteners[scale_factor],
-						offset + stand_frame * (Vector3(x, 0.379, 0) * scale_factor), Basis.IDENTITY, worked)
+						offset + stand_frame * (Vector3(x, 0.369, 0) * scale_factor), Basis.IDENTITY, worked)
+
+class ProductionFeedSleeveArt:
+	extends RefCounted
+	## Render the existing confirmed feed link. No stock, transfer or power rule.
+	const CACHE_LENGTH_STEP := 0.00001
+	const MINIMUM_RENDER_SPAN := 0.28
+	const FLOOR_HEIGHT := 0.09
+	static var bolt_mesh: CylinderMesh
+	static var marking: StandardMaterial3D
+
+	static func _part(parent: Node3D, role: String, suffix: String, mesh: Mesh,
+			at: Vector3, orientation: Basis, finish: Material) -> MeshInstance3D:
+		var part := MeshInstance3D.new()
+		part.name = role + suffix
+		part.set_meta("feed_sleeve_role", role)
+		part.mesh = mesh
+		part.position = at
+		part.basis = orientation
+		part.material_override = finish
+		parent.add_child(part)
+		return part
+
+	static func mount(parent: Node3D, start: Vector3, finish: Vector3) -> bool:
+		var offset: Vector3 = finish - start
+		var span: float = offset.length()
+		if not start.is_finite() or not finish.is_finite() or not offset.is_finite() \
+				or not is_finite(span) or offset.y != 0 or span < MINIMUM_RENDER_SPAN:
+			return false
+		# Cache equivalent render lengths despite float packing at different
+		# grid positions. This does not round a native pose, command or reach.
+		var length: float = snappedf(span, CACHE_LENGTH_STEP)
+		var direction: Vector3 = offset / span
+		var across := Vector3(direction.z, 0, -direction.x)
+		var channel := PackedVector2Array([Vector2(-0.292, -0.012), Vector2(0.292, -0.012),
+			Vector2(0.292, 0.07), Vector2(0.28, 0.07), Vector2(0.28, 0),
+			Vector2(-0.28, 0), Vector2(-0.28, 0.07), Vector2(-0.292, 0.07)])
+		var cuff := PackedVector2Array([Vector2(-0.306, -0.026), Vector2(0.306, -0.026),
+			Vector2(0.306, 0.07), Vector2(0.292, 0.07), Vector2(0.292, -0.012),
+			Vector2(-0.292, -0.012), Vector2(-0.292, 0.07), Vector2(-0.306, 0.07)])
+		var arrow := PackedVector2Array([Vector2(-0.09, -0.03), Vector2(-0.025, -0.03),
+			Vector2(-0.025, -0.12), Vector2(0.025, -0.12), Vector2(0.025, -0.03),
+			Vector2(0.09, -0.03), Vector2(0, 0.07)])
+		var worked := ProductionTransmissionFinish.material("worked", Color("929e91"), 0.85, 0.52)
+		var cast := ProductionTransmissionFinish.material("cast", Color("465a60"), 0.85, 0.55)
+		var hardware := ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.38)
+		if worked == null or cast == null or hardware == null:
+			return false
+		if bolt_mesh == null:
+			bolt_mesh = CylinderMesh.new()
+			bolt_mesh.top_radius = 0.0115
+			bolt_mesh.bottom_radius = 0.0115
+			bolt_mesh.height = 0.014
+			bolt_mesh.radial_segments = 6
+		if marking == null:
+			marking = StandardMaterial3D.new()
+			marking.albedo_color = Color("e2c48b")
+			marking.metallic = 0
+			marking.roughness = 0.85
+		parent.position = (start + finish) / 2.0
+		parent.basis = Basis(across, Vector3.UP, direction)
+		parent.set_meta("feed_sleeve", true)
+		parent.set_meta("render_span", length)
+		_part(parent, "FeedChannel", "", ProductionVisuals.prism_mesh(channel, length, 0.001),
+			Vector3(0, FLOOR_HEIGHT, 0), Basis.IDENTITY, worked)
+		for end in [-1.0, 1.0]:
+			var suffix := "N" if end < 0 else "P"
+			var z: float = end * (length / 2.0 - 0.0225)
+			_part(parent, "FeedCuff", suffix, ProductionVisuals.prism_mesh(cuff, 0.045, 0.001),
+				Vector3(0, FLOOR_HEIGHT, z), Basis.IDENTITY, cast)
+			for side in [-1.0, 1.0]:
+				_part(parent, "FeedBolt", suffix + ("N" if side < 0 else "P"), bolt_mesh,
+					Vector3(side * 0.313, FLOOR_HEIGHT + 0.035, z),
+					Basis(Quaternion(Vector3.UP, Vector3.RIGHT * side)), hardware)
+		_part(parent, "FeedDirection", "", ProductionVisuals.prism_mesh(arrow, 0.002, 0.0002),
+			Vector3(0, FLOOR_HEIGHT + 0.001, length * 0.2), Basis(Vector3.RIGHT, PI / 2), marking)
+		return true
 
 class ProductionSteelFloor:
 	extends RefCounted
@@ -883,6 +960,159 @@ class ProductionConveyorArt:
 		belt.set_meta("detail_role", "ConveyorLoop")
 		parent.add_child(belt)
 
+class ProductionConveyorFrameArt:
+	extends RefCounted
+	## Fixed original furniture around the existing loop, rollers and drive.
+	static var foot_bolt: CylinderMesh
+	static var cap_bolt: CylinderMesh
+
+	static func _part(parent: Node3D, role: String, suffix: String, mesh: Mesh, at: Vector3,
+			orientation: Basis, finish: StandardMaterial3D) -> MeshInstance3D:
+		var part := MeshInstance3D.new()
+		part.name = role + suffix
+		part.set_meta("conveyor_frame_role", role)
+		part.set_meta("detail_role", {"FrameCheek": "ConveyorLeg", "SideBeam": "ConveyorChannel",
+			"BearingCup": "RollerBearing"}.get(role, role))
+		part.mesh = mesh
+		part.position = at
+		part.basis = orientation
+		part.material_override = finish
+		parent.add_child(part)
+		return part
+
+	static func mount(parent: Node3D, color: Color, drive_axis: int) -> bool:
+		var paint := ProductionCollectorArt.coating(color)
+		var steel := ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.38)
+		if paint == null or steel == null:
+			return false
+		if foot_bolt == null:
+			foot_bolt = CylinderMesh.new()
+			foot_bolt.top_radius = 0.012
+			foot_bolt.bottom_radius = 0.012
+			foot_bolt.height = 0.012
+			foot_bolt.radial_segments = 6
+			cap_bolt = CylinderMesh.new()
+			cap_bolt.top_radius = 0.024
+			cap_bolt.bottom_radius = 0.024
+			cap_bolt.height = 0.015
+			cap_bolt.radial_segments = 6
+		var cheek := PackedVector2Array([Vector2(-0.13, 0.24), Vector2(0.13, 0.24),
+			Vector2(0.13, 0.275), Vector2(0.09, 0.275), Vector2(0.052, 0.35),
+			Vector2(0.048, 0.385), Vector2(-0.048, 0.385), Vector2(-0.052, 0.35),
+			Vector2(-0.09, 0.275), Vector2(-0.13, 0.275)])
+		var cup := PackedVector2Array([Vector2(0.065, -0.0475), Vector2(0.09, -0.0475),
+			Vector2(0.115, -0.0375), Vector2(0.115, 0.0355), Vector2(0.105, 0.0475),
+			Vector2(0.065, 0.0475), Vector2(0.065, -0.0475)])
+		var liner := PackedVector2Array([Vector2(0.063, -0.0465), Vector2(0.065, -0.0465),
+			Vector2(0.065, 0.0465), Vector2(0.063, 0.0465), Vector2(0.063, -0.0465)])
+		var cap := PackedVector2Array([Vector2(0, -0.004), Vector2(0.078, -0.004),
+			Vector2(0.085, -0.002), Vector2(0.085, 0.002), Vector2(0.078, 0.004), Vector2(0, 0.004)])
+		for x in [-0.57, 0.57]:
+			for side in [-1.0, 1.0]:
+				var suffix := ("N" if x < 0 else "P") + ("N" if side < 0 else "P")
+				var bearing_frame := Basis(Quaternion(Vector3.UP, Vector3.BACK * side))
+				var stand := _part(parent, "FrameCheek", suffix, ProductionVisuals.prism_mesh(cheek, 0.06, 0.003),
+					Vector3(x, 0, side * 0.36), Basis.IDENTITY, paint)
+				_part(parent, "BearingCup", suffix, ProductionVisuals.turned_mesh(cup),
+					Vector3(x, 0.465, side * 0.3875), bearing_frame, paint)
+				_part(parent, "BearingLiner", suffix, ProductionVisuals.turned_mesh(liner),
+					Vector3(x, 0.465, side * 0.3875), bearing_frame, steel)
+				var cover := _part(parent, "EndCap", suffix, ProductionVisuals.turned_mesh(cap),
+					Vector3(x, 0.465, side * 0.438), bearing_frame, steel)
+				var bolt := _part(parent, "CapBolt", suffix, cap_bolt,
+					Vector3(x, 0.465, side * 0.4495), bearing_frame, steel)
+				bolt.set_meta("frame_seat", cover.name)
+				for offset in [-0.11, 0.11]:
+					var foot := _part(parent, "FootBolt", suffix + ("N" if offset < 0 else "P"), foot_bolt,
+						Vector3(x + offset, 0.281, side * 0.36), Basis.IDENTITY, steel)
+					foot.set_meta("frame_seat", stand.name)
+		var channel := PackedVector2Array([Vector2(-0.025, -0.03), Vector2(0.025, -0.03),
+			Vector2(0.025, -0.018), Vector2(-0.013, -0.018), Vector2(-0.013, 0.018),
+			Vector2(0.025, 0.018), Vector2(0.025, 0.03), Vector2(-0.025, 0.03)])
+		for side in [-1.0, 1.0]:
+			var suffix := "N" if side < 0 else "P"
+			_part(parent, "SideBeam", suffix, ProductionVisuals.prism_mesh(channel, 1.14, 0.002),
+				Vector3(0, 0.355, side * 0.36), Basis(Vector3.UP, side * PI / 2), paint)
+			if drive_axis == 2:
+				# Keep a real opening around the existing Z-axis drive stub.
+				for end in [-1.0, 1.0]:
+					_part(parent, "GuardHalf", suffix + ("N" if end < 0 else "P"),
+						ProductionVisuals.box_mesh(Vector3(0.57, 0.08, 0.05)), Vector3(end * 0.405, 0.57, side * 0.36), Basis.IDENTITY, paint)
+			else:
+				_part(parent, "GuardRail", suffix, ProductionVisuals.box_mesh(Vector3(1.38, 0.08, 0.05)),
+					Vector3(0, 0.57, side * 0.36), Basis.IDENTITY, paint)
+		parent.set_meta("conveyor_frame", true)
+		return true
+
+class ProductionConveyorHubArt:
+	extends RefCounted
+	## A compact view of the native point hub, not a new shaft or drive route.
+	static var journals: Dictionary = {}
+
+	static func _part(parent: Node3D, role: String, suffix: String, mesh: Mesh, at: Vector3,
+			finish: StandardMaterial3D, orientation: Basis = Basis.IDENTITY) -> MeshInstance3D:
+		var part := MeshInstance3D.new()
+		part.name = role + suffix
+		part.set_meta("conveyor_hub_role", role)
+		part.mesh = mesh
+		part.position = at
+		part.basis = orientation
+		part.material_override = finish
+		parent.add_child(part)
+		return part
+
+	static func mount(parent: Node3D, axis: Vector3, color: Color) -> bool:
+		var paint := ProductionCollectorArt.coating(color)
+		var steel := ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.38)
+		var warm := ProductionTransmissionFinish.material("worked", Color("b87945"), 0.85, 0.4)
+		if paint == null or steel == null or warm == null:
+			return false
+		var rail := PackedVector2Array([Vector2(-0.0125, -0.0175), Vector2(0.0125, -0.0175),
+			Vector2(0.0125, 0.0175), Vector2(-0.0125, 0.0175)])
+		for side in [-1.0, 1.0]:
+			var suffix := "N" if side < 0 else "P"
+			_part(parent, "HubCarrierRail", suffix, ProductionVisuals.prism_mesh(rail, 0.74, 0.0015),
+				Vector3(side * 0.0625, 0.4325, 0), paint)
+			for end in [-1.0, 1.0]:
+				_part(parent, "HubMountCleat", suffix + ("N" if end < 0 else "P"),
+					ProductionVisuals.box_mesh(Vector3(0.025, 0.033, 0.024)), Vector3(side * 0.0625, 0.4005, end * 0.36), paint)
+		var vertical := axis == Vector3.UP
+		var housing: PackedVector2Array
+		if vertical:
+			housing = PackedVector2Array([Vector2(0.039, -0.03), Vector2(0.057, -0.03),
+				Vector2(0.06, -0.027), Vector2(0.06, 0.027), Vector2(0.057, 0.03),
+				Vector2(0.039, 0.03), Vector2(0.039, -0.03)])
+			var fork := PackedVector2Array([Vector2(0.05, 0.447), Vector2(0.075, 0.447),
+				Vector2(0.055, 0.472), Vector2(0.042, 0.472)])
+			for side in [-1.0, 1.0]:
+				var profile := fork.duplicate()
+				for n in range(profile.size()):
+					profile[n].x *= side
+				_part(parent, "HubFork", "N" if side < 0 else "P", ProductionVisuals.prism_mesh(profile, 0.018, 0.001),
+					Vector3.ZERO, paint)
+		else:
+			housing = PackedVector2Array([Vector2(0.039, -0.05), Vector2(0.0405, -0.05),
+				Vector2(0.042, -0.0485), Vector2(0.042, 0.0485), Vector2(0.0405, 0.05),
+				Vector2(0.039, 0.05), Vector2(0.039, -0.05)])
+			_part(parent, "HubBridge", "", ProductionVisuals.box_mesh(Vector3(0.15, 0.01, 0.028)),
+				Vector3(0, 0.4475, 0), paint)
+			_part(parent, "HubPedestal", "", ProductionVisuals.box_mesh(Vector3(0.024, 0.01, 0.026)),
+				Vector3(0, 0.455, 0), paint)
+		var at := Vector3(0, Geometry.ANCHOR_HEIGHT, 0)
+		var orientation := Basis(Quaternion(Vector3.UP, axis))
+		_part(parent, "HubHousing", "", ProductionVisuals.turned_mesh(housing), at, paint if vertical else steel, orientation)
+		if not journals.has(vertical):
+			var journal := CylinderMesh.new()
+			journal.top_radius = 0.028
+			journal.bottom_radius = 0.028
+			journal.height = 0.08 if vertical else 0.12
+			journal.radial_segments = 48
+			journals[vertical] = journal
+		var spindle := _part(parent, "HubJournal", "", journals[vertical], at, warm, orientation)
+		spindle.name = "DriveStub"
+		parent.set_meta("conveyor_hub", true)
+		return true
+
 class ProductionPressArt:
 	extends RefCounted
 	## Authored support components for the existing confirmed processor.
@@ -976,6 +1206,281 @@ class ProductionPressArt:
 			parent.add_child(support)
 		return true
 
+class ProductionPressCrownArt:
+	extends RefCounted
+	## Fixed original castings around the unchanged tool and guide shafts.
+	static func _part(parent: Node3D, role: String, mesh: Mesh, at: Vector3,
+			finish: StandardMaterial3D) -> void:
+		var part := MeshInstance3D.new()
+		part.name = role
+		part.set_meta("press_crown_role", role)
+		part.mesh = mesh
+		part.position = at
+		part.material_override = finish
+		parent.add_child(part)
+
+	static func mount(parent: Node3D, color: Color) -> bool:
+		var paint := ProductionCollectorArt.coating(color)
+		var steel := ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.38)
+		var guide_finish := ProductionTransmissionFinish.material("worked", Color("b87945"), 0.85, 0.4)
+		if paint == null or steel == null or guide_finish == null:
+			return false
+		var crown := Node3D.new()
+		crown.name = "PressCrown"
+		parent.add_child(crown)
+		var shoulder := PackedVector2Array([Vector2(-0.60, -0.07), Vector2(-0.56, -0.10),
+			Vector2(-0.34, -0.10), Vector2(-0.24, -0.04), Vector2(-0.12, -0.04),
+			Vector2(-0.12, 0.10), Vector2(-0.56, 0.10), Vector2(-0.60, 0.06)])
+		for right in [false, true]:
+			var profile := shoulder.duplicate()
+			if right:
+				for n in range(profile.size()):
+					profile[n].x = -profile[n].x
+			_part(crown, "CastShoulderRight" if right else "CastShoulderLeft",
+				ProductionVisuals.prism_mesh(profile, 0.36, 0.007), Vector3(0, 1.5, -0.3), paint)
+		# The rear tie joins the shoulders without filling the ram's bore.
+		_part(crown, "RearTie", ProductionVisuals.box_mesh(Vector3(0.32, 0.14, 0.265)),
+			Vector3(0, 1.53, -0.3475), paint)
+		var housing := PackedVector2Array([Vector2(0.083, -0.135), Vector2(0.115, -0.135),
+			Vector2(0.14, -0.115), Vector2(0.14, 0.11), Vector2(0.12, 0.135),
+			Vector2(0.083, 0.135), Vector2(0.083, -0.135)])
+		_part(crown, "RamHousing", ProductionVisuals.turned_mesh(housing), Vector3(0, 1.465, -0.08), paint)
+		var liner := PackedVector2Array([Vector2(0.079, -0.125), Vector2(0.083, -0.125),
+			Vector2(0.083, 0.125), Vector2(0.079, 0.125), Vector2(0.079, -0.125)])
+		_part(crown, "RamLiner", ProductionVisuals.turned_mesh(liner), Vector3(0, 1.465, -0.08), steel)
+		var socket := PackedVector2Array([Vector2(0.043, -0.04), Vector2(0.058, -0.04),
+			Vector2(0.068, -0.03), Vector2(0.068, 0.03), Vector2(0.058, 0.04),
+			Vector2(0.043, 0.04), Vector2(0.043, -0.04)])
+		for side in [-1.0, 1.0]:
+			_part(crown, "GuideSocketLeft" if side < 0 else "GuideSocketRight",
+				ProductionVisuals.turned_mesh(socket), Vector3(side * 0.34, 1.39, -0.19), guide_finish)
+		return true
+
+class ProductionPressDieArt:
+	extends RefCounted
+	## Passive rigid tooling. Working planes and the existing motion anchor stay literal.
+	static var meshes: Dictionary = {}
+
+	static func _surface(target: ArrayMesh, role: String, pieces: Array) -> void:
+		var surface := SurfaceTool.new()
+		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+		for piece: Array in pieces:
+			surface.append_from(piece[0], 0, piece[1])
+		surface.commit(target)
+		target.surface_set_name(target.get_surface_count() - 1, role)
+
+	static func _hardware(target: ArrayMesh, poses: Array[Transform3D]) -> void:
+		var washer := ProductionVisuals.turned_mesh(PackedVector2Array([
+			Vector2(0.014, 0), Vector2(0.038, 0), Vector2(0.043, 0.002),
+			Vector2(0.043, 0.004), Vector2(0.038, 0.006), Vector2(0.014, 0.006), Vector2(0.014, 0)]), 24)
+		var pieces: Array = []
+		for pose in poses:
+			pieces.append([washer, pose])
+			pieces.append([ProductionVisuals.fastener_head_mesh(), pose * Transform3D(Basis.IDENTITY, Vector3(0, 0.018, 0))])
+		_surface(target, "MountingHardware", pieces)
+
+	static func tool_mesh() -> ArrayMesh:
+		if meshes.has("tool"):
+			return meshes.tool
+		var mesh := ArrayMesh.new()
+		var holder := PackedVector2Array([
+			Vector2(-0.28, -0.025), Vector2(-0.27, -0.045), Vector2(-0.25, -0.045),
+			Vector2(-0.25, -0.035), Vector2(0.25, -0.035), Vector2(0.25, -0.045),
+			Vector2(0.27, -0.045), Vector2(0.28, -0.025), Vector2(0.28, 0.060),
+			Vector2(0.255, 0.085), Vector2(-0.255, 0.085), Vector2(-0.28, 0.060)])
+		_surface(mesh, "ToolHolder", [[ProductionVisuals.prism_mesh(holder, 0.48, 0.004), Transform3D.IDENTITY]])
+		# This separate working insert retains the old lower plane and full
+		# front/back extent. The holder and hardware fit inside the same envelope.
+		_surface(mesh, "WorkingFace", [[ProductionVisuals.box_mesh(Vector3(0.50, 0.05, 0.55)),
+			Transform3D(Basis.IDENTITY, Vector3(0, -0.06, 0))]])
+		var poses: Array[Transform3D] = []
+		for side in [-1.0, 1.0]:
+			for x in [-0.205, 0.205]:
+				poses.append(Transform3D(Basis(Quaternion(Vector3.UP, Vector3.BACK * side)), Vector3(x, 0.025, side * 0.24)))
+		_hardware(mesh, poses)
+		meshes.tool = mesh
+		return mesh
+
+	static func anvil_mesh() -> ArrayMesh:
+		if meshes.has("anvil"):
+			return meshes.anvil
+		var mesh := ArrayMesh.new()
+		var saddle := PackedVector2Array([
+			Vector2(-0.35, -0.08), Vector2(0.21, -0.08), Vector2(0.21, -0.02),
+			Vector2(0.35, -0.02), Vector2(0.35, 0.005), Vector2(0.27, 0.005), Vector2(0.24, 0.04),
+			Vector2(-0.24, 0.04), Vector2(-0.24, -0.015), Vector2(-0.27, -0.045), Vector2(-0.35, -0.045)])
+		_surface(mesh, "AnvilSaddle", [[ProductionVisuals.prism_mesh(saddle, 0.63, 0.004), Transform3D.IDENTITY]])
+		_surface(mesh, "WorkingFace", [[ProductionVisuals.box_mesh(Vector3(0.52, 0.04, 0.51)),
+			Transform3D(Basis.IDENTITY, Vector3(0, 0.06, 0))]])
+		var poses: Array[Transform3D] = []
+		for x in [-0.305, 0.305]:
+			for z in [-0.255, 0.255]:
+				# The outlet-side foot is relieved above the existing output plate.
+				poses.append(Transform3D(Basis.IDENTITY, Vector3(x, 0.005 if x > 0 else -0.045, z)))
+		_hardware(mesh, poses)
+		meshes.anvil = mesh
+		return mesh
+
+	static func pedestal_mesh() -> ArrayMesh:
+		if not meshes.has("pedestal"):
+			var rib := PackedVector2Array([
+				Vector2(-0.05, -0.07), Vector2(0.05, -0.07), Vector2(0.05, -0.045),
+				Vector2(0.025, -0.045), Vector2(0.022, 0.045), Vector2(0.045, 0.045),
+				Vector2(0.045, 0.07), Vector2(-0.045, 0.07), Vector2(-0.045, 0.045),
+				Vector2(-0.022, 0.045), Vector2(-0.025, -0.045), Vector2(-0.05, -0.045)])
+			meshes.pedestal = ProductionVisuals.prism_mesh(rib, 0.53, 0.002)
+		return meshes.pedestal
+
+	static func mount(parent: Node3D, anvil: MeshInstance3D, head: MeshInstance3D) -> void:
+		var holder := ProductionCollectorArt.coating(Color("58634c"))
+		var saddle := ProductionCollectorArt.coating(Color("394a44"))
+		var face := ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.32)
+		var hardware := ProductionTransmissionFinish.material("worked", Color("b8c3bb"), 0.85, 0.38)
+		if holder == null or saddle == null or face == null or hardware == null:
+			return
+		for pair in [[head, tool_mesh(), holder], [anvil, anvil_mesh(), saddle]]:
+			var part: MeshInstance3D = pair[0]
+			part.mesh = pair[1]
+			part.material_override = null
+			part.set_surface_override_material(0, pair[2])
+			part.set_surface_override_material(1, face)
+			part.set_surface_override_material(2, hardware)
+			part.set_meta("press_die_role", str(part.name))
+		for side in [-1.0, 1.0]:
+			var rib := MeshInstance3D.new()
+			rib.name = "AnvilPedestalLeft" if side < 0 else "AnvilPedestalRight"
+			# Keep the outlet side open without entering the vertical drive journal.
+			rib.position = Vector3(side * 0.16, 0.31, 0.05)
+			rib.mesh = pedestal_mesh()
+			rib.material_override = saddle
+			rib.set_meta("press_die_role", "AnvilPedestal")
+			parent.add_child(rib)
+
+class ProductionPressTrayArt:
+	extends RefCounted
+	## Fixed sheet and brackets. The receiving datum and output item never move.
+	static var meshes: Dictionary = {}
+
+	static func tray_mesh() -> ArrayMesh:
+		if not meshes.has("tray"):
+			# An eight-millimetre floor with folded sides and short returned lips.
+			# The open ends leave the existing output accessible; all folds stay
+			# outside the full declared plate footprint, not just its centre.
+			var section := PackedVector2Array([
+				Vector2(-0.24, 0.017), Vector2(0.24, 0.017), Vector2(0.24, 0.040),
+				Vector2(0.228, 0.040), Vector2(0.228, 0.032), Vector2(0.232, 0.032),
+				Vector2(0.232, 0.025), Vector2(-0.232, 0.025), Vector2(-0.232, 0.032),
+				Vector2(-0.228, 0.032), Vector2(-0.228, 0.040), Vector2(-0.24, 0.040)])
+			meshes.tray = ProductionVisuals.prism_mesh(section, 0.58, 0.0006)
+		return meshes.tray
+
+	static func bracket_mesh() -> ArrayMesh:
+		if meshes.has("bracket"):
+			return meshes.bracket
+		var section := PackedVector2Array([
+			Vector2(-0.030, -0.0535), Vector2(0.030, -0.0535), Vector2(0.030, -0.0435),
+			Vector2(0.012, -0.0435), Vector2(0.012, 0.0375), Vector2(0.028, 0.0375),
+			Vector2(0.028, 0.0535), Vector2(-0.028, 0.0535), Vector2(-0.028, 0.0375),
+			Vector2(-0.012, 0.0375), Vector2(-0.012, -0.0435), Vector2(-0.030, -0.0435)])
+		var mesh := ArrayMesh.new()
+		ProductionPressDieArt._surface(mesh, "Bracket", [[ProductionVisuals.prism_mesh(section, 0.32, 0.0008), Transform3D.IDENTITY]])
+		var fasteners: Array = []
+		for x in [-0.021, 0.021]:
+			for z in [-0.12, 0.12]:
+				fasteners.append([ProductionVisuals.fastener_head_mesh(),
+					Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * 0.18), Vector3(x, -0.04134, z))])
+		ProductionPressDieArt._surface(mesh, "FootFasteners", fasteners)
+		meshes.bracket = mesh
+		return mesh
+
+	static func mount(parent: Node3D, tray: MeshInstance3D) -> void:
+		var sheet := ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.5)
+		var bracket_finish := ProductionCollectorArt.coating(Color("394a44"))
+		var hardware := ProductionTransmissionFinish.material("worked", Color("b8c3bb"), 0.85, 0.38)
+		if sheet == null or bracket_finish == null or hardware == null:
+			return
+		tray.mesh = tray_mesh()
+		tray.material_override = sheet
+		tray.set_meta("press_tray_role", "FormedPan")
+		for index in range(2):
+			var bracket := MeshInstance3D.new()
+			bracket.name = "TrayBracketLeft" if index == 0 else "TrayBracketRight"
+			bracket.position = Vector3(0.40 if index == 0 else 0.62, 0.2935, 0.15)
+			bracket.mesh = bracket_mesh()
+			bracket.set_surface_override_material(0, bracket_finish)
+			bracket.set_surface_override_material(1, hardware)
+			bracket.set_meta("press_tray_role", "FixedBracket")
+			parent.add_child(bracket)
+
+class ProductionCollectorToolingArt:
+	extends RefCounted
+	## Passive rigid tooling. The existing cutter rows and presenter own its pose.
+	static var meshes: Dictionary = {}
+
+	static func drum_mesh() -> ArrayMesh:
+		if not meshes.has("drum"):
+			var section := PackedVector2Array([
+				Vector2(0.085, -0.17), Vector2(0.218, -0.17), Vector2(0.228, -0.164),
+				Vector2(0.24, -0.15), Vector2(0.24, -0.13), Vector2(0.228, -0.12),
+				Vector2(0.228, 0.12), Vector2(0.24, 0.13), Vector2(0.24, 0.15),
+				Vector2(0.228, 0.164), Vector2(0.218, 0.17), Vector2(0.085, 0.17), Vector2(0.085, -0.17)])
+			meshes.drum = ProductionVisuals.turned_mesh(section)
+		return meshes.drum
+
+	static func hub_mesh() -> ArrayMesh:
+		if not meshes.has("hub"):
+			var section := PackedVector2Array([
+				Vector2(0, -0.04), Vector2(0.078, -0.04), Vector2(0.085, -0.036),
+				Vector2(0.085, -0.020), Vector2(0.078, -0.014), Vector2(0.078, -0.006),
+				Vector2(0.085, 0), Vector2(0.085, 0.039), Vector2(0.083, 0.04), Vector2(0, 0.04)])
+			meshes.hub = ProductionVisuals.turned_mesh(section)
+		return meshes.hub
+
+	static func flute_mesh() -> ArrayMesh:
+		if meshes.has("flute"):
+			return meshes.flute
+		var holder := PackedVector2Array([
+			Vector2(-0.02, -0.0225), Vector2(0.02, -0.0225), Vector2(0.02, 0.0025),
+			Vector2(0.012, 0.0075), Vector2(-0.012, 0.0075), Vector2(-0.02, 0.0025)])
+		var insert := PackedVector2Array([
+			Vector2(-0.012, 0.0075), Vector2(0.012, 0.0075), Vector2(0.02, 0.0175),
+			Vector2(0.014, 0.0225), Vector2(-0.014, 0.0225), Vector2(-0.02, 0.0175)])
+		var mesh := ArrayMesh.new()
+		ProductionPressDieArt._surface(mesh, "InsertHolder", [[ProductionVisuals.prism_mesh(holder, 0.29, 0.001), Transform3D.IDENTITY]])
+		ProductionPressDieArt._surface(mesh, "CuttingInsert", [[ProductionVisuals.prism_mesh(insert, 0.27, 0.0006), Transform3D.IDENTITY]])
+		var heads: Array = []
+		for z in [-0.14, 0.14]:
+			heads.append([ProductionVisuals.fastener_head_mesh(),
+				Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * 0.12), Vector3(0, 0.00894, z))])
+		ProductionPressDieArt._surface(mesh, "RetainingHeads", heads)
+		meshes.flute = mesh
+		return mesh
+
+	static func mount_body(drum: MeshInstance3D, hub: MeshInstance3D) -> void:
+		var dark := ProductionTransmissionFinish.material("worked", Color("465a60"), 0.85, 0.4)
+		var steel := ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.4)
+		if dark == null or steel == null:
+			return
+		drum.mesh = drum_mesh()
+		drum.material_override = dark
+		drum.set_meta("collector_tooling_role", "BoredDrum")
+		hub.mesh = hub_mesh()
+		hub.material_override = steel
+		hub.set_meta("collector_tooling_role", "SteppedHub")
+
+	static func mount_flute(flute: MeshInstance3D) -> void:
+		var holder := ProductionTransmissionFinish.material("worked", Color("465a60"), 0.85, 0.4)
+		var insert := ProductionTransmissionFinish.material("worked", Color("b8c3bb"), 0.9, 0.3)
+		var hardware := ProductionTransmissionFinish.material("worked", Color("778b8c"), 0.85, 0.4)
+		if holder == null or insert == null or hardware == null:
+			return
+		flute.mesh = flute_mesh()
+		flute.material_override = null
+		flute.set_surface_override_material(0, holder)
+		flute.set_surface_override_material(1, insert)
+		flute.set_surface_override_material(2, hardware)
+		flute.set_meta("collector_tooling_role", "FittedInsert")
+
 class ProductionEnvironment:
 	extends RefCounted
 	## Visual scenery only. ActorWorld owns collision from the same immutable site geometry.
@@ -1040,7 +1545,7 @@ class ProductionEnvironment:
 
 	static func ground_material() -> StandardMaterial3D:
 		if ground_finish == null:
-			ground_finish = _scanned_ground_material()
+			ground_finish = _sourced_ground_material()
 			if ground_finish != null:
 				return ground_finish
 			ground_finish = StandardMaterial3D.new()
@@ -1054,19 +1559,19 @@ class ProductionEnvironment:
 			ground_finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 		return ground_finish
 
-	static func _scanned_ground_material() -> StandardMaterial3D:
+	static func _sourced_ground_material() -> StandardMaterial3D:
 		var loaded := ProductionSteelFloor.read_images(GROUND_ROOT, GROUND_FILES, Vector2i(512, 512))
 		ground_source_status = loaded.status
 		if loaded.status == "missing":
 			return null
 		if loaded.status != "ready":
-			push_error("Incomplete or invalid rocky-ground material: " + str(loaded.get("reason", "unknown")))
+			push_error("Incomplete or invalid forest-ground material: " + str(loaded.get("reason", "unknown")))
 			return null
 		for role in loaded.images:
 			var image: Image = loaded.images[role]
 			if image.generate_mipmaps(role == "normal") != OK:
 				ground_source_status = "invalid"
-				push_error("Cannot generate rocky-ground mipmaps.")
+				push_error("Cannot generate forest-ground mipmaps.")
 				return null
 		var packed := ImageTexture.create_from_image(loaded.images.arm)
 		var finish := StandardMaterial3D.new()
@@ -1091,7 +1596,8 @@ class ProductionEnvironment:
 		finish.uv1_triplanar = true
 		finish.uv1_world_triplanar = true
 		finish.uv1_triplanar_sharpness = 8.0
-		finish.uv1_scale = Vector3.ONE * 0.5
+		# Brown Mud Leaves 01 covers a provider-declared 1.3-metre square.
+		finish.uv1_scale = Vector3.ONE / 1.3
 		finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 		return finish
 
@@ -1854,6 +2360,24 @@ class ProductionEnvironment:
 		patch.multimesh.instance_count = kept.size() / 12
 		patch.multimesh.buffer = kept
 
+	static func _bank_firs() -> Node3D:
+		var group := Node3D.new()
+		group.name = "BankFirs"
+		var specs: Array[Dictionary] = Surface.fir_specs()
+		if specs.is_empty():
+			return group
+		var mesh: ArrayMesh = Surface.fir_mesh()
+		for spec in specs:
+			var tree := MeshInstance3D.new()
+			tree.name = spec.id
+			tree.mesh = mesh
+			tree.position = spec.center
+			tree.basis = spec.basis.scaled_local(Vector3.ONE * spec.scale)
+			tree.visibility_range_end = 65.0
+			tree.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED
+			group.add_child(tree)
+		return group
+
 	static func _bank_ferns() -> Node3D:
 		var group := Node3D.new()
 		group.name = "BankFerns"
@@ -2023,6 +2547,7 @@ class ProductionEnvironment:
 		scenery.add_child(_bank_ferns())
 		scenery.add_child(_foreground_bank())
 		scenery.add_child(_pine_understory())
+		scenery.add_child(_bank_firs())
 		return scenery
 
 class FlatFixtureEnvironment:
@@ -3546,6 +4071,8 @@ func _material_route(parent: Node3D, a: Vector3, b: Vector3) -> Node3D:
 	var direction := (b - a).normalized()
 	var start := a + direction * 0.55 + Vector3.UP * 0.45
 	var finish := b - direction * 0.55 + Vector3.UP * 0.45
+	if _native_transmission() and ProductionFeedSleeveArt.mount(route, start, finish):
+		return route
 	_route_segment(route, "Rail", start, finish, 0.17, Color("929e91"))
 	var side := Vector3(-direction.z, 0, direction.x)
 	var tip := start.lerp(finish, 0.7) + Vector3.UP * 0.115
@@ -3650,13 +4177,16 @@ func _machine_surface_detail(machine: Node3D, kind: String) -> void:
 					Vector3(0.04, 0.045, 0.29), Color("a6b4af"), 0.85, 0.32)
 				tooth.rotation.z = angle - PI / 2.0
 				tooth.set_meta("detail_role", "CutterFlute")
+				if _native_transmission():
+					ProductionCollectorToolingArt.mount_flute(tooth)
 		"belt":
-			var profile := PackedVector2Array([Vector2(0, -0.025), Vector2(0.11, -0.025),
-				Vector2(0.135, -0.015), Vector2(0.135, 0.015), Vector2(0.11, 0.025), Vector2(0, 0.025)])
-			for x in [-0.57, 0.57]:
-				for side in [-1.0, 1.0]:
-					_machine_turned(anchor, "RollerBearing", Vector3(x, 0.465, side * 0.405), profile, Color("778b8c"), Vector3.BACK)
-					_machine_fastener(anchor, "BearingFastener", Vector3(x, 0.465, side * 0.435), Vector3.BACK * side)
+			if not machine.get_meta("conveyor_frame", false):
+				var profile := PackedVector2Array([Vector2(0, -0.025), Vector2(0.11, -0.025),
+					Vector2(0.135, -0.015), Vector2(0.135, 0.015), Vector2(0.11, 0.025), Vector2(0, 0.025)])
+				for x in [-0.57, 0.57]:
+					for side in [-1.0, 1.0]:
+						_machine_turned(anchor, "RollerBearing", Vector3(x, 0.465, side * 0.405), profile, Color("778b8c"), Vector3.BACK)
+						_machine_fastener(anchor, "BearingFastener", Vector3(x, 0.465, side * 0.435), Vector3.BACK * side)
 		"processor":
 			var profile := PackedVector2Array([Vector2(0, -0.02), Vector2(0.052, -0.02),
 				Vector2(0.065, -0.01), Vector2(0.065, 0.01), Vector2(0.052, 0.02), Vector2(0, 0.02)])
@@ -3674,32 +4204,38 @@ func _collector_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	var steel := Color("a6b4af")
 	_machine_box(anchor, "StockBed", Vector3(0, 0.51, 0), Vector3(1.25, 0.1, 0.67), steel, 0.85, 0.45)
 	ProductionCollectorArt.mount(anchor, frame)
-	_machine_cylinder(anchor, "CutterDrum", Vector3(-0.22, 1.1, -0.19), 0.24, 0.34,
+	var drum := _machine_cylinder(anchor, "CutterDrum", Vector3(-0.22, 1.1, -0.19), 0.24, 0.34,
 		Color("465a60"), Vector3(PI / 2, 0, 0))
-	_machine_cylinder(anchor, "CutterHub", Vector3(-0.22, 1.1, 0.01), 0.085, 0.08,
+	var hub := _machine_cylinder(anchor, "CutterHub", Vector3(-0.22, 1.1, 0.01), 0.085, 0.08,
 		steel, Vector3(PI / 2, 0, 0))
+	if _native_transmission():
+		ProductionCollectorToolingArt.mount_body(drum, hub)
 	for z in [-0.37, 0.37]:
 		_machine_box(anchor, "StockGuide", Vector3(0.05, 0.6, z), Vector3(1.15, 0.08, 0.06), frame)
 	_machine_drive_stub(anchor, entity)
 
 func _belt_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	var frame: Color = COLORS.belt
-	for x in [-0.52, 0.52]:
-		for z in [-0.36, 0.36]:
-			var leg := _machine_box(anchor, "ConveyorLeg", Vector3(x, 0.315, z), Vector3(0.09, 0.21, 0.06), frame)
-			leg.set_meta("detail_role", "ConveyorLeg")
+	var fitted := _native_transmission() and ProductionConveyorFrameArt.mount(anchor, frame, int(entity.get("axis", 0)))
+	if not fitted:
+		for x in [-0.52, 0.52]:
+			for z in [-0.36, 0.36]:
+				var leg := _machine_box(anchor, "ConveyorLeg", Vector3(x, 0.315, z), Vector3(0.09, 0.21, 0.06), frame)
+				leg.set_meta("detail_role", "ConveyorLeg")
 	ProductionConveyorArt.mount(anchor)
-	for z in [-0.36, 0.36]:
-		_machine_box(anchor, "ConveyorRail", Vector3(0, 0.57, z), Vector3(1.38, 0.08, 0.05), frame)
-		var channel := _machine_box(anchor, "ConveyorChannel", Vector3(0, 0.43, z), Vector3(1.34, 0.08, 0.05), frame)
-		channel.set_meta("detail_role", "ConveyorChannel")
+	if not fitted:
+		for z in [-0.36, 0.36]:
+			_machine_box(anchor, "ConveyorRail", Vector3(0, 0.57, z), Vector3(1.38, 0.08, 0.05), frame)
+			var channel := _machine_box(anchor, "ConveyorChannel", Vector3(0, 0.43, z), Vector3(1.34, 0.08, 0.05), frame)
+			channel.set_meta("detail_role", "ConveyorChannel")
 	var roller_profile := PackedVector2Array([Vector2(0, -0.35), Vector2(0.055, -0.35),
 		Vector2(0.06, -0.345), Vector2(0.06, -0.305), Vector2(0.077, -0.3),
 		Vector2(0.077, 0.3), Vector2(0.06, 0.305), Vector2(0.06, 0.345),
 		Vector2(0.055, 0.35), Vector2(0, 0.35)])
 	for x in [-0.57, 0.57]:
 		_machine_turned(anchor, "ConveyorRoller", Vector3(x, 0.465, 0), roller_profile, Color("a6b4af"), Vector3.BACK)
-	_machine_drive_stub(anchor, entity)
+	if not (fitted and ProductionConveyorHubArt.mount(anchor, _machine_axis(entity), frame)):
+		_machine_drive_stub(anchor, entity)
 
 func _press_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	var frame: Color = COLORS.processor
@@ -3711,13 +4247,18 @@ func _press_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	else:
 		for x in [-0.48, 0.48]:
 			_machine_box(anchor, "PressUpright", Vector3(x, 0.82, -0.38), Vector3(0.15, 1.24, 0.28), frame)
-	_machine_box(anchor, "PressBridge", Vector3(0, 1.5, -0.3), Vector3(1.2, 0.2, 0.36), frame, 0.05 if sourced else 0.08)
-	_machine_box(anchor, "Anvil", Vector3(0, 0.46, 0.05), Vector3(0.7, 0.16, 0.63), dark)
-	_machine_box(anchor, "ToolHead", Vector3(0, 0.84, 0), Vector3(0.56, 0.17, 0.55), steel, 0.85, 0.32)
+	if not (sourced and _native_transmission() and ProductionPressCrownArt.mount(anchor, frame)):
+		_machine_box(anchor, "PressBridge", Vector3(0, 1.5, -0.3), Vector3(1.2, 0.2, 0.36), frame, 0.05 if sourced else 0.08)
+	var anvil := _machine_box(anchor, "Anvil", Vector3(0, 0.46, 0.05), Vector3(0.7, 0.16, 0.63), dark)
+	var head := _machine_box(anchor, "ToolHead", Vector3(0, 0.84, 0), Vector3(0.56, 0.17, 0.55), steel, 0.85, 0.32)
+	if _native_transmission():
+		ProductionPressDieArt.mount(anchor, anvil, head)
 	_machine_cylinder(anchor, "Piston", Vector3(0, 1.14, -0.08), 0.075, 0.45, steel)
 	for x in [-0.34, 0.34]:
 		_machine_cylinder(anchor, "ToolGuide", Vector3(x, 1.06, -0.19), 0.04, 0.6, Color("b87945"))
-	_machine_box(anchor, "OutputTray", Vector3(0.46, 0.33, 0.15), Vector3(0.48, 0.05, 0.58), Color("aaa993"), 0.85, 0.5)
+	var tray := _machine_box(anchor, "OutputTray", Vector3(0.46, 0.33, 0.15), Vector3(0.48, 0.05, 0.58), Color("aaa993"), 0.85, 0.5)
+	if _native_transmission():
+		ProductionPressTrayArt.mount(anchor, tray)
 	_machine_drive_stub(anchor, entity)
 	for x in [-0.48, 0.48]:
 		_machine_cylinder(anchor, "BridgeBolt", Vector3(x, 1.5, -0.1075), 0.035, 0.025,

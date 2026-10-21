@@ -1,0 +1,32 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "cascade",
+    srcs = ["src/cascade.cpp"],
+    hdrs = ["include/factory/slotted_cascade.hpp"],
+    strip_include_prefix = "include",
+    deps = ["//native/slotted-workcell:admission"],
+)
+
+cc_library(
+    name = "workbench",
+    srcs = ["src/workbench.cpp"],
+    hdrs = ["include/factory/slotted_cascade_workbench.hpp"],
+    strip_include_prefix = "include",
+    deps = [":cascade"],
+)
+
+cc_binary(
+    name = "slotted_cascade_workbench",
+    srcs = ["src/main.cpp"],
+    deps = [":workbench"],
+)
+
+cc_test(
+    name = "cascade_test",
+    size = "small",
+    srcs = ["tests/cascade_test.cpp"],
+    deps = [":workbench"],
+)

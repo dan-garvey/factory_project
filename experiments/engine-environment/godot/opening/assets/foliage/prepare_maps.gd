@@ -151,6 +151,245 @@ func prepare_pine(family: String, output: String) -> void:
 	print(JSON.stringify(report))
 	quit(0 if report.status == "pass" else 1)
 
+func prepare_forest_ground(family: String) -> void:
+	var output := family.path_join("prepared-ground")
+	if not family.is_absolute_path() or output.begins_with(ProjectSettings.globalize_path("res://")) or DirAccess.dir_exists_absolute(output):
+		fail("Use the declared external family and preserve earlier ground outputs.")
+		return
+	var pins := {"source.gltf": "7da88e6354aa1f67566e7aca803642641b8247ddbbfc81c5dd64067961daa194",
+		"source_albedo.jpg": "c598c555f13cd5328409fd5e2a45496a26e319e52299e3959042f1449c2f1b06",
+		"source_normal.png": "0c5c37348830b6a36024a114359e26aaf2f48bf2b435a5ef2d6999bcd4b530b7",
+		"source_arm.png": "939f98687379b70fe2f2e1daf0965d46080d00bb4bbe9afb9e2108ce456ad9ab"}
+	for file in pins:
+		if FileAccess.get_sha256(family.path_join(file)) != pins[file]:
+			fail("Refuse changed qualified ground input: " + file)
+			return
+	var descriptor: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(family.path_join("source.gltf")))
+	if descriptor.materials[0].pbrMetallicRoughness.metallicFactor != 0:
+		fail("The ground descriptor no longer selects the qualified dielectric surface.")
+		return
+	if DirAccess.make_dir_absolute(output) != OK:
+		fail("Cannot create the fresh ground output.")
+		return
+	var report := {"status": "pass", "asset": "brown_mud_leaves_01", "maps": {},
+		"source_extent_metres": 1.3, "source_scene_imported": false, "limits": "No scene, collision, renderer or graphical-quality result."}
+	var total := 0
+	for role in ["albedo", "normal", "arm"]:
+		var source_name: String = {"albedo": "source_albedo.jpg", "normal": "source_normal.png", "arm": "source_arm.png"}[role]
+		var image := Image.load_from_file(family.path_join(source_name))
+		if image == null or image.get_size() != Vector2i(1024, 1024):
+			fail("Unexpected ground source image: " + role)
+			return
+		var source_format := image.get_format()
+		var bytes := PackedByteArray()
+		var maximum_normal_error := 0.0
+		if role == "albedo":
+			# Preserve decoded source color: no resize, gamma operation or lossy re-encoding.
+			image.convert(Image.FORMAT_RGB8)
+			bytes = image.get_data()
+		else:
+			image.convert(Image.FORMAT_RGBF)
+			image.resize(512, 512, Image.INTERPOLATE_LANCZOS)
+			bytes.resize(512 * 512 * 3)
+			for y in range(512):
+				for x in range(512):
+					var color := image.get_pixel(x, y)
+					if role == "normal":
+						var normal := Vector3(color.r, color.g, color.b) * 2.0 - Vector3.ONE
+						if not normal.is_finite() or normal.length_squared() < 0.000001:
+							fail("Invalid source ground normal.")
+							return
+						normal = normal.normalized()
+						color = Color(normal.x * 0.5 + 0.5, normal.y * 0.5 + 0.5, normal.z * 0.5 + 0.5)
+					var at := (y * 512 + x) * 3
+					bytes[at] = nearest_byte(color.r)
+					bytes[at + 1] = nearest_byte(color.g)
+					bytes[at + 2] = nearest_byte(color.b)
+					if role == "normal":
+						var returned := Vector3(bytes[at], bytes[at + 1], bytes[at + 2]) / 255.0 * 2.0 - Vector3.ONE
+						maximum_normal_error = maxf(maximum_normal_error, absf(returned.length() - 1.0))
+			image = Image.create_from_data(512, 512, false, Image.FORMAT_RGB8, bytes)
+		if maximum_normal_error >= 0.01:
+			fail("Prepared ground normals exceed the encoding bound.")
+			return
+		var filename: String = {"albedo": "ground_albedo.webp", "normal": "ground_normal_gl.webp", "arm": "ground_arm.webp"}[role]
+		var path := output.path_join(filename)
+		if image.save_webp(path, false, 1.0) != OK:
+			fail("Cannot save lossless ground image: " + role)
+			return
+		var decoded := Image.load_from_file(path)
+		if decoded == null:
+			fail("Cannot decode prepared ground image.")
+			return
+		decoded.convert(Image.FORMAT_RGB8)
+		if decoded.get_size() != image.get_size() or decoded.get_data() != bytes:
+			fail("Ground WebP changed the declared prepared RGB bytes.")
+			return
+		var size := FileAccess.get_file_as_bytes(path).size()
+		total += size
+		report.maps[role] = {"file": filename, "bytes": size, "sha256": FileAccess.get_sha256(path),
+			"source_decoded_format": source_format, "extent": decoded.get_width(), "decoded_rgb_exact": true,
+			"maximum_normal_length_error": maximum_normal_error}
+	report["prepared_bytes"] = total
+	if total > 4194304:
+		report.status = "fail"
+		report["finding"] = "The prepared surface exceeds its four-MiB component allocation."
+	var result := FileAccess.open(output.path_join("result.json"), FileAccess.WRITE)
+	result.store_string(JSON.stringify(report, "  ") + "\n")
+	result.close()
+	print(JSON.stringify(report))
+	quit(0 if report.status == "pass" else 1)
+
+func prepare_fir(family: String, output: String) -> void:
+	if not output.is_absolute_path() or output.begins_with(ProjectSettings.globalize_path("res://")) or DirAccess.dir_exists_absolute(output):
+		fail("Use a fresh external fir output directory.")
+		return
+	var pins := {"fir_sapling_medium_1k.gltf": "2e80cd49d716c99bdead5a42aa6441e89443044d9a0edc31b56b5dbf87fc41de",
+		"fir_sapling_medium.bin": "e3f3fabcaa1bacfc8b1feca5e6500b13c63a0e45cd812e663d01d31b042d73b1",
+		"textures/fir_sapling_medium_branches_nor_gl_1k.jpg": "6a570ab53ab2249ecdfa93e7d3b9a8a2cb1a8ad391400e5a64c708914779b2c3",
+		"textures/fir_sapling_medium_branches_diff_1k.jpg": "a5d25150ba1bee10008c039f98aa3c73b4477a404d6715c511ca9b5b0f4a9077",
+		"textures/fir_sapling_medium_branches_arm_1k.jpg": "95d4e9e62cd309fbc38a175e2306379c76c062425b09c0fb72c5b7356a719123",
+		"textures/fir_sapling_medium_twigs_nor_gl_1k.jpg": "d470dc39b1d02bbeba06feb0ad818680ef3c24623b4db597270301a5fb8c9369",
+		"textures/fir_sapling_medium_twigs_diff_1k.jpg": "db1113d37d68d960b84eb14ce67a4022d02bf10d6f0c078d689063f6296eaa1d",
+		"textures/fir_sapling_medium_twigs_arm_1k.jpg": "d66c81fc073ee7ea97a76b6da2399769f16944e50ef0e007f09c95619f597c79"}
+	for file in pins:
+		if FileAccess.get_sha256(family.path_join("source").path_join(file)) != pins[file]:
+			fail("Refuse changed fir source: " + file)
+			return
+	var source_path := family.path_join("source/fir_sapling_medium_1k.gltf")
+	var descriptor: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(source_path))
+	if descriptor.nodes[1].name != "fir_sapling_medium_b_LOD0" or descriptor.nodes[1].mesh != 1:
+		fail("The selected complete local fir changed.")
+		return
+	var document := GLTFDocument.new()
+	var imported := GLTFState.new()
+	imported.handle_binary_image_mode = GLTFState.HANDLE_BINARY_IMAGE_MODE_EMBED_AS_UNCOMPRESSED
+	if document.append_from_file(source_path, imported) != OK:
+		fail("Cannot import the pinned fir catalogue.")
+		return
+	var source_mesh: ImporterMesh = imported.get_meshes()[1].mesh
+	if source_mesh == null or source_mesh.get_surface_count() != 3:
+		fail("Fir requires its three original source surfaces.")
+		return
+	# A fresh importer guarantees that get_mesh() has not cached a base
+	# before distance levels exist. The native has_mesh() is not script API.
+	var original := ImporterMesh.new()
+	for surface in range(3):
+		original.add_surface(source_mesh.get_surface_primitive_type(surface), source_mesh.get_surface_arrays(surface),
+			[], {}, source_mesh.get_surface_material(surface), source_mesh.get_surface_name(surface), source_mesh.get_surface_format(surface))
+	var base: Array = []
+	for surface in range(3):
+		base.append(original.get_surface_arrays(surface).duplicate(true))
+	# Pinned 4.7.2 uses attribute-aware simplification and original vertex
+	# indices. Stored size is cumulative error times source mesh scale.
+	# Keep the complete base; generated levels may prune fine twigs.
+	original.generate_lods(60.0, 0.0, [])
+	var mesh := original.get_mesh()
+	if mesh == null or DirAccess.make_dir_absolute(output) != OK:
+		fail("Cannot create the fir resource output.")
+		return
+	var textures: Dictionary = {}
+	var report := {"status": "pass", "source_node": "fir_sapling_medium_b_LOD0", "source_scale": 1.0,
+		"catalogue_translation_omitted": descriptor.nodes[1].get("translation", [0, 0, 0]), "base_triangles": 0, "surfaces": [],
+		"lods": "Generated by pinned ImporterMesh; not authored provider LODs or rendered-error proof."}
+	for role in ["branches", "twigs"]:
+		var maps: Dictionary = {}
+		for map_role in ["albedo", "normal", "arm"]:
+			var suffix: String = {"albedo": "diff", "normal": "nor_gl", "arm": "arm"}[map_role]
+			var image := pine_image(family.path_join("source/textures/fir_sapling_medium_" + role + "_" + suffix + "_1k.jpg"), map_role)
+			if image == null or image.save_png(output.path_join(role + "_" + map_role + ".png")) != OK:
+				fail("Cannot retain a prepared fir image.")
+				return
+			maps[map_role] = ImageTexture.create_from_image(image)
+		textures[role] = maps
+	for surface in range(3):
+		var arrays := mesh.surface_get_arrays(surface)
+		var positions: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var source_positions: PackedVector3Array = base[surface][Mesh.ARRAY_VERTEX]
+		var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+		if positions.size() != source_positions.size() or indices != base[surface][Mesh.ARRAY_INDEX]:
+			fail("The complete source base indices or vertex count changed.")
+			return
+		var maximum_position_error := 0.0
+		for vertex in range(positions.size()):
+			maximum_position_error = maxf(maximum_position_error, positions[vertex].distance_to(source_positions[vertex]))
+		if maximum_position_error > 0.0005:
+			fail("Fir native vertex packing exceeds half a millimetre.")
+			return
+		var levels: Array = []
+		var previous_count := indices.size()
+		var previous_error := 0.0
+		for level in range(original.get_surface_lod_count(surface)):
+			var lod_indices := original.get_surface_lod_indices(surface, level)
+			var error := original.get_surface_lod_size(surface, level)
+			if lod_indices.size() >= previous_count or lod_indices.is_empty() or lod_indices.size() % 3 != 0 or error <= previous_error:
+				fail("Fir distance levels lack decreasing triangles and increasing error.")
+				return
+			for index in lod_indices:
+				if index < 0 or index >= positions.size():
+					fail("Fir distance level references an invalid original vertex.")
+					return
+			levels.append({"triangles": lod_indices.size() / 3, "nominal_error_metres": error})
+			previous_count = lod_indices.size()
+			previous_error = error
+		if levels.size() < 2:
+			fail("Fir requires real generated distance levels on every surface.")
+			return
+		var finish := mesh.surface_get_material(surface).duplicate(false) as StandardMaterial3D
+		var maps: Dictionary = textures["twigs" if surface == 1 else "branches"]
+		finish.albedo_texture = maps.albedo
+		finish.normal_texture = maps.normal
+		finish.roughness_texture = maps.arm
+		finish.metallic_texture = maps.arm
+		finish.ao_texture = maps.arm if finish.ao_enabled else null
+		finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		var source_material: Dictionary = descriptor.materials[surface]
+		var extensions: Dictionary = source_material.get("extensions", {})
+		var ior: float = extensions.get("KHR_materials_ior", {}).get("ior", 1.5)
+		var factor: float = extensions.get("KHR_materials_specular", {}).get("specularFactor", 1.0)
+		var f0 := pow((ior - 1.0) / (ior + 1.0), 2.0) * factor
+		finish.metallic_specular = sqrt(f0 / 0.16)
+		mesh.surface_set_material(surface, finish)
+		report.base_triangles += indices.size() / 3
+		report.surfaces.append({"vertices": positions.size(), "indices": indices.size(), "levels": levels,
+			"maximum_native_position_error_metres": maximum_position_error, "specular": finish.metallic_specular,
+			"source_f0": f0, "uv_scale": str(finish.uv1_scale), "uv_offset": str(finish.uv1_offset),
+			"transparency": finish.transparency, "cull": finish.cull_mode})
+	var path := output.path_join("fir_tree.res")
+	if ResourceSaver.save(mesh, path, ResourceSaver.FLAG_COMPRESS | ResourceSaver.FLAG_BUNDLE_RESOURCES) != OK:
+		fail("Cannot serialize the fir resource.")
+		return
+	var loaded := ResourceLoader.load(path, "ArrayMesh", ResourceLoader.CACHE_MODE_IGNORE) as ArrayMesh
+	if loaded == null or not ResourceLoader.get_dependencies(path).is_empty():
+		fail("Fir resource has missing or external dependencies.")
+		return
+	var restored_levels := ImporterMesh.from_mesh(loaded)
+	for surface in range(3):
+		if mesh.surface_get_arrays(surface) != loaded.surface_get_arrays(surface) or original.get_surface_lod_count(surface) != restored_levels.get_surface_lod_count(surface):
+			fail("Fir base or distance count changed during roundtrip.")
+			return
+		for level in range(original.get_surface_lod_count(surface)):
+			if original.get_surface_lod_size(surface, level) != restored_levels.get_surface_lod_size(surface, level) or original.get_surface_lod_indices(surface, level) != restored_levels.get_surface_lod_indices(surface, level):
+				fail("Fir distance indices changed during roundtrip.")
+				return
+		var before := mesh.surface_get_material(surface) as StandardMaterial3D
+		var after := loaded.surface_get_material(surface) as StandardMaterial3D
+		for field in ["albedo_texture", "normal_texture", "roughness_texture"]:
+			if before.get(field).get_image().get_data() != after.get(field).get_image().get_data():
+				fail("Embedded fir pixels changed during roundtrip.")
+				return
+	report.resource_bytes = FileAccess.get_file_as_bytes(path).size()
+	report.resource_sha256 = FileAccess.get_sha256(path)
+	report.exact_native_array_and_pixel_roundtrip = true
+	if report.resource_bytes > 12582912:
+		report.status = "fail"
+		report.finding = "The complete fir exceeds its twelve-MiB component allocation."
+	var result := FileAccess.open(output.path_join("result.json"), FileAccess.WRITE)
+	result.store_string(JSON.stringify(report, "  ") + "\n")
+	result.close()
+	print(JSON.stringify(report))
+	quit(0 if report.status == "pass" else 1)
+
 func fail(message: String) -> void:
 	push_error(message)
 	quit(1)
@@ -260,6 +499,12 @@ func _initialize() -> void:
 		return
 	if material == "pine":
 		prepare_pine(family, pine_output if not pine_output.is_empty() else family.path_join("prepared-pine"))
+		return
+	if material == "fir":
+		prepare_fir(family, pine_output if not pine_output.is_empty() else family.path_join("prepared-fir"))
+		return
+	if material == "forest-ground":
+		prepare_forest_ground(family)
 		return
 	if material == "stone":
 		prepare_stone(family)

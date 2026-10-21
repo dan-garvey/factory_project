@@ -3,15 +3,94 @@ extends RefCounted
 const Visuals = preload("res://opening/opening.gd").ProductionVisuals
 const Finish = preload("res://opening/opening.gd").ProductionTransmissionFinish
 const UNIT := preload("res://opening/site_geometry.gd").PITCH / 4.0
+const SHAFT_CORE_RADIUS := 0.03
 static var meshes: Dictionary = {}
+static var batches: Dictionary = {}
+const COUPLING_ROOT := "res://opening/assets/shaft-coupling"
+const COUPLING_IMAGES := {"albedo": "coupling_albedo.jpg", "normal": "coupling_normal.webp", "arm": "coupling_arm.webp"}
+const COUPLING_HALF_LENGTH := (0.42954 - 0.39) * 0.72
+static var coupling_mesh: ArrayMesh
+static var coupling_finish: StandardMaterial3D
+static var coupling_status := "uninitialized"
 
-static func _part(parent: Node3D, name_value: String, mesh: Mesh, at: Vector3,
-		color: Color, metal: float = 0.85, roughness: float = 0.38) -> MeshInstance3D:
-	var instance := MeshInstance3D.new()
+static func _prepare_coupling() -> void:
+	var files: Array = ["coupling.gltf", "coupling.bin"]
+	files.append_array(COUPLING_IMAGES.values())
+	var present := 0
+	for file_name: String in files:
+		if FileAccess.file_exists(COUPLING_ROOT.path_join(file_name)):
+			present += 1
+	coupling_status = "missing" if present == 0 else "invalid"
+	if present == 0:
+		return
+	if present != files.size():
+		push_error("The sourced shaft coupling resource set is incomplete.")
+		return
+	var images := preload("res://opening/opening.gd").ProductionSteelFloor.read_images(COUPLING_ROOT, COUPLING_IMAGES, Vector2i(512, 512))
+	if images.status != "ready":
+		push_error("Cannot decode the sourced shaft coupling material.")
+		return
+	var document := GLTFDocument.new()
+	var imported := GLTFState.new()
+	if document.append_from_file(COUPLING_ROOT.path_join("coupling.gltf"), imported) != OK:
+		push_error("Cannot load the prepared shaft coupling.")
+		return
+	var sources := imported.get_meshes()
+	if sources.size() != 1 or sources[0].mesh == null or sources[0].mesh.get_surface_count() != 2:
+		push_error("The shaft coupling needs retained source and authored cut surfaces.")
+		return
+	var prepared: ArrayMesh = sources[0].mesh.get_mesh()
+	var complete := ArrayMesh.new()
+	for index in range(2):
+		var surface := SurfaceTool.new()
+		surface.create_from(prepared, index)
+		surface.generate_tangents()
+		surface.commit(complete)
+	for role: String in images.images:
+		if images.images[role].generate_mipmaps(role == "normal") != OK:
+			push_error("Cannot generate shaft coupling mipmaps.")
+			return
+	var material := StandardMaterial3D.new()
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	material.albedo_texture = ImageTexture.create_from_image(images.images.albedo)
+	var arm := ImageTexture.create_from_image(images.images.arm)
+	material.metallic = 1.0
+	material.metallic_texture = arm
+	material.metallic_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_BLUE
+	material.roughness = 1.0
+	material.roughness_texture = arm
+	material.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_GREEN
+	material.ao_enabled = true
+	material.ao_texture = arm
+	material.ao_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
+	material.normal_enabled = true
+	material.normal_texture = ImageTexture.create_from_image(images.images.normal)
+	material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	coupling_mesh = complete
+	coupling_finish = material
+	coupling_status = "ready"
+
+static func coupling(parent: Node3D) -> bool:
+	if coupling_status == "uninitialized":
+		_prepare_coupling()
+	if coupling_status != "ready":
+		return false
+	for side in [0, 1]:
+		var half := MeshInstance3D.new()
+		half.name = "SourcedFlange%d" % side
+		half.mesh = coupling_mesh
+		half.set_surface_override_material(0, coupling_finish)
+		half.set_surface_override_material(1, Finish.material("worked", Color("a6b4af"), 0.85, 0.38))
+		if side == 1:
+			half.rotation.x = PI
+		half.set_meta("source_asset", "Poly Haven modular_industrial_pipes_01")
+		parent.add_child(half)
+	return true
+
+static func _finish(instance: GeometryInstance3D, name_value: String, color: Color,
+		metal: float, roughness: float) -> void:
 	instance.name = name_value
 	instance.set_meta("asset_role", name_value)
-	instance.mesh = mesh
-	instance.position = at
 	if name_value == "ShaftKey":
 		instance.material_override = Visuals.material(color, metal, roughness)
 		instance.set_meta("surface_role", "copper")
@@ -19,8 +98,42 @@ static func _part(parent: Node3D, name_value: String, mesh: Mesh, at: Vector3,
 		var surface_role := "cast" if name_value in ["Gear", "GearSpoke"] else "worked"
 		instance.material_override = Finish.material(surface_role, color, metal, roughness)
 		instance.set_meta("surface_role", surface_role)
+
+static func _part(parent: Node3D, name_value: String, mesh: Mesh, at: Vector3,
+		color: Color, metal: float = 0.85, roughness: float = 0.38) -> MeshInstance3D:
+	var instance := MeshInstance3D.new()
+	instance.mesh = mesh
+	instance.position = at
+	_finish(instance, name_value, color, metal, roughness)
 	parent.add_child(instance)
 	return instance
+
+static func _batch(parent: Node3D, role: String, key_value: Array, mesh: Mesh,
+		poses: Array[Transform3D], color: Color) -> void:
+	if not batches.has(key_value):
+		var batch := MultiMesh.new()
+		batch.transform_format = MultiMesh.TRANSFORM_3D
+		batch.mesh = mesh
+		batch.instance_count = poses.size()
+		var bounds: AABB = poses[0] * mesh.get_aabb()
+		var buffer := PackedFloat32Array()
+		for pose in poses:
+			var basis := pose.basis
+			var at := pose.origin
+			buffer.append_array(PackedFloat32Array([
+				basis.x.x, basis.y.x, basis.z.x, at.x,
+				basis.x.y, basis.y.y, basis.z.y, at.y,
+				basis.x.z, basis.y.z, basis.z.z, at.z]))
+			bounds = bounds.merge(pose * mesh.get_aabb())
+		batch.buffer = buffer
+		# One rigid cog owns each culling group. Avoid a world-sized batch and
+		# repeated bounds rebuilding when only the parent angle changes.
+		batch.custom_aabb = bounds
+		batches[key_value] = batch
+	var instance := MultiMeshInstance3D.new()
+	instance.multimesh = batches[key_value]
+	_finish(instance, role, color, 0.85, 0.38)
+	parent.add_child(instance)
 
 static func _cylinder(radius: float, height: float, segments: int = 48) -> CylinderMesh:
 	var key := [radius, height, segments]
@@ -76,11 +189,6 @@ static func tooth_mesh(radius: float, teeth: int) -> ArrayMesh:
 	meshes[key] = mesh
 	return mesh
 
-static func _fastener(parent: Node3D, at: Vector3, positive: bool) -> void:
-	var fastener := _part(parent, "HubFastener", _cylinder(0.022, 0.012, 6), at, Color("b8c3bb"))
-	if not positive:
-		fastener.rotation.x = PI
-
 static func gear(parent: Node3D, radius: float, ratio_units: int, color: Color) -> void:
 	# Eight render teeth per native ratio/radius unit. This tessellation stays
 	# proportional; it does not change the wire parameter or model tooth contact.
@@ -92,33 +200,40 @@ static func gear(parent: Node3D, radius: float, ratio_units: int, color: Color) 
 		Vector2(inner + 0.006, 0.07), Vector2(inner, 0.06), Vector2(inner, -0.06), Vector2(inner + 0.006, -0.07)])
 	_part(parent, "Gear", Visuals.turned_mesh(rim, maxi(48, count * 2)), Vector3.ZERO, color)
 	var tooth := tooth_mesh(radius, count)
+	var teeth: Array[Transform3D] = []
 	for n in range(count):
-		var part := _part(parent, "GearTooth", tooth, Vector3.ZERO, color)
-		part.rotation.y = float(n) * TAU / count
+		teeth.append(Transform3D(Basis.from_euler(Vector3(0, float(n) * TAU / count, 0)), Vector3.ZERO))
+	_batch(parent, "GearTooth", ["GearTooth", radius, ratio_units], tooth, teeth, color)
 	var hub_radius := minf(0.16, radius * 0.34)
-	var hub := PackedVector2Array([Vector2(0, -0.11), Vector2(hub_radius - 0.008, -0.11),
+	# Open both machined faces around the existing shaft/collar/key envelope.
+	# This is render clearance, not a new mechanical connection or phase rule.
+	var hub := PackedVector2Array([Vector2(0.044, -0.11), Vector2(hub_radius - 0.008, -0.11),
 		Vector2(hub_radius, -0.102), Vector2(hub_radius, 0.102),
-		Vector2(hub_radius - 0.008, 0.11), Vector2(0, 0.11)])
+		Vector2(hub_radius - 0.008, 0.11), Vector2(0.044, 0.11),
+		Vector2(0.039, 0.105), Vector2(0.039, -0.105), Vector2(0.044, -0.11)])
 	_part(parent, "Hub", Visuals.turned_mesh(hub), Vector3.ZERO, Color("a6b4af"))
 	var spoke_length := inner - hub_radius + 0.04
+	var spokes: Array[Transform3D] = []
+	var fasteners: Array[Transform3D] = []
 	for n in range(4):
 		var angle := float(n) * PI / 2.0
-		var spoke := _part(parent, "GearSpoke", Visuals.box_mesh(Vector3(spoke_length, 0.08, 0.09)),
-			Vector3(cos(angle), 0, sin(angle)) * (hub_radius + inner) / 2.0, color)
-		spoke.rotation.y = -angle
+		spokes.append(Transform3D(Basis.from_euler(Vector3(0, -angle, 0)),
+			Vector3(cos(angle), 0, sin(angle)) * (hub_radius + inner) / 2.0))
 		for side in [-1.0, 1.0]:
-			_fastener(parent, Vector3(cos(angle) * hub_radius * 0.65, side * 0.108,
-				sin(angle) * hub_radius * 0.65), side > 0)
+			fasteners.append(Transform3D(Basis.from_euler(Vector3(PI if side < 0 else 0.0, 0, 0)),
+				Vector3(cos(angle) * hub_radius * 0.65, side * 0.108, sin(angle) * hub_radius * 0.65)))
+	_batch(parent, "GearSpoke", ["GearSpoke", radius], Visuals.box_mesh(Vector3(spoke_length, 0.08, 0.09)), spokes, color)
+	_batch(parent, "HubFastener", ["HubFastener", hub_radius], _cylinder(0.022, 0.012, 6), fasteners, Color("b8c3bb"))
 
 static func shaft(parent: Node3D, length: float, color: Color) -> void:
 	# Keep this public node's CylinderMesh and exact length for the established
 	# endpoint consumer. Fitted collars do not alter the pick cylinder.
-	_part(parent, "Shaft", _cylinder(0.045, length), Vector3.ZERO, color)
-	var collar := PackedVector2Array([Vector2(0.045, -0.055), Vector2(0.07, -0.055),
-		Vector2(0.075, -0.05), Vector2(0.075, 0.05), Vector2(0.07, 0.055),
-		Vector2(0.045, 0.055), Vector2(0.045, -0.055)])
+	_part(parent, "Shaft", _cylinder(SHAFT_CORE_RADIUS, length), Vector3.ZERO, color)
+	var collar := PackedVector2Array([Vector2(0.03, -0.055), Vector2(0.0345, -0.055),
+		Vector2(0.036, -0.0535), Vector2(0.036, 0.0535), Vector2(0.0345, 0.055),
+		Vector2(0.03, 0.055), Vector2(0.03, -0.055)])
 	for sign_value in [-1.0, 1.0]:
 		var center: float = sign_value * (length / 2.0 - 0.06)
 		_part(parent, "ShaftCollar", Visuals.turned_mesh(collar), Vector3(0, center, 0), Color("a6b4af"))
-		_part(parent, "ShaftKey", Visuals.box_mesh(Vector3(0.018, 0.08, 0.018)),
-			Vector3(0.049, center, 0), Color("b87945"))
+		_part(parent, "ShaftKey", Visuals.box_mesh(Vector3(0.012, 0.08, 0.012)),
+			Vector3(0.031, center, 0), Color("b87945"))

@@ -20,6 +20,142 @@ const ROCK_TRIANGLES := [
 static var _rock_points := PackedVector3Array()
 static var _rock_faces := PackedVector3Array()
 
+const FIR_FILE := "res://opening/assets/fir/fir_tree.res"
+const FIR_SHA256 := "c7566da63c49d07c8ed21a9dd073bf546a262698ada717a3b2a58826f8c6c346"
+static var _fir_initialized := false
+static var _fir_mesh: ArrayMesh
+static var _fir_descriptors: Array[Dictionary] = []
+static var _fir_faces := PackedVector3Array()
+static var _fir_contact_rows: Array[Dictionary] = []
+static var _fir_layout_counts := {"candidates": 0, "slope_rejections": 0, "envelope_rejections": 0, "accepted": 0}
+
+static func read_fir(path: String = FIR_FILE) -> Dictionary:
+	# Optional prepared art, not a tree population or a physical fixture.
+	# Keep one resource interface for a later matched visual/collision join.
+	if not FileAccess.file_exists(path):
+		return {"status": "missing"}
+	var file := FileAccess.open(path, FileAccess.READ)
+	if file == null or file.get_length() > 12582912:
+		return {"status": "invalid", "reason": "Fir exceeds its twelve-MiB component allocation."}
+	file.close()
+	if FileAccess.get_sha256(path) != FIR_SHA256:
+		return {"status": "invalid", "reason": "Fir does not match the prepared resource identity."}
+	var mesh := ResourceLoader.load(path, "ArrayMesh") as ArrayMesh
+	if mesh == null or mesh.get_surface_count() != 3 or not ResourceLoader.get_dependencies(path).is_empty():
+		return {"status": "invalid", "reason": "Fir requires one self-contained three-surface mesh."}
+	return {"status": "ready", "mesh": mesh}
+
+static func _prepare_firs() -> void:
+	if _fir_initialized:
+		return
+	_fir_initialized = true
+	var loaded := read_fir()
+	if loaded.status == "missing":
+		return
+	if loaded.status != "ready":
+		push_error("Cannot compose qualified firs: " + str(loaded.reason))
+		return
+	_fir_mesh = loaded.mesh
+	var bounds := _fir_mesh.get_aabb()
+	var solids := support_boxes()
+	for candidate in range(256):
+		_fir_layout_counts.candidates += 1
+		var z := -18.0 + float((candidate * 97) % 256) * 0.14
+		var x := river_center_x(z) - channel_half_width(z) - 5.5 - float(candidate % 17) * 0.6
+		var grid := cell(x, z)
+		var a := vertex(grid.x, grid.y)
+		var b := vertex(grid.x + 1, grid.y)
+		var c := vertex(grid.x + 1, grid.y + 1)
+		var d := vertex(grid.x, grid.y + 1)
+		var tx := (x - a.x) / (b.x - a.x)
+		var tz := (z - a.z) / (d.z - a.z)
+		var normal := (c - a).cross(b - a).normalized() if tz <= tx else (d - a).cross(c - a).normalized()
+		if normal.y < 0.92:
+			_fir_layout_counts.slope_rejections += 1
+			continue
+		var at := Vector3(x, height_at(x, z) - 0.02, z)
+		var size := 0.85 + float(candidate % 4) * 0.05
+		var basis := Basis(Vector3.UP, float(candidate) * 2.399963)
+		var pose := Transform3D(basis.scaled_local(Vector3.ONE * size), at)
+		var envelope: AABB = pose * bounds
+		var clear := envelope.position.z >= -22.0 and envelope.end.z <= 22.0
+		# The west river edge's derivative is globally bounded below 1.5.
+		# Half a sample interval plus an art margin covers unsampled points.
+		var margin := 0.4 + 1.5 * envelope.size.z / 16.0
+		for row in range(9):
+			var edge_z := lerpf(envelope.position.z, envelope.end.z, float(row) / 8.0)
+			if envelope.end.x >= river_center_x(edge_z) - channel_half_width(edge_z) - margin:
+				clear = false
+		var nearest := Vector2(clampf(1.65, envelope.position.x, envelope.end.x), clampf(1.65, envelope.position.z, envelope.end.z))
+		clear = clear and nearest.distance_to(Vector2(1.65, 1.65)) > 8.0
+		for solid in solids:
+			var box: AABB = Transform3D(solid.basis, solid.center) * AABB(-solid.size * 0.5, solid.size)
+			if envelope.intersects(box.grow(0.2)):
+				clear = false
+		for prior in _fir_descriptors:
+			if envelope.intersects(prior.bounds.grow(0.8)):
+				clear = false
+		if not clear:
+			_fir_layout_counts.envelope_rejections += 1
+			continue
+		var faces := PackedVector3Array()
+		for surface in [0, 2]:
+			var arrays := _fir_mesh.surface_get_arrays(surface)
+			var positions: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+			for n in range(0, indices.size(), 3):
+				var p := pose * positions[indices[n]]
+				var q := pose * positions[indices[n + 1]]
+				var r := pose * positions[indices[n + 2]]
+				if (q - p).cross(r - p).length_squared() > 0.0:
+					faces.append_array(PackedVector3Array([p, q, r]))
+		var id := "fir_%02d" % _fir_descriptors.size()
+		_fir_descriptors.append({"id": id, "center": at, "basis": basis, "scale": size, "bounds": envelope})
+		_fir_faces.append_array(faces)
+		_fir_contact_rows.append({"id": id, "faces": faces, "bounds": envelope})
+		_fir_layout_counts.accepted += 1
+		if _fir_descriptors.size() == 3:
+			break
+
+static func fir_specs() -> Array[Dictionary]:
+	_prepare_firs()
+	return _fir_descriptors.duplicate(true)
+
+static func fir_mesh() -> ArrayMesh:
+	_prepare_firs()
+	return _fir_mesh
+
+static func fir_collision_faces() -> PackedVector3Array:
+	_prepare_firs()
+	return _fir_faces.duplicate()
+
+static func _fir_capsule_distance(at: Vector3, radius: float, height: float) -> Dictionary:
+	_prepare_firs()
+	var p := at - Vector3.UP * (height * 0.5 - radius)
+	var q := at + Vector3.UP * (height * 0.5 - radius)
+	var box := AABB(at - Vector3(radius, height * 0.5, radius), Vector3(radius * 2, height, radius * 2))
+	var distance := INF
+	var measured := 0
+	var closest := ""
+	for tree in _fir_contact_rows:
+		if not box.intersects(tree.bounds):
+			continue
+		var triangles: PackedVector3Array = tree.faces
+		for n in range(0, triangles.size(), 3):
+			var a := triangles[n]
+			var b := triangles[n + 1]
+			var c := triangles[n + 2]
+			var low := a.min(b).min(c)
+			var high := a.max(b).max(c)
+			if low.x > box.end.x or high.x < box.position.x or low.y > box.end.y or high.y < box.position.y or low.z > box.end.z or high.z < box.position.z:
+				continue
+			var candidate := _segment_triangle_distance(p, q, a, b, c)
+			if candidate < distance:
+				distance = candidate
+				closest = tree.id
+			measured += 1
+	return {"distance": distance, "triangles_measured": measured, "closest": closest}
+
 static func _prepare_rock() -> void:
 	if not _rock_points.is_empty():
 		return
@@ -284,10 +420,12 @@ static func capsule_overlap(at: Vector3, radius: float, height: float) -> Dictio
 					count += 1
 	var surface := height_at(at.x, at.z)
 	var buried := maxf(surface - (at.y - height / 2.0), 0.0) if is_finite(surface) else 0.0
-	var measure := maxf(maxf(radius - distance, 0.0), buried)
+	var fir := _fir_capsule_distance(at, radius, height)
+	var measure := maxf(maxf(maxf(radius - distance, 0.0), radius - fir.distance), buried)
 	return {"analytical_overlap_measure": measure, "geometric_overlap": measure > 0.0,
 		"minimum_triangle_distance": distance, "center_surface_height": surface,
-		"subsurface_depth": buried, "triangles_measured": count, "valid": true}
+		"subsurface_depth": buried, "triangles_measured": count, "valid": true,
+		"nearest_fir": fir.closest, "fir_triangle_distance": fir.distance, "fir_triangles_measured": fir.triangles_measured}
 
 static func pad_panels() -> Array[Dictionary]:
 	# Unbuilt ground is the continuous terrain, never a hidden tiled platform.

@@ -652,12 +652,42 @@ absorption or refraction; transparent-object sorting, underwater viewing and fin
 rendered balance remain unassessed. Resource and frame-consumer checks do not
 establish pixel quality or GPU cost. The historical flat fixture stays opaque.
 
+The current [forest-floor surface](../../experiments/engine-environment/godot/opening/assets/ground/CREDITS.md)
+uses provider-declared 1.3-metre mapping and preserves the source albedo's decoded
+RGB8 values through lossless packing. The pinned loader decodes the 16-bit data
+PNGs to RGB8 before normal/scalar resampling; original bit precision is not retained.
+Red-channel ambient occlusion is an explicit adapter choice, since the provider's
+descriptor does not bind it. These are shading/data boundaries, not terrain
+displacement, collision or biome requirements. Resource checks establish neither
+rendered balance nor the overall graphical-quality target.
+
 The [fern asset](../../experiments/engine-environment/godot/opening/assets/ferns/CREDITS.md)
 uses the same resource-only foliage import. Its first export attempt failed exact
 geometry/image preservation checks; the shipped preparation copies the selected
 source ranges and prepared PNG bytes through a fixed native writer instead.
 This is a preparation boundary, not a demonstrated renderer ceiling or gameplay
 restriction. Low plants do not add collision or authority.
+
+The [full-size fir resource](../../experiments/engine-environment/godot/opening/assets/fir/CREDITS.md)
+retains its qualified complete base and locally generated distance
+levels use pinned `ImporterMesh`; its nominal LOD size is a simplifier error
+scaled to source metres, not a rendered-error bound. Only bound methods are
+script API: the first preparation failed on native-only `has_mesh()`, while
+constructing a fresh importer through `add_surface()` corrected that path.
+The original API failure and bounded timeout remain retained. Source material
+transforms and scalar normal-incidence dielectric reflectance are preserved;
+the descriptor supplies no occlusion binding. Three current bank instances use
+the same prepared woody triangles in rendering and the existing native floor
+shape. Their roots follow actual terrain triangles, while the eight-metre
+working ring and river/rock clearances remain open. Needles add no collision.
+The analytical contact measure is triangle distance, not native contact depth.
+The floor's native and node transforms must both remain identity; matching a
+shifted body to a shifted node is insufficient for the shared fixture.
+Retained scene and isolated physical controls cover mounting, real capsule
+contacts and changed-shape/pose refusal. They do not establish ordinary player
+traversal, a save/reopen consumer, detail switching, visual quality or frame
+cost. This is a chosen static site fixture, with no new harvesting, growth,
+inventory, reach or mechanical rule.
 
 The optional [young pine component](../../experiments/engine-environment/godot/opening/assets/pine/CREDITS.md)
 preserves all selected source triangles through the importer's compressed GPU
@@ -725,6 +755,55 @@ the assertion. This changes only the test observer and leaves game dictionaries,
 ordinary input and authoritative state unchanged. Source review is not a passing
 native result; the successor requires its own reviewed gates and bounded case.
 Owner: Playability, with Chapter source review and Ops operational reconciliation.
+
+## GDC-14: short segment tests can miss small finite mesh faces
+
+**Engine/API source verified for 4.7.2; bounded fixture failure observed.** The
+pinned [segment/triangle implementation](https://github.com/godotengine/godot/blob/ed1daf0bf001b61586d9930840f2f1394092c079/core/math/geometry_3d.h)
+tests the unnormalized segment/triangle determinant with
+[`is_zero_approx`](https://github.com/godotengine/godot/blob/ed1daf0bf001b61586d9930840f2f1394092c079/core/math/math_funcs.h).
+Its [absolute epsilon](https://github.com/godotengine/godot/blob/ed1daf0bf001b61586d9930840f2f1394092c079/core/math/math_defs.h)
+is independent of face area and segment length. A short segment crossing a small
+face can therefore be rejected by the parallel test before intersection bounds
+are considered. This does not establish a minimum game feature size.
+
+The first compact-conveyor-hub asset case retained sixteen failed short joint
+probes while its other clearance checks completed. The changed fixture uses
+longer probes, records their actual hit heights and requires overlapping solid
+intervals for the housing and its support at the intended joint. Deliberately
+lowered supports must fail that same predicate. The original failed result is
+preserved; changing this fixture does not change mesh geometry, native collision,
+construction reach or mechanical authority.
+
+**Affected promise / exit:** qualify a mesh predicate at its actual geometric
+scale and retain measured intersections before asserting contact. Do not turn a
+test-helper miss into a permanent gameplay tolerance or a physics-backend verdict.
+These are technical asset observations, not physical force, rendered-quality or
+human-play evidence. Owner: Platform, under `factory-yau.6.45.23.15`.
+
+## GDC-15: convenience mesh faces are not the original render vertices
+
+Godot 4.7.2 commit `ed1daf0bf001b61586d9930840f2f1394092c079` implements
+`Mesh.get_faces()` through its cached triangle mesh. That cache snaps each input
+vertex to a 0.0001-unit grid before returning faces. The pinned
+[mesh implementation](https://github.com/godotengine/godot/blob/ed1daf0bf001b61586d9930840f2f1394092c079/scene/resources/mesh.cpp)
+and [triangle-mesh implementation](https://github.com/godotengine/godot/blob/ed1daf0bf001b61586d9930840f2f1394092c079/core/math/triangle_mesh.cpp)
+establish this source behavior; it is not a restriction on build precision.
+
+The first focused cog-bore fixture used that convenience list and failed its
+original outer-radius assertion. A changed diagnostic fixture retained the
+values: the 0.14025-metre hub reported a maximum cached radius of approximately
+0.140300 metres. Its passage still cleared the shaft, but the cached triangles
+were unsuitable for the exact render-dimension assertion. The first fixture
+also assumed a name for an unnamed pick-shape child; that reader failure and its
+exit diagnostics remain separate from product geometry.
+
+Fine presentation checks now reconstruct triangles directly from each surface's
+vertex and index arrays, retaining the cached observations for comparison. The
+shaft envelope uses the same original arrays. This changes neither geometry nor
+the acceptance tolerance. It does not establish collision-backend precision,
+mechanical contact, native reach, force behavior or a general minimum feature
+size. Previous coarse face-list results retain their actual scope and revision.
 
 ## Required follow-through
 

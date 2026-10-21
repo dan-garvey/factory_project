@@ -6,11 +6,15 @@ const Visuals = Opening.ProductionVisuals
 const WheelArt = Opening.ProductionWheelArt
 const PaddleArt = Opening.ProductionPaddleArt
 const PressArt = Opening.ProductionPressArt
+const DieArt = Opening.ProductionPressDieArt
+const TrayArt = Opening.ProductionPressTrayArt
 const ConveyorArt = Opening.ProductionConveyorArt
 const CollectorArt = Opening.ProductionCollectorArt
+const CollectorToolingArt = Opening.ProductionCollectorToolingArt
 const SkidArt = Opening.ProductionSkidArt
 const Presenter = preload("res://opening/native_transmission_presenter.gd")
 const Geometry = preload("res://opening/site_geometry.gd")
+const Items = preload("res://opening/workpiece_item_assets.gd")
 var checks := 0
 var failed := false
 var max_tangent_dot := 0.0
@@ -22,6 +26,1042 @@ class PaddleSessionFacts extends RefCounted:
 	var ready := true
 	func is_ready() -> bool:
 		return ready
+
+class HubShaftFacts extends RefCounted:
+	var state: Dictionary = {}
+	func _can_present_confirmed_motion() -> bool:
+		return true
+
+func hub_mesh_rows(node: Node3D, parent_pose: Transform3D, rows: Array[Dictionary]) -> void:
+	var pose := parent_pose * node.transform
+	if node is MeshInstance3D:
+		rows.append({"node": node, "pose": pose})
+	for child in node.get_children():
+		if child is Node3D:
+			hub_mesh_rows(child, pose, rows)
+
+func hub_loop_planes(loop: MeshInstance3D) -> Array[float]:
+	var arrays := loop.mesh.surface_get_arrays(0)
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+	var levels: Array[float] = []
+	for n in range(vertices.size()):
+		if absf(normals[n].y) < 0.999999:
+			continue
+		var height: float = (loop.transform * vertices[n]).y
+		var seen := false
+		for level in levels:
+			seen = seen or absf(level - height) < 0.000001
+		if not seen:
+			levels.append(height)
+	levels.sort()
+	return levels
+
+func hub_empty_window(mesh: Mesh, pose: Transform3D, planes: Array[float]) -> bool:
+	var bounds: AABB = pose * mesh.get_aabb()
+	if bounds.position.z > 0.32 or bounds.end.z < -0.32:
+		return true
+	return bounds.position.x > -0.57 and bounds.end.x < 0.57 \
+		and bounds.position.y > planes[1] and bounds.end.y < planes[2]
+
+func hub_loop_separation(mesh: Mesh, pose: Transform3D, loop: MeshInstance3D) -> float:
+	var bounds: AABB = pose * mesh.get_aabb()
+	var faces := loop.mesh.get_faces()
+	var minimum := INF
+	for n in range(0, faces.size(), 3):
+		var a: Vector3 = loop.transform * faces[n]
+		var b: Vector3 = loop.transform * faces[n + 1]
+		var c: Vector3 = loop.transform * faces[n + 2]
+		var low := a.min(b).min(c)
+		var high := a.max(b).max(c)
+		var gap := maxf(maxf(maxf(bounds.position.x - high.x, low.x - bounds.end.x),
+			maxf(bounds.position.y - high.y, low.y - bounds.end.y)), maxf(bounds.position.z - high.z, low.z - bounds.end.z))
+		minimum = minf(minimum, gap)
+	return minimum
+
+func hub_vertical_hits(node: MeshInstance3D, probe: Vector2) -> Array[float]:
+	# Use a longer probe, then retain exact hit heights. The pinned API's
+	# absolute determinant guard can discard small faces on short segments.
+	var from := Vector3(probe.x, -0.6, probe.y)
+	var to := Vector3(probe.x, 1.6, probe.y)
+	var faces := node.mesh.get_faces()
+	var hits: Array[float] = []
+	for n in range(0, faces.size(), 3):
+		var hit: Variant = Geometry3D.segment_intersects_triangle(from, to,
+			node.transform * faces[n], node.transform * faces[n + 1], node.transform * faces[n + 2])
+		if hit == null:
+			continue
+		var seen := false
+		for height in hits:
+			seen = seen or absf(height - hit.y) < 0.000001
+		if not seen:
+			hits.append(hit.y)
+	hits.sort()
+	return hits
+
+func hub_joint_overlap(housing: MeshInstance3D, support: MeshInstance3D, probe: Vector2) -> Dictionary:
+	var a := hub_vertical_hits(housing, probe)
+	var b := hub_vertical_hits(support, probe)
+	var valid := not a.is_empty() and not b.is_empty() and a.size() % 2 == 0 and b.size() % 2 == 0
+	var overlap := 0.0
+	if valid:
+		for first in range(0, a.size(), 2):
+			for second in range(0, b.size(), 2):
+				overlap = maxf(overlap, minf(a[first + 1], b[second + 1]) - maxf(a[first], b[second]))
+	return {"valid": valid, "housing_hits": a, "support_hits": b, "solid_overlap": overlap}
+
+func hub_short_probe_determinant(housing: MeshInstance3D) -> float:
+	var rel: Vector3 = housing.basis.inverse() * Vector3(0, 0.01, 0)
+	var faces := housing.mesh.get_faces()
+	var maximum := 0.0
+	for n in range(0, faces.size(), 3):
+		maximum = maxf(maximum, absf((faces[n + 1] - faces[n]).dot(rel.cross(faces[n + 2] - faces[n]))))
+	return maximum
+
+func check_conveyor_hub() -> void:
+	var cache: Dictionary = {}
+	var assemblies := 0
+	var shaft_cases := 0
+	var minimum_loop_gap := INF
+	var minimum_shaft_gap := INF
+	var controls := 0
+	var shaft_faces := 0
+	var joint_probes := 0
+	for shared_profile in [false, true]:
+		for cell in [[0, 0], [2, -1]]:
+			for axis in range(3):
+				var view: Variant = Shared.new() if shared_profile else Opening.new()
+				view.machine_root = Node3D.new()
+				view.item_root = Node3D.new()
+				view.add_child(view.machine_root)
+				view.add_child(view.item_root)
+				view.state = {"context": "conveyor-hub-fixture", "options": {"native": true},
+					"actors": {}, "transmission_parts": {}, "motion": {}, "stock": {"belt": 1},
+					"entities": {"fixture": {"kind": "belt", "cell": cell, "center": [cell[0] * 4, 0, cell[1] * 4],
+						"axis": axis, "generation": 1}}, "links": [], "drive_links": [], "engagements": []}
+				var before: Dictionary = view.state.duplicate(true)
+				view._rebuild_machines()
+				view._redraw_items()
+				var machine: Node3D = view.machine_root.get_child(0)
+				var journal: MeshInstance3D = machine.get_node("DriveStub")
+				var expected := Presenter.world_center(view.state.entities.fixture.center)
+				var direction: Vector3 = [Vector3.RIGHT, Vector3.UP, Vector3.BACK][axis]
+				verify(machine.get_meta("conveyor_hub", false)
+					and (machine.transform * journal.transform).origin.is_equal_approx(expected)
+					and journal.basis.y.dot(direction) > 0.99999 and journal.mesh is CylinderMesh,
+					"The actual view keeps the public journal on the native hub point and positive projected axis, including translated cells.")
+				var loop: MeshInstance3D = machine.get_node("ConveyorLoop")
+				verify(loop.mesh == ConveyorArt.loop_mesh() and loop.material_override == ConveyorArt.material(),
+					"The actual original rubber geometry and prepared material stay exact.")
+				var planes := hub_loop_planes(loop)
+				verify(planes.size() == 4 and is_equal_approx(planes[1], 0.387) and is_equal_approx(planes[2], 0.543),
+					"The empty working window is measured from actual inner belt facets, with distinct outer surfaces.")
+				var parts: Array[MeshInstance3D] = []
+				var rollers: Array[MeshInstance3D] = []
+				var side_beams: Array[MeshInstance3D] = []
+				var picks := 0
+				for child in machine.get_children():
+					if child is MeshInstance3D:
+						if child.has_meta("conveyor_hub_role"):
+							parts.append(child)
+						if child.get_meta("detail_role", "") == "ConveyorRoller":
+							rollers.append(child)
+						if child.get_meta("conveyor_frame_role", "") == "SideBeam":
+							side_beams.append(child)
+					elif child is StaticBody3D:
+						picks += 1
+						verify(child.collision_layer == Geometry.PICK_LAYER and child.collision_mask == 0
+							and child.get_child_count() == 1 and child.get_child(0).shape.size == Vector3(1.45, 1.65, 1.45)
+							and child.get_child(0).position.is_equal_approx(Vector3(0, 0.8, 0)),
+							"The entity pick identity, dimensions, centre and masks remain unchanged.")
+				verify(parts.size() == 10 and rollers.size() == 2 and side_beams.size() == 2 and picks == 1,
+					"The compact journal and open housing share eight supported carrier pieces within the original machine.")
+				var items: Array[Dictionary] = []
+				hub_mesh_rows(view.item_root, Transform3D.IDENTITY, items)
+				verify(not items.is_empty(), "The ordinary item redraw supplies the actual retained billet artwork.")
+				for part in parts:
+					var role: String = part.get_meta("conveyor_hub_role")
+					var key := role + ("Y" if axis == 1 and role in ["HubHousing", "HubJournal"] else "")
+					if role == "HubFork":
+						key += "N" if part.mesh.get_aabb().position.x < 0 else "P"
+					verify(part.get_script() == null and part.get_child_count() == 0 and part.scale.is_equal_approx(Vector3.ONE),
+						"Every hub piece is fixed plain geometry without a controller, collider or scale-stretched detail.")
+					check_bounds(part, Transform3D.IDENTITY)
+					if not cache.has(key):
+						var volumes: Array = {"HubCarrierRail": [0.00055, 0.00070], "HubMountCleat": [0.000015, 0.000022],
+							"HubBridge": [0.000030, 0.000045], "HubPedestal": [0.0000045, 0.0000065],
+							"HubForkN": [0.000007, 0.000010], "HubForkP": [0.000007, 0.000010],
+							"HubHousing": [0.00007, 0.000085], "HubHousingY": [0.00035, 0.00042],
+							"HubJournal": [0.00029, 0.00030], "HubJournalY": [0.00019, 0.00020]}[key]
+						check_closed_asset_mesh(part.mesh, volumes[0], volumes[1])
+						cache[key] = [part.mesh, part.material_override]
+					verify(part.mesh == cache[key][0] and part.material_override == cache[key][1],
+						"All cells and both view classes reuse each compatible fitted mesh and finish.")
+					var gap := hub_loop_separation(part.mesh, part.transform, loop)
+					minimum_loop_gap = minf(minimum_loop_gap, gap)
+					verify(hub_empty_window(part.mesh, part.transform, planes) and gap > 0.0005,
+						"Every complete new mesh stays in the measured empty window or outside the belt width and clears every actual belt facet.")
+					for roller in rollers:
+						verify(frame_shaft_clearance(part.mesh, part.transform, roller) > 0.001,
+							"The fitted hub and its supports also clear the unchanged actual roller meshes.")
+					var box: AABB = machine.transform * part.transform * part.mesh.get_aabb()
+					for item in items:
+						var item_box: AABB = item.pose * item.node.mesh.get_aabb()
+						verify(box.end.y < item_box.position.y or box.position.z > item_box.end.z or box.end.z < item_box.position.z,
+							"The complete new hub pieces conservatively clear every actual carried-work mesh.")
+					if role == "HubMountCleat":
+						var beam: MeshInstance3D = side_beams[0] if signf(side_beams[0].position.z) == signf(part.position.z) else side_beams[1]
+						verify(feed_ray_blocked(beam, Transform3D.IDENTITY,
+							Vector3(part.position.x, 0.38, part.position.z), Vector3(part.position.x, 0.39, part.position.z))
+							and box.position.y < 0.385 and (part.transform * part.mesh.get_aabb()).end.y > 0.415,
+							"The carrier cleat meets the actual formed beam and overlaps its rail joint, rather than hovering between them.")
+				var housing: MeshInstance3D = machine.get_node("HubHousing")
+				for x in ([-0.052, 0.052] if axis == 1 else [0.002]):
+					var support: MeshInstance3D = machine.get_node(("HubForkN" if x < 0 else "HubForkP") if axis == 1 else "HubPedestal")
+					var contact := hub_joint_overlap(housing, support, Vector2(x, 0.003))
+					var old_x := signf(x) * 0.05 if axis == 1 else 0.0
+					var old_hit := feed_ray_blocked(housing, Transform3D.IDENTITY,
+						Vector3(old_x, 0.455 if axis != 1 else 0.465, 0), Vector3(old_x, 0.465 if axis != 1 else 0.475, 0))
+					var determinant := hub_short_probe_determinant(housing)
+					print(JSON.stringify({"phase": "hub joint", "shared": shared_profile, "cell": cell, "axis": axis,
+						"probe_xz": Vector2(x, 0.003), "contact": contact, "old_short_probe_hit": old_hit,
+						"maximum_short_probe_determinant": determinant}))
+					verify(contact.valid and contact.solid_overlap > 0.0001,
+						"Actual closed housing and support intervals overlap at the designed fixed joint.")
+					verify(not old_hit and determinant < 0.00001,
+						"The original short probe is rejected by the pinned absolute determinant guard, not evidence of an absent joint.")
+					if not shared_profile and cell == [0, 0] and axis != 2:
+						var rest := support.position
+						support.position.y -= 0.01
+						verify(hub_joint_overlap(housing, support, Vector2(x, 0.003)).solid_overlap == 0,
+							"The same interval oracle rejects a support deliberately lowered away from its housing.")
+						support.position = rest
+						controls += 1
+					joint_probes += 1
+				if not shared_profile and cell == [0, 0]:
+					for half_span in [1, 3]:
+						for end in [-1, 0, 1]:
+							var center: Array = view.state.entities.fixture.center.duplicate()
+							center[axis] += end * half_span
+							var host := HubShaftFacts.new()
+							host.state = {"context": "hub-shaft-alternative", "options": {"native": true}, "entities": {},
+								"transmission_parts": {"shaft": {"kind": "shaft", "center": center, "axis": axis, "half_span": half_span, "generation": 1}},
+								"motion": {"shaft": {"state": "rotating", "numerator": -1, "denominator": 1}}, "engagements": []}
+							var original: Dictionary = host.state.duplicate(true)
+							var presenter := Presenter.new()
+							presenter.configure(host)
+							presenter.advance_visual_motion(0.1)
+							var shaft: Node3D = presenter.get_child(0)
+							var core: MeshInstance3D = shaft.get_node("Shaft")
+							var length: float = float(half_span) * 0.825
+							verify(core.mesh is CylinderMesh and is_equal_approx(core.mesh.height, length)
+								and is_equal_approx(core.mesh.top_radius, 0.03)
+								and shaft.position.is_equal_approx(Presenter.world_center(center))
+								and shaft.basis.y.dot(direction) > 0.99999,
+								"The actual presenter retains the prescribed centre, axis, length and declared shaft art radius.")
+							var pick: StaticBody3D = shaft.get_node("Pick")
+							verify(pick.collision_layer == 4 and pick.collision_mask == 0
+								and is_equal_approx(pick.get_child(0).shape.radius, 0.08)
+								and is_equal_approx(pick.get_child(0).shape.height, length),
+								"Thinner shaft art does not shrink or move its real selection proxy.")
+							var meshes: Array[Dictionary] = []
+							hub_mesh_rows(shaft, Transform3D.IDENTITY, meshes)
+							var inverse := Transform3D(Presenter.axis_basis(axis), expected).affine_inverse()
+							var maximum_radius := 0.0
+							var low := INF
+							var high := -INF
+							for row in meshes:
+								var pose: Transform3D = inverse * row.pose
+								for vertex in row.node.mesh.get_faces():
+									var point: Vector3 = pose * vertex
+									maximum_radius = maxf(maximum_radius, Vector2(point.x, point.z).length())
+									low = minf(low, point.y)
+									high = maxf(high, point.y)
+								shaft_faces += row.node.mesh.get_faces().size() / 3
+							verify(maximum_radius < 0.038 and meshes.size() == 6,
+								"Actual shaft, collars, end keys and the moved keyway all stay inside the declared rotating envelope.")
+							for part in parts:
+								if part == journal:
+									continue
+								var pose: Transform3D = inverse * machine.transform * part.transform
+								var bounds: AABB = pose * part.mesh.get_aabb()
+								if bounds.position.y > high or bounds.end.y < low:
+									continue
+								var band := frame_mesh_band(part.mesh, pose, low, high)
+								var gap: float = band.minimum - maximum_radius
+								minimum_shaft_gap = minf(minimum_shaft_gap, gap)
+								verify(not frame_axis_occupied(part.mesh, pose, low, high, maximum_radius) and gap > 0.0005,
+									"A conservative full-turn envelope of each actual shaft alternative clears all fixed local hub furniture.")
+							verify(host.state == original and is_equal_approx(presenter.visual_angle("shaft"), -0.08),
+								"The existing signed cosmetic cache changes no prescribed shaft or native facts.")
+							presenter.free()
+							shaft_cases += 1
+					var old := CylinderMesh.new()
+					old.top_radius = 0.085
+					old.bottom_radius = 0.085
+					old.height = 0.9 if axis == 1 else 1.35
+					verify(not hub_empty_window(old, journal.transform, planes)
+						and hub_loop_separation(old, journal.transform, loop) < 0,
+						"The original complete decorative bar fails the same measured empty-window and actual-facet separation requirements.")
+					controls += 1
+					if axis == 0:
+						var band := frame_mesh_band(housing.mesh, Transform3D.IDENTITY, -0.05, 0.05)
+						verify(band.minimum - 0.045 < 0, "The old wide shaft core cannot pass the new actual bore-clearance discriminator.")
+						var contained := BoxMesh.new()
+						contained.size = Vector3.ONE * 0.003
+						verify(not hub_empty_window(contained, Transform3D(Basis.IDENTITY, Vector3(0, 0.549, 0)), planes),
+							"A tiny solid contained inside the rubber cannot pass by avoiding its boundary triangles.")
+						var original_position := journal.position
+						journal.position.x += 0.01
+						verify(not (machine.transform * journal.transform).origin.is_equal_approx(expected),
+							"A displaced visible journal fails the confirmed native-point discriminator.")
+						journal.position = original_position
+						controls += 3
+				verify(view.state == before and view.model == null and view.actor_world == null and view.request_sequence == 0,
+					"The new art changes no material ownership, topology, request, actor or native authority.")
+				assemblies += 1
+				view.free()
+	for shared_profile in [false, true]:
+		var view: Variant = Shared.new() if shared_profile else Opening.new()
+		view.state = {"options": {"native": false}}
+		var machine := Node3D.new()
+		view.add_child(machine)
+		view._assemble_machine(machine, {"kind": "belt", "axis": 1})
+		var journal: MeshInstance3D = machine.get_node("DriveStub")
+		verify(not machine.get_meta("conveyor_hub", false) and is_equal_approx(journal.mesh.top_radius, 0.085)
+			and is_equal_approx(journal.mesh.height, 0.18) and journal.position.is_equal_approx(Vector3(0, 0.35, 0.55)),
+			"Both nonnative views retain their exact historical decorative stub.")
+		view.free()
+	print(JSON.stringify({"phase": "conveyor hub", "assemblies": assemblies, "unique_mesh_roles": cache.size(),
+		"shaft_alternatives": shaft_cases, "actual_shaft_triangles_read": shaft_faces,
+		"retained_joint_probes": joint_probes,
+		"minimum_belt_facet_separation_metres": minimum_loop_gap, "minimum_local_shaft_clearance_metres": minimum_shaft_gap,
+		"altered_geometry_controls": controls, "observations": "invented", "native_gameplay": "not_run",
+		"rendered_quality": "not_assessed", "shaft_scope": "Local hub furniture only; not a claim of general through-machine routing."}))
+
+func frame_mesh_band(mesh: Mesh, pose: Transform3D, low: float, high: float) -> Dictionary:
+	var faces := mesh.get_faces()
+	var minimum := INF
+	var maximum := 0.0
+	for n in range(0, faces.size(), 3):
+		var points: Array[Vector3] = [pose * faces[n], pose * faces[n + 1], pose * faces[n + 2]]
+		points = crown_clip_y(crown_clip_y(points, low, true), high, false)
+		for corner in range(1, points.size() - 1):
+			var a := Vector2(points[0].x, points[0].z)
+			var b := Vector2(points[corner].x, points[corner].z)
+			var c := Vector2(points[corner + 1].x, points[corner + 1].z)
+			minimum = minf(minimum, triangle_radius(a, b, c))
+			maximum = maxf(maximum, maxf(a.length(), maxf(b.length(), c.length())))
+	return {"minimum": minimum, "maximum": maximum}
+
+func frame_axis_occupied(mesh: Mesh, pose: Transform3D, low: float, high: float, radius: float) -> bool:
+	# A surrounding solid can have all its side facets outside the cylinder.
+	# Pair full closed-mesh crossings to reject that containment as well.
+	# The off-centre ray stays strictly inside the tested radial envelope and
+	# avoids the primitive cap's shared centre vertex. It changes no game pose.
+	var bounds: AABB = pose * mesh.get_aabb()
+	var from := Vector3(radius * 0.137, bounds.position.y - 1, radius * 0.219)
+	var to := Vector3(from.x, bounds.end.y + 1, from.z)
+	var faces := mesh.get_faces()
+	var hits: Array[float] = []
+	for n in range(0, faces.size(), 3):
+		var hit: Variant = Geometry3D.segment_intersects_triangle(from, to, pose * faces[n], pose * faces[n + 1], pose * faces[n + 2])
+		if hit == null:
+			continue
+		var duplicate := false
+		for height in hits:
+			duplicate = duplicate or absf(height - hit.y) < 0.000001
+		if not duplicate:
+			hits.append(hit.y)
+	hits.sort()
+	if hits.size() % 2 != 0:
+		return true
+	for n in range(0, hits.size(), 2):
+		if hits[n] <= high and hits[n + 1] >= low:
+			return true
+	return false
+
+func frame_shaft_clearance(mesh: Mesh, pose: Transform3D, shaft: MeshInstance3D) -> float:
+	var relative: Transform3D = shaft.transform.affine_inverse() * pose
+	var fixed_bounds: AABB = relative * mesh.get_aabb()
+	var shaft_bounds := shaft.mesh.get_aabb()
+	var low := maxf(fixed_bounds.position.y, shaft_bounds.position.y)
+	var high := minf(fixed_bounds.end.y, shaft_bounds.end.y)
+	if low > high:
+		return INF
+	var moving := frame_mesh_band(shaft.mesh, Transform3D.IDENTITY, low, high)
+	var fixed := frame_mesh_band(mesh, relative, low, high)
+	if frame_axis_occupied(mesh, relative, low, high, moving.maximum):
+		return -moving.maximum
+	return fixed.minimum - moving.maximum
+
+func frame_seat(bolt: MeshInstance3D, seat: MeshInstance3D, lifted: float = 0.0) -> Dictionary:
+	var a := MeshInstance3D.new()
+	var b := MeshInstance3D.new()
+	a.mesh = bolt.mesh
+	b.mesh = seat.mesh
+	var frame := Transform3D(bolt.basis.inverse(), Vector3.ZERO)
+	a.transform = frame * bolt.transform
+	b.transform = frame * seat.transform
+	var result := foot_seating(a, b, lifted)
+	a.free()
+	b.free()
+	return result
+
+func check_conveyor_frame() -> void:
+	var cache: Dictionary = {}
+	var assemblies := 0
+	var minimum_gap := INF
+	var minimum_entry := INF
+	var seats := 0
+	var controls := 0
+	for shared_profile in [false, true]:
+		for axis in range(3):
+			var view: Variant = Shared.new() if shared_profile else Opening.new()
+			view.machine_root = Node3D.new()
+			view.add_child(view.machine_root)
+			view.state = {"context": "conveyor-frame-fixture", "options": {"native": true},
+				"actors": {}, "transmission_parts": {}, "motion": {}, "stock": {"belt": 1},
+				"entities": {"fixture": {"kind": "belt", "cell": [0, 0], "axis": axis, "generation": 1}},
+				"links": [], "drive_links": [], "engagements": []}
+			var before: Dictionary = view.state.duplicate(true)
+			view._rebuild_machines()
+			var machine: Node3D = view.machine_root.get_child(0)
+			verify(machine.get_meta("conveyor_frame", false), "The actual native conveyor mounts its fitted fixed furniture.")
+			var rollers: Array[MeshInstance3D] = []
+			var parts: Array[MeshInstance3D] = []
+			var picks := 0
+			var loop: MeshInstance3D = machine.get_node("ConveyorLoop")
+			verify(loop.mesh == ConveyorArt.loop_mesh() and loop.material_override == ConveyorArt.material()
+				and loop.position.is_equal_approx(Vector3(0, 0.465, 0)),
+				"The new furniture preserves the exact original rubber loop, material and mounting height.")
+			for child in machine.get_children():
+				if child is MeshInstance3D:
+					if child.get_meta("detail_role", "") == "ConveyorRoller":
+						rollers.append(child)
+					if child.has_meta("conveyor_frame_role"):
+						parts.append(child)
+				elif child is StaticBody3D:
+					picks += 1
+					verify(child.collision_layer == Geometry.PICK_LAYER and child.collision_mask == 0
+						and child.get_child_count() == 1 and child.get_child(0).shape.size == Vector3(1.45, 1.65, 1.45)
+						and child.get_child(0).position.is_equal_approx(Vector3(0, 0.8, 0)),
+						"The sole entity pick body retains its original size, centre and masks.")
+			verify(picks == 1 and rollers.size() == 2 and parts.size() == (34 if axis == 2 else 32),
+				"The kit has four complete end frames, eight seated feet and the appropriate rigid guards.")
+			for roller in rollers:
+				verify(is_equal_approx(absf(roller.position.x), 0.57) and is_equal_approx(roller.position.y, 0.465)
+					and roller.position.z == 0 and roller.mesh.get_aabb().position.is_equal_approx(Vector3(-0.077, -0.35, -0.077))
+					and roller.mesh.get_aabb().size.is_equal_approx(Vector3(0.154, 0.7, 0.154)),
+					"The literal original turned roller envelope and centre remain unchanged.")
+			var drive: MeshInstance3D = machine.get_node("DriveStub")
+			var compact: bool = machine.get_meta("conveyor_hub", false)
+			verify(drive.mesh is CylinderMesh and is_equal_approx(drive.mesh.top_radius, 0.028 if compact else 0.085)
+				and is_equal_approx(drive.mesh.height, (0.08 if axis == 1 else 0.12) if compact else (0.9 if axis == 1 else 1.35))
+				and drive.position.is_equal_approx(Vector3(0, 0.5, 0))
+				and absf(drive.basis.y.dot([Vector3.RIGHT, Vector3.UP, Vector3.BACK][axis])) > 0.99999,
+				"The native hub point and confirmed axis remain exact, with the declared current journal artwork.")
+			var shafts: Array[MeshInstance3D] = [drive]
+			shafts.append_array(rollers)
+			for part in parts:
+				var role: String = part.get_meta("conveyor_frame_role")
+				verify(part.get_script() == null and part.get_child_count() == 0 and part.scale.is_equal_approx(Vector3.ONE),
+					"Every fixed piece is plain geometry with baked dimensions and no controller or collider.")
+				check_bounds(part, Transform3D.IDENTITY)
+				if not cache.has(role):
+					var volumes: Array = {"FrameCheek": [0.0012, 0.0018], "BearingCup": [0.0023, 0.0028],
+						"BearingLiner": [0.00007, 0.00008], "EndCap": [0.00014, 0.00020],
+						"CapBolt": [0.000021, 0.000024], "FootBolt": [0.0000043, 0.0000046],
+						"SideBeam": [0.0016, 0.0020], "GuardRail": [0.004, 0.006], "GuardHalf": [0.0020, 0.0024]}[role]
+					check_closed_asset_mesh(part.mesh, volumes[0], volumes[1])
+					cache[role] = [part.mesh, part.material_override]
+				verify(part.mesh == cache[role][0] and part.material_override == cache[role][1],
+					"Both builders and all drive axes share every compatible mesh and material.")
+				var painted := role in ["FrameCheek", "BearingCup", "SideBeam", "GuardRail", "GuardHalf"]
+				var material := part.material_override as StandardMaterial3D
+				verify(material.albedo_color == (Color("538e88") if painted else Color("a6b4af"))
+					and is_equal_approx(material.metallic, 0.0 if painted else 0.85)
+					and material.normal_texture == Opening.ProductionTransmissionFinish.textures[("cast" if painted else "worked") + "_normal"],
+					"The actual kit keeps cast coating and exposed worked metal distinct with shared qualified maps.")
+				for shaft in shafts:
+					var gap := frame_shaft_clearance(part.mesh, part.transform, shaft)
+					minimum_gap = minf(minimum_gap, gap)
+					verify(gap > 0.001, "Every complete fixed piece conservatively clears the original drive and roller facets.")
+				if part.has_meta("frame_seat"):
+					var seat: MeshInstance3D = machine.get_node(NodePath(str(part.get_meta("frame_seat"))))
+					var contact := frame_seat(part, seat)
+					verify(contact.area > 0 and absf(contact.coverage - 1) < 0.0001 and contact.maximum_penetration < 0.00001,
+						"Each complete hexagonal lower face sits on its explicit flat seat without penetrating a shoulder.")
+					seats += 1
+				if role == "BearingLiner":
+					var roller: MeshInstance3D = rollers[0] if is_equal_approx(rollers[0].position.x, part.position.x) else rollers[1]
+					var local: Transform3D = roller.transform.affine_inverse() * part.transform
+					var box: AABB = local * part.mesh.get_aabb()
+					var entry := minf(0.35, box.end.y) - maxf(-0.35, box.position.y)
+					minimum_entry = minf(minimum_entry, entry)
+					verify(entry > 0.008, "Each actual original roller tip enters its fitted open liner instead of stopping short.")
+				if controls == 0 and role == "BearingLiner":
+					var filled := CylinderMesh.new()
+					filled.top_radius = 0.065
+					filled.bottom_radius = 0.065
+					filled.height = 0.093
+					verify(frame_shaft_clearance(filled, part.transform, rollers[0]) < 0,
+						"A deliberately filled bearing fails the same finite-shaft clearance oracle.")
+					var old_channel := Visuals.box_mesh(Vector3(1.34, 0.08, 0.05))
+					verify(frame_shaft_clearance(old_channel, Transform3D(Basis.IDENTITY, Vector3(0, 0.43, 0.36)), rollers[0]) < 0,
+						"The original high box channel fails the same actual roller-tip clearance requirement.")
+					var enclosing := BoxMesh.new()
+					enclosing.size = Vector3.ONE
+					verify(frame_shaft_clearance(enclosing, rollers[0].transform, rollers[0]) < 0,
+						"A surrounding solid cannot pass merely because its side surfaces are far from the shaft.")
+					var foot: MeshInstance3D = machine.get_node("FootBoltNNN")
+					var seat: MeshInstance3D = machine.get_node(NodePath(str(foot.get_meta("frame_seat"))))
+					verify(frame_seat(foot, seat, 0.001).coverage < 0.99, "A lifted foot bolt fails the same complete-face seating requirement.")
+					controls = 4
+			verify(view.state == before and view.model == null and view.actor_world == null and view.request_sequence == 0,
+				"The fixed furniture changes no projection, material request, physics or native authority.")
+			assemblies += 1
+			view.free()
+	for shared_profile in [false, true]:
+		var view: Variant = Shared.new() if shared_profile else Opening.new()
+		view.state = {"options": {"native": false}}
+		var machine := Node3D.new()
+		view.add_child(machine)
+		view._assemble_machine(machine, {"kind": "belt"})
+		verify(not machine.get_meta("conveyor_frame", false) and count_role(machine, "ConveyorLeg") == 4
+			and count_role(machine, "ConveyorChannel") == 2 and count_role(machine, "RollerBearing") == 4,
+			"Both nonnative view classes retain their earlier posts, channels and bearing disks.")
+		view.free()
+	print(JSON.stringify({"phase": "conveyor frame", "assemblies": assemblies, "unique_mesh_roles": cache.size(),
+		"minimum_facet_clearance_metres": minimum_gap, "minimum_roller_entry_metres": minimum_entry,
+		"complete_bolt_seats": seats, "altered_geometry_controls": controls,
+		"observations": "invented", "native_gameplay": "not_run", "rendered_quality": "not_assessed"}))
+
+func crown_clip_y(points: Array[Vector3], height: float, above: bool) -> Array[Vector3]:
+	var clipped: Array[Vector3] = []
+	if points.is_empty():
+		return clipped
+	var previous: Vector3 = points[-1]
+	var previous_inside: bool = previous.y >= height if above else previous.y <= height
+	for point in points:
+		var inside: bool = point.y >= height if above else point.y <= height
+		if inside != previous_inside:
+			clipped.append(previous.lerp(point, (height - previous.y) / (point.y - previous.y)))
+		if inside:
+			clipped.append(point)
+		previous = point
+		previous_inside = inside
+	return clipped
+
+func crown_shaft_gap(crown: Node3D, shaft: MeshInstance3D) -> float:
+	# Clip actual fixed triangles to the original shaft's axial interval.
+	# Empty space beyond its tip is not a promise that it passes through a cap.
+	var shaft_bounds: AABB = shaft.transform * shaft.mesh.get_aabb()
+	var closest := INF
+	for part: MeshInstance3D in crown.get_children():
+		var faces := part.mesh.get_faces()
+		for n in range(0, faces.size(), 3):
+			var points: Array[Vector3] = [part.transform * faces[n], part.transform * faces[n + 1], part.transform * faces[n + 2]]
+			points = crown_clip_y(crown_clip_y(points, shaft_bounds.position.y, true), shaft_bounds.end.y, false)
+			for corner in range(1, points.size() - 1):
+				var flat: Array[Vector2] = []
+				for at in [points[0], points[corner], points[corner + 1]]:
+					flat.append(Vector2(at.x - shaft.position.x, at.z - shaft.position.z))
+				closest = minf(closest, triangle_radius(flat[0], flat[1], flat[2]))
+	return closest - (shaft.mesh as CylinderMesh).top_radius
+
+func check_press_crown() -> void:
+	var cached: Dictionary = {}
+	var minimum_gap := INF
+	var assemblies := 0
+	var controls := 0
+	var open_rays := 0
+	for shared_profile in [false, true]:
+		for axis in range(3):
+			var view: Variant = Shared.new() if shared_profile else Opening.new()
+			view.machine_root = Node3D.new()
+			view.add_child(view.machine_root)
+			view.state = {"context": "press-crown-fixture", "options": {"native": true},
+				"actors": {"P": {"ready": true}}, "transmission_parts": {}, "motion": {},
+				"remaining": 0, "stock": {"held": 1}, "entities": {
+					"fixture": {"kind": "processor", "cell": [0, 0], "axis": axis, "generation": 1}},
+				"links": [], "drive_links": [], "engagements": []}
+			var before: Dictionary = view.state.duplicate(true)
+			view._rebuild_machines()
+			var machine: Node3D = view.machine_root.get_child(0)
+			var crown: Node3D = machine.get_node("PressCrown")
+			verify(PressArt.source_status == "ready" and crown.get_child_count() == 7
+				and crown.get_script() == null and machine.get_node_or_null("PressBridge") == null,
+				"The actual native sourced press replaces its box bridge with seven fixed crown pieces.")
+			check_bounds(crown, Transform3D.IDENTITY)
+			var fixed: Array[Transform3D] = []
+			for part: MeshInstance3D in crown.get_children():
+				var role: String = part.get_meta("press_crown_role")
+				var key := "GuideSocket" if role.begins_with("GuideSocket") else role
+				var painted := key not in ["RamLiner", "GuideSocket"]
+				verify(part.get_script() == null and part.get_child_count() == 0 and part.scale.is_equal_approx(Vector3.ONE),
+					"Every crown piece is a plain fixed mesh with its dimensions baked in metres.")
+				if not cached.has(key):
+					var limits: Array = {"CastShoulderLeft": [0.028, 0.032], "CastShoulderRight": [0.028, 0.032],
+						"RearTie": [0.009, 0.013], "RamHousing": [0.006, 0.012],
+						"RamLiner": [0.00048, 0.00055], "GuideSocket": [0.0005, 0.00075]}[key]
+					check_closed_asset_mesh(part.mesh, limits[0], limits[1])
+					cached[key] = [part.mesh, part.material_override]
+				verify(part.mesh == cached[key][0] and part.material_override == cached[key][1],
+					"All view classes and drive axes reuse the exact compatible crown resources.")
+				var finish_value := part.material_override as StandardMaterial3D
+				var color := Color("58634c") if painted else (Color("a6b4af") if key == "RamLiner" else Color("b87945"))
+				verify(finish_value.albedo_color == color and is_equal_approx(finish_value.metallic, 0.0 if painted else 0.85)
+					and finish_value.normal_texture == Opening.ProductionTransmissionFinish.textures[("cast" if painted else "worked") + "_normal"],
+					"The actual crown separates qualified cast coating from exposed worked liners and sockets.")
+				fixed.append(part.transform)
+			for side in [-1.0, 1.0]:
+				var support: MeshInstance3D = machine.get_node("CastPressSupportLeft" if side < 0 else "CastPressSupportRight")
+				verify(support.mesh == PressArt.mesh and support.material_override == PressArt.finish
+					and support.position.is_equal_approx(Vector3(side * 0.48, 0.24, -0.38))
+					and is_equal_approx((support.transform * support.mesh.get_aabb()).end.y, 1.4),
+					"The original sourced columns keep their geometry, atlas, mounting positions and crown datum.")
+				verify(feed_ray_blocked(crown, Transform3D.IDENTITY,
+					Vector3(side * 0.48, 1.39, -0.38), Vector3(side * 0.48, 1.41, -0.38)),
+					"The actual shoulder facets meet each existing column instead of hovering above it.")
+			var piston: MeshInstance3D = machine.get_node("Piston")
+			var head: MeshInstance3D = machine.get_node("ToolHead")
+			var guides: Array[MeshInstance3D] = []
+			var picks := 0
+			for child in machine.get_children():
+				if child is StaticBody3D:
+					picks += 1
+					verify(child.collision_layer == Geometry.PICK_LAYER and child.collision_mask == 0
+						and child.get_child_count() == 1 and child.get_child(0).shape.size == Vector3(1.45, 1.65, 1.45)
+						and child.get_child(0).position == Vector3(0, 0.8, 0),
+						"The original sole entity pick body keeps its size, position and masks.")
+				if child is MeshInstance3D and child.mesh is CylinderMesh and is_equal_approx(child.mesh.top_radius, 0.04):
+					guides.append(child)
+			var rows: Array = machine.get_meta("motion_meshes")
+			verify(rows.size() == 2 and rows[0].node == head and rows[1].node == piston,
+				"Only the original tool head and piston remain in the existing cosmetic travel group.")
+			verify(head.position.is_equal_approx(Vector3(0, 0.825, 0))
+				and piston.position.is_equal_approx(Vector3(0, 1.1325, -0.08))
+				and is_equal_approx((piston.transform * piston.mesh.get_aabb()).end.y, 1.365),
+				"The ordinary builder correctly initializes the existing lowered pose for observed blocked held work.")
+			view._apply_press_pose(rows, 0.0)
+			verify(picks == 1 and guides.size() == 2 and piston.mesh is CylinderMesh
+				and is_equal_approx(piston.mesh.top_radius, 0.075) and is_equal_approx(piston.mesh.height, 0.45)
+				and piston.position.is_equal_approx(Vector3(0, 1.14, -0.08))
+				and head.position.is_equal_approx(Vector3(0, 0.84, 0))
+				and head.mesh == DieArt.tool_mesh()
+				and head.mesh.get_aabb().size.is_equal_approx(Vector3(0.56, 0.17, 0.55)),
+				"The literal original ram, tool envelope and two guide rods define the visual clearance oracle.")
+			for guide in guides:
+				verify(is_equal_approx(absf(guide.position.x), 0.34) and is_equal_approx(guide.position.y, 1.06)
+					and is_equal_approx(guide.position.z, -0.19) and is_equal_approx(guide.mesh.height, 0.6),
+					"The original guide lengths and positions are not shortened to hide an intersection.")
+			var shafts: Array[MeshInstance3D] = [piston]
+			shafts.append_array(guides)
+			for travel in [0.0, 0.0075, 0.015]:
+				view._apply_press_pose(rows, travel)
+				for shaft in shafts:
+					var gap := crown_shaft_gap(crown, shaft)
+					minimum_gap = minf(minimum_gap, gap)
+					verify(is_finite(gap) and gap > 0.002,
+						"Actual fixed facets clear each original shaft over its real axial interval at every sampled tool pose.")
+				verify(is_equal_approx((piston.transform * piston.mesh.get_aabb()).end.y, 1.365)
+					and is_equal_approx(head.position.y, 0.84 - travel),
+					"The original rod top stays fixed and the tool retains its exact previously accepted travel.")
+				var protected_rows: Array[Dictionary] = []
+				press_protected(machine, Transform3D.IDENTITY, protected_rows)
+				for part: MeshInstance3D in crown.get_children():
+					var bounds: AABB = part.transform * part.mesh.get_aabb()
+					for row in protected_rows:
+						if row.name == "Piston" or row.name.begins_with("ToolGuide"):
+							continue
+						var box: AABB = row.bounds
+						var gap := maxf(maxf(maxf(box.position.x - bounds.end.x, bounds.position.x - box.end.x),
+							maxf(box.position.y - bounds.end.y, bounds.position.y - box.end.y)), maxf(box.position.z - bounds.end.z, bounds.position.z - box.end.z))
+						verify(gap > 0, "The crown conservatively clears the unchanged nonshaft working and drive meshes.")
+				for n in range(crown.get_child_count()):
+					verify(crown.get_child(n).transform == fixed[n], "The supporting crown stays fixed as the original tool moves.")
+			for offset in [Vector2.ZERO, Vector2(0.07, 0), Vector2(-0.07, 0), Vector2(0, 0.07), Vector2(0, -0.07)]:
+				verify(not feed_ray_blocked(crown, Transform3D.IDENTITY,
+					Vector3(offset.x, 1.32, -0.08 + offset.y), Vector3(offset.x, 1.61, -0.08 + offset.y)),
+					"Actual facets leave the complete central ram bore open through the crown.")
+				open_rays += 1
+			if controls == 0:
+				var liner: MeshInstance3D = crown.get_node("RamLiner")
+				var original: Mesh = liner.mesh
+				var filled := CylinderMesh.new()
+				filled.top_radius = 0.083
+				filled.bottom_radius = 0.083
+				filled.height = 0.25
+				liner.mesh = filled
+				verify(crown_shaft_gap(crown, piston) < 0, "The same clipped-facet oracle rejects a deliberately filled ram bore.")
+				liner.mesh = original
+				liner.position.x += 0.02
+				verify(crown_shaft_gap(crown, piston) < 0, "A liner displaced into the unchanged piston fails the same clearance oracle.")
+				liner.position.x -= 0.02
+				var socket: MeshInstance3D = crown.get_node("GuideSocketLeft")
+				socket.position.z += 0.02
+				verify(crown_shaft_gap(crown, guides[0]) < 0, "A guide socket displaced into its original rod also fails the clearance oracle.")
+				socket.position.z -= 0.02
+				controls = 3
+			verify(view.state == before and view.model == null and view.actor_world == null
+				and view.request_sequence == 0 and not view.is_inside_tree(),
+				"Crown construction and isolated pose checks create no input, state, physics or native authority.")
+			assemblies += 1
+			view.free()
+	for shared_profile in [false, true]:
+		var view: Variant = Shared.new() if shared_profile else Opening.new()
+		view.state = {"options": {"native": false}}
+		var machine := Node3D.new()
+		view.add_child(machine)
+		view._assemble_machine(machine, {"kind": "processor"})
+		var bridge: MeshInstance3D = machine.get_node("PressBridge")
+		verify(machine.get_node_or_null("PressCrown") == null
+			and bridge.mesh == Visuals.box_mesh(Vector3(1.2, 0.2, 0.36))
+			and bridge.position.is_equal_approx(Vector3(0, 1.5, -0.3)),
+			"Both nonnative view classes keep their original sourced box bridge and position.")
+		view.free()
+	print(JSON.stringify({"phase": "press crown", "assemblies": assemblies, "unique_mesh_roles": cached.size(),
+		"minimum_shaft_clearance_metres": minimum_gap, "through_bore_rays": open_rays, "altered_geometry_controls": controls,
+		"poses_per_assembly": 3, "observations": "invented", "native_gameplay": "not_run", "rendered_quality": "not_assessed"}))
+
+func foot_polygon_area(points: PackedVector2Array) -> float:
+	var area := 0.0
+	for n in range(points.size()):
+		area += points[n].cross(points[(n + 1) % points.size()])
+	return absf(area) * 0.5
+
+func foot_clip_triangle(subject: PackedVector2Array, clip: PackedVector2Array) -> PackedVector2Array:
+	var result := subject
+	var orientation := 1.0 if (clip[1] - clip[0]).cross(clip[2] - clip[0]) > 0 else -1.0
+	for edge_index in range(3):
+		if result.is_empty():
+			break
+		var a := clip[edge_index]
+		var edge := clip[(edge_index + 1) % 3] - a
+		var next := PackedVector2Array()
+		var previous := result[result.size() - 1]
+		var previous_side := orientation * edge.cross(previous - a)
+		for point in result:
+			var side := orientation * edge.cross(point - a)
+			if (side >= 0.0) != (previous_side >= 0.0):
+				next.append(previous.lerp(point, previous_side / (previous_side - side)))
+			if side >= 0.0:
+				next.append(point)
+			previous = point
+			previous_side = side
+		result = next
+	return result
+
+func foot_mesh_triangles(mesh: Mesh, pose: Transform3D) -> Array[PackedVector3Array]:
+	var arrays := mesh.surface_get_arrays(0)
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX] if arrays[Mesh.ARRAY_INDEX] != null else PackedInt32Array()
+	var count := vertices.size() if indices.is_empty() else indices.size()
+	var triangles: Array[PackedVector3Array] = []
+	for n in range(0, count, 3):
+		var triangle := PackedVector3Array()
+		for corner in range(3):
+			triangle.append(pose * vertices[n + corner if indices.is_empty() else indices[n + corner]])
+		triangles.append(triangle)
+	return triangles
+
+func foot_seating(foot: MeshInstance3D, stand: MeshInstance3D, raised: float = 0.0) -> Dictionary:
+	var pose := foot.transform
+	pose.origin.y += raised
+	var feet := foot_mesh_triangles(foot.mesh, pose)
+	var casting := foot_mesh_triangles(stand.mesh, stand.transform)
+	var bottom := INF
+	for triangle in feet:
+		for point in triangle:
+			bottom = minf(bottom, point.y)
+	var area := 0.0
+	var supported := 0.0
+	var penetration := 0.0
+	for triangle in feet:
+		if absf(triangle[0].y - bottom) > 0.000001 or absf(triangle[1].y - bottom) > 0.000001 or absf(triangle[2].y - bottom) > 0.000001:
+			continue
+		var face := PackedVector2Array([Vector2(triangle[0].x, triangle[0].z),
+			Vector2(triangle[1].x, triangle[1].z), Vector2(triangle[2].x, triangle[2].z)])
+		area += foot_polygon_area(face)
+		for support in casting:
+			var projected := PackedVector2Array([Vector2(support[0].x, support[0].z),
+				Vector2(support[1].x, support[1].z), Vector2(support[2].x, support[2].z)])
+			if foot_polygon_area(projected) < 0.000000000001:
+				continue
+			var intersection := foot_clip_triangle(face, projected)
+			var shared_area := foot_polygon_area(intersection)
+			if shared_area < 0.000000000001:
+				continue
+			var normal := (support[1] - support[0]).cross(support[2] - support[0])
+			for point in intersection:
+				var height: float = support[0].y - (normal.x * (point.x - support[0].x) + normal.z * (point.y - support[0].z)) / normal.y
+				penetration = maxf(penetration, height - bottom)
+			if absf(support[0].y - bottom) <= 0.00001 and absf(support[1].y - bottom) <= 0.00001 and absf(support[2].y - bottom) <= 0.00001:
+				supported += shared_area
+	return {"area": area, "coverage": supported / area if area > 0.0 else 0.0,
+		"maximum_penetration": penetration, "bottom": bottom}
+
+func check_wheel_foot_seats() -> void:
+	var checked_shapes: Dictionary = {}
+	var feet_checked := 0
+	var negative_checked := false
+	var scale_factor := 0.5 / 0.78
+	for shared_profile in [false, true]:
+		for axis_index in range(3):
+			var view: Variant = Shared.new() if shared_profile else Opening.new()
+			view.machine_root = Node3D.new()
+			view.add_child(view.machine_root)
+			view.state = {"options": {"native": true}, "actors": {}, "transmission_parts": {}, "motion": {},
+				"entities": {"seat-fixture": {"kind": "wheel", "cell": [0, 0], "axis": axis_index, "generation": 1}},
+				"links": [], "drive_links": [], "engagements": []}
+			var before: Dictionary = view.state.duplicate(true)
+			view._rebuild_machines()
+			var machine: Node3D = view.machine_root.get_child(0)
+			var rotor: Node3D = view.wheel_rotor
+			var rotating: Array[Dictionary] = []
+			if OS.get_cmdline_user_args().has("--foot-seat-geometry"):
+				for child in rotor.get_children():
+					if child is Node3D:
+						wheel_rotating_envelopes(child, Transform3D.IDENTITY, rotating)
+			var stands: Array[MeshInstance3D] = []
+			for child in machine.get_children():
+				if child is MeshInstance3D and child.get_meta("wheel_support_role", "") == "WheelStand":
+					stands.append(child)
+					var bounds: AABB = child.mesh.get_aabb()
+					var expected := AABB(Vector3(-0.195, 0.24, -0.195), Vector3(0.39, 0.22, 0.39)) if axis_index == 1 else AABB(Vector3(-0.19, 0.24, -0.09), Vector3(0.38, 0.38, 0.18))
+					verify(bounds.position.is_equal_approx(expected.position * scale_factor) and bounds.size.is_equal_approx(expected.size * scale_factor),
+						"Changed seats retain the old exact stand bounds, preserving the conservative swept-clearance proof.")
+					if OS.get_cmdline_user_args().has("--foot-seat-geometry") and not checked_shapes.has(axis_index == 1):
+						check_closed_asset_mesh(child.mesh, (0.014 if axis_index == 1 else 0.010) * pow(scale_factor, 3),
+							(0.024 if axis_index == 1 else 0.020) * pow(scale_factor, 3))
+						checked_shapes[axis_index == 1] = true
+			for child in machine.get_children():
+				if not child is MeshInstance3D or child.get_meta("wheel_support_role", "") != "WheelFootBolt":
+					continue
+				var closest: MeshInstance3D = null
+				for stand in stands:
+					if closest == null or child.position.distance_squared_to(stand.position) < child.position.distance_squared_to(closest.position):
+						closest = stand
+				var seat := foot_seating(child, closest)
+				if OS.get_cmdline_user_args().has("--foot-seat-geometry"):
+					verify(wheel_support_separates(child.mesh, rotor.transform.affine_inverse() * child.transform, rotating),
+						"The changed foot-bolt poses still clear every unchanged nonjournal rotor facet over a full turn.")
+				var radius: float = child.mesh.bottom_radius
+				verify(absf(seat.area - 3.0 * sqrt(3.0) * radius * radius / 2.0) < 0.00000001,
+					"The oracle includes the complete actual hexagonal lower face, not a center sample.")
+				verify(absf(seat.coverage - 1.0) < 0.0001 and seat.maximum_penetration < 0.00001,
+					"Every bolt head seats across its full lower face without entering a higher shoulder.")
+				if not negative_checked:
+					var lifted := foot_seating(child, closest, 0.001)
+					verify(lifted.coverage < 0.99, "A disclosed one-millimetre lifted-head control fails the same full-face oracle.")
+					negative_checked = true
+				print(JSON.stringify({"shared": shared_profile, "axis": axis_index, "part": str(child.name), "seat": seat}))
+				feet_checked += 1
+			verify(view.state == before and view.model == null and view.actor_world == null and view.request_sequence == 0,
+				"The actual view callback changes no projection, request or native authority.")
+			view.free()
+	verify(feet_checked == 24 and negative_checked, "Both view classes and three axes exercise all four foot fasteners.")
+	if OS.get_cmdline_user_args().has("--foot-seat-geometry"):
+		verify(checked_shapes.size() == 2, "Both changed stand meshes receive the existing closure/attribute checks.")
+
+func feed_aperture(mesh: Mesh, pose: Transform3D = Transform3D.IDENTITY) -> Vector2:
+	var arrays := mesh.surface_get_arrays(0)
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+	var left := -INF
+	var right := INF
+	var normal_frame: Basis = pose.basis.inverse().transposed()
+	for n in range(vertices.size()):
+		var point: Vector3 = pose * vertices[n]
+		var normal: Vector3 = (normal_frame * normals[n]).normalized()
+		if normal.x > 0.99999 and point.x < 0:
+			left = maxf(left, point.x)
+		elif normal.x < -0.99999 and point.x > 0:
+			right = minf(right, point.x)
+	return Vector2(left, right)
+
+func feed_ray_blocked(node: Node3D, parent_pose: Transform3D, from: Vector3, to: Vector3) -> bool:
+	var pose := parent_pose * node.transform
+	if node is MeshInstance3D:
+		var inverse := pose.affine_inverse()
+		var a: Vector3 = inverse * from
+		var b: Vector3 = inverse * to
+		var arrays: Array = node.mesh.surface_get_arrays(0)
+		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX] if arrays[Mesh.ARRAY_INDEX] != null else PackedInt32Array()
+		var count := vertices.size() if indices.is_empty() else indices.size()
+		for n in range(0, count, 3):
+			if Geometry3D.segment_intersects_triangle(a, b, vertices[n if indices.is_empty() else indices[n]],
+					vertices[n + 1 if indices.is_empty() else indices[n + 1]],
+					vertices[n + 2 if indices.is_empty() else indices[n + 2]]) != null:
+				return true
+	for child in node.get_children():
+		if child is Node3D and feed_ray_blocked(child, pose, from, to):
+			return true
+	return false
+
+func feed_item_bounds(node: Node3D, parent_pose: Transform3D) -> AABB:
+	var pose := parent_pose * node.transform
+	var result := AABB(pose.origin, Vector3.ZERO)
+	if node is MeshInstance3D:
+		result = pose * node.mesh.get_aabb()
+	for child in node.get_children():
+		if child is Node3D:
+			result = result.merge(feed_item_bounds(child, pose))
+	return result
+
+func check_feed_sleeves() -> void:
+	var items := Node3D.new()
+	var billet := Items.workpiece_billet(items)
+	var plate := Items.stamped_plate(items)
+	var item_bounds: Array[AABB] = [feed_item_bounds(billet, Transform3D.IDENTITY), feed_item_bounds(plate, Transform3D.IDENTITY)]
+	var declared_sizes: Array[Vector3] = [Vector3(0.27, 0.18, 0.36), Vector3(0.44, 0.07, 0.53)]
+	var cached: Dictionary = {}
+	var assemblies := 0
+	var clear_rays := 0
+	var minimum_item_gap := INF
+	var controls := 0
+	for shared_profile in [false, true]:
+		for destination in [[1, 0], [-1, 0], [0, 1], [0, -1]]:
+			var view: Variant = Shared.new() if shared_profile else Opening.new()
+			view.machine_root = Node3D.new()
+			view.add_child(view.machine_root)
+			view.state = {"context": "feed-sleeve-fixture", "options": {"native": true},
+				"actors": {"P": {"ready": true}}, "transmission_parts": {}, "motion": {},
+				"entities": {"from": {"kind": "collector", "cell": [0, 0], "axis": 0, "generation": 1},
+					"to": {"kind": "belt", "cell": destination, "axis": 0, "generation": 2}},
+				"links": [["from", "to"]], "drive_links": [], "engagements": []}
+			var before: Dictionary = view.state.duplicate(true)
+			view._rebuild_machines()
+			var route: Node3D = view.machine_root.get_node("MaterialRoute")
+			var direction := Vector3(destination[0], 0, destination[1]).normalized()
+			verify(route.get_meta("feed_sleeve", false) and route.get_child_count() == 8
+				and route.basis.z.dot(direction) > 0.99999,
+				"Each actual confirmed cardinal link receives one fitted sleeve in its original source-to-destination frame.")
+			var channel: MeshInstance3D = route.get_node("FeedChannel")
+			var endpoint_low := INF
+			var endpoint_high := -INF
+			for corner in range(8):
+				var point: Vector3 = route.transform * channel.transform * channel.mesh.get_aabb().get_endpoint(corner)
+				endpoint_low = minf(endpoint_low, point.dot(direction))
+				endpoint_high = maxf(endpoint_high, point.dot(direction))
+			verify(absf(endpoint_low - 0.55) < 0.00001 and absf(endpoint_high - 1.10) < 0.00001,
+				"The actual channel ends keep the original trimmed native port positions within packed render precision.")
+			var aperture := feed_aperture(channel.mesh)
+			verify(aperture.is_finite() and is_equal_approx(aperture.x, -0.28) and is_equal_approx(aperture.y, 0.28),
+				"The opening is measured from the actual inward wall facets, not the outside bounding box.")
+			for n in range(item_bounds.size()):
+				var across: Vector3 = route.basis.x
+				var actual_width: float = absf(across.x) * item_bounds[n].size.x + absf(across.z) * item_bounds[n].size.z
+				var declared_width: float = absf(across.x) * declared_sizes[n].x + absf(across.z) * declared_sizes[n].z
+				minimum_item_gap = minf(minimum_item_gap, aperture.y - aperture.x - maxf(actual_width, declared_width))
+				verify(actual_width < aperture.y - aperture.x and declared_width < aperture.y - aperture.x,
+					"The actual existing billet/plate artwork and their conservative envelopes fit every current cardinal opening.")
+			var roles := {"FeedChannel": 0, "FeedCuff": 0, "FeedBolt": 0, "FeedDirection": 0}
+			for part: MeshInstance3D in route.get_children():
+				var role: String = part.get_meta("feed_sleeve_role")
+				roles[role] += 1
+				verify(part.get_script() == null and part.get_child_count() == 0 and part.scale.is_equal_approx(Vector3.ONE),
+					"Each connection piece is plain render geometry without a controller, collider or span-scaled end detail.")
+				if not cached.has(role):
+					var limits: Array = {"FeedChannel": [0.004, 0.006], "FeedCuff": [0.00045, 0.00070],
+						"FeedBolt": [0.000004, 0.000006], "FeedDirection": [0.000022, 0.000032]}[role]
+					check_closed_asset_mesh(part.mesh, limits[0], limits[1])
+					cached[role] = [part.mesh, part.material_override]
+				verify(part.mesh == cached[role][0] and part.material_override == cached[role][1],
+					"Both view classes and all four grid directions reuse their exact compatible meshes and finishes.")
+				var finish_value := part.material_override as StandardMaterial3D
+				if role == "FeedDirection":
+					verify(finish_value.albedo_color == Color("e2c48b") and finish_value.metallic == 0
+						and finish_value.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED
+						and (route.basis * part.basis.y).dot(direction) > 0.99999,
+						"The original warm direction cue is an opaque surface mark pointing from producer to receiver.")
+					var low := INF
+					for corner in range(8):
+						low = minf(low, (part.transform * part.mesh.get_aabb().get_endpoint(corner)).y)
+					verify(absf(low - 0.09) < 0.000001, "The marking touches the actual channel floor instead of floating above the feed path.")
+				else:
+					var surface_role := "cast" if role == "FeedCuff" else "worked"
+					verify(is_equal_approx(finish_value.metallic, 0.85)
+						and finish_value.normal_texture == Opening.ProductionTransmissionFinish.textures[surface_role + "_normal"]
+						and finish_value.roughness_texture == Opening.ProductionTransmissionFinish.textures[surface_role + "_roughness"],
+						"Channel, cuffs and fasteners retain their actual qualified cast/worked material roles.")
+			verify(roles.FeedChannel == 1 and roles.FeedCuff == 2 and roles.FeedBolt == 4 and roles.FeedDirection == 1,
+				"The complete connection has one open channel, two fixed cuffs, four fasteners and one floor mark.")
+			for x in [-0.26, 0.0, 0.26]:
+				for height in [0.11, 0.15]:
+					verify(not feed_ray_blocked(route, route.transform.affine_inverse(), Vector3(x, height, -0.35), Vector3(x, height, 0.35)),
+						"Actual channel, cuff and hardware facets leave the sampled through-opening unobstructed.")
+					clear_rays += 1
+			verify(view.state == before and view.model == null and view.actor_world == null and view.request_sequence == 0,
+				"Connection rendering changes no confirmed topology, quantity, native actor or request.")
+			if controls == 0:
+				var narrow := feed_aperture(channel.mesh, Transform3D(Basis.from_scale(Vector3(0.5, 1, 1)), Vector3.ZERO))
+				verify(narrow.y - narrow.x < declared_sizes[0].z, "A deliberately narrowed actual channel fails billet clearance.")
+				var marker: MeshInstance3D = route.get_node("FeedDirection")
+				verify((route.basis.rotated(Vector3.UP, PI) * marker.basis.y).dot(direction) < -0.99999,
+					"A reversed marking fails the original producer-to-receiver direction discriminator.")
+				var cap := MeshInstance3D.new()
+				var box := BoxMesh.new()
+				box.size = Vector3(0.60, 0.12, 0.03)
+				cap.mesh = box
+				cap.position.y = 0.15
+				verify(feed_ray_blocked(cap, Transform3D.IDENTITY, Vector3(0, 0.13, -0.35), Vector3(0, 0.13, 0.35)),
+					"A filled end cap is detected by the same actual-triangle through-opening check.")
+				cap.free()
+				controls = 3
+			view.state.links = []
+			view.pending_link = "from"
+			var removed: Dictionary = view.state.duplicate(true)
+			view._rebuild_machines()
+			verify(view.machine_root.get_node_or_null("MaterialRoute") == null and view.state == removed,
+				"Removed or merely pending links do not create or retain feed infrastructure.")
+			assemblies += 1
+			view.free()
+	for span in [0.30, 2.20]:
+		var route := Node3D.new()
+		verify(Opening.ProductionFeedSleeveArt.mount(route, Vector3.ZERO, Vector3(0, 0, span)),
+			"The isolated render helper can vary a middle span without adopting a new native route rule.")
+		verify(is_equal_approx(route.get_node("FeedChannel").mesh.get_aabb().size.z, span)
+			and route.get_node("FeedCuffN").mesh == cached.FeedCuff[0]
+			and route.get_node("FeedBoltNN").mesh == cached.FeedBolt[0],
+			"Longer and shorter render spans keep their fixed end cuff and fastener resources unchanged.")
+		for suffix in ["N", "P"]:
+			var cuff: MeshInstance3D = route.get_node("FeedCuff" + suffix)
+			var end: float = cuff.position.z + (cuff.mesh.get_aabb().position.z if suffix == "N" else cuff.mesh.get_aabb().end.z)
+			verify(absf(end - (-span / 2.0 if suffix == "N" else span / 2.0)) < 0.00001
+				and cuff.scale.is_equal_approx(Vector3.ONE),
+				"Each rigid cuff stays flush with its actual channel end rather than stretching with the middle.")
+		route.free()
+	var equivalent := Node3D.new()
+	verify(Opening.ProductionFeedSleeveArt.mount(equivalent, Vector3(5.5, 0, 0), Vector3(6.0500002, 0, 0))
+		and equivalent.get_node("FeedChannel").mesh == cached.FeedChannel[0],
+		"Tiny packed-coordinate differences reuse the same declared visual mesh length without changing source positions.")
+	equivalent.free()
+	for end in [Vector3(0, 0, 0.1), Vector3(0, 1, 1), Vector3(INF, 0, 1)]:
+		var refused := Node3D.new()
+		verify(not Opening.ProductionFeedSleeveArt.mount(refused, Vector3.ZERO, end)
+			and refused.get_child_count() == 0 and refused.transform == Transform3D.IDENTITY,
+			"Unsupported short, nonlevel or nonfinite render spans refuse before publishing geometry.")
+		refused.free()
+		controls += 1
+	for shared_profile in [false, true]:
+		var view: Variant = Shared.new() if shared_profile else Opening.new()
+		view.state = {"options": {"native": false}}
+		var parent := Node3D.new()
+		view.add_child(parent)
+		var route: Node3D = view._material_route(parent, Vector3.ZERO, Vector3(1.65, 0, 0))
+		verify(route.get_child_count() == 3 and not route.has_meta("feed_sleeve")
+			and route.get_node("Rail").mesh is BoxMesh and route.get_node_or_null("ArrowLeft") != null
+			and route.get_node_or_null("ArrowRight") != null,
+			"Both nonnative view classes retain their earlier rail and two-arrow annotation.")
+		view.free()
+	items.free()
+	print(JSON.stringify({"phase": "feed sleeves", "confirmed_link_assemblies": assemblies,
+		"clear_through_rays": clear_rays, "altered_or_invalid_controls": controls,
+		"minimum_declared_item_width_margin": minimum_item_gap, "variable_render_spans": [0.30, 2.20],
+		"observations": "invented", "native_gameplay": "not_run", "rendered_quality": "not_assessed"}))
 
 func segment_radius(a: Vector2, b: Vector2) -> float:
 	var edge := b - a
@@ -281,8 +1321,10 @@ func check_collector_coating(historical: bool) -> void:
 			verify(count == 6, "Exactly six existing painted casting roles receive the coating.")
 			coated_parts += count
 			var drum: MeshInstance3D = machine.get_node("CutterDrum")
-			verify(drum.material_override == Visuals.material(Color("465a60"), 0.85, 0.4),
-				"The original moving cutter's metal finish is not recolored or treated as paint.")
+			var expected_metal := Visuals.material(Color("465a60"), 0.85, 0.4) if historical \
+				else Opening.ProductionTransmissionFinish.material("worked", Color("465a60"), 0.85, 0.4)
+			verify(drum.material_override == expected_metal,
+				"The moving cutter remains metal, with the current qualified worked finish or the exact historical fallback.")
 			verify(view.state == before and view.model == null and view.actor_world == null
 				and view.request_sequence == 0 and not view.is_inside_tree(),
 				"Material construction changes no projection, authority, native body or request.")
@@ -536,8 +1578,26 @@ func point_triangle_distance(point: Vector2, a: Vector2, b: Vector2, c: Vector2)
 		minf(point.distance_to(Geometry2D.get_closest_point_to_segment(point, b, c)),
 		point.distance_to(Geometry2D.get_closest_point_to_segment(point, c, a))))
 
+func collector_tooling_extent(mesh: Mesh) -> Vector2:
+	var radius_squared := 0.0
+	var half_height := 0.0
+	for surface in range(mesh.get_surface_count()):
+		var points: PackedVector3Array = mesh.surface_get_arrays(surface)[Mesh.ARRAY_VERTEX]
+		for point in points:
+			radius_squared = maxf(radius_squared, point.x * point.x + point.z * point.z)
+			half_height = maxf(half_height, absf(point.y))
+	return Vector2(sqrt(radius_squared), half_height)
+
 func collector_clearance(frame: Node3D, moving: Array) -> float:
 	var minimum := INF
+	var rotary_extents: Dictionary = {}
+	for row in moving:
+		var node: MeshInstance3D = row.node
+		if node.mesh is CylinderMesh:
+			var cylinder := node.mesh as CylinderMesh
+			rotary_extents[node] = Vector2(cylinder.top_radius, cylinder.height / 2)
+		elif node.get_meta("collector_tooling_role", "") in ["BoredDrum", "SteppedHub"]:
+			rotary_extents[node] = collector_tooling_extent(node.mesh)
 	for part: MeshInstance3D in frame.get_children():
 		var vertices: PackedVector3Array = part.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
 		for n in range(0, vertices.size(), 3):
@@ -550,15 +1610,14 @@ func collector_clearance(frame: Node3D, moving: Array) -> float:
 				var node: MeshInstance3D = row.node
 				var transform: Transform3D = row.parent_inverse.affine_inverse() * node.transform
 				var gap := -INF
-				if node.mesh is CylinderMesh:
-					# The unchanged drum and hub are circular about Z. Their true
-					# radial envelope avoids filling the bearing's annular hole.
-					var cylinder: CylinderMesh = node.mesh
+				if rotary_extents.has(node):
+					# The native tooling stays inside a raw-vertex cylinder about
+					# the same Z axis. Do not fill the fixed bearing's empty bore.
+					var extent: Vector2 = rotary_extents[node]
 					var center := transform.origin
 					var radial := point_triangle_distance(Vector2(center.x, center.y),
-						Vector2(a.x, a.y), Vector2(b.x, b.y), Vector2(c.x, c.y)) - cylinder.top_radius
-					var axial := maxf(low.z - center.z - cylinder.height / 2,
-						center.z - cylinder.height / 2 - high.z)
+						Vector2(a.x, a.y), Vector2(b.x, b.y), Vector2(c.x, c.y)) - extent.x
+					var axial := maxf(low.z - center.z - extent.y, center.z - extent.y - high.z)
 					gap = maxf(radial, axial)
 				else:
 					# Conservative transformed flute bounds, sampled over a turn.
@@ -620,11 +1679,9 @@ func check_collector_cast_frame() -> void:
 			"Only the original drum, hub and eight flutes belong to the moving group.")
 		var drum: MeshInstance3D = machine.get_node("CutterDrum")
 		var hub: MeshInstance3D = machine.get_node("CutterHub")
-		verify(drum.position == Vector3(-0.22, 1.1, -0.19) and drum.mesh is CylinderMesh
-			and is_equal_approx(drum.mesh.top_radius, 0.24) and is_equal_approx(drum.mesh.height, 0.34)
-			and hub.position == Vector3(-0.22, 1.1, 0.01) and hub.mesh is CylinderMesh
-			and is_equal_approx(hub.mesh.top_radius, 0.085) and is_equal_approx(hub.mesh.height, 0.08),
-			"The original literal drum and hub define the clearance oracle, with no moving-geometry replacement.")
+		verify(drum.position == Vector3(-0.22, 1.1, -0.19) and collector_tooling_extent(drum.mesh).is_equal_approx(Vector2(0.24, 0.17))
+			and hub.position == Vector3(-0.22, 1.1, 0.01) and collector_tooling_extent(hub.mesh).is_equal_approx(Vector2(0.085, 0.04)),
+			"The current native tooling keeps the original literal radial and axial clearance envelopes and centres.")
 		var picks: Array = []
 		for child in machine.get_children():
 			if child is StaticBody3D:
@@ -1186,7 +2243,8 @@ func check_conveyor_loop() -> void:
 						"The supports stay outside the returning rubber instead of intersecting it.")
 				elif role.begins_with("ConveyorChannel"):
 					channels += 1
-					verify(is_equal_approx(absf(child.position.z), 0.36) and is_equal_approx(child.position.y, 0.43),
+					verify(is_equal_approx(absf(child.position.z), 0.36)
+						and is_equal_approx(child.position.y, 0.355 if anchor.get_meta("conveyor_frame", false) else 0.43),
 						"Both structural channels connect the side supports outside the belt path.")
 				elif role.begins_with("ConveyorRoller"):
 					rollers += 1
@@ -1554,7 +2612,870 @@ func prepare_paddle_maps() -> void:
 	print(JSON.stringify(report))
 	quit(0)
 
+func die_faces(mesh: Mesh, surface: int) -> PackedVector3Array:
+	# Use raw arrays: the TriangleMesh convenience cache snaps fine geometry.
+	var arrays := mesh.surface_get_arrays(surface)
+	var points: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX] if arrays[Mesh.ARRAY_INDEX] != null else PackedInt32Array()
+	if indices.is_empty():
+		return points
+	var faces := PackedVector3Array()
+	for index in indices:
+		faces.append(points[index])
+	return faces
+
+func die_height(mesh: Mesh, surface: int, pose: Transform3D, probe: Vector2, up: bool) -> float:
+	var result := -INF if up else INF
+	var faces := die_faces(mesh, surface)
+	for n in range(0, faces.size(), 3):
+		var a: Vector3 = pose * faces[n]
+		var b: Vector3 = pose * faces[n + 1]
+		var c: Vector3 = pose * faces[n + 2]
+		var cross := (b - a).cross(c - a)
+		if absf(a.y - b.y) > 0.0000001 or absf(a.y - c.y) > 0.0000001 or cross.y * (1.0 if up else -1.0) >= 0.0:
+			continue
+		var p := Vector2(a.x, a.z)
+		var q := Vector2(b.x, b.z)
+		var r := Vector2(c.x, c.z)
+		var sides := [(q - p).cross(probe - p), (r - q).cross(probe - q), (p - r).cross(probe - r)]
+		if not ((sides[0] >= -0.000000001 and sides[1] >= -0.000000001 and sides[2] >= -0.000000001)
+			or (sides[0] <= 0.000000001 and sides[1] <= 0.000000001 and sides[2] <= 0.000000001)):
+			continue
+		result = maxf(result, a.y) if up else minf(result, a.y)
+	return result
+
+func die_box_gap(a: AABB, b: AABB) -> float:
+	return maxf(maxf(maxf(a.position.x - b.end.x, b.position.x - a.end.x),
+		maxf(a.position.y - b.end.y, b.position.y - a.end.y)), maxf(a.position.z - b.end.z, b.position.z - a.end.z))
+
+func die_supports(machine: Node3D, rib: MeshInstance3D) -> bool:
+	var deck: MeshInstance3D = machine.get_node("Plinth")
+	var anvil: MeshInstance3D = machine.get_node("Anvil")
+	var probe := Vector2(rib.position.x, rib.position.z)
+	var base := die_height(rib.mesh, 0, rib.transform, probe, false)
+	var top := die_height(rib.mesh, 0, rib.transform, probe, true)
+	var deck_top := die_height(deck.mesh, 0, deck.transform, probe, true)
+	var anvil_base := die_height(anvil.mesh, 0, anvil.transform, probe, false)
+	return is_finite(base) and is_finite(top) and is_finite(deck_top) and is_finite(anvil_base) \
+		and absf(base - deck_top) < 0.000001 and absf(top - anvil_base) < 0.000001
+
+func die_materials(part: MeshInstance3D, color: Color) -> bool:
+	return part.material_override == null and part.get_surface_override_material(0) == CollectorArt.coating(color) \
+		and part.get_surface_override_material(1) == Opening.ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.32) \
+		and part.get_surface_override_material(2) == Opening.ProductionTransmissionFinish.material("worked", Color("b8c3bb"), 0.85, 0.38)
+
+func check_press_die() -> void:
+	var cache: Dictionary = {}
+	var assemblies := 0
+	var controls := 0
+	var minimum_item_gap := INF
+	var minimum_drive_gap := INF
+	for shared_profile in [false, true]:
+		for axis in range(3):
+			for cell in [[0, 0], [2, -1]]:
+				var view: Variant = Shared.new() if shared_profile else Opening.new()
+				view.client = "P"
+				if shared_profile:
+					view.session = PaddleSessionFacts.new()
+				view.machine_root = Node3D.new()
+				view.item_root = Node3D.new()
+				view.add_child(view.machine_root)
+				view.add_child(view.item_root)
+				view.state = {"context": "press-die-fixture", "options": {"native": true, "physical": true},
+					"actors": {"P": {"ready": true}}, "parts": {}, "inventories": {"P": 0},
+					"stock": {"source": 16, "collector": 0, "belt": 0, "input": 0, "held": 0, "output": 0}, "remaining": 0,
+					"entities": {"fixture": {"kind": "processor", "cell": cell, "axis": axis, "generation": 1}},
+					"transmission_parts": {}, "motion": {}, "links": [], "drive_links": [], "engagements": []}
+				view.transmission_presenter = Presenter.new()
+				view.add_child(view.transmission_presenter)
+				view.transmission_presenter.configure(view)
+				var before: Dictionary = view.state.duplicate(true)
+				view._rebuild_machines()
+				var machine: Node3D = view.machine_root.get_child(0)
+				var head: MeshInstance3D = machine.get_node("ToolHead")
+				var anvil: MeshInstance3D = machine.get_node("Anvil")
+				var piston: MeshInstance3D = machine.get_node("Piston")
+				var drive: MeshInstance3D = machine.get_node("DriveStub")
+				var ribs: Array[MeshInstance3D] = [machine.get_node("AnvilPedestalLeft"), machine.get_node("AnvilPedestalRight")]
+				verify(head.mesh == DieArt.tool_mesh() and anvil.mesh == DieArt.anvil_mesh()
+					and head.position.is_equal_approx(Vector3(0, 0.84, 0)) and anvil.position == Vector3(0, 0.46, 0.05),
+					"The ordinary native builder mounts the die and saddle at their literal original centres.")
+				verify(head.mesh.get_aabb().size.is_equal_approx(Vector3(0.56, 0.17, 0.55))
+					and anvil.mesh.get_aabb().size.is_equal_approx(Vector3(0.7, 0.16, 0.63)),
+					"The new complete head and anvil keep the exact original local envelopes.")
+				verify(die_materials(head, Color("58634c")) and die_materials(anvil, Color("394a44")),
+					"Coated holders, exposed working faces and hardware use their separate cached qualified finishes.")
+				for part in [head, anvil]:
+					var is_head: bool = part == head
+					var role := "head" if is_head else "anvil"
+					verify(part.mesh.get_surface_count() == 3 and part.mesh.surface_get_name(1) == "WorkingFace"
+						and part.mesh.surface_get_name(2) == "MountingHardware" and part.get_child_count() == 0 and part.get_script() == null,
+						"Each rigid tool keeps three material surfaces in one passive cached mesh, without extra controllers or detail-node motion.")
+					if not cache.has(role):
+						var volumes: Array = [[0.030, 0.036], [0.013, 0.014], [0.0003, 0.0006]] if is_head else [[0.039, 0.0401], [0.010, 0.011], [0.0003, 0.0006]]
+						for surface in range(3):
+							var isolated := SurfaceTool.new()
+							isolated.create_from(part.mesh, surface)
+							check_closed_asset_mesh(isolated.commit(), volumes[surface][0], volumes[surface][1])
+						cache[role] = part.mesh
+					verify(part.mesh == cache[role], "Every axis and both ordinary view classes reuse the same complete tool geometry.")
+				var rows: Array = machine.get_meta("motion_meshes")
+				verify(rows.size() == 2 and rows[0].node == head and rows[1].node == piston,
+					"Only the original head and piston consume the existing observed travel.")
+				var fixed: Array[Transform3D] = [anvil.transform, ribs[0].transform, ribs[1].transform]
+				for rib in ribs:
+					verify(rib.mesh == DieArt.pedestal_mesh() and rib.get_script() == null and rib.get_child_count() == 0
+						and rib.material_override == CollectorArt.coating(Color("394a44")) and die_supports(machine, rib),
+						"Fixed cast ribs meet the actual skid top and anvil bottom across the original visible support gap.")
+					if not cache.has("rib"):
+						check_closed_asset_mesh(rib.mesh, 0.0044, 0.0049)
+						cache.rib = rib.mesh
+					var gap := die_box_gap(rib.transform * rib.mesh.get_aabb(), drive.transform * drive.mesh.get_aabb())
+					minimum_drive_gap = minf(minimum_drive_gap, gap)
+					verify(gap > 0.02, "The added support clears the unchanged drive journal on every native axis.")
+					check_bounds(rib, Transform3D.IDENTITY)
+				var picks := 0
+				for child in machine.get_children():
+					if child is StaticBody3D:
+						picks += 1
+						verify(child.collision_layer == Geometry.PICK_LAYER and child.collision_mask == 0
+							and child.get_meta("entity") == "fixture" and child.get_child_count() == 1
+							and child.get_child(0).shape.size == Vector3(1.45, 1.65, 1.45)
+							and child.get_child(0).position == Vector3(0, 0.8, 0),
+							"The sole original entity pick keeps its identity, dimensions, centre and masks.")
+				verify(picks == 1 and view.state == before, "Passive assembly adds no state, extra pick body or material action.")
+				for travel in [0.0, 0.0075, 0.015]:
+					view._apply_press_pose(rows, travel)
+					var head_plane := die_height(head.mesh, 1, head.transform, Vector2.ZERO, false)
+					var anvil_plane := die_height(anvil.mesh, 1, anvil.transform, Vector2.ZERO, true)
+					verify(absf(head_plane - (0.755 - travel)) < 0.000001 and absf(anvil_plane - 0.54) < 0.000001,
+						"Actual centre working faces retain the old literal lower die and upper anvil planes at both endpoints and the intermediate pose.")
+					verify(anvil.transform == fixed[0] and ribs[0].transform == fixed[1] and ribs[1].transform == fixed[2]
+						and is_equal_approx((piston.transform * piston.mesh.get_aabb()).end.y, 1.365),
+						"The saddle, pedestal and original rod top stay fixed while the complete die follows its existing motion anchor.")
+				view._apply_press_pose(rows, 0.0)
+				view.state.stock.source = 15
+				view.state.stock.held = 1
+				before = view.state.duplicate(true)
+				view._redraw_items()
+				view._animate_machine_bodies(0.1)
+				view._animate_machine_bodies(0.1)
+				var working_plane := die_height(head.mesh, 1, head.transform, Vector2.ZERO, false)
+				var item_top := -INF
+				var billets := 0
+				var bosses := 0
+				var boss_covered := true
+				for item in view.item_root.get_children():
+					if item.get_meta("item_kind", "") != "workpiece_billet":
+						continue
+					billets += 1
+					item_top = maxf(item_top, feed_item_bounds(item, Transform3D.IDENTITY).end.y)
+					for part in item.get_children():
+						if not part is MeshInstance3D or part.get_meta("asset_role", "") != "CenterBoss":
+							continue
+						bosses += 1
+						var bounds: AABB = machine.transform.affine_inverse() * item.transform * part.transform * part.mesh.get_aabb()
+						for x in [bounds.position.x, bounds.end.x]:
+							for z in [bounds.position.z, bounds.end.z]:
+								boss_covered = boss_covered and absf(die_height(head.mesh, 1, head.transform, Vector2(x, z), false) - working_plane) < 0.000001
+				var item_gap := working_plane + machine.position.y - item_top
+				minimum_item_gap = minf(minimum_item_gap, item_gap)
+				verify(billets == 1 and bosses == 1 and boss_covered and is_finite(item_top) and item_gap >= 0.002 and is_equal_approx(head.position.y, 0.825),
+					"The ordinary observed held-work path lowers the complete die while clearing the actual redrawn billet and its boss.")
+				view.explanation_open = true
+				var paused := head.transform
+				view._animate_machine_bodies(0.1)
+				verify(head.transform == paused, "Unavailable presentation cannot keep moving the die.")
+				view.explanation_open = false
+				verify(view.state == before and view.request_sequence == 0 and view.model == null and view.actor_world == null,
+					"Both actual view classes retain the invented projection without starting authority, requests or bodies.")
+				if controls == 0:
+					head.position.y -= 0.02
+					verify(die_height(head.mesh, 1, head.transform, Vector2.ZERO, false) + machine.position.y - item_top < 0.002,
+						"The same working-face oracle rejects a die displaced into the real held billet.")
+					head.transform = paused
+					ribs[0].position.y += 0.01
+					verify(not die_supports(machine, ribs[0]), "A floating pedestal fails the same actual support-plane oracle.")
+					ribs[0].transform = fixed[1]
+					var material := head.get_surface_override_material(0)
+					head.set_surface_override_material(0, head.get_surface_override_material(1))
+					verify(not die_materials(head, Color("58634c")), "A uniform metal substitution cannot pass the coating and working-face separation.")
+					head.set_surface_override_material(0, material)
+					controls = 3
+				view.state.stock.held = 0
+				view.state.stock.source = 16
+				view._animate_machine_bodies(0.1)
+				view._animate_machine_bodies(0.1)
+				verify(head.position.is_equal_approx(Vector3(0, 0.84, 0)), "The unchanged observed empty state returns the entire die to its original rest pose.")
+				view.state.entities.fixture.generation = 2
+				view._rebuild_machines()
+				var rebuilt: Node3D = view.machine_root.get_child(0)
+				verify(rebuilt.get_node("ToolHead").mesh == cache.head and rebuilt.get_node("Anvil").mesh == cache.anvil
+					and rebuilt.get_node("AnvilPedestalLeft").mesh == cache.rib,
+					"Removal and rebuilding reuse passive geometry without carrying an old moving instance into a new generation.")
+				assemblies += 1
+				view.free()
+	var historical := Opening.new()
+	historical.legacy_fixture = true
+	var root_node := Node3D.new()
+	historical._press_visual(root_node)
+	verify(root_node.get_node("ToolHead").mesh == Visuals.box_mesh(Vector3(0.56, 0.17, 0.55))
+		and root_node.get_node("Anvil").mesh == Visuals.box_mesh(Vector3(0.7, 0.16, 0.63))
+		and root_node.get_node_or_null("AnvilPedestalLeft") == null,
+		"The historical fixture retains its previous head and anvil rather than receiving an unclaimed native-art result.")
+	root_node.free()
+	historical.free()
+	print(JSON.stringify({"assemblies": assemblies, "axes": 3, "unique_meshes": cache.size(),
+		"poses_per_assembly": 3, "negative_controls": controls, "minimum_held_item_gap_metres": minimum_item_gap,
+		"minimum_added_support_drive_gap_metres": minimum_drive_gap,
+		"observations": "invented read-only", "native_gameplay": "not_run", "rendered_quality": "not_assessed"}))
+
+func tray_triangle_gap(a: Vector3, b: Vector3, c: Vector3, box: AABB) -> float:
+	# Separating-axis test over raw facets and a conservative complete-item box.
+	# Diagonal cap triangles must not fill the saddle's actual outlet relief.
+	var edges: Array[Vector3] = [b - a, c - b, a - c]
+	var axes: Array[Vector3] = [Vector3.RIGHT, Vector3.UP, Vector3.BACK, edges[0].cross(edges[1])]
+	for edge in edges:
+		for basis_axis in [Vector3.RIGHT, Vector3.UP, Vector3.BACK]:
+			axes.append(edge.cross(basis_axis))
+	var centre := box.get_center()
+	var half := box.size / 2.0
+	var separating_gap := -INF
+	for axis in axes:
+		if axis.length_squared() < 0.000000000000000001:
+			continue
+		var unit := axis.normalized()
+		var lo := minf(unit.dot(a), minf(unit.dot(b), unit.dot(c)))
+		var hi := maxf(unit.dot(a), maxf(unit.dot(b), unit.dot(c)))
+		var mid := unit.dot(centre)
+		var radius := unit.abs().dot(half)
+		separating_gap = maxf(separating_gap, maxf(mid - radius - hi, lo - mid - radius))
+	return separating_gap
+
+func tray_mesh_gap(part: MeshInstance3D, box: AABB, only_surface: int = -1) -> float:
+	var result := INF
+	for surface in range(part.mesh.get_surface_count()):
+		if only_surface >= 0 and surface != only_surface:
+			continue
+		var faces := die_faces(part.mesh, surface)
+		for n in range(0, faces.size(), 3):
+			result = minf(result, tray_triangle_gap(part.transform * faces[n], part.transform * faces[n + 1], part.transform * faces[n + 2], box))
+	return result
+
+func tray_bracket_seated(machine: Node3D, bracket: MeshInstance3D) -> bool:
+	var deck: MeshInstance3D = machine.get_node("Plinth")
+	var tray: MeshInstance3D = machine.get_node("OutputTray")
+	for z in [-0.10, 0.0, 0.10]:
+		var probe := Vector2(bracket.position.x, bracket.position.z + z)
+		var bottom := die_height(bracket.mesh, 0, bracket.transform, probe, false)
+		var top := die_height(bracket.mesh, 0, bracket.transform, probe, true)
+		var deck_top := die_height(deck.mesh, 0, deck.transform, probe, true)
+		var tray_bottom := die_height(tray.mesh, 0, tray.transform, probe, false)
+		if not (is_finite(bottom) and is_finite(top) and is_finite(deck_top) and is_finite(tray_bottom)) \
+			or absf(bottom - deck_top) > 0.000001 or absf(top - tray_bottom) > 0.000001:
+			return false
+	return true
+
+func check_press_output_tray() -> void:
+	var cache: Dictionary = {}
+	var assemblies := 0
+	var controls := 0
+	var minimum_plate_gap := INF
+	var minimum_drive_gap := INF
+	var minimum_saddle_gap := INF
+	var minimum_source_gap := INF
+	for shared_profile in [false, true]:
+		for axis in range(3):
+			for cell in [[0, 0], [2, -1]]:
+				var view: Variant = Shared.new() if shared_profile else Opening.new()
+				view.client = "P"
+				if shared_profile:
+					view.session = PaddleSessionFacts.new()
+				view.machine_root = Node3D.new()
+				view.item_root = Node3D.new()
+				view.add_child(view.machine_root)
+				view.add_child(view.item_root)
+				view.state = {"context": "press-output-tray-fixture", "options": {"native": true, "physical": true},
+					"actors": {"P": {"ready": true}}, "parts": {}, "inventories": {"P": 0},
+					"stock": {"source": 15, "collector": 0, "belt": 0, "input": 0, "held": 0, "output": 1}, "remaining": 0,
+					"entities": {"fixture": {"kind": "processor", "cell": cell, "axis": axis, "generation": 1}},
+					"transmission_parts": {}, "motion": {}, "links": [], "drive_links": [], "engagements": []}
+				var before: Dictionary = view.state.duplicate(true)
+				view._rebuild_machines()
+				view._redraw_items()
+				var machine: Node3D = view.machine_root.get_child(0)
+				var tray: MeshInstance3D = machine.get_node("OutputTray")
+				var drive: MeshInstance3D = machine.get_node("DriveStub")
+				var anvil: MeshInstance3D = machine.get_node("Anvil")
+				var parts: Array[MeshInstance3D] = [tray, machine.get_node("TrayBracketLeft"), machine.get_node("TrayBracketRight"),
+					anvil, machine.get_node("AnvilPedestalLeft"), machine.get_node("AnvilPedestalRight")]
+				var plate: Node3D = null
+				var plate_count := 0
+				for item in view.item_root.get_children():
+					if item.get_meta("item_kind", "") == "stamped_plate":
+						plate = item
+						plate_count += 1
+				verify(plate_count == 1 and plate != null and machine.basis == Basis.IDENTITY,
+					"The ordinary observed-output path draws one complete plate at the translated processor, without rotating its reference frame.")
+				if plate == null:
+					view.free()
+					continue
+				var plate_pose := machine.transform.affine_inverse() * plate.transform
+				var plate_box := machine.transform.affine_inverse() * feed_item_bounds(plate, Transform3D.IDENTITY)
+				verify(plate_pose.origin.is_equal_approx(Vector3(0.46, 0.39, 0.15)) and plate_pose.basis == Basis.IDENTITY
+					and absf(plate_box.position.y - 0.36) < 0.000001,
+					"The complete original plate keeps its observed pose and actual sheet bottom, including its existing five-millimetre receiving allowance.")
+				verify(tray.mesh == TrayArt.tray_mesh() and tray.position == Vector3(0.46, 0.33, 0.15)
+					and tray.mesh.get_aabb().size.is_equal_approx(Vector3(0.48, 0.023, 0.58)),
+					"The formed pan keeps the original root and horizontal footprint, with a thin floor and raised returned sides.")
+				var receiving_plane := die_height(tray.mesh, 0, tray.transform, Vector2(0.46, 0.15), true)
+				verify(absf(receiving_plane - 0.355) < 0.000001 and absf((plate_box.position.y - receiving_plane) - 0.005) < 0.000001,
+					"The actual broad floor retains the original receiving plane and sheet clearance instead of moving the output item.")
+				verify(tray.material_override == Opening.ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.5),
+					"The formed sheet reuses the qualified worked finish without a new texture or authority input.")
+				if cache.is_empty():
+					check_closed_asset_mesh(tray.mesh, 0.00235, 0.00245)
+					for surface in range(2):
+						var isolated := SurfaceTool.new()
+						isolated.create_from(parts[1].mesh, surface)
+						check_closed_asset_mesh(isolated.commit(), 0.0010 if surface == 0 else 0.0000015,
+							0.0012 if surface == 0 else 0.0000021)
+					check_closed_asset_mesh(parts[4].mesh, 0.0044, 0.0049)
+					var saddle_surface := SurfaceTool.new()
+					saddle_surface.create_from(anvil.mesh, 0)
+					check_closed_asset_mesh(saddle_surface.commit(), 0.039, 0.0401)
+					cache = {"tray": tray.mesh, "bracket": parts[1].mesh, "rib": parts[4].mesh, "anvil": anvil.mesh}
+				verify(tray.mesh == cache.tray and parts[1].mesh == cache.bracket and parts[2].mesh == cache.bracket
+					and parts[4].mesh == cache.rib and anvil.mesh == cache.anvil,
+					"Both view classes, every axis and translated placements share the complete cached rigid meshes.")
+				verify(anvil.position == Vector3(0, 0.46, 0.05) and anvil.mesh.get_aabb().size.is_equal_approx(Vector3(0.7, 0.16, 0.63))
+					and absf(die_height(anvil.mesh, 1, anvil.transform, Vector2.ZERO, true) - 0.54) < 0.000001,
+					"The relieved saddle preserves the complete original envelope, centre and working plane around its existing machine drive interface.")
+				var rows: Array = machine.get_meta("motion_meshes")
+				verify(rows.size() == 2 and str(rows[0].node.name) == "ToolHead" and str(rows[1].node.name) == "Piston",
+					"The original head and piston remain the only moving press parts.")
+				var fixed: Array[Transform3D] = []
+				for part in parts:
+					fixed.append(part.transform)
+					verify(part.get_script() == null and part.get_child_count() == 0, "Outlet and supporting parts are passive rigid meshes without controllers or colliders.")
+					var gap := tray_mesh_gap(part, plate_box)
+					minimum_plate_gap = minf(minimum_plate_gap, gap)
+					verify(gap > 0.000001, "Every actual raw outlet, anvil and support facet clears the conservative complete output-plate box.")
+					# The original journal enters the complete anvil body. Do not
+					# confuse that retained interface with the new free-standing
+					# supports. The reseated anvil fasteners must clear it too.
+					var drive_gap := tray_mesh_gap(part, drive.transform * drive.mesh.get_aabb(), 2 if part == anvil else -1)
+					minimum_drive_gap = minf(minimum_drive_gap, drive_gap)
+					verify(drive_gap > 0.02, "The new pan, brackets, narrowed pedestals and reseated anvil fasteners clear every original drive axis.")
+					check_bounds(part, Transform3D.IDENTITY)
+				for bracket in [parts[1], parts[2]]:
+					verify(bracket.mesh.get_surface_count() == 2 and bracket.material_override == null
+						and bracket.get_surface_override_material(0) == CollectorArt.coating(Color("394a44"))
+						and bracket.get_surface_override_material(1) == Opening.ProductionTransmissionFinish.material("worked", Color("b8c3bb"), 0.85, 0.38)
+						and tray_bracket_seated(machine, bracket),
+						"Fixed coated brackets and worked foot fasteners meet the actual skid and pan underside at three independent support probes.")
+				for rib in [parts[4], parts[5]]:
+					verify(die_supports(machine, rib), "The narrowed anvil pedestals still meet the actual deck and complete anvil underside.")
+				for part in [tray, parts[1], parts[2]]:
+					var gap := tray_mesh_gap(anvil, part.transform * part.mesh.get_aabb())
+					minimum_saddle_gap = minf(minimum_saddle_gap, gap)
+					verify(gap > 0.000001, "The pan and its brackets also clear the actual relieved anvil facets.")
+				var protected_rows: Array[Dictionary] = []
+				for part in parts:
+					protected_rows.append({"name": str(part.name), "bounds": part.transform * part.mesh.get_aabb()})
+				for source_name in ["CastPressSupportLeft", "CastPressSupportRight"]:
+					var source: MeshInstance3D = machine.get_node(source_name)
+					for row in protected_rows:
+						var gap := tray_mesh_gap(source, row.bounds)
+						minimum_source_gap = minf(minimum_source_gap, gap)
+						verify(gap > 0.000001, "The sourced support's actual facets remain clear of the composed outlet and anvil pieces.")
+				var picks := 0
+				for child in machine.get_children():
+					if child is StaticBody3D:
+						picks += 1
+						verify(child.collision_layer == Geometry.PICK_LAYER and child.collision_mask == 0
+							and child.get_meta("entity") == "fixture" and child.get_child_count() == 1
+							and child.get_child(0).shape.size == Vector3(1.45, 1.65, 1.45)
+							and child.get_child(0).position == Vector3(0, 0.8, 0),
+							"The sole original pick retains its exact entity, dimensions, centre and masks.")
+				verify(picks == 1 and view.state == before, "The ordinary builders preserve every observed state field and create no extra authority or pick body.")
+				for travel in [0.0, 0.0075, 0.015]:
+					view._apply_press_pose(rows, travel)
+					var unchanged := true
+					for index in range(parts.size()):
+						unchanged = unchanged and parts[index].transform == fixed[index]
+					verify(unchanged, "The complete outlet and all supports stay fixed at both original head endpoints and the intermediate pose.")
+				if controls == 0:
+					tray.position.x += 0.03
+					verify(tray_mesh_gap(tray, plate_box) <= 0, "A fold displaced into the actual plate fails the same raw-facet clearance oracle.")
+					tray.transform = fixed[0]
+					parts[1].position.y += 0.01
+					verify(not tray_bracket_seated(machine, parts[1]), "A bracket floating above the skid fails the same support-plane checks.")
+					parts[1].transform = fixed[1]
+					var old_rib := PackedVector2Array([Vector2(-0.09, -0.07), Vector2(0.09, -0.07), Vector2(0.09, -0.045),
+						Vector2(0.045, -0.045), Vector2(0.04, 0.045), Vector2(0.075, 0.045), Vector2(0.075, 0.07),
+						Vector2(-0.075, 0.07), Vector2(-0.075, 0.045), Vector2(-0.04, 0.045), Vector2(-0.045, -0.045), Vector2(-0.09, -0.045)])
+					parts[5].mesh = Visuals.prism_mesh(old_rib, 0.53, 0.003)
+					parts[5].position.x = 0.22
+					var old_rib_gap := tray_mesh_gap(parts[5], plate_box)
+					verify(old_rib_gap <= 0, "The exact former wide rib and centre fail the same positive-clearance predicate; contact is not clearance.")
+					parts[5].mesh = cache.rib
+					parts[5].transform = fixed[5]
+					var old_saddle := PackedVector2Array([Vector2(-0.35, -0.08), Vector2(0.35, -0.08), Vector2(0.35, -0.045),
+						Vector2(0.27, -0.045), Vector2(0.24, -0.015), Vector2(0.24, 0.04), Vector2(-0.24, 0.04),
+						Vector2(-0.24, -0.015), Vector2(-0.27, -0.045), Vector2(-0.35, -0.045)])
+					anvil.mesh = Visuals.prism_mesh(old_saddle, 0.63, 0.004)
+					var old_saddle_gap := tray_mesh_gap(anvil, plate_box)
+					verify(old_saddle_gap <= 0, "The former saddle also fails the complete-output clearance check, without changing the plate.")
+					anvil.mesh = cache.anvil
+					print(JSON.stringify({"former_rib_control_gap_metres": old_rib_gap, "former_saddle_control_gap_metres": old_saddle_gap,
+						"control_rule": "A separating gap must be positive; zero contact and negative overlap both fail."}))
+					controls = 4
+				view.state.entities.fixture.generation = 2
+				view._rebuild_machines()
+				var rebuilt: Node3D = view.machine_root.get_child(0)
+				verify(rebuilt.get_node("OutputTray").mesh == cache.tray and rebuilt.get_node("TrayBracketLeft").mesh == cache.bracket
+					and rebuilt.get_node("AnvilPedestalRight").mesh == cache.rib,
+					"Replacement generations reuse cached geometry rather than carrying old nodes or adding structural inventory.")
+				view.state.entities.clear()
+				view.state.stock.source = 16
+				view.state.stock.output = 0
+				before = view.state.duplicate(true)
+				view._rebuild_machines()
+				view._redraw_items()
+				var remaining_plates := 0
+				for item in view.item_root.get_children():
+					if item.get_meta("item_kind", "") == "stamped_plate":
+						remaining_plates += 1
+				verify(view.machine_root.get_child_count() == 0 and remaining_plates == 0 and view.state == before,
+					"Observed removal clears the complete outlet, brackets and output display without altering the replacement state.")
+				assemblies += 1
+				view.free()
+	var historical := Opening.new()
+	historical.legacy_fixture = true
+	var old_root := Node3D.new()
+	historical._press_visual(old_root)
+	verify(old_root.get_node("OutputTray").mesh == Visuals.box_mesh(Vector3(0.48, 0.05, 0.58))
+		and old_root.get_node_or_null("TrayBracketLeft") == null,
+		"The historical nonnative fixture retains its previous tray and roster.")
+	old_root.free()
+	historical.free()
+	print(JSON.stringify({"assemblies": assemblies, "axes": 3, "unique_meshes": cache.size(), "negative_controls": controls,
+		"minimum_complete_plate_facet_gap_metres": minimum_plate_gap, "minimum_drive_facet_gap_metres": minimum_drive_gap,
+		"minimum_tray_saddle_facet_gap_metres": minimum_saddle_gap, "minimum_source_facet_gap_metres": minimum_source_gap,
+		"drive_clearance_scope": "Pan, brackets, pedestals and anvil fasteners. The original journal enters the retained anvil body.",
+		"receiving_plane_metres": 0.355, "existing_plate_sheet_gap_metres": 0.005,
+		"observations": "invented read-only", "native_gameplay": "not_run", "rendered_quality": "not_assessed"}))
+
+func collector_tooling_sweeps(rows: Array) -> Array[Dictionary]:
+	# Every facet is contained by its vertices' maximum radial and axial extent.
+	# This bounds a COMPLETE turn, rather than inferring it from sampled poses.
+	var result: Array[Dictionary] = []
+	var pivot := Vector2(-0.22, 1.1)
+	for row in rows:
+		var node: MeshInstance3D = row.node
+		var pose: Transform3D = row.parent_inverse.affine_inverse() * node.transform
+		var radius := 0.0
+		var low := INF
+		var high := -INF
+		for surface in range(node.mesh.get_surface_count()):
+			var points: PackedVector3Array = node.mesh.surface_get_arrays(surface)[Mesh.ARRAY_VERTEX]
+			for point in points:
+				var at := pose * point
+				radius = maxf(radius, Vector2(at.x, at.y).distance_to(pivot))
+				low = minf(low, at.z)
+				high = maxf(high, at.z)
+		result.append({"radius": radius, "low": low, "high": high, "name": str(node.name)})
+	return result
+
+func collector_tooling_frame_gap(frame: Node3D, sweeps: Array[Dictionary]) -> float:
+	var minimum := INF
+	var pivot := Vector2(-0.22, 1.1)
+	for part: MeshInstance3D in frame.get_children():
+		var pose := frame.transform * part.transform
+		for surface in range(part.mesh.get_surface_count()):
+			var faces := die_faces(part.mesh, surface)
+			for n in range(0, faces.size(), 3):
+				var a := pose * faces[n]
+				var b := pose * faces[n + 1]
+				var c := pose * faces[n + 2]
+				var radial := point_triangle_distance(pivot, Vector2(a.x, a.y), Vector2(b.x, b.y), Vector2(c.x, c.y))
+				for sweep in sweeps:
+					var axial := maxf(minf(a.z, minf(b.z, c.z)) - float(sweep.high),
+						float(sweep.low) - maxf(a.z, maxf(b.z, c.z)))
+					minimum = minf(minimum, maxf(radial - float(sweep.radius), axial))
+	return minimum
+
+func collector_tooling_stock_gap(box: AABB, sweeps: Array[Dictionary]) -> float:
+	var nearest := Vector2(clampf(-0.22, box.position.x, box.end.x), clampf(1.1, box.position.y, box.end.y))
+	var radial := nearest.distance_to(Vector2(-0.22, 1.1))
+	var result := INF
+	for sweep in sweeps:
+		var axial := maxf(box.position.z - float(sweep.high), float(sweep.low) - box.end.z)
+		result = minf(result, maxf(radial - float(sweep.radius), axial))
+	return result
+
+func collector_tooling_seated(mesh: Mesh) -> bool:
+	for z in [-0.10, 0.0, 0.10]:
+		var probe := Vector2(0, z)
+		var holder := die_height(mesh, 0, Transform3D.IDENTITY, probe, true)
+		var insert := die_height(mesh, 1, Transform3D.IDENTITY, probe, false)
+		if not is_finite(holder) or not is_finite(insert) or absf(holder - 0.0075) > 0.000001 or absf(insert - holder) > 0.000001:
+			return false
+	for z in [-0.14, 0.14]:
+		var probe := Vector2(0, z)
+		var holder := die_height(mesh, 0, Transform3D.IDENTITY, probe, true)
+		var head := die_height(mesh, 2, Transform3D.IDENTITY, probe, false)
+		if not is_finite(head) or absf(head - holder) > 0.000001:
+			return false
+	return true
+
+func collector_tooling_bore(mesh: Mesh) -> float:
+	var minimum := INF
+	for surface in range(mesh.get_surface_count()):
+		var faces := die_faces(mesh, surface)
+		for n in range(0, faces.size(), 3):
+			minimum = minf(minimum, point_triangle_distance(Vector2.ZERO, Vector2(faces[n].x, faces[n].z),
+				Vector2(faces[n + 1].x, faces[n + 1].z), Vector2(faces[n + 2].x, faces[n + 2].z)))
+	return minimum
+
+func collector_tooling_section(mesh: Mesh, height: float, angle: float) -> float:
+	# Use raw facets and a long ray. Short unnormalised triangle probes can
+	# miss small faces under the separately recorded GDC-14 adapter behavior.
+	var start := Vector3(0, height, 0)
+	var end := start + Vector3(cos(angle), 0, sin(angle)) * 2.0
+	var first := INF
+	for surface in range(mesh.get_surface_count()):
+		var faces := die_faces(mesh, surface)
+		for n in range(0, faces.size(), 3):
+			var cut: Variant = Geometry3D.segment_intersects_triangle(start, end, faces[n], faces[n + 1], faces[n + 2])
+			if typeof(cut) == TYPE_VECTOR3:
+				first = minf(first, start.distance_to(cut))
+	return first
+
+func collector_tooling_materials(flute: MeshInstance3D) -> bool:
+	return flute.material_override == null \
+		and flute.get_surface_override_material(0) == Opening.ProductionTransmissionFinish.material("worked", Color("465a60"), 0.85, 0.4) \
+		and flute.get_surface_override_material(1) == Opening.ProductionTransmissionFinish.material("worked", Color("b8c3bb"), 0.9, 0.3) \
+		and flute.get_surface_override_material(2) == Opening.ProductionTransmissionFinish.material("worked", Color("778b8c"), 0.85, 0.4)
+
+func check_collector_tooling() -> void:
+	var cache: Dictionary = {}
+	var assemblies := 0
+	var controls := 0
+	var minimum_frame_gap := INF
+	var minimum_stock_gap := INF
+	var maximum_moving_radius := 0.0
+	var bore_radius := INF
+	for shared_profile in [false, true]:
+		for axis in range(3):
+			for cell in [[0, 0], [2, -1]]:
+				var view: Variant = Shared.new() if shared_profile else Opening.new()
+				view.client = "P"
+				if shared_profile:
+					view.session = PaddleSessionFacts.new()
+				view.machine_root = Node3D.new()
+				view.item_root = Node3D.new()
+				view.add_child(view.machine_root)
+				view.add_child(view.item_root)
+				view.transmission_presenter = Presenter.new()
+				view.add_child(view.transmission_presenter)
+				view.transmission_presenter.configure(view)
+				view.state = {"context": "collector-tooling-fixture", "options": {"native": true, "physical": true},
+					"actors": {"P": {"ready": true}}, "parts": {}, "inventories": {"P": 0},
+					"stock": {"source": 15, "collector": 1, "belt": 0, "input": 0, "held": 0, "output": 0}, "remaining": 0,
+					"entities": {"fixture": {"kind": "collector", "cell": cell, "axis": axis, "generation": 1}},
+					"transmission_parts": {}, "motion": {"fixture": {"state": "rotating", "numerator": 1, "denominator": 1}},
+					"links": [], "drive_links": [], "engagements": []}
+				var before: Dictionary = view.state.duplicate(true)
+				view._rebuild_machines()
+				view._redraw_items()
+				var machine: Node3D = view.machine_root.get_child(0)
+				var frame: Node3D = machine.get_node("CollectorCastFrame")
+				var drum: MeshInstance3D = machine.get_node("CutterDrum")
+				var hub: MeshInstance3D = machine.get_node("CutterHub")
+				var rows: Array = machine.get_meta("motion_meshes")
+				verify(rows.size() == 10 and count_role(machine, "CutterFlute") == 8,
+					"The native builder keeps the original ten moving observations and all eight flute identities.")
+				verify(drum.position == Vector3(-0.22, 1.1, -0.19) and hub.position == Vector3(-0.22, 1.1, 0.01)
+					and drum.mesh == CollectorToolingArt.drum_mesh() and hub.mesh == CollectorToolingArt.hub_mesh()
+					and drum.mesh.get_aabb().size.is_equal_approx(Vector3(0.48, 0.34, 0.48))
+					and hub.mesh.get_aabb().size.is_equal_approx(Vector3(0.17, 0.08, 0.17)),
+					"The stepped native drum and hub preserve their original centres and complete local envelopes.")
+				verify(drum.material_override == Opening.ProductionTransmissionFinish.material("worked", Color("465a60"), 0.85, 0.4)
+					and hub.material_override == Opening.ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.4),
+					"The rotating metal uses the qualified worked surfaces without changing the frame's coating.")
+				var flutes: Array[MeshInstance3D] = []
+				for row in rows:
+					verify(row.role == "cutter" and row.node.get_script() == null and row.node.get_child_count() == 0,
+						"All moving tooling remains passive rigid meshes consumed by the existing cutter callback.")
+					if row.node.get_meta("detail_role", "") == "CutterFlute":
+						flutes.append(row.node)
+						verify(row.node.mesh == CollectorToolingArt.flute_mesh() and row.node.mesh.get_surface_count() == 3
+							and row.node.mesh.surface_get_name(1) == "CuttingInsert" and row.node.mesh.surface_get_name(2) == "RetainingHeads"
+							and row.node.mesh.get_aabb().size.is_equal_approx(Vector3(0.04, 0.045, 0.29))
+							and collector_tooling_seated(row.node.mesh) and collector_tooling_materials(row.node),
+							"Each fitted cartridge keeps its old envelope while separating a seated cutting insert, holder and retaining heads.")
+				verify(flutes.size() == 8, "Every original flute receives the same fitted tooling rather than extra moving nodes.")
+				if cache.is_empty():
+					cache = {"drum": drum.mesh, "hub": hub.mesh, "flute": flutes[0].mesh}
+					check_closed_asset_mesh(drum.mesh, 0.047, 0.053)
+					check_closed_asset_mesh(hub.mesh, 0.0014, 0.0018)
+					var volumes: Array = [[0.00032, 0.00035], [0.000125, 0.000135], [0.00000023, 0.00000030]]
+					for surface in range(3):
+						var isolated := SurfaceTool.new()
+						isolated.create_from(flutes[0].mesh, surface)
+						check_closed_asset_mesh(isolated.commit(), volumes[surface][0], volumes[surface][1])
+					bore_radius = collector_tooling_bore(drum.mesh)
+					verify(bore_radius > 0.0847, "The actual annular facets leave a real open drum bore instead of a dark filled cap.")
+					for index in range(8):
+						var angle := PI / 48.0 + float(index) * TAU / 8.0
+						var bore := collector_tooling_section(drum.mesh, 0.168, angle)
+						var plug := collector_tooling_section(hub.mesh, -0.032, angle)
+						verify(is_finite(bore) and is_finite(plug) and absf(bore - plug) < 0.000001,
+							"The raw drum bore and stepped hub share the same mating facets in their existing axial overlap.")
+				verify(drum.mesh == cache.drum and hub.mesh == cache.hub and flutes[0].mesh == cache.flute,
+					"Both ordinary view classes and every placement reuse the complete cached tooling resources.")
+				var sweeps := collector_tooling_sweeps(rows)
+				for sweep in sweeps:
+					maximum_moving_radius = maxf(maximum_moving_radius, float(sweep.radius))
+					verify(float(sweep.radius) <= sqrt(0.2575 * 0.2575 + 0.02 * 0.02) + 0.000001
+						and float(sweep.low) >= -0.360001 and float(sweep.high) <= 0.050001,
+						"Every actual raw facet remains inside the original complete continuous-turn radial and axial envelope.")
+				var frame_gap := collector_tooling_frame_gap(frame, sweeps)
+				minimum_frame_gap = minf(minimum_frame_gap, frame_gap)
+				verify(frame_gap > 0.006, "Conservative full-turn cylinders derived from actual vertices clear every raw fixed-frame facet, including the annular bearing.")
+				var billet_count := 0
+				for item in view.item_root.get_children():
+					if item.get_meta("item_kind", "") == "workpiece_billet":
+						billet_count += 1
+					var box := machine.transform.affine_inverse() * feed_item_bounds(item, Transform3D.IDENTITY)
+					var stock_gap := collector_tooling_stock_gap(box, sweeps)
+					minimum_stock_gap = minf(minimum_stock_gap, stock_gap)
+					verify(stock_gap > 0.000001, "The complete continuous tooling envelope clears every actually redrawn stock and source-item box.")
+				verify(billet_count == 1, "The observed collector buffer keeps one original billet without changing stock ownership or pose.")
+				var picks := 0
+				for child in machine.get_children():
+					if child is StaticBody3D:
+						picks += 1
+						verify(child.get_meta("entity", "") == "fixture" and child.collision_layer == Geometry.PICK_LAYER
+							and child.collision_mask == 0 and child.get_child_count() == 1
+							and child.get_child(0).shape.size == Vector3(1.45, 1.65, 1.45)
+							and child.get_child(0).position == Vector3(0, 0.8, 0),
+							"The sole original entity pick keeps its identity, dimensions, centre and masks.")
+				verify(picks == 1 and view.model == null and view.actor_world == null and view.request_sequence == 0,
+					"The art builder creates no authority, native body, material request or extra collider.")
+				var fixed: Array[Transform3D] = []
+				for part in frame.get_children():
+					fixed.append(part.transform)
+				for step in range(24):
+					var angle := float(step) * TAU / 24.0
+					view._apply_cutter_pose(machine, rows, angle)
+					var spin := Transform3D(Basis(Vector3.BACK, angle), Vector3.ZERO)
+					var pivot := Vector3(-0.22, 1.1, -0.19)
+					spin.origin = pivot - spin.basis * pivot
+					var correct := true
+					for row in rows:
+						var actual: Transform3D = row.parent_inverse.affine_inverse() * row.node.transform
+						var expected: Transform3D = spin * row.rest
+						correct = correct and actual.is_equal_approx(expected)
+					for index in range(fixed.size()):
+						correct = correct and frame.get_child(index).transform == fixed[index]
+					verify(correct and view.state == before, "The original callback turns all fitted tooling rigidly about the same centre while frame and observed state stay fixed.")
+				view._apply_cutter_pose(machine, rows, 0.0)
+				if controls == 0:
+					var floated := ArrayMesh.new()
+					for surface in range(3):
+						var piece := SurfaceTool.new()
+						piece.begin(Mesh.PRIMITIVE_TRIANGLES)
+						piece.append_from(flutes[0].mesh, surface, Transform3D(Basis.IDENTITY, Vector3.UP * (0.01 if surface == 1 else 0.0)))
+						piece.commit(floated)
+					verify(not collector_tooling_seated(floated), "A floating insert fails the same actual holder and fastener support-plane oracle.")
+					var filled := CylinderMesh.new()
+					filled.top_radius = 0.24
+					filled.bottom_radius = 0.24
+					filled.height = 0.34
+					filled.radial_segments = 48
+					verify(collector_tooling_bore(filled) == 0.0, "The former filled cylinder cannot pass the raw open-bore requirement.")
+					var saved := hub.transform
+					hub.position.x += 0.03
+					verify(collector_tooling_frame_gap(frame, collector_tooling_sweeps(rows)) < 0,
+						"An off-centre hub fails the same whole-turn bearing clearance oracle.")
+					hub.transform = saved
+					var finish_value := flutes[0].get_surface_override_material(1)
+					flutes[0].set_surface_override_material(1, CollectorArt.coating(Color("465a60")))
+					verify(not collector_tooling_materials(flutes[0]), "A painted cutting insert fails the qualified metal-role requirement.")
+					flutes[0].set_surface_override_material(1, finish_value)
+					controls = 4
+				view.state.entities.fixture.generation = 2
+				view._rebuild_machines()
+				var rebuilt: Node3D = view.machine_root.get_child(0)
+				verify(rebuilt.get_node("CutterDrum").mesh == cache.drum and rebuilt.get_node("CutterHub").mesh == cache.hub
+					and count_role(rebuilt, "CutterFlute") == 8,
+					"Replacement generations reuse geometry and rebuild their own original motion group.")
+				view.state.entities.clear()
+				view.state.stock.source = 16
+				view.state.stock.collector = 0
+				before = view.state.duplicate(true)
+				view._rebuild_machines()
+				verify(view.machine_root.get_child_count() == 0 and view.state == before,
+					"Observed removal clears the entire collector without generating material, tools or an orphaned motion owner.")
+				assemblies += 1
+				view.free()
+	for shared_profile in [false, true]:
+		var historical: Variant = Shared.new() if shared_profile else Opening.new()
+		historical.legacy_fixture = true
+		var old_root := Node3D.new()
+		historical._collector_visual(old_root)
+		historical._machine_surface_detail(old_root, "collector")
+		var drum: MeshInstance3D = old_root.get_node("CutterDrum")
+		verify(drum.mesh is CylinderMesh and is_equal_approx(drum.mesh.top_radius, 0.24)
+			and is_equal_approx(drum.mesh.height, 0.34) and not drum.has_meta("collector_tooling_role")
+			and drum.material_override == Visuals.material(Color("465a60"), 0.85, 0.4),
+			"Both historical nonnative view classes retain the exact original drum primitive and finish.")
+		var details: Node3D = old_root.get_node("SurfaceDetail")
+		var old_flutes := 0
+		for part in details.get_children():
+			if part.get_meta("detail_role", "") == "CutterFlute":
+				old_flutes += 1
+				verify(part.mesh == Visuals.box_mesh(Vector3(0.04, 0.045, 0.29)) and not part.has_meta("collector_tooling_role"),
+					"The historical eight flutes keep their original boxes without new native tooling.")
+		verify(old_flutes == 8, "The original nonnative flute roster is preserved.")
+		old_root.free()
+		historical.free()
+	print(JSON.stringify({"assemblies": assemblies, "axes": 3, "unique_meshes": cache.size(), "negative_controls": controls,
+		"poses_per_assembly": 24, "moving_rows": 10, "maximum_actual_moving_radius_metres": maximum_moving_radius,
+		"minimum_continuous_frame_gap_metres": minimum_frame_gap, "minimum_continuous_stock_gap_metres": minimum_stock_gap,
+		"minimum_actual_bore_facet_radius_metres": bore_radius, "observations": "invented read-only",
+		"continuous_clearance": "Conservative raw-vertex full-turn cylinders against actual frame facets and item boxes.",
+		"native_gameplay": "not_run", "rendered_quality": "not_assessed"}))
+
+func check_collector_bearing_seat() -> void:
+	var assemblies := 0
+	var minimum_liner_gap := INF
+	var minimum_frame_gap := INF
+	var maximum_mating_difference := 0.0
+	var control_gap := 0.0
+	for shared_profile in [false, true]:
+		for cell in [[0, 0], [2, -1]]:
+			var view: Variant = Shared.new() if shared_profile else Opening.new()
+			view.client = "P"
+			if shared_profile:
+				view.session = PaddleSessionFacts.new()
+			view.machine_root = Node3D.new()
+			view.add_child(view.machine_root)
+			view.transmission_presenter = Presenter.new()
+			view.add_child(view.transmission_presenter)
+			view.transmission_presenter.configure(view)
+			view.state = {"context": "collector-bearing-seat", "options": {"native": true, "physical": true},
+				"actors": {"P": {"ready": true}}, "parts": {}, "inventories": {"P": 0},
+				"stock": {"source": 16, "collector": 0, "belt": 0, "input": 0, "held": 0, "output": 0}, "remaining": 0,
+				"entities": {"fixture": {"kind": "collector", "cell": cell, "axis": 0, "generation": 1}},
+				"transmission_parts": {}, "motion": {"fixture": {"state": "rotating", "numerator": 1, "denominator": 1}},
+				"links": [], "drive_links": [], "engagements": []}
+			var before: Dictionary = view.state.duplicate(true)
+			view._rebuild_machines()
+			var machine: Node3D = view.machine_root.get_child(0)
+			var frame: Node3D = machine.get_node("CollectorCastFrame")
+			var hub: MeshInstance3D = machine.get_node("CutterHub")
+			var drum: MeshInstance3D = machine.get_node("CutterDrum")
+			var liner: MeshInstance3D = frame.get_node("FixedBearingLiner")
+			var liner_in_hub := hub.transform.affine_inverse() * frame.transform * liner.transform
+			verify(liner_in_hub.origin.is_equal_approx(Vector3(0, 0.035, 0)) and liner_in_hub.basis.is_equal_approx(Basis.IDENTITY),
+				"The ordinary view still mounts the actual spindle and fixed liner coaxially at their literal original overlap.")
+			verify(hub.mesh == CollectorToolingArt.hub_mesh() and collector_tooling_extent(hub.mesh).is_equal_approx(Vector2(0.085, 0.04))
+				and hub.position == Vector3(-0.22, 1.1, 0.01),
+				"The revised spindle fits the exact original radial and axial envelope, preserving the previous conservative-clearance coverage.")
+			if assemblies == 0:
+				check_closed_asset_mesh(hub.mesh, 0.0017, 0.0018)
+			for index in range(8):
+				var angle := PI / 48.0 + float(index) * TAU / 8.0
+				var reference := collector_tooling_section(drum.mesh, 0.168, angle)
+				var mating := collector_tooling_section(hub.mesh, -0.032, angle)
+				maximum_mating_difference = maxf(maximum_mating_difference, absf(reference - mating))
+				verify(is_finite(reference) and is_finite(mating) and absf(reference - mating) < 0.000001,
+					"The changed spindle retains its actual fitted drum-bore facets at the original mounting overlap.")
+				for offset in [-0.005, 0.0, 0.003]:
+					var spindle := collector_tooling_section(hub.mesh, liner_in_hub.origin.y + offset, angle)
+					var opening := collector_tooling_section(liner.mesh, offset, angle)
+					var gap := opening - spindle
+					minimum_liner_gap = minf(minimum_liner_gap, gap)
+					verify(is_finite(spindle) and is_finite(opening) and absf(spindle - reference) < 0.000001
+						and gap > 0.009 and gap < 0.011,
+						"The actual supported spindle span keeps its original radius at three bearing planes and the original liner clearance.")
+			var rows: Array = machine.get_meta("motion_meshes")
+			var hub_row: Dictionary = {}
+			for row in rows:
+				if row.node == hub:
+					hub_row = row
+			verify(rows.size() == 10 and not hub_row.is_empty(), "The changed spindle is still in the original ten-row motion group.")
+			if hub_row.is_empty():
+				view.free()
+				continue
+			var frame_gap := collector_tooling_frame_gap(frame, collector_tooling_sweeps([hub_row]))
+			minimum_frame_gap = minf(minimum_frame_gap, frame_gap)
+			verify(frame_gap > 0.006, "The changed raw spindle also clears the existing frame through its complete conservative turn.")
+			if assemblies == 0:
+				var previous := Visuals.turned_mesh(PackedVector2Array([
+					Vector2(0, -0.04), Vector2(0.074, -0.04), Vector2(0.085, -0.033),
+					Vector2(0.085, 0.017), Vector2(0.077, 0.025), Vector2(0.068, 0.025),
+					Vector2(0.068, 0.04), Vector2(0, 0.04)]))
+				var reference := collector_tooling_section(drum.mesh, 0.168, PI / 48.0)
+				control_gap = reference - collector_tooling_section(previous, 0.035, PI / 48.0)
+				verify(control_gap > 0.016, "The exact first stepped spindle fails the same bearing-seat radius requirement rather than being accepted only by its outer bounds.")
+			view._apply_cutter_pose(machine, rows, PI / 3.0)
+			var spin := Transform3D(Basis(Vector3.BACK, PI / 3.0), Vector3.ZERO)
+			var pivot := Vector3(-0.22, 1.1, -0.19)
+			spin.origin = pivot - spin.basis * pivot
+			var actual: Transform3D = hub_row.parent_inverse.affine_inverse() * hub.transform
+			verify(actual.is_equal_approx(spin * hub_row.rest) and view.state == before and view.model == null
+				and view.actor_world == null and view.request_sequence == 0,
+				"The revised spindle still follows the original callback without changing observations, authority or requests.")
+			assemblies += 1
+			view.free()
+	print(JSON.stringify({"assemblies": assemblies, "seat_planes": 3, "directions_per_plane": 8, "negative_controls": 1,
+		"minimum_liner_gap_metres": minimum_liner_gap, "minimum_continuous_frame_gap_metres": minimum_frame_gap,
+		"maximum_mating_difference_metres": maximum_mating_difference, "previous_spindle_seat_deficit_metres": control_gap,
+		"reused_coverage": "The first 1001-check component case retains the unchanged drum, inserts, full envelopes, all axes, stock, lifecycle and pick results.",
+		"observations": "invented read-only", "native_gameplay": "not_run", "rendered_quality": "not_assessed"}))
+
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--collector-bearing-seat-only"):
+		check_collector_bearing_seat()
+		finish()
+		return
+	if OS.get_cmdline_user_args().has("--collector-tooling-only"):
+		check_collector_tooling()
+		finish()
+		return
+	if OS.get_cmdline_user_args().has("--press-output-tray-only"):
+		check_press_output_tray()
+		finish()
+		return
+	if OS.get_cmdline_user_args().has("--press-die-only"):
+		check_press_die()
+		finish()
+		return
+	if OS.get_cmdline_user_args().has("--conveyor-hub-only"):
+		check_conveyor_hub()
+		finish()
+		return
+	if OS.get_cmdline_user_args().has("--conveyor-frame-only"):
+		check_conveyor_frame()
+		finish()
+		return
+	if OS.get_cmdline_user_args().has("--press-crown-only"):
+		check_press_crown()
+		finish()
+		return
+	if OS.get_cmdline_user_args().has("--wheel-foot-seats-only"):
+		check_wheel_foot_seats()
+		finish()
+		return
+	if OS.get_cmdline_user_args().has("--feed-sleeves-only"):
+		check_feed_sleeves()
+		finish()
+		return
 	if OS.get_cmdline_user_args().has("--wheel-supports-only"):
 		check_wheel_supports()
 		finish()
@@ -1599,6 +3520,9 @@ func _initialize() -> void:
 		return
 	if OS.get_cmdline_user_args().size() > 0 and OS.get_cmdline_user_args()[0] == "--prepare-press-support-maps":
 		prepare_component_maps("cast")
+		return
+	if OS.get_cmdline_user_args().size() > 0 and OS.get_cmdline_user_args()[0] == "--prepare-coupling-maps":
+		prepare_component_maps("coupling")
 		return
 	if OS.get_cmdline_user_args().has("--sourced-wheel-material-only"):
 		var parent := Node3D.new()
@@ -1647,7 +3571,7 @@ func _initialize() -> void:
 				verify(count_role(details, "CutterFlute") == 8 and count_role(details, "ServiceVent") == 5,
 					"The actual collector includes its cutter flutes and fitted service cover.")
 			"belt":
-				verify(count_role(details, "RollerBearing") == 4, "The actual conveyor has four fitted roller bearings.")
+				verify(count_role(machine, "RollerBearing") == 4, "The actual conveyor has four fitted roller bearings.")
 			"processor":
 				verify(count_role(details, "GuideCollar") == 4, "The actual press has fitted collars at both guide ends.")
 			"wheel":

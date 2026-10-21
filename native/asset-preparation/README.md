@@ -103,3 +103,46 @@ The isolated fit check compares actual imported support triangle boxes with the
 existing work meshes at both visual head end poses. This is a reusable support
 component and visual fit result, not a structural-force, native-contact, general
 freeform-machine or rendered-quality result.
+
+## Sourced shaft coupling
+
+`//native/asset-preparation:prepare-coupling` adapts the first straight member of
+Poly Haven's CC0 **Modular Industrial Pipes 01**, by Jorge Camacho. It accepts
+one exact source buffer and accessor layout; it is not a general mesh importer.
+The selected pipe has blind caps behind its apparent openings. The recipe keeps
+source Y at or above 0.39 metres, removing the cap and lower pipe while retaining
+the upper flange and its eight fasteners. The cut contours are slightly uneven.
+They remain unchanged: the writer requires two nested, single-winding,
+star-shaped contours, refuses touching or crossing boundaries, and triangulates
+an annular closure with verified area. It never fills the shaft passage.
+
+The source Y axis remains local Y. An authored datum at Y = 0.42954 metres and
+one uniform scale of 0.72 produce the compact fitting. This is an adaptation
+datum, not a provider socket or game rule. Retained vertices keep source UVs and
+normalized normals; new cut vertices interpolate attributes. The separate cut
+surface has hard outward normals and an existing machined-metal material.
+The complete prepared half contains 312 source triangles and 48 closure
+triangles. Two copies mate using a proper half-turn about local X.
+
+```bash
+"$FACTORY_PREPARE_COUPLING" "$COUPLING_SOURCE/original.bin" "$COUPLING_PREPARED"
+"$FACTORY_GODOT" --headless --path "$CAPTURED_IMAGE_PROJECT" \
+  --script res://opening/machine_detail_check.gd \
+  -- --prepare-coupling-maps "$COUPLING_SOURCE" "$COUPLING_PREPARED"
+```
+
+The absolute output directory must be fresh. The image command uses the same
+qualified component adapter above, with a coupling filename prefix. Source
+inputs and delivered identities are in the
+[coupling record](../../experiments/engine-environment/godot/opening/assets/shaft-coupling/source.json).
+Run `//native/asset-preparation:coupling_test` for the in-memory cut, bore,
+attribute, seam and malformed-input controls. This non-host test joins the
+canonical native package selection automatically; the actual donor remains an
+explicit input to the preparation consumer.
+
+The native presenter mounts the pair only for an explicit coaxial shaft/cog
+engagement, outside the existing hub and inside the original shaft envelope.
+The pair follows the owning shaft's existing cosmetic phase. No World command,
+connection solver, collider, pick, clock or saved state is added. Other kinds of
+coupling, complete-machine routing, force transmission, rendered quality and
+human preference are separate outcomes.

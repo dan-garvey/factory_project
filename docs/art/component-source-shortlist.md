@@ -1,9 +1,9 @@
 # Source candidates for a reusable construction kit
 
-Inspected on 2026-10-20. This extends the
+Originally inspected on 2026-10-20. This extends the
 [player-built asset research](player-built-assets.md) with specific source assets.
-The result qualifies candidates for adaptation work. None has been imported into
-Factory, demonstrated in our lighting or adopted as working machinery.
+That study qualified candidates without importing them. The 2026-10-21 update
+below identifies later component adaptations; rendered quality remains open.
 
 ## Inspection boundary
 
@@ -13,13 +13,43 @@ descriptor's byte length and MD5 with its provider manifest. Inspect their node,
 mesh, material and animation declarations. View the providers' static previews
 for the drill press, pipe kit and Kenney kit.
 
-The referenced mesh buffers and material maps were not downloaded. No Blender,
-Godot, desktop, animation or performance test ran. Declared mesh separation is
+In the original study, referenced mesh buffers and material maps were not
+downloaded. No Blender, Godot, desktop, animation or performance test ran.
+Declared mesh separation in that study is
 therefore source evidence, not verification of pivots, vertex contents, working
 clearance or an engine import. Provider renders do not establish the appearance
 of the assets in Factory. The complete captures and SHA-256 list are retained
 under `player-built-assets-research-20261020/candidates` in the local prototype
 evidence directory.
+
+## Later component adaptation
+
+At main `44f2af04cf85dae2c49d0d6da7e7731997e89e34`, selected drill-press column,
+mounting collar, flange and fastener geometry is packaged as a reusable
+[press support](../../experiments/engine-environment/godot/opening/assets/press-support/CREDITS.md).
+Its manifest records the actual mesh selection, origin, uniform scale and
+prepared attributes. The remaining drill, electrical controls and source scene
+behavior are excluded. An authored cast crown and the existing native tool
+presentation complete this particular adaptation, not a general multi-tool kit.
+
+A separately qualified
+[spinning-wheel rotor](../../experiments/engine-environment/godot/opening/assets/waterwheel/CREDITS.md)
+supplies the rim, hub and spokes for the waterwheel. Timber paddles, supported
+bearings and mechanical behavior are separate. This demonstrates component
+adaptation beyond asset names; it does not turn the source spinning wheel into
+a native power model. Both adopted components have their own retained source,
+preparation and technical results. This documentation update repeats none of
+those operations.
+
+The pipe kit and crane below remain candidates. Their descriptors still do not
+establish socket compatibility or working clearances. The original study also
+did not import the Kenney archive. Use existing fitted shafts, open hubs, belt
+ends and material sleeves as the current construction vocabulary; inspect a new
+source for the interface it actually supplies. The
+[updated construction map](player-built-assets.md#components-now-implemented)
+separates those implemented pieces from missing foundation, route and compound
+machine capabilities. Technical checks do not establish appearance in the
+worksite or the user's production-quality target.
 
 ## Specific candidates
 
@@ -67,12 +97,12 @@ Three findings matter for the next increment:
    clearances must be checked. The current Factory rate/state boundary remains
    authoritative; these sources add no phase, power or processing rules.
 
-## Recommended first adaptation
+## Original recommendation and next adaptation
 
-Use the pipe kit for a small offline component-connection study and the drill
-press for one machine-head adaptation study. The first demonstrates whether
+The original recommendation was a pipe component-connection study and a drill
+press adaptation study. The pipe study would demonstrate whether
 source detail survives removing catalogue offsets, normalizing connection
-frames and creating compatible lengths. The second tests whether a finished
+frames and creating compatible lengths. The machine study tests whether a finished
 asset can supply reusable, independently moving subparts without inheriting its
 original electrical identity or enclosing fixed proportions.
 
@@ -82,14 +112,17 @@ the plain middle. Separately identify the drill-press body, tool and drive
 members, and inspect where a new native-compatible shaft would meet them. These
 are art experiments over disclosed descriptors, not fluid or new-tool gameplay.
 
-Apply the resulting connection, material and import conventions to the planned
-foundation, belt and shaft sample in the main research note. Those families
-still need their own shaped edges, end drums, bearings and supports. A pipe kit
-is evidence that realistic reusable joins can be sourced; it cannot substitute
-for all those components.
+Apply those connection, material and import conventions to the next construction
+sample in the main research note. Current drums, bearings and shaft fittings
+are starting components; variable foundation and route cases still need
+compatible edges, corners and support variants. A pipe kit shows a source of
+reusable joins without supplying those other construction families.
 
-Before choosing an art source for that sample, inspect the actual mesh buffers
-and materials, establish reusable pivots and dimensions, preserve provider
+The press-support qualification now supplies one selected machine subcomponent;
+it does not settle variable spans or a complete machine head. Reuse its results
+and extend the sample through the missing interfaces rather than repeating the
+unchanged import. Before choosing another art source, inspect its actual mesh
+buffers and materials, establish reusable pivots and dimensions, preserve provider
 provenance, and include the imported resources in the ordinary native launcher
 capture. Evaluate the finished sample in the worksite under human visual
 feedback. Automated checks cover their technical scope and do not establish the

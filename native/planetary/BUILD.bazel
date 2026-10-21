@@ -1,0 +1,32 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "planetary",
+    srcs = ["src/planetary.cpp"],
+    hdrs = ["include/factory/planetary.hpp"],
+    strip_include_prefix = "include",
+    deps = ["//native/geared-cycle:clock"],
+)
+
+cc_library(
+    name = "workbench",
+    srcs = ["src/workbench.cpp"],
+    hdrs = ["include/factory/planetary_workbench.hpp"],
+    strip_include_prefix = "include",
+    deps = [":planetary"],
+)
+
+cc_binary(
+    name = "planetary_case",
+    srcs = ["src/main.cpp"],
+    deps = [":workbench"],
+)
+
+cc_test(
+    name = "planetary_test",
+    size = "small",
+    srcs = ["tests/planetary_test.cpp"],
+    deps = [":workbench"],
+)
