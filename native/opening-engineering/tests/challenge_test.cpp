@@ -67,7 +67,8 @@ O stream_site(bool reverse = false, I speed = 200) {
     const I current = reverse ? -speed : speed;
     return {{"axis", V(axis)}, {"heights", V(heights)}, {"obstacles", V(A{})},
             {"water", V(A{V(A{V(I{-8}), V(I{0}), V(I{-20}), V(I{-400}), V(I{0}), V(current)}),
-                          V(A{V(I{-8}), V(I{4}), V(I{-20}), V(I{-400}), V(I{0}), V(current)})})}};
+                          V(A{V(I{-8}), V(I{4}), V(I{-20}), V(I{-400}), V(I{0}), V(current)}),
+                          V(A{V(I{-8}), V(I{-4}), V(I{-20}), V(I{-400}), V(I{0}), V(current)})})}};
 }
 
 struct Run {
@@ -229,6 +230,104 @@ void wrong_source() {
           "Moving the wheel away after four plates requires returning it to the target.");
 }
 
+void relocate_stocked_line() {
+    Run run("relocate");
+    const auto press = build(run, -1);
+    bool partial = false;
+    for (int i = 0; i < 200; ++i) {
+        const auto view = run.host.advance();
+        if (field<I>(V(field<O>(view, "stock")), "held") > 0 && field<I>(view, "remaining") == 1) {
+            partial = true;
+            break;
+        }
+    }
+    check(partial, "The powered original line begins a real unfinished workpiece.");
+    run.at(-1.65, -1.65); (void)run.action("set_power", {{"active", V(false)}});
+    const auto stocked = run.host.projection();
+    std::string collector;
+    for (const auto& [id, entity] : field<O>(stocked, "entities"))
+        if (field<std::string>(entity, "kind") == "collector") collector = id;
+    check(!collector.empty(), "The original collector is present on the first seam tile.");
+    run.at(4.95, 0);
+    const auto recovery = run.action("recover", {{"entity", V(press)}});
+    const auto work = field<A>(recovery, "moved_work");
+    check(work.size() == 1 && field<I>(work.front(), "remaining_ticks") > 0 &&
+              field<I>(work.front(), "remaining_ticks") < field<I>(work.front(), "cycle_ticks"),
+          "Recovery retains a real unfinished workpiece and its remaining progress.");
+    const auto work_id = field<I>(work.front(), "id");
+    const auto remaining = field<I>(work.front(), "remaining_ticks");
+    const auto subticks = field<I>(work.front(), "completed_subticks");
+    run.at(0, 0); const auto collector_recovery = run.action("recover", {{"entity", V(collector)}});
+    check(field<I>(collector_recovery, "moved_raw") > 0, "The stocked collector transfers actual raw material.");
+    I recovered_slots = 0;
+    const auto spans = field<O>(run.host.projection(), "belt_spans");
+    for (const auto& [id, span] : spans) {
+        const auto parts = field<O>(run.host.projection(), "transmission_parts");
+        const auto first = field<A>(parts.at(field<std::string>(span, "from")), "center");
+        const auto last = field<A>(parts.at(field<std::string>(span, "to")), "center");
+        const auto slots = field<A>(span, "slots");
+        for (std::size_t index = 0; index < slots.size(); ++index) {
+            if (slots[index].type() == factory::values::Type::null) continue;
+            const auto interpolate = [&](std::size_t axis) {
+                const auto a = std::get<I>(first[axis].storage());
+                const auto b = std::get<I>(last[axis].storage());
+                return (a + (b - a) * static_cast<I>(index) / static_cast<I>(slots.size() - 1)) * 1.65 / 4.0;
+            };
+            run.at(interpolate(0), interpolate(2));
+            (void)run.action("recover_belt_slot", {{"entity", V(id)}, {"slot", V(static_cast<I>(index))}, {"expected", slots[index]}});
+            ++recovered_slots;
+        }
+        run.at((std::get<I>(first[0].storage()) + std::get<I>(last[0].storage())) * 1.65 / 8,
+               (std::get<I>(first[2].storage()) + std::get<I>(last[2].storage())) * 1.65 / 8);
+        (void)run.action("remove_belt_span", {{"entity", V(id)}});
+    }
+    check(recovered_slots > 0, "At least one in-flight belt item is recovered before removal.");
+    const auto entities = field<O>(run.host.projection(), "entities");
+    for (const auto& [id, entity] : entities) {
+        const auto center = field<A>(entity, "center");
+        run.at(std::get<I>(center[0].storage()) * 1.65 / 4, std::get<I>(center[2].storage()) * 1.65 / 4);
+        (void)run.action("remove", {{"entity", V(id)}});
+    }
+    const auto parts = field<O>(run.host.projection(), "transmission_parts");
+    for (const auto& [id, part] : parts) {
+        const auto center = field<A>(part, "center");
+        run.at(std::get<I>(center[0].storage()) * 1.65 / 4, std::get<I>(center[2].storage()) * 1.65 / 4);
+        (void)run.action("remove", {{"entity", V(id)}});
+    }
+    const auto foundations = field<O>(run.host.projection(), "foundations");
+    for (const auto& [id, foundation] : foundations) {
+        const auto cell = field<A>(foundation, "cell");
+        run.at(std::get<I>(cell[0].storage()) * 1.65, std::get<I>(cell[1].storage()) * 1.65);
+        (void)run.action("remove", {{"entity", V(id)}});
+    }
+    conserved(run.host);
+    const auto rebuilt = build(run, 0);
+    run.at(4.95, 1.65);
+    (void)run.action("insert_work", {{"entity", V(rebuilt)}, {"work_id", V(work_id)}});
+    const auto cargo = field<O>(run.host.projection(), "cargo");
+    check(field<A>(cargo.at("P"), "work_lots").empty(), "The original workpiece leaves player custody exactly once.");
+    const auto before = run.host.checkpoint();
+    const auto world = V(field<O>(before, "world"));
+    const auto state = V(field<O>(world, "state"));
+    const auto material = V(field<O>(state, "material"));
+    const auto processing = field<O>(material, "processing");
+    const auto resumed_work = V(processing);
+    check(field<I>(resumed_work, "id") == work_id && field<I>(resumed_work, "remaining_ticks") == remaining &&
+              field<I>(resumed_work, "completed_subticks") == subticks,
+          "The rebuilt machine retains the same work identity and exact fractional progress.");
+    Run restored("relocate-resume", false, before);
+    check(same(before, restored.host.checkpoint()), "The relocated line and partial work restore exactly.");
+    bool finished = false;
+    for (int i = 0; i < 200; ++i) {
+        const auto view = restored.host.advance();
+        if (field<I>(V(field<O>(view, "stock")), "output") > 0) { finished = true; break; }
+    }
+    check(finished, "The relocated processor finishes the recovered workpiece.");
+    restored.at(4.95, 1.65);
+    (void)restored.action("retrieve", {{"entity", V(rebuilt)}, {"amount", V(I{1})}});
+    conserved(restored.host);
+}
+
 void inclined_fork_fixture() {
     for (I speed : {I{200}, I{600}}) for (int order : {1, 2}) for (bool collector_last : {false, true}) {
         Run run("inclined-fork", false, std::nullopt, speed);
@@ -360,7 +459,7 @@ int main() {
     try {
         Host absent;
         check(e::inspect(absent, "P").phase == e::Phase::unavailable, "An uninitialized Host has no challenge state.");
-        forward_and_checkpoint(false); forward_and_checkpoint(true); negative_routes(); wrong_source(); fork_fixture(); moving_fork_fixture(); inclined_fork_fixture();
+        forward_and_checkpoint(false); forward_and_checkpoint(true); negative_routes(); wrong_source(); fork_fixture(); moving_fork_fixture(); inclined_fork_fixture(); relocate_stocked_line();
         std::cout << checks << " native opening-engineering checks, 0 failures.\n";
         return 0;
     } catch (const std::exception& error) {
