@@ -6,6 +6,7 @@ const Assets = preload("res://opening/native_transmission_assets.gd")
 const Items = preload("res://opening/workpiece_item_assets.gd")
 const UNIT := Geometry.PITCH / 4.0
 const VISUAL_RADIANS_PER_SECOND := 0.8
+const BELT_SUBTICKS_PER_TILE := 4096.0 # Matches the native material lane's fixed-point denominator.
 
 var _host: WeakRef
 var _view_key := ""
@@ -233,7 +234,8 @@ func _belt_span(id: String, span: Variant, parts: Dictionary) -> void:
 			var work: bool = item.raw == 0 and item.products == 0 and item.work_lots.size() == 1
 			if not raw and not product and not work:
 				continue
-			var position := first_position.lerp(last_position, float(index) / float(slots.size() - 1))
+			var fraction := belt_slot_fraction(slots, index, span.get("phase"))
+			var position := first_position.lerp(last_position, (float(index) + fraction) / float(slots.size() - 1))
 			position.y += 0.18 if product else 0.24
 			var visual := Items.stamped_plate(anchor, position) if product else Items.workpiece_billet(anchor, position)
 			visual.set_meta("belt_slot", index)
@@ -251,6 +253,20 @@ func _belt_span(id: String, span: Variant, parts: Dictionary) -> void:
 	collider.shape = box
 	body.add_child(collider)
 	anchor.add_child(body)
+
+static func belt_slot_fraction(slots: Array, index: int, phase: Variant) -> float:
+	# The shared phase advances a whole chain together. If the chain reaches a
+	# blocked end, do not invent partial movement through another item or beyond
+	# the confirmed span. No wall clock or new item identity is introduced.
+	if typeof(phase) != TYPE_INT or phase <= -4096 or phase >= 4096 or phase == 0 or index < 0 or index >= slots.size():
+		return 0.0
+	var direction := 1 if phase > 0 else -1
+	var next := index + direction
+	while next >= 0 and next < slots.size():
+		if slots[next] == null:
+			return float(phase) / BELT_SUBTICKS_PER_TILE
+		next += direction
+	return 0.0
 
 func _shaft_coupling(shaft: Dictionary, gear: Dictionary, parent: Node3D,
 		shaft_id: String, gear_id: String) -> void:

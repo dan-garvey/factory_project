@@ -241,7 +241,7 @@ func _belt_spans() -> void:
 	var product := {"raw": 0, "products": 1, "work_lots": []}
 	var work := {"raw": 0, "products": 0, "work_lots": [{"id": 7}]}
 	host.state.belt_spans["span"].slots = [raw, null, product, work]
-	host.state.belt_spans["span"].phase = 123
+	host.state.belt_spans["span"].phase = 0
 	presenter.refresh()
 	span = _part(presenter, "span")
 	var item0 := _belt_item(span, 0)
@@ -251,6 +251,16 @@ func _belt_spans() -> void:
 		"A confirmed raw unit is rendered on its exact first endpoint tile.")
 	verify(_belt_item(span, 1) == null and item2 != null and item2.get_meta("belt_item") == "product" and item3 != null and item3.get_meta("belt_item") == "work",
 		"Empty positions remain empty and distinct confirmed item types retain their positions.")
+	host.state.belt_spans["span"].phase = 2048
+	presenter.refresh()
+	span = _part(presenter, "span")
+	verify(is_equal_approx(_belt_item(span, 0).position.x, -1.65), "A free slot shows the confirmed half-tile forward phase.")
+	verify(is_equal_approx(_belt_item(span, 2).position.x, 0.825) and is_equal_approx(_belt_item(span, 3).position.x, 2.475), "A chain blocked at the end does not visually pass through its neighbor.")
+	host.state.belt_spans["span"].phase = -2048
+	presenter.refresh()
+	span = _part(presenter, "span")
+	verify(is_equal_approx(_belt_item(span, 0).position.x, -2.475) and is_equal_approx(_belt_item(span, 2).position.x, 0.0) and is_equal_approx(_belt_item(span, 3).position.x, 1.65), "Reverse phase moves an unblocked chain together while the endpoint stays bounded.")
+	verify(Presenter.belt_slot_fraction([raw, null], 0, 0.5) == 0.0 and Presenter.belt_slot_fraction([raw, null], 0, 4096) == 0.0, "Malformed and out-of-range phases do not invent motion.")
 	var session := Session.new()
 	session.context = host.state.context
 	session._ready_for_commands = true
