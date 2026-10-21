@@ -405,6 +405,24 @@ void belt_span_host_commands() {
     check(!accepted(intrusion) && field<std::string>(intrusion, "reason") == "occupied",
           "A later cog cannot be placed through the installed belt.");
     const auto checkpoint = host.checkpoint();
+    auto unsupported = std::get<O>(checkpoint.storage());
+    auto unsupported_world = std::get<O>(unsupported.at("world").storage());
+    auto unsupported_state = std::get<O>(unsupported_world.at("state").storage());
+    auto unsupported_topology = std::get<O>(unsupported_state.at("topology").storage());
+    auto unsupported_parts = std::get<A>(unsupported_topology.at("parts").storage());
+    for (auto& entry : unsupported_parts) {
+        auto value = std::get<O>(entry.storage());
+        if (field<std::string>(entry, "id") != right) continue;
+        value.at("center") = V(A{V(I{8}), V(I{8}), V(I{0})});
+        entry = V(std::move(value));
+    }
+    unsupported_topology.at("parts") = V(std::move(unsupported_parts));
+    unsupported_state.at("topology") = V(std::move(unsupported_topology));
+    unsupported_world.at("state") = V(std::move(unsupported_state));
+    unsupported.at("world") = V(std::move(unsupported_world));
+    const auto rejected_incline = host.validate_checkpoint(V(unsupported));
+    check(!accepted(rejected_incline) && field<std::string>(rejected_incline, "reason") == "invalid_belt_geometry",
+          "The physical Host refuses a native inclined span until site and body geometry are supported.");
     auto with_item = std::get<O>(checkpoint.storage());
     auto logical = std::get<O>(with_item.at("world").storage());
     auto saved_state = std::get<O>(logical.at("state").storage());

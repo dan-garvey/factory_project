@@ -105,8 +105,8 @@ check is not full terrain or body collision clearance.
 The separate `belt_path` primitive derives ordered global tile centers for
 horizontal, vertical, 45-degree inclined and sideways paths. It rejects paths
 along the axle, unequal diagonal steps, off-grid endpoints and paths longer
-than twenty tiles. The World and playable consumers still admit only horizontal
-paths; the other geometries are groundwork, not placeable belts. See Create's
+than twenty tiles. The native World accepts all four paths; the Godot Host and
+playable consumers still admit only horizontal paths. See Create's
 [belt connector](https://github.com/Creators-of-Create/Create/blob/mc1.21.1/dev/src/main/java/com/simibubi/create/content/kinetics/belt/item/BeltConnectorItem.java)
 for the referenced axle and path constraints.
 

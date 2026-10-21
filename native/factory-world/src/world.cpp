@@ -642,17 +642,17 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
         const auto* last = part(state.topology, span.geometry.last_shaft);
         if (!first || !last || lane == state.material.belt_lanes.end() ||
             first->role != Role::shaft || last->role != Role::shaft ||
-            first->geometry.axis != last->geometry.axis ||
-            (first->geometry.axis != mechanics::Axis::x && first->geometry.axis != mechanics::Axis::z)) return false;
+            first->geometry.axis != last->geometry.axis) return false;
         for (const auto coordinate : first->geometry.center)
             if (coordinate < -mechanics::maximum_coordinate || coordinate > mechanics::maximum_coordinate) return false;
         for (const auto coordinate : last->geometry.center)
             if (coordinate < -mechanics::maximum_coordinate || coordinate > mechanics::maximum_coordinate) return false;
         const auto path = mechanics::belt_path(first->geometry, last->geometry);
-        // Material, physical and presentation consumers currently use horizontal paths.
-        if (!path || path->kind != mechanics::BeltPathKind::horizontal ||
-            path->tiles.size() > materials::maximum_belt_slots ||
+        if (!path || path->tiles.size() > materials::maximum_belt_slots ||
             lane->second.slots.size() != path->tiles.size()) return false;
+        if ((path->kind == mechanics::BeltPathKind::vertical || path->kind == mechanics::BeltPathKind::sideways) &&
+            (lane->second.phase != 0 || std::any_of(lane->second.slots.begin(), lane->second.slots.end(),
+                [](const auto& item) { return item.has_value(); }))) return false;
         for (const auto& item : lane->second.slots) {
             if (item && item->work_lots.size() > maximum_current_work - current_work) return false;
             if (item) current_work += item->work_lots.size();
@@ -891,7 +891,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             if (first->generation != *expected || last->generation != *to_generation)
                 return refused("stale_generation");
             const auto path = mechanics::belt_path(first->geometry, last->geometry);
-            if (!path || path->kind != mechanics::BeltPathKind::horizontal)
+            if (!path)
                 return refused("invalid_belt_geometry");
         } else {
             const auto found = std::find_if(state.topology.belt_spans.begin(), state.topology.belt_spans.end(),
@@ -926,10 +926,10 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             auto& ready = std::get<stationary::PreparedPlacement>(proposal);
             candidate.topology = std::move(ready.candidate);
             candidate.kits.at(binding.actor) = std::move(ready.candidate_kit);
-            const auto axis = first->geometry.axis == mechanics::Axis::x ? 2 : 0;
-            const auto length = std::abs(first->geometry.center[axis] - last->geometry.center[axis]) / 4 + 1;
+            const auto path = mechanics::belt_path(first->geometry, last->geometry);
+            if (!path) return refused("invalid_belt_geometry");
             candidate.material.belt_lanes.emplace(entity, materials::BeltLane{
-                std::vector<std::optional<materials::Cargo>>(static_cast<std::size_t>(length)), 0});
+                std::vector<std::optional<materials::Cargo>>(path->tiles.size()), 0});
             candidate.issued_entities.emplace(entity, generation);
         } else {
             auto proposal = stationary::prepare_belt_removal(state.topology, state.kits.at(binding.actor), state.material,
@@ -1140,8 +1140,11 @@ Advance World::tick() noexcept {
             if (!first || !last || rate == motion.motion.end() || lane == candidate.material.belt_lanes.end())
                 throw materials::Error::invalid_state;
             const auto path = mechanics::belt_path(first->geometry, last->geometry);
+            if (!path || path->tiles.size() != lane->second.slots.size()) throw materials::Error::invalid_state;
+            if (path->kind == mechanics::BeltPathKind::vertical || path->kind == mechanics::BeltPathKind::sideways)
+                continue;
             const auto direction = mechanics::belt_cargo_direction(first->geometry, last->geometry, rate->second.rate);
-            if (!path || !direction || path->tiles.size() != lane->second.slots.size())
+            if (!direction)
                 throw materials::Error::invalid_state;
             auto before = first->geometry.center;
             auto after = last->geometry.center;

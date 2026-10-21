@@ -106,20 +106,22 @@ an X-axis belt, at the same height. A cell is four integer quarter-pitch units. 
 diagonals, other heights and nearby power components do not attach. This is a
 revisable adapter layout, not a general material-routing rule.
 
-The logical checkpoint uses schema 4 and retains identified horizontal belt
-spans and their shaft endpoints. A span counts against the same finite belt
+The logical checkpoint uses schema 4 and retains identified horizontal, inclined,
+vertical and sideways belt spans and their shaft endpoints. A span counts against the same finite belt
 part inventory as a conveyor. `place_belt_span` consumes a belt and checks
 reach to both shaft identities; `remove_belt_span` refunds it. Both retain
 generation and retry history. The native Host checks actor and site clearance.
-World owns canonical multi-slot lane custody. A powered collector adjacent to
+World owns canonical multi-slot lane custody; vertical and sideways power-only
+spans require empty lanes. The Godot Host still permits only horizontal spans.
+A powered collector adjacent to
 either outer endpoint can feed raw material into an empty endpoint, even while
 the span is stopped. Rotation carries raw material to an adjacent processor at
 the outgoing endpoint, subject to its input capacity. Attachment follows grid
 geometry regardless of construction order. Other items and unconnected or full
 ends remain on the lane. The Host projects confirmed lane slots and the shared
-presenter shows those confirmed items at tile positions; it does not infer
-intermediate cargo motion. Manual span recovery remains unimplemented. Earlier
-logical schema payloads are refused.
+presenter shows those confirmed items at their confirmed slot and phase positions.
+Manual recovery uses the selected slot's current confirmed cargo. Earlier logical
+schema payloads are refused.
 
 The planner checks reach to the new part and every existing endpoint before
 preparing one replacement state. Placement, finite kit and the added links

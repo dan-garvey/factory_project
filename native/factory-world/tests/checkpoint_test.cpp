@@ -460,21 +460,81 @@ void belt_span_commands() {
     state.issued_entities = {{"wheel", 1}, {"left", 1}, {"right", 1}};
     auto inclined = state;
     inclined.topology.parts.back().geometry.center[1] = 8;
-    auto incomplete_world = w::World::create("saved-world", profile, inclined);
-    check(incomplete_world != nullptr, "The World accepts the separate inclined shaft endpoints.");
-    auto inclined_command = command("place_belt_span", "inclined-refusal", "left");
+    auto inclined_world = w::World::create("saved-world", profile, inclined);
+    check(inclined_world != nullptr, "The World accepts the separate inclined shaft endpoints.");
+    auto inclined_command = command("place_belt_span", "inclined-placement", "left");
     inclined_command.emplace("to", V("right")); inclined_command.emplace("to_generation", V(I{1}));
-    const auto incomplete = send(*incomplete_world, inclined_command);
-    check(incomplete.completed() && !field<bool>(*incomplete.result, "accepted") &&
-              field<std::string>(*incomplete.result, "reason") == "invalid_belt_geometry" &&
-              incomplete_world->snapshot().state == inclined,
-          "The World refuses unsupported inclined construction without spending a belt.");
-    inclined.topology.belt_spans = {{{"incline", "left", "right"}, 2}};
-    inclined.issued_entities.emplace("incline", 2);
-    inclined.kits.at("P").at({s::Role::belt, 0, 0}) = 0;
-    inclined.material.belt_lanes.emplace("incline", m::BeltLane{std::vector<std::optional<m::Cargo>>(3), 0});
-    check(w::World::create("saved-world", profile, inclined) == nullptr,
-          "An unsupported inclined span cannot enter through a seeded World.");
+    const auto inclined_built = send(*inclined_world, inclined_command);
+    check(inclined_built.completed() && field<bool>(*inclined_built.result, "accepted"),
+          "The native World places an inclined belt between confirmed shafts.");
+    const auto inclined_id = field<std::string>(*inclined_built.result, "entity");
+    check(inclined_world->snapshot().state.material.belt_lanes.at(inclined_id).slots.size() == 3 &&
+              s::power_view(inclined_world->snapshot().state.topology).mechanical.motion.at("right").rate == g::Rate{1, 1},
+          "The inclined lane has one slot per tile and transmits power.");
+    auto moving = inclined_world->snapshot().state;
+    moving.material.stock.source = 0;
+    moving.material.belt_lanes.at(inclined_id).slots[2] = m::Cargo{1, 0, {}};
+    auto cargo_world = w::World::create("saved-world", profile, moving);
+    check(cargo_world != nullptr, "A conserved inclined-lane cargo fixture creates a World.");
+    check(cargo_world->tick().error == w::TransactionError::none && cargo_world->snapshot().state.material.belt_lanes.at(inclined_id).slots[1].has_value(),
+          "The driven inclined lane moves cargo in shaft-signed direction.");
+    const auto incline_save = w::encode_checkpoint(profile, cargo_world->snapshot());
+    check(std::holds_alternative<V>(incline_save) && std::holds_alternative<w::Snapshot>(
+              w::decode_checkpoint(profile, "saved-world", std::get<V>(incline_save))),
+          "An occupied inclined lane round-trips through the native checkpoint.");
+    auto recover_world = w::World::restore("saved-world", profile,
+        std::get<w::Snapshot>(w::decode_checkpoint(profile, "saved-world", std::get<V>(incline_save))));
+    auto recover = command("recover_belt_slot", "incline-recover", inclined_id.c_str());
+    recover.at("generation") = V(field<I>(*inclined_built.result, "generation"));
+    recover.emplace("slot", V(I{1}));
+    recover.emplace("expected", V(O{{"raw", V(I{1})}, {"products", V(I{0})}, {"work_lots", V(V::Array{})}}));
+    const auto recovered = send(*recover_world, recover);
+    check(recovered.completed() && field<bool>(*recovered.result, "accepted") &&
+              !factory::values::typed_difference(V(field<V::Array>(*recovered.result, "slot_center")),
+                  V(V::Array{V(I{4}), V(I{4}), V(I{0})})),
+          "Inclined cargo recovery targets the actual elevated tile.");
+    auto resumed_incline = w::World::restore("saved-world", profile,
+        std::get<w::Snapshot>(w::decode_checkpoint(profile, "saved-world", std::get<V>(incline_save))));
+    check(resumed_incline && resumed_incline->tick().error == w::TransactionError::none &&
+              cargo_world->tick().error == w::TransactionError::none &&
+              resumed_incline->snapshot().state.material == cargo_world->snapshot().state.material,
+          "Original and restored inclined lanes continue identically.");
+    auto sideways = state;
+    sideways.topology.parts.erase(sideways.topology.parts.begin());
+    sideways.topology.sources.clear();
+    sideways.kits.at("P").emplace(s::PartSpec{s::Role::waterwheel, 0, 0}, 1);
+    for (auto& item : sideways.topology.parts) item.geometry.axis = g::Axis::y;
+    auto sideways_world = w::World::create("saved-world", profile, sideways);
+    check(sideways_world != nullptr, "The World accepts separate vertical shafts for a sideways belt.");
+    auto sideways_command = command("place_belt_span", "sideways-placement", "left");
+    sideways_command.emplace("to", V("right")); sideways_command.emplace("to_generation", V(I{1}));
+    const auto sideways_built = send(*sideways_world, sideways_command);
+    check(sideways_built.completed() && field<bool>(*sideways_built.result, "accepted"),
+          "The native World places a sideways power-only belt.");
+    const auto sideways_id = field<std::string>(*sideways_built.result, "entity");
+    auto sideways_cargo = sideways_world->snapshot().state;
+    sideways_cargo.material.stock.source = 0;
+    sideways_cargo.material.belt_lanes.at(sideways_id).slots[1] = m::Cargo{1, 0, {}};
+    check(w::World::create("saved-world", profile, sideways_cargo) == nullptr,
+          "A sideways power-only belt cannot retain cargo.");
+    auto vertical = state;
+    vertical.topology.parts.back().geometry.center = {0, 8, 0};
+    auto vertical_world = w::World::create("saved-world", profile, vertical);
+    check(vertical_world != nullptr, "The World accepts separate vertical shaft endpoints.");
+    auto vertical_command = command("place_belt_span", "vertical-placement", "left");
+    vertical_command.emplace("to", V("right")); vertical_command.emplace("to_generation", V(I{1}));
+    const auto vertical_built = send(*vertical_world, vertical_command);
+    check(vertical_built.completed() && field<bool>(*vertical_built.result, "accepted"),
+          "The native World places a vertical belt for power transmission.");
+    const auto vertical_id = field<std::string>(*vertical_built.result, "entity");
+    auto illegal_cargo = vertical_world->snapshot().state;
+    illegal_cargo.material.stock.source = 0;
+    illegal_cargo.material.belt_lanes.at(vertical_id).slots[1] = m::Cargo{1, 0, {}};
+    check(w::World::create("saved-world", profile, illegal_cargo) == nullptr,
+          "A vertical power-only belt cannot retain cargo.");
+    check(vertical_world->tick().error == w::TransactionError::none &&
+              s::power_view(vertical_world->snapshot().state.topology).mechanical.motion.at("right").rate == g::Rate{1, 1},
+          "An empty vertical belt ticks and continues to transmit power.");
     auto world = w::World::create("saved-world", profile, state);
     check(world != nullptr, "The belt command fixture creates the single World.");
     auto place = command("place_belt_span", "belt-place", "left");

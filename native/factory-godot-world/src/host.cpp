@@ -1092,6 +1092,14 @@ Host::Decoded Host::decode(const Value& input) const {
         const auto* to = find(snapshot.state, link.to.id);
         if (!from || !to || !world::material_ports_adjacent(*from, *to)) return {nullptr, "incompatible_geometry"};
     }
+    // The physical adapter only represents horizontal belts until its site and
+    // collision geometry supports the other native World path kinds.
+    for (const auto& span : snapshot.state.topology.belt_spans) {
+        const auto* first = find(snapshot.state, span.geometry.first_shaft);
+        const auto* last = find(snapshot.state, span.geometry.last_shaft);
+        const auto path = first && last ? mechanics::belt_path(first->geometry, last->geometry) : std::nullopt;
+        if (!path || path->kind != mechanics::BeltPathKind::horizontal) return {nullptr, "invalid_belt_geometry"};
+    }
     for (const auto& belt : belt_bounds(snapshot.state)) {
         for (const auto& [id, foundation] : snapshot.state.foundations) {
             (void)id;
