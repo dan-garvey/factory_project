@@ -18,6 +18,7 @@ cc_binary(
 cc_test(
     name = "install_test",
     srcs = ["tests.cpp"],
+    data = ["//:scripts/ensure-gameplay-library.sh"],
     deps = [":build", "//native/factory-launch:capture"],
     tags = ["host"],
     size = "small",
