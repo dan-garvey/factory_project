@@ -78,23 +78,20 @@ including copies in older worktrees. It does not change gameplay requirements.
 
 ## Playtesting
 
-Agent-controlled desktop playtests are disabled until the user explicitly
-re-enables them. Use human playtesting for gameplay and usability feedback. Do not
-queue or execute agent desktop tests, their availability probes or game launches,
-or perform foreground acquisition, activation, input or capture for those tests.
-This suspension supersedes prior standing playtest authorization and pending
-requests. Preserve existing evidence and verdicts without replay. Ordinary
-automated checks and development continue; human playtesting is not an additional
-code-landing approval gate. The suspended workflow is recorded in
-`factory-yau.6.46`.
+Agent desktop control is disabled until the user explicitly re-enables it. Do
+not use desktop automation to acquire the foreground, activate windows, inject
+mouse or keyboard input, or control the game. Agents may launch the game and take
+screenshots or record video for visual inspection without desktop control. This
+permission includes normal game views as well as isolated, non-interactive asset
+or presentation fixtures. Ordinary automated checks and development continue;
+human playtesting is not an additional code-landing approval gate. The deferred
+desktop-control workflow is recorded in `factory-yau.6.46`.
 
-Agents should inspect relevant existing screenshots and video frames, and may
-produce and inspect images from isolated, non-interactive asset or presentation
-fixtures. Record the source revision, view and sample conditions, and specific
-visible findings so art decisions are grounded in actual pixels. This visual
-inspection does not require desktop control or a game launch. It informs visual
-iteration but does not stand in for human gameplay and usability feedback or prove
-the quality of the complete playable scene.
+Agents should inspect relevant screenshots and video frames. Record the source
+revision, view and sample conditions, and specific visible findings so art
+decisions are grounded in actual pixels. Use human playtesting for gameplay and
+usability feedback; screenshots and passive observation do not establish human
+understanding or enjoyment or prove the quality of the complete playable scene.
 
 ## Project contract
 
