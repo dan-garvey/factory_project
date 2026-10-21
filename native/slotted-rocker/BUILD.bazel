@@ -1,0 +1,32 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "rocker",
+    srcs = ["src/rocker.cpp"],
+    hdrs = ["include/factory/slotted_rocker.hpp"],
+    strip_include_prefix = "include",
+    deps = ["//native/slider-crank:crank"],
+)
+
+cc_library(
+    name = "workbench",
+    srcs = ["src/workbench.cpp"],
+    hdrs = ["include/factory/slotted_rocker_workbench.hpp"],
+    strip_include_prefix = "include",
+    deps = [":rocker", "//native/geared-cycle:workbench"],
+)
+
+cc_binary(
+    name = "rocker_case",
+    srcs = ["src/main.cpp"],
+    deps = [":workbench"],
+)
+
+cc_test(
+    name = "rocker_test",
+    size = "small",
+    srcs = ["tests/rocker_test.cpp"],
+    deps = [":workbench"],
+)
