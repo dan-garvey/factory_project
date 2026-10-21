@@ -4,7 +4,7 @@ render_mode diffuse_burley, specular_schlick_ggx;
 uniform sampler2D albedo_map : source_color, repeat_enable, filter_linear_mipmap_anisotropic;
 uniform sampler2D normal_map : hint_normal, repeat_enable, filter_linear_mipmap_anisotropic;
 uniform sampler2D arm_map : repeat_enable, filter_linear_mipmap_anisotropic;
-uniform float source_extent = 1.3;
+uniform float source_extent = 1.4;
 
 varying vec3 world_point;
 varying vec3 world_normal;

@@ -239,9 +239,9 @@
     "fixture": "opposite riverbank",
     "trees": 3,
     "selected_uniform_scales": [
-      0.9,
-      1,
-      0.95
+      1.45,
+      1.55,
+      1.5
     ],
     "gravity_upright": true,
     "root_embed_metres": 0.02,

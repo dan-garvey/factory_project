@@ -17,6 +17,10 @@ inline constexpr Quantity maximum_drop_coordinate = 1000004;
 inline constexpr Quantity work_subticks_per_tick = 4096;
 inline constexpr Quantity maximum_work_subticks_per_tick = 16 * work_subticks_per_tick;
 
+// Convert a signed shaft rate to distance per tick. Inclined tile centers are
+// sqrt(2) farther apart; the same surface speed traverses fewer tile units.
+[[nodiscard]] Quantity belt_speed_subticks(Quantity numerator, Quantity denominator, bool inclined) noexcept;
+
 // Canonical data for the unadopted finite material fixture. The sole World and
 // its command, admission and persistence boundaries remain separate.
 

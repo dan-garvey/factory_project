@@ -51,11 +51,11 @@ pixels exactly. The twelve-MiB component allocation and common project capture
 limit remain distinct. The shared `site_surface.gd` reader checks the prepared
 identity before deserialization; absent historical rosters can omit it.
 
-The bank fixture mounts three instances at 0.85–1.0 times source scale, with
+The bank fixture mounts three instances at 1.45–1.55 times source scale, with
 gravity-upright yaw and roots embedded two centimetres into the actual terrain
 triangles. A deterministic bounded search preserves the eight-metre working
 ring, whole-canopy river/rock clearance and separation between trees. The
-current selected scales are 0.9, 1.0 and 0.95; this is an art default rather
+current selected scales are 1.45, 1.55 and 1.5; this is an art default rather
 than growth, harvesting or a permanent biome.
 
 The two woody surfaces supply all 16,560 transformed triangles across the three

@@ -156,30 +156,34 @@ func prepare_forest_ground(family: String) -> void:
 	if not family.is_absolute_path() or output.begins_with(ProjectSettings.globalize_path("res://")) or DirAccess.dir_exists_absolute(output):
 		fail("Use the declared external family and preserve earlier ground outputs.")
 		return
-	var pins := {"source.gltf": "7da88e6354aa1f67566e7aca803642641b8247ddbbfc81c5dd64067961daa194",
-		"source_albedo.jpg": "c598c555f13cd5328409fd5e2a45496a26e319e52299e3959042f1449c2f1b06",
-		"source_normal.png": "0c5c37348830b6a36024a114359e26aaf2f48bf2b435a5ef2d6999bcd4b530b7",
-		"source_arm.png": "939f98687379b70fe2f2e1daf0965d46080d00bb4bbe9afb9e2108ce456ad9ab"}
+	var pins := {"grass_color.jpg": "b9b6d61bc3b6137b868a3447eef18737896acd26d58fe2f4b83ce8c0e9d3f8ad",
+		"grass_normal_gl.jpg": "eef0b56db5f00a6fcb3d0e0f8463e4e141e88aa85b26527a04d617b75a4ab5d2",
+		"grass_ao.jpg": "a5e6e6a1c4329562e99f009313f09e44dd179dedbfb5dd679feeaf17ca122ab9",
+		"grass_roughness.jpg": "8810effd44756341170d551501b7d0c645dc2395dbce46a8c7f1e61045258a06"}
 	for file in pins:
 		if FileAccess.get_sha256(family.path_join(file)) != pins[file]:
 			fail("Refuse changed qualified ground input: " + file)
 			return
-	var descriptor: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(family.path_join("source.gltf")))
-	if descriptor.materials[0].pbrMetallicRoughness.metallicFactor != 0:
-		fail("The ground descriptor no longer selects the qualified dielectric surface.")
-		return
 	if DirAccess.make_dir_absolute(output) != OK:
 		fail("Cannot create the fresh ground output.")
 		return
-	var report := {"status": "pass", "asset": "brown_mud_leaves_01", "maps": {},
-		"source_extent_metres": 1.3, "source_scene_imported": false, "limits": "No scene, collision, renderer or graphical-quality result."}
+	var report := {"status": "pass", "asset": "ambientCG Grass001", "maps": {},
+		"source_extent_metres": 1.4, "source_scene_imported": false, "limits": "No scene, collision, renderer or graphical-quality result."}
 	var total := 0
 	for role in ["albedo", "normal", "arm"]:
-		var source_name: String = {"albedo": "source_albedo.jpg", "normal": "source_normal.png", "arm": "source_arm.png"}[role]
+		var source_name: String = {"albedo": "grass_color.jpg", "normal": "grass_normal_gl.jpg", "arm": "grass_ao.jpg"}[role]
 		var image := Image.load_from_file(family.path_join(source_name))
 		if image == null or image.get_size() != Vector2i(1024, 1024):
 			fail("Unexpected ground source image: " + role)
 			return
+		var roughness: Image
+		if role == "arm":
+			roughness = Image.load_from_file(family.path_join("grass_roughness.jpg"))
+			if roughness == null or roughness.get_size() != Vector2i(1024, 1024):
+				fail("Unexpected ground roughness source image.")
+				return
+			roughness.convert(Image.FORMAT_RGBF)
+			roughness.resize(512, 512, Image.INTERPOLATE_LANCZOS)
 		var source_format := image.get_format()
 		var bytes := PackedByteArray()
 		var maximum_normal_error := 0.0
@@ -194,6 +198,8 @@ func prepare_forest_ground(family: String) -> void:
 			for y in range(512):
 				for x in range(512):
 					var color := image.get_pixel(x, y)
+					if role == "arm":
+						color = Color(color.r, roughness.get_pixel(x, y).r, 0.0)
 					if role == "normal":
 						var normal := Vector3(color.r, color.g, color.b) * 2.0 - Vector3.ONE
 						if not normal.is_finite() or normal.length_squared() < 0.000001:

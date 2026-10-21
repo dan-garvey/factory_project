@@ -78,17 +78,17 @@ bool forward_route(const O& spans, const O& parts, const O& motion,
             before[axis] -= step;
             after[axis] += step;
         }
-        __extension__ using Wide = __int128;
-        Wide magnitude = *numerator;
-        if (magnitude < 0) magnitude = -magnitude;
-        const bool fast = path->kind == mechanics::BeltPathKind::horizontal && magnitude >= *denominator;
+        const auto speed = materials::belt_speed_subticks(*numerator, *denominator,
+            path->kind == mechanics::BeltPathKind::inclined);
+        const bool fast = speed >= materials::work_subticks_per_tick;
         lanes.push_back({*path, *direction, before, after, *order, fast});
     }
     // World offers collector output in construction order, after advancing each lane.
-    // A horizontal lane that moves at least one tile per tick and drops into
+    // A cargo lane that moves at least one tile per tick and drops into
     // open space can continuously take every output. Do not report a later
     // route as working in that case. Slower lanes can leave their inlet occupied,
-    // while stopped and backward lanes eventually fill, so they remain eligible.
+    // while stopped lanes eventually fill, so they remain eligible. A backward
+    // lane can also drop material back at the collector instead of filling.
     std::sort(lanes.begin(), lanes.end(), [](const Lane& a, const Lane& b) { return a.order < b.order; });
     const auto reaches_processor = [&](std::size_t start) {
         std::vector<bool> reached(lanes.size());
@@ -109,10 +109,11 @@ bool forward_route(const O& spans, const O& parts, const O& motion,
     };
     for (std::size_t index = 0; index < lanes.size(); ++index) {
         const auto& lane = lanes[index];
-        const bool collector_input = (lane.direction > 0 && lane.before == collector) ||
-                                     (lane.direction < 0 && lane.after == collector);
+        const bool collector_input = lane.before == collector || lane.after == collector;
         if (!collector_input) continue;
-        if (reaches_processor(index)) return true;
+        const bool moves_away = (lane.direction > 0 && lane.before == collector) ||
+                                (lane.direction < 0 && lane.after == collector);
+        if (moves_away && reaches_processor(index)) return true;
         const auto& output = lane.direction > 0 ? lane.after : lane.before;
         bool transfers_to_lane = false;
         for (const auto& target : lanes) {

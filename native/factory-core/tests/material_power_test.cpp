@@ -31,6 +31,20 @@ void tick(m::State& state, m::MachinePower power) {
             "The complete candidate retains valid finite custody.");
 }
 
+void belt_speed_conversion() {
+    require(m::belt_speed_subticks(1, 1, false) == 4096 &&
+            m::belt_speed_subticks(-1, 1, false) == 4096 &&
+            m::belt_speed_subticks(1, 1, true) == 2896,
+            "Signed rates use the same magnitude and inclined travel is slower.");
+    require(m::belt_speed_subticks(0, 1, false) == 0 && m::belt_speed_subticks(1, 0, false) == 0 &&
+            m::belt_speed_subticks(1, std::numeric_limits<m::Quantity>::max(), false) == 1,
+            "Stopped and malformed rates cannot move cargo; positive fractions retain minimum progress.");
+    require(m::belt_speed_subticks(std::numeric_limits<m::Quantity>::min(), 1, false) ==
+                m::maximum_work_subticks_per_tick &&
+            m::belt_speed_subticks(std::numeric_limits<m::Quantity>::max(), 1, true) == 16 * 2896,
+            "Extreme signed rates clamp safely before inclined conversion.");
+}
+
 void fractional_gear_speed() {
     auto slow = seed();
     slow.stock.source = 14;
@@ -278,6 +292,7 @@ void multi_slot_belt_lane() {
 
 int main() {
     try {
+        belt_speed_conversion();
         fractional_gear_speed();
         reversed_belt_custody();
         legacy_order_and_carried_work();
