@@ -903,7 +903,7 @@ class ProductionFoundationArt:
 		return finish
 
 	static func footing_mesh() -> ArrayMesh:
-		return ProductionVisuals.box_mesh(Vector3(Geometry.PITCH, Geometry.PITCH - DECK_THICKNESS, Geometry.PITCH))
+		return ProductionVisuals.box_mesh(Vector3(Geometry.PITCH, Geometry.FOUNDATION_DEPTH - DECK_THICKNESS, Geometry.PITCH))
 
 	static func deck_mesh() -> ArrayMesh:
 		return ProductionVisuals.box_mesh(Vector3(Geometry.PITCH, DECK_THICKNESS, Geometry.PITCH))
@@ -916,7 +916,7 @@ class ProductionFoundationArt:
 		var footing := MeshInstance3D.new()
 		footing.name = "FoundationBlock"
 		footing.mesh = footing_mesh()
-		footing.position.y = -(Geometry.PITCH + DECK_THICKNESS) / 2.0
+		footing.position.y = -(Geometry.FOUNDATION_DEPTH + DECK_THICKNESS) / 2.0
 		footing.material_override = concrete
 		parent.add_child(footing)
 		var deck := MeshInstance3D.new()

@@ -106,8 +106,9 @@ void terrain_and_stacking() {
     Host host; initialize(host);
     outcome(host.publish_actor("P", {V(9.0), V(2.8), V(6.0)}, 1), true, "actor_published");
     const auto lower = host.command("P", foundation("lower", 5, 2, 1)); outcome(lower, true, "ok");
-    const auto upper = host.command("P", foundation("upper", 5, 2, 5)); outcome(upper, true, "ok");
-    check(carried(host) == 22, "Vertical attachment uses four common height units and consumes two blocks.");
+    outcome(host.command("P", foundation("overlapping-height", 5, 2, 2)), false, "occupied");
+    const auto upper = host.command("P", foundation("upper", 5, 2, 3)); outcome(upper, true, "ok");
+    check(carried(host) == 22, "Vertical attachment uses two common height units and consumes two blocks.");
     outcome(host.validate_checkpoint(host.checkpoint()), true, "valid");
     outcome(host.command("P", removal("lower-refund", get<std::string>(lower, "entity"))), true, "ok");
     outcome(host.validate_checkpoint(host.checkpoint()), true, "valid");

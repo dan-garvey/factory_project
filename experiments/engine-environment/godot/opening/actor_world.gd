@@ -160,10 +160,10 @@ func sync_topology() -> Dictionary:
 		body.set_meta("foundation", id)
 		body.collision_layer = Geometry.GROUND_LAYER
 		body.collision_mask = Geometry.ACTOR_LAYER
-		body.position = Vector3(spec.cell[0] * Geometry.PITCH, float(spec.level) * Geometry.HEIGHT_STEP - Geometry.PITCH / 2.0, spec.cell[1] * Geometry.PITCH)
+		body.position = Vector3(spec.cell[0] * Geometry.PITCH, float(spec.level) * Geometry.HEIGHT_STEP - Geometry.FOUNDATION_DEPTH / 2.0, spec.cell[1] * Geometry.PITCH)
 		var collider := CollisionShape3D.new()
 		var shape := BoxShape3D.new()
-		shape.size = Vector3.ONE * Geometry.PITCH
+		shape.size = Vector3(Geometry.PITCH, Geometry.FOUNDATION_DEPTH, Geometry.PITCH)
 		collider.shape = shape
 		body.add_child(collider)
 		foundations[id] = body
@@ -233,7 +233,7 @@ func _geometry_registered() -> bool:
 		var body: StaticBody3D = foundations[id]
 		var rid: RID = body.get_rid()
 		var spec: Dictionary = foundation_specs[id]
-		var expected := Vector3(spec.cell[0] * Geometry.PITCH, float(spec.level) * Geometry.HEIGHT_STEP - Geometry.PITCH / 2.0, spec.cell[1] * Geometry.PITCH)
+		var expected := Vector3(spec.cell[0] * Geometry.PITCH, float(spec.level) * Geometry.HEIGHT_STEP - Geometry.FOUNDATION_DEPTH / 2.0, spec.cell[1] * Geometry.PITCH)
 		var pose: Transform3D = PhysicsServer3D.body_get_state(rid, PhysicsServer3D.BODY_STATE_TRANSFORM)
 		if PhysicsServer3D.body_get_space(rid) != space or PhysicsServer3D.body_get_shape_count(rid) != 1 or PhysicsServer3D.body_get_collision_layer(rid) != Geometry.GROUND_LAYER:
 			return false
@@ -242,7 +242,7 @@ func _geometry_registered() -> bool:
 		if PhysicsServer3D.body_get_shape_transform(rid, 0) != Transform3D.IDENTITY:
 			return false
 		var data = PhysicsServer3D.shape_get_data(PhysicsServer3D.body_get_shape(rid, 0))
-		if not data is Vector3 or data.distance_to(Vector3.ONE * Geometry.PITCH / 2.0) > Geometry.NATIVE_POSE_EPSILON:
+		if not data is Vector3 or data.distance_to(Vector3(Geometry.PITCH, Geometry.FOUNDATION_DEPTH, Geometry.PITCH) / 2.0) > Geometry.NATIVE_POSE_EPSILON:
 			return false
 	var expected_half := Vector3(Geometry.MACHINE_SIZE[0], Geometry.MACHINE_SIZE[1], Geometry.MACHINE_SIZE[2]) / 2
 	for body in [floor_body] + machines.values():
