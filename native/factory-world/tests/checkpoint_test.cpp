@@ -1,5 +1,6 @@
 #include "factory/checkpoint.hpp"
 
+#include <algorithm>
 #include <functional>
 #include <iostream>
 #include <limits>
@@ -325,6 +326,104 @@ void belt_span_checkpoint() {
           "Reversing the shaft reverses lane travel.");
 }
 
+void belt_span_material_route() {
+    for (const bool reverse : {false, true}) {
+        for (const bool reverse_parts : {false, true}) {
+            for (const bool gap : {false, true}) {
+                w::Profile profile;
+                profile.material = {1, 1, 2}; profile.initial_units = 3; profile.actors = {"P"};
+                profile.meters_per_grid_unit = 0.1;
+                profile.waterwheel_rate = {reverse ? -1 : 1, 1};
+                profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, 1}, {{s::Role::collector, 0, 0}, 1},
+                    {{s::Role::processor, 0, 0}, 1}, {{s::Role::shaft, 0, 2}, 2},
+                    {{s::Role::gear, 2, 0}, 2}, {{s::Role::belt, 0, 0}, 1}};
+                w::State state;
+                state.material.initial_units = 3; state.material.stock.source = 3;
+                state.material.cargo = {{"P", {}}}; state.kits = {{"P", {}}};
+                state.topology.parts = {
+                    {{"wheel", g::Kind::hub, {-4, 0, -4}, g::Axis::z, 0, 0}, 1, s::Role::waterwheel},
+                    {{"collector", g::Kind::hub, {-4, 0, 0}, g::Axis::z, 0, 0}, 1, s::Role::collector},
+                    {{"first-cog", g::Kind::gear, {-4, 0, 4}, g::Axis::z, 2, 0}, 1, s::Role::gear},
+                    {{"second-cog", g::Kind::gear, {0, 0, 4}, g::Axis::z, 2, 0}, 1, s::Role::gear},
+                    {{"left", g::Kind::shaft, {0, 0, 0}, g::Axis::z, 0, 2}, 1, s::Role::shaft},
+                    {{"right", g::Kind::shaft, {8, 0, 0}, g::Axis::z, 0, 2}, 1, s::Role::shaft},
+                    {{"processor", g::Kind::hub, {gap ? 16 : 12, 0, 0}, g::Axis::z, 0, 0}, 1, s::Role::processor}};
+                if (reverse_parts) std::reverse(state.topology.parts.begin(), state.topology.parts.end());
+                state.topology.sources = {{"wheel", profile.waterwheel_rate}};
+                state.topology.drive_enabled = true;
+                state.topology.belt_spans = {{{"span", "left", "right"}, 1}};
+                state.material.belt_lanes.emplace("span", m::BeltLane{{std::nullopt, std::nullopt, std::nullopt}, 0});
+                for (const auto& part : state.topology.parts) state.issued_entities.emplace(part.geometry.id, 1);
+                state.issued_entities.emplace("span", 1);
+                if (reverse_parts) {
+                    std::erase_if(state.topology.parts, [](const auto& part) {
+                        return part.role == s::Role::collector || part.role == s::Role::processor;
+                    });
+                    state.kits.at("P")[{s::Role::collector, 0, 0}] = 1;
+                    state.kits.at("P")[{s::Role::processor, 0, 0}] = 1;
+                } else {
+                    state.topology.belt_spans.clear();
+                    state.material.belt_lanes.clear();
+                    state.issued_entities.erase("span");
+                    state.kits.at("P")[{s::Role::belt, 0, 0}] = 1;
+                }
+                auto world = w::World::create("route-world", profile, state);
+                check(world != nullptr, "Either construction order starts with conserved finite parts.");
+                if (reverse_parts) {
+                    for (const auto& [role, x] : std::vector<std::pair<std::string, I>>{{"collector", -4}, {"processor", gap ? 16 : 12}}) {
+                        O place{{"context", V("route-world")}, {"client", V("P-old")}, {"request", V("place-" + role)},
+                            {"actor", V("P")}, {"action", V("place")}, {"role", V(role)},
+                            {"center", V(V::Array{V(x), V(I{0}), V(I{0})})}, {"axis", V("z")},
+                            {"teeth", V(I{0})}, {"half_span", V(I{0})}};
+                        accepted(send(*world, place));
+                    }
+                } else {
+                    auto place = command("place_belt_span", "place-span", "left");
+                    place.at("context") = V("route-world");
+                    place.emplace("to", V("right")); place.emplace("to_generation", V(I{1}));
+                    accepted(send(*world, place));
+                }
+                check(w::machine_power(world->snapshot().state.topology).collector,
+                      "The finite route powers its collector through actual shaft and cog contacts.");
+                for (int i = 0; i < 3; ++i) {
+                    const auto tick = world->tick();
+                    check(tick.error == w::TransactionError::none, "A span route advances without losing custody.");
+                }
+                if (!reverse && !gap) {
+                    auto mixed = world->snapshot().state;
+                    auto& lane = mixed.material.belt_lanes.begin()->second;
+                    check(lane.slots.back().has_value(), "The collector reaches the outgoing end before its next delivery tick.");
+                    lane.slots.back() = m::Cargo{0, 1, {}};
+                    auto blocked = w::World::create("blocked-output", profile, mixed);
+                    check(blocked != nullptr, "A finished product remains a valid distinct span item.");
+                    const auto tick = blocked->tick();
+                    check(tick.error == w::TransactionError::none && blocked->snapshot().state.material.stock.input == 0 &&
+                          blocked->snapshot().state.material.belt_lanes.begin()->second.slots.back() == m::Cargo{0, 1, {}},
+                          "A raw-only processor leaves a finished product on the belt.");
+                }
+                const auto encoded = w::encode_checkpoint(profile, world->snapshot());
+                check(std::holds_alternative<V>(encoded), "An in-flight span route checkpoints.");
+                const auto decoded = w::decode_checkpoint(profile, "route-world", std::get<V>(encoded));
+                check(std::holds_alternative<w::Snapshot>(decoded), "An in-flight span route decodes.");
+                auto restored = w::World::restore("route-world", profile, std::get<w::Snapshot>(decoded));
+                check(restored != nullptr, "A fresh World resumes the in-flight route.");
+                for (int i = 0; i < 8; ++i) {
+                    const auto original_tick = world->tick();
+                    const auto restored_tick = restored->tick();
+                    check(original_tick.error == w::TransactionError::none && restored_tick.error == w::TransactionError::none &&
+                          world->snapshot().state == restored->snapshot().state,
+                          "Original and restored lanes continue with identical material custody.");
+                }
+                const auto& material = restored->snapshot().state.material;
+                check(material.stock.input == (reverse || gap ? 0 : 1),
+                      "Only an adjacent processor in the direction of travel accepts raw material.");
+                check(m::validate(material, profile.material, w::material_path(restored->snapshot().state.topology)) == m::Error::none,
+                      "A full processor and reversed flow preserve every finite source unit.");
+            }
+        }
+    }
+}
+
 void belt_span_commands() {
     w::Profile profile;
     profile.material = {1, 1, 2}; profile.initial_units = 1; profile.actors = {"P"};
@@ -392,6 +491,7 @@ int main() {
         schema_and_authority_mutations();
         bounds_and_large_integers();
         belt_span_checkpoint();
+        belt_span_material_route();
         belt_span_commands();
         std::cout << "{\"status\":\"pass\",\"evidence\":\"invented_native_checkpoint\",\"checks\":" << checks << "}\n";
         return 0;

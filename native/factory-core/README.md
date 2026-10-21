@@ -40,8 +40,9 @@ It moves individual raw units, products or whole work lots through bounded slots
 using signed fixed-point distance, preserves fractional phase across reversal,
 and propagates a full receiver's backpressure. It returns the candidate and
 delivered items without changing the input. World owns and validates each lane,
-persists it, and advances occupied lanes from confirmed shaft motion. Both ends
-currently retain items: loading, unloading, recovery and presentation remain
+persists it, and advances occupied lanes from confirmed shaft motion. The World
+connects adjacent collectors and processor inputs at span endpoints; other
+items remain on the lane. Manual recovery and item presentation remain
 unimplemented.
 
 The fixed order remains: advance or finish existing machine work; start eligible

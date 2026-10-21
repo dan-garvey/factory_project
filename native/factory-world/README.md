@@ -110,12 +110,14 @@ The logical checkpoint uses schema 4 and retains identified horizontal belt
 spans and their shaft endpoints. A span counts against the same finite belt
 part inventory as a conveyor. `place_belt_span` consumes a belt and checks
 reach to both shaft identities; `remove_belt_span` refunds it. Both retain
-generation and retry history. The native Host checks actor and site clearance,
-and canonical multi-slot lane custody. Ordinary controls can construct spans;
-loading, unloading, recovery and item presentation remain unimplemented. Occupied
-lanes advance from confirmed shaft motion and retain items at their closed ends.
-Earlier logical schema 2
-payloads are refused.
+generation and retry history. The native Host checks actor and site clearance.
+World owns canonical multi-slot lane custody. A powered collector adjacent to
+either outer endpoint can feed raw material into an empty endpoint, even while
+the span is stopped. Rotation carries raw material to an adjacent processor at
+the outgoing endpoint, subject to its input capacity. Attachment follows grid
+geometry regardless of construction order. Other items and unconnected or full
+ends remain on the lane. Manual recovery and item presentation remain
+unimplemented. Earlier logical schema payloads are refused.
 
 The planner checks reach to the new part and every existing endpoint before
 preparing one replacement state. Placement, finite kit and the added links
