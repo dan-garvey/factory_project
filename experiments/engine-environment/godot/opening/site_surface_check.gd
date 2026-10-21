@@ -378,9 +378,11 @@ func check_belt_water_native(forward: bool) -> void:
 	var hubs: Array[String] = []
 	if not expect(observe.call(0.0, 0.0), "Reach the raised machine foundations"):
 		return
-	if not expect(issue.call("place_foundations", {"cell": [0, 1], "end_cell": [2, 1], "level": 4}).get("accepted", false), "Place the raised machine foundations"):
+	if not expect(issue.call("place_foundation", {"cell": [0, 1], "level": 4}).get("accepted", false), "Place the raised collector foundation"):
 		return
-	for entry in [["wheel", -2, "x"], ["collector", 0, "z"], ["belt", 1, "z"], ["processor", 2, "z"]]:
+	if not expect(observe.call(4.95, 0.0) and issue.call("place_foundation", {"cell": [3, 1], "level": 4}).get("accepted", false), "Place the raised press foundation"):
+		return
+	for entry in [["wheel", -2, "x"], ["collector", 0, "z"], ["processor", 3, "z"]]:
 		if not expect(observe.call(-1.65 if entry[0] == "wheel" else float(entry[1]) * 1.65, 3.3 if entry[0] == "wheel" else 0.0), "Synthetic actor reaches a machine placement"):
 			return
 		var args := {"kind": entry[0], "cell": [entry[1], 1], "axis": entry[2], "level": 4}
@@ -398,30 +400,50 @@ func check_belt_water_native(forward: bool) -> void:
 	var output: Dictionary = issue.call("place_gear", {"center": [0, 4, 4 + side * 4], "axis": "z", "teeth": 4})
 	if not expect(output.get("accepted", false), "Place large output cog: " + str(output)):
 		return
-	for n in range(3):
-		var x: int = n * 4
-		if not expect(observe.call(float(x) * 1.65 / 4.0, side * 3.3), "Reach small cog"):
+	for x in [0, 4]:
+		if not expect(observe.call(float(x) * 1.65 / 4.0, (4.0 + side * 8.0) * Geometry.HEIGHT_STEP - 1.65), "Reach front cog"):
 			return
 		var cog: Dictionary = issue.call("place_gear", {"center": [x, 4, 4 + side * 8], "axis": "z", "teeth": 2})
 		if not expect(cog.get("accepted", false), "Place small cog: " + str(cog)):
 			return
-	for n in range(1, 3):
-		if not expect(observe.call(float(n) * 1.65, 1.65), "Reach the shaft between machine and cog row"):
+	for x in [4, 8, 12]:
+		if not expect(observe.call(float(x) * Geometry.HEIGHT_STEP, (4.0 + side * 12.0) * Geometry.HEIGHT_STEP - 1.65), "Reach rear cog"):
 			return
-		var shaft: Dictionary = issue.call("place_shaft", {"center": [n * 4, 4, 4 + side * 4], "axis": "z", "half_span": 2})
-		if not expect(shaft.get("accepted", false), "Place the individual machine-to-cog shaft: " + str(shaft)):
+		var cog: Dictionary = issue.call("place_gear", {"center": [x, 4, 4 + side * 12], "axis": "z", "teeth": 2})
+		if not expect(cog.get("accepted", false), "Place rear cog: " + str(cog)):
 			return
-	if not expect(model.projection().parts.shaft == 6, "Two individual shafts consume the finite starter stock"):
+	for center in [[4, 4 + side * 4], [12, 4 + side * 8], [12, 4 + side * 4]]:
+		if not expect(observe.call(float(center[0]) * Geometry.HEIGHT_STEP, float(center[1]) * Geometry.HEIGHT_STEP - 1.65), "Reach the shaft between machine and cog row"):
+			return
+		var shaft: Dictionary = issue.call("place_shaft", {"center": [center[0], 4, center[1]], "axis": "z", "half_span": 2})
+		if not expect(shaft.get("accepted", false), "Place one-tile drive shaft: " + str(shaft)):
+			return
+	var endpoints: Array[String] = []
+	for x in [4, 8]:
+		if not expect(observe.call(float(x) * Geometry.HEIGHT_STEP, 0.0), "Reach belt endpoint"):
+			return
+		var shaft: Dictionary = issue.call("place_shaft", {"center": [x, 4, 4], "axis": "z", "half_span": 2})
+		if not expect(shaft.get("accepted", false), "Place belt endpoint shaft: " + str(shaft)):
+			return
+		endpoints.append(shaft.entity)
+	if not expect(observe.call(2.475, 0.0), "Reach both belt endpoints"):
+		return
+	var belt: Dictionary = issue.call("place_belt_span", {"from": endpoints[0], "to": endpoints[1]})
+	if not expect(belt.get("accepted", false), "Place physical shaft span: " + str(belt)):
+		return
+	if not expect(model.projection().parts.shaft == 3, "Five one-tile shafts consume the finite starter stock"):
 		return
 	if not expect(observe.call(-1.65, 0.0) and issue.call("set_power", {"active": true}).get("accepted", false), "Start the actual current"):
 		return
-	for n in range(1, 4):
-		var motion: Dictionary = model.projection().motion[hubs[n]]
-		var negative: bool = (n % 2 == 0) if forward else (n % 2 == 1)
-		if not expect(motion.state == "rotating" and (motion.numerator < 0 if negative else motion.numerator > 0), "Generated river powers machine with the expected sign: " + str(motion)):
+	for entity in [hubs[1], endpoints[0], endpoints[1], hubs[2]]:
+		var motion: Dictionary = model.projection().motion[entity]
+		if not expect(motion.state == "rotating", "Generated river powers machine or belt endpoint: " + str(motion)):
 			return
+	var belt_motion: Dictionary = model.projection().motion[endpoints[0]]
+	if not expect(belt_motion.numerator < 0 if forward else belt_motion.numerator > 0, "Belt shaft rate has the expected cargo direction: " + str(belt_motion)):
+		return
 	model.advance()
-	if not expect(model.projection().stock.collector == 1, "Collector advances actual-site material"):
+	if not expect(model.projection().stock.source < model.projection().initial_feed, "Collector extracts actual-site material"):
 		return
 	# The water's measured rate also determines press work per tick.
 	for turn in range(96):
@@ -448,13 +470,13 @@ func check_belt_water_native(forward: bool) -> void:
 		return
 	if not expect(model.projection().stock.output > 0, "The complete actual-site line produces a finished plate"):
 		return
-	if not expect(observe.call(3.3, 0.0 if forward else 3.3), "Reach the press for retrieval"):
+	if not expect(observe.call(4.95, 0.0 if forward else 3.3), "Reach the press for retrieval"):
 		return
 	for turn in range(512):
 		if model.projection().inventories.P >= 4:
 			break
 		if model.projection().stock.output > 0:
-			if not expect(issue.call("retrieve", {"entity": hubs[3], "amount": 1}).get("accepted", false), "Retrieve a produced plate"):
+			if not expect(issue.call("retrieve", {"entity": hubs[2], "amount": 1}).get("accepted", false), "Retrieve a produced plate"):
 				return
 		else:
 			model.advance()
@@ -466,14 +488,14 @@ func check_belt_water_native(forward: bool) -> void:
 		return
 	if not expect(observe.call(-3.3, side * 1.65) and issue.call("remove", {"entity": output.entity}).get("accepted", false), "Remove the corner cog"):
 		return
-	if not expect(model.projection().motion[hubs[2]].state != "rotating", "Removing the corner cog stops the belt"):
+	if not expect(model.projection().motion[endpoints[0]].state != "rotating", "Removing the corner cog stops the belt"):
 		return
 	var host := NativeChallengeFacts.new()
 	host.state = model.projection()
 	var challenge = load("res://opening/upstream_drive_challenge.gd").new()
-	challenge.configure(host, Vector2i(-2, 1))
+	challenge.configure(host, Vector2i(-2, 0))
 	var report: Dictionary = challenge.evaluate()
-	if not expect(report.phase == "restore_drive" and report.diagnostic_code == "missing_drive_shaft", "The presenter does not misdiagnose the remaining Z-axis cogs: " + str(report)):
+	if not expect(report.phase == "move_source" and report.diagnostic_code == "relocate_wheel", "The presenter follows the authoritative upstream target: " + str(report)):
 		challenge.free()
 		return
 	challenge.free()
