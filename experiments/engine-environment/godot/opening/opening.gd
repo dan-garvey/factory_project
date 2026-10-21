@@ -1651,9 +1651,10 @@ class ProductionEnvironment:
 	extends RefCounted
 	## Visual scenery only. ActorWorld owns collision from the same immutable site geometry.
 	static var Surface = load("res://opening/site_surface.gd") if ResourceLoader.exists("res://opening/site_surface.gd", "Script") else null
-	static var ground_finish: StandardMaterial3D
+	static var ground_finish: ShaderMaterial
 	const GROUND_ROOT := "res://opening/assets/ground"
 	const GROUND_FILES := {"albedo": "ground_albedo.webp", "arm": "ground_arm.webp", "normal": "ground_normal_gl.webp"}
+	const GROUND_SHADER = preload("res://opening/terrain_surface.gdshader")
 	static var ground_source_status := "uninitialized"
 	static var water_finish: StandardMaterial3D
 	static var foam_finish: StandardMaterial3D
@@ -1689,49 +1690,13 @@ class ProductionEnvironment:
 	static var pine_cluster_mesh: ArrayMesh
 	static var rock_boulder_mesh: ArrayMesh
 
-	static func _noise_texture(seed_value: int, normal_map: bool) -> NoiseTexture2D:
-		var noise := FastNoiseLite.new()
-		noise.seed = seed_value
-		noise.frequency = 0.025 if not normal_map else 0.12
-		noise.fractal_octaves = 4 if not normal_map else 3
-		var texture := NoiseTexture2D.new()
-		texture.width = 256
-		texture.height = 256
-		texture.seamless = true
-		texture.generate_mipmaps = true
-		texture.noise = noise
-		texture.as_normal_map = normal_map
-		texture.bump_strength = 0.8
-		if not normal_map:
-			var ramp := Gradient.new()
-			ramp.offsets = PackedFloat32Array([0.0, 0.48, 1.0])
-			ramp.colors = PackedColorArray([Color("4c5344"), Color("787b64"), Color("b2aa90")])
-			texture.color_ramp = ramp
-		return texture
-
-	static func ground_material() -> StandardMaterial3D:
-		if ground_finish == null:
-			ground_finish = _sourced_ground_material()
-			if ground_finish != null:
-				return ground_finish
-			ground_finish = StandardMaterial3D.new()
-			ground_finish.albedo_texture = _noise_texture(3471, false)
-			ground_finish.vertex_color_use_as_albedo = true
-			ground_finish.roughness = 0.94
-			ground_finish.normal_enabled = true
-			ground_finish.normal_texture = _noise_texture(3471, true)
-			ground_finish.normal_scale = 0.32
-			ground_finish.uv1_scale = Vector3(48, 48, 1)
-			ground_finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
-		return ground_finish
-
-	static func _sourced_ground_material() -> StandardMaterial3D:
+	static func ground_material() -> ShaderMaterial:
+		if ground_source_status != "uninitialized":
+			return ground_finish
 		var loaded := ProductionSteelFloor.read_images(GROUND_ROOT, GROUND_FILES, Vector2i(512, 512))
 		ground_source_status = loaded.status
-		if loaded.status == "missing":
-			return null
 		if loaded.status != "ready":
-			push_error("Incomplete or invalid forest-ground material: " + str(loaded.get("reason", "unknown")))
+			push_error("Ground shading requires its complete qualified surface set.")
 			return null
 		for role in loaded.images:
 			var image: Image = loaded.images[role]
@@ -1739,33 +1704,13 @@ class ProductionEnvironment:
 				ground_source_status = "invalid"
 				push_error("Cannot generate forest-ground mipmaps.")
 				return null
-		var packed := ImageTexture.create_from_image(loaded.images.arm)
-		var finish := StandardMaterial3D.new()
-		finish.albedo_color = Color.WHITE
-		finish.albedo_texture = ImageTexture.create_from_image(loaded.images.albedo)
-		finish.vertex_color_use_as_albedo = true
-		# The provider's glTF explicitly selects a dielectric surface, even
-		# though its delivery format includes the conventional packed B map.
-		finish.metallic = 0.0
-		finish.metallic_texture = packed
-		finish.metallic_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_BLUE
-		finish.roughness = 1.0
-		finish.roughness_texture = packed
-		finish.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_GREEN
-		finish.ao_enabled = true
-		finish.ao_texture = packed
-		finish.ao_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
-		finish.ao_light_affect = 0.0
-		finish.normal_enabled = true
-		finish.normal_texture = ImageTexture.create_from_image(loaded.images.normal)
-		finish.normal_scale = 1.0
-		finish.uv1_triplanar = true
-		finish.uv1_world_triplanar = true
-		finish.uv1_triplanar_sharpness = 8.0
-		# Brown Mud Leaves 01 covers a provider-declared 1.3-metre square.
-		finish.uv1_scale = Vector3.ONE / 1.3
-		finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
-		return finish
+		ground_finish = ShaderMaterial.new()
+		ground_finish.shader = GROUND_SHADER
+		for role in loaded.images:
+			ground_finish.set_shader_parameter(role + "_map", ImageTexture.create_from_image(loaded.images[role]))
+		# The stochastic mapping retains each source sample's physical scale.
+		ground_finish.set_shader_parameter("source_extent", 1.3)
+		return ground_finish
 
 	static func water_material() -> StandardMaterial3D:
 		if water_finish == null:
@@ -4212,7 +4157,11 @@ func _build_world() -> void:
 		arrow.rotation_degrees.x = -90
 	else:
 		var surface = ProductionEnvironment.Surface
-		var natural_ground: StandardMaterial3D = ProductionEnvironment.ground_material()
+		var natural_ground: ShaderMaterial = ProductionEnvironment.ground_material()
+		if natural_ground == null:
+			if is_inside_tree():
+				get_tree().quit(1)
+			return
 		var natural_stone: StandardMaterial3D = ProductionEnvironment.stone_material()
 		set_meta("foundation_surface", ProductionEnvironment.ground_source_status)
 		var groups := {"": self}
