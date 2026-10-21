@@ -24,7 +24,7 @@ void content_contract() {
     check(field<I>(view, "schema") == 1 && field<std::string>(view, "format") == "factory-opening-engineering",
           "The payload has its own versioned view format, separate from a World checkpoint.");
     const auto& cell = field<A>(view, "wheel_cell");
-    check(cell.size() == 2 && std::get<I>(cell[0].storage()) == -1 && std::get<I>(cell[1].storage()) == 0,
+    check(cell.size() == 2 && std::get<I>(cell[0].storage()) == -2 && std::get<I>(cell[1].storage()) == 0,
           "The published upstream target differs from the ordinary row-1 starter line.");
     check(field<I>(view, "first_target") == 4 && field<I>(view, "target") == 8,
           "Both actual inventory thresholds remain exact native integers.");

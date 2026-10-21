@@ -246,11 +246,11 @@ shafts appear in `transmission_parts`, with integer `axis` values 0, 1 and 2 for
 X, Y and Z. Use `engagements` and exact signed `motion` for transmission facts;
 the historical `drive_links` shortcut describes machine-to-machine shafts only.
 
-A first horizontal train places a Y-axis wheel at cell `[-1, 1]`, a Y-axis
+A historical synthetic profile without a water field places a Y-axis wheel at cell `[-1, 1]`, a Y-axis
 collector at `[0, 1]`, and Y-axis gears at `[-4, 4, 4]` and `[0, 4, 4]`. Join each
 machine to the gear above it using a real vertical shaft. The equal gears mesh
 and reverse rotation. Moving the second gear by one grid unit breaks engagement.
-The focused native unit verifies this geometry, running removal/rebuilding,
+This fixture does not describe current river placement. The focused native unit verifies this geometry, running removal/rebuilding,
 finite kit, historical retries and exact typed checkpoint restore. Its actor
 observations and tick are synthetic unit inputs, not physical gameplay evidence.
 

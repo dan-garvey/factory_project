@@ -65,14 +65,11 @@ The native profile currently treats either turning direction as powered and
 does not scale material throughput by angular rate. Its finite cog and shaft
 quantities and dimensions are revisable fixture choices.
 
-After confirming four plates, the native opening marks an upstream wheel site
-at `[-1, 0]` and asks for eight carried plates in total. The row-1 starter line
-cannot satisfy that location condition just by making more plates. Move and
-recover the stocked machines to keep both cogs spare, or use both cogs to power
-the existing line across the rows. Hover the short goal for the current
-diagnostic and the two tradeoffs. Other valid arrangements are not prohibited.
-The same native definition supplies the marker target and per-actor eligibility
-through offline and shared projections; no view-local completion state is saved.
+After confirming four plates, the native opening marks an upstream waterwheel
+site at `[-2, 0]` and asks for eight carried plates in total. The wheel must be
+immersed and aligned with the flow. Reconnect the drive after moving it; recover
+machine contents before moving a stocked machine. The target and per-actor
+eligibility come from the same native definition in offline and shared sessions.
 The current ideal hub mounts do not establish housing or floor clearance, and
 the geared route does not earn an invented processing-speed bonus.
 

@@ -7,9 +7,9 @@ using O = V::Object;
 constexpr Definition content{
     "Upstream drive",
     "Move the waterwheel to the upper stream connection. Use the parts you already carry to bring back four more plates.",
-    "Move the stocked line upstream: recover and rebuild its three machines, reuse straight shafts and keep both cogs spare.",
-    "Keep the stocked line here: spend the two cogs to transfer rotation between rows and preserve the three machine placements.",
-    {-1, 0}, 4, 8,
+    "Move the stocked line upstream, recovering its contents before rebuilding the drive.",
+    "Keep the stocked line here and use cogs and shafts to transfer rotation between rows.",
+    {-2, 0}, 4, 8,
 };
 
 template<class T> const T* field(const O& object, const char* key) {

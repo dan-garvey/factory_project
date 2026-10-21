@@ -379,6 +379,15 @@ func check_water_native() -> void:
 	if not expect(slower.numerator * motion.denominator * 2 == motion.numerator * slower.denominator,
 		"Twice the diameter halves rotational speed in the same current"):
 		return
+	var upstream = NativeModel.new("upstream-water-site", ["P"])
+	if not expect(upstream.boot_result.get("accepted", false) and upstream.publish_actor("P", [-1.65, 1.0, 1.65], 1).get("accepted", false), "Bind a synthetic actor near the upstream objective"):
+		return
+	var target := wheel.duplicate()
+	target.context = "upstream-water-site"
+	target.request = "upstream-wheel"
+	target.cell = [-2, 0]
+	if not expect(upstream.command(target).get("accepted", false), "The upstream objective must admit an immersed wheel in the generated site"):
+		return
 	print("native water site controls passed: ", checks)
 	quit(0)
 

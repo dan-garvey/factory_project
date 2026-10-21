@@ -7,7 +7,7 @@ const Geometry = preload("res://opening/site_geometry.gd")
 
 const FIRST_TARGET := 4
 const FINAL_TARGET := 8
-const DEFAULT_WHEEL_CELL := Vector2i(-1, 0)
+const DEFAULT_WHEEL_CELL := Vector2i(-2, 0)
 
 var host: Object
 var target_wheel_cell := DEFAULT_WHEEL_CELL
@@ -224,7 +224,7 @@ func evaluate() -> Dictionary:
 
 	var arrangement := "none"
 	if source_at_target and machines_running:
-		if placed_gears == 0 and all_machines_on_target_row:
+		if all_machines_on_target_row:
 			arrangement = "relocated_line"
 		elif placed_gears == 2 and has_external_mesh and collector_row != target_wheel_cell.y:
 			arrangement = "geared_transfer"
@@ -232,9 +232,9 @@ func evaluate() -> Dictionary:
 			arrangement = "partial"
 
 	var tradeoff_text := (
-		"Route A (Relocate Line): recover held material, rebuild all 3 machines on row %d with straight shafts, and keep 2 cogs spare. "
-		+ "Route B (Geared Transfer): keep the stocked machines in place, spend the 2 carried X-axis cogs at ground height Y=0 to bridge rows, and preserve in-flight work (reversed -1/1 rotation does not alter processing speed or yield)."
-	) % target_wheel_cell.y
+		"Recover held material before moving a stocked line, or keep the machines in place and bridge the rows with cogs and shafts. "
+		+ "Rotational rate does not alter processing speed or yield in this prototype."
+	)
 
 	var diagnostic_code := "challenge_complete"
 	var diagnostic_text := "Upstream drive verified: all three machines rotate from cell [%d, %d] and %d / %d plates are in cargo." % [
@@ -273,13 +273,13 @@ func evaluate() -> Dictionary:
 			diagnostic_text = "Cog axis mismatch: horizontal machine shafts use the X axis, so a Y or Z cog cannot couple coaxially across rows."
 		elif placed_gears >= 2 and not has_external_mesh:
 			diagnostic_code = "gear_plane_mismatch"
-			diagnostic_text = "Cog mesh mismatch: equal 2-tooth X-axis cogs must share X=0 at Y=0 and sit four quarter-grid units (one row) apart in Z to mesh."
+			diagnostic_text = "Cog mesh mismatch: equal 2-tooth X-axis cogs must share the same X and Y coordinates and sit four quarter-grid units apart in Z to mesh."
 		elif collector_row != target_wheel_cell.y and placed_gears == 1:
 			diagnostic_code = "missing_second_gear"
-			diagnostic_text = "One cog placed: place the second 2-tooth X-axis cog at [0, 0, %d] so the two rows mesh." % (collector_row * 4)
+			diagnostic_text = "One cog placed: place a second aligned 2-tooth X-axis cog on row %d to bridge the rows." % collector_row
 		elif placed_shafts < 3 or not wheel_coupled:
 			diagnostic_code = "missing_drive_shaft"
-			diagnostic_text = "Drive train incomplete (%d / 3 shafts placed): couple the upstream waterwheel and all three machines with finite shafts." % placed_shafts
+			diagnostic_text = "Drive train incomplete (%d shafts placed): couple the upstream waterwheel and all three machines with finite shafts." % placed_shafts
 		elif not power_enabled:
 			diagnostic_code = "drive_switched_off"
 			diagnostic_text = "Drive is switched off: press Start drive [P] near the waterwheel to power the transmission."
@@ -291,11 +291,11 @@ func evaluate() -> Dictionary:
 	elif phase == "deliver_more":
 		diagnostic_code = "producing_plates"
 		if arrangement == "geared_transfer":
-			diagnostic_text = "Geared transfer active (-1/1 reversed rotation; processing rate unchanged): collect %d / %d plates from the Press." % [
+			diagnostic_text = "Geared transfer active (processing rate unchanged): collect %d / %d plates from the Press." % [
 				products, FINAL_TARGET
 			]
 		elif arrangement == "relocated_line":
-			diagnostic_text = "Relocated upstream line active (0 cogs spent, %d spare): collect %d / %d plates from the Press." % [
+			diagnostic_text = "Relocated upstream line active (%d cogs spare): collect %d / %d plates from the Press." % [
 				spare_gears, products, FINAL_TARGET
 			]
 		else:
