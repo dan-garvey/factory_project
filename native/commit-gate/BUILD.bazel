@@ -1,0 +1,39 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "coordinator",
+    srcs = ["coordinator.cpp"],
+    hdrs = ["coordinator.hpp"],
+    deps = ["//native/tooling:local_resources"],
+)
+
+cc_binary(
+    name = "factory-commit-check",
+    srcs = ["main.cpp"],
+    deps = [":coordinator"],
+)
+
+cc_test(
+    name = "coordinator_test",
+    srcs = ["tests.cpp"],
+    args = ["$(rootpath :factory-commit-check)"],
+    data = [":factory-commit-check"],
+    deps = [":coordinator", "//native/factory-launch:capture"],
+    size = "small",
+    timeout = "short",
+    tags = ["host", "local"],
+)
+
+cc_test(
+    name = "hook_dispatch_test",
+    srcs = ["dispatch_tests.cpp"],
+    args = ["$(rootpath //:.githooks/pre-commit)"],
+    data = ["//:.githooks/pre-commit"],
+    deps = ["//native/factory-launch:capture"],
+    # This fixture copies itself into an isolated repository to test exec.
+    linkstatic = True,
+    size = "small",
+    tags = ["host", "local"],
+)

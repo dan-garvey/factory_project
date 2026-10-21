@@ -102,7 +102,16 @@ git commit
 
 Install the hook once per clone. Review and explicitly stage only scoped paths before committing. Run focused tests needed for changed behavior; do not duplicate the hook's suite on unchanged relevant inputs. A manual `python3 -B scripts/check_commit.py` run is optional diagnostics, not a required step before committing.
 
-The installer sets repository-local `core.hooksPath=.githooks`, shared by linked worktrees, and refuses to overwrite a different configured hook path or disable executable default hooks. Git does not distribute local configuration automatically. The installed hook invokes `check_commit.py` as the single mandatory staged check, taking exactly one top-level permit: shared check for non-GDScript changes, heavy for staged `.gd` changes. Do not wrap that coordinator or `git commit` itself: either would nest resource admission. The hook does not auto-format or stage anything.
+The installer sets repository-local `core.hooksPath=.githooks`, shared by linked worktrees, and refuses to overwrite a different configured hook path or disable executable default hooks. Git does not distribute local configuration automatically. The hook runs one mandatory staged check through the locally pinned native coordinator when configured, or the existing `check_commit.py` otherwise. Both invoke the same immutable staged source/compiler checks with exactly one top-level admission. Do not wrap either coordinator or `git commit` itself: either would nest resource admission. The hook does not auto-format or stage anything.
+
+The native coordinator uses the existing four-slot resource library, so staged `.gd` commits can coexist with other native heavy commands. Non-GDScript changes use shared check admission. Retain a tested `//native/commit-gate:factory-commit-check` executable outside mutable build outputs, verify its SHA256 and set both repository-local pins:
+
+```bash
+git config --local factory.commitGateExecutable /absolute/verified/factory-commit-check
+git config --local factory.commitGateSHA256 'verified-executable-sha256'
+```
+
+Both absent settings retain the unchanged legacy command; partial settings, invalid paths or a changed hash refuse. A configured native failure never falls back to another checker. The existing legacy heavy path remains compatible and may serialize heavy work. This increment replaces coordinator/admission routing only: raw-blob export, source tests, staged-index guards and the Godot parser remain active and unchanged. See the [native coordinator](native/commit-gate/README.md).
 
 The cheap check runner validates Python/Bash syntax, optional agent JSON configuration, and the tooling integration tests. Missing or skipped tooling tests fail. Source checks do not need a private tracker or engine, so a clean public clone can run them. The staged command also checks diff whitespace, rejects every `.beads` path (including exports/configuration), and checks an immutable copy of the candidate index using raw Git blobs, without checkout filters or archive exclusions. Passing unstaged files cannot hide a broken staged candidate. Staging changes before admission or during the run make the commit coordinator fail. The temporary snapshot never contains private tracker data or invokes `br`.
 
