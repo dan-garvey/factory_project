@@ -3488,7 +3488,7 @@ class ProductionInterface:
 const STEP_SECONDS := 0.45
 const PITCH := Geometry.PITCH
 const NAMES := {"collector": "Collector", "belt": "Belt", "processor": "Press", "wheel": "Waterwheel", "foundation": "Foundation"}
-const COLORS := {"collector": Color("d6a34d"), "belt": Color("538e88"), "processor": Color("bd7054"), "wheel": Color("8b9caa")}
+const COLORS := {"collector": Color("96805c"), "belt": Color("538e88"), "processor": Color("bd7054"), "wheel": Color("8b9caa")}
 const LESSONS := [
 	["01  /  BUILD THE PATH", "Place a collector, a belt and a press in a row. Material ports face along the brass arrow. Each placed machine uses a part from your carried kit."],
 	["02  /  CONNECT THE DRIVE", "Place the waterwheel beside your line. Choose Drive link, then click two neighboring machines. Carry its rotation through the whole line; the stream supplies motion without fuel."],
