@@ -129,7 +129,7 @@ void refusals() {
         attempt({{"lower", {4, 0, endpoint}}}, s::Error::invalid_candidate, g::Error::invalid_part);
     auto still = accepted(s::prepare(puzzle.parts, puzzle.sources, {}));
     check(still.parts == original && still.motion == g::evaluate(original, sources), "An empty batch is a validated no-op, even when the layout stalls.");
-    const std::vector<s::Shift> no_op{{"lower", {4, 0, 2}}};
+    const std::vector<s::Shift> no_op{{"lower", {4, 0, 4}}};
     check(accepted(s::prepare(puzzle.parts, puzzle.sources, no_op)).parts == original, "Requesting the current endpoint is a legal no-op.");
 
     puzzle.parts[0].id = std::string(129, 'x');
@@ -163,18 +163,18 @@ void refusals() {
 }
 void candidate_overflow() {
     const std::vector<g::Part> parts{
-        {"source", g::Kind::hub, {0, 0, 4}, g::Axis::z},
-        {"source-shaft", g::Kind::shaft, {0, 0, 4}, g::Axis::z, 0, 1},
-        {"coupler", g::Kind::shaft, {0, 0, 3}, g::Axis::z, 0, 1},
+        {"source", g::Kind::hub, {0, 0, 8}, g::Axis::z},
+        {"source-shaft", g::Kind::shaft, {0, 0, 8}, g::Axis::z, 0, 1},
+        {"coupler", g::Kind::shaft, {0, 0, 5}, g::Axis::z, 0, 3},
         {"large-shaft", g::Kind::shaft, {0, 0, 0}, g::Axis::z, 0, 1},
         {"large", g::Kind::gear, {0, 0, 0}, g::Axis::z, 3},
         {"small", g::Kind::gear, {4, 0, 0}, g::Axis::z, 1},
     };
     const std::vector<g::Drive> sources{{"source", {g::Integer{1} << 62, 1}}};
     check(g::evaluate(parts, sources).accepted(), "The disconnected original high-rate source is representable.");
-    const s::Shift connect{"coupler", {0, 0, 2}};
+    const s::Shift connect{"coupler", {0, 0, 4}};
     refused(s::prepare(parts, sources, {&connect, 1}), s::Error::invalid_candidate, g::Error::rate_overflow);
-    check(g::evaluate(parts, sources).accepted() && parts[2].center == g::Point{0, 0, 3},
+    check(g::evaluate(parts, sources).accepted() && parts[2].center == g::Point{0, 0, 5},
           "Refusing the newly connected threefold speed increase preserves the original disconnected source.");
 }
 struct Output { int code; std::string text; std::string errors; };
@@ -201,7 +201,7 @@ void caller() {
           "The caller exposes wrong direction, disconnected output and corrected forward drive in the same retained layout.");
     const auto malformed = play({"play", "branch"}, "shift lower out extra\nshift lower sideways\nshift wheel out\nquit extra\nstatus\n");
     check(malformed.code == 1 && malformed.text.find("Shifted") == std::string::npos &&
-          malformed.text.find("Coupling lower is in at 4,0,2.") != std::string::npos,
+          malformed.text.find("Coupling lower is in at 4,0,4.") != std::string::npos,
           "Malformed/foreign commands cannot change the original coupled layout.");
     const auto long_line = play({"play", "branch"}, "shift lower out" + std::string(600, ' ') + "\nstatus\nshift lower out\n");
     check(long_line.code == 0 && long_line.text.find("command exceeds 512 bytes") != std::string::npos,

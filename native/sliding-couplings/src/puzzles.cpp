@@ -21,11 +21,11 @@ void branch(Puzzle& puzzle) {
     gear(puzzle, "useful-gear", {-4, 0, 0});
     shaft(puzzle, "branch-shaft", {4, 0, 0});
     gear(puzzle, "branch-gear", {4, 0, 0});
-    hub(puzzle, "held", {4, 0, 4});
-    shaft(puzzle, "held-shaft", {4, 0, 4});
-    shaft(puzzle, "lower", {4, 0, 2});
+    hub(puzzle, "held", {4, 0, 8});
+    shaft(puzzle, "held-shaft", {4, 0, 8});
+    shaft(puzzle, "lower", {4, 0, 4}, 3);
     puzzle.sources = {{"wheel", {1, 1}}, {"held", {0, 1}}};
-    puzzle.slots = {{"lower", {4, 0, 2}, {4, 0, 1}}};
+    puzzle.slots = {{"lower", {4, 0, 4}, {4, 0, 3}}};
     puzzle.goals = {{"useful", {g::MotionState::rotating, {-1, 1}}},
                    {"held", {g::MotionState::stopped, {0, 1}}}};
 }
@@ -42,27 +42,27 @@ std::optional<Puzzle> make(std::string_view id) {
         } else {
             puzzle.title = "Find the second route around the coupling";
             puzzle.instruction = "The held branch has two drive paths. Keep useful turning at -1/1.";
-            shaft(puzzle, "riser", {0, 0, 4}, 4);
-            gear(puzzle, "upper-wheel-gear", {0, 0, 8});
-            gear(puzzle, "upper-branch-gear", {4, 0, 8});
-            shaft(puzzle, "upper-branch-shaft", {4, 0, 8});
-            shaft(puzzle, "upper", {4, 0, 6});
-            puzzle.slots.push_back({"upper", {4, 0, 6}, {4, 0, 7}});
+            shaft(puzzle, "riser", {0, 0, 8}, 8);
+            gear(puzzle, "upper-wheel-gear", {0, 0, 16});
+            gear(puzzle, "upper-branch-gear", {4, 0, 16});
+            shaft(puzzle, "upper-branch-shaft", {4, 0, 16});
+            shaft(puzzle, "upper", {4, 0, 12}, 3);
+            puzzle.slots.push_back({"upper", {4, 0, 12}, {4, 0, 13}});
         }
     } else if (id == "selector") {
         puzzle.title = "Choose a forward line-shaft source";
         puzzle.instruction = "Run output at +1/1 while reverse remains free to turn at -1/1.";
         hub(puzzle, "forward", {0, 0, 0});
         shaft(puzzle, "forward-shaft", {0, 0, 0});
-        hub(puzzle, "output", {0, 0, 4});
-        shaft(puzzle, "output-shaft", {0, 0, 4});
-        hub(puzzle, "reverse", {0, 0, 8});
-        shaft(puzzle, "reverse-shaft", {0, 0, 8});
-        shaft(puzzle, "front", {0, 0, 2});
-        shaft(puzzle, "back", {0, 0, 6});
+        hub(puzzle, "output", {0, 0, 8});
+        shaft(puzzle, "output-shaft", {0, 0, 8});
+        hub(puzzle, "reverse", {0, 0, 16});
+        shaft(puzzle, "reverse-shaft", {0, 0, 16});
+        shaft(puzzle, "front", {0, 0, 4}, 3);
+        shaft(puzzle, "back", {0, 0, 12}, 3);
         puzzle.sources = {{"forward", {1, 1}}, {"reverse", {-1, 1}}};
-        puzzle.slots = {{"front", {0, 0, 2}, {0, 0, 1}},
-                        {"back", {0, 0, 6}, {0, 0, 7}}};
+        puzzle.slots = {{"front", {0, 0, 4}, {0, 0, 3}},
+                        {"back", {0, 0, 12}, {0, 0, 13}}};
         puzzle.goals = {{"output", {g::MotionState::rotating, {1, 1}}},
                        {"reverse", {g::MotionState::rotating, {-1, 1}}}};
     } else return std::nullopt;
