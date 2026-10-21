@@ -4,7 +4,9 @@
   "url": "https://ambientcg.com/a/Rubber004",
   "license": "CC0-1.0",
   "license_url": "https://docs.ambientcg.com/license/",
-  "technique": "Procedural material",
+  "technique": "Unverified; the provider's method code and descriptive labels conflict.",
+  "provider_method_code": "PBRProcedural",
+  "provider_method_label": "Height field photogrammetry",
   "source_extent_metres": [0.75, 0.75],
   "archive": {
     "request_url": "https://ambientcg.com/get?file=Rubber004_1K-PNG.zip",
