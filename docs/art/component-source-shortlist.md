@@ -142,14 +142,23 @@ lighting adaptation to sit with Factory's other parts. This is an isolated
 visual judgment, not a measured clearance, all-angle seam guarantee or human
 quality verdict.
 
-The next authored asset step is a capture-sized preparation of these three
-selected pieces and shared material maps, with explicit connection transforms
-and exposed-end variants. The current source bundle does not fit the earlier
-2,220,333-byte headroom, so it cannot be copied into the game wholesale.
-Optimize and measure the prepared map and mesh bytes, then render them in the
-actual worksite and verify that ordinary native project capture includes every
-referenced resource. A decorative sample supplies no fluid, pressure,
-attachment or construction authority.
+The three selected pieces are now packaged as a
+[prepared pipe art kit](../../experiments/engine-environment/godot/opening/assets/pipe-fit/CREDITS.md).
+It retains their original vertex and UV data in a smaller buffer, retains the
+original 1K diffuse and normal maps, and prepares a 256-pixel packed material
+map. The five loadable files total 1,446,125 bytes; an isolated import and
+passive repeat of the six join views retained their visible flange detail.
+They are tracked presentation resources within the inspected capture budget,
+but are not mounted in the playable opening. The full original bundle still
+does not fit the earlier 2,220,333-byte headroom. An actual native project
+capture of art commit `1316b6b` retained all six new asset files from raw Git:
+264 project files, 128 scripts and 32,784,501 source bytes, leaving 769,931
+bytes under the present 32 MiB limit. The retained capture and rehashed resource
+copies are under `pipe-component-kit-20261021/capture-actual` in the local
+prototype evidence directory. This proves source packaging, not use in the
+playable scene. The next step is an in-worksite view with explicit construction
+interfaces and exposed-end behavior before gameplay use. The art kit supplies
+no fluid, pressure, attachment or construction authority.
 
 Poly Haven's [license page](https://polyhaven.com/license) permits adaptation and
 redistribution of its CC0 assets. Its preview images and website content are
