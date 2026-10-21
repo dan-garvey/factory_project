@@ -2657,6 +2657,9 @@ func _initialize() -> void:
 	if OS.get_cmdline_user_args().size() > 0 and OS.get_cmdline_user_args()[0] == "--prepare-press-support-maps":
 		prepare_component_maps("cast")
 		return
+	if OS.get_cmdline_user_args().size() > 0 and OS.get_cmdline_user_args()[0] == "--prepare-coupling-maps":
+		prepare_component_maps("coupling")
+		return
 	if OS.get_cmdline_user_args().has("--sourced-wheel-material-only"):
 		var parent := Node3D.new()
 		verify(WheelArt.mount(parent), "The changed material loads through the shipped source helper.")

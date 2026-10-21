@@ -1,4 +1,4 @@
-load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -27,4 +27,24 @@ cc_binary(
     srcs = ["press_support.cpp"],
     linkopts = ["-lcrypto"],
     deps = [":components"],
+)
+
+cc_library(
+    name = "coupling",
+    srcs = ["coupling.cpp"],
+    hdrs = ["coupling.hpp"],
+    linkopts = ["-lcrypto"],
+)
+
+cc_binary(
+    name = "prepare-coupling",
+    srcs = ["coupling_main.cpp"],
+    deps = [":coupling"],
+)
+
+# Invented in-memory geometry only; the source asset is an explicit CLI input.
+cc_test(
+    name = "coupling_test",
+    srcs = ["coupling_test.cpp"],
+    deps = [":coupling"],
 )

@@ -298,6 +298,24 @@ the same open passage without inventing a shaft or connection. This is a fitted
 visual interface, not proof of key locking, tooth contact, physical forces or
 general shaft routing through a complete machine.
 
+Confirmed coaxial shaft/cog engagements now add a pair of source-derived flange
+halves from Poly Haven's **Modular Industrial Pipes 01**, by Jorge Camacho. The
+[source record](shaft-coupling/source.json) identifies the CC0 geometry, original
+material maps and native preparation recipe. Actual source inspection found
+blind caps, so the recipe removes them and closes the retained tube with an
+authored annulus. The source flange, eight fasteners and UVs keep their rigid
+proportions. One uniform scale fits the compact pair outside the existing cog
+hub and within the shaft's unchanged selection radius and length.
+
+The presenter consumes the native engagement row and both confirmed part IDs;
+nearby coaxial parts alone receive no fitting. Both halves share one cached mesh
+and follow the shaft's existing cosmetic phase. The original 1024-pixel albedo
+and prepared 512-pixel OpenGL normal and packed scalar maps shade the donor
+surface; the new cut uses the existing worked-metal finish. No fluid system,
+additional connection rule, pick body, collision, quantity or saved state is
+introduced. Headless resource and fit checks leave rendered appearance, GPU
+cost, arbitrary machine routing and human quality acceptance open.
+
 Each cog batches its repeated teeth, four spokes and eight hub fasteners into
 three local [MultiMesh groups](https://docs.godotengine.org/en/4.7/classes/class_multimesh.html).
 The original meshes, transforms and shared surface roles are retained. Rim and

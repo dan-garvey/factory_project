@@ -6,6 +6,86 @@ const UNIT := preload("res://opening/site_geometry.gd").PITCH / 4.0
 const SHAFT_CORE_RADIUS := 0.03
 static var meshes: Dictionary = {}
 static var batches: Dictionary = {}
+const COUPLING_ROOT := "res://opening/assets/shaft-coupling"
+const COUPLING_IMAGES := {"albedo": "coupling_albedo.jpg", "normal": "coupling_normal.webp", "arm": "coupling_arm.webp"}
+const COUPLING_HALF_LENGTH := (0.42954 - 0.39) * 0.72
+static var coupling_mesh: ArrayMesh
+static var coupling_finish: StandardMaterial3D
+static var coupling_status := "uninitialized"
+
+static func _prepare_coupling() -> void:
+	var files: Array = ["coupling.gltf", "coupling.bin"]
+	files.append_array(COUPLING_IMAGES.values())
+	var present := 0
+	for file_name: String in files:
+		if FileAccess.file_exists(COUPLING_ROOT.path_join(file_name)):
+			present += 1
+	coupling_status = "missing" if present == 0 else "invalid"
+	if present == 0:
+		return
+	if present != files.size():
+		push_error("The sourced shaft coupling resource set is incomplete.")
+		return
+	var images := preload("res://opening/opening.gd").ProductionSteelFloor.read_images(COUPLING_ROOT, COUPLING_IMAGES, Vector2i(512, 512))
+	if images.status != "ready":
+		push_error("Cannot decode the sourced shaft coupling material.")
+		return
+	var document := GLTFDocument.new()
+	var imported := GLTFState.new()
+	if document.append_from_file(COUPLING_ROOT.path_join("coupling.gltf"), imported) != OK:
+		push_error("Cannot load the prepared shaft coupling.")
+		return
+	var sources := imported.get_meshes()
+	if sources.size() != 1 or sources[0].mesh == null or sources[0].mesh.get_surface_count() != 2:
+		push_error("The shaft coupling needs retained source and authored cut surfaces.")
+		return
+	var prepared: ArrayMesh = sources[0].mesh.get_mesh()
+	var complete := ArrayMesh.new()
+	for index in range(2):
+		var surface := SurfaceTool.new()
+		surface.create_from(prepared, index)
+		surface.generate_tangents()
+		surface.commit(complete)
+	for role: String in images.images:
+		if images.images[role].generate_mipmaps(role == "normal") != OK:
+			push_error("Cannot generate shaft coupling mipmaps.")
+			return
+	var material := StandardMaterial3D.new()
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	material.albedo_texture = ImageTexture.create_from_image(images.images.albedo)
+	var arm := ImageTexture.create_from_image(images.images.arm)
+	material.metallic = 1.0
+	material.metallic_texture = arm
+	material.metallic_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_BLUE
+	material.roughness = 1.0
+	material.roughness_texture = arm
+	material.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_GREEN
+	material.ao_enabled = true
+	material.ao_texture = arm
+	material.ao_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
+	material.normal_enabled = true
+	material.normal_texture = ImageTexture.create_from_image(images.images.normal)
+	material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	coupling_mesh = complete
+	coupling_finish = material
+	coupling_status = "ready"
+
+static func coupling(parent: Node3D) -> bool:
+	if coupling_status == "uninitialized":
+		_prepare_coupling()
+	if coupling_status != "ready":
+		return false
+	for side in [0, 1]:
+		var half := MeshInstance3D.new()
+		half.name = "SourcedFlange%d" % side
+		half.mesh = coupling_mesh
+		half.set_surface_override_material(0, coupling_finish)
+		half.set_surface_override_material(1, Finish.material("worked", Color("a6b4af"), 0.85, 0.38))
+		if side == 1:
+			half.rotation.x = PI
+		half.set_meta("source_asset", "Poly Haven modular_industrial_pipes_01")
+		parent.add_child(half)
+	return true
 
 static func _finish(instance: GeometryInstance3D, name_value: String, color: Color,
 		metal: float, roughness: float) -> void:

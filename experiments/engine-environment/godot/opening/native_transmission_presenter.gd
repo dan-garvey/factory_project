@@ -181,6 +181,29 @@ func _pick(parent: Node3D, id: String, radius: float, height: float) -> void:
 	body.add_child(collider)
 	parent.add_child(body)
 
+func _shaft_coupling(shaft: Dictionary, gear: Dictionary, parent: Node3D,
+		shaft_id: String, gear_id: String) -> void:
+	if shaft.axis != gear.axis:
+		return
+	var offset: float = (gear.center[shaft.axis] - shaft.center[shaft.axis]) * UNIT
+	# Fit outside the existing hub and fasteners, towards shaft interior. A
+	# short admitted shaft may have no room for this art; never extend it.
+	var center: float = offset + (-1.0 if offset > 0.0 else 1.0) * 0.146
+	if absf(center) + Assets.COUPLING_HALF_LENGTH > float(shaft.half_span) * UNIT:
+		return
+	var fitting := Node3D.new()
+	fitting.name = "ConfirmedCoupling%d" % parent.get_child_count()
+	fitting.position.y = center
+	fitting.set_meta("shaft_coupling", true)
+	fitting.set_meta("shaft", shaft_id)
+	fitting.set_meta("gear", gear_id)
+	if Assets.coupling(fitting):
+		# Both halves share the existing shaft's cosmetic phase. No second
+		# animation clock, constraint, native contact or pick body is created.
+		parent.add_child(fitting)
+	else:
+		fitting.free()
+
 func refresh() -> void:
 	if _host == null or not is_instance_valid(_host.get_ref()):
 		_clear()
@@ -256,6 +279,12 @@ func refresh() -> void:
 				continue
 			var a: Dictionary = parts[edge.a]
 			var b: Dictionary = parts[edge.b]
+			if typeof(edge.get("kind")) == TYPE_INT and edge.kind == 1:
+				if a.kind == "shaft" and b.kind == "gear":
+					_shaft_coupling(a, b, rendered[edge.a], edge.a, edge.b)
+				elif b.kind == "shaft" and a.kind == "gear":
+					_shaft_coupling(b, a, rendered[edge.b], edge.b, edge.a)
+				continue
 			if a.kind != "gear" or b.kind != "gear":
 				continue
 			var mark := _cylinder(self, "ConfirmedEngagement", 0.06, 0.07, Color("9bc883"))

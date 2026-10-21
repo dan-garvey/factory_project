@@ -783,7 +783,162 @@ func check_gear_batches() -> void:
 		"render_nodes_saved": mesh_nodes_saved, "negative_controls": controls,
 		"evidence": "Submitted headless bulk buffers and raw mesh arrays; no GPU draw or performance result."}))
 
+func coupling_node(shaft: Node3D) -> Node3D:
+	for child in shaft.get_children():
+		if child is Node3D and child.get_meta("shaft_coupling", false):
+			return child
+	return null
+
+func coupling_material_valid(material: StandardMaterial3D) -> bool:
+	return material != null and material.albedo_texture != null and material.albedo_texture.get_width() == 1024 \
+		and material.normal_enabled and material.normal_texture != null and material.normal_texture.get_width() == 512 \
+		and material.metallic_texture != null and material.metallic_texture == material.roughness_texture \
+		and material.ao_texture == material.metallic_texture and material.ao_enabled \
+		and material.metallic_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_BLUE \
+		and material.roughness_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_GREEN \
+		and material.ao_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_RED \
+		and material.cull_mode == BaseMaterial3D.CULL_DISABLED
+
+func check_shaft_couplings() -> void:
+	var assemblies := 0
+	var minimum_gap := INF
+	var minimum_hub_gap := INF
+	var maximum_radius := 0.0
+	var shared_mesh: Mesh
+	for axis in range(3):
+		for side in [-1, 1]:
+			for reverse in [false, true]:
+				var host := MaterialHost.new()
+				var shaft_center := [-4, 1, 8]
+				var gear_center: Array = shaft_center.duplicate()
+				gear_center[axis] += side
+				host.state = {"context": "coupling-resource-fixture", "options": {"native": true}, "entities": {},
+					"transmission_parts": {
+						"gear": {"kind": "gear", "center": gear_center, "axis": axis, "teeth": 2, "generation": 1},
+						"shaft": {"kind": "shaft", "center": shaft_center, "axis": axis, "half_span": 2, "generation": 2}},
+					"motion": {"gear": {"state": "rotating", "numerator": -1, "denominator": 2},
+						"shaft": {"state": "rotating", "numerator": -1, "denominator": 2}}, "engagements": []}
+				var view := Presenter.new()
+				view.configure(host)
+				var shaft := material_part(view, "shaft")
+				var gear := material_part(view, "gear")
+				verify(shaft != null and gear != null, "The real presenter consumes both disclosed native part records.")
+				if shaft == null or gear == null:
+					view.free()
+					continue
+				var shaft_radius := bore_shaft_envelope(shaft)
+				var original_core: Mesh = shaft.get_node("Shaft").mesh
+				var original_hub: Mesh = gear.get_node("Hub").mesh
+				verify(coupling_node(shaft) == null, "Coaxial geometry alone cannot invent a coupling without a confirmed engagement.")
+				host.state.engagements = [{"a": "gear" if reverse else "shaft", "b": "shaft" if reverse else "gear", "kind": 1}]
+				var before: Dictionary = host.state.duplicate(true)
+				view.refresh()
+				shaft = material_part(view, "shaft")
+				gear = material_part(view, "gear")
+				var fitting := coupling_node(shaft)
+				verify(fitting != null and Assets.coupling_status == "ready", "The exact confirmed coaxial edge mounts a complete sourced coupling in either endpoint order.")
+				if fitting == null:
+					view.free()
+					continue
+				verify(fitting.get_meta("shaft") == "shaft" and fitting.get_meta("gear") == "gear"
+					and fitting.get_child_count() == 2 and fitting.get_script() == null,
+					"The fitting keeps explicit endpoint identities and only two passive render halves.")
+				var expected_center: float = float(side) * (0.4125 - 0.146)
+				verify(fitting.position.is_equal_approx(Vector3(0, expected_center, 0))
+					and shaft.position == Presenter.world_center(shaft_center)
+					and shaft.basis.y == [Vector3.RIGHT, Vector3.UP, Vector3.BACK][axis],
+					"The proper positive native axis mounts the compact joint towards shaft interior without moving either native centre.")
+				verify(shaft.get_node("Shaft").mesh == original_core and gear.get_node("Hub").mesh == original_hub,
+					"The exact original shaft length and open gear hub resources remain reused.")
+				var pick: StaticBody3D = shaft.get_node("Pick")
+				var shape: CylinderShape3D = pick.get_child(0).shape
+				verify(pick.get_meta("entity") == "shaft" and pick.collision_layer == Presenter.Geometry.PICK_LAYER and pick.collision_mask == 0
+					and is_equal_approx(shape.radius, 0.08) and is_equal_approx(shape.height, 1.65),
+					"The original shaft selection identity, mask, radius and full span remain unchanged.")
+				var gear_pick: CylinderShape3D = gear.get_node("Pick").get_child(0).shape
+				verify(is_equal_approx(gear_pick.radius, 0.928125) and is_equal_approx(gear_pick.height, 0.24),
+					"The coupling does not change the existing cog pick envelope.")
+				for half: MeshInstance3D in fitting.get_children():
+					if shared_mesh == null:
+						shared_mesh = half.mesh
+					verify(half.mesh == shared_mesh and half.mesh.get_surface_count() == 2
+						and is_equal_approx(half.basis.determinant(), 1.0),
+						"Both halves reuse one two-surface resource with proper rotations, without reflection or rigid-detail stretching.")
+					verify(coupling_material_valid(half.get_surface_override_material(0))
+						and half.get_surface_override_material(1) == Finish.material("worked", Color("a6b4af"), 0.85, 0.38),
+						"Source UVs use the qualified albedo, OpenGL normal and packed channels; the authored cut has the existing worked-metal finish.")
+					var facts := bore_mesh_facts(half.mesh, half.transform)
+					minimum_gap = minf(minimum_gap, facts.minimum_radius - shaft_radius)
+					maximum_radius = maxf(maximum_radius, facts.maximum_radius)
+					verify(facts.triangles == 360 and facts.minimum_radius - shaft_radius > 0.001
+						and facts.maximum_radius < shape.radius
+						and maxf(absf(facts.low), absf(facts.high)) <= Assets.COUPLING_HALF_LENGTH + 0.000001,
+						"Actual imported raw triangles preserve the full shaft/collar/key passage and stay inside the original radial envelope.")
+					var fit_valid := true
+					for point in bore_triangles(half.mesh):
+						var at: Vector3 = fitting.transform * half.transform * point
+						var hub_gap: float = absf(at.y - float(side) * 0.4125) - 0.114
+						minimum_hub_gap = minf(minimum_hub_gap, hub_gap)
+						fit_valid = fit_valid and absf(at.y) < shape.height / 2.0 and hub_gap > 0.001
+					verify(fit_valid, "All actual fitting vertices stay within shaft ends and clear the existing hub and fastener end planes.")
+					for surface in range(2):
+						var arrays := half.mesh.surface_get_arrays(surface)
+						var points: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+						var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+						var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+						var tangents: PackedFloat32Array = arrays[Mesh.ARRAY_TANGENT]
+						var valid := points.size() == normals.size() and uvs.size() == points.size() and tangents.size() == points.size() * 4
+						for n in range(points.size()):
+							valid = valid and points[n].is_finite() and normals[n].is_finite() and uvs[n].is_finite()
+							if tangents.size() == points.size() * 4:
+								var tangent := Vector3(tangents[n * 4], tangents[n * 4 + 1], tangents[n * 4 + 2])
+								valid = valid and tangent.is_finite() and absf(normals[n].dot(tangent)) < 0.0002
+						verify(valid, "Both actual surfaces retain finite UV, normal and generated tangent attributes within the declared packed representation bound.")
+				var old_pose := fitting.transform
+				view.advance_visual_motion(0.1)
+				verify(is_equal_approx(view.visual_angle("shaft"), -0.04) and fitting.transform == old_pose and host.state == before,
+					"Both rigid halves follow the existing cosmetic shaft phase without state mutation or an independent clock.")
+				host.ready = false
+				view.advance_visual_motion(0.1)
+				verify(is_equal_approx(view.visual_angle("shaft"), -0.04), "Unavailable confirmed motion freezes the coupling with its owning shaft.")
+				host.state.engagements = []
+				view.refresh()
+				verify(coupling_node(material_part(view, "shaft")) == null, "Removing the confirmed edge removes its art instead of retaining a decorative connection.")
+				for invalid in [0, true, "1"]:
+					host.state.engagements = [{"a": "shaft", "b": "gear", "kind": invalid}]
+					view.refresh()
+					verify(coupling_node(material_part(view, "shaft")) == null, "Wrong or untyped engagement kinds cannot grant a fitting.")
+				host.state.engagements = [{"a": "shaft", "b": "missing", "kind": 1}]
+				view.refresh()
+				verify(coupling_node(material_part(view, "shaft")) == null, "An absent confirmed endpoint cannot produce a fitting.")
+				host.state.engagements = [{"a": "shaft", "b": "gear", "kind": 1}]
+				host.state.transmission_parts.gear.generation += 1
+				view.refresh()
+				var rebuilt := coupling_node(material_part(view, "shaft"))
+				verify(rebuilt != null and rebuilt.get_child(0).mesh == shared_mesh and view.visual_angle("gear") == 0.0,
+					"Rebuilding a new part generation reuses geometry without restoring removed render instances or old part phase.")
+				assemblies += 1
+				view.free()
+	if Assets.coupling_finish != null:
+		var wrong := Assets.coupling_finish.duplicate() as StandardMaterial3D
+		wrong.metallic_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
+		verify(not coupling_material_valid(wrong), "The material oracle rejects a swapped scalar channel.")
+	verify(bore_mesh_facts(bore_control_mesh(0.02)).minimum_radius < 0.037
+		and bore_triangle_radius(Vector2(-0.1, -0.1), Vector2(0.1, -0.1), Vector2(0, 0.1)) == 0.0,
+		"The independent raw-face oracle rejects undersized and plugged passages.")
+	print(JSON.stringify({"assemblies": assemblies, "axes": 3, "halves_per_joint": 2,
+		"minimum_shaft_clearance_metres": minimum_gap, "minimum_hub_end_gap_metres": minimum_hub_gap,
+		"maximum_fitting_radius_metres": maximum_radius,
+		"facts": "Invented read-only native projections consumed by the real presenter.",
+		"native_contact_force_and_general_machine_routing": "not_established"}))
+
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--shaft-coupling-only"):
+		check_shaft_couplings()
+		print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
+			"native_gameplay": "not_run", "rendered_quality": "not_assessed", "desktop": "not_used"}))
+		quit(1 if failed else 0)
+		return
 	if OS.get_cmdline_user_args().has("--gear-batch-only"):
 		check_gear_batches()
 		print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
