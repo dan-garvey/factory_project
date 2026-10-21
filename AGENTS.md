@@ -90,6 +90,17 @@ code-landing approval gate. The suspended workflow is recorded in
 
 ## Project contract
 
+Favor fast, simple iteration over backward compatibility when changing features
+or refactoring. Remove superseded behavior and its supporting code instead of
+adding compatibility layers, migrations or exceptions to keep it alive. Preserve
+old behavior only when the user explicitly requires it. The former restricted
+construction area is obsolete and must not survive as a special case.
+
+Foundations, machines and other constructables must share one world-space height
+denominator and grid origin. Independently built sections must align when joined
+horizontally or vertically; do not introduce per-tool height grids or local
+foundation offsets that accumulate alignment errors.
+
 Read [CONTRIBUTING.md](CONTRIBUTING.md) for coordination, evidence, review, and integration rules. [DESIGN.md](DESIGN.md) owns game requirements and open choices. The user explicitly delegates routine reversible design/technical decisions toward the demo: choose from the documented goals, record assumptions, and keep moving without repeated approval cards. Do not turn an experimental default into permanent canon. A runnable experimental opening and headless/network/save fixtures now exist; no production engine is selected. [README.md](README.md) links the launcher, controls and explicit prototype limits.
 
 Current priorities: a controlled physical character with proximity-restricted construction, and fixed/stationary contraptions/subfactories before mobile-factory expansion. Camera position is not construction authority. Godot use is accepted; record engine/API behavior, adapter limitations and probe shortcuts in the [constraint register](docs/engineering/godot-constraints.md), never silently as game requirements. Follow the [continuing research contract](docs/research/README.md) for factory/engineering-puzzle studies: deduplicate per game/coverage, close thorough game leaves, keep the recurring pipeline open.
