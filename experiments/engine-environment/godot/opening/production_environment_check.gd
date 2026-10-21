@@ -847,12 +847,19 @@ func check_ground_render() -> void:
 	var periodic_error := image_difference(repeated, repeated, 64)
 	var varied_error := image_difference(varied, varied, 64)
 	var frame_error := image_difference(varied, stable)
+	# The old 0.8/0.6 rotation realigns both global frames after five source
+	# tiles. Compare that beat with a nearby nonperiodic translation.
+	var beat_error := image_difference(varied, varied, 320)
+	var nonperiodic_error := image_difference(varied, varied, 352)
 	verify(periodic_error < 0.003, "The independent repeating reference proves that the source period is resolved by the viewport.")
 	verify(varied_error > maxf(0.01, periodic_error * 8.0),
 		"The actual shader breaks the source-period repeat across separately positioned terrain meshes.")
 	verify(frame_error < 0.00001, "Stationary ground shading is stable across completed rendered frames.")
+	verify(beat_error > nonperiodic_error * 0.75,
+		"Ground must not regain a strong common repeat after five source tiles.")
 	print(JSON.stringify({"phase": "ground-render", "reference_period_error": periodic_error,
 		"stochastic_period_error": varied_error, "frame_error": frame_error, "display": DisplayServer.get_name(),
+		"five_tile_error": beat_error, "nonperiodic_error": nonperiodic_error,
 		"source_extent_metres": 1.3, "source_period_pixels": 64, "viewport": [1024, 320],
 		"game_entry": "not_run", "input": "not_used", "human_quality": "not_assessed"}))
 	viewport.free()

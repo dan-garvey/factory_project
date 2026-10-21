@@ -562,11 +562,14 @@ culling or triangle count is a measured GPU-performance or human-quality result.
 
 Complete current captures use the CC0 [Brown Mud Leaves 01](ground/CREDITS.md) surface
 for the valley ground. Shared albedo, packed scalar and OpenGL normal maps use
-world-space mapping at the source's declared 1.3-metre scale. Stationary offsets
-and an independent rotated coordinate frame break the repeated motif. All
-channels blend together, and normal directions are transformed with their
-samples. Broad tint varies the
-surface over tens of metres. The current shader requires the qualified maps
+world-space mapping at the source's declared 1.3-metre scale. Three overlapping
+patches use stable local offsets and quarter-turns on a triangular lattice;
+adjacent triangles share their edge patches. This removes the old pair of fixed
+coordinate frames, which realigned every 6.5 metres. All channels use the same
+patch weights, and sampled normal directions are rotated back before blending.
+Variance correction reduces color flattening; this is not full
+histogram-preserving synthesis. Broad tint varies the surface over tens of
+metres. The current shader requires the qualified maps
 and replaces the generated historical ground fallback. This changes shading
 only: terrain triangles, support geometry, native
 poses and construction anchors are unchanged. The steel material has its own

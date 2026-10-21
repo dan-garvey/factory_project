@@ -681,8 +681,14 @@ RGB8 values through lossless packing. The pinned loader decodes the 16-bit data
 PNGs to RGB8 before normal/scalar resampling; original bit precision is not retained.
 Red-channel ambient occlusion is an explicit adapter choice, since the provider's
 descriptor does not bind it. These are shading/data boundaries, not terrain
-displacement, collision or biome requirements. Resource checks establish neither
-rendered balance nor the overall graphical-quality target.
+displacement, collision or biome requirements. Stable triangular patch blending
+replaces the two fixed texture frames, whose common period was 6.5 metres.
+Each patch rotates all sampled channels together and returns the decoded normal
+to the original plane basis. The small variance correction does not implement
+full histogram-preserving synthesis. The isolated render control distinguishes
+that old period from a nearby translation and checks stationary-frame stability;
+it is not a universal texture-quality or GPU-performance metric. Resource checks
+establish neither rendered balance nor the overall graphical-quality target.
 
 The [fern asset](../../experiments/engine-environment/godot/opening/assets/ferns/CREDITS.md)
 uses the same resource-only foliage import. Its first export attempt failed exact
