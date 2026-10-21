@@ -669,17 +669,25 @@ This is a preparation boundary, not a demonstrated renderer ceiling or gameplay
 restriction. Low plants do not add collision or authority.
 
 The [full-size fir resource](../../experiments/engine-environment/godot/opening/assets/fir/CREDITS.md)
-is qualified but not mounted. Its complete base and locally generated distance
+retains its qualified complete base and locally generated distance
 levels use pinned `ImporterMesh`; its nominal LOD size is a simplifier error
 scaled to source metres, not a rendered-error bound. Only bound methods are
 script API: the first preparation failed on native-only `has_mesh()`, while
 constructing a fresh importer through `add_surface()` corrected that path.
 The original API failure and bounded timeout remain retained. Source material
 transforms and scalar normal-incidence dielectric reflectance are preserved;
-the descriptor supplies no occlusion binding. The resource adds no terrain,
-actor collision, authority or current forest. Placement, matched woody
-collision, actual detail switching and visual/performance assessment remain
-separate adapter work.
+the descriptor supplies no occlusion binding. Three current bank instances use
+the same prepared woody triangles in rendering and the existing native floor
+shape. Their roots follow actual terrain triangles, while the eight-metre
+working ring and river/rock clearances remain open. Needles add no collision.
+The analytical contact measure is triangle distance, not native contact depth.
+The floor's native and node transforms must both remain identity; matching a
+shifted body to a shifted node is insufficient for the shared fixture.
+Retained scene and isolated physical controls cover mounting, real capsule
+contacts and changed-shape/pose refusal. They do not establish ordinary player
+traversal, a save/reopen consumer, detail switching, visual quality or frame
+cost. This is a chosen static site fixture, with no new harvesting, growth,
+inventory, reach or mechanical rule.
 
 The optional [young pine component](../../experiments/engine-environment/godot/opening/assets/pine/CREDITS.md)
 preserves all selected source triangles through the importer's compressed GPU

@@ -122,6 +122,8 @@ func finish() -> void:
 			"pine-roots": "focused edge-inclusive terrain-root oracle correction",
 			"pine-reflectance": "source-derived normal-incidence dielectric reflectance and cache isolation",
 			"fir-resource": "complete sourced fir, generated distance detail and common resource interface",
+			"bank-firs": "ordinary fir mounting, deterministic terrain poses and matching woody triangles",
+			"bank-fir-lifecycle": "ordinary scene mounting inside the actual node tree",
 			"ground-material": "qualified forest-floor material, data channels and cache separation",
 			"water-flow": "layered translucent river resources and ordinary frame consumer",
 			"rock-collision-shape": "visible rock facets versus the shared convex collision hull",
@@ -1153,7 +1155,97 @@ func check_fir_resource() -> void:
 	print(JSON.stringify({"base_triangles": full_triangles, "woody_triangles": wood_triangles, "lod_triangle_counts": levels,
 		"mounted_trees": 0, "physics": "not_started", "rendered_quality": "not_assessed"}))
 
+func check_bank_firs() -> void:
+	# Exercise the actual absent-file branch before any fir layout cache is
+	# built. Only this private captured project's optional asset is moved.
+	if not OS.get_cmdline_user_args().has("--fir-layout-only"):
+		var original := ProjectSettings.globalize_path(Scenery.Surface.FIR_FILE)
+		var retained := fixture_directory.path_join("optional-fir-control.res")
+		if not verify(DirAccess.rename_absolute(original, retained) == OK, "The optional resource can be retained outside the private case project."):
+			return
+		var absent := Scenery._bank_firs()
+		verify(absent.get_child_count() == 0 and Scenery.Surface.fir_collision_faces().is_empty(),
+			"An absent source creates neither visible trees nor hidden woody collision.")
+		absent.free()
+		if not verify(DirAccess.rename_absolute(retained, original) == OK, "Restore the exact captured asset before the positive consumer."):
+			return
+		Scenery.Surface._fir_initialized = false
+	var specs: Array[Dictionary] = Scenery.Surface.fir_specs()
+	print(JSON.stringify({"phase": "fir layout", "trees": specs.size(), "counts": Scenery.Surface._fir_layout_counts, "poses": specs}))
+	if not verify(specs.size() == 3, "The source-qualified site composes exactly three bank trees."):
+		return
+	var actual_faces: PackedVector3Array = Scenery.Surface.fir_collision_faces()
+	verify(actual_faces.size() > 45000 and actual_faces.size() % 3 == 0,
+		"The physical fixture retains actual woody triangles rather than a hidden box or foliage shell.")
+	for shared_profile in [false, true]:
+		var view: Variant = SharedBankView.new() if shared_profile else FixtureView.new()
+		root.add_child(view)
+		view._build_world()
+		var group: Node3D = view.get_node("ProductionScenery/BankFirs")
+		verify(group.get_child_count() == specs.size(), "Both ordinary scene builders mount the same complete bank group.")
+		var expected := PackedVector3Array()
+		for index in range(specs.size()):
+			var tree := group.get_child(index) as MeshInstance3D
+			var spec: Dictionary = specs[index]
+			verify(tree != null and tree.mesh == Scenery.Surface.fir_mesh() and str(tree.name) == spec.id,
+				"The actual node shares the qualified resource and deterministic fixture identity.")
+			if tree == null:
+				continue
+			verify(tree.position == spec.center and tree.basis == spec.basis.scaled_local(Vector3.ONE * spec.scale)
+				and tree.basis.y.normalized().is_equal_approx(Vector3.UP), "Both scene and physical descriptors use the same gravity-upright pose.")
+			verify(absf(tree.position.y - Scenery.Surface.height_at(tree.position.x, tree.position.z) + 0.02) < 0.000001,
+				"Tree roots are embedded at the actual terrain triangles, not a smooth-height approximation.")
+			var envelope: AABB = tree.transform * tree.mesh.get_aabb()
+			var nearest := Vector2(clampf(1.65, envelope.position.x, envelope.end.x), clampf(1.65, envelope.position.z, envelope.end.z))
+			verify(nearest.distance_to(Vector2(1.65, 1.65)) > 8 and tree.visibility_range_end == 65.0,
+				"Whole canopies keep the working ring clear and retain a finite visibility range.")
+			for row in range(65):
+				var z := lerpf(envelope.position.z, envelope.end.z, float(row) / 64)
+				verify(envelope.end.x < Scenery.river_center_x(z) - Scenery.channel_half_width(z) - 0.4,
+					"The actual complete canopy stays on the opposite bank, clear of the channel.")
+			for surface in [0, 2]:
+				var arrays := tree.mesh.surface_get_arrays(surface)
+				var positions: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+				var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+				for n in range(0, indices.size(), 3):
+					var a := tree.transform * positions[indices[n]]
+					var b := tree.transform * positions[indices[n + 1]]
+					var c := tree.transform * positions[indices[n + 2]]
+					if (b - a).cross(c - a).length_squared() > 0:
+						expected.append_array(PackedVector3Array([a, b, c]))
+			inspect_visual(tree)
+		verify(expected == actual_faces, "Every actual rendered woody triangle exactly matches the physical fixture input; needles are excluded.")
+		verify(view.model == null and view.actor_world == null and view.state.is_empty() and view.request_sequence == 0,
+			"Ordinary scene assembly creates no authority, physical actor or material command.")
+		view.free()
+	var first_root: Vector3 = specs[0].center
+	specs[0].center = Vector3(999, 999, 999)
+	actual_faces[0] = Vector3(999, 999, 999)
+	verify(Scenery.Surface.fir_specs()[0].center == first_root and Scenery.Surface.fir_collision_faces()[0].x < 100,
+		"Callers cannot mutate later shared tree poses or native triangle input.")
+	print(JSON.stringify({"trees": 3, "actual_wood_triangles": Scenery.Surface.fir_collision_faces().size() / 3,
+		"rendered_quality": "not_assessed", "physics": "separate_case", "authority": "not_started"}))
+
+func check_bank_fir_lifecycle() -> void:
+	for shared_profile in [false, true]:
+		var view: Variant = SharedBankView.new() if shared_profile else FixtureView.new()
+		root.add_child(view)
+		view._build_world()
+		var group: Node3D = view.get_node("ProductionScenery/BankFirs")
+		verify(group.is_inside_tree() and group.get_child_count() == 3, "The ordinary fir group is mounted inside the real node tree.")
+		verify(view.camera.is_inside_tree() and view.camera.global_transform.is_finite(), "The normal camera mount is valid during world assembly.")
+		verify(view.model == null and view.actor_world == null and view.request_sequence == 0, "The mounted fixture still starts no game authority or requests.")
+		view.free()
+
 func run() -> void:
+	if mode == "bank-fir-lifecycle":
+		check_bank_fir_lifecycle()
+		finish()
+		return
+	if mode == "bank-firs":
+		check_bank_firs()
+		finish()
+		return
 	if mode == "fir-resource":
 		check_fir_resource()
 		finish()

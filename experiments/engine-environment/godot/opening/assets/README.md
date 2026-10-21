@@ -455,10 +455,13 @@ establish rendered balance or alpha-overdraw cost.
 
 The [qualified full-size fir resource](fir/CREDITS.md) retains a complete
 7.8-metre local source tree, its material transforms and generated distance
-detail. It is self-contained and available through the shared terrain-resource
-reader. It is not mounted yet: visible woody trunks and their collision must
-share the same prepared geometry in the later scene join. Its resource checks
-do not establish rendered quality or a performance result.
+detail. Three gravity-upright instances now frame the opposite bank, outside
+the working ring and clear of the river and existing rock envelopes. Both views
+and the physical adapter use the same deterministic terrain poses. Actual
+woody triangles join the existing two-sided floor shape; needles remain soft
+visual foliage. No harvesting, stock, growth or new controller is introduced.
+Resource, scene and isolated contact checks do not establish rendered balance,
+ordinary traversal, frame cost or the overall production-quality target.
 
 The optional [young pine component](pine/CREDITS.md) frames the opposite bank
 with at most six near-source-scale saplings. Each shares the complete selected

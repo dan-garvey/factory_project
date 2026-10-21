@@ -70,6 +70,9 @@ func _create_floor() -> bool:
 			floor_error = "native_site_geometry_invalid"
 			return false
 		terrain_faces = site_surface.faces()
+		# The same prepared woody triangles are visible in the ordinary scene.
+		# Retain the existing sole floor body and its strict native-data guard.
+		terrain_faces.append_array(site_surface.fir_collision_faces())
 	floor_body = StaticBody3D.new()
 	floor_body.name = "PhysicalGround"
 	floor_body.collision_layer = Geometry.GROUND_LAYER
@@ -208,6 +211,10 @@ func _geometry_registered() -> bool:
 			return false
 		var data = PhysicsServer3D.shape_get_data(PhysicsServer3D.body_get_shape(rid, 0))
 		if body == floor_body:
+			# Shared terrain/wood vertices are already in world coordinates.
+			# Matching a shifted native body to a shifted node is insufficient.
+			if at != Transform3D.IDENTITY or floor_body.transform != Transform3D.IDENTITY:
+				return false
 			if PhysicsServer3D.body_get_collision_layer(rid) != Geometry.GROUND_LAYER:
 				return false
 			if site_surface != null:

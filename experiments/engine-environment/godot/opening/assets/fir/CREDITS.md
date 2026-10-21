@@ -13,7 +13,8 @@ with its three materials and all 420,822 base triangles. Its source height is
 about 7.8 metres, including the small below-origin root extent. Scale is one;
 the catalogue's one-metre X translation is omitted. The provider's combined
 catalogue width is not the width of this individual tree. This component is
-qualified art, not yet a mounted forest or a physical tree fixture.
+qualified art; its bank adoption is described below, separately from the
+original source/resource result.
 
 Preparation uses the pinned Godot 4.7.2 glTF importer and
 [ImporterMesh](https://docs.godotengine.org/en/stable/classes/class_importermesh.html).
@@ -46,7 +47,28 @@ pixels exactly. The twelve-MiB component allocation and common project capture
 limit remain distinct. The shared `site_surface.gd` reader checks the prepared
 identity before deserialization; absent historical rosters can omit it.
 
-This source/resource qualification establishes no game, collision, rendered
-appearance, performance, human preference or production-quality verdict. A
-later scene join must match woody collision to the actual tree geometry and
-keep the working area clear rather than mounting large walk-through trunks.
+The bank fixture mounts three instances at 0.85–1.0 times source scale, with
+gravity-upright yaw and roots embedded two centimetres into the actual terrain
+triangles. A deterministic bounded search preserves the eight-metre working
+ring, whole-canopy river/rock clearance and separation between trees. The
+current selected scales are 0.9, 1.0 and 0.95; this is an art default rather
+than growth, harvesting or a permanent biome.
+
+The two woody surfaces supply all 16,560 transformed triangles across the three
+trees to ActorWorld's existing two-sided floor shape. Needles are visual
+foliage; there is no invisible box obstacle or separate tree controller. The
+same source geometry feeds the analytical capsule contact diagnostic. The
+floor registration guard requires both the native body and its node at the
+immutable world-space origin, so shifting them together cannot disguise a
+different fixture. Old ground triangles and rock descriptors remain unchanged.
+
+The first narrow placement search failed to find three sites and is retained.
+The expanded search passed 435 geometry/interface assertions but logged two
+fixture camera errors from building outside the node tree. That whole call
+is not accepted as clean. A separate six-check mounting correction passed
+inside the actual node tree without repeating the geometry checks. Fifteen
+isolated physical-fixture checks then passed actual native capsule contacts,
+clear working space and altered-shape/pose rejection. No real player, machine
+authority or material command ran. These checks establish neither ordinary
+traversal nor rendered appearance, performance, human preference or production
+quality.

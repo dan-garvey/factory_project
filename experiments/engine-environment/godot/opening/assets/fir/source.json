@@ -226,12 +226,31 @@
     "cause": "Native has_mesh is not bound as GDScript API.",
     "outer_exit": 124
   },
-  "qualification": {
+  "resource_qualification": {
     "mounted_trees": 0,
     "collision": "not_adopted",
     "authority": "unchanged",
     "rendered_quality": "not_assessed",
     "performance": "not_measured",
     "human_play": "not_run"
+  },
+  "scene_adoption": {
+    "fixture": "opposite riverbank",
+    "trees": 3,
+    "selected_uniform_scales": [
+      0.9,
+      1,
+      0.95
+    ],
+    "gravity_upright": true,
+    "root_embed_metres": 0.02,
+    "working_ring_clearance_metres": 8,
+    "woody_triangles": 16560,
+    "physical_shape": "Original ActorWorld two-sided floor plus the exact transformed source woody triangles.",
+    "needles": "Visual only.",
+    "native_authority": "unchanged",
+    "rendered_quality": "not_assessed",
+    "ordinary_traversal": "not_run",
+    "performance": "not_measured"
   }
 }

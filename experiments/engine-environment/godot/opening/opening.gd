@@ -2135,6 +2135,24 @@ class ProductionEnvironment:
 		patch.multimesh.instance_count = kept.size() / 12
 		patch.multimesh.buffer = kept
 
+	static func _bank_firs() -> Node3D:
+		var group := Node3D.new()
+		group.name = "BankFirs"
+		var specs: Array[Dictionary] = Surface.fir_specs()
+		if specs.is_empty():
+			return group
+		var mesh: ArrayMesh = Surface.fir_mesh()
+		for spec in specs:
+			var tree := MeshInstance3D.new()
+			tree.name = spec.id
+			tree.mesh = mesh
+			tree.position = spec.center
+			tree.basis = spec.basis.scaled_local(Vector3.ONE * spec.scale)
+			tree.visibility_range_end = 65.0
+			tree.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED
+			group.add_child(tree)
+		return group
+
 	static func _bank_ferns() -> Node3D:
 		var group := Node3D.new()
 		group.name = "BankFerns"
@@ -2304,6 +2322,7 @@ class ProductionEnvironment:
 		scenery.add_child(_bank_ferns())
 		scenery.add_child(_foreground_bank())
 		scenery.add_child(_pine_understory())
+		scenery.add_child(_bank_firs())
 		return scenery
 
 class FlatFixtureEnvironment:
