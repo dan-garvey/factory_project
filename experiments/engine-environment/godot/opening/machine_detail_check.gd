@@ -2443,6 +2443,88 @@ func check_press_input_clearance() -> void:
 		"vertical_layout": "unchanged and not accepted by this case", "native_gameplay": "not_run"}))
 	press_input_checks_complete = assemblies == 16 and not failed
 
+func check_collector_input_support() -> void:
+	var assemblies := 0
+	var minimum_bearing_join := INF
+	var minimum_foot_join := INF
+	var displaced_controls := 0
+	var outboard := DriveJournalArt.press_mesh()
+	verify(outboard.get_aabb().position.is_equal_approx(Vector3(-0.085, -0.675, -0.085))
+		and outboard.get_aabb().size.is_equal_approx(Vector3(0.17, 1.35, 0.17)),
+		"Collector input ends preserve the established attachment planes and radial envelope.")
+	verify(journal_section_radius(outboard, 0) == -INF
+		and journal_section_radius(DriveJournalArt.mesh(1.35), 0) > 0.08,
+		"Raw facets reject the former exposed cross-bed middle while retaining the old geometry as a negative control.")
+	for shared_profile in [false, true]:
+		for axis_index in [0, 2]:
+			var axis: Vector3 = Vector3.RIGHT if axis_index == 0 else Vector3.BACK
+			for cell in [[0, 0], [2, -1]]:
+				var view: Variant = Shared.new() if shared_profile else Opening.new()
+				view.machine_root = Node3D.new()
+				view.add_child(view.machine_root)
+				view.state = {"context": "collector-input-art", "options": {"native": true, "physical": true},
+					"actors": {}, "parts": {}, "inventories": {}, "stock": {}, "remaining": 0,
+					"entities": {"fixture": {"kind": "collector", "cell": cell, "axis": axis_index, "generation": 1}},
+					"transmission_parts": {}, "motion": {}, "links": [], "drive_links": [], "engagements": []}
+				var before: Dictionary = view.state.duplicate(true)
+				view._rebuild_machines()
+				var machine: Node3D = view.machine_root.get_child(0)
+				var journal: MeshInstance3D = machine.get_node("DriveStub")
+				var bed: MeshInstance3D = machine.get_node("StockBed")
+				var bed_box: AABB = bed.transform * bed.mesh.get_aabb()
+				verify(journal.mesh == outboard and journal_pose_matches(journal, axis_index)
+					and machine.position.is_equal_approx(Vector3(cell[0] * Geometry.PITCH, 0, cell[1] * Geometry.PITCH)),
+					"Both view builders keep the native input centre, axis and world-space construction origin.")
+				var fixed_count := 0
+				for child in machine.get_children():
+					if child is MeshInstance3D and child.has_meta("collector_input_role"):
+						fixed_count += 1
+						verify(child.get_script() == null and child.get_child_count() == 0,
+							"Collector input support is rigid presentation without a controller.")
+						check_bounds(child, Transform3D.IDENTITY)
+				verify(fixed_count == 6 and machine.get_meta("motion_meshes").size() == 10,
+					"Two bearings, posts and feet add no motion callback or missing fixed part.")
+				for side in [-1.0, 1.0]:
+					var suffix := "Left" if side < 0 else "Right"
+					var bearing: MeshInstance3D = machine.get_node("CollectorInputBearing" + suffix)
+					var post: MeshInstance3D = machine.get_node("CollectorInputPost" + suffix)
+					var foot: MeshInstance3D = machine.get_node("CollectorInputFoot" + suffix)
+					verify(bearing.get_meta("collector_input_role") == "Bearing"
+						and post.get_meta("collector_input_role") == "Post"
+						and foot.get_meta("collector_input_role") == "Foot",
+						"The complete outboard load path is individually identified.")
+					var bearing_box: AABB = bearing.transform * bearing.mesh.get_aabb()
+					var post_box: AABB = post.transform * post.mesh.get_aabb()
+					var foot_box: AABB = foot.transform * foot.mesh.get_aabb()
+					verify(not bearing_box.intersects(bed_box) and not post_box.intersects(bed_box)
+						and foot_box.end.y < bed_box.position.y,
+						"Bearings and posts clear the stock bed, and their feet pass beneath its working surface.")
+					var bearing_join := press_input_overlap(bearing, post,
+						axis * side * 0.66 + Vector3(0, -0.1, 0), axis * side * 0.66 + Vector3(0, 1, 0))
+					var foot_join := press_input_overlap(foot, post,
+						axis * side * 0.675 + Vector3(0, -0.1, 0), axis * side * 0.675 + Vector3(0, 1, 0))
+					minimum_bearing_join = minf(minimum_bearing_join, bearing_join)
+					minimum_foot_join = minf(minimum_foot_join, foot_join)
+					verify(bearing_join > 0.005 and foot_join > 0.005,
+						"Raw mesh probes connect each annular bearing to its cast post and skid foot.")
+					if not shared_profile and cell == [0, 0] and side < 0:
+						var original_post := post.position
+						post.position += Vector3(0, 0, 0.25) if axis_index == 0 else Vector3(0.25, 0, 0)
+						verify(press_input_overlap(bearing, post,
+							axis * side * 0.66 + Vector3(0, -0.1, 0), axis * side * 0.66 + Vector3(0, 1, 0)) <= 0,
+							"A displaced support cannot pass the bearing-contact control.")
+						post.position = original_post
+						displaced_controls += 1
+				verify(view.state == before and view.model == null and view.actor_world == null
+					and view.request_sequence == 0 and not view.is_inside_tree(),
+					"Input presentation leaves material, authority, requests and native bodies untouched.")
+				assemblies += 1
+				view.free()
+	verify(assemblies == 8 and displaced_controls == 2, "Both axes and view builders complete their support controls.")
+	print(JSON.stringify({"phase": "collector input support", "assemblies": assemblies,
+		"minimum_bearing_join_metres": minimum_bearing_join, "minimum_foot_join_metres": minimum_foot_join,
+		"displaced_support_controls": displaced_controls, "native_gameplay": "not_run"}))
+
 func check_drive_journals(geometry_checks: bool = true) -> void:
 	var meshes: Dictionary = {}
 	var assemblies := 0
@@ -2493,7 +2575,7 @@ func check_drive_journals(geometry_checks: bool = true) -> void:
 					var machine: Node3D = view.machine_root.get_child(0)
 					var journal: MeshInstance3D = machine.get_node("DriveStub")
 					var height := 0.9 if axis == 1 else 1.35
-					var expected_mesh: ArrayMesh = DriveJournalArt.press_mesh() if kind == "processor" and axis != 1 else meshes[height]
+					var expected_mesh: ArrayMesh = DriveJournalArt.press_mesh() if axis != 1 else meshes[height]
 					verify(journal.mesh == expected_mesh and journal.material_override == material
 						and journal.get_child_count() == 0 and journal.get_script() == null and journal_pose_matches(journal, axis),
 						"Both view builders mount the fitted journal variant on the existing native centre and confirmed axis.")
@@ -5284,6 +5366,11 @@ func _initialize() -> void:
 			if failed:
 				finish()
 				return
+		if OS.get_cmdline_user_args().has("--collector-input-support-check"):
+			check_collector_input_support()
+			if failed:
+				finish()
+				return
 		if OS.get_cmdline_user_args().has("--satin-coating-check"):
 			check_satin_coating()
 			check_collector_coating(false)
@@ -5301,6 +5388,14 @@ func _initialize() -> void:
 	if OS.get_cmdline_user_args().has("--press-input-clearance-only"):
 		check_press_input_clearance()
 		verify(press_input_checks_complete, "The dedicated press input case passes all sixteen required assemblies.")
+		finish()
+		return
+	if OS.get_cmdline_user_args().has("--collector-input-support-only"):
+		check_collector_input_support()
+		finish()
+		return
+	if OS.get_cmdline_user_args().has("--drive-journal-only"):
+		check_drive_journals()
 		finish()
 		return
 	if OS.get_cmdline_user_args().has("--satin-coating-only"):
