@@ -1594,6 +1594,122 @@ class ProductionPressCrownArt:
 				ProductionVisuals.turned_mesh(socket), Vector3(side * 0.34, 1.39, -0.19), guide_finish)
 		return true
 
+class ProductionPressFrameJointArt:
+	extends RefCounted
+	## Presentation-only joins between complete rigid press bays. Native World
+	## does not yet own a multi-press, so ordinary machine mounting never calls this.
+	const BAY_WIDTH := 1.35
+	const CROWN_WIDTH := 1.20
+
+	static func _box(parent: Node3D, role: String, size: Vector3, at: Vector3,
+			finish: Material) -> void:
+		var part := MeshInstance3D.new()
+		part.name = role
+		part.set_meta("frame_role", role)
+		part.mesh = ProductionVisuals.box_mesh(size)
+		part.position = at
+		part.material_override = finish
+		parent.add_child(part)
+
+	static func _bolt(parent: Node3D, at: Vector3, finish: Material) -> void:
+		var part := MeshInstance3D.new()
+		part.name = "JointBolt"
+		part.set_meta("frame_role", "JointBolt")
+		part.mesh = ProductionVisuals.fastener_head_mesh()
+		part.position = at
+		part.basis = Basis(Quaternion(Vector3.UP, Vector3.BACK))
+		part.material_override = finish
+		parent.add_child(part)
+
+	static func _brace(parent: Node3D, from: Vector3, to: Vector3,
+			finish: Material) -> void:
+		var direction := to - from
+		var part := MeshInstance3D.new()
+		part.name = "RearKneeBrace"
+		part.set_meta("frame_role", "RearKneeBrace")
+		part.mesh = ProductionVisuals.box_mesh(Vector3(0.045, direction.length(), 0.055))
+		part.position = (from + to) * 0.5
+		part.basis = Basis(Quaternion(Vector3.UP, direction.normalized()))
+		part.material_override = finish
+		parent.add_child(part)
+
+	static func mount(parent: Node3D, centers: PackedFloat32Array, cast: Material,
+			worked: Material, skid: Material) -> Dictionary:
+		# Refuse the complete request before mounting anything. These bounds are
+		# a sample art envelope, not a new construction or support rule.
+		if centers.size() < 2 or centers.size() > 8 or cast == null or worked == null or skid == null:
+			return {"status": "invalid"}
+		for index in range(centers.size()):
+			if not is_finite(centers[index]):
+				return {"status": "invalid"}
+			# PackedFloat32Array rounds decimal bay positions. This one-tenth
+			# millimetre tolerance keeps its stated envelope stable after packing.
+			if index > 0 and (centers[index] - centers[index - 1] < BAY_WIDTH - 0.0001 or centers[index] - centers[index - 1] > 3.0001):
+				return {"status": "invalid"}
+		var assembly := Node3D.new()
+		assembly.name = "FittedPressFrameJoints"
+		parent.add_child(assembly)
+		for index in range(centers.size() - 1):
+			var left := centers[index]
+			var right := centers[index + 1]
+			var middle := (left + right) * 0.5
+			var skid_gap := right - left - BAY_WIDTH
+			var crown_gap := right - left - CROWN_WIDTH
+			var joint := Node3D.new()
+			joint.name = "BayJoint%d" % index
+			joint.set_meta("frame_role", "BayJoint")
+			assembly.add_child(joint)
+			# Existing C-channel bays and sourced cast uprights remain rigid. Only
+			# the true gap receives length-dependent steel and cast members.
+			if skid_gap > 0.001:
+				_box(joint, "DeckTongue", Vector3(skid_gap, 0.04, 1.22),
+					Vector3(middle, 0.22, 0), skid)
+				for z in [-0.53, 0.53]:
+					_box(joint, "SkidChannelWeb", Vector3(skid_gap, 0.145, 0.045),
+						Vector3(middle, 0.09, z), skid)
+					for y in [0.02, 0.18]:
+						_box(joint, "SkidChannelFlange", Vector3(skid_gap, 0.018, 0.17),
+							Vector3(middle, y, z), skid)
+				_box(joint, "DeckStiffener", Vector3(0.055, 0.075, 1.09),
+					Vector3(middle, 0.165, 0), worked)
+			for edge in [left + BAY_WIDTH * 0.5, right - BAY_WIDTH * 0.5]:
+				for z in [-0.53, 0.53]:
+					_box(joint, "SkidClamp", Vector3(0.16, 0.018, 0.19),
+						Vector3(edge, 0.247, z), worked)
+					for x_offset in [-0.045, 0.045]:
+						_bolt(joint, Vector3(edge + x_offset, 0.262, z), worked)
+			# An open, flanged crosshead replaces a plain solid bar. Both fixed
+			# shoulder ends retain their original positions and cast profiles.
+			_box(joint, "CrownWeb", Vector3(crown_gap, 0.112, 0.040),
+				Vector3(middle, 1.53, -0.3475), cast)
+			for y in [1.456, 1.604]:
+				_box(joint, "CrownFlange", Vector3(crown_gap, 0.030, 0.275),
+					Vector3(middle, y, -0.3475), cast)
+			for edge in [left + CROWN_WIDTH * 0.5, right - CROWN_WIDTH * 0.5]:
+				_box(joint, "CrownFishplate", Vector3(0.07, 0.19, 0.022),
+					Vector3(edge, 1.53, -0.198), worked)
+				for y in [1.475, 1.585]:
+					_bolt(joint, Vector3(edge, y, -0.183), worked)
+			# Each knee reaches an existing inner upright. A short decorative
+			# strut hanging from the middle of the beam would imply false support.
+			var knee_run := 0.12 + crown_gap * 0.34
+			_brace(joint, Vector3(left + 0.48, 1.16, -0.39),
+				Vector3(left + 0.48 + knee_run, 1.47, -0.39), worked)
+			_brace(joint, Vector3(right - 0.48, 1.16, -0.39),
+				Vector3(right - 0.48 - knee_run, 1.47, -0.39), worked)
+			if crown_gap > 0.40:
+				_box(joint, "CrownStiffener", Vector3(0.05, 0.14, 0.24),
+					Vector3(middle, 1.53, -0.3475), worked)
+		for edge in [centers[0] - CROWN_WIDTH * 0.5, centers[centers.size() - 1] + CROWN_WIDTH * 0.5]:
+			_box(assembly, "TerminalCrownCap", Vector3(0.04, 0.19, 0.28),
+				Vector3(edge, 1.53, -0.3475), worked)
+		for edge in [centers[0] - BAY_WIDTH * 0.5, centers[centers.size() - 1] + BAY_WIDTH * 0.5]:
+			for z in [-0.53, 0.53]:
+				_box(assembly, "TerminalSkidCap", Vector3(0.035, 0.18, 0.19),
+					Vector3(edge, 0.09, z), worked)
+		return {"status": "ready", "joints": centers.size() - 1,
+			"crown_gaps": centers[centers.size() - 1] - centers[0] - CROWN_WIDTH * (centers.size() - 1)}
+
 class ProductionPressDieArt:
 	extends RefCounted
 	## Passive rigid tooling. Working planes and the existing motion anchor stay literal.
