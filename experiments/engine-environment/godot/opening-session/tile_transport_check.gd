@@ -11,6 +11,7 @@ extends SceneTree
 ## --powered-span instead to exercise a native waterwheel-driven span, or
 ## --inclined-span to construct its elevated 45-degree counterpart. Add
 ## --reverse-endpoints to submit either span in the opposite endpoint order.
+## Add --middle-pulley to --powered-span to insert and restore a driven pulley.
 ## Add --reverse-belt to every process for
 ## generated-site reverse deposition and pickup after restart. The resumed Session uses the Store but
 ## does not exercise the ordinary server lifecycle or physical actor bodies.
@@ -29,6 +30,7 @@ var span_belt := false
 var powered_span := false
 var inclined_span := false
 var reverse_endpoints := false
+var middle_pulley := false
 var serial := 0
 var epoch := 0
 
@@ -47,6 +49,7 @@ func _initialize() -> void:
 			powered_span = true
 			inclined_span = true
 		elif arg == "--reverse-endpoints": reverse_endpoints = true
+		elif arg == "--middle-pulley": middle_pulley = true
 	call_deferred("run")
 
 func verify(ok: bool, message: String) -> void:
@@ -241,6 +244,16 @@ func run_span() -> void:
 				if powered_span:
 					var saved_span: Dictionary = restored.belt_spans[id]
 					verify(_span_powered(restored, saved_span), "P receives equal signed shaft rates after restore")
+					if middle_pulley:
+						var middle := _middle_id(restored)
+						verify(not middle.is_empty() and _middle_powered(restored, saved_span), "The saved intermediate pulley remains driven")
+						if failed: quit(1); return
+						var removed_middle := await issue({"action": "remove", "entity": middle})
+						verify(removed_middle.get("accepted", false), "P removes the restored pulley: " + str(removed_middle))
+						verify(session.projection().belt_spans.size() == 1 and _span_powered(session.projection(), saved_span), "Removing the pulley preserves the powered belt")
+						if failed: quit(1); return
+						mark("pulley-removed")
+						if not await until(func(): return FileAccess.file_exists(directory.path_join("pulley-observed")), "Q observes the remaining powered belt"): quit(1); return
 				var removed := await issue({"action": "remove_belt_span", "entity": id})
 				verify(removed.get("accepted", false), "P removes the restored span through Session: " + str(removed))
 			else:
@@ -271,23 +284,39 @@ func run_span() -> void:
 				if powered_span:
 					var power := await issue({"action": "set_power", "active": true})
 					verify(power.get("accepted", false), "P starts the native wheel: " + str(power))
+					if middle_pulley:
+						var middle := await issue({"action": "place_shaft", "center": [-4, 4, 8], "axis": "x", "half_span": 2})
+						verify(middle.get("accepted", false), "P inserts a pulley into the powered span: " + str(middle))
 			if failed: quit(1); return
 			mark(prefix + "P-done")
 		else:
+			if resumed and middle_pulley:
+				if not await until(func(): return FileAccess.file_exists(directory.path_join("pulley-removed")), "P removes the restored pulley"): quit(1); return
+				if not await until(func(): return session.projection().get("transmission_parts", {}).size() == 2, "Q receives the pulley removal"): quit(1); return
+				var remaining: Dictionary = session.projection()
+				verify(remaining.belt_spans.size() == 1 and remaining.part_kits.P.shaft == 6 and _span_powered(remaining, remaining.belt_spans.values()[0]), "Q sees the refund and both endpoints still powered")
+				if failed: quit(1); return
+				mark("pulley-observed")
 			if not await until(func(): return FileAccess.file_exists(directory.path_join(prefix + "P-done")), "P completes the span request"): quit(1); return
 			if not await until(func(): return session.projection().get("belt_spans", {}).size() == (0 if resumed else 1), "Q receives the confirmed belt change"): quit(1); return
 			var view: Dictionary = session.projection()
-			verify(view.transmission_parts.size() == 2 and view.part_kits.P.shaft == 6 and view.part_kits.P.belt == (2 if resumed else 1), "Q sees both shafts and the correct belt custody")
+			var shaft_count := 3 if middle_pulley and not resumed else 2
+			verify(view.transmission_parts.size() == shaft_count and view.part_kits.P.shaft == 8 - shaft_count and view.part_kits.P.belt == (2 if resumed else 1), "Q sees the shafts and correct belt custody")
 			if not resumed:
 				var span: Dictionary = view.belt_spans.values()[0]
 				verify(view.transmission_parts.has(span.from) and view.transmission_parts.has(span.to), "Q sees both actual belt endpoint identities")
-				var belt_edge := false
+				var belt_edges: Array = []
 				for edge in view.engagements:
-					if edge.kind == 2 and ((edge.a == span.from and edge.b == span.to) or (edge.b == span.from and edge.a == span.to)):
-						belt_edge = true
-				verify(belt_edge, "Q observes the native belt transmission engagement")
+					if edge.kind == 2: belt_edges.append(edge)
+				if middle_pulley:
+					var middle := _middle_id(view)
+					verify(belt_edges.size() == 2 and belt_edges.all(func(edge: Dictionary): return edge.a == middle or edge.b == middle), "Q observes both belt engagements through the intermediate pulley")
+				else:
+					verify(belt_edges.size() == 1 and ((belt_edges[0].a == span.from and belt_edges[0].b == span.to) or (belt_edges[0].b == span.from and belt_edges[0].a == span.to)), "Q observes the native belt transmission engagement")
 				if powered_span:
 					verify(_span_powered(view, span), "Q observes equal nonzero signed rates across the belt")
+					if middle_pulley:
+						verify(_middle_powered(view, span), "Q observes the inserted pulley at the same signed rate")
 			else:
 				verify(not view.engagements.any(func(edge: Dictionary): return edge.kind == 2), "Removing the span removes its belt transmission engagement")
 				if powered_span:
@@ -310,7 +339,24 @@ func _span_powered(view: Dictionary, span: Dictionary) -> bool:
 	return first.get("state") == "rotating" and last.get("state") == "rotating" and first.get("numerator", 0) != 0 \
 		and first.get("numerator") == last.get("numerator") and first.get("denominator") == last.get("denominator")
 
+func _middle_id(view: Dictionary) -> String:
+	for id in view.transmission_parts:
+		if view.transmission_parts[id].center == [-4, 4, 8]: return str(id)
+	return ""
+
+func _middle_powered(view: Dictionary, span: Dictionary) -> bool:
+	var middle := _middle_id(view)
+	if middle.is_empty(): return false
+	var source: Dictionary = view.motion.get(span.from, {})
+	var motion: Dictionary = view.motion.get(middle, {})
+	return motion.get("state") == "rotating" and motion.get("numerator") == source.get("numerator") \
+		and motion.get("denominator") == source.get("denominator")
+
 func run() -> void:
+	if middle_pulley and (not powered_span or inclined_span or reverse_belt):
+		push_error("The middle-pulley case requires the horizontal powered span")
+		quit(1)
+		return
 	if not directory.is_absolute_path() or not DirAccess.dir_exists_absolute(directory) or not role in ["server", "P", "Q", "server-resume", "resume-P", "resume-Q"]:
 		push_error("Expected an owned directory and a server, P, or Q role")
 		quit(1)
