@@ -42,9 +42,12 @@ or visual actor root. The original FBX remains available at the pinned source
 revision.
 
 Confirmed rising and falling samples switch the visual skeleton into distinct
-takeoff, ascent, descent and compressed landing poses. Landing settles over
-0.24 seconds. Knee and arm poses evolve with observed vertical speed so they
-do not hold one shape through the whole flight. A confirmed teleport, world
+takeoff, ascent, descent and compressed landing poses. The running takeoff lifts
+one knee while the trailing leg extends; the legs fold near the apex, reach
+down on descent and compress at impact. The arms drive asymmetrically on takeoff
+and open for balance in flight. Landing settles over 0.24 seconds. These poses
+evolve with observed vertical speed rather than holding one shape throughout
+flight. A confirmed teleport, world
 change or unready actor discards its motion history. Because the shared
 projection has no floor-contact flag, landing is inferred from confirmed height
 changes and can lag a new support height by one sample. This remains a
