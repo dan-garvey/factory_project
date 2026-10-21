@@ -2,8 +2,14 @@ extends RefCounted
 ## Pure render assemblies. The presenter retains axes, picks and native facts.
 const Visuals = preload("res://opening/opening.gd").ProductionVisuals
 const Finish = preload("res://opening/opening.gd").ProductionTransmissionFinish
+const ConveyorArt = preload("res://opening/opening.gd").ProductionConveyorArt
 const UNIT := preload("res://opening/site_geometry.gd").PITCH / 4.0
 const SHAFT_CORE_RADIUS := 0.03
+const SPAN_HALF_WIDTH := UNIT * 4.0 * 0.55 / 2.0
+const SPAN_OUTER_RADIUS := 0.1425
+const SPAN_THICKNESS := 0.045
+const PULLEY_RADIUS := 0.095
+const PULLEY_BORE := 0.039
 static var meshes: Dictionary = {}
 static var batches: Dictionary = {}
 const COUPLING_ROOT := "res://opening/assets/shaft-coupling"
@@ -237,3 +243,42 @@ static func shaft(parent: Node3D, length: float, color: Color) -> void:
 		_part(parent, "ShaftCollar", Visuals.turned_mesh(collar), Vector3(0, center, 0), Color("a6b4af"))
 		_part(parent, "ShaftKey", Visuals.box_mesh(Vector3(0.012, 0.08, 0.012)),
 			Vector3(0.031, center, 0), Color("b87945"))
+
+static func belt_loop(parent: Node3D, distance: float, travel_axis: int) -> MeshInstance3D:
+	# Keep the confirmed strips' width and four flat surface heights. Only
+	# their missing curved returns and material treatment are replaced.
+	if not is_finite(distance) or distance < UNIT * 4.0 or distance > UNIT * 80.0 or travel_axis not in [0, 2]:
+		return null
+	var source := ConveyorArt.material()
+	if source == null:
+		return null
+	var loop := MeshInstance3D.new()
+	loop.name = "BeltLoop"
+	loop.mesh = ConveyorArt.loop_mesh(distance / 2.0, SPAN_HALF_WIDTH,
+		SPAN_OUTER_RADIUS, SPAN_THICKNESS, 0.003)
+	loop.material_override = source
+	if travel_axis == 2:
+		loop.rotation.y = -PI / 2.0
+	loop.set_meta("asset_role", "BeltLoop")
+	parent.add_child(loop)
+	return loop
+
+static func belt_pulley(parent: Node3D) -> MeshInstance3D:
+	# One fitted drum per shaft even when several confirmed spans meet it.
+	# The presenter supplies the existing shaft basis and cosmetic rotation.
+	var existing := parent.get_node_or_null("BeltPulley")
+	if existing is MeshInstance3D:
+		return existing
+	var key := ["belt_pulley"]
+	if not meshes.has(key):
+		var face := SPAN_HALF_WIDTH - 0.006
+		var profile := PackedVector2Array([
+			Vector2(0.044, -0.49), Vector2(0.059, -0.49), Vector2(0.065, -0.484),
+			Vector2(0.065, -0.43), Vector2(0.085, -0.43), Vector2(0.090, -face),
+			Vector2(0.093, -face), Vector2(PULLEY_RADIUS, -face + 0.002),
+			Vector2(PULLEY_RADIUS, face - 0.002), Vector2(0.093, face),
+			Vector2(0.090, face), Vector2(0.085, 0.43), Vector2(0.065, 0.43),
+			Vector2(0.065, 0.484), Vector2(0.059, 0.49), Vector2(0.044, 0.49),
+			Vector2(PULLEY_BORE, 0.485), Vector2(PULLEY_BORE, -0.485), Vector2(0.044, -0.49)])
+		meshes[key] = Visuals.turned_mesh(profile)
+	return _part(parent, "BeltPulley", meshes[key], Vector3.ZERO, Color("a6b4af"))

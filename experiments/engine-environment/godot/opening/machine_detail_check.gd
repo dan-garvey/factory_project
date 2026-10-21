@@ -15,6 +15,7 @@ const DriveJournalArt = Opening.ProductionDriveJournalArt
 const FoundationArt = Opening.ProductionFoundationArt
 const SkidArt = Opening.ProductionSkidArt
 const Presenter = preload("res://opening/native_transmission_presenter.gd")
+const TransmissionAssets = preload("res://opening/native_transmission_assets.gd")
 const Geometry = preload("res://opening/site_geometry.gd")
 const Items = preload("res://opening/workpiece_item_assets.gd")
 var checks := 0
@@ -26,6 +27,175 @@ var minimum_collector_gap := INF
 var foundation_art_complete := false
 var press_input_checks_complete := false
 var wheel_support_checks_complete := false
+var span_belt_checks_complete := false
+
+func span_shell_closed(mesh: Mesh) -> bool:
+	var edges: Dictionary = {}
+	var neighbours: Dictionary = {}
+	var faces := mesh.get_faces()
+	for n in range(0, faces.size(), 3):
+		for pair in [[faces[n], faces[n + 1]], [faces[n + 1], faces[n + 2]], [faces[n + 2], faces[n]]]:
+			var a := vertex_key(pair[0])
+			var b := vertex_key(pair[1])
+			var key := a + "/" + b if a < b else b + "/" + a
+			edges[key] = int(edges.get(key, 0)) + 1
+			if not neighbours.has(a):
+				neighbours[a] = []
+			if not neighbours.has(b):
+				neighbours[b] = []
+			neighbours[a].append(b)
+			neighbours[b].append(a)
+	if neighbours.is_empty() or edges.values().any(func(count): return count != 2):
+		return false
+	var pending: Array = [neighbours.keys()[0]]
+	var seen: Dictionary = {}
+	while not pending.is_empty():
+		var key: String = pending.pop_back()
+		if seen.has(key):
+			continue
+		seen[key] = true
+		pending.append_array(neighbours[key])
+	return seen.size() == neighbours.size()
+
+func span_ray_hits(mesh: Mesh, pose: Transform3D, from: Vector3, to: Vector3) -> int:
+	var hits: Array[Vector3] = []
+	var faces := mesh.get_faces()
+	for n in range(0, faces.size(), 3):
+		var hit: Variant = Geometry3D.segment_intersects_triangle(from, to,
+			pose * faces[n], pose * faces[n + 1], pose * faces[n + 2])
+		if typeof(hit) != TYPE_VECTOR3:
+			continue
+		if not hits.any(func(previous): return previous.distance_to(hit) < 0.00001):
+			hits.append(hit)
+	return hits.size()
+
+func span_return_clearance(mesh: Mesh, distance: float) -> float:
+	var minimum := INF
+	var centre := Vector2(distance / 2.0, 0)
+	var faces := mesh.get_faces()
+	for n in range(0, faces.size(), 3):
+		if minf(faces[n].x, minf(faces[n + 1].x, faces[n + 2].x)) < centre.x - 0.000001:
+			continue
+		minimum = minf(minimum, point_triangle_distance(centre, Vector2(faces[n].x, faces[n].y),
+			Vector2(faces[n + 1].x, faces[n + 1].y), Vector2(faces[n + 2].x, faces[n + 2].y)))
+	return minimum
+
+func span_pulley_fits(pulley: MeshInstance3D, return_radius: float) -> bool:
+	var radial_maximum := 0.0
+	for point in pulley.mesh.get_faces():
+		var actual: Vector3 = pulley.transform * point
+		radial_maximum = maxf(radial_maximum, Vector2(actual.x, actual.z).length())
+	return radial_maximum + 0.001 < return_radius
+
+func resource_span(parent: Node3D, distance: float = Geometry.PITCH * 2.0) -> void:
+	TransmissionAssets.belt_loop(parent, distance, 0)
+	for side in [-1.0, 1.0]:
+		var shaft := Node3D.new()
+		shaft.position.x = side * distance / 2.0
+		shaft.basis = Presenter.axis_basis(2)
+		parent.add_child(shaft)
+		TransmissionAssets.shaft(shaft, Geometry.PITCH, Color("a6b4af"))
+		TransmissionAssets.belt_pulley(shaft)
+
+func check_span_belt_art() -> void:
+	span_belt_checks_complete = false
+	var default_mesh := ConveyorArt.loop_mesh()
+	check_closed_asset_mesh(default_mesh, 0.0213, 0.0218)
+	verify(default_mesh.get_aabb().position.is_equal_approx(Vector3(-0.66, -0.09, -0.32))
+		and default_mesh.get_aabb().end.is_equal_approx(Vector3(0.66, 0.09, 0.32)),
+		"The default conveyor keeps its original complete geometry when parameterized.")
+	var pulley_cache: Mesh
+	var loop_cache: Dictionary = {}
+	var observations: Array = []
+	for travel_axis in [0, 2]:
+		for tiles in [1, 2, 7, 19]:
+			var distance: float = tiles * Geometry.PITCH
+			var anchor := Node3D.new()
+			var loop := TransmissionAssets.belt_loop(anchor, distance, travel_axis)
+			verify(loop != null and loop.get_script() == null and loop.material_override == ConveyorArt.material()
+				and ConveyorArt.source_status == "ready", "A passive span uses the complete qualified rubber set.")
+			if loop == null:
+				anchor.free()
+				return
+			# A rubber shell's volume is its stadium perimeter times the radial
+			# section. These bounds allow bevel/facet loss, not a filled loop.
+			var volume := (2.0 * distance * 0.045 + PI * (0.1425 * 0.1425 - 0.0975 * 0.0975)) * (Geometry.PITCH * 0.55)
+			if not loop_cache.has(tiles):
+				check_closed_asset_mesh(loop.mesh, volume * 0.98, volume * 1.001)
+				verify(span_shell_closed(loop.mesh), "The belt is one connected closed shell, including both returns.")
+				loop_cache[tiles] = loop.mesh
+			verify(loop.mesh == loop_cache[tiles], "Compatible X and Z spans reuse their physical mesh.")
+			var bounds: AABB = loop.transform * loop.mesh.get_aabb()
+			verify(absf(bounds.position[travel_axis] + distance / 2.0 + 0.1425) < 0.00001
+				and absf(bounds.end[travel_axis] - distance / 2.0 - 0.1425) < 0.00001
+				and absf(bounds.size[2 if travel_axis == 0 else 0] - Geometry.PITCH * 0.55) < 0.00001,
+				"Both horizontal orientations preserve the existing strip width and add only the intended end returns.")
+			var levels := hub_loop_planes(loop)
+			verify(levels.size() == 4 and absf(levels[0] + 0.1425) < 0.000001
+				and absf(levels[1] + 0.0975) < 0.000001 and absf(levels[2] - 0.0975) < 0.000001
+				and absf(levels[3] - 0.1425) < 0.000001, "All four original flat-run surface heights remain exact.")
+			for side in [-1.0, 1.0]:
+				var from := Vector3(0, -1, 0)
+				from[travel_axis] = side * (distance / 2.0 + 0.05)
+				verify(span_ray_hits(loop.mesh, loop.transform, from, from + Vector3.UP * 2.0) == 4,
+					"Each return has inner and outer rubber on both sides of its empty interior.")
+			var arrays := loop.mesh.surface_get_arrays(0)
+			var uv: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+			var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			var maximum_u := 0.0
+			for coordinate in uv:
+				maximum_u = maxf(maximum_u, coordinate.x)
+			var physical_repeat: float = (2.0 * distance + TAU * 0.1425) / maximum_u
+			var seam: Dictionary = {}
+			for n in range(vertices.size()):
+				if uv[n].x > 0.000001 and uv[n].x < maximum_u - 0.000001:
+					continue
+				var key := vertex_key(vertices[n])
+				if not seam.has(key):
+					seam[key] = [INF, -INF]
+				seam[key][0] = minf(seam[key][0], uv[n].x)
+				seam[key][1] = maxf(seam[key][1], uv[n].x)
+			verify(physical_repeat > 0.66 and physical_repeat < 0.84 and maximum_u == roundf(maximum_u)
+				and seam.size() == 8 and seam.values().all(func(row): return absf(row[1] - row[0] - maximum_u) < 0.000001),
+				"The source rubber has a physical repeat near 0.75 m and closes each section corner at a whole repeat.")
+			var shaft := Node3D.new()
+			TransmissionAssets.shaft(shaft, Geometry.PITCH, Color.WHITE)
+			var pulley := TransmissionAssets.belt_pulley(shaft)
+			if pulley_cache == null:
+				check_closed_asset_mesh(pulley.mesh, 0.017, 0.025)
+				pulley_cache = pulley.mesh
+			verify(pulley.mesh == pulley_cache and TransmissionAssets.belt_pulley(shaft) == pulley,
+				"The fitted pulley reuses one cached mesh and mounts only once per shaft.")
+			var inner_return := span_return_clearance(loop.mesh, distance)
+			verify(span_pulley_fits(pulley, inner_return) and inner_return > 0.097,
+				"Every actual return facet clears the complete pulley envelope by more than one millimetre.")
+			verify(collector_tooling_bore(pulley.mesh) > 0.0388 and absf(pulley.mesh.get_aabb().position.y + 0.49) < 0.000001
+				and absf(pulley.mesh.get_aabb().end.y - 0.49) < 0.000001,
+				"The complete open bore clears the actual shaft and key, and its axial ends stay between the existing collars.")
+			pulley.position.x += 0.02
+			verify(not span_pulley_fits(pulley, inner_return), "A displaced pulley fails the same full-envelope clearance predicate.")
+			pulley.position.x -= 0.02
+			observations.append({"travel_axis": travel_axis, "tiles": tiles, "inner_return_radius": inner_return,
+				"rubber_repeat_metres": physical_repeat})
+			shaft.free()
+			anchor.free()
+	var broken := SurfaceTool.new()
+	broken.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var faces := default_mesh.get_faces()
+	for n in range(3, faces.size()):
+		broken.add_vertex(faces[n])
+	verify(not span_shell_closed(broken.commit()), "Removing one real facet opens the shell and fails closure.")
+	var old_strips := SurfaceTool.new()
+	old_strips.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for side in [-1.0, 1.0]:
+		old_strips.append_from(Visuals.box_mesh(Vector3(Geometry.PITCH, 0.045, Geometry.PITCH * 0.55)), 0,
+			Transform3D(Basis.IDENTITY, Vector3(0, side * 0.12, 0)))
+	verify(not span_shell_closed(old_strips.commit()), "Two individually closed original strips are rejected as disconnected rubber.")
+	verify(ConveyorArt.loop_mesh() == default_mesh and loop_cache.size() == 4,
+		"Native span variants never replace the original conveyor's cached mesh.")
+	span_belt_checks_complete = not failed and observations.size() == 8
+	print(JSON.stringify({"phase": "closed native belt artwork", "assemblies": observations,
+		"completed": span_belt_checks_complete, "checks": checks, "native_world": false, "game_entry": false}))
 
 class PaddleSessionFacts extends RefCounted:
 	var ready := true
@@ -4306,6 +4476,7 @@ func render_buildable_resources() -> void:
 	Engine.max_fps = 30
 	var subjects: Array = [{"name": "collector", "kind": "collector"}, {"name": "press", "kind": "processor"},
 		{"name": "conveyor", "kind": "belt"}, {"name": "waterwheel", "kind": "wheel"},
+		{"name": "belt-span", "kind": "belt_span"}, {"name": "belt-pulley", "kind": "belt_pulley"},
 		{"name": "waterwheel-journal", "kind": "wheel", "cutaway": true},
 		{"name": "foundation", "kind": "foundation"}, {"name": "foundation-patch", "kind": "foundation"}]
 	var selected_subject := OS.get_environment("FACTORY_RESOURCE_RENDER_SUBJECT")
@@ -4336,6 +4507,14 @@ func render_buildable_resources() -> void:
 				tile.position = Vector3(cell.x * Geometry.PITCH, 0, cell.y * Geometry.PITCH)
 				model.add_child(tile)
 				FoundationArt.mount(tile)
+		elif subject.kind == "belt_span":
+			resource_span(model)
+		elif subject.kind == "belt_pulley":
+			var shaft := Node3D.new()
+			shaft.basis = Presenter.axis_basis(2)
+			model.add_child(shaft)
+			TransmissionAssets.shaft(shaft, Geometry.PITCH, Color("a6b4af"))
+			TransmissionAssets.belt_pulley(shaft)
 		else:
 			view._assemble_machine(model, {"kind": subject.kind, "cell": [0, 0], "axis": 0, "generation": 1})
 		if subject.get("cutaway", false):
@@ -4498,11 +4677,22 @@ func render_buildable_resources() -> void:
 	quit(0)
 
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--span-belt-only"):
+		check_span_belt_art()
+		verify(span_belt_checks_complete, "All eight span assemblies must complete.")
+		finish()
+		return
 	if OS.get_cmdline_user_args().has("--foundation-art-only"):
 		check_foundation_art()
 		finish()
 		return
 	if OS.get_cmdline_user_args().has("--render-buildable-resources"):
+		if OS.get_cmdline_user_args().has("--span-belt-check"):
+			check_span_belt_art()
+			if failed or not span_belt_checks_complete:
+				verify(span_belt_checks_complete, "All eight span assemblies must pass before rendering.")
+				finish()
+				return
 		if OS.get_cmdline_user_args().has("--wheel-supports-check"):
 			check_wheel_supports()
 			if failed or not wheel_support_checks_complete:

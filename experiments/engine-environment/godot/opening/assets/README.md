@@ -267,6 +267,17 @@ coherent. The old decorative wheel rotation still follows the confirmed powered
 flag. No rendered mesh supplies power, contact, placement, collision or reach.
 Pick bodies, labels, interaction anchors and gameplay state are unchanged.
 
+Native mechanical belt spans use a separate parameterized rubber loop with the
+same existing width and flat-run heights. Its curved returns close around open
+machined drums fitted to the endpoint shafts; they reuse the qualified rubber
+and worked-metal maps. Physical texture spacing stays close to the source's
+0.75 m repeat, rounded to whole repeats at the loop seam. Compatible span lengths
+share meshes, while the original conveyor keeps its own dimensions and cache.
+These are passive assets. Mounting follows confirmed span endpoints and the
+shaft's existing cosmetic phase; the art supplies no transport clock, mechanical
+contact, stock, command, pick body or actor collision. Isolated geometry controls
+and studio views are separate from actual gameplay and human-quality evidence.
+
 Complete captures now use a sourced CC0 [timber rotor](waterwheel/CREDITS.md)
 for the waterwheel rim, hub and twelve spokes. Its original modeled components
 and atlas replace the procedural rim silhouette. Existing paddles, spindle,

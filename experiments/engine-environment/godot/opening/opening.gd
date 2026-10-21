@@ -941,7 +941,7 @@ class ProductionConveyorArt:
 	const HEIGHT := 0.465
 	const ARC_SEGMENTS := 24
 	const SOURCE_METRES := 0.75
-	static var mesh: ArrayMesh
+	static var loop_meshes: Dictionary = {}
 	static var finish: StandardMaterial3D
 	static var source_status := "uninitialized"
 
@@ -993,14 +993,16 @@ class ProductionConveyorArt:
 		finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 		return finish
 
-	static func loop_mesh() -> ArrayMesh:
-		if mesh != null:
-			return mesh
+	static func loop_mesh(half_span: float = HALF_SPAN, half_width: float = HALF_WIDTH,
+			radius: float = RADIUS, thickness: float = THICKNESS, bevel: float = BEVEL) -> ArrayMesh:
+		var key := [half_span, half_width, radius, thickness, bevel]
+		if loop_meshes.has(key):
+			return loop_meshes[key]
 		var profile := PackedVector2Array([
-			Vector2(RADIUS - THICKNESS + BEVEL, -HALF_WIDTH), Vector2(RADIUS - BEVEL, -HALF_WIDTH),
-			Vector2(RADIUS, -HALF_WIDTH + BEVEL), Vector2(RADIUS, HALF_WIDTH - BEVEL),
-			Vector2(RADIUS - BEVEL, HALF_WIDTH), Vector2(RADIUS - THICKNESS + BEVEL, HALF_WIDTH),
-			Vector2(RADIUS - THICKNESS, HALF_WIDTH - BEVEL), Vector2(RADIUS - THICKNESS, -HALF_WIDTH + BEVEL)])
+			Vector2(radius - thickness + bevel, -half_width), Vector2(radius - bevel, -half_width),
+			Vector2(radius, -half_width + bevel), Vector2(radius, half_width - bevel),
+			Vector2(radius - bevel, half_width), Vector2(radius - thickness + bevel, half_width),
+			Vector2(radius - thickness, half_width - bevel), Vector2(radius - thickness, -half_width + bevel)])
 		var directions := PackedVector2Array()
 		var centers := PackedVector2Array()
 		var distances := PackedFloat32Array()
@@ -1008,10 +1010,10 @@ class ProductionConveyorArt:
 			for n in range(ARC_SEGMENTS + 1):
 				var angle := (PI / 2.0 if side > 0 else -PI / 2.0) - PI * float(n) / ARC_SEGMENTS
 				directions.append(Vector2(cos(angle), sin(angle)))
-				centers.append(Vector2(side * HALF_SPAN, 0))
-				distances.append(RADIUS * PI * float(n) / ARC_SEGMENTS + (0.0 if side > 0 else PI * RADIUS + 2.0 * HALF_SPAN))
-		var length_value := 4.0 * HALF_SPAN + TAU * RADIUS
-		# Four complete repeats close the visible longitudinal texture seam.
+				centers.append(Vector2(side * half_span, 0))
+				distances.append(radius * PI * float(n) / ARC_SEGMENTS + (0.0 if side > 0 else PI * radius + 2.0 * half_span))
+		var length_value := 4.0 * half_span + TAU * radius
+		# Whole physical-scale repeats close the longitudinal texture seam.
 		var repeats := maxi(1, roundi(length_value / SOURCE_METRES))
 		var surface := SurfaceTool.new()
 		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -1046,8 +1048,9 @@ class ProductionConveyorArt:
 						surface.add_vertex(points[index])
 			cross_distance += across
 		surface.generate_tangents()
-		mesh = surface.commit()
-		return mesh
+		var result := surface.commit()
+		loop_meshes[key] = result
+		return result
 
 	static func mount(parent: Node3D) -> void:
 		var belt := MeshInstance3D.new()
