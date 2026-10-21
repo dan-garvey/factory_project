@@ -150,6 +150,15 @@ distinct from the dark service hood and worked cutter without the former bright
 gold fill. This changes presentation only; the qualified coating maps and
 material properties, casting shapes and native machine rules are unchanged.
 
+The native stock bed retains its original size, height and steel finish. Two
+formed feed guides now sit on that bed with four visible clamp feet and seated
+heads, leaving the original open feed lane between them. The guide assembly
+reuses cached meshes and the collector's coating and worked-metal finishes.
+Historical fallback collectors retain their original rectangular guides. The
+new parts are passive artwork; they do not change blank positions, the cutter,
+pickup or collision. Front and rear isolated renders check the visible fit,
+not the full worksite or human quality target.
+
 Native cutter tooling now has a stepped annular drum and a fitted spindle hub,
 with a real bore instead of a painted dark cap. Eight cartridges separate dark
 metal holders, exposed cutting inserts and small retaining heads. The insert

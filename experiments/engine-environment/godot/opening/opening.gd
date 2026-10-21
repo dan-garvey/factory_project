@@ -1973,6 +1973,51 @@ class ProductionDriveJournalArt:
 					ProductionVisuals.box_mesh(Vector3(0.12, 0.165, 0.10)),
 					at + Vector3.UP * 0.3225)
 
+class ProductionCollectorFeedArt:
+	extends RefCounted
+	## Formed guides sit on the literal stock bed. They carry no material state.
+	static var rail_mesh: ArrayMesh
+	static var clamp_mesh: ArrayMesh
+
+	static func _part(parent: Node3D, role: String, mesh: Mesh, at: Vector3,
+			finish: StandardMaterial3D, scale: Vector3 = Vector3.ONE) -> void:
+		var part := MeshInstance3D.new()
+		part.name = role
+		part.set_meta("collector_feed_role", role)
+		part.mesh = mesh
+		part.position = at
+		part.scale = scale
+		part.material_override = finish
+		parent.add_child(part)
+
+	static func mount(parent: Node3D, color: Color) -> bool:
+		var paint := ProductionCollectorArt.coating(color.darkened(0.13))
+		var steel := ProductionTransmissionFinish.material("worked", Color("9caaa5"), 0.85, 0.42)
+		if paint == null or steel == null:
+			return false
+		if rail_mesh == null:
+			# The contact plane stays at the original bed top, y = 0.56.
+			# A tapered end and folded upper edge avoid a floating box silhouette.
+			var section := PackedVector2Array([Vector2(-0.525, 0.56),
+				Vector2(0.625, 0.56), Vector2(0.625, 0.585),
+				Vector2(0.575, 0.615), Vector2(0.50, 0.64),
+				Vector2(-0.45, 0.64), Vector2(-0.525, 0.605)])
+			rail_mesh = ProductionVisuals.prism_mesh(section, 0.06, 0.003)
+			clamp_mesh = ProductionVisuals.box_mesh(Vector3(0.11, 0.07, 0.13))
+		var assembly := Node3D.new()
+		assembly.name = "CollectorFeedGuides"
+		parent.add_child(assembly)
+		for side in [-1.0, 1.0]:
+			var z: float = side * 0.335
+			_part(assembly, "FormedGuide", rail_mesh, Vector3(0, 0, z), paint)
+			# Clamp feet overlap both the rail and the unchanged bed edge.
+			# Neither claims a new support or collision volume.
+			for x in [-0.42, 0.42]:
+				_part(assembly, "GuideClamp", clamp_mesh, Vector3(x, 0.53, z), paint)
+				_part(assembly, "ClampHead", ProductionVisuals.fastener_head_mesh(),
+					Vector3(x, 0.6445, z), steel, Vector3.ONE * 0.38)
+		return true
+
 class ProductionCollectorToolingArt:
 	extends RefCounted
 	## Passive rigid tooling. The existing cutter rows and presenter own its pose.
@@ -4999,8 +5044,9 @@ func _collector_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 		steel, Vector3(PI / 2, 0, 0))
 	if _native_transmission():
 		ProductionCollectorToolingArt.mount_body(drum, hub)
-	for z in [-0.37, 0.37]:
-		_machine_box(anchor, "StockGuide", Vector3(0.05, 0.6, z), Vector3(1.15, 0.08, 0.06), frame)
+	if not (_native_transmission() and ProductionCollectorFeedArt.mount(anchor, frame)):
+		for z in [-0.37, 0.37]:
+			_machine_box(anchor, "StockGuide", Vector3(0.05, 0.6, z), Vector3(1.15, 0.08, 0.06), frame)
 	_machine_drive_stub(anchor, entity)
 
 func _belt_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
