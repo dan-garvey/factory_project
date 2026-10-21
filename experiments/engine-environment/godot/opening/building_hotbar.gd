@@ -114,7 +114,7 @@ func refresh(snapshot_ready: bool = true) -> void:
 		catalog.hide()
 	var active: String = host.mode
 	if host.transmission_controls != null and not host.transmission_controls.active_tool.is_empty():
-		active = "drive" if host.transmission_controls.active_tool == "place_shaft" else host.transmission_controls.active_tool
+		active = {"place_shaft": "drive", "belt_span": "belt"}.get(host.transmission_controls.active_tool, host.transmission_controls.active_tool)
 	if selected_slot < 0 or slots[selected_slot] != active:
 		selected_slot = slots.find(active)
 	for index in range(slots.size()):

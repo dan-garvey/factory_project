@@ -3734,7 +3734,7 @@ func _refresh_transmission() -> void:
 	transmission_presenter.refresh()
 	var active: bool = not transmission_controls.active_tool.is_empty()
 	transmission_controls.visible = active or _catalog_open() or goal_confirmed or int(state.get("inventories", {}).get(client, 0)) > 0 or not state.get("transmission_parts", {}).is_empty()
-	if not active and mode in ["gear", "drive"]:
+	if not active and mode in ["gear", "drive", "belt"]:
 		mode = "inspect"
 	_update_cursor()
 
@@ -4189,7 +4189,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_I, KEY_ESCAPE: _select_tool("inspect")
 			KEY_R: _retrieve()
 			KEY_T:
-				if mode == "belt" and _native_transmission():
+				if mode == "belt" and _native_transmission() and (transmission_controls == null or transmission_controls.active_tool.is_empty()):
 					belt_axis = "x" if belt_axis == "z" else "z"
 					_message("Belt direction: %s. Press T to rotate." % ("+Z" if belt_axis == "x" else "+X"))
 					_refresh_machine_preview()
@@ -4208,8 +4208,8 @@ func _select_tool(tool: String) -> void:
 	mode = tool
 	foundation_area_started = false
 	pending_link = ""
-	if _native_transmission() and transmission_controls != null and tool in ["gear", "drive"]:
-		transmission_controls.choose_tool("gear" if tool == "gear" else "place_shaft")
+	if _native_transmission() and transmission_controls != null and tool in ["gear", "drive", "belt"]:
+		transmission_controls.choose_tool({"gear": "gear", "drive": "place_shaft", "belt": "belt_span"}[tool])
 	_update_cursor()
 	_refresh_ui()
 	var instructions := {"flow": "Click the upstream machine, then its neighbor toward the brass arrow.",
@@ -4219,7 +4219,7 @@ func _select_tool(tool: String) -> void:
 		"wheel": "Place the waterwheel in the flowing stream. Set its height to align its axle with your shafts."}
 	if _native_transmission():
 		instructions["collector"] = "Place the collector at the exposed mineral seam."
-		instructions["belt"] = "Place the belt on the grid. Press T to rotate its material direction."
+		instructions["belt"] = "Choose each parallel shaft within reach to connect them with a belt."
 		instructions["flow"] = "Choose the upstream machine, then its neighbor at the material outlet."
 		instructions["drive"] = "Place a shaft on the highlighted tile. Set its axis and height in the cogwheel and shaft menu."
 		instructions["gear"] = "Place a cogwheel at the highlighted point. Set axis and height in the cogwheel menu."
