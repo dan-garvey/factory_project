@@ -400,9 +400,14 @@ class ProductionCollectorArt:
 			Vector2(0.23, 0.84), Vector2(0.12, 1.02), Vector2(-0.50, 1.02), Vector2(-0.62, 0.84)])
 		_part(frame, "CastLowerHousing", ProductionVisuals.prism_mesh(housing, 0.14, 0.012),
 			Vector3(0, 0, -0.44), coating(color.darkened(0.09)))
-		var hood := PackedVector2Array([Vector2(-0.65, 1.39), Vector2(0.26, 1.39),
-			Vector2(0.26, 1.45), Vector2(0.20, 1.51), Vector2(-0.59, 1.51), Vector2(-0.65, 1.45)])
-		_part(frame, "CastUpperHood", ProductionVisuals.prism_mesh(hood, 0.64, 0.012), Vector3(0, 0, -0.25), paint)
+		# A neutral service cover has a folded lower return, angled shoulders and
+		# a shallow crown. Its broad roof is a formed part, not a bright flat box.
+		var hood := PackedVector2Array([Vector2(-0.65, 1.38), Vector2(0.26, 1.38),
+			Vector2(0.26, 1.42), Vector2(0.22, 1.42), Vector2(0.22, 1.47),
+			Vector2(0.15, 1.51), Vector2(-0.19, 1.54), Vector2(-0.53, 1.51),
+			Vector2(-0.62, 1.47), Vector2(-0.62, 1.42), Vector2(-0.65, 1.42)])
+		_part(frame, "CastUpperHood", ProductionVisuals.prism_mesh(hood, 0.64, 0.012),
+			Vector3(0, 0, -0.25), coating(Color("394f59")))
 		var hanger := PackedVector2Array([Vector2(-0.26, 1.21), Vector2(-0.18, 1.21),
 			Vector2(-0.15, 1.32), Vector2(-0.13, 1.43), Vector2(-0.31, 1.43), Vector2(-0.29, 1.32)])
 		_part(frame, "BearingHanger", ProductionVisuals.prism_mesh(hanger, 0.07, 0.007), Vector3(0, 0, 0.045), paint)

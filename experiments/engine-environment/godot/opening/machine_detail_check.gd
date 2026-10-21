@@ -2841,6 +2841,22 @@ func check_collector_cast_frame() -> void:
 		var bed: MeshInstance3D = machine.get_node("StockBed")
 		verify(bed.position == Vector3(0, 0.51, 0) and bed.mesh == Visuals.box_mesh(Vector3(1.25, 0.1, 0.67)),
 			"The literal feed bed and its top plane remain unchanged.")
+		if axis == 0:
+			var hood: MeshInstance3D = frame.get_node("CastUpperHood")
+			var vertices: PackedVector3Array = hood.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+			var crown := -INF
+			var left_shoulder := -INF
+			var right_shoulder := -INF
+			for point in vertices:
+				if point.x > -0.26 and point.x < -0.12:
+					crown = maxf(crown, point.y)
+				elif point.x < -0.60:
+					left_shoulder = maxf(left_shoulder, point.y)
+				elif point.x > 0.20:
+					right_shoulder = maxf(right_shoulder, point.y)
+			verify(crown > 1.52 and crown - maxf(left_shoulder, right_shoulder) > 0.04
+				and hood.material_override == CollectorArt.coating(Color("394f59")),
+				"The formed hood has a raised crown over both dark-coated shoulders rather than a bright flat canopy.")
 		var rows: Array = machine.get_meta("motion_meshes")
 		verify(rows.size() == 10 and count_role(machine, "CutterFlute") == 8,
 			"Only the original drum, hub and eight flutes belong to the moving group.")
