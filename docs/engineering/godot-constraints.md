@@ -154,6 +154,17 @@ That join must identify the actual admitted pose and operation target in 3D;
 changing camera distance must not increase building reach. Capsule dimensions,
 mask bits, snap distance and the `.015` rider-test tolerance remain fixture values.
 
+The current [adult worker presentation](../../experiments/engine-environment/godot/opening/assets/worker/README.md)
+uses a skinned asset whose imported skeleton has a rotated parent. Its chosen
+adapter includes that parent when fitting the visible standing height to the
+existing capsule and when converting cosmetic bone rotations. The pinned
+[Skeleton3D implementation](https://github.com/godotengine/godot/blob/ed1daf0bf/scene/3d/skeleton_3d.cpp)
+invalidates global-pose caches on pose changes only inside the scene tree, so
+preparation composes the current local poses explicitly. Each actor owns its pose;
+the mesh, materials and textures are shared. These source and headless skinning
+checks do not establish human appearance quality, physical limb contact or a
+different movement/collision model.
+
 **Physical adapter impact/exit:** [ActorWorld](../../experiments/engine-environment/godot/opening/actor_world.gd)
 publishes current native body origins to Model; camera picking identifies only
 the requested target. Its [documented masks](../../experiments/engine-environment/godot/opening/README.md)

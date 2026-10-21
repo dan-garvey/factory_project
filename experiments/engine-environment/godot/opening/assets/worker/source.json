@@ -1,0 +1,154 @@
+{
+  "asset": "Microsoft Rocketbox Female_Adult_01",
+  "publisher": "Microsoft",
+  "source": "https://github.com/microsoft/Microsoft-Rocketbox",
+  "source_commit": "0943055db6ec570bcef9f2c8b41c9e5467c808f9",
+  "license": "MIT",
+  "license_file": "LICENSE.md",
+  "adult_evidence": "The original publisher places this model in Assets/Avatars/Adults/Female_Adult_01.",
+  "source_files": [
+    {
+      "path": "LICENSE.md",
+      "git_blob": "9bcfb3ece5301a55d3a41bbd00a029ab27d61d13",
+      "bytes": 1066,
+      "sha256": "17474e386e0b9e1a700cc3d06b2b0882a2c376d9c6b49c7f8274409b8f8d2352"
+    },
+    {
+      "path": "Assets/Avatars/Adults/Female_Adult_01/Export/Female_Adult_01.fbx",
+      "git_blob": "59e6c03fa86691cda806ef5d5b040e462c0fb9c1",
+      "bytes": 609152,
+      "sha256": "8cbaf86576004b96469bc80df123b97fef788f4a7bb3f3eaa616fcfaf55698a3"
+    },
+    {
+      "path": "Assets/Avatars/Adults/Female_Adult_01/Textures/f001_body_color.tga",
+      "git_blob": "25852db0db1f44a0de0643ce1e09c88aef587e6f",
+      "bytes": 12582956,
+      "sha256": "c038b01c5d05831c3f4e8c6daa18394e8a4851372acd3fcbdf30e7ee53c56cae"
+    },
+    {
+      "path": "Assets/Avatars/Adults/Female_Adult_01/Textures/f001_body_normal.tga",
+      "git_blob": "345ba24adc6d429a1e0967c0010588b88892be46",
+      "bytes": 12582956,
+      "sha256": "86b9b5a5aa73bd97244b35f97f3799c31b3db70426d7d607cbdc2dd271ace346"
+    },
+    {
+      "path": "Assets/Avatars/Adults/Female_Adult_01/Textures/f001_body_specular.tga",
+      "git_blob": "4cb0a66433aac02a3899c2ceeceb4e11880e6395",
+      "bytes": 12582956,
+      "sha256": "9b813e68b243074f74c4bbfb26d41cce2a70361efa09fcabe1962b4267bedb90"
+    },
+    {
+      "path": "Assets/Avatars/Adults/Female_Adult_01/Textures/f001_head_color.tga",
+      "git_blob": "0cdc62ab47da3dca01aff0bb179159865a559c63",
+      "bytes": 12582956,
+      "sha256": "0d3153c59c54908d5f5194ffe3a7d882351f0dd74f9ef44ab3a2f164a3bf9d8e"
+    },
+    {
+      "path": "Assets/Avatars/Adults/Female_Adult_01/Textures/f001_head_normal.tga",
+      "git_blob": "6de1fb458c746154713e8c34039add24f4ba9f6d",
+      "bytes": 12582956,
+      "sha256": "522f3372283ea4161ed56d85471be15e02628df73a966447e4456bc169d310b2"
+    },
+    {
+      "path": "Assets/Avatars/Adults/Female_Adult_01/Textures/f001_head_specular.tga",
+      "git_blob": "47a70e2ff5ed71ff3152019bc46845ef7ff3fbf8",
+      "bytes": 12582956,
+      "sha256": "302c56927d1d032084fb4faca784591dd8ab42e8bafb1029db157f73608eb251"
+    },
+    {
+      "path": "Assets/Avatars/Adults/Female_Adult_01/Textures/f001_opacity_color.tga",
+      "git_blob": "de21a9e69c88e539da6a5050eaceadd026e99b62",
+      "bytes": 16777260,
+      "sha256": "12c9c366814e665687fe64056421213686b50a972a5ad47295f247d6a8ff7369"
+    }
+  ],
+  "files": [
+    {
+      "path": "LICENSE.md",
+      "bytes": 1066,
+      "sha256": "17474e386e0b9e1a700cc3d06b2b0882a2c376d9c6b49c7f8274409b8f8d2352"
+    },
+    {
+      "path": "adult_worker.glb",
+      "bytes": 539212,
+      "sha256": "af3f9a718d106da9dfc176c733031c5e133ea5f30874ed58c5f4470ea8e80987"
+    },
+    {
+      "path": "body_color.webp",
+      "bytes": 134840,
+      "sha256": "21065db6c481b81253e01e845758acfa82c14d1952155a6edc146e46547d8d84"
+    },
+    {
+      "path": "body_normal.webp",
+      "bytes": 247050,
+      "sha256": "42faaadfaa14229a8a0c9f6e030da84fcc7c76c090ba33179e3b559489e41776"
+    },
+    {
+      "path": "head_color.webp",
+      "bytes": 124764,
+      "sha256": "308ccde0c6f5edf2ed0bcba79fad12429cc28c627f9e2855a2edb386bfff0bd1"
+    },
+    {
+      "path": "head_normal.webp",
+      "bytes": 221636,
+      "sha256": "d544e20f1c29f95bda7787a011207da932cc8d373378525e7e0aeae494e4901d"
+    },
+    {
+      "path": "opacity_color.webp",
+      "bytes": 289120,
+      "sha256": "ac79fee0043818d9de908871d86be65176b278f0950239e6f5c552da1e6831fc"
+    }
+  ],
+  "geometry": {
+    "surfaces": 3,
+    "render_vertices": 5438,
+    "triangles": 8732,
+    "skin_bindings": 80
+  },
+  "preparation": {
+    "engine": "Godot 4.7.2.stable.official.ed1daf0bf",
+    "engine_sha256": "8d106cbe6144c2dc7e881d61d2429c1a8a76e6b22ef48bd5e48dcf934953f71e",
+    "route": "FBXDocument reads the original skinned FBX after explicitly loading its original textures. GLTFDocument exports the same mesh level and skin, without the original animation player or footsteps marker. Generated untextured material names identify the separately captured runtime maps.",
+    "albedo": {
+      "source_extent": 2048,
+      "extent": 1024,
+      "filter": "Lanczos",
+      "format": "WebP",
+      "lossy_quality": 0.88
+    },
+    "normal": {
+      "source_extent": 2048,
+      "extent": 512,
+      "filter": "Lanczos",
+      "normalize": true,
+      "quantization": "Explicit nearest RGB8 bytes",
+      "format": "lossless WebP",
+      "green_channel": "Unchanged publisher orientation",
+      "maximum_unit_length_error": {
+        "body": 0.00609314441680908,
+        "head": 0.00565999746322632
+      }
+    },
+    "opacity": {
+      "source_extent": 2048,
+      "extent": 512,
+      "filter": "Lanczos",
+      "channels": "RGBA",
+      "format": "lossless WebP"
+    },
+    "specular": "Original maps are retained as source references but are not repurposed as roughness maps."
+  },
+  "presentation": {
+    "loading": "Direct GLTFDocument reading and explicit Image decoding; an editor import cache is not required.",
+    "skin": "Each actor owns its Skeleton3D poses; geometry, skin bindings, textures and materials are shared.",
+    "gait": "A-pose arms are lowered, and local bone rotations follow confirmed horizontal displacement. Requested input does not advance animation.",
+    "scale": "Uniformly fit the actual skinned standing height to the existing 1.8-metre fixture capsule, with the foot plane 0.9 metres below the body origin.",
+    "authority": "No collider, physical actor, input, reach, material quantity, clock or saved state is added."
+  },
+  "limits": [
+    "Human assessment of realism, attractiveness, skin, hair and wardrobe remains open.",
+    "No rendered-quality, GPU performance, physical limb-contact or gameplay acceptance is claimed.",
+    "No facial animation, motion-capture clips or character customization is included.",
+    "Historical fixed source rosters without this folder retain their documented procedural worker."
+  ]
+}

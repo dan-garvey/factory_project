@@ -5,6 +5,10 @@ var checks := 0
 var failed := false
 var mesh_count := 0
 var tangent_error := 0.0
+var source_bones := 0
+var source_vertices := 0
+var source_triangles := 0
+var adult_measurements := {}
 
 class HostFixture:
 	extends Node3D
@@ -85,6 +89,109 @@ func check_feet(body: Node3D, presenter: Node) -> void:
 				"The visual stride keeps each boot level and above the unchanged neutral foot plane.")
 	presenter._set_gait(body, 0, 0)
 
+func skeleton_of(body: Node3D) -> Skeleton3D:
+	return body.get_node(body.get_meta("skeleton_path"))
+
+func leg_rotation(body: Node3D) -> Quaternion:
+	if body.get_meta("sourced_character", false):
+		return skeleton_of(body).get_bone_pose_rotation(skeleton_of(body).find_bone("Bip01 L Thigh"))
+	return body.get_node("LeftHip").quaternion
+
+func skin_points(body: Node3D) -> PackedVector3Array:
+	# Independent vertex oracle: use each exported skin bind and its current
+	# named bone pose, then the actual scene transform into BodyView space.
+	var skeleton := skeleton_of(body)
+	skeleton.force_update_all_bone_transforms()
+	var mesh: MeshInstance3D = body.find_children("*", "MeshInstance3D", true, false)[0]
+	var to_body: Transform3D = body.global_transform.affine_inverse() * skeleton.global_transform
+	var points := PackedVector3Array()
+	for surface in range(mesh.mesh.get_surface_count()):
+		var arrays: Array = mesh.mesh.surface_get_arrays(surface)
+		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var bones: PackedInt32Array = arrays[Mesh.ARRAY_BONES]
+		var weights: PackedFloat32Array = arrays[Mesh.ARRAY_WEIGHTS]
+		var stride: int = bones.size() / vertices.size()
+		for vertex in range(vertices.size()):
+			var point := Vector3.ZERO
+			var total := 0.0
+			for influence in range(stride):
+				var offset := vertex * stride + influence
+				var weight: float = weights[offset]
+				if weight == 0.0:
+					continue
+				var bind: int = bones[offset]
+				var bone: int = mesh.skin.get_bind_bone(bind)
+				if bone < 0:
+					bone = skeleton.find_bone(mesh.skin.get_bind_name(bind))
+				point += (skeleton.get_bone_global_pose(bone) * mesh.skin.get_bind_pose(bind) * vertices[vertex]) * weight
+				total += weight
+			verify(point.is_finite() and absf(total - 1.0) < 0.0001,
+				"Every source vertex has finite normalized skin weights and a resolved bone.")
+			points.append(to_body * point)
+	return points
+
+func point_bounds(points: PackedVector3Array) -> AABB:
+	var bounds := AABB(points[0], Vector3.ZERO)
+	for point in points:
+		bounds = bounds.expand(point)
+	return bounds
+
+func inspect_adult(body: Node3D, other: Node3D, presenter: Node) -> void:
+	var skeleton := skeleton_of(body)
+	var other_skeleton := skeleton_of(other)
+	var mesh: MeshInstance3D = body.find_children("*", "MeshInstance3D", true, false)[0]
+	var other_mesh: MeshInstance3D = other.find_children("*", "MeshInstance3D", true, false)[0]
+	source_bones = skeleton.get_bone_count()
+	verify(mesh.skin.get_bind_count() == 80 and mesh.mesh.get_surface_count() == 3,
+		"The shipped adult retains all eighty source skin bindings and three materials.")
+	verify(mesh.mesh == other_mesh.mesh and mesh.skin == other_mesh.skin and skeleton != other_skeleton,
+		"Actors share immutable geometry, skin and textures while owning separate skeleton poses.")
+	for node in body.find_children("*", "", true, false):
+		verify(not node is CollisionObject3D and not node is CollisionShape3D and not node is AnimationPlayer,
+			"The adult asset contains only visual nodes, without physical or autonomous animation authority.")
+	for surface in range(mesh.mesh.get_surface_count()):
+		var arrays: Array = mesh.mesh.surface_get_arrays(surface)
+		source_vertices += arrays[Mesh.ARRAY_VERTEX].size()
+		source_triangles += arrays[Mesh.ARRAY_INDEX].size() / 3
+		var material: StandardMaterial3D = mesh.mesh.surface_get_material(surface)
+		verify(material.albedo_color == Color.WHITE and material.albedo_texture != null
+			and material.albedo_texture.get_image().has_mipmaps(),
+			"Source skin, clothing and hair colors are bound without a whole-body tint.")
+		if material.resource_name == "f001_opacity":
+			verify(material.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+				and material.cull_mode == BaseMaterial3D.CULL_DISABLED and material.metallic_specular == 0.0,
+				"Hair and lashes use their captured alpha texture without glass-like highlights.")
+		else:
+			verify(material.normal_enabled and material.normal_texture.get_width() == 512
+				and material.normal_texture.get_image().has_mipmaps(),
+				"Body and face bind the prepared normal maps and normalized mipmaps.")
+	verify(source_vertices == 5438 and source_triangles == 8732,
+		"The representative asset uses the exact converted original mesh level.")
+	var neutral := point_bounds(skin_points(body))
+	var appearance: Node3D = body.get_node("AdultHuman")
+	var source_rest: AABB = body.get_meta("source_rest_bounds")
+	adult_measurements = {"neutral_min": [neutral.position.x, neutral.position.y, neutral.position.z],
+		"neutral_size": [neutral.size.x, neutral.size.y, neutral.size.z],
+		"source_min": [source_rest.position.x, source_rest.position.y, source_rest.position.z],
+		"source_size": [source_rest.size.x, source_rest.size.y, source_rest.size.z],
+		"appearance_scale": appearance.scale.x, "appearance_y": appearance.position.y,
+		"upper_arm_pose": str(skeleton.get_bone_pose_rotation(skeleton.find_bone("Bip01 L UpperArm"))),
+		"rig": str(body.get_meta("rig")["L UpperArm"])}
+	verify(absf(neutral.position.y + 0.9) < 0.00001 and absf(neutral.size.y - 1.8) < 0.00001,
+		"Actual skinned standing geometry fits the original 1.8-metre height and body-origin foot plane.")
+	verify(maxf(absf(neutral.position.x), absf(neutral.end.x)) <= 0.301
+		and maxf(absf(neutral.position.z), absf(neutral.end.z)) <= 0.301,
+		"The lowered resting arms fit the original conservative visual width and depth.")
+	var other_pose: Transform3D = other_skeleton.get_bone_global_pose(other_skeleton.find_bone("Bip01 L Thigh"))
+	for phase in [0.0, PI / 2.0, PI, PI * 1.5]:
+		presenter._set_gait(body, phase, 1.0)
+		var posed := point_bounds(skin_points(body))
+		verify(posed.position.y >= -0.901,
+			"The deformed walk-cycle geometry stays above the original foot plane.")
+		verify(other_skeleton.get_bone_global_pose(other_skeleton.find_bone("Bip01 L Thigh")) == other_pose,
+			"Posing one actor cannot animate another actor's skeleton.")
+	presenter._set_gait(body, 0.0, 0.0)
+
 func _initialize() -> void:
 	call_deferred("run")
 
@@ -98,14 +205,31 @@ func run() -> void:
 	presenter.set_physics_process(false)
 	var p: Node3D = presenter.views.P
 	var q: Node3D = presenter.views.Q
-	var body: MeshInstance3D = p.get_node("BodyView")
-	inspect_visual(body, Transform3D.IDENTITY)
-	check_torso(body.mesh)
-	check_feet(body, presenter)
-	verify(body.mesh == q.get_node("BodyView").mesh and body.material_override != q.get_node("BodyView").material_override,
-		"Workers share geometry while retaining distinct local and remote clothing.")
-	verify(body.material_override.normal_enabled and body.material_override.normal_texture.seamless,
-		"The actual workwear binds self-contained repeating fabric detail.")
+	var body: Node3D = p.get_node("BodyView")
+	var sourced := FileAccess.file_exists(Presenter.ADULT_ASSETS + "adult_worker.glb")
+	verify(body.get_meta("sourced_character", false) == sourced and not body.get_meta("appearance_unavailable", false),
+		"A complete capture uses the adult asset; a historical roster retains its identified legacy visual.")
+	if body.get_meta("appearance_unavailable", false):
+		presenter.free()
+		host.free()
+		print(JSON.stringify({"status": "fail", "checks": checks, "reason": "asset_unavailable"}))
+		quit(1)
+		return
+	# Keep the existing legacy geometry checks without substituting them for the
+	# current opening's actual sourced skeleton and material bindings.
+	var legacy: MeshInstance3D = presenter._make_legacy_worker_visual()
+	inspect_visual(legacy, Transform3D.IDENTITY)
+	check_torso(legacy.mesh)
+	check_feet(legacy, presenter)
+	legacy.free()
+	if sourced:
+		inspect_adult(body, q.get_node("BodyView"), presenter)
+	else:
+		verify(body.mesh == q.get_node("BodyView").mesh and body.material_override != q.get_node("BodyView").material_override,
+			"Legacy workers share geometry while retaining distinct local and remote clothing.")
+		verify(body.material_override.normal_enabled and body.material_override.normal_texture.seamless,
+			"Legacy workwear retains its self-contained fabric detail.")
+	var neutral_leg := leg_rotation(body)
 	var original: Dictionary = host.state.duplicate(true)
 	presenter.refresh(1.0 / 60.0)
 	presenter.held_keys[KEY_W] = true
@@ -118,13 +242,13 @@ func run() -> void:
 	presenter.refresh(1.0 / 60.0)
 	verify(p.position == Vector3(0.15, 0.9, 0.0) and host.state == moved,
 		"The visible root remains exactly at the projected body origin without prediction.")
-	verify(presenter.motion.P.phase > 0.0 and body.get_node("LeftHip").rotation.x != 0.0,
+	verify(presenter.motion.P.phase > 0.0 and not leg_rotation(body).is_equal_approx(neutral_leg),
 		"Only confirmed displacement advances the actual visual rig.")
 	var phase: float = presenter.motion.P.phase
 	var caches := [Presenter.mesh_cache.size(), Presenter.material_cache.size()]
 	for n in range(30):
 		presenter.refresh(1.0 / 60.0)
-	verify(presenter.motion.P.phase == phase and is_zero_approx(body.get_node("LeftHip").rotation.x),
+	verify(presenter.motion.P.phase == phase and leg_rotation(body).is_equal_approx(neutral_leg),
 		"Stopped observations settle to a neutral stance without inventing travel.")
 	verify(caches == [Presenter.mesh_cache.size(), Presenter.material_cache.size()],
 		"Pose refresh does not rebuild meshes or materials.")
@@ -150,5 +274,8 @@ func run() -> void:
 	presenter.free()
 	host.free()
 	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks, "meshes": mesh_count,
-		"maximum_packed_tangent_dot": tangent_error, "native_actor": "not_started", "desktop": "not_used", "appearance": "not_assessed"}))
+		"maximum_packed_tangent_dot": tangent_error, "sourced_character": sourced,
+		"source_bones": source_bones, "source_vertices": source_vertices, "source_triangles": source_triangles,
+		"adult_measurements": adult_measurements,
+		"native_actor": "not_started", "desktop": "not_used", "appearance": "not_assessed"}))
 	quit(1 if failed else 0)

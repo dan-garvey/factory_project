@@ -26,12 +26,11 @@ is a revisable rendering default, not a measured performance result; it does not
 remove normal-map or specular aliasing. The backend remains Compatibility.
 
 These original project scene assets prepare the visual work in
-`factory-yau.6.45`. The character presenter constructs the playable worker from
-built-in meshes in its existing script. The scenes here are optional previews;
-neither public launcher needs to capture them to display the worker.
+`factory-yau.6.45`. Current complete captures use the sourced
+[adult worker](worker/README.md). The other scenes here remain optional previews.
 
-`worker.tscn` retains an earlier static clothing and equipment preview. The actual
-captured character presenter now constructs a rounded torso, fitted harness and
+`worker.tscn` retains an earlier static clothing and equipment preview. Historical
+fixed-roster character captures construct a rounded torso, fitted harness and
 reflective bands, articulated sleeves/trousers, boots, helmet, visor and tool pack.
 Its cached meshes and fabric materials add no resource file dependency. Facing
 and cosmetic stride use only confirmed body displacement; held input alone cannot
@@ -89,10 +88,10 @@ checks both directions on both axes, geometric arrow direction and projection
 immutability; it can also run against the preserved predecessor as a negative
 regression witness.
 
-The materials and primitive meshes are authored here using built-in Godot
-resources. No external artwork, model download or new runtime dependency is
-included. The palette and geometry remain revisable until normal-distance
-in-game evidence and user visual feedback support them.
+The primitive preview meshes and their materials are authored here using built-in
+Godot resources. Sourced worker, ground, steel and foliage assets carry their own
+provenance and license notices. The palette and geometry remain revisable until
+normal-distance in-game evidence and user visual feedback support them.
 
 Construction feedback uses original short PCM sounds synthesized in the captured
 opening script: a belt latch, heavier machine assembly, coupling and release.
@@ -119,9 +118,9 @@ environment check validates assembly and resource/spatial contracts; it does not
 establish the rendered balance, reflection quality or Satisfactory-level result.
 
 The fixed-roster launchers already include `character_presenter.gd` and
-`opening.gd`, so the worker and machined surfaces have no new file dependencies.
-Complete-project native capture also
-includes these previews. No Python launcher changes are needed. Rendered quality,
+`opening.gd`, retaining their identified procedural worker and machined surfaces.
+Complete-project native capture includes the sourced adult worker and these
+previews. No Python launcher changes are needed. Rendered quality,
 ordinary interaction/collision correspondence and user feedback remain unverified
 until exercised in the actual opening.
 
