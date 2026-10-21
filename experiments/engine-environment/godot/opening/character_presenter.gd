@@ -442,14 +442,20 @@ func _apply_adult_locomotion(body: Node3D, phase: float, weight: float,
 			var original: Quaternion = binding.base
 			var from: Quaternion = skeleton.get_bone_pose_rotation(index) if rig.has(binding.key) else original
 			var run_frame := adult_run_clip.rotation_track_interpolate(binding.track, run_sample)
-			var run_target: Quaternion = (original * binding.reference.inverse() * run_frame).normalized()
+			var source_leg: bool = binding.key in ["L Thigh", "L Calf", "L Foot",
+				"R Thigh", "R Calf", "R Foot"]
+			# Both FBX takes begin in a stride. Subtracting their first leg poses
+			# removes the stance that is present in the source animation.
+			var run_target: Quaternion = run_frame if source_leg else \
+				(original * binding.reference.inverse() * run_frame).normalized()
 			if binding.key == "L Forearm" or binding.key == "R Forearm":
 				var frame: Quaternion = rig[binding.key].space
 				run_target = (run_target * frame.inverse() * Quaternion(Vector3.RIGHT, -0.45) * frame).normalized()
 			var walk_target := original
 			if walk_binding is Dictionary:
 				var walk_frame := adult_walk_clip.rotation_track_interpolate(walk_binding.track, walk_sample)
-				walk_target = (original * walk_binding.reference.inverse() * walk_frame).normalized()
+				walk_target = walk_frame if source_leg else \
+					(original * walk_binding.reference.inverse() * walk_frame).normalized()
 			skeleton.set_bone_pose_rotation(index, from.slerp(walk_target.slerp(run_target, run_mix), influence))
 		else:
 			var original: Vector3 = binding.base
@@ -480,7 +486,10 @@ func _apply_adult_locomotion(body: Node3D, phase: float, weight: float,
 	var walk_lift := 0.0
 	if adult_walk_root_track >= 0:
 		walk_lift = adult_walk_clip.position_track_interpolate(adult_walk_root_track, walk_sample).y - adult_walk_root_reference.y
-	body.position.y += (lerpf(walk_lift, run_lift, run_mix) + 0.006) * strength
+	# The preserved running stride bends both legs more than the previous
+	# first-frame-relative pose, so lower only its visual root toward support.
+	body.position.y += (lerpf(walk_lift, run_lift, run_mix) + 0.006
+		- 0.05 * run_mix) * strength
 	if strength > 0.01:
 		_adult_correct_grounded_knees(body, skeleton)
 
