@@ -67,9 +67,9 @@ void exact_links(const Host& host, const std::string& collector, const std::stri
     check(field<A>(view, "drive_links").empty() && !field<bool>(view, "powered"),
           "Material attachment supplies no mechanical drive or power.");
     const auto stock = child(view, "stock");
-    check(same(stock, V(O{{"source", V(I{16})}, {"collector", V(I{0})}, {"belt", V(I{0})},
+    check(same(stock, V(O{{"source", V(I{4096})}, {"collector", V(I{0})}, {"belt", V(I{0})},
         {"input", V(I{0})}, {"held", V(I{0})}, {"output", V(I{0})}, {"player", V(I{0})}})),
-        "Construction does not step, refill or move the sixteen original raw units.");
+        "Construction does not step, refill or move the original finite deposit.");
 }
 
 void every_build_order() {

@@ -99,7 +99,7 @@ void construction_and_custody() {
     check(carried(host) == 24 && get<O>(host.projection(), "foundations").empty(), "Reclamation returns the exact carried supply.");
     const auto bare = host.command("P", machine("bare-global", "belt", 5, 2, 0)); outcome(bare, true, "ok");
     outcome(host.command("P", removal("bare-refund", get<std::string>(bare, "entity"))), true, "ok");
-    check(get<I>(V(get<O>(host.projection(), "stock")), "source") == 16, "Construction never consumes or replenishes the mineral source.");
+    check(get<I>(V(get<O>(host.projection(), "stock")), "source") == 4096, "Construction never consumes or replenishes the mineral source.");
 }
 
 void terrain_and_stacking() {

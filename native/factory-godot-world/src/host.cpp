@@ -1,4 +1,5 @@
 #include "factory/godot_world.hpp"
+#include "factory/mineral_site.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -314,8 +315,10 @@ Value Host::initialize(const std::string& context, const std::vector<std::string
     if (owned_) return result(false, "already_initialized");
     if (actors.empty() || actors.size() > 2 || actors.front() != "P") return result(false, "invalid_roster");
     world::Profile profile;
-    profile.material = {1, 1, 2};
-    profile.initial_units = 16;
+    // Reversible opening content, with enough buffer to recover finite ore in
+    // batches. All reserve and carried quantities remain in this one World.
+    profile.material = {1, 32, 2};
+    profile.initial_units = mineral_site::opening_reserve;
     profile.meters_per_grid_unit = pitch / 4.0;
     profile.anchor_offset = {0, anchor_height, 0};
     profile.build_reach = reach;
@@ -324,8 +327,8 @@ Value Host::initialize(const std::string& context, const std::vector<std::string
         {{Role::processor, 0, 0}, 1}, {{Role::waterwheel, 0, 0}, 1}, {{Role::shaft, 0, 2}, 4},
         {{Role::shaft, 0, 4}, 4}, {{Role::gear, 2, 0}, 8}, {{Role::gear, 4, 0}, 2}};
     world::State seed;
-    seed.material.initial_units = 16;
-    seed.material.stock.source = 16;
+    seed.material.initial_units = profile.initial_units;
+    seed.material.stock.source = profile.initial_units;
     auto candidate = std::make_unique<Owned>();
     for (const auto& actor : actors) {
         if ((actor != "P" && actor != "Q") || !profile.actors.insert(actor).second)
@@ -505,6 +508,16 @@ const char* Host::machine_site_refusal(const world::State& state, const mechanic
     return nullptr;
 }
 
+const char* Host::collector_site_refusal(const mechanics::Point& center) const {
+    const mineral_site::Cell cell{center[0] / height_denominator, center[2] / height_denominator};
+    if (!mineral_site::contains(cell)) return "not_at_seam";
+    const auto surface = terrain_range(center[0] * height_step, center[2] * height_step);
+    if (!surface) return "terrain_unavailable";
+    const auto allowed = mineral_site::admit(cell, center[1] * height_step,
+        {surface->first, surface->second}, mineral_site::extraction_depth_steps * height_step);
+    return allowed == mineral_site::Error::none ? nullptr : mineral_site::error_name(allowed);
+}
+
 world::ObserveActor Host::observe() const {
     return [this](const std::string& actor) -> std::optional<authority::ActorCut> {
         const auto found = owned_->actors.find(actor);
@@ -625,9 +638,9 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             *kind_name != "wheel" && *kind_name != "gear") return refuse("unknown_kind");
         if (wire.contains("tiles") && (!tiles || *tiles < 3 || *tiles > mechanics::maximum_dimension)) return refuse("invalid_wheel_size");
         if (*kind_name == "belt" && axis && *axis != "z") return refuse("invalid_belt_axis");
-        if (*kind_name == "collector" && *x != 0) return refuse("not_at_seam");
-        if (*kind_name == "collector" && level && *level != 0) return refuse("not_at_seam");
         const mechanics::Point center{4 * *x, level ? *level : 0, 4 * *z};
+        if (*kind_name == "collector")
+            if (const auto* refusal = collector_site_refusal(center)) return refuse(refusal);
         const auto selected_axis = axis ? *axis_value(*axis) : (*kind_name == "belt" ? mechanics::Axis::z : mechanics::Axis::x);
         const stationary::PlacedPart proposed{{"proposed", mechanics::Kind::hub, center, selected_axis, 0, 0},
             1, *kind_name == "wheel" ? Role::waterwheel : Role::collector, tiles ? *tiles : 3};
@@ -838,6 +851,9 @@ Value Host::projection() const {
         {"position", point_value(sample.position)}, {"capabilities", Value(Object{{"build_reach", Value(reach)}})},
         {"ready", Value(sample.ready)}, {"native_epoch", Value(sample.epoch)}}));
     const auto& stock = state.material.stock;
+    Array mineral_cells;
+    for (const auto& cell : mineral_site::opening_cells)
+        mineral_cells.emplace_back(Array{Value(cell.x), Value(cell.z)});
     const auto local = world::machine_power(state.topology);
     for (const auto& [id, foundation] : state.foundations)
         foundations.emplace(id, Value(Object{{"cell", Value(Array{Value(foundation.center[0] / 4), Value(foundation.center[2] / 4)})},
@@ -854,6 +870,10 @@ Value Host::projection() const {
         {"part_specifications", Value(std::move(specifications))},
         {"parts", Value(std::move(player_parts))}, {"actors", Value(std::move(actors))},
         {"foundations", Value(std::move(foundations))},
+        {"source_deposit", Value(Object{{"id", Value("opening-softmetal")},
+            {"cells", Value(std::move(mineral_cells))}, {"initial_units", Value(profile_.initial_units)},
+            {"collector_capacity", Value(profile_.material.collector_capacity)},
+            {"maximum_depth", Value(mineral_site::extraction_depth_steps * height_step)}})},
         {"stock", Value(Object{{"source", Value(stock.source)}, {"collector", Value(stock.collector)},
             {"belt", Value(stock.belt)}, {"input", Value(stock.input)},
             {"held", Value(state.material.processing ? state.material.processing->recipe.input_units_per_product : 0)},
@@ -909,8 +929,9 @@ Host::Decoded Host::decode(const Value& input) const {
         } else if (part.role == Role::gear) {
             if (part.geometry.teeth != 2 && part.geometry.teeth != 4) return {nullptr, "incompatible_geometry"};
         } else if ((part.role == Role::belt && part.geometry.axis != mechanics::Axis::z) ||
-            center[0] % 4 != 0 || center[2] % 4 != 0 ||
-            (part.role == Role::collector && (center[0] != 0 || center[1] != 0))) return {nullptr, "incompatible_geometry"};
+            center[0] % 4 != 0 || center[2] % 4 != 0) return {nullptr, "incompatible_geometry"};
+        if (part.role == Role::collector)
+            if (const auto* refusal = collector_site_refusal(center)) return {nullptr, refusal};
         if (part.role == Role::waterwheel) {
             if (const auto* refusal = wheel_site_refusal(center, part.geometry.axis, part.wheel_tiles)) return {nullptr, refusal};
             for (const auto& [id, foundation] : snapshot.state.foundations) {

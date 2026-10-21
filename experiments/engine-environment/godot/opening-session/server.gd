@@ -174,7 +174,9 @@ func compatible_opening(capture: Dictionary) -> bool:
 	if native_authority:
 		var validated: Dictionary = session.world.validate_checkpoint(capture)
 		var snapshot: Dictionary = session.world.projection()
-		return validated.get("accepted", false) and snapshot.initial_feed == 16 and snapshot.recipe_input == 1 and snapshot.options.get("native", false) and Array(capture.get("actors", {}).keys()) == actor_roster
+		# The native validator binds the complete current profile, including its
+		# finite reserve. Do not impose a second, obsolete sixteen-unit profile.
+		return validated.get("accepted", false) and snapshot.recipe_input == 1 and snapshot.options.get("native", false) and Array(capture.get("actors", {}).keys()) == actor_roster
 	if capture.initial_feed != 16 or capture.recipe_input != 1 or capture.options.get("opening") != true:
 		return false
 	if not legacy_fixture and (capture.schema != 2 or capture.options.get("physical") != true):
