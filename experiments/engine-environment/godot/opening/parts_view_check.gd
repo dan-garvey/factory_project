@@ -154,8 +154,8 @@ func _hotbar() -> void:
 		event.keycode = KEY_3
 		event.pressed = true
 		view._unhandled_input(event)
-		verify(view.mode == "belt" and bar.selected_slot == 2 and bar.buttons[2].button_pressed,
-			"A number key selects its displayed assignment through the ordinary selection path.")
+		verify(view.mode == "belt" and view.transmission_controls.active_tool == "belt_span" and bar.selected_slot == 2 and bar.buttons[2].button_pressed,
+			"The Belt quick slot selects shaft-to-shaft placement through the ordinary selection path.")
 		bar.open_catalog(7)
 		verify(bar.catalog.visible and bar.destination.item_count == 8 and bar.destination.selected == 7,
 			"The catalog exposes a concrete destination slot.")

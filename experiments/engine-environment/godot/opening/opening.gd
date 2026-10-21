@@ -3734,7 +3734,7 @@ func _refresh_transmission() -> void:
 	transmission_presenter.refresh()
 	var active: bool = not transmission_controls.active_tool.is_empty()
 	transmission_controls.visible = active or _catalog_open() or goal_confirmed or int(state.get("inventories", {}).get(client, 0)) > 0 or not state.get("transmission_parts", {}).is_empty()
-	if not active and mode in ["gear", "drive"]:
+	if not active and mode in ["gear", "drive", "belt"]:
 		mode = "inspect"
 	_update_cursor()
 
@@ -4189,7 +4189,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_I, KEY_ESCAPE: _select_tool("inspect")
 			KEY_R: _retrieve()
 			KEY_T:
-				if mode == "belt" and _native_transmission():
+				if mode == "belt" and _native_transmission() and (transmission_controls == null or transmission_controls.active_tool.is_empty()):
 					belt_axis = "x" if belt_axis == "z" else "z"
 					_message("Belt direction: %s. Press T to rotate." % ("+Z" if belt_axis == "x" else "+X"))
 					_refresh_machine_preview()
@@ -4208,8 +4208,8 @@ func _select_tool(tool: String) -> void:
 	mode = tool
 	foundation_area_started = false
 	pending_link = ""
-	if _native_transmission() and transmission_controls != null and tool in ["gear", "drive"]:
-		transmission_controls.choose_tool("gear" if tool == "gear" else "place_shaft")
+	if _native_transmission() and transmission_controls != null and tool in ["gear", "drive", "belt"]:
+		transmission_controls.choose_tool({"gear": "gear", "drive": "place_shaft", "belt": "belt_span"}[tool])
 	_update_cursor()
 	_refresh_ui()
 	var instructions := {"flow": "Click the upstream machine, then its neighbor toward the brass arrow.",
@@ -4219,7 +4219,7 @@ func _select_tool(tool: String) -> void:
 		"wheel": "Place the waterwheel in the flowing stream. Set its height to align its axle with your shafts."}
 	if _native_transmission():
 		instructions["collector"] = "Place the collector at the exposed mineral seam."
-		instructions["belt"] = "Place the belt on the grid. Press T to rotate its material direction."
+		instructions["belt"] = "Choose each parallel shaft within reach to connect them with a belt."
 		instructions["flow"] = "Choose the upstream machine, then its neighbor at the material outlet."
 		instructions["drive"] = "Place a shaft on the highlighted tile. Set its axis and height in the cogwheel and shaft menu."
 		instructions["gear"] = "Place a cogwheel at the highlighted point. Set axis and height in the cogwheel menu."
@@ -5145,7 +5145,7 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		offered.inspect = true
 	if kinds.has("collector"):
 		offered.belt = true
-	if kinds.has("belt"):
+	if kinds.has("belt") or (_native_transmission() and not state.get("belt_spans", {}).is_empty()):
 		offered.processor = true
 	if kinds.has("processor"):
 		offered.wheel = true
@@ -5331,6 +5331,88 @@ func _style_machine_preview(node: Node) -> void:
 	for child in node.get_children():
 		_style_machine_preview(child)
 
+func _guided_span_path(routes: Array, collector: Vector3i, processor: Vector3i, powered: bool) -> bool:
+	# A loose item leaving a span can be picked up on any tile of another span.
+	# This is advisory over confirmed projection facts, not construction authority.
+	var queue: Array[int] = []
+	var visited := {}
+	for index in range(routes.size()):
+		var route: Dictionary = routes[index]
+		var entry := 0 if collector == route.before else (1 if collector == route.after else -1)
+		if entry < 0 or (powered and (not route.rotating or (entry == 0) != route.forward)):
+			continue
+		queue.append(index)
+		visited[index] = true
+	while not queue.is_empty():
+		var current: int = queue.pop_front()
+		var route: Dictionary = routes[current]
+		var exits: Array = [route.after if route.forward else route.before] if powered else [route.before, route.after]
+		for outlet: Vector3i in exits:
+			if outlet == processor:
+				return true
+			for index in range(routes.size()):
+				var next: Dictionary = routes[index]
+				if visited.has(index) or (powered and not next.rotating) or not next.tiles.has(outlet):
+					continue
+				visited[index] = true
+				queue.append(index)
+	return false
+
+func _guided_span_routes() -> Dictionary:
+	var result := {"physical": false, "powered": false, "cargo": false}
+	var parts: Variant = state.get("transmission_parts", {})
+	var spans: Variant = state.get("belt_spans", {})
+	var entities: Variant = state.get("entities", {})
+	var motion: Variant = state.get("motion", {})
+	if not parts is Dictionary or not spans is Dictionary or not entities is Dictionary or not motion is Dictionary:
+		return result
+	var collector: Variant = null
+	var processor: Variant = null
+	for entity: Variant in entities.values():
+		if not entity is Dictionary or not entity.get("center") is Array or entity.center.size() != 3:
+			continue
+		if entity.get("kind") == "collector":
+			collector = Vector3i(entity.center[0], entity.center[1], entity.center[2])
+		elif entity.get("kind") == "processor":
+			processor = Vector3i(entity.center[0], entity.center[1], entity.center[2])
+	var routes: Array = []
+	for span: Variant in spans.values():
+		if not span is Dictionary or not span.get("slots") is Array:
+			continue
+		for item: Variant in span.slots:
+			if item is Dictionary:
+				result.cargo = true
+		var first: Variant = parts.get(span.get("from", ""))
+		var last: Variant = parts.get(span.get("to", ""))
+		if not first is Dictionary or not last is Dictionary or first.get("axis") not in [0, 2] or first.get("axis") != last.get("axis") or not first.get("center") is Array or not last.get("center") is Array or first.center.size() != 3 or last.center.size() != 3:
+			continue
+		var start := Vector3i(first.center[0], first.center[1], first.center[2])
+		var finish := Vector3i(last.center[0], last.center[1], last.center[2])
+		var delta := finish - start
+		var steps := maxi(absi(delta.x), maxi(absi(delta.y), absi(delta.z))) / 4
+		if steps < 1 or steps > 19 or (delta.x == 0 and delta.z == 0) or delta[first.axis] != 0:
+			continue
+		var valid_path := true
+		for coordinate in range(3):
+			if start[coordinate] % 4 != 0 or (delta[coordinate] != 0 and absi(delta[coordinate]) != steps * 4):
+				valid_path = false
+		if not valid_path:
+			continue
+		var step := delta / steps
+		var tiles: Array = []
+		for index in range(steps + 1):
+			tiles.append(start + step * index)
+		var shaft_motion: Variant = motion.get(span.get("from", ""), {})
+		var rotating: bool = shaft_motion is Dictionary and shaft_motion.get("state") == "rotating" and typeof(shaft_motion.get("numerator")) == TYPE_INT and shaft_motion.numerator != 0
+		var positive: bool = rotating and ((first.axis == 0 and shaft_motion.numerator > 0) or (first.axis == 2 and shaft_motion.numerator < 0))
+		var along := delta.z if first.axis == 0 else delta.x
+		routes.append({"before": start - step, "after": finish + step, "tiles": tiles,
+			"rotating": rotating, "forward": positive == (along > 0)})
+	if collector is Vector3i and processor is Vector3i:
+		result.physical = _guided_span_path(routes, collector, processor, false)
+		result.powered = _guided_span_path(routes, collector, processor, true)
+	return result
+
 func _guided_step(kinds: Dictionary) -> Dictionary:
 	if goal_confirmed:
 		return {"text": "Four plates confirmed. Keep building or try another layout.", "tool": "inspect"}
@@ -5340,8 +5422,9 @@ func _guided_step(kinds: Dictionary) -> Dictionary:
 		return {"text": "Plate ready. Select the press, then collect [R].", "tool": "inspect"}
 	if not kinds.has("collector"):
 		return {"text": "Place a collector at the exposed mineral seam." if _native_transmission() else "Place a collector on the brass strip near you.", "tool": "collector"}
-	if not kinds.has("belt"):
-		return {"text": "Add a belt beside the collector.", "tool": "belt"}
+	var spans: Dictionary = state.get("belt_spans", {}) if _native_transmission() else {}
+	if not kinds.has("belt") and spans.is_empty():
+		return {"text": "Place two parallel shafts, then connect them with a belt.", "tool": "drive"} if _native_transmission() else {"text": "Add a belt beside the collector.", "tool": "belt"}
 	if not kinds.has("processor"):
 		return {"text": "Add a press at the belt outlet.", "tool": "processor"}
 	var material_pairs: Dictionary = {}
@@ -5349,7 +5432,11 @@ func _guided_step(kinds: Dictionary) -> Dictionary:
 		var entities: Dictionary = state.get("entities", {})
 		if entities.has(pair[0]) and entities.has(pair[1]):
 			material_pairs["%s:%s" % [entities[pair[0]].kind, entities[pair[1]].kind]] = true
-	if not material_pairs.has("collector:belt") or not material_pairs.has("belt:processor"):
+	var span_route := _guided_span_routes() if _native_transmission() else {"physical": false, "powered": false, "cargo": false}
+	var legacy_route := material_pairs.has("collector:belt") and material_pairs.has("belt:processor")
+	if not span_route.physical and not legacy_route:
+		if not spans.is_empty() and not kinds.has("belt"):
+			return {"text": "Connect the collector and press with horizontal or inclined belts.", "tool": "drive"}
 		return {"text": "Connect the material path. Help [H] shows an example.", "tool": "flow"}
 	if not kinds.has("wheel"):
 		return {"text": "Place a waterwheel in the stream.", "tool": "wheel"}
@@ -5363,12 +5450,14 @@ func _guided_step(kinds: Dictionary) -> Dictionary:
 				return {"text": "Use cogs and shafts to bring rotation to each machine. The belt shaft crosses its direction of travel.", "tool": "drive"}
 			if part.get("kind", "") == "belt" and motion.get(id, {}).get("state", "") == "rotating" and int(motion.get(id, {}).get("numerator", 0)) > 0:
 				return {"text": "The belt is carrying blanks away from the press. Change the cog route to reverse its rotation; pick up loose blanks from the worksite menu.", "tool": "drive"}
+		if span_route.physical and not span_route.powered and not legacy_route:
+			return {"text": "Power the belt shafts and check their direction toward the press.", "tool": "drive"}
 	elif not state.get("powered", false):
 		return {"text": "Bring power to the line. Help [H] shows the current setup.", "tool": "drive"}
 	var stock: Dictionary = state.get("stock", {})
-	if _native_transmission() and state.get("dropped_material", []).any(func(drop: Variant): return drop is Dictionary and int(drop.get("raw", 0)) > 0) and int(stock.get("source", 0)) + int(stock.get("collector", 0)) + int(stock.get("belt", 0)) + int(stock.get("input", 0)) + int(stock.get("held", 0)) == 0:
+	if _native_transmission() and not span_route.cargo and state.get("dropped_material", []).any(func(drop: Variant): return drop is Dictionary and int(drop.get("raw", 0)) > 0) and int(stock.get("source", 0)) + int(stock.get("collector", 0)) + int(stock.get("belt", 0)) + int(stock.get("input", 0)) + int(stock.get("held", 0)) == 0:
 		return {"text": "Pick up loose blanks from the worksite menu, then insert them into the press.", "tool": "inspect"}
-	if int(stock.get("source", 0)) + int(stock.get("collector", 0)) + int(stock.get("belt", 0)) + int(stock.get("input", 0)) + int(stock.get("held", 0)) == 0:
+	if not span_route.cargo and int(stock.get("source", 0)) + int(stock.get("collector", 0)) + int(stock.get("belt", 0)) + int(stock.get("input", 0)) + int(stock.get("held", 0)) == 0:
 		if _native_transmission():
 			var cargo: Dictionary = state.get("cargo", {}).get(client, {})
 			if not cargo.get("work_lots", []).is_empty():

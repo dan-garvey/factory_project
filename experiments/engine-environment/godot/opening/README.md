@@ -77,11 +77,8 @@ highlighted tile to place it. Selecting a Cogwheel or Shaft hotbar slot exposes
 **Cogwheels and shafts…** for placement settings and transmission removal. The
 catalog can assign either tool at any time. The menu chooses X/Y/Z rotation axis
 and placement height in full-tile steps. Shafts and cogs occupy one 1.65 m tile
-and snap to the common world grid in all three dimensions. That axis also applies to subsequent
-machine placement, except for the belt. Select the belt and press **T** to turn
-its material direction between +X and +Z; its drive spindle runs across that
-direction. The placement preview shows the selected direction, and connecting
-machines face along the belt. A translucent cursor marks
+and snap to the common world grid in all three dimensions. That axis also applies
+to subsequent machine placement. A translucent cursor marks
 the requested gear plane, not permission to build there. Real character
 proximity remains authoritative. Adjacent aligned cog, shaft and machine axle
 ends connect directly; fill a longer gap with individual shaft tiles.
@@ -89,8 +86,8 @@ Shafts and cogwheels must clear the terrain and site obstacles, including their
 axles. On the starter bank, raising the transmission and supporting machines
 on foundations can leave room beneath the cogs while keeping their axles aligned.
 
-To connect separated shafts, choose **Connect shafts with a belt** from the
-transmission menu and select both shaft tiles. Their axes must be parallel and
+To connect separated shafts, select the **Belt** hotbar slot or choose **Connect
+shafts with a belt** from the transmission menu, then select both shaft tiles. Their axes must be parallel and
 their path straight or inclined at 45 degrees. Select each end while the
 character is within reach; the first selection is recorded by the worksite.
 Intermediate aligned shafts turn with the belt. Horizontal
@@ -99,7 +96,8 @@ rotation only. A powered belt picks up loose items on an empty tile, so adjacent
 belts can pass material between them. The starter kit carries two belts. The
 belt appears after the worksite confirms placement, and the
 transmission removal tool can reclaim it when it is empty and a belt tile is
-within reach.
+within reach. The opening guidance recognizes a powered route through one or
+more spans, including loose-item handoffs between them.
 
 The inspector can select a cogwheel or shaft and return it to the carried kit.
 Static arrows show the confirmed signed rate, and contact marks use confirmed
@@ -112,8 +110,9 @@ The belt carries blanks toward the press only when its top surface moves in that
 direction. Reversing the drive carries them off the other end. A loose stack is
 shown at that end; stand nearby and use **Pick up loose material…** to collect it,
 then insert the blanks at a machine. Loose stacks survive saving and belt removal.
-This prototype represents their fixed grid locations without gravity. Belt
-throughput remains a fixture step. The press's work per tick scales with its
+This prototype represents their fixed grid locations without gravity. Span-belt
+travel scales with the confirmed shaft rate, while the older single-cell belt
+still uses a fixture step. The press's work per tick scales with its
 confirmed angular rate and works in either turning direction. Cog and shaft
 quantities and dimensions are revisable fixture choices.
 

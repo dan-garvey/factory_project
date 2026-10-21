@@ -411,6 +411,70 @@ func _belt_retry() -> void:
 	shared.free()
 	controls.free()
 
+func _span_guidance() -> void:
+	var view := SharedSettlement.new()
+	view.legacy_fixture = false
+	view.client = "P"
+	view.state = fixture()
+	view.state.entities = {
+		"collector": {"kind": "collector", "center": [-4, 0, 0]},
+		"press": {"kind": "processor", "center": [16, 0, 0]},
+		"wheel": {"kind": "wheel", "center": [0, 0, -4]}}
+	view.state.transmission_parts = {
+		"a0": {"kind": "shaft", "center": [0, 0, 0], "axis": 2},
+		"a1": {"kind": "shaft", "center": [4, 0, 0], "axis": 2},
+		"b0": {"kind": "shaft", "center": [8, 0, 0], "axis": 2},
+		"b1": {"kind": "shaft", "center": [12, 0, 0], "axis": 2}}
+	var empty := [null, null]
+	view.state.belt_spans = {"first": {"from": "a0", "to": "a1", "slots": empty.duplicate()},
+		"second": {"from": "b0", "to": "b1", "slots": [{"raw": 1, "products": 0, "work_lots": []}, null]}}
+	view.state.motion = {"a0": {"state": "rotating", "numerator": -1},
+		"b0": {"state": "rotating", "numerator": -1},
+		"collector": {"state": "rotating", "numerator": 1},
+		"press": {"state": "rotating", "numerator": 1}}
+	view.state.links = []
+	view.state.power_enabled = true
+	view.state.inventories = {"P": 0}
+	view.state.stock = {"source": 0, "collector": 0, "belt": 0, "input": 0, "held": 0, "output": 0}
+	var kinds := {"collector": true, "processor": true, "wheel": true}
+	var route: Dictionary = view._guided_span_routes()
+	verify(route.physical and route.powered and route.cargo and view._guided_step(kinds).text.begins_with("Follow a blank"),
+		"A powered two-span line and its in-flight material need no legacy belt or manual links.")
+	view.state.motion.b0.numerator = 1
+	verify(view._guided_span_routes().physical and not view._guided_span_routes().powered and "direction" in view._guided_step(kinds).text,
+		"A reversed downstream span cannot be advertised as a working route.")
+	view.state.motion.b0.state = "stalled"
+	verify(not view._guided_span_routes().powered and "Power the belt" in view._guided_step(kinds).text,
+		"A stalled belt produces a power instruction.")
+	view.state.motion.b0.state = "rotating"
+	view.state.motion.b0.numerator = -1
+	view.state.entities.press.center = [20, 0, 0]
+	verify(not view._guided_span_routes().physical and "Connect the collector" in view._guided_step(kinds).text,
+		"A separated press is not presented as connected.")
+	view.state.entities.press.center = [16, 0, 0]
+	view.state.belt_spans.second.from = "b1"
+	view.state.belt_spans.second.to = "b0"
+	view.state.motion.b1 = {"state": "rotating", "numerator": -1}
+	verify(view._guided_span_routes().powered, "Reversing endpoint order preserves the actual travel direction.")
+	for entity: Dictionary in view.state.entities.values():
+		var center: Array = entity.center
+		entity.center = [0, center[0], center[0]]
+	for part: Dictionary in view.state.transmission_parts.values():
+		var center: Array = part.center
+		part.center = [0, center[0], center[0]]
+		part.axis = 0
+	for id in ["a0", "b0", "b1"]:
+		view.state.motion[id].numerator = 1
+	verify(view._guided_span_routes().physical and view._guided_span_routes().powered,
+		"The same route is recognized on inclined belts with X-axis shafts.")
+	view.state.transmission_parts.b1.center = [0, 12, 16]
+	verify(not view._guided_span_routes().physical, "A disconnected sloped endpoint does not invent a route.")
+	view.state.belt_spans.clear()
+	kinds.erase("processor")
+	verify("two parallel shafts" in view._guided_step(kinds).text and view._guided_step(kinds).tool == "drive",
+		"The native opening introduces shaft endpoints for a new belt.")
+	view.free()
+
 func _nonhorizontal_presentation() -> void:
 	var raw := {"raw": 1, "products": 0, "work_lots": []}
 	for case in [
@@ -1220,6 +1284,7 @@ func _run() -> void:
 		_shaft_segments()
 		_belt_spans()
 		_belt_retry()
+		_span_guidance()
 		_belt_surface_motion()
 		_presentation()
 	print("NATIVE_TRANSMISSION_VIEW_%s %d" % ["PASS" if failures == 0 else "FAIL", checks])

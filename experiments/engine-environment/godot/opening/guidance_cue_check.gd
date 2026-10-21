@@ -426,7 +426,7 @@ func check_first_target() -> void:
 	view.state.entities["collector-1"] = {"kind": "collector", "cell": [0, 1]}
 	view.mode = "belt"
 	view._refresh_placement_hint()
-	verify(view.placement_hint.visible and (label == null or not label.visible), "The next Belt footprint clears the first-target annotation.")
+	verify(not view.placement_hint.visible and (label == null or not label.visible), "The shaft-first guidance clears the collector target and does not suggest an obsolete belt footprint.")
 	view.free()
 	var shared = SharedOpening.new()
 	var session := SessionStub.new()
