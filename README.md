@@ -1,8 +1,9 @@
 # Factory
 
 An experimental 3D opening for a mechanically focused factory game. Place a
-collector, belt, press and waterwheel; connect material and drive paths; turn
-finite blanks into plates and explicitly confirm four collected products.
+collector, press and waterwheel; build a belt between shaft tiles and use
+shafts and cogwheels to transmit rotation; turn finite blanks into plates and
+explicitly confirm four collected products.
 Placeholder geometry and a small fixed worksite keep this first feedback loop
 bounded. This is not the complete chapter or a selected production stack.
 

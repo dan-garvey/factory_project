@@ -4372,7 +4372,7 @@ func _select_tool(tool: String) -> void:
 		"wheel": "Place the waterwheel in the flowing stream. Set its height to align its axle with your shafts."}
 	if _native_transmission():
 		instructions["collector"] = "Place the collector at the exposed mineral seam."
-		instructions["belt"] = "Choose each parallel shaft within reach to connect them with a belt."
+		instructions["belt"] = "Choose two parallel shafts within reach. The belt runs across their axle, not along it."
 		instructions["flow"] = "Choose the upstream machine, then its neighbor at the material outlet."
 		instructions["drive"] = "Point at a floor to match its height or at a machine to snap beside it. Set the shaft axis in the cogwheel and shaft menu."
 		instructions["gear"] = "Point at a floor to match its height or at a machine to snap beside it. Set the cogwheel axis in its menu."
@@ -4499,7 +4499,7 @@ func _set_lesson(index: int) -> void:
 	lesson_title.text = LESSONS[lesson_index][0]
 	lesson_body.text = LESSONS[lesson_index][1]
 	if lesson_index == 0 and _native_transmission():
-		lesson_body.text = "Place a collector and a press. Place one-tile shafts at the ends of the route, then connect those shafts with a belt. The belt carries blanks when its shafts rotate toward the press."
+		lesson_body.text = "Place a collector and a press. Place one-tile shafts at the ends of the route, with their parallel axles across the belt's path. Connect the shafts with a belt. It carries blanks when its top moves toward the press."
 	if lesson_index == 1 and _native_transmission():
 		lesson_body.text = "Place the waterwheel in the stream with its lower rim wet and clear of the bed. Set its diameter, height and axle. Choose Shaft and place one-tile segments; set axis and height in the cogwheel and shaft menu. Aligned parts carry rotation."
 	if example_presenter != null:
