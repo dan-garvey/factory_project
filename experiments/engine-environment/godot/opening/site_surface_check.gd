@@ -11,7 +11,8 @@ var failures := 0
 
 class EmptyPhysicalFacts extends RefCounted:
 	func projection() -> Dictionary:
-		return {"context": "fir-physics-fixture", "options": {"physical": true, "native": true}, "actors": {}, "entities": {}}
+		return {"context": "fir-physics-fixture", "options": {"physical": true, "native": true},
+			"actors": {}, "entities": {}, "transmission_parts": {}, "belt_spans": {}}
 
 class NativeChallengeFacts extends RefCounted:
 	var state: Dictionary
@@ -93,7 +94,7 @@ func _initialize() -> void:
 	for x in [-1.65, 0.0, 1.65, 3.3, 6.6]:
 		for z in [-3.3, 0.0, 3.3, 6.6]:
 			verify(absf(Surface.height_at(x, z) - (-0.02)) < 0.00001,
-				"The emitted natural clearing supports the existing character and construction anchors.")
+				"The emitted clearing supports the existing character and construction anchor at " + str(Vector2(x, z)) + ".")
 	for z in [-3.3, 0.0, 3.3, 6.6]:
 		var x := Surface.river_center_x(z)
 		var at := Surface.cell(x, z)
@@ -332,12 +333,17 @@ func check_flow_cells() -> void:
 		assert(row.size() == 3)
 		var x: float = float(row[0]) * Geometry.HEIGHT_STEP
 		var z: float = float(row[1]) * Geometry.HEIGHT_STEP
-		assert(absf(x - Surface.river_center_x(z)) < Surface.channel_half_width(z))
+		var center := Surface.river_center_x(z)
+		assert(x > center - Surface.wet_half_width(z, -1.0)
+			and x < center + Surface.wet_half_width(z, 1.0))
 		assert(float(row[2]) * Geometry.HEIGHT_STEP / 100.0 > Surface.height_at(x, z))
 		if row[0] == -8 and row[1] == 4:
 			found = true
 	assert(found, "A wheel cell at the first worksite intersects the actual river.")
 	var narrow := Surface.wet_half_width(1.65, -1.0) + Surface.wet_half_width(1.65, 1.0)
+	assert(narrow > 4.5, "The emitted starting wet cross-section exceeds 4.5 meters.")
+	assert(Surface.river_center_x(1.65) + Surface.wet_half_width(1.65, 1.0) < -1.65,
+		"The wider river preserves the dry character and construction anchor.")
 	var broad := Surface.wet_half_width(22.0, -1.0) + Surface.wet_half_width(22.0, 1.0)
 	var rapid := Surface.wet_half_width(38.0, -1.0) + Surface.wet_half_width(38.0, 1.0)
 	assert(broad > narrow + 1.0 and broad > rapid + 1.0, "The emitted riverbed has a broad wheel-test section between narrower reaches.")
@@ -511,17 +517,17 @@ func check_flow_sections() -> void:
 		tangential.append(absf(float(motion.numerator) / float(motion.denominator)) * float(section.tiles))
 	if not expect(tangential[1] < tangential[2] and tangential[2] < tangential[0], "The broad reach is slower than the selected downstream and starting reaches: " + str(tangential)):
 		return
-	# Keep the original constriction flow comparison even though its previous
-	# three-tile wheel requires an axle between the global transmission tiles.
+	# Compare the native current in each terrain section even though the old
+	# constriction wheel site requires an axle between global transmission tiles.
 	# These are native water samples, not proof that a wheel fits that site.
 	var water_model = NativeModel.new("flow-sample-comparison", ["P"])
 	var samples := {}
 	for sample: Dictionary in water_model.checkpoint().world.profile.water:
 		if [sample.x, sample.z] in [[-8, 0], [-4, 52], [16, 92]]:
 			samples[Vector2i(sample.x, sample.z)] = absi(sample.velocity_z)
-	if not expect(samples.size() == 3 and samples[Vector2i(-4, 52)] < samples[Vector2i(16, 92)]
-		and samples[Vector2i(16, 92)] < samples[Vector2i(-8, 0)],
-		"The original broad, constricted and starting water samples retain their relative native speeds."):
+	if not expect(samples.size() == 3 and samples[Vector2i(-4, 52)] < samples[Vector2i(-8, 0)]
+		and samples[Vector2i(-8, 0)] < samples[Vector2i(16, 92)],
+		"The widened starting reach flows between the broad pool and downstream constriction: " + str(samples)):
 		return
 	var bank = NativeModel.new("blocked-bank", ["P"])
 	if not expect(bank.boot_result.get("accepted", false) and bank.publish_actor("P", [1.5, 1.0, 1.65], 1).get("accepted", false), "Bind the solid east bank"):

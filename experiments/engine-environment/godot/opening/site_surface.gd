@@ -230,14 +230,20 @@ static func river_center_x(z: float) -> float:
 	var bend := smoothstep(0.0, 26.0, reach)
 	# Bend away from the construction bank, retaining its existing anchors.
 	var near_bend := -0.9 * (1.0 - cos((z - 1.65) * 0.30)) - 0.05 * (1.0 - cos(z * 0.85))
-	return -2.7 + bend * (sin(z * 0.042) * 8.0 + cos(z * 0.019) * 3.8) + (1.0 - bend) * near_bend
+	return -2.7 - 1.2 * (1.0 - bend) + bend * (sin(z * 0.042) * 8.0 + cos(z * 0.019) * 3.8) + (1.0 - bend) * near_bend
 
 static func channel_half_width(z: float) -> float:
 	var flare := smoothstep(5.5, 22.0, absf(z - 1.65))
-	var bank_variation := 0.06 * sin(z * 0.82) + 0.025 * sin(z * 2.31)
+	var bank_variation := 0.12 * sin(z * 0.82) + 0.05 * sin(z * 2.31)
 	var broad_pool := smoothstep(12.0, 17.0, z) * (1.0 - smoothstep(29.0, 33.0, z))
 	var constriction := smoothstep(32.0, 36.0, z) * (1.0 - smoothstep(44.0, 49.0, z))
-	return lerpf(0.62 + bank_variation, 1.85, flare) + 1.45 * broad_pool - 0.65 * constriction
+	return lerpf(1.35 + bank_variation, 1.85, flare) + 1.45 * broad_pool - 0.65 * constriction
+
+static func bank_span(z: float, side: float) -> float:
+	# Keep the established dry worksite on the east while the open west bank
+	# has room for a long, low shoulder instead of a cut face.
+	var near_bank := 2.4 + 0.2 * sin(z * 0.63) if side < 0.0 else 0.75 + 0.06 * cos(z * 0.75)
+	return lerpf(near_bank, 5.2, smoothstep(5.5, 24.0, absf(z - 1.65)))
 
 static func stream_surface_height(x: float, z: float) -> float:
 	var upstream_slope := maxf(0.0, (-5.55 - z) * 0.0022)
@@ -258,12 +264,13 @@ static func flow_cells() -> Array:
 	for cell_z in range(-35, 37):
 		var z: float = cell_z * Geometry.PITCH
 		var center := river_center_x(z)
-		var width := channel_half_width(z)
-		var first := floori((center - width) / Geometry.PITCH)
-		var last := ceili((center + width) / Geometry.PITCH)
+		var west := wet_half_width(z, -1.0)
+		var east := wet_half_width(z, 1.0)
+		var first := floori((center - west) / Geometry.PITCH)
+		var last := ceili((center + east) / Geometry.PITCH)
 		for cell_x in range(first, last + 1):
 			var x: float = cell_x * Geometry.PITCH
-			if absf(x - center) >= width:
+			if x <= center - west or x >= center + east:
 				continue
 			var surface := stream_surface_height(x, z)
 			var bed := height_at(x, z)
@@ -274,9 +281,9 @@ static func flow_cells() -> Array:
 
 static func wet_half_width(z: float, side: float) -> float:
 	# The displayed edge stops at the actual emitted terrain intersection.
-	# The authored channel width caps this search before adjacent valleys.
+	# The authored bank shoulder caps this search before adjacent valleys.
 	var center := river_center_x(z)
-	var limit := channel_half_width(z) + 0.35
+	var limit := channel_half_width(z) + bank_span(z, side) + 0.35
 	var water := stream_surface_height(center, z)
 	var previous := 0.0
 	for n in range(1, ceili(limit / 0.125) + 1):
@@ -333,9 +340,7 @@ static func raw_height(x: float, z: float) -> float:
 		base_y = Geometry.GROUND_HEIGHT + maxf(0.0, terraced)
 	if dx_river <= half_w:
 		return bed_y
-	var near_bank := 0.78 + 0.12 * sin(z * 0.63) if x < rc else 0.24 + 0.03 * cos(z * 0.75)
-	var bank_span := lerpf(near_bank, 5.2, smoothstep(5.5, 24.0, absf(z - 1.65)))
-	var bank_t := smoothstep(half_w, half_w + bank_span, dx_river)
+	var bank_t := smoothstep(half_w, half_w + bank_span(z, -1.0 if x < rc else 1.0), dx_river)
 	return lerpf(bed_y, base_y, bank_t)
 
 static func normal(x: float, z: float) -> Vector3:
