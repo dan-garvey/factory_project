@@ -103,16 +103,40 @@ static func mechanical_boxes(snapshot: Dictionary) -> Dictionary:
 			return {"accepted": false}
 		var first: Variant = parts.get(span.from)
 		var last: Variant = parts.get(span.to)
-		if not first is Dictionary or not last is Dictionary or first.kind != "shaft" or last.kind != "shaft" or first.axis != last.axis or first.axis == 1:
+		if not first is Dictionary or not last is Dictionary or first.kind != "shaft" or last.kind != "shaft" or first.axis != last.axis:
 			return {"accepted": false}
-		var direction: int = 2 if first.axis == 0 else 0
-		for axis: int in 3:
-			if axis != direction and first.center[axis] != last.center[axis]:
-				return {"accepted": false}
-		var distance: int = absi(last.center[direction] - first.center[direction])
+		var delta := Vector3i(last.center[0] - first.center[0], last.center[1] - first.center[1], last.center[2] - first.center[2])
+		if delta[first.axis] != 0:
+			return {"accepted": false}
+		var distance := maxi(absi(delta.x), maxi(absi(delta.y), absi(delta.z)))
 		if distance < 4 or distance > 76:
 			return {"accepted": false}
+		var changed := 0
+		for axis: int in 3:
+			if delta[axis] != 0:
+				changed += 1
+				if absi(delta[axis]) != distance:
+					return {"accepted": false}
+		if changed > 2 or (first.axis == 1 and changed != 1):
+			return {"accepted": false}
+		var direction: int = 2 if delta.z != 0 else (0 if delta.x != 0 else 1)
 		var size := Vector3(0.6, 0.3, 0.6)
 		size[direction] = distance * HEIGHT_STEP + PITCH
-		result[id] = {"center": (_mechanical_center(first.center) + _mechanical_center(last.center)) / 2.0, "size": size}
+		var basis := Basis.IDENTITY
+		if first.axis == 1:
+			size.y = 0.6
+			size[2 if direction == 0 else 0] = 0.3
+		elif direction == 1:
+			size[2 if first.axis == 0 else 0] = 0.3
+		elif delta.y != 0:
+			size[direction] *= sqrt(2.0)
+			var angle := atan2(float(delta.y), float(delta[direction]))
+			# Normalize endpoint order so equivalent spans register the same basis.
+			if delta[direction] < 0:
+				angle = atan2(float(-delta.y), float(-delta[direction]))
+			basis = Basis(Vector3(0, 0, 1), angle) if direction == 0 else Basis(Vector3(1, 0, 0), -angle)
+		var spec := {"center": (_mechanical_center(first.center) + _mechanical_center(last.center)) / 2.0, "size": size}
+		if basis != Basis.IDENTITY:
+			spec["basis"] = basis
+		result[id] = spec
 	return {"accepted": true, "boxes": result}

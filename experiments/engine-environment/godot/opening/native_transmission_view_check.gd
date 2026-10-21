@@ -514,6 +514,26 @@ func _mechanical_collision_geometry() -> void:
 	moved.transmission_parts.b.axis = 0
 	var rotated := Geometry.mechanical_boxes(moved)
 	verify(rotated.accepted and rotated.boxes.belt.size.is_equal_approx(Vector3(0.6, 0.3, 4.95)), "The other horizontal direction rotates the span bounds.")
+	for axle in [0, 2]:
+		for sign_value in [-1, 1]:
+			var slope: Dictionary = state.duplicate(true)
+			slope.transmission_parts.a.axis = axle
+			slope.transmission_parts.b.axis = axle
+			slope.transmission_parts.b.center = [8 if axle == 2 else 0, 8 * sign_value, 8 if axle == 0 else 0]
+			var sloped := Geometry.mechanical_boxes(slope)
+			var reverse_slope: Dictionary = slope.duplicate(true)
+			reverse_slope.belt_spans.belt = {"from": "b", "to": "a"}
+			verify(sloped.accepted and sloped.boxes.belt.has("basis") and Geometry.mechanical_boxes(reverse_slope).boxes.belt == sloped.boxes.belt, "An inclined belt has a stable rotated body for either axle and slope.")
+	var vertical: Dictionary = state.duplicate(true)
+	vertical.transmission_parts.b.center = [0, 8, 0]
+	verify(Geometry.mechanical_boxes(vertical).boxes.belt.size.is_equal_approx(Vector3(0.3, 4.95, 0.6)), "A vertical power-only belt has a narrow vertical body.")
+	var sideways: Dictionary = state.duplicate(true)
+	sideways.transmission_parts.a.axis = 1
+	sideways.transmission_parts.b.axis = 1
+	verify(Geometry.mechanical_boxes(sideways).boxes.belt.size.is_equal_approx(Vector3(4.95, 0.6, 0.3)), "A sideways power-only belt has a narrow side-facing body.")
+	var bad_slope: Dictionary = state.duplicate(true)
+	bad_slope.transmission_parts.b.center = [8, 4, 0]
+	verify(not Geometry.mechanical_boxes(bad_slope).accepted, "An unequal slope is rejected by physical geometry.")
 	var removed: Dictionary = state.duplicate(true)
 	removed.belt_spans.clear()
 	removed.transmission_parts.erase("b")
@@ -625,6 +645,34 @@ func _collision_body_lifecycle() -> void:
 	await physics_frame
 	hits = physical.get_world_3d().direct_space_state.intersect_shape(query)
 	verify(physical._geometry_registered() and hits.any(func(hit: Dictionary): return hit.rid == physical.mechanical_bodies.belt.get_rid()), "Restored bodies register and block the belt center again.")
+	authority.state.transmission_parts.right.center = [8, 16, 0]
+	verify(physical.sync_topology().accepted, "An inclined projection synchronizes rotated collision geometry.")
+	await physics_frame
+	await physics_frame
+	var incline: StaticBody3D = physical.mechanical_bodies.belt
+	query.transform.origin = Vector3(1.65, 5.45, 0)
+	hits = physical.get_world_3d().direct_space_state.intersect_shape(query)
+	verify(physical._geometry_registered() and hits.any(func(hit: Dictionary): return hit.rid == incline.get_rid()), "The registered inclined body blocks its actual midpoint.")
+	query.transform.origin = Vector3(1.65, 3.8, 0)
+	hits = physical.get_world_3d().direct_space_state.intersect_shape(query)
+	verify(not hits.any(func(hit: Dictionary): return hit.rid == incline.get_rid()), "The inclined body does not fill the empty space below its midpoint.")
+	var slope_actor := PhysicalActor.new()
+	var normal := incline.basis.y
+	slope_actor.position = incline.position + normal * (0.15 + Geometry.CAPSULE_RADIUS) + Vector3.UP * (Geometry.CAPSULE_HEIGHT / 2.0 - Geometry.CAPSULE_RADIUS)
+	root.add_child(slope_actor)
+	await physics_frame
+	physical.bodies["slope"] = slope_actor
+	verify(not physical._penetration("slope", incline.get_rid()).get("unsupported_overlap", true), "An upright capsule may rest against the inclined surface.")
+	physical.bodies.erase("slope")
+	slope_actor.position -= normal * 0.1
+	await physics_frame
+	await physics_frame
+	physical.bodies["slope"] = slope_actor
+	verify(physical._penetration("slope", incline.get_rid()).get("unsupported_overlap", false), "The inclined overlap guard rejects penetration.")
+	physical.bodies.erase("slope")
+	slope_actor.queue_free()
+	incline.basis = Basis.IDENTITY
+	verify(not physical._geometry_registered(), "A changed inclined body orientation fails the registration guard.")
 	physical.queue_free()
 	await process_frame
 

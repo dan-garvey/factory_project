@@ -137,6 +137,7 @@ func sync_topology() -> Dictionary:
 		body.collision_layer = Geometry.MACHINE_LAYER
 		body.collision_mask = Geometry.ACTOR_LAYER
 		body.position = boxes[id].center
+		body.basis = boxes[id].get("basis", Basis.IDENTITY)
 		var collider := CollisionShape3D.new()
 		var shape := BoxShape3D.new()
 		shape.size = boxes[id].size
@@ -299,7 +300,8 @@ func _geometry_registered() -> bool:
 		var pose: Transform3D = PhysicsServer3D.body_get_state(rid, PhysicsServer3D.BODY_STATE_TRANSFORM)
 		if PhysicsServer3D.body_get_space(rid) != space or PhysicsServer3D.body_get_shape_count(rid) != 1 or PhysicsServer3D.body_get_collision_layer(rid) != Geometry.MACHINE_LAYER:
 			return false
-		if pose.basis != Basis.IDENTITY or pose.origin.distance_to(spec.center) > Geometry.NATIVE_POSE_EPSILON or body.position.distance_to(spec.center) > Geometry.NATIVE_POSE_EPSILON:
+		var expected_basis: Basis = spec.get("basis", Basis.IDENTITY)
+		if not pose.basis.is_equal_approx(expected_basis) or not body.basis.is_equal_approx(expected_basis) or pose.origin.distance_to(spec.center) > Geometry.NATIVE_POSE_EPSILON or body.position.distance_to(spec.center) > Geometry.NATIVE_POSE_EPSILON:
 			return false
 		if PhysicsServer3D.body_get_shape_transform(rid, 0) != Transform3D.IDENTITY:
 			return false
@@ -502,7 +504,35 @@ func _penetration(actor: String, other: RID) -> Dictionary:
 			"distance_squared": distance_squared, "radius_squared": radius * radius,
 			"actor_position": _array(at.origin), "radius": radius, "height": capsule.height,
 			"machine_position": _array(target.origin), "machine_half_extents": _array(shape)}
+	if owned and shape is Vector3 and target.basis.is_equal_approx(target.basis.orthonormalized()):
+		# An upright capsule becomes a line segment in the rotated box's local
+		# frame. Squared point-to-box distance is convex along that segment.
+		var radius: float = capsule.radius
+		var segment_half: float = float(capsule.height) / 2.0 - radius
+		var inverse := target.affine_inverse()
+		var start := inverse * (at.origin - Vector3.UP * segment_half)
+		var finish := inverse * (at.origin + Vector3.UP * segment_half)
+		var lo := 0.0
+		var hi := 1.0
+		for iteration in 48:
+			var a := (2.0 * lo + hi) / 3.0
+			var b := (lo + 2.0 * hi) / 3.0
+			if _box_distance_squared(start.lerp(finish, a), shape) < _box_distance_squared(start.lerp(finish, b), shape):
+				hi = b
+			else:
+				lo = a
+		var distance_squared := _box_distance_squared(start.lerp(finish, (lo + hi) / 2.0), shape)
+		var overlap_measure := maxf(radius - sqrt(distance_squared), 0.0)
+		return {"unsupported_overlap": overlap_measure > Geometry.SAFE_MARGIN,
+			"geometric_overlap": distance_squared < radius * radius,
+			"contact_tolerance": Geometry.SAFE_MARGIN, "analytical_overlap_measure": overlap_measure,
+			"kind": "rotated_machine", "distance_squared": distance_squared,
+			"radius_squared": radius * radius, "actor_position": _array(at.origin)}
 	return {"unsupported_overlap": true, "kind": "unexpected_solid"}
+
+func _box_distance_squared(point: Vector3, half: Vector3) -> float:
+	var outside := Vector3(maxf(absf(point.x) - half.x, 0.0), maxf(absf(point.y) - half.y, 0.0), maxf(absf(point.z) - half.z, 0.0))
+	return outside.length_squared()
 
 func _on_native_cut() -> void:
 	if model == null or not is_inside_tree():
