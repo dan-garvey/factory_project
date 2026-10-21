@@ -249,7 +249,37 @@ func check_partial_drive_guidance() -> void:
 	verify(step.tool != "drive", "A fully rotating line no longer asks for drive connections.")
 	view.free()
 
+func check_foundation_heights(view) -> void:
+	view.state = observation()
+	view.mode = "belt"
+	view.state["foundations"] = {"surface": {"cell": [1, 2], "level": 2}}
+	var before: Dictionary = view.state.duplicate(true)
+	verify(view.foundation_level == 4, "The default factory floor can carry a whole-tile machine.")
+	view._refresh_machine_preview()
+	verify(view.machine_preview == null or not view.machine_preview.visible,
+		"An intermediate access step cannot suggest a machine at a height that Host rejects.")
+	verify(view._construction_level(Vector2i(1, 2)) == 2,
+		"The view does not round a step into a floating machine floor.")
+	view.state.foundations.surface.level = 4
+	view._refresh_machine_preview()
+	verify(view.machine_preview != null and view.machine_preview.visible
+		and is_equal_approx(view.machine_preview.position.y, 1.65),
+		"An independently built aligned floor restores the preview at its real 1.65 metre top.")
+	view.state.foundations.surface.level = 2
+	verify(view.state == before and view.request_sequence == 0 and view.model == null and view.actor_world == null,
+		"Floor preview checks neither mutate the projection nor issue a request.")
+	view.free()
+
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--foundation-heights-only"):
+		check_foundation_heights(PointerView.new())
+		var floor_shared := SharedPointerView.new()
+		floor_shared.session = SessionStub.new()
+		check_foundation_heights(floor_shared)
+		print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
+			"observations": "invented", "desktop": "not_used", "mode": "foundation_heights"}))
+		quit(1 if failed else 0)
+		return
 	var detached := Opening.new()
 	verify(not detached._preview_pointer_clear(), "A detached view cannot query or invent a usable pointer.")
 	detached.free()
