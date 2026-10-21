@@ -19,6 +19,10 @@ func _ready():
 		push_error("Startup capture requires a fresh absolute image path")
 		get_tree().quit(1)
 		return
+	if not image_path.is_empty() and image_path.simplify_path() == report_path.simplify_path():
+		push_error("Startup image and report require distinct output paths")
+		get_tree().quit(1)
+		return
 	await get_tree().process_frame
 	var scene = get_tree().current_scene
 	if scene != null and not scene.legacy_fixture:
