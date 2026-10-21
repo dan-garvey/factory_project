@@ -857,6 +857,76 @@ class ProductionSteelFloor:
 		finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 		return finish
 
+class ProductionFoundationArt:
+	extends RefCounted
+	## Passive kit below a confirmed tile's top-plane origin. No grid or state.
+	const ROOT := "res://opening/assets/foundation-concrete"
+	const FILES := {"albedo": "concrete_albedo.jpg", "normal": "concrete_normal_gl.webp", "arm": "concrete_arm.webp"}
+	const DECK_THICKNESS := 0.024
+	static var finish: StandardMaterial3D
+	static var textures: Dictionary = {}
+	static var source_status := "uninitialized"
+
+	static func read_images(directory: String = ROOT) -> Dictionary:
+		return ProductionSteelFloor.read_images(directory, FILES, Vector2i(512, 512))
+
+	static func material() -> StandardMaterial3D:
+		if source_status != "uninitialized":
+			return finish
+		var loaded := read_images()
+		source_status = loaded.status
+		if source_status != "ready":
+			push_error("The player-built foundation needs its complete qualified concrete surface set.")
+			return null
+		for role in loaded.images:
+			var image: Image = loaded.images[role]
+			if image.generate_mipmaps(role == "normal") != OK:
+				source_status = "invalid"
+				push_error("Cannot generate foundation concrete mipmaps.")
+				return null
+			textures[role] = ImageTexture.create_from_image(image)
+		finish = StandardMaterial3D.new()
+		finish.albedo_color = Color.WHITE
+		finish.albedo_texture = textures.albedo
+		finish.metallic = 0.0
+		finish.roughness = 1.0
+		finish.roughness_texture = textures.arm
+		finish.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_GREEN
+		finish.normal_enabled = true
+		finish.normal_texture = textures.normal
+		finish.normal_scale = 1.0
+		finish.uv1_triplanar = true
+		finish.uv1_world_triplanar = true
+		finish.uv1_triplanar_sharpness = 8.0
+		finish.uv1_scale = Vector3.ONE * 0.5
+		finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		return finish
+
+	static func footing_mesh() -> ArrayMesh:
+		return ProductionVisuals.box_mesh(Vector3(Geometry.PITCH, Geometry.PITCH - DECK_THICKNESS, Geometry.PITCH))
+
+	static func deck_mesh() -> ArrayMesh:
+		return ProductionVisuals.box_mesh(Vector3(Geometry.PITCH, DECK_THICKNESS, Geometry.PITCH))
+
+	static func mount(parent: Node3D) -> bool:
+		var concrete := material()
+		var steel := ProductionSteelFloor.material()
+		if concrete == null or steel == null:
+			return false
+		var footing := MeshInstance3D.new()
+		footing.name = "FoundationBlock"
+		footing.mesh = footing_mesh()
+		footing.position.y = -(Geometry.PITCH + DECK_THICKNESS) / 2.0
+		footing.material_override = concrete
+		parent.add_child(footing)
+		var deck := MeshInstance3D.new()
+		deck.name = "FoundationTop"
+		deck.mesh = deck_mesh()
+		deck.position.y = -DECK_THICKNESS / 2.0
+		deck.material_override = steel
+		parent.add_child(deck)
+		return true
+
 class ProductionConveyorArt:
 	extends RefCounted
 	## Closed visual belt and source rubber. No transport clock or contact rules.

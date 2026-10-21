@@ -2,13 +2,12 @@
 
 The existing `machine_detail_check.gd` fixture also has a
 `--render-buildable-resources` mode for inspecting the current native collector,
-press, conveyor and waterwheel as passive resources. It reads each of its own
+press, conveyor, waterwheel and foundation kit as passive resources. It reads its own
 960 by 960 pixel viewports after completed draw barriers and retains two studio
 views per buildable, image hashes, framing, the actual native presentation profile
 and renderer information. The fixture explicitly disables the historical profile
 before assembling the meshes and rejects a missing native presentation context.
-The normal
-material maps and sky illumination remain; a flat background makes silhouettes
+The normal material maps and sky illumination remain; a flat background makes silhouettes
 and blank readbacks easy to inspect. These are invented read-only resource
 observations, without a game entry, native World, input or simulation.
 
@@ -21,6 +20,16 @@ Its pixel checks detect empty or clipped output; personal inspection still needs
 to assess visible defects. Studio results do not establish ordinary app delivery,
 desktop play, human preference, export readiness or GPU performance. The separate
 ordinary-demo review remains necessary for app-scale visual evidence.
+
+The foundation art helper combines a closed exposed-aggregate concrete footing
+with the existing scanned steel deck. The qualified
+[concrete maps](foundation-concrete/CREDITS.md) keep their two-metre physical
+scale through world-space triplanar mapping. Both cached meshes remain inside a
+single `Geometry.PITCH` cube below the caller's top-plane origin. The thin deck
+covers the footing's chamfer with a narrow lip; it meets the actual support
+plane and leaves the top at zero. Joined and stacked sections add no local
+height offset. This is a passive art resource for the separately owned native
+foundation feature, without a new support, collision, recipe or quantity rule.
 
 [Construction impact samples](construction-audio/CREDITS.md) now give confirmed
 belts, assemblies, couplings and removals material-based feedback. The four short

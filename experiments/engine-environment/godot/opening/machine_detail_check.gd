@@ -12,6 +12,7 @@ const ConveyorArt = Opening.ProductionConveyorArt
 const CollectorArt = Opening.ProductionCollectorArt
 const CollectorToolingArt = Opening.ProductionCollectorToolingArt
 const DriveJournalArt = Opening.ProductionDriveJournalArt
+const FoundationArt = Opening.ProductionFoundationArt
 const SkidArt = Opening.ProductionSkidArt
 const Presenter = preload("res://opening/native_transmission_presenter.gd")
 const Geometry = preload("res://opening/site_geometry.gd")
@@ -22,6 +23,7 @@ var max_tangent_dot := 0.0
 var detail_meshes := 0
 var minimum_press_gap := INF
 var minimum_collector_gap := INF
+var foundation_art_complete := false
 
 class PaddleSessionFacts extends RefCounted:
 	var ready := true
@@ -1407,6 +1409,166 @@ func check_collector_coating(historical: bool) -> void:
 		"coating_materials": cached.size(), "historical_missing_set": historical,
 		"maps": "historical generated coating" if historical else "qualified cast normal and authored satin roughness", "geometry_changed": false,
 		"native_gameplay": "not_run", "rendered_quality": "not_assessed"}))
+
+func foundation_plane(node: MeshInstance3D, upward: bool) -> Dictionary:
+	var faces := die_faces(node.mesh, 0)
+	var height := -INF if upward else INF
+	var area := 0.0
+	var low := Vector2(INF, INF)
+	var high := Vector2(-INF, -INF)
+	var triangles := 0
+	for n in range(0, faces.size(), 3):
+		var a: Vector3 = node.transform * faces[n]
+		var b: Vector3 = node.transform * faces[n + 1]
+		var c: Vector3 = node.transform * faces[n + 2]
+		var cross := (b - a).cross(c - a)
+		if absf(a.y - b.y) > 0.0000001 or absf(a.y - c.y) > 0.0000001 \
+			or cross.y * (1.0 if upward else -1.0) >= 0:
+			continue
+		if (a.y > height + 0.0000001 if upward else a.y < height - 0.0000001):
+			height = a.y
+			area = 0.0
+			low = Vector2(INF, INF)
+			high = Vector2(-INF, -INF)
+			triangles = 0
+		if absf(a.y - height) < 0.0000001:
+			area += absf(cross.y) / 2.0
+			triangles += 1
+			for point in [a, b, c]:
+				low = low.min(Vector2(point.x, point.z))
+				high = high.max(Vector2(point.x, point.z))
+	return {"height": height, "area": area, "low": low, "high": high, "triangles": triangles}
+
+func foundation_contact(footing: MeshInstance3D, deck: MeshInstance3D) -> Dictionary:
+	var support := foundation_plane(footing, true)
+	var foot := foundation_plane(deck, false)
+	var overlap: Vector2 = (support.high.min(foot.high) - support.low.max(foot.low)).max(Vector2.ZERO)
+	var contact: float = overlap.x * overlap.y
+	var ratio: float = contact / foot.area if foot.area > 0 else 0.0
+	var gap: float = foot.height - support.height
+	return {"valid": support.triangles == 2 and foot.triangles == 2 and absf(gap) < 0.000001 and ratio >= 0.97,
+		"gap": gap, "contact_area": contact, "deck_foot_area": foot.area, "supported_fraction": ratio,
+		"support_plane": support.height, "deck_foot_plane": foot.height}
+
+func foundation_bounds_match(parent: Node3D) -> bool:
+	var bounds := feed_item_bounds(parent, parent.transform.affine_inverse())
+	return bounds.position.is_equal_approx(Vector3(-0.825, -1.65, -0.825)) \
+		and bounds.size.is_equal_approx(Vector3(1.65, 1.65, 1.65))
+
+func check_foundation_art() -> void:
+	var control_root := OS.get_environment("FACTORY_FOUNDATION_RESOURCE_CONTROLS")
+	if not control_root.is_absolute_path() or not DirAccess.dir_exists_absolute(control_root):
+		verify(false, "The foundation fixture needs an existing owned external control directory.")
+		return
+	verify(FoundationArt.read_images().status == "ready", "The complete qualified concrete set is present.")
+	verify(FoundationArt.read_images(control_root.path_join("missing")).status == "missing",
+		"A missing set is distinguishable from a complete surface.")
+	var partial := control_root.path_join("partial")
+	verify(DirAccess.make_dir_absolute(partial) == OK, "The incomplete-set control uses a fresh owned directory.")
+	var entry := FileAccess.open(partial.path_join(FoundationArt.FILES.albedo), FileAccess.WRITE)
+	verify(entry != null, "The incomplete-set control can retain its placeholder.")
+	if entry == null:
+		return
+	entry.store_string("This is a deliberately incomplete control, not an image.")
+	entry.close()
+	verify(FoundationArt.read_images(partial).status == "invalid", "A partial set is never described as qualified.")
+	var concrete := FoundationArt.material()
+	var deck_finish := Opening.ProductionSteelFloor.material()
+	verify(FoundationArt.source_status == "ready" and concrete != null and concrete.metallic == 0
+		and concrete.metallic_texture == null and not concrete.ao_enabled and concrete.ao_texture == null
+		and concrete.albedo_color == Color.WHITE and concrete.albedo_texture == FoundationArt.textures.albedo
+		and concrete.roughness == 1 and concrete.roughness_texture == FoundationArt.textures.arm
+		and concrete.roughness_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_GREEN,
+		"Concrete keeps qualified color and green roughness without metallic or invented occlusion bindings.")
+	verify(concrete.normal_enabled and concrete.normal_texture == FoundationArt.textures.normal and concrete.normal_scale == 1
+		and concrete.uv1_triplanar and concrete.uv1_world_triplanar and concrete.uv1_scale == Vector3(0.5, 0.5, 0.5)
+		and concrete.texture_filter == BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC,
+		"Normal mapping and mip-filtered two-metre world-space coordinates stay continuous across stationary tiles.")
+	var normal := concrete.normal_texture.get_image()
+	var scalars := concrete.roughness_texture.get_image()
+	verify(normal.get_size() == Vector2i(512, 512) and scalars.get_size() == Vector2i(512, 512)
+		and normal.get_format() == Image.FORMAT_RGB8 and scalars.get_format() == Image.FORMAT_RGB8
+		and normal.has_mipmaps() and scalars.has_mipmaps()
+		and concrete.albedo_texture.get_size() == Vector2(1024, 1024) and concrete.albedo_texture.get_image().has_mipmaps(),
+		"Actual textures retain the qualified dimensions, data formats and mip chains.")
+	var valid_normals := true
+	var rough_low := INF
+	var rough_high := -INF
+	for y in range(512):
+		for x in range(512):
+			var color := normal.get_pixel(x, y)
+			var direction := Vector3(color.r, color.g, color.b) * 2.0 - Vector3.ONE
+			valid_normals = valid_normals and direction.is_finite() and absf(direction.length() - 1) < 0.01
+			var roughness: float = scalars.get_pixel(x, y).g
+			rough_low = minf(rough_low, roughness)
+			rough_high = maxf(rough_high, roughness)
+	verify(valid_normals and rough_low >= 0 and rough_high <= 1 and rough_high > rough_low,
+		"Every actual base-level normal remains normalized within its encoding bound, with finite varied source roughness.")
+	var seen: Dictionary = {}
+	var contacts: Array[Dictionary] = []
+	for offset in [Vector3.ZERO, Vector3(3.3, 1.65, -1.65)]:
+		var parent := Node3D.new()
+		parent.position = offset
+		verify(FoundationArt.mount(parent) and parent.get_child_count() == 2 and parent.position == offset
+			and parent.basis == Basis.IDENTITY and foundation_bounds_match(parent),
+			"The reusable kit keeps one full tile below its caller's top-plane origin without another height grid.")
+		var footing := parent.get_node("FoundationBlock") as MeshInstance3D
+		var deck := parent.get_node("FoundationTop") as MeshInstance3D
+		for part in [footing, deck]:
+			verify(part.get_script() == null and part.get_child_count() == 0 and part.scale == Vector3.ONE
+				and not part is CollisionObject3D and part.mesh.get_surface_count() == 1,
+				"Each piece is baked passive geometry, without collision, input, processing or state authority.")
+			var key := str(part.name)
+			if not seen.has(key):
+				check_closed_asset_mesh(part.mesh, 4.41 if part == footing else 0.063,
+					4.44 if part == footing else 0.066)
+				seen[key] = [part.mesh, part.material_override]
+			verify(part.mesh == seen[key][0] and part.material_override == seen[key][1],
+				"Translated and stacked sections reuse the same actual mesh and surface resources.")
+		verify(footing.material_override == concrete and deck.material_override == deck_finish,
+			"The original qualified steel deck and the new concrete have distinct cached responses.")
+		var contact := foundation_contact(footing, deck)
+		verify(contact.valid, "The steel deck meets the actual concrete support plane; only its narrow chamfer lip overhangs.")
+		contacts.append(contact)
+		var top := foundation_plane(deck, true)
+		var bottom := foundation_plane(footing, false)
+		verify(absf(top.height) < 0.000001 and absf(bottom.height + 1.65) < 0.000001,
+			"The actual top and base facets meet the common zero and one-pitch stacking datums.")
+		var deck_pose := deck.position
+		deck.position.y += 0.01
+		verify(not foundation_contact(footing, deck).valid, "A floating deck fails despite unchanged mesh bounds.")
+		deck.position = deck_pose
+		footing.scale.x = 0.8
+		verify(not foundation_contact(footing, deck).valid, "Insufficient support cannot pass merely because the plane heights match.")
+		footing.scale = Vector3.ONE
+		parent.free()
+	var patch := Node3D.new()
+	for cell in [Vector2i.ZERO, Vector2i.RIGHT, Vector2i.DOWN, Vector2i.ONE]:
+		var tile := Node3D.new()
+		tile.position = Vector3(cell.x * Geometry.PITCH, 0, cell.y * Geometry.PITCH)
+		patch.add_child(tile)
+		verify(FoundationArt.mount(tile), "Each joined tile uses the same qualified kit.")
+	var patch_bounds := feed_item_bounds(patch, Transform3D.IDENTITY)
+	verify(patch_bounds.position.is_equal_approx(Vector3(-0.825, -1.65, -0.825))
+		and patch_bounds.size.is_equal_approx(Vector3(3.3, 1.65, 3.3)),
+		"A two-by-two assembly joins on the one world grid without cumulative local offsets.")
+	patch.free()
+	var lower := Node3D.new()
+	var upper := Node3D.new()
+	upper.position.y = Geometry.PITCH
+	verify(FoundationArt.mount(lower) and FoundationArt.mount(upper), "Stacked tiles mount the same passive kit.")
+	var lower_deck := foundation_plane(lower.get_node("FoundationTop"), true)
+	var upper_base := foundation_plane(upper.get_node("FoundationBlock"), false)
+	verify(absf(lower_deck.height + lower.position.y - upper_base.height - upper.position.y) < 0.000001
+		and upper_base.low.x >= lower_deck.low.x and upper_base.low.y >= lower_deck.low.y
+		and upper_base.high.x <= lower_deck.high.x and upper_base.high.y <= lower_deck.high.y,
+		"The actual upper footing sits on the full lower deck support at the same world-space stacking datum.")
+	lower.free()
+	upper.free()
+	print(JSON.stringify({"phase": "foundation art", "checks": checks, "cached_meshes": seen.size(),
+		"contact_observations": contacts, "normal_pixels": 512 * 512, "roughness_range": [rough_low, rough_high],
+		"negative_control_types": 3, "native_foundation_gameplay": "not_run", "rendered_quality": "not_assessed"}))
+	foundation_art_complete = true
 
 func journal_section_radius(mesh: Mesh, height: float) -> float:
 	var maximum := -INF
@@ -3857,7 +4019,8 @@ func render_buildable_resources() -> void:
 		return
 	Engine.max_fps = 30
 	var subjects: Array = [{"name": "collector", "kind": "collector"}, {"name": "press", "kind": "processor"},
-		{"name": "conveyor", "kind": "belt"}, {"name": "waterwheel", "kind": "wheel"}]
+		{"name": "conveyor", "kind": "belt"}, {"name": "waterwheel", "kind": "wheel"},
+		{"name": "foundation", "kind": "foundation"}, {"name": "foundation-patch", "kind": "foundation"}]
 	var selected_subject := OS.get_environment("FACTORY_RESOURCE_RENDER_SUBJECT")
 	if not selected_subject.is_empty():
 		var wanted := selected_subject.split(",")
@@ -3879,7 +4042,15 @@ func render_buildable_resources() -> void:
 		var before: Dictionary = view.state.duplicate(true)
 		var model := Node3D.new()
 		model.name = "ResourceModel"
-		view._assemble_machine(model, {"kind": subject.kind, "cell": [0, 0], "axis": 0, "generation": 1})
+		if subject.kind == "foundation":
+			var cells := [Vector2i.ZERO] if subject.name == "foundation" else [Vector2i.ZERO, Vector2i.RIGHT, Vector2i.DOWN, Vector2i.ONE]
+			for cell: Vector2i in cells:
+				var tile := Node3D.new()
+				tile.position = Vector3(cell.x * Geometry.PITCH, 0, cell.y * Geometry.PITCH)
+				model.add_child(tile)
+				FoundationArt.mount(tile)
+		else:
+			view._assemble_machine(model, {"kind": subject.kind, "cell": [0, 0], "axis": 0, "generation": 1})
 		var counts := {"meshes": 0, "triangles": 0, "active_nodes": 0}
 		resource_render_counts(model, counts)
 		if view.legacy_fixture or not view._native_transmission() or counts.meshes == 0 \
@@ -4033,6 +4204,12 @@ func render_buildable_resources() -> void:
 
 func _initialize() -> void:
 	if OS.get_cmdline_user_args().has("--render-buildable-resources"):
+		if OS.get_cmdline_user_args().has("--foundation-art-check"):
+			check_foundation_art()
+			if failed or not foundation_art_complete:
+				verify(foundation_art_complete, "The foundation checks must complete before resource rendering begins.")
+				finish()
+				return
 		if OS.get_cmdline_user_args().has("--drive-journal-mount-check"):
 			check_drive_journals(false)
 			if failed:

@@ -1,0 +1,71 @@
+{
+  "asset": "Concrete Floor 01",
+  "author": "Rob Tuytel",
+  "asset_url": "https://polyhaven.com/a/concrete_floor_01",
+  "license": "CC0",
+  "license_url": "https://polyhaven.com/license",
+  "source_extent_metres": [
+    2,
+    2
+  ],
+  "source_files": {
+    "albedo": {
+      "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/concrete_floor_01/concrete_floor_01_diff_1k.jpg",
+      "bytes": 755740,
+      "sha256": "db7c800f1464359b5f359fc743e82ac51b34e014fdfd53844f4af34bb1949229",
+      "provider_md5": "187065cfc20a35eb421eac6d4f38c58f"
+    },
+    "normal": {
+      "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/concrete_floor_01/concrete_floor_01_nor_gl_1k.png",
+      "bytes": 2014994,
+      "sha256": "09fa589bbac227f3d16fbbfe561df3536d19411e2765df287470c2afb299b71f",
+      "provider_md5": "f884232031ac4c33bb4159ae00e54341"
+    },
+    "arm": {
+      "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/concrete_floor_01/concrete_floor_01_arm_1k.png",
+      "bytes": 1465963,
+      "sha256": "c8a00c8bf17eca19c98383cffa507bfbe07a4ed43a018f79196e536bdaeb08e1",
+      "provider_md5": "2b5b6c65149fded28f0626f40e5c66c9"
+    }
+  },
+  "processed_files": {
+    "concrete_albedo.jpg": {
+      "bytes": 755740,
+      "sha256": "db7c800f1464359b5f359fc743e82ac51b34e014fdfd53844f4af34bb1949229",
+      "resolution": [
+        1024,
+        1024
+      ],
+      "processing": "Original provider JPEG, without re-encoding."
+    },
+    "concrete_normal_gl.webp": {
+      "bytes": 392440,
+      "sha256": "44bf69332cf109d9a44f67bdbc05efe243a36039f2c85cfafff785674602ed2a",
+      "resolution": [
+        512,
+        512
+      ],
+      "processing": "Linear float Lanczos resize, OpenGL normal renormalization, nearest RGB8 encoding and lossless WebP. No normal-axis flip."
+    },
+    "concrete_arm.webp": {
+      "bytes": 304684,
+      "sha256": "32ce7e1edcc18650994a4da33b6909c0914d320280e184e24a6225db21f541e1",
+      "resolution": [
+        512,
+        512
+      ],
+      "processing": "Linear float Lanczos resize, nearest RGB8 encoding and lossless WebP, retaining packed channel order."
+    }
+  },
+  "preparation": {
+    "engine": "4.7.2.stable.official.ed1daf0bf",
+    "program": "Published generic prepare_component_maps in machine_detail_check.gd, with its cast filename prefix. Qualified output copies are renamed here for their concrete role.",
+    "preparer_commit": "f4fbb267bc6216d1388d067f674d52ca3be4825f",
+    "normal_maximum_length_error": 0.00504153966903687,
+    "normal_maximum_encoding_angle_degrees": 0.343211300880818,
+    "data_map_decode_equality": true,
+    "albedo_reencoded": false
+  },
+  "runtime": "One cached nonmetallic material. Green packed roughness and OpenGL normal use their original roles; unused ambient occlusion and metallic channels stay unbound. Mipmaps and two-metre world-space triplanar mapping add no displacement.",
+  "limits": "The photographed exposed aggregate is an authored foundation finish, not a new material recipe, aging rule, collision surface or human-quality verdict."
+}
