@@ -61,10 +61,13 @@ int main() {
         const auto wheel = host.command("P", place("wet", -2, 4));
         check(accepted(wheel), "immersed placement");
         const auto id = field<std::string>(wheel, "entity");
-        auto collector_wire = place("collector", 0);
+        O base{{"context", V("water-test")}, {"client", V("P")}, {"request", V("base")},
+            {"action", V("place_foundation")}, {"cell", V(A{V(I{0}), V(I{0})})}, {"level", V(I{4})}};
+        check(accepted(host.command("P", base)), "raised collector foundation");
+        auto collector_wire = place("collector", 0, 4);
         collector_wire.at("kind") = V("collector");
         const auto collector = host.command("P", collector_wire);
-        check(accepted(collector), "ground collector");
+        check(accepted(collector), "raised collector");
         O gear{{"context", V("water-test")}, {"client", V("P")}, {"request", V("gear")},
             {"action", V("place_gear")}, {"center", V(A{V(I{-4}), V(I{4}), V(I{0})})},
             {"axis", V("x")}, {"teeth", V(I{2})}};
@@ -72,15 +75,10 @@ int main() {
         check(accepted(middle), "intermediate coaxial cog");
         const auto middle_id = field<std::string>(middle, "entity");
         const auto collector_id = field<std::string>(collector, "entity");
-        gear.at("request") = V("lower-gear");
-        gear.at("center") = V(A{V(I{-4}), V(I{0}), V(I{0})});
-        const auto lower = host.command("P", gear);
-        check(accepted(lower), "lower meshing cog");
-        const auto lower_id = field<std::string>(lower, "entity");
         O link{{"context", V("water-test")}, {"client", V("P")}, {"request", V("shaft-a")},
             {"action", V("connect_drive")}, {"from", V(id)}, {"to", V(middle_id)}};
         check(field<std::string>(host.command("P", link), "reason") == "individual_shaft_required", "endpoint shaft creation is refused");
-        link.at("request") = V("shaft-b"); link.at("from") = V(lower_id); link.at("to") = V(collector_id);
+        link.at("request") = V("shaft-b"); link.at("from") = V(middle_id); link.at("to") = V(collector_id);
         check(field<std::string>(host.command("P", link), "reason") == "individual_shaft_required", "endpoint shaft creation is refused at the collector");
         O power{{"context", V("water-test")}, {"client", V("P")}, {"request", V("power")},
             {"action", V("set_power")}, {"active", V(true)}};
@@ -88,7 +86,7 @@ int main() {
         const auto motion = V(field<O>(host.projection(), "motion").at(id));
         check(field<I>(motion, "numerator") == -1 && field<I>(motion, "denominator") == 3, "signed local rate");
         const auto collector_motion = V(field<O>(host.projection(), "motion").at(collector_id));
-        check(field<I>(collector_motion, "numerator") == 1 && field<I>(collector_motion, "denominator") == 3,
+        check(field<I>(collector_motion, "numerator") == -1 && field<I>(collector_motion, "denominator") == 3,
               "the connected collector receives the water rate");
         const auto saved = host.checkpoint();
         Host fresh;

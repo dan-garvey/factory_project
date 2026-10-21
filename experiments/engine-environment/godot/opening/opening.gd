@@ -651,15 +651,19 @@ class ProductionPaddleArt:
 			return false
 		if not meshes.has("bolt"):
 			var bolt := CylinderMesh.new()
-			bolt.top_radius = 0.014
-			bolt.bottom_radius = 0.014
+			bolt.top_radius = 0.013
+			bolt.bottom_radius = 0.013
 			bolt.height = 0.01
 			bolt.radial_segments = 6
 			meshes["bolt"] = bolt
 		for z in [-0.04, 0.04]:
 			_part(blade, "PaddleIronStrap", ProductionVisuals.box_mesh(Vector3(0.07, 0.006, 0.025)),
 				Vector3(-0.035, -0.033, z), iron)
-			_part(blade, "PaddleBolt", meshes.bolt, Vector3(-0.05, -0.041, z), iron)
+			# The rotor grows radially but a machined head keeps its actual size.
+			# Its upper face meets the existing strap's flat underside.
+			var bolt := _part(blade, "PaddleBolt", meshes.bolt,
+				Vector3(-0.05, -0.036 - 0.005 / physical_scale.y, z), iron)
+			bolt.scale = Vector3.ONE / physical_scale
 		return true
 
 class ProductionWheelSupportArt:

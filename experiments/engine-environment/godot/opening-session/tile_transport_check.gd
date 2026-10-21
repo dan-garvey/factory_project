@@ -8,7 +8,9 @@ extends SceneTree
 ## and resume-Q with the same directory and port, after the first server exits.
 ## Require all six processes to pass. Add --span-belt for a constructed
 ## mechanical span and its restored removal over the Session transport. Add
-## --powered-span instead to exercise a native waterwheel-driven span.
+## --powered-span instead to exercise a native waterwheel-driven span, or
+## --inclined-span to construct its elevated 45-degree counterpart. Add
+## --reverse-endpoints to submit either span in the opposite endpoint order.
 ## Add --reverse-belt to every process for
 ## generated-site reverse deposition and pickup after restart. The resumed Session uses the Store but
 ## does not exercise the ordinary server lifecycle or physical actor bodies.
@@ -25,6 +27,8 @@ var failed := false
 var reverse_belt := false
 var span_belt := false
 var powered_span := false
+var inclined_span := false
+var reverse_endpoints := false
 var serial := 0
 var epoch := 0
 
@@ -38,6 +42,11 @@ func _initialize() -> void:
 		elif arg == "--powered-span":
 			span_belt = true
 			powered_span = true
+		elif arg == "--inclined-span":
+			span_belt = true
+			powered_span = true
+			inclined_span = true
+		elif arg == "--reverse-endpoints": reverse_endpoints = true
 	call_deferred("run")
 
 func verify(ok: bool, message: String) -> void:
@@ -93,27 +102,26 @@ func build_reverse_route() -> bool:
 	# This is the generated river route used by the independent native site
 	# control. Positions are synthetic; commands still go through native Host.
 	var hubs: Array[String] = []
+	if not pose(0.0, 0.0): return false
+	if not build("place_foundations", {"cell": [0, 1], "end_cell": [2, 1], "level": 4}).get("accepted", false): return false
 	for entry in [["wheel", -2, "x"], ["collector", 0, "z"], ["belt", 1, "z"], ["processor", 2, "z"]]:
 		if not pose(-1.65 if entry[0] == "wheel" else float(entry[1]) * 1.65, 3.3 if entry[0] == "wheel" else 0.0): return false
-		var args := {"kind": entry[0], "cell": [entry[1], 1], "axis": entry[2]}
-		if entry[0] == "wheel": args["level"] = 4
+		var args := {"kind": entry[0], "cell": [entry[1], 1], "axis": entry[2], "level": 4}
 		var placed := build("place", args)
 		if not placed.get("accepted", false): push_error("Place reverse machine: " + str(placed)); return false
 		hubs.append(placed.entity)
 	if not pose(-3.3, 0.0): return false
-	for center in [[-12, 4, 4], [-12, 0, 4]]:
-		if not build("place_gear", {"center": center, "axis": "x", "teeth": 2}).get("accepted", false): return false
-	if not build("place_gear", {"center": [-16, 0, 4], "axis": "x", "teeth": 4}).get("accepted", false): return false
+	if not build("place_gear", {"center": [-4, 4, 4], "axis": "x", "teeth": 4}).get("accepted", false): return false
 	if not pose(-3.3, 1.65): return false
-	if not build("place_gear", {"center": [-12, 0, 8], "axis": "z", "teeth": 4}).get("accepted", false): return false
-	for n in range(6):
-		var x := n * 4 - 12
-		if not pose(float(x) * 1.65 / 4.0, 3.3): return false
-		var cog := build("place_gear", {"center": [x, 0, 12], "axis": "z", "teeth": 2})
-		if not cog.get("accepted", false): return false
+	if not build("place_gear", {"center": [0, 4, 8], "axis": "z", "teeth": 4}).get("accepted", false): return false
 	for n in range(3):
+		var x := n * 4
+		if not pose(float(x) * 1.65 / 4.0, 3.3): return false
+		var cog := build("place_gear", {"center": [x, 4, 12], "axis": "z", "teeth": 2})
+		if not cog.get("accepted", false): return false
+	for n in range(1, 3):
 		if not pose(float(n) * 1.65, 0.0): return false
-		if not build("place_shaft", {"center": [n * 4, 0, 8], "axis": "z", "half_span": 2}).get("accepted", false): return false
+		if not build("place_shaft", {"center": [n * 4, 4, 8], "axis": "z", "half_span": 2}).get("accepted", false): return false
 	if not pose(-1.65, 0.0) or not build("set_power", {"active": true}).get("accepted", false): return false
 	var motion: Dictionary = session.world.projection().motion[hubs[2]]
 	if motion.state != "rotating" or motion.numerator <= 0:
@@ -240,14 +248,15 @@ func run_span() -> void:
 					var wheel := await issue({"action": "place", "kind": "wheel", "cell": [-2, 1], "axis": "x", "level": 4})
 					verify(wheel.get("accepted", false), "P constructs the native waterwheel: " + str(wheel))
 					if failed: quit(1); return
-				var first_center := [-4, 4, 4] if powered_span else [0, 0, 0]
-				var last_center := [-4, 4, 12] if powered_span else [8, 0, 0]
+				var first_center := [-4, 4, 4] if powered_span else [0, 4, 0]
+				var last_center := ([-4, 8, 8] if inclined_span else [-4, 4, 12]) if powered_span else [8, 4, 0]
 				var axis := "x" if powered_span else "z"
 				var first := await issue({"action": "place_shaft", "center": first_center, "axis": axis, "half_span": 2})
 				var last := await issue({"action": "place_shaft", "center": last_center, "axis": axis, "half_span": 2})
 				verify(first.get("accepted", false) and last.get("accepted", false), "P constructs both shaft tiles through Session")
 				if failed: quit(1); return
-				var span := await issue({"action": "place_belt_span", "from": first.entity, "to": last.entity})
+				var span := await issue({"action": "place_belt_span", "from": last.entity if reverse_endpoints else first.entity,
+					"to": first.entity if reverse_endpoints else last.entity})
 				verify(span.get("accepted", false), "P constructs the belt through Session: " + str(span))
 				if failed: quit(1); return
 				var request: String = span.request
@@ -282,7 +291,7 @@ func run_span() -> void:
 					var disconnected := ""
 					for id in view.transmission_parts:
 						if view.transmission_parts[id].center == [-4, 4, 4]: driven = str(id)
-						if view.transmission_parts[id].center == [-4, 4, 12]: disconnected = str(id)
+						if view.transmission_parts[id].center == ([-4, 8, 8] if inclined_span else [-4, 4, 12]): disconnected = str(id)
 					verify(not driven.is_empty() and not disconnected.is_empty() and view.motion[driven].state == "rotating"
 						and view.motion[disconnected].state == "unpowered", "Q observes the far shaft stop while the source shaft remains driven")
 			if failed: quit(1); return
@@ -390,7 +399,7 @@ func run() -> void:
 				namespace_file.store_string(session.request_namespace)
 				namespace_file.close()
 			if failed: quit(1); return
-			var shaft: Dictionary = await issue({"action": "place_shaft", "center": [0, 0, 0], "axis": "x", "half_span": 2})
+			var shaft: Dictionary = await issue({"action": "place_shaft", "center": [0, 4, 0], "axis": "x", "half_span": 2})
 			verify(shaft.get("accepted", false), "P places a one-tile shaft: " + str(shaft.get("reason", "")))
 			var request: String = shaft.get("request", "")
 			var duplicate: Dictionary = session.retry(request)
@@ -398,9 +407,9 @@ func run() -> void:
 			if await until(func(): return replies.has(request), "Retry receives its cached outcome"):
 				verify(replies[request].get("accepted", false) and replies[request].get("duplicate", false), "Retry must not spend a second shaft")
 				replies.erase(request)
-			var cog: Dictionary = await issue({"action": "place_gear", "center": [4, 0, 0], "axis": "x", "teeth": 2})
+			var cog: Dictionary = await issue({"action": "place_gear", "center": [4, 4, 0], "axis": "x", "teeth": 2})
 			verify(cog.get("accepted", false), "P places an adjacent tile cog: " + str(cog.get("reason", "")))
-			var invalid: Dictionary = await issue({"action": "place_gear", "center": [5, 0, 0], "axis": "x", "teeth": 2})
+			var invalid: Dictionary = await issue({"action": "place_gear", "center": [5, 4, 0], "axis": "x", "teeth": 2})
 			verify(not invalid.get("accepted", true) and invalid.get("reason") == "invalid_cell",
 				"The authority rejects an off-grid cog over the real wire")
 			if failed: quit(1); return
@@ -411,7 +420,7 @@ func run() -> void:
 			var view: Dictionary = session.projection()
 			var centers := []
 			for part in view.transmission_parts.values(): centers.append(part.center)
-			verify([0, 0, 0] in centers and [4, 0, 0] in centers, "Q sees the same distinct tile centers")
+			verify([0, 4, 0] in centers and [4, 4, 0] in centers, "Q sees the same distinct tile centers")
 			verify(view.part_kits.P.shaft == 7 and view.part_kits.P.gear == 9, "Q sees one shaft and one cog debited")
 			var connected := false
 			for edge in view.engagements:

@@ -376,44 +376,42 @@ func check_belt_water_native(forward: bool) -> void:
 		wire.merge(args)
 		return model.command(wire)
 	var hubs: Array[String] = []
+	if not expect(observe.call(0.0, 0.0), "Reach the raised machine foundations"):
+		return
+	if not expect(issue.call("place_foundations", {"cell": [0, 1], "end_cell": [2, 1], "level": 4}).get("accepted", false), "Place the raised machine foundations"):
+		return
 	for entry in [["wheel", -2, "x"], ["collector", 0, "z"], ["belt", 1, "z"], ["processor", 2, "z"]]:
 		if not expect(observe.call(-1.65 if entry[0] == "wheel" else float(entry[1]) * 1.65, 3.3 if entry[0] == "wheel" else 0.0), "Synthetic actor reaches a machine placement"):
 			return
-		var args := {"kind": entry[0], "cell": [entry[1], 1], "axis": entry[2]}
-		if entry[0] == "wheel":
-			args["level"] = 4
+		var args := {"kind": entry[0], "cell": [entry[1], 1], "axis": entry[2], "level": 4}
 		var placed: Dictionary = issue.call("place", args)
 		if not expect(placed.get("accepted", false), "Generated site admits machine: " + str(placed)):
 			return
 		hubs.append(placed.entity)
 	if not expect(observe.call(-3.3, 0.0), "Reach input cog"):
 		return
-	var upper: Dictionary = issue.call("place_gear", {"center": [-12, 4, 4], "axis": "x", "teeth": 2})
-	var lower: Dictionary = issue.call("place_gear", {"center": [-12, 0, 4], "axis": "x", "teeth": 2})
-	if not expect(upper.get("accepted", false) and lower.get("accepted", false), "Place the wheel's height transfer cogs"):
-		return
-	var input: Dictionary = issue.call("place_gear", {"center": [-16, 0, 4], "axis": "x", "teeth": 4})
+	var input: Dictionary = issue.call("place_gear", {"center": [-4, 4, 4], "axis": "x", "teeth": 4})
 	if not expect(input.get("accepted", false), "Place large input cog: " + str(input)):
 		return
 	if not expect(observe.call(-3.3, side * 1.65), "Reach output cog"):
 		return
-	var output: Dictionary = issue.call("place_gear", {"center": [-12, 0, 4 + side * 4], "axis": "z", "teeth": 4})
+	var output: Dictionary = issue.call("place_gear", {"center": [0, 4, 4 + side * 4], "axis": "z", "teeth": 4})
 	if not expect(output.get("accepted", false), "Place large output cog: " + str(output)):
 		return
-	for n in range(6):
-		var x: int = n * 4 - 12
+	for n in range(3):
+		var x: int = n * 4
 		if not expect(observe.call(float(x) * 1.65 / 4.0, side * 3.3), "Reach small cog"):
 			return
-		var cog: Dictionary = issue.call("place_gear", {"center": [x, 0, 4 + side * 8], "axis": "z", "teeth": 2})
+		var cog: Dictionary = issue.call("place_gear", {"center": [x, 4, 4 + side * 8], "axis": "z", "teeth": 2})
 		if not expect(cog.get("accepted", false), "Place small cog: " + str(cog)):
 			return
-	for n in range(3):
+	for n in range(1, 3):
 		if not expect(observe.call(float(n) * 1.65, 1.65), "Reach the shaft between machine and cog row"):
 			return
-		var shaft: Dictionary = issue.call("place_shaft", {"center": [n * 4, 0, 4 + side * 4], "axis": "z", "half_span": 2})
+		var shaft: Dictionary = issue.call("place_shaft", {"center": [n * 4, 4, 4 + side * 4], "axis": "z", "half_span": 2})
 		if not expect(shaft.get("accepted", false), "Place the individual machine-to-cog shaft: " + str(shaft)):
 			return
-	if not expect(model.projection().parts.shaft == 5, "Three individual shafts consume the finite starter stock"):
+	if not expect(model.projection().parts.shaft == 6, "Two individual shafts consume the finite starter stock"):
 		return
 	if not expect(observe.call(-1.65, 0.0) and issue.call("set_power", {"active": true}).get("accepted", false), "Start the actual current"):
 		return
@@ -589,13 +587,13 @@ func check_water_native() -> void:
 	var line = NativeModel.new("actual-water-line", ["P"])
 	if not expect(line.boot_result.get("accepted", false) and line.publish_actor("P", [-1.65, 1.0, 3.3], 1).get("accepted", false), "Bind the actual site for a synthetic construction route"):
 		return
+	var base: Dictionary = line.command({"context": "actual-water-line", "client": "P", "request": "base", "action": "place_foundation", "cell": [0, 1], "level": 4})
 	var line_wheel: Dictionary = line.command({"context": "actual-water-line", "client": "P", "request": "wheel", "action": "place", "kind": "wheel", "cell": [-2, 1], "level": 4, "axis": "x"})
-	var collector: Dictionary = line.command({"context": "actual-water-line", "client": "P", "request": "collector", "action": "place", "kind": "collector", "cell": [0, 1], "axis": "x"})
+	var collector: Dictionary = line.command({"context": "actual-water-line", "client": "P", "request": "collector", "action": "place", "kind": "collector", "cell": [0, 1], "level": 4, "axis": "x"})
 	var cog: Dictionary = line.command({"context": "actual-water-line", "client": "P", "request": "cog", "action": "place_gear", "center": [-4, 4, 4], "axis": "x", "teeth": 2})
-	var lower: Dictionary = line.command({"context": "actual-water-line", "client": "P", "request": "lower", "action": "place_gear", "center": [-4, 0, 4], "axis": "x", "teeth": 2})
-	if not expect(line_wheel.get("accepted", false) and collector.get("accepted", false) and cog.get("accepted", false) and lower.get("accepted", false), "The actual worksite admits the immersed wheel, collector and height transfer cogs"):
+	if not expect(base.get("accepted", false) and line_wheel.get("accepted", false) and collector.get("accepted", false) and cog.get("accepted", false), "The actual worksite admits the immersed wheel, supported collector and cog"):
 		return
-	for link in [["shaft-a", line_wheel.entity, cog.entity], ["shaft-b", lower.entity, collector.entity]]:
+	for link in [["shaft-a", line_wheel.entity, cog.entity], ["shaft-b", cog.entity, collector.entity]]:
 		var connected := false
 		for edge: Dictionary in line.projection().engagements:
 			if edge.kind == 1 and ((edge.a == link[1] and edge.b == link[2]) or (edge.a == link[2] and edge.b == link[1])):

@@ -85,6 +85,9 @@ machines face along the belt. A translucent cursor marks
 the requested gear plane, not permission to build there. Real character
 proximity remains authoritative. Adjacent aligned cog, shaft and machine axle
 ends connect directly; fill a longer gap with individual shaft tiles.
+Shafts and cogwheels must clear the terrain and site obstacles, including their
+axles. On the starter bank, raising the transmission and supporting machines
+on foundations can leave room beneath the cogs while keeping their axles aligned.
 
 To connect separated shafts, choose **Connect shafts with a belt** from the
 transmission menu and select both shaft tiles. Their axes must be parallel and
