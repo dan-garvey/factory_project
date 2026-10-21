@@ -335,6 +335,14 @@ func _nonhorizontal_presentation() -> void:
 		for id in ["first", "middle", "last"]:
 			host.state.transmission_parts[id] = {"kind": "shaft", "generation": 1, "center": case[id], "axis": case.axis, "half_span": 2}
 		host.state.belt_spans = {"span": {"generation": 1, "from": "first", "to": "last", "slots": [raw, null, null], "phase": 2048}}
+		var controls := Controls.new()
+		controls.configure(host)
+		controls.choose_tool("belt_span")
+		var confirmed: Dictionary = host.state.duplicate(true)
+		controls.handle_world_click([], "first")
+		controls.handle_world_click([], "last")
+		verify(host.calls.size() == 1 and host.calls[0] == {"action": "place_belt_span", "from": "first", "to": "last"} and host.state == confirmed, "Endpoint controls submit the path without inventing confirmed state.")
+		controls.free()
 		var presenter := Presenter.new()
 		presenter.configure(host)
 		var span := _part(presenter, "span")
@@ -354,6 +362,20 @@ func _nonhorizontal_presentation() -> void:
 			verify(item != null and (span.position + item.position).is_equal_approx(start.lerp(finish, 0.25) + Vector3.UP * 0.24), "Inclined cargo follows the confirmed half-slot phase.")
 		else:
 			verify(item == null, "Power-only vertical and sideways paths do not display cargo.")
+		var session := Session.new()
+		session.context = host.state.context
+		session._ready_for_commands = true
+		host.state.revision = 1
+		host.state.order = 1
+		session._apply_frame({"context": host.state.context, "serial": 1, "snapshot": host.state})
+		var remote := HostStub.new()
+		remote.state = session.projection()
+		var remote_presenter := Presenter.new()
+		remote_presenter.configure(remote)
+		var remote_span := _part(remote_presenter, "span")
+		verify(remote_span != null and remote_span.has_node("BeltLoop") and remote_span.get_node("BeltLoop").basis.is_equal_approx(loop.basis) and (_belt_item(remote_span, 0) != null) == case.cargo, "A confirmed Session frame preserves the path orientation and cargo presentation.")
+		remote_presenter.free()
+		session.free()
 		var original_basis := loop.basis
 		host.state.belt_spans.span.from = "last"
 		host.state.belt_spans.span.to = "first"
@@ -361,6 +383,37 @@ func _nonhorizontal_presentation() -> void:
 		span = _part(presenter, "span")
 		verify(span.get_node("BeltLoop").basis.is_equal_approx(original_basis), "Endpoint order does not flip the loop.")
 		presenter.free()
+
+func _belt_picking() -> void:
+	for case in [
+		{"axis": 2, "first": [0, 8, 0], "middle": [4, 12, 0], "last": [8, 16, 0]},
+		{"axis": 0, "first": [0, 16, 0], "middle": [0, 12, 4], "last": [0, 8, 8]},
+		{"axis": 2, "first": [0, 8, 0], "middle": [4, 8, 0], "last": [8, 8, 0]},
+		{"axis": 2, "first": [0, 8, 0], "middle": [0, 12, 0], "last": [0, 16, 0]},
+		{"axis": 1, "first": [0, 8, 0], "middle": [4, 8, 0], "last": [8, 8, 0]}]:
+		var host := HostStub.new()
+		host.state = fixture()
+		host.state.transmission_parts = {}
+		for id in ["first", "middle", "last"]:
+			host.state.transmission_parts[id] = {"kind": "shaft", "generation": 1, "center": case[id], "axis": case.axis, "half_span": 2}
+		host.state.belt_spans = {"span": {"generation": 1, "from": "first", "to": "last"}}
+		var presenter := Presenter.new()
+		root.add_child(presenter)
+		presenter.configure(host)
+		await physics_frame
+		await physics_frame
+		var span := _part(presenter, "span")
+		var normal: Vector3 = span.get_node("BeltLoop").basis.y
+		var first := Presenter.world_center(case.first)
+		var middle := Presenter.world_center(case.middle)
+		for probe in [{"point": first, "id": "first"}, {"point": middle, "id": "middle"},
+			{"point": first.lerp(middle, 0.5), "id": "span"}]:
+			var point: Vector3 = probe.point
+			var ray := PhysicsRayQueryParameters3D.create(point + normal * 2.0, point - normal * 2.0, Geometry.PICK_LAYER)
+			var hit := presenter.get_world_3d().direct_space_state.intersect_ray(ray)
+			verify(not hit.is_empty() and hit.collider.get_meta("entity", "") == probe.id, "A selection ray reaches the intended %s on the belt path." % probe.id)
+		presenter.queue_free()
+		await process_frame
 
 func _belt_item(span: Node3D, slot: int) -> Node3D:
 	if span == null:
@@ -875,6 +928,8 @@ func _run() -> void:
 		await _inclined_belt_actor()
 	elif "--nonhorizontal-presentation-only" in OS.get_cmdline_user_args():
 		_nonhorizontal_presentation()
+	elif "--belt-picking-only" in OS.get_cmdline_user_args():
+		await _belt_picking()
 	else:
 		_controls()
 		_gear_sizes()
