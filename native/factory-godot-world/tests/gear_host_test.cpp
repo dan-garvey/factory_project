@@ -459,28 +459,20 @@ void typed_loose_host() {
           "A fresh Host preserves typed cargo and the original idempotent pickup receipt.");
 }
 
-void belt_spindle_orientation() {
+void retired_belt_machine() {
     Host host;
     check(accepted(host.initialize("cog-api", {"P"})) &&
               accepted(host.configure_terrain(factory::godot_world::tests::flat_site())),
-          "The belt orientation Host binds its site.");
+          "The retired belt Host binds its site.");
     observe(host, -1.65, 3.3, 1);
     const auto before = world_state(host);
-    for (const auto* wrong_axis : {"y"}) {
-        const auto reply = host.command("P", machine("belt", 1, wrong_axis, wrong_axis));
-        check(!accepted(reply) && field<std::string>(reply, "reason") == "invalid_belt_axis" &&
+    for (const auto* axis : std::array<const char*, 4>{"x", "y", "z", nullptr}) {
+        const auto request = std::string("retired-belt-") + (axis ? axis : "default");
+        const auto reply = host.command("P", machine("belt", 1, request.c_str(), axis));
+        check(!accepted(reply) && field<std::string>(reply, "reason") == "unknown_kind" &&
                   !factory::values::typed_difference(before, world_state(host)),
-              "A belt refuses a vertical spindle without consuming the part.");
+              "A retired single-cell belt is refused without consuming the carried span part.");
     }
-    const auto belt = create(host, machine("belt", 1, "default-belt", nullptr));
-    check(field<I>(V(field<O>(host.projection(), "entities").at(belt)), "axis") == 2,
-          "A default belt uses the Z spindle perpendicular to its fixed X material path.");
-    const auto saved = host.checkpoint();
-    Host fresh;
-    check(accepted(fresh.initialize("fresh", {"P"})) &&
-              accepted(fresh.configure_terrain(factory::godot_world::tests::flat_site())) &&
-              accepted(fresh.restore_checkpoint(saved)) && !factory::values::typed_difference(saved, fresh.checkpoint()),
-          "The perpendicular belt orientation survives checkpoint restoration.");
 }
 
 void select_belt_shaft_host() {
@@ -1558,7 +1550,7 @@ int main(int argc, char** argv) {
         }
         if (argc == 1) {
             finite_oriented_train_and_restore(); adjacent_axle_faces(); refusals_and_legacy_shape(); cog_axle_actor_clearance(); cog_at_belt_face(); transmission_site_clearance(); transmission_terrain_clearance(); transmission_foundation_clearance(); one_tile_placement(); restored_transmission_geometry();
-            transmission_tile_center(); transmission_above_half_foundation(); global_grid(); finite_large_cog(); perpendicular_belt_line(); belt_spindle_orientation(); typed_loose_host(); select_belt_shaft_host(); long_selected_belt_host(); belt_span_host_commands(); nonhorizontal_span_host(); complete_span_route_host(); complete_span_route_host(true); rotated_span_build_orders(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
+            transmission_tile_center(); transmission_above_half_foundation(); global_grid(); finite_large_cog(); perpendicular_belt_line(); retired_belt_machine(); typed_loose_host(); select_belt_shaft_host(); long_selected_belt_host(); belt_span_host_commands(); nonhorizontal_span_host(); complete_span_route_host(); complete_span_route_host(true); rotated_span_build_orders(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
         } else if (argc != 2 || std::string(argv[1]) != "--placement-alias-only") {
             throw std::runtime_error("Expected no arguments or --placement-alias-only.");
         }

@@ -121,8 +121,7 @@ direction. Reversing the drive carries them off the other end. A loose stack is
 shown at that end; stand nearby and use **Pick up loose material…** to collect it,
 then insert the blanks at a machine. Loose stacks survive saving and belt removal.
 This prototype represents their fixed grid locations without gravity. Span-belt
-travel scales with the confirmed shaft rate, while the older single-cell belt
-still uses a fixture step. The press's work per tick scales with its
+travel scales with the confirmed shaft rate. The press's work per tick scales with its
 confirmed angular rate and works in either turning direction. Cog and shaft
 quantities and dimensions are revisable fixture choices.
 
