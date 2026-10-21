@@ -28,7 +28,6 @@ s::Topology topology() {
         hub("wheel-A", s::Role::waterwheel, {0, 0, 0}),
         {{"shaft-A", g::Kind::shaft, {0, 0, 3}, g::Axis::z, 0, 3}, 1, s::Role::shaft},
         hub("processor-1", s::Role::processor, {0, 0, 4}),
-        hub("belt-1", s::Role::belt, {0, 0, 6}),
         hub("wheel-B", s::Role::waterwheel, {10, 0, 0}),
         {{"shaft-B", g::Kind::shaft, {10, 0, 2}, g::Axis::z, 0, 2}, 1, s::Role::shaft},
         hub("collector-1", s::Role::collector, {10, 0, 4}),
@@ -48,7 +47,7 @@ m::Path path(const s::Topology& t) {
     // This literal bad-route fixture has no material links. Its sources remain
     // enabled throughout. The material library still has one power flag; this
     // does not claim per-component frequency or live World power adoption.
-    return {has(s::Role::collector), has(s::Role::belt), has(s::Role::processor),
+    return {has(s::Role::collector), false, has(s::Role::processor),
             false, false, t.drive_enabled};
 }
 
@@ -56,8 +55,7 @@ m::ResolvedTarget target(const s::Topology& t, const char* id, m::Holder holder)
     const auto part = std::find_if(t.parts.begin(), t.parts.end(),
         [&](const auto& value) { return value.geometry.id == id; });
     check(part != t.parts.end(), "The literal target resolves to a current physical part.");
-    const auto role = holder == m::Holder::collector ? s::Role::collector :
-                      holder == m::Holder::belt ? s::Role::belt : s::Role::processor;
+    const auto role = holder == m::Holder::collector ? s::Role::collector : s::Role::processor;
     check(part->role == role, "The resolved material holder matches that physical part.");
     return {{id, part->generation}, holder, path(t),
             holder == m::Holder::processor
