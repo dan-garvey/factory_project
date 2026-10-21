@@ -440,13 +440,20 @@ func _apply_adult_locomotion(body: Node3D, phase: float, weight: float,
 			var run_frame := adult_run_clip.rotation_track_interpolate(binding.track, run_sample)
 			var source_leg: bool = binding.key in ["L Thigh", "L Calf", "L Foot",
 				"R Thigh", "R Calf", "R Foot"]
-			# Both FBX takes begin in a stride. Subtracting their first leg poses
-			# removes the stance that is present in the source animation.
-			var run_target: Quaternion = run_frame if source_leg else \
+			var source_run_arm: bool = binding.key in ["L UpperArm", "L Forearm",
+				"R UpperArm", "R Forearm"]
+			# Both FBX takes begin in a stride. Preserve the run's captured arm
+			# carriage and both leg stances instead of subtracting their first pose.
+			var run_target: Quaternion = run_frame if source_leg or source_run_arm else \
 				(original * binding.reference.inverse() * run_frame).normalized()
 			if binding.key == "L Forearm" or binding.key == "R Forearm":
+				# Retain the opposing swing while lowering the source's high fists.
+				run_target = original.slerp(run_frame, 0.72)
+			if binding.key == "Spine1" or binding.key == "Spine2":
+				var forward_pitch := 0.16 if binding.key == "Spine1" else 0.05
 				var frame: Quaternion = rig[binding.key].space
-				run_target = (run_target * frame.inverse() * Quaternion(Vector3.RIGHT, -0.45) * frame).normalized()
+				run_target = (run_target * frame.inverse()
+					* Quaternion(Vector3.RIGHT, forward_pitch) * frame).normalized()
 			var walk_target := original
 			if walk_binding is Dictionary:
 				var walk_frame := adult_walk_clip.rotation_track_interpolate(walk_binding.track, walk_sample)
