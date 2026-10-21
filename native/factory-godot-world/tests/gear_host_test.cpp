@@ -597,25 +597,21 @@ void belt_span_host_commands() {
     check(!accepted(intrusion) && field<std::string>(intrusion, "reason") == "occupied",
           "A later cog cannot be placed through the installed belt.");
     const auto checkpoint = host.checkpoint();
-    auto unsupported = std::get<O>(checkpoint.storage());
-    auto unsupported_world = std::get<O>(unsupported.at("world").storage());
-    auto unsupported_state = std::get<O>(unsupported_world.at("state").storage());
-    auto unsupported_topology = std::get<O>(unsupported_state.at("topology").storage());
-    auto unsupported_parts = std::get<A>(unsupported_topology.at("parts").storage());
-    for (auto& entry : unsupported_parts) {
-        auto value = std::get<O>(entry.storage());
-        if (field<std::string>(entry, "id") != right) continue;
-        value.at("center") = V(A{V(I{8}), V(I{8}), V(I{0})});
-        entry = V(std::move(value));
-    }
-    unsupported_topology.at("parts") = V(std::move(unsupported_parts));
-    unsupported_state.at("topology") = V(std::move(unsupported_topology));
-    unsupported_world.at("state") = V(std::move(unsupported_state));
-    unsupported.at("world") = V(std::move(unsupported_world));
+    Host inclined;
+    check(accepted(inclined.initialize("cog-api", {"P"})) && accepted(inclined.configure_terrain(low_flat_site())),
+          "The inclined fixture binds its own lower terrain.");
+    check(accepted(inclined.publish_actor("P", {V(0.0), V(0.825), V(-1.65)}, 1)), "The actor reaches the low shaft.");
+    const auto low = create(inclined, shaft(0, 0, 0, "incline-low"));
+    check(accepted(inclined.publish_actor("P", {V(3.3), V(4.125), V(-1.65)}, 2)), "The actor reaches the high shaft.");
+    const auto high = create(inclined, shaft(8, 8, 0, "incline-high"));
+    check(accepted(inclined.publish_actor("P", {V(1.65), V(2.475), V(-1.65)}, 3)), "The actor reaches both inclined endpoints.");
+    auto inclined_wire = wire("place_belt_span", "incline-span");
+    inclined_wire.emplace("from", V(low)); inclined_wire.emplace("to", V(high));
+    create(inclined, inclined_wire);
     Host shallow;
     check(accepted(shallow.initialize("fresh", {"P"})) &&
               accepted(shallow.configure_terrain(factory::godot_world::tests::flat_site())), "The shallower site binds.");
-    const auto buried_incline = shallow.validate_checkpoint(V(unsupported));
+    const auto buried_incline = shallow.validate_checkpoint(inclined.checkpoint());
     check(!accepted(buried_incline) && field<std::string>(buried_incline, "reason") == "site_occupied",
           "An inclined span whose lower physical overhang enters terrain cannot be restored.");
     auto with_item = std::get<O>(checkpoint.storage());
