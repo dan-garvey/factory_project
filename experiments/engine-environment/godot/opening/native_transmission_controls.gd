@@ -71,7 +71,7 @@ func _tool_selected(id: int) -> void:
 	_feedback({
 		"gear": "Place a cogwheel at the highlighted point. Set axis and height in this menu.",
 		"place_shaft": "Place one shaft tile at the highlighted point. Set its axis and height in this menu.",
-		"belt_span": "Choose two parallel shafts on a straight or 45-degree path. Both ends must be within reach.",
+		"belt_span": "Choose each parallel shaft while within reach, on a straight or 45-degree path.",
 		"remove": "Choose a cogwheel, shaft or belt to remove."
 	}.get(active_tool, "Choose a construction tool or Inspect."), false)
 
@@ -167,11 +167,12 @@ func _feedback(words: String, refused: bool = true) -> void:
 	if _host != null and is_instance_valid(_host.get_ref()) and _host.get_ref().has_method("_message"):
 		_host.get_ref().call("_message", words, refused)
 
-func _submit(context: Dictionary, wire: Dictionary) -> void:
+func _submit(context: Dictionary, wire: Dictionary) -> Dictionary:
 	# A queued reply is not native acceptance. Only the next confirmed state is
 	# displayed; this method neither credits parts nor creates local geometry.
-	context.host.call("issue", wire)
+	var receipt: Dictionary = context.host.call("issue", wire)
 	refresh()
+	return receipt
 
 func handle_world_click(center: Array, entity_id: String) -> bool:
 	if active_tool.is_empty():
@@ -203,8 +204,11 @@ func handle_world_click(center: Array, entity_id: String) -> bool:
 			_feedback("Choose a confirmed shaft.")
 			return true
 		if _belt_start.is_empty():
-			_belt_start = {"id": entity_id, "generation": shaft.generation, "world": context.world, "actor": context.actor}
-			_feedback("Choose the second parallel shaft on a straight or 45-degree path. Both ends must be within reach.", false)
+			var receipt := _submit(context, {"action": "select_belt_shaft", "entity": entity_id})
+			var request: Variant = receipt.get("request")
+			if (receipt.get("accepted", false) or receipt.get("queued", false)) and typeof(request) == TYPE_STRING and not request.is_empty():
+				_belt_start = {"id": entity_id, "generation": shaft.generation, "world": context.world, "actor": context.actor, "request": request}
+				_feedback("Move to the second parallel shaft and choose it within reach.", false)
 			return true
 		var first: Variant = context.snapshot.transmission_parts.get(_belt_start.id, {})
 		if context.world != _belt_start.world or context.actor != _belt_start.actor or not first is Dictionary or first.get("kind") != "shaft" or first.get("generation") != _belt_start.generation:
@@ -215,8 +219,9 @@ func handle_world_click(center: Array, entity_id: String) -> bool:
 			_feedback("Choose a different shaft for the other end.")
 			return true
 		var from: String = _belt_start.id
+		var selection: String = _belt_start.request
 		_belt_start.clear()
-		_submit(context, {"action": "place_belt_span", "from": from, "to": entity_id})
+		_submit(context, {"action": "place_selected_belt_span", "from": from, "to": entity_id, "selection": selection})
 		return true
 	var part := _part(context, entity_id)
 	if part.is_empty():
