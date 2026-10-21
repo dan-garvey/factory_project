@@ -209,7 +209,7 @@ bool historical_wire(const authority::Record& record) {
             (*name != "collector" && *name != "belt" && *name != "processor" && *name != "wheel" && *name != "gear"))
             return false;
         if (wire->contains("tiles") != intent.contains("wheel_tiles")) return false;
-        if (wire->contains("tiles") && (!tiles || *tiles < 1 || *tiles > mechanics::maximum_dimension ||
+        if (wire->contains("tiles") && (!tiles || *tiles < 3 || *tiles > mechanics::maximum_dimension ||
             !field<Integer>(intent, "wheel_tiles") || *field<Integer>(intent, "wheel_tiles") != *tiles)) return false;
         if (*action == "place_connected" && *name != "collector" && *name != "belt" && *name != "processor")
             return false;
@@ -322,7 +322,7 @@ Value Host::initialize(const std::string& context, const std::vector<std::string
     profile.foundation_parts = 24;
     profile.finite_parts = {{{Role::collector, 0, 0}, 1}, {{Role::belt, 0, 0}, 1},
         {{Role::processor, 0, 0}, 1}, {{Role::waterwheel, 0, 0}, 1}, {{Role::shaft, 0, 2}, 4},
-        {{Role::shaft, 0, 4}, 4}, {{Role::gear, 2, 0}, 5}, {{Role::gear, 4, 0}, 2}};
+        {{Role::shaft, 0, 4}, 4}, {{Role::gear, 2, 0}, 8}, {{Role::gear, 4, 0}, 2}};
     world::State seed;
     seed.material.initial_units = 16;
     seed.material.stock.source = 16;
@@ -623,16 +623,16 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             (wire.contains("level") && (!level || *level < -1000000 || *level > 1000000))) return refuse("invalid_cell");
         if (*kind_name != "collector" && *kind_name != "belt" && *kind_name != "processor" &&
             *kind_name != "wheel" && *kind_name != "gear") return refuse("unknown_kind");
-        if (wire.contains("tiles") && (!tiles || *tiles < 1 || *tiles > mechanics::maximum_dimension)) return refuse("invalid_wheel_size");
+        if (wire.contains("tiles") && (!tiles || *tiles < 3 || *tiles > mechanics::maximum_dimension)) return refuse("invalid_wheel_size");
         if (*kind_name == "belt" && axis && *axis != "z") return refuse("invalid_belt_axis");
         if (*kind_name == "collector" && *x != 0) return refuse("not_at_seam");
         if (*kind_name == "collector" && level && *level != 0) return refuse("not_at_seam");
         const mechanics::Point center{4 * *x, level ? *level : 0, 4 * *z};
         const auto selected_axis = axis ? *axis_value(*axis) : (*kind_name == "belt" ? mechanics::Axis::z : mechanics::Axis::x);
         const stationary::PlacedPart proposed{{"proposed", mechanics::Kind::hub, center, selected_axis, 0, 0},
-            1, *kind_name == "wheel" ? Role::waterwheel : Role::collector, tiles ? *tiles : 1};
+            1, *kind_name == "wheel" ? Role::waterwheel : Role::collector, tiles ? *tiles : 3};
         if (*kind_name == "wheel")
-            if (const auto* refusal = wheel_site_refusal(center, selected_axis, tiles ? *tiles : 1)) return refuse(refusal);
+            if (const auto* refusal = wheel_site_refusal(center, selected_axis, tiles ? *tiles : 3)) return refuse(refusal);
         for (const auto& [id, foundation] : snapshot.state.foundations) {
             (void)id;
             if (*kind_name == "wheel" &&
@@ -652,7 +652,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         }
         const auto is_gear = *kind_name == "gear";
         const bool water_wheel = *kind_name == "wheel";
-        const auto radius = profile_.wheel_radius * (tiles ? *tiles : 1) * height_step / 100.0;
+        const auto radius = profile_.wheel_radius * (tiles ? *tiles : 3) * height_step / 100.0;
         const authority::Point at{*x * pitch, center[1] * pitch / 4 +
             (is_gear || water_wheel ? anchor_height : machine_center_height), *z * pitch};
         const auto half = is_gear ? gear_half_extents(selected_axis, 2) : water_wheel ?

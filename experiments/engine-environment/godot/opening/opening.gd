@@ -2335,7 +2335,7 @@ class ProductionEnvironment:
 			var half := size * 0.5
 			if entity.get("kind") == "wheel" and state.get("options", {}).get("native", false):
 				center.y = float(entity.get("level", 0)) * Geometry.HEIGHT_STEP + Geometry.ANCHOR_HEIGHT
-				half = Geometry.wheel_half_extents(int(entity.get("axis", 0)), int(entity.get("tiles", 1)))
+				half = Geometry.wheel_half_extents(int(entity.get("axis", 0)), int(entity.get("tiles", 3)))
 			volumes.append(AABB(center - half, half * 2.0).grow(0.08))
 		for foundation: Dictionary in state.get("foundations", {}).values():
 			var top := Vector3(foundation.cell[0] * Geometry.PITCH,
@@ -3279,8 +3279,8 @@ var foundation_area_start := Vector2i.ZERO
 var foundation_area_toggle: CheckButton
 var foundation_level_controls: HBoxContainer
 var foundation_level_label: Label
-var wheel_level := 0
-var wheel_tiles := 1
+var wheel_level := 4
+var wheel_tiles := 3
 var wheel_size_controls: HBoxContainer
 var wheel_size_label: Label
 var state: Dictionary = {}
@@ -4099,7 +4099,7 @@ func _adjust_foundation_level(delta: int) -> void:
 func _adjust_wheel_size(delta: int) -> void:
 	if mode != "wheel" or not _native_transmission() or explanation_open:
 		return
-	wheel_tiles = clampi(wheel_tiles + delta, 1, 4096)
+	wheel_tiles = clampi(wheel_tiles + delta, 3, 4096)
 	wheel_size_label.text = "Wheel diameter: %d squares" % wheel_tiles
 	_refresh_placement_hint(true)
 
@@ -4518,7 +4518,7 @@ func _wheel_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	# Paddle tips use a 0.70-unit source radius. The larger rotor reaches the
 	# water while its center stays at the common machine spindle height.
 	var rotor_scale := Geometry.WATERWHEEL_RADIUS / 0.70 if native_profile else scale_factor
-	var radial_scale := rotor_scale * int(entity.get("tiles", 1)) if native_profile else rotor_scale
+	var radial_scale := rotor_scale * int(entity.get("tiles", 3)) if native_profile else rotor_scale
 	wheel_rotor.scale = Vector3(radial_scale, radial_scale, rotor_scale)
 	if native_profile and axis == Vector3.RIGHT:
 		wheel_rotor.rotation.y = PI / 2
@@ -4624,7 +4624,7 @@ func _rebuild_machines() -> void:
 		body.set_meta("entity", entity_id)
 		var collider := CollisionShape3D.new()
 		var shape := BoxShape3D.new()
-		shape.size = Geometry.wheel_half_extents(int(entity.get("axis", 0)), int(entity.get("tiles", 1))) * 2.0 if kind == "wheel" and _native_transmission() else Vector3(Geometry.MACHINE_SIZE[0], Geometry.MACHINE_SIZE[1], Geometry.MACHINE_SIZE[2])
+		shape.size = Geometry.wheel_half_extents(int(entity.get("axis", 0)), int(entity.get("tiles", 3))) * 2.0 if kind == "wheel" and _native_transmission() else Vector3(Geometry.MACHINE_SIZE[0], Geometry.MACHINE_SIZE[1], Geometry.MACHINE_SIZE[2])
 		collider.shape = shape
 		collider.position.y = Geometry.ANCHOR_HEIGHT if kind == "wheel" and _native_transmission() else Geometry.MACHINE_CENTER_HEIGHT
 		body.add_child(collider)
@@ -5222,7 +5222,7 @@ func _build_interface() -> void:
 	wheel_size_controls = HBoxContainer.new()
 	build.add_child(wheel_size_controls)
 	_button(wheel_size_controls, "−", _adjust_wheel_size.bind(-1))
-	wheel_size_label = _label(wheel_size_controls, "Wheel diameter: 1 square", 14)
+	wheel_size_label = _label(wheel_size_controls, "Wheel diameter: 3 squares", 14)
 	_button(wheel_size_controls, "+", _adjust_wheel_size.bind(1))
 	wheel_size_controls.visible = false
 	foundation_area_toggle = CheckButton.new()

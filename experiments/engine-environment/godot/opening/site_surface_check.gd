@@ -367,25 +367,32 @@ func check_belt_water_native(forward: bool) -> void:
 		return model.command(wire)
 	var hubs: Array[String] = []
 	for entry in [["wheel", -2, "x"], ["collector", 0, "z"], ["belt", 1, "z"], ["processor", 2, "z"]]:
-		if not expect(observe.call(float(entry[1]) * 1.65, 0.0), "Synthetic actor reaches a machine placement"):
+		if not expect(observe.call(-1.65 if entry[0] == "wheel" else float(entry[1]) * 1.65, 3.3 if entry[0] == "wheel" else 0.0), "Synthetic actor reaches a machine placement"):
 			return
-		var placed: Dictionary = issue.call("place", {"kind": entry[0], "cell": [entry[1], 1], "axis": entry[2]})
+		var args := {"kind": entry[0], "cell": [entry[1], 1], "axis": entry[2]}
+		if entry[0] == "wheel":
+			args["level"] = 4
+		var placed: Dictionary = issue.call("place", args)
 		if not expect(placed.get("accepted", false), "Generated site admits machine: " + str(placed)):
 			return
 		hubs.append(placed.entity)
 	if not expect(observe.call(-3.3, 0.0), "Reach input cog"):
 		return
-	var input: Dictionary = issue.call("place_gear", {"center": [-12, 0, 4], "axis": "x", "teeth": 4})
+	var upper: Dictionary = issue.call("place_gear", {"center": [-12, 4, 4], "axis": "x", "teeth": 2})
+	var lower: Dictionary = issue.call("place_gear", {"center": [-12, 0, 4], "axis": "x", "teeth": 2})
+	if not expect(upper.get("accepted", false) and lower.get("accepted", false), "Place the wheel's height transfer cogs"):
+		return
+	var input: Dictionary = issue.call("place_gear", {"center": [-16, 0, 4], "axis": "x", "teeth": 4})
 	if not expect(input.get("accepted", false), "Place large input cog: " + str(input)):
 		return
 	if not expect(observe.call(-3.3, side * 1.65), "Reach output cog"):
 		return
-	var output: Dictionary = issue.call("place_gear", {"center": [-8, 0, 4 + side * 4], "axis": "z", "teeth": 4})
+	var output: Dictionary = issue.call("place_gear", {"center": [-12, 0, 4 + side * 4], "axis": "z", "teeth": 4})
 	if not expect(output.get("accepted", false), "Place large output cog: " + str(output)):
 		return
 	var small: Array[String] = []
-	for n in range(5):
-		var x: int = n * 4 - 8
+	for n in range(6):
+		var x: int = n * 4 - 12
 		if not expect(observe.call(float(x) * 1.65 / 4.0, side * 3.3), "Reach small cog"):
 			return
 		var cog: Dictionary = issue.call("place_gear", {"center": [x, 0, 4 + side * 8], "axis": "z", "teeth": 2})
@@ -395,7 +402,7 @@ func check_belt_water_native(forward: bool) -> void:
 	for n in range(3):
 		if not expect(observe.call(float(n) * 1.65 + (1.0 if forward else 0.0), 0.0 if forward else 3.3), "Reach machine and cog row"):
 			return
-		var connection: Dictionary = issue.call("connect_drive", {"from": hubs[n + 1], "to": small[n + 2]})
+		var connection: Dictionary = issue.call("connect_drive", {"from": hubs[n + 1], "to": small[n + 3]})
 		if not expect(connection.get("accepted", false), "Connect machine to cog row: " + str(connection)):
 			return
 	if not expect(model.projection().parts.shaft == 5, "Adjacent wheel and cog axle faces connect without spending two extra shafts"):
@@ -452,7 +459,7 @@ func check_water_native() -> void:
 		return
 	if not expect(model.publish_actor("P", [-1.65, 1.0, 3.3], 1).get("accepted", false), "Register synthetic actor"):
 		return
-	var wheel := {"context": "water-site", "client": "P", "request": "wheel", "action": "place", "kind": "wheel", "cell": [-2, 1], "level": 0, "tiles": 1, "axis": "x"}
+	var wheel := {"context": "water-site", "client": "P", "request": "wheel", "action": "place", "kind": "wheel", "cell": [-2, 1], "level": 4, "tiles": 3, "axis": "x"}
 	var reply: Dictionary = model.command(wheel)
 	if not expect(reply.get("accepted", false), "Actual river must admit an immersed wheel: " + str(reply)):
 		return
@@ -468,15 +475,15 @@ func check_water_native() -> void:
 	if not expect(restored.boot_result.get("accepted", false) and restored.restore_checkpoint(checkpoint).get("accepted", false), "The actual site can restore its wheel checkpoint"):
 		return
 	var large = NativeModel.new("large-water-site", ["P"])
-	if not expect(large.boot_result.get("accepted", false) and large.publish_actor("P", [-1.65, 1.0, 3.3], 1).get("accepted", false), "Bind the same actual site for a larger wheel"):
+	if not expect(large.boot_result.get("accepted", false) and large.publish_actor("P", [-1.65, 3.0, 3.3], 1).get("accepted", false), "Bind the same actual site for a larger wheel"):
 		return
 	var big := wheel.duplicate()
 	big.context = "large-water-site"
 	big.request = "large-wheel"
-	big.level = 2
-	big.tiles = 2
+	big.level = 10
+	big.tiles = 6
 	var placed: Dictionary = large.command(big)
-	if not expect(placed.get("accepted", false), "The two-square wheel must clear actual terrain: " + str(placed)):
+	if not expect(placed.get("accepted", false), "The six-square wheel must clear actual terrain: " + str(placed)):
 		return
 	var start := {"context": "large-water-site", "client": "P", "request": "power", "action": "set_power", "active": true}
 	if not expect(large.command(start).get("accepted", false), "Enable the larger wheel"):
@@ -497,12 +504,13 @@ func check_water_native() -> void:
 	var line = NativeModel.new("actual-water-line", ["P"])
 	if not expect(line.boot_result.get("accepted", false) and line.publish_actor("P", [-1.65, 1.0, 3.3], 1).get("accepted", false), "Bind the actual site for a synthetic construction route"):
 		return
-	var line_wheel: Dictionary = line.command({"context": "actual-water-line", "client": "P", "request": "wheel", "action": "place", "kind": "wheel", "cell": [-2, 1], "axis": "x"})
+	var line_wheel: Dictionary = line.command({"context": "actual-water-line", "client": "P", "request": "wheel", "action": "place", "kind": "wheel", "cell": [-2, 1], "level": 4, "axis": "x"})
 	var collector: Dictionary = line.command({"context": "actual-water-line", "client": "P", "request": "collector", "action": "place", "kind": "collector", "cell": [0, 1], "axis": "x"})
-	var cog: Dictionary = line.command({"context": "actual-water-line", "client": "P", "request": "cog", "action": "place_gear", "center": [-4, 0, 4], "axis": "x", "teeth": 2})
-	if not expect(line_wheel.get("accepted", false) and collector.get("accepted", false) and cog.get("accepted", false), "The actual worksite admits the immersed wheel, collector and bridge cog"):
+	var cog: Dictionary = line.command({"context": "actual-water-line", "client": "P", "request": "cog", "action": "place_gear", "center": [-4, 4, 4], "axis": "x", "teeth": 2})
+	var lower: Dictionary = line.command({"context": "actual-water-line", "client": "P", "request": "lower", "action": "place_gear", "center": [-4, 0, 4], "axis": "x", "teeth": 2})
+	if not expect(line_wheel.get("accepted", false) and collector.get("accepted", false) and cog.get("accepted", false) and lower.get("accepted", false), "The actual worksite admits the immersed wheel, collector and height transfer cogs"):
 		return
-	for link in [["shaft-a", line_wheel.entity, cog.entity], ["shaft-b", cog.entity, collector.entity]]:
+	for link in [["shaft-a", line_wheel.entity, cog.entity], ["shaft-b", lower.entity, collector.entity]]:
 		if not expect(line.command({"context": "actual-water-line", "client": "P", "request": link[0], "action": "connect_drive", "from": link[1], "to": link[2]}).get("reason", "") == "axles_already_touch", "The adjacent axles need no shaft"):
 			return
 	if not expect(line.command({"context": "actual-water-line", "client": "P", "request": "start", "action": "set_power", "active": true}).get("accepted", false) and line.projection().powered, "River current reaches the collector through the built train"):
@@ -540,7 +548,7 @@ func inspect_meshes(node: Node, parent: Transform3D, half: Vector3, axis: int, r
 
 func check_waterwheel_visual() -> void:
 	for axis in [0, 2]:
-		for tiles in [1, 2, 3]:
+		for tiles in [3, 4, 6]:
 			var view := Opening.new()
 			view.state = {"options": {"native": true}}
 			var anchor := Node3D.new()

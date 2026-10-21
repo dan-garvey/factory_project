@@ -137,7 +137,7 @@ func sync_topology() -> Dictionary:
 		body.position = Vector3(anchor[0], (Geometry.ANCHOR_HEIGHT if wheel else Geometry.MACHINE_CENTER_HEIGHT) + float(entities[entity].get("level", 0)) * Geometry.HEIGHT_STEP, anchor[2])
 		var collider := CollisionShape3D.new()
 		var box := BoxShape3D.new()
-		box.size = Geometry.wheel_half_extents(int(entities[entity].get("axis", 0)), int(entities[entity].get("tiles", 1))) * 2.0 if wheel else Vector3(Geometry.MACHINE_SIZE[0], Geometry.MACHINE_SIZE[1], Geometry.MACHINE_SIZE[2])
+		box.size = Geometry.wheel_half_extents(int(entities[entity].get("axis", 0)), int(entities[entity].get("tiles", 3))) * 2.0 if wheel else Vector3(Geometry.MACHINE_SIZE[0], Geometry.MACHINE_SIZE[1], Geometry.MACHINE_SIZE[2])
 		collider.shape = box
 		body.add_child(collider)
 		machines[entity] = body
@@ -273,7 +273,7 @@ func _geometry_registered() -> bool:
 			var spec: Dictionary = machine_specs.get(id, {})
 			var half := expected_half
 			if spec.get("kind") == "wheel" and site_surface != null:
-				half = Geometry.wheel_half_extents(int(spec.get("axis", 0)), int(spec.get("tiles", 1)))
+				half = Geometry.wheel_half_extents(int(spec.get("axis", 0)), int(spec.get("tiles", 3)))
 			if PhysicsServer3D.body_get_collision_layer(rid) != Geometry.MACHINE_LAYER or not data is Vector3 or data.distance_to(half) > Geometry.NATIVE_POSE_EPSILON:
 				return false
 	for id in site_bodies:
