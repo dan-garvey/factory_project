@@ -109,7 +109,8 @@ bool shape(const Object& intent, const std::string& action) {
     if (action == "place_foundations") return keys(intent, {"center", "end"});
     if (action == "place_foundation") return keys(intent, {"center"});
     if (action == "remove_foundation") return keys(intent, {"target", "generation"});
-    if (action == "recover" || action == "remove" || action == "remove_belt_span") return keys(intent, {"target", "generation"});
+    if (action == "recover" || action == "remove" || action == "remove_belt_span" || action == "select_belt_shaft")
+        return keys(intent, {"target", "generation"});
     if (action == "recover_belt_slot") return keys(intent, {"target", "generation", "slot", "expected"}) &&
         field<Integer>(intent, "slot") && field<Object>(intent, "expected");
     if (action == "collect" || action == "insert_raw")
@@ -740,6 +741,24 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
     const auto* action = field<std::string>(intent, "action");
     if (!action || !shape(intent, *action)) return refused("invalid_command");
     const auto& state = snapshot.state;
+    if (*action == "select_belt_shaft") {
+        const auto* id = field<std::string>(intent, "target");
+        const auto* generation = field<Integer>(intent, "generation");
+        if (!id || !generation) return refused("invalid_target");
+        const auto* selected = part(state.topology, *id);
+        if (!selected) return refused("unknown_target", *id);
+        if (selected->generation != *generation) return refused("stale_generation", *id);
+        if (selected->role != Role::shaft) return refused("invalid_belt_geometry", *id);
+        auto cut = observe ? observe(binding.actor) : std::nullopt;
+        if (!cut) return refused("actor_unready");
+        cut->build_reach = profile_.build_reach;
+        const auto checked = authority::check_reach(binding.actor, *cut, {anchor(profile_, selected->geometry.center)});
+        auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
+        if (checked.error != authority::Error::none)
+            return refused(authority::error_name(checked.error), *id, std::move(facts));
+        facts.emplace("generation", Value(*generation));
+        return accepted(state, *id, std::move(facts));
+    }
     if (*action == "pickup_material") {
         const auto point = grid_point(intent, materials::maximum_drop_coordinate);
         if (!point) return refused("invalid_center");

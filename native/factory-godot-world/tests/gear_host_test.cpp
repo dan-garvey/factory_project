@@ -467,6 +467,33 @@ void belt_spindle_orientation() {
           "The perpendicular belt orientation survives checkpoint restoration.");
 }
 
+void select_belt_shaft_host() {
+    Host host;
+    check(accepted(host.initialize("cog-api", {"P"})) && accepted(host.configure_terrain(low_flat_site())),
+          "The belt selection Host binds a synthetic flat site.");
+    observe(host, 0, -1.65, 1);
+    const auto first = create(host, shaft(0, 0, 0, "selection-shaft"));
+    const auto state = world_state(host);
+    auto selection = target("select_belt_shaft", first, "select-first");
+    observe(host, 30, -1.65, 2);
+    const auto far = host.command("P", selection);
+    check(!accepted(far) && field<std::string>(far, "reason") == "out_of_reach" &&
+              !factory::values::typed_difference(state, world_state(host)),
+          "Selecting a distant first shaft is refused without changing custody.");
+    selection.at("request") = V("select-near");
+    observe(host, 0, -1.65, 3);
+    check(accepted(host.command("P", selection)) && !factory::values::typed_difference(state, world_state(host)),
+          "A nearby shaft selection is recorded without placing or consuming a belt.");
+    const auto saved = host.checkpoint();
+    Host restored;
+    check(accepted(restored.initialize("fresh", {"P"})) && accepted(restored.configure_terrain(low_flat_site())) &&
+              accepted(restored.restore_checkpoint(saved)) && field<bool>(restored.command("P", selection), "duplicate"),
+          "The selection receipt survives checkpoint restore and exact replay.");
+    check(accepted(host.command("P", target("remove", first, "selection-remove"))) &&
+              accepted(host.validate_checkpoint(host.checkpoint())),
+          "Removing the selected shaft preserves the historical selection receipt.");
+}
+
 void belt_span_host_commands() {
     Host host;
     check(accepted(host.initialize("cog-api", {"P"})) &&
@@ -1318,7 +1345,7 @@ int main(int argc, char** argv) {
         }
         if (argc == 1) {
             finite_oriented_train_and_restore(); adjacent_axle_faces(); refusals_and_legacy_shape(); cog_axle_actor_clearance(); cog_at_belt_face(); transmission_site_clearance(); transmission_terrain_clearance(); transmission_foundation_clearance(); one_tile_placement();
-            transmission_tile_center(); global_grid(); finite_large_cog(); perpendicular_belt_line(); belt_spindle_orientation(); typed_loose_host(); belt_span_host_commands(); nonhorizontal_span_host(); complete_span_route_host(); rotated_belt_host(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
+            transmission_tile_center(); global_grid(); finite_large_cog(); perpendicular_belt_line(); belt_spindle_orientation(); typed_loose_host(); select_belt_shaft_host(); belt_span_host_commands(); nonhorizontal_span_host(); complete_span_route_host(); rotated_belt_host(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
         } else if (argc != 2 || std::string(argv[1]) != "--placement-alias-only") {
             throw std::runtime_error("Expected no arguments or --placement-alias-only.");
         }

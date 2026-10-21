@@ -273,6 +273,8 @@ bool historical_wire(const authority::Record& record) {
             same("from", "target") && same("to", "to");
     if (*action == "remove_belt_span")
         return *original_action == "remove_belt_span" && keys(*wire, {"entity"}) && same("entity", "target");
+    if (*action == "select_belt_shaft")
+        return *original_action == "select_belt_shaft" && keys(*wire, {"entity"}) && same("entity", "target");
     if (*action == "recover_belt_slot")
         return *original_action == "recover_belt_slot" && keys(*wire, {"entity", "slot", "expected"}) &&
             same("entity", "target") && same("slot", "slot") && same("expected", "expected");
@@ -919,6 +921,9 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.emplace("axis", wire.at("axis"));
         normalized.emplace("teeth", wire.at("teeth"));
         normalized.emplace("half_span", Value(Integer{0}));
+    } else if (*action == "select_belt_shaft") {
+        if (!keys(wire, {"entity"}) || !target("entity", "target", "generation")) return refuse("invalid_command");
+        normalized.at("action") = Value("select_belt_shaft");
     } else if (*action == "place_belt_span") {
         if (!keys(wire, {"from", "to"}) || !target("from", "target", "generation") ||
             !target("to", "to", "to_generation")) return refuse("invalid_command");
