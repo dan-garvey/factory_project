@@ -3493,9 +3493,14 @@ func check_collector_rear_service() -> void:
 				var machine: Node3D = view.machine_root.get_child(0)
 				var detail: Node3D = machine.get_node("SurfaceDetail")
 				var housing: MeshInstance3D = machine.get_node("CollectorCastFrame/CastLowerHousing")
-				var gasket: MeshInstance3D = detail.get_node("RearServiceGasket")
-				var panel: MeshInstance3D = detail.get_node("RearServicePanel")
-				var hardware: MeshInstance3D = detail.get_node("RearServiceHardware")
+				var gasket := detail.get_node_or_null("RearServiceGasket") as MeshInstance3D
+				var panel := detail.get_node_or_null("RearServicePanel") as MeshInstance3D
+				var hardware := detail.get_node_or_null("RearServiceHardware") as MeshInstance3D
+				verify(gasket != null and panel != null and hardware != null,
+					"The native collector contains the complete rear-service kit before geometry is inspected.")
+				if gasket == null or panel == null or hardware == null:
+					view.free()
+					return
 				var back := (housing.transform * housing.mesh.get_aabb()).position.z
 				var gasket_bounds := gasket.transform * gasket.mesh.get_aabb()
 				var panel_bounds := panel.transform * panel.mesh.get_aabb()
