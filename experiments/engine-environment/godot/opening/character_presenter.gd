@@ -9,6 +9,7 @@ const FULL_WALK_POSE_SPEED := 1.05
 const FULL_GAIT_SPEED := 2.4
 const RUN_BLEND_START := 1.15
 const RUN_BLEND_END := 2.35
+const STOP_HOLD_SECONDS := 2.0 / 60.0
 const TAKEOFF_DELTA := 0.025
 const DROP_DELTA := 0.075
 const LANDING_SECONDS := 0.24
@@ -793,7 +794,9 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float) -> v
 			var full_pose_speed := lerpf(FULL_WALK_POSE_SPEED, FULL_GAIT_SPEED,
 				float(previous.run_mix))
 			target_weight = minf(1.0, speed / full_pose_speed)
-		elif previous.age < 0.1:
+		elif previous.age < (STOP_HOLD_SECONDS if mode == "grounded" else 0.1):
+			# Keep one grounded pose at the stop, then lower the swing foot promptly.
+			# Airborne and landing poses retain their longer accepted transition.
 			target_weight = float(previous.weight)
 		previous.weight = move_toward(float(previous.weight), target_weight, delta * 6.0)
 		if horizontal.length() > 0.00001:
