@@ -1,0 +1,32 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "link",
+    srcs = ["src/link.cpp"],
+    hdrs = ["include/factory/slotted_link.hpp"],
+    strip_include_prefix = "include",
+    deps = ["//native/factory-mechanics:mechanics"],
+)
+
+cc_library(
+    name = "workbench",
+    srcs = ["src/workbench.cpp"],
+    hdrs = ["include/factory/slotted_link_workbench.hpp"],
+    strip_include_prefix = "include",
+    deps = [":link"],
+)
+
+cc_binary(
+    name = "slotted_link_workbench",
+    srcs = ["src/main.cpp"],
+    deps = [":workbench"],
+)
+
+cc_test(
+    name = "link_test",
+    srcs = ["tests/link_test.cpp"],
+    deps = [":workbench"],
+    size = "small",
+)
