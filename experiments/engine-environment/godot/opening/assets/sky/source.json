@@ -1,0 +1,74 @@
+{
+  "asset": "Kloppenheim 03 (Pure Sky)",
+  "authors": {
+    "Greg Zaal": "Original",
+    "Jarod Guest": "Sky Edits"
+  },
+  "asset_url": "https://polyhaven.com/a/kloppenheim_03_puresky",
+  "license": "CC0",
+  "license_url": "https://polyhaven.com/license",
+  "provider_files_sha256": "f8a0c57d3ba3f68f4317350e3b2f1f0f367501ed71ac946405b565eaf8a9df82",
+  "provider_info_sha256": "f2975d1d170b7ba53fed3a72640497df18bd48de550687eb6fe9d7e26ad066bc",
+  "source_file": {
+    "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/kloppenheim_03_puresky_1k.hdr",
+    "md5": "4398fb83b085aed97cef788cda6f9e2d",
+    "sha256": "9806bc452fc8e1564418e7b45b50683732c0b37584423fa026ff0e2edf4eb1ce",
+    "bytes": 1428760
+  },
+  "delivery": {
+    "path": "kloppenheim_03_puresky_1k.hdr",
+    "bytes": 1428760,
+    "sha256": "9806bc452fc8e1564418e7b45b50683732c0b37584423fa026ff0e2edf4eb1ce",
+    "processing": "No change to provider bytes. Runtime RGBE decode to floating RGB, no gamma conversion, resize or tone mapping; one mip-chain generation."
+  },
+  "measured_source": {
+    "height": 512,
+    "linear_luminance": {
+      "maximum": 32175.5392,
+      "minimum": 0.0653322265625,
+      "spherical_mean": 0.597089132840752
+    },
+    "peak_direction": [
+      -0.307068437337875,
+      0.852960586547852,
+      0.42209854722023
+    ],
+    "peak_elevation_degrees": 58.5351542322027,
+    "peak_pixel": [
+      614,
+      89
+    ],
+    "preview": "Reinhard per-channel display preview with linear-to-sRGB conversion. Not the delivery texture or a game capture.",
+    "scope": "Actual source decode and radiance only. No illumination, rendered game quality or photometric calibration is established.",
+    "source_image_format": 16,
+    "status": "pass",
+    "width": 1024
+  },
+  "lighting": {
+    "panorama": "Same cached material for background, ambient and reflection.",
+    "key_direction": [
+      -0.307068437337875,
+      0.852960586547852,
+      0.42209854722023
+    ],
+    "orientation": "Brightest source texel centre in the pinned Godot equirectangular convention. No sky rotation or additional half-turn.",
+    "key_intensity": 1.25,
+    "key_tint": "fff0d4",
+    "exposure": 1,
+    "tone_mapper": "Existing ACES",
+    "limits": "Art defaults, not a physical-light calibration, weather or time-of-day mechanic."
+  },
+  "engine_sources": [
+    {
+      "file": "godot-sky-material.cpp",
+      "sha256": "fea858bf8ddad54b679872ca689fb3f515323da76f470dc2e14d412bab902533"
+    },
+    {
+      "file": "godot-gles3-sky.glsl",
+      "sha256": "c730ba29e262768134143d346fa25f2499fc143c8a78eae8277233f1d7ea20f3"
+    }
+  ],
+  "fallback": "Historical source rosters without this file retain the generated panorama. Present invalid input reports invalid, never ready.",
+  "source_family": "sourced-worksite-sky-20261021",
+  "limits": "No desktop, game image, shadow capture, GPU performance or human production-quality verdict."
+}

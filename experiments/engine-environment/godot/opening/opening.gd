@@ -271,6 +271,11 @@ class ProductionEnvironment:
 	static var timber_finish: StandardMaterial3D
 	static var iron_finish: StandardMaterial3D
 	static var sky_finish: PanoramaSkyMaterial
+	const SKY_FILE := "res://opening/assets/sky/kloppenheim_03_puresky_1k.hdr"
+	# Brightest source texel centre in the pinned panorama coordinate convention.
+	# This is an initial lighting orientation, not a time-of-day or weather rule.
+	const SKY_SUN_DIRECTION := Vector3(-0.3070684373, 0.8529605865, 0.4220985472)
+	static var sky_source_status := "uninitialized"
 	static var terrain_surface_mesh: ArrayMesh
 	static var stream_volume_mesh: ArrayMesh
 	static var foliage_cluster_mesh: ArrayMesh
@@ -551,9 +556,35 @@ class ProductionEnvironment:
 		stream_volume_mesh = surface.commit()
 		return stream_volume_mesh
 
+	static func read_sky(path: String = SKY_FILE) -> Dictionary:
+		if not FileAccess.file_exists(path):
+			return {"status": "missing"}
+		var file := FileAccess.open(path, FileAccess.READ)
+		if file == null or file.get_length() < 1000 or file.get_length() > 2 * 1024 * 1024:
+			return {"status": "invalid", "reason": "source_size"}
+		file.close()
+		var image := Image.load_from_file(path)
+		if image == null or image.is_empty() or image.get_size() != Vector2i(1024, 512) or image.get_format() != Image.FORMAT_RGBE9995:
+			return {"status": "invalid", "reason": "radiance_decode"}
+		# Preserve the original HDR radiance; no sRGB conversion, tone mapping,
+		# resizing or disk recompression is used for the delivered environment.
+		image.convert(Image.FORMAT_RGBF)
+		if image.generate_mipmaps() != OK:
+			return {"status": "invalid", "reason": "radiance_mipmaps"}
+		return {"status": "ready", "image": image}
+
 	static func panorama_material() -> PanoramaSkyMaterial:
 		if sky_finish != null:
 			return sky_finish
+		var loaded := read_sky()
+		sky_source_status = loaded.status
+		if loaded.status == "ready":
+			sky_finish = PanoramaSkyMaterial.new()
+			sky_finish.panorama = ImageTexture.create_from_image(loaded.image)
+			return sky_finish
+		if loaded.status == "invalid":
+			push_error("Invalid sourced daylight panorama: " + str(loaded.reason))
+		# Fixed historical rosters retain the original generated panorama.
 		var image := Image.create(512, 256, false, Image.FORMAT_RGBF)
 		var sun_direction := Basis.from_euler(Vector3(deg_to_rad(-48), deg_to_rad(-30), 0)).z
 		for y in range(256):
@@ -891,6 +922,8 @@ class ProductionEnvironment:
 		var sun := DirectionalLight3D.new()
 		sun.name = "WorksiteSun"
 		sun.rotation_degrees = Vector3(-48, -30, 0)
+		if sky_source_status == "ready":
+			sun.basis = Basis.looking_at(-SKY_SUN_DIRECTION, Vector3.UP)
 		sun.light_color = Color("fff0d4")
 		sun.light_energy = 1.25
 		sun.shadow_enabled = true

@@ -212,6 +212,14 @@ preservation and assigned-color contrast, not pixel appearance or human usabilit
 
 ## Shared terrain and millrace
 
+The ordinary environment uses the original CC0
+[Kloppenheim daylight HDR](sky/CREDITS.md) for its panorama, ambient and reflection
+resources. Floating radiance and generated mipmaps are cached once; existing
+exposure and key-light intensity remain explicit art defaults. The key light
+aligns with the measured bright source direction. Missing historical payloads
+keep their earlier generated sky. Resource and source-orientation checks do not
+certify the rendered lighting balance or human visual quality.
+
 Complete captures replace primitive grass blades with a bounded CC0
 [Grass Medium 01 tuft](foliage/CREDITS.md). One self-contained mesh and three
 embedded maps are imported once and shared by the existing 96 terrain anchors.

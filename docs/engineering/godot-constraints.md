@@ -587,8 +587,12 @@ mip levels before caching. The separate focused correction passed; the original
 failure remains in the sourced-foliage evidence. Tuft selection, image dimensions,
 cutout threshold, density and distance culling are reversible art/resource choices.
 The meadow follows existing terrain and avoids existing solids; it adds no
-collision or gameplay authority. Resource/geometry checks establish neither
-rendered quality nor GPU cost. See the [asset record](../../experiments/engine-environment/godot/opening/assets/foliage/CREDITS.md).
+collision or gameplay authority. The [sourced daylight](../../experiments/engine-environment/godot/opening/assets/sky/CREDITS.md)
+keeps its original HDR bytes, decodes once to floating RGB with mipmaps and aligns
+the ordinary key light to the measured bright source texel using pinned panorama
+coordinates. Source radiance and node binding do not establish rendered lighting
+balance or photometric calibration. Resource/geometry checks establish neither
+rendered quality nor GPU cost. See the [foliage asset record](../../experiments/engine-environment/godot/opening/assets/foliage/CREDITS.md).
 
 ## GDC-12: JSON control files do not preserve RPC Variant types
 

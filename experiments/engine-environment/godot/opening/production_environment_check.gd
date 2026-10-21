@@ -108,6 +108,7 @@ func finish() -> void:
 			"sourced-foliage": "runtime tuft import, cutout material and existing terrain placement",
 			"foliage-mipmaps": "corrected runtime texture mipmap generation and binding",
 			"meadow-patches": "changed terrain-aware grass patch placement and culling envelopes",
+			"sourced-sky": "original HDR radiance, cached sky and ordinary key-light binding",
 			"ground-material": "scanned ground material, data channels and cache separation",
 			"water-flow": "changed cosmetic water material and ordinary frame consumer",
 			"rock-collision-shape": "visible rock corners versus rigid collision descriptors",
@@ -531,7 +532,74 @@ func check_meadow_patches() -> void:
 		"limits": "Resource and placement evidence, not rendered quality or measured performance."}))
 	view.free()
 
+func check_sourced_sky() -> void:
+	var material := Scenery.panorama_material()
+	if not verify(Scenery.sky_source_status == "ready", "The ordinary sky consumes the captured licensed HDR source."):
+		return
+	var image := material.panorama.get_image()
+	verify(image.get_size() == Vector2i(1024, 512) and image.get_format() == Image.FORMAT_RGBF
+		and image.has_mipmaps() and image.get_mipmap_count() == 10,
+		"The source radiance keeps its floating representation, extent and full mip chain.")
+	var maximum := 0.0
+	var minimum := INF
+	var peak := Vector2i.ZERO
+	var mean := 0.0
+	var weights := 0.0
+	var finite := true
+	for y in range(512):
+		var weight := sin(PI * (y + 0.5) / 512.0)
+		for x in range(1024):
+			var color := image.get_pixel(x, y)
+			finite = finite and is_finite(color.r) and is_finite(color.g) and is_finite(color.b) and minf(color.r, minf(color.g, color.b)) >= 0
+			var luminance := color.r * 0.2126 + color.g * 0.7152 + color.b * 0.0722
+			if luminance > maximum:
+				maximum = luminance
+				peak = Vector2i(x, y)
+			minimum = minf(minimum, luminance)
+			mean += luminance * weight
+			weights += weight
+	verify(finite and absf(maximum - 32175.5392) < 0.01 and absf(minimum - 0.0653322265625) < 0.000001,
+		"The actual material retains finite unclipped source radiance, including values above one.")
+	verify(absf(mean / weights - 0.597089132840752) < 0.000001 and peak == Vector2i(614, 89),
+		"No hidden tone mapping, gamma conversion or resize changes the source distribution.")
+	var phi := TAU * (peak.x + 0.5) / 1024.0
+	var theta := PI * (peak.y + 0.5) / 512.0
+	var direction := Vector3(sin(theta) * sin(phi), cos(theta), -sin(theta) * cos(phi))
+	var view := FixtureView.new()
+	root.add_child(view)
+	view._build_world()
+	var scenery := view.get_node("ProductionScenery")
+	var light: DirectionalLight3D = scenery.get_node("WorksiteSun")
+	var environment: Environment = scenery.get_node("WorksiteEnvironment").environment
+	verify(light.global_basis.z.dot(direction) > 0.99999,
+		"The actual key light points from the measured bright source texel in the pinned panorama convention.")
+	verify(environment.sky.sky_material == material and Scenery.panorama_material() == material
+		and environment.ambient_light_source == Environment.AMBIENT_SOURCE_SKY
+		and environment.reflected_light_source == Environment.REFLECTION_SOURCE_SKY,
+		"Ordinary background, ambient and reflection use the same cached sourced environment.")
+	verify(environment.tonemap_exposure == 1.0 and environment.tonemap_mode == Environment.TONE_MAPPER_ACES
+		and light.light_energy == 1.25 and light.shadow_enabled,
+		"The initial exposure, key intensity and shadow policy remain explicit art defaults.")
+	verify(view.model == null and view.actor_world == null and view.state.is_empty(),
+		"Sourced sky assembly starts no authority or gameplay clock.")
+	verify(Scenery.read_sky(fixture_directory.path_join("absent.hdr")).status == "missing",
+		"Missing historical sky files retain an explicit status.")
+	var invalid_path := fixture_directory.path_join("short.hdr")
+	var file := FileAccess.open(invalid_path, FileAccess.WRITE)
+	if verify(file != null, "The negative decoder input is retained in the owned fixture."):
+		file.store_string("incomplete")
+		file.close()
+		verify(Scenery.read_sky(invalid_path).status == "invalid", "A present invalid panorama is never reported as ready.")
+	print(JSON.stringify({"maximum_linear_luminance": maximum, "spherical_mean_luminance": mean / weights,
+		"key_direction": [direction.x, direction.y, direction.z], "exposure": environment.tonemap_exposure,
+		"limits": "Radiance and source binding only; no rendered balance, shadow image, photometric calibration or human quality verdict."}))
+	view.free()
+
 func run() -> void:
+	if mode == "sourced-sky":
+		check_sourced_sky()
+		finish()
+		return
 	if mode == "meadow-patches":
 		check_meadow_patches()
 		finish()
@@ -684,21 +752,24 @@ func run() -> void:
 		and environment.fog_depth_end < view.camera.far,
 		"Distance haze begins beyond the normal worksite and closes before the far clip.")
 	var panorama: Image = environment.sky.sky_material.panorama.get_image()
-	verify(panorama.get_width() == 512 and panorama.get_height() == 256
+	var sourced: bool = Scenery.sky_source_status == "ready"
+	verify(panorama.get_size() == (Vector2i(1024, 512) if sourced else Vector2i(512, 256))
 		and panorama.get_format() == Image.FORMAT_RGBF and panorama.has_mipmaps(),
 		"The self-contained sky preserves actual HDR data and a mip chain.")
 	var brightest := Vector2i.ZERO
 	var energy := 0.0
-	for y in range(256):
-		verify(panorama.get_pixel(0, y).is_equal_approx(panorama.get_pixel(511, y)),
-			"The panorama wraps without an authored longitude seam.")
-		for x in range(512):
+	for y in range(panorama.get_height()):
+		if not sourced:
+			verify(panorama.get_pixel(0, y).is_equal_approx(panorama.get_pixel(511, y)),
+				"The generated panorama keeps its duplicated longitude endpoints.")
+		for x in range(panorama.get_width()):
 			var color := panorama.get_pixel(x, y)
-			if color.r > energy:
-				energy = color.r
+			var value := color.r * 0.2126 + color.g * 0.7152 + color.b * 0.0722 if sourced else color.r
+			if value > energy:
+				energy = value
 				brightest = Vector2i(x, y)
-	var latitude := PI * (0.5 - float(brightest.y) / 255.0)
-	var longitude := TAU * float(brightest.x) / 511.0
+	var latitude := PI * (0.5 - (float(brightest.y) + 0.5) / panorama.get_height()) if sourced else PI * (0.5 - float(brightest.y) / 255.0)
+	var longitude := TAU * (float(brightest.x) + 0.5) / panorama.get_width() if sourced else TAU * float(brightest.x) / 511.0
 	var sampled_direction := Vector3(cos(latitude) * sin(longitude), sin(latitude), -cos(latitude) * cos(longitude))
 	var sun: DirectionalLight3D = scenery.get_node("WorksiteSun")
 	verify(energy > 4.0 and sampled_direction.dot(sun.basis.z) > 0.999,
