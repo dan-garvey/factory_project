@@ -9,8 +9,8 @@ FACTORY_LOCAL="$(git rev-parse --path-format=absolute --git-common-dir)/factory-
 "$FACTORY_LOCAL" --root "$PWD" benchmark -- <measurement-command>
 ```
 
-For commits, let the installed precommit hook invoke
-`python3 -B scripts/check_commit.py` once. A manual coordinator run is optional
+For commits, let the installed precommit hook select the locally pinned native
+coordinator or `python3 -B scripts/check_commit.py` once. A manual run is optional
 diagnostics, not an additional required check before the hook. It captures the staged tree
 and takes one permit: check for non-GDScript changes, heavy for staged `.gd`
 changes requiring the pinned compiler. It fails if staging changes before or
@@ -66,7 +66,10 @@ changes host settings, or proves benchmark-quality isolation.
 
 The native executable is installed at
 `<common-git-dir>/factory-local-resources/factory-local`. Existing Python commands
-and commit hooks remain unchanged and retain exclusive legacy admission.
+retain exclusive legacy heavy admission. A locally pinned native commit
+coordinator uses one native slot while preserving the same staged checks; an
+unconfigured hook keeps its legacy coordinator. See
+[hook configuration](../../CONTRIBUTING.md#checks-and-local-hooks).
 Legacy and native commands coordinate on the same
 retained `heavy.lock` and `activity.lock` inodes: native heavy jobs share the
 legacy gate and hold distinct open-file-description byte locks on the heavy
