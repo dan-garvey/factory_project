@@ -99,7 +99,8 @@ rotation only. A powered belt picks up loose items on an empty tile, so adjacent
 belts can pass material between them. The starter kit carries two belts. The
 belt appears after the worksite confirms placement, and the
 transmission removal tool can reclaim it when it is empty and a belt tile is
-within reach.
+within reach. The opening guidance recognizes a powered route through one or
+more spans, including loose-item handoffs between them.
 
 The inspector can select a cogwheel or shaft and return it to the carried kit.
 Static arrows show the confirmed signed rate, and contact marks use confirmed
@@ -112,8 +113,9 @@ The belt carries blanks toward the press only when its top surface moves in that
 direction. Reversing the drive carries them off the other end. A loose stack is
 shown at that end; stand nearby and use **Pick up loose material…** to collect it,
 then insert the blanks at a machine. Loose stacks survive saving and belt removal.
-This prototype represents their fixed grid locations without gravity. Belt
-throughput remains a fixture step. The press's work per tick scales with its
+This prototype represents their fixed grid locations without gravity. Span-belt
+travel scales with the confirmed shaft rate, while the older single-cell belt
+still uses a fixture step. The press's work per tick scales with its
 confirmed angular rate and works in either turning direction. Cog and shaft
 quantities and dimensions are revisable fixture choices.
 
