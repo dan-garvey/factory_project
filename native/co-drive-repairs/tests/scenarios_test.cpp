@@ -124,11 +124,24 @@ void retirement(bool left) {
     const auto state = fixture.world->snapshot().state;
     const auto progress = c::inspect(state);
     const auto motion = s::power_view(state.topology).mechanical;
-    check(progress.mode == c::Mode::isolated && progress.ready() && state.topology.drive_enabled &&
+    check(progress.mode == c::Mode::isolated && progress.ready() == left && state.topology.drive_enabled &&
           state.material == material && state.kits.at("P").at({s::Role::waterwheel, 0, 0}) == 1 &&
-          motion.motion.at("processor").rate == g::Rate{left ? 1 : -1, 1},
+          motion.motion.at("processor").rate == g::Rate{left ? -1 : 1, 1},
           "Retirement refunds the exact wheel, preserves material and derives the remaining signed line rate.");
-    restore(fixture); produce(fixture);
+    restore(fixture);
+    if (!left) {
+        ticks(fixture, 4);
+        check(!fixture.world->snapshot().state.material.dropped_raw.empty() && !c::inspect(fixture.world->snapshot().state).ready(),
+              "Retiring the right wheel reverses the belt and leaves recoverable blanks.");
+        check(accepted(remove(fixture, "gear-left", {-6, 0, 0})) && accepted(remove(fixture, "gear-right", {0, 0, 0})),
+              "The original reversed mesh can be replaced with the carried cogs.");
+        check(accepted(gear(fixture, {-6, 0, 0}, 2, {-6, 0, 0})) &&
+              accepted(gear(fixture, {0, 0, 0}, 2, {0, 0, 0})) &&
+              accepted(gear(fixture, {-3, 4, 0}, 3, {-3, 0, 0})),
+              "The idler route restores forward belt motion with one source.");
+        check(c::inspect(fixture.world->snapshot().state).ready(), "The repaired single source now drives the belt forward.");
+    }
+    produce(fixture);
     check(c::inspect(fixture.world->snapshot().state).complete(), "The retired-source arrangement completes the same finite production goal.");
 }
 void smaller_sources(Fixture& fixture) {
@@ -147,8 +160,8 @@ void coherent(const Fixture& fixture, const std::string& idler) {
     const auto progress = c::inspect(state);
     const auto motion = s::power_view(state.topology).mechanical;
     check(progress.mode == c::Mode::co_driven && progress.sources == 2 && progress.ready() &&
-          motion.motion.at("wheel-left").rate == g::Rate{1, 1} && motion.motion.at("wheel-right").rate == g::Rate{1, 1} &&
-          motion.motion.at(idler).rate == g::Rate{-2, 3} && motion.motion.at("processor").rate == g::Rate{1, 1},
+          motion.motion.at("wheel-left").rate == g::Rate{-1, 1} && motion.motion.at("wheel-right").rate == g::Rate{-1, 1} &&
+          motion.motion.at(idler).rate == g::Rate{2, 3} && motion.motion.at("processor").rate == g::Rate{-1, 1},
           "Two exact 3-4-5 meshes coherently share the line with the expected rational idler rate.");
 }
 void misplaced_and_current_goal() {
@@ -211,7 +224,7 @@ void actual_parser() {
               "The actual native stdin caller preserves the expected source arrangement and finite production outcome.");
         return output.str();
     };
-    run("remove wheel-right\nwalk north 8\nwalk north 4\n" + plates(), 0, "Complete: source conflict repaired and four plates retrieved");
+    run("remove wheel-right\nwalk north 8\nwalk north 4\n" + plates() + "inspect\nquit\n", 1, "Source arrangement: isolated");
     run("walk west 6\nremove wheel-left\nwalk east 6\nwalk north 8\nwalk north 4\n" + plates(), 0, "Source arrangement: isolated");
     const std::string smaller = "walk west 6\nremove gear-left\nplace gear -6 0 0 z 2\nwalk east 6\nremove gear-right\nplace gear 0 0 0 z 2\nwalk west 3\n";
     run(smaller + "place gear -3 4 0 z 3\nwalk east 3\nwalk north 8\nwalk north 4\n" + plates(), 0, "Source arrangement: co_driven");

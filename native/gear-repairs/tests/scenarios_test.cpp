@@ -133,7 +133,7 @@ void idler() {
     const auto repair = place(world, "gear", {4, 0, 0}, "z", 2, {4, 0, 0});
     check(accepted(repair) && std::get<std::string>(repair.at("entity").storage()) == "native-part-2",
           "Rebuilding the refunded gear uses a fresh identity rather than retargeting the removed part.");
-    repair_power(world, {1, 1});
+    repair_power(world, {-1, 1});
     finish(world);
 }
 
@@ -145,14 +145,14 @@ void bend(int direction) {
     paused(world);
     check(accepted(place(world, "gear", {5, 0, direction * 8}, "y", 5, {5, 0, static_cast<double>(direction * 8)})),
           "The second cog completes the equal-gear route without arbitrary drive links.");
-    repair_power(world, {-1, 1});
+    repair_power(world, {1, 1});
     finish(world);
 }
 
 void riser() {
     auto world = fixture("gear-riser", "native");
     const auto initial = s::power_view(world.simulation->snapshot().state.topology).mechanical;
-    check(initial.motion.at("gear-low").rate == g::Rate{-1, 1} &&
+    check(initial.motion.at("gear-low").rate == g::Rate{1, 1} &&
           initial.motion.at("gear-high").state == g::MotionState::unpowered,
           "Coaxial gears on different vertical planes do not magically share rotation.");
     paused(world);
@@ -161,8 +161,8 @@ void riser() {
     remove_wrong(world, {4, 0, 0});
     check(accepted(place(world, "shaft", {4, 1, 0}, "y", 1, {4, 0, 0})), "Raising the same refunded shaft couples both planes within actual 3D reach.");
     const auto connected = s::power_view(world.simulation->snapshot().state.topology).mechanical;
-    check(connected.motion.at("gear-high").rate == g::Rate{-1, 1}, "The upper cog now derives rotation through the actual shared shaft.");
-    repair_power(world, {1, 1});
+    check(connected.motion.at("gear-high").rate == g::Rate{1, 1}, "The upper cog now derives rotation through the actual shared shaft.");
+    repair_power(world, {-1, 1});
     finish(world);
 }
 
@@ -185,18 +185,18 @@ void terminal() {
     const auto idler = run("gear-idler", "walk east 4\nplace gear 4 0 0 z 3\nplace gear 4 1 0 z 2\nwait 8\n"
         "remove native-part-1\nplace gear 4 0 0 z 2\ninspect\nwalk north 4\n" + plates());
     check(idler.code == 0 && idler.errors.empty() && idler.output.find("Held: unavailable_part") != std::string::npos &&
-          idler.output.find("native-part-2 generation=2 gear at=4,0,0 axis=z teeth=2 rotation=rotating rate=-1/1") != std::string::npos,
+          idler.output.find("native-part-2 generation=2 gear at=4,0,0 axis=z teeth=2 rotation=rotating rate=1/1") != std::string::npos,
           "Interactive gear construction exposes finite refusal, correction, fresh identity and actual derived motion.");
     const auto bend = run("gear-bend", "place gear -5 0 8 y 5\nwalk west 5\nwalk north 8\nplace gear -5 0 8 y 5\n"
         "wait 8\nwalk east 8\nwalk east 2\nplace gear 5 0 8 y 5\ninspect\nwalk south 4\n" + plates());
     check(bend.code == 0 && bend.errors.empty() && bend.output.find("Held: out_of_reach") != std::string::npos &&
-          bend.output.find("collector generation=1 collector at=11,1,0 axis=y rotation=rotating rate=-1/1") != std::string::npos,
+          bend.output.find("collector generation=1 collector at=11,1,0 axis=y rotation=rotating rate=1/1") != std::string::npos,
           "The terminal completes a real two-gear route after nearby construction, with signed rate inspection.");
     const auto riser = run("gear-riser", "walk east 4\nplace shaft 4 0 0 y 1\nwait 8\ninspect\nremove native-part-1\n"
         "place shaft 4 1 0 y 1\ninspect\nwalk north 4\n" + plates());
     check(riser.code == 0 && riser.errors.empty() &&
           riser.output.find("gear-high generation=1 gear at=4,2,0 axis=y teeth=2 rotation=unpowered rate=0/1") != std::string::npos &&
-          riser.output.find("gear-high generation=1 gear at=4,2,0 axis=y teeth=2 rotation=rotating rate=-1/1") != std::string::npos,
+          riser.output.find("gear-high generation=1 gear at=4,2,0 axis=y teeth=2 rotation=rotating rate=1/1") != std::string::npos,
           "Interactive inspection distinguishes the actual separated and coupled gear planes without idealized repair state.");
     for (const auto* result : {&idler, &bend, &riser})
         check(result->output.find("Cargo raw=0 products=4/4") != std::string::npos,

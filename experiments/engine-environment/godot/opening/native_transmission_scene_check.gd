@@ -199,15 +199,15 @@ func _run() -> void:
 		if not _expect(opening._screen_entity(screen) == pair[0], "A rendered individual cog must be selectable through its real pick body"):
 			return
 	opening._select_tool("drive")
-	if not _expect(opening.transmission_controls.active_tool == "shaft", "G's existing entry must select the finite native shaft tool"):
+	if not _expect(opening.transmission_controls.active_tool == "place_shaft", "G selects direct finite shaft placement"):
 		return
-	opening._world_click(Vector2i(-1, 1), wheel.entity)
-	if _invoke("vertical source shaft", {"action": "connect_drive", "from": wheel.entity, "to": a.entity},
-		[_anchor([-4, 0, 4]), _anchor([-4, 4, 4])], func(): opening._world_click(Vector2i(-1, 1), a.entity)).is_empty():
+	opening.transmission_controls.selected_axis = "y"
+	opening.transmission_controls.gear_height = 2
+	if _invoke("vertical source shaft", {"action": "place_shaft", "center": [-4, 2, 4], "axis": "y", "half_span": 2},
+		[_anchor([-4, 2, 4])], func(): opening._transmission_click([-4, 2, 4], "")).is_empty():
 		return
-	opening._world_click(Vector2i(0, 1), b.entity)
-	if _invoke("vertical output shaft", {"action": "connect_drive", "from": b.entity, "to": collector.entity},
-		[_anchor([0, 4, 4]), _anchor([0, 0, 4])], func(): opening._world_click(Vector2i(0, 1), collector.entity)).is_empty():
+	if _invoke("vertical output shaft", {"action": "place_shaft", "center": [0, 2, 4], "axis": "y", "half_span": 2},
+		[_anchor([0, 2, 4])], func(): opening._transmission_click([0, 2, 4], "")).is_empty():
 		return
 	if not _expect(not opening.state.power_enabled, "The native worksite starts with its drive switched off"):
 		return

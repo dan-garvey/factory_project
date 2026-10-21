@@ -147,6 +147,15 @@ bool historical_wire(const authority::Record& record) {
         return left != wire->end() && right != intent.end() &&
             !values::typed_difference(left->second, right->second);
     };
+    if (*action == "pickup_raw") {
+        const auto* center = field<Array>(*wire, "center");
+        if (*original_action != "pickup_raw" || !keys(*wire, {"center"}) || !center || center->size() != 3 || !same("center", "center")) return false;
+        for (const auto& value : *center) {
+            const auto* coordinate = std::get_if<Integer>(&value.storage());
+            if (!coordinate || *coordinate < -materials::maximum_drop_coordinate || *coordinate > materials::maximum_drop_coordinate) return false;
+        }
+        return true;
+    }
     if (*action == "place_foundations") {
         const auto* cell = field<Array>(*wire, "cell");
         const auto* end = field<Array>(*wire, "end_cell");
@@ -597,7 +606,18 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.emplace(generation, Value(selected ? selected->generation : 0));
         return true;
     };
-    if (*action == "place_foundation" || *action == "place_foundations") {
+    if (*action == "pickup_raw") {
+        if (!keys(wire, {"center"})) return refuse("invalid_command");
+        const auto* center = field<Array>(wire, "center");
+        if (!center || center->size() != 3) return refuse("invalid_center");
+        for (const auto& value : *center) {
+            const auto* coordinate = std::get_if<Integer>(&value.storage());
+            if (!coordinate || *coordinate < -materials::maximum_drop_coordinate || *coordinate > materials::maximum_drop_coordinate)
+                return refuse("invalid_center");
+        }
+        normalized.at("action") = Value("pickup_raw");
+        normalized.emplace("center", wire.at("center"));
+    } else if (*action == "place_foundation" || *action == "place_foundations") {
         const bool area = *action == "place_foundations";
         if (!(area ? keys(wire, {"cell", "end_cell", "level"}) : keys(wire, {"cell", "level"})))
             return refuse("invalid_command");
@@ -814,7 +834,9 @@ Value Host::projection() const {
     const auto snapshot = owned_->world->snapshot();
     const auto& state = snapshot.state;
     Object entities, transmissions, inventories, cargo, kits, specifications, actors, foundations;
-    Array links, drive_links, engagements;
+    Array links, drive_links, engagements, dropped_raw;
+    for (const auto& [point, count] : state.material.dropped_raw)
+        dropped_raw.emplace_back(Object{{"center", Value(Array{Value(point[0]), Value(point[1]), Value(point[2])})}, {"raw", Value(count)}});
     for (const auto& part : state.topology.parts) {
         Object projected{{"kind", Value(kind(part.role))}, {"generation", Value(part.generation)},
             {"center", Value(Array{Value(part.geometry.center[0]), Value(part.geometry.center[1]), Value(part.geometry.center[2])})},
@@ -889,6 +911,7 @@ Value Host::projection() const {
         {"drive_links", Value(std::move(drive_links))}, {"engagements", Value(std::move(engagements))},
         {"motion", Value(std::move(motions))}, {"inventories", Value(std::move(inventories))},
         {"cargo", Value(std::move(cargo))}, {"part_kits", Value(std::move(kits))},
+        {"dropped_raw", Value(std::move(dropped_raw))},
         {"part_specifications", Value(std::move(specifications))},
         {"parts", Value(std::move(player_parts))}, {"actors", Value(std::move(actors))},
         {"foundations", Value(std::move(foundations))},

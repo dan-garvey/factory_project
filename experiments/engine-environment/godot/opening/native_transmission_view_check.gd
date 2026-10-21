@@ -2,6 +2,8 @@ extends SceneTree
 ## Invented confirmed projections and a request sink, never a Model or game.
 const Controls = preload("res://opening/native_transmission_controls.gd")
 const Presenter = preload("res://opening/native_transmission_presenter.gd")
+const LooseControls = preload("res://opening/recovery_actions.gd").LooseMaterialControls
+const Session = preload("res://opening-session/session.gd")
 var checks := 0
 var failures := 0
 
@@ -104,7 +106,7 @@ func _controls() -> void:
 	host.state.part_specifications.P[1].count = 0
 	host.state.part_specifications.P.append({"kind": "shaft", "teeth": 0, "half_span": 4, "count": 2})
 	view.refresh()
-	verify(not view.get_popup().is_item_disabled(1) and "2 carried" in view.get_popup().get_item_text(1), "A long-only kit remains available to the shaft tool.")
+	verify(not view._legacy_links.is_item_disabled(view._legacy_links.get_item_index(2)) and "2 carried" in view._legacy_links.get_item_text(view._legacy_links.get_item_index(2)), "A long-only kit remains available to the advanced endpoint tool.")
 	view.choose_tool("shaft")
 	view.handle_world_click([], "wheel")
 	view.handle_world_click([], "a")
@@ -192,6 +194,7 @@ func _shaft_segments() -> void:
 	view.handle_world_click([0, 4, 4], "")
 	verify(host.calls.back() == {"action": "place_shaft", "center": [0, 4, 4], "axis": "x", "half_span": 2} and host.state == original,
 		"An individual short segment delegates its exact geometry without speculative inventory.")
+	verify(view.get_popup().get_item_index(6) < view.get_popup().get_item_index(104), "Direct segments precede the advanced endpoint submenu.")
 	view._axes.id_pressed.emit(2)
 	view._lengths.id_pressed.emit(1)
 	view.handle_world_click([0, 4, 8], "")
@@ -208,6 +211,17 @@ func _shaft_segments() -> void:
 	verify(view.handle_world_click([0, 4, 8], "") and host.calls.size() == sent,
 		"A pending shared mutation consumes the click without placing a segment.")
 	view.free()
+	var long_host := HostStub.new()
+	long_host.state = fixture()
+	long_host.state.part_specifications.P[1].count = 0
+	long_host.state.part_specifications.P.append({"kind": "shaft", "teeth": 0, "half_span": 4, "count": 1})
+	var long_view := Controls.new()
+	long_view.configure(long_host)
+	verify(not long_view.get_popup().is_item_disabled(long_view.get_popup().get_item_index(6)),
+		"The direct menu remains selectable when only the other shaft length is carried.")
+	long_view.choose_tool("place_shaft")
+	verify(long_view.shaft_half_span == 4, "Selecting the direct shaft tool chooses the available long segment when short stock is exhausted.")
+	long_view.free()
 
 func _part(view: Node3D, id: String) -> Node3D:
 	for child in view.get_children():
@@ -324,11 +338,16 @@ func _tool_guidance() -> void:
 	var view := Controls.new()
 	view.configure(host)
 	var before: Dictionary = host.state.duplicate(true)
-	for choice in [[1, "cogwheel"], [2, "first endpoint"], [3, "disconnect"], [4, "remove"], [5, "construction tool"]]:
+	for choice in [[1, "cogwheel"], [6, "shaft segment"], [4, "remove"], [5, "construction tool"]]:
 		var count: int = host.messages.size()
 		view.get_popup().id_pressed.emit(choice[0])
 		verify(host.messages.size() == count + 1 and str(host.messages.back()).contains(choice[1]),
 			"Popup selection replaces stale advice for operation " + str(choice[0]))
+	for choice in [[2, "first endpoint"], [3, "disconnect"]]:
+		var count: int = host.messages.size()
+		view._legacy_links.id_pressed.emit(choice[0])
+		verify(host.messages.size() == count + 1 and str(host.messages.back()).contains(choice[1]),
+			"The advanced endpoint submenu supplies its own operation advice.")
 	verify(host.calls.is_empty() and host.state == before, "Popup advice sends no request and changes no confirmed facts.")
 	host.mutate_allowed = false
 	var count: int = host.messages.size()
@@ -337,6 +356,58 @@ func _tool_guidance() -> void:
 	print(JSON.stringify({"popup_messages": host.messages, "requests": host.calls.size()}))
 	view.free()
 
+func _loose_material() -> void:
+	var host := HostStub.new()
+	host.state = fixture()
+	host.state.dropped_raw = [{"center": [2, 0, 4], "raw": 3}]
+	var menu := LooseControls.new()
+	menu.configure(host)
+	verify(menu.visible and not menu.disabled, "A confirmed loose stack is offered to the ready actor.")
+	menu._open()
+	var before: Dictionary = host.state.duplicate(true)
+	menu._choose(0)
+	verify(host.calls == [{"action": "pickup_raw", "center": [2, 0, 4]}] and host.state == before,
+		"Pickup submits the exact confirmed location without speculatively changing custody.")
+	menu._open()
+	host.state.context = "another-world"
+	menu._choose(0)
+	verify(host.calls.size() == 1, "A menu opened for another world cannot submit a stale selection.")
+	host.state.context = "helper-fixture"
+	menu._open()
+	host.state.dropped_raw = []
+	menu._choose(0)
+	verify(host.calls.size() == 1, "A vanished stack cannot be selected from an old menu.")
+	host.state.dropped_raw = [{"center": [2, 0, 4], "raw": 3}]
+	menu._open()
+	host.mutate_allowed = false
+	menu._choose(0)
+	verify(host.calls.size() == 1, "A shared mutation barrier prevents pickup submission.")
+	var presenter := Presenter.new()
+	presenter.configure(host)
+	var blank := presenter.get_node_or_null("LooseBlank")
+	verify(blank is MeshInstance3D and blank.position == Presenter.world_center([2, 0, 4]),
+		"The confirmed stack is rendered at its world location without requiring the belt to exist.")
+	host.state.dropped_raw = []
+	presenter.refresh()
+	verify(presenter.get_node_or_null("LooseBlank") == null, "The presentation removes a picked-up stack after confirmed state changes.")
+	menu.free()
+	presenter.free()
+	var session := Session.new()
+	session.context = "helper-fixture"
+	session._ready_for_commands = true
+	host.state.dropped_raw = [{"center": [2, 0, 4], "raw": 3}]
+	host.state.revision = 1
+	host.state.order = 1
+	session._apply_frame({"context": "helper-fixture", "serial": 1, "snapshot": host.state})
+	verify(session.projection().dropped_raw == host.state.dropped_raw,
+		"The read-only Session frame retains the server's loose-material projection.")
+	host.state.dropped_raw = []
+	host.state.revision = 2
+	host.state.order = 2
+	session._apply_frame({"context": "helper-fixture", "serial": 2, "snapshot": host.state})
+	verify(session.projection().dropped_raw.is_empty(), "A later confirmed Session frame removes the picked-up stack.")
+	session.free()
+
 func _run() -> void:
 	if "--tool-guidance-only" in OS.get_cmdline_user_args():
 		_tool_guidance()
@@ -344,6 +415,8 @@ func _run() -> void:
 		_cache_regression()
 	elif "--direction-basis-only" in OS.get_cmdline_user_args():
 		_direction_basis()
+	elif "--loose-material-only" in OS.get_cmdline_user_args():
+		_loose_material()
 	else:
 		_controls()
 		_gear_sizes()

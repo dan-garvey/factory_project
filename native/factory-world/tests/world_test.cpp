@@ -37,6 +37,7 @@ struct Fixture { w::Profile profile; w::State state; };
 Fixture fixture() {
     Fixture f;
     f.profile.material = {1, 1, 2};
+    f.profile.waterwheel_rate = {-1, 1};
     f.profile.initial_units = 16;
     f.profile.actors = {"P", "Q"};
     f.profile.meters_per_grid_unit = 0.1;
@@ -55,7 +56,7 @@ Fixture fixture() {
         hub("wheel-C", s::Role::waterwheel, 20, 0), shaft("shaft-C", 20),
         hub("processor", s::Role::processor, 20, 4)};
     f.state.topology.material_links = {{{"collector", 1}, {"belt", 1}}, {{"belt", 1}, {"processor", 1}}};
-    f.state.topology.sources = {{"wheel-A", {1, 1}}, {"wheel-B", {1, 1}}, {"wheel-C", {1, 1}}};
+    f.state.topology.sources = {{"wheel-A", {-1, 1}}, {"wheel-B", {-1, 1}}, {"wheel-C", {-1, 1}}};
     f.state.topology.drive_enabled = true;
     for (const auto& part : f.state.topology.parts) f.state.issued_entities.emplace(part.geometry.id, part.generation);
     return f;

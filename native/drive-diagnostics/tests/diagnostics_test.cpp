@@ -179,7 +179,7 @@ void actual_world() {
     const auto report = d::inspect(parts, before.state.topology.sources);
     const auto& witness = one(report, d::Kind::incompatible_sources);
     check(witness.source == "wheel-left" && witness.other_source == "wheel-right" && witness.hub == "wheel-right" &&
-          witness.first_rate == g::Rate{-1, 1} && witness.second_rate == g::Rate{1, 1},
+          witness.first_rate == g::Rate{1, 1} && witness.second_rate == g::Rate{-1, 1},
           "The real two-waterwheel puzzle exposes the exact contradictory signed rates at the registered right wheel.");
     const auto after = world->snapshot();
     check(after.state == before.state && after.revision == before.revision && after.history.order == before.history.order &&

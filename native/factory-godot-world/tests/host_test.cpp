@@ -79,7 +79,7 @@ void historical_translation() {
     }
     site.at("water") = V(std::move(water));
     check(accepted(host.initialize("host-boundary", {"P"})), "The finite test World initializes.");
-    check(accepted(host.configure_terrain(site)), "The test binds its explicit synthetic terrain.");
+    check(accepted(host.configure_terrain(site)), "The test binds its explicit forward-driving synthetic terrain.");
     check(accepted(host.publish_actor("P", {V(1.65), V(1.0), V(1.65)}, 1)), "The disclosed synthetic observation is ready.");
     const auto place = [&](const char* kind, I x, const char* id) {
         auto wire = request("place", id);

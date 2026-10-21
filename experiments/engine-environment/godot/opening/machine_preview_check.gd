@@ -85,7 +85,9 @@ func check_assemblies() -> void:
 			view.mode = kind
 			view.transmission_controls.selected_axis = ["x", "y", "z"][axis]
 			var actual_axis: int = 2 if kind == "belt" else axis
-			view.state.entities = {"placed": {"kind": kind, "axis": actual_axis, "cell": [-1, -1]}}
+			var level: int = view.wheel_level if kind == "wheel" else 0
+			var height: float = level * Opening.Geometry.HEIGHT_STEP
+			view.state.entities = {"placed": {"kind": kind, "axis": actual_axis, "cell": [-1, -1], "level": level}}
 			var before: Dictionary = view.state.duplicate(true)
 			view._rebuild_machines()
 			var expected: Node3D = view.machine_root.get_child(0)
@@ -94,8 +96,8 @@ func check_assemblies() -> void:
 			var color: Color = material.albedo_color if material != null else Color.WHITE
 			var old_rotor: Node3D = view.wheel_rotor
 			view._refresh_machine_preview()
-			verify(view.machine_preview.visible and view.machine_preview.position == Vector3(1.65, 0, 3.3),
-				"The fitted preview uses the literal target grid square and physical pitch.")
+			verify(view.machine_preview.visible and view.machine_preview.position == Vector3(1.65, height, 3.3),
+				"The fitted preview uses the target square and the common construction height.")
 			verify(geometry(view.machine_preview) == geometry(expected),
 				"Preview and placed assembly have identical meshes and local transforms for %s axis %d." % [kind, axis])
 			if plinth != null:
@@ -109,7 +111,7 @@ func check_assemblies() -> void:
 			view.target = Vector2i(2, 3)
 			view._refresh_machine_preview()
 			verify(view.machine_preview.get_child(0).get_instance_id() == child_id
-				and view.machine_preview.position == Vector3(3.3, 0, 4.95),
+				and view.machine_preview.position == Vector3(3.3, height, 4.95),
 				"Pointer motion moves the cached assembly without rebuilding it.")
 			verify(view.state == before and view.model == null and view.actor_world == null
 				and view.request_sequence == 0 and view.pending_link.is_empty() and view.selected.is_empty(),
@@ -195,6 +197,33 @@ func check_gates(view, shared: bool) -> void:
 	verify(not view.machine_preview.visible, "The historical physical part count also gates visibility.")
 	view.free()
 
+func check_inspection_cursor(view) -> void:
+	view.state = observation()
+	view.hover = MeshInstance3D.new()
+	view.add_child(view.hover)
+	view.hover_cell = Vector2i.ZERO
+	var before: Dictionary = view.state.duplicate(true)
+	view.mode = "inspect"
+	view._update_cursor()
+	verify(not view.hover.visible,
+		"Inspecting empty ground does not draw a filled construction tile.")
+	view.mode = "belt"
+	view._update_cursor()
+	verify(view.hover.visible and view.machine_preview != null and view.machine_preview.visible,
+		"Selecting a carried machine keeps its deliberate construction previews.")
+	view.mode = "inspect"
+	view._update_cursor()
+	verify(not view.hover.visible and not view.machine_preview.visible,
+		"Returning to inspection clears both construction previews.")
+	view.mode = "belt"
+	view.explanation_open = true
+	view._update_cursor()
+	verify(not view.hover.visible and not view.machine_preview.visible,
+		"Help still hides construction previews.")
+	verify(view.state == before and view.request_sequence == 0 and view.pending_link.is_empty(),
+		"Cursor changes do not alter facts, submit requests or start links.")
+	view.free()
+
 func check_partial_drive_guidance() -> void:
 	var view := Opening.new()
 	view.state = observation()
@@ -229,6 +258,10 @@ func _initialize() -> void:
 	var shared := SharedPointerView.new()
 	shared.session = SessionStub.new()
 	check_gates(shared, true)
+	check_inspection_cursor(PointerView.new())
+	var cursor_shared := SharedPointerView.new()
+	cursor_shared.session = SessionStub.new()
+	check_inspection_cursor(cursor_shared)
 	check_partial_drive_guidance()
 	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
 		"assembly_cases": assembly_cases, "observations": "invented", "desktop": "not_used",

@@ -7,6 +7,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 namespace e = factory::opening_engineering;
 using V = factory::values::Value;
@@ -63,7 +64,9 @@ void conserved(const Host& host) {
         check(field<I>(cargo, "products") == std::get<I>(inventories.at(actor).storage()), "Product projection aliases are counted only once.");
         for (const auto& lot : field<A>(cargo, "work_lots")) total += field<I>(lot, "recipe_input");
     }
-    check(total == 16 && products == std::get<I>(stock.at("player").storage()), "Every original material unit has exactly one owner.");
+    for (const auto& drop : field<A>(projection, "dropped_raw")) total += field<I>(drop, "raw");
+    check(total == field<I>(projection, "initial_feed") && products == std::get<I>(stock.at("player").storage()),
+          "Every original material unit has exactly one owner.");
     std::map<std::string, I> parts{{"collector", 0}, {"belt", 0}, {"processor", 0}, {"wheel", 0}, {"shaft", 0}, {"gear", 0}, {"foundation", 0}};
     for (const auto& [actor, kit] : field<O>(projection, "part_kits")) {
         (void)actor;
@@ -72,7 +75,7 @@ void conserved(const Host& host) {
     for (const auto* name : {"entities", "transmission_parts"})
         for (const auto& [id, part] : field<O>(projection, name)) { (void)id; ++parts.at(field<std::string>(part, "kind")); }
     parts.at("foundation") += static_cast<I>(field<O>(projection, "foundations").size());
-    check(parts == std::map<std::string, I>{{"collector", 1}, {"belt", 1}, {"processor", 1}, {"wheel", 1}, {"shaft", 8}, {"gear", 7}, {"foundation", 24}},
+    check(parts == std::map<std::string, I>{{"collector", 1}, {"belt", 1}, {"processor", 1}, {"wheel", 1}, {"shaft", 8}, {"gear", 10}, {"foundation", 24}},
           "The actual opening kit is conserved without new parts or a different scenario profile.");
 }
 
@@ -117,7 +120,9 @@ struct Run {
         return result;
     }
     std::string place(const char* kind, I x, I row) {
-        return field<std::string>(action("place", {{"kind", V(kind)}, {"cell", V(A{V(x), V(row)})}, {"axis", V(std::string(kind) == "wheel" ? "x" : "z")}}), "entity");
+        O args{{"kind", V(kind)}, {"cell", V(A{V(x), V(row)})}, {"axis", V(std::string(kind) == "wheel" ? "x" : "z")}};
+        if (std::string(kind) == "wheel") args.emplace("level", V(I{4}));
+        return field<std::string>(action("place", std::move(args)), "entity");
     }
     std::string gear(I x, I z, const char* axis = "x", I teeth = 2) {
         return field<std::string>(action("place_gear", {{"center", V(A{V(x), V(I{0}), V(z)})}, {"axis", V(axis)}, {"teeth", V(teeth)}}), "entity");
@@ -143,22 +148,24 @@ struct Run {
 
 void build_route(Run& run, I wheel_row, I machine_row, const std::array<std::string, 3>& machines) {
     const double wheel_z = static_cast<double>(wheel_row) * 1.65;
-    const double small_z = static_cast<double>(machine_row + 2) * 1.65;
-    run.observe_at(-3.3, wheel_z - 1.65);
-    const auto input = run.gear(-12, wheel_row * 4, "x", 4);
+    const I small_row = wheel_row == machine_row ? wheel_row - 2 : machine_row - 1;
+    const double small_z = static_cast<double>(small_row) * 1.65;
     run.observe_at(-3.3, wheel_z);
-    const auto output = run.gear(-8, wheel_row * 4 + 4, "z", 4);
-    std::array<std::string, 5> small;
+    (void)run.action("place_gear", {{"center", V(A{V(I{-12}), V(I{4}), V(wheel_row * 4)})}, {"axis", V("x")}, {"teeth", V(I{2})}});
+    (void)run.gear(-12, wheel_row * 4, "x", 2);
+    (void)run.gear(-16, wheel_row * 4, "x", 4);
+    run.observe_at(-3.3, wheel_z);
+    const auto output = run.gear(-12, wheel_row * 4 - 4, "z", 4);
+    std::array<std::string, 6> small;
     for (std::size_t n = 0; n < small.size(); ++n) {
-        const I x = static_cast<I>(n) * 4 - 8;
-        run.observe_at(static_cast<double>(x) * 1.65 / 4.0, small_z - 1.65);
-        small[n] = run.gear(x, (machine_row + 2) * 4, "z", 2);
+        const I x = static_cast<I>(n) * 4 - 12;
+        run.observe_at(static_cast<double>(x) * 1.65 / 4.0, small_z + 1.65);
+        small[n] = run.gear(x, small_row * 4, "z", 2);
     }
-    run.observe_at(-3.3, (wheel_z + 1.65 + small_z) / 2.0);
-    if (wheel_row != machine_row) run.connect("connect_drive", output, small[0]);
+    (void)output; // The adjacent cog axle faces already touch.
     for (std::size_t n = 0; n < machines.size(); ++n) {
-        run.observe_at(static_cast<double>(n) * 1.65, small_z - 1.65);
-        run.connect("connect_drive", machines[n], small[n + 2]);
+        run.observe_at(static_cast<double>(n) * 1.65, (small_z + static_cast<double>(machine_row) * 1.65) / 2.0);
+        if (small_row != machine_row - 1) run.connect("connect_drive", machines[n], small[n + 3]);
     }
 }
 
@@ -193,13 +200,17 @@ V baseline() {
     run.collect_until(4);
     // One extra powered step retains a partly processed original lot. Reuse
     // this checkpoint for the different alternatives; do not replay this prefix.
-    run.tick();
+    for (int turn = 0; turn < 12; ++turn) {
+        const auto projection = run.host.projection();
+        if (field<I>(V(field<O>(projection, "stock")), "held") > 0 && field<I>(projection, "remaining") == 1) break;
+        run.tick();
+    }
     const auto saved = run.host.checkpoint();
     const auto processing = field<O>(material(saved), "processing");
     check(std::get<I>(processing.at("remaining_ticks").storage()) == 1,
           "The shared comparison cut has a real partial workpiece, not a fresh empty line.");
     check(e::inspect(run.host, "P").phase == e::Phase::move_source &&
-          e::inspect(run.host, "P").placed_gears == 7 && e::inspect(run.host, "P").placed_shafts == 3,
+          e::inspect(run.host, "P").placed_gears == 10 && e::inspect(run.host, "P").placed_shafts == 3,
           "The first four products do not bypass the upstream constraint.");
     check(same(saved, run.host.checkpoint()), "Repeated eligibility reads neither step the world nor record progress.");
     check(accepted(run.host.validate_checkpoint(saved)), "The original partial-work checkpoint is valid for both comparisons.");
@@ -230,7 +241,8 @@ void resume_and_finish(Run& run, const std::string& press, const char* layout) {
     check(entity(resumed.host, "processor") == press, "Continuation retains the current actual press identity.");
     resumed.collect_until(8);
     const auto progress = e::inspect(resumed.host, "P");
-    check(progress.phase == e::Phase::ready && progress.source_at_target && progress.machines_running && progress.placed_shafts == (std::string(layout) == "relocated" ? 3 : 4),
+    check(progress.phase == e::Phase::ready && progress.source_at_target && progress.machines_running && progress.belt_forward &&
+          progress.placed_shafts == (std::string(layout) == "relocated" ? 3 : 0),
           "The current upstream layout and eight individually carried plates satisfy native eligibility.");
     check(e::inspect(resumed.host, "Q").products == 0 && e::inspect(resumed.host, "Q").phase == e::Phase::first_shift,
           "Aggregate player stock does not award P's completed objective to Q.");
@@ -250,11 +262,15 @@ void relocate(const V& baseline) {
     (void)move_source(run);
     run.observe(starter_row);
     const auto old_collector = entity(run.host, "collector"), old_belt = entity(run.host, "belt"), old_press = entity(run.host, "processor");
+    const auto collector_raw = amount(run.host, "stock", "collector");
+    const auto belt_raw = amount(run.host, "stock", "belt");
+    const auto press_raw = amount(run.host, "stock", "input");
     for (const auto& id : {old_collector, old_belt, old_press}) run.target("recover", id);
     const auto projection = run.host.projection();
     const auto cargo = field<O>(projection, "cargo");
     const auto carried = cargo.at("P");
-    check(field<I>(carried, "raw") == 3 && field<A>(carried, "work_lots").size() == 1 &&
+    check(collector_raw > 0 && belt_raw > 0 && press_raw > 0 &&
+          field<I>(carried, "raw") == collector_raw + belt_raw + press_raw && field<A>(carried, "work_lots").size() == 1 &&
           field<I>(field<A>(carried, "work_lots").front(), "remaining") == 1,
           "Relocation carries all three raw buffers and the same partial work with its progress.");
     const auto work_id = field<I>(field<A>(carried, "work_lots").front(), "id");
@@ -267,10 +283,11 @@ void relocate(const V& baseline) {
     build_route(run, upstream_row, upstream_row, {collector, belt, press});
     run.observe(upstream_row);
     (void)run.action("insert_work", {{"entity", V(press)}, {"work_id", V(work_id)}});
-    for (const auto& id : {collector, belt, press}) (void)run.action("insert_raw", {{"entity", V(id)}, {"amount", V(I{1})}});
+    for (const auto& [id, quantity] : {std::pair{collector, collector_raw}, std::pair{belt, belt_raw}, std::pair{press, press_raw}})
+        (void)run.action("insert_raw", {{"entity", V(id)}, {"amount", V(quantity)}});
     check(same(material(baseline), material(run.host.checkpoint())), "Moving the line restores the exact original material cut, without resetting work or stock.");
-    check(e::inspect(run.host, "P").placed_gears == 7 && amount(run.host, "parts", "gear") == 0,
-          "The relocation alternative rebuilds the finite seven-cog route.");
+    check(e::inspect(run.host, "P").placed_gears == 10 && amount(run.host, "parts", "gear") == 0,
+          "The relocation alternative rebuilds the finite ten-cog route.");
     resume_and_finish(run, press, "relocated");
 }
 
@@ -287,11 +304,11 @@ void gear_route(const V& baseline) {
     check(e::inspect(run.host, "P").machines_running, "The refunded cog supports a corrected cross-axis route.");
     const auto projection = run.host.projection();
     const auto motion = field<O>(projection, "motion");
-    check(field<I>(motion.at(collector), "numerator") == -1 && field<I>(motion.at(belt), "numerator") == 1 &&
-          field<I>(motion.at(press), "numerator") == -1, "The cross-axis cog train alternates signed machine motion.");
+    check(field<I>(motion.at(collector), "numerator") == 1 && field<I>(motion.at(belt), "numerator") == -1 &&
+          field<I>(motion.at(press), "numerator") == 1, "The cross-axis cog train alternates signed machine motion and drives the belt forward.");
     check(entity(run.host, "collector") == collector && entity(run.host, "belt") == belt && entity(run.host, "processor") == press &&
           same(material(baseline), material(run.host.checkpoint())), "The cog route preserves all original machine identities and the entire stocked material cut.");
-    check(e::inspect(run.host, "P").placed_gears == 7 && amount(run.host, "parts", "gear") == 0,
+    check(e::inspect(run.host, "P").placed_gears == 10 && amount(run.host, "parts", "gear") == 0,
           "Keeping the line in place rebuilds the finite cog route.");
     resume_and_finish(run, press, "geared");
 }

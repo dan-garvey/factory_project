@@ -36,7 +36,7 @@ m::State fixture() {
 // lot and P's raw unit plus ready carried lot account for all sixteen raw units.
 Value literal() {
     return Value(Object{
-        {"schema", integer(2)}, {"initial_units", integer(16)},
+        {"schema", integer(3)}, {"initial_units", integer(16)}, {"dropped_raw", Value(Value::Array{})},
         {"stock", Value(Object{{"source", integer(6)}, {"collector", integer(1)},
             {"belt", integer(1)}, {"input", integer(1)}, {"output", integer(1)}})},
         {"cargo", Value(Object{
@@ -102,6 +102,11 @@ int main() {
         check(std::get<m::State>(decoded).cargo.at("P").work_lots.at(0).remaining_ticks == 0);
         round_trip(state);
 
+        auto dropped = state;
+        dropped.stock.source -= 2;
+        dropped.dropped_raw.emplace(m::DropPoint{-2, 0, 4}, 2);
+        round_trip(dropped); // Loose custody survives without a machine owner.
+
         auto ready = state;
         ready.processing->remaining_ticks = 0;
         ready.processing->completed_subticks = 0;
@@ -114,6 +119,17 @@ int main() {
         bad(Value(Value::Array{}), m::CodecReason::wrong_type, "$");
         bad(edited(literal(), {"schema"}, std::nullopt), m::CodecReason::missing_field, "$.schema");
         bad(edited(literal(), {"schema"}, integer(1)), m::CodecReason::unsupported_schema, "$.schema");
+        bad(edited(literal(), {"schema"}, integer(2)), m::CodecReason::unsupported_schema, "$.schema");
+        bad(edited(literal(), {"dropped_raw"}, std::nullopt), m::CodecReason::missing_field, "$.dropped_raw");
+        bad(edited(literal(), {"dropped_raw"}, Value(Object{})), m::CodecReason::wrong_type, "$.dropped_raw");
+        const Value drop(Object{{"point", Value(Value::Array{integer(-2), integer(0), integer(4)})},
+                                {"raw_units", integer(1)}});
+        bad(edited(literal(), {"dropped_raw"}, Value(Value::Array{drop, drop})),
+            m::CodecReason::invalid_material_state, "$.dropped_raw[1].point");
+        const Value malformed_drop(Object{{"point", Value(Value::Array{integer(-2), integer(0)})},
+                                          {"raw_units", integer(1)}});
+        bad(edited(literal(), {"dropped_raw"}, Value(Value::Array{malformed_drop})),
+            m::CodecReason::invalid_material_state, "$.dropped_raw[0].point");
         bad(edited(literal(), {"schema"}, Value(1.0)), m::CodecReason::wrong_type, "$.schema");
         bad(edited(literal(), {"unknown"}, integer(0)), m::CodecReason::unexpected_field, "$");
         bad(edited(literal(), {"stock", "source"}, std::nullopt), m::CodecReason::missing_field, "$.stock.source");

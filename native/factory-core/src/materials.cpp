@@ -53,6 +53,7 @@ const char* error_name(Error error) noexcept {
         case Error::invalid_actor: return "invalid_actor";
         case Error::unavailable_output: return "unavailable_output";
         case Error::work_id_overflow: return "work_id_overflow";
+        case Error::unavailable_drop: return "unavailable_drop";
     }
     return "unknown_error";
 }
@@ -78,6 +79,14 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
     Quantity total = 0;
     for (const auto value : {stock.source, stock.collector, stock.belt, stock.input}) {
         if (!add(total, value)) return Error::quantity_overflow;
+    }
+    if (state.dropped_raw.size() > maximum_drop_points) return Error::invalid_state;
+    for (const auto& [point, count] : state.dropped_raw) {
+        for (const auto coordinate : point)
+            if (coordinate < -maximum_drop_coordinate || coordinate > maximum_drop_coordinate)
+                return Error::invalid_state;
+        if (count <= 0) return Error::invalid_state;
+        if (!add(total, count)) return Error::quantity_overflow;
     }
     if (state.processing && !add(total, state.processing->recipe.input_units_per_product)) {
         return Error::quantity_overflow;
@@ -108,6 +117,7 @@ Error step(State& state, const Config& config, const Path& path,
     if ((power.collector && !path.collector_present) ||
         (power.belt && !path.belt_present) ||
         (power.processor && !path.processor_present) ||
+        (power.belt && !power.belt_forward && !power.reverse_drop) ||
         power.processor_work_per_tick < 1 ||
         power.processor_work_per_tick > maximum_work_subticks_per_tick) return Error::invalid_path;
     if (!path.powered || (!power.collector && !power.belt && !power.processor))
@@ -141,10 +151,21 @@ Error step(State& state, const Config& config, const Path& path,
             {config.input_units_per_product, config.cycle_ticks}, config.cycle_ticks};
         ++next.next_work_id;
     }
-    if (power.belt && path.belt_to_processor && stock.belt > 0 &&
+    if (power.belt && power.belt_forward && path.belt_to_processor && stock.belt > 0 &&
         stock.input < config.input_units_per_product) {
         --stock.belt;
         ++stock.input;
+    }
+    if (power.belt && !power.belt_forward && stock.belt > 0) {
+        const auto point = *power.reverse_drop;
+        for (const auto coordinate : point)
+            if (coordinate < -maximum_drop_coordinate || coordinate > maximum_drop_coordinate)
+                return Error::invalid_path;
+        const auto existing = next.dropped_raw.find(point);
+        if (existing != next.dropped_raw.end() || next.dropped_raw.size() < maximum_drop_points) {
+            if (!add(next.dropped_raw[point], 1)) return Error::quantity_overflow;
+            --stock.belt;
+        }
     }
     if (power.collector && path.collector_to_belt && stock.collector > 0 && stock.belt < 1) {
         --stock.collector;
@@ -155,6 +176,22 @@ Error step(State& state, const Config& config, const Path& path,
         --stock.source;
         ++stock.collector;
     }
+    const auto output_error = validate(next, config, path);
+    if (output_error != Error::none) return output_error;
+    state = std::move(next);
+    return Error::none;
+}
+
+Error pickup_raw(State& state, const Config& config, const Path& path,
+                 const std::string& actor, const DropPoint& point) {
+    const auto input_error = validate(state, config, path);
+    if (input_error != Error::none) return input_error;
+    if (actor.empty() || !state.cargo.contains(actor)) return Error::invalid_actor;
+    const auto found = state.dropped_raw.find(point);
+    if (found == state.dropped_raw.end()) return Error::unavailable_drop;
+    auto next = state;
+    if (!add(next.cargo.at(actor).raw_units, found->second)) return Error::quantity_overflow;
+    next.dropped_raw.erase(point);
     const auto output_error = validate(next, config, path);
     if (output_error != Error::none) return output_error;
     state = std::move(next);

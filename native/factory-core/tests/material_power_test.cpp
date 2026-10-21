@@ -64,6 +64,36 @@ void fractional_gear_speed() {
     }
 }
 
+void reversed_belt_custody() {
+    auto state = seed();
+    state.stock.source = 15;
+    state.stock.belt = 1;
+    const m::DropPoint point{2, 0, 4};
+    m::MachinePower reverse{false, true, false};
+    reverse.belt_forward = false;
+    reverse.reverse_drop = point;
+    const auto held = state;
+    tick(state, {false, false, false});
+    require(state == held, "A stopped belt holds its blank before reverse travel.");
+    tick(state, reverse);
+    require(state.stock.belt == 0 && state.stock.input == 0 && state.dropped_raw.at(point) == 1,
+            "A reversed belt deposits its own blank at the supplied world point.");
+    const auto dropped = state;
+    tick(state, {false, false, false});
+    require(state == dropped, "A stopped line retains loose material.");
+    require(m::pickup_raw(state, config, line, "Q", point) == m::Error::none &&
+            state.dropped_raw.empty() && state.cargo.at("Q").raw_units == 1,
+            "An admitted actor collects the exact loose stack into canonical cargo.");
+    const auto collected = state;
+    require(m::pickup_raw(state, config, line, "Q", point) == m::Error::unavailable_drop && state == collected,
+            "A repeated fresh pickup cannot duplicate material.");
+    auto restart = collected;
+    restart.stock.source -= 1;
+    restart.stock.belt = 1;
+    tick(restart, reverse);
+    require(restart.dropped_raw.at(point) == 1, "A restarted reverse belt deposits its next blank at the same end.");
+}
+
 void legacy_order_and_carried_work() {
     auto state = seed();
     for (int cycle = 0; cycle < 3; ++cycle)
@@ -192,6 +222,7 @@ void absent_masks_and_exhausted_identity() {
 int main() {
     try {
         fractional_gear_speed();
+        reversed_belt_custody();
         legacy_order_and_carried_work();
         independent_senders_and_partial_pause();
         ready_work_and_disable();

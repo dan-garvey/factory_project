@@ -20,6 +20,7 @@ struct Progress {
     Phase phase{Phase::unavailable};
     Count products{}, placed_gears{}, placed_shafts{};
     bool source_at_target{}, machines_running{};
+    bool belt_forward{};
 };
 
 [[nodiscard]] const Definition& definition() noexcept;

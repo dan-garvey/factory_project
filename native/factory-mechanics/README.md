@@ -43,8 +43,9 @@ and Host, not by this kernel.
 A shaft couples only coaxial parts whose axial spans touch or overlap. Two
 coaxial hubs or cogs also connect through their facing axle ends when their
 centers are exactly one construction cell (four grid units) apart along their
-shared axis. That connection carries the same signed rate and consumes no
-separate shaft. A greater gap or lateral offset does not connect them. Touching
+shared axis. A one-cell shaft also connects to an adjacent hub or cog at its
+facing tile boundary. These connections carry the same signed rate; the direct
+hub-to-hub or cog-to-hub contact consumes no separate shaft. A greater gap or lateral offset does not connect them. Touching
 shaft endpoints couple; a gap does not. Different gear axes or planes do not
 create an external spur mesh. Coplanar overlapping pitch disks refuse.
 

@@ -1053,7 +1053,8 @@ class ProductionConveyorArt:
 		belt.name = "ConveyorLoop"
 		belt.position.y = HEIGHT
 		belt.mesh = loop_mesh()
-		belt.material_override = material()
+		var source := material()
+		belt.material_override = source.duplicate() if source != null else null
 		belt.set_meta("detail_role", "ConveyorLoop")
 		parent.add_child(belt)
 
@@ -1518,6 +1519,7 @@ class ProductionPressTrayArt:
 class ProductionDriveJournalArt:
 	extends RefCounted
 	## Turned presentation inside the original native journal cylinder.
+	static var horizontal_press_mesh: ArrayMesh
 	static func mesh(height: float) -> ArrayMesh:
 		var half := height / 2.0
 		# Keep the full central bearing span. End relief and center marks are
@@ -1536,6 +1538,62 @@ class ProductionDriveJournalArt:
 
 	static func material() -> StandardMaterial3D:
 		return ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.38)
+
+	static func press_mesh() -> ArrayMesh:
+		if horizontal_press_mesh == null:
+			var surface := SurfaceTool.new()
+			surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+			# The inboard shoulder clears the original stamped-plate hardware;
+			# the outer cuff keeps the established attachment radius and plane.
+			var end_mesh := ProductionVisuals.turned_mesh(PackedVector2Array([
+				Vector2(0, -0.070), Vector2(0.014, -0.070), Vector2(0.028, -0.090),
+				Vector2(0.065, -0.090), Vector2(0.077, -0.078), Vector2(0.077, 0.050),
+				Vector2(0.078, 0.055), Vector2(0.085, 0.060), Vector2(0.085, 0.076),
+				Vector2(0.071, 0.090), Vector2(0.028, 0.090), Vector2(0.014, 0.070),
+				Vector2(0, 0.070)]))
+			# Preserve the two original external ends. The working body between
+			# them is not an exposed through-shaft across the anvil.
+			for side in [-1.0, 1.0]:
+				var basis := Basis(Vector3.RIGHT, PI) if side < 0 else Basis.IDENTITY
+				surface.append_from(end_mesh, 0, Transform3D(basis, Vector3(0, side * 0.585, 0)))
+			horizontal_press_mesh = surface.commit()
+		return horizontal_press_mesh
+
+	static func _press_fixed(parent: Node3D, name_value: String, role: String,
+			mesh_value: ArrayMesh, at: Vector3, basis_value: Basis = Basis.IDENTITY) -> void:
+		var part := MeshInstance3D.new()
+		part.name = name_value
+		part.position = at
+		part.basis = basis_value
+		part.mesh = mesh_value
+		part.material_override = ProductionTransmissionFinish.material("worked", Color("878d7f"), 0.85, 0.42) \
+			if role == "Bearing" else ProductionCollectorArt.coating(Color("58634c"))
+		part.set_meta("press_input_role", role)
+		parent.add_child(part)
+
+	static func mount_press_bearings(parent: Node3D, axis: Vector3) -> void:
+		var ring := ProductionVisuals.turned_mesh(PackedVector2Array([
+			Vector2(0.087, -0.010), Vector2(0.089, -0.015), Vector2(0.096, -0.015),
+			Vector2(0.100, -0.011), Vector2(0.100, 0.011), Vector2(0.096, 0.015),
+			Vector2(0.089, 0.015), Vector2(0.087, 0.010), Vector2(0.087, -0.010)]))
+		for side in [-1.0, 1.0]:
+			var suffix := "Left" if side < 0 else "Right"
+			var at: Vector3 = axis * float(side) * 0.66
+			_press_fixed(parent, "PressInputBearing" + suffix, "Bearing", ring,
+				at + Vector3.UP * Geometry.ANCHOR_HEIGHT, Basis(Quaternion(Vector3.UP, axis)))
+			if axis == Vector3.RIGHT:
+				# Rear brackets leave both the receiving pan and all original
+				# finished-plate pieces clear, without moving either interface.
+				_press_fixed(parent, "PressInputPost" + suffix, "Post",
+					ProductionVisuals.box_mesh(Vector3(0.10, 0.26, 0.12)),
+					at + Vector3(0, 0.37, -0.23))
+				_press_fixed(parent, "PressInputBracket" + suffix, "Bracket",
+					ProductionVisuals.box_mesh(Vector3(0.06, 0.08, 0.09)),
+					at + Vector3(0, 0.50, -0.135))
+			else:
+				_press_fixed(parent, "PressInputPost" + suffix, "Post",
+					ProductionVisuals.box_mesh(Vector3(0.12, 0.165, 0.10)),
+					at + Vector3.UP * 0.3225)
 
 class ProductionCollectorToolingArt:
 	extends RefCounted
@@ -3268,6 +3326,7 @@ var goal_label: Label
 var power_label: Label
 var inspector: Label
 var recovery_actions
+var loose_material_controls
 var transmission_controls
 var transmission_presenter
 var transmission_endpoint_cue
@@ -3636,7 +3695,7 @@ func issue(action: Dictionary) -> Dictionary:
 			"place_foundation": "Foundation placed. Its surface shares the machine grid.",
 			"place_foundations": "Foundation area placed on the world grid.",
 			"connect": "Material path connected.", "connect_drive": "Drive shaft connected.",
-			"retrieve": "Plate collected.", "set_power": "Drive updated.",
+			"retrieve": "Plate collected.", "pickup_raw": "Blank collected.", "set_power": "Drive updated.",
 			"remove": "Part returned to your carried kit.",
 			"disconnect": "Material connection removed.",
 			"disconnect_drive": "Drive shaft returned."}.get(action.action, "Done."))
@@ -3774,6 +3833,8 @@ func _animate_machine_bodies(delta: float) -> void:
 			if angle == float(anchor.get_meta("cutter_angle", NAN)):
 				continue
 			_apply_cutter_pose(anchor, rows, angle)
+		elif kind == "belt":
+			_apply_conveyor_motion(anchor, transmission_presenter.visual_rotation(id))
 		elif kind == "processor":
 			var target: Variant = _observed_press_target()
 			var generation: Variant = state.get("entities", {}).get(id, {}).get("generation")
@@ -3791,6 +3852,17 @@ func _animate_machine_bodies(delta: float) -> void:
 				continue
 			_apply_press_pose(rows, travel)
 			machine_press_poses[id].travel = travel
+
+func _apply_conveyor_motion(anchor: Node3D, rotation: float) -> void:
+	var loop := anchor.get_node_or_null("ConveyorLoop") as MeshInstance3D
+	if loop == null or not loop.material_override is StandardMaterial3D:
+		return
+	var length_value := 4.0 * ProductionConveyorArt.HALF_SPAN + TAU * ProductionConveyorArt.RADIUS
+	var repeats := maxi(1, roundi(length_value / ProductionConveyorArt.SOURCE_METRES))
+	# The top profile runs toward +X as UV increases. Positive +Z shaft
+	# rotation carries the top toward -X, so the texture offset increases.
+	var offset := fposmod(rotation * ProductionConveyorArt.RADIUS * repeats / length_value, 1.0)
+	loop.material_override.uv1_offset = Vector3(offset, 0, 0)
 
 func _sync_machine_body_context() -> void:
 	var context: Variant = state.get("context")
@@ -3911,7 +3983,7 @@ func _select_tool(tool: String) -> void:
 	foundation_area_started = false
 	pending_link = ""
 	if _native_transmission() and transmission_controls != null and tool in ["gear", "drive"]:
-		transmission_controls.choose_tool("gear" if tool == "gear" else "shaft")
+		transmission_controls.choose_tool("gear" if tool == "gear" else "place_shaft")
 	_update_cursor()
 	_refresh_ui()
 	var instructions := {"flow": "Click the upstream machine, then its neighbor toward the brass arrow.",
@@ -3922,7 +3994,7 @@ func _select_tool(tool: String) -> void:
 	if _native_transmission():
 		instructions["collector"] = "Place the collector at the exposed mineral seam."
 		instructions["flow"] = "Choose the upstream machine, then its neighbor at the material outlet."
-		instructions["drive"] = "Choose a machine or cogwheel, then its partner. The amber ring marks the first endpoint."
+		instructions["drive"] = "Place a shaft at the highlighted grid point. Set its axis, height and length in the cogwheel and shaft menu."
 		instructions["gear"] = "Place a cogwheel at the highlighted point. Set axis and height in the cogwheel menu."
 		instructions["foundation"] = "Place foundations through ground and scenery. Page Up / Page Down move one quarter-height step. Enable Area to choose two corners; Esc cancels."
 	_message(instructions.get(tool,
@@ -4041,7 +4113,7 @@ func _set_lesson(index: int) -> void:
 	lesson_title.text = LESSONS[lesson_index][0]
 	lesson_body.text = LESSONS[lesson_index][1]
 	if lesson_index == 1 and _native_transmission():
-		lesson_body.text = "Place the waterwheel in the stream with its lower rim wet and clear of the bed. Set its diameter and height, and choose an axle across the current. Use cogs and shafts to connect the wheel to your machines; flow speed and direction determine its rotation."
+		lesson_body.text = "Place the waterwheel in the stream with its lower rim wet and clear of the bed. Set its diameter, height and axle. Choose Shaft and place segments at the highlighted grid points; set axis, height and length in the cogwheel and shaft menu. Aligned parts carry rotation."
 	if example_presenter != null:
 		example_presenter.set_lesson(lesson_index)
 
@@ -4343,7 +4415,7 @@ func _spindle_rotation(axis: Vector3) -> Vector3:
 		return Vector3.ZERO
 	return Vector3(0, 0, PI / 2) if axis == Vector3.RIGHT else Vector3(PI / 2, 0, 0)
 
-func _machine_drive_stub(anchor: Node3D, entity: Dictionary) -> void:
+func _machine_drive_stub(anchor: Node3D, entity: Dictionary, press_input: bool = false) -> void:
 	if state.get("options", {}).get("native", false):
 		var axis := _machine_axis(entity)
 		# The vertical stub stays above the base inside the same pick envelope.
@@ -4352,9 +4424,12 @@ func _machine_drive_stub(anchor: Node3D, entity: Dictionary) -> void:
 		journal.name = "DriveStub"
 		journal.position = Vector3(0, Geometry.ANCHOR_HEIGHT, 0)
 		journal.rotation = _spindle_rotation(axis)
-		journal.mesh = ProductionDriveJournalArt.mesh(height)
+		var horizontal_press := press_input and axis != Vector3.UP
+		journal.mesh = ProductionDriveJournalArt.press_mesh() if horizontal_press else ProductionDriveJournalArt.mesh(height)
 		journal.material_override = ProductionDriveJournalArt.material()
 		anchor.add_child(journal)
+		if horizontal_press:
+			ProductionDriveJournalArt.mount_press_bearings(anchor, axis)
 	else:
 		_machine_cylinder(anchor, "DriveStub", Vector3(0, 0.35, 0.55), 0.085, 0.18,
 			Color("b87945"), Vector3(PI / 2, 0, 0))
@@ -4498,7 +4573,7 @@ func _press_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	var tray := _machine_box(anchor, "OutputTray", Vector3(0.46, 0.33, 0.15), Vector3(0.48, 0.05, 0.58), Color("aaa993"), 0.85, 0.5)
 	if _native_transmission():
 		ProductionPressTrayArt.mount(anchor, tray)
-	_machine_drive_stub(anchor, entity)
+	_machine_drive_stub(anchor, entity, true)
 	for x in [-0.48, 0.48]:
 		_machine_cylinder(anchor, "BridgeBolt", Vector3(x, 1.5, -0.1075), 0.035, 0.025,
 			steel, Vector3(PI / 2, 0, 0))
@@ -4623,6 +4698,8 @@ func _rebuild_machines() -> void:
 		anchor.set_meta("motion_meshes", motion_meshes)
 		if kind == "collector" and transmission_presenter != null:
 			_apply_cutter_pose(anchor, motion_meshes, transmission_presenter.visual_angle(entity_id))
+		elif kind == "belt" and transmission_presenter != null:
+			_apply_conveyor_motion(anchor, transmission_presenter.visual_rotation(entity_id))
 		elif kind == "processor" and _native_transmission():
 			var target: Variant = _observed_press_target()
 			var generation: Variant = entity.get("generation")
@@ -4722,7 +4799,7 @@ func _refresh_ui() -> void:
 		button.disabled = explanation_open or unavailable
 		button.button_pressed = mode == tool
 		if transmission_controls != null and not transmission_controls.active_tool.is_empty():
-			button.button_pressed = tool == "drive" and transmission_controls.active_tool == "shaft"
+			button.button_pressed = tool == "drive" and transmission_controls.active_tool == "place_shaft"
 		if NAMES.has(tool):
 			button.text = "%s    ·    %d %s" % [NAMES[tool], int(parts.get(tool, 0)), part_scope]
 	tool_buttons.foundation.visible = state.get("options", {}).get("foundations", false)
@@ -4756,6 +4833,8 @@ func _refresh_ui() -> void:
 	_refresh_guided_tools()
 	if recovery_actions != null:
 		recovery_actions.refresh()
+	if loose_material_controls != null:
+		loose_material_controls.refresh()
 
 func _toggle_all_tools() -> void:
 	if not explanation_open:
@@ -4823,7 +4902,7 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	power_button.visible = show_all_tools or kinds.has("wheel")
 	controls_label.text = "WASD walk · Space jump · Right-drag view · Wheel zoom · H help"
 	if show_all_tools:
-		controls_label.text = "WASD walk · Space jump · P wheel · 1–4 build · F / G links · I inspect · H help"
+		controls_label.text = "WASD walk · Space jump · P wheel · 1–4 build · F material · G shaft · I inspect · H help" if _native_transmission() else "WASD walk · Space jump · P wheel · 1–4 build · F / G links · I inspect · H help"
 	_refresh_engineering(snapshot_ready)
 	# Introduce inspection when it can help. Keep waiting notices and explicit
 	# disclosure available even before the first machine has been built.
@@ -5010,9 +5089,13 @@ func _guided_step(kinds: Dictionary) -> Dictionary:
 			var part: Dictionary = state.entities[id]
 			if part.get("kind", "") in ["collector", "belt", "processor"] and motion.get(id, {}).get("state", "") != "rotating":
 				return {"text": "Use cogs and shafts to bring rotation to each machine. The belt shaft crosses its direction of travel.", "tool": "drive"}
+			if part.get("kind", "") == "belt" and motion.get(id, {}).get("state", "") == "rotating" and int(motion.get(id, {}).get("numerator", 0)) > 0:
+				return {"text": "The belt is carrying blanks away from the press. Change the cog route to reverse its rotation; pick up loose blanks from the worksite menu.", "tool": "drive"}
 	elif not state.get("powered", false):
 		return {"text": "Bring power to the line. Help [H] shows the current setup.", "tool": "drive"}
 	var stock: Dictionary = state.get("stock", {})
+	if _native_transmission() and not state.get("dropped_raw", []).is_empty() and int(stock.get("source", 0)) + int(stock.get("collector", 0)) + int(stock.get("belt", 0)) + int(stock.get("input", 0)) + int(stock.get("held", 0)) == 0:
+		return {"text": "Pick up loose blanks from the worksite menu, then insert them into the press.", "tool": "inspect"}
 	if int(stock.get("source", 0)) + int(stock.get("collector", 0)) + int(stock.get("belt", 0)) + int(stock.get("input", 0)) + int(stock.get("held", 0)) == 0:
 		if _native_transmission():
 			var cargo: Dictionary = state.get("cargo", {}).get(client, {})
@@ -5096,7 +5179,7 @@ func _update_cursor() -> void:
 				hover.basis = transmission_presenter.axis_basis(["x", "y", "z"].find(transmission_controls.selected_axis))
 		return
 	hover.basis = Basis.IDENTITY
-	hover.visible = _build_cell_allowed(hover_cell) and not explanation_open
+	hover.visible = mode != "inspect" and _build_cell_allowed(hover_cell) and not explanation_open
 	if hover.visible:
 		hover.position = _cell_position([hover_cell.x, hover_cell.y]) + Vector3(0, 0.03 + _construction_level(hover_cell) * Geometry.HEIGHT_STEP, 0)
 
@@ -5260,6 +5343,9 @@ func _build_interface() -> void:
 		recovery_actions = recovery_script.new()
 		right.add_child(recovery_actions)
 		recovery_actions.configure(self)
+	loose_material_controls = load("res://opening/recovery_actions.gd").LooseMaterialControls.new()
+	right.add_child(loose_material_controls)
+	loose_material_controls.configure(self)
 	right.add_child(HSeparator.new())
 	save_button = _button(right, "Save worksite  [F5]", _save_worksite)
 	load_button = _button(right, "Load worksite  [F9]", _load_worksite)
@@ -5272,7 +5358,7 @@ func _build_interface() -> void:
 	bottom_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	status_label = _label(bottom, "", 16)
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	controls_label = _label(bottom, "1–4 build  ·  F material / G drive  ·  Right-drag orbit  ·  Wheel zoom  ·  WASD pan  ·  Home recenter" if legacy_fixture else "WASD walk · Space jump · P wheel · 1–4 build · F / G links · Right-drag orbit · Wheel zoom · H help", 12, Color("9eb4b2"))
+	controls_label = _label(bottom, "1–4 build  ·  F material / G drive  ·  Right-drag orbit  ·  Wheel zoom  ·  WASD pan  ·  Home recenter" if legacy_fixture else "WASD walk · Space jump · P wheel · 1–4 build · F material · G shaft · Right-drag orbit · Wheel zoom · H help", 12, Color("9eb4b2"))
 	bottom_panel.minimum_size_changed.connect(_queue_footer_fit)
 	bottom_panel.resized.connect(_queue_footer_fit)
 	var lesson_column := _panel(root, Vector2(346, 18), Vector2(600, 192))

@@ -75,6 +75,7 @@ func evaluate() -> Dictionary:
 		"machines_placed": 0,
 		"rotating_machines": 0,
 		"machines_running": false,
+		"belt_forward": false,
 		"machine_rates": {},
 		"placed_gears": 0,
 		"placed_shafts": 0,
@@ -106,6 +107,7 @@ func evaluate() -> Dictionary:
 	var collector_row := -999
 	var machines_placed := 0
 	var rotating_machines := 0
+	var belt_forward := false
 	var all_machines_on_target_row := true
 	var machine_rates := {}
 	var any_stalled := false
@@ -146,6 +148,8 @@ func evaluate() -> Dictionary:
 				return unavailable
 			if m_state == "rotating":
 				rotating_machines += 1
+			if kind == "belt":
+				belt_forward = m_state == "rotating" and _int_or(m.get("numerator"), 0) < 0 and _int_or(m.get("denominator"), 0) > 0
 			machine_rates[str(id)] = {
 				"state": str(m_state),
 				"numerator": _int_or(m.get("numerator"), 0),
@@ -206,7 +210,7 @@ func evaluate() -> Dictionary:
 		phase = "first_shift"
 	elif not source_at_target:
 		phase = "move_source"
-	elif not machines_running:
+	elif not machines_running or not belt_forward:
 		phase = "restore_drive"
 	elif products < FINAL_TARGET:
 		phase = "deliver_more"
@@ -244,7 +248,10 @@ func evaluate() -> Dictionary:
 				target_wheel_cell.x, target_wheel_cell.y
 			]
 	elif phase == "restore_drive":
-		if any_stalled:
+		if machines_running and not belt_forward:
+			diagnostic_code = "reverse_belt"
+			diagnostic_text = "The belt is carrying blanks away from the press. Change the cog route to reverse its rotation, and recover loose blanks."
+		elif any_stalled:
 			diagnostic_code = "stalled_transmission"
 			diagnostic_text = "Transmission stalled: remove the conflicting parallel shaft or gear loop so each machine has a single consistent ratio."
 		elif machines_placed < 3:
@@ -291,6 +298,7 @@ func evaluate() -> Dictionary:
 		"machines_placed": machines_placed,
 		"rotating_machines": rotating_machines,
 		"machines_running": machines_running,
+		"belt_forward": belt_forward,
 		"machine_rates": machine_rates,
 		"placed_gears": placed_gears,
 		"placed_shafts": placed_shafts,

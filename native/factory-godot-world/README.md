@@ -74,6 +74,8 @@ terrain. These remain prototype contact shapes.
 
 The physical checkpoint has schema 3 and format `factory-native-physical`. Its
 logical World checkpoint has schema 2, including the trusted interaction offset.
+Its material payload has schema 3, including loose blanks; older material
+payloads are refused rather than migrated.
 It retains typed material, kits, topology, issued identities, original history and
 actor seed positions. Native readiness, epochs, object identifiers and velocity
 are process-local and are not saved. Restore requires a fresh unobserved Host;
@@ -250,6 +252,7 @@ existing World planner, finite kit and two-endpoint reach checks.
 | `connect_drive` | Existing `from` and `to` identifiers | Consume a carried shaft that actually spans the two endpoints. |
 | `disconnect_drive` | Existing `from` and `to` identifiers | Return the matching shaft through the same World removal planner. |
 | `remove` | Existing `entity` identifier | Remove a selected individual gear or machine, preserving custody rules. |
+| `pickup_raw` | `center: [int, int, int]` | Collect the loose blank stack at a reach-checked world grid point into the bound actor's cargo. |
 
 One grid unit is `pitch / 4`, currently 0.4125 world units. Map a center to
 `center * pitch / 4 + [0, anchor_height, 0]`. The axis is the rotation axis,
@@ -274,12 +277,13 @@ Its unit tests cover running removal and rebuilding, the finite kit, historical
 retries and typed checkpoint restore. The site and actor observations are
 synthetic inputs, not physical gameplay evidence.
 
-Current material stepping treats either rotating direction as powered and does
-not scale production by angular rate. The signed motion is real kinematic output,
-but directional transport and rate-dependent throughput remain separate work.
-The same checkpoint format remains in use. Cell commands
-retain their default orientation, and old receipts replay before present geometry
-or pose checks. No second material owner, fallback or checkpoint migration is added.
+Negative Z-axis belt rotation moves blanks toward the press. Positive rotation
+moves them to a loose stack at the opposite end; a stopped belt holds its blank.
+Loose stacks persist in the material owner and can be picked up after removing
+the belt. They are represented at a fixed grid point, without gravity or a
+general dropped-item physics simulation. Belt throughput remains a fixture
+step, not a continuous speed model. Cell commands retain their default
+orientation, and original receipts replay before present geometry or pose checks.
 
 `opening/native_cog_check.gd` adds a headless integration consumer of the ordinary
 scene's command boundary, using real ActorWorld cuts and a fresh Store reopen.
