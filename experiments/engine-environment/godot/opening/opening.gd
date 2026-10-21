@@ -4026,6 +4026,26 @@ func _belt_pulley_target(entity_id: String, hit_position: Vector3) -> Array:
 func _transmission_snap_target(entity_id: String, normal: Vector3, eye: Vector3) -> Array:
 	# Pick bodies identify confirmed construction. Use their common grid height
 	# when following surfaces; the menu can still choose an absolute air level.
+	if transmission_controls.active_tool in ["place_shaft", "gear"]:
+		var part: Variant = state.get("transmission_parts", {}).get(entity_id)
+		if part is Dictionary and part.get("kind") in ["shaft", "gear"]:
+			var center: Variant = part.get("center")
+			if not center is Array or center.size() != 3 or not normal.is_finite():
+				return []
+			for coordinate: Variant in center:
+				if typeof(coordinate) != TYPE_INT or coordinate % 4 != 0:
+					return []
+			var axis := 0
+			for candidate in [1, 2]:
+				if absf(normal[candidate]) > absf(normal[axis]):
+					axis = candidate
+			if absf(normal[axis]) < 0.5:
+				return []
+			var adjacent: Array = center.duplicate()
+			adjacent[axis] += 4 if normal[axis] > 0.0 else -4
+			transmission_controls.snapped_height = adjacent[1]
+			adjacent[1] = adjacent[1] if transmission_controls.auto_height else transmission_controls.gear_height
+			return adjacent
 	var surface: Dictionary = state.get("foundations", {}).get(entity_id, {})
 	if not surface.is_empty():
 		var level: int = int(surface.get("level", 0))

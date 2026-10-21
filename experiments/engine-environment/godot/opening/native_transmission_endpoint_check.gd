@@ -2,6 +2,7 @@ extends SceneTree
 ## Detached callbacks over invented projections and a request sink, never a game.
 const Controls = preload("res://opening/native_transmission_controls.gd")
 const Geometry = preload("res://opening/site_geometry.gd")
+const Presenter = preload("res://opening/native_transmission_presenter.gd")
 
 class OfflineHarness:
 	extends "res://opening/opening.gd"
@@ -230,7 +231,94 @@ func check_raised_pointer() -> void:
 	view._transmission_center(slope_screen)
 	view.transmission_controls._height_selected(1)
 	verify(view._transmission_center(slope_screen) == [32, 12, 0], "An explicit height overrides the belt's surface height.")
+	view.transmission_controls._height_selected(2)
+	view.state.transmission_parts["raised-shaft"] = {"kind": "shaft", "axis": 1, "center": [64, 8, 0]}
+	view.state.transmission_parts["raised-cog"] = {"kind": "gear", "axis": 2, "center": [80, 8, 0]}
+	var shaft_position := Vector3(16 * Geometry.PITCH, 2 * Geometry.PITCH + Geometry.ANCHOR_HEIGHT, 0)
+	var cog_position := Vector3(20 * Geometry.PITCH, 2 * Geometry.PITCH + Geometry.ANCHOR_HEIGHT, 0)
+	pick_body(view, "raised-shaft", shaft_position, Vector3(0.3, Geometry.PITCH, 0.3), Vector3.ZERO)
+	pick_body(view, "raised-cog", cog_position, Vector3(Geometry.PITCH, Geometry.PITCH, 0.2), Vector3.ZERO)
+	await physics_frame
+	view.transmission_controls.selected_axis = "y"
+	view.camera.position = shaft_position + Vector3(0.2, 5, 0)
+	view.camera.look_at(shaft_position)
+	var shaft_screen := view.camera.unproject_position(shaft_position)
+	var shaft_target: Array = view._transmission_center(shaft_screen)
+	verify(shaft_target == [64, 12, 0], "The top face of an elevated shaft targets the adjacent upper global tile.")
+	view._transmission_click(shaft_target, "raised-shaft")
+	verify(view.requests.back() == {"action": "place_shaft", "center": [64, 12, 0], "axis": "y", "half_span": 2},
+		"The upper shaft request retains its selected axle and global tile.")
+	view.transmission_controls.choose_tool("gear")
+	view.transmission_controls.selected_axis = "z"
+	view.camera.position = cog_position + Vector3(0, 0, 5)
+	view.camera.look_at(cog_position)
+	var cog_screen := view.camera.unproject_position(cog_position)
+	var cog_target: Array = view._transmission_center(cog_screen)
+	verify(cog_target == [80, 8, 4], "The face of an elevated cog targets the neighboring global tile.")
+	view._transmission_click(cog_target, "raised-cog")
+	verify(view.requests.back() == {"action": "place_gear", "center": [80, 8, 4], "axis": "z", "teeth": 2},
+		"The adjacent cog request retains its selected axle and global tile.")
+	for face in [
+		{"normal": Vector3.RIGHT, "target": [84, 8, 0]}, {"normal": Vector3.LEFT, "target": [76, 8, 0]},
+		{"normal": Vector3.UP, "target": [80, 12, 0]}, {"normal": Vector3.DOWN, "target": [80, 4, 0]},
+		{"normal": Vector3.BACK, "target": [80, 8, 4]}, {"normal": Vector3.FORWARD, "target": [80, 8, -4]}]:
+		verify(view._transmission_snap_target("raised-cog", face.normal, Vector3.ZERO) == face.target,
+			"Each cog face selects its neighboring global tile.")
+	view.transmission_controls.auto_height = false
+	view.transmission_controls.gear_height = -4
+	verify(view._transmission_snap_target("raised-cog", Vector3.RIGHT, Vector3.ZERO) == [84, -4, 0],
+		"An explicit height overrides the part face without changing its horizontal tile.")
+	verify(view.state.transmission_parts["raised-cog"].center == [80, 8, 0], "Pointer targeting leaves the confirmed cog unchanged.")
 	view.queue_free()
+
+func check_actual_belt_pointer() -> void:
+	for path in [
+		{"axis": 2, "first": [0, 8, 0], "last": [8, 8, 0], "middle": [4, 8, 0]},
+		{"axis": 2, "first": [0, 8, 0], "last": [8, 16, 0], "middle": [4, 12, 0]},
+		{"axis": 0, "first": [0, 16, 0], "last": [0, 8, 8], "middle": [0, 12, 4]},
+		{"axis": 2, "first": [0, 8, 0], "last": [0, 16, 0], "middle": [0, 12, 0]},
+		{"axis": 1, "first": [0, 8, 0], "last": [8, 8, 0], "middle": [4, 8, 0]}]:
+		var view := OfflineHarness.new()
+		root.add_child(view)
+		mount(view)
+		view.state.entities = {}
+		view.state.transmission_parts = {
+			"first": {"kind": "shaft", "generation": 1, "center": path.first, "axis": path.axis, "half_span": 2},
+			"last": {"kind": "shaft", "generation": 2, "center": path.last, "axis": path.axis, "half_span": 2}}
+		view.state.belt_spans = {"belt": {"generation": 3, "from": "first", "to": "last"}}
+		view.transmission_controls.choose_tool("place_shaft")
+		view.transmission_controls.selected_axis = ["x", "y", "z"][path.axis]
+		view.camera = Camera3D.new()
+		view.add_child(view.camera)
+		view.camera.make_current()
+		var presenter := Presenter.new()
+		view.add_child(presenter)
+		presenter.configure(view)
+		await physics_frame
+		await physics_frame
+		var belt: Node3D
+		for child: Node in presenter.get_children():
+			if child.get_meta("entity", "") == "belt":
+				belt = child
+		if belt == null:
+			verify(false, "The confirmed belt has a real presenter pick body.")
+			view.queue_free()
+			await process_frame
+			continue
+		var point := Presenter.world_center(path.middle)
+		var normal: Vector3 = belt.get_node("BeltLoop").basis.y
+		view.camera.position = point + normal * 3.0
+		view.camera.look_at(point, Vector3.FORWARD if absf(normal.y) > 0.9 else Vector3.UP)
+		var screen := view.camera.unproject_position(point)
+		verify(view._screen_entity(screen) == "belt", "A passive ray reaches the actual belt picker.")
+		var target: Array = view._transmission_center(screen)
+		verify(target == path.middle, "The actual belt picker selects its middle global tile.")
+		view._transmission_click(target, "belt")
+		verify(view.requests.back() == {"action": "place_shaft", "center": path.middle,
+			"axis": ["x", "y", "z"][path.axis], "half_span": 2},
+			"The resulting pulley request preserves the path tile and axle.")
+		view.queue_free()
+		await process_frame
 
 func _initialize() -> void:
 	call_deferred("_run")
@@ -241,5 +329,6 @@ func _run() -> void:
 		check_direct_shaft_entry(false)
 		check_direct_shaft_entry(true)
 		await check_raised_pointer()
+		await check_actual_belt_pointer()
 	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks, "failures": failures, "evidence": "isolated_shaft_tile_controls_and_pointer", "models": 0, "desktop_operations": 0}))
 	quit(0 if failures == 0 else 1)
