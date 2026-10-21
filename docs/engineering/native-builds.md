@@ -130,6 +130,17 @@ the new Bazel graph or its cache behavior.
 
 ## Incremental results and acceptance
 
+### Delivering native gameplay changes to the human demo
+
+Use `./scripts/build-gameplay.sh`, backed by the locally pinned native
+[`factory-gameplay-build`](../../native/gameplay-build/README.md), for the
+successful-build installation step. It runs the canonical World build through
+the existing bounded runner, then installs a source-matching immutable library
+and atomically refreshes the human launcher's library path, hash and source pin.
+Failed builds leave the previous installation intact. The stale-library guard
+remains active; this command does not launch the game or replay tests. A plain
+Bazel build still only produces artifacts.
+
 Do not clean the output tree for every change. Bazel uses declared source,
 header, dependency and command inputs to decide which actions to repeat.
 Public headers are explicit library inputs, and test sources are separate from

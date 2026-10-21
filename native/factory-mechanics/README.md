@@ -1,10 +1,9 @@
 # Geometric transmission kernel
 
-This unadopted C++ component prepares the individually placed cogwheel requirement.
-It derives engagement from actual part geometry. It accepts no user-supplied edge
-list and owns no world, stock, kit, request history, phase clock or save file.
-The current ordinary opening still uses its original authority. This library is
-not yet an ordinary construction or native-body witness.
+This C++ component derives engagement from actual part geometry. The native
+stationary topology evaluates it for the World used by the opening. The kernel
+accepts no user-supplied edge list and owns no world, stock, kit, request history,
+phase clock or save file. Its tests alone are not a native-body witness.
 
 ## Geometry and signed motion
 
@@ -13,9 +12,9 @@ a canonical positive X, Y or Z axis. Gears additionally have a tooth count;
 shafts have an axial half-span. Other shape fields must be zero.
 
 The pitch unit is an explicit profile unit, with pitch radius equal to tooth
-count. Equivalently, one unit is half the selected module. The future authority
-must record its physical unit scale and construction snapping before adoption;
-the library does not round engine coordinates or choose a permanent game scale.
+count. Equivalently, one unit is half the selected module. The World supplies
+its construction geometry; the library does not round engine coordinates or
+choose a permanent game scale.
 
 Parallel-axis gears engage only in the same axial plane and at exactly the sum
 of their pitch radii. Their signed relation is minus the first tooth count
@@ -38,7 +37,8 @@ transmit at equal speed; the signed rate is the same when the two axial offsets
 have equal signs and reversed otherwise. This follows the corner relation in
 [Create's rotation propagator](https://github.com/Creators-of-Create/Create/blob/mc1.21.1/dev/src/main/java/com/simibubi/create/content/kinetics/RotationPropagator.java).
 This is a discrete gameplay connection, not a calculation of physical tooth
-contact, and does not itself add large cogs to the opening's carried kit.
+contact. The opening's finite kit and construction rules are owned by the World
+and Host, not by this kernel.
 
 A shaft couples only coaxial parts whose axial spans touch or overlap. A hub or
 gear has a point hub for this coupling. Two gears or hubs do not couple merely
@@ -54,26 +54,24 @@ torque distribution, native contact, inertia or a new damage rule.
 
 ## Authority and presentation interface
 
-The future single authority owns placements and registered source rates, calls
-evaluate, and retains its actual accepted geometry and derived result. It must
-still perform finite-kit accounting, actor/reach admission, request replay and
-atomic commit. Construction can validate a candidate without changing the live
-world. No scene node or client can insert a transmission edge through this API.
+The native World owns placements and registered source rates; stationary
+topology evaluates their geometry through this kernel. World and Host perform
+finite-kit accounting, actor/reach admission, request replay and atomic commit.
+Construction can validate a candidate without changing the live world. No scene
+node or client can insert a transmission edge through this API.
 
-Chapter's view can render the same centers, axes, tooth counts and shaft spans,
+The view can render the same centers, axes, tooth counts and shaft spans,
 with engagement kind and exact signed rate from the authority. Assets must match
 those facts. Rotation phase is deliberately absent here: the authority must own
 and publish it before motion is claimed. Cosmetic interpolation cannot advance
 material or decide whether a mechanism transmits.
 
-The existing arbitrary drive-link representation remains historical input to
-migration, not the requested new cogwheel authority. Native integration must
-agree typed recovery, topology and part custody with the running-edit work.
-This package does not silently migrate old saves or discard their links.
+This package does not own recovery, topology or part custody and does not
+silently migrate old saves or discard their links.
 
 ## Bounds and validation
 
-This first adapter accepts at most 256 parts, identifiers of 1 to 128 bytes
+This kernel accepts at most 256 parts, identifiers of 1 to 128 bytes
 without null bytes, coordinates within plus or minus 1,000,000 pitch units,
 and tooth counts/shaft half-spans from 1 to 4,096. Shaft endpoints must also
 remain in bounds. These keep squared geometry arithmetic exact in signed
@@ -100,10 +98,8 @@ Bazel is canonical. The explicit targets are
 `//native/factory-mechanics:mechanics_test`, using the Ops-owned root/toolchain.
 No competing root workspace or CMake entry point is added. Follow the existing
 [admission contract](../../docs/engineering/local-resources.md) and
-[native migration contract](../../docs/engineering/native-migration.md) while the
-reviewed canonical workspace is available. Do not run this source with an
-unreviewed toolchain/cache or bypass the current mandatory gates.
+[native migration contract](../../docs/engineering/native-migration.md), including
+the current mandatory checks.
 
-The tests are invented independent kinematic fixtures, not engine, ordinary
-input, shared-play or save evidence. Source preparation grants no native run.
-Exact source and any later declared original result belong in the owning Bead.
+The kernel tests use invented kinematic fixtures; they are not engine, ordinary
+input, shared-play or save evidence. Those consumers require their own checks.

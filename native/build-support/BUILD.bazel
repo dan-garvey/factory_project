@@ -6,7 +6,7 @@ cc_library(
     name = "runner",
     srcs = ["runner.cpp"],
     hdrs = ["runner.hpp"],
-    visibility = ["//native/factory-launch:__pkg__"],
+    visibility = ["//native/factory-launch:__pkg__", "//native/gameplay-build:__pkg__"],
 )
 
 cc_binary(

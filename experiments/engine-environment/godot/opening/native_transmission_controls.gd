@@ -123,6 +123,15 @@ func _count(context: Dictionary, kind: String, teeth: int, span: int) -> int:
 			return amount if typeof(amount) == TYPE_INT and amount >= 0 else 0
 	return 0
 
+func _shaft_count(context: Dictionary) -> int:
+	var total := 0
+	for entry: Variant in context.kit:
+		if entry is Dictionary and entry.get("kind") == "shaft" and typeof(entry.get("teeth")) == TYPE_INT and entry.teeth == 0 \
+			and typeof(entry.get("half_span")) == TYPE_INT and entry.half_span > 0 \
+			and typeof(entry.get("count")) == TYPE_INT and entry.count > 0:
+			total += entry.count
+	return total
+
 func refresh() -> void:
 	var context := _context()
 	visible = not context.is_empty()
@@ -131,7 +140,7 @@ func refresh() -> void:
 		_first.clear()
 		return
 	var gears := _count(context, "gear", gear_teeth, 0)
-	var shafts := _count(context, "shaft", 0, 2)
+	var shafts := _shaft_count(context)
 	var menu := get_popup()
 	menu.set_item_text(0, "Place cogwheel · %d carried" % gears)
 	menu.set_item_text(1, "Connect shaft · %d carried" % shafts)
@@ -228,7 +237,7 @@ func handle_world_click(center: Array, entity_id: String) -> bool:
 		else:
 			_submit(context, {"action": "remove", "entity": entity_id})
 		return true
-	if part.get("kind") == "shaft" or (active_tool == "shaft" and _count(context, "shaft", 0, 2) == 0):
+	if part.get("kind") == "shaft" or (active_tool == "shaft" and _shaft_count(context) == 0):
 		_first.clear()
 		_feedback("Choose two machine or cogwheel endpoints and carry an available shaft.")
 		return true
