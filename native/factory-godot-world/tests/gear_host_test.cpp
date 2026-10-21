@@ -967,6 +967,30 @@ void forward_belt_route() {
           "The height transfer and corner cogs drive the belt forward within the finite kit; wheel=" +
           std::to_string(wheel_rate) + ", belt=" + std::to_string(belt_rate) + ".");
 }
+void cog_at_belt_face() {
+    for (const I direction : {I{-1}, I{1}}) {
+        for (const bool cog_first : {false, true}) {
+            Host host;
+            check(accepted(host.initialize("cog-api", {"P"})) &&
+                  accepted(host.configure_terrain(factory::godot_world::tests::flat_site())), "The face contact Host starts.");
+            observe(host, 0, -1.65, 1);
+            const auto first = create(host, shaft(0, 0, 0, "face-first"));
+            observe(host, direction * 3.3, -1.65, 2);
+            const auto last = create(host, shaft(direction * 8, 0, 0, "face-last"));
+            auto belt = wire("place_belt_span", "face-belt");
+            belt.emplace("from", V(first)); belt.emplace("to", V(last));
+            auto cog = gear(direction * 12, 0, 0, "face-cog", "x");
+            observe(host, direction * 2.5, -1.65, 3);
+            if (cog_first) { create(host, cog); create(host, belt); }
+            else { create(host, belt); create(host, cog); }
+            const auto overlap = host.command("P", gear(direction * 4, 0, 0, "overlap-cog", "x"));
+            check(!accepted(overlap) && field<std::string>(overlap, "reason") == "occupied", "A cog with real overlap still cannot occupy the belt.");
+            const auto checkpoint = host.checkpoint();
+            check(accepted(host.validate_checkpoint(checkpoint)), "Tile-face contact remains valid on restore.");
+        }
+    }
+}
+
 void cog_axle_actor_clearance() {
     const std::array<std::string, 3> axes{"x", "y", "z"};
     for (std::size_t axis = 0; axis < axes.size(); ++axis) {
@@ -1031,7 +1055,7 @@ int main(int argc, char** argv) {
             return 0;
         }
         if (argc == 1) {
-            finite_oriented_train_and_restore(); adjacent_axle_faces(); refusals_and_legacy_shape(); cog_axle_actor_clearance();
+            finite_oriented_train_and_restore(); adjacent_axle_faces(); refusals_and_legacy_shape(); cog_axle_actor_clearance(); cog_at_belt_face();
             global_grid(); finite_large_cog(); perpendicular_belt_line(); belt_spindle_orientation(); typed_loose_host(); belt_span_host_commands(); nonhorizontal_span_host(); complete_span_route_host(); rotated_belt_host(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
         } else if (argc != 2 || std::string(argv[1]) != "--placement-alias-only") {
             throw std::runtime_error("Expected no arguments or --placement-alias-only.");

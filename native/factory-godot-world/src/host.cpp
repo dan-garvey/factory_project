@@ -52,8 +52,15 @@ Bounds foundation_bounds(const world::Foundation& foundation) {
 }
 
 bool overlap(const Bounds& a, const Bounds& b) {
-    for (std::size_t axis = 0; axis < 3; ++axis)
-        if (std::abs(a.center[axis] - b.center[axis]) >= a.half[axis] + b.half[axis]) return false;
+    for (std::size_t axis = 0; axis < 3; ++axis) {
+        const auto distance = std::abs(a.center[axis] - b.center[axis]);
+        const auto extent = a.half[axis] + b.half[axis];
+        // Grid faces computed from different tile coordinates can differ by a
+        // few floating-point ulps. Contact is not volume overlap.
+        const auto roundoff = 8 * std::numeric_limits<double>::epsilon() *
+            std::max({1.0, std::abs(a.center[axis]), std::abs(b.center[axis]), extent});
+        if (distance >= extent - roundoff) return false;
+    }
     return true;
 }
 
