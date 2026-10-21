@@ -21,7 +21,14 @@ cc_library(
     srcs = ["src/host.cpp"],
     hdrs = ["include/factory/godot_world.hpp"],
     strip_include_prefix = "include",
-    deps = ["//native/factory-world:checkpoint"],
+    deps = ["//native/factory-world:checkpoint", "//native/mineral-site:mineral_site"],
+)
+
+cc_test(
+    name = "mineral_host_test",
+    srcs = ["tests/mineral_host_test.cpp"],
+    deps = [":test_site", "//native/mineral-site:mineral_site"],
+    size = "medium",
 )
 
 cc_binary(

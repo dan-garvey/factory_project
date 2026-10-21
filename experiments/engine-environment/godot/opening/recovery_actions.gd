@@ -21,7 +21,15 @@ func configure(host: Object) -> void:
 func refusal_text(outcome: Dictionary) -> String:
 	# Only explain a definitive native refusal. Transport uncertainty and the
 	# historical scripted profile keep the view's original feedback.
-	if typeof(outcome.get("accepted")) != TYPE_BOOL or outcome.accepted or outcome.get("reason") != "occupied_target":
+	if typeof(outcome.get("accepted")) != TYPE_BOOL or outcome.accepted:
+		return ""
+	var explanations := {
+		"occupied_target": "Use the material menu to recover its contents, then dismantle the machine.",
+		"collector_below_source": "Raise the collector above the mineral surface, using a foundation if needed.",
+		"source_too_deep": "Lower the collector: the mineral surface is beyond its extraction depth.",
+		"invalid_source_surface": "The mineral surface is unavailable. Choose another place on the deposit."}
+	var reason: Variant = outcome.get("reason")
+	if typeof(reason) != TYPE_STRING or not explanations.has(reason):
 		return ""
 	var uncertain: Variant = outcome.get("uncertain", false)
 	if typeof(uncertain) != TYPE_BOOL or uncertain:
@@ -37,7 +45,7 @@ func refusal_text(outcome: Dictionary) -> String:
 	var options: Variant = snapshot.get("options")
 	if not options is Dictionary or typeof(options.get("native")) != TYPE_BOOL or not options.native:
 		return ""
-	return "Use the material menu to recover its contents, then dismantle the machine."
+	return explanations[reason]
 
 func refresh() -> void:
 	var context: Dictionary = _context()

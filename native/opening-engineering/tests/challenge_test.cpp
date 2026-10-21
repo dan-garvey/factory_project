@@ -7,6 +7,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 namespace e = factory::opening_engineering;
 using V = factory::values::Value;
@@ -64,7 +65,8 @@ void conserved(const Host& host) {
         for (const auto& lot : field<A>(cargo, "work_lots")) total += field<I>(lot, "recipe_input");
     }
     for (const auto& drop : field<A>(projection, "dropped_raw")) total += field<I>(drop, "raw");
-    check(total == 16 && products == std::get<I>(stock.at("player").storage()), "Every original material unit has exactly one owner.");
+    check(total == field<I>(projection, "initial_feed") && products == std::get<I>(stock.at("player").storage()),
+          "Every original material unit has exactly one owner.");
     std::map<std::string, I> parts{{"collector", 0}, {"belt", 0}, {"processor", 0}, {"wheel", 0}, {"shaft", 0}, {"gear", 0}, {"foundation", 0}};
     for (const auto& [actor, kit] : field<O>(projection, "part_kits")) {
         (void)actor;
@@ -252,11 +254,15 @@ void relocate(const V& baseline) {
     (void)move_source(run);
     run.observe(starter_row);
     const auto old_collector = entity(run.host, "collector"), old_belt = entity(run.host, "belt"), old_press = entity(run.host, "processor");
+    const auto collector_raw = amount(run.host, "stock", "collector");
+    const auto belt_raw = amount(run.host, "stock", "belt");
+    const auto press_raw = amount(run.host, "stock", "input");
     for (const auto& id : {old_collector, old_belt, old_press}) run.target("recover", id);
     const auto projection = run.host.projection();
     const auto cargo = field<O>(projection, "cargo");
     const auto carried = cargo.at("P");
-    check(field<I>(carried, "raw") == 3 && field<A>(carried, "work_lots").size() == 1 &&
+    check(collector_raw > 0 && belt_raw > 0 && press_raw > 0 &&
+          field<I>(carried, "raw") == collector_raw + belt_raw + press_raw && field<A>(carried, "work_lots").size() == 1 &&
           field<I>(field<A>(carried, "work_lots").front(), "remaining") == 1,
           "Relocation carries all three raw buffers and the same partial work with its progress.");
     const auto work_id = field<I>(field<A>(carried, "work_lots").front(), "id");
@@ -269,7 +275,8 @@ void relocate(const V& baseline) {
     build_route(run, upstream_row, upstream_row, {collector, belt, press});
     run.observe(upstream_row);
     (void)run.action("insert_work", {{"entity", V(press)}, {"work_id", V(work_id)}});
-    for (const auto& id : {collector, belt, press}) (void)run.action("insert_raw", {{"entity", V(id)}, {"amount", V(I{1})}});
+    for (const auto& [id, quantity] : {std::pair{collector, collector_raw}, std::pair{belt, belt_raw}, std::pair{press, press_raw}})
+        (void)run.action("insert_raw", {{"entity", V(id)}, {"amount", V(quantity)}});
     check(same(material(baseline), material(run.host.checkpoint())), "Moving the line restores the exact original material cut, without resetting work or stock.");
     check(e::inspect(run.host, "P").placed_gears == 7 && amount(run.host, "parts", "gear") == 0,
           "The relocation alternative rebuilds the finite seven-cog route.");

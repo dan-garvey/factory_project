@@ -3,6 +3,7 @@ extends SceneTree
 const Controls = preload("res://opening/native_transmission_controls.gd")
 const Presenter = preload("res://opening/native_transmission_presenter.gd")
 const LooseControls = preload("res://opening/recovery_actions.gd").LooseMaterialControls
+const Session = preload("res://opening-session/session.gd")
 var checks := 0
 var failures := 0
 
@@ -374,6 +375,21 @@ func _loose_material() -> void:
 	verify(presenter.get_node_or_null("LooseBlank") == null, "The presentation removes a picked-up stack after confirmed state changes.")
 	menu.free()
 	presenter.free()
+	var session := Session.new()
+	session.context = "helper-fixture"
+	session._ready_for_commands = true
+	host.state.dropped_raw = [{"center": [2, 0, 4], "raw": 3}]
+	host.state.revision = 1
+	host.state.order = 1
+	session._apply_frame({"context": "helper-fixture", "serial": 1, "snapshot": host.state})
+	verify(session.projection().dropped_raw == host.state.dropped_raw,
+		"The read-only Session frame retains the server's loose-material projection.")
+	host.state.dropped_raw = []
+	host.state.revision = 2
+	host.state.order = 2
+	session._apply_frame({"context": "helper-fixture", "serial": 2, "snapshot": host.state})
+	verify(session.projection().dropped_raw.is_empty(), "A later confirmed Session frame removes the picked-up stack.")
+	session.free()
 
 func _run() -> void:
 	if "--tool-guidance-only" in OS.get_cmdline_user_args():

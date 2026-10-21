@@ -111,9 +111,9 @@ void finite_oriented_train_and_restore() {
           field<I>(V(field<O>(host.projection(), "parts")), "gear") == 5,
           "The powered train retains the remaining shafts and cogs.");
     const auto ticked = host.advance();
-    check(field<I>(V(field<O>(ticked, "stock")), "source") == 15 &&
+    check(field<I>(V(field<O>(ticked, "stock")), "source") == 4095 &&
           field<I>(V(field<O>(ticked, "stock")), "collector") == 1,
-          "The current direction-insensitive machine adapter moves one of sixteen raw units.");
+          "The current direction-insensitive machine adapter extracts one unit from the larger finite node.");
     check(accepted(host.command("P", target("remove", b, "remove-B"))),
           "An individual gear can be removed while the source stays enabled.");
     check(!field<bool>(host.projection(), "powered"), "Removing a gear disconnects the source.");
@@ -410,7 +410,7 @@ void cross_axis_belt_line() {
               "Every machine reports its signed cross-axis motion.");
     }
     const auto advanced = host.advance();
-    check(field<I>(V(field<O>(advanced, "stock")), "source") == 15 &&
+    check(field<I>(V(field<O>(advanced, "stock")), "source") == 4095 &&
               field<I>(V(field<O>(advanced, "stock")), "collector") == 1,
           "The flowing wheel powers the collector and advances one source unit.");
     const auto saved = host.checkpoint();
