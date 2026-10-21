@@ -3977,6 +3977,10 @@ func _transmission_center(screen: Vector2) -> Array:
 	var origin := camera.project_ray_origin(screen)
 	var hit := _screen_pick(screen)
 	if not hit.is_empty():
+		if transmission_controls.active_tool == "place_shaft":
+			var pulley_target := _belt_pulley_target(str(hit.collider.get_meta("entity", "")), hit.position)
+			if not pulley_target.is_empty():
+				return pulley_target
 		var target := _transmission_snap_target(str(hit.collider.get_meta("entity", "")), hit.normal, origin)
 		if not target.is_empty():
 			return target
@@ -3987,6 +3991,37 @@ func _transmission_center(screen: Vector2) -> Array:
 	if point == null:
 		return []
 	return [roundi(point.x / PITCH) * 4, height, roundi(point.z / PITCH) * 4]
+
+func _belt_pulley_target(entity_id: String, hit_position: Vector3) -> Array:
+	var span: Variant = state.get("belt_spans", {}).get(entity_id)
+	if not span is Dictionary or not hit_position.is_finite():
+		return []
+	var parts: Dictionary = state.get("transmission_parts", {})
+	var first: Variant = parts.get(span.get("from", ""))
+	var last: Variant = parts.get(span.get("to", ""))
+	if not first is Dictionary or not last is Dictionary or first.get("kind") != "shaft" or last.get("kind") != "shaft":
+		return []
+	var a: Variant = first.get("center")
+	var b: Variant = last.get("center")
+	if not a is Array or not b is Array or a.size() != 3 or b.size() != 3:
+		return []
+	for axis in 3:
+		if typeof(a[axis]) != TYPE_INT or typeof(b[axis]) != TYPE_INT or a[axis] % 4 != 0 or b[axis] % 4 != 0:
+			return []
+	var start := Vector3(a[0], a[1], a[2])
+	var difference := Vector3(b[0], b[1], b[2]) - start
+	var steps := roundi(maxf(absf(difference.x), maxf(absf(difference.y), absf(difference.z))) / 4.0)
+	if steps < 1 or steps > 19:
+		return []
+	for axis in 3:
+		if difference[axis] != 0.0 and absf(difference[axis]) != steps * 4.0:
+			return []
+	var world_start := start * Geometry.HEIGHT_STEP + Vector3.UP * Geometry.ANCHOR_HEIGHT
+	var world_delta := difference * Geometry.HEIGHT_STEP
+	var index := clampi(roundi((hit_position - world_start).dot(world_delta) / world_delta.length_squared() * steps), 0, steps)
+	var center := start + difference * float(index) / float(steps)
+	transmission_controls.snapped_height = roundi(center.y)
+	return [roundi(center.x), transmission_controls.snapped_height if transmission_controls.auto_height else transmission_controls.gear_height, roundi(center.z)]
 
 func _transmission_snap_target(entity_id: String, normal: Vector3, eye: Vector3) -> Array:
 	# Pick bodies identify confirmed construction. Use their common grid height
