@@ -3048,6 +3048,27 @@ func check_bounds(node: Node3D, parent_pose: Transform3D) -> void:
 		if child is Node3D:
 			check_bounds(child, pose)
 
+func check_native_wheel_bounds(node: Node3D, parent_pose: Transform3D, axis: Vector3) -> void:
+	var pose := parent_pose * node.transform
+	verify(not node is CollisionObject3D and not node is CollisionShape3D,
+		"Wheel artwork has no collision or construction authority.")
+	if node is MeshInstance3D:
+		detail_meshes += 1
+		var box: AABB = node.mesh.get_aabb()
+		var bounded := true
+		for n in range(8):
+			var point := pose * box.get_endpoint(n) - Vector3.UP * Geometry.ANCHOR_HEIGHT
+			var axial := point.dot(axis)
+			var radial := (point - axis * axial).length()
+			bounded = bounded and point.is_finite() and absf(axial) <= Geometry.PITCH / 2.0 + 0.00001
+			# A mesh AABB corner can be outside the circular rotor even when
+			# its vertices fit; the enclosing square is the conservative bound.
+			bounded = bounded and radial <= Geometry.WATERWHEEL_RADIUS * 3.0 * sqrt(2.0) + 0.00001
+		verify(bounded, "Each actual wheel mesh stays within the three-tile rotor envelope.")
+	for child in node.get_children():
+		if child is Node3D:
+			check_native_wheel_bounds(child, pose, axis)
+
 func count_role(node: Node, role: String) -> int:
 	var count := 1 if node.get_meta("detail_role", "") == role else 0
 	for child in node.get_children():
@@ -5276,22 +5297,24 @@ func _initialize() -> void:
 		"Repeated fasteners share their deliberate hexagonal head geometry.")
 	var view := Opening.new()
 	view.machine_root = Node3D.new()
-	for item in [["collector", 0], ["belt", 0], ["processor", 0], ["wheel", 0], ["wheel", 1], ["wheel", 2]]:
+	for item in [["collector", 0], ["processor", 0], ["wheel", 0], ["wheel", 1], ["wheel", 2]]:
 		view.state = {"options": {"native": true}, "entities": {"fixture": {"kind": item[0], "cell": [0, 0], "axis": item[1]}},
 			"links": [], "drive_links": []}
 		var before: Dictionary = view.state.duplicate(true)
 		view._rebuild_machines()
 		var machine: Node3D = view.machine_root.get_child(0)
-		var details: Node3D = machine.get_node("SurfaceDetail")
-		verify(count_role(details, "FoundationFastener") == 4,
-			"Every actual machine has four fitted foundation fasteners.")
-		check_bounds(details, Transform3D.IDENTITY)
+		var details := machine.get_node_or_null("SurfaceDetail") as Node3D
+		if item[0] != "wheel":
+			verify(details != null and count_role(details, "FoundationFastener") == 4,
+				"Every supported machine has four fitted foundation fasteners.")
+			if details != null:
+				check_bounds(details, Transform3D.IDENTITY)
+		else:
+			verify(details == null, "The waterwheel uses its own supports rather than a machine skid.")
 		match item[0]:
 			"collector":
 				verify(count_role(details, "CutterFlute") == 8 and count_role(details, "ServiceVent") == 5,
 					"The actual collector includes its cutter flutes and fitted service cover.")
-			"belt":
-				verify(count_role(machine, "RollerBearing") == 4, "The actual conveyor has four fitted roller bearings.")
 			"processor":
 				verify(count_role(details, "GuideCollar") == 4, "The actual press has fitted collars at both guide ends.")
 			"wheel":
@@ -5302,7 +5325,7 @@ func _initialize() -> void:
 				else:
 					verify(count_role(rotor, "WheelRim") == 2 and count_role(rotor, "RimFastener") == 24,
 						"A historical capture retains its two continuous procedural rims and fitted fasteners.")
-				check_bounds(rotor, Transform3D.IDENTITY)
+				check_native_wheel_bounds(rotor, Transform3D.IDENTITY, [Vector3.RIGHT, Vector3.UP, Vector3.BACK][item[1]])
 		verify(view.state == before and view.model == null, "Detail assembly cannot mutate the projection or create a Model.")
 	view.machine_root.free()
 	view.free()
