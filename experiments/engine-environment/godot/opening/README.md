@@ -95,7 +95,9 @@ their path straight or inclined at 45 degrees. Select each end while the
 character is within reach; the first selection is recorded by the worksite.
 Intermediate aligned shafts turn with the belt. Horizontal
 and inclined belts can carry material. Vertical and sideways belts transmit
-rotation only. The belt appears after the worksite confirms placement, and the
+rotation only. A powered belt picks up loose items on an empty tile, so adjacent
+belts can pass material between them. The starter kit carries two belts. The
+belt appears after the worksite confirms placement, and the
 transmission removal tool can reclaim it when it is empty and a belt tile is
 within reach.
 

@@ -121,7 +121,7 @@ func _prepare() -> void:
 	_select(belt.entity)
 	_action("remove selected belt", {"action": "remove", "entity": belt.entity}, func(): opening.remove_button.pressed.emit())
 	if written: return
-	if not _expect(opening.model.projection().links.is_empty() and opening.model.projection().part_kits.P.belt == 1,
+	if not _expect(opening.model.projection().links.is_empty() and opening.model.projection().part_kits.P.belt == 2,
 		"Removal refunds the exact belt and removes both incident material links"): return
 	var rebuilt := _place_material("belt", Vector2i(1, 1))
 	if written: return
