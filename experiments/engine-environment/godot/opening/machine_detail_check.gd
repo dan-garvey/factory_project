@@ -1859,7 +1859,7 @@ func check_collector_coating(historical: bool) -> void:
 						"The real bearing liner retains its original exposed worked-metal material.")
 					continue
 				count += 1
-				var color := Color("d6a34d")
+				var color := Color("96805c")
 				if role == "CastLowerHousing":
 					color = color.darkened(0.09)
 				elif role == "CastUpperHood":
@@ -2898,8 +2898,10 @@ func check_collector_cast_frame() -> void:
 		for part in frame.get_children():
 			fixed.append(part.transform)
 		view._animate_wheel(0.1)
-		verify(is_equal_approx(view.transmission_presenter.visual_angle("fixture"), 0.08),
-			"The original collector angle still comes from the sole existing cosmetic presenter cache.")
+		# One tile per 0.45-second native tick turns the 0.1425-metre pulley rim.
+		var expected_angle := 0.1 * Geometry.PITCH / (0.45 * 0.1425)
+		verify(is_equal_approx(view.transmission_presenter.visual_angle("fixture"), expected_angle),
+			"The fixed collector frame stays still while its cosmetic cutter angle follows confirmed belt travel.")
 		for n in range(frame.get_child_count()):
 			verify(frame.get_child(n).transform == fixed[n], "The supporting casting remains fixed as the original cutter turns.")
 		verify(view.state == before and view.request_sequence == 0 and view.model == null and view.actor_world == null,
