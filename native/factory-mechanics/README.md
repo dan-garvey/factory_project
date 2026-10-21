@@ -97,8 +97,9 @@ one-tile shafts. Each span validates aligned grid centers, a maximum of twenty
 tiles, unobstructed tile centers and exclusive belt occupancy. Aligned shafts
 within the span are pulleys; their signed angular rates match, including when
 the drive enters at either end. Incompatible sources stall the connected
-component. These are solver inputs only: the current World, checkpoint and
-ordinary controls do not yet place or store belt spans. This geometry check is
+component. Stationary plans account for a carried belt and the World checkpoint
+stores seeded spans, but ordinary World commands and controls do not yet place
+or remove them. This geometry check is
 not full terrain or body collision clearance. Create's documented belt behavior
 also includes slopes and vertical spans, which this initial horizontal profile
 does not implement.

@@ -70,7 +70,7 @@ bool overlapping_shafts(const PlacedPart& a, const PlacedPart& b) noexcept {
 bool structure(const Topology& topology) {
     if (topology.parts.size() > mechanics::maximum_parts ||
         topology.sources.size() > topology.parts.size() ||
-        topology.material_links.size() > 2) return false;
+        topology.material_links.size() > 2 || topology.belt_spans.size() > mechanics::maximum_parts) return false;
 
     std::set<std::string> ids;
     std::set<Role> machines;
@@ -86,6 +86,9 @@ bool structure(const Topology& topology) {
              part.role == Role::processor) && !machines.insert(part.role).second)
             return false;
     }
+    for (const auto& span : topology.belt_spans)
+        if (!identity(span.geometry.id) || span.generation <= 0 || !ids.insert(span.geometry.id).second)
+            return false;
 
     for (std::size_t i = 0; i < topology.parts.size(); ++i)
         for (std::size_t j = i + 1; j < topology.parts.size(); ++j)
@@ -123,6 +126,8 @@ bool valid_kit(const Topology& topology, const Kit& kit) {
         all.insert(specification(part));
         if (all.size() > maximum_specifications) return false;
     }
+    if (!topology.belt_spans.empty()) all.insert({Role::belt, 0, 0});
+    if (all.size() > maximum_specifications) return false;
     return true;
 }
 
@@ -173,6 +178,7 @@ const char* removal_error_name(RemovalError error) noexcept {
         case RemovalError::occupied_target: return "occupied_target";
         case RemovalError::quantity_overflow: return "quantity_overflow";
         case RemovalError::invalid_mechanics: return "invalid_mechanics";
+        case RemovalError::belt_attached: return "belt_attached";
     }
     return "unknown";
 }
@@ -185,7 +191,10 @@ PowerView power_view(const Topology& topology) {
     auto sources = topology.sources;
     if (!topology.drive_enabled)
         for (auto& source : sources) source.rate = {0, 1};
-    return {topology.drive_enabled, mechanics::evaluate(parts, sources)};
+    std::vector<mechanics::BeltSpan> spans;
+    spans.reserve(topology.belt_spans.size());
+    for (const auto& span : topology.belt_spans) spans.push_back(span.geometry);
+    return {topology.drive_enabled, mechanics::evaluate(parts, sources, spans)};
 }
 
 RemovalPlan prepare_removal(const Topology& topology, const Kit& kit,
@@ -207,6 +216,9 @@ RemovalPlan prepare_removal(const Topology& topology, const Kit& kit,
     if (selection.target.generation != selected->generation)
         return refuse(RemovalError::stale_generation);
     if (occupied(selected->role, state)) return refuse(RemovalError::occupied_target);
+    if (std::any_of(topology.belt_spans.begin(), topology.belt_spans.end(), [&](const auto& span) {
+        return span.geometry.first_shaft == selection.target.id || span.geometry.last_shaft == selection.target.id;
+    })) return refuse(RemovalError::belt_attached);
 
     const auto spec = specification(*selected);
     const auto carried = kit.find(spec);
@@ -254,6 +266,7 @@ const char* placement_error_name(PlacementError error) noexcept {
         case PlacementError::incompatible_source: return "incompatible_source";
         case PlacementError::overlapping_shafts: return "overlapping_shafts";
         case PlacementError::invalid_mechanics: return "invalid_mechanics";
+        case PlacementError::conflicting_belt: return "conflicting_belt";
     }
     return "unknown";
 }
@@ -318,6 +331,62 @@ PlacementPlan prepare_placement(const Topology& topology, const Kit& kit,
     plan.facts.interaction_point = part.geometry.center;
     plan.facts.consumed_part = spec;
     return PlacementPlan{std::move(plan)};
+}
+
+PlacementPlan prepare_belt_placement(const Topology& topology, const Kit& kit,
+                                     const materials::State& state, const PlacedBeltSpan& span) {
+    if (!structure(topology)) return PlacementRefusal{PlacementError::invalid_topology};
+    if (!valid_kit(topology, kit)) return PlacementRefusal{PlacementError::invalid_kit};
+    if (!material_membership(topology, state)) return PlacementRefusal{PlacementError::invalid_material_state};
+    if (!power_view(topology).mechanical.accepted()) return PlacementRefusal{PlacementError::invalid_mechanics};
+    if (!identity(span.geometry.id) || span.generation <= 0) return PlacementRefusal{PlacementError::invalid_part};
+    if (find(topology, span.geometry.id) || std::any_of(topology.belt_spans.begin(), topology.belt_spans.end(),
+        [&](const auto& existing) { return existing.geometry.id == span.geometry.id; }))
+        return PlacementRefusal{PlacementError::identity_conflict};
+    if (topology.belt_spans.size() == mechanics::maximum_parts) return PlacementRefusal{PlacementError::part_limit};
+    const PartSpec spec{Role::belt, 0, 0};
+    const auto carried = kit.find(spec);
+    if (carried == kit.end() || carried->second == 0) return PlacementRefusal{PlacementError::unavailable_part};
+    PreparedPlacement plan;
+    plan.candidate = topology;
+    plan.candidate.belt_spans.push_back(span);
+    plan.power = power_view(plan.candidate);
+    if (!plan.power.mechanical.accepted()) return PlacementRefusal{PlacementError::invalid_mechanics,
+        materials::Error::none, plan.power.mechanical.error};
+    if (plan.power.mechanical.motion.at(span.geometry.first_shaft).state == mechanics::MotionState::stalled)
+        return PlacementRefusal{PlacementError::conflicting_belt};
+    plan.candidate_kit = kit;
+    --plan.candidate_kit.at(spec);
+    plan.facts = {{span.geometry.id, span.generation}, find(topology, span.geometry.first_shaft)->geometry.center, spec};
+    return plan;
+}
+
+RemovalPlan prepare_belt_removal(const Topology& topology, const Kit& kit,
+                                 const materials::State& state, const materials::EntityRef& target) {
+    if (!structure(topology)) return refuse(RemovalError::invalid_topology);
+    if (!valid_kit(topology, kit)) return refuse(RemovalError::invalid_kit);
+    if (!material_membership(topology, state)) return refuse(RemovalError::invalid_material_state);
+    if (!power_view(topology).mechanical.accepted()) return refuse(RemovalError::invalid_mechanics);
+    const auto found = std::find_if(topology.belt_spans.begin(), topology.belt_spans.end(),
+        [&](const auto& span) { return span.geometry.id == target.id; });
+    if (found == topology.belt_spans.end()) return refuse(RemovalError::unknown_target);
+    if (found->generation != target.generation) return refuse(RemovalError::stale_generation);
+    const PartSpec spec{Role::belt, 0, 0};
+    const auto carried = kit.find(spec);
+    if (carried != kit.end() && carried->second == std::numeric_limits<materials::Quantity>::max())
+        return refuse(RemovalError::quantity_overflow);
+    PreparedRemoval plan;
+    plan.candidate = topology;
+    std::erase_if(plan.candidate.belt_spans, [&](const auto& span) { return span.geometry.id == target.id; });
+    plan.candidate_kit = kit;
+    ++plan.candidate_kit[spec];
+    plan.facts.target = target;
+    plan.facts.interaction_point = find(topology, found->geometry.first_shaft)->geometry.center;
+    plan.facts.refunded_part = spec;
+    plan.power = power_view(plan.candidate);
+    if (!plan.power.mechanical.accepted()) return refuse(RemovalError::invalid_mechanics, materials::Error::none,
+                                                        plan.power.mechanical.error);
+    return plan;
 }
 
 }  // namespace factory::stationary

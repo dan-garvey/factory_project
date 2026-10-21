@@ -252,6 +252,41 @@ void bounds_and_large_integers() {
     for (int index = 0; index < 4097; ++index) issued.emplace("old-" + std::to_string(index), V(I{1}));
     refusal(f.profile, edited(f.checkpoint, {"state", "issued_entities"}, V(issued)), w::CheckpointReason::limit);
 }
+
+void belt_span_checkpoint() {
+    w::Profile profile;
+    profile.material = {1, 1, 2}; profile.initial_units = 1; profile.actors = {"P"};
+    profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, 1}, {{s::Role::shaft, 0, 2}, 2},
+                            {{s::Role::belt, 0, 0}, 1}};
+    w::State state;
+    state.material.initial_units = 1; state.material.stock.source = 1;
+    state.material.cargo = {{"P", {}}}; state.kits = {{"P", {}}};
+    state.topology.parts = {{{"wheel", g::Kind::hub, {0, 0, -4}, g::Axis::z, 0, 0}, 1, s::Role::waterwheel},
+        {{"left", g::Kind::shaft, {0, 0, 0}, g::Axis::z, 0, 2}, 1, s::Role::shaft},
+        {{"right", g::Kind::shaft, {8, 0, 0}, g::Axis::z, 0, 2}, 1, s::Role::shaft}};
+    state.topology.sources = {{"wheel", {1, 1}}}; state.topology.drive_enabled = true;
+    state.topology.belt_spans = {{{"belt", "left", "right"}, 1}};
+    state.issued_entities = {{"wheel", 1}, {"left", 1}, {"right", 1}, {"belt", 1}};
+    auto world = w::World::create("saved-world", profile, state);
+    check(world != nullptr, "A seeded world accepts a finite, identified belt span.");
+    const auto encoded = w::encode_checkpoint(profile, world->snapshot());
+    check(std::holds_alternative<V>(encoded), "The world exports the span in the typed checkpoint.");
+    const auto decoded = w::decode_checkpoint(profile, "saved-world", std::get<V>(encoded));
+    check(std::holds_alternative<w::Snapshot>(decoded) && std::get<w::Snapshot>(decoded).state == state,
+          "Belt identity, endpoints and finite custody survive exact decoding.");
+    auto restored = w::World::restore("saved-world", profile, std::get<w::Snapshot>(decoded));
+    check(restored && s::power_view(restored->snapshot().state.topology).mechanical.motion.at("right").rate == g::Rate{1, 1},
+          "A fresh World derives the same driven shaft from the restored belt.");
+    auto spans = std::get<V::Array>(at(std::get<V>(encoded), {"state", "topology", "belt_spans"}).storage());
+    spans[0] = edited(spans[0], {"last_shaft"}, V("missing"));
+    refusal(profile, edited(std::get<V>(encoded), {"state", "topology", "belt_spans"}, V(spans)),
+            w::CheckpointReason::invalid_world);
+    refusal(profile, edited(std::get<V>(encoded), {"schema"}, V(I{2})), w::CheckpointReason::unsupported_schema);
+    auto malformed = state; malformed.topology.belt_spans[0].geometry.last_shaft = "missing";
+    check(!w::World::create("saved-world", profile, malformed), "A dangling saved belt endpoint is refused.");
+    malformed = state; malformed.kits.at("P")[{s::Role::belt, 0, 0}] = 1;
+    check(!w::World::create("saved-world", profile, malformed), "A belt cannot be both placed and carried.");
+}
 }  // namespace
 
 int main() {
@@ -259,6 +294,7 @@ int main() {
         round_trip_restore_and_continue();
         schema_and_authority_mutations();
         bounds_and_large_integers();
+        belt_span_checkpoint();
         std::cout << "{\"status\":\"pass\",\"evidence\":\"invented_native_checkpoint\",\"checks\":" << checks << "}\n";
         return 0;
     } catch (const std::exception& error) {

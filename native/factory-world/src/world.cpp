@@ -540,7 +540,8 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
             foundation.generation <= 0 || foundation.center[0] % 4 != 0 || foundation.center[2] % 4 != 0) return false;
         for (const auto coordinate : foundation.center)
             if (coordinate < -mechanics::maximum_coordinate || coordinate > mechanics::maximum_coordinate) return false;
-        if (part(state.topology, id)) return false;
+        if (part(state.topology, id) || std::any_of(state.topology.belt_spans.begin(), state.topology.belt_spans.end(),
+                [&](const auto& span) { return span.geometry.id == id; })) return false;
         for (const auto& center : foundation_centers)
             if (center[0] == foundation.center[0] && center[2] == foundation.center[2] &&
                 std::abs(center[1] - foundation.center[1]) < foundation_depth_levels) return false;
@@ -598,6 +599,12 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
             state.topology.sources.end(), [&](const auto& source) {
                 return source.hub == item.geometry.id && source.rate == *expected_rate;
             }) != 1)) return false;
+    }
+    for (const auto& span : state.topology.belt_spans) {
+        const auto issued = state.issued_entities.find(span.geometry.id);
+        const auto total = totals.find({Role::belt, 0, 0});
+        if (issued == state.issued_entities.end() || issued->second != span.generation ||
+            total == totals.end() || !add(total->second, 1)) return false;
     }
     for (const auto& link : state.topology.material_links) {
         const auto* from = part(state.topology, link.from.id);

@@ -218,6 +218,52 @@ void shaft_occupancy() {
     }
 }
 
+void belt_span_custody() {
+    s::Topology topology;
+    topology.parts = {hub("wheel", s::Role::waterwheel, {0, 0, -4}),
+        {{"left", m::Kind::shaft, {0, 0, 0}, m::Axis::z, 0, 2}, 1, s::Role::shaft},
+        {{"middle", m::Kind::shaft, {4, 0, 0}, m::Axis::z, 0, 2}, 1, s::Role::shaft},
+        {{"right", m::Kind::shaft, {8, 0, 0}, m::Axis::z, 0, 2}, 1, s::Role::shaft}};
+    topology.sources = {{"wheel", {1, 1}}}; topology.drive_enabled = true;
+    material::State state;
+    s::Kit kit{{{s::Role::belt, 0, 0}, 1}};
+    const s::PlacedBeltSpan belt{{"belt-span", "left", "right"}, 1};
+    const auto placement = s::prepare_belt_placement(topology, kit, state, belt);
+    check(std::holds_alternative<s::PreparedPlacement>(placement), "A valid belt consumes a carried part.");
+    const auto& placed = std::get<s::PreparedPlacement>(placement);
+    check(placed.candidate_kit.at({s::Role::belt, 0, 0}) == 0 && placed.candidate.belt_spans.size() == 1 &&
+              placed.power.mechanical.motion.at("right").rate == m::Rate{1, 1},
+          "The same prepared state conserves custody and transmits the real wheel rate.");
+    check(topology.belt_spans.empty() && kit.at({s::Role::belt, 0, 0}) == 1,
+          "Planning does not mutate the original topology or kit.");
+    const auto endpoint = s::prepare_removal(placed.candidate, placed.candidate_kit, state, {{"left", 1}});
+    check(std::holds_alternative<s::RemovalRefusal>(endpoint) &&
+              std::get<s::RemovalRefusal>(endpoint).reason == s::RemovalError::belt_attached,
+          "An endpoint shaft cannot disappear while its belt is attached.");
+    const auto intermediate = s::prepare_removal(placed.candidate, placed.candidate_kit, state, {{"middle", 1}});
+    check(std::holds_alternative<s::PreparedRemoval>(intermediate) &&
+              std::get<s::PreparedRemoval>(intermediate).power.mechanical.motion.at("right").rate == m::Rate{1, 1},
+          "Removing an intermediate pulley leaves the belt spanning its endpoint shafts.");
+    const auto wrong_generation = s::prepare_belt_removal(placed.candidate, placed.candidate_kit, state, {"belt-span", 2});
+    check(std::holds_alternative<s::RemovalRefusal>(wrong_generation) &&
+              std::get<s::RemovalRefusal>(wrong_generation).reason == s::RemovalError::stale_generation,
+          "A stale belt identity cannot remove or refund it.");
+    const auto removal = s::prepare_belt_removal(placed.candidate, placed.candidate_kit, state, {"belt-span", 1});
+    check(std::holds_alternative<s::PreparedRemoval>(removal), "An installed belt can be removed.");
+    const auto& removed = std::get<s::PreparedRemoval>(removal);
+    check(removed.candidate.belt_spans.empty() && removed.candidate_kit.at({s::Role::belt, 0, 0}) == 1 &&
+              removed.power.mechanical.motion.at("right").state == m::MotionState::unpowered,
+          "Removal refunds exactly one belt and interrupts remote transmission.");
+    auto conflict = topology;
+    conflict.parts.push_back(hub("wheel-2", s::Role::waterwheel, {8, 0, -4}));
+    conflict.sources.push_back({"wheel-2", {-1, 1}});
+    const auto refused = s::prepare_belt_placement(conflict, kit, state, belt);
+    check(std::holds_alternative<s::PlacementRefusal>(refused) &&
+              std::get<s::PlacementRefusal>(refused).reason == s::PlacementError::conflicting_belt &&
+              kit.at({s::Role::belt, 0, 0}) == 1,
+          "Incompatible powered shafts refuse belt placement without consuming the belt.");
+}
+
 }  // namespace
 
 int main() {
@@ -226,6 +272,7 @@ int main() {
         rebuild_returned_source();
         exact_specification_and_refusals();
         shaft_occupancy();
+        belt_span_custody();
         std::cout << "{\"status\":\"pass\",\"evidence\":\"invented_stationary_rebuild\","
                      "\"checks\":" << checks << "}\n";
         return 0;

@@ -59,8 +59,8 @@ including for cogwheels. The current changed profile deliberately provides no ol
 save migration. Store still owns persistence and atomic file publication.
 
 Ordinary collector, belt and press placement also attaches their directly mating
-material ports. The existing +X, one-cell, same-row layout still applies; nearby
-unrelated machines do not connect. Every affected endpoint must be in the same
+material ports. The belt's horizontal axle selects a one-cell +X or +Z route;
+nearby unrelated machines do not connect. Every affected endpoint must be in the same
 admitted reach cut. Placement, links and the carried part commit atomically,
 without creating a shaft or advancing material. The exact optional mechanical
 axis stays in the original wire and typed history. Adjacent material machines
@@ -77,7 +77,8 @@ ActorWorld uses uniform machine boxes, matching foundation blocks and the shared
 terrain. These remain prototype contact shapes.
 
 The physical checkpoint has schema 3 and format `factory-native-physical`. Its
-logical World checkpoint has schema 2, including the trusted interaction offset.
+logical World checkpoint has schema 3, including the trusted interaction offset
+and identified belt spans. The physical envelope remains schema 3.
 Its material payload has schema 3, including loose blanks; older material
 payloads are refused rather than migrated.
 It retains typed material, kits, topology, issued identities, original history and
@@ -280,8 +281,9 @@ Its unit tests cover running removal and rebuilding, the finite kit, historical
 retries and typed checkpoint restore. The site and actor observations are
 synthetic inputs, not physical gameplay evidence.
 
-Negative Z-axis belt rotation moves blanks toward the press. Positive rotation
-moves them to a loose stack at the opposite end; a stopped belt holds its blank.
+Negative Z-axis rotation or positive X-axis rotation moves blanks toward the
+press on the corresponding +X or +Z route. The opposite rotation moves them to
+a loose stack at the opposite end; a stopped belt holds its blank.
 Loose stacks persist in the material owner and can be picked up after removing
 the belt. They are represented at a fixed grid point, without gravity or a
 general dropped-item physics simulation. Belt throughput remains a fixture

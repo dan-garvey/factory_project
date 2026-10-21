@@ -51,6 +51,12 @@ struct MaterialLink {
     bool operator==(const MaterialLink&) const = default;
 };
 
+struct PlacedBeltSpan {
+    mechanics::BeltSpan geometry;
+    std::int64_t generation{};
+    bool operator==(const PlacedBeltSpan&) const = default;
+};
+
 struct Topology {
     std::vector<PlacedPart> parts;
     std::vector<MaterialLink> material_links;
@@ -58,6 +64,7 @@ struct Topology {
     // World facts, never arbitrary client links. Engagements remain derived.
     std::vector<mechanics::Drive> sources;
     bool drive_enabled{};
+    std::vector<PlacedBeltSpan> belt_spans{};
     bool operator==(const Topology&) const = default;
 };
 
@@ -84,6 +91,7 @@ enum class RemovalError {
     occupied_target,
     quantity_overflow,
     invalid_mechanics,
+    belt_attached,
 };
 
 struct RemovalRefusal {
@@ -162,6 +170,7 @@ enum class PlacementError {
     incompatible_source,
     overlapping_shafts,
     invalid_mechanics,
+    conflicting_belt,
 };
 
 struct PlacementRefusal {
@@ -198,5 +207,12 @@ using PlacementPlan = std::variant<PlacementRefusal, PreparedPlacement>;
 [[nodiscard]] PlacementPlan prepare_placement(const Topology&, const Kit&,
                                               const materials::State&,
                                               const PlacementSelection&);
+
+// Belt spans consume the same finite belt part as the opening conveyor. The
+// World must allocate the identity and authorize both endpoints and clearance.
+[[nodiscard]] PlacementPlan prepare_belt_placement(const Topology&, const Kit&,
+                                                   const materials::State&, const PlacedBeltSpan&);
+[[nodiscard]] RemovalPlan prepare_belt_removal(const Topology&, const Kit&,
+                                               const materials::State&, const materials::EntityRef&);
 
 }  // namespace factory::stationary
