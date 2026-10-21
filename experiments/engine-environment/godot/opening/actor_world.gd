@@ -15,6 +15,7 @@ var machines: Dictionary = {}
 var machine_specs: Dictionary = {}
 var mechanical_bodies: Dictionary = {}
 var mechanical_specs: Dictionary = {}
+var belt_step_seconds := 0.0
 var foundations: Dictionary = {}
 var foundation_specs: Dictionary = {}
 var seeds: Dictionary = {}
@@ -244,6 +245,36 @@ func release_control(actor: String) -> void:
 	if bodies.has(actor):
 		bodies[actor].release_control()
 		release_counts[actor] += 1
+
+func set_belt_step_seconds(seconds: float) -> void:
+	# The owner supplies its simulation clock. A frozen clock cannot carry actors.
+	belt_step_seconds = seconds if is_finite(seconds) and seconds > 0.0 else 0.0
+
+func _belt_surface_velocity(snapshot: Dictionary, floor_id: int) -> Vector2:
+	if belt_step_seconds <= 0.0 or floor_id == 0:
+		return Vector2.ZERO
+	var spans: Variant = snapshot.get("belt_spans")
+	var parts: Variant = snapshot.get("transmission_parts")
+	var motion: Variant = snapshot.get("motion")
+	if not spans is Dictionary or not parts is Dictionary or not motion is Dictionary:
+		return Vector2.ZERO
+	for id in spans:
+		if not mechanical_bodies.has(id) or mechanical_bodies[id].get_instance_id() != floor_id:
+			continue
+		var span: Variant = spans[id]
+		if not span is Dictionary or typeof(span.get("from")) != TYPE_STRING:
+			return Vector2.ZERO
+		var shaft: Variant = parts.get(span.from)
+		var rate: Variant = motion.get(span.from)
+		if not shaft is Dictionary or shaft.get("kind") != "shaft" or typeof(shaft.get("axis")) != TYPE_INT or shaft.axis not in [0, 2] or not rate is Dictionary or rate.get("state") != "rotating" or typeof(rate.get("numerator")) != TYPE_INT or typeof(rate.get("denominator")) != TYPE_INT or rate.denominator <= 0 or rate.numerator == 0:
+			return Vector2.ZERO
+		# Match World::tick's bounded fixed-point lane speed and world direction.
+		var subticks := clampf(floorf(absf(float(rate.numerator) / float(rate.denominator)) * 4096.0), 1.0, 65536.0)
+		var speed := subticks / 4096.0 * Geometry.PITCH / belt_step_seconds
+		if shaft.axis == 0:
+			return Vector2(0, speed if rate.numerator > 0 else -speed)
+		return Vector2(speed if rate.numerator < 0 else -speed, 0)
+	return Vector2.ZERO
 
 func _same_position(a: Array, b: Array) -> bool:
 	for axis in range(3):
@@ -481,9 +512,12 @@ func _on_native_cut() -> void:
 		for actor in bodies.keys():
 			_fail(actor, "actor_topology_invalid")
 		return
+	var snapshot: Dictionary = model.projection()
 	for actor in bodies.keys():
 		if failures.has(actor):
 			continue
+		var body = bodies[actor]
+		body.surface_velocity = _belt_surface_velocity(snapshot, body.floor_id) if body.is_on_floor() else Vector2.ZERO
 		if bodies[actor].motion_enabled:
 			_publish_existing(actor, "physics_boundary")
 			continue
