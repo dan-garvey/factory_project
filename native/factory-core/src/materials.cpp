@@ -5,6 +5,18 @@
 #include <utility>
 
 namespace factory::materials {
+
+Quantity belt_speed_subticks(Quantity numerator, Quantity denominator, bool inclined) noexcept {
+    if (numerator == 0 || denominator <= 0) return 0;
+    __extension__ using Wide = __int128;
+    Wide magnitude = numerator;
+    if (magnitude < 0) magnitude = -magnitude;
+    auto speed = static_cast<Quantity>(std::clamp<Wide>(
+        magnitude * work_subticks_per_tick / denominator, 1, maximum_work_subticks_per_tick));
+    if (inclined) speed = std::max<Quantity>(1, speed * 2896 / work_subticks_per_tick);
+    return speed;
+}
+
 namespace {
 
 bool add(Quantity& total, Quantity value) noexcept {

@@ -7,7 +7,7 @@ cc_library(
     srcs = ["src/challenge.cpp", "src/projection.cpp"],
     hdrs = ["include/factory/opening_engineering.hpp"],
     strip_include_prefix = "include",
-    deps = ["//native/factory-core:material_types", "//native/factory-godot-world:host", "//native/factory-mechanics:mechanics"],
+    deps = ["//native/factory-core:materials", "//native/factory-godot-world:host", "//native/factory-mechanics:mechanics"],
 )
 
 cc_test(
