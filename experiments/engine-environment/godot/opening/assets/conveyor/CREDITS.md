@@ -2,8 +2,10 @@
 
 The conveyor surface uses [Rubber 004](https://ambientcg.com/a/Rubber004) from
 ambientCG, under [CC0 1.0](https://docs.ambientcg.com/license/). The provider
-identifies a procedural material with an approximate 75 by 75 centimetre extent.
-It is not a photographed conveyor or a belt performance specification. The
+records an approximate 75 by 75 centimetre extent. Its retained API response uses
+the method code `PBRProcedural`, but its descriptive labels identify photogrammetry.
+That conflict leaves the exact creation technique unverified. The asset is not
+evidence of a photographed conveyor or a belt performance specification. The
 original maps and license capture are retained outside Git in
 `conveyor-component-kit-20261021`; identities are in [source.json](source.json).
 
