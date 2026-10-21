@@ -5,6 +5,7 @@
 #include <functional>
 #include <iostream>
 #include <stdexcept>
+#include <tuple>
 #include <utility>
 
 namespace {
@@ -69,12 +70,21 @@ V alter_wire(const V& saved, const std::string& request_id, const std::string& k
 
 void historical_translation() {
     Host host;
+    auto site = factory::godot_world::tests::channel_site();
+    auto water = std::get<A>(site.at("water").storage());
+    for (auto& row : water) {
+        auto sample = std::get<A>(row.storage());
+        sample[4] = V(I{-200});
+        row = V(std::move(sample));
+    }
+    site.at("water") = V(std::move(water));
     check(accepted(host.initialize("host-boundary", {"P"})), "The finite test World initializes.");
-    check(accepted(host.configure_terrain(factory::godot_world::tests::channel_site())), "The test binds its explicit synthetic terrain.");
+    check(accepted(host.configure_terrain(site)), "The test binds its explicit forward-driving synthetic terrain.");
     check(accepted(host.publish_actor("P", {V(1.65), V(1.0), V(1.65)}, 1)), "The disclosed synthetic observation is ready.");
     const auto place = [&](const char* kind, I x, const char* id) {
         auto wire = request("place", id);
         wire.emplace("kind", V(kind)); wire.emplace("cell", V(A{V(x), V(I{0})})); wire.emplace("axis", V("z"));
+        if (std::string(kind) == "wheel") wire.emplace("level", V(I{4}));
         const auto reply = host.command("P", wire);
         check(accepted(reply), (std::string("The starter placement succeeds: ") + kind + ", " + field<std::string>(reply, "reason")).c_str());
         return field<std::string>(reply, "entity");
@@ -85,7 +95,15 @@ void historical_translation() {
     const auto collector = place("collector", 0, "collector");
     const auto belt = place("belt", 1, "belt");
     const auto press = place("processor", 2, "press");
-    const auto wheel = place("wheel", -1, "wheel");
+    check(accepted(host.publish_actor("P", {V(-1.65), V(1.0), V(-1.65)}, 2)), "The actor reaches the raised wheel.");
+    const auto wheel = place("wheel", -2, "wheel");
+    for (const auto& [id, x, y] : std::array<std::tuple<const char*, I, I>, 2>{{{"lower", -8, 0}, {"bridge", -4, 0}}}) {
+        auto cog = request("place_gear", id);
+        cog.emplace("center", V(A{V(x), V(y), V(I{4})}));
+        cog.emplace("axis", V("z")); cog.emplace("teeth", V(I{2}));
+        check(accepted(host.command("P", cog)), "The height transfer cog is placed.");
+    }
+    check(accepted(host.publish_actor("P", {V(1.65), V(1.0), V(1.65)}, 3)), "The actor reaches both material links.");
     const auto flow_a = host.command("P", link("connect", "flow-A", collector, belt));
     const auto flow_b = host.command("P", link("connect", "flow-B", belt, press));
     check(!accepted(flow_a) && field<std::string>(flow_a, "reason") == "existing_link",
@@ -95,12 +113,12 @@ void historical_translation() {
     const std::array<std::string, 4> hubs{wheel, collector, belt, press};
     const std::array<const char*, 4> shaft_ids{"shaft-A", "shaft-B", "shaft-C", "shaft-D"};
     for (std::size_t n = 0; n < hubs.size(); ++n) {
-        const I x = static_cast<I>(n) - 1;
-        check(accepted(host.publish_actor("P", {V(static_cast<double>(x) * 1.65), V(1.0), V(-1.65)}, static_cast<I>(n) + 2)),
+        const I x = n == 0 ? -2 : static_cast<I>(n) - 1;
+        check(accepted(host.publish_actor("P", {V(static_cast<double>(x) * 1.65), V(1.0), V(-1.65)}, static_cast<I>(n) + 4)),
               "The synthetic actor reaches each cog and its machine.");
         auto cog = request("place_gear", shaft_ids[n]);
         cog.at("request") = V(std::string("gear-") + std::to_string(n));
-        cog.emplace("center", V(A{V(4 * x), V(I{0}), V(I{4})}));
+        cog.emplace("center", V(A{V(4 * x), V(I{n == 0 ? 4 : 0}), V(I{4})}));
         cog.emplace("axis", V("z")); cog.emplace("teeth", V(I{2}));
         const auto placed = host.command("P", cog);
         check(accepted(placed), "The finite adjacent cog is placed.");
@@ -108,11 +126,11 @@ void historical_translation() {
         check(!accepted(touching) && field<std::string>(touching, "reason") == "axles_already_touch",
               "Touching axles do not consume a shaft.");
     }
-    check(accepted(host.publish_actor("P", {V(-1.65), V(1.0), V(-1.4)}, 6)), "The actor reaches the source control.");
+    check(accepted(host.publish_actor("P", {V(-1.65), V(1.0), V(-1.4)}, 8)), "The actor reaches the source control.");
     auto power = request("set_power", "power"); power.emplace("active", V(true));
     check(accepted(host.command("P", power)), "The existing wheel supplies the test line.");
-    for (int index = 0; index < 8; ++index) (void)host.advance();
-    check(accepted(host.publish_actor("P", {V(3.3), V(1.0), V(-1.4)}, 7)), "The actor reaches the press.");
+    for (int index = 0; index < 32; ++index) (void)host.advance();
+    check(accepted(host.publish_actor("P", {V(3.3), V(1.0), V(-1.4)}, 9)), "The actor reaches the press.");
     auto collect = target("retrieve", "collect", press); collect.emplace("amount", V(I{1}));
     check(accepted(host.command("P", collect)), "The checkpoint includes an accepted product amount.");
     const auto recovery = target("recover", "recover", press);
@@ -140,7 +158,7 @@ void historical_translation() {
     reject("collector", "kind", V("belt"));
     Host fresh;
     check(accepted(fresh.initialize("new-host", {"P"})), "A separate fresh Host initializes.");
-    check(accepted(fresh.configure_terrain(factory::godot_world::tests::channel_site())), "The fresh Host binds the same synthetic terrain.");
+    check(accepted(fresh.configure_terrain(site)), "The fresh Host binds the same synthetic terrain.");
     check(accepted(fresh.restore_checkpoint(saved)), "The unchanged complete checkpoint restores.");
     check(!factory::values::typed_difference(saved, fresh.checkpoint()), "Restore preserves the original typed history and state.");
     const auto retry = fresh.command("P", recovery);

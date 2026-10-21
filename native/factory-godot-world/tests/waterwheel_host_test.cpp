@@ -45,13 +45,20 @@ int main() {
         check(accepted(host.initialize("water-test", {"P"})), "initialize");
         check(accepted(host.configure_terrain(site(200))), "bind trusted flow");
         check(accepted(host.publish_actor("P", {V(-1.65), V(1.0), V(1.65)}, 1)), "actor");
+        for (I size : {I{1}, I{2}}) {
+            auto undersized = place(size == 1 ? "one" : "two", -2, 4);
+            undersized.emplace("tiles", V(size));
+            const auto rejected = host.command("P", undersized);
+            check(!accepted(rejected) && field<std::string>(rejected, "reason") == "invalid_wheel_size",
+                  "wheels below three tiles are refused");
+        }
         const auto dry = host.command("P", place("dry", -1));
         check(!accepted(dry) && field<std::string>(dry, "reason") == "not_at_stream", "dry placement");
-        const auto high = host.command("P", place("high", -2, 2));
+        const auto high = host.command("P", place("high", -2, 8));
         check(!accepted(high) && field<std::string>(high, "reason") == "not_at_stream", "above water");
         const auto vertical = host.command("P", place("vertical", -2, 0, "y"));
         check(!accepted(vertical), "vertical axle refusal");
-        const auto wheel = host.command("P", place("wet", -2));
+        const auto wheel = host.command("P", place("wet", -2, 4));
         check(accepted(wheel), "immersed placement");
         const auto id = field<std::string>(wheel, "entity");
         auto collector_wire = place("collector", 0);
@@ -59,24 +66,29 @@ int main() {
         const auto collector = host.command("P", collector_wire);
         check(accepted(collector), "ground collector");
         O gear{{"context", V("water-test")}, {"client", V("P")}, {"request", V("gear")},
-            {"action", V("place_gear")}, {"center", V(A{V(I{-4}), V(I{0}), V(I{0})})},
+            {"action", V("place_gear")}, {"center", V(A{V(I{-4}), V(I{4}), V(I{0})})},
             {"axis", V("x")}, {"teeth", V(I{2})}};
         const auto middle = host.command("P", gear);
         check(accepted(middle), "intermediate coaxial cog");
         const auto middle_id = field<std::string>(middle, "entity");
         const auto collector_id = field<std::string>(collector, "entity");
+        gear.at("request") = V("lower-gear");
+        gear.at("center") = V(A{V(I{-4}), V(I{0}), V(I{0})});
+        const auto lower = host.command("P", gear);
+        check(accepted(lower), "lower meshing cog");
+        const auto lower_id = field<std::string>(lower, "entity");
         O link{{"context", V("water-test")}, {"client", V("P")}, {"request", V("shaft-a")},
             {"action", V("connect_drive")}, {"from", V(id)}, {"to", V(middle_id)}};
         check(field<std::string>(host.command("P", link), "reason") == "axles_already_touch", "wheel touches cog");
-        link.at("request") = V("shaft-b"); link.at("from") = V(middle_id); link.at("to") = V(collector_id);
+        link.at("request") = V("shaft-b"); link.at("from") = V(lower_id); link.at("to") = V(collector_id);
         check(field<std::string>(host.command("P", link), "reason") == "axles_already_touch", "cog touches collector");
         O power{{"context", V("water-test")}, {"client", V("P")}, {"request", V("power")},
             {"action", V("set_power")}, {"active", V(true)}};
         check(accepted(host.command("P", power)), "enable wheel drive");
         const auto motion = V(field<O>(host.projection(), "motion").at(id));
-        check(field<I>(motion, "numerator") == -1 && field<I>(motion, "denominator") == 1, "signed local rate");
+        check(field<I>(motion, "numerator") == -1 && field<I>(motion, "denominator") == 3, "signed local rate");
         const auto collector_motion = V(field<O>(host.projection(), "motion").at(collector_id));
-        check(field<I>(collector_motion, "numerator") == -1 && field<I>(collector_motion, "denominator") == 1,
+        check(field<I>(collector_motion, "numerator") == 1 && field<I>(collector_motion, "denominator") == 3,
               "the connected collector receives the water rate");
         const auto saved = host.checkpoint();
         Host fresh;
@@ -90,7 +102,7 @@ int main() {
         Host raised;
         check(accepted(raised.initialize("water-test", {"P"})) && accepted(raised.configure_terrain(raised_site)) &&
               accepted(raised.publish_actor("P", {V(-1.65), V(1.0), V(1.65)}, 1)), "raised terrain site");
-        const auto blocked = raised.command("P", place("blocked", -2));
+        const auto blocked = raised.command("P", place("blocked", -2, 4));
         check(!accepted(blocked) && field<std::string>(blocked, "reason") == "site_occupied",
               "water cannot authorize a wheel intersecting the actual terrain");
         Host raised_restore;
@@ -99,17 +111,17 @@ int main() {
               !accepted(raised_restore.restore_checkpoint(saved)), "checkpoint import repeats terrain clearance");
         Host large;
         check(accepted(large.initialize("water-test", {"P"})) && accepted(large.configure_terrain(site(200))) &&
-              accepted(large.publish_actor("P", {V(-1.65), V(1.0), V(1.65)}, 1)), "large wheel site");
-        auto big_wire = place("large", -2, 2);
-        big_wire.emplace("tiles", V(I{2}));
+              accepted(large.publish_actor("P", {V(-1.65), V(3.0), V(1.65)}, 1)), "large wheel site");
+        auto big_wire = place("large", -2, 10);
+        big_wire.emplace("tiles", V(I{6}));
         const auto big = large.command("P", big_wire);
-        check(accepted(big), "two-square wheel immerses at the shared raised level");
+        check(accepted(big), "six-square wheel immerses at the shared raised level");
         check(accepted(large.command("P", power)), "enable large wheel");
         const auto big_id = field<std::string>(big, "entity");
         const auto big_motion = V(field<O>(large.projection(), "motion").at(big_id));
-        check(field<I>(big_motion, "numerator") == -1 && field<I>(big_motion, "denominator") == 2,
+        check(field<I>(big_motion, "numerator") == -1 && field<I>(big_motion, "denominator") == 6,
               "double diameter halves angular rate at the same current");
-        check(field<I>(V(field<O>(large.projection(), "entities").at(big_id)), "tiles") == 2,
+        check(field<I>(V(field<O>(large.projection(), "entities").at(big_id)), "tiles") == 6,
               "confirmed projection carries the wheel size");
         const auto big_saved = large.checkpoint();
         Host large_restore;

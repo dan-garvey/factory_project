@@ -2,6 +2,7 @@ extends SceneTree
 ## Actual offline/shared redraw callbacks over invented projection facts only.
 const Opening = preload("res://opening/opening.gd")
 const SharedOpening = preload("res://opening/shared_opening.gd")
+const Assets = preload("res://opening/workpiece_item_assets.gd")
 
 class ItemsView extends Opening:
 	func _ready() -> void: set_process(false)
@@ -27,6 +28,7 @@ func verify(condition: bool, message: String) -> void:
 
 func observation() -> Dictionary:
 	return {"context": "fitted-item-mount", "revision": 7, "order": 0,
+		"initial_feed": 4096, "source_deposit": {"cells": [[0, 0], [0, 1]]},
 		"options": {"physical": true, "native": true},
 		"actors": {"P": {"ready": true, "position": [0.0, 0.9, 0.0]}},
 		"inventories": {"P": 0}, "parts": {}, "entities": {
@@ -55,36 +57,24 @@ func check_view(view, shared: bool) -> void:
 	view.model = facts
 	if shared:
 		view.session = facts
-	view.geometry_key = JSON.stringify([facts.state.entities, facts.state.links, facts.state.drive_links])
+	view.geometry_key = JSON.stringify([facts.state.entities, facts.state.links, facts.state.drive_links, {}])
 	view.item_root = Node3D.new()
 	view.add_child(view.item_root)
 	root.add_child(view)
 	var before: Dictionary = facts.state.duplicate(true)
 	view._refresh()
-	verify(counts(view.item_root) == {"seam_blank": 3, "workpiece_billet": 6, "stamped_plate": 1},
-		"The actual refresh mounts fitted items with the existing stock counts and one visible outlet plate.")
-	verify(has_item(view.item_root, "workpiece_billet", Vector3(-0.17, 0.65, 1.65))
+	verify(counts(view.item_root) == {"mineral_deposit": 1, "workpiece_billet": 6, "stamped_plate": 1},
+		"Actual redraws mount one natural deposit, fitted workpieces and one visible outlet plate.")
+	verify(has_item(view.item_root, "workpiece_billet", Vector3(-0.405, 0.65, 1.11))
 		and has_item(view.item_root, "workpiece_billet", Vector3(1.8, 0.65, 1.65)),
-		"Collector and belt workpieces retain their original world positions.")
+		"The collector starts its fitted pile while the belt keeps its ordinary workpiece position.")
 	verify(has_item(view.item_root, "workpiece_billet", Vector3(3.77, 0.65, 1.65))
 		and has_item(view.item_root, "stamped_plate", Vector3(3.76, 0.39, 1.8)),
 		"Held/input work and the outlet plate retain the original press offsets.")
-	verify(has_item(view.item_root, "seam_blank", Vector3(-0.16, 0.11, -2.9))
-		and has_item(view.item_root, "seam_blank", Vector3(-0.16, 0.11, -1.75)),
-		"The finite seam stays in its marked column.")
-	var source_index := 0
-	for item in view.item_root.get_children():
-		if item.get_meta("item_kind", "") != "seam_blank":
-			continue
-		var roles := {}
-		for part in item.get_children():
-			var role: String = part.get_meta("asset_role", "")
-			roles[role] = int(roles.get(role, 0)) + 1
-		verify(roles == {"RawHostRock": 1, "RawMineral": 3}
-			and item.get_meta("source_variant", -1) == source_index % 3,
-			"The actual callback mounts deterministic natural clusters without manufactured source hardware.")
-		source_index += 1
-	verify(source_index == 3, "Every confirmed source unit reaches the natural-cluster consumer.")
+	var deposit: Node3D = view.item_root.get_node("MineralDeposit")
+	verify(deposit.get_child_count() == 2 and deposit.get_meta("remaining") == 3
+		and deposit.has_node("ExposedRock") and deposit.has_node("MineralVeins"),
+		"The actual callback consumes native coverage and confirmed reserve without a per-unit prop row.")
 	verify(view.state == before and facts.state == before and view.actor_world == null
 		and view.request_sequence == 0, "Item refresh does not mutate projection facts or create authority/input.")
 	if view.item_root.get_child_count() == 0:
@@ -98,8 +88,9 @@ func check_view(view, shared: bool) -> void:
 	facts.state.stock = {"source": 0, "collector": 0, "belt": 3, "input": 1, "held": 0, "output": 0}
 	before = facts.state.duplicate(true)
 	view._refresh()
-	verify(counts(view.item_root) == {"workpiece_billet": 4},
-		"A later confirmed stock revision removes collected plates and depleted seam blanks.")
+	verify(counts(view.item_root) == {"workpiece_billet": 4, "mineral_deposit": 1}
+		and not view.item_root.get_node("MineralDeposit").has_node("MineralVeins"),
+		"The exhausted source retains bare host rock while collected plates and minerals disappear.")
 	var old_items_freed := true
 	for previous in old_items: old_items_freed = old_items_freed and previous.get_ref() == null
 	verify(old_items_freed, "Replacing a revision frees every superseded item without leaving duplicate assemblies.")
@@ -111,65 +102,39 @@ func check_view(view, shared: bool) -> void:
 	view._refresh()
 	verify(view.item_root.get_child(0).get_instance_id() == first_item_id,
 		"An unchanged revision retains its assemblies through the actual refresh path.")
+	facts.state.revision += 1
+	facts.state.stock = {"source": 1, "collector": 32, "belt": 0, "input": 0, "held": 0, "output": 0}
+	before = facts.state.duplicate(true)
+	view._refresh()
+	verify(counts(view.item_root) == {"workpiece_billet": 32, "mineral_deposit": 1},
+		"A full native collector buffer displays all thirty-two confirmed blanks without inventing or hiding quantity.")
+	var positions := {}
+	var fitted := true
+	for item in view.item_root.get_children():
+		if item.get_meta("item_kind", "") != "workpiece_billet":
+			continue
+		positions[item.position] = true
+		var local: Vector3 = item.position - Vector3(0, 0, 1.65)
+		var low: Vector3 = local - Assets.BILLET_HALF_EXTENTS
+		var high: Vector3 = local + Assets.BILLET_HALF_EXTENTS
+		fitted = fitted and low.x >= -0.725 and high.x <= 0.725 and low.z >= -0.725 and high.z <= 0.725
+		fitted = fitted and low.y >= 0.0 and high.y <= 1.65
+	verify(fitted and positions.size() == 32,
+		"Every buffered billet has a distinct slot inside the unchanged collector envelope.")
+	verify(view.state == before and facts.state == before and view.actor_world == null and view.request_sequence == 0,
+		"The enlarged buffer view leaves authority, stock and input untouched.")
 	view.free()
 
 func _initialize() -> void:
 	call_deferred("_run")
 
-func check_historical_view(view, shared: bool) -> void:
-	var facts := Facts.new()
-	facts.state = observation()
-	facts.state.options.native = false
-	view.model = facts
-	if shared:
-		view.session = facts
-	view.geometry_key = JSON.stringify([facts.state.entities, facts.state.links, facts.state.drive_links])
-	view.item_root = Node3D.new()
-	view.add_child(view.item_root)
-	root.add_child(view)
-	var before: Dictionary = facts.state.duplicate(true)
-	view._refresh()
-	var all_boxes := true
-	var previous_items: Array[WeakRef] = []
-	for child in view.item_root.get_children():
-		all_boxes = all_boxes and child is MeshInstance3D and child.mesh is BoxMesh
-		previous_items.append(weakref(child))
-	verify(all_boxes and view.item_root.get_child_count() == 10,
-		"A historical payload without the optional module retains its existing primitive presentation.")
-	if view.item_root.get_child_count() == 0:
-		view.free()
-		return
-	verify(view.item_root.get_child(0).position.is_equal_approx(Vector3(-0.17, 0.65, 1.65))
-		and view.item_root.get_child(9).position.is_equal_approx(Vector3(-0.16, 0.11, -1.75)),
-		"The historical carrier and finite-seam positions remain unchanged.")
-	verify(view.state == before and facts.state == before and view.actor_world == null
-		and view.request_sequence == 0, "Historical presentation does not mutate facts or create authority/input.")
-	facts.state.revision += 1
-	facts.state.stock = {"source": 0, "collector": 0, "belt": 3, "input": 1, "held": 0, "output": 0}
-	before = facts.state.duplicate(true)
-	view._refresh()
-	verify(view.item_root.get_child_count() == 4, "Historical redraw follows the next confirmed stock revision.")
-	var previous_freed := true
-	for previous in previous_items: previous_freed = previous_freed and previous.get_ref() == null
-	verify(previous_freed and view.state == before and facts.state == before,
-		"Historical redraw frees superseded items and preserves projection facts.")
-	verify(view.workpiece_item_assets == null, "The absent optional script is never loaded.")
-	view.free()
-
 func _run() -> void:
 	var shared_only := "--shared-only" in OS.get_cmdline_user_args()
-	var historical_only := "--historical-only" in OS.get_cmdline_user_args()
-	if historical_only:
-		verify(not ResourceLoader.exists("res://opening/workpiece_item_assets.gd", "Script"),
-			"This declared historical derivative really omits the optional workpiece module.")
-		check_historical_view(ItemsView.new(), false)
-		check_historical_view(SharedItemsView.new(), true)
-	else:
-		if not shared_only:
-			check_view(ItemsView.new(), false)
-		check_view(SharedItemsView.new(), true)
+	if not shared_only:
+		check_view(ItemsView.new(), false)
+	check_view(SharedItemsView.new(), true)
 	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
-		"phase": "historical missing module" if historical_only else "shared correction" if shared_only else "offline and shared",
+		"phase": "shared" if shared_only else "offline and shared",
 		"scope": "ordinary offline/shared item callbacks with invented facts",
 		"native_gameplay": "not_run", "desktop": "not_used"}))
 	quit(1 if failed else 0)

@@ -2,6 +2,8 @@ extends SceneTree
 ## Invented confirmed projections and a request sink, never a Model or game.
 const Controls = preload("res://opening/native_transmission_controls.gd")
 const Presenter = preload("res://opening/native_transmission_presenter.gd")
+const LooseControls = preload("res://opening/recovery_actions.gd").LooseMaterialControls
+const Session = preload("res://opening-session/session.gd")
 var checks := 0
 var failures := 0
 
@@ -337,6 +339,58 @@ func _tool_guidance() -> void:
 	print(JSON.stringify({"popup_messages": host.messages, "requests": host.calls.size()}))
 	view.free()
 
+func _loose_material() -> void:
+	var host := HostStub.new()
+	host.state = fixture()
+	host.state.dropped_raw = [{"center": [2, 0, 4], "raw": 3}]
+	var menu := LooseControls.new()
+	menu.configure(host)
+	verify(menu.visible and not menu.disabled, "A confirmed loose stack is offered to the ready actor.")
+	menu._open()
+	var before: Dictionary = host.state.duplicate(true)
+	menu._choose(0)
+	verify(host.calls == [{"action": "pickup_raw", "center": [2, 0, 4]}] and host.state == before,
+		"Pickup submits the exact confirmed location without speculatively changing custody.")
+	menu._open()
+	host.state.context = "another-world"
+	menu._choose(0)
+	verify(host.calls.size() == 1, "A menu opened for another world cannot submit a stale selection.")
+	host.state.context = "helper-fixture"
+	menu._open()
+	host.state.dropped_raw = []
+	menu._choose(0)
+	verify(host.calls.size() == 1, "A vanished stack cannot be selected from an old menu.")
+	host.state.dropped_raw = [{"center": [2, 0, 4], "raw": 3}]
+	menu._open()
+	host.mutate_allowed = false
+	menu._choose(0)
+	verify(host.calls.size() == 1, "A shared mutation barrier prevents pickup submission.")
+	var presenter := Presenter.new()
+	presenter.configure(host)
+	var blank := presenter.get_node_or_null("LooseBlank")
+	verify(blank is MeshInstance3D and blank.position == Presenter.world_center([2, 0, 4]),
+		"The confirmed stack is rendered at its world location without requiring the belt to exist.")
+	host.state.dropped_raw = []
+	presenter.refresh()
+	verify(presenter.get_node_or_null("LooseBlank") == null, "The presentation removes a picked-up stack after confirmed state changes.")
+	menu.free()
+	presenter.free()
+	var session := Session.new()
+	session.context = "helper-fixture"
+	session._ready_for_commands = true
+	host.state.dropped_raw = [{"center": [2, 0, 4], "raw": 3}]
+	host.state.revision = 1
+	host.state.order = 1
+	session._apply_frame({"context": "helper-fixture", "serial": 1, "snapshot": host.state})
+	verify(session.projection().dropped_raw == host.state.dropped_raw,
+		"The read-only Session frame retains the server's loose-material projection.")
+	host.state.dropped_raw = []
+	host.state.revision = 2
+	host.state.order = 2
+	session._apply_frame({"context": "helper-fixture", "serial": 2, "snapshot": host.state})
+	verify(session.projection().dropped_raw.is_empty(), "A later confirmed Session frame removes the picked-up stack.")
+	session.free()
+
 func _run() -> void:
 	if "--tool-guidance-only" in OS.get_cmdline_user_args():
 		_tool_guidance()
@@ -344,6 +398,8 @@ func _run() -> void:
 		_cache_regression()
 	elif "--direction-basis-only" in OS.get_cmdline_user_args():
 		_direction_basis()
+	elif "--loose-material-only" in OS.get_cmdline_user_args():
+		_loose_material()
 	else:
 		_controls()
 		_gear_sizes()

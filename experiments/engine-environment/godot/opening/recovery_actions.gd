@@ -21,7 +21,15 @@ func configure(host: Object) -> void:
 func refusal_text(outcome: Dictionary) -> String:
 	# Only explain a definitive native refusal. Transport uncertainty and the
 	# historical scripted profile keep the view's original feedback.
-	if typeof(outcome.get("accepted")) != TYPE_BOOL or outcome.accepted or outcome.get("reason") != "occupied_target":
+	if typeof(outcome.get("accepted")) != TYPE_BOOL or outcome.accepted:
+		return ""
+	var explanations := {
+		"occupied_target": "Use the material menu to recover its contents, then dismantle the machine.",
+		"collector_below_source": "Raise the collector above the mineral surface, using a foundation if needed.",
+		"source_too_deep": "Lower the collector: the mineral surface is beyond its extraction depth.",
+		"invalid_source_surface": "The mineral surface is unavailable. Choose another place on the deposit."}
+	var reason: Variant = outcome.get("reason")
+	if typeof(reason) != TYPE_STRING or not explanations.has(reason):
 		return ""
 	var uncertain: Variant = outcome.get("uncertain", false)
 	if typeof(uncertain) != TYPE_BOOL or uncertain:
@@ -37,7 +45,7 @@ func refusal_text(outcome: Dictionary) -> String:
 	var options: Variant = snapshot.get("options")
 	if not options is Dictionary or typeof(options.get("native")) != TYPE_BOOL or not options.native:
 		return ""
-	return "Use the material menu to recover its contents, then dismantle the machine."
+	return explanations[reason]
 
 func refresh() -> void:
 	var context: Dictionary = _context()
@@ -179,3 +187,73 @@ func _choose(id: int) -> void:
 			host.call("issue", chosen.wire.duplicate(true))
 			return
 	refresh()
+
+class LooseMaterialControls:
+	extends MenuButton
+	## Lists confirmed loose blanks. The host remains responsible for reach and custody.
+
+	var _host: WeakRef
+	var _offers: Array = []
+	var _world := ""
+	var _actor := ""
+
+	func _init() -> void:
+		text = "Pick up loose blanks…"
+		tooltip_text = "Stand near a loose blank, then choose it here."
+		get_popup().about_to_popup.connect(_open)
+		get_popup().id_pressed.connect(_choose)
+		visible = false
+
+	func configure(host: Object) -> void:
+		_host = weakref(host)
+		refresh()
+
+	func _context() -> Dictionary:
+		if _host == null or not is_instance_valid(_host.get_ref()):
+			return {}
+		var host: Object = _host.get_ref()
+		var snapshot: Variant = host.get("state")
+		if host.get("legacy_fixture") != false or not snapshot is Dictionary:
+			return {}
+		var options: Variant = snapshot.get("options")
+		var drops: Variant = snapshot.get("dropped_raw")
+		var actor: Variant = host.get("client")
+		var actors: Variant = snapshot.get("actors")
+		if not options is Dictionary or options.get("native") != true or not drops is Array or not actors is Dictionary or typeof(actor) != TYPE_STRING or typeof(snapshot.get("context")) != TYPE_STRING:
+			return {}
+		var sample: Variant = actors.get(actor)
+		var usable: bool = sample is Dictionary and sample.get("ready") == true and host.get("explanation_open") == false and host.get("startup_save_pending") == false
+		if host.has_method("_can_mutate"):
+			usable = usable and host.call("_can_mutate") == true
+		return {"drops": drops, "world": snapshot.context, "actor": actor, "usable": usable}
+
+	func refresh() -> void:
+		var context := _context()
+		visible = not context.is_empty() and not context.drops.is_empty()
+		disabled = not visible or not context.usable
+
+	func _open() -> void:
+		var context := _context()
+		_offers.clear()
+		get_popup().clear()
+		if context.is_empty() or not context.usable:
+			return
+		_world = context.world
+		_actor = context.actor
+		for drop: Variant in context.drops:
+			if not drop is Dictionary or not drop.get("center") is Array or drop.center.size() != 3 or typeof(drop.get("raw")) != TYPE_INT or drop.raw <= 0:
+				continue
+			var point: Array = drop.center
+			if typeof(point[0]) != TYPE_INT or typeof(point[1]) != TYPE_INT or typeof(point[2]) != TYPE_INT:
+				continue
+			get_popup().add_item("%d blank(s) at grid %s" % [drop.raw, str(point)], _offers.size())
+			_offers.append(point.duplicate())
+
+	func _choose(id: int) -> void:
+		var context := _context()
+		if context.is_empty() or not context.usable or context.world != _world or context.actor != _actor or id < 0 or id >= _offers.size():
+			return
+		for drop: Variant in context.drops:
+			if drop is Dictionary and drop.get("center") == _offers[id] and typeof(drop.get("raw")) == TYPE_INT and drop.raw > 0:
+				_host.get_ref().issue({"action": "pickup_raw", "center": _offers[id].duplicate()})
+				return

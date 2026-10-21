@@ -70,7 +70,7 @@ func base_fixture(products: int = 4) -> Dictionary:
 		"motion": {
 			"wheel": {"state": "rotating", "numerator": 1, "denominator": 1},
 			"collector": {"state": "rotating", "numerator": 1, "denominator": 1},
-			"belt": {"state": "rotating", "numerator": 1, "denominator": 1},
+			"belt": {"state": "rotating", "numerator": -1, "denominator": 1},
 			"press": {"state": "rotating", "numerator": 1, "denominator": 1},
 			"s1": {"state": "rotating", "numerator": 1, "denominator": 1},
 			"s2": {"state": "rotating", "numerator": 1, "denominator": 1},
@@ -295,6 +295,10 @@ func _check_both_viable_arrangements() -> void:
 		geared.phase == "ready" and geared.diagnostic_code == "challenge_complete" and geared.arrangement == "geared_transfer",
 		"Collecting eight plates completes the challenge via the geared transfer route."
 	)
+	host.state.motion.belt.numerator = 1
+	var reverse := challenge.evaluate()
+	verify(reverse.phase == "restore_drive" and reverse.diagnostic_code == "reverse_belt" and reverse.machines_running and not reverse.belt_forward,
+		"A rotating reversed belt cannot satisfy the current production challenge.")
 
 	# Route A: Relocated Line (also test with Workhorse's [-1, 1] upstream target from row 0)
 	host.state = base_fixture(4)

@@ -49,7 +49,7 @@ are not migrated to this changed feature profile.
 
 In the native profile, place the waterwheel in the stream with its lower rim
 immersed and clear of the bed. The wheel tool adjusts its diameter in whole grid
-squares and its level on the shared height grid. Choose a horizontal axle across
+squares, starting at a three-square diameter, and its level on the shared height grid. Choose a horizontal axle across
 the current; the sampled flow controls the wheel's signed rotation, and a larger
 wheel turns more slowly in the same current. A wheel can be wet yet stationary
 when the flow is parallel to its axle. The current is an experimental fixed site
@@ -75,9 +75,13 @@ revisable visual reference speed; it does not supply a physics or processing
 clock. Angles are local presentation only, retained across ordinary refreshes
 but not saved or synchronized as tooth-contact phase. Unknown/stalled parts,
 Help, unready actors and disconnected shared views stop the illustration.
-The native profile currently treats either turning direction as powered and
-does not scale material throughput by angular rate. Its finite cog and shaft
-quantities and dimensions are revisable fixture choices.
+The belt carries blanks toward the press only when its top surface moves in that
+direction. Reversing the drive carries them off the other end. A loose stack is
+shown at that end; stand nearby and use **Pick up loose blanks…** to collect it,
+then insert the blanks at a machine. Loose stacks survive saving and belt removal.
+This prototype represents their fixed grid locations without gravity. Belt
+throughput remains a fixture step. Cog and shaft quantities and dimensions are
+revisable fixture choices.
 
 After confirming four plates, the native opening marks an upstream waterwheel
 site at `[-2, 0]` and asks for eight carried plates in total. The wheel must be

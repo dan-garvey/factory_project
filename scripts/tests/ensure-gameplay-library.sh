@@ -39,6 +39,20 @@ docs=$(git -C "$project" rev-parse HEAD)
 FACTORY_TEST_COUNTER=$counter "$refresh" prepare "$project" "$first" "$docs" "$root/library.so" "$digest"
 [[ ! -e $counter ]] || { printf 'An unrelated documentation change caused a build.\n' >&2; exit 1; }
 
+for dependency in mineral-site waterwheel; do
+    dependency_base=$(git -C "$project" rev-parse HEAD)
+    mkdir -p "$project/native/$dependency/include"
+    printf 'changed native dependency\n' > "$project/native/$dependency/include/profile.hpp"
+    git -C "$project" add "native/$dependency/include/profile.hpp"
+    git -C "$project" -c core.hooksPath=/dev/null commit -qm dependency
+    dependency_revision=$(git -C "$project" rev-parse HEAD)
+    if FACTORY_TEST_COUNTER=$counter "$refresh" check "$project" "$dependency_base" "$dependency_revision" "$root/library.so" "$digest" > /dev/null 2>&1; then
+        printf 'Validation-only mode accepted a changed %s dependency.\n' "$dependency" >&2
+        exit 1
+    fi
+    [[ ! -e $counter ]] || { printf 'Dependency validation launched a build.\n' >&2; exit 1; }
+done
+
 printf 'world two\n' >> "$project/native/factory-world/src/world.cpp"
 git -C "$project" add native/factory-world/src/world.cpp
 git -C "$project" -c core.hooksPath=/dev/null commit -qm world

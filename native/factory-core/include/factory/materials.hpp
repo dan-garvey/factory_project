@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <map>
 #include <optional>
@@ -10,6 +11,9 @@ namespace factory::materials {
 
 using Quantity = std::int64_t;
 using WorkId = std::int64_t;
+using DropPoint = std::array<Quantity, 3>;
+inline constexpr std::size_t maximum_drop_points = 256;
+inline constexpr Quantity maximum_drop_coordinate = 1000004;
 inline constexpr Quantity work_subticks_per_tick = 4096;
 inline constexpr Quantity maximum_work_subticks_per_tick = 16 * work_subticks_per_tick;
 
@@ -64,6 +68,8 @@ struct State {
     std::map<std::string, Cargo> cargo;
     std::optional<WorkLot> processing;
     WorkId next_work_id{1};
+    // Loose raw units remain owned by this state even if their belt is removed.
+    std::map<DropPoint, Quantity> dropped_raw{};
     bool operator==(const State&) const = default;
 };
 
@@ -87,6 +93,8 @@ struct MachinePower {
     bool belt{};
     bool processor{};
     Quantity processor_work_per_tick{work_subticks_per_tick};
+    bool belt_forward{true};
+    std::optional<DropPoint> reverse_drop{};
 };
 
 enum class Error {
@@ -98,6 +106,7 @@ enum class Error {
     invalid_actor,
     unavailable_output,
     work_id_overflow,
+    unavailable_drop,
 };
 
 [[nodiscard]] const char* error_name(Error error) noexcept;
@@ -119,6 +128,9 @@ enum class Error {
 // Path and the existing three-argument API keep their original representation
 // and behavior. World still owns trusted stepping and mechanical derivation.
 [[nodiscard]] Error step(State&, const Config&, const Path&, const MachinePower&);
+
+// World must first authenticate the actor and admit reach to the exact point.
+[[nodiscard]] Error pickup_raw(State&, const Config&, const Path&, const std::string&, const DropPoint&);
 
 // Call only after the authoritative adapter has admitted this actor and reach
 // and has excluded a cached request. This function is not an admission API.

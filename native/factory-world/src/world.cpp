@@ -110,6 +110,7 @@ bool keys(const Object& object, std::initializer_list<const char*> extra) {
 }
 
 bool shape(const Object& intent, const std::string& action) {
+    if (action == "pickup_raw") return keys(intent, {"center"});
     if (action == "place_foundations") return keys(intent, {"center", "end"});
     if (action == "place_foundation") return keys(intent, {"center"});
     if (action == "remove_foundation") return keys(intent, {"target", "generation"});
@@ -145,13 +146,13 @@ std::optional<mechanics::Axis> axis(const std::string& value) {
     return std::nullopt;
 }
 
-std::optional<mechanics::Point> grid_point(const Object& intent) {
+std::optional<mechanics::Point> grid_point(const Object& intent, Integer limit = mechanics::maximum_coordinate) {
     const auto* array = field<Value::Array>(intent, "center");
     if (!array || array->size() != 3) return std::nullopt;
     mechanics::Point point;
     for (std::size_t index = 0; index < point.size(); ++index) {
         const auto* value = std::get_if<Integer>(&array->at(index).storage());
-        if (!value || *value < -mechanics::maximum_coordinate || *value > mechanics::maximum_coordinate)
+        if (!value || *value < -limit || *value > limit)
             return std::nullopt;
         point[index] = *value;
     }
@@ -307,6 +308,14 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         return !cells.empty() && count && *count == static_cast<Integer>(cells.size()) &&
             targets.front() == *actor_position && result.size() == 17;
     }
+    if (action == "pickup_raw") {
+        const auto location = grid_point(record.intent, materials::maximum_drop_coordinate);
+        const auto* amount = field<Integer>(result, "moved_raw");
+        const auto* entity = field<std::string>(result, "entity");
+        const auto* generation = field<Integer>(result, "generation");
+        return location && targets.front() == anchor(profile, *location) && amount && *amount > 0 &&
+            *amount <= profile.initial_units && entity && entity->empty() && generation && *generation == 0 && result.size() == 17;
+    }
     if (placement(action) || action == "place_foundation") {
         const auto location = grid_point(record.intent);
         if (action == "place_foundation")
@@ -321,7 +330,7 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         if (!location || !selected_role || !axis_name || !axis(*axis_name) || !teeth || !span ||
             !spec_valid({*selected_role, *teeth, *span}) || targets.front() != anchor(profile, *location) ||
             (record.intent.contains("wheel_tiles") && (!wheel_tiles || *selected_role != Role::waterwheel ||
-                *wheel_tiles < 1 || *wheel_tiles > mechanics::maximum_dimension))) return false;
+                *wheel_tiles < 3 || *wheel_tiles > mechanics::maximum_dimension))) return false;
         if (action == "place_connected") {
             if (!material_machine(*selected_role)) return false;
             auto left = *location;
@@ -395,8 +404,10 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
         const auto* entity = field<std::string>(record.result, "entity");
         const auto* generation = field<Integer>(record.result, "generation");
         if (!result_actor || *result_actor != *actor || !entity || !generation) return false;
-        const auto issued = snapshot.state.issued_entities.find(*entity);
-        if (issued == snapshot.state.issued_entities.end() || issued->second != *generation) return false;
+        if (*action != "pickup_raw") {
+            const auto issued = snapshot.state.issued_entities.find(*entity);
+            if (issued == snapshot.state.issued_entities.end() || issued->second != *generation) return false;
+        }
         if (*action == "place_foundations") {
             const auto cells = foundation_area(record.intent);
             if (cells.empty() || *generation < static_cast<Integer>(cells.size())) return false;
@@ -466,7 +477,15 @@ materials::MachinePower machine_power(const stationary::Topology& topology) {
         const bool rotating = found != view.mechanical.motion.end() &&
             found->second.state == mechanics::MotionState::rotating;
         if (item.role == Role::collector) power.collector = rotating;
-        if (item.role == Role::belt) power.belt = rotating;
+        if (item.role == Role::belt) {
+            power.belt = rotating;
+            if (rotating) {
+                // +Z rotation moves the belt's upper surface toward -X.
+                power.belt_forward = found->second.rate.numerator < 0;
+                power.reverse_drop = materials::DropPoint{item.geometry.center[0] - 2,
+                    item.geometry.center[1], item.geometry.center[2]};
+            }
+        }
         if (item.role == Role::processor) {
             power.processor = rotating;
             if (rotating) {
@@ -564,7 +583,7 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
         }
     }
     for (const auto& item : state.topology.parts) {
-        if (item.wheel_tiles < 1 || item.wheel_tiles > mechanics::maximum_dimension ||
+        if (item.wheel_tiles < (item.role == Role::waterwheel ? 3 : 1) || item.wheel_tiles > mechanics::maximum_dimension ||
             (item.role != Role::waterwheel && item.wheel_tiles != 1)) return false;
         if (item.role == Role::belt && item.geometry.axis != mechanics::Axis::z) return false;
         if (profile.foundation_parts > 0 && material_machine(item.role) && item.geometry.center[1] != 0 &&
@@ -629,6 +648,27 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
     const auto* action = field<std::string>(intent, "action");
     if (!action || !shape(intent, *action)) return refused("invalid_command");
     const auto& state = snapshot.state;
+    if (*action == "pickup_raw") {
+        const auto point = grid_point(intent, materials::maximum_drop_coordinate);
+        if (!point) return refused("invalid_center");
+        if (!observe) return refused("actor_unready");
+        auto cut = observe(binding.actor);
+        if (!cut) return refused("actor_unready");
+        cut->build_reach = profile_.build_reach;
+        auto reach = authority::check_reach(binding.actor, *cut, {anchor(profile_, *point)});
+        Object facts = reach.receipt ? reach_facts(binding, *reach.receipt) : Object{};
+        if (reach.error != authority::Error::none) return refused(authority::error_name(reach.error), "", std::move(facts));
+        const auto found = state.material.dropped_raw.find(*point);
+        if (found == state.material.dropped_raw.end()) return refused("unavailable_drop", "", std::move(facts));
+        const auto amount = found->second;
+        State candidate = state;
+        const auto error = materials::pickup_raw(candidate.material, profile_.material,
+                                                  material_path(candidate.topology), binding.actor, *point);
+        if (error != materials::Error::none) return refused(materials::error_name(error), "", std::move(facts));
+        facts.emplace("generation", Value(Integer{0}));
+        facts.emplace("moved_raw", Value(amount));
+        return accepted(std::move(candidate), "", std::move(facts));
+    }
     if (*action == "place_foundations") {
         if (profile_.foundation_parts == 0) return refused("foundations_unavailable");
         const auto cells = foundation_area(intent);
@@ -746,7 +786,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             !(selected_role = role(*role_name)) || !(selected_axis = axis(*axis_name)) ||
             !spec_valid({*selected_role, *teeth, *span}) ||
             (intent.contains("wheel_tiles") && (!wheel_tiles || *selected_role != Role::waterwheel ||
-                *wheel_tiles < 1 || *wheel_tiles > mechanics::maximum_dimension))) return refused("invalid_part");
+                *wheel_tiles < 3 || *wheel_tiles > mechanics::maximum_dimension))) return refused("invalid_part");
         if (*selected_role == Role::belt && *selected_axis != mechanics::Axis::z) return refused("invalid_belt_axis");
         targets.push_back(anchor(profile_, *location));
         if (profile_.foundation_parts > 0 && material_machine(*selected_role) && (*location)[1] != 0) {

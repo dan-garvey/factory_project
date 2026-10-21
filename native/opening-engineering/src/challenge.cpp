@@ -68,6 +68,12 @@ Progress inspect(const godot_world::Host& host, const std::string& actor) {
             const auto* state = entry ? field<std::string>(*entry, "state") : nullptr;
             if (!state) return {};
             running += *state == "rotating";
+            if (*kind == "belt") {
+                const auto* numerator = entry ? field<Count>(*entry, "numerator") : nullptr;
+                const auto* denominator = entry ? field<Count>(*entry, "denominator") : nullptr;
+                if (!numerator || !denominator || *denominator <= 0) return {};
+                progress.belt_forward = *state == "rotating" && *numerator < 0;
+            }
         }
     }
     for (const auto& [id, value] : *transmission) {
@@ -81,7 +87,7 @@ Progress inspect(const godot_world::Host& host, const std::string& actor) {
     progress.machines_running = machines == 3 && running == 3;
     if (*products < content.first_target) progress.phase = Phase::first_shift;
     else if (!progress.source_at_target) progress.phase = Phase::move_source;
-    else if (!progress.machines_running) progress.phase = Phase::restore_drive;
+    else if (!progress.machines_running || !progress.belt_forward) progress.phase = Phase::restore_drive;
     else if (*products < content.target) progress.phase = Phase::deliver_more;
     else progress.phase = Phase::ready;
     return progress;

@@ -10,7 +10,7 @@ namespace g = mechanics;
 namespace {
 constexpr std::array<r::Definition, 1> definitions{{
     {"spindle", "The line runs, but the spindle is wrong",
-     "Retrieve four plates with the connected line's spindle calibrated to signed rate +2/1.",
+     "Retrieve four plates with the connected line's spindle calibrated to signed rate -2/1.",
      "A direct 2-to-1 mesh reverses rotation. Bridge the two axial planes with your radius-3 cogs and short shaft: a 3-4-5 mesh reaches the input, and a 3+1 mesh reaches the output. The target and recipe duration are fixture specifications; gearing changes processing speed, not yield."},
 }};
 void add(r::Scenario& scenario, const std::string& id, s::Role role, g::Point center, g::Integer teeth = 0, g::Integer span = 0) {

@@ -10,8 +10,8 @@ namespace g = mechanics;
 namespace {
 constexpr std::array<r::Definition, 1> definitions{{
     {"co-drive", "Two wheels, one disagreeing drive",
-     "Carry four plates after retiring one waterwheel or coupling both wheels coherently to the line.",
-     "The direct large cogs reverse one equal-rate source. Retire a wheel, or replace both source cogs with the carried radius-2 cogs and reuse a radius-3 cog above them. Each new mesh spans five units; the source centers are six apart."},
+     "Carry four plates after resolving the source conflict and driving the belt toward the press.",
+     "The direct large cogs reverse one equal-rate source. Retire the left wheel, or replace both source cogs with the carried radius-2 cogs and reuse a radius-3 cog above them. Retiring the right wheel alone reverses the belt."},
 }};
 void add(r::Scenario& scenario, const std::string& id, s::Role role, g::Point point, g::Integer teeth = 0, g::Integer span = 0) {
     const auto kind = role == s::Role::gear ? g::Kind::gear : role == s::Role::shaft ? g::Kind::shaft : g::Kind::hub;
@@ -81,6 +81,7 @@ Progress inspect(const world::State& state, const std::string& actor) {
     if (!power.mechanical.accepted()) return result;
     if (!state.topology.drive_enabled) { result.mode = Mode::drive_off; return result; }
     const auto machines = world::machine_power(state.topology);
+    result.belt_forward = machines.belt && machines.belt_forward;
     if (!machines.collector || !machines.belt || !machines.processor) {
         const bool stalled = std::any_of(power.mechanical.components.begin(), power.mechanical.components.end(),
             [](const auto& component) { return component.state == g::MotionState::stalled; });

@@ -12,6 +12,7 @@ values::Value format_progress(const Progress& progress, const std::string& actor
         {"products", V(progress.products)}, {"first_target", V(content.first_target)}, {"target", V(content.target)},
         {"wheel_cell", V(V::Array{V(content.wheel_cell[0]), V(content.wheel_cell[1])})},
         {"source_at_target", V(progress.source_at_target)}, {"machines_running", V(progress.machines_running)},
+        {"belt_forward", V(progress.belt_forward)},
         {"placed_gears", V(progress.placed_gears)}, {"placed_shafts", V(progress.placed_shafts)},
         {"ready", V(progress.phase == Phase::ready)},
         {"title", V(std::string(content.title))}, {"brief", V(std::string(content.brief))},

@@ -1720,8 +1720,12 @@ func check_press_input_clearance() -> void:
 						and absf(centre_hits[1] + 0.515) < 0.000001 and absf(centre_hits[2] - 0.515) < 0.000001
 						and absf(centre_hits[3] - 0.655) < 0.000001,
 						"Actual facets retain two closed recessed input ends and leave the full central span open.")
+					for side in [-1.0, 1.0]:
+						verify(absf(journal_section_radius(journal.mesh, side * 0.60) - 0.077) < 0.000001
+							and absf(journal_section_radius(journal.mesh, side * 0.65) - 0.085) < 0.000001,
+							"Relieved inboard shoulders clear product hardware while the outboard bearing cuffs keep their original radius.")
 					if not cache.has("journal"):
-						check_closed_asset_mesh(journal.mesh, 0.0075, 0.0079)
+						check_closed_asset_mesh(journal.mesh, 0.0064, 0.0068)
 						cache.journal = journal.mesh
 						var former := MeshInstance3D.new()
 						former.mesh = DriveJournalArt.mesh(1.35)
@@ -1793,7 +1797,12 @@ func check_press_input_clearance() -> void:
 					for item in item_rows:
 						var box: AABB = item.pose * item.node.mesh.get_aabb()
 						for part in fixed:
-							verify(tray_mesh_gap(part, box) > 0.000001,
+							var item_gap := tray_mesh_gap(part, box)
+							if item_gap <= 0.000001:
+								print(JSON.stringify({"case": "press_input_outlet_clearance", "axis": axis, "shared": shared_profile,
+									"cell": cell, "level": level, "fixed_part": str(part.name),
+									"product_part": str(item.node.name), "gap_metres": item_gap}))
+							verify(item_gap > 0.000001,
 								"Actual input facets clear each complete finished-plate component at its original outlet pose.")
 					for travel in [0.0, 0.0075, 0.015]:
 						view._apply_press_pose(rows, travel)
@@ -4400,7 +4409,7 @@ func _initialize() -> void:
 		if OS.get_cmdline_user_args().has("--press-input-clearance-check"):
 			check_press_input_clearance()
 			if failed or not press_input_checks_complete:
-				verify(press_input_checks_complete, "All sixteen press input assemblies must complete before resource rendering.")
+				verify(press_input_checks_complete, "All sixteen press input assemblies must pass before resource rendering.")
 				finish()
 				return
 		if OS.get_cmdline_user_args().has("--foundation-art-check"):
@@ -4435,7 +4444,7 @@ func _initialize() -> void:
 		return
 	if OS.get_cmdline_user_args().has("--press-input-clearance-only"):
 		check_press_input_clearance()
-		verify(press_input_checks_complete, "The dedicated press input case completes all sixteen required assemblies.")
+		verify(press_input_checks_complete, "The dedicated press input case passes all sixteen required assemblies.")
 		finish()
 		return
 	if OS.get_cmdline_user_args().has("--satin-coating-only"):

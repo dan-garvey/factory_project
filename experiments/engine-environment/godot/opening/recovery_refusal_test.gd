@@ -121,6 +121,15 @@ func _shared(label: String, native_option: Variant, reason: String, expected: St
 
 func _run() -> void:
 	var occupied: Dictionary = {"accepted": false, "reason": "occupied_target"}
+	for reason: String in ["collector_below_source", "source_too_deep", "invalid_source_surface"]:
+		var expected: String = {
+			"collector_below_source": "Raise the collector above the mineral surface, using a foundation if needed.",
+			"source_too_deep": "Lower the collector: the mineral surface is beyond its extraction depth.",
+			"invalid_source_surface": "The mineral surface is unavailable. Choose another place on the deposit."}[reason]
+		_offline("offline mineral " + reason, true, {"accepted": false, "reason": reason}, expected)
+		_shared("shared mineral " + reason, true, reason, expected)
+	_offline("uncertain mineral delivery", true, {"accepted": false, "reason": "source_too_deep", "uncertain": true},
+		"That action is unavailable here.")
 	_offline("offline native occupied", true, occupied, RECOVERY_TEXT)
 	_offline("offline historical profile", false, occupied, "That action is unavailable here.")
 	_offline("offline explicit legacy", true, occupied, "That action is unavailable here.", "current", true)

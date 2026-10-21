@@ -1053,7 +1053,8 @@ class ProductionConveyorArt:
 		belt.name = "ConveyorLoop"
 		belt.position.y = HEIGHT
 		belt.mesh = loop_mesh()
-		belt.material_override = material()
+		var source := material()
+		belt.material_override = source.duplicate() if source != null else null
 		belt.set_meta("detail_role", "ConveyorLoop")
 		parent.add_child(belt)
 
@@ -1542,11 +1543,19 @@ class ProductionDriveJournalArt:
 		if horizontal_press_mesh == null:
 			var surface := SurfaceTool.new()
 			surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+			# The inboard shoulder clears the original stamped-plate hardware;
+			# the outer cuff keeps the established attachment radius and plane.
+			var end_mesh := ProductionVisuals.turned_mesh(PackedVector2Array([
+				Vector2(0, -0.070), Vector2(0.014, -0.070), Vector2(0.028, -0.090),
+				Vector2(0.065, -0.090), Vector2(0.077, -0.078), Vector2(0.077, 0.050),
+				Vector2(0.078, 0.055), Vector2(0.085, 0.060), Vector2(0.085, 0.076),
+				Vector2(0.071, 0.090), Vector2(0.028, 0.090), Vector2(0.014, 0.070),
+				Vector2(0, 0.070)]))
 			# Preserve the two original external ends. The working body between
 			# them is not an exposed through-shaft across the anvil.
 			for side in [-1.0, 1.0]:
-				surface.append_from(mesh(0.18), 0,
-					Transform3D(Basis.IDENTITY, Vector3(0, side * 0.585, 0)))
+				var basis := Basis(Vector3.RIGHT, PI) if side < 0 else Basis.IDENTITY
+				surface.append_from(end_mesh, 0, Transform3D(basis, Vector3(0, side * 0.585, 0)))
 			horizontal_press_mesh = surface.commit()
 		return horizontal_press_mesh
 
@@ -1576,15 +1585,15 @@ class ProductionDriveJournalArt:
 				# Rear brackets leave both the receiving pan and all original
 				# finished-plate pieces clear, without moving either interface.
 				_press_fixed(parent, "PressInputPost" + suffix, "Post",
-					ProductionVisuals.box_mesh(Vector3(0.10, 0.38, 0.12)),
-					at + Vector3(0, 0.31, -0.23))
+					ProductionVisuals.box_mesh(Vector3(0.10, 0.26, 0.12)),
+					at + Vector3(0, 0.37, -0.23))
 				_press_fixed(parent, "PressInputBracket" + suffix, "Bracket",
 					ProductionVisuals.box_mesh(Vector3(0.06, 0.08, 0.09)),
 					at + Vector3(0, 0.50, -0.135))
 			else:
 				_press_fixed(parent, "PressInputPost" + suffix, "Post",
-					ProductionVisuals.box_mesh(Vector3(0.12, 0.285, 0.10)),
-					at + Vector3.UP * 0.2625)
+					ProductionVisuals.box_mesh(Vector3(0.12, 0.165, 0.10)),
+					at + Vector3.UP * 0.3225)
 
 class ProductionCollectorToolingArt:
 	extends RefCounted
@@ -2384,7 +2393,7 @@ class ProductionEnvironment:
 			var half := size * 0.5
 			if entity.get("kind") == "wheel" and state.get("options", {}).get("native", false):
 				center.y = float(entity.get("level", 0)) * Geometry.HEIGHT_STEP + Geometry.ANCHOR_HEIGHT
-				half = Geometry.wheel_half_extents(int(entity.get("axis", 0)), int(entity.get("tiles", 1)))
+				half = Geometry.wheel_half_extents(int(entity.get("axis", 0)), int(entity.get("tiles", 3)))
 			volumes.append(AABB(center - half, half * 2.0).grow(0.08))
 		for foundation: Dictionary in state.get("foundations", {}).values():
 			var top := Vector3(foundation.cell[0] * Geometry.PITCH,
@@ -3305,6 +3314,7 @@ var goal_label: Label
 var power_label: Label
 var inspector: Label
 var recovery_actions
+var loose_material_controls
 var transmission_controls
 var transmission_presenter
 var transmission_endpoint_cue
@@ -3328,8 +3338,8 @@ var foundation_area_start := Vector2i.ZERO
 var foundation_area_toggle: CheckButton
 var foundation_level_controls: HBoxContainer
 var foundation_level_label: Label
-var wheel_level := 0
-var wheel_tiles := 1
+var wheel_level := 4
+var wheel_tiles := 3
 var wheel_size_controls: HBoxContainer
 var wheel_size_label: Label
 var state: Dictionary = {}
@@ -3673,7 +3683,7 @@ func issue(action: Dictionary) -> Dictionary:
 			"place_foundation": "Foundation placed. Its surface shares the machine grid.",
 			"place_foundations": "Foundation area placed on the world grid.",
 			"connect": "Material path connected.", "connect_drive": "Drive shaft connected.",
-			"retrieve": "Plate collected.", "set_power": "Drive updated.",
+			"retrieve": "Plate collected.", "pickup_raw": "Blank collected.", "set_power": "Drive updated.",
 			"remove": "Part returned to your carried kit.",
 			"disconnect": "Material connection removed.",
 			"disconnect_drive": "Drive shaft returned."}.get(action.action, "Done."))
@@ -3811,6 +3821,8 @@ func _animate_machine_bodies(delta: float) -> void:
 			if angle == float(anchor.get_meta("cutter_angle", NAN)):
 				continue
 			_apply_cutter_pose(anchor, rows, angle)
+		elif kind == "belt":
+			_apply_conveyor_motion(anchor, transmission_presenter.visual_rotation(id))
 		elif kind == "processor":
 			var target: Variant = _observed_press_target()
 			var generation: Variant = state.get("entities", {}).get(id, {}).get("generation")
@@ -3828,6 +3840,17 @@ func _animate_machine_bodies(delta: float) -> void:
 				continue
 			_apply_press_pose(rows, travel)
 			machine_press_poses[id].travel = travel
+
+func _apply_conveyor_motion(anchor: Node3D, rotation: float) -> void:
+	var loop := anchor.get_node_or_null("ConveyorLoop") as MeshInstance3D
+	if loop == null or not loop.material_override is StandardMaterial3D:
+		return
+	var length_value := 4.0 * ProductionConveyorArt.HALF_SPAN + TAU * ProductionConveyorArt.RADIUS
+	var repeats := maxi(1, roundi(length_value / ProductionConveyorArt.SOURCE_METRES))
+	# The top profile runs toward +X as UV increases. Positive +Z shaft
+	# rotation carries the top toward -X, so the texture offset increases.
+	var offset := fposmod(rotation * ProductionConveyorArt.RADIUS * repeats / length_value, 1.0)
+	loop.material_override.uv1_offset = Vector3(offset, 0, 0)
 
 func _sync_machine_body_context() -> void:
 	var context: Variant = state.get("context")
@@ -4148,7 +4171,7 @@ func _adjust_foundation_level(delta: int) -> void:
 func _adjust_wheel_size(delta: int) -> void:
 	if mode != "wheel" or not _native_transmission() or explanation_open:
 		return
-	wheel_tiles = clampi(wheel_tiles + delta, 1, 4096)
+	wheel_tiles = clampi(wheel_tiles + delta, 3, 4096)
 	wheel_size_label.text = "Wheel diameter: %d squares" % wheel_tiles
 	_refresh_placement_hint(true)
 
@@ -4570,7 +4593,7 @@ func _wheel_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	# Paddle tips use a 0.70-unit source radius. The larger rotor reaches the
 	# water while its center stays at the common machine spindle height.
 	var rotor_scale := Geometry.WATERWHEEL_RADIUS / 0.70 if native_profile else scale_factor
-	var radial_scale := rotor_scale * int(entity.get("tiles", 1)) if native_profile else rotor_scale
+	var radial_scale := rotor_scale * int(entity.get("tiles", 3)) if native_profile else rotor_scale
 	wheel_rotor.scale = Vector3(radial_scale, radial_scale, rotor_scale)
 	if native_profile and axis == Vector3.RIGHT:
 		wheel_rotor.rotation.y = PI / 2
@@ -4663,6 +4686,8 @@ func _rebuild_machines() -> void:
 		anchor.set_meta("motion_meshes", motion_meshes)
 		if kind == "collector" and transmission_presenter != null:
 			_apply_cutter_pose(anchor, motion_meshes, transmission_presenter.visual_angle(entity_id))
+		elif kind == "belt" and transmission_presenter != null:
+			_apply_conveyor_motion(anchor, transmission_presenter.visual_rotation(entity_id))
 		elif kind == "processor" and _native_transmission():
 			var target: Variant = _observed_press_target()
 			var generation: Variant = entity.get("generation")
@@ -4676,7 +4701,7 @@ func _rebuild_machines() -> void:
 		body.set_meta("entity", entity_id)
 		var collider := CollisionShape3D.new()
 		var shape := BoxShape3D.new()
-		shape.size = Geometry.wheel_half_extents(int(entity.get("axis", 0)), int(entity.get("tiles", 1))) * 2.0 if kind == "wheel" and _native_transmission() else Vector3(Geometry.MACHINE_SIZE[0], Geometry.MACHINE_SIZE[1], Geometry.MACHINE_SIZE[2])
+		shape.size = Geometry.wheel_half_extents(int(entity.get("axis", 0)), int(entity.get("tiles", 3))) * 2.0 if kind == "wheel" and _native_transmission() else Vector3(Geometry.MACHINE_SIZE[0], Geometry.MACHINE_SIZE[1], Geometry.MACHINE_SIZE[2])
 		collider.shape = shape
 		collider.position.y = Geometry.ANCHOR_HEIGHT if kind == "wheel" and _native_transmission() else Geometry.MACHINE_CENTER_HEIGHT
 		body.add_child(collider)
@@ -4696,35 +4721,9 @@ func _rebuild_machines() -> void:
 func _redraw_items() -> void:
 	# The asset helper uses this script's shared surfaces, so load it after
 	# the opening class is available instead of creating a preload cycle.
-	var path := "res://opening/workpiece_item_assets.gd"
-	if ResourceLoader.exists(path, "Script"):
-		if workpiece_item_assets == null:
-			workpiece_item_assets = load(path)
-		workpiece_item_assets.populate_items(item_root, state, PITCH)
-		return
-	if state.get("options", {}).get("native", false):
-		push_error("Native item presentation requires the complete captured project.")
-		return
-	# Historical scripted payloads have fixed file rosters. Preserve their
-	# existing presentation until those entry points are replaced.
-	for child in item_root.get_children():
-		child.free()
-	for entity_id in state.entities:
-		var entity: Dictionary = state.entities[entity_id]
-		var pos := _cell_position(entity.cell)
-		var amount := 0
-		if entity.kind in ["collector", "belt"]:
-			amount = int(state.stock.get(entity.kind, 0))
-		elif entity.kind == "processor":
-			amount = int(state.stock.held) + int(state.stock.input)
-		for n in range(amount):
-			_box(item_root, pos + Vector3(-0.17 + n * 0.32, 0.65, 0), Vector3(0.27, 0.18, 0.36), Color("e2c48b"))
-		if entity.kind == "processor" and state.stock.output > 0:
-			_box(item_root, pos + Vector3(0.46, 0.39, 0.15), Vector3(0.44, 0.07, 0.53), Color("e4d8b3"))
-	# The finite seam stays in its marked column when machinery is rebuilt.
-	for n in range(mini(16, int(state.stock.source))):
-		_box(item_root, Vector3(-0.16 + (n % 2) * 0.32, 0.11, -2.9 + int(n / 2.0) * 1.15),
-			Vector3(0.2, 0.18, 0.28), Color("a58c59"))
+	if workpiece_item_assets == null:
+		workpiece_item_assets = load("res://opening/workpiece_item_assets.gd")
+	workpiece_item_assets.populate_items(item_root, state, PITCH)
 
 func _refresh() -> void:
 	state = model.projection()
@@ -4822,6 +4821,8 @@ func _refresh_ui() -> void:
 	_refresh_guided_tools()
 	if recovery_actions != null:
 		recovery_actions.refresh()
+	if loose_material_controls != null:
+		loose_material_controls.refresh()
 
 func _toggle_all_tools() -> void:
 	if not explanation_open:
@@ -5076,9 +5077,13 @@ func _guided_step(kinds: Dictionary) -> Dictionary:
 			var part: Dictionary = state.entities[id]
 			if part.get("kind", "") in ["collector", "belt", "processor"] and motion.get(id, {}).get("state", "") != "rotating":
 				return {"text": "Use cogs and shafts to bring rotation to each machine. The belt shaft crosses its direction of travel.", "tool": "drive"}
+			if part.get("kind", "") == "belt" and motion.get(id, {}).get("state", "") == "rotating" and int(motion.get(id, {}).get("numerator", 0)) > 0:
+				return {"text": "The belt is carrying blanks away from the press. Change the cog route to reverse its rotation; pick up loose blanks from the worksite menu.", "tool": "drive"}
 	elif not state.get("powered", false):
 		return {"text": "Bring power to the line. Help [H] shows the current setup.", "tool": "drive"}
 	var stock: Dictionary = state.get("stock", {})
+	if _native_transmission() and not state.get("dropped_raw", []).is_empty() and int(stock.get("source", 0)) + int(stock.get("collector", 0)) + int(stock.get("belt", 0)) + int(stock.get("input", 0)) + int(stock.get("held", 0)) == 0:
+		return {"text": "Pick up loose blanks from the worksite menu, then insert them into the press.", "tool": "inspect"}
 	if int(stock.get("source", 0)) + int(stock.get("collector", 0)) + int(stock.get("belt", 0)) + int(stock.get("input", 0)) + int(stock.get("held", 0)) == 0:
 		if _native_transmission():
 			var cargo: Dictionary = state.get("cargo", {}).get(client, {})
@@ -5274,7 +5279,7 @@ func _build_interface() -> void:
 	wheel_size_controls = HBoxContainer.new()
 	build.add_child(wheel_size_controls)
 	_button(wheel_size_controls, "−", _adjust_wheel_size.bind(-1))
-	wheel_size_label = _label(wheel_size_controls, "Wheel diameter: 1 square", 14)
+	wheel_size_label = _label(wheel_size_controls, "Wheel diameter: 3 squares", 14)
 	_button(wheel_size_controls, "+", _adjust_wheel_size.bind(1))
 	wheel_size_controls.visible = false
 	foundation_area_toggle = CheckButton.new()
@@ -5326,6 +5331,9 @@ func _build_interface() -> void:
 		recovery_actions = recovery_script.new()
 		right.add_child(recovery_actions)
 		recovery_actions.configure(self)
+	loose_material_controls = load("res://opening/recovery_actions.gd").LooseMaterialControls.new()
+	right.add_child(loose_material_controls)
+	loose_material_controls.configure(self)
 	right.add_child(HSeparator.new())
 	save_button = _button(right, "Save worksite  [F5]", _save_worksite)
 	load_button = _button(right, "Load worksite  [F9]", _load_worksite)

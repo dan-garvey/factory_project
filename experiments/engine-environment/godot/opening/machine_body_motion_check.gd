@@ -62,8 +62,10 @@ func pose_list(view: Node3D) -> Array:
 
 func pick_facts(view: Node3D) -> Array:
 	var result: Array = []
-	for id in ["collector", "press"]:
+	for id in ["collector", "press", "forward", "reverse"]:
 		var anchor := machine(view, id)
+		if anchor == null:
+			continue
 		for node in anchor.get_children():
 			if node is StaticBody3D:
 				var shape: CollisionShape3D = node.get_child(0)
@@ -95,6 +97,57 @@ func bounds_in_view(mesh: MeshInstance3D, view: Node3D) -> AABB:
 			transform = ancestor.transform * transform
 		ancestor = ancestor.get_parent()
 	return transform * mesh.mesh.get_aabb()
+
+func conveyor_offset(view: Node3D, id: String) -> float:
+	return machine(view, id).get_node("ConveyorLoop").material_override.uv1_offset.x
+
+func check_conveyor_motion(shared: bool) -> void:
+	var view = Shared.new() if shared else Opening.new()
+	var facts := SessionFacts.new()
+	if shared:
+		view.session = facts
+	mount(view)
+	for id in ["forward", "reverse"]:
+		view.state.entities[id] = {"kind": "belt", "cell": [3 if id == "forward" else 4, 0], "generation": 1, "axis": 2}
+		view.state.motion[id] = {"state": "rotating", "numerator": -1 if id == "forward" else 1, "denominator": 1}
+	view._rebuild_machines()
+	var original: Dictionary = view.state.duplicate(true)
+	var first = machine(view, "forward").get_node("ConveyorLoop")
+	var second = machine(view, "reverse").get_node("ConveyorLoop")
+	verify(first.material_override != second.material_override, "Each conveyor owns its texture offset.")
+	var picks := pick_facts(view)
+	view._animate_wheel(0.1)
+	var positive := conveyor_offset(view, "reverse")
+	var negative := conveyor_offset(view, "forward")
+	var length_value := 4.0 * Opening.ProductionConveyorArt.HALF_SPAN + TAU * Opening.ProductionConveyorArt.RADIUS
+	var repeats := maxi(1, roundi(length_value / Opening.ProductionConveyorArt.SOURCE_METRES))
+	var expected := 0.08 * Opening.ProductionConveyorArt.RADIUS * repeats / length_value
+	verify(is_equal_approx(positive, expected) and is_equal_approx(negative, 1.0 - expected),
+		"Opposite spindle signs move the top texture in opposite world directions at pulley surface speed.")
+	view._rebuild_machines()
+	verify(is_equal_approx(conveyor_offset(view, "reverse"), positive) and is_equal_approx(conveyor_offset(view, "forward"), negative),
+		"Rebuilding conveyor meshes retains their confirmed visual phase.")
+	for frame in range(40):
+		view._animate_wheel(0.1)
+	positive = conveyor_offset(view, "reverse")
+	verify(is_equal_approx(positive, expected * 41.0),
+		"The surface travels continuously through a wrapped shaft angle.")
+	view.state.motion.reverse.state = "stalled"
+	view._animate_wheel(0.1)
+	verify(is_equal_approx(conveyor_offset(view, "reverse"), positive), "A stalled belt keeps its surface phase.")
+	view.explanation_open = true
+	negative = conveyor_offset(view, "forward")
+	view._animate_wheel(0.1)
+	verify(is_equal_approx(conveyor_offset(view, "forward"), negative), "Help freezes surface motion.")
+	view.explanation_open = false
+	if shared:
+		facts.ready = false
+		view._animate_wheel(0.1)
+		verify(is_equal_approx(conveyor_offset(view, "forward"), negative), "A disconnected shared view freezes surface motion.")
+	view.state.motion.reverse.state = "rotating"
+	verify(view.state == original and pick_facts(view) == picks and view.request_sequence == 0,
+		"Conveyor animation changes neither authority facts nor picking or requests.")
+	view.free()
 
 func check_held_workpiece_clearance() -> void:
 	var view := Opening.new()
@@ -246,6 +299,8 @@ func _initialize() -> void:
 	verify(pose_list(shared) == disconnected, "Lost shared freshness freezes both cutter and tool.")
 	shared.free()
 	check_held_workpiece_clearance()
+	check_conveyor_motion(false)
+	check_conveyor_motion(true)
 	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
 		"scope": "actual mesh transforms over invented observations", "native_gameplay": "not_run", "desktop": "not_used"}))
 	quit(1 if failed else 0)

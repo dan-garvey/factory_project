@@ -11,6 +11,7 @@ var _view_key := ""
 var _motion_context := ""
 var _generations: Dictionary = {}
 var _visual_angles: Dictionary = {}
+var _visual_rotations: Dictionary = {}
 
 func configure(host: Object) -> void:
 	_host = weakref(host)
@@ -26,6 +27,7 @@ func _clear_motion() -> void:
 	_motion_context = ""
 	_generations.clear()
 	_visual_angles.clear()
+	_visual_rotations.clear()
 
 func _sync_motion(snapshot: Dictionary) -> void:
 	var context: Variant = snapshot.get("context")
@@ -48,6 +50,7 @@ func _sync_motion(snapshot: Dictionary) -> void:
 	for id: Variant in _visual_angles.keys():
 		if not current.has(id) or current[id] != _generations.get(id):
 			_visual_angles.erase(id)
+			_visual_rotations.erase(id)
 	_generations = current
 
 static func signed_rate(motion: Variant) -> float:
@@ -57,6 +60,9 @@ static func signed_rate(motion: Variant) -> float:
 
 func visual_angle(id: String) -> float:
 	return float(_visual_angles.get(id, 0.0))
+
+func visual_rotation(id: String) -> float:
+	return float(_visual_rotations.get(id, 0.0))
 
 func _apply_angles() -> void:
 	for child: Node in get_children():
@@ -85,7 +91,9 @@ func advance_visual_motion(delta: float) -> void:
 	for id: String in _generations:
 		var rate := signed_rate(snapshot.motion.get(id))
 		if rate != 0.0:
-			_visual_angles[id] = wrapf(visual_angle(id) + minf(delta, 0.1) * rate * VISUAL_RADIANS_PER_SECOND, -PI, PI)
+			var step := minf(delta, 0.1) * rate * VISUAL_RADIANS_PER_SECOND
+			_visual_rotations[id] = visual_rotation(id) + step
+			_visual_angles[id] = wrapf(visual_angle(id) + step, -PI, PI)
 	_apply_angles()
 
 static func axis_basis(axis: int) -> Basis:
@@ -229,11 +237,23 @@ func refresh() -> void:
 		return
 	visible = true
 	_sync_motion(snapshot)
-	var next_key := JSON.stringify([snapshot.get("context"), parts, motions, snapshot.get("engagements", [])])
+	var next_key := JSON.stringify([snapshot.get("context"), parts, motions, snapshot.get("engagements", []), snapshot.get("dropped_raw", [])])
 	if next_key == _view_key:
 		return
 	_clear()
 	_view_key = next_key
+	var drops: Variant = snapshot.get("dropped_raw", [])
+	if drops is Array:
+		for drop: Variant in drops:
+			if not drop is Dictionary or not drop.get("center") is Array or drop.center.size() != 3 or typeof(drop.get("raw")) != TYPE_INT or drop.raw <= 0:
+				continue
+			var blank := _cylinder(self, "LooseBlank", 0.15, 0.08, Color("b9a88c"))
+			blank.position = world_center(drop.center)
+			var label := Label3D.new()
+			label.text = "%d blank(s) · pick up in menu" % drop.raw
+			label.position.y = 0.3
+			label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+			blank.add_child(label)
 	var rendered: Dictionary = {}
 	for id: Variant in parts:
 		var part: Variant = parts[id]

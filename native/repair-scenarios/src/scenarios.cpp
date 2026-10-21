@@ -38,6 +38,8 @@ std::optional<Scenario> make(std::string_view id) {
     Scenario result;
     result.definition = &*definition;
     result.profile.material = {1, 1, 2};
+    // These authored repair fixtures use a forward-running belt.
+    result.profile.waterwheel_rate = {-1, 1};
     result.profile.initial_units = 16;
     result.profile.actors = {"P", "Q"};
     result.profile.meters_per_grid_unit = 1.0;

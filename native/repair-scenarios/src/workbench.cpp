@@ -75,6 +75,8 @@ void status(const Host& host, const w::State& state, std::ostream& out) {
     if (state.material.processing) lot(out, "Press", *state.material.processing);
     else out << "Press empty.\n";
     out << "Cargo raw=" << cargo.raw_units << " products=" << cargo.products << "/4\n";
+    for (const auto& [point, amount] : state.material.dropped_raw)
+        out << "Loose blanks at " << point[0] << ',' << point[1] << ',' << point[2] << ": " << amount << '\n';
     for (const auto& work : cargo.work_lots) lot(out, "Carried", work);
     if (host.source_choice) {
         const auto choice = co_drive_scenarios::inspect(state);
@@ -103,7 +105,7 @@ void status(const Host& host, const w::State& state, std::ostream& out) {
     if (host.spindle) {
         const auto calibration = spindle_scenarios::inspect(state);
         out << "Spindle: " << spindle_scenarios::mode_name(calibration.mode)
-            << " rate=" << calibration.rate.numerator << '/' << calibration.rate.denominator << " target=+2/1\n";
+            << " rate=" << calibration.rate.numerator << '/' << calibration.rate.denominator << " target=-2/1\n";
     }
 }
 
@@ -147,6 +149,7 @@ void help(std::ostream& out) {
            "place machine <collector|belt|processor> <x> <y> <z> <axis:x|y|z>\n"
            "link <from> <to> | remove <part> | drive <waterwheel> <on|off>\n"
            "collect <processor> [amount] | recover <machine>\n"
+           "pickup <x> <y> <z> | insert_raw <machine> <amount>\n"
            "insert_raw <machine> <amount> | insert_work <processor> <work_id>\n"
            "North increases z. Walking stays on y=0 within x,z=-12..12.\n"
            "The drive switch controls all placed waterwheels.\n"
@@ -206,7 +209,11 @@ Step act(Host& host, const Tokens& tokens, std::ostream& out, std::ostream& erro
 
     a::Object intent;
     const auto state = host.simulation->snapshot().state;
-    if (verb == "place" && tokens.size() > 1 && tokens[1] == "machine") {
+    if (verb == "pickup") {
+        I x{}, y{}, z{};
+        if (tokens.size() != 4 || !integer(tokens[1], x) || !integer(tokens[2], y) || !integer(tokens[3], z)) return syntax();
+        intent = {{"action", V("pickup_raw")}, {"center", V(V::Array{V(x), V(y), V(z)})}};
+    } else if (verb == "place" && tokens.size() > 1 && tokens[1] == "machine") {
         I x{}, y{}, z{};
         if (tokens.size() != 7 || (tokens[2] != "collector" && tokens[2] != "belt" && tokens[2] != "processor") ||
             !integer(tokens[3], x) || !integer(tokens[4], y) || !integer(tokens[5], z) ||
