@@ -5175,8 +5175,9 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	_refresh_engineering(snapshot_ready)
 	# Introduce inspection when it can help. Keep waiting notices and explicit
 	# disclosure available even before the first machine has been built.
+	# Foundations alone do not need the machine panel while building.
 	var unused_inspector: bool = _native_transmission() and snapshot_ready and _can_choose_tool() \
-		and kinds.is_empty() and state.get("transmission_parts", {}).is_empty() and state.get("foundations", {}).is_empty() \
+		and kinds.is_empty() and state.get("transmission_parts", {}).is_empty() \
 		and not show_details and mode != "inspect"
 	var inspector_panel: Control = inspector.get_parent().get_parent()
 	inspector_panel.visible = not unused_inspector
