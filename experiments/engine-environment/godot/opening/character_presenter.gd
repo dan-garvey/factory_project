@@ -293,24 +293,30 @@ func _set_adult_air_and_landing(body: Node3D, air: float,
 		var side: String = pair[0]
 		var sign: float = pair[1]
 		var air_asymmetry := sign * air
-		var hip := ((-0.32 - 0.25 * rise + 0.26 * fall - 0.14 * air_asymmetry) * air
+		# The running takeoff keeps a leading knee up and a trailing leg back.
+		# Both legs fold under the body near the apex and reach down on descent.
+		var hip := ((-0.42 - 0.15 * rise + 0.30 * fall
+			- 0.35 * sign * rise - 0.08 * sign * (1.0 - rise) * (1.0 - fall)) * air
 			- (0.48 + 0.08 * sign) * impact)
-		var knee := ((0.78 + 0.28 * rise - 0.60 * fall + 0.10 * air_asymmetry) * air
+		var knee := ((0.90 + 0.10 * rise - 0.55 * fall
+			+ 0.35 * sign * rise + 0.08 * sign * (1.0 - rise) * (1.0 - fall)) * air
 			+ (1.02 + 0.08 * sign) * impact)
 		_adult_bone_delta(body, side + " Thigh", Quaternion(Vector3.RIGHT, hip))
 		_adult_bone_delta(body, side + " Calf", Quaternion(Vector3.RIGHT, knee))
 		_adult_bone_delta(body, side + " Foot", Quaternion(Vector3.RIGHT,
 			-(hip + knee) * (1.0 - 0.25 * air)))
-		# Arms lift on takeoff and open on descent to prepare for impact.
+		# The takeoff arm drive settles into lateral balance before reaching out
+		# for the landing. Avoid holding both forearms straight ahead in flight.
 		var stance := Quaternion(Vector3.BACK,
-			-sign * (0.72 - 0.38 * air - 0.10 * fall * air))
-		var arm_air := (-0.38 - 0.45 * rise + 0.25 * fall) * air
+			-sign * (0.72 + 0.20 * air * (1.0 - rise) * (1.0 - fall)))
+		var arm_air := (0.10 - 1.0 * rise - 0.30 * fall) * air
 		_adult_bone_delta(body, side + " UpperArm", Quaternion(Vector3.RIGHT,
-			arm_air - 0.48 * impact + 0.28 * air_asymmetry) * stance)
+			arm_air - 0.48 * impact + 0.60 * sign * rise * air
+			+ 0.18 * air_asymmetry) * stance)
 		_adult_bone_delta(body, side + " Forearm", Quaternion(Vector3.RIGHT,
-			-0.72 * air - 0.78 * impact))
+			(-0.30 - 0.22 * rise - 0.20 * fall) * air - 0.78 * impact))
 	_adult_bone_delta(body, "Spine1", Quaternion(Vector3.RIGHT,
-		(-0.10 * rise + 0.08 * fall) * air + 0.25 * impact))
+		(0.18 * rise + 0.08 * fall) * air + 0.30 * impact))
 	_adult_bone_delta(body, "Spine2", Quaternion(Vector3.RIGHT,
 		0.12 * impact))
 	_adult_bone_delta(body, "Neck", Quaternion(Vector3.RIGHT,

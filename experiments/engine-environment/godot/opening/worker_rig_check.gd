@@ -215,13 +215,24 @@ func inspect_adult(body: Node3D, other: Node3D, presenter: Node) -> void:
 		"The compressed landing pose keeps the skinned boots near and above the unchanged foot plane.")
 	presenter._set_gait(body, 0.0, 0.0, 1.0, 5.0, 0.0)
 	var rising_knee := skeleton.get_bone_pose_rotation(skeleton.find_bone("Bip01 L Calf"))
+	var rising_other_knee := skeleton.get_bone_pose_rotation(skeleton.find_bone("Bip01 R Calf"))
 	presenter._set_gait(body, 0.0, 0.0, 1.0, 0.0, 0.0)
 	var apex_knee := skeleton.get_bone_pose_rotation(skeleton.find_bone("Bip01 L Calf"))
+	var apex_other_knee := skeleton.get_bone_pose_rotation(skeleton.find_bone("Bip01 R Calf"))
 	presenter._set_gait(body, 0.0, 0.0, 1.0, -5.0, 0.0)
 	var falling_knee := skeleton.get_bone_pose_rotation(skeleton.find_bone("Bip01 L Calf"))
 	verify(not rising_knee.is_equal_approx(apex_knee)
 		and not apex_knee.is_equal_approx(falling_knee),
 		"The airborne skeleton changes from takeoff to apex to pre-landing extension.")
+	var rig: Dictionary = body.get_meta("rig")
+	var takeoff_split: float = absf(rising_knee.angle_to(rig["L Calf"].rotation)
+		- rising_other_knee.angle_to(rig["R Calf"].rotation))
+	var apex_split: float = absf(apex_knee.angle_to(rig["L Calf"].rotation)
+		- apex_other_knee.angle_to(rig["R Calf"].rotation))
+	verify(takeoff_split > apex_split + 0.25
+		and apex_knee.angle_to(rig["L Calf"].rotation)
+		> falling_knee.angle_to(rig["L Calf"].rotation) + 0.25,
+		"The running jump leads with one knee, folds near the apex and extends before impact.")
 	presenter._set_gait(body, 0.0, 0.0)
 	verify(body.position == Vector3.ZERO, "The visual body returns to its original rest origin.")
 
