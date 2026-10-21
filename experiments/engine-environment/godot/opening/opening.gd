@@ -4632,7 +4632,7 @@ func _set_lesson(index: int) -> void:
 	if lesson_index == 0 and _native_transmission():
 		lesson_body.text = "Place a collector and a press. Place one-tile shafts at the ends of the route, with their parallel axles across the belt's path. Connect the shafts with a belt. It carries blanks when its top moves toward the press."
 	if lesson_index == 1 and _native_transmission():
-		lesson_body.text = "Place the waterwheel in the stream with its lower rim wet and clear of the bed. Set its diameter, height and axle. Place one-tile shafts to carry rotation. Small cogs with matching axes mesh side by side in one plane; a small and a large cog mesh diagonally in that plane. Meshing reverses rotation, and different sizes change speed."
+		lesson_body.text = "Place the waterwheel in the stream with its lower rim wet and clear of the bed. Set its diameter, height and axle. Place one-tile shafts to carry rotation. Small cogs with matching axes mesh side by side in one plane; a small and a large cog mesh diagonally in that plane. These meshes reverse rotation, and different sizes change speed. Two large cogs on perpendicular axes turn a corner when offset one tile along each axle."
 	if example_presenter != null:
 		example_presenter.set_lesson(lesson_index)
 
@@ -5390,6 +5390,17 @@ func _display_parts() -> Dictionary:
 func _parts_are_shared() -> bool:
 	return false
 
+func _transmission_inspection(part: Dictionary, motion: Dictionary) -> String:
+	var name := "Shaft"
+	if part.kind == "gear":
+		name = {2: "Small Cogwheel", 4: "Large Cogwheel"}.get(part.get("teeth"), "Cogwheel")
+	var description := "%s · %s axis\nGrid %s" % [name, ["X", "Y", "Z"][part.axis], str(part.center)]
+	if motion.get("state") == "rotating":
+		description += "\nRate %d / %d" % [motion.numerator, motion.denominator]
+	else:
+		description += "\n" + str(motion.get("state", "disconnected")).capitalize()
+	return description
+
 func _refresh_ui() -> void:
 	if stock_label == null:
 		return
@@ -5437,11 +5448,7 @@ func _refresh_ui() -> void:
 	elif _native_transmission() and state.get("transmission_parts", {}).has(selected):
 		var part: Dictionary = state.transmission_parts[selected]
 		var motion: Dictionary = state.get("motion", {}).get(selected, {})
-		inspector.text = "%s · %s axis\nGrid %s" % ["Cogwheel" if part.kind == "gear" else "Shaft", ["X", "Y", "Z"][part.axis], str(part.center)]
-		if motion.get("state") == "rotating":
-			inspector.text += "\nRate %d / %d" % [motion.numerator, motion.denominator]
-		else:
-			inspector.text += "\n" + str(motion.get("state", "disconnected")).capitalize()
+		inspector.text = _transmission_inspection(part, motion)
 	elif _native_transmission() and state.get("belt_spans", {}).has(selected):
 		var slots: Array = state.belt_spans[selected].get("slots", [])
 		var occupied := 0
