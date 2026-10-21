@@ -287,14 +287,15 @@ func _set_adult_air_and_landing(body: Node3D, air: float,
 		vertical_speed: float, impact: float) -> void:
 	# The captured run supplies grounded motion. These poses blend from its
 	# lowered-arm rest stance when confirmed height changes show a jump or fall.
-	var ascent := clampf((vertical_speed + 0.4) / 3.0, 0.0, 1.0)
+	var rise := clampf((vertical_speed + 0.4) / 5.0, 0.0, 1.0)
+	var fall := clampf((-vertical_speed - 0.4) / 5.2, 0.0, 1.0)
 	for pair in [["L", 1.0], ["R", -1.0]]:
 		var side: String = pair[0]
 		var sign: float = pair[1]
 		var air_asymmetry := sign * air
-		var hip := ((lerpf(-0.15, -0.58, ascent) - 0.14 * air_asymmetry) * air
+		var hip := ((-0.32 - 0.25 * rise + 0.26 * fall - 0.14 * air_asymmetry) * air
 			- (0.48 + 0.08 * sign) * impact)
-		var knee := ((lerpf(0.28, 1.05, ascent) + 0.10 * air_asymmetry) * air
+		var knee := ((0.78 + 0.28 * rise - 0.60 * fall + 0.10 * air_asymmetry) * air
 			+ (1.02 + 0.08 * sign) * impact)
 		_adult_bone_delta(body, side + " Thigh", Quaternion(Vector3.RIGHT, hip))
 		_adult_bone_delta(body, side + " Calf", Quaternion(Vector3.RIGHT, knee))
@@ -302,18 +303,18 @@ func _set_adult_air_and_landing(body: Node3D, air: float,
 			-(hip + knee) * (1.0 - 0.25 * air)))
 		# Arms lift on takeoff and open on descent to prepare for impact.
 		var stance := Quaternion(Vector3.BACK,
-			-sign * (0.72 - 0.38 * air))
-		var arm_air := lerpf(0.08, -0.82, ascent) * air
+			-sign * (0.72 - 0.38 * air - 0.10 * fall * air))
+		var arm_air := (-0.38 - 0.45 * rise + 0.25 * fall) * air
 		_adult_bone_delta(body, side + " UpperArm", Quaternion(Vector3.RIGHT,
 			arm_air - 0.48 * impact + 0.28 * air_asymmetry) * stance)
 		_adult_bone_delta(body, side + " Forearm", Quaternion(Vector3.RIGHT,
 			-0.72 * air - 0.78 * impact))
 	_adult_bone_delta(body, "Spine1", Quaternion(Vector3.RIGHT,
-		-0.12 * air * ascent + 0.25 * impact))
+		(-0.10 * rise + 0.08 * fall) * air + 0.25 * impact))
 	_adult_bone_delta(body, "Spine2", Quaternion(Vector3.RIGHT,
 		0.12 * impact))
 	_adult_bone_delta(body, "Neck", Quaternion(Vector3.RIGHT,
-		0.08 * air - 0.22 * impact))
+		(0.06 * rise - 0.08 * fall) * air - 0.22 * impact))
 	# Compression moves only the skinned view; the Character root is unchanged.
 	body.position.y = -0.065 * impact
 
@@ -335,6 +336,9 @@ func _apply_adult_run(body: Node3D, phase: float, weight: float,
 			var from: Quaternion = skeleton.get_bone_pose_rotation(index) if rig.has(binding.key) else original
 			var animated := adult_run_clip.rotation_track_interpolate(binding.track, sample)
 			var target: Quaternion = (original * binding.reference.inverse() * animated).normalized()
+			if binding.key == "L Forearm" or binding.key == "R Forearm":
+				var frame: Quaternion = rig[binding.key].space
+				target = (target * frame.inverse() * Quaternion(Vector3.RIGHT, -0.45) * frame).normalized()
 			skeleton.set_bone_pose_rotation(index, from.slerp(target, influence))
 		else:
 			var original: Vector3 = binding.base

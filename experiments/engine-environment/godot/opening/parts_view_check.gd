@@ -78,7 +78,8 @@ func _initialize() -> void:
 	view.state.part_kits.P.belt = 0
 	view.state.parts.belt = 0
 	view.state.part_kits.Q.belt = 1
-	verify(view._guided_placement_cell() == [1, 1], "Q's own Belt produces a cue even when P has none.")
+	verify(view._guided_placement_cell().is_empty() and view._guided_step({"collector": true}).tool == "drive",
+		"Native shaft-belt guidance does not suggest a grid Belt cell even when Q carries a Belt.")
 	verify(view._display_parts().shaft == 0, "Q does not borrow P's shaft count.")
 	view.client = "P"
 	verify(view._display_parts().belt == 0 and view._display_parts().shaft == 3, "Changing the active actor changes every displayed kit field.")
