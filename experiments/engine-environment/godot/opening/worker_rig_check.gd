@@ -188,13 +188,23 @@ func inspect_adult(body: Node3D, other: Node3D, presenter: Node) -> void:
 			PI, PI * 5.0 / 4.0, PI * 1.5, PI * 7.0 / 4.0]:
 		presenter._set_gait(body, phase, 1.0)
 		var posed := point_bounds(skin_points(body))
-		verify(posed.position.y >= -0.901,
-			"The deformed walk-cycle geometry stays above the original foot plane.")
+		verify(posed.position.y + body.position.y >= -0.901 and body.position.x == 0.0 and body.position.z == 0.0,
+			"The deformed gait and visual passing lift stay above the original foot plane without moving horizontally.")
 		verify(other_skeleton.get_bone_global_pose(other_skeleton.find_bone("Bip01 L Thigh")) == other_pose,
 			"Posing one actor cannot animate another actor's skeleton.")
 	verify(not skeleton.get_bone_pose_rotation(skeleton.find_bone("Bip01 Spine1")).is_equal_approx(resting_spine),
 		"Confirmed-distance movement articulates the upper body as well as the legs.")
+	presenter._set_gait(body, 0.0, 1.0)
+	verify(body.position.y > 0.0 and body.position.y < 0.026,
+		"The passing phase lifts only the visual body inside a small bounded range.")
+	skeleton.force_update_all_bone_transforms()
+	var to_body := body.global_transform.affine_inverse() * skeleton.global_transform
+	var left_hand: Vector3 = to_body * skeleton.get_bone_global_pose(skeleton.find_bone("Bip01 L Hand")).origin
+	var right_hand: Vector3 = to_body * skeleton.get_bone_global_pose(skeleton.find_bone("Bip01 R Hand")).origin
+	verify(absf(left_hand.z - right_hand.z) > 0.08 and absf(left_hand.y - right_hand.y) > 0.04,
+		"The passing pose has offset arm positions instead of a symmetric double swing.")
 	presenter._set_gait(body, 0.0, 0.0)
+	verify(body.position == Vector3.ZERO, "The visual body returns to its original rest origin.")
 
 func _initialize() -> void:
 	call_deferred("run")

@@ -282,22 +282,27 @@ func _set_adult_gait(body: Node3D, phase: float, weight: float) -> void:
 		var side: String = pair[0]
 		var swing := sin(phase + float(pair[1]))
 		var recovery := maxf(0.0, swing)
+		var passing := maxf(0.0, cos(phase + float(pair[1])))
 		var hip := -swing * 0.46 * weight
-		var knee := (0.05 + recovery * 0.62) * weight
+		var knee := (0.07 + recovery * 0.62 + passing * 0.34) * weight
 		_adult_bone_delta(body, side + " Thigh", Quaternion(Vector3.RIGHT, hip))
 		_adult_bone_delta(body, side + " Calf", Quaternion(Vector3.RIGHT, knee))
 		_adult_bone_delta(body, side + " Foot", Quaternion(Vector3.RIGHT, -(hip + knee)))
 		# The source is in an A pose. Keep its lowered resting stance, then drive
 		# the arm opposite the advancing leg and flex the elbow through recovery.
 		var stance := Quaternion(Vector3.BACK, -float(pair[2]) * 0.72)
-		_adult_bone_delta(body, side + " UpperArm", Quaternion(Vector3.RIGHT, swing * 0.38 * weight) * stance)
-		_adult_bone_delta(body, side + " Forearm", Quaternion(Vector3.RIGHT, -(0.16 + 0.22 * recovery) * weight))
-	var counter_swing := sin(phase) * weight
-	_adult_bone_delta(body, "Spine1", Quaternion(Vector3.RIGHT, 0.065 * weight)
-		* Quaternion(Vector3.UP, 0.045 * counter_swing))
-	_adult_bone_delta(body, "Spine2", Quaternion(Vector3.RIGHT, 0.025 * weight)
-		* Quaternion(Vector3.UP, -0.025 * counter_swing))
-	_adult_bone_delta(body, "Neck", Quaternion(Vector3.RIGHT, -0.06 * weight))
+		var arm_swing := sin(phase + float(pair[1]) + PI / 4.0)
+		_adult_bone_delta(body, side + " UpperArm", Quaternion(Vector3.RIGHT, arm_swing * 0.5 * weight) * stance)
+		_adult_bone_delta(body, side + " Forearm", Quaternion(Vector3.RIGHT, -(0.78 + 0.18 * recovery) * weight))
+	var counter_swing := sin(phase + PI / 4.0) * weight
+	_adult_bone_delta(body, "Spine1", Quaternion(Vector3.RIGHT, 0.14 * weight)
+		* Quaternion(Vector3.UP, 0.07 * counter_swing))
+	_adult_bone_delta(body, "Spine2", Quaternion(Vector3.RIGHT, 0.05 * weight)
+		* Quaternion(Vector3.UP, -0.035 * counter_swing))
+	_adult_bone_delta(body, "Neck", Quaternion(Vector3.RIGHT, -0.13 * weight))
+	# Lift the visual body only at each passing phase. The Character root remains
+	# exactly on the confirmed capsule pose, including during a jump.
+	body.position.y = maxf(0.0, cos(phase * 2.0)) * 0.025 * weight
 
 func _adult_pose_frames(skeleton: Skeleton3D) -> Array[Transform3D]:
 	# Pose setters outside the scene tree do not invalidate Godot's global-pose
