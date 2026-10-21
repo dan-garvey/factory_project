@@ -92,10 +92,13 @@ No engine ceiling has been demonstrated. Continue the asset work while assessing
 the renderer, and make an engine change if the evidence supports it rather than
 lowering the user's quality target.
 
-Use relevant automated checks and one independent reviewer for code landing.
-Human assessment establishes the rendered and audible result; it is not another
-code-landing approval. Agent desktop testing remains disabled. Preserve existing
-images and outcomes without replay, and state unavailable visual evidence plainly.
+Use relevant automated checks and independent post-merge review for code landing.
+Agents should inspect relevant screenshots and rendered frames, including isolated
+non-interactive asset samples, and describe visible strengths and defects at the
+sampled views. Human gameplay feedback remains the verdict on whether animation,
+appearance and the complete scene meet the target; it is not another code-landing
+approval. Agent desktop playtesting remains disabled. Preserve existing images
+and outcomes without replay, and state unavailable visual evidence plainly.
 
 The authored material resources use Godot's
 [NoiseTexture2D](https://docs.godotengine.org/en/stable/classes/class_noisetexture2d.html)
