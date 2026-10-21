@@ -72,6 +72,19 @@ func check_view(view, shared: bool) -> void:
 	verify(has_item(view.item_root, "seam_blank", Vector3(-0.16, 0.11, -2.9))
 		and has_item(view.item_root, "seam_blank", Vector3(-0.16, 0.11, -1.75)),
 		"The finite seam stays in its marked column.")
+	var source_index := 0
+	for item in view.item_root.get_children():
+		if item.get_meta("item_kind", "") != "seam_blank":
+			continue
+		var roles := {}
+		for part in item.get_children():
+			var role: String = part.get_meta("asset_role", "")
+			roles[role] = int(roles.get(role, 0)) + 1
+		verify(roles == {"RawHostRock": 1, "RawMineral": 3}
+			and item.get_meta("source_variant", -1) == source_index % 3,
+			"The actual callback mounts deterministic natural clusters without manufactured source hardware.")
+		source_index += 1
+	verify(source_index == 3, "Every confirmed source unit reaches the natural-cluster consumer.")
 	verify(view.state == before and facts.state == before and view.actor_world == null
 		and view.request_sequence == 0, "Item refresh does not mutate projection facts or create authority/input.")
 	if view.item_root.get_child_count() == 0:

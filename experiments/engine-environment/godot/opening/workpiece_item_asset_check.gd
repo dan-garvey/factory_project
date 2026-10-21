@@ -114,6 +114,9 @@ func count_kind(node: Node, kind: String) -> int:
 
 
 func _initialize() -> void:
+	if "--raw-seam-only" in OS.get_cmdline_user_args():
+		check_raw_seam()
+		return
 	var boss := Visuals.turned_mesh(Assets.boss_profile(), 32)
 	var lug := Visuals.turned_mesh(Assets.lug_profile(), 32)
 	var bushing := Visuals.turned_mesh(Assets.bushing_profile(), 48)
@@ -139,11 +142,8 @@ func _initialize() -> void:
 
 	var blank := Assets.seam_blank(holder, center)
 	verify(
-		count_role(blank, "SeamCradle") == 1
-		and count_role(blank, "BlankIngot") == 1
-		and count_role(blank, "ClampBand") == 2
-		and count_role(blank, "LiftingLug") == 1,
-		"Each seam blank includes its cradle, ingot, twin clamp bands and turned lifting lug."
+		count_role(blank, "RawHostRock") == 1 and count_role(blank, "RawMineral") == 3,
+		"Each source unit is a mineral-bearing natural cluster rather than manufactured hardware."
 	)
 	check_bounds(blank, blank.transform, center, Assets.SEAM_HALF_EXTENTS)
 
@@ -209,3 +209,49 @@ func _initialize() -> void:
 		"desktop": "not_used",
 	}))
 	quit(0 if ok else 1)
+
+
+func check_raw_seam() -> void:
+	var holder := Node3D.new()
+	var center := Vector3(0.16, 0.11, 1.65)
+	var previous: PackedVector3Array = []
+	for variant in range(3):
+		var mesh := Assets.raw_seam_mesh(variant)
+		verify(mesh == Assets.raw_seam_mesh(variant + 3), "Equivalent source variants reuse one cached mesh.")
+		var vertices: PackedVector3Array = mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+		verify(vertices != previous and vertices.size() == 96,
+			"Each deterministic raw cluster has a distinct compact fracture silhouette.")
+		previous = vertices
+		var blank := Assets.seam_blank(holder, center, variant)
+		verify(count_kind(blank, "seam_blank") == 1 and count_role(blank, "RawHostRock") == 1
+			and count_role(blank, "RawMineral") == 3 and blank.get_child_count() == 4,
+			"One confirmed source unit produces one host rock and three decorative mineral inclusions.")
+		verify(count_role(blank, "SeamCradle") + count_role(blank, "ClampBand")
+			+ count_role(blank, "LiftingLug") + count_role(blank, "BlankIngot") == 0,
+			"Uncollected resources contain no prebuilt cradle, clamps, lifting hardware or machined ingot.")
+		var host: MeshInstance3D = blank.get_node("RawHostRock")
+		verify(host.mesh == mesh and host.material_override == Assets.Scenery.stone_material(),
+			"Every source host consumes the same sourced stone finish as the natural environment.")
+		for part in blank.get_children():
+			if part.get_meta("asset_role", "") == "RawMineral":
+				verify(part.material_override.metallic > 0.4 and part.material_override.roughness > 0.35
+					and not part.material_override.emission_enabled,
+					"Mineral inclusions have a restrained distinct surface without a false active glow.")
+		check_bounds(blank, blank.transform, center, Assets.SEAM_HALF_EXTENTS)
+	verify(Assets.raw_seam_mesh(-1) == Assets.raw_seam_mesh(2),
+		"Variant wrapping does not grow a cache from arbitrary caller identifiers.")
+	holder.free()
+	for amount in [0, 1, 7, 16]:
+		var root := Node3D.new()
+		var facts := {"entities": {}, "stock": {"source": amount}}
+		var before: Dictionary = facts.duplicate(true)
+		Assets.populate_items(root, facts)
+		verify(root.get_child_count() == amount and count_kind(root, "seam_blank") == amount,
+			"Empty, partial and full source observations retain exact finite item counts.")
+		verify(facts == before, "Raw-source presentation does not mutate its confirmed stock observation.")
+		root.free()
+	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
+		"unique_meshes": checked_meshes.size(), "mode": "raw-seam-only",
+		"scope": "changed natural source geometry/materials and invented confirmed-stock counts",
+		"authority_started": false, "rendered_quality": "not_assessed", "desktop": "not_used"}))
+	quit(1 if failed else 0)

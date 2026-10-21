@@ -1,14 +1,16 @@
 extends RefCounted
-## Fitted 3D render assemblies for raw seam blanks, in-line workpiece billets
+## Natural source clusters and fitted in-line workpiece billets
 ## and finished stamped plates. Pure presentation: no collision, input or state
 ## authority, and all geometry stays inside the existing item envelopes.
 
 const Visuals = preload("res://opening/opening.gd").ProductionVisuals
+const Scenery = preload("res://opening/opening.gd").ProductionEnvironment
 const Geometry = preload("res://opening/site_geometry.gd")
 
 const SEAM_HALF_EXTENTS := Vector3(0.10, 0.09, 0.14)
 const BILLET_HALF_EXTENTS := Vector3(0.135, 0.09, 0.18)
 const PLATE_HALF_EXTENTS := Vector3(0.22, 0.035, 0.265)
+static var raw_seam_meshes: Dictionary = {}
 
 
 static func _part(parent: Node3D, role: String, mesh: Mesh, at: Vector3,
@@ -70,22 +72,68 @@ static func rivet_profile() -> PackedVector2Array:
 	])
 
 
-static func seam_blank(parent: Node3D, at: Vector3 = Vector3.ZERO) -> Node3D:
+static func raw_seam_mesh(variant: int = 0) -> ArrayMesh:
+	var key := posmod(variant, 3)
+	if raw_seam_meshes.has(key):
+		return raw_seam_meshes[key]
+	# Three deterministic fracture shapes, all inside the existing item envelope.
+	# These are surface art, not native colliders or an extra stock ledger.
+	var vertices := PackedVector3Array([Vector3(0.0, -0.09, 0.0)])
+	for ring in range(2):
+		for n in range(8):
+			var angle := float(n) * TAU / 8.0 + float(key) * 0.18
+			var radius := 0.80 + 0.12 * sin(float(n) * 2.3 + float(key) * 1.7 + float(ring) * 0.75)
+			var y := -0.055 if ring == 0 else 0.035 + 0.014 * sin(float(n) * 1.9 + float(key))
+			vertices.append(Vector3(cos(angle) * 0.094 * radius, y, sin(angle) * 0.133 * radius))
+	vertices.append(Vector3(0.012 * sin(float(key)), 0.083, -0.01 * cos(float(key))))
+	var faces: Array = []
+	for n in range(8):
+		var next := (n + 1) % 8
+		faces.append_array([[0, 1 + n, 1 + next], [1 + n, 9 + n, 9 + next],
+			[1 + n, 9 + next, 1 + next], [17, 9 + next, 9 + n]])
+	var surface := SurfaceTool.new()
+	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for face in faces:
+		var a := vertices[face[0]]
+		var b := vertices[face[1]]
+		var c := vertices[face[2]]
+		var normal := (c - a).cross(b - a).normalized()
+		if normal.dot((a + b + c) / 3.0) < 0.0:
+			var swap := b
+			b = c
+			c = swap
+			normal = -normal
+		for point in [a, b, c]:
+			var uv := Vector2(point.x, point.z)
+			if absf(normal.x) > absf(normal.y) and absf(normal.x) >= absf(normal.z):
+				uv = Vector2(point.z, point.y)
+			elif absf(normal.z) > absf(normal.y):
+				uv = Vector2(point.x, point.y)
+			surface.set_normal(normal)
+			surface.set_uv(uv * 6.0)
+			surface.add_vertex(point)
+	surface.generate_tangents()
+	var mesh := surface.commit()
+	raw_seam_meshes[key] = mesh
+	return mesh
+
+
+static func seam_blank(parent: Node3D, at: Vector3 = Vector3.ZERO, variant: int = 0) -> Node3D:
+	var key := posmod(variant, 3)
 	var assembly := Node3D.new()
 	assembly.name = "SeamBlank"
 	assembly.position = at
 	assembly.set_meta("item_kind", "seam_blank")
+	assembly.set_meta("source_variant", key)
 	parent.add_child(assembly)
-	_part(assembly, "SeamCradle", Visuals.box_mesh(Vector3(0.192, 0.036, 0.268)),
-		Vector3(0.0, -0.068, 0.0), Color("354448"), 0.72, 0.54)
-	_part(assembly, "BlankIngot", Visuals.box_mesh(Vector3(0.168, 0.112, 0.236)),
-		Vector3(0.0, 0.004, 0.0), Color("b89154"), 0.78, 0.44)
-	for side in [-1.0, 1.0]:
-		var z_off: float = float(side) * 0.068
-		_part(assembly, "ClampBand", Visuals.box_mesh(Vector3(0.182, 0.096, 0.032)),
-			Vector3(0.0, 0.004, z_off), Color("54676b"), 0.82, 0.42)
-	_part(assembly, "LiftingLug", Visuals.turned_mesh(lug_profile(), 32),
-		Vector3(0.0, 0.060, 0.0), Color("d4ae6a"), 0.85, 0.35)
+	var host := _part(assembly, "RawHostRock", raw_seam_mesh(key), Vector3.ZERO, Color("6e6554"), 0.0, 0.88)
+	host.material_override = Scenery.stone_material()
+	var deposits := [Vector3(-0.03, 0.02, 0.085), Vector3(0.04, 0.036, 0.055), Vector3(-0.005, 0.041, -0.074)]
+	var scales := [Vector3(0.34, 0.40, 0.32), Vector3(0.29, 0.34, 0.33), Vector3(0.34, 0.36, 0.34)]
+	for n in range(3):
+		var mineral := _part(assembly, "RawMineral", raw_seam_mesh(key + n + 1), deposits[n],
+			Color("b69962"), 0.62, 0.48)
+		mineral.scale = scales[n]
 	return assembly
 
 
@@ -171,5 +219,5 @@ static func populate_items(item_root: Node3D, state: Dictionary, pitch: float = 
 	for n in range(source_count):
 		seam_blank(
 			item_root,
-			Vector3(-0.16 + float(n % 2) * 0.32, 0.11, -2.9 + float(int(n / 2.0)) * 1.15)
+			Vector3(-0.16 + float(n % 2) * 0.32, 0.11, -2.9 + float(int(n / 2.0)) * 1.15), n
 		)

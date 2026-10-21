@@ -184,9 +184,15 @@ input node. The presenter retains mounting, direction, animation and pick
 ownership. Isolated mesh checks do not establish the ordinary rendered result.
 
 The ordinary offline and shared item redraw uses `workpiece_item_assets.gd` for
-seam blanks, in-line billets and the visible press-outlet plate. The fitted
-assemblies retain the original counts, world positions and item envelopes, using
-shared machined surfaces and cached meshes without collision or state authority.
+raw seam stock, in-line billets and the visible press-outlet plate. Uncollected
+source units are compact mineral-bearing rock clusters, with three cached fracture
+shapes, the sourced stone finish and restrained metallic inclusions. They contain
+no manufactured cradles, clamps or lifting lugs. One cluster represents one
+confirmed source unit; depletion removes only those confirmed units. This changes
+the raw-stock appearance, not its recipe, quantity or geological identity. The
+in-line billets and stamped products retain their existing machined assemblies.
+All retain the original counts, world positions and item envelopes, using shared
+surfaces and cached meshes without collision or state authority.
 The helper loads after the opening script to reuse its existing surface library.
 Historical scripted payloads with fixed file rosters keep their existing primitive
 items when the optional helper is absent. Native presentation requires the complete
