@@ -11,7 +11,7 @@ namespace {
 constexpr std::array<r::Definition, 1> definitions{{
     {"co-drive", "Two wheels, one disagreeing drive",
      "Carry four plates after resolving the source conflict and driving the belt toward the press.",
-     "The direct large cogs reverse one equal-rate source. Retire the left wheel, or replace both source cogs with the carried radius-2 cogs and reuse a radius-3 cog above them. Retiring the right wheel alone reverses the belt."},
+     "The adjacent large cogs reverse one equal-rate source. Retire the left wheel, or move it one tile left, fit the carried small cogs and reuse a large cog above them. Retiring the right wheel alone reverses the belt."},
 }};
 void add(r::Scenario& scenario, const std::string& id, s::Role role, g::Point point, g::Integer teeth = 0, g::Integer span = 0) {
     const auto kind = role == s::Role::gear ? g::Kind::gear : role == s::Role::shaft ? g::Kind::shaft : g::Kind::hub;
@@ -29,16 +29,12 @@ std::optional<r::Scenario> make(std::string_view id) {
     result->definition = &definition();
     auto& topology = result->seed.topology;
     topology.parts.clear(); topology.sources.clear();
-    add(*result, "wheel-left", s::Role::waterwheel, {-6, 0, 0});
-    add(*result, "wheel-right", s::Role::waterwheel, {0, 0, 0});
-    add(*result, "gear-left", s::Role::gear, {-6, 0, 0}, 3);
-    add(*result, "gear-right", s::Role::gear, {0, 0, 0}, 3);
-    add(*result, "shaft-left", s::Role::shaft, {-6, 0, 0}, 0, 2);
-    add(*result, "shaft-source", s::Role::shaft, {0, 0, 2}, 0, 2);
+    add(*result, "wheel-left", s::Role::waterwheel, {-4, 0, -4});
+    add(*result, "wheel-right", s::Role::waterwheel, {0, 0, -4});
+    add(*result, "gear-left", s::Role::gear, {-4, 0, 0}, 4);
+    add(*result, "gear-right", s::Role::gear, {0, 0, 0}, 4);
     add(*result, "collector", s::Role::collector, {0, 0, 4});
-    add(*result, "shaft-belt", s::Role::shaft, {0, 0, 6}, 0, 2);
     add(*result, "belt", s::Role::belt, {0, 0, 8});
-    add(*result, "shaft-press", s::Role::shaft, {0, 0, 10}, 0, 2);
     add(*result, "processor", s::Role::processor, {0, 0, 12});
     topology.sources = {{"wheel-left", result->profile.waterwheel_rate}, {"wheel-right", result->profile.waterwheel_rate}};
     topology.material_links = {{{"collector", 1}, {"belt", 1}}, {{"belt", 1}, {"processor", 1}}};

@@ -240,7 +240,7 @@ void full_finite_depletion() {
     check(accepted(rebuilt) && field<std::string>(rebuilt, "entity") != collector, "Rebuilding the collector allocates a new identity rather than a new deposit.");
     check(field<bool>(fresh.projection(), "powered"), "The rebuilt collector uses the lower cog left in place by removal.");
     const auto before_duplicate_shaft = material_state(fresh);
-    outcome(fresh.command("P", drive("new-shaft", lower_id, field<std::string>(rebuilt, "entity"))), false, "axles_already_touch");
+    outcome(fresh.command("P", drive("new-shaft", lower_id, field<std::string>(rebuilt, "entity"))), false, "individual_shaft_required");
     check(same(before_duplicate_shaft, material_state(fresh)), "A duplicate shaft request preserves the depleted stock, kits and identities.");
     for (int tick = 0; tick < 40; ++tick) (void)fresh.advance();
     const auto final = fresh.projection();

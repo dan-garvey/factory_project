@@ -123,8 +123,8 @@ void historical_translation() {
         const auto placed = host.command("P", cog);
         check(accepted(placed), "The finite adjacent cog is placed.");
         const auto touching = host.command("P", link("connect_drive", shaft_ids[n], hubs[n], field<std::string>(placed, "entity")));
-        check(!accepted(touching) && field<std::string>(touching, "reason") == "axles_already_touch",
-              "Touching axles do not consume a shaft.");
+        check(!accepted(touching) && field<std::string>(touching, "reason") == "individual_shaft_required",
+              "Endpoint construction does not consume a shaft.");
     }
     check(accepted(host.publish_actor("P", {V(-1.65), V(1.0), V(-1.4)}, 8)), "The actor reaches the source control.");
     auto power = request("set_power", "power"); power.emplace("active", V(true));

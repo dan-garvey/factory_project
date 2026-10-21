@@ -82,8 +82,8 @@ Fixture fixture() {
     state.kits = {{"P", {}}, {"Q", {}}};
     state.topology.parts = {
         {{"wheel", g::Kind::hub, {0, 0, 0}, g::Axis::z, 0, 0}, 1, s::Role::waterwheel},
-        {{"shaft", g::Kind::shaft, {0, 0, 2}, g::Axis::z, 0, 2}, 1, s::Role::shaft},
-        {{"press", g::Kind::hub, {0, 0, 4}, g::Axis::z, 0, 0}, 1, s::Role::processor}};
+        {{"shaft", g::Kind::shaft, {0, 0, 4}, g::Axis::z, 0, 2}, 1, s::Role::shaft},
+        {{"press", g::Kind::hub, {0, 0, 8}, g::Axis::z, 0, 0}, 1, s::Role::processor}};
     state.topology.sources = {{"wheel", {1, 1}}};
     state.topology.drive_enabled = true;
     state.issued_entities = {{"wheel", 1}, {"shaft", 1}, {"press", 1}};
@@ -93,7 +93,7 @@ Fixture fixture() {
     accepted(send(*world, command("remove", "remove")));
     O place{{"context", V("saved-world")}, {"client", V("P-old")}, {"request", V("place")},
         {"actor", V("P")}, {"action", V("place")}, {"role", V("processor")},
-        {"center", V(V::Array{V(I{0}), V(I{0}), V(I{4})})}, {"axis", V("z")},
+        {"center", V(V::Array{V(I{0}), V(I{0}), V(I{8})})}, {"axis", V("z")},
         {"teeth", V(I{0})}, {"half_span", V(I{0})}};
     accepted(send(*world, place));
     auto insert = command("insert_work", "insert", "native-part-1");

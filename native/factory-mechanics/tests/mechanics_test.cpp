@@ -348,6 +348,23 @@ void one_tile_shaft_faces() {
     }
 }
 
+void one_tile_large_cogs() {
+    for (const auto axis : {Axis::x, Axis::y, Axis::z}) {
+        const auto axial = static_cast<std::size_t>(axis);
+        const auto radial = (axial + 1) % 3;
+        Point source{0, 0, 0}, first{0, 0, 0}, second{0, 0, 0};
+        source[axial] = -4;
+        second[radial] = 4;
+        std::vector<Part> parts{{"source", Kind::hub, source, axis, 0, 0},
+            {"first", Kind::gear, first, axis, 4, 0}, {"second", Kind::gear, second, axis, 4, 0}};
+        motion(mechanical::evaluate(parts, {{"source", {1, 1}}}),
+               "second", MotionState::rotating, {-1, 1});
+        part(parts, "second").center[radial] = 8;
+        motion(mechanical::evaluate(parts, {{"source", {1, 1}}}),
+               "second", MotionState::unpowered, {0, 1});
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -355,6 +372,7 @@ int main() {
         direction_and_geometry();
         shafts_and_sources();
         one_tile_shaft_faces();
+        one_tile_large_cogs();
         local_conflicts();
         bounded_diagnostics();
         validation_and_arithmetic();

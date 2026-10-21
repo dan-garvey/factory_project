@@ -1,14 +1,15 @@
 #include "factory/service_scenarios.hpp"
 
 #include <array>
+#include <string>
 
 namespace factory::service_scenarios {
 namespace r = repair_scenarios;
 namespace s = stationary;
 namespace {
-constexpr std::array<mechanics::Point, 2> collector_sites{{{0, 0, 3}, {0, 0, 2}}};
-constexpr std::array<mechanics::Point, 2> belt_sites{{{3, 0, 3}, {3, 0, 2}}};
-constexpr std::array<mechanics::Point, 2> press_sites{{{6, 0, 3}, {6, 0, 2}}};
+constexpr std::array<mechanics::Point, 2> collector_sites{{{-4, 0, 12}, {4, 0, 12}}};
+constexpr std::array<mechanics::Point, 2> belt_sites{{{0, 0, 12}, {8, 0, 12}}};
+constexpr std::array<mechanics::Point, 2> press_sites{{{4, 0, 12}, {12, 0, 12}}};
 constexpr std::array<r::Definition, 3> definitions{{
     {"service-collector", "Move the stocked collector",
      "Rebuild the collector at a service site and retrieve four plates from the original stock.",
@@ -43,6 +44,22 @@ std::optional<r::Scenario> make(std::string_view id) {
         auto result = r::make(id == "service-press" ? "outlet" : "link");
         if (!result) return std::nullopt;
         result->definition = &definitions[index];
+        // Each service site has its own finite, already installed drive.
+        // The replacement machine touches its site's shaft without sharing a
+        // tile with it. Both handoff endpoints remain within fixture reach.
+        result->profile.build_reach = 10;
+        for (std::size_t site = 0; site < goals[index].sites.size(); ++site) {
+            const auto x = goals[index].sites[site][0];
+            const auto wheel = "service-wheel-" + std::to_string(site);
+            const auto shaft = "service-shaft-" + std::to_string(site);
+            result->seed.topology.parts.push_back({{wheel, mechanics::Kind::hub, {x, 0, 20}, mechanics::Axis::z, 0, 0}, 1, s::Role::waterwheel});
+            result->seed.topology.parts.push_back({{shaft, mechanics::Kind::shaft, {x, 0, 16}, mechanics::Axis::z, 0, 2}, 1, s::Role::shaft});
+            result->seed.topology.sources.push_back({wheel, result->profile.waterwheel_rate});
+            result->seed.issued_entities.emplace(wheel, 1);
+            result->seed.issued_entities.emplace(shaft, 1);
+            ++result->profile.finite_parts[{s::Role::waterwheel, 0, 0}];
+            ++result->profile.finite_parts[{s::Role::shaft, 0, 2}];
+        }
         if (id == "service-collector") {
             result->seed.material.stock = {15, 1, 0, 0, 0};
             result->seed.topology.material_links = {{{"collector", 1}, {"belt", 1}}, {{"belt", 1}, {"processor", 1}}};

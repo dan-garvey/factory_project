@@ -70,13 +70,13 @@ func _controls() -> void:
 	verify(center == [-4, 4, 4] and host.state == before and "2 carried" in view.get_popup().get_item_text(0), "A queued response creates no speculative kit credit or geometry.")
 	view._axes.emit_signal("id_pressed", 1)
 	view._heights.emit_signal("id_pressed", 1)
-	view.handle_world_click([0, 5, 4], "")
-	verify(view.selected_axis == "y" and view.gear_height == 5 and host.calls.back() == {"action": "place_gear", "center": [0, 5, 4], "axis": "y", "teeth": 2}, "The axis and height menus affect only the explicit placement wire.")
+	view.handle_world_click([0, 8, 4], "")
+	verify(view.selected_axis == "y" and view.gear_height == 8 and host.calls.back() == {"action": "place_gear", "center": [0, 8, 4], "axis": "y", "teeth": 2}, "The axis and height menus use the shared tile step.")
 	view._heights.emit_signal("id_pressed", 0)
-	view.handle_world_click([-9, 4, 17], "")
-	verify(host.calls.back().center == [-9, 4, 17], "The view delegates points outside the obsolete restricted construction area.")
+	view.handle_world_click([-12, 4, 16], "")
+	verify(host.calls.back().center == [-12, 4, 16], "The view delegates tile points outside the obsolete restricted construction area.")
 	var sent: int = host.calls.size()
-	for invalid in [[0.0, 4, 4], [true, 4, 4], [0, 4], [-1000001, 4, 4], [0, 3, 4], [0, 4, 1000001]]:
+	for invalid in [[0.0, 4, 4], [true, 4, 4], [0, 4], [-1000001, 4, 4], [0, 3, 4], [0, 4, 1000001], [1, 4, 4], [0, 4, 5]]:
 		verify(view.handle_world_click(invalid, ""), "Invalid active-tool coordinates are consumed.")
 	verify(host.calls.size() == sent, "Malformed, off-plane and out-of-profile coordinates send no request.")
 	host.client = "Q"
@@ -98,36 +98,12 @@ func _controls() -> void:
 	host.state.part_specifications.erase("P")
 	verify(view.handle_world_click([0, 4, 4], "") and host.calls.size() == sent, "An absent actor kit does not use the compatibility alias.")
 	host.state = fixture()
-	view.choose_tool("shaft")
-	view.handle_world_click([], "wheel")
-	verify(host.calls.size() == sent, "The first shaft endpoint is view state only.")
-	view.handle_world_click([], "a")
-	verify(host.calls.back() == {"action": "connect_drive", "from": "wheel", "to": "a"}, "A shaft uses the two confirmed identifiers.")
 	host.state.part_specifications.P[1].count = 0
 	host.state.part_specifications.P.append({"kind": "shaft", "teeth": 0, "half_span": 4, "count": 2})
 	view.refresh()
-	verify(not view._legacy_links.is_item_disabled(view._legacy_links.get_item_index(2)) and "2 carried" in view._legacy_links.get_item_text(view._legacy_links.get_item_index(2)), "A long-only kit remains available to the advanced endpoint tool.")
-	view.choose_tool("shaft")
-	view.handle_world_click([], "wheel")
-	view.handle_world_click([], "a")
-	verify(host.calls.back() == {"action": "connect_drive", "from": "wheel", "to": "a"}, "A long-only kit delegates endpoint geometry to the World.")
-	view.choose_tool("disconnect")
-	view.handle_world_click([], "wheel")
-	view.handle_world_click([], "a")
-	verify(host.calls.back() == {"action": "disconnect_drive", "from": "wheel", "to": "a"}, "Disconnection delegates the existing finite-shaft command.")
-	for change in ["generation", "world", "actor"]:
-		host.client = "P"
-		host.state = fixture()
-		view.choose_tool("shaft")
-		view.handle_world_click([], "wheel")
-		if change == "generation":
-			host.state.entities.wheel.generation = 9
-		elif change == "world":
-			host.state.context = "another-worksite"
-		else:
-			host.client = "Q"
-		var count: int = host.calls.size()
-		verify(view.handle_world_click([], "a") and host.calls.size() == count, "A stale endpoint, actor or world cannot complete an old pair.")
+	verify(view.get_popup().is_item_disabled(view.get_popup().get_item_index(6)), "A long-only kit does not offer a one-tile shaft.")
+	view.choose_tool("place_shaft")
+	verify(view.handle_world_click([0, 4, 4], "") and host.calls.size() == sent, "A long-only kit cannot submit a one-tile shaft.")
 	host.client = "P"
 	host.state = fixture()
 	view.choose_tool("remove")
@@ -156,28 +132,28 @@ func _gear_sizes() -> void:
 	view._axes.id_pressed.emit(1)
 	view._heights.id_pressed.emit(1)
 	view._sizes.id_pressed.emit(1)
-	verify(view.gear_teeth == 4 and view.selected_axis == "y" and view.gear_height == 5,
+	verify(view.gear_teeth == 4 and view.selected_axis == "y" and view.gear_height == 8,
 		"Selecting the large cog retains the independent axis and height selections.")
 	verify("1 carried" in view.get_popup().get_item_text(0) and "Large" in view.get_popup().get_item_text(view.get_popup().get_item_index(102)),
 		"The selected large cog count comes from P's exact carried specification.")
 	var original: Dictionary = host.state.duplicate(true)
-	view.handle_world_click([0, 5, 4], "")
-	verify(host.calls.back() == {"action": "place_gear", "center": [0, 5, 4], "axis": "y", "teeth": 4} and host.state == original,
+	view.handle_world_click([0, 8, 4], "")
+	verify(host.calls.back() == {"action": "place_gear", "center": [0, 8, 4], "axis": "y", "teeth": 4} and host.state == original,
 		"A large-cog request has its actual size and a queued reply changes no confirmed inventory.")
 	var sent := host.calls.size()
 	host.client = "Q"
 	view.refresh()
 	verify(view.get_popup().is_item_disabled(0) and "0 carried" in view.get_popup().get_item_text(0),
 		"An actor without the selected large cog cannot borrow P's inventory.")
-	verify(view.handle_world_click([0, 5, 4], "") and host.calls.size() == sent,
+	verify(view.handle_world_click([0, 8, 4], "") and host.calls.size() == sent,
 		"An unavailable large cog consumes the click without issuing a request.")
 	host.client = "P"
 	host.mutate_allowed = false
-	verify(view.handle_world_click([0, 5, 4], "") and host.calls.size() == sent,
+	verify(view.handle_world_click([0, 8, 4], "") and host.calls.size() == sent,
 		"A disconnected or pending shared view cannot submit a large cog.")
 	host.mutate_allowed = true
 	view._sizes.id_pressed.emit(0)
-	view.handle_world_click([0, 5, 4], "")
+	view.handle_world_click([0, 8, 4], "")
 	verify(view.gear_teeth == 2 and host.calls.back().get("teeth") == 2 and host.calls.size() == sent + 1,
 		"Reselecting the small cog submits its own specification.")
 	view.free()
@@ -194,12 +170,11 @@ func _shaft_segments() -> void:
 	view.handle_world_click([0, 4, 4], "")
 	verify(host.calls.back() == {"action": "place_shaft", "center": [0, 4, 4], "axis": "x", "half_span": 2} and host.state == original,
 		"An individual short segment delegates its exact geometry without speculative inventory.")
-	verify(view.get_popup().get_item_index(6) < view.get_popup().get_item_index(104), "Direct segments precede the advanced endpoint submenu.")
+	verify(view.get_popup().get_item_index(104) < 0, "The obsolete endpoint menu is absent.")
 	view._axes.id_pressed.emit(2)
-	view._lengths.id_pressed.emit(1)
 	view.handle_world_click([0, 4, 8], "")
-	verify(host.calls.back() == {"action": "place_shaft", "center": [0, 4, 8], "axis": "z", "half_span": 4},
-		"The long segment uses its selected axis and finite specification.")
+	verify(host.calls.back() == {"action": "place_shaft", "center": [0, 4, 8], "axis": "z", "half_span": 2},
+		"The segment uses its selected axis and one-tile specification.")
 	var sent := host.calls.size()
 	view.handle_world_click([0, 3, 8], "")
 	host.client = "Q"
@@ -217,10 +192,10 @@ func _shaft_segments() -> void:
 	long_host.state.part_specifications.P.append({"kind": "shaft", "teeth": 0, "half_span": 4, "count": 1})
 	var long_view := Controls.new()
 	long_view.configure(long_host)
-	verify(not long_view.get_popup().is_item_disabled(long_view.get_popup().get_item_index(6)),
-		"The direct menu remains selectable when only the other shaft length is carried.")
+	verify(long_view.get_popup().is_item_disabled(long_view.get_popup().get_item_index(6)),
+		"An obsolete long shaft cannot be selected as a one-tile part.")
 	long_view.choose_tool("place_shaft")
-	verify(long_view.shaft_half_span == 4, "Selecting the direct shaft tool chooses the available long segment when short stock is exhausted.")
+	verify(long_view.shaft_half_span == 2, "The shaft tool always uses the one-tile specification.")
 	long_view.free()
 
 func _part(view: Node3D, id: String) -> Node3D:
@@ -338,16 +313,11 @@ func _tool_guidance() -> void:
 	var view := Controls.new()
 	view.configure(host)
 	var before: Dictionary = host.state.duplicate(true)
-	for choice in [[1, "cogwheel"], [6, "shaft segment"], [4, "remove"], [5, "construction tool"]]:
+	for choice in [[1, "cogwheel"], [6, "shaft tile"], [4, "remove"], [5, "construction tool"]]:
 		var count: int = host.messages.size()
 		view.get_popup().id_pressed.emit(choice[0])
 		verify(host.messages.size() == count + 1 and str(host.messages.back()).contains(choice[1]),
 			"Popup selection replaces stale advice for operation " + str(choice[0]))
-	for choice in [[2, "first endpoint"], [3, "disconnect"]]:
-		var count: int = host.messages.size()
-		view._legacy_links.id_pressed.emit(choice[0])
-		verify(host.messages.size() == count + 1 and str(host.messages.back()).contains(choice[1]),
-			"The advanced endpoint submenu supplies its own operation advice.")
 	verify(host.calls.is_empty() and host.state == before, "Popup advice sends no request and changes no confirmed facts.")
 	host.mutate_allowed = false
 	var count: int = host.messages.size()

@@ -229,7 +229,11 @@ Result evaluate(const std::vector<Part>& input, const std::vector<Drive>& source
             if (left.kind == Kind::gear && right.kind == Kind::gear &&
                 left.axis == right.axis &&
                 left.center[coordinate(left.axis)] == right.center[coordinate(right.axis)]) {
-                const auto sum = left.teeth + right.teeth;
+                // Both starter cog sizes occupy one tile, independently of
+                // their tooth-ratio labels. Equal large cogs meet at adjacent
+                // tile faces just like equal small cogs.
+                const bool large_pair = left.teeth == 4 && right.teeth == 4;
+                const auto sum = large_pair ? Integer{4} : left.teeth + right.teeth;
                 const auto distance = radial_squared(left, right);
                 const bool mixed_starter_cogs =
                     (left.teeth == 2 && right.teeth == 4) ||
@@ -240,9 +244,10 @@ Result evaluate(const std::vector<Part>& input, const std::vector<Drive>& source
                     const auto d = right.center[i] - left.center[i];
                     diagonal = d == 4 || d == -4;
                 }
-                if (distance < sum * sum && !diagonal)
+                const bool mixed_adjacent = mixed_starter_cogs && distance == 16;
+                if (distance < sum * sum && !diagonal && !mixed_adjacent)
                     return failure(Error::overlapping_gears, left.id);
-                if (diagonal || (!mixed_starter_cogs && distance == sum * sum)) {
+                if (diagonal || mixed_adjacent || (!mixed_starter_cogs && distance == sum * sum)) {
                     connected = true;
                     kind = EngagementKind::external_mesh;
                     forward = normalized({-left.teeth, right.teeth});

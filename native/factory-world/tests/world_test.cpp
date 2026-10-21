@@ -29,7 +29,7 @@ s::PlacedPart hub(const char* id, s::Role role, I x, I z) {
 }
 
 s::PlacedPart shaft(const char* id, I x) {
-    return {{id, g::Kind::shaft, {x, 0, 2}, g::Axis::z, 0, 2}, 1, s::Role::shaft};
+    return {{id, g::Kind::shaft, {x, 0, 4}, g::Axis::z, 0, 2}, 1, s::Role::shaft};
 }
 
 struct Fixture { w::Profile profile; w::State state; };
@@ -51,10 +51,10 @@ Fixture fixture() {
     f.state.material.cargo = {{"P", {}}, {"Q", {}}};
     f.state.kits = {{"P", {{{s::Role::gear, 8, 0}, 1}}}, {"Q", {}}};
     f.state.topology.parts = {hub("wheel-A", s::Role::waterwheel, 0, 0), shaft("shaft-A", 0),
-        hub("collector", s::Role::collector, 0, 4), hub("wheel-B", s::Role::waterwheel, 10, 0),
-        shaft("shaft-B", 10), hub("belt", s::Role::belt, 10, 4),
-        hub("wheel-C", s::Role::waterwheel, 20, 0), shaft("shaft-C", 20),
-        hub("processor", s::Role::processor, 20, 4)};
+        hub("collector", s::Role::collector, 0, 8), hub("wheel-B", s::Role::waterwheel, 12, 0),
+        shaft("shaft-B", 12), hub("belt", s::Role::belt, 12, 8),
+        hub("wheel-C", s::Role::waterwheel, 24, 0), shaft("shaft-C", 24),
+        hub("processor", s::Role::processor, 24, 8)};
     f.state.topology.material_links = {{{"collector", 1}, {"belt", 1}}, {{"belt", 1}, {"processor", 1}}};
     f.state.topology.sources = {{"wheel-A", {-1, 1}}, {"wheel-B", {-1, 1}}, {"wheel-C", {-1, 1}}};
     f.state.topology.drive_enabled = true;
@@ -109,6 +109,9 @@ w::Delivery send(w::World& world, const a::Object& request, Observer& observer) 
 
 void outcome(const w::Delivery& delivery, bool accepted, const char* reason) {
     check(delivery.completed(), "A fresh well-formed request must retain an original outcome.");
+    if (get<bool>(*delivery.result, "accepted") != accepted)
+        throw std::runtime_error(std::string("Expected ") + reason + ", got " + get<std::string>(*delivery.result, "reason") +
+                                 " after " + std::to_string(checks) + " checks.");
     check(get<bool>(*delivery.result, "accepted") == accepted, "The accepted flag must match the literal expectation.");
     check(get<std::string>(*delivery.result, "reason") == reason, "The original reason must match.");
 }
@@ -194,11 +197,6 @@ void authentication_reach_and_replay() {
 
 void running_removal_rebuild_and_tick() {
     auto f = fixture();
-    f.state.topology.parts[0].geometry.center[2] = -4;
-    f.state.topology.parts[1].geometry.center[2] = 0;
-    f.state.topology.parts[1].geometry.half_span = 4;
-    f.profile.finite_parts[{s::Role::shaft, 0, 2}] = 2;
-    f.profile.finite_parts[{s::Role::shaft, 0, 4}] = 1;
     f.state.material.stock = {14, 0, 1, 0, 1};
     auto owner = world(f);
     Observer observer;
@@ -207,7 +205,7 @@ void running_removal_rebuild_and_tick() {
     auto before_tick = owner->snapshot();
     const auto power = w::machine_power(before_tick.state.topology);
     check(!power.collector && power.belt && power.processor, "Removing a real shaft stops only its connected branch.");
-    check(before_tick.state.topology.drive_enabled && before_tick.state.kits.at("P").at({s::Role::shaft, 0, 4}) == 1,
+    check(before_tick.state.topology.drive_enabled && before_tick.state.kits.at("P").at({s::Role::shaft, 0, 2}) == 1,
           "Running removal preserves global drive and refunds the exact physical shaft.");
     const auto tick = owner->tick();
     const auto after_tick = owner->snapshot();
@@ -223,16 +221,16 @@ void running_removal_rebuild_and_tick() {
           get<I>(*duplicate.result, "revision") == before_tick.revision,
           "Retry retains its original receipt revision after a newer step and target removal.");
     outcome(send(*owner, target("remove", "remove-again", "shaft-A"), observer), false, "unknown_target");
-    const auto rebuilt = send(*owner, place("rebuild-A", "shaft", 0, 0, 4), observer);
+    const auto rebuilt = send(*owner, place("rebuild-A", "shaft", 0, 4, 2), observer);
     outcome(rebuilt, true, "ok");
     const auto rebuilt_state = owner->snapshot().state;
     check(get<std::string>(*rebuilt.result, "entity") == "native-part-1" &&
           rebuilt_state.issued_entities.contains("shaft-A") && rebuilt_state.issued_entities.contains("native-part-1"),
           "Rebuilding allocates a new identity while retaining the old entity history.");
-    check(rebuilt_state.kits.at("P").at({s::Role::shaft, 0, 4}) == 0 && w::machine_power(rebuilt_state.topology).collector,
+    check(rebuilt_state.kits.at("P").at({s::Role::shaft, 0, 2}) == 0 && w::machine_power(rebuilt_state.topology).collector,
           "The returned exact part is consumed once and restores geometric transmission.");
     const auto serial = rebuilt_state.next_entity_serial;
-    outcome(send(*owner, place("no-second-shaft", "shaft", 30, 2, 4), observer), false, "unavailable_part");
+    outcome(send(*owner, place("no-second-shaft", "shaft", 32, 0, 2), observer), false, "unavailable_part");
     check(owner->snapshot().state.next_entity_serial == serial, "A refused build consumes no identity or physical part.");
 }
 
@@ -252,7 +250,7 @@ void preserve_work_through_recovery_and_rebuild() {
           recovered.state.material.stock == m::Stock{14, 0, 0, 0, 0} && !recovered.state.material.processing,
           "Recovery moves raw and the original partial whole lot into one actor's canonical Cargo.");
     outcome(send(*owner, target("remove", "empty-processor", "processor"), observer), true, "ok");
-    const auto build = send(*owner, place("new-processor", "processor", 20, 4), observer);
+    const auto build = send(*owner, place("new-processor", "processor", 24, 8), observer);
     outcome(build, true, "ok");
     auto insert = target("insert_work", "resume-work", "native-part-1");
     insert.emplace("work_id", V(I{1}));
@@ -301,22 +299,22 @@ void ready_work_and_two_endpoint_reach() {
 
     f = fixture();
     f.state.topology.material_links.clear();
-    f.profile.build_reach = 0.5;
+    f.profile.build_reach = 0.61;
     owner = world(f);
     auto link = target("link", "far-endpoint", "collector");
     link.emplace("to", V("belt"));
     link.emplace("to_generation", V(I{1}));
-    observer.position = {0, 0, 0.4};
+    observer.position = {0, 0, 0.8};
     outcome(send(*owner, link, observer), false, "out_of_reach");
     check(owner->snapshot().state.topology.material_links.empty(), "A near first endpoint cannot authorize a far second endpoint.");
-    observer.position = {0.5, 0, 0.4};
+    observer.position = {0.6, 0, 0.8};
     link.at("request") = V("both-endpoints");
     outcome(send(*owner, link, observer), true, "ok");
     check(owner->snapshot().state.topology.material_links.size() == 1,
-          "Both endpoints exactly on the scalar reach boundary may connect.");
+          "Both endpoints within the scalar reach boundary may connect.");
     auto arbitrary = target("link", "arbitrary-drive-edge", "wheel-A");
     arbitrary.emplace("to", V("collector")); arbitrary.emplace("to_generation", V(I{1}));
-    observer.position = {0, 0, 0.2};
+    observer.position = {0, 0, 0.4};
     outcome(send(*owner, arbitrary, observer), false, "incompatible_link");
 }
 
@@ -353,7 +351,7 @@ void atomic_step_and_callback_failures() {
 
 void trusted_flow_drives_world() {
     auto f = fixture();
-    for (const I x : {0, 10, 20}) f.profile.water[{x, 0}] = {0, -500, 200, 0};
+    for (const I x : {0, 12, 24}) f.profile.water[{x, 0}] = {0, -500, 200, 0};
     for (auto& source : f.state.topology.sources) source.rate = {1, 3};
     auto owner = world(f);
     auto view = s::power_view(owner->snapshot().state.topology).mechanical;

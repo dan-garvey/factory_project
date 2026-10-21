@@ -273,9 +273,9 @@ func refresh() -> void:
 		anchor.set_meta("motion_state", motion.get("state", "unknown") if motion is Dictionary else "unknown")
 		var color := Color("ba9459") if rotating else Color("687a7b")
 		if part.kind == "gear":
-			var radius: float = float(part.teeth) * UNIT
+			var radius: float = Geometry.PITCH / 2.0
 			Assets.gear(anchor, radius, part.teeth, color)
-			_pick(anchor, id, radius + UNIT * 0.25, 0.24)
+			_pick(anchor, id, radius, 0.24)
 			if rotating:
 				_direction(anchor, radius * 0.65, 1 if motion.numerator > 0 else -1)
 		else:

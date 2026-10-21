@@ -82,7 +82,7 @@ bool spec_valid(const stationary::PartSpec& spec) {
         case Role::gear:
             return spec.teeth > 0 && spec.teeth <= mechanics::maximum_dimension && spec.half_span == 0;
         case Role::shaft:
-            return spec.teeth == 0 && spec.half_span > 0 && spec.half_span <= mechanics::maximum_dimension;
+            return spec.teeth == 0 && spec.half_span == 2;
     }
     return false;
 }
@@ -188,32 +188,6 @@ bool two_endpoints(const std::string& action) {
     return action == "link" || action == "unlink" || action == "shaft_between" || action == "remove_shaft_between";
 }
 
-std::optional<stationary::PlacedPart> shaft_between(
-        const stationary::PlacedPart& from, const stationary::PlacedPart& to) {
-    if (from.geometry.axis != to.geometry.axis || from.geometry.kind == mechanics::Kind::shaft ||
-        to.geometry.kind == mechanics::Kind::shaft) return std::nullopt;
-    const auto axis = static_cast<std::size_t>(from.geometry.axis);
-    for (std::size_t index = 0; index < 3; ++index)
-        if (index != axis && from.geometry.center[index] != to.geometry.center[index]) return std::nullopt;
-    const auto difference = to.geometry.center[axis] - from.geometry.center[axis];
-    if (difference == 0 || difference % 2 != 0) return std::nullopt;
-    const auto half = difference > 0 ? difference / 2 : -difference / 2;
-    if (half > mechanics::maximum_dimension) return std::nullopt;
-    auto center = from.geometry.center;
-    center[axis] += difference / 2;
-    return stationary::PlacedPart{{"", mechanics::Kind::shaft, center, from.geometry.axis, 0, half},
-                                  0, Role::shaft};
-}
-
-const stationary::PlacedPart* matching_shaft(const stationary::Topology& topology,
-                                            const stationary::PlacedPart& specification) {
-    const auto found = std::find_if(topology.parts.begin(), topology.parts.end(), [&](const auto& item) {
-        return item.role == Role::shaft && item.geometry.center == specification.geometry.center &&
-            item.geometry.axis == specification.geometry.axis && item.geometry.half_span == specification.geometry.half_span;
-    });
-    return found == topology.parts.end() ? nullptr : &*found;
-}
-
 Value point_value(const authority::Point& point) {
     return Value(Value::Array{Value(point[0]), Value(point[1]), Value(point[2])});
 }
@@ -264,6 +238,7 @@ Value lots_value(const std::vector<materials::WorkLot>& lots) {
 
 bool historical_facts(const Profile& profile, const authority::Record& record,
                       const std::string& actor, const std::string& action) {
+    if (action == "shaft_between" || action == "remove_shaft_between") return false;
     const auto& result = record.result;
     const auto* reason = field<std::string>(result, "reason");
     const auto* epoch = field<Integer>(result, "native_epoch");
@@ -331,6 +306,9 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
             !spec_valid({*selected_role, *teeth, *span}) || targets.front() != anchor(profile, *location) ||
             (record.intent.contains("wheel_tiles") && (!wheel_tiles || *selected_role != Role::waterwheel ||
                 *wheel_tiles < 3 || *wheel_tiles > mechanics::maximum_dimension))) return false;
+        if ((*selected_role == Role::gear || *selected_role == Role::shaft) &&
+            std::any_of(location->begin(), location->end(),
+                        [](Integer coordinate) { return coordinate % 4 != 0; })) return false;
         if (action == "place_connected") {
             if (!material_machine(*selected_role)) return false;
             auto left = *location;
@@ -586,6 +564,13 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
         if (item.wheel_tiles < (item.role == Role::waterwheel ? 3 : 1) || item.wheel_tiles > mechanics::maximum_dimension ||
             (item.role != Role::waterwheel && item.wheel_tiles != 1)) return false;
         if (item.role == Role::belt && item.geometry.axis != mechanics::Axis::z) return false;
+        if ((item.role == Role::shaft || item.role == Role::gear) &&
+            std::any_of(item.geometry.center.begin(), item.geometry.center.end(),
+                        [](Integer coordinate) { return coordinate % 4 != 0; })) return false;
+        if ((item.role == Role::shaft || item.role == Role::gear) &&
+            std::count_if(state.topology.parts.begin(), state.topology.parts.end(), [&](const auto& other) {
+                return other.geometry.center == item.geometry.center;
+            }) != 1) return false;
         if (profile.foundation_parts > 0 && material_machine(item.role) && item.geometry.center[1] != 0 &&
             std::none_of(state.foundations.begin(), state.foundations.end(), [&](const auto& entry) {
                 return entry.second.center == item.geometry.center;
@@ -788,6 +773,9 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             (intent.contains("wheel_tiles") && (!wheel_tiles || *selected_role != Role::waterwheel ||
                 *wheel_tiles < 3 || *wheel_tiles > mechanics::maximum_dimension))) return refused("invalid_part");
         if (*selected_role == Role::belt && *selected_axis != mechanics::Axis::z) return refused("invalid_belt_axis");
+        if ((*selected_role == Role::gear || *selected_role == Role::shaft) &&
+            std::any_of(location->begin(), location->end(),
+                        [](Integer coordinate) { return coordinate % 4 != 0; })) return refused("invalid_cell");
         targets.push_back(anchor(profile_, *location));
         if (profile_.foundation_parts > 0 && material_machine(*selected_role) && (*location)[1] != 0) {
             const bool supported = std::any_of(state.foundations.begin(), state.foundations.end(),
@@ -832,24 +820,24 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
     State candidate = state;
     std::string entity;
     Integer generation{};
-    std::optional<stationary::PlacedPart> transmission;
     if (*action == "shaft_between" || *action == "remove_shaft_between") {
-        transmission = shaft_between(*selected, *destination);
-        if (!transmission) return refused("incompatible_shaft", selected->geometry.id, std::move(facts));
-        if (*action == "shaft_between" && transmission->geometry.half_span == 2)
-            return refused("axles_already_touch", selected->geometry.id, std::move(facts));
+        return refused("individual_shaft_required", selected->geometry.id, std::move(facts));
     }
-    if (placement(*action) || *action == "shaft_between") {
+    if (placement(*action) && std::any_of(state.topology.parts.begin(), state.topology.parts.end(), [&](const auto& existing) {
+            return existing.geometry.center == *location &&
+                (*selected_role == Role::gear || *selected_role == Role::shaft ||
+                 existing.role == Role::gear || existing.role == Role::shaft);
+        })) return refused("occupied", "", std::move(facts));
+    if (placement(*action)) {
         if (candidate.issued_entities.size() == maximum_issued_entities ||
             candidate.next_entity_serial == std::numeric_limits<Integer>::max())
             return refused("identity_limit");
         generation = candidate.next_entity_serial++;
         entity = std::string(allocated_prefix) + std::to_string(generation);
         if (candidate.issued_entities.contains(entity)) return refused("identity_conflict");
-        if (transmission && matching_shaft(state.topology, *transmission)) return refused("existing_shaft");
-        const auto kind = transmission ? mechanics::Kind::shaft : *selected_role == Role::gear ? mechanics::Kind::gear :
+        const auto kind = *selected_role == Role::gear ? mechanics::Kind::gear :
                           *selected_role == Role::shaft ? mechanics::Kind::shaft : mechanics::Kind::hub;
-        stationary::PlacedPart placed = transmission ? *transmission : stationary::PlacedPart{
+        stationary::PlacedPart placed{
             {entity, kind, *location, *selected_axis, *field<Integer>(intent, "teeth"),
              *field<Integer>(intent, "half_span")}, generation, *selected_role};
         placed.geometry.id = entity;
@@ -879,13 +867,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
     } else {
         entity = selected->geometry.id;
         generation = selected->generation;
-        if (*action == "remove" || *action == "remove_shaft_between") {
-            if (transmission) {
-                const auto* shaft = matching_shaft(state.topology, *transmission);
-                if (!shaft) return refused("missing_shaft", entity, std::move(facts));
-                entity = shaft->geometry.id;
-                generation = shaft->generation;
-            }
+        if (*action == "remove") {
             auto proposal = stationary::prepare_removal(state.topology, state.kits.at(binding.actor),
                 state.material, {{entity, generation}});
             if (const auto* error = std::get_if<stationary::RemovalRefusal>(&proposal))

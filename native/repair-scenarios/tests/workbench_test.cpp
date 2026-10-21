@@ -41,7 +41,7 @@ std::string plates(int number) {
 }
 
 void solutions() {
-    const auto coupling = run("coupling", "collect processor\nplace shaft 0 0 0 z 4\nwalk east 6\nwalk north 4\n" + plates(4));
+    const auto coupling = run("coupling", "collect processor\nplace shaft 0 0 4 z 2\nwalk east 6\nwalk north 8\n" + plates(4));
     check(coupling.code == 0 && coupling.errors.empty(), "A complete coupling repair works through actual interactive commands.");
     check(contains(coupling, "Held: out_of_reach") && contains(coupling, "Accepted: ok (native-part-1)"),
           "A far retrieval refuses before a real finite-kit placement succeeds.");
@@ -50,7 +50,7 @@ void solutions() {
     check(contains(coupling, "Cargo raw=0 products=4/4") && contains(coupling, "Complete: four plates retrieved"),
           "Four products are held by the bound actor before completion.");
 
-    const auto link = run("link", "wait 8\nlink belt processor\nwalk north 4\nwalk east 4\nlink belt processor\n" + plates(4));
+    const auto link = run("link", "wait 8\nlink belt processor\nwalk north 8\nwalk east 4\nlink belt processor\n" + plates(4));
     check(link.code == 0 && link.errors.empty(), "The handoff scenario completes through native linking and finite production.");
     check(contains(link, "Stock source=14 collector=1 belt=1 input=0 output=0"),
           "Inspection exposes the real retained upstream blockage before repair.");
@@ -58,7 +58,7 @@ void solutions() {
           "A link requires a corrected actor position within reach of both current endpoints.");
     check(count(link.out, "Complete:") == 1, "The same run completes once after four real collections.");
 
-    const auto outlet = run("outlet", "walk east 6\nwalk north 4\nremove processor\nrecover processor\ninspect\n"
+    const auto outlet = run("outlet", "walk east 6\nwalk north 8\nremove processor\nrecover processor\ninspect\n"
         "insert_work processor 7\ninspect\ninsert_work processor 7\ninsert_raw processor 1\n" + plates(3));
     check(outlet.code == 0 && outlet.errors.empty(), "Ready-work recovery and reinsertion can complete the outlet puzzle.");
     check(contains(outlet, "Held: occupied_target (processor)"), "Dismantling cannot discard the obstructing original billet.");
@@ -87,22 +87,22 @@ void retained_refusals() {
           count(bad.out, "Press work=7 remaining=0 recipe_units=1 cycle=2") == 2,
           "All invalid actions preserve the original billet and every material holder.");
 
-    const auto kit = run("coupling", "place shaft 0 0 0 z 4\nplace shaft 0 0 0 z 4\ninspect\nquit\n");
+    const auto kit = run("coupling", "place shaft 0 0 4 z 2\nplace shaft 0 0 -4 z 2\ninspect\nquit\n");
     check(kit.code == 1 && contains(kit, "Held: unavailable_part"), "A second placement cannot invent another carried coupling.");
     check(count(kit.out, "native-part-1 generation=1 shaft") == 1 && !contains(kit, "native-part-2 generation="),
           "A refused placement leaves only the original successfully allocated part.");
 
-    const auto walking = run("outlet", "collect processor\nwalk east 8\nwalk east 8\nwalk north 4\ncollect processor\nquit\n");
+    const auto walking = run("outlet", "collect processor\nwalk east 8\nwalk east 8\nwalk north 8\ncollect processor\nquit\n");
     check(walking.code == 1 && contains(walking, "The walk leaves this workbench. Position unchanged.") &&
-          contains(walking, "Position (8,0,4)") && contains(walking, "Cargo raw=0 products=1/4"),
+          contains(walking, "Position (8,0,8)") && contains(walking, "Cargo raw=0 products=1/4"),
           "A refused boundary crossing retains the actor position used by the next admitted collection.");
 
-    const auto empty = run("coupling", "walk east 6\nwalk north 4\ncollect processor\nwait 8\ninspect\n");
+    const auto empty = run("coupling", "walk east 6\nwalk north 8\ncollect processor\nwait 8\ninspect\n");
     check(empty.code == 1 && contains(empty, "Held: unavailable_output (processor)"), "An empty output produces a retained native refusal.");
     check(count(empty.out, "Stock source=16 collector=0 belt=0 input=0 output=0") >= 4,
           "Waiting cannot produce through a drive that is still disconnected.");
 
-    const auto paused = run("outlet", "walk east 6\nwalk north 4\ndrive wheel-processor off\ncollect processor\nwait 8\ninspect\nquit\n");
+    const auto paused = run("outlet", "walk east 6\ndrive wheel-processor off\nwalk north 8\ncollect processor\nwait 8\ninspect\nquit\n");
     check(paused.code == 1 && contains(paused, "Power collector=0 belt=0 processor=0") &&
           contains(paused, "Cargo raw=0 products=1/4") && contains(paused, "Press work=7 remaining=0"),
           "The declared coarse drive switch pauses work without destroying the finished held lot.");

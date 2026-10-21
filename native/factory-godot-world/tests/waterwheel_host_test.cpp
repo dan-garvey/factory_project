@@ -79,9 +79,9 @@ int main() {
         const auto lower_id = field<std::string>(lower, "entity");
         O link{{"context", V("water-test")}, {"client", V("P")}, {"request", V("shaft-a")},
             {"action", V("connect_drive")}, {"from", V(id)}, {"to", V(middle_id)}};
-        check(field<std::string>(host.command("P", link), "reason") == "axles_already_touch", "wheel touches cog");
+        check(field<std::string>(host.command("P", link), "reason") == "individual_shaft_required", "endpoint shaft creation is refused");
         link.at("request") = V("shaft-b"); link.at("from") = V(lower_id); link.at("to") = V(collector_id);
-        check(field<std::string>(host.command("P", link), "reason") == "axles_already_touch", "cog touches collector");
+        check(field<std::string>(host.command("P", link), "reason") == "individual_shaft_required", "endpoint shaft creation is refused at the collector");
         O power{{"context", V("water-test")}, {"client", V("P")}, {"request", V("power")},
             {"action", V("set_power")}, {"active", V(true)}};
         check(accepted(host.command("P", power)), "enable wheel drive");

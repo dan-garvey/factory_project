@@ -92,8 +92,8 @@ std::optional<mechanics::Axis> axis_value(const std::string& name) {
     return std::nullopt;
 }
 
-authority::Point gear_half_extents(mechanics::Axis axis, Integer teeth) {
-    const auto radius = static_cast<double>(teeth) * pitch / 4;
+authority::Point gear_half_extents(mechanics::Axis axis, Integer /* teeth */) {
+    const auto radius = pitch / 2;
     authority::Point half{radius, radius, radius};
     half[static_cast<std::size_t>(axis)] = 0.04; // Fixture disc half-thickness, not tooth physics.
     return half;
@@ -190,7 +190,7 @@ bool historical_wire(const authority::Record& record) {
             const auto* axis = field<std::string>(*wire, "axis");
             const auto* span = field<Integer>(*wire, "half_span");
             return *action == "place" && keys(*wire, {"center", "axis", "half_span"}) && center && gear_center(*center) &&
-                axis && axis_value(*axis) && span && (*span == 2 || *span == 4) &&
+                axis && axis_value(*axis) && span && *span == 2 &&
                 same("center", "center") && same("axis", "axis") && same("half_span", "half_span") &&
                 field<std::string>(intent, "role") && *field<std::string>(intent, "role") == "shaft" &&
                 field<Integer>(intent, "teeth") && *field<Integer>(intent, "teeth") == 0;
@@ -334,8 +334,8 @@ Value Host::initialize(const std::string& context, const std::vector<std::string
     profile.build_reach = reach;
     profile.foundation_parts = 24;
     profile.finite_parts = {{{Role::collector, 0, 0}, 1}, {{Role::belt, 0, 0}, 1},
-        {{Role::processor, 0, 0}, 1}, {{Role::waterwheel, 0, 0}, 1}, {{Role::shaft, 0, 2}, 4},
-        {{Role::shaft, 0, 4}, 4}, {{Role::gear, 2, 0}, 8}, {{Role::gear, 4, 0}, 2}};
+        {{Role::processor, 0, 0}, 1}, {{Role::waterwheel, 0, 0}, 1}, {{Role::shaft, 0, 2}, 8},
+        {{Role::gear, 2, 0}, 8}, {{Role::gear, 4, 0}, 2}};
     world::State seed;
     seed.material.initial_units = profile.initial_units;
     seed.material.stock.source = profile.initial_units;
@@ -732,7 +732,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         const auto* span = field<Integer>(wire, "half_span");
         if (!center) return refuse("invalid_center");
         if (!selected_axis) return refuse("invalid_axis");
-        if (!span || (*span != 2 && *span != 4)) return refuse("invalid_shaft");
+        if (!span || *span != 2) return refuse("invalid_shaft");
         const authority::Point at{(*center)[0] * pitch / 4, anchor_height + (*center)[1] * pitch / 4, (*center)[2] * pitch / 4};
         authority::Point half{0.1, 0.1, 0.1};
         half[static_cast<std::size_t>(*selected_axis)] = *span * pitch / 4;

@@ -3329,7 +3329,6 @@ var recovery_actions
 var loose_material_controls
 var transmission_controls
 var transmission_presenter
-var transmission_endpoint_cue
 var construction_audio
 var engineering_presenter
 var mechanical_ambience
@@ -3472,7 +3471,6 @@ func _refresh_transmission() -> void:
 			transmission_controls.refresh()
 		if transmission_presenter != null:
 			transmission_presenter.refresh()
-		_refresh_endpoint_cue()
 		return
 	if transmission_controls == null:
 		# Historical fixed-roster runtimes do not include the native helpers.
@@ -3494,7 +3492,6 @@ func _refresh_transmission() -> void:
 		transmission_presenter.configure(self)
 	transmission_controls.refresh()
 	transmission_presenter.refresh()
-	_refresh_endpoint_cue()
 	var active: bool = not transmission_controls.active_tool.is_empty()
 	transmission_controls.visible = active or show_all_tools or goal_confirmed or int(state.get("inventories", {}).get(client, 0)) > 0 or not state.get("transmission_parts", {}).is_empty()
 	if not active and mode in ["gear", "drive"]:
@@ -3563,31 +3560,10 @@ func _transmission_center(screen: Vector2) -> Array:
 	var point: Variant = plane.intersects_ray(camera.project_ray_origin(screen), camera.project_ray_normal(screen))
 	if point == null:
 		return []
-	return [roundi(point.x * 4.0 / PITCH), height, roundi(point.z * 4.0 / PITCH)]
-
-func _refresh_endpoint_cue() -> void:
-	var endpoint: Dictionary = transmission_controls.pending_endpoint() if _native_transmission() and transmission_controls != null else {}
-	if endpoint.is_empty():
-		if transmission_endpoint_cue != null:
-			transmission_endpoint_cue.refresh({})
-		return
-	if transmission_endpoint_cue == null:
-		# Native captures include this helper; historical fixed rosters need none.
-		var path := "res://opening/native_transmission_endpoint_cue.gd"
-		if not ResourceLoader.exists(path, "Script"):
-			push_error("Native endpoint cue requires the complete captured project")
-			get_tree().quit(1)
-			return
-		transmission_endpoint_cue = load(path).new()
-		transmission_endpoint_cue.name = "TransmissionEndpointCue"
-		add_child(transmission_endpoint_cue)
-	transmission_endpoint_cue.refresh(endpoint)
+	return [roundi(point.x / PITCH) * 4, height, roundi(point.z / PITCH) * 4]
 
 func _transmission_click(center: Array, entity_id: String) -> bool:
-	var consumed: bool = _native_transmission() and transmission_controls != null and transmission_controls.handle_world_click(center, entity_id)
-	if consumed:
-		_refresh_endpoint_cue()
-	return consumed
+	return _native_transmission() and transmission_controls != null and transmission_controls.handle_world_click(center, entity_id)
 
 func _send_character_input(direction: Vector2, jump: bool) -> void:
 	if actor_world != null:
@@ -3748,7 +3724,6 @@ func _process(delta: float) -> void:
 			model.advance()
 		_refresh()
 	_refresh_machine_preview()
-	_refresh_endpoint_cue()
 	_refresh_water()
 	_refresh_mechanical_audio()
 	_animate_wheel(delta)
@@ -3994,7 +3969,7 @@ func _select_tool(tool: String) -> void:
 	if _native_transmission():
 		instructions["collector"] = "Place the collector at the exposed mineral seam."
 		instructions["flow"] = "Choose the upstream machine, then its neighbor at the material outlet."
-		instructions["drive"] = "Place a shaft at the highlighted grid point. Set its axis, height and length in the cogwheel and shaft menu."
+		instructions["drive"] = "Place a shaft on the highlighted tile. Set its axis and height in the cogwheel and shaft menu."
 		instructions["gear"] = "Place a cogwheel at the highlighted point. Set axis and height in the cogwheel menu."
 		instructions["foundation"] = "Place foundations through ground and scenery. Page Up / Page Down move one quarter-height step. Enable Area to choose two corners; Esc cancels."
 	_message(instructions.get(tool,
@@ -4113,7 +4088,7 @@ func _set_lesson(index: int) -> void:
 	lesson_title.text = LESSONS[lesson_index][0]
 	lesson_body.text = LESSONS[lesson_index][1]
 	if lesson_index == 1 and _native_transmission():
-		lesson_body.text = "Place the waterwheel in the stream with its lower rim wet and clear of the bed. Set its diameter, height and axle. Choose Shaft and place segments at the highlighted grid points; set axis, height and length in the cogwheel and shaft menu. Aligned parts carry rotation."
+		lesson_body.text = "Place the waterwheel in the stream with its lower rim wet and clear of the bed. Set its diameter, height and axle. Choose Shaft and place one-tile segments; set axis and height in the cogwheel and shaft menu. Aligned parts carry rotation."
 	if example_presenter != null:
 		example_presenter.set_lesson(lesson_index)
 
