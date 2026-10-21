@@ -1,8 +1,9 @@
 # Production-quality assets for player construction
 
-Research date: 2026-10-20. This is a source-based recommendation and a proposed
-production workflow. It includes no new rendered comparison, asset import,
-performance measurement or gameplay implementation.
+Original research date: 2026-10-20. Implementation update: 2026-10-21, against
+main `44f2af04cf85dae2c49d0d6da7e7731997e89e34`. The source study proposed a
+production workflow; the update below maps it to components now in the demo.
+This document adds no asset import, test run or rendered assessment.
 
 ## Direction
 
@@ -22,13 +23,14 @@ new bespoke renderer for every complete machine.
 
 The [component source shortlist](component-source-shortlist.md) now identifies
 specific industrial kits and models, their declared component separation and
-the remaining adaptation work. These are candidates, with no new engine import.
+the remaining adaptation work. It separates the original candidate study from
+later qualified component adaptations.
 
 The visual target remains the [production presentation target](production-quality.md).
 Successful mesh generation alone cannot establish it. A beautiful source model
 also needs appropriate composition, lighting and motion in the actual worksite.
 
-## What exists and what is missing
+## Original source baseline
 
 The inspected baseline is main `42adffeb4a09b0a605cff5e2b0cb1fd857363873`.
 These are source observations, with no new game execution:
@@ -63,6 +65,64 @@ Those profile limits are implementation boundaries. They do not narrow the
 user's requested construction system. Visual research can cover the wider
 system now; adopting new functional assemblies requires appropriate native
 outcomes later.
+
+## Components now implemented
+
+The following is a source inventory at the implementation revision above. The
+[opening asset guide](../../experiments/engine-environment/godot/opening/assets/README.md)
+links the individual source manifests and technical qualifications. Mesh,
+resource and presenter checks support their declared technical scopes; they do
+not establish the user's graphical-quality target.
+
+| Family | Current reusable content | Boundary still to solve |
+| --- | --- | --- |
+| Foundation surfaces | Authored fixed panels use the qualified steel surface at its declared physical scale. | The worksite panels are not player-buildable foundations. Neighbor-dependent edges, holes and structural joins need native construction interfaces. |
+| Waterwheel | Selected sourced rim, hub and spokes combine with shaped timber paddles, cast stands and open journal bearings. | Player-selected radius, blade count and new power behavior are not supplied by the source model. |
+| Press | Selected drill-press columns and mounting pieces combine with an authored crown, open ram housing, guide sockets and existing tool motion. | One fitted press does not provide multi-press frames, interchangeable cutters or shared tool timing. |
+| Collector and supports | Shaped cast cheeks, service details and an open skid replace undifferentiated blocks. | These remain parts of existing machines, without independent structural inventory or collision rules. |
+| Conveyor | A closed rubber loop, separate rollers, cast end frames, fasteners and a supported drive journal form the straight conveyor. | The local hub fit does not solve vertical shaft routing through a working belt, curves, grades or arbitrary lengths. |
+| Cogs and shafts | Parameterized rims and teeth, spokes, chamfered through-bores, shaft cores, collars and keys share cast and worked finishes. | Tooth density is decorative; exact visible contact, keyed locking, torque and load remain unproved. |
+| Material interfaces | Sleeves, rigid end cuffs and fasteners follow confirmed material-link endpoints. | A visible sleeve cannot grant connectivity, transport or a route absent from native state. |
+| Stock and products | Reusable source clusters, in-line billets and outlet plates follow confirmed custody. | Art variation cannot change quantities, recipes or retained item identity. |
+
+The practical division is to source surfaces and suitable subcomponents, author
+the missing functional forms and joints, and generate the dimension-dependent
+middle. A catalogue model is not the construction system. The waterwheel uses
+selected spinning-wheel geometry rather than its source drive train. The press
+uses selected column and mounting pieces rather than electrical controls or
+the drill's original behavior.
+
+### Mounts, dimensions and rigid detail
+
+[The presenter](../../experiments/engine-environment/godot/opening/native_transmission_presenter.gd)
+maps confirmed identities, centres, axes and signed mechanical facts to the view.
+The current adapter uses a 1.65-metre cell and a 0.4125-metre transmission unit;
+these are implementation scales, not permanent design limits. Preserve the
+confirmed point, axis and admitted span. A native machine hub is a point and
+axis, not a specification for a decorative cylinder's radius or endpoints.
+
+[Transmission art](../../experiments/engine-environment/godot/opening/native_transmission_assets.gd)
+keeps detailed ends rigid while changing shaft length. Its 30-millimetre shaft
+core radius, collars and keys fit the 39-millimetre cog bore radius. Entry
+chamfers expose the opening without changing the outer hub or selection shape.
+This is a visual fit, not physical locking or a complete gearbox route.
+
+Apply the same rule to other families: keep bolt heads, bearing bores, cuffs
+and tool interfaces at their intended sizes. Extend a plain rail, repeat a
+compatible frame bay or generate a belt middle with distance-based texture
+coordinates. Scaling a detailed complete machine distorts its useful interfaces.
+Short spans, removed neighbors, crossing material paths and unsupported mounts
+need explicit variants or native outcomes, rather than hidden visual bridges.
+
+Current helpers share local meshes and materials; rigid surface detail follows
+the part. That reuse is not a measured large-factory rendering budget. Cosmetic
+angle caches remain separate from native rates and saved mechanical state.
+Detailed meshes add no second connectivity solver, collider, quantity owner or
+processing clock. The constraint register records
+[short-ray thresholds](../engineering/godot-constraints.md#gdc-14-short-segment-tests-can-miss-small-finite-mesh-faces)
+and [snapped face lists](../engineering/godot-constraints.md#gdc-15-convenience-mesh-faces-are-not-the-original-render-vertices).
+Correct an observer's representation without silently loosening dimensions or
+moving authority. Rendered balance, editing cost and readability still need evidence.
 
 ## Primary sources and what they establish
 
@@ -225,14 +285,14 @@ detail selection does not automatically solve it. Measure vertices, submissions,
 texture memory, edit rebuilding and frame time on a representative factory before
 choosing numerical budgets. No such costs were measured in this study.
 
-## Bounded next prototype
+## Next construction sample
 
-Build a small reusable component sample before another complete custom machine:
-a foundation surface with edge/corner variants, a rigid bearing and hub, a shaft
-with rigid ends and variable middle span, and one conveyor end/roller kit with a
-separate adaptable middle surface. Give them the same material palette and
-connection conventions. This spans structures, transmission and logistics, and
-tests the system before committing to a large content catalogue.
+The original bearing, shaft and conveyor-end sample is now partly implemented.
+Reuse those components and their qualified source preparation. The next sample
+should expose missing composition rules: foundation edge/corner variants, short
+and long middle spans with rigid ends, and an explicit material-path versus
+shaft-routing conflict. Keep the shared palette and mount conventions across
+structures, transmission and logistics before expanding the machine catalogue.
 
 Start with a deterministic asset-comparison scene that consumes disclosed
 construction descriptors and submits no gameplay commands. Exercise existing
@@ -265,6 +325,6 @@ testing remains disabled.
 
 After that sample, extend the same component contract to a configurable wheel
 and interchangeable press/cut tool mounts. Record any missing native geometry,
-phase or process interfaces as specific implementation outcomes. The recommendation
-is ready to guide that work; production asset quality, a runtime-qualified kit,
-exact tooth appearance and general multi-tool gameplay remain unproved.
+phase or process interfaces as specific implementation outcomes. Existing
+components guide that work; production asset quality, a generally configurable
+construction kit, exact tooth appearance and multi-tool gameplay remain unproved.
