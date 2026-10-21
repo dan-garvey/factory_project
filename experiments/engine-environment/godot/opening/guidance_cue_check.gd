@@ -297,6 +297,17 @@ class SharedCameraView extends SharedOpening:
 	func _refresh_ui() -> void:
 		pass
 
+class ZoomView extends Opening:
+	func _ready() -> void: pass
+	func _process(_delta: float) -> void: pass
+
+class SharedZoomView extends SharedOpening:
+	func _ready() -> void: pass
+	func _process(_delta: float) -> void: pass
+
+class ZoomPresenter extends RefCounted:
+	var views: Dictionary = {}
+
 func verify_camera(condition: bool, reason: String) -> void:
 	checks += 1
 	if not condition:
@@ -309,7 +320,9 @@ func camera_view(shared_profile: bool):
 	view.model = projection
 	if shared_profile:
 		view.session = projection
-	view.geometry_key = JSON.stringify([{}, [], []])
+	# Match the current empty machine/foundation projection so this detached
+	# camera fixture never enters world geometry assembly without a world.
+	view.geometry_key = JSON.stringify([{}, [], [], {}])
 	view.visual_revision = 0
 	return view
 
@@ -353,6 +366,69 @@ func check_camera_profiles() -> void:
 	view._refresh()
 	verify_camera(view.orbit_pitch == 1.01, "An already adjusted pitch is preserved when the first native profile arrives.")
 	view.free()
+
+func zoom_wheel(view, button: MouseButton, times: int = 1) -> void:
+	for _step in range(times):
+		var event := InputEventMouseButton.new()
+		event.button_index = button
+		event.pressed = true
+		view._unhandled_input(event)
+
+func check_camera_zoom_view(view) -> void:
+	view.client = "P"
+	view.state = {"actors": {"P": {"ready": true, "position": [2.0, 0.9, 3.0]},
+		"Q": {"ready": true, "position": [4.0, 0.9, 3.0]}}}
+	view.focus = Vector3(2.0, 1.2, 3.0)
+	view.orbit_yaw = 0.68
+	view.orbit_pitch = 0.6
+	view.distance = 14.0
+	view.camera = Camera3D.new()
+	view.add_child(view.camera)
+	var local := Node3D.new()
+	var remote := Node3D.new()
+	view.add_child(local)
+	view.add_child(remote)
+	var presenter := ZoomPresenter.new()
+	presenter.views = {"P": local, "Q": remote}
+	view.character_presenter = presenter
+	root.add_child(view)
+	var before: Dictionary = view.state.duplicate(true)
+	view._update_camera()
+	var back := Vector3(sin(view.orbit_yaw) * cos(view.orbit_pitch),
+		sin(view.orbit_pitch), cos(view.orbit_yaw) * cos(view.orbit_pitch))
+	verify_camera(view.camera.position.distance_to(view.focus + back * 14.0) < 0.0001 and local.visible,
+		"The normal follow camera and local actor begin in third person.")
+	zoom_wheel(view, MOUSE_BUTTON_WHEEL_UP, 10)
+	verify_camera(view.distance == 4.0 and view.camera.position.distance_to(view.focus + back * 4.0) < 0.0001,
+		"The approach preserves the original orbit pose until the near blend.")
+	zoom_wheel(view, MOUSE_BUTTON_WHEEL_UP, 3)
+	verify_camera(view.distance == 1.0 and view.camera.position.distance_to(
+		view.focus + Vector3.UP * 0.2625 + back) < 0.0001 and not local.visible and remote.visible,
+		"The near view moves toward eye height without hiding another actor.")
+	zoom_wheel(view, MOUSE_BUTTON_WHEEL_UP)
+	verify_camera(view.distance == 0.0 and view.camera.position.distance_to(
+		view.focus + Vector3.UP * 0.35) < 0.0001 and
+		(-view.camera.global_basis.z).distance_to(-back) < 0.0001,
+		"The wheel reaches the actor's eye and looks along the orbit ray.")
+	view.orbit_pitch = -0.3
+	view._update_camera()
+	verify_camera((-view.camera.global_basis.z).y > 0.29,
+		"The first person view can look above the horizon.")
+	zoom_wheel(view, MOUSE_BUTTON_WHEEL_DOWN)
+	verify_camera(view.distance == 1.0 and view.orbit_pitch == 0.35 and not local.visible,
+		"Zooming out restores a ground-safe pitch before showing the local model.")
+	zoom_wheel(view, MOUSE_BUTTON_WHEEL_DOWN)
+	verify_camera(view.distance == 2.0 and local.visible and remote.visible,
+		"The local model returns as the camera clears it.")
+	verify_camera(view.state == before and view.model == null and view.actor_world == null,
+		"Camera controls do not move the actor or create construction authority.")
+	view.free()
+
+func check_camera_zoom() -> void:
+	check_camera_zoom_view(ZoomView.new())
+	check_camera_zoom_view(SharedZoomView.new())
+	print("OPENING_CAMERA_ZOOM_%s %d" % ["FAIL" if camera_failed else "PASS", checks])
+	quit(1 if camera_failed else 0)
 
 func verify(condition: bool, reason: String) -> void:
 	checks += 1
@@ -470,6 +546,9 @@ func _initialize() -> void:
 		check_camera_profiles()
 		print("OPENING_CAMERA_PROFILE_%s %d" % ["FAIL" if camera_failed else "PASS", checks])
 		quit(1 if camera_failed else 0)
+		return
+	if OS.get_cmdline_user_args().has("--camera-zoom-only"):
+		call_deferred("check_camera_zoom")
 		return
 	if OS.get_cmdline_user_args().has("--verifier-negative-control"):
 		nested_failure_control()
