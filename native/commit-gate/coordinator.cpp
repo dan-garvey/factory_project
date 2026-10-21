@@ -197,7 +197,15 @@ Plan prepare(const fs::path& root, const GitReader& git, const std::string& inte
         };
         const auto binary = local("factory.godotExecutable");
         const auto digest = local("factory.godotSHA256");
-        auto artifact_config = git({"config", "--worktree", "--get", "factory.godotArtifacts"});
+        const auto extension = git({"config", "--local", "--bool", "--get", "extensions.worktreeConfig"});
+        const auto extension_value = stripped(extension.output);
+        require(extension.exit_code == 1 || (extension.exit_code == 0 &&
+                (extension_value == "true" || extension_value == "false")),
+                "Cannot read the repository worktree configuration extension; see CONTRIBUTING.md.");
+        // Git 2.34 refuses --worktree without the extension in a linked repository.
+        auto artifact_config = extension.exit_code == 0 && extension_value == "true"
+            ? git({"config", "--worktree", "--get", "factory.godotArtifacts"})
+            : GitResult{1, {}};
         if (artifact_config.exit_code == 1)
             artifact_config = git({"config", "--local", "--get", "factory.godotArtifacts"});
         const auto artifacts = stripped(artifact_config.output);
