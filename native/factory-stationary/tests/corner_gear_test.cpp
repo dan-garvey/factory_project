@@ -27,7 +27,7 @@ s::Topology fixture(int input_axis, int output_axis, int input_offset, int outpu
         {{"a-gear", m::Kind::gear, a, ax, 4, 0}, 1, s::Role::gear},
         {{"b-gear", m::Kind::gear, b, bx, 4, 0}, 1, s::Role::gear},
         {{"b-shaft", m::Kind::shaft, b, bx, 0, 1}, 1, s::Role::shaft},
-        {{"sink", m::Kind::hub, b, bx, 0, 0}, 1, s::Role::belt},
+        {{"sink", m::Kind::hub, b, bx, 0, 0}, 1, s::Role::processor},
     };
     t.sources = {{"source", {3, 2}}};
     t.drive_enabled = true;

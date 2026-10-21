@@ -41,12 +41,8 @@ Fixture fixture() {
         hub("collector-1", s::Role::collector, {0, 0, 4}),
         hub("wheel-B", s::Role::waterwheel, {10, 0, 0}),
         shaft("shaft-B", {10, 0, 2}),
-        hub("belt-1", s::Role::belt, {10, 0, 4}),
+        shaft("branch-shaft", {10, 0, 6}),
         hub("processor-1", s::Role::processor, {20, 0, 4}),
-    };
-    f.topology.material_links = {
-        {{"collector-1", 1}, {"belt-1", 1}},
-        {{"belt-1", 1}, {"processor-1", 1}},
     };
     f.topology.sources = {{"wheel-A", {1, 1}}, {"wheel-B", {2, 1}}};
     f.topology.drive_enabled = true;
@@ -90,7 +86,7 @@ void enabled_local_removal() {
     f.kit[{s::Role::shaft, 0, 4}] = 0;
     const auto before = s::power_view(f.topology);
     motion(before, "collector-1", m::MotionState::rotating, {1, 1});
-    motion(before, "belt-1", m::MotionState::rotating, {2, 1});
+    motion(before, "branch-shaft", m::MotionState::rotating, {2, 1});
 
     const auto result = remove(f, "shaft-A");
     check(std::holds_alternative<s::PreparedRemoval>(result),
@@ -108,14 +104,14 @@ void enabled_local_removal() {
           plan.facts.interaction_point == m::Point{0, 0, 0},
           "The receipt retains the pre-edit identity and interaction point.");
     motion(plan.power, "collector-1", m::MotionState::unpowered, {0, 1});
-    motion(plan.power, "belt-1", m::MotionState::rotating, {2, 1});
+    motion(plan.power, "branch-shaft", m::MotionState::rotating, {2, 1});
     motion(plan.power, "wheel-B", m::MotionState::rotating, {2, 1});
     check(f.topology.parts[0].geometry.center[2] == -4 && f.topology.parts[1].geometry.half_span == 4 &&
           carried(f.kit, {s::Role::shaft, 0, 4}) == 0 && f.state == fixture().state,
           "Planning preserves the original longer-span fixture and caller material.");
 }
 
-void exact_part_and_link_refunds() {
+void exact_part_refunds() {
     auto f = fixture();
     const auto original_material = f.state;
     const auto result = remove(f, "collector-1");
@@ -124,12 +120,8 @@ void exact_part_and_link_refunds() {
           "Empty machine removal returns exactly one complete machine.");
     check(carried(plan.candidate_kit, {s::Role::shaft, 0, 2}) == 0,
           "A lost derived engagement never refunds an imaginary shaft.");
-    check(plan.candidate.material_links ==
-              std::vector<s::MaterialLink>{{{"belt-1", 1}, {"processor-1", 1}}},
-          "Only incident material links disappear.");
-    check(plan.facts.removed_material_links ==
-              std::vector<s::MaterialLink>{{{"collector-1", 1}, {"belt-1", 1}}},
-          "The receipt names only the removed incident material link.");
+    check(plan.candidate.material_links.empty() && plan.facts.removed_material_links.empty(),
+          "Removing a machine creates no legacy material links.");
     check(f.state == original_material, "Removal planning does not write material.");
 
     f.topology.parts.push_back({{"gear-8", m::Kind::gear, {100, 0, 0}, m::Axis::z, 8, 0},
@@ -152,16 +144,13 @@ void exact_part_and_link_refunds() {
 }
 
 void occupied_and_carried_custody() {
-    for (const auto role : {s::Role::collector, s::Role::belt, s::Role::processor}) {
+    for (const auto role : {s::Role::collector, s::Role::processor}) {
         auto f = fixture();
         f.state.stock.source = 15;
         const char* id = "processor-1";
         if (role == s::Role::collector) {
             f.state.stock.collector = 1;
             id = "collector-1";
-        } else if (role == s::Role::belt) {
-            f.state.stock.belt = 1;
-            id = "belt-1";
         } else f.state.stock.input = 1;
         const auto snapshot = f;
         refusal(remove(f, id), s::RemovalError::occupied_target);
@@ -204,14 +193,14 @@ void source_and_disabled_view() {
           "Removing one source unregisters only that source.");
     check(plan.candidate.drive_enabled, "Source removal does not disable the global drive.");
     motion(plan.power, "collector-1", m::MotionState::unpowered, {0, 1});
-    motion(plan.power, "belt-1", m::MotionState::rotating, {2, 1});
+    motion(plan.power, "branch-shaft", m::MotionState::rotating, {2, 1});
 
     auto off = fixture();
     off.topology.drive_enabled = false;
     const auto before = off.topology;
     const auto view = s::power_view(off.topology);
     motion(view, "collector-1", m::MotionState::stopped, {0, 1});
-    motion(view, "belt-1", m::MotionState::stopped, {0, 1});
+    motion(view, "branch-shaft", m::MotionState::stopped, {0, 1});
     check(!view.drive_enabled && off.topology == before,
           "Read-only disabled power never overwrites configured source rates.");
 }
@@ -233,8 +222,15 @@ void malformed_and_overflow() {
     f.topology.parts.push_back(f.topology.parts.front());
     refusal(remove(f, "collector-1"), s::RemovalError::invalid_topology);
     f = fixture();
-    f.topology.material_links.front().from.generation = 9;
+    f.topology.material_links.push_back({{"collector-1", 9}, {"processor-1", 1}});
     refusal(remove(f, "collector-1"), s::RemovalError::invalid_topology);
+    f = fixture();
+    f.topology.parts.push_back(hub("legacy-belt", s::Role::belt, {200, 0, 4}));
+    refusal(remove(f, "collector-1"), s::RemovalError::invalid_topology);
+    f = fixture();
+    f.state.stock.source = 15;
+    f.state.stock.belt = 1;
+    refusal(remove(f, "collector-1"), s::RemovalError::invalid_material_state);
     f = fixture();
     f.topology.sources.push_back(f.topology.sources.front());
     refusal(remove(f, "collector-1"), s::RemovalError::invalid_topology);
@@ -262,7 +258,6 @@ void malformed_and_overflow() {
     std::erase_if(f.topology.parts, [](const auto& part) {
         return part.role == s::Role::processor;
     });
-    f.topology.material_links.pop_back();
     f.state.stock.source = 15;
     f.state.stock.output = 1;
     refusal(remove(f, "collector-1"), s::RemovalError::invalid_material_state);
@@ -277,7 +272,7 @@ void malformed_and_overflow() {
 int main() {
     try {
         enabled_local_removal();
-        exact_part_and_link_refunds();
+        exact_part_refunds();
         occupied_and_carried_custody();
         source_and_disabled_view();
         malformed_and_overflow();

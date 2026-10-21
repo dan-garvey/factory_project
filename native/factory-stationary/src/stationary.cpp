@@ -39,12 +39,6 @@ const PlacedPart* find(const Topology& topology, const std::string& id) noexcept
     return found == topology.parts.end() ? nullptr : &*found;
 }
 
-bool current_ref(const Topology& topology, const materials::EntityRef& ref) noexcept {
-    if (!identity(ref.id) || ref.generation <= 0) return false;
-    const auto* part = find(topology, ref.id);
-    return part != nullptr && part->generation == ref.generation;
-}
-
 bool has_role(const Topology& topology, Role role) noexcept {
     return std::any_of(topology.parts.begin(), topology.parts.end(),
         [&](const auto& part) { return part.role == role; });
@@ -70,20 +64,20 @@ bool overlapping_shafts(const PlacedPart& a, const PlacedPart& b) noexcept {
 bool structure(const Topology& topology) {
     if (topology.parts.size() > mechanics::maximum_parts ||
         topology.sources.size() > topology.parts.size() ||
-        topology.material_links.size() > 2 || topology.belt_spans.size() > mechanics::maximum_parts) return false;
+        !topology.material_links.empty() || topology.belt_spans.size() > mechanics::maximum_parts) return false;
 
     std::set<std::string> ids;
     std::set<Role> machines;
     for (const auto& part : topology.parts) {
-        if (!identity(part.geometry.id) || part.generation <= 0 ||
+        if (part.role == Role::belt || !identity(part.geometry.id) || part.generation <= 0 ||
             !valid_spec(specification(part))) return false;
         const auto expected = part.role == Role::gear ? mechanics::Kind::gear :
                               part.role == Role::shaft ? mechanics::Kind::shaft :
                               mechanics::Kind::hub;
         if (part.geometry.kind != expected || !ids.insert(part.geometry.id).second)
             return false;
-        if ((part.role == Role::collector || part.role == Role::belt ||
-             part.role == Role::processor) && !machines.insert(part.role).second)
+        if ((part.role == Role::collector || part.role == Role::processor) &&
+            !machines.insert(part.role).second)
             return false;
     }
     for (const auto& span : topology.belt_spans)
@@ -93,17 +87,6 @@ bool structure(const Topology& topology) {
     for (std::size_t i = 0; i < topology.parts.size(); ++i)
         for (std::size_t j = i + 1; j < topology.parts.size(); ++j)
             if (overlapping_shafts(topology.parts[i], topology.parts[j])) return false;
-
-    std::set<std::pair<std::string, std::string>> links;
-    for (const auto& link : topology.material_links) {
-        if (!current_ref(topology, link.from) || !current_ref(topology, link.to))
-            return false;
-        const auto from = find(topology, link.from.id)->role;
-        const auto to = find(topology, link.to.id)->role;
-        if (!((from == Role::collector && to == Role::belt) ||
-              (from == Role::belt && to == Role::processor)) ||
-            !links.emplace(link.from.id, link.to.id).second) return false;
-    }
 
     std::set<std::string> sources;
     for (const auto& source : topology.sources) {
@@ -135,7 +118,7 @@ bool valid_kit(const Topology& topology, const Kit& kit) {
 // Only machine membership is checked here; actor Cargo is never another slot.
 bool material_membership(const Topology& topology, const materials::State& state) noexcept {
     return (has_role(topology, Role::collector) || state.stock.collector == 0) &&
-           (has_role(topology, Role::belt) || state.stock.belt == 0) &&
+           state.stock.belt == 0 &&
            (has_role(topology, Role::processor) ||
                (state.stock.input == 0 && state.stock.output == 0 && !state.processing));
 }
@@ -143,7 +126,7 @@ bool material_membership(const Topology& topology, const materials::State& state
 bool occupied(Role role, const materials::State& state) noexcept {
     switch (role) {
         case Role::collector: return state.stock.collector != 0;
-        case Role::belt: return state.stock.belt != 0;
+        case Role::belt: return false; // Belt items are spans, never placed machine parts.
         case Role::processor:
             return state.stock.input != 0 || state.stock.output != 0 ||
                    state.processing.has_value();
@@ -232,17 +215,11 @@ RemovalPlan prepare_removal(const Topology& topology, const Kit& kit,
     plan.facts.target = selection.target;
     plan.facts.interaction_point = selected->geometry.center;
     plan.facts.refunded_part = spec;
-    for (const auto& link : topology.material_links)
-        if (link.from.id == selection.target.id || link.to.id == selection.target.id)
-            plan.facts.removed_material_links.push_back(link);
     plan.facts.removed_source = std::any_of(topology.sources.begin(), topology.sources.end(),
         [&](const auto& source) { return source.hub == selection.target.id; });
 
     std::erase_if(plan.candidate.parts,
         [&](const auto& part) { return part.geometry.id == selection.target.id; });
-    std::erase_if(plan.candidate.material_links, [&](const auto& link) {
-        return link.from.id == selection.target.id || link.to.id == selection.target.id;
-    });
     std::erase_if(plan.candidate.sources,
         [&](const auto& source) { return source.hub == selection.target.id; });
 
@@ -286,7 +263,7 @@ PlacementPlan prepare_placement(const Topology& topology, const Kit& kit,
 
     const auto& part = selection.part;
     const auto spec = specification(part);
-    if (!identity(part.geometry.id) || part.generation <= 0 || !valid_spec(spec))
+    if (part.role == Role::belt || !identity(part.geometry.id) || part.generation <= 0 || !valid_spec(spec))
         return PlacementRefusal{PlacementError::invalid_part};
     if (find(topology, part.geometry.id) != nullptr)
         return PlacementRefusal{PlacementError::identity_conflict};

@@ -41,7 +41,7 @@ Fixture fixture() {
         hub("collector-1", s::Role::collector, {0, 0, 4}),
         hub("wheel-B", s::Role::waterwheel, {10, 0, 0}),
         {{"shaft-B", m::Kind::shaft, {10, 0, 2}, m::Axis::z, 0, 2}, 1, s::Role::shaft},
-        hub("belt-1", s::Role::belt, {10, 0, 4}),
+        {{"branch-shaft", m::Kind::shaft, {10, 0, 6}, m::Axis::z, 0, 2}, 1, s::Role::shaft},
         hub("processor-1", s::Role::processor, {20, 0, 4}),
     };
     f.topology.sources = {{"wheel-A", {1, 1}}, {"wheel-B", {2, 1}}};
@@ -101,7 +101,7 @@ void rebuild_returned_shaft() {
           [](const auto& p) { return p.geometry.id == "shaft-A"; }),
           "Rebuilding does not retarget the old removed identity.");
     motion(plan.power, "collector-1", {1, 1});
-    motion(plan.power, "belt-1", {2, 1});
+    motion(plan.power, "branch-shaft", {2, 1});
     check(f.state == fixture().state && old.candidate.parts.size() == 6,
           "Placement leaves material and the original removal candidate unchanged.");
 
@@ -127,11 +127,14 @@ void rebuild_returned_source() {
     check(plan.candidate_kit.at({s::Role::waterwheel, 0, 0}) == 0,
           "The returned complete waterwheel is consumed once.");
     motion(plan.power, "collector-1", {1, 1});
-    motion(plan.power, "belt-1", {2, 1});
+    motion(plan.power, "branch-shaft", {2, 1});
 }
 
 void exact_specification_and_refusals() {
     auto f = fixture();
+    f.kit[{s::Role::belt, 0, 0}] = 1;
+    refusal(place(f.topology, f.kit, f.state, hub("legacy-belt", s::Role::belt, {200, 0, 4})),
+            s::PlacementError::invalid_part);
     const s::PlacedPart gear{{"gear-8", m::Kind::gear, {100, 0, 0}, m::Axis::z, 8, 0},
                             1, s::Role::gear};
     refusal(place(f.topology, f.kit, f.state, gear), s::PlacementError::unavailable_part);
