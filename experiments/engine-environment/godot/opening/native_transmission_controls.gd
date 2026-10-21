@@ -93,7 +93,7 @@ func _tool_selected(id: int) -> void:
 	_feedback({
 		"gear": "Point at a floor to follow its height, or at a machine to snap beside it. Set axis or an exact height here.",
 		"place_shaft": "Point at a floor to follow its height, or at a machine to snap beside it. Set axis or an exact height here.",
-		"belt_span": "Choose each parallel shaft while within reach, on a straight or 45-degree path.",
+		"belt_span": "Choose two parallel shafts within reach. The belt runs across their axle, straight or at 45 degrees.",
 		"remove": "Choose a cogwheel, shaft or belt to remove."
 	}.get(active_tool, "Choose a construction tool or Inspect."), false)
 

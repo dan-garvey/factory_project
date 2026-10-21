@@ -96,8 +96,9 @@ axles. On the starter bank, raising the transmission and supporting machines
 on foundations can leave room beneath the cogs while keeping their axles aligned.
 
 To connect separated shafts, select the **Belt** hotbar slot or choose **Connect
-shafts with a belt** from the transmission menu, then select both shaft tiles. Their axes must be parallel and
-their path straight or inclined at 45 degrees. Select each end while the
+shafts with a belt** from the transmission menu, then select both shaft tiles.
+Their axes must be parallel, and the belt must run across those axes rather
+than along them. The path can be straight or inclined at 45 degrees. Select each end while the
 character is within reach; the first selection is recorded by the worksite.
 Intermediate aligned shafts turn with the belt. Horizontal
 and inclined belts can carry material. Vertical and sideways belts transmit
