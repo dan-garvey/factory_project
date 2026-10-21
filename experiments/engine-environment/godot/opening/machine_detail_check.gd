@@ -1350,7 +1350,7 @@ func check_wheel_supports() -> void:
 		legacy_assemblies += 1
 		view.free()
 	print(JSON.stringify({"phase": "waterwheel supports", "assemblies": assemblies, "unique_mesh_roles": cached.size(),
-		"checks": checks, "closed_meshes": detail_meshes, "maximum_packed_tangent_dot": max_tangent_dot,
+		"checks": checks, "checked_detail_parts": detail_meshes, "maximum_packed_tangent_dot": max_tangent_dot,
 		"minimum_journal_clearance_metres": minimum_gap, "journal_entries_metres": entries, "controls": controls,
 		"old_radial_growth_rejected": rejected_rim_scale,
 		"legacy_assemblies": legacy_assemblies,
