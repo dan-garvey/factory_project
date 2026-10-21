@@ -4,6 +4,7 @@ extends SceneTree
 const Opening = preload("res://opening/opening.gd")
 const Shared = preload("res://opening/shared_opening.gd")
 const Presenter = preload("res://opening/native_transmission_presenter.gd")
+const Geometry = preload("res://opening/site_geometry.gd")
 
 class Connection extends RefCounted:
 	var ready := true
@@ -46,18 +47,17 @@ func part(view, id: String) -> Node3D:
 			return child
 	return null
 
-func inside_proxy(node: Node, parent: Transform3D) -> bool:
+func inside_wheel_proxy(node: Node, parent: Transform3D, half: Vector3) -> bool:
 	var at: Transform3D = parent * node.transform if node is Node3D else parent
 	if node is MeshInstance3D:
-		var box: AABB = node.mesh.get_aabb()
-		for x: float in [box.position.x, box.end.x]:
-			for y: float in [box.position.y, box.end.y]:
-				for z: float in [box.position.z, box.end.z]:
-					var point: Vector3 = at * Vector3(x, y, z)
-					if absf(point.x) > 0.65001 or absf(point.z) > 0.65001 or point.y < -0.00001 or point.y > 1.10001:
-						return false
+		for surface_index in node.mesh.get_surface_count():
+			var vertices: PackedVector3Array = node.mesh.surface_get_arrays(surface_index)[Mesh.ARRAY_VERTEX]
+			for vertex: Vector3 in vertices:
+				var point: Vector3 = at * vertex - Vector3.UP * Geometry.ANCHOR_HEIGHT
+				if not point.is_finite() or absf(point.x) > half.x + 0.0001 or absf(point.y) > half.y + 0.0001 or absf(point.z) > half.z + 0.0001:
+					return false
 	for child: Node in node.get_children():
-		if not inside_proxy(child, at):
+		if not inside_wheel_proxy(child, at, half):
 			return false
 	return true
 
@@ -137,10 +137,19 @@ func check_wheels() -> void:
 		view._animate_wheel(0.1)
 		verify(view.wheel_rotor.basis.is_equal_approx(original.basis * Basis(Vector3.BACK, one_step)), "The native wheel follows confirmed rotation on axis " + str(axis))
 		verify(view.wheel_rotor.position == original.origin and view.wheel_rotor.scale.is_equal_approx(original.basis.get_scale()), "Wheel motion preserves its fitted hub and scale.")
-		verify(inside_proxy(holder, Transform3D.IDENTITY), "The illustrated wheel remains inside the unchanged conservative machine proxy.")
+		verify(inside_wheel_proxy(holder, Transform3D.IDENTITY, Geometry.wheel_half_extents(axis, 3)),
+			"The illustrated wheel remains inside the native three-tile collision envelope on axis " + str(axis))
+		holder.position.x = Geometry.wheel_half_extents(axis, 3).x * 2.0 + 1.0
+		verify(not inside_wheel_proxy(holder, Transform3D.IDENTITY, Geometry.wheel_half_extents(axis, 3)),
+			"The wheel envelope check rejects displaced artwork on axis " + str(axis))
+		holder.position.x = 0.0
 		view._wheel_visual(holder, view.state.entities.wheel)
 		view._animate_wheel(0.0)
 		verify(view.wheel_rotor.basis.is_equal_approx(original.basis * Basis(Vector3.BACK, one_step)), "A rebuilt wheel mesh recovers the same identity's cosmetic angle.")
+		for sample in range(12):
+			view._animate_wheel(0.037)
+			verify(inside_wheel_proxy(holder, Transform3D.IDENTITY, Geometry.wheel_half_extents(axis, 3)),
+				"Rotating wheel artwork stays inside its native envelope on axis %d at sample %d." % [axis, sample])
 		verify(view.state == before and view.model == null, "Wheel illustration mutates neither projection nor authority.")
 		view.free()
 
