@@ -59,8 +59,10 @@ connection/disconnection and transmission removal. All tools exposes the menu
 immediately; otherwise it appears with placed transmission parts or collected
 plates. Key 5 also selects a cogwheel. The menu chooses X/Y/Z rotation axis and
 gear height in quarter-pitch grid steps. That axis also applies to subsequent
-machine placement. A translucent cursor marks the requested gear plane, not
-permission to build there. Real character proximity remains authoritative.
+machine placement, except for the belt: its fixed material path runs along X,
+so its drive spindle runs across the belt along Z. A translucent cursor marks
+the requested gear plane, not permission to build there. Real character
+proximity remains authoritative.
 
 The inspector can select a cogwheel or shaft and return it to the carried kit.
 Static arrows show the confirmed signed rate, and contact marks use confirmed

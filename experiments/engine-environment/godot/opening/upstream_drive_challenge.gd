@@ -154,9 +154,6 @@ func evaluate() -> Dictionary:
 
 	var placed_gears := 0
 	var placed_shafts := 0
-	var gear_wrong_height := false
-	var gear_wrong_axis := false
-	var gear_centers: Array = []
 
 	for id: Variant in transmission.keys():
 		var t_part: Variant = transmission[id]
@@ -165,14 +162,6 @@ func evaluate() -> Dictionary:
 		var t_kind: Variant = t_part.get("kind", "")
 		if t_kind == "gear":
 			placed_gears += 1
-			var center: Variant = t_part.get("center", [])
-			var axis_val: Variant = t_part.get("axis", 0)
-			if center is Array and center.size() == 3 and typeof(center[1]) == TYPE_INT and int(center[1]) != 0:
-				gear_wrong_height = true
-			if typeof(axis_val) == TYPE_INT and int(axis_val) != 0:
-				gear_wrong_axis = true
-			if center is Array and center.size() == 3:
-				gear_centers.append(center)
 		elif t_kind == "shaft":
 			placed_shafts += 1
 		else:
@@ -226,7 +215,7 @@ func evaluate() -> Dictionary:
 	if source_at_target and machines_running:
 		if all_machines_on_target_row:
 			arrangement = "relocated_line"
-		elif placed_gears == 2 and has_external_mesh and collector_row != target_wheel_cell.y:
+		elif has_external_mesh and collector_row != target_wheel_cell.y:
 			arrangement = "geared_transfer"
 		else:
 			arrangement = "partial"
@@ -265,19 +254,7 @@ func evaluate() -> Dictionary:
 		elif links_count < 2:
 			diagnostic_code = "missing_material_links"
 			diagnostic_text = "Connect the Collector -> Belt -> Press material ports (%d / 2 belt links connected)." % links_count
-		elif gear_wrong_height:
-			diagnostic_code = "gear_wrong_height"
-			diagnostic_text = "Cog height mismatch: machine shafts run at ground height Y=0, so an elevated cog cannot couple to the drive line."
-		elif gear_wrong_axis:
-			diagnostic_code = "gear_wrong_axis"
-			diagnostic_text = "Cog axis mismatch: horizontal machine shafts use the X axis, so a Y or Z cog cannot couple coaxially across rows."
-		elif placed_gears >= 2 and not has_external_mesh:
-			diagnostic_code = "gear_plane_mismatch"
-			diagnostic_text = "Cog mesh mismatch: equal 2-tooth X-axis cogs must share the same X and Y coordinates and sit four quarter-grid units apart in Z to mesh."
-		elif collector_row != target_wheel_cell.y and placed_gears == 1:
-			diagnostic_code = "missing_second_gear"
-			diagnostic_text = "One cog placed: place a second aligned 2-tooth X-axis cog on row %d to bridge the rows." % collector_row
-		elif placed_shafts < 3 or not wheel_coupled:
+		elif not wheel_coupled:
 			diagnostic_code = "missing_drive_shaft"
 			diagnostic_text = "Drive train incomplete (%d shafts placed): couple the upstream waterwheel and all three machines with finite shafts." % placed_shafts
 		elif not power_enabled:

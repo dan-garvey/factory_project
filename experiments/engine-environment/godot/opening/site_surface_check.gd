@@ -13,6 +13,11 @@ class EmptyPhysicalFacts extends RefCounted:
 	func projection() -> Dictionary:
 		return {"context": "fir-physics-fixture", "options": {"physical": true, "native": true}, "actors": {}, "entities": {}}
 
+class NativeChallengeFacts extends RefCounted:
+	var state: Dictionary
+	var client := "P"
+	var legacy_fixture := false
+
 func verify(condition: bool, message: String) -> void:
 	checks += 1
 	if not condition:
@@ -20,6 +25,9 @@ func verify(condition: bool, message: String) -> void:
 		push_error(message)
 
 func _initialize() -> void:
+	if "--belt-water-native-only" in OS.get_cmdline_user_args():
+		check_belt_water_native()
+		return
 	if "--water-samples-only" in OS.get_cmdline_user_args():
 		check_water_samples()
 		return
@@ -339,6 +347,98 @@ func expect(value: bool, message: String) -> bool:
 		push_error(message)
 		quit(1)
 	return value
+
+func check_belt_water_native() -> void:
+	var model = NativeModel.new("belt-water-site", ["P"])
+	if not expect(model.boot_result.get("accepted", false), "Bind the generated river site: " + str(model.boot_result)):
+		return
+	var counter := {"epoch": 0, "serial": 0}
+	var observe := func(x: float, z: float) -> bool:
+		counter.epoch += 1
+		return model.publish_actor("P", [x, 1.0, z], counter.epoch).get("accepted", false)
+	var issue := func(action: String, args: Dictionary) -> Dictionary:
+		counter.serial += 1
+		var wire := {"context": "belt-water-site", "client": "P", "request": "route-" + str(counter.serial), "action": action}
+		wire.merge(args)
+		return model.command(wire)
+	var hubs: Array[String] = []
+	for entry in [["wheel", -2, "x"], ["collector", 0, "z"], ["belt", 1, "z"], ["processor", 2, "z"]]:
+		if not expect(observe.call(float(entry[1]) * 1.65, 0.0), "Synthetic actor reaches a machine placement"):
+			return
+		var placed: Dictionary = issue.call("place", {"kind": entry[0], "cell": [entry[1], 1], "axis": entry[2]})
+		if not expect(placed.get("accepted", false), "Generated site admits machine: " + str(placed)):
+			return
+		hubs.append(placed.entity)
+	if not expect(observe.call(-3.3, 0.0), "Reach input cog"):
+		return
+	var input: Dictionary = issue.call("place_gear", {"center": [-12, 0, 4], "axis": "x", "teeth": 4})
+	if not expect(input.get("accepted", false), "Place large input cog: " + str(input)):
+		return
+	if not expect(issue.call("connect_drive", {"from": hubs[0], "to": input.entity}).get("accepted", false), "Connect wheel shaft"):
+		return
+	if not expect(observe.call(-3.3, 1.65), "Reach output cog"):
+		return
+	var output: Dictionary = issue.call("place_gear", {"center": [-8, 0, 8], "axis": "z", "teeth": 4})
+	if not expect(output.get("accepted", false), "Place large output cog: " + str(output)):
+		return
+	var small: Array[String] = []
+	for n in range(5):
+		var x: int = n * 4 - 8
+		if not expect(observe.call(float(x) * 1.65 / 4.0, 3.3), "Reach small cog"):
+			return
+		var cog: Dictionary = issue.call("place_gear", {"center": [x, 0, 12], "axis": "z", "teeth": 2})
+		if not expect(cog.get("accepted", false), "Place small cog: " + str(cog)):
+			return
+		small.append(cog.entity)
+	if not expect(observe.call(-3.3, 3.3) and issue.call("connect_drive", {"from": output.entity, "to": small[0]}).get("accepted", false), "Connect corner to cog row"):
+		return
+	for n in range(3):
+		if not expect(observe.call(float(n) * 1.65, 3.3) and issue.call("connect_drive", {"from": hubs[n + 1], "to": small[n + 2]}).get("accepted", false), "Connect machine to cog row"):
+			return
+	if not expect(observe.call(-1.65, 0.0) and issue.call("set_power", {"active": true}).get("accepted", false), "Start the actual current"):
+		return
+	for n in range(1, 4):
+		var motion: Dictionary = model.projection().motion[hubs[n]]
+		if not expect(motion.state == "rotating" and (motion.numerator < 0 if n % 2 == 1 else motion.numerator > 0), "Generated river powers machine with the expected sign: " + str(motion)):
+			return
+	model.advance()
+	if not expect(model.projection().stock.collector == 1, "Collector advances actual-site material"):
+		return
+	for turn in range(16):
+		model.advance()
+	if not expect(model.projection().stock.output > 0, "The complete actual-site line produces a finished plate"):
+		return
+	if not expect(observe.call(3.3, 3.3), "Reach the press for retrieval"):
+		return
+	for turn in range(128):
+		if model.projection().inventories.P >= 4:
+			break
+		if model.projection().stock.output > 0:
+			if not expect(issue.call("retrieve", {"entity": hubs[3], "amount": 1}).get("accepted", false), "Retrieve a produced plate"):
+				return
+		else:
+			model.advance()
+	if not expect(model.projection().inventories.P == 4, "Collect four plates through the actual-site route"):
+		return
+	var saved: Dictionary = model.checkpoint()
+	var fresh = NativeModel.new("fresh-belt-water-site", ["P"])
+	if not expect(fresh.boot_result.get("accepted", false) and fresh.restore_checkpoint(saved).get("accepted", false), "Restore actual-site route"):
+		return
+	if not expect(observe.call(-3.3, 1.65) and issue.call("remove", {"entity": output.entity}).get("accepted", false), "Remove the corner cog"):
+		return
+	if not expect(model.projection().motion[hubs[2]].state != "rotating", "Removing the corner cog stops the belt"):
+		return
+	var host := NativeChallengeFacts.new()
+	host.state = model.projection()
+	var challenge = load("res://opening/upstream_drive_challenge.gd").new()
+	challenge.configure(host, Vector2i(-2, 1))
+	var report: Dictionary = challenge.evaluate()
+	if not expect(report.phase == "restore_drive" and report.diagnostic_code == "missing_drive_shaft", "The presenter does not misdiagnose the remaining Z-axis cogs: " + str(report)):
+		challenge.free()
+		return
+	challenge.free()
+	print("native actual river belt route controls passed: ", checks)
+	quit(0)
 
 func check_water_native() -> void:
 	var model = NativeModel.new("water-site", ["P"])

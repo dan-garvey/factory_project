@@ -84,7 +84,7 @@ void every_build_order() {
         check(field<I>(host.projection(), "order") == 3, "Three placements need exactly three material requests.");
         const auto parts = child(host.projection(), "parts");
         check(field<I>(parts, "collector") == 0 && field<I>(parts, "belt") == 0 &&
-              field<I>(parts, "processor") == 0 && field<I>(parts, "shaft") == 4,
+              field<I>(parts, "processor") == 0 && field<I>(parts, "shaft") == 8,
               "The three placements consume their original kit and no shafts.");
         check(accepted(host.validate_checkpoint(host.checkpoint())), "Every construction order produces a valid typed checkpoint.");
     } while (std::next_permutation(order.begin(), order.end()));
@@ -237,7 +237,7 @@ void height_and_legacy_history() {
     };
     O command{{"context", V("core-attachment")}, {"client", V("P")}, {"actor", V("P")},
         {"request", V("belt")}, {"action", V("place_connected")}, {"role", V("belt")},
-        {"center", V(A{V(I{4}), V(I{0}), V(I{0})})}, {"axis", V("x")}, {"teeth", V(I{0})}, {"half_span", V(I{0})}};
+        {"center", V(A{V(I{4}), V(I{0}), V(I{0})})}, {"axis", V("z")}, {"teeth", V(I{0})}, {"half_span", V(I{0})}};
     auto owner = w::World::create("core-attachment", profile, seed);
     check(owner != nullptr, "The native fixture has a valid elevated downstream machine.");
     const auto attached = owner->command({"P", "P"}, command, observe);
@@ -263,7 +263,7 @@ void height_and_legacy_history() {
 }
 
 void oriented_wire_join() {
-    for (const auto* axis : std::array<const char*, 4>{"x", "y", "z", nullptr}) {
+    for (const auto* axis : std::array<const char*, 2>{"z", nullptr}) {
         Host host;
         initialize(host);
         const auto make_wire = [&](const char* kind, I x) {
@@ -276,14 +276,14 @@ void oriented_wire_join() {
         const auto belt_wire = make_wire("belt", 1);
         const auto belt = host.command("P", belt_wire);
         check(accepted(collector) && accepted(press) && accepted(belt),
-              "Every explicit axis and the historical omitted axis preserve ordinary placement.");
+              "The perpendicular axis and its omitted default preserve ordinary placement.");
         exact_links(host, field<std::string>(collector, "entity"), field<std::string>(belt, "entity"),
                     field<std::string>(press, "entity"));
         check(field<A>(belt, "targets").size() == 3,
               "The oriented belt still admits its new location and both original material endpoints.");
         const auto saved = host.checkpoint();
         const auto records = field<A>(child(child(saved, "world"), "history"), "records");
-        check(field<std::string>(child(records.back(), "intent"), "axis") == (axis ? axis : "x") &&
+        check(field<std::string>(child(records.back(), "intent"), "axis") == "z" &&
               field<std::string>(child(records.back(), "intent"), "action") == "place_connected" &&
               same(child(child(records.back(), "intent"), "wire"), V(belt_wire)),
               "One connected-placement record preserves the exact incoming axis and original wire.");

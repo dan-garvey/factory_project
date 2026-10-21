@@ -77,11 +77,11 @@ void finite_oriented_train_and_restore() {
     bool saw_gear = false, saw_large = false;
     for (const auto& entry : std::get<A>(specs.at("P").storage())) {
         if (field<std::string>(entry, "kind") != "gear") continue;
-        saw_gear |= field<I>(entry, "teeth") == 2 && field<I>(entry, "count") == 4;
-        saw_large |= field<I>(entry, "teeth") == 4 && field<I>(entry, "count") == 1;
+        saw_gear |= field<I>(entry, "teeth") == 2 && field<I>(entry, "count") == 5;
+        saw_large |= field<I>(entry, "teeth") == 4 && field<I>(entry, "count") == 2;
     }
     check(saw_gear, "The UI sees the actual carried gear specification, not only an aggregate count.");
-    check(saw_large, "The native starter kit exposes one finite large cog to the UI.");
+    check(saw_large, "The native starter kit exposes two finite large cogs to the UI.");
     for (const auto& entry : std::get<A>(specs.at("Q").storage()))
         check(field<I>(entry, "count") == 0, "An empty actor kit cannot borrow the other actor's parts.");
     auto base = wire("place_foundation", "collector-base");
@@ -103,9 +103,9 @@ void finite_oriented_train_and_restore() {
           field<I>(motion(host, collector), "numerator") == -1,
           "Meshing equal gears reverses the exact signed rate through the independent shafts.");
     check(field<bool>(host.projection(), "powered") &&
-          field<I>(V(field<O>(host.projection(), "parts")), "shaft") == 2 &&
-          field<I>(V(field<O>(host.projection(), "parts")), "gear") == 3,
-          "The powered train retains two spare shafts, two small cogs and the large cog.");
+          field<I>(V(field<O>(host.projection(), "parts")), "shaft") == 6 &&
+          field<I>(V(field<O>(host.projection(), "parts")), "gear") == 5,
+          "The powered train retains the remaining shafts and cogs.");
     const auto ticked = host.advance();
     check(field<I>(V(field<O>(ticked, "stock")), "source") == 15 &&
           field<I>(V(field<O>(ticked, "stock")), "collector") == 1,
@@ -184,9 +184,10 @@ void finite_large_cog() {
     check(accepted(host.configure_terrain(factory::godot_world::tests::flat_site())), "The large-cog Host binds its site.");
     observe(host, -1.65, 3.3, 1);
     const auto large = create(host, gear(-4, 8, 4, "large", "y", 4));
+    create(host, gear(-4, 8, 12, "large-second", "y", 4));
     const auto refused = host.command("P", gear(0, 8, 4, "exhausted-large", "y", 4));
     check(!accepted(refused) && field<std::string>(refused, "reason") == "unavailable_part",
-          "The finite large-cog kit cannot place a second large cog.");
+          "The finite large-cog kit cannot place a third large cog.");
     const auto saved = host.checkpoint();
     Host fresh;
     check(accepted(fresh.initialize("fresh", {"P", "Q"})) &&
@@ -228,9 +229,9 @@ void perpendicular_belt_line() {
     check(accepted(host.command("P", power)), "The actor enables the source for the perpendicular line.");
     const auto projected = host.projection();
     check(field<A>(projected, "links").size() == 2 &&
-              field<I>(V(field<O>(projected, "parts")), "shaft") == 0 &&
-              field<I>(V(field<O>(projected, "parts")), "gear") == 1,
-          "The connected line uses exactly four small cogs and shafts, leaving its large cog.");
+              field<I>(V(field<O>(projected, "parts")), "shaft") == 4 &&
+              field<I>(V(field<O>(projected, "parts")), "gear") == 3,
+          "The connected line uses exactly four small cogs and short shafts, retaining its other parts.");
     for (std::size_t n = 0; n < hubs.size(); ++n)
         check(field<I>(motion(host, hubs[n]), "numerator") == (n % 2 ? -1 : 1) &&
                   field<I>(motion(host, hubs[n]), "denominator") == 1,
@@ -245,6 +246,98 @@ void perpendicular_belt_line() {
     check(accepted(host.command("P", target("remove", cogs[2], "line-remove-belt-cog"))) &&
               field<std::string>(motion(host, hubs[2]), "state") != "rotating",
           "Removing the belt cog breaks belt power and returns the physical part.");
+}
+
+void belt_spindle_orientation() {
+    Host host;
+    check(accepted(host.initialize("cog-api", {"P"})) &&
+              accepted(host.configure_terrain(factory::godot_world::tests::flat_site())),
+          "The belt orientation Host binds its site.");
+    observe(host, -1.65, 3.3, 1);
+    const auto before = world_state(host);
+    for (const auto* wrong_axis : {"x", "y"}) {
+        const auto reply = host.command("P", machine("belt", 1, wrong_axis, wrong_axis));
+        check(!accepted(reply) && field<std::string>(reply, "reason") == "invalid_belt_axis" &&
+                  !factory::values::typed_difference(before, world_state(host)),
+              "A belt refuses a spindle parallel to travel or vertical without consuming the part.");
+    }
+    const auto belt = create(host, machine("belt", 1, "default-belt", nullptr));
+    check(field<I>(V(field<O>(host.projection(), "entities").at(belt)), "axis") == 2,
+          "A default belt uses the Z spindle perpendicular to its fixed X material path.");
+    const auto saved = host.checkpoint();
+    Host fresh;
+    check(accepted(fresh.initialize("fresh", {"P"})) &&
+              accepted(fresh.configure_terrain(factory::godot_world::tests::flat_site())) &&
+              accepted(fresh.restore_checkpoint(saved)) && !factory::values::typed_difference(saved, fresh.checkpoint()),
+          "The perpendicular belt orientation survives checkpoint restoration.");
+}
+
+void cross_axis_belt_line() {
+    Host host;
+    A axis{V(-128.0), V(-2.8), V(-2.0), V(128.0)}, heights;
+    for (int row = 0; row < 4; ++row) {
+        heights.emplace_back(-1.65); heights.emplace_back(-1.65);
+        heights.emplace_back(-0.02); heights.emplace_back(-0.02);
+    }
+    const O stream{{"axis", V(axis)}, {"heights", V(heights)}, {"obstacles", V(A{})},
+        {"water", V(A{V(A{V(I{-8}), V(I{4}), V(I{-20}), V(I{-400}), V(I{0}), V(I{200})})})}};
+    check(accepted(host.initialize("cog-api", {"P"})) &&
+              accepted(host.configure_terrain(stream)),
+          "The cross-axis Host binds an invented flowing stream.");
+    I epoch{};
+    const auto at = [&](double x, double z) { observe(host, x, z, ++epoch); };
+    const std::array<const char*, 4> roles{"wheel", "collector", "belt", "processor"};
+    std::array<std::string, 4> hubs;
+    for (std::size_t n = 0; n < hubs.size(); ++n) {
+        const I x = n == 0 ? -2 : static_cast<I>(n) - 1;
+        at(static_cast<double>(x) * 1.65, 0);
+        const auto id = "cross-machine-" + std::to_string(n);
+        hubs[n] = create(host, machine(roles[n], x, id.c_str(), n ? "z" : "x"));
+    }
+    at(-3.3, 0);
+    const auto input = create(host, gear(-12, 0, 4, "cross-input", "x", 4));
+    check(accepted(host.command("P", connection(hubs[0], input, "cross-wheel-shaft"))),
+          "The actor installs the short X-axis wheel shaft.");
+    at(-3.3, 1.65);
+    const auto output = create(host, gear(-8, 0, 8, "cross-output", "z", 4));
+    std::array<std::string, 5> small;
+    for (std::size_t n = 0; n < small.size(); ++n) {
+        const I x = static_cast<I>(n) * 4 - 8;
+        at(static_cast<double>(x) * 1.65 / 4.0, 3.3);
+        const auto id = "cross-small-" + std::to_string(n);
+        small[n] = create(host, gear(x, 0, 12, id.c_str(), "z", 2));
+    }
+    at(-3.3, 3.3);
+    check(accepted(host.command("P", connection(output, small[0], "cross-small-shaft"))),
+          "The actor joins the turned large cog to the small-cog train.");
+    for (std::size_t n = 1; n < hubs.size(); ++n) {
+        at(static_cast<double>(n - 1) * 1.65, 3.3);
+        const auto id = "cross-machine-shaft-" + std::to_string(n);
+        check(accepted(host.command("P", connection(hubs[n], small[n + 1], id.c_str()))),
+              "The actor installs a long shaft from each machine to its cog.");
+    }
+    at(-1.65, 0);
+    auto power = wire("set_power", "cross-start"); power.emplace("active", V(true));
+    check(accepted(host.command("P", power)), "The source starts the cross-axis line.");
+    for (std::size_t n = 1; n < hubs.size(); ++n) {
+        check(field<I>(motion(host, hubs[n]), "numerator") == (n % 2 ? -1 : 1) &&
+                  field<I>(motion(host, hubs[n]), "denominator") == 1,
+              "Every machine reports its signed cross-axis motion.");
+    }
+    const auto advanced = host.advance();
+    check(field<I>(V(field<O>(advanced, "stock")), "source") == 15 &&
+              field<I>(V(field<O>(advanced, "stock")), "collector") == 1,
+          "The flowing wheel powers the collector and advances one source unit.");
+    const auto saved = host.checkpoint();
+    Host fresh;
+    check(accepted(fresh.initialize("fresh", {"P"})) &&
+              accepted(fresh.configure_terrain(stream)) &&
+              accepted(fresh.restore_checkpoint(saved)) && !factory::values::typed_difference(saved, fresh.checkpoint()),
+          "The complete long-shaft route restores exactly in a fresh Host.");
+    at(-3.3, 1.65);
+    check(accepted(host.command("P", target("remove", output, "cross-remove"))) &&
+              field<std::string>(motion(host, hubs[2]), "state") != "rotating",
+          "Removing the corner cog interrupts belt power.");
 }
 
 void equivalent_gear_exclusion() {
@@ -291,8 +384,8 @@ void equivalent_gear_exclusion() {
         const auto new_success = modern.command("P", new_clear);
         check(accepted(old_success) && accepted(new_success), "New requests at the clear pose both place the gear.");
         check(!factory::values::typed_difference(world_state(legacy), world_state(modern)) &&
-              field<I>(V(field<O>(legacy.projection(), "parts")), "gear") == 4,
-              "Equivalent accepted aliases produce identical typed topology and retain four carried gears.");
+              field<I>(V(field<O>(legacy.projection(), "parts")), "gear") == 6,
+              "Equivalent accepted aliases produce identical typed topology and retain six carried gears.");
         const auto placed = world_state(legacy);
         check(accepted(legacy.publish_actor("P", blocked, 3)) && accepted(modern.publish_actor("P", blocked, 3)),
               "Present overlap is observed after placement without changing the saved part.");
@@ -327,7 +420,7 @@ int main(int argc, char** argv) {
     try {
         if (argc == 1) {
             finite_oriented_train_and_restore(); refusals_and_legacy_shape();
-            global_grid(); finite_large_cog(); perpendicular_belt_line();
+            global_grid(); finite_large_cog(); perpendicular_belt_line(); belt_spindle_orientation(); cross_axis_belt_line();
         } else if (argc != 2 || std::string(argv[1]) != "--placement-alias-only") {
             throw std::runtime_error("Expected no arguments or --placement-alias-only.");
         }

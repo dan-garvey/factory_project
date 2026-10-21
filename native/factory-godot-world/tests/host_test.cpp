@@ -1,6 +1,7 @@
 #include "factory/godot_world.hpp"
 #include "native/factory-godot-world/tests/site_fixture.hpp"
 
+#include <array>
 #include <functional>
 #include <iostream>
 #include <stdexcept>
@@ -73,7 +74,7 @@ void historical_translation() {
     check(accepted(host.publish_actor("P", {V(1.65), V(1.0), V(1.65)}, 1)), "The disclosed synthetic observation is ready.");
     const auto place = [&](const char* kind, I x, const char* id) {
         auto wire = request("place", id);
-        wire.emplace("kind", V(kind)); wire.emplace("cell", V(A{V(x), V(I{0})}));
+        wire.emplace("kind", V(kind)); wire.emplace("cell", V(A{V(x), V(I{0})})); wire.emplace("axis", V("z"));
         const auto reply = host.command("P", wire);
         check(accepted(reply), (std::string("The starter placement succeeds: ") + kind + ", " + field<std::string>(reply, "reason")).c_str());
         return field<std::string>(reply, "entity");
@@ -91,12 +92,26 @@ void historical_translation() {
           "Collector-to-belt placement already attached the first material path.");
     check(!accepted(flow_b) && field<std::string>(flow_b, "reason") == "existing_link",
           "Belt-to-press placement already attached the second material path.");
-    check(accepted(host.command("P", link("connect_drive", "shaft-A", wheel, collector))), "The first physical shaft succeeds.");
-    check(accepted(host.command("P", link("connect_drive", "shaft-B", collector, belt))), "The second physical shaft succeeds.");
-    check(accepted(host.command("P", link("connect_drive", "shaft-C", belt, press))), "The third physical shaft succeeds.");
+    const std::array<std::string, 4> hubs{wheel, collector, belt, press};
+    const std::array<const char*, 4> shaft_ids{"shaft-A", "shaft-B", "shaft-C", "shaft-D"};
+    for (std::size_t n = 0; n < hubs.size(); ++n) {
+        const I x = static_cast<I>(n) - 1;
+        check(accepted(host.publish_actor("P", {V(static_cast<double>(x) * 1.65), V(1.0), V(-1.65)}, static_cast<I>(n) + 2)),
+              "The synthetic actor reaches each cog and its machine.");
+        auto cog = request("place_gear", shaft_ids[n]);
+        cog.at("request") = V(std::string("gear-") + std::to_string(n));
+        cog.emplace("center", V(A{V(4 * x), V(I{0}), V(I{4})}));
+        cog.emplace("axis", V("z")); cog.emplace("teeth", V(I{2}));
+        const auto placed = host.command("P", cog);
+        check(accepted(placed), "The finite adjacent cog is placed.");
+        check(accepted(host.command("P", link("connect_drive", shaft_ids[n], hubs[n], field<std::string>(placed, "entity")))),
+              "The physical shaft joins the cog to its machine.");
+    }
+    check(accepted(host.publish_actor("P", {V(-1.65), V(1.0), V(-1.4)}, 6)), "The actor reaches the source control.");
     auto power = request("set_power", "power"); power.emplace("active", V(true));
     check(accepted(host.command("P", power)), "The existing wheel supplies the test line.");
     for (int index = 0; index < 8; ++index) (void)host.advance();
+    check(accepted(host.publish_actor("P", {V(3.3), V(1.0), V(-1.4)}, 7)), "The actor reaches the press.");
     auto collect = target("retrieve", "collect", press); collect.emplace("amount", V(I{1}));
     check(accepted(host.command("P", collect)), "The checkpoint includes an accepted product amount.");
     const auto recovery = target("recover", "recover", press);

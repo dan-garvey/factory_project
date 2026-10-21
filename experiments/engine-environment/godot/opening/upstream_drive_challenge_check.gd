@@ -164,36 +164,36 @@ func _check_failure_diagnostics() -> void:
 	for id in ["collector", "belt", "press", "s2", "s3"]:
 		host.state.motion[id] = {"state": "unpowered", "numerator": 0, "denominator": 1}
 
-	# Failure 1: Wrong gear height (Y = 4 instead of ground shaft level Y = 0)
+	# A disconnected elevated cog alone cannot establish a height mismatch.
 	host.state.transmission_parts["g1"] = {"kind": "gear", "generation": 8, "center": [0, 4, 0], "axis": 0, "teeth": 2, "half_span": 0}
 	var report := challenge.evaluate()
 	verify(
-		report.phase == "restore_drive" and report.diagnostic_code == "gear_wrong_height",
-		"An elevated cog at Y=4 is diagnosed as a height mismatch with the Y=0 shaft line."
+		report.phase == "restore_drive" and report.diagnostic_code == "missing_drive_shaft",
+		"An unrelated elevated cog is not presented as proof of a height mismatch."
 	)
 
-	# Failure 2: Wrong gear axis (Y axis = 1 instead of X axis = 0)
-	host.state.transmission_parts["g1"] = {"kind": "gear", "generation": 8, "center": [0, 0, 0], "axis": 1, "teeth": 2, "half_span": 0}
+	# A Z-axis cog can be part of the perpendicular belt train.
+	host.state.transmission_parts["g1"] = {"kind": "gear", "generation": 8, "center": [0, 0, 0], "axis": 2, "teeth": 2, "half_span": 0}
 	report = challenge.evaluate()
 	verify(
-		report.phase == "restore_drive" and report.diagnostic_code == "gear_wrong_axis",
-		"A Y-axis cog is diagnosed as an axis mismatch with the horizontal X-axis shafts."
+		report.phase == "restore_drive" and report.diagnostic_code == "missing_drive_shaft",
+		"A Z-axis cog is not automatically diagnosed as the wrong axis."
 	)
 
 	# Failure 3: Only one cog placed at [0, 0, 0]
 	host.state.transmission_parts["g1"] = {"kind": "gear", "generation": 8, "center": [0, 0, 0], "axis": 0, "teeth": 2, "half_span": 0}
 	report = challenge.evaluate()
 	verify(
-		report.phase == "restore_drive" and report.diagnostic_code == "missing_second_gear",
-		"A single valid upstream cog prompts placing the second meshing cog on the collector row."
+		report.phase == "restore_drive" and report.diagnostic_code == "missing_drive_shaft",
+		"An incomplete train reports the missing drive without prescribing a fixed cog count."
 	)
 
 	# Failure 4: Second cog placed with quarter-grid X plane mismatch ([1, 0, 4] vs [0, 0, 0])
 	host.state.transmission_parts["g2"] = {"kind": "gear", "generation": 9, "center": [1, 0, 4], "axis": 0, "teeth": 2, "half_span": 0}
 	report = challenge.evaluate()
 	verify(
-		report.phase == "restore_drive" and report.diagnostic_code == "gear_plane_mismatch",
-		"Two X-axis cogs that do not share X=0 and delta-Z=4 are diagnosed as a mesh plane mismatch."
+		report.phase == "restore_drive" and report.diagnostic_code == "missing_drive_shaft",
+		"Two disconnected cogs do not prove which part has a plane mismatch."
 	)
 
 	# Failure 5: Cogs mesh at [0, 0, 0] and [0, 0, 4], but upstream wheel shaft is missing
@@ -242,6 +242,8 @@ func _check_both_viable_arrangements() -> void:
 	host.state.transmission_parts["s1"].center = [-2, 0, 0]
 	host.state.transmission_parts["g1"] = {"kind": "gear", "generation": 8, "center": [0, 0, 0], "axis": 0, "teeth": 2, "half_span": 0}
 	host.state.transmission_parts["g2"] = {"kind": "gear", "generation": 9, "center": [0, 0, 4], "axis": 0, "teeth": 2, "half_span": 0}
+	for n in range(5):
+		host.state.transmission_parts["extra" + str(n)] = {"kind": "gear", "generation": 11 + n, "center": [n * 4, 0, 12], "axis": 2, "teeth": 2, "half_span": 0}
 	host.state.part_kits.P.gear = 0
 	host.state.part_specifications.P[0].count = 0
 	host.state.engagements = [
@@ -262,7 +264,7 @@ func _check_both_viable_arrangements() -> void:
 	verify(
 		geared.phase == "deliver_more"
 		and geared.arrangement == "geared_transfer"
-		and geared.placed_gears == 2
+		and geared.placed_gears == 7
 		and geared.spare_gears == 0
 		and geared.placed_shafts == 3
 		and geared.machine_rates.collector.numerator == -1,
