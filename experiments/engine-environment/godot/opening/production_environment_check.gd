@@ -173,20 +173,32 @@ func check_surface_composition() -> void:
 	var stream: MeshInstance3D = scenery.get_node("StreamSurface")
 	var water: PackedVector3Array = stream.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
 	var covered := 0
+	var checked_vertices := 0
 	var minimum_gap := INF
+	var interior_gap := INF
+	var minimum_triangle_gap := INF
 	for first in range(0, water.size(), 3):
 		var column := floori(float(first) / 6.0) % 8
 		if column == 0 or column == 7:
 			continue
+		var centroid: Vector3 = (water[first] + water[first + 1] + water[first + 2]) / 3.0 + stream.global_position
+		minimum_triangle_gap = minf(minimum_triangle_gap,
+			centroid.y - shared.height_at(centroid.x, centroid.z))
 		for offset in range(3):
 			var point: Vector3 = water[first + offset] + stream.global_position
+			checked_vertices += 1
+			var gap: float = point.y - shared.height_at(point.x, point.z)
+			minimum_gap = minf(minimum_gap, gap)
 			if point.z >= -4.0 and point.z <= 7.0:
 				covered += 1
-				minimum_gap = minf(minimum_gap, point.y - shared.height_at(point.x, point.z))
-	verify(covered > 0 and minimum_gap > 0.05,
-		"The emitted river surface clears its actual natural terrain bed throughout the working reach.")
+				if column >= 2 and column <= 5:
+					interior_gap = minf(interior_gap, gap)
+	verify(covered > 0 and minimum_gap >= 0.0 and interior_gap > 0.05 and minimum_triangle_gap >= 0.0,
+		"The emitted river meets its banks while clearing the natural bed in the wet interior.")
 	print(JSON.stringify({"relation": "natural_bed_below_water", "minimum_gap": minimum_gap,
-		"sampled_vertices": covered, "visible_boxes": rendered.size(), "rock_instances": 64}))
+		"interior_gap": interior_gap, "minimum_triangle_gap": minimum_triangle_gap,
+		"sampled_vertices": checked_vertices, "working_reach_vertices": covered,
+		"visible_boxes": rendered.size(), "rock_instances": 64}))
 	view.free()
 
 func _plant_patches(view: Node3D) -> Array[MultiMeshInstance3D]:
@@ -538,8 +550,17 @@ func check_water_flow() -> void:
 	var before := water.uv1_offset
 	verify(Scenery.animate_water(1.0) and water.uv1_offset.y < before.y,
 		"The actual texture transform advances the pattern toward positive downstream Z.")
-	var travelled := -(water.uv1_offset.y - before.y) / (0.08 * water.uv1_scale.y)
-	verify(absf(travelled - 0.4) < 0.000001, "The declared environmental ripple speed is 0.4 metres per second in the authored stream UVs.")
+	var river_uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+	var visual_speeds := {}
+	for z in [1.65, 22.0, 38.0]:
+		var row: int = clampi(floori((z + 58.0) / 119.0 * 238.0), 0, 237)
+		var density: float = (river_uvs[(row + 1) * 48 + 6].y - river_uvs[row * 48 + 6].y) / 0.5
+		var speed: float = -(water.uv1_offset.y - before.y) / (density * water.uv1_scale.y)
+		visual_speeds[z] = speed
+		verify(absf(speed - Scenery.Surface.display_flow_speed(z)) < 0.05,
+			"The normal-layer motion follows the current estimate at each actual riverbed section.")
+	verify(visual_speeds[22.0] < visual_speeds[38.0] and visual_speeds[38.0] < visual_speeds[1.65],
+		"The visible current slows through the broad pool and accelerates through the constriction.")
 	verify(absf(-water.uv2_offset.y - 0.536) < 0.000001
 		and absf(-water.uv2_offset.x / (0.22 * water.uv2_scale.x) - 0.025) < 0.000001,
 		"The higher-density normal advects one full period plus 0.536 downstream and drifts gently across the river.")
@@ -1642,8 +1663,9 @@ func run() -> void:
 		"The 3D terrain spans 256x256 with a deep carved river gorge and >10m surrounding valley relief.")
 	check_mesh_attributes(ground.mesh, "GroundSurface", 9)
 	for sample_z in [-4.0, -1.65, 0.0, 1.65, 4.95, 6.6]:
-		verify(Scenery.terrain_height(-2.7, sample_z) < Geometry.GROUND_HEIGHT - 1.0,
-			"The terrain under the millrace is excavated into a deep 3D channel.")
+		var river_x: float = Scenery.Surface.river_center_x(sample_z)
+		verify(Scenery.Surface.height_at(river_x, sample_z) < Scenery.stream_surface_height(river_x, sample_z) - 0.25,
+			"The emitted terrain bed stays submerged at the actual center of the curved river.")
 		for sample_x in [-3.8, -1.4, 0.0, 1.65, 3.3, 6.6]:
 			verify(Scenery.terrain_height(sample_x, sample_z) <= Geometry.GROUND_HEIGHT + 0.0001,
 				"Contoured terrain never protrudes above the flat physical floor inside the traversable pad.")

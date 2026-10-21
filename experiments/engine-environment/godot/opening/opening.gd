@@ -1759,15 +1759,16 @@ class ProductionEnvironment:
 		return water_finish
 
 	static func animate_water(seconds: float) -> bool:
-		# The existing mesh UV grows downstream. A negative texture offset
-		# moves the repeated ripple pattern downstream at a cosmetic 0.4 m/s.
+		# The mesh UV grows downstream at a density estimated from the same
+		# terrain and staged water used for native current. A negative texture
+		# offset moves the ripple faster through narrow reaches.
 		# Absolute time makes shared material updates idempotent across views.
-		# It is never a production clock or an estimate of waterwheel speed.
+		# It is never a production clock or waterwheel authority.
 		if water_finish == null or not is_finite(seconds) or seconds < 0.0:
 			return false
 		water_finish.uv1_offset = Vector3(0.0, -fposmod(seconds * 0.256, 1.0), 0.0)
 		# UV2 has six times the downstream density. Both layers advect at
-		# 0.4 m/s, with a small lateral drift on the fine layer. Reduce time
+		# the same local estimated speed, with a small lateral drift. Reduce time
 		# before the faster multiplication so every finite time remains valid.
 		water_finish.uv2_offset = Vector3(-fposmod(seconds * 0.0385, 1.0),
 			-fposmod(fposmod(seconds, 1.0 / 1.536) * 1.536, 1.0), 0.0)
@@ -1899,7 +1900,7 @@ class ProductionEnvironment:
 	static func stream_mesh() -> ArrayMesh:
 		if stream_volume_mesh != null:
 			return stream_volume_mesh
-		var rows := 88
+		var rows := 238
 		var cols := 8
 		var z_start := -58.0
 		var z_end := 61.0
@@ -1908,30 +1909,39 @@ class ProductionEnvironment:
 		var normals: Array[Vector3] = []
 		var uvs: Array[Vector2] = []
 		var colors: Array[Color] = []
+		var uv_v := 0.0
+		var previous_uv_density := 0.0
 		for r in range(rows + 1):
 			var tz := float(r) / float(rows)
 			var z_world := lerpf(z_start, z_end, tz)
+			# Both normal layers scroll by 0.032 UV units per second after
+			# material scaling. Wider, slower reaches need denser UVs.
+			var uv_density := 0.032 / maxf(Surface.display_flow_speed(z_world), 0.05)
+			if r > 0:
+				uv_v += (previous_uv_density + uv_density) * 0.5 * (z_end - z_start) / float(rows)
+			previous_uv_density = uv_density
 			var z_local := z_world - 1.65
 			var rc_local := river_center_x(z_world) - (-2.7)
-			var half_w := lerpf(0.56, 1.62, smoothstep(5.5, 22.0, absf(z_world - 1.65)))
+			var west_w: float = Surface.wet_half_width(z_world, -1.0)
+			var east_w: float = Surface.wet_half_width(z_world, 1.0)
 			for c in range(stride):
 				var x_local := rc_local
 				var y := 0.0
 				var normal := Vector3.UP
 				var color := Color.WHITE
 				if c == 0:
-					x_local = rc_local - half_w - 0.06
-					y = stream_surface_height(-2.7 + rc_local - half_w, z_world) - 0.34
+					x_local = rc_local - west_w - 0.06
+					y = stream_surface_height(-2.7 + rc_local - west_w, z_world) - 0.34
 					normal = Vector3(-0.86, 0.51, 0.0).normalized()
 					color = Color("183842")
 				elif c == cols:
-					x_local = rc_local + half_w + 0.06
-					y = stream_surface_height(-2.7 + rc_local + half_w, z_world) - 0.34
+					x_local = rc_local + east_w + 0.06
+					y = stream_surface_height(-2.7 + rc_local + east_w, z_world) - 0.34
 					normal = Vector3(0.86, 0.51, 0.0).normalized()
 					color = Color("183842")
 				else:
 					var tc := float(c - 1) / float(cols - 2) * 2.0 - 1.0
-					x_local = rc_local + tc * half_w
+					x_local = rc_local + tc * (west_w if tc < 0.0 else east_w)
 					var x_world := -2.7 + x_local
 					y = stream_surface_height(x_world, z_world)
 					var dz := 0.25
@@ -1945,7 +1955,7 @@ class ProductionEnvironment:
 				var x_world_uv := -2.7 + x_local
 				positions.append(Vector3(x_local, y, z_local))
 				normals.append(normal)
-				uvs.append(Vector2((x_world_uv + 16.0) * 0.22, (z_world - z_start) * 0.08))
+				uvs.append(Vector2((x_world_uv + 16.0) * 0.22, uv_v))
 				colors.append(color)
 		var surface := SurfaceTool.new()
 		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -2158,8 +2168,10 @@ class ProductionEnvironment:
 			var radius := 11.2 + float(posmod(n * 13, 37)) * 0.52
 			var px := 1.65 + cos(angle) * radius
 			var pz := 1.65 + sin(angle) * radius
-			if absf(px - river_center_x(pz)) < channel_half_width(pz) + 1.1:
-				px += 2.4 if px >= river_center_x(pz) else -2.4
+			var river_x := river_center_x(pz)
+			var bank_clearance := channel_half_width(pz) + 1.1
+			if absf(px - river_x) < bank_clearance:
+				px = river_x + bank_clearance * (1.0 if px >= river_x else -1.0)
 			var py: float = Surface.height_at(px, pz)
 			var position := Vector3(px, py, pz)
 			var scale := 0.85 + float(posmod(n * 7, 13)) * 0.08

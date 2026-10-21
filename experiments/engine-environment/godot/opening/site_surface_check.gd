@@ -32,10 +32,13 @@ func _initialize() -> void:
 		check_belt_water_native(true)
 		return
 	if "--water-samples-only" in OS.get_cmdline_user_args():
-		check_water_samples()
+		check_flow_cells()
 		return
 	if "--water-native-only" in OS.get_cmdline_user_args():
 		check_water_native()
+		return
+	if "--flow-sections-only" in OS.get_cmdline_user_args():
+		check_flow_sections()
 		return
 	if "--waterwheel-visual-only" in OS.get_cmdline_user_args():
 		check_waterwheel_visual()
@@ -322,26 +325,27 @@ func check_native_hull_matching() -> void:
 	verify(Surface.match_native_rock(changed, source).is_empty(), "Invalid native coordinates are refused.")
 	verify(Surface.rock_faces_for_vertices(source) == Surface.rock_faces(), "Mapped native vertices preserve the exact shared facet topology.")
 
-func check_water_samples() -> void:
-	var rows: Array = Surface.water_samples()
+func check_flow_cells() -> void:
+	var rows: Array = Surface.flow_cells()
 	var found := false
-	var varying := false
-	var first_speed := 0
 	for row: Array in rows:
-		assert(row.size() == 6)
+		assert(row.size() == 3)
 		var x: float = float(row[0]) * Geometry.HEIGHT_STEP
 		var z: float = float(row[1]) * Geometry.HEIGHT_STEP
 		assert(absf(x - Surface.river_center_x(z)) < Surface.channel_half_width(z))
-		assert(int(row[2]) > int(row[3]))
+		assert(float(row[2]) * Geometry.HEIGHT_STEP / 100.0 > Surface.height_at(x, z))
 		if row[0] == -8 and row[1] == 4:
 			found = true
-		if first_speed == 0:
-			first_speed = int(row[5])
-		elif int(row[5]) != first_speed:
-			varying = true
 	assert(found, "A wheel cell at the first worksite intersects the actual river.")
-	assert(varying, "The sampled current varies along the channel.")
-	print("water surface sample checks passed: ", rows.size())
+	var narrow := Surface.wet_half_width(1.65, -1.0) + Surface.wet_half_width(1.65, 1.0)
+	var broad := Surface.wet_half_width(22.0, -1.0) + Surface.wet_half_width(22.0, 1.0)
+	var rapid := Surface.wet_half_width(38.0, -1.0) + Surface.wet_half_width(38.0, 1.0)
+	assert(broad > narrow + 1.0 and broad > rapid + 1.0, "The emitted riverbed has a broad wheel-test section between narrower reaches.")
+	for z in [1.65, 22.0, 38.0]:
+		for side in [-1.0, 1.0]:
+			var at: float = Surface.river_center_x(z) + side * Surface.wet_half_width(z, side)
+			assert(Surface.height_at(at, z) < Surface.stream_surface_height(at, z), "The wet edge is inside the actual terrain bank.")
+	print("terrain flow cell and riverbed section controls passed: ", rows.size())
 	quit(0)
 
 func expect(value: bool, message: String) -> bool:
@@ -417,13 +421,16 @@ func check_belt_water_native(forward: bool) -> void:
 	model.advance()
 	if not expect(model.projection().stock.collector == 1, "Collector advances actual-site material"):
 		return
-	for turn in range(16):
+	# The water's measured rate also determines press work per tick.
+	for turn in range(96):
+		if model.projection().stock.output > 0:
+			break
 		model.advance()
 	if not expect(model.projection().stock.output > 0, "The complete actual-site line produces a finished plate"):
 		return
 	if not expect(observe.call(3.3, 0.0 if forward else 3.3), "Reach the press for retrieval"):
 		return
-	for turn in range(128):
+	for turn in range(512):
 		if model.projection().inventories.P >= 4:
 			break
 		if model.projection().stock.output > 0:
@@ -451,6 +458,41 @@ func check_belt_water_native(forward: bool) -> void:
 		return
 	challenge.free()
 	print("native actual river belt route controls passed: ", checks)
+	quit(0)
+
+func check_flow_sections() -> void:
+	var sections := [
+		{"name": "starting reach", "cell": [-2, 0], "level": 3, "tiles": 3},
+		{"name": "broad deep reach", "cell": [-2, 13], "level": 7, "tiles": 6},
+		{"name": "downstream constriction", "cell": [4, 23], "level": 1, "tiles": 3},
+	]
+	var tangential: Array[float] = []
+	for section in sections:
+		var model = NativeModel.new("flow-section-" + section.name, ["P"])
+		if not expect(model.boot_result.get("accepted", false), "Bind the real riverbed for " + section.name):
+			return
+		var x: float = float(section.cell[0]) * Geometry.PITCH
+		var z: float = float(section.cell[1]) * Geometry.PITCH
+		if not expect(model.publish_actor("P", [x + 1.5, float(section.level) * Geometry.HEIGHT_STEP + Geometry.ANCHOR_HEIGHT, z], 1).get("accepted", false), "Reach " + section.name):
+			return
+		var wheel: Dictionary = model.command({"context": "flow-section-" + section.name, "client": "P", "request": "wheel", "action": "place", "kind": "wheel", "cell": section.cell, "level": section.level, "tiles": section.tiles, "axis": "x"})
+		if not expect(wheel.get("accepted", false), "The real bed admits the selected wheel at " + section.name + ": " + str(wheel)):
+			return
+		if not expect(model.command({"context": "flow-section-" + section.name, "client": "P", "request": "power", "action": "set_power", "active": true}).get("accepted", false), "Start " + section.name):
+			return
+		var motion: Dictionary = model.projection().motion[wheel.entity]
+		if not expect(motion.state == "rotating" and motion.numerator < 0, "Terrain descent supplies signed current at " + section.name):
+			return
+		tangential.append(absf(float(motion.numerator) / float(motion.denominator)) * float(section.tiles))
+	if not expect(tangential[1] < tangential[2] and tangential[2] < tangential[0], "The broad reach is slower than the downstream constriction and starting reach: " + str(tangential)):
+		return
+	var bank = NativeModel.new("blocked-bank", ["P"])
+	if not expect(bank.boot_result.get("accepted", false) and bank.publish_actor("P", [1.5, 1.0, 1.65], 1).get("accepted", false), "Bind the solid east bank"):
+		return
+	var blocked: Dictionary = bank.command({"context": "blocked-bank", "client": "P", "request": "wheel", "action": "place", "kind": "wheel", "cell": [0, 1], "level": 4, "tiles": 3, "axis": "x"})
+	if not expect(not blocked.get("accepted", false) and blocked.get("reason") == "not_at_stream", "The actual solid bank carries no current or wheel site"):
+		return
+	print("native riverbed flow and wheel-size sections passed: ", checks)
 	quit(0)
 
 func check_water_native() -> void:

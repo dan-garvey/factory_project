@@ -52,8 +52,15 @@ immersed and clear of the bed. The wheel tool adjusts its diameter in whole grid
 squares, starting at a three-square diameter, and its level on the shared height grid. Choose a horizontal axle across
 the current; the sampled flow controls the wheel's signed rotation, and a larger
 wheel turns more slowly in the same current. A wheel can be wet yet stationary
-when the flow is parallel to its axle. The current is an experimental fixed site
-field, not a fluid simulation.
+when the flow is parallel to its axle. The displayed river has a narrow starter
+reach, a deeper and broader reach for a larger wheel, and a downstream rapid
+that narrows again. Native current is derived from the emitted terrain bed and
+the staged water surface at each wet cell: downhill direction, depth and wetted
+width determine local speed. A bank interrupts the route, and a basin without a
+lower outlet stays still. The staged surface and speed rule are experimental
+site choices, not a volume-conserving fluid simulation. The animated ripple
+normal follows the river's downstream direction but does not display a
+per-cell speed measurement.
 
 In the native profile, G selects a **finite shaft**, not an arbitrary power edge.
 Click its two machine or cogwheel endpoints; only the native geometric planner
@@ -75,8 +82,8 @@ revisable visual reference speed; it does not supply a physics or processing
 clock. Angles are local presentation only, retained across ordinary refreshes
 but not saved or synchronized as tooth-contact phase. Unknown/stalled parts,
 Help, unready actors and disconnected shared views stop the illustration.
-The native profile currently treats either turning direction as powered and
-does not scale material throughput by angular rate. Its finite cog and shaft
+The native profile currently treats either turning direction as powered. The
+press's work per tick scales with its confirmed angular rate. Its finite cog and shaft
 quantities and dimensions are revisable fixture choices.
 
 After confirming four plates, the native opening marks an upstream waterwheel

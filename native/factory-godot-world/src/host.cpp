@@ -1,5 +1,6 @@
 #include "factory/godot_world.hpp"
 #include "factory/mineral_site.hpp"
+#include "factory/waterflow.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -351,7 +352,9 @@ Value Host::configure_terrain(const Object& input) {
     const auto* heights = field<Array>(input, "heights");
     const auto* obstacles = field<Array>(input, "obstacles");
     const auto* water = field<Array>(input, "water");
-    if (input.size() != (water ? 4u : 3u) || !axis || !heights || !obstacles || obstacles->size() > 1024 || axis->size() < 2 || axis->size() > 200 ||
+    const auto* flow_cells = field<Array>(input, "flow_cells");
+    if (input.size() != (water || flow_cells ? 4u : 3u) || (water && flow_cells) ||
+        !axis || !heights || !obstacles || obstacles->size() > 1024 || axis->size() < 2 || axis->size() > 200 ||
         heights->size() != axis->size() * axis->size()) return result(false, "invalid_terrain");
     std::vector<double> coordinates, elevations;
     std::vector<std::pair<authority::Point, authority::Point>> solids;
@@ -379,6 +382,23 @@ Value Host::configure_terrain(const Object& input) {
         solids.emplace_back(*low, *high);
     }
     auto next_profile = profile_;
+    if (flow_cells) {
+        if (flow_cells->empty() || flow_cells->size() > 65536) return result(false, "invalid_water");
+        std::vector<waterflow::Cell> cells;
+        cells.reserve(flow_cells->size());
+        for (const auto& value : *flow_cells) {
+            const auto* row = std::get_if<Array>(&value.storage());
+            if (!row || row->size() != 3) return result(false, "invalid_water");
+            const auto* x = std::get_if<Integer>(&row->at(0).storage());
+            const auto* z = std::get_if<Integer>(&row->at(1).storage());
+            const auto* surface = std::get_if<Integer>(&row->at(2).storage());
+            if (!x || !z || !surface) return result(false, "invalid_water");
+            cells.push_back({*x, *z, *surface});
+        }
+        const auto derived = waterflow::derive({coordinates, elevations, height_step}, cells);
+        if (!derived) return result(false, "invalid_water");
+        next_profile.water = *derived;
+    }
     if (water) {
         if (water->empty() || water->size() > 65536) return result(false, "invalid_water");
         for (const auto& value : *water) {
@@ -394,6 +414,8 @@ Value Host::configure_terrain(const Object& input) {
                     waterwheel::Sample{fields[2], fields[3], fields[4], fields[5]}).second)
                 return result(false, "invalid_water");
         }
+    }
+    if (water || flow_cells) {
         const auto snapshot = owned_->world->snapshot();
         if (snapshot.revision != 0 || snapshot.history.order != 0) return result(false, "terrain_already_bound");
         auto replacement = world::World::create(snapshot.history.context, next_profile, snapshot.state);

@@ -235,32 +235,30 @@ static func river_center_x(z: float) -> float:
 static func channel_half_width(z: float) -> float:
 	var flare := smoothstep(5.5, 22.0, absf(z - 1.65))
 	var bank_variation := 0.06 * sin(z * 0.82) + 0.025 * sin(z * 2.31)
-	return lerpf(0.62 + bank_variation, 1.85, flare)
+	var broad_pool := smoothstep(12.0, 17.0, z) * (1.0 - smoothstep(29.0, 33.0, z))
+	var constriction := smoothstep(32.0, 36.0, z) * (1.0 - smoothstep(44.0, 49.0, z))
+	return lerpf(0.62 + bank_variation, 1.85, flare) + 1.45 * broad_pool - 0.65 * constriction
 
 static func stream_surface_height(x: float, z: float) -> float:
-	var across := x - river_center_x(z)
 	var upstream_slope := maxf(0.0, (-5.55 - z) * 0.0022)
 	var sluice_drop := 0.25 * smoothstep(-5.65, -4.25, z)
 	var race_grade := 0.045 * smoothstep(-4.25, 8.35, z)
 	var weir_step_a := 0.24 * smoothstep(8.35, 9.05, z)
 	var weir_step_b := 0.24 * smoothstep(9.15, 9.85, z)
 	var tail_grade := 0.16 * smoothstep(9.85, 61.0, z)
-	var wave := 0.018 * sin(z * 2.6 + across * 4.2) + 0.011 * cos(z * 4.8 - across * 3.4)
-	var crown := -0.016 * clampf(across * across, 0.0, 1.5)
-	return 0.13 + upstream_slope - sluice_drop - race_grade - weir_step_a - weir_step_b - tail_grade + wave + crown
+	var rapid_drop := 0.18 * smoothstep(32.0, 36.0, z)
+	return 0.13 + upstream_slope - sluice_drop - race_grade - weir_step_a - weir_step_b - tail_grade - rapid_drop
 
-static func water_samples() -> Array:
-	# The rendered stream runs from z=-58 to z=61. These explicit stationary
-	# site samples are an experimental current, not a fluid simulation. Heights
-	# and velocities use 1/100 of the native quarter-pitch grid unit.
+static func flow_cells() -> Array:
+	# The rendered stream runs from z=-58 to z=61. Native flow derives each
+	# cell's bed and current from the emitted terrain and these water levels.
+	# Coordinates and levels use the shared quarter-pitch height denominator.
 	var result: Array = []
 	var unit: float = Geometry.HEIGHT_STEP / 100.0
 	for cell_z in range(-35, 37):
 		var z: float = cell_z * Geometry.PITCH
 		var center := river_center_x(z)
 		var width := channel_half_width(z)
-		var direction := Vector2((river_center_x(z + 0.1) - river_center_x(z - 0.1)) / 0.2, 1.0).normalized()
-		var speed := clampf(0.8 * 0.65 / width, 0.25, 1.2)
 		var first := floori((center - width) / Geometry.PITCH)
 		var last := ceili((center + width) / Geometry.PITCH)
 		for cell_x in range(first, last + 1):
@@ -269,11 +267,43 @@ static func water_samples() -> Array:
 				continue
 			var surface := stream_surface_height(x, z)
 			var bed := height_at(x, z)
-			if bed >= surface:
+			if bed >= surface - unit:
 				continue
-			result.append([4 * cell_x, 4 * cell_z, roundi(surface / unit), roundi(bed / unit),
-				roundi(direction.x * speed / unit), roundi(direction.y * speed / unit)])
+			result.append([4 * cell_x, 4 * cell_z, roundi(surface / unit)])
 	return result
+
+static func wet_half_width(z: float, side: float) -> float:
+	# The displayed edge stops at the actual emitted terrain intersection.
+	# The authored channel width caps this search before adjacent valleys.
+	var center := river_center_x(z)
+	var limit := channel_half_width(z) + 0.35
+	var water := stream_surface_height(center, z)
+	var previous := 0.0
+	for n in range(1, ceili(limit / 0.125) + 1):
+		var offset := minf(float(n) * 0.125, limit)
+		if height_at(center + side * offset, z) >= water:
+			var low := previous
+			var high := offset
+			for step in range(8):
+				var middle := (low + high) * 0.5
+				if height_at(center + side * middle, z) < water:
+					low = middle
+				else:
+					high = middle
+			return maxf(0.0, low - 0.015)
+		previous = offset
+	return limit
+
+static func display_flow_speed(z: float) -> float:
+	# Presentation estimate from the same staged surface and emitted bank/bed.
+	# Only native waterflow chooses connected wet cells and powers machinery.
+	var center := river_center_x(z)
+	var fall := stream_surface_height(center, z - Geometry.PITCH * 0.5) - stream_surface_height(center, z + Geometry.PITCH * 0.5)
+	var depth := stream_surface_height(center, z) - height_at(center, z)
+	var width := wet_half_width(z, -1.0) + wet_half_width(z, 1.0)
+	if fall <= 0.0 or depth <= 0.0 or width <= 0.0:
+		return 0.0
+	return clampf(0.45 * (1.6 / width) * sqrt(fall / Geometry.PITCH / 0.005) * sqrt(depth), 0.05, 1.6)
 
 static func raw_height(x: float, z: float) -> float:
 	# Preserve the original distant hills while resolving the natural worksite.
@@ -283,7 +313,8 @@ static func raw_height(x: float, z: float) -> float:
 	var half_w := channel_half_width(z)
 	var dx_river := absf(x - rc)
 	var downstream_drop := 0.48 * smoothstep(8.2, 10.6, z)
-	var bed_y := -1.18 - downstream_drop + 0.035 * sin(z * 0.35 + x * 1.4)
+	var broad_pool := smoothstep(12.0, 17.0, z) * (1.0 - smoothstep(29.0, 33.0, z))
+	var bed_y := -1.18 - downstream_drop - 0.46 * broad_pool + 0.035 * sin(z * 0.35 + x * 1.4)
 	var pad_dx := maxf(0.0, absf(x - 1.65) - 6.85)
 	var pad_dz := maxf(0.0, absf(z - 1.65) - 6.85)
 	var pad_dist := sqrt(pad_dx * pad_dx + pad_dz * pad_dz)
