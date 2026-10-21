@@ -98,8 +98,8 @@ struct Run {
     void foundation(I x, I row) {
         (void)action("place_foundation", {{"cell", V(A{V(x), V(row)})}, {"level", V(I{4})}});
     }
-    void gear(I x, I z, const char* axis, I teeth) {
-        (void)action("place_gear", {{"center", V(A{V(x), V(I{4}), V(z)})}, {"axis", V(axis)}, {"teeth", V(teeth)}});
+    void gear(I x, I z, const char* axis, I teeth, I height = 4) {
+        (void)action("place_gear", {{"center", V(A{V(x), V(height), V(z)})}, {"axis", V(axis)}, {"teeth", V(teeth)}});
     }
     std::string shaft(I x, I z, const char* axis = "z") {
         return field<std::string>(action("place_shaft", {{"center", V(A{V(x), V(I{4}), V(z)})},
@@ -110,7 +110,7 @@ struct Run {
     }
 };
 
-std::string build(Run& run, I wheel_row, bool install_span = true, bool two_spans = false, int fork_order = 0) {
+std::string build(Run& run, I wheel_row, bool install_span = true, bool two_spans = false, int fork_order = 0, bool moving_fork = false) {
     const I offset = wheel_row * 4;
     const double dz = wheel_row * 1.65;
     const I press_x = two_spans ? 20 : 12;
@@ -131,6 +131,11 @@ std::string build(Run& run, I wheel_row, bool install_span = true, bool two_span
     run.at(1.65, dz); const auto first = run.shaft(4, offset + 4);
     run.at(3.3, dz); const auto last = run.shaft(8, offset + 4);
     const auto fork = [&] {
+        if (moving_fork) {
+            run.at(-3.3, 1.65 + dz); run.gear(-4, offset + 4, "x", 2, 8);
+            run.at(-3.3, 3.3 + dz); run.gear(-4, offset + 8, "x", 2, 8);
+            run.gear(-4, offset + 8, "x", 2);
+        }
         run.at(-1.65, 3.3 + dz); const auto a = run.shaft(0, offset + 8, "x");
         run.at(-1.65, 4.95 + dz); const auto b = run.shaft(0, offset + 12, "x");
         run.at(-1.65, 4.125 + dz); run.span(a, b);
@@ -221,6 +226,44 @@ void wrong_source() {
           "Moving the wheel away after four plates requires returning it to the target.");
 }
 
+void moving_fork_fixture() {
+    for (int order : {1, 2}) {
+        Run run(order == 1 ? "moving-fork-first" : "moving-fork-last");
+        const auto press = build(run, 0, true, false, order, true);
+        const auto start = run.host.projection();
+        const auto motion = field<O>(start, "motion");
+        int rotating_spans = 0;
+        for (const auto& [id, span] : field<O>(start, "belt_spans")) {
+            (void)id;
+            const auto from = field<std::string>(span, "from");
+            if (field<std::string>(motion.at(from), "state") == "rotating") ++rotating_spans;
+        }
+        check(rotating_spans == 2, "The competing span and working span both rotate.");
+        for (int turn = 0; turn < 200 && e::inspect(run.host, "P").products < 8; ++turn) {
+            const auto stock = field<O>(run.host.projection(), "stock");
+            if (std::get<I>(stock.at("output").storage()) > 0) {
+                run.at(4.95, 1.65);
+                (void)run.action("retrieve", {{"entity", V(press)}, {"amount", V(I{1})}});
+            }
+            (void)run.host.advance();
+        }
+        const auto progress = e::inspect(run.host, "P");
+        check(progress.products == 8 && progress.belt_forward && progress.phase == e::Phase::ready,
+              "Both construction orders produce the required plates despite the moving competing span.");
+        if (order == 1) {
+            I spilled = 0;
+            for (const auto& drop : field<A>(run.host.projection(), "dropped_material")) spilled += field<I>(drop, "raw");
+            check(spilled > 0, "The first competing span actually diverts and drops collected blanks.");
+        }
+        conserved(run.host);
+        const auto saved = run.host.checkpoint();
+        Run resumed(order == 1 ? "moving-first-resume" : "moving-last-resume", false, saved);
+        for (int i = 0; i < 20; ++i) { (void)run.host.advance(); (void)resumed.host.advance(); }
+        check(same(run.host.checkpoint(), resumed.host.checkpoint()),
+              "Moving fork cargo and construction order survive checkpoint continuation.");
+    }
+}
+
 void fork_fixture() {
     for (int order : {1, 2}) {
         Run run(order == 1 ? "fork-first" : "fork-last");
@@ -262,7 +305,7 @@ int main() {
     try {
         Host absent;
         check(e::inspect(absent, "P").phase == e::Phase::unavailable, "An uninitialized Host has no challenge state.");
-        forward_and_checkpoint(false); forward_and_checkpoint(true); negative_routes(); wrong_source(); fork_fixture();
+        forward_and_checkpoint(false); forward_and_checkpoint(true); negative_routes(); wrong_source(); fork_fixture(); moving_fork_fixture();
         std::cout << checks << " native opening-engineering checks, 0 failures.\n";
         return 0;
     } catch (const std::exception& error) {
