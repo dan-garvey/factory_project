@@ -86,6 +86,14 @@ the requested gear plane, not permission to build there. Real character
 proximity remains authoritative. Adjacent aligned cog, shaft and machine axle
 ends connect directly; fill a longer gap with individual shaft tiles.
 
+To connect separated shafts, choose **Connect shafts with a belt** from the
+transmission menu and select both shaft tiles. Their axes must be parallel and
+their path straight or inclined at 45 degrees; both ends must be within the
+character's reach. Intermediate aligned shafts turn with the belt. Horizontal
+and inclined belts can carry material. Vertical and sideways belts transmit
+rotation only. The belt appears after the worksite confirms placement, and the
+transmission removal tool can reclaim it when it is empty.
+
 The inspector can select a cogwheel or shaft and return it to the carried kit.
 Static arrows show the confirmed signed rate, and contact marks use confirmed
 engagements. Cosmetic wheel, cog and shaft motion illustrates those rates at a

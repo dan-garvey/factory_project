@@ -335,6 +335,14 @@ func _nonhorizontal_presentation() -> void:
 		for id in ["first", "middle", "last"]:
 			host.state.transmission_parts[id] = {"kind": "shaft", "generation": 1, "center": case[id], "axis": case.axis, "half_span": 2}
 		host.state.belt_spans = {"span": {"generation": 1, "from": "first", "to": "last", "slots": [raw, null, null], "phase": 2048}}
+		var controls := Controls.new()
+		controls.configure(host)
+		controls.choose_tool("belt_span")
+		var confirmed: Dictionary = host.state.duplicate(true)
+		controls.handle_world_click([], "first")
+		controls.handle_world_click([], "last")
+		verify(host.calls.size() == 1 and host.calls[0] == {"action": "place_belt_span", "from": "first", "to": "last"} and host.state == confirmed, "Endpoint controls submit the path without inventing confirmed state.")
+		controls.free()
 		var presenter := Presenter.new()
 		presenter.configure(host)
 		var span := _part(presenter, "span")
@@ -354,6 +362,20 @@ func _nonhorizontal_presentation() -> void:
 			verify(item != null and (span.position + item.position).is_equal_approx(start.lerp(finish, 0.25) + Vector3.UP * 0.24), "Inclined cargo follows the confirmed half-slot phase.")
 		else:
 			verify(item == null, "Power-only vertical and sideways paths do not display cargo.")
+		var session := Session.new()
+		session.context = host.state.context
+		session._ready_for_commands = true
+		host.state.revision = 1
+		host.state.order = 1
+		session._apply_frame({"context": host.state.context, "serial": 1, "snapshot": host.state})
+		var remote := HostStub.new()
+		remote.state = session.projection()
+		var remote_presenter := Presenter.new()
+		remote_presenter.configure(remote)
+		var remote_span := _part(remote_presenter, "span")
+		verify(remote_span != null and remote_span.has_node("BeltLoop") and remote_span.get_node("BeltLoop").basis.is_equal_approx(loop.basis) and (_belt_item(remote_span, 0) != null) == case.cargo, "A confirmed Session frame preserves the path orientation and cargo presentation.")
+		remote_presenter.free()
+		session.free()
 		var original_basis := loop.basis
 		host.state.belt_spans.span.from = "last"
 		host.state.belt_spans.span.to = "first"

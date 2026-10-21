@@ -71,7 +71,7 @@ func _tool_selected(id: int) -> void:
 	_feedback({
 		"gear": "Place a cogwheel at the highlighted point. Set axis and height in this menu.",
 		"place_shaft": "Place one shaft tile at the highlighted point. Set its axis and height in this menu.",
-		"belt_span": "Choose two parallel shafts. A collector and processor can connect at the outer ends.",
+		"belt_span": "Choose two parallel shafts on a straight or 45-degree path. Both ends must be within reach.",
 		"remove": "Choose a cogwheel, shaft or belt to remove."
 	}.get(active_tool, "Choose a construction tool or Inspect."), false)
 
@@ -204,7 +204,7 @@ func handle_world_click(center: Array, entity_id: String) -> bool:
 			return true
 		if _belt_start.is_empty():
 			_belt_start = {"id": entity_id, "generation": shaft.generation, "world": context.world, "actor": context.actor}
-			_feedback("Choose the second parallel shaft. Both ends must be within reach.", false)
+			_feedback("Choose the second parallel shaft on a straight or 45-degree path. Both ends must be within reach.", false)
 			return true
 		var first: Variant = context.snapshot.transmission_parts.get(_belt_start.id, {})
 		if context.world != _belt_start.world or context.actor != _belt_start.actor or not first is Dictionary or first.get("kind") != "shaft" or first.get("generation") != _belt_start.generation:
