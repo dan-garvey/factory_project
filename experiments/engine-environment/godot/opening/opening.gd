@@ -3658,6 +3658,13 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	if show_all_tools:
 		controls_label.text = "WASD walk · Space jump · P wheel · 1–4 build · F / G links · I inspect · H help"
 	_refresh_engineering(snapshot_ready)
+	# Introduce inspection when it can help. Keep waiting notices and explicit
+	# disclosure available even before the first machine has been built.
+	var unused_inspector: bool = _native_transmission() and snapshot_ready and _placement_hint_ready() \
+		and kinds.is_empty() and state.get("transmission_parts", {}).is_empty() \
+		and not show_all_tools and not show_details and mode != "inspect"
+	var inspector_panel: Control = inspector.get_parent().get_parent()
+	inspector_panel.visible = not unused_inspector
 	# Keep the real world visible when progressive disclosure leaves only a
 	# few controls. Preserve the fixed widths and grow naturally with content.
 	for column: Control in [tool_buttons.collector.get_parent(), inspector.get_parent()]:
