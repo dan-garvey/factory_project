@@ -1943,7 +1943,7 @@ func foundation_contact(footing: MeshInstance3D, deck: MeshInstance3D) -> Dictio
 	var contact: float = overlap.x * overlap.y
 	var ratio: float = contact / foot.area if foot.area > 0 else 0.0
 	var gap: float = foot.height - support.height
-	return {"valid": support.triangles == 8 and foot.triangles == 18 and absf(gap) < 0.000001 and ratio >= 0.97,
+	return {"valid": support.triangles == 24 and foot.triangles == 18 and absf(gap) < 0.000001 and ratio >= 0.97,
 		"gap": gap, "contact_area": contact, "deck_foot_area": foot.area, "supported_fraction": ratio,
 		"support_plane": support.height, "deck_foot_plane": foot.height}
 
@@ -2017,7 +2017,7 @@ func check_foundation_art() -> void:
 				"Each piece is baked passive geometry, without collision, input, processing or state authority.")
 			var key := str(part.name)
 			if not seen.has(key):
-				check_closed_asset_mesh(part.mesh, 2.17 if part == footing else 0.063,
+				check_closed_asset_mesh(part.mesh, 2.12 if part == footing else 0.063,
 					2.19 if part == footing else 0.066)
 				seen[key] = [part.mesh, part.material_override]
 			verify(part.mesh == seen[key][0] and part.material_override == seen[key][1],
@@ -2064,7 +2064,7 @@ func check_foundation_art() -> void:
 		check_closed_asset_mesh(mesh, 0.063, 0.066)
 		verify(mesh == FoundationArt.deck_mesh(mask), "Each of the sixteen edge variants is cached without another state owner.")
 		var concrete_mesh: ArrayMesh = FoundationArt.footing_mesh(mask)
-		check_closed_asset_mesh(concrete_mesh, 2.17, 2.19)
+		check_closed_asset_mesh(concrete_mesh, 2.12, 2.19)
 		verify(concrete_mesh == FoundationArt.footing_mesh(mask),
 			"The concrete exterior courses reuse one bounded mesh per confirmed neighbor arrangement.")
 		var tile := Node3D.new()
@@ -2098,6 +2098,20 @@ func check_foundation_art() -> void:
 	verify(absf(north_exposed_extent - (half - FoundationArt.FOOTING_BEVEL)) < 0.000001
 		and absf(north_joined_extent - (half - FoundationArt.JOIN_CORNER)) < 0.000001,
 		"An exposed concrete corner keeps its bevel, while a confirmed adjoining tile closes the accidental wall groove.")
+	var panel_height: float = (Geometry.FOUNDATION_DEPTH - FoundationArt.DECK_THICKNESS) / 2.0 - 0.15
+	var panel_edge: float = half - FoundationArt.BAY_MARGIN - FoundationArt.BAY_SHOULDER
+	var exposed_bay := false
+	var joined_bay := false
+	for vertex: Vector3 in FoundationArt.footing_mesh().surface_get_arrays(0)[Mesh.ARRAY_VERTEX]:
+		if absf(vertex.y - panel_height) < 0.000001 and absf(absf(vertex.x) - panel_edge) < 0.000001 \
+				and absf(vertex.z + half - FoundationArt.BAY_RECESS) < 0.000001:
+			exposed_bay = true
+	for vertex: Vector3 in FoundationArt.footing_mesh(FoundationArt.NORTH).surface_get_arrays(0)[Mesh.ARRAY_VERTEX]:
+		if absf(vertex.y - panel_height) < 0.000001 and absf(absf(vertex.x) - panel_edge) < 0.000001 \
+				and absf(vertex.z + half) < 0.000001:
+			joined_bay = true
+	verify(exposed_bay and joined_bay,
+		"Exposed walls recess their central casting bay while a confirmed shared wall stays flat.")
 	confirmed.erase("b")
 	var removed_masks: Dictionary = FoundationArt.neighbor_masks(confirmed)
 	verify(removed_masks.a == FoundationArt.SOUTH and removed_masks.d == FoundationArt.WEST,

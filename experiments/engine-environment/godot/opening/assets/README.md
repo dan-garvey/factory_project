@@ -42,6 +42,12 @@ separately owned native foundation feature, without a new support, collision,
 recipe or quantity rule. The isolated patch and corner views help inspect
 seams but cannot establish appearance at ordinary play distance.
 
+Each exposed concrete wall now has a broad recessed formwork bay below the
+deck, framed by shallow shoulders and end piers. The course reveal crosses the
+bay; joined same-level faces stay flat and hidden. These are cached variations
+of the same closed footing mesh, so removing a neighbor re-exposes the bay
+without adding a scene child, local state or another construction datum.
+
 [Construction impact samples](construction-audio/CREDITS.md) now give confirmed
 belts, assemblies, couplings and removals material-based feedback. The four short
 PCM clips are prepared offline from a qualified CC0 source. Existing acknowledgement
