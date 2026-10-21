@@ -1,5 +1,6 @@
 extends SceneTree
-## Adapter unit cases only: no scene enters the tree and no live world is made.
+## Default/camera modes use detached views. Footer mode mounts only real UI
+## containers, without a Model, body, network or game world.
 
 const Opening = preload("res://opening/opening.gd")
 const SharedOpening = preload("res://opening/shared_opening.gd")
@@ -14,6 +15,96 @@ class SessionStub extends RefCounted:
 
 class ToolStub extends RefCounted:
 	var active_tool := "gear"
+
+class FooterView extends Opening:
+	func _ready() -> void:
+		pass
+	func _process(_delta: float) -> void:
+		pass
+
+func settle_footer() -> void:
+	for _frame in range(4):
+		await process_frame
+
+func check_footer_layout() -> void:
+	root.size = Vector2i(1280, 800)
+	var view := FooterView.new()
+	view.state = first_target_fixture()
+	root.add_child(view)
+	view._build_interface()
+	view._refresh_guided_tools()
+	var intro := "WASD walks. Approach the mineral seam to place your collector."
+	view._message(intro)
+	await settle_footer()
+	var panel: Control = view.status_label.get_parent().get_parent()
+	var short_bounds: Rect2 = panel.get_global_rect()
+	verify(not view.status_label.visible, "The fresh native footer does not repeat the visible collector instruction.")
+	verify(short_bounds.size.y < 64.0 and panel.get_global_rect().encloses(view.controls_label.get_global_rect()),
+		"The fresh controls fit a compact strip instead of reserving the old two-row banner.")
+	verify(short_bounds.size.x < 952.0, "The fresh strip removes blank width while fitting every control hint.")
+	verify(is_equal_approx(short_bounds.end.y, 782.0), "The compact footer keeps its eighteen-pixel bottom margin.")
+	root.size = Vector2i(1600, 900)
+	await settle_footer()
+	var wide_bounds: Rect2 = panel.get_global_rect()
+	verify(is_equal_approx(wide_bounds.end.x, 1582.0) and is_equal_approx(wide_bounds.end.y, 882.0) \
+		and is_equal_approx(wide_bounds.size.x, short_bounds.size.x) and wide_bounds.encloses(view.controls_label.get_global_rect()),
+		"A wider viewport preserves the compact controls and both outer margins.")
+	root.size = Vector2i(1280, 800)
+	await settle_footer()
+	view._message(intro, true)
+	await settle_footer()
+	verify(view.status_label.visible, "Even matching introduction text remains visible when it is an explicit refusal.")
+	var refusal := "Cannot place the collector here. Approach the mineral seam and leave room for the material outlet. "
+	view._message(refusal.repeat(7), true)
+	await settle_footer()
+	var long_bounds: Rect2 = panel.get_global_rect()
+	verify(view.status_label.visible and view.status_label.get_line_count() > 1 and view.status_label.text == refusal.repeat(7),
+		"A long refusal remains complete and wraps across multiple lines.")
+	verify(long_bounds.size.y > short_bounds.size.y and long_bounds.position.y >= 0.0 and is_equal_approx(long_bounds.end.y, 782.0) \
+		and long_bounds.encloses(view.status_label.get_global_rect()) and long_bounds.encloses(view.controls_label.get_global_rect()),
+		"The footer grows upward around a refusal while keeping both rows inside the viewport.")
+	view._message(intro)
+	view.show_details = true
+	view._refresh_guided_tools()
+	await settle_footer()
+	verify(view.status_label.visible, "Details keeps the explicit introductory status available.")
+	view.show_details = false
+	view.show_all_tools = true
+	view._refresh_guided_tools()
+	await settle_footer()
+	verify(view.status_label.visible, "All tools retains the full status row.")
+	view.show_all_tools = false
+	view.explanation_open = true
+	view._refresh_guided_tools()
+	await settle_footer()
+	verify(view.status_label.visible, "Help keeps the explicit status available.")
+	view.explanation_open = false
+	view._refresh_guided_tools(false)
+	await settle_footer()
+	verify(view.status_label.visible, "An unavailable confirmed snapshot never hides its status row.")
+	view._refresh_guided_tools()
+	view._message("Worksite reopened in this session. Your original save is kept.")
+	await settle_footer()
+	verify(view.status_label.visible, "Reopen and recovery outcomes remain visible.")
+	view._message(intro)
+	await settle_footer()
+	verify(not view.status_label.visible and is_equal_approx(panel.get_global_rect().size.y, short_bounds.size.y),
+		"Replacing an outcome with the redundant fresh introduction shrinks the strip again.")
+	verify(view.model == null and view.actor_world == null and view.request_sequence == 0,
+		"Real UI layout never constructs game authority or submits a request.")
+	view.free()
+	var legacy := FooterView.new()
+	legacy.legacy_fixture = true
+	legacy.state = fixture()
+	root.add_child(legacy)
+	legacy._build_interface()
+	legacy._message(intro)
+	await settle_footer()
+	var historical: Control = legacy.status_label.get_parent().get_parent()
+	verify(legacy.status_label.visible and is_equal_approx(historical.get_global_rect().size.y, 88.0),
+		"The historical fixture retains its original status and footer dimensions.")
+	legacy.free()
+	finish_checks()
 
 class CameraProjection extends RefCounted:
 	var snapshot := {"options": {}, "entities": {}, "links": [], "revision": 0}
@@ -185,6 +276,9 @@ func fixture() -> Dictionary:
 		"options": {"physical": true}}
 
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--footer-layout-only"):
+		call_deferred("check_footer_layout")
+		return
 	if OS.get_cmdline_user_args().has("--camera-profile-only"):
 		check_camera_profiles()
 		print("OPENING_CAMERA_PROFILE_%s %d" % ["FAIL" if camera_failed else "PASS", checks])

@@ -3181,6 +3181,10 @@ var wheel_rotor: Node3D
 var machine_body_context := ""
 var machine_press_poses: Dictionary = {}
 var status_label: Label
+var status_footer: Control
+var status_refused := false
+var footer_snapshot_ready := false
+var footer_fit_pending := false
 var stock_label: Label
 var parts_label: Label
 var goal_label: Label
@@ -4571,6 +4575,8 @@ func _toggle_details() -> void:
 
 func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	_refresh_placement_hint(snapshot_ready)
+	footer_snapshot_ready = snapshot_ready
+	_queue_footer_fit()
 	if legacy_fixture:
 		return
 	# This is a view of confirmed facts, not persistent progression or admission.
@@ -4864,7 +4870,35 @@ func _update_cursor() -> void:
 
 func _message(words: String, refused: bool = false) -> void:
 	status_label.text = words
+	status_refused = refused
 	status_label.modulate = Color("e0a880") if refused else Color("d6dfd6")
+	_queue_footer_fit()
+
+func _queue_footer_fit() -> void:
+	if status_footer == null or footer_fit_pending:
+		return
+	footer_fit_pending = true
+	_fit_guided_footer.call_deferred()
+
+func _fit_guided_footer() -> void:
+	footer_fit_pending = false
+	if not _native_transmission():
+		return
+	# Only the ordinary fresh introduction duplicates the visible goal and
+	# source annotation. Explicit outcomes and unavailable-state advice stay.
+	var redundant_intro: bool = footer_snapshot_ready and _placement_hint_ready() and not status_refused \
+		and not show_details and not show_all_tools and mode == "collector" \
+		and state.get("entities", {}).is_empty() and state.get("transmission_parts", {}).is_empty() \
+		and _guided_step({}).tool == "collector" \
+		and status_label.text == "WASD walks. Approach the mineral seam to place your collector."
+	status_label.visible = not redundant_intro
+	var left_anchor := 1.0 if redundant_intro else 0.0
+	var left_offset: float = -18.0 - status_footer.get_combined_minimum_size().x if redundant_intro else 310.0
+	if not is_equal_approx(status_footer.anchor_left, left_anchor) or not is_equal_approx(status_footer.offset_left, left_offset):
+		status_footer.set_anchor_and_offset(SIDE_LEFT, left_anchor, left_offset)
+	var top: float = -18.0 - status_footer.get_combined_minimum_size().y
+	if not is_equal_approx(status_footer.offset_top, top):
+		status_footer.set_anchor_and_offset(SIDE_TOP, 1.0, top)
 
 func _label(parent: Node, words: String, size: int = 16, color: Color = Color("dde5d9")) -> Label:
 	var label := Label.new()
@@ -4980,6 +5014,7 @@ func _build_interface() -> void:
 	load_button = _button(right, "Load worksite  [F9]", _load_worksite)
 	var bottom := _panel(root, Vector2(310, 694), Vector2(952, 88))
 	var bottom_panel: Control = bottom.get_parent()
+	status_footer = bottom_panel
 	bottom_panel.set_anchor_and_offset(SIDE_RIGHT, 1.0, -18)
 	bottom_panel.set_anchor_and_offset(SIDE_BOTTOM, 1.0, -18)
 	bottom_panel.set_anchor_and_offset(SIDE_TOP, 1.0, -106)
@@ -4987,6 +5022,8 @@ func _build_interface() -> void:
 	status_label = _label(bottom, "", 16)
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	controls_label = _label(bottom, "1–4 build  ·  F material / G drive  ·  Right-drag orbit  ·  Wheel zoom  ·  WASD pan  ·  Home recenter" if legacy_fixture else "WASD walk · Space jump · P wheel · 1–4 build · F / G links · Right-drag orbit · Wheel zoom · H help", 12, Color("9eb4b2"))
+	bottom_panel.minimum_size_changed.connect(_queue_footer_fit)
+	bottom_panel.resized.connect(_queue_footer_fit)
 	var lesson_column := _panel(root, Vector2(346, 18), Vector2(600, 192))
 	lesson_panel = lesson_column.get_parent()
 	lesson_panel.set_anchor_and_offset(SIDE_RIGHT, 0.5, 306)

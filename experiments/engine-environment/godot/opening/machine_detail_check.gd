@@ -3440,12 +3440,16 @@ func check_collector_bearing_seat() -> void:
 		"observations": "invented read-only", "native_gameplay": "not_run", "rendered_quality": "not_assessed"}))
 
 func collector_service_foot_contact(panel: MeshInstance3D, hardware: MeshInstance3D, offset := Vector3.ZERO) -> Dictionary:
-	var plane := (panel.transform * panel.mesh.get_aabb()).position.z
+	var panel_faces := die_faces(panel.mesh, 0)
+	var plane := INF
+	for point in panel_faces:
+		plane = minf(plane, (panel.transform * point).z)
 	var pose := hardware.transform
 	pose.origin += offset
-	if absf((pose * hardware.mesh.get_aabb()).end.z - plane) > 0.000001:
-		return {"seated": false, "area": 0.0}
-	var panel_faces := die_faces(panel.mesh, 0)
+	var faces := die_faces(hardware.mesh, 0)
+	var foot_plane := -INF
+	for point in faces:
+		foot_plane = maxf(foot_plane, (pose * point).z)
 	var supported: Array[PackedVector2Array] = []
 	for n in range(0, panel_faces.size(), 3):
 		var a: Vector3 = panel.transform * panel_faces[n]
@@ -3453,22 +3457,28 @@ func collector_service_foot_contact(panel: MeshInstance3D, hardware: MeshInstanc
 		var c: Vector3 = panel.transform * panel_faces[n + 2]
 		if absf(a.z - plane) < 0.000001 and absf(b.z - plane) < 0.000001 and absf(c.z - plane) < 0.000001:
 			supported.append(PackedVector2Array([Vector2(a.x, a.y), Vector2(b.x, b.y), Vector2(c.x, c.y)]))
-	var faces := die_faces(hardware.mesh, 0)
 	var seated := true
 	var area := 0.0
+	var foot_triangles := 0
+	var maximum_distance := 0.0
 	for n in range(0, faces.size(), 3):
 		var a: Vector3 = pose * faces[n]
 		var b: Vector3 = pose * faces[n + 1]
 		var c: Vector3 = pose * faces[n + 2]
 		if absf(a.z - plane) > 0.000001 or absf(b.z - plane) > 0.000001 or absf(c.z - plane) > 0.000001:
 			continue
+		foot_triangles += 1
 		area += (b - a).cross(c - a).length() / 2.0
 		for point in [Vector2(a.x, a.y), Vector2(b.x, b.y), Vector2(c.x, c.y)]:
 			var distance := INF
 			for triangle in supported:
 				distance = minf(distance, point_triangle_distance(point, triangle[0], triangle[1], triangle[2]))
+			maximum_distance = maxf(maximum_distance, distance)
 			seated = seated and distance < 0.000001
-	return {"seated": seated and area > 0, "area": area}
+	return {"seated": seated and area > 0 and absf(foot_plane - plane) < 0.000001, "area": area,
+		"support_plane": plane, "foot_plane": foot_plane, "foot_triangles": foot_triangles,
+		"maximum_projected_gap": maximum_distance, "supported_triangles": supported.size(),
+		"bounding_foot_plane": (pose * hardware.mesh.get_aabb()).end.z}
 
 func check_collector_rear_service() -> void:
 	var cache: Dictionary = {}
@@ -3509,6 +3519,8 @@ func check_collector_rear_service() -> void:
 				verify(collector_service_foot_contact(housing, gasket).seated and collector_service_foot_contact(gasket, panel).seated,
 					"The complete contacting gasket and panel facets rest within their actual supporting surfaces.")
 				var contact := collector_service_foot_contact(panel, hardware)
+				if assemblies == 0:
+					print(JSON.stringify({"collector_service_first_contact": contact}))
 				var expected_area := 4.0 * 12.0 * sin(TAU / 24.0) * (pow(0.038 * 0.45, 2) - pow(0.014 * 0.45, 2))
 				maximum_seat_error = maxf(maximum_seat_error, absf(float(contact.area) - expected_area))
 				verify(contact.seated and absf(float(contact.area) - expected_area) < 0.000001,
@@ -3529,14 +3541,15 @@ func check_collector_rear_service() -> void:
 						verify(gap > 0.14, "The new fixed rear parts clear the actual cutter facets through their complete rotational sweep.")
 				var paint := panel.material_override as StandardMaterial3D
 				var steel := hardware.material_override as StandardMaterial3D
-				verify(paint.metallic == 0 and is_equal_approx(paint.normal_scale, 0.12) and is_equal_approx(paint.roughness, 0.72)
+				verify(paint.metallic == 0 and is_equal_approx(paint.normal_scale, 0.12) and paint.roughness == 1
+					and paint.roughness_texture == Opening.ProductionTransmissionFinish.textures.cast_roughness
 					and is_equal_approx(steel.metallic, 0.85) and steel.normal_texture == Opening.ProductionTransmissionFinish.textures.worked_normal,
 					"Paint and exposed worked hardware retain their distinct qualified material roles.")
 				var picks := 0
 				for child in machine.get_children():
 					if child is StaticBody3D:
 						picks += 1
-						verify(child.collision_layer == 8 and child.collision_mask == 0 and child.get_child_count() == 1
+						verify(child.collision_layer == 4 and child.collision_mask == 0 and child.get_child_count() == 1
 							and child.get_child(0).shape.size == Vector3(1.45, 1.65, 1.45), "The original independent pick envelope stays unchanged.")
 				verify(picks == 1 and machine.get_meta("motion_meshes").size() == 10 and view.state == before
 					and view.model == null and view.actor_world == null and view.request_sequence == 0,
