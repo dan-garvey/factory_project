@@ -189,6 +189,47 @@ func check_raised_pointer() -> void:
 		verify(view.hover.visible and view.hover.basis.is_equal_approx(Basis.IDENTITY)
 			and view.hover.position.is_equal_approx(Vector3(2 * Geometry.PITCH, Geometry.PITCH + 0.03, 0)),
 			"The %s placement square stays horizontal on the target floor." % axis)
+	view.transmission_controls.choose_tool("place_shaft")
+	view.transmission_controls.selected_axis = "z"
+	view.state.transmission_parts = {
+		"belt-first": {"kind": "shaft", "axis": 2, "center": [16, 8, 0]},
+		"belt-last": {"kind": "shaft", "axis": 2, "center": [24, 8, 0]},
+		"slope-first": {"kind": "shaft", "axis": 2, "center": [28, 4, 0]},
+		"slope-last": {"kind": "shaft", "axis": 2, "center": [36, 12, 0]}}
+	view.state.belt_spans = {"belt": {"from": "belt-first", "to": "belt-last"},
+		"slope": {"from": "slope-first", "to": "slope-last"}}
+	var belt_position := Vector3(5 * Geometry.PITCH, 2 * Geometry.PITCH + Geometry.ANCHOR_HEIGHT, 0)
+	var slope_position := Vector3(8 * Geometry.PITCH, 2 * Geometry.PITCH + Geometry.ANCHOR_HEIGHT, 0)
+	pick_body(view, "belt", belt_position, Vector3(Geometry.PITCH * 2, 0.2, 0.5), Vector3.ZERO)
+	pick_body(view, "slope", slope_position, Vector3(Geometry.PITCH * 2, 0.2, 0.5), Vector3.ZERO)
+	await physics_frame
+	view.camera.position = belt_position + Vector3(0, 5, 3)
+	view.camera.look_at(belt_position)
+	var belt_screen := view.camera.unproject_position(belt_position)
+	var belt_target: Array = view._transmission_center(belt_screen)
+	verify(belt_target == [20, 8, 0], "An elevated belt pick targets its actual middle pulley tile.")
+	view._transmission_click(belt_target, "belt")
+	verify(view.requests.back() == {"action": "place_shaft", "center": [20, 8, 0], "axis": "z", "half_span": 2},
+		"The intermediate pulley request uses the belt tile and selected shaft axis.")
+	view.camera.position = slope_position + Vector3(0, 5, 3)
+	view.camera.look_at(slope_position)
+	var slope_screen := view.camera.unproject_position(slope_position)
+	verify(view._transmission_center(slope_screen) == [32, 8, 0], "An inclined belt pick targets its aligned middle tile.")
+	view.state.belt_spans.slope = {"from": "slope-last", "to": "slope-first"}
+	verify(view._transmission_center(slope_screen) == [32, 8, 0], "Endpoint order does not change the inclined target.")
+	view.state.transmission_parts["vertical-first"] = {"kind": "shaft", "axis": 2, "center": [40, 4, 0]}
+	view.state.transmission_parts["vertical-last"] = {"kind": "shaft", "axis": 2, "center": [40, 12, 0]}
+	view.state.belt_spans["vertical"] = {"from": "vertical-first", "to": "vertical-last"}
+	verify(view._belt_pulley_target("vertical", Vector3(10 * Geometry.PITCH, 2 * Geometry.PITCH + Geometry.ANCHOR_HEIGHT, 0)) == [40, 8, 0],
+		"A vertical belt identifies its middle global height tile.")
+	view.state.transmission_parts["side-first"] = {"kind": "shaft", "axis": 1, "center": [44, 8, 0]}
+	view.state.transmission_parts["side-last"] = {"kind": "shaft", "axis": 1, "center": [52, 8, 0]}
+	view.state.belt_spans["side"] = {"from": "side-first", "to": "side-last"}
+	verify(view._belt_pulley_target("side", Vector3(12 * Geometry.PITCH, 2 * Geometry.PITCH + Geometry.ANCHOR_HEIGHT, 0)) == [48, 8, 0],
+		"A sideways belt identifies its middle global tile.")
+	view._transmission_center(slope_screen)
+	view.transmission_controls._height_selected(1)
+	verify(view._transmission_center(slope_screen) == [32, 12, 0], "An explicit height overrides the belt's surface height.")
 	view.queue_free()
 
 func _initialize() -> void:
