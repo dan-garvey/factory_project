@@ -276,25 +276,26 @@ Result evaluate(const std::vector<Part>& input, const std::vector<Drive>& source
             if (left.kind == Kind::gear && right.kind == Kind::gear &&
                 left.axis == right.axis &&
                 left.center[coordinate(left.axis)] == right.center[coordinate(right.axis)]) {
-                // Both starter cog sizes occupy one tile, independently of
-                // their tooth-ratio labels. Equal large cogs meet at adjacent
-                // tile faces just like equal small cogs.
+                // Starter cogs occupy one tile regardless of their ratio label.
+                // Their engagement geometry follows Create's cog connections,
+                // while adjacent, nonmeshing tiles remain legal to place.
                 const bool large_pair = left.teeth == 4 && right.teeth == 4;
-                const auto sum = large_pair ? Integer{4} : left.teeth + right.teeth;
+                const bool small_pair = left.teeth == 2 && right.teeth == 2;
                 const auto distance = radial_squared(left, right);
                 const bool mixed_starter_cogs =
                     (left.teeth == 2 && right.teeth == 4) ||
                     (left.teeth == 4 && right.teeth == 2);
+                const bool starter_pair = large_pair || small_pair || mixed_starter_cogs;
+                const auto sum = starter_pair ? Integer{4} : left.teeth + right.teeth;
                 bool diagonal = mixed_starter_cogs;
                 for (std::size_t i = 0; i < 3 && diagonal; ++i) {
                     if (i == coordinate(left.axis)) continue;
                     const auto d = right.center[i] - left.center[i];
                     diagonal = d == 4 || d == -4;
                 }
-                const bool mixed_adjacent = mixed_starter_cogs && distance == 16;
-                if (distance < sum * sum && !diagonal && !mixed_adjacent)
+                if (distance < sum * sum)
                     return failure(Error::overlapping_gears, left.id);
-                if (diagonal || mixed_adjacent || (!mixed_starter_cogs && distance == sum * sum)) {
+                if (diagonal || (!large_pair && !mixed_starter_cogs && distance == sum * sum)) {
                     connected = true;
                     kind = EngagementKind::external_mesh;
                     forward = normalized({-left.teeth, right.teeth});

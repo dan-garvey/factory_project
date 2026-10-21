@@ -663,15 +663,16 @@ void complete_span_route_host() {
     create(host, gear(-4, 4, 0, "route-input", "x", 4));
     at(-3.3, -1.65);
     create(host, gear(0, 4, -4, "route-output", "z", 4));
-    for (I x : {I{4}, I{8}, I{12}}) {
+    for (I x : {I{0}, I{4}}) {
         at(static_cast<double>(x) * 1.65 / 4.0, -3.3);
         const auto id = "route-cog-" + std::to_string(x);
+        create(host, gear(x, 4, 0, id.c_str(), "z"));
+    }
+    for (I x : {I{4}, I{8}, I{12}}) {
+        at(static_cast<double>(x) * 1.65 / 4.0, -3.3);
+        const auto id = "route-rear-cog-" + std::to_string(x);
         create(host, gear(x, 4, -4, id.c_str(), "z"));
     }
-    at(0, -3.3);
-    create(host, shaft(0, 4, 0, "route-collector-drive"));
-    at(1.65, -3.3);
-    create(host, shaft(4, 4, 0, "route-belt-drive"));
     at(4.95, -3.3);
     create(host, shaft(12, 4, 0, "route-press-drive"));
     at(1.65, 0);

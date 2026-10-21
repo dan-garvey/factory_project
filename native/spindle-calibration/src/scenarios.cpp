@@ -11,7 +11,7 @@ namespace {
 constexpr std::array<r::Definition, 1> definitions{{
     {"spindle", "The line runs, but the spindle is wrong",
      "Retrieve four plates with the connected line's spindle calibrated to signed rate +2/1.",
-     "A direct 2-to-1 mesh reverses rotation. Bridge the two axial planes with the carried small cogs and one-tile shaft to reverse it again. The target and recipe duration are fixture specifications; gearing changes processing speed, not yield."},
+     "A coaxial shortcut and small-cog mesh reverse the line at the wrong speed. Bridge the two axial planes with a diagonal small-to-large mesh and one-tile shaft to reach the signed target. The target and recipe duration are fixture specifications; gearing changes processing speed, not yield."},
 }};
 void add(r::Scenario& scenario, const std::string& id, s::Role role, g::Point center, g::Integer teeth = 0, g::Integer span = 0) {
     const auto kind = role == s::Role::gear ? g::Kind::gear : role == s::Role::shaft ? g::Kind::shaft : g::Kind::hub;

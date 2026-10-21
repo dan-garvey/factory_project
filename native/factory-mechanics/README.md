@@ -24,12 +24,11 @@ not a selected starter inventory.
 
 The experimental small/large pair (tooth counts 2 and 4) is an exception to
 the generic pitch-distance rule: on matching axes and in one axial plane, its
-centers can differ by one four-unit construction cell in both radial
-directions or occupy adjacent cells in one radial direction. Its signed ratio
-is -1/2 from small to large and -2 in reverse. Equal large starter cogs also
-mesh in adjacent cells. The old six-unit pitch-radius spacing does not connect
-the mixed pair. This discrete
-placement follows Create's large-to-small cog connection; it is not a claim
+centers must differ by one four-unit construction cell in both radial
+directions. Its signed ratio is -1/2 from small to large and -2 in reverse.
+Adjacent mixed-size cogs and parallel large cogs can occupy separate tiles but
+do not mesh. The old six-unit pitch-radius spacing does not connect the mixed
+pair. This discrete placement follows Create's large-to-small cog connection; it is not a claim
 that pitch circles physically touch at that distance.
 
 For the experimental large-cog profile (tooth count 4, construction cell 4

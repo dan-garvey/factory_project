@@ -11,7 +11,7 @@ namespace {
 constexpr std::array<r::Definition, 1> definitions{{
     {"co-drive", "Two wheels, one disagreeing drive",
      "Carry four plates after resolving the source conflict and driving the belt toward the press.",
-     "The adjacent large cogs reverse one equal-rate source. Retire the left wheel, or move it one tile left, fit the carried small cogs and reuse a large cog above them. Retiring the right wheel alone reverses the belt."},
+     "The adjacent small cogs reverse one equal-rate source. Retire the left wheel, or move it one tile left and bridge the small cogs with a carried large cog above them. Retiring the right wheel alone reverses the belt."},
 }};
 void add(r::Scenario& scenario, const std::string& id, s::Role role, g::Point point, g::Integer teeth = 0, g::Integer span = 0) {
     const auto kind = role == s::Role::gear ? g::Kind::gear : role == s::Role::shaft ? g::Kind::shaft : g::Kind::hub;
@@ -34,19 +34,19 @@ std::optional<r::Scenario> make(std::string_view id) {
     topology.parts.clear(); topology.sources.clear();
     add(*result, "wheel-left", s::Role::waterwheel, {-4, 0, -4});
     add(*result, "wheel-right", s::Role::waterwheel, {0, 0, -4});
-    add(*result, "gear-left", s::Role::gear, {-4, 0, 0}, 4);
-    add(*result, "gear-right", s::Role::gear, {0, 0, 0}, 4);
+    add(*result, "gear-left", s::Role::gear, {-4, 0, 0}, 2);
+    add(*result, "gear-right", s::Role::gear, {0, 0, 0}, 2);
     add(*result, "collector", s::Role::collector, {0, 0, 4});
     // Each machine touches its own cog, and neighboring cogs carry rotation
     // across the row while the belt axle stays perpendicular to material.
-    add(*result, "gear-belt", s::Role::gear, {4, 0, 0}, 4);
-    add(*result, "gear-press", s::Role::gear, {8, 0, 0}, 4);
+    add(*result, "gear-belt", s::Role::gear, {4, 0, 0}, 2);
+    add(*result, "gear-press", s::Role::gear, {8, 0, 0}, 2);
     add(*result, "belt", s::Role::belt, {4, 0, 4});
     add(*result, "processor", s::Role::processor, {8, 0, 4});
     topology.sources = {{"wheel-left", result->profile.waterwheel_rate}, {"wheel-right", result->profile.waterwheel_rate}};
     topology.material_links = {{{"collector", 1}, {"belt", 1}}, {{"belt", 1}, {"processor", 1}}};
     result->seed.kits.at("P").clear();
-    result->seed.kits.at("P").emplace(s::PartSpec{s::Role::gear, 2, 0}, 2);
+    result->seed.kits.at("P").emplace(s::PartSpec{s::Role::gear, 4, 0}, 2);
     // Declare every original part once. Native World preserves these totals
     // through actual placement, refund and fresh identity allocation thereafter.
     result->profile.finite_parts.clear(); result->seed.issued_entities.clear();

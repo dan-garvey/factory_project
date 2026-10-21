@@ -90,7 +90,7 @@ void move_left_and_replace_gears(Fixture& fixture) {
           "The original left wheel is moved one whole tile and receives a fresh identity.");
     check(accepted(gear(fixture, {-8, 0, 0}, 2, {-8, 0, 0})) &&
           accepted(gear(fixture, {0, 0, 0}, 2, {0, 0, 0})),
-          "The two carried small cogs occupy separate source tiles.");
+          "The two refunded small cogs occupy separate source tiles.");
 }
 void ticks(Fixture& fixture, int number) {
     for (int n = 0; n < number; ++n) {
@@ -170,7 +170,7 @@ void coherent(const Fixture& fixture, const std::string& idler) {
     const auto motion = s::power_view(state.topology).mechanical;
     check(progress.mode == c::Mode::co_driven && progress.sources == 2 && progress.ready() &&
           motion.motion.at("native-part-1").rate == g::Rate{1, 1} && motion.motion.at("wheel-right").rate == g::Rate{1, 1} &&
-          motion.motion.at(idler).rate == g::Rate{-1, 2} && motion.motion.at("processor").rate == g::Rate{1, 2},
+          motion.motion.at(idler).rate == g::Rate{-1, 2} && motion.motion.at("processor").rate == g::Rate{1, 1},
           "Two diagonal small-to-large meshes coherently share the line with the expected rational idler rate.");
 }
 void misplaced_and_current_goal() {
@@ -205,7 +205,7 @@ void misplaced_and_current_goal() {
 void source_service(bool left) {
     auto fixture = fresh(left ? "service-left" : "service-right");
     smaller_sources(fixture);
-    check(accepted(gear(fixture, {-4, 4, 0}, 4, {-4, 0, 0})), "One refunded large cog completes the finite higher bridge.");
+    check(accepted(gear(fixture, {-4, 4, 0}, 4, {-4, 0, 0})), "One carried large cog completes the finite higher bridge.");
     coherent(fixture, "native-part-4");
     for (int n = 0; n < 16 && !fixture.world->snapshot().state.material.processing; ++n) ticks(fixture, 1);
     const auto cut = fixture.world->snapshot().state.material;

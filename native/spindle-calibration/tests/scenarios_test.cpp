@@ -138,10 +138,12 @@ void wrong_rate_correction() {
     const auto far = place(fixture, {4, 4, -8}, false, 2, {100, 0, 0});
     check(!accepted(far) && std::get<std::string>(far.at("reason").storage()) == "out_of_reach" && fixture.world->snapshot().state == before,
           "A remote placement refuses without spending a cog or allocating an identity.");
-    const auto wrong = place(fixture, {4, 0, -8}, false, 2, {4, 0, -8});
-    check(accepted(wrong), "The tempting direct mesh is legal finite construction.");
+    const auto wrong = place(fixture, {0, 0, -4}, false, 2, {0, 0, -4});
+    const auto wrong_end = place(fixture, {0, 0, 0}, false, 2, {0, 0, 0});
+    check(accepted(wrong) && accepted(wrong_end), "The tempting coaxial and small-cog shortcut is legal finite construction.");
     const auto wrong_id = std::get<std::string>(wrong.at("entity").storage());
-    check(c::inspect(fixture.world->snapshot().state).rate == g::Rate{-2, 1}, "The direct one-mesh shortcut has the literal negative-two rate.");
+    const auto wrong_end_id = std::get<std::string>(wrong_end.at("entity").storage());
+    check(c::inspect(fixture.world->snapshot().state).rate == g::Rate{-1, 1}, "The shortcut has the literal negative-one rate.");
     ticks(fixture, 8);
     auto state = fixture.world->snapshot().state;
     check(c::inspect(state).mode == c::Mode::wrong_rate && !c::inspect(state).complete() &&
@@ -149,7 +151,8 @@ void wrong_rate_correction() {
           "The wrong signed rate reverses the belt and leaves recoverable blanks, rather than producing plates.");
     const auto retained = state.material;
     restore(fixture);
-    check(accepted(remove(fixture, wrong_id, {4, 0, -8})), "The wrong-rate cog can be refunded without erasing loose material.");
+    check(accepted(remove(fixture, wrong_id, {0, 0, -4})) && accepted(remove(fixture, wrong_end_id, {0, 0, 0})),
+          "Both wrong-rate cogs can be refunded without erasing loose material.");
     bridge(fixture);
     state = fixture.world->snapshot().state;
     check(state.material == retained && state.issued_entities.contains(wrong_id) && c::inspect(state).ready(),
@@ -211,11 +214,14 @@ void terminal() {
         return output.str();
     };
     run("place gear 4 4 -8 z 2\n" + bridge_commands + "walk east 8\nwalk north 4\n" + collect, 0, "Complete: spindle calibrated and four plates retrieved");
-    const std::string wrong = "walk east 4\nwalk south 8\nplace gear 4 0 -8 z 2\nwalk north 8\nwalk north 4\nwalk east 2\nwait 8\n";
-    run(wrong + "inspect\nquit\n", 1, "Spindle: wrong_rate rate=-2/1");
-    run(wrong + "pickup 6 0 4\ninspect\nquit\n", 1, "Cargo raw=6 products=0/4");
-    const auto corrected = run(wrong + "walk west 2\nwalk south 8\nwalk south 4\nremove native-part-1\nplace gear 4 4 -8 z 2\n"
-        "walk north 4\nplace shaft 4 4 -4 z 2\nwalk north 4\nplace gear 4 4 0 z 2\nwalk east 8\nwalk north 4\n" + collect, 0, "Accepted: ok (native-part-4)");
+    const std::string wrong = "walk south 4\nplace gear 0 0 -4 z 2\nwalk north 4\nplace gear 0 0 0 z 2\nwalk east 6\nwalk north 4\nwait 8\n";
+    run(wrong + "inspect\nquit\n", 1, "Spindle: wrong_rate rate=-1/1");
+    const auto recovered = run(wrong + "pickup 6 0 4\ninspect\nquit\n", 1, "products=0/4");
+    const auto last_cargo = recovered.rfind("Cargo raw=");
+    check(last_cargo != std::string::npos && recovered.compare(last_cargo, 12, "Cargo raw=0 ") != 0,
+          "The terminal pickup actually moves loose raw material into the actor's cargo.");
+    const auto corrected = run(wrong + "walk west 6\nwalk south 4\nremove native-part-2\nremove native-part-1\n" + bridge_commands +
+        "walk east 8\nwalk north 4\n" + collect, 0, "Accepted: ok (native-part-5)");
     check(corrected.find("Cargo raw=0 products=4/4") != std::string::npos && corrected.find("Spindle: calibrated rate=2/1") != std::string::npos,
           "The same terminal run produces plates after correcting the bridge.");
     run("wait 32\nreset\nplace gear 4 4 0 q 2\ninspect\nquit\n", 1, "Stock source=16 collector=0 belt=0 input=0 output=0");

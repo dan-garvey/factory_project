@@ -148,8 +148,7 @@ struct Run {
 
 void build_route(Run& run, I wheel_row, I machine_row, const std::array<std::string, 3>& machines) {
     const double wheel_z = static_cast<double>(wheel_row) * 1.65;
-    const bool different_rows = wheel_row != machine_row;
-    const I small_row = different_rows ? wheel_row - 1 : wheel_row - 2;
+    const I small_row = wheel_row - 2;
     const double small_z = static_cast<double>(small_row) * 1.65;
     run.observe_at(-3.3, wheel_z);
     (void)run.action("place_gear", {{"center", V(A{V(I{-12}), V(I{4}), V(wheel_row * 4)})}, {"axis", V("x")}, {"teeth", V(I{2})}});
@@ -157,7 +156,7 @@ void build_route(Run& run, I wheel_row, I machine_row, const std::array<std::str
     (void)run.gear(-16, wheel_row * 4, "x", 4);
     run.observe_at(-3.3, wheel_z);
     const auto output = run.gear(-12, wheel_row * 4 - 4, "z", 4);
-    for (std::size_t n = different_rows ? 1 : 0; n < 6; ++n) {
+    for (std::size_t n = 0; n < 6; ++n) {
         const I x = static_cast<I>(n) * 4 - 12;
         run.observe_at(static_cast<double>(x) * 1.65 / 4.0, small_z + 1.65);
         (void)run.gear(x, small_row * 4, "z", 2);
@@ -165,8 +164,8 @@ void build_route(Run& run, I wheel_row, I machine_row, const std::array<std::str
     (void)output; // The adjacent cog axle faces already touch.
     for (std::size_t n = 0; n < machines.size(); ++n) {
         run.observe_at((static_cast<double>(n) + 1.0) * 1.65, (small_z + static_cast<double>(machine_row) * 1.65) / 2.0);
-        if (small_row != machine_row - 1)
-            (void)run.action("place_shaft", {{"center", V(A{V(static_cast<I>(n) * 4), V(I{0}), V((machine_row - 1) * 4)})},
+        for (I row = small_row + 1; row < machine_row; ++row)
+            (void)run.action("place_shaft", {{"center", V(A{V(static_cast<I>(n) * 4), V(I{0}), V(row * 4)})},
                                               {"axis", V("z")}, {"half_span", V(I{2})}});
     }
 }
@@ -244,7 +243,7 @@ void resume_and_finish(Run& run, const std::string& press, const char* layout) {
     resumed.collect_until(8);
     const auto progress = e::inspect(resumed.host, "P");
     check(progress.phase == e::Phase::ready && progress.source_at_target && progress.machines_running && progress.belt_forward &&
-          progress.placed_shafts == 3,
+          progress.placed_shafts == (std::string(layout) == "geared" ? 6 : 3),
           "The current upstream layout and eight individually carried plates satisfy native eligibility.");
     check(e::inspect(resumed.host, "Q").products == 0 && e::inspect(resumed.host, "Q").phase == e::Phase::first_shift,
           "Aggregate player stock does not award P's completed objective to Q.");
@@ -306,12 +305,12 @@ void gear_route(const V& baseline) {
     check(e::inspect(run.host, "P").machines_running, "The refunded cog supports a corrected cross-axis route.");
     const auto projection = run.host.projection();
     const auto motion = field<O>(projection, "motion");
-    check(field<I>(motion.at(collector), "numerator") == 2 && field<I>(motion.at(belt), "numerator") == -2 &&
-          field<I>(motion.at(press), "numerator") == 2, "The cross-axis cog train alternates signed machine motion and drives the belt forward: " +
+    check(field<I>(motion.at(collector), "numerator") == 1 && field<I>(motion.at(belt), "numerator") == -1 &&
+          field<I>(motion.at(press), "numerator") == 1, "The cross-axis cog train alternates signed machine motion and drives the belt forward: " +
           std::to_string(field<I>(motion.at(collector), "numerator")) + "," + std::to_string(field<I>(motion.at(belt), "numerator")) + "," + std::to_string(field<I>(motion.at(press), "numerator")));
     check(entity(run.host, "collector") == collector && entity(run.host, "belt") == belt && entity(run.host, "processor") == press &&
           same(material(baseline), material(run.host.checkpoint())), "The cog route preserves all original machine identities and the entire stocked material cut.");
-    check(e::inspect(run.host, "P").placed_gears == 9 && amount(run.host, "parts", "gear") == 1,
+    check(e::inspect(run.host, "P").placed_gears == 10 && amount(run.host, "parts", "gear") == 0,
           "Keeping the line in place rebuilds the finite cog route.");
     resume_and_finish(run, press, "geared");
 }

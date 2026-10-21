@@ -113,9 +113,8 @@ void mixed_cog_cases() {
             position[second] = 0;
             for (int i : {3, 4, 5}) topology.parts[i].geometry.center = position;
             result = s::power_view(topology);
-            check(result.mechanical.accepted() && result.mechanical.motion.at("sink") ==
-                  m::Motion{m::MotionState::rotating, {-3, 4}},
-                  "One-tile mixed cogs also mesh at an adjacent tile face with their signed ratio.");
+            check(result.mechanical.accepted() && result.mechanical.motion.at("sink").state == m::MotionState::unpowered,
+                  "Adjacent mixed-size cogs occupy separate tiles without meshing.");
             position[first] = 6;
             position[second] = 0;
             for (int i : {3, 4, 5}) topology.parts[i].geometry.center = position;
