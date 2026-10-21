@@ -44,6 +44,29 @@ struct Cargo {
     bool operator==(const Cargo&) const = default;
 };
 
+// A pure, bounded transport proposal. Each occupied slot carries one raw unit,
+// product, or whole work lot. World must validate recipe, identity and total
+// custody against its complete State before committing the returned candidate.
+inline constexpr std::size_t maximum_belt_slots = 21;
+struct BeltLane {
+    std::vector<std::optional<Cargo>> slots;
+    // Signed fractional distance retained when motion reverses or stops.
+    Quantity phase{};
+    bool operator==(const BeltLane&) const = default;
+};
+struct BeltAdvance {
+    BeltLane candidate;
+    std::vector<Cargo> delivered;
+};
+
+// Move at most one slot per unit of fixed-point distance. Positive speed moves
+// toward the last slot; negative speed moves toward the first. A full output
+// blocks the leading item and propagates backpressure without losing custody.
+// The caller supplies speed and receiver capacity from authoritative facts.
+// Invalid inputs return no proposal and leave the supplied lane untouched.
+[[nodiscard]] std::optional<BeltAdvance> advance_belt_lane(
+    const BeltLane&, Quantity signed_subticks, Quantity receiver_capacity);
+
 // These are revisable fixture values, supplied by the caller, not game content.
 struct Config {
     Quantity input_units_per_product{1};
@@ -70,6 +93,9 @@ struct State {
     WorkId next_work_id{1};
     // Loose raw units remain owned by this state even if their belt is removed.
     std::map<DropPoint, Quantity> dropped_raw{};
+    // Live custody belongs to the one canonical material State, keyed by the
+    // World-owned belt span identity. World validates matching geometry.
+    std::map<std::string, BeltLane> belt_lanes{};
     bool operator==(const State&) const = default;
 };
 

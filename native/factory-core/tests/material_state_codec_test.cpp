@@ -36,7 +36,8 @@ m::State fixture() {
 // lot and P's raw unit plus ready carried lot account for all sixteen raw units.
 Value literal() {
     return Value(Object{
-        {"schema", integer(3)}, {"initial_units", integer(16)}, {"dropped_raw", Value(Value::Array{})},
+        {"schema", integer(4)}, {"initial_units", integer(16)}, {"dropped_raw", Value(Value::Array{})},
+        {"belt_lanes", Value(Object{})},
         {"stock", Value(Object{{"source", integer(6)}, {"collector", integer(1)},
             {"belt", integer(1)}, {"input", integer(1)}, {"output", integer(1)}})},
         {"cargo", Value(Object{
@@ -107,6 +108,20 @@ int main() {
         dropped.dropped_raw.emplace(m::DropPoint{-2, 0, 4}, 2);
         round_trip(dropped); // Loose custody survives without a machine owner.
 
+        auto on_belt = state;
+        on_belt.stock.source -= 1;
+        const auto carried_lot = on_belt.cargo.at("P").work_lots.front();
+        on_belt.cargo.at("P").work_lots.clear();
+        on_belt.belt_lanes.emplace("span", m::BeltLane{{m::Cargo{1, 0, {}}, std::nullopt,
+            m::Cargo{0, 0, {carried_lot}}}, -123});
+        round_trip(on_belt);
+        auto duplicated = on_belt;
+        duplicated.cargo.at("Q").work_lots.push_back(carried_lot);
+        check(m::validate(duplicated, config, path) == m::Error::invalid_state);
+        auto lost = on_belt;
+        lost.belt_lanes.at("span").slots.front().reset();
+        check(m::validate(lost, config, path) == m::Error::invalid_state);
+
         auto ready = state;
         ready.processing->remaining_ticks = 0;
         ready.processing->completed_subticks = 0;
@@ -120,6 +135,7 @@ int main() {
         bad(edited(literal(), {"schema"}, std::nullopt), m::CodecReason::missing_field, "$.schema");
         bad(edited(literal(), {"schema"}, integer(1)), m::CodecReason::unsupported_schema, "$.schema");
         bad(edited(literal(), {"schema"}, integer(2)), m::CodecReason::unsupported_schema, "$.schema");
+        bad(edited(literal(), {"schema"}, integer(3)), m::CodecReason::unsupported_schema, "$.schema");
         bad(edited(literal(), {"dropped_raw"}, std::nullopt), m::CodecReason::missing_field, "$.dropped_raw");
         bad(edited(literal(), {"dropped_raw"}, Value(Object{})), m::CodecReason::wrong_type, "$.dropped_raw");
         const Value drop(Object{{"point", Value(Value::Array{integer(-2), integer(0), integer(4)})},

@@ -223,6 +223,24 @@ void material_collection_limits(const Value& value) {
     const auto processing = material.find("processing");
     if (processing != material.end() && processing->second.type() != values::Type::null && ++lots > 256)
         refuse(CheckpointReason::limit, "$.state.material.processing");
+    const auto lanes = material.find("belt_lanes");
+    if (lanes == material.end()) refuse(CheckpointReason::missing_field, "$.state.material.belt_lanes");
+    const auto& entries = object(lanes->second, "$.state.material.belt_lanes");
+    if (entries.size() > 256) refuse(CheckpointReason::limit, "$.state.material.belt_lanes");
+    for (const auto& [id, value] : entries) {
+        (void)id;
+        const auto& lane = object(value, "$.state.material.belt_lanes");
+        const auto found_slots = lane.find("slots");
+        if (found_slots == lane.end()) refuse(CheckpointReason::missing_field, "$.state.material.belt_lanes.slots");
+        for (const auto& item : array(found_slots->second, "$.state.material.belt_lanes.slots", materials::maximum_belt_slots)) {
+            if (item.type() == values::Type::null) continue;
+            const auto& contents = object(item, "$.state.material.belt_lanes.item");
+            const auto found_work = contents.find("work_lots");
+            if (found_work == contents.end()) refuse(CheckpointReason::missing_field, "$.state.material.belt_lanes.item.work_lots");
+            lots += array(found_work->second, "$.state.material.belt_lanes.item.work_lots", 1).size();
+            if (lots > 256) refuse(CheckpointReason::limit, "$.state.material.belt_lanes.item.work_lots");
+        }
+    }
 }
 }  // namespace
 
@@ -238,7 +256,7 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
         for (const auto& [actor, kit] : snapshot.state.kits) kits.emplace(actor, kit_value(kit));
         for (const auto& [id, generation] : snapshot.state.issued_entities) issued.emplace(id, Value(generation));
         Value output(Object{
-            {"schema", Value(Integer{3})}, {"profile", profile_value(profile)},
+            {"schema", Value(Integer{4})}, {"profile", profile_value(profile)},
             {"revision", Value(snapshot.revision)}, {"history", std::move(*history.value)},
             {"state", Value(Object{{"material", std::move(std::get<Value>(material))},
                 {"topology", topology_value(snapshot.state.topology)}, {"kits", Value(std::move(kits))},
@@ -268,7 +286,7 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
     try {
         Budget{}.visit(value);
         const auto& root = fields(value, "$", {"schema", "profile", "revision", "history", "state"});
-        if (integer(root, "schema", "$") != 3) refuse(CheckpointReason::unsupported_schema, "$.schema");
+        if (integer(root, "schema", "$") != 4) refuse(CheckpointReason::unsupported_schema, "$.schema");
         if (const auto difference = values::typed_difference(profile_value(profile), root.at("profile")))
             refuse(CheckpointReason::profile_mismatch, "$.profile" + difference->path.substr(1));
         Snapshot candidate;
