@@ -34,7 +34,7 @@ struct Bounds { authority::Point center, half; };
 Bounds part_bounds(const world::Profile& profile, const stationary::PlacedPart& part) {
     const auto& c = part.geometry.center;
     const auto x = c[0] * height_step, z = c[2] * height_step, floor = c[1] * height_step;
-    if (part.role == Role::waterwheel && !profile.water.empty()) {
+    if (part.role == Role::waterwheel) {
         const auto radius = profile.wheel_radius * part.wheel_tiles * height_step / 100.0;
         return {{x, floor + anchor_height, z},
             {part.geometry.axis == mechanics::Axis::x ? 0.3 : radius, radius,
@@ -574,7 +574,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                     return refuse("actor_occupied");
         for (const auto& part : snapshot.state.topology.parts) {
             const auto& center = part.geometry.center;
-            if (part.role == Role::waterwheel && !profile_.water.empty()) {
+            if (part.role == Role::waterwheel) {
                 for (auto px = std::min(*x, *end_x); px <= std::max(*x, *end_x); ++px)
                     for (auto pz = std::min(*z, *end_z); pz <= std::max(*z, *end_z); ++pz)
                         if (overlap(part_bounds(profile_, part), foundation_bounds({{4 * px, *level, 4 * pz}, 1})))
@@ -609,34 +609,32 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             *kind_name != "wheel" && *kind_name != "gear") return refuse("unknown_kind");
         if (wire.contains("tiles") && (!tiles || *tiles < 1 || *tiles > mechanics::maximum_dimension)) return refuse("invalid_wheel_size");
         if (*kind_name == "collector" && *x != 0) return refuse("not_at_seam");
-        if (*kind_name == "wheel" && profile_.water.empty() && *x != -1) return refuse("not_at_stream");
-        if ((*kind_name == "collector" || (*kind_name == "wheel" && profile_.water.empty())) && level && *level != 0)
-            return refuse(*kind_name == "collector" ? "not_at_seam" : "not_at_stream");
+        if (*kind_name == "collector" && level && *level != 0) return refuse("not_at_seam");
         const mechanics::Point center{4 * *x, level ? *level : 0, 4 * *z};
         const auto selected_axis = axis ? *axis_value(*axis) : mechanics::Axis::x;
         const stationary::PlacedPart proposed{{"proposed", mechanics::Kind::hub, center, selected_axis, 0, 0},
             1, *kind_name == "wheel" ? Role::waterwheel : Role::collector, tiles ? *tiles : 1};
-        if (*kind_name == "wheel" && !profile_.water.empty())
+        if (*kind_name == "wheel")
             if (const auto* refusal = wheel_site_refusal(center, selected_axis, tiles ? *tiles : 1)) return refuse(refusal);
         for (const auto& [id, foundation] : snapshot.state.foundations) {
             (void)id;
-            if (*kind_name == "wheel" && !profile_.water.empty() &&
+            if (*kind_name == "wheel" &&
                 overlap(part_bounds(profile_, proposed), foundation_bounds(foundation))) return refuse("occupied");
             if (foundation.center[0] == center[0] && foundation.center[2] == center[2] &&
                 foundation.center[1] > center[1] && foundation.center[1] - 4 < center[1] + 4)
                 return refuse("occupied");
         }
-        if (*kind_name != "gear" && !(*kind_name == "wheel" && !profile_.water.empty())) {
+        if (*kind_name != "gear" && !(*kind_name == "wheel")) {
             if (const auto* refusal = machine_site_refusal(snapshot.state, center)) return refuse(refusal);
         }
         for (const auto& part : snapshot.state.topology.parts) {
             if (part.geometry.center == center) return refuse("occupied");
-            if (!profile_.water.empty() && *kind_name != "gear" && part.role != Role::gear && part.role != Role::shaft &&
+            if (*kind_name != "gear" && part.role != Role::gear && part.role != Role::shaft &&
                 (*kind_name == "wheel" || part.role == Role::waterwheel) &&
                 overlap(part_bounds(profile_, proposed), part_bounds(profile_, part))) return refuse("occupied");
         }
         const auto is_gear = *kind_name == "gear";
-        const bool water_wheel = *kind_name == "wheel" && !profile_.water.empty();
+        const bool water_wheel = *kind_name == "wheel";
         const auto radius = profile_.wheel_radius * (tiles ? *tiles : 1) * height_step / 100.0;
         const authority::Point at{*x * pitch, center[1] * pitch / 4 +
             (is_gear || water_wheel ? anchor_height : machine_center_height), *z * pitch};
@@ -873,9 +871,8 @@ Host::Decoded Host::decode(const Value& input) const {
         } else if (part.role == Role::gear) {
             if (part.geometry.teeth != 2 && part.geometry.teeth != 4) return {nullptr, "incompatible_geometry"};
         } else if (center[0] % 4 != 0 || center[2] % 4 != 0 ||
-            (part.role == Role::collector && (center[0] != 0 || center[1] != 0)) ||
-            (part.role == Role::waterwheel && profile_.water.empty() && (center[0] != -4 || center[1] != 0))) return {nullptr, "incompatible_geometry"};
-        if (part.role == Role::waterwheel && !profile_.water.empty()) {
+            (part.role == Role::collector && (center[0] != 0 || center[1] != 0))) return {nullptr, "incompatible_geometry"};
+        if (part.role == Role::waterwheel) {
             if (const auto* refusal = wheel_site_refusal(center, part.geometry.axis, part.wheel_tiles)) return {nullptr, refusal};
             for (const auto& [id, foundation] : snapshot.state.foundations) {
                 (void)id;

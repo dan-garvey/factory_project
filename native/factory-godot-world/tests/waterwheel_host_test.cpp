@@ -34,6 +34,13 @@ O place(const char* id, I x, I level = 0, const char* axis = "x") {
 }
 int main() {
     try {
+        Host dry_profile;
+        check(accepted(dry_profile.initialize("water-test", {"P"})) &&
+              accepted(dry_profile.configure_terrain(factory::godot_world::tests::flat_site())) &&
+              accepted(dry_profile.publish_actor("P", {V(0.0), V(1.0), V(1.65)}, 1)), "bind a dry site");
+        const auto no_water = dry_profile.command("P", place("no-water", -1));
+        check(!accepted(no_water) && field<std::string>(no_water, "reason") == "not_at_stream",
+              "the old dry column cannot create a wheel without a water field");
         Host host;
         check(accepted(host.initialize("water-test", {"P"})), "initialize");
         check(accepted(host.configure_terrain(site(200))), "bind trusted flow");

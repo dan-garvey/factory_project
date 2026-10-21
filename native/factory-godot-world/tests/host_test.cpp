@@ -69,15 +69,18 @@ V alter_wire(const V& saved, const std::string& request_id, const std::string& k
 void historical_translation() {
     Host host;
     check(accepted(host.initialize("host-boundary", {"P"})), "The finite test World initializes.");
-    check(accepted(host.configure_terrain(factory::godot_world::tests::flat_site())), "The test binds its explicit synthetic terrain.");
-    check(accepted(host.publish_actor("P", {V(0.8), V(1.0), V(1.65)}, 1)), "The disclosed synthetic observation is ready.");
+    check(accepted(host.configure_terrain(factory::godot_world::tests::channel_site())), "The test binds its explicit synthetic terrain.");
+    check(accepted(host.publish_actor("P", {V(1.65), V(1.0), V(1.65)}, 1)), "The disclosed synthetic observation is ready.");
     const auto place = [&](const char* kind, I x, const char* id) {
         auto wire = request("place", id);
         wire.emplace("kind", V(kind)); wire.emplace("cell", V(A{V(x), V(I{0})}));
         const auto reply = host.command("P", wire);
-        check(accepted(reply), "The literal starter placement succeeds.");
+        check(accepted(reply), (std::string("The starter placement succeeds: ") + kind + ", " + field<std::string>(reply, "reason")).c_str());
         return field<std::string>(reply, "entity");
     };
+    auto base = request("place_foundation", "collector-base");
+    base.emplace("cell", V(A{V(I{0}), V(I{0})})); base.emplace("level", V(I{0}));
+    check(accepted(host.command("P", base)), "The synthetic stream bank supports a collector foundation.");
     const auto collector = place("collector", 0, "collector");
     const auto belt = place("belt", 1, "belt");
     const auto press = place("processor", 2, "press");
@@ -121,7 +124,7 @@ void historical_translation() {
     reject("collector", "kind", V("belt"));
     Host fresh;
     check(accepted(fresh.initialize("new-host", {"P"})), "A separate fresh Host initializes.");
-    check(accepted(fresh.configure_terrain(factory::godot_world::tests::flat_site())), "The fresh Host binds the same synthetic terrain.");
+    check(accepted(fresh.configure_terrain(factory::godot_world::tests::channel_site())), "The fresh Host binds the same synthetic terrain.");
     check(accepted(fresh.restore_checkpoint(saved)), "The unchanged complete checkpoint restores.");
     check(!factory::values::typed_difference(saved, fresh.checkpoint()), "Restore preserves the original typed history and state.");
     const auto retry = fresh.command("P", recovery);

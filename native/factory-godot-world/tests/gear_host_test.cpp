@@ -71,7 +71,7 @@ void observe(Host& host, double x, double z, I epoch) {
 void finite_oriented_train_and_restore() {
     Host host;
     check(accepted(host.initialize("cog-api", {"P", "Q"})), "The original finite profile initializes.");
-    check(accepted(host.configure_terrain(factory::godot_world::tests::flat_site())), "The test binds explicit synthetic terrain.");
+    check(accepted(host.configure_terrain(factory::godot_world::tests::channel_site())), "The test binds explicit synthetic terrain.");
     observe(host, -1.65, 3.3, 1);
     const auto specs = field<O>(host.projection(), "part_specifications");
     bool saw_gear = false, saw_large = false;
@@ -84,14 +84,18 @@ void finite_oriented_train_and_restore() {
     check(saw_large, "The native starter kit exposes one finite large cog to the UI.");
     for (const auto& entry : std::get<A>(specs.at("Q").storage()))
         check(field<I>(entry, "count") == 0, "An empty actor kit cannot borrow the other actor's parts.");
-    const auto wheel = create(host, machine("wheel", -1, "wheel"));
-    const auto collector = create(host, machine("collector", 0, "collector"));
-    const auto a = create(host, gear(-4, 4, 4, "gear-A"));
-    const auto original_b = gear(0, 4, 4, "gear-B");
+    auto base = wire("place_foundation", "collector-base");
+    base.emplace("cell", V(A{V(I{0}), V(I{1})})); base.emplace("level", V(I{0}));
+    check(accepted(host.command("P", base)), "The synthetic stream bank supports a collector foundation.");
+    const auto wheel = create(host, machine("wheel", -1, "wheel", "z"));
+    const auto collector = create(host, machine("collector", 0, "collector", "z"));
+    observe(host, 0, 0, 2);
+    const auto a = create(host, gear(-4, 0, 8, "gear-A", "z"));
+    const auto original_b = gear(0, 0, 8, "gear-B", "z");
     const auto b = create(host, original_b);
     check(accepted(host.command("P", connection(wheel, a, "shaft-A"))) &&
           accepted(host.command("P", connection(b, collector, "shaft-B"))),
-          "Two finite vertical shafts join actual machine and gear identifiers.");
+          "Two finite Z-axis shafts join actual machine and gear identifiers.");
     auto power = wire("set_power", "start"); power.emplace("active", V(true));
     check(accepted(host.command("P", power)), "The source enables the actual geometry train.");
     check(field<I>(motion(host, a), "numerator") == 1 && field<I>(motion(host, a), "denominator") == 1 &&
@@ -109,27 +113,27 @@ void finite_oriented_train_and_restore() {
     check(accepted(host.command("P", target("remove", b, "remove-B"))),
           "An individual gear can be removed while the source stays enabled.");
     check(!field<bool>(host.projection(), "powered"), "An orphaned shaft cannot invent a source connection.");
-    const auto misaligned = create(host, gear(1, 4, 4, "misaligned"));
+    const auto misaligned = create(host, gear(1, 0, 8, "misaligned", "z"));
     check(!field<bool>(host.projection(), "powered"), "A one-grid-unit displacement cannot mesh or power the collector.");
     check(accepted(host.command("P", target("remove", misaligned, "remove-misaligned"))),
           "The actual misplaced part returns before reconstruction.");
-    const auto rebuilt = create(host, gear(0, 4, 4, "rebuild-B"));
+    const auto rebuilt = create(host, gear(0, 0, 8, "rebuild-B", "z"));
     check(rebuilt != b && field<bool>(host.projection(), "powered") &&
           field<I>(motion(host, rebuilt), "numerator") == -1,
           "Correct reconstruction restores geometric transmission with a new identity.");
-    observe(host, 20, 20, 2);
+    observe(host, 20, 20, 3);
     const auto retry = host.command("P", original_b);
     check(accepted(retry) && field<bool>(retry, "duplicate") && field<std::string>(retry, "entity") == b,
           "The original gear request replays before present pose and rebuilt-target lookup.");
     auto changed = original_b; changed.at("axis") = V("x");
     check(field<std::string>(host.command("P", changed), "reason") == "request_reuse",
           "Changing an old gear's orientation cannot retarget its cached request.");
-    observe(host, -1.65, 3.3, 3);
+    observe(host, 0, 0, 4);
     const auto saved = host.checkpoint();
     check(accepted(host.validate_checkpoint(saved)), "The complete oriented train and original wire histories validate.");
     Host fresh;
     check(accepted(fresh.initialize("fresh", {"P", "Q"})) &&
-              accepted(fresh.configure_terrain(factory::godot_world::tests::flat_site())) &&
+              accepted(fresh.configure_terrain(factory::godot_world::tests::channel_site())) &&
               accepted(fresh.restore_checkpoint(saved)),
           "A fresh native Host restores the original profile without resetting its kit.");
     check(!factory::values::typed_difference(saved, fresh.checkpoint()),
@@ -200,13 +204,17 @@ void finite_large_cog() {
 void perpendicular_belt_line() {
     Host host;
     check(accepted(host.initialize("cog-api", {"P", "Q"})) &&
-              accepted(host.configure_terrain(factory::godot_world::tests::flat_site())),
+              accepted(host.configure_terrain(factory::godot_world::tests::channel_site())),
           "The perpendicular-line Host binds its synthetic terrain.");
+    observe(host, -1.65, 3.3, 1);
+    auto base = wire("place_foundation", "line-collector-base");
+    base.emplace("cell", V(A{V(I{0}), V(I{1})})); base.emplace("level", V(I{0}));
+    check(accepted(host.command("P", base)), "The synthetic line has a supported collector.");
     const std::array<const char*, 4> roles{"wheel", "collector", "belt", "processor"};
     std::array<std::string, 4> hubs, cogs;
     for (std::size_t n = 0; n < roles.size(); ++n) {
         const I x = static_cast<I>(n) - 1;
-        observe(host, static_cast<double>(x) * 1.65, 0, static_cast<I>(n) + 1);
+        observe(host, static_cast<double>(x) * 1.65, 0, static_cast<I>(n) + 2);
         const auto machine_id = "line-machine-" + std::to_string(n);
         const auto gear_id = "line-gear-" + std::to_string(n);
         const auto shaft_id = "line-shaft-" + std::to_string(n);
@@ -215,7 +223,7 @@ void perpendicular_belt_line() {
         check(accepted(host.command("P", connection(hubs[n], cogs[n], shaft_id.c_str()))),
               "The actor connects each real machine to its perpendicular cog with one carried shaft.");
     }
-    observe(host, -1.65, 0, 5);
+    observe(host, -1.65, 0, 6);
     auto power = wire("set_power", "line-start"); power.emplace("active", V(true));
     check(accepted(host.command("P", power)), "The actor enables the source for the perpendicular line.");
     const auto projected = host.projection();
@@ -230,10 +238,10 @@ void perpendicular_belt_line() {
     const auto saved = host.checkpoint();
     Host fresh;
     check(accepted(fresh.initialize("fresh", {"P", "Q"})) &&
-              accepted(fresh.configure_terrain(factory::godot_world::tests::flat_site())) &&
+              accepted(fresh.configure_terrain(factory::godot_world::tests::channel_site())) &&
               accepted(fresh.restore_checkpoint(saved)) && !factory::values::typed_difference(saved, fresh.checkpoint()),
           "The full perpendicular route and finite kit survive fresh Host restoration.");
-    observe(host, 1.65, 0, 6);
+    observe(host, 1.65, 0, 7);
     check(accepted(host.command("P", target("remove", cogs[2], "line-remove-belt-cog"))) &&
               field<std::string>(motion(host, hubs[2]), "state") != "rotating",
           "Removing the belt cog breaks belt power and returns the physical part.");

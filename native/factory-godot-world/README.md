@@ -246,13 +246,13 @@ shafts appear in `transmission_parts`, with integer `axis` values 0, 1 and 2 for
 X, Y and Z. Use `engagements` and exact signed `motion` for transmission facts;
 the historical `drive_links` shortcut describes machine-to-machine shafts only.
 
-A historical synthetic profile without a water field places a Y-axis wheel at cell `[-1, 1]`, a Y-axis
-collector at `[0, 1]`, and Y-axis gears at `[-4, 4, 4]` and `[0, 4, 4]`. Join each
-machine to the gear above it using a real vertical shaft. The equal gears mesh
-and reverse rotation. Moving the second gear by one grid unit breaks engagement.
-This fixture does not describe current river placement. The focused native unit verifies this geometry, running removal/rebuilding,
-finite kit, historical retries and exact typed checkpoint restore. Its actor
-observations and tick are synthetic unit inputs, not physical gameplay evidence.
+A synthetic channel fixture places a Z-axis wheel at cell `[-1, 1]`, a Z-axis
+collector at `[0, 1]`, and Z-axis gears at `[-4, 0, 8]` and `[0, 0, 8]`. Each
+machine joins its gear by a real Z-axis shaft; equal gears mesh and reverse
+rotation. The fixture supplies explicit water velocity and a collector foundation.
+Its unit tests cover running removal and rebuilding, the finite kit, historical
+retries and typed checkpoint restore. The site and actor observations are
+synthetic inputs, not physical gameplay evidence.
 
 Current material stepping treats either rotating direction as powered and does
 not scale production by angular rate. The signed motion is real kinematic output,
