@@ -134,29 +134,38 @@ func run_case() -> void:
 		return
 	var ray := PhysicsRayQueryParameters3D.create(Vector3(30, 30, 1.65), Vector3(30, -10, 1.65), 1)
 	var hit: Dictionary = view.actor_world.get_world_3d().direct_space_state.intersect_ray(ray)
-	if not verify(not hit.is_empty() and absf(hit.position.y - 6.222421626752348) < 0.00001,
-		"The actual native surface ray retains the original emitted-triangle counterexample height"):
+	if not verify(not hit.is_empty() and hit.position.y > 5.5
+		and absf(hit.position.y - Surface.height_at(30.0, 1.65)) < 0.00001,
+		"The actual native ray agrees with the refined emitted hill rather than the analytical surface"):
 		finish()
 		return
 	facts.literal_hill = {"ray": [hit.position.x, hit.position.y, hit.position.z],
 		"actor_Q": view.actor_world.diagnostics("Q").duplicate(true)}
 	if not verify(view.actor_world.set_control("P", Vector2.RIGHT, false).accepted,
-		"The trusted ordinary motor receives a walking direction from the flat pad"):
+		"The trusted ordinary motor receives a walking direction from the natural clearing"):
 		finish()
 		return
 	var reached := false
-	var jumped_curb := false
+	var crossed_clearing := false
+	var jumped_rock := false
 	for frame in range(1000):
 		await physics_frame
 		if not view.faults.is_empty():
 			break
 		var sample: Dictionary = view.actor_world.diagnostics("P").sample
 		facts.steps.append(sample.duplicate(true))
-		if not jumped_curb and sample.position[0] >= 7.6 and sample.on_floor:
-			jumped_curb = true
-			if not verify(view.actor_world.set_control("P", Vector2.RIGHT, true).accepted,
-				"The ordinary jump motor crosses the actual visible foundry curb rather than ignoring its collision"):
-				break
+		if sample.position[0] >= 8.7 and sample.on_floor:
+			crossed_clearing = true
+		var body: CharacterBody3D = view.actor_world.bodies.P
+		if crossed_clearing and not jumped_rock and sample.on_floor:
+			for index in range(body.get_slide_collision_count()):
+				var contact := body.get_slide_collision(index)
+				var obstacle: Object = contact.get_collider()
+				if obstacle is StaticBody3D and String(obstacle.name).begins_with("rock_"):
+					facts.natural_obstacle = {"name": String(obstacle.name),
+						"sample": sample.duplicate(true), "normal": contact.get_normal()}
+					jumped_rock = view.actor_world.set_control("P", Vector2.RIGHT, true).accepted
+					break
 		if not verify(sample.registered and sample.position == authority.projection().actors.P.position,
 			"Native movement and the authority bridge retain the same actual three-coordinate pose"):
 			break
@@ -164,7 +173,8 @@ func run_case() -> void:
 			reached = true
 			break
 	view.actor_world.release_control("P")
-	if not verify(reached and jumped_curb and view.faults.is_empty(), "The physical actor walks and jumps the visible curb to reach the hillside without a position reset"):
+	if not verify(reached and crossed_clearing and jumped_rock and view.faults.is_empty(),
+		"The actor crosses the clearing without a curb, then jumps a recorded real rock and reaches the hillside without a reset"):
 		finish()
 		return
 	if not (await until(func() -> bool: return grounded(view.actor_world), 120, "Released actors remain supported by the physical site")):
