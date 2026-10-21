@@ -13,7 +13,7 @@ cc_library(
 cc_test(
     name = "challenge_test",
     srcs = ["tests/challenge_test.cpp"],
-    deps = [":challenge"],
+    deps = [":challenge", "//native/factory-godot-world:test_site"],
     size = "small",
 )
 
