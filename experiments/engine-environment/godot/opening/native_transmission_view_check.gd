@@ -1144,7 +1144,7 @@ func _collision_body_lifecycle() -> void:
 func _belt_actor_transport() -> void:
 	var authority := PhysicalProjection.new()
 	authority.state = {"options": {"native": true, "physical": true}, "entities": {}, "foundations": {},
-		"actors": {"P": {"position": [0.0, 4.85, 0.0], "ready": false, "native_epoch": 0}},
+		"actors": {"P": {"position": [0.0, 5.175, 0.0], "ready": false, "native_epoch": 0}},
 		"transmission_parts": {
 			"left": {"kind": "shaft", "center": [0, 8, 0], "axis": 2, "half_span": 2},
 			"right": {"kind": "shaft", "center": [8, 8, 0], "axis": 2, "half_span": 2}},
@@ -1174,6 +1174,24 @@ func _belt_actor_transport() -> void:
 	verify(not physical.failures.has("P") and physical.bodies.P.motion_enabled, "The native actor registers without penetrating the belt.")
 	var forward: float = physical.bodies.P.position.x
 	verify(forward > 0.15 and absf(physical.bodies.P.position.z) < 0.05, "A powered belt carries the uncommanded actor in the cargo direction.")
+	var supported_cut: Dictionary = physical.checkpoint_status()
+	verify(supported_cut.accepted and supported_cut.reason == "native_checkpoint_ready", "A capsule supported by the belt can pass checkpoint admission.")
+	var body: CharacterBody3D = physical.bodies.P
+	var original_pose := body.global_transform
+	body.set_physics_process(false)
+	var embedded_pose := original_pose
+	embedded_pose.origin = Vector3(1.65, 3.8, 0.0)
+	body.global_transform = embedded_pose
+	await physics_frame
+	await physics_frame
+	var blocked_cut: Dictionary = physical.checkpoint_status()
+	verify(not blocked_cut.accepted and blocked_cut.reason == "actor_pose_not_settled", "Checkpoint admission rejects a capsule embedded in the belt.")
+	verify(body.global_transform == embedded_pose and PhysicsServer3D.body_get_state(body.get_rid(), PhysicsServer3D.BODY_STATE_TRANSFORM) == embedded_pose, "The rejected checkpoint does not move the capsule.")
+	body.global_transform = original_pose
+	await physics_frame
+	await physics_frame
+	verify(physical.checkpoint_status().accepted, "Checkpoint admission succeeds again after restoring the supported pose.")
+	body.set_physics_process(true)
 	authority.state.motion.left.state = "stopped"
 	for frame in 10:
 		await physics_frame
