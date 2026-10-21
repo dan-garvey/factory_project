@@ -309,6 +309,17 @@ Open question: which forms of feedstock and capacity keep the infrastructure rou
 
 Early node-based extraction permanently exhausts its local deposit. Repeating discovery and extraction remains an available approach. More elaborate systems eventually automate the whole supply problem.
 
+The user wants the opening's mineable resource reworked as a recognizable finite
+deposit with substantially more stock than the original sixteen-unit fixture.
+Its mineral surface and the collector's extraction footprint must agree. A
+collector may sit a bounded vertical distance above that surface, allowing a
+leveling foundation between it and ore on sloped ground. Foundations and machines
+retain the same global height grid and origin; placing or removing a foundation
+does not move, refill or duplicate the deposit. The choice between one larger
+collector per node and multiple collectors covering mineral tiles remains open.
+Initial reserve size, footprint and extraction depth are reversible tuning
+choices, not permanent world or progression rules.
+
 This makes the transition to lasting supply a progression choice. Lasting-supply routes unlock through technology milestones after initial extraction has been established, rather than being available from the beginning. Node exhaustion creates an incentive to pursue them; it is not an unlock trigger or a timing condition. The exact chapter, prerequisites, and pacing remain open.
 
 Balance deposit lifetime against those progression opportunities without assuming every player exhausts a node at the same point. The game should offer a credible path to solving supply before replacement work becomes overwhelming.

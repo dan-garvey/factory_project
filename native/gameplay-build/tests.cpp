@@ -140,13 +140,28 @@ void retain_unowned_temporary(const fs::path& base) {
     check(read(temporary) == "pre-existing file must remain\n" && read(f.options.launcher) == f.original,
           "Refusal never deletes a file this attempt did not create.");
 }
+void dependency_advances(const fs::path& base) {
+    for (const auto* dependency : {"mineral-site", "waterwheel"}) {
+        Fixture f(base);
+        const auto clone = f.root / "build-checkout";
+        command({"/usr/bin/git", "clone", "--no-hardlinks", f.options.main_checkout.string(), clone.string()});
+        f.options.checkout = clone;
+        const auto before = gb::snapshot(f.options);
+        write(f.options.main_checkout / "native" / dependency / "include/profile.hpp", "changed dependency\n");
+        commit(f.options.main_checkout);
+        refuses([&] { gb::complete(f.options, before, 0, f.binary); },
+                "A changed mining or waterwheel dependency refuses a stale library.");
+        check(read(f.options.launcher) == f.original && fs::is_empty(f.options.install_root),
+              "Dependency refusal preserves the current launcher and installation.");
+    }
+}
 } // namespace
 int main() {
     try {
         const auto* temp = std::getenv("TEST_TMPDIR");
         if (!temp) throw std::runtime_error("Use Bazel's private test temporary directory.");
         const auto root = fs::canonical(temp);
-        success_and_failure(root); refusals(root); main_advances(root); retain_unowned_temporary(root);
+        success_and_failure(root); refusals(root); main_advances(root); retain_unowned_temporary(root); dependency_advances(root);
         std::cout << "{\"status\":\"pass\",\"checks\":" << checks << ",\"game_launches\":0}\n";
         return 0;
     } catch (const std::exception& error) {
