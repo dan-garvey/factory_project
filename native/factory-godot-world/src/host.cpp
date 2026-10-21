@@ -629,10 +629,13 @@ const char* Host::machine_site_refusal(const world::State& state, const mechanic
     return nullptr;
 }
 
-const char* Host::transmission_obstacle_refusal(const mechanics::Point& center, mechanics::Axis axis, bool gear) const {
+const char* Host::transmission_site_refusal(const mechanics::Point& center, mechanics::Axis axis, bool gear) const {
     const authority::Point at{center[0] * height_step, anchor_height + center[1] * height_step, center[2] * height_step};
     const auto axle = gear_axle_half_extents(axis);
     const auto check = [&](const authority::Point& half) -> const char* {
+        const auto ground = terrain_range(at[0], at[2], half[0], half[2]);
+        if (!ground) return "terrain_unavailable";
+        if (ground->second > at[1] - half[1] + 1e-9) return "site_occupied";
         if (site_blocked({at[0] - half[0], at[1] - half[1], at[2] - half[2]},
                          {at[0] + half[0], at[1] + half[1], at[2] + half[2]})) return "site_occupied";
         return nullptr;
@@ -787,6 +790,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             (wire.contains("level") && (!level || *level < -1000000 || *level > 1000000))) return refuse("invalid_cell");
         if (*kind_name != "collector" && *kind_name != "belt" && *kind_name != "processor" &&
             *kind_name != "wheel" && *kind_name != "gear") return refuse("unknown_kind");
+        if (*kind_name == "gear" && level && *level % 4 != 0) return refuse("invalid_cell");
         if (*kind_name != "gear" && level && *level % 4 != 0) return refuse("unaligned_elevation");
         if (wire.contains("tiles") && (!tiles || *tiles < 3 || *tiles > mechanics::maximum_dimension)) return refuse("invalid_wheel_size");
         if (*kind_name == "belt" && axis && *axis == "y") return refuse("invalid_belt_axis");
@@ -817,7 +821,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         }
         const auto is_gear = *kind_name == "gear";
         if (is_gear)
-            if (const auto* refusal = transmission_obstacle_refusal(center, selected_axis, true)) return refuse(refusal);
+            if (const auto* refusal = transmission_site_refusal(center, selected_axis, true)) return refuse(refusal);
         const bool water_wheel = *kind_name == "wheel";
         const auto radius = profile_.wheel_radius * (tiles ? *tiles : 3) * height_step / 100.0;
         const authority::Point at{*x * pitch, center[1] * pitch / 4 +
@@ -848,8 +852,10 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         if (!center) return refuse("invalid_center");
         if (!selected_axis) return refuse("invalid_axis");
         if (!span || *span != 2) return refuse("invalid_shaft");
+        if (std::any_of(center->begin(), center->end(), [](Integer coordinate) { return coordinate % 4 != 0; }))
+            return refuse("invalid_cell");
         const auto verified_axis = selected_axis.value_or(mechanics::Axis::x);
-        if (const auto* refusal = transmission_obstacle_refusal(*center, verified_axis, false)) return refuse(refusal);
+        if (const auto* refusal = transmission_site_refusal(*center, verified_axis, false)) return refuse(refusal);
         const authority::Point at{(*center)[0] * pitch / 4, anchor_height + (*center)[1] * pitch / 4, (*center)[2] * pitch / 4};
         authority::Point half{0.1, 0.1, 0.1};
         half[static_cast<std::size_t>(verified_axis)] = *span * pitch / 4;
@@ -870,8 +876,10 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         if (!center) return refuse("invalid_center");
         if (!selected_axis) return refuse("invalid_axis");
         if (!teeth || *teeth < 1 || *teeth > mechanics::maximum_dimension) return refuse("invalid_gear");
+        if (std::any_of(center->begin(), center->end(), [](Integer coordinate) { return coordinate % 4 != 0; }))
+            return refuse("invalid_cell");
         const auto verified_axis = selected_axis.value_or(mechanics::Axis::x);
-        if (const auto* refusal = transmission_obstacle_refusal(*center, verified_axis, true)) return refuse(refusal);
+        if (const auto* refusal = transmission_site_refusal(*center, verified_axis, true)) return refuse(refusal);
         const authority::Point at{(*center)[0] * pitch / 4, anchor_height + (*center)[1] * pitch / 4, (*center)[2] * pitch / 4};
         const auto half = gear_half_extents(verified_axis, *teeth);
         if (intersects_belt(snapshot.state, {at, half})) return refuse("occupied");
@@ -1166,7 +1174,7 @@ Host::Decoded Host::decode(const Value& input) const {
         } else if (part.role != Role::shaft && part.role != Role::gear)
             if (const auto* refusal = machine_site_refusal(snapshot.state, center)) return {nullptr, refusal};
         if (part.role == Role::shaft || part.role == Role::gear)
-            if (const auto* refusal = transmission_obstacle_refusal(center, part.geometry.axis, part.role == Role::gear))
+            if (const auto* refusal = transmission_site_refusal(center, part.geometry.axis, part.role == Role::gear))
                 return {nullptr, refusal};
     }
     for (const auto& link : snapshot.state.topology.material_links) {
