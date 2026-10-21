@@ -23,6 +23,146 @@ class PaddleSessionFacts extends RefCounted:
 	func is_ready() -> bool:
 		return ready
 
+func foot_polygon_area(points: PackedVector2Array) -> float:
+	var area := 0.0
+	for n in range(points.size()):
+		area += points[n].cross(points[(n + 1) % points.size()])
+	return absf(area) * 0.5
+
+func foot_clip_triangle(subject: PackedVector2Array, clip: PackedVector2Array) -> PackedVector2Array:
+	var result := subject
+	var orientation := 1.0 if (clip[1] - clip[0]).cross(clip[2] - clip[0]) > 0 else -1.0
+	for edge_index in range(3):
+		if result.is_empty():
+			break
+		var a := clip[edge_index]
+		var edge := clip[(edge_index + 1) % 3] - a
+		var next := PackedVector2Array()
+		var previous := result[result.size() - 1]
+		var previous_side := orientation * edge.cross(previous - a)
+		for point in result:
+			var side := orientation * edge.cross(point - a)
+			if (side >= 0.0) != (previous_side >= 0.0):
+				next.append(previous.lerp(point, previous_side / (previous_side - side)))
+			if side >= 0.0:
+				next.append(point)
+			previous = point
+			previous_side = side
+		result = next
+	return result
+
+func foot_mesh_triangles(mesh: Mesh, pose: Transform3D) -> Array[PackedVector3Array]:
+	var arrays := mesh.surface_get_arrays(0)
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX] if arrays[Mesh.ARRAY_INDEX] != null else PackedInt32Array()
+	var count := vertices.size() if indices.is_empty() else indices.size()
+	var triangles: Array[PackedVector3Array] = []
+	for n in range(0, count, 3):
+		var triangle := PackedVector3Array()
+		for corner in range(3):
+			triangle.append(pose * vertices[n + corner if indices.is_empty() else indices[n + corner]])
+		triangles.append(triangle)
+	return triangles
+
+func foot_seating(foot: MeshInstance3D, stand: MeshInstance3D, raised: float = 0.0) -> Dictionary:
+	var pose := foot.transform
+	pose.origin.y += raised
+	var feet := foot_mesh_triangles(foot.mesh, pose)
+	var casting := foot_mesh_triangles(stand.mesh, stand.transform)
+	var bottom := INF
+	for triangle in feet:
+		for point in triangle:
+			bottom = minf(bottom, point.y)
+	var area := 0.0
+	var supported := 0.0
+	var penetration := 0.0
+	for triangle in feet:
+		if absf(triangle[0].y - bottom) > 0.000001 or absf(triangle[1].y - bottom) > 0.000001 or absf(triangle[2].y - bottom) > 0.000001:
+			continue
+		var face := PackedVector2Array([Vector2(triangle[0].x, triangle[0].z),
+			Vector2(triangle[1].x, triangle[1].z), Vector2(triangle[2].x, triangle[2].z)])
+		area += foot_polygon_area(face)
+		for support in casting:
+			var projected := PackedVector2Array([Vector2(support[0].x, support[0].z),
+				Vector2(support[1].x, support[1].z), Vector2(support[2].x, support[2].z)])
+			if foot_polygon_area(projected) < 0.000000000001:
+				continue
+			var intersection := foot_clip_triangle(face, projected)
+			var shared_area := foot_polygon_area(intersection)
+			if shared_area < 0.000000000001:
+				continue
+			var normal := (support[1] - support[0]).cross(support[2] - support[0])
+			for point in intersection:
+				var height: float = support[0].y - (normal.x * (point.x - support[0].x) + normal.z * (point.y - support[0].z)) / normal.y
+				penetration = maxf(penetration, height - bottom)
+			if absf(support[0].y - bottom) <= 0.00001 and absf(support[1].y - bottom) <= 0.00001 and absf(support[2].y - bottom) <= 0.00001:
+				supported += shared_area
+	return {"area": area, "coverage": supported / area if area > 0.0 else 0.0,
+		"maximum_penetration": penetration, "bottom": bottom}
+
+func check_wheel_foot_seats() -> void:
+	var checked_shapes: Dictionary = {}
+	var feet_checked := 0
+	var negative_checked := false
+	var scale_factor := 0.5 / 0.78
+	for shared_profile in [false, true]:
+		for axis_index in range(3):
+			var view: Variant = Shared.new() if shared_profile else Opening.new()
+			view.machine_root = Node3D.new()
+			view.add_child(view.machine_root)
+			view.state = {"options": {"native": true}, "actors": {}, "transmission_parts": {}, "motion": {},
+				"entities": {"seat-fixture": {"kind": "wheel", "cell": [0, 0], "axis": axis_index, "generation": 1}},
+				"links": [], "drive_links": [], "engagements": []}
+			var before: Dictionary = view.state.duplicate(true)
+			view._rebuild_machines()
+			var machine: Node3D = view.machine_root.get_child(0)
+			var rotor: Node3D = view.wheel_rotor
+			var rotating: Array[Dictionary] = []
+			if OS.get_cmdline_user_args().has("--foot-seat-geometry"):
+				for child in rotor.get_children():
+					if child is Node3D:
+						wheel_rotating_envelopes(child, Transform3D.IDENTITY, rotating)
+			var stands: Array[MeshInstance3D] = []
+			for child in machine.get_children():
+				if child is MeshInstance3D and child.get_meta("wheel_support_role", "") == "WheelStand":
+					stands.append(child)
+					var bounds: AABB = child.mesh.get_aabb()
+					var expected := AABB(Vector3(-0.195, 0.24, -0.195), Vector3(0.39, 0.22, 0.39)) if axis_index == 1 else AABB(Vector3(-0.19, 0.24, -0.09), Vector3(0.38, 0.38, 0.18))
+					verify(bounds.position.is_equal_approx(expected.position * scale_factor) and bounds.size.is_equal_approx(expected.size * scale_factor),
+						"Changed seats retain the old exact stand bounds, preserving the conservative swept-clearance proof.")
+					if OS.get_cmdline_user_args().has("--foot-seat-geometry") and not checked_shapes.has(axis_index == 1):
+						check_closed_asset_mesh(child.mesh, (0.014 if axis_index == 1 else 0.010) * pow(scale_factor, 3),
+							(0.024 if axis_index == 1 else 0.020) * pow(scale_factor, 3))
+						checked_shapes[axis_index == 1] = true
+			for child in machine.get_children():
+				if not child is MeshInstance3D or child.get_meta("wheel_support_role", "") != "WheelFootBolt":
+					continue
+				var closest: MeshInstance3D = null
+				for stand in stands:
+					if closest == null or child.position.distance_squared_to(stand.position) < child.position.distance_squared_to(closest.position):
+						closest = stand
+				var seat := foot_seating(child, closest)
+				if OS.get_cmdline_user_args().has("--foot-seat-geometry"):
+					verify(wheel_support_separates(child.mesh, rotor.transform.affine_inverse() * child.transform, rotating),
+						"The changed foot-bolt poses still clear every unchanged nonjournal rotor facet over a full turn.")
+				var radius: float = child.mesh.bottom_radius
+				verify(absf(seat.area - 3.0 * sqrt(3.0) * radius * radius / 2.0) < 0.00000001,
+					"The oracle includes the complete actual hexagonal lower face, not a center sample.")
+				verify(absf(seat.coverage - 1.0) < 0.0001 and seat.maximum_penetration < 0.00001,
+					"Every bolt head seats across its full lower face without entering a higher shoulder.")
+				if not negative_checked:
+					var lifted := foot_seating(child, closest, 0.001)
+					verify(lifted.coverage < 0.99, "A disclosed one-millimetre lifted-head control fails the same full-face oracle.")
+					negative_checked = true
+				print(JSON.stringify({"shared": shared_profile, "axis": axis_index, "part": str(child.name), "seat": seat}))
+				feet_checked += 1
+			verify(view.state == before and view.model == null and view.actor_world == null and view.request_sequence == 0,
+				"The actual view callback changes no projection, request or native authority.")
+			view.free()
+	verify(feet_checked == 24 and negative_checked, "Both view classes and three axes exercise all four foot fasteners.")
+	if OS.get_cmdline_user_args().has("--foot-seat-geometry"):
+		verify(checked_shapes.size() == 2, "Both changed stand meshes receive the existing closure/attribute checks.")
+
 func segment_radius(a: Vector2, b: Vector2) -> float:
 	var edge := b - a
 	if edge.length_squared() == 0:
@@ -1555,6 +1695,10 @@ func prepare_paddle_maps() -> void:
 	quit(0)
 
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--wheel-foot-seats-only"):
+		check_wheel_foot_seats()
+		finish()
+		return
 	if OS.get_cmdline_user_args().has("--wheel-supports-only"):
 		check_wheel_supports()
 		finish()

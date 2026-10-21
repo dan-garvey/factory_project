@@ -653,22 +653,23 @@ class ProductionWheelSupportArt:
 		var bearing_frame := Basis(Quaternion(Vector3.UP, axis))
 		if axis == Vector3.UP:
 			var pedestal := PackedVector2Array([Vector2(0, 0.24), Vector2(0.18, 0.24),
-				Vector2(0.195, 0.25), Vector2(0.195, 0.34), Vector2(0.18, 0.36),
-				Vector2(0.145, 0.39), Vector2(0.14, 0.44), Vector2(0.14, 0.46), Vector2(0, 0.46)])
+				Vector2(0.195, 0.25), Vector2(0.195, 0.32), Vector2(0.19, 0.34),
+				Vector2(0.14, 0.34), Vector2(0.14, 0.44), Vector2(0.14, 0.46), Vector2(0, 0.46)])
 			_part(parent, "WheelStand", "Vertical", ProductionVisuals.turned_mesh(_scaled(pedestal, scale_factor)),
 				Vector3.ZERO, Basis.IDENTITY, cast)
 			var center := Vector3.UP * 0.53 * scale_factor
 			_part(parent, "AxleBearing", "Vertical", housing_mesh, center, bearing_frame, cast)
 			_part(parent, "BearingLiner", "Vertical", liner_mesh, center, bearing_frame, worked)
-			for x in [-0.12, 0.12]:
-				for z in [-0.12, 0.12]:
+			# The entire hexagonal lower face rests on the annular flat flange.
+			for x in [-0.117, 0.117]:
+				for z in [-0.117, 0.117]:
 					_part(parent, "WheelFootBolt", ("N" if x < 0 else "P") + ("N" if z < 0 else "P"), fasteners[scale_factor],
-						Vector3(x, 0.378, z) * scale_factor, Basis.IDENTITY, worked)
+						Vector3(x, 0.349, z) * scale_factor, Basis.IDENTITY, worked)
 		else:
 			var outline := PackedVector2Array([Vector2(-0.19, 0.24), Vector2(0.19, 0.24),
-				Vector2(0.19, 0.32), Vector2(0.16, 0.36), Vector2(0.10, 0.38),
+				Vector2(0.19, 0.32), Vector2(0.18, 0.36), Vector2(0.075, 0.36),
 				Vector2(0.065, 0.58), Vector2(0.065, 0.62), Vector2(-0.065, 0.62),
-				Vector2(-0.065, 0.58), Vector2(-0.10, 0.38), Vector2(-0.16, 0.36), Vector2(-0.19, 0.32)])
+				Vector2(-0.065, 0.58), Vector2(-0.075, 0.36), Vector2(-0.18, 0.36), Vector2(-0.19, 0.32)])
 			var stand_mesh := ProductionVisuals.prism_mesh(_scaled(outline, scale_factor),
 				0.18 * scale_factor, 0.008 * scale_factor)
 			var stand_frame := Basis(Vector3.UP, PI / 2) if axis == Vector3.RIGHT else Basis.IDENTITY
@@ -681,7 +682,7 @@ class ProductionWheelSupportArt:
 				_part(parent, "BearingLiner", suffix, liner_mesh, center, bearing_frame, worked)
 				for x in [-0.13, 0.13]:
 					_part(parent, "WheelFootBolt", suffix + ("L" if x < 0 else "R"), fasteners[scale_factor],
-						offset + stand_frame * (Vector3(x, 0.379, 0) * scale_factor), Basis.IDENTITY, worked)
+						offset + stand_frame * (Vector3(x, 0.369, 0) * scale_factor), Basis.IDENTITY, worked)
 
 class ProductionSteelFloor:
 	extends RefCounted

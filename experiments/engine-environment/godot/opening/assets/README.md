@@ -376,6 +376,9 @@ metres so scaling the fixture does not shrink their material repeat. The annular
 liners clear the actual old journal, and fixed feet remain outside the rotor's
 whole-turn envelope. These are presentation parts of the existing wheel, not
 independent structures, additional shaft reach, collision or force authority.
+Foot bolts sit on flat mounting pads rather than crossing sloped shoulders.
+The focused contact oracle clips each complete hexagonal lower face against the
+actual casting triangles, checking full support and absence of penetration.
 Historical captures without the sourced rotor and nonnative wheels keep their
 earlier support assemblies. Geometry
 checks do not establish rendered quality, lubrication or a bearing simulation.
