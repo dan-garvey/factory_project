@@ -200,73 +200,84 @@ void geared_processor(bool fast) {
 
 void perpendicular_belt_line() {
     w::Profile profile;
-    profile.material = {1, 1, 2};
-    profile.initial_units = 1;
-    profile.actors = {"P", "Q"};
-    profile.meters_per_grid_unit = 0.1;
-    profile.build_reach = 4;
+    profile.material = {1, 1, 2}; profile.initial_units = 1;
+    profile.actors = {"P", "Q"}; profile.meters_per_grid_unit = 0.1; profile.build_reach = 4;
     profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, 1}, {{s::Role::collector, 0, 0}, 1},
         {{s::Role::belt, 0, 0}, 1}, {{s::Role::processor, 0, 0}, 1},
-        {{s::Role::shaft, 0, 2}, 4}, {{s::Role::gear, 2, 0}, 4}};
-    w::State seed;
-    seed.material.initial_units = 1;
-    seed.material.stock.source = 1;
-    seed.material.cargo = {{"P", {}}, {"Q", {}}};
-    seed.kits = {{"P", profile.finite_parts}, {"Q", {}}};
+        {{s::Role::shaft, 0, 2}, 3}, {{s::Role::gear, 2, 0}, 7}};
+    w::State seed; seed.material.initial_units = 1; seed.material.stock.source = 1;
+    seed.material.cargo = {{"P", {}}, {"Q", {}}}; seed.kits = {{"P", profile.finite_parts}, {"Q", {}}};
     auto world = w::World::create("cog-world", profile, seed);
     check(world != nullptr, "The finite perpendicular-line World initializes.");
+    auto shaft = [&](const char* request, const m::Point& center, const char* axis) {
+        auto command = place(request, center, axis, 0);
+        command.at("role") = V("shaft"); command.at("half_span") = V(I{2});
+        return accepted(send(*world, command));
+    };
+    const auto first = shaft("first-shaft", {4, 0, 4}, "z");
+    const auto wrong = shaft("wrong-shaft", {8, 0, 4}, "x");
+    auto span = [&](const O& last, const char* request) {
+        return O{{"context", V("cog-world")}, {"client", V("P-session")}, {"request", V(request)},
+            {"actor", V("P")}, {"action", V("place_belt_span")}, {"target", first.at("entity")},
+            {"generation", first.at("generation")}, {"to", last.at("entity")}, {"to_generation", last.at("generation")}};
+    };
     const auto before = world->snapshot().state;
-    auto wrong = place("vertical-belt", {4, 0, 4}, "y", 0);
-    wrong.at("role") = V("belt"); wrong.at("action") = V("place_connected");
-    const auto rejected = send(*world, wrong);
-    check(rejected.completed() && !field<bool>(*rejected.result, "accepted") &&
-              field<std::string>(*rejected.result, "reason") == "invalid_belt_axis" && world->snapshot().state == before,
-          "The authoritative World refuses a vertical belt spindle without consuming its part.");
-    const std::array<const char*, 4> roles{"waterwheel", "collector", "belt", "processor"};
-    std::array<O, 4> hubs, cogs;
+    const auto rejected = send(*world, span(wrong, "wrong-span"));
+    check(rejected.completed() && !field<bool>(*rejected.result, "accepted") && world->snapshot().state == before,
+          "A span between mismatched shaft axes is refused without consuming its part.");
+    accepted(send(*world, remove(field<std::string>(wrong, "entity"), field<I>(wrong, "generation"), "remove-wrong-shaft")));
+    const auto last = shaft("last-shaft", {8, 0, 4}, "z");
+    accepted(send(*world, span(last, "belt-span")));
+    const std::array<const char*, 3> roles{"waterwheel", "collector", "processor"};
+    const std::array<I, 3> xs{-4, 0, 12};
+    std::array<O, 3> hubs;
     for (std::size_t n = 0; n < roles.size(); ++n) {
-        const I x = static_cast<I>(n) * 4 - 4;
-        auto machine = place(("machine-" + std::to_string(n)).c_str(), {x, 0, 4}, "z", 0);
+        auto machine = place(("machine-" + std::to_string(n)).c_str(), {xs[n], 0, 4}, "z", 0);
         machine.at("role") = V(roles[n]);
         if (n != 0) machine.at("action") = V("place_connected");
         hubs[n] = accepted(send(*world, machine));
-        cogs[n] = accepted(send(*world, place(("cog-" + std::to_string(n)).c_str(), {x, 0, 8}, "z", 2)));
     }
+    const std::array<m::Point, 7> centers{{{-4, 0, 8}, {0, 0, 8}, {4, 0, 8},
+        {4, 0, 12}, {8, 0, 12}, {12, 0, 12}, {12, 0, 8}}};
+    std::array<O, 7> cogs;
+    for (std::size_t n = 0; n < centers.size(); ++n)
+        cogs[n] = accepted(send(*world, place(("cog-" + std::to_string(n)).c_str(), centers[n], "z", 2)));
     O power{{"context", V("cog-world")}, {"client", V("P-session")}, {"request", V("power")},
         {"actor", V("P")}, {"action", V("set_drive")}, {"target", hubs[0].at("entity")},
         {"generation", hubs[0].at("generation")}, {"enabled", V(true)}};
     accepted(send(*world, power));
     const auto snapshot = world->snapshot();
-    auto invalid_snapshot = snapshot;
-    for (auto& part : invalid_snapshot.state.topology.parts)
-        if (part.role == s::Role::belt) part.geometry.axis = m::Axis::y;
-    check(!w::World::restore("cog-world", profile, invalid_snapshot),
-          "A checkpoint cannot introduce a vertical belt spindle.");
     const auto view = s::power_view(snapshot.state.topology);
     const auto powered = w::machine_power(snapshot.state.topology);
-    check(powered.collector && powered.belt && powered.processor && snapshot.state.topology.material_links.size() == 2,
-          "Four adjacent small cogs and touching perpendicular axles power the full connected material line.");
+    check(powered.collector && powered.processor && snapshot.state.topology.belt_spans.size() == 1 &&
+          snapshot.state.topology.material_links.empty(),
+          "The cog branch powers both machines and a physical perpendicular shaft span.");
     for (std::size_t n = 0; n < hubs.size(); ++n) {
         const auto id = field<std::string>(hubs[n], "entity");
-        check(view.mechanical.motion.at(id) == m::Motion{m::MotionState::rotating, {n % 2 ? -1 : 1, 1}},
-              "Each adjacent cog reverses the signed shaft rotation.");
+        check(view.mechanical.motion.at(id) == m::Motion{m::MotionState::rotating, {n == 1 ? -1 : 1, 1}},
+              "The cog branch gives each machine its expected signed rotation.");
     }
+    for (const auto* shaft : {&first, &last})
+        check(view.mechanical.motion.at(field<std::string>(*shaft, "entity")) == m::Motion{m::MotionState::rotating, {1, 1}},
+              "Both span pulleys rotate together at the geared rate.");
     const auto encoded = w::encode_checkpoint(profile, snapshot);
     check(std::holds_alternative<V>(encoded), "The complete perpendicular route encodes.");
     const auto decoded = w::decode_checkpoint(profile, "cog-world", std::get<V>(encoded));
     check(std::holds_alternative<w::Snapshot>(decoded), "The complete perpendicular route decodes.");
     auto restored = w::World::restore("cog-world", profile, std::get<w::Snapshot>(decoded));
-    check(restored && restored->snapshot().state == snapshot.state && w::machine_power(restored->snapshot().state.topology).belt,
-          "The exact constructed route survives a fresh World restore.");
+    check(restored && restored->snapshot().state == snapshot.state,
+          "The exact constructed shaft span survives a fresh World restore.");
     accepted(send(*restored, remove(field<std::string>(cogs[2], "entity"), field<I>(cogs[2], "generation"), "remove-belt-cog")));
-    check(!w::machine_power(restored->snapshot().state.topology).belt,
-          "Removing the belt's cog interrupts its power rather than inventing a connection.");
+    const auto interrupted = s::power_view(restored->snapshot().state.topology);
+    check(interrupted.mechanical.motion.at(field<std::string>(first, "entity")).state != m::MotionState::rotating &&
+          interrupted.mechanical.motion.at(field<std::string>(last, "entity")).state != m::MotionState::rotating,
+          "Removing the pulley cog interrupts both shafts without inventing a connection.");
 }
 
 void rotated_belt_line() {
-    // Each ordering exercises automatic material-port discovery when the belt
-    // or either neighbor is placed last. The 3D layout uses an X axle and +Z
-    // top travel, with one connected small cog per independently placed hub.
+    // Exercise all construction orders with a physical X-axis shaft span and
+    // +Z top travel. A second cog row powers the press without forcing the
+    // two belt pulleys to rotate in opposite directions.
     std::array<int, 3> order{0, 1, 2};
     do {
         for (const I source_rate : {I{1}, I{-1}}) {
@@ -275,34 +286,56 @@ void rotated_belt_line() {
             profile.actors = {"P", "Q"}; profile.meters_per_grid_unit = 0.1; profile.build_reach = 4;
             profile.waterwheel_rate = {source_rate, 1};
             profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, 1}, {{s::Role::collector, 0, 0}, 1},
-                {{s::Role::belt, 0, 0}, 1}, {{s::Role::processor, 0, 0}, 1}, {{s::Role::gear, 2, 0}, 4}};
+                {{s::Role::belt, 0, 0}, 1}, {{s::Role::processor, 0, 0}, 1},
+                {{s::Role::shaft, 0, 2}, 2}, {{s::Role::gear, 2, 0}, 7}};
             w::State seed; seed.material.initial_units = 1; seed.material.stock.source = 1;
             seed.material.cargo = {{"P", {}}, {"Q", {}}}; seed.kits = {{"P", profile.finite_parts}, {"Q", {}}};
             auto world = w::World::create("cog-world", profile, seed);
             check(world != nullptr, "A rotated-belt World starts with finite parts.");
             auto wheel = place("rotated-wheel", {4, 0, -4}, "x", 0); wheel.at("role") = V("waterwheel");
             const auto source = accepted(send(*world, wheel));
-            constexpr std::array<const char*, 3> roles{"collector", "belt", "processor"};
+            O first, last;
             for (const auto n : order) {
-                auto command = place(("rotated-machine-" + std::to_string(n)).c_str(), {4, 0, n * 4}, "x", 0);
-                command.at("role") = V(roles[n]); command.at("action") = V("place_connected");
-                accepted(send(*world, command));
+                if (n == 1) {
+                    auto first_wire = place("rotated-first", {4, 0, 4}, "x", 0);
+                    first_wire.at("role") = V("shaft"); first_wire.at("half_span") = V(I{2});
+                    first = accepted(send(*world, first_wire));
+                    auto last_wire = place("rotated-last", {4, 0, 8}, "x", 0);
+                    last_wire.at("role") = V("shaft"); last_wire.at("half_span") = V(I{2});
+                    last = accepted(send(*world, last_wire));
+                    O span{{"context", V("cog-world")}, {"client", V("P-session")}, {"request", V("rotated-span")},
+                        {"actor", V("P")}, {"action", V("place_belt_span")}, {"target", first.at("entity")},
+                        {"generation", first.at("generation")}, {"to", last.at("entity")}, {"to_generation", last.at("generation")}};
+                    accepted(send(*world, span));
+                } else {
+                    auto command = place(("rotated-machine-" + std::to_string(n)).c_str(), {4, 0, n == 0 ? 0 : 12}, "x", 0);
+                    command.at("role") = V(n == 0 ? "collector" : "processor");
+                    command.at("action") = V("place_connected");
+                    accepted(send(*world, command));
+                }
             }
-            check(world->snapshot().state.topology.material_links.size() == 2,
-                  "All construction orders connect only the adjacent +Z material ports.");
-            for (int n = -1; n < 3; ++n)
-                accepted(send(*world, place(("rotated-cog-" + std::to_string(n)).c_str(), {0, 0, n * 4}, "x", 2)));
+            check(world->snapshot().state.topology.material_links.empty() && world->snapshot().state.topology.belt_spans.size() == 1,
+                  "Each construction order retains a single physical +Z span.");
+            const std::array<m::Point, 7> positions{{{0, 0, -4}, {0, 0, 0}, {0, 0, 4},
+                                                     {-4, 0, 4}, {-4, 0, 8}, {-4, 0, 12}, {0, 0, 12}}};
+            for (std::size_t n = 0; n < positions.size(); ++n)
+                accepted(send(*world, place(("rotated-cog-" + std::to_string(n)).c_str(), positions[n], "x", 2)));
             O power{{"context", V("cog-world")}, {"client", V("P-session")}, {"request", V("rotated-power")},
                 {"actor", V("P")}, {"action", V("set_drive")}, {"target", source.at("entity")},
                 {"generation", source.at("generation")}, {"enabled", V(true)}};
             accepted(send(*world, power));
             const auto running = world->snapshot();
             const auto mechanical = w::machine_power(running.state.topology);
-            check(mechanical.collector && mechanical.belt && mechanical.processor && mechanical.belt_forward == (source_rate > 0),
-                  "X-axis belt power and signed forward motion follow the actual cog geometry.");
+            const auto view = s::power_view(running.state.topology);
+            const auto& first_motion = view.mechanical.motion.at(field<std::string>(first, "entity"));
+            const auto& last_motion = view.mechanical.motion.at(field<std::string>(last, "entity"));
+            check(mechanical.collector && mechanical.processor && first_motion.state == m::MotionState::rotating &&
+                      first_motion.rate == m::Rate{source_rate, 1} && last_motion == first_motion,
+                  "Both X-axis belt shafts and the press follow the signed cog geometry.");
             auto bad = running;
-            for (auto& item : bad.state.topology.parts) if (item.role == s::Role::belt) item.geometry.axis = m::Axis::z;
-            check(!w::World::restore("cog-world", profile, bad), "A saved +Z route cannot claim an X-travel belt.");
+            for (auto& item : bad.state.topology.parts)
+                if (item.geometry.id == field<std::string>(last, "entity")) item.geometry.axis = m::Axis::z;
+            check(!w::World::restore("cog-world", profile, bad), "A saved span cannot use mismatched shaft axes.");
             auto restored = w::World::restore("cog-world", profile, running);
             check(restored && restored->snapshot().state == running.state, "Rotated belt and custody survive World restore.");
 
@@ -319,13 +352,13 @@ void rotated_belt_line() {
             if (source_rate > 0)
                 check(state.material.stock.output == 1 && state.material.dropped_material.empty(), "Positive X rotation carries the blank to the press.");
             else {
-                check(state.material.stock.output == 0 && state.material.dropped_material.contains({4, 0, 2}),
+                check(state.material.stock.output == 0 && state.material.dropped_material.contains({4, 0, 0}),
                       "Negative X rotation deposits the blank at the -Z end.");
                 auto reloaded = w::World::restore("cog-world", profile, restored->snapshot());
                 check(reloaded != nullptr, "The rotated reverse drop survives restoration.");
                 O pickup{{"context", V("cog-world")}, {"client", V("P-session")}, {"request", V("rotated-pickup")},
                     {"actor", V("P")}, {"action", V("pickup_material")},
-                    {"center", V(V::Array{V(I{4}), V(I{0}), V(I{2})})},
+                    {"center", V(V::Array{V(I{4}), V(I{0}), V(I{0})})},
                     {"expected", V(O{{"raw", V(I{1})}, {"products", V(I{0})}, {"work_lots", V(V::Array{})}})}};
                 const auto received = accepted(send(*reloaded, pickup));
                 check(field<I>(received, "moved_raw") == 1 && reloaded->snapshot().state.material.dropped_material.empty(),
