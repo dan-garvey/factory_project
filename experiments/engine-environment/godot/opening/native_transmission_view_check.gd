@@ -31,6 +31,10 @@ class PhysicalProjection extends RefCounted:
 	var state: Dictionary
 	func projection() -> Dictionary:
 		return state.duplicate(true)
+	func observe(actor: String, sample: Dictionary) -> void:
+		state.actors[actor]["position"] = sample.position.duplicate()
+		state.actors[actor]["ready"] = sample.ready
+		state.actors[actor]["native_epoch"] = sample.native_epoch
 
 func verify(condition: bool, reason: String) -> void:
 	checks += 1
@@ -624,6 +628,77 @@ func _collision_body_lifecycle() -> void:
 	physical.queue_free()
 	await process_frame
 
+func _belt_actor_transport() -> void:
+	var authority := PhysicalProjection.new()
+	authority.state = {"options": {"native": true, "physical": true}, "entities": {}, "foundations": {},
+		"actors": {"P": {"position": [0.0, 4.85, 0.0], "ready": false, "native_epoch": 0}},
+		"transmission_parts": {
+			"left": {"kind": "shaft", "center": [0, 8, 0], "axis": 2, "half_span": 2},
+			"right": {"kind": "shaft", "center": [8, 8, 0], "axis": 2, "half_span": 2}},
+		"belt_spans": {"belt": {"from": "left", "to": "right"}},
+		"motion": {"left": {"state": "rotating", "numerator": -1, "denominator": 4}}}
+	var physical := ActorWorld.new()
+	physical.set_belt_step_seconds(0.45)
+	physical.pose_published.connect(authority.observe)
+	root.add_child(physical)
+	verify(physical.configure(authority).accepted and physical.ensure_actor("P").accepted, "The synthetic character starts on a confirmed belt.")
+	var belt_id: int = physical.mechanical_bodies.belt.get_instance_id()
+	var sample: Dictionary = authority.projection()
+	var expected_speed := Geometry.PITCH / (4.0 * 0.45)
+	verify(physical._belt_surface_velocity(sample, belt_id).is_equal_approx(Vector2(expected_speed, 0)), "The X travel rate matches the native quarter-tile per simulation step.")
+	sample.transmission_parts.left.axis = 0
+	sample.motion.left.numerator = 1
+	verify(physical._belt_surface_velocity(sample, belt_id).is_equal_approx(Vector2(0, expected_speed)), "The other horizontal shaft axis transports along Z with the correct sign.")
+	verify(physical._belt_surface_velocity(sample, 0) == Vector2.ZERO, "A character without belt floor contact receives no transport.")
+	for frame in 40:
+		await physics_frame
+	verify(not physical.failures.has("P") and physical.bodies.P.motion_enabled, "The native actor registers without penetrating the belt.")
+	var forward: float = physical.bodies.P.position.x
+	verify(forward > 0.15 and absf(physical.bodies.P.position.z) < 0.05, "A powered belt carries the uncommanded actor in the cargo direction.")
+	authority.state.motion.left.state = "stopped"
+	for frame in 10:
+		await physics_frame
+	var stopped: float = physical.bodies.P.position.x
+	verify(absf(stopped - forward) < 0.05, "Stopping the shaft stops belt transport.")
+	authority.state.motion.left.state = "rotating"
+	authority.state.motion.left.numerator = 1
+	for frame in 25:
+		await physics_frame
+	var reversed: float = physical.bodies.P.position.x
+	verify(reversed < stopped - 0.15, "Reversing the shaft reverses actor transport.")
+	physical.set_belt_step_seconds(0.0)
+	for frame in 10:
+		await physics_frame
+	verify(absf(physical.bodies.P.position.x - reversed) < 0.05, "A frozen simulation clock stops belt transport.")
+	physical.bodies.P.set_control(Vector2(1, 0), false)
+	for frame in 6:
+		await physics_frame
+	verify(physical.bodies.P.position.x > reversed + 0.1, "Synthetic walking control still moves the character on the belt.")
+	physical.bodies.P.release_control()
+	physical.bodies.P.set_control(Vector2.ZERO, true)
+	for frame in 8:
+		await physics_frame
+	verify(physical.bodies.P.position.y > 4.95, "Synthetic jump control still lifts the character off the belt.")
+	physical.queue_free()
+	await process_frame
+	# Exercise the actual host setup with no actors or network/game startup.
+	authority.state.actors = {}
+	var host_root := Node.new()
+	host_root.name = "OpeningShared"
+	root.add_child(host_root)
+	for step in [0.45, 0.0]:
+		var host := Session.new()
+		host.name = "Session"
+		host._authoritative = true
+		host.world = authority
+		host._tick_seconds = step
+		host_root.add_child(host)
+		host.set_process(false)
+		verify(host.start_physical_world() == OK and host.actor_world.belt_step_seconds == step, "The host passes its simulation clock to the physical world.")
+		host.queue_free()
+		await process_frame
+	host_root.queue_free()
+
 func _run() -> void:
 	if "--tool-guidance-only" in OS.get_cmdline_user_args():
 		_tool_guidance()
@@ -637,6 +712,8 @@ func _run() -> void:
 		_mechanical_collision_geometry()
 	elif "--collision-lifecycle-only" in OS.get_cmdline_user_args():
 		await _collision_body_lifecycle()
+	elif "--belt-actor-only" in OS.get_cmdline_user_args():
+		await _belt_actor_transport()
 	else:
 		_controls()
 		_gear_sizes()

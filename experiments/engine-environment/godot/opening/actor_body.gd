@@ -5,6 +5,7 @@ const Geometry = preload("res://opening/site_geometry.gd")
 
 var motion_enabled := false
 var direction := Vector2.ZERO
+var surface_velocity := Vector2.ZERO
 var jump_requested := false
 var ticks := 0
 var floor_id := 0
@@ -42,8 +43,8 @@ func _physics_process(delta: float) -> void:
 	if not motion_enabled:
 		return
 	ticks += 1
-	velocity.x = direction.x * Geometry.WALK_SPEED
-	velocity.z = direction.y * Geometry.WALK_SPEED
+	velocity.x = direction.x * Geometry.WALK_SPEED + surface_velocity.x
+	velocity.z = direction.y * Geometry.WALK_SPEED + surface_velocity.y
 	velocity.y -= Geometry.GRAVITY * delta
 	if jump_requested and is_on_floor():
 		velocity.y = Geometry.JUMP_SPEED

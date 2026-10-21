@@ -3408,6 +3408,7 @@ func _ready() -> void:
 func _start_character_world() -> bool:
 	actor_world = ActorWorld.new()
 	actor_world.name = "OpeningActors"
+	actor_world.set_belt_step_seconds(STEP_SECONDS if auto_advance else 0.0)
 	actor_world.pose_published.connect(_actor_pose)
 	actor_world.initialization_failed.connect(_actor_failed)
 	var configured: Dictionary = actor_world.configure(model)
@@ -3729,6 +3730,8 @@ func _material_refusal_message(outcome: Dictionary, fallback: String) -> String:
 	return fallback
 
 func _process(delta: float) -> void:
+	if actor_world != null:
+		actor_world.set_belt_step_seconds(STEP_SECONDS if auto_advance else 0.0)
 	if auto_advance:
 		elapsed += delta
 		while elapsed >= STEP_SECONDS:

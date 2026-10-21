@@ -101,6 +101,7 @@ func start_physical_world() -> Error:
 		return ERR_UNAVAILABLE
 	actor_world = adapter.new()
 	actor_world.name = "ActorWorld"
+	actor_world.set_belt_step_seconds(_tick_seconds)
 	var configured: Dictionary = actor_world.configure(world)
 	if not configured.accepted:
 		actor_error = "actor_configure_refused:" + str(configured.get("reason", "invalid_result"))
