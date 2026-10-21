@@ -298,6 +298,16 @@ the same open passage without inventing a shaft or connection. This is a fitted
 visual interface, not proof of key locking, tooth contact, physical forces or
 general shaft routing through a complete machine.
 
+Each cog batches its repeated teeth, four spokes and eight hub fasteners into
+three local [MultiMesh groups](https://docs.godotengine.org/en/4.7/classes/class_multimesh.html).
+The original meshes, transforms and shared surface roles are retained. Rim and
+hub remain separate, and the existing part anchor owns motion and picking.
+Equivalent dimensions reuse the same immutable batch data while each part keeps
+its own material override. A two-unit cog represents thirty detailed pieces with
+five render objects, without removing geometry. Its custom culling bounds enclose
+every instance and remain local to that cog. Grouped visibility and light limits
+are adapter boundaries; fewer objects do not establish a GPU or frame-time gain.
+
 Complete captures now separate [cast and worked transmission finishes](transmission-surfaces/CREDITS.md).
 Rims and spokes use qualified cast-surface detail; teeth, hubs, fasteners, shafts
 and collars use finer original maps. The old moving/stopped tint and copper keys

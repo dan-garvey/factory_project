@@ -23,6 +23,8 @@ func part(view: Node, id: String) -> Node3D:
 
 func count_role(node: Node, role: String) -> int:
 	var count := 1 if node.get_meta("asset_role", "") == role else 0
+	if count == 1 and node is MultiMeshInstance3D:
+		count = node.multimesh.instance_count
 	for child in node.get_children():
 		count += count_role(child, role)
 	return count
