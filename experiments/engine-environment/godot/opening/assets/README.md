@@ -1,5 +1,15 @@
 # Opening presentation assets
 
+The natural west bank also has a bounded foreground understory using the existing
+CC0 grass resource. Its roots follow the emitted terrain; complete clump bounds
+stay outside the stream and real rocks. Confirmed machine topology suppresses
+overlapping clumps in both offline and shared views, and removal restores the
+deterministic candidates. This is unsaved decoration, with no collider, authority
+or production state. The eastern working bank and distant meadow remain intact.
+The additional maximum is 96 tufts, or 120,672 triangles before culling, with a
+40-metre visibility limit. These are resource bounds, not measured GPU cost or
+proof of rendered quality.
+
 The [production presentation target](../../../../../docs/art/production-quality.md)
 now sets Satisfactory as the minimum graphical benchmark. The existing primitive
 silhouettes do not satisfy that target. The first integrated asset foundation

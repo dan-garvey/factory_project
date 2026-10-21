@@ -1242,6 +1242,93 @@ class ProductionEnvironment:
 			meadow.add_child(patch)
 		return meadow
 
+	static func _foreground_bank() -> MultiMeshInstance3D:
+		var patch := MultiMeshInstance3D.new()
+		patch.name = "ForegroundBank"
+		if foliage_source_status != "ready":
+			return patch
+		var solids: Array = Surface.support_boxes()
+		var random := RandomNumberGenerator.new()
+		random.seed = 321704
+		var buffer := PackedFloat32Array()
+		var bounds := AABB()
+		var count := 0
+		# The eastern working bank stays open. These soft plants frame the
+		# opposite bank, rather than filling the ordinary construction space.
+		for candidate in range(96):
+			var z := random.randf_range(-5.5, 9.0)
+			var x := river_center_x(z) - channel_half_width(z) - random.randf_range(1.1, 2.6)
+			var at := Vector3(x, Surface.height_at(x, z), z)
+			var up := _terrain_facet_normal(x, z)
+			if up.y < 0.86:
+				continue
+			var right := Vector3(up.y, -up.x, 0.0).normalized()
+			var basis := Basis(right, up, right.cross(up)) * Basis(Vector3.UP, random.randf_range(0.0, TAU))
+			basis = basis.scaled_local(Vector3.ONE * random.randf_range(0.85, 1.15))
+			var envelope: AABB = Transform3D(basis, at) * foliage_cluster_mesh.get_aabb()
+			var clear := envelope.position.z >= -8.0 and envelope.end.z <= 12.0
+			# On this local reach, |d(center - half_width)/dz| < 0.6.
+			# The half-sample margin bounds the unsampled intervals as well.
+			var margin := 0.2 + 0.6 * envelope.size.z / 16.0
+			for row in range(9):
+				var edge_z := lerpf(envelope.position.z, envelope.end.z, float(row) / 8.0)
+				if envelope.end.x >= river_center_x(edge_z) - channel_half_width(edge_z) - margin:
+					clear = false
+			for solid in solids:
+				var local: Vector3 = solid.basis.transposed() * (at - solid.center)
+				var half: Vector3 = solid.size * 0.5 + Vector3.ONE * 0.9
+				if absf(local.x) <= half.x and absf(local.y) <= half.y and absf(local.z) <= half.z:
+					clear = false
+			if not clear:
+				continue
+			var tint := Color.WHITE.lerp(Color("e3e5cf"), random.randf_range(0.0, 0.45))
+			buffer.append_array(PackedFloat32Array([
+				basis.x.x, basis.y.x, basis.z.x, at.x,
+				basis.x.y, basis.y.y, basis.z.y, at.y,
+				basis.x.z, basis.y.z, basis.z.z, at.z,
+				tint.r, tint.g, tint.b, tint.a]))
+			bounds = envelope if count == 0 else bounds.merge(envelope)
+			count += 1
+		var instances := MultiMesh.new()
+		instances.transform_format = MultiMesh.TRANSFORM_3D
+		instances.use_colors = true
+		instances.mesh = foliage_cluster_mesh
+		instances.instance_count = count
+		instances.buffer = buffer
+		instances.custom_aabb = bounds
+		patch.multimesh = instances
+		patch.material_override = foliage_finish
+		patch.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED
+		patch.visibility_range_end = 40.0
+		# Candidates are derived presentation, never saved vegetation state.
+		patch.set_meta("candidate_buffer", buffer)
+		return patch
+
+	static func refresh_foreground(scenery: Node3D, entities: Dictionary, pitch: float) -> void:
+		var patch := scenery.get_node_or_null("ForegroundBank") as MultiMeshInstance3D
+		if patch == null or patch.multimesh == null:
+			return
+		var original: PackedFloat32Array = patch.get_meta("candidate_buffer")
+		var kept := PackedFloat32Array()
+		var mesh_bounds := patch.multimesh.mesh.get_aabb()
+		for offset in range(0, original.size(), 16):
+			var basis := Basis(Vector3(original[offset], original[offset + 4], original[offset + 8]),
+				Vector3(original[offset + 1], original[offset + 5], original[offset + 9]),
+				Vector3(original[offset + 2], original[offset + 6], original[offset + 10]))
+			var at := Vector3(original[offset + 3], original[offset + 7], original[offset + 11])
+			var bounds: AABB = Transform3D(basis, at) * mesh_bounds
+			var clear := true
+			for entity in entities.values():
+				var center := Vector3(entity.cell[0] * pitch, Geometry.MACHINE_CENTER_HEIGHT, entity.cell[1] * pitch)
+				var size := Vector3(Geometry.MACHINE_SIZE[0], Geometry.MACHINE_SIZE[1], Geometry.MACHINE_SIZE[2])
+				if bounds.intersects(AABB(center - size * 0.5, size).grow(0.08)):
+					clear = false
+					break
+			if clear:
+				kept.append_array(original.slice(offset, offset + 16))
+		patch.multimesh.instance_count = kept.size() / 16
+		patch.multimesh.buffer = kept
+
 	static func _bank_ferns() -> Node3D:
 		var group := Node3D.new()
 		group.name = "BankFerns"
@@ -1394,6 +1481,7 @@ class ProductionEnvironment:
 		scenery.add_child(_foliage())
 		scenery.add_child(_meadow_patches())
 		scenery.add_child(_bank_ferns())
+		scenery.add_child(_foreground_bank())
 		return scenery
 
 class FlatFixtureEnvironment:
@@ -3116,6 +3204,9 @@ func _assemble_machine(anchor: Node3D, entity: Dictionary) -> void:
 
 func _rebuild_machines() -> void:
 	_sync_machine_body_context()
+	var scenery := get_node_or_null("ProductionScenery")
+	if scenery != null and not legacy_fixture and ProductionEnvironment.Surface != null:
+		ProductionEnvironment.refresh_foreground(scenery, state.entities, PITCH)
 	for child in machine_root.get_children():
 		child.free()
 	wheel_rotor = null

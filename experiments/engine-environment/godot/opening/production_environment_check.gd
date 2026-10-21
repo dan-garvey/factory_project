@@ -16,6 +16,12 @@ class FixtureView:
 		set_process(false)
 		set_physics_process(false)
 
+class SharedBankView:
+	extends "res://opening/shared_opening.gd"
+	func _ready() -> void:
+		set_process(false)
+		set_physics_process(false)
+
 class WaterFrameView extends Opening:
 	var frame_seconds := 0.0
 	func _ready() -> void:
@@ -111,6 +117,7 @@ func finish() -> void:
 			"sourced-sky": "original HDR radiance, cached sky and ordinary key-light binding",
 			"stone-material": "sourced natural-stone material, cache and unchanged shape consumer",
 			"bank-ferns": "sourced low-fern import, whole-clump terrain placement and ordinary scene consumer",
+			"foreground-bank": "near-bank placement and confirmed offline/shared machine-footprint suppression",
 			"ground-material": "scanned ground material, data channels and cache separation",
 			"water-flow": "layered translucent river resources and ordinary frame consumer",
 			"rock-collision-shape": "visible rock corners versus rigid collision descriptors",
@@ -686,6 +693,81 @@ func check_meadow_patches() -> void:
 		"limits": "Resource and placement evidence, not rendered quality or measured performance."}))
 	view.free()
 
+func check_foreground_bank() -> void:
+	for shared in [false, true]:
+		var view = SharedBankView.new() if shared else FixtureView.new()
+		root.add_child(view)
+		view._build_world()
+		var patch: MultiMeshInstance3D = view.get_node("ProductionScenery/ForegroundBank")
+		inspect_visual(patch)
+		var instances := patch.multimesh
+		var original := instances.buffer
+		verify(instances.instance_count >= 32 and instances.instance_count <= 96
+			and original.size() == instances.instance_count * 16, "A bounded population consumes the actual sourced grass mesh.")
+		verify(instances.mesh == Scenery.foliage_cluster_mesh and patch.material_override == Scenery.foliage_finish
+			and patch.visibility_range_end == 40.0, "Foreground shares the existing material and declares its culling range.")
+		var solids: Array = Scenery.Surface.support_boxes()
+		for offset in range(0, original.size(), 16):
+			var basis := Basis(Vector3(original[offset], original[offset + 4], original[offset + 8]),
+				Vector3(original[offset + 1], original[offset + 5], original[offset + 9]),
+				Vector3(original[offset + 2], original[offset + 6], original[offset + 10]))
+			var at := Vector3(original[offset + 3], original[offset + 7], original[offset + 11])
+			var cell: Vector2i = Scenery.Surface.cell(at.x, at.z)
+			var a: Vector3 = Scenery.Surface.vertex(cell.x, cell.y)
+			var b: Vector3 = Scenery.Surface.vertex(cell.x + 1, cell.y)
+			var c: Vector3 = Scenery.Surface.vertex(cell.x + 1, cell.y + 1)
+			var d: Vector3 = Scenery.Surface.vertex(cell.x, cell.y + 1)
+			var found := false
+			for triangle in [[a, b, c], [a, c, d]]:
+				if not Geometry2D.point_is_inside_triangle(Vector2(at.x, at.z), Vector2(triangle[0].x, triangle[0].z),
+					Vector2(triangle[1].x, triangle[1].z), Vector2(triangle[2].x, triangle[2].z)):
+					continue
+				var normal: Vector3 = (triangle[2] - triangle[0]).cross(triangle[1] - triangle[0]).normalized()
+				var height: float = triangle[0].y - (normal.x * (at.x - triangle[0].x) + normal.z * (at.z - triangle[0].z)) / normal.y
+				verify(absf(at.y - height) < 0.0001 and basis.y.normalized().dot(normal) > 0.99999
+					and normal.y >= 0.86, "Actual roots match emitted terrain planes and their normals.")
+				found = true
+			verify(found and basis.is_finite() and basis.determinant() > 0.6, "Actual transforms are finite and nondegenerate.")
+			var envelope: AABB = Transform3D(basis, at) * instances.mesh.get_aabb()
+			verify(instances.custom_aabb.grow(0.0001).encloses(envelope), "Culling bounds contain each complete clump.")
+			for row in range(33):
+				var z := lerpf(envelope.position.z, envelope.end.z, float(row) / 32.0)
+				verify(envelope.end.x < Scenery.river_center_x(z) - Scenery.channel_half_width(z) - 0.2,
+					"The whole envelope remains on the west bank, clear of water and the east working bank.")
+			for solid in solids:
+				var local: Vector3 = solid.basis.transposed() * (at - solid.center)
+				verify(absf(local.x) > solid.size.x * 0.5 + 0.9 or absf(local.y) > solid.size.y * 0.5 + 0.9
+					or absf(local.z) > solid.size.z * 0.5 + 0.9, "Clumps retain conservative separation from real rocks.")
+		# Invented confirmed facts exercise the real view callback, not Core admission.
+		var cell := [roundi(original[3] / 1.65), roundi(original[11] / 1.65)]
+		view.state = {"entities": {"belt-test": {"kind": "belt", "cell": cell}}, "links": []}
+		var supplied: Dictionary = view.state.duplicate(true)
+		view._rebuild_machines()
+		verify(instances.instance_count < original.size() / 16 and view.machine_root.get_child_count() > 0,
+			"Ordinary machine assembly suppresses overlapping bank plants.")
+		var kept := instances.buffer
+		var size := Vector3(Geometry.MACHINE_SIZE[0], Geometry.MACHINE_SIZE[1], Geometry.MACHINE_SIZE[2])
+		var center := Vector3(cell[0] * 1.65, Geometry.MACHINE_CENTER_HEIGHT, cell[1] * 1.65)
+		for offset in range(0, kept.size(), 16):
+			var basis := Basis(Vector3(kept[offset], kept[offset + 4], kept[offset + 8]),
+				Vector3(kept[offset + 1], kept[offset + 5], kept[offset + 9]),
+				Vector3(kept[offset + 2], kept[offset + 6], kept[offset + 10]))
+			var at := Vector3(kept[offset + 3], kept[offset + 7], kept[offset + 11])
+			var envelope: AABB = Transform3D(basis, at) * instances.mesh.get_aabb()
+			verify(not envelope.intersects(AABB(center - size * 0.5, size).grow(0.08)),
+				"Every surviving clump clears the projected machine envelope.")
+		verify(view.state == supplied and view.model == null and view.actor_world == null and view.request_sequence == 0,
+			"Both consumers preserve supplied facts and create no authority or requests.")
+		view._rebuild_machines()
+		verify(instances.buffer == kept, "Repeated confirmed rebuilds are idempotent.")
+		view.state = {"entities": {}, "links": []}
+		view._rebuild_machines()
+		verify(instances.buffer == original and patch.get_meta("candidate_buffer") == original,
+			"Confirmed removal restores candidates without saving vegetation state.")
+		print(JSON.stringify({"shared": shared, "foreground_tufts": original.size() / 16,
+			"triangles_before_culling": original.size() / 16 * 1257, "suppressed_tufts": (original.size() - kept.size()) / 16}))
+		view.free()
+
 func check_sourced_sky() -> void:
 	var material := Scenery.panorama_material()
 	if not verify(Scenery.sky_source_status == "ready", "The ordinary sky consumes the captured licensed HDR source."):
@@ -873,6 +955,10 @@ func run() -> void:
 		return
 	if mode == "surface-composition":
 		check_surface_composition()
+		finish()
+		return
+	if mode == "foreground-bank":
+		check_foreground_bank()
 		finish()
 		return
 	if mode == "foliage":
