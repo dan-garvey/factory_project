@@ -112,6 +112,21 @@ authority::Point gear_axle_half_extents(mechanics::Axis axis) {
     return half;
 }
 
+bool transmission_intersects(const Bounds& other, const mechanics::Point& center, mechanics::Axis axis, bool gear) {
+    const authority::Point at{center[0] * height_step, anchor_height + center[1] * height_step, center[2] * height_step};
+    return overlap(other, {at, gear_axle_half_extents(axis)}) ||
+        (gear && overlap(other, {at, gear_half_extents(axis, 0)}));
+}
+
+bool transmission_intersects_foundations(const world::State& state, const mechanics::Point& center,
+                                          mechanics::Axis axis, bool gear) {
+    for (const auto& [id, foundation] : state.foundations) {
+        (void)id;
+        if (transmission_intersects(foundation_bounds(foundation), center, axis, gear)) return true;
+    }
+    return false;
+}
+
 std::optional<mechanics::Point> gear_center(const Array& input) {
     if (input.size() != 3) return std::nullopt;
     mechanics::Point output;
@@ -757,6 +772,14 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             }
         for (const auto& part : snapshot.state.topology.parts) {
             const auto& center = part.geometry.center;
+            if (part.role == Role::shaft || part.role == Role::gear) {
+                for (auto px = std::min(*x, *end_x); px <= std::max(*x, *end_x); ++px)
+                    for (auto pz = std::min(*z, *end_z); pz <= std::max(*z, *end_z); ++pz)
+                        if (transmission_intersects(foundation_bounds({{4 * px, *level, 4 * pz}, 1}),
+                                                    center, part.geometry.axis, part.role == Role::gear))
+                            return refuse("occupied");
+                continue;
+            }
             if (part.role == Role::waterwheel) {
                 for (auto px = std::min(*x, *end_x); px <= std::max(*x, *end_x); ++px)
                     for (auto pz = std::min(*z, *end_z); pz <= std::max(*z, *end_z); ++pz)
@@ -820,8 +843,10 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                 overlap(part_bounds(profile_, proposed), part_bounds(profile_, part))) return refuse("occupied");
         }
         const auto is_gear = *kind_name == "gear";
-        if (is_gear)
+        if (is_gear) {
+            if (transmission_intersects_foundations(snapshot.state, center, selected_axis, true)) return refuse("occupied");
             if (const auto* refusal = transmission_site_refusal(center, selected_axis, true)) return refuse(refusal);
+        }
         const bool water_wheel = *kind_name == "wheel";
         const auto radius = profile_.wheel_radius * (tiles ? *tiles : 3) * height_step / 100.0;
         const authority::Point at{*x * pitch, center[1] * pitch / 4 +
@@ -855,6 +880,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         if (std::any_of(center->begin(), center->end(), [](Integer coordinate) { return coordinate % 4 != 0; }))
             return refuse("invalid_cell");
         const auto verified_axis = selected_axis.value_or(mechanics::Axis::x);
+        if (transmission_intersects_foundations(snapshot.state, *center, verified_axis, false)) return refuse("occupied");
         if (const auto* refusal = transmission_site_refusal(*center, verified_axis, false)) return refuse(refusal);
         const authority::Point at{(*center)[0] * pitch / 4, anchor_height + (*center)[1] * pitch / 4, (*center)[2] * pitch / 4};
         authority::Point half{0.1, 0.1, 0.1};
@@ -879,6 +905,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         if (std::any_of(center->begin(), center->end(), [](Integer coordinate) { return coordinate % 4 != 0; }))
             return refuse("invalid_cell");
         const auto verified_axis = selected_axis.value_or(mechanics::Axis::x);
+        if (transmission_intersects_foundations(snapshot.state, *center, verified_axis, true)) return refuse("occupied");
         if (const auto* refusal = transmission_site_refusal(*center, verified_axis, true)) return refuse(refusal);
         const authority::Point at{(*center)[0] * pitch / 4, anchor_height + (*center)[1] * pitch / 4, (*center)[2] * pitch / 4};
         const auto half = gear_half_extents(verified_axis, *teeth);
@@ -1173,9 +1200,12 @@ Host::Decoded Host::decode(const Value& input) const {
                     overlap(part_bounds(profile_, part), part_bounds(profile_, other))) return {nullptr, "occupied"};
         } else if (part.role != Role::shaft && part.role != Role::gear)
             if (const auto* refusal = machine_site_refusal(snapshot.state, center)) return {nullptr, refusal};
-        if (part.role == Role::shaft || part.role == Role::gear)
+        if (part.role == Role::shaft || part.role == Role::gear) {
+            if (transmission_intersects_foundations(snapshot.state, center, part.geometry.axis, part.role == Role::gear))
+                return {nullptr, "occupied"};
             if (const auto* refusal = transmission_site_refusal(center, part.geometry.axis, part.role == Role::gear))
                 return {nullptr, refusal};
+        }
     }
     for (const auto& link : snapshot.state.topology.material_links) {
         const auto* from = find(snapshot.state, link.from.id);
