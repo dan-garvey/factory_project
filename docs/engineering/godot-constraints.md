@@ -273,25 +273,29 @@ modeling choices, not Godot restrictions. The C++ geometric solver
 derives engagement and signed rational rates; it does not simulate tooth contact,
 torque or angular phase. Belt material moves according to the signed spindle
 direction; reverse-end blanks become recoverable loose material. Processor work
-scales with the derived rate, while belt throughput remains a fixture step.
+and span-belt throughput scale with the derived rate. A 45-degree span uses the
+fixed-point factor 2896/4096 to approximate the extra length per diagonal tile;
+actor carry uses the same horizontal progress. The single-cell legacy belt remains
+a fixture step.
 
-The ordinary view's gear/shaft bodies are pick-only geometry on layer 4. They
-do not add actor collision shapes or make a rendered contact authoritative.
+The ordinary view's layer-4 gear/shaft picking geometry does not make a rendered
+contact authoritative. ActorWorld separately registers transmission collision
+shapes derived from confirmed native geometry.
 Static direction arrows and engagement markers use confirmed native facts;
 the translucent placement cursor is only a requested grid point. ActorWorld
-continues to supply real body origins for the exact 3D reach decision. Precise
-part collision, pushing, authoritative dynamic phase and rate-dependent production remain
-separate implementation work, not limitations inferred from these fixtures.
+continues to supply real body origins for the exact 3D reach decision. Pushing,
+authoritative dynamic phase and full physical tooth contact remain separate work.
 
 **Chosen motion presentation:** the wheel, cog and shaft-keyway illustrations
 integrate cosmetic angles from confirmed native signed rates. The source rate's
-visual reference is 0.8 radians per second, not a selected physical RPM or
-processing rate. Long frame gaps are capped at 0.1 seconds for this illustration.
+visual reference is one horizontal tile per 0.45-second native tick at unit rate,
+using the illustrated pulley radius; it is not a selected physical RPM. Long
+frame gaps are capped at 0.1 seconds for this illustration.
 Local angles survive a mesh refresh for the same context/part generation, reset
 on replacement or a new world, and are not checkpoint fields or contact data.
 Unknown/stalled parts and unavailable/Help/unready/shared-disconnected views do
-not invent continued operation. The unchanged axisymmetric pick cylinders stay
-pick-only; spinning their visuals adds no actor collision or moving mechanism.
+not invent continued operation. The axisymmetric pick cylinders stay pick-only;
+spinning their visuals does not rotate ActorWorld's collision shapes.
 The collector's existing cutter meshes consume the same angle cache. The press
 only eases toward a confirmed held/empty tool pose, including retained blocked
 READY work; that pose never advances remaining ticks or releases material. These

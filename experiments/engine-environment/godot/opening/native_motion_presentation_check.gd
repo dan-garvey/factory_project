@@ -62,6 +62,9 @@ func inside_proxy(node: Node, parent: Transform3D) -> bool:
 	return true
 
 func check_rotation_and_identity() -> void:
+	var one_step := wrapf(Presenter.VISUAL_RADIANS_PER_SECOND * 0.1, -PI, PI)
+	var two_steps := wrapf(Presenter.VISUAL_RADIANS_PER_SECOND * 0.2, -PI, PI)
+	var negative_one_and_half := wrapf(-Presenter.VISUAL_RADIANS_PER_SECOND * 0.15, -PI, PI)
 	var view := Opening.new()
 	mount(view)
 	var original: Dictionary = view.state.duplicate(true)
@@ -73,7 +76,7 @@ func check_rotation_and_identity() -> void:
 	var original_center := a.position
 	var original_axis := a.basis.y
 	view._animate_wheel(0.1)
-	verify(is_equal_approx(presenter.visual_angle("a"), 0.08) and is_equal_approx(presenter.visual_angle("b"), -0.08),
+	verify(is_equal_approx(presenter.visual_angle("a"), one_step) and is_equal_approx(presenter.visual_angle("b"), -one_step),
 		"Confirmed equal rates illustrate opposite signed rotation.")
 	verify(view.state == original and view.model == null, "Illustration neither mutates the confirmed projection nor creates authority.")
 	verify(a.position == original_center and a.basis.y.is_equal_approx(original_axis), "Cosmetic rotation retains the exact spindle center and axis.")
@@ -81,36 +84,36 @@ func check_rotation_and_identity() -> void:
 		"The original axisymmetric pick shape is retained, without an actor collider.")
 	verify((a.basis * a.get_node("ConfirmedDirection").basis).is_equal_approx(Presenter.axis_basis(0)),
 		"The signed direction annotation stays fixed while the rotor turns.")
-	verify(part(view, "s").has_node("Keyway") and is_equal_approx(presenter.visual_angle("s"), 0.08),
+	verify(part(view, "s").has_node("Keyway") and is_equal_approx(presenter.visual_angle("s"), one_step),
 		"A shaft keyway makes its confirmed motion visible without changing the span.")
 	presenter.refresh()
-	verify(part(view, "a") == a and is_equal_approx(presenter.visual_angle("a"), 0.08), "An unchanged refresh preserves nodes and cosmetic angle.")
+	verify(part(view, "a") == a and is_equal_approx(presenter.visual_angle("a"), one_step), "An unchanged refresh preserves nodes and cosmetic angle.")
 	# Invented rate changes test display mapping, not a new mechanical solution.
 	view.state.motion.b = {"state": "rotating", "numerator": -1, "denominator": 2}
 	presenter.refresh()
 	view._animate_wheel(0.1)
-	verify(is_equal_approx(presenter.visual_angle("a"), 0.16) and is_equal_approx(presenter.visual_angle("b"), -0.12),
+	verify(is_equal_approx(presenter.visual_angle("a"), two_steps) and is_equal_approx(presenter.visual_angle("b"), negative_one_and_half),
 		"A changed native ratio changes only subsequent cosmetic speed, without resetting the retained angle.")
 	for status: String in ["stalled", "disconnected", "unknown"]:
 		for entry: Dictionary in view.state.motion.values():
 			entry.state = status
 		presenter.refresh()
 		view._animate_wheel(0.1)
-		verify(is_equal_approx(presenter.visual_angle("a"), 0.16), "Nonrotating confirmed state freezes presentation: " + status)
+		verify(is_equal_approx(presenter.visual_angle("a"), two_steps), "Nonrotating confirmed state freezes presentation: " + status)
 	view.state = original.duplicate(true)
 	presenter.refresh()
 	var before: Dictionary = view.state.duplicate(true)
 	for delta: float in [-1.0, 0.0, INF, NAN]:
 		view._animate_wheel(delta)
-		verify(is_equal_approx(presenter.visual_angle("a"), 0.16), "Invalid or nonpositive frame time adds no angle.")
+		verify(is_equal_approx(presenter.visual_angle("a"), two_steps), "Invalid or nonpositive frame time adds no angle.")
 	verify(view.state == before, "All invalid-time controls leave their input projection unchanged.")
 	view.explanation_open = true
 	view._animate_wheel(0.1)
-	verify(is_equal_approx(presenter.visual_angle("a"), 0.16), "Help suspends cosmetic motion without touching the factory.")
+	verify(is_equal_approx(presenter.visual_angle("a"), two_steps), "Help suspends cosmetic motion without touching the factory.")
 	view.explanation_open = false
 	view.state.transmission_parts.a.generation = 9
 	presenter.refresh()
-	verify(presenter.visual_angle("a") == 0.0 and is_equal_approx(presenter.visual_angle("b"), -0.12), "Replacement identity resets only that part's cosmetic state.")
+	verify(presenter.visual_angle("a") == 0.0 and is_equal_approx(presenter.visual_angle("b"), negative_one_and_half), "Replacement identity resets only that part's cosmetic state.")
 	view.state.transmission_parts.erase("b")
 	presenter.refresh()
 	verify(presenter.visual_angle("b") == 0.0, "Removed part state is pruned.")
@@ -121,6 +124,7 @@ func check_rotation_and_identity() -> void:
 	view.free()
 
 func check_wheels() -> void:
+	var one_step := wrapf(Presenter.VISUAL_RADIANS_PER_SECOND * 0.1, -PI, PI)
 	for axis: int in [0, 1, 2]:
 		var view := Opening.new()
 		mount(view)
@@ -131,26 +135,27 @@ func check_wheels() -> void:
 		var before: Dictionary = view.state.duplicate(true)
 		var original: Transform3D = view.wheel_rotor.transform
 		view._animate_wheel(0.1)
-		verify(view.wheel_rotor.basis.is_equal_approx(original.basis * Basis(Vector3.BACK, 0.08)), "The native wheel follows confirmed rotation on axis " + str(axis))
+		verify(view.wheel_rotor.basis.is_equal_approx(original.basis * Basis(Vector3.BACK, one_step)), "The native wheel follows confirmed rotation on axis " + str(axis))
 		verify(view.wheel_rotor.position == original.origin and view.wheel_rotor.scale.is_equal_approx(original.basis.get_scale()), "Wheel motion preserves its fitted hub and scale.")
 		verify(inside_proxy(holder, Transform3D.IDENTITY), "The illustrated wheel remains inside the unchanged conservative machine proxy.")
 		view._wheel_visual(holder, view.state.entities.wheel)
 		view._animate_wheel(0.0)
-		verify(view.wheel_rotor.basis.is_equal_approx(original.basis * Basis(Vector3.BACK, 0.08)), "A rebuilt wheel mesh recovers the same identity's cosmetic angle.")
+		verify(view.wheel_rotor.basis.is_equal_approx(original.basis * Basis(Vector3.BACK, one_step)), "A rebuilt wheel mesh recovers the same identity's cosmetic angle.")
 		verify(view.state == before and view.model == null, "Wheel illustration mutates neither projection nor authority.")
 		view.free()
 
 func check_shared_freshness() -> void:
+	var one_step := wrapf(Presenter.VISUAL_RADIANS_PER_SECOND * 0.1, -PI, PI)
 	var view := Shared.new()
 	mount(view)
 	view.session = Connection.new()
 	var before: Dictionary = view.state.duplicate(true)
 	view.pending_actions = {"queued": {"action": {"action": "place_gear"}}}
 	view._animate_wheel(0.1)
-	verify(is_equal_approx(view.transmission_presenter.visual_angle("a"), 0.08), "Pending construction does not change a still-confirmed running drive.")
+	verify(is_equal_approx(view.transmission_presenter.visual_angle("a"), one_step), "Pending construction does not change a still-confirmed running drive.")
 	view.session.ready = false
 	view._animate_wheel(0.1)
-	verify(is_equal_approx(view.transmission_presenter.visual_angle("a"), 0.08), "A disconnected shared view cannot keep inventing operation.")
+	verify(is_equal_approx(view.transmission_presenter.visual_angle("a"), one_step), "A disconnected shared view cannot keep inventing operation.")
 	verify(view.state == before and view.model == null, "Shared presentation emits no command or material update.")
 	view.free()
 

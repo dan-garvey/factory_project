@@ -5,7 +5,9 @@ const Geometry = preload("res://opening/site_geometry.gd")
 const Assets = preload("res://opening/native_transmission_assets.gd")
 const Items = preload("res://opening/workpiece_item_assets.gd")
 const UNIT := Geometry.PITCH / 4.0
-const VISUAL_RADIANS_PER_SECOND := 0.8
+## The native lane moves one horizontal tile per 0.45-second tick at rate 1.
+## Its pulley rim must travel the same distance in that time.
+const VISUAL_RADIANS_PER_SECOND := Geometry.PITCH / (Assets.SPAN_OUTER_RADIUS * 0.45)
 const BELT_SUBTICKS_PER_TILE := 4096.0 # Matches the native material lane's fixed-point denominator.
 
 var _host: WeakRef

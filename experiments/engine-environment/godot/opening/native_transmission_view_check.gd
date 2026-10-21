@@ -5,6 +5,7 @@ const Geometry = preload("res://opening/site_geometry.gd")
 const ActorWorld = preload("res://opening/actor_world.gd")
 const PhysicalActor = preload("res://opening/actor_body.gd")
 const Presenter = preload("res://opening/native_transmission_presenter.gd")
+const Assets = preload("res://opening/native_transmission_assets.gd")
 const LooseControls = preload("res://opening/recovery_actions.gd").LooseMaterialControls
 const Session = preload("res://opening-session/session.gd")
 var checks := 0
@@ -551,7 +552,9 @@ func _belt_surface_motion() -> void:
 	var material_a := loop_a.material_override as StandardMaterial3D
 	var material_b := loop_b.material_override as StandardMaterial3D
 	verify(material_a != material_b, "Each belt has its own surface phase without changing the cached rubber material.")
-	view.advance_visual_motion(0.1)
+	view.advance_visual_motion(0.001)
+	verify(is_equal_approx(view.visual_rotation("a0") * Assets.SPAN_OUTER_RADIUS,
+		Geometry.PITCH * 0.001 / 0.45), "The pulley rim travels one tile per native tick at unit shaft rate.")
 	var a_delta := wrapf(material_a.uv1_offset.x, -0.5, 0.5)
 	var b_delta := wrapf(material_b.uv1_offset.x, -0.5, 0.5)
 	verify(a_delta > 0.0 and b_delta < 0.0 and is_equal_approx(b_delta, -2.0 * a_delta),
@@ -588,7 +591,7 @@ func _belt_surface_motion() -> void:
 			var presenter := Presenter.new()
 			presenter.configure(oriented)
 			var loop: MeshInstance3D = _part(presenter, "span").get_node("BeltLoop")
-			presenter.advance_visual_motion(0.1)
+			presenter.advance_visual_motion(0.001)
 			var offset: float = (loop.material_override as StandardMaterial3D).uv1_offset.x
 			verify(wrapf(offset, -0.5, 0.5) * example.sign > 0.0,
 				"Surface travel respects axle orientation and is independent of endpoint order.")
@@ -1002,6 +1005,10 @@ func _belt_actor_transport() -> void:
 	var sample: Dictionary = authority.projection()
 	var expected_speed := Geometry.PITCH / (4.0 * 0.45)
 	verify(physical._belt_surface_velocity(sample, belt_id).is_equal_approx(Vector2(expected_speed, 0)), "The X travel rate matches the native quarter-tile per simulation step.")
+	sample.transmission_parts.right.center = [8, 16, 0]
+	var slope_speed := floorf(1024.0 * 2896.0 / 4096.0) / 4096.0 * Geometry.PITCH / 0.45
+	verify(physical._belt_surface_velocity(sample, belt_id).is_equal_approx(Vector2(slope_speed, 0)), "Inclined actor carry uses the same fixed-point horizontal progress as cargo.")
+	sample.transmission_parts.right.center = [8, 8, 0]
 	sample.transmission_parts.left.axis = 0
 	sample.motion.left.numerator = 1
 	verify(physical._belt_surface_velocity(sample, belt_id).is_equal_approx(Vector2(0, expected_speed)), "The other horizontal shaft axis transports along Z with the correct sign.")
