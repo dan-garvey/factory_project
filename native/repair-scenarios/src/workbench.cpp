@@ -90,7 +90,9 @@ void status(const Host& host, const w::State& state, std::ostream& out) {
         if (choice.mode == co_drive_scenarios::Mode::stalled) {
             std::vector<mechanics::Part> parts;
             for (const auto& part : state.topology.parts) parts.push_back(part.geometry);
-            const auto report = drive_diagnostics::inspect(parts, state.topology.sources);
+            std::vector<mechanics::BeltSpan> belts;
+            for (const auto& span : state.topology.belt_spans) belts.push_back(span.geometry);
+            const auto report = drive_diagnostics::inspect(parts, state.topology.sources, belts);
             for (const auto& witness : report.witnesses) {
                 if (witness.kind == drive_diagnostics::Kind::incompatible_sources)
                     out << "With only source " << witness.source << ", " << witness.hub << " has rate "

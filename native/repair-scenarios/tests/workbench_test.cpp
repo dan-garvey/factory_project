@@ -86,6 +86,14 @@ void shaft_span_commands() {
           "Unknown shafts, spans and negative slots do not fabricate authority.");
 }
 
+void belt_connected_diagnostic() {
+    const auto result = run("co-drive", "inspect\nquit\n");
+    check(result.code == 1 && result.errors.empty() &&
+          contains(result, "Source arrangement: stalled") &&
+          contains(result, "With only source wheel-left, wheel-right has rate -1/1; with only source wheel-right, its rate is 1/1."),
+          "Inspection explains the actual two-source stall in the shaft-belt repair network.");
+}
+
 void retained_refusals() {
     const auto readonly = run("outlet", "help\nhint\ninspect\ninspect\nquit\n");
     check(readonly.code == 1 && readonly.errors.empty(), "Help, hints and inspection do not finish or run the puzzle.");
@@ -153,6 +161,7 @@ int main() {
     try {
         solutions();
         shaft_span_commands();
+        belt_connected_diagnostic();
         retained_refusals();
         entry_and_streams();
         std::cout << checks << " interactive repair checks, 0 failures.\n";

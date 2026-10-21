@@ -24,5 +24,6 @@ struct Report {
 // explicit limit/unresolved result. All witness data is owned by the report.
 // Restricted-source evaluations are counterfactual queries, not applied repairs,
 // minimal fault sets, contact simulation or another mutable mechanical owner.
-[[nodiscard]] Report inspect(const std::vector<mechanics::Part>&, const std::vector<mechanics::Drive>&);
+[[nodiscard]] Report inspect(const std::vector<mechanics::Part>&, const std::vector<mechanics::Drive>&,
+                             const std::vector<mechanics::BeltSpan>&);
 }  // namespace factory::drive_diagnostics
