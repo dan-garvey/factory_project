@@ -9,7 +9,7 @@ original history and physical seeds. See the [native bridge](../../../../native/
 WASD walks a native capsule, Space jumps, and the orbit camera follows your
 confirmed character. Right-drag changes the view; the mouse wheel zooms and
 Home restores follow distance. Clicked targets never stand in for your body.
-Build, dismantle, retrieve and both ends of a connection must be within the
+Build, dismantle, retrieve and connection targets must be within the
 authority's provisional four-world-unit sphere. Move closer after a refusal
 and deliberately retry. P (or the drive button) operates the wheel from nearby;
 it does not promise a global stop from the press. Read-only inspection, Help,
@@ -91,11 +91,13 @@ on foundations can leave room beneath the cogs while keeping their axles aligned
 
 To connect separated shafts, choose **Connect shafts with a belt** from the
 transmission menu and select both shaft tiles. Their axes must be parallel and
-their path straight or inclined at 45 degrees; both ends must be within the
-character's reach. Intermediate aligned shafts turn with the belt. Horizontal
+their path straight or inclined at 45 degrees. Select each end while the
+character is within reach; the first selection is recorded by the worksite.
+Intermediate aligned shafts turn with the belt. Horizontal
 and inclined belts can carry material. Vertical and sideways belts transmit
 rotation only. The belt appears after the worksite confirms placement, and the
-transmission removal tool can reclaim it when it is empty.
+transmission removal tool can reclaim it when it is empty and a belt tile is
+within reach.
 
 The inspector can select a cogwheel or shaft and return it to the carried kit.
 Static arrows show the confirmed signed rate, and contact marks use confirmed

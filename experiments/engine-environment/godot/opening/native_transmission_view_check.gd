@@ -23,7 +23,7 @@ class HostStub extends RefCounted:
 		return mutate_allowed
 	func issue(wire: Dictionary) -> Dictionary:
 		calls.append(wire.duplicate(true))
-		return {"queued": true, "accepted": false}
+		return {"queued": true, "accepted": false, "request": "request-%d" % calls.size()}
 	func _message(words: String, _refused: bool) -> void:
 		messages.append(words)
 
@@ -222,18 +222,18 @@ func _belt_spans() -> void:
 	controls.choose_tool("belt_span")
 	var before: Dictionary = host.state.duplicate(true)
 	controls.handle_world_click([], "left")
-	verify(host.calls.is_empty(), "The first belt endpoint is local selection only.")
+	verify(host.calls == [{"action": "select_belt_shaft", "entity": "left"}], "The first endpoint submits an authoritative reach selection.")
 	controls.handle_world_click([], "right")
-	verify(host.calls.back() == {"action": "place_belt_span", "from": "left", "to": "right"} and host.state == before,
+	verify(host.calls.back() == {"action": "place_selected_belt_span", "from": "left", "to": "right", "selection": "request-1"} and host.state == before,
 		"Two confirmed shafts submit a span without speculative geometry or inventory.")
 	controls.handle_world_click([], "left")
 	host.state.transmission_parts.left.generation = 13
 	controls.handle_world_click([], "right")
-	verify(host.calls.size() == 1, "A replaced first shaft cannot be silently reused.")
+	verify(host.calls.size() == 3, "A replaced first shaft cannot be silently reused.")
 	controls.handle_world_click([], "left")
 	host.mutate_allowed = false
 	controls.handle_world_click([], "right")
-	verify(host.calls.size() == 1, "A pending shared request prevents a span submission.")
+	verify(host.calls.size() == 4, "A pending shared request prevents a span submission.")
 	host.mutate_allowed = true
 	var presenter := Presenter.new()
 	presenter.configure(host)
@@ -341,7 +341,7 @@ func _nonhorizontal_presentation() -> void:
 		var confirmed: Dictionary = host.state.duplicate(true)
 		controls.handle_world_click([], "first")
 		controls.handle_world_click([], "last")
-		verify(host.calls.size() == 1 and host.calls[0] == {"action": "place_belt_span", "from": "first", "to": "last"} and host.state == confirmed, "Endpoint controls submit the path without inventing confirmed state.")
+		verify(host.calls.size() == 2 and host.calls[0] == {"action": "select_belt_shaft", "entity": "first"} and host.calls[1] == {"action": "place_selected_belt_span", "from": "first", "to": "last", "selection": "request-1"} and host.state == confirmed, "Endpoint controls submit the path without inventing confirmed state.")
 		controls.free()
 		var presenter := Presenter.new()
 		presenter.configure(host)

@@ -5,6 +5,7 @@
 #include <cmath>
 #include <initializer_list>
 #include <limits>
+#include <set>
 #include <string_view>
 #include <utility>
 
@@ -124,6 +125,8 @@ bool shape(const Object& intent, const std::string& action) {
             keys(intent, {"role", "center", "axis", "teeth", "half_span"});
     if (action == "link" || action == "unlink" || action == "shaft_between" || action == "remove_shaft_between" || action == "place_belt_span")
         return keys(intent, {"target", "generation", "to", "to_generation"});
+    if (action == "place_selected_belt_span")
+        return keys(intent, {"target", "generation", "to", "to_generation", "selection"}) && field<std::string>(intent, "selection");
     return false;
 }
 
@@ -183,7 +186,8 @@ std::vector<mechanics::Point> foundation_area(const Object& intent) {
 }
 
 bool two_endpoints(const std::string& action) {
-    return action == "link" || action == "unlink" || action == "shaft_between" || action == "remove_shaft_between" || action == "place_belt_span";
+    return action == "link" || action == "unlink" || action == "shaft_between" || action == "remove_shaft_between" ||
+        action == "place_belt_span" || action == "place_selected_belt_span";
 }
 
 Value point_value(const authority::Point& point) {
@@ -257,7 +261,8 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
     if (!reason || *reason != "ok" || !epoch || *epoch <= 0 || !reach || *reach != profile.build_reach ||
         !position || !points || !distances ||
         (action == "place_connected" ? points->empty() || points->size() > 3 :
-                                     points->size() != ((two_endpoints(action) || action == "remove_belt_span") ? 2 : 1)) ||
+         action == "remove_belt_span" ? points->size() != 1 && points->size() != 2 :
+         points->size() != ((two_endpoints(action) && action != "place_selected_belt_span") ? 2 : 1)) ||
         distances->size() != points->size()) return false;
     const auto point = [](const Value::Array& array) -> std::optional<authority::Point> {
         if (array.size() != 3) return std::nullopt;
@@ -365,14 +370,20 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
                 if (!matched) return false;
             }
         }
-    } else if (action != "shaft_between" && action != "remove_shaft_between" && action != "place_belt_span") {
+    } else if (action != "shaft_between" && action != "remove_shaft_between" && action != "place_belt_span" && action != "place_selected_belt_span") {
         const auto* target = field<std::string>(record.intent, "target");
         const auto* generation = field<Integer>(record.intent, "generation");
         if (!target || *target != *field<std::string>(result, "entity") ||
             !generation || *generation != *field<Integer>(result, "generation")) return false;
     }
     const bool transfer = action == "recover" || action == "recover_belt_slot" || action == "insert_raw" || action == "insert_work";
-    if (result.size() != (action == "recover_belt_slot" ? 20 : transfer ? 19 : action == "collect" ? 17 : 16)) return false;
+    if (result.size() != (action == "recover_belt_slot" ? 20 : transfer ? 19 : action == "collect" ||
+                          (action == "remove_belt_span" && points->size() == 1) ? 17 : 16)) return false;
+    if (action == "remove_belt_span" && points->size() == 1) {
+        const auto* center = field<Value::Array>(result, "belt_center");
+        const auto location = center ? grid_point(Object{{"center", Value(*center)}}) : std::nullopt;
+        if (!location || targets.front() != anchor(profile, *location)) return false;
+    }
     if (action == "recover_belt_slot") {
         const auto* slot = field<Integer>(record.intent, "slot");
         const auto* center = field<Value::Array>(result, "slot_center");
@@ -423,6 +434,7 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
 }
 
 bool history_domain(const Profile& profile, const Snapshot& snapshot) {
+    std::set<std::pair<std::string, std::string>> used_belt_selections;
     for (const auto& record : snapshot.history.records) {
         const auto* actor = field<std::string>(record.intent, "actor");
         const auto* action = field<std::string>(record.intent, "action");
@@ -468,6 +480,39 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
                 destination == snapshot.state.issued_entities.end() || destination->second != *to_generation) return false;
         }
         if (!historical_facts(profile, record, *actor, *action)) return false;
+        if (*action == "select_belt_shaft" || *action == "place_selected_belt_span") {
+            const auto* id = field<std::string>(record.intent, *action == "select_belt_shaft" ? "target" : "to");
+            const auto* generation = field<Integer>(record.intent, *action == "select_belt_shaft" ? "generation" : "to_generation");
+            const auto* points = field<Value::Array>(record.result, "targets");
+            const auto* live = id ? part(snapshot.state.topology, *id) : nullptr;
+            if (!id || !generation || !points || points->size() != 1) return false;
+            if (live && (live->role != Role::shaft || live->generation != *generation ||
+                         values::typed_difference(points->front(), point_value(anchor(profile, live->geometry.center))))) return false;
+        }
+        if (*action == "place_selected_belt_span") {
+            const auto* selection = field<std::string>(record.intent, "selection");
+            const auto* client = field<std::string>(record.intent, "client");
+            const auto* first = field<std::string>(record.intent, "target");
+            const auto* generation = field<Integer>(record.intent, "generation");
+            if (!selection || !client || !first || !generation ||
+                !used_belt_selections.emplace(*client, *selection).second) return false;
+            bool found = false;
+            for (const auto& prior : snapshot.history.records) {
+                if (&prior == &record) break;
+                const auto* prior_actor = field<std::string>(prior.intent, "actor");
+                const auto* prior_client = field<std::string>(prior.intent, "client");
+                const auto* prior_action = field<std::string>(prior.intent, "action");
+                const auto* request = field<std::string>(prior.intent, "request");
+                const auto* target = field<std::string>(prior.intent, "target");
+                const auto* target_generation = field<Integer>(prior.intent, "generation");
+                const auto* ok = field<bool>(prior.result, "accepted");
+                if (prior_actor && *prior_actor == *actor && prior_client && *prior_client == *client &&
+                    prior_action && *prior_action == "select_belt_shaft" && request && *request == *selection &&
+                    target && *target == *first && target_generation && *target_generation == *generation && ok && *ok)
+                    found = true;
+            }
+            if (!found) return false;
+        }
         if (const auto* lots = field<Value::Array>(record.result, "moved_work")) {
             for (const auto& value : *lots) {
                 const auto* object = std::get_if<Object>(&value.storage());
@@ -925,13 +970,14 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         facts.emplace("slot_center", Value(Value::Array{Value(center[0]), Value(center[1]), Value(center[2])}));
         return accepted(std::move(candidate), *id, std::move(facts));
     }
-    if (*action == "place_belt_span" || *action == "remove_belt_span") {
+    if (*action == "place_belt_span" || *action == "place_selected_belt_span" || *action == "remove_belt_span") {
+        const bool placing = *action != "remove_belt_span";
         const auto* id = field<std::string>(intent, "target");
         const auto* expected = field<Integer>(intent, "generation");
         if (!id || !expected) return refused("invalid_target");
         const stationary::PlacedPart* first = nullptr;
         const stationary::PlacedPart* last = nullptr;
-        if (*action == "place_belt_span") {
+        if (placing) {
             first = part(state.topology, *id);
             const auto* to = field<std::string>(intent, "to");
             const auto* to_generation = field<Integer>(intent, "to_generation");
@@ -943,6 +989,31 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             const auto path = mechanics::belt_path(first->geometry, last->geometry);
             if (!path)
                 return refused("invalid_belt_geometry");
+            if (*action == "place_selected_belt_span") {
+                const auto* selection = field<std::string>(intent, "selection");
+                const authority::Record* selected = nullptr;
+                bool used = false;
+                for (const auto& record : snapshot.history.records) {
+                    const auto* actor = field<std::string>(record.intent, "actor");
+                    const auto* client = field<std::string>(record.intent, "client");
+                    const auto* recorded_action = field<std::string>(record.intent, "action");
+                    const auto* request = field<std::string>(record.intent, "request");
+                    const auto* ok = field<bool>(record.result, "accepted");
+                    if (!actor || *actor != binding.actor || !client || *client != binding.client || !recorded_action || !ok || !*ok) continue;
+                    if (*recorded_action == "select_belt_shaft" && request && selection && *request == *selection) selected = &record;
+                    if (*recorded_action == "place_selected_belt_span") {
+                        const auto* prior = field<std::string>(record.intent, "selection");
+                        if (prior && selection && *prior == *selection) used = true;
+                    }
+                }
+                const auto* selected_target = selected ? field<std::string>(selected->intent, "target") : nullptr;
+                const auto* selected_generation = selected ? field<Integer>(selected->intent, "generation") : nullptr;
+                const auto* selected_points = selected ? field<Value::Array>(selected->result, "targets") : nullptr;
+                if (!selection || !selected_target || *selected_target != first->geometry.id || !selected_generation ||
+                    *selected_generation != first->generation || !selected_points || selected_points->size() != 1 ||
+                    values::typed_difference(selected_points->front(), point_value(anchor(profile_, first->geometry.center))) || used)
+                    return refused("invalid_belt_selection");
+            }
         } else {
             const auto found = std::find_if(state.topology.belt_spans.begin(), state.topology.belt_spans.end(),
                 [&](const auto& span) { return span.geometry.id == *id; });
@@ -955,15 +1026,31 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         auto cut = observe ? observe(binding.actor) : std::nullopt;
         if (!cut) return refused("actor_unready");
         cut->build_reach = profile_.build_reach;
+        std::optional<mechanics::Point> removal_center;
+        if (*action == "remove_belt_span") {
+            const auto path = mechanics::belt_path(first->geometry, last->geometry);
+            if (!path || path->tiles.empty()) return refused("invalid_mechanics", *id);
+            removal_center = *std::min_element(path->tiles.begin(), path->tiles.end(), [&](const auto& a, const auto& b) {
+                const auto squared = [&](const auto& tile) {
+                    const auto position = anchor(profile_, tile);
+                    double distance = 0;
+                    for (std::size_t i = 0; i < position.size(); ++i) distance += (position[i] - cut->position[i]) * (position[i] - cut->position[i]);
+                    return distance;
+                };
+                return squared(a) < squared(b);
+            });
+        }
         const auto checked = authority::check_reach(binding.actor, *cut,
-            {anchor(profile_, first->geometry.center), anchor(profile_, last->geometry.center)});
+            removal_center ? std::vector<authority::Point>{anchor(profile_, *removal_center)} :
+            *action == "place_selected_belt_span" ? std::vector<authority::Point>{anchor(profile_, last->geometry.center)} :
+                std::vector<authority::Point>{anchor(profile_, first->geometry.center), anchor(profile_, last->geometry.center)});
         auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
         if (checked.error != authority::Error::none)
             return refused(authority::error_name(checked.error), *id, std::move(facts));
         auto candidate = state;
         auto entity = *id;
         auto generation = *expected;
-        if (*action == "place_belt_span") {
+        if (placing) {
             if (candidate.issued_entities.size() == maximum_issued_entities ||
                 candidate.next_entity_serial == std::numeric_limits<Integer>::max()) return refused("identity_limit");
             generation = candidate.next_entity_serial++;
@@ -990,6 +1077,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             candidate.topology = std::move(ready.candidate);
             candidate.kits.at(binding.actor) = std::move(ready.candidate_kit);
             candidate.material.belt_lanes.erase(entity);
+            facts.emplace("belt_center", Value(Value::Array{Value((*removal_center)[0]), Value((*removal_center)[1]), Value((*removal_center)[2])}));
         }
         facts.emplace("generation", Value(generation));
         return accepted(std::move(candidate), entity, std::move(facts));

@@ -494,6 +494,60 @@ void select_belt_shaft_host() {
           "Removing the selected shaft preserves the historical selection receipt.");
 }
 
+void long_selected_belt_host() {
+    Host host;
+    check(accepted(host.initialize("cog-api", {"P", "Q"})) && accepted(host.configure_terrain(low_flat_site())),
+          "The long belt fixture binds a synthetic site.");
+    observe(host, 0, -1.65, 1);
+    const auto first = create(host, shaft(0, 0, 0, "long-first"));
+    check(accepted(host.command("P", target("select_belt_shaft", first, "long-selection"))),
+          "The actor selects the first shaft while nearby.");
+    observe(host, 31.35, -1.65, 2);
+    const auto last = create(host, shaft(76, 0, 0, "long-last"));
+    auto span = wire("place_selected_belt_span", "long-span");
+    span.emplace("from", V(first)); span.emplace("to", V(last)); span.emplace("selection", V("forged"));
+    const auto forged = host.command("P", span);
+    check(!accepted(forged) && field<std::string>(forged, "reason") == "invalid_belt_selection",
+          "An unrecorded first-shaft selection cannot authorize a distant belt.");
+    check(accepted(host.publish_actor("Q", {V(31.35), V(1.0), V(-3.3)}, 1)), "A second actor is nearby and clear.");
+    auto stolen = span; stolen.at("client") = V("Q"); stolen.at("request") = V("long-stolen");
+    stolen.at("selection") = V("long-selection");
+    const auto other_actor = host.command("Q", stolen);
+    check(!accepted(other_actor) && field<std::string>(other_actor, "reason") == "invalid_belt_selection",
+          "Another actor cannot reuse the first actor's shaft selection.");
+    span.at("request") = V("long-span-far"); span.at("selection") = V("long-selection");
+    observe(host, 20, -1.65, 3);
+    const auto far = host.command("P", span);
+    check(!accepted(far) && field<std::string>(far, "reason") == "out_of_reach",
+          "A valid first selection does not authorize a distant second endpoint.");
+    observe(host, 31.35, -1.65, 4);
+    span.at("request") = V("long-span-valid");
+    const auto id = create(host, span);
+    check(field<O>(host.projection(), "belt_spans").contains(id) &&
+              field<I>(V(field<O>(host.projection(), "parts")), "belt") == 0,
+          "The full twenty-tile belt is built from the actor's second endpoint and consumes its belt.");
+    auto reused = span; reused.at("request") = V("long-span-reuse");
+    const auto repeat = host.command("P", reused);
+    check(!accepted(repeat) && field<std::string>(repeat, "reason") == "invalid_belt_selection",
+          "A successful first selection cannot be reused to install another belt.");
+    const auto saved = host.checkpoint();
+    Host restored;
+    check(accepted(restored.initialize("fresh", {"P", "Q"})) && accepted(restored.configure_terrain(low_flat_site())) &&
+              accepted(restored.restore_checkpoint(saved)) && field<bool>(restored.command("P", span), "duplicate"),
+          "The long belt and linked selection receipt survive checkpoint and exact replay.");
+    observe(restored, 15.675, -20, 1);
+    const auto far_remove = restored.command("P", target("remove_belt_span", id, "long-remove-far"));
+    check(!accepted(far_remove) && field<std::string>(far_remove, "reason") == "out_of_reach" &&
+              field<O>(restored.projection(), "belt_spans").contains(id),
+          "Removing a long belt remains restricted to a reachable path tile.");
+    observe(restored, 15.675, -1.65, 2);
+    check(accepted(restored.command("P", target("remove_belt_span", id, "long-remove"))) &&
+              field<O>(restored.projection(), "belt_spans").empty() &&
+              field<I>(V(field<O>(restored.projection(), "parts")), "belt") == 1 &&
+              accepted(restored.validate_checkpoint(restored.checkpoint())),
+          "An empty long belt can be reclaimed from a reachable middle tile after restoration.");
+}
+
 void belt_span_host_commands() {
     Host host;
     check(accepted(host.initialize("cog-api", {"P"})) &&
@@ -1345,7 +1399,7 @@ int main(int argc, char** argv) {
         }
         if (argc == 1) {
             finite_oriented_train_and_restore(); adjacent_axle_faces(); refusals_and_legacy_shape(); cog_axle_actor_clearance(); cog_at_belt_face(); transmission_site_clearance(); transmission_terrain_clearance(); transmission_foundation_clearance(); one_tile_placement();
-            transmission_tile_center(); global_grid(); finite_large_cog(); perpendicular_belt_line(); belt_spindle_orientation(); typed_loose_host(); select_belt_shaft_host(); belt_span_host_commands(); nonhorizontal_span_host(); complete_span_route_host(); rotated_belt_host(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
+            transmission_tile_center(); global_grid(); finite_large_cog(); perpendicular_belt_line(); belt_spindle_orientation(); typed_loose_host(); select_belt_shaft_host(); long_selected_belt_host(); belt_span_host_commands(); nonhorizontal_span_host(); complete_span_route_host(); rotated_belt_host(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
         } else if (argc != 2 || std::string(argv[1]) != "--placement-alias-only") {
             throw std::runtime_error("Expected no arguments or --placement-alias-only.");
         }

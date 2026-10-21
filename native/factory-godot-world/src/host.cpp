@@ -271,6 +271,9 @@ bool historical_wire(const authority::Record& record) {
     if (*action == "place_belt_span")
         return *original_action == "place_belt_span" && keys(*wire, {"from", "to"}) &&
             same("from", "target") && same("to", "to");
+    if (*action == "place_selected_belt_span")
+        return *original_action == "place_selected_belt_span" && keys(*wire, {"from", "to", "selection"}) &&
+            same("from", "target") && same("to", "to") && same("selection", "selection");
     if (*action == "remove_belt_span")
         return *original_action == "remove_belt_span" && keys(*wire, {"entity"}) && same("entity", "target");
     if (*action == "select_belt_shaft")
@@ -924,9 +927,12 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
     } else if (*action == "select_belt_shaft") {
         if (!keys(wire, {"entity"}) || !target("entity", "target", "generation")) return refuse("invalid_command");
         normalized.at("action") = Value("select_belt_shaft");
-    } else if (*action == "place_belt_span") {
-        if (!keys(wire, {"from", "to"}) || !target("from", "target", "generation") ||
+    } else if (*action == "place_belt_span" || *action == "place_selected_belt_span") {
+        if (!(*action == "place_belt_span" ? keys(wire, {"from", "to"}) : keys(wire, {"from", "to", "selection"})) ||
+            (*action == "place_selected_belt_span" && !field<std::string>(wire, "selection")) ||
+            !target("from", "target", "generation") ||
             !target("to", "to", "to_generation")) return refuse("invalid_command");
+        if (*action == "place_selected_belt_span") normalized.emplace("selection", wire.at("selection"));
         const auto* first = find(snapshot.state, *field<std::string>(wire, "from"));
         const auto* last = find(snapshot.state, *field<std::string>(wire, "to"));
         if (!first || !last) return refuse("unknown_target");
@@ -957,7 +963,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             if (!terrain) return refuse("terrain_unavailable");
             if (terrain->second > at[1] - half[1]) return refuse("site_occupied");
         }
-        normalized.at("action") = Value("place_belt_span");
+        normalized.at("action") = Value(*action);
     } else if (*action == "remove_belt_span") {
         if (!keys(wire, {"entity"}) || !target("entity", "target", "generation")) return refuse("invalid_command");
         normalized.at("action") = Value("remove_belt_span");

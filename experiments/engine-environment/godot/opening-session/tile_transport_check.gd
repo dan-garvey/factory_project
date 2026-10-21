@@ -255,8 +255,12 @@ func run_span() -> void:
 				var last := await issue({"action": "place_shaft", "center": last_center, "axis": axis, "half_span": 2})
 				verify(first.get("accepted", false) and last.get("accepted", false), "P constructs both shaft tiles through Session")
 				if failed: quit(1); return
-				var span := await issue({"action": "place_belt_span", "from": last.entity if reverse_endpoints else first.entity,
-					"to": first.entity if reverse_endpoints else last.entity})
+				var from: String = last.entity if reverse_endpoints else first.entity
+				var selection := await issue({"action": "select_belt_shaft", "entity": from})
+				verify(selection.get("accepted", false), "P selects the first shaft through Session: " + str(selection))
+				if failed: quit(1); return
+				var span := await issue({"action": "place_selected_belt_span", "from": from,
+					"to": first.entity if reverse_endpoints else last.entity, "selection": selection.request})
 				verify(span.get("accepted", false), "P constructs the belt through Session: " + str(span))
 				if failed: quit(1); return
 				var request: String = span.request
