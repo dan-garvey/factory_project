@@ -38,12 +38,17 @@ identity and silence for refused, pending or duplicate actions remain. Historica
 missing-file captures retain generated cues. Waveform and callback checks do not
 establish human listening quality or the complete game mix.
 
-Physical source clusters seat against the same emitted ground used by the
-character, with a 15-millimetre visual embed at the host rock's lowest vertex.
-Their horizontal seam positions, finite counts, shapes and mineral inclusions
-are unchanged. Historical nonphysical or absent-surface profiles keep their
-original anchors; in-line billets and finished plates retain their earlier
-positions. These decorative items add no collider or source-state authority.
+The source is one continuous natural rock exposure with branching mineral veins.
+It follows the same emitted terrain as the character, with at most forty
+millimetres of decorative relief. Its footprint comes from the native
+`source_deposit.cells` projection. The existing `stock.source` and `initial_feed`
+control eight cached stages of visible depletion; exhausted rock remains after
+the mineral disappears. There is no rock-per-unit row, local quantity ledger,
+collider, manufactured site hardware or historical presentation fallback.
+Belt and press billets and finished plates retain their existing art and positions.
+The collector's larger confirmed buffer fits its blanks into a four-by-four,
+two-layer pile inside its existing envelope. Every displayed blank still comes
+from the native stock count; no source row extends into adjacent machines.
 
 The natural west bank also has a bounded foreground understory using the existing
 CC0 grass resource. Its roots follow the emitted terrain; complete clump bounds

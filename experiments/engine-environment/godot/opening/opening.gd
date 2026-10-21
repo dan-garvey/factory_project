@@ -4643,35 +4643,9 @@ func _rebuild_machines() -> void:
 func _redraw_items() -> void:
 	# The asset helper uses this script's shared surfaces, so load it after
 	# the opening class is available instead of creating a preload cycle.
-	var path := "res://opening/workpiece_item_assets.gd"
-	if ResourceLoader.exists(path, "Script"):
-		if workpiece_item_assets == null:
-			workpiece_item_assets = load(path)
-		workpiece_item_assets.populate_items(item_root, state, PITCH)
-		return
-	if state.get("options", {}).get("native", false):
-		push_error("Native item presentation requires the complete captured project.")
-		return
-	# Historical scripted payloads have fixed file rosters. Preserve their
-	# existing presentation until those entry points are replaced.
-	for child in item_root.get_children():
-		child.free()
-	for entity_id in state.entities:
-		var entity: Dictionary = state.entities[entity_id]
-		var pos := _cell_position(entity.cell)
-		var amount := 0
-		if entity.kind in ["collector", "belt"]:
-			amount = int(state.stock.get(entity.kind, 0))
-		elif entity.kind == "processor":
-			amount = int(state.stock.held) + int(state.stock.input)
-		for n in range(amount):
-			_box(item_root, pos + Vector3(-0.17 + n * 0.32, 0.65, 0), Vector3(0.27, 0.18, 0.36), Color("e2c48b"))
-		if entity.kind == "processor" and state.stock.output > 0:
-			_box(item_root, pos + Vector3(0.46, 0.39, 0.15), Vector3(0.44, 0.07, 0.53), Color("e4d8b3"))
-	# The finite seam stays in its marked column when machinery is rebuilt.
-	for n in range(mini(16, int(state.stock.source))):
-		_box(item_root, Vector3(-0.16 + (n % 2) * 0.32, 0.11, -2.9 + int(n / 2.0) * 1.15),
-			Vector3(0.2, 0.18, 0.28), Color("a58c59"))
+	if workpiece_item_assets == null:
+		workpiece_item_assets = load("res://opening/workpiece_item_assets.gd")
+	workpiece_item_assets.populate_items(item_root, state, PITCH)
 
 func _refresh() -> void:
 	state = model.projection()

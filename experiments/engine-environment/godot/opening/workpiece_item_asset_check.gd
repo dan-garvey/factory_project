@@ -1,6 +1,6 @@
 extends SceneTree
-## Headless verification of fitted seam blanks, workpiece billets and stamped
-## product plates. No World, input, network or desktop execution.
+## Passive mineral exposure, workpiece billets and stamped product plates.
+## No World, input, network or desktop execution.
 
 const Assets = preload("res://opening/workpiece_item_assets.gd")
 const Visuals = preload("res://opening/opening.gd").ProductionVisuals
@@ -114,11 +114,8 @@ func count_kind(node: Node, kind: String) -> int:
 
 
 func _initialize() -> void:
-	if "--source-contact-only" in OS.get_cmdline_user_args():
-		check_source_contact()
-		return
-	if "--raw-seam-only" in OS.get_cmdline_user_args():
-		check_raw_seam()
+	if "--mineral-seam-only" in OS.get_cmdline_user_args():
+		check_mineral_seam()
 		return
 	var boss := Visuals.turned_mesh(Assets.boss_profile(), 32)
 	var lug := Visuals.turned_mesh(Assets.lug_profile(), 32)
@@ -142,13 +139,6 @@ func _initialize() -> void:
 
 	var holder := Node3D.new()
 	var center := Vector3(1.65, 0.65, 1.65)
-
-	var blank := Assets.seam_blank(holder, center)
-	verify(
-		count_role(blank, "RawHostRock") == 1 and count_role(blank, "RawMineral") == 3,
-		"Each source unit is a mineral-bearing natural cluster rather than manufactured hardware."
-	)
-	check_bounds(blank, blank.transform, center, Assets.SEAM_HALF_EXTENTS)
 
 	var billet := Assets.workpiece_billet(holder, center)
 	verify(
@@ -174,6 +164,8 @@ func _initialize() -> void:
 
 	var item_root := Node3D.new()
 	var state := {
+		"initial_feed": 4096,
+		"source_deposit": {"cells": [[0, 0], [0, 1]]},
 		"entities": {
 			"c1": {"kind": "collector", "cell": [0, 1]},
 			"b1": {"kind": "belt", "cell": [1, 1]},
@@ -192,11 +184,11 @@ func _initialize() -> void:
 	var before: Dictionary = state.duplicate(true)
 	Assets.populate_items(item_root, state, Geometry.PITCH)
 	verify(
-		count_kind(item_root, "seam_blank") == 11
+		count_kind(item_root, "mineral_deposit") == 1
 		and count_kind(item_root, "workpiece_billet") == 4
 		and count_kind(item_root, "stamped_plate") == 1
-		and item_root.get_child_count() == 16,
-		"populate_items builds the exact seam, in-line billet and outlet plate assemblies from confirmed stock."
+		and item_root.get_child_count() == 6,
+		"Confirmed quantities produce fitted workpieces and one continuous deposit, rather than eleven source props."
 	)
 	verify(state == before, "Item assembly population never mutates the confirmed projection state.")
 	item_root.free()
@@ -214,84 +206,93 @@ func _initialize() -> void:
 	quit(0 if ok else 1)
 
 
-func check_source_contact() -> void:
-	for amount in [0, 1, 7, 16]:
+func check_exposure_mesh(mesh: ArrayMesh, cells: Array) -> void:
+	var arrays := mesh.surface_get_arrays(0)
+	var points: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+	var tangents: PackedFloat32Array = arrays[Mesh.ARRAY_TANGENT]
+	var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+	verify(points.size() > 0 and points.size() % 3 == 0 and normals.size() == points.size()
+		and tangents.size() == points.size() * 4 and uvs.size() == points.size(),
+		"The low-relief exposure has complete actual triangle, normal, UV and tangent attributes.")
+	var attributes := true
+	var footprint := true
+	var contact := true
+	var winding := true
+	for n in range(points.size()):
+		var point := points[n]
+		var tangent := Vector3(tangents[n * 4], tangents[n * 4 + 1], tangents[n * 4 + 2])
+		attributes = attributes and point.is_finite() and normals[n].is_finite() and uvs[n].is_finite()
+		attributes = attributes and is_equal_approx(normals[n].length(), 1.0) and tangent.is_finite()
+		attributes = attributes and absf(tangent.dot(normals[n])) < 0.0002
+		var cell := [roundi(point.x / Geometry.PITCH), roundi(point.z / Geometry.PITCH)]
+		footprint = footprint and cell in cells
+	for n in range(0, points.size(), 3):
+		var a := points[n]
+		var b := points[n + 1]
+		var c := points[n + 2]
+		var cross := (b - a).cross(c - a)
+		winding = winding and cross.length_squared() > 0.000000000001 and cross.dot(normals[n]) < 0
+		for weights in [Vector3(1, 0, 0), Vector3(0, 1, 0), Vector3(0, 0, 1), Vector3.ONE / 3.0]:
+			var at: Vector3 = a * weights.x + b * weights.y + c * weights.z
+			var gap: float = at.y - Assets.Scenery.Surface.height_at(at.x, at.z)
+			contact = contact and is_finite(gap) and gap >= 0.004 and gap <= 0.04
+	verify(attributes and winding, "All surface facets have finite orthogonal attributes and outward clockwise winding.")
+	verify(footprint, "Every visible source vertex stays inside native-declared extraction cells.")
+	verify(contact, "Actual facets stay within forty millimetres of the shared terrain, without floating solid rocks.")
+
+
+func check_mineral_seam() -> void:
+	var cells := [[0, 0], [0, 1]]
+	var rock_mesh: Mesh
+	var mineral_material: Material
+	var full_veins: Mesh
+	for amount in [4096, 2048, 1023, 1, 0]:
 		var holder := Node3D.new()
-		var facts := {"options": {"physical": true}, "entities": {}, "stock": {"source": amount}}
+		var facts := {"initial_feed": 4096, "source_deposit": {"cells": cells},
+			"entities": {}, "stock": {"source": amount}}
 		var before: Dictionary = facts.duplicate(true)
 		Assets.populate_items(holder, facts)
-		verify(holder.get_child_count() == amount, "Physical source display preserves each observed finite count.")
-		for n in range(holder.get_child_count()):
-			var blank: Node3D = holder.get_child(n)
-			var expected := Vector2(-0.16 + float(n % 2) * 0.32, -2.9 + float(int(n / 2.0)) * 1.15)
-			verify(Vector2(blank.position.x, blank.position.z).is_equal_approx(expected),
-				"Grounding does not move the source along or across its authority seam.")
-			var host: MeshInstance3D = blank.get_node("RawHostRock")
-			var points: PackedVector3Array = host.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
-			var low := INF
-			var high := -INF
-			for point in points:
-				var world: Vector3 = blank.transform * host.transform * point
-				low = minf(low, world.y)
-				high = maxf(high, world.y)
-			var ground: float = Assets.Scenery.Surface.height_at(blank.position.x, blank.position.z)
-			print(JSON.stringify({"source_unit": n, "amount": amount, "lowest_vertex": low,
-				"highest_vertex": high, "actual_surface": ground, "gap": low - ground}))
-			verify(low < ground and ground - low < 0.025 and high > ground + 0.08,
-				"The actual source mesh intersects the shared ground while leaving its mineral-bearing crown exposed.")
-		verify(facts == before, "Source grounding preserves the original projection byte values and types.")
+		verify(holder.get_child_count() == 1 and count_kind(holder, "mineral_deposit") == 1,
+			"A larger, partly mined or exhausted reserve is one natural exposure rather than a count of repeated pebbles.")
+		var exposure: Node3D = holder.get_child(0)
+		verify(exposure.get_script() == null and exposure.position == Vector3.ZERO
+			and exposure.get_meta("remaining") == amount and exposure.get_child_count() == (2 if amount > 0 else 1),
+			"Only unowned presentation surfaces represent confirmed reserve and depletion.")
+		var rock: MeshInstance3D = exposure.get_node("ExposedRock")
+		if rock_mesh == null:
+			rock_mesh = rock.mesh
+		verify(rock.mesh == rock_mesh, "The exhausted host exposure reuses the same geometry throughout depletion.")
+		for part in exposure.get_children():
+			verify(part is MeshInstance3D and part.get_child_count() == 0 and part.get_script() == null
+				and not part is CollisionObject3D and part.position == Vector3.ZERO and part.scale == Vector3.ONE,
+				"The mineral node has no collider, script, input, clock, manufactured hardware or second authority.")
+			check_exposure_mesh(part.mesh, cells)
+		if amount > 0:
+			var veins: MeshInstance3D = exposure.get_node("MineralVeins")
+			if mineral_material == null:
+				mineral_material = veins.material_override
+				full_veins = veins.mesh
+			verify(veins.material_override == mineral_material and not mineral_material.emission_enabled,
+				"Mineral relief shares its restrained cached source finish without an active glow.")
+			if amount == 1:
+				verify(veins.mesh != full_veins, "A nearly depleted reserve has visibly narrower mineral veins.")
+		else:
+			verify(not exposure.has_node("MineralVeins"), "No visible mineral remains when the sole native reserve is exhausted.")
+		verify(facts == before, "Geometry preparation never changes confirmed stock, coverage or value types.")
 		holder.free()
-	var historical := Node3D.new()
-	Assets.populate_items(historical, {"entities": {}, "stock": {"source": 1}})
-	verify(historical.get_child(0).position == Vector3(-0.16, 0.11, -2.9),
-		"A nonphysical historical profile retains its original literal anchor.")
-	historical.free()
+	for amount in range(0, 4097, 256):
+		var holder := Node3D.new()
+		Assets.populate_items(holder, {"initial_feed": 4096, "source_deposit": {"cells": cells},
+			"entities": {}, "stock": {"source": amount}})
+		holder.free()
+	verify(Assets.source_meshes.size() == 9, "One host mesh and eight depletion surfaces bound the cache independently of reserve size.")
+	var unknown := Node3D.new()
+	Assets.populate_items(unknown, {"initial_feed": 4096, "entities": {}, "stock": {"source": 4096}})
+	verify(unknown.get_child_count() == 0, "Stock without declared source coverage never invents a local resource row.")
+	unknown.free()
 	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
-		"mode": "source-contact-only", "scope": "actual source vertices against shared terrain over invented confirmed facts",
-		"authority_started": false, "desktop": "not_used", "rendered_quality": "not_assessed"}))
-	quit(1 if failed else 0)
-
-func check_raw_seam() -> void:
-	var holder := Node3D.new()
-	var center := Vector3(0.16, 0.11, 1.65)
-	var previous: PackedVector3Array = []
-	for variant in range(3):
-		var mesh := Assets.raw_seam_mesh(variant)
-		verify(mesh == Assets.raw_seam_mesh(variant + 3), "Equivalent source variants reuse one cached mesh.")
-		var vertices: PackedVector3Array = mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
-		verify(vertices != previous and vertices.size() == 96,
-			"Each deterministic raw cluster has a distinct compact fracture silhouette.")
-		previous = vertices
-		var blank := Assets.seam_blank(holder, center, variant)
-		verify(count_kind(blank, "seam_blank") == 1 and count_role(blank, "RawHostRock") == 1
-			and count_role(blank, "RawMineral") == 3 and blank.get_child_count() == 4,
-			"One confirmed source unit produces one host rock and three decorative mineral inclusions.")
-		verify(count_role(blank, "SeamCradle") + count_role(blank, "ClampBand")
-			+ count_role(blank, "LiftingLug") + count_role(blank, "BlankIngot") == 0,
-			"Uncollected resources contain no prebuilt cradle, clamps, lifting hardware or machined ingot.")
-		var host: MeshInstance3D = blank.get_node("RawHostRock")
-		verify(host.mesh == mesh and host.material_override == Assets.Scenery.stone_material(),
-			"Every source host consumes the same sourced stone finish as the natural environment.")
-		for part in blank.get_children():
-			if part.get_meta("asset_role", "") == "RawMineral":
-				verify(part.material_override.metallic > 0.4 and part.material_override.roughness > 0.35
-					and not part.material_override.emission_enabled,
-					"Mineral inclusions have a restrained distinct surface without a false active glow.")
-		check_bounds(blank, blank.transform, center, Assets.SEAM_HALF_EXTENTS)
-	verify(Assets.raw_seam_mesh(-1) == Assets.raw_seam_mesh(2),
-		"Variant wrapping does not grow a cache from arbitrary caller identifiers.")
-	holder.free()
-	for amount in [0, 1, 7, 16]:
-		var root := Node3D.new()
-		var facts := {"entities": {}, "stock": {"source": amount}}
-		var before: Dictionary = facts.duplicate(true)
-		Assets.populate_items(root, facts)
-		verify(root.get_child_count() == amount and count_kind(root, "seam_blank") == amount,
-			"Empty, partial and full source observations retain exact finite item counts.")
-		verify(facts == before, "Raw-source presentation does not mutate its confirmed stock observation.")
-		root.free()
-	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
-		"unique_meshes": checked_meshes.size(), "mode": "raw-seam-only",
-		"scope": "changed natural source geometry/materials and invented confirmed-stock counts",
+		"mode": "mineral-seam-only", "reserve_observations": [4096, 2048, 1023, 1, 0],
+		"cache_entries": Assets.source_meshes.size(), "maximum_relief_metres": 0.04,
 		"authority_started": false, "rendered_quality": "not_assessed", "desktop": "not_used"}))
 	quit(1 if failed else 0)
