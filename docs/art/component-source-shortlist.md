@@ -160,6 +160,59 @@ playable scene. The next step is an in-worksite view with explicit construction
 interfaces and exposed-end behavior before gameplay use. The art kit supplies
 no fluid, pressure, attachment or construction authority.
 
+## Measured drill-press moving parts, 2026-10-21
+
+The pinned [Drill Press 01](https://polyhaven.com/a/drill_press_01) geometry
+buffer was read against its retained glTF descriptor. The source buffer is
+1,911,136 bytes and matches the SHA-256 in the
+[press source record](../../experiments/engine-environment/godot/opening/assets/press-support/source.json).
+The measured bounds below include each glTF node's translation and rotation;
+they are source-model dimensions, not native machine dimensions or mounting
+frames. The full per-node vertex, triangle, node-origin and bounding-box report is
+`drill-press-tool-module-20261021/geometry-report.json` in the local prototype
+evidence directory. The source contains no animation or declared joint pivot.
+
+| Source member | Measured shape and inspected view | Disposition for player-built machinery |
+| --- | --- | --- |
+| Complete body | 31,210 triangles in a 0.259 × 0.738 × 0.588 metre local box; the rendered body contains the drill housing, motor and column. | Keep the already adapted cast column and mounting pieces. The complete body fixes the machine's proportions and electrical identity, so it is not a modular press or cutter frame. |
+| Adjustable plate and small catch | The plate is 0.191 × 0.093 × 0.343 metres locally, with 2,664 triangles. Its slotted face and rear circular clamp are visible in separate front and side renders; the catch is only 0.022 × 0.019 × 0.053 metres. | The plate could inform an authored clamped service table, but it is too small and too specifically attached to replace the current press anvil without redesign. The catch belongs to that mounting arrangement. Neither supplies a generic structural joint. |
+| Open lid | The 5,068-triangle cover is an open, shallow housing about 0.511 metres long. Its source node is rotated away from the closed position. | Use its formed lip, thickness and worn finish as a visual reference. It needs a verified hinge frame, closed variant and mating frame before it can guard a configurable drive. Do not mount it as an arbitrary decorative cover. |
+| Named `gear_a`, `gear_b` and belt | Each round member spans about 0.109 metres across and the pair sits about 0.35 metres apart in the donor. The isolated render shows stepped pulleys joined by a narrow belt, not meshing cog teeth. | Reject these as native cogwheel art. Their visible belt route, steps and ratio would claim a drive configuration the current press projection does not provide. A future confirmed pulley drive could reuse the surface language after its own mount and motion study. |
+| Three-spoke handle and depth limiter | The handle spans 0.316 metres vertically and 0.364 metres in depth; the limiter is a separate 2,020-triangle stop assembly. Both are visibly tied to manual quill feed. | Reject them as live controls or implied adjustable depth until construction and command outcomes actually support those functions. Small fixed details may inspire original art, with no hidden authority. |
+| Chuck and twist bit | The 5,052-triangle member is about 0.050 metres wide and 0.135 metres tall. Front and side views clearly show a keyed chuck and a narrow drill bit. | Reject it as a press die or cutter. A press face and a shear blade need distinct authored silhouettes and working clearances; changing the label or scaling this bit would not create them. |
+| Buttons and power plug | Separate source nodes are present in the original machine. | Exclude them from mechanical Factory assemblies. Their presence would suggest electrical controls and a cord that the native machine does not have. |
+
+The passive Godot sample retained sixteen views of the complete donor and the
+selected rigid members. It used the original geometry and pinned 1K diffuse,
+normal and packed material images. A local glTF copy changed only the two data-map
+references and MIME labels to use the provider's PNG alternatives. The first
+sample kept the old JPEG MIME labels and produced image-decoder errors despite
+a zero process exit; those
+images remain retained but are rejected as material evidence. The corrected
+sample changed the two MIME labels to PNG, required all three maps to resolve
+as 1024 × 1024 textures for every member, and completed without an import or
+script error. I inspected the corrected whole, plate, cover, pulley, handle, limiter
+and chuck views. Its source and frame hashes are in
+`drill-press-tool-module-20261021/audit.json` outside Git.
+
+The original diffuse JPEG plus two PNG data maps total 9,544,339 bytes before
+the 1,911,136-byte mesh buffer or descriptor. That bundle exceeds the
+769,931-byte headroom measured in the pipe-kit native capture. Any selected
+donor geometry must reuse the already prepared press
+material set or receive a separately measured compact adaptation; copying the
+complete donor is not a viable game-resource path.
+
+The useful reuse here is the cast support and material language, not another
+complete donor machine. The next player-built sample should author a rigid
+tool-module mount with a press die and a distinctly shaped cutting insert at
+the actual existing work plane, using the shared cast and machined finishes.
+Only a tool that the native World confirms should appear as operating. Check
+the mount, exposed ends and working clearance at rest and held-work poses,
+then inspect it in the ordinary worksite at construction-camera distance. The
+present render establishes donor appearance and source dimensions only; it
+does not establish tool compatibility, native mechanics, packaged export,
+playable composition or human visual acceptance.
+
 Poly Haven's [license page](https://polyhaven.com/license) permits adaptation and
 redistribution of its CC0 assets. Its preview images and website content are
 separate from the asset license. Keep those provider previews out of our public
@@ -179,18 +232,19 @@ separate fittings, and a realistic complete machine already separates several
 potentially moving parts. We can begin adaptation from those assets. Their file
 structure does not supply our construction semantics.
 
-Three findings matter for the next increment:
+Three findings guide the next increment:
 
 1. **Names require interpretation.** The drill-press descriptor calls its two
-   drive members `gear_a` and `gear_b`, while the preview shows stepped belt
-   pulleys. Asset names must not select native cogwheel behavior. Assign an
-   explicit visual role after inspecting the actual geometry.
+   drive members `gear_a` and `gear_b`. Their measured mesh and isolated render
+   confirm stepped belt pulleys, not meshing cog teeth. Asset names must not
+   select native cogwheel behavior.
 2. **A delivered glTF is not necessarily the preferred material package.** The
    inspected one-kilopixel descriptors reference JPEG normal and packed material
    maps. The drill-press manifest also offers PNG versions of those maps. Select
    suitable lossless data maps and reproduce packing deliberately; converting
-   the supplied JPEG to PNG would not restore lost information. No conversion
-   or texture comparison was performed here.
+   the supplied JPEG to PNG would not restore lost information. The later
+   passive sample used the provider's PNG alternatives, without a JPEG-versus-PNG
+   quality comparison.
 3. **Separate nodes do not establish a mechanical rig.** The three model
    descriptors contain no animation clips or skins. Independent rigid-node
    transforms may still be appropriate, but their pivots, parentage, bounds and
@@ -200,31 +254,21 @@ Three findings matter for the next increment:
 ## Original recommendation and next adaptation
 
 The original recommendation was a pipe component-connection study and a drill
-press adaptation study. The straight-pipe measurement establishes candidate
-end frames and preserves the delivered flange sizes; an imported visual join
-still has to test catalogue-offset removal and seam quality. The machine study
-tests whether a finished asset can supply reusable, independently moving subparts
-without inheriting its
-original electrical identity or enclosing fixed proportions.
+press adaptation study. The pipe sample now establishes source end frames,
+retains flange size and shows a corrected isolated join, but does not provide
+fluid mechanics or an in-worksite assembly. The press study qualifies cast
+supports and rejects the donor's remaining moving parts as drop-in press/cut
+modules. These concrete outcomes replace the original descriptor-only inference
+that separate source nodes might supply a modular machine head.
 
-The comparison should expose a short span, a long span, a corner, an exposed end
-and a removed neighbor. Keep flange and fastener dimensions rigid while adapting
-the plain middle. Separately identify the drill-press body, tool and drive
-members, and inspect where a new native-compatible shaft would meet them. These
-are art experiments over disclosed descriptors, not fluid or new-tool gameplay.
-
-Apply those connection, material and import conventions to the next construction
-sample in the main research note. Current drums, bearings and shaft fittings
-are starting components; variable foundation and route cases still need
-compatible edges, corners and support variants. A pipe kit shows a source of
-reusable joins without supplying those other construction families.
-
-The press-support qualification now supplies one selected machine subcomponent;
-it does not settle variable spans or a complete machine head. Reuse its results
-and extend the sample through the missing interfaces rather than repeating the
-unchanged import. Before adopting another art source, inspect its actual mesh
-buffers and materials, establish reusable pivots and dimensions, preserve provider
-provenance, and include the imported resources in the ordinary native launcher
-capture. Evaluate the finished sample in the worksite under human visual
-feedback. Automated checks cover their technical scope and do not establish the
-quality target. This source study authorizes no purchase or desktop test.
+Apply the measured join and material conventions to the next construction
+sample in the [main research note](player-built-assets.md). Current drums,
+bearings and shaft fittings are starting components; variable foundation and
+route cases still need compatible edges, corners and support variants. A pipe
+kit supplies visual joints, not those other construction families. For new art
+sources, inspect actual mesh buffers and materials, establish usable connection
+frames and dimensions, preserve provider provenance, and include selected
+resources in the ordinary native launcher capture. Evaluate finished assemblies
+in the worksite with human visual feedback. Automated checks cover their
+technical scope and do not establish the quality target. This study authorizes
+no purchase or desktop-controlled test.
