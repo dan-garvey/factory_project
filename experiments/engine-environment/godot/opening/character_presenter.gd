@@ -814,8 +814,11 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float) -> v
 			var facing := atan2(horizontal.x, horizontal.y)
 			# Once the actor has stopped, the first confirmed step must face its
 			# travel. Easing an idle orientation makes a fast start strafe sideways.
+			# A running corner also needs a quicker pivot because confirmed travel
+			# changes direction immediately; retain the gentler walking turn.
+			var turn_rate := lerpf(12.0, 30.0, float(previous.run_mix))
 			body.rotation.y = facing if starting_from_rest else \
-				lerp_angle(body.rotation.y, facing, minf(1.0, delta * 12.0))
+				lerp_angle(body.rotation.y, facing, minf(1.0, delta * turn_rate))
 		previous.horizontal_speed = horizontal_speed
 		previous.position = at
 	motion[actor] = previous

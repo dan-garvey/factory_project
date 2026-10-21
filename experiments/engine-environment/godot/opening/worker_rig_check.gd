@@ -506,6 +506,12 @@ func run() -> void:
 		and absf(other.position.x - 2.096) < 0.00001
 		and float(presenter.motion.P.run_mix) > 0.95 and float(presenter.motion.Q.run_mix) < 0.05,
 		"Separate actors animate from their own observed travel speed and exact roots.")
+	for n in range(4):
+		host.state.actors.P.position[2] += 0.05
+		presenter.refresh(1.0 / 60.0)
+	verify(absf(angle_difference(body.rotation.y, 0.0)) < 0.11
+		and is_equal_approx(p.position.z, host.state.actors.P.position[2]),
+		"A confirmed right-angle running turn follows travel within four frames at the exact actor root.")
 	for n in range(30):
 		presenter.refresh(1.0 / 60.0)
 	verify(float(presenter.motion.P.weight) == 0.0 and float(presenter.motion.Q.weight) == 0.0,
