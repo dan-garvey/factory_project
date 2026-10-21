@@ -93,6 +93,29 @@ void literals() {
         check(overlap.hit == c::Hit{11, {0, 1}, true} && overlap.state == state,
               "Initial penetration is time zero even when powered off or before a follower's delayed travel.");
     }
+    // Local sweep ties are not global-time ties while a follower is still in
+    // slack. Obstacle 1 is only touched until A starts moving; obstacle 9 is
+    // already penetrated. B's later touch must not conceal A's initial overlap.
+    obstacles = {{1, box(1, 0)}, {9, box(0, 0)}, {11, box(1, 3)}};
+    for (const bool reverse_order : {false, true}) {
+        if (reverse_order) std::reverse(obstacles.begin(), obstacles.end());
+        const auto overlap = blocked(a::prepare(profile, state, bodies, {{32}, obstacles}));
+        const bool correct = overlap.follower == b::Id{3} && overlap.hit == c::Hit{9, {0, 1}, true};
+        if (!correct) std::cerr << "Delayed-overlap witness: follower " << overlap.follower.value_or(0)
+            << ", obstacle " << overlap.hit.obstacle << ", time " << overlap.hit.time.numerator
+            << '/' << overlap.hit.time.denominator << ", initial " << overlap.hit.initially_overlapping << ".\n";
+        check(correct && overlap.state == state,
+              "An initial overlap outranks a lower-ID delayed touch and every other follower's later contact.");
+        const auto paused = blocked(a::prepare(profile, state, bodies, {{32, false}, obstacles}));
+        check(paused.follower == b::Id{3} && paused.hit == c::Hit{9, {0, 1}, true} && paused.state == state,
+              "The same original penetration remains time zero with the drive paused.");
+    }
+    const b::State backward{4, {{3, 3}, {7, 2}}};
+    obstacles = {{1, box(2, 0)}, {9, box(3, 0)}};
+    const auto overlap_back = blocked(a::prepare(profile, backward, bodies, {{0}, obstacles}));
+    check(overlap_back.follower == b::Id{3} && overlap_back.hit == c::Hit{9, {0, 1}, true}
+          && overlap_back.state == backward,
+          "Reverse slack cannot delay an existing overlap behind a lower-ID tangent obstacle.");
     const auto greatest = std::numeric_limits<b::Id>::max();
     profile = {{greatest, {0, 4, 2, 1}}}; bodies.followers = {{greatest, box(0, 0)}};
     state.followers = {{greatest, 0}}; obstacles = {{1, box(2, 0)}};

@@ -1,0 +1,32 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "shuttle",
+    srcs = ["src/shuttle.cpp"],
+    hdrs = ["include/factory/slotted_shuttle.hpp"],
+    strip_include_prefix = "include",
+    deps = ["//native/slotted-pairs:pairs"],
+)
+
+cc_library(
+    name = "workbench",
+    srcs = ["src/workbench.cpp"],
+    hdrs = ["include/factory/slotted_shuttle_workbench.hpp"],
+    strip_include_prefix = "include",
+    deps = [":shuttle"],
+)
+
+cc_binary(
+    name = "slotted_shuttle_workbench",
+    srcs = ["src/main.cpp"],
+    deps = [":workbench"],
+)
+
+cc_test(
+    name = "shuttle_test",
+    size = "small",
+    srcs = ["tests/shuttle_test.cpp"],
+    deps = [":shuttle"],
+)

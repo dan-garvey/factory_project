@@ -92,6 +92,16 @@ Plan prepare(std::span<const b::Link> links, const b::State& state, const Rig& r
         if (query.error != c::Error::none) return Refusal{Error::query_refused, body.follower, {}, query.error};
         if (!query.hit) continue;
         auto hit = *query.hit;
+        // A local-zero tangent contact happens only after this follower's
+        // slack. It can win the sweep's identity tie over an existing overlap,
+        // whose GLOBAL time is zero. Query the stationary original box to keep
+        // that earlier penetration, after the full moving query validated all
+        // inputs. Reuse the canonical strict-interior policy and identity tie.
+        if (body.delay > 0 && hit.time.numerator == 0 && !hit.initially_overlapping) {
+            const auto initial = c::sweep(box, {}, observation.obstacles);
+            if (initial.error != c::Error::none) return Refusal{Error::query_refused, body.follower, {}, initial.error};
+            if (initial.hit) hit = *initial.hit;
+        }
         if (hit.initially_overlapping) hit.time = {0, 1};
         else {
             const I travel = magnitude(move[axis]);
