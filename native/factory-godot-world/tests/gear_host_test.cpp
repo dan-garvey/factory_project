@@ -604,8 +604,8 @@ void nonhorizontal_span_host() {
                   !accepted(obstructed.validate_checkpoint(checkpoint)), "Restore refuses a site obstacle through the physical path.");
         if (std::string(example.axis) == "z" && example.x == 8 && example.start_y == 4) {
             auto clear_below = factory::godot_world::tests::flat_site();
-            clear_below.at("obstacles") = V(A{V(A{V(A{V(mx - 0.1), V(0.9), V(-0.1)}),
-                                                    V(A{V(mx + 0.1), V(1.1), V(0.1)})})});
+            clear_below.at("obstacles") = V(A{V(A{V(A{V(mx - 0.1), V(1.5), V(-0.1)}),
+                                                    V(A{V(mx + 0.1), V(1.6), V(0.1)})})});
             Host below;
             check(accepted(below.initialize("fresh", {"P"})) && accepted(below.configure_terrain(clear_below)) &&
                       accepted(below.validate_checkpoint(checkpoint)), "Clearance does not fill the empty space below an incline.");
@@ -1019,6 +1019,45 @@ void cog_axle_actor_clearance() {
     }
 }
 
+void transmission_site_clearance() {
+    const std::array<const char*, 3> axes{"x", "y", "z"};
+    for (std::size_t axis = 0; axis < axes.size(); ++axis) for (const int part_case : {0, 1, 2}) {
+        const bool shaft_part = part_case == 0;
+        Host host;
+        check(accepted(host.initialize("cog-api", {"P"})) &&
+              accepted(host.configure_terrain(factory::godot_world::tests::flat_site())), "The clearance fixture binds a flat site.");
+        observe(host, 2.0, -1.65, 1);
+        const auto clear = host.command("P", shaft_part ? shaft(0, 4, 0, "clear-shaft", axes[axis]) :
+            gear(0, 4, 0, "clear-cog", axes[axis]));
+        check(accepted(clear), "An elevated transmission part with clear terrain is accepted.");
+        std::array<double, 3> obstacle{0.0, 2.15, 0.0};
+        obstacle[part_case == 2 ? (axis + 1) % 3 : axis] += 0.5;
+        auto obstructed_site = factory::godot_world::tests::flat_site();
+        obstructed_site.at("obstacles") = V(A{V(A{
+            V(A{V(obstacle[0] - 0.04), V(obstacle[1] - 0.04), V(obstacle[2] - 0.04)}),
+            V(A{V(obstacle[0] + 0.04), V(obstacle[1] + 0.04), V(obstacle[2] + 0.04)})})});
+        Host obstructed;
+        check(accepted(obstructed.initialize("cog-api", {"P"})) && accepted(obstructed.configure_terrain(obstructed_site)),
+              "The restore fixture binds a site obstacle.");
+        const auto restored = obstructed.validate_checkpoint(host.checkpoint());
+        check(!accepted(restored) && field<std::string>(restored, "reason") == "site_occupied",
+              "Checkpoint validation refuses a site obstacle through the physical part.");
+        observe(obstructed, 2.0, -1.65, 1);
+        const auto blocked = obstructed.command("P", shaft_part ? shaft(0, 4, 0, "blocked-shaft", axes[axis]) :
+            gear(0, 4, 0, "blocked-cog", axes[axis]));
+        check(!accepted(blocked) && field<std::string>(blocked, "reason") == "site_occupied",
+              "Construction refuses the same site obstacle as checkpoint validation; reason=" + field<std::string>(blocked, "reason") + ".");
+        if (!shaft_part) {
+            auto alias = machine("gear", 0, "blocked-cog-alias", axes[axis]);
+            alias.at("cell") = V(A{V(I{0}), V(I{0})});
+            alias.emplace("level", V(I{4}));
+            const auto refused = obstructed.command("P", alias);
+            check(!accepted(refused) && field<std::string>(refused, "reason") == "site_occupied",
+                  "The equivalent cog placement form refuses the same obstacle.");
+        }
+    }
+}
+
 void one_tile_placement() {
     Host host;
     check(accepted(host.initialize("cog-api", {"P"})), "The one-tile host starts.");
@@ -1049,13 +1088,18 @@ void one_tile_placement() {
 
 int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::string(argv[1]) == "--transmission-site-only") {
+            transmission_site_clearance();
+            std::cout << "{\"status\":\"pass\",\"evidence\":\"native_transmission_site\",\"checks\":" << checks << "}" << std::endl;
+            return 0;
+        }
         if (argc == 2 && std::string(argv[1]) == "--one-tile-only") {
             one_tile_placement();
             std::cout << "{\"status\":\"pass\",\"evidence\":\"native_one_tile_host\",\"checks\":" << checks << "}" << std::endl;
             return 0;
         }
         if (argc == 1) {
-            finite_oriented_train_and_restore(); adjacent_axle_faces(); refusals_and_legacy_shape(); cog_axle_actor_clearance(); cog_at_belt_face();
+            finite_oriented_train_and_restore(); adjacent_axle_faces(); refusals_and_legacy_shape(); cog_axle_actor_clearance(); cog_at_belt_face(); transmission_site_clearance();
             global_grid(); finite_large_cog(); perpendicular_belt_line(); belt_spindle_orientation(); typed_loose_host(); belt_span_host_commands(); nonhorizontal_span_host(); complete_span_route_host(); rotated_belt_host(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
         } else if (argc != 2 || std::string(argv[1]) != "--placement-alias-only") {
             throw std::runtime_error("Expected no arguments or --placement-alias-only.");

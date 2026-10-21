@@ -59,6 +59,7 @@ private:
     [[nodiscard]] std::optional<std::pair<double, double>> terrain_range(double x, double z,
         double half_x = 0.825, double half_z = 0.825) const;
     [[nodiscard]] const char* machine_site_refusal(const world::State&, const mechanics::Point& center) const;
+    [[nodiscard]] const char* transmission_obstacle_refusal(const mechanics::Point& center, mechanics::Axis axis, bool gear) const;
     [[nodiscard]] const char* wheel_site_refusal(const mechanics::Point& center, mechanics::Axis axis, mechanics::Integer tiles) const;
     [[nodiscard]] const char* collector_site_refusal(const mechanics::Point& center) const;
     std::unique_ptr<Owned> owned_;
