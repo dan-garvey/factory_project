@@ -14,9 +14,6 @@ var checked_meshes: Dictionary = {}
 var max_tangent_dot := 0.0
 var visual_instances := 0
 
-class AxisSelection extends RefCounted:
-	var selected_axis := "y"
-
 class DetachedOpening extends Opening:
 	func _message(_words: String, _refused: bool = false) -> void:
 		pass
@@ -227,18 +224,6 @@ func _initialize() -> void:
 	for shared in [false, true]:
 		var view: Variant = DetachedShared.new() if shared else DetachedOpening.new()
 		view.state = rotated
-		view.mode = "belt"
-		view.transmission_controls = AxisSelection.new()
-		var turn := InputEventKey.new()
-		turn.keycode = KEY_T
-		turn.pressed = true
-		verify(view._preview_axis() == 2, "The default belt preview runs along X.")
-		view._unhandled_input(turn)
-		verify(view.belt_axis == "x" and view._preview_axis() == 0,
-			"The belt rotation control selects the perpendicular X axle and matching preview.")
-		view._unhandled_input(turn)
-		verify(view.belt_axis == "z" and view._preview_axis() == 2,
-			"The belt rotation control returns to the original orientation.")
 		for id in ["c", "b", "p"]:
 			verify(view._material_rotated(id, rotated.entities[id]), "Connected machine artwork follows the rotated belt in both consumers.")
 		var anchor := Node3D.new()

@@ -156,6 +156,11 @@ func _hotbar() -> void:
 		view._unhandled_input(event)
 		verify(view.mode == "belt" and view.transmission_controls.active_tool == "belt_span" and bar.selected_slot == 2 and bar.buttons[2].button_pressed,
 			"The Belt quick slot selects shaft-to-shaft placement through the ordinary selection path.")
+		view.transmission_controls.cancel()
+		view._world_click(Vector2i.ZERO)
+		verify(view.request_sequence == 17 and "two parallel shafts" in view.status_label.text,
+			"A missing active connector cannot fall back to single-cell belt placement.")
+		bar.select_slot(2)
 		bar.open_catalog(7)
 		verify(bar.catalog.visible and bar.destination.item_count == 8 and bar.destination.selected == 7,
 			"The catalog exposes a concrete destination slot.")

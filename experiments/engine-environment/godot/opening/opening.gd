@@ -3516,7 +3516,6 @@ var last_save_result: Dictionary = {}
 var last_load_result: Dictionary = {}
 var startup_resume_checkpoint: Dictionary = {}
 var mode := "collector"
-var belt_axis := "z"
 var pending_link := ""
 var selected := ""
 var goal_confirmed := false
@@ -4188,11 +4187,6 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_G: _select_tool("drive")
 			KEY_I, KEY_ESCAPE: _select_tool("inspect")
 			KEY_R: _retrieve()
-			KEY_T:
-				if mode == "belt" and _native_transmission() and (transmission_controls == null or transmission_controls.active_tool.is_empty()):
-					belt_axis = "x" if belt_axis == "z" else "z"
-					_message("Belt direction: %s. Press T to rotate." % ("+Z" if belt_axis == "x" else "+X"))
-					_refresh_machine_preview()
 			KEY_H: _toggle_explanation()
 			KEY_HOME:
 				if legacy_fixture:
@@ -4233,6 +4227,9 @@ func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 	if _native_transmission():
 		var height: int = transmission_controls.gear_height if transmission_controls != null else 0
 		if _transmission_click([cell.x * 4, height, cell.y * 4], entity_id):
+			return
+		if mode == "belt":
+			_message("Select the Belt tool and choose two parallel shafts.", true)
 			return
 		if mode == "inspect" and (state.get("transmission_parts", {}).has(entity_id) or state.get("belt_spans", {}).has(entity_id)):
 			selected = entity_id
@@ -4279,7 +4276,7 @@ func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 			# Dot assignment creates a StringName key; the native wire deliberately
 			# accepts only exact String dictionary keys, without coercion.
 			if mode != "foundation":
-				action["axis"] = belt_axis if mode == "belt" else transmission_controls.selected_axis
+				action["axis"] = transmission_controls.selected_axis
 		var outcome := issue(action)
 		if outcome.accepted:
 			selected = outcome.entity
@@ -5264,8 +5261,6 @@ func _machine_preview_cell() -> Vector2i:
 func _preview_axis() -> int:
 	if not _native_transmission() or transmission_controls == null:
 		return 0
-	if mode == "belt":
-		return 0 if belt_axis == "x" else 2
 	return ["x", "y", "z"].find(transmission_controls.selected_axis)
 
 func _refresh_machine_preview() -> void:
