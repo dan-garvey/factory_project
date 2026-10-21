@@ -65,7 +65,7 @@ void construction_and_custody() {
     auto remote = foundation("far", 60, 2, 1);
     outcome(host.command("P", remote), false, "out_of_reach");
     check(carried(host) == 24, "A far refusal leaves construction custody unchanged.");
-    outcome(host.command("P", machine("unsupported", "belt", 5, 2, 4)), false, "foundation_required");
+    outcome(host.command("P", machine("unsupported", "processor", 5, 2, 4)), false, "foundation_required");
     const auto a_wire = foundation("island-a", 5, 2, 4);
     const auto a = host.command("P", a_wire); outcome(a, true, "ok");
     const auto b = host.command("P", foundation("island-b", 6, 2, 4)); outcome(b, true, "ok");
@@ -78,12 +78,10 @@ void construction_and_custody() {
     auto changed = a_wire; changed.at("level") = V(I{2});
     check(!accepted(host.command("P", changed)) && carried(host) == 22, "Changed reuse cannot reinterpret a prior request.");
     outcome(host.command("P", foundation("overlap", 5, 2, 5)), false, "occupied");
-    const auto belt = host.command("P", machine("belt", "belt", 5, 2, 4)); outcome(belt, true, "ok");
-    const auto press = host.command("P", machine("press", "processor", 6, 2, 4)); outcome(press, true, "ok");
+    const auto press = host.command("P", machine("press", "processor", 5, 2, 4)); outcome(press, true, "ok");
     const auto entities = get<O>(host.projection(), "entities");
-    check(std::get<I>(get<A>(entities.at(get<std::string>(belt, "entity")), "center")[1].storage()) == 4,
+    check(std::get<I>(get<A>(entities.at(get<std::string>(press, "entity")), "center")[1].storage()) == 4,
           "Machine height uses the same native integer level as its foundation.");
-    check(get<A>(host.projection(), "links").size() == 1, "Independent same-height foundations preserve aligned material ports.");
     outcome(host.command("P", removal("loaded-base", a_id)), false, "foundation_in_use");
     const auto saved = host.checkpoint();
     outcome(host.validate_checkpoint(saved), true, "valid");
@@ -92,12 +90,18 @@ void construction_and_custody() {
     check(!factory::values::typed_difference(saved, restored.checkpoint()), "Current-format persistence retains exact custody, geometry and request history.");
     check(get<bool>(restored.command("P", a_wire), "duplicate") && carried(restored) == 22,
           "A saved exact retry resolves before new body readiness without refilling stock.");
-    outcome(host.command("P", removal("remove-belt", get<std::string>(belt, "entity"))), true, "ok");
     outcome(host.command("P", removal("remove-press", get<std::string>(press, "entity"))), true, "ok");
+    const auto moved_press = host.command("P", machine("press-on-neighbor", "processor", 6, 2, 4));
+    outcome(moved_press, true, "ok");
+    const auto moved_entities = get<O>(host.projection(), "entities");
+    check(std::get<I>(get<A>(moved_entities.at(get<std::string>(moved_press, "entity")), "center")[1].storage()) == 4,
+          "The same machine aligns on the independently placed neighboring foundation.");
+    outcome(host.command("P", removal("neighbor-in-use", b_id)), false, "foundation_in_use");
+    outcome(host.command("P", removal("remove-moved-press", get<std::string>(moved_press, "entity"))), true, "ok");
     outcome(host.command("P", removal("reclaim-a", a_id)), true, "ok");
     outcome(host.command("P", removal("reclaim-b", b_id)), true, "ok");
     check(carried(host) == 24 && get<O>(host.projection(), "foundations").empty(), "Reclamation returns the exact carried supply.");
-    const auto bare = host.command("P", machine("bare-global", "belt", 5, 2, 0)); outcome(bare, true, "ok");
+    const auto bare = host.command("P", machine("bare-global", "processor", 5, 2, 0)); outcome(bare, true, "ok");
     outcome(host.command("P", removal("bare-refund", get<std::string>(bare, "entity"))), true, "ok");
     check(get<I>(V(get<O>(host.projection(), "stock")), "source") == 4096, "Construction never consumes or replenishes the mineral source.");
 }
@@ -106,7 +110,7 @@ void transmission_aligned_elevations() {
     Host host; initialize(host);
     outcome(host.publish_actor("P", {V(9.0), V(1.5), V(6.0)}, 1), true, "actor_published");
     const auto base = host.command("P", foundation("half-grid-base", 5, 2, 1)); outcome(base, true, "ok");
-    const auto misaligned = machine("misaligned-belt", "belt", 5, 2, 1);
+    const auto misaligned = machine("misaligned-press", "processor", 5, 2, 1);
     outcome(host.command("P", misaligned), false, "unaligned_elevation");
     outcome(host.command("P", machine("misaligned-wheel", "wheel", 5, 2, -1)), false, "unaligned_elevation");
     check(get<O>(host.projection(), "entities").empty() && carried(host) == 23,
@@ -181,7 +185,7 @@ void rectangular_placement() {
     malformed.at("end_cell") = V(A{V(71.0), V(I{21})});
     outcome(host.command("P", malformed), false, "invalid_cell");
     outcome(host.command("P", area("actor-blocked", 0, 0, 1, 0, 4)), false, "actor_occupied");
-    outcome(host.command("P", machine("machine-still-far", "belt", 60, 20, 0)), false, "out_of_reach");
+    outcome(host.command("P", machine("machine-still-far", "processor", 60, 20, 0)), false, "out_of_reach");
     outcome(host.command("P", area("reverse-stack", 62, 21, 60, 20, 21)), true, "ok");
     check(carried(host) == 12 && get<O>(host.projection(), "foundations").size() == 12,
           "Reversed corners produce the same aligned footprint exactly one block above.");
@@ -191,7 +195,7 @@ void rectangular_placement() {
 void import_checks_current_machine_site() {
     Host original; initialize(original);
     outcome(original.publish_actor("P", {V(9.0), V(1.5), V(6.0)}, 1), true, "actor_published");
-    outcome(original.command("P", machine("ground-belt", "belt", 5, 2, 0)), true, "ok");
+    outcome(original.command("P", machine("ground-press", "processor", 5, 2, 0)), true, "ok");
     const auto saved = original.checkpoint();
     Host same_site; initialize(same_site);
     outcome(same_site.restore_checkpoint(saved), true, "restored");
@@ -201,7 +205,7 @@ void import_checks_current_machine_site() {
     const auto rejects = [&](O site, const char* name, const char* reason) {
         Host placement; initialize(placement, site);
         outcome(placement.publish_actor("P", {V(9.0), V(1.5), V(6.0)}, 1), true, "actor_published");
-        outcome(placement.command("P", machine("new-ground-belt", "belt", 5, 2, 0)), false, reason);
+        outcome(placement.command("P", machine("new-ground-press", "processor", 5, 2, 0)), false, reason);
 
         Host loading; initialize(loading, std::move(site));
         const auto before = loading.checkpoint();
@@ -233,7 +237,7 @@ void machine_clearance_on_free_foundations() {
     outcome(buried.publish_actor("P", {V(9.0), V(1.5), V(6.0)}, 1), true, "actor_published");
     outcome(buried.command("P", foundation("buried-support", 5, 2, -4)), true, "ok");
     outcome(buried.validate_checkpoint(buried.checkpoint()), true, "valid");
-    const auto placement = buried.command("P", machine("buried-machine", "belt", 5, 2, -4));
+    const auto placement = buried.command("P", machine("buried-machine", "processor", 5, 2, -4));
     std::cout << "{\"case\":\"machine_on_buried_foundation\",\"accepted\":"
               << (accepted(placement) ? "true" : "false") << ",\"reason\":\""
               << get<std::string>(placement, "reason") << "\"}\n";
@@ -244,7 +248,7 @@ void machine_clearance_on_free_foundations() {
     Host elevated; initialize(elevated);
     outcome(elevated.publish_actor("P", {V(9.0), V(2.8), V(6.0)}, 1), true, "actor_published");
     outcome(elevated.command("P", foundation("raised-support", 5, 2, 4)), true, "ok");
-    outcome(elevated.command("P", machine("raised-machine", "belt", 5, 2, 4)), true, "ok");
+    outcome(elevated.command("P", machine("raised-machine", "processor", 5, 2, 4)), true, "ok");
     outcome(elevated.validate_checkpoint(elevated.checkpoint()), true, "valid");
 
     auto low_site = factory::godot_world::tests::flat_site();
@@ -252,7 +256,7 @@ void machine_clearance_on_free_foundations() {
     Host low; initialize(low, low_site);
     outcome(low.publish_actor("P", {V(9.0), V(-0.5), V(6.0)}, 1), true, "actor_published");
     outcome(low.command("P", foundation("low-support", 5, 2, -4)), true, "ok");
-    outcome(low.command("P", machine("low-machine", "belt", 5, 2, -4)), true, "ok");
+    outcome(low.command("P", machine("low-machine", "processor", 5, 2, -4)), true, "ok");
     const auto saved = low.checkpoint();
     Host same; initialize(same, low_site);
     outcome(same.restore_checkpoint(saved), true, "restored");

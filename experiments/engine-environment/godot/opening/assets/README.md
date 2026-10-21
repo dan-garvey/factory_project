@@ -145,6 +145,10 @@ clearance. The upper hood now has a shallow crown, folded lower return and
 neutral dark coating instead of the bright flat canopy. Two passive studio
 views show the formed edge above the still-visible drum and feed bed. They do
 not establish the appearance at ordinary play distance or human preference.
+The structural castings use a muted ochre coating so their broad faces remain
+distinct from the dark service hood and worked cutter without the former bright
+gold fill. This changes presentation only; the qualified coating maps and
+material properties, casting shapes and native machine rules are unchanged.
 
 Native cutter tooling now has a stepped annular drum and a fitted spindle hub,
 with a real bore instead of a painted dark cap. Eight cartridges separate dark
