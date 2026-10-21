@@ -120,6 +120,7 @@ func finish() -> void:
 			"foreground-bank": "near-bank placement and confirmed offline/shared machine-footprint suppression",
 			"pine-understory": "complete pine resource, terrain and confirmed-machine visibility consumer",
 			"pine-roots": "focused edge-inclusive terrain-root oracle correction",
+			"pine-reflectance": "source-derived normal-incidence dielectric reflectance and cache isolation",
 			"ground-material": "scanned ground material, data channels and cache separation",
 			"water-flow": "layered translucent river resources and ordinary frame consumer",
 			"rock-collision-shape": "visible rock facets versus the shared convex collision hull",
@@ -770,6 +771,51 @@ func check_foreground_bank() -> void:
 			"triangles_before_culling": original.size() / 16 * 1257, "suppressed_tufts": (original.size() - kept.size()) / 16}))
 		view.free()
 
+func check_pine_reflectance() -> void:
+	var source_path := fixture_directory.path_join("qualified-pine.gltf")
+	if not verify(FileAccess.get_sha256(source_path) == "f358c01926861dd082f32dba60f7c9fba232b585a985cf38c0d2229eecf4bc48",
+		"The independent material oracle reads the pinned original descriptor, without importing geometry."):
+		return
+	var source: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(source_path))
+	var raw := ResourceLoader.load(Scenery.PINE_FILE, "ArrayMesh") as ArrayMesh
+	var old_materials: Array[StandardMaterial3D] = []
+	var arrays_before: Array = []
+	var pixels_before: Array = []
+	for surface in range(2):
+		old_materials.append(raw.surface_get_material(surface))
+		arrays_before.append(raw.surface_get_arrays(surface))
+		var maps: Array = []
+		for field in ["albedo_texture", "normal_texture", "roughness_texture"]:
+			maps.append(old_materials[surface].get(field).get_image().get_data())
+		pixels_before.append(maps)
+	var loaded := Scenery.read_pine()
+	if not verify(loaded.status == "ready", "The actual pine adapter consumes its unchanged prepared resource."):
+		return
+	for surface in range(2):
+		var primitive: Dictionary = source.meshes[0].primitives[surface]
+		var original: Dictionary = source.materials[int(primitive.material)]
+		var extension: Dictionary = original.extensions.KHR_materials_specular
+		var ior: float = original.extensions.KHR_materials_ior.ior
+		var factor: Array = extension.specularColorFactor
+		verify(original.pbrMetallicRoughness.metallicFactor == 0 and factor[0] == factor[1] and factor[1] == factor[2]
+			and extension.get("specularFactor", 1.0) == 1.0 and not extension.has("specularTexture")
+			and not extension.has("specularColorTexture"), "The source is the declared untinted, untextured dielectric case.")
+		# Khronos' IOR/specular extension and the pinned Compatibility shader
+		# define these independently of our adapter's chosen scalar constants.
+		var expected := pow((ior - 1.0) / (ior + 1.0), 2.0) * float(factor[0])
+		var finish := loaded.mesh.surface_get_material(surface) as StandardMaterial3D
+		var actual := 0.16 * finish.metallic_specular * finish.metallic_specular
+		verify(absf(actual - expected) < 0.00000001, "Actual normal-incidence reflectance agrees with the qualified source.")
+		verify(old_materials[surface].metallic_specular == 0.5, "Binding the pine adaptation preserves the original imported material object.")
+		verify(arrays_before[surface] == loaded.mesh.surface_get_arrays(surface), "Adapting reflectance changes no geometry attribute or index.")
+		for n in range(3):
+			var field: String = ["albedo_texture", "normal_texture", "roughness_texture"][n]
+			verify(pixels_before[surface][n] == finish.get(field).get_image().get_data(), "Adapting reflectance preserves every prepared mip pixel.")
+		verify(Scenery.read_pine().mesh.surface_get_material(surface) == finish, "Repeated actual reads reuse the bound material instead of creating per-view copies.")
+		print(JSON.stringify({"surface": surface, "source_ior": ior, "source_specular_color": factor,
+			"expected_F0": expected, "actual_F0": actual, "bound_specular": finish.metallic_specular}))
+	verify(FileAccess.get_sha256(Scenery.PINE_FILE) == Scenery.PINE_SHA256, "The prepared native resource stays byte-identical.")
+
 func check_pine_root(basis: Basis, at: Vector3) -> void:
 	var cell: Vector2i = Scenery.Surface.cell(at.x, at.z)
 	var a: Vector3 = Scenery.Surface.vertex(cell.x, cell.y)
@@ -833,8 +879,8 @@ func check_pine_understory() -> void:
 		verify(material != null and material.metallic == 0.0 and material.cull_mode == BaseMaterial3D.CULL_DISABLED,
 			"The two-sided source surfaces remain dielectric.")
 		verify(material.transparency == (BaseMaterial3D.TRANSPARENCY_DISABLED if surface == 0 else BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR)
-			and material.metallic_specular == 0.5 and not material.ao_enabled,
-			"Imported material defaults and the source cutout mode remain explicitly qualified.")
+			and is_equal_approx(material.metallic_specular, 0.1 if surface == 0 else 0.07071067811865476) and not material.ao_enabled,
+			"The actual materials bind the source-derived reflectance and retained cutout/occlusion modes.")
 		for field in ["albedo_texture", "normal_texture", "roughness_texture"]:
 			var image: Image = material.get(field).get_image()
 			var dimension := 384 if field == "albedo_texture" else 256
@@ -1045,6 +1091,10 @@ func check_stone_material() -> void:
 	rocks.free()
 
 func run() -> void:
+	if mode == "pine-reflectance":
+		check_pine_reflectance()
+		finish()
+		return
 	if mode == "pine-roots":
 		check_pine_roots()
 		finish()

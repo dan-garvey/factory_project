@@ -663,8 +663,10 @@ The optional [young pine component](../../experiments/engine-environment/godot/o
 preserves all selected source triangles through the importer's compressed GPU
 attributes and a self-contained native `ArrayMesh`. Imported positions and UVs
 are quantized, not original float bits; native arrays and embedded prepared pixels
-round-trip exactly. The adapter retains imported dielectric material defaults,
-without reproducing source IOR/specular-color extensions. At most six small,
+round-trip exactly. Cached material copies map the source IOR and gray specular
+color to the pinned Compatibility shader's normal-incidence reflectance, while
+preserving imported material references and textures. This is a bounded opaque
+dielectric adaptation, not a complete glTF scattering conversion. At most six small,
 noncolliding plants are rooted in terrain and omitted beneath confirmed machines;
 no vegetation state or second controller is introduced. Resource/placement checks
 do not establish rendered quality, cost or collision rules for mature trees.

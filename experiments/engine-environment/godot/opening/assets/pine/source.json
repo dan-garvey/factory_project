@@ -141,7 +141,7 @@
         "mipmaps": true
       }
     ],
-    "material_limits": "Importer defaults retained; source IOR/specular-color extensions not reproduced. Dielectric, specular 0.5, roughness 1, two-sided. Opaque bark and source needle cutout mode. Source JPEG alpha is opaque; no source occlusion binding.",
+    "material_limits": "The native resource retains importer defaults: dielectric, specular 0.5, roughness 1, two-sided. Opaque bark and source needle cutout mode. Source JPEG alpha is opaque; no source occlusion binding. Runtime material copies adapt only the gray source normal-incidence reflectance.",
     "native_serialization": "ResourceSaver FLAG_COMPRESS | FLAG_BUNDLE_RESOURCES. All native arrays and embedded mip pixels compare exactly after a fresh load.",
     "precision": {
       "maximum_source_position_component_delta_metres": 0.0000146329403,
@@ -161,7 +161,24 @@
       0.85,
       1.25
     ],
-    "collision": false
+    "collision": false,
+    "normal_incidence_reflectance": {
+      "source_ior": 1.4500000476837158,
+      "source_specular_color": [
+        0.0474271512287485,
+        0.02371357561437425
+      ],
+      "source_F0": [
+        0.0015999999642372135,
+        0.0007999999821186067
+      ],
+      "compatibility_F0": "0.16 * specular * specular",
+      "bound_specular": [
+        0.1,
+        0.07071067811865477
+      ],
+      "qualification": "Only the pinned gray opaque/cutout materials; not a complete glTF scattering conversion. Original material objects, geometry, prepared images and file bytes remain unchanged."
+    }
   },
   "limits": [
     "No dropped source triangles or fabricated authored distance levels.",
