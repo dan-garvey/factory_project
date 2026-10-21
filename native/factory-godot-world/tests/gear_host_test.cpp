@@ -1149,6 +1149,83 @@ void transmission_terrain_clearance() {
     }
 }
 
+void transmission_foundation_clearance() {
+    const std::array<const char*, 3> axes{"x", "y", "z"};
+    for (std::size_t axis = 0; axis < axes.size(); ++axis) for (const bool is_gear : {false, true}) {
+        const auto base = [] (const char* id) {
+            auto command = wire("place_foundation", id);
+            command.emplace("cell", V(A{V(I{0}), V(I{0})})); command.emplace("level", V(I{4}));
+            return command;
+        };
+        const auto part = [&] (const char* id) {
+            return is_gear ? gear(0, 4, 0, id, axes[axis]) : shaft(0, 4, 0, id, axes[axis]);
+        };
+        const bool penetrates = is_gear || axis == 1;
+        for (const bool foundation_first : {false, true}) {
+            Host host;
+            check(accepted(host.initialize("cog-api", {"P"})) &&
+                      accepted(host.configure_terrain(factory::godot_world::tests::flat_site())), "The foundation fixture binds its site.");
+            observe(host, 2.5, 0, 1);
+            create(host, foundation_first ? base("first-base") : part("first-part"));
+            const auto before = world_state(host);
+            const auto second = host.command("P", foundation_first ? part("second-part") : base("second-base"));
+            check(accepted(second) != penetrates && (!penetrates || field<std::string>(second, "reason") == "occupied"),
+                  std::string("Foundation and transmission collision must be symmetric: axis=") + axes[axis] +
+                  ", gear=" + (is_gear ? "true" : "false") + ", foundation_first=" + (foundation_first ? "true" : "false") +
+                  ", reason=" + field<std::string>(second, "reason") + ".");
+            if (is_gear && foundation_first) {
+                auto alias = machine("gear", 0, "alias-part", axes[axis]);
+                alias.at("cell") = V(A{V(I{0}), V(I{0})}); alias.emplace("level", V(I{4}));
+                const auto refused = host.command("P", alias);
+                check(!accepted(refused) && field<std::string>(refused, "reason") == "occupied",
+                      "The alternate cog construction form also rejects a foundation collision.");
+            }
+            if (penetrates) check(!factory::values::typed_difference(before, world_state(host)),
+                                  "A foundation collision refusal preserves the whole World state.");
+            check(accepted(host.validate_checkpoint(host.checkpoint())), "The retained non-overlapping state validates.");
+        }
+        if (penetrates) {
+            Host host;
+            check(accepted(host.initialize("cog-api", {"P"})) &&
+                      accepted(host.configure_terrain(factory::godot_world::tests::flat_site())), "The restore fixture binds its site.");
+            observe(host, 2.5, 0, 1);
+            auto low = base("low-base"); low.at("level") = V(I{0});
+            const auto base_id = create(host, low);
+            create(host, part("raised-part"));
+            const auto saved = host.checkpoint();
+            auto envelope = std::get<O>(saved.storage());
+            auto world = std::get<O>(envelope.at("world").storage());
+            auto state = std::get<O>(world.at("state").storage());
+            auto foundations = std::get<O>(state.at("foundations").storage());
+            auto moved = std::get<O>(foundations.at(base_id).storage());
+            moved.at("center") = V(A{V(I{0}), V(I{4}), V(I{0})});
+            foundations.at(base_id) = V(std::move(moved)); state.at("foundations") = V(std::move(foundations));
+            world.at("state") = V(std::move(state)); envelope.at("world") = V(std::move(world));
+            const auto refused = host.validate_checkpoint(V(envelope));
+            check(!accepted(refused) && field<std::string>(refused, "reason") == "occupied" &&
+                      !factory::values::typed_difference(saved, host.checkpoint()),
+                  "Restore validation rejects a foundation moved through a transmission shape without changing the live World.");
+        }
+    }
+    Host host;
+    check(accepted(host.initialize("cog-api", {"P"})) &&
+              accepted(host.configure_terrain(factory::godot_world::tests::flat_site())), "The area fixture binds its site.");
+    observe(host, 0, -2.5, 1);
+    create(host, gear(0, 4, 0, "area-cog", "z"));
+    const auto before = world_state(host);
+    auto area = wire("place_foundations", "blocked-area");
+    area.emplace("cell", V(A{V(I{-1}), V(I{0})})); area.emplace("end_cell", V(A{V(I{1}), V(I{0})}));
+    area.emplace("level", V(I{4}));
+    const auto rejected = host.command("P", area);
+    check(!accepted(rejected) && field<std::string>(rejected, "reason") == "occupied" &&
+              !factory::values::typed_difference(before, world_state(host)),
+          "An obstructed foundation area refuses atomically without consuming any blocks.");
+    auto touching = wire("place_foundation", "touching-base");
+    touching.emplace("cell", V(A{V(I{1}), V(I{0})})); touching.emplace("level", V(I{4}));
+    check(accepted(host.command("P", touching)) && accepted(host.validate_checkpoint(host.checkpoint())),
+          "A foundation may touch a cog at an adjacent tile face without overlapping it.");
+}
+
 void one_tile_placement() {
     Host host;
     check(accepted(host.initialize("cog-api", {"P"})) &&
@@ -1181,6 +1258,7 @@ void one_tile_placement() {
 
 int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::string(argv[1]) == "--foundation-only") { transmission_foundation_clearance(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--terrain-only") { transmission_terrain_clearance(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--raised-route-only") { complete_span_route_host(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--transmission-site-only") {
@@ -1194,7 +1272,7 @@ int main(int argc, char** argv) {
             return 0;
         }
         if (argc == 1) {
-            finite_oriented_train_and_restore(); adjacent_axle_faces(); refusals_and_legacy_shape(); cog_axle_actor_clearance(); cog_at_belt_face(); transmission_site_clearance(); transmission_terrain_clearance(); one_tile_placement();
+            finite_oriented_train_and_restore(); adjacent_axle_faces(); refusals_and_legacy_shape(); cog_axle_actor_clearance(); cog_at_belt_face(); transmission_site_clearance(); transmission_terrain_clearance(); transmission_foundation_clearance(); one_tile_placement();
             global_grid(); finite_large_cog(); perpendicular_belt_line(); belt_spindle_orientation(); typed_loose_host(); belt_span_host_commands(); nonhorizontal_span_host(); complete_span_route_host(); rotated_belt_host(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
         } else if (argc != 2 || std::string(argv[1]) != "--placement-alias-only") {
             throw std::runtime_error("Expected no arguments or --placement-alias-only.");
