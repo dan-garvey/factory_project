@@ -1481,6 +1481,47 @@ class ProductionCollectorToolingArt:
 		flute.set_surface_override_material(2, hardware)
 		flute.set_meta("collector_tooling_role", "FittedInsert")
 
+class ProductionCollectorServiceArt:
+	extends RefCounted
+	## Fixed rear access artwork. No service action, state or collision owner.
+	static var meshes: Dictionary = {}
+
+	static func _outline(width: float, height: float, corner: float) -> PackedVector2Array:
+		var x := width / 2.0
+		var y := height / 2.0
+		return PackedVector2Array([Vector2(-x + corner, -y), Vector2(x - corner, -y),
+			Vector2(x, -y + corner), Vector2(x, y - corner), Vector2(x - corner, y),
+			Vector2(-x + corner, y), Vector2(-x, y - corner), Vector2(-x, -y + corner)])
+
+	static func _prepare() -> void:
+		if not meshes.is_empty():
+			return
+		meshes.gasket = ProductionVisuals.prism_mesh(_outline(0.662, 0.522, 0.032), 0.003, 0.0004)
+		meshes.panel = ProductionVisuals.prism_mesh(_outline(0.64, 0.50, 0.028), 0.018, 0.002)
+		var hardware := ArrayMesh.new()
+		var poses: Array[Transform3D] = []
+		var orientation := Basis(Quaternion(Vector3.UP, Vector3.FORWARD)).scaled(Vector3.ONE * 0.45)
+		for x in [-0.255, 0.255]:
+			for y in [-0.19, 0.19]:
+				poses.append(Transform3D(orientation, Vector3(x, y, 0)))
+		ProductionPressDieArt._hardware(hardware, poses)
+		meshes.hardware = hardware
+
+	static func mount(parent: Node3D, color: Color) -> void:
+		_prepare()
+		var paint := ProductionCollectorArt.coating(color.darkened(0.14))
+		var steel := ProductionTransmissionFinish.material("worked", Color("b8c3bb"), 0.85, 0.38)
+		var gasket := ProductionVisuals.material(Color("1c2424"), 0.0, 0.95)
+		for row in [["RearServiceGasket", "gasket", -0.5115, gasket],
+			["RearServicePanel", "panel", -0.522, paint], ["RearServiceHardware", "hardware", -0.531, steel]]:
+			var part := MeshInstance3D.new()
+			part.name = row[0]
+			part.set_meta("collector_service_role", row[1])
+			part.mesh = meshes[row[1]]
+			part.position = Vector3(-0.22, 0.67, row[2])
+			part.material_override = row[3]
+			parent.add_child(part)
+
 class ProductionEnvironment:
 	extends RefCounted
 	## Visual scenery only. ActorWorld owns collision from the same immutable site geometry.
@@ -4164,6 +4205,8 @@ func _machine_surface_detail(machine: Node3D, kind: String) -> void:
 	match kind:
 		"collector":
 			var frame: Color = COLORS.collector
+			if _native_transmission():
+				ProductionCollectorServiceArt.mount(anchor, frame)
 			_machine_box(anchor, "ServiceCover", Vector3(-0.22, 0.68, -0.35), Vector3(0.65, 0.5, 0.035), frame.darkened(0.14))
 			for n in range(5):
 				var vent := _machine_box(anchor, "ServiceVent", Vector3(-0.22, 0.55 + n * 0.06, -0.326), Vector3(0.42, 0.014, 0.006), Color("28383d"), 0.1, 0.8)

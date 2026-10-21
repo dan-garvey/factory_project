@@ -102,6 +102,14 @@ nonnative views keep their original cylinders and block flutes.
 The spindle relief lies outside the bearing seat; the supported span retains
 the original radius and its existing clearance inside the fixed liner.
 
+The native collector's rear casting has a separate bevelled service panel, a
+narrow gasket seam and four fitted washer/head assemblies. Their support planes
+meet the actual housing and panel; all three cached passive meshes stay inside
+the existing complete envelope and behind the cutter sweep. The panel shares
+the qualified coating and worked hardware finishes. This is visual assembly
+detail, without a service action, new part, collider or authoritative state.
+Historical fixtures keep their earlier rear casting.
+
 The new tooling consumer bounds every raw facet through a complete turn and
 checks that conservative sweep against the actual cast frame, bearing opening
 and redrawn stock. It also checks the mating drum/hub facets and rejects a

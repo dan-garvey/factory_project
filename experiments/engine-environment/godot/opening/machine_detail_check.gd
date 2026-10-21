@@ -3439,6 +3439,124 @@ func check_collector_bearing_seat() -> void:
 		"reused_coverage": "The first 1001-check component case retains the unchanged drum, inserts, full envelopes, all axes, stock, lifecycle and pick results.",
 		"observations": "invented read-only", "native_gameplay": "not_run", "rendered_quality": "not_assessed"}))
 
+func collector_service_foot_contact(panel: MeshInstance3D, hardware: MeshInstance3D, offset := Vector3.ZERO) -> Dictionary:
+	var plane := (panel.transform * panel.mesh.get_aabb()).position.z
+	var pose := hardware.transform
+	pose.origin += offset
+	if absf((pose * hardware.mesh.get_aabb()).end.z - plane) > 0.000001:
+		return {"seated": false, "area": 0.0}
+	var panel_faces := die_faces(panel.mesh, 0)
+	var supported: Array[PackedVector2Array] = []
+	for n in range(0, panel_faces.size(), 3):
+		var a: Vector3 = panel.transform * panel_faces[n]
+		var b: Vector3 = panel.transform * panel_faces[n + 1]
+		var c: Vector3 = panel.transform * panel_faces[n + 2]
+		if absf(a.z - plane) < 0.000001 and absf(b.z - plane) < 0.000001 and absf(c.z - plane) < 0.000001:
+			supported.append(PackedVector2Array([Vector2(a.x, a.y), Vector2(b.x, b.y), Vector2(c.x, c.y)]))
+	var faces := die_faces(hardware.mesh, 0)
+	var seated := true
+	var area := 0.0
+	for n in range(0, faces.size(), 3):
+		var a: Vector3 = pose * faces[n]
+		var b: Vector3 = pose * faces[n + 1]
+		var c: Vector3 = pose * faces[n + 2]
+		if absf(a.z - plane) > 0.000001 or absf(b.z - plane) > 0.000001 or absf(c.z - plane) > 0.000001:
+			continue
+		area += (b - a).cross(c - a).length() / 2.0
+		for point in [Vector2(a.x, a.y), Vector2(b.x, b.y), Vector2(c.x, c.y)]:
+			var distance := INF
+			for triangle in supported:
+				distance = minf(distance, point_triangle_distance(point, triangle[0], triangle[1], triangle[2]))
+			seated = seated and distance < 0.000001
+	return {"seated": seated and area > 0, "area": area}
+
+func check_collector_rear_service() -> void:
+	var cache: Dictionary = {}
+	var assemblies := 0
+	var minimum_gap := INF
+	var maximum_seat_error := 0.0
+	for shared_profile in [false, true]:
+		for axis in range(3):
+			for cell in [[0, 0], [2, -1]]:
+				var view = Shared.new() if shared_profile else Opening.new()
+				if shared_profile:
+					view.session = PaddleSessionFacts.new()
+				view.machine_root = Node3D.new()
+				view.add_child(view.machine_root)
+				view.state = {"context": "collector-service-fixture", "options": {"native": true, "physical": true},
+					"actors": {"P": {"ready": true}}, "parts": {}, "inventories": {"P": 0},
+					"stock": {"source": 15, "collector": 1, "belt": 0, "input": 0, "held": 0, "output": 0}, "remaining": 0,
+					"entities": {"fixture": {"kind": "collector", "cell": cell, "axis": axis, "generation": 1}},
+					"transmission_parts": {}, "motion": {}, "links": [], "drive_links": [], "engagements": []}
+				var before: Dictionary = view.state.duplicate(true)
+				view._rebuild_machines()
+				var machine: Node3D = view.machine_root.get_child(0)
+				var detail: Node3D = machine.get_node("SurfaceDetail")
+				var housing: MeshInstance3D = machine.get_node("CollectorCastFrame/CastLowerHousing")
+				var gasket: MeshInstance3D = detail.get_node("RearServiceGasket")
+				var panel: MeshInstance3D = detail.get_node("RearServicePanel")
+				var hardware: MeshInstance3D = detail.get_node("RearServiceHardware")
+				var back := (housing.transform * housing.mesh.get_aabb()).position.z
+				var gasket_bounds := gasket.transform * gasket.mesh.get_aabb()
+				var panel_bounds := panel.transform * panel.mesh.get_aabb()
+				verify(absf(gasket_bounds.end.z - back) < 0.000001 and absf(panel_bounds.end.z - gasket_bounds.position.z) < 0.000001,
+					"The actual rear housing, gasket and panel support planes meet without a floating cover.")
+				verify(collector_service_foot_contact(housing, gasket).seated and collector_service_foot_contact(gasket, panel).seated,
+					"The complete contacting gasket and panel facets rest within their actual supporting surfaces.")
+				var contact := collector_service_foot_contact(panel, hardware)
+				var expected_area := 4.0 * 12.0 * sin(TAU / 24.0) * (pow(0.038 * 0.45, 2) - pow(0.014 * 0.45, 2))
+				maximum_seat_error = maxf(maximum_seat_error, absf(float(contact.area) - expected_area))
+				verify(contact.seated and absf(float(contact.area) - expected_area) < 0.000001,
+					"All four complete washer feet, not just their centres, lie on the real flat panel facets.")
+				for part in [gasket, panel, hardware]:
+					var role: String = part.get_meta("collector_service_role")
+					if not cache.has(role):
+						cache[role] = [part.mesh, part.material_override]
+						var limits: Array = {"gasket": [0.0009, 0.0011], "panel": [0.0055, 0.0059], "hardware": [0.00001, 0.0001]}[role]
+						check_closed_asset_mesh(part.mesh, limits[0], limits[1])
+					verify(part.mesh == cache[role][0] and part.material_override == cache[role][1]
+						and part.get_script() == null and part.get_child_count() == 0 and part.scale == Vector3.ONE,
+						"Both native views and translated placements reuse the same passive service-art resources.")
+					check_bounds(part, detail.transform)
+					for sweep in collector_tooling_sweeps(machine.get_meta("motion_meshes")):
+						var gap: float = sweep.low - (part.transform * part.mesh.get_aabb()).end.z
+						minimum_gap = minf(minimum_gap, gap)
+						verify(gap > 0.14, "The new fixed rear parts clear the actual cutter facets through their complete rotational sweep.")
+				var paint := panel.material_override as StandardMaterial3D
+				var steel := hardware.material_override as StandardMaterial3D
+				verify(paint.metallic == 0 and is_equal_approx(paint.normal_scale, 0.12) and is_equal_approx(paint.roughness, 0.72)
+					and is_equal_approx(steel.metallic, 0.85) and steel.normal_texture == Opening.ProductionTransmissionFinish.textures.worked_normal,
+					"Paint and exposed worked hardware retain their distinct qualified material roles.")
+				var picks := 0
+				for child in machine.get_children():
+					if child is StaticBody3D:
+						picks += 1
+						verify(child.collision_layer == 8 and child.collision_mask == 0 and child.get_child_count() == 1
+							and child.get_child(0).shape.size == Vector3(1.45, 1.65, 1.45), "The original independent pick envelope stays unchanged.")
+				verify(picks == 1 and machine.get_meta("motion_meshes").size() == 10 and view.state == before
+					and view.model == null and view.actor_world == null and view.request_sequence == 0,
+					"Fixed service artwork changes no motion rows, observations, authority, requests or pick ownership.")
+				if assemblies == 0:
+					verify(not collector_service_foot_contact(panel, hardware, Vector3(0.5, 0, 0)).seated,
+						"A washer assembly moved beyond the panel fails the complete-foot contact oracle.")
+					verify(not collector_service_foot_contact(panel, hardware, Vector3(0, 0, -0.002)).seated,
+						"An outward-floating washer assembly fails the same support-plane oracle.")
+				assemblies += 1
+				view.free()
+	for legacy_profile in [false, true]:
+		var old_view := Opening.new()
+		old_view.legacy_fixture = legacy_profile
+		old_view.state = {"options": {"native": legacy_profile}}
+		var old_machine := Node3D.new()
+		old_view.add_child(old_machine)
+		old_view._assemble_machine(old_machine, {"kind": "collector", "axis": 0})
+		verify(old_machine.get_node("SurfaceDetail").get_node_or_null("RearServicePanel") == null,
+			"Historical and nonnative profiles retain their original rear casting.")
+		old_view.free()
+	print(JSON.stringify({"collector_service_assemblies": assemblies, "negative_controls": 2,
+		"minimum_full_turn_axial_gap_metres": minimum_gap, "maximum_washer_foot_area_error": maximum_seat_error,
+		"observations": "invented read-only", "gameplay": "not_run"}))
+
 func resource_render_write(path: String, report: Dictionary) -> bool:
 	var file := FileAccess.open(path, FileAccess.WRITE)
 	if file == null:
@@ -3498,8 +3616,19 @@ func render_buildable_resources() -> void:
 		quit(1)
 		return
 	Engine.max_fps = 30
-	for subject in [{"name": "collector", "kind": "collector"}, {"name": "press", "kind": "processor"},
-		{"name": "conveyor", "kind": "belt"}, {"name": "waterwheel", "kind": "wheel"}]:
+	var subjects: Array = [{"name": "collector", "kind": "collector"}, {"name": "press", "kind": "processor"},
+		{"name": "conveyor", "kind": "belt"}, {"name": "waterwheel", "kind": "wheel"}]
+	var selected_subject := OS.get_environment("FACTORY_RESOURCE_RENDER_SUBJECT")
+	if not selected_subject.is_empty():
+		subjects = subjects.filter(func(subject): return subject.name == selected_subject)
+		if subjects.is_empty():
+			report.status = "fail"
+			report.reason = "The requested resource-render subject is unknown."
+			resource_render_write(manifest, report)
+			push_error(report.reason)
+			quit(1)
+			return
+	for subject in subjects:
 		var view := Opening.new()
 		view.legacy_fixture = false
 		view.state = {"context": "resource-studio", "options": {"native": true, "physical": true},
@@ -3651,7 +3780,7 @@ func render_buildable_resources() -> void:
 		view.free()
 		await process_frame
 	report.status = "pass"
-	report.images_expected = 8
+	report.images_expected = subjects.size() * 2
 	report.limits = "Studio lighting and passive mesh observations. No actual app, game state, user understanding, export, performance or human-quality verdict."
 	if not resource_render_write(manifest, report):
 		push_error("The final resource-render result cannot be retained.")
@@ -3663,7 +3792,16 @@ func render_buildable_resources() -> void:
 
 func _initialize() -> void:
 	if OS.get_cmdline_user_args().has("--render-buildable-resources"):
+		if OS.get_cmdline_user_args().has("--collector-rear-service-check"):
+			check_collector_rear_service()
+			if failed:
+				finish()
+				return
 		call_deferred("render_buildable_resources")
+		return
+	if OS.get_cmdline_user_args().has("--collector-rear-service-only"):
+		check_collector_rear_service()
+		finish()
 		return
 	if OS.get_cmdline_user_args().has("--collector-bearing-seat-only"):
 		check_collector_bearing_seat()
