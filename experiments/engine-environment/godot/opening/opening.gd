@@ -2234,6 +2234,7 @@ class ProductionEnvironment:
 		foliage.multimesh = instances
 		foliage.material_override = finish
 		foliage.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED if foliage_source_status == "ready" else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		foliage.set_meta("candidate_buffer", buffer)
 		return foliage
 
 	static func _terrain_facet_normal(x: float, z: float) -> Vector3:
@@ -2313,6 +2314,7 @@ class ProductionEnvironment:
 			patch.material_override = foliage_finish
 			patch.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED
 			patch.visibility_range_end = 62.0
+			patch.set_meta("candidate_buffer", buffer)
 			meadow.add_child(patch)
 		return meadow
 
@@ -2378,30 +2380,58 @@ class ProductionEnvironment:
 		patch.set_meta("candidate_buffer", buffer)
 		return patch
 
-	static func refresh_foreground(scenery: Node3D, entities: Dictionary, pitch: float) -> void:
-		var patch := scenery.get_node_or_null("ForegroundBank") as MultiMeshInstance3D
+	static func _construction_volumes(state: Dictionary) -> Array[AABB]:
+		var volumes: Array[AABB] = []
+		var size := Vector3(Geometry.MACHINE_SIZE[0], Geometry.MACHINE_SIZE[1], Geometry.MACHINE_SIZE[2])
+		for entity: Dictionary in state.get("entities", {}).values():
+			var center := Vector3(entity.cell[0] * Geometry.PITCH,
+				float(entity.get("level", 0)) * Geometry.HEIGHT_STEP + Geometry.MACHINE_CENTER_HEIGHT,
+				entity.cell[1] * Geometry.PITCH)
+			var half := size * 0.5
+			if entity.get("kind") == "wheel" and state.get("options", {}).get("native", false):
+				center.y = float(entity.get("level", 0)) * Geometry.HEIGHT_STEP + Geometry.ANCHOR_HEIGHT
+				half = Geometry.wheel_half_extents(int(entity.get("axis", 0)), int(entity.get("tiles", 1)))
+			volumes.append(AABB(center - half, half * 2.0).grow(0.08))
+		for foundation: Dictionary in state.get("foundations", {}).values():
+			var top := Vector3(foundation.cell[0] * Geometry.PITCH,
+				foundation.level * Geometry.HEIGHT_STEP, foundation.cell[1] * Geometry.PITCH)
+			volumes.append(AABB(top - Vector3(Geometry.PITCH * 0.5, Geometry.PITCH, Geometry.PITCH * 0.5),
+				Vector3.ONE * Geometry.PITCH).grow(0.08))
+		return volumes
+
+	static func _refresh_plant_patch(patch: MultiMeshInstance3D, volumes: Array[AABB]) -> void:
 		if patch == null or patch.multimesh == null:
 			return
 		var original: PackedFloat32Array = patch.get_meta("candidate_buffer")
 		var kept := PackedFloat32Array()
 		var mesh_bounds := patch.multimesh.mesh.get_aabb()
-		for offset in range(0, original.size(), 16):
+		var stride := 16 if patch.multimesh.use_colors else 12
+		for offset in range(0, original.size(), stride):
 			var basis := Basis(Vector3(original[offset], original[offset + 4], original[offset + 8]),
 				Vector3(original[offset + 1], original[offset + 5], original[offset + 9]),
 				Vector3(original[offset + 2], original[offset + 6], original[offset + 10]))
 			var at := Vector3(original[offset + 3], original[offset + 7], original[offset + 11])
-			var bounds: AABB = Transform3D(basis, at) * mesh_bounds
+			var bounds: AABB = (patch.global_transform * Transform3D(basis, at)) * mesh_bounds
 			var clear := true
-			for entity in entities.values():
-				var center := Vector3(entity.cell[0] * pitch, Geometry.MACHINE_CENTER_HEIGHT, entity.cell[1] * pitch)
-				var size := Vector3(Geometry.MACHINE_SIZE[0], Geometry.MACHINE_SIZE[1], Geometry.MACHINE_SIZE[2])
-				if bounds.intersects(AABB(center - size * 0.5, size).grow(0.08)):
+			for volume: AABB in volumes:
+				if bounds.intersects(volume):
 					clear = false
 					break
 			if clear:
-				kept.append_array(original.slice(offset, offset + 16))
-		patch.multimesh.instance_count = kept.size() / 16
+				kept.append_array(original.slice(offset, offset + stride))
+		patch.multimesh.instance_count = kept.size() / stride
 		patch.multimesh.buffer = kept
+
+	static func refresh_vegetation(scenery: Node3D, state: Dictionary) -> void:
+		# Only soft, unsaved decoration is hidden. Natural collision geometry
+		# and the confirmed construction facts remain untouched.
+		var volumes := _construction_volumes(state)
+		for name in ["GroundFoliage", "ForegroundBank", "PineUnderstory"]:
+			_refresh_plant_patch(scenery.get_node_or_null(name) as MultiMeshInstance3D, volumes)
+		var meadow := scenery.get_node_or_null("MeadowPatches")
+		if meadow != null:
+			for patch: MultiMeshInstance3D in meadow.get_children():
+				_refresh_plant_patch(patch, volumes)
 
 	static func read_pine(path: String = PINE_FILE) -> Dictionary:
 		if not FileAccess.file_exists(path):
@@ -2490,30 +2520,6 @@ class ProductionEnvironment:
 		patch.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED
 		patch.set_meta("candidate_buffer", buffer)
 		return patch
-
-	static func refresh_pines(scenery: Node3D, entities: Dictionary, pitch: float) -> void:
-		var patch := scenery.get_node_or_null("PineUnderstory") as MultiMeshInstance3D
-		if patch == null or patch.multimesh == null:
-			return
-		var original: PackedFloat32Array = patch.get_meta("candidate_buffer")
-		var kept := PackedFloat32Array()
-		for offset in range(0, original.size(), 12):
-			var basis := Basis(Vector3(original[offset], original[offset + 4], original[offset + 8]),
-				Vector3(original[offset + 1], original[offset + 5], original[offset + 9]),
-				Vector3(original[offset + 2], original[offset + 6], original[offset + 10]))
-			var at := Vector3(original[offset + 3], original[offset + 7], original[offset + 11])
-			var envelope: AABB = Transform3D(basis, at) * patch.multimesh.mesh.get_aabb()
-			var clear := true
-			for entity in entities.values():
-				var center := Vector3(entity.cell[0] * pitch, Geometry.MACHINE_CENTER_HEIGHT, entity.cell[1] * pitch)
-				var size := Vector3(Geometry.MACHINE_SIZE[0], Geometry.MACHINE_SIZE[1], Geometry.MACHINE_SIZE[2])
-				if envelope.intersects(AABB(center - size * 0.5, size).grow(0.08)):
-					clear = false
-					break
-			if clear:
-				kept.append_array(original.slice(offset, offset + 12))
-		patch.multimesh.instance_count = kept.size() / 12
-		patch.multimesh.buffer = kept
 
 	static func _bank_firs() -> Node3D:
 		var group := Node3D.new()
@@ -4616,8 +4622,7 @@ func _rebuild_machines() -> void:
 	_sync_machine_body_context()
 	var scenery := get_node_or_null("ProductionScenery")
 	if scenery != null and not legacy_fixture and ProductionEnvironment.Surface != null:
-		ProductionEnvironment.refresh_foreground(scenery, state.entities, PITCH)
-		ProductionEnvironment.refresh_pines(scenery, state.entities, PITCH)
+		ProductionEnvironment.refresh_vegetation(scenery, state)
 	for child in machine_root.get_children():
 		child.free()
 	wheel_rotor = null

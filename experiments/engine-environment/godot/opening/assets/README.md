@@ -47,10 +47,13 @@ positions. These decorative items add no collider or source-state authority.
 
 The natural west bank also has a bounded foreground understory using the existing
 CC0 grass resource. Its roots follow the emitted terrain; complete clump bounds
-stay outside the stream and real rocks. Confirmed machine topology suppresses
-overlapping clumps in both offline and shared views, and removal restores the
-deterministic candidates. This is unsaved decoration, with no collider, authority
-or production state. The eastern working bank and distant meadow remain intact.
+stay outside the stream and real rocks. Confirmed machines and foundations
+suppress intersecting soft plants at their actual shared-grid heights in both
+offline and shared views. Ground tufts, grouped meadow grass, foreground clumps
+and young pines use the same world-space filter; clear plants below raised
+construction remain visible. Removal restores the original deterministic
+transform and color records. This is unsaved decoration, with no collider,
+authority or production state; mature trees and rocks keep their physical forms.
 The additional maximum is 96 tufts, or 120,672 triangles before culling, with a
 40-metre visibility limit. These are resource bounds, not measured GPU cost or
 proof of rendered quality.
@@ -606,7 +609,7 @@ The optional [young pine component](pine/CREDITS.md) frames the opposite bank
 with at most six near-source-scale saplings. Each shares the complete selected
 bark and three-dimensional needle mesh, embedded prepared maps and a 32-metre
 visibility range. Roots follow emitted terrain; whole-plant envelopes clear
-water, rocks and confirmed machines. Confirmed removal restores the derived
+water, rocks and confirmed construction volumes. Confirmed removal restores the derived
 plants. These small stems add no collision or saved vegetation state. Historical
 captures without the resource omit them; native resource and presentation checks
 do not establish rendered quality, GPU cost or a general tree interaction policy.

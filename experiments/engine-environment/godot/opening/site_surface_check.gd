@@ -388,6 +388,22 @@ func check_water_native() -> void:
 	target.cell = [-2, 0]
 	if not expect(upstream.command(target).get("accepted", false), "The upstream objective must admit an immersed wheel in the generated site"):
 		return
+	var line = NativeModel.new("actual-water-line", ["P"])
+	if not expect(line.boot_result.get("accepted", false) and line.publish_actor("P", [-1.65, 1.0, 3.3], 1).get("accepted", false), "Bind the actual site for a synthetic construction route"):
+		return
+	var line_wheel: Dictionary = line.command({"context": "actual-water-line", "client": "P", "request": "wheel", "action": "place", "kind": "wheel", "cell": [-2, 1], "axis": "x"})
+	var collector: Dictionary = line.command({"context": "actual-water-line", "client": "P", "request": "collector", "action": "place", "kind": "collector", "cell": [0, 1], "axis": "x"})
+	var cog: Dictionary = line.command({"context": "actual-water-line", "client": "P", "request": "cog", "action": "place_gear", "center": [-4, 0, 4], "axis": "x", "teeth": 2})
+	if not expect(line_wheel.get("accepted", false) and collector.get("accepted", false) and cog.get("accepted", false), "The actual worksite admits the immersed wheel, collector and bridge cog"):
+		return
+	for link in [["shaft-a", line_wheel.entity, cog.entity], ["shaft-b", cog.entity, collector.entity]]:
+		if not expect(line.command({"context": "actual-water-line", "client": "P", "request": link[0], "action": "connect_drive", "from": link[1], "to": link[2]}).get("accepted", false), "The finite shaft connects the actual-site route"):
+			return
+	if not expect(line.command({"context": "actual-water-line", "client": "P", "request": "start", "action": "set_power", "active": true}).get("accepted", false) and line.projection().powered, "River current reaches the collector through the built train"):
+		return
+	line.advance()
+	if not expect(line.projection().stock.collector == 1, "The powered collector advances material at the actual site"):
+		return
 	print("native water site controls passed: ", checks)
 	quit(0)
 
