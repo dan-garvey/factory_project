@@ -88,6 +88,14 @@ automated checks and development continue; human playtesting is not an additiona
 code-landing approval gate. The suspended workflow is recorded in
 `factory-yau.6.46`.
 
+Agents should inspect relevant existing screenshots and video frames, and may
+produce and inspect images from isolated, non-interactive asset or presentation
+fixtures. Record the source revision, view and sample conditions, and specific
+visible findings so art decisions are grounded in actual pixels. This visual
+inspection does not require desktop control or a game launch. It informs visual
+iteration but does not stand in for human gameplay and usability feedback or prove
+the quality of the complete playable scene.
+
 ## Project contract
 
 Favor fast, simple iteration over backward compatibility when changing features

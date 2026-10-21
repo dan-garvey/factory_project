@@ -210,10 +210,49 @@ void import_checks_current_machine_site() {
     occupied.at("obstacles") = V(A{V(A{V(A{V(8.0), V(0.1), V(3.0)}), V(A{V(8.5), V(0.8), V(3.6)})})});
     rejects(std::move(occupied), "occupied", "site_occupied");
 }
+
+void machine_clearance_on_free_foundations() {
+    Host buried; initialize(buried);
+    outcome(buried.publish_actor("P", {V(9.0), V(1.5), V(6.0)}, 1), true, "actor_published");
+    outcome(buried.command("P", foundation("buried-support", 5, 2, -4)), true, "ok");
+    outcome(buried.validate_checkpoint(buried.checkpoint()), true, "valid");
+    const auto placement = buried.command("P", machine("buried-machine", "belt", 5, 2, -4));
+    std::cout << "{\"case\":\"machine_on_buried_foundation\",\"accepted\":"
+              << (accepted(placement) ? "true" : "false") << ",\"reason\":\""
+              << get<std::string>(placement, "reason") << "\"}\n";
+    outcome(placement, false, "foundation_required");
+    check(get<O>(buried.projection(), "entities").empty() && carried(buried) == 23,
+          "The allowed buried foundation stays present, without admitting a machine into terrain.");
+
+    Host elevated; initialize(elevated);
+    outcome(elevated.publish_actor("P", {V(9.0), V(2.8), V(6.0)}, 1), true, "actor_published");
+    outcome(elevated.command("P", foundation("raised-support", 5, 2, 4)), true, "ok");
+    outcome(elevated.command("P", machine("raised-machine", "belt", 5, 2, 4)), true, "ok");
+    outcome(elevated.validate_checkpoint(elevated.checkpoint()), true, "valid");
+
+    auto low_site = factory::godot_world::tests::flat_site();
+    low_site.at("heights") = V(A(4, V(-2.0)));
+    Host low; initialize(low, low_site);
+    outcome(low.publish_actor("P", {V(9.0), V(-0.5), V(6.0)}, 1), true, "actor_published");
+    outcome(low.command("P", foundation("low-support", 5, 2, -4)), true, "ok");
+    outcome(low.command("P", machine("low-machine", "belt", 5, 2, -4)), true, "ok");
+    const auto saved = low.checkpoint();
+    Host same; initialize(same, low_site);
+    outcome(same.restore_checkpoint(saved), true, "restored");
+    check(!factory::values::typed_difference(saved, same.checkpoint()),
+          "A valid machine on a low foundation restores exactly when current terrain remains clear.");
+    Host intruded; initialize(intruded);
+    const auto before = intruded.checkpoint();
+    outcome(intruded.validate_checkpoint(saved), false, "foundation_required");
+    outcome(intruded.restore_checkpoint(saved), false, "foundation_required");
+    check(!factory::values::typed_difference(before, intruded.checkpoint()),
+          "The same supporting foundation cannot bypass current terrain clearance during restore.");
+}
 }
 int main() {
     try {
         construction_and_custody(); terrain_and_stacking(); rectangular_placement(); import_checks_current_machine_site();
+        machine_clearance_on_free_foundations();
         std::cout << "{\"status\":\"pass\",\"checks\":" << checks << ",\"evidence\":\"synthetic_native_foundation_rules\",\"engine_calls\":0}\n";
         return 0;
     } catch (const std::exception& failure) {
