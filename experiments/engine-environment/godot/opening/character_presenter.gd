@@ -789,6 +789,8 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float) -> v
 			previous.air = move_toward(float(previous.air),
 				1.0 if mode == "ascent" or mode == "descent" else 0.0, delta * 14.0)
 		previous.vertical_speed = vertical_speed if mode == "ascent" or mode == "descent" else 0.0
+		var starting_from_rest := (mode == "grounded" or mode == "landing") \
+			and float(previous.age) >= STOP_HOLD_SECONDS
 		previous.age = 0.0 if horizontal.length() > 0.00001 else previous.age + delta
 		var speed := horizontal_speed
 		var target_run_mix := clampf((speed - RUN_BLEND_START) / (RUN_BLEND_END - RUN_BLEND_START), 0.0, 1.0)
@@ -809,7 +811,11 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float) -> v
 			target_weight = float(previous.weight)
 		previous.weight = move_toward(float(previous.weight), target_weight, delta * 6.0)
 		if horizontal.length() > 0.00001:
-			body.rotation.y = lerp_angle(body.rotation.y, atan2(horizontal.x, horizontal.y), minf(1.0, delta * 12.0))
+			var facing := atan2(horizontal.x, horizontal.y)
+			# Once the actor has stopped, the first confirmed step must face its
+			# travel. Easing an idle orientation makes a fast start strafe sideways.
+			body.rotation.y = facing if starting_from_rest else \
+				lerp_angle(body.rotation.y, facing, minf(1.0, delta * 12.0))
 		previous.horizontal_speed = horizontal_speed
 		previous.position = at
 	motion[actor] = previous
