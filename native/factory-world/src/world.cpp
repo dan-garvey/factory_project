@@ -548,6 +548,7 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
     for (const auto& item : state.topology.parts) {
         if (item.wheel_tiles < 1 || item.wheel_tiles > mechanics::maximum_dimension ||
             (item.role != Role::waterwheel && item.wheel_tiles != 1)) return false;
+        if (item.role == Role::belt && item.geometry.axis != mechanics::Axis::z) return false;
         if (profile.foundation_parts > 0 && material_machine(item.role) && item.geometry.center[1] != 0 &&
             std::none_of(state.foundations.begin(), state.foundations.end(), [&](const auto& entry) {
                 return entry.second.center == item.geometry.center;
@@ -728,6 +729,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             !spec_valid({*selected_role, *teeth, *span}) ||
             (intent.contains("wheel_tiles") && (!wheel_tiles || *selected_role != Role::waterwheel ||
                 *wheel_tiles < 1 || *wheel_tiles > mechanics::maximum_dimension))) return refused("invalid_part");
+        if (*selected_role == Role::belt && *selected_axis != mechanics::Axis::z) return refused("invalid_belt_axis");
         targets.push_back(anchor(profile_, *location));
         if (profile_.foundation_parts > 0 && material_machine(*selected_role) && (*location)[1] != 0) {
             const bool supported = std::any_of(state.foundations.begin(), state.foundations.end(),

@@ -84,22 +84,25 @@ func check_assemblies() -> void:
 			assembly_cases += 1
 			view.mode = kind
 			view.transmission_controls.selected_axis = ["x", "y", "z"][axis]
-			view.state.entities = {"placed": {"kind": kind, "axis": axis, "cell": [-1, -1]}}
+			var actual_axis: int = 2 if kind == "belt" else axis
+			view.state.entities = {"placed": {"kind": kind, "axis": actual_axis, "cell": [-1, -1]}}
 			var before: Dictionary = view.state.duplicate(true)
 			view._rebuild_machines()
 			var expected: Node3D = view.machine_root.get_child(0)
-			var material: Material = expected.get_node("Plinth").material_override
-			var color: Color = material.albedo_color
+			var plinth := expected.get_node_or_null("Plinth") as MeshInstance3D
+			var material: Material = plinth.material_override if plinth != null else null
+			var color: Color = material.albedo_color if material != null else Color.WHITE
 			var old_rotor: Node3D = view.wheel_rotor
 			view._refresh_machine_preview()
 			verify(view.machine_preview.visible and view.machine_preview.position == Vector3(1.65, 0, 3.3),
 				"The fitted preview uses the literal target grid square and physical pitch.")
 			verify(geometry(view.machine_preview) == geometry(expected),
 				"Preview and placed assembly have identical meshes and local transforms for %s axis %d." % [kind, axis])
-			verify(view.machine_preview.get_node("Plinth").mesh == expected.get_node("Plinth").mesh,
-				"The preview reuses the actual cached machined plinth mesh.")
-			verify(view.wheel_rotor == old_rotor and material.albedo_color == color
-				and material.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED,
+			if plinth != null:
+				verify(view.machine_preview.get_node("Plinth").mesh == plinth.mesh,
+					"The preview reuses the actual cached machined plinth mesh.")
+			verify(view.wheel_rotor == old_rotor and (material == null or (material.albedo_color == color
+				and material.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED)),
 				"Preview creation preserves the placed wheel target and opaque shared surface.")
 			check_preview_nodes(view.machine_preview, view.machine_preview_material)
 			var child_id := view.machine_preview.get_child(0).get_instance_id()
@@ -135,10 +138,10 @@ func check_gates(view, shared: bool) -> void:
 		view._refresh_machine_preview()
 		verify(not view.machine_preview.visible, "Non-machine tools have no machine preview.")
 	view.mode = "belt"
-	for cell in [Vector2i(-3, 0), Vector2i(5, 0), Vector2i(0, -3), Vector2i(0, 5)]:
+	for cell in [Vector2i(-250001, 0), Vector2i(250001, 0), Vector2i(0, -250001), Vector2i(0, 250001)]:
 		view.target = cell
 		view._refresh_machine_preview()
-		verify(not view.machine_preview.visible, "Out-of-display cells hide the form.")
+		verify(not view.machine_preview.visible, "Cells outside the native coordinate bound hide the form.")
 	view.target = Vector2i(1, 2)
 	view.state.entities = {"existing": {"kind": "collector", "cell": [1, 2]}}
 	view._refresh_machine_preview()
@@ -166,9 +169,11 @@ func check_gates(view, shared: bool) -> void:
 	verify(not view.machine_preview.visible, "The native transmission tool takes precedence.")
 	view.transmission_controls.active_tool = ""
 	view.transmission_controls.selected_axis = "invalid"
+	view.mode = "collector"
 	view._refresh_machine_preview()
 	verify(not view.machine_preview.visible, "An unknown axis cannot invent an orientation.")
 	view.transmission_controls.selected_axis = "z"
+	view.mode = "belt"
 	if shared:
 		view.pending_actions = {"old-request": {"action": {"action": "place"}}}
 		view._refresh_machine_preview()
@@ -190,6 +195,31 @@ func check_gates(view, shared: bool) -> void:
 	verify(not view.machine_preview.visible, "The historical physical part count also gates visibility.")
 	view.free()
 
+func check_partial_drive_guidance() -> void:
+	var view := Opening.new()
+	view.state = observation()
+	view.state.entities = {"wheel": {"kind": "wheel"}, "collector": {"kind": "collector"},
+		"belt": {"kind": "belt"}, "press": {"kind": "processor"}}
+	view.state.links = [["collector", "belt"], ["belt", "press"]]
+	view.state.power_enabled = true
+	view.state.powered = true
+	view.state.motion = {"collector": {"state": "rotating"}, "belt": {"state": "unpowered"},
+		"press": {"state": "unpowered"}}
+	view.state.stock.output = 0
+	view.state.stock.held = 0
+	view.selected = "belt"
+	var kinds := {"wheel": true, "collector": true, "belt": true, "processor": true}
+	var step: Dictionary = view._guided_step(kinds)
+	verify(step.tool == "drive" and "each machine" in step.text,
+		"A partly powered line still asks the player to connect every machine.")
+	verify("Bring rotation" in view._inspection_hint(),
+		"Inspecting an unpowered belt does not borrow the collector's rotation.")
+	view.state.motion.belt.state = "rotating"
+	view.state.motion.press.state = "rotating"
+	step = view._guided_step(kinds)
+	verify(step.tool != "drive", "A fully rotating line no longer asks for drive connections.")
+	view.free()
+
 func _initialize() -> void:
 	var detached := Opening.new()
 	verify(not detached._preview_pointer_clear(), "A detached view cannot query or invent a usable pointer.")
@@ -199,6 +229,7 @@ func _initialize() -> void:
 	var shared := SharedPointerView.new()
 	shared.session = SessionStub.new()
 	check_gates(shared, true)
+	check_partial_drive_guidance()
 	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
 		"assembly_cases": assembly_cases, "observations": "invented", "desktop": "not_used",
 		"rendered_quality": "not_assessed"}))

@@ -3631,6 +3631,7 @@ func issue(action: Dictionary) -> Dictionary:
 	else:
 		_message(_material_refusal_message(outcome, {"occupied": "That square is occupied.", "no_part": "That part is already placed.",
 			"ports_not_adjacent": "Connect neighboring ports, following the arrow.",
+			"invalid_belt_axis": "The belt's drive shaft runs across the belt, perpendicular to material travel.",
 			"missing_entity": "Choose a placed machine at each end.",
 			"already_connected": "Those ports are already connected.",
 			"unavailable_output": "There is no finished plate to collect yet.",
@@ -3965,7 +3966,7 @@ func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 			# Dot assignment creates a StringName key; the native wire deliberately
 			# accepts only exact String dictionary keys, without coercion.
 			if mode != "foundation":
-				action["axis"] = transmission_controls.selected_axis
+				action["axis"] = "z" if mode == "belt" else transmission_controls.selected_axis
 		var outcome := issue(action)
 		if outcome.accepted:
 			selected = outcome.entity
@@ -4924,6 +4925,8 @@ func _machine_preview_cell() -> Vector2i:
 func _preview_axis() -> int:
 	if not _native_transmission() or transmission_controls == null:
 		return 0
+	if mode == "belt":
+		return 2
 	return ["x", "y", "z"].find(transmission_controls.selected_axis)
 
 func _refresh_machine_preview() -> void:
@@ -5013,8 +5016,14 @@ func _guided_step(kinds: Dictionary) -> Dictionary:
 		return {"text": "Place a waterwheel in the stream.", "tool": "wheel"}
 	if not state.get("power_enabled", true):
 		return {"text": "Switch on the drive near the wheel [P].", "tool": "inspect"}
-	if not state.get("powered", false):
-		return {"text": "Bridge the wheel to the collector with a cog and shafts at the same height.", "tool": "drive"} if _native_transmission() else {"text": "Bring power to the line. Help [H] shows the current setup.", "tool": "drive"}
+	if _native_transmission():
+		var motion: Dictionary = state.get("motion", {})
+		for id in state.get("entities", {}):
+			var part: Dictionary = state.entities[id]
+			if part.get("kind", "") in ["collector", "belt", "processor"] and motion.get(id, {}).get("state", "") != "rotating":
+				return {"text": "Use cogs and shafts to bring rotation to each machine. The belt shaft crosses its direction of travel.", "tool": "drive"}
+	elif not state.get("powered", false):
+		return {"text": "Bring power to the line. Help [H] shows the current setup.", "tool": "drive"}
 	var stock: Dictionary = state.get("stock", {})
 	if int(stock.get("source", 0)) + int(stock.get("collector", 0)) + int(stock.get("belt", 0)) + int(stock.get("input", 0)) + int(stock.get("held", 0)) == 0:
 		if _native_transmission():
@@ -5031,11 +5040,14 @@ func _inspection_hint() -> String:
 	# or a second power solver; the authority still decides every command.
 	var kind: String = state.entities[selected].kind
 	var stop_before_link: bool = state.get("powered", false) and not state.get("options", {}).get("native", false)
+	var rotating: bool = state.get("powered", false)
+	if _native_transmission():
+		rotating = state.get("motion", {}).get(selected, {}).get("state", "") == "rotating"
 	if kind == "processor" and state.stock.output > 0:
 		return "Outlet full; plate ready.\n[R] collect to make room."
 	if not state.get("power_enabled", true):
 		return "Drive switched off.\n[%s] enables the drive%s." % [_power_key(), "" if legacy_fixture else " near wheel"]
-	if kind == "processor" and state.stock.held > 0 and state.get("powered", false):
+	if kind == "processor" and state.stock.held > 0 and rotating:
 		if state.remaining == 0:
 			return "Work done; blank retained.\nNext drive tick releases plate."
 		return "Working: %d ticks remaining.\nHeld blank stays in the press." % state.remaining
@@ -5043,8 +5055,10 @@ func _inspection_hint() -> String:
 		return (("Inlet missing. Stop [%s].\n" % _power_key()) if stop_before_link else "No material inlet linked.\n") + "[F] link " + ("Collector → Belt." if kind == "belt" else "Belt → Press.")
 	if kind in ["collector", "belt"] and not _has_material_connection(false):
 		return (("Outlet missing. Stop [%s].\n" % _power_key()) if stop_before_link else "No material outlet linked.\n") + "[F] link " + ("Collector → Belt." if kind == "collector" else "Belt → Press.")
-	if not state.get("powered", false):
+	if not rotating:
 		if _native_transmission():
+			if kind == "wheel":
+				return "Wheel is not rotating. Check its axle and the stream."
 			return "Bring rotation to the line.\n[G] shafts; mesh cogwheels."
 		return "Drive needs connections.\n[G] link wheel + all machines."
 	if kind == "processor":
@@ -5059,7 +5073,7 @@ func _inspection_hint() -> String:
 		return "Collecting finite seam blanks.\nBelt takes the next blank."
 	if kind == "belt":
 		return "Belt carrying a blank.\nInspect the Press downstream." if state.stock.belt > 0 else "Waiting for a blank.\nInspect the Collector upstream."
-	return "Wheel powers the whole line.\n[%s] stops it%s." % [_power_key(), " for editing" if legacy_fixture else " from nearby"]
+	return "Wheel rotates.\n[%s] stops it%s." % [_power_key(), " for editing" if legacy_fixture else " from nearby"]
 
 func _has_material_connection(incoming: bool) -> bool:
 	for pair in state.links:

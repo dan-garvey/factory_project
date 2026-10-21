@@ -72,7 +72,7 @@ void conserved(const Host& host) {
     for (const auto* name : {"entities", "transmission_parts"})
         for (const auto& [id, part] : field<O>(projection, name)) { (void)id; ++parts.at(field<std::string>(part, "kind")); }
     parts.at("foundation") += static_cast<I>(field<O>(projection, "foundations").size());
-    check(parts == std::map<std::string, I>{{"collector", 1}, {"belt", 1}, {"processor", 1}, {"wheel", 1}, {"shaft", 4}, {"gear", 5}, {"foundation", 24}},
+    check(parts == std::map<std::string, I>{{"collector", 1}, {"belt", 1}, {"processor", 1}, {"wheel", 1}, {"shaft", 8}, {"gear", 7}, {"foundation", 24}},
           "The actual opening kit is conserved without new parts or a different scenario profile.");
 }
 
@@ -104,6 +104,10 @@ struct Run {
         check(accepted(host.publish_actor("P", {V(0.0), V(1.0), V(static_cast<double>(row + 1) * 1.65)}, ++epoch)),
               "The bounded native unit has a current supplied P observation.");
     }
+    void observe_at(double x, double z) {
+        check(accepted(host.publish_actor("P", {V(x), V(1.0), V(z)}, ++epoch)),
+              "The native fixture supplies a current synthetic reach observation.");
+    }
     V action(const char* name, O arguments = {}) {
         arguments.emplace("context", V("upstream-drive")); arguments.emplace("client", V("P"));
         arguments.emplace("request", V(prefix + '-' + std::to_string(++serial))); arguments.emplace("action", V(name));
@@ -113,10 +117,10 @@ struct Run {
         return result;
     }
     std::string place(const char* kind, I x, I row) {
-        return field<std::string>(action("place", {{"kind", V(kind)}, {"cell", V(A{V(x), V(row)})}, {"axis", V("x")}}), "entity");
+        return field<std::string>(action("place", {{"kind", V(kind)}, {"cell", V(A{V(x), V(row)})}, {"axis", V(std::string(kind) == "wheel" ? "x" : "z")}}), "entity");
     }
-    std::string gear(I x, I z) {
-        return field<std::string>(action("place_gear", {{"center", V(A{V(x), V(I{0}), V(z)})}, {"axis", V("x")}, {"teeth", V(I{2})}}), "entity");
+    std::string gear(I x, I z, const char* axis = "x", I teeth = 2) {
+        return field<std::string>(action("place_gear", {{"center", V(A{V(x), V(I{0}), V(z)})}, {"axis", V(axis)}, {"teeth", V(teeth)}}), "entity");
     }
     void connect(const char* kind, const std::string& from, const std::string& to) {
         (void)action(kind, {{"from", V(from)}, {"to", V(to)}});
@@ -137,6 +141,41 @@ struct Run {
     }
 };
 
+void build_route(Run& run, const std::string& wheel, I wheel_row, I machine_row, const std::array<std::string, 3>& machines) {
+    const double wheel_z = static_cast<double>(wheel_row) * 1.65;
+    const double small_z = static_cast<double>(machine_row + 2) * 1.65;
+    run.observe_at(-3.3, wheel_z - 1.65);
+    const auto input = run.gear(-12, wheel_row * 4, "x", 4);
+    run.connect("connect_drive", wheel, input);
+    run.observe_at(-3.3, wheel_z);
+    const auto output = run.gear(-8, wheel_row * 4 + 4, "z", 4);
+    std::array<std::string, 5> small;
+    for (std::size_t n = 0; n < small.size(); ++n) {
+        const I x = static_cast<I>(n) * 4 - 8;
+        run.observe_at(static_cast<double>(x) * 1.65 / 4.0, small_z - 1.65);
+        small[n] = run.gear(x, (machine_row + 2) * 4, "z", 2);
+    }
+    run.observe_at(-3.3, (wheel_z + 1.65 + small_z) / 2.0);
+    run.connect("connect_drive", output, small[0]);
+    for (std::size_t n = 0; n < machines.size(); ++n) {
+        run.observe_at(static_cast<double>(n) * 1.65, small_z - 1.65);
+        run.connect("connect_drive", machines[n], small[n + 2]);
+    }
+}
+
+void clear_route(Run& run) {
+    const auto parts = field<O>(run.host.projection(), "transmission_parts");
+    for (const auto* kind : {"shaft", "gear"}) {
+        for (const auto& [id, part] : parts) {
+            if (field<std::string>(part, "kind") != kind) continue;
+            const auto center = field<A>(part, "center");
+            const auto x = std::get<I>(center[0].storage()), z = std::get<I>(center[2].storage());
+            run.observe_at(static_cast<double>(x) * 1.65 / 4.0, static_cast<double>(z) * 1.65 / 4.0);
+            run.target("remove", id);
+        }
+    }
+}
+
 V baseline() {
     Run run("base");
     check(e::inspect(run.host, "missing").phase == e::Phase::unavailable, "An unknown actor cannot borrow another player's objective.");
@@ -148,10 +187,10 @@ V baseline() {
     const auto press = run.place("processor", 2, starter_row);
     check(field<A>(run.host.projection(), "links").size() == 2,
           "Placing the adjacent machines connects both material ports.");
-    const auto bridge = run.gear(-4, starter_row * 4);
-    run.connect("connect_drive", wheel, bridge); run.connect("connect_drive", bridge, collector);
-    run.connect("connect_drive", collector, belt); run.connect("connect_drive", belt, press);
+    build_route(run, wheel, starter_row, starter_row, {collector, belt, press});
+    run.observe_at(-1.65, 0.0);
     (void)run.action("set_power", {{"active", V(true)}});
+    run.observe(starter_row);
     run.collect_until(4);
     // One extra powered step retains a partly processed original lot. Reuse
     // this checkpoint for the different alternatives; do not replay this prefix.
@@ -161,7 +200,7 @@ V baseline() {
     check(std::get<I>(processing.at("remaining_ticks").storage()) == 1,
           "The shared comparison cut has a real partial workpiece, not a fresh empty line.");
     check(e::inspect(run.host, "P").phase == e::Phase::move_source &&
-          e::inspect(run.host, "P").placed_gears == 1 && e::inspect(run.host, "P").placed_shafts == 4,
+          e::inspect(run.host, "P").placed_gears == 7 && e::inspect(run.host, "P").placed_shafts == 5,
           "The first four products do not bypass the upstream constraint.");
     check(same(saved, run.host.checkpoint()), "Repeated eligibility reads neither step the world nor record progress.");
     check(accepted(run.host.validate_checkpoint(saved)), "The original partial-work checkpoint is valid for both comparisons.");
@@ -171,12 +210,8 @@ V baseline() {
 std::string move_source(Run& run) {
     run.observe(starter_row);
     const auto old_wheel = entity(run.host, "wheel");
-    const auto transmission = field<O>(run.host.projection(), "transmission_parts");
-    std::string bridge;
-    for (const auto& [id, part] : transmission)
-        if (field<std::string>(part, "kind") == "gear") bridge = id;
-    check(!bridge.empty(), "The original bridge cog is present.");
-    run.connect("disconnect_drive", old_wheel, bridge);
+    clear_route(run);
+    run.observe(starter_row);
     run.target("remove", old_wheel);
     run.observe(upstream_row);
     const auto wheel = run.place("wheel", -2, upstream_row);
@@ -196,7 +231,7 @@ void resume_and_finish(Run& run, const std::string& press, const char* layout) {
     check(entity(resumed.host, "processor") == press, "Continuation retains the current actual press identity.");
     resumed.collect_until(8);
     const auto progress = e::inspect(resumed.host, "P");
-    check(progress.phase == e::Phase::ready && progress.source_at_target && progress.machines_running && progress.placed_shafts == 4,
+    check(progress.phase == e::Phase::ready && progress.source_at_target && progress.machines_running && progress.placed_shafts == 5,
           "The current upstream layout and eight individually carried plates satisfy native eligibility.");
     check(e::inspect(resumed.host, "Q").products == 0 && e::inspect(resumed.host, "Q").phase == e::Phase::first_shift,
           "Aggregate player stock does not award P's completed objective to Q.");
@@ -208,7 +243,7 @@ void resume_and_finish(Run& run, const std::string& press, const char* layout) {
     check(e::inspect(resumed.host, "P").phase == e::Phase::restore_drive && e::inspect(resumed.host, "P").products == 8,
           "Current drive facts are reread rather than cached from an earlier success.");
     std::cout << "{\"layout\":\"" << layout << "\",\"products\":8,\"placed_gears\":" << progress.placed_gears
-              << ",\"placed_shafts\":4,\"engine_calls\":0,\"physical_producers\":0}\n";
+              << ",\"placed_shafts\":5,\"engine_calls\":0,\"physical_producers\":0}\n";
 }
 
 void relocate(const V& baseline) {
@@ -217,13 +252,6 @@ void relocate(const V& baseline) {
     run.observe(starter_row);
     const auto old_collector = entity(run.host, "collector"), old_belt = entity(run.host, "belt"), old_press = entity(run.host, "processor");
     for (const auto& id : {old_collector, old_belt, old_press}) run.target("recover", id);
-    const auto parts = field<O>(run.host.projection(), "transmission_parts");
-    std::string old_bridge;
-    for (const auto& [id, part] : parts)
-        if (field<std::string>(part, "kind") == "gear") old_bridge = id;
-    check(!old_bridge.empty(), "The old bridge is retained until disconnected.");
-    run.connect("disconnect_drive", old_bridge, old_collector);
-    run.target("remove", old_bridge);
     const auto projection = run.host.projection();
     const auto cargo = field<O>(projection, "cargo");
     const auto carried = cargo.at("P");
@@ -231,21 +259,19 @@ void relocate(const V& baseline) {
           field<I>(field<A>(carried, "work_lots").front(), "remaining") == 1,
           "Relocation carries all three raw buffers and the same partial work with its progress.");
     const auto work_id = field<I>(field<A>(carried, "work_lots").front(), "id");
-    run.connect("disconnect_drive", old_collector, old_belt); run.connect("disconnect_drive", old_belt, old_press);
     for (const auto& id : {old_collector, old_belt, old_press}) run.target("remove", id);
     run.observe(upstream_row);
     const auto collector = run.place("collector", 0, upstream_row), belt = run.place("belt", 1, upstream_row), press = run.place("processor", 2, upstream_row);
     check(collector != old_collector && belt != old_belt && press != old_press, "The relocation route genuinely rebuilds all three machines under fresh identities.");
     check(field<A>(run.host.projection(), "links").size() == 2,
           "Rebuilding adjacent machines reconnects both material ports.");
-    const auto bridge = run.gear(-4, upstream_row * 4);
-    run.connect("connect_drive", wheel, bridge); run.connect("connect_drive", bridge, collector);
-    run.connect("connect_drive", collector, belt); run.connect("connect_drive", belt, press);
+    build_route(run, wheel, upstream_row, upstream_row, {collector, belt, press});
+    run.observe(upstream_row);
     (void)run.action("insert_work", {{"entity", V(press)}, {"work_id", V(work_id)}});
     for (const auto& id : {collector, belt, press}) (void)run.action("insert_raw", {{"entity", V(id)}, {"amount", V(I{1})}});
     check(same(material(baseline), material(run.host.checkpoint())), "Moving the line restores the exact original material cut, without resetting work or stock.");
-    check(e::inspect(run.host, "P").placed_gears == 1 && amount(run.host, "parts", "gear") == 4,
-          "The relocation alternative uses one bridge cog and four shafts.");
+    check(e::inspect(run.host, "P").placed_gears == 7 && amount(run.host, "parts", "gear") == 0,
+          "The relocation alternative rebuilds the finite seven-cog route.");
     resume_and_finish(run, press, "relocated");
 }
 
@@ -254,26 +280,20 @@ void gear_route(const V& baseline) {
     const auto wheel = move_source(run);
     const auto collector = entity(run.host, "collector"), belt = entity(run.host, "belt"), press = entity(run.host, "processor");
     run.observe(upstream_row);
+    run.observe_at(-1.65, -1.65);
     const auto wrong = run.gear(-3, upstream_row * 4);
     check(e::inspect(run.host, "P").phase == e::Phase::restore_drive, "An unconnected, misaligned cog cannot power the original line.");
     run.target("remove", wrong);
-    const auto a = run.gear(-4, upstream_row * 4);
-    run.connect("connect_drive", wheel, a);
-    run.observe(starter_row);
-    const auto parts = field<O>(run.host.projection(), "transmission_parts");
-    std::string b;
-    for (const auto& [id, part] : parts)
-        if (id != a && field<std::string>(part, "kind") == "gear") b = id;
-    check(!b.empty(), "The original bridge cog remains connected to the collector.");
-    check(b != wrong && e::inspect(run.host, "P").machines_running, "The refunded cog corrects alignment under a fresh identity.");
+    build_route(run, wheel, upstream_row, starter_row, {collector, belt, press});
+    check(e::inspect(run.host, "P").machines_running, "The refunded cog supports a corrected cross-axis route.");
     const auto projection = run.host.projection();
     const auto motion = field<O>(projection, "motion");
-    check(field<I>(motion.at(collector), "numerator") == 1 && field<I>(motion.at(belt), "numerator") == 1 &&
-          field<I>(motion.at(press), "numerator") == 1, "The actual equal-cog mesh reverses the original machine train; material timing is unchanged in this profile.");
+    check(field<I>(motion.at(collector), "numerator") == -1 && field<I>(motion.at(belt), "numerator") == 1 &&
+          field<I>(motion.at(press), "numerator") == -1, "The cross-axis cog train alternates signed machine motion.");
     check(entity(run.host, "collector") == collector && entity(run.host, "belt") == belt && entity(run.host, "processor") == press &&
           same(material(baseline), material(run.host.checkpoint())), "The cog route preserves all original machine identities and the entire stocked material cut.");
-    check(e::inspect(run.host, "P").placed_gears == 2 && amount(run.host, "parts", "gear") == 3,
-          "Keeping the line in place spends two small cogs and retains the rest.");
+    check(e::inspect(run.host, "P").placed_gears == 7 && amount(run.host, "parts", "gear") == 0,
+          "Keeping the line in place rebuilds the finite cog route.");
     resume_and_finish(run, press, "geared");
 }
 

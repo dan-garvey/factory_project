@@ -226,7 +226,7 @@ existing World planner, finite kit and two-endpoint reach checks.
 | Command | Additional fields | Meaning |
 | --- | --- | --- |
 | `place_gear` | `center: [int, int, int]`, `axis: "x"`, `"y"` or `"z"`, `teeth: int` | Place one carried gear at an exact grid center. |
-| `place` | Existing `kind` and `cell`, optional `axis` string | Orient a machine while retaining the existing cell wire. Omitted axis remains `"x"`. |
+| `place` | Existing `kind` and `cell`, optional `axis` string | Orient a machine while retaining the existing cell wire. Belts use the Z spindle perpendicular to their X material path; other omitted axes default to X. |
 | `connect_drive` | Existing `from` and `to` identifiers | Consume a carried shaft that actually spans the two endpoints. |
 | `disconnect_drive` | Existing `from` and `to` identifiers | Return the matching shaft through the same World removal planner. |
 | `remove` | Existing `entity` identifier | Remove a selected individual gear or machine, preserving custody rules. |
@@ -239,8 +239,8 @@ disc bounding box against registered actor capsules; precise tooth or part
 colliders are not implemented.
 
 The read-only `part_specifications` projection maps each actor to entries with
-`kind`, `teeth`, `half_span` and remaining `count`. P starts with four two-tooth
-gears, one four-tooth gear and four shafts of half-span two; Q has
+`kind`, `teeth`, `half_span` and remaining `count`. P starts with five two-tooth
+gears, two four-tooth gears, and four shafts each of half-span two and four; Q has
 no parts. Uncarried specifications refuse without changing that kit. Gears and
 shafts appear in `transmission_parts`, with integer `axis` values 0, 1 and 2 for
 X, Y and Z. Use `engagements` and exact signed `motion` for transmission facts;

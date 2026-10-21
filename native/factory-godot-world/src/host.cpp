@@ -204,7 +204,7 @@ bool historical_wire(const authority::Record& record) {
             return false;
         const Object expected{{"role", Value(*name == "wheel" ? "waterwheel" : *name)},
             {"center", Value(Array{Value(4 * *x), Value(level ? *level : Integer{0}), Value(4 * *z)})},
-            {"axis", Value(axis ? *axis : "x")}, {"teeth", Value(Integer{*name == "gear" ? 2 : 0})},
+            {"axis", Value(axis ? *axis : (*name == "belt" ? "z" : "x"))}, {"teeth", Value(Integer{*name == "gear" ? 2 : 0})},
             {"half_span", Value(Integer{0})}};
         for (const auto& [key, value] : expected) {
             const auto found = intent.find(key);
@@ -310,7 +310,7 @@ Value Host::initialize(const std::string& context, const std::vector<std::string
     profile.foundation_parts = 24;
     profile.finite_parts = {{{Role::collector, 0, 0}, 1}, {{Role::belt, 0, 0}, 1},
         {{Role::processor, 0, 0}, 1}, {{Role::waterwheel, 0, 0}, 1}, {{Role::shaft, 0, 2}, 4},
-        {{Role::gear, 2, 0}, 4}, {{Role::gear, 4, 0}, 1}};
+        {{Role::shaft, 0, 4}, 4}, {{Role::gear, 2, 0}, 5}, {{Role::gear, 4, 0}, 2}};
     world::State seed;
     seed.material.initial_units = 16;
     seed.material.stock.source = 16;
@@ -611,10 +611,11 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         if (*kind_name != "collector" && *kind_name != "belt" && *kind_name != "processor" &&
             *kind_name != "wheel" && *kind_name != "gear") return refuse("unknown_kind");
         if (wire.contains("tiles") && (!tiles || *tiles < 1 || *tiles > mechanics::maximum_dimension)) return refuse("invalid_wheel_size");
+        if (*kind_name == "belt" && axis && *axis != "z") return refuse("invalid_belt_axis");
         if (*kind_name == "collector" && *x != 0) return refuse("not_at_seam");
         if (*kind_name == "collector" && level && *level != 0) return refuse("not_at_seam");
         const mechanics::Point center{4 * *x, level ? *level : 0, 4 * *z};
-        const auto selected_axis = axis ? *axis_value(*axis) : mechanics::Axis::x;
+        const auto selected_axis = axis ? *axis_value(*axis) : (*kind_name == "belt" ? mechanics::Axis::z : mechanics::Axis::x);
         const stationary::PlacedPart proposed{{"proposed", mechanics::Kind::hub, center, selected_axis, 0, 0},
             1, *kind_name == "wheel" ? Role::waterwheel : Role::collector, tiles ? *tiles : 1};
         if (*kind_name == "wheel")
@@ -650,7 +651,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                                         "place_connected" : "place");
         normalized.emplace("role", Value(*kind_name == "wheel" ? "waterwheel" : *kind_name));
         normalized.emplace("center", Value(Array{Value(center[0]), Value(center[1]), Value(center[2])}));
-        normalized.emplace("axis", Value(axis ? *axis : "x"));
+        normalized.emplace("axis", Value(axis ? *axis : (*kind_name == "belt" ? "z" : "x")));
         normalized.emplace("teeth", Value(Integer{*kind_name == "gear" ? 2 : 0}));
         normalized.emplace("half_span", Value(Integer{0}));
         if (tiles) normalized.emplace("wheel_tiles", Value(*tiles));
@@ -869,11 +870,12 @@ Host::Decoded Host::decode(const Value& input) const {
             return value < -mechanics::maximum_coordinate || value > mechanics::maximum_coordinate;
         })) return {nullptr, "incompatible_geometry"};
         if (part.role == Role::shaft) {
-            if (part.geometry.half_span != 2)
+            if (part.geometry.half_span != 2 && part.geometry.half_span != 4)
                 return {nullptr, "incompatible_geometry"};
         } else if (part.role == Role::gear) {
             if (part.geometry.teeth != 2 && part.geometry.teeth != 4) return {nullptr, "incompatible_geometry"};
-        } else if (center[0] % 4 != 0 || center[2] % 4 != 0 ||
+        } else if ((part.role == Role::belt && part.geometry.axis != mechanics::Axis::z) ||
+            center[0] % 4 != 0 || center[2] % 4 != 0 ||
             (part.role == Role::collector && (center[0] != 0 || center[1] != 0))) return {nullptr, "incompatible_geometry"};
         if (part.role == Role::waterwheel) {
             if (const auto* refusal = wheel_site_refusal(center, part.geometry.axis, part.wheel_tiles)) return {nullptr, refusal};

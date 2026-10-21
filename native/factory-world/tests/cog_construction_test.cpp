@@ -46,7 +46,8 @@ O accepted(const w::Delivery& delivery) {
 void construction(bool corner) {
     const m::Point input{0, 0, 0};
     const m::Point output = corner ? m::Point{4, 0, 4} : m::Point{4, 4, 0};
-    const auto output_axis = corner ? m::Axis::x : m::Axis::z;
+    const auto input_axis = corner ? m::Axis::x : m::Axis::z;
+    const auto output_axis = m::Axis::z;
     const I input_teeth = corner ? 4 : 2;
     w::Profile profile;
     profile.material = {1, 1, 2};
@@ -64,8 +65,8 @@ void construction(bool corner) {
     seed.kits = {{"P", {{{s::Role::gear, 4, 0}, corner ? 2 : 1}}}, {"Q", {}}};
     if (!corner) seed.kits.at("P").emplace(s::PartSpec{s::Role::gear, 2, 0}, 1);
     seed.topology.parts = {
-        {{"wheel", m::Kind::hub, input, m::Axis::z, 0, 0}, 1, s::Role::waterwheel},
-        {{"in-shaft", m::Kind::shaft, input, m::Axis::z, 0, 1}, 1, s::Role::shaft},
+        {{"wheel", m::Kind::hub, input, input_axis, 0, 0}, 1, s::Role::waterwheel},
+        {{"in-shaft", m::Kind::shaft, input, input_axis, 0, 1}, 1, s::Role::shaft},
         {{"belt", m::Kind::hub, output, output_axis, 0, 0}, 1, s::Role::belt},
         {{"out-shaft", m::Kind::shaft, output, output_axis, 0, 1}, 1, s::Role::shaft},
     };
@@ -74,10 +75,10 @@ void construction(bool corner) {
     for (const auto& item : seed.topology.parts) seed.issued_entities.emplace(item.geometry.id, item.generation);
     auto world = w::World::create("cog-world", profile, seed);
     check(world != nullptr, "The finite two-actor fixture creates the single World.");
-    const auto first_command = place("first", input, "z", input_teeth);
+    const auto first_command = place("first", input, corner ? "x" : "z", input_teeth);
     const auto first = accepted(send(*world, first_command));
     check(!w::machine_power(world->snapshot().state.topology).belt, "One cog does not power the remote belt.");
-    const auto second_command = place("second", output, corner ? "x" : "z", 4);
+    const auto second_command = place("second", output, "z", 4);
     const auto second = accepted(send(*world, second_command));
     auto snapshot = world->snapshot();
     const auto view = s::power_view(snapshot.state.topology);
@@ -130,6 +131,13 @@ void perpendicular_belt_line() {
     seed.kits = {{"P", profile.finite_parts}, {"Q", {}}};
     auto world = w::World::create("cog-world", profile, seed);
     check(world != nullptr, "The finite perpendicular-line World initializes.");
+    const auto before = world->snapshot().state;
+    auto wrong = place("parallel-belt", {4, 0, 4}, "x", 0);
+    wrong.at("role") = V("belt"); wrong.at("action") = V("place_connected");
+    const auto rejected = send(*world, wrong);
+    check(rejected.completed() && !field<bool>(*rejected.result, "accepted") &&
+              field<std::string>(*rejected.result, "reason") == "invalid_belt_axis" && world->snapshot().state == before,
+          "The authoritative World refuses a parallel belt spindle without consuming its part.");
     const std::array<const char*, 4> roles{"waterwheel", "collector", "belt", "processor"};
     std::array<O, 4> hubs, cogs;
     for (std::size_t n = 0; n < roles.size(); ++n) {
@@ -150,6 +158,11 @@ void perpendicular_belt_line() {
         {"generation", hubs[0].at("generation")}, {"enabled", V(true)}};
     accepted(send(*world, power));
     const auto snapshot = world->snapshot();
+    auto invalid_snapshot = snapshot;
+    for (auto& part : invalid_snapshot.state.topology.parts)
+        if (part.role == s::Role::belt) part.geometry.axis = m::Axis::x;
+    check(!w::World::restore("cog-world", profile, invalid_snapshot),
+          "A checkpoint cannot reintroduce a belt spindle parallel to material travel.");
     const auto view = s::power_view(snapshot.state.topology);
     const auto powered = w::machine_power(snapshot.state.topology);
     check(powered.collector && powered.belt && powered.processor && snapshot.state.topology.material_links.size() == 2,
@@ -180,7 +193,7 @@ void cross_axis_belt_line() {
     profile.build_reach = 4;
     profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, 1}, {{s::Role::collector, 0, 0}, 1},
         {{s::Role::belt, 0, 0}, 1}, {{s::Role::processor, 0, 0}, 1},
-        {{s::Role::shaft, 0, 2}, 1}, {{s::Role::shaft, 0, 4}, 4},
+        {{s::Role::shaft, 0, 2}, 2}, {{s::Role::shaft, 0, 4}, 3},
         {{s::Role::gear, 2, 0}, 5}, {{s::Role::gear, 4, 0}, 2}};
     w::State seed;
     seed.material.initial_units = 1;
@@ -192,8 +205,9 @@ void cross_axis_belt_line() {
     const std::array<const char*, 4> roles{"waterwheel", "collector", "belt", "processor"};
     std::array<O, 4> hubs;
     for (std::size_t n = 0; n < hubs.size(); ++n) {
+        const I x = n ? static_cast<I>(n) * 4 - 4 : -8;
         auto command = place(("cross-machine-" + std::to_string(n)).c_str(),
-                             {static_cast<I>(n) * 4 - 4, 0, 4}, n ? "z" : "x", 0);
+                             {x, 0, 4}, n ? "z" : "x", 0);
         command.at("role") = V(roles[n]);
         if (n) command.at("action") = V("place_connected");
         hubs[n] = accepted(send(*world, command));
