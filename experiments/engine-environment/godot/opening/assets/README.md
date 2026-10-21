@@ -508,6 +508,14 @@ additional connection rule, pick body, collision, quantity or saved state is
 introduced. Headless resource and fit checks leave rendered appearance, GPU
 cost, arbitrary machine routing and human quality acceptance open.
 
+The same qualified flange pair also marks an exact butt seam between two
+confirmed coaxial shaft tiles. It is mounted once on the first reported part
+and spans their touching end collars; removing the native engagement removes
+the visual joint. A gap, overlap or nearby unengaged pair has no fitting. This
+adds neither a second motion clock nor a structural or collision rule. The
+source fit check and passive sample views qualify this specific one-tile join,
+not arbitrary-length shaft routing or a human-approved machine appearance.
+
 Each cog batches its repeated teeth, four spokes and eight hub fasteners into
 three local [MultiMesh groups](https://docs.godotengine.org/en/4.7/classes/class_multimesh.html).
 The original meshes, transforms and shared surface roles are retained. Rim and

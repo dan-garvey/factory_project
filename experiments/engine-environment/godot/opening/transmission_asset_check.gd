@@ -868,6 +868,12 @@ func coupling_node(shaft: Node3D) -> Node3D:
 			return child
 	return null
 
+func splice_node(shaft: Node3D) -> Node3D:
+	for child in shaft.get_children():
+		if child is Node3D and child.get_meta("shaft_splice", false):
+			return child
+	return null
+
 func coupling_material_valid(material: StandardMaterial3D) -> bool:
 	return material != null and material.albedo_texture != null and material.albedo_texture.get_width() == 1024 \
 		and material.normal_enabled and material.normal_texture != null and material.normal_texture.get_width() == 512 \
@@ -935,7 +941,7 @@ func check_shaft_couplings() -> void:
 					and is_equal_approx(shape.radius, 0.08) and is_equal_approx(shape.height, 1.65),
 					"The original shaft selection identity, mask, radius and full span remain unchanged.")
 				var gear_pick: CylinderShape3D = gear.get_node("Pick").get_child(0).shape
-				verify(is_equal_approx(gear_pick.radius, 0.928125) and is_equal_approx(gear_pick.height, 0.24),
+				verify(is_equal_approx(gear_pick.radius, Presenter.Geometry.PITCH / 2.0) and is_equal_approx(gear_pick.height, 0.24),
 					"The coupling does not change the existing cog pick envelope.")
 				for half: MeshInstance3D in fitting.get_children():
 					if shared_mesh == null:
@@ -975,11 +981,12 @@ func check_shaft_couplings() -> void:
 						verify(valid, "Both actual surfaces retain finite UV, normal and generated tangent attributes within the declared packed representation bound.")
 				var old_pose := fitting.transform
 				view.advance_visual_motion(0.1)
-				verify(is_equal_approx(view.visual_angle("shaft"), -0.04) and fitting.transform == old_pose and host.state == before,
+				var expected_angle := -0.05 * Presenter.VISUAL_RADIANS_PER_SECOND
+				verify(is_equal_approx(view.visual_angle("shaft"), expected_angle) and fitting.transform == old_pose and host.state == before,
 					"Both rigid halves follow the existing cosmetic shaft phase without state mutation or an independent clock.")
 				host.ready = false
 				view.advance_visual_motion(0.1)
-				verify(is_equal_approx(view.visual_angle("shaft"), -0.04), "Unavailable confirmed motion freezes the coupling with its owning shaft.")
+				verify(is_equal_approx(view.visual_angle("shaft"), expected_angle), "Unavailable confirmed motion freezes the coupling with its owning shaft.")
 				host.state.engagements = []
 				view.refresh()
 				verify(coupling_node(material_part(view, "shaft")) == null, "Removing the confirmed edge removes its art instead of retaining a decorative connection.")
@@ -1011,6 +1018,99 @@ func check_shaft_couplings() -> void:
 		"facts": "Invented read-only native projections consumed by the real presenter.",
 		"native_contact_force_and_general_machine_routing": "not_established"}))
 
+func check_shaft_splices() -> void:
+	var assemblies := 0
+	var shared_mesh: Mesh
+	for axis in range(3):
+		for side in [-1, 1]:
+			for reverse in [false, true]:
+				var host := MaterialHost.new()
+				var first_center := [-4, 0, 8]
+				var second_center: Array = first_center.duplicate()
+				second_center[axis] += side * 4
+				host.state = {"context": "shaft-splice-fixture", "options": {"native": true}, "entities": {},
+					"transmission_parts": {
+						"first": {"kind": "shaft", "center": first_center, "axis": axis, "half_span": 2, "generation": 1},
+						"second": {"kind": "shaft", "center": second_center, "axis": axis, "half_span": 2, "generation": 2}},
+					"motion": {"first": {"state": "rotating", "numerator": 1, "denominator": 2},
+						"second": {"state": "rotating", "numerator": 1, "denominator": 2}},
+					"engagements": []}
+				var view := Presenter.new()
+				view.configure(host)
+				var original_radius := bore_shaft_envelope(material_part(view, "first"))
+				verify(splice_node(material_part(view, "first")) == null,
+					"Touching shaft tiles alone cannot invent a visible joint.")
+				host.state.engagements = [{"a": "second" if reverse else "first",
+					"b": "first" if reverse else "second", "kind": 1}]
+				var before: Dictionary = host.state.duplicate(true)
+				view.refresh()
+				var owner_id := "second" if reverse else "first"
+				var other_id := "first" if reverse else "second"
+				var owner := material_part(view, owner_id)
+				var other := material_part(view, other_id)
+				var fitting := splice_node(owner)
+				verify(fitting != null and splice_node(other) == null and owner.get_node("Pick") != null,
+					"One confirmed shaft pair mounts one passive joint without another selection body.")
+				if fitting == null:
+					view.free()
+					continue
+				var local_side: int = side * (-1 if reverse else 1)
+				var owner_center: Array = second_center if reverse else first_center
+				var seam: Vector3 = Presenter.world_center(owner_center) + [Vector3.RIGHT, Vector3.UP, Vector3.BACK][axis] * float(local_side) * 2.0 * Presenter.UNIT
+				verify(fitting.get_meta("first_shaft") == owner_id and fitting.get_meta("second_shaft") == other_id
+					and fitting.get_child_count() == 2 and fitting.get_script() == null
+					and (owner.position + owner.basis * fitting.position).is_equal_approx(seam),
+					"Both source halves sit at the exact shared shaft endpoint with stable confirmed identities.")
+				for half: MeshInstance3D in fitting.get_children():
+					if shared_mesh == null:
+						shared_mesh = half.mesh
+					var facts := bore_mesh_facts(half.mesh, half.transform)
+					verify(half.mesh == shared_mesh and facts.triangles == 360
+						and facts.minimum_radius > original_radius + 0.001
+						and facts.maximum_radius < 0.08
+						and maxf(absf(facts.low), absf(facts.high)) <= Assets.COUPLING_HALF_LENGTH + 0.000001,
+						"The source mesh clears both fitted shaft ends without stretching or widening their pick bodies.")
+				var owner_core: Mesh = owner.get_node("Shaft").mesh
+				var other_core: Mesh = other.get_node("Shaft").mesh
+				view.advance_visual_motion(0.1)
+				verify(host.state == before and owner.get_node("Shaft").mesh == owner_core
+					and other.get_node("Shaft").mesh == other_core,
+					"Visual motion retains both original shaft resources and cannot mutate native state.")
+				host.state.engagements = []
+				view.refresh()
+				verify(splice_node(material_part(view, owner_id)) == null,
+					"Removing the confirmed edge removes the joint art.")
+				for invalid in [0, true, "1"]:
+					host.state.engagements = [{"a": owner_id, "b": other_id, "kind": invalid}]
+					view.refresh()
+					verify(splice_node(material_part(view, owner_id)) == null,
+						"An untyped or unrelated edge cannot mount a shaft joint.")
+				host.state.engagements = [{"a": owner_id, "b": other_id, "kind": 1}]
+				host.state.transmission_parts[other_id].center[axis] += local_side
+				view.refresh()
+				verify(splice_node(material_part(view, owner_id)) == null,
+					"A confirmed but separated shaft pair cannot gain a visual bridge.")
+				host.state.transmission_parts[other_id].center[axis] -= local_side * 2
+				view.refresh()
+				verify(splice_node(material_part(view, owner_id)) == null,
+					"Overlapping shaft extents cannot hide behind the butt-joint art.")
+				host.state.transmission_parts[other_id].center[axis] += local_side
+				var radial_axis := (axis + 1) % 3
+				host.state.transmission_parts[other_id].center[radial_axis] += 4
+				view.refresh()
+				verify(splice_node(material_part(view, owner_id)) == null,
+					"Offset parallel shafts cannot receive a coaxial visual joint.")
+				host.state.transmission_parts[other_id].center[radial_axis] -= 4
+				host.state.transmission_parts[other_id].axis = radial_axis
+				view.refresh()
+				verify(splice_node(material_part(view, owner_id)) == null,
+					"A shaft on another axis cannot share the butt-joint fitting.")
+				assemblies += 1
+				view.free()
+	print(JSON.stringify({"shaft_splice_assemblies": assemblies, "axes": 3, "source_halves_per_joint": 2,
+		"facts": "Invented confirmed projections consumed by the real presenter.",
+		"native_gameplay_and_visible_quality": "not_established"}))
+
 func _initialize() -> void:
 	if OS.get_cmdline_user_args().has("--resource-images"):
 		check_resource_images()
@@ -1018,6 +1118,7 @@ func _initialize() -> void:
 		return
 	if OS.get_cmdline_user_args().has("--shaft-coupling-only"):
 		check_shaft_couplings()
+		check_shaft_splices()
 		print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
 			"native_gameplay": "not_run", "rendered_quality": "not_assessed", "desktop": "not_used"}))
 		quit(1 if failed else 0)
