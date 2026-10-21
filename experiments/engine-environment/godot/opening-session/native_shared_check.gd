@@ -1,16 +1,46 @@
 extends "res://opening-session/native_shared_cog_check.gd"
 ## Headless ordinary callbacks over the existing Session and native World.
 ## The inherited reader retains typed observations before initial assertions.
+const SharedOpening = preload("res://opening/shared_opening.gd")
 
 func _init() -> void:
 	super._init()
 	deadline = Time.get_ticks_msec() + 45000
 	facts.evidence = "shared_native_work_recovery"
 
+func _initial() -> bool:
+	if not await super._initial():
+		return false
+	facts["prepared_audio"] = {}
+	for kind: String in ["collector", "belt", "processor", "wheel"]:
+		var stream: AudioStreamWAV = SharedOpening.MechanicalAmbience.loops.get(kind)
+		if not _expect(stream != null and stream.data.size() == 176400 and stream.mix_rate == 44100
+			and stream.loop_mode == AudioStreamWAV.LOOP_FORWARD,
+			"Shared startup prepares the original cached audio before any material input"):
+			return false
+		facts.prepared_audio[kind] = {"bytes": stream.data.size(), "stream_id": stream.get_instance_id()}
+	return true
+
 func _until(condition: Callable, reason: String) -> bool:
 	while Time.get_ticks_msec() < deadline and not condition.call():
 		await process_frame
 	return _expect(condition.call(), reason)
+
+func _running_audio() -> bool:
+	if not await _until(func(): return opening.mechanical_ambience != null and opening.mechanical_ambience.emitters.size() == 4,
+		"The real running machines use their prepared audio"):
+		return false
+	facts["running_audio"] = {}
+	for id: String in opening.state.entities:
+		var kind: String = opening.state.entities[id].kind
+		var emitter: AudioStreamPlayer3D = opening.mechanical_ambience.emitters.get(id)
+		var cached: AudioStreamWAV = SharedOpening.MechanicalAmbience.loops[kind]
+		if not _expect(emitter != null and emitter.stream == cached,
+			"The real emitter reuses the original stream prepared before connection"):
+			return false
+		facts.running_audio[id] = {"kind": kind, "stream_id": cached.get_instance_id(),
+			"reused_prepared_stream": true}
+	return true
 
 func _conserved() -> bool:
 	var state: Dictionary = session.projection()
@@ -158,6 +188,49 @@ func _foreign_work(press: String, lot: Dictionary) -> bool:
 	after.erase("order")
 	return _expect(_same(before, after), "The refused insertion preserves all material and parts") and _conserved()
 
+func _partial_changed(confirmed: Dictionary, wheel: String, watch: Dictionary) -> void:
+	if watch.triggered or int(confirmed.revision) <= watch.revision:
+		return
+	var before: Dictionary = watch.previous
+	watch.previous = confirmed.duplicate(true)
+	watch.revision = int(confirmed.revision)
+	facts.partial_observations.append({"revision": confirmed.revision, "order": confirmed.order,
+		"remaining": confirmed.remaining, "stock": confirmed.stock.duplicate(true),
+		"inventories": confirmed.inventories.duplicate(true), "serial": session.last_serial,
+		"observed_msec": Time.get_ticks_msec()})
+	# React at the actual material transition, not a cached phase observed after
+	# a filesystem barrier and another process/physics-frame round trip.
+	if not opening.pending_actions.is_empty() or before.stock.held != 1 or not before.power_enabled:
+		return
+	if confirmed.stock.held != 1 or confirmed.remaining != 1 or confirmed.stock.output != 0 \
+		or not confirmed.power_enabled or not _same(confirmed.inventories, {"P": 0, "Q": 1}):
+		return
+	var progressed: bool = (before.order == confirmed.order and before.remaining == 2
+		and before.stock.output == 0 and _same(before.inventories, {"P": 0, "Q": 1}))
+	# The same lot can already have progressed before Q's collection is admitted.
+	# That fresh collection exposes its empty outlet without advancing the lot.
+	var collected: bool = (confirmed.order == before.order + 1 and confirmed.revision == before.revision + 1
+		and before.remaining == 1 and before.stock.output == 1 and _same(before.inventories, {"P": 0, "Q": 0}))
+	if not progressed and not collected:
+		return
+	# Consume this one opportunity before _call yields. Repeated pose snapshots
+	# cannot queue another Stop or substitute a later natural workpiece.
+	watch.triggered = true
+	facts["partial_stop"] = {"before": before, "transition": confirmed.duplicate(true),
+		"edge": "progress" if progressed else "collection", "serial": session.last_serial,
+		"trigger_msec": Time.get_ticks_msec()}
+	var outcome := await _call("Pause partial work", {"action": "set_power", "active": false}, [_target(wheel)],
+		func(): opening.power_button.pressed.emit())
+	watch.settled = true
+	if outcome.is_empty():
+		return
+	facts.partial_stop["settled_msec"] = Time.get_ticks_msec()
+	watch.passed = _expect(_same(outcome.snapshot.revision, confirmed.revision + 1)
+		and _same(outcome.snapshot.remaining, 1) and _same(outcome.snapshot.stock.held, 1)
+		and _same(outcome.snapshot.stock.output, 0) and not outcome.snapshot.power_enabled
+		and _same(opening.state.remaining, 1) and not opening.state.power_enabled,
+		"The ordinary Stop preserves the same freshly observed positive partial phase")
+
 func _produce_p() -> bool:
 	opening.transmission_controls._axes.id_pressed.emit(0)
 	if not await _walk_to_line():
@@ -176,11 +249,22 @@ func _produce_p() -> bool:
 	var ids := {"press": press, "wheel": wheel}
 	if not _marker("line-built.bin", {"ids": ids}) or (await _peer("Q-positioned.bin")).is_empty():
 		return false
-	if not await _power(true, wheel) or (await _peer("Q-product.bin")).is_empty():
+	var watch := {"previous": session.projection(), "revision": int(opening.state.revision),
+		"triggered": false, "settled": false, "passed": false}
+	facts["partial_observations"] = []
+	var observer: Callable = _partial_changed.bind(wheel, watch)
+	session.changed.connect(observer)
+	var started := await _power(true, wheel)
+	if started:
+		started = await _running_audio()
+	var stopped := started and await _until(func(): return watch.settled,
+		"A fresh confirmed partial-work transition admits the ordinary Stop")
+	session.changed.disconnect(observer)
+	if not stopped or not watch.passed:
 		return false
-	if not await _until(func(): return opening.state.stock.held == 1 and opening.state.remaining == 1, "Natural ticks partially process the next workpiece"):
-		return false
-	if not await _power(false, wheel) or not _expect(opening.state.stock.held == 1 and opening.state.remaining == 1, "Stopping preserves positive partial progress"):
+	# Q's marker still certifies its validated callback and custody. It no longer
+	# delays observing the short-lived processing phase on the authoritative clock.
+	if (await _peer("Q-product.bin")).is_empty():
 		return false
 	if not _marker("partial-paused.bin", {"ids": ids}):
 		return false
