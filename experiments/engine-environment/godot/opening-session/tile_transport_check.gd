@@ -4,10 +4,13 @@ extends SceneTree
 ## Run three headless processes against an imported project and the current
 ## native extension: use roles server, P and Q with the same empty owned
 ## --directory and --port; start clients after the server-ready marker. Require
-## all three exit statuses and PASS markers. The checkpoint check restores a
-## fresh Host only; it does not reopen a shared server or exercise the Store.
+## all three exit statuses and PASS markers. Then start server-resume, resume-P
+## and resume-Q with the same directory and port, after the first server exits.
+## Require all six processes to pass. The resumed Session uses the Store but
+## does not exercise the ordinary server lifecycle or physical actor bodies.
 const Session = preload("res://opening-session/session.gd")
 const NativeModel = preload("res://opening/native_model.gd")
+const Store = preload("res://save-tests/checkpoint_file.gd")
 var session
 var role := ""
 var directory := ""
@@ -55,7 +58,7 @@ func issue(action: Dictionary) -> Dictionary:
 	return result
 
 func run() -> void:
-	if not directory.is_absolute_path() or not DirAccess.dir_exists_absolute(directory) or not role in ["server", "P", "Q"]:
+	if not directory.is_absolute_path() or not DirAccess.dir_exists_absolute(directory) or not role in ["server", "P", "Q", "server-resume", "resume-P", "resume-Q"]:
 		push_error("Expected an owned directory and a server, P, or Q role")
 		quit(1)
 		return
@@ -66,11 +69,31 @@ func run() -> void:
 	container.add_child(session)
 	root.add_child(container)
 	session.outcome.connect(func(value: Dictionary): replies[value.request] = value)
-	if role == "server":
+	if role in ["server", "server-resume"]:
 		verify(session.serve_loopback(port, true, true, ["P", "Q"], true) == OK, "The native loopback authority must start")
 		if failed: quit(1); return
+		var save_path := directory.path_join("worksite.factory")
+		var input_hash := ""
+		if role == "server-resume":
+			input_hash = FileAccess.get_sha256(save_path)
+			verify(not input_hash.is_empty(), "The original Store file exists")
+			verify(Store.read_into(session.world, save_path).get("accepted", false), "A fresh Session authority loads the Store file")
+			session.context = session.world.context
+			verify(FileAccess.get_sha256(save_path) == input_hash, "Restoring preserves the original Store bytes")
+			if failed: quit(1); return
 		verify(session.world.publish_actor("P", [1.65, 1.0, -1.65], 1).get("accepted", false), "Synthetic P observation is accepted")
 		verify(session.world.publish_actor("Q", [20.0, 1.0, 20.0], 1).get("accepted", false), "Synthetic Q observation is accepted")
+		if failed: quit(1); return
+		if role == "server-resume":
+			mark("resume-server-ready")
+			if not await until(func(): return FileAccess.file_exists(directory.path_join("resume-clients-done")), "Both resumed clients must finish"): quit(1); return
+			verify(session.world.projection().transmission_parts.size() == 1, "The resumed authority retains the shaft after cog removal")
+			verify(FileAccess.get_sha256(save_path) == input_hash, "Continued work does not modify the original save")
+			if failed: quit(1); return
+			mark("resume-server-done")
+			print("TILE_SESSION_PASS %s %d" % [role, checks])
+			quit(0)
+			return
 		mark("server-ready")
 		if not await until(func(): return FileAccess.file_exists(directory.path_join("clients-done")), "Both clients must finish"): quit(1); return
 		var saved: Dictionary = session.world.checkpoint()
@@ -78,13 +101,51 @@ func run() -> void:
 		verify(fresh.boot_result.get("accepted", false), "A fresh native Host initializes")
 		verify(fresh.restore_checkpoint(saved).get("accepted", false), "The authority checkpoint restores into a fresh Host")
 		verify(fresh.checkpoint() == saved, "The restored checkpoint preserves geometry, custody, and request history")
+		verify(Store.write(session.world, save_path).get("accepted", false), "The existing Store validates and publishes the native checkpoint")
+		if failed: quit(1); return
 		mark("server-done")
 	else:
-		verify(session.join_loopback(port, role) == OK, "Client connects to loopback authority")
+		var resumed := role.begins_with("resume-")
+		var actor := role.trim_prefix("resume-") if resumed else role
+		verify(session.join_loopback(port, actor) == OK, "Client connects to loopback authority")
 		if not await until(func(): return session.is_ready(), "Client receives its authenticated welcome"): quit(1); return
 		mark(role + "-ready")
+		if resumed:
+			if actor == "P":
+				if not await until(func(): return FileAccess.file_exists(directory.path_join("resume-Q-ready")), "Q joins the restored Session"): quit(1); return
+				var old_namespace := FileAccess.get_file_as_string(directory.path_join("P-namespace"))
+				verify(not old_namespace.is_empty() and session.request_namespace != old_namespace,
+					"The resumed client receives a fresh request namespace")
+				var snapshot: Dictionary = session.projection()
+				verify(snapshot.transmission_parts.size() == 2 and snapshot.part_kits.P.shaft == 7 and snapshot.part_kits.P.gear == 9, "P receives the restored parts and custody")
+				var cog_id := ""
+				for id in snapshot.transmission_parts:
+					if snapshot.transmission_parts[id].kind == "gear": cog_id = str(id)
+				verify(not cog_id.is_empty(), "The saved cog keeps a usable identity")
+				if failed: quit(1); return
+				var removed: Dictionary = await issue({"action": "remove", "entity": cog_id})
+				verify(removed.get("accepted", false), "P removes the restored cog through the resumed Session: " + str(removed.get("reason", "")))
+				if failed: quit(1); return
+				mark("resume-P-done")
+			else:
+				if not await until(func(): return FileAccess.file_exists(directory.path_join("resume-P-done")), "P completes continued work"): quit(1); return
+				if not await until(func(): return session.projection().get("transmission_parts", {}).size() == 1, "Q observes the resumed removal"): quit(1); return
+				var resumed_view: Dictionary = session.projection()
+				verify(resumed_view.part_kits.P.shaft == 7 and resumed_view.part_kits.P.gear == 10, "Q observes the actual cog refund")
+				if failed: quit(1); return
+				mark("resume-clients-done")
+				if not await until(func(): return FileAccess.file_exists(directory.path_join("resume-server-done")), "The resumed authority verifies continuation"): quit(1); return
+			print("TILE_SESSION_PASS %s %d" % [role, checks])
+			quit(0)
+			return
 		if role == "P":
 			if not await until(func(): return FileAccess.file_exists(directory.path_join("Q-ready")), "Q joins before construction"): quit(1); return
+			var namespace_file := FileAccess.open(directory.path_join("P-namespace"), FileAccess.WRITE)
+			verify(namespace_file != null, "The initial request namespace is retained for comparison")
+			if namespace_file != null:
+				namespace_file.store_string(session.request_namespace)
+				namespace_file.close()
+			if failed: quit(1); return
 			var shaft: Dictionary = await issue({"action": "place_shaft", "center": [0, 0, 0], "axis": "x", "half_span": 2})
 			verify(shaft.get("accepted", false), "P places a one-tile shaft: " + str(shaft.get("reason", "")))
 			var request: String = shaft.get("request", "")
@@ -98,6 +159,7 @@ func run() -> void:
 			var invalid: Dictionary = await issue({"action": "place_gear", "center": [5, 0, 0], "axis": "x", "teeth": 2})
 			verify(not invalid.get("accepted", true) and invalid.get("reason") == "invalid_cell",
 				"The authority rejects an off-grid cog over the real wire")
+			if failed: quit(1); return
 			mark("P-done")
 		else:
 			if not await until(func(): return FileAccess.file_exists(directory.path_join("P-done")), "P completes the command sequence"): quit(1); return
@@ -112,6 +174,7 @@ func run() -> void:
 				if edge.kind == 1 and view.transmission_parts.has(edge.a) and view.transmission_parts.has(edge.b):
 					connected = true
 			verify(connected, "Q observes the confirmed shaft-to-cog axle engagement")
+			if failed: quit(1); return
 			mark("clients-done")
 			if not await until(func(): return FileAccess.file_exists(directory.path_join("server-done")), "Server verifies fresh-Host restore"): quit(1); return
 	print("TILE_SESSION_%s %s %d" % ["FAIL" if failed else "PASS", role, checks])
