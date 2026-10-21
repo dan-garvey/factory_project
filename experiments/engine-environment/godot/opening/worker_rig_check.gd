@@ -339,6 +339,49 @@ func inspect_adult(body: Node3D, other: Node3D, presenter: Node) -> void:
 	presenter._set_gait(body, 0.0, 0.0)
 	verify(body.position == Vector3.ZERO, "The visual body returns to its original rest origin.")
 
+func check_walking_support() -> void:
+	var host := HostFixture.new()
+	host.state.context = "walking-support"
+	root.add_child(host)
+	var presenter := Presenter.new()
+	presenter.configure(host)
+	host.add_child(presenter)
+	presenter.set_process(false)
+	presenter.set_physics_process(false)
+	var view: Node3D = presenter.views.P
+	var body: Node3D = view.get_node("BodyView")
+	var skeleton: Skeleton3D = skeleton_of(body)
+	var toes := {"L": skeleton.find_bone("Bip01 L Toe0"),
+		"R": skeleton.find_bone("Bip01 R Toe0")}
+	var previous := {"L": {}, "R": {}}
+	var travel := {"L": 0.0, "R": 0.0}
+	var samples := {"L": 0, "R": 0}
+	var x := 0.0
+	for frame in range(160):
+		x += 0.018 # Confirmed 1.08 m/s walk at 60 Hz.
+		host.state.actors.P.position = [x, 0.9, 0.0]
+		presenter.refresh(1.0 / 60.0)
+		if frame < 20:
+			continue # Let the visible pose reach its steady walking weight.
+		skeleton.force_update_all_bone_transforms()
+		var phase := fposmod(float(presenter.motion.P.phase), TAU)
+		for side in ["L", "R"]:
+			var stance := phase >= PI and phase <= PI * 1.5 if side == "L" \
+				else phase <= PI * 0.5
+			var toe: Vector3 = body.global_transform * presenter._adult_joint(body, skeleton, toes[side])
+			var prior: Dictionary = previous[side]
+			if stance and prior.get("stance", false):
+				travel[side] += absf(toe.x - float(prior.x))
+				samples[side] += 1
+			previous[side] = {"x": toe.x, "stance": stance}
+	for side in ["L", "R"]:
+		verify(samples[side] > 20 and travel[side] / float(samples[side]) < 0.008,
+			"The walking support toe stays near its world position across repeated confirmed steps.")
+	verify(float(presenter.motion.P.weight) > 0.99 and is_equal_approx(view.position.x, x)
+		and host.control_calls == 0,
+		"A full walking stride remains visual and leaves the confirmed actor and input untouched.")
+	host.free()
+
 func _initialize() -> void:
 	call_deferred("run")
 
@@ -371,6 +414,7 @@ func run() -> void:
 	legacy.free()
 	if sourced:
 		inspect_adult(body, q.get_node("BodyView"), presenter)
+		check_walking_support()
 	else:
 		verify(body.mesh == q.get_node("BodyView").mesh and body.material_override != q.get_node("BodyView").material_override,
 			"Legacy workers share geometry while retaining distinct local and remote clothing.")
