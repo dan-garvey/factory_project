@@ -173,8 +173,9 @@ func run_case() -> void:
 			reached = true
 			break
 	view.actor_world.release_control("P")
-	if not verify(reached and crossed_clearing and jumped_rock and view.faults.is_empty(),
-		"The actor crosses the clearing without a curb, then jumps a recorded real rock and reaches the hillside without a reset"):
+	facts.jumped_rock = jumped_rock
+	if not verify(reached and crossed_clearing and view.faults.is_empty(),
+		"The actor crosses the clearing, jumps only an encountered real rock and reaches the hillside without a reset"):
 		finish()
 		return
 	if not (await until(func() -> bool: return grounded(view.actor_world), 120, "Released actors remain supported by the physical site")):
@@ -281,5 +282,48 @@ func check_restore(checkpoint: Dictionary, original: PackedByteArray, save_path:
 		finish()
 		return
 	facts.negative = negative
+	negative_world.free()
+	negative_world = null
+	await physics_frame
+	# A separate schema-valid seed overlaps an actual convex rock while its
+	# capsule bottom remains above terrain. The old hill burial is not its oracle.
+	var rock: Dictionary = Surface.rock_boxes()[0]
+	var rock_seed: Vector3 = rock.center + Vector3.UP
+	var rock_checkpoint: Dictionary = checkpoint.duplicate(true)
+	rock_checkpoint.actors.Q = [rock_seed.x, rock_seed.y, rock_seed.z]
+	var rock_authority = NativeModel.new("convex-rock-saved-contact", ["P", "Q"])
+	if not verify(rock_authority.restore_checkpoint(rock_checkpoint).accepted,
+		"The explicit rock-overlap seed passes schema validation without claiming physical readiness"):
+		finish()
+		return
+	negative_world = ActorWorld.new()
+	negative_world.pose_published.connect(func(actor: String, sample: Dictionary): rock_authority.publish_actor(actor, sample.position, sample.native_epoch))
+	negative_world.initialization_failed.connect(func(actor: String, _reason: String): rock_authority.invalidate_actor(actor))
+	if not verify(negative_world.configure(rock_authority).accepted, "Configure the real producer for the rock-contact refusal"):
+		finish()
+		return
+	root.add_child(negative_world)
+	for actor in ["P", "Q"]:
+		negative_world.ensure_actor(actor)
+	if not (await until(func() -> bool: return negative_world.failures.has("Q"), 180,
+		"An overlapping saved capsule is refused against the real convex rock")):
+		finish()
+		return
+	var rock_negative: Dictionary = negative_world.diagnostics("Q")
+	var contacts: Array = rock_negative.sample.get("initial_overlaps", [])
+	var actual_rock_hit := false
+	var terrain_burial := false
+	for contact in contacts:
+		actual_rock_hit = actual_rock_hit or (contact.get("kind") == "site_convex_rock"
+			and contact.get("native_query_hit", false) and contact.analytical_overlap_measure > 0.001)
+		terrain_burial = terrain_burial or contact.get("kind") == "terrain"
+	if not verify(rock_negative.failure == "actor_saved_pose_overlaps" and actual_rock_hit and not terrain_burial
+		and rock_negative.sample.position == rock_checkpoint.actors.Q
+		and rock_authority.projection().actors.Q.position == rock_checkpoint.actors.Q
+		and not negative_world.bodies.Q.motion_enabled and not rock_authority.projection().actors.Q.ready,
+		"The actual rock contact alone refuses readiness without moving the source pose or resetting the actor"):
+		finish()
+		return
+	facts.rock_negative = rock_negative
 	facts.limits = "One engine with sequential fresh producer/Core lifetimes; no fresh OS-process or ordinary client-play claim. The negative schema-valid fixture is explicit. No material command, camera authority or desktop input is used."
 	finish()

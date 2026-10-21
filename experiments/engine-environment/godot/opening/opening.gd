@@ -1463,7 +1463,22 @@ class ProductionEnvironment:
 
 	static func _rock_outcrops() -> MultiMeshInstance3D:
 		if rock_boulder_mesh == null:
-			rock_boulder_mesh = ProductionVisuals.box_mesh(Vector3(1.35, 0.88, 1.12))
+			var faces: PackedVector3Array = Surface.rock_faces()
+			var surface := SurfaceTool.new()
+			surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+			for first in range(0, faces.size(), 3):
+				var normal := (faces[first + 2] - faces[first]).cross(faces[first + 1] - faces[first]).normalized()
+				for offset in range(3):
+					var point := faces[first + offset]
+					var uv := Vector2(point.x, point.z)
+					if absf(normal.y) < 0.5:
+						uv = Vector2(point.z, point.y) if absf(normal.x) > absf(normal.z) else Vector2(point.x, point.y)
+					surface.set_normal(normal)
+					surface.set_uv(uv)
+					surface.set_color(Color.WHITE)
+					surface.add_vertex(point)
+			surface.generate_tangents()
+			rock_boulder_mesh = surface.commit()
 		var finish := stone_material()
 		if stone_source_status != "ready":
 			finish = StandardMaterial3D.new()

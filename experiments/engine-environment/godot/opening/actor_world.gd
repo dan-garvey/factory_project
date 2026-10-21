@@ -23,6 +23,7 @@ var floor_body: StaticBody3D
 var site_surface
 var site_bodies: Dictionary = {}
 var site_specs: Dictionary = {}
+var site_shapes: Dictionary = {}
 var terrain_faces := PackedVector3Array()
 var floor_error := ""
 var observation_ordinal := 0
@@ -94,12 +95,14 @@ func _create_floor() -> bool:
 			body.position = spec.center
 			body.basis = spec.basis
 			var panel := CollisionShape3D.new()
-			var box := BoxShape3D.new()
-			box.size = spec.size
-			panel.shape = box
+			var rock := ConvexPolygonShape3D.new()
+			rock.points = spec.points
+			rock.margin = 0.0
+			panel.shape = rock
 			body.add_child(panel)
 			site_bodies[spec.id] = body
 			site_specs[spec.id] = spec.duplicate(true)
+			site_shapes[spec.id] = rock
 			add_child(body)
 	return true
 
@@ -223,9 +226,14 @@ func _geometry_registered() -> bool:
 		var at: Transform3D = PhysicsServer3D.body_get_state(rid, PhysicsServer3D.BODY_STATE_TRANSFORM)
 		if not at.basis.is_equal_approx(site_specs[id].basis) or not _same_position(_array(at.origin), _array(site_specs[id].center)) or PhysicsServer3D.body_get_shape_transform(rid, 0) != Transform3D.IDENTITY:
 			return false
-		var data: Variant = PhysicsServer3D.shape_get_data(PhysicsServer3D.body_get_shape(rid, 0))
-		var expected: Vector3 = site_specs[id].size / 2.0
-		if not data is Vector3 or data.distance_to(expected) > Geometry.NATIVE_POSE_EPSILON:
+		var shape_rid: RID = PhysicsServer3D.body_get_shape(rid, 0)
+		var data: Variant = PhysicsServer3D.shape_get_data(shape_rid)
+		var expected: PackedVector3Array = site_specs[id].points
+		if PhysicsServer3D.shape_get_type(shape_rid) != PhysicsServer3D.SHAPE_CONVEX_POLYGON \
+			or not data is PackedVector3Array or site_shapes[id].get_rid() != shape_rid \
+			or site_shapes[id].points != expected or site_shapes[id].margin != 0.0:
+			return false
+		if site_surface.match_native_rock(data, expected).is_empty():
 			return false
 	return true
 
@@ -293,7 +301,7 @@ func _initial_overlaps(actor: String) -> Array:
 
 func _penetration(actor: String, other: RID) -> Dictionary:
 	# Keep every native query hit. This is an analytical overlap measure for
-	# the actual upright capsule/axis-aligned solids, not native contact depth.
+	# the actual upright capsule and registered solids, not native contact depth.
 	# The existing motor safe margin bounds numerical contact acceptance;
 	# it never changes the Model's exact construction-reach sphere.
 	var body = bodies[actor]
@@ -316,15 +324,26 @@ func _penetration(actor: String, other: RID) -> Dictionary:
 	for machine in machines.values():
 		owned = owned or machine.get_rid() == other
 	var site_owned := false
-	for panel in site_bodies.values():
-		site_owned = site_owned or panel.get_rid() == other
+	var site_id := ""
+	for id in site_bodies:
+		if site_bodies[id].get_rid() == other:
+			site_owned = true
+			site_id = id
 	owned = owned or site_owned
-	if site_owned and shape is Vector3:
-		var overlap: float = site_surface.capsule_box_overlap(at.origin, float(capsule.radius), float(capsule.height), target, shape)
+	if site_owned:
+		var expected: PackedVector3Array = site_specs[site_id].points
+		if not shape is PackedVector3Array:
+			return {"unsupported_overlap": true, "kind": "unexpected_site_solid"}
+		var actual: PackedVector3Array = site_surface.match_native_rock(shape, expected)
+		if actual.is_empty():
+			return {"unsupported_overlap": true, "kind": "changed_site_solid"}
+		var native_faces: PackedVector3Array = site_surface.rock_faces_for_vertices(actual)
+		var overlap: float = site_surface.capsule_convex_overlap(at.origin, float(capsule.radius),
+			float(capsule.height), target, native_faces)
 		return {"unsupported_overlap": overlap > Geometry.SAFE_MARGIN, "geometric_overlap": overlap > 0.0,
 			"analytical_overlap_measure": overlap, "contact_tolerance": Geometry.SAFE_MARGIN,
-			"kind": "site_box", "actor_position": _array(at.origin), "site_position": _array(target.origin),
-			"site_half_extents": _array(shape), "site_basis": [_array(target.basis.x), _array(target.basis.y), _array(target.basis.z)]}
+			"kind": "site_convex_rock", "actor_position": _array(at.origin), "site_position": _array(target.origin),
+			"site_vertices": shape.size(), "site_basis": [_array(target.basis.x), _array(target.basis.y), _array(target.basis.z)]}
 	if owned and shape is Vector3 and target.basis == Basis.IDENTITY:
 		var radius: float = capsule.radius
 		var segment_half: float = float(capsule.height) / 2.0 - radius
