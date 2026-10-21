@@ -960,6 +960,90 @@ class ProductionConveyorArt:
 		belt.set_meta("detail_role", "ConveyorLoop")
 		parent.add_child(belt)
 
+class ProductionConveyorFrameArt:
+	extends RefCounted
+	## Fixed original furniture around the existing loop, rollers and drive.
+	static var foot_bolt: CylinderMesh
+	static var cap_bolt: CylinderMesh
+
+	static func _part(parent: Node3D, role: String, suffix: String, mesh: Mesh, at: Vector3,
+			orientation: Basis, finish: StandardMaterial3D) -> MeshInstance3D:
+		var part := MeshInstance3D.new()
+		part.name = role + suffix
+		part.set_meta("conveyor_frame_role", role)
+		part.set_meta("detail_role", {"FrameCheek": "ConveyorLeg", "SideBeam": "ConveyorChannel",
+			"BearingCup": "RollerBearing"}.get(role, role))
+		part.mesh = mesh
+		part.position = at
+		part.basis = orientation
+		part.material_override = finish
+		parent.add_child(part)
+		return part
+
+	static func mount(parent: Node3D, color: Color, drive_axis: int) -> bool:
+		var paint := ProductionCollectorArt.coating(color)
+		var steel := ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.38)
+		if paint == null or steel == null:
+			return false
+		if foot_bolt == null:
+			foot_bolt = CylinderMesh.new()
+			foot_bolt.top_radius = 0.012
+			foot_bolt.bottom_radius = 0.012
+			foot_bolt.height = 0.012
+			foot_bolt.radial_segments = 6
+			cap_bolt = CylinderMesh.new()
+			cap_bolt.top_radius = 0.024
+			cap_bolt.bottom_radius = 0.024
+			cap_bolt.height = 0.015
+			cap_bolt.radial_segments = 6
+		var cheek := PackedVector2Array([Vector2(-0.13, 0.24), Vector2(0.13, 0.24),
+			Vector2(0.13, 0.275), Vector2(0.09, 0.275), Vector2(0.052, 0.35),
+			Vector2(0.048, 0.385), Vector2(-0.048, 0.385), Vector2(-0.052, 0.35),
+			Vector2(-0.09, 0.275), Vector2(-0.13, 0.275)])
+		var cup := PackedVector2Array([Vector2(0.065, -0.0475), Vector2(0.09, -0.0475),
+			Vector2(0.115, -0.0375), Vector2(0.115, 0.0355), Vector2(0.105, 0.0475),
+			Vector2(0.065, 0.0475), Vector2(0.065, -0.0475)])
+		var liner := PackedVector2Array([Vector2(0.063, -0.0465), Vector2(0.065, -0.0465),
+			Vector2(0.065, 0.0465), Vector2(0.063, 0.0465), Vector2(0.063, -0.0465)])
+		var cap := PackedVector2Array([Vector2(0, -0.004), Vector2(0.078, -0.004),
+			Vector2(0.085, -0.002), Vector2(0.085, 0.002), Vector2(0.078, 0.004), Vector2(0, 0.004)])
+		for x in [-0.57, 0.57]:
+			for side in [-1.0, 1.0]:
+				var suffix := ("N" if x < 0 else "P") + ("N" if side < 0 else "P")
+				var bearing_frame := Basis(Quaternion(Vector3.UP, Vector3.BACK * side))
+				var stand := _part(parent, "FrameCheek", suffix, ProductionVisuals.prism_mesh(cheek, 0.06, 0.003),
+					Vector3(x, 0, side * 0.36), Basis.IDENTITY, paint)
+				_part(parent, "BearingCup", suffix, ProductionVisuals.turned_mesh(cup),
+					Vector3(x, 0.465, side * 0.3875), bearing_frame, paint)
+				_part(parent, "BearingLiner", suffix, ProductionVisuals.turned_mesh(liner),
+					Vector3(x, 0.465, side * 0.3875), bearing_frame, steel)
+				var cover := _part(parent, "EndCap", suffix, ProductionVisuals.turned_mesh(cap),
+					Vector3(x, 0.465, side * 0.438), bearing_frame, steel)
+				var bolt := _part(parent, "CapBolt", suffix, cap_bolt,
+					Vector3(x, 0.465, side * 0.4495), bearing_frame, steel)
+				bolt.set_meta("frame_seat", cover.name)
+				for offset in [-0.11, 0.11]:
+					var foot := _part(parent, "FootBolt", suffix + ("N" if offset < 0 else "P"), foot_bolt,
+						Vector3(x + offset, 0.281, side * 0.36), Basis.IDENTITY, steel)
+					foot.set_meta("frame_seat", stand.name)
+		var channel := PackedVector2Array([Vector2(-0.025, -0.03), Vector2(0.025, -0.03),
+			Vector2(0.025, -0.018), Vector2(-0.013, -0.018), Vector2(-0.013, 0.018),
+			Vector2(0.025, 0.018), Vector2(0.025, 0.03), Vector2(-0.025, 0.03)])
+		for side in [-1.0, 1.0]:
+			var suffix := "N" if side < 0 else "P"
+			_part(parent, "SideBeam", suffix, ProductionVisuals.prism_mesh(channel, 1.14, 0.002),
+				Vector3(0, 0.355, side * 0.36), Basis(Vector3.UP, side * PI / 2), paint)
+			if drive_axis == 2:
+				# Keep a real opening around the existing Z-axis drive stub.
+				for end in [-1.0, 1.0]:
+					_part(parent, "GuardHalf", suffix + ("N" if end < 0 else "P"),
+						ProductionVisuals.box_mesh(Vector3(0.57, 0.08, 0.05)), Vector3(end * 0.405, 0.57, side * 0.36), Basis.IDENTITY, paint)
+			else:
+				_part(parent, "GuardRail", suffix, ProductionVisuals.box_mesh(Vector3(1.38, 0.08, 0.05)),
+					Vector3(0, 0.57, side * 0.36), Basis.IDENTITY, paint)
+		parent.set_meta("conveyor_frame", true)
+		return true
+
 class ProductionPressArt:
 	extends RefCounted
 	## Authored support components for the existing confirmed processor.
@@ -3779,12 +3863,13 @@ func _machine_surface_detail(machine: Node3D, kind: String) -> void:
 				tooth.rotation.z = angle - PI / 2.0
 				tooth.set_meta("detail_role", "CutterFlute")
 		"belt":
-			var profile := PackedVector2Array([Vector2(0, -0.025), Vector2(0.11, -0.025),
-				Vector2(0.135, -0.015), Vector2(0.135, 0.015), Vector2(0.11, 0.025), Vector2(0, 0.025)])
-			for x in [-0.57, 0.57]:
-				for side in [-1.0, 1.0]:
-					_machine_turned(anchor, "RollerBearing", Vector3(x, 0.465, side * 0.405), profile, Color("778b8c"), Vector3.BACK)
-					_machine_fastener(anchor, "BearingFastener", Vector3(x, 0.465, side * 0.435), Vector3.BACK * side)
+			if not machine.get_meta("conveyor_frame", false):
+				var profile := PackedVector2Array([Vector2(0, -0.025), Vector2(0.11, -0.025),
+					Vector2(0.135, -0.015), Vector2(0.135, 0.015), Vector2(0.11, 0.025), Vector2(0, 0.025)])
+				for x in [-0.57, 0.57]:
+					for side in [-1.0, 1.0]:
+						_machine_turned(anchor, "RollerBearing", Vector3(x, 0.465, side * 0.405), profile, Color("778b8c"), Vector3.BACK)
+						_machine_fastener(anchor, "BearingFastener", Vector3(x, 0.465, side * 0.435), Vector3.BACK * side)
 		"processor":
 			var profile := PackedVector2Array([Vector2(0, -0.02), Vector2(0.052, -0.02),
 				Vector2(0.065, -0.01), Vector2(0.065, 0.01), Vector2(0.052, 0.02), Vector2(0, 0.02)])
@@ -3812,15 +3897,18 @@ func _collector_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 
 func _belt_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	var frame: Color = COLORS.belt
-	for x in [-0.52, 0.52]:
-		for z in [-0.36, 0.36]:
-			var leg := _machine_box(anchor, "ConveyorLeg", Vector3(x, 0.315, z), Vector3(0.09, 0.21, 0.06), frame)
-			leg.set_meta("detail_role", "ConveyorLeg")
+	var fitted := _native_transmission() and ProductionConveyorFrameArt.mount(anchor, frame, int(entity.get("axis", 0)))
+	if not fitted:
+		for x in [-0.52, 0.52]:
+			for z in [-0.36, 0.36]:
+				var leg := _machine_box(anchor, "ConveyorLeg", Vector3(x, 0.315, z), Vector3(0.09, 0.21, 0.06), frame)
+				leg.set_meta("detail_role", "ConveyorLeg")
 	ProductionConveyorArt.mount(anchor)
-	for z in [-0.36, 0.36]:
-		_machine_box(anchor, "ConveyorRail", Vector3(0, 0.57, z), Vector3(1.38, 0.08, 0.05), frame)
-		var channel := _machine_box(anchor, "ConveyorChannel", Vector3(0, 0.43, z), Vector3(1.34, 0.08, 0.05), frame)
-		channel.set_meta("detail_role", "ConveyorChannel")
+	if not fitted:
+		for z in [-0.36, 0.36]:
+			_machine_box(anchor, "ConveyorRail", Vector3(0, 0.57, z), Vector3(1.38, 0.08, 0.05), frame)
+			var channel := _machine_box(anchor, "ConveyorChannel", Vector3(0, 0.43, z), Vector3(1.34, 0.08, 0.05), frame)
+			channel.set_meta("detail_role", "ConveyorChannel")
 	var roller_profile := PackedVector2Array([Vector2(0, -0.35), Vector2(0.055, -0.35),
 		Vector2(0.06, -0.345), Vector2(0.06, -0.305), Vector2(0.077, -0.3),
 		Vector2(0.077, 0.3), Vector2(0.06, 0.305), Vector2(0.06, 0.345),

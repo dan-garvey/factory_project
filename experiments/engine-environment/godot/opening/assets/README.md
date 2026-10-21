@@ -168,6 +168,16 @@ freshness gates and leave their pick bodies, item counts and item positions
 unchanged. The conveyor remains static: no belt surface speed or direction has
 been inferred from the separate material-transfer rules.
 
+Native conveyor furniture uses original flared cast end frames with fitted
+bearing cups, worked liners, retaining caps and rigid hexagonal fasteners. Lower
+formed side members join the frames while clearing the original roller tips.
+The upper guards retain a central opening for the existing Z-axis drive. Their
+paint and exposed metal reuse the qualified cast/worked maps. The original rubber
+loop, roller geometry, drive, picks, items and authority remain unchanged; these
+visual bearings add no contact, force or transport simulation. Nonnative views
+retain their earlier posts and bearing disks. Technical geometry checks do not
+establish rendered quality, GPU cost or human assessment.
+
 Confirmed material links have static arrowheads and endpoints aligned with their
 actual ordered grid direction, including routes along either axis. These indicate
 the existing link direction, not simulated item motion or a pending command.
