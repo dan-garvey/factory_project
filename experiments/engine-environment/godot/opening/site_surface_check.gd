@@ -394,7 +394,6 @@ func check_belt_water_native(forward: bool) -> void:
 	var output: Dictionary = issue.call("place_gear", {"center": [-12, 0, 4 + side * 4], "axis": "z", "teeth": 4})
 	if not expect(output.get("accepted", false), "Place large output cog: " + str(output)):
 		return
-	var small: Array[String] = []
 	for n in range(6):
 		var x: int = n * 4 - 12
 		if not expect(observe.call(float(x) * 1.65 / 4.0, side * 3.3), "Reach small cog"):
@@ -402,14 +401,13 @@ func check_belt_water_native(forward: bool) -> void:
 		var cog: Dictionary = issue.call("place_gear", {"center": [x, 0, 4 + side * 8], "axis": "z", "teeth": 2})
 		if not expect(cog.get("accepted", false), "Place small cog: " + str(cog)):
 			return
-		small.append(cog.entity)
 	for n in range(3):
-		if not expect(observe.call(float(n) * 1.65 + (1.0 if forward else 0.0), 0.0 if forward else 3.3), "Reach machine and cog row"):
+		if not expect(observe.call(float(n) * 1.65, 1.65), "Reach the shaft between machine and cog row"):
 			return
-		var connection: Dictionary = issue.call("connect_drive", {"from": hubs[n + 1], "to": small[n + 3]})
-		if not expect(connection.get("accepted", false), "Connect machine to cog row: " + str(connection)):
+		var shaft: Dictionary = issue.call("place_shaft", {"center": [n * 4, 0, 4 + side * 4], "axis": "z", "half_span": 2})
+		if not expect(shaft.get("accepted", false), "Place the individual machine-to-cog shaft: " + str(shaft)):
 			return
-	if not expect(model.projection().parts.shaft == 5, "Adjacent wheel and cog axle faces connect without spending two extra shafts"):
+	if not expect(model.projection().parts.shaft == 5, "Three individual shafts consume the finite starter stock"):
 		return
 	if not expect(observe.call(-1.65, 0.0) and issue.call("set_power", {"active": true}).get("accepted", false), "Start the actual current"):
 		return

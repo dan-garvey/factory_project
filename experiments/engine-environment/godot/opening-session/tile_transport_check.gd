@@ -6,7 +6,8 @@ extends SceneTree
 ## --directory and --port; start clients after the server-ready marker. Require
 ## all three exit statuses and PASS markers. Then start server-resume, resume-P
 ## and resume-Q with the same directory and port, after the first server exits.
-## Require all six processes to pass. The resumed Session uses the Store but
+## Require all six processes to pass. Add --reverse-belt to every process for
+## generated-site reverse deposition and pickup after restart. The resumed Session uses the Store but
 ## does not exercise the ordinary server lifecycle or physical actor bodies.
 const Session = preload("res://opening-session/session.gd")
 const NativeModel = preload("res://opening/native_model.gd")
@@ -18,12 +19,16 @@ var port := 0
 var replies := {}
 var checks := 0
 var failed := false
+var reverse_belt := false
+var serial := 0
+var epoch := 0
 
 func _initialize() -> void:
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--role="): role = arg.trim_prefix("--role=")
 		elif arg.begins_with("--directory="): directory = arg.trim_prefix("--directory=")
 		elif arg.begins_with("--port="): port = int(arg.trim_prefix("--port="))
+		elif arg == "--reverse-belt": reverse_belt = true
 	call_deferred("run")
 
 func verify(ok: bool, message: String) -> void:
@@ -57,6 +62,120 @@ func issue(action: Dictionary) -> Dictionary:
 	replies.erase(request)
 	return result
 
+func pose(x: float, z: float) -> bool:
+	epoch += 1
+	var result: Dictionary = session.world.publish_actor("P", [x, 1.0, z], epoch)
+	if not result.get("accepted", false): push_error("Synthetic pose refused: " + str(result))
+	return result.get("accepted", false)
+
+func build(action: String, args: Dictionary) -> Dictionary:
+	serial += 1
+	var wire := {"context": session.context, "client": "P", "request": "reverse-build-" + str(serial), "action": action}
+	wire.merge(args)
+	var result: Dictionary = session.world.command(wire)
+	if not result.get("accepted", false): push_error("Reverse route command refused: " + str(wire) + " " + str(result))
+	return result
+
+func build_reverse_route() -> bool:
+	# This is the generated river route used by the independent native site
+	# control. Positions are synthetic; commands still go through native Host.
+	var hubs: Array[String] = []
+	for entry in [["wheel", -2, "x"], ["collector", 0, "z"], ["belt", 1, "z"], ["processor", 2, "z"]]:
+		if not pose(-1.65 if entry[0] == "wheel" else float(entry[1]) * 1.65, 3.3 if entry[0] == "wheel" else 0.0): return false
+		var args := {"kind": entry[0], "cell": [entry[1], 1], "axis": entry[2]}
+		if entry[0] == "wheel": args["level"] = 4
+		var placed := build("place", args)
+		if not placed.get("accepted", false): push_error("Place reverse machine: " + str(placed)); return false
+		hubs.append(placed.entity)
+	if not pose(-3.3, 0.0): return false
+	for center in [[-12, 4, 4], [-12, 0, 4]]:
+		if not build("place_gear", {"center": center, "axis": "x", "teeth": 2}).get("accepted", false): return false
+	if not build("place_gear", {"center": [-16, 0, 4], "axis": "x", "teeth": 4}).get("accepted", false): return false
+	if not pose(-3.3, 1.65): return false
+	if not build("place_gear", {"center": [-12, 0, 8], "axis": "z", "teeth": 4}).get("accepted", false): return false
+	for n in range(6):
+		var x := n * 4 - 12
+		if not pose(float(x) * 1.65 / 4.0, 3.3): return false
+		var cog := build("place_gear", {"center": [x, 0, 12], "axis": "z", "teeth": 2})
+		if not cog.get("accepted", false): return false
+	for n in range(3):
+		if not pose(float(n) * 1.65, 0.0): return false
+		if not build("place_shaft", {"center": [n * 4, 0, 8], "axis": "z", "half_span": 2}).get("accepted", false): return false
+	if not pose(-1.65, 0.0) or not build("set_power", {"active": true}).get("accepted", false): return false
+	var motion: Dictionary = session.world.projection().motion[hubs[2]]
+	if motion.state != "rotating" or motion.numerator <= 0:
+		push_error("Reverse belt motion: " + str(motion))
+		return false
+	for turn in range(96):
+		if not session.world.projection().dropped_raw.is_empty(): break
+		session.world.advance()
+	return not session.world.projection().dropped_raw.is_empty()
+
+func run_reverse() -> void:
+	var resumed := role.begins_with("resume-") or role == "server-resume"
+	var save_path := directory.path_join("reverse.factory")
+	if role in ["server", "server-resume"]:
+		verify(session.serve_loopback(port, true, true, ["P", "Q"], true) == OK, "Start reverse-belt native Session")
+		if failed: quit(1); return
+		if resumed:
+			verify(Store.read_into(session.world, save_path).get("accepted", false), "Restore the reverse-belt Store")
+			session.context = session.world.context
+		else:
+			verify(build_reverse_route(), "Generated river route deposits a reversed blank")
+		if failed: quit(1); return
+		var snapshot: Dictionary = session.world.projection()
+		verify(not snapshot.dropped_raw.is_empty() and snapshot.stock.output == 0, "Reversed route has loose raw material and no output")
+		if failed: quit(1); return
+		var point: Array = snapshot.dropped_raw[0].center
+		verify(pose(float(point[0]) * 1.65 / 4.0, float(point[2]) * 1.65 / 4.0 - 1.65), "P can reach the reverse-end stack")
+		verify(session.world.publish_actor("Q", [20.0, 1.0, 20.0], 1).get("accepted", false), "Synthetic Q observation is accepted")
+		if failed: quit(1); return
+		mark("resume-server-ready" if resumed else "server-ready")
+		if not await until(func(): return FileAccess.file_exists(directory.path_join("resume-clients-done" if resumed else "clients-done")), "Clients finish reverse-belt phase"): quit(1); return
+		if resumed:
+			verify(session.world.projection().cargo.P.raw > 0, "The resumed authority records recovered raw cargo")
+		else:
+			verify(Store.write(session.world, save_path).get("accepted", false), "Store the generated reversed-belt state")
+		if failed: quit(1); return
+		mark("resume-server-done" if resumed else "server-done")
+	else:
+		var actor := role.trim_prefix("resume-") if resumed else role
+		verify(session.join_loopback(port, actor) == OK, "Join reverse-belt Session")
+		if not await until(func(): return session.is_ready(), "Receive reverse-belt projection"): quit(1); return
+		mark(role + "-ready")
+		if actor == "P":
+			if not await until(func(): return FileAccess.file_exists(directory.path_join("resume-Q-ready" if resumed else "Q-ready")), "Q joins the reverse-belt phase"): quit(1); return
+			var snapshot: Dictionary = session.projection()
+			verify(not snapshot.dropped_raw.is_empty() and snapshot.cargo.P.raw == 0, "P sees the loose stack and empty cargo")
+			if failed: quit(1); return
+			if resumed:
+				var before: int = snapshot.dropped_raw[0].raw
+				var pickup := await issue({"action": "pickup_raw", "center": snapshot.dropped_raw[0].center})
+				verify(pickup.get("accepted", false), "P collects the restored stack over Session: " + str(pickup))
+				var request: String = pickup.get("request", "")
+				verify(session.retry(request).get("queued", false), "Retry the pickup request")
+				if await until(func(): return replies.has(request), "Retry receives the original receipt"):
+					verify(replies[request].get("accepted", false) and replies[request].get("duplicate", false), "Pickup retry is deduplicated")
+					replies.erase(request)
+				verify(session.projection().cargo.P.raw == before, "Pickup transfers the stack once")
+				verify(session.projection().dropped_raw.is_empty(), "The recovered stack leaves the ground")
+			if failed: quit(1); return
+			mark("resume-P-done" if resumed else "P-done")
+		else:
+			var original: Dictionary = session.projection()
+			if not await until(func(): return FileAccess.file_exists(directory.path_join("resume-P-done" if resumed else "P-done")), "P finishes the reverse-belt phase"): quit(1); return
+			if resumed:
+				if not await until(func(): return session.projection().get("cargo", {}).get("P", {}).get("raw", 0) > 0, "Q observes recovered cargo"): quit(1); return
+				verify(not original.dropped_raw.is_empty() and session.projection().cargo.P.raw == original.dropped_raw[0].raw
+					and session.projection().dropped_raw.is_empty(), "Q sees the exact stack transfer and no remaining ground cargo")
+			else:
+				verify(not session.projection().dropped_raw.is_empty(), "Q sees the reverse-end stack")
+			if failed: quit(1); return
+			mark("resume-clients-done" if resumed else "clients-done")
+			if not await until(func(): return FileAccess.file_exists(directory.path_join("resume-server-done" if resumed else "server-done")), "Authority completes the reverse-belt phase"): quit(1); return
+	print("REVERSE_BELT_SESSION_%s %s %d" % ["FAIL" if failed else "PASS", role, checks])
+	quit(1 if failed else 0)
+
 func run() -> void:
 	if not directory.is_absolute_path() or not DirAccess.dir_exists_absolute(directory) or not role in ["server", "P", "Q", "server-resume", "resume-P", "resume-Q"]:
 		push_error("Expected an owned directory and a server, P, or Q role")
@@ -69,6 +188,9 @@ func run() -> void:
 	container.add_child(session)
 	root.add_child(container)
 	session.outcome.connect(func(value: Dictionary): replies[value.request] = value)
+	if reverse_belt:
+		await run_reverse()
+		return
 	if role in ["server", "server-resume"]:
 		verify(session.serve_loopback(port, true, true, ["P", "Q"], true) == OK, "The native loopback authority must start")
 		if failed: quit(1); return
