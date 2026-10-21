@@ -279,51 +279,56 @@ void perpendicular_belt_line() {
               accepted(host.configure_terrain(site)),
           "The perpendicular-line Host binds its synthetic terrain.");
     observe(host, -1.65, 3.3, 1);
-    auto base = wire("place_foundations", "line-collector-base");
-    base.emplace("cell", V(A{V(I{0}), V(I{1})})); base.emplace("end_cell", V(A{V(I{2}), V(I{1})})); base.emplace("level", V(I{4}));
+    auto base = wire("place_foundation", "line-collector-base");
+    base.emplace("cell", V(A{V(I{0}), V(I{1})})); base.emplace("level", V(I{4}));
     check(accepted(host.command("P", base)), "The synthetic line has a supported collector.");
-    const std::array<const char*, 4> roles{"wheel", "collector", "belt", "processor"};
-    std::array<std::string, 4> hubs, cogs;
     observe(host, -1.65, 3.3, 2);
-    hubs[0] = create(host, machine("wheel", -2, "line-machine-0", "z"));
+    const auto wheel = create(host, machine("wheel", -2, "line-machine-0", "z"));
     observe(host, -3.3, 0, 3);
-    cogs[0] = create(host, gear(-8, 4, 8, "line-gear-0", "z", 2));
+    create(host, gear(-8, 4, 8, "line-gear-0", "z", 2));
     create(host, gear(-4, 4, 8, "line-bridge", "z", 2));
-    for (std::size_t n = 1; n < roles.size(); ++n) {
-        const I x = static_cast<I>(n) - 1;
-        observe(host, static_cast<double>(x) * 1.65, 0, static_cast<I>(n) + 4);
-        const auto machine_id = "line-machine-" + std::to_string(n);
-        const auto gear_id = "line-gear-" + std::to_string(n);
-        auto machine_wire = machine(roles[n], x, machine_id.c_str(), "z");
-        machine_wire.emplace("level", V(I{4}));
-        hubs[n] = create(host, machine_wire);
-        cogs[n] = create(host, gear(4 * x, 4, 8, gear_id.c_str(), "z", 2));
-    }
+    observe(host, 0, 0, 4);
+    auto collector_wire = machine("collector", 0, "line-collector", "z");
+    collector_wire.emplace("level", V(I{4}));
+    const auto collector = create(host, collector_wire);
+    create(host, gear(0, 4, 8, "line-collector-cog", "z", 2));
+    observe(host, 1.65, 0, 5);
+    const auto belt_cog = create(host, gear(4, 4, 8, "line-belt-cog", "z", 2));
+    const auto first = create(host, shaft(4, 4, 4, "line-first"));
+    observe(host, 3.3, 0, 6);
+    const auto last = create(host, shaft(8, 4, 4, "line-last"));
+    observe(host, 2.475, 0, 7);
+    auto install = wire("place_belt_span", "line-span");
+    install.emplace("from", V(first)); install.emplace("to", V(last));
+    const auto belt = create(host, install);
     observe(host, -1.65, 0, 8);
     auto power = wire("set_power", "line-start"); power.emplace("active", V(true));
     check(accepted(host.command("P", power)), "The actor enables the source for the perpendicular line.");
     const auto projected = host.projection();
-    check(field<A>(projected, "links").size() == 2 &&
-              field<I>(V(field<O>(projected, "parts")), "shaft") == 8 &&
-              field<I>(V(field<O>(projected, "parts")), "gear") == 5,
-          "The connected line uses five small cogs and retains its shafts.");
-    for (std::size_t n = 0; n < hubs.size(); ++n)
-        check(field<I>(motion(host, hubs[n]), "numerator") == (n == 0 || n % 2 ? -1 : 1) &&
-                  field<I>(motion(host, hubs[n]), "denominator") == 3,
-              "The actual Host reports alternating signed machine rotation.");
+    check(field<A>(projected, "links").empty() && field<O>(projected, "belt_spans").size() == 1 &&
+              field<I>(V(field<O>(projected, "parts")), "shaft") == 6 &&
+              field<I>(V(field<O>(projected, "parts")), "gear") == 6,
+          "The connected line uses four small cogs and two physical belt shafts.");
+    check(field<I>(motion(host, wheel), "numerator") == -1 &&
+              field<I>(motion(host, collector), "numerator") == -1 &&
+              field<I>(motion(host, first), "numerator") == 1 &&
+              field<I>(motion(host, last), "numerator") == 1 &&
+              field<I>(motion(host, first), "denominator") == 3 &&
+              field<I>(motion(host, last), "denominator") == 3,
+          "The reversed belt shafts share the exact signed rate from the geared source.");
     const auto saved = host.checkpoint();
     Host fresh;
     check(accepted(fresh.initialize("fresh", {"P", "Q"})) &&
               accepted(fresh.configure_terrain(site)) &&
               accepted(fresh.restore_checkpoint(saved)) && !factory::values::typed_difference(saved, fresh.checkpoint()),
           "The full perpendicular route and finite kit survive fresh Host restoration.");
-    for (int tick = 0; tick < 3; ++tick) (void)host.advance();
+    for (int tick = 0; tick < 96 && field<A>(host.projection(), "dropped_material").empty(); ++tick) (void)host.advance();
     const auto reversed = host.projection();
     check(field<I>(V(field<O>(reversed, "stock")), "input") == 0 &&
               field<A>(reversed, "dropped_material").size() == 1,
           "Positive Z belt rotation sends a blank to the reverse end instead of the press.");
     const auto drop = field<A>(reversed, "dropped_material").front();
-    check(!factory::values::typed_difference(V(field<A>(drop, "center")), V(A{V(I{2}), V(I{4}), V(I{4})})) && field<I>(drop, "raw") == 1,
+    check(!factory::values::typed_difference(V(field<A>(drop, "center")), V(A{V(I{0}), V(I{4}), V(I{4})})) && field<I>(drop, "raw") == 1,
           "The loose blank has the native world-space reverse-end point.");
     const auto reverse_save = host.checkpoint();
     Host loaded;
@@ -333,7 +338,7 @@ void perpendicular_belt_line() {
           "The reverse-end blank survives a fresh Host checkpoint restore.");
     observe(loaded, 100.0, 100.0, 1);
     auto far_pickup = wire("pickup_material", "pickup-too-far");
-    far_pickup.emplace("center", V(A{V(I{2}), V(I{4}), V(I{4})}));
+    far_pickup.emplace("center", V(A{V(I{0}), V(I{4}), V(I{4})}));
     far_pickup.emplace("expected", V(O{{"raw", V(I{1})}, {"products", V(I{0})}, {"work_lots", V(A{})}}));
     const auto far_result = loaded.command("P", far_pickup);
     check(!accepted(far_result) && field<std::string>(far_result, "reason") == "out_of_reach" &&
@@ -341,7 +346,7 @@ void perpendicular_belt_line() {
           "A distant actor cannot pick up or consume the stack.");
     observe(loaded, 0.0, 0.0, 2);
     auto pickup = wire("pickup_material", "pickup-reverse");
-    pickup.emplace("center", V(A{V(I{2}), V(I{4}), V(I{4})}));
+    pickup.emplace("center", V(A{V(I{0}), V(I{4}), V(I{4})}));
     pickup.emplace("expected", far_pickup.at("expected"));
     auto stale = pickup;
     stale.at("request") = V("pickup-stale");
@@ -356,7 +361,7 @@ void perpendicular_belt_line() {
     check(accepted(loaded.publish_actor("Q", {V(0.0), V(1.0), V(0.0)}, 1)), "Q has a separate nearby synthetic observation.");
     auto competing = wire("pickup_material", "pickup-competing");
     competing.at("client") = V("Q");
-    competing.emplace("center", V(A{V(I{2}), V(I{4}), V(I{4})}));
+    competing.emplace("center", V(A{V(I{0}), V(I{4}), V(I{4})}));
     competing.emplace("expected", far_pickup.at("expected"));
     const auto denied = loaded.command("Q", competing);
     check(!accepted(denied) && field<std::string>(denied, "reason") == "unavailable_drop" &&
@@ -365,11 +370,21 @@ void perpendicular_belt_line() {
     check(field<bool>(loaded.command("P", pickup), "duplicate") && accepted(loaded.validate_checkpoint(loaded.checkpoint())),
           "Pickup retry and saved wire history retain the original outcome.");
     observe(host, 1.65, 0, 9);
-    check(accepted(host.command("P", target("remove", cogs[2], "line-remove-belt-cog"))) &&
-              field<std::string>(motion(host, hubs[2]), "state") != "rotating",
+    check(accepted(host.command("P", target("remove", belt_cog, "line-remove-belt-cog"))) &&
+              field<std::string>(motion(host, first), "state") != "rotating",
           "Removing the belt cog breaks belt power and returns the physical part.");
-    check(accepted(host.command("P", target("recover", hubs[2], "line-recover-belt"))) &&
-              accepted(host.command("P", target("remove", hubs[2], "line-remove-belt"))) &&
+    const auto occupied_slots = field<A>(field<O>(host.projection(), "belt_spans").at(belt), "slots");
+    check(!accepted(host.command("P", target("remove_belt_span", belt, "line-remove-occupied"))),
+          "An occupied span cannot be dismantled before its contents are recovered.");
+    for (std::size_t index = 0; index < occupied_slots.size(); ++index) {
+        if (occupied_slots[index].type() == factory::values::Type::null) continue;
+        const auto request = "line-recover-slot-" + std::to_string(index);
+        auto recover = target("recover_belt_slot", belt, request.c_str());
+        recover.emplace("slot", V(static_cast<I>(index)));
+        recover.emplace("expected", occupied_slots[index]);
+        check(accepted(host.command("P", recover)), "A reachable belt slot returns its actual retained item.");
+    }
+    check(accepted(host.command("P", target("remove_belt_span", belt, "line-remove-belt"))) &&
               field<A>(host.projection(), "dropped_material").size() == 1,
           "Recovering and dismantling the belt leaves its reverse-end blank in world custody.");
     const auto after_removal = host.checkpoint();
@@ -380,7 +395,7 @@ void perpendicular_belt_line() {
           "A fresh Host retains loose material after its belt has been removed.");
     observe(after, 0.0, 0.0, 1);
     auto pickup_after = wire("pickup_material", "pickup-after-removal");
-    pickup_after.emplace("center", V(A{V(I{2}), V(I{4}), V(I{4})}));
+    pickup_after.emplace("center", V(A{V(I{0}), V(I{4}), V(I{4})}));
     pickup_after.emplace("expected", far_pickup.at("expected"));
     check(accepted(after.command("P", pickup_after)), "The independent loose stack remains reachable after belt removal.");
 }
@@ -943,50 +958,59 @@ void cross_axis_belt_line() {
     I epoch{};
     const auto at = [&](double x, double z) { observe(host, x, z, ++epoch); };
     at(0, 0);
-    auto base = wire("place_foundations", "cross-bases");
-    base.emplace("cell", V(A{V(I{0}), V(I{1})}));
-    base.emplace("end_cell", V(A{V(I{2}), V(I{1})})); base.emplace("level", V(I{4}));
+    auto base = wire("place_foundation", "cross-collector-base");
+    base.emplace("cell", V(A{V(I{0}), V(I{1})})); base.emplace("level", V(I{4}));
     create(host, base);
-    const std::array<const char*, 4> roles{"wheel", "collector", "belt", "processor"};
-    std::array<std::string, 4> hubs;
-    for (std::size_t n = 0; n < hubs.size(); ++n) {
-        const I x = n == 0 ? -2 : static_cast<I>(n) - 1;
-        at(n == 0 ? -1.65 : static_cast<double>(x) * 1.65, n == 0 ? 3.3 : 0);
-        const auto id = "cross-machine-" + std::to_string(n);
-        auto machine_wire = machine(roles[n], x, id.c_str(), n ? "z" : "x");
-        if (n) machine_wire.emplace("level", V(I{4}));
-        hubs[n] = create(host, machine_wire);
-    }
+    auto collector_wire = machine("collector", 0, "cross-collector", "z");
+    collector_wire.emplace("level", V(I{4}));
+    const auto collector = create(host, collector_wire);
+    at(4.95, 0);
+    auto press_base = wire("place_foundation", "cross-press-base");
+    press_base.emplace("cell", V(A{V(I{3}), V(I{1})})); press_base.emplace("level", V(I{4}));
+    create(host, press_base);
+    auto press_wire = machine("processor", 3, "cross-press", "z");
+    press_wire.emplace("level", V(I{4}));
+    const auto press = create(host, press_wire);
+    at(-1.65, 3.3);
+    const auto wheel = create(host, machine("wheel", -2, "cross-wheel", "x"));
     at(-3.3, 0);
     const auto input = create(host, gear(-4, 4, 4, "cross-input", "x", 4));
     at(-3.3, 1.65);
     const auto output = create(host, gear(0, 4, 8, "cross-output", "z", 4));
-    std::array<std::string, 3> small;
+    std::array<std::string, 4> small;
     for (std::size_t n = 0; n < small.size(); ++n) {
         const I x = static_cast<I>(n) * 4;
         at(static_cast<double>(x) * 1.65 / 4.0, 3.3);
         const auto id = "cross-small-" + std::to_string(n);
         small[n] = create(host, gear(x, 4, 12, id.c_str(), "z", 2));
     }
-    at(-3.3, 3.3);
-    for (std::size_t n = 2; n < hubs.size(); ++n) {
-        at(static_cast<double>(n - 1) * 1.65, 0);
-        const auto id = "cross-machine-shaft-" + std::to_string(n);
-        check(accepted(host.command("P", shaft(static_cast<I>(n - 1) * 4, 4, 8, id.c_str()))),
-              "The actor installs one shaft tile between each machine and its cog.");
-    }
+    at(1.65, 0);
+    create(host, shaft(4, 4, 8, "cross-belt-drive"));
+    const auto first = create(host, shaft(4, 4, 4, "cross-belt-first"));
+    at(3.3, 0);
+    const auto last = create(host, shaft(8, 4, 4, "cross-belt-last"));
+    at(2.475, 0);
+    auto belt_wire = wire("place_belt_span", "cross-span");
+    belt_wire.emplace("from", V(first)); belt_wire.emplace("to", V(last));
+    const auto span = create(host, belt_wire);
+    at(4.95, 0);
+    create(host, shaft(12, 4, 8, "cross-press-drive"));
     at(-1.65, 0);
     auto power = wire("set_power", "cross-start"); power.emplace("active", V(true));
     check(accepted(host.command("P", power)), "The source starts the cross-axis line.");
-    for (std::size_t n = 1; n < hubs.size(); ++n) {
-        check(field<I>(motion(host, hubs[n]), "numerator") == (n % 2 ? -1 : 1) &&
-                  field<I>(motion(host, hubs[n]), "denominator") == 3,
-              "Every machine reports its signed cross-axis motion.");
-    }
+    check(field<I>(motion(host, wheel), "numerator") != 0 &&
+              field<I>(motion(host, collector), "numerator") == -1 &&
+              field<I>(motion(host, first), "numerator") == 1 &&
+              field<I>(motion(host, last), "numerator") == 1 &&
+              field<I>(motion(host, press), "numerator") == 1 &&
+              field<I>(motion(host, first), "denominator") == 3,
+          "The corner drives the collector, both parallel belt shafts and the press at the expected signed rates.");
     const auto advanced = host.advance();
+    const auto slots = field<A>(field<O>(advanced, "belt_spans").at(span), "slots");
     check(field<I>(V(field<O>(advanced, "stock")), "source") == 4095 &&
-              field<I>(V(field<O>(advanced, "stock")), "collector") == 1,
-          "The flowing wheel powers the collector and advances one source unit.");
+              field<I>(V(field<O>(advanced, "stock")), "collector") == 0 &&
+              field<I>(slots.front(), "raw") == 1,
+          "The flowing wheel powers the collector and transfers one source unit to the shaft span.");
     const auto saved = host.checkpoint();
     Host fresh;
     check(accepted(fresh.initialize("fresh", {"P"})) &&
@@ -995,7 +1019,7 @@ void cross_axis_belt_line() {
           "The complete one-tile shaft route restores exactly in a fresh Host.");
     at(-3.3, 1.65);
     check(accepted(host.command("P", target("remove", output, "cross-remove"))) &&
-              field<std::string>(motion(host, hubs[2]), "state") != "rotating",
+              field<std::string>(motion(host, first), "state") != "rotating",
           "Removing the corner cog interrupts belt power.");
 }
 
@@ -1140,45 +1164,53 @@ void forward_belt_route() {
     I epoch{};
     const auto at = [&](double x, double z) { observe(host, x, z, ++epoch); };
     at(0, 0);
-    auto base = wire("place_foundations", "forward-bases");
-    base.emplace("cell", V(A{V(I{0}), V(I{1})}));
-    base.emplace("end_cell", V(A{V(I{2}), V(I{1})})); base.emplace("level", V(I{4}));
+    auto base = wire("place_foundation", "forward-collector-base");
+    base.emplace("cell", V(A{V(I{0}), V(I{1})})); base.emplace("level", V(I{4}));
     create(host, base);
-    const std::array<const char*, 4> roles{"wheel", "collector", "belt", "processor"};
-    std::array<std::string, 4> hubs;
-    for (std::size_t n = 0; n < hubs.size(); ++n) {
-        const I x = n == 0 ? -2 : static_cast<I>(n) - 1;
-        at(n == 0 ? -1.65 : static_cast<double>(x) * 1.65, n == 0 ? 3.3 : 0);
-        const auto id = "forward-machine-" + std::to_string(n);
-        auto machine_wire = machine(roles[n], x, id.c_str(), n ? "z" : "x");
-        if (n) machine_wire.emplace("level", V(I{4}));
-        hubs[n] = create(host, machine_wire);
-    }
+    auto collector_wire = machine("collector", 0, "forward-collector", "z");
+    collector_wire.emplace("level", V(I{4}));
+    const auto collector = create(host, collector_wire);
+    at(4.95, 0);
+    auto press_base = wire("place_foundation", "forward-press-base");
+    press_base.emplace("cell", V(A{V(I{3}), V(I{1})})); press_base.emplace("level", V(I{4}));
+    create(host, press_base);
+    auto press_wire = machine("processor", 3, "forward-press", "z");
+    press_wire.emplace("level", V(I{4}));
+    const auto press = create(host, press_wire);
+    at(-1.65, 3.3);
+    const auto wheel = create(host, machine("wheel", -2, "forward-wheel", "x"));
     at(-3.3, 0);
     create(host, gear(-4, 4, 4, "forward-input", "x", 4));
     at(-3.3, -1.65);
     create(host, gear(0, 4, 0, "forward-output", "z", 4));
-    std::array<std::string, 3> cogs;
+    std::array<std::string, 4> cogs;
     for (std::size_t n = 0; n < cogs.size(); ++n) {
         const I x = static_cast<I>(n) * 4;
         at(static_cast<double>(x) * 1.65 / 4.0, -3.3);
         const auto id = "forward-cog-" + std::to_string(n);
         cogs[n] = create(host, gear(x, 4, -4, id.c_str(), "z", 2));
     }
-    for (std::size_t n = 2; n < hubs.size(); ++n) {
-        at(static_cast<double>(n - 1) * 1.65, -3.3);
-        const auto id = "forward-shaft-" + std::to_string(n);
-        check(accepted(host.command("P", shaft(static_cast<I>(n - 1) * 4, 4, 0, id.c_str()))),
-              "The forward route connects each machine to its cog with one shaft tile.");
-    }
+    at(1.65, 0);
+    create(host, shaft(4, 4, 0, "forward-belt-drive"));
+    const auto first = create(host, shaft(4, 4, 4, "forward-first"));
+    at(3.3, 0);
+    const auto last = create(host, shaft(8, 4, 4, "forward-last"));
+    at(2.475, 0);
+    auto belt_wire = wire("place_belt_span", "forward-span");
+    belt_wire.emplace("from", V(first)); belt_wire.emplace("to", V(last));
+    create(host, belt_wire);
+    at(4.95, 0);
+    create(host, shaft(12, 4, 0, "forward-press-drive"));
     at(-3.3, 0);
     auto power = wire("set_power", "forward-start"); power.emplace("active", V(true));
     check(accepted(host.command("P", power)), "The extended cog train can start.");
-    const auto wheel_rate = field<I>(motion(host, hubs[0]), "numerator");
-    const auto belt_rate = field<I>(motion(host, hubs[2]), "numerator");
-    check(wheel_rate < 0 && belt_rate < 0 &&
-              field<I>(V(field<O>(host.projection(), "parts")), "gear") == 5,
-          "The raised corner cogs drive the belt forward within the finite kit; wheel=" +
+    const auto wheel_rate = field<I>(motion(host, wheel), "numerator");
+    const auto belt_rate = field<I>(motion(host, first), "numerator");
+    check(wheel_rate < 0 && belt_rate < 0 && field<I>(motion(host, last), "numerator") == belt_rate &&
+              field<std::string>(motion(host, collector), "state") == "rotating" &&
+              field<std::string>(motion(host, press), "state") == "rotating" &&
+              field<I>(V(field<O>(host.projection(), "parts")), "gear") == 4,
+          "The raised corner cogs drive the shaft span and press forward within the finite kit; wheel=" +
           std::to_string(wheel_rate) + ", belt=" + std::to_string(belt_rate) + ".");
 }
 void cog_at_belt_face() {

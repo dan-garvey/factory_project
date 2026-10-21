@@ -107,29 +107,35 @@ func build(action: String, args: Dictionary) -> Dictionary:
 func build_reverse_route() -> bool:
 	# This is the generated river route used by the independent native site
 	# control. Positions are synthetic; commands still go through native Host.
-	var hubs: Array[String] = []
 	if not pose(0.0, 0.0): return false
-	if not build("place_foundations", {"cell": [0, 1], "end_cell": [2, 1], "level": 4}).get("accepted", false): return false
-	for entry in [["wheel", -2, "x"], ["collector", 0, "z"], ["belt", 1, "z"], ["processor", 2, "z"]]:
+	if not build("place_foundation", {"cell": [0, 1], "level": 4}).get("accepted", false): return false
+	if not pose(4.95, 0.0) or not build("place_foundation", {"cell": [3, 1], "level": 4}).get("accepted", false): return false
+	for entry in [["wheel", -2, "x"], ["collector", 0, "z"], ["processor", 3, "z"]]:
 		if not pose(-1.65 if entry[0] == "wheel" else float(entry[1]) * 1.65, 3.3 if entry[0] == "wheel" else 0.0): return false
 		var args := {"kind": entry[0], "cell": [entry[1], 1], "axis": entry[2], "level": 4}
 		var placed := build("place", args)
 		if not placed.get("accepted", false): push_error("Place reverse machine: " + str(placed)); return false
-		hubs.append(placed.entity)
 	if not pose(-3.3, 0.0): return false
 	if not build("place_gear", {"center": [-4, 4, 4], "axis": "x", "teeth": 4}).get("accepted", false): return false
 	if not pose(-3.3, 1.65): return false
 	if not build("place_gear", {"center": [0, 4, 8], "axis": "z", "teeth": 4}).get("accepted", false): return false
-	for n in range(3):
+	for n in range(2):
 		var x := n * 4
 		if not pose(float(x) * 1.65 / 4.0, 3.3): return false
 		var cog := build("place_gear", {"center": [x, 4, 12], "axis": "z", "teeth": 2})
 		if not cog.get("accepted", false): return false
+	if not pose(1.65, 0.0): return false
+	if not build("place_shaft", {"center": [4, 4, 8], "axis": "z", "half_span": 2}).get("accepted", false): return false
+	var endpoints: Array[String] = []
 	for n in range(1, 3):
 		if not pose(float(n) * 1.65, 0.0): return false
-		if not build("place_shaft", {"center": [n * 4, 4, 8], "axis": "z", "half_span": 2}).get("accepted", false): return false
+		var placed := build("place_shaft", {"center": [n * 4, 4, 4], "axis": "z", "half_span": 2})
+		if not placed.get("accepted", false): return false
+		endpoints.append(placed.entity)
+	if not pose(2.475, 0.0): return false
+	if not build("place_belt_span", {"from": endpoints[0], "to": endpoints[1]}).get("accepted", false): return false
 	if not pose(-1.65, 0.0) or not build("set_power", {"active": true}).get("accepted", false): return false
-	var motion: Dictionary = session.world.projection().motion[hubs[2]]
+	var motion: Dictionary = session.world.projection().motion[endpoints[0]]
 	if motion.state != "rotating" or motion.numerator <= 0:
 		push_error("Reverse belt motion: " + str(motion))
 		return false
@@ -152,6 +158,12 @@ func run_reverse() -> void:
 		if failed: quit(1); return
 		var snapshot: Dictionary = session.world.projection()
 		verify(not snapshot.dropped_material.is_empty() and snapshot.stock.output == 0, "Reversed route has loose raw material and no output")
+		verify(snapshot.belt_spans.size() == 1 and snapshot.part_kits.P.belt == 1,
+			"The route uses one carried shaft-driven belt span")
+		if not snapshot.belt_spans.is_empty():
+			var span: Dictionary = snapshot.belt_spans.values()[0]
+			verify(_span_powered(snapshot, span) and snapshot.motion[span.from].numerator > 0,
+				"The reverse span connects matching positively rotating shafts")
 		if failed: quit(1); return
 		var point: Array = snapshot.dropped_material[0].center
 		verify(pose(float(point[0]) * 1.65 / 4.0, float(point[2]) * 1.65 / 4.0 - 1.65), "P can reach the reverse-end stack")

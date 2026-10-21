@@ -194,6 +194,15 @@ material outcome, physical cutting/contact model or native authority. Headless
 geometry and resource checks leave rendered quality, export and human preference
 unverified.
 
+The installed native press now shows a rigid tool carrier with two side rails,
+two end locks and fitted retaining heads. Its full flat working insert, lower
+plane, mounting pose and production opening stay unchanged. A separate narrow,
+tapered cutter insert fits the same carrier in an isolated resource sample;
+the cutter is not mounted in the game and has no cutting command, collision,
+inventory or material outcome. Front and rear press comparisons and underside
+cartridge views check the visible assembly. They do not establish ordinary
+play-distance readability or human visual approval.
+
 The common machine base now has a thin mounting deck, two open formed channels
 and internal cross ties instead of a solid block. These closed pieces share one
 cached mesh and the original opaque finish. Its outer envelope, top plane,
