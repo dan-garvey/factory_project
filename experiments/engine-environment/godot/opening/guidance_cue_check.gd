@@ -25,6 +25,12 @@ class FooterView extends Opening:
 	func _process(_delta: float) -> void:
 		pass
 
+class SharedFooterView extends SharedOpening:
+	func _ready() -> void:
+		pass
+	func _process(_delta: float) -> void:
+		pass
+
 class AckView extends SharedOpening:
 	var advice := ""
 	func _refresh_ui() -> void:
@@ -151,6 +157,49 @@ func check_foundation_view() -> void:
 func settle_footer() -> void:
 	for _frame in range(4):
 		await process_frame
+
+func check_foundation_inspector() -> void:
+	for shared_profile in [false, true]:
+		var view = SharedFooterView.new() if shared_profile else FooterView.new()
+		if shared_profile:
+			view.session = SessionStub.new()
+		view.state = first_target_fixture()
+		view.state.options.foundations = true
+		view.state.foundations = {"step-a": {"cell": [5, 2], "level": 2}, "step-b": {"cell": [6, 2], "level": 2}}
+		var before: Dictionary = view.state.duplicate(true)
+		root.add_child(view)
+		view._build_interface()
+		view._refresh_guided_tools()
+		var panel: Control = view.inspector.get_parent().get_parent()
+		verify(not panel.visible, "Foundation-only construction does not show unused machine inspection actions.")
+		view.mode = "inspect"
+		view.selected = "step-a"
+		view._refresh_guided_tools()
+		verify(panel.visible, "Explicit foundation inspection retains its panel and dismantling controls.")
+		view.mode = "collector"
+		view.selected = ""
+		view.show_details = true
+		view._refresh_guided_tools()
+		verify(panel.visible, "Explicit Details retains the inspection disclosure.")
+		view.show_details = false
+		view._refresh_guided_tools(false)
+		verify(panel.visible, "An unavailable snapshot retains inspection readiness notices.")
+		view.state.actors.P.ready = false
+		view._refresh_guided_tools()
+		verify(panel.visible, "An unready physical actor retains inspection readiness notices.")
+		view.state.actors.P.ready = true
+		view.explanation_open = true
+		view._refresh_guided_tools()
+		verify(panel.visible, "Help retains explicit inspection disclosure.")
+		view.explanation_open = false
+		view._refresh_guided_tools()
+		verify(not panel.visible and view.state == before and view.model == null and view.actor_world == null
+			and view.request_sequence == 0, "Returning to construction hides the unused panel without authority or requests.")
+		await settle_footer()
+		if shared_profile:
+			view.session = null
+		view.free()
+	finish_checks()
 
 func check_footer_layout() -> void:
 	root.size = Vector2i(1280, 800)
@@ -404,6 +453,9 @@ func fixture() -> Dictionary:
 		"options": {"physical": true}}
 
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--foundation-inspector-only"):
+		call_deferred("check_foundation_inspector")
+		return
 	if OS.get_cmdline_user_args().has("--foundation-view-only"):
 		check_foundation_view.call_deferred()
 		return

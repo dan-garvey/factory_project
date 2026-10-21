@@ -1859,9 +1859,13 @@ func check_collector_coating(historical: bool) -> void:
 						"The real bearing liner retains its original exposed worked-metal material.")
 					continue
 				count += 1
-				var color := Color("d6a34d").darkened(0.09) if role == "CastLowerHousing" else Color("d6a34d")
+				var color := Color("d6a34d")
+				if role == "CastLowerHousing":
+					color = color.darkened(0.09)
+				elif role == "CastUpperHood":
+					color = Color("394f59")
 				verify(finish_value != null and finish_value.albedo_color == color,
-					"Each actual cast role preserves its original design color and housing shade.")
+					"The formed hood and original cast roles retain their distinct declared coating colors.")
 				if historical:
 					verify(finish_value == Visuals.material(color, 0.08, 0.72),
 						"A missing historical map set retains the exact original generated coating resource.")
@@ -1885,7 +1889,7 @@ func check_collector_coating(historical: bool) -> void:
 					verify(finish_value != original and is_equal_approx(original.normal_scale, 0.35),
 						"Reducing coating relief does not mutate the independently cached source material.")
 				if cached.has(color):
-					verify(finish_value == cached[color], "Every view and axis shares one coating material per original tint.")
+					verify(finish_value == cached[color], "Every view and axis shares one coating material per declared tint.")
 				else:
 					cached[color] = finish_value
 			verify(count == 6, "Exactly six existing painted casting roles receive the coating.")
@@ -1900,8 +1904,8 @@ func check_collector_coating(historical: bool) -> void:
 				"Material construction changes no projection, authority, native body or request.")
 			assemblies += 1
 			view.free()
-	verify(cached.size() == 2 and surface.source_status == ("missing" if historical else "ready"),
-		"Two original tints and the declared resource presence remain explicit.")
+	verify(cached.size() == 3 and surface.source_status == ("missing" if historical else "ready"),
+		"Three distinct cast tints and the declared resource presence remain explicit.")
 	print(JSON.stringify({"phase": "collector coating", "assemblies": assemblies, "coated_parts": coated_parts,
 		"coating_materials": cached.size(), "historical_missing_set": historical,
 		"maps": "historical generated coating" if historical else "qualified cast normal and authored satin roughness", "geometry_changed": false,
