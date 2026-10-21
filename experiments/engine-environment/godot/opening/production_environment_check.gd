@@ -532,7 +532,29 @@ func check_water_pattern() -> void:
 	for point: Vector3 in Scenery.stream_mesh().surface_get_arrays(0)[Mesh.ARRAY_VERTEX]:
 		maximum_error = maxf(maximum_error, absf(point.y - Scenery.Surface.stream_surface_height(point.x - 2.7, point.z + 1.65)))
 	verify(maximum_error < 0.00001, "Visible water ends at its actual surface rather than an extruded decorative side wall.")
+	var arrays := Scenery.stream_mesh().surface_get_arrays(0)
+	var colors: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
+	var points: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var brightness_rows := {}
+	for index in range(points.size()):
+		if colors[index].a < 0.99:
+			continue
+		var key := roundi(points[index].z * 1000.0)
+		var row: Vector2i = brightness_rows.get(key, Vector2i.ZERO)
+		row.x += int(colors[index].get_luminance() > 0.45)
+		row.y += 1
+		brightness_rows[key] = row
+	var widest_bright_band := 0.0
+	for row: Vector2i in brightness_rows.values():
+		widest_bright_band = maxf(widest_bright_band, float(row.x) / row.y)
+	verify(widest_bright_band < 0.75,
+		"The actual water albedo has no painted bright stripe spanning nearly the whole channel.")
+	var geometry_hash := HashingContext.new()
+	geometry_hash.start(HashingContext.HASH_SHA256)
+	for attribute in [Mesh.ARRAY_VERTEX, Mesh.ARRAY_NORMAL, Mesh.ARRAY_TANGENT, Mesh.ARRAY_TEX_UV, Mesh.ARRAY_TEX_UV2]:
+		geometry_hash.update(var_to_bytes(arrays[attribute]))
 	print(JSON.stringify({"case": "water-pattern", "straight_band_energy": ratios, "maximum_surface_error": maximum_error,
+		"widest_painted_bright_fraction": widest_bright_band, "geometry_sha256": geometry_hash.finish().hex_encode(),
 		"authority": "not_started", "rendered_quality": "separate_observation"}))
 
 func check_water_render() -> void:

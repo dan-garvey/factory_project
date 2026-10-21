@@ -2217,7 +2217,7 @@ class ProductionEnvironment:
 	static func water_material() -> StandardMaterial3D:
 		if water_finish == null:
 			water_finish = StandardMaterial3D.new()
-			# The mesh already carries the river/rapid palette. Do not multiply
+			# The mesh already carries the river palette. Do not multiply
 			# it by a second dark teal tint. Transmission is an art approximation,
 			# not depth-dependent absorption or a second water simulation.
 			water_finish.albedo_color = Color(1.0, 1.0, 1.0, 0.68)
@@ -2416,9 +2416,7 @@ class ProductionEnvironment:
 				var dy_dz := stream_surface_height(x_world, z_world + dz) - stream_surface_height(x_world, z_world - dz)
 				var dy_dx := stream_surface_height(x_world + 0.12, z_world) - stream_surface_height(x_world - 0.12, z_world)
 				var normal := Vector3(-dy_dx / 0.24, 1.0, -dy_dz / (2.0 * dz)).normalized()
-				var rapid := smoothstep(-5.6, -4.4, z_world) * (1.0 - smoothstep(-4.4, -2.8, z_world))
-				rapid = maxf(rapid, smoothstep(8.2, 9.2, z_world) * (1.0 - smoothstep(9.2, 11.2, z_world)))
-				var color := Color("235361").lerp(Color("8ec2c7"), rapid * 0.65)
+				var color := Color("235361")
 				# Thin shoreline water blends into the real bank. This is visual
 				# opacity, not depth simulation or additional underwater geometry.
 				color.a = 0.25 if c == 0 or c == cols else 1.0
