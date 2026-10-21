@@ -222,7 +222,7 @@ func evaluate() -> Dictionary:
 
 	var tradeoff_text := (
 		"Recover held material before moving a stocked line, or keep the machines in place and bridge the rows with cogs and shafts. "
-		+ "Rotational rate does not alter processing speed or yield in this prototype."
+		+ "The Press uses rotation speed to set its work rate; its recipe yield stays the same."
 	)
 
 	var diagnostic_code := "challenge_complete"
@@ -234,13 +234,12 @@ func evaluate() -> Dictionary:
 		diagnostic_code = "complete_first_shift"
 		diagnostic_text = "Complete the basic four-plate shift first (%d / %d plates collected)." % [products, FIRST_TARGET]
 	elif phase == "move_source":
-		if not wheel_id.is_empty() and wheel_coupled:
-			diagnostic_code = "disconnect_source_shaft"
-			diagnostic_text = "Disconnect the waterwheel's drive shaft, remove the waterwheel, and rebuild it at the upstream race [%d, %d]." % [
+		diagnostic_code = "relocate_wheel"
+		if not wheel_id.is_empty():
+			diagnostic_text = "Remove the waterwheel and rebuild it in the upstream stream at [%d, %d]." % [
 				target_wheel_cell.x, target_wheel_cell.y
 			]
 		else:
-			diagnostic_code = "relocate_wheel"
 			diagnostic_text = "Place the waterwheel on the upstream stream connection at cell [%d, %d]." % [
 				target_wheel_cell.x, target_wheel_cell.y
 			]
@@ -256,7 +255,7 @@ func evaluate() -> Dictionary:
 			diagnostic_text = "Connect the Collector -> Belt -> Press material ports (%d / 2 belt links connected)." % links_count
 		elif not wheel_coupled:
 			diagnostic_code = "missing_drive_shaft"
-			diagnostic_text = "Drive train incomplete (%d shafts placed): couple the upstream waterwheel and all three machines with finite shafts." % placed_shafts
+			diagnostic_text = "Drive train incomplete: connect the upstream waterwheel and machines using aligned axles, cogs and shafts where needed."
 		elif not power_enabled:
 			diagnostic_code = "drive_switched_off"
 			diagnostic_text = "Drive is switched off: press Start drive [P] near the waterwheel to power the transmission."
@@ -268,7 +267,7 @@ func evaluate() -> Dictionary:
 	elif phase == "deliver_more":
 		diagnostic_code = "producing_plates"
 		if arrangement == "geared_transfer":
-			diagnostic_text = "Geared transfer active (processing rate unchanged): collect %d / %d plates from the Press." % [
+			diagnostic_text = "Geared transfer active: collect %d / %d plates from the Press." % [
 				products, FINAL_TARGET
 			]
 		elif arrangement == "relocated_line":

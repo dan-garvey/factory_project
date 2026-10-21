@@ -113,9 +113,21 @@ func _check_basic_loop_and_isolation() -> void:
 	host.state = base_fixture(4)
 	report = challenge.evaluate()
 	verify(
-		report.phase == "move_source" and report.diagnostic_code == "disconnect_source_shaft" and not report.source_at_target,
+		report.phase == "move_source" and report.diagnostic_code == "relocate_wheel" and not report.source_at_target
+		and "Remove the waterwheel" in report.diagnostic_text and "Disconnect" not in report.diagnostic_text,
 		"Reaching four plates on the starter row requires moving the waterwheel to the upstream race."
 	)
+	host.state.transmission_parts.erase("s1")
+	host.state.drive_links = []
+	host.state.engagements = [{"a": "wheel", "b": "collector", "kind": 1}]
+	report = challenge.evaluate()
+	verify(report.diagnostic_code == "relocate_wheel" and "Remove the waterwheel" in report.diagnostic_text
+		and "Disconnect" not in report.diagnostic_text,
+		"A directly touching axle must not invent a shaft to disconnect.")
+	host.state.entities.erase("wheel")
+	report = challenge.evaluate()
+	verify(report.diagnostic_code == "relocate_wheel" and "Place the waterwheel" in report.diagnostic_text,
+		"Once removed, the guidance asks for the wheel to be placed upstream.")
 	verify(
 		"Upstream drive · 4 / 8 plates" in challenge.goal_text(),
 		"Once four plates are collected, the upstream-drive goal banner becomes active."
@@ -271,8 +283,9 @@ func _check_both_viable_arrangements() -> void:
 		"The two-cog transfer route powers all three original machines at -1/1 rate with 0 spare cogs."
 	)
 	verify(
-		"processing rate unchanged" in geared.diagnostic_text and "does not alter processing speed or yield" in geared.tradeoff_text,
-		"Presenter copy states honestly that reversed rotation does not alter material speed or yield."
+		"processing rate unchanged" not in geared.diagnostic_text and "speed" in geared.tradeoff_text
+		and "yield" in geared.tradeoff_text and "does not alter processing speed" not in geared.tradeoff_text,
+		"Presenter copy reflects speed-sensitive work while retaining the same recipe yield."
 	)
 
 	host.state.inventories.P = 8
