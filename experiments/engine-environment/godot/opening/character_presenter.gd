@@ -290,11 +290,14 @@ func _adult_bone_delta(body: Node3D, key: String, rotation: Quaternion) -> void:
 		(bone.rotation * bone.space.inverse() * rotation * bone.space).normalized())
 
 func _set_adult_air_and_landing(body: Node3D, air: float,
-		vertical_speed: float, impact: float) -> void:
+		vertical_speed: float, impact: float, landing_progress: float = 1.0) -> void:
 	# The captured run supplies grounded motion. These poses blend from its
 	# lowered-arm rest stance when confirmed height changes show a jump or fall.
 	var rise := clampf((vertical_speed + 0.4) / 5.0, 0.0, 1.0)
 	var fall := clampf((-vertical_speed - 0.4) / 5.2, 0.0, 1.0)
+	# A forward foot catches the first load. The trailing leg then joins it as
+	# the body compresses, before the walking clip takes over again.
+	var plant := impact * (1.0 - smoothstep(0.12, 0.60, landing_progress))
 	for pair in [["L", 1.0], ["R", -1.0]]:
 		var side: String = pair[0]
 		var sign: float = pair[1]
@@ -303,10 +306,12 @@ func _set_adult_air_and_landing(body: Node3D, air: float,
 		# Both legs fold under the body near the apex and reach down on descent.
 		var hip := ((-0.42 - 0.15 * rise + 0.30 * fall
 			- 0.35 * sign * rise - 0.08 * sign * (1.0 - rise) * (1.0 - fall)) * air
-			- (0.48 + 0.08 * sign) * impact)
+			- (0.48 + 0.08 * sign) * impact
+			+ (-0.24 if side == "L" else 0.32) * plant)
 		var knee := ((0.90 + 0.10 * rise - 0.55 * fall
 			+ 0.35 * sign * rise + 0.08 * sign * (1.0 - rise) * (1.0 - fall)) * air
-			+ (1.02 + 0.08 * sign) * impact)
+			+ (1.02 + 0.08 * sign) * impact
+			+ (-0.54 if side == "L" else 0.32) * plant)
 		_adult_bone_delta(body, side + " Thigh", Quaternion(Vector3.RIGHT, hip))
 		_adult_bone_delta(body, side + " Calf", Quaternion(Vector3.RIGHT, knee))
 		_adult_bone_delta(body, side + " Foot", Quaternion(Vector3.RIGHT,
@@ -322,11 +327,11 @@ func _set_adult_air_and_landing(body: Node3D, air: float,
 		_adult_bone_delta(body, side + " Forearm", Quaternion(Vector3.RIGHT,
 			(-0.30 - 0.22 * rise - 0.20 * fall) * air - 0.78 * impact))
 	_adult_bone_delta(body, "Spine1", Quaternion(Vector3.RIGHT,
-		(0.18 * rise + 0.08 * fall) * air + 0.30 * impact))
+		(0.18 * rise + 0.08 * fall) * air + 0.30 * impact + 0.42 * plant))
 	_adult_bone_delta(body, "Spine2", Quaternion(Vector3.RIGHT,
-		0.12 * impact))
+		0.12 * impact + 0.18 * plant))
 	_adult_bone_delta(body, "Neck", Quaternion(Vector3.RIGHT,
-		(0.06 * rise - 0.08 * fall) * air - 0.22 * impact))
+		(0.06 * rise - 0.08 * fall) * air - 0.22 * impact - 0.16 * plant))
 	# Compression moves only the skinned view; the Character root is unchanged.
 	body.position.y = -0.065 * impact
 
@@ -674,12 +679,21 @@ func _make_worker_visual() -> Node3D:
 
 func _set_gait(body: Node3D, phase: float, weight: float,
 		air: float = 0.0, vertical_speed: float = 0.0, impact: float = 0.0,
-		run_mix: float = 1.0) -> void:
+		run_mix: float = 1.0, landing_progress: float = 1.0) -> void:
 	if body.get_meta("appearance_unavailable", false):
 		return
 	if body.get_meta("sourced_character", false):
-		_set_adult_air_and_landing(body, air, vertical_speed, impact)
+		_set_adult_air_and_landing(body, air, vertical_speed, impact, landing_progress)
 		_apply_adult_locomotion(body, phase, weight, air, impact, run_mix)
+		if impact > 0.0:
+			var skeleton: Skeleton3D = body.get_node(body.get_meta("skeleton_path"))
+			skeleton.force_update_all_bone_transforms()
+			var left_toe := _adult_joint(body, skeleton, skeleton.find_bone("Bip01 L Toe0"))
+			var right_toe := _adult_joint(body, skeleton, skeleton.find_bone("Bip01 R Toe0"))
+			# The confirmed actor is at ground height now. Keep the leading boot
+			# against it while the bent legs absorb and release the load.
+			var contact_y := -Geometry.CAPSULE_HEIGHT / 2.0 + 0.01 - minf(left_toe.y, right_toe.y)
+			body.position.y = lerpf(body.position.y, contact_y, clampf(impact * 8.0, 0.0, 1.0))
 		return
 	for pair in [["Left", 0.0], ["Right", PI]]:
 		var prefix: String = pair[0]
@@ -731,6 +745,7 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float) -> v
 					and displacement.y < 0.0 or absf(displacement.y) < 0.002
 					and float(previous.peak_y) - at.y > 0.10):
 				mode = "landing"
+				previous.landing_air = float(previous.air)
 				previous.impact_age = 0.0
 				previous.ground_y = at.y
 		if mode == "landing":
@@ -738,8 +753,14 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float) -> v
 			if float(previous.impact_age) >= LANDING_SECONDS:
 				mode = "grounded"
 		previous.mode = mode
-		previous.air = move_toward(float(previous.air),
-			1.0 if mode == "ascent" or mode == "descent" else 0.0, delta * 14.0)
+		if mode == "landing":
+			# Keep the pre-contact extension long enough for the leading leg to
+			# carry the first load; shed it through the recovery, not in four frames.
+			previous.air = float(previous.landing_air) * (1.0 - smoothstep(0.0, 0.72,
+				float(previous.impact_age) / LANDING_SECONDS))
+		else:
+			previous.air = move_toward(float(previous.air),
+				1.0 if mode == "ascent" or mode == "descent" else 0.0, delta * 14.0)
 		previous.vertical_speed = vertical_speed if mode == "ascent" or mode == "descent" else 0.0
 		previous.age = 0.0 if horizontal.length() > 0.00001 else previous.age + delta
 		var speed := horizontal.length() / maxf(delta, 0.0001)
@@ -758,13 +779,15 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float) -> v
 		previous.position = at
 	motion[actor] = previous
 	var impact := 0.0
+	var landing_progress := 1.0
 	if previous.mode == "landing":
 		var elapsed: float = float(previous.impact_age) / LANDING_SECONDS
+		landing_progress = elapsed
 		# The feet reach support before the torso finishes absorbing the load.
 		# Let the visual compression peak a few samples after first contact.
 		impact = smoothstep(0.0, 0.16, elapsed) * pow(1.0 - clampf(elapsed, 0.0, 1.0), 1.7)
 	_set_gait(body, float(previous.phase), float(previous.weight), float(previous.air),
-		float(previous.vertical_speed), impact, float(previous.run_mix))
+		float(previous.vertical_speed), impact, float(previous.run_mix), landing_progress)
 
 func _new_view(actor: String) -> Node3D:
 	var root := Node3D.new()
