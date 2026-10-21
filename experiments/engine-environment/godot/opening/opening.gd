@@ -641,30 +641,20 @@ class ProductionEnvironment:
 		arch.name = "MillraceArchitecture"
 		scenery.add_child(arch)
 		var groups := {"MillraceArchitecture": arch}
-		for group in ["HeadraceSluice", "TailraceWeir"]:
+		for group in ["HeadraceGorge", "TailraceCascade"]:
 			var node := Node3D.new()
 			node.name = group
 			node.position = Surface.group_origin(group)
 			arch.add_child(node)
 			groups[group] = node
-		var finishes := {"stone": stone_material(), "dark_stone": ProductionVisuals.material(Color("38403e"), 0.06, 0.92),
-			"timber": timber_material(), "iron": iron_material(), "foam": foam_material()}
+		var finishes := {"stone": stone_material(), "dark_stone": ProductionVisuals.material(Color("38403e"), 0.0, 0.92),
+			"foam": foam_material()}
 		for spec in Surface.architecture_boxes():
 			var part := _scenery_box(groups[spec.group], spec.label,
 				spec.center - Surface.group_origin(spec.group), spec.size, finishes[spec.finish])
 			part.basis = spec.basis
 			if spec.solid:
 				part.set_meta("site_solid_id", spec.id)
-		var headrace: Node3D = groups.HeadraceSluice
-		var iron := iron_material()
-		var brass := ProductionVisuals.material(Color("b69252"), 0.72, 0.38)
-		var stem_profile := PackedVector2Array([
-			Vector2(0.0, -0.58), Vector2(0.038, -0.58), Vector2(0.038, 0.58), Vector2(0.0, 0.58)])
-		_scenery_turned(headrace, "SluiceLiftStem", Vector3(0.0, 1.32, 0.0), stem_profile, brass)
-		var wheel_profile := PackedVector2Array([
-			Vector2(0.0, -0.03), Vector2(0.24, -0.03), Vector2(0.26, -0.015),
-			Vector2(0.26, 0.015), Vector2(0.24, 0.03), Vector2(0.0, 0.03)])
-		_scenery_turned(headrace, "SluiceHandwheel", Vector3(0.0, 1.72, 0.0), wheel_profile, iron)
 		return arch
 
 	static func read_foliage(path: String = FOLIAGE_FILE) -> Dictionary:
@@ -2305,10 +2295,13 @@ func _build_world() -> void:
 		_box(self, Vector3(0, 0.005, 1.65), Vector3(0.12, 0.035, 13.4), Color("a58c59"))
 		for z in [-1.8, -1.4, -1.0]:
 			_box(self, Vector3(-3.75, 0.02, z), Vector3(0.12, 0.08, 0.22), Color("be9957"))
+		var arrow := _text(self, "MATERIAL  →", Vector3(1.6, 0.08, -4.15), Color("e4bc70"), 0.005)
+		arrow.rotation_degrees.x = -90
 	else:
 		var surface = ProductionEnvironment.Surface
-		var foundation_finish: StandardMaterial3D = ProductionSteelFloor.material()
-		set_meta("foundation_surface", ProductionSteelFloor.source_status)
+		var natural_ground: StandardMaterial3D = ProductionEnvironment.ground_material()
+		var natural_stone: StandardMaterial3D = ProductionEnvironment.stone_material()
+		set_meta("foundation_surface", ProductionEnvironment.ground_source_status)
 		var groups := {"": self}
 		var headwall := Node3D.new()
 		headwall.name = "NorthSeamOutcrop"
@@ -2319,15 +2312,17 @@ func _build_world() -> void:
 			var part := _machine_box(groups[spec.group], spec.label,
 				spec.center - surface.group_origin(spec.group), spec.size, spec.tint, spec.metallic, spec.roughness)
 			part.set_meta("site_solid_id", spec.id)
+			if spec.label in ["EastBedrockShelf", "WestBankBedrockShelf"] and natural_ground != null:
+				part.material_override = natural_ground
+			elif spec.label in ["EastBedrockRim", "WestBedrockRim", "EastShelfOutcrop", "WestShelfOutcrop", "StreamBankLedge"] and natural_stone != null:
+				part.material_override = natural_stone
 		for spec in surface.pad_panels():
 			var tint := Color("74766b").darkened(float(posmod(spec.cell.x * 17 + spec.cell.y * 31, 5)) * 0.018)
-			var panel := _machine_box(self, "FoundationPanel", spec.center, spec.size, tint, 0.04, 0.92)
+			var panel := _machine_box(self, "BedrockTerracePanel", spec.center, spec.size, tint, 0.0, 0.94)
 			panel.set_meta("surface_role", "foundation")
 			panel.set_meta("site_solid_id", spec.id)
-			if foundation_finish != null:
-				panel.material_override = foundation_finish
-	var arrow := _text(self, "MATERIAL  →", Vector3(1.6, 0.08, -4.15), Color("e4bc70"), 0.005)
-	arrow.rotation_degrees.x = -90
+			if natural_ground != null:
+				panel.material_override = natural_ground
 	machine_root = Node3D.new()
 	add_child(machine_root)
 	item_root = Node3D.new()

@@ -144,8 +144,9 @@ func check_surface_composition() -> void:
 		verify(mesh.global_position.is_equal_approx(spec.center) and mesh.global_basis.is_equal_approx(spec.basis)
 			and mesh.mesh.get_aabb().size.is_equal_approx(spec.size), "Visible and physical box transforms agree: " + spec.id)
 		if spec.id.begins_with("pad_"):
-			verify(mesh.material_override == Opening.ProductionSteelFloor.material()
-				and mesh.get_meta("surface_role") == "foundation", "The changed wharf rectangles retain the scanned steel material.")
+			verify(mesh.material_override == Scenery.ground_material()
+				and mesh.get_meta("surface_role") == "foundation",
+				"The natural bedrock terrace panels use the shared rocky-ground material instead of man-made steel floor plates.")
 	verify(rendered.size() == expected.size() - 64, "The shared descriptor set has no invisible architecture boxes.")
 	var rocks: MultiMesh = scenery.get_node("RockOutcrops").multimesh
 	check_rock_shapes(rocks)
@@ -698,26 +699,34 @@ func run() -> void:
 	var channel_bed: MeshInstance3D = arch.get_node("ChannelBed")
 	var west_wall: MeshInstance3D = arch.get_node("WestChannelWall")
 	var east_wall: MeshInstance3D = arch.get_node("EastChannelWall")
-	var headrace: Node3D = arch.get_node("HeadraceSluice")
-	var tailrace: Node3D = arch.get_node("TailraceWeir")
+	var headrace: Node3D = arch.get_node("HeadraceGorge")
+	var tailrace: Node3D = arch.get_node("TailraceCascade")
 	verify(channel_bed != null and west_wall != null and east_wall != null
 		and headrace != null and tailrace != null,
-		"MillraceArchitecture includes the stone channel bed, side walls, headrace sluice gate and tailrace weir.")
+		"MillraceArchitecture includes the bedrock channel bed, canyon walls, upstream gorge narrows and downstream cascade.")
 	verify(west_wall.position.y + west_wall.mesh.get_aabb().size.y * 0.5 <= Geometry.GROUND_HEIGHT
 		and east_wall.position.y + east_wall.mesh.get_aabb().size.y * 0.5 <= Geometry.GROUND_HEIGHT,
-		"Recessed millrace channel walls stay at or below the physical floor height.")
+		"Recessed canyon channel walls stay at or below the physical floor height.")
 	verify(headrace.position.z < -5.2 and tailrace.position.z > 8.4
-		and headrace.get_node("SluiceHandwheel") != null and tailrace.get_node("UpperWeirCrest") != null,
-		"The 3D headrace sluice gate and tailrace stepped weir frame the north and south ends of the millrace.")
-	var east_sub: MeshInstance3D = view.get_node("EastFoundrySubstructure")
-	var west_sub: MeshInstance3D = view.get_node("WestWharfSubstructure")
+		and headrace.get_node("WestGorgeCrag") != null and headrace.get_node("EastGorgeCrag") != null
+		and tailrace.get_node("UpperCascadeLedge") != null and tailrace.get_node("LowerCascadeLedge") != null,
+		"Natural upstream gorge crags and downstream stepped cascade ledges frame the north and south ends of the stream.")
+	var east_sub: MeshInstance3D = view.get_node("EastBedrockShelf")
+	var west_sub: MeshInstance3D = view.get_node("WestBankBedrockShelf")
 	var seam_headwall: Node3D = view.get_node("NorthSeamOutcrop")
-	verify(east_sub != null and west_sub != null and seam_headwall != null,
-		"The worksite builds split east/west substructures and a 3D north ore-seam rock headwall.")
+	verify(east_sub != null and west_sub != null and seam_headwall != null
+		and seam_headwall.get_node("SeamCragWest") != null and seam_headwall.get_node("SeamOverhangLedge") != null,
+		"The worksite builds split east/west natural bedrock shelves and a 3D north ore-vein rock outcrop.")
+	for forbidden in ["HeadraceSluice", "TailraceWeir", "SluiceHandwheel", "SluiceLiftStem",
+			"SluiceGateLeaf", "SluiceHeadbeam", "TrashRackBar", "FlumePost", "FlumeCapBeam",
+			"ChannelTimberSill", "MinePortalPost", "MinePortalCap", "FoundryCrossGirder",
+			"SeamCurbRail", "WestBankSurveyMarker", "MillraceWharfBeam", "FoundationPanel"]:
+		verify(view.find_child(forbidden, true, false) == null,
+			"Unbuilt worksite contains no pre-existing man-made structure node: " + forbidden)
 	var east_min_x := east_sub.position.x - east_sub.mesh.get_aabb().size.x * 0.5
 	var west_max_x := west_sub.position.x + west_sub.mesh.get_aabb().size.x * 0.5
 	verify(east_min_x > -2.0 and west_max_x < -3.4,
-		"The split foundation substructure leaves the recessed millrace corridor open around x=-2.7.")
+		"The split bedrock shelf leaves the recessed stream gorge open around x=-2.7.")
 	verify(ground.material_override == Scenery.ground_material()
 		and stream.material_override == Scenery.water_material(),
 		"Repeated world views share the authored material resources.")

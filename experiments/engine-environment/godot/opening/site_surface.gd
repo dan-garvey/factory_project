@@ -210,8 +210,8 @@ static func pad_panels() -> Array[Dictionary]:
 
 static func group_origin(group: String) -> Vector3:
 	match group:
-		"HeadraceSluice": return Vector3(-2.7, 0.0, -5.65)
-		"TailraceWeir": return Vector3(-2.7, 0.0, 8.65)
+		"HeadraceGorge": return Vector3(-2.7, 0.0, -5.65)
+		"TailraceCascade": return Vector3(-2.7, 0.0, 8.65)
 		"NorthSeamOutcrop": return Vector3(0.0, 0.0, -5.48)
 	return Vector3.ZERO
 
@@ -223,54 +223,48 @@ static func _structure(result: Array[Dictionary], group: String, label: String,
 
 static func architecture_boxes() -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
-	# Recessed stone-lined millrace channel bed and walls below Geometry.GROUND_HEIGHT.
+	# Recessed bedrock canyon channel bed, rock walls, rim ledges and riverbed strata ribs.
 	_structure(result, "MillraceArchitecture", "ChannelBed", Vector3(-2.7, -1.08, 1.4), Vector3(1.58, 0.16, 29.6), "dark_stone")
 	for side in [-1.0, 1.0]:
 		var wall_name := "WestChannelWall" if side < 0.0 else "EastChannelWall"
-		var coping_name := "WestChannelCoping" if side < 0.0 else "EastChannelCoping"
+		var rim_name := "WestCanyonRimLedge" if side < 0.0 else "EastCanyonRimLedge"
 		_structure(result, "MillraceArchitecture", wall_name, Vector3(-2.7 + side * 0.71, -0.32, 1.4),
 			Vector3(0.22, 0.56, 28.4), "stone")
-		_structure(result, "MillraceArchitecture", coping_name, Vector3(-2.7 + side * 0.69, -0.065, 1.65),
+		_structure(result, "MillraceArchitecture", rim_name, Vector3(-2.7 + side * 0.69, -0.065, 1.65),
 			Vector3(0.26, 0.08, 13.6), "dark_stone")
 	for n in range(10):
-		var sill_z := -4.6 + float(n) * 1.42
-		_structure(result, "MillraceArchitecture", "ChannelTimberSill", Vector3(-2.7, -0.52, sill_z),
-			Vector3(1.22, 0.09, 0.16), "timber")
-	# Upstream headrace sluice gate and timber flume bents (north of the buildable pad).
+		var rib_z := -4.6 + float(n) * 1.42
+		_structure(result, "MillraceArchitecture", "RiverbedRockRib", Vector3(-2.7, -0.52, rib_z),
+			Vector3(1.18, 0.09, 0.22), "dark_stone", Vector3(0.0, sin(float(n) * 1.9) * 0.08, 0.0))
+	# Natural upstream gorge narrows and canyon rock outcrops north of the clearing.
 	for side in [-1.0, 1.0]:
-		var pier_tag := "West" if side < 0.0 else "East"
-		_structure(result, "HeadraceSluice", pier_tag + "SluicePier", Vector3(side * 0.78, 0.52, 0.0),
-			Vector3(0.46, 1.72, 0.76), "stone")
-		_structure(result, "HeadraceSluice", pier_tag + "SluiceCap", Vector3(side * 0.78, 1.42, 0.0),
-			Vector3(0.54, 0.12, 0.84), "dark_stone")
-		_structure(result, "HeadraceSluice", pier_tag + "GuideChannel", Vector3(side * 0.55, 0.58, 0.0),
-			Vector3(0.08, 1.48, 0.16), "iron")
-	_structure(result, "HeadraceSluice", "SluiceHeadbeam", Vector3(0.0, 1.56, 0.0), Vector3(2.12, 0.18, 0.42), "iron")
-	_structure(result, "HeadraceSluice", "SluiceApronSill", Vector3(0.0, -0.22, 0.12), Vector3(1.36, 0.24, 0.58), "dark_stone")
-	_structure(result, "HeadraceSluice", "SluiceGateLeaf", Vector3(0.0, 0.46, 0.0), Vector3(1.16, 0.88, 0.09), "timber")
-	for rib_y in [0.16, 0.46, 0.76]:
-		_structure(result, "HeadraceSluice", "GateLeafStrap", Vector3(0.0, rib_y, 0.055), Vector3(1.18, 0.06, 0.035), "iron")
-	for rack in range(-2, 3):
-		_structure(result, "HeadraceSluice", "TrashRackBar", Vector3(float(rack) * 0.22, 0.22, -0.32),
-			Vector3(0.035, 0.84, 0.035), "iron", Vector3(0.18, 0.0, 0.0))
-	_structure(result, "HeadraceSluice", "SluiceDischargeFoam", Vector3(0.0, -0.05, 0.46), Vector3(1.12, 0.06, 0.42), "foam")
-	for bent in range(4):
-		var bz := -1.85 - float(bent) * 2.1
+		var bank_tag := "West" if side < 0.0 else "East"
+		_structure(result, "HeadraceGorge", bank_tag + "GorgeCrag", Vector3(side * 0.78, 0.42, 0.0),
+			Vector3(0.46, 1.44, 0.76), "stone", Vector3(0.0, side * 0.08, 0.0))
+		_structure(result, "HeadraceGorge", bank_tag + "GorgeCrown", Vector3(side * 0.82, 1.18, -0.12),
+			Vector3(0.38, 0.36, 0.58), "dark_stone", Vector3(0.0, side * 0.14, 0.0))
+		_structure(result, "HeadraceGorge", bank_tag + "GorgeLedge", Vector3(side * 0.62, -0.08, 0.14),
+			Vector3(0.24, 0.48, 0.88), "dark_stone")
+	_structure(result, "HeadraceGorge", "UpstreamBedrockSill", Vector3(0.0, -0.22, 0.12), Vector3(1.36, 0.24, 0.58), "dark_stone")
+	_structure(result, "HeadraceGorge", "UpstreamRapidsFoam", Vector3(0.0, -0.05, 0.46), Vector3(1.12, 0.06, 0.42), "foam")
+	for outcrop in range(4):
+		var bz := -1.85 - float(outcrop) * 2.1
 		for side in [-1.0, 1.0]:
-			_structure(result, "HeadraceSluice", "FlumePost", Vector3(side * 0.78, 0.18, bz), Vector3(0.18, 1.08, 0.18), "timber")
-		_structure(result, "HeadraceSluice", "FlumeCapBeam", Vector3(0.0, 0.74, bz), Vector3(1.84, 0.14, 0.18), "timber")
-	# Downstream stepped spillway weir and tailrace plunge basin (south of the buildable pad).
-	_structure(result, "TailraceWeir", "UpperWeirCrest", Vector3(0.0, -0.34, 0.0), Vector3(1.38, 0.38, 0.56), "stone")
-	_structure(result, "TailraceWeir", "LowerWeirCrest", Vector3(0.0, -0.56, 0.68), Vector3(1.54, 0.42, 0.68), "dark_stone")
-	_structure(result, "TailraceWeir", "UpperWeirFoam", Vector3(0.0, -0.14, 0.24), Vector3(1.18, 0.08, 0.32), "foam")
-	_structure(result, "TailraceWeir", "LowerWeirFoam", Vector3(0.0, -0.36, 0.96), Vector3(1.32, 0.09, 0.44), "foam")
-	_structure(result, "TailraceWeir", "PlungePoolFoam", Vector3(0.0, -0.58, 1.56), Vector3(1.48, 0.07, 0.58), "foam")
+			_structure(result, "HeadraceGorge", "UpstreamCanyonBoulder", Vector3(side * 0.78, 0.12, bz),
+				Vector3(0.28, 0.68, 0.52), "stone" if outcrop % 2 == 0 else "dark_stone",
+				Vector3(0.0, side * (0.1 + float(outcrop) * 0.04), 0.0))
+	# Natural downstream waterfall rock ledges and plunge-pool boulders south of the clearing.
+	_structure(result, "TailraceCascade", "UpperCascadeLedge", Vector3(0.0, -0.34, 0.0), Vector3(1.38, 0.38, 0.56), "stone")
+	_structure(result, "TailraceCascade", "LowerCascadeLedge", Vector3(0.0, -0.56, 0.68), Vector3(1.54, 0.42, 0.68), "dark_stone")
+	_structure(result, "TailraceCascade", "UpperCascadeFoam", Vector3(0.0, -0.14, 0.24), Vector3(1.18, 0.08, 0.32), "foam")
+	_structure(result, "TailraceCascade", "LowerCascadeFoam", Vector3(0.0, -0.36, 0.96), Vector3(1.32, 0.09, 0.44), "foam")
+	_structure(result, "TailraceCascade", "PlungePoolFoam", Vector3(0.0, -0.58, 1.56), Vector3(1.48, 0.07, 0.58), "foam")
 	for side in [-1.0, 1.0]:
-		var wing_tag := "West" if side < 0.0 else "East"
-		_structure(result, "TailraceWeir", wing_tag + "WeirWingwall", Vector3(side * 0.84, -0.14, 0.55),
+		var bank_tag := "West" if side < 0.0 else "East"
+		_structure(result, "TailraceCascade", bank_tag + "CascadeBluff", Vector3(side * 0.84, -0.14, 0.55),
 			Vector3(0.38, 0.76, 2.2), "stone")
-		_structure(result, "TailraceWeir", wing_tag + "TailraceTimberCrib", Vector3(side * 0.92, -0.38, 2.25),
-			Vector3(0.28, 0.68, 1.45), "timber")
+		_structure(result, "TailraceCascade", bank_tag + "PlungeBoulder", Vector3(side * 0.92, -0.38, 2.25),
+			Vector3(0.28, 0.68, 1.45), "dark_stone", Vector3(0.0, side * 0.08, 0.0))
 	return result
 
 static func _foundation(result: Array[Dictionary], group: String, label: String,
@@ -281,61 +275,58 @@ static func _foundation(result: Array[Dictionary], group: String, label: String,
 
 static func foundation_boxes() -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
-	# Split the foundation substructure around the recessed x=-2.7 millrace
-	# channel so the 3D river gorge and masonry walls remain open underneath.
-	_foundation(result, "", "EastFoundrySubstructure", Vector3(3.21, -0.55, 1.65),
-		Vector3(10.28, 0.8, 13.4), Color("394641"), 0.06, 0.9)
-	_foundation(result, "", "WestWharfSubstructure", Vector3(-4.25, -0.55, 1.65),
-		Vector3(1.60, 0.8, 13.4), Color("394641"), 0.06, 0.9)
-	_foundation(result, "", "FoundryCurbEast", Vector3(8.38, -0.11, 1.65),
-		Vector3(0.18, 0.18, 13.56), Color("3b4b50"), 0.75, 0.44)
-	_foundation(result, "", "FoundryCurbWest", Vector3(-5.08, -0.11, 1.65),
-		Vector3(0.18, 0.18, 13.56), Color("3b4b50"), 0.75, 0.44)
+	# Natural bedrock river shelves split around the recessed x=-2.7 stream gorge.
+	_foundation(result, "", "EastBedrockShelf", Vector3(3.21, -0.55, 1.65),
+		Vector3(10.28, 0.8, 13.4), Color("585d55"), 0.0, 0.94)
+	_foundation(result, "", "WestBankBedrockShelf", Vector3(-4.25, -0.55, 1.65),
+		Vector3(1.60, 0.8, 13.4), Color("585d55"), 0.0, 0.94)
+	_foundation(result, "", "EastBedrockRim", Vector3(8.38, -0.11, 1.65),
+		Vector3(0.18, 0.18, 13.56), Color("5b6158"), 0.0, 0.92)
+	_foundation(result, "", "WestBedrockRim", Vector3(-5.08, -0.11, 1.65),
+		Vector3(0.18, 0.18, 13.56), Color("5b6158"), 0.0, 0.92)
 	for z_idx in range(-2, 5):
 		var z_pos := float(z_idx) * Geometry.PITCH
-		_foundation(result, "", "EastRetainingButtress", Vector3(8.48, -0.52, z_pos),
-			Vector3(0.32, 0.86, 0.36), Color("515954"), 0.08, 0.88)
-		_foundation(result, "", "WestRetainingButtress", Vector3(-5.18, -0.52, z_pos),
-			Vector3(0.32, 0.86, 0.36), Color("515954"), 0.08, 0.88)
-		_foundation(result, "", "FoundryCrossGirder", Vector3(3.25, -0.155, z_pos - Geometry.PITCH * 0.5),
-			Vector3(10.1, 0.05, 0.09), Color("2f3e43"), 0.78, 0.45)
-	# Recessed 3D ore seam trench along x=0 with steel curb rails, fractured
-	# slate vein bed, faceted brass-ore crystal outcrops, and a north rock headwall.
+		_foundation(result, "", "EastShelfOutcrop", Vector3(8.48, -0.52, z_pos),
+			Vector3(0.32, 0.86, 0.36), Color("525851"), 0.0, 0.92)
+		_foundation(result, "", "WestShelfOutcrop", Vector3(-5.18, -0.52, z_pos),
+			Vector3(0.32, 0.86, 0.36), Color("525851"), 0.0, 0.92)
+	# Natural exposed mineral vein fissure along x=0 with raw ore clusters and north rock outcrop.
 	_foundation(result, "", "SeamVeinBed", Vector3(0.0, -0.012, 1.65),
-		Vector3(0.26, 0.03, 13.4), Color("2d3536"), 0.12, 0.88)
+		Vector3(0.26, 0.03, 13.4), Color("2d3536"), 0.04, 0.92)
 	for side in [-1.0, 1.0]:
-		_foundation(result, "", "SeamCurbRail", Vector3(side * 0.155, 0.004, 1.65),
-			Vector3(0.045, 0.036, 13.4), Color("46585d"), 0.78, 0.42)
+		_foundation(result, "", "SeamHostRockLip", Vector3(side * 0.155, 0.002, 1.65),
+			Vector3(0.055, 0.032, 13.4), Color("535954"), 0.0, 0.92)
 	for n in range(14):
 		var oz := -3.35 + float(n) * 0.78
 		var ox := (-0.045 if n % 2 == 0 else 0.045)
 		_foundation(result, "", "SeamOreOutcrop", Vector3(ox, 0.018, oz),
-			Vector3(0.11, 0.048, 0.28), Color("b89752"), 0.68, 0.36)
+			Vector3(0.11, 0.048, 0.28), Color("b89752"), 0.58, 0.44)
 	_foundation(result, "NorthSeamOutcrop", "SeamRockMass", Vector3(0.0, 0.46, -0.24),
-		Vector3(1.52, 1.32, 0.74), Color("4b524e"), 0.06, 0.9)
+		Vector3(1.52, 1.32, 0.74), Color("4b524e"), 0.0, 0.92)
 	_foundation(result, "NorthSeamOutcrop", "SeamRockShoulderWest", Vector3(-0.78, 0.28, -0.18),
-		Vector3(0.68, 0.92, 0.58), Color("585f59"), 0.05, 0.9)
+		Vector3(0.68, 0.92, 0.58), Color("585f59"), 0.0, 0.92)
 	_foundation(result, "NorthSeamOutcrop", "SeamRockShoulderEast", Vector3(0.78, 0.32, -0.18),
-		Vector3(0.68, 0.98, 0.58), Color("585f59"), 0.05, 0.9)
+		Vector3(0.68, 0.98, 0.58), Color("585f59"), 0.0, 0.92)
 	for side in [-1.0, 1.0]:
-		_foundation(result, "NorthSeamOutcrop", "MinePortalPost", Vector3(side * 0.46, 0.48, 0.14),
-			Vector3(0.14, 1.04, 0.14), Color("6e5339"), 0.04, 0.84)
-	_foundation(result, "NorthSeamOutcrop", "MinePortalCap", Vector3(0.0, 1.04, 0.14),
-		Vector3(1.18, 0.14, 0.18), Color("6e5339"), 0.04, 0.84)
+		var crag_name := "SeamCragWest" if side < 0.0 else "SeamCragEast"
+		_foundation(result, "NorthSeamOutcrop", crag_name, Vector3(side * 0.46, 0.44, 0.10),
+			Vector3(0.24, 0.92, 0.22), Color("525853"), 0.0, 0.92)
+	_foundation(result, "NorthSeamOutcrop", "SeamOverhangLedge", Vector3(0.0, 0.96, 0.08),
+		Vector3(1.22, 0.20, 0.26), Color("4d544f"), 0.0, 0.92)
 	for v_idx in range(3):
 		_foundation(result, "NorthSeamOutcrop", "ExposedOreVein",
 			Vector3(-0.18 + float(v_idx) * 0.18, 0.24 + float(v_idx) * 0.24, 0.12),
-			Vector3(0.22, 0.18, 0.14), Color("c7a35a"), 0.74, 0.34)
+			Vector3(0.22, 0.18, 0.14), Color("c7a35a"), 0.62, 0.42)
 	for idx in range(3):
-		var crib_z := -1.8 + float(idx) * 0.4
-		_foundation(result, "", "WestBankSurveyMarker", Vector3(-3.75, 0.03, crib_z),
-			Vector3(0.16, 0.09, 0.24), Color("be9957"), 0.62, 0.42)
+		var boulder_z := -1.8 + float(idx) * 0.4
+		_foundation(result, "", "WestBankBoulder", Vector3(-3.75, 0.02, boulder_z),
+			Vector3(0.20, 0.08, 0.24), Color("5b6159"), 0.0, 0.92)
 	for row in range(-2, 5):
 		for offset in [-0.52, 0.0, 0.52]:
 			for side in [0, 1]:
-				_foundation(result, "", "MillraceWharfBeam",
+				_foundation(result, "", "StreamBankLedge",
 					Vector3(-2.22 if side == 0 else -2.95, -0.06, row * Geometry.PITCH + offset),
-					Vector3(0.50 if side == 0 else 0.94, 0.08, 0.22), Color("6e5339"), 0.04, 0.84)
+					Vector3(0.50 if side == 0 else 0.94, 0.08, 0.22), Color("555c56"), 0.0, 0.93)
 	return result
 
 static func rock_boxes() -> Array[Dictionary]:
