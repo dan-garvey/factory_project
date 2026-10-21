@@ -213,6 +213,15 @@ func inspect_adult(body: Node3D, other: Node3D, presenter: Node) -> void:
 	verify(impact_bounds.position.y + body.position.y >= -0.901
 		and impact_bounds.position.y + body.position.y <= -0.85,
 		"The compressed landing pose keeps the skinned boots near and above the unchanged foot plane.")
+	presenter._set_gait(body, 0.0, 0.0, 1.0, 5.0, 0.0)
+	var rising_knee := skeleton.get_bone_pose_rotation(skeleton.find_bone("Bip01 L Calf"))
+	presenter._set_gait(body, 0.0, 0.0, 1.0, 0.0, 0.0)
+	var apex_knee := skeleton.get_bone_pose_rotation(skeleton.find_bone("Bip01 L Calf"))
+	presenter._set_gait(body, 0.0, 0.0, 1.0, -5.0, 0.0)
+	var falling_knee := skeleton.get_bone_pose_rotation(skeleton.find_bone("Bip01 L Calf"))
+	verify(not rising_knee.is_equal_approx(apex_knee)
+		and not apex_knee.is_equal_approx(falling_knee),
+		"The airborne skeleton changes from takeoff to apex to pre-landing extension.")
 	presenter._set_gait(body, 0.0, 0.0)
 	verify(body.position == Vector3.ZERO, "The visual body returns to its original rest origin.")
 
