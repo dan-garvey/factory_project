@@ -162,6 +162,8 @@ func _has_unknown_actions() -> bool:
 
 func _disconnected(reason: String) -> void:
 	_release_character_controls()
+	if transmission_controls != null:
+		transmission_controls.clear_belt_selection()
 	connecting = false
 	for request in pending_actions:
 		uncertain_actions.append({"request": request, "action": pending_actions[request].action.duplicate(true),
@@ -254,6 +256,8 @@ func _settle_pending() -> void:
 				"powered": "stop the drive before editing.", "held_stock": "material remains in that machine.",
 				"ports_not_adjacent": "choose neighboring ports in the arrow's direction.",
 				"no_shaft": "all shared shafts are in use."}.get(result.reason, str(result.reason))), true)
+		if item.action.action == "select_belt_shaft" and transmission_controls != null:
+			transmission_controls.settle_belt_selection(request, result.accepted)
 	_refresh_ui()
 
 func _refresh() -> void:
