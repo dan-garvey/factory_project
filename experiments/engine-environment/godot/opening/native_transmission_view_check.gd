@@ -695,6 +695,15 @@ func _belt_surface_motion() -> void:
 	var b_delta := wrapf(material_b.uv1_offset.x, -0.5, 0.5)
 	verify(a_delta > 0.0 and b_delta < 0.0 and is_equal_approx(b_delta, -2.0 * a_delta),
 		"Belt surfaces follow independent signed shaft rates.")
+	var before_long_frame := view.visual_rotation("a0")
+	var surface_before_long_frame := material_a.uv1_offset.x
+	var factor: float = _part(view, "belt-a").get_meta("belt_uv_factor")
+	view.advance_visual_motion(0.25)
+	var expected_step := Presenter.VISUAL_RADIANS_PER_SECOND * 0.25
+	verify(is_equal_approx(view.visual_rotation("a0") - before_long_frame, expected_step),
+		"A long frame advances the shaft for the full elapsed duration.")
+	verify(is_equal_approx(material_a.uv1_offset.x, fposmod(surface_before_long_frame + expected_step * factor, 1.0)),
+		"A long frame advances the belt surface at the same confirmed shaft speed.")
 	var prior_a := material_a.uv1_offset.x
 	host.motion_fresh = false
 	view.advance_visual_motion(0.1)
