@@ -73,12 +73,14 @@ void finite_oriented_train_and_restore() {
     check(accepted(host.configure_terrain(factory::godot_world::tests::flat_site())), "The test binds explicit synthetic terrain.");
     observe(host, -1.65, 3.3, 1);
     const auto specs = field<O>(host.projection(), "part_specifications");
-    bool saw_gear = false;
+    bool saw_gear = false, saw_large = false;
     for (const auto& entry : std::get<A>(specs.at("P").storage())) {
         if (field<std::string>(entry, "kind") != "gear") continue;
-        saw_gear = field<I>(entry, "teeth") == 2 && field<I>(entry, "count") == 2;
+        saw_gear |= field<I>(entry, "teeth") == 2 && field<I>(entry, "count") == 2;
+        saw_large |= field<I>(entry, "teeth") == 4 && field<I>(entry, "count") == 1;
     }
     check(saw_gear, "The UI sees the actual carried gear specification, not only an aggregate count.");
+    check(saw_large, "The native starter kit exposes one finite large cog to the UI.");
     for (const auto& entry : std::get<A>(specs.at("Q").storage()))
         check(field<I>(entry, "count") == 0, "An empty actor kit cannot borrow the other actor's parts.");
     const auto wheel = create(host, machine("wheel", -1, "wheel"));
@@ -97,8 +99,8 @@ void finite_oriented_train_and_restore() {
           "Meshing equal gears reverses the exact signed rate through the independent shafts.");
     check(field<bool>(host.projection(), "powered") &&
           field<I>(V(field<O>(host.projection(), "parts")), "shaft") == 1 &&
-          field<I>(V(field<O>(host.projection(), "parts")), "gear") == 0,
-          "The powered train retains one spare shaft and no unaccounted gear.");
+          field<I>(V(field<O>(host.projection(), "parts")), "gear") == 1,
+          "The powered train retains one spare shaft and the unused large cog.");
     const auto ticked = host.advance();
     check(field<I>(V(field<O>(ticked, "stock")), "source") == 15 &&
           field<I>(V(field<O>(ticked, "stock")), "collector") == 1,
@@ -155,7 +157,7 @@ void refusals_and_legacy_shape() {
     reject(floating, "invalid_center");
     reject(gear(0, 4, 4, "invalid-axis", "bad"), "invalid_axis");
     reject(gear(0, 1000001, 4, "outside-native-integer-range"), "invalid_center");
-    reject(gear(-4, 8, 4, "uncarried-size", "y", 4), "unavailable_part");
+    reject(gear(-4, 8, 4, "uncarried-size", "y", 3), "unavailable_part");
     auto boolean = machine("collector", 0, "boolean-axis"); boolean.at("axis") = V(false);
     reject(boolean, "invalid_axis");
     auto overlapping = gear(-4, 1, 8, "actor-overlap");
@@ -169,6 +171,29 @@ void refusals_and_legacy_shape() {
 
 V world_state(const Host& host) {
     return V(field<O>(V(field<O>(host.checkpoint(), "world")), "state"));
+}
+
+void finite_large_cog() {
+    Host host;
+    check(accepted(host.initialize("cog-api", {"P", "Q"})), "The large-cog Host initializes.");
+    check(accepted(host.configure_terrain(factory::godot_world::tests::flat_site())), "The large-cog Host binds its site.");
+    observe(host, -1.65, 3.3, 1);
+    const auto large = create(host, gear(-4, 8, 4, "large", "y", 4));
+    const auto refused = host.command("P", gear(0, 8, 4, "exhausted-large", "y", 4));
+    check(!accepted(refused) && field<std::string>(refused, "reason") == "unavailable_part",
+          "The finite large-cog kit cannot place a second large cog.");
+    const auto saved = host.checkpoint();
+    Host fresh;
+    check(accepted(fresh.initialize("fresh", {"P", "Q"})) &&
+              accepted(fresh.configure_terrain(factory::godot_world::tests::flat_site())), "The fresh Host binds its site.");
+    const auto restored = fresh.restore_checkpoint(saved);
+    check(accepted(restored), "Large-cog checkpoint restore: " + field<std::string>(restored, "reason"));
+    check(!factory::values::typed_difference(saved, fresh.checkpoint()),
+          "The placed large cog and its depleted kit survive a fresh Host checkpoint restore.");
+    check(accepted(host.command("P", target("remove", large, "remove-large"))), "Removing the large cog succeeds.");
+    create(host, gear(-4, 8, 4, "replace-large", "y", 4));
+    check(!accepted(host.command("P", gear(0, 8, 4, "exhausted-again", "y", 4))),
+          "Removal returns exactly one large cog for replacement.");
 }
 
 void equivalent_gear_exclusion() {
@@ -215,8 +240,8 @@ void equivalent_gear_exclusion() {
         const auto new_success = modern.command("P", new_clear);
         check(accepted(old_success) && accepted(new_success), "New requests at the clear pose both place the gear.");
         check(!factory::values::typed_difference(world_state(legacy), world_state(modern)) &&
-              field<I>(V(field<O>(legacy.projection(), "parts")), "gear") == 1,
-              "Equivalent accepted aliases produce identical typed topology and retain one carried gear.");
+              field<I>(V(field<O>(legacy.projection(), "parts")), "gear") == 2,
+              "Equivalent accepted aliases produce identical typed topology and retain two carried gears.");
         const auto placed = world_state(legacy);
         check(accepted(legacy.publish_actor("P", blocked, 3)) && accepted(modern.publish_actor("P", blocked, 3)),
               "Present overlap is observed after placement without changing the saved part.");
@@ -251,7 +276,7 @@ int main(int argc, char** argv) {
     try {
         if (argc == 1) {
             finite_oriented_train_and_restore(); refusals_and_legacy_shape();
-            global_grid();
+            global_grid(); finite_large_cog();
         } else if (argc != 2 || std::string(argv[1]) != "--placement-alias-only") {
             throw std::runtime_error("Expected no arguments or --placement-alias-only.");
         }

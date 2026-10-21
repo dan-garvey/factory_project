@@ -275,7 +275,7 @@ Value Host::initialize(const std::string& context, const std::vector<std::string
     profile.foundation_parts = 24;
     profile.finite_parts = {{{Role::collector, 0, 0}, 1}, {{Role::belt, 0, 0}, 1},
         {{Role::processor, 0, 0}, 1}, {{Role::waterwheel, 0, 0}, 1}, {{Role::shaft, 0, 2}, 3},
-        {{Role::gear, 2, 0}, 2}};
+        {{Role::gear, 2, 0}, 2}, {{Role::gear, 4, 0}, 1}};
     world::State seed;
     seed.material.initial_units = 16;
     seed.material.stock.source = 16;
@@ -755,7 +755,7 @@ Host::Decoded Host::decode(const Value& input) const {
             if (part.geometry.half_span != 2)
                 return {nullptr, "incompatible_geometry"};
         } else if (part.role == Role::gear) {
-            if (part.geometry.teeth != 2) return {nullptr, "incompatible_geometry"};
+            if (part.geometry.teeth != 2 && part.geometry.teeth != 4) return {nullptr, "incompatible_geometry"};
         } else if (center[0] % 4 != 0 || center[2] % 4 != 0 ||
             (part.role == Role::collector && (center[0] != 0 || center[1] != 0)) ||
             (part.role == Role::waterwheel && (center[0] != -4 || center[1] != 0))) return {nullptr, "incompatible_geometry"};
