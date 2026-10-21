@@ -20,6 +20,9 @@ template<class T> const T& get(const V& value, const char* key) {
 }
 bool accepted(const V& value) { return get<bool>(value, "accepted"); }
 void outcome(const V& value, bool success, const char* reason) {
+    if (accepted(value) != success || get<std::string>(value, "reason") != reason)
+        std::cerr << "At check " << checks + 1 << ": expected " << reason << " accepted=" << success
+                  << ", got " << get<std::string>(value, "reason") << " accepted=" << accepted(value) << '\n';
     check(accepted(value) == success && get<std::string>(value, "reason") == reason, reason);
 }
 O request(const char* action, const std::string& id, const char* actor = "P") {
@@ -28,6 +31,12 @@ O request(const char* action, const std::string& id, const char* actor = "P") {
 O foundation(const std::string& id, I x, I z, I level) {
     auto wire = request("place_foundation", id);
     wire.emplace("cell", V(A{V(x), V(z)})); wire.emplace("level", V(level));
+    return wire;
+}
+O area(const std::string& id, I x, I z, I end_x, I end_z, I level) {
+    auto wire = foundation(id, x, z, level);
+    wire.at("action") = V("place_foundations");
+    wire.emplace("end_cell", V(A{V(end_x), V(end_z)}));
     return wire;
 }
 O machine(const std::string& id, const char* kind, I x, I z, I level) {
@@ -69,8 +78,6 @@ void construction_and_custody() {
     auto changed = a_wire; changed.at("level") = V(I{2});
     check(!accepted(host.command("P", changed)) && carried(host) == 22, "Changed reuse cannot reinterpret a prior request.");
     outcome(host.command("P", foundation("overlap", 5, 2, 2)), false, "occupied");
-    outcome(host.command("P", foundation("floating", 7, 2, 9)), false, "foundation_unsupported");
-    outcome(host.command("P", foundation("buried", 7, 2, -1)), false, "foundation_buried");
     const auto belt = host.command("P", machine("belt", "belt", 5, 2, 1)); outcome(belt, true, "ok");
     const auto press = host.command("P", machine("press", "processor", 6, 2, 1)); outcome(press, true, "ok");
     const auto entities = get<O>(host.projection(), "entities");
@@ -100,32 +107,73 @@ void terrain_and_stacking() {
     outcome(host.publish_actor("P", {V(9.0), V(2.8), V(6.0)}, 1), true, "actor_published");
     const auto lower = host.command("P", foundation("lower", 5, 2, 1)); outcome(lower, true, "ok");
     const auto upper = host.command("P", foundation("upper", 5, 2, 5)); outcome(upper, true, "ok");
-    outcome(host.command("P", removal("dependent-base", get<std::string>(lower, "entity"))), false, "foundation_in_use");
     check(carried(host) == 22, "Vertical attachment uses four common height units and consumes two blocks.");
     outcome(host.validate_checkpoint(host.checkpoint()), true, "valid");
-    outcome(host.command("P", removal("upper-refund", get<std::string>(upper, "entity"))), true, "ok");
     outcome(host.command("P", removal("lower-refund", get<std::string>(lower, "entity"))), true, "ok");
+    outcome(host.validate_checkpoint(host.checkpoint()), true, "valid");
+    outcome(host.command("P", removal("upper-refund", get<std::string>(upper, "entity"))), true, "ok");
     Host peak;
     A heights(25, V(-0.02)); heights[12] = V(0.3);
     O site{{"axis", V(A{V(-128.0), V(7.4), V(8.25), V(9.1), V(128.0)})},
         {"heights", V(std::move(heights))},
         {"obstacles", V(A{})}};
     initialize(peak, site);
-    outcome(peak.command("P", foundation("interior-peak", 5, 5, 0)), false, "foundation_buried");
-    check(carried(peak) == 24, "The whole footprint catches a peak between its outside corners.");
+    outcome(peak.publish_actor("P", {V(9.0), V(1.5), V(9.0)}, 1), true, "actor_published");
+    outcome(peak.command("P", foundation("interior-peak", 5, 5, 0)), true, "ok");
+    check(carried(peak) == 23, "Foundations can intersect a terrain peak without a support rule.");
     Host blocked;
     auto solid = factory::godot_world::tests::flat_site();
     solid.at("obstacles") = V(A{V(A{V(A{V(8.0), V(-0.1), V(3.0)}), V(A{V(8.5), V(0.2), V(3.6)})})});
     initialize(blocked, solid);
-    outcome(blocked.command("P", foundation("rock", 5, 2, 1)), false, "site_occupied");
+    outcome(blocked.publish_actor("P", {V(9.0), V(1.5), V(6.0)}, 1), true, "actor_published");
+    outcome(blocked.command("P", foundation("rock", 5, 2, 1)), true, "ok");
+    outcome(blocked.publish_actor("P", {V(11.55), V(3.5), V(6.0)}, 2), true, "actor_published");
+    outcome(blocked.command("P", foundation("floating", 7, 2, 9)), true, "ok");
+    outcome(blocked.publish_actor("P", {V(11.55), V(1.5), V(6.0)}, 3), true, "actor_published");
+    outcome(blocked.command("P", foundation("buried", 7, 2, -1)), true, "ok");
+    outcome(blocked.validate_checkpoint(blocked.checkpoint()), true, "valid");
+    Host relocated; initialize(relocated, site);
+    outcome(relocated.restore_checkpoint(blocked.checkpoint()), true, "restored");
     outcome(blocked.configure_terrain(solid), false, "terrain_already_bound");
     auto malformed = foundation("float-level", 5, 2, 1); malformed.at("level") = V(1.0);
     outcome(host.command("P", malformed), false, "invalid_cell");
 }
+void rectangular_placement() {
+    Host host; initialize(host);
+    auto wire = area("rectangle", 60, 20, 62, 21, 17);
+    outcome(host.command("P", area("unready", 60, 20, 62, 21, 17)), false, "actor_unready");
+    outcome(host.publish_actor("P", {V(0.0), V(1.5), V(0.0)}, 1), true, "actor_published");
+    // The entire rectangle is far beyond ordinary reach and floats over terrain.
+    const auto result = host.command("P", wire); outcome(result, true, "ok");
+    check(get<I>(result, "count") == 6 && carried(host) == 18, "One area consumes exactly six carried foundations.");
+    const auto saved = host.checkpoint();
+    outcome(host.validate_checkpoint(saved), true, "valid");
+    Host restored; initialize(restored);
+    outcome(restored.restore_checkpoint(saved), true, "restored");
+    check(!factory::values::typed_difference(saved, restored.checkpoint()), "Area history and custody restore exactly.");
+    check(get<bool>(restored.command("P", wire), "duplicate") && carried(restored) == 18,
+          "Saved area replay needs no fresh body cut and never spends parts twice.");
+    auto reused = wire; reused.at("end_cell") = V(A{V(I{63}), V(I{21})});
+    check(!accepted(host.command("P", reused)) && carried(host) == 18, "Changed area replay is refused.");
+    outcome(host.command("P", area("late-overlap", 59, 20, 60, 20, 17)), false, "occupied");
+    check(carried(host) == 18 && get<O>(host.projection(), "foundations").size() == 6,
+          "A later overlap rolls back the entire rectangle, not just the occupied tile.");
+    outcome(host.command("P", area("too-many-parts", 70, 20, 74, 24, 17)), false, "no_part");
+    outcome(host.command("P", area("too-large", 0, 0, 256, 0, 17)), false, "invalid_area");
+    auto malformed = area("float-corner", 70, 20, 71, 21, 17);
+    malformed.at("end_cell") = V(A{V(71.0), V(I{21})});
+    outcome(host.command("P", malformed), false, "invalid_cell");
+    outcome(host.command("P", area("actor-blocked", 0, 0, 1, 0, 4)), false, "actor_occupied");
+    outcome(host.command("P", machine("machine-still-far", "belt", 60, 20, 17)), false, "out_of_reach");
+    outcome(host.command("P", area("reverse-stack", 62, 21, 60, 20, 21)), true, "ok");
+    check(carried(host) == 12 && get<O>(host.projection(), "foundations").size() == 12,
+          "Reversed corners produce the same aligned footprint exactly one block above.");
+    outcome(host.validate_checkpoint(host.checkpoint()), true, "valid");
+}
 }
 int main() {
     try {
-        construction_and_custody(); terrain_and_stacking();
+        construction_and_custody(); terrain_and_stacking(); rectangular_placement();
         std::cout << "{\"status\":\"pass\",\"checks\":" << checks << ",\"evidence\":\"synthetic_native_foundation_rules\",\"engine_calls\":0}\n";
         return 0;
     } catch (const std::exception& failure) {

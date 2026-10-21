@@ -29,10 +29,45 @@ class AckView extends SharedOpening:
 	func _message(words: String, _refused: bool = false) -> void:
 		advice = words
 
+class AreaView extends FooterView:
+	var requests: Array = []
+	func _update_cursor() -> void:
+		pass
+	func issue(action: Dictionary) -> Dictionary:
+		requests.append(action.duplicate(true))
+		return {"accepted": false, "reason": "view-only"}
+	func _refresh_ui() -> void:
+		pass
+	func _message(_words: String, _refused: bool = false) -> void:
+		pass
+
+func check_foundation_area_input() -> void:
+	var view := AreaView.new()
+	view.state = first_target_fixture()
+	view.mode = "foundation"
+	view.foundation_area_mode = true
+	view.foundation_level = 8
+	view._world_click(Vector2i(60, 20))
+	verify(view.requests.is_empty() and view.foundation_area_started,
+		"Choosing the first area corner sends no construction request.")
+	view._world_click(Vector2i(62, 21))
+	verify(view.requests == [{"action": "place_foundations", "cell": [60, 20], "end_cell": [62, 21], "level": 8}]
+		and not view.foundation_area_started, "The second corner sends exactly one absolute-height rectangle request.")
+	view._world_click(Vector2i(10, 10))
+	view._select_tool("inspect")
+	verify(not view.foundation_area_started and view.requests.size() == 1, "Changing tool cancels an unsubmitted area.")
+	view.mode = "foundation"
+	view.foundation_area_mode = false
+	view._world_click(Vector2i(10, 10))
+	verify(view.requests.back() == {"action": "place_foundation", "cell": [10, 10], "level": 8},
+		"Single-tile construction retains its distinct native request.")
+	view.free()
+
 func check_foundation_view() -> void:
 	# Read-only world geometry without Model, ActorWorld, Session or input.
 	# This exercises the pointer path also inherited by shared clients.
 	root.size = Vector2i(1280, 800)
+	check_foundation_area_input()
 	var view := FooterView.new()
 	view.state = first_target_fixture()
 	view.state.options["foundations"] = true
@@ -87,7 +122,7 @@ func check_foundation_view() -> void:
 	ack._settle_pending()
 	verify(ack.selected == "left" and ack.pending_actions.is_empty() and ack.model == null,
 		"A current shared foundation acknowledgement selects the confirmed surface without a client authority.")
-	verify(ack._material_refusal_message({"reason": "foundation_buried"}, "missing advice").begins_with("Raise the foundation"),
+	verify(ack._material_refusal_message({"reason": "invalid_area"}, "missing advice").begins_with("Choose a rectangle"),
 		"Shared refusal advice explains the recovery action in ordinary language.")
 	ack.free()
 	view.free()

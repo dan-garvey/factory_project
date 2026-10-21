@@ -3333,6 +3333,10 @@ var lesson_title: Label
 var lesson_body: Label
 var tool_buttons: Dictionary = {}
 var foundation_level := 0
+var foundation_area_mode := false
+var foundation_area_started := false
+var foundation_area_start := Vector2i.ZERO
+var foundation_area_toggle: CheckButton
 var foundation_level_controls: HBoxContainer
 var foundation_level_label: Label
 var state: Dictionary = {}
@@ -3674,6 +3678,7 @@ func issue(action: Dictionary) -> Dictionary:
 		_construction_feedback(intent, outcome)
 		_message({"place": "Placed. Parts stay with this worksite.",
 			"place_foundation": "Foundation placed. Its surface shares the machine grid.",
+			"place_foundations": "Foundation area placed on the world grid.",
 			"connect": "Material path connected.", "connect_drive": "Drive shaft connected.",
 			"retrieve": "Plate collected.", "set_power": "Drive updated.",
 			"remove": "Part returned to your carried kit.",
@@ -3701,9 +3706,8 @@ func issue(action: Dictionary) -> Dictionary:
 func _material_refusal_message(outcome: Dictionary, fallback: String) -> String:
 	var foundation_advice: String = {
 		"foundation_required": "Build a foundation here first so the machine has a level surface.",
-		"foundation_buried": "Raise the foundation height so its top clears the ground.",
-		"foundation_unsupported": "Lower the foundation height so its base reaches the ground or a supporting block.",
-		"foundation_in_use": "Remove the machinery or stacked block before reclaiming this foundation.",
+		"invalid_area": "Choose a rectangle of at most 256 foundation tiles.",
+		"foundation_in_use": "Remove the machinery on this foundation before reclaiming it.",
 		"site_occupied": "Rock or vegetation occupies this space. Choose a clear location.",
 		"terrain_unavailable": "There is no confirmed building surface here."}.get(outcome.get("reason", ""), "")
 	if not foundation_advice.is_empty():
@@ -3926,8 +3930,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_6:
 				if state.get("options", {}).get("foundations", false):
 					_select_tool("foundation")
-			KEY_PAGEUP: _adjust_foundation_level(1)
-			KEY_PAGEDOWN: _adjust_foundation_level(-1)
+			KEY_PAGEUP: _adjust_foundation_level(4)
+			KEY_PAGEDOWN: _adjust_foundation_level(-4)
 			KEY_F: _select_tool("flow")
 			KEY_G: _select_tool("drive")
 			KEY_I, KEY_ESCAPE: _select_tool("inspect")
@@ -3945,6 +3949,7 @@ func _select_tool(tool: String) -> void:
 	if transmission_controls != null:
 		transmission_controls.cancel()
 	mode = tool
+	foundation_area_started = false
 	pending_link = ""
 	if _native_transmission() and transmission_controls != null and tool in ["gear", "drive"]:
 		transmission_controls.choose_tool("gear" if tool == "gear" else "shaft")
@@ -3960,7 +3965,7 @@ func _select_tool(tool: String) -> void:
 		instructions["flow"] = "Choose the upstream machine, then its neighbor at the material outlet."
 		instructions["drive"] = "Choose a machine or cogwheel, then its partner. The amber ring marks the first endpoint."
 		instructions["gear"] = "Place a cogwheel at the highlighted point. Set axis and height in the cogwheel menu."
-		instructions["foundation"] = "Build a level surface from carried foundations. Page Up / Page Down adjust height; nearby tiles snap to the same world grid."
+		instructions["foundation"] = "Place foundations through ground and scenery. Page Up / Page Down move one block height. Enable Area to choose two corners; Esc cancels."
 	_message(instructions.get(tool,
 		"Place %s on an empty grid square." % NAMES.get(tool, tool)))
 
@@ -3975,7 +3980,7 @@ func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 			selected = entity_id
 			_refresh_ui()
 			return
-	if state.entities.has(entity_id):
+	if mode != "foundation" and state.entities.has(entity_id):
 		var actual: Array = state.entities[entity_id].cell
 		cell = Vector2i(actual[0], actual[1])
 	if not _build_cell_allowed(cell):
@@ -3998,7 +4003,16 @@ func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 	else:
 		var action := {"action": "place", "kind": mode, "cell": [cell.x, cell.y]}
 		if _native_transmission() and mode == "foundation":
-			action = {"action": "place_foundation", "cell": [cell.x, cell.y], "level": _construction_level(cell)}
+			if foundation_area_mode:
+				if not foundation_area_started:
+					foundation_area_start = cell
+					foundation_area_started = true
+					_message("First corner chosen. Choose the opposite corner at this height; Esc cancels. The whole area uses carried parts.")
+					return
+				action = {"action": "place_foundations", "cell": [foundation_area_start.x, foundation_area_start.y], "end_cell": [cell.x, cell.y], "level": foundation_level}
+				foundation_area_started = false
+			else:
+				action = {"action": "place_foundation", "cell": [cell.x, cell.y], "level": _construction_level(cell)}
 		elif _native_transmission():
 			action["level"] = _construction_level(cell)
 		if _native_transmission() and transmission_controls != null:
@@ -4069,14 +4083,14 @@ func _set_lesson(index: int) -> void:
 		example_presenter.set_lesson(lesson_index)
 
 func _screen_cell(screen: Vector2) -> Vector2i:
-	if _native_transmission():
+	if _native_transmission() and mode != "foundation":
 		var id := _screen_entity(screen)
 		var surface: Dictionary = state.get("foundations", {}).get(id, state.get("entities", {}).get(id, {}))
 		if not surface.is_empty():
 			return Vector2i(surface.cell[0], surface.cell[1])
 	# Select a requested construction datum, not permission or terrain contact.
-	# Shared clients need no duplicate ground collider. Native support and reach
-	# checks decide whether this requested tile can actually be built.
+	# Shared clients need no duplicate ground collider. The host decides actual
+	# placement; an area request deliberately has no construction reach limit.
 	var height := foundation_level * Geometry.HEIGHT_STEP if _native_transmission() and mode == "foundation" else 0.0
 	var point = Plane(Vector3.UP, height).intersects_ray(camera.project_ray_origin(screen), camera.project_ray_normal(screen))
 	if point == null:
@@ -4103,7 +4117,7 @@ func _entity_position(entity: Dictionary) -> Vector3:
 	return _cell_position(entity.cell) + Vector3.UP * float(entity.get("level", 0)) * Geometry.HEIGHT_STEP
 
 func _build_cell_allowed(cell: Vector2i) -> bool:
-	if _native_transmission() and ProductionEnvironment.Surface != null:
+	if mode != "foundation" and _native_transmission() and ProductionEnvironment.Surface != null:
 		var half: float = ProductionEnvironment.Surface.HALF - PITCH / 2.0
 		return absf(cell.x * PITCH) <= half and absf(cell.y * PITCH) <= half
 	return absi(cell.x) <= 250000 and absi(cell.y) <= 250000
@@ -4121,6 +4135,7 @@ func _adjust_foundation_level(delta: int) -> void:
 	if mode != "foundation" or not _native_transmission() or explanation_open:
 		return
 	foundation_level = clampi(foundation_level + delta, -1000000, 1000000)
+	foundation_area_started = false
 	foundation_level_label.text = "Level %d · %.2f m" % [foundation_level, foundation_level * Geometry.HEIGHT_STEP]
 	_message("Foundation top: level %d (%.2f m). Every tile and machine uses this world height grid." % [foundation_level, foundation_level * Geometry.HEIGHT_STEP])
 
@@ -4795,6 +4810,7 @@ func _toggle_details() -> void:
 func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	if foundation_level_controls != null:
 		foundation_level_controls.visible = _native_transmission() and mode == "foundation" and not explanation_open and snapshot_ready
+		foundation_area_toggle.visible = foundation_level_controls.visible
 	_refresh_placement_hint(snapshot_ready)
 	footer_snapshot_ready = snapshot_ready
 	_queue_footer_fit()
@@ -4946,8 +4962,15 @@ func _refresh_machine_preview() -> void:
 	if transmission_controls != null and not transmission_controls.active_tool.is_empty():
 		return
 	var cell := _machine_preview_cell()
-	if not _build_cell_allowed(cell) or not _entity_at_cell(cell).is_empty():
+	if not _build_cell_allowed(cell) or (mode != "foundation" and not _entity_at_cell(cell).is_empty()):
 		return
+	var area_size := Vector2i.ONE
+	var area_origin := cell
+	if mode == "foundation" and foundation_area_mode and foundation_area_started:
+		area_size = Vector2i(absi(cell.x - foundation_area_start.x) + 1, absi(cell.y - foundation_area_start.y) + 1)
+		area_origin = Vector2i(mini(cell.x, foundation_area_start.x), mini(cell.y, foundation_area_start.y))
+		if area_size.x > 256 or area_size.y > 256 or area_size.x * area_size.y > 256:
+			return
 	var axis := _preview_axis()
 	if axis < 0:
 		return
@@ -4976,6 +4999,11 @@ func _refresh_machine_preview() -> void:
 		_style_machine_preview(machine_preview)
 		machine_preview_key = key
 	machine_preview.position = _cell_position([cell.x, cell.y]) + Vector3.UP * _construction_level(cell) * Geometry.HEIGHT_STEP
+	machine_preview.scale = Vector3.ONE
+	if mode == "foundation":
+		machine_preview.scale = Vector3(area_size.x, 1, area_size.y)
+		machine_preview.position.x = (area_origin.x + (area_size.x - 1) / 2.0) * PITCH
+		machine_preview.position.z = (area_origin.y + (area_size.y - 1) / 2.0) * PITCH
 	machine_preview.visible = true
 
 func _style_machine_preview(node: Node) -> void:
@@ -5197,10 +5225,17 @@ func _build_interface() -> void:
 		tool_buttons[kind] = button
 	foundation_level_controls = HBoxContainer.new()
 	build.add_child(foundation_level_controls)
-	_button(foundation_level_controls, "−", _adjust_foundation_level.bind(-1))
+	_button(foundation_level_controls, "−", _adjust_foundation_level.bind(-4))
 	foundation_level_label = _label(foundation_level_controls, "Level 0 · 0.00 m", 14)
-	_button(foundation_level_controls, "+", _adjust_foundation_level.bind(1))
+	_button(foundation_level_controls, "+", _adjust_foundation_level.bind(4))
 	foundation_level_controls.visible = false
+	foundation_area_toggle = CheckButton.new()
+	foundation_area_toggle.text = "Area (two corners)"
+	foundation_area_toggle.toggled.connect(func(enabled: bool) -> void:
+		foundation_area_mode = enabled
+		foundation_area_started = false)
+	build.add_child(foundation_area_toggle)
+	foundation_area_toggle.visible = false
 	tool_buttons.flow = _button(build, "Material link  [F]", _select_tool.bind("flow"))
 	tool_buttons.drive = _button(build, "Drive link  [G]", _select_tool.bind("drive"))
 	tool_buttons.inspect = _button(build, "Inspect  [I]", _select_tool.bind("inspect"))

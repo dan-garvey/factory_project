@@ -840,9 +840,13 @@ prototype evidence root. Owner: Playability, `factory-yau.6.53`.
 
 The view selects a confirmed constructable surface or the chosen absolute grid
 height plane. It needs no duplicate terrain collider on a shared client. This
-requests coordinates only: the native Host checks actual emitted triangles,
-support, occupied space and the real character's reach. A selected plane never
-grants construction permission. The foundation and machine height denominator
+requests coordinates only. Machine placement still checks emitted triangles,
+support, occupied space and the real character's reach. Following human feedback,
+foundations deliberately ignore terrain, scenery and gravity support; constructed
+objects and actors still block them. Rectangular foundation requests temporarily
+omit the distance restriction, while single blocks retain it. These are explicit
+prototype construction choices, not limitations imposed by Godot. A selected plane
+never grants construction permission. The foundation and machine height denominator
 is a user requirement, independent of this observed query behavior.
 
 ## Required follow-through

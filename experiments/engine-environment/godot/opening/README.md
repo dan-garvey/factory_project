@@ -24,15 +24,23 @@ order, not a technology unlock or a saved progression rule. Reopening a worksite
 derives the suggestions again from its actual machines, links and inventory.
 
 **Foundation [6]** builds a level surface from the carried kit. Its height controls
-and Page Up / Page Down select an absolute world level, initially zero. Every
+and Page Up / Page Down move by one full block, initially at world level zero. Every
 foundation and machine uses the same quarter-pitch height unit, currently
 0.4125 m on 1.65 m horizontal tiles. Machinery snaps to a confirmed foundation's
 top. Independent sections can meet on that grid; a full-height block stacks four
-height units above its supporting block. Clear flat ground also supports ordinary
+height units above another block. Foundations may float or intersect terrain,
+rocks and vegetation; no ground contact or gravity support is required. Enable
+**Area (two corners)** to select opposite corners of a rectangular patch at the
+chosen height. The translucent preview shows the full footprint. The second
+click requests the entire patch atomically from carried parts; insufficient
+parts or an occupied tile refuses the whole patch. Escape, changing tools or
+changing height cancels the first corner. Area placement temporarily ignores
+construction distance; single-block and machine placement retain character reach.
+Clear flat ground also supports ordinary
 construction throughout the represented site. Uneven ground needs a foundation;
-there is no special building rectangle. The native owner refuses buried,
-unsupported, occupied or out-of-reach placements. Inspect and Remove reclaim a
-block after its dependent machinery or stacked block has been removed. The
+there is no special building rectangle. Constructed machines, overlapping blocks
+and characters still block foundation placement. Inspect and Remove reclaim a
+block after its machinery has been removed; floating blocks above may remain. The
 twenty-four carried blocks and dimensions are experimental defaults. Old saves
 are not migrated to this changed feature profile.
 

@@ -113,6 +113,22 @@ bool historical_wire(const authority::Record& record) {
         return left != wire->end() && right != intent.end() &&
             !values::typed_difference(left->second, right->second);
     };
+    if (*action == "place_foundations") {
+        const auto* cell = field<Array>(*wire, "cell");
+        const auto* end = field<Array>(*wire, "end_cell");
+        const auto* level = field<Integer>(*wire, "level");
+        if (*original_action != "place_foundations" || !keys(*wire, {"cell", "end_cell", "level"}) ||
+            !cell || !end || cell->size() != 2 || end->size() != 2 || !level ||
+            *level < -1000000 || *level > 1000000) return false;
+        const auto matches = [&](const Array& point, const char* name) {
+            const auto* x = std::get_if<Integer>(&point[0].storage());
+            const auto* z = std::get_if<Integer>(&point[1].storage());
+            return x && z && *x >= -250000 && *x <= 250000 && *z >= -250000 && *z <= 250000 &&
+                intent.contains(name) && !values::typed_difference(intent.at(name),
+                    Value(Array{Value(4 * *x), Value(*level), Value(4 * *z)}));
+        };
+        return matches(*cell, "center") && matches(*end, "end");
+    }
     if (*action == "place_foundation") {
         const auto* cell = field<Array>(*wire, "cell");
         const auto* level = field<Integer>(*wire, "level");
@@ -423,35 +439,43 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.emplace(generation, Value(selected ? selected->generation : 0));
         return true;
     };
-    if (*action == "place_foundation") {
-        if (!keys(wire, {"cell", "level"})) return refuse("invalid_command");
+    if (*action == "place_foundation" || *action == "place_foundations") {
+        const bool area = *action == "place_foundations";
+        if (!(area ? keys(wire, {"cell", "end_cell", "level"}) : keys(wire, {"cell", "level"})))
+            return refuse("invalid_command");
         const auto* cell = field<Array>(wire, "cell");
         const auto* level = field<Integer>(wire, "level");
         if (!cell || cell->size() != 2 || !level || *level < -1000000 || *level > 1000000) return refuse("invalid_cell");
         const auto* x = std::get_if<Integer>(&cell->at(0).storage());
         const auto* z = std::get_if<Integer>(&cell->at(1).storage());
         if (!x || !z || *x < -250000 || *x > 250000 || *z < -250000 || *z > 250000) return refuse("invalid_cell");
-        const auto terrain = terrain_range(*x * pitch, *z * pitch);
-        if (!terrain) return refuse("terrain_unavailable");
+        const auto* end = area ? field<Array>(wire, "end_cell") : cell;
+        if (!end || end->size() != 2) return refuse("invalid_cell");
+        const auto* end_x = std::get_if<Integer>(&end->at(0).storage());
+        const auto* end_z = std::get_if<Integer>(&end->at(1).storage());
+        if (!end_x || !end_z || *end_x < -250000 || *end_x > 250000 || *end_z < -250000 || *end_z > 250000)
+            return refuse("invalid_cell");
+        const auto width = std::abs(*end_x - *x) + 1, depth = std::abs(*end_z - *z) + 1;
+        if (width > 256 || depth > 256 || width * depth > 256) return refuse("invalid_area");
         const auto top = *level * pitch / 4;
-        if (top < terrain->second) return refuse("foundation_buried");
-        const bool stacked = std::any_of(snapshot.state.foundations.begin(), snapshot.state.foundations.end(), [&](const auto& entry) {
-            return entry.second.center == mechanics::Point{4 * *x, *level - 4, 4 * *z};
-        });
-        if (top - pitch > terrain->first && !stacked) return refuse("foundation_unsupported");
-        if (site_blocked({*x * pitch - pitch / 2, top - pitch, *z * pitch - pitch / 2},
-                         {*x * pitch + pitch / 2, top, *z * pitch + pitch / 2})) return refuse("site_occupied");
-        const authority::Point at{*x * pitch, top - pitch / 2, *z * pitch};
-        if (placement_blocked(at, {pitch / 2, pitch / 2, pitch / 2})) return refuse("actor_occupied");
+        // Foundations intentionally intersect natural ground/scenery and need
+        // no gravity support. Constructed parts and actual actors still block.
+        for (auto px = std::min(*x, *end_x); px <= std::max(*x, *end_x); ++px)
+            for (auto pz = std::min(*z, *end_z); pz <= std::max(*z, *end_z); ++pz)
+                if (placement_blocked({px * pitch, top - pitch / 2, pz * pitch}, {pitch / 2, pitch / 2, pitch / 2}))
+                    return refuse("actor_occupied");
         for (const auto& part : snapshot.state.topology.parts) {
             const auto& center = part.geometry.center;
-            if (std::abs(center[0] * pitch / 4 - at[0]) < pitch &&
-                std::abs(center[2] * pitch / 4 - at[2]) < pitch &&
+            if (center[0] * pitch / 4 > std::min(*x, *end_x) * pitch - pitch &&
+                center[0] * pitch / 4 < std::max(*x, *end_x) * pitch + pitch &&
+                center[2] * pitch / 4 > std::min(*z, *end_z) * pitch - pitch &&
+                center[2] * pitch / 4 < std::max(*z, *end_z) * pitch + pitch &&
                 center[1] * pitch / 4 < top && center[1] * pitch / 4 + machine_height > top - pitch)
                 return refuse("occupied");
         }
-        normalized.at("action") = Value("place_foundation");
+        normalized.at("action") = Value(*action);
         normalized.emplace("center", Value(Array{Value(4 * *x), Value(*level), Value(4 * *z)}));
+        if (area) normalized.emplace("end", Value(Array{Value(4 * *end_x), Value(*level), Value(4 * *end_z)}));
     } else if (*action == "place") {
         if (!place_keys(wire))
             return refuse("invalid_command");
@@ -716,21 +740,6 @@ Host::Decoded Host::decode(const Value& input) const {
         const auto* actor = field<std::string>(record.intent, "actor");
         const auto* client = field<std::string>(record.intent, "client");
         if (!actor || !client || *actor != *client) return {nullptr, "invalid_actor_binding"};
-    }
-    for (const auto& [id, foundation] : snapshot.state.foundations) {
-        (void)id;
-        const auto terrain = terrain_range(foundation.center[0] * height_step, foundation.center[2] * height_step);
-        const auto top = foundation.center[1] * height_step;
-        const bool stacked = std::any_of(snapshot.state.foundations.begin(), snapshot.state.foundations.end(), [&](const auto& entry) {
-            auto below = foundation.center;
-            below[1] -= 4;
-            return entry.second.center == below;
-        });
-        if (!terrain || top < terrain->second || (top - pitch > terrain->first && !stacked))
-            return {nullptr, "unsupported_foundation"};
-        if (site_blocked({foundation.center[0] * height_step - pitch / 2, top - pitch, foundation.center[2] * height_step - pitch / 2},
-                         {foundation.center[0] * height_step + pitch / 2, top, foundation.center[2] * height_step + pitch / 2}))
-            return {nullptr, "site_occupied"};
     }
     for (const auto& part : snapshot.state.topology.parts) {
         const auto& center = part.geometry.center;

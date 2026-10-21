@@ -100,6 +100,7 @@ bool keys(const Object& object, std::initializer_list<const char*> extra) {
 }
 
 bool shape(const Object& intent, const std::string& action) {
+    if (action == "place_foundations") return keys(intent, {"center", "end"});
     if (action == "place_foundation") return keys(intent, {"center"});
     if (action == "remove_foundation") return keys(intent, {"target", "generation"});
     if (action == "recover" || action == "remove") return keys(intent, {"target", "generation"});
@@ -150,6 +151,25 @@ authority::Point anchor(const Profile& profile, const mechanics::Point& point) {
     return {static_cast<double>(point[0]) * profile.meters_per_grid_unit + profile.anchor_offset[0],
             static_cast<double>(point[1]) * profile.meters_per_grid_unit + profile.anchor_offset[1],
             static_cast<double>(point[2]) * profile.meters_per_grid_unit + profile.anchor_offset[2]};
+}
+
+// A rectangle uses the same absolute quarter-pitch coordinates as every part.
+// Bound the complete request before enumerating it or changing any custody.
+std::vector<mechanics::Point> foundation_area(const Object& intent) {
+    const auto start = grid_point(intent);
+    const auto* end = field<Value::Array>(intent, "end");
+    if (!start || !end) return {};
+    const auto finish = grid_point(Object{{"center", Value(*end)}});
+    if (!finish || (*start)[1] != (*finish)[1] || (*start)[0] % 4 || (*start)[2] % 4 ||
+        (*finish)[0] % 4 || (*finish)[2] % 4) return {};
+    const auto width = std::abs((*start)[0] - (*finish)[0]) / 4 + 1;
+    const auto depth = std::abs((*start)[2] - (*finish)[2]) / 4 + 1;
+    if (width > 256 || depth > 256 || width * depth > 256) return {};
+    std::vector<mechanics::Point> points;
+    for (auto x = std::min((*start)[0], (*finish)[0]); x <= std::max((*start)[0], (*finish)[0]); x += 4)
+        for (auto z = std::min((*start)[2], (*finish)[2]); z <= std::max((*start)[2], (*finish)[2]); z += 4)
+            points.push_back({x, (*start)[1], z});
+    return points;
 }
 
 bool two_endpoints(const std::string& action) {
@@ -269,6 +289,12 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         const auto* distance = std::get_if<double>(&distances->at(index).storage());
         if (!distance || *distance != checked.receipt->distances_squared[index]) return false;
     }
+    if (action == "place_foundations") {
+        const auto cells = foundation_area(record.intent);
+        const auto* count = field<Integer>(result, "count");
+        return !cells.empty() && count && *count == static_cast<Integer>(cells.size()) &&
+            targets.front() == *actor_position && result.size() == 17;
+    }
     if (placement(action) || action == "place_foundation") {
         const auto location = grid_point(record.intent);
         if (action == "place_foundation")
@@ -356,6 +382,14 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
         if (!result_actor || *result_actor != *actor || !entity || !generation) return false;
         const auto issued = snapshot.state.issued_entities.find(*entity);
         if (issued == snapshot.state.issued_entities.end() || issued->second != *generation) return false;
+        if (*action == "place_foundations") {
+            const auto cells = foundation_area(record.intent);
+            if (cells.empty() || *generation < static_cast<Integer>(cells.size())) return false;
+            for (auto serial = *generation - static_cast<Integer>(cells.size()) + 1; serial <= *generation; ++serial) {
+                const auto found = snapshot.state.issued_entities.find(std::string(allocated_prefix) + std::to_string(serial));
+                if (found == snapshot.state.issued_entities.end() || found->second != serial) return false;
+            }
+        }
         if (two_endpoints(*action)) {
             const auto* from = field<std::string>(record.intent, "target");
             const auto* from_generation = field<Integer>(record.intent, "generation");
@@ -551,6 +585,48 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
     const auto* action = field<std::string>(intent, "action");
     if (!action || !shape(intent, *action)) return refused("invalid_command");
     const auto& state = snapshot.state;
+    if (*action == "place_foundations") {
+        if (profile_.foundation_parts == 0) return refused("foundations_unavailable");
+        const auto cells = foundation_area(intent);
+        if (cells.empty()) return refused("invalid_area");
+        const auto count = static_cast<Integer>(cells.size());
+        if (state.foundation_kits.at(binding.actor) < count) return refused("no_part");
+        const auto cut = observe ? observe(binding.actor) : std::nullopt;
+        if (!cut) return refused("actor_unready");
+        auto checked_cut = *cut;
+        checked_cut.build_reach = profile_.build_reach;
+        // Area construction deliberately has no distance restriction. This cut
+        // still verifies the actual bound actor and a valid native observation.
+        const auto checked = authority::check_reach(binding.actor, checked_cut, {cut->position});
+        Object facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
+        if (checked.error != authority::Error::none) return refused(authority::error_name(checked.error));
+        auto candidate = state;
+        std::string entity;
+        Integer generation{};
+        for (const auto& cell : cells) {
+            for (const auto& placed : state.topology.parts)
+                if (std::abs(placed.geometry.center[0] - cell[0]) < 4 &&
+                    std::abs(placed.geometry.center[2] - cell[2]) < 4 &&
+                    placed.geometry.center[1] < cell[1] && placed.geometry.center[1] + 4 > cell[1] - 4)
+                    return refused("occupied");
+            for (const auto& [id, foundation] : state.foundations) {
+                (void)id;
+                if (foundation.center[0] == cell[0] && foundation.center[2] == cell[2] &&
+                    std::abs(foundation.center[1] - cell[1]) < 4) return refused("occupied");
+            }
+            if (candidate.issued_entities.size() == maximum_issued_entities ||
+                candidate.next_entity_serial == std::numeric_limits<Integer>::max()) return refused("identity_limit");
+            generation = candidate.next_entity_serial++;
+            entity = std::string(allocated_prefix) + std::to_string(generation);
+            if (candidate.issued_entities.contains(entity)) return refused("identity_conflict");
+            candidate.foundations.emplace(entity, Foundation{cell, generation});
+            candidate.issued_entities.emplace(entity, generation);
+            --candidate.foundation_kits.at(binding.actor);
+        }
+        facts.emplace("generation", Value(generation));
+        facts.emplace("count", Value(count));
+        return accepted(std::move(candidate), entity, std::move(facts));
+    }
     if (*action == "place_foundation" || *action == "remove_foundation") {
         if (profile_.foundation_parts == 0) return refused("foundations_unavailable");
         auto location = grid_point(intent);
@@ -598,10 +674,6 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             candidate.issued_entities.emplace(entity, generation);
             --candidate.foundation_kits.at(binding.actor);
         } else {
-            for (const auto& [id, foundation] : state.foundations)
-                if (id != entity && foundation.center[0] == (*location)[0] && foundation.center[2] == (*location)[2] &&
-                    foundation.center[1] == (*location)[1] + 4)
-                    return refused("foundation_in_use", entity, std::move(facts));
             for (const auto& placed : state.topology.parts)
                 if (placed.geometry.center[0] == (*location)[0] && placed.geometry.center[2] == (*location)[2] &&
                     placed.geometry.center[1] >= (*location)[1] && placed.geometry.center[1] < (*location)[1] + 4)
