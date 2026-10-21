@@ -4642,6 +4642,15 @@ func render_buildable_resources() -> void:
 			quit(1)
 			return
 		var bounds := feed_item_bounds(model, Transform3D.IDENTITY)
+		if subject.get("paddle_cutaway", false):
+			# Empty ancestor origins are not part of the visible cutaway. Frame
+			# the actual mesh bounds without relocating or scaling the paddle.
+			var pieces: Array[Dictionary] = []
+			hub_mesh_rows(model, Transform3D.IDENTITY, pieces)
+			bounds = pieces[0].pose * pieces[0].node.mesh.get_aabb()
+			for piece in pieces:
+				var box: AABB = piece.pose * piece.node.mesh.get_aabb()
+				bounds = bounds.merge(box)
 		var centre := bounds.get_center()
 		var diagonal := bounds.size.length()
 		var viewport := SubViewport.new()

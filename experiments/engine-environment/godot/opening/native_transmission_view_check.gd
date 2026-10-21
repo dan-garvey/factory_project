@@ -215,6 +215,7 @@ func _belt_spans() -> void:
 	host.state = fixture()
 	host.state.transmission_parts["left"] = {"kind": "shaft", "generation": 11, "center": [0, 0, 0], "axis": 2, "half_span": 2}
 	host.state.transmission_parts["right"] = {"kind": "shaft", "generation": 12, "center": [12, 0, 0], "axis": 2, "half_span": 2}
+	host.state.transmission_parts["middle"] = {"kind": "shaft", "generation": 14, "center": [4, 0, 0], "axis": 2, "half_span": 2}
 	host.state.belt_spans = {}
 	var controls := Controls.new()
 	controls.configure(host)
@@ -241,6 +242,20 @@ func _belt_spans() -> void:
 	presenter.refresh()
 	var span := _part(presenter, "span")
 	verify(span != null and span.get_node("Pick").get_meta("entity") == "span", "A confirmed span has a selectable visual.")
+	verify(span.has_node("BeltLoop") and not span.has_node("BeltStrip"), "The confirmed span uses the fitted closed loop.")
+	verify(_part(presenter, "left").has_node("BeltPulley") and _part(presenter, "right").has_node("BeltPulley") and _part(presenter, "middle").has_node("BeltPulley"), "Endpoint and intermediate shafts receive fitted pulleys.")
+	verify(not _part(presenter, "sx").has_node("BeltPulley"), "An unrelated shaft never acquires a pulley.")
+	verify(_part(presenter, "left").get_node("Pick").get_meta("entity") == "left" and _part(presenter, "right").get_node("Pick").get_meta("entity") == "right", "Both shaft picks remain independently selectable.")
+	var original_parts: Dictionary = host.state.transmission_parts.duplicate(true)
+	for id in ["left", "right", "middle"]:
+		var old: Array = host.state.transmission_parts[id].center
+		host.state.transmission_parts[id].center = [0, old[1], old[0]]
+		host.state.transmission_parts[id].axis = 0
+	presenter.refresh()
+	span = _part(presenter, "span")
+	verify(span.has_node("BeltLoop") and is_equal_approx(span.get_node("BeltLoop").rotation.y, -PI / 2.0) and _part(presenter, "middle").has_node("BeltPulley"), "The other horizontal axis rotates the fitted loop and keeps intermediate pulleys.")
+	host.state.transmission_parts = original_parts
+	presenter.refresh()
 	var raw := {"raw": 1, "products": 0, "work_lots": []}
 	var product := {"raw": 0, "products": 1, "work_lots": []}
 	var work := {"raw": 0, "products": 0, "work_lots": [{"id": 7}]}
@@ -303,8 +318,49 @@ func _belt_spans() -> void:
 	host.state.belt_spans.clear()
 	presenter.refresh()
 	verify(_part(presenter, "span") == null, "A confirmed removal clears the visual.")
+	verify(not _part(presenter, "left").has_node("BeltPulley") and not _part(presenter, "middle").has_node("BeltPulley"), "Removing the span removes its fitted pulleys.")
 	controls.free()
 	presenter.free()
+
+func _nonhorizontal_presentation() -> void:
+	var raw := {"raw": 1, "products": 0, "work_lots": []}
+	for case in [
+		{"axis": 2, "first": [0, 8, 0], "middle": [4, 12, 0], "last": [8, 16, 0], "cargo": true},
+		{"axis": 0, "first": [0, 16, 0], "middle": [0, 12, 4], "last": [0, 8, 8], "cargo": true},
+		{"axis": 2, "first": [0, 8, 0], "middle": [0, 12, 0], "last": [0, 16, 0], "cargo": false},
+		{"axis": 1, "first": [0, 8, 0], "middle": [4, 8, 0], "last": [8, 8, 0], "cargo": false}]:
+		var host := HostStub.new()
+		host.state = fixture()
+		host.state.transmission_parts = {}
+		for id in ["first", "middle", "last"]:
+			host.state.transmission_parts[id] = {"kind": "shaft", "generation": 1, "center": case[id], "axis": case.axis, "half_span": 2}
+		host.state.belt_spans = {"span": {"generation": 1, "from": "first", "to": "last", "slots": [raw, null, null], "phase": 2048}}
+		var presenter := Presenter.new()
+		presenter.configure(host)
+		var span := _part(presenter, "span")
+		verify(span != null and span.has_node("BeltLoop"), "A confirmed nonhorizontal path renders a loop.")
+		if span == null or not span.has_node("BeltLoop"):
+			presenter.free()
+			continue
+		var loop: Node3D = span.get_node("BeltLoop")
+		var start := Presenter.world_center(case.first)
+		var finish := Presenter.world_center(case.last)
+		var axis := Vector3.ZERO
+		axis[case.axis] = 1.0
+		verify(absf(loop.basis.x.dot((finish - start).normalized())) > 0.999 and absf(loop.basis.z.dot(axis)) > 0.999 and loop.basis.determinant() > 0.999, "The loop follows the path and rotates about its shaft axis.")
+		verify(_part(presenter, "middle").has_node("BeltPulley") and span.get_node("Pick").basis.is_equal_approx(loop.basis), "The intermediate pulley and selection body follow the path.")
+		var item := _belt_item(span, 0)
+		if case.cargo:
+			verify(item != null and (span.position + item.position).is_equal_approx(start.lerp(finish, 0.25) + Vector3.UP * 0.24), "Inclined cargo follows the confirmed half-slot phase.")
+		else:
+			verify(item == null, "Power-only vertical and sideways paths do not display cargo.")
+		var original_basis := loop.basis
+		host.state.belt_spans.span.from = "last"
+		host.state.belt_spans.span.to = "first"
+		presenter.refresh()
+		span = _part(presenter, "span")
+		verify(span.get_node("BeltLoop").basis.is_equal_approx(original_basis), "Endpoint order does not flip the loop.")
+		presenter.free()
 
 func _belt_item(span: Node3D, slot: int) -> Node3D:
 	if span == null:
@@ -697,6 +753,8 @@ func _belt_actor_transport() -> void:
 	sample.transmission_parts.left.axis = 0
 	sample.motion.left.numerator = 1
 	verify(physical._belt_surface_velocity(sample, belt_id).is_equal_approx(Vector2(0, expected_speed)), "The other horizontal shaft axis transports along Z with the correct sign.")
+	sample.transmission_parts.right.center = [0, 16, 0]
+	verify(physical._belt_surface_velocity(sample, belt_id) == Vector2.ZERO, "A vertical power-only belt does not carry actors.")
 	verify(physical._belt_surface_velocity(sample, 0) == Vector2.ZERO, "A character without belt floor contact receives no transport.")
 	for frame in 40:
 		await physics_frame
@@ -747,6 +805,57 @@ func _belt_actor_transport() -> void:
 		await process_frame
 	host_root.queue_free()
 
+func _inclined_belt_actor() -> void:
+	for axle in [0, 2]:
+		for slope in [-1, 1]:
+			var authority := PhysicalProjection.new()
+			var first_y := 8 if slope > 0 else 16
+			var last_y := 16 if slope > 0 else 8
+			var end := [8 if axle == 2 else 0, last_y, 8 if axle == 0 else 0]
+			var actor_position := [1.65 if axle == 2 else 0.0, 6.78, 1.65 if axle == 0 else 0.0]
+			authority.state = {"options": {"native": true, "physical": true}, "entities": {}, "foundations": {},
+				"actors": {"P": {"position": actor_position, "ready": false, "native_epoch": 0}},
+				"transmission_parts": {"left": {"kind": "shaft", "center": [0, first_y, 0], "axis": axle, "half_span": 2},
+					"right": {"kind": "shaft", "center": end, "axis": axle, "half_span": 2}},
+				"belt_spans": {"belt": {"from": "left", "to": "right"}},
+				"motion": {"left": {"state": "stopped", "numerator": 0, "denominator": 1}}}
+			var physical := ActorWorld.new()
+			physical.set_belt_step_seconds(0.45)
+			physical.pose_published.connect(authority.observe)
+			root.add_child(physical)
+			verify(physical.configure(authority).accepted and physical.ensure_actor("P").accepted, "The inclined fixture creates its physical actor.")
+			for frame in 55:
+				await physics_frame
+			var body = physical.bodies.P
+			verify(not physical.failures.has("P") and body.motion_enabled and body.is_on_floor() and body.floor_id == physical.mechanical_bodies.belt.get_instance_id(), "An actor registers stable floor contact on an inclined belt.")
+			var start: Vector3 = body.position
+			authority.state.motion.left.state = "rotating"
+			authority.state.motion.left.numerator = 1 if axle == 0 else -1
+			authority.state.motion.left.denominator = 4
+			for frame in 35:
+				await physics_frame
+			var forward: Vector3 = body.position
+			var travel := forward.z - start.z if axle == 0 else forward.x - start.x
+			verify(travel > 0.15 and (forward.y - start.y) * slope > 0.1, "The inclined belt carries an uncommanded actor along and up or down its slope.")
+			authority.state.motion.left.numerator *= -1
+			for frame in 30:
+				await physics_frame
+			var reverse: Vector3 = body.position
+			verify((reverse.z - forward.z if axle == 0 else reverse.x - forward.x) < -0.1, "Reversing the shaft reverses inclined actor transport.")
+			authority.state.motion.left.state = "stopped"
+			for frame in 12:
+				await physics_frame
+			var stopped: Vector3 = body.position
+			verify(absf(stopped.z - reverse.z if axle == 0 else stopped.x - reverse.x) < 0.05, "A stopped inclined belt holds the actor.")
+			authority.state.motion.left.state = "rotating"
+			physical.set_belt_step_seconds(0.0)
+			for frame in 12:
+				await physics_frame
+			var frozen: Vector3 = body.position
+			verify(absf(frozen.z - stopped.z if axle == 0 else frozen.x - stopped.x) < 0.05, "A frozen clock stops inclined actor transport.")
+			physical.queue_free()
+			await process_frame
+
 func _run() -> void:
 	if "--tool-guidance-only" in OS.get_cmdline_user_args():
 		_tool_guidance()
@@ -762,6 +871,10 @@ func _run() -> void:
 		await _collision_body_lifecycle()
 	elif "--belt-actor-only" in OS.get_cmdline_user_args():
 		await _belt_actor_transport()
+	elif "--inclined-belt-actor-only" in OS.get_cmdline_user_args():
+		await _inclined_belt_actor()
+	elif "--nonhorizontal-presentation-only" in OS.get_cmdline_user_args():
+		_nonhorizontal_presentation()
 	else:
 		_controls()
 		_gear_sizes()

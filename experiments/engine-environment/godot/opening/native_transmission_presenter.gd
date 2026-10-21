@@ -191,38 +191,63 @@ func _pick(parent: Node3D, id: String, radius: float, height: float) -> void:
 	body.add_child(collider)
 	parent.add_child(body)
 
-func _belt_span(id: String, span: Variant, parts: Dictionary) -> void:
+func _belt_span(id: String, span: Variant, parts: Dictionary, rendered: Dictionary) -> void:
 	if not span is Dictionary or typeof(span.get("from")) != TYPE_STRING or typeof(span.get("to")) != TYPE_STRING:
 		return
 	var first: Variant = parts.get(span.from)
 	var last: Variant = parts.get(span.to)
-	if not _valid_part(first) or not _valid_part(last) or first.kind != "shaft" or last.kind != "shaft" or first.axis != last.axis or first.axis not in [0, 2]:
+	if not _valid_part(first) or not _valid_part(last) or first.kind != "shaft" or last.kind != "shaft" or first.axis != last.axis or first.half_span != 2 or last.half_span != 2:
 		return
-	var travel_axis: int = 2 if first.axis == 0 else 0
-	if first.center[1] != last.center[1] or first.center[first.axis] != last.center[first.axis]:
+	var first_point := Vector3i(first.center[0], first.center[1], first.center[2])
+	var last_point := Vector3i(last.center[0], last.center[1], last.center[2])
+	var delta := last_point - first_point
+	var steps: int = maxi(absi(delta.x), maxi(absi(delta.y), absi(delta.z))) / 4
+	if steps < 1 or steps > 19 or delta[first.axis] != 0:
 		return
-	var distance: float = absf(first.center[travel_axis] - last.center[travel_axis]) * UNIT
-	if distance < Geometry.PITCH or distance > 20.0 * Geometry.PITCH:
+	var step := Vector3i.ZERO
+	var changed := 0
+	for axis in 3:
+		if first_point[axis] % 4 != 0 or last_point[axis] % 4 != 0:
+			return
+		if delta[axis] != 0:
+			if absi(delta[axis]) != steps * 4:
+				return
+			changed += 1
+			step[axis] = 4 if delta[axis] > 0 else -4
+	if changed > 2 or (first.axis == 1 and changed != 1):
 		return
+	var distance: float = Vector3(delta).length() * UNIT
+	var tangent := Vector3(delta).normalized()
+	if delta.x < 0 or (delta.x == 0 and delta.y < 0) or (delta.x == 0 and delta.y == 0 and delta.z < 0):
+		tangent = -tangent
+	var spindle := Vector3.ZERO
+	spindle[first.axis] = 1.0
+	var normal := spindle.cross(tangent).normalized()
+	if normal.y < -0.001:
+		spindle = -spindle
+		normal = -normal
+	var loop_basis := Basis(tangent, normal, spindle)
 	var anchor := Node3D.new()
 	anchor.name = "ConfirmedBelt"
 	anchor.set_meta("entity", id)
 	anchor.set_meta("kind", "belt_span")
 	anchor.position = (world_center(first.center) + world_center(last.center)) / 2.0
 	add_child(anchor)
-	var size := Vector3(distance, 0.045, Geometry.PITCH * 0.55) if travel_axis == 0 else Vector3(Geometry.PITCH * 0.55, 0.045, distance)
-	for side in [-1, 1]:
-		var strip := MeshInstance3D.new()
-		strip.name = "BeltStrip"
-		var shape := BoxMesh.new()
-		shape.size = size
-		strip.mesh = shape
-		strip.position.y = side * 0.12
-		_finish(strip, Color("554634"))
-		anchor.add_child(strip)
+	var loop := Assets.belt_loop(anchor, distance, 0)
+	if loop != null:
+		loop.basis = loop_basis
+	for part_id: Variant in parts:
+		var pulley: Variant = parts[part_id]
+		if not rendered.has(part_id) or not _valid_part(pulley) or pulley.kind != "shaft" or pulley.axis != first.axis:
+			continue
+		var point := Vector3i(pulley.center[0], pulley.center[1], pulley.center[2])
+		for index in range(steps + 1):
+			if point == first_point + step * index:
+				Assets.belt_pulley(rendered[part_id])
+				break
 	var slots: Variant = span.get("slots", [])
-	var expected_slots := roundi(distance / Geometry.PITCH) + 1
-	if slots is Array and slots.size() == expected_slots:
+	var expected_slots := steps + 1
+	if first.axis != 1 and (delta.x != 0 or delta.z != 0) and slots is Array and slots.size() == expected_slots:
 		var first_position := world_center(first.center) - anchor.position
 		var last_position := world_center(last.center) - anchor.position
 		for index in range(slots.size()):
@@ -249,8 +274,9 @@ func _belt_span(id: String, span: Variant, parts: Dictionary) -> void:
 	body.set_meta("entity", id)
 	var collider := CollisionShape3D.new()
 	var box := BoxShape3D.new()
-	box.size = Vector3(maxf(distance - Geometry.PITCH * 0.7, 0.1), 0.3, size.z) if travel_axis == 0 else Vector3(size.x, 0.3, maxf(distance - Geometry.PITCH * 0.7, 0.1))
+	box.size = Vector3(maxf(distance - Geometry.PITCH * 0.7, 0.1), 0.3, Geometry.PITCH * 0.55)
 	collider.shape = box
+	body.basis = loop_basis
 	body.add_child(collider)
 	anchor.add_child(body)
 
@@ -373,7 +399,7 @@ func refresh() -> void:
 	if spans is Dictionary:
 		for id: Variant in spans:
 			if typeof(id) == TYPE_STRING:
-				_belt_span(id, spans[id], parts)
+				_belt_span(id, spans[id], parts, rendered)
 	# Contact marks come only from confirmed gear engagements, never a second
 	# proximity solver or an arbitrary decorative power edge.
 	var engagements: Variant = snapshot.get("engagements", [])

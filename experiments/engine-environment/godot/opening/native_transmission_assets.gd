@@ -247,7 +247,7 @@ static func shaft(parent: Node3D, length: float, color: Color) -> void:
 static func belt_loop(parent: Node3D, distance: float, travel_axis: int) -> MeshInstance3D:
 	# Keep the confirmed strips' width and four flat surface heights. Only
 	# their missing curved returns and material treatment are replaced.
-	if not is_finite(distance) or distance < UNIT * 4.0 or distance > UNIT * 80.0 or travel_axis not in [0, 2]:
+	if not is_finite(distance) or distance < UNIT * 4.0 or distance > UNIT * 80.0 * sqrt(2.0) or travel_axis not in [0, 2]:
 		return null
 	var source := ConveyorArt.material()
 	if source == null:
