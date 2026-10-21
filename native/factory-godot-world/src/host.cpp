@@ -678,6 +678,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             (wire.contains("level") && (!level || *level < -1000000 || *level > 1000000))) return refuse("invalid_cell");
         if (*kind_name != "collector" && *kind_name != "belt" && *kind_name != "processor" &&
             *kind_name != "wheel" && *kind_name != "gear") return refuse("unknown_kind");
+        if (*kind_name != "gear" && level && *level % 4 != 0) return refuse("unaligned_elevation");
         if (wire.contains("tiles") && (!tiles || *tiles < 3 || *tiles > mechanics::maximum_dimension)) return refuse("invalid_wheel_size");
         if (*kind_name == "belt" && axis && *axis != "z") return refuse("invalid_belt_axis");
         const mechanics::Point center{4 * *x, level ? *level : 0, 4 * *z};

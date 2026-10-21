@@ -564,6 +564,7 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
         if (item.wheel_tiles < (item.role == Role::waterwheel ? 3 : 1) || item.wheel_tiles > mechanics::maximum_dimension ||
             (item.role != Role::waterwheel && item.wheel_tiles != 1)) return false;
         if (item.role == Role::belt && item.geometry.axis != mechanics::Axis::z) return false;
+        if ((material_machine(item.role) || item.role == Role::waterwheel) && item.geometry.center[1] % 4 != 0) return false;
         if ((item.role == Role::shaft || item.role == Role::gear) &&
             std::any_of(item.geometry.center.begin(), item.geometry.center.end(),
                         [](Integer coordinate) { return coordinate % 4 != 0; })) return false;
@@ -773,6 +774,8 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             (intent.contains("wheel_tiles") && (!wheel_tiles || *selected_role != Role::waterwheel ||
                 *wheel_tiles < 3 || *wheel_tiles > mechanics::maximum_dimension))) return refused("invalid_part");
         if (*selected_role == Role::belt && *selected_axis != mechanics::Axis::z) return refused("invalid_belt_axis");
+        if ((material_machine(*selected_role) || *selected_role == Role::waterwheel) && (*location)[1] % 4 != 0)
+            return refused("unaligned_elevation");
         if ((*selected_role == Role::gear || *selected_role == Role::shaft) &&
             std::any_of(location->begin(), location->end(),
                         [](Integer coordinate) { return coordinate % 4 != 0; })) return refused("invalid_cell");

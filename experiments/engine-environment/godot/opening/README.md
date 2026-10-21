@@ -26,8 +26,10 @@ derives the suggestions again from its actual machines, links and inventory.
 **Foundation [6]** builds a level surface from the carried kit. Its height controls
 and Page Up / Page Down move by one height step, initially at world level zero. Every
 foundation and machine uses the same quarter-pitch height unit, currently
-0.4125 m on 1.65 m horizontal tiles. Machinery snaps to a confirmed foundation's
-top. Independent sections can meet on that grid; a 0.825 m foundation stacks two
+0.4125 m on 1.65 m horizontal tiles. Machines require a whole-tile height: a
+foundation top at level 0, 4, 8 and so on can support a machine and align its
+axle with tile-snapped transmission. Intermediate foundation heights remain
+available for steps, but cannot support a powered machine. A 0.825 m foundation stacks two
 height units above another foundation. The 1.65 m machines remain two foundation
 depths tall. At gravity 14 and jump speed 6, the ideal jump rise is about 1.29 m,
 leaving about 0.46 m of clearance above one foundation. Foundations may float

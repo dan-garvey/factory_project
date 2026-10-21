@@ -87,6 +87,13 @@ Fixture fixture() {
     state.topology.sources = {{"wheel", {1, 1}}};
     state.topology.drive_enabled = true;
     state.issued_entities = {{"wheel", 1}, {"shaft", 1}, {"press", 1}};
+    for (const auto role : {s::Role::waterwheel, s::Role::processor}) {
+        auto invalid = state;
+        for (auto& part : invalid.topology.parts)
+            if (part.role == role) part.geometry.center[1] = 1;
+        check(w::World::create("saved-world", profile, invalid) == nullptr,
+              "A fresh World rejects a machine or wheel between transmission tile heights.");
+    }
     auto world = w::World::create("saved-world", profile, state);
     check(world != nullptr, "The literal sixteen-unit World initializes.");
     accepted(send(*world, command("recover", "recover")));
@@ -132,6 +139,15 @@ void round_trip_restore_and_continue() {
     const auto& saved = std::get<w::Snapshot>(decoded);
     check(saved.state == before.state && saved.revision == 4 && saved.history.order == 5,
           "Typed decode preserves canonical custody, identities, part kits and counters.");
+    for (const auto role : {s::Role::waterwheel, s::Role::processor}) {
+        auto invalid = saved;
+        for (auto& part : invalid.state.topology.parts)
+            if (part.role == role) part.geometry.center[1] = 1;
+        check(w::World::restore("saved-world", f.profile, invalid) == nullptr,
+              "Restoration rejects a machine or wheel between transmission tile heights.");
+        check(std::holds_alternative<w::CheckpointRefusal>(w::encode_checkpoint(f.profile, invalid)),
+              "An invalid off-grid machine or wheel cannot be encoded as a valid checkpoint.");
+    }
     const auto reencoded = w::encode_checkpoint(f.profile, saved);
     check(std::holds_alternative<V>(reencoded) && equal(f.checkpoint, std::get<V>(reencoded)),
           "All original request intents, outcomes and typed checkpoint values survive exactly.");

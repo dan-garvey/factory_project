@@ -478,9 +478,9 @@ func check_belt_water_native(forward: bool) -> void:
 
 func check_flow_sections() -> void:
 	var sections := [
-		{"name": "starting reach", "cell": [-2, 0], "level": 3, "tiles": 3},
-		{"name": "broad deep reach", "cell": [-1, 13], "level": 7, "tiles": 6},
-		{"name": "downstream constriction", "cell": [4, 23], "level": 1, "tiles": 3},
+		{"name": "starting reach", "cell": [-2, 0], "level": 4, "tiles": 3},
+		{"name": "broad deep reach", "cell": [-1, 13], "level": 8, "tiles": 6},
+		{"name": "downstream reach", "cell": [3, 33], "level": 4, "tiles": 4},
 	]
 	var tangential: Array[float] = []
 	for section in sections:
@@ -509,7 +509,19 @@ func check_flow_sections() -> void:
 		if not expect(motion.state == "rotating" and motion.numerator < 0, "Terrain descent supplies signed current at " + section.name):
 			return
 		tangential.append(absf(float(motion.numerator) / float(motion.denominator)) * float(section.tiles))
-	if not expect(tangential[1] < tangential[2] and tangential[2] < tangential[0], "The broad reach is slower than the downstream constriction and starting reach: " + str(tangential)):
+	if not expect(tangential[1] < tangential[2] and tangential[2] < tangential[0], "The broad reach is slower than the selected downstream and starting reaches: " + str(tangential)):
+		return
+	# Keep the original constriction flow comparison even though its previous
+	# three-tile wheel requires an axle between the global transmission tiles.
+	# These are native water samples, not proof that a wheel fits that site.
+	var water_model = NativeModel.new("flow-sample-comparison", ["P"])
+	var samples := {}
+	for sample: Dictionary in water_model.checkpoint().world.profile.water:
+		if [sample.x, sample.z] in [[-8, 0], [-4, 52], [16, 92]]:
+			samples[Vector2i(sample.x, sample.z)] = absi(sample.velocity_z)
+	if not expect(samples.size() == 3 and samples[Vector2i(-4, 52)] < samples[Vector2i(16, 92)]
+		and samples[Vector2i(16, 92)] < samples[Vector2i(-8, 0)],
+		"The original broad, constricted and starting water samples retain their relative native speeds."):
 		return
 	var bank = NativeModel.new("blocked-bank", ["P"])
 	if not expect(bank.boot_result.get("accepted", false) and bank.publish_actor("P", [1.5, 1.0, 1.65], 1).get("accepted", false), "Bind the solid east bank"):
@@ -547,17 +559,17 @@ func check_water_native() -> void:
 	var big := wheel.duplicate()
 	big.context = "large-water-site"
 	big.request = "large-wheel"
-	big.level = 10
-	big.tiles = 6
+	big.level = 8
+	big.tiles = 5
 	var placed: Dictionary = large.command(big)
-	if not expect(placed.get("accepted", false), "The six-square wheel must clear actual terrain: " + str(placed)):
+	if not expect(placed.get("accepted", false), "The five-square wheel must clear actual terrain: " + str(placed)):
 		return
 	var start := {"context": "large-water-site", "client": "P", "request": "power", "action": "set_power", "active": true}
 	if not expect(large.command(start).get("accepted", false), "Enable the larger wheel"):
 		return
 	var slower: Dictionary = large.projection().motion[placed.entity]
-	if not expect(slower.numerator * motion.denominator * 2 == motion.numerator * slower.denominator,
-		"Twice the diameter halves rotational speed in the same current"):
+	if not expect(slower.numerator * motion.denominator * 5 == motion.numerator * slower.denominator * 3,
+		"The larger diameter reduces rotational speed in proportion to size at the same current"):
 		return
 	var upstream = NativeModel.new("upstream-water-site", ["P"])
 	if not expect(upstream.boot_result.get("accepted", false) and upstream.publish_actor("P", [-1.65, 1.0, 1.65], 1).get("accepted", false), "Bind a synthetic actor near the upstream objective"):
@@ -578,7 +590,13 @@ func check_water_native() -> void:
 	if not expect(line_wheel.get("accepted", false) and collector.get("accepted", false) and cog.get("accepted", false) and lower.get("accepted", false), "The actual worksite admits the immersed wheel, collector and height transfer cogs"):
 		return
 	for link in [["shaft-a", line_wheel.entity, cog.entity], ["shaft-b", lower.entity, collector.entity]]:
-		if not expect(line.command({"context": "actual-water-line", "client": "P", "request": link[0], "action": "connect_drive", "from": link[1], "to": link[2]}).get("reason", "") == "axles_already_touch", "The adjacent axles need no shaft"):
+		var connected := false
+		for edge: Dictionary in line.projection().engagements:
+			if edge.kind == 1 and ((edge.a == link[1] and edge.b == link[2]) or (edge.a == link[2] and edge.b == link[1])):
+				connected = true
+		if not expect(connected, "The adjacent axle faces engage without a shaft"):
+			return
+		if not expect(line.command({"context": "actual-water-line", "client": "P", "request": link[0], "action": "connect_drive", "from": link[1], "to": link[2]}).get("reason", "") == "individual_shaft_required", "Endpoint-created shafts remain unavailable"):
 			return
 	if not expect(line.command({"context": "actual-water-line", "client": "P", "request": "start", "action": "set_power", "active": true}).get("accepted", false) and line.projection().powered, "River current reaches the collector through the built train"):
 		return

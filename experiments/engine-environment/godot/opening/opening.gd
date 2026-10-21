@@ -3697,6 +3697,7 @@ func issue(action: Dictionary) -> Dictionary:
 
 func _material_refusal_message(outcome: Dictionary, fallback: String) -> String:
 	var foundation_advice: String = {
+		"unaligned_elevation": "This height is between transmission tiles. Build the machine or wheel at a whole-tile height.",
 		"axles_already_touch": "These axle ends already touch; no shaft is needed.",
 		"overlapping_shafts": "A shaft already occupies that length. Place the new segment end to end.",
 		"foundation_required": "Build a foundation here first so the machine has a level surface.",
@@ -4147,7 +4148,7 @@ func _adjust_foundation_level(delta: int) -> void:
 	if mode not in ["foundation", "wheel"] or not _native_transmission() or explanation_open:
 		return
 	if mode == "wheel":
-		wheel_level = clampi(wheel_level + delta, -1000000, 1000000)
+		wheel_level = clampi(wheel_level + delta * 4, -1000000, 1000000)
 	else:
 		foundation_level = clampi(foundation_level + delta, -1000000, 1000000)
 	foundation_area_started = false

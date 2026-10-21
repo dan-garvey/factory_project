@@ -65,23 +65,23 @@ void construction_and_custody() {
     auto remote = foundation("far", 60, 2, 1);
     outcome(host.command("P", remote), false, "out_of_reach");
     check(carried(host) == 24, "A far refusal leaves construction custody unchanged.");
-    outcome(host.command("P", machine("unsupported", "belt", 5, 2, 1)), false, "foundation_required");
-    const auto a_wire = foundation("island-a", 5, 2, 1);
+    outcome(host.command("P", machine("unsupported", "belt", 5, 2, 4)), false, "foundation_required");
+    const auto a_wire = foundation("island-a", 5, 2, 4);
     const auto a = host.command("P", a_wire); outcome(a, true, "ok");
-    const auto b = host.command("P", foundation("island-b", 6, 2, 1)); outcome(b, true, "ok");
+    const auto b = host.command("P", foundation("island-b", 6, 2, 4)); outcome(b, true, "ok");
     const auto a_id = get<std::string>(a, "entity"), b_id = get<std::string>(b, "entity");
     const auto islands = get<O>(host.projection(), "foundations");
-    check(get<I>(islands.at(a_id), "level") == 1 && get<I>(islands.at(b_id), "level") == 1,
+    check(get<I>(islands.at(a_id), "level") == 4 && get<I>(islands.at(b_id), "level") == 4,
           "Independent construction retains one absolute height grid.");
     const auto retry = host.command("P", a_wire);
     check(accepted(retry) && get<bool>(retry, "duplicate") && carried(host) == 22, "An exact retry never consumes another block.");
     auto changed = a_wire; changed.at("level") = V(I{2});
     check(!accepted(host.command("P", changed)) && carried(host) == 22, "Changed reuse cannot reinterpret a prior request.");
-    outcome(host.command("P", foundation("overlap", 5, 2, 2)), false, "occupied");
-    const auto belt = host.command("P", machine("belt", "belt", 5, 2, 1)); outcome(belt, true, "ok");
-    const auto press = host.command("P", machine("press", "processor", 6, 2, 1)); outcome(press, true, "ok");
+    outcome(host.command("P", foundation("overlap", 5, 2, 5)), false, "occupied");
+    const auto belt = host.command("P", machine("belt", "belt", 5, 2, 4)); outcome(belt, true, "ok");
+    const auto press = host.command("P", machine("press", "processor", 6, 2, 4)); outcome(press, true, "ok");
     const auto entities = get<O>(host.projection(), "entities");
-    check(std::get<I>(get<A>(entities.at(get<std::string>(belt, "entity")), "center")[1].storage()) == 1,
+    check(std::get<I>(get<A>(entities.at(get<std::string>(belt, "entity")), "center")[1].storage()) == 4,
           "Machine height uses the same native integer level as its foundation.");
     check(get<A>(host.projection(), "links").size() == 1, "Independent same-height foundations preserve aligned material ports.");
     outcome(host.command("P", removal("loaded-base", a_id)), false, "foundation_in_use");
@@ -100,6 +100,22 @@ void construction_and_custody() {
     const auto bare = host.command("P", machine("bare-global", "belt", 5, 2, 0)); outcome(bare, true, "ok");
     outcome(host.command("P", removal("bare-refund", get<std::string>(bare, "entity"))), true, "ok");
     check(get<I>(V(get<O>(host.projection(), "stock")), "source") == 4096, "Construction never consumes or replenishes the mineral source.");
+}
+
+void transmission_aligned_elevations() {
+    Host host; initialize(host);
+    outcome(host.publish_actor("P", {V(9.0), V(1.5), V(6.0)}, 1), true, "actor_published");
+    const auto base = host.command("P", foundation("half-grid-base", 5, 2, 1)); outcome(base, true, "ok");
+    const auto misaligned = machine("misaligned-belt", "belt", 5, 2, 1);
+    outcome(host.command("P", misaligned), false, "unaligned_elevation");
+    outcome(host.command("P", machine("misaligned-wheel", "wheel", 5, 2, -1)), false, "unaligned_elevation");
+    check(get<O>(host.projection(), "entities").empty() && carried(host) == 23,
+          "Refusing a nonaligned machine or wheel leaves the foundation and part custody intact.");
+    outcome(host.validate_checkpoint(host.checkpoint()), true, "valid");
+    const auto retry = host.command("P", misaligned);
+    check(!accepted(retry) && get<bool>(retry, "duplicate") && carried(host) == 23,
+          "An exact retry preserves the original refusal and foundation custody.");
+    outcome(host.command("P", removal("half-grid-refund", get<std::string>(base, "entity"))), true, "ok");
 }
 
 void terrain_and_stacking() {
@@ -165,7 +181,7 @@ void rectangular_placement() {
     malformed.at("end_cell") = V(A{V(71.0), V(I{21})});
     outcome(host.command("P", malformed), false, "invalid_cell");
     outcome(host.command("P", area("actor-blocked", 0, 0, 1, 0, 4)), false, "actor_occupied");
-    outcome(host.command("P", machine("machine-still-far", "belt", 60, 20, 17)), false, "out_of_reach");
+    outcome(host.command("P", machine("machine-still-far", "belt", 60, 20, 0)), false, "out_of_reach");
     outcome(host.command("P", area("reverse-stack", 62, 21, 60, 20, 21)), true, "ok");
     check(carried(host) == 12 && get<O>(host.projection(), "foundations").size() == 12,
           "Reversed corners produce the same aligned footprint exactly one block above.");
@@ -252,7 +268,7 @@ void machine_clearance_on_free_foundations() {
 }
 int main() {
     try {
-        construction_and_custody(); terrain_and_stacking(); rectangular_placement(); import_checks_current_machine_site();
+        construction_and_custody(); transmission_aligned_elevations(); terrain_and_stacking(); rectangular_placement(); import_checks_current_machine_site();
         machine_clearance_on_free_foundations();
         std::cout << "{\"status\":\"pass\",\"checks\":" << checks << ",\"evidence\":\"synthetic_native_foundation_rules\",\"engine_calls\":0}\n";
         return 0;

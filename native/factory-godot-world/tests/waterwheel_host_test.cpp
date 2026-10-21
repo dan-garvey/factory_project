@@ -112,7 +112,7 @@ int main() {
         Host large;
         check(accepted(large.initialize("water-test", {"P"})) && accepted(large.configure_terrain(site(200))) &&
               accepted(large.publish_actor("P", {V(-1.65), V(3.0), V(1.65)}, 1)), "large wheel site");
-        auto big_wire = place("large", -2, 10);
+        auto big_wire = place("large", -2, 8);
         big_wire.emplace("tiles", V(I{6}));
         const auto big = large.command("P", big_wire);
         check(accepted(big), "six-square wheel immerses at the shared raised level");

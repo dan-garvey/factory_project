@@ -149,7 +149,7 @@ void footprint_and_profile() {
 }
 
 void foundations_and_restore() {
-    for (const I level : {I{-1}, I{0}, I{4}, I{8}, I{9}}) {
+    for (const I level : {I{-4}, I{0}, I{4}, I{8}, I{12}}) {
         Host host; initialize(host, flat(0.0)); observe(host, level * 0.4125 + 1.0);
         check(accepted(host.command("P", foundation("foundation", level))), "The native foundation uses the shared global level.");
         const auto before = material_state(host);

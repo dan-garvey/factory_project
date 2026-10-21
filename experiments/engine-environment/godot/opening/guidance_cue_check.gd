@@ -104,6 +104,11 @@ func check_foundation_view() -> void:
 	view.mode = "belt"
 	verify(view._construction_level(Vector2i(5, 2)) == 1 and view._construction_level(Vector2i(6, 2)) == 1,
 		"Independent projected surfaces select the same machine height.")
+	view.mode = "wheel"
+	view._adjust_foundation_level(1)
+	verify(view.wheel_level == 8, "Wheel elevation advances one whole transmission tile.")
+	view._adjust_foundation_level(-1)
+	verify(view.wheel_level == 4, "Wheel elevation returns to the aligned starting tile.")
 	view.mode = "foundation"
 	view._refresh_guided_tools()
 	view._adjust_foundation_level(1)
@@ -124,6 +129,8 @@ func check_foundation_view() -> void:
 		"A current shared foundation acknowledgement selects the confirmed surface without a client authority.")
 	verify(ack._material_refusal_message({"reason": "invalid_area"}, "missing advice").begins_with("Choose a rectangle"),
 		"Shared refusal advice explains the recovery action in ordinary language.")
+	verify("whole-tile height" in ack._material_refusal_message({"reason": "unaligned_elevation"}, "missing advice"),
+		"Both shared and ordinary views explain how to align a machine with transmission tiles.")
 	ack.free()
 	view.free()
 	finish_checks()

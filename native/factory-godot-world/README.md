@@ -35,7 +35,11 @@ Player-built foundations are native World state and finite construction custody,
 not mechanical hubs or prebuilt scenery. The current kit carries twenty-four
 1.65 m blocks. The world origin and quarter-pitch integer height unit are shared
 with machinery and transmission. `place_foundation` takes an integer `cell` and
-absolute `level`; machine placement uses the same level. Ordinary `remove`
+absolute `level`; machine placement uses the same level and requires a multiple
+of four so its axle aligns with the one-tile transmission grid. Foundations may
+still use intermediate levels for their half-height steps. Waterwheel axle
+levels also use multiples of four, so some wet sites need another size or site.
+Ordinary `remove`
 reclaims a foundation only after its dependents are removed. Exact retries use
 the existing request history and never consume another block.
 
