@@ -382,6 +382,59 @@ func check_walking_support() -> void:
 		"A full walking stride remains visual and leaves the confirmed actor and input untouched.")
 	host.free()
 
+func check_sparse_confirmed_walk() -> void:
+	var host := HostFixture.new()
+	host.state.context = "sparse-confirmed-walk"
+	host.state.actors.P.native_epoch = 1
+	host.state.actors.Q.native_epoch = 1
+	root.add_child(host)
+	var presenter := Presenter.new()
+	presenter.configure(host)
+	host.add_child(presenter)
+	presenter.set_process(false)
+	presenter.set_physics_process(false)
+	var delta := 1.0 / 60.0
+	presenter.refresh(delta)
+	for frame in range(1, 31):
+		host.state.actors.P.position[0] += 0.0175
+		host.state.actors.P.native_epoch += 1
+		if frame % 3 == 0:
+			host.state.actors.Q.position[0] += 0.0525
+			host.state.actors.Q.native_epoch += 3
+		presenter.refresh(delta)
+	var dense: Dictionary = presenter.motion.P
+	var sparse: Dictionary = presenter.motion.Q
+	verify(absf(float(dense.horizontal_speed) - 1.05) < 0.02
+		and absf(float(sparse.horizontal_speed) - 1.05) < 0.02
+		and absf(float(dense.weight) - float(sparse.weight)) < 0.12
+		and absf(float(dense.run_mix) - float(sparse.run_mix)) < 0.05
+		and absf(float(dense.phase) - float(sparse.phase)) < 0.05,
+		"Equal confirmed walking travel has comparable cadence and weight at dense and sparse snapshot rates.")
+	verify(is_equal_approx(presenter.views.P.position.x, 0.525)
+		and is_equal_approx(presenter.views.Q.position.x, 2.525)
+		and host.control_calls == 0,
+		"Sparse observations leave each exact actor root and input authority untouched.")
+	for frame in range(20):
+		host.state.actors.P.native_epoch += 1
+		presenter.refresh(delta)
+	verify(float(presenter.motion.Q.weight) < 0.1
+		and is_equal_approx(presenter.views.Q.position.x, 2.525),
+		"A stale native pose settles its visual stride without predicting more actor travel.")
+	for frame in range(12):
+		host.state.actors.P.native_epoch += 1
+		host.state.actors.Q.native_epoch += 1
+		presenter.refresh(delta)
+	verify(float(presenter.motion.P.weight) < 0.01
+		and float(presenter.motion.Q.weight) < 0.01,
+		"Confirmed stationary snapshots settle both visual gaits after travel ends.")
+	host.state.actors.P.position[0] += 0.05
+	host.state.actors.P.native_epoch += 1
+	presenter.refresh(delta)
+	verify(absf(float(presenter.motion.P.horizontal_speed) - 3.0) < 0.02
+		and is_equal_approx(presenter.views.P.position.x, 0.575),
+		"A new confirmed step after rest uses its own sample interval and exact root.")
+	host.free()
+
 func landing_contact_case(metres_per_frame: float) -> Dictionary:
 	var host := HostFixture.new()
 	host.state.context = "landing-contact"
@@ -460,6 +513,7 @@ func run() -> void:
 	if sourced:
 		inspect_adult(body, q.get_node("BodyView"), presenter)
 		check_walking_support()
+		check_sparse_confirmed_walk()
 		check_landing_contact_from_motion()
 	else:
 		verify(body.mesh == q.get_node("BodyView").mesh and body.material_override != q.get_node("BodyView").material_override,
