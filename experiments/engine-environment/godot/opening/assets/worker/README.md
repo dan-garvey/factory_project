@@ -39,8 +39,12 @@ speed blends the walk into the run from 1.15 to 2.35 metres per second; the
 pose then settles toward rest when travel stops. Both imported clips begin
 in a stride pose. Their leg rotations retain those absolute source poses in
 the matching named rig; subtracting the first frame removed the walk's left
-support step. Torso and arm channels remain relative to the first clip frame
-and the worker's lowered-arm standing pose. The source calf motion still bends
+support step. Walk arm channels and non-leg torso channels remain relative to
+the first clip frame and the worker's lowered-arm standing pose. At run speed,
+the source upper-arm pose retains its absolute stride position; the forearms
+blend that pose toward a less raised elbow angle. A small forward spine pitch
+develops with the run blend, while the hands continue to swing opposite each
+other through the captured cycle. The source calf motion still bends
 behind the leg at some phases after retargeting. A presentation-only two-bone correction
 places each bent knee ahead of its hip-to-ankle line while retaining the
 captured ankle path and foot orientation. The fuller running leg pose lowers
@@ -81,6 +85,7 @@ rosters that omit this folder retain their identified procedural worker.
 `worker_rig_check.gd` exercises the actual presentation adapter using invented
 confirmed samples. It checks source bindings, captured walk and run poses,
 forward knee bending, planted toe height and horizontal stance travel,
+opposing running hands and bounded lateral carriage,
 skinned dimensions,
 ascent, descent, staged landing contact and skinned support height, per-player
 isolation, projection
