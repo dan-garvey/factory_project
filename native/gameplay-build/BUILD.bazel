@@ -1,0 +1,24 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "build",
+    srcs = ["build.cpp"],
+    hdrs = ["build.hpp"],
+    deps = ["//native/build-support:runner", "//native/factory-launch:capture"],
+)
+
+cc_binary(
+    name = "factory-gameplay-build",
+    srcs = ["main.cpp"],
+    deps = [":build"],
+)
+
+cc_test(
+    name = "install_test",
+    srcs = ["tests.cpp"],
+    deps = [":build", "//native/factory-launch:capture"],
+    tags = ["host"],
+    size = "small",
+)
