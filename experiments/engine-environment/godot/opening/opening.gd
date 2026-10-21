@@ -11,6 +11,22 @@ class ProductionVisuals:
 	extends RefCounted
 	## Presentation is self-contained in this already captured opening script.
 
+	static func image_exists(path: String) -> bool:
+		return ResourceLoader.exists(path, "Texture2D") if path.begins_with("res://") else FileAccess.file_exists(path)
+
+	static func read_image(path: String) -> Image:
+		# Project images are imported resources, including when raw source files
+		# are absent in a package. Preparation fixtures use external files.
+		if not path.begins_with("res://"):
+			return Image.load_from_file(path)
+		if not ResourceLoader.exists(path, "Texture2D"):
+			return null
+		var texture := ResourceLoader.load(path, "Texture2D") as Texture2D
+		var image := texture.get_image() if texture != null else null
+		if image != null and image.is_compressed() and image.decompress() != OK:
+			return null
+		return image
+
 	static func _surface_noise() -> FastNoiseLite:
 		var noise := FastNoiseLite.new()
 		noise.seed = 1627
@@ -256,7 +272,7 @@ class ProductionTransmissionFinish:
 	static func read_images(directory: String = ROOT) -> Dictionary:
 		var present := 0
 		for file_name in FILES.values():
-			if FileAccess.file_exists(directory.path_join(file_name)):
+			if ProductionVisuals.image_exists(directory.path_join(file_name)):
 				present += 1
 		if present == 0:
 			return {"status": "missing", "images": {}}
@@ -264,7 +280,7 @@ class ProductionTransmissionFinish:
 			return {"status": "invalid", "reason": "incomplete_surface_set", "images": {}}
 		var images: Dictionary = {}
 		for role in FILES:
-			var image := Image.load_from_file(directory.path_join(FILES[role]))
+			var image := ProductionVisuals.read_image(directory.path_join(FILES[role]))
 			var extent := 512 if role.begins_with("cast") else 256
 			if image == null or image.is_empty() or image.get_size() != Vector2i(extent, extent):
 				return {"status": "invalid", "reason": "invalid_" + role, "images": {}}
@@ -463,7 +479,9 @@ class ProductionWheelArt:
 	static func resource_status(directory: String = ROOT) -> String:
 		var present := 0
 		for name_value in FILES:
-			if FileAccess.file_exists(directory.path_join(name_value)):
+			var path := directory.path_join(name_value)
+			var exists := ProductionVisuals.image_exists(path) if name_value.get_extension() in ["jpg", "webp"] else FileAccess.file_exists(path)
+			if exists:
 				present += 1
 		if present == 0:
 			return "missing"
@@ -500,7 +518,7 @@ class ProductionWheelArt:
 		var images: Dictionary = {}
 		for role: String in ["albedo", "normal", "arm"]:
 			var name_value: String = "wood_albedo.jpg" if role == "albedo" else "wood_" + role + ".webp"
-			var image := Image.load_from_file(ROOT.path_join(name_value))
+			var image := ProductionVisuals.read_image(ROOT.path_join(name_value))
 			var expected := Vector2i(1024, 1024) if role == "albedo" else Vector2i(512, 512)
 			if image == null or image.get_size() != expected or image.generate_mipmaps(role == "normal") != OK:
 				push_error("Cannot prepare the waterwheel material: " + role)
@@ -555,7 +573,7 @@ class ProductionPaddleArt:
 	static func read_images(directory: String = ROOT) -> Dictionary:
 		var present := 0
 		for name_value in FILES.values():
-			if FileAccess.file_exists(directory.path_join(name_value)):
+			if ProductionVisuals.image_exists(directory.path_join(name_value)):
 				present += 1
 		if present == 0:
 			return {"status": "missing", "images": {}}
@@ -563,7 +581,7 @@ class ProductionPaddleArt:
 			return {"status": "invalid", "reason": "incomplete_timber_set", "images": {}}
 		var images: Dictionary = {}
 		for role in FILES:
-			var image := Image.load_from_file(directory.path_join(FILES[role]))
+			var image := ProductionVisuals.read_image(directory.path_join(FILES[role]))
 			var extent := 1024 if role == "albedo" else 512
 			if image == null or image.is_empty() or image.get_size() != Vector2i(extent, extent):
 				return {"status": "invalid", "reason": "invalid_" + role, "images": {}}
@@ -839,7 +857,7 @@ class ProductionSteelFloor:
 	static func read_images(directory: String = ROOT, files: Dictionary = FILES, normal_size: Vector2i = Vector2i(1024, 1024), arm_size: Vector2i = Vector2i(512, 512)) -> Dictionary:
 		var present := 0
 		for name_value in files.values():
-			if FileAccess.file_exists(directory.path_join(name_value)):
+			if ProductionVisuals.image_exists(directory.path_join(name_value)):
 				present += 1
 		if present == 0:
 			return {"status": "missing", "images": {}}
@@ -847,7 +865,7 @@ class ProductionSteelFloor:
 			return {"status": "invalid", "reason": "incomplete_material_set", "images": {}}
 		var images: Dictionary = {}
 		for role in files:
-			var image := Image.load_from_file(directory.path_join(files[role]))
+			var image := ProductionVisuals.read_image(directory.path_join(files[role]))
 			var expected := arm_size if role == "arm" else (normal_size if role == "normal" else Vector2i(1024, 1024))
 			if image == null or image.is_empty() or image.get_size() != expected:
 				return {"status": "invalid", "reason": "invalid_" + role, "images": {}}
@@ -1184,7 +1202,7 @@ class ProductionConveyorArt:
 	static func read_images(directory: String = ROOT) -> Dictionary:
 		var present := 0
 		for file_name in FILES.values():
-			if FileAccess.file_exists(directory.path_join(file_name)):
+			if ProductionVisuals.image_exists(directory.path_join(file_name)):
 				present += 1
 		if present == 0:
 			return {"status": "missing", "images": {}}
@@ -1192,7 +1210,7 @@ class ProductionConveyorArt:
 			return {"status": "invalid", "reason": "incomplete_material_set", "images": {}}
 		var images: Dictionary = {}
 		for role in FILES:
-			var image := Image.load_from_file(directory.path_join(FILES[role]))
+			var image := ProductionVisuals.read_image(directory.path_join(FILES[role]))
 			var size_value := Vector2i(1024, 1024) if role == "albedo" else Vector2i(512, 512)
 			if image == null or image.is_empty() or image.get_size() != size_value:
 				return {"status": "invalid", "reason": "invalid_" + role, "images": {}}
@@ -2384,13 +2402,14 @@ class ProductionEnvironment:
 		return stream_surface_mesh
 
 	static func read_sky(path: String = SKY_FILE) -> Dictionary:
-		if not FileAccess.file_exists(path):
+		if not ProductionVisuals.image_exists(path):
 			return {"status": "missing"}
-		var file := FileAccess.open(path, FileAccess.READ)
-		if file == null or file.get_length() < 1000 or file.get_length() > 2 * 1024 * 1024:
-			return {"status": "invalid", "reason": "source_size"}
-		file.close()
-		var image := Image.load_from_file(path)
+		if not path.begins_with("res://"):
+			var file := FileAccess.open(path, FileAccess.READ)
+			if file == null or file.get_length() < 1000 or file.get_length() > 2 * 1024 * 1024:
+				return {"status": "invalid", "reason": "source_size"}
+			file.close()
+		var image := ProductionVisuals.read_image(path)
 		if image == null or image.is_empty() or image.get_size() != Vector2i(1024, 512) or image.get_format() != Image.FORMAT_RGBE9995:
 			return {"status": "invalid", "reason": "radiance_decode"}
 		# Preserve the original HDR radiance; no sRGB conversion, tone mapping,
