@@ -269,6 +269,26 @@ func inspect_adult(body: Node3D, other: Node3D, presenter: Node) -> void:
 	verify(impact_bounds.position.y + body.position.y >= -0.901
 		and impact_bounds.position.y + body.position.y <= -0.85,
 		"The compressed landing pose keeps the skinned boots near and above the unchanged foot plane.")
+	var landing_toes := []
+	var landing_heights := []
+	for progress in [0.14, 0.50, 0.85]:
+		presenter._set_gait(body, 0.0, 0.0, 1.0 - progress, 0.0, 0.6, 0.0, progress)
+		var bounds := point_bounds(skin_points(body))
+		var sole_y := bounds.position.y + body.position.y
+		verify(sole_y >= -0.905 and sole_y <= -0.88,
+			"Contact, compression and recovery keep the skinned boots at the observed support plane.")
+		var landing_to_body: Transform3D = body.global_transform.affine_inverse() * skeleton.global_transform
+		var left_toe: Vector3 = landing_to_body * skeleton.get_bone_global_pose(skeleton.find_bone("Bip01 L Toe0")).origin
+		var right_toe: Vector3 = landing_to_body * skeleton.get_bone_global_pose(skeleton.find_bone("Bip01 R Toe0")).origin
+		landing_toes.append({"L": left_toe, "R": right_toe})
+		landing_heights.append(body.position.y)
+	verify(landing_toes[0].L.z > landing_toes[0].R.z + 0.25
+		and landing_toes[0].L.y < landing_toes[0].R.y - 0.05
+		and landing_toes[2].L.z - landing_toes[2].R.z < 0.15,
+		"The forward left boot takes first contact while the trailing right boot joins during recovery.")
+	verify(landing_heights[0] < landing_heights[2] - 0.08
+		and other_skeleton.get_bone_global_pose(other_skeleton.find_bone("Bip01 L Thigh")) == other_pose,
+		"Landing load transfers through the visual body without moving a second actor's skeleton.")
 	presenter._set_gait(body, 0.0, 0.0, 1.0, 5.0, 0.0)
 	var rising_knee := skeleton.get_bone_pose_rotation(skeleton.find_bone("Bip01 L Calf"))
 	var rising_other_knee := skeleton.get_bone_pose_rotation(skeleton.find_bone("Bip01 R Calf"))
@@ -413,9 +433,11 @@ func run() -> void:
 		presenter.refresh(1.0 / 60.0)
 		host.state.actors.P.position[1] = 0.65
 		presenter.refresh(1.0 / 60.0)
+		var short_fall_air: float = presenter.motion.P.air
 		presenter.refresh(1.0 / 60.0)
-		verify(presenter.motion.P.mode == "landing" and is_equal_approx(p.position.y, 0.65),
-			"A confirmed drop can land on a new height after descent becomes stationary.")
+		verify(presenter.motion.P.mode == "landing" and is_equal_approx(p.position.y, 0.65)
+			and presenter.motion.P.air <= short_fall_air,
+			"A short confirmed drop can land on a new height without regaining a full airborne pose.")
 	host.state["actors"]["P"]["position"] = [10.0, 0.9, 0.0]
 	presenter.refresh(1.0 / 60.0)
 	verify(p.position == Vector3(10, 0.9, 0) and presenter.motion.P.phase == 0.0

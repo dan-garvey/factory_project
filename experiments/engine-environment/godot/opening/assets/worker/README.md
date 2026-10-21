@@ -55,15 +55,20 @@ Confirmed rising and falling samples switch the visual skeleton into distinct
 takeoff, ascent, descent and compressed landing poses. The running takeoff lifts
 one knee while the trailing leg extends; the legs fold near the apex, reach
 down on descent and compress at impact. The arms drive asymmetrically on takeoff
-and open for balance in flight. Landing compression peaks after the first
-support sample and settles over 0.24 seconds. These poses
+and open for balance in flight. At contact, the left boot reaches forward and
+takes the first load while the right leg trails. The torso leans over that
+support, both knees absorb the fall, and the trailing boot joins as the body
+recovers over 0.24 seconds. The airborne pose fades through this recovery
+instead of disappearing in four frames. The lower of the two posed toes anchors
+the visual body to the confirmed support height during landing; the physical
+actor root stays unchanged. These poses
 evolve with observed vertical speed rather than holding one shape throughout
 flight. A confirmed teleport, world
 change or unready actor discards its motion history. Because the shared
 projection has no floor-contact flag, landing is inferred from confirmed height
 changes and can lag a new support height by one sample. This remains a
-presentation choice, not an actor
-simulation or proof of exact foot contact. Name labels retain the local-player
+presentation choice, not an actor simulation or proof of physical foot contact.
+Name labels retain the local-player
 indication; skin colors are not tinted to identify players.
 
 The asset has no collision or interaction shape, autonomous animation player,
@@ -77,7 +82,8 @@ rosters that omit this folder retain their identified procedural worker.
 confirmed samples. It checks source bindings, captured walk and run poses,
 forward knee bending, planted toe height and horizontal stance travel,
 skinned dimensions,
-ascent, descent and landing transitions, per-player isolation, projection
+ascent, descent, staged landing contact and skinned support height, per-player
+isolation, projection
 immutability and the absence of input calls. It also preserves the original
 procedural-worker controls. A passively rendered contact sheet in the retained
 local evidence records specific visible findings; neither the fixture nor that
