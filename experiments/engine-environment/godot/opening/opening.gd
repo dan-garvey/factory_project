@@ -1894,6 +1894,7 @@ class ProductionDriveJournalArt:
 	extends RefCounted
 	## Turned presentation inside the original native journal cylinder.
 	static var horizontal_press_mesh: ArrayMesh
+	static var z_input_post_mesh: ArrayMesh
 	static func mesh(height: float, radius: float = 0.085) -> ArrayMesh:
 		var half := height / 2.0
 		# Keep the full central bearing span. End relief and center marks are
@@ -1960,18 +1961,28 @@ class ProductionDriveJournalArt:
 			_press_fixed(parent, "PressInputBearing" + suffix, "Bearing", ring,
 				at + Vector3.UP * Geometry.ANCHOR_HEIGHT, Basis(Quaternion(Vector3.UP, axis)))
 			if axis == Vector3.RIGHT:
-				# Rear brackets leave both the receiving pan and all original
-				# finished-plate pieces clear, without moving either interface.
+				# The raised shared axle needs a taller rear load path. Keep the
+				# narrow upper ear outside the original journal radius.
+				var deck_top := 0.24
+				var post_top := Geometry.ANCHOR_HEIGHT - 0.105
 				_press_fixed(parent, "PressInputPost" + suffix, "Post",
-					ProductionVisuals.box_mesh(Vector3(0.10, 0.26, 0.12)),
-					at + Vector3(0, 0.37, -0.23))
+					ProductionVisuals.box_mesh(Vector3(0.10, post_top - deck_top, 0.12)),
+					at + Vector3(0, (post_top + deck_top) * 0.5, -0.23))
 				_press_fixed(parent, "PressInputBracket" + suffix, "Bracket",
-					ProductionVisuals.box_mesh(Vector3(0.06, 0.08, 0.09)),
-					at + Vector3(0, 0.50, -0.135))
+					ProductionVisuals.box_mesh(Vector3(0.06, 0.13, 0.16)),
+					at + Vector3(0, Geometry.ANCHOR_HEIGHT - 0.08, -0.17))
 			else:
+				if z_input_post_mesh == null:
+					# An offset cast cheek reaches the annular housing but leaves
+					# the central shaft and its original clearance unobstructed.
+					var cheek := PackedVector2Array([Vector2(0.09, 0.24),
+						Vector2(0.24, 0.24), Vector2(0.19, 0.33),
+						Vector2(0.15, Geometry.ANCHOR_HEIGHT - 0.18),
+						Vector2(0.15, Geometry.ANCHOR_HEIGHT - 0.015),
+						Vector2(0.09, Geometry.ANCHOR_HEIGHT - 0.015)])
+					z_input_post_mesh = ProductionVisuals.prism_mesh(cheek, 0.10, 0.004)
 				_press_fixed(parent, "PressInputPost" + suffix, "Post",
-					ProductionVisuals.box_mesh(Vector3(0.12, 0.165, 0.10)),
-					at + Vector3.UP * 0.3225)
+					z_input_post_mesh, at)
 
 class ProductionCollectorFeedArt:
 	extends RefCounted
@@ -4028,6 +4039,26 @@ func _belt_pulley_target(entity_id: String, hit_position: Vector3) -> Array:
 func _transmission_snap_target(entity_id: String, normal: Vector3, eye: Vector3) -> Array:
 	# Pick bodies identify confirmed construction. Use their common grid height
 	# when following surfaces; the menu can still choose an absolute air level.
+	if transmission_controls.active_tool in ["place_shaft", "gear"]:
+		var part: Variant = state.get("transmission_parts", {}).get(entity_id)
+		if part is Dictionary and part.get("kind") in ["shaft", "gear"]:
+			var center: Variant = part.get("center")
+			if not center is Array or center.size() != 3 or not normal.is_finite():
+				return []
+			for coordinate: Variant in center:
+				if typeof(coordinate) != TYPE_INT or coordinate % 4 != 0:
+					return []
+			var axis := 0
+			for candidate in [1, 2]:
+				if absf(normal[candidate]) > absf(normal[axis]):
+					axis = candidate
+			if absf(normal[axis]) < 0.5:
+				return []
+			var adjacent: Array = center.duplicate()
+			adjacent[axis] += 4 if normal[axis] > 0.0 else -4
+			transmission_controls.snapped_height = adjacent[1]
+			adjacent[1] = adjacent[1] if transmission_controls.auto_height else transmission_controls.gear_height
+			return adjacent
 	var surface: Dictionary = state.get("foundations", {}).get(entity_id, {})
 	if not surface.is_empty():
 		var level: int = int(surface.get("level", 0))

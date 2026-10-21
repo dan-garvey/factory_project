@@ -114,6 +114,10 @@ all journals share the qualified worked finish. These passive details add no
 native coupling, contact, rotation callback or authoritative state. They do not
 model an internal gear train. Vertical press layout still needs separate work;
 the compact conveyor hub is unchanged.
+The horizontal bearing posts now reach the current shaft height from the skid.
+Focused geometry checks measure X/Z bearing contact and reject displaced supports;
+isolated front and rear views show the seated hubs. These checks do not establish
+ordinary gameplay or human visual quality.
 The project selects four-sample 3D multisample antialiasing for mesh edges. This
 is a revisable rendering default, not a measured performance result; it does not
 remove normal-map or specular aliasing. The backend remains Compatibility.
