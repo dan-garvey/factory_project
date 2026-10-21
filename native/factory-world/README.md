@@ -108,9 +108,11 @@ revisable adapter layout, not a general material-routing rule.
 
 The logical checkpoint uses schema 3 and retains identified horizontal belt
 spans and their shaft endpoints. A span counts against the same finite belt
-part inventory as a conveyor. The current World commands do not yet construct
-or remove spans; checkpoint and stationary-plan controls exercise seeded spans
-until the ordinary construction path is integrated. Earlier logical schema 2
+part inventory as a conveyor. `place_belt_span` consumes a belt and checks
+reach to both shaft identities; `remove_belt_span` refunds it. Both retain
+generation and retry history. The native Host checks actor and site clearance,
+while ordinary player controls and cargo movement remain unimplemented.
+Earlier logical schema 2
 payloads are refused.
 
 The planner checks reach to the new part and every existing endpoint before

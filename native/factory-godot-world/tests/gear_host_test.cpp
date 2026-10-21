@@ -377,6 +377,57 @@ void belt_spindle_orientation() {
           "The perpendicular belt orientation survives checkpoint restoration.");
 }
 
+void belt_span_host_commands() {
+    Host host;
+    check(accepted(host.initialize("cog-api", {"P"})) &&
+              accepted(host.configure_terrain(factory::godot_world::tests::flat_site())),
+          "The belt span Host binds a synthetic flat site.");
+    observe(host, 0, -1.65, 1);
+    const auto left = create(host, shaft(0, 0, 0, "span-left"));
+    observe(host, 3.3, -1.65, 2);
+    const auto right = create(host, shaft(8, 0, 0, "span-right"));
+    auto install = wire("place_belt_span", "span-place");
+    install.emplace("from", V(left)); install.emplace("to", V(right));
+    observe(host, 1.65, 0, 3);
+    const auto blocked = host.command("P", install);
+    check(!accepted(blocked) && field<std::string>(blocked, "reason") == "actor_occupied",
+          "A synthetic actor occupying the span prevents installation.");
+    install.at("request") = V("span-place-clear");
+    observe(host, 1.65, -1.65, 4);
+    const auto id = create(host, install);
+    const auto projected = field<O>(host.projection(), "belt_spans");
+    check(projected.contains(id) && field<std::string>(projected.at(id), "from") == left &&
+              field<std::string>(projected.at(id), "to") == right &&
+              field<I>(V(field<O>(host.projection(), "parts")), "belt") == 0,
+          "The projection identifies the actual endpoints and consumed finite belt.");
+    const auto intrusion = host.command("P", gear(4, 0, 0, "span-obstruction", "z"));
+    check(!accepted(intrusion) && field<std::string>(intrusion, "reason") == "occupied",
+          "A later cog cannot be placed through the installed belt.");
+    const auto checkpoint = host.checkpoint();
+    auto obstructed_site = factory::godot_world::tests::flat_site();
+    obstructed_site.at("obstacles") = V(A{V(A{V(A{V(1.5), V(0.4), V(-0.2)}),
+                                                 V(A{V(1.8), V(0.7), V(0.2)})})});
+    Host obstructed;
+    check(accepted(obstructed.initialize("blocked", {"P"})) &&
+              accepted(obstructed.configure_terrain(obstructed_site)) &&
+              !accepted(obstructed.validate_checkpoint(checkpoint)),
+          "A restored belt cannot pass through an obstacle in the bound site.");
+    Host restored;
+    check(accepted(restored.initialize("fresh", {"P"})) &&
+              accepted(restored.configure_terrain(factory::godot_world::tests::flat_site())) &&
+              accepted(restored.restore_checkpoint(checkpoint)) &&
+              !factory::values::typed_difference(checkpoint, restored.checkpoint()),
+          "A fresh Host restores the span and both original wire histories.");
+    check(field<bool>(restored.command("P", install), "duplicate"), "Construction retry keeps its original identity.");
+    observe(restored, 1.65, -1.65, 1);
+    const auto removed = restored.command("P", target("remove_belt_span", id, "span-remove"));
+    check(accepted(removed) && field<O>(restored.projection(), "belt_spans").empty() &&
+              field<I>(V(field<O>(restored.projection(), "parts")), "belt") == 1,
+          "The Host removes the span and refunds its one belt.");
+    check(accepted(restored.validate_checkpoint(restored.checkpoint())),
+          "The removed span and its immutable wire history remain restorable.");
+}
+
 void rotated_belt_host() {
     const std::array<std::array<int, 3>, 6> orders{{
         {{0, 1, 2}}, {{0, 2, 1}}, {{1, 0, 2}},
@@ -689,7 +740,7 @@ int main(int argc, char** argv) {
         }
         if (argc == 1) {
             finite_oriented_train_and_restore(); adjacent_axle_faces(); refusals_and_legacy_shape();
-            global_grid(); finite_large_cog(); perpendicular_belt_line(); belt_spindle_orientation(); rotated_belt_host(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
+            global_grid(); finite_large_cog(); perpendicular_belt_line(); belt_spindle_orientation(); belt_span_host_commands(); rotated_belt_host(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
         } else if (argc != 2 || std::string(argv[1]) != "--placement-alias-only") {
             throw std::runtime_error("Expected no arguments or --placement-alias-only.");
         }

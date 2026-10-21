@@ -287,6 +287,66 @@ void belt_span_checkpoint() {
     malformed = state; malformed.kits.at("P")[{s::Role::belt, 0, 0}] = 1;
     check(!w::World::create("saved-world", profile, malformed), "A belt cannot be both placed and carried.");
 }
+
+void belt_span_commands() {
+    w::Profile profile;
+    profile.material = {1, 1, 2}; profile.initial_units = 1; profile.actors = {"P"};
+    profile.meters_per_grid_unit = 0.1;
+    profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, 1}, {{s::Role::shaft, 0, 2}, 2},
+                            {{s::Role::belt, 0, 0}, 1}};
+    w::State state;
+    state.material.initial_units = 1; state.material.stock.source = 1; state.material.cargo = {{"P", {}}};
+    state.kits = {{"P", {{{s::Role::belt, 0, 0}, 1}}}};
+    state.topology.parts = {{{"wheel", g::Kind::hub, {0, 0, -4}, g::Axis::z, 0, 0}, 1, s::Role::waterwheel},
+        {{"left", g::Kind::shaft, {0, 0, 0}, g::Axis::z, 0, 2}, 1, s::Role::shaft},
+        {{"right", g::Kind::shaft, {8, 0, 0}, g::Axis::z, 0, 2}, 1, s::Role::shaft}};
+    state.topology.sources = {{"wheel", {1, 1}}}; state.topology.drive_enabled = true;
+    state.issued_entities = {{"wheel", 1}, {"left", 1}, {"right", 1}};
+    auto world = w::World::create("saved-world", profile, state);
+    check(world != nullptr, "The belt command fixture creates the single World.");
+    auto place = command("place_belt_span", "belt-place", "left");
+    place.emplace("to", V("right")); place.emplace("to_generation", V(I{1}));
+    auto far = place; far.at("request") = V("belt-far");
+    const auto distant = world->command({"P", "P-old"}, far, [](const std::string& who) -> std::optional<a::ActorCut> {
+        return a::ActorCut{who, {50, 0, 0}, 1, true, 4};
+    });
+    check(distant.completed() && !field<bool>(*distant.result, "accepted") &&
+              world->snapshot().state == state, "A far actor cannot place or consume the belt.");
+    const auto built = send(*world, place);
+    check(built.completed() && field<bool>(*built.result, "accepted"), "A nearby actor creates the belt span.");
+    const auto id = field<std::string>(*built.result, "entity");
+    const auto generation = field<I>(*built.result, "generation");
+    check(world->snapshot().state.kits.at("P").at({s::Role::belt, 0, 0}) == 0 &&
+              s::power_view(world->snapshot().state.topology).mechanical.motion.at("right").rate == g::Rate{1, 1},
+          "The committed belt consumes its finite part and powers the remote shaft.");
+    auto endpoint = command("remove", "remove-endpoint", "left");
+    const auto blocked = send(*world, endpoint);
+    check(blocked.completed() && !field<bool>(*blocked.result, "accepted") &&
+              field<std::string>(*blocked.result, "reason") == "belt_attached",
+          "An attached shaft cannot be removed before its belt.");
+    const auto encoded = w::encode_checkpoint(profile, world->snapshot());
+    check(std::holds_alternative<V>(encoded), "A constructed belt and its request history encode.");
+    const auto decoded = w::decode_checkpoint(profile, "saved-world", std::get<V>(encoded));
+    check(std::holds_alternative<w::Snapshot>(decoded), "The exact constructed belt history decodes.");
+    auto restored = w::World::restore("saved-world", profile, std::get<w::Snapshot>(decoded));
+    check(restored != nullptr, "A fresh World resumes the constructed belt.");
+    const auto duplicate = send(*restored, place);
+    check(duplicate.completed() && field<bool>(*duplicate.result, "accepted") && field<bool>(*duplicate.result, "duplicate"),
+          "An exact retried construction returns the original receipt without another belt.");
+    auto remove = command("remove_belt_span", "belt-remove", id.c_str());
+    remove.at("generation") = V(generation);
+    accepted(send(*restored, remove));
+    check(restored->snapshot().state.topology.belt_spans.empty() &&
+              restored->snapshot().state.kits.at("P").at({s::Role::belt, 0, 0}) == 1 &&
+              s::power_view(restored->snapshot().state.topology).mechanical.motion.at("right").state == g::MotionState::unpowered,
+          "Removing the span refunds one belt and stops remote power.");
+    endpoint.at("request") = V("remove-endpoint-after-belt");
+    accepted(send(*restored, endpoint));
+    const auto after = w::encode_checkpoint(profile, restored->snapshot());
+    check(std::holds_alternative<V>(after) &&
+              std::holds_alternative<w::Snapshot>(w::decode_checkpoint(profile, "saved-world", std::get<V>(after))),
+          "Removed belt history remains valid after both endpoints and the span have changed.");
+}
 }  // namespace
 
 int main() {
@@ -295,6 +355,7 @@ int main() {
         schema_and_authority_mutations();
         bounds_and_large_integers();
         belt_span_checkpoint();
+        belt_span_commands();
         std::cout << "{\"status\":\"pass\",\"evidence\":\"invented_native_checkpoint\",\"checks\":" << checks << "}\n";
         return 0;
     } catch (const std::exception& error) {

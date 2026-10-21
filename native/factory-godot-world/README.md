@@ -253,6 +253,8 @@ existing World planner, finite kit and reach checks.
 | --- | --- | --- |
 | `place_gear` | `center: [int, int, int]`, `axis: "x"`, `"y"` or `"z"`, `teeth: int` | Place one carried gear at an exact grid center. |
 | `place_shaft` | `center: [int, int, int]`, `axis: "x"`, `"y"` or `"z"`, `half_span: 2` | Place one carried, one-tile shaft at a grid center. Segments transmit when their geometry engages. |
+| `place_belt_span` | `from: string`, `to: string` | Consume one belt to connect two aligned shaft tiles; actor reach and the complete path are checked. |
+| `remove_belt_span` | `entity: string` | Remove an identified span and return one belt to the actor's kit. |
 | `place` | Existing `kind` and `cell`, optional `axis` string | Orient a machine while retaining the existing cell wire. Belts use the Z spindle perpendicular to their X material path; other omitted axes default to X. |
 | `remove` | Existing `entity` identifier | Remove a selected individual shaft, gear or machine, preserving custody rules. |
 | `pickup_raw` | `center: [int, int, int]` | Collect the loose blank stack at a reach-checked world grid point into the bound actor's cargo. |
@@ -270,8 +272,9 @@ The read-only `part_specifications` projection maps each actor to entries with
 gears, two four-tooth gears, and eight shafts of half-span two; Q has
 no parts. Uncarried specifications refuse without changing that kit. Gears and
 shafts appear in `transmission_parts`, with integer `axis` values 0, 1 and 2 for
-X, Y and Z. Use `engagements` and exact signed `motion` for transmission facts;
-the historical `drive_links` shortcut describes machine-to-machine shafts only.
+X, Y and Z. Use `engagements` and exact signed `motion` for transmission facts.
+`belt_spans` maps each span identity to its generation and endpoint identities.
+The historical `drive_links` shortcut describes machine-to-machine shafts only.
 
 A synthetic channel fixture places a Z-axis wheel at cell `[-1, 1]`, a Z-axis
 collector at `[0, 1]`, and Z-axis gears at `[-4, 0, 8]` and `[0, 0, 8]`. Each
