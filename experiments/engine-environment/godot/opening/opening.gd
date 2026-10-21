@@ -903,10 +903,14 @@ class ProductionFoundationArt:
 	const EAST := 2
 	const NORTH := 4
 	const SOUTH := 8
+	const FOOTING_BEVEL := 0.014
+	const JOIN_CORNER := 0.0002
+	const COURSE_RECESS := 0.006
 	static var finish: StandardMaterial3D
 	static var textures: Dictionary = {}
 	static var source_status := "uninitialized"
 	static var deck_meshes: Dictionary = {}
+	static var footing_meshes: Dictionary = {}
 
 	static func read_images(directory: String = ROOT) -> Dictionary:
 		return ProductionSteelFloor.read_images(directory, FILES, Vector2i(512, 512))
@@ -943,8 +947,70 @@ class ProductionFoundationArt:
 		finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 		return finish
 
-	static func footing_mesh() -> ArrayMesh:
-		return ProductionVisuals.box_mesh(Vector3(Geometry.PITCH, Geometry.FOUNDATION_DEPTH - DECK_THICKNESS, Geometry.PITCH))
+	static func _footing_outline(mask: int, cap: bool = false) -> Array[Vector2]:
+		var half := Geometry.PITCH / 2.0 - (FOOTING_BEVEL if cap else 0.0)
+		var corner := FOOTING_BEVEL / 2.0 if cap else FOOTING_BEVEL
+		var nw := corner if cap or (mask & (NORTH | WEST)) == 0 else JOIN_CORNER
+		var ne := corner if cap or (mask & (NORTH | EAST)) == 0 else JOIN_CORNER
+		var se := corner if cap or (mask & (SOUTH | EAST)) == 0 else JOIN_CORNER
+		var sw := corner if cap or (mask & (SOUTH | WEST)) == 0 else JOIN_CORNER
+		return [Vector2(-half, -half + nw), Vector2(-half + nw, -half),
+			Vector2(half - ne, -half), Vector2(half, -half + ne),
+			Vector2(half, half - se), Vector2(half - se, half),
+			Vector2(-half + sw, half), Vector2(-half, half - sw)]
+
+	static func _footing_ring(outline: Array[Vector2], height: float, recess: float, mask: int) -> Array[Vector3]:
+		var ring: Array[Vector3] = []
+		for point in outline:
+			var x := point.x
+			var z := point.y
+			if x < 0 and mask & WEST == 0:
+				x += recess
+			elif x > 0 and mask & EAST == 0:
+				x -= recess
+			if z < 0 and mask & NORTH == 0:
+				z += recess
+			elif z > 0 and mask & SOUTH == 0:
+				z -= recess
+			ring.append(Vector3(x, height, z))
+		return ring
+
+	static func _footing_seam(surface: SurfaceTool, upper: Array[Vector3], lower: Array[Vector3]) -> void:
+		for index in range(8):
+			var next := (index + 1) % 8
+			var midpoint := (upper[index] + upper[next] + lower[index] + lower[next]) / 4.0
+			var outward := Vector3(midpoint.x, 0, midpoint.z).normalized()
+			ProductionVisuals._face(surface, [upper[index], upper[next], lower[next]], outward)
+			ProductionVisuals._face(surface, [upper[index], lower[next], lower[index]], outward)
+
+	static func footing_mesh(mask: int = 0) -> ArrayMesh:
+		assert(mask >= 0 and mask < 16)
+		if footing_meshes.has(mask):
+			return footing_meshes[mask]
+		var half_depth := (Geometry.FOUNDATION_DEPTH - DECK_THICKNESS) / 2.0
+		var outline := _footing_outline(mask)
+		var cap := _footing_outline(mask, true)
+		var upper := _footing_ring(cap, half_depth, 0.0, mask)
+		var lower := _footing_ring(cap, -half_depth, 0.0, mask)
+		var surface := SurfaceTool.new()
+		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+		for index in range(8):
+			var next := (index + 1) % 8
+			ProductionVisuals._face(surface, [Vector3(0, half_depth, 0), upper[index], upper[next]], Vector3.UP)
+			ProductionVisuals._face(surface, [Vector3(0, -half_depth, 0), lower[next], lower[index]], Vector3.DOWN)
+		var rings: Array = [upper,
+			_footing_ring(outline, half_depth - FOOTING_BEVEL, 0.0, mask),
+			_footing_ring(outline, half_depth - 0.20, 0.0, mask),
+			_footing_ring(outline, half_depth - 0.212, COURSE_RECESS, mask),
+			_footing_ring(outline, half_depth - 0.232, COURSE_RECESS, mask),
+			_footing_ring(outline, half_depth - 0.244, 0.0, mask),
+			_footing_ring(outline, -half_depth + FOOTING_BEVEL, 0.0, mask), lower]
+		for index in range(rings.size() - 1):
+			_footing_seam(surface, rings[index], rings[index + 1])
+		surface.generate_tangents()
+		var mesh := surface.commit()
+		footing_meshes[mask] = mesh
+		return mesh
 
 	static func neighbor_masks(foundations: Dictionary) -> Dictionary:
 		# The native projection owns placement and height. This only selects art
@@ -1048,7 +1114,7 @@ class ProductionFoundationArt:
 			return false
 		var footing := MeshInstance3D.new()
 		footing.name = "FoundationBlock"
-		footing.mesh = footing_mesh()
+		footing.mesh = footing_mesh(neighbor_mask)
 		footing.position.y = -(Geometry.FOUNDATION_DEPTH + DECK_THICKNESS) / 2.0
 		footing.material_override = concrete
 		parent.add_child(footing)
