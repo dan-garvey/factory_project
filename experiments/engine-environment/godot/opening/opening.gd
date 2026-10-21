@@ -1256,6 +1256,104 @@ class ProductionPressCrownArt:
 				ProductionVisuals.turned_mesh(socket), Vector3(side * 0.34, 1.39, -0.19), guide_finish)
 		return true
 
+class ProductionPressDieArt:
+	extends RefCounted
+	## Passive rigid tooling. Working planes and the existing motion anchor stay literal.
+	static var meshes: Dictionary = {}
+
+	static func _surface(target: ArrayMesh, role: String, pieces: Array) -> void:
+		var surface := SurfaceTool.new()
+		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+		for piece: Array in pieces:
+			surface.append_from(piece[0], 0, piece[1])
+		surface.commit(target)
+		target.surface_set_name(target.get_surface_count() - 1, role)
+
+	static func _hardware(target: ArrayMesh, poses: Array[Transform3D]) -> void:
+		var washer := ProductionVisuals.turned_mesh(PackedVector2Array([
+			Vector2(0.014, 0), Vector2(0.038, 0), Vector2(0.043, 0.002),
+			Vector2(0.043, 0.004), Vector2(0.038, 0.006), Vector2(0.014, 0.006), Vector2(0.014, 0)]), 24)
+		var pieces: Array = []
+		for pose in poses:
+			pieces.append([washer, pose])
+			pieces.append([ProductionVisuals.fastener_head_mesh(), pose * Transform3D(Basis.IDENTITY, Vector3(0, 0.018, 0))])
+		_surface(target, "MountingHardware", pieces)
+
+	static func tool_mesh() -> ArrayMesh:
+		if meshes.has("tool"):
+			return meshes.tool
+		var mesh := ArrayMesh.new()
+		var holder := PackedVector2Array([
+			Vector2(-0.28, -0.025), Vector2(-0.27, -0.045), Vector2(-0.25, -0.045),
+			Vector2(-0.25, -0.035), Vector2(0.25, -0.035), Vector2(0.25, -0.045),
+			Vector2(0.27, -0.045), Vector2(0.28, -0.025), Vector2(0.28, 0.060),
+			Vector2(0.255, 0.085), Vector2(-0.255, 0.085), Vector2(-0.28, 0.060)])
+		_surface(mesh, "ToolHolder", [[ProductionVisuals.prism_mesh(holder, 0.48, 0.004), Transform3D.IDENTITY]])
+		# This separate working insert retains the old lower plane and full
+		# front/back extent. The holder and hardware fit inside the same envelope.
+		_surface(mesh, "WorkingFace", [[ProductionVisuals.box_mesh(Vector3(0.50, 0.05, 0.55)),
+			Transform3D(Basis.IDENTITY, Vector3(0, -0.06, 0))]])
+		var poses: Array[Transform3D] = []
+		for side in [-1.0, 1.0]:
+			for x in [-0.205, 0.205]:
+				poses.append(Transform3D(Basis(Quaternion(Vector3.UP, Vector3.BACK * side)), Vector3(x, 0.025, side * 0.24)))
+		_hardware(mesh, poses)
+		meshes.tool = mesh
+		return mesh
+
+	static func anvil_mesh() -> ArrayMesh:
+		if meshes.has("anvil"):
+			return meshes.anvil
+		var mesh := ArrayMesh.new()
+		var saddle := PackedVector2Array([
+			Vector2(-0.35, -0.08), Vector2(0.35, -0.08), Vector2(0.35, -0.045),
+			Vector2(0.27, -0.045), Vector2(0.24, -0.015), Vector2(0.24, 0.04),
+			Vector2(-0.24, 0.04), Vector2(-0.24, -0.015), Vector2(-0.27, -0.045), Vector2(-0.35, -0.045)])
+		_surface(mesh, "AnvilSaddle", [[ProductionVisuals.prism_mesh(saddle, 0.63, 0.004), Transform3D.IDENTITY]])
+		_surface(mesh, "WorkingFace", [[ProductionVisuals.box_mesh(Vector3(0.52, 0.04, 0.51)),
+			Transform3D(Basis.IDENTITY, Vector3(0, 0.06, 0))]])
+		var poses: Array[Transform3D] = []
+		for x in [-0.305, 0.305]:
+			for z in [-0.255, 0.255]:
+				poses.append(Transform3D(Basis.IDENTITY, Vector3(x, -0.045, z)))
+		_hardware(mesh, poses)
+		meshes.anvil = mesh
+		return mesh
+
+	static func pedestal_mesh() -> ArrayMesh:
+		if not meshes.has("pedestal"):
+			var rib := PackedVector2Array([
+				Vector2(-0.09, -0.07), Vector2(0.09, -0.07), Vector2(0.09, -0.045),
+				Vector2(0.045, -0.045), Vector2(0.04, 0.045), Vector2(0.075, 0.045),
+				Vector2(0.075, 0.07), Vector2(-0.075, 0.07), Vector2(-0.075, 0.045),
+				Vector2(-0.04, 0.045), Vector2(-0.045, -0.045), Vector2(-0.09, -0.045)])
+			meshes.pedestal = ProductionVisuals.prism_mesh(rib, 0.53, 0.003)
+		return meshes.pedestal
+
+	static func mount(parent: Node3D, anvil: MeshInstance3D, head: MeshInstance3D) -> void:
+		var holder := ProductionCollectorArt.coating(Color("58634c"))
+		var saddle := ProductionCollectorArt.coating(Color("394a44"))
+		var face := ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.32)
+		var hardware := ProductionTransmissionFinish.material("worked", Color("b8c3bb"), 0.85, 0.38)
+		if holder == null or saddle == null or face == null or hardware == null:
+			return
+		for pair in [[head, tool_mesh(), holder], [anvil, anvil_mesh(), saddle]]:
+			var part: MeshInstance3D = pair[0]
+			part.mesh = pair[1]
+			part.material_override = null
+			part.set_surface_override_material(0, pair[2])
+			part.set_surface_override_material(1, face)
+			part.set_surface_override_material(2, hardware)
+			part.set_meta("press_die_role", str(part.name))
+		for side in [-1.0, 1.0]:
+			var rib := MeshInstance3D.new()
+			rib.name = "AnvilPedestalLeft" if side < 0 else "AnvilPedestalRight"
+			rib.position = Vector3(side * 0.22, 0.31, 0.05)
+			rib.mesh = pedestal_mesh()
+			rib.material_override = saddle
+			rib.set_meta("press_die_role", "AnvilPedestal")
+			parent.add_child(rib)
+
 class ProductionEnvironment:
 	extends RefCounted
 	## Visual scenery only. ActorWorld owns collision from the same immutable site geometry.
@@ -4019,8 +4117,10 @@ func _press_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 			_machine_box(anchor, "PressUpright", Vector3(x, 0.82, -0.38), Vector3(0.15, 1.24, 0.28), frame)
 	if not (sourced and _native_transmission() and ProductionPressCrownArt.mount(anchor, frame)):
 		_machine_box(anchor, "PressBridge", Vector3(0, 1.5, -0.3), Vector3(1.2, 0.2, 0.36), frame, 0.05 if sourced else 0.08)
-	_machine_box(anchor, "Anvil", Vector3(0, 0.46, 0.05), Vector3(0.7, 0.16, 0.63), dark)
-	_machine_box(anchor, "ToolHead", Vector3(0, 0.84, 0), Vector3(0.56, 0.17, 0.55), steel, 0.85, 0.32)
+	var anvil := _machine_box(anchor, "Anvil", Vector3(0, 0.46, 0.05), Vector3(0.7, 0.16, 0.63), dark)
+	var head := _machine_box(anchor, "ToolHead", Vector3(0, 0.84, 0), Vector3(0.56, 0.17, 0.55), steel, 0.85, 0.32)
+	if _native_transmission():
+		ProductionPressDieArt.mount(anchor, anvil, head)
 	_machine_cylinder(anchor, "Piston", Vector3(0, 1.14, -0.08), 0.075, 0.45, steel)
 	for x in [-0.34, 0.34]:
 		_machine_cylinder(anchor, "ToolGuide", Vector3(x, 1.06, -0.19), 0.04, 0.6, Color("b87945"))

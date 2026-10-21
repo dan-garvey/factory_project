@@ -132,6 +132,24 @@ Nonnative profiles and historical missing-support rosters keep their earlier
 bridge. Headless geometry and resource checks leave rendered appearance,
 contact behavior and human quality assessment open.
 
+The native die and anvil now separate coated holders, exposed working inserts
+and mounting hardware. A stepped upper holder clamps a broad machined face;
+the lower saddle supports its own working plate. Each rigid assembly is one
+cached mesh with three material surfaces, using the existing qualified cast and
+worked finishes. Their complete original bounds, centres and working planes
+remain exact. The complete upper assembly follows the existing `ToolHead`
+motion anchor; it creates no extra stroke or processing clock.
+
+Two fixed cast ribs close the former fourteen-centimetre gap between the skid
+deck and the anvil bottom, clear of all three original drive-journal axes. They
+are passive parts of the complete press, without structural inventory, collision
+or force rules. Historical profiles retain their prior tooling. The isolated
+consumer checks raw facets, support planes, the actual redrawn held billet and
+its raised boss, cache reuse and changed-part controls. The existing eight-
+millimetre held-work clearance remains; this is presentation, not a new native
+contact or stamping-force model. Rendered quality and human preference remain
+unverified.
+
 The same existing view script builds an open collector stock bed, a supported
 conveyor with a closed [rubber loop](conveyor/CREDITS.md), and waterwheel with an open rim, spokes,
 paddles and axle bearings. Shared frame/steel/copper finishes keep the silhouettes

@@ -6,6 +6,7 @@ const Visuals = Opening.ProductionVisuals
 const WheelArt = Opening.ProductionWheelArt
 const PaddleArt = Opening.ProductionPaddleArt
 const PressArt = Opening.ProductionPressArt
+const DieArt = Opening.ProductionPressDieArt
 const ConveyorArt = Opening.ProductionConveyorArt
 const CollectorArt = Opening.ProductionCollectorArt
 const SkidArt = Opening.ProductionSkidArt
@@ -646,8 +647,9 @@ func check_press_crown() -> void:
 				and is_equal_approx(piston.mesh.top_radius, 0.075) and is_equal_approx(piston.mesh.height, 0.45)
 				and piston.position.is_equal_approx(Vector3(0, 1.14, -0.08))
 				and head.position.is_equal_approx(Vector3(0, 0.84, 0))
-				and head.mesh == Visuals.box_mesh(Vector3(0.56, 0.17, 0.55)),
-				"The original literal ram, tool head and two guide rods define the visual clearance oracle.")
+				and head.mesh == DieArt.tool_mesh()
+				and head.mesh.get_aabb().size.is_equal_approx(Vector3(0.56, 0.17, 0.55)),
+				"The literal original ram, tool envelope and two guide rods define the visual clearance oracle.")
 			for guide in guides:
 				verify(is_equal_approx(absf(guide.position.x), 0.34) and is_equal_approx(guide.position.y, 1.06)
 					and is_equal_approx(guide.position.z, -0.19) and is_equal_approx(guide.mesh.height, 0.6),
@@ -2591,7 +2593,229 @@ func prepare_paddle_maps() -> void:
 	print(JSON.stringify(report))
 	quit(0)
 
+func die_faces(mesh: Mesh, surface: int) -> PackedVector3Array:
+	# Use raw arrays: the TriangleMesh convenience cache snaps fine geometry.
+	var arrays := mesh.surface_get_arrays(surface)
+	var points: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX] if arrays[Mesh.ARRAY_INDEX] != null else PackedInt32Array()
+	if indices.is_empty():
+		return points
+	var faces := PackedVector3Array()
+	for index in indices:
+		faces.append(points[index])
+	return faces
+
+func die_height(mesh: Mesh, surface: int, pose: Transform3D, probe: Vector2, up: bool) -> float:
+	var result := -INF if up else INF
+	var faces := die_faces(mesh, surface)
+	for n in range(0, faces.size(), 3):
+		var a: Vector3 = pose * faces[n]
+		var b: Vector3 = pose * faces[n + 1]
+		var c: Vector3 = pose * faces[n + 2]
+		var cross := (b - a).cross(c - a)
+		if absf(a.y - b.y) > 0.0000001 or absf(a.y - c.y) > 0.0000001 or cross.y * (1.0 if up else -1.0) >= 0.0:
+			continue
+		var p := Vector2(a.x, a.z)
+		var q := Vector2(b.x, b.z)
+		var r := Vector2(c.x, c.z)
+		var sides := [(q - p).cross(probe - p), (r - q).cross(probe - q), (p - r).cross(probe - r)]
+		if not ((sides[0] >= -0.000000001 and sides[1] >= -0.000000001 and sides[2] >= -0.000000001)
+			or (sides[0] <= 0.000000001 and sides[1] <= 0.000000001 and sides[2] <= 0.000000001)):
+			continue
+		result = maxf(result, a.y) if up else minf(result, a.y)
+	return result
+
+func die_box_gap(a: AABB, b: AABB) -> float:
+	return maxf(maxf(maxf(a.position.x - b.end.x, b.position.x - a.end.x),
+		maxf(a.position.y - b.end.y, b.position.y - a.end.y)), maxf(a.position.z - b.end.z, b.position.z - a.end.z))
+
+func die_supports(machine: Node3D, rib: MeshInstance3D) -> bool:
+	var deck: MeshInstance3D = machine.get_node("Plinth")
+	var anvil: MeshInstance3D = machine.get_node("Anvil")
+	var probe := Vector2(rib.position.x, rib.position.z)
+	var base := die_height(rib.mesh, 0, rib.transform, probe, false)
+	var top := die_height(rib.mesh, 0, rib.transform, probe, true)
+	var deck_top := die_height(deck.mesh, 0, deck.transform, probe, true)
+	var anvil_base := die_height(anvil.mesh, 0, anvil.transform, probe, false)
+	return is_finite(base) and is_finite(top) and is_finite(deck_top) and is_finite(anvil_base) \
+		and absf(base - deck_top) < 0.000001 and absf(top - anvil_base) < 0.000001
+
+func die_materials(part: MeshInstance3D, color: Color) -> bool:
+	return part.material_override == null and part.get_surface_override_material(0) == CollectorArt.coating(color) \
+		and part.get_surface_override_material(1) == Opening.ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.32) \
+		and part.get_surface_override_material(2) == Opening.ProductionTransmissionFinish.material("worked", Color("b8c3bb"), 0.85, 0.38)
+
+func check_press_die() -> void:
+	var cache: Dictionary = {}
+	var assemblies := 0
+	var controls := 0
+	var minimum_item_gap := INF
+	var minimum_drive_gap := INF
+	for shared_profile in [false, true]:
+		for axis in range(3):
+			for cell in [[0, 0], [2, -1]]:
+				var view: Variant = Shared.new() if shared_profile else Opening.new()
+				view.client = "P"
+				if shared_profile:
+					view.session = PaddleSessionFacts.new()
+				view.machine_root = Node3D.new()
+				view.item_root = Node3D.new()
+				view.add_child(view.machine_root)
+				view.add_child(view.item_root)
+				view.state = {"context": "press-die-fixture", "options": {"native": true, "physical": true},
+					"actors": {"P": {"ready": true}}, "parts": {}, "inventories": {"P": 0},
+					"stock": {"source": 16, "collector": 0, "belt": 0, "input": 0, "held": 0, "output": 0}, "remaining": 0,
+					"entities": {"fixture": {"kind": "processor", "cell": cell, "axis": axis, "generation": 1}},
+					"transmission_parts": {}, "motion": {}, "links": [], "drive_links": [], "engagements": []}
+				view.transmission_presenter = Presenter.new()
+				view.add_child(view.transmission_presenter)
+				view.transmission_presenter.configure(view)
+				var before: Dictionary = view.state.duplicate(true)
+				view._rebuild_machines()
+				var machine: Node3D = view.machine_root.get_child(0)
+				var head: MeshInstance3D = machine.get_node("ToolHead")
+				var anvil: MeshInstance3D = machine.get_node("Anvil")
+				var piston: MeshInstance3D = machine.get_node("Piston")
+				var drive: MeshInstance3D = machine.get_node("DriveStub")
+				var ribs: Array[MeshInstance3D] = [machine.get_node("AnvilPedestalLeft"), machine.get_node("AnvilPedestalRight")]
+				verify(head.mesh == DieArt.tool_mesh() and anvil.mesh == DieArt.anvil_mesh()
+					and head.position.is_equal_approx(Vector3(0, 0.84, 0)) and anvil.position == Vector3(0, 0.46, 0.05),
+					"The ordinary native builder mounts the die and saddle at their literal original centres.")
+				verify(head.mesh.get_aabb().size.is_equal_approx(Vector3(0.56, 0.17, 0.55))
+					and anvil.mesh.get_aabb().size.is_equal_approx(Vector3(0.7, 0.16, 0.63)),
+					"The new complete head and anvil keep the exact original local envelopes.")
+				verify(die_materials(head, Color("58634c")) and die_materials(anvil, Color("394a44")),
+					"Coated holders, exposed working faces and hardware use their separate cached qualified finishes.")
+				for part in [head, anvil]:
+					var is_head: bool = part == head
+					var role := "head" if is_head else "anvil"
+					verify(part.mesh.get_surface_count() == 3 and part.mesh.surface_get_name(1) == "WorkingFace"
+						and part.mesh.surface_get_name(2) == "MountingHardware" and part.get_child_count() == 0 and part.get_script() == null,
+						"Each rigid tool keeps three material surfaces in one passive cached mesh, without extra controllers or detail-node motion.")
+					if not cache.has(role):
+						var volumes: Array = [[0.030, 0.036], [0.013, 0.014], [0.0003, 0.0006]] if is_head else [[0.040, 0.043], [0.010, 0.011], [0.0003, 0.0006]]
+						for surface in range(3):
+							var isolated := SurfaceTool.new()
+							isolated.create_from(part.mesh, surface)
+							check_closed_asset_mesh(isolated.commit(), volumes[surface][0], volumes[surface][1])
+						cache[role] = part.mesh
+					verify(part.mesh == cache[role], "Every axis and both ordinary view classes reuse the same complete tool geometry.")
+				var rows: Array = machine.get_meta("motion_meshes")
+				verify(rows.size() == 2 and rows[0].node == head and rows[1].node == piston,
+					"Only the original head and piston consume the existing observed travel.")
+				var fixed: Array[Transform3D] = [anvil.transform, ribs[0].transform, ribs[1].transform]
+				for rib in ribs:
+					verify(rib.mesh == DieArt.pedestal_mesh() and rib.get_script() == null and rib.get_child_count() == 0
+						and rib.material_override == CollectorArt.coating(Color("394a44")) and die_supports(machine, rib),
+						"Fixed cast ribs meet the actual skid top and anvil bottom across the original visible support gap.")
+					if not cache.has("rib"):
+						check_closed_asset_mesh(rib.mesh, 0.008, 0.009)
+						cache.rib = rib.mesh
+					var gap := die_box_gap(rib.transform * rib.mesh.get_aabb(), drive.transform * drive.mesh.get_aabb())
+					minimum_drive_gap = minf(minimum_drive_gap, gap)
+					verify(gap > 0.02, "The added support clears the unchanged drive journal on every native axis.")
+					check_bounds(rib, Transform3D.IDENTITY)
+				var picks := 0
+				for child in machine.get_children():
+					if child is StaticBody3D:
+						picks += 1
+						verify(child.collision_layer == Geometry.PICK_LAYER and child.collision_mask == 0
+							and child.get_meta("entity") == "fixture" and child.get_child_count() == 1
+							and child.get_child(0).shape.size == Vector3(1.45, 1.65, 1.45)
+							and child.get_child(0).position == Vector3(0, 0.8, 0),
+							"The sole original entity pick keeps its identity, dimensions, centre and masks.")
+				verify(picks == 1 and view.state == before, "Passive assembly adds no state, extra pick body or material action.")
+				for travel in [0.0, 0.0075, 0.015]:
+					view._apply_press_pose(rows, travel)
+					var head_plane := die_height(head.mesh, 1, head.transform, Vector2.ZERO, false)
+					var anvil_plane := die_height(anvil.mesh, 1, anvil.transform, Vector2.ZERO, true)
+					verify(absf(head_plane - (0.755 - travel)) < 0.000001 and absf(anvil_plane - 0.54) < 0.000001,
+						"Actual centre working faces retain the old literal lower die and upper anvil planes at both endpoints and the intermediate pose.")
+					verify(anvil.transform == fixed[0] and ribs[0].transform == fixed[1] and ribs[1].transform == fixed[2]
+						and is_equal_approx((piston.transform * piston.mesh.get_aabb()).end.y, 1.365),
+						"The saddle, pedestal and original rod top stay fixed while the complete die follows its existing motion anchor.")
+				view._apply_press_pose(rows, 0.0)
+				view.state.stock.source = 15
+				view.state.stock.held = 1
+				before = view.state.duplicate(true)
+				view._redraw_items()
+				view._animate_machine_bodies(0.1)
+				view._animate_machine_bodies(0.1)
+				var working_plane := die_height(head.mesh, 1, head.transform, Vector2.ZERO, false)
+				var item_top := -INF
+				var billets := 0
+				var bosses := 0
+				var boss_covered := true
+				for item in view.item_root.get_children():
+					if item.get_meta("item_kind", "") != "workpiece_billet":
+						continue
+					billets += 1
+					item_top = maxf(item_top, feed_item_bounds(item, Transform3D.IDENTITY).end.y)
+					for part in item.get_children():
+						if not part is MeshInstance3D or part.get_meta("asset_role", "") != "CenterBoss":
+							continue
+						bosses += 1
+						var bounds: AABB = machine.transform.affine_inverse() * item.transform * part.transform * part.mesh.get_aabb()
+						for x in [bounds.position.x, bounds.end.x]:
+							for z in [bounds.position.z, bounds.end.z]:
+								boss_covered = boss_covered and absf(die_height(head.mesh, 1, head.transform, Vector2(x, z), false) - working_plane) < 0.000001
+				var item_gap := working_plane + machine.position.y - item_top
+				minimum_item_gap = minf(minimum_item_gap, item_gap)
+				verify(billets == 1 and bosses == 1 and boss_covered and is_finite(item_top) and item_gap >= 0.002 and is_equal_approx(head.position.y, 0.825),
+					"The ordinary observed held-work path lowers the complete die while clearing the actual redrawn billet and its boss.")
+				view.explanation_open = true
+				var paused := head.transform
+				view._animate_machine_bodies(0.1)
+				verify(head.transform == paused, "Unavailable presentation cannot keep moving the die.")
+				view.explanation_open = false
+				verify(view.state == before and view.request_sequence == 0 and view.model == null and view.actor_world == null,
+					"Both actual view classes retain the invented projection without starting authority, requests or bodies.")
+				if controls == 0:
+					head.position.y -= 0.02
+					verify(die_height(head.mesh, 1, head.transform, Vector2.ZERO, false) + machine.position.y - item_top < 0.002,
+						"The same working-face oracle rejects a die displaced into the real held billet.")
+					head.transform = paused
+					ribs[0].position.y += 0.01
+					verify(not die_supports(machine, ribs[0]), "A floating pedestal fails the same actual support-plane oracle.")
+					ribs[0].transform = fixed[1]
+					var material := head.get_surface_override_material(0)
+					head.set_surface_override_material(0, head.get_surface_override_material(1))
+					verify(not die_materials(head, Color("58634c")), "A uniform metal substitution cannot pass the coating and working-face separation.")
+					head.set_surface_override_material(0, material)
+					controls = 3
+				view.state.stock.held = 0
+				view.state.stock.source = 16
+				view._animate_machine_bodies(0.1)
+				view._animate_machine_bodies(0.1)
+				verify(head.position.is_equal_approx(Vector3(0, 0.84, 0)), "The unchanged observed empty state returns the entire die to its original rest pose.")
+				view.state.entities.fixture.generation = 2
+				view._rebuild_machines()
+				var rebuilt: Node3D = view.machine_root.get_child(0)
+				verify(rebuilt.get_node("ToolHead").mesh == cache.head and rebuilt.get_node("Anvil").mesh == cache.anvil
+					and rebuilt.get_node("AnvilPedestalLeft").mesh == cache.rib,
+					"Removal and rebuilding reuse passive geometry without carrying an old moving instance into a new generation.")
+				assemblies += 1
+				view.free()
+	var historical := Opening.new()
+	historical.legacy_fixture = true
+	var root_node := Node3D.new()
+	historical._press_visual(root_node)
+	verify(root_node.get_node("ToolHead").mesh == Visuals.box_mesh(Vector3(0.56, 0.17, 0.55))
+		and root_node.get_node("Anvil").mesh == Visuals.box_mesh(Vector3(0.7, 0.16, 0.63))
+		and root_node.get_node_or_null("AnvilPedestalLeft") == null,
+		"The historical fixture retains its previous head and anvil rather than receiving an unclaimed native-art result.")
+	root_node.free()
+	historical.free()
+	print(JSON.stringify({"assemblies": assemblies, "axes": 3, "unique_meshes": cache.size(),
+		"poses_per_assembly": 3, "negative_controls": controls, "minimum_held_item_gap_metres": minimum_item_gap,
+		"minimum_added_support_drive_gap_metres": minimum_drive_gap,
+		"observations": "invented read-only", "native_gameplay": "not_run", "rendered_quality": "not_assessed"}))
+
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--press-die-only"):
+		check_press_die()
+		finish()
+		return
 	if OS.get_cmdline_user_args().has("--conveyor-hub-only"):
 		check_conveyor_hub()
 		finish()
