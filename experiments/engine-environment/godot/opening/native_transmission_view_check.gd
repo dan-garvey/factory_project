@@ -612,10 +612,25 @@ func _loose_material() -> void:
 	session._apply_frame({"context": "helper-fixture", "serial": 1, "snapshot": host.state})
 	verify(session.projection().dropped_material == host.state.dropped_material,
 		"The read-only Session frame retains the server's loose-material projection.")
-	host.state.dropped_material = []
+	var mixed := {"center": [2, 0, 4], "raw": 1, "products": 1, "work_lots": [{"id": 7, "recipe_input": 1, "cycle_ticks": 2, "remaining": 1, "completed_subticks": 123}]}
+	host.state.dropped_material = [mixed]
 	host.state.revision = 2
 	host.state.order = 2
 	session._apply_frame({"context": "helper-fixture", "serial": 2, "snapshot": host.state})
+	var remote := HostStub.new()
+	remote.state = session.projection()
+	var remote_menu := LooseControls.new()
+	remote_menu.configure(remote)
+	remote_menu._open()
+	remote_menu._choose(0)
+	var expected := mixed.duplicate(true)
+	expected.erase("center")
+	verify(remote.state.dropped_material == [mixed] and remote.calls == [{"action": "pickup_material", "center": [2, 0, 4], "expected": expected}], "A Session projection preserves a mixed stack and submits its exact confirmed work identity.")
+	remote_menu.free()
+	host.state.dropped_material = []
+	host.state.revision = 3
+	host.state.order = 3
+	session._apply_frame({"context": "helper-fixture", "serial": 3, "snapshot": host.state})
 	verify(session.projection().dropped_material.is_empty(), "A later confirmed Session frame removes the picked-up stack.")
 	session.free()
 

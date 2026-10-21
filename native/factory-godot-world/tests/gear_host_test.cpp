@@ -365,6 +365,65 @@ void perpendicular_belt_line() {
     check(accepted(after.command("P", pickup_after)), "The independent loose stack remains reachable after belt removal.");
 }
 
+void typed_loose_host() {
+    Host seed;
+    check(accepted(seed.initialize("cog-api", {"P"})) &&
+              accepted(seed.configure_terrain(factory::godot_world::tests::flat_site())),
+          "The typed loose-material fixture binds a synthetic site.");
+    auto envelope = std::get<O>(seed.checkpoint().storage());
+    auto logical = std::get<O>(envelope.at("world").storage());
+    auto state = std::get<O>(logical.at("state").storage());
+    auto material = std::get<O>(state.at("material").storage());
+    auto stock = std::get<O>(material.at("stock").storage());
+    stock.at("source") = V(field<I>(V(stock), "source") - 3);
+    const V lot(O{{"id", V(I{1})}, {"recipe", V(O{{"input_units_per_product", V(I{1})}, {"cycle_ticks", V(I{2})}})},
+                 {"remaining_ticks", V(I{1})}, {"completed_subticks", V(I{123})}});
+    material.at("stock") = V(std::move(stock));
+    material.at("next_work_id") = V(I{2});
+    material.at("dropped_material") = V(A{V(O{{"point", V(A{V(I{0}), V(I{0}), V(I{4})})},
+        {"cargo", V(O{{"raw_units", V(I{1})}, {"products", V(I{1})}, {"work_lots", V(A{lot})}})}})});
+    state.at("material") = V(std::move(material));
+    logical.at("state") = V(std::move(state));
+    envelope.at("world") = V(std::move(logical));
+    Host loaded;
+    check(accepted(loaded.initialize("fresh", {"P"})) &&
+              accepted(loaded.configure_terrain(factory::godot_world::tests::flat_site())) &&
+              accepted(loaded.restore_checkpoint(V(envelope))),
+          "A fresh Host restores a conserved mixed loose stack.");
+    const auto drop = field<A>(loaded.projection(), "dropped_material").front();
+    check(field<I>(drop, "raw") == 1 && field<I>(drop, "products") == 1 &&
+              field<I>(field<A>(drop, "work_lots").front(), "completed_subticks") == 123,
+          "The Host projects exact raw, plate and partial-work custody.");
+    auto expected = std::get<O>(drop.storage()); expected.erase("center");
+    auto pickup = wire("pickup_material", "typed-loose-pickup");
+    pickup.emplace("center", V(A{V(I{0}), V(I{0}), V(I{4})})); pickup.emplace("expected", V(expected));
+    observe(loaded, 50, 50, 1);
+    const auto distant = loaded.command("P", pickup);
+    check(!accepted(distant) && field<A>(loaded.projection(), "dropped_material").size() == 1,
+          "A distant actor cannot pick up mixed loose material.");
+    observe(loaded, 0, 0, 2);
+    pickup.at("request") = V("typed-loose-stale");
+    pickup.at("expected") = V(O{{"raw", V(I{1})}, {"products", V(I{0})}, {"work_lots", V(A{})}});
+    const auto stale = loaded.command("P", pickup);
+    check(!accepted(stale) && field<std::string>(stale, "reason") == "drop_changed" &&
+              field<A>(loaded.projection(), "dropped_material").size() == 1,
+          "A stale selection cannot acquire the mixed stack.");
+    pickup.at("request") = V("typed-loose-exact"); pickup.at("expected") = V(expected);
+    const auto receipt = loaded.command("P", pickup);
+    const auto cargo = field<O>(loaded.projection(), "cargo").at("P");
+    check(accepted(receipt) && field<I>(cargo, "raw") == 1 && field<I>(cargo, "products") == 1 &&
+              field<I>(field<A>(cargo, "work_lots").front(), "completed_subticks") == 123 &&
+              field<A>(loaded.projection(), "dropped_material").empty(),
+          "The exact stack enters the actor's cargo with work progress intact.");
+    Host restored;
+    check(accepted(restored.initialize("another", {"P"})) &&
+              accepted(restored.configure_terrain(factory::godot_world::tests::flat_site())) &&
+              accepted(restored.restore_checkpoint(loaded.checkpoint())) &&
+              field<bool>(restored.command("P", pickup), "duplicate") &&
+              field<I>(field<A>(field<O>(restored.projection(), "cargo").at("P"), "work_lots").front(), "id") == 1,
+          "A fresh Host preserves typed cargo and the original idempotent pickup receipt.");
+}
+
 void belt_spindle_orientation() {
     Host host;
     check(accepted(host.initialize("cog-api", {"P"})) &&
@@ -945,7 +1004,7 @@ int main(int argc, char** argv) {
         }
         if (argc == 1) {
             finite_oriented_train_and_restore(); adjacent_axle_faces(); refusals_and_legacy_shape();
-            global_grid(); finite_large_cog(); perpendicular_belt_line(); belt_spindle_orientation(); belt_span_host_commands(); nonhorizontal_span_host(); complete_span_route_host(); rotated_belt_host(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
+            global_grid(); finite_large_cog(); perpendicular_belt_line(); belt_spindle_orientation(); typed_loose_host(); belt_span_host_commands(); nonhorizontal_span_host(); complete_span_route_host(); rotated_belt_host(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
         } else if (argc != 2 || std::string(argv[1]) != "--placement-alias-only") {
             throw std::runtime_error("Expected no arguments or --placement-alias-only.");
         }

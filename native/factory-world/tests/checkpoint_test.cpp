@@ -416,6 +416,17 @@ void inclined_material_route() {
             check(loaded->snapshot().state.material.cargo.at("P") == item &&
                       !loaded->snapshot().state.material.dropped_material.contains(exit),
                   "Pickup preserves the exact plate or workpiece in actor custody.");
+            auto reverse_profile = profile;
+            reverse_profile.waterwheel_rate = {1, 1};
+            auto reverse_state = typed_state;
+            reverse_state.topology.sources = {{"collector-wheel", {1, 1}}, {"belt-wheel", {1, 1}}};
+            auto& reverse_slots = reverse_state.material.belt_lanes.at("span").slots;
+            for (auto& slot : reverse_slots) slot.reset();
+            (reverse_endpoints ? reverse_slots.back() : reverse_slots.front()) = item;
+            auto reverse = w::World::create("typed-reverse", reverse_profile, reverse_state);
+            check(reverse && reverse->tick().error == w::TransactionError::none &&
+                      reverse->snapshot().state.material.dropped_material.at({-4, 0, 0}) == item,
+                  "Reversing power ejects the same typed item at the lower end.");
         }
         if (!reverse_endpoints) {
             auto capacity_profile = profile;
