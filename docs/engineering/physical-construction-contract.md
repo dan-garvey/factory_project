@@ -94,11 +94,12 @@ pose, capability, epoch, actor and elapsed-time fields rather than trusting them
 Chapter owns `opening/site_geometry.gd` as the single definition of site pitch
 and target anchors used by the adapter, views and Model. The initial pitch is
 the existing 1.65 world units. A ground-grid cell `[x,z]` has the neutral work
-anchor `[x * 1.65, 0.5, z * 1.65]`. Existing entities resolve their anchors from
+anchor `[x * 1.65, 0.825, z * 1.65]`, centered vertically in the tile above the
+grid level. Existing entities resolve their anchors from
 their authoritative cells; callers cannot supply an alternative nearer point.
 These anchors are declared interaction references, not claims about tool faces
-or physical surface distance. The opening still has a single ground grid; this
-does not implement stacked construction.
+or physical surface distance. Elevated construction uses the same grid origin
+and height denominator.
 
 The initial capability is a sphere of radius 4 world units about the actual
 body origin. A target is reachable exactly when all three coordinates are

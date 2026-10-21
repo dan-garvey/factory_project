@@ -4,6 +4,7 @@ extends SceneTree
 ## validated separately against the same Model and Session.
 const Model = preload("res://model.gd")
 const Store = preload("res://save-tests/checkpoint_file.gd")
+const Geometry = preload("res://opening/site_geometry.gd")
 var report_path := ""
 var directory := ""
 var checks := 0
@@ -145,7 +146,7 @@ func _run() -> void:
 	roundtrip(occupied, "historical-blocker-poses")
 	cases["actor_occupied_refusals"] = occupied.checkpoint()
 
-	for entry in [["equality", 4.5, true], ["outside", 4.500000001, false]]:
+	for entry in [["equality", Geometry.ANCHOR_HEIGHT + 4.0, true], ["outside", Geometry.ANCHOR_HEIGHT + 4.000000001, false]]:
 		var edge = fresh(entry[0])
 		publish(edge, "P", [0.0, entry[1], 0.0])
 		var result := issue(edge, {"action": "place", "kind": "collector", "cell": [0, 0]})
