@@ -5004,7 +5004,10 @@ func _collector_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 
 func _belt_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	var frame: Color = COLORS.belt
-	var fitted := _native_transmission() and ProductionConveyorFrameArt.mount(anchor, frame, int(entity.get("axis", 0)))
+	# The sourced cast coating is brighter than the legacy flat tint. Keep the
+	# finished frame in the same restrained steel palette as nearby machines.
+	var fitted_frame := Color("49666a")
+	var fitted := _native_transmission() and ProductionConveyorFrameArt.mount(anchor, fitted_frame, int(entity.get("axis", 0)))
 	if not fitted:
 		for x in [-0.52, 0.52]:
 			for z in [-0.36, 0.36]:
@@ -5022,7 +5025,7 @@ func _belt_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 		Vector2(0.055, 0.35), Vector2(0, 0.35)])
 	for x in [-0.57, 0.57]:
 		_machine_turned(anchor, "ConveyorRoller", Vector3(x, 0.465, 0), roller_profile, Color("a6b4af"), Vector3.BACK)
-	if not (fitted and ProductionConveyorHubArt.mount(anchor, _machine_axis(entity), frame)):
+	if not (fitted and ProductionConveyorHubArt.mount(anchor, _machine_axis(entity), fitted_frame)):
 		_machine_drive_stub(anchor, entity)
 
 func _press_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
