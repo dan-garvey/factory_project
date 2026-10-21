@@ -94,7 +94,7 @@ void parser_boundary(const fs::path& root, const fs::path& parser,
               "The parser copies the complete binary asset unchanged.");
     } else {
         check(!fs::exists(fs::path(fake.string() + ".calls")), "Source overflow refuses before any utility stage.");
-        check(record.find("4 MiB") != std::string::npos, "The refusal names the actual project-input allowance.");
+        check(record.find("8 MiB") != std::string::npos, "The refusal names the actual project-input allowance.");
     }
 }
 }  // namespace
@@ -108,7 +108,7 @@ int main(int argc, char** argv) {
         check(temporary && *temporary, "Require the Bazel-owned disposable fixture root.");
         const auto root = fs::canonical(temporary) / "source-budget";
         check(fs::create_directory(root), "Use a fresh native fixture directory.");
-        check(maximum_project_source_bytes == 4 * 1024 * 1024, "The native contract is exactly 4 MiB.");
+        check(maximum_project_source_bytes == 8 * 1024 * 1024, "The native contract is exactly 8 MiB.");
         const auto repository = root / "repository";
         fs::create_directory(repository);
         git(repository, {"init", "--quiet"});
@@ -120,7 +120,7 @@ int main(int argc, char** argv) {
         write(project / "opening/fixture.gd", script);
         write(project / "opening/opening.tscn", scene);
         const auto fixed_bytes = config.size() + script.size() + scene.size();
-        for (const auto bytes : {std::size_t{3 * 1024 * 1024}, maximum_project_source_bytes}) {
+        for (const auto bytes : {std::size_t{6 * 1024 * 1024}, maximum_project_source_bytes}) {
             const auto label = std::to_string(bytes);
             const std::string payload(bytes - fixed_bytes, 'a');
             write(project / "opening/asset.bin", payload);

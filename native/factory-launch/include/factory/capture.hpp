@@ -11,7 +11,7 @@ namespace factory_launch {
 
 // Complete tracked project inputs, including authored binary assets. Retained
 // outputs and opaque save inputs have separate, unchanged allowances.
-inline constexpr std::size_t maximum_project_source_bytes = 4 * 1024 * 1024;
+inline constexpr std::size_t maximum_project_source_bytes = 8 * 1024 * 1024;
 
 struct ProcessResult {
     int exit_code;
