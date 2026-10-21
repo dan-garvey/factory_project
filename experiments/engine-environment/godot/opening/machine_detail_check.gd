@@ -11,6 +11,7 @@ const CollectorArt = Opening.ProductionCollectorArt
 const SkidArt = Opening.ProductionSkidArt
 const Presenter = preload("res://opening/native_transmission_presenter.gd")
 const Geometry = preload("res://opening/site_geometry.gd")
+const Items = preload("res://opening/workpiece_item_assets.gd")
 var checks := 0
 var failed := false
 var max_tangent_dot := 0.0
@@ -22,6 +23,204 @@ class PaddleSessionFacts extends RefCounted:
 	var ready := true
 	func is_ready() -> bool:
 		return ready
+
+func feed_aperture(mesh: Mesh, pose: Transform3D = Transform3D.IDENTITY) -> Vector2:
+	var arrays := mesh.surface_get_arrays(0)
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+	var left := -INF
+	var right := INF
+	var normal_frame: Basis = pose.basis.inverse().transposed()
+	for n in range(vertices.size()):
+		var point: Vector3 = pose * vertices[n]
+		var normal: Vector3 = (normal_frame * normals[n]).normalized()
+		if normal.x > 0.99999 and point.x < 0:
+			left = maxf(left, point.x)
+		elif normal.x < -0.99999 and point.x > 0:
+			right = minf(right, point.x)
+	return Vector2(left, right)
+
+func feed_ray_blocked(node: Node3D, parent_pose: Transform3D, from: Vector3, to: Vector3) -> bool:
+	var pose := parent_pose * node.transform
+	if node is MeshInstance3D:
+		var inverse := pose.affine_inverse()
+		var a: Vector3 = inverse * from
+		var b: Vector3 = inverse * to
+		var arrays: Array = node.mesh.surface_get_arrays(0)
+		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX] if arrays[Mesh.ARRAY_INDEX] != null else PackedInt32Array()
+		var count := vertices.size() if indices.is_empty() else indices.size()
+		for n in range(0, count, 3):
+			if Geometry3D.segment_intersects_triangle(a, b, vertices[n if indices.is_empty() else indices[n]],
+					vertices[n + 1 if indices.is_empty() else indices[n + 1]],
+					vertices[n + 2 if indices.is_empty() else indices[n + 2]]) != null:
+				return true
+	for child in node.get_children():
+		if child is Node3D and feed_ray_blocked(child, pose, from, to):
+			return true
+	return false
+
+func feed_item_bounds(node: Node3D, parent_pose: Transform3D) -> AABB:
+	var pose := parent_pose * node.transform
+	var result := AABB(pose.origin, Vector3.ZERO)
+	if node is MeshInstance3D:
+		result = pose * node.mesh.get_aabb()
+	for child in node.get_children():
+		if child is Node3D:
+			result = result.merge(feed_item_bounds(child, pose))
+	return result
+
+func check_feed_sleeves() -> void:
+	var items := Node3D.new()
+	var billet := Items.workpiece_billet(items)
+	var plate := Items.stamped_plate(items)
+	var item_bounds: Array[AABB] = [feed_item_bounds(billet, Transform3D.IDENTITY), feed_item_bounds(plate, Transform3D.IDENTITY)]
+	var declared_sizes: Array[Vector3] = [Vector3(0.27, 0.18, 0.36), Vector3(0.44, 0.07, 0.53)]
+	var cached: Dictionary = {}
+	var assemblies := 0
+	var clear_rays := 0
+	var minimum_item_gap := INF
+	var controls := 0
+	for shared_profile in [false, true]:
+		for destination in [[1, 0], [-1, 0], [0, 1], [0, -1]]:
+			var view: Variant = Shared.new() if shared_profile else Opening.new()
+			view.machine_root = Node3D.new()
+			view.add_child(view.machine_root)
+			view.state = {"context": "feed-sleeve-fixture", "options": {"native": true},
+				"actors": {"P": {"ready": true}}, "transmission_parts": {}, "motion": {},
+				"entities": {"from": {"kind": "collector", "cell": [0, 0], "axis": 0, "generation": 1},
+					"to": {"kind": "belt", "cell": destination, "axis": 0, "generation": 2}},
+				"links": [["from", "to"]], "drive_links": [], "engagements": []}
+			var before: Dictionary = view.state.duplicate(true)
+			view._rebuild_machines()
+			var route: Node3D = view.machine_root.get_node("MaterialRoute")
+			var direction := Vector3(destination[0], 0, destination[1]).normalized()
+			verify(route.get_meta("feed_sleeve", false) and route.get_child_count() == 8
+				and route.basis.z.dot(direction) > 0.99999,
+				"Each actual confirmed cardinal link receives one fitted sleeve in its original source-to-destination frame.")
+			var channel: MeshInstance3D = route.get_node("FeedChannel")
+			var endpoint_low := INF
+			var endpoint_high := -INF
+			for corner in range(8):
+				var point: Vector3 = route.transform * channel.transform * channel.mesh.get_aabb().get_endpoint(corner)
+				endpoint_low = minf(endpoint_low, point.dot(direction))
+				endpoint_high = maxf(endpoint_high, point.dot(direction))
+			verify(absf(endpoint_low - 0.55) < 0.00001 and absf(endpoint_high - 1.10) < 0.00001,
+				"The actual channel ends keep the original trimmed native port positions within packed render precision.")
+			var aperture := feed_aperture(channel.mesh)
+			verify(aperture.is_finite() and is_equal_approx(aperture.x, -0.28) and is_equal_approx(aperture.y, 0.28),
+				"The opening is measured from the actual inward wall facets, not the outside bounding box.")
+			for n in range(item_bounds.size()):
+				var across: Vector3 = route.basis.x
+				var actual_width: float = absf(across.x) * item_bounds[n].size.x + absf(across.z) * item_bounds[n].size.z
+				var declared_width: float = absf(across.x) * declared_sizes[n].x + absf(across.z) * declared_sizes[n].z
+				minimum_item_gap = minf(minimum_item_gap, aperture.y - aperture.x - maxf(actual_width, declared_width))
+				verify(actual_width < aperture.y - aperture.x and declared_width < aperture.y - aperture.x,
+					"The actual existing billet/plate artwork and their conservative envelopes fit every current cardinal opening.")
+			var roles := {"FeedChannel": 0, "FeedCuff": 0, "FeedBolt": 0, "FeedDirection": 0}
+			for part: MeshInstance3D in route.get_children():
+				var role: String = part.get_meta("feed_sleeve_role")
+				roles[role] += 1
+				verify(part.get_script() == null and part.get_child_count() == 0 and part.scale.is_equal_approx(Vector3.ONE),
+					"Each connection piece is plain render geometry without a controller, collider or span-scaled end detail.")
+				if not cached.has(role):
+					var limits: Array = {"FeedChannel": [0.004, 0.006], "FeedCuff": [0.00045, 0.00070],
+						"FeedBolt": [0.000004, 0.000006], "FeedDirection": [0.000022, 0.000032]}[role]
+					check_closed_asset_mesh(part.mesh, limits[0], limits[1])
+					cached[role] = [part.mesh, part.material_override]
+				verify(part.mesh == cached[role][0] and part.material_override == cached[role][1],
+					"Both view classes and all four grid directions reuse their exact compatible meshes and finishes.")
+				var finish_value := part.material_override as StandardMaterial3D
+				if role == "FeedDirection":
+					verify(finish_value.albedo_color == Color("e2c48b") and finish_value.metallic == 0
+						and finish_value.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED
+						and (route.basis * part.basis.y).dot(direction) > 0.99999,
+						"The original warm direction cue is an opaque surface mark pointing from producer to receiver.")
+					var low := INF
+					for corner in range(8):
+						low = minf(low, (part.transform * part.mesh.get_aabb().get_endpoint(corner)).y)
+					verify(absf(low - 0.09) < 0.000001, "The marking touches the actual channel floor instead of floating above the feed path.")
+				else:
+					var surface_role := "cast" if role == "FeedCuff" else "worked"
+					verify(is_equal_approx(finish_value.metallic, 0.85)
+						and finish_value.normal_texture == Opening.ProductionTransmissionFinish.textures[surface_role + "_normal"]
+						and finish_value.roughness_texture == Opening.ProductionTransmissionFinish.textures[surface_role + "_roughness"],
+						"Channel, cuffs and fasteners retain their actual qualified cast/worked material roles.")
+			verify(roles.FeedChannel == 1 and roles.FeedCuff == 2 and roles.FeedBolt == 4 and roles.FeedDirection == 1,
+				"The complete connection has one open channel, two fixed cuffs, four fasteners and one floor mark.")
+			for x in [-0.26, 0.0, 0.26]:
+				for height in [0.11, 0.15]:
+					verify(not feed_ray_blocked(route, route.transform.affine_inverse(), Vector3(x, height, -0.35), Vector3(x, height, 0.35)),
+						"Actual channel, cuff and hardware facets leave the sampled through-opening unobstructed.")
+					clear_rays += 1
+			verify(view.state == before and view.model == null and view.actor_world == null and view.request_sequence == 0,
+				"Connection rendering changes no confirmed topology, quantity, native actor or request.")
+			if controls == 0:
+				var narrow := feed_aperture(channel.mesh, Transform3D(Basis.from_scale(Vector3(0.5, 1, 1)), Vector3.ZERO))
+				verify(narrow.y - narrow.x < declared_sizes[0].z, "A deliberately narrowed actual channel fails billet clearance.")
+				var marker: MeshInstance3D = route.get_node("FeedDirection")
+				verify((route.basis.rotated(Vector3.UP, PI) * marker.basis.y).dot(direction) < -0.99999,
+					"A reversed marking fails the original producer-to-receiver direction discriminator.")
+				var cap := MeshInstance3D.new()
+				var box := BoxMesh.new()
+				box.size = Vector3(0.60, 0.12, 0.03)
+				cap.mesh = box
+				cap.position.y = 0.15
+				verify(feed_ray_blocked(cap, Transform3D.IDENTITY, Vector3(0, 0.13, -0.35), Vector3(0, 0.13, 0.35)),
+					"A filled end cap is detected by the same actual-triangle through-opening check.")
+				cap.free()
+				controls = 3
+			view.state.links = []
+			view.pending_link = "from"
+			var removed: Dictionary = view.state.duplicate(true)
+			view._rebuild_machines()
+			verify(view.machine_root.get_node_or_null("MaterialRoute") == null and view.state == removed,
+				"Removed or merely pending links do not create or retain feed infrastructure.")
+			assemblies += 1
+			view.free()
+	for span in [0.30, 2.20]:
+		var route := Node3D.new()
+		verify(Opening.ProductionFeedSleeveArt.mount(route, Vector3.ZERO, Vector3(0, 0, span)),
+			"The isolated render helper can vary a middle span without adopting a new native route rule.")
+		verify(is_equal_approx(route.get_node("FeedChannel").mesh.get_aabb().size.z, span)
+			and route.get_node("FeedCuffN").mesh == cached.FeedCuff[0]
+			and route.get_node("FeedBoltNN").mesh == cached.FeedBolt[0],
+			"Longer and shorter render spans keep their fixed end cuff and fastener resources unchanged.")
+		for suffix in ["N", "P"]:
+			var cuff: MeshInstance3D = route.get_node("FeedCuff" + suffix)
+			var end: float = cuff.position.z + (cuff.mesh.get_aabb().position.z if suffix == "N" else cuff.mesh.get_aabb().end.z)
+			verify(absf(end - (-span / 2.0 if suffix == "N" else span / 2.0)) < 0.00001
+				and cuff.scale.is_equal_approx(Vector3.ONE),
+				"Each rigid cuff stays flush with its actual channel end rather than stretching with the middle.")
+		route.free()
+	var equivalent := Node3D.new()
+	verify(Opening.ProductionFeedSleeveArt.mount(equivalent, Vector3(5.5, 0, 0), Vector3(6.0500002, 0, 0))
+		and equivalent.get_node("FeedChannel").mesh == cached.FeedChannel[0],
+		"Tiny packed-coordinate differences reuse the same declared visual mesh length without changing source positions.")
+	equivalent.free()
+	for end in [Vector3(0, 0, 0.1), Vector3(0, 1, 1), Vector3(INF, 0, 1)]:
+		var refused := Node3D.new()
+		verify(not Opening.ProductionFeedSleeveArt.mount(refused, Vector3.ZERO, end)
+			and refused.get_child_count() == 0 and refused.transform == Transform3D.IDENTITY,
+			"Unsupported short, nonlevel or nonfinite render spans refuse before publishing geometry.")
+		refused.free()
+		controls += 1
+	for shared_profile in [false, true]:
+		var view: Variant = Shared.new() if shared_profile else Opening.new()
+		view.state = {"options": {"native": false}}
+		var parent := Node3D.new()
+		view.add_child(parent)
+		var route: Node3D = view._material_route(parent, Vector3.ZERO, Vector3(1.65, 0, 0))
+		verify(route.get_child_count() == 3 and not route.has_meta("feed_sleeve")
+			and route.get_node("Rail").mesh is BoxMesh and route.get_node_or_null("ArrowLeft") != null
+			and route.get_node_or_null("ArrowRight") != null,
+			"Both nonnative view classes retain their earlier rail and two-arrow annotation.")
+		view.free()
+	items.free()
+	print(JSON.stringify({"phase": "feed sleeves", "confirmed_link_assemblies": assemblies,
+		"clear_through_rays": clear_rays, "altered_or_invalid_controls": controls,
+		"minimum_declared_item_width_margin": minimum_item_gap, "variable_render_spans": [0.30, 2.20],
+		"observations": "invented", "native_gameplay": "not_run", "rendered_quality": "not_assessed"}))
 
 func segment_radius(a: Vector2, b: Vector2) -> float:
 	var edge := b - a
@@ -1555,6 +1754,10 @@ func prepare_paddle_maps() -> void:
 	quit(0)
 
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--feed-sleeves-only"):
+		check_feed_sleeves()
+		finish()
+		return
 	if OS.get_cmdline_user_args().has("--wheel-supports-only"):
 		check_wheel_supports()
 		finish()

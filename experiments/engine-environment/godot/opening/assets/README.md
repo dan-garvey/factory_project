@@ -367,6 +367,20 @@ remain limitations to assess. The separate historical flat fixture keeps its opa
 surface. Headless material and frame-consumer checks establish resource behavior,
 not the rendered effect or GPU cost.
 
+Confirmed native material links use original open feed sleeves instead of floating
+annotation bars. An open worked-metal channel bridges the existing trimmed ports;
+cast end cuffs and small fasteners stay fixed while only the middle span varies.
+The warm direction mark lies on its floor. Existing billet and plate artwork fits
+the clear opening for the current cardinal routes. All metal maps reuse the
+qualified [cast/worked surfaces](transmission-surfaces/CREDITS.md).
+
+These sleeves visualize the same confirmed links and add no crafted transport
+unit, stock, item movement, gravity, power or collider. Pending and removed links
+create no sleeve. The old nonnative annotation and unsupported short or nonlevel
+render spans keep their prior path. Mesh lengths are rounded to 0.01 millimetres
+for cache reuse only; native poses, commands and reach remain exact. General
+diagonal/vertical logistics, rendered quality and GPU cost remain unverified.
+
 The native waterwheel has original flared cast stands and open worked journal
 liners. Their fixed bearing centers are fitted over the unchanged visible hub;
 the horizontal arrangement has two supports, while the vertical axle has one
