@@ -1,0 +1,58 @@
+{
+  "cast_source": {
+    "asset": "Metal 041 A",
+    "provider": "ambientCG",
+    "url": "https://ambientcg.com/a/Metal041A",
+    "license": "CC0-1.0",
+    "license_url": "https://docs.ambientcg.com/license/",
+    "technique": "Unverified; the provider method code and descriptive labels conflict.",
+    "provider_method_code": "PBRProcedural",
+    "provider_method_label": "Height field photogrammetry",
+    "physical_extent": "Not supplied by the provider. The runtime scale is an art choice.",
+    "archive": {
+      "request_url": "https://ambientcg.com/get?file=Metal041A_1K-PNG.zip",
+      "resolved_url": "https://acg-download.struffelproductions.com/file/ambientCG-Web/download/Metal041A_cU1j4pql/Metal041A_1K-PNG.zip",
+      "bytes": 12953580,
+      "sha256": "f747b1f301bafcfa232210936ef817227220a15ccdc1308e222cc9de7b22c360"
+    },
+    "files": {
+      "Metal041A_1K-PNG_NormalGL.png": {"bytes": 4465991, "sha256": "3e2b0ddc58564d28685f0949ede839fc680c84ae8a0f97127de6aa91ab5b392c", "size": [1024, 1024], "source_bit_depth": 16},
+      "Metal041A_1K-PNG_Roughness.png": {"bytes": 331987, "sha256": "e7756912587a45d0a4bd93465e487dde09084486cda922014c07b7c3947d4a34", "size": [1024, 1024], "source_bit_depth": 8}
+    },
+    "adaptation": "Normal and roughness only. Source color, metallic and displacement maps are omitted to retain the existing tint and geometry. Float Lanczos resize follows the engine's disclosed decode, then normal renormalization, nearest RGB8/L8 encoding and lossless WebP.",
+    "normal_repeat_metres": 0.25,
+    "normal_strength": 0.35,
+    "maximum_prepared_normal_length_error": 0.00222742557525635,
+    "maximum_prepared_normal_encoding_angle_degrees": 0.317751852957632
+  },
+  "worked_recipe": {
+    "author": "Factory",
+    "engine": "4.7.2.stable.official.ed1daf0bf",
+    "seed": 74391,
+    "noise": "Simplex smooth, no fractal, frequency 1.0. Four shifted samples blend with smooth endpoint weights into a periodic field.",
+    "fine_sample_scale": [1.7, 1.7],
+    "band_sample_scale": [0.05, 0.35],
+    "height_weights": [0.2, 0.8],
+    "tile_metres": 0.08,
+    "height_amplitude_metres": 0.00001,
+    "roughness": "Clamp 0.34 + band * 0.05 + fine * 0.015 to [0.28, 0.42], then nearest L8.",
+    "normal": "Periodic central finite differences at the stated tile scale, unit normalization and nearest RGB8.",
+    "maximum_prepared_normal_length_error": 0.000384330749511719,
+    "geometry_displacement": false,
+    "runtime_generation": false
+  },
+  "delivered_files": {
+    "cast_normal_gl.webp": {"bytes": 117656, "sha256": "5f5723232d55f7cbdbb0729692e6b33ec17bf3b719bb638148612ff50188bab7", "size": [512, 512], "format": "RGB8", "role": "linear OpenGL tangent normal"},
+    "cast_roughness.webp": {"bytes": 85916, "sha256": "0f4a42fb6124a6031eae1a67f960f66ca04e7513a33862f4335526b637e97491", "size": [512, 512], "format": "L8", "role": "linear roughness, red channel"},
+    "worked_normal_gl.webp": {"bytes": 21418, "sha256": "0dc6dfde92b0894a20591b498079a55c9f26371e77ce2b670dcce08e0aee7eec", "size": [256, 256], "format": "RGB8", "role": "linear OpenGL tangent normal"},
+    "worked_roughness.webp": {"bytes": 25168, "sha256": "c08ba179306d944a14e16e6549514eb125bb88532baf3c549df1d5da9e33ae94", "size": [256, 256], "format": "L8", "role": "linear roughness, red channel"}
+  },
+  "preparation": {
+    "entry": "opening/transmission_asset_check.gd --prepare-transmission-maps",
+    "engine": "4.7.2.stable.official.ed1daf0bf",
+    "prepared_pixel_roundtrip_equal": true,
+    "limits": "The source normal decodes to RGB8 before processing. This is not full source-bit preservation or a claim of cross-platform bit identity."
+  },
+  "runtime": "Shared materials and mipmapped images; local-space triplanar mapping. Existing albedo tints and metallic scalar remain. No albedo texture, fake occlusion, geometric displacement, native mutation, contact solver or phase authority.",
+  "limits": "Source and isolated asset evidence only. Rendered appearance, human quality, packaged export and GPU cost remain open."
+}
