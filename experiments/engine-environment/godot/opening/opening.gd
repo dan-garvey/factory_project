@@ -5640,6 +5640,13 @@ func _guided_span_routes() -> Dictionary:
 	if collector is Vector3i and processor is Vector3i:
 		result.physical = _guided_span_path(routes, collector, processor, false)
 		result.powered = _guided_span_path(routes, collector, processor, true)
+		# The native assessment also accounts for collector-side competition;
+		# a geometric path alone can be starved by an earlier fast branch.
+		var reports: Variant = state.get("opening_engineering", {})
+		var report: Variant = reports.get(client, {}) if reports is Dictionary else {}
+		if report is Dictionary and report.get("schema") == 1 and report.get("format") == "factory-opening-engineering" \
+				and report.get("actor") == client and report.get("known_actor") == true and typeof(report.get("belt_forward")) == TYPE_BOOL:
+			result.powered = result.physical and report.belt_forward
 	return result
 
 func _guided_step(kinds: Dictionary) -> Dictionary:
@@ -5680,7 +5687,7 @@ func _guided_step(kinds: Dictionary) -> Dictionary:
 			if part.get("kind", "") == "belt" and motion.get(id, {}).get("state", "") == "rotating" and int(motion.get(id, {}).get("numerator", 0)) > 0:
 				return {"text": "The belt is carrying blanks away from the press. Change the cog route to reverse its rotation; pick up loose blanks from the worksite menu.", "tool": "drive"}
 		if span_route.physical and not span_route.powered and not legacy_route:
-			return {"text": "Power the belt shafts and check their direction toward the press.", "tool": "drive"}
+			return {"text": "Power the belt shafts, check their direction toward the press, and check branches for diverted blanks.", "tool": "drive"}
 	elif not state.get("powered", false):
 		return {"text": "Bring power to the line. Help [H] shows the current setup.", "tool": "drive"}
 	var stock: Dictionary = state.get("stock", {})
