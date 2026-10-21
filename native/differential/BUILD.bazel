@@ -1,0 +1,32 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "differential",
+    srcs = ["src/differential.cpp"],
+    hdrs = ["include/factory/differential.hpp"],
+    strip_include_prefix = "include",
+    deps = ["//native/geared-cycle:clock"],
+)
+
+cc_library(
+    name = "workbench",
+    srcs = ["src/workbench.cpp"],
+    hdrs = ["include/factory/differential_workbench.hpp"],
+    strip_include_prefix = "include",
+    deps = [":differential", "//native/geared-cycle:workbench"],
+)
+
+cc_binary(
+    name = "differential_case",
+    srcs = ["src/main.cpp"],
+    deps = [":workbench"],
+)
+
+cc_test(
+    name = "differential_test",
+    srcs = ["tests/differential_test.cpp"],
+    deps = [":workbench"],
+    size = "small",
+)
