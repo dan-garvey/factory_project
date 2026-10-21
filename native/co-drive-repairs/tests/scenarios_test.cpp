@@ -52,7 +52,7 @@ Fixture fresh(const std::string& suffix) {
     const auto power = s::power_view(state.topology).mechanical;
     factory::materials::Quantity parts{};
     for (const auto& [spec, count] : fixture.profile.finite_parts) { (void)spec; parts += count; }
-    check(parts == 9 && state.material.stock.source == 16 && progress.sources == 2 && progress.products == 0 &&
+    check(parts == 11 && state.material.stock.source == 16 && progress.sources == 2 && progress.products == 0 &&
           progress.mode == c::Mode::stalled && power.motion.at("wheel-left").state == g::MotionState::stalled &&
           power.motion.at("wheel-right").state == g::MotionState::stalled, "Two equal-rate sources through one reversal actually stall their shared finite line.");
     return fixture;
@@ -117,7 +117,7 @@ void produce(Fixture& fixture) {
     for (int step = 0; step < 64 && fixture.world->snapshot().state.material.cargo.at("P").products < 4; ++step) {
         if (fixture.world->snapshot().state.material.stock.output > 0) {
             check(accepted(send(fixture, {{"action", V("collect")}, {"target", V("processor")},
-                {"generation", V(I{1})}, {"amount", V(I{1})}}, {0, 0, 12})), "A nearby actor retrieves one actual native plate into individual cargo.");
+                {"generation", V(I{1})}, {"amount", V(I{1})}}, {8, 0, 4})), "A nearby actor retrieves one actual native plate into individual cargo.");
         }
         ticks(fixture, 1);
     }
@@ -141,7 +141,7 @@ void retirement(bool left) {
     const auto motion = s::power_view(state.topology).mechanical;
     check(progress.mode == c::Mode::isolated && progress.ready() == left && state.topology.drive_enabled &&
           state.material == material && state.kits.at("P").at({s::Role::waterwheel, 0, 0}) == 1 &&
-          motion.motion.at("processor").rate == g::Rate{left ? -1 : 1, 1},
+          motion.motion.at("processor").rate == g::Rate{left ? 1 : -1, 1},
           "Retirement refunds the exact wheel, preserves material and derives the remaining signed line rate.");
     restore(fixture);
     if (!left) {
@@ -169,8 +169,8 @@ void coherent(const Fixture& fixture, const std::string& idler) {
     const auto progress = c::inspect(state);
     const auto motion = s::power_view(state.topology).mechanical;
     check(progress.mode == c::Mode::co_driven && progress.sources == 2 && progress.ready() &&
-          motion.motion.at("native-part-1").rate == g::Rate{-1, 1} && motion.motion.at("wheel-right").rate == g::Rate{-1, 1} &&
-          motion.motion.at(idler).rate == g::Rate{1, 2} && motion.motion.at("processor").rate == g::Rate{-1, 1},
+          motion.motion.at("native-part-1").rate == g::Rate{1, 1} && motion.motion.at("wheel-right").rate == g::Rate{1, 1} &&
+          motion.motion.at(idler).rate == g::Rate{-1, 2} && motion.motion.at("processor").rate == g::Rate{1, 2},
           "Two diagonal small-to-large meshes coherently share the line with the expected rational idler rate.");
 }
 void misplaced_and_current_goal() {
@@ -229,19 +229,22 @@ void actual_parser() {
         const std::array<std::string_view, 2> args{"play", "co-drive"};
         std::istringstream input(commands); std::ostringstream output, errors;
         const auto code = factory::repair_scenarios::workbench(args, input, output, errors);
+        if (code != expected || !errors.str().empty() || output.str().find(marker) == std::string::npos)
+            std::cerr << "Terminal mismatch: expected=" << expected << " actual=" << code << " marker=" << marker
+                      << "\n" << output.str() << errors.str() << '\n';
         check(code == expected && errors.str().empty() && output.str().find(marker) != std::string::npos,
               "The actual native stdin caller preserves the expected source arrangement and finite production outcome.");
         return output.str();
     };
     run("remove wheel-right\nwalk north 8\nwalk north 4\n" + plates() + "inspect\nquit\n", 1, "Source arrangement: isolated");
-    run("walk west 4\nwalk south 4\nremove wheel-left\nwalk east 4\nwalk north 8\nwalk north 8\n" + plates(), 0, "Source arrangement: isolated");
+    run("walk west 4\nwalk south 4\nremove wheel-left\nwalk east 8\nwalk east 4\nwalk north 8\n" + plates(), 0, "Source arrangement: isolated");
     const std::string smaller = "walk west 4\nremove gear-left\nremove wheel-left\nwalk west 4\nwalk south 4\n"
         "place machine waterwheel -8 0 -4 z\nwalk north 4\nplace gear -8 0 0 z 2\n"
         "walk east 8\nremove gear-right\nplace gear 0 0 0 z 2\nwalk west 4\n";
-    run(smaller + "place gear -4 4 0 z 4\nwalk east 4\nwalk north 8\nwalk north 4\n" + plates(), 0, "Source arrangement: co_driven");
-    const std::string wrong = smaller + "walk north 4\nplace gear -4 4 4 z 4\nwalk east 4\nwalk north 8\n" + plates();
+    run(smaller + "place gear -4 4 0 z 4\nwalk east 8\nwalk east 4\nwalk north 4\n" + plates(), 0, "Source arrangement: co_driven");
+    const std::string wrong = smaller + "walk north 4\nplace gear -4 4 4 z 4\nwalk east 8\nwalk east 4\n" + plates();
     run(wrong + "inspect\nquit\n", 1, "Cargo raw=0 products=4/4");
-    const auto corrected = run(wrong + "inspect\nwalk south 8\nwalk west 4\nremove native-part-4\nwalk south 4\nplace gear -4 4 0 z 4\n", 0,
+    const auto corrected = run(wrong + "inspect\nwalk west 8\nwalk west 4\nremove native-part-4\nwalk south 4\nplace gear -4 4 0 z 4\n", 0,
                                "Accepted: ok (native-part-5)");
     check(corrected.find("Source arrangement: choose_source") != std::string::npos && corrected.find("Source arrangement: co_driven") != std::string::npos,
           "The same terminal run diagnoses and repairs the wrong plane with the original carried products.");

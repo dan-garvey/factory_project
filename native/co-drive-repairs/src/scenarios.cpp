@@ -27,6 +27,9 @@ std::optional<r::Scenario> make(std::string_view id) {
     auto result = r::make("link");  // Authored startup data, before any World exists.
     if (!result) return std::nullopt;
     result->definition = &definition();
+    // The added material-row mesh reverses belt rotation; this site's current
+    // therefore drives its wheels in the opposite direction to the old row.
+    result->profile.waterwheel_rate = {1, 1};
     auto& topology = result->seed.topology;
     topology.parts.clear(); topology.sources.clear();
     add(*result, "wheel-left", s::Role::waterwheel, {-4, 0, -4});
@@ -34,8 +37,12 @@ std::optional<r::Scenario> make(std::string_view id) {
     add(*result, "gear-left", s::Role::gear, {-4, 0, 0}, 4);
     add(*result, "gear-right", s::Role::gear, {0, 0, 0}, 4);
     add(*result, "collector", s::Role::collector, {0, 0, 4});
-    add(*result, "belt", s::Role::belt, {0, 0, 8});
-    add(*result, "processor", s::Role::processor, {0, 0, 12});
+    // Each machine touches its own cog, and neighboring cogs carry rotation
+    // across the row while the belt axle stays perpendicular to material.
+    add(*result, "gear-belt", s::Role::gear, {4, 0, 0}, 4);
+    add(*result, "gear-press", s::Role::gear, {8, 0, 0}, 4);
+    add(*result, "belt", s::Role::belt, {4, 0, 4});
+    add(*result, "processor", s::Role::processor, {8, 0, 4});
     topology.sources = {{"wheel-left", result->profile.waterwheel_rate}, {"wheel-right", result->profile.waterwheel_rate}};
     topology.material_links = {{{"collector", 1}, {"belt", 1}}, {{"belt", 1}, {"processor", 1}}};
     result->seed.kits.at("P").clear();

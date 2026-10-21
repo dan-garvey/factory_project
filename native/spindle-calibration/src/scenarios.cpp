@@ -10,7 +10,7 @@ namespace g = mechanics;
 namespace {
 constexpr std::array<r::Definition, 1> definitions{{
     {"spindle", "The line runs, but the spindle is wrong",
-     "Retrieve four plates with the connected line's spindle calibrated to signed rate -2/1.",
+     "Retrieve four plates with the connected line's spindle calibrated to signed rate +2/1.",
      "A direct 2-to-1 mesh reverses rotation. Bridge the two axial planes with the carried small cogs and one-tile shaft to reverse it again. The target and recipe duration are fixture specifications; gearing changes processing speed, not yield."},
 }};
 void add(r::Scenario& scenario, const std::string& id, s::Role role, g::Point center, g::Integer teeth = 0, g::Integer span = 0) {
@@ -27,6 +27,7 @@ std::optional<r::Scenario> make(std::string_view id) {
     auto result = r::make("link");
     if (!result) return std::nullopt;
     result->definition = &definition();
+    result->profile.waterwheel_rate = {1, 1};
     // At the required double-speed spindle, a four-unit recipe retains a
     // genuine partial-work cut for the continuation and recovery challenge.
     result->profile.material.cycle_ticks = 4;
@@ -37,8 +38,10 @@ std::optional<r::Scenario> make(std::string_view id) {
     add(*result, "shaft-output", s::Role::shaft, {4, 0, -4}, 0, 2);
     add(*result, "gear-output", s::Role::gear, {4, 0, 0}, 2);
     add(*result, "collector", s::Role::collector, {4, 0, 4});
-    add(*result, "belt", s::Role::belt, {4, 0, 8});
-    add(*result, "processor", s::Role::processor, {4, 0, 12});
+    add(*result, "gear-belt", s::Role::gear, {8, 0, 0}, 2);
+    add(*result, "gear-press", s::Role::gear, {12, 0, 0}, 2);
+    add(*result, "belt", s::Role::belt, {8, 0, 4});
+    add(*result, "processor", s::Role::processor, {12, 0, 4});
     topology.sources = {{"wheel", result->profile.waterwheel_rate}};
     topology.material_links = {{{"collector", 1}, {"belt", 1}}, {{"belt", 1}, {"processor", 1}}};
     auto& kit = result->seed.kits.at("P");

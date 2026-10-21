@@ -71,7 +71,30 @@ std::optional<r::Scenario> make(std::string_view id) {
         endpoints(*result, {-8, 0, 0}, {0, 8, 0}, g::Axis::y, 2);
         add(*result, "gear-low", s::Role::gear, {-4, 0, 0}, g::Axis::y, 2);
         add(*result, "gear-high", s::Role::gear, {-4, 8, 0}, g::Axis::y, 2);
+        for (auto& part : topology.parts)
+            if (part.geometry.id == "wheel-collector" || part.geometry.id == "collector" ||
+                part.geometry.id == "gear-input" || part.geometry.id == "gear-output" ||
+                part.geometry.id == "gear-low" || part.geometry.id == "gear-high") part.geometry.center[1] -= 8;
         kit.emplace(s::PartSpec{s::Role::shaft, 0, 2}, 1);
+    }
+    // Carry each independently driven machine branch to the actual +X material
+    // row of the collector. Moving the whole branch preserves its source and
+    // axle contacts instead of inventing a material link across empty space.
+    const auto collector = std::find_if(topology.parts.begin(), topology.parts.end(), [](const auto& part) {
+        return part.geometry.id == "collector";
+    });
+    if (collector == topology.parts.end()) return std::nullopt;
+    const auto origin = collector->geometry.center;
+    for (const auto& [machine, offset] : std::array<std::pair<std::string, g::Integer>, 2>{{{"belt", 4}, {"processor", 8}}}) {
+        const auto found = std::find_if(topology.parts.begin(), topology.parts.end(), [&](const auto& part) {
+            return part.geometry.id == machine;
+        });
+        if (found == topology.parts.end()) return std::nullopt;
+        const g::Point delta{origin[0] + offset - found->geometry.center[0],
+            origin[1] - found->geometry.center[1], origin[2] - found->geometry.center[2]};
+        for (auto& part : topology.parts)
+            if (part.geometry.id == machine || part.geometry.id == "wheel-" + machine || part.geometry.id == "shaft-" + machine)
+                for (std::size_t coordinate = 0; coordinate < 3; ++coordinate) part.geometry.center[coordinate] += delta[coordinate];
     }
     // Declare this new content's exact startup supply once. World validates
     // these finite totals thereafter; no command can rerun this initializer.

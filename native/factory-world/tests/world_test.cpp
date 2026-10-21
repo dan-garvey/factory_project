@@ -51,10 +51,10 @@ Fixture fixture() {
     f.state.material.cargo = {{"P", {}}, {"Q", {}}};
     f.state.kits = {{"P", {{{s::Role::gear, 8, 0}, 1}}}, {"Q", {}}};
     f.state.topology.parts = {hub("wheel-A", s::Role::waterwheel, 0, 0), shaft("shaft-A", 0),
-        hub("collector", s::Role::collector, 0, 8), hub("wheel-B", s::Role::waterwheel, 12, 0),
-        shaft("shaft-B", 12), hub("belt", s::Role::belt, 12, 8),
-        hub("wheel-C", s::Role::waterwheel, 24, 0), shaft("shaft-C", 24),
-        hub("processor", s::Role::processor, 24, 8)};
+        hub("collector", s::Role::collector, 0, 8), hub("wheel-B", s::Role::waterwheel, 4, 0),
+        shaft("shaft-B", 4), hub("belt", s::Role::belt, 4, 8),
+        hub("wheel-C", s::Role::waterwheel, 8, 0), shaft("shaft-C", 8),
+        hub("processor", s::Role::processor, 8, 8)};
     f.state.topology.material_links = {{{"collector", 1}, {"belt", 1}}, {{"belt", 1}, {"processor", 1}}};
     f.state.topology.sources = {{"wheel-A", {-1, 1}}, {"wheel-B", {-1, 1}}, {"wheel-C", {-1, 1}}};
     f.state.topology.drive_enabled = true;
@@ -140,6 +140,15 @@ void startup_and_complete_validation() {
     f = fixture(); f.state.issued_entities.at("shaft-A") = 2; check(bad(f), "Live generations must match issued history.");
     f = fixture(); f.state.topology.material_links.front().to.generation = 2;
     check(bad(f), "Stale material links refuse startup before stepping.");
+    f = fixture();
+    for (auto& item : f.state.topology.parts)
+        if (item.geometry.id == "belt") item.geometry.center[2] += 4;
+    check(bad(f), "A seed cannot link nonadjacent material ports.");
+    auto altered = world(fixture())->snapshot();
+    for (auto& item : altered.state.topology.parts)
+        if (item.geometry.id == "belt") item.geometry.center[2] += 4;
+    check(!w::World::restore("fixture-world", fixture().profile, altered),
+          "A restored checkpoint cannot preserve a link across a material-port gap.");
     f = fixture(); f.state.topology.sources.front().rate = {2, 1}; check(bad(f), "Client-selected source speed is not profile authority.");
     f = fixture(); f.state.topology.parts.front().wheel_tiles = 2;
     check(bad(f), "An undersized saved wheel is not a valid World state.");
@@ -250,7 +259,7 @@ void preserve_work_through_recovery_and_rebuild() {
           recovered.state.material.stock == m::Stock{14, 0, 0, 0, 0} && !recovered.state.material.processing,
           "Recovery moves raw and the original partial whole lot into one actor's canonical Cargo.");
     outcome(send(*owner, target("remove", "empty-processor", "processor"), observer), true, "ok");
-    const auto build = send(*owner, place("new-processor", "processor", 24, 8), observer);
+    const auto build = send(*owner, place("new-processor", "processor", 8, 8), observer);
     outcome(build, true, "ok");
     auto insert = target("insert_work", "resume-work", "native-part-1");
     insert.emplace("work_id", V(I{1}));
@@ -299,19 +308,39 @@ void ready_work_and_two_endpoint_reach() {
 
     f = fixture();
     f.state.topology.material_links.clear();
-    f.profile.build_reach = 0.61;
+    for (auto& item : f.state.topology.parts)
+        if (item.geometry.id == "belt") item.geometry.center[0] = 12;
+    owner = world(f);
+    auto gap = target("link", "gap-within-reach", "collector");
+    gap.emplace("to", V("belt"));
+    gap.emplace("to_generation", V(I{1}));
+    observer.position = {0.6, 0, 0.8};
+    const auto before_gap = owner->snapshot().state;
+    outcome(send(*owner, gap, observer), false, "ports_not_adjacent");
+    check(owner->snapshot().state == before_gap, "A reachable gap cannot become a material link.");
+    auto duplicate = send(*owner, gap, observer);
+    check(duplicate.result && get<bool>(*duplicate.result, "duplicate") &&
+          get<std::string>(*duplicate.result, "reason") == "ports_not_adjacent" &&
+          owner->snapshot().state == before_gap, "A gap refusal is retry-safe and preserves material custody.");
+
+    for (auto& item : f.state.topology.parts)
+        if (item.geometry.id == "collector") item.geometry.center[0] = 8;
+        else if (item.geometry.id == "processor") item.geometry.center[0] = 16;
+    f.profile.build_reach = 0.21;
     owner = world(f);
     auto link = target("link", "far-endpoint", "collector");
     link.emplace("to", V("belt"));
     link.emplace("to_generation", V(I{1}));
-    observer.position = {0, 0, 0.8};
+    observer.position = {0.8, 0, 0.8};
     outcome(send(*owner, link, observer), false, "out_of_reach");
     check(owner->snapshot().state.topology.material_links.empty(), "A near first endpoint cannot authorize a far second endpoint.");
-    observer.position = {0.6, 0, 0.8};
+    observer.position = {1.0, 0, 0.8};
     link.at("request") = V("both-endpoints");
     outcome(send(*owner, link, observer), true, "ok");
     check(owner->snapshot().state.topology.material_links.size() == 1,
           "Both endpoints within the scalar reach boundary may connect.");
+    f.profile.build_reach = 4;
+    owner = world(f);
     auto arbitrary = target("link", "arbitrary-drive-edge", "wheel-A");
     arbitrary.emplace("to", V("collector")); arbitrary.emplace("to_generation", V(I{1}));
     observer.position = {0, 0, 0.4};
@@ -351,7 +380,7 @@ void atomic_step_and_callback_failures() {
 
 void trusted_flow_drives_world() {
     auto f = fixture();
-    for (const I x : {0, 12, 24}) f.profile.water[{x, 0}] = {0, -500, 200, 0};
+    for (const I x : {0, 4, 8}) f.profile.water[{x, 0}] = {0, -500, 200, 0};
     for (auto& source : f.state.topology.sources) source.rate = {1, 3};
     auto owner = world(f);
     auto view = s::power_view(owner->snapshot().state.topology).mechanical;

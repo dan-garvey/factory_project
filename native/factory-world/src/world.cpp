@@ -586,6 +586,11 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
                 return source.hub == item.geometry.id && source.rate == *expected_rate;
             }) != 1)) return false;
     }
+    for (const auto& link : state.topology.material_links) {
+        const auto* from = part(state.topology, link.from.id);
+        const auto* to = part(state.topology, link.to.id);
+        if (!from || !to || !adjacent_ports(from->geometry.center, to->geometry.center)) return false;
+    }
     if (totals != profile.finite_parts || !stationary::power_view(state.topology).mechanical.accepted() ||
         materials::validate(state.material, profile.material, material_path(state.topology)) != materials::Error::none)
         return false;
@@ -892,6 +897,8 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
                 if (found == candidate.topology.material_links.end()) return refused("missing_link", entity);
                 candidate.topology.material_links.erase(found);
             } else {
+                if (!adjacent_ports(selected->geometry.center, destination->geometry.center))
+                    return refused("ports_not_adjacent", entity, std::move(facts));
                 if (found != candidate.topology.material_links.end()) return refused("existing_link", entity);
                 candidate.topology.material_links.push_back(link);
             }

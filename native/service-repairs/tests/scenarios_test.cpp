@@ -3,6 +3,7 @@
 
 #include <array>
 #include <iostream>
+#include <map>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -65,6 +66,12 @@ a::Object place(Fixture& fixture, const factory::mechanics::Point& point, a::Poi
         {"axis", V("z")}, {"teeth", V(I{0})}, {"half_span", V(I{0})}}, position);
 }
 
+a::Object place_role(Fixture& fixture, s::Role machine, const factory::mechanics::Point& point, a::Point position) {
+    return send(fixture, "place", {{"role", V(role(machine))},
+        {"center", V(V::Array{V(point[0]), V(point[1]), V(point[2])})},
+        {"axis", V("z")}, {"teeth", V(I{0})}, {"half_span", V(I{0})}}, position);
+}
+
 void ticks(Fixture& fixture) {
     check(fixture.simulation->tick().error == w::TransactionError::none &&
           w::validate(fixture.profile, fixture.simulation->snapshot()), "Each native tick preserves original material and finite parts.");
@@ -123,11 +130,37 @@ void native(const factory::repair_scenarios::Definition& definition, std::size_t
     check(!accepted(stale) && reason(stale) == "unknown_target" && fixture.simulation->snapshot().state.material == recovered,
           "An old machine identity cannot insert into its replacement or consume the actor's blank.");
 
-    if (goal->role == s::Role::collector) link(fixture, replacement, generation, "belt", 1, position);
-    else if (goal->role == s::Role::belt) {
-        link(fixture, "collector", 1, replacement, generation, position);
-        link(fixture, replacement, generation, "processor", 1, position);
-    } else link(fixture, "belt", 1, replacement, generation, position);
+    // Relocate the other two machines as well: one machine cannot have a
+    // different service position and remain adjacent to both fixed neighbors.
+    const I row_start = site_index == 0 ? -4 : 4;
+    std::map<s::Role, std::pair<std::string, I>> rebuilt_parts{{goal->role, {replacement, generation}}};
+    for (const auto machine : {s::Role::collector, s::Role::belt, s::Role::processor}) {
+        if (machine == goal->role) continue;
+        const I index = machine == s::Role::collector ? 0 : machine == s::Role::belt ? 1 : 2;
+        const std::string id = role(machine);
+        const I raw_count = machine == s::Role::collector ? initial.stock.collector :
+            machine == s::Role::belt ? initial.stock.belt : initial.stock.input;
+        const a::Point old_position{static_cast<double>(index * 4), 0, 8};
+        if (raw_count > 0)
+            check(accepted(send(fixture, "recover", target(id), old_position)), "Recover the neighboring machine's exact raw stock before moving it.");
+        check(accepted(send(fixture, "remove", target(id), old_position)), "Refund the empty neighboring machine.");
+        const factory::mechanics::Point destination{row_start + index * 4, 0, 12};
+        const a::Point at{static_cast<double>(destination[0]), 0, 12};
+        const auto other = place_role(fixture, machine, destination, at);
+        check(accepted(other), "Rebuild the neighboring machine on the same service row.");
+        const auto other_id = std::get<std::string>(other.at("entity").storage());
+        const auto other_generation = std::get<I>(other.at("generation").storage());
+        rebuilt_parts.emplace(machine, std::pair{other_id, other_generation});
+        if (raw_count > 0) {
+            auto raw = target(other_id, other_generation); raw.emplace("amount", V(raw_count));
+            check(accepted(send(fixture, "insert_raw", raw, at)), "Return the neighboring machine's original stock.");
+        }
+    }
+    const auto& collector = rebuilt_parts.at(s::Role::collector);
+    const auto& belt = rebuilt_parts.at(s::Role::belt);
+    const auto& press = rebuilt_parts.at(s::Role::processor);
+    link(fixture, collector.first, collector.second, belt.first, belt.second, {static_cast<double>(row_start + 2), 0, 12});
+    link(fixture, belt.first, belt.second, press.first, press.second, {static_cast<double>(row_start + 6), 0, 12});
     if (goal->role == s::Role::processor) {
         auto work = target(replacement, generation); work.emplace("work_id", V(I{7}));
         check(accepted(send(fixture, "insert_work", work, position)), "The same ready lot can enter the current rebuilt press.");
@@ -135,14 +168,16 @@ void native(const factory::repair_scenarios::Definition& definition, std::size_t
               "Reinsertion preserves the original lot exactly instead of restarting processing.");
     }
     auto raw = target(replacement, generation); raw.emplace("amount", V(I{1}));
-    check(accepted(send(fixture, "insert_raw", raw, position)) && r::ready(*goal, fixture.simulation->snapshot().state),
+    const auto destination = goal->sites[site_index];
+    const a::Point destination_position{static_cast<double>(destination[0]), 0, 12};
+    check(accepted(send(fixture, "insert_raw", raw, destination_position)) && r::ready(*goal, fixture.simulation->snapshot().state),
           "Returned raw material and real current handoffs restore the relocated powered line.");
-    const std::string processor = goal->role == s::Role::processor ? replacement : "processor";
-    const I processor_generation = goal->role == s::Role::processor ? generation : 1;
+    const std::string processor = press.first;
+    const I processor_generation = press.second;
     for (int tick = 0; tick < 64 && fixture.simulation->snapshot().state.material.cargo.at("P").products < 4; ++tick) {
         if (fixture.simulation->snapshot().state.material.stock.output > 0) {
             auto collect = target(processor, processor_generation); collect.emplace("amount", V(I{1}));
-            check(accepted(send(fixture, "collect", collect, {8, 0, 8})), "Actual current output can be collected through native admission.");
+            check(accepted(send(fixture, "collect", collect, {static_cast<double>(row_start + 8), 0, 12})), "Actual current output can be collected through native admission.");
         }
         ticks(fixture);
     }
@@ -171,16 +206,22 @@ std::string plates(const std::string& processor, int count) {
 }
 
 void terminal() {
-    const auto collector = run("service-collector", "walk north 8\nremove collector\nrecover collector\nremove collector\n"
-        "place machine collector -4 0 12 z\nlink native-part-1 belt\ninsert_raw native-part-1 1\ninspect\nwalk east 4\n" + plates("processor", 4));
+    const std::string collector_rebuild = "walk north 8\nwalk east 4\nremove collector\nrecover collector\nremove collector\n"
+        "place machine collector -4 0 12 z\nremove belt\nplace machine belt 0 0 12 z\nremove processor\n"
+        "place machine processor 4 0 12 z\nlink native-part-1 native-part-2\nlink native-part-2 native-part-3\ninsert_raw native-part-1 1\ninspect\n";
+    const auto collector = run("service-collector", collector_rebuild + plates("native-part-3", 4));
     check(collector.code == 0 && collector.errors.empty() && collector.out.find("Held: occupied_target") != std::string::npos,
           "The collector puzzle is playable through occupied refusal, custody, complete-machine construction and finite production.");
     const auto belt = run("service-belt", "walk north 8\nwalk east 4\nrecover belt\nremove belt\nplace machine belt 8 0 12 z\n"
-        "link collector native-part-1\nlink native-part-1 processor\ninsert_raw belt 1\ninsert_raw native-part-1 1\n" + plates("processor", 4));
+        "recover collector\nremove collector\nplace machine collector 4 0 12 z\ninsert_raw native-part-2 1\n"
+        "remove processor\nplace machine processor 12 0 12 z\nlink native-part-2 native-part-1\nlink native-part-1 native-part-3\n"
+        "insert_raw belt 1\ninsert_raw native-part-1 1\n" + plates("native-part-3", 4));
     check(belt.code == 0 && belt.errors.empty() && belt.out.find("No current part named belt.") != std::string::npos,
           "The belt puzzle requires the fresh current name and supports the alternate service site.");
-    const auto press = run("service-press", "walk east 6\nwalk north 8\nrecover processor\nremove processor\n"
-        "place machine processor 4 0 12 z\nlink belt native-part-1\ninsert_work native-part-1 7\ninsert_raw native-part-1 1\ninspect\n" + plates("native-part-1", 3));
+    const auto press = run("service-press", "walk east 4\nwalk north 8\nrecover processor\nremove processor\n"
+        "place machine processor 4 0 12 z\nrecover collector\nremove collector\nplace machine collector -4 0 12 z\ninsert_raw native-part-2 1\n"
+        "recover belt\nremove belt\nplace machine belt 0 0 12 z\ninsert_raw native-part-3 1\n"
+        "link native-part-2 native-part-3\nlink native-part-3 native-part-1\ninsert_work native-part-1 7\ninsert_raw native-part-1 1\ninspect\n" + plates("native-part-1", 3));
     check(press.code == 0 && press.errors.empty() && press.out.find("Carried work=7 remaining=0 recipe_units=1 cycle=2") != std::string::npos &&
           press.out.find("Press work=7 remaining=0 recipe_units=1 cycle=2") != std::string::npos,
           "The terminal carries the same ready billet through an actual native rebuild and back to output.");
@@ -198,15 +239,14 @@ void terminal() {
     check(unlinked.code == 1 && unlinked.out.find("Service relocation: complete") != std::string::npos &&
           unlinked.out.find("Complete:") == std::string::npos,
           "A stock-count success followed by an unconnected rebuild still cannot complete the service goal.");
-    const auto incomplete = run("service-collector", "walk north 8\nrecover collector\nremove collector\n"
-        "place machine collector -4 0 12 z\nlink native-part-1 belt\ninsert_raw native-part-1 1\n");
+    const auto incomplete = run("service-collector", collector_rebuild);
     check(incomplete.code == 1 && incomplete.out.find("Service drive and route: ready") != std::string::npos,
           "A correctly rebuilt route still needs its product objective.");
     const auto invalid = run("service-press", "place machine processor 6 0 3 q\nplace machine unknown 6 0 3 z\n"
         "place machine processor 6 0 9223372036854775808 z\ninspect\nquit\n");
     check(invalid.code == 1 && invalid.errors.empty() && invalid.out.find("Press work=7 remaining=0") != std::string::npos,
           "Malformed machine placement preserves original ready work and the ongoing puzzle.");
-    const auto legacy_gear = run("gear-idler", "place gear -4 0 0 z 2\nwalk east 6\nwalk north 8\n" + plates("processor", 4));
+    const auto legacy_gear = run("gear-idler", "place gear -4 0 0 z 2\nwalk east 8\nwalk south 4\n" + plates("processor", 4));
     check(legacy_gear.code == 0 && legacy_gear.errors.empty(), "The gear-placement branch still solves its finite production puzzle.");
     std::istringstream input;
     std::ostringstream output, errors;

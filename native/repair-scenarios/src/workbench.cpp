@@ -105,7 +105,8 @@ void status(const Host& host, const w::State& state, std::ostream& out) {
     if (host.spindle) {
         const auto calibration = spindle_scenarios::inspect(state);
         out << "Spindle: " << spindle_scenarios::mode_name(calibration.mode)
-            << " rate=" << calibration.rate.numerator << '/' << calibration.rate.denominator << " target=-2/1\n";
+            << " rate=" << calibration.rate.numerator << '/' << calibration.rate.denominator
+            << " target=" << spindle_scenarios::required_rate.numerator << '/' << spindle_scenarios::required_rate.denominator << '\n';
     }
 }
 

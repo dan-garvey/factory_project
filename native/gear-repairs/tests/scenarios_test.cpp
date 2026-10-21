@@ -1,6 +1,7 @@
 #include "factory/geared_scenarios.hpp"
 #include "factory/repair_workbench.hpp"
 
+#include <algorithm>
 #include <array>
 #include <iostream>
 #include <sstream>
@@ -97,10 +98,15 @@ void repair_power(Fixture& fixture, g::Rate rate) {
 }
 
 void finish(Fixture& fixture) {
+    const auto parts = fixture.simulation->snapshot().state.topology.parts;
+    const auto press = std::find_if(parts.begin(), parts.end(), [](const auto& part) { return part.geometry.id == "processor"; });
+    check(press != parts.end(), "The actual processor is present for retrieval.");
+    const a::Point at{static_cast<double>(press->geometry.center[0]), static_cast<double>(press->geometry.center[1]),
+                      static_cast<double>(press->geometry.center[2])};
     for (int tick = 0; tick < 64 && fixture.simulation->snapshot().state.material.cargo.at("P").products < 4; ++tick) {
         if (fixture.simulation->snapshot().state.material.stock.output > 0)
             check(accepted(send(fixture, {{"action", V("collect")}, {"target", V("processor")},
-                {"generation", V(I{1})}, {"amount", V(I{1})}}, {6, 0, 8})), "Nearby retrieval moves one actual finite product to the actor.");
+                {"generation", V(I{1})}, {"amount", V(I{1})}}, at)), "Nearby retrieval moves one actual finite product to the actor.");
         ticks(fixture, 1);
     }
     const auto saved = fixture.simulation->snapshot();
@@ -159,10 +165,10 @@ void riser() {
           initial.motion.at("gear-high").state == g::MotionState::unpowered,
           "Coaxial gears on different vertical planes do not magically share rotation.");
     paused(world);
-    check(accepted(place(world, "shaft", {-4, -4, 0}, "y", 2, {-4, 0, 0})), "A low shaft can be built but cannot span the upper plane.");
+    check(accepted(place(world, "shaft", {-4, 4, 0}, "y", 2, {-4, 0, 0})), "A high shaft can be built but cannot span the lower plane.");
     paused(world);
     remove_wrong(world, {-4, 0, 0});
-    check(accepted(place(world, "shaft", {-4, 4, 0}, "y", 2, {-4, 0, 0})), "Raising the same refunded shaft couples both planes within actual 3D reach.");
+    check(accepted(place(world, "shaft", {-4, -4, 0}, "y", 2, {-4, 0, 0})), "Moving the same refunded shaft couples both planes within actual 3D reach.");
     const auto connected = s::power_view(world.simulation->snapshot().state.topology).mechanical;
     check(connected.motion.at("gear-high").rate == g::Rate{1, 1}, "The upper cog now derives rotation through the actual shared shaft.");
     repair_power(world, {-1, 1});
@@ -186,20 +192,20 @@ std::string plates() {
 
 void terminal() {
     const auto idler = run("gear-idler", "walk west 4\nplace gear -4 0 0 z 3\nplace gear -4 4 0 z 2\nwait 8\n"
-        "remove native-part-1\nplace gear -4 0 0 z 2\ninspect\nwalk east 8\nwalk east 2\nwalk north 8\n" + plates());
+        "remove native-part-1\nplace gear -4 0 0 z 2\ninspect\nwalk east 8\nwalk east 2\nwalk south 4\n" + plates());
     check(idler.code == 0 && idler.errors.empty() && idler.output.find("Held: unavailable_part") != std::string::npos &&
           idler.output.find("native-part-2 generation=2 gear at=-4,0,0 axis=z teeth=2 rotation=rotating rate=1/1") != std::string::npos,
           "Interactive gear construction exposes finite refusal, correction, fresh identity and actual derived motion.");
     const auto bend = run("gear-bend", "place gear -12 0 0 y 2\nwalk west 8\nwalk west 4\nplace gear -12 0 0 y 2\n"
-        "wait 8\nplace gear -12 0 4 y 2\ninspect\nwalk east 8\nwalk east 8\nwalk east 2\nwalk north 8\n" + plates());
+        "wait 8\nplace gear -12 0 4 y 2\ninspect\nwalk east 8\nwalk east 4\nwalk north 4\n" + plates());
     check(bend.code == 0 && bend.errors.empty() && bend.output.find("Held: out_of_reach") != std::string::npos &&
           bend.output.find("collector generation=1 collector at=-8,4,4 axis=y rotation=rotating rate=1/1") != std::string::npos,
           "The terminal completes a real two-gear route after nearby construction, with signed rate inspection.");
-    const auto riser = run("gear-riser", "walk west 4\nplace shaft -4 -4 0 y 2\nwait 8\ninspect\nremove native-part-1\n"
-        "place shaft -4 4 0 y 2\ninspect\nwalk east 8\nwalk east 2\nwalk north 8\n" + plates());
+    const auto riser = run("gear-riser", "walk west 4\nplace shaft -4 4 0 y 2\nwait 8\ninspect\nremove native-part-1\n"
+        "place shaft -4 -4 0 y 2\ninspect\nwalk east 8\nwalk east 4\n" + plates());
     check(riser.code == 0 && riser.errors.empty() &&
-          riser.output.find("gear-high generation=1 gear at=-4,8,0 axis=y teeth=2 rotation=unpowered rate=0/1") != std::string::npos &&
-          riser.output.find("gear-high generation=1 gear at=-4,8,0 axis=y teeth=2 rotation=rotating rate=1/1") != std::string::npos,
+          riser.output.find("gear-high generation=1 gear at=-4,0,0 axis=y teeth=2 rotation=unpowered rate=0/1") != std::string::npos &&
+          riser.output.find("gear-high generation=1 gear at=-4,0,0 axis=y teeth=2 rotation=rotating rate=1/1") != std::string::npos,
           "Interactive inspection distinguishes the actual separated and coupled gear planes without idealized repair state.");
     for (const auto* result : {&idler, &bend, &riser})
         check(result->output.find("Cargo raw=0 products=4/4") != std::string::npos,

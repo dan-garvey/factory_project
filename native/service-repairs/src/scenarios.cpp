@@ -13,13 +13,13 @@ constexpr std::array<mechanics::Point, 2> press_sites{{{4, 0, 12}, {12, 0, 12}}}
 constexpr std::array<r::Definition, 3> definitions{{
     {"service-collector", "Move the stocked collector",
      "Rebuild the collector at a service site and retrieve four plates from the original stock.",
-     "Recover its raw blank before removal. Reuse the returned machine, reconnect its material route and reinsert the blank."},
+     "Recover its raw blank before removal. Move the other machines into the same service row, reconnect adjacent ports and reinsert the blank."},
     {"service-belt", "Rebuild the blocked handoff",
      "Rebuild the belt at a service site and retrieve four plates without losing its held blank.",
-     "The rebuilt belt gets a fresh name. Reconnect both handoffs to that current belt before returning its blank."},
+     "The rebuilt belt gets a fresh name. Move the collector and press into the same service row before reconnecting both adjacent handoffs."},
     {"service-press", "Carry the finished billet through a rebuild",
      "Rebuild the press at a service site and retrieve four plates while retaining its original ready work.",
-     "Recover the full press before removal. The carried whole lot keeps its identity and progress; insert it into the rebuilt press."},
+     "Recover the full press before removal. Move the complete line to a service row and return the same carried lot to the rebuilt press."},
 }};
 constexpr std::array<Goal, 3> goals{{
     {"collector", s::Role::collector, collector_sites},
@@ -44,12 +44,13 @@ std::optional<r::Scenario> make(std::string_view id) {
         auto result = r::make(id == "service-press" ? "outlet" : "link");
         if (!result) return std::nullopt;
         result->definition = &definitions[index];
-        // Each service site has its own finite, already installed drive.
-        // The replacement machine touches its site's shaft without sharing a
-        // tile with it. Both handoff endpoints remain within fixture reach.
+        // Both complete service rows have finite, already installed drives.
+        // Their overlapping column shares one drive; no material jumps across
+        // the gap between the old and new rows.
         result->profile.build_reach = 10;
-        for (std::size_t site = 0; site < goals[index].sites.size(); ++site) {
-            const auto x = goals[index].sites[site][0];
+        constexpr std::array<mechanics::Integer, 5> columns{{-4, 0, 4, 8, 12}};
+        for (std::size_t site = 0; site < columns.size(); ++site) {
+            const auto x = columns[site];
             const auto wheel = "service-wheel-" + std::to_string(site);
             const auto shaft = "service-shaft-" + std::to_string(site);
             result->seed.topology.parts.push_back({{wheel, mechanics::Kind::hub, {x, 0, 20}, mechanics::Axis::z, 0, 0}, 1, s::Role::waterwheel});

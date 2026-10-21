@@ -6,7 +6,7 @@
 
 namespace factory::spindle_scenarios {
 enum class Mode { invalid, drive_off, incomplete_line, wrong_rate, calibrated };
-inline constexpr mechanics::Rate required_rate{-2, 1};
+inline constexpr mechanics::Rate required_rate{2, 1};
 struct Progress {
     Mode mode{Mode::invalid};
     mechanics::Rate rate{};
