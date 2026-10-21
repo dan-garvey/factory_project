@@ -94,12 +94,19 @@ func evaluate() -> Dictionary:
 	var entities: Variant = state.get("entities", {})
 	var motion: Variant = state.get("motion", {})
 	var transmission: Variant = state.get("transmission_parts", {})
-	if not (inventories is Dictionary and entities is Dictionary and motion is Dictionary and transmission is Dictionary):
+	var spans: Variant = state.get("belt_spans", {})
+	var reports: Variant = state.get("opening_engineering", {})
+	if not (inventories is Dictionary and entities is Dictionary and motion is Dictionary and transmission is Dictionary and spans is Dictionary and reports is Dictionary):
 		return unavailable
-	if not inventories.has(actor) or typeof(inventories[actor]) != TYPE_INT:
+	var native: Variant = reports.get(actor, {})
+	if not native is Dictionary or native.get("schema") != 1 or native.get("format") != "factory-opening-engineering" or native.get("actor") != actor or native.get("known_actor") != true:
 		return unavailable
-	var products: int = int(inventories[actor])
-	if products < 0:
+	if not native.get("phase", "") in ["first_shift", "move_source", "restore_drive", "deliver_more", "ready"]:
+		return unavailable
+	if typeof(native.get("products")) != TYPE_INT or typeof(native.get("source_at_target")) != TYPE_BOOL or typeof(native.get("machines_running")) != TYPE_BOOL or typeof(native.get("belt_forward")) != TYPE_BOOL:
+		return unavailable
+	var products: int = int(native.products)
+	if products < 0 or not inventories.has(actor) or inventories[actor] != products:
 		return unavailable
 
 	var actual_wheel_cell: Array = []
@@ -107,7 +114,7 @@ func evaluate() -> Dictionary:
 	var collector_row := -999
 	var machines_placed := 0
 	var rotating_machines := 0
-	var belt_forward := false
+	var belt_forward: bool = native.belt_forward
 	var all_machines_on_target_row := true
 	var machine_rates := {}
 	var any_stalled := false
@@ -130,7 +137,7 @@ func evaluate() -> Dictionary:
 				return unavailable
 			actual_wheel_cell = [int(cell[0]), int(cell[1])]
 			wheel_id = str(id)
-		elif kind in ["collector", "belt", "processor"]:
+		elif kind in ["collector", "processor"]:
 			machines_placed += 1
 			if cell is Array and cell.size() == 2 and typeof(cell[1]) == TYPE_INT:
 				var row_z := int(cell[1])
@@ -148,8 +155,6 @@ func evaluate() -> Dictionary:
 				return unavailable
 			if m_state == "rotating":
 				rotating_machines += 1
-			if kind == "belt":
-				belt_forward = m_state == "rotating" and _int_or(m.get("numerator"), 0) < 0 and _int_or(m.get("denominator"), 0) > 0
 			machine_rates[str(id)] = {
 				"state": str(m_state),
 				"numerator": _int_or(m.get("numerator"), 0),
@@ -190,30 +195,13 @@ func evaluate() -> Dictionary:
 				if edge is Dictionary and (edge.get("a") == wheel_id or edge.get("b") == wheel_id):
 					wheel_coupled = true
 
-	var links_count := 0
-	var links: Variant = state.get("links", [])
-	if links is Array:
-		links_count = links.size()
-
-	var source_at_target: bool = (
-		actual_wheel_cell.size() == 2
-		and int(actual_wheel_cell[0]) == target_wheel_cell.x
-		and int(actual_wheel_cell[1]) == target_wheel_cell.y
-	)
-	var machines_running: bool = machines_placed == 3 and rotating_machines == 3
+	var source_at_target: bool = native.source_at_target
+	var machines_running: bool = native.machines_running
 	var power_enabled: bool = state.get("power_enabled", false) == true
 	var spare_gears: int = _spare_count(state, actor, "gear")
 	var spare_shafts: int = _spare_count(state, actor, "shaft")
 
-	var phase := "ready"
-	if products < FIRST_TARGET:
-		phase = "first_shift"
-	elif not source_at_target:
-		phase = "move_source"
-	elif not machines_running or not belt_forward:
-		phase = "restore_drive"
-	elif products < FINAL_TARGET:
-		phase = "deliver_more"
+	var phase: String = native.phase
 
 	var arrangement := "none"
 	if source_at_target and machines_running:
@@ -230,7 +218,7 @@ func evaluate() -> Dictionary:
 	)
 
 	var diagnostic_code := "challenge_complete"
-	var diagnostic_text := "Upstream drive verified: all three machines rotate from cell [%d, %d] and %d / %d plates are in cargo." % [
+	var diagnostic_text := "Upstream drive verified: the collector, belt and press are powered from cell [%d, %d] and %d / %d plates are in cargo." % [
 		target_wheel_cell.x, target_wheel_cell.y, products, FINAL_TARGET
 	]
 
@@ -248,18 +236,18 @@ func evaluate() -> Dictionary:
 				target_wheel_cell.x, target_wheel_cell.y
 			]
 	elif phase == "restore_drive":
-		if machines_running and not belt_forward:
-			diagnostic_code = "reverse_belt"
-			diagnostic_text = "The belt is carrying blanks away from the press. Change the cog route to reverse its rotation, and recover loose blanks."
+		if machines_placed < 2:
+			diagnostic_code = "missing_machines"
+			diagnostic_text = "Rebuild the collector and press (%d / 2 placed) and reinsert any recovered raw or partial work lots." % machines_placed
+		elif spans.is_empty():
+			diagnostic_code = "missing_material_route"
+			diagnostic_text = "Place shafts at both ends of a belt between the collector and press, then connect the shafts with a belt."
+		elif machines_running and not belt_forward:
+			diagnostic_code = "missing_material_route"
+			diagnostic_text = "Connect a powered belt from the collector to the press and check that it carries blanks toward the press. Recover any loose blanks."
 		elif any_stalled:
 			diagnostic_code = "stalled_transmission"
 			diagnostic_text = "Transmission stalled: remove the conflicting parallel shaft or gear loop so each machine has a single consistent ratio."
-		elif machines_placed < 3:
-			diagnostic_code = "missing_machines"
-			diagnostic_text = "Rebuild all three production machines (%d / 3 placed) and reinsert any recovered raw or partial work lots." % machines_placed
-		elif links_count < 2:
-			diagnostic_code = "missing_material_links"
-			diagnostic_text = "Connect the Collector -> Belt -> Press material ports (%d / 2 belt links connected)." % links_count
 		elif not wheel_coupled:
 			diagnostic_code = "missing_drive_shaft"
 			diagnostic_text = "Drive train incomplete: connect the upstream waterwheel and machines using aligned axles, cogs and shafts where needed."
@@ -268,7 +256,7 @@ func evaluate() -> Dictionary:
 			diagnostic_text = "Drive is switched off: press Start drive [P] near the waterwheel to power the transmission."
 		else:
 			diagnostic_code = "missing_drive_shaft"
-			diagnostic_text = "Collector, Belt and Press must all receive rotating power from the upstream waterwheel at [%d, %d]." % [
+			diagnostic_text = "The collector, belt shafts and press must receive rotating power from the upstream waterwheel at [%d, %d]." % [
 				target_wheel_cell.x, target_wheel_cell.y
 			]
 	elif phase == "deliver_more":
@@ -339,6 +327,7 @@ func refresh() -> void:
 		report.get("phase", ""),
 		report.get("source_at_target", false),
 		report.get("machines_running", false),
+		report.get("belt_forward", false),
 	]
 	if next_key == _cached_key and get_child_count() > 0:
 		return
@@ -362,7 +351,7 @@ func refresh() -> void:
 	var box := BoxMesh.new()
 	box.size = Vector3(1.24, 0.06, 1.24)
 	var mat := StandardMaterial3D.new()
-	if bool(report.get("machines_running", false)) and bool(report.get("source_at_target", false)):
+	if bool(report.get("machines_running", false)) and bool(report.get("source_at_target", false)) and bool(report.get("belt_forward", false)):
 		mat.albedo_color = Color("3a8f5b")
 	elif bool(report.get("source_at_target", false)):
 		mat.albedo_color = Color("b88b28")

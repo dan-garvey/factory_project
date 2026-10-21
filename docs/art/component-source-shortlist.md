@@ -111,9 +111,54 @@ in the provider manifest. Importing that complete bundle would exceed the
 source-byte allowance at this tree even before descriptor or prepared-resource
 overhead. A selected mesh and deliberately prepared material package must be
 measured against the then-current roster; this snapshot is not a future capacity
-reservation. Material fidelity and close-range wear/detail remain untested.
-The next adoption check is a passive rendered short-to-long and straight-to-elbow
-join with a removed-neighbor view, using explicit captured resources.
+reservation. The isolated render below tests the delivered material appearance;
+an in-worksite import and a capture-sized prepared package remain untested.
+
+## Isolated visual join sample, 2026-10-21
+
+The official descriptor, mesh buffer and six original one-kilopixel JPEG maps
+were retained together outside Git. Every file matched its provider-manifest
+size and MD5. Godot 4.7.2 imported eight meshes with albedo, normal and
+roughness textures present on each material. The complete 4,823,938-byte
+source package and six passive images are indexed by
+`pipe-join-sample-20261021/source-and-render-audit.json` in the local prototype
+evidence directory. No file was added to the captured game project.
+
+The sample strips the source catalogue offsets, keeps flange geometry at its
+delivered scale, and places a short and long straight with opposing Y normals.
+It also turns the elbow's -X end to face the long straight's +Y end. The first
+elbow image set aligned centers but pointed those normals the same way, leaving
+an exposed upward flange; those original images and log remain retained as a
+visual rejection. The corrected sample retains front and back close views of
+both joins plus the short pipe after its neighbor is removed.
+
+I inspected all six corrected views. At these angles, the bolted flange stacks
+look continuous, the short and long tube surfaces read as one diameter, and
+the elbow has no obvious visible gap at the join. The open flange of the removed
+neighbor reads as a deliberate exposed end. The worn blue-gray steel, rusty
+edges and small fasteners supply much more close-range material detail than
+the current plain authored tubes, although the finish may need palette and
+lighting adaptation to sit with Factory's other parts. This is an isolated
+visual judgment, not a measured clearance, all-angle seam guarantee or human
+quality verdict.
+
+The three selected pieces are now packaged as a
+[prepared pipe art kit](../../experiments/engine-environment/godot/opening/assets/pipe-fit/CREDITS.md).
+It retains their original vertex and UV data in a smaller buffer, retains the
+original 1K diffuse and normal maps, and prepares a 256-pixel packed material
+map. The five loadable files total 1,446,125 bytes; an isolated import and
+passive repeat of the six join views retained their visible flange detail.
+They are tracked presentation resources within the inspected capture budget,
+but are not mounted in the playable opening. The full original bundle still
+does not fit the earlier 2,220,333-byte headroom. An actual native project
+capture of art commit `1316b6b` retained all six new asset files from raw Git:
+264 project files, 128 scripts and 32,784,501 source bytes, leaving 769,931
+bytes under the present 32 MiB limit. The retained capture and rehashed resource
+copies are under `pipe-component-kit-20261021/capture-actual` in the local
+prototype evidence directory. This proves source packaging, not use in the
+playable scene. The next step is an in-worksite view with explicit construction
+interfaces and exposed-end behavior before gameplay use. The art kit supplies
+no fluid, pressure, attachment or construction authority.
 
 Poly Haven's [license page](https://polyhaven.com/license) permits adaptation and
 redistribution of its CC0 assets. Its preview images and website content are

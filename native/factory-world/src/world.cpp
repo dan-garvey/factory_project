@@ -7,6 +7,7 @@
 #include <limits>
 #include <set>
 #include <string_view>
+#include <tuple>
 #include <utility>
 
 namespace factory::world {
@@ -376,8 +377,20 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         if (!target || *target != *field<std::string>(result, "entity") ||
             !generation || *generation != *field<Integer>(result, "generation")) return false;
     }
+    if (action == "place_belt_span" || action == "place_selected_belt_span") {
+        const auto* first = field<Value::Array>(result, "first_center");
+        const auto* last = field<Value::Array>(result, "last_center");
+        const auto first_point = first ? grid_point(Object{{"center", Value(*first)}}) : std::nullopt;
+        const auto last_point = last ? grid_point(Object{{"center", Value(*last)}}) : std::nullopt;
+        if (!first_point || !last_point || *first_point == *last_point ||
+            std::any_of(first_point->begin(), first_point->end(), [](Integer value) { return value % 4 != 0; }) ||
+            std::any_of(last_point->begin(), last_point->end(), [](Integer value) { return value % 4 != 0; }) ||
+            targets.back() != anchor(profile, *last_point) ||
+            (action == "place_belt_span" && targets.front() != anchor(profile, *first_point))) return false;
+    }
     const bool transfer = action == "recover" || action == "recover_belt_slot" || action == "insert_raw" || action == "insert_work";
-    if (result.size() != (action == "recover_belt_slot" ? 20 : transfer ? 19 : action == "collect" ||
+    if (result.size() != (action == "place_belt_span" || action == "place_selected_belt_span" ? 18 :
+                          action == "recover_belt_slot" ? 20 : transfer ? 19 : action == "collect" ||
                           (action == "remove_belt_span" && points->size() == 1) ? 17 : 16)) return false;
     if (action == "remove_belt_span" && points->size() == 1) {
         const auto* center = field<Value::Array>(result, "belt_center");
@@ -435,6 +448,7 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
 
 bool history_domain(const Profile& profile, const Snapshot& snapshot) {
     std::set<std::pair<std::string, std::string>> used_belt_selections;
+    std::map<std::pair<std::string, Integer>, mechanics::Point> placed_shafts;
     for (const auto& record : snapshot.history.records) {
         const auto* actor = field<std::string>(record.intent, "actor");
         const auto* action = field<std::string>(record.intent, "action");
@@ -480,6 +494,28 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
                 destination == snapshot.state.issued_entities.end() || destination->second != *to_generation) return false;
         }
         if (!historical_facts(profile, record, *actor, *action)) return false;
+        if (placement(*action)) {
+            const auto* role_name = field<std::string>(record.intent, "role");
+            const auto center = grid_point(record.intent);
+            if (role_name && *role_name == "shaft" && center)
+                placed_shafts.emplace(std::make_pair(*entity, *generation), *center);
+        }
+        if (*action == "place_belt_span" || *action == "place_selected_belt_span") {
+            for (const auto& [id_key, generation_key, center_key] : {
+                    std::tuple{"target", "generation", "first_center"},
+                    std::tuple{"to", "to_generation", "last_center"}}) {
+                const auto* id = field<std::string>(record.intent, id_key);
+                const auto* part_generation = field<Integer>(record.intent, generation_key);
+                const auto* center = field<Value::Array>(record.result, center_key);
+                const auto recorded = center ? grid_point(Object{{"center", Value(*center)}}) : std::nullopt;
+                if (!id || !part_generation || !recorded) return false;
+                const auto* live = part(snapshot.state.topology, *id);
+                if (live && (live->role != Role::shaft || live->generation != *part_generation ||
+                             live->geometry.center != *recorded)) return false;
+                const auto prior = placed_shafts.find({*id, *part_generation});
+                if (prior != placed_shafts.end() && prior->second != *recorded) return false;
+            }
+        }
         if (*action == "select_belt_shaft" || *action == "place_selected_belt_span") {
             const auto* id = field<std::string>(record.intent, *action == "select_belt_shaft" ? "target" : "to");
             const auto* generation = field<Integer>(record.intent, *action == "select_belt_shaft" ? "generation" : "to_generation");
@@ -506,9 +542,14 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
                 const auto* target = field<std::string>(prior.intent, "target");
                 const auto* target_generation = field<Integer>(prior.intent, "generation");
                 const auto* ok = field<bool>(prior.result, "accepted");
+                const auto* selected_points = field<Value::Array>(prior.result, "targets");
+                const auto* first_center = field<Value::Array>(record.result, "first_center");
+                const auto selected_center = first_center ? grid_point(Object{{"center", Value(*first_center)}}) : std::nullopt;
                 if (prior_actor && *prior_actor == *actor && prior_client && *prior_client == *client &&
                     prior_action && *prior_action == "select_belt_shaft" && request && *request == *selection &&
-                    target && *target == *first && target_generation && *target_generation == *generation && ok && *ok)
+                    target && *target == *first && target_generation && *target_generation == *generation && ok && *ok &&
+                    selected_points && selected_points->size() == 1 && selected_center &&
+                    !values::typed_difference(selected_points->front(), point_value(anchor(profile, *selected_center))))
                     found = true;
             }
             if (!found) return false;
@@ -1068,6 +1109,8 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             candidate.material.belt_lanes.emplace(entity, materials::BeltLane{
                 std::vector<std::optional<materials::Cargo>>(path->tiles.size()), 0});
             candidate.issued_entities.emplace(entity, generation);
+            facts.emplace("first_center", Value(Value::Array{Value(first->geometry.center[0]), Value(first->geometry.center[1]), Value(first->geometry.center[2])}));
+            facts.emplace("last_center", Value(Value::Array{Value(last->geometry.center[0]), Value(last->geometry.center[1]), Value(last->geometry.center[2])}));
         } else {
             auto proposal = stationary::prepare_belt_removal(state.topology, state.kits.at(binding.actor), state.material,
                                                              {entity, generation});
