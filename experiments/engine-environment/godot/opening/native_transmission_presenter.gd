@@ -11,6 +11,7 @@ var _view_key := ""
 var _motion_context := ""
 var _generations: Dictionary = {}
 var _visual_angles: Dictionary = {}
+var _visual_rotations: Dictionary = {}
 
 func configure(host: Object) -> void:
 	_host = weakref(host)
@@ -26,6 +27,7 @@ func _clear_motion() -> void:
 	_motion_context = ""
 	_generations.clear()
 	_visual_angles.clear()
+	_visual_rotations.clear()
 
 func _sync_motion(snapshot: Dictionary) -> void:
 	var context: Variant = snapshot.get("context")
@@ -48,6 +50,7 @@ func _sync_motion(snapshot: Dictionary) -> void:
 	for id: Variant in _visual_angles.keys():
 		if not current.has(id) or current[id] != _generations.get(id):
 			_visual_angles.erase(id)
+			_visual_rotations.erase(id)
 	_generations = current
 
 static func signed_rate(motion: Variant) -> float:
@@ -57,6 +60,9 @@ static func signed_rate(motion: Variant) -> float:
 
 func visual_angle(id: String) -> float:
 	return float(_visual_angles.get(id, 0.0))
+
+func visual_rotation(id: String) -> float:
+	return float(_visual_rotations.get(id, 0.0))
 
 func _apply_angles() -> void:
 	for child: Node in get_children():
@@ -85,7 +91,9 @@ func advance_visual_motion(delta: float) -> void:
 	for id: String in _generations:
 		var rate := signed_rate(snapshot.motion.get(id))
 		if rate != 0.0:
-			_visual_angles[id] = wrapf(visual_angle(id) + minf(delta, 0.1) * rate * VISUAL_RADIANS_PER_SECOND, -PI, PI)
+			var step := minf(delta, 0.1) * rate * VISUAL_RADIANS_PER_SECOND
+			_visual_rotations[id] = visual_rotation(id) + step
+			_visual_angles[id] = wrapf(visual_angle(id) + step, -PI, PI)
 	_apply_angles()
 
 static func axis_basis(axis: int) -> Basis:

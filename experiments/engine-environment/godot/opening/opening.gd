@@ -1053,7 +1053,8 @@ class ProductionConveyorArt:
 		belt.name = "ConveyorLoop"
 		belt.position.y = HEIGHT
 		belt.mesh = loop_mesh()
-		belt.material_override = material()
+		var source := material()
+		belt.material_override = source.duplicate() if source != null else null
 		belt.set_meta("detail_role", "ConveyorLoop")
 		parent.add_child(belt)
 
@@ -3763,6 +3764,8 @@ func _animate_machine_bodies(delta: float) -> void:
 			if angle == float(anchor.get_meta("cutter_angle", NAN)):
 				continue
 			_apply_cutter_pose(anchor, rows, angle)
+		elif kind == "belt":
+			_apply_conveyor_motion(anchor, transmission_presenter.visual_rotation(id))
 		elif kind == "processor":
 			var target: Variant = _observed_press_target()
 			var generation: Variant = state.get("entities", {}).get(id, {}).get("generation")
@@ -3780,6 +3783,17 @@ func _animate_machine_bodies(delta: float) -> void:
 				continue
 			_apply_press_pose(rows, travel)
 			machine_press_poses[id].travel = travel
+
+func _apply_conveyor_motion(anchor: Node3D, rotation: float) -> void:
+	var loop := anchor.get_node_or_null("ConveyorLoop") as MeshInstance3D
+	if loop == null or not loop.material_override is StandardMaterial3D:
+		return
+	var length_value := 4.0 * ProductionConveyorArt.HALF_SPAN + TAU * ProductionConveyorArt.RADIUS
+	var repeats := maxi(1, roundi(length_value / ProductionConveyorArt.SOURCE_METRES))
+	# The top profile runs toward +X as UV increases. Positive +Z shaft
+	# rotation carries the top toward -X, so the texture offset increases.
+	var offset := fposmod(rotation * ProductionConveyorArt.RADIUS * repeats / length_value, 1.0)
+	loop.material_override.uv1_offset = Vector3(offset, 0, 0)
 
 func _sync_machine_body_context() -> void:
 	var context: Variant = state.get("context")
@@ -4612,6 +4626,8 @@ func _rebuild_machines() -> void:
 		anchor.set_meta("motion_meshes", motion_meshes)
 		if kind == "collector" and transmission_presenter != null:
 			_apply_cutter_pose(anchor, motion_meshes, transmission_presenter.visual_angle(entity_id))
+		elif kind == "belt" and transmission_presenter != null:
+			_apply_conveyor_motion(anchor, transmission_presenter.visual_rotation(entity_id))
 		elif kind == "processor" and _native_transmission():
 			var target: Variant = _observed_press_target()
 			var generation: Variant = entity.get("generation")
