@@ -217,13 +217,21 @@ func inspect_adult(body: Node3D, other: Node3D, presenter: Node) -> void:
 	presenter._set_gait(body, 0.0, 1.0)
 	verify(body.position.y > -0.051 and body.position.y < 0.056,
 		"Captured root motion and stance correction shift only the visual body inside a small bounded range.")
-	presenter._set_gait(body, 3.0 * PI / 4.0, 1.0)
-	skeleton.force_update_all_bone_transforms()
-	var to_body := body.global_transform.affine_inverse() * skeleton.global_transform
-	var left_hand: Vector3 = to_body * skeleton.get_bone_global_pose(skeleton.find_bone("Bip01 L Hand")).origin
-	var right_hand: Vector3 = to_body * skeleton.get_bone_global_pose(skeleton.find_bone("Bip01 R Hand")).origin
-	verify(absf(left_hand.z - right_hand.z) > 0.08 and absf(left_hand.y - right_hand.y) > 0.04,
-		"The captured running cycle separates the two arms in depth and height.")
+	var running_hands := []
+	for arm_phase in [0.0, PI]:
+		presenter._set_gait(body, arm_phase, 1.0)
+		skeleton.force_update_all_bone_transforms()
+		var arm_to_body := body.global_transform.affine_inverse() * skeleton.global_transform
+		var left_hand: Vector3 = arm_to_body * skeleton.get_bone_global_pose(skeleton.find_bone("Bip01 L Hand")).origin
+		var right_hand: Vector3 = arm_to_body * skeleton.get_bone_global_pose(skeleton.find_bone("Bip01 R Hand")).origin
+		running_hands.append({"L": left_hand, "R": right_hand})
+		verify(absf(left_hand.x) < 0.31 and absf(right_hand.x) < 0.31,
+			"Running hands stay beside the trunk instead of flaring across the character width.")
+	verify(running_hands[0].L.z < running_hands[0].R.z - 0.20
+		and running_hands[1].L.z > running_hands[1].R.z + 0.20
+		and running_hands[0].L.y < running_hands[0].R.y - 0.10
+		and running_hands[1].L.y > running_hands[1].R.y + 0.10,
+		"The captured run alternates opposite arm positions and height through a complete stride.")
 	for mix in [0.0, 0.5, 1.0]:
 		var maximum := {"L": -INF, "R": -INF}
 		var minimum := {"L": INF, "R": INF}
