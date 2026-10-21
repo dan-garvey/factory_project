@@ -1518,6 +1518,7 @@ class ProductionPressTrayArt:
 class ProductionDriveJournalArt:
 	extends RefCounted
 	## Turned presentation inside the original native journal cylinder.
+	static var horizontal_press_mesh: ArrayMesh
 	static func mesh(height: float) -> ArrayMesh:
 		var half := height / 2.0
 		# Keep the full central bearing span. End relief and center marks are
@@ -1536,6 +1537,54 @@ class ProductionDriveJournalArt:
 
 	static func material() -> StandardMaterial3D:
 		return ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.38)
+
+	static func press_mesh() -> ArrayMesh:
+		if horizontal_press_mesh == null:
+			var surface := SurfaceTool.new()
+			surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+			# Preserve the two original external ends. The working body between
+			# them is not an exposed through-shaft across the anvil.
+			for side in [-1.0, 1.0]:
+				surface.append_from(mesh(0.18), 0,
+					Transform3D(Basis.IDENTITY, Vector3(0, side * 0.585, 0)))
+			horizontal_press_mesh = surface.commit()
+		return horizontal_press_mesh
+
+	static func _press_fixed(parent: Node3D, name_value: String, role: String,
+			mesh_value: ArrayMesh, at: Vector3, basis_value: Basis = Basis.IDENTITY) -> void:
+		var part := MeshInstance3D.new()
+		part.name = name_value
+		part.position = at
+		part.basis = basis_value
+		part.mesh = mesh_value
+		part.material_override = ProductionTransmissionFinish.material("worked", Color("878d7f"), 0.85, 0.42) \
+			if role == "Bearing" else ProductionCollectorArt.coating(Color("58634c"))
+		part.set_meta("press_input_role", role)
+		parent.add_child(part)
+
+	static func mount_press_bearings(parent: Node3D, axis: Vector3) -> void:
+		var ring := ProductionVisuals.turned_mesh(PackedVector2Array([
+			Vector2(0.087, -0.010), Vector2(0.089, -0.015), Vector2(0.096, -0.015),
+			Vector2(0.100, -0.011), Vector2(0.100, 0.011), Vector2(0.096, 0.015),
+			Vector2(0.089, 0.015), Vector2(0.087, 0.010), Vector2(0.087, -0.010)]))
+		for side in [-1.0, 1.0]:
+			var suffix := "Left" if side < 0 else "Right"
+			var at: Vector3 = axis * float(side) * 0.66
+			_press_fixed(parent, "PressInputBearing" + suffix, "Bearing", ring,
+				at + Vector3.UP * Geometry.ANCHOR_HEIGHT, Basis(Quaternion(Vector3.UP, axis)))
+			if axis == Vector3.RIGHT:
+				# Rear brackets leave both the receiving pan and all original
+				# finished-plate pieces clear, without moving either interface.
+				_press_fixed(parent, "PressInputPost" + suffix, "Post",
+					ProductionVisuals.box_mesh(Vector3(0.10, 0.38, 0.12)),
+					at + Vector3(0, 0.31, -0.23))
+				_press_fixed(parent, "PressInputBracket" + suffix, "Bracket",
+					ProductionVisuals.box_mesh(Vector3(0.06, 0.08, 0.09)),
+					at + Vector3(0, 0.50, -0.135))
+			else:
+				_press_fixed(parent, "PressInputPost" + suffix, "Post",
+					ProductionVisuals.box_mesh(Vector3(0.12, 0.285, 0.10)),
+					at + Vector3.UP * 0.2625)
 
 class ProductionCollectorToolingArt:
 	extends RefCounted
@@ -2340,8 +2389,8 @@ class ProductionEnvironment:
 		for foundation: Dictionary in state.get("foundations", {}).values():
 			var top := Vector3(foundation.cell[0] * Geometry.PITCH,
 				foundation.level * Geometry.HEIGHT_STEP, foundation.cell[1] * Geometry.PITCH)
-			volumes.append(AABB(top - Vector3(Geometry.PITCH * 0.5, Geometry.PITCH, Geometry.PITCH * 0.5),
-				Vector3.ONE * Geometry.PITCH).grow(0.08))
+			volumes.append(AABB(top - Vector3(Geometry.PITCH * 0.5, Geometry.FOUNDATION_DEPTH, Geometry.PITCH * 0.5),
+				Vector3(Geometry.PITCH, Geometry.FOUNDATION_DEPTH, Geometry.PITCH)).grow(0.08))
 		return volumes
 
 	static func _refresh_plant_patch(patch: MultiMeshInstance3D, volumes: Array[AABB]) -> void:
@@ -4331,7 +4380,7 @@ func _spindle_rotation(axis: Vector3) -> Vector3:
 		return Vector3.ZERO
 	return Vector3(0, 0, PI / 2) if axis == Vector3.RIGHT else Vector3(PI / 2, 0, 0)
 
-func _machine_drive_stub(anchor: Node3D, entity: Dictionary) -> void:
+func _machine_drive_stub(anchor: Node3D, entity: Dictionary, press_input: bool = false) -> void:
 	if state.get("options", {}).get("native", false):
 		var axis := _machine_axis(entity)
 		# The vertical stub stays above the base inside the same pick envelope.
@@ -4340,9 +4389,12 @@ func _machine_drive_stub(anchor: Node3D, entity: Dictionary) -> void:
 		journal.name = "DriveStub"
 		journal.position = Vector3(0, Geometry.ANCHOR_HEIGHT, 0)
 		journal.rotation = _spindle_rotation(axis)
-		journal.mesh = ProductionDriveJournalArt.mesh(height)
+		var horizontal_press := press_input and axis != Vector3.UP
+		journal.mesh = ProductionDriveJournalArt.press_mesh() if horizontal_press else ProductionDriveJournalArt.mesh(height)
 		journal.material_override = ProductionDriveJournalArt.material()
 		anchor.add_child(journal)
+		if horizontal_press:
+			ProductionDriveJournalArt.mount_press_bearings(anchor, axis)
 	else:
 		_machine_cylinder(anchor, "DriveStub", Vector3(0, 0.35, 0.55), 0.085, 0.18,
 			Color("b87945"), Vector3(PI / 2, 0, 0))
@@ -4486,7 +4538,7 @@ func _press_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	var tray := _machine_box(anchor, "OutputTray", Vector3(0.46, 0.33, 0.15), Vector3(0.48, 0.05, 0.58), Color("aaa993"), 0.85, 0.5)
 	if _native_transmission():
 		ProductionPressTrayArt.mount(anchor, tray)
-	_machine_drive_stub(anchor, entity)
+	_machine_drive_stub(anchor, entity, true)
 	for x in [-0.48, 0.48]:
 		_machine_cylinder(anchor, "BridgeBolt", Vector3(x, 1.5, -0.1075), 0.035, 0.025,
 			steel, Vector3(PI / 2, 0, 0))

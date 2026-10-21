@@ -83,10 +83,15 @@ separation; it cannot establish the visible quality at normal play distance.
 The exposed native collector and press input journals now use a shared turned
 steel profile instead of a plain copper-colored cylinder. Chamfered ends, narrow
 relief bands and shallow center-drilled marks catch light without enlarging the
-original radius or length. The central bearing span remains at its full original
-radius, and both native lengths share the qualified worked finish. These are
-passive details at the confirmed center and axis; they add no coupling, contact,
-rotation callback or authoritative state. The compact conveyor hub is unchanged.
+original radius or outer attachment ends. Collector and vertical press journals
+retain their continuous spans. Horizontal press inputs instead expose two short
+closed ends with fitted open bearings, clearing the anvil and tool opening.
+Their fixed supports meet the skid; rear brackets on X inputs leave the original
+finished-plate tray clear. The reference frame stays on the confirmed axis, and
+all journals share the qualified worked finish. These passive details add no
+native coupling, contact, rotation callback or authoritative state. They do not
+model an internal gear train. Vertical press layout still needs separate work;
+the compact conveyor hub is unchanged.
 The project selects four-sample 3D multisample antialiasing for mesh edges. This
 is a revisable rendering default, not a measured performance result; it does not
 remove normal-map or specular aliasing. The backend remains Compatibility.

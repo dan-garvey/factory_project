@@ -1623,6 +1623,191 @@ func journal_pose_matches(journal: MeshInstance3D, axis: int) -> bool:
 	return journal.position.is_equal_approx(Vector3(0, 0.5, 0)) and journal.scale.is_equal_approx(Vector3.ONE) \
 		and journal.basis.y.dot([Vector3.LEFT, Vector3.UP, Vector3.BACK][axis]) > 0.99999
 
+func press_input_hits(part: MeshInstance3D, from: Vector3, to: Vector3) -> Array[float]:
+	var hits: Array[float] = []
+	var direction := (to - from).normalized()
+	for surface in range(part.mesh.get_surface_count()):
+		var faces := die_faces(part.mesh, surface)
+		for n in range(0, faces.size(), 3):
+			var hit: Variant = Geometry3D.segment_intersects_triangle(from, to,
+				part.transform * faces[n], part.transform * faces[n + 1], part.transform * faces[n + 2])
+			if hit == null:
+				continue
+			var distance: float = (hit - from).dot(direction)
+			var seen := false
+			for previous in hits:
+				seen = seen or absf(previous - distance) < 0.000001
+			if not seen:
+				hits.append(distance)
+	hits.sort()
+	return hits
+
+func press_input_overlap(a: MeshInstance3D, b: MeshInstance3D, from: Vector3, to: Vector3) -> float:
+	var first := press_input_hits(a, from, to)
+	var second := press_input_hits(b, from, to)
+	if first.is_empty() or second.is_empty() or first.size() % 2 != 0 or second.size() % 2 != 0:
+		return -INF
+	var overlap := -INF
+	for i in range(0, first.size(), 2):
+		for j in range(0, second.size(), 2):
+			overlap = maxf(overlap, minf(first[i + 1], second[j + 1]) - maxf(first[i], second[j]))
+	return overlap
+
+func press_input_bore_radius(mesh: Mesh) -> float:
+	var radius := INF
+	for surface in range(mesh.get_surface_count()):
+		var faces := die_faces(mesh, surface)
+		for n in range(0, faces.size(), 3):
+			var points: Array[Vector2] = [Vector2(faces[n].x, faces[n].z),
+				Vector2(faces[n + 1].x, faces[n + 1].z), Vector2(faces[n + 2].x, faces[n + 2].z)]
+			var area := (points[1] - points[0]).cross(points[2] - points[0])
+			var signs: Array[float] = []
+			for edge_index in range(3):
+				var a := points[edge_index]
+				var b := points[(edge_index + 1) % 3]
+				var edge := b - a
+				var t := clampf(-a.dot(edge) / edge.length_squared(), 0, 1) if edge.length_squared() > 0 else 0.0
+				radius = minf(radius, (a + edge * t).length())
+				signs.append(edge.cross(-a))
+			if absf(area) > 0.000000000001 and ((signs[0] >= 0 and signs[1] >= 0 and signs[2] >= 0)
+				or (signs[0] <= 0 and signs[1] <= 0 and signs[2] <= 0)):
+				return 0.0
+	return radius
+
+func check_press_input_clearance() -> void:
+	var cache: Dictionary = {}
+	var assemblies := 0
+	var minimum_gap := INF
+	var minimum_support := INF
+	for shared_profile in [false, true]:
+		for axis in [0, 2]:
+			for cell in [[0, 0], [2, -1]]:
+				for level in [0, 4]:
+					var view: Variant = Shared.new() if shared_profile else Opening.new()
+					view.machine_root = Node3D.new()
+					view.item_root = Node3D.new()
+					view.add_child(view.machine_root)
+					view.add_child(view.item_root)
+					view.state = {"context": "press-input-art", "options": {"native": true, "physical": true},
+						"actors": {}, "inventories": {"P": 0}, "stock": {"source": 15, "collector": 0, "belt": 0, "input": 0, "held": 0, "output": 1},
+						"remaining": 0, "entities": {"fixture": {"kind": "processor", "cell": cell, "level": level, "axis": axis, "generation": 1}},
+						"transmission_parts": {}, "motion": {}, "links": [], "drive_links": [], "engagements": []}
+					var before: Dictionary = view.state.duplicate(true)
+					view._rebuild_machines()
+					view._redraw_items()
+					var machine: Node3D = view.machine_root.get_child(0)
+					var journal: MeshInstance3D = machine.get_node("DriveStub")
+					var anvil: MeshInstance3D = machine.get_node("Anvil")
+					var head: MeshInstance3D = machine.get_node("ToolHead")
+					var gap := tray_mesh_gap(journal, anvil.transform * anvil.mesh.get_aabb())
+					print(JSON.stringify({"case": "horizontal_press_input", "shared": shared_profile,
+						"axis": axis, "cell": cell, "level": level, "journal_anvil_gap_metres": gap}))
+					verify(gap > 0.02, "Horizontal input journal facets clear the complete anvil instead of crossing its working body.")
+					if gap <= 0.02:
+						view.free()
+						return
+					minimum_gap = minf(minimum_gap, gap)
+					verify(journal_pose_matches(journal, axis) and machine.position.is_equal_approx(
+						Vector3(cell[0] * Geometry.PITCH, level * Geometry.HEIGHT_STEP, cell[1] * Geometry.PITCH)),
+						"Input reference frames preserve the confirmed axis, world origin and absolute construction level.")
+					verify(journal.mesh.get_aabb().position.is_equal_approx(Vector3(-0.085, -0.675, -0.085))
+						and journal.mesh.get_aabb().size.is_equal_approx(Vector3(0.17, 1.35, 0.17)),
+						"Both original outer input ends and their radial envelope remain unchanged.")
+					var centre_hits := journal_center_hits(journal.mesh)
+					verify(centre_hits.size() == 4 and absf(centre_hits[0] + 0.655) < 0.000001
+						and absf(centre_hits[1] + 0.515) < 0.000001 and absf(centre_hits[2] - 0.515) < 0.000001
+						and absf(centre_hits[3] - 0.655) < 0.000001,
+						"Actual facets retain two closed recessed input ends and leave the full central span open.")
+					if not cache.has("journal"):
+						check_closed_asset_mesh(journal.mesh, 0.0075, 0.0079)
+						cache.journal = journal.mesh
+						var former := MeshInstance3D.new()
+						former.mesh = DriveJournalArt.mesh(1.35)
+						former.transform = journal.transform
+						verify(tray_mesh_gap(former, anvil.transform * anvil.mesh.get_aabb()) <= 0,
+							"The exact former full-width journal fails the same raw-facet clearance predicate.")
+						former.free()
+					verify(journal.mesh == cache.journal and journal.material_override == DriveJournalArt.material(),
+						"Both axes and view classes reuse the same complete journal mesh and qualified worked finish.")
+					var rows: Array = machine.get_meta("motion_meshes")
+					verify(rows.size() == 2 and rows[0].node == head and str(rows[1].node.name) == "Piston",
+						"Only the existing head and piston consume observed motion.")
+					var fixed: Array[MeshInstance3D] = [journal]
+					for child in machine.get_children():
+						if child is MeshInstance3D and child.has_meta("press_input_role"):
+							fixed.append(child)
+					verify(fixed.size() == (7 if axis == 0 else 5), "Every horizontal input has its two supported fixed bearing housings.")
+					var poses: Array[Transform3D] = []
+					for part in fixed:
+						poses.append(part.transform)
+						verify(part.get_script() == null and part.get_child_count() == 0, "Input art remains a passive rigid mesh.")
+						check_bounds(part, Transform3D.IDENTITY)
+						var role: String = part.get_meta("press_input_role", "journal")
+						var key := role + str(axis) if role == "Post" else role
+						if role != "journal" and not cache.has(key):
+							check_closed_asset_mesh(part.mesh, 0.00015 if role == "Bearing" else 0.0001,
+								0.0003 if role == "Bearing" else 0.01)
+							cache[key] = part.mesh
+						if role != "journal":
+							verify(part.mesh == cache[key], "Repeated fixed input hardware shares its cached geometry.")
+							verify(tray_mesh_gap(part, anvil.transform * anvil.mesh.get_aabb()) > 0.02,
+								"Fixed bearing hardware leaves the anvil and feed opening clear.")
+						if role == "Bearing":
+							verify(press_input_bore_radius(part.mesh) - 0.085 > 0.0015,
+								"Raw inner facets leave a real annular gap around the unchanged journal radius.")
+						if role in ["Post", "Bracket"]:
+							verify(tray_mesh_gap(journal, part.transform * part.mesh.get_aabb()) > 0.003,
+								"Actual journal facets clear their fixed supporting brackets.")
+						if role == "Post":
+							var probe := Vector2(part.position.x, part.position.z)
+							var deck: MeshInstance3D = machine.get_node("Plinth")
+							verify(absf(die_height(part.mesh, 0, part.transform, probe, false)
+								- die_height(deck.mesh, 0, deck.transform, probe, true)) < 0.000001,
+								"Each real pedestal bottom meets the actual skid top.")
+					for side in [-1, 1]:
+						var suffix := "Left" if side < 0 else "Right"
+						var bearing: MeshInstance3D = machine.get_node("PressInputBearing" + suffix)
+						var post: MeshInstance3D = machine.get_node("PressInputPost" + suffix)
+						var support := -INF
+						if axis == 0:
+							var bracket: MeshInstance3D = machine.get_node("PressInputBracket" + suffix)
+							var ear_join := press_input_overlap(bearing, bracket,
+								Vector3(side * 0.66, 0.503, -1), Vector3(side * 0.66, 0.503, 1))
+							var foot_join := press_input_overlap(post, bracket,
+								Vector3(side * 0.66, -0.1, -0.175), Vector3(side * 0.66, 1, -0.175))
+							support = minf(ear_join, foot_join)
+						else:
+							support = press_input_overlap(bearing, post,
+								Vector3(0.02, -0.1, side * 0.66), Vector3(0.02, 1, side * 0.66))
+						minimum_support = minf(minimum_support, support)
+						verify(support > 0.001, "Raw closed-mesh probes establish finite bearing-to-frame contact.")
+					var item_rows: Array[Dictionary] = []
+					var plates := 0
+					for item in view.item_root.get_children():
+						if item is Node3D and item.get_meta("item_kind", "") == "stamped_plate":
+							plates += 1
+							hub_mesh_rows(item, machine.transform.affine_inverse() * view.item_root.transform, item_rows)
+					verify(plates == 1 and item_rows.size() == 10, "The clearance oracle sees every original component of the confirmed finished plate.")
+					for item in item_rows:
+						var box: AABB = item.pose * item.node.mesh.get_aabb()
+						for part in fixed:
+							verify(tray_mesh_gap(part, box) > 0.000001,
+								"Actual input facets clear each complete finished-plate component at its original outlet pose.")
+					for travel in [0.0, 0.0075, 0.015]:
+						view._apply_press_pose(rows, travel)
+						var sweep: AABB = head.transform * head.mesh.get_aabb()
+						for index in range(fixed.size()):
+							verify(fixed[index].transform == poses[index] and tray_mesh_gap(fixed[index], sweep) > 0.02,
+								"Fixed input hardware clears both original tool endpoints and the intermediate pose.")
+					verify(view.state == before and view.model == null and view.actor_world == null and view.request_sequence == 0,
+						"Ordinary offline/shared assembly changes no confirmed state, requests or authority.")
+					assemblies += 1
+					view.free()
+	print(JSON.stringify({"phase": "horizontal press inputs", "assemblies": assemblies, "axes": ["x", "z"],
+		"minimum_anvil_gap_metres": minimum_gap if is_finite(minimum_gap) else null,
+		"minimum_support_overlap_metres": minimum_support if is_finite(minimum_support) else null,
+		"vertical_layout": "unchanged and not accepted by this case", "native_gameplay": "not_run"}))
+
 func check_drive_journals(geometry_checks: bool = true) -> void:
 	var meshes: Dictionary = {}
 	var assemblies := 0
@@ -1673,9 +1858,10 @@ func check_drive_journals(geometry_checks: bool = true) -> void:
 					var machine: Node3D = view.machine_root.get_child(0)
 					var journal: MeshInstance3D = machine.get_node("DriveStub")
 					var height := 0.9 if axis == 1 else 1.35
-					verify(journal.mesh == meshes[height] and journal.material_override == material
+					var expected_mesh: ArrayMesh = DriveJournalArt.press_mesh() if kind == "processor" and axis != 1 else meshes[height]
+					verify(journal.mesh == expected_mesh and journal.material_override == material
 						and journal.get_child_count() == 0 and journal.get_script() == null and journal_pose_matches(journal, axis),
-						"Both actual view builders mount the same plain journal on the existing native center and confirmed axis.")
+						"Both view builders mount the fitted journal variant on the existing native centre and confirmed axis.")
 					verify(machine.position.is_equal_approx(Vector3(cell[0] * 1.65, 0, cell[1] * 1.65)),
 						"Translated constructions retain the common world-space grid origin and height.")
 					if geometry_checks:
@@ -4208,6 +4394,11 @@ func _initialize() -> void:
 		finish()
 		return
 	if OS.get_cmdline_user_args().has("--render-buildable-resources"):
+		if OS.get_cmdline_user_args().has("--press-input-clearance-check"):
+			check_press_input_clearance()
+			if failed:
+				finish()
+				return
 		if OS.get_cmdline_user_args().has("--foundation-art-check"):
 			check_foundation_art()
 			if failed or not foundation_art_complete:
@@ -4237,6 +4428,10 @@ func _initialize() -> void:
 				finish()
 				return
 		call_deferred("render_buildable_resources")
+		return
+	if OS.get_cmdline_user_args().has("--press-input-clearance-only"):
+		check_press_input_clearance()
+		finish()
 		return
 	if OS.get_cmdline_user_args().has("--satin-coating-only"):
 		check_satin_coating()

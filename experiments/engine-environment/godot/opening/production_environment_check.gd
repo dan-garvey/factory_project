@@ -120,6 +120,7 @@ func finish() -> void:
 			"foreground-bank": "near-bank placement and confirmed offline/shared machine-footprint suppression",
 			"pine-understory": "complete pine resource, terrain and confirmed-machine visibility consumer",
 			"construction-vegetation": "detached offline/shared plant clearance at confirmed construction heights",
+			"thin-foundation-plants": "actual shallow-slab clearance and construction-aware plant buffers",
 			"pine-roots": "focused edge-inclusive terrain-root oracle correction",
 			"pine-reflectance": "source-derived normal-incidence dielectric reflectance and cache isolation",
 			"fir-resource": "complete sourced fir, generated distance detail and common resource interface",
@@ -231,6 +232,36 @@ func _expected_plants(patch: MultiMeshInstance3D, original: PackedFloat32Array, 
 			kept.append_array(original.slice(offset, offset + stride))
 	return kept
 
+func check_thin_foundation_plants() -> void:
+	for shared in [false, true]:
+		var view: Variant = SharedBankView.new() if shared else FixtureView.new()
+		root.add_child(view)
+		view._build_world()
+		var bank: MultiMeshInstance3D = view.get_node("ProductionScenery/ForegroundBank")
+		var original := bank.multimesh.buffer
+		var sample := _plant_bounds(bank, original, 0)
+		var cell := Vector2i(roundi(original[3] / Geometry.PITCH), roundi(original[11] / Geometry.PITCH))
+		var level := ceili((sample.end.y + 0.09 + Geometry.FOUNDATION_DEPTH) / Geometry.HEIGHT_STEP)
+		view.state = {"entities": {}, "foundations": {"clear_slab": {"cell": [cell.x, cell.y], "level": level}}, "links": []}
+		var supplied: Dictionary = view.state.duplicate(true)
+		view._rebuild_machines()
+		var footing: MeshInstance3D = view.machine_root.get_child(0).get_node("FoundationBlock")
+		var slab: AABB = footing.global_transform * footing.mesh.get_aabb()
+		verify(slab.position.y > sample.end.y + 0.08,
+			"The actual current footing facets clear the entire original source clump and its visual margin.")
+		var kept := bank.multimesh.buffer
+		var retained := false
+		for offset in range(0, kept.size(), 16):
+			retained = retained or kept.slice(offset, offset + 16) == original.slice(0, 16)
+		print(JSON.stringify({"case": "plant_below_shallow_slab", "shared": shared, "level": level,
+			"plant_top_metres": sample.end.y, "actual_slab_bottom_metres": slab.position.y, "original_record_retained": retained}))
+		verify(retained, "A plant below a clear shallow foundation keeps its complete original transform and color record.")
+		verify(view.state == supplied and view.model == null and view.actor_world == null and view.request_sequence == 0,
+			"The shallow-slab view control creates no authority, material command or state mutation.")
+		view.free()
+		if not retained:
+			return
+
 func check_construction_vegetation() -> void:
 	# Invented confirmed facts exercise the ordinary detached view callback.
 	# No command, native body, Model, Store or network host is created.
@@ -283,9 +314,9 @@ func check_construction_vegetation() -> void:
 			{"name": "machine_at_plant_height", "entities": {"belt": {"kind": "belt", "cell": [cell.x, cell.y], "level": machine_level}},
 				"foundations": {}, "volumes": [AABB(machine_center - machine_size * 0.5, machine_size)]},
 			{"name": "high_foundation", "entities": {}, "foundations": {"high": {"cell": [cell.x, cell.y], "level": 1000}},
-				"volumes": [AABB(Vector3(top.x - Geometry.PITCH * 0.5, 1000 * Geometry.HEIGHT_STEP - Geometry.PITCH, top.z - Geometry.PITCH * 0.5), Vector3.ONE * Geometry.PITCH)]},
+				"volumes": [AABB(Vector3(top.x - Geometry.PITCH * 0.5, 1000 * Geometry.HEIGHT_STEP - Geometry.FOUNDATION_DEPTH, top.z - Geometry.PITCH * 0.5), Vector3(Geometry.PITCH, Geometry.FOUNDATION_DEPTH, Geometry.PITCH))]},
 			{"name": "buried_foundation", "entities": {}, "foundations": {"low": {"cell": [cell.x, cell.y], "level": -1000}},
-				"volumes": [AABB(Vector3(top.x - Geometry.PITCH * 0.5, -1000 * Geometry.HEIGHT_STEP - Geometry.PITCH, top.z - Geometry.PITCH * 0.5), Vector3.ONE * Geometry.PITCH)]}]
+				"volumes": [AABB(Vector3(top.x - Geometry.PITCH * 0.5, -1000 * Geometry.HEIGHT_STEP - Geometry.FOUNDATION_DEPTH, top.z - Geometry.PITCH * 0.5), Vector3(Geometry.PITCH, Geometry.FOUNDATION_DEPTH, Geometry.PITCH))]}]
 		# Give every actual patch an intersecting confirmed block in one state.
 		var all_foundations := {}
 		var all_volumes: Array[AABB] = []
@@ -298,7 +329,7 @@ func check_construction_vegetation() -> void:
 			var patch_level := ceili((plant.position.y + minf(plant.size.y * 0.5, 0.25)) / Geometry.HEIGHT_STEP)
 			all_foundations[str(index)] = {"cell": [patch_cell.x, patch_cell.y], "level": patch_level}
 			all_volumes.append(AABB(Vector3(patch_cell.x * Geometry.PITCH - Geometry.PITCH * 0.5,
-				patch_level * Geometry.HEIGHT_STEP - Geometry.PITCH, patch_cell.y * Geometry.PITCH - Geometry.PITCH * 0.5), Vector3.ONE * Geometry.PITCH))
+				patch_level * Geometry.HEIGHT_STEP - Geometry.FOUNDATION_DEPTH, patch_cell.y * Geometry.PITCH - Geometry.PITCH * 0.5), Vector3(Geometry.PITCH, Geometry.FOUNDATION_DEPTH, Geometry.PITCH)))
 		cases.append({"name": "all_patch_kinds", "entities": {}, "foundations": all_foundations, "volumes": all_volumes})
 		for scenario in cases:
 			view.state = {"entities": scenario.entities, "foundations": scenario.foundations, "links": []}
@@ -331,7 +362,7 @@ func check_construction_vegetation() -> void:
 		var moved_cell := Vector2i(roundi(moved_root.x / Geometry.PITCH), roundi(moved_root.z / Geometry.PITCH))
 		var moved_level := ceili((moved_bounds.position.y + minf(moved_bounds.size.y * 0.5, 0.25)) / Geometry.HEIGHT_STEP)
 		var moved_volume := AABB(Vector3(moved_cell.x * Geometry.PITCH - Geometry.PITCH * 0.5,
-			moved_level * Geometry.HEIGHT_STEP - Geometry.PITCH, moved_cell.y * Geometry.PITCH - Geometry.PITCH * 0.5), Vector3.ONE * Geometry.PITCH)
+			moved_level * Geometry.HEIGHT_STEP - Geometry.FOUNDATION_DEPTH, moved_cell.y * Geometry.PITCH - Geometry.PITCH * 0.5), Vector3(Geometry.PITCH, Geometry.FOUNDATION_DEPTH, Geometry.PITCH))
 		view.state = {"entities": {}, "foundations": {"moved": {"cell": [moved_cell.x, moved_cell.y], "level": moved_level}}, "links": []}
 		view._rebuild_machines()
 		var moved_expected := _expected_plants(moved, moved_data, [moved_volume])
@@ -1471,6 +1502,12 @@ func check_bank_fir_lifecycle() -> void:
 		view.free()
 
 func run() -> void:
+	if mode == "thin-foundation-plants":
+		check_thin_foundation_plants()
+		if not failed:
+			check_construction_vegetation()
+		finish()
+		return
 	if mode == "construction-vegetation":
 		check_construction_vegetation()
 		finish()
