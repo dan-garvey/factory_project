@@ -218,7 +218,7 @@ func _run() -> void:
 		return
 	if not _conserved():
 		return
-	opening.all_tools_button.pressed.emit()
+	opening.catalog_button.pressed.emit()
 	var passed := await _p() if actor == "P" else await _q()
 	if passed and not written:
 		_record("pass")

@@ -16,6 +16,9 @@ class SessionStub extends RefCounted:
 class ToolStub extends RefCounted:
 	var active_tool := "gear"
 
+class CatalogStub extends RefCounted:
+	var catalog := {"visible": false}
+
 class FooterView extends Opening:
 	func _ready() -> void:
 		pass
@@ -115,7 +118,7 @@ func check_foundation_view() -> void:
 	await settle_footer()
 	verify(view.foundation_level == 1 and view.foundation_level_controls.visible,
 		"The foundation tool exposes an absolute height in the real controls.")
-	var bounds: Rect2 = view.tool_buttons.foundation.get_parent().get_parent().get_global_rect()
+	var bounds: Rect2 = view.build_column.get_parent().get_global_rect()
 	verify(root.get_visible_rect().encloses(bounds), "The expanded foundation controls fit the viewport.")
 	verify(view.model == null and view.actor_world == null, "All pointer and UI observations stay read-only.")
 	var ack := AckView.new()
@@ -155,11 +158,11 @@ func check_footer_layout() -> void:
 	verify(short_bounds.size.y < 64.0 and panel.get_global_rect().encloses(view.controls_label.get_global_rect()),
 		"The fresh controls fit a compact strip instead of reserving the old two-row banner.")
 	verify(short_bounds.size.x < 952.0, "The fresh strip removes blank width while fitting every control hint.")
-	verify(is_equal_approx(short_bounds.end.y, 782.0), "The compact footer keeps its eighteen-pixel bottom margin.")
+	verify(is_equal_approx(short_bounds.end.y, view.building_hotbar.position.y - 12.0), "The compact footer stays above the hotbar.")
 	root.size = Vector2i(1600, 900)
 	await settle_footer()
 	var wide_bounds: Rect2 = panel.get_global_rect()
-	verify(is_equal_approx(wide_bounds.end.x, 1582.0) and is_equal_approx(wide_bounds.end.y, 882.0) \
+	verify(is_equal_approx(wide_bounds.end.x, 1582.0) and is_equal_approx(wide_bounds.end.y, view.building_hotbar.position.y - 12.0) \
 		and is_equal_approx(wide_bounds.size.x, short_bounds.size.x) and wide_bounds.encloses(view.controls_label.get_global_rect()),
 		"A wider viewport preserves the compact controls and both outer margins.")
 	root.size = Vector2i(1280, 800)
@@ -173,7 +176,7 @@ func check_footer_layout() -> void:
 	var long_bounds: Rect2 = panel.get_global_rect()
 	verify(view.status_label.visible and view.status_label.get_line_count() > 1 and view.status_label.text == refusal.repeat(7),
 		"A long refusal remains complete and wraps across multiple lines.")
-	verify(long_bounds.size.y > short_bounds.size.y and long_bounds.position.y >= 0.0 and is_equal_approx(long_bounds.end.y, 782.0) \
+	verify(long_bounds.size.y > short_bounds.size.y and long_bounds.position.y >= 0.0 and is_equal_approx(long_bounds.end.y, view.building_hotbar.position.y - 12.0) \
 		and long_bounds.encloses(view.status_label.get_global_rect()) and long_bounds.encloses(view.controls_label.get_global_rect()),
 		"The footer grows upward around a refusal while keeping both rows inside the viewport.")
 	view._message(intro)
@@ -182,11 +185,11 @@ func check_footer_layout() -> void:
 	await settle_footer()
 	verify(view.status_label.visible, "Details keeps the explicit introductory status available.")
 	view.show_details = false
-	view.show_all_tools = true
+	view.building_hotbar.catalog.show()
 	view._refresh_guided_tools()
 	await settle_footer()
-	verify(view.status_label.visible, "All tools retains the full status row.")
-	view.show_all_tools = false
+	verify(view.status_label.visible, "The catalog retains the full status row.")
+	view.building_hotbar.catalog.hide()
 	view.explanation_open = true
 	view._refresh_guided_tools()
 	await settle_footer()
@@ -214,8 +217,9 @@ func check_footer_layout() -> void:
 	legacy._message(intro)
 	await settle_footer()
 	var historical: Control = legacy.status_label.get_parent().get_parent()
-	verify(legacy.status_label.visible and is_equal_approx(historical.get_global_rect().size.y, 88.0),
-		"The historical fixture retains its original status and footer dimensions.")
+	verify(legacy.status_label.visible and historical.get_global_rect().encloses(legacy.controls_label.get_global_rect()) \
+		and historical.get_global_rect().end.y <= legacy.building_hotbar.position.y - 12.0,
+		"Every observation profile uses the current readable layout above the hotbar.")
 	legacy.free()
 	finish_checks()
 
@@ -312,6 +316,7 @@ func first_target_fixture() -> Dictionary:
 
 func check_first_target() -> void:
 	var view = Opening.new()
+	view.building_hotbar = CatalogStub.new()
 	view.state = first_target_fixture()
 	view.mode = "collector"
 	view.request_sequence = 23
@@ -342,7 +347,7 @@ func check_first_target() -> void:
 	for unavailable in ["help", "all_tools", "reopening", "actor", "kit", "source", "nonnative", "legacy", "built", "shaft", "goal"]:
 		view.state = first_target_fixture()
 		view.explanation_open = unavailable == "help"
-		view.show_all_tools = unavailable == "all_tools"
+		view.building_hotbar.catalog.visible = unavailable == "all_tools"
 		view.startup_save_pending = unavailable == "reopening"
 		view.legacy_fixture = unavailable == "legacy"
 		match unavailable:
@@ -406,6 +411,7 @@ func _initialize() -> void:
 		return
 	check_first_target()
 	var view = Opening.new()
+	view.building_hotbar = CatalogStub.new()
 	view.mode = "belt"
 	view.state = fixture()
 	view.request_sequence = 17
@@ -428,9 +434,9 @@ func _initialize() -> void:
 	verify(view.state == before and view.model == null and view.request_sequence == 17 and view.request_namespace == original_namespace and view.selected == "collector-1" and view.pending_link == "collector-1", "Drawing the cue leaves projection, authority and intent state unchanged.")
 	view._refresh_placement_hint(false)
 	verify(not view.placement_hint.visible, "An unavailable snapshot clears an already drawn cue.")
-	view.show_all_tools = true
-	verify(view._guided_placement_cell().is_empty(), "All tools opts out of the cue.")
-	view.show_all_tools = false
+	view.building_hotbar.catalog.visible = true
+	verify(view._guided_placement_cell().is_empty(), "The open catalog hides the world cue.")
+	view.building_hotbar.catalog.visible = false
 	view.explanation_open = true
 	verify(view._guided_placement_cell().is_empty(), "Help has no worksite cue.")
 	view.explanation_open = false

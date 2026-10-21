@@ -15,15 +15,18 @@ and deliberately retry. P (or the drive button) operates the wheel from nearby;
 it does not promise a global stop from the press. Read-only inspection, Help,
 saving and the non-consuming four-plate confirmation remain available at distance.
 
-The native physical view starts with Collector and Foundation choices and a short
-next-step prompt. Existing confirmed machines reveal the next useful tools; the suggested
-tool uses a warm label color. **All tools** exposes every existing choice at any
-time, and the original number, F, G and I shortcuts remain available. Choosing an
-early tool by keyboard also keeps its button visible. This is a revisable view
-order, not a technology unlock or a saved progression rule. Reopening a worksite
-derives the suggestions again from its actual machines, links and inventory.
+The native physical view has eight quick-select slots and a short next-step
+prompt. **Build [B]** opens the catalog: choose a destination slot and a carried
+part to assign or replace it. Right-click a slot to edit it; an empty slot also
+opens the catalog. **1–8** select the displayed assignments. The default order is
+Collector, Foundation, Belt, Press, Waterwheel, Cogwheel, Shaft and one empty slot.
+Counts and unavailable states follow the active actor's actual kit. Movement keys
+are inactive while the catalog is open. Slot assignments are local interface state
+and reset on a fresh launch; they are not inventory,
+technology unlocks or saved progression. F, G and I retain material, shaft and
+inspection selection. Reopening derives goal advice from the actual worksite.
 
-**Foundation [6]** builds a level surface from the carried kit. Its height controls
+**Foundation** builds a level surface from the carried kit. Its height controls
 and Page Up / Page Down move by one height step, initially at world level zero. Every
 foundation and machine uses the same quarter-pitch height unit, currently
 0.4125 m on 1.65 m horizontal tiles. Machines require a whole-tile height: a
@@ -64,13 +67,12 @@ site choices, not a volume-conserving fluid simulation. The animated ripple
 normal follows the river's downstream direction but does not display a
 per-cell speed measurement.
 
-In the native profile, G selects an individual **finite shaft tile**. Click a
-highlighted tile to place it; **Cogwheels and shafts…** also offers individual
-cogs and transmission removal. All tools exposes the menu
-immediately; otherwise it appears with placed transmission parts or collected
-plates. Key 5 also selects a cogwheel. The menu chooses X/Y/Z rotation axis and
-placement height in full-tile steps. Shafts and cogs each occupy one 1.65 m
-tile and snap to the common world grid in all three dimensions. That axis also applies to subsequent
+In the native profile, G selects an individual **finite shaft tile**. Click the
+highlighted tile to place it. Selecting a Cogwheel or Shaft hotbar slot exposes
+**Cogwheels and shafts…** for placement settings and transmission removal. The
+catalog can assign either tool at any time. The menu chooses X/Y/Z rotation axis
+and placement height in full-tile steps. Shafts and cogs occupy one 1.65 m tile
+and snap to the common world grid in all three dimensions. That axis also applies to subsequent
 machine placement, except for the belt. Select the belt and press **T** to turn
 its material direction between +X and +Z; its drive spindle runs across that
 direction. The placement preview shows the selected direction, and connecting
@@ -105,7 +107,7 @@ the geared route does not earn an invented processing-speed bonus.
 
 Selecting the suggested Belt or Press also outlines the empty square at the
 confirmed upstream machine's outlet. This cue is a layout suggestion, not a
-construction permission or reach indicator. It hides in Help, All tools and
+construction permission or reach indicator. It hides in Help, the catalog and
 pending/disconnected views, and when the next square is occupied or ambiguous.
 
 **Details** shows global stock/drive counters and the original save controls;

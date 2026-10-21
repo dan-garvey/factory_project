@@ -11,6 +11,8 @@ class LayoutView extends "res://opening/shared_opening.gd":
 		pass
 	func _process(_delta: float) -> void:
 		pass
+	func _update_cursor() -> void:
+		pass
 
 func _initialize() -> void:
 	call_deferred("_run")
@@ -39,7 +41,6 @@ func _run() -> void:
 	view.session = SessionStub.new()
 	view.connect_on_ready = false
 	view.client = "P"
-	view.show_all_tools = true
 	view.show_details = true
 	view.selected = "press"
 	view.mode = "inspect"
@@ -77,7 +78,9 @@ func _run() -> void:
 	var tooltip: String = view.recovery_actions.action_button.tooltip_text
 	var separate_forms: bool = "2 blanks" in tooltip and "1 plate" in tooltip and "1 workpiece" in tooltip
 	var available: bool = recovery.recovery_visible and not view.recovery_actions.action_button.disabled
-	var fit: bool = not recovery.overlap and recovery.minimum_required_bottom <= recovery.footer[1]
+	var bar_top: float = view.building_hotbar.get_global_rect().position.y
+	var fit: bool = not recovery.overlap and recovery.minimum_required_bottom <= bar_top - 12.0 \
+		and recovery.right[1] + recovery.right[3] <= bar_top - 12.0
 	var passed: bool = not baseline.overlap and fit and available and separate_forms and view.model == null
 	var report: Dictionary = {"status": "pass" if passed else "fail",
 		"evidence": "headless_ui_container_bounds", "viewport": [root.size.x, root.size.y],

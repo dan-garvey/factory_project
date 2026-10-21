@@ -13,6 +13,8 @@ class RefreshView extends "res://opening/shared_opening.gd":
 		pass
 	func _process(_delta: float) -> void:
 		pass
+	func _update_cursor() -> void:
+		pass
 
 func _initialize() -> void:
 	call_deferred("_run")
@@ -23,15 +25,14 @@ func verify(condition: bool, reason: String) -> void:
 		failures += 1
 		print("PARTS_REFRESH_FAILURE: " + reason)
 
-func caption(view, count: int, reason: String) -> void:
+func caption(view, count: int, reason: String, scope: String = "carried") -> void:
 	view._refresh_ui()
-	verify(view.tool_buttons.drive.text == "Drive link  [G]    ·    %d shafts" % count, reason)
+	verify(view.building_hotbar.catalog_buttons.drive.text == "Shaft\n%d %s" % [count, scope], reason)
 
 func _run() -> void:
 	var view := RefreshView.new()
 	view.session = SessionStub.new()
 	view.client = "P"
-	view.show_all_tools = true
 	view.state = {"context": "kit-refresh-fixture", "revision": 0, "order": 0,
 		"options": {"physical": true, "native": true},
 		"actors": {"P": {"ready": true}, "Q": {"ready": true}},
@@ -53,7 +54,7 @@ func _run() -> void:
 	view.state.part_kits.Q = {"shaft": 2}
 	caption(view, 2, "A later confirmed kit replaces the zero count.")
 	view.state.options.native = false
-	caption(view, 7, "The scripted shared profile still displays the shared kit.")
+	caption(view, 7, "The scripted shared profile displays the actual shared kit.", "shared")
 	view.state.options.native = true
 	view.state.erase("part_kits")
 	var before: Dictionary = view.state.duplicate(true)

@@ -337,7 +337,7 @@ func _produce_p() -> bool:
 		[_anchor([0, 0, 4])], func(): _click([0, 0, 4]))
 	if collector.is_empty():
 		return false
-	_key(KEY_5)
+	_key(KEY_6)
 	var a := await _callback("P first cog shortcut and screen click", {"action": "place_gear", "center": [-4, 4, 4], "axis": "y", "teeth": 2},
 		[_anchor([-4, 4, 4])], func(): _click([-4, 4, 4]))
 	if a.is_empty():
@@ -387,7 +387,7 @@ func _produce_p() -> bool:
 
 func _produce_q() -> bool:
 	var before := _material_view(session.projection())
-	_key(KEY_5)
+	_key(KEY_6)
 	_click([-4, 4, 4])
 	var after := _material_view(session.projection())
 	facts["empty_kit"] = {"before": before, "after": after, "request_sequence": session.request_sequence,
@@ -415,7 +415,7 @@ func _resume_q(ids: Dictionary) -> bool:
 	if not _expect(opening.state.part_kits.Q.gear == 1 and opening.state.part_kits.P.gear == 0
 		and not opening.state.transmission_parts.has(ids.a), "The exact removed cog enters Q's confirmed kit without duplication"):
 		return false
-	_key(KEY_5)
+	_key(KEY_6)
 	var rebuilt := await _callback("Q restored-train reconstruction", {"action": "place_gear", "center": [-4, 4, 4], "axis": "y", "teeth": 2},
 		[_anchor([-4, 4, 4])], func(): _click([-4, 4, 4]))
 	if rebuilt.is_empty() or not _expect(rebuilt.entity != ids.a, "Reconstruction creates a new gear identity"):
@@ -469,10 +469,10 @@ func _run() -> void:
 		await process_frame
 	if not _expect(session.is_ready(), "Both ordinary clients must join the native server") or not await _initial():
 		return
-	opening.all_tools_button.pressed.emit()
+	opening._select_tool("gear")
 	opening.transmission_controls._axes.id_pressed.emit(1)
-	if not _expect(opening.show_all_tools and opening.transmission_controls.visible and opening.transmission_controls.selected_axis == "y",
-		"Ordinary All tools and axis menu signals configure the native tools"):
+	if not _expect(opening.mode == "gear" and opening.transmission_controls.visible and opening.transmission_controls.selected_axis == "y",
+		"Ordinary tool selection and axis menu signals configure the native tools"):
 		return
 	var passed := false
 	if phase == "produce":

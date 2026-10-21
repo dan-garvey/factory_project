@@ -2,12 +2,14 @@ extends SceneTree
 ## Test-only local input controller for the real OpeningShared scene.
 ## The normal scene never reads these files. There is no test/admin game RPC.
 const KEYS := {"1": KEY_1, "2": KEY_2, "3": KEY_3, "4": KEY_4,
+	"5": KEY_5, "6": KEY_6, "7": KEY_7, "8": KEY_8, "B": KEY_B,
 	"W": KEY_W, "A": KEY_A, "S": KEY_S, "D": KEY_D, "P": KEY_P,
 	"F": KEY_F, "G": KEY_G, "I": KEY_I, "R": KEY_R, "H": KEY_H,
 	"SPACE": KEY_SPACE, "F5": KEY_F5, "F9": KEY_F9, "ESCAPE": KEY_ESCAPE,
 	"RIGHT": KEY_RIGHT, "LEFT": KEY_LEFT, "HOME": KEY_HOME}
 const BUTTONS := ["confirm_button", "retrieve_button", "power_button", "remove_button",
 	"save_button", "load_button", "reconnect_button", "disconnect_button",
+	"catalog_button",
 	"lesson_next", "lesson_previous", "lesson_return"]
 var scene
 var control_root := ""

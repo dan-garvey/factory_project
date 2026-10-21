@@ -95,7 +95,7 @@ are `OPENING_UI_READY` and `OPENING_UI_RESPONSE`; exits, diagnostics and a
 | Control action | Fields / actual consumer |
 | --- | --- |
 | `observe` | Read current facts without a game request |
-| `key` | `key`: 1–4, F, G, I, R, H, SPACE, F5, F9, ESCAPE, LEFT, RIGHT, HOME |
+| `key` | `key`: 1–8, B, F, G, I, R, H, SPACE, F5, F9, ESCAPE, LEFT, RIGHT, HOME |
 | `cell` | `x`, optional `z`: project the real world square to a mouse click |
 | `button` | `button`: an explicit view button name, clicked through GUI input |
 | `barrier` | `condition`: ready, settled, disconnected, output, inventory, revision; optional `minimum` |

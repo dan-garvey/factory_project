@@ -619,12 +619,14 @@ defines parent/viewport anchors; the
 [Window API](https://raw.githubusercontent.com/godotengine/godot/4.7.2-stable/doc/classes/Window.xml)
 separates native window size from content scaling. The opening's 1280×800 minimum
 is a revisable adapter policy, while larger windows remain resizable. The private
-[layout observer](../../experiments/engine-environment/godot/opening/layout_observer.gd)
+[original layout observer](https://github.com/dan-garvey/factory_project/blob/d83716d7bc786201b48895154c8b7b91e8287111/experiments/engine-environment/godot/opening/layout_observer.gd)
 records actual viewport bounds, edge margins, rendered text, button signals and
 ordinary input across size changes and maximize/restore. Its pending-view fixture
 temporarily pauses only client multiplayer polling around an ordinary request;
 the server and its authority remain live. Treat that pause as a disclosed fixture
-shortcut, not natural network-delay evidence. Runtime verdicts and supported
+shortcut, not natural network-delay evidence. That old text-menu driver is now
+superseded by the hotbar's detached widget and layout controls in
+`opening/parts_view_check.gd`; its original packets retain their verdicts. Runtime verdicts and supported
 display/backend limits belong to the exact retained `6.40` cases; source or parser
 success alone does not certify resizing, DPI, accessibility or actual user play.
 
