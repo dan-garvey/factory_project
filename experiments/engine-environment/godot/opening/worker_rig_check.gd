@@ -263,6 +263,25 @@ func inspect_adult(body: Node3D, other: Node3D, presenter: Node) -> void:
 	verify(absf(contact_samples[1].R.z - contact_samples[0].R.z + quarter_travel) < 0.08
 		and absf(contact_samples[3].L.z - contact_samples[2].L.z + quarter_travel) < 0.08,
 		"Each planted walking toe nearly cancels confirmed forward travel over its stance quarter-cycle.")
+	# The captured run's low-toe support spans the clip seam on the right and
+	# the middle of the cycle on the left. Compare each toe's actual source
+	# travel against the confirmed distance that advances those phases.
+	for stance in [{"side": "R", "start": 5.60, "end": 7.24},
+			{"side": "L", "start": 8.61, "end": 9.97}]:
+		var toes := []
+		var support := []
+		for sample_phase: float in [stance.start, stance.end]:
+			presenter._set_gait(body, sample_phase, 1.0, 0.0, 0.0, 0.0, 1.0)
+			skeleton.force_update_all_bone_transforms()
+			var toe_to_body: Transform3D = body.global_transform.affine_inverse() * skeleton.global_transform
+			var toe: Vector3 = toe_to_body * skeleton.get_bone_global_pose(
+				skeleton.find_bone("Bip01 " + stance.side + " Toe0")).origin
+			toes.append(toe)
+			support.append(Geometry.CAPSULE_HEIGHT / 2.0 + body.position.y + toe.y)
+		var traveled: float = Presenter.GAIT_CYCLE_DISTANCE * (stance.end - stance.start) / TAU
+		verify(absf(toes[1].z - toes[0].z + traveled) < 0.08
+			and maxf(support[0], support[1]) < 0.08,
+			"Both low running toes nearly cancel confirmed travel during their support intervals.")
 	presenter._set_gait(body, TAU / 24.0, 1.0)
 	skeleton.force_update_all_bone_transforms()
 	var run_to_body: Transform3D = body.global_transform.affine_inverse() * skeleton.global_transform
