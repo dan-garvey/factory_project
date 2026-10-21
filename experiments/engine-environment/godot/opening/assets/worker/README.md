@@ -32,16 +32,20 @@ The standing skinned mesh is uniformly fitted to the existing 1.8-metre capsule
 and its foot plane. The visual root remains exactly at the confirmed actor pose.
 The [neutral female run clip](https://github.com/microsoft/Microsoft-Rocketbox/blob/0943055db6ec570bcef9f2c8b41c9e5467c808f9/Assets/Animations/all_animations_max_motextr_xy/f_run_neutral.max.fbx)
 comes from the same Rocketbox library. Its compact native Godot animation resource
-keeps 34 named-skeleton rotation and translation tracks. At runtime, each track
-is applied relative to the clip's first pose and the worker's lowered-arm standing
-pose. The matching [neutral female walk clip](https://github.com/microsoft/Microsoft-Rocketbox/blob/0943055db6ec570bcef9f2c8b41c9e5467c808f9/Assets/Animations/all_animations_max_motextr_xy/f_walk_neutral.max.fbx)
+keeps 34 named-skeleton rotation and translation tracks. The matching [neutral female walk clip](https://github.com/microsoft/Microsoft-Rocketbox/blob/0943055db6ec570bcef9f2c8b41c9e5467c808f9/Assets/Animations/all_animations_max_motextr_xy/f_walk_neutral.max.fbx)
 contributes 56 named-skeleton tracks. One walk cycle advances per 1.30 metres
 and one run cycle per 1.65 metres of confirmed horizontal travel. Observed
 speed blends the walk into the run from 1.15 to 2.35 metres per second; the
-pose then settles toward rest when travel stops. The source calf motion bends
-behind the leg after retargeting. A presentation-only two-bone correction
+pose then settles toward rest when travel stops. Both imported clips begin
+in a stride pose. Their leg rotations retain those absolute source poses in
+the matching named rig; subtracting the first frame removed the walk's left
+support step. Torso and arm channels remain relative to the first clip frame
+and the worker's lowered-arm standing pose. The source calf motion still bends
+behind the leg at some phases after retargeting. A presentation-only two-bone correction
 places each bent knee ahead of its hip-to-ankle line while retaining the
-captured ankle path and foot orientation. The forearms retain extra flex and
+captured ankle path and foot orientation. The fuller running leg pose lowers
+its cosmetic visual root by five centimetres at full run weight to meet the
+unchanged support plane. The forearms retain extra flex and
 the captured torso sway is bounded after retargeting. The clip's vertical root
 variation is cosmetic, and its horizontal root travel does not move the physical
 or visual actor root. The original FBX remains available at the pinned source
@@ -71,7 +75,8 @@ rosters that omit this folder retain their identified procedural worker.
 
 `worker_rig_check.gd` exercises the actual presentation adapter using invented
 confirmed samples. It checks source bindings, captured walk and run poses,
-forward knee bending, skinned dimensions,
+forward knee bending, planted toe height and horizontal stance travel,
+skinned dimensions,
 ascent, descent and landing transitions, per-player isolation, projection
 immutability and the absence of input calls. It also preserves the original
 procedural-worker controls. A passively rendered contact sheet in the retained
