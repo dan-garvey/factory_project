@@ -58,7 +58,7 @@ void construction(bool corner) {
     profile.actors = {"P", "Q"};
     profile.meters_per_grid_unit = 0.1;
     profile.build_reach = 4;
-    profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, 1}, {{s::Role::belt, 0, 0}, 1},
+    profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, 1}, {{s::Role::processor, 0, 0}, 1},
                             {{s::Role::gear, 4, 0}, corner ? 2 : 1}};
     if (!corner) profile.finite_parts.emplace(s::PartSpec{s::Role::gear, 2, 0}, 1);
     w::State seed;
@@ -69,11 +69,11 @@ void construction(bool corner) {
     if (!corner) seed.kits.at("P").emplace(s::PartSpec{s::Role::gear, 2, 0}, 1);
     auto wheel = input;
     wheel[static_cast<std::size_t>(input_axis)] -= 4;
-    auto belt = output;
-    belt[static_cast<std::size_t>(output_axis)] += 4;
+    auto press = output;
+    press[static_cast<std::size_t>(output_axis)] += 4;
     seed.topology.parts = {
         {{"wheel", m::Kind::hub, wheel, input_axis, 0, 0}, 1, s::Role::waterwheel},
-        {{"belt", m::Kind::hub, belt, output_axis, 0, 0}, 1, s::Role::belt},
+        {{"press", m::Kind::hub, press, output_axis, 0, 0}, 1, s::Role::processor},
     };
     seed.topology.sources = {{"wheel", {1, 1}}};
     seed.topology.drive_enabled = true;
@@ -89,14 +89,14 @@ void construction(bool corner) {
     placement.result.at("distances_squared") = V(V::Array{V(0.1 * 0.1)});
     check(!w::World::restore("cog-world", profile, invalid_history),
           "Even a consistent historical receipt cannot restore an accepted off-grid cog placement.");
-    check(!w::machine_power(world->snapshot().state.topology).belt, "One cog does not power the remote belt.");
+    check(!w::machine_power(world->snapshot().state.topology).processor, "One cog does not power the remote press.");
     const auto second_command = place("second", output, "z", 4);
     const auto second = accepted(send(*world, second_command));
     auto snapshot = world->snapshot();
     const auto view = s::power_view(snapshot.state.topology);
     const m::Rate expected = corner ? m::Rate{1, 1} : m::Rate{-1, 2};
-    check(view.mechanical.motion.at("belt") == m::Motion{m::MotionState::rotating, expected} &&
-          w::machine_power(snapshot.state.topology).belt, "The actual World powers the belt at the expected signed rate.");
+    check(view.mechanical.motion.at("press") == m::Motion{m::MotionState::rotating, expected} &&
+          w::machine_power(snapshot.state.topology).processor, "The actual World powers the press at the expected signed rate.");
     check(snapshot.state.kits.at("P").at({s::Role::gear, 4, 0}) == 0,
           "Construction consumes the exact large cog specifications.");
     const auto encoded = w::encode_checkpoint(profile, snapshot);
@@ -105,7 +105,7 @@ void construction(bool corner) {
     check(std::holds_alternative<w::Snapshot>(decoded), "The constructed train decodes from its checkpoint.");
     auto restored = w::World::restore("cog-world", profile, std::get<w::Snapshot>(decoded));
     check(restored != nullptr && restored->snapshot().state == snapshot.state &&
-          w::machine_power(restored->snapshot().state.topology).belt,
+          w::machine_power(restored->snapshot().state.topology).processor,
           "A fresh World retains constructed custody and its powered geometry.");
     const auto replay = send(*restored, first_command);
     check(replay.completed() && field<bool>(*replay.result, "duplicate") &&
@@ -115,15 +115,15 @@ void construction(bool corner) {
     const auto generation = field<I>(second, "generation");
     accepted(send(*restored, remove(id, generation, "remove")));
     snapshot = restored->snapshot();
-    check(!w::machine_power(snapshot.state.topology).belt &&
+    check(!w::machine_power(snapshot.state.topology).processor &&
           snapshot.state.kits.at("Q").at({s::Role::gear, 4, 0}) == 1,
-          "Q removes the large cog, disconnecting the belt and receiving the exact refund.");
+          "Q removes the large cog, disconnecting the press and receiving the exact refund.");
     auto rebuilt = second_command;
     rebuilt.at("client") = V("Q-session"); rebuilt.at("actor") = V("Q"); rebuilt.at("request") = V("rebuild");
     const auto replacement = accepted(send(*restored, rebuilt));
     check(field<std::string>(replacement, "entity") != id &&
-          w::machine_power(restored->snapshot().state.topology).belt,
-          "Q rebuilds a fresh identity and restores belt power.");
+          w::machine_power(restored->snapshot().state.topology).processor,
+          "Q rebuilds a fresh identity and restores press power.");
 }
 
 void geared_processor(bool fast) {
@@ -353,8 +353,8 @@ void cross_axis_belt_line() {
     profile.build_reach = 4;
     profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, 1}, {{s::Role::collector, 0, 0}, 1},
         {{s::Role::belt, 0, 0}, 1}, {{s::Role::processor, 0, 0}, 1},
-        {{s::Role::shaft, 0, 2}, 3},
-        {{s::Role::gear, 2, 0}, 5}, {{s::Role::gear, 4, 0}, 2}};
+        {{s::Role::shaft, 0, 2}, 5},
+        {{s::Role::gear, 2, 0}, 6}, {{s::Role::gear, 4, 0}, 2}};
     w::State seed;
     seed.material.initial_units = 1;
     seed.material.stock.source = 1;
@@ -362,10 +362,10 @@ void cross_axis_belt_line() {
     seed.kits = {{"P", profile.finite_parts}, {"Q", {}}};
     auto world = w::World::create("cog-world", profile, seed);
     check(world != nullptr, "The cross-axis finite World initializes.");
-    const std::array<const char*, 4> roles{"waterwheel", "collector", "belt", "processor"};
-    std::array<O, 4> hubs;
+    const std::array<const char*, 3> roles{"waterwheel", "collector", "processor"};
+    std::array<O, 3> hubs;
     for (std::size_t n = 0; n < hubs.size(); ++n) {
-        const I x = n ? static_cast<I>(n) * 4 - 4 : -8;
+        const I x = n == 0 ? -8 : n == 1 ? 0 : 12;
         auto command = place(("cross-machine-" + std::to_string(n)).c_str(),
                              {x, 0, 4}, n ? "z" : "x", 0);
         command.at("role") = V(roles[n]);
@@ -374,17 +374,26 @@ void cross_axis_belt_line() {
     }
     const auto input = accepted(send(*world, place("cross-input", {-12, 0, 4}, "x", 4)));
     const auto output = accepted(send(*world, place("cross-output", {-8, 0, 8}, "z", 4)));
-    std::array<O, 5> small;
+    std::array<O, 6> small;
     for (std::size_t n = 0; n < small.size(); ++n)
         small[n] = accepted(send(*world, place(("cross-small-" + std::to_string(n)).c_str(),
                                                {static_cast<I>(n) * 4 - 8, 0, 12}, "z", 2)));
-    for (std::size_t n = 1; n < hubs.size(); ++n) {
-        auto shaft = place(("cross-machine-shaft-" + std::to_string(n)).c_str(),
-                           {static_cast<I>(n - 1) * 4, 0, 8}, "z", 0);
+    for (const I x : {I{0}, I{4}, I{12}}) {
+        auto shaft = place(("cross-machine-shaft-" + std::to_string(x)).c_str(), {x, 0, 8}, "z", 0);
         shaft.at("role") = V("shaft");
         shaft.at("half_span") = V(I{2});
         accepted(send(*world, shaft));
     }
+    auto first_command = place("cross-first", {4, 0, 4}, "z", 0);
+    first_command.at("role") = V("shaft"); first_command.at("half_span") = V(I{2});
+    const auto first = accepted(send(*world, first_command));
+    auto last_command = place("cross-last", {8, 0, 4}, "z", 0);
+    last_command.at("role") = V("shaft"); last_command.at("half_span") = V(I{2});
+    const auto last = accepted(send(*world, last_command));
+    O belt{{"context", V("cog-world")}, {"client", V("P-session")}, {"request", V("cross-span")},
+        {"actor", V("P")}, {"action", V("place_belt_span")}, {"target", first.at("entity")},
+        {"generation", first.at("generation")}, {"to", last.at("entity")}, {"to_generation", last.at("generation")}};
+    accepted(send(*world, belt));
     O power{{"context", V("cog-world")}, {"client", V("P-session")}, {"request", V("cross-power")},
         {"actor", V("P")}, {"action", V("set_drive")}, {"target", hubs[0].at("entity")},
         {"generation", hubs[0].at("generation")}, {"enabled", V(true)}};
@@ -392,22 +401,24 @@ void cross_axis_belt_line() {
     const auto snapshot = world->snapshot();
     const auto view = s::power_view(snapshot.state.topology);
     const auto powered = w::machine_power(snapshot.state.topology);
-    check(powered.collector && powered.belt && powered.processor && snapshot.state.topology.material_links.size() == 2,
-          "A right-angle large-cog transfer powers all three perpendicular-axis machines.");
-    for (std::size_t n = 1; n < hubs.size(); ++n) {
-        const auto id = field<std::string>(hubs[n], "entity");
-        check(view.mechanical.motion.at(id) == m::Motion{m::MotionState::rotating, {n % 2 ? 1 : -1, 1}},
-              "The right-angle transfer and small cog train retain their signed rotations.");
-    }
+    check(powered.collector && powered.processor && snapshot.state.topology.material_links.empty() &&
+              snapshot.state.topology.belt_spans.size() == 1,
+          "A right-angle large-cog transfer powers the collector, physical shaft span and press.");
+    check(view.mechanical.motion.at(field<std::string>(hubs[1], "entity")) == m::Motion{m::MotionState::rotating, {1, 1}} &&
+              view.mechanical.motion.at(field<std::string>(first, "entity")) == m::Motion{m::MotionState::rotating, {-1, 1}} &&
+              view.mechanical.motion.at(field<std::string>(last, "entity")) == m::Motion{m::MotionState::rotating, {-1, 1}} &&
+              view.mechanical.motion.at(field<std::string>(hubs[2], "entity")) == m::Motion{m::MotionState::rotating, {-1, 1}},
+          "The corner, gear train and both belt pulleys retain their exact signed rotations.");
     const auto encoded = w::encode_checkpoint(profile, snapshot);
     check(std::holds_alternative<V>(encoded), "The cross-axis route encodes.");
     const auto decoded = w::decode_checkpoint(profile, "cog-world", std::get<V>(encoded));
     check(std::holds_alternative<w::Snapshot>(decoded), "The cross-axis route decodes.");
     auto restored = w::World::restore("cog-world", profile, std::get<w::Snapshot>(decoded));
-    check(restored && restored->snapshot().state == snapshot.state && w::machine_power(restored->snapshot().state.topology).belt,
+    check(restored && restored->snapshot().state == snapshot.state &&
+              s::power_view(restored->snapshot().state.topology).mechanical.motion.at(field<std::string>(last, "entity")).state == m::MotionState::rotating,
           "The right-angle route survives fresh World restoration.");
     accepted(send(*restored, remove(field<std::string>(output, "entity"), field<I>(output, "generation"), "cross-remove")));
-    check(!w::machine_power(restored->snapshot().state.topology).belt,
+    check(s::power_view(restored->snapshot().state.topology).mechanical.motion.at(field<std::string>(last, "entity")).state != m::MotionState::rotating,
           "Removing the right-angle output cog interrupts the belt.");
 }
 } // namespace
