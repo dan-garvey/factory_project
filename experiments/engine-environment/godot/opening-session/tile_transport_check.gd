@@ -12,6 +12,7 @@ extends SceneTree
 ## --inclined-span to construct its elevated 45-degree counterpart. Add
 ## --reverse-endpoints to submit either span in the opposite endpoint order.
 ## Add --middle-pulley to --powered-span to insert and restore a driven pulley.
+## Add --cog-train to exercise a powered large/small pair and its restore.
 ## Add --reverse-belt to every process for
 ## generated-site reverse deposition and pickup after restart. The resumed Session uses the Store but
 ## does not exercise the ordinary server lifecycle or physical actor bodies.
@@ -31,6 +32,7 @@ var powered_span := false
 var inclined_span := false
 var reverse_endpoints := false
 var middle_pulley := false
+var cog_train := false
 var serial := 0
 var epoch := 0
 
@@ -50,6 +52,7 @@ func _initialize() -> void:
 			inclined_span = true
 		elif arg == "--reverse-endpoints": reverse_endpoints = true
 		elif arg == "--middle-pulley": middle_pulley = true
+		elif arg == "--cog-train": cog_train = true
 	call_deferred("run")
 
 func verify(ok: bool, message: String) -> void:
@@ -352,7 +355,104 @@ func _middle_powered(view: Dictionary, span: Dictionary) -> bool:
 	return motion.get("state") == "rotating" and motion.get("numerator") == source.get("numerator") \
 		and motion.get("denominator") == source.get("denominator")
 
+func _cog_at(view: Dictionary, center: Array) -> String:
+	for id in view.transmission_parts:
+		if view.transmission_parts[id].get("kind") == "gear" and view.transmission_parts[id].get("center") == center:
+			return str(id)
+	return ""
+
+func _cog_ratio(view: Dictionary) -> bool:
+	var large := _cog_at(view, [-4, 4, 4])
+	var small := _cog_at(view, [-4, 8, 8])
+	if large.is_empty() or small.is_empty(): return false
+	var large_part: Dictionary = view.transmission_parts[large]
+	var small_part: Dictionary = view.transmission_parts[small]
+	if large_part.get("axis") != 0 or small_part.get("axis") != 0 \
+		or large_part.get("teeth") != 4 or small_part.get("teeth") != 2: return false
+	var meshed := false
+	for edge in view.engagements:
+		if edge.kind == 0 and ((edge.a == large and edge.b == small) or (edge.a == small and edge.b == large)):
+			meshed = true
+	if not meshed: return false
+	var a: Dictionary = view.motion.get(large, {})
+	var b: Dictionary = view.motion.get(small, {})
+	if a.get("state") != "rotating" or b.get("state") != "rotating": return false
+	var an: int = a.get("numerator", 0)
+	var ad: int = a.get("denominator", 0)
+	var bn: int = b.get("numerator", 0)
+	var bd: int = b.get("denominator", 0)
+	return an != 0 and ad > 0 and bd > 0 and bn * ad == -2 * an * bd
+
+func run_cog_train() -> void:
+	var resumed := role.begins_with("resume-") or role == "server-resume"
+	var prefix := "resume-" if resumed else ""
+	var save_path := directory.path_join("cog-train.factory")
+	if role in ["server", "server-resume"]:
+		verify(session.serve_loopback(port, true, true, ["P", "Q"], true) == OK, "Start the cog authority")
+		if failed: quit(1); return
+		var saved_hash := ""
+		if resumed:
+			saved_hash = FileAccess.get_sha256(save_path)
+			verify(not saved_hash.is_empty() and Store.read_into(session.world, save_path).get("accepted", false), "Restore the cog train into a fresh authority")
+			session.context = session.world.context
+		verify(session.world.publish_actor("P", [0.0, 2.15, 3.3], 1).get("accepted", false), "Synthetic P can reach the train")
+		verify(session.world.publish_actor("Q", [20.0, 1.0, 20.0], 1).get("accepted", false), "Synthetic Q remains clear")
+		if failed: quit(1); return
+		mark(prefix + "server-ready")
+		if not await until(func(): return FileAccess.file_exists(directory.path_join(prefix + "clients-done")), "Cog clients finish"): quit(1); return
+		var state: Dictionary = session.world.projection()
+		if resumed:
+			verify(_cog_at(state, [-4, 8, 8]).is_empty() and state.part_kits.P.gear == 9, "Authority retains the large cog and refunds the small cog")
+			verify(FileAccess.get_sha256(save_path) == saved_hash, "Continuation leaves the saved cog train unchanged")
+		else:
+			verify(_cog_ratio(state) and state.part_kits.P.gear == 8, "Authority retains the driven ratio and exact custody")
+			verify(Store.write(session.world, save_path).get("accepted", false), "Store the powered cog train")
+		if failed: quit(1); return
+		mark(prefix + "server-done")
+	else:
+		var actor := role.trim_prefix("resume-") if resumed else role
+		verify(session.join_loopback(port, actor) == OK, "Join the cog authority")
+		if not await until(func(): return session.is_ready(), "Receive the cog projection"): quit(1); return
+		mark(prefix + actor + "-ready")
+		if actor == "P":
+			if not await until(func(): return FileAccess.file_exists(directory.path_join(prefix + "Q-ready")), "Q joins before cog commands"): quit(1); return
+			if resumed:
+				var restored: Dictionary = session.projection()
+				verify(_cog_ratio(restored) and restored.part_kits.P.gear == 8, "P sees the restored speed ratio and custody")
+				if failed: quit(1); return
+				var removed := await issue({"action": "remove", "entity": _cog_at(restored, [-4, 8, 8])})
+				verify(removed.get("accepted", false), "P removes the restored small cog: " + str(removed))
+			else:
+				var wheel := await issue({"action": "place", "kind": "wheel", "cell": [-2, 1], "axis": "x", "level": 4})
+				verify(wheel.get("accepted", false), "P constructs the waterwheel: " + str(wheel))
+				var large := await issue({"action": "place_gear", "center": [-4, 4, 4], "axis": "x", "teeth": 4})
+				var small := await issue({"action": "place_gear", "center": [-4, 8, 8], "axis": "x", "teeth": 2})
+				verify(large.get("accepted", false) and small.get("accepted", false), "P places the diagonal cog pair: " + str([large, small]))
+				if failed: quit(1); return
+				var power := await issue({"action": "set_power", "active": true})
+				verify(power.get("accepted", false) and _cog_ratio(session.projection()), "P starts the train and sees its signed ratio")
+			if failed: quit(1); return
+			mark(prefix + "P-done")
+		else:
+			if not await until(func(): return FileAccess.file_exists(directory.path_join(prefix + "P-done")), "P completes the cog commands"): quit(1); return
+			if not await until(func(): return session.projection().get("transmission_parts", {}).size() == (1 if resumed else 2), "Q sees the cog graph"): quit(1); return
+			var view: Dictionary = session.projection()
+			if resumed:
+				var large := _cog_at(view, [-4, 4, 4])
+				verify(not large.is_empty() and view.motion[large].state == "rotating" and view.part_kits.P.gear == 9, "Q sees the remaining powered large cog and refund")
+			else:
+				verify(_cog_ratio(view) and view.part_kits.P.gear == 8, "Q sees the exact driven ratio and finite custody")
+			if failed: quit(1); return
+			mark(prefix + "clients-done")
+			if not await until(func(): return FileAccess.file_exists(directory.path_join(prefix + "server-done")), "Cog authority finishes"): quit(1); return
+	print("COG_TRAIN_SESSION_%s %s %d" % ["FAIL" if failed else "PASS", role, checks])
+	quit(1 if failed else 0)
+
 func run() -> void:
+	if cog_train and (span_belt or reverse_belt or middle_pulley):
+		push_error("The cog-train case cannot be combined with belt cases")
+		quit(1)
+		return
 	if middle_pulley and (not powered_span or inclined_span or reverse_belt):
 		push_error("The middle-pulley case requires the horizontal powered span")
 		quit(1)
@@ -368,6 +468,9 @@ func run() -> void:
 	container.add_child(session)
 	root.add_child(container)
 	session.outcome.connect(func(value: Dictionary): replies[value.request] = value)
+	if cog_train:
+		await run_cog_train()
+		return
 	if reverse_belt:
 		await run_reverse()
 		return
