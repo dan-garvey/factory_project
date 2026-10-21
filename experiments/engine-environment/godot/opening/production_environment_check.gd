@@ -109,6 +109,7 @@ func finish() -> void:
 			"foliage-mipmaps": "corrected runtime texture mipmap generation and binding",
 			"meadow-patches": "changed terrain-aware grass patch placement and culling envelopes",
 			"sourced-sky": "original HDR radiance, cached sky and ordinary key-light binding",
+			"stone-material": "sourced natural-stone material, cache and unchanged shape consumer",
 			"ground-material": "scanned ground material, data channels and cache separation",
 			"water-flow": "changed cosmetic water material and ordinary frame consumer",
 			"rock-collision-shape": "visible rock corners versus rigid collision descriptors",
@@ -596,7 +597,78 @@ func check_sourced_sky() -> void:
 		"limits": "Radiance and source binding only; no rendered balance, shadow image, photometric calibration or human quality verdict."}))
 	view.free()
 
+func count_material_users(node: Node, material: Material) -> int:
+	var total := 1 if node is MeshInstance3D and node.material_override == material else 0
+	for child in node.get_children():
+		total += count_material_users(child, material)
+	return total
+
+func check_stone_material() -> void:
+	var material := Scenery.stone_material()
+	if not verify(Scenery.stone_source_status == "ready", "The ordinary stone path consumes the complete photographed source set."):
+		return
+	verify(material == Scenery.stone_material() and material.albedo_color == Color.WHITE
+		and material.vertex_color_use_as_albedo and material.metallic == 0.0 and material.roughness == 1.0,
+		"The shared stone cache preserves photographed color and the source dielectric factor.")
+	verify(material.normal_enabled and material.ao_enabled and material.normal_scale == 1.0
+		and material.roughness_texture == material.metallic_texture and material.roughness_texture == material.ao_texture
+		and material.roughness_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_GREEN
+		and material.metallic_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_BLUE
+		and material.ao_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_RED,
+		"The real material binds the linear scalar channels and OpenGL tangent normal.")
+	verify(material.uv1_world_triplanar and material.uv1_triplanar
+		and material.uv1_scale.is_equal_approx(Vector3.ONE / 1.5), "World-space projection retains the source's one-and-a-half-metre repeat.")
+	verify(material.albedo_texture.get_image().get_size() == Vector2i(1024, 1024)
+		and material.normal_texture.get_image().get_size() == Vector2i(512, 512)
+		and material.roughness_texture.get_image().get_size() == Vector2i(256, 256)
+		and material.albedo_texture.get_image().has_mipmaps() and material.normal_texture.get_image().has_mipmaps()
+		and material.roughness_texture.get_image().has_mipmaps(), "Prepared extents and mip chains reach all actual stone textures.")
+	var rocks := Scenery._rock_outcrops()
+	verify(rocks.material_override == material and rocks.multimesh.mesh == Scenery.rock_boulder_mesh,
+		"The existing rock draw consumer uses the sourced material and original mesh.")
+	check_rock_shapes(rocks.multimesh)
+	for index in range(64):
+		for channel in range(3):
+			verify(rocks.multimesh.buffer[index * 16 + 12 + channel] >= 0.8,
+				"The photo is not multiplied by the former dark generated-rock tint.")
+	var steel := Opening.ProductionSteelFloor.read_images()
+	var ground := Opening.ProductionSteelFloor.read_images(Scenery.GROUND_ROOT, Scenery.GROUND_FILES, Vector2i(512, 512))
+	verify(steel.status == "ready" and ground.status == "ready",
+		"The extended scalar-extent argument preserves existing steel and ground decoder defaults.")
+	verify(Scenery.ground_material() != material and Opening.ProductionSteelFloor.material() != material,
+		"Surface roles keep separate material caches.")
+	var missing := Opening.ProductionSteelFloor.read_images(fixture_directory.path_join("missing-stone"), Scenery.STONE_FILES, Vector2i(512, 512), Vector2i(256, 256))
+	verify(missing.status == "missing", "Historical absent stone maps retain an explicit status.")
+	var partial_path := fixture_directory.path_join("partial-stone")
+	if verify(DirAccess.make_dir_absolute(partial_path) == OK, "The negative input directory is fresh and owned."):
+		var file := FileAccess.open(partial_path.path_join(Scenery.STONE_FILES.albedo), FileAccess.WRITE)
+		file.store_buffer(FileAccess.get_file_as_bytes(Scenery.STONE_ROOT.path_join(Scenery.STONE_FILES.albedo)))
+		file.close()
+		var partial := Opening.ProductionSteelFloor.read_images(partial_path, Scenery.STONE_FILES, Vector2i(512, 512), Vector2i(256, 256))
+		verify(partial.status == "invalid" and partial.reason == "incomplete_material_set", "A partial stone package is never accepted as ready.")
+	var wrong_extent := Opening.ProductionSteelFloor.read_images(Scenery.STONE_ROOT, Scenery.STONE_FILES, Vector2i(512, 512))
+	verify(wrong_extent.status == "invalid" and wrong_extent.reason == "invalid_arm",
+		"Scalar-map extents are validated, rather than treating a decode alone as a complete material.")
+	var view := FixtureView.new()
+	root.add_child(view)
+	view._build_world()
+	verify(view.model == null and view.actor_world == null and view.state.is_empty(),
+		"Ordinary natural-scenery assembly starts no authority or gameplay clock.")
+	var users := count_material_users(view, material)
+	verify(users >= 5, "Actual natural geological pieces consume the shared source material.")
+	verify(view.get_node("ProductionScenery/RockOutcrops").material_override == material,
+		"The ordinary rock group binds the same shared photo surface.")
+	print(JSON.stringify({"ordinary_material_users": users, "rock_instances": 64,
+		"geometry": "Existing natural-geology meshes, support descriptors and actor authority unchanged.",
+		"limits": "Source/material and draw-consumer evidence; no new physical traversal, rendered quality or GPU claim."}))
+	view.free()
+	rocks.free()
+
 func run() -> void:
+	if mode == "stone-material":
+		check_stone_material()
+		finish()
+		return
 	if mode == "sourced-sky":
 		check_sourced_sky()
 		finish()

@@ -217,6 +217,14 @@ preservation and assigned-color contrast, not pixel appearance or human usabilit
 
 ## Shared terrain and stream
 
+The natural geological pieces and rock group share a photographed CC0
+[weathered-stone surface](stone/CREDITS.md), with source-scale triplanar mapping,
+separate cached color/normal/scalar images and a dielectric finish. The original
+geometry and physical support remain unchanged by the material increment.
+Historical fixed rosters retain their earlier generated finish. This surface
+work supports the natural setting; it does not restore prebuilt man-made scenery
+or establish a scanned silhouette, displacement or human visual-quality verdict.
+
 The ordinary environment uses the original CC0
 [Kloppenheim daylight HDR](sky/CREDITS.md) for its panorama, ambient and reflection
 resources. Floating radiance and generated mipmaps are cached once; existing

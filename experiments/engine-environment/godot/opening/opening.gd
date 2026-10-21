@@ -286,7 +286,7 @@ class ProductionSteelFloor:
 	static var finish: StandardMaterial3D
 	static var source_status := "uninitialized"
 
-	static func read_images(directory: String = ROOT, files: Dictionary = FILES, normal_size: Vector2i = Vector2i(1024, 1024)) -> Dictionary:
+	static func read_images(directory: String = ROOT, files: Dictionary = FILES, normal_size: Vector2i = Vector2i(1024, 1024), arm_size: Vector2i = Vector2i(512, 512)) -> Dictionary:
 		var present := 0
 		for name_value in files.values():
 			if FileAccess.file_exists(directory.path_join(name_value)):
@@ -298,7 +298,7 @@ class ProductionSteelFloor:
 		var images: Dictionary = {}
 		for role in files:
 			var image := Image.load_from_file(directory.path_join(files[role]))
-			var expected := Vector2i(512, 512) if role == "arm" else (normal_size if role == "normal" else Vector2i(1024, 1024))
+			var expected := arm_size if role == "arm" else (normal_size if role == "normal" else Vector2i(1024, 1024))
 			if image == null or image.is_empty() or image.get_size() != expected:
 				return {"status": "invalid", "reason": "invalid_" + role, "images": {}}
 			images[role] = image
@@ -359,6 +359,9 @@ class ProductionEnvironment:
 	static var water_finish: StandardMaterial3D
 	static var foam_finish: StandardMaterial3D
 	static var stone_finish: StandardMaterial3D
+	const STONE_ROOT := "res://opening/assets/stone"
+	const STONE_FILES := {"albedo": "stone_albedo.webp", "arm": "stone_arm.webp", "normal": "stone_normal_gl.webp"}
+	static var stone_source_status := "uninitialized"
 	static var timber_finish: StandardMaterial3D
 	static var iron_finish: StandardMaterial3D
 	static var sky_finish: PanoramaSkyMaterial
@@ -492,8 +495,49 @@ class ProductionEnvironment:
 
 	static func stone_material() -> StandardMaterial3D:
 		if stone_finish == null:
-			stone_finish = ProductionVisuals.material(Color("5c635c"), 0.05, 0.88)
+			stone_finish = _scanned_stone_material()
+			if stone_finish == null:
+				stone_finish = ProductionVisuals.material(Color("5c635c"), 0.05, 0.88)
 		return stone_finish
+
+	static func _scanned_stone_material() -> StandardMaterial3D:
+		var loaded := ProductionSteelFloor.read_images(STONE_ROOT, STONE_FILES, Vector2i(512, 512), Vector2i(256, 256))
+		stone_source_status = loaded.status
+		if loaded.status == "missing":
+			return null
+		if loaded.status != "ready":
+			push_error("Incomplete or invalid weathered-stone material: " + str(loaded.get("reason", "unknown")))
+			return null
+		for role in loaded.images:
+			var image: Image = loaded.images[role]
+			if image.generate_mipmaps(role == "normal") != OK:
+				stone_source_status = "invalid"
+				push_error("Cannot generate weathered-stone mipmaps.")
+				return null
+		var packed := ImageTexture.create_from_image(loaded.images.arm)
+		var finish := StandardMaterial3D.new()
+		finish.albedo_color = Color.WHITE
+		finish.albedo_texture = ImageTexture.create_from_image(loaded.images.albedo)
+		finish.vertex_color_use_as_albedo = true
+		finish.metallic = 0.0
+		finish.metallic_texture = packed
+		finish.metallic_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_BLUE
+		finish.roughness = 1.0
+		finish.roughness_texture = packed
+		finish.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_GREEN
+		finish.ao_enabled = true
+		finish.ao_texture = packed
+		finish.ao_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
+		finish.ao_light_affect = 0.0
+		finish.normal_enabled = true
+		finish.normal_texture = ImageTexture.create_from_image(loaded.images.normal)
+		finish.normal_scale = 1.0
+		finish.uv1_triplanar = true
+		finish.uv1_world_triplanar = true
+		finish.uv1_triplanar_sharpness = 8.0
+		finish.uv1_scale = Vector3.ONE / 1.5
+		finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		return finish
 
 	static func timber_material() -> StandardMaterial3D:
 		if timber_finish == null:
@@ -945,14 +989,16 @@ class ProductionEnvironment:
 	static func _rock_outcrops() -> MultiMeshInstance3D:
 		if rock_boulder_mesh == null:
 			rock_boulder_mesh = ProductionVisuals.box_mesh(Vector3(1.35, 0.88, 1.12))
-		var finish := StandardMaterial3D.new()
-		finish.albedo_color = Color.WHITE
-		finish.vertex_color_use_as_albedo = true
-		finish.roughness = 0.9
-		finish.normal_enabled = true
-		finish.normal_texture = ProductionVisuals.SURFACE_NORMAL
-		finish.normal_scale = 0.28
-		finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		var finish := stone_material()
+		if stone_source_status != "ready":
+			finish = StandardMaterial3D.new()
+			finish.albedo_color = Color.WHITE
+			finish.vertex_color_use_as_albedo = true
+			finish.roughness = 0.9
+			finish.normal_enabled = true
+			finish.normal_texture = ProductionVisuals.SURFACE_NORMAL
+			finish.normal_scale = 0.28
+			finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 		var instances := MultiMesh.new()
 		instances.transform_format = MultiMesh.TRANSFORM_3D
 		instances.use_colors = true
@@ -963,6 +1009,8 @@ class ProductionEnvironment:
 			var position: Vector3 = spec.center
 			var basis: Basis = spec.basis * Basis.from_scale(spec.scale)
 			var color: Color = spec.color
+			if stone_source_status == "ready":
+				color = Color.WHITE.lerp(color, 0.2)
 			buffer.append_array(PackedFloat32Array([
 				basis.x.x, basis.y.x, basis.z.x, position.x,
 				basis.x.y, basis.y.y, basis.z.y, position.y,

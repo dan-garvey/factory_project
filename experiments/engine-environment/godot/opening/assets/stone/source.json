@@ -1,0 +1,119 @@
+{
+  "asset": "Rock 3",
+  "author": "Rob Tuytel",
+  "asset_url": "https://polyhaven.com/a/rock_3",
+  "license": "CC0",
+  "license_url": "https://polyhaven.com/license",
+  "source_extent_metres": [
+    1.5,
+    1.5
+  ],
+  "provider_info_sha256": "fb85dfb86c53384f67f88d986c5d0fa0db8d50512223c09ef38cdbceb3803d29",
+  "provider_files_sha256": "909d18114b5e458c3655ebc8f4f6ff4e7c318ddcd6d0af52bc2757b9a5ef42e6",
+  "source_files": {
+    "albedo": {
+      "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rock_3/rock_3_diff_1k.jpg",
+      "bytes": 850585,
+      "md5": "815bcc10e00c2abc43acc997b7d65361",
+      "sha256": "e68a81e113a4173c0e19f58bedda41b3b13adcfdeb2f8ae4808f63ec5de10225"
+    },
+    "normal": {
+      "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/rock_3/rock_3_nor_gl_1k.png",
+      "bytes": 2289911,
+      "md5": "f93e14e6d9f51d395da6e6f6c1fc3740",
+      "sha256": "2d9512adb2cbe2667755d70367bb000ba434a08edb349f84d920a570e38f3d92"
+    },
+    "arm": {
+      "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/rock_3/rock_3_arm_1k.png",
+      "bytes": 1528908,
+      "md5": "484ab52ce0356036f3e855b6bb7e6a3f",
+      "sha256": "1fcef313479ee18904a3b7e96dfac3824be9c58ace1573b9b73115c68955ce17"
+    },
+    "descriptor": {
+      "url": "https://dl.polyhaven.org/file/ph-assets/Textures/gltf/1k/rock_3/rock_3_1k.gltf",
+      "bytes": 2651,
+      "md5": "aceca76729c472ca14c6a24c59382b93",
+      "sha256": "3fd194fb571687488ae24070e6b20ceb7d453550bea6e9988e1525ec88998c1c"
+    }
+  },
+  "processed_files": {
+    "albedo": {
+      "albedo_rmse_srgb": 0.0219206711576541,
+      "bytes": 361244,
+      "combined_package_bytes": 973524,
+      "file": "stone_albedo.webp",
+      "height": 1024,
+      "limits": "Numeric packaging bound, not rendered appearance.",
+      "prior_result_sha256": "d1aa31e448ae48f349820e00b85a4d0a936b97427d0d1e24a91c5a8e8c2b5155",
+      "processing": "Only original color is reencoded at quality 0.80. Original passing lossless normal and ARM maps are rehashed and reused, not reprocessed.",
+      "sha256": "4eb747f1f7f20aefbec3ca3d420921cd2738fa700298cfdef972f7ea99eebf81",
+      "status": "pass",
+      "width": 1024
+    },
+    "normal": {
+      "bytes": 528560,
+      "decoded_rgb8_exact": true,
+      "file": "stone_normal_gl.webp",
+      "height": 512,
+      "maximum_unit_length_error": 0.0062788724899292,
+      "sha256": "2641ebe62a00ae83cbc51ad5ccb734e1c99e38be07cc01e83e0cb0f4bf0a9bca",
+      "width": 512
+    },
+    "arm": {
+      "bytes": 83720,
+      "decoded_rgb8_exact": true,
+      "file": "stone_arm.webp",
+      "height": 256,
+      "sha256": "b2eaec159b51322b53e008979975a14a329613d30401a5ba3270d1a8d9458aa6",
+      "width": 256
+    }
+  },
+  "delivery_files": [
+    {
+      "path": "stone_albedo.webp",
+      "bytes": 361244,
+      "sha256": "4eb747f1f7f20aefbec3ca3d420921cd2738fa700298cfdef972f7ea99eebf81"
+    },
+    {
+      "path": "stone_normal_gl.webp",
+      "bytes": 528560,
+      "sha256": "2641ebe62a00ae83cbc51ad5ccb734e1c99e38be07cc01e83e0cb0f4bf0a9bca"
+    },
+    {
+      "path": "stone_arm.webp",
+      "bytes": 83720,
+      "sha256": "b2eaec159b51322b53e008979975a14a329613d30401a5ba3270d1a8d9458aa6"
+    }
+  ],
+  "material": {
+    "metallic_factor": 0,
+    "roughness_factor": 1,
+    "scalar_channels": {
+      "red": "ambient occlusion",
+      "green": "roughness",
+      "blue": "metallic; provider factor zero"
+    },
+    "normal": "OpenGL tangent normal, no green flip or data-map gamma transform.",
+    "mapping": "World-space triplanar scale 1/1.5; preserve the provider 1.5-metre repeat.",
+    "mipmaps": "Generated once, with vector renormalization for normals.",
+    "instance_tint": "Near-neutral; retain 20 percent of the original generated-rock color rather than multiplying by a dark base coat."
+  },
+  "preparation": {
+    "program": "res://opening/assets/foliage/prepare_maps.gd --material=stone",
+    "original": "First full package failed only color RMSE at quality 0.70. Normal/ARM decode and normal-length checks passed.",
+    "correction": "Only color was reencoded at quality 0.80; data-map hashes were rechecked and reused. Original result/output retained.",
+    "color_rmse_bound": 0.025,
+    "normal_unit_error_bound": 0.01,
+    "package_image_bytes_bound": 1000000,
+    "image_bytes": 973524,
+    "source_family": "sourced-worksite-stone-20261021",
+    "foliage": "Original default preparation body preserved. The new stone mode is separate."
+  },
+  "geometry": {
+    "basis_commit": "47237cb9fdbe21869c031d1b19e94ba3e80a0159",
+    "scope": "Material only. Preserve the published natural geological meshes, support descriptors, rigid transforms, actor authority and camera/input.",
+    "preview_mesh": "The optional provider glTF mesh/buffer was not downloaded or installed. No scanned silhouette or displacement is claimed."
+  },
+  "fallback": "Missing historical source sets retain the old generated finish; partial/invalid sets report status and never claim ready.",
+  "limits": "Source packaging and headless draw-consumer tests are not rendered quality, GPU performance, new traversal or human production-quality acceptance."
+}
