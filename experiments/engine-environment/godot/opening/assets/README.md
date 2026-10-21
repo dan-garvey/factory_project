@@ -122,6 +122,16 @@ to the component's own mounting detail. Historical missing-resource rosters reta
 their original frame. Isolated visual clearance does not establish native contact
 or rendered production quality.
 
+The native sourced press also has an original fitted crown instead of the plain
+top bridge. Tapered cast shoulders meet the same column datum, with a rear tie,
+an open ram housing and worked liner, and two guide sockets. The central bore
+stays open; the original shaft lengths enter the sockets without intersecting
+their facets. The crown reuses the qualified cast coating and worked surfaces.
+Its fixed pieces change no tool, piston, guide, stock, drive or motion rule.
+Nonnative profiles and historical missing-support rosters keep their earlier
+bridge. Headless geometry and resource checks leave rendered appearance,
+contact behavior and human quality assessment open.
+
 The same existing view script builds an open collector stock bed, a supported
 conveyor with a closed [rubber loop](conveyor/CREDITS.md), and waterwheel with an open rim, spokes,
 paddles and axle bearings. Shared frame/steel/copper finishes keep the silhouettes

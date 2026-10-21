@@ -24,6 +24,193 @@ class PaddleSessionFacts extends RefCounted:
 	func is_ready() -> bool:
 		return ready
 
+func crown_clip_y(points: Array[Vector3], height: float, above: bool) -> Array[Vector3]:
+	var clipped: Array[Vector3] = []
+	if points.is_empty():
+		return clipped
+	var previous: Vector3 = points[-1]
+	var previous_inside: bool = previous.y >= height if above else previous.y <= height
+	for point in points:
+		var inside: bool = point.y >= height if above else point.y <= height
+		if inside != previous_inside:
+			clipped.append(previous.lerp(point, (height - previous.y) / (point.y - previous.y)))
+		if inside:
+			clipped.append(point)
+		previous = point
+		previous_inside = inside
+	return clipped
+
+func crown_shaft_gap(crown: Node3D, shaft: MeshInstance3D) -> float:
+	# Clip actual fixed triangles to the original shaft's axial interval.
+	# Empty space beyond its tip is not a promise that it passes through a cap.
+	var shaft_bounds: AABB = shaft.transform * shaft.mesh.get_aabb()
+	var closest := INF
+	for part: MeshInstance3D in crown.get_children():
+		var faces := part.mesh.get_faces()
+		for n in range(0, faces.size(), 3):
+			var points: Array[Vector3] = [part.transform * faces[n], part.transform * faces[n + 1], part.transform * faces[n + 2]]
+			points = crown_clip_y(crown_clip_y(points, shaft_bounds.position.y, true), shaft_bounds.end.y, false)
+			for corner in range(1, points.size() - 1):
+				var flat: Array[Vector2] = []
+				for at in [points[0], points[corner], points[corner + 1]]:
+					flat.append(Vector2(at.x - shaft.position.x, at.z - shaft.position.z))
+				closest = minf(closest, triangle_radius(flat[0], flat[1], flat[2]))
+	return closest - (shaft.mesh as CylinderMesh).top_radius
+
+func check_press_crown() -> void:
+	var cached: Dictionary = {}
+	var minimum_gap := INF
+	var assemblies := 0
+	var controls := 0
+	var open_rays := 0
+	for shared_profile in [false, true]:
+		for axis in range(3):
+			var view: Variant = Shared.new() if shared_profile else Opening.new()
+			view.machine_root = Node3D.new()
+			view.add_child(view.machine_root)
+			view.state = {"context": "press-crown-fixture", "options": {"native": true},
+				"actors": {"P": {"ready": true}}, "transmission_parts": {}, "motion": {},
+				"remaining": 0, "stock": {"held": 1}, "entities": {
+					"fixture": {"kind": "processor", "cell": [0, 0], "axis": axis, "generation": 1}},
+				"links": [], "drive_links": [], "engagements": []}
+			var before: Dictionary = view.state.duplicate(true)
+			view._rebuild_machines()
+			var machine: Node3D = view.machine_root.get_child(0)
+			var crown: Node3D = machine.get_node("PressCrown")
+			verify(PressArt.source_status == "ready" and crown.get_child_count() == 7
+				and crown.get_script() == null and machine.get_node_or_null("PressBridge") == null,
+				"The actual native sourced press replaces its box bridge with seven fixed crown pieces.")
+			check_bounds(crown, Transform3D.IDENTITY)
+			var fixed: Array[Transform3D] = []
+			for part: MeshInstance3D in crown.get_children():
+				var role: String = part.get_meta("press_crown_role")
+				var key := "GuideSocket" if role.begins_with("GuideSocket") else role
+				var painted := key not in ["RamLiner", "GuideSocket"]
+				verify(part.get_script() == null and part.get_child_count() == 0 and part.scale.is_equal_approx(Vector3.ONE),
+					"Every crown piece is a plain fixed mesh with its dimensions baked in metres.")
+				if not cached.has(key):
+					var limits: Array = {"CastShoulderLeft": [0.028, 0.032], "CastShoulderRight": [0.028, 0.032],
+						"RearTie": [0.009, 0.013], "RamHousing": [0.006, 0.012],
+						"RamLiner": [0.00048, 0.00055], "GuideSocket": [0.0005, 0.00075]}[key]
+					check_closed_asset_mesh(part.mesh, limits[0], limits[1])
+					cached[key] = [part.mesh, part.material_override]
+				verify(part.mesh == cached[key][0] and part.material_override == cached[key][1],
+					"All view classes and drive axes reuse the exact compatible crown resources.")
+				var finish_value := part.material_override as StandardMaterial3D
+				var color := Color("58634c") if painted else (Color("a6b4af") if key == "RamLiner" else Color("b87945"))
+				verify(finish_value.albedo_color == color and is_equal_approx(finish_value.metallic, 0.0 if painted else 0.85)
+					and finish_value.normal_texture == Opening.ProductionTransmissionFinish.textures[("cast" if painted else "worked") + "_normal"],
+					"The actual crown separates qualified cast coating from exposed worked liners and sockets.")
+				fixed.append(part.transform)
+			for side in [-1.0, 1.0]:
+				var support: MeshInstance3D = machine.get_node("CastPressSupportLeft" if side < 0 else "CastPressSupportRight")
+				verify(support.mesh == PressArt.mesh and support.material_override == PressArt.finish
+					and support.position.is_equal_approx(Vector3(side * 0.48, 0.24, -0.38))
+					and is_equal_approx((support.transform * support.mesh.get_aabb()).end.y, 1.4),
+					"The original sourced columns keep their geometry, atlas, mounting positions and crown datum.")
+				verify(feed_ray_blocked(crown, Transform3D.IDENTITY,
+					Vector3(side * 0.48, 1.39, -0.38), Vector3(side * 0.48, 1.41, -0.38)),
+					"The actual shoulder facets meet each existing column instead of hovering above it.")
+			var piston: MeshInstance3D = machine.get_node("Piston")
+			var head: MeshInstance3D = machine.get_node("ToolHead")
+			var guides: Array[MeshInstance3D] = []
+			var picks := 0
+			for child in machine.get_children():
+				if child is StaticBody3D:
+					picks += 1
+					verify(child.collision_layer == Geometry.PICK_LAYER and child.collision_mask == 0
+						and child.get_child_count() == 1 and child.get_child(0).shape.size == Vector3(1.45, 1.65, 1.45)
+						and child.get_child(0).position == Vector3(0, 0.8, 0),
+						"The original sole entity pick body keeps its size, position and masks.")
+				if child is MeshInstance3D and child.mesh is CylinderMesh and is_equal_approx(child.mesh.top_radius, 0.04):
+					guides.append(child)
+			var rows: Array = machine.get_meta("motion_meshes")
+			verify(rows.size() == 2 and rows[0].node == head and rows[1].node == piston,
+				"Only the original tool head and piston remain in the existing cosmetic travel group.")
+			verify(head.position.is_equal_approx(Vector3(0, 0.825, 0))
+				and piston.position.is_equal_approx(Vector3(0, 1.1325, -0.08))
+				and is_equal_approx((piston.transform * piston.mesh.get_aabb()).end.y, 1.365),
+				"The ordinary builder correctly initializes the existing lowered pose for observed blocked held work.")
+			view._apply_press_pose(rows, 0.0)
+			verify(picks == 1 and guides.size() == 2 and piston.mesh is CylinderMesh
+				and is_equal_approx(piston.mesh.top_radius, 0.075) and is_equal_approx(piston.mesh.height, 0.45)
+				and piston.position.is_equal_approx(Vector3(0, 1.14, -0.08))
+				and head.position.is_equal_approx(Vector3(0, 0.84, 0))
+				and head.mesh == Visuals.box_mesh(Vector3(0.56, 0.17, 0.55)),
+				"The original literal ram, tool head and two guide rods define the visual clearance oracle.")
+			for guide in guides:
+				verify(is_equal_approx(absf(guide.position.x), 0.34) and is_equal_approx(guide.position.y, 1.06)
+					and is_equal_approx(guide.position.z, -0.19) and is_equal_approx(guide.mesh.height, 0.6),
+					"The original guide lengths and positions are not shortened to hide an intersection.")
+			var shafts: Array[MeshInstance3D] = [piston]
+			shafts.append_array(guides)
+			for travel in [0.0, 0.0075, 0.015]:
+				view._apply_press_pose(rows, travel)
+				for shaft in shafts:
+					var gap := crown_shaft_gap(crown, shaft)
+					minimum_gap = minf(minimum_gap, gap)
+					verify(is_finite(gap) and gap > 0.002,
+						"Actual fixed facets clear each original shaft over its real axial interval at every sampled tool pose.")
+				verify(is_equal_approx((piston.transform * piston.mesh.get_aabb()).end.y, 1.365)
+					and is_equal_approx(head.position.y, 0.84 - travel),
+					"The original rod top stays fixed and the tool retains its exact previously accepted travel.")
+				var protected_rows: Array[Dictionary] = []
+				press_protected(machine, Transform3D.IDENTITY, protected_rows)
+				for part: MeshInstance3D in crown.get_children():
+					var bounds: AABB = part.transform * part.mesh.get_aabb()
+					for row in protected_rows:
+						if row.name == "Piston" or row.name.begins_with("ToolGuide"):
+							continue
+						var box: AABB = row.bounds
+						var gap := maxf(maxf(maxf(box.position.x - bounds.end.x, bounds.position.x - box.end.x),
+							maxf(box.position.y - bounds.end.y, bounds.position.y - box.end.y)), maxf(box.position.z - bounds.end.z, bounds.position.z - box.end.z))
+						verify(gap > 0, "The crown conservatively clears the unchanged nonshaft working and drive meshes.")
+				for n in range(crown.get_child_count()):
+					verify(crown.get_child(n).transform == fixed[n], "The supporting crown stays fixed as the original tool moves.")
+			for offset in [Vector2.ZERO, Vector2(0.07, 0), Vector2(-0.07, 0), Vector2(0, 0.07), Vector2(0, -0.07)]:
+				verify(not feed_ray_blocked(crown, Transform3D.IDENTITY,
+					Vector3(offset.x, 1.32, -0.08 + offset.y), Vector3(offset.x, 1.61, -0.08 + offset.y)),
+					"Actual facets leave the complete central ram bore open through the crown.")
+				open_rays += 1
+			if controls == 0:
+				var liner: MeshInstance3D = crown.get_node("RamLiner")
+				var original: Mesh = liner.mesh
+				var filled := CylinderMesh.new()
+				filled.top_radius = 0.083
+				filled.bottom_radius = 0.083
+				filled.height = 0.25
+				liner.mesh = filled
+				verify(crown_shaft_gap(crown, piston) < 0, "The same clipped-facet oracle rejects a deliberately filled ram bore.")
+				liner.mesh = original
+				liner.position.x += 0.02
+				verify(crown_shaft_gap(crown, piston) < 0, "A liner displaced into the unchanged piston fails the same clearance oracle.")
+				liner.position.x -= 0.02
+				var socket: MeshInstance3D = crown.get_node("GuideSocketLeft")
+				socket.position.z += 0.02
+				verify(crown_shaft_gap(crown, guides[0]) < 0, "A guide socket displaced into its original rod also fails the clearance oracle.")
+				socket.position.z -= 0.02
+				controls = 3
+			verify(view.state == before and view.model == null and view.actor_world == null
+				and view.request_sequence == 0 and not view.is_inside_tree(),
+				"Crown construction and isolated pose checks create no input, state, physics or native authority.")
+			assemblies += 1
+			view.free()
+	for shared_profile in [false, true]:
+		var view: Variant = Shared.new() if shared_profile else Opening.new()
+		view.state = {"options": {"native": false}}
+		var machine := Node3D.new()
+		view.add_child(machine)
+		view._assemble_machine(machine, {"kind": "processor"})
+		var bridge: MeshInstance3D = machine.get_node("PressBridge")
+		verify(machine.get_node_or_null("PressCrown") == null
+			and bridge.mesh == Visuals.box_mesh(Vector3(1.2, 0.2, 0.36))
+			and bridge.position.is_equal_approx(Vector3(0, 1.5, -0.3)),
+			"Both nonnative view classes keep their original sourced box bridge and position.")
+		view.free()
+	print(JSON.stringify({"phase": "press crown", "assemblies": assemblies, "unique_mesh_roles": cached.size(),
+		"minimum_shaft_clearance_metres": minimum_gap, "through_bore_rays": open_rays, "altered_geometry_controls": controls,
+		"poses_per_assembly": 3, "observations": "invented", "native_gameplay": "not_run", "rendered_quality": "not_assessed"}))
+
 func foot_polygon_area(points: PackedVector2Array) -> float:
 	var area := 0.0
 	for n in range(points.size()):
@@ -1894,6 +2081,10 @@ func prepare_paddle_maps() -> void:
 	quit(0)
 
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--press-crown-only"):
+		check_press_crown()
+		finish()
+		return
 	if OS.get_cmdline_user_args().has("--wheel-foot-seats-only"):
 		check_wheel_foot_seats()
 		finish()
