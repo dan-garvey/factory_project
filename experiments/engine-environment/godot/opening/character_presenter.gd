@@ -3,6 +3,8 @@ extends Node3D
 ## every physical pose; these meshes never grant construction permission.
 const Geometry = preload("res://opening/site_geometry.gd")
 const ADULT_ASSETS := "res://opening/assets/worker/"
+const GAIT_CYCLE_DISTANCE := 1.65
+const FULL_GAIT_SPEED := 2.4
 static var mesh_cache: Dictionary = {}
 static var material_cache: Dictionary = {}
 static var cloth_normal: NoiseTexture2D
@@ -274,19 +276,28 @@ func _adult_bone_delta(body: Node3D, key: String, rotation: Quaternion) -> void:
 		(bone.rotation * bone.space.inverse() * rotation * bone.space).normalized())
 
 func _set_adult_gait(body: Node3D, phase: float, weight: float) -> void:
+	# A full cycle covers two steps. Recovery bends the lifted leg while the
+	# opposite leg stays longer through support; both feet return toward level.
 	for pair in [["L", 0.0, 1.0], ["R", PI, -1.0]]:
 		var side: String = pair[0]
 		var swing := sin(phase + float(pair[1]))
-		var hip := -swing * 0.38 * weight
-		var knee := maxf(0.0, swing) * 0.5 * weight
+		var recovery := maxf(0.0, swing)
+		var hip := -swing * 0.46 * weight
+		var knee := (0.05 + recovery * 0.62) * weight
 		_adult_bone_delta(body, side + " Thigh", Quaternion(Vector3.RIGHT, hip))
 		_adult_bone_delta(body, side + " Calf", Quaternion(Vector3.RIGHT, knee))
 		_adult_bone_delta(body, side + " Foot", Quaternion(Vector3.RIGHT, -(hip + knee)))
-		# The source is in an A pose. Lower the arms into a resting stance, then
-		# reuse the confirmed-distance gait, independently of requested input.
+		# The source is in an A pose. Keep its lowered resting stance, then drive
+		# the arm opposite the advancing leg and flex the elbow through recovery.
 		var stance := Quaternion(Vector3.BACK, -float(pair[2]) * 0.72)
-		_adult_bone_delta(body, side + " UpperArm", Quaternion(Vector3.RIGHT, swing * 0.28 * weight) * stance)
-		_adult_bone_delta(body, side + " Forearm", Quaternion(Vector3.RIGHT, -0.12 * weight))
+		_adult_bone_delta(body, side + " UpperArm", Quaternion(Vector3.RIGHT, swing * 0.38 * weight) * stance)
+		_adult_bone_delta(body, side + " Forearm", Quaternion(Vector3.RIGHT, -(0.16 + 0.22 * recovery) * weight))
+	var counter_swing := sin(phase) * weight
+	_adult_bone_delta(body, "Spine1", Quaternion(Vector3.RIGHT, 0.065 * weight)
+		* Quaternion(Vector3.UP, 0.045 * counter_swing))
+	_adult_bone_delta(body, "Spine2", Quaternion(Vector3.RIGHT, 0.025 * weight)
+		* Quaternion(Vector3.UP, -0.025 * counter_swing))
+	_adult_bone_delta(body, "Neck", Quaternion(Vector3.RIGHT, -0.06 * weight))
 
 func _adult_pose_frames(skeleton: Skeleton3D) -> Array[Transform3D]:
 	# Pose setters outside the scene tree do not invalidate Godot's global-pose
@@ -410,15 +421,15 @@ func _prepare_adult_template() -> bool:
 	if frames.is_empty():
 		body.free()
 		return false
-	for side in ["L", "R"]:
-		for part in ["Thigh", "Calf", "Foot", "UpperArm", "Forearm"]:
-			var key: String = side + " " + part
-			var index: int = skeleton.find_bone("Bip01 " + key)
-			if index < 0:
-				body.free()
-				return false
-			rig[key] = {"index": index, "rotation": skeleton.get_bone_pose_rotation(index),
-				"space": (to_model.basis * frames[index].basis).get_rotation_quaternion()}
+	for key in ["Spine1", "Spine2", "Neck", "L Thigh", "L Calf", "L Foot",
+			"L UpperArm", "L Forearm", "R Thigh", "R Calf", "R Foot",
+			"R UpperArm", "R Forearm"]:
+		var index: int = skeleton.find_bone("Bip01 " + key)
+		if index < 0:
+			body.free()
+			return false
+		rig[key] = {"index": index, "rotation": skeleton.get_bone_pose_rotation(index),
+			"space": (to_model.basis * frames[index].basis).get_rotation_quaternion()}
 	body.set_meta("rig", rig)
 	_set_adult_gait(body, 0.0, 0.0)
 	var bounds := _adult_rest_bounds(skeleton, mesh, to_model)
@@ -478,9 +489,15 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float) -> v
 		previous = {"position": at, "phase": 0.0, "weight": 0.0, "age": 1.0}
 		body.rotation.y = 0
 	else:
-		previous.phase += horizontal.length() * TAU / 0.9
+		previous.phase += horizontal.length() * TAU / GAIT_CYCLE_DISTANCE
 		previous.age = 0.0 if horizontal.length() > 0.00001 else previous.age + delta
-		previous.weight = move_toward(float(previous.weight), 1.0 if previous.age < 0.12 else 0.0, delta * 6.0)
+		var speed := horizontal.length() / maxf(delta, 0.0001)
+		var target_weight := 0.0
+		if horizontal.length() > 0.00001:
+			target_weight = minf(1.0, speed / FULL_GAIT_SPEED)
+		elif previous.age < 0.1:
+			target_weight = float(previous.weight)
+		previous.weight = move_toward(float(previous.weight), target_weight, delta * 6.0)
 		if horizontal.length() > 0.00001:
 			body.rotation.y = lerp_angle(body.rotation.y, atan2(horizontal.x, horizontal.y), minf(1.0, delta * 12.0))
 		previous.position = at

@@ -30,9 +30,14 @@ on a skeleton's global-pose cache before it enters the scene tree.
 Each player has a separate skeleton and shares immutable geometry and materials.
 The standing skinned mesh is uniformly fitted to the existing 1.8-metre capsule
 and its foot plane. The visual root remains exactly at the confirmed actor pose.
-The existing confirmed-distance gait drives legs and arms, settles when movement
-stops, and resets on world changes or discontinuous positions. Name labels retain
-the local-player indication; skin colors are not tinted to identify players.
+The presentation gait advances from confirmed horizontal travel, with one
+two-step cycle per 1.65 metres. Recovery bends the lifted leg while the other
+supports the body; arms counter-swing with elbow flex, and the spine and neck
+respond subtly. Gait strength follows observed speed and settles after movement
+stops. World changes and discontinuous positions reset it. This is a provisional
+procedural animation, not captured human movement or verified foot contact. Name
+labels retain the local-player indication; skin colors are not tinted to
+identify players.
 
 The asset has no collision or interaction shape, autonomous animation player,
 command producer, material inventory or saved state. Its limbs do not replace

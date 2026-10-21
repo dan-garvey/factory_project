@@ -183,13 +183,17 @@ func inspect_adult(body: Node3D, other: Node3D, presenter: Node) -> void:
 		and maxf(absf(neutral.position.z), absf(neutral.end.z)) <= 0.301,
 		"The lowered resting arms fit the original conservative visual width and depth.")
 	var other_pose: Transform3D = other_skeleton.get_bone_global_pose(other_skeleton.find_bone("Bip01 L Thigh"))
-	for phase in [0.0, PI / 2.0, PI, PI * 1.5]:
+	var resting_spine := skeleton.get_bone_pose_rotation(skeleton.find_bone("Bip01 Spine1"))
+	for phase in [0.0, PI / 4.0, PI / 2.0, PI * 3.0 / 4.0,
+			PI, PI * 5.0 / 4.0, PI * 1.5, PI * 7.0 / 4.0]:
 		presenter._set_gait(body, phase, 1.0)
 		var posed := point_bounds(skin_points(body))
 		verify(posed.position.y >= -0.901,
 			"The deformed walk-cycle geometry stays above the original foot plane.")
 		verify(other_skeleton.get_bone_global_pose(other_skeleton.find_bone("Bip01 L Thigh")) == other_pose,
 			"Posing one actor cannot animate another actor's skeleton.")
+	verify(not skeleton.get_bone_pose_rotation(skeleton.find_bone("Bip01 Spine1")).is_equal_approx(resting_spine),
+		"Confirmed-distance movement articulates the upper body as well as the legs.")
 	presenter._set_gait(body, 0.0, 0.0)
 
 func _initialize() -> void:
@@ -244,6 +248,8 @@ func run() -> void:
 		"The visible root remains exactly at the projected body origin without prediction.")
 	verify(presenter.motion.P.phase > 0.0 and not leg_rotation(body).is_equal_approx(neutral_leg),
 		"Only confirmed displacement advances the actual visual rig.")
+	verify(absf(float(presenter.motion.P.phase) - 0.15 * TAU / Presenter.GAIT_CYCLE_DISTANCE) < 0.00001,
+		"Two observed steps use the longer distance-based cycle rather than an overly fast cadence.")
 	var phase: float = presenter.motion.P.phase
 	var caches := [Presenter.mesh_cache.size(), Presenter.material_cache.size()]
 	for n in range(30):
@@ -252,6 +258,19 @@ func run() -> void:
 		"Stopped observations settle to a neutral stance without inventing travel.")
 	verify(caches == [Presenter.mesh_cache.size(), Presenter.material_cache.size()],
 		"Pose refresh does not rebuild meshes or materials.")
+	var other: Node3D = presenter.views.Q
+	for n in range(12):
+		host.state.actors.P.position[0] += 0.05
+		host.state.actors.Q.position[0] += 0.008
+		presenter.refresh(1.0 / 60.0)
+	verify(float(presenter.motion.P.weight) > float(presenter.motion.Q.weight)
+		and float(presenter.motion.Q.weight) > 0.0 and absf(p.position.x - 0.75) < 0.00001
+		and absf(other.position.x - 2.096) < 0.00001,
+		"Separate actors animate from their own observed travel speed and exact roots.")
+	for n in range(30):
+		presenter.refresh(1.0 / 60.0)
+	verify(float(presenter.motion.P.weight) == 0.0 and float(presenter.motion.Q.weight) == 0.0,
+		"A stopped observation settles both visual rigs after the brief sample gap.")
 	host.state["actors"]["P"]["position"] = [10.0, 0.9, 0.0]
 	presenter.refresh(1.0 / 60.0)
 	verify(p.position == Vector3(10, 0.9, 0) and presenter.motion.P.phase == 0.0,

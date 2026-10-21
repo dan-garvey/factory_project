@@ -20,6 +20,7 @@ class SharedFrameView extends SharedOpening:
 class ControlsStub extends RefCounted:
 	var selected_axis := "z"
 	var active_tool := ""
+	func pending_endpoint() -> Dictionary: return {}
 
 class SessionStub extends RefCounted:
 	var ready := true
