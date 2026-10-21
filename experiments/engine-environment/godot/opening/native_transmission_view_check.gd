@@ -3,6 +3,7 @@ extends SceneTree
 const Controls = preload("res://opening/native_transmission_controls.gd")
 const Geometry = preload("res://opening/site_geometry.gd")
 const ActorWorld = preload("res://opening/actor_world.gd")
+const PhysicalActor = preload("res://opening/actor_body.gd")
 const Presenter = preload("res://opening/native_transmission_presenter.gd")
 const LooseControls = preload("res://opening/recovery_actions.gd").LooseMaterialControls
 const Session = preload("res://opening-session/session.gd")
@@ -543,6 +544,11 @@ func _collision_body_lifecycle() -> void:
 	query.transform.origin = Vector3(1.65, 4.35, 0)
 	hits = physical.get_world_3d().direct_space_state.intersect_shape(query)
 	verify(hits.any(func(hit: Dictionary): return hit.rid == physical.mechanical_bodies.belt.get_rid()), "The actual character-sized capsule detects the belt body.")
+	query.transform.origin = Vector3(1.65, 3.8, -2.0)
+	query.motion = Vector3(0, 0, 4.0)
+	var sweep := physical.get_world_3d().direct_space_state.cast_motion(query)
+	verify(sweep.size() == 2 and sweep[0] < 1.0, "A character-sized sweep is blocked by the belt.")
+	query.motion = Vector3.ZERO
 	query.shape = probe
 	query.transform.origin = Vector3(0, 3.8, 0)
 	hits = physical.get_world_3d().direct_space_state.intersect_shape(query)
@@ -551,6 +557,28 @@ func _collision_body_lifecycle() -> void:
 	hits = physical.get_world_3d().direct_space_state.intersect_shape(query)
 	verify(hits.any(func(hit: Dictionary): return hit.rid == physical.mechanical_bodies.cog.get_rid()), "The native physics query intersects the cog body.")
 	var belt: StaticBody3D = physical.mechanical_bodies.belt
+	var actor := PhysicalActor.new()
+	actor.position = Vector3(1.65, 3.8, 0)
+	root.add_child(actor)
+	await physics_frame
+	await physics_frame
+	physical.bodies["P"] = actor
+	var penetrating: Dictionary = physical._penetration("P", belt.get_rid())
+	var occupied_contacts: Array = physical._initial_overlaps("P")
+	physical.bodies.erase("P")
+	verify(penetrating.get("unsupported_overlap", false), "The actor overlap guard rejects a capsule inside the belt.")
+	verify(occupied_contacts.any(func(hit: Dictionary): return hit.get("rid") == belt.get_rid().get_id() and hit.get("unsupported_overlap", false)), "The admission and checkpoint query detects the actual belt penetration.")
+	actor.position = Vector3(1.65, 4.85, 0)
+	await physics_frame
+	await physics_frame
+	physical.bodies["P"] = actor
+	var resting: Dictionary = physical._penetration("P", belt.get_rid())
+	var resting_contacts: Array = physical._initial_overlaps("P")
+	physical.bodies.erase("P")
+	verify(not resting.get("unsupported_overlap", true), "The actor overlap guard accepts contact at the belt surface.")
+	verify(not resting_contacts.any(func(hit: Dictionary): return hit.get("unsupported_overlap", true)), "The admission and checkpoint query accepts the supported surface contact.")
+	actor.queue_free()
+	await process_frame
 	var belt_shape: BoxShape3D = belt.get_child(0).shape
 	var original := belt_shape.size
 	belt_shape.size = Vector3(0.1, 0.1, 0.1)
@@ -568,6 +596,14 @@ func _collision_body_lifecycle() -> void:
 	query.transform.origin = Vector3(1.65, 3.8, 0)
 	hits = physical.get_world_3d().direct_space_state.intersect_shape(query)
 	verify(hits.is_empty(), "The removed belt no longer blocks its former center.")
+	query.shape = capsule
+	query.transform.origin = Vector3(1.65, 3.8, -2.0)
+	query.motion = Vector3(0, 0, 4.0)
+	sweep = physical.get_world_3d().direct_space_state.cast_motion(query)
+	verify(sweep.size() == 2 and sweep[0] == 1.0, "The same character-sized sweep is clear after belt removal.")
+	query.shape = probe
+	query.motion = Vector3.ZERO
+	query.transform.origin = Vector3(1.65, 3.8, 0)
 	authority.state.transmission_parts["right"] = {"kind": "shaft", "center": [8, 8, 0], "axis": 2, "half_span": 2}
 	authority.state.belt_spans["belt"] = {"from": "left", "to": "right"}
 	verify(physical.sync_topology().accepted, "A restored projection rebuilds its span and shaft bodies.")
