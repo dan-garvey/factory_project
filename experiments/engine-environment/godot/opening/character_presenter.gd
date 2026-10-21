@@ -13,7 +13,7 @@ const STOP_HOLD_SECONDS := 2.0 / 60.0
 const STALE_SAMPLE_SETTLE_SECONDS := 0.15
 const TAKEOFF_DELTA := 0.025
 const DROP_DELTA := 0.075
-const LANDING_SECONDS := 0.24
+const LANDING_SECONDS := 0.32
 const DISCONTINUITY_HORIZONTAL := 2.0
 const DISCONTINUITY_VERTICAL := 1.8
 static var mesh_cache: Dictionary = {}
@@ -311,7 +311,11 @@ func _set_adult_air_and_landing(body: Node3D, air: float,
 	# Confirmed horizontal travel gives the leading foot room to catch the
 	# load; an in-place jump settles both boots beneath the body.
 	var contact_stride := clampf(landing_stride, 0.0, 1.0)
-	var plant := impact * (1.0 - smoothstep(0.12, 0.60, landing_progress)) * contact_stride
+	# The leading boot reaches support promptly while the torso continues to
+	# absorb the load. Do not slow the established contact step with the torso.
+	var foot_load := smoothstep(0.0, 0.16, landing_progress) * \
+		pow(1.0 - clampf(landing_progress, 0.0, 1.0), 1.7)
+	var plant := foot_load * (1.0 - smoothstep(0.12, 0.60, landing_progress)) * contact_stride
 	for pair in [["L", 1.0], ["R", -1.0]]:
 		var side: String = pair[0]
 		var sign: float = pair[1]
@@ -795,7 +799,7 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 		if mode == "landing":
 			# Keep the pre-contact extension long enough for the leading leg to
 			# carry the first load; shed it through the recovery, not in four frames.
-			previous.air = float(previous.landing_air) * (1.0 - smoothstep(0.0, 0.72,
+			previous.air = float(previous.landing_air) * (1.0 - smoothstep(0.0, 0.85,
 				float(previous.impact_age) / LANDING_SECONDS))
 		else:
 			previous.air = move_toward(float(previous.air),
@@ -845,7 +849,7 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 		landing_progress = elapsed
 		# The feet reach support before the torso finishes absorbing the load.
 		# Let the visual compression peak a few samples after first contact.
-		impact = smoothstep(0.0, 0.16, elapsed) * pow(1.0 - clampf(elapsed, 0.0, 1.0), 1.7)
+		impact = smoothstep(0.0, 0.30, elapsed) * pow(1.0 - clampf(elapsed, 0.0, 1.0), 1.25)
 	_set_gait(body, float(previous.phase), float(previous.weight), float(previous.air),
 		float(previous.vertical_speed), impact, float(previous.run_mix), landing_progress,
 		float(previous.landing_stride))
