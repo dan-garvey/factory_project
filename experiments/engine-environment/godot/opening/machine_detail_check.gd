@@ -1266,6 +1266,73 @@ func check_wheel_supports() -> void:
 		"full_turn_check": "Conservative separation of actual facet envelopes, not native contact or force proof.",
 		"observations": "invented", "native_gameplay": "not_run", "rendered_quality": "not_assessed"}))
 
+func satin_coating_properties(finish: StandardMaterial3D) -> bool:
+	var surface := Opening.ProductionTransmissionFinish
+	return finish != null and finish.metallic == 0 and finish.metallic_texture == null \
+		and finish.albedo_texture == null and finish.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED \
+		and not finish.clearcoat_enabled and not finish.ao_enabled and finish.normal_enabled \
+		and is_equal_approx(finish.normal_scale, 0.08) and finish.normal_texture == surface.textures.cast_normal \
+		and finish.roughness == 1 and finish.roughness_texture == CollectorArt.paint_roughness \
+		and finish.roughness_texture != surface.textures.cast_roughness \
+		and finish.roughness_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_RED \
+		and finish.uv1_triplanar and not finish.uv1_world_triplanar and finish.uv1_scale == Vector3(4, 4, 4)
+
+func check_satin_coating() -> void:
+	var surface := Opening.ProductionTransmissionFinish
+	var original := surface.material("cast", Color("f3c16c"), 0.0, 0.72)
+	verify(original != null and surface.source_status == "ready", "The existing qualified cast source is available before paint preparation.")
+	if original == null or surface.source_status != "ready":
+		return
+	var source_image: Image = surface.textures.cast_roughness.get_image()
+	verify(source_image != null and not source_image.is_empty() and source_image.get_size() == Vector2i(512, 512),
+		"The source supplies its complete scalar image before the coating transformation is checked.")
+	if source_image == null or source_image.is_empty():
+		return
+	var source_bytes := source_image.get_data()
+	var worked_bytes: PackedByteArray = surface.textures.worked_roughness.get_image().get_data()
+	var finish := CollectorArt.coating(Color("f3c16c"))
+	verify(satin_coating_properties(finish), "The actual authored coating is opaque satin dielectric paint, distinct from its metal source.")
+	if finish == null or finish.roughness_texture == null:
+		return
+	var paint := finish.roughness_texture.get_image()
+	verify(paint != null and paint.get_size() == Vector2i(512, 512) and paint.has_mipmaps(),
+		"The cached coating response keeps the qualified image dimensions and a complete mip chain.")
+	if paint == null or paint.get_size() != source_image.get_size():
+		return
+	var valid := true
+	var low := 255
+	var high := 0
+	var original_low := 255
+	var original_high := 0
+	for y in range(paint.get_height()):
+		for x in range(paint.get_width()):
+			var from := roundi(source_image.get_pixel(x, y).r * 255.0)
+			var actual := roundi(paint.get_pixel(x, y).r * 255.0)
+			var expected := clampi(roundi(165.75 + float(from) * 0.25), 166, 229)
+			valid = valid and actual == expected and actual >= 166 and actual <= 229
+			low = mini(low, actual)
+			high = maxi(high, actual)
+			original_low = mini(original_low, from)
+			original_high = maxi(original_high, from)
+	verify(valid and low < high, "Every actual paint pixel retains bounded source variation in the independently specified satin response.")
+	verify(surface.textures.cast_roughness.get_image().get_data() == source_bytes
+		and surface.textures.worked_roughness.get_image().get_data() == worked_bytes
+		and original.roughness_texture == surface.textures.cast_roughness and is_equal_approx(original.normal_scale, 0.35),
+		"Paint preparation leaves the original cast/worked image bytes and independently cached material unchanged.")
+	var replacement := CollectorArt.coating(Color("58634c"))
+	verify(replacement != finish and replacement.roughness_texture == finish.roughness_texture
+		and replacement.normal_texture == finish.normal_texture and replacement.albedo_color == Color("58634c"),
+		"Different original tints share the same authored paint texture without sharing mutable material identity.")
+	var control := finish.duplicate(false) as StandardMaterial3D
+	control.roughness_texture = surface.textures.cast_roughness
+	verify(not satin_coating_properties(control), "The original untransformed metal roughness cannot substitute for the authored paint response.")
+	control.roughness_texture = finish.roughness_texture
+	control.metallic = 0.85
+	verify(not satin_coating_properties(control), "A metallic substitution cannot pass the coating role predicate.")
+	print(JSON.stringify({"satin_pixels": paint.get_width() * paint.get_height(), "paint_bytes": [low, high],
+		"source_bytes": [original_low, original_high], "negative_controls": 2, "source_images_unchanged": true,
+		"observations": "invented read-only materials", "gameplay": "not_run"}))
+
 func check_collector_coating(historical: bool) -> void:
 	var surface := Opening.ProductionTransmissionFinish
 	var cached: Dictionary = {}
@@ -1302,11 +1369,12 @@ func check_collector_coating(historical: bool) -> void:
 						and finish_value.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED
 						and not finish_value.clearcoat_enabled and not finish_value.ao_enabled,
 						"The authored opaque paint is a dielectric without a second coat, metallic mask or invented occlusion.")
-					verify(finish_value.normal_enabled and is_equal_approx(finish_value.normal_scale, 0.12)
+					verify(finish_value.normal_enabled and is_equal_approx(finish_value.normal_scale, 0.08)
 						and finish_value.normal_texture == surface.textures.cast_normal
-						and finish_value.roughness_texture == surface.textures.cast_roughness
+						and finish_value.roughness_texture == CollectorArt.paint_roughness
+						and finish_value.roughness_texture != surface.textures.cast_roughness
 						and finish_value.roughness == 1 and finish_value.roughness_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_RED,
-						"The coating reuses the exact qualified cast maps with reduced normal strength and explicit scalar roughness.")
+						"The coating shares qualified normal detail and a separate authored satin response without changing exposed metal maps.")
 					verify(finish_value.uv1_triplanar and not finish_value.uv1_world_triplanar
 						and finish_value.uv1_scale == Vector3(4, 4, 4)
 						and finish_value.texture_filter == BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC,
@@ -1334,7 +1402,7 @@ func check_collector_coating(historical: bool) -> void:
 		"Two original tints and the declared resource presence remain explicit.")
 	print(JSON.stringify({"phase": "collector coating", "assemblies": assemblies, "coated_parts": coated_parts,
 		"coating_materials": cached.size(), "historical_missing_set": historical,
-		"maps": "existing qualified cast normal and roughness", "geometry_changed": false,
+		"maps": "historical generated coating" if historical else "qualified cast normal and authored satin roughness", "geometry_changed": false,
 		"native_gameplay": "not_run", "rendered_quality": "not_assessed"}))
 
 func check_closed_asset_mesh(mesh: Mesh, minimum_volume: float, maximum_volume: float) -> void:
@@ -3541,8 +3609,8 @@ func check_collector_rear_service() -> void:
 						verify(gap > 0.14, "The new fixed rear parts clear the actual cutter facets through their complete rotational sweep.")
 				var paint := panel.material_override as StandardMaterial3D
 				var steel := hardware.material_override as StandardMaterial3D
-				verify(paint.metallic == 0 and is_equal_approx(paint.normal_scale, 0.12) and paint.roughness == 1
-					and paint.roughness_texture == Opening.ProductionTransmissionFinish.textures.cast_roughness
+				verify(paint.metallic == 0 and is_equal_approx(paint.normal_scale, 0.08) and paint.roughness == 1
+					and paint.roughness_texture == CollectorArt.paint_roughness
 					and is_equal_approx(steel.metallic, 0.85) and steel.normal_texture == Opening.ProductionTransmissionFinish.textures.worked_normal,
 					"Paint and exposed worked hardware retain their distinct qualified material roles.")
 				var picks := 0
@@ -3822,6 +3890,12 @@ func render_buildable_resources() -> void:
 
 func _initialize() -> void:
 	if OS.get_cmdline_user_args().has("--render-buildable-resources"):
+		if OS.get_cmdline_user_args().has("--satin-coating-check"):
+			check_satin_coating()
+			check_collector_coating(false)
+			if failed:
+				finish()
+				return
 		if OS.get_cmdline_user_args().has("--collector-rear-service-check"):
 			check_press_die()
 			check_collector_rear_service()
@@ -3829,6 +3903,11 @@ func _initialize() -> void:
 				finish()
 				return
 		call_deferred("render_buildable_resources")
+		return
+	if OS.get_cmdline_user_args().has("--satin-coating-only"):
+		check_satin_coating()
+		check_collector_coating(false)
+		finish()
 		return
 	if OS.get_cmdline_user_args().has("--collector-rear-service-only"):
 		check_collector_rear_service()

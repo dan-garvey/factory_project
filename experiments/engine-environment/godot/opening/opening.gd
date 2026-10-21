@@ -321,6 +321,29 @@ class ProductionCollectorArt:
 	extends RefCounted
 	## Original rigid casting kit. These meshes never define work or collision.
 	static var coatings: Dictionary = {}
+	static var paint_roughness: ImageTexture
+
+	static func _paint_roughness() -> ImageTexture:
+		if paint_roughness != null:
+			return paint_roughness
+		var source: Image = ProductionTransmissionFinish.textures.cast_roughness.get_image()
+		if source == null or source.is_empty():
+			push_error("The qualified source cannot supply the authored coating response.")
+			return null
+		var bytes := PackedByteArray()
+		bytes.resize(source.get_width() * source.get_height())
+		for y in range(source.get_height()):
+			for x in range(source.get_width()):
+				var original := roundi(source.get_pixel(x, y).r * 255.0)
+				# Preserve the source variation in a paint-only satin range. The
+				# rounded L8 endpoints stay inside the provisional 0.65..0.90.
+				bytes[y * source.get_width() + x] = clampi(roundi((663.0 + original) / 4.0), 166, 229)
+		var image := Image.create_from_data(source.get_width(), source.get_height(), false, Image.FORMAT_L8, bytes)
+		if image.generate_mipmaps() != OK:
+			push_error("The authored coating response cannot retain its mip chain.")
+			return null
+		paint_roughness = ImageTexture.create_from_image(image)
+		return paint_roughness
 
 	static func coating(color: Color) -> StandardMaterial3D:
 		if coatings.has(color):
@@ -331,10 +354,14 @@ class ProductionCollectorArt:
 			return ProductionVisuals.material(color, 0.08, 0.72)
 		if source == null:
 			return null
+		var satin := _paint_roughness()
+		if satin == null:
+			return null
 		# Share qualified image resources, never the mutable metal material.
 		# This is an authored coating over cast detail, not a paint scan.
 		var finish := source.duplicate(false) as StandardMaterial3D
-		finish.normal_scale = 0.12
+		finish.normal_scale = 0.08
+		finish.roughness_texture = satin
 		coatings[color] = finish
 		return finish
 

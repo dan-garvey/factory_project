@@ -75,8 +75,12 @@ The collector's six painted castings share the qualified
 [cast surface maps](transmission-surfaces/CREDITS.md) with their own cached
 nonmetallic coating materials. Their original colors remain; reduced normal
 strength gives the coating finer relief than exposed cast transmission parts.
-The images are shared without mutating those metal finishes. This is authored
-coating art over cast detail, not a new paint scan, physical wear or damage model.
+The normal image is shared, while one separate cached roughness image remaps
+the qualified source variation into an authored satin range from 0.65 to 0.90.
+The rounded eight-bit endpoints remain inside that range and retain mipmaps.
+Normal strength is 0.08; the quarter-metre local map scale stays fixed. The
+original cast and worked metal images and materials remain untouched. This is
+authored coating art over cast detail, not a new paint scan, physical wear or damage model.
 The exposed liner retains its finish; native cutter tooling uses the qualified
 worked surfaces described below.
 Historical captures without the map set retain their generated coating.
