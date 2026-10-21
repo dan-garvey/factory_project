@@ -97,9 +97,12 @@ static func gear(parent: Node3D, radius: float, ratio_units: int, color: Color) 
 		var part := _part(parent, "GearTooth", tooth, Vector3.ZERO, color)
 		part.rotation.y = float(n) * TAU / count
 	var hub_radius := minf(0.16, radius * 0.34)
-	var hub := PackedVector2Array([Vector2(0, -0.11), Vector2(hub_radius - 0.008, -0.11),
+	# Open both machined faces around the existing shaft/collar/key envelope.
+	# This is render clearance, not a new mechanical connection or phase rule.
+	var hub := PackedVector2Array([Vector2(0.044, -0.11), Vector2(hub_radius - 0.008, -0.11),
 		Vector2(hub_radius, -0.102), Vector2(hub_radius, 0.102),
-		Vector2(hub_radius - 0.008, 0.11), Vector2(0, 0.11)])
+		Vector2(hub_radius - 0.008, 0.11), Vector2(0.044, 0.11),
+		Vector2(0.039, 0.105), Vector2(0.039, -0.105), Vector2(0.044, -0.11)])
 	_part(parent, "Hub", Visuals.turned_mesh(hub), Vector3.ZERO, Color("a6b4af"))
 	var spoke_length := inner - hub_radius + 0.04
 	for n in range(4):

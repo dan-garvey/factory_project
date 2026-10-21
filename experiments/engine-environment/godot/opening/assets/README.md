@@ -289,6 +289,15 @@ assemblies use shared machined surfaces and cached meshes, with no collider or
 input node. The presenter retains mounting, direction, animation and pick
 ownership. Isolated mesh checks do not establish the ordinary rendered result.
 
+Cog hubs have open 78-millimetre through-bores with five-millimetre entry
+chamfers on both faces. The existing shaft, collars and keys clear the actual
+faceted bore across their complete rotating radial envelope. Hub outer sizes,
+spokes, fasteners, gear teeth, picks, native centres and axis mounts remain
+unchanged. The shared machined finish follows the rigid hub. An empty cog shows
+the same open passage without inventing a shaft or connection. This is a fitted
+visual interface, not proof of key locking, tooth contact, physical forces or
+general shaft routing through a complete machine.
+
 Complete captures now separate [cast and worked transmission finishes](transmission-surfaces/CREDITS.md).
 Rims and spokes use qualified cast-surface detail; teeth, hubs, fasteners, shafts
 and collars use finer original maps. The old moving/stopped tint and copper keys

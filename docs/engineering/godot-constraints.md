@@ -773,6 +773,30 @@ test-helper miss into a permanent gameplay tolerance or a physics-backend verdic
 These are technical asset observations, not physical force, rendered-quality or
 human-play evidence. Owner: Platform, under `factory-yau.6.45.23.15`.
 
+## GDC-15: convenience mesh faces are not the original render vertices
+
+Godot 4.7.2 commit `ed1daf0bf001b61586d9930840f2f1394092c079` implements
+`Mesh.get_faces()` through its cached triangle mesh. That cache snaps each input
+vertex to a 0.0001-unit grid before returning faces. The pinned
+[mesh implementation](https://github.com/godotengine/godot/blob/ed1daf0bf001b61586d9930840f2f1394092c079/scene/resources/mesh.cpp)
+and [triangle-mesh implementation](https://github.com/godotengine/godot/blob/ed1daf0bf001b61586d9930840f2f1394092c079/core/math/triangle_mesh.cpp)
+establish this source behavior; it is not a restriction on build precision.
+
+The first focused cog-bore fixture used that convenience list and failed its
+original outer-radius assertion. A changed diagnostic fixture retained the
+values: the 0.14025-metre hub reported a maximum cached radius of approximately
+0.140300 metres. Its passage still cleared the shaft, but the cached triangles
+were unsuitable for the exact render-dimension assertion. The first fixture
+also assumed a name for an unnamed pick-shape child; that reader failure and its
+exit diagnostics remain separate from product geometry.
+
+Fine presentation checks now reconstruct triangles directly from each surface's
+vertex and index arrays, retaining the cached observations for comparison. The
+shaft envelope uses the same original arrays. This changes neither geometry nor
+the acceptance tolerance. It does not establish collision-backend precision,
+mechanical contact, native reach, force behavior or a general minimum feature
+size. Previous coarse face-list results retain their actual scope and revision.
+
 ## Required follow-through
 
 This first source/API/evidence audit leaves actual backend identification,

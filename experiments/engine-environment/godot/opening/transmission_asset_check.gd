@@ -388,7 +388,167 @@ func check_materials() -> void:
 	print(JSON.stringify({"surface_instances": surface_instances, "geometry_changed": false,
 		"host_facts": "invented read-only projection", "source_state": Finish.source_status}))
 
+func bore_segment_radius(a: Vector2, b: Vector2) -> float:
+	var edge := b - a
+	var amount := clampf(-a.dot(edge) / edge.length_squared(), 0.0, 1.0) if edge.length_squared() > 0.0 else 0.0
+	return (a + edge * amount).length()
+
+func bore_triangle_radius(a: Vector2, b: Vector2, c: Vector2) -> float:
+	# A cap can cover the axis while every one of its vertices is outside it.
+	var area := (b - a).cross(c - a)
+	if absf(area) > 0.000000000001:
+		var signs := [(b - a).cross(-a), (c - b).cross(-b), (a - c).cross(-c)]
+		if (signs[0] >= 0.0 and signs[1] >= 0.0 and signs[2] >= 0.0) or (signs[0] <= 0.0 and signs[1] <= 0.0 and signs[2] <= 0.0):
+			return 0.0
+	return minf(bore_segment_radius(a, b), minf(bore_segment_radius(b, c), bore_segment_radius(c, a)))
+
+func bore_triangles(mesh: Mesh) -> PackedVector3Array:
+	# Mesh.get_faces() passes through a snapped TriangleMesh cache. Measure the
+	# original indexed surface arrays for this fine visual clearance instead.
+	var faces := PackedVector3Array()
+	for surface in range(mesh.get_surface_count()):
+		var arrays := mesh.surface_get_arrays(surface)
+		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		if arrays[Mesh.ARRAY_INDEX] is PackedInt32Array and not arrays[Mesh.ARRAY_INDEX].is_empty():
+			for index in arrays[Mesh.ARRAY_INDEX]:
+				faces.append(vertices[index])
+		else:
+			faces.append_array(vertices)
+	return faces
+
+func bore_mesh_facts(mesh: Mesh, pose: Transform3D = Transform3D.IDENTITY, cached_faces: bool = false) -> Dictionary:
+	var vertices := mesh.get_faces() if cached_faces else bore_triangles(mesh)
+	var minimum_radius := INF
+	var maximum_radius := 0.0
+	var low := INF
+	var high := -INF
+	var face_radii: Array[float] = []
+	for n in range(0, vertices.size(), 3):
+		var a: Vector3 = pose * vertices[n]
+		var b: Vector3 = pose * vertices[n + 1]
+		var c: Vector3 = pose * vertices[n + 2]
+		minimum_radius = minf(minimum_radius, bore_triangle_radius(Vector2(a.x, a.z), Vector2(b.x, b.z), Vector2(c.x, c.z)))
+		for point in [a, b, c]:
+			low = minf(low, point.y)
+			high = maxf(high, point.y)
+			maximum_radius = maxf(maximum_radius, Vector2(point.x, point.z).length())
+			if is_equal_approx(absf(point.y), 0.11):
+				face_radii.append(Vector2(point.x, point.z).length())
+	face_radii.sort()
+	return {"minimum_radius": minimum_radius, "maximum_radius": maximum_radius, "low": low, "high": high,
+		"minimum_face_radius": face_radii[0] if not face_radii.is_empty() else 0.0, "triangles": vertices.size() / 3}
+
+func bore_shaft_envelope(node: Node3D, pose: Transform3D = Transform3D.IDENTITY) -> float:
+	var radius := 0.0
+	if node is MeshInstance3D:
+		for vertex in bore_triangles(node.mesh):
+			var point: Vector3 = pose * vertex
+			radius = maxf(radius, Vector2(point.x, point.z).length())
+	for child in node.get_children():
+		if child is Node3D and not child is CollisionObject3D:
+			radius = maxf(radius, bore_shaft_envelope(child, pose * child.transform))
+	return radius
+
+func bore_control_mesh(inner: float) -> Mesh:
+	# Deliberately simple controls use independent solid and undersized profiles.
+	return Assets.Visuals.turned_mesh(PackedVector2Array([Vector2(inner, -0.11), Vector2(0.14, -0.11),
+		Vector2(0.14, 0.11), Vector2(inner, 0.11), Vector2(inner, -0.11)]))
+
+func check_gear_bores() -> void:
+	var minimum_clearance := INF
+	var minimum_bore_radius := INF
+	var assemblies := 0
+	var control_radius := 0.0
+	var hub_meshes: Dictionary = {}
+	var maximum_triangles := 0
+	for units in [1, 2, 3, 8]:
+		for axis in range(3):
+			var host := MaterialHost.new()
+			var center := [-4, 1, 8]
+			host.state = {"context": "open-cog-hub", "options": {"native": true}, "entities": {},
+				"transmission_parts": {"gear": {"kind": "gear", "center": center, "axis": axis, "teeth": units, "generation": 1}},
+				"motion": {"gear": {"state": "rotating", "numerator": -1, "denominator": 2}}, "engagements": []}
+			var view := Presenter.new()
+			view.configure(host)
+			var empty_gear := material_part(view, "gear")
+			verify(empty_gear != null and material_part(view, "shaft") == null,
+				"The real presenter shows the unconnected cog without inventing a shaft.")
+			if empty_gear == null:
+				view.free()
+				continue
+			var empty_hub: MeshInstance3D = empty_gear.get_node("Hub")
+			var hub_mesh := empty_hub.mesh
+			var empty_facts := bore_mesh_facts(hub_mesh, empty_hub.transform)
+			print(JSON.stringify({"phase": "unconnected hub", "units": units, "axis": axis, "facts": empty_facts,
+				"snapped_cache_facts": bore_mesh_facts(hub_mesh, empty_hub.transform, true)}))
+			check_mesh(hub_mesh)
+			verify(empty_facts.minimum_radius > 0.0388 and empty_facts.minimum_face_radius > 0.0438
+				and is_equal_approx(empty_facts.maximum_radius, minf(0.16, units * 0.4125 * 0.34))
+				and is_equal_approx(empty_facts.low, -0.11) and is_equal_approx(empty_facts.high, 0.11),
+				"Actual hub triangles leave the whole passage open and chamfer both original end planes.")
+			host.state.transmission_parts["shaft"] = {"kind": "shaft", "center": center, "axis": axis, "half_span": 1, "generation": 2}
+			host.state.motion["shaft"] = {"state": "rotating", "numerator": -1, "denominator": 2}
+			var before: Dictionary = host.state.duplicate(true)
+			view.refresh()
+			var gear := material_part(view, "gear")
+			var shaft := material_part(view, "shaft")
+			verify(gear != null and shaft != null, "The real presenter mounts both disclosed coaxial projection facts.")
+			if gear == null or shaft == null:
+				view.free()
+				continue
+			var hub: MeshInstance3D = gear.get_node("Hub")
+			var facts := bore_mesh_facts(hub.mesh, hub.transform)
+			var shaft_radius := bore_shaft_envelope(shaft)
+			var clearance: float = facts.minimum_radius - shaft_radius
+			minimum_clearance = minf(minimum_clearance, clearance)
+			minimum_bore_radius = minf(minimum_bore_radius, facts.minimum_radius)
+			control_radius = maxf(control_radius, shaft_radius)
+			maximum_triangles = maxi(maximum_triangles, facts.triangles)
+			verify(hub.mesh == hub_mesh and facts == empty_facts and clearance > 0.001,
+				"Adding a shaft reuses the exact open hub and its measured full-turn clearance for core, collars, keys and keyway.")
+			verify(gear.position == Presenter.world_center(center) and shaft.position == gear.position
+				and gear.basis.y == [Vector3.RIGHT, Vector3.UP, Vector3.BACK][axis] and shaft.basis == gear.basis,
+				"The actual assemblies preserve the common confirmed point and positive axis.")
+			var gear_pick: CylinderShape3D = gear.get_node("Pick").get_child(0).shape
+			var shaft_pick: CylinderShape3D = shaft.get_node("Pick").get_child(0).shape
+			verify(is_equal_approx(gear_pick.radius, units * 0.4125 + 0.103125) and is_equal_approx(gear_pick.height, 0.24)
+				and is_equal_approx(shaft_pick.radius, 0.08) and is_equal_approx(shaft_pick.height, 0.825),
+				"The bore changes no gear or shaft selection envelope or endpoint length.")
+			verify(roles(gear, "GearTooth") == units * 8 and roles(gear, "GearSpoke") == 4 and roles(gear, "HubFastener") == 8,
+				"The exact original peripheral assembly remains present for every disclosed size.")
+			verify(hub.material_override == Finish.material("worked", Color("a6b4af"), 0.85, 0.38)
+				and hub.get_script() == null and hub.transform == Transform3D.IDENTITY,
+				"The open hub retains its cached machined finish and has no independent motion, offset or controller.")
+			view.advance_visual_motion(0.1)
+			verify(is_equal_approx(view.visual_angle("gear"), -0.04) and is_equal_approx(view.visual_angle("shaft"), -0.04)
+				and gear.basis == shaft.basis and host.state == before,
+				"The existing signed cosmetic rate turns the same rigid assembly without changing the invented native facts.")
+			var cache_key := str(minf(0.16, units * 0.4125 * 0.34))
+			verify(not hub_meshes.has(cache_key) or hub_meshes[cache_key] == hub.mesh,
+				"Equivalent local hub dimensions reuse their mesh across world axes and cog sizes.")
+			hub_meshes[cache_key] = hub.mesh
+			assemblies += 1
+			view.free()
+	verify(bore_mesh_facts(bore_control_mesh(0.0)).minimum_radius < control_radius,
+		"The original solid hub fails the same actual shaft-envelope criterion.")
+	verify(bore_mesh_facts(bore_control_mesh(0.02)).minimum_radius < control_radius,
+		"An open but undersized bore cannot pass merely by having no central cap.")
+	verify(bore_triangle_radius(Vector2(-0.1, -0.1), Vector2(0.1, -0.1), Vector2(0.0, 0.1)) == 0.0,
+		"The independent face oracle rejects a closing triangle even when all its vertices clear the shaft.")
+	verify(minimum_bore_radius < 0.045, "The former wide shaft would fail the same fitted opening.")
+	print(JSON.stringify({"assemblies": assemblies, "sizes": [1, 2, 3, 8], "axes": 3,
+		"minimum_full_turn_clearance_metres": minimum_clearance, "maximum_actual_shaft_radius_metres": control_radius,
+		"maximum_hub_triangles": maximum_triangles, "hub_meshes": hub_meshes.size(), "negative_controls": 4,
+		"projection_facts": "invented read-only", "general_machine_routing": "not_established"}))
+
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--gear-bore-only"):
+		check_gear_bores()
+		print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
+			"unique_meshes": checked_meshes.size(), "maximum_packed_tangent_dot": max_tangent_dot,
+			"native_gameplay": "not_run", "rendered_quality": "not_assessed", "desktop": "not_used"}))
+		quit(1 if failed else 0)
+		return
 	if OS.get_cmdline_user_args().size() > 0 and OS.get_cmdline_user_args()[0] == "--prepare-transmission-maps":
 		prepare_material_maps()
 		return
