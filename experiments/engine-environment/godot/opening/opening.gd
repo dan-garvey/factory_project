@@ -195,19 +195,19 @@ class ProductionSteelFloor:
 	static var finish: StandardMaterial3D
 	static var source_status := "uninitialized"
 
-	static func read_images(directory: String = ROOT) -> Dictionary:
+	static func read_images(directory: String = ROOT, files: Dictionary = FILES, normal_size: Vector2i = Vector2i(1024, 1024)) -> Dictionary:
 		var present := 0
-		for name_value in FILES.values():
+		for name_value in files.values():
 			if FileAccess.file_exists(directory.path_join(name_value)):
 				present += 1
 		if present == 0:
 			return {"status": "missing", "images": {}}
-		if present != FILES.size():
+		if present != files.size():
 			return {"status": "invalid", "reason": "incomplete_material_set", "images": {}}
 		var images: Dictionary = {}
-		for role in FILES:
-			var image := Image.load_from_file(directory.path_join(FILES[role]))
-			var expected := Vector2i(512, 512) if role == "arm" else Vector2i(1024, 1024)
+		for role in files:
+			var image := Image.load_from_file(directory.path_join(files[role]))
+			var expected := Vector2i(512, 512) if role == "arm" else (normal_size if role == "normal" else Vector2i(1024, 1024))
 			if image == null or image.is_empty() or image.get_size() != expected:
 				return {"status": "invalid", "reason": "invalid_" + role, "images": {}}
 			images[role] = image
@@ -262,6 +262,9 @@ class ProductionEnvironment:
 	## Visual scenery only. ActorWorld owns collision from the same immutable site geometry.
 	static var Surface = load("res://opening/site_surface.gd") if ResourceLoader.exists("res://opening/site_surface.gd", "Script") else null
 	static var ground_finish: StandardMaterial3D
+	const GROUND_ROOT := "res://opening/assets/ground"
+	const GROUND_FILES := {"albedo": "ground_albedo.webp", "arm": "ground_arm.webp", "normal": "ground_normal_gl.webp"}
+	static var ground_source_status := "uninitialized"
 	static var water_finish: StandardMaterial3D
 	static var foam_finish: StandardMaterial3D
 	static var stone_finish: StandardMaterial3D
@@ -295,6 +298,9 @@ class ProductionEnvironment:
 
 	static func ground_material() -> StandardMaterial3D:
 		if ground_finish == null:
+			ground_finish = _scanned_ground_material()
+			if ground_finish != null:
+				return ground_finish
 			ground_finish = StandardMaterial3D.new()
 			ground_finish.albedo_texture = _noise_texture(3471, false)
 			ground_finish.vertex_color_use_as_albedo = true
@@ -305,6 +311,47 @@ class ProductionEnvironment:
 			ground_finish.uv1_scale = Vector3(48, 48, 1)
 			ground_finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 		return ground_finish
+
+	static func _scanned_ground_material() -> StandardMaterial3D:
+		var loaded := ProductionSteelFloor.read_images(GROUND_ROOT, GROUND_FILES, Vector2i(512, 512))
+		ground_source_status = loaded.status
+		if loaded.status == "missing":
+			return null
+		if loaded.status != "ready":
+			push_error("Incomplete or invalid rocky-ground material: " + str(loaded.get("reason", "unknown")))
+			return null
+		for role in loaded.images:
+			var image: Image = loaded.images[role]
+			if image.generate_mipmaps(role == "normal") != OK:
+				ground_source_status = "invalid"
+				push_error("Cannot generate rocky-ground mipmaps.")
+				return null
+		var packed := ImageTexture.create_from_image(loaded.images.arm)
+		var finish := StandardMaterial3D.new()
+		finish.albedo_color = Color.WHITE
+		finish.albedo_texture = ImageTexture.create_from_image(loaded.images.albedo)
+		finish.vertex_color_use_as_albedo = true
+		# The provider's glTF explicitly selects a dielectric surface, even
+		# though its delivery format includes the conventional packed B map.
+		finish.metallic = 0.0
+		finish.metallic_texture = packed
+		finish.metallic_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_BLUE
+		finish.roughness = 1.0
+		finish.roughness_texture = packed
+		finish.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_GREEN
+		finish.ao_enabled = true
+		finish.ao_texture = packed
+		finish.ao_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
+		finish.ao_light_affect = 0.0
+		finish.normal_enabled = true
+		finish.normal_texture = ImageTexture.create_from_image(loaded.images.normal)
+		finish.normal_scale = 1.0
+		finish.uv1_triplanar = true
+		finish.uv1_world_triplanar = true
+		finish.uv1_triplanar_sharpness = 8.0
+		finish.uv1_scale = Vector3.ONE * 0.5
+		finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		return finish
 
 	static func water_material() -> StandardMaterial3D:
 		if water_finish == null:
@@ -379,7 +426,12 @@ class ProductionEnvironment:
 		base = base.lerp(Color("555b56"), clampf(slope * 2.6 + high * 0.35, 0.0, 1.0))
 		var moisture := smoothstep(4.2, 0.8, absf(x - river_center_x(z)))
 		base = base.lerp(Color("3d4a3d"), moisture * 0.45)
-		return base.lerp(Color("2c3638"), gorge)
+		base = base.lerp(Color("2c3638"), gorge)
+		if ground_source_status == "uninitialized":
+			ground_material()
+		# Preserve broad elevation/moisture variation without multiplying the
+		# photographed albedo by a second dark procedural base coat.
+		return base.lerp(Color.WHITE, 0.75) if ground_source_status == "ready" else base
 
 	static func terrain_mesh() -> ArrayMesh:
 		if terrain_surface_mesh != null:

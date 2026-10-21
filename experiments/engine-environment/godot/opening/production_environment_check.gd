@@ -7,6 +7,7 @@ var checks := 0
 var failed := false
 var error_count := 0
 var mode := "environment"
+var fixture_directory := ""
 const TANGENT_EPSILON := 0.0005
 
 class FixtureView:
@@ -27,13 +28,14 @@ class WaterFrameView extends Opening:
 	func _animate_wheel(_delta: float) -> void: pass
 	func _update_camera() -> void: pass
 
-func verify(condition: bool, message: String) -> void:
+func verify(condition: bool, message: String) -> bool:
 	checks += 1
 	if not condition:
 		failed = true
 		error_count += 1
 		if error_count <= 12:
 			push_error(message)
+	return condition
 
 func inspect_visual(node: Node) -> void:
 	verify(not node is CollisionObject3D and not node is CollisionShape3D,
@@ -67,6 +69,8 @@ func _initialize() -> void:
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--environment-case="):
 			mode = argument.trim_prefix("--environment-case=")
+		elif argument.begins_with("--artifacts="):
+			fixture_directory = argument.trim_prefix("--artifacts=")
 	call_deferred("run")
 
 func check_multimesh(instances: MultiMesh, min_pad_clearance: float, label: String) -> void:
@@ -101,6 +105,7 @@ func check_multimesh(instances: MultiMesh, min_pad_clearance: float, label: Stri
 func finish() -> void:
 	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks, "mode": mode,
 		"scope": {"surface-composition": "shared renderer/physical geometry and bed/water composition",
+			"ground-material": "scanned ground material, data channels and cache separation",
 			"water-flow": "changed cosmetic water material and ordinary frame consumer",
 			"rock-collision-shape": "visible rock corners versus rigid collision descriptors",
 			"flat-fallback": "historical flat source-roster fallback", "foliage": "changed foliage bulk upload",
@@ -220,6 +225,77 @@ func check_water_flow() -> void:
 	second.free()
 	view.free()
 
+func check_ground_material() -> void:
+	if not fixture_directory.is_absolute_path() or not DirAccess.dir_exists_absolute(fixture_directory):
+		verify(false, "Use the declared external material-test artifact directory.")
+		return
+	var ground := Scenery.ground_material()
+	verify(Scenery.ground_source_status == "ready" and ground != null,
+		"The ordinary ground material loads the complete sourced bitmap set.")
+	if ground == null:
+		return
+	verify(ground == Scenery.ground_material() and Opening.ProductionSteelFloor.source_status == "uninitialized",
+		"Terrain material reuse does not consume or poison the independent steel cache.")
+	verify(ground.albedo_texture.get_image().get_size() == Vector2i(1024, 1024)
+		and ground.normal_texture.get_image().get_size() == Vector2i(512, 512)
+		and ground.roughness_texture.get_image().get_size() == Vector2i(512, 512),
+		"The bounded albedo, OpenGL normal and scalar map retain their declared resolutions.")
+	verify(ground.albedo_texture.get_image().has_mipmaps() and ground.normal_texture.get_image().has_mipmaps()
+		and ground.roughness_texture.get_image().has_mipmaps(), "All shared terrain resources have mipmaps.")
+	verify(ground.ao_enabled and ground.ao_texture == ground.roughness_texture
+		and ground.metallic_texture == ground.roughness_texture and ground.metallic == 0.0
+		and ground.roughness == 1.0 and ground.ao_light_affect == 0.0,
+		"One packed linear map supplies ambient occlusion and roughness while preserving the provider's dielectric factor.")
+	verify(ground.ao_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_RED
+		and ground.roughness_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_GREEN
+		and ground.metallic_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_BLUE,
+		"Packed scalar roles remain red occlusion, green roughness and blue metallic.")
+	verify(ground.normal_enabled and ground.normal_scale == 1.0 and ground.vertex_color_use_as_albedo
+		and ground.albedo_color == Color.WHITE and ground.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED,
+		"The scanned finish remains opaque and uses its original normal convention with restrained vertex tint.")
+	verify(ground.uv1_triplanar and ground.uv1_world_triplanar and ground.uv1_scale == Vector3.ONE * 0.5
+		and ground.texture_filter == BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC,
+		"World-space mapping preserves the two-metre extent across steep terrain faces.")
+	var packed := Image.load_from_file(Scenery.GROUND_ROOT.path_join(Scenery.GROUND_FILES.arm))
+	var actual := ground.ao_texture.get_image()
+	for pixel in [Vector2i(0, 0), Vector2i(117, 239), Vector2i(511, 511)]:
+		verify(actual.get_pixelv(pixel) == packed.get_pixelv(pixel), "Material construction preserves decoded scalar channels without a color transform.")
+	var mesh := Scenery.terrain_mesh()
+	verify(mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX] == Scenery.Surface.faces(),
+		"Photographic shading cannot alter the shared terrain triangle positions.")
+	var color := Scenery._terrain_vertex_color(30, 6.222421626752348, 1.65, Vector3.UP)
+	verify(color.r >= 0.75 and color.g >= 0.75 and color.b >= 0.75,
+		"The source albedo is not multiplied by a second dark procedural base coat.")
+	var empty := fixture_directory.path_join("ground-empty")
+	var partial := fixture_directory.path_join("ground-partial")
+	var wrong := fixture_directory.path_join("ground-wrong-extent")
+	for directory in [empty, partial, wrong]:
+		if not verify(not DirAccess.dir_exists_absolute(directory) and DirAccess.make_dir_absolute(directory) == OK,
+			"Negative material cases preserve existing outputs."):
+			return
+	var missing := Opening.ProductionSteelFloor.read_images(empty, Scenery.GROUND_FILES, Vector2i(512, 512))
+	verify(missing.status == "missing" and missing.images.is_empty(), "An absent bitmap set is an explicit procedural fallback.")
+	var albedo_path: String = Scenery.GROUND_ROOT.path_join(Scenery.GROUND_FILES.albedo)
+	if not verify(DirAccess.copy_absolute(albedo_path, partial.path_join(Scenery.GROUND_FILES.albedo)) == OK,
+		"Retain the real partial-set negative input."):
+		return
+	var incomplete := Opening.ProductionSteelFloor.read_images(partial, Scenery.GROUND_FILES, Vector2i(512, 512))
+	verify(incomplete.status == "invalid" and incomplete.reason == "incomplete_material_set" and incomplete.images.is_empty(),
+		"A partial set is never labelled as a sourced ready material.")
+	for role in Scenery.GROUND_FILES:
+		if not verify(DirAccess.copy_absolute(Scenery.GROUND_ROOT.path_join(Scenery.GROUND_FILES[role]),
+			wrong.path_join(Scenery.GROUND_FILES[role])) == OK, "Retain the complete extent-negative input."):
+			return
+	var tiny := Image.create(4, 4, false, Image.FORMAT_RGB8)
+	if not verify(tiny.save_webp(wrong.path_join(Scenery.GROUND_FILES.normal), false, 1.0) == OK,
+		"Replace only the disposable negative normal map with a valid wrong-size image."):
+		return
+	var invalid := Opening.ProductionSteelFloor.read_images(wrong, Scenery.GROUND_FILES, Vector2i(512, 512))
+	verify(invalid.status == "invalid" and invalid.reason == "invalid_normal" and invalid.images.is_empty(),
+		"A valid image with the wrong normal extent fails the declared material contract.")
+	verify(Opening.ProductionSteelFloor.read_images().status == "ready",
+		"The shared decoder's original default filenames still load the unchanged steel set.")
+
 func check_rock_shapes(rocks: MultiMesh) -> void:
 	var specs: Array[Dictionary] = Scenery.Surface.rock_boxes()
 	var buffer := rocks.buffer
@@ -271,6 +347,10 @@ func clip_polygon(polygon: Array[Vector3], axis: int, boundary: float, keep_abov
 	return result
 
 func run() -> void:
+	if mode == "ground-material":
+		check_ground_material()
+		finish()
+		return
 	if mode == "water-flow":
 		check_water_flow()
 		finish()
@@ -377,10 +457,15 @@ func run() -> void:
 		and stream.material_override == Scenery.water_material(),
 		"Repeated world views share the authored material resources.")
 	var soil: StandardMaterial3D = ground.material_override
-	verify(soil.albedo_texture is NoiseTexture2D and soil.normal_texture is NoiseTexture2D
-		and soil.normal_enabled and soil.albedo_texture.seamless and soil.normal_texture.seamless
-		and soil.vertex_color_use_as_albedo,
-		"The ground uses repeating color/normal detail combined with 3D elevation vertex shading.")
+	if Scenery.ground_source_status == "ready":
+		verify(soil.albedo_texture is ImageTexture and soil.normal_texture is ImageTexture
+			and soil.normal_enabled and soil.uv1_world_triplanar and soil.vertex_color_use_as_albedo,
+			"The scanned ground uses shared world-space color/normal maps with restrained elevation tint.")
+	else:
+		verify(soil.albedo_texture is NoiseTexture2D and soil.normal_texture is NoiseTexture2D
+			and soil.normal_enabled and soil.albedo_texture.seamless and soil.normal_texture.seamless
+			and soil.vertex_color_use_as_albedo,
+			"Missing historical ground maps retain the repeating procedural finish.")
 	var water: StandardMaterial3D = stream.material_override
 	var ripples: Image = water.normal_texture.get_image()
 	verify(ripples.get_width() == 128 and ripples.get_height() == 128 and ripples.has_mipmaps()

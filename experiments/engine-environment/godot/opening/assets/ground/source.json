@@ -1,0 +1,85 @@
+{
+  "asset": "Rocky Trail",
+  "author": "Amal Kumar",
+  "asset_url": "https://polyhaven.com/a/rocky_trail",
+  "license": "CC0",
+  "license_url": "https://polyhaven.com/license",
+  "source_extent_metres": [
+    2,
+    2
+  ],
+  "provider_info_sha256": "24db8aacab0f5618750ad50ba0e3c45518074ec2b5e34560091bed75222d6786",
+  "provider_files_sha256": "5d181bb110374911183f6a4cbda5c43ae39365bc0ca84c70d274f9177a1af119",
+  "source_files": {
+    "albedo": {
+      "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rocky_trail/rocky_trail_diff_1k.jpg",
+      "bytes": 1076180,
+      "sha256": "7f20d83cd4a67f9c38abf72f39f5a3749a962e90bdc156998be027b1227a5bd6"
+    },
+    "normal_gl": {
+      "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/rocky_trail/rocky_trail_nor_gl_1k.png",
+      "bytes": 6990580,
+      "sha256": "281e48ce787adcfbbd843902ca36294fdcf1513e0c1e4a49e6c60470759c2e50"
+    },
+    "arm": {
+      "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/rocky_trail/rocky_trail_arm_1k.png",
+      "bytes": 4359390,
+      "sha256": "10a2402bb656349715ecf4b3ace4c9c5bcafb67f35f2df2f3605ca75d6ded293"
+    },
+    "descriptor": {
+      "url": "https://dl.polyhaven.org/file/ph-assets/Textures/gltf/1k/rocky_trail/rocky_trail_1k.gltf",
+      "bytes": 2678,
+      "sha256": "1d96a30f4d698e14e37f16da6ed744161cc3f84570678344a8247fe5a57c636d"
+    }
+  },
+  "processed_files": {
+    "ground_albedo.webp": {
+      "albedo_rmse_srgb": 0.0239971549899424,
+      "decoded_rgb8_exact": false,
+      "encoded_bytes": 236172,
+      "file": "ground_albedo.webp",
+      "height": 1024,
+      "sha256": "167d97a49d324a19dbdf7298a80cabbae0c7cf363e3090d1d09a4b3c271fc4da",
+      "width": 1024
+    },
+    "ground_arm.webp": {
+      "decoded_rgb8_exact": true,
+      "encoded_bytes": 389488,
+      "file": "ground_arm.webp",
+      "height": 512,
+      "sha256": "4ed64e121248c63c394e9cff6f8e939207f4c4f36619982156cb0c10e6cd4e68",
+      "width": 512
+    },
+    "ground_normal_gl.webp": {
+      "decoded_rgb8_exact": true,
+      "encoded_bytes": 640354,
+      "file": "ground_normal_gl.webp",
+      "height": 512,
+      "maximum_unit_length_error": 0.0065264105796814,
+      "processing": "Original OpenGL PNG decoded to RGB8, Lanczos resized to 512, per-texel vectors renormalized and explicitly rounded to nearest RGB8 integers, lossless WebP. No gamma transform or green flip. Original 1024 representation remains preserved; albedo and ARM are not repeated.",
+      "sha256": "9d5b2c0cb072a90c94dacafcb55a0ca0b3ab8ee47ec534b3fb888c9a695a40a1",
+      "status": "pass",
+      "width": 512
+    }
+  },
+  "material": {
+    "metallic_factor": 0,
+    "roughness_factor": 1,
+    "packed_channels": {
+      "red": "ambient occlusion",
+      "green": "roughness",
+      "blue": "metallic (factor zero, as in provider glTF)"
+    },
+    "normal": "OpenGL tangent normal. No green flip or gamma transform.",
+    "mapping": "World-space triplanar scale 0.5; two metres per repeat.",
+    "mipmaps": "Generated once per shared image. Normal mipmaps use vector renormalization.",
+    "geometry": "No source displacement is applied. Shared terrain and collision geometry are unchanged."
+  },
+  "preparation": {
+    "albedo": "1024px RGB8 WebP quality 0.70, no resize or color transform. Measured sRGB RMSE against provider JPG: 0.0239971549899424; declared bound 0.025.",
+    "arm": "Provider PNG decoded to RGB8, Lanczos resized to 512, lossless WebP. Decoded output equals the prepared scalar image.",
+    "normal": "Provider 16-bit OpenGL PNG decoded to RGB8, Lanczos resized to 512, vectors normalized and explicitly rounded to nearest RGB8, lossless WebP. Decoded output equals prepared bytes; maximum unit-length error 0.0065264105796814.",
+    "retained_alternatives": "The valid 1024px normal exceeds the combined source allowance. The first 512px writer failed its unit-vector bound; both outputs and results remain external."
+  },
+  "limits": "Source packaging and headless material tests do not establish rendered quality, Satisfactory parity or GPU cost."
+}

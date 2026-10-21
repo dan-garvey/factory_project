@@ -212,6 +212,16 @@ preservation and assigned-color contrast, not pixel appearance or human usabilit
 
 ## Shared terrain and millrace
 
+Complete current captures use the CC0 [Rocky Trail](ground/CREDITS.md) surface
+for the valley ground. Shared albedo, packed scalar and OpenGL normal maps use
+world-space mapping at the source's two-metre scale. Restrained elevation tint
+preserves the photograph's brightness rather than applying another dark base
+coat. This changes shading only: terrain triangles, support geometry, native
+poses and construction anchors are unchanged. The steel material has its own
+cache and files; both use the same bounded decoder with their declared normal
+resolutions. Source packaging and material checks do not establish rendered
+quality or GPU performance.
+
 The worksite uses the contoured valley, stream, sluice and stepped tailrace from the retained millrace candidate. Terrain triangles, flat deck rectangles, wharf beams, architectural boxes and rock transforms are shared immutable inputs in `site_surface.gd`; ActorWorld alone constructs their native collision. Water, foam, foliage and small turned ornaments remain visual details. The scanned steel cache and floor channels are unchanged. The displayed finite site is adapter geometry, not a gameplay world boundary. Human visual quality has not been assessed.
 
 The shared opaque water material now scrolls its repeated normal detail downstream
