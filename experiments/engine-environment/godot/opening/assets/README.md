@@ -585,20 +585,25 @@ for cache reuse only; native poses, commands and reach remain exact. General
 diagonal/vertical logistics, rendered quality and GPU cost remain unverified.
 
 The native waterwheel has original flared cast stands and open worked journal
-liners. Their fixed bearing centers are fitted over the unchanged visible hub;
-the horizontal arrangement has two supports, while the vertical axle has one
-turned pedestal. Beveled rings, feet and hex heads share the existing qualified
+liners. Its two horizontal supports keep a fixed bore as the confirmed rim
+diameter grows. The journal cancels only the rotor's radial scaling, preserving
+the current axial ends and native spindle reference. Beveled rings, feet and hex heads share the existing qualified
 [cast/worked surfaces](transmission-surfaces/CREDITS.md). Geometry is baked in
 metres so scaling the fixture does not shrink their material repeat. The annular
-liners clear the actual old journal, and fixed feet remain outside the rotor's
+liners clear the actual transformed journal, and fixed feet remain outside the rotor's
 whole-turn envelope. These are presentation parts of the existing wheel, not
 independent structures, additional shaft reach, collision or force authority.
+The focused fixture covers both admitted horizontal axes at three, five and
+eight tiles, including translated cells and absolute construction levels. It
+measures the complete journal and liner facets instead of assuming the rotor's
+scale also fits its fixed bearings. The isolated `waterwheel-journal` views hide
+the timber rotor and paddles to expose this assembly; ordinary whole-wheel views
+remain separate. A cutaway does not represent normal in-game visibility.
 Foot bolts sit on flat mounting pads rather than crossing sloped shoulders.
 The focused contact oracle clips each complete hexagonal lower face against the
 actual casting triangles, checking full support and absence of penetration.
-Historical captures without the sourced rotor and nonnative wheels keep their
-earlier support assemblies. Geometry
-checks do not establish rendered quality, lubrication or a bearing simulation.
+Geometry checks and isolated images do not establish complete rendered quality,
+human play, lubrication or a bearing simulation.
 
 The optional [fern component](ferns/CREDITS.md) adds modest broad-leaf undergrowth
 to the natural river banks. One compact licensed clump retains its original scale,

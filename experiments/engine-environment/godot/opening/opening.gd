@@ -4638,8 +4638,14 @@ func _wheel_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 			var spoke := _machine_box(wheel_rotor, "WheelSpoke", Vector3.ZERO,
 				Vector3(0.065, 1.0, 0.085), wood, 0.05, 0.88)
 			spoke.rotation.z = n * PI / 3.0
-	_machine_cylinder(wheel_rotor, "WheelHub", Vector3.ZERO, 0.13, 0.45,
+	var journal := _machine_cylinder(wheel_rotor, "WheelHub", Vector3.ZERO, 0.13, 0.45,
 		Color("b87945"), Vector3(PI / 2, 0, 0))
+	if native_profile:
+		# The rim grows with its confirmed diameter; the existing fixed bore
+		# and current journal ends do not. Cylinder-local Y follows the rotor's
+		# unchanged axial scale; its two radial directions cancel rim growth.
+		journal.scale = Vector3(scale_factor / radial_scale, 1.0,
+			scale_factor / radial_scale)
 
 func _assemble_machine(anchor: Node3D, entity: Dictionary) -> void:
 	var water_wheel: bool = entity.kind == "wheel" and _native_transmission()
