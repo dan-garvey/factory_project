@@ -603,9 +603,29 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
     for (const auto& span : state.topology.belt_spans) {
         const auto issued = state.issued_entities.find(span.geometry.id);
         const auto total = totals.find({Role::belt, 0, 0});
+        const auto lane = state.material.belt_lanes.find(span.geometry.id);
+        const auto* first = part(state.topology, span.geometry.first_shaft);
+        const auto* last = part(state.topology, span.geometry.last_shaft);
+        if (!first || !last || lane == state.material.belt_lanes.end() ||
+            first->role != Role::shaft || last->role != Role::shaft ||
+            first->geometry.axis != last->geometry.axis ||
+            (first->geometry.axis != mechanics::Axis::x && first->geometry.axis != mechanics::Axis::z)) return false;
+        for (const auto coordinate : first->geometry.center)
+            if (coordinate < -mechanics::maximum_coordinate || coordinate > mechanics::maximum_coordinate) return false;
+        for (const auto coordinate : last->geometry.center)
+            if (coordinate < -mechanics::maximum_coordinate || coordinate > mechanics::maximum_coordinate) return false;
+        const auto axis = first->geometry.axis == mechanics::Axis::x ? 2 : 0;
+        const auto length = std::abs(first->geometry.center[axis] - last->geometry.center[axis]) / 4 + 1;
+        if (length < 2 || length > static_cast<Integer>(materials::maximum_belt_slots) ||
+            lane->second.slots.size() != static_cast<std::size_t>(length)) return false;
+        for (const auto& item : lane->second.slots) {
+            if (item && item->work_lots.size() > maximum_current_work - current_work) return false;
+            if (item) current_work += item->work_lots.size();
+        }
         if (issued == state.issued_entities.end() || issued->second != span.generation ||
             total == totals.end() || !add(total->second, 1)) return false;
     }
+    if (state.material.belt_lanes.size() != state.topology.belt_spans.size()) return false;
     for (const auto& link : state.topology.material_links) {
         const auto* from = part(state.topology, link.from.id);
         const auto* to = part(state.topology, link.to.id);
@@ -827,6 +847,10 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             auto& ready = std::get<stationary::PreparedPlacement>(proposal);
             candidate.topology = std::move(ready.candidate);
             candidate.kits.at(binding.actor) = std::move(ready.candidate_kit);
+            const auto axis = first->geometry.axis == mechanics::Axis::x ? 2 : 0;
+            const auto length = std::abs(first->geometry.center[axis] - last->geometry.center[axis]) / 4 + 1;
+            candidate.material.belt_lanes.emplace(entity, materials::BeltLane{
+                std::vector<std::optional<materials::Cargo>>(static_cast<std::size_t>(length)), 0});
             candidate.issued_entities.emplace(entity, generation);
         } else {
             auto proposal = stationary::prepare_belt_removal(state.topology, state.kits.at(binding.actor), state.material,
@@ -836,6 +860,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             auto& ready = std::get<stationary::PreparedRemoval>(proposal);
             candidate.topology = std::move(ready.candidate);
             candidate.kits.at(binding.actor) = std::move(ready.candidate_kit);
+            candidate.material.belt_lanes.erase(entity);
         }
         facts.emplace("generation", Value(generation));
         return accepted(std::move(candidate), entity, std::move(facts));
@@ -1021,9 +1046,74 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
 Advance World::tick() noexcept {
     return owner_->advance([&](const Snapshot& snapshot) -> std::optional<State> {
         auto candidate = snapshot.state;
+        const auto power = machine_power(candidate.topology);
         const auto error = materials::step(candidate.material, profile_.material,
-            material_path(candidate.topology), machine_power(candidate.topology));
+            material_path(candidate.topology), power);
         if (error != materials::Error::none) throw error;
+        const auto motion = stationary::power_view(candidate.topology).mechanical;
+        if (!motion.accepted()) throw materials::Error::invalid_path;
+        bool collector_fed_span = false;
+        for (const auto& span : candidate.topology.belt_spans) {
+            const auto* first = part(candidate.topology, span.geometry.first_shaft);
+            const auto* last = part(candidate.topology, span.geometry.last_shaft);
+            const auto rate = motion.motion.find(span.geometry.first_shaft);
+            auto lane = candidate.material.belt_lanes.find(span.geometry.id);
+            if (!first || !last || rate == motion.motion.end() || lane == candidate.material.belt_lanes.end())
+                throw materials::Error::invalid_state;
+            const bool along_z = first->geometry.axis == mechanics::Axis::x;
+            const int travel_axis = along_z ? 2 : 0;
+            const auto step = last->geometry.center[travel_axis] > first->geometry.center[travel_axis] ? 4 : -4;
+            auto before = first->geometry.center;
+            auto after = last->geometry.center;
+            before[travel_axis] -= step;
+            after[travel_axis] += step;
+            const auto at = [&](Role role, const mechanics::Point& point) {
+                return std::any_of(candidate.topology.parts.begin(), candidate.topology.parts.end(),
+                    [&](const auto& part) { return part.role == role && part.geometry.center == point; });
+            };
+            if (rate->second.state == mechanics::MotionState::rotating &&
+                std::any_of(lane->second.slots.begin(), lane->second.slots.end(),
+                    [](const auto& item) { return item.has_value(); })) {
+                __extension__ using Wide = __int128;
+                Wide magnitude = rate->second.rate.numerator;
+                if (magnitude < 0) magnitude = -magnitude;
+                const auto speed = static_cast<Integer>(std::clamp<Wide>(
+                    magnitude * materials::work_subticks_per_tick / rate->second.rate.denominator,
+                    1, materials::maximum_work_subticks_per_tick));
+                const bool positive_world = along_z ? rate->second.rate.numerator > 0 : rate->second.rate.numerator < 0;
+                const bool toward_last = positive_world == (step > 0);
+                const auto& receiver_point = toward_last ? after : before;
+                const auto& slots = lane->second.slots;
+                const auto leading = std::find_if(slots.rbegin(), slots.rend(),
+                    [](const auto& item) { return item.has_value(); });
+                // Reverse traversal needs a forward iterator; choose the first
+                // occupied item without making an invented material type.
+                const auto forward_leading = std::find_if(slots.begin(), slots.end(),
+                    [](const auto& item) { return item.has_value(); });
+                const auto* item = toward_last ? (leading == slots.rend() ? nullptr : &**leading) :
+                    (forward_leading == slots.end() ? nullptr : &**forward_leading);
+                const bool can_receive = item && item->raw_units == 1 && at(Role::processor, receiver_point) &&
+                    candidate.material.stock.input < profile_.material.input_units_per_product;
+                auto proposal = materials::advance_belt_lane(lane->second, toward_last ? speed : -speed, can_receive ? 1 : 0);
+                if (!proposal || proposal->delivered.size() > 1) throw materials::Error::invalid_state;
+                if (!proposal->delivered.empty()) {
+                    if (proposal->delivered.front() != materials::Cargo{1, 0, {}}) throw materials::Error::invalid_state;
+                    ++candidate.material.stock.input;
+                }
+                lane->second = std::move(proposal->candidate);
+            }
+            // A powered collector can fill an adjacent empty endpoint even if
+            // the belt is stopped, just as it can fill a passive machine buffer.
+            if (!collector_fed_span && power.collector && candidate.material.stock.collector > 0) {
+                const bool feed_first = at(Role::collector, before) && !lane->second.slots.front();
+                const bool feed_last = at(Role::collector, after) && !lane->second.slots.back();
+                if (feed_first || feed_last) {
+                    (feed_first ? lane->second.slots.front() : lane->second.slots.back()) = materials::Cargo{1, 0, {}};
+                    --candidate.material.stock.collector;
+                    collector_fed_span = true;
+                }
+            }
+        }
         if (candidate.material == snapshot.state.material) return std::nullopt;
         return candidate;
     });

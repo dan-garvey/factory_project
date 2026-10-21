@@ -35,6 +35,16 @@ expected roster, World context and every work serial in retained history.
 
 ## Tick and product retrieval
 
+`advance_belt_lane` is a pure proposal for a shaft-connected belt span.
+It moves individual raw units, products or whole work lots through bounded slots
+using signed fixed-point distance, preserves fractional phase across reversal,
+and propagates a full receiver's backpressure. It returns the candidate and
+delivered items without changing the input. World owns and validates each lane,
+persists it, and advances occupied lanes from confirmed shaft motion. The World
+connects adjacent collectors and processor inputs at span endpoints; other
+items remain on the lane. Manual recovery and item presentation remain
+unimplemented.
+
 The fixed order remains: advance or finish existing machine work; start eligible
 new work; move belt input; move collector stock; extract finite source feed.
 New work receives its full original duration and one checked fresh serial. A full
@@ -60,8 +70,8 @@ baseline ticks per step. Opposite directions work equally; an unpowered or
 stalled press does no work. This makes gear ratios affect processing but does
 not claim Create's exact press timing, load, or stress behavior. Fractional
 progress belongs to the WorkLot and follows it through recovery and insertion.
-The material checkpoint schema is 2; schema 1 is refused because it lacks that
-progress, rather than inventing a compatibility migration.
+The material checkpoint schema is 4 and includes belt-lane custody; earlier
+schemas are refused rather than inventing a compatibility migration.
 
 Product retrieval credits only an already admitted actor's Cargo.products.
 It cannot create a new actor, collect raw material as a plate or consume a work

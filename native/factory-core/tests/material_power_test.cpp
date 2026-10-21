@@ -1,5 +1,6 @@
 #include "factory/materials.hpp"
 
+#include <bit>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
@@ -217,6 +218,62 @@ void absent_masks_and_exhausted_identity() {
     require(m::step(bad, config, disabled, {}) == m::Error::invalid_state && bad == original_bad,
             "A disabled profile never conceals malformed custody.");
 }
+void multi_slot_belt_lane() {
+    const m::Cargo raw{1, 0, {}};
+    const m::Cargo product{0, 1, {}};
+    const m::Cargo lot{0, 0, {{7, {2, 4}, 3, 123}}};
+    m::BeltLane lane{{raw, std::nullopt, product, lot}, 0};
+    const auto original = lane;
+    auto half = m::advance_belt_lane(lane, m::work_subticks_per_tick / 2, 0);
+    require(half && half->candidate.slots == lane.slots && half->candidate.phase == m::work_subticks_per_tick / 2,
+            "A half-speed tick retains fractional motion without teleporting items.");
+    auto held = m::advance_belt_lane(half->candidate, 0, 0);
+    require(held && held->candidate == half->candidate && held->delivered.empty(),
+            "A stopped lane retains its material and fractional phase.");
+    auto full = m::advance_belt_lane(held->candidate, m::work_subticks_per_tick / 2, 0);
+    require(full && full->candidate.slots == std::vector<std::optional<m::Cargo>>{std::nullopt, raw, product, lot},
+            "A blocked output propagates backpressure while filling the available gap.");
+    auto drain = m::advance_belt_lane(full->candidate, 2 * m::work_subticks_per_tick, 2);
+    require(drain && drain->delivered == std::vector<m::Cargo>{lot, product} &&
+            drain->candidate.slots == std::vector<std::optional<m::Cargo>>{std::nullopt, std::nullopt, std::nullopt, raw},
+            "A faster belt delivers the original whole items in order and preserves remaining custody.");
+    auto reverse = m::advance_belt_lane(drain->candidate, -2 * m::work_subticks_per_tick, 1);
+    require(reverse && reverse->candidate.slots[1] == raw && reverse->delivered.empty(),
+            "A reversed belt moves the same remaining item toward the other endpoint.");
+    reverse = m::advance_belt_lane(reverse->candidate, -2 * m::work_subticks_per_tick, 1);
+    require(reverse && reverse->delivered == std::vector<m::Cargo>{raw},
+            "A reversed belt releases its item only at the selected receiver.");
+    auto reversed_fraction = m::advance_belt_lane(half->candidate, -m::work_subticks_per_tick / 2, 1);
+    require(reversed_fraction && reversed_fraction->candidate == original && reversed_fraction->delivered.empty(),
+            "Changing direction first cancels the retained fractional movement.");
+    require(lane == original, "All proposals leave their caller's lane unchanged.");
+    auto invalid = lane;
+    invalid.slots[0] = m::Cargo{2, 0, {}};
+    require(!m::advance_belt_lane(invalid, 1, 1) &&
+            !m::advance_belt_lane(lane, m::maximum_work_subticks_per_tick + 1, 1) &&
+            !m::advance_belt_lane(lane, 1, -1),
+            "Malformed contents, out-of-profile speed and receiver capacity refuse atomically.");
+    invalid = lane;
+    invalid.slots[0] = lot;
+    require(!m::advance_belt_lane(invalid, 1, 1), "Duplicate work identities cannot enter one lane proposal.");
+    for (unsigned mask = 0; mask < 16; ++mask) {
+        m::BeltLane sample{{std::nullopt, std::nullopt, std::nullopt, std::nullopt}, 0};
+        for (std::size_t i = 0; i < sample.slots.size(); ++i)
+            if (mask & (1U << i)) sample.slots[i] = raw;
+        const auto count = static_cast<std::size_t>(std::popcount(mask));
+        for (const auto speed : {-2 * m::work_subticks_per_tick, -m::work_subticks_per_tick,
+                                 m::work_subticks_per_tick, 2 * m::work_subticks_per_tick}) {
+            for (const m::Quantity capacity : {0, 1, 4}) {
+                const auto moved = m::advance_belt_lane(sample, speed, capacity);
+                std::size_t retained = 0;
+                if (moved) for (const auto& slot : moved->candidate.slots) retained += slot.has_value();
+                require(moved && retained + moved->delivered.size() == count &&
+                        moved->delivered.size() <= static_cast<std::size_t>(capacity) && sample.phase == 0,
+                        "Every occupancy, direction and receiver-capacity combination conserves its units.");
+            }
+        }
+    }
+}
 }  // namespace
 
 int main() {
@@ -227,6 +284,7 @@ int main() {
         independent_senders_and_partial_pause();
         ready_work_and_disable();
         absent_masks_and_exhausted_identity();
+        multi_slot_belt_lane();
         std::cout << "{\"status\":\"pass\",\"evidence\":\"invented_machine_power\",\"checks\":"
                   << checks << "}\n";
         return 0;

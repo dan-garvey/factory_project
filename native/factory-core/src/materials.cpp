@@ -38,6 +38,17 @@ bool unique_lot(const State& state, WorkId id) noexcept {
             seen = true;
         }
     }
+    for (const auto& [span_id, lane] : state.belt_lanes) {
+        (void)span_id;
+        for (const auto& item : lane.slots) {
+            if (!item) continue;
+            for (const auto& lot : item->work_lots) {
+                if (lot.id != id) continue;
+                if (seen) return false;
+                seen = true;
+            }
+        }
+    }
     return seen;
 }
 
@@ -58,9 +69,73 @@ const char* error_name(Error error) noexcept {
     return "unknown_error";
 }
 
+std::optional<BeltAdvance> advance_belt_lane(const BeltLane& lane, Quantity signed_subticks,
+                                             Quantity receiver_capacity) {
+    if (lane.slots.size() < 2 || lane.slots.size() > maximum_belt_slots ||
+        lane.phase <= -work_subticks_per_tick || lane.phase >= work_subticks_per_tick ||
+        signed_subticks < -maximum_work_subticks_per_tick ||
+        signed_subticks > maximum_work_subticks_per_tick || receiver_capacity < 0)
+        return std::nullopt;
+    for (std::size_t index = 0; index < lane.slots.size(); ++index) {
+        if (!lane.slots[index]) continue;
+        const auto& item = *lane.slots[index];
+        const bool raw = item.raw_units == 1 && item.products == 0 && item.work_lots.empty();
+        const bool product = item.raw_units == 0 && item.products == 1 && item.work_lots.empty();
+        const bool work = item.raw_units == 0 && item.products == 0 && item.work_lots.size() == 1;
+        if (!raw && !product && !work) return std::nullopt;
+        if (work) {
+            const auto& lot = item.work_lots.front();
+            if (lot.id <= 0 || lot.recipe.input_units_per_product < 1 || lot.recipe.cycle_ticks < 1 ||
+                lot.remaining_ticks < 0 || lot.remaining_ticks > lot.recipe.cycle_ticks ||
+                lot.completed_subticks < 0 || lot.completed_subticks >= work_subticks_per_tick ||
+                (lot.remaining_ticks == 0 && lot.completed_subticks != 0)) return std::nullopt;
+            for (std::size_t other = 0; other < index; ++other)
+                if (lane.slots[other] && !lane.slots[other]->work_lots.empty() &&
+                    lane.slots[other]->work_lots.front().id == lot.id) return std::nullopt;
+        }
+    }
+    BeltAdvance result{lane, {}};
+    const auto displacement = lane.phase + signed_subticks;
+    const auto steps = displacement / work_subticks_per_tick;
+    result.candidate.phase = displacement % work_subticks_per_tick;
+    const auto direction = steps < 0 ? -1 : 1;
+    for (Quantity step = 0; step < (steps < 0 ? -steps : steps); ++step) {
+        auto& slots = result.candidate.slots;
+        const std::size_t end = direction > 0 ? slots.size() - 1 : 0;
+        if (slots[end] && static_cast<Quantity>(result.delivered.size()) < receiver_capacity) {
+            result.delivered.push_back(std::move(*slots[end]));
+            slots[end].reset();
+        }
+        for (std::size_t offset = 1; offset < slots.size(); ++offset) {
+            const std::size_t from = direction > 0 ? end - offset : offset;
+            const std::size_t to = direction > 0 ? from + 1 : from - 1;
+            if (slots[from] && !slots[to]) {
+                slots[to] = std::move(slots[from]);
+                slots[from].reset();
+            }
+        }
+    }
+    return result;
+}
+
 Error validate(const State& state, const Config& config, const Path& path) noexcept {
     if (config.input_units_per_product < 1 || config.collector_capacity < 1 ||
         config.cycle_ticks < 1) return Error::invalid_configuration;
+    std::size_t current_work = state.processing ? 1 : 0;
+    for (const auto& [actor, cargo] : state.cargo) {
+        (void)actor;
+        if (cargo.work_lots.size() > 256 - current_work) return Error::invalid_state;
+        current_work += cargo.work_lots.size();
+    }
+    if (state.belt_lanes.size() > 256) return Error::invalid_state;
+    for (const auto& [id, lane] : state.belt_lanes) {
+        (void)id;
+        if (lane.slots.size() > maximum_belt_slots) return Error::invalid_state;
+        for (const auto& item : lane.slots) if (item) {
+            if (item->work_lots.size() > 256 - current_work) return Error::invalid_state;
+            current_work += item->work_lots.size();
+        }
+    }
     const auto& stock = state.stock;
     if (state.initial_units < 0 || stock.source < 0 || stock.collector < 0 ||
         stock.belt < 0 || stock.input < 0 || stock.output < 0 ||
@@ -92,6 +167,25 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
         return Error::quantity_overflow;
     }
     if (!products(total, stock.output, config.input_units_per_product)) return Error::quantity_overflow;
+    for (const auto& [span_id, lane] : state.belt_lanes) {
+        if (span_id.empty() || lane.slots.size() < 2 || lane.slots.size() > maximum_belt_slots ||
+            lane.phase <= -work_subticks_per_tick || lane.phase >= work_subticks_per_tick)
+            return Error::invalid_state;
+        for (const auto& item : lane.slots) {
+            if (!item) continue;
+            const bool raw = item->raw_units == 1 && item->products == 0 && item->work_lots.empty();
+            const bool product = item->raw_units == 0 && item->products == 1 && item->work_lots.empty();
+            const bool work = item->raw_units == 0 && item->products == 0 && item->work_lots.size() == 1;
+            if (!raw && !product && !work) return Error::invalid_state;
+            if (raw && !add(total, 1)) return Error::quantity_overflow;
+            if (product && !add(total, config.input_units_per_product)) return Error::quantity_overflow;
+            if (work) {
+                const auto& lot = item->work_lots.front();
+                if (!valid_lot(lot, state, config) || !unique_lot(state, lot.id)) return Error::invalid_state;
+                if (!add(total, lot.recipe.input_units_per_product)) return Error::quantity_overflow;
+            }
+        }
+    }
     for (const auto& [actor, cargo] : state.cargo) {
         if (actor.empty() || cargo.raw_units < 0 || cargo.products < 0) return Error::invalid_state;
         if (!add(total, cargo.raw_units) || !products(total, cargo.products, config.input_units_per_product)) {
