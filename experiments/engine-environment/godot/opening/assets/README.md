@@ -31,9 +31,12 @@ with the existing scanned steel deck. The qualified
 scale through world-space triplanar mapping. The thin deck covers the footing's
 chamfer with a narrow lip; it meets the actual support plane and leaves the top
 at zero. Confirmed foundations at the same level select one of sixteen cached
-deck edge variants. A shared edge is flat across both tiles, while gaps,
-corners, different levels and removed neighbors retain an exposed bevel.
-The concrete footing and each deck remain inside the original tile envelope;
+deck and concrete edge variants. A shared deck edge is flat across both tiles;
+the concrete face closes its accidental vertical groove at that join. Exposed
+corners keep a wider bevel, and a shallow horizontal course reveal continues
+around the exterior wall. Gaps, different levels and removed neighbors expose
+the appropriate corner again. The concrete footing and each deck remain inside
+the original tile envelope;
 stacking adds no local height offset. This is passive presentation over the
 separately owned native foundation feature, without a new support, collision,
 recipe or quantity rule. The isolated patch and corner views help inspect

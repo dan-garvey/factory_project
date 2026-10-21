@@ -1940,7 +1940,7 @@ func foundation_contact(footing: MeshInstance3D, deck: MeshInstance3D) -> Dictio
 	var contact: float = overlap.x * overlap.y
 	var ratio: float = contact / foot.area if foot.area > 0 else 0.0
 	var gap: float = foot.height - support.height
-	return {"valid": support.triangles == 2 and foot.triangles == 18 and absf(gap) < 0.000001 and ratio >= 0.97,
+	return {"valid": support.triangles == 8 and foot.triangles == 18 and absf(gap) < 0.000001 and ratio >= 0.97,
 		"gap": gap, "contact_area": contact, "deck_foot_area": foot.area, "supported_fraction": ratio,
 		"support_plane": support.height, "deck_foot_plane": foot.height}
 
@@ -2060,6 +2060,10 @@ func check_foundation_art() -> void:
 		var mesh: ArrayMesh = FoundationArt.deck_mesh(mask)
 		check_closed_asset_mesh(mesh, 0.063, 0.066)
 		verify(mesh == FoundationArt.deck_mesh(mask), "Each of the sixteen edge variants is cached without another state owner.")
+		var concrete_mesh: ArrayMesh = FoundationArt.footing_mesh(mask)
+		check_closed_asset_mesh(concrete_mesh, 2.17, 2.19)
+		verify(concrete_mesh == FoundationArt.footing_mesh(mask),
+			"The concrete exterior courses reuse one bounded mesh per confirmed neighbor arrangement.")
 		var tile := Node3D.new()
 		verify(FoundationArt.mount(tile, mask) and foundation_contact(tile.get_node("FoundationBlock"),
 			tile.get_node("FoundationTop")).valid and foundation_bounds_match(tile),
@@ -2080,6 +2084,17 @@ func check_foundation_art() -> void:
 			exposed_recess = true
 	verify(joined_vertices >= 4 and exposed_recess,
 		"A true perimeter keeps the edge bevel while a joined edge does not recreate a groove.")
+	var north_exposed_extent := -INF
+	var north_joined_extent := -INF
+	for vertex: Vector3 in FoundationArt.footing_mesh().surface_get_arrays(0)[Mesh.ARRAY_VERTEX]:
+		if absf(vertex.z + half) < 0.000001:
+			north_exposed_extent = maxf(north_exposed_extent, vertex.x)
+	for vertex: Vector3 in FoundationArt.footing_mesh(FoundationArt.EAST).surface_get_arrays(0)[Mesh.ARRAY_VERTEX]:
+		if absf(vertex.z + half) < 0.000001:
+			north_joined_extent = maxf(north_joined_extent, vertex.x)
+	verify(absf(north_exposed_extent - (half - FoundationArt.FOOTING_BEVEL)) < 0.000001
+		and absf(north_joined_extent - (half - FoundationArt.JOIN_CORNER)) < 0.000001,
+		"An exposed concrete corner keeps its bevel, while a confirmed adjoining tile closes the accidental wall groove.")
 	confirmed.erase("b")
 	var removed_masks: Dictionary = FoundationArt.neighbor_masks(confirmed)
 	verify(removed_masks.a == FoundationArt.SOUTH and removed_masks.d == FoundationArt.WEST,
@@ -2091,6 +2106,7 @@ func check_foundation_art() -> void:
 	var before_state: Dictionary = view.state.duplicate(true)
 	view._rebuild_machines()
 	var actual_masks: Dictionary = {}
+	var actual_footings: Dictionary = {}
 	for anchor: Node3D in view.machine_root.get_children():
 		var found_id := ""
 		for id in confirmed:
@@ -2098,6 +2114,7 @@ func check_foundation_art() -> void:
 				found_id = id
 		if not found_id.is_empty():
 			actual_masks[found_id] = anchor.get_node("FoundationTop").mesh
+			actual_footings[found_id] = anchor.get_node("FoundationBlock").mesh
 			var picking := false
 			for child in anchor.get_children():
 				if child is StaticBody3D:
@@ -2110,6 +2127,8 @@ func check_foundation_art() -> void:
 	for id in confirmed:
 		verify(actual_masks[id] == FoundationArt.deck_mesh(removed_masks[id]),
 			"The ordinary rebuilt foundation mounts the exact edge variant for its confirmed neighbors.")
+		verify(actual_footings[id] == FoundationArt.footing_mesh(removed_masks[id]),
+			"Concrete joins and exposed corners follow the same confirmed layout after removal.")
 	view.machine_root.free()
 	view.free()
 	var lower := Node3D.new()
