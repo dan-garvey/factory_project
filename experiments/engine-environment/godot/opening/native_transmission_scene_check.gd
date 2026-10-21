@@ -115,7 +115,7 @@ func _layouts() -> bool:
 		opening.inspector.text = "Cogwheel · Y axis\nGrid [0, 4, 4]\nRate -1 / 1"
 		await process_frame
 		await process_frame
-		var build: Rect2 = opening.tool_buttons.drive.get_parent().get_parent().get_global_rect()
+		var build: Rect2 = opening.build_column.get_parent().get_global_rect()
 		var worksite: Rect2 = opening.remove_button.get_parent().get_parent().get_global_rect()
 		var footer: Rect2 = opening.status_label.get_parent().get_parent().get_global_rect()
 		facts.layouts.append({"viewport": [size.x, size.y],
@@ -150,7 +150,7 @@ func _run() -> void:
 			break
 	if mode == "layout":
 		facts.evidence = "headless_native_transmission_layout_fixture"
-		opening.show_all_tools = true
+		opening._select_tool("gear")
 		if await _layouts():
 			_record("pass")
 		return
@@ -161,8 +161,8 @@ func _run() -> void:
 	if not _expect(opening.transmission_controls != null and opening.transmission_presenter != null
 		and not opening.transmission_controls.visible, "The fresh guided opening must mount but not dump extra tools"):
 		return
-	opening._toggle_all_tools()
-	if not _expect(opening.transmission_controls.visible, "All tools must expose the native transmission menu"):
+	opening._select_tool("gear")
+	if not _expect(opening.transmission_controls.visible, "Selecting a transmission tool exposes its settings menu"):
 		return
 	opening.transmission_controls._axes.id_pressed.emit(1)
 	if not _expect(opening.transmission_controls.selected_axis == "y", "The ordinary axis menu must select Y"):

@@ -1,5 +1,9 @@
 # Opening presentation assets
 
+`build-icons/` contains seven original vector symbols for the building catalog
+and quick slots. They are interface drawings, not world geometry or construction
+authority. The current carried counts come from the opening's confirmed kit.
+
 The existing `machine_detail_check.gd` fixture also has a
 `--render-buildable-resources` mode for inspecting the current native collector,
 press, conveyor, waterwheel and foundation kit as passive resources. It reads its own

@@ -172,7 +172,7 @@ func _run() -> void:
 		return opening.model.projection().actors.P.ready and opening.actor_world.bodies.P.is_on_floor() and not opening.startup_save_pending
 	if not await _until(ready, "The actual native body is ready before ordinary construction"): return
 	facts["initial_projection"] = opening.model.projection()
-	opening.all_tools_button.pressed.emit()
+	opening.catalog_button.pressed.emit()
 	if mode == "prepare":
 		await _prepare()
 	else:

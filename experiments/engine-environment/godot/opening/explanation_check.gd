@@ -110,7 +110,7 @@ func _run() -> void:
 	await process_frame
 	_check(presenter.world.focus.x > old_focus.x, "Actual held camera key pans only the example.")
 	var example_before: Dictionary = presenter.model.checkpoint()
-	for code in [KEY_1, KEY_2, KEY_3, KEY_4, KEY_F, KEY_G, KEY_I, KEY_R, KEY_SPACE, KEY_F5, KEY_F9]:
+	for code in [KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_B, KEY_F, KEY_G, KEY_I, KEY_R, KEY_SPACE, KEY_F5, KEY_F9]:
 		await _key(code)
 	await _click_screen(center)
 	_check(presenter.model.checkpoint() == example_before, "Build/retrieve/save shortcuts and viewport clicks cannot edit the example.")
@@ -146,7 +146,7 @@ func _run() -> void:
 		"Actual Return button restores the ordinary empty worksite without side effects.")
 	# Return must leave ordinary building usable. Build through actual input,
 	# then separately prove the existing live clock moves PLAYER stock in Help.
-	for entry in [[KEY_4, -1], [KEY_1, 0], [KEY_2, 1], [KEY_3, 2]]:
+	for entry in [[KEY_5, -1], [KEY_1, 0], [KEY_3, 1], [KEY_4, 2]]:
 		await _key(entry[0])
 		await _click_cell(entry[1])
 	await _connect(KEY_F, 0, 1)

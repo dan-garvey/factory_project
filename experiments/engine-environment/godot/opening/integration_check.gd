@@ -19,7 +19,7 @@ func _run() -> void:
 	await physics_frame
 	_check(scene.save_slot_ready and not scene.save_button.disabled and scene.load_button.disabled,
 		"Fresh session enables saving without pretending a save already exists.")
-	for entry in [[KEY_4, -1], [KEY_1, 0], [KEY_2, 1], [KEY_3, 2]]:
+	for entry in [[KEY_5, -1], [KEY_1, 0], [KEY_3, 1], [KEY_4, 2]]:
 		await _key(entry[0])
 		await _click_cell(entry[1])
 	await _connect(KEY_F, 0, 1)
@@ -48,7 +48,7 @@ func _run() -> void:
 	await _key(KEY_I)
 	await _click_cell(-1)
 	await _click_screen(scene.remove_button.get_global_rect().get_center())
-	await _key(KEY_4)
+	await _key(KEY_5)
 	await _click_cell(-1)
 	_check(scene.model.projection().entities.has("wheel-2"), "Ordinary input rebuilds a fresh wheel identity.")
 	await _key(KEY_G)

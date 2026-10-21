@@ -6,6 +6,7 @@ const Store = preload("res://save-tests/checkpoint_file.gd")
 const ActorWorld = preload("res://opening/actor_world.gd")
 const CharacterPresenter = preload("res://opening/character_presenter.gd")
 const Geometry = preload("res://opening/site_geometry.gd")
+const BuildingHotbar = preload("res://opening/building_hotbar.gd")
 class ProductionVisuals:
 	extends RefCounted
 	## Presentation is self-contained in this already captured opening script.
@@ -3347,6 +3348,8 @@ var lesson_panel: PanelContainer
 var lesson_title: Label
 var lesson_body: Label
 var tool_buttons: Dictionary = {}
+var building_hotbar
+var build_column: VBoxContainer
 var foundation_level := 0
 var foundation_area_mode := false
 var foundation_area_started := false
@@ -3359,9 +3362,8 @@ var wheel_tiles := 3
 var wheel_size_controls: HBoxContainer
 var wheel_size_label: Label
 var state: Dictionary = {}
-var show_all_tools := false
 var show_details := false
-var all_tools_button: Button
+var catalog_button: Button
 var details_button: Button
 var controls_label: Label
 
@@ -3455,7 +3457,11 @@ func _actor_failed(actor: String, reason: String) -> void:
 	get_tree().quit(1)
 
 func _can_control_character() -> bool:
-	return not legacy_fixture and not explanation_open and not startup_save_pending and state.get("actors", {}).get(client, {}).get("ready", false)
+	return not legacy_fixture and not _catalog_open() and not explanation_open and not startup_save_pending and state.get("actors", {}).get(client, {}).get("ready", false)
+
+func _can_choose_tool() -> bool:
+	# The catalog holds movement while keeping its own choices available.
+	return not explanation_open and not startup_save_pending and (legacy_fixture or state.get("actors", {}).get(client, {}).get("ready", false))
 
 func _native_transmission() -> bool:
 	return not legacy_fixture and state.get("options", {}).get("native", false)
@@ -3488,9 +3494,7 @@ func _refresh_transmission() -> void:
 			return
 		transmission_controls = load(controls_path).new()
 		transmission_controls.custom_minimum_size.y = 37
-		var column: Node = tool_buttons.drive.get_parent()
-		column.add_child(transmission_controls)
-		column.move_child(transmission_controls, tool_buttons.inspect.get_index() + 1)
+		build_column.add_child(transmission_controls)
 		transmission_controls.configure(self)
 		transmission_presenter = load(presenter_path).new()
 		add_child(transmission_presenter)
@@ -3498,7 +3502,7 @@ func _refresh_transmission() -> void:
 	transmission_controls.refresh()
 	transmission_presenter.refresh()
 	var active: bool = not transmission_controls.active_tool.is_empty()
-	transmission_controls.visible = active or show_all_tools or goal_confirmed or int(state.get("inventories", {}).get(client, 0)) > 0 or not state.get("transmission_parts", {}).is_empty()
+	transmission_controls.visible = active or _catalog_open() or goal_confirmed or int(state.get("inventories", {}).get(client, 0)) > 0 or not state.get("transmission_parts", {}).is_empty()
 	if not active and mode in ["gear", "drive"]:
 		mode = "inspect"
 	_update_cursor()
@@ -3937,17 +3941,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			if not _transmission_click(_transmission_center(event.position), entity_id):
 				_world_click(_screen_cell(event.position), entity_id)
 	elif event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode >= KEY_1 and event.keycode <= KEY_8:
+			building_hotbar.select_slot(event.keycode - KEY_1)
+			get_viewport().set_input_as_handled()
+			return
 		match event.keycode:
-			KEY_1: _select_tool("collector")
-			KEY_2: _select_tool("belt")
-			KEY_3: _select_tool("processor")
-			KEY_4: _select_tool("wheel")
-			KEY_5:
-				if _native_transmission():
-					_select_tool("gear")
-			KEY_6:
-				if state.get("options", {}).get("foundations", false):
-					_select_tool("foundation")
+			KEY_B: building_hotbar.open_catalog()
 			KEY_PAGEUP: _adjust_foundation_level(1)
 			KEY_PAGEDOWN: _adjust_foundation_level(-1)
 			KEY_F: _select_tool("flow")
@@ -4796,8 +4795,6 @@ func _refresh_ui() -> void:
 		return
 	_refresh_transmission()
 	var inventory := int(state.inventories.get(client, 0))
-	var parts := _display_parts()
-	var part_scope := "shared" if _parts_are_shared() else "carried"
 	parts_label.text = "BUILD FROM SHARED KIT" if _parts_are_shared() else "BUILD FROM CARRIED PARTS"
 	goal_label.text = "FIRST SHIFT\nBring back 4 plates\n%d / 4 collected" % inventory
 	confirm_button.disabled = inventory < 4 or goal_confirmed or explanation_open
@@ -4816,21 +4813,12 @@ func _refresh_ui() -> void:
 	if actor_label != null:
 		actor_label.visible = not legacy_fixture
 		actor_label.text = "CHARACTER READY · BUILD NEARBY" if state.get("actors", {}).get(client, {}).get("ready", false) else "CHARACTER STARTING…"
-	for tool in tool_buttons:
+	for tool in ["flow", "inspect"]:
 		var button: Button = tool_buttons[tool]
-		var unavailable := NAMES.has(tool) and not parts.has(tool)
-		if _native_transmission() and (NAMES.has(tool) or tool == "drive"):
-			unavailable = int(parts.get("shaft" if tool == "drive" else tool, 0)) < 1
-		button.disabled = explanation_open or unavailable
+		button.disabled = explanation_open
 		button.button_pressed = mode == tool
 		if transmission_controls != null and not transmission_controls.active_tool.is_empty():
-			button.button_pressed = tool == "drive" and transmission_controls.active_tool == "place_shaft"
-		if NAMES.has(tool):
-			button.text = "%s    ·    %d %s" % [NAMES[tool], int(parts.get(tool, 0)), part_scope]
-	tool_buttons.foundation.visible = state.get("options", {}).get("foundations", false)
-	tool_buttons.drive.text = "Drive link  [G]    ·    %d shafts" % int(parts.get("shaft", 0))
-	if _native_transmission():
-		tool_buttons.drive.text = "Shaft  [G]    ·    %d carried" % int(parts.get("shaft", 0))
+			button.button_pressed = false
 	retrieve_button.disabled = explanation_open or state.stock.output < 1 or not state.entities.has(selected) or state.entities[selected].kind != "processor"
 	remove_button.disabled = explanation_open or not _contains_target(state, selected)
 	selection_ring.visible = state.entities.has(selected)
@@ -4861,10 +4849,8 @@ func _refresh_ui() -> void:
 	if loose_material_controls != null:
 		loose_material_controls.refresh()
 
-func _toggle_all_tools() -> void:
-	if not explanation_open:
-		show_all_tools = not show_all_tools
-		_refresh_ui()
+func _catalog_open() -> bool:
+	return building_hotbar != null and building_hotbar.catalog.visible
 
 func _toggle_details() -> void:
 	if not explanation_open:
@@ -4881,6 +4867,8 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	_refresh_placement_hint(snapshot_ready)
 	footer_snapshot_ready = snapshot_ready
 	_queue_footer_fit()
+	if building_hotbar != null:
+		building_hotbar.refresh(snapshot_ready)
 	if legacy_fixture:
 		return
 	# This is a view of confirmed facts, not persistent progression or admission.
@@ -4906,8 +4894,10 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	for tool in tool_buttons:
 		var button: Button = tool_buttons[tool]
 		# Keyboard selection stays visible even when it precedes the suggestion.
-		button.visible = show_all_tools or offered.has(tool) or mode == tool
+		button.visible = NAMES.has(tool) or tool in ["drive", "gear"] or offered.has(tool) or mode == tool
 		if tool == "foundation" and not state.get("options", {}).get("foundations", false):
+			button.visible = false
+		if tool == "gear" and not _native_transmission():
 			button.visible = false
 		for color_name in ["font_color", "font_focus_color", "font_hover_color", "font_pressed_color", "font_hover_pressed_color"]:
 			if tool == step.tool:
@@ -4917,30 +4907,21 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	var inventory := int(state.get("inventories", {}).get(client, 0))
 	goal_label.text = "Make 4 plates\n%s\n%d / 4 collected" % [step.text, inventory] if snapshot_ready else "Connect to the worksite."
 	confirm_button.visible = snapshot_ready and (inventory >= 4 or goal_confirmed)
-	all_tools_button.text = "Guided tools" if show_all_tools else "All tools"
-	all_tools_button.disabled = explanation_open or not snapshot_ready
 	details_button.text = "Less detail" if show_details else "Details"
 	details_button.disabled = explanation_open
 	for control in [stock_label, power_label, save_button, load_button]:
 		control.visible = show_details
 	actor_label.visible = show_details or not state.get("actors", {}).get(client, {}).get("ready", false)
-	power_button.visible = show_all_tools or kinds.has("wheel")
+	power_button.visible = kinds.has("wheel")
 	controls_label.text = "WASD walk · Space jump · Right-drag view · Wheel zoom · H help"
-	if show_all_tools:
-		controls_label.text = "WASD walk · Space jump · P wheel · 1–4 build · F material · G shaft · I inspect · H help" if _native_transmission() else "WASD walk · Space jump · P wheel · 1–4 build · F / G links · I inspect · H help"
 	_refresh_engineering(snapshot_ready)
 	# Introduce inspection when it can help. Keep waiting notices and explicit
 	# disclosure available even before the first machine has been built.
-	var unused_inspector: bool = _native_transmission() and snapshot_ready and _placement_hint_ready() \
+	var unused_inspector: bool = _native_transmission() and snapshot_ready and _can_choose_tool() \
 		and kinds.is_empty() and state.get("transmission_parts", {}).is_empty() and state.get("foundations", {}).is_empty() \
-		and not show_all_tools and not show_details and mode != "inspect"
+		and not show_details and mode != "inspect"
 	var inspector_panel: Control = inspector.get_parent().get_parent()
 	inspector_panel.visible = not unused_inspector
-	# Keep the real world visible when progressive disclosure leaves only a
-	# few controls. Preserve the fixed widths and grow naturally with content.
-	for column: Control in [tool_buttons.collector.get_parent(), inspector.get_parent()]:
-		var panel: Control = column.get_parent()
-		panel.size.y = panel.get_combined_minimum_size().y
 
 func _build_placement_hint() -> void:
 	placement_hint = Node3D.new()
@@ -4958,7 +4939,7 @@ func _placement_hint_ready() -> bool:
 	return _can_control_character()
 
 func _guided_placement_cell() -> Array:
-	if legacy_fixture or show_all_tools or explanation_open or not _placement_hint_ready():
+	if legacy_fixture or _catalog_open() or explanation_open or not _placement_hint_ready():
 		return []
 	if not mode in ["collector", "belt", "processor"] or int(_display_parts().get(mode, 0)) < 1:
 		return []
@@ -5128,7 +5109,7 @@ func _guided_step(kinds: Dictionary) -> Dictionary:
 				return {"text": "Select the press to insert a carried workpiece.", "tool": "inspect"}
 			if int(cargo.get("raw", 0)) > 0:
 				return {"text": "Select the press to insert a carried blank.", "tool": "inspect"}
-		return {"text": "No blanks remain here. All tools stays available for experimenting.", "tool": "inspect"}
+		return {"text": "No blanks remain here. Open Build to try another layout.", "tool": "inspect"}
 	return {"text": "Follow a blank to the press. Select a machine to inspect it.", "tool": "inspect"}
 
 func _inspection_hint() -> String:
@@ -5222,23 +5203,37 @@ func _queue_footer_fit() -> void:
 
 func _fit_guided_footer() -> void:
 	footer_fit_pending = false
-	if not _native_transmission():
-		return
+	# Wrapped text settles after its container width. Fit again at that
+	# boundary, rather than retaining an early oversized minimum height.
+	for column in [build_column, inspector.get_parent() if inspector != null else null]:
+		if column != null:
+			var panel: Control = column.get_parent()
+			var height: float = panel.get_combined_minimum_size().y
+			if not is_equal_approx(panel.size.y, height):
+				panel.size.y = height
 	# Only the ordinary fresh introduction duplicates the visible goal and
 	# source annotation. Explicit outcomes and unavailable-state advice stay.
-	var redundant_intro: bool = footer_snapshot_ready and _placement_hint_ready() and not status_refused \
-		and not show_details and not show_all_tools and mode == "collector" \
+	var redundant_intro: bool = _native_transmission() and footer_snapshot_ready and _placement_hint_ready() and not status_refused \
+		and not show_details and not _catalog_open() and mode == "collector" \
 		and state.get("entities", {}).is_empty() and state.get("transmission_parts", {}).is_empty() \
 		and _guided_step({}).tool == "collector" \
 		and status_label.text == "WASD walks. Approach the mineral seam to place your collector."
 	status_label.visible = not redundant_intro
+	var right: float = -308.0 if inspector.get_parent().get_parent().visible else -18.0
+	if not is_equal_approx(status_footer.offset_right, right):
+		status_footer.set_anchor_and_offset(SIDE_RIGHT, 1.0, right)
 	var left_anchor := 1.0 if redundant_intro else 0.0
-	var left_offset: float = -18.0 - status_footer.get_combined_minimum_size().x if redundant_intro else 310.0
+	var left_offset: float = right - status_footer.get_combined_minimum_size().x if redundant_intro else 310.0
 	if not is_equal_approx(status_footer.anchor_left, left_anchor) or not is_equal_approx(status_footer.offset_left, left_offset):
 		status_footer.set_anchor_and_offset(SIDE_LEFT, left_anchor, left_offset)
-	var top: float = -18.0 - status_footer.get_combined_minimum_size().y
+	var bottom: float = -30.0 - building_hotbar.size.y
+	if not is_equal_approx(status_footer.offset_bottom, bottom):
+		status_footer.set_anchor_and_offset(SIDE_BOTTOM, 1.0, bottom)
+	var top: float = bottom - status_footer.get_combined_minimum_size().y
 	if not is_equal_approx(status_footer.offset_top, top):
 		status_footer.set_anchor_and_offset(SIDE_TOP, 1.0, top)
+	if _catalog_open():
+		building_hotbar._place_catalog()
 
 func _label(parent: Node, words: String, size: int = 16, color: Color = Color("dde5d9")) -> Label:
 	var label := Label.new()
@@ -5291,6 +5286,7 @@ func _build_interface() -> void:
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.theme = ProductionInterface.make_theme()
 	var build := _panel(root, Vector2(18, 18), Vector2(275, 620 if legacy_fixture else 0))
+	build_column = build
 	if not legacy_fixture:
 		build.add_theme_constant_override("separation", 6)
 	_label(build, "FACTORY / FIRST SHIFT", 20, Color("edcc8d"))
@@ -5302,11 +5298,11 @@ func _build_interface() -> void:
 		goal_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	confirm_button = _button(build, "Confirm four plates", _confirm_goal)
 	build.add_child(HSeparator.new())
-	parts_label = _label(build, "BUILD FROM SHARED KIT" if _parts_are_shared() else "BUILD FROM CARRIED PARTS", 12, Color("9eb4b2"))
-	for kind in ["collector", "foundation", "belt", "processor", "wheel"]:
-		var button := _button(build, NAMES[kind], _select_tool.bind(kind))
-		button.toggle_mode = true
-		tool_buttons[kind] = button
+	building_hotbar = BuildingHotbar.new()
+	building_hotbar.configure(self, root)
+	tool_buttons.merge(building_hotbar.catalog_buttons)
+	parts_label = building_hotbar.parts_label
+	catalog_button = building_hotbar.catalog_button
 	foundation_level_controls = HBoxContainer.new()
 	build.add_child(foundation_level_controls)
 	_button(foundation_level_controls, "−", _adjust_foundation_level.bind(-1))
@@ -5326,16 +5322,15 @@ func _build_interface() -> void:
 		foundation_area_started = false)
 	build.add_child(foundation_area_toggle)
 	foundation_area_toggle.visible = false
-	tool_buttons.flow = _button(build, "Material link  [F]", _select_tool.bind("flow"))
-	tool_buttons.drive = _button(build, "Drive link  [G]", _select_tool.bind("drive"))
-	tool_buttons.inspect = _button(build, "Inspect  [I]", _select_tool.bind("inspect"))
-	for tool in ["flow", "drive", "inspect"]:
+	var selection_tools := HBoxContainer.new()
+	build.add_child(selection_tools)
+	tool_buttons.flow = _button(selection_tools, "Link [F]", _select_tool.bind("flow"))
+	tool_buttons.inspect = _button(selection_tools, "Inspect [I]", _select_tool.bind("inspect"))
+	for tool in ["flow", "inspect"]:
 		tool_buttons[tool].toggle_mode = true
 	var view_options := HBoxContainer.new()
 	build.add_child(view_options)
 	view_options.visible = not legacy_fixture
-	all_tools_button = _button(view_options, "All tools", _toggle_all_tools)
-	all_tools_button.tooltip_text = "Choose any available part."
 	details_button = _button(view_options, "Details", _toggle_details)
 	details_button.tooltip_text = "Show worksite counters and save options."
 	_button(build, "How this line works  [H]", _toggle_explanation)
@@ -5378,14 +5373,16 @@ func _build_interface() -> void:
 	var bottom_panel: Control = bottom.get_parent()
 	status_footer = bottom_panel
 	bottom_panel.set_anchor_and_offset(SIDE_RIGHT, 1.0, -18)
-	bottom_panel.set_anchor_and_offset(SIDE_BOTTOM, 1.0, -18)
-	bottom_panel.set_anchor_and_offset(SIDE_TOP, 1.0, -106)
+	bottom_panel.set_anchor_and_offset(SIDE_BOTTOM, 1.0, -128)
+	bottom_panel.set_anchor_and_offset(SIDE_TOP, 1.0, -216)
 	bottom_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	status_label = _label(bottom, "", 16)
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	controls_label = _label(bottom, "1–4 build  ·  F material / G drive  ·  Right-drag orbit  ·  Wheel zoom  ·  WASD pan  ·  Home recenter" if legacy_fixture else "WASD walk · Space jump · P wheel · 1–4 build · F material · G shaft · Right-drag orbit · Wheel zoom · H help", 12, Color("9eb4b2"))
+	controls_label = _label(bottom, "1–8 hotbar · B build · F material · G shaft · I inspect · H help", 12, Color("9eb4b2"))
 	bottom_panel.minimum_size_changed.connect(_queue_footer_fit)
 	bottom_panel.resized.connect(_queue_footer_fit)
+	for column: Control in [build, right]:
+		column.minimum_size_changed.connect(_queue_footer_fit)
 	var lesson_column := _panel(root, Vector2(346, 18), Vector2(600, 192))
 	lesson_panel = lesson_column.get_parent()
 	lesson_panel.set_anchor_and_offset(SIDE_RIGHT, 0.5, 306)

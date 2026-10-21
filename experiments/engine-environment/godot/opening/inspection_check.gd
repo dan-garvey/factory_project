@@ -34,7 +34,7 @@ func _run() -> void:
 	root.add_child(scene)
 	await process_frame
 	await physics_frame
-	for entry in [[KEY_4, -1], [KEY_1, 0], [KEY_2, 1], [KEY_3, 2]]:
+	for entry in [[KEY_5, -1], [KEY_1, 0], [KEY_3, 1], [KEY_4, 2]]:
 		await _key(entry[0])
 		await _click_cell(entry[1])
 	await inspect(2)
@@ -104,7 +104,7 @@ func _run() -> void:
 	root.add_child(scene)
 	await process_frame
 	await physics_frame
-	for entry in [[KEY_4, -1], [KEY_1, 0], [KEY_2, 1], [KEY_3, 2]]:
+	for entry in [[KEY_5, -1], [KEY_1, 0], [KEY_3, 1], [KEY_4, 2]]:
 		await _key(entry[0])
 		await _click_cell(entry[1])
 	for pair in [[-1, 0], [0, 1], [1, 2]]:

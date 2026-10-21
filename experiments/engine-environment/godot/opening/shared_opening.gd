@@ -67,6 +67,9 @@ func _can_control_character() -> bool:
 	# binding supplies input; the server alone owns the body's pose.
 	return session != null and session.is_ready() and _usable_snapshot() and super._can_control_character()
 
+func _can_choose_tool() -> bool:
+	return _can_mutate() and super._can_choose_tool()
+
 func _send_character_input(direction: Vector2, jump: bool) -> void:
 	if session != null and session.is_ready():
 		session.set_control(direction, jump)
@@ -269,7 +272,7 @@ func _process(delta: float) -> void:
 func _select_tool(tool: String) -> void:
 	if explanation_open:
 		return
-	if not session.is_ready():
+	if not session.is_ready() and tool != "inspect":
 		_message("Connect before selecting a construction tool.", true)
 		return
 	if not pending_actions.is_empty() and tool != "inspect":
