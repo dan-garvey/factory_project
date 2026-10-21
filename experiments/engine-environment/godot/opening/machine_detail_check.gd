@@ -24,6 +24,318 @@ class PaddleSessionFacts extends RefCounted:
 	func is_ready() -> bool:
 		return ready
 
+class HubShaftFacts extends RefCounted:
+	var state: Dictionary = {}
+	func _can_present_confirmed_motion() -> bool:
+		return true
+
+func hub_mesh_rows(node: Node3D, parent_pose: Transform3D, rows: Array[Dictionary]) -> void:
+	var pose := parent_pose * node.transform
+	if node is MeshInstance3D:
+		rows.append({"node": node, "pose": pose})
+	for child in node.get_children():
+		if child is Node3D:
+			hub_mesh_rows(child, pose, rows)
+
+func hub_loop_planes(loop: MeshInstance3D) -> Array[float]:
+	var arrays := loop.mesh.surface_get_arrays(0)
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+	var levels: Array[float] = []
+	for n in range(vertices.size()):
+		if absf(normals[n].y) < 0.999999:
+			continue
+		var height: float = (loop.transform * vertices[n]).y
+		var seen := false
+		for level in levels:
+			seen = seen or absf(level - height) < 0.000001
+		if not seen:
+			levels.append(height)
+	levels.sort()
+	return levels
+
+func hub_empty_window(mesh: Mesh, pose: Transform3D, planes: Array[float]) -> bool:
+	var bounds: AABB = pose * mesh.get_aabb()
+	if bounds.position.z > 0.32 or bounds.end.z < -0.32:
+		return true
+	return bounds.position.x > -0.57 and bounds.end.x < 0.57 \
+		and bounds.position.y > planes[1] and bounds.end.y < planes[2]
+
+func hub_loop_separation(mesh: Mesh, pose: Transform3D, loop: MeshInstance3D) -> float:
+	var bounds: AABB = pose * mesh.get_aabb()
+	var faces := loop.mesh.get_faces()
+	var minimum := INF
+	for n in range(0, faces.size(), 3):
+		var a: Vector3 = loop.transform * faces[n]
+		var b: Vector3 = loop.transform * faces[n + 1]
+		var c: Vector3 = loop.transform * faces[n + 2]
+		var low := a.min(b).min(c)
+		var high := a.max(b).max(c)
+		var gap := maxf(maxf(maxf(bounds.position.x - high.x, low.x - bounds.end.x),
+			maxf(bounds.position.y - high.y, low.y - bounds.end.y)), maxf(bounds.position.z - high.z, low.z - bounds.end.z))
+		minimum = minf(minimum, gap)
+	return minimum
+
+func hub_vertical_hits(node: MeshInstance3D, probe: Vector2) -> Array[float]:
+	# Use a longer probe, then retain exact hit heights. The pinned API's
+	# absolute determinant guard can discard small faces on short segments.
+	var from := Vector3(probe.x, -0.6, probe.y)
+	var to := Vector3(probe.x, 1.6, probe.y)
+	var faces := node.mesh.get_faces()
+	var hits: Array[float] = []
+	for n in range(0, faces.size(), 3):
+		var hit: Variant = Geometry3D.segment_intersects_triangle(from, to,
+			node.transform * faces[n], node.transform * faces[n + 1], node.transform * faces[n + 2])
+		if hit == null:
+			continue
+		var seen := false
+		for height in hits:
+			seen = seen or absf(height - hit.y) < 0.000001
+		if not seen:
+			hits.append(hit.y)
+	hits.sort()
+	return hits
+
+func hub_joint_overlap(housing: MeshInstance3D, support: MeshInstance3D, probe: Vector2) -> Dictionary:
+	var a := hub_vertical_hits(housing, probe)
+	var b := hub_vertical_hits(support, probe)
+	var valid := not a.is_empty() and not b.is_empty() and a.size() % 2 == 0 and b.size() % 2 == 0
+	var overlap := 0.0
+	if valid:
+		for first in range(0, a.size(), 2):
+			for second in range(0, b.size(), 2):
+				overlap = maxf(overlap, minf(a[first + 1], b[second + 1]) - maxf(a[first], b[second]))
+	return {"valid": valid, "housing_hits": a, "support_hits": b, "solid_overlap": overlap}
+
+func hub_short_probe_determinant(housing: MeshInstance3D) -> float:
+	var rel: Vector3 = housing.basis.inverse() * Vector3(0, 0.01, 0)
+	var faces := housing.mesh.get_faces()
+	var maximum := 0.0
+	for n in range(0, faces.size(), 3):
+		maximum = maxf(maximum, absf((faces[n + 1] - faces[n]).dot(rel.cross(faces[n + 2] - faces[n]))))
+	return maximum
+
+func check_conveyor_hub() -> void:
+	var cache: Dictionary = {}
+	var assemblies := 0
+	var shaft_cases := 0
+	var minimum_loop_gap := INF
+	var minimum_shaft_gap := INF
+	var controls := 0
+	var shaft_faces := 0
+	var joint_probes := 0
+	for shared_profile in [false, true]:
+		for cell in [[0, 0], [2, -1]]:
+			for axis in range(3):
+				var view: Variant = Shared.new() if shared_profile else Opening.new()
+				view.machine_root = Node3D.new()
+				view.item_root = Node3D.new()
+				view.add_child(view.machine_root)
+				view.add_child(view.item_root)
+				view.state = {"context": "conveyor-hub-fixture", "options": {"native": true},
+					"actors": {}, "transmission_parts": {}, "motion": {}, "stock": {"belt": 1},
+					"entities": {"fixture": {"kind": "belt", "cell": cell, "center": [cell[0] * 4, 0, cell[1] * 4],
+						"axis": axis, "generation": 1}}, "links": [], "drive_links": [], "engagements": []}
+				var before: Dictionary = view.state.duplicate(true)
+				view._rebuild_machines()
+				view._redraw_items()
+				var machine: Node3D = view.machine_root.get_child(0)
+				var journal: MeshInstance3D = machine.get_node("DriveStub")
+				var expected := Presenter.world_center(view.state.entities.fixture.center)
+				var direction: Vector3 = [Vector3.RIGHT, Vector3.UP, Vector3.BACK][axis]
+				verify(machine.get_meta("conveyor_hub", false)
+					and (machine.transform * journal.transform).origin.is_equal_approx(expected)
+					and journal.basis.y.dot(direction) > 0.99999 and journal.mesh is CylinderMesh,
+					"The actual view keeps the public journal on the native hub point and positive projected axis, including translated cells.")
+				var loop: MeshInstance3D = machine.get_node("ConveyorLoop")
+				verify(loop.mesh == ConveyorArt.loop_mesh() and loop.material_override == ConveyorArt.material(),
+					"The actual original rubber geometry and prepared material stay exact.")
+				var planes := hub_loop_planes(loop)
+				verify(planes.size() == 4 and is_equal_approx(planes[1], 0.387) and is_equal_approx(planes[2], 0.543),
+					"The empty working window is measured from actual inner belt facets, with distinct outer surfaces.")
+				var parts: Array[MeshInstance3D] = []
+				var rollers: Array[MeshInstance3D] = []
+				var side_beams: Array[MeshInstance3D] = []
+				var picks := 0
+				for child in machine.get_children():
+					if child is MeshInstance3D:
+						if child.has_meta("conveyor_hub_role"):
+							parts.append(child)
+						if child.get_meta("detail_role", "") == "ConveyorRoller":
+							rollers.append(child)
+						if child.get_meta("conveyor_frame_role", "") == "SideBeam":
+							side_beams.append(child)
+					elif child is StaticBody3D:
+						picks += 1
+						verify(child.collision_layer == Geometry.PICK_LAYER and child.collision_mask == 0
+							and child.get_child_count() == 1 and child.get_child(0).shape.size == Vector3(1.45, 1.65, 1.45)
+							and child.get_child(0).position.is_equal_approx(Vector3(0, 0.8, 0)),
+							"The entity pick identity, dimensions, centre and masks remain unchanged.")
+				verify(parts.size() == 10 and rollers.size() == 2 and side_beams.size() == 2 and picks == 1,
+					"The compact journal and open housing share eight supported carrier pieces within the original machine.")
+				var items: Array[Dictionary] = []
+				hub_mesh_rows(view.item_root, Transform3D.IDENTITY, items)
+				verify(not items.is_empty(), "The ordinary item redraw supplies the actual retained billet artwork.")
+				for part in parts:
+					var role: String = part.get_meta("conveyor_hub_role")
+					var key := role + ("Y" if axis == 1 and role in ["HubHousing", "HubJournal"] else "")
+					if role == "HubFork":
+						key += "N" if part.mesh.get_aabb().position.x < 0 else "P"
+					verify(part.get_script() == null and part.get_child_count() == 0 and part.scale.is_equal_approx(Vector3.ONE),
+						"Every hub piece is fixed plain geometry without a controller, collider or scale-stretched detail.")
+					check_bounds(part, Transform3D.IDENTITY)
+					if not cache.has(key):
+						var volumes: Array = {"HubCarrierRail": [0.00055, 0.00070], "HubMountCleat": [0.000015, 0.000022],
+							"HubBridge": [0.000030, 0.000045], "HubPedestal": [0.0000045, 0.0000065],
+							"HubForkN": [0.000007, 0.000010], "HubForkP": [0.000007, 0.000010],
+							"HubHousing": [0.00007, 0.000085], "HubHousingY": [0.00035, 0.00042],
+							"HubJournal": [0.00029, 0.00030], "HubJournalY": [0.00019, 0.00020]}[key]
+						check_closed_asset_mesh(part.mesh, volumes[0], volumes[1])
+						cache[key] = [part.mesh, part.material_override]
+					verify(part.mesh == cache[key][0] and part.material_override == cache[key][1],
+						"All cells and both view classes reuse each compatible fitted mesh and finish.")
+					var gap := hub_loop_separation(part.mesh, part.transform, loop)
+					minimum_loop_gap = minf(minimum_loop_gap, gap)
+					verify(hub_empty_window(part.mesh, part.transform, planes) and gap > 0.0005,
+						"Every complete new mesh stays in the measured empty window or outside the belt width and clears every actual belt facet.")
+					for roller in rollers:
+						verify(frame_shaft_clearance(part.mesh, part.transform, roller) > 0.001,
+							"The fitted hub and its supports also clear the unchanged actual roller meshes.")
+					var box: AABB = machine.transform * part.transform * part.mesh.get_aabb()
+					for item in items:
+						var item_box: AABB = item.pose * item.node.mesh.get_aabb()
+						verify(box.end.y < item_box.position.y or box.position.z > item_box.end.z or box.end.z < item_box.position.z,
+							"The complete new hub pieces conservatively clear every actual carried-work mesh.")
+					if role == "HubMountCleat":
+						var beam: MeshInstance3D = side_beams[0] if signf(side_beams[0].position.z) == signf(part.position.z) else side_beams[1]
+						verify(feed_ray_blocked(beam, Transform3D.IDENTITY,
+							Vector3(part.position.x, 0.38, part.position.z), Vector3(part.position.x, 0.39, part.position.z))
+							and box.position.y < 0.385 and (part.transform * part.mesh.get_aabb()).end.y > 0.415,
+							"The carrier cleat meets the actual formed beam and overlaps its rail joint, rather than hovering between them.")
+				var housing: MeshInstance3D = machine.get_node("HubHousing")
+				for x in ([-0.052, 0.052] if axis == 1 else [0.002]):
+					var support: MeshInstance3D = machine.get_node(("HubForkN" if x < 0 else "HubForkP") if axis == 1 else "HubPedestal")
+					var contact := hub_joint_overlap(housing, support, Vector2(x, 0.003))
+					var old_x := signf(x) * 0.05 if axis == 1 else 0.0
+					var old_hit := feed_ray_blocked(housing, Transform3D.IDENTITY,
+						Vector3(old_x, 0.455 if axis != 1 else 0.465, 0), Vector3(old_x, 0.465 if axis != 1 else 0.475, 0))
+					var determinant := hub_short_probe_determinant(housing)
+					print(JSON.stringify({"phase": "hub joint", "shared": shared_profile, "cell": cell, "axis": axis,
+						"probe_xz": Vector2(x, 0.003), "contact": contact, "old_short_probe_hit": old_hit,
+						"maximum_short_probe_determinant": determinant}))
+					verify(contact.valid and contact.solid_overlap > 0.0001,
+						"Actual closed housing and support intervals overlap at the designed fixed joint.")
+					verify(not old_hit and determinant < 0.00001,
+						"The original short probe is rejected by the pinned absolute determinant guard, not evidence of an absent joint.")
+					if not shared_profile and cell == [0, 0] and axis != 2:
+						var rest := support.position
+						support.position.y -= 0.01
+						verify(hub_joint_overlap(housing, support, Vector2(x, 0.003)).solid_overlap == 0,
+							"The same interval oracle rejects a support deliberately lowered away from its housing.")
+						support.position = rest
+						controls += 1
+					joint_probes += 1
+				if not shared_profile and cell == [0, 0]:
+					for half_span in [1, 3]:
+						for end in [-1, 0, 1]:
+							var center: Array = view.state.entities.fixture.center.duplicate()
+							center[axis] += end * half_span
+							var host := HubShaftFacts.new()
+							host.state = {"context": "hub-shaft-alternative", "options": {"native": true}, "entities": {},
+								"transmission_parts": {"shaft": {"kind": "shaft", "center": center, "axis": axis, "half_span": half_span, "generation": 1}},
+								"motion": {"shaft": {"state": "rotating", "numerator": -1, "denominator": 1}}, "engagements": []}
+							var original: Dictionary = host.state.duplicate(true)
+							var presenter := Presenter.new()
+							presenter.configure(host)
+							presenter.advance_visual_motion(0.1)
+							var shaft: Node3D = presenter.get_child(0)
+							var core: MeshInstance3D = shaft.get_node("Shaft")
+							var length: float = float(half_span) * 0.825
+							verify(core.mesh is CylinderMesh and is_equal_approx(core.mesh.height, length)
+								and is_equal_approx(core.mesh.top_radius, 0.03)
+								and shaft.position.is_equal_approx(Presenter.world_center(center))
+								and shaft.basis.y.dot(direction) > 0.99999,
+								"The actual presenter retains the prescribed centre, axis, length and declared shaft art radius.")
+							var pick: StaticBody3D = shaft.get_node("Pick")
+							verify(pick.collision_layer == 4 and pick.collision_mask == 0
+								and is_equal_approx(pick.get_child(0).shape.radius, 0.08)
+								and is_equal_approx(pick.get_child(0).shape.height, length),
+								"Thinner shaft art does not shrink or move its real selection proxy.")
+							var meshes: Array[Dictionary] = []
+							hub_mesh_rows(shaft, Transform3D.IDENTITY, meshes)
+							var inverse := Transform3D(Presenter.axis_basis(axis), expected).affine_inverse()
+							var maximum_radius := 0.0
+							var low := INF
+							var high := -INF
+							for row in meshes:
+								var pose: Transform3D = inverse * row.pose
+								for vertex in row.node.mesh.get_faces():
+									var point: Vector3 = pose * vertex
+									maximum_radius = maxf(maximum_radius, Vector2(point.x, point.z).length())
+									low = minf(low, point.y)
+									high = maxf(high, point.y)
+								shaft_faces += row.node.mesh.get_faces().size() / 3
+							verify(maximum_radius < 0.038 and meshes.size() == 6,
+								"Actual shaft, collars, end keys and the moved keyway all stay inside the declared rotating envelope.")
+							for part in parts:
+								if part == journal:
+									continue
+								var pose: Transform3D = inverse * machine.transform * part.transform
+								var bounds: AABB = pose * part.mesh.get_aabb()
+								if bounds.position.y > high or bounds.end.y < low:
+									continue
+								var band := frame_mesh_band(part.mesh, pose, low, high)
+								var gap: float = band.minimum - maximum_radius
+								minimum_shaft_gap = minf(minimum_shaft_gap, gap)
+								verify(not frame_axis_occupied(part.mesh, pose, low, high, maximum_radius) and gap > 0.0005,
+									"A conservative full-turn envelope of each actual shaft alternative clears all fixed local hub furniture.")
+							verify(host.state == original and is_equal_approx(presenter.visual_angle("shaft"), -0.08),
+								"The existing signed cosmetic cache changes no prescribed shaft or native facts.")
+							presenter.free()
+							shaft_cases += 1
+					var old := CylinderMesh.new()
+					old.top_radius = 0.085
+					old.bottom_radius = 0.085
+					old.height = 0.9 if axis == 1 else 1.35
+					verify(not hub_empty_window(old, journal.transform, planes)
+						and hub_loop_separation(old, journal.transform, loop) < 0,
+						"The original complete decorative bar fails the same measured empty-window and actual-facet separation requirements.")
+					controls += 1
+					if axis == 0:
+						var band := frame_mesh_band(housing.mesh, Transform3D.IDENTITY, -0.05, 0.05)
+						verify(band.minimum - 0.045 < 0, "The old wide shaft core cannot pass the new actual bore-clearance discriminator.")
+						var contained := BoxMesh.new()
+						contained.size = Vector3.ONE * 0.003
+						verify(not hub_empty_window(contained, Transform3D(Basis.IDENTITY, Vector3(0, 0.549, 0)), planes),
+							"A tiny solid contained inside the rubber cannot pass by avoiding its boundary triangles.")
+						var original_position := journal.position
+						journal.position.x += 0.01
+						verify(not (machine.transform * journal.transform).origin.is_equal_approx(expected),
+							"A displaced visible journal fails the confirmed native-point discriminator.")
+						journal.position = original_position
+						controls += 3
+				verify(view.state == before and view.model == null and view.actor_world == null and view.request_sequence == 0,
+					"The new art changes no material ownership, topology, request, actor or native authority.")
+				assemblies += 1
+				view.free()
+	for shared_profile in [false, true]:
+		var view: Variant = Shared.new() if shared_profile else Opening.new()
+		view.state = {"options": {"native": false}}
+		var machine := Node3D.new()
+		view.add_child(machine)
+		view._assemble_machine(machine, {"kind": "belt", "axis": 1})
+		var journal: MeshInstance3D = machine.get_node("DriveStub")
+		verify(not machine.get_meta("conveyor_hub", false) and is_equal_approx(journal.mesh.top_radius, 0.085)
+			and is_equal_approx(journal.mesh.height, 0.18) and journal.position.is_equal_approx(Vector3(0, 0.35, 0.55)),
+			"Both nonnative views retain their exact historical decorative stub.")
+		view.free()
+	print(JSON.stringify({"phase": "conveyor hub", "assemblies": assemblies, "unique_mesh_roles": cache.size(),
+		"shaft_alternatives": shaft_cases, "actual_shaft_triangles_read": shaft_faces,
+		"retained_joint_probes": joint_probes,
+		"minimum_belt_facet_separation_metres": minimum_loop_gap, "minimum_local_shaft_clearance_metres": minimum_shaft_gap,
+		"altered_geometry_controls": controls, "observations": "invented", "native_gameplay": "not_run",
+		"rendered_quality": "not_assessed", "shaft_scope": "Local hub furniture only; not a claim of general through-machine routing."}))
+
 func frame_mesh_band(mesh: Mesh, pose: Transform3D, low: float, high: float) -> Dictionary:
 	var faces := mesh.get_faces()
 	var minimum := INF
@@ -140,11 +452,12 @@ func check_conveyor_frame() -> void:
 					and roller.mesh.get_aabb().size.is_equal_approx(Vector3(0.154, 0.7, 0.154)),
 					"The literal original turned roller envelope and centre remain unchanged.")
 			var drive: MeshInstance3D = machine.get_node("DriveStub")
-			verify(drive.mesh is CylinderMesh and is_equal_approx(drive.mesh.top_radius, 0.085)
-				and is_equal_approx(drive.mesh.height, 0.9 if axis == 1 else 1.35)
+			var compact: bool = machine.get_meta("conveyor_hub", false)
+			verify(drive.mesh is CylinderMesh and is_equal_approx(drive.mesh.top_radius, 0.028 if compact else 0.085)
+				and is_equal_approx(drive.mesh.height, (0.08 if axis == 1 else 0.12) if compact else (0.9 if axis == 1 else 1.35))
 				and drive.position.is_equal_approx(Vector3(0, 0.5, 0))
 				and absf(drive.basis.y.dot([Vector3.RIGHT, Vector3.UP, Vector3.BACK][axis])) > 0.99999,
-				"The original native drive cylinder, length, centre and confirmed axis are preserved.")
+				"The native hub point and confirmed axis remain exact, with the declared current journal artwork.")
 			var shafts: Array[MeshInstance3D] = [drive]
 			shafts.append_array(rollers)
 			for part in parts:
@@ -2279,6 +2592,10 @@ func prepare_paddle_maps() -> void:
 	quit(0)
 
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--conveyor-hub-only"):
+		check_conveyor_hub()
+		finish()
+		return
 	if OS.get_cmdline_user_args().has("--conveyor-frame-only"):
 		check_conveyor_frame()
 		finish()

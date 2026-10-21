@@ -243,7 +243,7 @@ func refresh() -> void:
 			var key_shape := BoxMesh.new()
 			key_shape.size = Vector3(0.012, length * 0.92, 0.006)
 			keyway.mesh = key_shape
-			keyway.position.z = 0.045
+			keyway.position.z = Assets.SHAFT_CORE_RADIUS
 			_finish(keyway, Color("e2c58a"))
 			anchor.add_child(keyway)
 			_pick(anchor, id, 0.08, length)
