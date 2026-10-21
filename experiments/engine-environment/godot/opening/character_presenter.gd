@@ -4,7 +4,10 @@ extends Node3D
 const Geometry = preload("res://opening/site_geometry.gd")
 const ADULT_ASSETS := "res://opening/assets/worker/"
 const GAIT_CYCLE_DISTANCE := 1.65
+const WALK_CYCLE_DISTANCE := 1.30
 const FULL_GAIT_SPEED := 2.4
+const RUN_BLEND_START := 1.15
+const RUN_BLEND_END := 2.35
 const TAKEOFF_DELTA := 0.025
 const DROP_DELTA := 0.075
 const LANDING_SECONDS := 0.24
@@ -17,6 +20,9 @@ static var adult_template: PackedScene
 static var adult_run_clip: Animation
 static var adult_run_root_track := -1
 static var adult_run_root_reference := Vector3.ZERO
+static var adult_walk_clip: Animation
+static var adult_walk_root_track := -1
+static var adult_walk_root_reference := Vector3.ZERO
 
 var host
 var views: Dictionary = {}
@@ -333,35 +339,150 @@ func _set_adult_air_and_landing(body: Node3D, air: float,
 	# Compression moves only the skinned view; the Character root is unchanged.
 	body.position.y = -0.065 * impact
 
-func _apply_adult_run(body: Node3D, phase: float, weight: float,
-		air: float, impact: float) -> void:
+static func _adult_clip_influence(key: String, strength: float) -> float:
+	if key in ["Pelvis", "Spine", "Spine1", "Spine2"]:
+		return strength * 0.55
+	if key in ["Neck", "Head"]:
+		return strength * 0.4
+	return strength
+
+func _adult_joint(body: Node3D, skeleton: Skeleton3D, index: int) -> Vector3:
+	var to_body: Transform3D = body.global_transform.affine_inverse() * skeleton.global_transform
+	return to_body * skeleton.get_bone_global_pose(index).origin
+
+func _adult_joint_frame(body: Node3D, skeleton: Skeleton3D, index: int) -> Quaternion:
+	var to_body: Transform3D = body.global_transform.affine_inverse() * skeleton.global_transform
+	return (to_body.basis * skeleton.get_bone_global_pose(index).basis).orthonormalized().get_rotation_quaternion()
+
+func _adult_turn_joint(body: Node3D, skeleton: Skeleton3D, index: int,
+		rotation: Quaternion) -> void:
+	var frame := _adult_joint_frame(body, skeleton, index)
+	skeleton.set_bone_pose_rotation(index,
+		(skeleton.get_bone_pose_rotation(index) * frame.inverse() * rotation * frame).normalized())
+
+func _adult_correct_grounded_knees(body: Node3D, skeleton: Skeleton3D) -> void:
+	# The source calf channels hyperextend after retargeting. Keep the captured
+	# ankle path and foot orientation, while placing each bent knee on the
+	# forward solution of its two-bone reach circle in the character's plane.
+	for side in ["L", "R"]:
+		skeleton.force_update_all_bone_transforms()
+		var thigh := skeleton.find_bone("Bip01 " + side + " Thigh")
+		var calf := skeleton.find_bone("Bip01 " + side + " Calf")
+		var foot := skeleton.find_bone("Bip01 " + side + " Foot")
+		var hip_at := _adult_joint(body, skeleton, thigh)
+		var knee_at := _adult_joint(body, skeleton, calf)
+		var ankle_at := _adult_joint(body, skeleton, foot)
+		var old_foot_frame := _adult_joint_frame(body, skeleton, foot)
+		var reach := ankle_at - hip_at
+		var distance := reach.length()
+		if distance < 0.01:
+			continue
+		var along := reach / distance
+		var forward := (Vector3.BACK - along * along.dot(Vector3.BACK)).normalized()
+		var knee_offset := (knee_at - hip_at).dot(forward)
+		if knee_offset >= -0.002:
+			continue
+		var upper := hip_at.distance_to(knee_at)
+		var lower := knee_at.distance_to(ankle_at)
+		var advance := (upper * upper - lower * lower + distance * distance) / (2.0 * distance)
+		var height := sqrt(maxf(0.0, upper * upper - advance * advance))
+		var target_knee := hip_at + along * advance + forward * height
+		var amount := smoothstep(0.0, 0.065, -knee_offset)
+		var upper_turn := Quaternion((knee_at - hip_at).normalized(),
+			(target_knee - hip_at).normalized())
+		_adult_turn_joint(body, skeleton, thigh, Quaternion.IDENTITY.slerp(upper_turn, amount))
+		skeleton.force_update_all_bone_transforms()
+		var new_knee := _adult_joint(body, skeleton, calf)
+		var new_ankle := _adult_joint(body, skeleton, foot)
+		var lower_turn := Quaternion((new_ankle - new_knee).normalized(),
+			(ankle_at - new_knee).normalized())
+		_adult_turn_joint(body, skeleton, calf, lower_turn)
+		skeleton.force_update_all_bone_transforms()
+		var foot_turn := old_foot_frame * _adult_joint_frame(body, skeleton, foot).inverse()
+		_adult_turn_joint(body, skeleton, foot, foot_turn)
+
+func _adult_clip_bindings(skeleton: Skeleton3D, clip: Animation) -> Dictionary:
+	var result := {"bindings": [], "root_track": -1, "root_reference": Vector3.ZERO}
+	for track in range(clip.get_track_count()):
+		var kind := clip.track_get_type(track)
+		if kind != Animation.TYPE_ROTATION_3D and kind != Animation.TYPE_POSITION_3D:
+			continue
+		var path := str(clip.track_get_path(track))
+		if not path.begins_with("Skeleton3D:"):
+			continue
+		var name := path.substr(11)
+		if name == "Bip01" and kind == Animation.TYPE_POSITION_3D:
+			result.root_track = track
+			result.root_reference = clip.position_track_interpolate(track, 0.0)
+			continue
+		var index := skeleton.find_bone(name)
+		if index < 0:
+			continue
+		result.bindings.append({"index": index, "key": name.trim_prefix("Bip01 "),
+			"track": track, "kind": kind,
+			"reference": clip.rotation_track_interpolate(track, 0.0) if kind == Animation.TYPE_ROTATION_3D
+				else clip.position_track_interpolate(track, 0.0),
+			"base": skeleton.get_bone_pose_rotation(index) if kind == Animation.TYPE_ROTATION_3D
+				else skeleton.get_bone_pose_position(index)})
+	return result
+
+func _apply_adult_locomotion(body: Node3D, phase: float, weight: float,
+		air: float, impact: float, run_mix: float) -> void:
 	var skeleton: Skeleton3D = body.get_node(body.get_meta("skeleton_path"))
 	var strength := weight * (1.0 - air) * (1.0 - impact * 0.7)
-	var sample := fposmod(phase / TAU, 1.0) * adult_run_clip.length
+	var run_sample := fposmod(phase / TAU, 1.0) * adult_run_clip.length
+	var walk_sample := fposmod(phase / TAU, 1.0) * adult_walk_clip.length
 	var rig: Dictionary = body.get_meta("rig")
+	var walk_channels: Dictionary = body.get_meta("walk_channels")
 	for binding in body.get_meta("run_bindings"):
 		var index: int = binding.index
-		var influence := strength
-		if binding.key in ["Pelvis", "Spine", "Spine1", "Spine2"]:
-			influence *= 0.55
-		elif binding.key in ["Neck", "Head"]:
-			influence *= 0.4
+		var influence := _adult_clip_influence(binding.key, strength)
+		var walk_binding: Variant = walk_channels.get("%d:%d" % [index, binding.kind])
 		if binding.kind == Animation.TYPE_ROTATION_3D:
 			var original: Quaternion = binding.base
 			var from: Quaternion = skeleton.get_bone_pose_rotation(index) if rig.has(binding.key) else original
-			var animated := adult_run_clip.rotation_track_interpolate(binding.track, sample)
-			var target: Quaternion = (original * binding.reference.inverse() * animated).normalized()
+			var run_frame := adult_run_clip.rotation_track_interpolate(binding.track, run_sample)
+			var run_target: Quaternion = (original * binding.reference.inverse() * run_frame).normalized()
 			if binding.key == "L Forearm" or binding.key == "R Forearm":
 				var frame: Quaternion = rig[binding.key].space
-				target = (target * frame.inverse() * Quaternion(Vector3.RIGHT, -0.45) * frame).normalized()
-			skeleton.set_bone_pose_rotation(index, from.slerp(target, influence))
+				run_target = (run_target * frame.inverse() * Quaternion(Vector3.RIGHT, -0.45) * frame).normalized()
+			var walk_target := original
+			if walk_binding is Dictionary:
+				var walk_frame := adult_walk_clip.rotation_track_interpolate(walk_binding.track, walk_sample)
+				walk_target = (original * walk_binding.reference.inverse() * walk_frame).normalized()
+			skeleton.set_bone_pose_rotation(index, from.slerp(walk_target.slerp(run_target, run_mix), influence))
 		else:
 			var original: Vector3 = binding.base
-			var animated := adult_run_clip.position_track_interpolate(binding.track, sample)
-			skeleton.set_bone_pose_position(index, original + (animated - binding.reference) * influence)
+			var run_frame: Vector3 = adult_run_clip.position_track_interpolate(binding.track, run_sample)
+			var run_reference: Vector3 = binding.reference
+			var run_target: Vector3 = original + run_frame - run_reference
+			var walk_target: Vector3 = original
+			if walk_binding is Dictionary:
+				var walk_frame: Vector3 = adult_walk_clip.position_track_interpolate(walk_binding.track, walk_sample)
+				var walk_reference: Vector3 = walk_binding.reference
+				walk_target = original + walk_frame - walk_reference
+			skeleton.set_bone_pose_position(index, original.lerp(walk_target.lerp(run_target, run_mix), influence))
+	for binding in body.get_meta("walk_only_bindings"):
+		var influence := _adult_clip_influence(binding.key, strength * (1.0 - run_mix))
+		if binding.kind == Animation.TYPE_ROTATION_3D:
+			var original: Quaternion = binding.base
+			var frame := adult_walk_clip.rotation_track_interpolate(binding.track, walk_sample)
+			var target: Quaternion = (original * binding.reference.inverse() * frame).normalized()
+			skeleton.set_bone_pose_rotation(binding.index, original.slerp(target, influence))
+		else:
+			var original: Vector3 = binding.base
+			var frame: Vector3 = adult_walk_clip.position_track_interpolate(binding.track, walk_sample)
+			var reference: Vector3 = binding.reference
+			skeleton.set_bone_pose_position(binding.index, original + (frame - reference) * influence)
+	var run_lift := 0.0
 	if adult_run_root_track >= 0:
-		var root_position := adult_run_clip.position_track_interpolate(adult_run_root_track, sample)
-		body.position.y += ((root_position.y - adult_run_root_reference.y) + 0.006) * strength
+		run_lift = adult_run_clip.position_track_interpolate(adult_run_root_track, run_sample).y - adult_run_root_reference.y
+	var walk_lift := 0.0
+	if adult_walk_root_track >= 0:
+		walk_lift = adult_walk_clip.position_track_interpolate(adult_walk_root_track, walk_sample).y - adult_walk_root_reference.y
+	body.position.y += (lerpf(walk_lift, run_lift, run_mix) + 0.006) * strength
+	if strength > 0.01:
+		_adult_correct_grounded_knees(body, skeleton)
 
 func _adult_pose_frames(skeleton: Skeleton3D) -> Array[Transform3D]:
 	# Pose setters outside the scene tree do not invalidate Godot's global-pose
@@ -496,34 +617,31 @@ func _prepare_adult_template() -> bool:
 			"space": (to_model.basis * frames[index].basis).get_rotation_quaternion()}
 	body.set_meta("rig", rig)
 	adult_run_clip = load(ADULT_ASSETS + "run_neutral.res") as Animation
-	if adult_run_clip == null or adult_run_clip.length <= 0.0:
+	adult_walk_clip = load(ADULT_ASSETS + "walk_neutral.res") as Animation
+	if adult_run_clip == null or adult_run_clip.length <= 0.0 \
+			or adult_walk_clip == null or adult_walk_clip.length <= 0.0:
 		body.free()
 		return false
 	_set_adult_air_and_landing(body, 0.0, 0.0, 0.0)
-	var run_bindings := []
-	adult_run_root_track = -1
-	for track in range(adult_run_clip.get_track_count()):
-		var kind := adult_run_clip.track_get_type(track)
-		if kind != Animation.TYPE_ROTATION_3D and kind != Animation.TYPE_POSITION_3D:
-			continue
-		var path := str(adult_run_clip.track_get_path(track))
-		if not path.begins_with("Skeleton3D:"):
-			continue
-		var name := path.substr(11)
-		if name == "Bip01" and kind == Animation.TYPE_POSITION_3D:
-			adult_run_root_track = track
-			adult_run_root_reference = adult_run_clip.position_track_interpolate(track, 0.0)
-			continue
-		var index := skeleton.find_bone(name)
-		if index < 0:
-			continue
-		run_bindings.append({"index": index, "key": name.trim_prefix("Bip01 "),
-			"track": track, "kind": kind,
-			"reference": adult_run_clip.rotation_track_interpolate(track, 0.0) if kind == Animation.TYPE_ROTATION_3D
-				else adult_run_clip.position_track_interpolate(track, 0.0),
-			"base": skeleton.get_bone_pose_rotation(index) if kind == Animation.TYPE_ROTATION_3D
-				else skeleton.get_bone_pose_position(index)})
-	body.set_meta("run_bindings", run_bindings)
+	var run_data := _adult_clip_bindings(skeleton, adult_run_clip)
+	var walk_data := _adult_clip_bindings(skeleton, adult_walk_clip)
+	adult_run_root_track = run_data.root_track
+	adult_run_root_reference = run_data.root_reference
+	adult_walk_root_track = walk_data.root_track
+	adult_walk_root_reference = walk_data.root_reference
+	body.set_meta("run_bindings", run_data.bindings)
+	var run_channels := {}
+	for binding in run_data.bindings:
+		run_channels["%d:%d" % [binding.index, binding.kind]] = true
+	var walk_channels := {}
+	var walk_only_bindings := []
+	for binding in walk_data.bindings:
+		var channel := "%d:%d" % [binding.index, binding.kind]
+		walk_channels[channel] = binding
+		if not run_channels.has(channel):
+			walk_only_bindings.append(binding)
+	body.set_meta("walk_channels", walk_channels)
+	body.set_meta("walk_only_bindings", walk_only_bindings)
 	var bounds := _adult_rest_bounds(skeleton, mesh, to_model)
 	if bounds.size.y < 1.0 or bounds.size.y > 2.2:
 		body.free()
@@ -555,12 +673,13 @@ func _make_worker_visual() -> Node3D:
 	return adult_template.instantiate()
 
 func _set_gait(body: Node3D, phase: float, weight: float,
-		air: float = 0.0, vertical_speed: float = 0.0, impact: float = 0.0) -> void:
+		air: float = 0.0, vertical_speed: float = 0.0, impact: float = 0.0,
+		run_mix: float = 1.0) -> void:
 	if body.get_meta("appearance_unavailable", false):
 		return
 	if body.get_meta("sourced_character", false):
 		_set_adult_air_and_landing(body, air, vertical_speed, impact)
-		_apply_adult_run(body, phase, weight, air, impact)
+		_apply_adult_locomotion(body, phase, weight, air, impact, run_mix)
 		return
 	for pair in [["Left", 0.0], ["Right", PI]]:
 		var prefix: String = pair[0]
@@ -578,13 +697,15 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float) -> v
 	var body: Node3D = view.get_node("BodyView")
 	var previous: Dictionary = motion.get(actor, {"position": at, "phase": 0.0, "weight": 0.0,
 		"age": 1.0, "mode": "grounded", "ground_y": at.y, "peak_y": at.y,
-		"vertical_speed": 0.0, "air": 0.0, "impact_age": LANDING_SECONDS})
+		"vertical_speed": 0.0, "air": 0.0, "impact_age": LANDING_SECONDS,
+		"run_mix": 0.0})
 	var displacement: Vector3 = at - previous.position
 	var horizontal := Vector2(displacement.x, displacement.z)
 	if horizontal.length() > DISCONTINUITY_HORIZONTAL or absf(displacement.y) > DISCONTINUITY_VERTICAL:
 		previous = {"position": at, "phase": 0.0, "weight": 0.0, "age": 1.0,
 			"mode": "grounded", "ground_y": at.y, "peak_y": at.y,
-			"vertical_speed": 0.0, "air": 0.0, "impact_age": LANDING_SECONDS}
+			"vertical_speed": 0.0, "air": 0.0, "impact_age": LANDING_SECONDS,
+			"run_mix": 0.0}
 		body.rotation.y = 0
 	else:
 		var vertical_speed: float = displacement.y / maxf(delta, 0.0001)
@@ -620,10 +741,12 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float) -> v
 		previous.air = move_toward(float(previous.air),
 			1.0 if mode == "ascent" or mode == "descent" else 0.0, delta * 14.0)
 		previous.vertical_speed = vertical_speed if mode == "ascent" or mode == "descent" else 0.0
-		if mode == "grounded" or mode == "landing":
-			previous.phase += horizontal.length() * TAU / GAIT_CYCLE_DISTANCE
 		previous.age = 0.0 if horizontal.length() > 0.00001 else previous.age + delta
 		var speed := horizontal.length() / maxf(delta, 0.0001)
+		var target_run_mix := clampf((speed - RUN_BLEND_START) / (RUN_BLEND_END - RUN_BLEND_START), 0.0, 1.0)
+		previous.run_mix = move_toward(float(previous.run_mix), target_run_mix, delta * 5.0)
+		if mode == "grounded" or mode == "landing":
+			previous.phase += horizontal.length() * TAU / lerpf(WALK_CYCLE_DISTANCE, GAIT_CYCLE_DISTANCE, float(previous.run_mix))
 		var target_weight := 0.0
 		if horizontal.length() > 0.00001:
 			target_weight = minf(1.0, speed / FULL_GAIT_SPEED)
@@ -637,9 +760,11 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float) -> v
 	var impact := 0.0
 	if previous.mode == "landing":
 		var elapsed: float = float(previous.impact_age) / LANDING_SECONDS
-		impact = pow(1.0 - clampf(elapsed, 0.0, 1.0), 2.0)
+		# The feet reach support before the torso finishes absorbing the load.
+		# Let the visual compression peak a few samples after first contact.
+		impact = smoothstep(0.0, 0.16, elapsed) * pow(1.0 - clampf(elapsed, 0.0, 1.0), 1.7)
 	_set_gait(body, float(previous.phase), float(previous.weight), float(previous.air),
-		float(previous.vertical_speed), impact)
+		float(previous.vertical_speed), impact, float(previous.run_mix))
 
 func _new_view(actor: String) -> Node3D:
 	var root := Node3D.new()
