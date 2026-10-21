@@ -301,14 +301,16 @@ func _adult_bone_delta(body: Node3D, key: String, rotation: Quaternion) -> void:
 		(bone.rotation * bone.space.inverse() * rotation * bone.space).normalized())
 
 func _set_adult_air_and_landing(body: Node3D, air: float,
-		vertical_speed: float, impact: float, landing_progress: float = 1.0) -> void:
+		vertical_speed: float, impact: float, landing_progress: float = 1.0,
+		landing_stride: float = 1.0) -> void:
 	# The captured run supplies grounded motion. These poses blend from its
 	# lowered-arm rest stance when confirmed height changes show a jump or fall.
 	var rise := clampf((vertical_speed + 0.4) / 5.0, 0.0, 1.0)
 	var fall := clampf((-vertical_speed - 0.4) / 5.2, 0.0, 1.0)
-	# A forward foot catches the first load. The trailing leg then joins it as
-	# the body compresses, before the walking clip takes over again.
-	var plant := impact * (1.0 - smoothstep(0.12, 0.60, landing_progress))
+	# Confirmed horizontal travel gives the leading foot room to catch the
+	# load; an in-place jump settles both boots beneath the body.
+	var contact_stride := clampf(landing_stride, 0.0, 1.0)
+	var plant := impact * (1.0 - smoothstep(0.12, 0.60, landing_progress)) * contact_stride
 	for pair in [["L", 1.0], ["R", -1.0]]:
 		var side: String = pair[0]
 		var sign: float = pair[1]
@@ -317,11 +319,11 @@ func _set_adult_air_and_landing(body: Node3D, air: float,
 		# Both legs fold under the body near the apex and reach down on descent.
 		var hip := ((-0.42 - 0.15 * rise + 0.30 * fall
 			- 0.35 * sign * rise - 0.08 * sign * (1.0 - rise) * (1.0 - fall)) * air
-			- (0.48 + 0.08 * sign) * impact
+			- (0.48 + 0.08 * sign * contact_stride) * impact
 			+ (-0.24 if side == "L" else 0.32) * plant)
 		var knee := ((0.90 + 0.10 * rise - 0.55 * fall
 			+ 0.35 * sign * rise + 0.08 * sign * (1.0 - rise) * (1.0 - fall)) * air
-			+ (1.02 + 0.08 * sign) * impact
+			+ (1.02 + 0.08 * sign * contact_stride) * impact
 			+ (-0.54 if side == "L" else 0.32) * plant)
 		_adult_bone_delta(body, side + " Thigh", Quaternion(Vector3.RIGHT, hip))
 		_adult_bone_delta(body, side + " Calf", Quaternion(Vector3.RIGHT, knee))
@@ -697,11 +699,13 @@ func _make_worker_visual() -> Node3D:
 
 func _set_gait(body: Node3D, phase: float, weight: float,
 		air: float = 0.0, vertical_speed: float = 0.0, impact: float = 0.0,
-		run_mix: float = 1.0, landing_progress: float = 1.0) -> void:
+		run_mix: float = 1.0, landing_progress: float = 1.0,
+		landing_stride: float = 1.0) -> void:
 	if body.get_meta("appearance_unavailable", false):
 		return
 	if body.get_meta("sourced_character", false):
-		_set_adult_air_and_landing(body, air, vertical_speed, impact, landing_progress)
+		_set_adult_air_and_landing(body, air, vertical_speed, impact,
+			landing_progress, landing_stride)
 		_apply_adult_locomotion(body, phase, weight, air, impact, run_mix)
 		if impact > 0.0:
 			var skeleton: Skeleton3D = body.get_node(body.get_meta("skeleton_path"))
@@ -730,14 +734,15 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float) -> v
 	var previous: Dictionary = motion.get(actor, {"position": at, "phase": 0.0, "weight": 0.0,
 		"age": 1.0, "mode": "grounded", "ground_y": at.y, "peak_y": at.y,
 		"vertical_speed": 0.0, "air": 0.0, "impact_age": LANDING_SECONDS,
-		"run_mix": 0.0})
+		"run_mix": 0.0, "horizontal_speed": 0.0, "landing_stride": 0.0})
 	var displacement: Vector3 = at - previous.position
 	var horizontal := Vector2(displacement.x, displacement.z)
+	var horizontal_speed := horizontal.length() / maxf(delta, 0.0001)
 	if horizontal.length() > DISCONTINUITY_HORIZONTAL or absf(displacement.y) > DISCONTINUITY_VERTICAL:
 		previous = {"position": at, "phase": 0.0, "weight": 0.0, "age": 1.0,
 			"mode": "grounded", "ground_y": at.y, "peak_y": at.y,
 			"vertical_speed": 0.0, "air": 0.0, "impact_age": LANDING_SECONDS,
-			"run_mix": 0.0}
+			"run_mix": 0.0, "horizontal_speed": 0.0, "landing_stride": 0.0}
 		body.rotation.y = 0
 	else:
 		var vertical_speed: float = displacement.y / maxf(delta, 0.0001)
@@ -766,6 +771,10 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float) -> v
 				previous.landing_air = float(previous.air)
 				previous.impact_age = 0.0
 				previous.ground_y = at.y
+				# The last airborne sample still carries momentum when the landing
+				# sample itself stops. A jump without horizontal travel has no step.
+				previous.landing_stride = smoothstep(0.35, 1.35,
+					maxf(horizontal_speed, float(previous.horizontal_speed)))
 		if mode == "landing":
 			previous.impact_age += delta
 			if float(previous.impact_age) >= LANDING_SECONDS:
@@ -781,7 +790,7 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float) -> v
 				1.0 if mode == "ascent" or mode == "descent" else 0.0, delta * 14.0)
 		previous.vertical_speed = vertical_speed if mode == "ascent" or mode == "descent" else 0.0
 		previous.age = 0.0 if horizontal.length() > 0.00001 else previous.age + delta
-		var speed := horizontal.length() / maxf(delta, 0.0001)
+		var speed := horizontal_speed
 		var target_run_mix := clampf((speed - RUN_BLEND_START) / (RUN_BLEND_END - RUN_BLEND_START), 0.0, 1.0)
 		previous.run_mix = move_toward(float(previous.run_mix), target_run_mix, delta * 5.0)
 		if mode == "grounded" or mode == "landing":
@@ -801,6 +810,7 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float) -> v
 		previous.weight = move_toward(float(previous.weight), target_weight, delta * 6.0)
 		if horizontal.length() > 0.00001:
 			body.rotation.y = lerp_angle(body.rotation.y, atan2(horizontal.x, horizontal.y), minf(1.0, delta * 12.0))
+		previous.horizontal_speed = horizontal_speed
 		previous.position = at
 	motion[actor] = previous
 	var impact := 0.0
@@ -812,7 +822,8 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float) -> v
 		# Let the visual compression peak a few samples after first contact.
 		impact = smoothstep(0.0, 0.16, elapsed) * pow(1.0 - clampf(elapsed, 0.0, 1.0), 1.7)
 	_set_gait(body, float(previous.phase), float(previous.weight), float(previous.air),
-		float(previous.vertical_speed), impact, float(previous.run_mix), landing_progress)
+		float(previous.vertical_speed), impact, float(previous.run_mix), landing_progress,
+		float(previous.landing_stride))
 
 func _new_view(actor: String) -> Node3D:
 	var root := Node3D.new()
