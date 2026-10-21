@@ -13,16 +13,22 @@ var _axes: PopupMenu
 var _heights: PopupMenu
 var _sizes: PopupMenu
 var _lengths: PopupMenu
+var _legacy_links: PopupMenu
 
 func _init() -> void:
 	text = "Cogwheels and shafts…"
 	var menu := get_popup()
 	menu.add_radio_check_item("Place cogwheel", 1)
-	menu.add_radio_check_item("Connect shaft", 2)
-	menu.add_radio_check_item("Disconnect shaft link", 3)
-	menu.add_radio_check_item("Remove cogwheel or shaft", 4)
 	menu.add_radio_check_item("Place shaft segment", 6)
+	menu.add_radio_check_item("Remove cogwheel or shaft", 4)
 	menu.add_item("Leave transmission tools", 5)
+	_legacy_links = PopupMenu.new()
+	_legacy_links.name = "EndpointLinks"
+	menu.add_child(_legacy_links)
+	_legacy_links.add_radio_check_item("Connect two endpoints", 2)
+	_legacy_links.add_radio_check_item("Disconnect two endpoints", 3)
+	_legacy_links.id_pressed.connect(_tool_selected)
+	menu.add_submenu_item("Advanced endpoint links", "EndpointLinks", 104)
 	menu.add_separator()
 	_axes = PopupMenu.new()
 	_axes.name = "Axis"
@@ -70,6 +76,12 @@ func choose_tool(tool: String) -> void:
 		return
 	active_tool = tool
 	_first.clear()
+	if tool == "place_shaft":
+		var context := _context()
+		if not context.is_empty() and _count(context, "shaft", 0, shaft_half_span) == 0:
+			var other := 4 if shaft_half_span == 2 else 2
+			if _count(context, "shaft", 0, other) > 0:
+				shaft_half_span = other
 	refresh()
 
 func _tool_selected(id: int) -> void:
@@ -158,17 +170,20 @@ func refresh() -> void:
 	var gears := _count(context, "gear", gear_teeth, 0)
 	var shafts := _shaft_count(context)
 	var menu := get_popup()
-	menu.set_item_text(0, "Place cogwheel · %d carried" % gears)
-	menu.set_item_text(1, "Connect shaft · %d carried" % shafts)
-	menu.set_item_disabled(0, gears == 0)
-	menu.set_item_disabled(1, shafts == 0)
+	var gear_index := menu.get_item_index(1)
+	menu.set_item_text(gear_index, "Place cogwheel · %d carried" % gears)
+	menu.set_item_disabled(gear_index, gears == 0)
+	_legacy_links.set_item_text(_legacy_links.get_item_index(2), "Connect two endpoints · %d carried" % shafts)
+	_legacy_links.set_item_disabled(_legacy_links.get_item_index(2), shafts == 0)
 	var shaft_index := menu.get_item_index(6)
 	var selected_shafts := _count(context, "shaft", 0, shaft_half_span)
 	menu.set_item_text(shaft_index, "Place shaft segment · %d carried" % selected_shafts)
-	menu.set_item_disabled(shaft_index, selected_shafts == 0)
+	menu.set_item_disabled(shaft_index, shafts == 0)
 	menu.set_item_checked(shaft_index, active_tool == "place_shaft")
-	for index in range(4):
-		menu.set_item_checked(index, active_tool == ["gear", "shaft", "disconnect", "remove"][index])
+	menu.set_item_checked(gear_index, active_tool == "gear")
+	menu.set_item_checked(menu.get_item_index(4), active_tool == "remove")
+	_legacy_links.set_item_checked(_legacy_links.get_item_index(2), active_tool == "shaft")
+	_legacy_links.set_item_checked(_legacy_links.get_item_index(3), active_tool == "disconnect")
 	menu.set_item_text(menu.get_item_index(100), "Axis: " + selected_axis.to_upper())
 	menu.set_item_text(menu.get_item_index(101), "Placement height: %d quarter steps" % gear_height)
 	menu.set_item_text(menu.get_item_index(102), "Cog size: " + ("Small" if gear_teeth == 2 else "Large"))
@@ -185,7 +200,7 @@ func refresh() -> void:
 	_heights.set_item_disabled(0, gear_height <= -Geometry.GRID_COORDINATE_LIMIT)
 	_heights.set_item_disabled(1, gear_height >= Geometry.GRID_COORDINATE_LIMIT)
 	text = {"gear": "Place cogwheel", "place_shaft": "Place shaft segment", "shaft": "Connect shaft", "disconnect": "Disconnect shaft", "remove": "Remove transmission"}.get(active_tool, "Cogwheels and shafts…")
-	tooltip_text = "Axis %s · gear height %d quarter steps. %d cogwheels and %d shafts carried." % [selected_axis.to_upper(), gear_height, gears, shafts]
+	tooltip_text = "Axis %s · placement height %d quarter steps. %d cogwheels and %d shafts carried." % [selected_axis.to_upper(), gear_height, gears, shafts]
 	if not context.usable:
 		_first.clear()
 

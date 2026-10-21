@@ -3971,7 +3971,7 @@ func _select_tool(tool: String) -> void:
 	foundation_area_started = false
 	pending_link = ""
 	if _native_transmission() and transmission_controls != null and tool in ["gear", "drive"]:
-		transmission_controls.choose_tool("gear" if tool == "gear" else "shaft")
+		transmission_controls.choose_tool("gear" if tool == "gear" else "place_shaft")
 	_update_cursor()
 	_refresh_ui()
 	var instructions := {"flow": "Click the upstream machine, then its neighbor toward the brass arrow.",
@@ -3982,7 +3982,7 @@ func _select_tool(tool: String) -> void:
 	if _native_transmission():
 		instructions["collector"] = "Place the collector at the exposed mineral seam."
 		instructions["flow"] = "Choose the upstream machine, then its neighbor at the material outlet."
-		instructions["drive"] = "Choose a machine or cogwheel, then its partner. The amber ring marks the first endpoint."
+		instructions["drive"] = "Place a shaft at the highlighted grid point. Set its axis, height and length in the cogwheel and shaft menu."
 		instructions["gear"] = "Place a cogwheel at the highlighted point. Set axis and height in the cogwheel menu."
 		instructions["foundation"] = "Place foundations through ground and scenery. Page Up / Page Down move one quarter-height step. Enable Area to choose two corners; Esc cancels."
 	_message(instructions.get(tool,
@@ -4101,7 +4101,7 @@ func _set_lesson(index: int) -> void:
 	lesson_title.text = LESSONS[lesson_index][0]
 	lesson_body.text = LESSONS[lesson_index][1]
 	if lesson_index == 1 and _native_transmission():
-		lesson_body.text = "Place the waterwheel in the stream with its lower rim wet and clear of the bed. Set its diameter and height, and choose an axle across the current. Use cogs and shafts to connect the wheel to your machines; flow speed and direction determine its rotation."
+		lesson_body.text = "Place the waterwheel in the stream with its lower rim wet and clear of the bed. Set its diameter, height and axle. Choose Shaft and place segments at the highlighted grid points; set axis, height and length in the cogwheel and shaft menu. Aligned parts carry rotation."
 	if example_presenter != null:
 		example_presenter.set_lesson(lesson_index)
 
@@ -4787,7 +4787,7 @@ func _refresh_ui() -> void:
 		button.disabled = explanation_open or unavailable
 		button.button_pressed = mode == tool
 		if transmission_controls != null and not transmission_controls.active_tool.is_empty():
-			button.button_pressed = tool == "drive" and transmission_controls.active_tool == "shaft"
+			button.button_pressed = tool == "drive" and transmission_controls.active_tool == "place_shaft"
 		if NAMES.has(tool):
 			button.text = "%s    ·    %d %s" % [NAMES[tool], int(parts.get(tool, 0)), part_scope]
 	tool_buttons.foundation.visible = state.get("options", {}).get("foundations", false)
@@ -4890,7 +4890,7 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	power_button.visible = show_all_tools or kinds.has("wheel")
 	controls_label.text = "WASD walk · Space jump · Right-drag view · Wheel zoom · H help"
 	if show_all_tools:
-		controls_label.text = "WASD walk · Space jump · P wheel · 1–4 build · F / G links · I inspect · H help"
+		controls_label.text = "WASD walk · Space jump · P wheel · 1–4 build · F material · G shaft · I inspect · H help" if _native_transmission() else "WASD walk · Space jump · P wheel · 1–4 build · F / G links · I inspect · H help"
 	_refresh_engineering(snapshot_ready)
 	# Introduce inspection when it can help. Keep waiting notices and explicit
 	# disclosure available even before the first machine has been built.
@@ -5167,7 +5167,7 @@ func _update_cursor() -> void:
 				hover.basis = transmission_presenter.axis_basis(["x", "y", "z"].find(transmission_controls.selected_axis))
 		return
 	hover.basis = Basis.IDENTITY
-	hover.visible = _build_cell_allowed(hover_cell) and not explanation_open
+	hover.visible = mode != "inspect" and _build_cell_allowed(hover_cell) and not explanation_open
 	if hover.visible:
 		hover.position = _cell_position([hover_cell.x, hover_cell.y]) + Vector3(0, 0.03 + _construction_level(hover_cell) * Geometry.HEIGHT_STEP, 0)
 
@@ -5346,7 +5346,7 @@ func _build_interface() -> void:
 	bottom_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	status_label = _label(bottom, "", 16)
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	controls_label = _label(bottom, "1–4 build  ·  F material / G drive  ·  Right-drag orbit  ·  Wheel zoom  ·  WASD pan  ·  Home recenter" if legacy_fixture else "WASD walk · Space jump · P wheel · 1–4 build · F / G links · Right-drag orbit · Wheel zoom · H help", 12, Color("9eb4b2"))
+	controls_label = _label(bottom, "1–4 build  ·  F material / G drive  ·  Right-drag orbit  ·  Wheel zoom  ·  WASD pan  ·  Home recenter" if legacy_fixture else "WASD walk · Space jump · P wheel · 1–4 build · F material · G shaft · Right-drag orbit · Wheel zoom · H help", 12, Color("9eb4b2"))
 	bottom_panel.minimum_size_changed.connect(_queue_footer_fit)
 	bottom_panel.resized.connect(_queue_footer_fit)
 	var lesson_column := _panel(root, Vector2(346, 18), Vector2(600, 192))
