@@ -66,10 +66,12 @@ Confirmed rising and falling samples switch the visual skeleton into distinct
 takeoff, ascent, descent and compressed landing poses. The running takeoff lifts
 one knee while the trailing leg extends; the legs fold near the apex, reach
 down on descent and compress at impact. The arms drive asymmetrically on takeoff
-and open for balance in flight. At contact, the left boot reaches forward and
-takes the first load while the right leg trails. The torso leans over that
-support, both knees absorb the fall, and the trailing boot joins as the body
-recovers over 0.24 seconds. The airborne pose fades through this recovery
+and open for balance in flight. When recent confirmed horizontal travel reaches
+contact, the left boot reaches forward and takes the first load while the right
+leg trails. The torso leans over that support, both knees absorb the fall, and
+the trailing boot joins as the body recovers over 0.24 seconds. A stationary
+jump settles both boots under the body without inventing a forward recovery
+step. The airborne pose fades through this recovery
 instead of disappearing in four frames. The lower of the two posed toes anchors
 the visual body to the confirmed support height during landing; the physical
 actor root stays unchanged. These poses

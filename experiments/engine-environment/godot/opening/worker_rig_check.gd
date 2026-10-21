@@ -382,6 +382,51 @@ func check_walking_support() -> void:
 		"A full walking stride remains visual and leaves the confirmed actor and input untouched.")
 	host.free()
 
+func landing_contact_case(metres_per_frame: float) -> Dictionary:
+	var host := HostFixture.new()
+	host.state.context = "landing-contact"
+	root.add_child(host)
+	var presenter := Presenter.new()
+	presenter.configure(host)
+	host.add_child(presenter)
+	presenter.set_process(false)
+	presenter.set_physics_process(false)
+	var view: Node3D = presenter.views.P
+	var body: Node3D = view.get_node("BodyView")
+	var skeleton: Skeleton3D = skeleton_of(body)
+	var heights := [0.9, 1.12, 1.42, 1.78, 1.68, 1.38, 0.9, 0.9]
+	var x := 0.0
+	for frame in range(heights.size()):
+		if frame > 0 and frame < 6:
+			x += metres_per_frame
+		host.state.actors.P.position = [x, heights[frame], 0.0]
+		presenter.refresh(1.0 / 60.0)
+	skeleton.force_update_all_bone_transforms()
+	var left: Vector3 = presenter._adult_joint(body, skeleton,
+		skeleton.find_bone("Bip01 L Toe0"))
+	var right: Vector3 = presenter._adult_joint(body, skeleton,
+		skeleton.find_bone("Bip01 R Toe0"))
+	var result := {"stride": float(presenter.motion.P.landing_stride),
+		"toe_spread": left.z - right.z, "root_x": view.position.x,
+		"mode": presenter.motion.P.mode, "control_calls": host.control_calls}
+	host.free()
+	return result
+
+func check_landing_contact_from_motion() -> void:
+	var still := landing_contact_case(0.0)
+	var slow := landing_contact_case(0.015)
+	var moving := landing_contact_case(0.03)
+	verify(still.mode == "landing" and slow.mode == "landing" and moving.mode == "landing"
+		and still.stride < 0.01 and slow.stride > 0.1 and slow.stride < 0.9
+		and moving.stride > 0.99 and still.toe_spread < 0.18
+		and slow.toe_spread > still.toe_spread and slow.toe_spread < moving.toe_spread
+		and moving.toe_spread > 0.28,
+		"Landing foot placement progresses from under-body contact to a staged forward step with confirmed travel.")
+	verify(is_zero_approx(float(still.root_x)) and is_equal_approx(float(slow.root_x), 0.075)
+		and is_equal_approx(float(moving.root_x), 0.15)
+		and still.control_calls == 0 and slow.control_calls == 0 and moving.control_calls == 0,
+		"Landing changes only the visual contact pose, never the confirmed actor or input.")
+
 func _initialize() -> void:
 	call_deferred("run")
 
@@ -415,6 +460,7 @@ func run() -> void:
 	if sourced:
 		inspect_adult(body, q.get_node("BodyView"), presenter)
 		check_walking_support()
+		check_landing_contact_from_motion()
 	else:
 		verify(body.mesh == q.get_node("BodyView").mesh and body.material_override != q.get_node("BodyView").material_override,
 			"Legacy workers share geometry while retaining distinct local and remote clothing.")
