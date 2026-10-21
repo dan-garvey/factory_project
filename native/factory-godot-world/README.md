@@ -76,6 +76,13 @@ Mechanical parts do not yet have precise actor colliders;
 ActorWorld uses uniform machine boxes, matching foundation blocks and the shared
 terrain. These remain prototype contact shapes.
 
+Mechanical belt spans can also run vertically, sideways or at 45 degrees.
+The Host uses the same path for construction, subsequent obstruction and save
+validation. Its inclined clearance covers the rotated contact body with short
+conservative sections, including the end overhang; this may refuse an object
+very close to the body even when the exact rotated boxes do not overlap.
+Vertical and sideways spans transmit rotation without carrying cargo or actors.
+
 The physical checkpoint has schema 3 and format `factory-native-physical`. Its
 logical World checkpoint has schema 3, including the trusted interaction offset
 and identified belt spans. The physical envelope remains schema 3.

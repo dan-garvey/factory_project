@@ -420,9 +420,9 @@ void belt_span_host_commands() {
     unsupported_state.at("topology") = V(std::move(unsupported_topology));
     unsupported_world.at("state") = V(std::move(unsupported_state));
     unsupported.at("world") = V(std::move(unsupported_world));
-    const auto rejected_incline = host.validate_checkpoint(V(unsupported));
-    check(!accepted(rejected_incline) && field<std::string>(rejected_incline, "reason") == "invalid_belt_geometry",
-          "The physical Host refuses a native inclined span until site and body geometry are supported.");
+    const auto buried_incline = host.validate_checkpoint(V(unsupported));
+    check(!accepted(buried_incline) && field<std::string>(buried_incline, "reason") == "site_occupied",
+          "An inclined span whose lower physical overhang enters terrain cannot be restored.");
     auto with_item = std::get<O>(checkpoint.storage());
     auto logical = std::get<O>(with_item.at("world").storage());
     auto saved_state = std::get<O>(logical.at("state").storage());
@@ -486,6 +486,61 @@ void belt_span_host_commands() {
           "The Host removes the span and refunds its one belt.");
     check(accepted(restored.validate_checkpoint(restored.checkpoint())),
           "The removed span and its immutable wire history remain restorable.");
+}
+
+void nonhorizontal_span_host() {
+    struct Case { const char* axis; I start_y, x, y, z; };
+    for (const auto& example : {Case{"z", 4, 8, 12, 0}, Case{"z", 12, 8, 4, 0},
+                                Case{"x", 4, 0, 12, 8}, Case{"x", 12, 0, 4, 8},
+                                Case{"z", 4, 0, 12, 0}, Case{"y", 4, 8, 4, 0}}) {
+        Host host;
+        check(accepted(host.initialize("cog-api", {"P"})) &&
+                  accepted(host.configure_terrain(factory::godot_world::tests::flat_site())),
+              "A nonhorizontal Host binds a flat synthetic site.");
+        const auto observe_at = [&](double x, double y, double z, I epoch) {
+            check(accepted(host.publish_actor("P", {V(x), V(y), V(z)}, epoch)), "Synthetic actor observation is accepted.");
+        };
+        observe_at(0, 0.5 + example.start_y * 1.65 / 4, -1.65, 1);
+        const auto first = create(host, shaft(0, example.start_y, 0, "3d-first", example.axis));
+        observe_at(example.x * 1.65 / 4, 0.5 + example.y * 1.65 / 4, example.z * 1.65 / 4 - 1.65, 2);
+        const auto last = create(host, shaft(example.x, example.y, example.z, "3d-last", example.axis));
+        auto install = wire("place_belt_span", "3d-blocked");
+        install.emplace("from", V(first)); install.emplace("to", V(last));
+        const double mx = example.x * 1.65 / 8, my = 0.5 + (example.start_y + example.y) * 1.65 / 8, mz = example.z * 1.65 / 8;
+        observe_at(mx, my, mz, 3);
+        const auto blocked = host.command("P", install);
+        check(!accepted(blocked) && field<std::string>(blocked, "reason") == "actor_occupied", "A body intersecting the path refuses placement.");
+        observe_at(mx, my, mz - 1.65, 4);
+        install.at("request") = V("3d-clear");
+        const auto span = create(host, install);
+        check(field<O>(host.projection(), "belt_spans").contains(span), "The Host admits the nonhorizontal span.");
+        if (std::string(example.axis) == "z" && example.x == 8 && example.start_y == 4) {
+            const auto obstruction = host.command("P", gear(4, 8, 0, "3d-cog-intersection", "z"));
+            check(!accepted(obstruction) && field<std::string>(obstruction, "reason") == "occupied",
+                  "A later cog cannot intersect the inclined body.");
+            create(host, gear(4, 0, 0, "3d-cog-below", "z"));
+        }
+        const auto checkpoint = host.checkpoint();
+        Host loaded;
+        check(accepted(loaded.initialize("fresh", {"P"})) &&
+                  accepted(loaded.configure_terrain(factory::godot_world::tests::flat_site())) &&
+                  accepted(loaded.restore_checkpoint(checkpoint)) &&
+                  !factory::values::typed_difference(checkpoint, loaded.checkpoint()), "The span survives a fresh Host restore.");
+        auto blocked_site = factory::godot_world::tests::flat_site();
+        blocked_site.at("obstacles") = V(A{V(A{V(A{V(mx - 0.1), V(my - 0.1), V(mz - 0.1)}),
+                                                 V(A{V(mx + 0.1), V(my + 0.1), V(mz + 0.1)})})});
+        Host obstructed;
+        check(accepted(obstructed.initialize("fresh", {"P"})) && accepted(obstructed.configure_terrain(blocked_site)) &&
+                  !accepted(obstructed.validate_checkpoint(checkpoint)), "Restore refuses a site obstacle through the physical path.");
+        if (std::string(example.axis) == "z" && example.x == 8 && example.start_y == 4) {
+            auto clear_below = factory::godot_world::tests::flat_site();
+            clear_below.at("obstacles") = V(A{V(A{V(A{V(mx - 0.1), V(0.9), V(-0.1)}),
+                                                    V(A{V(mx + 0.1), V(1.1), V(0.1)})})});
+            Host below;
+            check(accepted(below.initialize("fresh", {"P"})) && accepted(below.configure_terrain(clear_below)) &&
+                      accepted(below.validate_checkpoint(checkpoint)), "Clearance does not fill the empty space below an incline.");
+        }
+    }
 }
 
 void complete_span_route_host() {
@@ -879,7 +934,7 @@ int main(int argc, char** argv) {
         }
         if (argc == 1) {
             finite_oriented_train_and_restore(); adjacent_axle_faces(); refusals_and_legacy_shape();
-            global_grid(); finite_large_cog(); perpendicular_belt_line(); belt_spindle_orientation(); belt_span_host_commands(); complete_span_route_host(); rotated_belt_host(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
+            global_grid(); finite_large_cog(); perpendicular_belt_line(); belt_spindle_orientation(); belt_span_host_commands(); nonhorizontal_span_host(); complete_span_route_host(); rotated_belt_host(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
         } else if (argc != 2 || std::string(argv[1]) != "--placement-alias-only") {
             throw std::runtime_error("Expected no arguments or --placement-alias-only.");
         }

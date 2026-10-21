@@ -269,21 +269,66 @@ const stationary::PlacedPart* find(const world::State& state, const std::string&
     return found == state.topology.parts.end() ? nullptr : &*found;
 }
 
+std::vector<Bounds> belt_bounds(const mechanics::Part& first, const mechanics::Part& last) {
+    std::vector<Bounds> result;
+    const auto path = mechanics::belt_path(first, last);
+    if (!path) return result;
+    const auto at = [](const mechanics::Point& point) -> authority::Point {
+        return {point[0] * height_step, anchor_height + point[1] * height_step, point[2] * height_step};
+    };
+    if (path->kind == mechanics::BeltPathKind::inclined) {
+        const auto a = at(path->tiles.front()), b = at(path->tiles.back());
+        const auto direction = first.axis == mechanics::Axis::x ? std::size_t{2} : std::size_t{0};
+        const auto axle = static_cast<std::size_t>(first.axis);
+        const double sx = b[direction] > a[direction] ? 1.0 : -1.0;
+        const double sy = b[1] > a[1] ? 1.0 : -1.0;
+        // Cover the same oriented body as site_geometry.gd, including its
+        // half-tile overhang at each end. Small sections bound the 45-degree
+        // rectangle without filling the empty space below the whole slope.
+        const auto sections = path->tiles.size() * 8;
+        const double length = path->tiles.size() * pitch;
+        const double section = length / sections;
+        const double normal = 0.15 / std::sqrt(2.0);
+        for (std::size_t i = 0; i < sections; ++i) {
+            const double along = -pitch / 2 + (i + 0.5) * section;
+            auto center = a;
+            center[direction] += sx * along;
+            center[1] += sy * along;
+            authority::Point half{};
+            half[direction] = section / 2 + normal;
+            half[1] = section / 2 + normal;
+            half[axle] = 0.3;
+            result.push_back({center, half});
+        }
+        return result;
+    }
+    if (path->kind != mechanics::BeltPathKind::horizontal) {
+        const auto a = at(path->tiles.front()), b = at(path->tiles.back());
+        const auto direction = a[0] != b[0] ? std::size_t{0} : (a[1] != b[1] ? std::size_t{1} : std::size_t{2});
+        authority::Point center{}, half{0.3, 0.3, 0.3};
+        for (std::size_t axis = 0; axis < 3; ++axis) center[axis] = (a[axis] + b[axis]) / 2;
+        half[direction] = std::abs(b[direction] - a[direction]) / 2 + pitch / 2;
+        const auto axle = static_cast<std::size_t>(first.axis);
+        half[3 - direction - axle] = 0.15;
+        result.push_back({center, half});
+        return result;
+    }
+    const auto direction = first.axis == mechanics::Axis::x ? std::size_t{2} : std::size_t{0};
+    for (const auto& point : path->tiles) {
+        authority::Point half{0.3, 0.15, 0.3}; half[direction] = pitch / 2;
+        result.push_back({at(point), half});
+    }
+    return result;
+}
+
 std::vector<Bounds> belt_bounds(const world::State& state) {
     std::vector<Bounds> result;
     for (const auto& span : state.topology.belt_spans) {
         const auto* first = find(state, span.geometry.first_shaft);
         const auto* last = find(state, span.geometry.last_shaft);
         if (!first || !last) continue; // World validation rejects dangling spans.
-        const auto direction = first->geometry.axis == mechanics::Axis::x ? std::size_t{2} : std::size_t{0};
-        const auto low = std::min(first->geometry.center[direction], last->geometry.center[direction]);
-        const auto high = std::max(first->geometry.center[direction], last->geometry.center[direction]);
-        for (auto coordinate = low; coordinate <= high; coordinate += 4) {
-            auto point = first->geometry.center; point[direction] = coordinate;
-            authority::Point half{0.3, 0.15, 0.3}; half[direction] = pitch / 2;
-            result.push_back({{point[0] * height_step, anchor_height + point[1] * height_step,
-                               point[2] * height_step}, half});
-        }
+        const auto sections = belt_bounds(first->geometry, last->geometry);
+        result.insert(result.end(), sections.begin(), sections.end());
     }
     return result;
 }
@@ -809,20 +854,13 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         const auto* first = find(snapshot.state, *field<std::string>(wire, "from"));
         const auto* last = find(snapshot.state, *field<std::string>(wire, "to"));
         if (!first || !last) return refuse("unknown_target");
-        if (first->role != Role::shaft || last->role != Role::shaft || first->geometry.axis != last->geometry.axis ||
-            first->geometry.axis == mechanics::Axis::y) return refuse("invalid_belt_geometry");
-        const auto direction = first->geometry.axis == mechanics::Axis::x ? std::size_t{2} : std::size_t{0};
-        for (std::size_t n = 0; n < 3; ++n)
-            if (n != direction && first->geometry.center[n] != last->geometry.center[n]) return refuse("invalid_belt_geometry");
-        const auto low = std::min(first->geometry.center[direction], last->geometry.center[direction]);
-        const auto high = std::max(first->geometry.center[direction], last->geometry.center[direction]);
-        if (low == high || (high - low) / 4 + 1 > 20) return refuse("invalid_belt_geometry");
-        for (auto coordinate = low; coordinate <= high; coordinate += 4) {
-            auto center = first->geometry.center; center[direction] = coordinate;
-            const authority::Point at{center[0] * height_step, anchor_height + center[1] * height_step, center[2] * height_step};
-            authority::Point half{0.3, 0.15, 0.3}; half[direction] = pitch / 2;
+        if (first->role != Role::shaft || last->role != Role::shaft) return refuse("invalid_belt_geometry");
+        const auto sections = belt_bounds(first->geometry, last->geometry);
+        if (sections.empty()) return refuse("invalid_belt_geometry");
+        for (const auto& belt_bounds : sections) {
+            const auto& at = belt_bounds.center;
+            const auto& half = belt_bounds.half;
             if (placement_blocked(at, half)) return refuse("actor_occupied");
-            const Bounds belt_bounds{at, half};
             for (const auto& [foundation_id, foundation] : snapshot.state.foundations) {
                 (void)foundation_id;
                 if (overlap(belt_bounds, foundation_bounds(foundation))) return refuse("occupied");
@@ -1092,13 +1130,12 @@ Host::Decoded Host::decode(const Value& input) const {
         const auto* to = find(snapshot.state, link.to.id);
         if (!from || !to || !world::material_ports_adjacent(*from, *to)) return {nullptr, "incompatible_geometry"};
     }
-    // The physical adapter only represents horizontal belts until its site and
-    // collision geometry supports the other native World path kinds.
+    // Validate the same path geometry used by construction and physical bodies.
     for (const auto& span : snapshot.state.topology.belt_spans) {
         const auto* first = find(snapshot.state, span.geometry.first_shaft);
         const auto* last = find(snapshot.state, span.geometry.last_shaft);
         const auto path = first && last ? mechanics::belt_path(first->geometry, last->geometry) : std::nullopt;
-        if (!path || path->kind != mechanics::BeltPathKind::horizontal) return {nullptr, "invalid_belt_geometry"};
+        if (!path) return {nullptr, "invalid_belt_geometry"};
     }
     for (const auto& belt : belt_bounds(snapshot.state)) {
         for (const auto& [id, foundation] : snapshot.state.foundations) {
