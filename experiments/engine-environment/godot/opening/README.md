@@ -71,8 +71,10 @@ immediately; otherwise it appears with placed transmission parts or collected
 plates. Key 5 also selects a cogwheel. The menu chooses X/Y/Z rotation axis and
 placement height in full-tile steps. Shafts and cogs each occupy one 1.65 m
 tile and snap to the common world grid in all three dimensions. That axis also applies to subsequent
-machine placement, except for the belt: its fixed material path runs along X,
-so its drive spindle runs across the belt along Z. A translucent cursor marks
+machine placement, except for the belt. Select the belt and press **T** to turn
+its material direction between +X and +Z; its drive spindle runs across that
+direction. The placement preview shows the selected direction, and connecting
+machines face along the belt. A translucent cursor marks
 the requested gear plane, not permission to build there. Real character
 proximity remains authoritative. Adjacent aligned cog, shaft and machine axle
 ends connect directly; fill a longer gap with individual shaft tiles.

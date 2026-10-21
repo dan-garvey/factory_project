@@ -680,7 +680,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             *kind_name != "wheel" && *kind_name != "gear") return refuse("unknown_kind");
         if (*kind_name != "gear" && level && *level % 4 != 0) return refuse("unaligned_elevation");
         if (wire.contains("tiles") && (!tiles || *tiles < 3 || *tiles > mechanics::maximum_dimension)) return refuse("invalid_wheel_size");
-        if (*kind_name == "belt" && axis && *axis != "z") return refuse("invalid_belt_axis");
+        if (*kind_name == "belt" && axis && *axis == "y") return refuse("invalid_belt_axis");
         const mechanics::Point center{4 * *x, level ? *level : 0, 4 * *z};
         if (*kind_name == "collector")
             if (const auto* refusal = collector_site_refusal(center)) return refuse(refusal);
@@ -770,8 +770,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         if (*action == "connect") {
             const auto* from = find(snapshot.state, *field<std::string>(wire, "from"));
             const auto* to = find(snapshot.state, *field<std::string>(wire, "to"));
-            if (from && to && (to->geometry.center[0] != from->geometry.center[0] + 4 ||
-                to->geometry.center[1] != from->geometry.center[1] || to->geometry.center[2] != from->geometry.center[2]))
+            if (from && to && !world::material_ports_adjacent(*from, *to))
                 return refuse("ports_not_adjacent");
         }
     } else if (*action == "set_power") {
@@ -974,7 +973,7 @@ Host::Decoded Host::decode(const Value& input) const {
                 return {nullptr, "incompatible_geometry"};
         } else if (part.role == Role::gear) {
             if (part.geometry.teeth != 2 && part.geometry.teeth != 4) return {nullptr, "incompatible_geometry"};
-        } else if ((part.role == Role::belt && part.geometry.axis != mechanics::Axis::z) ||
+        } else if ((part.role == Role::belt && part.geometry.axis == mechanics::Axis::y) ||
             center[0] % 4 != 0 || center[2] % 4 != 0) return {nullptr, "incompatible_geometry"};
         if (part.role == Role::collector)
             if (const auto* refusal = collector_site_refusal(center)) return {nullptr, refusal};
@@ -993,9 +992,7 @@ Host::Decoded Host::decode(const Value& input) const {
     for (const auto& link : snapshot.state.topology.material_links) {
         const auto* from = find(snapshot.state, link.from.id);
         const auto* to = find(snapshot.state, link.to.id);
-        if (!from || !to || to->geometry.center[0] != from->geometry.center[0] + 4 ||
-            to->geometry.center[1] != from->geometry.center[1] ||
-            to->geometry.center[2] != from->geometry.center[2]) return {nullptr, "incompatible_geometry"};
+        if (!from || !to || !world::material_ports_adjacent(*from, *to)) return {nullptr, "incompatible_geometry"};
     }
     const auto& actors = *field<Object>(*root, "actors");
     if (actors.size() != profile_.actors.size()) return {nullptr, "actor_roster_mismatch"};

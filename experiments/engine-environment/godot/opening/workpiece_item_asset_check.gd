@@ -5,12 +5,33 @@ extends SceneTree
 const Assets = preload("res://opening/workpiece_item_assets.gd")
 const Visuals = preload("res://opening/opening.gd").ProductionVisuals
 const Geometry = preload("res://opening/site_geometry.gd")
+const Opening = preload("res://opening/opening.gd")
+const Shared = preload("res://opening/shared_opening.gd")
 
 var checks := 0
 var failed := false
 var checked_meshes: Dictionary = {}
 var max_tangent_dot := 0.0
 var visual_instances := 0
+
+class AxisSelection extends RefCounted:
+	var selected_axis := "y"
+
+class DetachedOpening extends Opening:
+	func _message(_words: String, _refused: bool = false) -> void:
+		pass
+	func _refresh_machine_preview() -> void:
+		pass
+	func _update_camera() -> void:
+		pass
+
+class DetachedShared extends Shared:
+	func _message(_words: String, _refused: bool = false) -> void:
+		pass
+	func _refresh_machine_preview() -> void:
+		pass
+	func _update_camera() -> void:
+		pass
 
 
 func verify(condition: bool, message: String) -> void:
@@ -192,6 +213,59 @@ func _initialize() -> void:
 	)
 	verify(state == before, "Item assembly population never mutates the confirmed projection state.")
 	item_root.free()
+
+	var rotated := {
+		"options": {"native": true},
+		"entities": {
+			"c": {"kind": "collector", "cell": [0, 1], "axis": 2},
+			"b": {"kind": "belt", "cell": [0, 2], "axis": 0},
+			"p": {"kind": "processor", "cell": [0, 3], "axis": 2},
+		},
+		"links": [["c", "b"], ["b", "p"]],
+		"stock": {"source": 0, "collector": 0, "belt": 1, "input": 0, "held": 0, "output": 1},
+	}
+	for shared in [false, true]:
+		var view: Variant = DetachedShared.new() if shared else DetachedOpening.new()
+		view.state = rotated
+		view.mode = "belt"
+		view.transmission_controls = AxisSelection.new()
+		var turn := InputEventKey.new()
+		turn.keycode = KEY_T
+		turn.pressed = true
+		verify(view._preview_axis() == 2, "The default belt preview runs along X.")
+		view._unhandled_input(turn)
+		verify(view.belt_axis == "x" and view._preview_axis() == 0,
+			"The belt rotation control selects the perpendicular X axle and matching preview.")
+		view._unhandled_input(turn)
+		verify(view.belt_axis == "z" and view._preview_axis() == 2,
+			"The belt rotation control returns to the original orientation.")
+		for id in ["c", "b", "p"]:
+			verify(view._material_rotated(id, rotated.entities[id]), "Connected machine artwork follows the rotated belt in both consumers.")
+		var anchor := Node3D.new()
+		view._assemble_machine(anchor, rotated.entities.b, true)
+		var assembly := anchor.get_node_or_null("RotatedMachineVisual") as Node3D
+		verify(assembly != null and (assembly.basis * Vector3.RIGHT).is_equal_approx(Vector3.BACK),
+			"The rotated belt artwork maps its local material path to world +Z.")
+		view._apply_conveyor_motion(anchor, 0.5)
+		var loop := anchor.find_child("ConveyorLoop", true, false) as MeshInstance3D
+		verify(loop != null and loop.material_override.uv1_offset.x > 0.5,
+			"Positive X axle rotation advances the rotated belt toward its outlet.")
+		anchor.free()
+		view.free()
+	var turned_items := Node3D.new()
+	Assets.populate_items(turned_items, rotated, Geometry.PITCH)
+	var billet_node: Node3D
+	var plate_node: Node3D
+	for child in turned_items.get_children():
+		if child.get_meta("item_kind", "") == "workpiece_billet":
+			billet_node = child
+		elif child.get_meta("item_kind", "") == "stamped_plate":
+			plate_node = child
+	verify(billet_node != null and billet_node.position.is_equal_approx(Vector3(0, 0.65, 3.13))
+		and is_equal_approx(billet_node.rotation.y, -PI / 2.0), "The billet follows the rotated belt.")
+	verify(plate_node != null and plate_node.position.is_equal_approx(Vector3(-0.15, 0.39, 5.41))
+		and is_equal_approx(plate_node.rotation.y, -PI / 2.0), "The finished plate follows the rotated press tray.")
+	turned_items.free()
 
 	var ok: bool = not failed and checks >= 40
 	print(JSON.stringify({

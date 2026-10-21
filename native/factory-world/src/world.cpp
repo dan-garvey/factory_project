@@ -47,12 +47,6 @@ std::optional<mechanics::Rate> wheel_rate(const Profile& profile, const stationa
                             profile.wheel_radius * placed.wheel_tiles, part.axis, sample->second);
 }
 
-// The opening's existing material ports face along +X and are four integer
-// quarter-pitch units apart. This does not derive a mechanical engagement.
-bool adjacent_ports(const mechanics::Point& from, const mechanics::Point& to) {
-    return to[0] == from[0] + 4 && to[1] == from[1] && to[2] == from[2];
-}
-
 bool material_pair(Role from, Role to) {
     return (from == Role::collector && to == Role::belt) ||
            (from == Role::belt && to == Role::processor);
@@ -64,12 +58,13 @@ struct Attachment {
 };
 
 std::vector<Attachment> placement_attachments(const stationary::Topology& topology,
-                                             Role role, const mechanics::Point& center) {
+                                             Role role, const mechanics::Point& center, mechanics::Axis axis) {
     std::vector<Attachment> result;
+    const stationary::PlacedPart proposed{{"proposed", mechanics::Kind::hub, center, axis, 0, 0}, 1, role};
     for (const auto& other : topology.parts) {
-        if (material_pair(role, other.role) && adjacent_ports(center, other.geometry.center))
+        if (material_ports_adjacent(proposed, other))
             result.push_back({&other, true});
-        else if (material_pair(other.role, role) && adjacent_ports(other.geometry.center, center))
+        else if (material_ports_adjacent(other, proposed))
             result.push_back({&other, false});
     }
     return result;
@@ -304,6 +299,7 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         const auto selected_role = role_name ? role(*role_name) : std::nullopt;
         if (!location || !selected_role || !axis_name || !axis(*axis_name) || !teeth || !span ||
             !spec_valid({*selected_role, *teeth, *span}) || targets.front() != anchor(profile, *location) ||
+            (*selected_role == Role::belt && *axis_name == "y") ||
             (record.intent.contains("wheel_tiles") && (!wheel_tiles || *selected_role != Role::waterwheel ||
                 *wheel_tiles < 3 || *wheel_tiles > mechanics::maximum_dimension))) return false;
         if ((*selected_role == Role::gear || *selected_role == Role::shaft) &&
@@ -311,18 +307,23 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
                         [](Integer coordinate) { return coordinate % 4 != 0; })) return false;
         if (action == "place_connected") {
             if (!material_machine(*selected_role)) return false;
-            auto left = *location;
-            auto right = *location;
-            left[0] -= 4;
-            right[0] += 4;
             bool used_input = false;
             bool used_output = false;
+            std::optional<std::size_t> direction;
             for (std::size_t index = 1; index < targets.size(); ++index) {
-                if (*selected_role != Role::collector && !used_input && targets[index] == anchor(profile, left))
-                    used_input = true;
-                else if (*selected_role != Role::processor && !used_output && targets[index] == anchor(profile, right))
-                    used_output = true;
-                else return false;
+                bool matched = false;
+                for (const std::size_t coordinate : {std::size_t{0}, std::size_t{2}}) {
+                    if (direction && *direction != coordinate) continue;
+                    if (*selected_role == Role::belt && coordinate != (*axis_name == "x" ? 2U : 0U)) continue;
+                    auto left = *location; left[coordinate] -= 4;
+                    auto right = *location; right[coordinate] += 4;
+                    if (*selected_role != Role::collector && !used_input && targets[index] == anchor(profile, left))
+                        used_input = matched = true;
+                    else if (*selected_role != Role::processor && !used_output && targets[index] == anchor(profile, right))
+                        used_output = matched = true;
+                    if (matched) { direction = coordinate; break; }
+                }
+                if (!matched) return false;
             }
         }
     } else if (action != "shaft_between" && action != "remove_shaft_between") {
@@ -428,6 +429,16 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
 }
 }  // namespace
 
+bool material_ports_adjacent(const stationary::PlacedPart& from, const stationary::PlacedPart& to) noexcept {
+    if (!material_pair(from.role, to.role)) return false;
+    const auto axis = (from.role == Role::belt ? from : to).geometry.axis;
+    const auto& a = from.geometry.center;
+    const auto& b = to.geometry.center;
+    if (axis == mechanics::Axis::z) return b[0] == a[0] + 4 && b[1] == a[1] && b[2] == a[2];
+    if (axis == mechanics::Axis::x) return b[2] == a[2] + 4 && b[1] == a[1] && b[0] == a[0];
+    return false;
+}
+
 materials::Path material_path(const stationary::Topology& topology) {
     materials::Path path;
     path.powered = topology.drive_enabled;
@@ -458,10 +469,12 @@ materials::MachinePower machine_power(const stationary::Topology& topology) {
         if (item.role == Role::belt) {
             power.belt = rotating;
             if (rotating) {
-                // +Z rotation moves the belt's upper surface toward -X.
-                power.belt_forward = found->second.rate.numerator < 0;
-                power.reverse_drop = materials::DropPoint{item.geometry.center[0] - 2,
-                    item.geometry.center[1], item.geometry.center[2]};
+                // In a Y-up world, +Z rotation drives the top toward -X;
+                // +X rotation drives it toward +Z.
+                const bool along_z = item.geometry.axis == mechanics::Axis::x;
+                power.belt_forward = along_z ? found->second.rate.numerator > 0 : found->second.rate.numerator < 0;
+                power.reverse_drop = materials::DropPoint{item.geometry.center[0] - (along_z ? 0 : 2),
+                    item.geometry.center[1], item.geometry.center[2] - (along_z ? 2 : 0)};
             }
         }
         if (item.role == Role::processor) {
@@ -563,7 +576,7 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
     for (const auto& item : state.topology.parts) {
         if (item.wheel_tiles < (item.role == Role::waterwheel ? 3 : 1) || item.wheel_tiles > mechanics::maximum_dimension ||
             (item.role != Role::waterwheel && item.wheel_tiles != 1)) return false;
-        if (item.role == Role::belt && item.geometry.axis != mechanics::Axis::z) return false;
+        if (item.role == Role::belt && item.geometry.axis == mechanics::Axis::y) return false;
         if ((material_machine(item.role) || item.role == Role::waterwheel) && item.geometry.center[1] % 4 != 0) return false;
         if ((item.role == Role::shaft || item.role == Role::gear) &&
             std::any_of(item.geometry.center.begin(), item.geometry.center.end(),
@@ -589,7 +602,7 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
     for (const auto& link : state.topology.material_links) {
         const auto* from = part(state.topology, link.from.id);
         const auto* to = part(state.topology, link.to.id);
-        if (!from || !to || !adjacent_ports(from->geometry.center, to->geometry.center)) return false;
+        if (!from || !to || !material_ports_adjacent(*from, *to)) return false;
     }
     if (totals != profile.finite_parts || !stationary::power_view(state.topology).mechanical.accepted() ||
         materials::validate(state.material, profile.material, material_path(state.topology)) != materials::Error::none)
@@ -778,7 +791,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             !spec_valid({*selected_role, *teeth, *span}) ||
             (intent.contains("wheel_tiles") && (!wheel_tiles || *selected_role != Role::waterwheel ||
                 *wheel_tiles < 3 || *wheel_tiles > mechanics::maximum_dimension))) return refused("invalid_part");
-        if (*selected_role == Role::belt && *selected_axis != mechanics::Axis::z) return refused("invalid_belt_axis");
+        if (*selected_role == Role::belt && *selected_axis == mechanics::Axis::y) return refused("invalid_belt_axis");
         if ((material_machine(*selected_role) || *selected_role == Role::waterwheel) && (*location)[1] % 4 != 0)
             return refused("unaligned_elevation");
         if ((*selected_role == Role::gear || *selected_role == Role::shaft) &&
@@ -792,7 +805,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         }
         if (*action == "place_connected") {
             if (!material_machine(*selected_role)) return refused("invalid_part");
-            attachments = placement_attachments(state.topology, *selected_role, *location);
+            attachments = placement_attachments(state.topology, *selected_role, *location, *selected_axis);
             for (const auto& attachment : attachments)
                 targets.push_back(anchor(profile_, attachment.neighbor->geometry.center));
         }
@@ -897,7 +910,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
                 if (found == candidate.topology.material_links.end()) return refused("missing_link", entity);
                 candidate.topology.material_links.erase(found);
             } else {
-                if (!adjacent_ports(selected->geometry.center, destination->geometry.center))
+                if (!material_ports_adjacent(*selected, *destination))
                     return refused("ports_not_adjacent", entity, std::move(facts));
                 if (found != candidate.topology.material_links.end()) return refused("existing_link", entity);
                 candidate.topology.material_links.push_back(link);

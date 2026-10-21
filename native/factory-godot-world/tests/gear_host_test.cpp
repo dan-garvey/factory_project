@@ -360,11 +360,11 @@ void belt_spindle_orientation() {
           "The belt orientation Host binds its site.");
     observe(host, -1.65, 3.3, 1);
     const auto before = world_state(host);
-    for (const auto* wrong_axis : {"x", "y"}) {
+    for (const auto* wrong_axis : {"y"}) {
         const auto reply = host.command("P", machine("belt", 1, wrong_axis, wrong_axis));
         check(!accepted(reply) && field<std::string>(reply, "reason") == "invalid_belt_axis" &&
                   !factory::values::typed_difference(before, world_state(host)),
-              "A belt refuses a spindle parallel to travel or vertical without consuming the part.");
+              "A belt refuses a vertical spindle without consuming the part.");
     }
     const auto belt = create(host, machine("belt", 1, "default-belt", nullptr));
     check(field<I>(V(field<O>(host.projection(), "entities").at(belt)), "axis") == 2,
@@ -375,6 +375,40 @@ void belt_spindle_orientation() {
               accepted(fresh.configure_terrain(factory::godot_world::tests::flat_site())) &&
               accepted(fresh.restore_checkpoint(saved)) && !factory::values::typed_difference(saved, fresh.checkpoint()),
           "The perpendicular belt orientation survives checkpoint restoration.");
+}
+
+void rotated_belt_host() {
+    const std::array<std::array<int, 3>, 6> orders{{
+        {{0, 1, 2}}, {{0, 2, 1}}, {{1, 0, 2}},
+        {{1, 2, 0}}, {{2, 0, 1}}, {{2, 1, 0}}
+    }};
+    const std::array<const char*, 3> kinds{{"collector", "belt", "processor"}};
+    for (const auto& order : orders) {
+        Host host;
+        check(accepted(host.initialize("cog-api", {"P"})) &&
+                  accepted(host.configure_terrain(factory::godot_world::tests::flat_site())),
+              "The rotated route binds a synthetic flat site.");
+        std::array<std::string, 3> ids;
+        I epoch = 0;
+        for (int index : order) {
+            observe(host, -1.65, 1.65 * (index + 1), ++epoch);
+            const auto request = "rotated-" + std::to_string(index);
+            auto command = machine(kinds[index], 0, request.c_str(), index == 1 ? "x" : "z");
+            command.at("cell") = V(A{V(I{0}), V(I{index + 1})});
+            ids[index] = create(host, command);
+        }
+        const auto projection = host.projection();
+        const auto& links = field<A>(projection, "links");
+        check(links.size() == 2 && field<I>(V(field<O>(projection, "entities").at(ids[1])), "axis") == 0,
+              "The Z material line auto-connects for every placement order and projects an X axle.");
+        const auto saved = host.checkpoint();
+        Host restored;
+        check(accepted(restored.initialize("fresh", {"P"})) &&
+                  accepted(restored.configure_terrain(factory::godot_world::tests::flat_site())) &&
+                  accepted(restored.restore_checkpoint(saved)) &&
+                  !factory::values::typed_difference(saved, restored.checkpoint()),
+              "The rotated line and its historical requests restore exactly.");
+    }
 }
 
 void cross_axis_belt_line() {
@@ -655,7 +689,7 @@ int main(int argc, char** argv) {
         }
         if (argc == 1) {
             finite_oriented_train_and_restore(); adjacent_axle_faces(); refusals_and_legacy_shape();
-            global_grid(); finite_large_cog(); perpendicular_belt_line(); belt_spindle_orientation(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
+            global_grid(); finite_large_cog(); perpendicular_belt_line(); belt_spindle_orientation(); rotated_belt_host(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
         } else if (argc != 2 || std::string(argv[1]) != "--placement-alias-only") {
             throw std::runtime_error("Expected no arguments or --placement-alias-only.");
         }

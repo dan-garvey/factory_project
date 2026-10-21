@@ -3287,6 +3287,7 @@ var last_save_result: Dictionary = {}
 var last_load_result: Dictionary = {}
 var startup_resume_checkpoint: Dictionary = {}
 var mode := "collector"
+var belt_axis := "z"
 var pending_link := ""
 var selected := ""
 var goal_confirmed := false
@@ -3834,14 +3835,15 @@ func _animate_machine_bodies(delta: float) -> void:
 			machine_press_poses[id].travel = travel
 
 func _apply_conveyor_motion(anchor: Node3D, rotation: float) -> void:
-	var loop := anchor.get_node_or_null("ConveyorLoop") as MeshInstance3D
+	var loop := anchor.find_child("ConveyorLoop", true, false) as MeshInstance3D
 	if loop == null or not loop.material_override is StandardMaterial3D:
 		return
 	var length_value := 4.0 * ProductionConveyorArt.HALF_SPAN + TAU * ProductionConveyorArt.RADIUS
 	var repeats := maxi(1, roundi(length_value / ProductionConveyorArt.SOURCE_METRES))
 	# The top profile runs toward +X as UV increases. Positive +Z shaft
 	# rotation carries the top toward -X, so the texture offset increases.
-	var offset := fposmod(rotation * ProductionConveyorArt.RADIUS * repeats / length_value, 1.0)
+	var direction := -1.0 if anchor.get_meta("material_rotated", false) else 1.0
+	var offset := fposmod(direction * rotation * ProductionConveyorArt.RADIUS * repeats / length_value, 1.0)
 	loop.material_override.uv1_offset = Vector3(offset, 0, 0)
 
 func _sync_machine_body_context() -> void:
@@ -3866,7 +3868,12 @@ func _observed_press_target() -> Variant:
 
 func _apply_cutter_pose(anchor: Node3D, rows: Array, angle: float) -> void:
 	var pivot := Vector3(-0.22, 1.1, -0.19)
-	var spin := Transform3D(Basis(Vector3.BACK, angle), Vector3.ZERO)
+	var axle := Vector3.BACK
+	if anchor.get_meta("material_rotated", false):
+		var turn := Basis(Vector3.UP, -PI / 2.0)
+		pivot = turn * pivot
+		axle = turn * axle
+	var spin := Transform3D(Basis(axle, angle), Vector3.ZERO)
 	spin.origin = pivot - spin.basis * pivot
 	for row in rows:
 		if is_instance_valid(row.node) and row.role == "cutter":
@@ -3947,6 +3954,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_G: _select_tool("drive")
 			KEY_I, KEY_ESCAPE: _select_tool("inspect")
 			KEY_R: _retrieve()
+			KEY_T:
+				if mode == "belt" and _native_transmission():
+					belt_axis = "x" if belt_axis == "z" else "z"
+					_message("Belt direction: %s. Press T to rotate." % ("+Z" if belt_axis == "x" else "+X"))
+					_refresh_machine_preview()
 			KEY_H: _toggle_explanation()
 			KEY_HOME:
 				if legacy_fixture:
@@ -3973,6 +3985,7 @@ func _select_tool(tool: String) -> void:
 		"wheel": "Place the waterwheel in the flowing stream. Set its height to align its axle with your shafts."}
 	if _native_transmission():
 		instructions["collector"] = "Place the collector at the exposed mineral seam."
+		instructions["belt"] = "Place the belt on the grid. Press T to rotate its material direction."
 		instructions["flow"] = "Choose the upstream machine, then its neighbor at the material outlet."
 		instructions["drive"] = "Place a shaft on the highlighted tile. Set its axis and height in the cogwheel and shaft menu."
 		instructions["gear"] = "Place a cogwheel at the highlighted point. Set axis and height in the cogwheel menu."
@@ -4032,7 +4045,7 @@ func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 			# Dot assignment creates a StringName key; the native wire deliberately
 			# accepts only exact String dictionary keys, without coercion.
 			if mode != "foundation":
-				action["axis"] = "z" if mode == "belt" else transmission_controls.selected_axis
+				action["axis"] = belt_axis if mode == "belt" else transmission_controls.selected_axis
 		var outcome := issue(action)
 		if outcome.accepted:
 			selected = outcome.entity
@@ -4627,7 +4640,33 @@ func _wheel_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 		journal.material_override = ProductionDriveJournalArt.material()
 		journal.scale = Vector3(1.0 / radial_scale, 1.0 / rotor_scale, 1.0 / radial_scale)
 
-func _assemble_machine(anchor: Node3D, entity: Dictionary) -> void:
+func _material_rotated(entity_id: String, entity: Dictionary) -> bool:
+	if not _native_transmission():
+		return false
+	if entity.get("kind") == "belt":
+		return int(entity.get("axis", 2)) == 0
+	for pair in state.get("links", []):
+		if pair.size() != 2 or entity_id not in pair:
+			continue
+		var other: Dictionary = state.get("entities", {}).get(pair[1] if pair[0] == entity_id else pair[0], {})
+		if other.get("kind") == "belt":
+			return int(other.get("axis", 2)) == 0
+	return false
+
+func _assemble_machine(anchor: Node3D, entity: Dictionary, rotated := false) -> void:
+	anchor.set_meta("material_rotated", rotated)
+	if rotated:
+		var visual := Node3D.new()
+		visual.name = "RotatedMachineVisual"
+		visual.rotation.y = -PI / 2.0
+		anchor.add_child(visual)
+		var local_entity := entity.duplicate()
+		if int(entity.get("axis", 0)) == 0:
+			local_entity["axis"] = 2
+		elif int(entity.get("axis", 0)) == 2:
+			local_entity["axis"] = 0
+		_assemble_machine(visual, local_entity)
+		return
 	var water_wheel: bool = entity.kind == "wheel" and _native_transmission()
 	if not water_wheel:
 		var plinth := MeshInstance3D.new()
@@ -4676,7 +4715,7 @@ func _rebuild_machines() -> void:
 		var anchor := Node3D.new()
 		anchor.position = _entity_position(entity)
 		machine_root.add_child(anchor)
-		_assemble_machine(anchor, entity)
+		_assemble_machine(anchor, entity, _material_rotated(entity_id, entity))
 		anchor.set_meta("machine_entity", entity_id)
 		anchor.set_meta("machine_kind", kind)
 		var motion_meshes: Array[Dictionary] = []
@@ -4979,7 +5018,7 @@ func _preview_axis() -> int:
 	if not _native_transmission() or transmission_controls == null:
 		return 0
 	if mode == "belt":
-		return 2
+		return 0 if belt_axis == "x" else 2
 	return ["x", "y", "z"].find(transmission_controls.selected_axis)
 
 func _refresh_machine_preview() -> void:
@@ -5018,7 +5057,7 @@ func _refresh_machine_preview() -> void:
 		if mode == "foundation":
 			_assemble_foundation(machine_preview)
 		else:
-			_assemble_machine(machine_preview, {"kind": mode, "axis": axis, "tiles": wheel_tiles})
+			_assemble_machine(machine_preview, {"kind": mode, "axis": axis, "tiles": wheel_tiles}, mode == "belt" and axis == 0)
 		wheel_rotor = placed_rotor
 		if machine_preview_material == null:
 			machine_preview_material = StandardMaterial3D.new()

@@ -234,6 +234,19 @@ static func stamped_plate(parent: Node3D, at: Vector3 = Vector3.ZERO) -> Node3D:
 	return assembly
 
 
+static func _material_rotated(state: Dictionary, entity_id: Variant, entity: Dictionary) -> bool:
+	if not state.get("options", {}).get("native", false):
+		return false
+	if entity.get("kind") == "belt":
+		return int(entity.get("axis", 2)) == 0
+	for pair in state.get("links", []):
+		if pair.size() != 2 or entity_id not in pair:
+			continue
+		var other: Dictionary = state.get("entities", {}).get(pair[1] if pair[0] == entity_id else pair[0], {})
+		if other.get("kind") == "belt":
+			return int(other.get("axis", 2)) == 0
+	return false
+
 static func populate_items(item_root: Node3D, state: Dictionary, pitch: float = Geometry.PITCH) -> void:
 	for child in item_root.get_children():
 		item_root.remove_child(child)
@@ -253,6 +266,8 @@ static func populate_items(item_root: Node3D, state: Dictionary, pitch: float = 
 			continue
 		var pos := Vector3(float(cell[0]) * pitch, float(entity.get("level", 0)) * Geometry.HEIGHT_STEP, float(cell[1]) * pitch)
 		var kind := str(entity.get("kind", ""))
+		var turned := _material_rotated(state, entity_id, entity)
+		var orientation := Basis(Vector3.UP, -PI / 2.0) if turned else Basis.IDENTITY
 		var amount := 0
 		if kind in ["collector", "belt"]:
 			amount = int(stock.get(kind, 0))
@@ -265,7 +280,11 @@ static func populate_items(item_root: Node3D, state: Dictionary, pitch: float = 
 				# pile inside its body, rather than spilling across other machines.
 				offset = Vector3((float(n % 4) - 1.5) * 0.27,
 					0.65 + float(int(n / 16.0)) * 0.18, (float(int(n / 4.0) % 4) - 1.5) * 0.36)
-			workpiece_billet(item_root, pos + offset)
+			var billet := workpiece_billet(item_root, pos + orientation * offset)
+			if turned:
+				billet.rotation.y = -PI / 2.0
 		if kind == "processor" and int(stock.get("output", 0)) > 0:
-			stamped_plate(item_root, pos + Vector3(0.46, 0.39, 0.15))
+			var plate := stamped_plate(item_root, pos + orientation * Vector3(0.46, 0.39, 0.15))
+			if turned:
+				plate.rotation.y = -PI / 2.0
 	mineral_deposit(item_root, state, pitch)
