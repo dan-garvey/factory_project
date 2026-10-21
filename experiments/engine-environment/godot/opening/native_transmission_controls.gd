@@ -10,6 +10,7 @@ var _host: WeakRef
 var _first: Dictionary = {}
 var _axes: PopupMenu
 var _heights: PopupMenu
+var _sizes: PopupMenu
 
 func _init() -> void:
 	text = "Cogwheels and shafts…"
@@ -34,6 +35,13 @@ func _init() -> void:
 	_heights.add_item("Raise one quarter step", 1)
 	_heights.id_pressed.connect(_height_selected)
 	menu.add_submenu_item("Gear height: 4", "Height", 101)
+	_sizes = PopupMenu.new()
+	_sizes.name = "CogSize"
+	menu.add_child(_sizes)
+	_sizes.add_radio_check_item("Small cogwheel", 0)
+	_sizes.add_radio_check_item("Large cogwheel", 1)
+	_sizes.id_pressed.connect(_size_selected)
+	menu.add_submenu_item("Cog size: Small", "CogSize", 102)
 	menu.id_pressed.connect(_tool_selected)
 	menu.about_to_popup.connect(refresh)
 	visible = false
@@ -75,6 +83,11 @@ func _axis_selected(id: int) -> void:
 func _height_selected(id: int) -> void:
 	gear_height = clampi(gear_height + (-1 if id == 0 else 1), -Geometry.GRID_COORDINATE_LIMIT, Geometry.GRID_COORDINATE_LIMIT)
 	refresh()
+
+func _size_selected(id: int) -> void:
+	if id in [0, 1]:
+		gear_teeth = [2, 4][id]
+		refresh()
 
 func _context() -> Dictionary:
 	if _host == null or not is_instance_valid(_host.get_ref()):
@@ -128,6 +141,11 @@ func refresh() -> void:
 		menu.set_item_checked(index, active_tool == ["gear", "shaft", "disconnect", "remove"][index])
 	menu.set_item_text(menu.get_item_index(100), "Axis: " + selected_axis.to_upper())
 	menu.set_item_text(menu.get_item_index(101), "Gear height: %d quarter steps" % gear_height)
+	menu.set_item_text(menu.get_item_index(102), "Cog size: " + ("Small" if gear_teeth == 2 else "Large"))
+	for index in range(2):
+		var teeth: int = [2, 4][index]
+		_sizes.set_item_checked(index, gear_teeth == teeth)
+		_sizes.set_item_text(index, ("Small" if teeth == 2 else "Large") + " cogwheel · %d carried" % _count(context, "gear", teeth, 0))
 	for index in range(3):
 		_axes.set_item_checked(index, selected_axis == ["x", "y", "z"][index])
 	_heights.set_item_disabled(0, gear_height <= -Geometry.GRID_COORDINATE_LIMIT)

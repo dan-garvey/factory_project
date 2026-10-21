@@ -69,8 +69,10 @@ func _controls() -> void:
 	view.handle_world_click([0, 5, 4], "")
 	verify(view.selected_axis == "y" and view.gear_height == 5 and host.calls.back() == {"action": "place_gear", "center": [0, 5, 4], "axis": "y", "teeth": 2}, "The axis and height menus affect only the explicit placement wire.")
 	view._heights.emit_signal("id_pressed", 0)
+	view.handle_world_click([-9, 4, 17], "")
+	verify(host.calls.back().center == [-9, 4, 17], "The view delegates points outside the obsolete restricted construction area.")
 	var sent: int = host.calls.size()
-	for invalid in [[0.0, 4, 4], [true, 4, 4], [0, 4], [-9, 4, 4], [0, 3, 4], [0, 4, 17]]:
+	for invalid in [[0.0, 4, 4], [true, 4, 4], [0, 4], [-1000001, 4, 4], [0, 3, 4], [0, 4, 1000001]]:
 		verify(view.handle_world_click(invalid, ""), "Invalid active-tool coordinates are consumed.")
 	verify(host.calls.size() == sent, "Malformed, off-plane and out-of-profile coordinates send no request.")
 	host.client = "Q"
@@ -129,6 +131,42 @@ func _controls() -> void:
 	verify(not view.visible and view.handle_world_click([0, 4, 4], "") and host.calls.size() == sent, "A missing native profile hides controls and consumes its stale active click.")
 	view.cancel()
 	verify(not view.handle_world_click([0, 4, 4], ""), "A cancelled tool returns normal input to the scene.")
+	view.free()
+
+func _gear_sizes() -> void:
+	var host := HostStub.new()
+	host.state = fixture()
+	host.state.part_specifications.P.append({"kind": "gear", "teeth": 4, "half_span": 0, "count": 1})
+	var view := Controls.new()
+	view.configure(host)
+	view.choose_tool("gear")
+	view._axes.id_pressed.emit(1)
+	view._heights.id_pressed.emit(1)
+	view._sizes.id_pressed.emit(1)
+	verify(view.gear_teeth == 4 and view.selected_axis == "y" and view.gear_height == 5,
+		"Selecting the large cog retains the independent axis and height selections.")
+	verify("1 carried" in view.get_popup().get_item_text(0) and "Large" in view.get_popup().get_item_text(view.get_popup().get_item_index(102)),
+		"The selected large cog count comes from P's exact carried specification.")
+	var original: Dictionary = host.state.duplicate(true)
+	view.handle_world_click([0, 5, 4], "")
+	verify(host.calls.back() == {"action": "place_gear", "center": [0, 5, 4], "axis": "y", "teeth": 4} and host.state == original,
+		"A large-cog request has its actual size and a queued reply changes no confirmed inventory.")
+	var sent := host.calls.size()
+	host.client = "Q"
+	view.refresh()
+	verify(view.get_popup().is_item_disabled(0) and "0 carried" in view.get_popup().get_item_text(0),
+		"An actor without the selected large cog cannot borrow P's inventory.")
+	verify(view.handle_world_click([0, 5, 4], "") and host.calls.size() == sent,
+		"An unavailable large cog consumes the click without issuing a request.")
+	host.client = "P"
+	host.mutate_allowed = false
+	verify(view.handle_world_click([0, 5, 4], "") and host.calls.size() == sent,
+		"A disconnected or pending shared view cannot submit a large cog.")
+	host.mutate_allowed = true
+	view._sizes.id_pressed.emit(0)
+	view.handle_world_click([0, 5, 4], "")
+	verify(view.gear_teeth == 2 and host.calls.back().get("teeth") == 2 and host.calls.size() == sent + 1,
+		"Reselecting the small cog submits its own specification.")
 	view.free()
 
 func _part(view: Node3D, id: String) -> Node3D:
@@ -268,6 +306,7 @@ func _run() -> void:
 		_direction_basis()
 	else:
 		_controls()
+		_gear_sizes()
 		_presentation()
 	print("NATIVE_TRANSMISSION_VIEW_%s %d" % ["PASS" if failures == 0 else "FAIL", checks])
 	quit(0 if failures == 0 else 1)
