@@ -58,7 +58,7 @@ static func _prepare_firs() -> void:
 	_fir_mesh = loaded.mesh
 	var bounds := _fir_mesh.get_aabb()
 	var solids := support_boxes()
-	for candidate in range(256):
+	for candidate in range(512):
 		_fir_layout_counts.candidates += 1
 		var z := -18.0 + float((candidate * 97) % 256) * 0.14
 		var x := river_center_x(z) - channel_half_width(z) - 5.5 - float(candidate % 17) * 0.6
@@ -74,7 +74,8 @@ static func _prepare_firs() -> void:
 			_fir_layout_counts.slope_rejections += 1
 			continue
 		var at := Vector3(x, height_at(x, z) - 0.02, z)
-		var size := 0.85 + float(candidate % 4) * 0.05
+		# Mature riverbank trees should tower above the two-metre worker.
+		var size := 1.4 + float(candidate % 4) * 0.05
 		var basis := Basis(Vector3.UP, float(candidate) * 2.399963)
 		var pose := Transform3D(basis.scaled_local(Vector3.ONE * size), at)
 		var envelope: AABB = pose * bounds
