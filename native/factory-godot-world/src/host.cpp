@@ -240,6 +240,11 @@ bool historical_wire(const authority::Record& record) {
         return *original_action == mapped && keys(*wire, {"from", "to"}) &&
             same("from", "target") && same("to", "to");
     }
+    if (*action == "place_belt_span")
+        return *original_action == "place_belt_span" && keys(*wire, {"from", "to"}) &&
+            same("from", "target") && same("to", "to");
+    if (*action == "remove_belt_span")
+        return *original_action == "remove_belt_span" && keys(*wire, {"entity"}) && same("entity", "target");
     if (*action == "set_drive")
         return *original_action == "set_power" && keys(*wire, {"active"}) && same("active", "enabled");
     if (*action == "remove" || *action == "recover")
@@ -259,6 +264,30 @@ const stationary::PlacedPart* find(const world::State& state, const std::string&
     const auto found = std::find_if(state.topology.parts.begin(), state.topology.parts.end(),
         [&](const auto& part) { return part.geometry.id == id; });
     return found == state.topology.parts.end() ? nullptr : &*found;
+}
+
+std::vector<Bounds> belt_bounds(const world::State& state) {
+    std::vector<Bounds> result;
+    for (const auto& span : state.topology.belt_spans) {
+        const auto* first = find(state, span.geometry.first_shaft);
+        const auto* last = find(state, span.geometry.last_shaft);
+        if (!first || !last) continue; // World validation rejects dangling spans.
+        const auto direction = first->geometry.axis == mechanics::Axis::x ? std::size_t{2} : std::size_t{0};
+        const auto low = std::min(first->geometry.center[direction], last->geometry.center[direction]);
+        const auto high = std::max(first->geometry.center[direction], last->geometry.center[direction]);
+        for (auto coordinate = low; coordinate <= high; coordinate += 4) {
+            auto point = first->geometry.center; point[direction] = coordinate;
+            authority::Point half{0.3, 0.15, 0.3}; half[direction] = pitch / 2;
+            result.push_back({{point[0] * height_step, anchor_height + point[1] * height_step,
+                               point[2] * height_step}, half});
+        }
+    }
+    return result;
+}
+
+bool intersects_belt(const world::State& state, const Bounds& bounds) {
+    const auto belts = belt_bounds(state);
+    return std::any_of(belts.begin(), belts.end(), [&](const auto& belt) { return overlap(belt, bounds); });
 }
 
 const char* kind(Role role) {
@@ -603,7 +632,10 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         if (!id) return false;
         const auto* selected = find(snapshot.state, *id);
         normalized.emplace(output, Value(*id));
-        normalized.emplace(generation, Value(selected ? selected->generation : 0));
+        const auto belt = std::find_if(snapshot.state.topology.belt_spans.begin(), snapshot.state.topology.belt_spans.end(),
+            [&](const auto& span) { return span.geometry.id == *id; });
+        normalized.emplace(generation, Value(selected ? selected->generation :
+            belt != snapshot.state.topology.belt_spans.end() ? belt->generation : 0));
         return true;
     };
     if (*action == "pickup_raw") {
@@ -639,10 +671,13 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         // Foundations intentionally intersect natural ground/scenery and need
         // no gravity support. Constructed parts and actual actors still block.
         for (auto px = std::min(*x, *end_x); px <= std::max(*x, *end_x); ++px)
-            for (auto pz = std::min(*z, *end_z); pz <= std::max(*z, *end_z); ++pz)
+            for (auto pz = std::min(*z, *end_z); pz <= std::max(*z, *end_z); ++pz) {
                 if (placement_blocked({px * pitch, top - foundation_depth / 2, pz * pitch},
                     {pitch / 2, foundation_depth / 2, pitch / 2}))
                     return refuse("actor_occupied");
+                if (intersects_belt(snapshot.state, {{px * pitch, top - foundation_depth / 2, pz * pitch},
+                    {pitch / 2, foundation_depth / 2, pitch / 2}})) return refuse("occupied");
+            }
         for (const auto& part : snapshot.state.topology.parts) {
             const auto& center = part.geometry.center;
             if (part.role == Role::waterwheel) {
@@ -715,6 +750,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             authority::Point{selected_axis == mechanics::Axis::x ? 0.3 : radius, radius,
                 selected_axis == mechanics::Axis::z ? 0.3 : radius} :
             authority::Point{machine_width / 2, machine_height / 2, machine_width / 2};
+        if (intersects_belt(snapshot.state, {at, half})) return refuse("occupied");
         if (placement_blocked(at, half)) return refuse("actor_occupied");
         normalized.at("action") = Value(*kind_name == "collector" || *kind_name == "belt" || *kind_name == "processor" ?
                                         "place_connected" : "place");
@@ -755,13 +791,57 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         if (!selected_axis) return refuse("invalid_axis");
         if (!teeth || *teeth < 1 || *teeth > mechanics::maximum_dimension) return refuse("invalid_gear");
         const authority::Point at{(*center)[0] * pitch / 4, anchor_height + (*center)[1] * pitch / 4, (*center)[2] * pitch / 4};
-        if (placement_blocked(at, gear_half_extents(*selected_axis, *teeth))) return refuse("actor_occupied");
+        const auto half = gear_half_extents(*selected_axis, *teeth);
+        if (intersects_belt(snapshot.state, {at, half})) return refuse("occupied");
+        if (placement_blocked(at, half)) return refuse("actor_occupied");
         normalized.at("action") = Value("place");
         normalized.emplace("role", Value("gear"));
         normalized.emplace("center", wire.at("center"));
         normalized.emplace("axis", wire.at("axis"));
         normalized.emplace("teeth", wire.at("teeth"));
         normalized.emplace("half_span", Value(Integer{0}));
+    } else if (*action == "place_belt_span") {
+        if (!keys(wire, {"from", "to"}) || !target("from", "target", "generation") ||
+            !target("to", "to", "to_generation")) return refuse("invalid_command");
+        const auto* first = find(snapshot.state, *field<std::string>(wire, "from"));
+        const auto* last = find(snapshot.state, *field<std::string>(wire, "to"));
+        if (!first || !last) return refuse("unknown_target");
+        if (first->role != Role::shaft || last->role != Role::shaft || first->geometry.axis != last->geometry.axis ||
+            first->geometry.axis == mechanics::Axis::y) return refuse("invalid_belt_geometry");
+        const auto direction = first->geometry.axis == mechanics::Axis::x ? std::size_t{2} : std::size_t{0};
+        for (std::size_t n = 0; n < 3; ++n)
+            if (n != direction && first->geometry.center[n] != last->geometry.center[n]) return refuse("invalid_belt_geometry");
+        const auto low = std::min(first->geometry.center[direction], last->geometry.center[direction]);
+        const auto high = std::max(first->geometry.center[direction], last->geometry.center[direction]);
+        if (low == high || (high - low) / 4 + 1 > 20) return refuse("invalid_belt_geometry");
+        for (auto coordinate = low; coordinate <= high; coordinate += 4) {
+            auto center = first->geometry.center; center[direction] = coordinate;
+            const authority::Point at{center[0] * height_step, anchor_height + center[1] * height_step, center[2] * height_step};
+            authority::Point half{0.3, 0.15, 0.3}; half[direction] = pitch / 2;
+            if (placement_blocked(at, half)) return refuse("actor_occupied");
+            const Bounds belt_bounds{at, half};
+            for (const auto& [foundation_id, foundation] : snapshot.state.foundations) {
+                (void)foundation_id;
+                if (overlap(belt_bounds, foundation_bounds(foundation))) return refuse("occupied");
+            }
+            for (const auto& placed : snapshot.state.topology.parts) {
+                if (placed.role == Role::shaft) continue;
+                const auto& point = placed.geometry.center;
+                const Bounds bounds = placed.role == Role::gear ? Bounds{
+                    {point[0] * height_step, anchor_height + point[1] * height_step, point[2] * height_step},
+                    gear_half_extents(placed.geometry.axis, placed.geometry.teeth)} : part_bounds(profile_, placed);
+                if (overlap(belt_bounds, bounds)) return refuse("occupied");
+            }
+            if (site_blocked({at[0] - half[0], at[1] - half[1], at[2] - half[2]},
+                             {at[0] + half[0], at[1] + half[1], at[2] + half[2]})) return refuse("site_occupied");
+            const auto terrain = terrain_range(at[0], at[2], half[0], half[2]);
+            if (!terrain) return refuse("terrain_unavailable");
+            if (terrain->second > at[1] - half[1]) return refuse("site_occupied");
+        }
+        normalized.at("action") = Value("place_belt_span");
+    } else if (*action == "remove_belt_span") {
+        if (!keys(wire, {"entity"}) || !target("entity", "target", "generation")) return refuse("invalid_command");
+        normalized.at("action") = Value("remove_belt_span");
     } else if (*action == "connect" || *action == "disconnect" || *action == "connect_drive" || *action == "disconnect_drive") {
         if (!keys(wire, {"from", "to"}) || !target("from", "target", "generation") ||
             !target("to", "to", "to_generation")) return refuse("invalid_command");
@@ -833,7 +913,7 @@ Value Host::projection() const {
     if (!owned_) return result(false, "not_initialized");
     const auto snapshot = owned_->world->snapshot();
     const auto& state = snapshot.state;
-    Object entities, transmissions, inventories, cargo, kits, specifications, actors, foundations;
+    Object entities, transmissions, belt_spans, inventories, cargo, kits, specifications, actors, foundations;
     Array links, drive_links, engagements, dropped_raw;
     for (const auto& [point, count] : state.material.dropped_raw)
         dropped_raw.emplace_back(Object{{"center", Value(Array{Value(point[0]), Value(point[1]), Value(point[2])})}, {"raw", Value(count)}});
@@ -850,6 +930,9 @@ Value Host::projection() const {
             entities.emplace(part.geometry.id, Value(std::move(projected)));
         }
     }
+    for (const auto& span : state.topology.belt_spans)
+        belt_spans.emplace(span.geometry.id, Value(Object{{"generation", Value(span.generation)},
+            {"from", Value(span.geometry.first_shaft)}, {"to", Value(span.geometry.last_shaft)}}));
     for (const auto& link : state.topology.material_links) links.emplace_back(Array{Value(link.from.id), Value(link.to.id)});
     const auto power = stationary::power_view(state.topology);
     Object motions;
@@ -908,6 +991,7 @@ Value Host::projection() const {
         {"order", Value(snapshot.history.order)}, {"initial_feed", Value(profile_.initial_units)},
         {"recipe_input", Value(profile_.material.input_units_per_product)}, {"entities", Value(std::move(entities))},
         {"transmission_parts", Value(std::move(transmissions))}, {"links", Value(std::move(links))},
+        {"belt_spans", Value(std::move(belt_spans))},
         {"drive_links", Value(std::move(drive_links))}, {"engagements", Value(std::move(engagements))},
         {"motion", Value(std::move(motions))}, {"inventories", Value(std::move(inventories))},
         {"cargo", Value(std::move(cargo))}, {"part_kits", Value(std::move(kits))},
@@ -993,6 +1077,26 @@ Host::Decoded Host::decode(const Value& input) const {
         const auto* from = find(snapshot.state, link.from.id);
         const auto* to = find(snapshot.state, link.to.id);
         if (!from || !to || !world::material_ports_adjacent(*from, *to)) return {nullptr, "incompatible_geometry"};
+    }
+    for (const auto& belt : belt_bounds(snapshot.state)) {
+        for (const auto& [id, foundation] : snapshot.state.foundations) {
+            (void)id;
+            if (overlap(belt, foundation_bounds(foundation))) return {nullptr, "occupied"};
+        }
+        for (const auto& placed : snapshot.state.topology.parts) {
+            if (placed.role == Role::shaft) continue;
+            const auto& point = placed.geometry.center;
+            const Bounds bounds = placed.role == Role::gear ? Bounds{
+                {point[0] * height_step, anchor_height + point[1] * height_step, point[2] * height_step},
+                gear_half_extents(placed.geometry.axis, placed.geometry.teeth)} : part_bounds(profile_, placed);
+            if (overlap(belt, bounds)) return {nullptr, "occupied"};
+        }
+        const auto& at = belt.center; const auto& half = belt.half;
+        if (site_blocked({at[0] - half[0], at[1] - half[1], at[2] - half[2]},
+                         {at[0] + half[0], at[1] + half[1], at[2] + half[2]})) return {nullptr, "site_occupied"};
+        const auto terrain = terrain_range(at[0], at[2], half[0], half[2]);
+        if (!terrain) return {nullptr, "terrain_unavailable"};
+        if (terrain->second > at[1] - half[1]) return {nullptr, "site_occupied"};
     }
     const auto& actors = *field<Object>(*root, "actors");
     if (actors.size() != profile_.actors.size()) return {nullptr, "actor_roster_mismatch"};

@@ -198,6 +198,46 @@ func _shaft_segments() -> void:
 	verify(long_view.shaft_half_span == 2, "The shaft tool always uses the one-tile specification.")
 	long_view.free()
 
+func _belt_spans() -> void:
+	var host := HostStub.new()
+	host.state = fixture()
+	host.state.transmission_parts["left"] = {"kind": "shaft", "generation": 11, "center": [0, 0, 0], "axis": 2, "half_span": 2}
+	host.state.transmission_parts["right"] = {"kind": "shaft", "generation": 12, "center": [12, 0, 0], "axis": 2, "half_span": 2}
+	host.state.belt_spans = {}
+	var controls := Controls.new()
+	controls.configure(host)
+	controls.choose_tool("belt_span")
+	var before: Dictionary = host.state.duplicate(true)
+	controls.handle_world_click([], "left")
+	verify(host.calls.is_empty(), "The first belt endpoint is local selection only.")
+	controls.handle_world_click([], "right")
+	verify(host.calls.back() == {"action": "place_belt_span", "from": "left", "to": "right"} and host.state == before,
+		"Two confirmed shafts submit a span without speculative geometry or inventory.")
+	controls.handle_world_click([], "left")
+	host.state.transmission_parts.left.generation = 13
+	controls.handle_world_click([], "right")
+	verify(host.calls.size() == 1, "A replaced first shaft cannot be silently reused.")
+	controls.handle_world_click([], "left")
+	host.mutate_allowed = false
+	controls.handle_world_click([], "right")
+	verify(host.calls.size() == 1, "A pending shared request prevents a span submission.")
+	host.mutate_allowed = true
+	var presenter := Presenter.new()
+	presenter.configure(host)
+	verify(_part(presenter, "span") == null, "An unconfirmed span is not rendered.")
+	host.state.belt_spans["span"] = {"generation": 1, "from": "left", "to": "right"}
+	presenter.refresh()
+	var span := _part(presenter, "span")
+	verify(span != null and span.get_node("Pick").get_meta("entity") == "span", "A confirmed span has a selectable visual.")
+	controls.choose_tool("remove")
+	controls.handle_world_click([], "span")
+	verify(host.calls.back() == {"action": "remove_belt_span", "entity": "span"}, "Belt removal delegates its confirmed identity.")
+	host.state.belt_spans.clear()
+	presenter.refresh()
+	verify(_part(presenter, "span") == null, "A confirmed removal clears the visual.")
+	controls.free()
+	presenter.free()
+
 func _part(view: Node3D, id: String) -> Node3D:
 	for child in view.get_children():
 		if child.get_meta("entity", "") == id:
@@ -391,6 +431,7 @@ func _run() -> void:
 		_controls()
 		_gear_sizes()
 		_shaft_segments()
+		_belt_spans()
 		_presentation()
 	print("NATIVE_TRANSMISSION_VIEW_%s %d" % ["PASS" if failures == 0 else "FAIL", checks])
 	quit(0 if failures == 0 else 1)

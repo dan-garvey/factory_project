@@ -7,6 +7,7 @@ var gear_height := 0
 var gear_teeth := 2
 var shaft_half_span := 2
 var active_tool := ""
+var _belt_start: Dictionary = {}
 var _host: WeakRef
 var _axes: PopupMenu
 var _heights: PopupMenu
@@ -17,7 +18,8 @@ func _init() -> void:
 	var menu := get_popup()
 	menu.add_radio_check_item("Place cogwheel", 1)
 	menu.add_radio_check_item("Place shaft segment", 6)
-	menu.add_radio_check_item("Remove cogwheel or shaft", 4)
+	menu.add_radio_check_item("Connect shafts with a belt", 7)
+	menu.add_radio_check_item("Remove transmission part or belt", 4)
 	menu.add_item("Leave transmission tools", 5)
 	menu.add_separator()
 	_axes = PopupMenu.new()
@@ -51,23 +53,26 @@ func configure(host: Object) -> void:
 
 func cancel() -> void:
 	active_tool = ""
+	_belt_start.clear()
 	refresh()
 
 func choose_tool(tool: String) -> void:
-	if tool not in ["", "gear", "remove", "place_shaft"]:
+	if tool not in ["", "gear", "remove", "place_shaft", "belt_span"]:
 		return
+	_belt_start.clear()
 	active_tool = tool
 	refresh()
 
 func _tool_selected(id: int) -> void:
-	choose_tool({1: "gear", 4: "remove", 6: "place_shaft"}.get(id, ""))
+	choose_tool({1: "gear", 4: "remove", 6: "place_shaft", 7: "belt_span"}.get(id, ""))
 	var context := _context()
 	if context.is_empty() or not context.usable:
 		return
 	_feedback({
 		"gear": "Place a cogwheel at the highlighted point. Set axis and height in this menu.",
 		"place_shaft": "Place one shaft tile at the highlighted point. Set its axis and height in this menu.",
-		"remove": "Choose a cogwheel or shaft to remove."
+		"belt_span": "Choose two parallel shafts to connect. These belts transmit rotation; item transport is not available yet.",
+		"remove": "Choose a cogwheel, shaft or belt to remove."
 	}.get(active_tool, "Choose a construction tool or Inspect."), false)
 
 func _axis_selected(id: int) -> void:
@@ -135,6 +140,7 @@ func refresh() -> void:
 	menu.set_item_disabled(shaft_index, selected_shafts == 0)
 	menu.set_item_checked(shaft_index, active_tool == "place_shaft")
 	menu.set_item_checked(gear_index, active_tool == "gear")
+	menu.set_item_checked(menu.get_item_index(7), active_tool == "belt_span")
 	menu.set_item_checked(menu.get_item_index(4), active_tool == "remove")
 	menu.set_item_text(menu.get_item_index(100), "Axis: " + selected_axis.to_upper())
 	menu.set_item_text(menu.get_item_index(101), "Placement height: %d tiles" % (gear_height / 4))
@@ -147,7 +153,7 @@ func refresh() -> void:
 		_axes.set_item_checked(index, selected_axis == ["x", "y", "z"][index])
 	_heights.set_item_disabled(0, gear_height <= -Geometry.GRID_COORDINATE_LIMIT)
 	_heights.set_item_disabled(1, gear_height >= Geometry.GRID_COORDINATE_LIMIT)
-	text = {"gear": "Place cogwheel", "place_shaft": "Place shaft segment", "remove": "Remove transmission"}.get(active_tool, "Cogwheels and shafts…")
+	text = {"gear": "Place cogwheel", "place_shaft": "Place shaft segment", "belt_span": "Connect shafts with belt", "remove": "Remove transmission"}.get(active_tool, "Cogwheels and shafts…")
 	tooltip_text = "Axis %s · placement height %d tiles. %d cogwheels and %d shafts carried." % [selected_axis.to_upper(), gear_height / 4, gears, selected_shafts]
 
 func _part(context: Dictionary, id: String) -> Dictionary:
@@ -187,6 +193,30 @@ func handle_world_click(center: Array, entity_id: String) -> bool:
 			return true
 		var wire := {"action": "place_gear", "center": center.duplicate(), "axis": selected_axis, "teeth": gear_teeth} if active_tool == "gear" else {"action": "place_shaft", "center": center.duplicate(), "axis": selected_axis, "half_span": shaft_half_span}
 		_submit(context, wire)
+		return true
+	if active_tool == "remove" and context.snapshot.get("belt_spans", {}).has(entity_id):
+		_submit(context, {"action": "remove_belt_span", "entity": entity_id})
+		return true
+	if active_tool == "belt_span":
+		var shaft: Variant = context.snapshot.transmission_parts.get(entity_id, {})
+		if not shaft is Dictionary or shaft.get("kind") != "shaft" or typeof(shaft.get("generation")) != TYPE_INT or shaft.generation < 1:
+			_feedback("Choose a confirmed shaft.")
+			return true
+		if _belt_start.is_empty():
+			_belt_start = {"id": entity_id, "generation": shaft.generation, "world": context.world, "actor": context.actor}
+			_feedback("Choose the second parallel shaft. Both ends must be within reach.", false)
+			return true
+		var first: Variant = context.snapshot.transmission_parts.get(_belt_start.id, {})
+		if context.world != _belt_start.world or context.actor != _belt_start.actor or not first is Dictionary or first.get("kind") != "shaft" or first.get("generation") != _belt_start.generation:
+			_belt_start.clear()
+			_feedback("The first shaft changed. Choose it again.")
+			return true
+		if entity_id == _belt_start.id:
+			_feedback("Choose a different shaft for the other end.")
+			return true
+		var from: String = _belt_start.id
+		_belt_start.clear()
+		_submit(context, {"action": "place_belt_span", "from": from, "to": entity_id})
 		return true
 	var part := _part(context, entity_id)
 	if part.is_empty():

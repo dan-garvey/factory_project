@@ -5,6 +5,7 @@
 #include <limits>
 #include <numeric>
 #include <optional>
+#include <set>
 #include <utility>
 
 namespace factory::mechanics {
@@ -168,6 +169,7 @@ const char* error_name(Error error) noexcept {
         case Error::invalid_part: return "invalid_part";
         case Error::duplicate_identity: return "duplicate_identity";
         case Error::invalid_drive: return "invalid_drive";
+        case Error::invalid_belt: return "invalid_belt";
         case Error::overlapping_gears: return "overlapping_gears";
         case Error::rate_overflow: return "rate_overflow";
     }
@@ -184,9 +186,11 @@ const char* motion_state_name(MotionState state) noexcept {
     return "unknown";
 }
 
-Result evaluate(const std::vector<Part>& input, const std::vector<Drive>& sources) {
+Result evaluate(const std::vector<Part>& input, const std::vector<Drive>& sources,
+                const std::vector<BeltSpan>& belts) {
     if (input.size() > maximum_parts) return failure(Error::too_many_parts);
     if (sources.size() > maximum_parts) return failure(Error::invalid_drive);
+    if (belts.size() > maximum_parts) return failure(Error::invalid_belt);
 
     std::vector<const Part*> parts;
     parts.reserve(input.size());
@@ -258,6 +262,55 @@ Result evaluate(const std::vector<Part>& input, const std::vector<Drive>& source
             result.engagements.push_back({left.id, right.id, kind, forward});
             adjacent[a].push_back({b, forward});
             adjacent[b].push_back({a, backward});
+        }
+    }
+
+    // Horizontal prototype spans use complete, unobstructed world tiles. A
+    // shaft under the belt acts as a pulley; an empty tile carries the belt
+    // but does not fabricate a shaft. Shared tiles cannot belong to two belts.
+    std::vector<const BeltSpan*> ordered_belts;
+    for (const auto& belt : belts) ordered_belts.push_back(&belt);
+    std::sort(ordered_belts.begin(), ordered_belts.end(),
+              [](const BeltSpan* a, const BeltSpan* b) { return a->id < b->id; });
+    std::set<std::string> belt_ids;
+    std::set<Point> belt_tiles;
+    constexpr Integer cell = 4;
+    constexpr Integer maximum_belt_tiles = 20;
+    for (const auto* belt : ordered_belts) {
+        if (!valid_identity(belt->id) || !belt_ids.insert(belt->id).second ||
+            !indices.contains(belt->first_shaft) || !indices.contains(belt->last_shaft) ||
+            belt->first_shaft == belt->last_shaft) return failure(Error::invalid_belt, belt->id);
+        const auto* first = parts[indices.at(belt->first_shaft)];
+        const auto* last = parts[indices.at(belt->last_shaft)];
+        if (first->kind != Kind::shaft || last->kind != Kind::shaft || first->half_span != 2 ||
+            last->half_span != 2 || first->axis != last->axis || first->axis == Axis::y)
+            return failure(Error::invalid_belt, belt->id);
+        for (const auto value : first->center) if (value % cell != 0) return failure(Error::invalid_belt, belt->id);
+        for (const auto value : last->center) if (value % cell != 0) return failure(Error::invalid_belt, belt->id);
+        const auto travel = first->axis == Axis::x ? std::size_t{2} : std::size_t{0};
+        for (std::size_t i = 0; i < 3; ++i)
+            if (i != travel && first->center[i] != last->center[i]) return failure(Error::invalid_belt, belt->id);
+        const auto low = std::min(first->center[travel], last->center[travel]);
+        const auto high = std::max(first->center[travel], last->center[travel]);
+        if (high == low || (high - low) / cell + 1 > maximum_belt_tiles) return failure(Error::invalid_belt, belt->id);
+        std::vector<std::size_t> pulleys;
+        for (auto position = low; position <= high; position += cell) {
+            auto point = first->center; point[travel] = position;
+            if (!belt_tiles.insert(point).second) return failure(Error::invalid_belt, belt->id);
+            std::optional<std::size_t> pulley;
+            for (std::size_t i = 0; i < parts.size(); ++i) {
+                if (parts[i]->center != point) continue;
+                if (pulley || parts[i]->kind != Kind::shaft || parts[i]->axis != first->axis || parts[i]->half_span != 2)
+                    return failure(Error::invalid_belt, belt->id);
+                pulley = i;
+            }
+            if (pulley) pulleys.push_back(*pulley);
+        }
+        for (std::size_t i = 1; i < pulleys.size(); ++i) {
+            const auto a = pulleys[i - 1], b = pulleys[i];
+            result.engagements.push_back({parts[a]->id, parts[b]->id, EngagementKind::belt, {1, 1}});
+            adjacent[a].push_back({b, {1, 1}});
+            adjacent[b].push_back({a, {1, 1}});
         }
     }
 

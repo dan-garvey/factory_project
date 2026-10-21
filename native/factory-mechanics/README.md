@@ -92,6 +92,18 @@ An invalid shape, identity, source or unrepresentable rate returns an error
 without publishing partial motion or engagement. Input values are unchanged.
 Allocation exceptions can propagate before the authority commits anything.
 
+The pure solver also accepts explicit horizontal belt spans between parallel
+one-tile shafts. Each span validates aligned grid centers, a maximum of twenty
+tiles, unobstructed tile centers and exclusive belt occupancy. Aligned shafts
+within the span are pulleys; their signed angular rates match, including when
+the drive enters at either end. Incompatible sources stall the connected
+component. Stationary plans account for a carried belt and the World checkpoint
+stores spans, and native World commands can place and remove them. Ordinary
+player controls and belt cargo movement remain unimplemented. This geometry check is
+not full terrain or body collision clearance. Create's documented belt behavior
+also includes slopes and vertical spans, which this initial horizontal profile
+does not implement.
+
 Full collision clearance, arbitrary bevel gears, clutches, tooth phase/contact, load,
 material feed direction, persisted phase and actual gameplay remain unfinished.
 A solver result cannot establish physical clearance for perpendicular parts.

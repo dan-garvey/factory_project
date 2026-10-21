@@ -100,11 +100,20 @@ unfinished. This native format does not decode the old scripted save format.
 
 The opening's Host translates ordinary collector, belt and press placement into
 `place_connected`. This internal native operation derives only compatible ports
-involving the new part. It reuses the opening's existing directed port layout:
-collector to belt and belt to press, one cell along +X, at the same height and
-depth. A cell is four integer quarter-pitch units. Gaps, reverse layouts,
+involving the new part. It uses the opening's directed port layout: collector
+to belt and belt to press, one cell along +X for a Z-axis belt or along +Z for
+an X-axis belt, at the same height. A cell is four integer quarter-pitch units. Gaps, reverse layouts,
 diagonals, other heights and nearby power components do not attach. This is a
 revisable adapter layout, not a general material-routing rule.
+
+The logical checkpoint uses schema 3 and retains identified horizontal belt
+spans and their shaft endpoints. A span counts against the same finite belt
+part inventory as a conveyor. `place_belt_span` consumes a belt and checks
+reach to both shaft identities; `remove_belt_span` refunds it. Both retain
+generation and retry history. The native Host checks actor and site clearance,
+while ordinary player controls and cargo movement remain unimplemented.
+Earlier logical schema 2
+payloads are refused.
 
 The planner checks reach to the new part and every existing endpoint before
 preparing one replacement state. Placement, finite kit and the added links

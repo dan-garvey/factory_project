@@ -137,7 +137,7 @@ materials::EntityRef decode_ref(const Value& value, const std::string& path) {
 }
 
 Value topology_value(const stationary::Topology& topology) {
-    Array parts, links, sources;
+    Array parts, links, sources, belt_spans;
     for (const auto& part : topology.parts) {
         const auto& geometry = part.geometry;
         parts.emplace_back(Object{
@@ -154,13 +154,17 @@ Value topology_value(const stationary::Topology& topology) {
     for (const auto& source : topology.sources)
         sources.emplace_back(Object{{"hub", Value(source.hub)},
             {"numerator", Value(source.rate.numerator)}, {"denominator", Value(source.rate.denominator)}});
+    for (const auto& span : topology.belt_spans)
+        belt_spans.emplace_back(Object{{"id", Value(span.geometry.id)}, {"generation", Value(span.generation)},
+            {"first_shaft", Value(span.geometry.first_shaft)}, {"last_shaft", Value(span.geometry.last_shaft)}});
     return Value(Object{{"parts", Value(std::move(parts))}, {"links", Value(std::move(links))},
-        {"sources", Value(std::move(sources))}, {"drive_enabled", Value(topology.drive_enabled)}});
+        {"sources", Value(std::move(sources))}, {"drive_enabled", Value(topology.drive_enabled)},
+        {"belt_spans", Value(std::move(belt_spans))}});
 }
 
 stationary::Topology decode_topology(const Value& value) {
     const std::string path = "$.state.topology";
-    const auto& input = fields(value, path, {"parts", "links", "sources", "drive_enabled"});
+    const auto& input = fields(value, path, {"parts", "links", "sources", "drive_enabled", "belt_spans"});
     stationary::Topology topology;
     topology.drive_enabled = scalar<bool>(input.at("drive_enabled"), path + ".drive_enabled");
     for (const auto& value_part : array(input.at("parts"), path + ".parts", mechanics::maximum_parts)) {
@@ -189,6 +193,13 @@ stationary::Topology decode_topology(const Value& value) {
         const auto& entry = fields(value_source, path + ".sources", {"hub", "numerator", "denominator"});
         topology.sources.push_back({scalar<std::string>(entry.at("hub"), path + ".sources.hub"),
             {integer(entry, "numerator", path + ".sources"), integer(entry, "denominator", path + ".sources")}});
+    }
+    for (const auto& value_span : array(input.at("belt_spans"), path + ".belt_spans", mechanics::maximum_parts)) {
+        const auto& entry = fields(value_span, path + ".belt_spans", {"id", "generation", "first_shaft", "last_shaft"});
+        topology.belt_spans.push_back({{scalar<std::string>(entry.at("id"), path + ".belt_spans.id"),
+            scalar<std::string>(entry.at("first_shaft"), path + ".belt_spans.first_shaft"),
+            scalar<std::string>(entry.at("last_shaft"), path + ".belt_spans.last_shaft")},
+            integer(entry, "generation", path + ".belt_spans")});
     }
     return topology;
 }
@@ -227,7 +238,7 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
         for (const auto& [actor, kit] : snapshot.state.kits) kits.emplace(actor, kit_value(kit));
         for (const auto& [id, generation] : snapshot.state.issued_entities) issued.emplace(id, Value(generation));
         Value output(Object{
-            {"schema", Value(Integer{2})}, {"profile", profile_value(profile)},
+            {"schema", Value(Integer{3})}, {"profile", profile_value(profile)},
             {"revision", Value(snapshot.revision)}, {"history", std::move(*history.value)},
             {"state", Value(Object{{"material", std::move(std::get<Value>(material))},
                 {"topology", topology_value(snapshot.state.topology)}, {"kits", Value(std::move(kits))},
@@ -257,7 +268,7 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
     try {
         Budget{}.visit(value);
         const auto& root = fields(value, "$", {"schema", "profile", "revision", "history", "state"});
-        if (integer(root, "schema", "$") != 2) refuse(CheckpointReason::unsupported_schema, "$.schema");
+        if (integer(root, "schema", "$") != 3) refuse(CheckpointReason::unsupported_schema, "$.schema");
         if (const auto difference = values::typed_difference(profile_value(profile), root.at("profile")))
             refuse(CheckpointReason::profile_mismatch, "$.profile" + difference->path.substr(1));
         Snapshot candidate;

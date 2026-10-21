@@ -109,7 +109,7 @@ bool shape(const Object& intent, const std::string& action) {
     if (action == "place_foundations") return keys(intent, {"center", "end"});
     if (action == "place_foundation") return keys(intent, {"center"});
     if (action == "remove_foundation") return keys(intent, {"target", "generation"});
-    if (action == "recover" || action == "remove") return keys(intent, {"target", "generation"});
+    if (action == "recover" || action == "remove" || action == "remove_belt_span") return keys(intent, {"target", "generation"});
     if (action == "collect" || action == "insert_raw")
         return keys(intent, {"target", "generation", "amount"}) && field<Integer>(intent, "amount");
     if (action == "insert_work")
@@ -119,7 +119,7 @@ bool shape(const Object& intent, const std::string& action) {
     if (placement(action))
         return intent.contains("wheel_tiles") ? keys(intent, {"role", "center", "axis", "teeth", "half_span", "wheel_tiles"}) :
             keys(intent, {"role", "center", "axis", "teeth", "half_span"});
-    if (action == "link" || action == "unlink" || action == "shaft_between" || action == "remove_shaft_between")
+    if (action == "link" || action == "unlink" || action == "shaft_between" || action == "remove_shaft_between" || action == "place_belt_span")
         return keys(intent, {"target", "generation", "to", "to_generation"});
     return false;
 }
@@ -180,7 +180,7 @@ std::vector<mechanics::Point> foundation_area(const Object& intent) {
 }
 
 bool two_endpoints(const std::string& action) {
-    return action == "link" || action == "unlink" || action == "shaft_between" || action == "remove_shaft_between";
+    return action == "link" || action == "unlink" || action == "shaft_between" || action == "remove_shaft_between" || action == "place_belt_span";
 }
 
 Value point_value(const authority::Point& point) {
@@ -244,7 +244,7 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
     if (!reason || *reason != "ok" || !epoch || *epoch <= 0 || !reach || *reach != profile.build_reach ||
         !position || !points || !distances ||
         (action == "place_connected" ? points->empty() || points->size() > 3 :
-                                     points->size() != (two_endpoints(action) ? 2 : 1)) ||
+                                     points->size() != ((two_endpoints(action) || action == "remove_belt_span") ? 2 : 1)) ||
         distances->size() != points->size()) return false;
     const auto point = [](const Value::Array& array) -> std::optional<authority::Point> {
         if (array.size() != 3) return std::nullopt;
@@ -326,7 +326,7 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
                 if (!matched) return false;
             }
         }
-    } else if (action != "shaft_between" && action != "remove_shaft_between") {
+    } else if (action != "shaft_between" && action != "remove_shaft_between" && action != "place_belt_span") {
         const auto* target = field<std::string>(record.intent, "target");
         const auto* generation = field<Integer>(record.intent, "generation");
         if (!target || *target != *field<std::string>(result, "entity") ||
@@ -540,7 +540,8 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
             foundation.generation <= 0 || foundation.center[0] % 4 != 0 || foundation.center[2] % 4 != 0) return false;
         for (const auto coordinate : foundation.center)
             if (coordinate < -mechanics::maximum_coordinate || coordinate > mechanics::maximum_coordinate) return false;
-        if (part(state.topology, id)) return false;
+        if (part(state.topology, id) || std::any_of(state.topology.belt_spans.begin(), state.topology.belt_spans.end(),
+                [&](const auto& span) { return span.geometry.id == id; })) return false;
         for (const auto& center : foundation_centers)
             if (center[0] == foundation.center[0] && center[2] == foundation.center[2] &&
                 std::abs(center[1] - foundation.center[1]) < foundation_depth_levels) return false;
@@ -598,6 +599,12 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
             state.topology.sources.end(), [&](const auto& source) {
                 return source.hub == item.geometry.id && source.rate == *expected_rate;
             }) != 1)) return false;
+    }
+    for (const auto& span : state.topology.belt_spans) {
+        const auto issued = state.issued_entities.find(span.geometry.id);
+        const auto total = totals.find({Role::belt, 0, 0});
+        if (issued == state.issued_entities.end() || issued->second != span.generation ||
+            total == totals.end() || !add(total->second, 1)) return false;
     }
     for (const auto& link : state.topology.material_links) {
         const auto* from = part(state.topology, link.from.id);
@@ -768,6 +775,67 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
                     return refused("foundation_in_use", entity, std::move(facts));
             candidate.foundations.erase(entity);
             ++candidate.foundation_kits.at(binding.actor);
+        }
+        facts.emplace("generation", Value(generation));
+        return accepted(std::move(candidate), entity, std::move(facts));
+    }
+    if (*action == "place_belt_span" || *action == "remove_belt_span") {
+        const auto* id = field<std::string>(intent, "target");
+        const auto* expected = field<Integer>(intent, "generation");
+        if (!id || !expected) return refused("invalid_target");
+        const stationary::PlacedPart* first = nullptr;
+        const stationary::PlacedPart* last = nullptr;
+        if (*action == "place_belt_span") {
+            first = part(state.topology, *id);
+            const auto* to = field<std::string>(intent, "to");
+            const auto* to_generation = field<Integer>(intent, "to_generation");
+            if (!to || !to_generation) return refused("invalid_target");
+            last = part(state.topology, *to);
+            if (!first || !last) return refused("unknown_target");
+            if (first->generation != *expected || last->generation != *to_generation)
+                return refused("stale_generation");
+        } else {
+            const auto found = std::find_if(state.topology.belt_spans.begin(), state.topology.belt_spans.end(),
+                [&](const auto& span) { return span.geometry.id == *id; });
+            if (found == state.topology.belt_spans.end()) return refused("unknown_target", *id);
+            if (found->generation != *expected) return refused("stale_generation", *id);
+            first = part(state.topology, found->geometry.first_shaft);
+            last = part(state.topology, found->geometry.last_shaft);
+            if (!first || !last) return refused("invalid_mechanics", *id);
+        }
+        auto cut = observe ? observe(binding.actor) : std::nullopt;
+        if (!cut) return refused("actor_unready");
+        cut->build_reach = profile_.build_reach;
+        const auto checked = authority::check_reach(binding.actor, *cut,
+            {anchor(profile_, first->geometry.center), anchor(profile_, last->geometry.center)});
+        auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
+        if (checked.error != authority::Error::none)
+            return refused(authority::error_name(checked.error), *id, std::move(facts));
+        auto candidate = state;
+        auto entity = *id;
+        auto generation = *expected;
+        if (*action == "place_belt_span") {
+            if (candidate.issued_entities.size() == maximum_issued_entities ||
+                candidate.next_entity_serial == std::numeric_limits<Integer>::max()) return refused("identity_limit");
+            generation = candidate.next_entity_serial++;
+            entity = std::string(allocated_prefix) + std::to_string(generation);
+            if (candidate.issued_entities.contains(entity)) return refused("identity_conflict");
+            const stationary::PlacedBeltSpan span{{entity, first->geometry.id, last->geometry.id}, generation};
+            auto proposal = stationary::prepare_belt_placement(state.topology, state.kits.at(binding.actor), state.material, span);
+            if (const auto* error = std::get_if<stationary::PlacementRefusal>(&proposal))
+                return refused(stationary::placement_error_name(error->reason), "", std::move(facts));
+            auto& ready = std::get<stationary::PreparedPlacement>(proposal);
+            candidate.topology = std::move(ready.candidate);
+            candidate.kits.at(binding.actor) = std::move(ready.candidate_kit);
+            candidate.issued_entities.emplace(entity, generation);
+        } else {
+            auto proposal = stationary::prepare_belt_removal(state.topology, state.kits.at(binding.actor), state.material,
+                                                             {entity, generation});
+            if (const auto* error = std::get_if<stationary::RemovalRefusal>(&proposal))
+                return refused(stationary::removal_error_name(error->reason), entity, std::move(facts));
+            auto& ready = std::get<stationary::PreparedRemoval>(proposal);
+            candidate.topology = std::move(ready.candidate);
+            candidate.kits.at(binding.actor) = std::move(ready.candidate_kit);
         }
         facts.emplace("generation", Value(generation));
         return accepted(std::move(candidate), entity, std::move(facts));
