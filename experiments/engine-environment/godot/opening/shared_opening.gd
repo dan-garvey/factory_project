@@ -238,7 +238,7 @@ func _settle_pending() -> void:
 			elif item.action.action == "remove" and selected == result.entity:
 				selected = ""
 			_message({"place": "Placed.", "place_foundation": "Foundation placed on the world grid.", "place_foundations": "Foundation area placed on the world grid.", "connect": "Material path connected.", "connect_drive": "Drive shaft connected.",
-				"retrieve": "Plate collected into your inventory.", "set_power": "Drive updated.",
+				"retrieve": "Plate collected into your inventory.", "pickup_raw": "Blank collected into your inventory.", "set_power": "Drive updated.",
 				"remove": "Part returned."}.get(item.action.action, "Action accepted."))
 		else:
 			_message(_material_refusal_message(result, "Not applied: " + {"occupied": "that square is occupied.", "no_part": "that part is already placed.",
@@ -367,6 +367,8 @@ func _refresh_ui() -> void:
 		disconnect_button.disabled = not session.is_ready() or explanation_open
 	if recovery_actions != null:
 		recovery_actions.refresh()
+	if loose_material_controls != null:
+		loose_material_controls.refresh()
 	_refresh_transmission()
 
 func _update_cursor() -> void:

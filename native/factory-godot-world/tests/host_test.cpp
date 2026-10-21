@@ -67,10 +67,22 @@ V alter_wire(const V& saved, const std::string& request_id, const std::string& k
     return V(std::move(root));
 }
 
+O forward_channel_site() {
+    auto site = factory::godot_world::tests::channel_site();
+    auto water = std::get<A>(site.at("water").storage());
+    for (auto& sample : water) {
+        auto fields = std::get<A>(sample.storage());
+        fields.at(4) = V(I{-200});
+        sample = V(std::move(fields));
+    }
+    site.at("water") = V(std::move(water));
+    return site;
+}
+
 void historical_translation() {
     Host host;
     check(accepted(host.initialize("host-boundary", {"P"})), "The finite test World initializes.");
-    check(accepted(host.configure_terrain(factory::godot_world::tests::channel_site())), "The test binds its explicit synthetic terrain.");
+    check(accepted(host.configure_terrain(forward_channel_site())), "The test binds its explicit forward-driving synthetic terrain.");
     check(accepted(host.publish_actor("P", {V(1.65), V(1.0), V(1.65)}, 1)), "The disclosed synthetic observation is ready.");
     const auto place = [&](const char* kind, I x, const char* id) {
         auto wire = request("place", id);
@@ -140,7 +152,7 @@ void historical_translation() {
     reject("collector", "kind", V("belt"));
     Host fresh;
     check(accepted(fresh.initialize("new-host", {"P"})), "A separate fresh Host initializes.");
-    check(accepted(fresh.configure_terrain(factory::godot_world::tests::channel_site())), "The fresh Host binds the same synthetic terrain.");
+    check(accepted(fresh.configure_terrain(forward_channel_site())), "The fresh Host binds the same synthetic terrain.");
     check(accepted(fresh.restore_checkpoint(saved)), "The unchanged complete checkpoint restores.");
     check(!factory::values::typed_difference(saved, fresh.checkpoint()), "Restore preserves the original typed history and state.");
     const auto retry = fresh.command("P", recovery);

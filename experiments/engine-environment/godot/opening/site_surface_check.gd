@@ -412,6 +412,22 @@ func check_belt_water_native(forward: bool) -> void:
 		return
 	for turn in range(16):
 		model.advance()
+	if not forward:
+		var reverse: Dictionary = model.projection()
+		if not expect(reverse.stock.output == 0 and reverse.stock.input == 0 and not reverse.dropped_raw.is_empty(), "Reverse belt deposits blanks at its upstream end"):
+			return
+		var saved_reverse: Dictionary = model.checkpoint()
+		var restored = NativeModel.new("fresh-reverse-belt", ["P"])
+		if not expect(restored.boot_result.get("accepted", false) and restored.restore_checkpoint(saved_reverse).get("accepted", false) and restored.projection().dropped_raw == reverse.dropped_raw, "Reverse-end blanks survive checkpoint restore"):
+			return
+		var point: Array = reverse.dropped_raw[0].center
+		if not expect(observe.call(float(point[0]) * 1.65 / 4.0, float(point[2]) * 1.65 / 4.0 - 1.65) and issue.call("pickup_raw", {"center": point}).get("accepted", false), "Pick up a reverse-end blank"):
+			return
+		if not expect(model.projection().cargo.P.raw > 0, "Picked-up blank belongs to the actor"):
+			return
+		print("native actual river belt route controls passed: ", checks)
+		quit(0)
+		return
 	if not expect(model.projection().stock.output > 0, "The complete actual-site line produces a finished plate"):
 		return
 	if not expect(observe.call(3.3, 0.0 if forward else 3.3), "Reach the press for retrieval"):

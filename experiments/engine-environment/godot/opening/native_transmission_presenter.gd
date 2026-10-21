@@ -229,11 +229,23 @@ func refresh() -> void:
 		return
 	visible = true
 	_sync_motion(snapshot)
-	var next_key := JSON.stringify([snapshot.get("context"), parts, motions, snapshot.get("engagements", [])])
+	var next_key := JSON.stringify([snapshot.get("context"), parts, motions, snapshot.get("engagements", []), snapshot.get("dropped_raw", [])])
 	if next_key == _view_key:
 		return
 	_clear()
 	_view_key = next_key
+	var drops: Variant = snapshot.get("dropped_raw", [])
+	if drops is Array:
+		for drop: Variant in drops:
+			if not drop is Dictionary or not drop.get("center") is Array or drop.center.size() != 3 or typeof(drop.get("raw")) != TYPE_INT or drop.raw <= 0:
+				continue
+			var blank := _cylinder(self, "LooseBlank", 0.15, 0.08, Color("b9a88c"))
+			blank.position = world_center(drop.center)
+			var label := Label3D.new()
+			label.text = "%d blank(s) · pick up in menu" % drop.raw
+			label.position.y = 0.3
+			label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+			blank.add_child(label)
 	var rendered: Dictionary = {}
 	for id: Variant in parts:
 		var part: Variant = parts[id]

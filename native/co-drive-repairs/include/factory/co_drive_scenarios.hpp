@@ -12,7 +12,8 @@ struct Progress {
     std::size_t sources{};
     materials::Quantity products{};
     bool known_actor{};
-    [[nodiscard]] bool ready() const noexcept { return mode == Mode::isolated || mode == Mode::co_driven; }
+    bool belt_forward{};
+    [[nodiscard]] bool ready() const noexcept { return belt_forward && (mode == Mode::isolated || mode == Mode::co_driven); }
     [[nodiscard]] bool complete() const noexcept { return known_actor && products >= 4 && ready(); }
 };
 
@@ -24,6 +25,6 @@ struct Progress {
 [[nodiscard]] const char* mode_name(Mode) noexcept;
 // Read the caller's current validated World cut and individual cargo. Source
 // count and coherent component membership are derived, never client progress.
-// Signed rate affects the mechanical diagnosis, not material speed or yield.
+// Readiness also requires the belt to carry material toward the press.
 [[nodiscard]] Progress inspect(const world::State&, const std::string& actor = "P");
 }  // namespace factory::co_drive_scenarios

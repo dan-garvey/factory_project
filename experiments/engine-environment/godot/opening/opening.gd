@@ -3256,6 +3256,7 @@ var goal_label: Label
 var power_label: Label
 var inspector: Label
 var recovery_actions
+var loose_material_controls
 var transmission_controls
 var transmission_presenter
 var transmission_endpoint_cue
@@ -3624,7 +3625,7 @@ func issue(action: Dictionary) -> Dictionary:
 			"place_foundation": "Foundation placed. Its surface shares the machine grid.",
 			"place_foundations": "Foundation area placed on the world grid.",
 			"connect": "Material path connected.", "connect_drive": "Drive shaft connected.",
-			"retrieve": "Plate collected.", "set_power": "Drive updated.",
+			"retrieve": "Plate collected.", "pickup_raw": "Blank collected.", "set_power": "Drive updated.",
 			"remove": "Part returned to your carried kit.",
 			"disconnect": "Material connection removed.",
 			"disconnect_drive": "Drive shaft returned."}.get(action.action, "Done."))
@@ -4770,6 +4771,8 @@ func _refresh_ui() -> void:
 	_refresh_guided_tools()
 	if recovery_actions != null:
 		recovery_actions.refresh()
+	if loose_material_controls != null:
+		loose_material_controls.refresh()
 
 func _toggle_all_tools() -> void:
 	if not explanation_open:
@@ -5024,9 +5027,13 @@ func _guided_step(kinds: Dictionary) -> Dictionary:
 			var part: Dictionary = state.entities[id]
 			if part.get("kind", "") in ["collector", "belt", "processor"] and motion.get(id, {}).get("state", "") != "rotating":
 				return {"text": "Use cogs and shafts to bring rotation to each machine. The belt shaft crosses its direction of travel.", "tool": "drive"}
+			if part.get("kind", "") == "belt" and motion.get(id, {}).get("state", "") == "rotating" and int(motion.get(id, {}).get("numerator", 0)) > 0:
+				return {"text": "The belt is carrying blanks away from the press. Change the cog route to reverse its rotation; pick up loose blanks from the worksite menu.", "tool": "drive"}
 	elif not state.get("powered", false):
 		return {"text": "Bring power to the line. Help [H] shows the current setup.", "tool": "drive"}
 	var stock: Dictionary = state.get("stock", {})
+	if _native_transmission() and not state.get("dropped_raw", []).is_empty() and int(stock.get("source", 0)) + int(stock.get("collector", 0)) + int(stock.get("belt", 0)) + int(stock.get("input", 0)) + int(stock.get("held", 0)) == 0:
+		return {"text": "Pick up loose blanks from the worksite menu, then insert them into the press.", "tool": "inspect"}
 	if int(stock.get("source", 0)) + int(stock.get("collector", 0)) + int(stock.get("belt", 0)) + int(stock.get("input", 0)) + int(stock.get("held", 0)) == 0:
 		if _native_transmission():
 			var cargo: Dictionary = state.get("cargo", {}).get(client, {})
@@ -5274,6 +5281,9 @@ func _build_interface() -> void:
 		recovery_actions = recovery_script.new()
 		right.add_child(recovery_actions)
 		recovery_actions.configure(self)
+	loose_material_controls = load("res://opening/recovery_actions.gd").LooseMaterialControls.new()
+	right.add_child(loose_material_controls)
+	loose_material_controls.configure(self)
 	right.add_child(HSeparator.new())
 	save_button = _button(right, "Save worksite  [F5]", _save_worksite)
 	load_button = _button(right, "Load worksite  [F9]", _load_worksite)
