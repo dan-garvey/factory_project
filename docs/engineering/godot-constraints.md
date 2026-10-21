@@ -894,6 +894,19 @@ prototype construction choices, not limitations imposed by Godot. A selected pla
 never grants construction permission. The foundation and machine height denominator
 is a user requirement, independent of this observed query behavior.
 
+## GDC-18: confirmed actor pose cadence can differ from render cadence
+
+**Presentation adapter observation, isolated fixture.** At a 60 Hz render rate,
+repeating a confirmed walking position for two frames and advancing it on the
+third made the adult gait alternate between a near-idle pose and a false fast
+step. The native `native_epoch` is an ordinal, not a timestamp. The presenter
+now measures elapsed presentation time between fresh confirmed positions and
+briefly holds the last confirmed gait during repeated samples. A stale pose
+settles instead of predicting more actor travel. This keeps actor roots exact;
+it does not smooth their positional hitch or establish real network cadence,
+whole-scene quality or human playability. The focused dense/sparse check and
+passive image comparison belong to `factory-yau.6.45.22.14`.
+
 ## Required follow-through
 
 This first source/API/evidence audit leaves actual backend identification,
