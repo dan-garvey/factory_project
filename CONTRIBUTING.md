@@ -175,7 +175,15 @@ passing checks remain reusable; no second reviewer, PM sign-off, plan, freeze or
 receipt approval is required.
 
 Start from recent main and claim narrow files/contracts to avoid overlapping
-workstreams. If main advances, merge the missing local/remote main changes into
+workstreams. When main advances before your first commit and its changed paths
+are disjoint from your staged paths, an ordinary
+`git switch -c integration/example main` in your owned checkout can carry those
+edits onto current main. Verify the resulting staged delta and preservation of
+the relevant tested inputs, then commit through the installed hook. This yields
+one authored commit and one independent review request. If Git refuses the
+switch, preserve the candidate and resolve the overlap; do not force it.
+
+For already committed work, merge the missing local/remote main changes into
 your own branch instead of routinely rebasing shared work. Resolve actual
 conflicts there, check affected interactions and commit through the installed hook.
 Do not replay passing cases for unchanged relevant inputs or rewrite another
