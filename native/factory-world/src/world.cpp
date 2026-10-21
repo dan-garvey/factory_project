@@ -1288,24 +1288,41 @@ Advance World::tick() noexcept {
                     return coordinate >= -materials::maximum_drop_coordinate && coordinate <= materials::maximum_drop_coordinate;
                 });
                 const auto existing_drop = candidate.material.dropped_material.find(receiver_point);
-                const bool drop_space = existing_drop != candidate.material.dropped_material.end() ?
-                    (!item || (existing_drop->second.raw_units <= std::numeric_limits<Integer>::max() - item->raw_units &&
-                               existing_drop->second.products <= std::numeric_limits<Integer>::max() - item->products)) :
-                    candidate.material.dropped_material.size() < materials::maximum_drop_points;
-                const bool can_drop = item && !has_receiver && valid_drop_point && drop_space;
+                Integer drop_capacity = 0;
+                if (!has_receiver && valid_drop_point &&
+                    (existing_drop != candidate.material.dropped_material.end() ||
+                     candidate.material.dropped_material.size() < materials::maximum_drop_points)) {
+                    Integer raw_total = existing_drop == candidate.material.dropped_material.end() ? 0 : existing_drop->second.raw_units;
+                    Integer product_total = existing_drop == candidate.material.dropped_material.end() ? 0 : existing_drop->second.products;
+                    std::size_t work_total = existing_drop == candidate.material.dropped_material.end() ? 0 : existing_drop->second.work_lots.size();
+                    for (std::size_t offset = 0; offset < slots.size(); ++offset) {
+                        const auto index = toward_last ? slots.size() - 1 - offset : offset;
+                        if (!slots[index]) continue;
+                        const auto& cargo = *slots[index];
+                        if (raw_total > std::numeric_limits<Integer>::max() - cargo.raw_units ||
+                            product_total > std::numeric_limits<Integer>::max() - cargo.products ||
+                            work_total > 256 || cargo.work_lots.size() > 256 - work_total) break;
+                        raw_total += cargo.raw_units;
+                        product_total += cargo.products;
+                        work_total += cargo.work_lots.size();
+                        ++drop_capacity;
+                    }
+                }
                 auto proposal = materials::advance_belt_lane(lane->second, toward_last ? speed : -speed,
-                                                            can_receive || can_drop ? 1 : 0);
-                if (!proposal || proposal->delivered.size() > 1) throw materials::Error::invalid_state;
+                                                            can_receive ? 1 : drop_capacity);
+                if (!proposal) throw materials::Error::invalid_state;
                 if (!proposal->delivered.empty()) {
-                    const auto& delivered = proposal->delivered.front();
                     if (can_receive) {
-                        if (delivered != materials::Cargo{1, 0, {}}) throw materials::Error::invalid_state;
+                        if (proposal->delivered.size() != 1 || proposal->delivered.front() != materials::Cargo{1, 0, {}})
+                            throw materials::Error::invalid_state;
                         ++candidate.material.stock.input;
                     } else {
                         auto& dropped = candidate.material.dropped_material[receiver_point];
-                        dropped.raw_units += delivered.raw_units;
-                        dropped.products += delivered.products;
-                        dropped.work_lots.insert(dropped.work_lots.end(), delivered.work_lots.begin(), delivered.work_lots.end());
+                        for (const auto& delivered : proposal->delivered) {
+                            dropped.raw_units += delivered.raw_units;
+                            dropped.products += delivered.products;
+                            dropped.work_lots.insert(dropped.work_lots.end(), delivered.work_lots.begin(), delivered.work_lots.end());
+                        }
                     }
                 }
                 lane->second = std::move(proposal->candidate);

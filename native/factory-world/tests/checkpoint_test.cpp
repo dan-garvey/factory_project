@@ -347,6 +347,62 @@ void belt_span_checkpoint() {
           "Reversing the shaft reverses lane travel.");
 }
 
+void fast_open_belt_discharge() {
+    for (const bool reversed : {false, true}) for (const bool toward_negative : {false, true}) {
+        w::Profile profile;
+        profile.material = {1, 1, 2}; profile.initial_units = 4; profile.actors = {"P"};
+        profile.meters_per_grid_unit = 0.1; profile.waterwheel_rate = {toward_negative ? 3 : -3, 1};
+        profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, 1}, {{s::Role::shaft, 0, 2}, 2},
+                                {{s::Role::belt, 0, 0}, 1}};
+        w::State state;
+        state.material.initial_units = 4; state.material.next_work_id = 2;
+        state.material.cargo = {{"P", {}}}; state.kits = {{"P", {}}};
+        const m::Cargo work{0, 0, {{1, {1, 2}, 1, 123}}};
+        state.material.belt_lanes.emplace("belt", m::BeltLane{{m::Cargo{1, 0, {}}, m::Cargo{0, 1, {}}, work}, 0});
+        const m::DropPoint exit{toward_negative ? -4 : 12, 0, 0};
+        state.material.dropped_material.emplace(exit, m::Cargo{1, 0, {}});
+        state.topology.parts = {{{"wheel", g::Kind::hub, {0, 0, -4}, g::Axis::z, 0, 0}, 1, s::Role::waterwheel},
+            {{"left", g::Kind::shaft, {0, 0, 0}, g::Axis::z, 0, 2}, 1, s::Role::shaft},
+            {{"right", g::Kind::shaft, {8, 0, 0}, g::Axis::z, 0, 2}, 1, s::Role::shaft}};
+        state.topology.sources = {{"wheel", profile.waterwheel_rate}}; state.topology.drive_enabled = true;
+        state.topology.belt_spans = {{{"belt", reversed ? "right" : "left", reversed ? "left" : "right"}, 1}};
+        state.issued_entities = {{"wheel", 1}, {"left", 1}, {"right", 1}, {"belt", 1}};
+        auto world = w::World::create("fast-belt", profile, state);
+        check(world != nullptr, "A fast belt accepts three conserved, differently typed items and an existing drop.");
+        check(world->tick().error == w::TransactionError::none, "The fast belt advances without losing custody.");
+        const auto snapshot = world->snapshot();
+        const auto& slots = snapshot.state.material.belt_lanes.at("belt").slots;
+        check(std::none_of(slots.begin(), slots.end(), [](const auto& item) { return item.has_value(); }) &&
+              snapshot.state.material.dropped_material.at(exit) == m::Cargo{2, 1, work.work_lots},
+              "All three reachable items leave the fast belt and join the existing drop intact.");
+        const auto encoded = w::encode_checkpoint(profile, snapshot);
+        check(std::holds_alternative<V>(encoded), "The combined open-end drop encodes.");
+        const auto decoded = w::decode_checkpoint(profile, "fast-belt", std::get<V>(encoded));
+        check(std::holds_alternative<w::Snapshot>(decoded) &&
+              std::get<w::Snapshot>(decoded).state.material == snapshot.state.material,
+              "The complete drop and empty belt survive checkpoint restore.");
+
+        auto press_profile = profile;
+        press_profile.initial_units = 3;
+        press_profile.finite_parts[{s::Role::processor, 0, 0}] = 1;
+        auto press_state = state;
+        press_state.material.initial_units = 3;
+        press_state.material.next_work_id = 1;
+        press_state.material.dropped_material.clear();
+        press_state.material.belt_lanes.at("belt").slots = {m::Cargo{1, 0, {}}, m::Cargo{1, 0, {}}, m::Cargo{1, 0, {}}};
+        press_state.topology.parts.push_back({{"press", g::Kind::hub, exit, g::Axis::z, 0, 0}, 1, s::Role::processor});
+        press_state.issued_entities.emplace("press", 1);
+        auto press_world = w::World::create("fast-press", press_profile, press_state);
+        check(press_world && press_world->tick().error == w::TransactionError::none,
+              "A fast belt can feed a finite press receiver.");
+        const auto material = press_world->snapshot().state.material;
+        check(material.stock.input == 1 && material.dropped_material.empty() &&
+              std::count_if(material.belt_lanes.at("belt").slots.begin(), material.belt_lanes.at("belt").slots.end(),
+                            [](const auto& item) { return item.has_value(); }) == 2,
+              "A one-item press accepts one blank and retains the remaining belt contents.");
+    }
+}
+
 void adjacent_belt_handoff() {
     for (const bool reversed : {false, true}) for (const bool reverse_order : {false, true})
     for (const bool toward_negative : {false, true}) {
@@ -827,7 +883,7 @@ int main() {
         schema_and_authority_mutations();
         bounds_and_large_integers();
         belt_span_checkpoint();
-        belt_span_material_route(); adjacent_belt_handoff(); inclined_material_route();
+        belt_span_material_route(); fast_open_belt_discharge(); adjacent_belt_handoff(); inclined_material_route();
         belt_span_commands();
         std::cout << "{\"status\":\"pass\",\"evidence\":\"invented_native_checkpoint\",\"checks\":" << checks << "}\n";
         return 0;
