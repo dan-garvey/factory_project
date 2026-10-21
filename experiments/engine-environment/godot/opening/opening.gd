@@ -1894,6 +1894,7 @@ class ProductionDriveJournalArt:
 	extends RefCounted
 	## Turned presentation inside the original native journal cylinder.
 	static var horizontal_press_mesh: ArrayMesh
+	static var z_input_post_mesh: ArrayMesh
 	static func mesh(height: float, radius: float = 0.085) -> ArrayMesh:
 		var half := height / 2.0
 		# Keep the full central bearing span. End relief and center marks are
@@ -1960,18 +1961,28 @@ class ProductionDriveJournalArt:
 			_press_fixed(parent, "PressInputBearing" + suffix, "Bearing", ring,
 				at + Vector3.UP * Geometry.ANCHOR_HEIGHT, Basis(Quaternion(Vector3.UP, axis)))
 			if axis == Vector3.RIGHT:
-				# Rear brackets leave both the receiving pan and all original
-				# finished-plate pieces clear, without moving either interface.
+				# The raised shared axle needs a taller rear load path. Keep the
+				# narrow upper ear outside the original journal radius.
+				var deck_top := 0.24
+				var post_top := Geometry.ANCHOR_HEIGHT - 0.105
 				_press_fixed(parent, "PressInputPost" + suffix, "Post",
-					ProductionVisuals.box_mesh(Vector3(0.10, 0.26, 0.12)),
-					at + Vector3(0, 0.37, -0.23))
+					ProductionVisuals.box_mesh(Vector3(0.10, post_top - deck_top, 0.12)),
+					at + Vector3(0, (post_top + deck_top) * 0.5, -0.23))
 				_press_fixed(parent, "PressInputBracket" + suffix, "Bracket",
-					ProductionVisuals.box_mesh(Vector3(0.06, 0.08, 0.09)),
-					at + Vector3(0, 0.50, -0.135))
+					ProductionVisuals.box_mesh(Vector3(0.06, 0.13, 0.16)),
+					at + Vector3(0, Geometry.ANCHOR_HEIGHT - 0.08, -0.17))
 			else:
+				if z_input_post_mesh == null:
+					# An offset cast cheek reaches the annular housing but leaves
+					# the central shaft and its original clearance unobstructed.
+					var cheek := PackedVector2Array([Vector2(0.09, 0.24),
+						Vector2(0.24, 0.24), Vector2(0.19, 0.33),
+						Vector2(0.15, Geometry.ANCHOR_HEIGHT - 0.18),
+						Vector2(0.15, Geometry.ANCHOR_HEIGHT - 0.015),
+						Vector2(0.09, Geometry.ANCHOR_HEIGHT - 0.015)])
+					z_input_post_mesh = ProductionVisuals.prism_mesh(cheek, 0.10, 0.004)
 				_press_fixed(parent, "PressInputPost" + suffix, "Post",
-					ProductionVisuals.box_mesh(Vector3(0.12, 0.165, 0.10)),
-					at + Vector3.UP * 0.3225)
+					z_input_post_mesh, at)
 
 class ProductionCollectorFeedArt:
 	extends RefCounted
@@ -4492,8 +4503,8 @@ func _select_tool(tool: String) -> void:
 		instructions["collector"] = "Place the collector at the exposed mineral seam."
 		instructions["belt"] = "Choose two parallel shafts within reach. The belt runs across their axle, not along it."
 		instructions["flow"] = "Choose the upstream machine, then its neighbor at the material outlet."
-		instructions["drive"] = "Point at a floor to match its height or at a machine to snap beside it. Set the shaft axis in the cogwheel and shaft menu."
-		instructions["gear"] = "Point at a floor to match its height or at a machine to snap beside it. Set the cogwheel axis in its menu."
+		instructions["drive"] = "Point at a floor to match its height, a part face to snap beside it, or a belt to add a pulley. Set the shaft axis in its menu."
+		instructions["gear"] = "Point at a floor to match its height or a part face to snap beside it. Set the cogwheel axis in its menu."
 		instructions["foundation"] = "Place a foundation at the displayed world height. Page Up / Page Down move one foundation thickness so stacked blocks touch; Access steps enables smaller walking steps. Machines need whole-tile factory floors. Area chooses two corners; Esc cancels."
 	_message(instructions.get(tool,
 		"Place %s on an empty grid square." % NAMES.get(tool, tool)))
@@ -4619,7 +4630,7 @@ func _set_lesson(index: int) -> void:
 	if lesson_index == 0 and _native_transmission():
 		lesson_body.text = "Place a collector and a press. Place one-tile shafts at the ends of the route, with their parallel axles across the belt's path. Connect the shafts with a belt. It carries blanks when its top moves toward the press."
 	if lesson_index == 1 and _native_transmission():
-		lesson_body.text = "Place the waterwheel in the stream with its lower rim wet and clear of the bed. Set its diameter, height and axle. Choose Shaft and place one-tile segments; set axis and height in the cogwheel and shaft menu. Aligned parts carry rotation."
+		lesson_body.text = "Place the waterwheel in the stream with its lower rim wet and clear of the bed. Set its diameter, height and axle. Place one-tile shafts to carry rotation. Small cogs with matching axes mesh side by side in one plane; a small and a large cog mesh diagonally in that plane. Meshing reverses rotation, and different sizes change speed."
 	if example_presenter != null:
 		example_presenter.set_lesson(lesson_index)
 

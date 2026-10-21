@@ -97,6 +97,29 @@ func check_shared_barriers() -> void:
 	verify(view.model == null, "Shared controls create no local Model.")
 	view.free()
 
+func check_transmission_guidance(shared: bool) -> void:
+	var view = SharedHarness.new() if shared else OfflineHarness.new()
+	if shared:
+		view.session = Connection.new()
+	mount(view)
+	view._select_tool("drive")
+	verify("part face" in view.status_label.text and "belt" in view.status_label.text,
+		"Shaft guidance describes part-face snapping and belt pulleys.")
+	view._select_tool("gear")
+	verify("part face" in view.status_label.text, "Cog guidance describes part-face snapping.")
+	view.transmission_controls._tool_selected(6)
+	verify("part face" in view.status_label.text and "belt" in view.status_label.text,
+		"The transmission menu gives the same usable shaft targets.")
+	view.lesson_title = Label.new()
+	view.lesson_body = Label.new()
+	view.add_child(view.lesson_title)
+	view.add_child(view.lesson_body)
+	view._set_lesson(1)
+	verify("matching axes" in view.lesson_body.text and "diagonally" in view.lesson_body.text
+		and "reverses rotation" in view.lesson_body.text and "change speed" in view.lesson_body.text,
+		"The native drive lesson explains the supported cog placement, direction and speed relationship.")
+	view.free()
+
 func pick_body(view: Node3D, id: String, position: Vector3, size: Vector3, offset: Vector3) -> void:
 	var body := StaticBody3D.new()
 	body.collision_layer = Geometry.PICK_LAYER
@@ -320,6 +343,46 @@ func check_actual_belt_pointer() -> void:
 		view.queue_free()
 		await process_frame
 
+func check_actual_part_pointer() -> void:
+	for spec in [{"kind": "shaft", "teeth": 0}, {"kind": "gear", "teeth": 2}, {"kind": "gear", "teeth": 4}]:
+		for axis in range(3):
+			var view := OfflineHarness.new()
+			root.add_child(view)
+			mount(view)
+			view.state.entities = {}
+			if spec.kind == "gear":
+				view.state.part_specifications.P.append({"kind": "gear", "teeth": spec.teeth, "half_span": 0, "count": 2})
+			var part := {"kind": spec.kind, "generation": 1, "center": [0, 8, 0], "axis": axis}
+			part["half_span" if spec.kind == "shaft" else "teeth"] = 2 if spec.kind == "shaft" else spec.teeth
+			view.state.transmission_parts = {"part": part}
+			view.transmission_controls.choose_tool("place_shaft" if spec.kind == "shaft" else "gear")
+			view.transmission_controls.selected_axis = ["x", "y", "z"][axis]
+			if spec.kind == "gear":
+				view.transmission_controls.gear_teeth = spec.teeth
+			view.camera = Camera3D.new()
+			view.add_child(view.camera)
+			view.camera.make_current()
+			var presenter := Presenter.new()
+			view.add_child(presenter)
+			presenter.configure(view)
+			await physics_frame
+			await physics_frame
+			var point := Presenter.world_center(part.center)
+			for face: Vector3 in [Vector3.RIGHT, Vector3.LEFT, Vector3.UP, Vector3.DOWN, Vector3.BACK, Vector3.FORWARD]:
+				view.camera.position = point + face * 3.0
+				view.camera.look_at(point, Vector3.FORWARD if absf(face.y) > 0.9 else Vector3.UP)
+				var screen := view.camera.unproject_position(point)
+				verify(view._screen_entity(screen) == "part", "The passive ray hits the real transmission part picker.")
+				var expected := [roundi(face.x * 4), 8 + roundi(face.y * 4), roundi(face.z * 4)]
+				var target: Array = view._transmission_center(screen)
+				verify(target == expected, "The real part face selects the neighboring global tile.")
+				view._transmission_click(target, "part")
+				var request := {"action": "place_shaft", "center": expected, "axis": ["x", "y", "z"][axis], "half_span": 2} if spec.kind == "shaft" else {"action": "place_gear", "center": expected, "axis": ["x", "y", "z"][axis], "teeth": spec.teeth}
+				verify(not view.requests.is_empty() and view.requests.back() == request,
+					"The part-face request preserves its adjacent tile, axle and part size.")
+			view.queue_free()
+			await process_frame
+
 func _initialize() -> void:
 	call_deferred("_run")
 
@@ -328,7 +391,10 @@ func _run() -> void:
 	if "--common-frame-only" not in OS.get_cmdline_user_args():
 		check_direct_shaft_entry(false)
 		check_direct_shaft_entry(true)
+		check_transmission_guidance(false)
+		check_transmission_guidance(true)
 		await check_raised_pointer()
 		await check_actual_belt_pointer()
+		await check_actual_part_pointer()
 	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks, "failures": failures, "evidence": "isolated_shaft_tile_controls_and_pointer", "models": 0, "desktop_operations": 0}))
 	quit(0 if failures == 0 else 1)

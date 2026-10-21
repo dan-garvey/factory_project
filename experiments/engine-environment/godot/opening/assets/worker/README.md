@@ -56,8 +56,11 @@ its cosmetic visual root by five centimetres at full run weight to meet the
 unchanged support plane. The forearms retain extra flex and
 the captured torso sway is bounded after retargeting. The clip's vertical root
 variation is cosmetic, and its horizontal root travel does not move the physical
-or visual actor root. The original FBX remains available at the pinned source
-revision.
+or visual actor root. On a confirmed stop, the current stride pose holds for
+about two 60 Hz samples before settling toward rest, so a trailing boot does
+not stay suspended through the older six-sample pause. Airborne and landing
+poses retain their longer transition. The original FBX remains available at
+the pinned source revision.
 
 Confirmed rising and falling samples switch the visual skeleton into distinct
 takeoff, ascent, descent and compressed landing poses. The running takeoff lifts
