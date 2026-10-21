@@ -3,6 +3,7 @@ extends RefCounted
 const Visuals = preload("res://opening/opening.gd").ProductionVisuals
 const Finish = preload("res://opening/opening.gd").ProductionTransmissionFinish
 const UNIT := preload("res://opening/site_geometry.gd").PITCH / 4.0
+const SHAFT_CORE_RADIUS := 0.03
 static var meshes: Dictionary = {}
 
 static func _part(parent: Node3D, name_value: String, mesh: Mesh, at: Vector3,
@@ -113,12 +114,12 @@ static func gear(parent: Node3D, radius: float, ratio_units: int, color: Color) 
 static func shaft(parent: Node3D, length: float, color: Color) -> void:
 	# Keep this public node's CylinderMesh and exact length for the established
 	# endpoint consumer. Fitted collars do not alter the pick cylinder.
-	_part(parent, "Shaft", _cylinder(0.045, length), Vector3.ZERO, color)
-	var collar := PackedVector2Array([Vector2(0.045, -0.055), Vector2(0.07, -0.055),
-		Vector2(0.075, -0.05), Vector2(0.075, 0.05), Vector2(0.07, 0.055),
-		Vector2(0.045, 0.055), Vector2(0.045, -0.055)])
+	_part(parent, "Shaft", _cylinder(SHAFT_CORE_RADIUS, length), Vector3.ZERO, color)
+	var collar := PackedVector2Array([Vector2(0.03, -0.055), Vector2(0.0345, -0.055),
+		Vector2(0.036, -0.0535), Vector2(0.036, 0.0535), Vector2(0.0345, 0.055),
+		Vector2(0.03, 0.055), Vector2(0.03, -0.055)])
 	for sign_value in [-1.0, 1.0]:
 		var center: float = sign_value * (length / 2.0 - 0.06)
 		_part(parent, "ShaftCollar", Visuals.turned_mesh(collar), Vector3(0, center, 0), Color("a6b4af"))
-		_part(parent, "ShaftKey", Visuals.box_mesh(Vector3(0.018, 0.08, 0.018)),
-			Vector3(0.049, center, 0), Color("b87945"))
+		_part(parent, "ShaftKey", Visuals.box_mesh(Vector3(0.012, 0.08, 0.012)),
+			Vector3(0.031, center, 0), Color("b87945"))

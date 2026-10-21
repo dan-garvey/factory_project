@@ -735,6 +735,31 @@ ordinary input and authoritative state unchanged. Source review is not a passing
 native result; the successor requires its own reviewed gates and bounded case.
 Owner: Playability, with Chapter source review and Ops operational reconciliation.
 
+## GDC-14: short segment tests can miss small finite mesh faces
+
+**Engine/API source verified for 4.7.2; bounded fixture failure observed.** The
+pinned [segment/triangle implementation](https://github.com/godotengine/godot/blob/ed1daf0bf001b61586d9930840f2f1394092c079/core/math/geometry_3d.h)
+tests the unnormalized segment/triangle determinant with
+[`is_zero_approx`](https://github.com/godotengine/godot/blob/ed1daf0bf001b61586d9930840f2f1394092c079/core/math/math_funcs.h).
+Its [absolute epsilon](https://github.com/godotengine/godot/blob/ed1daf0bf001b61586d9930840f2f1394092c079/core/math/math_defs.h)
+is independent of face area and segment length. A short segment crossing a small
+face can therefore be rejected by the parallel test before intersection bounds
+are considered. This does not establish a minimum game feature size.
+
+The first compact-conveyor-hub asset case retained sixteen failed short joint
+probes while its other clearance checks completed. The changed fixture uses
+longer probes, records their actual hit heights and requires overlapping solid
+intervals for the housing and its support at the intended joint. Deliberately
+lowered supports must fail that same predicate. The original failed result is
+preserved; changing this fixture does not change mesh geometry, native collision,
+construction reach or mechanical authority.
+
+**Affected promise / exit:** qualify a mesh predicate at its actual geometric
+scale and retain measured intersections before asserting contact. Do not turn a
+test-helper miss into a permanent gameplay tolerance or a physics-backend verdict.
+These are technical asset observations, not physical force, rendered-quality or
+human-play evidence. Owner: Platform, under `factory-yau.6.45.23.15`.
+
 ## Required follow-through
 
 This first source/API/evidence audit leaves actual backend identification,

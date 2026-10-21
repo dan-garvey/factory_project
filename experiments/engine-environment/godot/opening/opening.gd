@@ -1044,6 +1044,75 @@ class ProductionConveyorFrameArt:
 		parent.set_meta("conveyor_frame", true)
 		return true
 
+class ProductionConveyorHubArt:
+	extends RefCounted
+	## A compact view of the native point hub, not a new shaft or drive route.
+	static var journals: Dictionary = {}
+
+	static func _part(parent: Node3D, role: String, suffix: String, mesh: Mesh, at: Vector3,
+			finish: StandardMaterial3D, orientation: Basis = Basis.IDENTITY) -> MeshInstance3D:
+		var part := MeshInstance3D.new()
+		part.name = role + suffix
+		part.set_meta("conveyor_hub_role", role)
+		part.mesh = mesh
+		part.position = at
+		part.basis = orientation
+		part.material_override = finish
+		parent.add_child(part)
+		return part
+
+	static func mount(parent: Node3D, axis: Vector3, color: Color) -> bool:
+		var paint := ProductionCollectorArt.coating(color)
+		var steel := ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.38)
+		var warm := ProductionTransmissionFinish.material("worked", Color("b87945"), 0.85, 0.4)
+		if paint == null or steel == null or warm == null:
+			return false
+		var rail := PackedVector2Array([Vector2(-0.0125, -0.0175), Vector2(0.0125, -0.0175),
+			Vector2(0.0125, 0.0175), Vector2(-0.0125, 0.0175)])
+		for side in [-1.0, 1.0]:
+			var suffix := "N" if side < 0 else "P"
+			_part(parent, "HubCarrierRail", suffix, ProductionVisuals.prism_mesh(rail, 0.74, 0.0015),
+				Vector3(side * 0.0625, 0.4325, 0), paint)
+			for end in [-1.0, 1.0]:
+				_part(parent, "HubMountCleat", suffix + ("N" if end < 0 else "P"),
+					ProductionVisuals.box_mesh(Vector3(0.025, 0.033, 0.024)), Vector3(side * 0.0625, 0.4005, end * 0.36), paint)
+		var vertical := axis == Vector3.UP
+		var housing: PackedVector2Array
+		if vertical:
+			housing = PackedVector2Array([Vector2(0.039, -0.03), Vector2(0.057, -0.03),
+				Vector2(0.06, -0.027), Vector2(0.06, 0.027), Vector2(0.057, 0.03),
+				Vector2(0.039, 0.03), Vector2(0.039, -0.03)])
+			var fork := PackedVector2Array([Vector2(0.05, 0.447), Vector2(0.075, 0.447),
+				Vector2(0.055, 0.472), Vector2(0.042, 0.472)])
+			for side in [-1.0, 1.0]:
+				var profile := fork.duplicate()
+				for n in range(profile.size()):
+					profile[n].x *= side
+				_part(parent, "HubFork", "N" if side < 0 else "P", ProductionVisuals.prism_mesh(profile, 0.018, 0.001),
+					Vector3.ZERO, paint)
+		else:
+			housing = PackedVector2Array([Vector2(0.039, -0.05), Vector2(0.0405, -0.05),
+				Vector2(0.042, -0.0485), Vector2(0.042, 0.0485), Vector2(0.0405, 0.05),
+				Vector2(0.039, 0.05), Vector2(0.039, -0.05)])
+			_part(parent, "HubBridge", "", ProductionVisuals.box_mesh(Vector3(0.15, 0.01, 0.028)),
+				Vector3(0, 0.4475, 0), paint)
+			_part(parent, "HubPedestal", "", ProductionVisuals.box_mesh(Vector3(0.024, 0.01, 0.026)),
+				Vector3(0, 0.455, 0), paint)
+		var at := Vector3(0, Geometry.ANCHOR_HEIGHT, 0)
+		var orientation := Basis(Quaternion(Vector3.UP, axis))
+		_part(parent, "HubHousing", "", ProductionVisuals.turned_mesh(housing), at, paint if vertical else steel, orientation)
+		if not journals.has(vertical):
+			var journal := CylinderMesh.new()
+			journal.top_radius = 0.028
+			journal.bottom_radius = 0.028
+			journal.height = 0.08 if vertical else 0.12
+			journal.radial_segments = 48
+			journals[vertical] = journal
+		var spindle := _part(parent, "HubJournal", "", journals[vertical], at, warm, orientation)
+		spindle.name = "DriveStub"
+		parent.set_meta("conveyor_hub", true)
+		return true
+
 class ProductionPressArt:
 	extends RefCounted
 	## Authored support components for the existing confirmed processor.
@@ -3916,7 +3985,8 @@ func _belt_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 		Vector2(0.055, 0.35), Vector2(0, 0.35)])
 	for x in [-0.57, 0.57]:
 		_machine_turned(anchor, "ConveyorRoller", Vector3(x, 0.465, 0), roller_profile, Color("a6b4af"), Vector3.BACK)
-	_machine_drive_stub(anchor, entity)
+	if not (fitted and ProductionConveyorHubArt.mount(anchor, _machine_axis(entity), frame)):
+		_machine_drive_stub(anchor, entity)
 
 func _press_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	var frame: Color = COLORS.processor

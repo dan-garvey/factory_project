@@ -178,6 +178,24 @@ visual bearings add no contact, force or transport simulation. Nonnative views
 retain their earlier posts and bearing disks. Technical geometry checks do not
 establish rendered quality, GPU cost or human assessment.
 
+The native conveyor's drive artwork is a compact journal and supported open
+housing at the confirmed hub point and axis. Twin carrier rails sit inside the
+empty belt return, with cleats joining the existing side members. A vertical
+hub uses a forked mount. This replaces the old long decorative bar that crossed
+the rubber. The native hub supplies no cylinder dimensions; the artwork adds
+no shaft, new connection point or power path.
+
+Reusable shaft artwork now has a 30-millimetre core radius, fitted narrower
+collars and keys, and a matching longitudinal keyway. Its prescribed centre,
+axis and length remain exact, and the original 80-millimetre selection radius
+stays unchanged. These are revisable art dimensions, not native collision or
+mechanical rules. Qualified finishes and signed cosmetic motion are reused.
+Local fit checks compare actual shaft envelopes with the fixed hub furniture
+and compare the new hub pieces with the belt and workpiece. They do not prove
+general shaft routing through an entire machine, native contact, torque or
+working phase. Nonnative conveyors keep their old stub. Rendered quality and
+human assessment remain open.
+
 Confirmed material links have static arrowheads and endpoints aligned with their
 actual ordered grid direction, including routes along either axis. These indicate
 the existing link direction, not simulated item motion or a pending command.

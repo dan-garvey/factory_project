@@ -260,8 +260,8 @@ func check_assemblies() -> void:
 		shaft.basis = Presenter.axis_basis(axis)
 		Assets.shaft(shaft, 1.65, Color("687a7b"))
 		var mesh: CylinderMesh = shaft.get_node("Shaft").mesh
-		verify(is_equal_approx(mesh.height, 1.65) and is_equal_approx(mesh.top_radius, 0.045) and mesh.radial_segments == 48,
-			"The named shaft remains a CylinderMesh with its literal endpoint length and core radius.")
+		verify(is_equal_approx(mesh.height, 1.65) and is_equal_approx(mesh.top_radius, 0.03) and mesh.radial_segments == 48,
+			"The named shaft remains a CylinderMesh with its exact endpoint length and declared art radius.")
 		verify(roles(shaft, "ShaftCollar") == 2 and roles(shaft, "ShaftKey") == 2,
 			"The shaft has a fitted collar and key at both ends.")
 		check_bounds(shaft, shaft.transform, center, axes[axis], 0.08, 0.825)
@@ -341,7 +341,7 @@ func check_materials() -> void:
 						"Scalar roughness remains linear and no source color, metallic map, occlusion or displacement is invented.")
 			verify(counts == [5, 28, 2], "Each actual assembly separates five cast, twenty-eight worked and two copper pieces.")
 			var cylinder: CylinderMesh = shaft.get_node("Shaft").mesh
-			verify(is_equal_approx(cylinder.height, 1.65) and is_equal_approx(cylinder.top_radius, 0.045)
+			verify(is_equal_approx(cylinder.height, 1.65) and is_equal_approx(cylinder.top_radius, 0.03)
 				and gear.basis.y.is_equal_approx([Vector3.RIGHT, Vector3.UP, Vector3.BACK][axis]),
 				"The material adapter preserves the literal shaft geometry and projected assembly axis.")
 			verify(host.state == before, "Material assignment does not mutate the projected native facts.")
