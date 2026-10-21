@@ -187,6 +187,83 @@ class ProductionVisuals:
 			meshes["fastener/hex"] = head
 		return meshes["fastener/hex"]
 
+class ProductionTransmissionFinish:
+	extends RefCounted
+	## Shared surface presentation. Native dimensions and motion never read maps.
+	const ROOT := "res://opening/assets/transmission-surfaces"
+	const FILES := {"cast_normal": "cast_normal_gl.webp", "cast_roughness": "cast_roughness.webp",
+		"worked_normal": "worked_normal_gl.webp", "worked_roughness": "worked_roughness.webp"}
+	const CAST_METRES := 0.25
+	const WORKED_METRES := 0.08
+	static var source_status := "uninitialized"
+	static var textures: Dictionary = {}
+	static var finishes: Dictionary = {}
+
+	static func read_images(directory: String = ROOT) -> Dictionary:
+		var present := 0
+		for file_name in FILES.values():
+			if FileAccess.file_exists(directory.path_join(file_name)):
+				present += 1
+		if present == 0:
+			return {"status": "missing", "images": {}}
+		if present != FILES.size():
+			return {"status": "invalid", "reason": "incomplete_surface_set", "images": {}}
+		var images: Dictionary = {}
+		for role in FILES:
+			var image := Image.load_from_file(directory.path_join(FILES[role]))
+			var extent := 512 if role.begins_with("cast") else 256
+			if image == null or image.is_empty() or image.get_size() != Vector2i(extent, extent):
+				return {"status": "invalid", "reason": "invalid_" + role, "images": {}}
+			images[role] = image
+		return {"status": "ready", "images": images}
+
+	static func _prepare() -> void:
+		var loaded := read_images()
+		source_status = loaded.status
+		if source_status == "missing":
+			return
+		if source_status != "ready":
+			push_error("Invalid transmission surface set: " + str(loaded.get("reason", "unknown")))
+			return
+		for role in loaded.images:
+			var image: Image = loaded.images[role]
+			if image.generate_mipmaps(role.ends_with("normal")) != OK:
+				source_status = "invalid"
+				push_error("Cannot generate transmission surface mipmaps.")
+				return
+			textures[role] = ImageTexture.create_from_image(image)
+
+	static func material(role: String, color: Color, metal: float, fallback_roughness: float) -> StandardMaterial3D:
+		if source_status == "uninitialized":
+			_prepare()
+		if source_status == "missing":
+			return ProductionVisuals.material(color, metal, fallback_roughness)
+		if source_status != "ready" or role not in ["cast", "worked"]:
+			return null
+		var key := [role, color, metal]
+		if finishes.has(key):
+			return finishes[key]
+		var finish := StandardMaterial3D.new()
+		# Keep the presenter's original motion tint. Source color is deliberately
+		# omitted; these surface roles are not an alloy or operating-state ledger.
+		finish.albedo_color = color
+		finish.metallic = metal
+		finish.roughness = 1.0
+		finish.roughness_texture = textures[role + "_roughness"]
+		finish.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
+		finish.normal_enabled = true
+		finish.normal_texture = textures[role + "_normal"]
+		finish.normal_scale = 0.35 if role == "cast" else 1.0
+		# Local-space mapping follows the rigid part as it turns. Physical mesh
+		# coordinates avoid stretching a normalized UV along a longer shaft.
+		finish.uv1_triplanar = true
+		finish.uv1_world_triplanar = false
+		finish.uv1_triplanar_sharpness = 8.0
+		finish.uv1_scale = Vector3.ONE / (CAST_METRES if role == "cast" else WORKED_METRES)
+		finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		finishes[key] = finish
+		return finish
+
 class ProductionWheelArt:
 	extends RefCounted
 	## A reusable visual component. Native geometry and motion never read this mesh.

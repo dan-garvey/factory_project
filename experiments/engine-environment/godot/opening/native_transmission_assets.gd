@@ -1,6 +1,7 @@
 extends RefCounted
 ## Pure render assemblies. The presenter retains axes, picks and native facts.
 const Visuals = preload("res://opening/opening.gd").ProductionVisuals
+const Finish = preload("res://opening/opening.gd").ProductionTransmissionFinish
 const UNIT := preload("res://opening/site_geometry.gd").PITCH / 4.0
 static var meshes: Dictionary = {}
 
@@ -11,7 +12,13 @@ static func _part(parent: Node3D, name_value: String, mesh: Mesh, at: Vector3,
 	instance.set_meta("asset_role", name_value)
 	instance.mesh = mesh
 	instance.position = at
-	instance.material_override = Visuals.material(color, metal, roughness)
+	if name_value == "ShaftKey":
+		instance.material_override = Visuals.material(color, metal, roughness)
+		instance.set_meta("surface_role", "copper")
+	else:
+		var surface_role := "cast" if name_value in ["Gear", "GearSpoke"] else "worked"
+		instance.material_override = Finish.material(surface_role, color, metal, roughness)
+		instance.set_meta("surface_role", surface_role)
 	parent.add_child(instance)
 	return instance
 

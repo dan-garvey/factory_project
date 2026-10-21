@@ -192,6 +192,13 @@ assemblies use shared machined surfaces and cached meshes, with no collider or
 input node. The presenter retains mounting, direction, animation and pick
 ownership. Isolated mesh checks do not establish the ordinary rendered result.
 
+Complete captures now separate [cast and worked transmission finishes](transmission-surfaces/CREDITS.md).
+Rims and spokes use qualified cast-surface detail; teeth, hubs, fasteners, shafts
+and collars use finer original maps. The old moving/stopped tint and copper keys
+remain. Shared local-space mapping follows each rigid part without changing its
+mesh, pick or native facts. Maps are prepared offline, and missing historical
+sets retain the earlier generated finish. Rendered quality remains unassessed.
+
 The ordinary offline and shared item redraw uses `workpiece_item_assets.gd` for
 raw seam stock, in-line billets and the visible press-outlet plate. Uncollected
 source units are compact mineral-bearing rock clusters, with three cached fracture
