@@ -78,7 +78,8 @@ func _initialize() -> void:
 	view.state.part_kits.P.belt = 0
 	view.state.parts.belt = 0
 	view.state.part_kits.Q.belt = 1
-	verify(view._guided_placement_cell() == [1, 1], "Q's own Belt produces a cue even when P has none.")
+	verify(view._guided_placement_cell().is_empty() and view._guided_step({"collector": true}).tool == "drive",
+		"Native shaft-belt guidance does not suggest a grid Belt cell even when Q carries a Belt.")
 	verify(view._display_parts().shaft == 0, "Q does not borrow P's shaft count.")
 	view.client = "P"
 	verify(view._display_parts().belt == 0 and view._display_parts().shaft == 3, "Changing the active actor changes every displayed kit field.")
@@ -154,8 +155,8 @@ func _hotbar() -> void:
 		event.keycode = KEY_3
 		event.pressed = true
 		view._unhandled_input(event)
-		verify(view.mode == "belt" and bar.selected_slot == 2 and bar.buttons[2].button_pressed,
-			"A number key selects its displayed assignment through the ordinary selection path.")
+		verify(view.mode == "belt" and view.transmission_controls.active_tool == "belt_span" and bar.selected_slot == 2 and bar.buttons[2].button_pressed,
+			"The Belt quick slot selects shaft-to-shaft placement through the ordinary selection path.")
 		bar.open_catalog(7)
 		verify(bar.catalog.visible and bar.destination.item_count == 8 and bar.destination.selected == 7,
 			"The catalog exposes a concrete destination slot.")
