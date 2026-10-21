@@ -811,7 +811,7 @@ func _tool_guidance() -> void:
 	var view := Controls.new()
 	view.configure(host)
 	var before: Dictionary = host.state.duplicate(true)
-	for choice in [[1, "cogwheel"], [6, "shaft tile"], [4, "remove"], [5, "construction tool"]]:
+	for choice in [[1, "cogwheel"], [6, "shaft tile"], [7, "parallel shafts"], [4, "remove"], [5, "construction tool"]]:
 		var count: int = host.messages.size()
 		view.get_popup().id_pressed.emit(choice[0])
 		verify(host.messages.size() == count + 1 and str(host.messages.back()).contains(choice[1]),
