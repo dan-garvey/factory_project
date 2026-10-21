@@ -6,7 +6,12 @@ extends SceneTree
 ## --directory and --port; start clients after the server-ready marker. Require
 ## all three exit statuses and PASS markers. Then start server-resume, resume-P
 ## and resume-Q with the same directory and port, after the first server exits.
-## Require all six processes to pass. Add --reverse-belt to every process for
+## Require all six processes to pass. Add --span-belt for a constructed
+## mechanical span and its restored removal over the Session transport. Add
+## --powered-span instead to exercise a native waterwheel-driven span, or
+## --inclined-span to construct its elevated 45-degree counterpart. Add
+## --reverse-endpoints to submit either span in the opposite endpoint order.
+## Add --reverse-belt to every process for
 ## generated-site reverse deposition and pickup after restart. The resumed Session uses the Store but
 ## does not exercise the ordinary server lifecycle or physical actor bodies.
 const Session = preload("res://opening-session/session.gd")
@@ -20,6 +25,10 @@ var replies := {}
 var checks := 0
 var failed := false
 var reverse_belt := false
+var span_belt := false
+var powered_span := false
+var inclined_span := false
+var reverse_endpoints := false
 var serial := 0
 var epoch := 0
 
@@ -29,6 +38,15 @@ func _initialize() -> void:
 		elif arg.begins_with("--directory="): directory = arg.trim_prefix("--directory=")
 		elif arg.begins_with("--port="): port = int(arg.trim_prefix("--port="))
 		elif arg == "--reverse-belt": reverse_belt = true
+		elif arg == "--span-belt": span_belt = true
+		elif arg == "--powered-span":
+			span_belt = true
+			powered_span = true
+		elif arg == "--inclined-span":
+			span_belt = true
+			powered_span = true
+			inclined_span = true
+		elif arg == "--reverse-endpoints": reverse_endpoints = true
 	call_deferred("run")
 
 func verify(ok: bool, message: String) -> void:
@@ -182,6 +200,113 @@ func run_reverse() -> void:
 	print("REVERSE_BELT_SESSION_%s %s %d" % ["FAIL" if failed else "PASS", role, checks])
 	quit(1 if failed else 0)
 
+func run_span() -> void:
+	var resumed := role.begins_with("resume-") or role == "server-resume"
+	var prefix := "resume-" if resumed else ""
+	var save_path := directory.path_join("span.factory")
+	if role in ["server", "server-resume"]:
+		verify(session.serve_loopback(port, true, true, ["P", "Q"], true) == OK, "Start the native span authority")
+		if failed: quit(1); return
+		var saved_hash := ""
+		if resumed:
+			saved_hash = FileAccess.get_sha256(save_path)
+			verify(not saved_hash.is_empty() and Store.read_into(session.world, save_path).get("accepted", false), "A fresh authority restores the belt Store")
+			session.context = session.world.context
+		var p_pose := [0.0, 2.15, 3.3] if powered_span else [1.65, 1.0, -1.65]
+		verify(session.world.publish_actor("P", p_pose, 1).get("accepted", false), "Synthetic P remains within reach")
+		verify(session.world.publish_actor("Q", [20.0, 1.0, 20.0], 1).get("accepted", false), "Synthetic Q remains clear")
+		if failed: quit(1); return
+		mark(prefix + "server-ready")
+		if not await until(func(): return FileAccess.file_exists(directory.path_join(prefix + "clients-done")), "Both span clients finish"): quit(1); return
+		var state: Dictionary = session.world.projection()
+		if resumed:
+			verify(state.belt_spans.is_empty() and state.part_kits.P.belt == 1, "The restored belt is removed and refunded once")
+			verify(FileAccess.get_sha256(save_path) == saved_hash, "Continuation leaves the saved bytes unchanged")
+		else:
+			verify(state.belt_spans.size() == 1 and state.part_kits.P.belt == 0, "The authority owns the constructed belt")
+			verify(Store.write(session.world, save_path).get("accepted", false), "The Store writes the constructed span")
+		if failed: quit(1); return
+		mark(prefix + "server-done")
+	else:
+		var actor := role.trim_prefix("resume-") if resumed else role
+		verify(session.join_loopback(port, actor) == OK, "Join the span authority")
+		if not await until(func(): return session.is_ready(), "Receive the confirmed span projection"): quit(1); return
+		mark(prefix + actor + "-ready")
+		if actor == "P":
+			if not await until(func(): return FileAccess.file_exists(directory.path_join(prefix + "Q-ready")), "Q joins before the span request"): quit(1); return
+			if resumed:
+				var restored: Dictionary = session.projection()
+				verify(restored.belt_spans.size() == 1 and restored.part_kits.P.belt == 0, "P receives the exact saved belt custody")
+				if failed: quit(1); return
+				var id: String = str(restored.belt_spans.keys()[0])
+				if powered_span:
+					var saved_span: Dictionary = restored.belt_spans[id]
+					verify(_span_powered(restored, saved_span), "P receives equal signed shaft rates after restore")
+				var removed := await issue({"action": "remove_belt_span", "entity": id})
+				verify(removed.get("accepted", false), "P removes the restored span through Session: " + str(removed))
+			else:
+				if powered_span:
+					var wheel := await issue({"action": "place", "kind": "wheel", "cell": [-2, 1], "axis": "x", "level": 4})
+					verify(wheel.get("accepted", false), "P constructs the native waterwheel: " + str(wheel))
+					if failed: quit(1); return
+				var first_center := [-4, 4, 4] if powered_span else [0, 0, 0]
+				var last_center := ([-4, 8, 8] if inclined_span else [-4, 4, 12]) if powered_span else [8, 0, 0]
+				var axis := "x" if powered_span else "z"
+				var first := await issue({"action": "place_shaft", "center": first_center, "axis": axis, "half_span": 2})
+				var last := await issue({"action": "place_shaft", "center": last_center, "axis": axis, "half_span": 2})
+				verify(first.get("accepted", false) and last.get("accepted", false), "P constructs both shaft tiles through Session")
+				if failed: quit(1); return
+				var span := await issue({"action": "place_belt_span", "from": last.entity if reverse_endpoints else first.entity,
+					"to": first.entity if reverse_endpoints else last.entity})
+				verify(span.get("accepted", false), "P constructs the belt through Session: " + str(span))
+				if failed: quit(1); return
+				var request: String = span.request
+				verify(session.retry(request).get("queued", false), "The original belt request can be retried")
+				if await until(func(): return replies.has(request), "The belt retry receives its receipt"):
+					verify(replies[request].get("accepted", false) and replies[request].get("duplicate", false), "The belt retry spends no second item")
+					replies.erase(request)
+				if powered_span:
+					var power := await issue({"action": "set_power", "active": true})
+					verify(power.get("accepted", false), "P starts the native wheel: " + str(power))
+			if failed: quit(1); return
+			mark(prefix + "P-done")
+		else:
+			if not await until(func(): return FileAccess.file_exists(directory.path_join(prefix + "P-done")), "P completes the span request"): quit(1); return
+			if not await until(func(): return session.projection().get("belt_spans", {}).size() == (0 if resumed else 1), "Q receives the confirmed belt change"): quit(1); return
+			var view: Dictionary = session.projection()
+			verify(view.transmission_parts.size() == 2 and view.part_kits.P.shaft == 6 and view.part_kits.P.belt == (1 if resumed else 0), "Q sees both shafts and the correct belt custody")
+			if not resumed:
+				var span: Dictionary = view.belt_spans.values()[0]
+				verify(view.transmission_parts.has(span.from) and view.transmission_parts.has(span.to), "Q sees both actual belt endpoint identities")
+				var belt_edge := false
+				for edge in view.engagements:
+					if edge.kind == 2 and ((edge.a == span.from and edge.b == span.to) or (edge.b == span.from and edge.a == span.to)):
+						belt_edge = true
+				verify(belt_edge, "Q observes the native belt transmission engagement")
+				if powered_span:
+					verify(_span_powered(view, span), "Q observes equal nonzero signed rates across the belt")
+			else:
+				verify(not view.engagements.any(func(edge: Dictionary): return edge.kind == 2), "Removing the span removes its belt transmission engagement")
+				if powered_span:
+					var driven := ""
+					var disconnected := ""
+					for id in view.transmission_parts:
+						if view.transmission_parts[id].center == [-4, 4, 4]: driven = str(id)
+						if view.transmission_parts[id].center == ([-4, 8, 8] if inclined_span else [-4, 4, 12]): disconnected = str(id)
+					verify(not driven.is_empty() and not disconnected.is_empty() and view.motion[driven].state == "rotating"
+						and view.motion[disconnected].state == "unpowered", "Q observes the far shaft stop while the source shaft remains driven")
+			if failed: quit(1); return
+			mark(prefix + "clients-done")
+			if not await until(func(): return FileAccess.file_exists(directory.path_join(prefix + "server-done")), "The authority completes the span phase"): quit(1); return
+	print("BELT_SPAN_SESSION_%s %s %d" % ["FAIL" if failed else "PASS", role, checks])
+	quit(1 if failed else 0)
+
+func _span_powered(view: Dictionary, span: Dictionary) -> bool:
+	var first: Dictionary = view.motion.get(span.from, {})
+	var last: Dictionary = view.motion.get(span.to, {})
+	return first.get("state") == "rotating" and last.get("state") == "rotating" and first.get("numerator", 0) != 0 \
+		and first.get("numerator") == last.get("numerator") and first.get("denominator") == last.get("denominator")
+
 func run() -> void:
 	if not directory.is_absolute_path() or not DirAccess.dir_exists_absolute(directory) or not role in ["server", "P", "Q", "server-resume", "resume-P", "resume-Q"]:
 		push_error("Expected an owned directory and a server, P, or Q role")
@@ -196,6 +321,9 @@ func run() -> void:
 	session.outcome.connect(func(value: Dictionary): replies[value.request] = value)
 	if reverse_belt:
 		await run_reverse()
+		return
+	if span_belt:
+		await run_span()
 		return
 	if role in ["server", "server-resume"]:
 		verify(session.serve_loopback(port, true, true, ["P", "Q"], true) == OK, "The native loopback authority must start")
