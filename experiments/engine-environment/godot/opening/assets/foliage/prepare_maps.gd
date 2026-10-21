@@ -1,5 +1,156 @@
 extends SceneTree
 ## Offline asset preparation. No game, authority, scene or desktop starts.
+const PINE_PINS := {
+	"textures/pine_sapling_small_twig_diff_1k.jpg": "54af7d6fb664b5a38bcb118b557bc50e01e86ec54d6f1a573c3e32c649a53362",
+	"textures/pine_sapling_small_bark_nor_gl_1k.jpg": "05c46455531781b6cf18cae0648cf627f60ee942adaa8bcbfd1592fc2506a9e0",
+	"textures/pine_sapling_small_twig_arm_1k.jpg": "2eb0aa44124b5a4ae9401e00b23b3c916f4c3f421616ce1bb932f248fc061288",
+	"textures/pine_sapling_small_bark_arm_1k.jpg": "336a4680cd571b6076b67afee2310b290b8900d9d126eb39ec1ae92e95be2ea9",
+	"textures/pine_sapling_small_bark_diff_1k.jpg": "5c76836b01c3536fa0e24207b67bf4f3315b53ebe2b4ecc6f08dfcf3f8d74929",
+	"textures/pine_sapling_small_twig_nor_gl_1k.jpg": "76af87821d7ff00e25768d5d97a449394fe64a21ae55d099da7f5ed46d9098c8",
+	"pine_sapling_small.bin": "b4d2fc73d53f1d8717eb5ef9a2c66957d2a53152787e543aace88fcd6fca94ef",
+	"pine_sapling_small_1k.gltf": "f358c01926861dd082f32dba60f7c9fba232b585a985cf38c0d2229eecf4bc48"
+}
+
+func pine_image(path: String, role: String) -> Image:
+	var image := Image.load_from_file(path)
+	if image == null or image.get_size() != Vector2i(1024, 1024):
+		fail("Unexpected pine source image: " + path)
+		return null
+	image.convert(Image.FORMAT_RGBF)
+	if role == "albedo":
+		# Resample photographed color in linear light, then encode sRGB bytes.
+		for y in range(1024):
+			for x in range(1024):
+				image.set_pixel(x, y, image.get_pixel(x, y).srgb_to_linear())
+	image.resize(384 if role == "albedo" else 256, 384 if role == "albedo" else 256, Image.INTERPOLATE_LANCZOS)
+	var bytes := PackedByteArray()
+	bytes.resize(image.get_width() * image.get_height() * 3)
+	var maximum_normal_error := 0.0
+	for y in range(image.get_height()):
+		for x in range(image.get_width()):
+			var color := image.get_pixel(x, y)
+			if role == "albedo":
+				color = color.linear_to_srgb()
+			elif role == "normal":
+				var normal := Vector3(color.r, color.g, color.b) * 2.0 - Vector3.ONE
+				if not normal.is_finite() or normal.length_squared() < 0.000001:
+					fail("Invalid pine source normal.")
+					return null
+				normal = normal.normalized()
+				color = Color(normal.x * 0.5 + 0.5, normal.y * 0.5 + 0.5, normal.z * 0.5 + 0.5)
+			var at := (y * image.get_width() + x) * 3
+			bytes[at] = nearest_byte(color.r)
+			bytes[at + 1] = nearest_byte(color.g)
+			bytes[at + 2] = nearest_byte(color.b)
+			if role == "normal":
+				var returned := Vector3(bytes[at], bytes[at + 1], bytes[at + 2]) / 255.0 * 2.0 - Vector3.ONE
+				maximum_normal_error = maxf(maximum_normal_error, absf(returned.length() - 1.0))
+	if maximum_normal_error > 0.01:
+		fail("Prepared pine normals exceed the encoding bound.")
+		return null
+	var prepared := Image.create_from_data(image.get_width(), image.get_height(), false, Image.FORMAT_RGB8, bytes)
+	if prepared.generate_mipmaps(role == "normal") != OK:
+		fail("Cannot generate pine mipmaps.")
+		return null
+	return prepared
+
+func prepare_pine(family: String, output: String) -> void:
+	if not output.is_absolute_path() or output.begins_with(ProjectSettings.globalize_path("res://")) or DirAccess.dir_exists_absolute(output):
+		fail("Use a fresh external pine output directory.")
+		return
+	for file in PINE_PINS:
+		if FileAccess.get_sha256(family.path_join("source").path_join(file)) != PINE_PINS[file]:
+			fail("Refuse an unpinned pine source: " + file)
+			return
+	var source_path := family.path_join("source/pine_sapling_small_1k.gltf")
+	var source_json: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(source_path))
+	if source_json.meshes[0].name != "pine_sapling_small_b":
+		fail("The declared pine mesh changed.")
+		return
+	var document := GLTFDocument.new()
+	var imported := GLTFState.new()
+	imported.handle_binary_image_mode = GLTFState.HANDLE_BINARY_IMAGE_MODE_EMBED_AS_UNCOMPRESSED
+	if document.append_from_file(source_path, imported) != OK:
+		fail("Cannot import the pinned pine catalogue.")
+		return
+	var mesh: ArrayMesh = imported.get_meshes()[0].mesh.get_mesh()
+	if mesh == null or mesh.get_surface_count() != 2 or mesh.get_blend_shape_count() != 0:
+		fail("Expected two static pine surfaces.")
+		return
+	if DirAccess.make_dir_absolute(output) != OK:
+		fail("Cannot create pine output.")
+		return
+	var report := {"status": "pass", "selected_mesh": "pine_sapling_small_b", "scale": 1.0,
+		"catalogue_translation_omitted": [1, 0, 0], "surfaces": []}
+	for surface in range(2):
+		var arrays: Array = mesh.surface_get_arrays(surface)
+		if arrays[Mesh.ARRAY_INDEX].size() != (1458 if surface == 0 else 365247) or (mesh.surface_get_format(surface) & Mesh.ARRAY_FLAG_COMPRESS_ATTRIBUTES) == 0:
+			fail("Pine import changed the complete selected native buffers.")
+			return
+		var finish := mesh.surface_get_material(surface).duplicate(true) as StandardMaterial3D
+		if finish == null:
+			fail("Expected the pinned pine standard material.")
+			return
+		var role := "bark" if surface == 0 else "twig"
+		var images: Dictionary = {}
+		for map_role in ["albedo", "normal", "arm"]:
+			var suffix: String = {"albedo": "diff", "normal": "nor_gl", "arm": "arm"}[map_role]
+			var image := pine_image(family.path_join("source/textures").path_join("pine_sapling_small_" + role + "_" + suffix + "_1k.jpg"), map_role)
+			if image == null:
+				return
+			images[map_role] = image
+			if image.save_png(output.path_join(role + "_" + map_role + ".png")) != OK:
+				fail("Cannot retain prepared pine pixels.")
+				return
+		# Keep importer-compressed vertex buffers. Rebuilding decoded arrays
+		# needlessly expands storage and adds another normal/tangent packing.
+		var packed := ImageTexture.create_from_image(images.arm)
+		finish.albedo_texture = ImageTexture.create_from_image(images.albedo)
+		finish.normal_texture = ImageTexture.create_from_image(images.normal)
+		finish.roughness_texture = packed
+		finish.metallic_texture = packed
+		finish.ao_texture = packed if finish.ao_enabled else null
+		finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		mesh.surface_set_material(surface, finish)
+		report.surfaces.append({"format": mesh.surface_get_format(surface),
+			"vertices": arrays[Mesh.ARRAY_VERTEX].size(), "indices": arrays[Mesh.ARRAY_INDEX].size(),
+			"metallic": finish.metallic, "roughness": finish.roughness,
+			"specular": finish.metallic_specular, "ao": finish.ao_enabled})
+	var path := output.path_join("pine_sapling.res")
+	if ResourceSaver.save(mesh, path, ResourceSaver.FLAG_COMPRESS | ResourceSaver.FLAG_BUNDLE_RESOURCES) != OK:
+		fail("Cannot serialize the pine resource.")
+		return
+	var loaded := ResourceLoader.load(path, "ArrayMesh", ResourceLoader.CACHE_MODE_IGNORE) as ArrayMesh
+	if loaded == null or not ResourceLoader.get_dependencies(path).is_empty():
+		fail("Pine package has an invalid mesh or external dependency.")
+		return
+	for surface in range(2):
+		if mesh.surface_get_arrays(surface) != loaded.surface_get_arrays(surface):
+			fail("Native compressed pine arrays changed during resource roundtrip.")
+			return
+		var a := mesh.surface_get_material(surface) as StandardMaterial3D
+		var b := loaded.surface_get_material(surface) as StandardMaterial3D
+		for field in ["albedo_texture", "normal_texture", "roughness_texture"]:
+			var before: Image = a.get(field).get_image()
+			var after: Image = b.get(field).get_image()
+			if before.get_data() != after.get_data() or before.get_format() != after.get_format() or before.get_size() != after.get_size():
+				fail("Embedded pine pixels changed during resource roundtrip.")
+				return
+	var size := FileAccess.get_file_as_bytes(path).size()
+	report["resource_bytes"] = size
+	report["resource_sha256"] = FileAccess.get_sha256(path)
+	report["exact_native_array_roundtrip"] = true
+	report["exact_prepared_pixel_roundtrip"] = true
+	report["external_dependencies"] = 0
+	if size > 4194304:
+		report.status = "fail"
+		report["finding"] = "The complete native resource exceeds its four-MiB component bound."
+	var result := FileAccess.open(output.path_join("result.json"), FileAccess.WRITE)
+	result.store_string(JSON.stringify(report, "  ") + "\n")
+	result.close()
+	print(JSON.stringify(report))
+	quit(0 if report.status == "pass" else 1)
+
 func fail(message: String) -> void:
 	push_error(message)
 	quit(1)
@@ -96,13 +247,19 @@ func prepare_stone(family: String) -> void:
 func _initialize() -> void:
 	var family := ""
 	var material := "foliage"
+	var pine_output := ""
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--family="):
 			family = argument.trim_prefix("--family=")
 		elif argument.begins_with("--material="):
 			material = argument.trim_prefix("--material=")
+		elif argument.begins_with("--output="):
+			pine_output = argument.trim_prefix("--output=")
 	if not family.is_absolute_path():
 		fail("Use an absolute owned source family.")
+		return
+	if material == "pine":
+		prepare_pine(family, pine_output if not pine_output.is_empty() else family.path_join("prepared-pine"))
 		return
 	if material == "stone":
 		prepare_stone(family)

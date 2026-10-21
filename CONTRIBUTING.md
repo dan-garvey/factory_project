@@ -134,6 +134,8 @@ git config --worktree factory.godotArtifacts /absolute/owned/staged-compiler-evi
 
 The native coordinator prefers that worktree value and uses the common local
 value when absent. An empty value or configuration error refuses without fallback.
+Repositories with worktree configuration absent or disabled use the common
+setting directly; enabling the extension is optional for common-config users.
 Engine executable and hash pins stay shared; the legacy coordinator continues
 using the common setting. Separate destinations prevent one worker's batch
 selection from changing another's. Retain the same per-batch limits and ordinary
@@ -141,7 +143,7 @@ allocation, evidence-retention and admission rules.
 
 Verify the installed release before pinning it, using the [environment trial](docs/engineering/engine-environment.md) provenance. The current compiler contract accepts only the separately verified `4.7.2.stable.official.ed1daf0bf`. Missing executable/configuration, a changed hash, wrong version or parse error refuses the game commit. Non-GDScript commits remain engine-free. Ordinary `check.py --staged` remains a cheap source gate for other changes and explicitly refuses staged GDScript with instructions to use the coordinator; it never starts an engine inside an existing check permit.
 
-The compiler copies the immutable staged prototype project to an owned external session, imports it, then runs `--headless --check-only --script` on **every** staged project `.gd` file. Editor import alone missed the retained mechanics compile failure. Original input hashes, staged tree, binary/runner pins, post-import configuration hash, individual commands/logs and refusal receipts survive outside Git. The parser has a 5 minute/128 MiB allowance, 8 MiB logs and one engine at a time; sources are limited to 16 MiB/512 files/128 scripts for this small prototype, matching native capture and runtime copying. The input allowance accommodates the combined sourced environment, mechanical assets and representative adult character; it does not expand retained outputs or the native launcher's 2 MiB save-input bound. Only `experiments/engine-environment/godot` is supported; another script root or removal of the entire project needs an explicit contract update rather than a silent skip. Compilation is separate from actual rule, input, rendering, network and save/continuation evidence.
+The compiler copies the immutable staged prototype project to an owned external session, imports it, then runs `--headless --check-only --script` on **every** staged project `.gd` file. Editor import alone missed the retained mechanics compile failure. Original input hashes, staged tree, binary/runner pins, post-import configuration hash, individual commands/logs and refusal receipts survive outside Git. The parser has a 5 minute/128 MiB allowance, 8 MiB logs and one engine at a time; sources are limited to 32 MiB/512 files/128 scripts for this small prototype, matching native capture and runtime copying. The input allowance accommodates the combined sourced environment, full-geometry understory, mechanical assets and representative adult character; it does not expand retained outputs or the native launcher's 2 MiB save-input bound. The measured combined presentation exceeded the earlier 16 MiB boundary. Check actual batch headroom before compilation: the same 128 MiB output cap still covers copied inputs, import caches and logs. Only `experiments/engine-environment/godot` is supported; another script root or removal of the entire project needs an explicit contract update rather than a silent skip. Compilation is separate from actual rule, input, rendering, network and save/continuation evidence.
 
 This intentionally simple snapshot gate copies the small tracked tree. It currently rejects staged symlinks and submodules, including the shared `.beads` symlink. Deliberate support for legitimate source symlinks/submodules requires extending the gate and tests first. If assets or build costs make whole-tree snapshots expensive, replace this mechanism with measured, cache-aware validation; do not blindly copy large assets on every commit. No game build, playtest, performance result, remote CI or branch protection is implied by a green tooling check or public remote. Local hooks can be bypassed; do not use a bypass as acceptance evidence.
 
@@ -173,7 +175,15 @@ passing checks remain reusable; no second reviewer, PM sign-off, plan, freeze or
 receipt approval is required.
 
 Start from recent main and claim narrow files/contracts to avoid overlapping
-workstreams. If main advances, merge the missing local/remote main changes into
+workstreams. When main advances before your first commit and its changed paths
+are disjoint from your staged paths, an ordinary
+`git switch -c integration/example main` in your owned checkout can carry those
+edits onto current main. Verify the resulting staged delta and preservation of
+the relevant tested inputs, then commit through the installed hook. This yields
+one authored commit and one independent review request. If Git refuses the
+switch, preserve the candidate and resolve the overlap; do not force it.
+
+For already committed work, merge the missing local/remote main changes into
 your own branch instead of routinely rebasing shared work. Resolve actual
 conflicts there, check affected interactions and commit through the installed hook.
 Do not replay passing cases for unchanged relevant inputs or rewrite another

@@ -605,6 +605,84 @@ class ProductionPaddleArt:
 			_part(blade, "PaddleBolt", meshes.bolt, Vector3(-0.05, -0.041, z), iron)
 		return true
 
+class ProductionWheelSupportArt:
+	extends RefCounted
+	## Original fixed castings. The existing rotor and native journal stay exact.
+	static var fasteners: Dictionary = {}
+
+	static func _scaled(profile: PackedVector2Array, scale_factor: float) -> PackedVector2Array:
+		var result := profile.duplicate()
+		for n in range(result.size()):
+			result[n] *= scale_factor
+		return result
+
+	static func _part(parent: Node3D, role: String, suffix: String, mesh: Mesh, at: Vector3,
+			orientation: Basis, finish: Material) -> MeshInstance3D:
+		var part := MeshInstance3D.new()
+		part.name = role + suffix
+		part.set_meta("wheel_support_role", role)
+		part.mesh = mesh
+		part.position = at
+		part.basis = orientation
+		part.material_override = finish
+		parent.add_child(part)
+		return part
+
+	static func mount(parent: Node3D, axis: Vector3, scale_factor: float) -> void:
+		var cast := ProductionTransmissionFinish.material("cast", Color("465a60"), 0.85, 0.55)
+		var worked := ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.38)
+		# Bake scale into the mesh coordinates so the shared local material's
+		# quarter-metre repeat is not shrunk by a node transform.
+		var housing := PackedVector2Array([Vector2(0.15, -0.09), Vector2(0.17, -0.09),
+			Vector2(0.185, -0.075), Vector2(0.185, -0.055), Vector2(0.17, -0.04),
+			Vector2(0.17, 0.04), Vector2(0.185, 0.055), Vector2(0.185, 0.075),
+			Vector2(0.17, 0.09), Vector2(0.15, 0.09), Vector2(0.15, -0.09)])
+		var liner := PackedVector2Array([Vector2(0.135, -0.10), Vector2(0.156, -0.10),
+			Vector2(0.16, -0.096), Vector2(0.16, -0.091), Vector2(0.1495, -0.085),
+			Vector2(0.1495, 0.085), Vector2(0.16, 0.091), Vector2(0.16, 0.096),
+			Vector2(0.156, 0.10), Vector2(0.135, 0.10), Vector2(0.135, -0.10)])
+		var housing_mesh := ProductionVisuals.turned_mesh(_scaled(housing, scale_factor))
+		var liner_mesh := ProductionVisuals.turned_mesh(_scaled(liner, scale_factor))
+		if not fasteners.has(scale_factor):
+			var bolt := CylinderMesh.new()
+			bolt.top_radius = 0.022 * scale_factor
+			bolt.bottom_radius = bolt.top_radius
+			bolt.height = 0.018 * scale_factor
+			bolt.radial_segments = 6
+			fasteners[scale_factor] = bolt
+		var bearing_frame := Basis(Quaternion(Vector3.UP, axis))
+		if axis == Vector3.UP:
+			var pedestal := PackedVector2Array([Vector2(0, 0.24), Vector2(0.18, 0.24),
+				Vector2(0.195, 0.25), Vector2(0.195, 0.34), Vector2(0.18, 0.36),
+				Vector2(0.145, 0.39), Vector2(0.14, 0.44), Vector2(0.14, 0.46), Vector2(0, 0.46)])
+			_part(parent, "WheelStand", "Vertical", ProductionVisuals.turned_mesh(_scaled(pedestal, scale_factor)),
+				Vector3.ZERO, Basis.IDENTITY, cast)
+			var center := Vector3.UP * 0.53 * scale_factor
+			_part(parent, "AxleBearing", "Vertical", housing_mesh, center, bearing_frame, cast)
+			_part(parent, "BearingLiner", "Vertical", liner_mesh, center, bearing_frame, worked)
+			for x in [-0.12, 0.12]:
+				for z in [-0.12, 0.12]:
+					_part(parent, "WheelFootBolt", ("N" if x < 0 else "P") + ("N" if z < 0 else "P"), fasteners[scale_factor],
+						Vector3(x, 0.378, z) * scale_factor, Basis.IDENTITY, worked)
+		else:
+			var outline := PackedVector2Array([Vector2(-0.19, 0.24), Vector2(0.19, 0.24),
+				Vector2(0.19, 0.32), Vector2(0.16, 0.36), Vector2(0.10, 0.38),
+				Vector2(0.065, 0.58), Vector2(0.065, 0.62), Vector2(-0.065, 0.62),
+				Vector2(-0.065, 0.58), Vector2(-0.10, 0.38), Vector2(-0.16, 0.36), Vector2(-0.19, 0.32)])
+			var stand_mesh := ProductionVisuals.prism_mesh(_scaled(outline, scale_factor),
+				0.18 * scale_factor, 0.008 * scale_factor)
+			var stand_frame := Basis(Vector3.UP, PI / 2) if axis == Vector3.RIGHT else Basis.IDENTITY
+			for side in [-1.0, 1.0]:
+				var suffix := "N" if side < 0 else "P"
+				var offset: Vector3 = axis * side * 0.24 * scale_factor
+				_part(parent, "WheelStand", suffix, stand_mesh, offset, stand_frame, cast)
+				var center: Vector3 = offset + Vector3.UP * 0.78 * scale_factor
+				_part(parent, "AxleBearing", suffix, housing_mesh, center, bearing_frame, cast)
+				_part(parent, "BearingLiner", suffix, liner_mesh, center, bearing_frame, worked)
+				for x in [-0.13, 0.13]:
+					_part(parent, "WheelFootBolt", suffix + ("L" if x < 0 else "R"), fasteners[scale_factor],
+						offset + stand_frame * (Vector3(x, 0.379, 0) * scale_factor), Basis.IDENTITY, worked)
+
 class ProductionSteelFloor:
 	extends RefCounted
 	## Image/material presentation only. No geometry or physical displacement.
@@ -930,6 +1008,10 @@ class ProductionEnvironment:
 	static var fern_source_status := "uninitialized"
 	static var fern_cluster_mesh: ArrayMesh
 	static var fern_finish: StandardMaterial3D
+	const PINE_FILE := "res://opening/assets/pine/pine_sapling.res"
+	const PINE_SHA256 := "42bf54f373fc5ee316cc16e59993ec1d19060b30c859441948cc192703959b8e"
+	static var pine_source_status := "uninitialized"
+	static var pine_cluster_mesh: ArrayMesh
 	static var rock_boulder_mesh: ArrayMesh
 
 	static func _noise_texture(seed_value: int, normal_map: bool) -> NoiseTexture2D:
@@ -1656,6 +1738,108 @@ class ProductionEnvironment:
 		patch.multimesh.instance_count = kept.size() / 16
 		patch.multimesh.buffer = kept
 
+	static func read_pine(path: String = PINE_FILE) -> Dictionary:
+		if not FileAccess.file_exists(path):
+			return {"status": "missing"}
+		var file := FileAccess.open(path, FileAccess.READ)
+		if file == null or file.get_length() > 4194304:
+			return {"status": "invalid", "reason": "Pine resource exceeds its four-MiB component bound."}
+		file.close()
+		if FileAccess.get_sha256(path) != PINE_SHA256:
+			return {"status": "invalid", "reason": "Pine resource does not match its prepared identity."}
+		var mesh := ResourceLoader.load(path, "ArrayMesh") as ArrayMesh
+		if mesh == null or mesh.get_surface_count() != 2 or not ResourceLoader.get_dependencies(path).is_empty():
+			return {"status": "invalid", "reason": "Pine requires one self-contained two-surface mesh."}
+		return {"status": "ready", "mesh": mesh}
+
+	static func _pine_understory() -> MultiMeshInstance3D:
+		var patch := MultiMeshInstance3D.new()
+		patch.name = "PineUnderstory"
+		if pine_source_status == "uninitialized":
+			var loaded := read_pine()
+			pine_source_status = loaded.status
+			if loaded.status == "ready":
+				pine_cluster_mesh = loaded.mesh
+			elif loaded.status == "invalid":
+				push_error("Invalid sourced pine component: " + str(loaded.reason))
+		if pine_cluster_mesh == null:
+			return patch
+		var buffer := PackedFloat32Array()
+		var bounds := AABB()
+		var count := 0
+		# Young, soft-stemmed understory, not solid mature trees. Keep the
+		# working bank open and retain the complete source mesh at each root.
+		for n in range(24):
+			var z := -5.0 + float((n * 7) % 24) * 0.65
+			var x := river_center_x(z) - channel_half_width(z) - 2.2 - float(n % 3) * 0.75
+			if _terrain_facet_normal(x, z).y < 0.86:
+				continue
+			var at := Vector3(x, Surface.height_at(x, z) - 0.015, z)
+			var basis := Basis(Vector3.UP, float(n) * 2.399963).scaled_local(Vector3.ONE * (0.85 + 0.1 * float(n % 5)))
+			var envelope: AABB = Transform3D(basis, at) * pine_cluster_mesh.get_aabb()
+			var clear := envelope.position.z >= -8.0 and envelope.end.z <= 12.0
+			var margin := 0.3 + 0.6 * envelope.size.z / 16.0
+			for row in range(9):
+				var edge_z := lerpf(envelope.position.z, envelope.end.z, float(row) / 8.0)
+				if envelope.end.x >= river_center_x(edge_z) - channel_half_width(edge_z) - margin:
+					clear = false
+			for solid in Surface.support_boxes():
+				var half: Vector3 = solid.size * 0.5
+				var solid_bounds: AABB = Transform3D(solid.basis, solid.center) * AABB(-half, solid.size)
+				if envelope.intersects(solid_bounds.grow(0.2)):
+					clear = false
+			if not clear:
+				continue
+			# Do not stack one expensive source mesh over another.
+			for offset in range(0, buffer.size(), 12):
+				if Vector2(at.x - buffer[offset + 3], at.z - buffer[offset + 11]).length() < 1.2:
+					clear = false
+			if not clear:
+				continue
+			buffer.append_array(PackedFloat32Array([
+				basis.x.x, basis.y.x, basis.z.x, at.x,
+				basis.x.y, basis.y.y, basis.z.y, at.y,
+				basis.x.z, basis.y.z, basis.z.z, at.z]))
+			bounds = envelope if count == 0 else bounds.merge(envelope)
+			count += 1
+			if count == 6:
+				break
+		var instances := MultiMesh.new()
+		instances.transform_format = MultiMesh.TRANSFORM_3D
+		instances.mesh = pine_cluster_mesh
+		instances.instance_count = count
+		instances.buffer = buffer
+		instances.custom_aabb = bounds
+		patch.multimesh = instances
+		patch.visibility_range_end = 32.0
+		patch.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED
+		patch.set_meta("candidate_buffer", buffer)
+		return patch
+
+	static func refresh_pines(scenery: Node3D, entities: Dictionary, pitch: float) -> void:
+		var patch := scenery.get_node_or_null("PineUnderstory") as MultiMeshInstance3D
+		if patch == null or patch.multimesh == null:
+			return
+		var original: PackedFloat32Array = patch.get_meta("candidate_buffer")
+		var kept := PackedFloat32Array()
+		for offset in range(0, original.size(), 12):
+			var basis := Basis(Vector3(original[offset], original[offset + 4], original[offset + 8]),
+				Vector3(original[offset + 1], original[offset + 5], original[offset + 9]),
+				Vector3(original[offset + 2], original[offset + 6], original[offset + 10]))
+			var at := Vector3(original[offset + 3], original[offset + 7], original[offset + 11])
+			var envelope: AABB = Transform3D(basis, at) * patch.multimesh.mesh.get_aabb()
+			var clear := true
+			for entity in entities.values():
+				var center := Vector3(entity.cell[0] * pitch, Geometry.MACHINE_CENTER_HEIGHT, entity.cell[1] * pitch)
+				var size := Vector3(Geometry.MACHINE_SIZE[0], Geometry.MACHINE_SIZE[1], Geometry.MACHINE_SIZE[2])
+				if envelope.intersects(AABB(center - size * 0.5, size).grow(0.08)):
+					clear = false
+					break
+			if clear:
+				kept.append_array(original.slice(offset, offset + 12))
+		patch.multimesh.instance_count = kept.size() / 12
+		patch.multimesh.buffer = kept
+
 	static func _bank_ferns() -> Node3D:
 		var group := Node3D.new()
 		group.name = "BankFerns"
@@ -1824,6 +2008,7 @@ class ProductionEnvironment:
 		scenery.add_child(_meadow_patches())
 		scenery.add_child(_bank_ferns())
 		scenery.add_child(_foreground_bank())
+		scenery.add_child(_pine_understory())
 		return scenery
 
 class FlatFixtureEnvironment:
@@ -3531,8 +3716,10 @@ func _wheel_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	var scale_factor: float = Geometry.ANCHOR_HEIGHT / 0.78 if native_profile else 1.0
 	var axis := _machine_axis(entity) if native_profile else Vector3.BACK
 	var bearing_rotation := _spindle_rotation(axis)
-	if native_profile and axis == Vector3.UP:
-		# A vertical axle rests on a pedestal below the horizontal rotor.
+	if native_profile and ProductionWheelArt.resource_status() == "complete":
+		ProductionWheelSupportArt.mount(anchor, axis, scale_factor)
+	elif native_profile and axis == Vector3.UP:
+		# Fixed historical rosters retain the support fitted to their old rim.
 		_machine_box(anchor, "WheelStand", Vector3(0, 0.27, 0), Vector3(0.24, 0.3, 0.24), frame)
 		_machine_cylinder(anchor, "AxleBearing", Vector3.UP * (Geometry.ANCHOR_HEIGHT - 0.25 * scale_factor),
 			0.145 * scale_factor, 0.18 * scale_factor, Color("a6b4af"), bearing_rotation)
@@ -3601,6 +3788,7 @@ func _rebuild_machines() -> void:
 	var scenery := get_node_or_null("ProductionScenery")
 	if scenery != null and not legacy_fixture and ProductionEnvironment.Surface != null:
 		ProductionEnvironment.refresh_foreground(scenery, state.entities, PITCH)
+		ProductionEnvironment.refresh_pines(scenery, state.entities, PITCH)
 	for child in machine_root.get_children():
 		child.free()
 	wheel_rotor = null

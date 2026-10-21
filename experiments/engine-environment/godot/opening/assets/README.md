@@ -367,6 +367,19 @@ remain limitations to assess. The separate historical flat fixture keeps its opa
 surface. Headless material and frame-consumer checks establish resource behavior,
 not the rendered effect or GPU cost.
 
+The native waterwheel has original flared cast stands and open worked journal
+liners. Their fixed bearing centers are fitted over the unchanged visible hub;
+the horizontal arrangement has two supports, while the vertical axle has one
+turned pedestal. Beveled rings, feet and hex heads share the existing qualified
+[cast/worked surfaces](transmission-surfaces/CREDITS.md). Geometry is baked in
+metres so scaling the fixture does not shrink their material repeat. The annular
+liners clear the actual old journal, and fixed feet remain outside the rotor's
+whole-turn envelope. These are presentation parts of the existing wheel, not
+independent structures, additional shaft reach, collision or force authority.
+Historical captures without the sourced rotor and nonnative wheels keep their
+earlier support assemblies. Geometry
+checks do not establish rendered quality, lubrication or a bearing simulation.
+
 The optional [fern component](ferns/CREDITS.md) adds modest broad-leaf undergrowth
 to the natural river banks. One compact licensed clump retains its original scale,
 uses the existing foliage import/mipmap path and shares a two-sided cutout finish.
@@ -374,3 +387,12 @@ Actual transformed clump envelopes remain outside construction space, the river
 channel and existing solids. Low plants add no collision or authority; historical
 captures without the asset omit this group. Placement and resource checks do not
 establish rendered balance or alpha-overdraw cost.
+
+The optional [young pine component](pine/CREDITS.md) frames the opposite bank
+with at most six near-source-scale saplings. Each shares the complete selected
+bark and three-dimensional needle mesh, embedded prepared maps and a 32-metre
+visibility range. Roots follow emitted terrain; whole-plant envelopes clear
+water, rocks and confirmed machines. Confirmed removal restores the derived
+plants. These small stems add no collision or saved vegetation state. Historical
+captures without the resource omit them; native resource and presentation checks
+do not establish rendered quality, GPU cost or a general tree interaction policy.
