@@ -679,6 +679,7 @@ func _mechanical_collision_geometry() -> void:
 	verify(result.accepted and result.boxes.size() == 4, "Every confirmed mechanical part receives exactly one body.")
 	verify(result.boxes.a.center.is_equal_approx(Vector3(0, 0.5, 0)) and result.boxes.a.size.is_equal_approx(Vector3(0.2, 0.2, 1.65)), "Shaft bounds match Host placement dimensions.")
 	verify(result.boxes.c.center.is_equal_approx(Vector3(0, 2.15, 1.65)) and result.boxes.c.size.is_equal_approx(Vector3(0.08, 1.65, 1.65)), "Cog bounds use the axle plane and shared height origin.")
+	verify(result.boxes.c.axle_size.is_equal_approx(Vector3(1.65, 0.2, 0.2)), "The cog's separate axle reaches exactly its tile faces.")
 	verify(result.boxes.belt.center.is_equal_approx(Vector3(1.65, 0.5, 0)) and result.boxes.belt.size.is_equal_approx(Vector3(4.95, 0.3, 0.6)), "Belt bounds cover every tile including both pulleys.")
 	var reversed: Dictionary = state.duplicate(true)
 	reversed.belt_spans.belt = {"from": "b", "to": "a"}
@@ -723,6 +724,57 @@ func _mechanical_collision_geometry() -> void:
 			"duplicate_identity": bad.belt_spans = {"a": {"from": "a", "to": "b"}}
 		verify(not Geometry.mechanical_boxes(bad).accepted, "Malformed %s topology fails closed." % fault)
 	verify(Geometry.mechanical_boxes({"options": {"native": false}}).boxes.is_empty(), "Legacy fixtures do not invent transmission bodies.")
+
+func _cog_axle_collision() -> void:
+	var axes := [Vector3.RIGHT, Vector3.UP, Vector3.BACK]
+	for axis in range(3):
+		var authority := PhysicalProjection.new()
+		authority.state = {"options": {"native": true, "physical": true}, "actors": {}, "entities": {}, "foundations": {},
+			"transmission_parts": {"cog": {"kind": "gear", "center": [0, 8, 0], "axis": axis, "teeth": 2}}, "belt_spans": {}}
+		var physical := ActorWorld.new()
+		root.add_child(physical)
+		verify(physical.configure(authority).accepted, "A cog projection initializes native collision.")
+		await physics_frame
+		await physics_frame
+		var cog: StaticBody3D = physical.mechanical_bodies.cog
+		verify(physical._geometry_registered() and PhysicsServer3D.body_get_shape_count(cog.get_rid()) == 2, "Disc and axle are registered under one cog body.")
+		var query := PhysicsShapeQueryParameters3D.new()
+		var probe := SphereShape3D.new()
+		probe.radius = 0.04
+		query.shape = probe
+		query.collision_mask = Geometry.MACHINE_LAYER
+		query.transform.origin = cog.position + axes[axis] * 0.6
+		var hits := physical.get_world_3d().direct_space_state.intersect_shape(query)
+		verify(hits.any(func(hit: Dictionary): return hit.rid == cog.get_rid() and hit.shape == 1), "A native query hits the exposed cog axle.")
+		var across := Vector3.RIGHT if axis == 1 else Vector3.UP
+		query.transform.origin += across * 0.5
+		hits = physical.get_world_3d().direct_space_state.intersect_shape(query)
+		verify(not hits.any(func(hit: Dictionary): return hit.rid == cog.get_rid()), "The space beside the axle remains empty.")
+		var actor := PhysicalActor.new()
+		actor.position = cog.position + axes[axis] * (1.55 if axis == 1 else 0.6)
+		root.add_child(actor)
+		await physics_frame
+		await physics_frame
+		physical.bodies["P"] = actor
+		var contacts: Array = physical._initial_overlaps("P")
+		physical.bodies.erase("P")
+		verify(contacts.any(func(hit: Dictionary): return hit.get("rid") == cog.get_rid().get_id() and hit.get("shape") == 1 and hit.get("unsupported_overlap", false)), "Admission measures the actual axle hit and rejects penetration.")
+		actor.queue_free()
+		await process_frame
+		var axle: BoxShape3D = cog.get_child(1).shape
+		var size := axle.size
+		axle.size *= 0.5
+		verify(not physical._geometry_registered(), "Changing the axle shape fails the registration guard.")
+		axle.size = size
+		authority.state.transmission_parts.clear()
+		verify(physical.sync_topology().accepted and not physical.mechanical_bodies.has("cog"), "Removing the cog removes both collision shapes.")
+		authority.state.transmission_parts["cog"] = {"kind": "gear", "center": [0, 8, 0], "axis": axis, "teeth": 2}
+		verify(physical.sync_topology().accepted, "Restoring the cog rebuilds its collision body.")
+		await physics_frame
+		await physics_frame
+		verify(physical._geometry_registered(), "Both restored shapes pass the native registration guard.")
+		physical.queue_free()
+		await process_frame
 
 func _collision_body_lifecycle() -> void:
 	var authority := PhysicalProjection.new()
@@ -988,6 +1040,8 @@ func _run() -> void:
 		_mechanical_collision_geometry()
 	elif "--collision-lifecycle-only" in OS.get_cmdline_user_args():
 		await _collision_body_lifecycle()
+	elif "--cog-axle-collision-only" in OS.get_cmdline_user_args():
+		await _cog_axle_collision()
 	elif "--belt-actor-only" in OS.get_cmdline_user_args():
 		await _belt_actor_transport()
 	elif "--inclined-belt-actor-only" in OS.get_cmdline_user_args():

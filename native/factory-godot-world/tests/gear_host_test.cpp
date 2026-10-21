@@ -967,6 +967,34 @@ void forward_belt_route() {
           "The height transfer and corner cogs drive the belt forward within the finite kit; wheel=" +
           std::to_string(wheel_rate) + ", belt=" + std::to_string(belt_rate) + ".");
 }
+void cog_axle_actor_clearance() {
+    const std::array<std::string, 3> axes{"x", "y", "z"};
+    for (std::size_t axis = 0; axis < axes.size(); ++axis) {
+        for (const bool alias : {false, true}) {
+            Host host;
+            check(accepted(host.initialize("cog-api", {"P", "Q"})), "The cog axle clearance Host starts.");
+            check(accepted(host.publish_actor("P", {V(0.0), V(3.8), V(-2.0)}, 1)), "The builder is within reach and clear.");
+            std::array<double, 3> blocker{0.0, 3.8, 0.0};
+            blocker[axis] += axis == 1 ? 1.55 : 0.7;
+            check(accepted(host.publish_actor("Q", {V(blocker[0]), V(blocker[1]), V(blocker[2])}, 1)), "A second synthetic actor occupies only the axle envelope.");
+            auto request = alias ? machine("gear", 0, "blocked-axle", axes[axis].c_str()) :
+                gear(0, 8, 0, "blocked-axle", axes[axis].c_str());
+            if (alias) {
+                request.at("cell") = V(A{V(I{0}), V(I{0})});
+                request.emplace("level", V(I{8}));
+            }
+            const auto refused = host.command("P", request);
+            check(!accepted(refused) && field<std::string>(refused, "reason") == "actor_occupied",
+                  "Either cog placement form refuses an actor at the exposed axle.");
+            check(accepted(host.publish_actor("Q", {V(8.0), V(3.8), V(8.0)}, 2)), "The second actor moves clear.");
+            request.at("request") = V("clear-axle");
+            check(accepted(host.command("P", request)), "The cog can be placed after the axle is clear.");
+            const auto checkpoint = host.checkpoint();
+            check(accepted(host.validate_checkpoint(checkpoint)), "The placed cog retains a valid checkpoint.");
+        }
+    }
+}
+
 void one_tile_placement() {
     Host host;
     check(accepted(host.initialize("cog-api", {"P"})), "The one-tile host starts.");
@@ -1003,7 +1031,7 @@ int main(int argc, char** argv) {
             return 0;
         }
         if (argc == 1) {
-            finite_oriented_train_and_restore(); adjacent_axle_faces(); refusals_and_legacy_shape();
+            finite_oriented_train_and_restore(); adjacent_axle_faces(); refusals_and_legacy_shape(); cog_axle_actor_clearance();
             global_grid(); finite_large_cog(); perpendicular_belt_line(); belt_spindle_orientation(); typed_loose_host(); belt_span_host_commands(); nonhorizontal_span_host(); complete_span_route_host(); rotated_belt_host(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
         } else if (argc != 2 || std::string(argv[1]) != "--placement-alias-only") {
             throw std::runtime_error("Expected no arguments or --placement-alias-only.");

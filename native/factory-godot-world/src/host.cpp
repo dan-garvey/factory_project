@@ -99,6 +99,12 @@ authority::Point gear_half_extents(mechanics::Axis axis, Integer /* teeth */) {
     return half;
 }
 
+authority::Point gear_axle_half_extents(mechanics::Axis axis) {
+    authority::Point half{0.1, 0.1, 0.1};
+    half[static_cast<std::size_t>(axis)] = pitch / 2;
+    return half;
+}
+
 std::optional<mechanics::Point> gear_center(const Array& input) {
     if (input.size() != 3) return std::nullopt;
     mechanics::Point output;
@@ -801,6 +807,8 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             authority::Point{machine_width / 2, machine_height / 2, machine_width / 2};
         if (intersects_belt(snapshot.state, {at, half})) return refuse("occupied");
         if (placement_blocked(at, half)) return refuse("actor_occupied");
+        if (is_gear && intersects_belt(snapshot.state, {at, gear_axle_half_extents(selected_axis)})) return refuse("occupied");
+        if (is_gear && placement_blocked(at, gear_axle_half_extents(selected_axis))) return refuse("actor_occupied");
         normalized.at("action") = Value(*kind_name == "collector" || *kind_name == "belt" || *kind_name == "processor" ?
                                         "place_connected" : "place");
         normalized.emplace("role", Value(*kind_name == "wheel" ? "waterwheel" : *kind_name));
@@ -839,10 +847,13 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         if (!center) return refuse("invalid_center");
         if (!selected_axis) return refuse("invalid_axis");
         if (!teeth || *teeth < 1 || *teeth > mechanics::maximum_dimension) return refuse("invalid_gear");
+        const auto verified_axis = selected_axis.value_or(mechanics::Axis::x);
         const authority::Point at{(*center)[0] * pitch / 4, anchor_height + (*center)[1] * pitch / 4, (*center)[2] * pitch / 4};
-        const auto half = gear_half_extents(*selected_axis, *teeth);
+        const auto half = gear_half_extents(verified_axis, *teeth);
         if (intersects_belt(snapshot.state, {at, half})) return refuse("occupied");
         if (placement_blocked(at, half)) return refuse("actor_occupied");
+        if (intersects_belt(snapshot.state, {at, gear_axle_half_extents(verified_axis)})) return refuse("occupied");
+        if (placement_blocked(at, gear_axle_half_extents(verified_axis))) return refuse("actor_occupied");
         normalized.at("action") = Value("place");
         normalized.emplace("role", Value("gear"));
         normalized.emplace("center", wire.at("center"));
@@ -873,6 +884,8 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                     {point[0] * height_step, anchor_height + point[1] * height_step, point[2] * height_step},
                     gear_half_extents(placed.geometry.axis, placed.geometry.teeth)} : part_bounds(profile_, placed);
                 if (overlap(belt_bounds, bounds)) return refuse("occupied");
+                if (placed.role == Role::gear && overlap(belt_bounds,
+                    {bounds.center, gear_axle_half_extents(placed.geometry.axis)})) return refuse("occupied");
             }
             if (site_blocked({at[0] - half[0], at[1] - half[1], at[2] - half[2]},
                              {at[0] + half[0], at[1] + half[1], at[2] + half[2]})) return refuse("site_occupied");
@@ -1153,6 +1166,8 @@ Host::Decoded Host::decode(const Value& input) const {
                 {point[0] * height_step, anchor_height + point[1] * height_step, point[2] * height_step},
                 gear_half_extents(placed.geometry.axis, placed.geometry.teeth)} : part_bounds(profile_, placed);
             if (overlap(belt, bounds)) return {nullptr, "occupied"};
+            if (placed.role == Role::gear && overlap(belt,
+                {bounds.center, gear_axle_half_extents(placed.geometry.axis)})) return {nullptr, "occupied"};
         }
         const auto& at = belt.center; const auto& half = belt.half;
         if (site_blocked({at[0] - half[0], at[1] - half[1], at[2] - half[2]},

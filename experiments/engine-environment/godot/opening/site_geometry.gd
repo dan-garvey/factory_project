@@ -97,6 +97,10 @@ static func mechanical_boxes(snapshot: Dictionary) -> Dictionary:
 		else:
 			return {"accepted": false}
 		result[id] = {"center": _mechanical_center(part.center), "size": half * 2.0}
+		if part.kind == "gear":
+			var axle_half := Vector3.ONE * 0.1
+			axle_half[part.axis] = PITCH / 2.0
+			result[id]["axle_size"] = axle_half * 2.0
 	for id: Variant in spans:
 		var span: Variant = spans[id]
 		if typeof(id) != TYPE_STRING or result.has(id) or not span is Dictionary or typeof(span.get("from")) != TYPE_STRING or typeof(span.get("to")) != TYPE_STRING:

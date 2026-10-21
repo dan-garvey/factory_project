@@ -143,6 +143,12 @@ func sync_topology() -> Dictionary:
 		shape.size = boxes[id].size
 		collider.shape = shape
 		body.add_child(collider)
+		if boxes[id].has("axle_size"):
+			var axle_collider := CollisionShape3D.new()
+			var axle_shape := BoxShape3D.new()
+			axle_shape.size = boxes[id].axle_size
+			axle_collider.shape = axle_shape
+			body.add_child(axle_collider)
 		mechanical_bodies[id] = body
 		mechanical_specs[id] = boxes[id].duplicate(true)
 		add_child(body)
@@ -302,16 +308,20 @@ func _geometry_registered() -> bool:
 		var rid: RID = body.get_rid()
 		var spec: Dictionary = mechanical_specs[id]
 		var pose: Transform3D = PhysicsServer3D.body_get_state(rid, PhysicsServer3D.BODY_STATE_TRANSFORM)
-		if PhysicsServer3D.body_get_space(rid) != space or PhysicsServer3D.body_get_shape_count(rid) != 1 or PhysicsServer3D.body_get_collision_layer(rid) != Geometry.MACHINE_LAYER:
+		var expected_sizes: Array = [spec.size]
+		if spec.has("axle_size"):
+			expected_sizes.append(spec.axle_size)
+		if PhysicsServer3D.body_get_space(rid) != space or PhysicsServer3D.body_get_shape_count(rid) != expected_sizes.size() or PhysicsServer3D.body_get_collision_layer(rid) != Geometry.MACHINE_LAYER:
 			return false
 		var expected_basis: Basis = spec.get("basis", Basis.IDENTITY)
 		if not pose.basis.is_equal_approx(expected_basis) or not body.basis.is_equal_approx(expected_basis) or pose.origin.distance_to(spec.center) > Geometry.NATIVE_POSE_EPSILON or body.position.distance_to(spec.center) > Geometry.NATIVE_POSE_EPSILON:
 			return false
-		if PhysicsServer3D.body_get_shape_transform(rid, 0) != Transform3D.IDENTITY:
-			return false
-		var data: Variant = PhysicsServer3D.shape_get_data(PhysicsServer3D.body_get_shape(rid, 0))
-		if not data is Vector3 or data.distance_to(spec.size / 2.0) > Geometry.NATIVE_POSE_EPSILON:
-			return false
+		for index in expected_sizes.size():
+			if PhysicsServer3D.body_get_shape_transform(rid, index) != Transform3D.IDENTITY:
+				return false
+			var data: Variant = PhysicsServer3D.shape_get_data(PhysicsServer3D.body_get_shape(rid, index))
+			if not data is Vector3 or data.distance_to(expected_sizes[index] / 2.0) > Geometry.NATIVE_POSE_EPSILON:
+				return false
 	for id in foundations:
 		var body: StaticBody3D = foundations[id]
 		var rid: RID = body.get_rid()
@@ -423,7 +433,7 @@ func _initial_overlaps(actor: String) -> Array:
 	var result: Array = []
 	var terrain_hit := false
 	for hit in hits:
-		var measured := _penetration(actor, hit.rid)
+		var measured := _penetration(actor, hit.rid, hit.shape)
 		terrain_hit = terrain_hit or hit.rid == floor_body.get_rid()
 		measured.merge({"rid": hit.rid.get_id(), "collider_id": hit.collider_id, "shape": hit.shape, "native_query_hit": true})
 		result.append(measured)
@@ -440,7 +450,7 @@ func _initial_overlaps(actor: String) -> Array:
 				result.append(below)
 	return result
 
-func _penetration(actor: String, other: RID) -> Dictionary:
+func _penetration(actor: String, other: RID, shape_index: int = 0) -> Dictionary:
 	# Keep every native query hit. This is an analytical overlap measure for
 	# the actual upright capsule and registered solids, not native contact depth.
 	# The existing motor safe margin bounds numerical contact acceptance;
@@ -449,7 +459,9 @@ func _penetration(actor: String, other: RID) -> Dictionary:
 	var at: Transform3D = PhysicsServer3D.body_get_state(body.get_rid(), PhysicsServer3D.BODY_STATE_TRANSFORM)
 	var capsule: Dictionary = PhysicsServer3D.shape_get_data(PhysicsServer3D.body_get_shape(body.get_rid(), 0))
 	var target: Transform3D = PhysicsServer3D.body_get_state(other, PhysicsServer3D.BODY_STATE_TRANSFORM)
-	var shape = PhysicsServer3D.shape_get_data(PhysicsServer3D.body_get_shape(other, 0))
+	if shape_index < 0 or shape_index >= PhysicsServer3D.body_get_shape_count(other):
+		return {"unsupported_overlap": true, "kind": "unexpected_shape"}
+	var shape = PhysicsServer3D.shape_get_data(PhysicsServer3D.body_get_shape(other, shape_index))
 	if other == floor_body.get_rid() and site_surface != null:
 		var measured: Dictionary = site_surface.capsule_overlap(at.origin, float(capsule.radius), float(capsule.height))
 		measured.merge({"unsupported_overlap": measured.analytical_overlap_measure > Geometry.SAFE_MARGIN,
