@@ -141,7 +141,13 @@ remain exact. The complete upper assembly follows the existing `ToolHead`
 motion anchor; it creates no extra stroke or processing clock.
 
 Two fixed cast ribs close the former fourteen-centimetre gap between the skid
-deck and the anvil bottom, clear of all three original drive-journal axes. They
+deck and the anvil bottom, clear of all three original drive-journal axes. Narrow
+sections sit inward of the outlet tray, and the saddle's lower outlet flange is
+relieved above the actual output plate with its existing bolts reseated on that
+flange. This corrects intersections missed by the earlier held-work-only check;
+the complete anvil bounds and working face, plate pose and receiving datum stay
+unchanged. The composed outlet check includes the complete redrawn plate and
+rejects both former intersecting support profiles. The ribs
 are passive parts of the complete press, without structural inventory, collision
 or force rules. Historical profiles retain their prior tooling. The isolated
 consumer checks raw facets, support planes, the actual redrawn held billet and
@@ -149,6 +155,17 @@ its raised boss, cache reuse and changed-part controls. The existing eight-
 millimetre held-work clearance remains; this is presentation, not a new native
 contact or stamping-force model. Rendered quality and human preference remain
 unverified.
+
+The native output tray is a thin formed pan with folded sides and returned lips,
+open at both ends. Its original centre, horizontal footprint and receiving datum
+stay fixed. The existing plate sheet keeps its five-millimetre allowance above
+that datum; the folds stay outside its complete declared footprint. Two fixed
+brackets meet both the actual skid surface and pan underside, with small foot
+fasteners and separate coated and worked finishes. Pan and bracket meshes are
+cached and use existing qualified maps. They add no motion, inventory, collision
+or authority, and historical nonnative profiles retain their original tray.
+Headless checks cover raw facets, support planes, actual output clearance and
+all drive axes. Rendered quality and human preference remain unverified.
 
 The same existing view script builds an open collector stock bed, a supported
 conveyor with a closed [rubber loop](conveyor/CREDITS.md), and waterwheel with an open rim, spokes,

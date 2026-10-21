@@ -7,6 +7,7 @@ const WheelArt = Opening.ProductionWheelArt
 const PaddleArt = Opening.ProductionPaddleArt
 const PressArt = Opening.ProductionPressArt
 const DieArt = Opening.ProductionPressDieArt
+const TrayArt = Opening.ProductionPressTrayArt
 const ConveyorArt = Opening.ProductionConveyorArt
 const CollectorArt = Opening.ProductionCollectorArt
 const SkidArt = Opening.ProductionSkidArt
@@ -2693,7 +2694,7 @@ func check_press_die() -> void:
 						and part.mesh.surface_get_name(2) == "MountingHardware" and part.get_child_count() == 0 and part.get_script() == null,
 						"Each rigid tool keeps three material surfaces in one passive cached mesh, without extra controllers or detail-node motion.")
 					if not cache.has(role):
-						var volumes: Array = [[0.030, 0.036], [0.013, 0.014], [0.0003, 0.0006]] if is_head else [[0.040, 0.043], [0.010, 0.011], [0.0003, 0.0006]]
+						var volumes: Array = [[0.030, 0.036], [0.013, 0.014], [0.0003, 0.0006]] if is_head else [[0.039, 0.0401], [0.010, 0.011], [0.0003, 0.0006]]
 						for surface in range(3):
 							var isolated := SurfaceTool.new()
 							isolated.create_from(part.mesh, surface)
@@ -2709,7 +2710,7 @@ func check_press_die() -> void:
 						and rib.material_override == CollectorArt.coating(Color("394a44")) and die_supports(machine, rib),
 						"Fixed cast ribs meet the actual skid top and anvil bottom across the original visible support gap.")
 					if not cache.has("rib"):
-						check_closed_asset_mesh(rib.mesh, 0.008, 0.009)
+						check_closed_asset_mesh(rib.mesh, 0.0044, 0.0049)
 						cache.rib = rib.mesh
 					var gap := die_box_gap(rib.transform * rib.mesh.get_aabb(), drive.transform * drive.mesh.get_aabb())
 					minimum_drive_gap = minf(minimum_drive_gap, gap)
@@ -2811,7 +2812,248 @@ func check_press_die() -> void:
 		"minimum_added_support_drive_gap_metres": minimum_drive_gap,
 		"observations": "invented read-only", "native_gameplay": "not_run", "rendered_quality": "not_assessed"}))
 
+func tray_triangle_gap(a: Vector3, b: Vector3, c: Vector3, box: AABB) -> float:
+	# Separating-axis test over raw facets and a conservative complete-item box.
+	# Diagonal cap triangles must not fill the saddle's actual outlet relief.
+	var edges: Array[Vector3] = [b - a, c - b, a - c]
+	var axes: Array[Vector3] = [Vector3.RIGHT, Vector3.UP, Vector3.BACK, edges[0].cross(edges[1])]
+	for edge in edges:
+		for basis_axis in [Vector3.RIGHT, Vector3.UP, Vector3.BACK]:
+			axes.append(edge.cross(basis_axis))
+	var centre := box.get_center()
+	var half := box.size / 2.0
+	var separating_gap := -INF
+	for axis in axes:
+		if axis.length_squared() < 0.000000000000000001:
+			continue
+		var unit := axis.normalized()
+		var lo := minf(unit.dot(a), minf(unit.dot(b), unit.dot(c)))
+		var hi := maxf(unit.dot(a), maxf(unit.dot(b), unit.dot(c)))
+		var mid := unit.dot(centre)
+		var radius := unit.abs().dot(half)
+		separating_gap = maxf(separating_gap, maxf(mid - radius - hi, lo - mid - radius))
+	return separating_gap
+
+func tray_mesh_gap(part: MeshInstance3D, box: AABB, only_surface: int = -1) -> float:
+	var result := INF
+	for surface in range(part.mesh.get_surface_count()):
+		if only_surface >= 0 and surface != only_surface:
+			continue
+		var faces := die_faces(part.mesh, surface)
+		for n in range(0, faces.size(), 3):
+			result = minf(result, tray_triangle_gap(part.transform * faces[n], part.transform * faces[n + 1], part.transform * faces[n + 2], box))
+	return result
+
+func tray_bracket_seated(machine: Node3D, bracket: MeshInstance3D) -> bool:
+	var deck: MeshInstance3D = machine.get_node("Plinth")
+	var tray: MeshInstance3D = machine.get_node("OutputTray")
+	for z in [-0.10, 0.0, 0.10]:
+		var probe := Vector2(bracket.position.x, bracket.position.z + z)
+		var bottom := die_height(bracket.mesh, 0, bracket.transform, probe, false)
+		var top := die_height(bracket.mesh, 0, bracket.transform, probe, true)
+		var deck_top := die_height(deck.mesh, 0, deck.transform, probe, true)
+		var tray_bottom := die_height(tray.mesh, 0, tray.transform, probe, false)
+		if not (is_finite(bottom) and is_finite(top) and is_finite(deck_top) and is_finite(tray_bottom)) \
+			or absf(bottom - deck_top) > 0.000001 or absf(top - tray_bottom) > 0.000001:
+			return false
+	return true
+
+func check_press_output_tray() -> void:
+	var cache: Dictionary = {}
+	var assemblies := 0
+	var controls := 0
+	var minimum_plate_gap := INF
+	var minimum_drive_gap := INF
+	var minimum_saddle_gap := INF
+	var minimum_source_gap := INF
+	for shared_profile in [false, true]:
+		for axis in range(3):
+			for cell in [[0, 0], [2, -1]]:
+				var view: Variant = Shared.new() if shared_profile else Opening.new()
+				view.client = "P"
+				if shared_profile:
+					view.session = PaddleSessionFacts.new()
+				view.machine_root = Node3D.new()
+				view.item_root = Node3D.new()
+				view.add_child(view.machine_root)
+				view.add_child(view.item_root)
+				view.state = {"context": "press-output-tray-fixture", "options": {"native": true, "physical": true},
+					"actors": {"P": {"ready": true}}, "parts": {}, "inventories": {"P": 0},
+					"stock": {"source": 15, "collector": 0, "belt": 0, "input": 0, "held": 0, "output": 1}, "remaining": 0,
+					"entities": {"fixture": {"kind": "processor", "cell": cell, "axis": axis, "generation": 1}},
+					"transmission_parts": {}, "motion": {}, "links": [], "drive_links": [], "engagements": []}
+				var before: Dictionary = view.state.duplicate(true)
+				view._rebuild_machines()
+				view._redraw_items()
+				var machine: Node3D = view.machine_root.get_child(0)
+				var tray: MeshInstance3D = machine.get_node("OutputTray")
+				var drive: MeshInstance3D = machine.get_node("DriveStub")
+				var anvil: MeshInstance3D = machine.get_node("Anvil")
+				var parts: Array[MeshInstance3D] = [tray, machine.get_node("TrayBracketLeft"), machine.get_node("TrayBracketRight"),
+					anvil, machine.get_node("AnvilPedestalLeft"), machine.get_node("AnvilPedestalRight")]
+				var plate: Node3D = null
+				var plate_count := 0
+				for item in view.item_root.get_children():
+					if item.get_meta("item_kind", "") == "stamped_plate":
+						plate = item
+						plate_count += 1
+				verify(plate_count == 1 and plate != null and machine.basis == Basis.IDENTITY,
+					"The ordinary observed-output path draws one complete plate at the translated processor, without rotating its reference frame.")
+				if plate == null:
+					view.free()
+					continue
+				var plate_pose := machine.transform.affine_inverse() * plate.transform
+				var plate_box := machine.transform.affine_inverse() * feed_item_bounds(plate, Transform3D.IDENTITY)
+				verify(plate_pose.origin.is_equal_approx(Vector3(0.46, 0.39, 0.15)) and plate_pose.basis == Basis.IDENTITY
+					and absf(plate_box.position.y - 0.36) < 0.000001,
+					"The complete original plate keeps its observed pose and actual sheet bottom, including its existing five-millimetre receiving allowance.")
+				verify(tray.mesh == TrayArt.tray_mesh() and tray.position == Vector3(0.46, 0.33, 0.15)
+					and tray.mesh.get_aabb().size.is_equal_approx(Vector3(0.48, 0.023, 0.58)),
+					"The formed pan keeps the original root and horizontal footprint, with a thin floor and raised returned sides.")
+				var receiving_plane := die_height(tray.mesh, 0, tray.transform, Vector2(0.46, 0.15), true)
+				verify(absf(receiving_plane - 0.355) < 0.000001 and absf((plate_box.position.y - receiving_plane) - 0.005) < 0.000001,
+					"The actual broad floor retains the original receiving plane and sheet clearance instead of moving the output item.")
+				verify(tray.material_override == Opening.ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.5),
+					"The formed sheet reuses the qualified worked finish without a new texture or authority input.")
+				if cache.is_empty():
+					check_closed_asset_mesh(tray.mesh, 0.00235, 0.00245)
+					for surface in range(2):
+						var isolated := SurfaceTool.new()
+						isolated.create_from(parts[1].mesh, surface)
+						check_closed_asset_mesh(isolated.commit(), 0.0010 if surface == 0 else 0.0000015,
+							0.0012 if surface == 0 else 0.0000021)
+					check_closed_asset_mesh(parts[4].mesh, 0.0044, 0.0049)
+					var saddle_surface := SurfaceTool.new()
+					saddle_surface.create_from(anvil.mesh, 0)
+					check_closed_asset_mesh(saddle_surface.commit(), 0.039, 0.0401)
+					cache = {"tray": tray.mesh, "bracket": parts[1].mesh, "rib": parts[4].mesh, "anvil": anvil.mesh}
+				verify(tray.mesh == cache.tray and parts[1].mesh == cache.bracket and parts[2].mesh == cache.bracket
+					and parts[4].mesh == cache.rib and anvil.mesh == cache.anvil,
+					"Both view classes, every axis and translated placements share the complete cached rigid meshes.")
+				verify(anvil.position == Vector3(0, 0.46, 0.05) and anvil.mesh.get_aabb().size.is_equal_approx(Vector3(0.7, 0.16, 0.63))
+					and absf(die_height(anvil.mesh, 1, anvil.transform, Vector2.ZERO, true) - 0.54) < 0.000001,
+					"The relieved saddle preserves the complete original envelope, centre and working plane around its existing machine drive interface.")
+				var rows: Array = machine.get_meta("motion_meshes")
+				verify(rows.size() == 2 and str(rows[0].node.name) == "ToolHead" and str(rows[1].node.name) == "Piston",
+					"The original head and piston remain the only moving press parts.")
+				var fixed: Array[Transform3D] = []
+				for part in parts:
+					fixed.append(part.transform)
+					verify(part.get_script() == null and part.get_child_count() == 0, "Outlet and supporting parts are passive rigid meshes without controllers or colliders.")
+					var gap := tray_mesh_gap(part, plate_box)
+					minimum_plate_gap = minf(minimum_plate_gap, gap)
+					verify(gap > 0.000001, "Every actual raw outlet, anvil and support facet clears the conservative complete output-plate box.")
+					# The original journal enters the complete anvil body. Do not
+					# confuse that retained interface with the new free-standing
+					# supports. The reseated anvil fasteners must clear it too.
+					var drive_gap := tray_mesh_gap(part, drive.transform * drive.mesh.get_aabb(), 2 if part == anvil else -1)
+					minimum_drive_gap = minf(minimum_drive_gap, drive_gap)
+					verify(drive_gap > 0.02, "The new pan, brackets, narrowed pedestals and reseated anvil fasteners clear every original drive axis.")
+					check_bounds(part, Transform3D.IDENTITY)
+				for bracket in [parts[1], parts[2]]:
+					verify(bracket.mesh.get_surface_count() == 2 and bracket.material_override == null
+						and bracket.get_surface_override_material(0) == CollectorArt.coating(Color("394a44"))
+						and bracket.get_surface_override_material(1) == Opening.ProductionTransmissionFinish.material("worked", Color("b8c3bb"), 0.85, 0.38)
+						and tray_bracket_seated(machine, bracket),
+						"Fixed coated brackets and worked foot fasteners meet the actual skid and pan underside at three independent support probes.")
+				for rib in [parts[4], parts[5]]:
+					verify(die_supports(machine, rib), "The narrowed anvil pedestals still meet the actual deck and complete anvil underside.")
+				for part in [tray, parts[1], parts[2]]:
+					var gap := tray_mesh_gap(anvil, part.transform * part.mesh.get_aabb())
+					minimum_saddle_gap = minf(minimum_saddle_gap, gap)
+					verify(gap > 0.000001, "The pan and its brackets also clear the actual relieved anvil facets.")
+				var protected_rows: Array[Dictionary] = []
+				for part in parts:
+					protected_rows.append({"name": str(part.name), "bounds": part.transform * part.mesh.get_aabb()})
+				for source_name in ["CastPressSupportLeft", "CastPressSupportRight"]:
+					var source: MeshInstance3D = machine.get_node(source_name)
+					for row in protected_rows:
+						var gap := tray_mesh_gap(source, row.bounds)
+						minimum_source_gap = minf(minimum_source_gap, gap)
+						verify(gap > 0.000001, "The sourced support's actual facets remain clear of the composed outlet and anvil pieces.")
+				var picks := 0
+				for child in machine.get_children():
+					if child is StaticBody3D:
+						picks += 1
+						verify(child.collision_layer == Geometry.PICK_LAYER and child.collision_mask == 0
+							and child.get_meta("entity") == "fixture" and child.get_child_count() == 1
+							and child.get_child(0).shape.size == Vector3(1.45, 1.65, 1.45)
+							and child.get_child(0).position == Vector3(0, 0.8, 0),
+							"The sole original pick retains its exact entity, dimensions, centre and masks.")
+				verify(picks == 1 and view.state == before, "The ordinary builders preserve every observed state field and create no extra authority or pick body.")
+				for travel in [0.0, 0.0075, 0.015]:
+					view._apply_press_pose(rows, travel)
+					var unchanged := true
+					for index in range(parts.size()):
+						unchanged = unchanged and parts[index].transform == fixed[index]
+					verify(unchanged, "The complete outlet and all supports stay fixed at both original head endpoints and the intermediate pose.")
+				if controls == 0:
+					tray.position.x += 0.03
+					verify(tray_mesh_gap(tray, plate_box) <= 0, "A fold displaced into the actual plate fails the same raw-facet clearance oracle.")
+					tray.transform = fixed[0]
+					parts[1].position.y += 0.01
+					verify(not tray_bracket_seated(machine, parts[1]), "A bracket floating above the skid fails the same support-plane checks.")
+					parts[1].transform = fixed[1]
+					var old_rib := PackedVector2Array([Vector2(-0.09, -0.07), Vector2(0.09, -0.07), Vector2(0.09, -0.045),
+						Vector2(0.045, -0.045), Vector2(0.04, 0.045), Vector2(0.075, 0.045), Vector2(0.075, 0.07),
+						Vector2(-0.075, 0.07), Vector2(-0.075, 0.045), Vector2(-0.04, 0.045), Vector2(-0.045, -0.045), Vector2(-0.09, -0.045)])
+					parts[5].mesh = Visuals.prism_mesh(old_rib, 0.53, 0.003)
+					parts[5].position.x = 0.22
+					var old_rib_gap := tray_mesh_gap(parts[5], plate_box)
+					verify(old_rib_gap <= 0, "The exact former wide rib and centre fail the same positive-clearance predicate; contact is not clearance.")
+					parts[5].mesh = cache.rib
+					parts[5].transform = fixed[5]
+					var old_saddle := PackedVector2Array([Vector2(-0.35, -0.08), Vector2(0.35, -0.08), Vector2(0.35, -0.045),
+						Vector2(0.27, -0.045), Vector2(0.24, -0.015), Vector2(0.24, 0.04), Vector2(-0.24, 0.04),
+						Vector2(-0.24, -0.015), Vector2(-0.27, -0.045), Vector2(-0.35, -0.045)])
+					anvil.mesh = Visuals.prism_mesh(old_saddle, 0.63, 0.004)
+					var old_saddle_gap := tray_mesh_gap(anvil, plate_box)
+					verify(old_saddle_gap <= 0, "The former saddle also fails the complete-output clearance check, without changing the plate.")
+					anvil.mesh = cache.anvil
+					print(JSON.stringify({"former_rib_control_gap_metres": old_rib_gap, "former_saddle_control_gap_metres": old_saddle_gap,
+						"control_rule": "A separating gap must be positive; zero contact and negative overlap both fail."}))
+					controls = 4
+				view.state.entities.fixture.generation = 2
+				view._rebuild_machines()
+				var rebuilt: Node3D = view.machine_root.get_child(0)
+				verify(rebuilt.get_node("OutputTray").mesh == cache.tray and rebuilt.get_node("TrayBracketLeft").mesh == cache.bracket
+					and rebuilt.get_node("AnvilPedestalRight").mesh == cache.rib,
+					"Replacement generations reuse cached geometry rather than carrying old nodes or adding structural inventory.")
+				view.state.entities.clear()
+				view.state.stock.source = 16
+				view.state.stock.output = 0
+				before = view.state.duplicate(true)
+				view._rebuild_machines()
+				view._redraw_items()
+				var remaining_plates := 0
+				for item in view.item_root.get_children():
+					if item.get_meta("item_kind", "") == "stamped_plate":
+						remaining_plates += 1
+				verify(view.machine_root.get_child_count() == 0 and remaining_plates == 0 and view.state == before,
+					"Observed removal clears the complete outlet, brackets and output display without altering the replacement state.")
+				assemblies += 1
+				view.free()
+	var historical := Opening.new()
+	historical.legacy_fixture = true
+	var old_root := Node3D.new()
+	historical._press_visual(old_root)
+	verify(old_root.get_node("OutputTray").mesh == Visuals.box_mesh(Vector3(0.48, 0.05, 0.58))
+		and old_root.get_node_or_null("TrayBracketLeft") == null,
+		"The historical nonnative fixture retains its previous tray and roster.")
+	old_root.free()
+	historical.free()
+	print(JSON.stringify({"assemblies": assemblies, "axes": 3, "unique_meshes": cache.size(), "negative_controls": controls,
+		"minimum_complete_plate_facet_gap_metres": minimum_plate_gap, "minimum_drive_facet_gap_metres": minimum_drive_gap,
+		"minimum_tray_saddle_facet_gap_metres": minimum_saddle_gap, "minimum_source_facet_gap_metres": minimum_source_gap,
+		"drive_clearance_scope": "Pan, brackets, pedestals and anvil fasteners. The original journal enters the retained anvil body.",
+		"receiving_plane_metres": 0.355, "existing_plate_sheet_gap_metres": 0.005,
+		"observations": "invented read-only", "native_gameplay": "not_run", "rendered_quality": "not_assessed"}))
+
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--press-output-tray-only"):
+		check_press_output_tray()
+		finish()
+		return
 	if OS.get_cmdline_user_args().has("--press-die-only"):
 		check_press_die()
 		finish()

@@ -1306,8 +1306,8 @@ class ProductionPressDieArt:
 			return meshes.anvil
 		var mesh := ArrayMesh.new()
 		var saddle := PackedVector2Array([
-			Vector2(-0.35, -0.08), Vector2(0.35, -0.08), Vector2(0.35, -0.045),
-			Vector2(0.27, -0.045), Vector2(0.24, -0.015), Vector2(0.24, 0.04),
+			Vector2(-0.35, -0.08), Vector2(0.21, -0.08), Vector2(0.21, -0.02),
+			Vector2(0.35, -0.02), Vector2(0.35, 0.005), Vector2(0.27, 0.005), Vector2(0.24, 0.04),
 			Vector2(-0.24, 0.04), Vector2(-0.24, -0.015), Vector2(-0.27, -0.045), Vector2(-0.35, -0.045)])
 		_surface(mesh, "AnvilSaddle", [[ProductionVisuals.prism_mesh(saddle, 0.63, 0.004), Transform3D.IDENTITY]])
 		_surface(mesh, "WorkingFace", [[ProductionVisuals.box_mesh(Vector3(0.52, 0.04, 0.51)),
@@ -1315,7 +1315,8 @@ class ProductionPressDieArt:
 		var poses: Array[Transform3D] = []
 		for x in [-0.305, 0.305]:
 			for z in [-0.255, 0.255]:
-				poses.append(Transform3D(Basis.IDENTITY, Vector3(x, -0.045, z)))
+				# The outlet-side foot is relieved above the existing output plate.
+				poses.append(Transform3D(Basis.IDENTITY, Vector3(x, 0.005 if x > 0 else -0.045, z)))
 		_hardware(mesh, poses)
 		meshes.anvil = mesh
 		return mesh
@@ -1323,11 +1324,11 @@ class ProductionPressDieArt:
 	static func pedestal_mesh() -> ArrayMesh:
 		if not meshes.has("pedestal"):
 			var rib := PackedVector2Array([
-				Vector2(-0.09, -0.07), Vector2(0.09, -0.07), Vector2(0.09, -0.045),
-				Vector2(0.045, -0.045), Vector2(0.04, 0.045), Vector2(0.075, 0.045),
-				Vector2(0.075, 0.07), Vector2(-0.075, 0.07), Vector2(-0.075, 0.045),
-				Vector2(-0.04, 0.045), Vector2(-0.045, -0.045), Vector2(-0.09, -0.045)])
-			meshes.pedestal = ProductionVisuals.prism_mesh(rib, 0.53, 0.003)
+				Vector2(-0.05, -0.07), Vector2(0.05, -0.07), Vector2(0.05, -0.045),
+				Vector2(0.025, -0.045), Vector2(0.022, 0.045), Vector2(0.045, 0.045),
+				Vector2(0.045, 0.07), Vector2(-0.045, 0.07), Vector2(-0.045, 0.045),
+				Vector2(-0.022, 0.045), Vector2(-0.025, -0.045), Vector2(-0.05, -0.045)])
+			meshes.pedestal = ProductionVisuals.prism_mesh(rib, 0.53, 0.002)
 		return meshes.pedestal
 
 	static func mount(parent: Node3D, anvil: MeshInstance3D, head: MeshInstance3D) -> void:
@@ -1348,11 +1349,68 @@ class ProductionPressDieArt:
 		for side in [-1.0, 1.0]:
 			var rib := MeshInstance3D.new()
 			rib.name = "AnvilPedestalLeft" if side < 0 else "AnvilPedestalRight"
-			rib.position = Vector3(side * 0.22, 0.31, 0.05)
+			# Keep the outlet side open without entering the vertical drive journal.
+			rib.position = Vector3(side * 0.16, 0.31, 0.05)
 			rib.mesh = pedestal_mesh()
 			rib.material_override = saddle
 			rib.set_meta("press_die_role", "AnvilPedestal")
 			parent.add_child(rib)
+
+class ProductionPressTrayArt:
+	extends RefCounted
+	## Fixed sheet and brackets. The receiving datum and output item never move.
+	static var meshes: Dictionary = {}
+
+	static func tray_mesh() -> ArrayMesh:
+		if not meshes.has("tray"):
+			# An eight-millimetre floor with folded sides and short returned lips.
+			# The open ends leave the existing output accessible; all folds stay
+			# outside the full declared plate footprint, not just its centre.
+			var section := PackedVector2Array([
+				Vector2(-0.24, 0.017), Vector2(0.24, 0.017), Vector2(0.24, 0.040),
+				Vector2(0.228, 0.040), Vector2(0.228, 0.032), Vector2(0.232, 0.032),
+				Vector2(0.232, 0.025), Vector2(-0.232, 0.025), Vector2(-0.232, 0.032),
+				Vector2(-0.228, 0.032), Vector2(-0.228, 0.040), Vector2(-0.24, 0.040)])
+			meshes.tray = ProductionVisuals.prism_mesh(section, 0.58, 0.0006)
+		return meshes.tray
+
+	static func bracket_mesh() -> ArrayMesh:
+		if meshes.has("bracket"):
+			return meshes.bracket
+		var section := PackedVector2Array([
+			Vector2(-0.030, -0.0535), Vector2(0.030, -0.0535), Vector2(0.030, -0.0435),
+			Vector2(0.012, -0.0435), Vector2(0.012, 0.0375), Vector2(0.028, 0.0375),
+			Vector2(0.028, 0.0535), Vector2(-0.028, 0.0535), Vector2(-0.028, 0.0375),
+			Vector2(-0.012, 0.0375), Vector2(-0.012, -0.0435), Vector2(-0.030, -0.0435)])
+		var mesh := ArrayMesh.new()
+		ProductionPressDieArt._surface(mesh, "Bracket", [[ProductionVisuals.prism_mesh(section, 0.32, 0.0008), Transform3D.IDENTITY]])
+		var fasteners: Array = []
+		for x in [-0.021, 0.021]:
+			for z in [-0.12, 0.12]:
+				fasteners.append([ProductionVisuals.fastener_head_mesh(),
+					Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * 0.18), Vector3(x, -0.04134, z))])
+		ProductionPressDieArt._surface(mesh, "FootFasteners", fasteners)
+		meshes.bracket = mesh
+		return mesh
+
+	static func mount(parent: Node3D, tray: MeshInstance3D) -> void:
+		var sheet := ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.5)
+		var bracket_finish := ProductionCollectorArt.coating(Color("394a44"))
+		var hardware := ProductionTransmissionFinish.material("worked", Color("b8c3bb"), 0.85, 0.38)
+		if sheet == null or bracket_finish == null or hardware == null:
+			return
+		tray.mesh = tray_mesh()
+		tray.material_override = sheet
+		tray.set_meta("press_tray_role", "FormedPan")
+		for index in range(2):
+			var bracket := MeshInstance3D.new()
+			bracket.name = "TrayBracketLeft" if index == 0 else "TrayBracketRight"
+			bracket.position = Vector3(0.40 if index == 0 else 0.62, 0.2935, 0.15)
+			bracket.mesh = bracket_mesh()
+			bracket.set_surface_override_material(0, bracket_finish)
+			bracket.set_surface_override_material(1, hardware)
+			bracket.set_meta("press_tray_role", "FixedBracket")
+			parent.add_child(bracket)
 
 class ProductionEnvironment:
 	extends RefCounted
@@ -4124,7 +4182,9 @@ func _press_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	_machine_cylinder(anchor, "Piston", Vector3(0, 1.14, -0.08), 0.075, 0.45, steel)
 	for x in [-0.34, 0.34]:
 		_machine_cylinder(anchor, "ToolGuide", Vector3(x, 1.06, -0.19), 0.04, 0.6, Color("b87945"))
-	_machine_box(anchor, "OutputTray", Vector3(0.46, 0.33, 0.15), Vector3(0.48, 0.05, 0.58), Color("aaa993"), 0.85, 0.5)
+	var tray := _machine_box(anchor, "OutputTray", Vector3(0.46, 0.33, 0.15), Vector3(0.48, 0.05, 0.58), Color("aaa993"), 0.85, 0.5)
+	if _native_transmission():
+		ProductionPressTrayArt.mount(anchor, tray)
 	_machine_drive_stub(anchor, entity)
 	for x in [-0.48, 0.48]:
 		_machine_cylinder(anchor, "BridgeBolt", Vector3(x, 1.5, -0.1075), 0.035, 0.025,
