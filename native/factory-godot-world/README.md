@@ -226,6 +226,7 @@ existing World planner, finite kit and two-endpoint reach checks.
 | Command | Additional fields | Meaning |
 | --- | --- | --- |
 | `place_gear` | `center: [int, int, int]`, `axis: "x"`, `"y"` or `"z"`, `teeth: int` | Place one carried gear at an exact grid center. |
+| `place_shaft` | `center: [int, int, int]`, `axis: "x"`, `"y"` or `"z"`, `half_span: 2` or `4` | Place one carried shaft segment at an exact grid center. Segments transmit when their geometry engages; no endpoints are required to place one. |
 | `place` | Existing `kind` and `cell`, optional `axis` string | Orient a machine while retaining the existing cell wire. Belts use the Z spindle perpendicular to their X material path; other omitted axes default to X. |
 | `connect_drive` | Existing `from` and `to` identifiers | Consume a carried shaft that actually spans the two endpoints. |
 | `disconnect_drive` | Existing `from` and `to` identifiers | Return the matching shaft through the same World removal planner. |

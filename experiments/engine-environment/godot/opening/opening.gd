@@ -2878,7 +2878,7 @@ class ConstructionAudio:
 					return "belt_snap"
 				if action.get("kind") in ["collector", "processor", "wheel"]:
 					return "assembly"
-			"place_gear", "connect_drive", "connect":
+			"place_gear", "place_shaft", "connect_drive", "connect":
 				return "coupling"
 			"remove", "disconnect_drive", "disconnect":
 				return "release"
@@ -3615,7 +3615,7 @@ func issue(action: Dictionary) -> Dictionary:
 	if not legacy_fixture and actor_world != null:
 		actor_world.sync_topology()
 	if outcome.accepted:
-		if action.action == "place_gear":
+		if action.action in ["place_gear", "place_shaft"]:
 			selected = str(outcome.get("entity", ""))
 		elif action.action == "remove" and selected == action.get("entity", ""):
 			selected = ""
@@ -5101,7 +5101,7 @@ func _update_cursor() -> void:
 	_refresh_machine_captions()
 	if _native_transmission() and transmission_controls != null and not transmission_controls.active_tool.is_empty():
 		hover.visible = false
-		if transmission_controls.active_tool == "gear" and not explanation_open and _can_control_character():
+		if transmission_controls.active_tool in ["gear", "place_shaft"] and not explanation_open and _can_control_character():
 			var center := _transmission_center(get_viewport().get_mouse_position())
 			if center.size() == 3 and absi(center[0]) <= Geometry.GRID_COORDINATE_LIMIT and absi(center[2]) <= Geometry.GRID_COORDINATE_LIMIT:
 				hover.visible = true

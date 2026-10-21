@@ -43,6 +43,13 @@ O gear(I x, I y, I z, const char* id, const char* axis = "y", I teeth = 2) {
     return command;
 }
 
+O shaft(I x, I y, I z, const char* id, const char* axis = "z", I span = 2) {
+    auto command = wire("place_shaft", id);
+    command.emplace("center", V(A{V(x), V(y), V(z)}));
+    command.emplace("axis", V(axis)); command.emplace("half_span", V(span));
+    return command;
+}
+
 O target(const char* action, const std::string& entity, const char* id) {
     auto command = wire(action, id); command.emplace("entity", V(entity)); return command;
 }
@@ -441,13 +448,54 @@ void global_grid() {
     check(accepted(placed), "Cogwheels are no longer clipped to the old construction rectangle or height range.");
     check(accepted(host.validate_checkpoint(host.checkpoint())), "Global gear coordinates retain typed save and history validity.");
 }
+
+void individual_shafts() {
+    Host host;
+    check(accepted(host.initialize("cog-api", {"P"})) &&
+              accepted(host.configure_terrain(factory::godot_world::tests::channel_site())),
+          "The shaft fixture binds a synthetic flowing channel.");
+    observe(host, -1.65, 3.3, 1);
+    create(host, machine("wheel", -1, "shaft-wheel", "z"));
+    observe(host, 0, 0, 2);
+    const auto first_wire = shaft(-4, 0, 6, "first-segment");
+    const auto first = create(host, first_wire);
+    observe(host, 0, 2.5, 3);
+    const auto second = create(host, shaft(-4, 0, 10, "second-segment"));
+    auto power = wire("set_power", "shaft-start"); power.emplace("active", V(true));
+    check(accepted(host.command("P", power)) && field<I>(motion(host, second), "numerator") == 1,
+          "Two individually placed, touching shaft segments carry the wheel rotation.");
+    check(field<I>(V(field<O>(host.projection(), "parts")), "shaft") == 6,
+          "Both segment placements consume their own finite parts.");
+    check(accepted(host.command("P", target("remove", first, "remove-first-segment"))) &&
+              field<I>(motion(host, second), "numerator") == 0 &&
+              field<I>(V(field<O>(host.projection(), "parts")), "shaft") == 7,
+          "Removing the first segment disconnects the second and refunds one part.");
+    const auto long_wire = shaft(-4, 0, 4, "long-segment", "z", 4);
+    const auto long_segment = create(host, long_wire);
+    check(field<I>(motion(host, long_segment), "numerator") == 1 &&
+              field<I>(motion(host, second), "numerator") == 1,
+          "A long segment reconnects the source to the remaining short segment.");
+    check(field<std::string>(host.command("P", shaft(0, 1, 6, "actor-overlap-shaft", "x", 4)), "reason") == "actor_occupied",
+          "A shaft cannot be placed through the observed actor.");
+    check(field<std::string>(host.command("P", shaft(0, 0, 0, "bad-axis", "bad")), "reason") == "invalid_axis" &&
+              field<std::string>(host.command("P", shaft(0, 0, 0, "bad-span", "x", 3)), "reason") == "invalid_shaft",
+          "Invalid axis and unsupported shaft length are rejected.");
+    const auto saved = host.checkpoint();
+    check(accepted(host.validate_checkpoint(saved)), "Individual shaft histories validate in the typed checkpoint.");
+    Host fresh;
+    check(accepted(fresh.initialize("fresh", {"P"})) &&
+              accepted(fresh.configure_terrain(factory::godot_world::tests::channel_site())) &&
+              accepted(fresh.restore_checkpoint(saved)) && !factory::values::typed_difference(saved, fresh.checkpoint()),
+          "A fresh Host restores individual segment geometry, custody and request history exactly.");
+    check(field<bool>(fresh.command("P", first_wire), "duplicate"), "A removed shaft request remains an exact historical replay.");
+}
 }  // namespace
 
 int main(int argc, char** argv) {
     try {
         if (argc == 1) {
             finite_oriented_train_and_restore(); adjacent_axle_faces(); refusals_and_legacy_shape();
-            global_grid(); finite_large_cog(); perpendicular_belt_line(); belt_spindle_orientation(); cross_axis_belt_line();
+            global_grid(); finite_large_cog(); perpendicular_belt_line(); belt_spindle_orientation(); cross_axis_belt_line(); individual_shafts();
         } else if (argc != 2 || std::string(argv[1]) != "--placement-alias-only") {
             throw std::runtime_error("Expected no arguments or --placement-alias-only.");
         }

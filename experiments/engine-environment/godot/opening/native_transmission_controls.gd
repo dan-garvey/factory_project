@@ -5,12 +5,14 @@ const Geometry = preload("res://opening/site_geometry.gd")
 var selected_axis := "x"
 var gear_height := 0
 var gear_teeth := 2
+var shaft_half_span := 2
 var active_tool := ""
 var _host: WeakRef
 var _first: Dictionary = {}
 var _axes: PopupMenu
 var _heights: PopupMenu
 var _sizes: PopupMenu
+var _lengths: PopupMenu
 
 func _init() -> void:
 	text = "Cogwheels and shafts…"
@@ -19,6 +21,7 @@ func _init() -> void:
 	menu.add_radio_check_item("Connect shaft", 2)
 	menu.add_radio_check_item("Disconnect shaft link", 3)
 	menu.add_radio_check_item("Remove cogwheel or shaft", 4)
+	menu.add_radio_check_item("Place shaft segment", 6)
 	menu.add_item("Leave transmission tools", 5)
 	menu.add_separator()
 	_axes = PopupMenu.new()
@@ -42,6 +45,13 @@ func _init() -> void:
 	_sizes.add_radio_check_item("Large cogwheel", 1)
 	_sizes.id_pressed.connect(_size_selected)
 	menu.add_submenu_item("Cog size: Small", "CogSize", 102)
+	_lengths = PopupMenu.new()
+	_lengths.name = "ShaftLength"
+	menu.add_child(_lengths)
+	_lengths.add_radio_check_item("Short shaft", 0)
+	_lengths.add_radio_check_item("Long shaft", 1)
+	_lengths.id_pressed.connect(_length_selected)
+	menu.add_submenu_item("Shaft length: Short", "ShaftLength", 103)
 	menu.id_pressed.connect(_tool_selected)
 	menu.about_to_popup.connect(refresh)
 	visible = false
@@ -56,19 +66,20 @@ func cancel() -> void:
 	refresh()
 
 func choose_tool(tool: String) -> void:
-	if tool not in ["", "gear", "shaft", "disconnect", "remove"]:
+	if tool not in ["", "gear", "shaft", "disconnect", "remove", "place_shaft"]:
 		return
 	active_tool = tool
 	_first.clear()
 	refresh()
 
 func _tool_selected(id: int) -> void:
-	choose_tool({1: "gear", 2: "shaft", 3: "disconnect", 4: "remove"}.get(id, ""))
+	choose_tool({1: "gear", 2: "shaft", 3: "disconnect", 4: "remove", 6: "place_shaft"}.get(id, ""))
 	var context := _context()
 	if context.is_empty() or not context.usable:
 		return
 	_feedback({
 		"gear": "Place a cogwheel at the highlighted point. Set axis and height in this menu.",
+		"place_shaft": "Place a shaft segment at the highlighted point. Set its axis, height and length in this menu.",
 		"shaft": "Choose a machine or cogwheel, then its partner. The amber ring marks the first endpoint.",
 		"disconnect": "Choose the two endpoints of the shaft link to disconnect.",
 		"remove": "Choose a cogwheel or shaft to remove."
@@ -87,6 +98,11 @@ func _height_selected(id: int) -> void:
 func _size_selected(id: int) -> void:
 	if id in [0, 1]:
 		gear_teeth = [2, 4][id]
+		refresh()
+
+func _length_selected(id: int) -> void:
+	if id in [0, 1]:
+		shaft_half_span = [2, 4][id]
 		refresh()
 
 func _context() -> Dictionary:
@@ -146,20 +162,29 @@ func refresh() -> void:
 	menu.set_item_text(1, "Connect shaft · %d carried" % shafts)
 	menu.set_item_disabled(0, gears == 0)
 	menu.set_item_disabled(1, shafts == 0)
+	var shaft_index := menu.get_item_index(6)
+	var selected_shafts := _count(context, "shaft", 0, shaft_half_span)
+	menu.set_item_text(shaft_index, "Place shaft segment · %d carried" % selected_shafts)
+	menu.set_item_disabled(shaft_index, selected_shafts == 0)
+	menu.set_item_checked(shaft_index, active_tool == "place_shaft")
 	for index in range(4):
 		menu.set_item_checked(index, active_tool == ["gear", "shaft", "disconnect", "remove"][index])
 	menu.set_item_text(menu.get_item_index(100), "Axis: " + selected_axis.to_upper())
-	menu.set_item_text(menu.get_item_index(101), "Gear height: %d quarter steps" % gear_height)
+	menu.set_item_text(menu.get_item_index(101), "Placement height: %d quarter steps" % gear_height)
 	menu.set_item_text(menu.get_item_index(102), "Cog size: " + ("Small" if gear_teeth == 2 else "Large"))
+	menu.set_item_text(menu.get_item_index(103), "Shaft length: " + ("Short" if shaft_half_span == 2 else "Long"))
 	for index in range(2):
 		var teeth: int = [2, 4][index]
 		_sizes.set_item_checked(index, gear_teeth == teeth)
 		_sizes.set_item_text(index, ("Small" if teeth == 2 else "Large") + " cogwheel · %d carried" % _count(context, "gear", teeth, 0))
+		var span: int = [2, 4][index]
+		_lengths.set_item_checked(index, shaft_half_span == span)
+		_lengths.set_item_text(index, ("Short" if span == 2 else "Long") + " shaft · %d carried" % _count(context, "shaft", 0, span))
 	for index in range(3):
 		_axes.set_item_checked(index, selected_axis == ["x", "y", "z"][index])
 	_heights.set_item_disabled(0, gear_height <= -Geometry.GRID_COORDINATE_LIMIT)
 	_heights.set_item_disabled(1, gear_height >= Geometry.GRID_COORDINATE_LIMIT)
-	text = {"gear": "Place cogwheel", "shaft": "Connect shaft", "disconnect": "Disconnect shaft", "remove": "Remove transmission"}.get(active_tool, "Cogwheels and shafts…")
+	text = {"gear": "Place cogwheel", "place_shaft": "Place shaft segment", "shaft": "Connect shaft", "disconnect": "Disconnect shaft", "remove": "Remove transmission"}.get(active_tool, "Cogwheels and shafts…")
 	tooltip_text = "Axis %s · gear height %d quarter steps. %d cogwheels and %d shafts carried." % [selected_axis.to_upper(), gear_height, gears, shafts]
 	if not context.usable:
 		_first.clear()
@@ -215,16 +240,18 @@ func handle_world_click(center: Array, entity_id: String) -> bool:
 		_first.clear()
 		_feedback("Wait for a ready native worksite before using transmission tools.")
 		return true
-	if active_tool == "gear":
+	if active_tool in ["gear", "place_shaft"]:
 		var valid := center.size() == 3 and selected_axis in ["x", "y", "z"]
 		for coordinate: Variant in center:
 			valid = valid and typeof(coordinate) == TYPE_INT and coordinate >= -Geometry.GRID_COORDINATE_LIMIT and coordinate <= Geometry.GRID_COORDINATE_LIMIT
 		if valid:
 			valid = center[1] == gear_height
-		if not valid or _count(context, "gear", gear_teeth, 0) == 0:
-			_feedback("Choose an available cogwheel at an integer grid point on the selected height.")
+		var available := _count(context, "gear", gear_teeth, 0) if active_tool == "gear" else _count(context, "shaft", 0, shaft_half_span)
+		if not valid or available == 0:
+			_feedback("Choose an available part at an integer grid point on the selected height.")
 			return true
-		_submit(context, {"action": "place_gear", "center": center.duplicate(), "axis": selected_axis, "teeth": gear_teeth})
+		var wire := {"action": "place_gear", "center": center.duplicate(), "axis": selected_axis, "teeth": gear_teeth} if active_tool == "gear" else {"action": "place_shaft", "center": center.duplicate(), "axis": selected_axis, "half_span": shaft_half_span}
+		_submit(context, wire)
 		return true
 	var part := _part(context, entity_id)
 	if part.is_empty():
