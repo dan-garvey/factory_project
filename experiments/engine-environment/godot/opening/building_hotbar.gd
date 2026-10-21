@@ -29,7 +29,6 @@ func configure(host, ui: Control) -> void:
 	var row := HBoxContainer.new()
 	add_child(row)
 	catalog_button = host._button(row, "Build [B]", open_catalog)
-	catalog_button.tooltip_text = "Browse carried parts and assign a hotbar slot."
 	for index in range(slots.size()):
 		var button: Button = host._button(row, "", select_slot.bind(index))
 		button.toggle_mode = true
@@ -54,7 +53,7 @@ func configure(host, ui: Control) -> void:
 	column.add_theme_constant_override("separation", 10)
 	margin.add_child(column)
 	parts_label = host._label(column, "BUILDING CATALOG", 18)
-	host._label(column, "Select a slot, then assign a carried part.", 14)
+	host._label(column, "Choose a slot, then a part. Right-click a slot to replace it.", 14)
 	destination = OptionButton.new()
 	column.add_child(destination)
 	for index in range(slots.size()):
@@ -124,15 +123,13 @@ func refresh(snapshot_ready: bool = true) -> void:
 		var amount := _count(tool, parts)
 		var offered: bool = not (tool == "foundation" and not host.state.get("options", {}).get("foundations", false)) \
 			and not (tool == "gear" and not host._native_transmission())
-		buttons[index].text = "%d %s\n×%d" % [index + 1, SHORT_NAMES.get(tool, label), amount] if not tool.is_empty() else "%d\n+" % (index + 1)
+		buttons[index].text = "%d %s\n×%d" % [index + 1, SHORT_NAMES.get(tool, label), amount] if not tool.is_empty() else "%d\nAssign" % (index + 1)
 		buttons[index].icon = catalog_buttons[tool].icon if not tool.is_empty() else null
 		# Expanded icons do not contribute width to Button's minimum size.
 		# Reserve their actual space even when the assigned name is long.
 		buttons[index].custom_minimum_size.x = maxf(86.0, buttons[index].get_minimum_size().x + 28.0)
 		buttons[index].disabled = host.explanation_open or (not tool.is_empty() and (not usable or amount < 1 or not offered))
 		buttons[index].button_pressed = selected_slot == index and active == tool
-		buttons[index].tooltip_text = "%s · %d %s\n%d selects. Right-click to replace this slot." % [label, amount, scope, index + 1] \
-			if not tool.is_empty() else "%d opens the catalog for this slot." % (index + 1)
 		destination.set_item_text(index, "%d · %s" % [index + 1, label])
 	for tool: String in catalog_buttons:
 		var button: Button = catalog_buttons[tool]
@@ -141,7 +138,6 @@ func refresh(snapshot_ready: bool = true) -> void:
 		button.disabled = not usable or amount < 1
 		button.visible = not (tool == "foundation" and not host.state.get("options", {}).get("foundations", false)) \
 			and not (tool == "gear" and not host._native_transmission())
-		button.tooltip_text = "Assign %s to the selected slot." % TOOLS[tool] if amount > 0 else "No %s carried." % TOOLS[tool]
 
 func open_catalog(index: int = -1) -> void:
 	var host = _view()
