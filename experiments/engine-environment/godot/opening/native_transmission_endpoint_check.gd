@@ -146,6 +146,26 @@ func check_raised_pointer() -> void:
 	view.transmission_controls._height_selected(2)
 	verify(view.transmission_controls.auto_height and view._transmission_center(floor_screen) == [0, 4, 0],
 		"The height menu restores surface following.")
+	view.state.foundations["half-floor"] = {"cell": [-1, 0], "level": 2}
+	pick_body(view, "half-floor", Vector3(-Geometry.PITCH, Geometry.PITCH / 2.0, 0),
+		Vector3.ONE * Geometry.PITCH, Vector3.DOWN * Geometry.PITCH / 2.0)
+	await physics_frame
+	view.camera.position = Vector3(-Geometry.PITCH, 6, 5)
+	view.camera.look_at(Vector3(-Geometry.PITCH, Geometry.PITCH / 2.0, 0))
+	var half_screen := view.camera.unproject_position(Vector3(-Geometry.PITCH, Geometry.PITCH / 2.0, 0))
+	var half_target: Array = view._transmission_center(half_screen)
+	verify(half_target == [-4, 4, 0], "An intermediate foundation selects the next global tile above its surface.")
+	view._transmission_click(half_target, "")
+	verify(view.requests.size() == 2 and view.requests[1] ==
+		{"action": "place_shaft", "center": [-4, 4, 0], "axis": "x", "half_span": 2},
+		"The click submits the same aligned tile displayed above the intermediate foundation.")
+	view.state.foundations["half-floor"].level = -2
+	verify(view._transmission_snap_target("half-floor", Vector3.UP, Vector3.ZERO) == [-4, 0, 0],
+		"A negative intermediate foundation rounds upward to the global zero tile.")
+	view.transmission_controls._height_selected(1)
+	verify(view._transmission_snap_target("half-floor", Vector3.UP, Vector3.ZERO) == [-4, 4, 0],
+		"An explicit height still overrides intermediate surface following.")
+	view.transmission_controls._height_selected(2)
 	view.camera.position = Vector3(5, 3, 0)
 	view.camera.look_at(Vector3(Geometry.PITCH, Geometry.PITCH + 0.8, 0))
 	var machine_screen := view.camera.unproject_position(Vector3(Geometry.PITCH, Geometry.PITCH + 0.8, 0))
@@ -153,7 +173,7 @@ func check_raised_pointer() -> void:
 	verify(machine_target == [8, 4, 0], "The machine face points to its adjacent common-grid axle tile.")
 	view.transmission_controls.choose_tool("gear")
 	view._transmission_click(machine_target, "")
-	verify(view.requests.size() == 2 and view.requests[1] ==
+	verify(view.requests.size() == 3 and view.requests[2] ==
 		{"action": "place_gear", "center": [8, 4, 0], "axis": "x", "teeth": 2},
 		"The cogwheel click uses the adjacent machine target.")
 	view.transmission_controls.selected_axis = "y"
