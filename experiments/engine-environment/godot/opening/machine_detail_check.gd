@@ -65,7 +65,8 @@ func paddle_fastener_facts(mesh: Mesh, pose: Transform3D, strap_pose: Transform3
 		if absf(point.y - 0.005) < 0.000001:
 			cap_points += 1
 			var on_strap: Vector3 = inverse_strap * (pose * point)
-			largest_gap = maxf(largest_gap, absf(on_strap.y + 0.003))
+			# Strap-local coordinates must be converted before reporting a metre gap.
+			largest_gap = maxf(largest_gap, absf(on_strap.y + 0.003) * strap_pose.basis.y.length())
 			if absf(on_strap.y + 0.003) < 0.00001 and absf(on_strap.x) < 0.03428 \
 				and absf(on_strap.z) < 0.01178:
 				seated_points += 1
