@@ -18,9 +18,11 @@ inline values::Value::Object channel_site() {
         heights.emplace_back(-1.65); heights.emplace_back(-1.65);
         heights.emplace_back(-0.02); heights.emplace_back(-0.02);
     }
-    return {{"axis", V(V::Array{V(-128.0), V(-0.8), V(-0.725), V(128.0)})},
+    return {{"axis", V(V::Array{V(-128.0), V(-1.1), V(-1.0), V(128.0)})},
             {"heights", V(heights)}, {"obstacles", V(V::Array{})},
-            {"water", V(V::Array{V(V::Array{V(I{-4}), V(I{0}), V(I{-20}), V(I{-400}), V(I{200}), V(I{-200})}),
+            {"water", V(V::Array{V(V::Array{V(I{-8}), V(I{0}), V(I{-20}), V(I{-400}), V(I{200}), V(I{-200})}),
+                                 V(V::Array{V(I{-8}), V(I{4}), V(I{-20}), V(I{-400}), V(I{200}), V(I{-200})}),
+                                 V(V::Array{V(I{-4}), V(I{0}), V(I{-20}), V(I{-400}), V(I{200}), V(I{-200})}),
                                  V(V::Array{V(I{-4}), V(I{4}), V(I{-20}), V(I{-400}), V(I{200}), V(I{-200})})})}};
 }
 }

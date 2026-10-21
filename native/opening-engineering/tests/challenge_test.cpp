@@ -75,7 +75,7 @@ void conserved(const Host& host) {
     for (const auto* name : {"entities", "transmission_parts"})
         for (const auto& [id, part] : field<O>(projection, name)) { (void)id; ++parts.at(field<std::string>(part, "kind")); }
     parts.at("foundation") += static_cast<I>(field<O>(projection, "foundations").size());
-    check(parts == std::map<std::string, I>{{"collector", 1}, {"belt", 1}, {"processor", 1}, {"wheel", 1}, {"shaft", 8}, {"gear", 7}, {"foundation", 24}},
+    check(parts == std::map<std::string, I>{{"collector", 1}, {"belt", 1}, {"processor", 1}, {"wheel", 1}, {"shaft", 8}, {"gear", 10}, {"foundation", 24}},
           "The actual opening kit is conserved without new parts or a different scenario profile.");
 }
 
@@ -120,7 +120,9 @@ struct Run {
         return result;
     }
     std::string place(const char* kind, I x, I row) {
-        return field<std::string>(action("place", {{"kind", V(kind)}, {"cell", V(A{V(x), V(row)})}, {"axis", V(std::string(kind) == "wheel" ? "x" : "z")}}), "entity");
+        O args{{"kind", V(kind)}, {"cell", V(A{V(x), V(row)})}, {"axis", V(std::string(kind) == "wheel" ? "x" : "z")}};
+        if (std::string(kind) == "wheel") args.emplace("level", V(I{4}));
+        return field<std::string>(action("place", std::move(args)), "entity");
     }
     std::string gear(I x, I z, const char* axis = "x", I teeth = 2) {
         return field<std::string>(action("place_gear", {{"center", V(A{V(x), V(I{0}), V(z)})}, {"axis", V(axis)}, {"teeth", V(teeth)}}), "entity");
@@ -149,19 +151,21 @@ void build_route(Run& run, I wheel_row, I machine_row, const std::array<std::str
     const I small_row = wheel_row == machine_row ? wheel_row - 2 : machine_row - 1;
     const double small_z = static_cast<double>(small_row) * 1.65;
     run.observe_at(-3.3, wheel_z);
-    const auto input = run.gear(-12, wheel_row * 4, "x", 4);
+    (void)run.action("place_gear", {{"center", V(A{V(I{-12}), V(I{4}), V(wheel_row * 4)})}, {"axis", V("x")}, {"teeth", V(I{2})}});
+    (void)run.gear(-12, wheel_row * 4, "x", 2);
+    (void)run.gear(-16, wheel_row * 4, "x", 4);
     run.observe_at(-3.3, wheel_z);
-    const auto output = run.gear(-8, wheel_row * 4 - 4, "z", 4);
-    std::array<std::string, 5> small;
+    const auto output = run.gear(-12, wheel_row * 4 - 4, "z", 4);
+    std::array<std::string, 6> small;
     for (std::size_t n = 0; n < small.size(); ++n) {
-        const I x = static_cast<I>(n) * 4 - 8;
+        const I x = static_cast<I>(n) * 4 - 12;
         run.observe_at(static_cast<double>(x) * 1.65 / 4.0, small_z + 1.65);
         small[n] = run.gear(x, small_row * 4, "z", 2);
     }
     (void)output; // The adjacent cog axle faces already touch.
     for (std::size_t n = 0; n < machines.size(); ++n) {
         run.observe_at(static_cast<double>(n) * 1.65, (small_z + static_cast<double>(machine_row) * 1.65) / 2.0);
-        if (small_row != machine_row - 1) run.connect("connect_drive", machines[n], small[n + 2]);
+        if (small_row != machine_row - 1) run.connect("connect_drive", machines[n], small[n + 3]);
     }
 }
 
@@ -196,13 +200,17 @@ V baseline() {
     run.collect_until(4);
     // One extra powered step retains a partly processed original lot. Reuse
     // this checkpoint for the different alternatives; do not replay this prefix.
-    run.tick();
+    for (int turn = 0; turn < 12; ++turn) {
+        const auto projection = run.host.projection();
+        if (field<I>(V(field<O>(projection, "stock")), "held") > 0 && field<I>(projection, "remaining") == 1) break;
+        run.tick();
+    }
     const auto saved = run.host.checkpoint();
     const auto processing = field<O>(material(saved), "processing");
     check(std::get<I>(processing.at("remaining_ticks").storage()) == 1,
           "The shared comparison cut has a real partial workpiece, not a fresh empty line.");
     check(e::inspect(run.host, "P").phase == e::Phase::move_source &&
-          e::inspect(run.host, "P").placed_gears == 7 && e::inspect(run.host, "P").placed_shafts == 3,
+          e::inspect(run.host, "P").placed_gears == 10 && e::inspect(run.host, "P").placed_shafts == 3,
           "The first four products do not bypass the upstream constraint.");
     check(same(saved, run.host.checkpoint()), "Repeated eligibility reads neither step the world nor record progress.");
     check(accepted(run.host.validate_checkpoint(saved)), "The original partial-work checkpoint is valid for both comparisons.");
@@ -278,8 +286,8 @@ void relocate(const V& baseline) {
     for (const auto& [id, quantity] : {std::pair{collector, collector_raw}, std::pair{belt, belt_raw}, std::pair{press, press_raw}})
         (void)run.action("insert_raw", {{"entity", V(id)}, {"amount", V(quantity)}});
     check(same(material(baseline), material(run.host.checkpoint())), "Moving the line restores the exact original material cut, without resetting work or stock.");
-    check(e::inspect(run.host, "P").placed_gears == 7 && amount(run.host, "parts", "gear") == 0,
-          "The relocation alternative rebuilds the finite seven-cog route.");
+    check(e::inspect(run.host, "P").placed_gears == 10 && amount(run.host, "parts", "gear") == 0,
+          "The relocation alternative rebuilds the finite ten-cog route.");
     resume_and_finish(run, press, "relocated");
 }
 
@@ -300,7 +308,7 @@ void gear_route(const V& baseline) {
           field<I>(motion.at(press), "numerator") == 1, "The cross-axis cog train alternates signed machine motion and drives the belt forward.");
     check(entity(run.host, "collector") == collector && entity(run.host, "belt") == belt && entity(run.host, "processor") == press &&
           same(material(baseline), material(run.host.checkpoint())), "The cog route preserves all original machine identities and the entire stocked material cut.");
-    check(e::inspect(run.host, "P").placed_gears == 7 && amount(run.host, "parts", "gear") == 0,
+    check(e::inspect(run.host, "P").placed_gears == 10 && amount(run.host, "parts", "gear") == 0,
           "Keeping the line in place rebuilds the finite cog route.");
     resume_and_finish(run, press, "geared");
 }

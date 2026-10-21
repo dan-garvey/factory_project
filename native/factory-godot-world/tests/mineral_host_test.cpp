@@ -187,10 +187,18 @@ void full_finite_depletion() {
     const auto collector_reply = host.command("P", place("collector", "collector", 0, 0));
     check(accepted(collector_reply), "The depletion case places its real native collector.");
     const auto collector = field<std::string>(collector_reply, "entity");
-    const auto wheel_reply = host.command("P", place("wheel", "wheel", -2, 0));
+    const auto wheel_reply = host.command("P", place("wheel", "wheel", -2, 0, 4));
     check(accepted(wheel_reply), "The native wheel supplies the finite extraction case.");
-    const auto wheel = field<std::string>(wheel_reply, "entity");
-    check(accepted(host.command("P", drive("shaft", wheel, collector))), "The actual native topology powers the collector.");
+    auto upper = request("place_gear", "upper");
+    upper.emplace("center", V(A{V(I{-4}), V(I{4}), V(I{0})}));
+    upper.emplace("axis", V("x")); upper.emplace("teeth", V(I{2}));
+    const auto upper_reply = host.command("P", upper);
+    auto lower = request("place_gear", "lower");
+    lower.emplace("center", V(A{V(I{-4}), V(I{0}), V(I{0})}));
+    lower.emplace("axis", V("x")); lower.emplace("teeth", V(I{2}));
+    const auto lower_reply = host.command("P", lower);
+    check(accepted(upper_reply) && accepted(lower_reply), "The two cogs transfer the raised wheel to the ground collector.");
+    const auto lower_id = field<std::string>(lower_reply, "entity");
     auto power = request("set_power", "power"); power.emplace("active", V(true));
     check(accepted(host.command("P", power)), "The extraction case starts through the normal native command boundary.");
     for (I batch = 0; batch < 128; ++batch) {
@@ -215,7 +223,7 @@ void full_finite_depletion() {
     const auto saved = host.checkpoint();
     check(accepted(host.validate_checkpoint(saved)), "The entire finite depletion and history fit the native checkpoint budget.");
     retain_checkpoint(saved, site);
-    check(field<I>(host.projection(), "order") == 132, "Four construction/power requests and 128 recoveries exhaust the node within history bounds.");
+    check(field<I>(host.projection(), "order") == 133, "Five construction/power requests and 128 recoveries exhaust the node within history bounds.");
     Host fresh; initialize(fresh, site);
     outcome(fresh.restore_checkpoint(saved), true, "restored");
     check(same(child(saved, "world"), child(fresh.checkpoint(), "world")), "Fresh native restoration preserves the complete depleted state and original cache.");
@@ -230,9 +238,9 @@ void full_finite_depletion() {
     check(accepted(fresh.command("P", targeted("remove", "remove", collector))), "The empty collector is removable after depletion.");
     const auto rebuilt = fresh.command("P", place("rebuilt", "collector", 0, 0));
     check(accepted(rebuilt) && field<std::string>(rebuilt, "entity") != collector, "Rebuilding the collector allocates a new identity rather than a new deposit.");
-    check(field<bool>(fresh.projection(), "powered"), "The rebuilt collector uses the shaft left in place by removal.");
+    check(field<bool>(fresh.projection(), "powered"), "The rebuilt collector uses the lower cog left in place by removal.");
     const auto before_duplicate_shaft = material_state(fresh);
-    outcome(fresh.command("P", drive("new-shaft", wheel, field<std::string>(rebuilt, "entity"))), false, "existing_shaft");
+    outcome(fresh.command("P", drive("new-shaft", lower_id, field<std::string>(rebuilt, "entity"))), false, "axles_already_touch");
     check(same(before_duplicate_shaft, material_state(fresh)), "A duplicate shaft request preserves the depleted stock, kits and identities.");
     for (int tick = 0; tick < 40; ++tick) (void)fresh.advance();
     const auto final = fresh.projection();

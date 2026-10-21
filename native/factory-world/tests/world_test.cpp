@@ -138,6 +138,8 @@ void startup_and_complete_validation() {
     f = fixture(); f.state.topology.material_links.front().to.generation = 2;
     check(bad(f), "Stale material links refuse startup before stepping.");
     f = fixture(); f.state.topology.sources.front().rate = {2, 1}; check(bad(f), "Client-selected source speed is not profile authority.");
+    f = fixture(); f.state.topology.parts.front().wheel_tiles = 2;
+    check(bad(f), "An undersized saved wheel is not a valid World state.");
     f = fixture(); f.state.issued_entities.emplace("native-part-1", 1);
     check(bad(f), "The issued identity counter cannot be reset behind history.");
     f = fixture(); f.profile.meters_per_grid_unit = std::numeric_limits<double>::infinity();
@@ -352,19 +354,19 @@ void atomic_step_and_callback_failures() {
 void trusted_flow_drives_world() {
     auto f = fixture();
     for (const I x : {0, 10, 20}) f.profile.water[{x, 0}] = {0, -500, 200, 0};
-    for (auto& source : f.state.topology.sources) source.rate = {1, 1};
+    for (auto& source : f.state.topology.sources) source.rate = {1, 3};
     auto owner = world(f);
     auto view = s::power_view(owner->snapshot().state.topology).mechanical;
-    check(view.motion.at("collector").rate == g::Rate{1, 1},
+    check(view.motion.at("collector").rate == g::Rate{1, 3},
           "The connected shaft receives the local water speed.");
     auto reversed = f;
     reversed.profile.water.at({0, 0}).velocity_x = -200;
     check(!w::World::create("fixture-world", reversed.profile, reversed.state),
           "A saved source cannot retain its old rate under reversed trusted flow.");
-    reversed.state.topology.sources.front().rate = {-1, 1};
+    reversed.state.topology.sources.front().rate = {-1, 3};
     owner = world(reversed);
     view = s::power_view(owner->snapshot().state.topology).mechanical;
-    check(view.motion.at("collector").rate == g::Rate{-1, 1},
+    check(view.motion.at("collector").rate == g::Rate{-1, 3},
           "Reversed trusted flow reverses the connected shaft.");
     auto dry = f;
     dry.profile.water.erase({0, 0});

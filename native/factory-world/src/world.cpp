@@ -330,7 +330,7 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         if (!location || !selected_role || !axis_name || !axis(*axis_name) || !teeth || !span ||
             !spec_valid({*selected_role, *teeth, *span}) || targets.front() != anchor(profile, *location) ||
             (record.intent.contains("wheel_tiles") && (!wheel_tiles || *selected_role != Role::waterwheel ||
-                *wheel_tiles < 1 || *wheel_tiles > mechanics::maximum_dimension))) return false;
+                *wheel_tiles < 3 || *wheel_tiles > mechanics::maximum_dimension))) return false;
         if (action == "place_connected") {
             if (!material_machine(*selected_role)) return false;
             auto left = *location;
@@ -583,7 +583,7 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
         }
     }
     for (const auto& item : state.topology.parts) {
-        if (item.wheel_tiles < 1 || item.wheel_tiles > mechanics::maximum_dimension ||
+        if (item.wheel_tiles < (item.role == Role::waterwheel ? 3 : 1) || item.wheel_tiles > mechanics::maximum_dimension ||
             (item.role != Role::waterwheel && item.wheel_tiles != 1)) return false;
         if (item.role == Role::belt && item.geometry.axis != mechanics::Axis::z) return false;
         if (profile.foundation_parts > 0 && material_machine(item.role) && item.geometry.center[1] != 0 &&
@@ -786,7 +786,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             !(selected_role = role(*role_name)) || !(selected_axis = axis(*axis_name)) ||
             !spec_valid({*selected_role, *teeth, *span}) ||
             (intent.contains("wheel_tiles") && (!wheel_tiles || *selected_role != Role::waterwheel ||
-                *wheel_tiles < 1 || *wheel_tiles > mechanics::maximum_dimension))) return refused("invalid_part");
+                *wheel_tiles < 3 || *wheel_tiles > mechanics::maximum_dimension))) return refused("invalid_part");
         if (*selected_role == Role::belt && *selected_axis != mechanics::Axis::z) return refused("invalid_belt_axis");
         targets.push_back(anchor(profile_, *location));
         if (profile_.foundation_parts > 0 && material_machine(*selected_role) && (*location)[1] != 0) {

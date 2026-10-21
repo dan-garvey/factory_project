@@ -49,7 +49,7 @@ are not migrated to this changed feature profile.
 
 In the native profile, place the waterwheel in the stream with its lower rim
 immersed and clear of the bed. The wheel tool adjusts its diameter in whole grid
-squares and its level on the shared height grid. Choose a horizontal axle across
+squares, starting at a three-square diameter, and its level on the shared height grid. Choose a horizontal axle across
 the current; the sampled flow controls the wheel's signed rotation, and a larger
 wheel turns more slowly in the same current. A wheel can be wet yet stationary
 when the flow is parallel to its axle. The current is an experimental fixed site
