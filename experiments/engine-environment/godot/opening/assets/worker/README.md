@@ -36,11 +36,13 @@ keeps 34 named-skeleton rotation and translation tracks. The matching [neutral f
 contributes 56 named-skeleton tracks. One walk cycle advances per 1.30 metres
 and one run cycle per 2.30 metres of confirmed horizontal travel. The run
 distance matches the captured low-toe travel during support; the previous
-1.65-metre timing moved the low toes backward against confirmed travel. Observed
-speed blends the walk into the run from 1.15 to 2.35 metres per second; the
-pose then settles toward rest when travel stops. Both imported clips begin
-in a stride pose. Their leg rotations retain those absolute source poses in
-the matching named rig; subtracting the first frame removed the walk's left
+1.65-metre timing moved the low toes backward against confirmed travel. The
+walk reaches its full captured stride around 1.05 metres per second so slow
+confirmed movement does not advance a full cycle with only a partial leg pose.
+Observed speed blends the walk into the run from 1.15 to 2.35 metres per
+second; the pose then settles toward rest when travel stops. Both imported
+clips begin in a stride pose. Their leg rotations retain those absolute source
+poses in the matching named rig; subtracting the first frame removed the walk's left
 support step. Walk arm channels and non-leg torso channels remain relative to
 the first clip frame and the worker's lowered-arm standing pose. At run speed,
 the source upper-arm pose retains its absolute stride position; the forearms

@@ -101,7 +101,9 @@ func advance_visual_motion(delta: float) -> void:
 	for id: String in _generations:
 		var rate := signed_rate(snapshot.motion.get(id))
 		if rate != 0.0:
-			var step := minf(delta, 0.1) * rate * VISUAL_RADIANS_PER_SECOND
+			var step := delta * rate * VISUAL_RADIANS_PER_SECOND
+			if not is_finite(step) or not is_finite(visual_rotation(id) + step):
+				continue
 			_visual_rotations[id] = visual_rotation(id) + step
 			_visual_angles[id] = wrapf(visual_angle(id) + step, -PI, PI)
 	_apply_angles()

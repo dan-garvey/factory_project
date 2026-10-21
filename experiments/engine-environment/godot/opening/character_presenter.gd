@@ -5,6 +5,7 @@ const Geometry = preload("res://opening/site_geometry.gd")
 const ADULT_ASSETS := "res://opening/assets/worker/"
 const GAIT_CYCLE_DISTANCE := 2.30
 const WALK_CYCLE_DISTANCE := 1.30
+const FULL_WALK_POSE_SPEED := 1.05
 const FULL_GAIT_SPEED := 2.4
 const RUN_BLEND_START := 1.15
 const RUN_BLEND_END := 2.35
@@ -786,7 +787,12 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float) -> v
 			previous.phase += horizontal.length() * TAU / lerpf(WALK_CYCLE_DISTANCE, GAIT_CYCLE_DISTANCE, float(previous.run_mix))
 		var target_weight := 0.0
 		if horizontal.length() > 0.00001:
-			target_weight = minf(1.0, speed / FULL_GAIT_SPEED)
+			# The captured walk completes one stride over 1.30 m. At its ordinary
+			# 1.05 m/s cadence it needs the full leg travel to hold a support foot;
+			# the run retains its separate full-pose speed through the blend.
+			var full_pose_speed := lerpf(FULL_WALK_POSE_SPEED, FULL_GAIT_SPEED,
+				float(previous.run_mix))
+			target_weight = minf(1.0, speed / full_pose_speed)
 		elif previous.age < 0.1:
 			target_weight = float(previous.weight)
 		previous.weight = move_toward(float(previous.weight), target_weight, delta * 6.0)
