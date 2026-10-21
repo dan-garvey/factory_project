@@ -72,7 +72,7 @@ void conserved(const Host& host) {
     for (const auto* name : {"entities", "transmission_parts"})
         for (const auto& [id, part] : field<O>(projection, name)) { (void)id; ++parts.at(field<std::string>(part, "kind")); }
     parts.at("foundation") += static_cast<I>(field<O>(projection, "foundations").size());
-    check(parts == std::map<std::string, I>{{"collector", 1}, {"belt", 1}, {"processor", 1}, {"wheel", 1}, {"shaft", 3}, {"gear", 2}, {"foundation", 24}},
+    check(parts == std::map<std::string, I>{{"collector", 1}, {"belt", 1}, {"processor", 1}, {"wheel", 1}, {"shaft", 4}, {"gear", 5}, {"foundation", 24}},
           "The actual opening kit is conserved without new parts or a different scenario profile.");
 }
 
@@ -216,8 +216,8 @@ void relocate(const V& baseline) {
     (void)run.action("insert_work", {{"entity", V(press)}, {"work_id", V(work_id)}});
     for (const auto& id : {collector, belt, press}) (void)run.action("insert_raw", {{"entity", V(id)}, {"amount", V(I{1})}});
     check(same(material(baseline), material(run.host.checkpoint())), "Moving the line restores the exact original material cut, without resetting work or stock.");
-    check(e::inspect(run.host, "P").placed_gears == 0 && amount(run.host, "parts", "gear") == 2,
-          "The relocation alternative retains both cogs while using the same three shafts.");
+    check(e::inspect(run.host, "P").placed_gears == 0 && amount(run.host, "parts", "gear") == 5,
+          "The relocation alternative retains all five cogs while using three shafts.");
     resume_and_finish(run, press, "relocated");
 }
 
@@ -239,8 +239,8 @@ void gear_route(const V& baseline) {
           field<I>(motion.at(press), "numerator") == -1, "The actual equal-cog mesh reverses the original machine train; material timing is unchanged in this profile.");
     check(entity(run.host, "collector") == collector && entity(run.host, "belt") == belt && entity(run.host, "processor") == press &&
           same(material(baseline), material(run.host.checkpoint())), "The cog route preserves all original machine identities and the entire stocked material cut.");
-    check(e::inspect(run.host, "P").placed_gears == 2 && amount(run.host, "parts", "gear") == 0,
-          "Keeping the line in place spends both real carried cogs instead of granting new parts.");
+    check(e::inspect(run.host, "P").placed_gears == 2 && amount(run.host, "parts", "gear") == 3,
+          "Keeping the line in place spends two small cogs and retains the rest.");
     resume_and_finish(run, press, "geared");
 }
 

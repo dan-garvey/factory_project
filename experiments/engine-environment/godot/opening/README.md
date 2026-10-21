@@ -62,8 +62,8 @@ clock. Angles are local presentation only, retained across ordinary refreshes
 but not saved or synchronized as tooth-contact phase. Unknown/stalled parts,
 Help, unready actors and disconnected shared views stop the illustration.
 The native profile currently treats either turning direction as powered and
-does not scale material throughput by angular rate. Its two equal gears and
-three shafts, dimensions and height limits are revisable fixture choices.
+does not scale material throughput by angular rate. Its finite cog and shaft
+quantities and dimensions are revisable fixture choices.
 
 After confirming four plates, the native opening marks an upstream wheel site
 at `[-1, 0]` and asks for eight carried plates in total. The row-1 starter line

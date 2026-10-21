@@ -72,7 +72,7 @@ func _motion(id: String, numerator: int) -> bool:
 func _custody(gears_in_kit: int, raw_in_cargo: int, raw_in_collector: int) -> bool:
 	var state: Dictionary = opening.model.projection()
 	var expected_stock := {"source": 15, "collector": raw_in_collector, "belt": 0, "input": 0, "held": 0, "output": 0, "player": 0}
-	var expected_kit := {"collector": 0, "belt": 1, "processor": 1, "wheel": 0, "gear": gears_in_kit, "shaft": 1}
+	var expected_kit := {"collector": 0, "belt": 1, "processor": 1, "wheel": 0, "gear": gears_in_kit + 3, "shaft": 2}
 	if not _expect(_same(state.stock, expected_stock) and _same(state.parts, expected_kit) and _same(state.cargo.P, {"raw": raw_in_cargo, "products": 0, "work_lots": []}) and state.inventories.P == 0 and 15 + raw_in_cargo + raw_in_collector == 16,
 		"The literal raw custody and carried physical kit must remain exact"):
 		return false
@@ -89,7 +89,7 @@ func _custody(gears_in_kit: int, raw_in_cargo: int, raw_in_collector: int) -> bo
 				return false
 		else:
 			return _expect(false, "The transmission view must not invent another part kind")
-	return _expect(gears + gears_in_kit == 2 and shafts == 2, "Placed and carried transmission parts conserve both original gears and all three shafts")
+	return _expect(gears + gears_in_kit == 2 and shafts == 2, "The two used small cogs and all four shafts remain conserved; the extra cogs stay in the kit")
 
 func _save() -> bool:
 	var result: Dictionary = opening._save_worksite()
@@ -170,7 +170,7 @@ func _produce() -> void:
 	if not _expect(replay.get("accepted", false) and replay.get("duplicate", false) and replay.get("entity") == gear_b, "The removed gear's exact old request cannot be retargeted to its replacement"):
 		return
 	gear_b = rebuilt.entity
-	if _command({"action": "disconnect_drive", "from": gear_b, "to": collector_id}, [_anchor([0, 4, 4]), _anchor([0, 0, 4])]).is_empty() or not _expect(opening.model.projection().parts.shaft == 2 and not opening.model.projection().powered, "Disconnect returns one actual shaft and removes collector power"):
+	if _command({"action": "disconnect_drive", "from": gear_b, "to": collector_id}, [_anchor([0, 4, 4]), _anchor([0, 0, 4])]).is_empty() or not _expect(opening.model.projection().parts.shaft == 3 and not opening.model.projection().powered, "Disconnect returns one actual shaft and removes collector power"):
 		return
 	if _command({"action": "connect_drive", "from": gear_b, "to": collector_id}, [_anchor([0, 4, 4]), _anchor([0, 0, 4])]).is_empty() or _command({"action": "set_power", "active": false}, [_anchor([-4, 0, 4])]).is_empty():
 		return
@@ -214,7 +214,7 @@ func _resume() -> void:
 		return
 	if _command({"action": "set_power", "active": true}, [_anchor([-4, 0, 4])]).is_empty() or not _motion(gear_a, 1) or not _motion(gear_b, -1) or not _motion(collector_id, -1):
 		return
-	if _command({"action": "disconnect_drive", "from": gear_b, "to": collector_id}, [_anchor([0, 4, 4]), _anchor([0, 0, 4])]).is_empty() or not _expect(not opening.model.projection().powered and opening.model.projection().parts.shaft == 2, "Fresh disconnect must return its real shaft"):
+	if _command({"action": "disconnect_drive", "from": gear_b, "to": collector_id}, [_anchor([0, 4, 4]), _anchor([0, 0, 4])]).is_empty() or not _expect(not opening.model.projection().powered and opening.model.projection().parts.shaft == 3, "Fresh disconnect must return its real shaft"):
 		return
 	if _command({"action": "connect_drive", "from": gear_b, "to": collector_id}, [_anchor([0, 4, 4]), _anchor([0, 0, 4])]).is_empty() or _command({"action": "remove", "entity": gear_b}, [_anchor([0, 4, 4])]).is_empty():
 		return

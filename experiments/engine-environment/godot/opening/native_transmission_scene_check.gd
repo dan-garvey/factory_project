@@ -216,8 +216,8 @@ func _run() -> void:
 		return
 	if not _direction(a.entity, 1) or not _direction(b.entity, -1):
 		return
-	if not _expect(opening.state.powered and opening.state.power_enabled and opening.state.part_kits.P.shaft == 1
-		and opening.state.part_kits.P.gear == 0, "Confirmed geometry must power the collector with the exact finite remainder"):
+	if not _expect(opening.state.powered and opening.state.power_enabled and opening.state.part_kits.P.shaft == 2
+		and opening.state.part_kits.P.gear == 3, "Confirmed geometry must power the collector with the exact finite remainder"):
 		return
 	var anchor := _part_node(a.entity)
 	var pick: Node = anchor.get_node("Pick")
@@ -262,8 +262,8 @@ func _run() -> void:
 			and (-bar.basis.z).is_equal_approx(end.normalized()), "Every local shaft axis must have a finite noncollinear basis"):
 			return
 	test_parent.queue_free()
-	if not _expect(opening.state.order == 11 and opening.state.part_kits.P.gear == 0 and opening.state.part_kits.P.shaft == 1,
-		"The eleven real UI requests must preserve both gears and all three shafts"):
+	if not _expect(opening.state.order == 11 and opening.state.part_kits.P.gear == 3 and opening.state.part_kits.P.shaft == 2,
+		"The eleven real UI requests must preserve all five cogs and four shafts"):
 		return
 	if not await _layouts():
 		return

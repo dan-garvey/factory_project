@@ -233,15 +233,14 @@ existing World planner, finite kit and two-endpoint reach checks.
 
 One grid unit is `pitch / 4`, currently 0.4125 world units. Map a center to
 `center * pitch / 4 + [0, anchor_height, 0]`. The axis is the rotation axis,
-normal to the gear plane. This fixture accepts integer X/Z coordinates from -8
-through 16 and integer Y from 0 through 16. These are revisable adapter bounds,
-not requirements for the eventual world scale. Placement uses a conservative
+normal to the gear plane. The adapter accepts integer coordinates within the
+native geometry limits. Placement uses a conservative
 disc bounding box against registered actor capsules; precise tooth or part
 colliders are not implemented.
 
 The read-only `part_specifications` projection maps each actor to entries with
-`kind`, `teeth`, `half_span` and remaining `count`. The finite profile is unchanged:
-P starts with two equal two-tooth gears and three shafts of half-span two; Q has
+`kind`, `teeth`, `half_span` and remaining `count`. P starts with four two-tooth
+gears, one four-tooth gear and four shafts of half-span two; Q has
 no parts. Uncarried specifications refuse without changing that kit. Gears and
 shafts appear in `transmission_parts`, with integer `axis` values 0, 1 and 2 for
 X, Y and Z. Use `engagements` and exact signed `motion` for transmission facts;
@@ -258,7 +257,7 @@ observations and tick are synthetic unit inputs, not physical gameplay evidence.
 Current material stepping treats either rotating direction as powered and does
 not scale production by angular rate. The signed motion is real kinematic output,
 but directional transport and rate-dependent throughput remain separate work.
-The same checkpoint formats and finite profile remain in use. Old cell commands
+The same checkpoint format remains in use. Cell commands
 retain their default orientation, and old receipts replay before present geometry
 or pose checks. No second material owner, fallback or checkpoint migration is added.
 
