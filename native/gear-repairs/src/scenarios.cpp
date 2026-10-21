@@ -59,7 +59,7 @@ std::optional<r::Scenario> make(std::string_view id) {
         return part.geometry.id == "collector" || part.geometry.id == "wheel-collector" || part.geometry.id == "shaft-collector";
     });
     std::erase_if(topology.sources, [](const auto& source) { return source.hub == "wheel-collector"; });
-    topology.material_links = {{{"collector", 1}, {"belt", 1}}, {{"belt", 1}, {"processor", 1}}};
+    topology.material_links.clear();
     auto& kit = result->seed.kits.at("P");
     if (id == "gear-idler") {
         endpoints(*result, {-8, 0, 0}, {0, 0, 0}, g::Axis::z, 2);
@@ -77,15 +77,14 @@ std::optional<r::Scenario> make(std::string_view id) {
                 part.geometry.id == "gear-low" || part.geometry.id == "gear-high") part.geometry.center[1] -= 8;
         kit.emplace(s::PartSpec{s::Role::shaft, 0, 2}, 1);
     }
-    // Carry each independently driven machine branch to the actual +X material
-    // row of the collector. Moving the whole branch preserves its source and
-    // axle contacts instead of inventing a material link across empty space.
+    // Move the two independent drive branches to the collector's material
+    // row, replacing the former belt hub with two physical shaft pulleys.
     const auto collector = std::find_if(topology.parts.begin(), topology.parts.end(), [](const auto& part) {
         return part.geometry.id == "collector";
     });
     if (collector == topology.parts.end()) return std::nullopt;
     const auto origin = collector->geometry.center;
-    for (const auto& [machine, offset] : std::array<std::pair<std::string, g::Integer>, 2>{{{"belt", 4}, {"processor", 8}}}) {
+    for (const auto& [machine, offset] : std::array<std::pair<std::string, g::Integer>, 2>{{{"belt", 4}, {"processor", 12}}}) {
         const auto found = std::find_if(topology.parts.begin(), topology.parts.end(), [&](const auto& part) {
             return part.geometry.id == machine;
         });
@@ -96,6 +95,11 @@ std::optional<r::Scenario> make(std::string_view id) {
             if (part.geometry.id == machine || part.geometry.id == "wheel-" + machine || part.geometry.id == "shaft-" + machine)
                 for (std::size_t coordinate = 0; coordinate < 3; ++coordinate) part.geometry.center[coordinate] += delta[coordinate];
     }
+    std::erase_if(topology.parts, [](const auto& part) { return part.geometry.id == "belt"; });
+    add(*result, "pulley-first", s::Role::shaft, {origin[0] + 4, origin[1], origin[2]}, g::Axis::z, 0, 2);
+    add(*result, "pulley-last", s::Role::shaft, {origin[0] + 8, origin[1], origin[2]}, g::Axis::z, 0, 2);
+    topology.belt_spans = {{{"belt", "pulley-first", "pulley-last"}, 1}};
+    result->seed.material.belt_lanes = {{"belt", materials::BeltLane{{std::nullopt, std::nullopt}, 0}}};
     // Declare this new content's exact startup supply once. World validates
     // these finite totals thereafter; no command can rerun this initializer.
     result->profile.finite_parts.clear();
@@ -104,6 +108,8 @@ std::optional<r::Scenario> make(std::string_view id) {
         ++result->profile.finite_parts[{part.role, part.geometry.teeth, part.geometry.half_span}];
         result->seed.issued_entities.emplace(part.geometry.id, part.generation);
     }
+    ++result->profile.finite_parts[{s::Role::belt, 0, 0}];
+    result->seed.issued_entities.emplace("belt", 1);
     for (const auto& [actor, carried] : result->seed.kits) {
         (void)actor;
         for (const auto& [specification, amount] : carried) result->profile.finite_parts[specification] += amount;
