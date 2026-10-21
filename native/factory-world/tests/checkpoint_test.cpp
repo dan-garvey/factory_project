@@ -470,7 +470,13 @@ void inclined_material_route() {
             auto& slots = typed_state.material.belt_lanes.at("span").slots;
             (reverse_endpoints ? slots.front() : slots.back()) = item;
             auto typed = w::World::create("typed-incline", profile, typed_state);
-            check(typed && typed->tick().error == w::TransactionError::none, "A typed item leaves the powered inclined belt.");
+            check(typed && typed->tick().error == w::TransactionError::none, "A typed item starts along the powered inclined belt.");
+            const auto partial = typed->snapshot();
+            const auto expected_phase = reverse_endpoints ? -2896 : 2896;
+            check(partial.state.material.belt_lanes.at("span").phase == expected_phase &&
+                      !partial.state.material.dropped_material.contains(exit),
+                  "One tick advances the same physical surface distance as a horizontal belt without premature delivery.");
+            check(typed->tick().error == w::TransactionError::none, "A second tick carries the item off the inclined belt.");
             const auto after = typed->snapshot();
             check(after.state.material.dropped_material.at(exit) == item, "The open end retains the exact typed item and work identity.");
             const auto encoded = w::encode_checkpoint(profile, after);
@@ -500,6 +506,8 @@ void inclined_material_route() {
             (reverse_endpoints ? reverse_slots.back() : reverse_slots.front()) = item;
             auto reverse = w::World::create("typed-reverse", reverse_profile, reverse_state);
             check(reverse && reverse->tick().error == w::TransactionError::none &&
+                      reverse->snapshot().state.material.belt_lanes.at("span").phase == -expected_phase &&
+                      reverse->tick().error == w::TransactionError::none &&
                       reverse->snapshot().state.material.dropped_material.at({-4, 0, 0}) == item,
                   "Reversing power ejects the same typed item at the lower end.");
         }
@@ -693,7 +701,10 @@ void belt_span_commands() {
     moving.material.belt_lanes.at(inclined_id).slots[2] = m::Cargo{1, 0, {}};
     auto cargo_world = w::World::create("saved-world", profile, moving);
     check(cargo_world != nullptr, "A conserved inclined-lane cargo fixture creates a World.");
-    check(cargo_world->tick().error == w::TransactionError::none && cargo_world->snapshot().state.material.belt_lanes.at(inclined_id).slots[1].has_value(),
+    check(cargo_world->tick().error == w::TransactionError::none &&
+              cargo_world->snapshot().state.material.belt_lanes.at(inclined_id).phase == -2896 &&
+              cargo_world->tick().error == w::TransactionError::none &&
+              cargo_world->snapshot().state.material.belt_lanes.at(inclined_id).slots[1].has_value(),
           "The driven inclined lane moves cargo in shaft-signed direction.");
     const auto incline_save = w::encode_checkpoint(profile, cargo_world->snapshot());
     check(std::holds_alternative<V>(incline_save) && std::holds_alternative<w::Snapshot>(

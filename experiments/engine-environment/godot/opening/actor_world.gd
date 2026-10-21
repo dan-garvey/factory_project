@@ -281,6 +281,8 @@ func _belt_surface_velocity(snapshot: Dictionary, floor_id: int) -> Vector2:
 			return Vector2.ZERO
 		# Match World::tick's bounded fixed-point lane speed and world direction.
 		var subticks := clampf(floorf(absf(float(rate.numerator) / float(rate.denominator)) * 4096.0), 1.0, 65536.0)
+		if shaft.center[1] != endpoint.center[1]:
+			subticks = maxf(1.0, floorf(subticks * 2896.0 / 4096.0))
 		var speed := subticks / 4096.0 * Geometry.PITCH / belt_step_seconds
 		if shaft.axis == 0:
 			return Vector2(0, speed if rate.numerator > 0 else -speed)
