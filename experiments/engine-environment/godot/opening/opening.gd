@@ -1430,9 +1430,9 @@ class ProductionCollectorToolingArt:
 	static func hub_mesh() -> ArrayMesh:
 		if not meshes.has("hub"):
 			var section := PackedVector2Array([
-				Vector2(0, -0.04), Vector2(0.074, -0.04), Vector2(0.085, -0.033),
-				Vector2(0.085, 0.017), Vector2(0.077, 0.025), Vector2(0.068, 0.025),
-				Vector2(0.068, 0.04), Vector2(0, 0.04)])
+				Vector2(0, -0.04), Vector2(0.078, -0.04), Vector2(0.085, -0.036),
+				Vector2(0.085, -0.020), Vector2(0.078, -0.014), Vector2(0.078, -0.006),
+				Vector2(0.085, 0), Vector2(0.085, 0.039), Vector2(0.083, 0.04), Vector2(0, 0.04)])
 			meshes.hub = ProductionVisuals.turned_mesh(section)
 		return meshes.hub
 

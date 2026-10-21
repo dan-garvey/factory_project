@@ -3350,7 +3350,100 @@ func check_collector_tooling() -> void:
 		"continuous_clearance": "Conservative raw-vertex full-turn cylinders against actual frame facets and item boxes.",
 		"native_gameplay": "not_run", "rendered_quality": "not_assessed"}))
 
+func check_collector_bearing_seat() -> void:
+	var assemblies := 0
+	var minimum_liner_gap := INF
+	var minimum_frame_gap := INF
+	var maximum_mating_difference := 0.0
+	var control_gap := 0.0
+	for shared_profile in [false, true]:
+		for cell in [[0, 0], [2, -1]]:
+			var view: Variant = Shared.new() if shared_profile else Opening.new()
+			view.client = "P"
+			if shared_profile:
+				view.session = PaddleSessionFacts.new()
+			view.machine_root = Node3D.new()
+			view.add_child(view.machine_root)
+			view.transmission_presenter = Presenter.new()
+			view.add_child(view.transmission_presenter)
+			view.transmission_presenter.configure(view)
+			view.state = {"context": "collector-bearing-seat", "options": {"native": true, "physical": true},
+				"actors": {"P": {"ready": true}}, "parts": {}, "inventories": {"P": 0},
+				"stock": {"source": 16, "collector": 0, "belt": 0, "input": 0, "held": 0, "output": 0}, "remaining": 0,
+				"entities": {"fixture": {"kind": "collector", "cell": cell, "axis": 0, "generation": 1}},
+				"transmission_parts": {}, "motion": {"fixture": {"state": "rotating", "numerator": 1, "denominator": 1}},
+				"links": [], "drive_links": [], "engagements": []}
+			var before: Dictionary = view.state.duplicate(true)
+			view._rebuild_machines()
+			var machine: Node3D = view.machine_root.get_child(0)
+			var frame: Node3D = machine.get_node("CollectorCastFrame")
+			var hub: MeshInstance3D = machine.get_node("CutterHub")
+			var drum: MeshInstance3D = machine.get_node("CutterDrum")
+			var liner: MeshInstance3D = frame.get_node("FixedBearingLiner")
+			var liner_in_hub := hub.transform.affine_inverse() * frame.transform * liner.transform
+			verify(liner_in_hub.origin.is_equal_approx(Vector3(0, 0.035, 0)) and liner_in_hub.basis.is_equal_approx(Basis.IDENTITY),
+				"The ordinary view still mounts the actual spindle and fixed liner coaxially at their literal original overlap.")
+			verify(hub.mesh == CollectorToolingArt.hub_mesh() and collector_tooling_extent(hub.mesh).is_equal_approx(Vector2(0.085, 0.04))
+				and hub.position == Vector3(-0.22, 1.1, 0.01),
+				"The revised spindle fits the exact original radial and axial envelope, preserving the previous conservative-clearance coverage.")
+			if assemblies == 0:
+				check_closed_asset_mesh(hub.mesh, 0.0017, 0.0018)
+			for index in range(8):
+				var angle := PI / 48.0 + float(index) * TAU / 8.0
+				var reference := collector_tooling_section(drum.mesh, 0.168, angle)
+				var mating := collector_tooling_section(hub.mesh, -0.032, angle)
+				maximum_mating_difference = maxf(maximum_mating_difference, absf(reference - mating))
+				verify(is_finite(reference) and is_finite(mating) and absf(reference - mating) < 0.000001,
+					"The changed spindle retains its actual fitted drum-bore facets at the original mounting overlap.")
+				for offset in [-0.005, 0.0, 0.003]:
+					var spindle := collector_tooling_section(hub.mesh, liner_in_hub.origin.y + offset, angle)
+					var opening := collector_tooling_section(liner.mesh, offset, angle)
+					var gap := opening - spindle
+					minimum_liner_gap = minf(minimum_liner_gap, gap)
+					verify(is_finite(spindle) and is_finite(opening) and absf(spindle - reference) < 0.000001
+						and gap > 0.009 and gap < 0.011,
+						"The actual supported spindle span keeps its original radius at three bearing planes and the original liner clearance.")
+			var rows: Array = machine.get_meta("motion_meshes")
+			var hub_row: Dictionary = {}
+			for row in rows:
+				if row.node == hub:
+					hub_row = row
+			verify(rows.size() == 10 and not hub_row.is_empty(), "The changed spindle is still in the original ten-row motion group.")
+			if hub_row.is_empty():
+				view.free()
+				continue
+			var frame_gap := collector_tooling_frame_gap(frame, collector_tooling_sweeps([hub_row]))
+			minimum_frame_gap = minf(minimum_frame_gap, frame_gap)
+			verify(frame_gap > 0.006, "The changed raw spindle also clears the existing frame through its complete conservative turn.")
+			if assemblies == 0:
+				var previous := Visuals.turned_mesh(PackedVector2Array([
+					Vector2(0, -0.04), Vector2(0.074, -0.04), Vector2(0.085, -0.033),
+					Vector2(0.085, 0.017), Vector2(0.077, 0.025), Vector2(0.068, 0.025),
+					Vector2(0.068, 0.04), Vector2(0, 0.04)]))
+				var reference := collector_tooling_section(drum.mesh, 0.168, PI / 48.0)
+				control_gap = reference - collector_tooling_section(previous, 0.035, PI / 48.0)
+				verify(control_gap > 0.016, "The exact first stepped spindle fails the same bearing-seat radius requirement rather than being accepted only by its outer bounds.")
+			view._apply_cutter_pose(machine, rows, PI / 3.0)
+			var spin := Transform3D(Basis(Vector3.BACK, PI / 3.0), Vector3.ZERO)
+			var pivot := Vector3(-0.22, 1.1, -0.19)
+			spin.origin = pivot - spin.basis * pivot
+			var actual: Transform3D = hub_row.parent_inverse.affine_inverse() * hub.transform
+			verify(actual.is_equal_approx(spin * hub_row.rest) and view.state == before and view.model == null
+				and view.actor_world == null and view.request_sequence == 0,
+				"The revised spindle still follows the original callback without changing observations, authority or requests.")
+			assemblies += 1
+			view.free()
+	print(JSON.stringify({"assemblies": assemblies, "seat_planes": 3, "directions_per_plane": 8, "negative_controls": 1,
+		"minimum_liner_gap_metres": minimum_liner_gap, "minimum_continuous_frame_gap_metres": minimum_frame_gap,
+		"maximum_mating_difference_metres": maximum_mating_difference, "previous_spindle_seat_deficit_metres": control_gap,
+		"reused_coverage": "The first 1001-check component case retains the unchanged drum, inserts, full envelopes, all axes, stock, lifecycle and pick results.",
+		"observations": "invented read-only", "native_gameplay": "not_run", "rendered_quality": "not_assessed"}))
+
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--collector-bearing-seat-only"):
+		check_collector_bearing_seat()
+		finish()
+		return
 	if OS.get_cmdline_user_args().has("--collector-tooling-only"):
 		check_collector_tooling()
 		finish()

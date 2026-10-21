@@ -77,6 +77,8 @@ and fastener feet meet the holder's actual support planes. Three cached mesh
 resources retain the original complete local bounds and ten moving mesh rows,
 using the accepted presenter angle without another processing clock. Historical
 nonnative views keep their original cylinders and block flutes.
+The spindle relief lies outside the bearing seat; the supported span retains
+the original radius and its existing clearance inside the fixed liner.
 
 The new tooling consumer bounds every raw facet through a complete turn and
 checks that conservative sweep against the actual cast frame, bearing opening
