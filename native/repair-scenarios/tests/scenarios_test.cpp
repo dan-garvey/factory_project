@@ -88,11 +88,11 @@ void scenario(const r::Definition& definition) {
               "Waiting cannot extract a blank through a missing coupling.");
         auto place = request(context, "place", "replace-coupling");
         place.emplace("role", V("shaft"));
-        place.emplace("center", V(V::Array{V(I{0}), V(I{0}), V(I{2})}));
+        place.emplace("center", V(V::Array{V(I{0}), V(I{0}), V(I{0})}));
         place.emplace("axis", V("z"));
         place.emplace("teeth", V(I{0}));
-        place.emplace("half_span", V(I{2}));
-        check(accepted(send(*world, place, {0, 0, 2}, observations)), "Placing the carried shaft repairs the actual geometry.");
+        place.emplace("half_span", V(I{4}));
+        check(accepted(send(*world, place, {0, 0, 0}, observations)), "Placing the carried shaft repairs the actual geometry.");
         const auto repaired = world->snapshot().state;
         m::Quantity remaining_parts{};
         for (const auto& item : repaired.kits.at("P")) remaining_parts += item.second;

@@ -83,7 +83,11 @@ void motion(const s::PowerView& view, const char* id, m::MotionState state,
 }
 
 void enabled_local_removal() {
-    const auto f = fixture();
+    auto f = fixture();
+    f.topology.parts[0].geometry.center[2] = -4;
+    f.topology.parts[1].geometry.center[2] = 0;
+    f.topology.parts[1].geometry.half_span = 4;
+    f.kit[{s::Role::shaft, 0, 4}] = 0;
     const auto before = s::power_view(f.topology);
     motion(before, "collector-1", m::MotionState::rotating, {1, 1});
     motion(before, "belt-1", m::MotionState::rotating, {2, 1});
@@ -98,16 +102,17 @@ void enabled_local_removal() {
           "Only the selected physical part is removed.");
     check(plan.candidate.material_links == f.topology.material_links,
           "Removing a transmission shaft does not delete material links.");
-    check(carried(plan.candidate_kit, {s::Role::shaft, 0, 2}) == 1,
+    check(carried(plan.candidate_kit, {s::Role::shaft, 0, 4}) == 1,
           "Exactly the selected shaft length returns to the kit.");
     check(plan.facts.target == material::EntityRef{"shaft-A", 1} &&
-          plan.facts.interaction_point == m::Point{0, 0, 2},
+          plan.facts.interaction_point == m::Point{0, 0, 0},
           "The receipt retains the pre-edit identity and interaction point.");
     motion(plan.power, "collector-1", m::MotionState::unpowered, {0, 1});
     motion(plan.power, "belt-1", m::MotionState::rotating, {2, 1});
     motion(plan.power, "wheel-B", m::MotionState::rotating, {2, 1});
-    check(f.topology == fixture().topology && f.kit == fixture().kit &&
-          f.state == fixture().state, "Planning preserves every original caller value.");
+    check(f.topology.parts[0].geometry.center[2] == -4 && f.topology.parts[1].geometry.half_span == 4 &&
+          carried(f.kit, {s::Role::shaft, 0, 4}) == 0 && f.state == fixture().state,
+          "Planning preserves the original longer-span fixture and caller material.");
 }
 
 void exact_part_and_link_refunds() {

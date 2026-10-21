@@ -72,7 +72,10 @@ void motion(const s::PowerView& power, const char* id, m::Rate rate) {
 }
 
 void rebuild_returned_shaft() {
-    const auto f = fixture();
+    auto f = fixture();
+    f.topology.parts[0].geometry.center[2] = -4;
+    f.topology.parts[1].geometry.center[2] = 0;
+    f.topology.parts[1].geometry.half_span = 4;
     const auto removed = s::prepare_removal(f.topology, f.kit, f.state, {{"shaft-A", 1}});
     check(std::holds_alternative<s::PreparedRemoval>(removed),
           "The initial enabled removal must return the exact physical shaft.");
@@ -80,16 +83,19 @@ void rebuild_returned_shaft() {
     check(old.power.mechanical.motion.at("collector-1").state == m::MotionState::unpowered,
           "The removed transmission actually disconnects its branch.");
 
-    const auto rebuilt = place(old.candidate, old.candidate_kit, f.state, shaft("shaft-A-2", 2));
+    auto replacement = shaft("shaft-A-2", 2);
+    replacement.geometry.center[2] = 0;
+    replacement.geometry.half_span = 4;
+    const auto rebuilt = place(old.candidate, old.candidate_kit, f.state, replacement);
     check(std::holds_alternative<s::PreparedPlacement>(rebuilt),
           "A returned shaft can rebuild its branch without a global stop.");
     const auto& plan = std::get<s::PreparedPlacement>(rebuilt);
     check(plan.candidate.drive_enabled && plan.candidate.sources == f.topology.sources,
           "Rebuilding preserves the explicit enable setting and unrelated sources.");
-    check(plan.candidate_kit.at({s::Role::shaft, 0, 2}) == 0,
+    check(plan.candidate_kit.at({s::Role::shaft, 0, 4}) == 0,
           "Rebuilding consumes the one returned exact shaft once.");
     check(plan.facts.target == material::EntityRef{"shaft-A-2", 2} &&
-          plan.facts.consumed_part == s::PartSpec{s::Role::shaft, 0, 2},
+          plan.facts.consumed_part == s::PartSpec{s::Role::shaft, 0, 4},
           "The new receipt uses the fresh identity and exact physical part.");
     check(std::none_of(plan.candidate.parts.begin(), plan.candidate.parts.end(),
           [](const auto& p) { return p.geometry.id == "shaft-A"; }),
@@ -99,7 +105,7 @@ void rebuild_returned_shaft() {
     check(f.state == fixture().state && old.candidate.parts.size() == 6,
           "Placement leaves material and the original removal candidate unchanged.");
 
-    refusal(place(plan.candidate, plan.candidate_kit, f.state, shaft("shaft-A-2", 2)),
+    refusal(place(plan.candidate, plan.candidate_kit, f.state, replacement),
             s::PlacementError::identity_conflict);
 }
 

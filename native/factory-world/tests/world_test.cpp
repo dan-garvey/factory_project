@@ -191,6 +191,11 @@ void authentication_reach_and_replay() {
 
 void running_removal_rebuild_and_tick() {
     auto f = fixture();
+    f.state.topology.parts[0].geometry.center[2] = -4;
+    f.state.topology.parts[1].geometry.center[2] = 0;
+    f.state.topology.parts[1].geometry.half_span = 4;
+    f.profile.finite_parts[{s::Role::shaft, 0, 2}] = 2;
+    f.profile.finite_parts[{s::Role::shaft, 0, 4}] = 1;
     f.state.material.stock = {14, 0, 1, 0, 1};
     auto owner = world(f);
     Observer observer;
@@ -199,7 +204,7 @@ void running_removal_rebuild_and_tick() {
     auto before_tick = owner->snapshot();
     const auto power = w::machine_power(before_tick.state.topology);
     check(!power.collector && power.belt && power.processor, "Removing a real shaft stops only its connected branch.");
-    check(before_tick.state.topology.drive_enabled && before_tick.state.kits.at("P").at({s::Role::shaft, 0, 2}) == 1,
+    check(before_tick.state.topology.drive_enabled && before_tick.state.kits.at("P").at({s::Role::shaft, 0, 4}) == 1,
           "Running removal preserves global drive and refunds the exact physical shaft.");
     const auto tick = owner->tick();
     const auto after_tick = owner->snapshot();
@@ -215,23 +220,23 @@ void running_removal_rebuild_and_tick() {
           get<I>(*duplicate.result, "revision") == before_tick.revision,
           "Retry retains its original receipt revision after a newer step and target removal.");
     outcome(send(*owner, target("remove", "remove-again", "shaft-A"), observer), false, "unknown_target");
-    const auto rebuilt = send(*owner, place("rebuild-A", "shaft", 0, 2, 2), observer);
+    const auto rebuilt = send(*owner, place("rebuild-A", "shaft", 0, 0, 4), observer);
     outcome(rebuilt, true, "ok");
     const auto rebuilt_state = owner->snapshot().state;
     check(get<std::string>(*rebuilt.result, "entity") == "native-part-1" &&
           rebuilt_state.issued_entities.contains("shaft-A") && rebuilt_state.issued_entities.contains("native-part-1"),
           "Rebuilding allocates a new identity while retaining the old entity history.");
-    check(rebuilt_state.kits.at("P").at({s::Role::shaft, 0, 2}) == 0 && w::machine_power(rebuilt_state.topology).collector,
+    check(rebuilt_state.kits.at("P").at({s::Role::shaft, 0, 4}) == 0 && w::machine_power(rebuilt_state.topology).collector,
           "The returned exact part is consumed once and restores geometric transmission.");
     const auto serial = rebuilt_state.next_entity_serial;
-    outcome(send(*owner, place("no-second-shaft", "shaft", 30, 2, 2), observer), false, "unavailable_part");
+    outcome(send(*owner, place("no-second-shaft", "shaft", 30, 2, 4), observer), false, "unavailable_part");
     check(owner->snapshot().state.next_entity_serial == serial, "A refused build consumes no identity or physical part.");
 }
 
 void preserve_work_through_recovery_and_rebuild() {
     auto f = fixture();
     f.state.material.stock = {14, 0, 0, 1, 0};
-    f.state.material.processing = m::WorkLot{1, {1, 2}, 1};
+    f.state.material.processing = m::WorkLot{1, {1, 2}, 1, m::work_subticks_per_tick / 2};
     f.state.material.next_work_id = 2;
     auto owner = world(f);
     Observer observer;
@@ -240,7 +245,7 @@ void preserve_work_through_recovery_and_rebuild() {
     const auto recovery = send(*owner, recovery_request, observer);
     outcome(recovery, true, "ok");
     const auto recovered = owner->snapshot();
-    check(recovered.state.material.cargo.at("P") == m::Cargo{1, 0, {{1, {1, 2}, 1}}} &&
+    check(recovered.state.material.cargo.at("P") == m::Cargo{1, 0, {{1, {1, 2}, 1, m::work_subticks_per_tick / 2}}} &&
           recovered.state.material.stock == m::Stock{14, 0, 0, 0, 0} && !recovered.state.material.processing,
           "Recovery moves raw and the original partial whole lot into one actor's canonical Cargo.");
     outcome(send(*owner, target("remove", "empty-processor", "processor"), observer), true, "ok");
@@ -249,7 +254,7 @@ void preserve_work_through_recovery_and_rebuild() {
     auto insert = target("insert_work", "resume-work", "native-part-1");
     insert.emplace("work_id", V(I{1}));
     outcome(send(*owner, insert, observer), true, "ok");
-    check(owner->snapshot().state.material.processing == m::WorkLot{1, {1, 2}, 1},
+    check(owner->snapshot().state.material.processing == m::WorkLot{1, {1, 2}, 1, m::work_subticks_per_tick / 2},
           "Insertion preserves work identity, recipe and remaining progress exactly.");
     const auto before_tick = owner->snapshot();
     const auto tick = owner->tick();

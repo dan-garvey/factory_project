@@ -103,9 +103,15 @@ bool coaxial(const Part& a, const Part& b) noexcept {
 }
 
 bool shaft_contact(const Part& a, const Part& b) noexcept {
-    if (a.kind != Kind::shaft && b.kind != Kind::shaft) return false;
     if (!coaxial(a, b)) return false;
     const auto axis = coordinate(a.axis);
+    if (a.kind != Kind::shaft && b.kind != Kind::shaft) {
+        // Hubs and cogs have opposing axle faces one construction cell apart.
+        // They touch only at the adjacent face, not through a longer gap.
+        constexpr Integer cell = 4;
+        const auto distance = b.center[axis] - a.center[axis];
+        return distance == cell || distance == -cell;
+    }
     const auto a_span = a.kind == Kind::shaft ? a.half_span : 0;
     const auto b_span = b.kind == Kind::shaft ? b.half_span : 0;
     return a.center[axis] - a_span <= b.center[axis] + b_span &&

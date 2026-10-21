@@ -256,7 +256,8 @@ Value lots_value(const std::vector<materials::WorkLot>& lots) {
     Value::Array output;
     for (const auto& lot : lots) output.emplace_back(Object{
         {"id", Value(lot.id)}, {"input_units_per_product", Value(lot.recipe.input_units_per_product)},
-        {"cycle_ticks", Value(lot.recipe.cycle_ticks)}, {"remaining_ticks", Value(lot.remaining_ticks)}});
+        {"cycle_ticks", Value(lot.recipe.cycle_ticks)}, {"remaining_ticks", Value(lot.remaining_ticks)},
+        {"completed_subticks", Value(lot.completed_subticks)}});
     return Value(std::move(output));
 }
 
@@ -359,7 +360,7 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
     if (!add(weighted, *products * profile.material.input_units_per_product)) return false;
     for (const auto& value : *work) {
         const auto* lot = std::get_if<Object>(&value.storage());
-        if (!lot || lot->size() != 4 || !add(weighted, profile.material.input_units_per_product)) return false;
+        if (!lot || lot->size() != 5 || !add(weighted, profile.material.input_units_per_product)) return false;
     }
     if (weighted == 0 || weighted > profile.initial_units) return false;
     if (action == "insert_raw")
@@ -424,10 +425,13 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
                 const auto* weight = field<Integer>(*object, "input_units_per_product");
                 const auto* cycle = field<Integer>(*object, "cycle_ticks");
                 const auto* remaining = field<Integer>(*object, "remaining_ticks");
+                const auto* completed = field<Integer>(*object, "completed_subticks");
                 if (!id || *id <= 0 || *id >= snapshot.state.material.next_work_id ||
                     !weight || *weight != profile.material.input_units_per_product ||
                     !cycle || *cycle != profile.material.cycle_ticks ||
-                    !remaining || *remaining < 0 || *remaining > *cycle) return false;
+                    !remaining || *remaining < 0 || *remaining > *cycle || !completed ||
+                    *completed < 0 || *completed >= materials::work_subticks_per_tick ||
+                    (*remaining == 0 && *completed != 0)) return false;
             }
         }
     }
@@ -463,7 +467,20 @@ materials::MachinePower machine_power(const stationary::Topology& topology) {
             found->second.state == mechanics::MotionState::rotating;
         if (item.role == Role::collector) power.collector = rotating;
         if (item.role == Role::belt) power.belt = rotating;
-        if (item.role == Role::processor) power.processor = rotating;
+        if (item.role == Role::processor) {
+            power.processor = rotating;
+            if (rotating) {
+                // Use a bounded fixed-point mapping from signed mechanical rate
+                // to work. Reversal does not reverse the press cycle.
+                __extension__ using Wide = __int128;
+                Wide numerator = found->second.rate.numerator;
+                if (numerator < 0) numerator = -numerator;
+                const Wide scaled = numerator * materials::work_subticks_per_tick /
+                    found->second.rate.denominator;
+                power.processor_work_per_tick = static_cast<Integer>(std::clamp<Wide>(
+                    scaled, 1, materials::maximum_work_subticks_per_tick));
+            }
+        }
     }
     return power;
 }
@@ -779,6 +796,8 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
     if (*action == "shaft_between" || *action == "remove_shaft_between") {
         transmission = shaft_between(*selected, *destination);
         if (!transmission) return refused("incompatible_shaft", selected->geometry.id, std::move(facts));
+        if (*action == "shaft_between" && transmission->geometry.half_span == 2)
+            return refused("axles_already_touch", selected->geometry.id, std::move(facts));
     }
     if (placement(*action) || *action == "shaft_between") {
         if (candidate.issued_entities.size() == maximum_issued_entities ||

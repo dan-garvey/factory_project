@@ -58,9 +58,13 @@ std::optional<Scenario> make(std::string_view id) {
         {{"collector", 1}, {"belt", 1}}, {{"belt", 1}, {"processor", 1}},
     };
     if (id == "coupling") {
+        for (auto& part : result.seed.topology.parts)
+            if (part.geometry.id == "wheel-collector") part.geometry.center[2] = -4;
         std::erase_if(result.seed.topology.parts,
             [](const auto& part) { return part.geometry.id == "shaft-collector"; });
-        result.seed.kits.at("P").emplace(s::PartSpec{s::Role::shaft, 0, 2}, 1);
+        result.profile.finite_parts.at({s::Role::shaft, 0, 2}) = 2;
+        result.profile.finite_parts.emplace(s::PartSpec{s::Role::shaft, 0, 4}, 1);
+        result.seed.kits.at("P").emplace(s::PartSpec{s::Role::shaft, 0, 4}, 1);
     } else if (id == "link") {
         result.seed.topology.material_links.pop_back();
     } else {

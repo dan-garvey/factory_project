@@ -10,6 +10,8 @@ namespace factory::materials {
 
 using Quantity = std::int64_t;
 using WorkId = std::int64_t;
+inline constexpr Quantity work_subticks_per_tick = 4096;
+inline constexpr Quantity maximum_work_subticks_per_tick = 16 * work_subticks_per_tick;
 
 // Canonical data for the unadopted finite material fixture. The sole World and
 // its command, admission and persistence boundaries remain separate.
@@ -27,6 +29,7 @@ struct WorkLot {
     WorkId id{};
     RecipeSignature recipe;
     Quantity remaining_ticks{};
+    Quantity completed_subticks{};
     bool operator==(const WorkLot&) const = default;
 };
 
@@ -83,6 +86,7 @@ struct MachinePower {
     bool collector{};
     bool belt{};
     bool processor{};
+    Quantity processor_work_per_tick{work_subticks_per_tick};
 };
 
 enum class Error {

@@ -41,7 +41,7 @@ std::string plates(int number) {
 }
 
 void solutions() {
-    const auto coupling = run("coupling", "collect processor\nplace shaft 0 0 2 z 2\nwalk east 6\nwalk north 4\n" + plates(4));
+    const auto coupling = run("coupling", "collect processor\nplace shaft 0 0 0 z 4\nwalk east 6\nwalk north 4\n" + plates(4));
     check(coupling.code == 0 && coupling.errors.empty(), "A complete coupling repair works through actual interactive commands.");
     check(contains(coupling, "Held: out_of_reach") && contains(coupling, "Accepted: ok (native-part-1)"),
           "A far retrieval refuses before a real finite-kit placement succeeds.");
@@ -87,7 +87,7 @@ void retained_refusals() {
           count(bad.out, "Press work=7 remaining=0 recipe_units=1 cycle=2") == 2,
           "All invalid actions preserve the original billet and every material holder.");
 
-    const auto kit = run("coupling", "place shaft 0 0 2 z 2\nplace shaft 0 0 2 z 2\ninspect\nquit\n");
+    const auto kit = run("coupling", "place shaft 0 0 0 z 4\nplace shaft 0 0 0 z 4\ninspect\nquit\n");
     check(kit.code == 1 && contains(kit, "Held: unavailable_part"), "A second placement cannot invent another carried coupling.");
     check(count(kit.out, "native-part-1 generation=1 shaft") == 1 && !contains(kit, "native-part-2 generation="),
           "A refused placement leaves only the original successfully allocated part.");

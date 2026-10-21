@@ -73,15 +73,15 @@ int workbench(std::span<const std::string_view> args, std::ostream& out, std::os
     auto point = [&](Integer across, Integer axial) {
         auto at = selected->origin; at[u] += across; at[a] += axial; return at;
     };
-    source->parts.push_back({"pair-left", g::Kind::hub, point(0, -8), selected->shaft});
-    source->parts.push_back({"pair-right", g::Kind::hub, point(selected->spacing, -8), selected->shaft});
-    source->parts.push_back({"left-gear", g::Kind::gear, point(0, -8), selected->shaft, selected->spacing / 2});
-    source->parts.push_back({"right-gear", g::Kind::gear, point(selected->spacing, -8), selected->shaft, selected->spacing / 2 - (args[0] == "wrong-gear" ? 1 : 0)});
-    source->parts.push_back({"source-bridge", g::Kind::shaft, point(0, -14), selected->shaft, 0, args[0] == "short-source" ? 1 : 6});
+    source->parts.push_back({"pair-left", g::Kind::hub, point(0, -12), selected->shaft});
+    source->parts.push_back({"pair-right", g::Kind::hub, point(selected->spacing, -12), selected->shaft});
+    source->parts.push_back({"left-gear", g::Kind::gear, point(0, -12), selected->shaft, selected->spacing / 2});
+    source->parts.push_back({"right-gear", g::Kind::gear, point(selected->spacing, -12), selected->shaft, selected->spacing / 2 - (args[0] == "wrong-gear" ? 1 : 0)});
+    source->parts.push_back({"source-bridge", g::Kind::shaft, point(0, -16), selected->shaft, 0, args[0] == "short-source" ? 1 : 4});
     source->parts.push_back({"left-crank", g::Kind::hub, point(0, -4), selected->shaft});
     source->parts.push_back({"right-crank", g::Kind::hub, point(selected->spacing, -4), selected->shaft});
-    source->parts.push_back({"left-drive", g::Kind::shaft, point(0, -6), selected->shaft, 0, 2});
-    source->parts.push_back({"right-drive", g::Kind::shaft, point(selected->spacing, -6), selected->shaft, 0, args[0] == "short-right" ? 1 : 2});
+    source->parts.push_back({"left-drive", g::Kind::shaft, point(0, -8), selected->shaft, 0, 4});
+    source->parts.push_back({"right-drive", g::Kind::shaft, point(selected->spacing, -8), selected->shaft, 0, args[0] == "short-right" ? 1 : 4});
     const auto supplied = g::evaluate(source->parts, source->sources);
     if (!supplied.accepted()) { errors << "Native source refused: " << g::error_name(supplied.error) << ".\n"; return 2; }
     const std::array inputs{supplied.motion.at("left-crank"), supplied.motion.at("right-crank")};

@@ -21,7 +21,9 @@ bool products(Quantity& total, Quantity count, Quantity weight) noexcept {
 bool valid_lot(const WorkLot& lot, const State& state, const Config& config) noexcept {
     return lot.id > 0 && lot.id < state.next_work_id
         && lot.recipe == RecipeSignature{config.input_units_per_product, config.cycle_ticks}
-        && lot.remaining_ticks >= 0 && lot.remaining_ticks <= lot.recipe.cycle_ticks;
+        && lot.remaining_ticks >= 0 && lot.remaining_ticks <= lot.recipe.cycle_ticks
+        && lot.completed_subticks >= 0 && lot.completed_subticks < work_subticks_per_tick
+        && (lot.remaining_ticks != 0 || lot.completed_subticks == 0);
 }
 
 // Validation is allocation-free to preserve its noexcept contract. The first
@@ -105,7 +107,9 @@ Error step(State& state, const Config& config, const Path& path,
     if (input_error != Error::none) return input_error;
     if ((power.collector && !path.collector_present) ||
         (power.belt && !path.belt_present) ||
-        (power.processor && !path.processor_present)) return Error::invalid_path;
+        (power.processor && !path.processor_present) ||
+        power.processor_work_per_tick < 1 ||
+        power.processor_work_per_tick > maximum_work_subticks_per_tick) return Error::invalid_path;
     if (!path.powered || (!power.collector && !power.belt && !power.processor))
         return Error::none;
     auto next = state;
@@ -113,7 +117,17 @@ Error step(State& state, const Config& config, const Path& path,
     // Preserve the existing order. Carried work is deliberately not visited.
     if (power.processor && next.processing) {
         auto& lot = *next.processing;
-        if (lot.remaining_ticks > 0) --lot.remaining_ticks;
+        if (lot.remaining_ticks > 0) {
+            const auto progressed = lot.completed_subticks + power.processor_work_per_tick;
+            const auto whole = progressed / work_subticks_per_tick;
+            if (whole >= lot.remaining_ticks) {
+                lot.remaining_ticks = 0;
+                lot.completed_subticks = 0;
+            } else {
+                lot.remaining_ticks -= whole;
+                lot.completed_subticks = progressed % work_subticks_per_tick;
+            }
+        }
         if (lot.remaining_ticks == 0 && stock.output < 1) {
             next.processing.reset();
             ++stock.output;

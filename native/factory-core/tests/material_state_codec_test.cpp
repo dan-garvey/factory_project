@@ -27,7 +27,7 @@ m::State fixture() {
     state.initial_units = 16;
     state.stock = {6, 1, 1, 1, 1};
     state.cargo = {{"P", m::Cargo{1, 0, {{8, {2, 4}, 0}}}}, {"Q", {}}};
-    state.processing = m::WorkLot{7, {2, 4}, 3};
+    state.processing = m::WorkLot{7, {2, 4}, 3, m::work_subticks_per_tick / 2};
     state.next_work_id = 9;
     return state;
 }
@@ -36,7 +36,7 @@ m::State fixture() {
 // lot and P's raw unit plus ready carried lot account for all sixteen raw units.
 Value literal() {
     return Value(Object{
-        {"schema", integer(1)}, {"initial_units", integer(16)},
+        {"schema", integer(2)}, {"initial_units", integer(16)},
         {"stock", Value(Object{{"source", integer(6)}, {"collector", integer(1)},
             {"belt", integer(1)}, {"input", integer(1)}, {"output", integer(1)}})},
         {"cargo", Value(Object{
@@ -45,14 +45,14 @@ Value literal() {
                     {"id", integer(8)},
                     {"recipe", Value(Object{{"input_units_per_product", integer(2)},
                                              {"cycle_ticks", integer(4)}})},
-                    {"remaining_ticks", integer(0)}})})}})},
+                    {"remaining_ticks", integer(0)}, {"completed_subticks", integer(0)}})})}})},
             {"Q", Value(Object{{"raw_units", integer(0)}, {"products", integer(0)},
                                 {"work_lots", Value(Value::Array{})}})}})},
         {"processing", Value(Object{
             {"id", integer(7)},
             {"recipe", Value(Object{{"input_units_per_product", integer(2)},
                                      {"cycle_ticks", integer(4)}})},
-            {"remaining_ticks", integer(3)}})},
+            {"remaining_ticks", integer(3)}, {"completed_subticks", integer(m::work_subticks_per_tick / 2)}})},
         {"next_work_id", integer(9)}});
 }
 
@@ -104,6 +104,7 @@ int main() {
 
         auto ready = state;
         ready.processing->remaining_ticks = 0;
+        ready.processing->completed_subticks = 0;
         round_trip(ready); // Ready work remains present, separate from null.
         auto carried = state;
         carried.cargo.at("P").work_lots.insert(carried.cargo.at("P").work_lots.begin(), *carried.processing);
@@ -112,7 +113,7 @@ int main() {
 
         bad(Value(Value::Array{}), m::CodecReason::wrong_type, "$");
         bad(edited(literal(), {"schema"}, std::nullopt), m::CodecReason::missing_field, "$.schema");
-        bad(edited(literal(), {"schema"}, integer(2)), m::CodecReason::unsupported_schema, "$.schema");
+        bad(edited(literal(), {"schema"}, integer(1)), m::CodecReason::unsupported_schema, "$.schema");
         bad(edited(literal(), {"schema"}, Value(1.0)), m::CodecReason::wrong_type, "$.schema");
         bad(edited(literal(), {"unknown"}, integer(0)), m::CodecReason::unexpected_field, "$");
         bad(edited(literal(), {"stock", "source"}, std::nullopt), m::CodecReason::missing_field, "$.stock.source");
@@ -128,6 +129,8 @@ int main() {
         bad(edited(literal(), {"next_work_id"}, integer(8)), m::CodecReason::invalid_material_state, "$", m::Error::invalid_state);
         bad(edited(literal(), {"processing", "remaining_ticks"}, integer(-1)), m::CodecReason::invalid_material_state, "$", m::Error::invalid_state);
         bad(edited(literal(), {"processing", "remaining_ticks"}, integer(5)), m::CodecReason::invalid_material_state, "$", m::Error::invalid_state);
+        bad(edited(literal(), {"processing", "completed_subticks"}, integer(m::work_subticks_per_tick)), m::CodecReason::invalid_material_state, "$", m::Error::invalid_state);
+        bad(edited(literal(), {"processing", "completed_subticks"}, std::nullopt), m::CodecReason::missing_field, "$.processing.completed_subticks");
         bad(edited(literal(), {"processing", "recipe", "cycle_ticks"}, integer(5)), m::CodecReason::invalid_material_state, "$", m::Error::invalid_state);
         bad(edited(literal(), {"processing", "recipe", "extra"}, integer(0)), m::CodecReason::unexpected_field, "$.processing.recipe");
         bad(edited(literal(), {"cargo", "P", "raw_units"}, Value(1.0)), m::CodecReason::wrong_type, "$.cargo[\"P\"].raw_units");
