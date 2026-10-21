@@ -1,5 +1,12 @@
 # Opening presentation assets
 
+Physical source clusters seat against the same emitted ground used by the
+character, with a 15-millimetre visual embed at the host rock's lowest vertex.
+Their horizontal seam positions, finite counts, shapes and mineral inclusions
+are unchanged. Historical nonphysical or absent-surface profiles keep their
+original anchors; in-line billets and finished plates retain their earlier
+positions. These decorative items add no collider or source-state authority.
+
 The natural west bank also has a bounded foreground understory using the existing
 CC0 grass resource. Its roots follow the emitted terrain; complete clump bounds
 stay outside the stream and real rocks. Confirmed machine topology suppresses

@@ -217,7 +217,13 @@ static func populate_items(item_root: Node3D, state: Dictionary, pitch: float = 
 			stamped_plate(item_root, pos + Vector3(0.46, 0.39, 0.15))
 	var source_count: int = mini(16, maxi(0, int(stock.get("source", 0))))
 	for n in range(source_count):
-		seam_blank(
-			item_root,
-			Vector3(-0.16 + float(n % 2) * 0.32, 0.11, -2.9 + float(int(n / 2.0)) * 1.15), n
-		)
+		var at := Vector3(-0.16 + float(n % 2) * 0.32, 0.11, -2.9 + float(int(n / 2.0)) * 1.15)
+		if state.get("options", {}).get("physical", false) and Scenery.Surface != null:
+			var ground: float = Scenery.Surface.height_at(at.x, at.z)
+			if not is_finite(ground):
+				push_error("The physical source display requires its shared ground surface.")
+				return
+			# Embed the lowest host-rock vertex by 15 mm. This is unsaved
+			# surface art, not a changed source position, collider or build anchor.
+			at.y = ground + SEAM_HALF_EXTENTS.y - 0.015
+		seam_blank(item_root, at, n)

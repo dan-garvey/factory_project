@@ -114,6 +114,9 @@ func count_kind(node: Node, kind: String) -> int:
 
 
 func _initialize() -> void:
+	if "--source-contact-only" in OS.get_cmdline_user_args():
+		check_source_contact()
+		return
 	if "--raw-seam-only" in OS.get_cmdline_user_args():
 		check_raw_seam()
 		return
@@ -210,6 +213,43 @@ func _initialize() -> void:
 	}))
 	quit(0 if ok else 1)
 
+
+func check_source_contact() -> void:
+	for amount in [0, 1, 7, 16]:
+		var holder := Node3D.new()
+		var facts := {"options": {"physical": true}, "entities": {}, "stock": {"source": amount}}
+		var before: Dictionary = facts.duplicate(true)
+		Assets.populate_items(holder, facts)
+		verify(holder.get_child_count() == amount, "Physical source display preserves each observed finite count.")
+		for n in range(holder.get_child_count()):
+			var blank: Node3D = holder.get_child(n)
+			var expected := Vector2(-0.16 + float(n % 2) * 0.32, -2.9 + float(int(n / 2.0)) * 1.15)
+			verify(Vector2(blank.position.x, blank.position.z).is_equal_approx(expected),
+				"Grounding does not move the source along or across its authority seam.")
+			var host: MeshInstance3D = blank.get_node("RawHostRock")
+			var points: PackedVector3Array = host.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+			var low := INF
+			var high := -INF
+			for point in points:
+				var world: Vector3 = blank.transform * host.transform * point
+				low = minf(low, world.y)
+				high = maxf(high, world.y)
+			var ground: float = Assets.Scenery.Surface.height_at(blank.position.x, blank.position.z)
+			print(JSON.stringify({"source_unit": n, "amount": amount, "lowest_vertex": low,
+				"highest_vertex": high, "actual_surface": ground, "gap": low - ground}))
+			verify(low < ground and ground - low < 0.025 and high > ground + 0.08,
+				"The actual source mesh intersects the shared ground while leaving its mineral-bearing crown exposed.")
+		verify(facts == before, "Source grounding preserves the original projection byte values and types.")
+		holder.free()
+	var historical := Node3D.new()
+	Assets.populate_items(historical, {"entities": {}, "stock": {"source": 1}})
+	verify(historical.get_child(0).position == Vector3(-0.16, 0.11, -2.9),
+		"A nonphysical historical profile retains its original literal anchor.")
+	historical.free()
+	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
+		"mode": "source-contact-only", "scope": "actual source vertices against shared terrain over invented confirmed facts",
+		"authority_started": false, "desktop": "not_used", "rendered_quality": "not_assessed"}))
+	quit(1 if failed else 0)
 
 func check_raw_seam() -> void:
 	var holder := Node3D.new()
