@@ -258,6 +258,8 @@ func _settle_pending() -> void:
 				"no_shaft": "all shared shafts are in use."}.get(result.reason, str(result.reason))), true)
 		if item.action.action == "select_belt_shaft" and transmission_controls != null:
 			transmission_controls.settle_belt_selection(request, result.accepted)
+		elif item.action.action == "place_selected_belt_span" and transmission_controls != null:
+			transmission_controls.settle_belt_placement(request, result.accepted, result.get("reason", ""))
 	_refresh_ui()
 
 func _refresh() -> void:

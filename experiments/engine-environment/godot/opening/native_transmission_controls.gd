@@ -68,6 +68,13 @@ func settle_belt_selection(request: String, accepted: bool) -> void:
 	_belt_start.pending = false
 	_feedback("Move to the second parallel shaft and choose it within reach.", false)
 
+func settle_belt_placement(request: String, accepted: bool, reason: String) -> void:
+	if request.is_empty() or _belt_start.is_empty() or _belt_start.get("placement_request", "") != request:
+		return
+	_belt_start.erase("placement_request")
+	if accepted or reason == "invalid_belt_selection":
+		_belt_start.clear()
+
 func choose_tool(tool: String) -> void:
 	if tool not in ["", "gear", "remove", "place_shaft", "belt_span"]:
 		return
@@ -225,6 +232,9 @@ func handle_world_click(center: Array, entity_id: String) -> bool:
 		if _belt_start.pending:
 			_feedback("Waiting for the server to confirm the first shaft.", false)
 			return true
+		if not _belt_start.get("placement_request", "").is_empty():
+			_feedback("Waiting for the server to decide on the belt.", false)
+			return true
 		var first: Variant = context.snapshot.transmission_parts.get(_belt_start.id, {})
 		if context.world != _belt_start.world or context.actor != _belt_start.actor or not first is Dictionary or first.get("kind") != "shaft" or first.get("generation") != _belt_start.generation:
 			_belt_start.clear()
@@ -235,8 +245,11 @@ func handle_world_click(center: Array, entity_id: String) -> bool:
 			return true
 		var from: String = _belt_start.id
 		var selection: String = _belt_start.request
-		_belt_start.clear()
-		_submit(context, {"action": "place_selected_belt_span", "from": from, "to": entity_id, "selection": selection})
+		var receipt := _submit(context, {"action": "place_selected_belt_span", "from": from, "to": entity_id, "selection": selection})
+		if receipt.get("accepted", false) or receipt.get("reason", "") == "invalid_belt_selection":
+			_belt_start.clear()
+		elif receipt.get("queued", false) and typeof(receipt.get("request")) == TYPE_STRING and not receipt.request.is_empty():
+			_belt_start.placement_request = receipt.request
 		return true
 	var part := _part(context, entity_id)
 	if part.is_empty():

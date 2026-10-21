@@ -3862,6 +3862,8 @@ func _load_worksite(path: String = "", startup_resume := false) -> Dictionary:
 	if last_load_result.accepted:
 		# Restored revision/order may be lower or equal. Invalidate presentation
 		# caches instead of altering the restored authoritative version.
+		if transmission_controls != null:
+			transmission_controls.clear_belt_selection()
 		selected = ""
 		pending_link = ""
 		geometry_key = ""
