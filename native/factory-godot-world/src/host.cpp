@@ -1216,7 +1216,7 @@ Host::Decoded Host::decode(const Value& input) const {
             return value < -mechanics::maximum_coordinate || value > mechanics::maximum_coordinate;
         })) return {nullptr, "incompatible_geometry"};
         if (part.role == Role::shaft) {
-            if (part.geometry.half_span != 2 && part.geometry.half_span != 4)
+            if (part.geometry.half_span != 2)
                 return {nullptr, "incompatible_geometry"};
         } else if (part.role == Role::gear) {
             if (part.geometry.teeth != 2 && part.geometry.teeth != 4) return {nullptr, "incompatible_geometry"};
