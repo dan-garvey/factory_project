@@ -20,6 +20,10 @@ multi-press or combined press/cut machine is an example of the system. The
 construction vocabulary must also accommodate new families without requiring a
 new bespoke renderer for every complete machine.
 
+The [component source shortlist](component-source-shortlist.md) now identifies
+specific industrial kits and models, their declared component separation and
+the remaining adaptation work. These are candidates, with no new engine import.
+
 The visual target remains the [production presentation target](production-quality.md).
 Successful mesh generation alone cannot establish it. A beautiful source model
 also needs appropriate composition, lighting and motion in the actual worksite.
@@ -188,7 +192,8 @@ Prefer assets with editable parts, useful pivots, plausible thickness, materials
 that transfer, and licenses that permit adaptation and distribution inside the
 public game repository. A CAD-looking download is not enough: its license,
 tessellation, hidden internals and independent moving pieces need assessment.
-No specific external industrial component kit has yet been qualified here.
+Specific source candidates are assessed in the linked shortlist. No external
+industrial kit has yet been validated as a compatible runtime construction kit.
 
 One immediately reusable sourced surface is the existing
 [Metal Plate 02 set](../../experiments/engine-environment/godot/opening/assets/steel/CREDITS.md).
@@ -261,5 +266,5 @@ testing remains disabled.
 After that sample, extend the same component contract to a configurable wheel
 and interchangeable press/cut tool mounts. Record any missing native geometry,
 phase or process interfaces as specific implementation outcomes. The recommendation
-is ready to guide that work; production asset quality, a qualified industrial kit,
+is ready to guide that work; production asset quality, a runtime-qualified kit,
 exact tooth appearance and general multi-tool gameplay remain unproved.
