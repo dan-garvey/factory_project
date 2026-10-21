@@ -72,7 +72,7 @@ Start with the following bounded defaults. They are chosen for the opening exper
 | Surface | Opening default |
 | --- | --- |
 | Production | A complete softmetal cutter/collector removes standardized blanks from a finite exposed seam. A short player-placed belt feeds a complete press; one blank becomes one plate. No channel rolls, component kits or custom carrier are required. |
-| Starter power | A waterwheel placed in flowing water provides rotation according to the local current's speed and direction. Its axle shares the same world-space height origin and offset as shafts on foundations. The player places individual shafts and cogwheels; power follows their geometric engagement rather than arbitrary drive links. The initial current may be a declared non-consuming site field rather than a fluid simulation. Exact wheel dimensions, transmission sizes and kit remain revisable. |
+| Starter power | A waterwheel placed in flowing water provides rotation according to the local current's speed and direction. Its axle shares the same world-space height origin and offset as shafts on foundations. The player places individual shafts and cogwheels; power follows their geometric engagement rather than arbitrary drive links. The initial current may be a declared non-consuming site field rather than a fluid simulation. The minimum wheel is one tile wide along its axle and three tiles in diameter; larger integer diameters, transmission sizes and kit remain revisable. |
 | Site and construction | One small 3D site with an accessible seam and stream. A controlled physical character places nearby stationary complete machines and transport on the global construction grid. Camera/raycast location alone cannot grant reach. Choose and record a tunable initial range, rather than a permanent number. Begin with physically carried parts sufficient for one working path and a rebuild; placement consumes actual carried parts, dismantling returns them without loss. No remote withdrawal or hidden part refill. |
 | Material handling | The seam starts with 16 blanks for this test fixture. Collector output, processor input, held work, belt contents and processor output have explicit authoritative owners. Use one-item machine input/output buffers; a full destination pauses upstream delivery or processing and retains the work. Removing the blockage resumes the same work without duplicate consumption/output. |
 | Processing and editing | A fixed configured work cycle produces one plate from one blank; no scrap, wear, fuel or additional ingredients in this experiment. Missing power pauses work without clearing it. Stationary edits and dismantling do not require stopping the global drive. Reject changes that would delete retained material and offer recovery of raw stock, products and unfinished work without silently changing their forms or progress. No construction in motion is introduced. |
@@ -308,6 +308,17 @@ Open question: which forms of feedstock and capacity keep the infrastructure rou
 ### Resource pressure without recurring manual replacement
 
 Early node-based extraction permanently exhausts its local deposit. Repeating discovery and extraction remains an available approach. More elaborate systems eventually automate the whole supply problem.
+
+The user wants the opening's mineable resource reworked as a recognizable finite
+deposit with substantially more stock than the original sixteen-unit fixture.
+Its mineral surface and the collector's extraction footprint must agree. A
+collector may sit a bounded vertical distance above that surface, allowing a
+leveling foundation between it and ore on sloped ground. Foundations and machines
+retain the same global height grid and origin; placing or removing a foundation
+does not move, refill or duplicate the deposit. The choice between one larger
+collector per node and multiple collectors covering mineral tiles remains open.
+Initial reserve size, footprint and extraction depth are reversible tuning
+choices, not permanent world or progression rules.
 
 This makes the transition to lasting supply a progression choice. Lasting-supply routes unlock through technology milestones after initial extraction has been established, rather than being available from the beginning. Node exhaustion creates an incentive to pursue them; it is not an unlock trigger or a timing condition. The exact chapter, prerequisites, and pacing remain open.
 

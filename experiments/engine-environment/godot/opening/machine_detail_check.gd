@@ -1452,8 +1452,8 @@ func foundation_contact(footing: MeshInstance3D, deck: MeshInstance3D) -> Dictio
 
 func foundation_bounds_match(parent: Node3D) -> bool:
 	var bounds := feed_item_bounds(parent, parent.transform.affine_inverse())
-	return bounds.position.is_equal_approx(Vector3(-0.825, -1.65, -0.825)) \
-		and bounds.size.is_equal_approx(Vector3(1.65, 1.65, 1.65))
+	return bounds.position.is_equal_approx(Vector3(-Geometry.PITCH / 2.0, -Geometry.FOUNDATION_DEPTH, -Geometry.PITCH / 2.0)) \
+		and bounds.size.is_equal_approx(Vector3(Geometry.PITCH, Geometry.FOUNDATION_DEPTH, Geometry.PITCH))
 
 func check_foundation_art() -> void:
 	var control_root := OS.get_environment("FACTORY_FOUNDATION_RESOURCE_CONTROLS")
@@ -1520,8 +1520,8 @@ func check_foundation_art() -> void:
 				"Each piece is baked passive geometry, without collision, input, processing or state authority.")
 			var key := str(part.name)
 			if not seen.has(key):
-				check_closed_asset_mesh(part.mesh, 4.41 if part == footing else 0.063,
-					4.44 if part == footing else 0.066)
+				check_closed_asset_mesh(part.mesh, 2.17 if part == footing else 0.063,
+					2.19 if part == footing else 0.066)
 				seen[key] = [part.mesh, part.material_override]
 			verify(part.mesh == seen[key][0] and part.material_override == seen[key][1],
 				"Translated and stacked sections reuse the same actual mesh and surface resources.")
@@ -1532,8 +1532,8 @@ func check_foundation_art() -> void:
 		contacts.append(contact)
 		var top := foundation_plane(deck, true)
 		var bottom := foundation_plane(footing, false)
-		verify(absf(top.height) < 0.000001 and absf(bottom.height + 1.65) < 0.000001,
-			"The actual top and base facets meet the common zero and one-pitch stacking datums.")
+		verify(absf(top.height) < 0.000001 and absf(bottom.height + Geometry.FOUNDATION_DEPTH) < 0.000001,
+			"The actual top and base facets meet the common zero and two-step stacking datums.")
 		var deck_pose := deck.position
 		deck.position.y += 0.01
 		verify(not foundation_contact(footing, deck).valid, "A floating deck fails despite unchanged mesh bounds.")
@@ -1549,13 +1549,13 @@ func check_foundation_art() -> void:
 		patch.add_child(tile)
 		verify(FoundationArt.mount(tile), "Each joined tile uses the same qualified kit.")
 	var patch_bounds := feed_item_bounds(patch, Transform3D.IDENTITY)
-	verify(patch_bounds.position.is_equal_approx(Vector3(-0.825, -1.65, -0.825))
-		and patch_bounds.size.is_equal_approx(Vector3(3.3, 1.65, 3.3)),
+	verify(patch_bounds.position.is_equal_approx(Vector3(-0.825, -Geometry.FOUNDATION_DEPTH, -0.825))
+		and patch_bounds.size.is_equal_approx(Vector3(3.3, Geometry.FOUNDATION_DEPTH, 3.3)),
 		"A two-by-two assembly joins on the one world grid without cumulative local offsets.")
 	patch.free()
 	var lower := Node3D.new()
 	var upper := Node3D.new()
-	upper.position.y = Geometry.PITCH
+	upper.position.y = Geometry.FOUNDATION_DEPTH
 	verify(FoundationArt.mount(lower) and FoundationArt.mount(upper), "Stacked tiles mount the same passive kit.")
 	var lower_deck := foundation_plane(lower.get_node("FoundationTop"), true)
 	var upper_base := foundation_plane(upper.get_node("FoundationBlock"), false)
@@ -4203,6 +4203,10 @@ func render_buildable_resources() -> void:
 	quit(0)
 
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--foundation-art-only"):
+		check_foundation_art()
+		finish()
+		return
 	if OS.get_cmdline_user_args().has("--render-buildable-resources"):
 		if OS.get_cmdline_user_args().has("--foundation-art-check"):
 			check_foundation_art()

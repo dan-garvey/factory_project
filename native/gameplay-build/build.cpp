@@ -28,6 +28,8 @@ const std::vector<std::string> paths{
     "native/factory-godot-values/src", "native/factory-godot-values/include", "native/factory-godot-values/vendor", "native/factory-godot-values/BUILD.bazel",
     "native/factory-value/src", "native/factory-value/include", "native/factory-value/BUILD.bazel",
     "native/factory-world/src", "native/factory-world/include", "native/factory-world/BUILD.bazel",
+    "native/mineral-site/src", "native/mineral-site/include", "native/mineral-site/BUILD.bazel",
+    "native/waterwheel/src", "native/waterwheel/include", "native/waterwheel/BUILD.bazel",
     "native/factory-core/src", "native/factory-core/include", "native/factory-core/BUILD.bazel",
     "native/factory-stationary/src", "native/factory-stationary/include", "native/factory-stationary/BUILD.bazel",
     "native/factory-authority/src", "native/factory-authority/include", "native/factory-authority/BUILD.bazel",

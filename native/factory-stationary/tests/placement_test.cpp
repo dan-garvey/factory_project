@@ -187,6 +187,37 @@ void exact_specification_and_refusals() {
             s::PlacementError::part_limit);
 }
 
+void shaft_occupancy() {
+    for (const auto axis : {m::Axis::x, m::Axis::y, m::Axis::z}) {
+        auto f = fixture();
+        f.kit[{s::Role::shaft, 0, 2}] = 1;
+        auto& existing = f.topology.parts[1];
+        existing.geometry.center = {100, 100, 100};
+        existing.geometry.axis = axis;
+        auto candidate = shaft("new-shaft");
+        candidate.geometry.center = existing.geometry.center;
+        candidate.geometry.axis = axis;
+        const auto dimension = static_cast<std::size_t>(axis);
+        refusal(place(f.topology, f.kit, f.state, candidate), s::PlacementError::overlapping_shafts);
+        candidate.geometry.center[dimension] += 3;
+        refusal(place(f.topology, f.kit, f.state, candidate), s::PlacementError::overlapping_shafts);
+        candidate.geometry.center[dimension] += 1;
+        check(std::holds_alternative<s::PreparedPlacement>(place(f.topology, f.kit, f.state, candidate)),
+              "Touching shaft ends are admitted on each axis.");
+        candidate.geometry.center[dimension] += 1;
+        check(std::holds_alternative<s::PreparedPlacement>(place(f.topology, f.kit, f.state, candidate)),
+              "Separated shaft lengths are admitted.");
+        candidate.geometry.center = existing.geometry.center;
+        candidate.geometry.center[(dimension + 1) % 3] += 1;
+        check(std::holds_alternative<s::PreparedPlacement>(place(f.topology, f.kit, f.state, candidate)),
+              "Offset parallel shafts are admitted.");
+        candidate.geometry.center = existing.geometry.center;
+        f.topology.parts.push_back(candidate);
+        check(!s::power_view(f.topology).mechanical.accepted(),
+              "A supplied topology with overlapping shafts is invalid.");
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -194,6 +225,7 @@ int main() {
         rebuild_returned_shaft();
         rebuild_returned_source();
         exact_specification_and_refusals();
+        shaft_occupancy();
         std::cout << "{\"status\":\"pass\",\"evidence\":\"invented_stationary_rebuild\","
                      "\"checks\":" << checks << "}\n";
         return 0;

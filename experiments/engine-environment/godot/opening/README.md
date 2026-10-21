@@ -24,12 +24,15 @@ order, not a technology unlock or a saved progression rule. Reopening a worksite
 derives the suggestions again from its actual machines, links and inventory.
 
 **Foundation [6]** builds a level surface from the carried kit. Its height controls
-and Page Up / Page Down move by one full block, initially at world level zero. Every
+and Page Up / Page Down move by one height step, initially at world level zero. Every
 foundation and machine uses the same quarter-pitch height unit, currently
 0.4125 m on 1.65 m horizontal tiles. Machinery snaps to a confirmed foundation's
-top. Independent sections can meet on that grid; a full-height block stacks four
-height units above another block. Foundations may float or intersect terrain,
-rocks and vegetation; no ground contact or gravity support is required. Enable
+top. Independent sections can meet on that grid; a 0.825 m foundation stacks two
+height units above another foundation. The 1.65 m machines remain two foundation
+depths tall. At gravity 14 and jump speed 6, the ideal jump rise is about 1.29 m,
+leaving about 0.46 m of clearance above one foundation. Foundations may float
+or intersect terrain, rocks and vegetation; no ground contact or gravity support
+is required. Enable
 **Area (two corners)** to select opposite corners of a rectangular patch at the
 chosen height. The translucent preview shows the full footprint. The second
 click requests the entire patch atomically from carried parts; insufficient
@@ -46,7 +49,7 @@ are not migrated to this changed feature profile.
 
 In the native profile, place the waterwheel in the stream with its lower rim
 immersed and clear of the bed. The wheel tool adjusts its diameter in whole grid
-squares and its level on the shared height grid. Choose a horizontal axle across
+squares, starting at a three-square diameter, and its level on the shared height grid. Choose a horizontal axle across
 the current; the sampled flow controls the wheel's signed rotation, and a larger
 wheel turns more slowly in the same current. A wheel can be wet yet stationary
 when the flow is parallel to its axle. The current is an experimental fixed site

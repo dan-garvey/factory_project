@@ -41,7 +41,7 @@ struct PlacedPart {
     std::int64_t generation{};
     Role role{Role::collector};
     // Diameter of a complete waterwheel in world grid squares. Other parts use 1.
-    mechanics::Integer wheel_tiles{1};
+    mechanics::Integer wheel_tiles{role == Role::waterwheel ? 3 : 1};
     bool operator==(const PlacedPart&) const = default;
 };
 
@@ -160,6 +160,7 @@ enum class PlacementError {
     part_limit,
     unavailable_part,
     incompatible_source,
+    overlapping_shafts,
     invalid_mechanics,
 };
 

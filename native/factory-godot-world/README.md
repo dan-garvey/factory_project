@@ -10,9 +10,22 @@ selects the historical scripted fixture. The existing shared server can explicit
 select this same native owner with `--native-world`; clients remain read-only
 Session facades and never instantiate a native World.
 
-The current opening adapter is a revisable profile: sixteen raw units, one-unit
-buffers, a two-tick press, four-world-unit reach and the existing site/capsule
-geometry. It preserves the original wire intent in World's history. Exact retry
+The current opening adapter is a revisable profile: a finite 4,096-unit mineral
+deposit, a 32-blank collector buffer, one-unit downstream buffers, a two-tick
+press, four-world-unit reach and the existing site/capsule geometry. Batch raw
+recovery lets the larger reserve fit the prototype's request and save budgets.
+The view receives `source_deposit.cells`, initial stock, buffer capacity and
+maximum depth from this native owner; it holds no source ledger. The initial
+node covers cells `[0, 0]` and `[0, 1]`, with one carried collector.
+
+The collector may operate above the mineral surface by at most eight common
+height steps (3.3 m), allowing a leveling foundation over sloped ore. Construction
+support, actor occupancy and proximity still apply independently. Placement and
+checkpoint import use the same mineral footprint and depth rule. Rebuilding a
+collector, changing foundations or reopening cannot refill the deposit. No old
+sixteen-unit checkpoint migration is provided.
+
+The adapter preserves the original wire intent in World's history. Exact retry
 lookup precedes current target translation, so removal, rebuilding and a fresh
 process cannot retarget an old receipt. Checkpoint import validates the original
 action and typed payload against that historical translation without using
@@ -28,10 +41,11 @@ the existing request history and never consume another block.
 
 At startup the trusted adapter binds the actual emitted terrain vertices and
 conservative rock/tree bounds once through `configure_terrain`. This interface is
-not a Session command. Native placement clips both terrain triangles throughout
-the complete footprint, refusing burial, unsupported bases and occupied scenery.
-Blocks can stack directly on other blocks; clear flat ground can support machines
-throughout the represented site. There is no privileged construction rectangle,
+not a Session command. Native machine placement clips both terrain triangles
+throughout the complete footprint, refusing burial, unsupported bases and occupied
+scenery. Foundations can intersect natural ground/scenery and need no lower block
+or gravity support; constructed parts and actors still block their placement.
+Clear flat ground can support machines throughout the represented site. There is no privileged construction rectangle,
 including for cogwheels. The current changed profile deliberately provides no old
 save migration. Store still owns persistence and atomic file publication.
 
@@ -226,6 +240,7 @@ existing World planner, finite kit and two-endpoint reach checks.
 | Command | Additional fields | Meaning |
 | --- | --- | --- |
 | `place_gear` | `center: [int, int, int]`, `axis: "x"`, `"y"` or `"z"`, `teeth: int` | Place one carried gear at an exact grid center. |
+| `place_shaft` | `center: [int, int, int]`, `axis: "x"`, `"y"` or `"z"`, `half_span: 2` or `4` | Place one carried shaft segment at an exact grid center. Segments transmit when their geometry engages; no endpoints are required to place one. |
 | `place` | Existing `kind` and `cell`, optional `axis` string | Orient a machine while retaining the existing cell wire. Belts use the Z spindle perpendicular to their X material path; other omitted axes default to X. |
 | `connect_drive` | Existing `from` and `to` identifiers | Consume a carried shaft that actually spans the two endpoints. |
 | `disconnect_drive` | Existing `from` and `to` identifiers | Return the matching shaft through the same World removal planner. |

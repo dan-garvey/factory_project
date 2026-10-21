@@ -903,7 +903,7 @@ class ProductionFoundationArt:
 		return finish
 
 	static func footing_mesh() -> ArrayMesh:
-		return ProductionVisuals.box_mesh(Vector3(Geometry.PITCH, Geometry.PITCH - DECK_THICKNESS, Geometry.PITCH))
+		return ProductionVisuals.box_mesh(Vector3(Geometry.PITCH, Geometry.FOUNDATION_DEPTH - DECK_THICKNESS, Geometry.PITCH))
 
 	static func deck_mesh() -> ArrayMesh:
 		return ProductionVisuals.box_mesh(Vector3(Geometry.PITCH, DECK_THICKNESS, Geometry.PITCH))
@@ -916,7 +916,7 @@ class ProductionFoundationArt:
 		var footing := MeshInstance3D.new()
 		footing.name = "FoundationBlock"
 		footing.mesh = footing_mesh()
-		footing.position.y = -(Geometry.PITCH + DECK_THICKNESS) / 2.0
+		footing.position.y = -(Geometry.FOUNDATION_DEPTH + DECK_THICKNESS) / 2.0
 		footing.material_override = concrete
 		parent.add_child(footing)
 		var deck := MeshInstance3D.new()
@@ -2335,13 +2335,13 @@ class ProductionEnvironment:
 			var half := size * 0.5
 			if entity.get("kind") == "wheel" and state.get("options", {}).get("native", false):
 				center.y = float(entity.get("level", 0)) * Geometry.HEIGHT_STEP + Geometry.ANCHOR_HEIGHT
-				half = Geometry.wheel_half_extents(int(entity.get("axis", 0)), int(entity.get("tiles", 1)))
+				half = Geometry.wheel_half_extents(int(entity.get("axis", 0)), int(entity.get("tiles", 3)))
 			volumes.append(AABB(center - half, half * 2.0).grow(0.08))
 		for foundation: Dictionary in state.get("foundations", {}).values():
 			var top := Vector3(foundation.cell[0] * Geometry.PITCH,
 				foundation.level * Geometry.HEIGHT_STEP, foundation.cell[1] * Geometry.PITCH)
-			volumes.append(AABB(top - Vector3(Geometry.PITCH * 0.5, Geometry.PITCH, Geometry.PITCH * 0.5),
-				Vector3.ONE * Geometry.PITCH).grow(0.08))
+			volumes.append(AABB(top - Vector3(Geometry.PITCH * 0.5, Geometry.FOUNDATION_DEPTH, Geometry.PITCH * 0.5),
+				Vector3(Geometry.PITCH, Geometry.FOUNDATION_DEPTH, Geometry.PITCH)).grow(0.08))
 		return volumes
 
 	static func _refresh_plant_patch(patch: MultiMeshInstance3D, volumes: Array[AABB]) -> void:
@@ -2878,7 +2878,7 @@ class ConstructionAudio:
 					return "belt_snap"
 				if action.get("kind") in ["collector", "processor", "wheel"]:
 					return "assembly"
-			"place_gear", "connect_drive", "connect":
+			"place_gear", "place_shaft", "connect_drive", "connect":
 				return "coupling"
 			"remove", "disconnect_drive", "disconnect":
 				return "release"
@@ -3279,8 +3279,8 @@ var foundation_area_start := Vector2i.ZERO
 var foundation_area_toggle: CheckButton
 var foundation_level_controls: HBoxContainer
 var foundation_level_label: Label
-var wheel_level := 0
-var wheel_tiles := 1
+var wheel_level := 4
+var wheel_tiles := 3
 var wheel_size_controls: HBoxContainer
 var wheel_size_label: Label
 var state: Dictionary = {}
@@ -3615,7 +3615,7 @@ func issue(action: Dictionary) -> Dictionary:
 	if not legacy_fixture and actor_world != null:
 		actor_world.sync_topology()
 	if outcome.accepted:
-		if action.action == "place_gear":
+		if action.action in ["place_gear", "place_shaft"]:
 			selected = str(outcome.get("entity", ""))
 		elif action.action == "remove" and selected == action.get("entity", ""):
 			selected = ""
@@ -3651,6 +3651,7 @@ func issue(action: Dictionary) -> Dictionary:
 func _material_refusal_message(outcome: Dictionary, fallback: String) -> String:
 	var foundation_advice: String = {
 		"axles_already_touch": "These axle ends already touch; no shaft is needed.",
+		"overlapping_shafts": "A shaft already occupies that length. Place the new segment end to end.",
 		"foundation_required": "Build a foundation here first so the machine has a level surface.",
 		"invalid_area": "Choose a rectangle of at most 256 foundation tiles.",
 		"foundation_in_use": "Remove the machinery on this foundation before reclaiming it.",
@@ -4098,7 +4099,7 @@ func _adjust_foundation_level(delta: int) -> void:
 func _adjust_wheel_size(delta: int) -> void:
 	if mode != "wheel" or not _native_transmission() or explanation_open:
 		return
-	wheel_tiles = clampi(wheel_tiles + delta, 1, 4096)
+	wheel_tiles = clampi(wheel_tiles + delta, 3, 4096)
 	wheel_size_label.text = "Wheel diameter: %d squares" % wheel_tiles
 	_refresh_placement_hint(true)
 
@@ -4517,7 +4518,7 @@ func _wheel_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	# Paddle tips use a 0.70-unit source radius. The larger rotor reaches the
 	# water while its center stays at the common machine spindle height.
 	var rotor_scale := Geometry.WATERWHEEL_RADIUS / 0.70 if native_profile else scale_factor
-	var radial_scale := rotor_scale * int(entity.get("tiles", 1)) if native_profile else rotor_scale
+	var radial_scale := rotor_scale * int(entity.get("tiles", 3)) if native_profile else rotor_scale
 	wheel_rotor.scale = Vector3(radial_scale, radial_scale, rotor_scale)
 	if native_profile and axis == Vector3.RIGHT:
 		wheel_rotor.rotation.y = PI / 2
@@ -4623,7 +4624,7 @@ func _rebuild_machines() -> void:
 		body.set_meta("entity", entity_id)
 		var collider := CollisionShape3D.new()
 		var shape := BoxShape3D.new()
-		shape.size = Geometry.wheel_half_extents(int(entity.get("axis", 0)), int(entity.get("tiles", 1))) * 2.0 if kind == "wheel" and _native_transmission() else Vector3(Geometry.MACHINE_SIZE[0], Geometry.MACHINE_SIZE[1], Geometry.MACHINE_SIZE[2])
+		shape.size = Geometry.wheel_half_extents(int(entity.get("axis", 0)), int(entity.get("tiles", 3))) * 2.0 if kind == "wheel" and _native_transmission() else Vector3(Geometry.MACHINE_SIZE[0], Geometry.MACHINE_SIZE[1], Geometry.MACHINE_SIZE[2])
 		collider.shape = shape
 		collider.position.y = Geometry.ANCHOR_HEIGHT if kind == "wheel" and _native_transmission() else Geometry.MACHINE_CENTER_HEIGHT
 		body.add_child(collider)
@@ -5075,7 +5076,7 @@ func _update_cursor() -> void:
 	_refresh_machine_captions()
 	if _native_transmission() and transmission_controls != null and not transmission_controls.active_tool.is_empty():
 		hover.visible = false
-		if transmission_controls.active_tool == "gear" and not explanation_open and _can_control_character():
+		if transmission_controls.active_tool in ["gear", "place_shaft"] and not explanation_open and _can_control_character():
 			var center := _transmission_center(get_viewport().get_mouse_position())
 			if center.size() == 3 and absi(center[0]) <= Geometry.GRID_COORDINATE_LIMIT and absi(center[2]) <= Geometry.GRID_COORDINATE_LIMIT:
 				hover.visible = true
@@ -5195,7 +5196,7 @@ func _build_interface() -> void:
 	wheel_size_controls = HBoxContainer.new()
 	build.add_child(wheel_size_controls)
 	_button(wheel_size_controls, "−", _adjust_wheel_size.bind(-1))
-	wheel_size_label = _label(wheel_size_controls, "Wheel diameter: 1 square", 14)
+	wheel_size_label = _label(wheel_size_controls, "Wheel diameter: 3 squares", 14)
 	_button(wheel_size_controls, "+", _adjust_wheel_size.bind(1))
 	wheel_size_controls.visible = false
 	foundation_area_toggle = CheckButton.new()

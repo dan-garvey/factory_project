@@ -5,6 +5,7 @@ extends RefCounted
 const PITCH := 1.65
 const HEIGHT_DENOMINATOR := 4
 const HEIGHT_STEP := PITCH / HEIGHT_DENOMINATOR
+const FOUNDATION_DEPTH := 2.0 * HEIGHT_STEP
 const GRID_COORDINATE_LIMIT := 1000000 # Native integer representation bound.
 const ANCHOR_HEIGHT := 0.5
 const WATERWHEEL_RADIUS := 2.0 * HEIGHT_STEP

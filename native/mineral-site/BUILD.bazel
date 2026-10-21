@@ -1,0 +1,17 @@
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "mineral_site",
+    srcs = ["src/mineral_site.cpp"],
+    hdrs = ["include/factory/mineral_site.hpp"],
+    strip_include_prefix = "include",
+)
+
+cc_test(
+    name = "mineral_site_test",
+    srcs = ["tests/mineral_site_test.cpp"],
+    deps = [":mineral_site"],
+    size = "small",
+)
