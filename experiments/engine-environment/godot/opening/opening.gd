@@ -5107,7 +5107,7 @@ func _update_cursor() -> void:
 				hover.basis = transmission_presenter.axis_basis(["x", "y", "z"].find(transmission_controls.selected_axis))
 		return
 	hover.basis = Basis.IDENTITY
-	hover.visible = _build_cell_allowed(hover_cell) and not explanation_open
+	hover.visible = mode != "inspect" and _build_cell_allowed(hover_cell) and not explanation_open
 	if hover.visible:
 		hover.position = _cell_position([hover_cell.x, hover_cell.y]) + Vector3(0, 0.03 + _construction_level(hover_cell) * Geometry.HEIGHT_STEP, 0)
 
