@@ -30,3 +30,10 @@ cc_test(
     srcs = ["tests/fractional_slots_test.cpp"],
     deps = [":workbench"],
 )
+
+cc_test(
+    name = "tandem_test",
+    size = "small",
+    srcs = ["tests/tandem_test.cpp"],
+    deps = [":workbench"],
+)
