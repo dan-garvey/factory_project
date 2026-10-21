@@ -80,16 +80,27 @@ static func _seam_point(point: Vector2, mineral: bool = false) -> Vector3:
 	return Vector3(point.x, Scenery.Surface.height_at(point.x, point.y) + lift + (0.006 if mineral else 0.0), point.y)
 
 
-static func _seam_triangle(surface: SurfaceTool, a: Vector3, b: Vector3, c: Vector3) -> void:
+static func _seam_radius(angle: float) -> float:
+	return 0.78 + 0.12 * sin(3.0 * angle + 0.5) + 0.065 * sin(5.0 * angle - 1.7) + 0.04 * cos(9.0 * angle)
+
+
+static func _seam_offset(point: Vector2, half_size: Vector2) -> Vector2:
+	return point * half_size * _seam_radius(point.angle())
+
+
+static func _seam_triangle(surface: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, opacity: Vector3) -> void:
 	var normal := (c - a).cross(b - a).normalized()
 	if normal.y < 0:
 		var swap := b
 		b = c
 		c = swap
+		opacity = Vector3(opacity.x, opacity.z, opacity.y)
 		normal = -normal
-	for point in [a, b, c]:
+	for index in range(3):
+		var point: Vector3 = [a, b, c][index]
 		surface.set_normal(normal)
 		surface.set_uv(Vector2(point.x, point.z))
+		surface.set_color(Color(1.0, 1.0, 1.0, opacity[index]))
 		surface.add_vertex(point)
 
 
@@ -108,15 +119,14 @@ static func _seam_mesh(bounds: Rect2, band: int) -> ArrayMesh:
 			var ring: Array[Vector2] = []
 			for index in [n, (n + 1) % 32]:
 				var angle := float(index) * TAU / 32.0
-				var radius := 0.96 + 0.025 * sin(3.0 * angle + 0.5) + 0.015 * sin(7.0 * angle - 1.2)
-				ring.append(Vector2(cos(angle), sin(angle)) * half_size * radius)
-			var inner_a := _seam_point(center + ring[0] * 0.43)
-			var inner_b := _seam_point(center + ring[1] * 0.43)
+				ring.append(_seam_offset(Vector2(cos(angle), sin(angle)), half_size))
+			var inner_a := _seam_point(center + ring[0] * 0.7)
+			var inner_b := _seam_point(center + ring[1] * 0.7)
 			var outer_a := _seam_point(center + ring[0])
 			var outer_b := _seam_point(center + ring[1])
-			_seam_triangle(surface, _seam_point(center), inner_a, inner_b)
-			_seam_triangle(surface, inner_a, outer_a, outer_b)
-			_seam_triangle(surface, inner_a, outer_b, inner_b)
+			_seam_triangle(surface, _seam_point(center), inner_a, inner_b, Vector3.ONE)
+			_seam_triangle(surface, inner_a, outer_a, outer_b, Vector3(1, 0, 0))
+			_seam_triangle(surface, inner_a, outer_b, inner_b, Vector3(1, 0, 1))
 	else:
 		# Branching fractures, not one repeated mesh for each stored unit.
 		var paths := [
@@ -129,21 +139,22 @@ static func _seam_mesh(bounds: Rect2, band: int) -> ArrayMesh:
 		for branch in range(paths.size()):
 			var path: Array = paths[branch]
 			for segment in range(path.size() - 1):
-				var start: Vector2 = center + path[segment] * half_size
-				var finish: Vector2 = center + path[segment + 1] * half_size
-				var along := start.direction_to(finish)
+				var start: Vector2 = path[segment]
+				var finish: Vector2 = path[segment + 1]
+				var along := ((finish - start) * half_size).normalized()
 				var across := Vector2(-along.y, along.x)
 				for step in range(6):
 					var edges: Array[Vector3] = []
 					for index in [step, step + 1]:
 						var t := float(index) / 6.0
 						var phase := float(branch * 7 + segment * 3) + t * 3.7
-						var at := start.lerp(finish, t) + across * sin(t * PI) * sin(phase) * 0.025
-						var radius := width * (0.72 + 0.28 * sin(phase + 0.9))
+						var local := start.lerp(finish, t)
+						var at := center + _seam_offset(local, half_size) + across * sin(t * PI) * sin(phase) * 0.025
+						var radius := width * (0.72 + 0.28 * sin(phase + 0.9)) * _seam_radius(local.angle())
 						edges.append(_seam_point(at - across * radius, true))
 						edges.append(_seam_point(at + across * radius, true))
-					_seam_triangle(surface, edges[0], edges[2], edges[3])
-					_seam_triangle(surface, edges[0], edges[3], edges[1])
+					_seam_triangle(surface, edges[0], edges[2], edges[3], Vector3.ONE)
+					_seam_triangle(surface, edges[0], edges[3], edges[1], Vector3.ONE)
 	surface.generate_tangents()
 	var mesh := surface.commit()
 	source_meshes[band] = mesh
@@ -166,9 +177,11 @@ static func mineral_deposit(parent: Node3D, state: Dictionary, pitch: float) -> 
 	var band := ceili(fraction * 8.0)
 	if source_rock == null:
 		source_rock = Scenery.stone_material().duplicate()
-		source_rock.albedo_color = Color("766c61")
+		source_rock.albedo_color = Color("a39a87")
+		source_rock.vertex_color_use_as_albedo = true
+		source_rock.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		source_mineral = Scenery.stone_material().duplicate()
-		source_mineral.albedo_color = Color("c2935a")
+		source_mineral.albedo_color = Color("b28c61")
 		source_mineral.metallic = 0.48
 		source_mineral.roughness = 0.62
 	var exposure := Node3D.new()
@@ -179,9 +192,11 @@ static func mineral_deposit(parent: Node3D, state: Dictionary, pitch: float) -> 
 	parent.add_child(exposure)
 	var host := _part(exposure, "ExposedRock", _seam_mesh(bounds, -1), Vector3.ZERO, Color.WHITE)
 	host.material_override = source_rock
+	host.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	if band > 0:
 		var mineral := _part(exposure, "MineralVeins", _seam_mesh(bounds, band), Vector3.ZERO, Color.WHITE)
 		mineral.material_override = source_mineral
+		mineral.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 
 static func workpiece_billet(parent: Node3D, at: Vector3 = Vector3.ZERO) -> Node3D:
