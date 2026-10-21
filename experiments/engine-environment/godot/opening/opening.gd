@@ -4080,6 +4080,8 @@ func _set_lesson(index: int) -> void:
 	lesson_index = posmod(index, LESSONS.size())
 	lesson_title.text = LESSONS[lesson_index][0]
 	lesson_body.text = LESSONS[lesson_index][1]
+	if lesson_index == 1 and _native_transmission():
+		lesson_body.text = "Place the waterwheel in the stream with its lower rim wet and clear of the bed. Set its diameter and height, and choose an axle across the current. Use cogs and shafts to connect the wheel to your machines; flow speed and direction determine its rotation."
 	if example_presenter != null:
 		example_presenter.set_lesson(lesson_index)
 

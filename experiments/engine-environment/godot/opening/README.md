@@ -44,6 +44,14 @@ block after its machinery has been removed; floating blocks above may remain. Th
 twenty-four carried blocks and dimensions are experimental defaults. Old saves
 are not migrated to this changed feature profile.
 
+In the native profile, place the waterwheel in the stream with its lower rim
+immersed and clear of the bed. The wheel tool adjusts its diameter in whole grid
+squares and its level on the shared height grid. Choose a horizontal axle across
+the current; the sampled flow controls the wheel's signed rotation, and a larger
+wheel turns more slowly in the same current. A wheel can be wet yet stationary
+when the flow is parallel to its axle. The current is an experimental fixed site
+field, not a fluid simulation.
+
 In the native profile, G selects a **finite shaft**, not an arbitrary power edge.
 Click its two machine or cogwheel endpoints; only the native geometric planner
 can accept the span. **Cogwheels and shafts…** offers individual gears, shaft
