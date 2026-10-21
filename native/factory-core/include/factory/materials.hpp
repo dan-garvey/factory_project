@@ -93,6 +93,9 @@ struct State {
     WorkId next_work_id{1};
     // Loose raw units remain owned by this state even if their belt is removed.
     std::map<DropPoint, Quantity> dropped_raw{};
+    // Live custody belongs to the one canonical material State, keyed by the
+    // World-owned belt span identity. World validates matching geometry.
+    std::map<std::string, BeltLane> belt_lanes{};
     bool operator==(const State&) const = default;
 };
 

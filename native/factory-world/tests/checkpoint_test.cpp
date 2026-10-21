@@ -256,10 +256,12 @@ void bounds_and_large_integers() {
 void belt_span_checkpoint() {
     w::Profile profile;
     profile.material = {1, 1, 2}; profile.initial_units = 1; profile.actors = {"P"};
+    profile.meters_per_grid_unit = 0.1;
     profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, 1}, {{s::Role::shaft, 0, 2}, 2},
                             {{s::Role::belt, 0, 0}, 1}};
     w::State state;
-    state.material.initial_units = 1; state.material.stock.source = 1;
+    state.material.initial_units = 1; state.material.stock.source = 0;
+    state.material.belt_lanes.emplace("belt", m::BeltLane{{std::nullopt, std::nullopt, m::Cargo{1, 0, {}}}, -123});
     state.material.cargo = {{"P", {}}}; state.kits = {{"P", {}}};
     state.topology.parts = {{{"wheel", g::Kind::hub, {0, 0, -4}, g::Axis::z, 0, 0}, 1, s::Role::waterwheel},
         {{"left", g::Kind::shaft, {0, 0, 0}, g::Axis::z, 0, 2}, 1, s::Role::shaft},
@@ -277,15 +279,50 @@ void belt_span_checkpoint() {
     auto restored = w::World::restore("saved-world", profile, std::get<w::Snapshot>(decoded));
     check(restored && s::power_view(restored->snapshot().state.topology).mechanical.motion.at("right").rate == g::Rate{1, 1},
           "A fresh World derives the same driven shaft from the restored belt.");
+    auto removal = command("remove_belt_span", "occupied-belt", "belt");
+    const auto occupied = send(*restored, removal);
+    check(occupied.completed() && !field<bool>(*occupied.result, "accepted") &&
+          field<std::string>(*occupied.result, "reason") == "occupied_target" &&
+          restored->snapshot().state.material.belt_lanes.at("belt") == state.material.belt_lanes.at("belt"),
+          "An occupied restored span cannot be removed or lose its item.");
+    const auto moving = restored->tick();
+    check(moving.error == w::TransactionError::none && moving.changed &&
+          restored->snapshot().state.material.belt_lanes.at("belt").slots[1] == m::Cargo{1, 0, {}} &&
+          restored->snapshot().state.material.belt_lanes.at("belt").phase == -123,
+          "Restored shaft power moves the original item toward the correct end with retained fractional phase.");
     auto spans = std::get<V::Array>(at(std::get<V>(encoded), {"state", "topology", "belt_spans"}).storage());
     spans[0] = edited(spans[0], {"last_shaft"}, V("missing"));
     refusal(profile, edited(std::get<V>(encoded), {"state", "topology", "belt_spans"}, V(spans)),
             w::CheckpointReason::invalid_world);
-    refusal(profile, edited(std::get<V>(encoded), {"schema"}, V(I{2})), w::CheckpointReason::unsupported_schema);
+    refusal(profile, edited(std::get<V>(encoded), {"schema"}, V(I{3})), w::CheckpointReason::unsupported_schema);
     auto malformed = state; malformed.topology.belt_spans[0].geometry.last_shaft = "missing";
     check(!w::World::create("saved-world", profile, malformed), "A dangling saved belt endpoint is refused.");
     malformed = state; malformed.kits.at("P")[{s::Role::belt, 0, 0}] = 1;
     check(!w::World::create("saved-world", profile, malformed), "A belt cannot be both placed and carried.");
+    malformed = state; malformed.material.belt_lanes.at("belt").slots.pop_back();
+    check(!w::World::create("saved-world", profile, malformed), "Lane length must match its span geometry.");
+    malformed = state; malformed.material.belt_lanes.emplace("orphan", m::BeltLane{{std::nullopt, std::nullopt}, 0});
+    check(!w::World::create("saved-world", profile, malformed), "An orphan lane cannot own material.");
+    malformed = state; malformed.topology.parts[1].geometry.center[0] = std::numeric_limits<I>::min();
+    check(!w::World::create("saved-world", profile, malformed), "Out-of-bounds span endpoints refuse before distance arithmetic.");
+    auto paused_state = state;
+    paused_state.topology.drive_enabled = false;
+    auto paused_world = w::World::create("paused-world", profile, paused_state);
+    check(paused_world != nullptr, "An unpowered span with retained cargo is valid.");
+    const auto paused = paused_world->tick();
+    check(paused.error == w::TransactionError::none && !paused.changed && paused_world->snapshot().state == paused_state,
+          "A stopped shaft cannot move cargo or its phase.");
+    auto reverse_profile = profile;
+    reverse_profile.waterwheel_rate = {-1, 1};
+    auto reverse_state = state;
+    reverse_state.topology.sources[0].rate = {-1, 1};
+    reverse_state.material.belt_lanes.at("belt") = {{std::nullopt, m::Cargo{1, 0, {}}, std::nullopt}, 0};
+    auto reverse_world = w::World::create("reverse-world", reverse_profile, reverse_state);
+    check(reverse_world != nullptr, "The reversed source admits the same conserved span.");
+    const auto reversing = reverse_world->tick();
+    check(reversing.error == w::TransactionError::none && reversing.changed &&
+          reverse_world->snapshot().state.material.belt_lanes.at("belt").slots[2] == m::Cargo{1, 0, {}},
+          "Reversing the shaft reverses lane travel.");
 }
 
 void belt_span_commands() {

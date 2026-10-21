@@ -106,12 +106,14 @@ an X-axis belt, at the same height. A cell is four integer quarter-pitch units. 
 diagonals, other heights and nearby power components do not attach. This is a
 revisable adapter layout, not a general material-routing rule.
 
-The logical checkpoint uses schema 3 and retains identified horizontal belt
+The logical checkpoint uses schema 4 and retains identified horizontal belt
 spans and their shaft endpoints. A span counts against the same finite belt
 part inventory as a conveyor. `place_belt_span` consumes a belt and checks
 reach to both shaft identities; `remove_belt_span` refunds it. Both retain
 generation and retry history. The native Host checks actor and site clearance,
-while ordinary player controls and cargo movement remain unimplemented.
+and canonical multi-slot lane custody. Ordinary controls can construct spans;
+loading, unloading, recovery and item presentation remain unimplemented. Occupied
+lanes advance from confirmed shaft motion and retain items at their closed ends.
 Earlier logical schema 2
 payloads are refused.
 

@@ -371,6 +371,9 @@ RemovalPlan prepare_belt_removal(const Topology& topology, const Kit& kit,
         [&](const auto& span) { return span.geometry.id == target.id; });
     if (found == topology.belt_spans.end()) return refuse(RemovalError::unknown_target);
     if (found->generation != target.generation) return refuse(RemovalError::stale_generation);
+    const auto lane = state.belt_lanes.find(target.id);
+    if (lane != state.belt_lanes.end() && std::any_of(lane->second.slots.begin(), lane->second.slots.end(),
+            [](const auto& item) { return item.has_value(); })) return refuse(RemovalError::occupied_target);
     const PartSpec spec{Role::belt, 0, 0};
     const auto carried = kit.find(spec);
     if (carried != kit.end() && carried->second == std::numeric_limits<materials::Quantity>::max())

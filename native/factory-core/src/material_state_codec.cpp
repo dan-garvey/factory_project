@@ -153,9 +153,15 @@ MaterialEncoding encode_material_state(const State& state, const Config& config,
         for (const auto& [point, count] : state.dropped_raw)
             drops.emplace_back(Object{{"point", Value(Value::Array{Value(point[0]), Value(point[1]), Value(point[2])})},
                                       {"raw_units", Value(count)}});
+        Object lanes;
+        for (const auto& [id, lane] : state.belt_lanes) {
+            Value::Array slots;
+            for (const auto& item : lane.slots) slots.push_back(item ? encode_cargo(*item) : Value(nullptr));
+            lanes.emplace(id, Value(Object{{"phase", Value(lane.phase)}, {"slots", Value(std::move(slots))}}));
+        }
         const auto& stock = state.stock;
         return Value(Object{
-            {"schema", Value(Value::Integer{3})},
+            {"schema", Value(Value::Integer{4})},
             {"initial_units", Value(state.initial_units)},
             {"stock", Value(Object{
                 {"source", Value(stock.source)}, {"collector", Value(stock.collector)},
@@ -163,6 +169,7 @@ MaterialEncoding encode_material_state(const State& state, const Config& config,
                 {"output", Value(stock.output)}})},
             {"cargo", Value(std::move(cargo))},
             {"dropped_raw", Value(std::move(drops))},
+            {"belt_lanes", Value(std::move(lanes))},
             {"processing", state.processing ? encode_lot(*state.processing) : Value(nullptr)},
             {"next_work_id", Value(state.next_work_id)}});
     } catch (const CodecRefusal& refusal) { return refusal; }
@@ -173,8 +180,8 @@ MaterialDecoding decode_material_state(const Value& value, const Config& config,
     try {
         const auto roster = expected_roster(actors);
         const auto& root = fields(value, "$",
-            {"schema", "initial_units", "stock", "cargo", "dropped_raw", "processing", "next_work_id"});
-        if (integer(root.at("schema"), "$.schema") != 3)
+            {"schema", "initial_units", "stock", "cargo", "dropped_raw", "belt_lanes", "processing", "next_work_id"});
+        if (integer(root.at("schema"), "$.schema") != 4)
             refuse(CodecReason::unsupported_schema, "$.schema");
         const auto& stock = fields(root.at("stock"), "$.stock",
                                     {"source", "collector", "belt", "input", "output"});
@@ -186,6 +193,29 @@ MaterialDecoding decode_material_state(const Value& value, const Config& config,
             integer(stock.at("belt"), "$.stock.belt"),
             integer(stock.at("input"), "$.stock.input"),
             integer(stock.at("output"), "$.stock.output")};
+        const auto& lanes = object(root.at("belt_lanes"), "$.belt_lanes");
+        if (lanes.size() > 256) refuse(CodecReason::invalid_material_state, "$.belt_lanes");
+        for (const auto& [id, value_lane] : lanes) {
+            const auto& entry = fields(value_lane, "$.belt_lanes", {"phase", "slots"});
+            if (entry.at("slots").type() != Type::array) refuse(CodecReason::wrong_type, "$.belt_lanes.slots");
+            const auto& slots = std::get<Value::Array>(entry.at("slots").storage());
+            if (slots.size() < 2 || slots.size() > maximum_belt_slots)
+                refuse(CodecReason::invalid_material_state, "$.belt_lanes.slots");
+            BeltLane lane;
+            lane.phase = integer(entry.at("phase"), "$.belt_lanes.phase");
+            for (const auto& value_item : slots) {
+                if (value_item.type() == Type::null) {
+                    lane.slots.emplace_back(std::nullopt);
+                } else {
+                    const auto& item = fields(value_item, "$.belt_lanes.item", {"raw_units", "products", "work_lots"});
+                    if (item.at("work_lots").type() != Type::array ||
+                        std::get<Value::Array>(item.at("work_lots").storage()).size() > 1)
+                        refuse(CodecReason::invalid_material_state, "$.belt_lanes.item");
+                    lane.slots.emplace_back(decode_cargo(value_item, "$.belt_lanes.item"));
+                }
+            }
+            candidate.belt_lanes.emplace(id, std::move(lane));
+        }
         if (root.at("dropped_raw").type() != Type::array) refuse(CodecReason::wrong_type, "$.dropped_raw");
         const auto& drops = std::get<Value::Array>(root.at("dropped_raw").storage());
         if (drops.size() > maximum_drop_points) refuse(CodecReason::invalid_material_state, "$");
