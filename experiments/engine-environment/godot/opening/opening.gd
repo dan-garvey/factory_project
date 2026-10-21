@@ -657,7 +657,7 @@ class ProductionEnvironment:
 		var buffer := PackedFloat32Array()
 		for spec in Surface.rock_boxes():
 			var position: Vector3 = spec.center
-			var basis: Basis = spec.basis.scaled(spec.scale)
+			var basis: Basis = spec.basis * Basis.from_scale(spec.scale)
 			var color: Color = spec.color
 			buffer.append_array(PackedFloat32Array([
 				basis.x.x, basis.y.x, basis.z.x, position.x,
