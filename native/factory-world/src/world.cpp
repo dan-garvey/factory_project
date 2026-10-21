@@ -1178,13 +1178,25 @@ Advance World::tick() noexcept {
                     [](const auto& item) { return item.has_value(); });
                 const auto* item = toward_last ? (leading == slots.rend() ? nullptr : &**leading) :
                     (forward_leading == slots.end() ? nullptr : &**forward_leading);
-                const bool can_receive = item && item->raw_units == 1 && at(Role::processor, receiver_point) &&
+                const bool has_receiver = at(Role::processor, receiver_point);
+                const bool raw = item && *item == materials::Cargo{1, 0, {}};
+                const bool can_receive = raw && has_receiver &&
                     candidate.material.stock.input < profile_.material.input_units_per_product;
-                auto proposal = materials::advance_belt_lane(lane->second, toward_last ? speed : -speed, can_receive ? 1 : 0);
+                const bool valid_drop_point = std::all_of(receiver_point.begin(), receiver_point.end(), [](auto coordinate) {
+                    return coordinate >= -materials::maximum_drop_coordinate && coordinate <= materials::maximum_drop_coordinate;
+                });
+                const auto existing_drop = candidate.material.dropped_raw.find(receiver_point);
+                const bool drop_space = existing_drop != candidate.material.dropped_raw.end() ?
+                    existing_drop->second < std::numeric_limits<Integer>::max() :
+                    candidate.material.dropped_raw.size() < materials::maximum_drop_points;
+                const bool can_drop = raw && !has_receiver && valid_drop_point && drop_space;
+                auto proposal = materials::advance_belt_lane(lane->second, toward_last ? speed : -speed,
+                                                            can_receive || can_drop ? 1 : 0);
                 if (!proposal || proposal->delivered.size() > 1) throw materials::Error::invalid_state;
                 if (!proposal->delivered.empty()) {
                     if (proposal->delivered.front() != materials::Cargo{1, 0, {}}) throw materials::Error::invalid_state;
-                    ++candidate.material.stock.input;
+                    if (can_receive) ++candidate.material.stock.input;
+                    else ++candidate.material.dropped_raw[receiver_point];
                 }
                 lane->second = std::move(proposal->candidate);
             }

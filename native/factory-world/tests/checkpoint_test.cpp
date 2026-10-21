@@ -370,6 +370,37 @@ void inclined_material_route() {
         state.material.belt_lanes.emplace("span", m::BeltLane{{std::nullopt, std::nullopt, std::nullopt}, 0});
         for (const auto& part : state.topology.parts) state.issued_entities.emplace(part.geometry.id, 1);
         state.issued_entities.emplace("span", 1);
+        auto open_state = state;
+        std::erase_if(open_state.topology.parts, [](const auto& part) { return part.role == s::Role::processor; });
+        open_state.kits.at("P")[{s::Role::processor, 0, 0}] = 1;
+        auto open_world = w::World::create("inclined-open", profile, open_state);
+        check(open_world != nullptr, "An open inclined route conserves its unplaced processor.");
+        for (int i = 0; i < 8; ++i)
+            check(open_world->tick().error == w::TransactionError::none, "The open inclined route advances.");
+        const auto open_snapshot = open_world->snapshot();
+        const m::DropPoint exit{12, 16, 0};
+        check(open_snapshot.state.material.dropped_raw.contains(exit), "An inclined belt ejects a blank at its elevated open end.");
+        const auto open_encoded = w::encode_checkpoint(profile, open_snapshot);
+        check(std::holds_alternative<V>(open_encoded), "The ejected inclined blank encodes.");
+        const auto open_decoded = w::decode_checkpoint(profile, "inclined-open", std::get<V>(open_encoded));
+        check(std::holds_alternative<w::Snapshot>(open_decoded), "The ejected inclined blank decodes.");
+        auto open_restored = w::World::restore("inclined-open", profile, std::get<w::Snapshot>(open_decoded));
+        check(open_restored && open_restored->snapshot().state.material.dropped_raw == open_snapshot.state.material.dropped_raw,
+              "A fresh World retains the ejected inclined blank.");
+        if (!reverse_endpoints) {
+            auto capacity_profile = profile;
+            capacity_profile.initial_units = static_cast<I>(m::maximum_drop_points) + 1;
+            auto capacity_state = open_state;
+            capacity_state.material.initial_units = capacity_profile.initial_units;
+            capacity_state.material.stock.source = 0;
+            capacity_state.material.belt_lanes.at("span").slots.back() = m::Cargo{1, 0, {}};
+            for (std::size_t i = 0; i < m::maximum_drop_points; ++i)
+                capacity_state.material.dropped_raw.emplace(m::DropPoint{100 + static_cast<I>(i) * 4, 0, 100}, 1);
+            auto capacity_world = w::World::create("inclined-capacity", capacity_profile, capacity_state);
+            check(capacity_world != nullptr && capacity_world->tick().error == w::TransactionError::none &&
+                      capacity_world->snapshot().state.material.belt_lanes.at("span").slots.back().has_value(),
+                  "A full loose-material store keeps the blank on the belt without losing custody.");
+        }
         auto world = w::World::create("inclined-route", profile, state);
         check(world != nullptr && w::machine_power(world->snapshot().state.topology).collector,
               "A powered collector and independently driven inclined belt form a conserved route.");
@@ -392,6 +423,10 @@ void inclined_material_route() {
         }
         check(restored->snapshot().state.material.stock.input == 1,
               "The elevated processor receives a collector blank from either endpoint order.");
+        const auto full = restored->snapshot().state.material;
+        check(full.dropped_raw.empty() && std::any_of(full.belt_lanes.at("span").slots.begin(),
+                  full.belt_lanes.at("span").slots.end(), [](const auto& item) { return item.has_value(); }),
+              "A full processor blocks the belt instead of ejecting its queued cargo.");
     }
 }
 
@@ -486,8 +521,24 @@ void belt_span_material_route() {
                 const auto& material = restored->snapshot().state.material;
                 check(material.stock.input == (reverse || gap ? 0 : 1),
                       "Only an adjacent processor in the direction of travel accepts raw material.");
+                if (reverse || gap) {
+                    const m::DropPoint exit{reverse ? -4 : 12, 0, 0};
+                    check(material.dropped_raw.contains(exit) && material.dropped_raw.at(exit) > 0,
+                          "An unconnected outgoing end ejects conserved raw cargo at its actual endpoint.");
+                }
                 check(m::validate(material, profile.material, w::material_path(restored->snapshot().state.topology)) == m::Error::none,
                       "A full processor and reversed flow preserve every finite source unit.");
+                if (reverse || gap) {
+                    const I exit_x = reverse ? -4 : 12;
+                    O pickup{{"context", V("route-world")}, {"client", V("P-old")}, {"request", V("pickup-ejected")},
+                        {"actor", V("P")}, {"action", V("pickup_raw")},
+                        {"center", V(V::Array{V(exit_x), V(I{0}), V(I{0})})}};
+                    const auto before_pickup = restored->snapshot().state.material.dropped_raw.at({exit_x, 0, 0});
+                    accepted(send(*restored, pickup));
+                    check(restored->snapshot().state.material.cargo.at("P").raw_units == before_pickup &&
+                              !restored->snapshot().state.material.dropped_raw.contains({exit_x, 0, 0}),
+                          "Ejected blanks move into the actor's canonical custody on pickup.");
+                }
             }
         }
     }
