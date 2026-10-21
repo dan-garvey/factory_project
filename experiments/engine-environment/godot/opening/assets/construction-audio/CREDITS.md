@@ -9,7 +9,9 @@ Factory layers selected metal, wood and soft impacts into designed belt,
 assembly, coupling and release feedback. These cues approximate mechanical
 attachment and removal; they do not identify a particular real fastener or alloy.
 The belt combines a soft body impact with a quieter metal latch 35 milliseconds
-later. Other layer identities, delays and gains are recorded in source.json.
+later. The full layer recipe, including filenames, delays and gains, is defined by
+`IMPACT_RECIPE` in [construction_audio_check.gd](../../construction_audio_check.gd).
+[source.json](source.json) records original file identities and prepared outputs.
 
 The existing construction fixture's `--prepare-impact-cues SOURCE OUTPUT` mode
 pins all seven original Vorbis files, decodes them through the pinned engine's
