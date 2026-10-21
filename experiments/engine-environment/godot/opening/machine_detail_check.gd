@@ -343,6 +343,8 @@ func check_span_belt_art() -> void:
 	var pulley_cache: Mesh
 	var loop_cache: Dictionary = {}
 	var observations: Array = []
+	var minimum_frame_contact := INF
+	var displaced_frame_controls := 0
 	for travel_axis in [0, 2]:
 		for tiles in [1, 2, 7, 19]:
 			var distance: float = tiles * Geometry.PITCH
@@ -353,6 +355,42 @@ func check_span_belt_art() -> void:
 			if loop == null:
 				anchor.free()
 				return
+			var frame_parts := 0
+			for child in loop.get_children():
+				if child is MeshInstance3D and child.has_meta("span_frame_role"):
+					frame_parts += 1
+					var frame_box: AABB = child.transform * child.mesh.get_aabb()
+					var inner_side := minf(absf(frame_box.position.z), absf(frame_box.end.z))
+					var outer_side := maxf(absf(frame_box.position.z), absf(frame_box.end.z))
+					verify(inner_side > TransmissionAssets.SPAN_HALF_WIDTH + 0.03
+						and outer_side < TransmissionAssets.SPAN_HALF_WIDTH + 0.10
+						and frame_box.position.y > -TransmissionAssets.SPAN_OUTER_RADIUS
+						and frame_box.end.y < TransmissionAssets.SPAN_OUTER_RADIUS
+						and frame_box.position.x > -distance / 2.0 - TransmissionAssets.SPAN_OUTER_RADIUS
+						and frame_box.end.x < distance / 2.0 + TransmissionAssets.SPAN_OUTER_RADIUS,
+						"Every fixed frame facet stays outside the rubber and cargo lane but inside the admitted span envelope.")
+					verify(child.get_script() == null and child.get_child_count() == 0
+						and not child is CollisionObject3D,
+						"The belt frame adds no controller or collision authority.")
+			verify(frame_parts == 6, "A span has exactly two rigid side rails and four open shaft seats.")
+			for side in [-1.0, 1.0]:
+				var rail: MeshInstance3D = loop.get_node("SpanFrameRailN" if side < 0 else "SpanFrameRailP")
+				for end in [-1.0, 1.0]:
+					var seat: MeshInstance3D = loop.get_node("SpanFrameSeat" + ("N" if end < 0 else "P") + ("N" if side < 0 else "P"))
+					var from := Vector3(end * distance / 2.0, -0.2, side * 0.515)
+					var overlap := press_input_overlap(rail, seat, from, from + Vector3.UP * 0.4)
+					minimum_frame_contact = minf(minimum_frame_contact, overlap)
+					verify(overlap > 0.005 and seat.mesh == loop.get_node("SpanFrameSeatNN").mesh,
+						"Each reusable bored shaft seat has measured solid contact with its fixed side rail.")
+					if tiles == 1 and travel_axis == 0 and side < 0 and end < 0:
+						var original_rail := rail.position
+						rail.position.z += side * 0.15
+						verify(press_input_overlap(rail, seat, from, from + Vector3.UP * 0.4) <= 0,
+							"A displaced side rail fails the same raw shaft-seat contact predicate.")
+						rail.position = original_rail
+						displaced_frame_controls += 1
+			if tiles == 1 and travel_axis == 0:
+				check_closed_asset_mesh(loop.get_node("SpanFrameSeatNN").mesh, 0.0005, 0.0008)
 			# A rubber shell's volume is its stadium perimeter times the radial
 			# section. These bounds allow bevel/facet loss, not a filled loop.
 			var volume := (2.0 * distance * 0.045 + PI * (0.1425 * 0.1425 - 0.0975 * 0.0975)) * (Geometry.PITCH * 0.55)
@@ -397,6 +435,10 @@ func check_span_belt_art() -> void:
 			var shaft := Node3D.new()
 			TransmissionAssets.shaft(shaft, Geometry.PITCH, Color.WHITE)
 			var pulley := TransmissionAssets.belt_pulley(shaft)
+			var seat: MeshInstance3D = loop.get_node("SpanFrameSeatNN")
+			verify(absf(seat.position.z) - 0.020 > pulley.mesh.get_aabb().end.y
+				and absf(seat.position.z) + 0.020 < Geometry.PITCH / 2.0,
+				"The open seat sits on actual shaft stock beyond the pulley face, not at an invented shaft tip.")
 			if pulley_cache == null:
 				check_closed_asset_mesh(pulley.mesh, 0.017, 0.025)
 				pulley_cache = pulley.mesh
@@ -429,9 +471,11 @@ func check_span_belt_art() -> void:
 	verify(not span_shell_closed(old_strips.commit()), "Two individually closed original strips are rejected as disconnected rubber.")
 	verify(ConveyorArt.loop_mesh() == default_mesh and loop_cache.size() == 4,
 		"Native span variants never replace the original conveyor's cached mesh.")
-	span_belt_checks_complete = not failed and observations.size() == 8
+	span_belt_checks_complete = not failed and observations.size() == 8 and displaced_frame_controls == 1
 	print(JSON.stringify({"phase": "closed native belt artwork", "assemblies": observations,
-		"completed": span_belt_checks_complete, "checks": checks, "native_world": false, "game_entry": false}))
+		"completed": span_belt_checks_complete, "checks": checks,
+		"minimum_frame_contact_metres": minimum_frame_contact,
+		"displaced_frame_controls": displaced_frame_controls, "native_world": false, "game_entry": false}))
 
 class PaddleSessionFacts extends RefCounted:
 	var ready := true

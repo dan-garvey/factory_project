@@ -244,6 +244,37 @@ static func shaft(parent: Node3D, length: float, color: Color) -> void:
 		_part(parent, "ShaftKey", Visuals.box_mesh(Vector3(0.012, 0.08, 0.012)),
 			Vector3(0.031, center, 0), Color("b87945"))
 
+static func _belt_frame(loop: MeshInstance3D, distance: float) -> void:
+	# The admitted span includes this fixed frame. Its seats surround the
+	# confirmed shafts outside the pulley faces; only the plain middle scales.
+	var rail_finish := Finish.material("cast", Color("41565b"), 0.55, 0.48)
+	var seat_finish := Finish.material("worked", Color("a6b4af"), 0.85, 0.38)
+	var ring_key := "span_frame_seat"
+	if not meshes.has(ring_key):
+		meshes[ring_key] = Visuals.turned_mesh(PackedVector2Array([
+			Vector2(0.034, -0.020), Vector2(0.037, -0.020),
+			Vector2(0.072, -0.020), Vector2(0.078, -0.014),
+			Vector2(0.078, 0.014), Vector2(0.072, 0.020),
+			Vector2(0.037, 0.020), Vector2(0.034, 0.017),
+			Vector2(0.034, -0.020)]))
+	for side in [-1.0, 1.0]:
+		var rail := MeshInstance3D.new()
+		rail.name = "SpanFrameRailN" if side < 0 else "SpanFrameRailP"
+		rail.mesh = Visuals.box_mesh(Vector3(distance, 0.11, 0.04))
+		rail.position = Vector3(0, 0, side * 0.515)
+		rail.material_override = rail_finish
+		rail.set_meta("span_frame_role", "Rail")
+		loop.add_child(rail)
+		for end in [-1.0, 1.0]:
+			var seat := MeshInstance3D.new()
+			seat.name = "SpanFrameSeat" + ("N" if end < 0 else "P") + ("N" if side < 0 else "P")
+			seat.mesh = meshes[ring_key]
+			seat.position = Vector3(end * distance / 2.0, 0, side * 0.515)
+			seat.basis = Basis(Quaternion(Vector3.UP, Vector3.BACK))
+			seat.material_override = seat_finish
+			seat.set_meta("span_frame_role", "Seat")
+			loop.add_child(seat)
+
 static func belt_loop(parent: Node3D, distance: float, travel_axis: int) -> MeshInstance3D:
 	# Keep the confirmed strips' width and four flat surface heights. Only
 	# their missing curved returns and material treatment are replaced.
@@ -261,6 +292,7 @@ static func belt_loop(parent: Node3D, distance: float, travel_axis: int) -> Mesh
 		loop.rotation.y = -PI / 2.0
 	loop.set_meta("asset_role", "BeltLoop")
 	parent.add_child(loop)
+	_belt_frame(loop, distance)
 	return loop
 
 static func belt_pulley(parent: Node3D) -> MeshInstance3D:
