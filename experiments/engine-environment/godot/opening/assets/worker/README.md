@@ -30,24 +30,35 @@ on a skeleton's global-pose cache before it enters the scene tree.
 Each player has a separate skeleton and shares immutable geometry and materials.
 The standing skinned mesh is uniformly fitted to the existing 1.8-metre capsule
 and its foot plane. The visual root remains exactly at the confirmed actor pose.
-The presentation gait advances from confirmed horizontal travel, with one
-two-step cycle per 1.65 metres. Recovery bends the lifted leg while the other
-supports the body; arms counter-swing with elbow flex, the spine and neck lean,
-and a small visual lift marks each passing phase. Gait strength follows observed
-speed and settles after movement stops. World changes and discontinuous positions
-reset it. This is a provisional procedural animation, not captured human
-movement or verified foot contact. Name labels retain the local-player
+The [neutral female run clip](https://github.com/microsoft/Microsoft-Rocketbox/blob/0943055db6ec570bcef9f2c8b41c9e5467c808f9/Assets/Animations/all_animations_max_motextr_xy/f_run_neutral.max.fbx)
+comes from the same Rocketbox library. Its compact native Godot animation resource
+keeps 34 named-skeleton rotation and translation tracks. At runtime, each track
+is applied relative to the clip's first pose and the worker's lowered-arm standing
+pose. One clip cycle advances per 1.65 metres of confirmed horizontal travel;
+observed speed blends the run toward rest. The clip's vertical root variation is
+cosmetic, and its horizontal root travel does not move the physical or visual
+actor root. The original FBX remains available at the pinned source revision.
+
+Confirmed rising and falling samples switch the visual skeleton into distinct
+takeoff, ascent, descent and compressed landing poses. Landing settles over
+0.24 seconds; a confirmed teleport, world change or unready actor discards its
+motion history. Because the shared projection has no floor-contact flag, the
+landing transition is inferred from confirmed height changes and can lag a new
+support height by one sample. This remains a presentation choice, not an actor
+simulation or proof of exact foot contact. Name labels retain the local-player
 indication; skin colors are not tinted to identify players.
 
 The asset has no collision or interaction shape, autonomous animation player,
 command producer, material inventory or saved state. Its limbs do not replace
-the capsule or grant construction reach. Facial animation, motion-capture clips,
-customization, visible carried-item equipment, physical limb contact and rendered
-performance remain separate work. Historical fixed source rosters that omit this
-folder retain their identified procedural worker.
+the capsule or grant construction reach. Facial animation, captured jump and
+landing clips, customization, visible carried-item equipment, physical limb
+contact and full-scene performance remain separate work. Historical fixed source
+rosters that omit this folder retain their identified procedural worker.
 
 `worker_rig_check.gd` exercises the actual presentation adapter using invented
-confirmed samples. It checks source bindings, materials, skinned dimensions and
-walk poses, per-player isolation, projection immutability and the absence of input
-calls. It also preserves the original procedural-worker controls. These are
-headless resource and binding checks, not human playtesting or appearance approval.
+confirmed samples. It checks source bindings, captured run poses, skinned dimensions,
+ascent, descent and landing transitions, per-player isolation, projection
+immutability and the absence of input calls. It also preserves the original
+procedural-worker controls. A passively rendered contact sheet in the retained
+local evidence records specific visible findings; neither the fixture nor that
+sheet is human playtesting or final appearance approval.

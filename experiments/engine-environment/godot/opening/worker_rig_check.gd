@@ -167,6 +167,10 @@ func inspect_adult(body: Node3D, other: Node3D, presenter: Node) -> void:
 				"Body and face bind the prepared normal maps and normalized mipmaps.")
 	verify(source_vertices == 5438 and source_triangles == 8732,
 		"The representative asset uses the exact converted original mesh level.")
+	verify(Presenter.adult_run_clip != null and Presenter.adult_run_clip.get_track_count() == 34
+		and absf(Presenter.adult_run_clip.length - 0.83333333333333) < 0.00001
+		and body.get_meta("run_bindings").size() >= 28,
+		"The captured run clip is directly available without an editor import cache and binds to the adult skeleton.")
 	var neutral := point_bounds(skin_points(body))
 	var appearance: Node3D = body.get_node("AdultHuman")
 	var source_rest: AABB = body.get_meta("source_rest_bounds")
@@ -195,14 +199,20 @@ func inspect_adult(body: Node3D, other: Node3D, presenter: Node) -> void:
 	verify(not skeleton.get_bone_pose_rotation(skeleton.find_bone("Bip01 Spine1")).is_equal_approx(resting_spine),
 		"Confirmed-distance movement articulates the upper body as well as the legs.")
 	presenter._set_gait(body, 0.0, 1.0)
-	verify(body.position.y > 0.0 and body.position.y < 0.026,
-		"The passing phase lifts only the visual body inside a small bounded range.")
+	verify(body.position.y > 0.0 and body.position.y < 0.056,
+		"Captured root motion lifts only the visual body inside a small bounded range.")
+	presenter._set_gait(body, 3.0 * PI / 4.0, 1.0)
 	skeleton.force_update_all_bone_transforms()
 	var to_body := body.global_transform.affine_inverse() * skeleton.global_transform
 	var left_hand: Vector3 = to_body * skeleton.get_bone_global_pose(skeleton.find_bone("Bip01 L Hand")).origin
 	var right_hand: Vector3 = to_body * skeleton.get_bone_global_pose(skeleton.find_bone("Bip01 R Hand")).origin
 	verify(absf(left_hand.z - right_hand.z) > 0.08 and absf(left_hand.y - right_hand.y) > 0.04,
-		"The passing pose has offset arm positions instead of a symmetric double swing.")
+		"The captured running cycle separates the two arms in depth and height.")
+	presenter._set_gait(body, 0.0, 0.0, 0.0, 0.0, 1.0)
+	var impact_bounds := point_bounds(skin_points(body))
+	verify(impact_bounds.position.y + body.position.y >= -0.901
+		and impact_bounds.position.y + body.position.y <= -0.85,
+		"The compressed landing pose keeps the skinned boots near and above the unchanged foot plane.")
 	presenter._set_gait(body, 0.0, 0.0)
 	verify(body.position == Vector3.ZERO, "The visual body returns to its original rest origin.")
 
@@ -281,9 +291,55 @@ func run() -> void:
 		presenter.refresh(1.0 / 60.0)
 	verify(float(presenter.motion.P.weight) == 0.0 and float(presenter.motion.Q.weight) == 0.0,
 		"A stopped observation settles both visual rigs after the brief sample gap.")
+	if sourced:
+		var still_leg := leg_rotation(body)
+		var other_leg := leg_rotation(other.get_node("BodyView"))
+		host.state.actors.P.position[1] = 0.98
+		presenter.refresh(1.0 / 60.0)
+		var rising_leg := leg_rotation(body)
+		verify(presenter.motion.P.mode == "ascent" and is_equal_approx(p.position.y, 0.98)
+			and not leg_rotation(body).is_equal_approx(still_leg),
+			"Confirmed rising motion changes the exact-root adult from idle to a distinct takeoff pose.")
+		var airborne_phase: float = presenter.motion.P.phase
+		for height in [1.42, 1.82, 1.86, 1.79, 1.38]:
+			host.state.actors.P.position[1] = height
+			host.state.actors.P.position[0] += 0.03
+			presenter.refresh(1.0 / 60.0)
+		verify(presenter.motion.P.mode == "descent" and presenter.motion.P.air > 0.9
+			and presenter.motion.P.phase == airborne_phase and is_equal_approx(p.position.y, 1.38)
+			and not leg_rotation(body).is_equal_approx(rising_leg),
+			"The flight pose follows confirmed ascent and descent without cycling grounded steps or predicting root travel.")
+		verify(leg_rotation(other.get_node("BodyView")).is_equal_approx(other_leg),
+			"One actor's jump cannot animate another actor's skeleton.")
+		host.state.actors.P.position[1] = 0.9
+		presenter.refresh(1.0 / 60.0)
+		verify(presenter.motion.P.mode == "landing" and body.position.y < 0.0
+			and is_equal_approx(p.position.y, 0.9),
+			"A confirmed return to the support height compresses only the visual rig at the exact actor root.")
+		for n in range(25):
+			presenter.refresh(1.0 / 60.0)
+		verify(presenter.motion.P.mode == "grounded" and body.position == Vector3.ZERO
+			and leg_rotation(body).is_equal_approx(still_leg),
+			"Landing settles back to an unmoving neutral skeleton and body origin.")
+		host.state.actors.P.position[1] = 2.1
+		presenter.refresh(1.0 / 60.0)
+		verify(presenter.motion.P.mode == "ascent" and is_equal_approx(p.position.y, 2.1),
+			"A sparse confirmed jump sample above one metre is not mistaken for a teleport.")
+		host.state.actors.P.position[1] = 0.9
+		presenter.refresh(1.0 / 60.0)
+		for n in range(25):
+			presenter.refresh(1.0 / 60.0)
+		host.state.actors.P.position[1] = 0.8
+		presenter.refresh(1.0 / 60.0)
+		host.state.actors.P.position[1] = 0.65
+		presenter.refresh(1.0 / 60.0)
+		presenter.refresh(1.0 / 60.0)
+		verify(presenter.motion.P.mode == "landing" and is_equal_approx(p.position.y, 0.65),
+			"A confirmed drop can land on a new height after descent becomes stationary.")
 	host.state["actors"]["P"]["position"] = [10.0, 0.9, 0.0]
 	presenter.refresh(1.0 / 60.0)
-	verify(p.position == Vector3(10, 0.9, 0) and presenter.motion.P.phase == 0.0,
+	verify(p.position == Vector3(10, 0.9, 0) and presenter.motion.P.phase == 0.0
+		and presenter.motion.P.mode == "grounded",
 		"A discontinuous observed pose resets animation without rejecting or clamping the body.")
 	host.state["context"] = "another-world"
 	presenter.refresh(1.0 / 60.0)

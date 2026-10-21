@@ -5,10 +5,18 @@ const Geometry = preload("res://opening/site_geometry.gd")
 const ADULT_ASSETS := "res://opening/assets/worker/"
 const GAIT_CYCLE_DISTANCE := 1.65
 const FULL_GAIT_SPEED := 2.4
+const TAKEOFF_DELTA := 0.025
+const DROP_DELTA := 0.075
+const LANDING_SECONDS := 0.24
+const DISCONTINUITY_HORIZONTAL := 2.0
+const DISCONTINUITY_VERTICAL := 1.8
 static var mesh_cache: Dictionary = {}
 static var material_cache: Dictionary = {}
 static var cloth_normal: NoiseTexture2D
 static var adult_template: PackedScene
+static var adult_run_clip: Animation
+static var adult_run_root_track := -1
+static var adult_run_root_reference := Vector3.ZERO
 
 var host
 var views: Dictionary = {}
@@ -275,34 +283,66 @@ func _adult_bone_delta(body: Node3D, key: String, rotation: Quaternion) -> void:
 	skeleton.set_bone_pose_rotation(bone.index,
 		(bone.rotation * bone.space.inverse() * rotation * bone.space).normalized())
 
-func _set_adult_gait(body: Node3D, phase: float, weight: float) -> void:
-	# A full cycle covers two steps. Recovery bends the lifted leg while the
-	# opposite leg stays longer through support; both feet return toward level.
-	for pair in [["L", 0.0, 1.0], ["R", PI, -1.0]]:
+func _set_adult_air_and_landing(body: Node3D, air: float,
+		vertical_speed: float, impact: float) -> void:
+	# The captured run supplies grounded motion. These poses blend from its
+	# lowered-arm rest stance when confirmed height changes show a jump or fall.
+	var ascent := clampf((vertical_speed + 0.4) / 3.0, 0.0, 1.0)
+	for pair in [["L", 1.0], ["R", -1.0]]:
 		var side: String = pair[0]
-		var swing := sin(phase + float(pair[1]))
-		var recovery := maxf(0.0, swing)
-		var passing := maxf(0.0, cos(phase + float(pair[1])))
-		var hip := -swing * 0.46 * weight
-		var knee := (0.07 + recovery * 0.62 + passing * 0.34) * weight
+		var sign: float = pair[1]
+		var air_asymmetry := sign * air
+		var hip := ((lerpf(-0.15, -0.58, ascent) - 0.14 * air_asymmetry) * air
+			- (0.48 + 0.08 * sign) * impact)
+		var knee := ((lerpf(0.28, 1.05, ascent) + 0.10 * air_asymmetry) * air
+			+ (1.02 + 0.08 * sign) * impact)
 		_adult_bone_delta(body, side + " Thigh", Quaternion(Vector3.RIGHT, hip))
 		_adult_bone_delta(body, side + " Calf", Quaternion(Vector3.RIGHT, knee))
-		_adult_bone_delta(body, side + " Foot", Quaternion(Vector3.RIGHT, -(hip + knee)))
-		# The source is in an A pose. Keep its lowered resting stance, then drive
-		# the arm opposite the advancing leg and flex the elbow through recovery.
-		var stance := Quaternion(Vector3.BACK, -float(pair[2]) * 0.72)
-		var arm_swing := sin(phase + float(pair[1]) + PI / 4.0)
-		_adult_bone_delta(body, side + " UpperArm", Quaternion(Vector3.RIGHT, arm_swing * 0.5 * weight) * stance)
-		_adult_bone_delta(body, side + " Forearm", Quaternion(Vector3.RIGHT, -(0.78 + 0.18 * recovery) * weight))
-	var counter_swing := sin(phase + PI / 4.0) * weight
-	_adult_bone_delta(body, "Spine1", Quaternion(Vector3.RIGHT, 0.14 * weight)
-		* Quaternion(Vector3.UP, 0.07 * counter_swing))
-	_adult_bone_delta(body, "Spine2", Quaternion(Vector3.RIGHT, 0.05 * weight)
-		* Quaternion(Vector3.UP, -0.035 * counter_swing))
-	_adult_bone_delta(body, "Neck", Quaternion(Vector3.RIGHT, -0.13 * weight))
-	# Lift the visual body only at each passing phase. The Character root remains
-	# exactly on the confirmed capsule pose, including during a jump.
-	body.position.y = maxf(0.0, cos(phase * 2.0)) * 0.025 * weight
+		_adult_bone_delta(body, side + " Foot", Quaternion(Vector3.RIGHT,
+			-(hip + knee) * (1.0 - 0.25 * air)))
+		# Arms lift on takeoff and open on descent to prepare for impact.
+		var stance := Quaternion(Vector3.BACK,
+			-sign * (0.72 - 0.38 * air))
+		var arm_air := lerpf(0.08, -0.82, ascent) * air
+		_adult_bone_delta(body, side + " UpperArm", Quaternion(Vector3.RIGHT,
+			arm_air - 0.48 * impact + 0.28 * air_asymmetry) * stance)
+		_adult_bone_delta(body, side + " Forearm", Quaternion(Vector3.RIGHT,
+			-0.72 * air - 0.78 * impact))
+	_adult_bone_delta(body, "Spine1", Quaternion(Vector3.RIGHT,
+		-0.12 * air * ascent + 0.25 * impact))
+	_adult_bone_delta(body, "Spine2", Quaternion(Vector3.RIGHT,
+		0.12 * impact))
+	_adult_bone_delta(body, "Neck", Quaternion(Vector3.RIGHT,
+		0.08 * air - 0.22 * impact))
+	# Compression moves only the skinned view; the Character root is unchanged.
+	body.position.y = -0.065 * impact
+
+func _apply_adult_run(body: Node3D, phase: float, weight: float,
+		air: float, impact: float) -> void:
+	var skeleton: Skeleton3D = body.get_node(body.get_meta("skeleton_path"))
+	var strength := weight * (1.0 - air) * (1.0 - impact * 0.7)
+	var sample := fposmod(phase / TAU, 1.0) * adult_run_clip.length
+	var rig: Dictionary = body.get_meta("rig")
+	for binding in body.get_meta("run_bindings"):
+		var index: int = binding.index
+		var influence := strength
+		if binding.key in ["Pelvis", "Spine", "Spine1", "Spine2"]:
+			influence *= 0.55
+		elif binding.key in ["Neck", "Head"]:
+			influence *= 0.4
+		if binding.kind == Animation.TYPE_ROTATION_3D:
+			var original: Quaternion = binding.base
+			var from: Quaternion = skeleton.get_bone_pose_rotation(index) if rig.has(binding.key) else original
+			var animated := adult_run_clip.rotation_track_interpolate(binding.track, sample)
+			var target: Quaternion = (original * binding.reference.inverse() * animated).normalized()
+			skeleton.set_bone_pose_rotation(index, from.slerp(target, influence))
+		else:
+			var original: Vector3 = binding.base
+			var animated := adult_run_clip.position_track_interpolate(binding.track, sample)
+			skeleton.set_bone_pose_position(index, original + (animated - binding.reference) * influence)
+	if adult_run_root_track >= 0:
+		var root_position := adult_run_clip.position_track_interpolate(adult_run_root_track, sample)
+		body.position.y += ((root_position.y - adult_run_root_reference.y) + 0.006) * strength
 
 func _adult_pose_frames(skeleton: Skeleton3D) -> Array[Transform3D]:
 	# Pose setters outside the scene tree do not invalidate Godot's global-pose
@@ -436,7 +476,35 @@ func _prepare_adult_template() -> bool:
 		rig[key] = {"index": index, "rotation": skeleton.get_bone_pose_rotation(index),
 			"space": (to_model.basis * frames[index].basis).get_rotation_quaternion()}
 	body.set_meta("rig", rig)
-	_set_adult_gait(body, 0.0, 0.0)
+	adult_run_clip = load(ADULT_ASSETS + "run_neutral.res") as Animation
+	if adult_run_clip == null or adult_run_clip.length <= 0.0:
+		body.free()
+		return false
+	_set_adult_air_and_landing(body, 0.0, 0.0, 0.0)
+	var run_bindings := []
+	adult_run_root_track = -1
+	for track in range(adult_run_clip.get_track_count()):
+		var kind := adult_run_clip.track_get_type(track)
+		if kind != Animation.TYPE_ROTATION_3D and kind != Animation.TYPE_POSITION_3D:
+			continue
+		var path := str(adult_run_clip.track_get_path(track))
+		if not path.begins_with("Skeleton3D:"):
+			continue
+		var name := path.substr(11)
+		if name == "Bip01" and kind == Animation.TYPE_POSITION_3D:
+			adult_run_root_track = track
+			adult_run_root_reference = adult_run_clip.position_track_interpolate(track, 0.0)
+			continue
+		var index := skeleton.find_bone(name)
+		if index < 0:
+			continue
+		run_bindings.append({"index": index, "key": name.trim_prefix("Bip01 "),
+			"track": track, "kind": kind,
+			"reference": adult_run_clip.rotation_track_interpolate(track, 0.0) if kind == Animation.TYPE_ROTATION_3D
+				else adult_run_clip.position_track_interpolate(track, 0.0),
+			"base": skeleton.get_bone_pose_rotation(index) if kind == Animation.TYPE_ROTATION_3D
+				else skeleton.get_bone_pose_position(index)})
+	body.set_meta("run_bindings", run_bindings)
 	var bounds := _adult_rest_bounds(skeleton, mesh, to_model)
 	if bounds.size.y < 1.0 or bounds.size.y > 2.2:
 		body.free()
@@ -467,11 +535,13 @@ func _make_worker_visual() -> Node3D:
 		return unavailable
 	return adult_template.instantiate()
 
-func _set_gait(body: Node3D, phase: float, weight: float) -> void:
+func _set_gait(body: Node3D, phase: float, weight: float,
+		air: float = 0.0, vertical_speed: float = 0.0, impact: float = 0.0) -> void:
 	if body.get_meta("appearance_unavailable", false):
 		return
 	if body.get_meta("sourced_character", false):
-		_set_adult_gait(body, phase, weight)
+		_set_adult_air_and_landing(body, air, vertical_speed, impact)
+		_apply_adult_run(body, phase, weight, air, impact)
 		return
 	for pair in [["Left", 0.0], ["Right", PI]]:
 		var prefix: String = pair[0]
@@ -487,14 +557,52 @@ func _set_gait(body: Node3D, phase: float, weight: float) -> void:
 
 func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float) -> void:
 	var body: Node3D = view.get_node("BodyView")
-	var previous: Dictionary = motion.get(actor, {"position": at, "phase": 0.0, "weight": 0.0, "age": 1.0})
+	var previous: Dictionary = motion.get(actor, {"position": at, "phase": 0.0, "weight": 0.0,
+		"age": 1.0, "mode": "grounded", "ground_y": at.y, "peak_y": at.y,
+		"vertical_speed": 0.0, "air": 0.0, "impact_age": LANDING_SECONDS})
 	var displacement: Vector3 = at - previous.position
 	var horizontal := Vector2(displacement.x, displacement.z)
-	if displacement.length() > 1.0:
-		previous = {"position": at, "phase": 0.0, "weight": 0.0, "age": 1.0}
+	if horizontal.length() > DISCONTINUITY_HORIZONTAL or absf(displacement.y) > DISCONTINUITY_VERTICAL:
+		previous = {"position": at, "phase": 0.0, "weight": 0.0, "age": 1.0,
+			"mode": "grounded", "ground_y": at.y, "peak_y": at.y,
+			"vertical_speed": 0.0, "air": 0.0, "impact_age": LANDING_SECONDS}
 		body.rotation.y = 0
 	else:
-		previous.phase += horizontal.length() * TAU / GAIT_CYCLE_DISTANCE
+		var vertical_speed: float = displacement.y / maxf(delta, 0.0001)
+		var mode: String = previous.mode
+		if mode == "grounded" or mode == "landing":
+			if displacement.y > TAKEOFF_DELTA and vertical_speed > 0.6:
+				mode = "ascent"
+				previous.ground_y = previous.position.y
+				previous.peak_y = at.y
+				previous.impact_age = LANDING_SECONDS
+			elif displacement.y < -DROP_DELTA and vertical_speed < -0.7:
+				mode = "descent"
+				previous.ground_y = previous.position.y
+				previous.peak_y = previous.position.y
+				previous.impact_age = LANDING_SECONDS
+			else:
+				previous.ground_y = at.y
+		elif mode == "ascent" or mode == "descent":
+			previous.peak_y = maxf(float(previous.peak_y), at.y)
+			if vertical_speed < -0.4:
+				mode = "descent"
+			if mode == "descent" and (at.y <= float(previous.ground_y) + 0.025
+					and displacement.y < 0.0 or absf(displacement.y) < 0.002
+					and float(previous.peak_y) - at.y > 0.10):
+				mode = "landing"
+				previous.impact_age = 0.0
+				previous.ground_y = at.y
+		if mode == "landing":
+			previous.impact_age += delta
+			if float(previous.impact_age) >= LANDING_SECONDS:
+				mode = "grounded"
+		previous.mode = mode
+		previous.air = move_toward(float(previous.air),
+			1.0 if mode == "ascent" or mode == "descent" else 0.0, delta * 14.0)
+		previous.vertical_speed = vertical_speed if mode == "ascent" or mode == "descent" else 0.0
+		if mode == "grounded" or mode == "landing":
+			previous.phase += horizontal.length() * TAU / GAIT_CYCLE_DISTANCE
 		previous.age = 0.0 if horizontal.length() > 0.00001 else previous.age + delta
 		var speed := horizontal.length() / maxf(delta, 0.0001)
 		var target_weight := 0.0
@@ -507,7 +615,12 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float) -> v
 			body.rotation.y = lerp_angle(body.rotation.y, atan2(horizontal.x, horizontal.y), minf(1.0, delta * 12.0))
 		previous.position = at
 	motion[actor] = previous
-	_set_gait(body, float(previous.phase), float(previous.weight))
+	var impact := 0.0
+	if previous.mode == "landing":
+		var elapsed: float = float(previous.impact_age) / LANDING_SECONDS
+		impact = pow(1.0 - clampf(elapsed, 0.0, 1.0), 2.0)
+	_set_gait(body, float(previous.phase), float(previous.weight), float(previous.air),
+		float(previous.vertical_speed), impact)
 
 func _new_view(actor: String) -> Node3D:
 	var root := Node3D.new()

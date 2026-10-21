@@ -20,6 +20,12 @@
       "sha256": "8cbaf86576004b96469bc80df123b97fef788f4a7bb3f3eaa616fcfaf55698a3"
     },
     {
+      "path": "Assets/Animations/all_animations_max_motextr_xy/f_run_neutral.max.fbx",
+      "git_blob": "145d6aebb39825777af8fa483abd0ff44f3e3fb0",
+      "bytes": 895504,
+      "sha256": "3665a15cc1fea263ffb642b22e0a12c7d3bc771fead869f8fec3959fbd584eeb"
+    },
+    {
       "path": "Assets/Avatars/Adults/Female_Adult_01/Textures/f001_body_color.tga",
       "git_blob": "25852db0db1f44a0de0643ce1e09c88aef587e6f",
       "bytes": 12582956,
@@ -141,14 +147,22 @@
   "presentation": {
     "loading": "Direct GLTFDocument reading and explicit Image decoding; an editor import cache is not required.",
     "skin": "Each actor owns its Skeleton3D poses; geometry, skin bindings, textures and materials are shared.",
-    "gait": "A-pose arms are lowered, and local bone rotations follow confirmed horizontal displacement. Requested input does not advance animation.",
+    "gait": "The source run clip drives common named bones, including joint translations, after retargeting each clip channel relative to its first source pose. A-pose arms use the lowered adult standing pose as their target base. Clip time advances only with confirmed horizontal displacement. A cosmetic state machine infers rising, falling and landing from confirmed vertical samples; requested input does not advance animation.",
     "scale": "Uniformly fit the actual skinned standing height to the existing 1.8-metre fixture capsule, with the foot plane 0.9 metres below the body origin.",
     "authority": "No collider, physical actor, input, reach, material quantity, clock or saved state is added."
+  },
+  "motion": {
+    "source_clip": "Assets/Animations/all_animations_max_motextr_xy/f_run_neutral.max.fbx",
+    "runtime_resource": "run_neutral.res",
+    "runtime_resource_sha256": "44096748c6411da6c8416eed5f552a6b4c365ab5bafb91359283fccae0afbc69",
+    "preparation": "Godot 4.7.2 FBX scene import, then copy the 34 named-skeleton position and rotation tracks into a native Animation resource. Footstep markers, horizontal root motion and unused scene nodes are excluded. Source FBX is available at the pinned repository revision.",
+    "duration_seconds": 0.83333333333333,
+    "track_count": 34
   },
   "limits": [
     "Human assessment of realism, attractiveness, skin, hair and wardrobe remains open.",
     "No rendered-quality, GPU performance, physical limb-contact or gameplay acceptance is claimed.",
-    "No facial animation, motion-capture clips or character customization is included.",
+    "The captured clip covers running only. Jump and landing remain presentation-authored poses inferred from height samples, without a ground-contact signal or physical limb authority. No facial animation or character customization is included.",
     "Historical fixed source rosters without this folder retain their documented procedural worker."
   ]
 }
