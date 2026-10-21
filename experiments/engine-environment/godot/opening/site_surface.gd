@@ -237,6 +237,44 @@ static func channel_half_width(z: float) -> float:
 	var bank_variation := 0.06 * sin(z * 0.82) + 0.025 * sin(z * 2.31)
 	return lerpf(0.62 + bank_variation, 1.85, flare)
 
+static func stream_surface_height(x: float, z: float) -> float:
+	var across := x - river_center_x(z)
+	var upstream_slope := maxf(0.0, (-5.55 - z) * 0.0022)
+	var sluice_drop := 0.25 * smoothstep(-5.65, -4.25, z)
+	var race_grade := 0.045 * smoothstep(-4.25, 8.35, z)
+	var weir_step_a := 0.24 * smoothstep(8.35, 9.05, z)
+	var weir_step_b := 0.24 * smoothstep(9.15, 9.85, z)
+	var tail_grade := 0.16 * smoothstep(9.85, 61.0, z)
+	var wave := 0.018 * sin(z * 2.6 + across * 4.2) + 0.011 * cos(z * 4.8 - across * 3.4)
+	var crown := -0.016 * clampf(across * across, 0.0, 1.5)
+	return 0.13 + upstream_slope - sluice_drop - race_grade - weir_step_a - weir_step_b - tail_grade + wave + crown
+
+static func water_samples() -> Array:
+	# The rendered stream runs from z=-58 to z=61. These explicit stationary
+	# site samples are an experimental current, not a fluid simulation. Heights
+	# and velocities use 1/100 of the native quarter-pitch grid unit.
+	var result: Array = []
+	var unit: float = Geometry.HEIGHT_STEP / 100.0
+	for cell_z in range(-35, 37):
+		var z: float = cell_z * Geometry.PITCH
+		var center := river_center_x(z)
+		var width := channel_half_width(z)
+		var direction := Vector2((river_center_x(z + 0.1) - river_center_x(z - 0.1)) / 0.2, 1.0).normalized()
+		var speed := clampf(0.8 * 0.65 / width, 0.25, 1.2)
+		var first := floori((center - width) / Geometry.PITCH)
+		var last := ceili((center + width) / Geometry.PITCH)
+		for cell_x in range(first, last + 1):
+			var x: float = cell_x * Geometry.PITCH
+			if absf(x - center) >= width:
+				continue
+			var surface := stream_surface_height(x, z)
+			var bed := height_at(x, z)
+			if bed >= surface:
+				continue
+			result.append([4 * cell_x, 4 * cell_z, roundi(surface / unit), roundi(bed / unit),
+				roundi(direction.x * speed / unit), roundi(direction.y * speed / unit)])
+	return result
+
 static func raw_height(x: float, z: float) -> float:
 	# Preserve the original distant hills while resolving the natural worksite.
 	# Physics and rendering use the same emitted triangles, rather than this

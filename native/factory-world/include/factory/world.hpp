@@ -2,6 +2,7 @@
 
 #include "factory/stationary.hpp"
 #include "factory/transactions.hpp"
+#include "factory/waterwheel.hpp"
 
 #include <functional>
 #include <map>
@@ -21,6 +22,12 @@ struct Profile {
     std::set<std::string> actors;
     stationary::Kit finite_parts;
     mechanics::Rate waterwheel_rate{1, 1};
+    // Optional trusted, immutable site samples keyed by the wheel's X/Z grid
+    // coordinates. Heights, radius and velocity use one hundredth of a grid
+    // unit; no client supplies a source rate. Empty retains non-site fixtures.
+    std::map<std::array<mechanics::Integer, 2>, waterwheel::Sample> water;
+    mechanics::Integer wheel_radius{200};
+    mechanics::Integer wheel_axle_offset{121};
     double meters_per_grid_unit{1.0};
     authority::Point anchor_offset{};
     double build_reach{4.0};

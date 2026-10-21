@@ -65,3 +65,10 @@ cc_test(
     deps = [":host", ":test_site"],
     size = "small",
 )
+
+cc_test(
+    name = "waterwheel_host_test",
+    srcs = ["tests/waterwheel_host_test.cpp"],
+    deps = [":test_site"],
+    size = "small",
+)

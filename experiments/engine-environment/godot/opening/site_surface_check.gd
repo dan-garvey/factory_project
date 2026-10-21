@@ -2,8 +2,12 @@ extends SceneTree
 ## Adapter geometry and isolated physical-fixture checks; no game or desktop.
 const Surface = preload("res://opening/site_surface.gd")
 const ActorWorld = preload("res://opening/actor_world.gd")
+const Geometry = preload("res://opening/site_geometry.gd")
+const NativeModel = preload("res://opening/native_model.gd")
+const Opening = preload("res://opening/opening.gd")
 var checks := 0
 var failed := false
+var failures := 0
 
 class EmptyPhysicalFacts extends RefCounted:
 	func projection() -> Dictionary:
@@ -16,6 +20,15 @@ func verify(condition: bool, message: String) -> void:
 		push_error(message)
 
 func _initialize() -> void:
+	if "--water-samples-only" in OS.get_cmdline_user_args():
+		check_water_samples()
+		return
+	if "--water-native-only" in OS.get_cmdline_user_args():
+		check_water_native()
+		return
+	if "--waterwheel-visual-only" in OS.get_cmdline_user_args():
+		check_waterwheel_visual()
+		return
 	if "--bank-firs-physics-only" in OS.get_cmdline_user_args():
 		call_deferred("check_bank_firs_physics")
 		return
@@ -297,3 +310,114 @@ func check_native_hull_matching() -> void:
 	changed[0] = Vector3(NAN, 0, 0)
 	verify(Surface.match_native_rock(changed, source).is_empty(), "Invalid native coordinates are refused.")
 	verify(Surface.rock_faces_for_vertices(source) == Surface.rock_faces(), "Mapped native vertices preserve the exact shared facet topology.")
+
+func check_water_samples() -> void:
+	var rows: Array = Surface.water_samples()
+	var found := false
+	var varying := false
+	var first_speed := 0
+	for row: Array in rows:
+		assert(row.size() == 6)
+		var x: float = float(row[0]) * Geometry.HEIGHT_STEP
+		var z: float = float(row[1]) * Geometry.HEIGHT_STEP
+		assert(absf(x - Surface.river_center_x(z)) < Surface.channel_half_width(z))
+		assert(int(row[2]) > int(row[3]))
+		if row[0] == -8 and row[1] == 4:
+			found = true
+		if first_speed == 0:
+			first_speed = int(row[5])
+		elif int(row[5]) != first_speed:
+			varying = true
+	assert(found, "A wheel cell at the first worksite intersects the actual river.")
+	assert(varying, "The sampled current varies along the channel.")
+	print("water surface sample checks passed: ", rows.size())
+	quit(0)
+
+func expect(value: bool, message: String) -> bool:
+	checks += 1
+	if not value:
+		push_error(message)
+		quit(1)
+	return value
+
+func check_water_native() -> void:
+	var model = NativeModel.new("water-site", ["P"])
+	if not expect(model.boot_result.get("accepted", false), "Native model must bind actual terrain and water: " + str(model.boot_result)):
+		return
+	if not expect(model.publish_actor("P", [-1.65, 1.0, 3.3], 1).get("accepted", false), "Register synthetic actor"):
+		return
+	var wheel := {"context": "water-site", "client": "P", "request": "wheel", "action": "place", "kind": "wheel", "cell": [-2, 1], "level": 0, "tiles": 1, "axis": "x"}
+	var reply: Dictionary = model.command(wheel)
+	if not expect(reply.get("accepted", false), "Actual river must admit an immersed wheel: " + str(reply)):
+		return
+	var id: String = reply.entity
+	var power: Dictionary = model.command({"context": "water-site", "client": "P", "request": "power", "action": "set_power", "active": true})
+	if not expect(power.get("accepted", false), "The near synthetic actor can enable the wheel: " + str(power)):
+		return
+	var motion: Dictionary = model.projection().motion[id]
+	if not expect(motion.state == "rotating" and motion.numerator < 0, "Downstream current drives the wheel in the expected direction"):
+		return
+	var checkpoint: Dictionary = model.checkpoint()
+	var restored = NativeModel.new("fresh-water-site", ["P"])
+	if not expect(restored.boot_result.get("accepted", false) and restored.restore_checkpoint(checkpoint).get("accepted", false), "The actual site can restore its wheel checkpoint"):
+		return
+	var large = NativeModel.new("large-water-site", ["P"])
+	if not expect(large.boot_result.get("accepted", false) and large.publish_actor("P", [-1.65, 1.0, 3.3], 1).get("accepted", false), "Bind the same actual site for a larger wheel"):
+		return
+	var big := wheel.duplicate()
+	big.context = "large-water-site"
+	big.request = "large-wheel"
+	big.level = 2
+	big.tiles = 2
+	var placed: Dictionary = large.command(big)
+	if not expect(placed.get("accepted", false), "The two-square wheel must clear actual terrain: " + str(placed)):
+		return
+	var start := {"context": "large-water-site", "client": "P", "request": "power", "action": "set_power", "active": true}
+	if not expect(large.command(start).get("accepted", false), "Enable the larger wheel"):
+		return
+	var slower: Dictionary = large.projection().motion[placed.entity]
+	if not expect(slower.numerator * motion.denominator * 2 == motion.numerator * slower.denominator,
+		"Twice the diameter halves rotational speed in the same current"):
+		return
+	print("native water site controls passed: ", checks)
+	quit(0)
+
+func verify_water_visual(ok: bool, message: String) -> void:
+	checks += 1
+	if not ok:
+		failures += 1
+		push_error(message)
+
+func inspect_meshes(node: Node, parent: Transform3D, half: Vector3, axis: int, rotor: bool = false) -> void:
+	var at := parent
+	if node is Node3D:
+		at = parent * node.transform
+	if node.name == "WheelRotor":
+		rotor = true
+	if node is MeshInstance3D:
+		for surface_index in node.mesh.get_surface_count():
+			var vertices: PackedVector3Array = node.mesh.surface_get_arrays(surface_index)[Mesh.ARRAY_VERTEX]
+			for vertex in vertices:
+				var p: Vector3 = at * vertex - Vector3.UP * Geometry.ANCHOR_HEIGHT
+				verify_water_visual(absf(p.x) <= half.x + 0.0001 and absf(p.y) <= half.y + 0.0001 and absf(p.z) <= half.z + 0.0001,
+					"Wheel visual exceeds its native collision envelope: " + str(node.name))
+				if rotor:
+					verify_water_visual(Vector2(p.y, p.z if axis == 0 else p.x).length() <= half.y + 0.0001,
+						"The complete rotor must stay inside its swept circle")
+	for child in node.get_children():
+		inspect_meshes(child, at, half, axis, rotor)
+
+func check_waterwheel_visual() -> void:
+	for axis in [0, 2]:
+		for tiles in [1, 2, 3]:
+			var view := Opening.new()
+			view.state = {"options": {"native": true}}
+			var anchor := Node3D.new()
+			view._assemble_machine(anchor, {"kind": "wheel", "axis": axis, "tiles": tiles})
+			verify_water_visual(view.wheel_rotor.position == Vector3.UP * Geometry.ANCHOR_HEIGHT,
+				"Every wheel center shares the shaft offset")
+			inspect_meshes(anchor, Transform3D.IDENTITY, Geometry.wheel_half_extents(axis, tiles), axis)
+			anchor.free()
+			view.free()
+	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks, "scope": "wheel mesh bounds and common shaft center"}))
+	quit(0 if failures == 0 else 1)

@@ -56,8 +56,10 @@ private:
     std::vector<double> terrain_axis_, terrain_heights_;
     std::vector<std::pair<authority::Point, authority::Point>> terrain_obstacles_;
     [[nodiscard]] bool site_blocked(const authority::Point& low, const authority::Point& high) const;
-    [[nodiscard]] std::optional<std::pair<double, double>> terrain_range(double x, double z) const;
+    [[nodiscard]] std::optional<std::pair<double, double>> terrain_range(double x, double z,
+        double half_x = 0.825, double half_z = 0.825) const;
     [[nodiscard]] const char* machine_site_refusal(const world::State&, const mechanics::Point& center) const;
+    [[nodiscard]] const char* wheel_site_refusal(const mechanics::Point& center, mechanics::Axis axis, mechanics::Integer tiles) const;
     std::unique_ptr<Owned> owned_;
 };
 

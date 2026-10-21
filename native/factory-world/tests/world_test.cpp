@@ -342,6 +342,32 @@ void atomic_step_and_callback_failures() {
     check(exception.error == w::TransactionError::preparation_failed && owner->snapshot().state == stable.state &&
           same_history(stable, owner->snapshot()), "Observation exceptions commit neither candidate nor cached outcome.");
 }
+
+void trusted_flow_drives_world() {
+    auto f = fixture();
+    for (const I x : {0, 10, 20}) f.profile.water[{x, 0}] = {0, -500, 200, 0};
+    for (auto& source : f.state.topology.sources) source.rate = {1, 1};
+    auto owner = world(f);
+    auto view = s::power_view(owner->snapshot().state.topology).mechanical;
+    check(view.motion.at("collector").rate == g::Rate{1, 1},
+          "The connected shaft receives the local water speed.");
+    auto reversed = f;
+    reversed.profile.water.at({0, 0}).velocity_x = -200;
+    check(!w::World::create("fixture-world", reversed.profile, reversed.state),
+          "A saved source cannot retain its old rate under reversed trusted flow.");
+    reversed.state.topology.sources.front().rate = {-1, 1};
+    owner = world(reversed);
+    view = s::power_view(owner->snapshot().state.topology).mechanical;
+    check(view.motion.at("collector").rate == g::Rate{-1, 1},
+          "Reversed trusted flow reverses the connected shaft.");
+    auto dry = f;
+    dry.profile.water.erase({0, 0});
+    dry.state.topology.sources.front().rate = {0, 1};
+    owner = world(dry);
+    view = s::power_view(owner->snapshot().state.topology).mechanical;
+    check(view.motion.at("collector").state == g::MotionState::stopped,
+          "A wheel outside sampled water cannot drive its connected shaft.");
+}
 }  // namespace
 
 int main() {
@@ -352,6 +378,7 @@ int main() {
         preserve_work_through_recovery_and_rebuild();
         ready_work_and_two_endpoint_reach();
         atomic_step_and_callback_failures();
+        trusted_flow_drives_world();
         std::cout << "{\"status\":\"pass\",\"evidence\":\"invented_native_world\",\"checks\":" << checks << "}\n";
         return 0;
     } catch (const std::exception& error) {

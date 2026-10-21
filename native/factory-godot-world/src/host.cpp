@@ -29,6 +29,31 @@ constexpr double machine_width = 1.45;
 constexpr double machine_height = 1.65;
 constexpr double machine_center_height = 0.8;
 
+struct Bounds { authority::Point center, half; };
+
+Bounds part_bounds(const world::Profile& profile, const stationary::PlacedPart& part) {
+    const auto& c = part.geometry.center;
+    const auto x = c[0] * height_step, z = c[2] * height_step, floor = c[1] * height_step;
+    if (part.role == Role::waterwheel && !profile.water.empty()) {
+        const auto radius = profile.wheel_radius * part.wheel_tiles * height_step / 100.0;
+        return {{x, floor + anchor_height, z},
+            {part.geometry.axis == mechanics::Axis::x ? 0.3 : radius, radius,
+             part.geometry.axis == mechanics::Axis::z ? 0.3 : radius}};
+    }
+    return {{x, floor + machine_center_height, z}, {machine_width / 2, machine_height / 2, machine_width / 2}};
+}
+
+Bounds foundation_bounds(const world::Foundation& foundation) {
+    return {{foundation.center[0] * height_step, foundation.center[1] * height_step - pitch / 2,
+             foundation.center[2] * height_step}, {pitch / 2, pitch / 2, pitch / 2}};
+}
+
+bool overlap(const Bounds& a, const Bounds& b) {
+    for (std::size_t axis = 0; axis < 3; ++axis)
+        if (std::abs(a.center[axis] - b.center[axis]) >= a.half[axis] + b.half[axis]) return false;
+    return true;
+}
+
 template<class T> const T* field(const Object& object, const char* name) {
     const auto found = object.find(name);
     return found == object.end() ? nullptr : std::get_if<T>(&found->second.storage());
@@ -46,6 +71,12 @@ bool keys(const Object& object, std::initializer_list<const char*> extras) {
 }
 
 bool place_keys(const Object& object) {
+    if (object.contains("tiles")) {
+        auto without_tiles = object;
+        without_tiles.erase("tiles");
+        const auto* kind = field<std::string>(object, "kind");
+        return kind && *kind == "wheel" && place_keys(without_tiles);
+    }
     if (object.contains("level")) return object.contains("axis") ?
         keys(object, {"kind", "cell", "axis", "level"}) : keys(object, {"kind", "cell", "level"});
     return object.contains("axis") ? keys(object, {"kind", "cell", "axis"}) : keys(object, {"kind", "cell"});
@@ -161,10 +192,14 @@ bool historical_wire(const authority::Record& record) {
         const auto* x = std::get_if<Integer>(&cell->at(0).storage());
         const auto* z = std::get_if<Integer>(&cell->at(1).storage());
         const auto* level = field<Integer>(*wire, "level");
+        const auto* tiles = field<Integer>(*wire, "tiles");
         if (!x || !z || *x < -250000 || *x > 250000 || *z < -250000 || *z > 250000 ||
             (wire->contains("level") && (!level || *level < -1000000 || *level > 1000000)) ||
             (*name != "collector" && *name != "belt" && *name != "processor" && *name != "wheel" && *name != "gear"))
             return false;
+        if (wire->contains("tiles") != intent.contains("wheel_tiles")) return false;
+        if (wire->contains("tiles") && (!tiles || *tiles < 1 || *tiles > mechanics::maximum_dimension ||
+            !field<Integer>(intent, "wheel_tiles") || *field<Integer>(intent, "wheel_tiles") != *tiles)) return false;
         if (*action == "place_connected" && *name != "collector" && *name != "belt" && *name != "processor")
             return false;
         const Object expected{{"role", Value(*name == "wheel" ? "waterwheel" : *name)},
@@ -274,7 +309,7 @@ Value Host::initialize(const std::string& context, const std::vector<std::string
     profile.build_reach = reach;
     profile.foundation_parts = 24;
     profile.finite_parts = {{{Role::collector, 0, 0}, 1}, {{Role::belt, 0, 0}, 1},
-        {{Role::processor, 0, 0}, 1}, {{Role::waterwheel, 0, 0}, 1}, {{Role::shaft, 0, 2}, 3},
+        {{Role::processor, 0, 0}, 1}, {{Role::waterwheel, 0, 0}, 1}, {{Role::shaft, 0, 2}, 4},
         {{Role::gear, 2, 0}, 2}};
     world::State seed;
     seed.material.initial_units = 16;
@@ -300,7 +335,8 @@ Value Host::configure_terrain(const Object& input) {
     const auto* axis = field<Array>(input, "axis");
     const auto* heights = field<Array>(input, "heights");
     const auto* obstacles = field<Array>(input, "obstacles");
-    if (input.size() != 3 || !axis || !heights || !obstacles || obstacles->size() > 1024 || axis->size() < 2 || axis->size() > 200 ||
+    const auto* water = field<Array>(input, "water");
+    if (input.size() != (water ? 4u : 3u) || !axis || !heights || !obstacles || obstacles->size() > 1024 || axis->size() < 2 || axis->size() > 200 ||
         heights->size() != axis->size() * axis->size()) return result(false, "invalid_terrain");
     std::vector<double> coordinates, elevations;
     std::vector<std::pair<authority::Point, authority::Point>> solids;
@@ -327,6 +363,29 @@ Value Host::configure_terrain(const Object& input) {
             if ((*low)[axis] >= (*high)[axis]) return result(false, "invalid_terrain");
         solids.emplace_back(*low, *high);
     }
+    auto next_profile = profile_;
+    if (water) {
+        if (water->empty() || water->size() > 65536) return result(false, "invalid_water");
+        for (const auto& value : *water) {
+            const auto* row = std::get_if<Array>(&value.storage());
+            if (!row || row->size() != 6) return result(false, "invalid_water");
+            std::array<Integer, 6> fields{};
+            for (std::size_t i = 0; i < fields.size(); ++i) {
+                const auto* number = std::get_if<Integer>(&row->at(i).storage());
+                if (!number) return result(false, "invalid_water");
+                fields[i] = *number;
+            }
+            if (!next_profile.water.emplace(std::array<Integer, 2>{fields[0], fields[1]},
+                    waterwheel::Sample{fields[2], fields[3], fields[4], fields[5]}).second)
+                return result(false, "invalid_water");
+        }
+        const auto snapshot = owned_->world->snapshot();
+        if (snapshot.revision != 0 || snapshot.history.order != 0) return result(false, "terrain_already_bound");
+        auto replacement = world::World::create(snapshot.history.context, next_profile, snapshot.state);
+        if (!replacement) return result(false, "invalid_water");
+        owned_->world = std::move(replacement);
+        profile_ = std::move(next_profile);
+    }
     terrain_axis_ = std::move(coordinates);
     terrain_heights_ = std::move(elevations);
     terrain_obstacles_ = std::move(solids);
@@ -341,10 +400,41 @@ bool Host::site_blocked(const authority::Point& low, const authority::Point& hig
     });
 }
 
-std::optional<std::pair<double, double>> Host::terrain_range(double x, double z) const {
+const char* Host::wheel_site_refusal(const mechanics::Point& center, mechanics::Axis axis, Integer tiles) const {
+    const auto sample = profile_.water.find({center[0], center[2]});
+    if (sample == profile_.water.end()) return "not_at_stream";
+    const auto contact = waterwheel::immersed(center[1] * 100 + profile_.wheel_axle_offset,
+                                              profile_.wheel_radius * tiles, axis, sample->second);
+    if (!contact || !*contact) return "not_at_stream";
+    const double x = center[0] * height_step, y = center[1] * height_step + anchor_height;
+    const double z = center[2] * height_step;
+    const double radius = profile_.wheel_radius * tiles * height_step / 100.0;
+    const double half_x = axis == mechanics::Axis::x ? 0.3 : radius;
+    const double half_z = axis == mechanics::Axis::z ? 0.3 : radius;
+    if (site_blocked({x - half_x, y - radius, z - half_z}, {x + half_x, y + radius, z + half_z}))
+        return "site_occupied";
+    // Bound the entire rotating rim against the same emitted terrain triangles.
+    // Each strip uses its highest ground and the lowest point of the arc in
+    // that strip, so an unchecked peak cannot pass between point samples.
+    const auto strips = static_cast<Integer>(std::ceil(2 * radius / height_step));
+    for (Integer index = 0; index < strips; ++index) {
+        const double a = -radius + 2 * radius * index / strips;
+        const double b = -radius + 2 * radius * (index + 1) / strips;
+        const double middle = (a + b) / 2, span = (b - a) / 2;
+        const auto terrain = axis == mechanics::Axis::x ? terrain_range(x, z + middle, 0.3, span) :
+                                                        terrain_range(x + middle, z, span, 0.3);
+        if (!terrain) return "terrain_unavailable";
+        const double nearest = a > 0 ? a : b < 0 ? -b : 0;
+        const double low_arc = y - std::sqrt(std::max(0.0, radius * radius - nearest * nearest));
+        if (terrain->second > low_arc) return "site_occupied";
+    }
+    return nullptr;
+}
+
+std::optional<std::pair<double, double>> Host::terrain_range(double x, double z, double half_x, double half_z) const {
     if (terrain_axis_.empty()) return std::nullopt;
-    const double left = x - pitch / 2, right = x + pitch / 2;
-    const double near = z - pitch / 2, far = z + pitch / 2;
+    const double left = x - half_x, right = x + half_x;
+    const double near = z - half_z, far = z + half_z;
     if (left < terrain_axis_.front() || right > terrain_axis_.back() ||
         near < terrain_axis_.front() || far > terrain_axis_.back()) return std::nullopt;
     const auto cell = [&](double at) {
@@ -484,6 +574,13 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                     return refuse("actor_occupied");
         for (const auto& part : snapshot.state.topology.parts) {
             const auto& center = part.geometry.center;
+            if (part.role == Role::waterwheel && !profile_.water.empty()) {
+                for (auto px = std::min(*x, *end_x); px <= std::max(*x, *end_x); ++px)
+                    for (auto pz = std::min(*z, *end_z); pz <= std::max(*z, *end_z); ++pz)
+                        if (overlap(part_bounds(profile_, part), foundation_bounds({{4 * px, *level, 4 * pz}, 1})))
+                            return refuse("occupied");
+                continue;
+            }
             if (center[0] * pitch / 4 > std::min(*x, *end_x) * pitch - pitch &&
                 center[0] * pitch / 4 < std::max(*x, *end_x) * pitch + pitch &&
                 center[2] * pitch / 4 > std::min(*z, *end_z) * pitch - pitch &&
@@ -505,30 +602,47 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         const auto* x = std::get_if<Integer>(&cell->at(0).storage());
         const auto* z = std::get_if<Integer>(&cell->at(1).storage());
         const auto* level = field<Integer>(wire, "level");
+        const auto* tiles = field<Integer>(wire, "tiles");
         if (!x || !z || *x < -250000 || *x > 250000 || *z < -250000 || *z > 250000 ||
             (wire.contains("level") && (!level || *level < -1000000 || *level > 1000000))) return refuse("invalid_cell");
         if (*kind_name != "collector" && *kind_name != "belt" && *kind_name != "processor" &&
             *kind_name != "wheel" && *kind_name != "gear") return refuse("unknown_kind");
+        if (wire.contains("tiles") && (!tiles || *tiles < 1 || *tiles > mechanics::maximum_dimension)) return refuse("invalid_wheel_size");
         if (*kind_name == "collector" && *x != 0) return refuse("not_at_seam");
-        if (*kind_name == "wheel" && *x != -1) return refuse("not_at_stream");
-        if ((*kind_name == "collector" || *kind_name == "wheel") && level && *level != 0)
+        if (*kind_name == "wheel" && profile_.water.empty() && *x != -1) return refuse("not_at_stream");
+        if ((*kind_name == "collector" || (*kind_name == "wheel" && profile_.water.empty())) && level && *level != 0)
             return refuse(*kind_name == "collector" ? "not_at_seam" : "not_at_stream");
         const mechanics::Point center{4 * *x, level ? *level : 0, 4 * *z};
+        const auto selected_axis = axis ? *axis_value(*axis) : mechanics::Axis::x;
+        const stationary::PlacedPart proposed{{"proposed", mechanics::Kind::hub, center, selected_axis, 0, 0},
+            1, *kind_name == "wheel" ? Role::waterwheel : Role::collector, tiles ? *tiles : 1};
+        if (*kind_name == "wheel" && !profile_.water.empty())
+            if (const auto* refusal = wheel_site_refusal(center, selected_axis, tiles ? *tiles : 1)) return refuse(refusal);
         for (const auto& [id, foundation] : snapshot.state.foundations) {
             (void)id;
+            if (*kind_name == "wheel" && !profile_.water.empty() &&
+                overlap(part_bounds(profile_, proposed), foundation_bounds(foundation))) return refuse("occupied");
             if (foundation.center[0] == center[0] && foundation.center[2] == center[2] &&
                 foundation.center[1] > center[1] && foundation.center[1] - 4 < center[1] + 4)
                 return refuse("occupied");
         }
-        if (*kind_name != "gear") {
+        if (*kind_name != "gear" && !(*kind_name == "wheel" && !profile_.water.empty())) {
             if (const auto* refusal = machine_site_refusal(snapshot.state, center)) return refuse(refusal);
         }
-        for (const auto& part : snapshot.state.topology.parts)
+        for (const auto& part : snapshot.state.topology.parts) {
             if (part.geometry.center == center) return refuse("occupied");
-        const auto selected_axis = axis ? *axis_value(*axis) : mechanics::Axis::x;
+            if (!profile_.water.empty() && *kind_name != "gear" && part.role != Role::gear && part.role != Role::shaft &&
+                (*kind_name == "wheel" || part.role == Role::waterwheel) &&
+                overlap(part_bounds(profile_, proposed), part_bounds(profile_, part))) return refuse("occupied");
+        }
         const auto is_gear = *kind_name == "gear";
-        const authority::Point at{*x * pitch, center[1] * pitch / 4 + (is_gear ? anchor_height : machine_center_height), *z * pitch};
-        const auto half = is_gear ? gear_half_extents(selected_axis, 2) :
+        const bool water_wheel = *kind_name == "wheel" && !profile_.water.empty();
+        const auto radius = profile_.wheel_radius * (tiles ? *tiles : 1) * height_step / 100.0;
+        const authority::Point at{*x * pitch, center[1] * pitch / 4 +
+            (is_gear || water_wheel ? anchor_height : machine_center_height), *z * pitch};
+        const auto half = is_gear ? gear_half_extents(selected_axis, 2) : water_wheel ?
+            authority::Point{selected_axis == mechanics::Axis::x ? 0.3 : radius, radius,
+                selected_axis == mechanics::Axis::z ? 0.3 : radius} :
             authority::Point{machine_width / 2, machine_height / 2, machine_width / 2};
         if (placement_blocked(at, half)) return refuse("actor_occupied");
         normalized.at("action") = Value(*kind_name == "collector" || *kind_name == "belt" || *kind_name == "processor" ?
@@ -538,6 +652,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.emplace("axis", Value(axis ? *axis : "x"));
         normalized.emplace("teeth", Value(Integer{*kind_name == "gear" ? 2 : 0}));
         normalized.emplace("half_span", Value(Integer{0}));
+        if (tiles) normalized.emplace("wheel_tiles", Value(*tiles));
     } else if (*action == "place_gear") {
         if (!keys(wire, {"center", "axis", "teeth"})) return refuse("invalid_command");
         const auto* input = field<Array>(wire, "center");
@@ -635,6 +750,7 @@ Value Host::projection() const {
             {"center", Value(Array{Value(part.geometry.center[0]), Value(part.geometry.center[1]), Value(part.geometry.center[2])})},
             {"axis", Value(static_cast<Integer>(part.geometry.axis))},
             {"teeth", Value(part.geometry.teeth)}, {"half_span", Value(part.geometry.half_span)}};
+        if (part.role == Role::waterwheel) projected.emplace("tiles", Value(part.wheel_tiles));
         if (part.role == Role::shaft || part.role == Role::gear) transmissions.emplace(part.geometry.id, Value(projected));
         else {
             projected.emplace("cell", Value(Array{Value(part.geometry.center[0] / 4), Value(part.geometry.center[2] / 4)}));
@@ -758,8 +874,17 @@ Host::Decoded Host::decode(const Value& input) const {
             if (part.geometry.teeth != 2) return {nullptr, "incompatible_geometry"};
         } else if (center[0] % 4 != 0 || center[2] % 4 != 0 ||
             (part.role == Role::collector && (center[0] != 0 || center[1] != 0)) ||
-            (part.role == Role::waterwheel && (center[0] != -4 || center[1] != 0))) return {nullptr, "incompatible_geometry"};
-        if (part.role != Role::shaft && part.role != Role::gear)
+            (part.role == Role::waterwheel && profile_.water.empty() && (center[0] != -4 || center[1] != 0))) return {nullptr, "incompatible_geometry"};
+        if (part.role == Role::waterwheel && !profile_.water.empty()) {
+            if (const auto* refusal = wheel_site_refusal(center, part.geometry.axis, part.wheel_tiles)) return {nullptr, refusal};
+            for (const auto& [id, foundation] : snapshot.state.foundations) {
+                (void)id;
+                if (overlap(part_bounds(profile_, part), foundation_bounds(foundation))) return {nullptr, "occupied"};
+            }
+            for (const auto& other : snapshot.state.topology.parts)
+                if (other.geometry.id != part.geometry.id && other.role != Role::gear && other.role != Role::shaft &&
+                    overlap(part_bounds(profile_, part), part_bounds(profile_, other))) return {nullptr, "occupied"};
+        } else if (part.role != Role::shaft && part.role != Role::gear)
             if (const auto* refusal = machine_site_refusal(snapshot.state, center)) return {nullptr, refusal};
     }
     for (const auto& link : snapshot.state.topology.material_links) {

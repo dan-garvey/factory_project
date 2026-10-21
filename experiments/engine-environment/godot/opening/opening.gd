@@ -1949,18 +1949,7 @@ class ProductionEnvironment:
 		return terrain_surface_mesh
 
 	static func stream_surface_height(x_world: float, z_world: float) -> float:
-		var rc := river_center_x(z_world)
-		var across := x_world - rc
-		var upstream_slope := maxf(0.0, (-5.55 - z_world) * 0.0022)
-		var sluice_drop := 0.25 * smoothstep(-5.65, -4.25, z_world)
-		var race_grade := 0.045 * smoothstep(-4.25, 8.35, z_world)
-		var weir_step_a := 0.24 * smoothstep(8.35, 9.05, z_world)
-		var weir_step_b := 0.24 * smoothstep(9.15, 9.85, z_world)
-		var tail_grade := 0.16 * smoothstep(9.85, 61.0, z_world)
-		var base := 0.13 + upstream_slope - sluice_drop - race_grade - weir_step_a - weir_step_b - tail_grade
-		var wave := 0.018 * sin(z_world * 2.6 + across * 4.2) + 0.011 * cos(z_world * 4.8 - across * 3.4)
-		var crown := -0.016 * clampf(across * across, 0.0, 1.5)
-		return base + wave + crown
+		return Surface.stream_surface_height(x_world, z_world)
 
 	static func stream_mesh() -> ArrayMesh:
 		if stream_volume_mesh != null:
@@ -3339,6 +3328,10 @@ var foundation_area_start := Vector2i.ZERO
 var foundation_area_toggle: CheckButton
 var foundation_level_controls: HBoxContainer
 var foundation_level_label: Label
+var wheel_level := 0
+var wheel_tiles := 1
+var wheel_size_controls: HBoxContainer
+var wheel_size_label: Label
 var state: Dictionary = {}
 var show_all_tools := false
 var show_details := false
@@ -3697,7 +3690,7 @@ func issue(action: Dictionary) -> Dictionary:
 			"not_stopped": "Stop the drive before changing the machinery.",
 			"held_stock": "Retrieve the material before removing this machine.",
 			"contains_stock": "Retrieve the material before removing this machine.",
-			"not_at_stream": "Place the waterwheel beside the stream bank.",
+			"not_at_stream": "Set the wheel in the water with its lower rim immersed and clear of the bed.",
 			"not_at_seam": "Place the collector at the exposed mineral seam.",
 			"no_shaft": "All carried shafts are in use."}.get(outcome.reason, "That action is unavailable here.")), true)
 	_refresh()
@@ -3930,8 +3923,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_6:
 				if state.get("options", {}).get("foundations", false):
 					_select_tool("foundation")
-			KEY_PAGEUP: _adjust_foundation_level(4)
-			KEY_PAGEDOWN: _adjust_foundation_level(-4)
+			KEY_PAGEUP: _adjust_foundation_level(1)
+			KEY_PAGEDOWN: _adjust_foundation_level(-1)
 			KEY_F: _select_tool("flow")
 			KEY_G: _select_tool("drive")
 			KEY_I, KEY_ESCAPE: _select_tool("inspect")
@@ -3959,13 +3952,13 @@ func _select_tool(tool: String) -> void:
 		"drive": "Click two neighboring machines to connect a drive shaft.",
 		"inspect": "Click a machine to inspect it or collect its finished work.",
 		"collector": "Place the collector on the brass seam strip.",
-		"wheel": "Place the waterwheel on the stream bank beside the seam."}
+		"wheel": "Place the waterwheel in the flowing stream. Set its height to align its axle with your shafts."}
 	if _native_transmission():
 		instructions["collector"] = "Place the collector at the exposed mineral seam."
 		instructions["flow"] = "Choose the upstream machine, then its neighbor at the material outlet."
 		instructions["drive"] = "Choose a machine or cogwheel, then its partner. The amber ring marks the first endpoint."
 		instructions["gear"] = "Place a cogwheel at the highlighted point. Set axis and height in the cogwheel menu."
-		instructions["foundation"] = "Place foundations through ground and scenery. Page Up / Page Down move one block height. Enable Area to choose two corners; Esc cancels."
+		instructions["foundation"] = "Place foundations through ground and scenery. Page Up / Page Down move one quarter-height step. Enable Area to choose two corners; Esc cancels."
 	_message(instructions.get(tool,
 		"Place %s on an empty grid square." % NAMES.get(tool, tool)))
 
@@ -4015,6 +4008,8 @@ func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 				action = {"action": "place_foundation", "cell": [cell.x, cell.y], "level": _construction_level(cell)}
 		elif _native_transmission():
 			action["level"] = _construction_level(cell)
+			if mode == "wheel":
+				action["tiles"] = wheel_tiles
 		if _native_transmission() and transmission_controls != null:
 			# Dot assignment creates a StringName key; the native wire deliberately
 			# accepts only exact String dictionary keys, without coercion.
@@ -4125,6 +4120,8 @@ func _build_cell_allowed(cell: Vector2i) -> bool:
 func _construction_level(cell: Vector2i) -> int:
 	if mode == "foundation":
 		return foundation_level
+	if mode == "wheel":
+		return wheel_level
 	var top := -1000001
 	for surface: Dictionary in state.get("foundations", {}).values():
 		if surface.cell == [cell.x, cell.y]:
@@ -4132,12 +4129,23 @@ func _construction_level(cell: Vector2i) -> int:
 	return top if top > -1000001 else 0
 
 func _adjust_foundation_level(delta: int) -> void:
-	if mode != "foundation" or not _native_transmission() or explanation_open:
+	if mode not in ["foundation", "wheel"] or not _native_transmission() or explanation_open:
 		return
-	foundation_level = clampi(foundation_level + delta, -1000000, 1000000)
+	if mode == "wheel":
+		wheel_level = clampi(wheel_level + delta, -1000000, 1000000)
+	else:
+		foundation_level = clampi(foundation_level + delta, -1000000, 1000000)
 	foundation_area_started = false
-	foundation_level_label.text = "Level %d · %.2f m" % [foundation_level, foundation_level * Geometry.HEIGHT_STEP]
-	_message("Foundation top: level %d (%.2f m). Every tile and machine uses this world height grid." % [foundation_level, foundation_level * Geometry.HEIGHT_STEP])
+	var level := wheel_level if mode == "wheel" else foundation_level
+	foundation_level_label.text = "Level %d · %.2f m" % [level, level * Geometry.HEIGHT_STEP]
+	_message("Construction level %d (%.2f m). Wheels and machines use the same shaft height above this level." % [level, level * Geometry.HEIGHT_STEP])
+
+func _adjust_wheel_size(delta: int) -> void:
+	if mode != "wheel" or not _native_transmission() or explanation_open:
+		return
+	wheel_tiles = clampi(wheel_tiles + delta, 1, 4096)
+	wheel_size_label.text = "Wheel diameter: %d squares" % wheel_tiles
+	_refresh_placement_hint(true)
 
 func _assemble_foundation(parent: Node3D) -> void:
 	# Only confirmed player-built surfaces or an explicit placement preview
@@ -4547,7 +4555,11 @@ func _wheel_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	wheel_rotor = Node3D.new()
 	wheel_rotor.name = "WheelRotor"
 	wheel_rotor.position = Vector3.UP * 0.78 * scale_factor
-	wheel_rotor.scale = Vector3.ONE * scale_factor
+	# Paddle tips use a 0.70-unit source radius. The larger rotor reaches the
+	# water while its center stays at the common machine spindle height.
+	var rotor_scale := Geometry.WATERWHEEL_RADIUS / 0.70 if native_profile else scale_factor
+	var radial_scale := rotor_scale * int(entity.get("tiles", 1)) if native_profile else rotor_scale
+	wheel_rotor.scale = Vector3(radial_scale, radial_scale, rotor_scale)
 	if native_profile and axis == Vector3.RIGHT:
 		wheel_rotor.rotation.y = PI / 2
 	elif native_profile and axis == Vector3.UP:
@@ -4583,19 +4595,22 @@ func _wheel_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 		Color("b87945"), Vector3(PI / 2, 0, 0))
 
 func _assemble_machine(anchor: Node3D, entity: Dictionary) -> void:
-	var plinth := MeshInstance3D.new()
-	plinth.name = "Plinth"
-	plinth.position = Vector3(0, 0.12, 0)
-	plinth.mesh = ProductionSkidArt.skid_mesh()
-	plinth.material_override = ProductionVisuals.material(Color("273c41"), 0.08, 0.5)
-	plinth.set_meta("asset_role", "MachineSupportSkid")
-	anchor.add_child(plinth)
+	var water_wheel: bool = entity.kind == "wheel" and _native_transmission()
+	if not water_wheel:
+		var plinth := MeshInstance3D.new()
+		plinth.name = "Plinth"
+		plinth.position = Vector3(0, 0.12, 0)
+		plinth.mesh = ProductionSkidArt.skid_mesh()
+		plinth.material_override = ProductionVisuals.material(Color("273c41"), 0.08, 0.5)
+		plinth.set_meta("asset_role", "MachineSupportSkid")
+		anchor.add_child(plinth)
 	match entity.kind:
 		"collector": _collector_visual(anchor, entity)
 		"belt": _belt_visual(anchor, entity)
 		"processor": _press_visual(anchor, entity)
 		"wheel": _wheel_visual(anchor, entity)
-	_machine_surface_detail(anchor, entity.kind)
+	if not water_wheel:
+		_machine_surface_detail(anchor, entity.kind)
 
 func _rebuild_machines() -> void:
 	_sync_machine_body_context()
@@ -4650,9 +4665,9 @@ func _rebuild_machines() -> void:
 		body.set_meta("entity", entity_id)
 		var collider := CollisionShape3D.new()
 		var shape := BoxShape3D.new()
-		shape.size = Vector3(Geometry.MACHINE_SIZE[0], Geometry.MACHINE_SIZE[1], Geometry.MACHINE_SIZE[2])
+		shape.size = Geometry.wheel_half_extents(int(entity.get("axis", 0)), int(entity.get("tiles", 1))) * 2.0 if kind == "wheel" and _native_transmission() else Vector3(Geometry.MACHINE_SIZE[0], Geometry.MACHINE_SIZE[1], Geometry.MACHINE_SIZE[2])
 		collider.shape = shape
-		collider.position.y = Geometry.MACHINE_CENTER_HEIGHT
+		collider.position.y = Geometry.ANCHOR_HEIGHT if kind == "wheel" and _native_transmission() else Geometry.MACHINE_CENTER_HEIGHT
 		body.add_child(collider)
 		anchor.add_child(body)
 		var caption := _text(anchor, NAMES.get(kind, kind).to_upper(), Vector3(0, 1.9, 0), Color("f2e5c5"))
@@ -4809,8 +4824,11 @@ func _toggle_details() -> void:
 
 func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	if foundation_level_controls != null:
-		foundation_level_controls.visible = _native_transmission() and mode == "foundation" and not explanation_open and snapshot_ready
-		foundation_area_toggle.visible = foundation_level_controls.visible
+		foundation_level_controls.visible = _native_transmission() and mode in ["foundation", "wheel"] and not explanation_open and snapshot_ready
+		foundation_area_toggle.visible = foundation_level_controls.visible and mode == "foundation"
+		var level := wheel_level if mode == "wheel" else foundation_level
+		foundation_level_label.text = "Level %d · %.2f m" % [level, level * Geometry.HEIGHT_STEP]
+		wheel_size_controls.visible = foundation_level_controls.visible and mode == "wheel"
 	_refresh_placement_hint(snapshot_ready)
 	footer_snapshot_ready = snapshot_ready
 	_queue_footer_fit()
@@ -4974,7 +4992,7 @@ func _refresh_machine_preview() -> void:
 	var axis := _preview_axis()
 	if axis < 0:
 		return
-	var key := "%s:%d:%s" % [mode, axis, str(_native_transmission())]
+	var key := "%s:%d:%s:%d" % [mode, axis, str(_native_transmission()), wheel_tiles if mode == "wheel" else 0]
 	if machine_preview == null:
 		machine_preview = Node3D.new()
 		machine_preview.name = "MachinePlacementPreview"
@@ -4988,7 +5006,7 @@ func _refresh_machine_preview() -> void:
 		if mode == "foundation":
 			_assemble_foundation(machine_preview)
 		else:
-			_assemble_machine(machine_preview, {"kind": mode, "axis": axis})
+			_assemble_machine(machine_preview, {"kind": mode, "axis": axis, "tiles": wheel_tiles})
 		wheel_rotor = placed_rotor
 		if machine_preview_material == null:
 			machine_preview_material = StandardMaterial3D.new()
@@ -5036,11 +5054,11 @@ func _guided_step(kinds: Dictionary) -> Dictionary:
 	if not material_pairs.has("collector:belt") or not material_pairs.has("belt:processor"):
 		return {"text": "Connect the material path. Help [H] shows an example.", "tool": "flow"}
 	if not kinds.has("wheel"):
-		return {"text": "Add a waterwheel by the stream.", "tool": "wheel"}
+		return {"text": "Place a waterwheel in the stream.", "tool": "wheel"}
 	if not state.get("power_enabled", true):
 		return {"text": "Switch on the drive near the wheel [P].", "tool": "inspect"}
 	if not state.get("powered", false):
-		return {"text": "Bring power to the line. Help [H] shows the current setup.", "tool": "drive"}
+		return {"text": "Bridge the wheel to the collector with a cog and shafts at the same height.", "tool": "drive"} if _native_transmission() else {"text": "Bring power to the line. Help [H] shows the current setup.", "tool": "drive"}
 	var stock: Dictionary = state.get("stock", {})
 	if int(stock.get("source", 0)) + int(stock.get("collector", 0)) + int(stock.get("belt", 0)) + int(stock.get("input", 0)) + int(stock.get("held", 0)) == 0:
 		if _native_transmission():
@@ -5225,10 +5243,16 @@ func _build_interface() -> void:
 		tool_buttons[kind] = button
 	foundation_level_controls = HBoxContainer.new()
 	build.add_child(foundation_level_controls)
-	_button(foundation_level_controls, "−", _adjust_foundation_level.bind(-4))
+	_button(foundation_level_controls, "−", _adjust_foundation_level.bind(-1))
 	foundation_level_label = _label(foundation_level_controls, "Level 0 · 0.00 m", 14)
-	_button(foundation_level_controls, "+", _adjust_foundation_level.bind(4))
+	_button(foundation_level_controls, "+", _adjust_foundation_level.bind(1))
 	foundation_level_controls.visible = false
+	wheel_size_controls = HBoxContainer.new()
+	build.add_child(wheel_size_controls)
+	_button(wheel_size_controls, "−", _adjust_wheel_size.bind(-1))
+	wheel_size_label = _label(wheel_size_controls, "Wheel diameter: 1 square", 14)
+	_button(wheel_size_controls, "+", _adjust_wheel_size.bind(1))
+	wheel_size_controls.visible = false
 	foundation_area_toggle = CheckButton.new()
 	foundation_area_toggle.text = "Area (two corners)"
 	foundation_area_toggle.toggled.connect(func(enabled: bool) -> void:

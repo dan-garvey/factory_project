@@ -3,7 +3,7 @@ extends MenuButton
 const Geometry = preload("res://opening/site_geometry.gd")
 
 var selected_axis := "x"
-var gear_height := 4
+var gear_height := 0
 var gear_teeth := 2
 var active_tool := ""
 var _host: WeakRef
@@ -34,7 +34,7 @@ func _init() -> void:
 	_heights.add_item("Lower one quarter step", 0)
 	_heights.add_item("Raise one quarter step", 1)
 	_heights.id_pressed.connect(_height_selected)
-	menu.add_submenu_item("Gear height: 4", "Height", 101)
+	menu.add_submenu_item("Gear height: 0", "Height", 101)
 	_sizes = PopupMenu.new()
 	_sizes.name = "CogSize"
 	menu.add_child(_sizes)

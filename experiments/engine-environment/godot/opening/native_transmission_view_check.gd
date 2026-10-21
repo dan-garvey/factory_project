@@ -57,6 +57,8 @@ func _controls() -> void:
 	host.state = fixture()
 	var view := Controls.new()
 	view.configure(host)
+	verify(view.gear_height == 0, "The default cog height shares the worksite machine level.")
+	view.gear_height = 4
 	verify(view.visible and not view.disabled and "2 carried" in view.get_popup().get_item_text(0), "P sees its own finite kit.")
 	view.get_popup().emit_signal("id_pressed", 1)
 	var before: Dictionary = host.state.duplicate(true)
@@ -139,6 +141,7 @@ func _gear_sizes() -> void:
 	host.state.part_specifications.P.append({"kind": "gear", "teeth": 4, "half_span": 0, "count": 1})
 	var view := Controls.new()
 	view.configure(host)
+	view.gear_height = 4
 	view.choose_tool("gear")
 	view._axes.id_pressed.emit(1)
 	view._heights.id_pressed.emit(1)

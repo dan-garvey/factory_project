@@ -1,0 +1,18 @@
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "waterwheel",
+    srcs = ["src/waterwheel.cpp"],
+    hdrs = ["include/factory/waterwheel.hpp"],
+    strip_include_prefix = "include",
+    deps = ["//native/factory-mechanics:mechanics"],
+)
+
+cc_test(
+    name = "waterwheel_test",
+    srcs = ["tests/waterwheel_test.cpp"],
+    deps = [":waterwheel"],
+    size = "small",
+)

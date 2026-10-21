@@ -133,10 +133,11 @@ func sync_topology() -> Dictionary:
 		body.set_meta("entity", entity)
 		body.collision_layer = Geometry.MACHINE_LAYER
 		body.collision_mask = Geometry.ACTOR_LAYER
-		body.position = Vector3(anchor[0], Geometry.MACHINE_CENTER_HEIGHT + float(entities[entity].get("level", 0)) * Geometry.HEIGHT_STEP, anchor[2])
+		var wheel: bool = entities[entity].get("kind") == "wheel" and snapshot.get("options", {}).get("native", false)
+		body.position = Vector3(anchor[0], (Geometry.ANCHOR_HEIGHT if wheel else Geometry.MACHINE_CENTER_HEIGHT) + float(entities[entity].get("level", 0)) * Geometry.HEIGHT_STEP, anchor[2])
 		var collider := CollisionShape3D.new()
 		var box := BoxShape3D.new()
-		box.size = Vector3(Geometry.MACHINE_SIZE[0], Geometry.MACHINE_SIZE[1], Geometry.MACHINE_SIZE[2])
+		box.size = Geometry.wheel_half_extents(int(entities[entity].get("axis", 0)), int(entities[entity].get("tiles", 1))) * 2.0 if wheel else Vector3(Geometry.MACHINE_SIZE[0], Geometry.MACHINE_SIZE[1], Geometry.MACHINE_SIZE[2])
 		collider.shape = box
 		body.add_child(collider)
 		machines[entity] = body
@@ -267,8 +268,14 @@ func _geometry_registered() -> bool:
 			else:
 				if not data is Plane or data.normal.distance_to(Vector3.UP) > Geometry.NATIVE_POSE_EPSILON or absf(data.d - Geometry.GROUND_HEIGHT) > Geometry.NATIVE_POSE_EPSILON:
 					return false
-		elif PhysicsServer3D.body_get_collision_layer(rid) != Geometry.MACHINE_LAYER or not data is Vector3 or data.distance_to(expected_half) > Geometry.NATIVE_POSE_EPSILON:
-			return false
+		else:
+			var id: String = str(body.get_meta("entity", ""))
+			var spec: Dictionary = machine_specs.get(id, {})
+			var half := expected_half
+			if spec.get("kind") == "wheel" and site_surface != null:
+				half = Geometry.wheel_half_extents(int(spec.get("axis", 0)), int(spec.get("tiles", 1)))
+			if PhysicsServer3D.body_get_collision_layer(rid) != Geometry.MACHINE_LAYER or not data is Vector3 or data.distance_to(half) > Geometry.NATIVE_POSE_EPSILON:
+				return false
 	for id in site_bodies:
 		var body: StaticBody3D = site_bodies[id]
 		var rid: RID = body.get_rid()

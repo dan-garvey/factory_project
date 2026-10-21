@@ -114,6 +114,16 @@ Value profile_value(const Profile& profile) {
         {"anchor_offset", Value(Array{Value(profile.anchor_offset[0]), Value(profile.anchor_offset[1]), Value(profile.anchor_offset[2])})},
         {"build_reach", Value(profile.build_reach)}};
     if (profile.foundation_parts > 0) output.emplace("foundation_parts", Value(profile.foundation_parts));
+    if (!profile.water.empty()) {
+        Array water;
+        for (const auto& [location, sample] : profile.water) water.emplace_back(Object{
+            {"x", Value(location[0])}, {"z", Value(location[1])},
+            {"surface", Value(sample.surface)}, {"bed", Value(sample.bed)},
+            {"velocity_x", Value(sample.velocity_x)}, {"velocity_z", Value(sample.velocity_z)}});
+        output.emplace("water", Value(std::move(water)));
+        output.emplace("wheel_radius", Value(profile.wheel_radius));
+        output.emplace("wheel_axle_offset", Value(profile.wheel_axle_offset));
+    }
     return Value(std::move(output));
 }
 
@@ -136,7 +146,8 @@ Value topology_value(const stationary::Topology& topology) {
             {"kind", Value(static_cast<Integer>(geometry.kind))},
             {"axis", Value(static_cast<Integer>(geometry.axis))},
             {"center", Value(Array{Value(geometry.center[0]), Value(geometry.center[1]), Value(geometry.center[2])})},
-            {"teeth", Value(geometry.teeth)}, {"half_span", Value(geometry.half_span)}});
+            {"teeth", Value(geometry.teeth)}, {"half_span", Value(geometry.half_span)},
+            {"wheel_tiles", Value(part.wheel_tiles)}});
     }
     for (const auto& link : topology.material_links)
         links.emplace_back(Object{{"from", ref_value(link.from)}, {"to", ref_value(link.to)}});
@@ -154,7 +165,7 @@ stationary::Topology decode_topology(const Value& value) {
     topology.drive_enabled = scalar<bool>(input.at("drive_enabled"), path + ".drive_enabled");
     for (const auto& value_part : array(input.at("parts"), path + ".parts", mechanics::maximum_parts)) {
         const auto& entry = fields(value_part, path + ".parts",
-            {"id", "generation", "role", "kind", "axis", "center", "teeth", "half_span"});
+            {"id", "generation", "role", "kind", "axis", "center", "teeth", "half_span", "wheel_tiles"});
         const auto& center = array(entry.at("center"), path + ".parts.center", 3);
         if (center.size() != 3) refuse(CheckpointReason::invalid_world, path + ".parts.center");
         topology.parts.push_back({{
@@ -166,7 +177,8 @@ stationary::Topology decode_topology(const Value& value) {
             enumeration<mechanics::Axis>(entry, "axis", 2, path + ".parts"),
             integer(entry, "teeth", path + ".parts"), integer(entry, "half_span", path + ".parts")},
             integer(entry, "generation", path + ".parts"),
-            enumeration<stationary::Role>(entry, "role", 5, path + ".parts")});
+            enumeration<stationary::Role>(entry, "role", 5, path + ".parts"),
+            integer(entry, "wheel_tiles", path + ".parts")});
     }
     for (const auto& value_link : array(input.at("links"), path + ".links", 2)) {
         const auto& entry = fields(value_link, path + ".links", {"from", "to"});

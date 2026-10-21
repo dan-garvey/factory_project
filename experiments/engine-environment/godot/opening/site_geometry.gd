@@ -7,6 +7,7 @@ const HEIGHT_DENOMINATOR := 4
 const HEIGHT_STEP := PITCH / HEIGHT_DENOMINATOR
 const GRID_COORDINATE_LIMIT := 1000000 # Native integer representation bound.
 const ANCHOR_HEIGHT := 0.5
+const WATERWHEEL_RADIUS := 2.0 * HEIGHT_STEP
 const BASE_REACH := 4.0
 
 const CAPSULE_RADIUS := 0.3
@@ -23,6 +24,10 @@ const PICK_LAYER := 4
 const ACTOR_LAYER := 16
 const MACHINE_SIZE := [1.45, 1.65, 1.45]
 const MACHINE_CENTER_HEIGHT := 0.8
+
+static func wheel_half_extents(axis: int, tiles: int) -> Vector3:
+	var radius := WATERWHEEL_RADIUS * tiles
+	return Vector3(0.3 if axis == 0 else radius, radius, 0.3 if axis == 2 else radius)
 
 # Match the existing grid tile tops. The adapter uses WorldBoundaryShape3D;
 # its effective extent is backend-specific, not a selected game-world limit.

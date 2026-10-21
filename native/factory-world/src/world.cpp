@@ -37,6 +37,15 @@ bool material_machine(Role role) {
     return role == Role::collector || role == Role::belt || role == Role::processor;
 }
 
+std::optional<mechanics::Rate> wheel_rate(const Profile& profile, const stationary::PlacedPart& placed) {
+    if (profile.water.empty()) return profile.waterwheel_rate;
+    const auto& part = placed.geometry;
+    const auto sample = profile.water.find({part.center[0], part.center[2]});
+    if (sample == profile.water.end()) return mechanics::Rate{0, 1};
+    return waterwheel::rate(part.center[1] * 100 + profile.wheel_axle_offset,
+                            profile.wheel_radius * placed.wheel_tiles, part.axis, sample->second);
+}
+
 // The opening's existing material ports face along +X and are four integer
 // quarter-pitch units apart. This does not derive a mechanical engagement.
 bool adjacent_ports(const mechanics::Point& from, const mechanics::Point& to) {
@@ -111,7 +120,8 @@ bool shape(const Object& intent, const std::string& action) {
     if (action == "set_drive")
         return keys(intent, {"target", "generation", "enabled"}) && field<bool>(intent, "enabled");
     if (placement(action))
-        return keys(intent, {"role", "center", "axis", "teeth", "half_span"});
+        return intent.contains("wheel_tiles") ? keys(intent, {"role", "center", "axis", "teeth", "half_span", "wheel_tiles"}) :
+            keys(intent, {"role", "center", "axis", "teeth", "half_span"});
     if (action == "link" || action == "unlink" || action == "shaft_between" || action == "remove_shaft_between")
         return keys(intent, {"target", "generation", "to", "to_generation"});
     return false;
@@ -304,9 +314,12 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         const auto* axis_name = field<std::string>(record.intent, "axis");
         const auto* teeth = field<Integer>(record.intent, "teeth");
         const auto* span = field<Integer>(record.intent, "half_span");
+        const auto* wheel_tiles = field<Integer>(record.intent, "wheel_tiles");
         const auto selected_role = role_name ? role(*role_name) : std::nullopt;
         if (!location || !selected_role || !axis_name || !axis(*axis_name) || !teeth || !span ||
-            !spec_valid({*selected_role, *teeth, *span}) || targets.front() != anchor(profile, *location)) return false;
+            !spec_valid({*selected_role, *teeth, *span}) || targets.front() != anchor(profile, *location) ||
+            (record.intent.contains("wheel_tiles") && (!wheel_tiles || *selected_role != Role::waterwheel ||
+                *wheel_tiles < 1 || *wheel_tiles > mechanics::maximum_dimension))) return false;
         if (action == "place_connected") {
             if (!material_machine(*selected_role)) return false;
             auto left = *location;
@@ -462,6 +475,15 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
         profile.meters_per_grid_unit > 1000 || !std::isfinite(profile.build_reach) ||
         profile.build_reach <= 0 || profile.build_reach > 1000000 ||
         profile.foundation_parts < 0 || profile.foundation_parts > 256) return false;
+    if (profile.water.size() > 65536 || profile.wheel_radius <= 0 ||
+        profile.wheel_radius > mechanics::maximum_coordinate / mechanics::maximum_dimension ||
+        profile.wheel_axle_offset < -mechanics::maximum_coordinate ||
+        profile.wheel_axle_offset > mechanics::maximum_coordinate) return false;
+    for (const auto& [location, sample] : profile.water) {
+        if (location[0] < -mechanics::maximum_coordinate || location[0] > mechanics::maximum_coordinate ||
+            location[1] < -mechanics::maximum_coordinate || location[1] > mechanics::maximum_coordinate ||
+            !waterwheel::rate(0, profile.wheel_radius, mechanics::Axis::x, sample)) return false;
+    }
     for (const auto& actor : profile.actors) if (!identity(actor)) return false;
     for (const auto coordinate : profile.anchor_offset) if (!std::isfinite(coordinate)) return false;
     const auto& state = snapshot.state;
@@ -524,6 +546,8 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
         }
     }
     for (const auto& item : state.topology.parts) {
+        if (item.wheel_tiles < 1 || item.wheel_tiles > mechanics::maximum_dimension ||
+            (item.role != Role::waterwheel && item.wheel_tiles != 1)) return false;
         if (profile.foundation_parts > 0 && material_machine(item.role) && item.geometry.center[1] != 0 &&
             std::none_of(state.foundations.begin(), state.foundations.end(), [&](const auto& entry) {
                 return entry.second.center == item.geometry.center;
@@ -532,10 +556,11 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
         const auto total = totals.find({item.role, item.geometry.teeth, item.geometry.half_span});
         if (issued == state.issued_entities.end() || issued->second != item.generation ||
             total == totals.end() || !add(total->second, 1)) return false;
-        if (item.role == Role::waterwheel && std::count_if(state.topology.sources.begin(),
+        const auto expected_rate = item.role == Role::waterwheel ? wheel_rate(profile, item) : std::nullopt;
+        if (item.role == Role::waterwheel && (!expected_rate || std::count_if(state.topology.sources.begin(),
             state.topology.sources.end(), [&](const auto& source) {
-                return source.hub == item.geometry.id && source.rate == profile.waterwheel_rate;
-            }) != 1) return false;
+                return source.hub == item.geometry.id && source.rate == *expected_rate;
+            }) != 1)) return false;
     }
     if (totals != profile.finite_parts || !stationary::power_view(state.topology).mechanical.accepted() ||
         materials::validate(state.material, profile.material, material_path(state.topology)) != materials::Error::none)
@@ -696,10 +721,13 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         const auto* axis_name = field<std::string>(intent, "axis");
         const auto* teeth = field<Integer>(intent, "teeth");
         const auto* span = field<Integer>(intent, "half_span");
+        const auto* wheel_tiles = field<Integer>(intent, "wheel_tiles");
         location = grid_point(intent);
         if (!role_name || !axis_name || !teeth || !span || !location ||
             !(selected_role = role(*role_name)) || !(selected_axis = axis(*axis_name)) ||
-            !spec_valid({*selected_role, *teeth, *span})) return refused("invalid_part");
+            !spec_valid({*selected_role, *teeth, *span}) ||
+            (intent.contains("wheel_tiles") && (!wheel_tiles || *selected_role != Role::waterwheel ||
+                *wheel_tiles < 1 || *wheel_tiles > mechanics::maximum_dimension))) return refused("invalid_part");
         targets.push_back(anchor(profile_, *location));
         if (profile_.foundation_parts > 0 && material_machine(*selected_role) && (*location)[1] != 0) {
             const bool supported = std::any_of(state.foundations.begin(), state.foundations.end(),
@@ -764,9 +792,14 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
              *field<Integer>(intent, "half_span")}, generation, *selected_role};
         placed.geometry.id = entity;
         placed.generation = generation;
+        if (placed.role == Role::waterwheel && field<Integer>(intent, "wheel_tiles"))
+            placed.wheel_tiles = *field<Integer>(intent, "wheel_tiles");
         stationary::PlacementSelection selection{placed, std::nullopt};
-        if (placed.role == Role::waterwheel)
-            selection.source = mechanics::Drive{entity, profile_.waterwheel_rate};
+        if (placed.role == Role::waterwheel) {
+            const auto rate = wheel_rate(profile_, placed);
+            if (!rate) return refused("invalid_waterwheel");
+            selection.source = mechanics::Drive{entity, *rate};
+        }
         auto proposal = stationary::prepare_placement(state.topology, state.kits.at(binding.actor),
                                                      state.material, selection);
         if (const auto* error = std::get_if<stationary::PlacementRefusal>(&proposal))

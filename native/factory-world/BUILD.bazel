@@ -26,6 +26,7 @@ cc_library(
         "//native/factory-core:materials",
         "//native/factory-core:recovery",
         "//native/factory-stationary:stationary",
+        "//native/waterwheel:waterwheel",
     ],
 )
 

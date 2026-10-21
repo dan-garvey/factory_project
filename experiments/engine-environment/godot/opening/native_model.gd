@@ -35,7 +35,7 @@ func _init(world_context: String = "opening-native", actor_ids: Array = ["P"]):
 	for fir in surface.fir_specs():
 		var bounds: AABB = fir.bounds
 		obstacles.append([[bounds.position.x, bounds.position.y, bounds.position.z], [bounds.end.x, bounds.end.y, bounds.end.z]])
-	boot_result = _invoke("configure_terrain", [{"axis": axis, "heights": heights, "obstacles": obstacles}])
+	boot_result = _invoke("configure_terrain", [{"axis": axis, "heights": heights, "obstacles": obstacles, "water": surface.water_samples()}])
 	if not boot_result.get("accepted", false):
 		return
 	var profile: Dictionary = projection().get("adapter_profile", {})
