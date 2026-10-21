@@ -1010,6 +1010,10 @@ class ProductionEnvironment:
 	static var fern_finish: StandardMaterial3D
 	const PINE_FILE := "res://opening/assets/pine/pine_sapling.res"
 	const PINE_SHA256 := "42bf54f373fc5ee316cc16e59993ec1d19060b30c859441948cc192703959b8e"
+	# Source gray dielectric F0 = ((ior - 1)/(ior + 1))^2 * specularColor.
+	# Compatibility uses F0 = 0.16 * specular^2. This maps only the two
+	# pinned opaque/cutout materials, not general glTF scattering extensions.
+	const PINE_SPECULAR := [0.1, 0.07071067811865476]
 	static var pine_source_status := "uninitialized"
 	static var pine_cluster_mesh: ArrayMesh
 	static var rock_boulder_mesh: ArrayMesh
@@ -1750,6 +1754,16 @@ class ProductionEnvironment:
 		var mesh := ResourceLoader.load(path, "ArrayMesh") as ArrayMesh
 		if mesh == null or mesh.get_surface_count() != 2 or not ResourceLoader.get_dependencies(path).is_empty():
 			return {"status": "invalid", "reason": "Pine requires one self-contained two-surface mesh."}
+		for surface in range(2):
+			var original := mesh.surface_get_material(surface) as StandardMaterial3D
+			if original == null:
+				return {"status": "invalid", "reason": "Pine requires its two qualified standard materials."}
+			if not is_equal_approx(original.metallic_specular, PINE_SPECULAR[surface]):
+				# Keep imported material references and every texture intact.
+				# Repeated reads reuse these surface bindings across all plants.
+				var adapted := original.duplicate(false) as StandardMaterial3D
+				adapted.metallic_specular = PINE_SPECULAR[surface]
+				mesh.surface_set_material(surface, adapted)
 		return {"status": "ready", "mesh": mesh}
 
 	static func _pine_understory() -> MultiMeshInstance3D:

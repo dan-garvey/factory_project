@@ -23,10 +23,16 @@ Preparation in `../foliage/prepare_maps.gd` resamples albedo in linear light to
 384 pixels, normal and packed roughness/metallic data to 256 pixels, renormalizes
 normals and adds mipmaps. The original maps are opaque JPEGs; no alpha channel is
 invented. Bark is opaque and the needle surface retains the source cutout mode.
-The adapter retains the importer's dielectric defaults, including specular 0.5,
-and does not reproduce the glTF's IOR/specular-color extensions. The source has
-no bound occlusion texture, so ambient occlusion stays disabled. This limitation
-is explicit; source attribution is not a claim of a complete material conversion.
+The native resource contains the importer's specular-0.5 dielectric defaults.
+At load time, two cached material copies map the original IOR and gray specular
+color to normal-incidence reflectance: approximately 0.0016 for bark and 0.0008
+for needles. The [glTF extension](https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_materials_specular)
+defines that source response. The pinned [Compatibility shader](https://github.com/godotengine/godot/blob/ed1daf0bf001b61586d9930840f2f1394092c079/drivers/gles3/shaders/scene.glsl)
+uses `F0 = 0.16 * specular * specular`, giving adapter values 0.1 and approximately
+0.070710678. Imported material references, geometry and prepared images remain
+intact. This preserves the specified normal-incidence response, not a complete
+cross-renderer scattering conversion. The source has no bound occlusion texture,
+so ambient occlusion stays disabled.
 
 The self-contained compressed `ArrayMesh` adds no scripts, collision, authority,
 wind simulation or harvesting rules. Whole-plant envelopes clear the river and
