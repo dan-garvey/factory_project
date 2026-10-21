@@ -2781,6 +2781,12 @@ func _guided_step(kinds: Dictionary) -> Dictionary:
 		return {"text": "Bring power to the line. Help [H] shows the current setup.", "tool": "drive"}
 	var stock: Dictionary = state.get("stock", {})
 	if int(stock.get("source", 0)) + int(stock.get("collector", 0)) + int(stock.get("belt", 0)) + int(stock.get("input", 0)) + int(stock.get("held", 0)) == 0:
+		if _native_transmission():
+			var cargo: Dictionary = state.get("cargo", {}).get(client, {})
+			if not cargo.get("work_lots", []).is_empty():
+				return {"text": "Select the press to insert a carried workpiece.", "tool": "inspect"}
+			if int(cargo.get("raw", 0)) > 0:
+				return {"text": "Select the press to insert a carried blank.", "tool": "inspect"}
 		return {"text": "No blanks remain here. All tools stays available for experimenting.", "tool": "inspect"}
 	return {"text": "Follow a blank to the press. Select a machine to inspect it.", "tool": "inspect"}
 

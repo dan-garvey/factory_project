@@ -1,6 +1,7 @@
 extends SceneTree
 ## Default cases inspect unmounted views. --buttons-only mounts actual widgets
-## over invented projections. Neither mode creates a live Model.
+## over invented projections. --carried-guidance-only also reads recovery menus.
+## None of these modes creates a live Model.
 
 const Opening = preload("res://opening/opening.gd")
 const SharedOpening = preload("res://opening/shared_opening.gd")
@@ -41,6 +42,9 @@ func fixture() -> Dictionary:
 		"stock": {"output": 0}, "inventories": {"P": 0, "Q": 0}}
 
 func _initialize() -> void:
+	if "--carried-guidance-only" in OS.get_cmdline_user_args():
+		call_deferred("_carried_guidance")
+		return
 	if "--buttons-only" in OS.get_cmdline_user_args():
 		call_deferred("_buttons")
 		return
@@ -85,6 +89,102 @@ func _initialize() -> void:
 	verify(view.state == before and view.model == null and view.request_sequence == sequence and view.request_namespace == namespace_id, "Display reads change neither projection nor authority/intent state.")
 	view.free()
 	print("OPENING_PARTS_VIEW_%s %d" % ["PASS" if failures == 0 else "FAIL", checks])
+	quit(0 if failures == 0 else 1)
+
+func _carried_guidance() -> void:
+	for shared in [false, true]:
+		var view = SharedWidgets.new() if shared else OfflineWidgets.new()
+		if shared:
+			view.session = SessionStub.new()
+		view.state = fixture()
+		view.state.context = "native-carried-guidance"
+		view.state.options.native = true
+		view.state.stock = {"source": 0, "collector": 0, "belt": 0, "input": 0, "held": 0, "output": 0}
+		view.state.remaining = 0
+		view.state.power_enabled = true
+		view.state.powered = true
+		view.state.entities = {"collector": {"kind": "collector", "cell": [0, 1]},
+			"belt": {"kind": "belt", "cell": [1, 1]}, "press": {"kind": "processor", "cell": [2, 1]},
+			"wheel": {"kind": "wheel", "cell": [0, 0]}}
+		view.state.links = [["collector", "belt"], ["belt", "press"]]
+		view.state.transmission_parts = {}
+		view.state.motion = {}
+		view.state.engagements = []
+		view.state.part_specifications = {"P": [], "Q": []}
+		view.state.cargo = {"P": {"raw": 0, "products": 0, "work_lots": []},
+			"Q": {"raw": 0, "products": 0, "work_lots": []}}
+		view.mode = "inspect"
+		view.selected = "press"
+		view.request_sequence = 17
+		root.add_child(view)
+		view.selection_ring = MeshInstance3D.new()
+		view.add_child(view.selection_ring)
+		view._build_interface()
+		var identity: String = view.request_namespace
+		for actor in ["P", "Q"]:
+			view.client = actor
+			for sample in [{"raw": 2, "remaining": -1}, {"raw": 0, "remaining": 2},
+				{"raw": 0, "remaining": 0}, {"raw": 2, "remaining": 2}]:
+				view.state.cargo.P = {"raw": 0, "products": 0, "work_lots": []}
+				view.state.cargo.Q = {"raw": 0, "products": 0, "work_lots": []}
+				var lots: Array = [] if sample.remaining < 0 else [{"id": 7, "recipe_input": 1,
+					"cycle_ticks": 4, "remaining": sample.remaining}]
+				view.state.cargo[actor] = {"raw": sample.raw, "products": 0, "work_lots": lots}
+				var before: Dictionary = view.state.duplicate(true)
+				view._refresh_ui()
+				var form: String = "carried blank" if lots.is_empty() else "carried workpiece"
+				verify(view.goal_label.text.contains(form) and view.goal_label.text.contains("press")
+					and not view.goal_label.text.contains("No blanks"),
+					"The real %s goal points %s's %s back to the press." % ["shared" if shared else "offline", actor, form])
+				view.recovery_actions._open_menu()
+				var offered: Array = []
+				var popup: PopupMenu = view.recovery_actions.action_button.get_popup()
+				for index in range(popup.item_count):
+					offered.append(popup.get_item_metadata(index).wire.action)
+				verify(view.recovery_actions.visible and not view.recovery_actions.action_button.disabled
+					and ("insert_raw" if lots.is_empty() else "insert_work") in offered,
+					"The suggested form has an existing enabled insertion choice at the selected press.")
+				verify(view.state == before and view.model == null and view.actor_world == null
+					and view.request_sequence == 17 and view.request_namespace == identity,
+					"Reading the goal and menu changes no projection, authority or request identity.")
+			view.state.cargo[actor] = {"raw": 0, "products": 0, "work_lots": []}
+			var peer: String = "Q" if actor == "P" else "P"
+			view.state.cargo[peer] = {"raw": 3, "products": 0, "work_lots": [{"id": 9,
+				"recipe_input": 1, "cycle_ticks": 4, "remaining": 1}]}
+			view._refresh_ui()
+			verify(view.goal_label.text.contains("No blanks") and not view.recovery_actions.visible,
+				"A peer's carried material does not become the active actor's continuation route.")
+		view.state.cargo[view.client] = {"raw": 1, "products": 0, "work_lots": []}
+		view.state.stock.output = 1
+		view._refresh_ui()
+		verify(view.goal_label.text.contains("Plate ready"), "A finished plate still takes priority over reinsertion advice.")
+		view.state.stock.output = 0
+		view.state.inventories[view.client] = 4
+		view._refresh_ui()
+		verify(view.confirm_button.visible and not view.confirm_button.disabled and view.goal_label.text.contains("Confirm"),
+			"Four collected products retain the original confirmation route.")
+		view.state.inventories[view.client] = 0
+		view.state.power_enabled = false
+		view._refresh_ui()
+		verify(view.goal_label.text.contains("Switch on"), "The existing power step retains its priority.")
+		view.state.power_enabled = true
+		view.state.options.native = false
+		view._refresh_ui()
+		verify(view.goal_label.text.contains("No blanks"), "Historical guidance ignores native carried-material fields.")
+		view.state.options.native = true
+		if shared:
+			view.pending_actions = {"waiting": {}}
+			view._refresh_ui()
+			verify(view.goal_label.text.contains("Waiting for the server") and view.recovery_actions.action_button.disabled,
+				"A pending shared command retains the waiting message and disabled material menu.")
+			view.pending_actions.clear()
+			view.session.ready = false
+			view._refresh_ui()
+			verify(view.goal_label.text.contains("Reconnect") and view.recovery_actions.action_button.disabled,
+				"Disconnection retains the read-only prompt and disabled material menu.")
+		view.free()
+	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
+		"failures": failures, "models": 0, "desktop_operations": 0, "scope": "carried-material goals and existing press insertion menus"}))
 	quit(0 if failures == 0 else 1)
 
 func _buttons() -> void:
