@@ -174,6 +174,16 @@ bool historical_wire(const authority::Record& record) {
             !values::typed_difference(Value(*center), Value(Array{Value(4 * *x), Value(*level), Value(4 * *z)}));
     }
     if (*action == "place" || *action == "place_connected") {
+        if (*original_action == "place_shaft") {
+            const auto* center = field<Array>(*wire, "center");
+            const auto* axis = field<std::string>(*wire, "axis");
+            const auto* span = field<Integer>(*wire, "half_span");
+            return *action == "place" && keys(*wire, {"center", "axis", "half_span"}) && center && gear_center(*center) &&
+                axis && axis_value(*axis) && span && (*span == 2 || *span == 4) &&
+                same("center", "center") && same("axis", "axis") && same("half_span", "half_span") &&
+                field<std::string>(intent, "role") && *field<std::string>(intent, "role") == "shaft" &&
+                field<Integer>(intent, "teeth") && *field<Integer>(intent, "teeth") == 0;
+        }
         if (*original_action == "place_gear") {
             const auto* center = field<Array>(*wire, "center");
             const auto* axis = field<std::string>(*wire, "axis");
@@ -658,6 +668,26 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.emplace("teeth", Value(Integer{*kind_name == "gear" ? 2 : 0}));
         normalized.emplace("half_span", Value(Integer{0}));
         if (tiles) normalized.emplace("wheel_tiles", Value(*tiles));
+    } else if (*action == "place_shaft") {
+        if (!keys(wire, {"center", "axis", "half_span"})) return refuse("invalid_command");
+        const auto* input = field<Array>(wire, "center");
+        const auto center = input ? gear_center(*input) : std::nullopt;
+        const auto* axis = field<std::string>(wire, "axis");
+        const auto selected_axis = axis ? axis_value(*axis) : std::nullopt;
+        const auto* span = field<Integer>(wire, "half_span");
+        if (!center) return refuse("invalid_center");
+        if (!selected_axis) return refuse("invalid_axis");
+        if (!span || (*span != 2 && *span != 4)) return refuse("invalid_shaft");
+        const authority::Point at{(*center)[0] * pitch / 4, anchor_height + (*center)[1] * pitch / 4, (*center)[2] * pitch / 4};
+        authority::Point half{0.1, 0.1, 0.1};
+        half[static_cast<std::size_t>(*selected_axis)] = *span * pitch / 4;
+        if (placement_blocked(at, half)) return refuse("actor_occupied");
+        normalized.at("action") = Value("place");
+        normalized.emplace("role", Value("shaft"));
+        normalized.emplace("center", wire.at("center"));
+        normalized.emplace("axis", wire.at("axis"));
+        normalized.emplace("teeth", Value(Integer{0}));
+        normalized.emplace("half_span", wire.at("half_span"));
     } else if (*action == "place_gear") {
         if (!keys(wire, {"center", "axis", "teeth"})) return refuse("invalid_command");
         const auto* input = field<Array>(wire, "center");

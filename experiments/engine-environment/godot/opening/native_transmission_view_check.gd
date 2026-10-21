@@ -180,6 +180,35 @@ func _gear_sizes() -> void:
 		"Reselecting the small cog submits its own specification.")
 	view.free()
 
+func _shaft_segments() -> void:
+	var host := HostStub.new()
+	host.state = fixture()
+	host.state.part_specifications.P.append({"kind": "shaft", "teeth": 0, "half_span": 4, "count": 1})
+	var view := Controls.new()
+	view.configure(host)
+	view.gear_height = 4
+	view.get_popup().id_pressed.emit(6)
+	var original: Dictionary = host.state.duplicate(true)
+	view.handle_world_click([0, 4, 4], "")
+	verify(host.calls.back() == {"action": "place_shaft", "center": [0, 4, 4], "axis": "x", "half_span": 2} and host.state == original,
+		"An individual short segment delegates its exact geometry without speculative inventory.")
+	view._axes.id_pressed.emit(2)
+	view._lengths.id_pressed.emit(1)
+	view.handle_world_click([0, 4, 8], "")
+	verify(host.calls.back() == {"action": "place_shaft", "center": [0, 4, 8], "axis": "z", "half_span": 4},
+		"The long segment uses its selected axis and finite specification.")
+	var sent := host.calls.size()
+	view.handle_world_click([0, 3, 8], "")
+	host.client = "Q"
+	view.refresh()
+	verify(view.get_popup().is_item_disabled(view.get_popup().get_item_index(6)) and view.handle_world_click([0, 4, 8], "") and host.calls.size() == sent,
+		"Off-plane clicks and an actor without the selected shaft never submit a request.")
+	host.client = "P"
+	host.mutate_allowed = false
+	verify(view.handle_world_click([0, 4, 8], "") and host.calls.size() == sent,
+		"A pending shared mutation consumes the click without placing a segment.")
+	view.free()
+
 func _part(view: Node3D, id: String) -> Node3D:
 	for child in view.get_children():
 		if child.get_meta("entity", "") == id:
@@ -318,6 +347,7 @@ func _run() -> void:
 	else:
 		_controls()
 		_gear_sizes()
+		_shaft_segments()
 		_presentation()
 	print("NATIVE_TRANSMISSION_VIEW_%s %d" % ["PASS" if failures == 0 else "FAIL", checks])
 	quit(0 if failures == 0 else 1)
