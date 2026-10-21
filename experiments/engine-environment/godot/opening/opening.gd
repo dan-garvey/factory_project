@@ -3520,7 +3520,9 @@ func _rebuild_machines() -> void:
 		collider.position.y = Geometry.MACHINE_CENTER_HEIGHT
 		body.add_child(collider)
 		anchor.add_child(body)
-		_text(anchor, NAMES.get(kind, kind).to_upper(), Vector3(0, 1.9, 0), Color("f2e5c5"))
+		var caption := _text(anchor, NAMES.get(kind, kind).to_upper(), Vector3(0, 1.9, 0), Color("f2e5c5"))
+		caption.name = "MachineCaption"
+		caption.visible = not _native_transmission()
 	for pair in state.links:
 		if state.entities.has(pair[0]) and state.entities.has(pair[1]):
 			_material_route(machine_root, _cell_position(state.entities[pair[0]].cell),
@@ -3903,8 +3905,23 @@ func _has_material_connection(incoming: bool) -> bool:
 			return true
 	return false
 
+func _refresh_machine_captions() -> void:
+	if not _native_transmission() or machine_root == null:
+		return
+	var pointed := ""
+	if not explanation_open and not show_details and _preview_pointer_clear():
+		pointed = _screen_entity(get_viewport().get_mouse_position())
+	for anchor in machine_root.get_children():
+		var caption := anchor.get_node_or_null("MachineCaption") as Label3D
+		if caption == null:
+			continue
+		var entity_id: String = anchor.get_meta("machine_entity", "")
+		caption.visible = not explanation_open and (show_details or entity_id == selected \
+			or entity_id == pending_link or entity_id == pointed)
+
 func _update_cursor() -> void:
 	_refresh_machine_preview()
+	_refresh_machine_captions()
 	if _native_transmission() and transmission_controls != null and not transmission_controls.active_tool.is_empty():
 		hover.visible = false
 		if transmission_controls.active_tool == "gear" and not explanation_open and _can_control_character():
