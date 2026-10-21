@@ -1,0 +1,141 @@
+{
+  "asset": "Poly Haven Fern 02 / fern_02_a",
+  "asset_url": "https://polyhaven.com/a/fern_02",
+  "license": "CC0-1.0",
+  "license_url": "https://polyhaven.com/license",
+  "authors": {
+    "modeling": "Rico Cilliers",
+    "scanning": "Rob Tuytel"
+  },
+  "checked_utc": "2026-10-21",
+  "source_files": [
+    {
+      "role": "descriptor",
+      "file": "source.gltf",
+      "size": 6899,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/fern_02/fern_02_1k.gltf",
+      "md5": "cf276874d37bfb73c299504a6b355b77",
+      "sha256": "33974295ee19670af4877705fc7d91f33f42d6302f0d44a625e072271223031f"
+    },
+    {
+      "role": "geometry",
+      "file": "source_geometry.bin",
+      "size": 176176,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/8k/fern_02/fern_02.bin",
+      "md5": "c061e9255f7d36ae9ce0e92ef3e100b2",
+      "sha256": "fe1abb762bcbbc7ad9e86925c8080437a62add257d9280e9142fdc85c226e64c"
+    },
+    {
+      "role": "albedo",
+      "file": "source_albedo.jpg",
+      "size": 315705,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/fern_02/fern_02_diff_1k.jpg",
+      "md5": "82c18a6cfd5ae91c37c0e078f591181c",
+      "sha256": "a828a6e7b4c01c826911e2eac4b3afc7457dab7b3b392a31c681ed88b7d50029"
+    },
+    {
+      "role": "alpha",
+      "file": "source_alpha.png",
+      "size": 114589,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/fern_02/fern_02_alpha_1k.png",
+      "md5": "1421e5e36946c23a7ddcc907de89025c",
+      "sha256": "ea3c64284c7ebdeedf484d2d816eae92825ec526140c3bb83859ddc7a64001f9"
+    },
+    {
+      "role": "normal",
+      "file": "source_normal.png",
+      "size": 3192675,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/fern_02/fern_02_nor_gl_1k.png",
+      "md5": "a76a9a49279279502af311c3c7ad79e3",
+      "sha256": "438c065c60754ad410c5b4690df6547d06d9907b8d2c9c3a908cb135ffd52b97"
+    },
+    {
+      "role": "arm",
+      "file": "source_arm.png",
+      "size": 403273,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/fern_02/fern_02_arm_1k.png",
+      "md5": "2056caf57c0081d97b3e8860eeeafaa1",
+      "sha256": "669019fa5996ed6ba0423b63e3d61a021dd07b192d93c683ac4ee1ad7790a66b"
+    }
+  ],
+  "selection": {
+    "catalogue_node": "fern_02_a",
+    "catalogue_mesh": "Plane.006",
+    "mesh_index": 2,
+    "vertices": 544,
+    "indices": 2352,
+    "triangles": 784,
+    "source_local_metres": true,
+    "catalogue_translation_omitted": [
+      0,
+      0,
+      1.0000001192092896
+    ],
+    "scale": 1,
+    "buffer_ranges": [
+      {
+        "role": "position",
+        "offset": 131088,
+        "bytes": 6528
+      },
+      {
+        "role": "normal",
+        "offset": 137616,
+        "bytes": 6528
+      },
+      {
+        "role": "uv",
+        "offset": 144144,
+        "bytes": 4352
+      },
+      {
+        "role": "indices",
+        "offset": 148496,
+        "bytes": 4704
+      }
+    ]
+  },
+  "preparation": {
+    "images": "Existing assets/foliage/prepare_maps.gd default pipeline; 384px sRGB color with separate opacity, 256px normalized OpenGL normal and linear ARM, lossless PNG.",
+    "image_records": {
+      "albedo": {
+        "bytes": 187608,
+        "decoded_bytes_exact": true,
+        "extent": 384,
+        "prepared_cutout_coverage": 0.153910319010417,
+        "sha256": "e281da9c6001d2ec8bddde2bc08d8a353389759d4853a9469207087db141c4c9",
+        "source_cutout_coverage": 0.153476715087891
+      },
+      "arm": {
+        "bytes": 35793,
+        "decoded_bytes_exact": true,
+        "extent": 256,
+        "sha256": "43331a5f6fc7c7c76557d6596a1d6be2a51868002c1b33e969022a9fdbfc2d90"
+      },
+      "normal": {
+        "bytes": 62892,
+        "decoded_bytes_exact": true,
+        "extent": 256,
+        "maximum_unit_length_error": 0.00590747594833374,
+        "sha256": "166505e1a13b5ba20d38c68c7725e530bde30d1e1ef420aa529aca9718656181"
+      }
+    },
+    "writer": "native/foliage-assets pack_tuft --fern",
+    "native_input_tree": "76f70f1889334e2ea0f851a7208eb18d4ec6f2b7",
+    "copy_contract": "Selected geometry ranges and prepared PNG bytes are exact. No mesh quantization, simplification, normal flip or node display placement is applied.",
+    "output": {
+      "bytes": 310176,
+      "sha256": "fe54b706dd6c0c1273a7465883c1af743bf5ec947d42784e54f6647b6c708380",
+      "geometry_ranges_exact": 4,
+      "embedded_pngs_exact": 3,
+      "external_uris": 0
+    }
+  },
+  "runtime": {
+    "file": "fern_clump.glb",
+    "import": "GLTFDocument.append_from_buffer; one mesh resource only; no asset scene is instantiated.",
+    "material": "Double-sided 0.5 alpha cutout, dielectric, normalized normal mipmaps and shared linear packed data maps.",
+    "placement": "Modest deterministic low noncolliding bank undergrowth; preserve terrain, pad and expanded solid clearance."
+  },
+  "limits": "Original image and package failures are retained externally. Resource and geometry checks do not establish rendered quality, overdraw cost, human preference or new physical authority."
+}

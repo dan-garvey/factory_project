@@ -376,6 +376,10 @@ class ProductionEnvironment:
 	const FOLIAGE_FILE := "res://opening/assets/foliage/grass_tuft.glb"
 	static var foliage_source_status := "uninitialized"
 	static var foliage_finish: StandardMaterial3D
+	const FERN_FILE := "res://opening/assets/ferns/fern_clump.glb"
+	static var fern_source_status := "uninitialized"
+	static var fern_cluster_mesh: ArrayMesh
+	static var fern_finish: StandardMaterial3D
 	static var rock_boulder_mesh: ArrayMesh
 
 	static func _noise_texture(seed_value: int, normal_map: bool) -> NoiseTexture2D:
@@ -821,7 +825,7 @@ class ProductionEnvironment:
 				part.set_meta("site_solid_id", spec.id)
 		return arch
 
-	static func read_foliage(path: String = FOLIAGE_FILE) -> Dictionary:
+	static func read_foliage(path: String = FOLIAGE_FILE, vertex_count: int = 1386, index_count: int = 3771) -> Dictionary:
 		if not FileAccess.file_exists(path):
 			return {"status": "missing"}
 		var bytes := FileAccess.get_file_as_bytes(path)
@@ -839,7 +843,7 @@ class ProductionEnvironment:
 			return {"status": "invalid", "reason": "mesh_set"}
 		var mesh: ArrayMesh = meshes[0].mesh.get_mesh()
 		var arrays := mesh.surface_get_arrays(0)
-		if arrays[Mesh.ARRAY_VERTEX].size() != 1386 or arrays[Mesh.ARRAY_INDEX].size() != 3771:
+		if arrays[Mesh.ARRAY_VERTEX].size() != vertex_count or arrays[Mesh.ARRAY_INDEX].size() != index_count:
 			return {"status": "invalid", "reason": "geometry_count"}
 		var finish := mesh.surface_get_material(0) as StandardMaterial3D
 		if finish == null or finish.albedo_texture == null or finish.normal_texture == null or finish.roughness_texture == null:
@@ -1015,6 +1019,61 @@ class ProductionEnvironment:
 			meadow.add_child(patch)
 		return meadow
 
+	static func _bank_ferns() -> Node3D:
+		var group := Node3D.new()
+		group.name = "BankFerns"
+		if fern_source_status == "uninitialized":
+			var loaded := read_foliage(FERN_FILE, 544, 2352)
+			fern_source_status = loaded.status
+			if loaded.status == "ready":
+				fern_cluster_mesh = loaded.mesh
+				fern_finish = loaded.material
+			elif loaded.status == "invalid":
+				push_error("Invalid sourced fern component: " + str(loaded.reason))
+		if fern_cluster_mesh == null:
+			# Historical incomplete rosters simply omit this optional low plant.
+			return group
+		var solids: Array = Surface.support_boxes()
+		var buffer := PackedFloat32Array()
+		var bounds := AABB()
+		var count := 0
+		for n in range(32):
+			var z := -40.0 + float(n) * 2.55
+			var side := -1.0 if n % 2 == 0 else 1.0
+			var x := river_center_x(z) + side * (channel_half_width(z) + 1.45 + 0.28 * sin(float(n) * 1.7))
+			var at := Vector3(x, Surface.height_at(x, z), z)
+			var up := _terrain_facet_normal(x, z)
+			if up.y < 0.86 or not _clear_meadow_root(at, solids):
+				continue
+			var right := Vector3(up.y, -up.x, 0.0).normalized()
+			var basis := Basis(right, up, right.cross(up)) * Basis(Vector3.UP, float(n) * 2.399963)
+			basis = basis.scaled_local(Vector3.ONE * (0.82 + 0.08 * float(n % 4)))
+			buffer.append_array(PackedFloat32Array([
+				basis.x.x, basis.y.x, basis.z.x, at.x,
+				basis.x.y, basis.y.y, basis.z.y, at.y,
+				basis.x.z, basis.y.z, basis.z.z, at.z,
+				1.0, 1.0, 1.0, 1.0]))
+			var envelope: AABB = Transform3D(basis, at) * fern_cluster_mesh.get_aabb()
+			bounds = envelope if count == 0 else bounds.merge(envelope)
+			count += 1
+		if count == 0:
+			return group
+		var instances := MultiMesh.new()
+		instances.transform_format = MultiMesh.TRANSFORM_3D
+		instances.use_colors = true
+		instances.mesh = fern_cluster_mesh
+		instances.instance_count = count
+		instances.buffer = buffer
+		instances.custom_aabb = bounds
+		var ferns := MultiMeshInstance3D.new()
+		ferns.name = "FernClumps"
+		ferns.multimesh = instances
+		ferns.material_override = fern_finish
+		ferns.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED
+		ferns.visibility_range_end = 62.0
+		group.add_child(ferns)
+		return group
+
 	static func _rock_outcrops() -> MultiMeshInstance3D:
 		if rock_boulder_mesh == null:
 			rock_boulder_mesh = ProductionVisuals.box_mesh(Vector3(1.35, 0.88, 1.12))
@@ -1111,6 +1170,7 @@ class ProductionEnvironment:
 		scenery.add_child(_rock_outcrops())
 		scenery.add_child(_foliage())
 		scenery.add_child(_meadow_patches())
+		scenery.add_child(_bank_ferns())
 		return scenery
 
 class FlatFixtureEnvironment:

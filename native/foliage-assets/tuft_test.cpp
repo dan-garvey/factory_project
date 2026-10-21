@@ -1,5 +1,6 @@
 #include "tuft.hpp"
 
+#include <algorithm>
 #include <bit>
 #include <iostream>
 #include <stdexcept>
@@ -25,9 +26,9 @@ Bytes header(unsigned extent, bool alpha) {
     bytes.resize(33);
     return bytes;
 }
-void rejected(const Bytes& geometry, const Bytes& color, const Bytes& normal, const Bytes& arm) {
+void rejected(const Bytes& geometry, const Bytes& color, const Bytes& normal, const Bytes& arm, bool fern = false) {
     try {
-        (void)factory::foliage::pack_tuft(geometry, color, normal, arm);
+        (void)(fern ? factory::foliage::pack_fern : factory::foliage::pack_tuft)(geometry, color, normal, arm);
         verify(false);
     } catch (const std::runtime_error& error) {
         if (std::string(error.what()).starts_with("Tuft control failed")) throw;
@@ -84,6 +85,44 @@ int main() {
         auto large_normal = normal;
         large_normal.resize(100000);
         rejected(geometry, large, large_normal, arm);
+        Bytes fern(176176);
+        for (std::size_t i = 0; i < 544; ++i) {
+            put_float(fern, 131088 + i * 12, 0.24f);
+            put_float(fern, 137616 + i * 12 + 4, 1.0f);
+        }
+        const auto fern_original = fern;
+        const auto frond = factory::foliage::pack_fern(fern, color, normal, arm);
+        verify(fern == fern_original && frond.size() > 23000 && frond.size() < 40000);
+        const std::string fern_text(frond.begin() + 20, frond.end());
+        verify(fern_text.find("\"count\":544") != std::string::npos && fern_text.find("\"count\":2352") != std::string::npos);
+        verify(fern_text.find("\"name\":\"Fern02A\"") != std::string::npos && fern_text.find("\"uri\"") == std::string::npos);
+        const auto json_bytes = std::uint32_t(frond[12]) | (std::uint32_t(frond[13]) << 8) |
+            (std::uint32_t(frond[14]) << 16) | (std::uint32_t(frond[15]) << 24);
+        verify(std::equal(fern.begin() + 131088, fern.begin() + 137616, frond.begin() + 28 + json_bytes));
+        auto fern_changed = fern;
+        fern_changed[0] = 0xff;
+        verify(factory::foliage::pack_fern(fern_changed, color, normal, arm) == frond);
+        fern_changed = fern;
+        fern_changed.pop_back();
+        rejected(fern_changed, color, normal, arm, true);
+        rejected(geometry, color, normal, arm, true);
+        rejected(fern, color, normal, arm);
+        fern_changed = fern;
+        put_float(fern_changed, 131088, std::bit_cast<float>(0x7fc00000u));
+        rejected(fern_changed, color, normal, arm, true);
+        fern_changed = fern;
+        put_float(fern_changed, 131088, 0.75f);
+        rejected(fern_changed, color, normal, arm, true);
+        fern_changed = fern;
+        put_float(fern_changed, 137616 + 4, 0.2f);
+        rejected(fern_changed, color, normal, arm, true);
+        fern_changed = fern;
+        put_float(fern_changed, 144144, -0.1f);
+        rejected(fern_changed, color, normal, arm, true);
+        fern_changed = fern;
+        fern_changed[148496] = 0xff;
+        fern_changed[148497] = 0xff;
+        rejected(fern_changed, color, normal, arm, true);
         std::cout << "Passed " << checks << " synthetic package controls. Image decode is tested separately.\n";
         return 0;
     } catch (const std::exception& error) {

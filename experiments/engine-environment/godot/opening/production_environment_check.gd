@@ -110,6 +110,7 @@ func finish() -> void:
 			"meadow-patches": "changed terrain-aware grass patch placement and culling envelopes",
 			"sourced-sky": "original HDR radiance, cached sky and ordinary key-light binding",
 			"stone-material": "sourced natural-stone material, cache and unchanged shape consumer",
+			"bank-ferns": "sourced low-fern import, whole-clump terrain placement and ordinary scene consumer",
 			"ground-material": "scanned ground material, data channels and cache separation",
 			"water-flow": "layered translucent river resources and ordinary frame consumer",
 			"rock-collision-shape": "visible rock corners versus rigid collision descriptors",
@@ -178,6 +179,108 @@ func check_surface_composition() -> void:
 	print(JSON.stringify({"relation": "bed_below_emitted_water", "minimum_gap": minimum_gap, "clipped_vertices": covered,
 		"visible_boxes": rendered.size(), "rock_instances": 64, "triangle_vertices": water.size()}))
 	view.free()
+
+func check_bank_ferns() -> void:
+	var group := Scenery._bank_ferns()
+	verify(Scenery.fern_source_status == "ready" and group.get_child_count() == 1,
+		"The complete capture mounts the sourced fern component.")
+	if group.get_child_count() != 1:
+		group.free()
+		return
+	var clumps: MultiMeshInstance3D = group.get_child(0)
+	var instances := clumps.multimesh
+	var mesh := instances.mesh
+	var material := clumps.material_override as StandardMaterial3D
+	var arrays := mesh.surface_get_arrays(0)
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+	var tangents: PackedFloat32Array = arrays[Mesh.ARRAY_TANGENT]
+	var uv: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+	verify(vertices.size() == 544 and indices.size() == 2352 and normals.size() == 544
+		and tangents.size() == 2176 and uv.size() == 544,
+		"Runtime import retains the selected clump and complete normal-mapped attributes.")
+	for n in range(vertices.size()):
+		var tangent := Vector3(tangents[n * 4], tangents[n * 4 + 1], tangents[n * 4 + 2])
+		verify(vertices[n].is_finite() and normals[n].is_finite() and uv[n].is_finite()
+			and absf(normals[n].length() - 1.0) < 0.002 and tangent.is_finite()
+			and tangent.length() > 0.99 and absf(tangent.dot(normals[n])) < 0.002,
+			"Imported fern geometry has finite unit normals and orthogonal tangent frames.")
+	for index in indices:
+		verify(index >= 0 and index < vertices.size(), "Every imported leaf triangle references the selected mesh.")
+	verify(mesh.get_aabb().size.x < 0.56 and mesh.get_aabb().size.z < 0.62
+		and mesh.get_aabb().size.y < 0.30,
+		"The compact source stays at its original metre scale without catalogue placement.")
+	verify(material != null and material.metallic == 0.0 and material.ao_enabled
+		and material.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+		and is_equal_approx(material.alpha_scissor_threshold, 0.5) and material.cull_mode == BaseMaterial3D.CULL_DISABLED,
+		"The two-sided fern uses dielectric cutout foliage rather than blended opaque cards.")
+	for texture in [material.albedo_texture, material.normal_texture, material.roughness_texture]:
+		verify(texture != null and texture.get_image().has_mipmaps(), "Every actual fern texture has cached mip levels.")
+	var color := material.albedo_texture.get_image()
+	var covered := 0
+	for y in range(color.get_height()):
+		for x in range(color.get_width()):
+			if color.get_pixel(x, y).a >= 0.5:
+				covered += 1
+	verify(color.get_size() == Vector2i(384, 384) and absf(float(covered) / (384 * 384) - 0.153910319010417) < 0.000001,
+		"The runtime cutout retains the prepared leaf silhouette coverage.")
+	var buffer := instances.buffer
+	verify(instances.instance_count >= 4 and instances.instance_count <= 32
+		and buffer.size() == instances.instance_count * 16, "A bounded modest set of low plants is actually uploaded.")
+	var near_count := 0
+	var solids: Array = Scenery.Surface.support_boxes()
+	for n in range(instances.instance_count):
+		var offset := n * 16
+		var at := Vector3(buffer[offset + 3], buffer[offset + 7], buffer[offset + 11])
+		var basis := Basis(Vector3(buffer[offset], buffer[offset + 4], buffer[offset + 8]),
+			Vector3(buffer[offset + 1], buffer[offset + 5], buffer[offset + 9]),
+			Vector3(buffer[offset + 2], buffer[offset + 6], buffer[offset + 10]))
+		var envelope: AABB = Transform3D(basis, at) * mesh.get_aabb()
+		verify(at.is_finite() and basis.is_finite() and basis.determinant() > 0.5
+			and absf(at.y - Scenery.Surface.height_at(at.x, at.z)) < 0.0001,
+			"Each actual low-plant root follows the unchanged terrain with a finite upright frame.")
+		if absf(at.z - 1.65) < 25.0:
+			near_count += 1
+		var corners: Array[Vector3] = []
+		for corner in range(8):
+			var point := envelope.get_endpoint(corner)
+			corners.append(point)
+			verify((absf(point.x - 1.65) > 7.0 or absf(point.z - 1.65) > 7.0)
+				and absf(point.x - Scenery.river_center_x(point.z)) > Scenery.channel_half_width(point.z) + 0.55
+				and instances.custom_aabb.grow(0.0001).has_point(point),
+				"The whole transformed clump clears the pad and channel and lies inside its actual culling bounds.")
+		var clear := true
+		for solid in solids:
+			var separated := false
+			for axis_index in range(3):
+				var axis: Vector3 = solid.basis[axis_index]
+				var low := INF
+				var high := -INF
+				for point in corners:
+					low = minf(low, point.dot(axis))
+					high = maxf(high, point.dot(axis))
+				var center: float = solid.center.dot(axis)
+				var radius: float = solid.size[axis_index] * 0.5
+				separated = separated or high < center - radius - 0.05 or low > center + radius + 0.05
+			clear = clear and separated
+		verify(clear, "Actual whole-clump envelopes have a separating axis from every existing solid.")
+	verify(near_count >= 2, "Undergrowth includes the worksite's near surroundings rather than only distant points.")
+	verify(Scenery.read_foliage(Scenery.FERN_FILE).status == "invalid"
+		and Scenery.read_foliage(fixture_directory.path_join("not-shipped-fern.glb"), 544, 2352).status == "missing",
+		"Wrong-profile and absent assets remain distinct from a valid selected component.")
+	var view := FixtureView.new()
+	root.add_child(view)
+	view._build_world()
+	var actual_clumps: MultiMeshInstance3D = view.get_node("ProductionScenery/BankFerns/FernClumps")
+	verify(actual_clumps.multimesh.mesh == mesh and actual_clumps.material_override == material
+		and actual_clumps.multimesh.buffer == buffer and view.model == null and view.actor_world == null,
+		"The ordinary scenery consumer reuses deterministic fern resources without starting authority.")
+	inspect_visual(view.get_node("ProductionScenery/BankFerns"))
+	print(JSON.stringify({"clumps": instances.instance_count, "near_clumps": near_count,
+		"triangles_before_culling": instances.instance_count * 784, "gpu_performance": "not_measured"}))
+	view.free()
+	group.free()
 
 func check_water_flow() -> void:
 	var water := Scenery.water_material()
@@ -747,6 +850,10 @@ func run() -> void:
 		return
 	if mode == "water-flow":
 		check_water_flow()
+		finish()
+		return
+	if mode == "bank-ferns":
+		check_bank_ferns()
 		finish()
 		return
 	if mode == "rock-collision-shape":

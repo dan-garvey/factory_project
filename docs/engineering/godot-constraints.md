@@ -614,6 +614,13 @@ absorption or refraction; transparent-object sorting, underwater viewing and fin
 rendered balance remain unassessed. Resource and frame-consumer checks do not
 establish pixel quality or GPU cost. The historical flat fixture stays opaque.
 
+The [fern asset](../../experiments/engine-environment/godot/opening/assets/ferns/CREDITS.md)
+uses the same resource-only foliage import. Its first export attempt failed exact
+geometry/image preservation checks; the shipped preparation copies the selected
+source ranges and prepared PNG bytes through a fixed native writer instead.
+This is a preparation boundary, not a demonstrated renderer ceiling or gameplay
+restriction. Low plants do not add collision or authority.
+
 ## GDC-12: JSON control files do not preserve RPC Variant types
 
 **Engine/API, documented for 4.7.2; fixture conversions observed.** The pinned

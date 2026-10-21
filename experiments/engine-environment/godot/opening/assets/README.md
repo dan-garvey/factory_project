@@ -291,3 +291,11 @@ or an underwater camera model. Transparent-object ordering and final visual bala
 remain limitations to assess. The separate historical flat fixture keeps its opaque
 surface. Headless material and frame-consumer checks establish resource behavior,
 not the rendered effect or GPU cost.
+
+The optional [fern component](ferns/CREDITS.md) adds modest broad-leaf undergrowth
+to the natural river banks. One compact licensed clump retains its original scale,
+uses the existing foliage import/mipmap path and shares a two-sided cutout finish.
+Actual transformed clump envelopes remain outside construction space, the river
+channel and existing solids. Low plants add no collision or authority; historical
+captures without the asset omit this group. Placement and resource checks do not
+establish rendered balance or alpha-overdraw cost.

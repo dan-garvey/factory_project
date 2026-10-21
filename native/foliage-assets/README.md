@@ -1,7 +1,8 @@
-# Bounded grass asset preparation
+# Bounded foliage asset preparation
 
-This optional C++ writer extracts only `grass_medium_01_mid_b_LOD0` from the
-recorded Poly Haven Grass Medium 01 buffer. It is not a general importer, new
+This optional C++ writer has two fixed profiles: `grass_medium_01_mid_b_LOD0`
+from Poly Haven Grass Medium 01, and the compact `fern_02_a` from Fern 02. It is
+not a general importer, new
 game authority or build-gate replacement. Source identity, license, all input
 hashes and the shipped output hash are in
 [the asset manifest](../../experiments/engine-environment/godot/opening/assets/foliage/source.json).
@@ -47,6 +48,16 @@ binary under cheap admission:
   "$FOLIAGE_SOURCE_FAMILY/prepared-maps/arm.png" \
   "$FOLIAGE_SOURCE_FAMILY/grass_tuft.glb"
 ```
+
+The default profile and output remain unchanged. For the selected fern, prepare
+the verified maps through the same image command, then add `--fern` before the
+five paths. Its provider buffer is 176,176 bytes; the profile copies 544 vertices
+and 784 triangles at original metre scale, omitting the catalogue's one-metre Z
+display placement. Source, prepared-image and output pins are in the
+[fern manifest](../../experiments/engine-environment/godot/opening/assets/ferns/source.json).
+The affected native controls and an exact grass-output identity check protect the
+earlier profile. Image-header controls remain distinct from actual image decode
+and runtime import.
 
 The self-contained GLB embeds the selected geometry and all three PNGs. It uses
 the provider's dielectric factor and double-sided surface, with a deliberate
