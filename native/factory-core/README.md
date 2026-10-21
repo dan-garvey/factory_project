@@ -35,6 +35,14 @@ expected roster, World context and every work serial in retained history.
 
 ## Tick and product retrieval
 
+`advance_belt_lane` is a pure proposal for a future shaft-connected belt span.
+It moves individual raw units, products or whole work lots through bounded slots
+using signed fixed-point distance, preserves fractional phase across reversal,
+and propagates a full receiver's backpressure. It returns the candidate and
+delivered items without changing the input. It does not yet participate in the
+World tick, checkpoint, attachment, recovery or presentation; World must validate
+complete custody and work identities when adopting it.
+
 The fixed order remains: advance or finish existing machine work; start eligible
 new work; move belt input; move collector stock; extract finite source feed.
 New work receives its full original duration and one checked fresh serial. A full

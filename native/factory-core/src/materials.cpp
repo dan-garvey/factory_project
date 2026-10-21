@@ -58,6 +58,55 @@ const char* error_name(Error error) noexcept {
     return "unknown_error";
 }
 
+std::optional<BeltAdvance> advance_belt_lane(const BeltLane& lane, Quantity signed_subticks,
+                                             Quantity receiver_capacity) {
+    if (lane.slots.size() < 2 || lane.slots.size() > maximum_belt_slots ||
+        lane.phase <= -work_subticks_per_tick || lane.phase >= work_subticks_per_tick ||
+        signed_subticks < -maximum_work_subticks_per_tick ||
+        signed_subticks > maximum_work_subticks_per_tick || receiver_capacity < 0)
+        return std::nullopt;
+    for (std::size_t index = 0; index < lane.slots.size(); ++index) {
+        if (!lane.slots[index]) continue;
+        const auto& item = *lane.slots[index];
+        const bool raw = item.raw_units == 1 && item.products == 0 && item.work_lots.empty();
+        const bool product = item.raw_units == 0 && item.products == 1 && item.work_lots.empty();
+        const bool work = item.raw_units == 0 && item.products == 0 && item.work_lots.size() == 1;
+        if (!raw && !product && !work) return std::nullopt;
+        if (work) {
+            const auto& lot = item.work_lots.front();
+            if (lot.id <= 0 || lot.recipe.input_units_per_product < 1 || lot.recipe.cycle_ticks < 1 ||
+                lot.remaining_ticks < 0 || lot.remaining_ticks > lot.recipe.cycle_ticks ||
+                lot.completed_subticks < 0 || lot.completed_subticks >= work_subticks_per_tick ||
+                (lot.remaining_ticks == 0 && lot.completed_subticks != 0)) return std::nullopt;
+            for (std::size_t other = 0; other < index; ++other)
+                if (lane.slots[other] && !lane.slots[other]->work_lots.empty() &&
+                    lane.slots[other]->work_lots.front().id == lot.id) return std::nullopt;
+        }
+    }
+    BeltAdvance result{lane, {}};
+    const auto displacement = lane.phase + signed_subticks;
+    const auto steps = displacement / work_subticks_per_tick;
+    result.candidate.phase = displacement % work_subticks_per_tick;
+    const auto direction = steps < 0 ? -1 : 1;
+    for (Quantity step = 0; step < (steps < 0 ? -steps : steps); ++step) {
+        auto& slots = result.candidate.slots;
+        const std::size_t end = direction > 0 ? slots.size() - 1 : 0;
+        if (slots[end] && static_cast<Quantity>(result.delivered.size()) < receiver_capacity) {
+            result.delivered.push_back(std::move(*slots[end]));
+            slots[end].reset();
+        }
+        for (std::size_t offset = 1; offset < slots.size(); ++offset) {
+            const std::size_t from = direction > 0 ? end - offset : offset;
+            const std::size_t to = direction > 0 ? from + 1 : from - 1;
+            if (slots[from] && !slots[to]) {
+                slots[to] = std::move(slots[from]);
+                slots[from].reset();
+            }
+        }
+    }
+    return result;
+}
+
 Error validate(const State& state, const Config& config, const Path& path) noexcept {
     if (config.input_units_per_product < 1 || config.collector_capacity < 1 ||
         config.cycle_ticks < 1) return Error::invalid_configuration;
