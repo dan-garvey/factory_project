@@ -215,6 +215,7 @@ func _belt_spans() -> void:
 	host.state = fixture()
 	host.state.transmission_parts["left"] = {"kind": "shaft", "generation": 11, "center": [0, 0, 0], "axis": 2, "half_span": 2}
 	host.state.transmission_parts["right"] = {"kind": "shaft", "generation": 12, "center": [12, 0, 0], "axis": 2, "half_span": 2}
+	host.state.transmission_parts["middle"] = {"kind": "shaft", "generation": 14, "center": [4, 0, 0], "axis": 2, "half_span": 2}
 	host.state.belt_spans = {}
 	var controls := Controls.new()
 	controls.configure(host)
@@ -241,6 +242,20 @@ func _belt_spans() -> void:
 	presenter.refresh()
 	var span := _part(presenter, "span")
 	verify(span != null and span.get_node("Pick").get_meta("entity") == "span", "A confirmed span has a selectable visual.")
+	verify(span.has_node("BeltLoop") and not span.has_node("BeltStrip"), "The confirmed span uses the fitted closed loop.")
+	verify(_part(presenter, "left").has_node("BeltPulley") and _part(presenter, "right").has_node("BeltPulley") and _part(presenter, "middle").has_node("BeltPulley"), "Endpoint and intermediate shafts receive fitted pulleys.")
+	verify(not _part(presenter, "sx").has_node("BeltPulley"), "An unrelated shaft never acquires a pulley.")
+	verify(_part(presenter, "left").get_node("Pick").get_meta("entity") == "left" and _part(presenter, "right").get_node("Pick").get_meta("entity") == "right", "Both shaft picks remain independently selectable.")
+	var original_parts: Dictionary = host.state.transmission_parts.duplicate(true)
+	for id in ["left", "right", "middle"]:
+		var old: Array = host.state.transmission_parts[id].center
+		host.state.transmission_parts[id].center = [0, old[1], old[0]]
+		host.state.transmission_parts[id].axis = 0
+	presenter.refresh()
+	span = _part(presenter, "span")
+	verify(span.has_node("BeltLoop") and is_equal_approx(span.get_node("BeltLoop").rotation.y, -PI / 2.0) and _part(presenter, "middle").has_node("BeltPulley"), "The other horizontal axis rotates the fitted loop and keeps intermediate pulleys.")
+	host.state.transmission_parts = original_parts
+	presenter.refresh()
 	var raw := {"raw": 1, "products": 0, "work_lots": []}
 	var product := {"raw": 0, "products": 1, "work_lots": []}
 	var work := {"raw": 0, "products": 0, "work_lots": [{"id": 7}]}
@@ -303,6 +318,7 @@ func _belt_spans() -> void:
 	host.state.belt_spans.clear()
 	presenter.refresh()
 	verify(_part(presenter, "span") == null, "A confirmed removal clears the visual.")
+	verify(not _part(presenter, "left").has_node("BeltPulley") and not _part(presenter, "middle").has_node("BeltPulley"), "Removing the span removes its fitted pulleys.")
 	controls.free()
 	presenter.free()
 

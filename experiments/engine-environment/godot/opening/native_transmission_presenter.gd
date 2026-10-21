@@ -191,7 +191,7 @@ func _pick(parent: Node3D, id: String, radius: float, height: float) -> void:
 	body.add_child(collider)
 	parent.add_child(body)
 
-func _belt_span(id: String, span: Variant, parts: Dictionary) -> void:
+func _belt_span(id: String, span: Variant, parts: Dictionary, rendered: Dictionary) -> void:
 	if not span is Dictionary or typeof(span.get("from")) != TYPE_STRING or typeof(span.get("to")) != TYPE_STRING:
 		return
 	var first: Variant = parts.get(span.from)
@@ -211,15 +211,16 @@ func _belt_span(id: String, span: Variant, parts: Dictionary) -> void:
 	anchor.position = (world_center(first.center) + world_center(last.center)) / 2.0
 	add_child(anchor)
 	var size := Vector3(distance, 0.045, Geometry.PITCH * 0.55) if travel_axis == 0 else Vector3(Geometry.PITCH * 0.55, 0.045, distance)
-	for side in [-1, 1]:
-		var strip := MeshInstance3D.new()
-		strip.name = "BeltStrip"
-		var shape := BoxMesh.new()
-		shape.size = size
-		strip.mesh = shape
-		strip.position.y = side * 0.12
-		_finish(strip, Color("554634"))
-		anchor.add_child(strip)
+	Assets.belt_loop(anchor, distance, travel_axis)
+	var low: int = mini(first.center[travel_axis], last.center[travel_axis])
+	var high: int = maxi(first.center[travel_axis], last.center[travel_axis])
+	for part_id: Variant in parts:
+		var pulley: Variant = parts[part_id]
+		if not rendered.has(part_id) or not _valid_part(pulley) or pulley.kind != "shaft" or pulley.axis != first.axis:
+			continue
+		if pulley.center[1] != first.center[1] or pulley.center[first.axis] != first.center[first.axis] or pulley.center[travel_axis] < low or pulley.center[travel_axis] > high or (pulley.center[travel_axis] - low) % 4 != 0:
+			continue
+		Assets.belt_pulley(rendered[part_id])
 	var slots: Variant = span.get("slots", [])
 	var expected_slots := roundi(distance / Geometry.PITCH) + 1
 	if slots is Array and slots.size() == expected_slots:
@@ -373,7 +374,7 @@ func refresh() -> void:
 	if spans is Dictionary:
 		for id: Variant in spans:
 			if typeof(id) == TYPE_STRING:
-				_belt_span(id, spans[id], parts)
+				_belt_span(id, spans[id], parts, rendered)
 	# Contact marks come only from confirmed gear engagements, never a second
 	# proximity solver or an arbitrary decorative power edge.
 	var engagements: Variant = snapshot.get("engagements", [])
