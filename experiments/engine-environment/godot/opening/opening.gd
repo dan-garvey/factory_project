@@ -4256,6 +4256,7 @@ func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 			issue({"action": "connect" if mode == "flow" else "connect_drive", "from": pending_link, "to": target})
 			pending_link = ""
 	else:
+		hover_cell = cell
 		var action := {"action": "place", "kind": mode, "cell": [cell.x, cell.y]}
 		if _native_transmission() and mode == "foundation":
 			if foundation_area_mode:
@@ -4281,6 +4282,7 @@ func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 		if outcome.accepted:
 			selected = outcome.entity
 	_refresh_ui()
+	_update_cursor()
 
 func _retrieve() -> void:
 	var target := selected
@@ -4337,6 +4339,8 @@ func _set_lesson(index: int) -> void:
 	lesson_index = posmod(index, LESSONS.size())
 	lesson_title.text = LESSONS[lesson_index][0]
 	lesson_body.text = LESSONS[lesson_index][1]
+	if lesson_index == 0 and _native_transmission():
+		lesson_body.text = "Place a collector and a press. Place one-tile shafts at the ends of the route, then connect those shafts with a belt. The belt carries blanks when its shafts rotate toward the press."
 	if lesson_index == 1 and _native_transmission():
 		lesson_body.text = "Place the waterwheel in the stream with its lower rim wet and clear of the bed. Set its diameter, height and axle. Choose Shaft and place one-tile segments; set axis and height in the cogwheel and shaft menu. Aligned parts carry rotation."
 	if example_presenter != null:
@@ -4536,7 +4540,7 @@ func _build_world() -> void:
 	add_child(item_root)
 	hover = _box(self, Vector3.ZERO, Vector3(1.5, 0.035, 1.5), Color(0.85, 0.75, 0.45, 0.45))
 	hover.visible = false
-	selection_ring = _box(self, Vector3.ZERO, Vector3(1.54, 0.035, 1.54), Color("c9bb86"))
+	selection_ring = _selection_outline()
 	selection_ring.visible = false
 	_build_placement_hint()
 	camera = Camera3D.new()
@@ -4561,6 +4565,42 @@ func _box(parent: Node, at: Vector3, dimensions: Vector3, color: Color) -> MeshI
 	mesh.material_override = material
 	parent.add_child(mesh)
 	return mesh
+
+func _selection_outline() -> MeshInstance3D:
+	var marker := MeshInstance3D.new()
+	var vertices := PackedVector3Array()
+	var indices := PackedInt32Array()
+	var outer := 0.77
+	var inner := 0.73
+	var strips := [
+		[Vector2(-outer, -outer), Vector2(outer, -inner)],
+		[Vector2(-outer, inner), Vector2(outer, outer)],
+		[Vector2(-outer, -inner), Vector2(-inner, inner)],
+		[Vector2(inner, -inner), Vector2(outer, inner)]]
+	for strip in strips:
+		var low: Vector2 = strip[0]
+		var high: Vector2 = strip[1]
+		var first := vertices.size()
+		vertices.append_array(PackedVector3Array([
+			Vector3(low.x, 0, low.y), Vector3(high.x, 0, low.y),
+			Vector3(high.x, 0, high.y), Vector3(low.x, 0, high.y)]))
+		indices.append_array(PackedInt32Array([first, first + 2, first + 1,
+			first, first + 3, first + 2]))
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_INDEX] = indices
+	var outline := ArrayMesh.new()
+	outline.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	marker.mesh = outline
+	var material := StandardMaterial3D.new()
+	material.albedo_color = Color("b98b3d")
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	marker.material_override = material
+	marker.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(marker)
+	return marker
 
 func _cylinder(parent: Node, at: Vector3, radius: float, height: float, color: Color) -> MeshInstance3D:
 	var mesh := MeshInstance3D.new()
@@ -5075,8 +5115,8 @@ func _refresh_ui() -> void:
 			button.button_pressed = false
 	retrieve_button.disabled = explanation_open or state.stock.output < 1 or not state.entities.has(selected) or state.entities[selected].kind != "processor"
 	remove_button.disabled = explanation_open or not _contains_target(state, selected)
-	selection_ring.visible = state.entities.has(selected)
-	if selection_ring.visible:
+	selection_ring.visible = mode in ["inspect", "flow", "drive"] and state.entities.has(selected)
+	if state.entities.has(selected):
 		selection_ring.position = _entity_position(state.entities[selected]) + Vector3(0, 0.02, 0)
 		inspector.text = "%s\nSquare %s" % [NAMES.get(state.entities[selected].kind, selected), str(state.entities[selected].cell)]
 		if state.entities[selected].kind == "processor":
@@ -5084,7 +5124,7 @@ func _refresh_ui() -> void:
 		inspector.text += "\n" + _inspection_hint()
 	elif state.get("foundations", {}).has(selected):
 		var surface: Dictionary = state.foundations[selected]
-		selection_ring.visible = true
+		selection_ring.visible = mode in ["inspect", "flow", "drive"]
 		selection_ring.position = _entity_position(surface) + Vector3(0, 0.02, 0)
 		var floor_type := "Factory floor" if int(surface.level) % Geometry.HEIGHT_DENOMINATOR == 0 else "Access step · machines need a factory floor"
 		inspector.text = "%s\nSquare %s\nTop %.2f m\nRemove to reclaim the carried part." % [floor_type, str(surface.cell), surface.level * Geometry.HEIGHT_STEP]
@@ -5535,7 +5575,8 @@ func _update_cursor() -> void:
 				hover.basis = transmission_presenter.axis_basis(["x", "y", "z"].find(transmission_controls.selected_axis))
 		return
 	hover.basis = Basis.IDENTITY
-	hover.visible = mode != "inspect" and _build_cell_allowed(hover_cell) and _machine_floor_aligned(hover_cell) and not explanation_open
+	hover.visible = NAMES.has(mode) and _build_cell_allowed(hover_cell) and _machine_floor_aligned(hover_cell) \
+		and (mode == "foundation" or _entity_at_cell(hover_cell).is_empty()) and not explanation_open
 	if hover.visible:
 		hover.position = _cell_position([hover_cell.x, hover_cell.y]) + Vector3(0, 0.03 + _construction_level(hover_cell) * Geometry.HEIGHT_STEP, 0)
 
