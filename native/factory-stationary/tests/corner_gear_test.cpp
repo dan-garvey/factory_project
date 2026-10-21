@@ -83,11 +83,53 @@ void corner_cases() {
         }
     }
 }
+
+void mixed_cog_cases() {
+    for (int axis = 0; axis < 3; ++axis) {
+        const int first = (axis + 1) % 3;
+        const int second = (axis + 2) % 3;
+        for (const int d1 : {-4, 4}) for (const int d2 : {-4, 4}) {
+            auto topology = fixture(axis, first, 4, 4);
+            m::Point position{0, 0, 0};
+            position[first] = d1;
+            position[second] = d2;
+            topology.parts[2].geometry.teeth = 2;
+            for (int i : {3, 4, 5}) {
+                topology.parts[i].geometry.center = position;
+                topology.parts[i].geometry.axis = static_cast<m::Axis>(axis);
+            }
+            auto result = s::power_view(topology);
+            check(result.mechanical.accepted(), "Diagonal small and large cogs must be accepted.");
+            check(result.mechanical.motion.at("sink") == m::Motion{m::MotionState::rotating, {-3, 4}},
+                  "Small-to-large diagonal transmission reverses and halves the rate.");
+            topology.parts.back().role = s::Role::waterwheel;
+            topology.sources = {{"sink", {3, 2}}};
+            result = s::power_view(topology);
+            check(result.mechanical.accepted() && result.mechanical.motion.at("source") ==
+                  m::Motion{m::MotionState::rotating, {-3, 1}}, "Large-to-small diagonal transmission doubles and reverses the rate.");
+
+            topology.sources = {{"source", {3, 2}}};
+            position[first] = 6;
+            position[second] = 0;
+            for (int i : {3, 4, 5}) topology.parts[i].geometry.center = position;
+            result = s::power_view(topology);
+            check(result.mechanical.accepted() && result.mechanical.motion.at("sink").state == m::MotionState::unpowered,
+                  "The old straight pitch-radius tangency no longer connects mixed cog sizes.");
+            position[first] = d1 > 0 ? 5 : -5;
+            position[second] = d2;
+            for (int i : {3, 4, 5}) topology.parts[i].geometry.center = position;
+            result = s::power_view(topology);
+            check(result.mechanical.accepted() && result.mechanical.motion.at("sink").state == m::MotionState::unpowered,
+                  "An off-grid mixed pair does not connect.");
+        }
+    }
+}
 } // namespace
 
 int main() {
     try {
         corner_cases();
+        mixed_cog_cases();
         std::cout << "corner gear stationary checks: " << checks << '\n';
         return 0;
     } catch (const std::exception& error) {

@@ -218,9 +218,18 @@ Result evaluate(const std::vector<Part>& input, const std::vector<Drive>& source
                 left.center[coordinate(left.axis)] == right.center[coordinate(right.axis)]) {
                 const auto sum = left.teeth + right.teeth;
                 const auto distance = radial_squared(left, right);
-                if (distance < sum * sum)
+                const bool mixed_starter_cogs =
+                    (left.teeth == 2 && right.teeth == 4) ||
+                    (left.teeth == 4 && right.teeth == 2);
+                bool diagonal = mixed_starter_cogs;
+                for (std::size_t i = 0; i < 3 && diagonal; ++i) {
+                    if (i == coordinate(left.axis)) continue;
+                    const auto d = right.center[i] - left.center[i];
+                    diagonal = d == 4 || d == -4;
+                }
+                if (distance < sum * sum && !diagonal)
                     return failure(Error::overlapping_gears, left.id);
-                if (distance == sum * sum) {
+                if (diagonal || (!mixed_starter_cogs && distance == sum * sum)) {
                     connected = true;
                     kind = EngagementKind::external_mesh;
                     forward = normalized({-left.teeth, right.teeth});

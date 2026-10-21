@@ -29,7 +29,10 @@ void wheel(Scene& scene, const std::string& prefix, g::Point at, g::Integer teet
 Scene pair(g::Integer first = 2, g::Integer second = 2, g::Rate a = {1, 1}, g::Rate b = {1, 1}) {
     Scene scene;
     wheel(scene, "a", {0, 0, 0}, first, a);
-    wheel(scene, "b", {first + second, 0, 0}, second, b);
+    // The opening's small/large pair meshes at diagonal cell positions.
+    const g::Point offset = (first == 2 && second == 4) || (first == 4 && second == 2)
+        ? g::Point{4, 4, 0} : g::Point{first + second, 0, 0};
+    wheel(scene, "b", offset, second, b);
     return scene;
 }
 const d::Witness& one(const d::Report& report, d::Kind kind) {
