@@ -817,6 +817,10 @@ class ProductionEnvironment:
 	static var fern_source_status := "uninitialized"
 	static var fern_cluster_mesh: ArrayMesh
 	static var fern_finish: StandardMaterial3D
+	const PINE_FILE := "res://opening/assets/pine/pine_sapling.res"
+	const PINE_SHA256 := "42bf54f373fc5ee316cc16e59993ec1d19060b30c859441948cc192703959b8e"
+	static var pine_source_status := "uninitialized"
+	static var pine_cluster_mesh: ArrayMesh
 	static var rock_boulder_mesh: ArrayMesh
 
 	static func _noise_texture(seed_value: int, normal_map: bool) -> NoiseTexture2D:
@@ -1543,6 +1547,108 @@ class ProductionEnvironment:
 		patch.multimesh.instance_count = kept.size() / 16
 		patch.multimesh.buffer = kept
 
+	static func read_pine(path: String = PINE_FILE) -> Dictionary:
+		if not FileAccess.file_exists(path):
+			return {"status": "missing"}
+		var file := FileAccess.open(path, FileAccess.READ)
+		if file == null or file.get_length() > 4194304:
+			return {"status": "invalid", "reason": "Pine resource exceeds its four-MiB component bound."}
+		file.close()
+		if FileAccess.get_sha256(path) != PINE_SHA256:
+			return {"status": "invalid", "reason": "Pine resource does not match its prepared identity."}
+		var mesh := ResourceLoader.load(path, "ArrayMesh") as ArrayMesh
+		if mesh == null or mesh.get_surface_count() != 2 or not ResourceLoader.get_dependencies(path).is_empty():
+			return {"status": "invalid", "reason": "Pine requires one self-contained two-surface mesh."}
+		return {"status": "ready", "mesh": mesh}
+
+	static func _pine_understory() -> MultiMeshInstance3D:
+		var patch := MultiMeshInstance3D.new()
+		patch.name = "PineUnderstory"
+		if pine_source_status == "uninitialized":
+			var loaded := read_pine()
+			pine_source_status = loaded.status
+			if loaded.status == "ready":
+				pine_cluster_mesh = loaded.mesh
+			elif loaded.status == "invalid":
+				push_error("Invalid sourced pine component: " + str(loaded.reason))
+		if pine_cluster_mesh == null:
+			return patch
+		var buffer := PackedFloat32Array()
+		var bounds := AABB()
+		var count := 0
+		# Young, soft-stemmed understory, not solid mature trees. Keep the
+		# working bank open and retain the complete source mesh at each root.
+		for n in range(24):
+			var z := -5.0 + float((n * 7) % 24) * 0.65
+			var x := river_center_x(z) - channel_half_width(z) - 2.2 - float(n % 3) * 0.75
+			if _terrain_facet_normal(x, z).y < 0.86:
+				continue
+			var at := Vector3(x, Surface.height_at(x, z) - 0.015, z)
+			var basis := Basis(Vector3.UP, float(n) * 2.399963).scaled_local(Vector3.ONE * (0.85 + 0.1 * float(n % 5)))
+			var envelope: AABB = Transform3D(basis, at) * pine_cluster_mesh.get_aabb()
+			var clear := envelope.position.z >= -8.0 and envelope.end.z <= 12.0
+			var margin := 0.3 + 0.6 * envelope.size.z / 16.0
+			for row in range(9):
+				var edge_z := lerpf(envelope.position.z, envelope.end.z, float(row) / 8.0)
+				if envelope.end.x >= river_center_x(edge_z) - channel_half_width(edge_z) - margin:
+					clear = false
+			for solid in Surface.support_boxes():
+				var half: Vector3 = solid.size * 0.5
+				var solid_bounds: AABB = Transform3D(solid.basis, solid.center) * AABB(-half, solid.size)
+				if envelope.intersects(solid_bounds.grow(0.2)):
+					clear = false
+			if not clear:
+				continue
+			# Do not stack one expensive source mesh over another.
+			for offset in range(0, buffer.size(), 12):
+				if Vector2(at.x - buffer[offset + 3], at.z - buffer[offset + 11]).length() < 1.2:
+					clear = false
+			if not clear:
+				continue
+			buffer.append_array(PackedFloat32Array([
+				basis.x.x, basis.y.x, basis.z.x, at.x,
+				basis.x.y, basis.y.y, basis.z.y, at.y,
+				basis.x.z, basis.y.z, basis.z.z, at.z]))
+			bounds = envelope if count == 0 else bounds.merge(envelope)
+			count += 1
+			if count == 6:
+				break
+		var instances := MultiMesh.new()
+		instances.transform_format = MultiMesh.TRANSFORM_3D
+		instances.mesh = pine_cluster_mesh
+		instances.instance_count = count
+		instances.buffer = buffer
+		instances.custom_aabb = bounds
+		patch.multimesh = instances
+		patch.visibility_range_end = 32.0
+		patch.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED
+		patch.set_meta("candidate_buffer", buffer)
+		return patch
+
+	static func refresh_pines(scenery: Node3D, entities: Dictionary, pitch: float) -> void:
+		var patch := scenery.get_node_or_null("PineUnderstory") as MultiMeshInstance3D
+		if patch == null or patch.multimesh == null:
+			return
+		var original: PackedFloat32Array = patch.get_meta("candidate_buffer")
+		var kept := PackedFloat32Array()
+		for offset in range(0, original.size(), 12):
+			var basis := Basis(Vector3(original[offset], original[offset + 4], original[offset + 8]),
+				Vector3(original[offset + 1], original[offset + 5], original[offset + 9]),
+				Vector3(original[offset + 2], original[offset + 6], original[offset + 10]))
+			var at := Vector3(original[offset + 3], original[offset + 7], original[offset + 11])
+			var envelope: AABB = Transform3D(basis, at) * patch.multimesh.mesh.get_aabb()
+			var clear := true
+			for entity in entities.values():
+				var center := Vector3(entity.cell[0] * pitch, Geometry.MACHINE_CENTER_HEIGHT, entity.cell[1] * pitch)
+				var size := Vector3(Geometry.MACHINE_SIZE[0], Geometry.MACHINE_SIZE[1], Geometry.MACHINE_SIZE[2])
+				if envelope.intersects(AABB(center - size * 0.5, size).grow(0.08)):
+					clear = false
+					break
+			if clear:
+				kept.append_array(original.slice(offset, offset + 12))
+		patch.multimesh.instance_count = kept.size() / 12
+		patch.multimesh.buffer = kept
+
 	static func _bank_ferns() -> Node3D:
 		var group := Node3D.new()
 		group.name = "BankFerns"
@@ -1711,6 +1817,7 @@ class ProductionEnvironment:
 		scenery.add_child(_meadow_patches())
 		scenery.add_child(_bank_ferns())
 		scenery.add_child(_foreground_bank())
+		scenery.add_child(_pine_understory())
 		return scenery
 
 class FlatFixtureEnvironment:
@@ -3485,6 +3592,7 @@ func _rebuild_machines() -> void:
 	var scenery := get_node_or_null("ProductionScenery")
 	if scenery != null and not legacy_fixture and ProductionEnvironment.Surface != null:
 		ProductionEnvironment.refresh_foreground(scenery, state.entities, PITCH)
+		ProductionEnvironment.refresh_pines(scenery, state.entities, PITCH)
 	for child in machine_root.get_children():
 		child.free()
 	wheel_rotor = null

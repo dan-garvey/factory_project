@@ -646,6 +646,16 @@ source ranges and prepared PNG bytes through a fixed native writer instead.
 This is a preparation boundary, not a demonstrated renderer ceiling or gameplay
 restriction. Low plants do not add collision or authority.
 
+The optional [young pine component](../../experiments/engine-environment/godot/opening/assets/pine/CREDITS.md)
+preserves all selected source triangles through the importer's compressed GPU
+attributes and a self-contained native `ArrayMesh`. Imported positions and UVs
+are quantized, not original float bits; native arrays and embedded prepared pixels
+round-trip exactly. The adapter retains imported dielectric material defaults,
+without reproducing source IOR/specular-color extensions. At most six small,
+noncolliding plants are rooted in terrain and omitted beneath confirmed machines;
+no vegetation state or second controller is introduced. Resource/placement checks
+do not establish rendered quality, cost or collision rules for mature trees.
+
 ## GDC-12: JSON control files do not preserve RPC Variant types
 
 **Engine/API, documented for 4.7.2; fixture conversions observed.** The pinned

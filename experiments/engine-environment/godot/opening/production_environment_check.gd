@@ -118,6 +118,8 @@ func finish() -> void:
 			"stone-material": "sourced natural-stone material, cache and unchanged shape consumer",
 			"bank-ferns": "sourced low-fern import, whole-clump terrain placement and ordinary scene consumer",
 			"foreground-bank": "near-bank placement and confirmed offline/shared machine-footprint suppression",
+			"pine-understory": "complete pine resource, terrain and confirmed-machine visibility consumer",
+			"pine-roots": "focused edge-inclusive terrain-root oracle correction",
 			"ground-material": "scanned ground material, data channels and cache separation",
 			"water-flow": "layered translucent river resources and ordinary frame consumer",
 			"rock-collision-shape": "visible rock facets versus the shared convex collision hull",
@@ -768,6 +770,150 @@ func check_foreground_bank() -> void:
 			"triangles_before_culling": original.size() / 16 * 1257, "suppressed_tufts": (original.size() - kept.size()) / 16}))
 		view.free()
 
+func check_pine_root(basis: Basis, at: Vector3) -> void:
+	var cell: Vector2i = Scenery.Surface.cell(at.x, at.z)
+	var a: Vector3 = Scenery.Surface.vertex(cell.x, cell.y)
+	var b: Vector3 = Scenery.Surface.vertex(cell.x + 1, cell.y)
+	var c: Vector3 = Scenery.Surface.vertex(cell.x + 1, cell.y + 1)
+	var d: Vector3 = Scenery.Surface.vertex(cell.x, cell.y + 1)
+	var found := false
+	var strict_found := false
+	for triangle in [[a, b, c], [a, c, d]]:
+		strict_found = strict_found or Geometry2D.point_is_inside_triangle(Vector2(at.x, at.z),
+			Vector2(triangle[0].x, triangle[0].z), Vector2(triangle[1].x, triangle[1].z), Vector2(triangle[2].x, triangle[2].z))
+		var aa: Vector3 = triangle[0]
+		var bb: Vector3 = triangle[1]
+		var cc: Vector3 = triangle[2]
+		var denominator := (bb.z - cc.z) * (aa.x - cc.x) + (cc.x - bb.x) * (aa.z - cc.z)
+		var u := ((bb.z - cc.z) * (at.x - cc.x) + (cc.x - bb.x) * (at.z - cc.z)) / denominator
+		var v := ((cc.z - aa.z) * (at.x - cc.x) + (aa.x - cc.x) * (at.z - cc.z)) / denominator
+		# A float32 uploaded root may lie on a triangle edge. Barycentric
+		# inclusion accepts the edge; this is an art oracle, not reach epsilon.
+		if minf(u, minf(v, 1.0 - u - v)) < -0.00001:
+			continue
+		var normal: Vector3 = (cc - aa).cross(bb - aa).normalized()
+		var height := aa.y - (normal.x * (at.x - aa.x) + normal.z * (at.z - aa.z)) / normal.y
+		verify(absf(at.y - height + 0.015) < 0.0001 and normal.y >= 0.86,
+			"The original stem root embeds slightly in the actual emitted terrain triangle.")
+		found = true
+	verify(found and basis.is_finite() and basis.y.normalized().dot(Vector3.UP) > 0.99999
+		and basis.y.length() >= 0.8499 and basis.y.length() <= 1.2501,
+		"Young stems keep gravity-up orientation and their declared near-source scale.")
+	print(JSON.stringify({"root": [at.x, at.y, at.z], "strict_triangle_inclusion": strict_found,
+		"edge_inclusive_triangle": found, "up": [basis.y.x, basis.y.y, basis.y.z]}))
+
+func check_pine_roots() -> void:
+	var loaded := Scenery.read_pine()
+	if not verify(loaded.status == "ready", "The focused root check consumes the unchanged native resource."):
+		return
+	Scenery.pine_cluster_mesh = loaded.mesh
+	Scenery.pine_source_status = "ready"
+	var patch := Scenery._pine_understory()
+	var buffer := patch.multimesh.buffer
+	for offset in range(0, buffer.size(), 12):
+		var basis := Basis(Vector3(buffer[offset], buffer[offset + 4], buffer[offset + 8]),
+			Vector3(buffer[offset + 1], buffer[offset + 5], buffer[offset + 9]),
+			Vector3(buffer[offset + 2], buffer[offset + 6], buffer[offset + 10]))
+		check_pine_root(basis, Vector3(buffer[offset + 3], buffer[offset + 7], buffer[offset + 11]))
+	patch.free()
+
+func check_pine_understory() -> void:
+	var loaded := Scenery.read_pine()
+	if not verify(loaded.status == "ready", "The complete source capture loads the pinned native pine resource."):
+		return
+	var mesh: ArrayMesh = loaded.mesh
+	verify(mesh.get_blend_shape_count() == 0 and mesh.get_surface_count() == 2,
+		"The selected sapling retains its two static source surfaces.")
+	for surface in range(2):
+		var arrays := mesh.surface_get_arrays(surface)
+		verify(arrays[Mesh.ARRAY_VERTEX].size() == (315 if surface == 0 else 124481)
+			and arrays[Mesh.ARRAY_INDEX].size() == (1458 if surface == 0 else 365247),
+			"Every original bark and needle triangle remains in the native resource.")
+		var material := mesh.surface_get_material(surface) as StandardMaterial3D
+		verify(material != null and material.metallic == 0.0 and material.cull_mode == BaseMaterial3D.CULL_DISABLED,
+			"The two-sided source surfaces remain dielectric.")
+		verify(material.transparency == (BaseMaterial3D.TRANSPARENCY_DISABLED if surface == 0 else BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR)
+			and material.metallic_specular == 0.5 and not material.ao_enabled,
+			"Imported material defaults and the source cutout mode remain explicitly qualified.")
+		for field in ["albedo_texture", "normal_texture", "roughness_texture"]:
+			var image: Image = material.get(field).get_image()
+			var dimension := 384 if field == "albedo_texture" else 256
+			verify(image.get_size() == Vector2i(dimension, dimension) and image.get_format() == Image.FORMAT_RGB8
+				and image.has_mipmaps(), "The actual native resource embeds every bounded, mipmapped prepared image.")
+	verify(Scenery.read_pine(fixture_directory.path_join("not-shipped-pine.res")).status == "missing",
+		"A missing historical optional resource is an explicit omission.")
+	var wrong_path := fixture_directory.path_join("wrong-pine.res")
+	var wrong := FileAccess.open(wrong_path, FileAccess.WRITE)
+	wrong.store_string("A mismatched local asset is not a native resource.")
+	wrong.close()
+	verify(Scenery.read_pine(wrong_path).status == "invalid", "Wrong asset bytes are refused before native-resource deserialization.")
+	for shared in [false, true]:
+		var view = SharedBankView.new() if shared else FixtureView.new()
+		root.add_child(view)
+		view._build_world()
+		var patch: MultiMeshInstance3D = view.get_node("ProductionScenery/PineUnderstory")
+		inspect_visual(patch)
+		var instances := patch.multimesh
+		if not verify(instances != null and instances.instance_count >= 3 and instances.instance_count <= 6,
+			"The ordinary consumer mounts a small, bounded set of complete young plants."):
+			view.free()
+			return
+		var original := instances.buffer
+		verify(instances.mesh == mesh and original.size() == instances.instance_count * 12
+			and patch.visibility_range_end == 32.0 and patch.material_override == null,
+			"Both consumers share original surface materials, cached geometry and a declared visibility range.")
+		for offset in range(0, original.size(), 12):
+			var basis := Basis(Vector3(original[offset], original[offset + 4], original[offset + 8]),
+				Vector3(original[offset + 1], original[offset + 5], original[offset + 9]),
+				Vector3(original[offset + 2], original[offset + 6], original[offset + 10]))
+			var at := Vector3(original[offset + 3], original[offset + 7], original[offset + 11])
+			check_pine_root(basis, at)
+			var envelope: AABB = Transform3D(basis, at) * mesh.get_aabb()
+			verify(instances.custom_aabb.grow(0.0001).encloses(envelope), "Culling bounds enclose every entire sapling.")
+			for row in range(33):
+				var z := lerpf(envelope.position.z, envelope.end.z, float(row) / 32.0)
+				verify(envelope.end.x < Scenery.river_center_x(z) - Scenery.channel_half_width(z) - 0.3,
+					"The complete plant stays outside the water and eastern construction bank.")
+			for solid in Scenery.Surface.support_boxes():
+				var half: Vector3 = solid.size * 0.5
+				var solid_bounds: AABB = Transform3D(solid.basis, solid.center) * AABB(-half, solid.size)
+				verify(not envelope.intersects(solid_bounds.grow(0.2)), "The whole plant clears existing rock envelopes.")
+		# Disclosed invented confirmed facts call the actual offline/shared view;
+		# these are presentation controls, not new material or native admissions.
+		var cell := [roundi(original[3] / 1.65), roundi(original[11] / 1.65)]
+		view.state = {"entities": {"pine-clearance": {"kind": "belt", "cell": cell}}, "links": []}
+		var supplied: Dictionary = view.state.duplicate(true)
+		view._rebuild_machines()
+		var kept := instances.buffer
+		verify(instances.instance_count < original.size() / 12 and view.machine_root.get_child_count() > 0,
+			"An ordinary confirmed-machine rebuild suppresses the intersecting young plant.")
+		var center := Vector3(cell[0] * 1.65, Geometry.MACHINE_CENTER_HEIGHT, cell[1] * 1.65)
+		var size := Vector3(Geometry.MACHINE_SIZE[0], Geometry.MACHINE_SIZE[1], Geometry.MACHINE_SIZE[2])
+		for offset in range(0, kept.size(), 12):
+			var basis := Basis(Vector3(kept[offset], kept[offset + 4], kept[offset + 8]),
+				Vector3(kept[offset + 1], kept[offset + 5], kept[offset + 9]),
+				Vector3(kept[offset + 2], kept[offset + 6], kept[offset + 10]))
+			var at := Vector3(kept[offset + 3], kept[offset + 7], kept[offset + 11])
+			verify(not (Transform3D(basis, at) * mesh.get_aabb()).intersects(AABB(center - size * 0.5, size).grow(0.08)),
+				"Every retained whole-plant envelope clears the confirmed machine.")
+		view._rebuild_machines()
+		verify(instances.buffer == kept and view.state == supplied and view.model == null and view.actor_world == null
+			and view.request_sequence == 0, "Both consumers are idempotent and create no authority or material requests.")
+		view.state = {"entities": {}, "links": []}
+		view._rebuild_machines()
+		verify(instances.buffer == original, "Removing the confirmed machine restores derived candidates.")
+		print(JSON.stringify({"shared": shared, "plants": original.size() / 12,
+			"triangles_before_culling": original.size() / 12 * 122235, "suppressed": (original.size() - kept.size()) / 12}))
+		view.free()
+	var saved_mesh: ArrayMesh = Scenery.pine_cluster_mesh
+	Scenery.pine_cluster_mesh = null
+	Scenery.pine_source_status = "missing"
+	var absent := Scenery._pine_understory()
+	verify(absent.multimesh == null and absent.get_child_count() == 0, "An incomplete historical capture has no substitute tree or hidden authority.")
+	absent.free()
+	Scenery.pine_cluster_mesh = saved_mesh
+	Scenery.pine_source_status = "ready"
+
 func check_sourced_sky() -> void:
 	var material := Scenery.panorama_material()
 	if not verify(Scenery.sky_source_status == "ready", "The ordinary sky consumes the captured licensed HDR source."):
@@ -899,6 +1045,14 @@ func check_stone_material() -> void:
 	rocks.free()
 
 func run() -> void:
+	if mode == "pine-roots":
+		check_pine_roots()
+		finish()
+		return
+	if mode == "pine-understory":
+		check_pine_understory()
+		finish()
+		return
 	if mode == "stone-material":
 		check_stone_material()
 		finish()

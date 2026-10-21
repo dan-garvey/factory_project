@@ -357,3 +357,12 @@ Actual transformed clump envelopes remain outside construction space, the river
 channel and existing solids. Low plants add no collision or authority; historical
 captures without the asset omit this group. Placement and resource checks do not
 establish rendered balance or alpha-overdraw cost.
+
+The optional [young pine component](pine/CREDITS.md) frames the opposite bank
+with at most six near-source-scale saplings. Each shares the complete selected
+bark and three-dimensional needle mesh, embedded prepared maps and a 32-metre
+visibility range. Roots follow emitted terrain; whole-plant envelopes clear
+water, rocks and confirmed machines. Confirmed removal restores the derived
+plants. These small stems add no collision or saved vegetation state. Historical
+captures without the resource omit them; native resource and presentation checks
+do not establish rendered quality, GPU cost or a general tree interaction policy.
