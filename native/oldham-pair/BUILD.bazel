@@ -1,0 +1,32 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "pair",
+    srcs = ["src/pair.cpp"],
+    hdrs = ["include/factory/oldham_pair.hpp"],
+    strip_include_prefix = "include",
+    deps = ["//native/cardan-pair:pair", "//native/geared-cycle:clock", "//native/motion-clearance:clearance"],
+)
+
+cc_library(
+    name = "workbench",
+    srcs = ["src/workbench.cpp"],
+    hdrs = ["include/factory/oldham_pair_workbench.hpp"],
+    strip_include_prefix = "include",
+    deps = [":pair", "//native/geared-cycle:workbench"],
+)
+
+cc_binary(
+    name = "oldham_case",
+    srcs = ["src/main.cpp"],
+    deps = [":workbench"],
+)
+
+cc_test(
+    name = "pair_test",
+    size = "small",
+    srcs = ["tests/pair_test.cpp"],
+    deps = [":workbench"],
+)
