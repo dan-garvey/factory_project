@@ -4236,7 +4236,7 @@ func _select_tool(tool: String) -> void:
 		instructions["flow"] = "Choose the upstream machine, then its neighbor at the material outlet."
 		instructions["drive"] = "Place a shaft on the highlighted tile. Set its axis and height in the cogwheel and shaft menu."
 		instructions["gear"] = "Place a cogwheel at the highlighted point. Set axis and height in the cogwheel menu."
-		instructions["foundation"] = "Place a factory floor at the displayed world height. Page Up / Page Down move one full tile; Access steps enables smaller walking steps. Area chooses two corners; Esc cancels."
+		instructions["foundation"] = "Place a foundation at the displayed world height. Page Up / Page Down move one foundation thickness so stacked blocks touch; Access steps enables smaller walking steps. Machines need whole-tile factory floors. Area chooses two corners; Esc cancels."
 	_message(instructions.get(tool,
 		"Place %s on an empty grid square." % NAMES.get(tool, tool)))
 
@@ -4422,7 +4422,7 @@ func _adjust_foundation_level(delta: int) -> void:
 	if mode == "wheel":
 		wheel_level = clampi(wheel_level + delta * Geometry.HEIGHT_DENOMINATOR, -1000000, 1000000)
 	else:
-		var step := 1 if foundation_steps else Geometry.HEIGHT_DENOMINATOR
+		var step := 1 if foundation_steps else Geometry.FOUNDATION_HEIGHT_UNITS
 		foundation_level = clampi(foundation_level + delta * step, -1000000, 1000000)
 	foundation_area_started = false
 	foundation_level_label.text = _construction_height_text()
@@ -5721,7 +5721,7 @@ func _build_interface() -> void:
 	foundation_level_controls.visible = false
 	foundation_steps_toggle = CheckButton.new()
 	foundation_steps_toggle.text = "Access steps"
-	foundation_steps_toggle.tooltip_text = "Use smaller height increments for walking. Machines need whole-tile factory floors. Turning this off snaps the selected height to a factory floor."
+	foundation_steps_toggle.tooltip_text = "Use one height unit for walking steps. Normal height changes move one foundation thickness. Machines need whole-tile factory floors; turning this off snaps the selected height to one."
 	foundation_steps_toggle.toggled.connect(_set_foundation_steps)
 	build.add_child(foundation_steps_toggle)
 	foundation_steps_toggle.visible = false
