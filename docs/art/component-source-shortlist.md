@@ -41,8 +41,9 @@ a native power model. Both adopted components have their own retained source,
 preparation and technical results. This documentation update repeats none of
 those operations.
 
-The pipe kit and crane below remain candidates. Their descriptors still do not
-establish socket compatibility or working clearances. The original study also
+The pipe kit and crane below remain candidates. The measured pipe straight ends
+below suggest a reusable visual connection profile, but no imported join or
+working clearance has been verified. The original study also
 did not import the Kenney archive. Use existing fitted shafts, open hubs, belt
 ends and material sleeves as the current construction vocabulary; inspect a new
 source for the interface it actually supplies. The
@@ -59,6 +60,60 @@ worksite or the user's production-quality target.
 | [Drill Press 01](https://polyhaven.com/a/drill_press_01), Viktor, CC0 | The glTF declares thirteen separate mesh nodes and one material. Names distinguish the body, plate, catch, lid, belt, two pulley-like parts, handle, buttons, limiter, bit and plug. It contains no animation or skin. The viewed preview shows convincing cast-metal form, machined surfaces and wear. [Metadata](https://api.polyhaven.com/info/drill_press_01) and [files](https://api.polyhaven.com/files/drill_press_01) expose the source and available formats. | A useful adaptation source for a detailed machine head and a reference for purposeful component separation. It is a fixed drill press, not a configurable multi-press. A compatible mechanical drive, mounts, pivots, working openings and reusable frame must be authored or verified. Remove electrical components when adapting it to Factory's mechanical identity. |
 | [Overhead Crane](https://polyhaven.com/a/overhead_crane), Timothy3D, CC0 | Its glTF declares three mesh nodes named for rails, winch and the rest of the crane. Two materials separate the trim from the main asset. No animation or skin is declared. The [provider metadata](https://api.polyhaven.com/info/overhead_crane) and [file manifest](https://api.polyhaven.com/files/overhead_crane) were retained. Its geometry and motion were not viewed in an engine. | A candidate for frame, trolley and trim adaptation. Three broad mesh groups do not establish independently adjustable supports, every wheel or hook motion. It needs a component and pivot audit before becoming a player-assembled gantry kit. |
 | [Kenney Factory Kit](https://kenney.nl/assets/factory-kit), CC0 | The official page lists a 3D factory kit with variations and animation. Its viewed preview includes modular conveyors, corners, rollers, pipes, gears, supports and machine housings. The archive was not downloaded; the page's file count is not a verified count of distinct models. | A useful construction-vocabulary and decomposition reference. The preview uses simplified stylized forms and a limited palette; my visual assessment is that adopting that appearance would not deliver the requested realistic direction. Use it to study component coverage, without treating it as our production art solution. |
+
+## Measured pipe-fitting geometry, 2026-10-21
+
+The pipe kit's referenced glTF mesh buffer was then downloaded from the URL in
+the retained provider file manifest. It is 515,160 bytes and matches that
+manifest's MD5, `a18d063dc719e19b9c20d2f8c0a8bec4`. Its SHA-256 is
+`2e11e1a7dabd56b1e158364f48b0b388bf316fcab61a01274740db75dbafa448`.
+The local `pipe-geometry-study-20261021` evidence directory contains the exact
+buffer, a read-only glTF accessor analyzer and its full JSON output. This is a
+mesh-data inspection; no textures, engine import, render or native fixture were
+added.
+
+`pipe01` and `pipe02` are the two straight mesh nodes. Their local Y spans are
+0.859062 m and 1.954640 m respectively, using the
+[glTF 2.0 metre convention](https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#coordinate-system-and-units).
+Both have flange-end cross-section bounds of about 0.2071 m by 0.2063 m. Each of their
+four extreme Y planes contains 25 positions. Comparing the short upper end to
+the long lower end in local X/Z coordinates gives a maximum nearest-position
+distance of about 0.0000051 m across those 25 points. The other short/long end
+pairings are similarly within about 0.0000051 m. The flange profiles therefore
+appear reusable without scaling the end geometry; the different middle lengths
+can be treated as rigid candidate spans.
+
+The candidate connection frames are the local end centers at Y = ±0.429531 m
+for `pipe01` and Y = ±0.977320 m for `pipe02`, with normals along ±Y. Catalogue
+node translations in the source glTF arrange its parts for display and must be
+removed before these frames are used. A short and long span would meet when
+their opposite end frames coincide; their center-to-center distance along a
+shared axis would be about 1.406851 m. This is a proposed visual assembly rule,
+not a verified socket, collision shape, fluid connection or mechanical rule.
+
+The `pipe04` elbow has two candidate orthogonal end frames: an outward -X face
+at X = -0.296728 m centered near (Y, Z) = (-0.086859, 0), and an outward +Y face
+at Y = 0.254192 m centered near (X, Z) = (0.023870, 0). Each face has 50
+positions, separating into 25 outer-ring and 25 inner-ring positions. Its
+outer-ring radius is about 0.1035 m, like the straight flange. Under the best
+right-angle cross-section orientation, nearest outer-ring positions differ from
+the short straight end by at most 0.000238 m on the -X face and 0.000004 m on
+the +Y face. That supports a candidate elbow-to-straight visual join while
+exposing an asymmetry to inspect at close range. The other fittings and actual
+join clearances remain unmeasured.
+
+Packaging is already a constraint. At the inspected Git tree, the tracked Godot
+project contains 31,334,099 source bytes across 258 files and 128 GDScript
+files. The current native capture allows 33,554,432 bytes, 512 files and 128
+scripts, leaving 2,220,333 bytes but no script slot. The mesh buffer is 515,160
+bytes; the six original one-kilopixel JPEG material maps total 4,293,764 bytes
+in the provider manifest. Importing that complete bundle would exceed the
+source-byte allowance at this tree even before descriptor or prepared-resource
+overhead. A selected mesh and deliberately prepared material package must be
+measured against the then-current roster; this snapshot is not a future capacity
+reservation. Material fidelity and close-range wear/detail remain untested.
+The next adoption check is a passive rendered short-to-long and straight-to-elbow
+join with a removed-neighbor view, using explicit captured resources.
 
 Poly Haven's [license page](https://polyhaven.com/license) permits adaptation and
 redistribution of its CC0 assets. Its preview images and website content are
@@ -100,10 +155,11 @@ Three findings matter for the next increment:
 ## Original recommendation and next adaptation
 
 The original recommendation was a pipe component-connection study and a drill
-press adaptation study. The pipe study would demonstrate whether
-source detail survives removing catalogue offsets, normalizing connection
-frames and creating compatible lengths. The machine study tests whether a finished
-asset can supply reusable, independently moving subparts without inheriting its
+press adaptation study. The straight-pipe measurement establishes candidate
+end frames and preserves the delivered flange sizes; an imported visual join
+still has to test catalogue-offset removal and seam quality. The machine study
+tests whether a finished asset can supply reusable, independently moving subparts
+without inheriting its
 original electrical identity or enclosing fixed proportions.
 
 The comparison should expose a short span, a long span, a corner, an exposed end
@@ -121,7 +177,7 @@ reusable joins without supplying those other construction families.
 The press-support qualification now supplies one selected machine subcomponent;
 it does not settle variable spans or a complete machine head. Reuse its results
 and extend the sample through the missing interfaces rather than repeating the
-unchanged import. Before choosing another art source, inspect its actual mesh
+unchanged import. Before adopting another art source, inspect its actual mesh
 buffers and materials, establish reusable pivots and dimensions, preserve provider
 provenance, and include the imported resources in the ordinary native launcher
 capture. Evaluate the finished sample in the worksite under human visual
