@@ -1,0 +1,32 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "admission",
+    srcs = ["src/admission.cpp"],
+    hdrs = ["include/factory/slotted_clearance.hpp"],
+    strip_include_prefix = "include",
+    deps = ["//native/slotted-bank:bank", "//native/motion-clearance:clearance"],
+)
+
+cc_library(
+    name = "workbench",
+    srcs = ["src/workbench.cpp"],
+    hdrs = ["include/factory/slotted_clearance_workbench.hpp"],
+    strip_include_prefix = "include",
+    deps = [":admission"],
+)
+
+cc_binary(
+    name = "slotted_clearance_workbench",
+    srcs = ["src/main.cpp"],
+    deps = [":workbench"],
+)
+
+cc_test(
+    name = "admission_test",
+    srcs = ["tests/admission_test.cpp"],
+    deps = [":workbench"],
+    size = "small",
+)

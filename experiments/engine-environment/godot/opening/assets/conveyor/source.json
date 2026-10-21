@@ -1,0 +1,51 @@
+{
+  "asset": "Rubber 004",
+  "provider": "ambientCG",
+  "url": "https://ambientcg.com/a/Rubber004",
+  "license": "CC0-1.0",
+  "license_url": "https://docs.ambientcg.com/license/",
+  "technique": "Unverified; the provider's method code and descriptive labels conflict.",
+  "provider_method_code": "PBRProcedural",
+  "provider_method_label": "Height field photogrammetry",
+  "source_extent_metres": [0.75, 0.75],
+  "archive": {
+    "request_url": "https://ambientcg.com/get?file=Rubber004_1K-PNG.zip",
+    "resolved_url": "https://acg-download.struffelproductions.com/file/ambientCG-Web/download/Rubber004_9uLMWQBw/Rubber004_1K-PNG.zip",
+    "bytes": 17516740,
+    "sha256": "73b8a1e4655bd4b6bb29492ca158e5ca43da52a2fc4e2b46eaacafbd96d17901"
+  },
+  "source_files": {
+    "Rubber004_1K-PNG_Color.png": {"bytes": 1569886, "sha256": "559ddef0d43572ff96015da9a12a218d8fcff3be9fb2a1febf00731d5b31e121", "bit_depth": 8, "channels": "RGB"},
+    "Rubber004_1K-PNG_NormalGL.png": {"bytes": 5899900, "sha256": "3a20ce99ec4cb929d96c0f4643c5484bdede6537b3448900d841f94fb20def70", "bit_depth": 16, "channels": "RGB"},
+    "Rubber004_1K-PNG_Roughness.png": {"bytes": 750731, "sha256": "3969d0cd375fa94f849bcbc7fe836ebc619aed4b80673cb59ce823e1423db699", "bit_depth": 8, "channels": "grayscale"}
+  },
+  "delivered_files": {
+    "rubber_albedo.webp": {"bytes": 1154540, "sha256": "5788f331a52355c035f79f497e8a083e252e7f4a03bbc164378777ec16f97d1e", "size": [1024, 1024], "format": "RGB8", "role": "sRGB color"},
+    "rubber_normal_gl.webp": {"bytes": 423136, "sha256": "249970dbd8977278d5c9babec6c74da3b239324aa1ff4326dca415a509452651", "size": [512, 512], "format": "RGB8", "role": "linear OpenGL tangent normal"},
+    "rubber_roughness.webp": {"bytes": 168956, "sha256": "ea32bb81b5519f544308004f0d329f4616816ada1eabad068221bce43797067f", "size": [512, 512], "format": "L8", "role": "linear scalar roughness, red channel"}
+  },
+  "preparation": {
+    "engine": "4.7.2.stable.official.ed1daf0bf",
+    "entry": "opening/machine_detail_check.gd --prepare-conveyor-maps",
+    "albedo": "Exact decoded RGB8 pixels, no resizing or color transform, lossless WebP.",
+    "normal": "The engine decodes the source PNG to RGB8. Float Lanczos resize, unit normalization, nearest RGB8 encoding, lossless WebP.",
+    "roughness": "Float Lanczos resize, nearest L8 encoding, lossless WebP.",
+    "prepared_pixel_roundtrip_equal": true,
+    "maximum_normal_length_error": 0.00480198860168457,
+    "maximum_normal_encoding_angle_degrees": 0.348304590186464
+  },
+  "geometry": {
+    "author": "Factory",
+    "center_span_metres": 1.14,
+    "width_metres": 0.64,
+    "outer_return_radius_metres": 0.09,
+    "rubber_thickness_metres": 0.012,
+    "section_bevel_metres": 0.0015,
+    "top_height_metres": 0.555,
+    "longitudinal_repeats": 4,
+    "longitudinal_repeat_metres": 0.711371669411541,
+    "cross_section_uv": "Nominal source scale, with an inner-edge unwrap seam."
+  },
+  "runtime": "Shared static visual geometry and mipmapped dielectric source material. No inferred transport clock, phase, quantities, collision or construction authority.",
+  "limits": "Source and isolated mesh/resource evidence only. No rendered, performance, native-contact or human-quality verdict."
+}
