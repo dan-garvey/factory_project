@@ -133,6 +133,18 @@ void inspect(const Host& host, std::ostream& out) {
                 << " rate=" << motion->second.rate.numerator << '/' << motion->second.rate.denominator;
         out << '\n';
     }
+    out << "Belt spans:\n";
+    for (const auto& span : state.topology.belt_spans) {
+        out << "  " << span.geometry.id << " generation=" << span.generation << " shafts="
+            << span.geometry.first_shaft << " -> " << span.geometry.last_shaft << '\n';
+        const auto lane = state.material.belt_lanes.find(span.geometry.id);
+        if (lane == state.material.belt_lanes.end()) continue;
+        for (std::size_t index = 0; index < lane->second.slots.size(); ++index) {
+            const auto& item = lane->second.slots[index];
+            if (item) out << "    slot " << index << ": raw=" << item->raw_units << " products=" << item->products
+                          << " workpieces=" << item->work_lots.size() << '\n';
+        }
+    }
     out << "Material links:\n";
     for (const auto& link : state.topology.material_links)
         out << "  " << link.from.id << '@' << link.from.generation << " -> " << link.to.id << '@' << link.to.generation << '\n';
@@ -149,6 +161,7 @@ void help(std::ostream& out) {
            "place shaft <x> <y> <z> <axis:x|y|z> <half_span>\n"
            "place gear <x> <y> <z> <axis:x|y|z> <teeth>\n"
            "place machine <waterwheel|collector|belt|processor> <x> <y> <z> <axis:x|y|z>\n"
+           "belt <first shaft> <last shaft> | recover_belt <span> <slot> | remove_belt <span>\n"
            "link <from> <to> | remove <part> | drive <waterwheel> <on|off>\n"
            "collect <processor> [amount] | recover <machine>\n"
            "pickup <x> <y> <z> | insert_raw <machine> <amount>\n"
@@ -238,6 +251,35 @@ Step act(Host& host, const Tokens& tokens, std::ostream& out, std::ostream& erro
         intent = {{"action", V("place")}, {"role", V(tokens[1])},
             {"center", V(V::Array{V(x), V(y), V(z)})}, {"axis", V(tokens[5])},
             {"teeth", V(tokens[1] == "gear" ? dimension : I{0})}, {"half_span", V(tokens[1] == "shaft" ? dimension : I{0})}};
+    } else if (verb == "belt") {
+        if (tokens.size() != 3) return syntax();
+        if (!target(intent, state, tokens[1], false, out) || !target(intent, state, tokens[2], true, out)) return Step::keep;
+        intent.emplace("action", V("place_belt_span"));
+    } else if (verb == "recover_belt" || verb == "remove_belt") {
+        I index{};
+        if ((verb == "recover_belt" && (tokens.size() != 3 || !integer(tokens[2], index) || index < 0)) ||
+            (verb == "remove_belt" && tokens.size() != 2)) return syntax();
+        const auto span = std::find_if(state.topology.belt_spans.begin(), state.topology.belt_spans.end(),
+            [&](const auto& item) { return item.geometry.id == tokens[1]; });
+        if (span == state.topology.belt_spans.end()) { out << "No current belt span named " << tokens[1] << ".\n"; return Step::keep; }
+        intent.emplace("target", V(span->geometry.id)); intent.emplace("generation", V(span->generation));
+        if (verb == "remove_belt") intent.emplace("action", V("remove_belt_span"));
+        else {
+            const auto lane = state.material.belt_lanes.find(span->geometry.id);
+            if (lane == state.material.belt_lanes.end() || static_cast<std::size_t>(index) >= lane->second.slots.size() ||
+                !lane->second.slots[static_cast<std::size_t>(index)]) {
+                out << "No material in that belt slot.\n"; return Step::keep;
+            }
+            const auto& cargo = *lane->second.slots[static_cast<std::size_t>(index)];
+            V::Array lots;
+            for (const auto& item : cargo.work_lots)
+                lots.emplace_back(V::Object{{"id", V(item.id)}, {"recipe_input", V(item.recipe.input_units_per_product)},
+                    {"cycle_ticks", V(item.recipe.cycle_ticks)}, {"remaining", V(item.remaining_ticks)},
+                    {"completed_subticks", V(item.completed_subticks)}});
+            intent.emplace("action", V("recover_belt_slot")); intent.emplace("slot", V(index));
+            intent.emplace("expected", V(V::Object{{"raw", V(cargo.raw_units)}, {"products", V(cargo.products)},
+                                                   {"work_lots", V(std::move(lots))}}));
+        }
     } else if (verb == "link") {
         if (tokens.size() != 3) return syntax();
         if (!target(intent, state, tokens[1], false, out) || !target(intent, state, tokens[2], true, out)) return Step::keep;

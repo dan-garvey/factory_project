@@ -70,6 +70,23 @@ void solutions() {
           "Recovered raw stock remains carried until explicitly inserted, and output remains product cargo.");
 }
 
+void shaft_span_commands() {
+    const auto result = run("coupling", "place shaft 0 0 4 z 2\nwalk north 8\nwalk east 4\nremove belt\n"
+        "walk south 8\nbelt native-part-1 shaft-belt\nwalk north 4\nbelt native-part-1 shaft-belt\n"
+        "inspect\nrecover_belt native-part-2 0\nremove_belt native-part-2\ninspect\nquit\n");
+    check(result.code == 1 && result.errors.empty(), "The unfinished repair can construct and remove a shaft span.");
+    check(contains(result, "Held: out_of_reach") && contains(result, "Accepted: ok (native-part-2)"),
+          "The real World requires reach to both shafts before allocating a span.");
+    check(contains(result, "native-part-2 generation=2 shafts=native-part-1 -> shaft-belt") &&
+          contains(result, "No material in that belt slot.") && count(result.out, "Accepted: ok (native-part-2)") == 2,
+          "Inspection names the live span, empty recovery is harmless, and removal uses its current identity.");
+    const auto invalid = run("coupling", "belt missing shaft-belt\nrecover_belt missing 0\nremove_belt missing\n"
+        "recover_belt missing -1\nquit\n");
+    check(invalid.code == 1 && invalid.errors.empty() && contains(invalid, "No current part named missing.") &&
+          count(invalid.out, "No current belt span named missing.") == 2 && contains(invalid, "Invalid command."),
+          "Unknown shafts, spans and negative slots do not fabricate authority.");
+}
+
 void retained_refusals() {
     const auto readonly = run("outlet", "help\nhint\ninspect\ninspect\nquit\n");
     check(readonly.code == 1 && readonly.errors.empty(), "Help, hints and inspection do not finish or run the puzzle.");
@@ -136,6 +153,7 @@ void entry_and_streams() {
 int main() {
     try {
         solutions();
+        shaft_span_commands();
         retained_refusals();
         entry_and_streams();
         std::cout << checks << " interactive repair checks, 0 failures.\n";
