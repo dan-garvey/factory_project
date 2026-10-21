@@ -42,8 +42,8 @@ and propagates a full receiver's backpressure. It returns the candidate and
 delivered items without changing the input. World owns and validates each lane,
 persists it, and advances occupied lanes from confirmed shaft motion. The World
 connects adjacent collectors and processor inputs at span endpoints; other
-items remain on the lane. Manual recovery and item presentation remain
-unimplemented.
+items remain on the lane. Confirmed item slots are projected to the presenter;
+manual span recovery remains unimplemented.
 
 The fixed order remains: advance or finish existing machine work; start eligible
 new work; move belt input; move collector stock; extract finite source feed.

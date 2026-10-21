@@ -71,7 +71,7 @@ func _tool_selected(id: int) -> void:
 	_feedback({
 		"gear": "Place a cogwheel at the highlighted point. Set axis and height in this menu.",
 		"place_shaft": "Place one shaft tile at the highlighted point. Set its axis and height in this menu.",
-		"belt_span": "Choose two parallel shafts to connect. These belts transmit rotation; item transport is not available yet.",
+		"belt_span": "Choose two parallel shafts. A collector and processor can connect at the outer ends.",
 		"remove": "Choose a cogwheel, shaft or belt to remove."
 	}.get(active_tool, "Choose a construction tool or Inspect."), false)
 

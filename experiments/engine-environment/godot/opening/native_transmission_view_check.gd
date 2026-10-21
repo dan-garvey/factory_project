@@ -229,6 +229,52 @@ func _belt_spans() -> void:
 	presenter.refresh()
 	var span := _part(presenter, "span")
 	verify(span != null and span.get_node("Pick").get_meta("entity") == "span", "A confirmed span has a selectable visual.")
+	var raw := {"raw": 1, "products": 0, "work_lots": []}
+	var product := {"raw": 0, "products": 1, "work_lots": []}
+	var work := {"raw": 0, "products": 0, "work_lots": [{"id": 7}]}
+	host.state.belt_spans["span"].slots = [raw, null, product, work]
+	host.state.belt_spans["span"].phase = 123
+	presenter.refresh()
+	span = _part(presenter, "span")
+	var item0 := _belt_item(span, 0)
+	var item2 := _belt_item(span, 2)
+	var item3 := _belt_item(span, 3)
+	verify(item0 != null and item0.get_meta("belt_item") == "raw" and is_equal_approx(item0.position.x, -2.475),
+		"A confirmed raw unit is rendered on its exact first endpoint tile.")
+	verify(_belt_item(span, 1) == null and item2 != null and item2.get_meta("belt_item") == "product" and item3 != null and item3.get_meta("belt_item") == "work",
+		"Empty positions remain empty and distinct confirmed item types retain their positions.")
+	var session := Session.new()
+	session.context = host.state.context
+	session._ready_for_commands = true
+	host.state.revision = 1
+	host.state.order = 1
+	session._apply_frame({"context": host.state.context, "serial": 1, "snapshot": host.state})
+	var remote := HostStub.new()
+	remote.state = session.projection()
+	var remote_presenter := Presenter.new()
+	remote_presenter.configure(remote)
+	verify(_belt_item(_part(remote_presenter, "span"), 2).get_meta("belt_item") == "product",
+		"A read-only Session frame preserves the same confirmed belt contents.")
+	host.state.belt_spans["span"].slots = [null, raw, product, work]
+	presenter.refresh()
+	span = _part(presenter, "span")
+	verify(_belt_item(span, 0) == null and _belt_item(span, 1).get_meta("belt_item") == "raw",
+		"Only the next confirmed snapshot moves the displayed item to its new slot.")
+	verify(_belt_item(_part(remote_presenter, "span"), 0) != null,
+		"An older shared snapshot does not acquire the next local item position.")
+	var older: Dictionary = remote.state.duplicate(true)
+	host.state.revision = 2
+	host.state.order = 2
+	session._apply_frame({"context": host.state.context, "serial": 2, "snapshot": host.state})
+	remote.state = session.projection()
+	remote_presenter.refresh()
+	verify(_belt_item(_part(remote_presenter, "span"), 1).get_meta("belt_item") == "raw",
+		"A newer shared frame renders the updated confirmed slot.")
+	session._apply_frame({"context": host.state.context, "serial": 1, "snapshot": older})
+	verify(session.projection().belt_spans["span"].slots[1] == raw,
+		"An out-of-order shared frame cannot roll the item back.")
+	remote_presenter.free()
+	session.free()
 	controls.choose_tool("remove")
 	controls.handle_world_click([], "span")
 	verify(host.calls.back() == {"action": "remove_belt_span", "entity": "span"}, "Belt removal delegates its confirmed identity.")
@@ -237,6 +283,14 @@ func _belt_spans() -> void:
 	verify(_part(presenter, "span") == null, "A confirmed removal clears the visual.")
 	controls.free()
 	presenter.free()
+
+func _belt_item(span: Node3D, slot: int) -> Node3D:
+	if span == null:
+		return null
+	for child: Node in span.get_children():
+		if child.get_meta("belt_slot", -1) == slot:
+			return child
+	return null
 
 func _part(view: Node3D, id: String) -> Node3D:
 	for child in view.get_children():

@@ -404,6 +404,30 @@ void belt_span_host_commands() {
     check(!accepted(intrusion) && field<std::string>(intrusion, "reason") == "occupied",
           "A later cog cannot be placed through the installed belt.");
     const auto checkpoint = host.checkpoint();
+    auto with_item = std::get<O>(checkpoint.storage());
+    auto logical = std::get<O>(with_item.at("world").storage());
+    auto saved_state = std::get<O>(logical.at("state").storage());
+    auto material = std::get<O>(saved_state.at("material").storage());
+    auto stock = std::get<O>(material.at("stock").storage());
+    stock.at("source") = V(field<I>(V(stock), "source") - 1);
+    auto lanes = std::get<O>(material.at("belt_lanes").storage());
+    auto lane = std::get<O>(lanes.at(id).storage());
+    auto slots = std::get<A>(lane.at("slots").storage());
+    slots.at(1) = V(O{{"raw_units", V(I{1})}, {"products", V(I{0})}, {"work_lots", V(A{})}});
+    lane.at("phase") = V(I{321}); lane.at("slots") = V(std::move(slots));
+    lanes.at(id) = V(std::move(lane)); material.at("belt_lanes") = V(std::move(lanes));
+    material.at("stock") = V(std::move(stock)); saved_state.at("material") = V(std::move(material));
+    logical.at("state") = V(std::move(saved_state)); with_item.at("world") = V(std::move(logical));
+    Host loaded;
+    check(accepted(loaded.initialize("projection", {"P"})) &&
+              accepted(loaded.configure_terrain(factory::godot_world::tests::flat_site())) &&
+              accepted(loaded.restore_checkpoint(V(with_item))),
+          "A valid synthetic checkpoint restores an item in the span's authoritative lane.");
+    const auto projected_span = field<O>(loaded.projection(), "belt_spans").at(id);
+    const auto projected_slots = field<A>(projected_span, "slots");
+    check(projected_slots.size() == 3 && projected_slots[0].type() == factory::values::Type::null &&
+              field<I>(projected_slots[1], "raw") == 1 && field<I>(projected_span, "phase") == 321,
+          "The Host projects the exact confirmed lane slot and retained phase.");
     auto obstructed_site = factory::godot_world::tests::flat_site();
     obstructed_site.at("obstacles") = V(A{V(A{V(A{V(1.5), V(0.4), V(-0.2)}),
                                                  V(A{V(1.8), V(0.7), V(0.2)})})});

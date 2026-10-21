@@ -3,6 +3,7 @@ extends Node3D
 ## saved/contact phase, material operation or actor collider.
 const Geometry = preload("res://opening/site_geometry.gd")
 const Assets = preload("res://opening/native_transmission_assets.gd")
+const Items = preload("res://opening/workpiece_item_assets.gd")
 const UNIT := Geometry.PITCH / 4.0
 const VISUAL_RADIANS_PER_SECOND := 0.8
 
@@ -218,6 +219,25 @@ func _belt_span(id: String, span: Variant, parts: Dictionary) -> void:
 		strip.position.y = side * 0.12
 		_finish(strip, Color("554634"))
 		anchor.add_child(strip)
+	var slots: Variant = span.get("slots", [])
+	var expected_slots := roundi(distance / Geometry.PITCH) + 1
+	if slots is Array and slots.size() == expected_slots:
+		var first_position := world_center(first.center) - anchor.position
+		var last_position := world_center(last.center) - anchor.position
+		for index in range(slots.size()):
+			var item: Variant = slots[index]
+			if not item is Dictionary or typeof(item.get("raw")) != TYPE_INT or typeof(item.get("products")) != TYPE_INT or not item.get("work_lots") is Array:
+				continue
+			var raw: bool = item.raw == 1 and item.products == 0 and item.work_lots.is_empty()
+			var product: bool = item.raw == 0 and item.products == 1 and item.work_lots.is_empty()
+			var work: bool = item.raw == 0 and item.products == 0 and item.work_lots.size() == 1
+			if not raw and not product and not work:
+				continue
+			var position := first_position.lerp(last_position, float(index) / float(slots.size() - 1))
+			position.y += 0.18 if product else 0.24
+			var visual := Items.stamped_plate(anchor, position) if product else Items.workpiece_billet(anchor, position)
+			visual.set_meta("belt_slot", index)
+			visual.set_meta("belt_item", "product" if product else ("work" if work else "raw"))
 	# Keep the pick body between the pulleys so each endpoint shaft remains
 	# independently selectable. This body is for picking, not actor collision.
 	var body := StaticBody3D.new()

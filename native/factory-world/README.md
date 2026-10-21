@@ -116,8 +116,10 @@ either outer endpoint can feed raw material into an empty endpoint, even while
 the span is stopped. Rotation carries raw material to an adjacent processor at
 the outgoing endpoint, subject to its input capacity. Attachment follows grid
 geometry regardless of construction order. Other items and unconnected or full
-ends remain on the lane. Manual recovery and item presentation remain
-unimplemented. Earlier logical schema payloads are refused.
+ends remain on the lane. The Host projects confirmed lane slots and the shared
+presenter shows those confirmed items at tile positions; it does not infer
+intermediate cargo motion. Manual span recovery remains unimplemented. Earlier
+logical schema payloads are refused.
 
 The planner checks reach to the new part and every existing endpoint before
 preparing one replacement state. Placement, finite kit and the added links
