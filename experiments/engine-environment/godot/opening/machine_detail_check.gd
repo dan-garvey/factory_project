@@ -3439,7 +3439,232 @@ func check_collector_bearing_seat() -> void:
 		"reused_coverage": "The first 1001-check component case retains the unchanged drum, inserts, full envelopes, all axes, stock, lifecycle and pick results.",
 		"observations": "invented read-only", "native_gameplay": "not_run", "rendered_quality": "not_assessed"}))
 
+func resource_render_write(path: String, report: Dictionary) -> bool:
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		return false
+	file.store_string(JSON.stringify(report, "  ") + "\n")
+	file.close()
+	return true
+
+func resource_render_counts(node: Node, counts: Dictionary) -> void:
+	if node is MeshInstance3D:
+		counts.meshes += 1
+		for surface in range(node.mesh.get_surface_count()):
+			counts.triangles += int(die_faces(node.mesh, surface).size() / 3)
+	if node is CollisionObject3D or node is CollisionShape3D or node.get_script() != null:
+		counts.active_nodes += 1
+	for child in node.get_children():
+		resource_render_counts(child, counts)
+
+func resource_render_pixels(image: Image) -> Dictionary:
+	image.convert(Image.FORMAT_RGBA8)
+	var data := image.get_data()
+	var foreground := 0
+	var low := Vector2i(image.get_width(), image.get_height())
+	var high := Vector2i(-1, -1)
+	for y in range(image.get_height()):
+		for x in range(image.get_width()):
+			var at := (y * image.get_width() + x) * 4
+			var difference := absi(int(data[at]) - int(data[0])) + absi(int(data[at + 1]) - int(data[1])) + absi(int(data[at + 2]) - int(data[2]))
+			if difference > 12:
+				foreground += 1
+				low = low.min(Vector2i(x, y))
+				high = high.max(Vector2i(x, y))
+	return {"foreground_pixels": foreground, "fraction": float(foreground) / float(image.get_width() * image.get_height()),
+		"bounds_min": [low.x, low.y], "bounds_max": [high.x, high.y],
+		"rule": "RGB distance from the flat corner background exceeds twelve byte levels in total. This detects blank or clipped readback, not visual quality."}
+
+func render_buildable_resources() -> void:
+	var output := OS.get_environment("FACTORY_RESOURCE_RENDER_OUTPUT").simplify_path()
+	if OS.get_environment("FACTORY_RESOURCE_RENDER_MODE") != "isolated" \
+		or DisplayServer.get_name().to_lower() != "x11" or not output.is_absolute_path() \
+		or not DirAccess.dir_exists_absolute(output) or output.begins_with(ProjectSettings.globalize_path("res://").simplify_path()):
+		push_error("Resource rendering requires the isolated private display case and an existing external output directory.")
+		quit(1)
+		return
+	var manifest := output.path_join("resource-views.json")
+	if FileAccess.file_exists(manifest):
+		push_error("The resource-render output already exists; preserve it instead of overwriting a first result.")
+		quit(1)
+		return
+	var report := {"status": "running", "evidence_class": "Isolated passive resource renders over invented read-only observations.",
+		"engine": Engine.get_version_info(), "display": DisplayServer.get_name(),
+		"renderer": RenderingServer.get_current_rendering_method(), "adapter": RenderingServer.get_video_adapter_name(),
+		"size": [960, 960], "images": [], "gameplay": "not_run", "authority": "not_instantiated",
+		"desktop_control": "not_used", "human_quality": "not_assessed"}
+	if not resource_render_write(manifest, report):
+		push_error("The resource-render manifest cannot be retained.")
+		quit(1)
+		return
+	Engine.max_fps = 30
+	for subject in [{"name": "collector", "kind": "collector"}, {"name": "press", "kind": "processor"},
+		{"name": "conveyor", "kind": "belt"}, {"name": "waterwheel", "kind": "wheel"}]:
+		var view := Opening.new()
+		view.legacy_fixture = false
+		view.state = {"context": "resource-studio", "options": {"native": true, "physical": true},
+			"actors": {"P": {"ready": true}}, "parts": {}, "inventories": {"P": 0},
+			"stock": {"source": 0, "collector": 0, "belt": 0, "input": 0, "held": 0, "output": 0}, "remaining": 0,
+			"entities": {}, "transmission_parts": {}, "motion": {}, "links": [], "drive_links": [], "engagements": []}
+		var before: Dictionary = view.state.duplicate(true)
+		var model := Node3D.new()
+		model.name = "ResourceModel"
+		view._assemble_machine(model, {"kind": subject.kind, "cell": [0, 0], "axis": 0, "generation": 1})
+		var counts := {"meshes": 0, "triangles": 0, "active_nodes": 0}
+		resource_render_counts(model, counts)
+		if view.legacy_fixture or not view._native_transmission() or counts.meshes == 0 \
+			or counts.active_nodes != 0 or view.state != before or view.model != null \
+			or view.actor_world != null or view.request_sequence != 0 or view.is_inside_tree():
+			report.status = "fail"
+			report.reason = "The resource builder produced active nodes, no meshes or changed observations."
+			resource_render_write(manifest, report)
+			model.free()
+			view.free()
+			push_error(report.reason)
+			quit(1)
+			return
+		var bounds := feed_item_bounds(model, Transform3D.IDENTITY)
+		var centre := bounds.get_center()
+		var diagonal := bounds.size.length()
+		var viewport := SubViewport.new()
+		viewport.name = "ResourceViewport"
+		viewport.size = Vector2i(960, 960)
+		viewport.own_world_3d = true
+		viewport.handle_input_locally = false
+		viewport.gui_disable_input = true
+		viewport.msaa_3d = Viewport.MSAA_4X
+		viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+		root.add_child(viewport)
+		var studio := Node3D.new()
+		viewport.add_child(studio)
+		studio.add_child(model)
+		var world := WorldEnvironment.new()
+		var environment := Environment.new()
+		environment.background_mode = Environment.BG_COLOR
+		environment.background_color = Color("26333b")
+		var sky := Sky.new()
+		sky.sky_material = Opening.ProductionEnvironment.panorama_material()
+		environment.sky = sky
+		environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+		environment.ambient_light_energy = 0.6
+		environment.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
+		environment.tonemap_mode = Environment.TONE_MAPPER_ACES
+		environment.tonemap_exposure = 1.0
+		world.environment = environment
+		studio.add_child(world)
+		var sun := DirectionalLight3D.new()
+		sun.rotation_degrees = Vector3(-48, -30, 0)
+		if Opening.ProductionEnvironment.sky_source_status == "ready":
+			sun.basis = Basis.looking_at(-Opening.ProductionEnvironment.SKY_SUN_DIRECTION, Vector3.UP)
+		sun.light_color = Color("fff0d4")
+		sun.light_energy = 1.25
+		sun.shadow_enabled = true
+		sun.directional_shadow_max_distance = 15.0
+		studio.add_child(sun)
+		var fill := DirectionalLight3D.new()
+		fill.rotation_degrees = Vector3(-32, 135, 0)
+		fill.light_color = Color("b9d2ea")
+		fill.light_energy = 0.18
+		studio.add_child(fill)
+		var camera := Camera3D.new()
+		camera.projection = Camera3D.PROJECTION_ORTHOGONAL
+		camera.size = diagonal * 1.15
+		camera.near = 0.05
+		camera.far = 100.0
+		studio.add_child(camera)
+		camera.current = true
+		for direction in [{"name": "front-right", "offset": Vector3(3, 1.8, 4)},
+			{"name": "back-left", "offset": Vector3(-4, 1.5, -3)}]:
+			var direction_offset: Vector3 = direction.offset
+			camera.position = centre + direction_offset.normalized() * diagonal * 2.0
+			camera.look_at(centre, Vector3.UP)
+			var framed := true
+			for corner in range(8):
+				var projected := camera.unproject_position(bounds.get_endpoint(corner))
+				framed = framed and projected.is_finite() and projected.x > 4 and projected.y > 4 and projected.x < 956 and projected.y < 956
+			if not framed:
+				report.status = "fail"
+				report.reason = "The complete resource bounds are not framed inside the isolated viewport."
+				resource_render_write(manifest, report)
+				viewport.free()
+				view.free()
+				push_error(report.reason)
+				quit(1)
+				return
+			# Complete two draws after the scene/camera change, then read only
+			# this viewport's texture, never an OS screen capture.
+			for _frame in range(2):
+				await process_frame
+				await RenderingServer.frame_post_draw
+			var image := viewport.get_texture().get_image()
+			if image == null or image.is_empty() or image.get_size() != Vector2i(960, 960):
+				report.status = "fail"
+				report.reason = "The isolated renderer returned no complete resource image."
+				resource_render_write(manifest, report)
+				viewport.free()
+				view.free()
+				push_error(report.reason)
+				quit(1)
+				return
+			var pixels := resource_render_pixels(image)
+			var file_name: String = subject.name + "-" + direction.name + ".png"
+			var image_path := output.path_join(file_name)
+			if FileAccess.file_exists(image_path) or image.save_png(image_path) != OK:
+				report.status = "fail"
+				report.reason = "The resource image cannot be retained without overwriting evidence."
+				resource_render_write(manifest, report)
+				viewport.free()
+				view.free()
+				push_error(report.reason)
+				quit(1)
+				return
+			if float(pixels.fraction) < 0.02 or float(pixels.fraction) > 0.85 \
+				or int(pixels.bounds_min[0]) <= 2 or int(pixels.bounds_min[1]) <= 2 \
+				or int(pixels.bounds_max[0]) >= 957 or int(pixels.bounds_max[1]) >= 957:
+				report.status = "fail"
+				report.reason = "The resource image is blank or clipped."
+				report.failed_image = {"file": file_name, "sha256": FileAccess.get_sha256(image_path)}
+				report.failed_pixels = pixels
+				resource_render_write(manifest, report)
+				viewport.free()
+				view.free()
+				push_error(report.reason)
+				quit(1)
+				return
+			var frame := {"subject": subject.name, "kind": subject.kind, "view": direction.name, "file": file_name,
+				"sha256": FileAccess.get_sha256(image_path), "pixels": pixels, "geometry": counts,
+				"profile": {"legacy_fixture": view.legacy_fixture, "native_transmission": view._native_transmission(),
+					"native_options": view.state.options.native, "request_sequence": view.request_sequence},
+				"camera_position": [camera.position.x, camera.position.y, camera.position.z],
+				"camera_target": [centre.x, centre.y, centre.z], "orthographic_size": camera.size,
+				"qualified_worked_maps": Opening.ProductionTransmissionFinish.source_status,
+				"panorama_source": Opening.ProductionEnvironment.sky_source_status}
+			report.images.append(frame)
+			if not resource_render_write(manifest, report):
+				viewport.free()
+				view.free()
+				push_error("The completed resource image metadata cannot be retained.")
+				quit(1)
+				return
+			print(JSON.stringify({"resource_image": file_name, "sha256": frame.sha256, "foreground_fraction": pixels.fraction}))
+		viewport.queue_free()
+		view.free()
+		await process_frame
+	report.status = "pass"
+	report.images_expected = 8
+	report.limits = "Studio lighting and passive mesh observations. No actual app, game state, user understanding, export, performance or human-quality verdict."
+	if not resource_render_write(manifest, report):
+		push_error("The final resource-render result cannot be retained.")
+		quit(1)
+		return
+	print(JSON.stringify({"status": "pass", "resource_images": report.images.size(), "output": output,
+		"gameplay": "not_run", "desktop_control": "not_used", "human_quality": "not_assessed"}))
+	quit(0)
+
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--render-buildable-resources"):
+		call_deferred("render_buildable_resources")
+		return
 	if OS.get_cmdline_user_args().has("--collector-bearing-seat-only"):
 		check_collector_bearing_seat()
 		finish()
