@@ -21,15 +21,32 @@ class HostStub extends RefCounted:
 	var motion_fresh := true
 	var calls: Array = []
 	var messages: Array = []
+	var reply_mode := "queued"
 	func _can_mutate() -> bool:
 		return mutate_allowed
 	func _can_present_confirmed_motion() -> bool:
 		return motion_fresh
 	func issue(wire: Dictionary) -> Dictionary:
 		calls.append(wire.duplicate(true))
+		if reply_mode == "accepted":
+			return {"accepted": true, "request": "request-%d" % calls.size()}
+		if reply_mode == "refused":
+			return {"accepted": false, "reason": "out_of_reach"}
 		return {"queued": true, "accepted": false, "request": "request-%d" % calls.size()}
 	func _message(words: String, _refused: bool) -> void:
 		messages.append(words)
+
+class ReadySession extends RefCounted:
+	func is_ready() -> bool:
+		return true
+
+class SharedSettlement extends "res://opening/shared_opening.gd":
+	func _usable_snapshot() -> bool:
+		return true
+	func _refresh_ui() -> void:
+		pass
+	func _message(_words: String, _refused: bool = false) -> void:
+		pass
 
 class PhysicalProjection extends RefCounted:
 	var state: Dictionary
@@ -236,6 +253,7 @@ func _belt_spans() -> void:
 	controls.handle_world_click([], "right")
 	verify(host.calls.back() == {"action": "place_selected_belt_span", "from": "left", "to": "right", "selection": "request-1"} and host.state == before,
 		"Two confirmed shafts submit a span without speculative geometry or inventory.")
+	controls.settle_belt_placement("request-2", true, "")
 	controls.handle_world_click([], "left")
 	host.state.transmission_parts.left.generation = 13
 	controls.settle_belt_selection("request-3", true)
@@ -338,6 +356,60 @@ func _belt_spans() -> void:
 	verify(not _part(presenter, "left").has_node("BeltPulley") and not _part(presenter, "middle").has_node("BeltPulley"), "Removing the span removes its fitted pulleys.")
 	controls.free()
 	presenter.free()
+
+func _belt_retry() -> void:
+	var host := HostStub.new()
+	host.state = fixture()
+	host.state.transmission_parts["left"] = {"kind": "shaft", "generation": 1, "center": [0, 0, 0], "axis": 2, "half_span": 2}
+	host.state.transmission_parts["right"] = {"kind": "shaft", "generation": 2, "center": [12, 0, 0], "axis": 2, "half_span": 2}
+	var controls := Controls.new()
+	controls.configure(host)
+	controls.choose_tool("belt_span")
+	controls.handle_world_click([], "left")
+	controls.settle_belt_selection("request-1", true)
+	controls.handle_world_click([], "right")
+	controls.handle_world_click([], "right")
+	verify(host.calls.size() == 2, "A pending belt placement cannot be submitted twice.")
+	controls.settle_belt_placement("unrelated", false, "out_of_reach")
+	controls.handle_world_click([], "right")
+	verify(host.calls.size() == 2, "An unrelated result cannot release a pending placement.")
+	var shared := SharedSettlement.new()
+	shared.session = ReadySession.new()
+	shared.transmission_controls = controls
+	shared.state = {"context": "helper-fixture", "revision": 1, "order": 1}
+	shared.pending_actions = {"request-2": {"action": {"action": "place_selected_belt_span"},
+		"outcome": {"context": "helper-fixture", "revision": 2, "order": 2, "accepted": false, "reason": "out_of_reach"}}}
+	shared._settle_pending()
+	controls.handle_world_click([], "right")
+	verify(host.calls.size() == 2, "A shared refusal waits for its confirmed worksite before allowing retry.")
+	shared.state.revision = 2
+	shared.state.order = 2
+	shared._settle_pending()
+	controls.handle_world_click([], "right")
+	verify(host.calls.back() == {"action": "place_selected_belt_span", "from": "left", "to": "right", "selection": "request-1"},
+		"A refused second endpoint reuses the confirmed first selection.")
+	controls.settle_belt_placement("request-3", true, "")
+	controls.handle_world_click([], "right")
+	verify(host.calls.back() == {"action": "select_belt_shaft", "entity": "right"}, "Successful placement consumes the selection.")
+	controls.settle_belt_selection("request-4", true)
+	controls.handle_world_click([], "left")
+	controls.settle_belt_placement("request-5", false, "invalid_belt_selection")
+	controls.handle_world_click([], "left")
+	verify(host.calls.back() == {"action": "select_belt_shaft", "entity": "left"}, "An invalid authority selection starts over.")
+	controls.choose_tool("belt_span")
+	host.reply_mode = "accepted"
+	controls.handle_world_click([], "left")
+	host.reply_mode = "refused"
+	controls.handle_world_click([], "right")
+	host.reply_mode = "accepted"
+	controls.handle_world_click([], "right")
+	verify(host.calls.back().action == "place_selected_belt_span" and host.calls.back().selection == "request-7",
+		"A synchronous refusal preserves the first selection for an ordinary local retry.")
+	controls.handle_world_click([], "right")
+	verify(host.calls.back().action == "select_belt_shaft", "A synchronous successful placement clears the selection.")
+	shared.transmission_controls = null
+	shared.free()
+	controls.free()
 
 func _nonhorizontal_presentation() -> void:
 	var raw := {"raw": 1, "products": 0, "work_lots": []}
@@ -1147,6 +1219,7 @@ func _run() -> void:
 		_gear_sizes()
 		_shaft_segments()
 		_belt_spans()
+		_belt_retry()
 		_belt_surface_motion()
 		_presentation()
 	print("NATIVE_TRANSMISSION_VIEW_%s %d" % ["PASS" if failures == 0 else "FAIL", checks])
