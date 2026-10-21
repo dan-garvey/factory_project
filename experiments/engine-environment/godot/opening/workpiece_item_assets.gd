@@ -1,16 +1,17 @@
 extends RefCounted
-## Natural source clusters and fitted in-line workpiece billets
-## and finished stamped plates. Pure presentation: no collision, input or state
-## authority, and all geometry stays inside the existing item envelopes.
+## A natural mineral exposure, fitted in-line billets and stamped plates.
+## Pure presentation: no collision, input, quantities or state authority.
 
 const Visuals = preload("res://opening/opening.gd").ProductionVisuals
 const Scenery = preload("res://opening/opening.gd").ProductionEnvironment
 const Geometry = preload("res://opening/site_geometry.gd")
 
-const SEAM_HALF_EXTENTS := Vector3(0.10, 0.09, 0.14)
 const BILLET_HALF_EXTENTS := Vector3(0.135, 0.09, 0.18)
 const PLATE_HALF_EXTENTS := Vector3(0.22, 0.035, 0.265)
-static var raw_seam_meshes: Dictionary = {}
+static var source_bounds := Rect2()
+static var source_meshes: Dictionary = {}
+static var source_rock: StandardMaterial3D
+static var source_mineral: StandardMaterial3D
 
 
 static func _part(parent: Node3D, role: String, mesh: Mesh, at: Vector3,
@@ -72,69 +73,115 @@ static func rivet_profile() -> PackedVector2Array:
 	])
 
 
-static func raw_seam_mesh(variant: int = 0) -> ArrayMesh:
-	var key := posmod(variant, 3)
-	if raw_seam_meshes.has(key):
-		return raw_seam_meshes[key]
-	# Three deterministic fracture shapes, all inside the existing item envelope.
-	# These are surface art, not native colliders or an extra stock ledger.
-	var vertices := PackedVector3Array([Vector3(0.0, -0.09, 0.0)])
-	for ring in range(2):
-		for n in range(8):
-			var angle := float(n) * TAU / 8.0 + float(key) * 0.18
-			var radius := 0.80 + 0.12 * sin(float(n) * 2.3 + float(key) * 1.7 + float(ring) * 0.75)
-			var y := -0.055 if ring == 0 else 0.035 + 0.014 * sin(float(n) * 1.9 + float(key))
-			vertices.append(Vector3(cos(angle) * 0.094 * radius, y, sin(angle) * 0.133 * radius))
-	vertices.append(Vector3(0.012 * sin(float(key)), 0.083, -0.01 * cos(float(key))))
-	var faces: Array = []
-	for n in range(8):
-		var next := (n + 1) % 8
-		faces.append_array([[0, 1 + n, 1 + next], [1 + n, 9 + n, 9 + next],
-			[1 + n, 9 + next, 1 + next], [17, 9 + next, 9 + n]])
+static func _seam_point(point: Vector2, mineral: bool = false) -> Vector3:
+	# Millimetres of surface art follow the same terrain as the native body.
+	# The exposure is neither a new solid obstacle nor a local build datum.
+	var lift := 0.015 + 0.008 * sin(point.x * 5.1 + point.y) * cos(point.y * 4.3)
+	return Vector3(point.x, Scenery.Surface.height_at(point.x, point.y) + lift + (0.006 if mineral else 0.0), point.y)
+
+
+static func _seam_triangle(surface: SurfaceTool, a: Vector3, b: Vector3, c: Vector3) -> void:
+	var normal := (c - a).cross(b - a).normalized()
+	if normal.y < 0:
+		var swap := b
+		b = c
+		c = swap
+		normal = -normal
+	for point in [a, b, c]:
+		surface.set_normal(normal)
+		surface.set_uv(Vector2(point.x, point.z))
+		surface.add_vertex(point)
+
+
+static func _seam_mesh(bounds: Rect2, band: int) -> ArrayMesh:
+	if bounds != source_bounds:
+		source_bounds = bounds
+		source_meshes.clear()
+	if source_meshes.has(band):
+		return source_meshes[band]
 	var surface := SurfaceTool.new()
 	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
-	for face in faces:
-		var a := vertices[face[0]]
-		var b := vertices[face[1]]
-		var c := vertices[face[2]]
-		var normal := (c - a).cross(b - a).normalized()
-		if normal.dot((a + b + c) / 3.0) < 0.0:
-			var swap := b
-			b = c
-			c = swap
-			normal = -normal
-		for point in [a, b, c]:
-			var uv := Vector2(point.x, point.z)
-			if absf(normal.x) > absf(normal.y) and absf(normal.x) >= absf(normal.z):
-				uv = Vector2(point.z, point.y)
-			elif absf(normal.z) > absf(normal.y):
-				uv = Vector2(point.x, point.y)
-			surface.set_normal(normal)
-			surface.set_uv(uv * 6.0)
-			surface.add_vertex(point)
+	var center := bounds.get_center()
+	var half_size := bounds.size * 0.48
+	if band == -1:
+		for n in range(32):
+			var ring: Array[Vector2] = []
+			for index in [n, (n + 1) % 32]:
+				var angle := float(index) * TAU / 32.0
+				var radius := 0.96 + 0.025 * sin(3.0 * angle + 0.5) + 0.015 * sin(7.0 * angle - 1.2)
+				ring.append(Vector2(cos(angle), sin(angle)) * half_size * radius)
+			var inner_a := _seam_point(center + ring[0] * 0.43)
+			var inner_b := _seam_point(center + ring[1] * 0.43)
+			var outer_a := _seam_point(center + ring[0])
+			var outer_b := _seam_point(center + ring[1])
+			_seam_triangle(surface, _seam_point(center), inner_a, inner_b)
+			_seam_triangle(surface, inner_a, outer_a, outer_b)
+			_seam_triangle(surface, inner_a, outer_b, inner_b)
+	else:
+		# Branching fractures, not one repeated mesh for each stored unit.
+		var paths := [
+			[Vector2(-0.65, -0.45), Vector2(-0.42, -0.46), Vector2(-0.20, -0.15), Vector2(0.12, 0.08), Vector2(0.18, 0.35), Vector2(0.48, 0.60), Vector2(0.64, 0.45)],
+			[Vector2(-0.70, 0.32), Vector2(-0.52, 0.25), Vector2(-0.40, 0.05), Vector2(-0.20, -0.15)],
+			[Vector2(0.12, 0.08), Vector2(0.46, -0.10), Vector2(0.62, -0.38), Vector2(0.62, -0.48)],
+			[Vector2(0.18, 0.35), Vector2(-0.13, 0.58), Vector2(-0.20, 0.72)],
+			[Vector2(-0.42, -0.46), Vector2(-0.40, -0.68)]]
+		var width := 0.065 * sqrt(float(band) / 8.0)
+		for branch in range(paths.size()):
+			var path: Array = paths[branch]
+			for segment in range(path.size() - 1):
+				var start: Vector2 = center + path[segment] * half_size
+				var finish: Vector2 = center + path[segment + 1] * half_size
+				var along := start.direction_to(finish)
+				var across := Vector2(-along.y, along.x)
+				for step in range(6):
+					var edges: Array[Vector3] = []
+					for index in [step, step + 1]:
+						var t := float(index) / 6.0
+						var phase := float(branch * 7 + segment * 3) + t * 3.7
+						var at := start.lerp(finish, t) + across * sin(t * PI) * sin(phase) * 0.025
+						var radius := width * (0.72 + 0.28 * sin(phase + 0.9))
+						edges.append(_seam_point(at - across * radius, true))
+						edges.append(_seam_point(at + across * radius, true))
+					_seam_triangle(surface, edges[0], edges[2], edges[3])
+					_seam_triangle(surface, edges[0], edges[3], edges[1])
 	surface.generate_tangents()
 	var mesh := surface.commit()
-	raw_seam_meshes[key] = mesh
+	source_meshes[band] = mesh
 	return mesh
 
 
-static func seam_blank(parent: Node3D, at: Vector3 = Vector3.ZERO, variant: int = 0) -> Node3D:
-	var key := posmod(variant, 3)
-	var assembly := Node3D.new()
-	assembly.name = "SeamBlank"
-	assembly.position = at
-	assembly.set_meta("item_kind", "seam_blank")
-	assembly.set_meta("source_variant", key)
-	parent.add_child(assembly)
-	var host := _part(assembly, "RawHostRock", raw_seam_mesh(key), Vector3.ZERO, Color("6e6554"), 0.0, 0.88)
-	host.material_override = Scenery.stone_material()
-	var deposits := [Vector3(-0.03, 0.02, 0.085), Vector3(0.04, 0.036, 0.055), Vector3(-0.005, 0.041, -0.074)]
-	var scales := [Vector3(0.34, 0.40, 0.32), Vector3(0.29, 0.34, 0.33), Vector3(0.34, 0.36, 0.34)]
-	for n in range(3):
-		var mineral := _part(assembly, "RawMineral", raw_seam_mesh(key + n + 1), deposits[n],
-			Color("b69962"), 0.62, 0.48)
-		mineral.scale = scales[n]
-	return assembly
+static func mineral_deposit(parent: Node3D, state: Dictionary, pitch: float) -> void:
+	var cells: Array = state.get("source_deposit", {}).get("cells", [])
+	if cells.is_empty():
+		return
+	var low := Vector2(INF, INF)
+	var high := Vector2(-INF, -INF)
+	for cell in cells:
+		var center := Vector2(cell[0], cell[1]) * pitch
+		low = low.min(center - Vector2.ONE * pitch / 2.0)
+		high = high.max(center + Vector2.ONE * pitch / 2.0)
+	var bounds := Rect2(low, high - low)
+	var initial := maxi(1, int(state.initial_feed))
+	var fraction := clampf(float(state.stock.source) / float(initial), 0.0, 1.0)
+	var band := ceili(fraction * 8.0)
+	if source_rock == null:
+		source_rock = Scenery.stone_material().duplicate()
+		source_rock.albedo_color = Color("766c61")
+		source_mineral = Scenery.stone_material().duplicate()
+		source_mineral.albedo_color = Color("c2935a")
+		source_mineral.metallic = 0.48
+		source_mineral.roughness = 0.62
+	var exposure := Node3D.new()
+	exposure.name = "MineralDeposit"
+	exposure.set_meta("item_kind", "mineral_deposit")
+	exposure.set_meta("remaining", state.stock.source)
+	exposure.set_meta("depletion_band", band)
+	parent.add_child(exposure)
+	var host := _part(exposure, "ExposedRock", _seam_mesh(bounds, -1), Vector3.ZERO, Color.WHITE)
+	host.material_override = source_rock
+	if band > 0:
+		var mineral := _part(exposure, "MineralVeins", _seam_mesh(bounds, band), Vector3.ZERO, Color.WHITE)
+		mineral.material_override = source_mineral
 
 
 static func workpiece_billet(parent: Node3D, at: Vector3 = Vector3.ZERO) -> Node3D:
@@ -212,18 +259,13 @@ static func populate_items(item_root: Node3D, state: Dictionary, pitch: float = 
 		elif kind == "processor":
 			amount = int(stock.get("held", 0)) + int(stock.get("input", 0))
 		for n in range(amount):
-			workpiece_billet(item_root, pos + Vector3(-0.17 + float(n) * 0.32, 0.65, 0.0))
+			var offset := Vector3(-0.17 + float(n) * 0.32, 0.65, 0.0)
+			if kind == "collector":
+				# The native buffer's 32 blanks fit in a four-by-four, two-layer
+				# pile inside its body, rather than spilling across other machines.
+				offset = Vector3((float(n % 4) - 1.5) * 0.27,
+					0.65 + float(int(n / 16.0)) * 0.18, (float(int(n / 4.0) % 4) - 1.5) * 0.36)
+			workpiece_billet(item_root, pos + offset)
 		if kind == "processor" and int(stock.get("output", 0)) > 0:
 			stamped_plate(item_root, pos + Vector3(0.46, 0.39, 0.15))
-	var source_count: int = mini(16, maxi(0, int(stock.get("source", 0))))
-	for n in range(source_count):
-		var at := Vector3(-0.16 + float(n % 2) * 0.32, 0.11, -2.9 + float(int(n / 2.0)) * 1.15)
-		if state.get("options", {}).get("physical", false) and Scenery.Surface != null:
-			var ground: float = Scenery.Surface.height_at(at.x, at.z)
-			if not is_finite(ground):
-				push_error("The physical source display requires its shared ground surface.")
-				return
-			# Embed the lowest host-rock vertex by 15 mm. This is unsaved
-			# surface art, not a changed source position, collider or build anchor.
-			at.y = ground + SEAM_HALF_EXTENTS.y - 0.015
-		seam_blank(item_root, at, n)
+	mineral_deposit(item_root, state, pitch)
