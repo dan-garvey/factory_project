@@ -11,7 +11,7 @@ namespace {
 constexpr std::array<r::Definition, 1> definitions{{
     {"spindle", "The line runs, but the spindle is wrong",
      "Retrieve four plates with the connected line's spindle calibrated to signed rate -2/1.",
-     "A direct 2-to-1 mesh reverses rotation. Bridge the two axial planes with your radius-3 cogs and short shaft: a 3-4-5 mesh reaches the input, and a 3+1 mesh reaches the output. The target and recipe duration are fixture specifications; gearing changes processing speed, not yield."},
+     "A direct 2-to-1 mesh reverses rotation. Bridge the two axial planes with the carried small cogs and one-tile shaft to reverse it again. The target and recipe duration are fixture specifications; gearing changes processing speed, not yield."},
 }};
 void add(r::Scenario& scenario, const std::string& id, s::Role role, g::Point center, g::Integer teeth = 0, g::Integer span = 0) {
     const auto kind = role == s::Role::gear ? g::Kind::gear : role == s::Role::shaft ? g::Kind::shaft : g::Kind::hub;
@@ -32,22 +32,19 @@ std::optional<r::Scenario> make(std::string_view id) {
     result->profile.material.cycle_ticks = 4;
     auto& topology = result->seed.topology;
     topology.parts.clear(); topology.sources.clear();
-    add(*result, "wheel", s::Role::waterwheel, {0, 0, 0});
-    add(*result, "shaft-input", s::Role::shaft, {0, 0, 0}, 0, 1);
-    add(*result, "gear-input", s::Role::gear, {0, 0, 0}, 2);
-    add(*result, "gear-output", s::Role::gear, {3, 0, 2}, 1);
-    add(*result, "shaft-output", s::Role::shaft, {3, 0, 2}, 0, 2);
-    add(*result, "collector", s::Role::collector, {3, 0, 4});
-    add(*result, "shaft-belt", s::Role::shaft, {3, 0, 6}, 0, 2);
-    add(*result, "belt", s::Role::belt, {3, 0, 8});
-    add(*result, "shaft-press", s::Role::shaft, {3, 0, 10}, 0, 2);
-    add(*result, "processor", s::Role::processor, {3, 0, 12});
+    add(*result, "wheel", s::Role::waterwheel, {0, 0, -12});
+    add(*result, "gear-input", s::Role::gear, {0, 0, -8}, 4);
+    add(*result, "shaft-output", s::Role::shaft, {4, 0, -4}, 0, 2);
+    add(*result, "gear-output", s::Role::gear, {4, 0, 0}, 2);
+    add(*result, "collector", s::Role::collector, {4, 0, 4});
+    add(*result, "belt", s::Role::belt, {4, 0, 8});
+    add(*result, "processor", s::Role::processor, {4, 0, 12});
     topology.sources = {{"wheel", result->profile.waterwheel_rate}};
     topology.material_links = {{{"collector", 1}, {"belt", 1}}, {{"belt", 1}, {"processor", 1}}};
     auto& kit = result->seed.kits.at("P");
     kit.clear();
-    kit.emplace(s::PartSpec{s::Role::gear, 3, 0}, 2);
-    kit.emplace(s::PartSpec{s::Role::shaft, 0, 1}, 1);
+    kit.emplace(s::PartSpec{s::Role::gear, 2, 0}, 2);
+    kit.emplace(s::PartSpec{s::Role::shaft, 0, 2}, 1);
     result->profile.finite_parts.clear(); result->seed.issued_entities.clear();
     for (const auto& part : topology.parts) {
         ++result->profile.finite_parts[{part.role, part.geometry.teeth, part.geometry.half_span}];

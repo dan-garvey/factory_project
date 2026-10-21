@@ -23,8 +23,8 @@ void branch(Scenario& scenario, const std::string& machine, s::Role role, g::Int
     auto& topology = scenario.seed.topology;
     const std::string wheel = "wheel-" + machine;
     topology.parts.push_back({{wheel, g::Kind::hub, {x, 0, 0}, g::Axis::z, 0, 0}, 1, s::Role::waterwheel});
-    topology.parts.push_back({{"shaft-" + machine, g::Kind::shaft, {x, 0, 2}, g::Axis::z, 0, 2}, 1, s::Role::shaft});
-    topology.parts.push_back({{machine, g::Kind::hub, {x, 0, 4}, g::Axis::z, 0, 0}, 1, role});
+    topology.parts.push_back({{"shaft-" + machine, g::Kind::shaft, {x, 0, 4}, g::Axis::z, 0, 2}, 1, s::Role::shaft});
+    topology.parts.push_back({{machine, g::Kind::hub, {x, 0, 8}, g::Axis::z, 0, 0}, 1, role});
     topology.sources.push_back({wheel, scenario.profile.waterwheel_rate});
 }
 }  // namespace
@@ -54,19 +54,15 @@ std::optional<Scenario> make(std::string_view id) {
     result.seed.kits = {{"P", {}}, {"Q", {}}};
     result.seed.topology.drive_enabled = true;
     branch(result, "collector", s::Role::collector, 0);
-    branch(result, "belt", s::Role::belt, 3);
-    branch(result, "processor", s::Role::processor, 6);
+    branch(result, "belt", s::Role::belt, 4);
+    branch(result, "processor", s::Role::processor, 8);
     result.seed.topology.material_links = {
         {{"collector", 1}, {"belt", 1}}, {{"belt", 1}, {"processor", 1}},
     };
     if (id == "coupling") {
-        for (auto& part : result.seed.topology.parts)
-            if (part.geometry.id == "wheel-collector") part.geometry.center[2] = -4;
         std::erase_if(result.seed.topology.parts,
             [](const auto& part) { return part.geometry.id == "shaft-collector"; });
-        result.profile.finite_parts.at({s::Role::shaft, 0, 2}) = 2;
-        result.profile.finite_parts.emplace(s::PartSpec{s::Role::shaft, 0, 4}, 1);
-        result.seed.kits.at("P").emplace(s::PartSpec{s::Role::shaft, 0, 4}, 1);
+        result.seed.kits.at("P").emplace(s::PartSpec{s::Role::shaft, 0, 2}, 1);
     } else if (id == "link") {
         result.seed.topology.material_links.pop_back();
     } else {

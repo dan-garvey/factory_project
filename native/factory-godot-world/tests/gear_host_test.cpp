@@ -122,8 +122,8 @@ void finite_oriented_train_and_restore() {
     check(accepted(host.command("P", target("remove", b, "remove-B"))),
           "An individual gear can be removed while the source stays enabled.");
     check(!field<bool>(host.projection(), "powered"), "Removing a gear disconnects the source.");
-    const auto misaligned = create(host, gear(1, 0, 8, "misaligned", "z"));
-    check(!field<bool>(host.projection(), "powered"), "A one-grid-unit displacement cannot mesh or power the collector.");
+    const auto misaligned = create(host, gear(0, 4, 8, "misaligned", "z"));
+    check(!field<bool>(host.projection(), "powered"), "A cog in the adjacent tile cannot power the collector through a diagonal gap.");
     check(accepted(host.command("P", target("remove", misaligned, "remove-misaligned"))),
           "The actual misplaced part returns before reconstruction.");
     const auto rebuilt = create(host, gear(0, 0, 8, "rebuild-B", "z"));
@@ -171,9 +171,9 @@ void adjacent_axle_faces() {
     const auto b = create(host, gear(0, 0, 8, "direct-cog-b", "z"));
     observe(host, -1.65, 0, 5);
     const auto redundant = host.command("P", connection(wheel, upper, "direct-redundant"));
-    check(!accepted(redundant) && field<std::string>(redundant, "reason") == "axles_already_touch" &&
+    check(!accepted(redundant) && field<std::string>(redundant, "reason") == "individual_shaft_required" &&
               field<I>(V(field<O>(host.projection(), "parts")), "shaft") == 8,
-          "Touching axle faces refuse a redundant shaft without consuming a part.");
+          "Endpoint shaft construction is refused without consuming a part.");
     auto power = wire("set_power", "direct-start"); power.emplace("active", V(true));
     check(accepted(host.command("P", power)), "The current is enabled without installing a shaft.");
     check(field<I>(motion(host, wheel), "numerator") == 1 && field<I>(motion(host, wheel), "denominator") == 3 &&
@@ -216,7 +216,7 @@ void refusals_and_legacy_shape() {
     reject(gear(-4, 8, 4, "uncarried-size", "y", 3), "unavailable_part");
     auto boolean = machine("collector", 0, "boolean-axis"); boolean.at("axis") = V(false);
     reject(boolean, "invalid_axis");
-    auto overlapping = gear(-4, 1, 8, "actor-overlap");
+    auto overlapping = gear(-4, 0, 8, "actor-overlap");
     reject(overlapping, "actor_occupied");
     const auto old = create(host, machine("collector", 0, "old-cell", nullptr));
     check(field<I>(V(field<O>(host.projection(), "entities").at(old)), "axis") == 0,
@@ -414,10 +414,10 @@ void cross_axis_belt_line() {
     }
     at(-3.3, 3.3);
     for (std::size_t n = 1; n < hubs.size(); ++n) {
-        at(static_cast<double>(n - 1) * 1.65, 3.3);
+        at(static_cast<double>(n - 1) * 1.65, 0);
         const auto id = "cross-machine-shaft-" + std::to_string(n);
-        check(accepted(host.command("P", connection(hubs[n], small[n + 2], id.c_str()))),
-              "The actor installs a long shaft from each machine to its cog.");
+        check(accepted(host.command("P", shaft(static_cast<I>(n - 1) * 4, 0, 8, id.c_str()))),
+              "The actor installs one shaft tile between each machine and its cog.");
     }
     at(-1.65, 0);
     auto power = wire("set_power", "cross-start"); power.emplace("active", V(true));
@@ -436,7 +436,7 @@ void cross_axis_belt_line() {
     check(accepted(fresh.initialize("fresh", {"P"})) &&
               accepted(fresh.configure_terrain(stream)) &&
               accepted(fresh.restore_checkpoint(saved)) && !factory::values::typed_difference(saved, fresh.checkpoint()),
-          "The complete long-shaft route restores exactly in a fresh Host.");
+          "The complete one-tile shaft route restores exactly in a fresh Host.");
     at(-3.3, 1.65);
     check(accepted(host.command("P", target("remove", output, "cross-remove"))) &&
               field<std::string>(motion(host, hubs[2]), "state") != "rotating",
@@ -513,7 +513,7 @@ void global_grid() {
     check(accepted(host.initialize("cog-api", {"P"})), "The global-grid fixture initializes.");
     check(accepted(host.publish_actor("P", {V(16.5), V(6.0), V(6.0)}, 1)),
           "A disclosed synthetic actor is near the new absolute grid point.");
-    const auto placed = host.command("P", gear(40, 17, 8, "global-grid"));
+    const auto placed = host.command("P", gear(40, 16, 8, "global-grid"));
     check(accepted(placed), "Cogwheels are no longer clipped to the old construction rectangle or height range.");
     check(accepted(host.validate_checkpoint(host.checkpoint())), "Global gear coordinates retain typed save and history validity.");
 }
@@ -526,19 +526,19 @@ void individual_shafts() {
     observe(host, -1.65, 3.3, 1);
     create(host, machine("wheel", -2, "shaft-wheel", "z"));
     observe(host, -1.65, 0, 2);
-    const auto first_wire = shaft(-8, 4, 6, "first-segment");
+    const auto first_wire = shaft(-8, 4, 8, "first-segment");
     const auto first = create(host, first_wire);
     const auto before_parts = field<O>(host.projection(), "transmission_parts");
-    const auto duplicate = shaft(-8, 4, 6, "overlap-identical");
-    check(field<std::string>(host.command("P", duplicate), "reason") == "overlapping_shafts" &&
-              field<std::string>(host.command("P", shaft(-8, 4, 7, "overlap-partial")), "reason") == "overlapping_shafts" &&
+    const auto duplicate = shaft(-8, 4, 8, "overlap-identical");
+    check(field<std::string>(host.command("P", duplicate), "reason") == "occupied" &&
+              field<std::string>(host.command("P", shaft(-8, 4, 9, "off-grid")), "reason") == "invalid_cell" &&
               !factory::values::typed_difference(V(field<O>(host.projection(), "transmission_parts")), V(before_parts)) &&
               field<I>(V(field<O>(host.projection(), "parts")), "shaft") == 7,
-          "Identical and partly overlapping shafts are refused without consuming parts.");
+          "Occupied and off-grid shaft placements are refused without consuming parts.");
     check(field<bool>(host.command("P", duplicate), "duplicate"),
           "An overlapping placement refusal is stable on replay.");
-    observe(host, 0, 2.5, 3);
-    const auto second = create(host, shaft(-8, 4, 10, "second-segment"));
+    observe(host, -1.65, 3.3, 3);
+    const auto second = create(host, shaft(-8, 4, 12, "second-segment"));
     auto power = wire("set_power", "shaft-start"); power.emplace("active", V(true));
     check(accepted(host.command("P", power)) && field<I>(motion(host, second), "numerator") == 1,
           "Two individually placed, touching shaft segments carry the wheel rotation.");
@@ -548,12 +548,12 @@ void individual_shafts() {
               field<I>(motion(host, second), "numerator") == 0 &&
               field<I>(V(field<O>(host.projection(), "parts")), "shaft") == 7,
           "Removing the first segment disconnects the second and refunds one part.");
-    const auto long_wire = shaft(-8, 4, 4, "long-segment", "z", 4);
-    const auto long_segment = create(host, long_wire);
-    check(field<I>(motion(host, long_segment), "numerator") == 1 &&
+    const auto replacement = create(host, shaft(-8, 4, 8, "replacement-segment"));
+    check(field<I>(motion(host, replacement), "numerator") == 1 &&
               field<I>(motion(host, second), "numerator") == 1,
-          "A long segment reconnects the source to the remaining short segment.");
-    check(field<std::string>(host.command("P", shaft(0, 1, 6, "actor-overlap-shaft", "x", 4)), "reason") == "actor_occupied",
+          "A replacement one-tile segment reconnects the source to the remaining segment.");
+    observe(host, 0, 3.3, 4);
+    check(field<std::string>(host.command("P", shaft(0, 0, 8, "actor-overlap-shaft", "x")), "reason") == "actor_occupied",
           "A shaft cannot be placed through the observed actor.");
     check(field<std::string>(host.command("P", shaft(0, 0, 0, "bad-axis", "bad")), "reason") == "invalid_axis" &&
               field<std::string>(host.command("P", shaft(0, 0, 0, "bad-span", "x", 3)), "reason") == "invalid_shaft",
@@ -603,10 +603,10 @@ void forward_belt_route() {
         cogs[n] = create(host, gear(x, 0, -4, id.c_str(), "z", 2));
     }
     for (std::size_t n = 1; n < hubs.size(); ++n) {
-        at(static_cast<double>(n - 1) * 1.65, 0);
+        at(static_cast<double>(n - 1) * 1.65, -3.3);
         const auto id = "forward-shaft-" + std::to_string(n);
-        check(accepted(host.command("P", connection(hubs[n], cogs[n + 2], id.c_str()))),
-              "The forward route connects each machine to its cog.");
+        check(accepted(host.command("P", shaft(static_cast<I>(n - 1) * 4, 0, 0, id.c_str()))),
+              "The forward route connects each machine to its cog with one shaft tile.");
     }
     at(-3.3, 0);
     auto power = wire("set_power", "forward-start"); power.emplace("active", V(true));
@@ -618,10 +618,41 @@ void forward_belt_route() {
           "The height transfer and corner cogs drive the belt forward within the finite kit; wheel=" +
           std::to_string(wheel_rate) + ", belt=" + std::to_string(belt_rate) + ".");
 }
+void one_tile_placement() {
+    Host host;
+    check(accepted(host.initialize("cog-api", {"P"})), "The one-tile host starts.");
+    observe(host, 0, 0, 1);
+    for (const auto& position : std::array<std::array<I, 3>, 3>{{{5, 0, 4}, {4, 1, 4}, {4, 0, 5}}}) {
+        auto off = gear(position[0], position[1], position[2],
+                        ("off-" + std::to_string(checks)).c_str(), "x");
+        const auto refused = host.command("P", off);
+        check(!accepted(refused) && field<std::string>(refused, "reason") == "invalid_cell",
+              "Cog coordinates off the shared tile grid are refused.");
+    }
+    check(!accepted(host.command("P", shaft(4, 0, 4, "long", "x", 4))),
+          "An oversized shaft cannot be placed.");
+    const auto one = host.command("P", shaft(4, 0, 4, "one", "x"));
+    check(accepted(one), "An aligned single-tile shaft can be placed.");
+    check(!accepted(host.command("P", gear(4, 0, 4, "occupied", "x"))),
+          "A cog cannot occupy the shaft's tile.");
+    check(accepted(host.command("P", gear(8, 0, 4, "next", "x"))),
+          "A cog can occupy the adjacent tile.");
+    const auto checkpoint = host.checkpoint();
+    Host restored;
+    check(accepted(restored.initialize("fresh", {"P"})) && accepted(restored.restore_checkpoint(checkpoint)) &&
+              !factory::values::typed_difference(checkpoint, restored.checkpoint()),
+          "The tile-aligned parts and custody restore exactly.");
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::string(argv[1]) == "--one-tile-only") {
+            one_tile_placement();
+            std::cout << "{\"status\":\"pass\",\"evidence\":\"native_one_tile_host\",\"checks\":" << checks << "}" << std::endl;
+            return 0;
+        }
         if (argc == 1) {
             finite_oriented_train_and_restore(); adjacent_axle_faces(); refusals_and_legacy_shape();
             global_grid(); finite_large_cog(); perpendicular_belt_line(); belt_spindle_orientation(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();

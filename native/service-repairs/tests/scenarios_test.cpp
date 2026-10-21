@@ -79,8 +79,8 @@ void native(const factory::repair_scenarios::Definition& definition, std::size_t
     Fixture fixture{context, content->profile, goal, w::World::create(context, content->profile, content->seed)};
     check(fixture.simulation && w::validate(fixture.profile, fixture.simulation->snapshot()), "Every service seed passes the actual World initializer.");
     check(!r::relocated(*goal, content->seed) && !r::ready(*goal, content->seed), "Original machinery cannot satisfy a replacement goal.");
-    const I x = goal->role == s::Role::collector ? 0 : goal->role == s::Role::belt ? 3 : 6;
-    const a::Point position{static_cast<double>(x), 0, 4};
+    const I x = goal->role == s::Role::collector ? 0 : goal->role == s::Role::belt ? 4 : 8;
+    const a::Point position{static_cast<double>(x), 0, 8};
     const std::string original(goal->original);
     const auto initial = fixture.simulation->snapshot().state.material;
     const auto occupied = send(fixture, "remove", target(original), position);
@@ -104,7 +104,7 @@ void native(const factory::repair_scenarios::Definition& definition, std::size_t
           "Removal refunds one original machine, preserves issued identity/custody and cannot itself count as relocation.");
 
     if (goal->role == s::Role::processor && site_index == 0) {
-        const auto wrong = place(fixture, {6, 0, 4}, position);
+        const auto wrong = place(fixture, {8, 0, 8}, position);
         check(accepted(wrong) && !r::relocated(*goal, fixture.simulation->snapshot().state),
               "A fresh identity rebuilt at the old site does not satisfy the service layout.");
         check(accepted(send(fixture, "remove", target("native-part-1"), position)), "The empty wrong-site rebuild can be refunded for correction.");
@@ -142,7 +142,7 @@ void native(const factory::repair_scenarios::Definition& definition, std::size_t
     for (int tick = 0; tick < 64 && fixture.simulation->snapshot().state.material.cargo.at("P").products < 4; ++tick) {
         if (fixture.simulation->snapshot().state.material.stock.output > 0) {
             auto collect = target(processor, processor_generation); collect.emplace("amount", V(I{1}));
-            check(accepted(send(fixture, "collect", collect, {6, 0, 4})), "Actual current output can be collected through native admission.");
+            check(accepted(send(fixture, "collect", collect, {8, 0, 8})), "Actual current output can be collected through native admission.");
         }
         ticks(fixture);
     }
@@ -171,16 +171,16 @@ std::string plates(const std::string& processor, int count) {
 }
 
 void terminal() {
-    const auto collector = run("service-collector", "walk north 4\nremove collector\nrecover collector\nremove collector\n"
-        "place machine collector 0 0 3 z\nlink native-part-1 belt\ninsert_raw native-part-1 1\ninspect\nwalk east 4\n" + plates("processor", 4));
+    const auto collector = run("service-collector", "walk north 8\nremove collector\nrecover collector\nremove collector\n"
+        "place machine collector -4 0 12 z\nlink native-part-1 belt\ninsert_raw native-part-1 1\ninspect\nwalk east 4\n" + plates("processor", 4));
     check(collector.code == 0 && collector.errors.empty() && collector.out.find("Held: occupied_target") != std::string::npos,
           "The collector puzzle is playable through occupied refusal, custody, complete-machine construction and finite production.");
-    const auto belt = run("service-belt", "walk north 4\nwalk east 3\nrecover belt\nremove belt\nplace machine belt 3 0 2 z\n"
+    const auto belt = run("service-belt", "walk north 8\nwalk east 4\nrecover belt\nremove belt\nplace machine belt 8 0 12 z\n"
         "link collector native-part-1\nlink native-part-1 processor\ninsert_raw belt 1\ninsert_raw native-part-1 1\n" + plates("processor", 4));
     check(belt.code == 0 && belt.errors.empty() && belt.out.find("No current part named belt.") != std::string::npos,
           "The belt puzzle requires the fresh current name and supports the alternate service site.");
-    const auto press = run("service-press", "walk east 6\nwalk north 4\nrecover processor\nremove processor\n"
-        "place machine processor 6 0 3 z\nlink belt native-part-1\ninsert_work native-part-1 7\ninsert_raw native-part-1 1\ninspect\n" + plates("native-part-1", 3));
+    const auto press = run("service-press", "walk east 6\nwalk north 8\nrecover processor\nremove processor\n"
+        "place machine processor 4 0 12 z\nlink belt native-part-1\ninsert_work native-part-1 7\ninsert_raw native-part-1 1\ninspect\n" + plates("native-part-1", 3));
     check(press.code == 0 && press.errors.empty() && press.out.find("Carried work=7 remaining=0 recipe_units=1 cycle=2") != std::string::npos &&
           press.out.find("Press work=7 remaining=0 recipe_units=1 cycle=2") != std::string::npos,
           "The terminal carries the same ready billet through an actual native rebuild and back to output.");
@@ -189,25 +189,25 @@ void terminal() {
               result->out.find("Complete: service relocation and four plates retrieved") != std::string::npos,
               "Completion requires the relocated powered route plus actual retrieved products.");
 
-    const auto unreplaced = run("service-press", "walk east 6\nwalk north 4\ncollect processor\n" + plates("processor", 3));
+    const auto unreplaced = run("service-press", "walk east 6\nwalk north 8\ncollect processor\n" + plates("processor", 3));
     check(unreplaced.code == 1 && unreplaced.out.find("products=4/4") != std::string::npos &&
           unreplaced.out.find("Complete:") == std::string::npos,
           "Producing the plate count without the required service operation cannot complete the puzzle.");
-    const auto unlinked = run("service-press", "walk east 6\nwalk north 4\ncollect processor\n" + plates("processor", 3) +
-        "recover processor\nremove processor\nplace machine processor 6 0 3 z\n");
+    const auto unlinked = run("service-press", "walk east 6\nwalk north 8\ncollect processor\n" + plates("processor", 3) +
+        "recover processor\nremove processor\nplace machine processor 4 0 12 z\n");
     check(unlinked.code == 1 && unlinked.out.find("Service relocation: complete") != std::string::npos &&
           unlinked.out.find("Complete:") == std::string::npos,
           "A stock-count success followed by an unconnected rebuild still cannot complete the service goal.");
-    const auto incomplete = run("service-collector", "walk north 4\nrecover collector\nremove collector\n"
-        "place machine collector 0 0 3 z\nlink native-part-1 belt\ninsert_raw native-part-1 1\n");
+    const auto incomplete = run("service-collector", "walk north 8\nrecover collector\nremove collector\n"
+        "place machine collector -4 0 12 z\nlink native-part-1 belt\ninsert_raw native-part-1 1\n");
     check(incomplete.code == 1 && incomplete.out.find("Service drive and route: ready") != std::string::npos,
           "A correctly rebuilt route still needs its product objective.");
-    const auto invalid = run("service-press", "place machine processor 6 0 3 q\nplace machine waterwheel 6 0 3 z\n"
+    const auto invalid = run("service-press", "place machine processor 6 0 3 q\nplace machine unknown 6 0 3 z\n"
         "place machine processor 6 0 9223372036854775808 z\ninspect\nquit\n");
     check(invalid.code == 1 && invalid.errors.empty() && invalid.out.find("Press work=7 remaining=0") != std::string::npos,
           "Malformed machine placement preserves original ready work and the ongoing puzzle.");
-    const auto legacy_gear = run("gear-idler", "place gear 4 0 0 z 2\nwalk east 6\nwalk north 4\n" + plates("processor", 4));
-    check(legacy_gear.code == 0 && legacy_gear.errors.empty(), "The unchanged gear-placement branch still solves its finite production puzzle.");
+    const auto legacy_gear = run("gear-idler", "place gear -4 0 0 z 2\nwalk east 6\nwalk north 8\n" + plates("processor", 4));
+    check(legacy_gear.code == 0 && legacy_gear.errors.empty(), "The gear-placement branch still solves its finite production puzzle.");
     std::istringstream input;
     std::ostringstream output, errors;
     const std::array<std::string_view, 1> list{"list"};

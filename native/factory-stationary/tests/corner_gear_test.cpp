@@ -109,6 +109,13 @@ void mixed_cog_cases() {
                   m::Motion{m::MotionState::rotating, {-3, 1}}, "Large-to-small diagonal transmission doubles and reverses the rate.");
 
             topology.sources = {{"source", {3, 2}}};
+            position[first] = d1;
+            position[second] = 0;
+            for (int i : {3, 4, 5}) topology.parts[i].geometry.center = position;
+            result = s::power_view(topology);
+            check(result.mechanical.accepted() && result.mechanical.motion.at("sink") ==
+                  m::Motion{m::MotionState::rotating, {-3, 4}},
+                  "One-tile mixed cogs also mesh at an adjacent tile face with their signed ratio.");
             position[first] = 6;
             position[second] = 0;
             for (int i : {3, 4, 5}) topology.parts[i].geometry.center = position;

@@ -56,7 +56,7 @@ void construction(bool corner) {
     profile.meters_per_grid_unit = 0.1;
     profile.build_reach = 4;
     profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, 1}, {{s::Role::belt, 0, 0}, 1},
-                            {{s::Role::shaft, 0, 1}, 2}, {{s::Role::gear, 4, 0}, corner ? 2 : 1}};
+                            {{s::Role::gear, 4, 0}, corner ? 2 : 1}};
     if (!corner) profile.finite_parts.emplace(s::PartSpec{s::Role::gear, 2, 0}, 1);
     w::State seed;
     seed.material.initial_units = 1;
@@ -64,11 +64,13 @@ void construction(bool corner) {
     seed.material.cargo = {{"P", {}}, {"Q", {}}};
     seed.kits = {{"P", {{{s::Role::gear, 4, 0}, corner ? 2 : 1}}}, {"Q", {}}};
     if (!corner) seed.kits.at("P").emplace(s::PartSpec{s::Role::gear, 2, 0}, 1);
+    auto wheel = input;
+    wheel[static_cast<std::size_t>(input_axis)] -= 4;
+    auto belt = output;
+    belt[static_cast<std::size_t>(output_axis)] += 4;
     seed.topology.parts = {
-        {{"wheel", m::Kind::hub, input, input_axis, 0, 0}, 1, s::Role::waterwheel},
-        {{"in-shaft", m::Kind::shaft, input, input_axis, 0, 1}, 1, s::Role::shaft},
-        {{"belt", m::Kind::hub, output, output_axis, 0, 0}, 1, s::Role::belt},
-        {{"out-shaft", m::Kind::shaft, output, output_axis, 0, 1}, 1, s::Role::shaft},
+        {{"wheel", m::Kind::hub, wheel, input_axis, 0, 0}, 1, s::Role::waterwheel},
+        {{"belt", m::Kind::hub, belt, output_axis, 0, 0}, 1, s::Role::belt},
     };
     seed.topology.sources = {{"wheel", {1, 1}}};
     seed.topology.drive_enabled = true;
@@ -77,6 +79,13 @@ void construction(bool corner) {
     check(world != nullptr, "The finite two-actor fixture creates the single World.");
     const auto first_command = place("first", input, corner ? "x" : "z", input_teeth);
     const auto first = accepted(send(*world, first_command));
+    auto invalid_history = world->snapshot();
+    auto& placement = invalid_history.history.records.back();
+    placement.intent.at("center") = V(V::Array{V(I{0}), V(I{1}), V(I{0})});
+    placement.result.at("targets") = V(V::Array{V(V::Array{V(0.0), V(0.1), V(0.0)})});
+    placement.result.at("distances_squared") = V(V::Array{V(0.1 * 0.1)});
+    check(!w::World::restore("cog-world", profile, invalid_history),
+          "Even a consistent historical receipt cannot restore an accepted off-grid cog placement.");
     check(!w::machine_power(world->snapshot().state.topology).belt, "One cog does not power the remote belt.");
     const auto second_command = place("second", output, "z", 4);
     const auto second = accepted(send(*world, second_command));
@@ -123,7 +132,7 @@ void geared_processor(bool fast) {
     profile.meters_per_grid_unit = 0.1;
     profile.build_reach = 4;
     profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, 1}, {{s::Role::processor, 0, 0}, 1},
-        {{s::Role::shaft, 0, 1}, 2}, {{s::Role::gear, 2, 0}, 1}, {{s::Role::gear, 4, 0}, 1}};
+        {{s::Role::gear, 2, 0}, 1}, {{s::Role::gear, 4, 0}, 1}};
     w::State seed;
     seed.material.initial_units = 2;
     seed.material.stock.output = 1;
@@ -132,10 +141,8 @@ void geared_processor(bool fast) {
     seed.material.cargo = {{"P", {}}, {"Q", {}}};
     seed.kits = {{"P", {{{s::Role::gear, 2, 0}, 1}, {{s::Role::gear, 4, 0}, 1}}}, {"Q", {}}};
     seed.topology.parts = {
-        {{"wheel", m::Kind::hub, {0, 0, 0}, m::Axis::z, 0, 0}, 1, s::Role::waterwheel},
-        {{"in-shaft", m::Kind::shaft, {0, 0, 0}, m::Axis::z, 0, 1}, 1, s::Role::shaft},
-        {{"press", m::Kind::hub, {4, 4, 0}, m::Axis::z, 0, 0}, 1, s::Role::processor},
-        {{"out-shaft", m::Kind::shaft, {4, 4, 0}, m::Axis::z, 0, 1}, 1, s::Role::shaft}};
+        {{"wheel", m::Kind::hub, {0, 0, -4}, m::Axis::z, 0, 0}, 1, s::Role::waterwheel},
+        {{"press", m::Kind::hub, {4, 4, 4}, m::Axis::z, 0, 0}, 1, s::Role::processor}};
     seed.topology.sources = {{"wheel", {1, 1}}};
     seed.topology.drive_enabled = true;
     for (const auto& item : seed.topology.parts) seed.issued_entities.emplace(item.geometry.id, item.generation);
@@ -262,7 +269,7 @@ void cross_axis_belt_line() {
     profile.build_reach = 4;
     profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, 1}, {{s::Role::collector, 0, 0}, 1},
         {{s::Role::belt, 0, 0}, 1}, {{s::Role::processor, 0, 0}, 1},
-        {{s::Role::shaft, 0, 2}, 2}, {{s::Role::shaft, 0, 4}, 3},
+        {{s::Role::shaft, 0, 2}, 3},
         {{s::Role::gear, 2, 0}, 5}, {{s::Role::gear, 4, 0}, 2}};
     w::State seed;
     seed.material.initial_units = 1;
@@ -287,15 +294,13 @@ void cross_axis_belt_line() {
     for (std::size_t n = 0; n < small.size(); ++n)
         small[n] = accepted(send(*world, place(("cross-small-" + std::to_string(n)).c_str(),
                                                {static_cast<I>(n) * 4 - 8, 0, 12}, "z", 2)));
-    const auto connect = [&](const O& from, const O& to, const std::string& request) {
-        O shaft{{"context", V("cog-world")}, {"client", V("P-session")}, {"request", V(request)},
-            {"actor", V("P")}, {"action", V("shaft_between")},
-            {"target", from.at("entity")}, {"generation", from.at("generation")},
-            {"to", to.at("entity")}, {"to_generation", to.at("generation")}};
+    for (std::size_t n = 1; n < hubs.size(); ++n) {
+        auto shaft = place(("cross-machine-shaft-" + std::to_string(n)).c_str(),
+                           {static_cast<I>(n - 1) * 4, 0, 8}, "z", 0);
+        shaft.at("role") = V("shaft");
+        shaft.at("half_span") = V(I{2});
         accepted(send(*world, shaft));
-    };
-    for (std::size_t n = 1; n < hubs.size(); ++n)
-        connect(hubs[n], small[n + 1], "cross-machine-shaft-" + std::to_string(n));
+    }
     O power{{"context", V("cog-world")}, {"client", V("P-session")}, {"request", V("cross-power")},
         {"actor", V("P")}, {"action", V("set_drive")}, {"target", hubs[0].at("entity")},
         {"generation", hubs[0].at("generation")}, {"enabled", V(true)}};

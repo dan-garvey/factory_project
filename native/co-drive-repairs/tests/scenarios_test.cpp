@@ -52,7 +52,7 @@ Fixture fresh(const std::string& suffix) {
     const auto power = s::power_view(state.topology).mechanical;
     factory::materials::Quantity parts{};
     for (const auto& [spec, count] : fixture.profile.finite_parts) { (void)spec; parts += count; }
-    check(parts == 13 && state.material.stock.source == 16 && progress.sources == 2 && progress.products == 0 &&
+    check(parts == 9 && state.material.stock.source == 16 && progress.sources == 2 && progress.products == 0 &&
           progress.mode == c::Mode::stalled && power.motion.at("wheel-left").state == g::MotionState::stalled &&
           power.motion.at("wheel-right").state == g::MotionState::stalled, "Two equal-rate sources through one reversal actually stall their shared finite line.");
     return fixture;
@@ -76,6 +76,21 @@ a::Object remove(Fixture& fixture, const std::string& id, a::Point position) {
 a::Object gear(Fixture& fixture, g::Point point, I teeth, a::Point position) {
     return send(fixture, {{"action", V("place")}, {"role", V("gear")},
         {"center", V(V::Array{V(point[0]), V(point[1]), V(point[2])})}, {"axis", V("z")}, {"teeth", V(teeth)}, {"half_span", V(I{0})}}, position);
+}
+a::Object wheel(Fixture& fixture, g::Point point, a::Point position) {
+    return send(fixture, {{"action", V("place")}, {"role", V("waterwheel")},
+        {"center", V(V::Array{V(point[0]), V(point[1]), V(point[2])})}, {"axis", V("z")},
+        {"teeth", V(I{0})}, {"half_span", V(I{0})}}, position);
+}
+void move_left_and_replace_gears(Fixture& fixture) {
+    check(accepted(remove(fixture, "gear-left", {-4, 0, 0})) && accepted(remove(fixture, "gear-right", {0, 0, 0})),
+          "Both original cogs can be refunded through native stationary removal.");
+    check(accepted(remove(fixture, "wheel-left", {-4, 0, -4})) &&
+          accepted(wheel(fixture, {-8, 0, -4}, {-8, 0, -4})),
+          "The original left wheel is moved one whole tile and receives a fresh identity.");
+    check(accepted(gear(fixture, {-8, 0, 0}, 2, {-8, 0, 0})) &&
+          accepted(gear(fixture, {0, 0, 0}, 2, {0, 0, 0})),
+          "The two carried small cogs occupy separate source tiles.");
 }
 void ticks(Fixture& fixture, int number) {
     for (int n = 0; n < number; ++n) {
@@ -119,7 +134,7 @@ void retirement(bool left) {
     const auto far = remove(fixture, left ? "wheel-left" : "wheel-right", {100, 0, 0});
     check(!accepted(far) && std::get<std::string>(far.at("reason").storage()) == "out_of_reach" &&
           fixture.world->snapshot().state == before, "A distant request cannot remove a source or spend/refund parts.");
-    check(accepted(remove(fixture, left ? "wheel-left" : "wheel-right", {left ? -6.0 : 0.0, 0, 0})),
+    check(accepted(remove(fixture, left ? "wheel-left" : "wheel-right", {left ? -4.0 : 0.0, 0, -4})),
           "Either wheel can be retired without disabling the global drive.");
     const auto state = fixture.world->snapshot().state;
     const auto progress = c::inspect(state);
@@ -133,11 +148,8 @@ void retirement(bool left) {
         ticks(fixture, 4);
         check(!fixture.world->snapshot().state.material.dropped_raw.empty() && !c::inspect(fixture.world->snapshot().state).ready(),
               "Retiring the right wheel reverses the belt and leaves recoverable blanks.");
-        check(accepted(remove(fixture, "gear-left", {-6, 0, 0})) && accepted(remove(fixture, "gear-right", {0, 0, 0})),
-              "The original reversed mesh can be replaced with the carried cogs.");
-        check(accepted(gear(fixture, {-6, 0, 0}, 2, {-6, 0, 0})) &&
-              accepted(gear(fixture, {0, 0, 0}, 2, {0, 0, 0})) &&
-              accepted(gear(fixture, {-3, 4, 0}, 3, {-3, 0, 0})),
+        move_left_and_replace_gears(fixture);
+        check(accepted(gear(fixture, {-4, 4, 0}, 4, {-4, 0, 0})),
               "The idler route restores forward belt motion with one source.");
         check(c::inspect(fixture.world->snapshot().state).ready(), "The repaired single source now drives the belt forward.");
     }
@@ -146,13 +158,10 @@ void retirement(bool left) {
 }
 void smaller_sources(Fixture& fixture) {
     const auto material = fixture.world->snapshot().state.material;
-    check(accepted(remove(fixture, "gear-left", {-6, 0, 0})) && accepted(remove(fixture, "gear-right", {0, 0, 0})),
-          "Both original cogs can be refunded through native stationary removal.");
-    check(accepted(gear(fixture, {-6, 0, 0}, 2, {-6, 0, 0})) && accepted(gear(fixture, {0, 0, 0}, 2, {0, 0, 0})),
-          "The two originally carried smaller cogs replace the source cogs without changing their specifications.");
+    move_left_and_replace_gears(fixture);
     const auto state = fixture.world->snapshot().state;
     check(state.material == material && state.topology.drive_enabled && c::inspect(state).mode == c::Mode::choose_source &&
-          state.kits.at("P").at({s::Role::gear, 3, 0}) == 2 && state.kits.at("P").at({s::Role::gear, 2, 0}) == 0,
+          state.kits.at("P").at({s::Role::gear, 4, 0}) == 2 && state.kits.at("P").at({s::Role::gear, 2, 0}) == 0,
           "Two separated live sources leave an explicit unresolved choice, not a fabricated shared drive.");
 }
 void coherent(const Fixture& fixture, const std::string& idler) {
@@ -160,29 +169,29 @@ void coherent(const Fixture& fixture, const std::string& idler) {
     const auto progress = c::inspect(state);
     const auto motion = s::power_view(state.topology).mechanical;
     check(progress.mode == c::Mode::co_driven && progress.sources == 2 && progress.ready() &&
-          motion.motion.at("wheel-left").rate == g::Rate{-1, 1} && motion.motion.at("wheel-right").rate == g::Rate{-1, 1} &&
-          motion.motion.at(idler).rate == g::Rate{2, 3} && motion.motion.at("processor").rate == g::Rate{-1, 1},
-          "Two exact 3-4-5 meshes coherently share the line with the expected rational idler rate.");
+          motion.motion.at("native-part-1").rate == g::Rate{-1, 1} && motion.motion.at("wheel-right").rate == g::Rate{-1, 1} &&
+          motion.motion.at(idler).rate == g::Rate{1, 2} && motion.motion.at("processor").rate == g::Rate{-1, 1},
+          "Two diagonal small-to-large meshes coherently share the line with the expected rational idler rate.");
 }
 void misplaced_and_current_goal() {
     auto fixture = fresh("wrong-plane");
     smaller_sources(fixture);
-    const auto wrong = gear(fixture, {-3, 4, 1}, 3, {-3, 0, 1});
-    check(accepted(wrong) && std::get<std::string>(wrong.at("entity").storage()) == "native-part-3",
+    const auto wrong = gear(fixture, {-4, 4, 4}, 4, {-4, 0, 4});
+    check(accepted(wrong) && std::get<std::string>(wrong.at("entity").storage()) == "native-part-4",
           "A plausible wrong-plane idler is a real finite retained construction at the ground actor's reach boundary.");
     produce(fixture);
     auto state = fixture.world->snapshot().state;
     check(c::inspect(state).mode == c::Mode::choose_source && !c::inspect(state).complete(),
           "Four real carried plates cannot hide two sources that have not been coupled or retired.");
     const auto material = state.material;
-    check(accepted(remove(fixture, "native-part-3", {-3, 0, 1})), "The wrong idler can be refunded with all actual product and work retained.");
-    const auto correct = gear(fixture, {-3, 4, 0}, 3, {-3, 0, 0});
-    check(accepted(correct) && std::get<std::string>(correct.at("entity").storage()) == "native-part-4",
+    check(accepted(remove(fixture, "native-part-4", {-4, 0, 4})), "The wrong idler can be refunded with all actual product and work retained.");
+    const auto correct = gear(fixture, {-4, 4, 0}, 4, {-4, 0, 0});
+    check(accepted(correct) && std::get<std::string>(correct.at("entity").storage()) == "native-part-5",
           "Reusing the same returned cog allocates a fresh identity at the correct plane.");
     state = fixture.world->snapshot().state;
-    check(state.material == material && state.issued_entities.contains("native-part-3") && state.next_entity_serial == 5 &&
+    check(state.material == material && state.issued_entities.contains("native-part-4") && state.next_entity_serial == 6 &&
           c::inspect(state).complete(), "Correction changes only the real mechanical arrangement, retaining old outcomes, work and four plates.");
-    coherent(fixture, "native-part-4");
+    coherent(fixture, "native-part-5");
     const auto read_cut = fixture.world->snapshot();
     check(!c::inspect(read_cut.state, "Q").complete() && !c::inspect(read_cut.state, "unknown").known_actor &&
           same_cut(read_cut, fixture.world->snapshot()), "Read-only eligibility gives no cross-actor credit or participant/history mutation.");
@@ -196,13 +205,13 @@ void misplaced_and_current_goal() {
 void source_service(bool left) {
     auto fixture = fresh(left ? "service-left" : "service-right");
     smaller_sources(fixture);
-    check(accepted(gear(fixture, {-3, 4, 0}, 3, {-3, 0, 0})), "One refunded large cog completes the finite higher bridge.");
-    coherent(fixture, "native-part-3");
+    check(accepted(gear(fixture, {-4, 4, 0}, 4, {-4, 0, 0})), "One refunded large cog completes the finite higher bridge.");
+    coherent(fixture, "native-part-4");
     for (int n = 0; n < 16 && !fixture.world->snapshot().state.material.processing; ++n) ticks(fixture, 1);
     const auto cut = fixture.world->snapshot().state.material;
     check(cut.processing && cut.processing->remaining_ticks > 0, "The retained continuation cut contains actual partially processed work.");
     restore(fixture);
-    check(accepted(remove(fixture, left ? "wheel-left" : "wheel-right", {left ? -6.0 : 0.0, 0, 0})),
+    check(accepted(remove(fixture, left ? "native-part-1" : "wheel-right", {left ? -8.0 : 0.0, 0, -4})),
           "Either coherently coupled source can be serviced through the native powered removal rule.");
     check(fixture.world->snapshot().state.material == cut && c::inspect(fixture.world->snapshot().state).mode == c::Mode::isolated,
           "The remaining source powers the original partial work without resetting it.");
@@ -225,13 +234,15 @@ void actual_parser() {
         return output.str();
     };
     run("remove wheel-right\nwalk north 8\nwalk north 4\n" + plates() + "inspect\nquit\n", 1, "Source arrangement: isolated");
-    run("walk west 6\nremove wheel-left\nwalk east 6\nwalk north 8\nwalk north 4\n" + plates(), 0, "Source arrangement: isolated");
-    const std::string smaller = "walk west 6\nremove gear-left\nplace gear -6 0 0 z 2\nwalk east 6\nremove gear-right\nplace gear 0 0 0 z 2\nwalk west 3\n";
-    run(smaller + "place gear -3 4 0 z 3\nwalk east 3\nwalk north 8\nwalk north 4\n" + plates(), 0, "Source arrangement: co_driven");
-    const std::string wrong = smaller + "walk north 1\nplace gear -3 4 1 z 3\nwalk east 3\nwalk north 8\nwalk north 3\n" + plates();
+    run("walk west 4\nwalk south 4\nremove wheel-left\nwalk east 4\nwalk north 8\nwalk north 8\n" + plates(), 0, "Source arrangement: isolated");
+    const std::string smaller = "walk west 4\nremove gear-left\nremove wheel-left\nwalk west 4\nwalk south 4\n"
+        "place machine waterwheel -8 0 -4 z\nwalk north 4\nplace gear -8 0 0 z 2\n"
+        "walk east 8\nremove gear-right\nplace gear 0 0 0 z 2\nwalk west 4\n";
+    run(smaller + "place gear -4 4 0 z 4\nwalk east 4\nwalk north 8\nwalk north 4\n" + plates(), 0, "Source arrangement: co_driven");
+    const std::string wrong = smaller + "walk north 4\nplace gear -4 4 4 z 4\nwalk east 4\nwalk north 8\n" + plates();
     run(wrong + "inspect\nquit\n", 1, "Cargo raw=0 products=4/4");
-    const auto corrected = run(wrong + "inspect\nwalk south 8\nwalk south 3\nwalk west 3\nremove native-part-3\nwalk south 1\nplace gear -3 4 0 z 3\n", 0,
-                               "Accepted: ok (native-part-4)");
+    const auto corrected = run(wrong + "inspect\nwalk south 8\nwalk west 4\nremove native-part-4\nwalk south 4\nplace gear -4 4 0 z 4\n", 0,
+                               "Accepted: ok (native-part-5)");
     check(corrected.find("Source arrangement: choose_source") != std::string::npos && corrected.find("Source arrangement: co_driven") != std::string::npos,
           "The same terminal run diagnoses and repairs the wrong plane with the original carried products.");
     run("wait 32\ninspect\nquit\n", 1, "Stock source=16 collector=0 belt=0 input=0 output=0");
