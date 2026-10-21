@@ -35,16 +35,20 @@ comes from the same Rocketbox library. Its compact native Godot animation resour
 keeps 34 named-skeleton rotation and translation tracks. At runtime, each track
 is applied relative to the clip's first pose and the worker's lowered-arm standing
 pose. One clip cycle advances per 1.65 metres of confirmed horizontal travel;
-observed speed blends the run toward rest. The clip's vertical root variation is
-cosmetic, and its horizontal root travel does not move the physical or visual
-actor root. The original FBX remains available at the pinned source revision.
+observed speed blends the run toward rest. The forearms retain extra flex and
+the captured torso sway is bounded after retargeting. The clip's vertical root
+variation is cosmetic, and its horizontal root travel does not move the physical
+or visual actor root. The original FBX remains available at the pinned source
+revision.
 
 Confirmed rising and falling samples switch the visual skeleton into distinct
 takeoff, ascent, descent and compressed landing poses. Landing settles over
-0.24 seconds; a confirmed teleport, world change or unready actor discards its
-motion history. Because the shared projection has no floor-contact flag, the
-landing transition is inferred from confirmed height changes and can lag a new
-support height by one sample. This remains a presentation choice, not an actor
+0.24 seconds. Knee and arm poses evolve with observed vertical speed so they
+do not hold one shape through the whole flight. A confirmed teleport, world
+change or unready actor discards its motion history. Because the shared
+projection has no floor-contact flag, landing is inferred from confirmed height
+changes and can lag a new support height by one sample. This remains a
+presentation choice, not an actor
 simulation or proof of exact foot contact. Name labels retain the local-player
 indication; skin colors are not tinted to identify players.
 

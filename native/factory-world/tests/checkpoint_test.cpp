@@ -555,13 +555,14 @@ void inclined_material_route() {
 }
 
 void belt_span_material_route() {
-    for (const bool reverse : {false, true}) {
+    for (const bool rotated : {false, true}) for (const bool reverse : {false, true}) {
         for (const bool reverse_parts : {false, true}) {
             for (const bool gap : {false, true}) {
                 w::Profile profile;
                 profile.material = {1, 1, 2}; profile.initial_units = 3; profile.actors = {"P"};
                 profile.meters_per_grid_unit = 0.1;
-                profile.waterwheel_rate = {reverse ? -1 : 1, 1};
+                const I rate = reverse ? -1 : 1;
+                profile.waterwheel_rate = {rotated ? -rate : rate, 1};
                 profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, 1}, {{s::Role::collector, 0, 0}, 1},
                     {{s::Role::processor, 0, 0}, 1}, {{s::Role::shaft, 0, 2}, 2},
                     {{s::Role::gear, 2, 0}, 2}, {{s::Role::belt, 0, 0}, 1}};
@@ -576,6 +577,12 @@ void belt_span_material_route() {
                     {{"left", g::Kind::shaft, {0, 0, 0}, g::Axis::z, 0, 2}, 1, s::Role::shaft},
                     {{"right", g::Kind::shaft, {8, 0, 0}, g::Axis::z, 0, 2}, 1, s::Role::shaft},
                     {{"processor", g::Kind::hub, {gap ? 16 : 12, 0, 0}, g::Axis::z, 0, 0}, 1, s::Role::processor}};
+                if (rotated) {
+                    for (auto& part : state.topology.parts) {
+                        std::swap(part.geometry.center[0], part.geometry.center[2]);
+                        part.geometry.axis = g::Axis::x;
+                    }
+                }
                 if (reverse_parts) std::reverse(state.topology.parts.begin(), state.topology.parts.end());
                 state.topology.sources = {{"wheel", profile.waterwheel_rate}};
                 state.topology.drive_enabled = true;
@@ -601,7 +608,8 @@ void belt_span_material_route() {
                     for (const auto& [role, x] : std::vector<std::pair<std::string, I>>{{"collector", -4}, {"processor", gap ? 16 : 12}}) {
                         O place{{"context", V("route-world")}, {"client", V("P-old")}, {"request", V("place-" + role)},
                             {"actor", V("P")}, {"action", V("place")}, {"role", V(role)},
-                            {"center", V(V::Array{V(x), V(I{0}), V(I{0})})}, {"axis", V("z")},
+                            {"center", V(V::Array{V(rotated ? I{0} : x), V(I{0}), V(rotated ? x : I{0})})},
+                            {"axis", V(rotated ? "x" : "z")},
                             {"teeth", V(I{0})}, {"half_span", V(I{0})}};
                         accepted(send(*world, place));
                     }
@@ -646,22 +654,24 @@ void belt_span_material_route() {
                 check(material.stock.input == (reverse || gap ? 0 : 1),
                       "Only an adjacent processor in the direction of travel accepts raw material.");
                 if (reverse || gap) {
-                    const m::DropPoint exit{reverse ? -4 : 12, 0, 0};
+                    const I travel = reverse ? -4 : 12;
+                    const m::DropPoint exit{rotated ? 0 : travel, 0, rotated ? travel : 0};
                     check(material.dropped_material.contains(exit) && material.dropped_material.at(exit).raw_units > 0,
                           "An unconnected outgoing end ejects conserved raw cargo at its actual endpoint.");
                 }
                 check(m::validate(material, profile.material, w::material_path(restored->snapshot().state.topology)) == m::Error::none,
                       "A full processor and reversed flow preserve every finite source unit.");
                 if (reverse || gap) {
-                    const I exit_x = reverse ? -4 : 12;
+                    const I travel = reverse ? -4 : 12;
+                    const m::DropPoint exit{rotated ? 0 : travel, 0, rotated ? travel : 0};
                     O pickup{{"context", V("route-world")}, {"client", V("P-old")}, {"request", V("pickup-ejected")},
                         {"actor", V("P")}, {"action", V("pickup_material")},
-                        {"center", V(V::Array{V(exit_x), V(I{0}), V(I{0})})}};
-                    const auto before_pickup = restored->snapshot().state.material.dropped_material.at({exit_x, 0, 0}).raw_units;
+                        {"center", V(V::Array{V(exit[0]), V(exit[1]), V(exit[2])})}};
+                    const auto before_pickup = restored->snapshot().state.material.dropped_material.at(exit).raw_units;
                     pickup.emplace("expected", V(O{{"raw", V(before_pickup)}, {"products", V(I{0})}, {"work_lots", V(V::Array{})}}));
                     accepted(send(*restored, pickup));
                     check(restored->snapshot().state.material.cargo.at("P").raw_units == before_pickup &&
-                              !restored->snapshot().state.material.dropped_material.contains({exit_x, 0, 0}),
+                              !restored->snapshot().state.material.dropped_material.contains(exit),
                           "Ejected blanks move into the actor's canonical custody on pickup.");
                 }
             }
