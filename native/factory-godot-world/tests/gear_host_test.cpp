@@ -2,6 +2,7 @@
 #include "native/factory-godot-world/tests/site_fixture.hpp"
 
 #include <iostream>
+#include <algorithm>
 #include <array>
 #include <stdexcept>
 #include <string>
@@ -469,6 +470,73 @@ void belt_span_host_commands() {
           "The removed span and its immutable wire history remain restorable.");
 }
 
+void complete_span_route_host() {
+    Host host;
+    A axis{V(-128.0), V(-2.8), V(-2.0), V(128.0)}, heights;
+    for (int row = 0; row < 4; ++row) {
+        heights.emplace_back(-1.65); heights.emplace_back(-1.65);
+        heights.emplace_back(-0.02); heights.emplace_back(-0.02);
+    }
+    const O stream{{"axis", V(axis)}, {"heights", V(heights)}, {"obstacles", V(A{})},
+        {"water", V(A{V(A{V(I{-8}), V(I{4}), V(I{-20}), V(I{-400}), V(I{0}), V(I{200})})})}};
+    check(accepted(host.initialize("cog-api", {"P"})) && accepted(host.configure_terrain(stream)),
+          "The complete span route binds an invented channel.");
+    I epoch{};
+    const auto at = [&](double x, double z) { observe(host, x, z, ++epoch); };
+    at(-1.65, 3.3);
+    create(host, machine("wheel", -2, "route-wheel", "x"));
+    at(0, 0);
+    const auto collector = create(host, machine("collector", 0, "route-collector", "z"));
+    at(-3.3, 0);
+    create(host, gear(-12, 4, 4, "route-upper", "x"));
+    create(host, gear(-12, 0, 4, "route-lower", "x"));
+    create(host, gear(-16, 0, 4, "route-input", "x", 4));
+    at(-3.3, -1.65);
+    create(host, gear(-12, 0, 0, "route-output", "z", 4));
+    for (I x : {I{-12}, I{-8}, I{-4}, I{0}, I{4}, I{8}}) {
+        at(static_cast<double>(x) * 1.65 / 4.0, -3.3);
+        const auto id = "route-cog-" + std::to_string(x);
+        create(host, gear(x, 0, -4, id.c_str(), "z"));
+    }
+    at(0, -3.3);
+    create(host, shaft(0, 0, 0, "route-collector-drive"));
+    at(1.65, -3.3);
+    create(host, shaft(4, 0, 0, "route-belt-drive"));
+    at(1.65, 0);
+    const auto first = create(host, shaft(4, 0, 4, "route-first"));
+    at(3.3, 0);
+    const auto last = create(host, shaft(8, 0, 4, "route-last"));
+    at(2.475, 0);
+    auto install = wire("place_belt_span", "route-span");
+    install.emplace("from", V(first)); install.emplace("to", V(last));
+    const auto span = create(host, install);
+    at(4.95, 0);
+    create(host, machine("processor", 3, "route-press", "z"));
+    at(-1.65, 0);
+    auto power = wire("set_power", "route-start"); power.emplace("active", V(true));
+    check(accepted(host.command("P", power)), "The source starts the complete constructed route.");
+    check(field<std::string>(motion(host, collector), "state") == "rotating" &&
+              field<std::string>(motion(host, first), "state") == "rotating",
+          "The actual source powers the collector and belt shafts.");
+    for (int i = 0; i < 9; ++i) (void)host.advance();
+    const auto in_flight_slots = field<A>(field<O>(host.projection(), "belt_spans").at(span), "slots");
+    check(std::any_of(in_flight_slots.begin(), in_flight_slots.end(),
+              [](const V& item) { return item.type() != factory::values::Type::null; }),
+          "The checkpoint is taken with confirmed cargo on the actual belt.");
+    const auto in_flight = host.checkpoint();
+    Host restored;
+    check(accepted(restored.initialize("fresh", {"P"})) &&
+              accepted(restored.configure_terrain(stream)) &&
+              accepted(restored.restore_checkpoint(in_flight)), "An in-flight route restores in a fresh Host.");
+    for (int i = 0; i < 100; ++i) {
+        (void)host.advance(); (void)restored.advance();
+    }
+    check(!factory::values::typed_difference(host.checkpoint(), restored.checkpoint()) &&
+              field<I>(V(field<O>(restored.projection(), "stock")), "input") > 0 &&
+              field<O>(restored.projection(), "belt_spans").contains(span),
+          "The original and restored constructed routes deliver raw material to the processor with identical custody.");
+}
+
 void rotated_belt_host() {
     const std::array<std::array<int, 3>, 6> orders{{
         {{0, 1, 2}}, {{0, 2, 1}}, {{1, 0, 2}},
@@ -781,7 +849,7 @@ int main(int argc, char** argv) {
         }
         if (argc == 1) {
             finite_oriented_train_and_restore(); adjacent_axle_faces(); refusals_and_legacy_shape();
-            global_grid(); finite_large_cog(); perpendicular_belt_line(); belt_spindle_orientation(); belt_span_host_commands(); rotated_belt_host(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
+            global_grid(); finite_large_cog(); perpendicular_belt_line(); belt_spindle_orientation(); belt_span_host_commands(); complete_span_route_host(); rotated_belt_host(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
         } else if (argc != 2 || std::string(argv[1]) != "--placement-alias-only") {
             throw std::runtime_error("Expected no arguments or --placement-alias-only.");
         }
