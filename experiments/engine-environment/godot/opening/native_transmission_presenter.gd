@@ -364,6 +364,36 @@ func _shaft_coupling(shaft: Dictionary, gear: Dictionary, parent: Node3D,
 	else:
 		fitting.free()
 
+func _shaft_splice(first: Dictionary, second: Dictionary, parent: Node3D,
+		first_id: String, second_id: String) -> void:
+	if first.axis != second.axis:
+		return
+	var axis: int = first.axis
+	if second.center[axis] == first.center[axis]:
+		return
+	var direction := 1 if second.center[axis] > first.center[axis] else -1
+	for coordinate in range(3):
+		if coordinate != axis and first.center[coordinate] != second.center[coordinate]:
+			return
+	# A confirmed graph edge is required, but only an exact butt seam can carry
+	# this rigid fitting. Never bridge a gap or cover an overlapping shaft.
+	var seam: int = first.center[axis] + direction * first.half_span
+	if seam != second.center[axis] - direction * second.half_span \
+			or Assets.COUPLING_HALF_LENGTH > minf(first.half_span, second.half_span) * UNIT:
+		return
+	var fitting := Node3D.new()
+	fitting.name = "ConfirmedShaftSplice%d" % parent.get_child_count()
+	fitting.position.y = float(direction * first.half_span) * UNIT
+	fitting.set_meta("shaft_splice", true)
+	fitting.set_meta("first_shaft", first_id)
+	fitting.set_meta("second_shaft", second_id)
+	if Assets.coupling(fitting):
+		# The sourced halves rotate with their first confirmed shaft. This is
+		# presentation only; the native engagement owns connectivity and rate.
+		parent.add_child(fitting)
+	else:
+		fitting.free()
+
 func refresh() -> void:
 	if _host == null or not is_instance_valid(_host.get_ref()):
 		_clear()
@@ -469,6 +499,8 @@ func refresh() -> void:
 					_shaft_coupling(a, b, rendered[edge.a], edge.a, edge.b)
 				elif b.kind == "shaft" and a.kind == "gear":
 					_shaft_coupling(b, a, rendered[edge.b], edge.b, edge.a)
+				elif a.kind == "shaft" and b.kind == "shaft":
+					_shaft_splice(a, b, rendered[edge.a], edge.a, edge.b)
 				continue
 			if a.kind != "gear" or b.kind != "gear":
 				continue
