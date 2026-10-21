@@ -577,6 +577,19 @@ shortcut, not natural network-delay evidence. Runtime verdicts and supported
 display/backend limits belong to the exact retained `6.40` cases; source or parser
 success alone does not certify resizing, DPI, accessibility or actual user play.
 
+**Runtime scenery import is presentation only.** The sourced grass uses a
+self-contained GLB buffer through
+[GLTFDocument](https://docs.godotengine.org/en/stable/classes/class_gltfdocument.html)
+and its mesh resources, without instantiating an asset scene or relying on editor
+import files. The first isolated 4.7.2 check retained geometry and textures but
+found missing mipmaps. The adapter now generates them once and renormalizes normal
+mip levels before caching. The separate focused correction passed; the original
+failure remains in the sourced-foliage evidence. Tuft selection, image dimensions,
+cutout threshold, density and distance culling are reversible art/resource choices.
+The meadow follows existing terrain and avoids existing solids; it adds no
+collision or gameplay authority. Resource/geometry checks establish neither
+rendered quality nor GPU cost. See the [asset record](../../experiments/engine-environment/godot/opening/assets/foliage/CREDITS.md).
+
 ## GDC-12: JSON control files do not preserve RPC Variant types
 
 **Engine/API, documented for 4.7.2; fixture conversions observed.** The pinned

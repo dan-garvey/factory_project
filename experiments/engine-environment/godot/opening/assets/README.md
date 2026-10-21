@@ -220,6 +220,15 @@ shading and normal mipmaps. This is noncolliding scenery; terrain, construction
 pad and actor authority remain unchanged. Historical fixed rosters retain their
 generated fallback. Import checks do not establish rendered production quality.
 
+The same tuft also forms small spatially grouped meadow patches. Each patch
+contains at most 32 instances, with at most 24 patches, sharing the existing
+mesh and material. Roots follow the actual rendered terrain triangles and their
+face normals. Steep faces, the pad, river and expanded static-solid envelopes are
+excluded. The finite 62-metre visibility range is a reversible art/culling choice,
+not a world or construction boundary. Patch bounds enclose the transformed mesh;
+the original sparse foliage and historical fallback remain intact. No density,
+culling or triangle count is a measured GPU-performance or human-quality result.
+
 Complete current captures use the CC0 [Rocky Trail](ground/CREDITS.md) surface
 for the valley ground. Shared albedo, packed scalar and OpenGL normal maps use
 world-space mapping at the source's two-metre scale. Restrained elevation tint

@@ -107,6 +107,7 @@ func finish() -> void:
 		"scope": {"surface-composition": "shared renderer/physical geometry and bed/water composition",
 			"sourced-foliage": "runtime tuft import, cutout material and existing terrain placement",
 			"foliage-mipmaps": "corrected runtime texture mipmap generation and binding",
+			"meadow-patches": "changed terrain-aware grass patch placement and culling envelopes",
 			"ground-material": "scanned ground material, data channels and cache separation",
 			"water-flow": "changed cosmetic water material and ordinary frame consumer",
 			"rock-collision-shape": "visible rock corners versus rigid collision descriptors",
@@ -464,7 +465,77 @@ func check_foliage_mipmaps() -> void:
 	second.free()
 	node.free()
 
+func check_meadow_patches() -> void:
+	var view := FixtureView.new()
+	root.add_child(view)
+	view._build_world()
+	var meadow: Node3D = view.get_node("ProductionScenery/MeadowPatches")
+	inspect_visual(meadow)
+	verify(view.model == null and view.actor_world == null and view.state.is_empty(),
+		"Ordinary meadow assembly creates no authority or simulation state.")
+	verify(meadow.get_child_count() > 0 and meadow.get_child_count() <= 24,
+		"Ordinary scenery has a bounded set of spatially grouped grass patches.")
+	var faces: PackedVector3Array = view.get_node("ProductionScenery/GroundSurface").mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	var solids: Array = Scenery.Surface.support_boxes()
+	var total := 0
+	for patch: MultiMeshInstance3D in meadow.get_children():
+		var instances := patch.multimesh
+		var data := instances.buffer
+		verify(instances.instance_count > 0 and instances.instance_count <= 32 and data.size() == instances.instance_count * 16,
+			"Each patch uploads at most 32 complete transform/color records.")
+		verify(instances.mesh == Scenery.foliage_cluster_mesh and patch.material_override == Scenery.foliage_finish
+			and patch.visibility_range_end == 62.0 and patch.visibility_range_begin == 0.0,
+			"Patches share the published resource cache and declare a bounded cosmetic visibility range.")
+		for instance in range(instances.instance_count):
+			var at := instance * 16
+			var basis := Basis(Vector3(data[at], data[at + 4], data[at + 8]),
+				Vector3(data[at + 1], data[at + 5], data[at + 9]),
+				Vector3(data[at + 2], data[at + 6], data[at + 10]))
+			var local := Vector3(data[at + 3], data[at + 7], data[at + 11])
+			var position := local + patch.global_position
+			var cell: Vector2i = Scenery.Surface.cell(position.x, position.z)
+			var offset: int = (cell.y * Scenery.Surface.SUBDIVISIONS + cell.x) * 6
+			var found := false
+			for triangle in range(2):
+				var a := faces[offset + triangle * 3]
+				var b := faces[offset + triangle * 3 + 1]
+				var c := faces[offset + triangle * 3 + 2]
+				if not Geometry2D.point_is_inside_triangle(Vector2(position.x, position.z), Vector2(a.x, a.z), Vector2(b.x, b.z), Vector2(c.x, c.z)):
+					continue
+				var normal := (c - a).cross(b - a).normalized()
+				var height := a.y - (normal.x * (position.x - a.x) + normal.z * (position.z - a.z)) / normal.y
+				verify(absf(position.y - height) < 0.0001 and basis.y.normalized().dot(normal) > 0.99999 and normal.y >= 0.82,
+					"Each uploaded root lies on an actual emitted triangle, aligned to its nonsteep face.")
+				found = true
+				break
+			verify(found and position.is_finite() and basis.is_finite() and basis.determinant() > 0.5,
+				"The actual patch transform has finite positive scale on the visible terrain.")
+			verify((absf(position.x - 1.65) > 7.7 or absf(position.z - 1.65) > 7.7)
+				and absf(position.x - Scenery.river_center_x(position.z)) > Scenery.channel_half_width(position.z) + 0.8,
+				"Uploaded meadow roots remain clear of the construction pad and river.")
+			for solid in solids:
+				var point: Vector3 = solid.basis.transposed() * (position - solid.center)
+				verify(absf(point.x) > solid.size.x * 0.5 + 0.9 or absf(point.y) > solid.size.y * 0.5 + 0.9
+					or absf(point.z) > solid.size.z * 0.5 + 0.9, "Grass retains a conservative whole-clump separation from every static solid.")
+			var bounds := instances.custom_aabb.grow(0.0001)
+			var mesh_bounds := instances.mesh.get_aabb()
+			for x in [mesh_bounds.position.x, mesh_bounds.end.x]:
+				for y in [mesh_bounds.position.y, mesh_bounds.end.y]:
+					for z in [mesh_bounds.position.z, mesh_bounds.end.z]:
+						verify(bounds.has_point(basis * Vector3(x, y, z) + local),
+							"The actual culling box encloses all transformed mesh bounds corners.")
+			total += 1
+	verify(total >= 384 and total <= 768, "The bounded composition adds a substantial patch population without exceeding its declared maximum.")
+	print(JSON.stringify({"patches": meadow.get_child_count(), "new_tufts": total,
+		"new_triangles_before_culling": total * 1257, "existing_tufts": 96,
+		"limits": "Resource and placement evidence, not rendered quality or measured performance."}))
+	view.free()
+
 func run() -> void:
+	if mode == "meadow-patches":
+		check_meadow_patches()
+		finish()
+		return
 	if mode == "foliage-mipmaps":
 		check_foliage_mipmaps()
 		finish()

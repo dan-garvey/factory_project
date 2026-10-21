@@ -750,6 +750,86 @@ class ProductionEnvironment:
 		foliage.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED if foliage_source_status == "ready" else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		return foliage
 
+	static func _terrain_facet_normal(x: float, z: float) -> Vector3:
+		var cell: Vector2i = Surface.cell(x, z)
+		var a: Vector3 = Surface.vertex(cell.x, cell.y)
+		var b: Vector3 = Surface.vertex(cell.x + 1, cell.y)
+		var c: Vector3 = Surface.vertex(cell.x + 1, cell.y + 1)
+		var d: Vector3 = Surface.vertex(cell.x, cell.y + 1)
+		var tx := (x - a.x) / (b.x - a.x)
+		var tz := (z - a.z) / (d.z - a.z)
+		return (c - a).cross(b - a).normalized() if tz <= tx else (d - a).cross(c - a).normalized()
+
+	static func _clear_meadow_root(position: Vector3, solids: Array) -> bool:
+		# Reject an expanded whole-clump envelope, not just a point hidden
+		# inside an existing rock. Small plants remain noncolliding decoration.
+		if absf(position.x - 1.65) <= 7.7 and absf(position.z - 1.65) <= 7.7:
+			return false
+		if absf(position.x - river_center_x(position.z)) <= channel_half_width(position.z) + 0.8:
+			return false
+		for spec in solids:
+			var local: Vector3 = spec.basis.transposed() * (position - spec.center)
+			var half: Vector3 = spec.size * 0.5 + Vector3.ONE * 0.9
+			if absf(local.x) <= half.x and absf(local.y) <= half.y and absf(local.z) <= half.z:
+				return false
+		return true
+
+	static func _meadow_patches() -> Node3D:
+		var meadow := Node3D.new()
+		meadow.name = "MeadowPatches"
+		if foliage_source_status != "ready":
+			return meadow
+		var solids: Array = Surface.support_boxes()
+		var random := RandomNumberGenerator.new()
+		random.seed = 718093
+		for patch_index in range(24):
+			var heading := float(patch_index) * 2.399963
+			var radius := 9.8 + float(posmod(patch_index * 11, 31)) * 0.61
+			var center := Vector3(1.65 + cos(heading) * radius, 0.0, 1.65 + sin(heading) * radius)
+			center.y = Surface.height_at(center.x, center.z)
+			var buffer := PackedFloat32Array()
+			var bounds := AABB()
+			var count := 0
+			for candidate in range(32):
+				var angle := random.randf_range(0.0, TAU)
+				var spread := sqrt(random.randf()) * 2.2
+				var root_position := center + Vector3(cos(angle) * spread, 0.0, sin(angle) * spread)
+				root_position.y = Surface.height_at(root_position.x, root_position.z)
+				var up := _terrain_facet_normal(root_position.x, root_position.z)
+				if up.y < 0.82 or not _clear_meadow_root(root_position, solids):
+					continue
+				var right := Vector3(up.y, -up.x, 0.0).normalized()
+				var basis := Basis(right, up, right.cross(up)) * Basis(Vector3.UP, random.randf_range(0.0, TAU))
+				basis = basis.scaled_local(Vector3.ONE * random.randf_range(0.8, 1.55))
+				var local := root_position - center
+				var tint := Color.WHITE.lerp(Color("e3e5cf"), random.randf_range(0.0, 0.8))
+				buffer.append_array(PackedFloat32Array([
+					basis.x.x, basis.y.x, basis.z.x, local.x,
+					basis.x.y, basis.y.y, basis.z.y, local.y,
+					basis.x.z, basis.y.z, basis.z.z, local.z,
+					tint.r, tint.g, tint.b, tint.a]))
+				var envelope: AABB = Transform3D(basis, local) * foliage_cluster_mesh.get_aabb()
+				bounds = envelope if count == 0 else bounds.merge(envelope)
+				count += 1
+			if count == 0:
+				continue
+			var instances := MultiMesh.new()
+			instances.transform_format = MultiMesh.TRANSFORM_3D
+			instances.use_colors = true
+			instances.mesh = foliage_cluster_mesh
+			instances.instance_count = count
+			instances.buffer = buffer
+			instances.custom_aabb = bounds
+			var patch := MultiMeshInstance3D.new()
+			patch.name = "GrassPatch%02d" % patch_index
+			patch.position = center
+			patch.multimesh = instances
+			patch.material_override = foliage_finish
+			patch.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED
+			patch.visibility_range_end = 62.0
+			meadow.add_child(patch)
+		return meadow
+
 	static func _rock_outcrops() -> MultiMeshInstance3D:
 		if rock_boulder_mesh == null:
 			rock_boulder_mesh = ProductionVisuals.box_mesh(Vector3(1.35, 0.88, 1.12))
@@ -839,6 +919,7 @@ class ProductionEnvironment:
 		_build_millrace_architecture(scenery)
 		scenery.add_child(_rock_outcrops())
 		scenery.add_child(_foliage())
+		scenery.add_child(_meadow_patches())
 		return scenery
 
 class FlatFixtureEnvironment:
