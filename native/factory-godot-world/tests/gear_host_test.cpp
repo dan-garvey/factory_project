@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace {
 using V = factory::values::Value;
@@ -524,7 +525,7 @@ void long_selected_belt_host() {
     span.at("request") = V("long-span-valid");
     const auto id = create(host, span);
     check(field<O>(host.projection(), "belt_spans").contains(id) &&
-              field<I>(V(field<O>(host.projection(), "parts")), "belt") == 0,
+              field<I>(V(field<O>(host.projection(), "parts")), "belt") == 1,
           "The full twenty-tile belt is built from the actor's second endpoint and consumes its belt.");
     auto reused = span; reused.at("request") = V("long-span-reuse");
     const auto repeat = host.command("P", reused);
@@ -543,7 +544,7 @@ void long_selected_belt_host() {
     observe(restored, 15.675, -1.65, 2);
     check(accepted(restored.command("P", target("remove_belt_span", id, "long-remove"))) &&
               field<O>(restored.projection(), "belt_spans").empty() &&
-              field<I>(V(field<O>(restored.projection(), "parts")), "belt") == 1 &&
+              field<I>(V(field<O>(restored.projection(), "parts")), "belt") == 2 &&
               accepted(restored.validate_checkpoint(restored.checkpoint())),
           "An empty long belt can be reclaimed from a reachable middle tile after restoration.");
 }
@@ -569,7 +570,7 @@ void belt_span_host_commands() {
     const auto projected = field<O>(host.projection(), "belt_spans");
     check(projected.contains(id) && field<std::string>(projected.at(id), "from") == left &&
               field<std::string>(projected.at(id), "to") == right &&
-              field<I>(V(field<O>(host.projection(), "parts")), "belt") == 0,
+              field<I>(V(field<O>(host.projection(), "parts")), "belt") == 1,
           "The projection identifies the actual endpoints and consumed finite belt.");
     const auto before_pulley = world_state(host);
     const auto wrong_pulley = host.command("P", shaft(4, 0, 0, "span-wrong-pulley", "x"));
@@ -676,7 +677,7 @@ void belt_span_host_commands() {
     observe(restored, 1.65, -1.65, 1);
     const auto removed = restored.command("P", target("remove_belt_span", id, "span-remove"));
     check(accepted(removed) && field<O>(restored.projection(), "belt_spans").empty() &&
-              field<I>(V(field<O>(restored.projection(), "parts")), "belt") == 1,
+              field<I>(V(field<O>(restored.projection(), "parts")), "belt") == 2,
           "The Host removes the span and refunds its one belt.");
     check(accepted(restored.validate_checkpoint(restored.checkpoint())),
           "The removed span and its immutable wire history remain restorable.");
@@ -743,7 +744,7 @@ void nonhorizontal_span_host() {
     }
 }
 
-void complete_span_route_host() {
+void complete_span_route_host(bool two_spans = false) {
     Host host;
     A axis{V(-128.0), V(-2.8), V(-2.0), V(128.0)}, heights;
     for (int row = 0; row < 4; ++row) {
@@ -771,18 +772,21 @@ void complete_span_route_host() {
     create(host, gear(-4, 4, 0, "route-input", "x", 4));
     at(-3.3, -1.65);
     create(host, gear(0, 4, -4, "route-output", "z", 4));
-    for (I x : {I{0}, I{4}}) {
+    const auto front_cogs = two_spans ? std::vector<I>{0, 4, 12} : std::vector<I>{0, 4};
+    for (I x : front_cogs) {
         at(static_cast<double>(x) * 1.65 / 4.0, -3.3);
         const auto id = "route-cog-" + std::to_string(x);
         create(host, gear(x, 4, 0, id.c_str(), "z"));
     }
-    for (I x : {I{4}, I{8}, I{12}}) {
+    const auto rear_cogs = two_spans ? std::vector<I>{4, 8, 12, 16, 20} : std::vector<I>{4, 8, 12};
+    for (I x : rear_cogs) {
         at(static_cast<double>(x) * 1.65 / 4.0, -3.3);
         const auto id = "route-rear-cog-" + std::to_string(x);
         create(host, gear(x, 4, -4, id.c_str(), "z"));
     }
-    at(4.95, -3.3);
-    create(host, shaft(12, 4, 0, "route-press-drive"));
+    const I press_x = two_spans ? 20 : 12;
+    at(press_x * 1.65 / 4, -3.3);
+    create(host, shaft(press_x, 4, 0, "route-press-drive"));
     at(1.65, 0);
     const auto first = create(host, shaft(4, 4, 4, "route-first"));
     at(3.3, 0);
@@ -791,11 +795,22 @@ void complete_span_route_host() {
     auto install = wire("place_belt_span", "route-span");
     install.emplace("from", V(first)); install.emplace("to", V(last));
     const auto span = create(host, install);
-    at(4.95, 0);
+    std::string second_span;
+    if (two_spans) {
+        at(4.95, 0);
+        const auto next_first = create(host, shaft(12, 4, 4, "route-second-first"));
+        at(6.6, 0);
+        const auto next_last = create(host, shaft(16, 4, 4, "route-second-last"));
+        at(5.775, 0);
+        auto second = wire("place_belt_span", "route-second-span");
+        second.emplace("from", V(next_first)); second.emplace("to", V(next_last));
+        second_span = create(host, second);
+    }
+    at(press_x * 1.65 / 4, 0);
     auto press_base = wire("place_foundation", "raised-press-base");
-    press_base.emplace("cell", V(A{V(I{3}), V(I{1})})); press_base.emplace("level", V(I{4}));
+    press_base.emplace("cell", V(A{V(press_x / 4), V(I{1})})); press_base.emplace("level", V(I{4}));
     create(host, press_base);
-    auto press_command = machine("processor", 3, "route-press", "z");
+    auto press_command = machine("processor", press_x / 4, "route-press", "z");
     press_command.emplace("level", V(I{4}));
     const auto press = create(host, press_command);
     at(-1.65, 0);
@@ -808,11 +823,14 @@ void complete_span_route_host() {
           "The actual source powers collector, forward belt shafts and processor; collector=" + field<std::string>(motion(host, collector), "state") +
           ", shaft=" + field<std::string>(motion(host, first), "state") + ", press=" + field<std::string>(motion(host, press), "state") +
           ", shaft rate=" + std::to_string(field<I>(motion(host, first), "numerator")) + ".");
-    for (int i = 0; i < 9; ++i) (void)host.advance();
-    const auto in_flight_slots = field<A>(field<O>(host.projection(), "belt_spans").at(span), "slots");
-    check(std::any_of(in_flight_slots.begin(), in_flight_slots.end(),
-              [](const V& item) { return item.type() != factory::values::Type::null; }),
-          "The checkpoint is taken with confirmed cargo on the actual belt.");
+    bool saw_cargo = false;
+    for (int i = 0; i < 80 && !saw_cargo; ++i) {
+        (void)host.advance();
+        const auto slots = field<A>(field<O>(host.projection(), "belt_spans").at(two_spans ? second_span : span), "slots");
+        saw_cargo = std::any_of(slots.begin(), slots.end(),
+              [](const V& item) { return item.type() != factory::values::Type::null; });
+    }
+    check(saw_cargo, "The checkpoint is taken with cargo on the downstream constructed belt.");
     const auto in_flight = host.checkpoint();
     Host restored;
     check(accepted(restored.initialize("fresh", {"P"})) &&
@@ -823,9 +841,10 @@ void complete_span_route_host() {
     }
     check(!factory::values::typed_difference(host.checkpoint(), restored.checkpoint()) &&
               field<I>(V(field<O>(restored.projection(), "stock")), "output") > 0 &&
-              field<O>(restored.projection(), "belt_spans").contains(span),
+              field<O>(restored.projection(), "belt_spans").contains(span) &&
+              (!two_spans || field<O>(restored.projection(), "belt_spans").contains(second_span)),
           "The original and restored constructed routes process transported material with identical custody.");
-    at(4.95, 0);
+    at(press_x * 1.65 / 4, 0);
     auto retrieve = target("retrieve", press, "route-retrieve"); retrieve.emplace("amount", V(I{1}));
     check(accepted(host.command("P", retrieve)) && field<I>(field<O>(host.projection(), "cargo").at("P"), "products") == 1,
           "The constructed route yields a finished product in the actor's custody.");
@@ -1399,7 +1418,7 @@ int main(int argc, char** argv) {
         }
         if (argc == 1) {
             finite_oriented_train_and_restore(); adjacent_axle_faces(); refusals_and_legacy_shape(); cog_axle_actor_clearance(); cog_at_belt_face(); transmission_site_clearance(); transmission_terrain_clearance(); transmission_foundation_clearance(); one_tile_placement();
-            transmission_tile_center(); global_grid(); finite_large_cog(); perpendicular_belt_line(); belt_spindle_orientation(); typed_loose_host(); select_belt_shaft_host(); long_selected_belt_host(); belt_span_host_commands(); nonhorizontal_span_host(); complete_span_route_host(); rotated_belt_host(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
+            transmission_tile_center(); global_grid(); finite_large_cog(); perpendicular_belt_line(); belt_spindle_orientation(); typed_loose_host(); select_belt_shaft_host(); long_selected_belt_host(); belt_span_host_commands(); nonhorizontal_span_host(); complete_span_route_host(); complete_span_route_host(true); rotated_belt_host(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
         } else if (argc != 2 || std::string(argv[1]) != "--placement-alias-only") {
             throw std::runtime_error("Expected no arguments or --placement-alias-only.");
         }

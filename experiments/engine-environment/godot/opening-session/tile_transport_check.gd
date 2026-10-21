@@ -219,10 +219,10 @@ func run_span() -> void:
 		if not await until(func(): return FileAccess.file_exists(directory.path_join(prefix + "clients-done")), "Both span clients finish"): quit(1); return
 		var state: Dictionary = session.world.projection()
 		if resumed:
-			verify(state.belt_spans.is_empty() and state.part_kits.P.belt == 1, "The restored belt is removed and refunded once")
+			verify(state.belt_spans.is_empty() and state.part_kits.P.belt == 2, "The restored belt is removed and refunded once")
 			verify(FileAccess.get_sha256(save_path) == saved_hash, "Continuation leaves the saved bytes unchanged")
 		else:
-			verify(state.belt_spans.size() == 1 and state.part_kits.P.belt == 0, "The authority owns the constructed belt")
+			verify(state.belt_spans.size() == 1 and state.part_kits.P.belt == 1, "The authority owns the constructed belt")
 			verify(Store.write(session.world, save_path).get("accepted", false), "The Store writes the constructed span")
 		if failed: quit(1); return
 		mark(prefix + "server-done")
@@ -235,7 +235,7 @@ func run_span() -> void:
 			if not await until(func(): return FileAccess.file_exists(directory.path_join(prefix + "Q-ready")), "Q joins before the span request"): quit(1); return
 			if resumed:
 				var restored: Dictionary = session.projection()
-				verify(restored.belt_spans.size() == 1 and restored.part_kits.P.belt == 0, "P receives the exact saved belt custody")
+				verify(restored.belt_spans.size() == 1 and restored.part_kits.P.belt == 1, "P receives the exact saved belt custody")
 				if failed: quit(1); return
 				var id: String = str(restored.belt_spans.keys()[0])
 				if powered_span:
@@ -277,7 +277,7 @@ func run_span() -> void:
 			if not await until(func(): return FileAccess.file_exists(directory.path_join(prefix + "P-done")), "P completes the span request"): quit(1); return
 			if not await until(func(): return session.projection().get("belt_spans", {}).size() == (0 if resumed else 1), "Q receives the confirmed belt change"): quit(1); return
 			var view: Dictionary = session.projection()
-			verify(view.transmission_parts.size() == 2 and view.part_kits.P.shaft == 6 and view.part_kits.P.belt == (1 if resumed else 0), "Q sees both shafts and the correct belt custody")
+			verify(view.transmission_parts.size() == 2 and view.part_kits.P.shaft == 6 and view.part_kits.P.belt == (2 if resumed else 1), "Q sees both shafts and the correct belt custody")
 			if not resumed:
 				var span: Dictionary = view.belt_spans.values()[0]
 				verify(view.transmission_parts.has(span.from) and view.transmission_parts.has(span.to), "Q sees both actual belt endpoint identities")

@@ -346,6 +346,81 @@ void belt_span_checkpoint() {
           "Reversing the shaft reverses lane travel.");
 }
 
+void adjacent_belt_handoff() {
+    for (const bool reversed : {false, true}) for (const bool reverse_order : {false, true})
+    for (const bool toward_negative : {false, true}) {
+        for (int kind = 0; kind < 3; ++kind) {
+            w::Profile profile;
+            profile.material = {1, 1, 2}; profile.initial_units = 1; profile.actors = {"P"};
+            profile.meters_per_grid_unit = 0.1; profile.waterwheel_rate = {toward_negative ? 1 : -1, 1};
+            profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, 2},
+                {{s::Role::shaft, 0, 2}, 4}, {{s::Role::belt, 0, 0}, 2}};
+            w::State state;
+            state.material.initial_units = 1; state.material.cargo = {{"P", {}}}; state.kits = {{"P", {}}};
+            const m::Cargo cargo = kind == 0 ? m::Cargo{1, 0, {}} : kind == 1 ? m::Cargo{0, 1, {}} :
+                m::Cargo{0, 0, {{1, {1, 2}, 1, 123}}};
+            if (kind == 2) state.material.next_work_id = 2;
+            state.topology.parts = {
+                {{"wheel-a", g::Kind::hub, {0, 0, -4}, g::Axis::z, 0, 0}, 1, s::Role::waterwheel},
+                {{"a0", g::Kind::shaft, {0, 0, 0}, g::Axis::z, 0, 2}, 1, s::Role::shaft},
+                {{"a1", g::Kind::shaft, {4, 0, 0}, g::Axis::z, 0, 2}, 1, s::Role::shaft},
+                {{"wheel-b", g::Kind::hub, {8, 0, -4}, g::Axis::z, 0, 0}, 1, s::Role::waterwheel},
+                {{"b0", g::Kind::shaft, {8, 0, 0}, g::Axis::z, 0, 2}, 1, s::Role::shaft},
+                {{"b1", g::Kind::shaft, {12, 0, 0}, g::Axis::z, 0, 2}, 1, s::Role::shaft}};
+            if (toward_negative) for (auto& part : state.topology.parts) part.geometry.center[0] *= -1;
+            state.topology.sources = {{"wheel-a", profile.waterwheel_rate}, {"wheel-b", profile.waterwheel_rate}};
+            state.topology.drive_enabled = true;
+            state.topology.belt_spans = {{{"span-a", reversed ? "a1" : "a0", reversed ? "a0" : "a1"}, 1},
+                                         {{"span-b", reversed ? "b1" : "b0", reversed ? "b0" : "b1"}, 1}};
+            if (reverse_order) std::reverse(state.topology.belt_spans.begin(), state.topology.belt_spans.end());
+            state.material.belt_lanes.emplace("span-a", m::BeltLane{{std::nullopt, std::nullopt}, 0});
+            state.material.belt_lanes.emplace("span-b", m::BeltLane{{std::nullopt, std::nullopt}, 0});
+            state.material.belt_lanes.at("span-a").slots[reversed ? 0 : 1] = cargo;
+            for (const auto& part : state.topology.parts) state.issued_entities.emplace(part.geometry.id, 1);
+            state.issued_entities.emplace("span-a", 1); state.issued_entities.emplace("span-b", 1);
+            const m::DropPoint handoff{toward_negative ? -8 : 8, 0, 0};
+            const m::DropPoint exit{toward_negative ? -16 : 16, 0, 0};
+            auto world = w::World::create("handoff", profile, state);
+            check(world != nullptr, "Adjacent powered belts admit conserved typed cargo.");
+            check(world->tick().error == w::TransactionError::none &&
+                  world->snapshot().state.material.dropped_material.at(handoff) == cargo,
+                  "The first belt deposits its exact cargo on the next belt tile.");
+            if (kind == 0 && !reversed && !reverse_order && !toward_negative) {
+                auto stopped_state = world->snapshot().state;
+                stopped_state.topology.drive_enabled = false;
+                auto stopped = w::World::create("stopped-handoff", profile, stopped_state);
+                check(stopped && stopped->tick().error == w::TransactionError::none &&
+                          stopped->snapshot().state.material == stopped_state.material,
+                      "A stopped receiving belt does not collect loose cargo.");
+                auto blocked_profile = profile; blocked_profile.initial_units = 2;
+                auto blocked_state = world->snapshot().state;
+                blocked_state.material.initial_units = 2;
+                blocked_state.material.belt_lanes.at("span-b").slots[0] = m::Cargo{1, 0, {}};
+                auto blocked = w::World::create("blocked-handoff", blocked_profile, blocked_state);
+                check(blocked && blocked->tick().error == w::TransactionError::none &&
+                          blocked->snapshot().state.material.dropped_material.at(handoff) == cargo,
+                      "An occupied receiving tile leaves the loose item in place.");
+                check(blocked->tick().error == w::TransactionError::none &&
+                          !blocked->snapshot().state.material.dropped_material.contains(handoff),
+                      "The loose item is collected once the receiving tile becomes free.");
+            }
+            const auto encoded = w::encode_checkpoint(profile, world->snapshot());
+            check(std::holds_alternative<V>(encoded), "The in-flight handoff encodes.");
+            const auto decoded = w::decode_checkpoint(profile, "handoff", std::get<V>(encoded));
+            check(std::holds_alternative<w::Snapshot>(decoded), "The in-flight handoff decodes.");
+            auto loaded = w::World::restore("handoff", profile, std::get<w::Snapshot>(decoded));
+            check(loaded && loaded->tick().error == w::TransactionError::none && world->tick().error == w::TransactionError::none &&
+                  loaded->snapshot().state.material == world->snapshot().state.material &&
+                  !world->snapshot().state.material.dropped_material.contains(handoff) &&
+                  world->snapshot().state.material.belt_lanes.at("span-b").slots[reversed ? 0 : 1] == cargo,
+                  "Both original and restored worlds capture and carry the exact item on the second belt.");
+            check(world->tick().error == w::TransactionError::none &&
+                  world->snapshot().state.material.dropped_material.at(exit) == cargo,
+                  "The downstream open end retains the same raw, product or partial-work item.");
+        }
+    }
+}
+
 void inclined_material_route() {
     for (const bool reverse_endpoints : {false, true}) {
         w::Profile profile;
@@ -730,7 +805,7 @@ int main() {
         schema_and_authority_mutations();
         bounds_and_large_integers();
         belt_span_checkpoint();
-        belt_span_material_route(); inclined_material_route();
+        belt_span_material_route(); adjacent_belt_handoff(); inclined_material_route();
         belt_span_commands();
         std::cout << "{\"status\":\"pass\",\"evidence\":\"invented_native_checkpoint\",\"checks\":" << checks << "}\n";
         return 0;

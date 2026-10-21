@@ -1269,6 +1269,37 @@ Advance World::tick() noexcept {
         if (error != materials::Error::none) throw error;
         const auto motion = stationary::power_view(candidate.topology).mechanical;
         if (!motion.accepted()) throw materials::Error::invalid_path;
+        // Capture loose items before any lane moves. This gives a deterministic
+        // one-tick handoff between adjacent belts regardless of span ordering.
+        for (const auto& span : candidate.topology.belt_spans) {
+            const auto* first = part(candidate.topology, span.geometry.first_shaft);
+            const auto* last = part(candidate.topology, span.geometry.last_shaft);
+            const auto rate = motion.motion.find(span.geometry.first_shaft);
+            auto lane = candidate.material.belt_lanes.find(span.geometry.id);
+            if (!first || !last || rate == motion.motion.end() || lane == candidate.material.belt_lanes.end())
+                throw materials::Error::invalid_state;
+            const auto path = mechanics::belt_path(first->geometry, last->geometry);
+            if (!path || path->tiles.size() != lane->second.slots.size()) throw materials::Error::invalid_state;
+            if (rate->second.state != mechanics::MotionState::rotating ||
+                path->kind == mechanics::BeltPathKind::vertical || path->kind == mechanics::BeltPathKind::sideways)
+                continue;
+            for (std::size_t i = 0; i < path->tiles.size(); ++i) {
+                if (lane->second.slots[i]) continue;
+                auto loose = candidate.material.dropped_material.find(path->tiles[i]);
+                if (loose == candidate.material.dropped_material.end()) continue;
+                auto& cargo = loose->second;
+                materials::Cargo item;
+                if (cargo.raw_units > 0) { item.raw_units = 1; --cargo.raw_units; }
+                else if (cargo.products > 0) { item.products = 1; --cargo.products; }
+                else if (!cargo.work_lots.empty()) {
+                    item.work_lots.push_back(cargo.work_lots.front());
+                    cargo.work_lots.erase(cargo.work_lots.begin());
+                } else throw materials::Error::invalid_state;
+                lane->second.slots[i] = std::move(item);
+                if (cargo.raw_units == 0 && cargo.products == 0 && cargo.work_lots.empty())
+                    candidate.material.dropped_material.erase(loose);
+            }
+        }
         bool collector_fed_span = false;
         for (const auto& span : candidate.topology.belt_spans) {
             const auto* first = part(candidate.topology, span.geometry.first_shaft);

@@ -83,7 +83,7 @@ void every_build_order() {
         exact_links(host, ids[0], ids[1], ids[2]);
         check(field<I>(host.projection(), "order") == 3, "Three placements need exactly three material requests.");
         const auto parts = child(host.projection(), "parts");
-        check(field<I>(parts, "collector") == 0 && field<I>(parts, "belt") == 0 &&
+        check(field<I>(parts, "collector") == 0 && field<I>(parts, "belt") == 1 &&
               field<I>(parts, "processor") == 0 && field<I>(parts, "shaft") == 8,
               "The three placements consume their original kit and no shafts.");
         check(accepted(host.validate_checkpoint(host.checkpoint())), "Every construction order produces a valid typed checkpoint.");
@@ -194,7 +194,7 @@ void checkpoint_and_removed_identity() {
     auto removal = request("remove", "remove-belt");
     removal.emplace("entity", V(belt));
     check(accepted(host.command("P", removal)), "An empty attached belt can be removed without a separate disconnect.");
-    check(field<A>(host.projection(), "links").empty() && field<I>(child(host.projection(), "parts"), "belt") == 1,
+    check(field<A>(host.projection(), "links").empty() && field<I>(child(host.projection(), "parts"), "belt") == 2,
           "Removal atomically removes both old links and refunds exactly one belt.");
     saved = host.checkpoint();
     Host fresh;

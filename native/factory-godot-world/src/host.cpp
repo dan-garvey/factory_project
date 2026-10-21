@@ -443,7 +443,7 @@ Value Host::initialize(const std::string& context, const std::vector<std::string
     profile.anchor_offset = {0, anchor_height, 0};
     profile.build_reach = reach;
     profile.foundation_parts = 24;
-    profile.finite_parts = {{{Role::collector, 0, 0}, 1}, {{Role::belt, 0, 0}, 1},
+    profile.finite_parts = {{{Role::collector, 0, 0}, 1}, {{Role::belt, 0, 0}, 2},
         {{Role::processor, 0, 0}, 1}, {{Role::waterwheel, 0, 0}, 1}, {{Role::shaft, 0, 2}, 8},
         {{Role::gear, 2, 0}, 8}, {{Role::gear, 4, 0}, 2}};
     world::State seed;
