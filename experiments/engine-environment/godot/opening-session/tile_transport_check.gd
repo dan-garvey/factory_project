@@ -37,6 +37,10 @@ func verify(ok: bool, message: String) -> void:
 		failed = true
 		push_error(message)
 
+func finish_role() -> void:
+	print("TILE_SESSION_%s %s %d" % ["FAIL" if failed else "PASS", role, checks])
+	quit(1 if failed else 0)
+
 func mark(name: String) -> void:
 	var file := FileAccess.open(directory.path_join(name), FileAccess.WRITE)
 	verify(file != null, "Open test marker " + name)
@@ -213,8 +217,7 @@ func run() -> void:
 			verify(FileAccess.get_sha256(save_path) == input_hash, "Continued work does not modify the original save")
 			if failed: quit(1); return
 			mark("resume-server-done")
-			print("TILE_SESSION_PASS %s %d" % [role, checks])
-			quit(0)
+			finish_role()
 			return
 		mark("server-ready")
 		if not await until(func(): return FileAccess.file_exists(directory.path_join("clients-done")), "Both clients must finish"): quit(1); return
@@ -257,8 +260,7 @@ func run() -> void:
 				if failed: quit(1); return
 				mark("resume-clients-done")
 				if not await until(func(): return FileAccess.file_exists(directory.path_join("resume-server-done")), "The resumed authority verifies continuation"): quit(1); return
-			print("TILE_SESSION_PASS %s %d" % [role, checks])
-			quit(0)
+			finish_role()
 			return
 		if role == "P":
 			if not await until(func(): return FileAccess.file_exists(directory.path_join("Q-ready")), "Q joins before construction"): quit(1); return
@@ -299,5 +301,4 @@ func run() -> void:
 			if failed: quit(1); return
 			mark("clients-done")
 			if not await until(func(): return FileAccess.file_exists(directory.path_join("server-done")), "Server verifies fresh-Host restore"): quit(1); return
-	print("TILE_SESSION_%s %s %d" % ["FAIL" if failed else "PASS", role, checks])
-	quit(1 if failed else 0)
+	finish_role()
