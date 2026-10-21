@@ -479,7 +479,7 @@ func check_belt_water_native(forward: bool) -> void:
 func check_flow_sections() -> void:
 	var sections := [
 		{"name": "starting reach", "cell": [-2, 0], "level": 3, "tiles": 3},
-		{"name": "broad deep reach", "cell": [-2, 13], "level": 7, "tiles": 6},
+		{"name": "broad deep reach", "cell": [-1, 13], "level": 7, "tiles": 6},
 		{"name": "downstream constriction", "cell": [4, 23], "level": 1, "tiles": 3},
 	]
 	var tangential: Array[float] = []
@@ -489,6 +489,15 @@ func check_flow_sections() -> void:
 			return
 		var x: float = float(section.cell[0]) * Geometry.PITCH
 		var z: float = float(section.cell[1]) * Geometry.PITCH
+		if section.tiles > 3:
+			for sample in range(41):
+				var span_z: float = z + (float(sample) / 40.0 * 2.0 - 1.0) * float(section.tiles) * Geometry.PITCH * 0.5
+				var river_x: float = Surface.river_center_x(span_z)
+				var west: float = river_x - Surface.wet_half_width(span_z, -1.0)
+				var east: float = river_x + Surface.wet_half_width(span_z, 1.0)
+				if not expect(x - Geometry.PITCH * 0.5 > west and x + Geometry.PITCH * 0.5 < east,
+					"The larger wheel's complete one-tile-wide span stays in the wet channel at " + section.name):
+					return
 		if not expect(model.publish_actor("P", [x + 1.5, float(section.level) * Geometry.HEIGHT_STEP + Geometry.ANCHOR_HEIGHT, z], 1).get("accepted", false), "Reach " + section.name):
 			return
 		var wheel: Dictionary = model.command({"context": "flow-section-" + section.name, "client": "P", "request": "wheel", "action": "place", "kind": "wheel", "cell": section.cell, "level": section.level, "tiles": section.tiles, "axis": "x"})
