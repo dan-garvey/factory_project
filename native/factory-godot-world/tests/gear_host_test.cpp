@@ -478,22 +478,24 @@ void complete_span_route_host() {
         heights.emplace_back(-0.02); heights.emplace_back(-0.02);
     }
     const O stream{{"axis", V(axis)}, {"heights", V(heights)}, {"obstacles", V(A{})},
-        {"water", V(A{V(A{V(I{-8}), V(I{4}), V(I{-20}), V(I{-400}), V(I{0}), V(I{200})})})}};
+        {"water", V(A{V(A{V(I{-8}), V(I{0}), V(I{-20}), V(I{-400}), V(I{0}), V(I{200})})})}};
     check(accepted(host.initialize("cog-api", {"P"})) && accepted(host.configure_terrain(stream)),
           "The complete span route binds an invented channel.");
     I epoch{};
     const auto at = [&](double x, double z) { observe(host, x, z, ++epoch); };
     at(-1.65, 3.3);
-    create(host, machine("wheel", -2, "route-wheel", "x"));
+    auto wheel = machine("wheel", -2, "route-wheel", "x");
+    wheel.at("cell") = V(A{V(I{-2}), V(I{0})});
+    create(host, wheel);
     at(0, 0);
     const auto collector = create(host, machine("collector", 0, "route-collector", "z"));
     at(-3.3, 0);
-    create(host, gear(-12, 4, 4, "route-upper", "x"));
-    create(host, gear(-12, 0, 4, "route-lower", "x"));
-    create(host, gear(-16, 0, 4, "route-input", "x", 4));
+    create(host, gear(-12, 4, 0, "route-upper", "x"));
+    create(host, gear(-12, 0, 0, "route-lower", "x"));
+    create(host, gear(-16, 0, 0, "route-input", "x", 4));
     at(-3.3, -1.65);
-    create(host, gear(-12, 0, 0, "route-output", "z", 4));
-    for (I x : {I{-12}, I{-8}, I{-4}, I{0}, I{4}, I{8}}) {
+    create(host, gear(-12, 0, -4, "route-output", "z", 4));
+    for (I x : {I{-8}, I{-4}, I{0}, I{4}, I{8}, I{12}}) {
         at(static_cast<double>(x) * 1.65 / 4.0, -3.3);
         const auto id = "route-cog-" + std::to_string(x);
         create(host, gear(x, 0, -4, id.c_str(), "z"));
@@ -502,6 +504,8 @@ void complete_span_route_host() {
     create(host, shaft(0, 0, 0, "route-collector-drive"));
     at(1.65, -3.3);
     create(host, shaft(4, 0, 0, "route-belt-drive"));
+    at(4.95, -3.3);
+    create(host, shaft(12, 0, 0, "route-press-drive"));
     at(1.65, 0);
     const auto first = create(host, shaft(4, 0, 4, "route-first"));
     at(3.3, 0);
@@ -511,13 +515,17 @@ void complete_span_route_host() {
     install.emplace("from", V(first)); install.emplace("to", V(last));
     const auto span = create(host, install);
     at(4.95, 0);
-    create(host, machine("processor", 3, "route-press", "z"));
+    const auto press = create(host, machine("processor", 3, "route-press", "z"));
     at(-1.65, 0);
     auto power = wire("set_power", "route-start"); power.emplace("active", V(true));
     check(accepted(host.command("P", power)), "The source starts the complete constructed route.");
     check(field<std::string>(motion(host, collector), "state") == "rotating" &&
-              field<std::string>(motion(host, first), "state") == "rotating",
-          "The actual source powers the collector and belt shafts.");
+              field<std::string>(motion(host, first), "state") == "rotating" &&
+              field<std::string>(motion(host, press), "state") == "rotating" &&
+              field<I>(motion(host, first), "numerator") < 0,
+          "The actual source powers collector, forward belt shafts and processor; collector=" + field<std::string>(motion(host, collector), "state") +
+          ", shaft=" + field<std::string>(motion(host, first), "state") + ", press=" + field<std::string>(motion(host, press), "state") +
+          ", shaft rate=" + std::to_string(field<I>(motion(host, first), "numerator")) + ".");
     for (int i = 0; i < 9; ++i) (void)host.advance();
     const auto in_flight_slots = field<A>(field<O>(host.projection(), "belt_spans").at(span), "slots");
     check(std::any_of(in_flight_slots.begin(), in_flight_slots.end(),
@@ -532,9 +540,13 @@ void complete_span_route_host() {
         (void)host.advance(); (void)restored.advance();
     }
     check(!factory::values::typed_difference(host.checkpoint(), restored.checkpoint()) &&
-              field<I>(V(field<O>(restored.projection(), "stock")), "input") > 0 &&
+              field<I>(V(field<O>(restored.projection(), "stock")), "output") > 0 &&
               field<O>(restored.projection(), "belt_spans").contains(span),
-          "The original and restored constructed routes deliver raw material to the processor with identical custody.");
+          "The original and restored constructed routes process transported material with identical custody.");
+    at(4.95, 0);
+    auto retrieve = target("retrieve", press, "route-retrieve"); retrieve.emplace("amount", V(I{1}));
+    check(accepted(host.command("P", retrieve)) && field<I>(field<O>(host.projection(), "cargo").at("P"), "products") == 1,
+          "The constructed route yields a finished product in the actor's custody.");
 }
 
 void rotated_belt_host() {
