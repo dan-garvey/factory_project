@@ -35,6 +35,16 @@ The project selects four-sample 3D multisample antialiasing for mesh edges. This
 is a revisable rendering default, not a measured performance result; it does not
 remove normal-map or specular aliasing. The backend remains Compatibility.
 
+The collector uses an original cast-frame kit with flared feet, tapered side
+cheeks, a chamfered hood and lower housing, and a fixed bearing hung from the
+hood. Closed extruded profiles preserve deliberate edge widths instead of
+stretching boxes. The bearing has a true annular opening around the original
+rotating hub, with a separate worked-steel liner. The drum, eight cutter flutes,
+feed bed, guides, service cover and native drive projection remain unchanged.
+The frame shares cached meshes and painted materials and adds no resource or
+collision dependency. Isolated controls check closed surfaces and clearance over
+a full sampled turn; the ordinary rendered appearance remains unassessed.
+
 These original project scene assets prepare the visual work in
 `factory-yau.6.45`. Current complete captures use the sourced
 [adult worker](worker/README.md). The other scenes here remain optional previews.

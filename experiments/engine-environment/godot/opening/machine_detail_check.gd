@@ -5,12 +5,191 @@ const Visuals = Opening.ProductionVisuals
 const WheelArt = Opening.ProductionWheelArt
 const PressArt = Opening.ProductionPressArt
 const ConveyorArt = Opening.ProductionConveyorArt
+const CollectorArt = Opening.ProductionCollectorArt
+const Presenter = preload("res://opening/native_transmission_presenter.gd")
 const Geometry = preload("res://opening/site_geometry.gd")
 var checks := 0
 var failed := false
 var max_tangent_dot := 0.0
 var detail_meshes := 0
 var minimum_press_gap := INF
+var minimum_collector_gap := INF
+
+func collector_mesh(mesh: ArrayMesh, minimum_volume: float, maximum_volume: float) -> void:
+	var arrays := mesh.surface_get_arrays(0)
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+	var tangents: PackedFloat32Array = arrays[Mesh.ARRAY_TANGENT]
+	var uv: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+	verify(vertices.size() > 0 and vertices.size() % 3 == 0 and normals.size() == vertices.size()
+		and tangents.size() == vertices.size() * 4 and uv.size() == vertices.size(),
+		"Each original casting has complete normal-mapped triangle attributes.")
+	var edges: Dictionary = {}
+	var volume := 0.0
+	var valid := true
+	var winding := true
+	for n in range(0, vertices.size(), 3):
+		var a := vertices[n]
+		var b := vertices[n + 1]
+		var c := vertices[n + 2]
+		var cross := (b - a).cross(c - a)
+		winding = winding and cross.length_squared() > 0.00000000000001 and cross.dot(normals[n]) < 0
+		volume += a.dot(b.cross(c)) / 6.0
+		for pair in [[a, b], [b, c], [c, a]]:
+			var first := vertex_key(pair[0])
+			var second := vertex_key(pair[1])
+			var edge := first + "/" + second if first < second else second + "/" + first
+			edges[edge] = int(edges.get(edge, 0)) + 1
+	for n in range(vertices.size()):
+		var tangent := Vector3(tangents[n * 4], tangents[n * 4 + 1], tangents[n * 4 + 2])
+		var dot := absf(tangent.dot(normals[n]))
+		max_tangent_dot = maxf(max_tangent_dot, dot)
+		valid = valid and vertices[n].is_finite() and uv[n].is_finite() and normals[n].is_finite()
+		valid = valid and absf(normals[n].length() - 1) < 0.003
+		valid = valid and tangent.is_finite() and absf(tangent.length() - 1) < 0.003 and dot < 0.003
+	var closed := true
+	for count in edges.values():
+		closed = closed and count == 2
+	verify(winding and closed, "The casting has outward clockwise faces and exactly two faces per geometric edge.")
+	verify(valid, "Casting normals, tangents and UVs remain finite and usable after mesh packing.")
+	verify(absf(volume) > minimum_volume and absf(volume) < maximum_volume,
+		"The solid or annular casting retains an independently bounded volume.")
+
+func point_triangle_distance(point: Vector2, a: Vector2, b: Vector2, c: Vector2) -> float:
+	var area := absf((b - a).cross(c - a))
+	if area > 0.00000001 and Geometry2D.is_point_in_polygon(point, PackedVector2Array([a, b, c])):
+		return 0.0
+	return minf(point.distance_to(Geometry2D.get_closest_point_to_segment(point, a, b)),
+		minf(point.distance_to(Geometry2D.get_closest_point_to_segment(point, b, c)),
+		point.distance_to(Geometry2D.get_closest_point_to_segment(point, c, a))))
+
+func collector_clearance(frame: Node3D, moving: Array) -> float:
+	var minimum := INF
+	for part: MeshInstance3D in frame.get_children():
+		var vertices: PackedVector3Array = part.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+		for n in range(0, vertices.size(), 3):
+			var a: Vector3 = part.transform * vertices[n]
+			var b: Vector3 = part.transform * vertices[n + 1]
+			var c: Vector3 = part.transform * vertices[n + 2]
+			var low := a.min(b).min(c)
+			var high := a.max(b).max(c)
+			for row in moving:
+				var node: MeshInstance3D = row.node
+				var transform: Transform3D = row.parent_inverse.affine_inverse() * node.transform
+				var gap := -INF
+				if node.mesh is CylinderMesh:
+					# The unchanged drum and hub are circular about Z. Their true
+					# radial envelope avoids filling the bearing's annular hole.
+					var cylinder: CylinderMesh = node.mesh
+					var center := transform.origin
+					var radial := point_triangle_distance(Vector2(center.x, center.y),
+						Vector2(a.x, a.y), Vector2(b.x, b.y), Vector2(c.x, c.y)) - cylinder.top_radius
+					var axial := maxf(low.z - center.z - cylinder.height / 2,
+						center.z - cylinder.height / 2 - high.z)
+					gap = maxf(radial, axial)
+				else:
+					# Conservative transformed flute bounds, sampled over a turn.
+					var box: AABB = transform * node.mesh.get_aabb()
+					gap = maxf(maxf(maxf(low.x - box.end.x, box.position.x - high.x),
+						maxf(low.y - box.end.y, box.position.y - high.y)),
+						maxf(low.z - box.end.z, box.position.z - high.z))
+				minimum = minf(minimum, gap)
+	return minimum
+
+func check_collector_cast_frame() -> void:
+	var cached: Dictionary = {}
+	var limits := {"CastCheekLeft": [0.020, 0.045], "CastCheekRight": [0.020, 0.045],
+		"CastLowerHousing": [0.07, 0.10], "CastUpperHood": [0.05, 0.08],
+		"BearingHanger": [0.001, 0.003], "FixedBearingHousing": [0.0006, 0.0013],
+		"FixedBearingLiner": [0.00024, 0.00026]}
+	for axis in range(3):
+		var view := Opening.new()
+		view.machine_root = Node3D.new()
+		view.add_child(view.machine_root)
+		view.state = {"context": "collector-cast-fixture", "options": {"native": true},
+			"actors": {"P": {"ready": true}}, "entities": {
+				"fixture": {"kind": "collector", "cell": [0, 0], "axis": axis, "generation": 1}},
+			"transmission_parts": {}, "motion": {"fixture": {"state": "rotating", "numerator": 1, "denominator": 1}},
+			"links": [], "drive_links": [], "engagements": []}
+		view.transmission_presenter = Presenter.new()
+		view.add_child(view.transmission_presenter)
+		view.transmission_presenter.configure(view)
+		var before: Dictionary = view.state.duplicate(true)
+		view._rebuild_machines()
+		var machine: Node3D = view.machine_root.get_child(0)
+		var frame: Node3D = machine.get_node("CollectorCastFrame")
+		verify(frame.get_script() == null and frame.get_child_count() == 7,
+			"The real collector mounts seven plain reusable cast and bearing parts.")
+		verify(machine.get_node_or_null("HeadSupport") == null and machine.get_node_or_null("HeadCover") == null
+			and machine.get_node_or_null("BackHousing") == null,
+			"The cast kit replaces the old rectangular frame instead of stacking duplicate silhouettes.")
+		check_bounds(frame, Transform3D.IDENTITY)
+		for part: MeshInstance3D in frame.get_children():
+			var role: String = part.get_meta("collector_frame_role", "")
+			verify(limits.has(role) and part.get_script() == null and part.get_child_count() == 0,
+				"Every frame role has a declared plain-mesh identity.")
+			if not limits.has(role):
+				continue
+			if axis == 0:
+				collector_mesh(part.mesh, limits[role][0], limits[role][1])
+				cached[role] = [part.mesh, part.material_override]
+			verify(part.mesh == cached[role][0] and part.material_override == cached[role][1],
+				"All projected spindle axes reuse the exact frame meshes and finishes.")
+			var finish_value := part.material_override as StandardMaterial3D
+			verify(finish_value != null and finish_value.albedo_color == Color("a6b4af")
+				if role == "FixedBearingLiner" else finish_value != null and finish_value.metallic < 0.1,
+				"The liner is exposed worked steel while the fixed cast structure remains painted.")
+		var bed: MeshInstance3D = machine.get_node("StockBed")
+		verify(bed.position == Vector3(0, 0.51, 0) and bed.mesh == Visuals.box_mesh(Vector3(1.25, 0.1, 0.67)),
+			"The literal feed bed and its top plane remain unchanged.")
+		var rows: Array = machine.get_meta("motion_meshes")
+		verify(rows.size() == 10 and count_role(machine, "CutterFlute") == 8,
+			"Only the original drum, hub and eight flutes belong to the moving group.")
+		var drum: MeshInstance3D = machine.get_node("CutterDrum")
+		var hub: MeshInstance3D = machine.get_node("CutterHub")
+		verify(drum.position == Vector3(-0.22, 1.1, -0.19) and drum.mesh is CylinderMesh
+			and is_equal_approx(drum.mesh.top_radius, 0.24) and is_equal_approx(drum.mesh.height, 0.34)
+			and hub.position == Vector3(-0.22, 1.1, 0.01) and hub.mesh is CylinderMesh
+			and is_equal_approx(hub.mesh.top_radius, 0.085) and is_equal_approx(hub.mesh.height, 0.08),
+			"The original literal drum and hub define the clearance oracle, with no moving-geometry replacement.")
+		var picks: Array = []
+		for child in machine.get_children():
+			if child is StaticBody3D:
+				picks.append(child)
+		verify(picks.size() == 1 and picks[0].collision_layer == Geometry.PICK_LAYER and picks[0].collision_mask == 0
+			and picks[0].get_meta("entity", "") == "fixture" and picks[0].get_child_count() == 1
+			and picks[0].get_child(0).shape.size == Vector3(1.45, 1.65, 1.45)
+			and picks[0].get_child(0).position == Vector3(0, Geometry.MACHINE_CENTER_HEIGHT, 0),
+			"The real builder keeps one original entity pick body with its exact size, position and masks.")
+		for sample in range(24):
+			view._apply_cutter_pose(machine, rows, float(sample) * TAU / 24)
+			var gap := collector_clearance(frame, rows)
+			minimum_collector_gap = minf(minimum_collector_gap, gap)
+			verify(gap > 0.006, "The fixed frame clears the actual original moving cutter, flutes and hub across a full turn.")
+		view._apply_cutter_pose(machine, rows, 0)
+		if axis == 0:
+			var hood: MeshInstance3D = frame.get_node("CastUpperHood")
+			hood.position.y -= 0.2
+			verify(collector_clearance(frame, rows) < 0, "The clearance oracle rejects an actual hood displaced into the drum.")
+			hood.position.y += 0.2
+			var liner: MeshInstance3D = frame.get_node("FixedBearingLiner")
+			liner.position.x += 0.03
+			verify(collector_clearance(frame, rows) < 0, "The clearance oracle rejects a bearing displaced into its rotating hub.")
+			liner.position.x -= 0.03
+		verify(collector_clearance(frame, rows) > 0.006, "The original assembly is restored after the two asset controls.")
+		var fixed: Array = []
+		for part in frame.get_children():
+			fixed.append(part.transform)
+		view._animate_wheel(0.1)
+		verify(is_equal_approx(view.transmission_presenter.visual_angle("fixture"), 0.08),
+			"The original collector angle still comes from the sole existing cosmetic presenter cache.")
+		for n in range(frame.get_child_count()):
+			verify(frame.get_child(n).transform == fixed[n], "The supporting casting remains fixed as the original cutter turns.")
+		verify(view.state == before and view.request_sequence == 0 and view.model == null and view.actor_world == null,
+			"Frame assembly and motion leave all projection facts, requests and authority untouched.")
+		view.free()
+	print(JSON.stringify({"phase": "collector cast frame", "minimum_separating_gap": minimum_collector_gap,
+		"axes": 3, "rotation_samples_per_axis": 24, "altered_asset_controls": 2}))
 
 func verify(condition: bool, message: String) -> void:
 	checks += 1
@@ -690,6 +869,10 @@ func prepare_component_maps(prefix: String) -> void:
 	quit(0)
 
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--collector-frame-only"):
+		check_collector_cast_frame()
+		finish()
+		return
 	if OS.get_cmdline_user_args().size() > 0 and OS.get_cmdline_user_args()[0] == "--prepare-conveyor-maps":
 		prepare_conveyor_maps()
 		return

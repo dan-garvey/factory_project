@@ -264,6 +264,115 @@ class ProductionTransmissionFinish:
 		finishes[key] = finish
 		return finish
 
+class ProductionCollectorArt:
+	extends RefCounted
+	## Original rigid casting kit. These meshes never define work or collision.
+	static var meshes: Dictionary = {}
+
+	static func cheek_profile(right: bool) -> PackedVector2Array:
+		var points := PackedVector2Array([Vector2(-0.65, 0.24), Vector2(-0.65, 0.40),
+			Vector2(-0.62, 0.47), Vector2(-0.62, 1.31), Vector2(-0.58, 1.48),
+			Vector2(-0.49, 1.49), Vector2(-0.48, 1.44), Vector2(-0.50, 1.36),
+			Vector2(-0.50, 0.62), Vector2(-0.40, 0.48), Vector2(-0.38, 0.38), Vector2(-0.38, 0.24)])
+		if right:
+			for n in range(points.size()):
+				points[n].x = -0.39 - points[n].x
+		return points
+
+	static func prism_mesh(profile: PackedVector2Array, depth: float, bevel: float) -> ArrayMesh:
+		var key := Marshalls.raw_to_base64(var_to_bytes([profile, depth, bevel]))
+		if meshes.has(key):
+			return meshes[key]
+		var outline := profile.duplicate()
+		var signed_area := 0.0
+		for n in range(outline.size()):
+			signed_area += outline[n].cross(outline[(n + 1) % outline.size()])
+		if signed_area < 0:
+			outline.reverse()
+		# The fixed art profiles have generous corners. Intersect their inward
+		# edge offsets rather than scaling a whole cap and distorting the bevel.
+		var inset := PackedVector2Array()
+		for n in range(outline.size()):
+			var before := (outline[n] - outline[posmod(n - 1, outline.size())]).normalized()
+			var after := (outline[(n + 1) % outline.size()] - outline[n]).normalized()
+			var first := Vector2(-before.y, before.x)
+			var second := Vector2(-after.y, after.x)
+			inset.append(outline[n] + (first + second) * bevel / (1.0 + first.dot(second)))
+		var triangles := Geometry2D.triangulate_polygon(inset)
+		if triangles.size() != (inset.size() - 2) * 3:
+			push_error("The authored casting cap cannot be triangulated.")
+			return null
+		var surface := SurfaceTool.new()
+		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+		var half := depth / 2.0
+		for side in [-1.0, 1.0]:
+			for n in range(0, triangles.size(), 3):
+				var cap: Array[Vector3] = []
+				for corner in range(3):
+					var p := inset[triangles[n + corner]]
+					cap.append(Vector3(p.x, p.y, side * half))
+				ProductionVisuals._face(surface, cap, Vector3.BACK * side)
+		for n in range(outline.size()):
+			var next := (n + 1) % outline.size()
+			var a := outline[n]
+			var b := outline[next]
+			var ia := inset[n]
+			var ib := inset[next]
+			var edge := (b - a).normalized()
+			var normal := Vector3(edge.y, -edge.x, 0)
+			ProductionVisuals._face(surface, [Vector3(a.x, a.y, -half + bevel),
+				Vector3(b.x, b.y, -half + bevel), Vector3(b.x, b.y, half - bevel),
+				Vector3(a.x, a.y, half - bevel)], normal)
+			for side in [-1.0, 1.0]:
+				ProductionVisuals._face(surface, [Vector3(a.x, a.y, side * (half - bevel)),
+					Vector3(b.x, b.y, side * (half - bevel)), Vector3(ib.x, ib.y, side * half),
+					Vector3(ia.x, ia.y, side * half)], (normal + Vector3.BACK * side).normalized())
+		surface.generate_tangents()
+		var mesh := surface.commit()
+		meshes[key] = mesh
+		return mesh
+
+	static func _part(parent: Node3D, role: String, mesh: Mesh, at: Vector3,
+			finish: StandardMaterial3D) -> MeshInstance3D:
+		var part := MeshInstance3D.new()
+		part.name = role
+		part.mesh = mesh
+		part.position = at
+		part.material_override = finish
+		part.set_meta("collector_frame_role", role)
+		parent.add_child(part)
+		return part
+
+	static func mount(parent: Node3D, color: Color) -> void:
+		var frame := Node3D.new()
+		frame.name = "CollectorCastFrame"
+		parent.add_child(frame)
+		var paint := ProductionVisuals.material(color, 0.08, 0.72)
+		for right in [false, true]:
+			_part(frame, "CastCheekRight" if right else "CastCheekLeft",
+				prism_mesh(cheek_profile(right), 0.18, 0.008), Vector3(0, 0, -0.40), paint)
+		var housing := PackedVector2Array([Vector2(-0.62, 0.24), Vector2(0.23, 0.24),
+			Vector2(0.23, 0.84), Vector2(0.12, 1.02), Vector2(-0.50, 1.02), Vector2(-0.62, 0.84)])
+		_part(frame, "CastLowerHousing", prism_mesh(housing, 0.14, 0.012),
+			Vector3(0, 0, -0.44), ProductionVisuals.material(color.darkened(0.09), 0.08, 0.72))
+		var hood := PackedVector2Array([Vector2(-0.65, 1.39), Vector2(0.26, 1.39),
+			Vector2(0.26, 1.45), Vector2(0.20, 1.51), Vector2(-0.59, 1.51), Vector2(-0.65, 1.45)])
+		_part(frame, "CastUpperHood", prism_mesh(hood, 0.64, 0.012), Vector3(0, 0, -0.25), paint)
+		var hanger := PackedVector2Array([Vector2(-0.26, 1.21), Vector2(-0.18, 1.21),
+			Vector2(-0.15, 1.32), Vector2(-0.13, 1.43), Vector2(-0.31, 1.43), Vector2(-0.29, 1.32)])
+		_part(frame, "BearingHanger", prism_mesh(hanger, 0.07, 0.007), Vector3(0, 0, 0.045), paint)
+		var bearing := PackedVector2Array([Vector2(0.109, -0.025), Vector2(0.125, -0.025),
+			Vector2(0.14, -0.015), Vector2(0.14, 0.015), Vector2(0.125, 0.025),
+			Vector2(0.109, 0.025), Vector2(0.109, -0.025)])
+		var housing_part := _part(frame, "FixedBearingHousing", ProductionVisuals.turned_mesh(bearing),
+			Vector3(-0.22, 1.1, 0.045), paint)
+		housing_part.basis = Basis(Quaternion(Vector3.UP, Vector3.BACK))
+		var liner := PackedVector2Array([Vector2(0.095, -0.014), Vector2(0.109, -0.014),
+			Vector2(0.109, 0.014), Vector2(0.095, 0.014), Vector2(0.095, -0.014)])
+		var liner_part := _part(frame, "FixedBearingLiner", ProductionVisuals.turned_mesh(liner),
+			Vector3(-0.22, 1.1, 0.045), ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.38))
+		liner_part.basis = housing_part.basis
+
 class ProductionWheelArt:
 	extends RefCounted
 	## A reusable visual component. Native geometry and motion never read this mesh.
@@ -3162,10 +3271,7 @@ func _collector_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	var frame: Color = COLORS.collector
 	var steel := Color("a6b4af")
 	_machine_box(anchor, "StockBed", Vector3(0, 0.51, 0), Vector3(1.25, 0.1, 0.67), steel, 0.85, 0.45)
-	_machine_box(anchor, "BackHousing", Vector3(-0.22, 0.66, -0.44), Vector3(0.84, 0.78, 0.14), frame)
-	for x in [-0.57, 0.18]:
-		_machine_box(anchor, "HeadSupport", Vector3(x, 0.87, -0.38), Vector3(0.12, 1.1, 0.14), frame)
-	_machine_box(anchor, "HeadCover", Vector3(-0.22, 1.42, -0.25), Vector3(0.86, 0.12, 0.64), frame)
+	ProductionCollectorArt.mount(anchor, frame)
 	_machine_cylinder(anchor, "CutterDrum", Vector3(-0.22, 1.1, -0.19), 0.24, 0.34,
 		Color("465a60"), Vector3(PI / 2, 0, 0))
 	_machine_cylinder(anchor, "CutterHub", Vector3(-0.22, 1.1, 0.01), 0.085, 0.08,
