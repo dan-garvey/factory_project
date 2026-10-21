@@ -28,12 +28,16 @@ ordinary-demo review remains necessary for app-scale visual evidence.
 The foundation art helper combines a closed exposed-aggregate concrete footing
 with the existing scanned steel deck. The qualified
 [concrete maps](foundation-concrete/CREDITS.md) keep their two-metre physical
-scale through world-space triplanar mapping. Both cached meshes remain inside a
-single `Geometry.PITCH` cube below the caller's top-plane origin. The thin deck
-covers the footing's chamfer with a narrow lip; it meets the actual support
-plane and leaves the top at zero. Joined and stacked sections add no local
-height offset. This is a passive art resource for the separately owned native
-foundation feature, without a new support, collision, recipe or quantity rule.
+scale through world-space triplanar mapping. The thin deck covers the footing's
+chamfer with a narrow lip; it meets the actual support plane and leaves the top
+at zero. Confirmed foundations at the same level select one of sixteen cached
+deck edge variants. A shared edge is flat across both tiles, while gaps,
+corners, different levels and removed neighbors retain an exposed bevel.
+The concrete footing and each deck remain inside the original tile envelope;
+stacking adds no local height offset. This is passive presentation over the
+separately owned native foundation feature, without a new support, collision,
+recipe or quantity rule. The isolated patch and corner views help inspect
+seams but cannot establish appearance at ordinary play distance.
 
 [Construction impact samples](construction-audio/CREDITS.md) now give confirmed
 belts, assemblies, couplings and removals material-based feedback. The four short
