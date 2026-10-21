@@ -134,6 +134,8 @@ git config --worktree factory.godotArtifacts /absolute/owned/staged-compiler-evi
 
 The native coordinator prefers that worktree value and uses the common local
 value when absent. An empty value or configuration error refuses without fallback.
+Repositories with worktree configuration absent or disabled use the common
+setting directly; enabling the extension is optional for common-config users.
 Engine executable and hash pins stay shared; the legacy coordinator continues
 using the common setting. Separate destinations prevent one worker's batch
 selection from changing another's. Retain the same per-batch limits and ordinary

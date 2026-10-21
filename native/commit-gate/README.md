@@ -10,6 +10,8 @@ in effect for selection and the outer checker.
 The native coordinator prefers a worktree-specific `factory.godotArtifacts`
 setting, with the common local value as fallback when absent. An empty value or
 configuration read error refuses instead of selecting another destination.
+With worktree configuration absent or disabled, it reads the common setting
+directly, including in repositories with several linked checkouts.
 Executable and digest pins remain common. See the [setup](../../CONTRIBUTING.md#checks-and-local-hooks)
 for Git worktree configuration; compiler budgets and checks are unchanged.
 
