@@ -478,11 +478,14 @@ const char* Host::machine_site_refusal(const world::State& state, const mechanic
     const auto z = center[2] * height_step;
     const bool supported = std::any_of(state.foundations.begin(), state.foundations.end(),
         [&](const auto& entry) { return entry.second.center == center; });
+    const auto terrain = terrain_range(x, z);
+    // A foundation supplies support, not clearance through the real ground.
+    // Foundation blocks themselves may be buried; ordinary machines may not.
+    if (terrain && terrain->second > floor) return "foundation_required";
     if (!supported) {
-        const auto terrain = terrain_range(x, z);
         if (!terrain) return "terrain_unavailable";
         // This is the existing seating fit, not additional character reach.
-        if (terrain->second > floor || terrain->first < floor - 0.04) return "foundation_required";
+        if (terrain->first < floor - 0.04) return "foundation_required";
     }
     if (site_blocked({x - machine_width / 2, floor, z - machine_width / 2},
                      {x + machine_width / 2, floor + machine_height, z + machine_width / 2}))
