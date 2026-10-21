@@ -354,21 +354,43 @@ std::vector<Bounds> belt_bounds(const mechanics::Part& first, const mechanics::P
     return result;
 }
 
-std::vector<Bounds> belt_bounds(const world::State& state) {
-    std::vector<Bounds> result;
-    for (const auto& span : state.topology.belt_spans) {
-        const auto* first = find(state, span.geometry.first_shaft);
-        const auto* last = find(state, span.geometry.last_shaft);
-        if (!first || !last) continue; // World validation rejects dangling spans.
-        const auto sections = belt_bounds(first->geometry, last->geometry);
-        result.insert(result.end(), sections.begin(), sections.end());
-    }
-    return result;
+// Test a box against the actual rotated inclined belt after the conservative
+// section broad phase. The two additional separating axes are the slope and
+// its normal; this retains face contact without filling the empty corners.
+bool belt_intersects(const mechanics::Part& first, const mechanics::Part& last, const Bounds& bounds) {
+    const auto sections = belt_bounds(first, last);
+    if (std::none_of(sections.begin(), sections.end(), [&](const auto& section) { return overlap(section, bounds); }))
+        return false;
+    const auto path = mechanics::belt_path(first, last);
+    if (!path || path->kind != mechanics::BeltPathKind::inclined) return true;
+    const auto direction = first.axis == mechanics::Axis::x ? std::size_t{2} : std::size_t{0};
+    const auto& a = path->tiles.front();
+    const auto& b = path->tiles.back();
+    const double dx = b[direction] > a[direction] ? 1.0 : -1.0;
+    const double dy = b[1] > a[1] ? 1.0 : -1.0;
+    const double center_direction = (a[direction] + b[direction]) * height_step / 2;
+    const double center_height = anchor_height + (a[1] + b[1]) * height_step / 2;
+    const double offset_direction = bounds.center[direction] - center_direction;
+    const double offset_height = bounds.center[1] - center_height;
+    const double root_two = std::sqrt(2.0);
+    const double box_radius = (bounds.half[direction] + bounds.half[1]) / root_two;
+    const double along = std::abs(dx * offset_direction + dy * offset_height) / root_two;
+    const double across = std::abs(-dy * offset_direction + dx * offset_height) / root_two;
+    const double belt_half_length = path->tiles.size() * pitch / root_two;
+    const auto overlaps_axis = [](double distance, double extent) {
+        const auto roundoff = 8 * std::numeric_limits<double>::epsilon() * std::max({1.0, distance, extent});
+        return distance < extent - roundoff;
+    };
+    return overlaps_axis(along, belt_half_length + box_radius) && overlaps_axis(across, 0.15 + box_radius);
 }
 
 bool intersects_belt(const world::State& state, const Bounds& bounds) {
-    const auto belts = belt_bounds(state);
-    return std::any_of(belts.begin(), belts.end(), [&](const auto& belt) { return overlap(belt, bounds); });
+    for (const auto& span : state.topology.belt_spans) {
+        const auto* first = find(state, span.geometry.first_shaft);
+        const auto* last = find(state, span.geometry.last_shaft);
+        if (first && last && belt_intersects(first->geometry, last->geometry, bounds)) return true;
+    }
+    return false;
 }
 
 const char* kind(Role role) {
@@ -841,6 +863,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         if (*kind_name != "gear" && !(*kind_name == "wheel")) {
             if (const auto* refusal = machine_site_refusal(snapshot.state, center)) return refuse(refusal);
         }
+        if (*kind_name != "gear" && intersects_belt(snapshot.state, part_bounds(profile_, proposed))) return refuse("occupied");
         for (const auto& part : snapshot.state.topology.parts) {
             if (part.geometry.center == center) return refuse("occupied");
             if (*kind_name != "gear" && part.role != Role::gear && part.role != Role::shaft &&
@@ -939,24 +962,24 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         if (first->role != Role::shaft || last->role != Role::shaft) return refuse("invalid_belt_geometry");
         const auto sections = belt_bounds(first->geometry, last->geometry);
         if (sections.empty()) return refuse("invalid_belt_geometry");
+        for (const auto& [foundation_id, foundation] : snapshot.state.foundations) {
+            (void)foundation_id;
+            if (belt_intersects(first->geometry, last->geometry, foundation_bounds(foundation))) return refuse("occupied");
+        }
+        for (const auto& placed : snapshot.state.topology.parts) {
+            if (placed.role == Role::shaft) continue;
+            const auto& point = placed.geometry.center;
+            const Bounds bounds = placed.role == Role::gear ? Bounds{
+                {point[0] * height_step, anchor_height + point[1] * height_step, point[2] * height_step},
+                gear_half_extents(placed.geometry.axis, placed.geometry.teeth)} : part_bounds(profile_, placed);
+            if (belt_intersects(first->geometry, last->geometry, bounds)) return refuse("occupied");
+            if (placed.role == Role::gear && belt_intersects(first->geometry, last->geometry,
+                {bounds.center, gear_axle_half_extents(placed.geometry.axis)})) return refuse("occupied");
+        }
         for (const auto& belt_bounds : sections) {
             const auto& at = belt_bounds.center;
             const auto& half = belt_bounds.half;
             if (placement_blocked(at, half)) return refuse("actor_occupied");
-            for (const auto& [foundation_id, foundation] : snapshot.state.foundations) {
-                (void)foundation_id;
-                if (overlap(belt_bounds, foundation_bounds(foundation))) return refuse("occupied");
-            }
-            for (const auto& placed : snapshot.state.topology.parts) {
-                if (placed.role == Role::shaft) continue;
-                const auto& point = placed.geometry.center;
-                const Bounds bounds = placed.role == Role::gear ? Bounds{
-                    {point[0] * height_step, anchor_height + point[1] * height_step, point[2] * height_step},
-                    gear_half_extents(placed.geometry.axis, placed.geometry.teeth)} : part_bounds(profile_, placed);
-                if (overlap(belt_bounds, bounds)) return refuse("occupied");
-                if (placed.role == Role::gear && overlap(belt_bounds,
-                    {bounds.center, gear_axle_half_extents(placed.geometry.axis)})) return refuse("occupied");
-            }
             if (site_blocked({at[0] - half[0], at[1] - half[1], at[2] - half[2]},
                              {at[0] + half[0], at[1] + half[1], at[2] + half[2]})) return refuse("site_occupied");
             const auto terrain = terrain_range(at[0], at[2], half[0], half[2]);
@@ -1231,10 +1254,13 @@ Host::Decoded Host::decode(const Value& input) const {
         const auto path = first && last ? mechanics::belt_path(first->geometry, last->geometry) : std::nullopt;
         if (!path) return {nullptr, "invalid_belt_geometry"};
     }
-    for (const auto& belt : belt_bounds(snapshot.state)) {
+    for (const auto& span : snapshot.state.topology.belt_spans) {
+        const auto* first = find(snapshot.state, span.geometry.first_shaft);
+        const auto* last = find(snapshot.state, span.geometry.last_shaft);
+        if (!first || !last) return {nullptr, "invalid_belt_geometry"};
         for (const auto& [id, foundation] : snapshot.state.foundations) {
             (void)id;
-            if (overlap(belt, foundation_bounds(foundation))) return {nullptr, "occupied"};
+            if (belt_intersects(first->geometry, last->geometry, foundation_bounds(foundation))) return {nullptr, "occupied"};
         }
         for (const auto& placed : snapshot.state.topology.parts) {
             if (placed.role == Role::shaft) continue;
@@ -1242,16 +1268,18 @@ Host::Decoded Host::decode(const Value& input) const {
             const Bounds bounds = placed.role == Role::gear ? Bounds{
                 {point[0] * height_step, anchor_height + point[1] * height_step, point[2] * height_step},
                 gear_half_extents(placed.geometry.axis, placed.geometry.teeth)} : part_bounds(profile_, placed);
-            if (overlap(belt, bounds)) return {nullptr, "occupied"};
-            if (placed.role == Role::gear && overlap(belt,
+            if (belt_intersects(first->geometry, last->geometry, bounds)) return {nullptr, "occupied"};
+            if (placed.role == Role::gear && belt_intersects(first->geometry, last->geometry,
                 {bounds.center, gear_axle_half_extents(placed.geometry.axis)})) return {nullptr, "occupied"};
         }
-        const auto& at = belt.center; const auto& half = belt.half;
-        if (site_blocked({at[0] - half[0], at[1] - half[1], at[2] - half[2]},
-                         {at[0] + half[0], at[1] + half[1], at[2] + half[2]})) return {nullptr, "site_occupied"};
-        const auto terrain = terrain_range(at[0], at[2], half[0], half[2]);
-        if (!terrain) return {nullptr, "terrain_unavailable"};
-        if (terrain->second > at[1] - half[1]) return {nullptr, "site_occupied"};
+        for (const auto& belt : belt_bounds(first->geometry, last->geometry)) {
+            const auto& at = belt.center; const auto& half = belt.half;
+            if (site_blocked({at[0] - half[0], at[1] - half[1], at[2] - half[2]},
+                             {at[0] + half[0], at[1] + half[1], at[2] + half[2]})) return {nullptr, "site_occupied"};
+            const auto terrain = terrain_range(at[0], at[2], half[0], half[2]);
+            if (!terrain) return {nullptr, "terrain_unavailable"};
+            if (terrain->second > at[1] - half[1]) return {nullptr, "site_occupied"};
+        }
     }
     const auto& actors = *field<Object>(*root, "actors");
     if (actors.size() != profile_.actors.size()) return {nullptr, "actor_roster_mismatch"};

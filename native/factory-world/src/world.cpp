@@ -1372,17 +1372,8 @@ Advance World::tick() noexcept {
             if (rate->second.state == mechanics::MotionState::rotating &&
                 std::any_of(lane->second.slots.begin(), lane->second.slots.end(),
                     [](const auto& item) { return item.has_value(); })) {
-                __extension__ using Wide = __int128;
-                Wide magnitude = rate->second.rate.numerator;
-                if (magnitude < 0) magnitude = -magnitude;
-                auto speed = static_cast<Integer>(std::clamp<Wide>(
-                    magnitude * materials::work_subticks_per_tick / rate->second.rate.denominator,
-                    1, materials::maximum_work_subticks_per_tick));
-                // A diagonal tile is sqrt(2) times longer than a horizontal
-                // tile. Keep surface travel per tick the same at a given
-                // shaft rate; 2896/4096 approximates 1/sqrt(2).
-                if (path->kind == mechanics::BeltPathKind::inclined)
-                    speed = std::max<Integer>(1, speed * 2896 / materials::work_subticks_per_tick);
+                const auto speed = materials::belt_speed_subticks(rate->second.rate.numerator,
+                    rate->second.rate.denominator, path->kind == mechanics::BeltPathKind::inclined);
                 if (*direction == 0) throw materials::Error::invalid_state;
                 const bool toward_last = *direction > 0;
                 const auto& receiver_point = toward_last ? after : before;

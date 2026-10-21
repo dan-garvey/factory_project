@@ -81,8 +81,8 @@ struct Run {
         check(accepted(host.configure_terrain(stream_site(reverse, speed))), "The fixture binds its invented channel.");
         if (saved) check(accepted(host.restore_checkpoint(*saved)), "A fresh Host restores the retained checkpoint.");
     }
-    void at(double x, double z) {
-        check(accepted(host.publish_actor("P", {V(x), V(1.0), V(z)}, ++epoch)), "Synthetic actor observation is accepted.");
+    void at(double x, double z, double y = 1.0) {
+        check(accepted(host.publish_actor("P", {V(x), V(y), V(z)}, ++epoch)), "Synthetic actor observation is accepted.");
     }
     V action(const char* name, O args = {}) {
         args.emplace("context", V("upstream-drive")); args.emplace("client", V("P"));
@@ -101,8 +101,8 @@ struct Run {
     void gear(I x, I z, const char* axis, I teeth, I height = 4) {
         (void)action("place_gear", {{"center", V(A{V(x), V(height), V(z)})}, {"axis", V(axis)}, {"teeth", V(teeth)}});
     }
-    std::string shaft(I x, I z, const char* axis = "z") {
-        return field<std::string>(action("place_shaft", {{"center", V(A{V(x), V(I{4}), V(z)})},
+    std::string shaft(I x, I z, const char* axis = "z", I height = 4) {
+        return field<std::string>(action("place_shaft", {{"center", V(A{V(x), V(height), V(z)})},
                                                           {"axis", V(axis)}, {"half_span", V(I{2})}}), "entity");
     }
     void span(const std::string& first, const std::string& last) {
@@ -110,13 +110,13 @@ struct Run {
     }
 };
 
-std::string build(Run& run, I wheel_row, bool install_span = true, bool two_spans = false, int fork_order = 0, bool moving_fork = false) {
+std::string build(Run& run, I wheel_row, bool install_span = true, bool two_spans = false, int fork_order = 0, bool moving_fork = false, bool inclined_fork = false, bool collector_after_fork = false) {
     const I offset = wheel_row * 4;
     const double dz = wheel_row * 1.65;
     const I press_x = two_spans ? 20 : 12;
     run.at(-1.65, 3.3 + dz); (void)run.place("wheel", -2, wheel_row, "x");
     run.at(0, dz); run.foundation(0, wheel_row + 1);
-    (void)run.place("collector", 0, wheel_row + 1, "z");
+    if (!collector_after_fork) (void)run.place("collector", 0, wheel_row + 1, "z");
     run.at(-3.3, dz); run.gear(-4, offset, "x", 4);
     run.at(-3.3, -1.65 + dz); run.gear(0, offset - 4, "z", 4);
     const A front = two_spans ? A{V(I{0}), V(I{4}), V(I{12})} : A{V(I{0}), V(I{4})};
@@ -134,15 +134,18 @@ std::string build(Run& run, I wheel_row, bool install_span = true, bool two_span
         if (moving_fork) {
             run.at(-3.3, 1.65 + dz); run.gear(-4, offset + 4, "x", 2, 8);
             run.at(-3.3, 3.3 + dz); run.gear(-4, offset + 8, "x", 2, 8);
-            run.gear(-4, offset + 8, "x", 2);
+            if (!inclined_fork) run.gear(-4, offset + 8, "x", 2);
         }
-        run.at(-1.65, 3.3 + dz); const auto a = run.shaft(0, offset + 8, "x");
-        run.at(-1.65, 4.95 + dz); const auto b = run.shaft(0, offset + 12, "x");
-        run.at(-1.65, 4.125 + dz); run.span(a, b);
+        run.at(-1.65, 3.3 + dz, inclined_fork ? 3.3 : 1.0); const auto a = run.shaft(0, offset + 8, "x", inclined_fork ? 8 : 4);
+        run.at(-1.65, 4.95 + dz, inclined_fork ? 4.95 : 1.0); const auto b = run.shaft(0, offset + 12, "x", inclined_fork ? 12 : 4);
+        run.at(-1.65, 4.125 + dz, inclined_fork ? 4.125 : 1.0);
+        if (inclined_fork && collector_after_fork) run.span(b, a);
+        else run.span(a, b);
     };
     if (fork_order == 1) fork();
     if (install_span) { run.at(2.475, dz); run.span(first, last); }
     if (fork_order == 2) fork();
+    if (collector_after_fork) { run.at(0, dz); (void)run.place("collector", 0, wheel_row + 1, "z"); }
     if (two_spans) {
         run.at(4.95, dz); const auto next = run.shaft(12, offset + 4);
         run.at(6.6, dz); const auto end = run.shaft(16, offset + 4);
@@ -224,6 +227,37 @@ void wrong_source() {
     const auto progress = e::inspect(run.host, "P");
     check(progress.products == 4 && !progress.source_at_target && progress.phase == e::Phase::move_source,
           "Moving the wheel away after four plates requires returning it to the target.");
+}
+
+void inclined_fork_fixture() {
+    for (I speed : {I{200}, I{600}}) for (int order : {1, 2}) for (bool collector_last : {false, true}) {
+        Run run("inclined-fork", false, std::nullopt, speed);
+        const auto press = build(run, 0, true, false, order, true, true, collector_last);
+        const bool starving = speed == 600 && order == 1;
+        const auto initial = e::inspect(run.host, "P");
+        check(initial.belt_forward != starving, "The inclined route accounts for a fast competing inlet.");
+        for (int turn = 0; turn < 200 && e::inspect(run.host, "P").products < 8; ++turn) {
+            const auto stock = field<O>(run.host.projection(), "stock");
+            if (std::get<I>(stock.at("output").storage()) > 0) {
+                run.at(4.95, 1.65);
+                (void)run.action("retrieve", {{"entity", V(press)}, {"amount", V(I{1})}});
+            }
+            (void)run.host.advance();
+        }
+        const auto progress = e::inspect(run.host, "P");
+        check(progress.belt_forward != starving && (starving ? progress.products == 0 : progress.products == 8),
+              "Inclined competing cargo and challenge assessment agree for both construction orders.");
+        if (order == 1) {
+            I spilled = 0;
+            for (const auto& drop : field<A>(run.host.projection(), "dropped_material")) spilled += field<I>(drop, "raw");
+            check(spilled > 0, "The inclined competitor actually diverts material.");
+        }
+        conserved(run.host);
+        const auto saved = run.host.checkpoint();
+        Run restored("inclined-restored", false, saved, speed);
+        check(e::inspect(restored.host, "P").belt_forward == progress.belt_forward,
+              "An inclined collector and belt restore with the same assessment.");
+    }
 }
 
 void moving_fork_fixture() {
@@ -326,7 +360,7 @@ int main() {
     try {
         Host absent;
         check(e::inspect(absent, "P").phase == e::Phase::unavailable, "An uninitialized Host has no challenge state.");
-        forward_and_checkpoint(false); forward_and_checkpoint(true); negative_routes(); wrong_source(); fork_fixture(); moving_fork_fixture();
+        forward_and_checkpoint(false); forward_and_checkpoint(true); negative_routes(); wrong_source(); fork_fixture(); moving_fork_fixture(); inclined_fork_fixture();
         std::cout << checks << " native opening-engineering checks, 0 failures.\n";
         return 0;
     } catch (const std::exception& error) {
