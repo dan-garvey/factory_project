@@ -21,6 +21,13 @@ cc_test(
 )
 
 cc_test(
+    name = "corner_gear_test",
+    srcs = ["tests/corner_gear_test.cpp"],
+    deps = [":stationary"],
+    size = "small",
+)
+
+cc_test(
     name = "placement_test",
     srcs = ["tests/placement_test.cpp"],
     deps = [":stationary"],

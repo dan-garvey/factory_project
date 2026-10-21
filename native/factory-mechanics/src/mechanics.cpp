@@ -112,6 +112,24 @@ bool shaft_contact(const Part& a, const Part& b) noexcept {
            b.center[axis] - b_span <= a.center[axis] + a_span;
 }
 
+// Create-style large cogwheels meet across one construction cell on each of
+// their two perpendicular axes. The sign is expressed in the shared positive
+// coordinate-axis convention, so it is independent of which cog is visited first.
+std::optional<Rate> corner_cog_contact(const Part& a, const Part& b) noexcept {
+    constexpr Integer large_cog = 4;
+    constexpr Integer cell = 4;
+    if (a.kind != Kind::gear || b.kind != Kind::gear || a.teeth != large_cog ||
+        b.teeth != large_cog || a.axis == b.axis) return std::nullopt;
+    const auto axis_a = coordinate(a.axis);
+    const auto axis_b = coordinate(b.axis);
+    const auto da = b.center[axis_a] - a.center[axis_a];
+    const auto db = b.center[axis_b] - a.center[axis_b];
+    if ((da != cell && da != -cell) || (db != cell && db != -cell)) return std::nullopt;
+    const auto other_axis = 3 - axis_a - axis_b;
+    if (a.center[other_axis] != b.center[other_axis]) return std::nullopt;
+    return Rate{(da > 0) == (db > 0) ? 1 : -1, 1};
+}
+
 Integer radial_squared(const Part& a, const Part& b) noexcept {
     Integer result = 0;
     const auto axis = coordinate(a.axis);
@@ -190,6 +208,11 @@ Result evaluate(const std::vector<Part>& input, const std::vector<Drive>& source
             Rate forward{1, 1}, backward{1, 1};
             auto kind = EngagementKind::coaxial_shaft;
             bool connected = shaft_contact(left, right);
+            if (const auto corner = corner_cog_contact(left, right)) {
+                connected = true;
+                kind = EngagementKind::external_mesh;
+                forward = backward = *corner;
+            }
             if (left.kind == Kind::gear && right.kind == Kind::gear &&
                 left.axis == right.axis &&
                 left.center[coordinate(left.axis)] == right.center[coordinate(right.axis)]) {

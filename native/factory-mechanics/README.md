@@ -23,6 +23,15 @@ divided by the second. A 20-tooth source driving a 40-tooth gear yields -1/2;
 an inserted idler changes parity to +1/2. Tooth counts here are fixture examples,
 not a selected starter inventory.
 
+For the experimental large-cog profile (tooth count 4, construction cell 4
+grid units), two cogs on perpendicular axes also engage when their centers
+are one cell apart along each cog's axis and share the third coordinate. They
+transmit at equal speed; the signed rate is the same when the two axial offsets
+have equal signs and reversed otherwise. This follows the corner relation in
+[Create's rotation propagator](https://github.com/Creators-of-Create/Create/blob/mc1.21.1/dev/src/main/java/com/simibubi/create/content/kinetics/RotationPropagator.java).
+This is a discrete gameplay connection, not a calculation of physical tooth
+contact, and does not itself add large cogs to the opening's carried kit.
+
 A shaft couples only coaxial parts whose axial spans touch or overlap. A hub or
 gear has a point hub for this coupling. Two gears or hubs do not couple merely
 because their centers or names match: an actual shaft must join their hubs.
@@ -72,7 +81,7 @@ An invalid shape, identity, source or unrepresentable rate returns an error
 without publishing partial motion or engagement. Input values are unchanged.
 Allocation exceptions can propagate before the authority commits anything.
 
-Full collision clearance, bevel gears, clutches, tooth phase/contact, load,
+Full collision clearance, arbitrary bevel gears, clutches, tooth phase/contact, load,
 material feed direction, persisted phase and actual gameplay remain unfinished.
 A solver result cannot establish physical clearance for perpendicular parts.
 
