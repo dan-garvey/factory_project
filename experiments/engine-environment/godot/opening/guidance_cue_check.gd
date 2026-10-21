@@ -4,11 +4,80 @@ extends SceneTree
 const Opening = preload("res://opening/opening.gd")
 const SharedOpening = preload("res://opening/shared_opening.gd")
 var checks := 0
+var camera_failed := false
 
 class SessionStub extends RefCounted:
 	var ready := true
 	func is_ready() -> bool:
 		return ready
+
+class CameraProjection extends RefCounted:
+	var snapshot := {"options": {}, "entities": {}, "links": [], "revision": 0}
+	func projection() -> Dictionary:
+		return snapshot.duplicate(true)
+	func is_ready() -> bool:
+		return false
+
+class SharedCameraView extends SharedOpening:
+	func _refresh_ui() -> void:
+		pass
+
+func verify_camera(condition: bool, reason: String) -> void:
+	checks += 1
+	if not condition:
+		camera_failed = true
+		push_error(reason)
+
+func camera_view(shared_profile: bool):
+	var view = SharedCameraView.new() if shared_profile else Opening.new()
+	var projection := CameraProjection.new()
+	view.model = projection
+	if shared_profile:
+		view.session = projection
+	view.geometry_key = JSON.stringify([{}, [], []])
+	view.visual_revision = 0
+	return view
+
+func check_camera_profiles() -> void:
+	for shared_profile in [false, true]:
+		var view = camera_view(shared_profile)
+		var projection = view.model
+		var original_yaw: float = view.orbit_yaw
+		var original_distance: float = view.distance
+		var original_focus: Vector3 = view.focus
+		view._refresh()
+		verify_camera(view.orbit_pitch == 0.82, "An unknown projection does not choose a native camera profile.")
+		projection.snapshot.options.native = true
+		var facts: Dictionary = projection.snapshot.duplicate(true)
+		view._refresh()
+		verify_camera(view.orbit_pitch == 0.60, "The first confirmed native projection initializes the camera after deferred arrival.")
+		view.orbit_pitch = 0.94
+		view._refresh()
+		projection.snapshot.options = {}
+		view._refresh()
+		projection.snapshot.options.native = true
+		view._refresh()
+		verify_camera(view.orbit_pitch == 0.94, "Further snapshots and reconnect preserve a player's adjusted pitch.")
+		verify_camera(view.orbit_yaw == original_yaw and view.distance == original_distance and view.focus == original_focus,
+			"Profile initialization preserves yaw, zoom and character-follow focus.")
+		verify_camera(projection.snapshot == facts and view.actor_world == null and view.request_sequence == 0,
+			"The view does not mutate confirmed facts, create physical authority or submit requests.")
+		view.free()
+	for legacy_profile in [false, true]:
+		var view = camera_view(false)
+		var projection = view.model
+		projection.snapshot.options = {"native": legacy_profile}
+		view.legacy_fixture = legacy_profile
+		view._refresh()
+		verify_camera(view.orbit_pitch == 0.82, "Historical and nonnative profiles retain their earlier starting pitch.")
+		view.free()
+	var view = camera_view(true)
+	var projection = view.model
+	view.orbit_pitch = 1.01
+	projection.snapshot.options.native = true
+	view._refresh()
+	verify_camera(view.orbit_pitch == 1.01, "An already adjusted pitch is preserved when the first native profile arrives.")
+	view.free()
 
 func verify(condition: bool, reason: String) -> void:
 	checks += 1
@@ -24,6 +93,11 @@ func fixture() -> Dictionary:
 		"options": {"physical": true}}
 
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--camera-profile-only"):
+		check_camera_profiles()
+		print("OPENING_CAMERA_PROFILE_%s %d" % ["FAIL" if camera_failed else "PASS", checks])
+		quit(1 if camera_failed else 0)
+		return
 	var view = Opening.new()
 	view.mode = "belt"
 	view.state = fixture()

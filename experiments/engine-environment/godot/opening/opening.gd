@@ -2395,6 +2395,7 @@ var lesson_return: Button
 var elapsed := 0.0
 var orbit_yaw := 0.68
 var orbit_pitch := 0.82
+var native_camera_initialized := false
 var distance := 18.5
 var focus := Vector3(1.3, 0.0, 1.1)
 var hover_cell := Vector2i(99, 99)
@@ -2498,9 +2499,6 @@ func _start_character_world() -> bool:
 
 func _start_character_presenter() -> void:
 	distance = 14.0
-	if _native_transmission():
-		# Reversible art default: reveal the working faces below the roofs.
-		orbit_pitch = 0.60
 	character_presenter = CharacterPresenter.new()
 	character_presenter.name = "Characters"
 	character_presenter.configure(self)
@@ -3685,6 +3683,12 @@ func _redraw_items() -> void:
 
 func _refresh() -> void:
 	state = model.projection()
+	# Shared profiles arrive after presenter creation. Choose this revisable
+	# default once, preserving any pitch already adjusted while connecting.
+	if not native_camera_initialized and _native_transmission():
+		native_camera_initialized = true
+		if orbit_pitch == 0.82:
+			orbit_pitch = 0.60
 	if actor_world != null:
 		actor_world.sync_topology()
 	var next_key := JSON.stringify([state.entities, state.links, state.get("drive_links", [])])
