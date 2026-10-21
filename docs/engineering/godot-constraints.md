@@ -652,6 +652,15 @@ absorption or refraction; transparent-object sorting, underwater viewing and fin
 rendered balance remain unassessed. Resource and frame-consumer checks do not
 establish pixel quality or GPU cost. The historical flat fixture stays opaque.
 
+The current [forest-floor surface](../../experiments/engine-environment/godot/opening/assets/ground/CREDITS.md)
+uses provider-declared 1.3-metre mapping and preserves the source albedo's decoded
+RGB8 values through lossless packing. The pinned loader decodes the 16-bit data
+PNGs to RGB8 before normal/scalar resampling; original bit precision is not retained.
+Red-channel ambient occlusion is an explicit adapter choice, since the provider's
+descriptor does not bind it. These are shading/data boundaries, not terrain
+displacement, collision or biome requirements. Resource checks establish neither
+rendered balance nor the overall graphical-quality target.
+
 The [fern asset](../../experiments/engine-environment/godot/opening/assets/ferns/CREDITS.md)
 uses the same resource-only foliage import. Its first export attempt failed exact
 geometry/image preservation checks; the shipped preparation copies the selected

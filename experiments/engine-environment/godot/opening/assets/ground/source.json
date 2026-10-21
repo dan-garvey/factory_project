@@ -1,85 +1,114 @@
 {
-  "asset": "Rocky Trail",
-  "author": "Amal Kumar",
-  "asset_url": "https://polyhaven.com/a/rocky_trail",
-  "license": "CC0",
+  "asset": "Brown Mud Leaves 01",
+  "author": "Rob Tuytel",
+  "asset_url": "https://polyhaven.com/a/brown_mud_leaves_01",
+  "license": "CC0-1.0",
   "license_url": "https://polyhaven.com/license",
+  "checked_utc": "2026-10-21",
   "source_extent_metres": [
-    2,
-    2
+    1.3,
+    1.3
   ],
-  "provider_info_sha256": "24db8aacab0f5618750ad50ba0e3c45518074ec2b5e34560091bed75222d6786",
-  "provider_files_sha256": "5d181bb110374911183f6a4cbda5c43ae39365bc0ca84c70d274f9177a1af119",
+  "source_method": "The primary page/API identify author, texture, extent and license; the acquisition technique is unverified.",
+  "provider_info_sha256": "994e5b5a33349b2f191bcaac0a4cc17912feec9dd801c99deffadffdf7075cf1",
+  "provider_files_sha256": "a1529e39aade7ccf239181261d76f1c1bc41df27b6ab0edfcf6a5de95d3c0f8a",
   "source_files": {
+    "descriptor": {
+      "url": "https://dl.polyhaven.org/file/ph-assets/Textures/gltf/1k/brown_mud_leaves_01/brown_mud_leaves_01_1k.gltf",
+      "bytes": 2836,
+      "sha256": "7da88e6354aa1f67566e7aca803642641b8247ddbbfc81c5dd64067961daa194",
+      "md5": "f5ca63305547735e84bfd90709e4dfc9"
+    },
     "albedo": {
-      "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rocky_trail/rocky_trail_diff_1k.jpg",
-      "bytes": 1076180,
-      "sha256": "7f20d83cd4a67f9c38abf72f39f5a3749a962e90bdc156998be027b1227a5bd6"
+      "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/brown_mud_leaves_01/brown_mud_leaves_01_diff_1k.jpg",
+      "bytes": 1206953,
+      "sha256": "c598c555f13cd5328409fd5e2a45496a26e319e52299e3959042f1449c2f1b06",
+      "md5": "5340848384f9bb19bfa6e7ac459683d7"
     },
     "normal_gl": {
-      "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/rocky_trail/rocky_trail_nor_gl_1k.png",
-      "bytes": 6990580,
-      "sha256": "281e48ce787adcfbbd843902ca36294fdcf1513e0c1e4a49e6c60470759c2e50"
+      "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/brown_mud_leaves_01/brown_mud_leaves_01_nor_gl_1k.png",
+      "bytes": 6109028,
+      "sha256": "0c5c37348830b6a36024a114359e26aaf2f48bf2b435a5ef2d6999bcd4b530b7",
+      "md5": "bfa4b76dc2218b8b953d3eb2055fafad",
+      "source_png_bit_depth": 16,
+      "godot_decoded_format": "RGB8"
     },
     "arm": {
-      "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/rocky_trail/rocky_trail_arm_1k.png",
-      "bytes": 4359390,
-      "sha256": "10a2402bb656349715ecf4b3ace4c9c5bcafb67f35f2df2f3605ca75d6ded293"
-    },
-    "descriptor": {
-      "url": "https://dl.polyhaven.org/file/ph-assets/Textures/gltf/1k/rocky_trail/rocky_trail_1k.gltf",
-      "bytes": 2678,
-      "sha256": "1d96a30f4d698e14e37f16da6ed744161cc3f84570678344a8247fe5a57c636d"
+      "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/brown_mud_leaves_01/brown_mud_leaves_01_arm_1k.png",
+      "bytes": 4619226,
+      "sha256": "939f98687379b70fe2f2e1daf0965d46080d00bb4bbe9afb9e2108ce456ad9ab",
+      "md5": "3f4caa35a07e94a20508e51d3d4aba89",
+      "source_png_bit_depth": 16,
+      "godot_decoded_format": "RGB8"
     }
   },
   "processed_files": {
     "ground_albedo.webp": {
-      "albedo_rmse_srgb": 0.0239971549899424,
-      "decoded_rgb8_exact": false,
-      "encoded_bytes": 236172,
+      "bytes": 1740502,
+      "decoded_rgb_exact": true,
+      "extent": 1024,
       "file": "ground_albedo.webp",
+      "maximum_normal_length_error": 0,
+      "sha256": "8029721a7ca3cc7e9ebe9aa0a307a5cd89f7e42a24ab2040877c8bd18533b339",
+      "source_decoded_format": 4,
+      "width": 1024,
       "height": 1024,
-      "sha256": "167d97a49d324a19dbdf7298a80cabbae0c7cf363e3090d1d09a4b3c271fc4da",
-      "width": 1024
+      "lossless_webp": true
     },
     "ground_arm.webp": {
-      "decoded_rgb8_exact": true,
-      "encoded_bytes": 389488,
+      "bytes": 373924,
+      "decoded_rgb_exact": true,
+      "extent": 512,
       "file": "ground_arm.webp",
+      "maximum_normal_length_error": 0,
+      "sha256": "69b938291b32dce3417ee36c9b9cf518d2b0536bc777e6ceb51691b5a242a7b7",
+      "source_decoded_format": 4,
+      "width": 512,
       "height": 512,
-      "sha256": "4ed64e121248c63c394e9cff6f8e939207f4c4f36619982156cb0c10e6cd4e68",
-      "width": 512
+      "lossless_webp": true
     },
     "ground_normal_gl.webp": {
-      "decoded_rgb8_exact": true,
-      "encoded_bytes": 640354,
+      "bytes": 645280,
+      "decoded_rgb_exact": true,
+      "extent": 512,
       "file": "ground_normal_gl.webp",
+      "maximum_normal_length_error": 0.00640267133712769,
+      "sha256": "6c135aab06c5a490b9471bdab4dfb26d4939bd2b6ecbbcd76287c6edfd108bb9",
+      "source_decoded_format": 4,
+      "width": 512,
       "height": 512,
-      "maximum_unit_length_error": 0.0065264105796814,
-      "processing": "Original OpenGL PNG decoded to RGB8, Lanczos resized to 512, per-texel vectors renormalized and explicitly rounded to nearest RGB8 integers, lossless WebP. No gamma transform or green flip. Original 1024 representation remains preserved; albedo and ARM are not repeated.",
-      "sha256": "9d5b2c0cb072a90c94dacafcb55a0ca0b3ab8ee47ec534b3fb888c9a695a40a1",
-      "status": "pass",
-      "width": 512
+      "lossless_webp": true
     }
   },
-  "material": {
-    "metallic_factor": 0,
-    "roughness_factor": 1,
-    "packed_channels": {
-      "red": "ambient occlusion",
-      "green": "roughness",
-      "blue": "metallic (factor zero, as in provider glTF)"
-    },
-    "normal": "OpenGL tangent normal. No green flip or gamma transform.",
-    "mapping": "World-space triplanar scale 0.5; two metres per repeat.",
-    "mipmaps": "Generated once per shared image. Normal mipmaps use vector renormalization.",
-    "geometry": "No source displacement is applied. Shared terrain and collision geometry are unchanged."
-  },
   "preparation": {
-    "albedo": "1024px RGB8 WebP quality 0.70, no resize or color transform. Measured sRGB RMSE against provider JPG: 0.0239971549899424; declared bound 0.025.",
-    "arm": "Provider PNG decoded to RGB8, Lanczos resized to 512, lossless WebP. Decoded output equals the prepared scalar image.",
-    "normal": "Provider 16-bit OpenGL PNG decoded to RGB8, Lanczos resized to 512, vectors normalized and explicitly rounded to nearest RGB8, lossless WebP. Decoded output equals prepared bytes; maximum unit-length error 0.0065264105796814.",
-    "retained_alternatives": "The valid 1024px normal exceeds the combined source allowance. The first 512px writer failed its unit-vector bound; both outputs and results remain external."
+    "fixture": "../foliage/prepare_maps.gd",
+    "mode": "--material=forest-ground",
+    "color": "Decoded JPEG RGB8 retained without resize or gamma change; lossless WebP roundtrip exact.",
+    "data": "Pinned Godot 4.7.2 PNG decoder returns RGB8 from the original 16-bit RGB data. Float Lanczos resize to 512, normal renormalization, nearest RGB8 packing and exact lossless WebP roundtrip. No data gamma or normal green flip.",
+    "prepared_bytes": 2759706,
+    "source_scene_imported": false
   },
-  "limits": "Source packaging and headless material tests do not establish rendered quality, Satisfactory parity or GPU cost."
+  "runtime": {
+    "mapping": "World triplanar, scale 1 / 1.3, without geometry displacement.",
+    "mipmaps": "Generated once, with normal renormalization.",
+    "metallic_factor": 0,
+    "packed_channels": {
+      "red": "Ambient occlusion, ambient lighting only.",
+      "green": "Roughness.",
+      "blue": "Retained metallic channel; descriptor factor remains zero."
+    },
+    "occlusion_choice": "The descriptor has no occlusion binding. Using the separately provided red ARM channel is an explicit adapter choice.",
+    "resource_cache": "Existing shared ground material; independent steel, stone and vegetation resources unchanged.",
+    "file_names": "Existing captured filenames retained."
+  },
+  "previous_surface": {
+    "asset": "Rocky Trail",
+    "author": "Amal Kumar",
+    "evidence": "Original revisions and scanned-valley-ground-20261020 retain all source conversions, original normal-packing failure and prior accepted scope."
+  },
+  "limits": [
+    "Reversible art default, not permanent biome or engine selection.",
+    "No raised leaf geometry, terrain/collision/quantity/state change.",
+    "Resource/pixel checks are not rendered-quality, contact, performance or human acceptance."
+  ]
 }

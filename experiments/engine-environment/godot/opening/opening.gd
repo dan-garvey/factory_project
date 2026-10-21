@@ -1251,7 +1251,7 @@ class ProductionEnvironment:
 
 	static func ground_material() -> StandardMaterial3D:
 		if ground_finish == null:
-			ground_finish = _scanned_ground_material()
+			ground_finish = _sourced_ground_material()
 			if ground_finish != null:
 				return ground_finish
 			ground_finish = StandardMaterial3D.new()
@@ -1265,19 +1265,19 @@ class ProductionEnvironment:
 			ground_finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 		return ground_finish
 
-	static func _scanned_ground_material() -> StandardMaterial3D:
+	static func _sourced_ground_material() -> StandardMaterial3D:
 		var loaded := ProductionSteelFloor.read_images(GROUND_ROOT, GROUND_FILES, Vector2i(512, 512))
 		ground_source_status = loaded.status
 		if loaded.status == "missing":
 			return null
 		if loaded.status != "ready":
-			push_error("Incomplete or invalid rocky-ground material: " + str(loaded.get("reason", "unknown")))
+			push_error("Incomplete or invalid forest-ground material: " + str(loaded.get("reason", "unknown")))
 			return null
 		for role in loaded.images:
 			var image: Image = loaded.images[role]
 			if image.generate_mipmaps(role == "normal") != OK:
 				ground_source_status = "invalid"
-				push_error("Cannot generate rocky-ground mipmaps.")
+				push_error("Cannot generate forest-ground mipmaps.")
 				return null
 		var packed := ImageTexture.create_from_image(loaded.images.arm)
 		var finish := StandardMaterial3D.new()
@@ -1302,7 +1302,8 @@ class ProductionEnvironment:
 		finish.uv1_triplanar = true
 		finish.uv1_world_triplanar = true
 		finish.uv1_triplanar_sharpness = 8.0
-		finish.uv1_scale = Vector3.ONE * 0.5
+		# Brown Mud Leaves 01 covers a provider-declared 1.3-metre square.
+		finish.uv1_scale = Vector3.ONE / 1.3
 		finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 		return finish
 

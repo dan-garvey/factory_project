@@ -351,10 +351,11 @@ not a world or construction boundary. Patch bounds enclose the transformed mesh;
 the original sparse foliage and historical fallback remain intact. No density,
 culling or triangle count is a measured GPU-performance or human-quality result.
 
-Complete current captures use the CC0 [Rocky Trail](ground/CREDITS.md) surface
+Complete current captures use the CC0 [Brown Mud Leaves 01](ground/CREDITS.md) surface
 for the valley ground. Shared albedo, packed scalar and OpenGL normal maps use
-world-space mapping at the source's two-metre scale. Restrained elevation tint
-preserves the photograph's brightness rather than applying another dark base
+world-space mapping at the source's declared 1.3-metre scale. Loam and moss replace
+the earlier uniform pale trail as a reversible art choice. Restrained elevation tint
+preserves source color values rather than applying another dark base
 coat. This changes shading only: terrain triangles, support geometry, native
 poses and construction anchors are unchanged. The steel material has its own
 cache and files; both use the same bounded decoder with their declared normal

@@ -121,7 +121,7 @@ func finish() -> void:
 			"pine-understory": "complete pine resource, terrain and confirmed-machine visibility consumer",
 			"pine-roots": "focused edge-inclusive terrain-root oracle correction",
 			"pine-reflectance": "source-derived normal-incidence dielectric reflectance and cache isolation",
-			"ground-material": "scanned ground material, data channels and cache separation",
+			"ground-material": "qualified forest-floor material, data channels and cache separation",
 			"water-flow": "layered translucent river resources and ordinary frame consumer",
 			"rock-collision-shape": "visible rock facets versus the shared convex collision hull",
 			"flat-fallback": "historical flat source-roster fallback", "foliage": "changed foliage bulk upload",
@@ -420,10 +420,10 @@ func check_ground_material() -> void:
 		"Packed scalar roles remain red occlusion, green roughness and blue metallic.")
 	verify(ground.normal_enabled and ground.normal_scale == 1.0 and ground.vertex_color_use_as_albedo
 		and ground.albedo_color == Color.WHITE and ground.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED,
-		"The scanned finish remains opaque and uses its original normal convention with restrained vertex tint.")
-	verify(ground.uv1_triplanar and ground.uv1_world_triplanar and ground.uv1_scale == Vector3.ONE * 0.5
+		"The qualified finish remains opaque and uses its original normal convention with restrained vertex tint.")
+	verify(ground.uv1_triplanar and ground.uv1_world_triplanar and ground.uv1_scale.is_equal_approx(Vector3.ONE / 1.3)
 		and ground.texture_filter == BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC,
-		"World-space mapping preserves the two-metre extent across steep terrain faces.")
+		"World-space mapping preserves the declared 1.3-metre extent across steep terrain faces.")
 	var packed := Image.load_from_file(Scenery.GROUND_ROOT.path_join(Scenery.GROUND_FILES.arm))
 	var actual := ground.ao_texture.get_image()
 	for pixel in [Vector2i(0, 0), Vector2i(117, 239), Vector2i(511, 511)]:

@@ -151,6 +151,95 @@ func prepare_pine(family: String, output: String) -> void:
 	print(JSON.stringify(report))
 	quit(0 if report.status == "pass" else 1)
 
+func prepare_forest_ground(family: String) -> void:
+	var output := family.path_join("prepared-ground")
+	if not family.is_absolute_path() or output.begins_with(ProjectSettings.globalize_path("res://")) or DirAccess.dir_exists_absolute(output):
+		fail("Use the declared external family and preserve earlier ground outputs.")
+		return
+	var pins := {"source.gltf": "7da88e6354aa1f67566e7aca803642641b8247ddbbfc81c5dd64067961daa194",
+		"source_albedo.jpg": "c598c555f13cd5328409fd5e2a45496a26e319e52299e3959042f1449c2f1b06",
+		"source_normal.png": "0c5c37348830b6a36024a114359e26aaf2f48bf2b435a5ef2d6999bcd4b530b7",
+		"source_arm.png": "939f98687379b70fe2f2e1daf0965d46080d00bb4bbe9afb9e2108ce456ad9ab"}
+	for file in pins:
+		if FileAccess.get_sha256(family.path_join(file)) != pins[file]:
+			fail("Refuse changed qualified ground input: " + file)
+			return
+	var descriptor: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(family.path_join("source.gltf")))
+	if descriptor.materials[0].pbrMetallicRoughness.metallicFactor != 0:
+		fail("The ground descriptor no longer selects the qualified dielectric surface.")
+		return
+	if DirAccess.make_dir_absolute(output) != OK:
+		fail("Cannot create the fresh ground output.")
+		return
+	var report := {"status": "pass", "asset": "brown_mud_leaves_01", "maps": {},
+		"source_extent_metres": 1.3, "source_scene_imported": false, "limits": "No scene, collision, renderer or graphical-quality result."}
+	var total := 0
+	for role in ["albedo", "normal", "arm"]:
+		var source_name: String = {"albedo": "source_albedo.jpg", "normal": "source_normal.png", "arm": "source_arm.png"}[role]
+		var image := Image.load_from_file(family.path_join(source_name))
+		if image == null or image.get_size() != Vector2i(1024, 1024):
+			fail("Unexpected ground source image: " + role)
+			return
+		var source_format := image.get_format()
+		var bytes := PackedByteArray()
+		var maximum_normal_error := 0.0
+		if role == "albedo":
+			# Preserve decoded source color: no resize, gamma operation or lossy re-encoding.
+			image.convert(Image.FORMAT_RGB8)
+			bytes = image.get_data()
+		else:
+			image.convert(Image.FORMAT_RGBF)
+			image.resize(512, 512, Image.INTERPOLATE_LANCZOS)
+			bytes.resize(512 * 512 * 3)
+			for y in range(512):
+				for x in range(512):
+					var color := image.get_pixel(x, y)
+					if role == "normal":
+						var normal := Vector3(color.r, color.g, color.b) * 2.0 - Vector3.ONE
+						if not normal.is_finite() or normal.length_squared() < 0.000001:
+							fail("Invalid source ground normal.")
+							return
+						normal = normal.normalized()
+						color = Color(normal.x * 0.5 + 0.5, normal.y * 0.5 + 0.5, normal.z * 0.5 + 0.5)
+					var at := (y * 512 + x) * 3
+					bytes[at] = nearest_byte(color.r)
+					bytes[at + 1] = nearest_byte(color.g)
+					bytes[at + 2] = nearest_byte(color.b)
+					if role == "normal":
+						var returned := Vector3(bytes[at], bytes[at + 1], bytes[at + 2]) / 255.0 * 2.0 - Vector3.ONE
+						maximum_normal_error = maxf(maximum_normal_error, absf(returned.length() - 1.0))
+			image = Image.create_from_data(512, 512, false, Image.FORMAT_RGB8, bytes)
+		if maximum_normal_error >= 0.01:
+			fail("Prepared ground normals exceed the encoding bound.")
+			return
+		var filename: String = {"albedo": "ground_albedo.webp", "normal": "ground_normal_gl.webp", "arm": "ground_arm.webp"}[role]
+		var path := output.path_join(filename)
+		if image.save_webp(path, false, 1.0) != OK:
+			fail("Cannot save lossless ground image: " + role)
+			return
+		var decoded := Image.load_from_file(path)
+		if decoded == null:
+			fail("Cannot decode prepared ground image.")
+			return
+		decoded.convert(Image.FORMAT_RGB8)
+		if decoded.get_size() != image.get_size() or decoded.get_data() != bytes:
+			fail("Ground WebP changed the declared prepared RGB bytes.")
+			return
+		var size := FileAccess.get_file_as_bytes(path).size()
+		total += size
+		report.maps[role] = {"file": filename, "bytes": size, "sha256": FileAccess.get_sha256(path),
+			"source_decoded_format": source_format, "extent": decoded.get_width(), "decoded_rgb_exact": true,
+			"maximum_normal_length_error": maximum_normal_error}
+	report["prepared_bytes"] = total
+	if total > 4194304:
+		report.status = "fail"
+		report["finding"] = "The prepared surface exceeds its four-MiB component allocation."
+	var result := FileAccess.open(output.path_join("result.json"), FileAccess.WRITE)
+	result.store_string(JSON.stringify(report, "  ") + "\n")
+	result.close()
+	print(JSON.stringify(report))
+	quit(0 if report.status == "pass" else 1)
+
 func fail(message: String) -> void:
 	push_error(message)
 	quit(1)
@@ -260,6 +349,9 @@ func _initialize() -> void:
 		return
 	if material == "pine":
 		prepare_pine(family, pine_output if not pine_output.is_empty() else family.path_join("prepared-pine"))
+		return
+	if material == "forest-ground":
+		prepare_forest_ground(family)
 		return
 	if material == "stone":
 		prepare_stone(family)
