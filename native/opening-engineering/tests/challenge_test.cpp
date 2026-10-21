@@ -58,13 +58,13 @@ void conserved(const Host& host) {
 }
 
 // Invented channel and actor observations; no game or desktop is run.
-O stream_site(bool reverse = false) {
+O stream_site(bool reverse = false, I speed = 200) {
     A axis{V(-128.0), V(-2.8), V(-2.0), V(128.0)}, heights;
     for (int row = 0; row < 4; ++row) {
         heights.emplace_back(-1.65); heights.emplace_back(-1.65);
         heights.emplace_back(-0.02); heights.emplace_back(-0.02);
     }
-    const I current = reverse ? -200 : 200;
+    const I current = reverse ? -speed : speed;
     return {{"axis", V(axis)}, {"heights", V(heights)}, {"obstacles", V(A{})},
             {"water", V(A{V(A{V(I{-8}), V(I{0}), V(I{-20}), V(I{-400}), V(I{0}), V(current)}),
                           V(A{V(I{-8}), V(I{4}), V(I{-20}), V(I{-400}), V(I{0}), V(current)})})}};
@@ -75,10 +75,10 @@ struct Run {
     std::string prefix;
     I serial{}, epoch{};
     bool reverse{};
-    Run(std::string name, bool reversed = false, const std::optional<V>& saved = std::nullopt)
+    Run(std::string name, bool reversed = false, const std::optional<V>& saved = std::nullopt, I speed = 200)
         : prefix(std::move(name)), reverse(reversed) {
         check(accepted(host.initialize("upstream-drive", {"P", "Q"})), "The real finite Host initializes.");
-        check(accepted(host.configure_terrain(stream_site(reverse))), "The fixture binds its invented channel.");
+        check(accepted(host.configure_terrain(stream_site(reverse, speed))), "The fixture binds its invented channel.");
         if (saved) check(accepted(host.restore_checkpoint(*saved)), "A fresh Host restores the retained checkpoint.");
     }
     void at(double x, double z) {
@@ -227,8 +227,8 @@ void wrong_source() {
 }
 
 void moving_fork_fixture() {
-    for (int order : {1, 2}) {
-        Run run(order == 1 ? "moving-fork-first" : "moving-fork-last");
+    for (I speed : {I{200}, I{400}}) for (int order : {1, 2}) {
+        Run run(order == 1 ? "moving-fork-first" : "moving-fork-last", false, std::nullopt, speed);
         const auto press = build(run, 0, true, false, order, true);
         const auto start = run.host.projection();
         const auto motion = field<O>(start, "motion");
@@ -239,6 +239,20 @@ void moving_fork_fixture() {
             if (field<std::string>(motion.at(from), "state") == "rotating") ++rotating_spans;
         }
         check(rotating_spans == 2, "The competing span and working span both rotate.");
+        if (speed == 400 && order == 1) {
+            const auto spans = field<O>(start, "belt_spans");
+            bool fast_first = false;
+            for (const auto& [id, span] : spans) {
+                (void)id;
+                if (field<I>(span, "order") != 0) continue;
+                const auto entry = motion.at(field<std::string>(span, "from"));
+                const auto numerator = field<I>(entry, "numerator");
+                fast_first = numerator >= field<I>(entry, "denominator") ||
+                             -numerator >= field<I>(entry, "denominator");
+            }
+            check(fast_first && !e::inspect(run.host, "P").belt_forward,
+                  "A fast first competing inlet prevents a forward route before any ticks.");
+        }
         for (int turn = 0; turn < 200 && e::inspect(run.host, "P").products < 8; ++turn) {
             const auto stock = field<O>(run.host.projection(), "stock");
             if (std::get<I>(stock.at("output").storage()) > 0) {
@@ -248,8 +262,13 @@ void moving_fork_fixture() {
             (void)run.host.advance();
         }
         const auto progress = e::inspect(run.host, "P");
-        check(progress.products == 8 && progress.belt_forward && progress.phase == e::Phase::ready,
-              "Both construction orders produce the required plates despite the moving competing span.");
+        if (speed == 400 && order == 1) {
+            check(progress.products == 0 && !progress.belt_forward,
+                  "A faster first branch diverts production and must not be reported as a working route.");
+        } else {
+            check(progress.products == 8 && progress.belt_forward && progress.phase == e::Phase::ready,
+                  "The working route produces plates when it receives collected material.");
+        }
         if (order == 1) {
             I spilled = 0;
             for (const auto& drop : field<A>(run.host.projection(), "dropped_material")) spilled += field<I>(drop, "raw");
@@ -257,7 +276,9 @@ void moving_fork_fixture() {
         }
         conserved(run.host);
         const auto saved = run.host.checkpoint();
-        Run resumed(order == 1 ? "moving-first-resume" : "moving-last-resume", false, saved);
+        Run resumed(order == 1 ? "moving-first-resume" : "moving-last-resume", false, saved, speed);
+        check(e::inspect(run.host, "P").belt_forward == e::inspect(resumed.host, "P").belt_forward,
+              "Restoration preserves the same fork assessment.");
         for (int i = 0; i < 20; ++i) { (void)run.host.advance(); (void)resumed.host.advance(); }
         check(same(run.host.checkpoint(), resumed.host.checkpoint()),
               "Moving fork cargo and construction order survive checkpoint continuation.");
