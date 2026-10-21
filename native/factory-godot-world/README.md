@@ -67,6 +67,10 @@ material links; a carried belt item is used to build a shaft span. The standalon
 material library still has a legacy single-slot fixture. Session and Store
 continue to use the same native World.
 
+The `line_belt_raw` projection totals raw blanks and unfinished work on all
+confirmed belt spans for the opening's line counter. It excludes finished plates
+and is derived from the same slots, so it is not an additional material owner.
+
 Drive connections consume independent finite shaft parts and derive motion from
 their actual geometry. The projection includes those parts, rational motion,
 engagements, typed cargo and per-actor kits. It is a detached view, never authority.

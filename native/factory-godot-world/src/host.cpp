@@ -1079,10 +1079,18 @@ Value Host::projection() const {
         }
     }
     Integer span_order = 0;
+    // The validated ledger bounds this raw-equivalent total by initial stock.
+    // Finished products are not unprocessed blanks.
+    Integer belt_raw_units = 0;
     for (const auto& span : state.topology.belt_spans) {
         const auto& lane = state.material.belt_lanes.at(span.geometry.id);
         Array slots;
-        for (const auto& item : lane.slots) slots.push_back(item ? cargo_value(*item) : Value(nullptr));
+        for (const auto& item : lane.slots) {
+            slots.push_back(item ? cargo_value(*item) : Value(nullptr));
+            if (!item) continue;
+            belt_raw_units += item->raw_units;
+            for (const auto& lot : item->work_lots) belt_raw_units += lot.recipe.input_units_per_product;
+        }
         belt_spans.emplace(span.geometry.id, Value(Object{{"generation", Value(span.generation)},
             {"order", Value(span_order++)}, {"from", Value(span.geometry.first_shaft)}, {"to", Value(span.geometry.last_shaft)},
             {"phase", Value(lane.phase)}, {"slots", Value(std::move(slots))}}));
@@ -1145,7 +1153,7 @@ Value Host::projection() const {
         {"order", Value(snapshot.history.order)}, {"initial_feed", Value(profile_.initial_units)},
         {"recipe_input", Value(profile_.material.input_units_per_product)}, {"entities", Value(std::move(entities))},
         {"transmission_parts", Value(std::move(transmissions))}, {"links", Value(std::move(links))},
-        {"belt_spans", Value(std::move(belt_spans))},
+        {"belt_spans", Value(std::move(belt_spans))}, {"line_belt_raw", Value(belt_raw_units)},
         {"drive_links", Value(std::move(drive_links))}, {"engagements", Value(std::move(engagements))},
         {"motion", Value(std::move(motions))}, {"inventories", Value(std::move(inventories))},
         {"cargo", Value(std::move(cargo))}, {"part_kits", Value(std::move(kits))},

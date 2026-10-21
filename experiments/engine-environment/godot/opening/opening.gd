@@ -5474,8 +5474,9 @@ func _refresh_ui() -> void:
 	goal_label.text = "FIRST SHIFT\nBring back 4 plates\n%d / 4 collected" % inventory
 	confirm_button.disabled = inventory < 4 or goal_confirmed or explanation_open
 	confirm_button.text = "Objective confirmed" if goal_confirmed else "Confirm four plates"
+	var belt_raw: int = int(state.get("line_belt_raw", 0)) if _native_transmission() else state.stock.belt
 	stock_label.text = "SEAM  %d blanks\nIN THE LINE  %d blanks\nPRESS OUTLET  %d plate" % [state.stock.source,
-		state.stock.collector + state.stock.belt + state.stock.input + state.stock.held, state.stock.output]
+		state.stock.collector + belt_raw + state.stock.input + state.stock.held, state.stock.output]
 	power_label.text = "DRIVE RUNNING" if state.get("powered", false) else "DRIVE SWITCHED OFF" if not state.get("power_enabled", true) else "DRIVE NEEDS CONNECTIONS"
 	power_button.text = ("Stop drive  [%s]" if state.get("power_enabled", true) else "Start drive  [%s]") % _power_key()
 	power_button.tooltip_text = "" if legacy_fixture else "Approach the waterwheel to operate the drive."

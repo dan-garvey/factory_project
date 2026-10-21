@@ -73,6 +73,19 @@ V motion(const Host& host, const std::string& entity) {
     return V(field<O>(host.projection(), "motion").at(entity));
 }
 
+I raw_on_belts(const V& projection) {
+    I result = 0;
+    for (const auto& [id, span] : field<O>(projection, "belt_spans")) {
+        (void)id;
+        for (const auto& item : field<A>(span, "slots")) {
+            if (item.type() == factory::values::Type::null) continue;
+            result += field<I>(item, "raw");
+            for (const auto& lot : field<A>(item, "work_lots")) result += field<I>(lot, "recipe_input");
+        }
+    }
+    return result;
+}
+
 void observe(Host& host, double x, double z, I epoch) {
     check(accepted(host.publish_actor("P", {V(x), V(1.0), V(z)}, epoch)),
           "The disclosed synthetic observation is accepted for this native unit only.");
@@ -645,6 +658,34 @@ void belt_span_host_commands() {
     check(projected_slots.size() == 3 && projected_slots[0].type() == factory::values::Type::null &&
               field<I>(projected_slots[1], "raw") == 1 && field<I>(projected_span, "phase") == 321,
           "The Host projects the exact confirmed lane slot and retained phase.");
+    for (const bool work : {false, true}) {
+        auto typed_envelope = with_item;
+        auto typed_world = std::get<O>(typed_envelope.at("world").storage());
+        auto typed_state = std::get<O>(typed_world.at("state").storage());
+        auto typed_material = std::get<O>(typed_state.at("material").storage());
+        auto typed_lanes = std::get<O>(typed_material.at("belt_lanes").storage());
+        auto typed_lane = std::get<O>(typed_lanes.at(id).storage());
+        auto typed_slots = std::get<A>(typed_lane.at("slots").storage());
+        A lots;
+        if (work) {
+            lots.emplace_back(O{{"id", V(I{1})}, {"recipe", V(O{{"input_units_per_product", V(I{1})}, {"cycle_ticks", V(I{2})}})},
+                {"remaining_ticks", V(I{1})}, {"completed_subticks", V(I{123})}});
+            typed_material.at("next_work_id") = V(I{2});
+        }
+        typed_slots[1] = V(O{{"raw_units", V(I{0})}, {"products", V(I{work ? 0 : 1})}, {"work_lots", V(std::move(lots))}});
+        typed_lane.at("slots") = V(std::move(typed_slots));
+        typed_lanes.at(id) = V(std::move(typed_lane));
+        typed_material.at("belt_lanes") = V(std::move(typed_lanes));
+        typed_state.at("material") = V(std::move(typed_material));
+        typed_world.at("state") = V(std::move(typed_state));
+        typed_envelope.at("world") = V(std::move(typed_world));
+        Host typed;
+        check(accepted(typed.initialize("typed-line", {"P"})) && accepted(typed.configure_terrain(low_flat_site())) &&
+                  accepted(typed.restore_checkpoint(V(typed_envelope))),
+              "The Host restores the conserved typed belt item.");
+        check(field<I>(typed.projection(), "line_belt_raw") == (work ? 1 : 0),
+              "The line count includes unfinished work but does not label a plate as a blank.");
+    }
     auto recover = target("recover_belt_slot", id, "span-recover-far");
     recover.emplace("slot", V(I{1})); recover.emplace("expected", projected_slots[1]);
     observe(loaded, 50, 50, 1);
@@ -834,6 +875,10 @@ void complete_span_route_host(bool two_spans = false) {
               [](const V& item) { return item.type() != factory::values::Type::null; });
     }
     check(saw_cargo, "The checkpoint is taken with cargo on the downstream constructed belt.");
+    const auto flying_projection = host.projection();
+    check(raw_on_belts(flying_projection) > 0 &&
+              field<I>(flying_projection, "line_belt_raw") == raw_on_belts(flying_projection),
+          "The native line counter includes the actual blanks on every constructed belt span.");
     const auto in_flight = host.checkpoint();
     Host paused;
     check(accepted(paused.initialize("paused", {"P"})) &&
@@ -867,6 +912,10 @@ void complete_span_route_host(bool two_spans = false) {
     check(accepted(restored.initialize("fresh", {"P"})) &&
               accepted(restored.configure_terrain(stream)) &&
               accepted(restored.restore_checkpoint(in_flight)), "An in-flight route restores in a fresh Host.");
+    const auto restored_projection = restored.projection();
+    check(field<I>(restored_projection, "line_belt_raw") == raw_on_belts(restored_projection) &&
+              raw_on_belts(restored_projection) == raw_on_belts(flying_projection),
+          "A fresh Host projects the same in-flight line count after restore.");
     for (int i = 0; i < 100; ++i) {
         (void)host.advance(); (void)restored.advance();
     }
