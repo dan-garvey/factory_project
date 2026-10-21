@@ -170,6 +170,76 @@ void perpendicular_belt_line() {
     check(!w::machine_power(restored->snapshot().state.topology).belt,
           "Removing the belt's cog interrupts its power rather than inventing a connection.");
 }
+
+void cross_axis_belt_line() {
+    w::Profile profile;
+    profile.material = {1, 1, 2};
+    profile.initial_units = 1;
+    profile.actors = {"P", "Q"};
+    profile.meters_per_grid_unit = 0.1;
+    profile.build_reach = 4;
+    profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, 1}, {{s::Role::collector, 0, 0}, 1},
+        {{s::Role::belt, 0, 0}, 1}, {{s::Role::processor, 0, 0}, 1},
+        {{s::Role::shaft, 0, 2}, 1}, {{s::Role::shaft, 0, 4}, 4},
+        {{s::Role::gear, 2, 0}, 5}, {{s::Role::gear, 4, 0}, 2}};
+    w::State seed;
+    seed.material.initial_units = 1;
+    seed.material.stock.source = 1;
+    seed.material.cargo = {{"P", {}}, {"Q", {}}};
+    seed.kits = {{"P", profile.finite_parts}, {"Q", {}}};
+    auto world = w::World::create("cog-world", profile, seed);
+    check(world != nullptr, "The cross-axis finite World initializes.");
+    const std::array<const char*, 4> roles{"waterwheel", "collector", "belt", "processor"};
+    std::array<O, 4> hubs;
+    for (std::size_t n = 0; n < hubs.size(); ++n) {
+        auto command = place(("cross-machine-" + std::to_string(n)).c_str(),
+                             {static_cast<I>(n) * 4 - 4, 0, 4}, n ? "z" : "x", 0);
+        command.at("role") = V(roles[n]);
+        if (n) command.at("action") = V("place_connected");
+        hubs[n] = accepted(send(*world, command));
+    }
+    const auto input = accepted(send(*world, place("cross-input", {-12, 0, 4}, "x", 4)));
+    const auto output = accepted(send(*world, place("cross-output", {-8, 0, 8}, "z", 4)));
+    std::array<O, 5> small;
+    for (std::size_t n = 0; n < small.size(); ++n)
+        small[n] = accepted(send(*world, place(("cross-small-" + std::to_string(n)).c_str(),
+                                               {static_cast<I>(n) * 4 - 8, 0, 12}, "z", 2)));
+    const auto connect = [&](const O& from, const O& to, const std::string& request) {
+        O shaft{{"context", V("cog-world")}, {"client", V("P-session")}, {"request", V(request)},
+            {"actor", V("P")}, {"action", V("shaft_between")},
+            {"target", from.at("entity")}, {"generation", from.at("generation")},
+            {"to", to.at("entity")}, {"to_generation", to.at("generation")}};
+        accepted(send(*world, shaft));
+    };
+    connect(hubs[0], input, "cross-source-shaft");
+    connect(output, small[0], "cross-cog-shaft");
+    for (std::size_t n = 1; n < hubs.size(); ++n)
+        connect(hubs[n], small[n + 1], "cross-machine-shaft-" + std::to_string(n));
+    O power{{"context", V("cog-world")}, {"client", V("P-session")}, {"request", V("cross-power")},
+        {"actor", V("P")}, {"action", V("set_drive")}, {"target", hubs[0].at("entity")},
+        {"generation", hubs[0].at("generation")}, {"enabled", V(true)}};
+    accepted(send(*world, power));
+    const auto snapshot = world->snapshot();
+    const auto view = s::power_view(snapshot.state.topology);
+    const auto powered = w::machine_power(snapshot.state.topology);
+    check(powered.collector && powered.belt && powered.processor && snapshot.state.topology.material_links.size() == 2,
+          "A right-angle large-cog transfer powers all three perpendicular-axis machines.");
+    for (std::size_t n = 1; n < hubs.size(); ++n) {
+        const auto id = field<std::string>(hubs[n], "entity");
+        check(view.mechanical.motion.at(id) == m::Motion{m::MotionState::rotating, {n % 2 ? 1 : -1, 1}},
+              "The right-angle transfer and small cog train retain their signed rotations.");
+    }
+    const auto encoded = w::encode_checkpoint(profile, snapshot);
+    check(std::holds_alternative<V>(encoded), "The cross-axis route encodes.");
+    const auto decoded = w::decode_checkpoint(profile, "cog-world", std::get<V>(encoded));
+    check(std::holds_alternative<w::Snapshot>(decoded), "The cross-axis route decodes.");
+    auto restored = w::World::restore("cog-world", profile, std::get<w::Snapshot>(decoded));
+    check(restored && restored->snapshot().state == snapshot.state && w::machine_power(restored->snapshot().state.topology).belt,
+          "The right-angle route survives fresh World restoration.");
+    accepted(send(*restored, remove(field<std::string>(output, "entity"), field<I>(output, "generation"), "cross-remove")));
+    check(!w::machine_power(restored->snapshot().state.topology).belt,
+          "Removing the right-angle output cog interrupts the belt.");
+}
 } // namespace
 
 int main() {
@@ -177,6 +247,7 @@ int main() {
         construction(false);
         construction(true);
         perpendicular_belt_line();
+        cross_axis_belt_line();
         std::cout << checks << " native World cog construction checks passed.\n";
         return 0;
     } catch (const std::exception& error) {
