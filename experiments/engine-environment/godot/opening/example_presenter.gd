@@ -108,6 +108,11 @@ func set_lesson(index: int) -> void:
 	_command({"action": "place_foundation", "cell": [0, 1], "level": 4})
 	_observe(4.95, 0.0)
 	_command({"action": "place_foundation", "cell": [3, 1], "level": 4})
+	# Seat the source-side cog posts above the outcrop at the same factory
+	# floor height, instead of sending their stands through the rock.
+	_observe(-1.65, -1.65)
+	for z in [0, -1]:
+		_command({"action": "place_foundation", "cell": [0, z], "level": 4})
 	for entry in [["wheel", -2, "x"], ["collector", 0, "z"], ["processor", 3, "z"]]:
 		_observe(-1.65 if entry[0] == "wheel" else float(entry[1]) * 1.65, 3.3 if entry[0] == "wheel" else 0.0)
 		var placed: Dictionary = _command({"action": "place", "kind": entry[0], "cell": [entry[1], 1], "axis": entry[2], "level": 4})
@@ -195,7 +200,7 @@ func pan(delta: float) -> void:
 
 func recenter() -> void:
 	world.focus = Vector3(0.8, 0, 0)
-	world.distance = 11.5
+	world.distance = 15.0
 	world.orbit_yaw = 0.68
 	world.orbit_pitch = 0.82
 	world._update_camera()
