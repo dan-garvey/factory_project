@@ -460,7 +460,7 @@ func refresh() -> void:
 		var motion: Variant = motions.get(id, {})
 		var rotating: bool = motion is Dictionary and motion.get("state") == "rotating" and typeof(motion.get("numerator")) == TYPE_INT and typeof(motion.get("denominator")) == TYPE_INT and motion.denominator > 0 and motion.numerator != 0
 		anchor.set_meta("motion_state", motion.get("state", "unknown") if motion is Dictionary else "unknown")
-		var color := Color("ba9459") if rotating else Color("687a7b")
+		var color := Color("687a7b")
 		if part.kind == "gear":
 			var radius: float = Geometry.PITCH / 2.0
 			Assets.gear(anchor, radius, part.teeth, color)

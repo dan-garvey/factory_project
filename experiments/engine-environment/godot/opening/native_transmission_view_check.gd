@@ -1307,8 +1307,45 @@ func _inclined_belt_actor() -> void:
 			physical.queue_free()
 			await process_frame
 
+func _stable_finishes() -> void:
+	var host := HostStub.new()
+	host.state = fixture()
+	for id in ["a", "sx"]:
+		host.state.motion[id] = {"state": "unpowered", "numerator": 0, "denominator": 1}
+	var view := Presenter.new()
+	view.configure(host)
+	var gear: MeshInstance3D = _part(view, "a").get_node("Gear")
+	var shaft: MeshInstance3D = _part(view, "sx").get_node("Shaft")
+	var gear_finish: Material = gear.material_override
+	var shaft_finish: Material = shaft.material_override
+	var gear_mesh: Mesh = gear.mesh
+	var shaft_mesh: Mesh = shaft.mesh
+	for motion in [{"state": "rotating", "numerator": 2, "denominator": 3},
+			{"state": "rotating", "numerator": -2, "denominator": 3},
+			{"state": "stalled", "numerator": 0, "denominator": 1},
+			{"state": "unknown", "numerator": 0, "denominator": 1}]:
+		for id in ["a", "sx"]:
+			host.state.motion[id] = motion.duplicate(true)
+		var before: Dictionary = host.state.duplicate(true)
+		view.refresh()
+		gear = _part(view, "a").get_node("Gear")
+		shaft = _part(view, "sx").get_node("Shaft")
+		verify(gear.material_override == gear_finish and shaft.material_override == shaft_finish,
+			"Confirmed motion changes do not replace the physical gear or shaft finish.")
+		verify(gear.mesh == gear_mesh and shaft.mesh == shaft_mesh,
+			"Changing motion preserves the fitted cached meshes.")
+		var mark := _part(view, "a").get_node_or_null("ConfirmedDirection")
+		verify((mark != null and mark.get_meta("sign") == (1 if motion.numerator > 0 else -1))
+			if motion.state == "rotating" else mark == null,
+			"Confirmed signed direction stays readable without recoloring the part.")
+		verify(host.state == before and host.calls.is_empty(),
+			"Finish presentation never changes native facts or sends a request.")
+	view.free()
+
 func _run() -> void:
-	if "--tool-guidance-only" in OS.get_cmdline_user_args():
+	if "--finish-only" in OS.get_cmdline_user_args():
+		_stable_finishes()
+	elif "--tool-guidance-only" in OS.get_cmdline_user_args():
 		_tool_guidance()
 	elif "--refresh-cache-only" in OS.get_cmdline_user_args():
 		_cache_regression()
@@ -1343,5 +1380,6 @@ func _run() -> void:
 		_span_guidance()
 		_belt_surface_motion()
 		_presentation()
+		_stable_finishes()
 	print("NATIVE_TRANSMISSION_VIEW_%s %d" % ["PASS" if failures == 0 else "FAIL", checks])
 	quit(0 if failures == 0 else 1)
