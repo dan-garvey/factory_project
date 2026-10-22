@@ -43,7 +43,8 @@ func configure(view) -> void:
 func observe_native_sample(actor: String, sample: Dictionary) -> void:
 	# This is presentation timing only; the model still owns the confirmed pose.
 	native_sample_frames[actor] = {"epoch": sample.native_epoch,
-		"physics_frame": sample.physics_frame}
+		"physics_frame": sample.physics_frame,
+		"on_floor": sample.get("on_floor") if typeof(sample.get("on_floor")) == TYPE_BOOL else null}
 
 func _ready() -> void:
 	get_window().focus_exited.connect(release)
@@ -986,7 +987,8 @@ func _set_gait(body: Node3D, phase: float, weight: float,
 		body.get_node(prefix + "Shoulder/Elbow").rotation.x = -0.12 * weight
 
 func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
-		native_epoch: int = -1, native_physics_frame: int = -1) -> void:
+		native_epoch: int = -1, native_physics_frame: int = -1,
+		native_on_floor: Variant = null) -> void:
 	var body: Node3D = view.get_node("BodyView")
 	var previous: Dictionary = motion.get(actor, {"position": at, "phase": 0.0, "weight": 0.0,
 		"age": 1.0, "mode": "grounded", "ground_y": at.y, "peak_y": at.y,
@@ -1030,12 +1032,14 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 			displacement.y / maxf(pose_elapsed, 0.0001)
 		var mode: String = previous.mode
 		if mode == "grounded" or mode == "landing":
-			if displacement.y > TAKEOFF_DELTA and vertical_speed > 0.6:
+			# Rising terrain also raises the actor root. The trusted producer's
+			# floor contact distinguishes a walking climb from actual takeoff.
+			if native_on_floor != true and displacement.y > TAKEOFF_DELTA and vertical_speed > 0.6:
 				mode = "ascent"
 				previous.ground_y = previous.position.y
 				previous.peak_y = at.y
 				previous.impact_age = LANDING_SECONDS
-			elif displacement.y < -DROP_DELTA and vertical_speed < -0.7:
+			elif native_on_floor != true and displacement.y < -DROP_DELTA and vertical_speed < -0.7:
 				mode = "descent"
 				previous.ground_y = previous.position.y
 				previous.peak_y = previous.position.y
@@ -1046,7 +1050,8 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 			previous.peak_y = maxf(float(previous.peak_y), at.y)
 			if vertical_speed < -0.4:
 				mode = "descent"
-			if mode == "descent" and (at.y <= float(previous.ground_y) + 0.025
+			if native_on_floor == true or native_on_floor == null and mode == "descent" \
+					and (at.y <= float(previous.ground_y) + 0.025
 					and displacement.y < 0.0 or not repeated_sample and absf(displacement.y) < 0.002
 					and float(previous.peak_y) - at.y > 0.10):
 				mode = "landing"
@@ -1294,7 +1299,8 @@ func refresh(delta: float = 0.0) -> void:
 				var physics_frame := int(sample.get("physics_frame", -1)) \
 					if sample.get("epoch", -1) == native_epoch else -1
 				_animate_actor(actor, view, view.position, delta,
-					native_epoch, physics_frame)
+				native_epoch, physics_frame,
+				sample.get("on_floor") if sample.get("epoch", -1) == native_epoch else null)
 		else:
 			motion.erase(actor)
 	if not host.explanation_open and actors.has(host.client) and Geometry.valid_position(actors[host.client].get("position")):
