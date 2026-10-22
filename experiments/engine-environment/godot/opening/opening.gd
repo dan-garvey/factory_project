@@ -4200,6 +4200,7 @@ var placement_target_label: Label3D
 var machine_preview: Node3D
 var machine_preview_key := ""
 var machine_preview_material: StandardMaterial3D
+var transmission_preview_point: Array = []
 var wheel_rotor: Node3D
 var machine_body_context := ""
 var machine_press_poses: Dictionary = {}
@@ -5075,6 +5076,7 @@ func _select_tool(tool: String) -> void:
 	mode = tool
 	foundation_area_started = false
 	pending_link = ""
+	transmission_preview_point.clear()
 	if _native_transmission() and transmission_controls != null:
 		if tool == "wheel" and transmission_controls.selected_axis == "y":
 			transmission_controls._axis_selected(0)
@@ -6337,7 +6339,8 @@ func _refresh_placement_hint(snapshot_ready: bool = true) -> void:
 func _preview_pointer_clear() -> bool:
 	# This query does not consume input or move the pointer. The live preview
 	# follows the current camera ray, including when the view moves under it.
-	return is_inside_tree() and (get_viewport().gui_get_hovered_control() == null or _pointer_over_placement_options())
+	return is_inside_tree() and get_viewport().get_visible_rect().has_point(_pointed_screen_position()) \
+		and (get_viewport().gui_get_hovered_control() == null or _pointer_over_placement_options())
 
 func _pointer_over_placement_options() -> bool:
 	if placement_options_panel == null or not placement_options_panel.visible or not is_inside_tree():
@@ -6427,6 +6430,10 @@ func _refresh_machine_preview() -> void:
 		machine_preview.visible = false
 	if legacy_fixture or explanation_open or not _placement_hint_ready() or not _preview_pointer_clear():
 		return
+	if _native_transmission() and transmission_controls != null \
+			and transmission_controls.active_tool in ["gear", "place_shaft"]:
+		_refresh_transmission_preview()
+		return
 	if not NAMES.has(mode) or int(_display_parts().get(mode, 0)) < 1:
 		return
 	if transmission_controls != null and not transmission_controls.active_tool.is_empty():
@@ -6457,6 +6464,7 @@ func _refresh_machine_preview() -> void:
 		machine_preview = Node3D.new()
 		machine_preview.name = "MachinePlacementPreview"
 		add_child(machine_preview)
+	machine_preview.basis = Basis.IDENTITY
 	machine_preview.position = _cell_position([cell.x, cell.y]) + Vector3.UP * level * Geometry.HEIGHT_STEP
 	if key != machine_preview_key:
 		for child in machine_preview.get_children():
@@ -6472,12 +6480,6 @@ func _refresh_machine_preview() -> void:
 			if mode in ["collector", "processor"]:
 				_preview_port(machine_preview, facing, mode == "collector")
 		wheel_rotor = placed_rotor
-		if machine_preview_material == null:
-			machine_preview_material = StandardMaterial3D.new()
-			machine_preview_material.albedo_color = Color(0.88, 0.75, 0.49, 0.32)
-			machine_preview_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-			machine_preview_material.roughness = 0.75
-			machine_preview_material.metallic = 0.0
 		_style_machine_preview(machine_preview)
 		machine_preview_key = key
 	machine_preview.scale = Vector3.ONE
@@ -6485,6 +6487,49 @@ func _refresh_machine_preview() -> void:
 		machine_preview.scale = Vector3(area_size.x, 1, area_size.y)
 		machine_preview.position.x = (area_origin.x + (area_size.x - 1) / 2.0) * PITCH
 		machine_preview.position.z = (area_origin.y + (area_size.y - 1) / 2.0) * PITCH
+	machine_preview.visible = true
+
+func _refresh_transmission_preview() -> void:
+	var context: Dictionary = transmission_controls._context()
+	if context.is_empty() or not context.usable:
+		return
+	var gear: bool = transmission_controls.active_tool == "gear"
+	var size: int = transmission_controls.gear_teeth if gear else transmission_controls.shaft_half_span
+	if transmission_controls._count(context, "gear" if gear else "shaft", size if gear else 0, 0 if gear else size) < 1:
+		return
+	var axis := _preview_axis()
+	if axis < 0:
+		return
+	var center: Array
+	if _pointer_over_placement_options() and not transmission_preview_point.is_empty():
+		center = transmission_preview_point.duplicate()
+		center[1] = transmission_controls.snapped_height if transmission_controls.auto_height else transmission_controls.gear_height
+	else:
+		center = _transmission_center(_pointed_screen_position())
+		transmission_preview_point = center.duplicate()
+	if not Geometry._mechanical_point(center):
+		return
+	if machine_preview == null:
+		machine_preview = Node3D.new()
+		machine_preview.name = "MachinePlacementPreview"
+		add_child(machine_preview)
+	machine_preview.position = Geometry._mechanical_center(center)
+	var key := "transmission:%s:%d:%d" % [transmission_controls.active_tool, axis, size]
+	if key != machine_preview_key:
+		for child in machine_preview.get_children():
+			child.free()
+		var assets = load("res://opening/native_transmission_assets.gd")
+		machine_preview.basis = load("res://opening/native_transmission_presenter.gd").axis_basis(axis)
+		if gear:
+			var mesh := MeshInstance3D.new()
+			mesh.name = "Cogwheel"
+			mesh.mesh = assets.complete_gear_mesh(PITCH / 2.0, size, Color("687a7b"), PITCH)
+			machine_preview.add_child(mesh)
+		else:
+			assets.shaft(machine_preview, size * Geometry.HEIGHT_STEP * 2.0, Color("687a7b"))
+		_style_machine_preview(machine_preview)
+		machine_preview_key = key
+	machine_preview.scale = Vector3.ONE
 	machine_preview.visible = true
 
 func _preview_port(parent: Node3D, facing: int, output: bool) -> void:
@@ -6511,6 +6556,12 @@ func _preview_port(parent: Node3D, facing: int, output: bool) -> void:
 func _style_machine_preview(node: Node) -> void:
 	# Per-instance overrides leave shared placed materials and meshes intact.
 	# Neutral amber is a form/footprint preview, never an admission verdict.
+	if machine_preview_material == null:
+		machine_preview_material = StandardMaterial3D.new()
+		machine_preview_material.albedo_color = Color(0.88, 0.75, 0.49, 0.32)
+		machine_preview_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		machine_preview_material.roughness = 0.75
+		machine_preview_material.metallic = 0.0
 	if node is MeshInstance3D:
 		node.material_override = machine_preview_material
 		node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -6727,7 +6778,7 @@ func _update_cursor() -> void:
 	_refresh_machine_captions()
 	if _native_transmission() and transmission_controls != null and not transmission_controls.active_tool.is_empty():
 		hover.visible = false
-		if transmission_controls.active_tool in ["gear", "place_shaft", "gearbox", "vertical_gearbox", "chain_drive"] and not explanation_open and _can_control_character():
+		if transmission_controls.active_tool in ["gearbox", "vertical_gearbox", "chain_drive"] and not explanation_open and _can_control_character():
 			_set_transmission_hover(_transmission_center(get_viewport().get_mouse_position()))
 		_refresh_placement_options()
 		return
