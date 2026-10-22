@@ -4264,8 +4264,11 @@ var workpiece_item_assets
 var hover: MeshInstance3D
 var selection_ring: MeshInstance3D
 var machine_preview: Node3D
+var mutable_machine_preview: Node3D
 var machine_preview_key := ""
 var machine_preview_material: StandardMaterial3D
+var packed_preview_templates: Dictionary = {}
+var packed_preview_nodes: Dictionary = {}
 var machine_dynamic_batches: Array[Dictionary] = []
 var machine_conveyor_batches: Array[Dictionary] = []
 var machine_rotors: Array[Dictionary] = []
@@ -4360,8 +4363,11 @@ func _ready() -> void:
 	_build_world()
 	_build_interface()
 	_refresh()
-	if _native_transmission() and not state.has("hand_sources"):
-		_prime_machine_visuals()
+	if _native_transmission():
+		if state.has("hand_sources"):
+			call_deferred("_warm_packed_machine_previews")
+		else:
+			_prime_machine_visuals()
 	if _native_transmission():
 		_message("WASD moves. Point at a resource and use your multitool with E." if state.has("hand_sources") else FIRST_COLLECTOR_HINT)
 	else:
@@ -6492,6 +6498,85 @@ func _prime_machine_visuals() -> void:
 		anchor.free()
 	wheel_rotor = previous_rotor
 
+func _warm_packed_machine_previews() -> void:
+	if DisplayServer.get_name() == "headless":
+		for kind in ["collector", "belt", "processor", "wheel"]:
+			packed_preview_templates[kind] = load("res://opening/assets/prebuilt-preview-" + kind + ".scn")
+		return
+	var cover := CanvasLayer.new()
+	cover.name = "MachinePreviewWarmup"
+	cover.layer = 100
+	var color := ColorRect.new()
+	color.color = Color("101e20")
+	color.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	cover.add_child(color)
+	var progress := Label.new()
+	progress.text = "Preparing workshop..."
+	progress.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	progress.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	progress.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	cover.add_child(progress)
+	add_child(cover)
+	var view_size := get_viewport().get_visible_rect().size
+	for index in 4:
+		var kind: String = ["collector", "belt", "processor", "wheel"][index]
+		var packed: PackedScene = load("res://opening/assets/prebuilt-preview-" + kind + ".scn")
+		if packed == null:
+			continue
+		packed_preview_templates[kind] = packed
+		var anchor := packed.instantiate() as Node3D
+		add_child(anchor)
+		_style_machine_preview(anchor)
+		anchor.position = camera.project_position(Vector2(view_size.x * (0.2 + 0.2 * index), view_size.y * 0.5), 7.0)
+		packed_preview_nodes[kind] = anchor
+	var foundation := Node3D.new()
+	foundation.name = "FoundationPreviewTemplate"
+	add_child(foundation)
+	_assemble_foundation(foundation)
+	_style_machine_preview(foundation)
+	foundation.position = camera.project_position(view_size * Vector2(0.5, 0.65), 7.0)
+	packed_preview_nodes["foundation"] = foundation
+	await RenderingServer.frame_post_draw
+	await RenderingServer.frame_post_draw
+	for anchor in packed_preview_nodes.values():
+		anchor.visible = false
+	var frames_waited := 0
+	while not state.get("actors", {}).get(client, {}).get("ready", false) and frames_waited < 120:
+		frames_waited += 1
+		await get_tree().process_frame
+	if state.get("actors", {}).get(client, {}).get("ready", false):
+		# Draw the real tool panels behind the loading cover. Arrival has no
+		# carried kits yet, so only the temporary visual form is shown here.
+		var resume_processing := is_processing()
+		set_process(false)
+		for kind in ["collector", "foundation", "processor", "wheel"]:
+			var anchor: Node3D = packed_preview_nodes.get(kind)
+			if anchor == null:
+				continue
+			_select_tool(kind)
+			_choose_machine_preview(anchor)
+			anchor.visible = true
+			_refresh_placement_options()
+			await RenderingServer.frame_post_draw
+			anchor.visible = false
+		_select_tool("inspect")
+		set_process(resume_processing)
+	cover.free()
+
+func _choose_machine_preview(pooled: Node3D = null) -> void:
+	var desired := pooled
+	if desired == null:
+		if mutable_machine_preview == null:
+			mutable_machine_preview = Node3D.new()
+			mutable_machine_preview.name = "MachinePlacementPreview"
+			add_child(mutable_machine_preview)
+		desired = mutable_machine_preview
+	if machine_preview != desired:
+		if machine_preview != null:
+			machine_preview.visible = false
+		machine_preview = desired
+		machine_preview_key = ""
+
 const MACHINE_BATCH_THRESHOLD := 12
 
 func _machine_batch_surface_mesh(part: MeshInstance3D) -> Mesh:
@@ -7371,10 +7456,13 @@ func _refresh_machine_preview() -> void:
 		return
 	var key := "%s:%d:%s:%d:%d:%s" % [mode, axis, str(_native_transmission()), wheel_tiles if mode == "wheel" else 0, facing,
 		str([cell.x, cell.y, level]) if mode == "collector" else ""]
-	if machine_preview == null:
-		machine_preview = Node3D.new()
-		machine_preview.name = "MachinePlacementPreview"
-		add_child(machine_preview)
+	var packaged: bool = mode == "foundation" or _native_transmission() and axis == 0 and facing == 0 \
+		and (mode != "wheel" or wheel_tiles == 3) \
+		and (mode != "collector" or cell == Vector2i(0, 1))
+	var pooled: Node3D = packed_preview_nodes.get(mode) if packaged else null
+	_choose_machine_preview(pooled)
+	if pooled != null:
+		machine_preview_key = key
 	machine_preview.basis = Basis.IDENTITY
 	machine_preview.position = _cell_position([cell.x, cell.y]) + Vector3.UP * level * Geometry.HEIGHT_STEP
 	if key != machine_preview_key:
@@ -7386,10 +7474,20 @@ func _refresh_machine_preview() -> void:
 		if mode == "foundation":
 			_assemble_foundation(machine_preview)
 		else:
-			_assemble_machine(machine_preview, {"kind": mode, "axis": axis, "tiles": wheel_tiles,
-				"rotation": facing, "cell": [cell.x, cell.y], "level": level}, mode == "belt" and axis == 0)
-			if mode in ["collector", "processor"]:
-				_preview_port(machine_preview, facing, mode == "collector")
+			if packaged and packed_preview_templates.has(mode):
+				var packed: PackedScene = packed_preview_templates.get(mode)
+				var template := packed.instantiate() as Node3D
+				machine_preview.set_meta("material_rotated", template.get_meta("material_rotated", false))
+				for part in template.get_children():
+					part.owner = null
+					template.remove_child(part)
+					machine_preview.add_child(part)
+				template.free()
+			else:
+				_assemble_machine(machine_preview, {"kind": mode, "axis": axis, "tiles": wheel_tiles,
+					"rotation": facing, "cell": [cell.x, cell.y], "level": level}, mode == "belt" and axis == 0)
+				if mode in ["collector", "processor"]:
+					_preview_port(machine_preview, facing, mode == "collector")
 		wheel_rotor = placed_rotor
 		_style_machine_preview(machine_preview)
 		machine_preview_key = key
@@ -7420,10 +7518,7 @@ func _refresh_transmission_preview() -> void:
 		transmission_preview_point = center.duplicate()
 	if not Geometry._mechanical_point(center):
 		return
-	if machine_preview == null:
-		machine_preview = Node3D.new()
-		machine_preview.name = "MachinePlacementPreview"
-		add_child(machine_preview)
+	_choose_machine_preview()
 	machine_preview.position = Geometry._mechanical_center(center)
 	var key := "transmission:%s:%d:%d" % [transmission_controls.active_tool, axis, size]
 	if key != machine_preview_key:

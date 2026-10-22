@@ -14,7 +14,7 @@ using Integer = std::int64_t;
 using Point = std::array<Integer, 3>;
 
 // These are bounds of this first exact-grid adapter, not game-scale targets.
-inline constexpr std::size_t maximum_parts = 256;
+inline constexpr std::size_t maximum_parts = 4096;
 inline constexpr Integer maximum_coordinate = 1000000;
 inline constexpr Integer maximum_dimension = 4096;
 
