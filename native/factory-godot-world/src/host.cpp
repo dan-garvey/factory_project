@@ -1269,6 +1269,9 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         const Bounds shell{at, half};
         if (transmission_intersects_foundations(snapshot.state, *center, drive_axis, true)) return refuse("occupied");
         if (const auto* refusal = transmission_site_refusal(snapshot.state, *center, drive_axis, true)) return refuse(refusal);
+        const auto shell_terrain = terrain_range(at[0], at[2], half[0], half[2]);
+        if (!shell_terrain) return refuse("terrain_unavailable");
+        if (shell_terrain->second > at[1] - half[1] + 1e-9) return refuse("site_occupied");
         if (site_blocked({at[0] - half[0], at[1] - half[1], at[2] - half[2]},
                          {at[0] + half[0], at[1] + half[1], at[2] + half[2]})) return refuse("site_occupied");
         for (const auto& [id, foundation] : snapshot.state.foundations) {
@@ -1697,6 +1700,9 @@ Host::Decoded Host::decode(const Value& input) const {
                     anchor_height + center[1] * height_step, center[2] * height_step};
                 const authority::Point half{pitch / 2, pitch / 2, pitch / 2};
                 const Bounds shell{at, half};
+                const auto shell_terrain = terrain_range(at[0], at[2], half[0], half[2]);
+                if (!shell_terrain) return {nullptr, "terrain_unavailable"};
+                if (shell_terrain->second > at[1] - half[1] + 1e-9) return {nullptr, "site_occupied"};
                 if (site_blocked({at[0] - half[0], at[1] - half[1], at[2] - half[2]},
                                  {at[0] + half[0], at[1] + half[1], at[2] + half[2]}))
                     return {nullptr, "site_occupied"};

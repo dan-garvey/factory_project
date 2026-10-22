@@ -26,7 +26,6 @@ func _init() -> void:
 	menu.add_radio_check_item("Place vertical gearbox", 9)
 	menu.add_radio_check_item("Place encased chain drive", 10)
 	menu.add_radio_check_item("Connect shafts with a belt", 7)
-	menu.add_radio_check_item("Remove transmission part or belt", 4)
 	menu.add_item("Leave transmission tools", 5)
 	menu.add_separator()
 	_axes = PopupMenu.new()
@@ -91,7 +90,7 @@ func settle_belt_placement(request: String, accepted: bool, reason: String) -> v
 		_belt_start.clear()
 
 func choose_tool(tool: String) -> void:
-	if tool not in ["", "gear", "remove", "place_shaft", "belt_span", "gearbox", "vertical_gearbox", "chain_drive"]:
+	if tool not in ["", "gear", "place_shaft", "belt_span", "gearbox", "vertical_gearbox", "chain_drive"]:
 		return
 	_belt_start.clear()
 	active_tool = tool
@@ -104,8 +103,14 @@ func choose_tool(tool: String) -> void:
 	refresh()
 
 func _tool_selected(id: int) -> void:
-	choose_tool({1: "gear", 4: "remove", 6: "place_shaft", 7: "belt_span",
-		8: "gearbox", 9: "vertical_gearbox", 10: "chain_drive"}.get(id, ""))
+	var host: Object = _host.get_ref() if _host != null else null
+	var mode: String = {1: "gear", 6: "drive", 7: "belt", 8: "gearbox",
+		9: "vertical_gearbox", 10: "chain_drive", 5: "inspect"}.get(id, "")
+	if host != null and host.has_method("_select_tool") and not mode.is_empty():
+		host.call("_select_tool", mode)
+	else:
+		choose_tool({1: "gear", 6: "place_shaft", 7: "belt_span", 8: "gearbox",
+			9: "vertical_gearbox", 10: "chain_drive"}.get(id, ""))
 	var context := _context()
 	if context.is_empty() or not context.usable:
 		return
@@ -116,8 +121,7 @@ func _tool_selected(id: int) -> void:
 		"vertical_gearbox": "Place a vertical gearbox: set its closed X or Z axis for vertical and side ports.",
 		"chain_drive": "Place an encased chain case: its shafts use Axis and its chain links follow Link direction.",
 		"belt_span": "Choose two parallel shafts within reach. The belt runs across their axle, straight or at 45 degrees.",
-		"remove": "Choose a cogwheel, shaft or belt to remove."
-	}.get(active_tool, "Choose a construction tool or Inspect."), false)
+	}.get(active_tool, "Choose a construction tool or press E to open a machine."), false)
 
 func _axis_selected(id: int) -> void:
 	if id in [0, 1, 2]:
@@ -207,7 +211,7 @@ func refresh() -> void:
 	menu.set_item_checked(shaft_index, active_tool == "place_shaft")
 	menu.set_item_checked(gear_index, active_tool == "gear")
 	menu.set_item_checked(menu.get_item_index(7), active_tool == "belt_span")
-	menu.set_item_checked(menu.get_item_index(4), active_tool == "remove")
+
 	for entry in [[8, "gearbox", "Horizontal gearbox"], [9, "vertical_gearbox", "Vertical gearbox"],
 		[10, "chain_drive", "Encased chain drive"]]:
 		var index: int = menu.get_item_index(entry[0])
@@ -235,7 +239,7 @@ func refresh() -> void:
 	_heights.set_item_disabled(2, auto_height)
 	text = {"gear": "Place cogwheel", "place_shaft": "Place shaft segment", "belt_span": "Connect shafts with belt",
 		"gearbox": "Place horizontal gearbox", "vertical_gearbox": "Place vertical gearbox",
-		"chain_drive": "Place encased chain drive", "remove": "Remove transmission"}.get(active_tool, "Mechanical transmission…")
+		"chain_drive": "Place encased chain drive"}.get(active_tool, "Mechanical transmission…")
 	tooltip_text = "Axis %s · height %s. %d cogwheels and %d shafts carried." % [selected_axis.to_upper(), "follows surface" if auto_height else "%d tiles" % (gear_height / 4), gears, selected_shafts]
 
 func _part(context: Dictionary, id: String) -> Dictionary:
@@ -291,9 +295,6 @@ func handle_world_click(center: Array, entity_id: String) -> bool:
 				wire["relay_axis"] = selected_link_axis
 		_submit(context, wire)
 		return true
-	if active_tool == "remove" and context.snapshot.get("belt_spans", {}).has(entity_id):
-		_submit(context, {"action": "remove_belt_span", "entity": entity_id})
-		return true
 	if active_tool == "belt_span":
 		var shaft: Variant = context.snapshot.transmission_parts.get(entity_id, {})
 		if not shaft is Dictionary or shaft.get("kind") != "shaft" or typeof(shaft.get("generation")) != TYPE_INT or shaft.generation < 1:
@@ -331,11 +332,5 @@ func handle_world_click(center: Array, entity_id: String) -> bool:
 	var part := _part(context, entity_id)
 	if part.is_empty():
 		_feedback("Choose a confirmed machine, cogwheel or shaft.")
-		return true
-	if active_tool == "remove":
-		if not context.snapshot.transmission_parts.has(entity_id):
-			_feedback("This tool removes a cogwheel or shaft; use the inspector for machines.")
-		else:
-			_submit(context, {"action": "remove", "entity": entity_id})
 		return true
 	return true

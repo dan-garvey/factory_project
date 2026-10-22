@@ -31,11 +31,22 @@ Collector, Foundation, Belt, Press, Waterwheel, Cogwheel, Shaft and one empty sl
 Counts and unavailable states follow the active actor's actual kit. Movement keys
 are inactive while the catalog is open. Slot assignments are local interface state
 and reset on a fresh launch; they are not inventory,
-technology unlocks or saved progression. F, G and I retain material, shaft and
-inspection selection. Reopening derives goal advice from the actual worksite.
+technology unlocks or saved progression. A context panel appears while a
+building ghost is active. It shows placement, rotation and the applicable axle,
+height, size or foundation-area controls. Reopening derives goal advice from the
+actual worksite.
+
+Point at an existing machine or part and press **E** to open its inspector and
+available material actions. In third person, point with the mouse; at the
+closest first-person view, aim at the center of the screen. Press **F** to enter
+deconstruction, then click the part to reclaim it; **Esc** leaves the mode.
+The worksite still checks character reach and retained contents before removing
+anything. **C** selects a manual material link, and **G** selects a shaft tool.
+The old Inspect button is gone from the playable opening.
 
 **Rotate [R]** turns a collector or press by 90 degrees before placement. The
-preview turns its body and horizontal drive axle and marks the collector's
+preview turns its outlet and horizontal drive axle while keeping the collector's
+source-facing intake fixed, and marks the collector's
 **OUT** side or the press's **IN** side. Material only crosses the matching side;
 a belt against another side queues its contents. Four turns return to the
 original facing. The chosen facing belongs to the placed machine and survives
@@ -125,11 +136,11 @@ and inclined belts can carry material. Vertical and sideways belts transmit
 rotation only. A belt holds loose items on an empty tile even when stopped; once
 powered, adjacent belts can pass material between them. The starter kit carries two belts. The
 belt appears after the worksite confirms placement, and the
-transmission removal tool can reclaim it when it is empty and a belt tile is
+deconstruction mode can reclaim it when it is empty and a belt tile is
 within reach. The opening guidance recognizes a powered route through one or
 more spans, including loose-item handoffs between them.
 
-The inspector can select a cogwheel or shaft and return it to the carried kit.
+E can open a pointed cogwheel or shaft; F then clicking it returns it to the carried kit.
 Static arrows show the confirmed signed rate, and contact marks use confirmed
 engagements. Cosmetic wheel, cog and shaft motion illustrates those rates at a
 revisable visual reference speed; it does not supply a physics or processing
@@ -170,6 +181,16 @@ heavy lane to check the transition from individually drawn parts to grouped
 geometry, signed motion, picks and orientation. The probe contains no native
 World, actor, inventory or ordinary placement commands. It cannot establish
 whole-opening frame rate, network or save scale, or human play quality.
+
+Add `--whole-opening` to measure the cog presenter inside the complete opening
+scenery and interface. Import the project with the pinned Godot editor before a
+direct source-tree run so its textures and icons are available. Compare identical
+`--count=0` and `--count=400 --supports --large-every=2` runs; `--close` uses a
+nearer camera. This fixture injects synthetic confirmed cogs into an opening
+projection and suppresses the physical actor callback so the fixture stays
+fixed. It reports frame and opening-process times, draw calls, and the cost of
+refreshing after one added cog. It does not execute native construction or
+measure ordinary character movement.
 
 After confirming four plates, the native opening marks an upstream waterwheel
 site at `[-2, 0]` and asks for eight carried plates in total. The wheel must be

@@ -328,6 +328,36 @@ void finite_relays_and_restore() {
     create(host, relay("chain_drive", 4, 8, 4, "replace-chain", "x", "z"));
 }
 
+void relay_shell_terrain() {
+    auto raised_corner = low_flat_site();
+    const A axis{V(-128.0), V(0.0), V(0.8), V(2.3), V(128.0)};
+    A heights(25, V(-1.0));
+    heights[3 * 5 + 2] = V(3.0);
+    raised_corner.at("axis") = V(axis);
+    raised_corner.at("heights") = V(heights);
+    Host clear;
+    check(accepted(clear.initialize("cog-api", {"P", "Q"})) &&
+          accepted(clear.configure_terrain(low_flat_site())), "The clear relay site binds.");
+    observe(clear, -1.65, 1.65, 1);
+    create(clear, relay("chain_drive", 0, 4, 4, "clear-case", "x", "z"));
+    const auto saved = clear.checkpoint();
+    Host blocked;
+    check(accepted(blocked.initialize("cog-api", {"P", "Q"})) &&
+          accepted(blocked.configure_terrain(raised_corner)), "The raised shell-corner site binds.");
+    observe(blocked, -1.65, 1.65, 1);
+    const auto refused = blocked.command("P", relay("chain_drive", 0, 4, 4, "buried-case", "x", "z"));
+    check(!accepted(refused) && field<std::string>(refused, "reason") == "site_occupied",
+          "A chain case cannot bury a shell corner outside its narrow axle footprint.");
+    Host restored_site;
+    check(accepted(restored_site.initialize("fresh", {"P", "Q"})) &&
+          accepted(restored_site.configure_terrain(raised_corner)),
+          "A fresh Host binds the raised corner before restore.");
+    const auto restored = restored_site.restore_checkpoint(saved);
+    check(!accepted(restored) && field<std::string>(restored, "reason") == "site_occupied",
+          "Restoring a case against raised corner terrain enforces the same full shell: " +
+          field<std::string>(restored, "reason"));
+}
+
 void powered_relay_route() {
     Host host;
     check(accepted(host.initialize("cog-api", {"P", "Q"})) &&
@@ -1749,7 +1779,7 @@ int main(int argc, char** argv) {
         if (argc == 1) {
             building_rotation();
             finite_oriented_train_and_restore(); adjacent_axle_faces(); refusals_and_legacy_shape(); cog_axle_actor_clearance(); cog_at_belt_face(); transmission_site_clearance(); transmission_terrain_clearance(); transmission_foundation_clearance(); one_tile_placement(); restored_transmission_geometry();
-            transmission_tile_center(); transmission_above_half_foundation(); global_grid(); finite_large_cog(); finite_relays_and_restore(); powered_relay_route(); perpendicular_belt_line(); retired_belt_machine(); typed_loose_host(); select_belt_shaft_host(); long_selected_belt_host(); belt_span_host_commands(); nonhorizontal_span_host(); complete_span_route_host(); complete_span_route_host(true); rotated_span_build_orders(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
+            transmission_tile_center(); transmission_above_half_foundation(); global_grid(); finite_large_cog(); finite_relays_and_restore(); relay_shell_terrain(); powered_relay_route(); perpendicular_belt_line(); retired_belt_machine(); typed_loose_host(); select_belt_shaft_host(); long_selected_belt_host(); belt_span_host_commands(); nonhorizontal_span_host(); complete_span_route_host(); complete_span_route_host(true); rotated_span_build_orders(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
         } else if (argc != 2 || std::string(argv[1]) != "--placement-alias-only") {
             throw std::runtime_error("Expected no arguments or --placement-alias-only.");
         }

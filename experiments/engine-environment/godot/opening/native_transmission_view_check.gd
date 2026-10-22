@@ -40,6 +40,22 @@ class ReadySession extends RefCounted:
 	func is_ready() -> bool:
 		return true
 
+class ScaleOpening extends "res://opening/opening.gd":
+	var motion_ms := 0.0
+	var process_ms := 0.0
+	func _start_character_world() -> bool:
+		return true
+	func _start_character_presenter() -> void:
+		pass
+	func _animate_wheel(delta: float) -> void:
+		var before := Time.get_ticks_usec()
+		super._animate_wheel(delta)
+		motion_ms = float(Time.get_ticks_usec() - before) / 1000.0
+	func _process(delta: float) -> void:
+		var before := Time.get_ticks_usec()
+		super._process(delta)
+		process_ms = float(Time.get_ticks_usec() - before) / 1000.0
+
 class SharedSettlement extends "res://opening/shared_opening.gd":
 	func _usable_snapshot() -> bool:
 		return true
@@ -140,13 +156,11 @@ func _controls() -> void:
 	verify(view.handle_world_click([0, 4, 4], "") and host.calls.size() == sent, "A long-only kit cannot submit a one-tile shaft.")
 	host.client = "P"
 	host.state = fixture()
-	view.choose_tool("remove")
-	view.handle_world_click([], "a")
-	verify(host.calls.back() == {"action": "remove", "entity": "a"}, "Individual cog removal preserves its exact identifier.")
-	view.handle_world_click([], "sy")
-	verify(host.calls.back() == {"action": "remove", "entity": "sy"}, "An orphaned shaft remains selectable for removal.")
+	verify(view.get_popup().get_item_index(4) == -1 and not view.get_popup().get_item_text(0).contains("Remove"),
+		"The transmission menu leaves deconstruction to the dedicated F mode.")
+	view.choose_tool("bogus")
+	verify(view.active_tool == "place_shaft", "Unsupported transmission tools cannot replace placement.")
 	sent = host.calls.size()
-	verify(view.handle_world_click([], "wheel") and host.calls.size() == sent, "The transmission removal tool does not replace machine inspection.")
 	view.choose_tool("gear")
 	host.state.options.native = false
 	view.refresh()
@@ -442,9 +456,6 @@ func _belt_spans() -> void:
 		"An out-of-order shared frame cannot roll the item back.")
 	remote_presenter.free()
 	session.free()
-	controls.choose_tool("remove")
-	controls.handle_world_click([], "span")
-	verify(host.calls.back() == {"action": "remove_belt_span", "entity": "span"}, "Belt removal delegates its confirmed identity.")
 	host.state.belt_spans.clear()
 	presenter.refresh()
 	verify(_part(presenter, "span") == null, "A confirmed removal clears the visual.")
@@ -1642,6 +1653,7 @@ func _scale_benchmark() -> void:
 	var large_every := 0
 	var cycle_axes := false
 	var verify_only := false
+	var whole_opening := false
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--count="):
 			count = int(argument.trim_prefix("--count="))
@@ -1657,32 +1669,50 @@ func _scale_benchmark() -> void:
 			cycle_axes = true
 		elif argument == "--verify-only":
 			verify_only = true
+		elif argument == "--whole-opening":
+			whole_opening = true
 	if count < 0 or count > 800:
 		push_error("Choose 0 to 800 cogs.")
 		quit(2)
 		return
 	var scene := Node3D.new()
-	root.add_child(scene)
-	var camera := Camera3D.new()
-	camera.position = Vector3(0, 8, 12) if close_view else Vector3(0, 30, 43)
-	camera.fov = 65.0
-	camera.current = true
-	scene.add_child(camera)
-	camera.look_at(Vector3.ZERO)
-	var light := DirectionalLight3D.new()
-	light.rotation = Vector3(-0.8, -0.5, 0)
-	scene.add_child(light)
-	if close_view:
-		var environment := Environment.new()
-		environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-		environment.ambient_light_color = Color.WHITE
-		environment.ambient_light_energy = 0.8
-		var world_environment := WorldEnvironment.new()
-		world_environment.environment = environment
-		scene.add_child(world_environment)
+	var opening = null
+	if whole_opening:
+		opening = ScaleOpening.new()
+		opening.auto_advance = false
+		scene = opening
+		root.add_child(scene)
+		opening.focus = Vector3.ZERO
+		opening.distance = 14.0 if close_view else 55.0
+		opening.orbit_yaw = 0.0
+		opening.orbit_pitch = 0.60
+	else:
+		root.add_child(scene)
+		var camera := Camera3D.new()
+		camera.position = Vector3(0, 8, 12) if close_view else Vector3(0, 30, 43)
+		camera.fov = 65.0
+		camera.current = true
+		scene.add_child(camera)
+		camera.look_at(Vector3.ZERO)
+		var light := DirectionalLight3D.new()
+		light.rotation = Vector3(-0.8, -0.5, 0)
+		scene.add_child(light)
+		if close_view:
+			var environment := Environment.new()
+			environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+			environment.ambient_light_color = Color.WHITE
+			environment.ambient_light_energy = 0.8
+			var world_environment := WorldEnvironment.new()
+			world_environment.environment = environment
+			scene.add_child(world_environment)
 	var host := HostStub.new()
-	host.state = {"context": "synthetic-cog-scale", "options": {"native": true},
+	host.state = opening.state.duplicate(true) if whole_opening else {"context": "synthetic-cog-scale", "options": {"native": true},
 		"entities": {}, "transmission_parts": {}, "motion": {}, "belt_spans": {}, "engagements": []}
+	if whole_opening:
+		host.state.options.native = true
+		host.state.actors.P.ready = true
+		host.state.transmission_parts = {}
+		host.state.motion = {}
 	var columns := ceili(sqrt(float(maxi(count, 1))))
 	for index in count:
 		var id := "cog-%d" % index
@@ -1697,10 +1727,20 @@ func _scale_benchmark() -> void:
 				"bearing": [at.x, 0.7325, at.z]}
 		host.state.motion[id] = {"state": "rotating", "numerator": 1 if index % 2 == 0 else -1,
 			"denominator": 1}
-	var presenter := Presenter.new()
-	scene.add_child(presenter)
+	var presenter: Node3D
 	var before := Time.get_ticks_usec()
-	presenter.configure(host)
+	if whole_opening:
+		opening.state = host.state
+		opening._refresh_transmission()
+		presenter = opening.transmission_presenter
+	else:
+		presenter = Presenter.new()
+		scene.add_child(presenter)
+		presenter.configure(host)
+	if presenter == null:
+		push_error("The opening did not initialize its native transmission presenter.")
+		quit(1)
+		return
 	var build_ms := float(Time.get_ticks_usec() - before) / 1000.0
 	var pick_count := 0
 	var batched_count := 0
@@ -1770,31 +1810,51 @@ func _scale_benchmark() -> void:
 		print("COG_SCALE_VALIDATION " + JSON.stringify({"count": count, "supports": supports,
 			"cycle_axes": cycle_axes, "large_every": large_every, "picks": pick_count,
 			"batched": batched_count, "status": "pass"}))
+		scene.free()
 		quit()
 		return
 	var frame_times: Array[float] = []
 	var motion_times: Array[float] = []
+	var process_times: Array[float] = []
 	var draw_calls: Array[int] = []
 	for frame in 150:
 		var start := Time.get_ticks_usec()
-		presenter.advance_visual_motion(1.0 / 60.0)
+		if not whole_opening:
+			presenter.advance_visual_motion(1.0 / 60.0)
 		var motion_ms := float(Time.get_ticks_usec() - start) / 1000.0
 		await process_frame
 		if frame >= 30:
 			frame_times.append(float(Time.get_ticks_usec() - start) / 1000.0)
-			motion_times.append(motion_ms)
+			motion_times.append(opening.motion_ms if whole_opening else motion_ms)
+			if whole_opening:
+				process_times.append(opening.process_ms)
 			draw_calls.append(RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME))
 	frame_times.sort()
 	motion_times.sort()
+	process_times.sort()
 	draw_calls.sort()
 	if not capture.is_empty():
 		var image := root.get_texture().get_image()
 		image.save_png(capture)
-	print("COG_SCALE " + JSON.stringify({"count": count, "build_ms": build_ms,
+	var result := {"count": count, "build_ms": build_ms,
 		"supports": supports, "large_every": large_every,
 		"motion_median_ms": motion_times[motion_times.size() / 2],
 		"frame_median_ms": frame_times[frame_times.size() / 2],
 		"frame_p95_ms": frame_times[int(frame_times.size() * 0.95)],
 		"draw_calls_median": draw_calls[draw_calls.size() / 2],
-		"renderer": ProjectSettings.get_setting("rendering/renderer/rendering_method")}))
+		"renderer": ProjectSettings.get_setting("rendering/renderer/rendering_method"),
+		"whole_opening": whole_opening}
+	if whole_opening:
+		result.process_median_ms = process_times[process_times.size() / 2]
+		if count > 0 and count < 800:
+			var added: Dictionary = host.state.transmission_parts["cog-0"].duplicate(true)
+			added.center = [columns * 4, 4, 0]
+			added.erase("support")
+			host.state.transmission_parts["cog-added"] = added
+			host.state.motion["cog-added"] = host.state.motion["cog-0"].duplicate(true)
+			var refresh_start := Time.get_ticks_usec()
+			opening._refresh_transmission()
+			result.append_refresh_ms = float(Time.get_ticks_usec() - refresh_start) / 1000.0
+	print("COG_SCALE " + JSON.stringify(result))
+	scene.free()
 	quit()

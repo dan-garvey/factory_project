@@ -21,6 +21,7 @@ var _cargo_keys: Dictionary = {}
 var _cargo_elapsed: Dictionary = {}
 var _cargo_anchors: Array[Node3D] = []
 var _motion_context := ""
+var _motion_revision: Variant = null
 var _generations: Dictionary = {}
 var _visual_angles: Dictionary = {}
 var _visual_rotations: Dictionary = {}
@@ -45,6 +46,7 @@ func _clear() -> void:
 
 func _clear_motion() -> void:
 	_motion_context = ""
+	_motion_revision = null
 	_generations.clear()
 	_visual_angles.clear()
 	_visual_rotations.clear()
@@ -72,6 +74,7 @@ func _sync_motion(snapshot: Dictionary) -> void:
 			_visual_angles.erase(id)
 			_visual_rotations.erase(id)
 	_generations = current
+	_motion_revision = snapshot.get("revision")
 
 static func signed_rate(motion: Variant) -> float:
 	if not motion is Dictionary or motion.get("state") != "rotating" or typeof(motion.get("numerator")) != TYPE_INT or typeof(motion.get("denominator")) != TYPE_INT or motion.denominator <= 0:
@@ -114,12 +117,13 @@ func _apply_angles() -> void:
 			arrow.rotation.y = -angle
 	for batch: Dictionary in _gear_batches.values():
 		var mesh: MultiMesh = batch.mesh
-		var anchors: Array = batch.anchors
-		for index in anchors.size():
-			var anchor: Node3D = anchors[index]
-			var basis := axis_basis(int(anchor.get_meta("axis"))) * Basis(Vector3.UP,
-				visual_angle(str(anchor.get_meta("entity"))))
-			mesh.set_instance_transform(index, Transform3D(basis, anchor.position))
+		var ids: Array = batch.ids
+		var bases: Array = batch.bases
+		var origins: Array = batch.origins
+		for index in ids.size():
+			var basis: Basis = bases[index] * Basis(Vector3.UP,
+				float(_visual_angles.get(ids[index], 0.0)))
+			mesh.set_instance_transform(index, Transform3D(basis, origins[index]))
 
 func advance_visual_motion(delta: float) -> void:
 	if not is_finite(delta) or delta <= 0.0 or _host == null or not is_instance_valid(_host.get_ref()):
@@ -132,9 +136,15 @@ func advance_visual_motion(delta: float) -> void:
 	var snapshot: Variant = host.get("state")
 	if not snapshot is Dictionary or not snapshot.get("motion") is Dictionary:
 		return
-	# A machine may be rebuilt from the current projection before the next
-	# presenter refresh. Reconcile those identities before advancing its motion.
-	_sync_motion(snapshot)
+	# A machine can be rebuilt before the next presenter refresh. Catch that
+	# addition here; ordinary replacement projections carry a new revision.
+	var identity_count := 0
+	for group: String in ["entities", "transmission_parts"]:
+		var parts: Variant = snapshot.get(group)
+		if parts is Dictionary:
+			identity_count += parts.size()
+	if _motion_context != snapshot.get("context", "") or _motion_revision != snapshot.get("revision") or identity_count != _generations.size():
+		_sync_motion(snapshot)
 	for id: String in _generations:
 		var rate := signed_rate(snapshot.motion.get(id))
 		if rate != 0.0:
@@ -1016,12 +1026,18 @@ func refresh() -> void:
 		for teeth: int in gear_anchors:
 			var anchors: Array = gear_anchors[teeth]
 			var poses: Array[Transform3D] = []
+			var ids: Array[String] = []
+			var bases: Array[Basis] = []
+			var origins: Array[Vector3] = []
 			for anchor: Node3D in anchors:
 				poses.append(anchor.transform)
+				ids.append(str(anchor.get_meta("entity")))
+				bases.append(axis_basis(int(anchor.get_meta("axis"))))
+				origins.append(anchor.position)
 			var mesh := Assets.complete_gear_mesh(Geometry.PITCH / 2.0, teeth,
 				Color("687a7b"), Geometry.PITCH)
 			_gear_batches[teeth] = {"mesh": _add_batch(mesh, poses, "CogBatch%d" % teeth),
-				"anchors": anchors}
+				"anchors": anchors, "ids": ids, "bases": bases, "origins": origins}
 		for sign_value: int in direction_poses:
 			var poses: Array[Transform3D] = []
 			poses.assign(direction_poses[sign_value])

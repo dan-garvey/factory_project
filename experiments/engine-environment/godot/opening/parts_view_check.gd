@@ -11,6 +11,7 @@ var failures := 0
 class OfflineWidgets:
 	extends "res://opening/opening.gd"
 	var issued: Array = []
+	var pointed := ""
 	func issue(action: Dictionary) -> Dictionary:
 		issued.append(action.duplicate(true))
 		return {"accepted": false, "reason": "fixture_only"}
@@ -20,10 +21,13 @@ class OfflineWidgets:
 		pass
 	func _update_camera() -> void:
 		pass
+	func _screen_entity(_screen: Vector2) -> String:
+		return pointed
 
 class SharedWidgets:
 	extends "res://opening/shared_opening.gd"
 	var issued: Array = []
+	var pointed := ""
 	func issue(action: Dictionary) -> Dictionary:
 		issued.append(action.duplicate(true))
 		return {"accepted": false, "reason": "fixture_only"}
@@ -33,6 +37,8 @@ class SharedWidgets:
 		pass
 	func _update_camera() -> void:
 		pass
+	func _screen_entity(_screen: Vector2) -> String:
+		return pointed
 
 class SessionStub extends RefCounted:
 	var ready := true
@@ -54,6 +60,9 @@ func fixture() -> Dictionary:
 		"stock": {"output": 0}, "inventories": {"P": 0, "Q": 0}}
 
 func _initialize() -> void:
+	if "--interaction-only" in OS.get_cmdline_user_args():
+		call_deferred("_interaction_controls")
+		return
 	if "--building-rotation-only" in OS.get_cmdline_user_args():
 		call_deferred("_building_rotation")
 		return
@@ -154,10 +163,11 @@ func _building_rotation() -> void:
 			verify(view.building_rotation == turn and view._preview_axis() == (2 if turn % 2 == 0 else 0),
 				"Quarter turns rotate the preview's horizontal drive axis with its body.")
 			var anchor := Node3D.new()
-			view._assemble_machine(anchor, {"kind": "collector", "axis": view._preview_axis(), "rotation": turn})
+			view._assemble_machine(anchor, {"kind": "collector", "axis": view._preview_axis(),
+				"rotation": turn, "cell": [0, 0], "level": 0})
 			var body := anchor.get_node_or_null("RotatedMachineVisual")
-			verify((body == null and turn == 0) or (body != null and is_equal_approx(body.rotation.y, -float(turn) * PI / 2.0)),
-				"The actual machine art uses the selected quarter-turn transform.")
+			verify(body == null and anchor.get_node_or_null("SourcePickupHousing") != null,
+				"The collector keeps its source-facing intake while its selected outlet turns.")
 			view._preview_port(anchor, turn, true)
 			var port: Label3D = anchor.get_node("MaterialPortLabel")
 			verify(port.text == "OUT" and (port.get_meta("port_side") as Vector3).is_equal_approx(Vector3.RIGHT.rotated(Vector3.UP, -float(turn) * PI / 2.0)),
@@ -208,6 +218,101 @@ func _building_rotation() -> void:
 			"Square foundations retain their common grid rather than a cosmetic rotation state.")
 		view.free()
 	print("%d building-rotation view checks" % checks)
+	quit(1 if failures else 0)
+
+func _interaction_controls() -> void:
+	root.gui_embed_subwindows = true
+	root.size = Vector2i(1280, 800)
+	for shared in [false, true]:
+		var view = SharedWidgets.new() if shared else OfflineWidgets.new()
+		if shared:
+			view.session = SessionStub.new()
+		view.state = hotbar_observation()
+		view.state.entities = {"press": {"kind": "processor", "cell": [1, 0], "level": 0, "axis": 2}}
+		view.mode = "collector"
+		view.pointed = "press"
+		root.add_child(view)
+		view.selection_ring = MeshInstance3D.new()
+		view.add_child(view.selection_ring)
+		view._build_interface()
+		view._refresh_ui()
+		var before: Dictionary = view.state.duplicate(true)
+		var sequence: int = view.request_sequence
+		verify(view.tool_buttons.has("flow") and not view.tool_buttons.has("inspect")
+			and view.placement_options_panel != null and not view.placement_options_panel.visible,
+			"The playable build UI has no Inspect button or idle ghost options.")
+		view.machine_preview = Node3D.new()
+		view.add_child(view.machine_preview)
+		view.machine_preview.visible = true
+		view._refresh_placement_options()
+		verify(view.placement_options_panel.visible and view.placement_options_title.text == "PLACE COLLECTOR"
+			and view.rotation_button.visible and "R" in view.rotation_button.text,
+			"A selected collector ghost exposes a visible placement menu and Rotate action.")
+		view.rotation_button.pressed.emit()
+		verify(view.building_rotation == 1 and view.issued.is_empty() and view.state == before,
+			"The ghost menu turns local placement state without issuing a build command.")
+		view.mode = "wheel"
+		view._refresh_ui()
+		view._refresh_placement_options()
+		var old_axis: String = view.transmission_controls.selected_axis
+		view.placement_options_axis.pressed.emit()
+		verify(view.placement_options_axis.visible and view.transmission_controls.selected_axis != old_axis
+			and view.foundation_level_controls.visible and view.wheel_size_controls.visible,
+			"The wheel ghost offers axle, height and diameter controls in the same menu.")
+		view.mode = "foundation"
+		view._refresh_ui()
+		view._refresh_placement_options()
+		verify(view.foundation_area_toggle.visible and view.foundation_steps_toggle.visible
+			and view.placement_options_panel.visible,
+			"The foundation ghost exposes area, access step and height choices.")
+		view.machine_preview.visible = false
+		view._refresh_placement_options()
+		verify(not view.placement_options_panel.visible, "The placement menu leaves when its ghost leaves.")
+		view.mode = "gear"
+		view.transmission_controls.choose_tool("gear")
+		view._refresh_placement_options()
+		verify(view.placement_options_panel.visible and view.placement_options_axis.visible
+			and view.transmission_controls.get_parent() == view.placement_options_column,
+			"Cogwheel placement keeps axis, height and size in the contextual menu.")
+		view.transmission_controls.cancel()
+		view.mode = "collector"
+		view.machine_preview.visible = true
+		view.building_hotbar.open_catalog()
+		view._refresh_placement_options()
+		verify(not view.placement_options_panel.visible, "The modal catalog hides the ghost options.")
+		view.building_hotbar.catalog.hide()
+		view.machine_preview.visible = false
+		var key := InputEventKey.new()
+		key.pressed = true
+		key.keycode = KEY_E
+		view._unhandled_input(key)
+		verify(view.mode == "inspect" and view.selected == "press" and view.inspector.visible
+			and view.issued.is_empty() and view.request_sequence == sequence,
+			"E opens the pointed press through the existing read-only inspector without an authority request.")
+		key.keycode = KEY_F
+		view._unhandled_input(key)
+		verify(view.mode == "deconstruct" and view.transmission_controls.active_tool.is_empty(),
+			"F enters a separate deconstruction mode and cancels placement.")
+		view._world_click(Vector2i(1, 0), "press")
+		verify(view.issued.size() == 1 and view.issued[0] == {"action": "remove", "entity": "press"},
+			"Clicking a machine in deconstruction mode submits its existing native removal action.")
+		view.state.belt_spans = {"span": {"from": "shaft-a", "slots": []}}
+		view._world_click(Vector2i.ZERO, "span")
+		verify(view.issued.size() == 2 and view.issued[1] == {"action": "remove_belt_span", "entity": "span"},
+			"The same mode uses the distinct native belt-span removal action.")
+		view._world_click(Vector2i.ZERO)
+		verify(view.issued.size() == 2, "An empty click cannot invent a deconstruction target.")
+		view.transmission_controls.get_popup().id_pressed.emit(8)
+		view._refresh_placement_options()
+		verify(view.mode == "gearbox" and view.transmission_controls.active_tool == "gearbox"
+			and view.placement_options_panel.visible,
+			"Choosing a gearbox from the placement menu leaves deconstruction and shows its ghost options.")
+		key.keycode = KEY_ESCAPE
+		view._unhandled_input(key)
+		verify(view.mode == "inspect" and view.issued.size() == 2 and view.state.get("entities") == before.entities,
+			"Escape leaves deconstruction without changing the confirmed worksite.")
+		view.free()
+	print("%d placement-interaction view checks" % checks)
 	quit(1 if failures else 0)
 
 func _hotbar() -> void:
