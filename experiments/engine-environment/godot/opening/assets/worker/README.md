@@ -40,7 +40,10 @@ distance matches the captured low-toe travel during support; the previous
 walk reaches its full captured stride around 1.05 metres per second so slow
 confirmed movement does not advance a full cycle with only a partial leg pose.
 Observed speed blends the walk into the run from 1.15 to 2.35 metres per
-second; the pose then settles toward rest when travel stops. Both imported
+second. A short visual speed average prevents uneven native physics cuts per
+rendered frame from pulsing stride strength at a constant walking command;
+confirmed distance still advances the gait phase and the pose settles toward
+rest when travel stops. Both imported
 clips begin in a stride pose. Their leg rotations retain those absolute source
 poses in the matching named rig; subtracting the first frame removed the walk's left
 support step. Walk arm channels and non-leg torso channels remain relative to

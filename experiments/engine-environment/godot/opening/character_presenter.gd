@@ -772,7 +772,7 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 	var previous: Dictionary = motion.get(actor, {"position": at, "phase": 0.0, "weight": 0.0,
 		"age": 1.0, "mode": "grounded", "ground_y": at.y, "peak_y": at.y,
 		"vertical_speed": 0.0, "air": 0.0, "impact_age": LANDING_SECONDS,
-		"run_mix": 0.0, "horizontal_speed": 0.0, "landing_stride": 0.0,
+		"run_mix": 0.0, "horizontal_speed": 0.0, "gait_speed": 0.0, "landing_stride": 0.0,
 		"native_epoch": -1, "sample_elapsed": 0.0})
 	var displacement: Vector3 = at - previous.position
 	var horizontal := Vector2(displacement.x, displacement.z)
@@ -789,7 +789,7 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 		previous = {"position": at, "phase": 0.0, "weight": 0.0, "age": 1.0,
 			"mode": "grounded", "ground_y": at.y, "peak_y": at.y,
 			"vertical_speed": 0.0, "air": 0.0, "impact_age": LANDING_SECONDS,
-			"run_mix": 0.0, "horizontal_speed": 0.0, "landing_stride": 0.0,
+			"run_mix": 0.0, "horizontal_speed": 0.0, "gait_speed": 0.0, "landing_stride": 0.0,
 			"native_epoch": native_epoch, "sample_elapsed": 0.0}
 		body.rotation.y = 0
 	else:
@@ -845,7 +845,17 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 		# A longer gap settles the visual stride without predicting actor travel.
 		var speed := float(previous.horizontal_speed) if repeated_sample \
 			and sample_elapsed <= STALE_SAMPLE_SETTLE_SECONDS else horizontal_speed
-		var target_run_mix := clampf((speed - RUN_BLEND_START) / (RUN_BLEND_END - RUN_BLEND_START), 0.0, 1.0)
+		# Native physics cuts and rendered frames are not one-to-one. Average the
+		# observed speed for pose strength while phase still follows exact travel.
+		# A fresh start responds to its first confirmed step; a true stop clears
+		# the estimate promptly instead of holding a stale moving stride.
+		var gait_speed := float(previous.gait_speed)
+		if speed < 0.01 or gait_speed < 0.01:
+			gait_speed = speed
+		else:
+			gait_speed = lerpf(gait_speed, speed, 1.0 - exp(-delta / 0.16))
+		previous.gait_speed = gait_speed
+		var target_run_mix := clampf((gait_speed - RUN_BLEND_START) / (RUN_BLEND_END - RUN_BLEND_START), 0.0, 1.0)
 		previous.run_mix = move_toward(float(previous.run_mix), target_run_mix, delta * 5.0)
 		if mode == "grounded" or mode == "landing":
 			previous.phase += horizontal.length() * TAU / lerpf(WALK_CYCLE_DISTANCE, GAIT_CYCLE_DISTANCE, float(previous.run_mix))
@@ -856,7 +866,7 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 			# the run retains its separate full-pose speed through the blend.
 			var full_pose_speed := lerpf(FULL_WALK_POSE_SPEED, FULL_GAIT_SPEED,
 				float(previous.run_mix))
-			target_weight = minf(1.0, speed / full_pose_speed)
+			target_weight = minf(1.0, gait_speed / full_pose_speed)
 		elif previous.age < (STOP_HOLD_SECONDS if mode == "grounded" else 0.1):
 			# Keep one grounded pose at the stop, then lower the swing foot promptly.
 			# Airborne and landing poses retain their longer accepted transition.
