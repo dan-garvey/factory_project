@@ -4254,6 +4254,12 @@ var details_button: Button
 var controls_label: Label
 var building_rotation := 0
 var rotation_button: Button
+var placement_options_panel: PanelContainer
+var placement_options_column: VBoxContainer
+var placement_options_title: Label
+var placement_options_hint: Label
+var placement_options_axis: Button
+var placement_cell_cache := Vector2i.ZERO
 
 func _ready() -> void:
 	for argument in OS.get_cmdline_user_args():
@@ -4385,7 +4391,7 @@ func _refresh_transmission() -> void:
 			return
 		transmission_controls = load(controls_path).new()
 		transmission_controls.custom_minimum_size.y = 37
-		build_column.add_child(transmission_controls)
+		placement_options_column.add_child(transmission_controls)
 		transmission_controls.configure(self)
 		transmission_presenter = load(presenter_path).new()
 		add_child(transmission_presenter)
@@ -4393,7 +4399,7 @@ func _refresh_transmission() -> void:
 	transmission_controls.refresh()
 	transmission_presenter.refresh()
 	var active: bool = not transmission_controls.active_tool.is_empty()
-	transmission_controls.visible = active or _catalog_open() or goal_confirmed or int(state.get("inventories", {}).get(client, 0)) > 0 or not state.get("transmission_parts", {}).is_empty()
+	transmission_controls.visible = active
 	if not active and mode in ["gear", "drive", "belt"]:
 		mode = "inspect"
 	_update_cursor()
@@ -4806,6 +4812,7 @@ func _process(delta: float) -> void:
 			model.advance()
 		_refresh()
 	_refresh_machine_preview()
+	_refresh_placement_options()
 	_refresh_water()
 	_refresh_mechanical_audio()
 	_animate_wheel(delta)
@@ -5021,7 +5028,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				orbit_pitch = maxf(orbit_pitch, 0.35)
 		elif event.button_index == MOUSE_BUTTON_LEFT:
 			var entity_id := _screen_entity(event.position)
-			if not _transmission_click(_transmission_center(event.position), entity_id):
+			if mode == "deconstruct" or not _transmission_click(_transmission_center(event.position), entity_id):
 				_world_click(_screen_cell(event.position), entity_id)
 	elif event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode >= KEY_1 and event.keycode <= KEY_8:
@@ -5032,9 +5039,18 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_B: building_hotbar.open_catalog()
 			KEY_PAGEUP: _adjust_foundation_level(1)
 			KEY_PAGEDOWN: _adjust_foundation_level(-1)
-			KEY_F: _select_tool("flow")
+			KEY_F: _select_tool("deconstruct" if _native_transmission() else "flow")
+			KEY_C:
+				if _native_transmission():
+					_select_tool("flow")
 			KEY_G: _select_tool("drive")
-			KEY_I, KEY_ESCAPE: _select_tool("inspect")
+			KEY_E:
+				if _native_transmission():
+					_open_pointed_machine()
+			KEY_I:
+				if not _native_transmission():
+					_select_tool("inspect")
+			KEY_ESCAPE: _select_tool("inspect")
 			KEY_R:
 				if _native_transmission() and mode in ["collector", "processor", "wheel"]:
 					_rotate_building()
@@ -5061,7 +5077,8 @@ func _select_tool(tool: String) -> void:
 	_refresh_ui()
 	var instructions := {"flow": "Click the upstream machine, then its neighbor toward the brass arrow.",
 		"drive": "Click two neighboring machines to connect a drive shaft.",
-		"inspect": "Click a machine to inspect it or collect its finished work.",
+		"inspect": "Point at a machine and press E to open it." if _native_transmission() else "Click a machine to inspect it or collect its finished work.",
+		"deconstruct": "Point at a built part and click to dismantle it. Escape leaves dismantle mode.",
 		"collector": "Place the collector on the brass seam strip.",
 		"wheel": "Place the waterwheel in the flowing stream. Set its height to align its axle with your shafts."}
 	if _native_transmission():
@@ -5076,6 +5093,17 @@ func _select_tool(tool: String) -> void:
 
 func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 	if explanation_open:
+		return
+	if mode == "deconstruct":
+		var target := entity_id if _contains_target(state, entity_id) else ""
+		if target.is_empty():
+			_message("Point at a built part to dismantle it.", true)
+			return
+		var removal := "remove_belt_span" if state.get("belt_spans", {}).has(target) else "remove"
+		var outcome := issue({"action": removal, "entity": target})
+		if outcome.accepted and selected == target:
+			selected = ""
+		_refresh_ui()
 		return
 	if _native_transmission():
 		var height: int = transmission_controls.gear_height if transmission_controls != null else 0
@@ -5142,9 +5170,23 @@ func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 func _retrieve() -> void:
 	var target := selected
 	if target.is_empty() or not state.entities.has(target) or state.entities[target].kind != "processor":
-		_message("Select the press to collect its finished plate.", true)
+		_message("Point at the press and press E, then collect its finished plate.", true)
 		return
 	issue({"action": "retrieve", "amount": 1, "entity": target})
+
+func _pointed_screen_position() -> Vector2:
+	return get_viewport().get_visible_rect().size * 0.5 if distance <= 0.0 else get_viewport().get_mouse_position()
+
+func _open_pointed_machine() -> void:
+	if _catalog_open() or not _can_control_character():
+		return
+	var target := _screen_entity(_pointed_screen_position())
+	if not _contains_target(state, target):
+		_message("Point at a machine or part and press E to open it.", true)
+		return
+	_select_tool("inspect")
+	selected = target
+	_refresh_ui()
 
 func _toggle_power() -> void:
 	issue({"action": "set_power", "active": not state.get("power_enabled", true)})
@@ -6120,7 +6162,7 @@ func _refresh_ui() -> void:
 	if actor_label != null:
 		actor_label.visible = not legacy_fixture
 		actor_label.text = "CHARACTER READY · BUILD NEARBY" if state.get("actors", {}).get(client, {}).get("ready", false) else "CHARACTER STARTING…"
-	for tool in ["flow", "inspect"]:
+	for tool in ["flow"]:
 		var button: Button = tool_buttons[tool]
 		button.disabled = explanation_open
 		button.button_pressed = mode == tool
@@ -6146,7 +6188,7 @@ func _refresh_ui() -> void:
 	elif _native_transmission() and state.get("belt_spans", {}).has(selected):
 		inspector.text = _belt_inspection(state.belt_spans[selected], state.get("motion", {}))
 	else:
-		inspector.text = "Select a machine to inspect\nor collect its finished work."
+		inspector.text = "Point at a machine and press E to open it."
 	_refresh_guided_tools()
 	if recovery_actions != null:
 		recovery_actions.refresh()
@@ -6188,8 +6230,6 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	for entity in state.get("entities", {}).values():
 		kinds[String(entity.kind)] = true
 	var offered := {"collector": true}
-	if not kinds.is_empty():
-		offered.inspect = true
 	if kinds.has("collector"):
 		offered.belt = true
 	if kinds.has("belt") or (_native_transmission() and not state.get("belt_spans", {}).is_empty()):
@@ -6225,7 +6265,7 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		control.visible = show_details
 	actor_label.visible = show_details or not state.get("actors", {}).get(client, {}).get("ready", false)
 	power_button.visible = kinds.has("wheel")
-	controls_label.text = "WASD walk · Space jump · Right-drag view · Wheel zoom · H help"
+	controls_label.text = "WASD walk · E open · F dismantle · R rotate · Esc cancel · H help"
 	_refresh_engineering(snapshot_ready)
 	var target_selected: bool = _contains_target(state, selected)
 	inspector.visible = target_selected or show_details \
@@ -6281,10 +6321,20 @@ func _refresh_placement_hint(snapshot_ready: bool = true) -> void:
 func _preview_pointer_clear() -> bool:
 	# This query does not consume input or move the pointer. The live preview
 	# follows the current camera ray, including when the view moves under it.
-	return is_inside_tree() and get_viewport().gui_get_hovered_control() == null
+	return is_inside_tree() and (get_viewport().gui_get_hovered_control() == null or _pointer_over_placement_options())
+
+func _pointer_over_placement_options() -> bool:
+	if placement_options_panel == null or not placement_options_panel.visible or not is_inside_tree():
+		return false
+	var hovered := get_viewport().gui_get_hovered_control()
+	while hovered != null:
+		if hovered == placement_options_panel:
+			return true
+		hovered = hovered.get_parent() as Control
+	return false
 
 func _machine_preview_cell() -> Vector2i:
-	return _screen_cell(get_viewport().get_mouse_position())
+	return placement_cell_cache if _pointer_over_placement_options() else _screen_cell(get_viewport().get_mouse_position())
 
 func _preview_axis() -> int:
 	if not _native_transmission() or transmission_controls == null:
@@ -6307,6 +6357,47 @@ func _rotate_building() -> void:
 	_update_cursor()
 	_refresh_ui()
 
+func _cycle_placement_axis() -> void:
+	if transmission_controls == null or not _can_choose_tool() or mode not in ["wheel", "gear", "drive"]:
+		return
+	var axes := ["x", "y", "z"]
+	transmission_controls.selected_axis = axes[(axes.find(transmission_controls.selected_axis) + 1) % axes.size()]
+	transmission_controls.refresh()
+	_update_cursor()
+	_refresh_ui()
+
+func _refresh_placement_options() -> void:
+	if placement_options_panel == null:
+		return
+	var placing_machine := machine_preview != null and machine_preview.visible
+	var placing_transmission: bool = _native_transmission() and transmission_controls != null \
+		and transmission_controls.active_tool in ["gear", "place_shaft", "belt_span"]
+	var shown: bool = _native_transmission() and not explanation_open and not _catalog_open() and _can_choose_tool() \
+		and (placing_machine or placing_transmission)
+	placement_options_panel.visible = shown
+	if not shown:
+		return
+	var tool: String = {"place_shaft": "drive", "belt_span": "belt"}.get(transmission_controls.active_tool, mode) \
+		if placing_transmission else mode
+	placement_options_title.text = "CONNECT BELT" if tool == "belt" else "PLACE %s" % NAMES.get(tool, tool).to_upper()
+	placement_options_hint.text = {
+		"foundation": "Left click to build · choose height or area below · Esc cancels",
+		"wheel": "Left click to build · R turns the axle · choose size or height below",
+		"gear": "Left click to build · choose axle, height or size below",
+		"drive": "Left click to build · choose axle or height below",
+		"belt": "Click two parallel shafts · Esc cancels",
+	}.get(tool, "Left click to build · R rotates · Esc cancels")
+	placement_options_axis.visible = tool in ["wheel", "gear", "drive"]
+	placement_options_axis.text = "Axle: %s  [click to change]" % (transmission_controls.selected_axis.to_upper()
+		if transmission_controls != null else "X")
+	var parent := placement_options_panel.get_parent() as Control
+	var height: float = placement_options_panel.get_combined_minimum_size().y
+	placement_options_panel.size = Vector2(maxf(302.0, placement_options_panel.get_combined_minimum_size().x), height)
+	var hotbar_height: float = building_hotbar.size.y if building_hotbar != null else 0.0
+	var footer_height: float = status_footer.size.y if status_footer != null and status_footer.visible else 0.0
+	placement_options_panel.position = Vector2((parent.size.x - placement_options_panel.size.x) * 0.5,
+		maxf(18.0, parent.size.y - hotbar_height - footer_height - placement_options_panel.size.y - 48.0))
+
 func _refresh_machine_preview() -> void:
 	if machine_preview != null:
 		machine_preview.visible = false
@@ -6317,6 +6408,8 @@ func _refresh_machine_preview() -> void:
 	if transmission_controls != null and not transmission_controls.active_tool.is_empty():
 		return
 	var cell := _machine_preview_cell()
+	if not _pointer_over_placement_options():
+		placement_cell_cache = cell
 	if not _build_cell_allowed(cell) or not _machine_floor_aligned(cell) or (mode != "foundation" and not _entity_at_cell(cell).is_empty()):
 		return
 	var area_size := Vector2i.ONE
@@ -6330,11 +6423,17 @@ func _refresh_machine_preview() -> void:
 	if axis < 0:
 		return
 	var facing := building_rotation if mode in ["collector", "processor"] else 0
-	var key := "%s:%d:%s:%d:%d" % [mode, axis, str(_native_transmission()), wheel_tiles if mode == "wheel" else 0, facing]
+	var level := _construction_level(cell)
+	if mode == "collector" and _native_transmission() and not Geometry.collector_intake_boxes(
+		{"kind": "collector", "cell": [cell.x, cell.y], "level": level}).get("accepted", false):
+		return
+	var key := "%s:%d:%s:%d:%d:%s" % [mode, axis, str(_native_transmission()), wheel_tiles if mode == "wheel" else 0, facing,
+		str([cell.x, cell.y, level]) if mode == "collector" else ""]
 	if machine_preview == null:
 		machine_preview = Node3D.new()
 		machine_preview.name = "MachinePlacementPreview"
 		add_child(machine_preview)
+	machine_preview.position = _cell_position([cell.x, cell.y]) + Vector3.UP * level * Geometry.HEIGHT_STEP
 	if key != machine_preview_key:
 		for child in machine_preview.get_children():
 			child.free()
@@ -6344,7 +6443,8 @@ func _refresh_machine_preview() -> void:
 		if mode == "foundation":
 			_assemble_foundation(machine_preview)
 		else:
-			_assemble_machine(machine_preview, {"kind": mode, "axis": axis, "tiles": wheel_tiles, "rotation": facing}, mode == "belt" and axis == 0)
+			_assemble_machine(machine_preview, {"kind": mode, "axis": axis, "tiles": wheel_tiles,
+				"rotation": facing, "cell": [cell.x, cell.y], "level": level}, mode == "belt" and axis == 0)
 			if mode in ["collector", "processor"]:
 				_preview_port(machine_preview, facing, mode == "collector")
 		wheel_rotor = placed_rotor
@@ -6356,7 +6456,6 @@ func _refresh_machine_preview() -> void:
 			machine_preview_material.metallic = 0.0
 		_style_machine_preview(machine_preview)
 		machine_preview_key = key
-	machine_preview.position = _cell_position([cell.x, cell.y]) + Vector3.UP * _construction_level(cell) * Geometry.HEIGHT_STEP
 	machine_preview.scale = Vector3.ONE
 	if mode == "foundation":
 		machine_preview.scale = Vector3(area_size.x, 1, area_size.y)
@@ -6489,7 +6588,7 @@ func _guided_step(kinds: Dictionary) -> Dictionary:
 	if int(state.get("inventories", {}).get(client, 0)) >= 4:
 		return {"text": "Four plates ready. Confirm when you are ready.", "tool": "inspect"}
 	if int(state.get("stock", {}).get("output", 0)) > 0:
-		return {"text": "Plate ready. Select the press, then collect [R].", "tool": "inspect"}
+		return {"text": "Plate ready. Point at the press and open [E], then collect [R].", "tool": "inspect"}
 	if not kinds.has("collector"):
 		if _native_transmission():
 			return {"text": FIRST_COLLECTOR_HINT if mode == "inspect" else "Place a collector at the exposed mineral seam.", "tool": "collector"}
@@ -6533,11 +6632,11 @@ func _guided_step(kinds: Dictionary) -> Dictionary:
 		if _native_transmission():
 			var cargo: Dictionary = state.get("cargo", {}).get(client, {})
 			if not cargo.get("work_lots", []).is_empty():
-				return {"text": "Select the press to insert a carried workpiece.", "tool": "inspect"}
+				return {"text": "Point at the press and open [E] to insert a carried workpiece.", "tool": "inspect"}
 			if int(cargo.get("raw", 0)) > 0:
-				return {"text": "Select the press to insert a carried blank.", "tool": "inspect"}
+				return {"text": "Point at the press and open [E] to insert a carried blank.", "tool": "inspect"}
 		return {"text": "No blanks remain here. Open Build to try another layout.", "tool": "inspect"}
-	return {"text": "Follow the material toward the press. Select a machine to inspect it.", "tool": "inspect"}
+	return {"text": "Follow the material toward the press. Point at a machine and open it [E].", "tool": "inspect"}
 
 func _inspection_hint() -> String:
 	# Describe confirmed projection facts only. This is advice, never admission
@@ -6556,9 +6655,9 @@ func _inspection_hint() -> String:
 			return "Work done; blank retained.\nNext drive tick releases plate."
 		return "Working: %d ticks remaining.\nHeld blank stays in the press." % state.remaining
 	if kind in ["belt", "processor"] and not _has_material_connection(true):
-		return (("Inlet missing. Stop [%s].\n" % _power_key()) if stop_before_link else "No material inlet linked.\n") + "[F] link " + ("Collector → Belt." if kind == "belt" else "Belt → Press.")
+		return (("Inlet missing. Stop [%s].\n" % _power_key()) if stop_before_link else "No material inlet linked.\n") + ("[C]" if _native_transmission() else "[F]") + " link " + ("Collector → Belt." if kind == "belt" else "Belt → Press.")
 	if kind in ["collector", "belt"] and not _has_material_connection(false):
-		return (("Outlet missing. Stop [%s].\n" % _power_key()) if stop_before_link else "No material outlet linked.\n") + "[F] link " + ("Collector → Belt." if kind == "collector" else "Belt → Press.")
+		return (("Outlet missing. Stop [%s].\n" % _power_key()) if stop_before_link else "No material outlet linked.\n") + ("[C]" if _native_transmission() else "[F]") + " link " + ("Collector → Belt." if kind == "collector" else "Belt → Press.")
 	if not rotating:
 		if _native_transmission():
 			if kind == "wheel":
@@ -6606,12 +6705,14 @@ func _update_cursor() -> void:
 		hover.visible = false
 		if transmission_controls.active_tool in ["gear", "place_shaft"] and not explanation_open and _can_control_character():
 			_set_transmission_hover(_transmission_center(get_viewport().get_mouse_position()))
+		_refresh_placement_options()
 		return
 	hover.basis = Basis.IDENTITY
 	hover.visible = NAMES.has(mode) and _build_cell_allowed(hover_cell) and _machine_floor_aligned(hover_cell) \
 		and (mode == "foundation" or _entity_at_cell(hover_cell).is_empty()) and not explanation_open
 	if hover.visible:
 		hover.position = _cell_position([hover_cell.x, hover_cell.y]) + Vector3(0, 0.03 + _construction_level(hover_cell) * Geometry.HEIGHT_STEP, 0)
+	_refresh_placement_options()
 
 func _set_transmission_hover(center: Array) -> void:
 	if center.size() != 3 or absi(center[0]) > Geometry.GRID_COORDINATE_LIMIT or absi(center[1]) > Geometry.GRID_COORDINATE_LIMIT or absi(center[2]) > Geometry.GRID_COORDINATE_LIMIT:
@@ -6760,10 +6861,20 @@ func _build_interface() -> void:
 	tool_buttons.merge(building_hotbar.catalog_buttons)
 	parts_label = building_hotbar.parts_label
 	catalog_button = building_hotbar.catalog_button
-	rotation_button = _button(build, "Rotate [R]", _rotate_building)
+	placement_options_column = _panel(root, Vector2.ZERO, Vector2(302, 0))
+	placement_options_panel = placement_options_column.get_parent() as PanelContainer
+	placement_options_panel.name = "PlacementOptions"
+	placement_options_panel.visible = false
+	placement_options_title = _label(placement_options_column, "PLACE", 17, Color("edcc8d"))
+	placement_options_hint = _label(placement_options_column, "Left click to build · Esc to cancel", 13, Color("a3b8b4"))
+	placement_options_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	placement_options_hint.custom_minimum_size.x = 260
+	rotation_button = _button(placement_options_column, "Rotate [R]", _rotate_building)
 	rotation_button.visible = false
+	placement_options_axis = _button(placement_options_column, "Axle: X", _cycle_placement_axis)
+	placement_options_axis.visible = false
 	foundation_level_controls = HBoxContainer.new()
-	build.add_child(foundation_level_controls)
+	placement_options_column.add_child(foundation_level_controls)
 	_button(foundation_level_controls, "−", _adjust_foundation_level.bind(-1))
 	foundation_level_label = _label(foundation_level_controls, _construction_height_text(), 14)
 	_button(foundation_level_controls, "+", _adjust_foundation_level.bind(1))
@@ -6772,10 +6883,10 @@ func _build_interface() -> void:
 	foundation_steps_toggle.text = "Access steps"
 	foundation_steps_toggle.tooltip_text = "Use one height unit for walking steps. Normal height changes move one foundation thickness. Machines need whole-tile factory floors; turning this off snaps the selected height to one."
 	foundation_steps_toggle.toggled.connect(_set_foundation_steps)
-	build.add_child(foundation_steps_toggle)
+	placement_options_column.add_child(foundation_steps_toggle)
 	foundation_steps_toggle.visible = false
 	wheel_size_controls = HBoxContainer.new()
-	build.add_child(wheel_size_controls)
+	placement_options_column.add_child(wheel_size_controls)
 	_button(wheel_size_controls, "−", _adjust_wheel_size.bind(-1))
 	wheel_size_label = _label(wheel_size_controls, "Wheel diameter: 3 squares", 14)
 	_button(wheel_size_controls, "+", _adjust_wheel_size.bind(1))
@@ -6785,14 +6896,12 @@ func _build_interface() -> void:
 	foundation_area_toggle.toggled.connect(func(enabled: bool) -> void:
 		foundation_area_mode = enabled
 		foundation_area_started = false)
-	build.add_child(foundation_area_toggle)
+	placement_options_column.add_child(foundation_area_toggle)
 	foundation_area_toggle.visible = false
 	var selection_tools := HBoxContainer.new()
 	build.add_child(selection_tools)
-	tool_buttons.flow = _button(selection_tools, "Link [F]", _select_tool.bind("flow"))
-	tool_buttons.inspect = _button(selection_tools, "Inspect [I]", _select_tool.bind("inspect"))
-	for tool in ["flow", "inspect"]:
-		tool_buttons[tool].toggle_mode = true
+	tool_buttons.flow = _button(selection_tools, "Link [F]" if legacy_fixture else "Link [C]", _select_tool.bind("flow"))
+	tool_buttons.flow.toggle_mode = true
 	var view_options := HBoxContainer.new()
 	build.add_child(view_options)
 	view_options.visible = not legacy_fixture
@@ -6843,7 +6952,7 @@ func _build_interface() -> void:
 	bottom_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	status_label = _label(bottom, "", 16)
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	controls_label = _label(bottom, "1–8 hotbar · B build · F material · G shaft · I inspect · H help", 12, Color("9eb4b2"))
+	controls_label = _label(bottom, "1–8 build · E open · F dismantle · R rotate · Esc cancel · H help", 12, Color("9eb4b2"))
 	bottom_panel.minimum_size_changed.connect(_queue_footer_fit)
 	bottom_panel.resized.connect(_queue_footer_fit)
 	for column: Control in [build, right]:

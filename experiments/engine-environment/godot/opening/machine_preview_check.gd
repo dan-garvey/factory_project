@@ -52,6 +52,8 @@ func observation(native: bool = true) -> Dictionary:
 		"part_kits": {"P": {"collector": 1, "belt": 1, "processor": 1, "wheel": 1}}}
 
 func geometry(node: Node3D, pose: Transform3D = Transform3D.IDENTITY) -> Array:
+	if node.name.begins_with("PortArrow"):
+		return []
 	var result: Array = []
 	if node is MeshInstance3D:
 		result.append({"pose": pose, "bounds": node.mesh.get_aabb(),
@@ -62,8 +64,9 @@ func geometry(node: Node3D, pose: Transform3D = Transform3D.IDENTITY) -> Array:
 	return result
 
 func check_preview_nodes(node: Node, material: StandardMaterial3D) -> void:
-	verify(not node is CollisionObject3D and not node is CollisionShape3D and not node is Label3D,
-		"Preview assembly contains neither a pick collider nor a floating machine label.")
+	verify(not node is CollisionObject3D and not node is CollisionShape3D
+		and (not node is Label3D or node.name == "MaterialPortLabel"),
+		"Preview assembly contains no pick collider or unrelated floating machine label.")
 	verify(node.get_script() == null and node.get_signal_connection_list("tree_entered").is_empty(),
 		"Preview nodes have no scripts or input/authority callbacks.")
 	if node is MeshInstance3D:
@@ -88,20 +91,25 @@ func check_assemblies() -> void:
 		for axis in range(3):
 			assembly_cases += 1
 			view.mode = kind
+			var target_cell := Vector2i(0, 1) if kind == "collector" else Vector2i(1, 2)
+			view.target = target_cell
 			view.transmission_controls.selected_axis = ["x", "y", "z"][axis]
 			var actual_axis: int = 2 if kind == "belt" else axis
 			var level: int = view.wheel_level if kind == "wheel" else 0
 			var height: float = level * Opening.Geometry.HEIGHT_STEP
-			view.state.entities = {"placed": {"kind": kind, "axis": actual_axis, "cell": [-1, -1], "level": level}}
-			var before: Dictionary = view.state.duplicate(true)
+			view.state.entities = {"placed": {"kind": kind, "axis": actual_axis,
+				"cell": [target_cell.x, target_cell.y], "level": level}}
 			view._rebuild_machines()
 			var expected: Node3D = view.machine_root.get_child(0)
+			view.state.entities.clear()
+			var before: Dictionary = view.state.duplicate(true)
 			var plinth := expected.get_node_or_null("Plinth") as MeshInstance3D
 			var material: Material = plinth.material_override if plinth != null else null
 			var color: Color = material.albedo_color if material != null else Color.WHITE
 			var old_rotor: Node3D = view.wheel_rotor
 			view._refresh_machine_preview()
-			verify(view.machine_preview.visible and view.machine_preview.position == Vector3(1.65, height, 3.3),
+			verify(view.machine_preview.visible and view.machine_preview.position == Vector3(
+				target_cell.x * Opening.PITCH, height, target_cell.y * Opening.PITCH),
 				"The fitted preview uses the target square and the common construction height.")
 			verify(geometry(view.machine_preview) == geometry(expected),
 				"Preview and placed assembly have identical meshes and local transforms for %s axis %d." % [kind, axis])
@@ -113,15 +121,17 @@ func check_assemblies() -> void:
 				"Preview creation preserves the placed wheel target and opaque shared surface.")
 			check_preview_nodes(view.machine_preview, view.machine_preview_material)
 			var child_id := view.machine_preview.get_child(0).get_instance_id()
-			view.target = Vector2i(2, 3)
+			view.target = Vector2i(0, 0) if kind == "collector" else Vector2i(2, 3)
 			view._refresh_machine_preview()
-			verify(view.machine_preview.get_child(0).get_instance_id() == child_id
-				and view.machine_preview.position == Vector3(3.3, height, 4.95),
-				"Pointer motion moves the cached assembly without rebuilding it.")
+			verify((view.machine_preview.get_child(0).get_instance_id() != child_id if kind == "collector"
+				else view.machine_preview.get_child(0).get_instance_id() == child_id)
+				and view.machine_preview.position == Vector3(view.target.x * Opening.PITCH, height,
+					view.target.y * Opening.PITCH),
+				"The collector rebuilds for its source-facing cell while other previews reuse their cached assembly.")
 			verify(view.state == before and view.model == null and view.actor_world == null
 				and view.request_sequence == 0 and view.pending_link.is_empty() and view.selected.is_empty(),
 				"The preview leaves projection, requests, selection and authority untouched.")
-			view.target = Vector2i(1, 2)
+			view.target = target_cell
 	view.machine_root.free()
 	live_rotor.free()
 	view.free()

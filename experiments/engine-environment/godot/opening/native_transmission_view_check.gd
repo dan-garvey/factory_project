@@ -140,13 +140,11 @@ func _controls() -> void:
 	verify(view.handle_world_click([0, 4, 4], "") and host.calls.size() == sent, "A long-only kit cannot submit a one-tile shaft.")
 	host.client = "P"
 	host.state = fixture()
-	view.choose_tool("remove")
-	view.handle_world_click([], "a")
-	verify(host.calls.back() == {"action": "remove", "entity": "a"}, "Individual cog removal preserves its exact identifier.")
-	view.handle_world_click([], "sy")
-	verify(host.calls.back() == {"action": "remove", "entity": "sy"}, "An orphaned shaft remains selectable for removal.")
+	verify(view.get_popup().get_item_index(4) == -1 and not view.get_popup().get_item_text(0).contains("Remove"),
+		"The transmission menu leaves deconstruction to the dedicated F mode.")
+	view.choose_tool("bogus")
+	verify(view.active_tool == "place_shaft", "Unsupported transmission tools cannot replace placement.")
 	sent = host.calls.size()
-	verify(view.handle_world_click([], "wheel") and host.calls.size() == sent, "The transmission removal tool does not replace machine inspection.")
 	view.choose_tool("gear")
 	host.state.options.native = false
 	view.refresh()
@@ -358,9 +356,6 @@ func _belt_spans() -> void:
 		"An out-of-order shared frame cannot roll the item back.")
 	remote_presenter.free()
 	session.free()
-	controls.choose_tool("remove")
-	controls.handle_world_click([], "span")
-	verify(host.calls.back() == {"action": "remove_belt_span", "entity": "span"}, "Belt removal delegates its confirmed identity.")
 	host.state.belt_spans.clear()
 	presenter.refresh()
 	verify(_part(presenter, "span") == null, "A confirmed removal clears the visual.")
