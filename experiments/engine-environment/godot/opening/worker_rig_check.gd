@@ -257,6 +257,22 @@ func inspect_adult(body: Node3D, other: Node3D, presenter: Node) -> void:
 		and running_hands[0].L.y < running_hands[0].R.y - 0.10
 		and running_hands[1].L.y > running_hands[1].R.y + 0.10,
 		"The captured run alternates opposite arm positions and height through a complete stride.")
+	var torso_lead := -INF
+	var torso_trail := INF
+	for phase in [0.7, 2.2, 3.7, 5.2]:
+		presenter._set_gait(body, phase, 1.0)
+		skeleton.force_update_all_bone_transforms()
+		var pelvis_at: Vector3 = presenter._adult_joint(body, skeleton,
+			skeleton.find_bone("Bip01 Pelvis"))
+		var neck_at: Vector3 = presenter._adult_joint(body, skeleton,
+			skeleton.find_bone("Bip01 Neck"))
+		var forward := neck_at.z - pelvis_at.z
+		torso_lead = maxf(torso_lead, forward)
+		torso_trail = minf(torso_trail, forward)
+	verify(torso_lead > 0.005 and torso_lead - torso_trail > 0.05
+		and torso_trail > -0.08,
+		"The running chest moves ahead of the pelvis during a stride without an excessive bend.")
+	adult_measurements["running_torso_forward"] = {"lead": torso_lead, "trail": torso_trail}
 	presenter._set_gait(body, 1.5, 0.0)
 	var neutral_fingers := finger_reaches(body)
 	presenter._set_gait(body, 1.5, 1.0, 0.0, 0.0, 0.0, 0.0)

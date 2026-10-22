@@ -501,6 +501,11 @@ func _apply_adult_locomotion(body: Node3D, phase: float, weight: float,
 	for binding in body.get_meta("run_bindings"):
 		var index: int = binding.index
 		var influence := _adult_clip_influence(binding.key, strength)
+		if binding.kind == Animation.TYPE_ROTATION_3D \
+				and binding.key in ["Spine", "Spine1", "Spine2"]:
+			# Preserve more of the captured counter-motion at running speed.
+			# The walking torso keeps its quieter carriage.
+			influence = strength * lerpf(0.55, 1.0, run_mix)
 		var walk_binding: Variant = walk_channels.get("%d:%d" % [index, binding.kind])
 		if binding.kind == Animation.TYPE_ROTATION_3D:
 			var original: Quaternion = binding.base
@@ -578,8 +583,9 @@ func _apply_adult_locomotion(body: Node3D, phase: float, weight: float,
 		walk_lift = adult_walk_clip.position_track_interpolate(adult_walk_root_track, walk_sample).y - adult_walk_root_reference.y
 	# The preserved running stride bends both legs more than the previous
 	# first-frame-relative pose, so lower only its visual root toward support.
+	# Leave three millimetres of clearance for the fuller running spine motion.
 	body.position.y += (lerpf(walk_lift, run_lift, run_mix) + 0.006
-		- 0.05 * run_mix) * strength
+		- 0.047 * run_mix) * strength
 	if strength > 0.01:
 		var walk_bend := strength * (1.0 - run_mix)
 		if walk_bend > 0.01:
