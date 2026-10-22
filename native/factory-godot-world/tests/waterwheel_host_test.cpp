@@ -63,6 +63,9 @@ int main() {
         check(accepted(wheel), "immersed placement");
         const auto id = field<std::string>(wheel, "entity");
         const auto placed = host.projection();
+        const auto wheel_motion = V(field<O>(placed, "motion").at(id));
+        check(field<I>(wheel_motion, "numerator") == -25 && field<I>(wheel_motion, "denominator") == 84,
+              "an immersed wheel rotates without a drive command");
         const auto& supports = field<A>(field<O>(placed, "entities").at(id), "supports");
         check(supports.size() == 2, "the placed horizontal wheel projects both riverbed support volumes");
         for (const auto& support : supports) {
@@ -94,7 +97,9 @@ int main() {
         check(field<std::string>(host.command("P", link), "reason") == "individual_shaft_required", "endpoint shaft creation is refused at the collector");
         O power{{"context", V("water-test")}, {"client", V("P")}, {"request", V("power")},
             {"action", V("set_power")}, {"active", V(true)}};
-        check(accepted(host.command("P", power)), "enable wheel drive");
+        const auto refused = host.command("P", power);
+        check(!accepted(refused) && field<std::string>(refused, "reason") == "unsupported_action",
+              "manual drive switching is unavailable");
         const auto motion = V(field<O>(host.projection(), "motion").at(id));
         check(field<I>(motion, "numerator") == -25 && field<I>(motion, "denominator") == 84, "signed local rate follows the immersed visible radius");
         const auto collector_motion = V(field<O>(host.projection(), "motion").at(collector_id));
@@ -126,7 +131,6 @@ int main() {
         big_wire.emplace("tiles", V(I{6}));
         const auto big = large.command("P", big_wire);
         check(accepted(big), "six-square wheel immerses at the shared raised level");
-        check(accepted(large.command("P", power)), "enable large wheel");
         const auto big_id = field<std::string>(big, "entity");
         const auto big_motion = V(field<O>(large.projection(), "motion").at(big_id));
         check(field<I>(big_motion, "numerator") == -25 && field<I>(big_motion, "denominator") == 168,

@@ -144,7 +144,7 @@ func build_reverse_route(for_loading: bool = false) -> bool:
 		endpoints.append(placed.entity)
 	if not pose(2.475, 0.0): return false
 	if not build("place_belt_span", {"from": endpoints[0], "to": endpoints[1]}).get("accepted", false): return false
-	if not pose(-1.65, 0.0) or not build("set_power", {"active": true}).get("accepted", false): return false
+	if not pose(-1.65, 0.0): return false
 	var motion: Dictionary = session.world.projection().motion[endpoints[0]]
 	if motion.state != "rotating" or motion.numerator <= 0:
 		push_error("Reverse belt motion: " + str(motion))
@@ -316,8 +316,6 @@ func run_span() -> void:
 					verify(replies[request].get("accepted", false) and replies[request].get("duplicate", false), "The belt retry spends no second item")
 					replies.erase(request)
 				if powered_span:
-					var power := await issue({"action": "set_power", "active": true})
-					verify(power.get("accepted", false), "P starts the native wheel: " + str(power))
 					if middle_pulley:
 						var middle := await issue({"action": "place_shaft", "center": [-4, 4, 8], "axis": "x", "half_span": 2})
 						verify(middle.get("accepted", false), "P inserts a pulley into the powered span: " + str(middle))
@@ -460,8 +458,7 @@ func run_cog_train() -> void:
 				var small := await issue({"action": "place_gear", "center": [-4, 8, 8], "axis": "x", "teeth": 2})
 				verify(large.get("accepted", false) and small.get("accepted", false), "P places the diagonal cog pair: " + str([large, small]))
 				if failed: quit(1); return
-				var power := await issue({"action": "set_power", "active": true})
-				verify(power.get("accepted", false) and _cog_ratio(session.projection()), "P starts the train and sees its signed ratio")
+				verify(_cog_ratio(session.projection()), "P sees the automatic train and its signed ratio")
 			if failed: quit(1); return
 			mark(prefix + "P-done")
 		else:
@@ -542,8 +539,7 @@ func run_overload() -> void:
 					var placed := await issue({"action": "place_gear", "center": spec[0], "axis": "x", "teeth": spec[1]})
 					verify(placed.get("accepted", false), "Build geared overload: " + str(placed))
 					if failed: quit(1); return
-				var power := await issue({"action": "set_power", "active": true})
-				verify(power.get("accepted", false), "Start the unloaded source: " + str(power.get("reason", "")))
+				verify(_overload_motion(session.projection(), false), "The unloaded source rotates automatically")
 				if failed: quit(1); return
 				mark("move-P")
 				if not await until(func(): return FileAccess.file_exists(directory.path_join("P-moved")), "Authority moves synthetic P"): quit(1); return
@@ -583,7 +579,6 @@ func prepare_fractional_press() -> bool:
 	var press := build("place", {"kind": "processor", "cell": [0, 2], "axis": "x", "level": 8})
 	if not press.get("accepted", false): return false
 	if not pose(-1.65, 0.0): return false
-	if not build("set_power", {"active": true}).get("accepted", false): return false
 	var rate: Dictionary = session.world.projection().motion[press.entity]
 	if rate.state != "rotating" or abs(int(rate.numerator)) * 75 != 8 * int(rate.denominator):
 		push_error("Expected an eight-seventy-fifths press rate: " + str(rate))
