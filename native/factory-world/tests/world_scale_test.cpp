@@ -42,11 +42,15 @@ int main(int argc, char** argv) {
         original.state.issued_entities.size() != machine_count ||
         original.state.kits.at("P") != stationary::Kit{})
         throw std::runtime_error("Machine placement was not conserved in the one World.");
-    const auto motion = world::drive_power(original.state.topology).mechanical;
-    if (!motion.accepted() || motion.motion.size() != machine_count)
+    const auto drive = world::drive_power(original.state.topology);
+    const auto& motion = drive.mechanical;
+    if (!motion.accepted() || motion.motion.size() != machine_count ||
+        drive.load.size() != machine_count)
         throw std::runtime_error("The placed wheels did not have one native motion result each.");
     for (const auto& [id, value] : motion.motion)
-        if (value.state != mechanical::MotionState::rotating)
+        if (value.state != mechanical::MotionState::rotating ||
+            drive.load.at(id).overloaded || drive.load.at(id).capacity <= 0 ||
+            drive.load.at(id).impact != 0)
             throw std::runtime_error("A placed native wheel lost confirmed rotation: " + id);
 
     const auto advanced = authority->tick();
