@@ -3,6 +3,7 @@ extends MenuButton
 const Geometry = preload("res://opening/site_geometry.gd")
 
 var selected_axis := "x"
+var selected_link_axis := "z"
 var gear_height := 0
 var auto_height := true
 var snapped_height := 0
@@ -14,14 +15,17 @@ var _host: WeakRef
 var _axes: PopupMenu
 var _heights: PopupMenu
 var _sizes: PopupMenu
+var _links: PopupMenu
 
 func _init() -> void:
-	text = "Cogwheels and shafts…"
+	text = "Mechanical transmission…"
 	var menu := get_popup()
 	menu.add_radio_check_item("Place cogwheel", 1)
 	menu.add_radio_check_item("Place shaft segment", 6)
+	menu.add_radio_check_item("Place horizontal gearbox", 8)
+	menu.add_radio_check_item("Place vertical gearbox", 9)
+	menu.add_radio_check_item("Place encased chain drive", 10)
 	menu.add_radio_check_item("Connect shafts with a belt", 7)
-	menu.add_radio_check_item("Remove transmission part or belt", 4)
 	menu.add_item("Leave transmission tools", 5)
 	menu.add_separator()
 	_axes = PopupMenu.new()
@@ -46,6 +50,13 @@ func _init() -> void:
 	_sizes.add_radio_check_item("Large cogwheel", 1)
 	_sizes.id_pressed.connect(_size_selected)
 	menu.add_submenu_item("Cog size: Small", "CogSize", 102)
+	_links = PopupMenu.new()
+	_links.name = "ChainLinkAxis"
+	menu.add_child(_links)
+	for axis in ["X", "Y", "Z"]:
+		_links.add_radio_check_item(axis)
+	_links.id_pressed.connect(_link_axis_selected)
+	menu.add_submenu_item("Chain link direction: Z", "ChainLinkAxis", 103)
 	menu.id_pressed.connect(_tool_selected)
 	menu.about_to_popup.connect(refresh)
 	visible = false
@@ -79,28 +90,56 @@ func settle_belt_placement(request: String, accepted: bool, reason: String) -> v
 		_belt_start.clear()
 
 func choose_tool(tool: String) -> void:
-	if tool not in ["", "gear", "remove", "place_shaft", "belt_span"]:
+	if tool not in ["", "gear", "place_shaft", "belt_span", "gearbox", "vertical_gearbox", "chain_drive"]:
 		return
 	_belt_start.clear()
 	active_tool = tool
+	if tool == "gearbox":
+		selected_axis = "y"
+	elif tool == "vertical_gearbox" and selected_axis == "y":
+		selected_axis = "x"
+	if selected_link_axis == selected_axis:
+		selected_link_axis = "z" if selected_axis != "z" else "x"
 	refresh()
 
 func _tool_selected(id: int) -> void:
-	choose_tool({1: "gear", 4: "remove", 6: "place_shaft", 7: "belt_span"}.get(id, ""))
+	var host: Object = _host.get_ref() if _host != null else null
+	var mode: String = {1: "gear", 6: "drive", 7: "belt", 8: "gearbox",
+		9: "vertical_gearbox", 10: "chain_drive", 5: "inspect"}.get(id, "")
+	if host != null and host.has_method("_select_tool") and not mode.is_empty():
+		host.call("_select_tool", mode)
+	else:
+		choose_tool({1: "gear", 6: "place_shaft", 7: "belt_span", 8: "gearbox",
+			9: "vertical_gearbox", 10: "chain_drive"}.get(id, ""))
 	var context := _context()
 	if context.is_empty() or not context.usable:
 		return
 	_feedback({
 		"gear": "Place a cogwheel: point at a floor or part face to choose a tile. Set axis or exact height here.",
 		"place_shaft": "Place a shaft tile: point at a floor, part face or belt. Set axis or exact height here.",
+		"gearbox": "Place a horizontal gearbox: its Y faces are closed and four side ports redirect rotation.",
+		"vertical_gearbox": "Place a vertical gearbox: set its closed X or Z axis for vertical and side ports.",
+		"chain_drive": "Place an encased chain case: its shafts use Axis and its chain links follow Link direction.",
 		"belt_span": "Choose two parallel shafts within reach. The belt runs across their axle, straight or at 45 degrees.",
-		"remove": "Choose a cogwheel, shaft or belt to remove."
-	}.get(active_tool, "Choose a construction tool or Inspect."), false)
+	}.get(active_tool, "Choose a construction tool or press E to open a machine."), false)
 
 func _axis_selected(id: int) -> void:
 	if id in [0, 1, 2]:
 		selected_axis = ["x", "y", "z"][id]
+		if active_tool == "gearbox":
+			selected_axis = "y"
+		elif active_tool == "vertical_gearbox" and selected_axis == "y":
+			selected_axis = "x"
+		if selected_link_axis == selected_axis:
+			selected_link_axis = "z" if selected_axis != "z" else "x"
 		refresh()
+
+func _link_axis_selected(id: int) -> void:
+	if id in [0, 1, 2]:
+		var value: String = ["x", "y", "z"][id]
+		if value != selected_axis:
+			selected_link_axis = value
+			refresh()
 
 func _height_selected(id: int) -> void:
 	if id == 2:
@@ -172,8 +211,16 @@ func refresh() -> void:
 	menu.set_item_checked(shaft_index, active_tool == "place_shaft")
 	menu.set_item_checked(gear_index, active_tool == "gear")
 	menu.set_item_checked(menu.get_item_index(7), active_tool == "belt_span")
-	menu.set_item_checked(menu.get_item_index(4), active_tool == "remove")
+
+	for entry in [[8, "gearbox", "Horizontal gearbox"], [9, "vertical_gearbox", "Vertical gearbox"],
+		[10, "chain_drive", "Encased chain drive"]]:
+		var index: int = menu.get_item_index(entry[0])
+		var amount: int = _count(context, entry[1], 0, 0)
+		menu.set_item_text(index, "%s · %d carried" % [entry[2], amount])
+		menu.set_item_disabled(index, amount == 0)
+		menu.set_item_checked(index, active_tool == entry[1])
 	menu.set_item_text(menu.get_item_index(100), "Axis: " + selected_axis.to_upper())
+	menu.set_item_text(menu.get_item_index(103), "Chain link direction: " + selected_link_axis.to_upper())
 	menu.set_item_text(menu.get_item_index(101), "Placement height: %s" % ("Follow surface" if auto_height else "%d tiles" % (gear_height / 4)))
 	menu.set_item_text(menu.get_item_index(102), "Cog size: " + ("Small" if gear_teeth == 2 else "Large"))
 	for index in range(2):
@@ -182,11 +229,17 @@ func refresh() -> void:
 		_sizes.set_item_text(index, ("Small" if teeth == 2 else "Large") + " cogwheel · %d carried" % _count(context, "gear", teeth, 0))
 	for index in range(3):
 		_axes.set_item_checked(index, selected_axis == ["x", "y", "z"][index])
+		_axes.set_item_disabled(index, (active_tool == "gearbox" and index != 1) or
+			(active_tool == "vertical_gearbox" and index == 1))
+		_links.set_item_checked(index, selected_link_axis == ["x", "y", "z"][index])
+		_links.set_item_disabled(index, selected_axis == ["x", "y", "z"][index])
 	var height: int = snapped_height if auto_height else gear_height
 	_heights.set_item_disabled(0, height <= -Geometry.GRID_COORDINATE_LIMIT)
 	_heights.set_item_disabled(1, height >= Geometry.GRID_COORDINATE_LIMIT)
 	_heights.set_item_disabled(2, auto_height)
-	text = {"gear": "Place cogwheel", "place_shaft": "Place shaft segment", "belt_span": "Connect shafts with belt", "remove": "Remove transmission"}.get(active_tool, "Cogwheels and shafts…")
+	text = {"gear": "Place cogwheel", "place_shaft": "Place shaft segment", "belt_span": "Connect shafts with belt",
+		"gearbox": "Place horizontal gearbox", "vertical_gearbox": "Place vertical gearbox",
+		"chain_drive": "Place encased chain drive"}.get(active_tool, "Mechanical transmission…")
 	tooltip_text = "Axis %s · height %s. %d cogwheels and %d shafts carried." % [selected_axis.to_upper(), "follows surface" if auto_height else "%d tiles" % (gear_height / 4), gears, selected_shafts]
 
 func _part(context: Dictionary, id: String) -> Dictionary:
@@ -215,21 +268,32 @@ func handle_world_click(center: Array, entity_id: String) -> bool:
 	if context.is_empty() or not context.usable:
 		_feedback("Wait for a ready native worksite before using transmission tools.")
 		return true
-	if active_tool in ["gear", "place_shaft"]:
+	if active_tool in ["gear", "place_shaft", "gearbox", "vertical_gearbox", "chain_drive"]:
 		var valid := center.size() == 3 and selected_axis in ["x", "y", "z"]
 		for coordinate: Variant in center:
 			valid = valid and typeof(coordinate) == TYPE_INT and coordinate >= -Geometry.GRID_COORDINATE_LIMIT and coordinate <= Geometry.GRID_COORDINATE_LIMIT and coordinate % 4 == 0
 		if valid and not auto_height:
 			valid = center[1] == gear_height
-		var available := _count(context, "gear", gear_teeth, 0) if active_tool == "gear" else _count(context, "shaft", 0, shaft_half_span)
+		var available := 0
+		if active_tool == "gear":
+			available = _count(context, "gear", gear_teeth, 0)
+		elif active_tool == "place_shaft":
+			available = _count(context, "shaft", 0, shaft_half_span)
+		else:
+			available = _count(context, active_tool, 0, 0)
 		if not valid or available == 0:
 			_feedback("Choose an available part at a whole-tile grid point on the shown height.")
 			return true
-		var wire := {"action": "place_gear", "center": center.duplicate(), "axis": selected_axis, "teeth": gear_teeth} if active_tool == "gear" else {"action": "place_shaft", "center": center.duplicate(), "axis": selected_axis, "half_span": shaft_half_span}
+		var wire: Dictionary
+		if active_tool == "gear":
+			wire = {"action": "place_gear", "center": center.duplicate(), "axis": selected_axis, "teeth": gear_teeth}
+		elif active_tool == "place_shaft":
+			wire = {"action": "place_shaft", "center": center.duplicate(), "axis": selected_axis, "half_span": shaft_half_span}
+		else:
+			wire = {"action": "place_relay", "kind": active_tool, "center": center.duplicate(), "axis": selected_axis}
+			if active_tool == "chain_drive":
+				wire["relay_axis"] = selected_link_axis
 		_submit(context, wire)
-		return true
-	if active_tool == "remove" and context.snapshot.get("belt_spans", {}).has(entity_id):
-		_submit(context, {"action": "remove_belt_span", "entity": entity_id})
 		return true
 	if active_tool == "belt_span":
 		var shaft: Variant = context.snapshot.transmission_parts.get(entity_id, {})
@@ -268,11 +332,5 @@ func handle_world_click(center: Array, entity_id: String) -> bool:
 	var part := _part(context, entity_id)
 	if part.is_empty():
 		_feedback("Choose a confirmed machine, cogwheel or shaft.")
-		return true
-	if active_tool == "remove":
-		if not context.snapshot.transmission_parts.has(entity_id):
-			_feedback("This tool removes a cogwheel or shaft; use the inspector for machines.")
-		else:
-			_submit(context, {"action": "remove", "entity": entity_id})
 		return true
 	return true

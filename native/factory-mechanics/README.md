@@ -50,6 +50,17 @@ hub-to-hub or cog-to-hub contact consumes no separate shaft. A greater gap or la
 shaft endpoints couple; a gap does not. Different gear axes or planes do not
 create an external spur mesh. Coplanar overlapping pitch disks refuse.
 
+The one-tile relay geometry also accepts gearboxes and encased chain drives.
+For a gearbox, `axis` identifies its closed pair of faces. A Y-axis gearbox
+has four horizontal ports; an X- or Z-axis vertical gearbox has two vertical
+and two horizontal ports. Opposite output faces reverse the signed axis rate,
+and the adjacent-axis signs follow Create's directional gearbox modifier at
+equal speed. A chain drive has a shaft `axis` and a different `relay_axis`:
+coaxial shaft faces couple normally, while adjacent chain drives connect
+along their matching relay axis at equal signed speed. Other side neighbors do
+not connect. The native World and Host apply these rules to construction,
+custody and checkpoints, and expose the parts to scene controls.
+
 The kernel solves exact signed rational rates. Its prescribed-rate mode requires
 every supplied observation to hold, for mechanism and puzzle constraints. The
 stationary World uses physical-source mode: compatible sources turning the same

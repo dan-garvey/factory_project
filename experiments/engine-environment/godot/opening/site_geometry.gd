@@ -170,6 +170,16 @@ static func mechanical_boxes(snapshot: Dictionary) -> Dictionary:
 		elif part.get("kind") == "gear" and typeof(part.get("teeth")) == TYPE_INT and part.teeth > 0:
 			half = Vector3.ONE * (PITCH / 2.0)
 			half[part.axis] = 0.04
+		elif part.get("kind") in ["gearbox", "vertical_gearbox", "chain_drive"] and \
+			typeof(part.get("teeth")) == TYPE_INT and part.teeth == 0 and \
+			typeof(part.get("half_span")) == TYPE_INT and part.half_span == 0:
+			if (part.kind == "gearbox" and part.axis != 1) or \
+				(part.kind == "vertical_gearbox" and part.axis == 1):
+				return {"accepted": false}
+			if part.kind == "chain_drive" and (typeof(part.get("relay_axis")) != TYPE_INT or \
+				part.relay_axis not in [0, 1, 2] or part.relay_axis == part.axis):
+				return {"accepted": false}
+			half = Vector3.ONE * (PITCH / 2.0)
 		else:
 			return {"accepted": false}
 		result[id] = {"center": _mechanical_center(part.center), "size": half * 2.0}

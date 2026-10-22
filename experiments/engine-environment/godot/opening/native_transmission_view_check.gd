@@ -156,13 +156,11 @@ func _controls() -> void:
 	verify(view.handle_world_click([0, 4, 4], "") and host.calls.size() == sent, "A long-only kit cannot submit a one-tile shaft.")
 	host.client = "P"
 	host.state = fixture()
-	view.choose_tool("remove")
-	view.handle_world_click([], "a")
-	verify(host.calls.back() == {"action": "remove", "entity": "a"}, "Individual cog removal preserves its exact identifier.")
-	view.handle_world_click([], "sy")
-	verify(host.calls.back() == {"action": "remove", "entity": "sy"}, "An orphaned shaft remains selectable for removal.")
+	verify(view.get_popup().get_item_index(4) == -1 and not view.get_popup().get_item_text(0).contains("Remove"),
+		"The transmission menu leaves deconstruction to the dedicated F mode.")
+	view.choose_tool("bogus")
+	verify(view.active_tool == "place_shaft", "Unsupported transmission tools cannot replace placement.")
 	sent = host.calls.size()
-	verify(view.handle_world_click([], "wheel") and host.calls.size() == sent, "The transmission removal tool does not replace machine inspection.")
 	view.choose_tool("gear")
 	host.state.options.native = false
 	view.refresh()
@@ -248,6 +246,66 @@ func _shaft_segments() -> void:
 	long_view.choose_tool("place_shaft")
 	verify(long_view.shaft_half_span == 2, "The shaft tool always uses the one-tile specification.")
 	long_view.free()
+
+func _relays() -> void:
+	var host := HostStub.new()
+	host.state = fixture()
+	for kind in ["gearbox", "vertical_gearbox", "chain_drive"]:
+		host.state.part_specifications.P.append({"kind": kind, "teeth": 0, "half_span": 0, "count": 1})
+	var view := Controls.new()
+	view.configure(host)
+	view.choose_tool("gearbox")
+	verify(view.selected_axis == "y", "The horizontal gearbox selects its four side ports.")
+	view.handle_world_click([0, 8, 4], "")
+	verify(host.calls.back() == {"action": "place_relay", "kind": "gearbox", "center": [0, 8, 4], "axis": "y"},
+		"The horizontal gearbox sends one exact grid tile and its closed Y axis.")
+	view.choose_tool("vertical_gearbox")
+	verify(view.selected_axis in ["x", "z"], "The vertical gearbox closes a horizontal pair of faces.")
+	view.handle_world_click([4, 8, 4], "")
+	verify(host.calls.back() == {"action": "place_relay", "kind": "vertical_gearbox", "center": [4, 8, 4], "axis": view.selected_axis},
+		"The vertical gearbox sends its separate finite item and orientation.")
+	view.choose_tool("chain_drive")
+	view._link_axis_selected(1)
+	view.handle_world_click([8, 8, 4], "")
+	verify(host.calls.back() == {"action": "place_relay", "kind": "chain_drive", "center": [8, 8, 4],
+		"axis": view.selected_axis, "relay_axis": view.selected_link_axis} and view.selected_link_axis != view.selected_axis,
+		"The encased chain case submits distinct shaft and link axes.")
+	var sent := host.calls.size()
+	host.client = "Q"
+	view.refresh()
+	verify(view.handle_world_click([12, 8, 4], "") and host.calls.size() == sent,
+		"A second actor cannot spend the first actor's relay kit.")
+	host.client = "P"
+	view.free()
+	host.state.transmission_parts["box"] = {"kind": "gearbox", "generation": 7,
+		"center": [0, 8, 4], "axis": 1, "teeth": 0, "half_span": 0}
+	host.state.transmission_parts["chain"] = {"kind": "chain_drive", "generation": 8,
+		"center": [4, 8, 4], "axis": 0, "relay_axis": 2, "teeth": 0, "half_span": 0}
+	host.state.motion["box"] = {"state": "rotating", "numerator": 1, "denominator": 1}
+	host.state.motion["chain"] = {"state": "rotating", "numerator": 1, "denominator": 1}
+	var presenter := Presenter.new()
+	presenter.configure(host)
+	var physical_state: Dictionary = host.state.duplicate(true)
+	physical_state.transmission_parts = {"box": host.state.transmission_parts.box,
+		"chain": host.state.transmission_parts.chain}
+	physical_state.belt_spans = {}
+	var collision: Dictionary = Geometry.mechanical_boxes(physical_state)
+	verify(collision.get("accepted", false) and collision.boxes.box.size == Vector3.ONE * Geometry.PITCH and
+		collision.boxes.chain.size == Vector3.ONE * Geometry.PITCH,
+		"Both confirmed relay cases register one-tile physical actor bodies.")
+	var invalid: Dictionary = physical_state.duplicate(true)
+	invalid.transmission_parts.chain.relay_axis = invalid.transmission_parts.chain.axis
+	verify(not Geometry.mechanical_boxes(invalid).accepted,
+		"A malformed chain link axis cannot produce a physical body.")
+	var box := _part(presenter, "box")
+	var chain := _part(presenter, "chain")
+	verify(box != null and box.has_node("FixedCase") and box.has_node("ShaftPort01") and
+		box.has_node("ShaftPort2-1") and box.get_node("Pick").get_meta("entity") == "box",
+		"A confirmed gearbox shows a fixed case, four ports and a one-tile pick body.")
+	verify(chain != null and chain.has_node("FixedCase") and chain.has_node("ChainLinkDirection") and
+		chain.get_node("Pick").get_meta("entity") == "chain",
+		"A confirmed chain case shows its link direction and can be selected.")
+	presenter.free()
 
 func _belt_spans() -> void:
 	var host := HostStub.new()
@@ -374,9 +432,6 @@ func _belt_spans() -> void:
 		"An out-of-order shared frame cannot roll the item back.")
 	remote_presenter.free()
 	session.free()
-	controls.choose_tool("remove")
-	controls.handle_world_click([], "span")
-	verify(host.calls.back() == {"action": "remove_belt_span", "entity": "span"}, "Belt removal delegates its confirmed identity.")
 	host.state.belt_spans.clear()
 	presenter.refresh()
 	verify(_part(presenter, "span") == null, "A confirmed removal clears the visual.")
@@ -782,6 +837,91 @@ func _belt_surface_motion() -> void:
 			verify(wrapf(offset, -0.5, 0.5) * example.sign > 0.0,
 				"Surface travel respects axle orientation and is independent of endpoint order.")
 			presenter.free()
+
+func _belt_cargo_cadence() -> void:
+	var host := HostStub.new()
+	host.state = fixture()
+	host.state.transmission_parts = {
+		"first": {"kind": "shaft", "generation": 1, "center": [0, 0, 0], "axis": 2, "half_span": 2},
+		"last": {"kind": "shaft", "generation": 1, "center": [8, 0, 0], "axis": 2, "half_span": 2}}
+	host.state.motion = {"first": {"state": "rotating", "numerator": -1, "denominator": 1}}
+	var raw := {"raw": 1, "products": 0, "work_lots": []}
+	host.state.belt_spans = {"span": {"generation": 1, "from": "first", "to": "last",
+		"phase": 0, "slots": [raw, null, null]}}
+	var view := Presenter.new()
+	view.configure(host)
+	var span := _part(view, "span")
+	var pick_id := span.get_node("Pick").get_instance_id()
+	var authoritative: Dictionary = host.state.duplicate(true)
+	var prior_x: float = _belt_item(span, 0).position.x
+	var largest_step := 0.0
+	for frame in 27:
+		view.advance_visual_motion(1.0 / 60.0)
+		var x: float = _belt_item(span, 0).position.x
+		largest_step = maxf(largest_step, absf(x - prior_x))
+		prior_x = x
+	verify(largest_step < 0.07 and is_equal_approx(prior_x, 0.0) and host.state == authoritative,
+		"Confirmed unit-rate material travels one tile in 27 render frames without altering native slots.")
+	host.state.belt_spans.span.slots = [null, raw, null]
+	view.refresh()
+	span = _part(view, "span")
+	verify(span.get_node("Pick").get_instance_id() == pick_id and
+		absf(_belt_item(span, 1).position.x - prior_x) < 0.001,
+		"The authoritative slot handoff meets the preceding visual at the same tile without rebuilding the pick.")
+	for frame in 27:
+		view.advance_visual_motion(1.0 / 60.0)
+	host.state.belt_spans.span.slots = [null, null, raw]
+	view.refresh()
+	span = _part(view, "span")
+	verify(is_equal_approx(_belt_item(span, 2).position.x, 1.65),
+		"An occupied endpoint stays within the confirmed span at its next native cut.")
+	host.state.motion.first = {"state": "rotating", "numerator": 1, "denominator": 1}
+	view.refresh()
+	span = _part(view, "span")
+	for frame in 27:
+		view.advance_visual_motion(1.0 / 60.0)
+	verify(is_equal_approx(_belt_item(span, 2).position.x, 0.0),
+		"Reversing the confirmed shaft moves the endpoint material smoothly back one tile.")
+	host.state.belt_spans.span.slots = [null, raw, null]
+	host.state.motion.first = {"state": "stalled", "numerator": 0, "denominator": 1}
+	view.refresh()
+	span = _part(view, "span")
+	view.advance_visual_motion(0.45)
+	verify(is_equal_approx(_belt_item(span, 1).position.x, 0.0),
+		"A stalled belt holds cargo at its last confirmed position.")
+	host.state.motion.first = {"state": "rotating", "numerator": -1, "denominator": 1}
+	host.state.belt_spans.span.slots = [raw, raw, raw]
+	view.refresh()
+	span = _part(view, "span")
+	view.advance_visual_motion(0.45)
+	verify(is_equal_approx(_belt_item(span, 0).position.x, -1.65) and
+		is_equal_approx(_belt_item(span, 1).position.x, 0.0),
+		"A full downstream chain never animates cargo through another item or beyond the end.")
+	view.free()
+	var incline := HostStub.new()
+	incline.state = fixture()
+	incline.state.transmission_parts = {
+		"first": {"kind": "shaft", "generation": 1, "center": [0, 0, 0], "axis": 2, "half_span": 2},
+		"last": {"kind": "shaft", "generation": 1, "center": [8, 8, 0], "axis": 2, "half_span": 2}}
+	incline.state.motion = {"first": {"state": "rotating", "numerator": -1, "denominator": 1}}
+	incline.state.belt_spans = {"span": {"generation": 1, "from": "first", "to": "last",
+		"phase": 0, "slots": [raw, null, null]}}
+	var incline_view := Presenter.new()
+	incline_view.configure(incline)
+	var incline_start: Vector3 = _belt_item(_part(incline_view, "span"), 0).position
+	incline_view.advance_visual_motion(0.45)
+	var incline_end: Vector3 = _belt_item(_part(incline_view, "span"), 0).position
+	var expected_distance := Geometry.PITCH * 2896.0 / 4096.0
+	verify(is_equal_approx(incline_end.x - incline_start.x, expected_distance) and
+		is_equal_approx(incline_end.y - incline_start.y, expected_distance),
+		"An inclined run follows its native sub-tile distance along both world axes.")
+	incline.state.motion.first = {"state": "rotating", "numerator": -1, "denominator": 2}
+	incline_view.refresh()
+	incline_view.advance_visual_motion(0.45)
+	var half_end: Vector3 = _belt_item(_part(incline_view, "span"), 0).position
+	verify(is_equal_approx(half_end.x - incline_start.x, expected_distance * 0.5),
+		"A fractional shaft rate proportionally slows inclined cargo travel.")
+	incline_view.free()
 
 func _cache_regression() -> void:
 	var host := HostStub.new()
@@ -1443,6 +1583,7 @@ func _run() -> void:
 		_cache_regression()
 	elif "--belt-surface-only" in OS.get_cmdline_user_args():
 		_belt_surface_motion()
+		_belt_cargo_cadence()
 	elif "--direction-basis-only" in OS.get_cmdline_user_args():
 		_direction_basis()
 	elif "--loose-material-only" in OS.get_cmdline_user_args():
@@ -1468,11 +1609,13 @@ func _run() -> void:
 	else:
 		_controls()
 		_gear_sizes()
+		_relays()
 		_shaft_segments()
 		_belt_spans()
 		_belt_retry()
 		_span_guidance()
 		_belt_surface_motion()
+		_belt_cargo_cadence()
 		_presentation()
 		_stable_finishes()
 	print("NATIVE_TRANSMISSION_VIEW_%s %d" % ["PASS" if failures == 0 else "FAIL", checks])

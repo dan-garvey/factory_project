@@ -10,11 +10,15 @@ const UNIT := Geometry.PITCH / 4.0
 ## Its pulley rim must travel the same distance in that time.
 const VISUAL_RADIANS_PER_SECOND := Geometry.PITCH / (Assets.SPAN_OUTER_RADIUS * 0.45)
 const BELT_SUBTICKS_PER_TILE := 4096.0 # Matches the native material lane's fixed-point denominator.
+const CARGO_TICK_SECONDS := 0.45
+const INCLINED_SUBTICKS_PER_TICK := 2896.0 # Native lane advances one horizontal tile of surface distance.
 const GEAR_BATCH_THRESHOLD := 4
 
 var _host: WeakRef
 var _view_key := ""
 var _cargo_keys: Dictionary = {}
+var _cargo_elapsed: Dictionary = {}
+var _cargo_anchors: Array[Node3D] = []
 var _motion_context := ""
 var _motion_revision: Variant = null
 var _generations: Dictionary = {}
@@ -32,6 +36,8 @@ func configure(host: Object) -> void:
 
 func _clear() -> void:
 	_cargo_keys.clear()
+	_cargo_elapsed.clear()
+	_cargo_anchors.clear()
 	_gear_batches.clear()
 	for child in get_children():
 		child.free()
@@ -88,6 +94,13 @@ func _apply_angles() -> void:
 				var offset := float(child.get_meta("belt_uv_origin")) + visual_rotation(str(child.get_meta("belt_shaft"))) * float(child.get_meta("belt_uv_factor"))
 				finish.uv1_offset.x = fposmod(offset, 1.0)
 		if not child is Node3D or not child.has_meta("axis"):
+			if child is Node3D and child.has_meta("relay_static"):
+				var relay_id: String = str(child.get_meta("entity", ""))
+				var relay_angle := visual_angle(relay_id)
+				for port: Node in child.get_children():
+					if port is Node3D and port.has_meta("relay_port_axis"):
+						port.basis = axis_basis(int(port.get_meta("relay_port_axis"))) * \
+							Basis(Vector3.UP, relay_angle * float(port.get_meta("relay_factor")))
 			continue
 		if child.get_meta("batched_gear", false):
 			# The pick cylinders are symmetric about their own axle. Keep those
@@ -139,6 +152,8 @@ func advance_visual_motion(delta: float) -> void:
 			_visual_rotations[id] = visual_rotation(id) + step
 			_visual_angles[id] = wrapf(visual_angle(id) + step, -PI, PI)
 	_apply_angles()
+	if not _cargo_anchors.is_empty():
+		_advance_belt_cargo(delta, snapshot)
 
 static func axis_basis(axis: int) -> Basis:
 	match axis:
@@ -150,7 +165,7 @@ static func world_center(center: Array) -> Vector3:
 	return Vector3(center[0] * UNIT, Geometry.ANCHOR_HEIGHT + center[1] * UNIT, center[2] * UNIT)
 
 func _valid_part(part: Variant) -> bool:
-	if not part is Dictionary or part.get("kind") not in ["gear", "shaft"]:
+	if not part is Dictionary or part.get("kind") not in ["gear", "shaft", "gearbox", "vertical_gearbox", "chain_drive"]:
 		return false
 	if typeof(part.get("axis")) != TYPE_INT or part.axis not in [0, 1, 2]:
 		return false
@@ -160,6 +175,14 @@ func _valid_part(part: Variant) -> bool:
 	for value: Variant in center:
 		if typeof(value) != TYPE_INT or value < -1048576 or value > 1048576:
 			return false
+	if part.kind == "gearbox" and part.axis != 1:
+		return false
+	if part.kind == "vertical_gearbox" and part.axis == 1:
+		return false
+	if part.kind == "chain_drive":
+		return typeof(part.get("relay_axis")) == TYPE_INT and part.relay_axis in [0, 1, 2] and part.relay_axis != part.axis
+	if part.kind in ["gearbox", "vertical_gearbox"]:
+		return true
 	var size: Variant = part.get("teeth" if part.kind == "gear" else "half_span")
 	return typeof(size) == TYPE_INT and size > 0 and size <= 256
 
@@ -442,6 +465,54 @@ func _pick(parent: Node3D, id: String, radius: float, height: float, axle_length
 		body.add_child(axle_collider)
 	parent.add_child(body)
 
+func _relay_case(anchor: Node3D, id: String, part: Dictionary) -> void:
+	anchor.set_meta("relay_static", true)
+	var case := MeshInstance3D.new()
+	case.name = "FixedCase"
+	var shape := BoxMesh.new()
+	shape.size = Vector3.ONE * (Geometry.PITCH - 0.12)
+	case.mesh = shape
+	_finish(case, Color("596972") if part.kind == "chain_drive" else Color("68736e"))
+	anchor.add_child(case)
+	var pick := StaticBody3D.new()
+	pick.name = "Pick"
+	pick.collision_layer = Geometry.PICK_LAYER
+	pick.collision_mask = 0
+	pick.set_meta("entity", id)
+	var collider := CollisionShape3D.new()
+	var hull := BoxShape3D.new()
+	hull.size = Vector3.ONE * Geometry.PITCH
+	collider.shape = hull
+	pick.add_child(collider)
+	anchor.add_child(pick)
+	var ports: Array = [part.axis] if part.kind == "chain_drive" else [0, 1, 2]
+	for axis: int in ports:
+		if part.kind != "chain_drive" and axis == part.axis:
+			continue
+		for side in [-1, 1]:
+			var port := Node3D.new()
+			port.name = "ShaftPort%d%d" % [axis, side]
+			port.set_meta("relay_port_axis", axis)
+			var first := 0 if part.axis != 0 else 1
+			var factor: int = 1 if part.kind == "chain_drive" else (1 if axis == first else -1) * side
+			port.set_meta("relay_factor", factor)
+			port.position[axis] = float(side) * (Geometry.PITCH / 2.0 - 0.09)
+			port.basis = axis_basis(axis)
+			anchor.add_child(port)
+			_cylinder(port, "ExposedSpindle", 0.15, 0.10, Color("b8c1b8"))
+			_segment(port, Vector3(-0.11, 0.055, 0), Vector3(0.11, 0.055, 0), 0.024, Color("e7c780"))
+	if part.kind == "chain_drive":
+		for side in [-1, 1]:
+			var marker := MeshInstance3D.new()
+			marker.name = "ChainLinkDirection"
+			var stripe := BoxMesh.new()
+			stripe.size = Vector3(0.04, 0.04, 0.04)
+			stripe.size[part.axis] = 0.34
+			marker.mesh = stripe
+			marker.position[part.relay_axis] = float(side) * (Geometry.PITCH / 2.0 - 0.045)
+			_finish(marker, Color("d3a761"))
+			anchor.add_child(marker)
+
 func _belt_span(id: String, span: Variant, parts: Dictionary, rendered: Dictionary) -> void:
 	if not span is Dictionary or typeof(span.get("from")) != TYPE_STRING or typeof(span.get("to")) != TYPE_STRING:
 		return
@@ -487,7 +558,13 @@ func _belt_span(id: String, span: Variant, parts: Dictionary, rendered: Dictiona
 	anchor.set_meta("cargo_end", world_center(last.center) - anchor.position)
 	anchor.set_meta("cargo_slots", steps + 1)
 	anchor.set_meta("cargo_allowed", first.axis != 1 and (delta.x != 0 or delta.z != 0))
+	var travel_axis := 2 if first.axis == 0 else 0
+	var positive_world: bool = first.axis == 0
+	anchor.set_meta("cargo_positive_rate_direction",
+		1 if positive_world == (last.center[travel_axis] > first.center[travel_axis]) else -1)
+	anchor.set_meta("cargo_subticks_per_tick", INCLINED_SUBTICKS_PER_TICK if delta.y != 0 else BELT_SUBTICKS_PER_TILE)
 	add_child(anchor)
+	_cargo_anchors.append(anchor)
 	var loop := Assets.belt_loop(anchor, distance, 0)
 	if loop != null:
 		loop.basis = loop_basis
@@ -538,9 +615,7 @@ func _belt_span(id: String, span: Variant, parts: Dictionary, rendered: Dictiona
 func _refresh_belt_cargo(spans: Variant) -> void:
 	if not spans is Dictionary:
 		return
-	for anchor: Node in get_children():
-		if not anchor is Node3D or anchor.get_meta("kind", "") != "belt_span":
-			continue
+	for anchor: Node3D in _cargo_anchors:
 		var id: String = anchor.get_meta("entity", "")
 		var span: Variant = spans.get(id)
 		if not span is Dictionary:
@@ -550,6 +625,7 @@ func _refresh_belt_cargo(spans: Variant) -> void:
 		if _cargo_keys.get(id) == cargo_key:
 			continue
 		_cargo_keys[id] = cargo_key
+		_cargo_elapsed[id] = 0.0
 		var existing := {}
 		for child: Node in anchor.get_children():
 			if child.has_meta("belt_slot"):
@@ -590,6 +666,41 @@ func _refresh_belt_cargo(spans: Variant) -> void:
 			anchor.remove_child(child)
 			child.free()
 
+func _advance_belt_cargo(delta: float, snapshot: Dictionary) -> void:
+	var spans: Variant = snapshot.get("belt_spans", {})
+	if not spans is Dictionary:
+		return
+	for anchor: Node3D in _cargo_anchors:
+		if not anchor.get_meta("cargo_allowed", false):
+			continue
+		var id: String = anchor.get_meta("entity", "")
+		var span: Variant = spans.get(id)
+		if not span is Dictionary or not span.get("slots") is Array or typeof(span.get("phase")) != TYPE_INT:
+			continue
+		var slots: Array = span.slots
+		if slots.size() != int(anchor.get_meta("cargo_slots")) or absi(span.phase) >= int(BELT_SUBTICKS_PER_TILE):
+			continue
+		var source: String = str(anchor.get_meta("belt_shaft", ""))
+		var rate := signed_rate(snapshot.motion.get(source))
+		var elapsed := minf(float(_cargo_elapsed.get(id, 0.0)) + delta, CARGO_TICK_SECONDS)
+		_cargo_elapsed[id] = elapsed
+		# The fitted loop already uses this confirmed source rate. Display cargo
+		# through its current tick, never beyond one tile or a blocked end.
+		var direction := float(anchor.get_meta("cargo_positive_rate_direction"))
+		var phase := clampf(float(span.phase) + rate * direction *
+			float(anchor.get_meta("cargo_subticks_per_tick")) * elapsed / CARGO_TICK_SECONDS,
+			-BELT_SUBTICKS_PER_TILE, BELT_SUBTICKS_PER_TILE)
+		var first_position: Vector3 = anchor.get_meta("cargo_start")
+		var last_position: Vector3 = anchor.get_meta("cargo_end")
+		for item: Node in anchor.get_children():
+			if not item is Node3D or not item.has_meta("belt_slot"):
+				continue
+			var index := int(item.get_meta("belt_slot"))
+			var fraction := belt_visual_fraction(slots, index, phase)
+			var position := first_position.lerp(last_position, (float(index) + fraction) / float(slots.size() - 1))
+			position.y += 0.18 if item.get_meta("belt_item") == "product" else 0.24
+			item.position = position
+
 func _add_belt_pick_section(body: StaticBody3D, start: float, end: float) -> void:
 	if end - start <= 0.001:
 		return
@@ -611,6 +722,17 @@ static func belt_slot_fraction(slots: Array, index: int, phase: Variant) -> floa
 	while next >= 0 and next < slots.size():
 		if slots[next] == null:
 			return float(phase) / BELT_SUBTICKS_PER_TILE
+		next += direction
+	return 0.0
+
+static func belt_visual_fraction(slots: Array, index: int, phase: float) -> float:
+	if not is_finite(phase) or is_zero_approx(phase) or index < 0 or index >= slots.size():
+		return 0.0
+	var direction := 1 if phase > 0.0 else -1
+	var next := index + direction
+	while next >= 0 and next < slots.size():
+		if slots[next] == null:
+			return clampf(phase / BELT_SUBTICKS_PER_TILE, -1.0, 1.0)
 		next += direction
 	return 0.0
 
@@ -740,9 +862,10 @@ func refresh() -> void:
 		anchor.name = "Part%d" % rendered.size()
 		anchor.set_meta("entity", id)
 		anchor.set_meta("kind", part.kind)
-		anchor.set_meta("axis", part.axis)
+		if part.kind in ["gear", "shaft"]:
+			anchor.set_meta("axis", part.axis)
 		anchor.position = world_center(part.center)
-		anchor.basis = axis_basis(part.axis)
+		anchor.basis = axis_basis(part.axis) if part.kind in ["gear", "shaft"] else Basis.IDENTITY
 		add_child(anchor)
 		if batch_gears:
 			var style := _support_style(part)
@@ -774,7 +897,7 @@ func refresh() -> void:
 					direction_poses[sign_value].append(Transform3D(anchor.basis, anchor.position))
 				else:
 					_direction(anchor, radius * 0.65, sign_value)
-		else:
+		elif part.kind == "shaft":
 			var length: float = float(part.half_span) * UNIT * 2.0
 			Assets.shaft(anchor, length, color)
 			var keyway := MeshInstance3D.new()
@@ -786,6 +909,8 @@ func refresh() -> void:
 			_finish(keyway, Color("e2c58a"))
 			anchor.add_child(keyway)
 			_pick(anchor, id, 0.08, length)
+		else:
+			_relay_case(anchor, id, part)
 	if batch_gears:
 		for style: String in support_groups:
 			var group: Dictionary = support_groups[style]

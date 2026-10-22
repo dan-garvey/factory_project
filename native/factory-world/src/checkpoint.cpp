@@ -89,7 +89,7 @@ stationary::Kit decode_kit(const Value& value, const std::string& path) {
     stationary::Kit output;
     for (const auto& item : array(value, path, stationary::maximum_specifications)) {
         const auto& entry = fields(item, path, {"role", "teeth", "half_span", "count"});
-        const stationary::PartSpec spec{enumeration<stationary::Role>(entry, "role", 5, path),
+        const stationary::PartSpec spec{enumeration<stationary::Role>(entry, "role", 8, path),
             integer(entry, "teeth", path), integer(entry, "half_span", path)};
         if (!output.emplace(spec, integer(entry, "count", path)).second)
             refuse(CheckpointReason::invalid_world, path);
@@ -145,6 +145,7 @@ Value topology_value(const stationary::Topology& topology) {
             {"role", Value(static_cast<Integer>(part.role))},
             {"kind", Value(static_cast<Integer>(geometry.kind))},
             {"axis", Value(static_cast<Integer>(geometry.axis))},
+            {"relay_axis", Value(static_cast<Integer>(geometry.relay_axis))},
             {"center", Value(Array{Value(geometry.center[0]), Value(geometry.center[1]), Value(geometry.center[2])})},
             {"teeth", Value(geometry.teeth)}, {"half_span", Value(geometry.half_span)},
             {"wheel_tiles", Value(part.wheel_tiles)}, {"rotation", Value(part.rotation)}});
@@ -169,19 +170,20 @@ stationary::Topology decode_topology(const Value& value) {
     topology.drive_enabled = scalar<bool>(input.at("drive_enabled"), path + ".drive_enabled");
     for (const auto& value_part : array(input.at("parts"), path + ".parts", mechanics::maximum_parts)) {
         const auto& entry = fields(value_part, path + ".parts",
-            {"id", "generation", "role", "kind", "axis", "center", "teeth", "half_span", "wheel_tiles", "rotation"});
+            {"id", "generation", "role", "kind", "axis", "relay_axis", "center", "teeth", "half_span", "wheel_tiles", "rotation"});
         const auto& center = array(entry.at("center"), path + ".parts.center", 3);
         if (center.size() != 3) refuse(CheckpointReason::invalid_world, path + ".parts.center");
         topology.parts.push_back({{
             scalar<std::string>(entry.at("id"), path + ".parts.id"),
-            enumeration<mechanics::Kind>(entry, "kind", 2, path + ".parts"),
+            enumeration<mechanics::Kind>(entry, "kind", 4, path + ".parts"),
             {scalar<Integer>(center[0], path + ".parts.center"),
              scalar<Integer>(center[1], path + ".parts.center"),
              scalar<Integer>(center[2], path + ".parts.center")},
             enumeration<mechanics::Axis>(entry, "axis", 2, path + ".parts"),
-            integer(entry, "teeth", path + ".parts"), integer(entry, "half_span", path + ".parts")},
+            integer(entry, "teeth", path + ".parts"), integer(entry, "half_span", path + ".parts"),
+            enumeration<mechanics::Axis>(entry, "relay_axis", 2, path + ".parts")},
             integer(entry, "generation", path + ".parts"),
-            enumeration<stationary::Role>(entry, "role", 5, path + ".parts"),
+            enumeration<stationary::Role>(entry, "role", 8, path + ".parts"),
             integer(entry, "wheel_tiles", path + ".parts"), integer(entry, "rotation", path + ".parts")});
     }
     for (const auto& value_link : array(input.at("links"), path + ".links", 2)) {
@@ -256,7 +258,7 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
         for (const auto& [actor, kit] : snapshot.state.kits) kits.emplace(actor, kit_value(kit));
         for (const auto& [id, generation] : snapshot.state.issued_entities) issued.emplace(id, Value(generation));
         Value output(Object{
-            {"schema", Value(Integer{6})}, {"profile", profile_value(profile)},
+            {"schema", Value(Integer{7})}, {"profile", profile_value(profile)},
             {"revision", Value(snapshot.revision)}, {"history", std::move(*history.value)},
             {"state", Value(Object{{"material", std::move(std::get<Value>(material))},
                 {"topology", topology_value(snapshot.state.topology)}, {"kits", Value(std::move(kits))},
@@ -286,7 +288,7 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
     try {
         Budget{}.visit(value);
         const auto& root = fields(value, "$", {"schema", "profile", "revision", "history", "state"});
-        if (integer(root, "schema", "$") != 6) refuse(CheckpointReason::unsupported_schema, "$.schema");
+        if (integer(root, "schema", "$") != 7) refuse(CheckpointReason::unsupported_schema, "$.schema");
         if (const auto difference = values::typed_difference(profile_value(profile), root.at("profile")))
             refuse(CheckpointReason::profile_mismatch, "$.profile" + difference->path.substr(1));
         Snapshot candidate;

@@ -91,8 +91,15 @@ func _direction(id: String, expected: int) -> bool:
 	if not _expect(node != null, "The native part has a visible node."):
 		return false
 	var arrow: Node = node.get_node_or_null("ConfirmedDirection")
-	return _expect(arrow != null and arrow.get_meta("sign", 0) == expected,
-		"Arrow signs match the expected signed rate.")
+	if arrow != null:
+		return _expect(arrow.get_meta("sign", 0) == expected,
+			"The individual arrow matches the confirmed signed rate.")
+	var motion: Dictionary = opening.state.get("motion", {}).get(id, {})
+	var visual: MultiMeshInstance3D = opening.transmission_presenter.get_node_or_null(
+		"DirectionBatch%d" % expected) as MultiMeshInstance3D
+	return _expect(node.get_meta("batched_gear", false) and signi(int(motion.get("numerator", 0))) == expected
+		and visual != null and visual.multimesh.instance_count > 0,
+		"The batched cog has confirmed motion and a direction batch for its sign.")
 
 func _gear_tool() -> void:
 	opening.transmission_controls.get_popup().id_pressed.emit(1)
@@ -132,13 +139,15 @@ func _layouts() -> bool:
 		var worksite: Rect2 = opening.remove_button.get_parent().get_parent().get_global_rect()
 		var footer: Rect2 = opening.status_label.get_parent().get_parent().get_global_rect()
 		var hotbar: Rect2 = opening.building_hotbar.get_global_rect()
+		var options: Rect2 = opening.placement_options_panel.get_global_rect()
 		var row := {"viewport": [size.x, size.y], "fixture_confirmation": true, "fixture_labels": true}
-		var named := {"build": build, "worksite": worksite, "footer": footer, "hotbar": hotbar}
+		var named := {"build": build, "worksite": worksite, "footer": footer, "hotbar": hotbar,
+			"placement_options": options}
 		for name: String in named:
 			var rect: Rect2 = named[name]
 			row[name] = [rect.position.x, rect.position.y, rect.size.x, rect.size.y]
 		facts.layouts.append(row)
-		var panels := [build, worksite, footer, hotbar]
+		var panels := [build, worksite, footer, hotbar, options]
 		for index in range(panels.size()):
 			if not _expect(Rect2(Vector2(18, 18), Vector2(size) - Vector2(36, 36)).encloses(panels[index]),
 				"Each visible panel fits inside the viewport margins."):
@@ -146,8 +155,10 @@ func _layouts() -> bool:
 			for prior in range(index):
 				if not _expect(not panels[index].intersects(panels[prior]), "Visible panels do not overlap."):
 					return false
-		if not _expect(build.encloses(opening.transmission_controls.get_global_rect())
-			and worksite.encloses(opening.inspector.get_global_rect()), "Expanded native controls fit their panels."):
+		if not _expect(opening.placement_options_panel.visible
+			and options.encloses(opening.transmission_controls.get_global_rect())
+			and worksite.encloses(opening.inspector.get_global_rect()),
+			"The active ghost options and inspector fit their own panels."):
 			return false
 	root.size = old_size
 	opening.goal_confirmed = old_confirmation
@@ -242,14 +253,19 @@ func _run() -> void:
 	if not _expect(opening.state.power_enabled and not opening.state.powered, "Running removal breaks collector transmission."): return
 	var misplaced := _cog([4, 4, 12], "z", 4)
 	if misplaced.is_empty() or not _expect(not opening.state.powered, "A legal one-tile displacement stays disconnected."): return
-	opening.transmission_controls.get_popup().id_pressed.emit(4)
-	if _invoke("menu removal", {"action": "remove", "entity": misplaced.entity}, [_anchor([4, 4, 12])],
+	var dismantle := InputEventKey.new()
+	dismantle.keycode = KEY_F
+	dismantle.pressed = true
+	opening._unhandled_input(dismantle)
+	if not _expect(opening.mode == "deconstruct", "F selects dedicated deconstruction instead of material linking."): return
+	if _invoke("F deconstruction", {"action": "remove", "entity": misplaced.entity}, [_anchor([4, 4, 12])],
 		func(): opening._world_click(Vector2i(1, 3), misplaced.entity)).is_empty(): return
 	var rebuilt := _cog([0, 4, 12], "z", 4)
 	if rebuilt.is_empty() or not _expect(rebuilt.entity != b.entity and opening.state.powered,
 		"Correct rebuilding restores power with a new identity.") or not _direction(rebuilt.entity, -1): return
 	if not _expect(opening.state.order == 14 and _same(opening.state.part_kits.P,
-		{"collector": 0, "belt": 2, "processor": 1, "wheel": 0, "gear": 6, "shaft": 6, "foundation": 23}),
+		{"collector": 0, "belt": 2, "processor": 1, "wheel": 0, "gear": 6, "shaft": 6,
+			"gearbox": 2, "vertical_gearbox": 2, "chain_drive": 8, "foundation": 23}),
 		"Fourteen requests conserve the kit."): return
 	var units := 0
 	for amount: Variant in opening.state.stock.values():

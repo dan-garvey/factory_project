@@ -40,6 +40,11 @@ bool material_machine(Role role) {
     return role == Role::collector || role == Role::processor;
 }
 
+bool transmission_role(Role role) {
+    return role == Role::gear || role == Role::shaft || role == Role::gearbox ||
+           role == Role::vertical_gearbox || role == Role::chain_drive;
+}
+
 std::optional<mechanics::Rate> wheel_rate(const Profile& profile, const stationary::PlacedPart& placed) {
     if (profile.water.empty()) return profile.waterwheel_rate;
     const auto& part = placed.geometry;
@@ -57,6 +62,8 @@ bool spec_valid(const stationary::PartSpec& spec) {
             return spec.teeth > 0 && spec.teeth <= mechanics::maximum_dimension && spec.half_span == 0;
         case Role::shaft:
             return spec.teeth == 0 && spec.half_span == 2;
+        case Role::gearbox: case Role::vertical_gearbox: case Role::chain_drive:
+            return spec.teeth == 0 && spec.half_span == 0;
     }
     return false;
 }
@@ -102,6 +109,8 @@ bool shape(const Object& intent, const std::string& action) {
         return keys(intent, {"target", "generation", "enabled"}) && field<bool>(intent, "enabled");
     if (placement(action) && intent.contains("rotation"))
         return keys(intent, {"role", "center", "axis", "teeth", "half_span", "rotation"});
+    if (placement(action) && intent.contains("relay_axis"))
+        return keys(intent, {"role", "center", "axis", "teeth", "half_span", "relay_axis"});
     if (placement(action))
         return intent.contains("wheel_tiles") ? keys(intent, {"role", "center", "axis", "teeth", "half_span", "wheel_tiles"}) :
             keys(intent, {"role", "center", "axis", "teeth", "half_span"});
@@ -119,6 +128,9 @@ std::optional<Role> role(const std::string& value) {
     if (value == "waterwheel") return Role::waterwheel;
     if (value == "gear") return Role::gear;
     if (value == "shaft") return Role::shaft;
+    if (value == "gearbox") return Role::gearbox;
+    if (value == "vertical_gearbox") return Role::vertical_gearbox;
+    if (value == "chain_drive") return Role::chain_drive;
     return std::nullopt;
 }
 
@@ -324,6 +336,7 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         const auto* span = field<Integer>(record.intent, "half_span");
         const auto* wheel_tiles = field<Integer>(record.intent, "wheel_tiles");
         const auto* rotation = field<Integer>(record.intent, "rotation");
+        const auto* relay_axis_name = field<std::string>(record.intent, "relay_axis");
         const auto selected_role = role_name ? role(*role_name) : std::nullopt;
         if (!location || !selected_role || !axis_name || !axis(*axis_name) || !teeth || !span ||
             !spec_valid({*selected_role, *teeth, *span}) || targets.front() != anchor(profile, *location) ||
@@ -331,8 +344,12 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
             (record.intent.contains("rotation") && (!rotation || !material_machine(*selected_role) ||
                 *rotation < 0 || *rotation > 3)) ||
             (record.intent.contains("wheel_tiles") && (!wheel_tiles || *selected_role != Role::waterwheel ||
-                *wheel_tiles < 3 || *wheel_tiles > mechanics::maximum_dimension))) return false;
-        if ((*selected_role == Role::gear || *selected_role == Role::shaft) &&
+                *wheel_tiles < 3 || *wheel_tiles > mechanics::maximum_dimension)) ||
+            (record.intent.contains("relay_axis") != (*selected_role == Role::chain_drive)) ||
+            (relay_axis_name && (!axis(*relay_axis_name) || axis(*relay_axis_name) == axis(*axis_name))) ||
+            (*selected_role == Role::gearbox && axis(*axis_name) != mechanics::Axis::y) ||
+            (*selected_role == Role::vertical_gearbox && axis(*axis_name) == mechanics::Axis::y)) return false;
+        if (transmission_role(*selected_role) &&
             std::any_of(location->begin(), location->end(),
                         [](Integer coordinate) { return coordinate % 4 != 0; })) return false;
         if (action == "place_connected" && !material_machine(*selected_role)) return false;
@@ -714,10 +731,10 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
             (item.role != Role::waterwheel && item.wheel_tiles != 1)) return false;
         if (item.role == Role::belt) return false;
         if ((material_machine(item.role) || item.role == Role::waterwheel) && item.geometry.center[1] % 4 != 0) return false;
-        if ((item.role == Role::shaft || item.role == Role::gear) &&
+        if (transmission_role(item.role) &&
             std::any_of(item.geometry.center.begin(), item.geometry.center.end(),
                         [](Integer coordinate) { return coordinate % 4 != 0; })) return false;
-        if ((item.role == Role::shaft || item.role == Role::gear) &&
+        if (transmission_role(item.role) &&
             std::count_if(state.topology.parts.begin(), state.topology.parts.end(), [&](const auto& other) {
                 return other.geometry.center == item.geometry.center;
             }) != 1) return false;
@@ -1151,6 +1168,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         const auto* span = field<Integer>(intent, "half_span");
         const auto* wheel_tiles = field<Integer>(intent, "wheel_tiles");
         const auto* rotation = field<Integer>(intent, "rotation");
+        const auto* relay_axis_name = field<std::string>(intent, "relay_axis");
         location = grid_point(intent);
         if (!role_name || !axis_name || !teeth || !span || !location ||
             !(selected_role = role(*role_name)) || !(selected_axis = axis(*axis_name)) ||
@@ -1158,11 +1176,15 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             (intent.contains("rotation") && (!rotation || !material_machine(*selected_role) ||
                 *rotation < 0 || *rotation > 3)) ||
             (intent.contains("wheel_tiles") && (!wheel_tiles || *selected_role != Role::waterwheel ||
-                *wheel_tiles < 3 || *wheel_tiles > mechanics::maximum_dimension))) return refused("invalid_part");
+                *wheel_tiles < 3 || *wheel_tiles > mechanics::maximum_dimension)) ||
+            (intent.contains("relay_axis") != (*selected_role == Role::chain_drive)) ||
+            (relay_axis_name && (!axis(*relay_axis_name) || axis(*relay_axis_name) == *selected_axis)) ||
+            (*selected_role == Role::gearbox && *selected_axis != mechanics::Axis::y) ||
+            (*selected_role == Role::vertical_gearbox && *selected_axis == mechanics::Axis::y)) return refused("invalid_part");
         if (*selected_role == Role::belt) return refused("invalid_part");
         if ((material_machine(*selected_role) || *selected_role == Role::waterwheel) && (*location)[1] % 4 != 0)
             return refused("unaligned_elevation");
-        if ((*selected_role == Role::gear || *selected_role == Role::shaft) &&
+        if (transmission_role(*selected_role) &&
             std::any_of(location->begin(), location->end(),
                         [](Integer coordinate) { return coordinate % 4 != 0; })) return refused("invalid_cell");
         targets.push_back(anchor(profile_, *location));
@@ -1209,8 +1231,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
     }
     if (placement(*action) && std::any_of(state.topology.parts.begin(), state.topology.parts.end(), [&](const auto& existing) {
             return existing.geometry.center == *location &&
-                (*selected_role == Role::gear || *selected_role == Role::shaft ||
-                 existing.role == Role::gear || existing.role == Role::shaft);
+                (transmission_role(*selected_role) || transmission_role(existing.role));
         })) return refused("occupied", "", std::move(facts));
     if (placement(*action)) {
         if (candidate.issued_entities.size() == maximum_issued_entities ||
@@ -1220,10 +1241,14 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         entity = std::string(allocated_prefix) + std::to_string(generation);
         if (candidate.issued_entities.contains(entity)) return refused("identity_conflict");
         const auto kind = *selected_role == Role::gear ? mechanics::Kind::gear :
-                          *selected_role == Role::shaft ? mechanics::Kind::shaft : mechanics::Kind::hub;
+                          *selected_role == Role::shaft ? mechanics::Kind::shaft :
+                          (*selected_role == Role::gearbox || *selected_role == Role::vertical_gearbox) ? mechanics::Kind::gearbox :
+                          *selected_role == Role::chain_drive ? mechanics::Kind::chain_drive : mechanics::Kind::hub;
+        const auto* relay_axis_name = field<std::string>(intent, "relay_axis");
         stationary::PlacedPart placed{
             {entity, kind, *location, *selected_axis, *field<Integer>(intent, "teeth"),
-             *field<Integer>(intent, "half_span")}, generation, *selected_role};
+             *field<Integer>(intent, "half_span"), relay_axis_name ? *axis(*relay_axis_name) : mechanics::Axis::x},
+            generation, *selected_role};
         placed.geometry.id = entity;
         placed.generation = generation;
         if (const auto* rotation = field<Integer>(intent, "rotation")) placed.rotation = *rotation;

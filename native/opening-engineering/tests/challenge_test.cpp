@@ -43,7 +43,8 @@ void conserved(const Host& host) {
     }
     check(total == field<I>(projection, "initial_feed"), "Live, held, dropped and in-flight material stays conserved.");
     std::map<std::string, I> parts{{"collector", 0}, {"belt", 0}, {"processor", 0}, {"wheel", 0},
-                                   {"shaft", 0}, {"gear", 0}, {"foundation", 0}};
+                                   {"shaft", 0}, {"gear", 0}, {"gearbox", 0},
+                                   {"vertical_gearbox", 0}, {"chain_drive", 0}, {"foundation", 0}};
     for (const auto& [actor, kit] : field<O>(projection, "part_kits")) {
         (void)actor;
         for (const auto& [kind, count] : std::get<O>(kit.storage())) parts.at(kind) += std::get<I>(count.storage());
@@ -53,7 +54,8 @@ void conserved(const Host& host) {
     parts.at("belt") += static_cast<I>(field<O>(projection, "belt_spans").size());
     parts.at("foundation") += static_cast<I>(field<O>(projection, "foundations").size());
     check(parts == std::map<std::string, I>{{"collector", 1}, {"belt", 2}, {"processor", 1}, {"wheel", 1},
-                                            {"shaft", 8}, {"gear", 10}, {"foundation", 24}},
+                                            {"shaft", 8}, {"gear", 10}, {"gearbox", 2},
+                                            {"vertical_gearbox", 2}, {"chain_drive", 8}, {"foundation", 24}},
           "The real finite construction kit is conserved across placed spans and player inventories.");
 }
 

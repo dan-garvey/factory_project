@@ -2,14 +2,17 @@
 
 An experimental 3D opening for a mechanically focused factory game. Place a
 collector, press and waterwheel; build a belt between shaft tiles and use
-shafts and cogwheels to transmit rotation; turn finite blanks into plates and
+shafts, cogwheels, gearboxes and encased chain drives to transmit rotation;
+turn finite blanks into plates and
 explicitly confirm four collected products.
 Placeholder geometry and a small fixed worksite keep this first feedback loop
 bounded. This is not the complete chapter or a selected production stack.
 
 The default opening controls a physical character and limits construction to
 nearby targets. Walk with WASD, jump with Space, and use P to operate the nearby
-waterwheel. Right-drag orbits the following camera; its position grants no build
+waterwheel. Choose a building with the hotbar, use its ghost options to rotate or
+adjust placement, press E to open a pointed machine, or press F and click a part
+to deconstruct it. Right-drag orbits the following camera; its position grants no build
 reach. The four-world-unit reach and movement tuning are provisional demo values.
 Early development prioritizes fixed/stationary contraptions and subfactories.
 Godot use is accepted with explicit [framework constraints](docs/engineering/godot-constraints.md),

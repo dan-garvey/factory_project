@@ -19,7 +19,7 @@ inline constexpr Integer maximum_coordinate = 1000000;
 inline constexpr Integer maximum_dimension = 4096;
 
 enum class Axis { x, y, z };
-enum class Kind { hub, gear, shaft };
+enum class Kind { hub, gear, shaft, gearbox, chain_drive };
 
 struct Part {
     std::string id;
@@ -30,6 +30,9 @@ struct Part {
     // Only gears use teeth; only shafts use half_span.
     Integer teeth{};
     Integer half_span{};
+    // Chain drives link sideways along this axis; gearbox axis is its closed
+    // pair of faces. All parts still occupy one global construction tile.
+    Axis relay_axis{Axis::x};
     bool operator==(const Part&) const = default;
 };
 
@@ -73,7 +76,7 @@ struct BeltPath {
 // Invalid paths and invalid rates also return no direction.
 [[nodiscard]] std::optional<int> belt_cargo_direction(const Part& first, const Part& last, Rate rate);
 
-enum class EngagementKind { external_mesh, coaxial_shaft, belt };
+enum class EngagementKind { external_mesh, coaxial_shaft, belt, relay };
 struct Engagement {
     std::string a;
     std::string b;

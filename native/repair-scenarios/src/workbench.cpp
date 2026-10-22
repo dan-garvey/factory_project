@@ -55,6 +55,9 @@ const char* role_name(s::Role role) {
         case s::Role::waterwheel: return "waterwheel";
         case s::Role::gear: return "gear";
         case s::Role::shaft: return "shaft";
+        case s::Role::gearbox: return "gearbox";
+        case s::Role::vertical_gearbox: return "vertical_gearbox";
+        case s::Role::chain_drive: return "chain_drive";
     }
     return "unknown";
 }
