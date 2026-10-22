@@ -109,8 +109,12 @@ func _initialize() -> void:
 	var collector: Node3D = view.machine_root.get_child(0)
 	verify(is_equal_approx(collector.get_node("StockBed").material_override.metallic, 0.85),
 		"The actual collector's working bed uses exposed steel.")
-	verify(is_equal_approx(collector.get_node("BackHousing").material_override.metallic, 0.08),
-		"The actual collector frame keeps a distinct painted finish.")
+	var lower_housing := collector.get_node_or_null("CollectorCastFrame/CastLowerHousing") as MeshInstance3D
+	var cast_finish := lower_housing.material_override as StandardMaterial3D if lower_housing != null else null
+	verify(cast_finish != null and cast_finish == Opening.ProductionCollectorArt.coating(
+		Opening.COLORS.collector.darkened(0.09)) and cast_finish.metallic < 0.1
+		and cast_finish.roughness_texture != null,
+		"The actual collector casting keeps its distinct painted source finish.")
 	verify(view.state == before and view.model == null, "Surface presentation cannot mutate the machine projection.")
 	view.machine_root.free()
 	view.free()
