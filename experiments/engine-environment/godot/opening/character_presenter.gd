@@ -1196,6 +1196,18 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 				target = target.lerp(resting_toe, smoothstep(0.0, 1.0, progress))
 				lift = 0.06 * sin(PI * progress)
 			_adult_hold_contact_toe(body, skeleton, target, 1.0, lift, side)
+			# The other boot travels forward while the planted one carries the
+			# stop. Give that swing a short arc before it joins the resting stance;
+			# otherwise the captured run-to-idle blend drags its toe through soil.
+			var swing_progress := 1.0 - clampf(float(previous.run_mix), 0.0, 1.0)
+			var swing_lift := 0.12 * sin(PI * swing_progress)
+			if swing_lift > 0.001:
+				var swing_side := "R" if side == "L" else "L"
+				skeleton.force_update_all_bone_transforms()
+				var swing_toe := body.to_global(_adult_joint(body, skeleton,
+					skeleton.find_bone("Bip01 " + swing_side + " Toe0")))
+				_adult_hold_contact_toe(body, skeleton, swing_toe, 1.0,
+					swing_lift, swing_side)
 			if float(previous.stop_step_age) >= 0.20:
 				previous.erase("stop_toe_anchor")
 				previous.erase("stop_side")

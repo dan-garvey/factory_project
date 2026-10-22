@@ -1187,6 +1187,59 @@ func check_run_stop_contact() -> void:
 	presenter.free()
 	host.free()
 
+func check_run_stop_trailing_swing() -> void:
+	# Match the direct-native full-speed stop where the planted left boot holds
+	# the actor and the trailing right boot travels into its resting position.
+	var host := HostFixture.new()
+	host.state.context = "run-stop-trailing-swing"
+	host.state.actors.P.position = [-1.65, 0.88084, 3.3]
+	root.add_child(host)
+	var presenter := Presenter.new()
+	presenter.configure(host)
+	host.add_child(presenter)
+	presenter.set_process(false)
+	presenter.set_physics_process(false)
+	for step in range(150):
+		host.state.actors.P.position[0] += 0.05
+		presenter.refresh(1.0 / 60.0)
+	var stopped_x: float = host.state.actors.P.position[0]
+	var body: Node3D = presenter.views.P.get_node("BodyView")
+	var previous_swing: Variant = null
+	var minimum_moving_clearance := INF
+	var swing_advance := 0.0
+	var moving_samples := 0
+	var exact_root := true
+	var samples := []
+	for frame in range(24):
+		presenter.refresh(1.0 / 60.0)
+		var motion: Dictionary = presenter.motion.P
+		exact_root = exact_root and absf(presenter.views.P.position.x - stopped_x) < 0.00001
+		if not motion.has("stop_toe_anchor"):
+			continue
+		var side: String = "R" if motion.stop_side == "L" else "L"
+		var skeleton := skeleton_of(body)
+		skeleton.force_update_all_bone_transforms()
+		var toe: Vector3 = body.to_global(presenter._adult_joint(body, skeleton,
+			skeleton.find_bone("Bip01 " + side + " Toe0")))
+		var clearance := toe.y - Surface.height_at(toe.x, toe.z)
+		if previous_swing is Vector3:
+			var advance := absf(toe.x - previous_swing.x)
+			if advance > 0.02:
+				minimum_moving_clearance = minf(minimum_moving_clearance, clearance)
+				swing_advance += advance
+				moving_samples += 1
+		samples.append({"frame": frame, "side": side, "x": toe.x,
+			"clearance": clearance, "weight": motion.weight})
+		previous_swing = toe
+	adult_measurements["run_stop_trailing_swing"] = {"samples": samples,
+		"minimum_moving_clearance": minimum_moving_clearance,
+		"swing_advance": swing_advance, "moving_samples": moving_samples}
+	verify(moving_samples >= 5 and swing_advance > 0.35
+		and minimum_moving_clearance > 0.015 and exact_root and host.control_calls == 0,
+		"A full-speed stop carries the trailing boot above terrain while it swings to rest without moving the actor.")
+	presenter.free()
+	host.free()
+
 func _initialize() -> void:
 	call_deferred("run")
 
@@ -1293,6 +1346,7 @@ func run() -> void:
 			"Arms and head ease from descent into moving and stationary contact without a first-frame pose jump.")
 		check_landing_recovery_profile()
 		check_run_stop_contact()
+		check_run_stop_trailing_swing()
 	else:
 		verify(body.mesh == q.get_node("BodyView").mesh and body.material_override != q.get_node("BodyView").material_override,
 			"Legacy workers share geometry while retaining distinct local and remote clothing.")
