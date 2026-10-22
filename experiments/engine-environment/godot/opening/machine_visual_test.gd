@@ -31,6 +31,7 @@ class MixedAssetScaleView extends Opening:
 	var built_meshes := 0
 	var batch_instances := 0
 	var batch_draw_groups := 0
+	var shared_conveyor_finish := false
 	var build_ms := 0.0
 	var fixture_root: Node3D
 
@@ -87,6 +88,14 @@ class MixedAssetScaleView extends Opening:
 				var prepared: Mesh = _machine_batch_surface_mesh(part)
 				part.set_meta("fixture_batch_mesh", prepared)
 				var finish := part.material_override
+				if shared_conveyor_finish and part.name == "ConveyorLoop" \
+						and finish is StandardMaterial3D:
+					var conveyor_finish: StandardMaterial3D = ProductionConveyorArt.material()
+					if conveyor_finish != null and (finish as StandardMaterial3D).uv1_offset == conveyor_finish.uv1_offset:
+						# The fixed fixture never advances loop phase. Mount created
+						# exact duplicates of this source finish for live belt motion.
+						finish = conveyor_finish
+				part.set_meta("fixture_batch_finish", finish)
 				var overlay := part.material_overlay
 				var key := str([prepared.get_instance_id(),
 					finish.get_instance_id() if finish != null else 0,
@@ -118,7 +127,7 @@ class MixedAssetScaleView extends Opening:
 			var visual := MultiMeshInstance3D.new()
 			visual.name = "RepeatedAssetDetail"
 			visual.multimesh = batch
-			visual.material_override = example.material_override
+			visual.material_override = example.get_meta("fixture_batch_finish") as Material
 			visual.material_overlay = example.material_overlay
 			visual.cast_shadow = example.cast_shadow
 			visual.layers = example.layers
@@ -503,22 +512,26 @@ func _performance_benchmark() -> void:
 func _mixed_scale_benchmark() -> void:
 	var count := 200
 	var batched := false
+	var shared_conveyor_finish := false
 	var capture := ""
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--count="):
 			count = int(argument.trim_prefix("--count="))
 		elif argument == "--batch":
 			batched = true
+		elif argument == "--share-static-conveyor-finish":
+			shared_conveyor_finish = true
 		elif argument.begins_with("--capture="):
 			capture = argument.trim_prefix("--capture=")
-	if count < 0 or count > 400:
-		push_error("Choose 0 to 400 asset assemblies.")
+	if count < 0 or count > 1000:
+		push_error("Choose 0 to 1,000 asset assemblies.")
 		quit(2)
 		return
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 	var view := MixedAssetScaleView.new()
 	view.asset_count = count
 	view.batch_static = batched
+	view.shared_conveyor_finish = shared_conveyor_finish
 	root.add_child(view)
 	var frame_ms: Array[float] = []
 	var calls: Array[int] = []
@@ -539,8 +552,10 @@ func _mixed_scale_benchmark() -> void:
 			quit(1)
 			return
 	print("MIXED_ASSET_SCALE " + JSON.stringify({"count": count, "batch": batched,
+		"shared_conveyor_finish": shared_conveyor_finish,
 		"built_meshes": view.built_meshes, "batch_instances": view.batch_instances,
-		"batch_groups": view.batch_draw_groups, "build_ms": view.build_ms,
+		"batch_groups": view.batch_draw_groups,
+		"build_ms": view.build_ms,
 		"median_ms": frame_ms[frame_ms.size() / 2],
 		"p95_ms": frame_ms[int(frame_ms.size() * 0.95)],
 		"draw_calls_median": calls[calls.size() / 2],

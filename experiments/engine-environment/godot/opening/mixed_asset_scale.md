@@ -4,7 +4,7 @@
 with a regular field of the current collector, conveyor and press art. Each
 assembly uses the opening's existing production visual constructors and the
 shared construction pitch. The count is the number of complete machine
-assemblies, distributed evenly among the three kinds. Every assembly is
+assemblies, distributed evenly among the three kinds, up to 1,000. Every assembly is
 visible from a fixed camera. The fixture uses the project's Compatibility
 renderer and its normal material, mesh and lighting resources.
 
@@ -17,6 +17,14 @@ transforms and shadows; it does not simplify geometry or textures.
 The original nodes remain hidden in the fixture so their identity and local
 transforms can be inspected. This is a rendering experiment, not a change to
 the playable opening.
+
+For this stationary fixture, `--share-static-conveyor-finish` also batches
+the conveyor loop material. The production constructor duplicates that finish
+once per belt so live belts can have independent texture phase. This fixture
+never advances phase, and it groups only loops whose phase equals the original
+source finish. Their mesh, texture maps, material properties and shadows stay
+the same. The live opening has its own phase-aware conveyor batch; this option
+does not change its behavior or prove moving-belt equivalence.
 
 After importing the project, run without `--headless` and admit the whole
 measurement through the repository's exclusive `factory-local benchmark`
@@ -84,6 +92,46 @@ machines remain unmeasured. Local logs, exact source hashes, environment and
 PNG captures are retained under
 `/home/dan/.local/state/factory-prototypes/mixed-chapter-assets-20261022`.
 
+## One thousand assembly attempt, 2026-10-22
+
+On main `2212b85f34745e214ac2df236a6d0a0d2a53b846` plus the fixture
+changes in this guide, the 1,000-assembly field contains 68,022 source mesh
+nodes. Godot 4.7.2 Compatibility used the same 1280 × 800 WSL2/Mesa D3D12
+RTX 3090 setup. Each exclusive run used 30 warmup frames followed by 120
+sampled frames. The VSync mode change was unsupported by the driver. This is
+one run per condition, in the order shown; the frame-time difference is much
+larger than the observed tail variation, but repeat-run variation is unknown.
+
+| 1,000 assemblies | Median frame | 95th percentile | Median draw calls | Build time |
+| --- | ---: | ---: | ---: | ---: |
+| Ordinary repeated-mesh batch | 60.119 ms | 67.081 ms | 420 | 11.374 s |
+| Plus shared stationary conveyor finish | 16.875 ms | 18.202 ms | 97 | 11.421 s |
+
+The shared-finish run batched all 68,022 source meshes through 82 render
+groups. The two 1,000-assembly PNG captures have identical SHA-256
+`13be74a10c1de5081e1a7889d7a41962b6530e0ab3496eb72f9e461380947da3`.
+At this wide camera distance, fog hides fine detail. A close nine-assembly
+comparison at the same 1280 × 800 viewport was also byte-identical, with
+SHA-256
+`e39810fa157ebf5d4044711c1bbe61bf6b697d30b3e03696b8d687a443f51c47`.
+Inspection shows the collector, conveyor and press silhouettes, finishes and
+shadows intact at that camera. The close view measured 21.957 ms median before
+the shared finish and 21.722 ms after it, so the large reduction is specific
+to the hundreds of otherwise separate conveyor material draws.
+Releasing all 67,689 already-hidden source nodes in a discarded experiment
+left the capture byte-identical but measured 59.987 ms median, so retaining
+them was not the dominant frame cost. An attempted Forward+ comparison used
+software `llvmpipe` Vulkan on this host and was stopped before sampling; it
+is not a viable hardware comparison or a passing performance result.
+
+**120 FPS remains unmet.** The shared-finish candidate is about 59 FPS at
+the median and about 55 FPS at the 95th-percentile frame interval. The joined
+zero-assembly worksite measured 14.460 ms median in the earlier joined run,
+already above the 8.333 ms target. The static fixture omits authoritative
+machine operation, inventory, motion, UI and controlled character, so it
+cannot establish playable 1,000-machine frame rate. Retained logs and images
+use the `thousand-` prefix in the local directory above.
+
 ## Current-main join measurement
 
 The fixture was joined with main at merge commit
@@ -108,3 +156,20 @@ updated water, vegetation and rock silhouettes. These images establish the
 rendered arrangement at this revision, not close-view equivalence or human
 play quality. Logs and both captures are retained in the local directory
 above. The 8.333 ms frame budget remains unmet even before machine assemblies.
+
+## One thousand assemblies after the motion-cache join
+
+The relevant main was `930f3109cae68b30137829b725a0df1fd26d1d03`.
+The measured fixture script SHA-256 was
+`86406756f3d16d8bf875201eb956de5ea1f1605e6b121e300fc6faae2895e4c0`;
+the joined `opening.gd` SHA-256 was
+`e6f75366820e94ee91ea63fe8101adc78f742b91342011a898dbf8532f11bb6e`.
+The same optimized 1,000-assembly case on the joined X11 Compatibility path
+measured 17.290 ms median, 18.700 ms p95 and 97 draw calls. Its PNG was
+identical to the earlier X11 capture, and the focused batch-motion fixture
+passed 17 assertions. A separate Wayland/OpenGL3 run at the same resolution
+measured 15.280 ms median and 16.170 ms p95 for 1,000 assemblies, while an
+empty-worksite Wayland run measured 11.499 ms median and 12.775 ms p95.
+Wayland and X11 PNGs of the 1,000-assembly scene were byte-identical. Each
+display-path result is one exclusive run, so the 2 ms difference is not a
+repeatability claim. Both remain above the 8.333 ms frame budget.
