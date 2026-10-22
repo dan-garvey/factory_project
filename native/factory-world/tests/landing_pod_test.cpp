@@ -337,6 +337,21 @@ void placed_components_keep_custody_and_history() {
     O reclaim{{"context", V("placed-chapter")}, {"client", V("Q-client")},
         {"request", V("reclaim-frame")}, {"actor", V("Q")}, {"action", V("reclaim_component")},
         {"target", V(id)}, {"generation", V(serial)}};
+    auto stale = reclaim;
+    stale.at("request") = V("stale-generation");
+    stale.at("generation") = V(serial + 1);
+    const auto wrong_generation = send(stale);
+    check(wrong_generation.completed() && !std::get<bool>(wrong_generation.result->at("accepted").storage()) &&
+          std::get<std::string>(wrong_generation.result->at("reason").storage()) == "stale_generation" &&
+          world->snapshot().state == installed.state,
+        "A stale generation cannot retarget a still installed part.");
+    auto distant = reclaim;
+    distant.at("request") = V("remote-reclaim");
+    const auto remote_reclaim = send(distant, far);
+    check(remote_reclaim.completed() && !std::get<bool>(remote_reclaim.result->at("accepted").storage()) &&
+          std::get<std::string>(remote_reclaim.result->at("reason").storage()) == "out_of_reach" &&
+          world->snapshot().state == installed.state,
+        "Reclaim requires the second actor to reach the installed component.");
     const auto taken = send(reclaim);
     check(taken.completed() && std::get<bool>(taken.result->at("accepted").storage()) &&
           world->snapshot().state.placed_components.empty() &&
