@@ -45,6 +45,37 @@ real outcrop hull, pick envelope, tool
 sweep, actor obstruction and rotation cases. An AABB overlap is neither proof
 of visible contact nor a licence to alter collision.
 
+### Raised collector observed in the ordinary opening
+
+The retained native first-shift consumer in `factory-yau.6.45.24.20` adds a
+different, already admitted arrangement to this art brief. Its collector is
+at seam cell `(0, 1)`, level 4, on a confirmed level-4 foundation, with a
+rotation-zero outlet. The reported material state and image show four collected
+plates, while the foundation and machine conceal the fitted mineral ridge from
+the ordinary camera. This is a working extraction case with an unreadable
+source connection, not evidence that the collector failed to produce.
+
+The current 1.65-metre cell and four height steps per cell put that collector's
+base at 1.65 metres. The same site descriptor places the single rigid outcrop
+near ground at world `x = -1.05`, `z = 0.05`. The foundation occupies a separate
+confirmed volume beneath the raised machine. The ground-level cutter form
+studied above cannot simply be translated to this base and still depict contact
+with the exposed rock. A decorative shaft through the foundation would also
+claim unverified clearance and actor obstruction. The Host currently admits
+bounded extraction depth; that permission does not provide a rendered shaft,
+cutout or collision body.
+
+Treat direct ground contact and elevated extraction as distinct presentation
+fits of the same finite source and collector identity. A raised variant needs
+a measured path from the source surface to the confirmed machine intake, plus
+a foundation opening or exterior support that agrees with the native physical
+geometry. If that cannot be represented within the existing collision and
+construction contract, change that contract deliberately rather than hiding
+the mismatch with a cosmetic conduit. Compare both seam cells, relevant outlet
+rotations and the retained level-4 view before accepting either art variant.
+The ordinary screenshot establishes this specific visual gap; it does not
+establish a new mining mechanism or human approval of a proposed fix.
+
 ## Assembly alternatives
 
 **A. Enclosed scoop below the present hood.** Keep the existing high drum and
