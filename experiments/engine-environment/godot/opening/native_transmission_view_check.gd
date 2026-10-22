@@ -266,8 +266,12 @@ func _component_view() -> void:
 	for node: Node in view.get_children():
 		if node.get_meta("component_entity", "") == "shaft":
 			mirrored_shaft = node
-	verify(mirrored_shaft != null and absf(mirrored_shaft.get_node("LooseDriveShaft").basis.y.z) > 0.99,
-		"The side drive follows the confirmed assembly rather than a fixed axis.")
+	var rod: Node3D = mirrored_shaft.get_node("LooseDriveShaft") if mirrored_shaft != null else null
+	var core: MeshInstance3D = rod.get_node("Shaft") if rod != null else null
+	verify(rod != null and core != null and core.mesh is CylinderMesh
+		and absf(rod.basis.y.z) > 0.99 and is_equal_approx(core.mesh.height, 0.32)
+		and mirrored_shaft.find_children("BearingShell*", "MeshInstance3D", false, false).size() == 2,
+		"A ready side drive has one formed shaft and two journals on its confirmed axis.")
 	facts.state.placed_components.erase("tray")
 	facts.state.collector_assemblies[0] = {"status": "missing_receiver"}
 	facts.state.revision = 3
@@ -277,6 +281,13 @@ func _component_view() -> void:
 	verify(physical.component_bodies.size() == 4 and not physical.component_bodies.has("tray")
 		and view.get_children().filter(func(node: Node): return node.has_meta("component_entity")).size() == 4,
 		"Removing the receiver clears its visual and collider without inventing readiness.")
+	for node: Node in view.get_children():
+		if node.get_meta("component_entity", "") == "shaft":
+			var unready_rod: Node3D = node.get_node("LooseDriveShaft")
+			verify(unready_rod.basis.y.y > 0.99
+				and is_equal_approx((unready_rod.get_node("Shaft") as MeshInstance3D).mesh.height, 0.14)
+				and node.find_children("BearingShell*", "MeshInstance3D", false, false).is_empty(),
+				"An unready placed shaft is stock on its foot, without a falsely connected journal axis.")
 	view.free()
 	physical.free()
 	await process_frame
