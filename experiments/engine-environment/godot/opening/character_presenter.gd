@@ -43,7 +43,8 @@ func configure(view) -> void:
 func observe_native_sample(actor: String, sample: Dictionary) -> void:
 	# This is presentation timing only; the model still owns the confirmed pose.
 	native_sample_frames[actor] = {"epoch": sample.native_epoch,
-		"physics_frame": sample.physics_frame}
+		"physics_frame": sample.physics_frame,
+		"on_floor": sample.get("on_floor") if typeof(sample.get("on_floor")) == TYPE_BOOL else null}
 
 func _ready() -> void:
 	get_window().focus_exited.connect(release)
@@ -519,7 +520,15 @@ func _adult_hold_grounded_toe(body: Node3D, previous: Dictionary, delta: float,
 		return
 	var walking_hold := 1.0 - smoothstep(0.25, 0.75, run_mix)
 	var side: String = previous.get("support_contact_side", "")
-	if side != "" and clearance[side] >= lerpf(0.060, 0.09, run_mix):
+	var handoff_side := ""
+	if side != "" and walking_hold > 0.99 \
+			and float(previous.support_contact_age) > 0.25:
+		var incoming := "R" if side == "L" else "L"
+		if clearance[incoming] < 0.055 and \
+				body.to_local(toes[incoming]).z > body.to_local(toes[side]).z + 0.20:
+			handoff_side = incoming
+	if side != "" and (clearance[side] >= lerpf(0.060, 0.09, run_mix)
+			or handoff_side != ""):
 		if walking_hold > 0.001:
 			# Keep the outgoing walking toe at its last planted point while it
 			# lifts into swing after the other boot accepts support.
@@ -532,9 +541,10 @@ func _adult_hold_grounded_toe(body: Node3D, previous: Dictionary, delta: float,
 		previous.erase("support_contact_age")
 		side = ""
 	if side == "":
-		var next_side := "L" if clearance.L < clearance.R else "R"
-		if clearance[next_side] < lerpf(0.035, 0.055, run_mix) \
-				and clearance["R" if next_side == "L" else "L"] > lerpf(0.045, 0.10, run_mix):
+		var next_side := handoff_side if handoff_side != "" else \
+			"L" if clearance.L < clearance.R else "R"
+		if handoff_side != "" or (clearance[next_side] < lerpf(0.035, 0.055, run_mix) \
+				and clearance["R" if next_side == "L" else "L"] > lerpf(0.045, 0.10, run_mix)):
 			previous.support_contact_side = next_side
 			previous.support_contact_toe = toes[next_side]
 			previous.support_contact_age = 0.0
@@ -549,7 +559,10 @@ func _adult_hold_grounded_toe(body: Node3D, previous: Dictionary, delta: float,
 		var influence := lerpf(run_hold, 1.0, walking_hold)
 		if influence > 0.001:
 			var anchor: Vector3 = previous.support_contact_toe
+			if walking_hold > 0.99:
+				anchor.y = minf(anchor.y, toes[side].y)
 			anchor.y = lerpf(anchor.y, toes[side].y, run_mix)
+			previous.support_contact_toe = anchor
 			var toe_off_lift := 0.12 * smoothstep(0.30, 0.85, run_mix) \
 				* smoothstep(0.08, 0.18, age) * (1.0 - smoothstep(0.24, 0.30, age))
 			_adult_hold_contact_toe(body, skeleton, anchor, influence, toe_off_lift, side)
@@ -974,7 +987,8 @@ func _set_gait(body: Node3D, phase: float, weight: float,
 		body.get_node(prefix + "Shoulder/Elbow").rotation.x = -0.12 * weight
 
 func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
-		native_epoch: int = -1, native_physics_frame: int = -1) -> void:
+		native_epoch: int = -1, native_physics_frame: int = -1,
+		native_on_floor: Variant = null) -> void:
 	var body: Node3D = view.get_node("BodyView")
 	var previous: Dictionary = motion.get(actor, {"position": at, "phase": 0.0, "weight": 0.0,
 		"age": 1.0, "mode": "grounded", "ground_y": at.y, "peak_y": at.y,
@@ -1018,12 +1032,14 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 			displacement.y / maxf(pose_elapsed, 0.0001)
 		var mode: String = previous.mode
 		if mode == "grounded" or mode == "landing":
-			if displacement.y > TAKEOFF_DELTA and vertical_speed > 0.6:
+			# Rising terrain also raises the actor root. The trusted producer's
+			# floor contact distinguishes a walking climb from actual takeoff.
+			if native_on_floor != true and displacement.y > TAKEOFF_DELTA and vertical_speed > 0.6:
 				mode = "ascent"
 				previous.ground_y = previous.position.y
 				previous.peak_y = at.y
 				previous.impact_age = LANDING_SECONDS
-			elif displacement.y < -DROP_DELTA and vertical_speed < -0.7:
+			elif native_on_floor != true and displacement.y < -DROP_DELTA and vertical_speed < -0.7:
 				mode = "descent"
 				previous.ground_y = previous.position.y
 				previous.peak_y = previous.position.y
@@ -1034,7 +1050,8 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 			previous.peak_y = maxf(float(previous.peak_y), at.y)
 			if vertical_speed < -0.4:
 				mode = "descent"
-			if mode == "descent" and (at.y <= float(previous.ground_y) + 0.025
+			if native_on_floor == true or native_on_floor == null and mode == "descent" \
+					and (at.y <= float(previous.ground_y) + 0.025
 					and displacement.y < 0.0 or not repeated_sample and absf(displacement.y) < 0.002
 					and float(previous.peak_y) - at.y > 0.10):
 				mode = "landing"
@@ -1282,7 +1299,8 @@ func refresh(delta: float = 0.0) -> void:
 				var physics_frame := int(sample.get("physics_frame", -1)) \
 					if sample.get("epoch", -1) == native_epoch else -1
 				_animate_actor(actor, view, view.position, delta,
-					native_epoch, physics_frame)
+				native_epoch, physics_frame,
+				sample.get("on_floor") if sample.get("epoch", -1) == native_epoch else null)
 		else:
 			motion.erase(actor)
 	if not host.explanation_open and actors.has(host.client) and Geometry.valid_position(actors[host.client].get("position")):

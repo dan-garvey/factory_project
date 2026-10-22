@@ -9,21 +9,18 @@ The pinned source contains the editable FBX and original textures.
 Human feedback still determines whether this revisable character meets the
 requested appearance and motion quality.
 
-The converted mesh has 5,438 render vertices, 8,732 triangles, three material
-surfaces and 80 skin bindings. Color maps are 1,024 pixels square; normalized
-body and face normal maps and the hair/lash alpha map are 512 pixels square.
-Conversion preserves the source skin and mesh level, removes an unused animation
-player and footsteps marker, and assigns materials explicitly. Uniform
-roughness and alpha cutout remain presentation defaults, not measured material
-properties. The mesh remains editable with ordinary glTF tools.
+The converted mesh has 5,438 vertices, 8,732 triangles, three material surfaces
+and 80 skin bindings. Color maps are 1,024 pixels square; normal and alpha maps
+are 512 pixels square. Conversion preserves the skin and mesh level, removes
+unused animation and marker nodes, and assigns materials explicitly. Roughness
+and alpha cutout are presentation defaults, not measured properties.
 
-`character_presenter.gd` loads the GLB directly and creates mipmapped textures
-from captured image bytes, so cold native captures do not require an editor
-import cache. Each player has a separate skeleton and shares immutable geometry
-and materials. The rig keeps its rotated source parent, fits the existing
-1.8-metre capsule and foot plane, and composes local bone poses before the
-skeleton enters the scene tree. The visual root follows the confirmed native
-actor exactly; limbs do not replace the capsule or grant construction reach.
+`character_presenter.gd` loads the GLB and mipmapped textures directly without
+an editor import cache. Each player has a separate skeleton and shares immutable
+geometry and materials. The rig keeps its rotated source parent, fits the
+1.8-metre capsule, and composes local bone poses before entering the scene tree.
+The visual root follows the confirmed actor exactly; limbs do not replace its
+capsule or grant construction reach.
 
 The matching Rocketbox [walk](https://github.com/microsoft/Microsoft-Rocketbox/blob/0943055db6ec570bcef9f2c8b41c9e5467c808f9/Assets/Animations/all_animations_max_motextr_xy/f_walk_neutral.max.fbx)
 and [run](https://github.com/microsoft/Microsoft-Rocketbox/blob/0943055db6ec570bcef9f2c8b41c9e5467c808f9/Assets/Animations/all_animations_max_motextr_xy/f_run_neutral.max.fbx)
@@ -46,8 +43,9 @@ of its hip-to-ankle line while preserving leg lengths, ankle path and foot
 facing. This corrects the source calf's occasional backward bend; it does not
 by itself establish natural motion from every camera angle.
 
-At walking speed a near-ground support toe briefly holds its observed world
-position through stance, then releases into swing. At running speed the support
+At walking speed the incoming toe takes support while descending near terrain,
+and the outgoing toe lifts through a short overlap. A planted toe holds its
+observed world position through stance. At running speed the support
 hold is shorter and the toe lifts as the pelvis passes it. These visual
 contacts fade through walk-run blends, stops, jumps and landings. On a confirmed
 run stop, one low boot plants while the other swings above terrain toward rest;
@@ -77,5 +75,4 @@ human play experience or the quality of every playable view.
 The asset has no collision or interaction shape, autonomous animation player,
 command producer, material inventory or saved state. Facial animation,
 customization, visible carried equipment and full-scene performance remain
-separate work. Historical fixed source rosters that omit this folder retain
-their identified procedural worker.
+separate work.

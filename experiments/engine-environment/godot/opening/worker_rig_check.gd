@@ -597,6 +597,49 @@ func check_native_cadence_walking_contact() -> void:
 		"Both late-stance walking boots remain planted until their swing begins.")
 	host.free()
 
+func check_walk_touchdown_sweep() -> void:
+	var host := HostFixture.new()
+	host.state.actors.P.position = [-1.65, Surface.height_at(-1.65, 3.3) + 0.9, 3.3]
+	root.add_child(host)
+	var presenter := Presenter.new()
+	presenter.configure(host)
+	host.add_child(presenter)
+	presenter.set_process(false)
+	presenter.set_physics_process(false)
+	var body: Node3D = presenter.views.P.get_node("BodyView")
+	var prior := {"L": {}, "R": {}}
+	var worst := 0.0
+	var worst_at := {}
+	var samples := 0
+	var exact_root := true
+	for frame in range(150):
+		host.state.actors.P.position[0] += 0.0175
+		presenter.refresh(1.0 / 60.0)
+		exact_root = exact_root and absf(presenter.views.P.position.x -
+			float(host.state.actors.P.position[0])) < 0.00001
+		var skeleton := skeleton_of(body)
+		skeleton.force_update_all_bone_transforms()
+		for side in ["L", "R"]:
+			var hip := body.to_global(presenter._adult_joint(body, skeleton,
+				skeleton.find_bone("Bip01 " + side + " Thigh")))
+			var toe := body.to_global(presenter._adult_joint(body, skeleton,
+				skeleton.find_bone("Bip01 " + side + " Toe0")))
+			var clearance := toe.y - Surface.height_at(toe.x, toe.z)
+			var old: Dictionary = prior[side]
+			if frame > 75 and old.has("x") and toe.x > hip.x + 0.15 \
+					and clearance < 0.05 and float(old.clearance) < 0.05:
+				var retreat := float(old.x) - toe.x
+				if retreat > worst:
+					worst = retreat
+					worst_at = {"frame": frame, "side": side, "clearance": clearance}
+				samples += 1
+			prior[side] = {"x": toe.x, "clearance": clearance}
+	adult_measurements["walk_touchdown_sweep"] = {"samples": samples,
+		"maximum_backward_step": worst, "worst_at": worst_at}
+	verify(samples >= 4 and worst < 0.008 and exact_root and host.control_calls == 0,
+		"An incoming walking toe stops sweeping backward near terrain before support.")
+	host.free()
+
 func check_native_cadence_running_contact() -> void:
 	var host := HostFixture.new()
 	host.state.context = "running-contact"
@@ -897,6 +940,63 @@ func check_descent_at_native_physics_cadence() -> void:
 		"Falling posture uses confirmed native time and holds through a repeated render sample.")
 	verify(exact_root and host.control_calls == 0,
 		"Native-timed falling presentation leaves the confirmed actor root and input unchanged.")
+	host.free()
+
+func check_grounded_slope_motion() -> void:
+	var host := HostFixture.new()
+	host.state.context = "grounded-slope"
+	host.state.actors.P.native_epoch = 1
+	root.add_child(host)
+	var presenter := Presenter.new()
+	presenter.configure(host)
+	host.add_child(presenter)
+	presenter.set_process(false)
+	presenter.set_physics_process(false)
+	var frame := 1
+	presenter.observe_native_sample("P", {"native_epoch": frame,
+		"physics_frame": frame, "on_floor": true})
+	presenter.refresh(1.0 / 60.0)
+	var original: Dictionary = host.state.duplicate(true)
+	var start_phase := float(presenter.motion.P.phase)
+	var modes := []
+	var minimum_weight := 1.0
+	var exact_root := true
+	for slope in [1.0, -1.0]:
+		for step in range(24):
+			frame += 1
+			host.state.actors.P.native_epoch = frame
+			host.state.actors.P.position[0] += 0.05
+			host.state.actors.P.position[1] += 0.04 * slope
+			presenter.observe_native_sample("P", {"native_epoch": frame,
+				"physics_frame": frame, "on_floor": true})
+			presenter.refresh(1.0 / 60.0)
+			modes.append(presenter.motion.P.mode)
+			minimum_weight = minf(minimum_weight, float(presenter.motion.P.weight)) if step >= 8 else minimum_weight
+			exact_root = exact_root and presenter.views.P.position.is_equal_approx(Vector3(
+				host.state.actors.P.position[0], host.state.actors.P.position[1], 0.0))
+	var slope_phase := float(presenter.motion.P.phase)
+	verify(not modes.has("ascent") and not modes.has("descent") and not modes.has("landing")
+		and slope_phase - start_phase > 4.0 and minimum_weight > 0.6,
+		"Confirmed floor contact keeps uphill and downhill walking in the advancing ground gait.")
+	verify(exact_root and host.control_calls == 0
+		and absf(host.state.actors.P.position[1] - original.actors.P.position[1]) < 0.00001,
+		"Slope presentation retains the exact actor path and never sends movement input.")
+	frame += 1
+	host.state.actors.P.native_epoch = frame
+	host.state.actors.P.position[1] += 0.12
+	presenter.observe_native_sample("P", {"native_epoch": frame,
+		"physics_frame": frame, "on_floor": false})
+	presenter.refresh(1.0 / 60.0)
+	verify(presenter.motion.P.mode == "ascent" and presenter.motion.P.phase == slope_phase,
+		"An actual unsupported takeoff keeps the existing airborne pose and grounded phase.")
+	frame += 1
+	host.state.actors.P.native_epoch = frame
+	host.state.actors.P.position[1] -= 0.12
+	presenter.observe_native_sample("P", {"native_epoch": frame,
+		"physics_frame": frame, "on_floor": true})
+	presenter.refresh(1.0 / 60.0)
+	verify(presenter.motion.P.mode == "landing",
+		"Confirmed contact after flight enters the existing landing recovery.")
 	host.free()
 
 func landing_contact_case(metres_per_frame: float) -> Dictionary:
@@ -1274,12 +1374,14 @@ func run() -> void:
 		inspect_adult(body, q.get_node("BodyView"), presenter)
 		check_walking_support()
 		check_native_cadence_walking_contact()
+		check_walk_touchdown_sweep()
 		check_native_cadence_jog_contact()
 		check_native_cadence_running_contact()
 		check_sparse_confirmed_walk()
 		check_uneven_native_walk_samples()
 		check_jog_blend_at_native_physics_cadence()
 		check_descent_at_native_physics_cadence()
+		check_grounded_slope_motion()
 		check_landing_contact_from_motion()
 		check_first_landing_contact_at_render_cadence()
 		var still_contact := landing_toe_hold_case(0.0)
