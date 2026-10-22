@@ -23,8 +23,8 @@ reports the typed component and survives retry and restore. `place_component`
 and `reclaim_component` move that stock between actor cargo and persistent
 quarter-grid world parts with one native material ledger. The Host projects
 their identities, positions and types and reserves a small collision volume
-against actors, terrain obstacles, belts and complete machines. These are not
-yet functional collector or press assemblies. There is still no pod or bench
+against actors, terrain obstacles, belts and complete machines. A placed
+collector can now be turned manually; press assembly remains unfinished. There is still no pod or bench
 mesh, scene crafting/placement controls or multitool input. The experimental
 arrival begins without inherited complete-machine or transmission kits; the
 historical initializer retains those fixtures. The live scene should switch
@@ -32,13 +32,19 @@ only with the linked assembly and presentation work.
 The pod also starts with one identified detachable hand crank. A nearby
 physical actor can take it from the pod tray or return it through Host
 commands. Its single holder is projected and preserved through retries and
-checkpoints. It is not yet attached to, or driving, a built assembly.
+checkpoints. It is not yet physically attached to a shaft or driving continuous motion.
 The arrival projection derives `collector_assemblies` from those placed
 components at the two west-facing ore workcells and their supported grid
 heights. Each entry reports missing, ready or ambiguous geometry; a ready
 entry names the five exact installed identities, cutting height and shaft
-material. This is read-only inspection. It does not extract ore, attach the
-hand crank or license an arbitrary new deposit face.
+material. The trusted profile carries those same ore faces into World and its
+checkpoint fingerprint. A nearby actor holding the unique pod crank can send
+`turn_hand_crank` for an installed shaft in a ready layout. One accepted turn
+moves one finite ore blank into canonical loose-item custody at its receiver
+center. The receiver holds one item until a player picks it up; routing the
+quarter-grid receiver into a belt is subsequent work. Full output, missing
+parts, wrong holder and remote poses refuse without a debit. No autonomous
+drive or scene crank input exists yet.
 The arrival profile additionally exposes `hand_sources`: three named
 eight-piece timber sites and one sixteen-unit ore deposit. `harvest_source`
 accepts a target identity only after the bound physical actor is ready and

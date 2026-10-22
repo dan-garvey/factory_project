@@ -76,13 +76,19 @@ The experimental arrival profile also keeps crafted component counts in the
 canonical material State when parts leave an actor's cargo. World assigns each
 installed part a distinct identity and shared quarter-grid center. Placing and
 reclaiming are actor-reachable requests with exact retry, issue-history,
-checkpoint and two-actor custody validation. This placement layer does not yet
-infer collector or press behavior from an assembly; those rules must consume
-the same installed identities and preserve their material custody.
+checkpoint and two-actor custody validation. A collector arrangement is now
+recognized from those identities; press assembly remains future work.
 One identified hand crank starts in the arrival pod. Reach-checked take and
 return requests move its custody between the pod and one actor. The same
-issued identity, request history and checkpoint preserve that custody; machine
-drive and placement of the crank are subsequent work.
+issued identity, request history and checkpoint preserve that custody. Crank
+attachment and continuous machine power remain subsequent work.
+Trusted ore-face samples now let a held crank drive a recognized placed-part
+collector through an actor-reachable `turn_hand_crank` request. Each accepted
+turn debits the one native ore reserve and leaves one raw item at the real
+receiver center in the existing loose-material ledger. The tray has one-item
+capacity; pickup, dismantle and checkpoint preserve the item. This is manual
+extraction only; power transmission, automatic extraction and scene input
+remain to be integrated.
 
 Session supplies the authenticated actor and request namespace. Fresh commands
 use exact integer fields and known keys. They resolve current entity generations,

@@ -304,6 +304,9 @@ bool historical_wire(const authority::Record& record) {
     if (*action == "take_hand_crank" || *action == "return_hand_crank")
         return *original_action == *action && keys(*wire, {"entity"}) &&
             field<std::string>(*wire, "entity") && same("entity", "target");
+    if (*action == "turn_hand_crank")
+        return *original_action == *action && keys(*wire, {"entity"}) &&
+            field<std::string>(*wire, "entity") && same("entity", "target");
     if (*action == "place_component")
         return *original_action == "place_component" && keys(*wire, {"component", "center"}) &&
             field<std::string>(*wire, "component") && field<Array>(*wire, "center") &&
@@ -646,6 +649,9 @@ Value Host::initialize_site(const std::string& context, const std::vector<std::s
     if (arrival) {
         profile.landing_pod_center = mechanics::Point{4, 0, 16};
         profile.material.manual_ore = materials::OreSite{"opening-softmetal", {-3, 0, 0}};
+        for (const auto& cell : mineral_site::opening_cells)
+            for (Integer level = 0; level <= mineral_site::extraction_depth_steps; level += 4)
+                profile.collector_faces.push_back({{4 * cell.x, level, 4 * cell.z}, {-1, 0, 0}});
         profile.material.timber_sites = {
             {"tree-east-south", {{12, 0, 12}, 8}},
             {"tree-east-north", {{12, 0, 24}, 8}},
@@ -1178,6 +1184,14 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.emplace("generation", Value(snapshot.state.hand_crank &&
             snapshot.state.hand_crank->id == *field<std::string>(wire, "entity") ?
             snapshot.state.hand_crank->generation : Integer{0}));
+    } else if (*action == "turn_hand_crank") {
+        if (!keys(wire, {"entity"}) || !field<std::string>(wire, "entity"))
+            return refuse("invalid_command");
+        normalized.at("action") = Value(*action);
+        normalized.emplace("target", wire.at("entity"));
+        const auto found = snapshot.state.placed_components.find(*field<std::string>(wire, "entity"));
+        normalized.emplace("generation", Value(found == snapshot.state.placed_components.end() ?
+            Integer{0} : found->second.generation));
     } else if (*action == "place_component") {
         if (!keys(wire, {"component", "center"}) || !field<std::string>(wire, "component") ||
             !field<Array>(wire, "center")) return refuse("invalid_command");
@@ -1942,24 +1956,22 @@ Value Host::projection() const {
         for (const auto& [id, component] : state.placed_components)
             parts.push_back({id, component.kind, component.center, component.generation});
         Array collectors;
-        for (const auto& cell : mineral_site::opening_cells) {
-            for (Integer level = 0; level <= mineral_site::extraction_depth_steps; level += 4) {
-                const assembly::OreFace face{{4 * cell.x, level, 4 * cell.z}, {-1, 0, 0}};
-                const auto inspection = assembly::inspect_collector(parts, face);
-                Object entry{{"center", Value(Array{Value(face.machine_center[0]),
-                    Value(face.machine_center[1]), Value(face.machine_center[2])})},
-                    {"toward_ore", Value(Array{Value(Integer{-1}), Value(Integer{0}), Value(Integer{0})})},
-                    {"status", Value(collector_status_name(inspection.status))}};
-                if (inspection.collector) {
-                    const auto& assembled = *inspection.collector;
-                    entry.emplace("parts", Value(Object{{"frame", Value(assembled.frame)},
-                        {"mount", Value(assembled.mount)}, {"edge", Value(assembled.edge)},
-                        {"receiver", Value(assembled.receiver)}, {"shaft", Value(assembled.shaft)}}));
-                    entry.emplace("cutting_height", Value(assembled.cutting_height));
-                    entry.emplace("shaft_material", Value(materials::component_name(assembled.shaft_material)));
-                }
-                collectors.emplace_back(std::move(entry));
+        for (const auto& face : profile_.collector_faces) {
+            const auto inspection = assembly::inspect_collector(parts, face);
+            Object entry{{"center", Value(Array{Value(face.machine_center[0]),
+                Value(face.machine_center[1]), Value(face.machine_center[2])})},
+                {"toward_ore", Value(Array{Value(face.toward_ore[0]),
+                    Value(face.toward_ore[1]), Value(face.toward_ore[2])})},
+                {"status", Value(collector_status_name(inspection.status))}};
+            if (inspection.collector) {
+                const auto& assembled = *inspection.collector;
+                entry.emplace("parts", Value(Object{{"frame", Value(assembled.frame)},
+                    {"mount", Value(assembled.mount)}, {"edge", Value(assembled.edge)},
+                    {"receiver", Value(assembled.receiver)}, {"shaft", Value(assembled.shaft)}}));
+                entry.emplace("cutting_height", Value(assembled.cutting_height));
+                entry.emplace("shaft_material", Value(materials::component_name(assembled.shaft_material)));
             }
+            collectors.emplace_back(std::move(entry));
         }
         projection.emplace("collector_assemblies", Value(std::move(collectors)));
     }

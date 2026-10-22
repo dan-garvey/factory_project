@@ -43,7 +43,7 @@ std::string place(Host& host, const char* kind, I x, I y, I z, const char* id) {
 
 void collector_readiness_tracks_real_parts() {
     Host host;
-    check(get<bool>(host.initialize_arrival("assembly-site", {"P"}), "accepted") &&
+    check(get<bool>(host.initialize_arrival("assembly-site", {"P", "Q"}), "accepted") &&
           get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted"),
           "The experimental arrival binds one native resource and construction authority.");
     check(get<std::string>(ground_inspection(host), "status") == "missing_frame",
@@ -89,17 +89,71 @@ void collector_readiness_tracks_real_parts() {
           get<std::string>(V(parts), "receiver") == receiver &&
           get<std::string>(V(parts), "shaft") == shaft,
           "Readiness names the exact five installed identities, not a recipe token.");
+    auto turn = request("first-turn", "turn_hand_crank");
+    turn.emplace("entity", V(shaft));
+    auto premature_turn = turn;
+    premature_turn.at("request") = V("no-crank-turn");
+    const auto no_crank = host.command("P", premature_turn);
+    check(!get<bool>(no_crank, "accepted") &&
+          get<std::string>(no_crank, "reason") == "not_crank_holder",
+          "A valid assembly cannot cut ore without the finite pod crank.");
+    check(get<bool>(host.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 5), "accepted"),
+          "The actor returns physically to the pod.");
+    auto take = request("take-crank", "take_hand_crank");
+    take.emplace("entity", V("pod-hand-crank"));
+    check(get<bool>(host.command("P", take), "accepted"),
+          "The actor takes the one identified crank from the pod tray.");
+    auto remote_turn = turn;
+    remote_turn.at("request") = V("remote-turn");
+    const auto far = host.command("P", remote_turn);
+    check(!get<bool>(far, "accepted") && get<std::string>(far, "reason") == "out_of_reach",
+          "Holding the crank does not grant camera-distance ore extraction.");
+    check(get<bool>(host.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 6), "accepted") &&
+          get<bool>(host.publish_actor("Q", {V(2.5), V(1.0), V(0.0)}, 1), "accepted"),
+          "Both actors observe the assembled shaft nearby.");
+    auto other_turn = turn;
+    other_turn.at("client") = V("Q");
+    other_turn.at("request") = V("other-turn");
+    const auto other = host.command("Q", other_turn);
+    check(!get<bool>(other, "accepted") &&
+          get<std::string>(other, "reason") == "not_crank_holder",
+          "Q cannot turn P's held crank.");
+    const auto extracted = host.command("P", turn);
+    check(get<bool>(extracted, "accepted") &&
+          get<I>(extracted, "source_remaining") == 14 &&
+          get<I>(extracted, "receiver_raw") == 1 &&
+          get<I>(get<O>(host.projection(), "hand_sources").at("opening-softmetal"), "remaining") == 14,
+          "One physical crank turn cuts exactly one finite ore blank into the receiver.");
+    const auto after_turn = host.checkpoint();
+    check(get<bool>(host.command("P", turn), "duplicate") &&
+          !factory::values::typed_difference(after_turn, host.checkpoint()),
+          "Exact retry cannot debit ore or duplicate the receiver item.");
+    auto full_turn = turn;
+    full_turn.at("request") = V("full-turn");
+    const auto full = host.command("P", full_turn);
+    check(!get<bool>(full, "accepted") &&
+          get<std::string>(full, "reason") == "receiver_full" &&
+          get<I>(get<O>(host.projection(), "hand_sources").at("opening-softmetal"), "remaining") == 14,
+          "The full receiver stops extraction before another ore debit.");
     const auto saved = host.checkpoint();
     check(get<bool>(host.validate_checkpoint(saved), "accepted"),
           "A complete component layout validates as an ordinary native checkpoint.");
     Host restored;
-    check(get<bool>(restored.initialize_arrival("assembly-site", {"P"}), "accepted") &&
+    check(get<bool>(restored.initialize_arrival("assembly-site", {"P", "Q"}), "accepted") &&
           get<bool>(restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<bool>(restored.restore_checkpoint(saved), "accepted") &&
-          get<std::string>(ground_inspection(restored), "status") == "ready",
-          "A fresh Host derives the same collector candidate after restore.");
-    check(get<bool>(restored.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 5), "accepted"),
+          get<std::string>(ground_inspection(restored), "status") == "ready" &&
+          get<I>(get<O>(restored.projection(), "hand_sources").at("opening-softmetal"), "remaining") == 14,
+          "A fresh Host derives the same collector and conserved source after restore.");
+    check(get<bool>(restored.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 7), "accepted"),
           "The restored actor publishes a current physical pose before edits.");
+    auto pickup = request("pickup-first", "pickup_material");
+    pickup.emplace("center", V(A{V(I{0}), V(I{0}), V(I{1})}));
+    pickup.emplace("expected", V(O{{"raw", V(I{1})}, {"products", V(I{0})},
+        {"work_lots", V(A{})}}));
+    check(get<bool>(restored.command("P", pickup), "accepted") &&
+          get<I>(get<O>(restored.projection(), "cargo").at("P"), "raw") == 1,
+          "The actor can recover the actual receiver item after restore.");
     auto take_shaft = request("take-shaft", "reclaim_component");
     take_shaft.emplace("entity", V(shaft));
     check(get<bool>(restored.command("P", take_shaft), "accepted") &&
@@ -109,13 +163,62 @@ void collector_readiness_tracks_real_parts() {
     take_tray.emplace("entity", V(receiver));
     check(get<bool>(restored.command("P", take_tray), "accepted"),
           "The original receiver is recovered without losing its material.");
-    const auto mirrored_tray = place(restored, "receiver_tray", 0, 0, -1, "mirrored-tray");
     const auto side_shaft = place(restored, "wooden_shaft", 0, 0, 1, "side-shaft");
+    auto no_tray_turn = request("no-tray-turn", "turn_hand_crank");
+    no_tray_turn.emplace("entity", V(side_shaft));
+    const auto incomplete = restored.command("P", no_tray_turn);
+    check(!get<bool>(incomplete, "accepted") &&
+          get<std::string>(incomplete, "reason") == "incomplete_assembly",
+          "A shaft beside an unreceived cutter cannot debit ore.");
+    const auto mirrored_tray = place(restored, "receiver_tray", 0, 0, -1, "mirrored-tray");
     const auto mirrored = ground_inspection(restored);
     check(get<std::string>(mirrored, "status") == "ready" &&
           get<std::string>(V(get<O>(mirrored, "parts")), "receiver") == mirrored_tray &&
           get<std::string>(V(get<O>(mirrored, "parts")), "shaft") == side_shaft,
           "The same conserved components support a second receiver and drive layout.");
+    auto second_turn = request("second-layout-turn", "turn_hand_crank");
+    second_turn.emplace("entity", V(side_shaft));
+    check(get<bool>(restored.command("P", second_turn), "accepted") &&
+          get<I>(get<O>(restored.projection(), "hand_sources").at("opening-softmetal"), "remaining") == 13,
+          "The mirrored layout extracts from the same finite source.");
+    check(get<bool>(restored.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 8), "accepted"),
+          "The actor returns to the last piece of nearby timber.");
+    auto last_timber = request("last-timber", "harvest_source");
+    last_timber.emplace("target", V("tree-east-south"));
+    check(get<bool>(restored.command("P", last_timber), "accepted"),
+          "One finite timber piece remains for an alternate drive experiment.");
+    auto extra_craft = request("extra-shaft", "craft_component");
+    extra_craft.emplace("entity", V("pod-fabrication-hub"));
+    extra_craft.emplace("component", V("wooden_shaft"));
+    check(get<bool>(restored.command("P", extra_craft), "accepted") &&
+          get<bool>(restored.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 9), "accepted"),
+          "The actor shapes and carries one additional shaft back to the assembly.");
+    const auto extra_shaft = place(restored, "wooden_shaft", 1, 0, 0, "alternate-shaft");
+    check(get<std::string>(ground_inspection(restored), "status") == "ambiguous",
+          "Two valid drive routes cannot be selected silently.");
+    auto ambiguous_turn = request("ambiguous-turn", "turn_hand_crank");
+    ambiguous_turn.emplace("entity", V(side_shaft));
+    const auto ambiguous = restored.command("P", ambiguous_turn);
+    check(!get<bool>(ambiguous, "accepted") &&
+          get<std::string>(ambiguous, "reason") == "ambiguous_assembly" &&
+          get<I>(get<O>(restored.projection(), "hand_sources").at("opening-softmetal"), "remaining") == 13,
+          "An ambiguous assembly refuses a turn without spending ore.");
+    auto remove_extra = request("remove-extra-shaft", "reclaim_component");
+    remove_extra.emplace("entity", V(extra_shaft));
+    check(get<bool>(restored.command("P", remove_extra), "accepted") &&
+          get<std::string>(ground_inspection(restored), "status") == "ready",
+          "Removing the alternate route restores the unique valid collector.");
+    auto take_mirrored_tray = request("take-mirrored-tray", "reclaim_component");
+    take_mirrored_tray.emplace("entity", V(mirrored_tray));
+    check(get<bool>(restored.command("P", take_mirrored_tray), "accepted"),
+          "Dismantling a full receiver preserves its separately owned raw item.");
+    auto recover_loose = request("pickup-after-dismantle", "pickup_material");
+    recover_loose.emplace("center", V(A{V(I{0}), V(I{0}), V(I{-1})}));
+    recover_loose.emplace("expected", V(O{{"raw", V(I{1})}, {"products", V(I{0})},
+        {"work_lots", V(A{})}}));
+    check(get<bool>(restored.command("P", recover_loose), "accepted") &&
+          get<I>(get<O>(restored.projection(), "cargo").at("P"), "raw") == 2,
+          "The output remains recoverable after its collector tray is removed.");
 }
 }  // namespace
 

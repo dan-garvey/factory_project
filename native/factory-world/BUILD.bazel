@@ -23,6 +23,7 @@ cc_library(
     strip_include_prefix = "include",
     deps = [
         ":transactions",
+        "//native/factory-assembly:assembly",
         "//native/factory-core:materials",
         "//native/factory-core:recovery",
         "//native/factory-stationary:stationary",
