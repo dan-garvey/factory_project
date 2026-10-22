@@ -47,6 +47,20 @@ class SharedWidgets:
 	func _screen_hand_source(_screen: Vector2) -> String:
 		return hand_pointed
 
+class SharedSettlementView:
+	extends "res://opening/shared_opening.gd"
+	var observed := ""
+	var observed_refusal := false
+	func _ready() -> void:
+		pass
+	func _refresh_ui() -> void:
+		pass
+	func _construction_feedback(_intent: Dictionary, _outcome: Dictionary) -> void:
+		pass
+	func _message(words: String, refused: bool = false) -> void:
+		observed = words
+		observed_refusal = refused
+
 class SessionStub extends RefCounted:
 	var ready := true
 	func is_ready() -> bool:
@@ -105,6 +119,9 @@ func _initialize() -> void:
 		return
 	if "--carried-guidance-only" in OS.get_cmdline_user_args():
 		call_deferred("_carried_guidance")
+		return
+	if "--shared-component-results-only" in OS.get_cmdline_user_args():
+		call_deferred("_shared_component_results")
 		return
 	if "--buttons-only" in OS.get_cmdline_user_args():
 		call_deferred("_buttons")
@@ -1049,6 +1066,57 @@ func _carried_guidance() -> void:
 		view.free()
 	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
 		"failures": failures, "models": 0, "desktop_operations": 0, "scope": "carried-material goals and existing press insertion menus"}))
+	quit(0 if failures == 0 else 1)
+
+func _shared_component_results() -> void:
+	var cases := [
+		{"action": "craft_component", "accepted": true, "reason": "", "text": "Component crafted from carried material."},
+		{"action": "place_component", "accepted": true, "reason": "", "text": "Component placed on the shared grid."},
+		{"action": "reclaim_component", "accepted": true, "reason": "", "text": "Component returned to your carried cargo."},
+		{"action": "craft_component", "accepted": false, "reason": "unavailable_input", "text": "Gather the timber or softmetal shown for this component."},
+		{"action": "craft_component", "accepted": false, "reason": "inventory_full", "text": "Your component bag is full. Place a carried part to make room."},
+		{"action": "craft_component", "accepted": false, "reason": "out_of_reach", "text": "Move beside the pod workshop to craft this component."},
+		{"action": "reclaim_component", "accepted": false, "reason": "inventory_full", "text": "Your component bag is full. Place another carried part before reclaiming."}]
+	for sample: Dictionary in cases:
+		var view := SharedSettlementView.new()
+		view.session = SessionStub.new()
+		view.client = "P"
+		view.state = fixture()
+		view.state.context = "shared-component-results"
+		view.state.revision = 4
+		view.state.order = 9
+		view.state.options = {"native": true, "physical": true}
+		var before: Dictionary = view.state.duplicate(true)
+		var result := {"accepted": sample.accepted, "reason": sample.reason,
+			"context": view.state.context, "revision": 4, "order": 9}
+		view.pending_actions = {"P-1": {"action": {"action": sample.action, "component": "wooden_shaft"}, "outcome": result}}
+		view._settle_pending()
+		verify(view.observed == sample.text and view.observed_refusal == not sample.accepted,
+			"Shared %s %s receives its exact confirmed component feedback." % [sample.action, sample.reason])
+		verify(view.pending_actions.is_empty() and view.state == before and view.model == null,
+			"Settling shared component feedback consumes only the confirmed request, not native stock.")
+		view.free()
+	var waiting := SharedSettlementView.new()
+	waiting.session = SessionStub.new()
+	waiting.client = "P"
+	waiting.state = fixture()
+	waiting.state.context = "shared-component-results"
+	waiting.state.revision = 4
+	waiting.state.order = 9
+	waiting.state.options = {"native": true, "physical": true}
+	waiting.pending_actions = {"P-2": {"action": {"action": "craft_component"},
+		"outcome": {"accepted": true, "reason": "", "context": waiting.state.context, "revision": 5, "order": 10}}}
+	waiting._settle_pending()
+	verify(waiting.pending_actions.has("P-2") and waiting.observed.contains("Waiting for the current worksite"),
+		"An outcome newer than the shared snapshot stays pending without claiming a crafted component.")
+	waiting.state.revision = 5
+	waiting.state.order = 10
+	waiting._settle_pending()
+	verify(waiting.pending_actions.is_empty() and waiting.observed == "Component crafted from carried material.",
+		"Shared craft feedback appears only after the confirming snapshot catches up.")
+	waiting.free()
+	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
+		"models": 0, "desktop_operations": 0, "scope": "confirmed shared component feedback"}))
 	quit(0 if failures == 0 else 1)
 
 func _buttons() -> void:

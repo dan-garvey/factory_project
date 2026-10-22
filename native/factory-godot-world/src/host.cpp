@@ -701,8 +701,8 @@ Value Host::initialize_site(const std::string& context, const std::vector<std::s
             for (Integer level = 0; level <= mineral_site::extraction_depth_steps; level += 4)
                 profile.collector_faces.push_back({{4 * cell.x, level, 4 * cell.z}, {-1, 0, 0}});
         profile.material.timber_sites = {
-            {"tree-east-south", {{12, 0, 12}, 8}},
-            {"tree-east-north", {{12, 0, 24}, 8}},
+            {"tree-east-south", {{16, 0, 8}, 8}},
+            {"tree-east-north", {{16, 0, 28}, 8}},
             {"tree-north", {{0, 0, 28}, 8}}};
         profile.material.hand_carry_capacity = 24;
         // The component limit leaves room to carry one last recipe input,
