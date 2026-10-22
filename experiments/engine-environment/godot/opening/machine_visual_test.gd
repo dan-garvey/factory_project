@@ -35,6 +35,7 @@ class MixedAssetScaleView extends Opening:
 	var shared_conveyor_finish := false
 	var inventory_only := false
 	var mesh_lod := false
+	var spatial_cells := 0
 	var camera_close := false
 	var lod_inventory: Array[Dictionary] = []
 	var triangle_inventory := {}
@@ -83,6 +84,8 @@ class MixedAssetScaleView extends Opening:
 			_batch_machine_visuals()
 			if mesh_lod:
 				_prepare_composite_lod()
+			if spatial_cells > 0:
+				_split_composite_batches()
 			var batches := machine_root.get_node_or_null("MachineVisualBatches")
 			if batches != null:
 				for visual in batches.get_children():
@@ -128,6 +131,46 @@ class MixedAssetScaleView extends Opening:
 			lod_inventory.append({"batch": batch_index, "surface_lods": lod_counts,
 				"generation_ms": float(Time.get_ticks_usec() - start) / 1000.0})
 			original.multimesh.mesh = lod_mesh
+
+	func _split_composite_batches() -> void:
+		# Diagnostic only: preserve the current meshes, material surfaces and
+		# shadows while giving the renderer smaller culling bounds.
+		var batches := machine_root.get_node_or_null("MachineVisualBatches") as Node3D
+		if batches == null:
+			return
+		for batch_index in 3:
+			var original := batches.get_node_or_null("MachineBatch%d" % batch_index) as MultiMeshInstance3D
+			if original == null:
+				continue
+			var mesh := original.multimesh.mesh
+			var buckets := {}
+			for index in original.multimesh.instance_count:
+				var pose := original.multimesh.get_instance_transform(index)
+				var key := Vector2i(floori(pose.origin.x / (PITCH * float(spatial_cells))),
+					floori(pose.origin.z / (PITCH * float(spatial_cells))))
+				if not buckets.has(key):
+					buckets[key] = []
+				buckets[key].append(pose)
+			for key in buckets:
+				var poses: Array = buckets[key]
+				var multi := MultiMesh.new()
+				multi.transform_format = MultiMesh.TRANSFORM_3D
+				multi.mesh = mesh
+				multi.instance_count = poses.size()
+				var bounds: AABB = poses[0] * mesh.get_aabb()
+				for index in poses.size():
+					multi.set_instance_transform(index, poses[index])
+					bounds = bounds.merge(poses[index] * mesh.get_aabb())
+				multi.custom_aabb = bounds
+				var piece := MultiMeshInstance3D.new()
+				piece.name = "SpatialComposite%d_%d_%d" % [batch_index, key.x, key.y]
+				piece.multimesh = multi
+				piece.material_override = original.material_override
+				piece.cast_shadow = original.cast_shadow
+				piece.layers = original.layers
+				batches.add_child(piece)
+			batches.remove_child(original)
+			original.free()
 
 	func _mesh_count(node: Node) -> int:
 		var count := int(node is MeshInstance3D)
@@ -591,7 +634,9 @@ func _mixed_scale_benchmark() -> void:
 	var profile_scene := false
 	var inventory_only := false
 	var mesh_lod := false
+	var spatial_cells := 0
 	var camera_close := false
+	var total_frames := 150
 	var capture := ""
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--count="):
@@ -609,8 +654,12 @@ func _mixed_scale_benchmark() -> void:
 			inventory_only = true
 		elif argument == "--mesh-lod":
 			mesh_lod = true
+		elif argument.begins_with("--spatial-cells="):
+			spatial_cells = maxi(1, int(argument.trim_prefix("--spatial-cells=")))
 		elif argument == "--camera-close":
 			camera_close = true
+		elif argument.begins_with("--frames="):
+			total_frames = clampi(int(argument.trim_prefix("--frames=")), 60, 6000)
 		elif argument.begins_with("--capture="):
 			capture = argument.trim_prefix("--capture=")
 	if count < 0 or count > 1000:
@@ -625,6 +674,7 @@ func _mixed_scale_benchmark() -> void:
 	view.shared_conveyor_finish = shared_conveyor_finish
 	view.inventory_only = inventory_only
 	view.mesh_lod = mesh_lod
+	view.spatial_cells = spatial_cells
 	view.camera_close = camera_close
 	root.add_child(view)
 	if inventory_only:
@@ -651,7 +701,7 @@ func _mixed_scale_benchmark() -> void:
 	var frame_ms: Array[float] = []
 	var calls: Array[int] = []
 	var primitives: Array[int] = []
-	for frame in 150:
+	for frame in total_frames:
 		var start := Time.get_ticks_usec()
 		await process_frame
 		if frame >= 30:
@@ -673,7 +723,9 @@ func _mixed_scale_benchmark() -> void:
 	print("MIXED_ASSET_SCALE " + JSON.stringify({"count": count, "batch": batched,
 		"production_batch": production_batch,
 		"mesh_lod": mesh_lod,
+		"spatial_cells": spatial_cells,
 		"camera_close": camera_close,
+		"sampled_frames": total_frames - 30,
 		"lod_inventory": view.lod_inventory,
 		"shared_conveyor_finish": shared_conveyor_finish,
 		"built_meshes": view.built_meshes, "batch_instances": view.batch_instances,

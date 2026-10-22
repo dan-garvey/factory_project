@@ -173,3 +173,39 @@ empty-worksite Wayland run measured 11.499 ms median and 12.775 ms p95.
 Wayland and X11 PNGs of the 1,000-assembly scene were byte-identical. Each
 display-path result is one exclusive run, so the 2 ms difference is not a
 repeatability claim. Both remain above the 8.333 ms frame budget.
+
+## Native Windows GPU diagnostic, 2026-10-22
+
+The optional `--production-batch --mesh-lod --spatial-cells=8` path splits only
+the three repeated composite MultiMeshes into eight-pitch regions. Each region
+keeps its current mesh surfaces, materials, transforms, shadows and layers; a
+tight bounding box lets Godot cull distant geometry and choose its default
+one-pixel mesh LOD by region. `--camera-close` selects the near field view.
+`--frames=3000` collects 2,970 samples after 30 warmup frames. The default
+fixture and normal opening do not select these diagnostic options.
+
+The probe was based on main `9f3554d600aa97a947ed4b1d7be648c06f013ffe`.
+Official Godot 4.7.2 ran through Windows interop on the RTX 3090 using its
+native NVIDIA OpenGL Compatibility driver, at 1280 by 800, under exclusive
+`factory-local benchmark` admission. Logs and PNGs are retained outside Git at
+`~/.local/state/factory-prototypes/thousand-chapter-assets-20261022/windows-godot/`.
+
+| Static assemblies | Camera | Presentation | Median | P95 | Median draws |
+| ---: | --- | --- | ---: | ---: | ---: |
+| 1,000 | Wide | Whole-field batch, no LOD | 5.426 ms | 6.272 ms | 60 |
+| 1,000 | Wide | Spatial batch, default LOD | 4.821 ms | 5.194 ms | 942 |
+| 1,000 | Close | Whole-field batch, default LOD | 12.642 ms | 14.220 ms | 306 |
+| 1,000 | Close | Spatial batch, default LOD | 7.438 ms | 8.014 ms | 1,650 |
+
+The spatial rows used 2,970 sampled frames; the whole-field rows used 120.
+Same-driver close captures of whole-field and spatial LOD looked similar on
+inspection; 5,017 of 1,024,000 pixels differed, 303 by more than 0.1 in a
+channel. The wide spatial capture differed from whole-field LOD at 185 pixels,
+five above 0.1. These image comparisons do not prove visual equivalence for
+every angle or full scene quality. A close spatial run with original full
+meshes reached 7.900/9.035 ms median/p95 over 120 frames, missing the target.
+
+This fixture contains static render assets and no authoritative machine
+activity. The native gameplay extension currently lists only Linux libraries;
+the Windows run does not establish 1,000 active native machines or playable
+chapter-one performance.
