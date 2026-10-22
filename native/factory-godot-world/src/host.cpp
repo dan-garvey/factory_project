@@ -1766,6 +1766,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         world::State geometry;
         geometry.topology = snapshot.state.topology;
         geometry.foundations = snapshot.state.foundations;
+        geometry.placed_components = snapshot.state.placed_components;
         std::string preview_id = "support-preview";
         while (find(geometry, preview_id) || geometry.foundations.contains(preview_id) ||
                std::any_of(geometry.topology.belt_spans.begin(), geometry.topology.belt_spans.end(),
