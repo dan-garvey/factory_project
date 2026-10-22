@@ -31,18 +31,17 @@ not permanent gameplay dimensions.
 | --- | --- |
 | Cell and ground | [Site geometry](../../experiments/engine-environment/godot/opening/site_geometry.gd) uses a 1.65 m cell and places the machine anchor at the cell centre and confirmed level. The existing plinth and pick box belong to the machine assembly. |
 | Mineral site | [Mineral-site policy](../../native/mineral-site/include/factory/mineral_site.hpp) admits two opening cells, `(0, 0)` and `(0, 1)`. [Host admission](../../native/factory-godot-world/src/host.cpp) checks the chosen centre against that site and the terrain depth, including a bounded elevated-foundation reach. This is the extraction permission; no visible cutter triangle supplies it. |
-| Exposed rock | [The one site-surface descriptor](../../experiments/engine-environment/godot/opening/site_surface.gd) places the outcrop at world `x = 0`, `z = -0.30`, with its centre derived from real terrain height. The prepared source's local box is about 1.272 × 1.004 × 1.830 m, as recorded in the [outcrop source study](mineral-outcrop-source.md). The visual and physical hull share this descriptor. It is one geological cue for the two-cell seam, not an individual tool target at every allowed collector cell. |
+| Exposed rock | [The one site-surface descriptor](../../experiments/engine-environment/godot/opening/site_surface.gd) places the fitted outcrop at world `x = -1.05`, `z = 0.05`, with its centre height derived from real terrain. The prepared local box is about 0.572 × 0.753 × 2.288 m; the [outcrop source study](mineral-outcrop-source.md) records the larger unmodified donor. The visible and physical hull share this rigid descriptor. It is one geological cue spanning the two-cell seam, with one finite reserve. |
 | Existing tool | [Collector art](../../experiments/engine-environment/godot/opening/opening.gd) puts the drum centre at local `(-0.22, 1.10, -0.19)` with a 0.24 m radius and its stock bed at `(0, 0.51, 0)`. These nominal centres do not alone prove tool-to-rock surface contact; the actual transformed hulls and all cutter poses need measurement. |
 | Material outlet | [World material routing](../../native/factory-world/src/world.cpp) selects the collector's single horizontal output from the confirmed quarter-turn rotation. At rotation zero it faces `+X`; the other rotations turn that vector. An adjacent belt receives material only when its endpoint faces this output and its slot is free. Any outlet art must rotate with the collector and stop at an exposed end when no accepted belt exists. |
 | Custody and motion | Native World owns extraction, finite stock, cached commands, power and material transfer. The view may depict only confirmed source quantity and machine/cutter state. A decorative chute must not invent a travelling billet, extra reserve, working connection or cutting contact. |
 
-The outcrop and a machine at `(0, 0)` occupy a tight shared volume, but a
-machine at `(0, 1)` is 1.65 m farther along the seam. Turning its output also
-rotates the current entire machine visual, while the source outcrop stays put.
-An art design that claims the cutter meets this particular boulder in all
-four rotations or both site cells would be false. The first prototype should
-show an intake at the **admitted cell surface**, with the boulder as nearby
-geology. Before adoption, inspect the real outcrop hull, pick envelope, tool
+The fitted rock remains outside both machine construction envelopes and reaches
+near each permitted seam cell. Turning the output still rotates the entire
+machine visual while the outcrop stays put. The first prototype should show an
+intake at the **admitted cell surface**; the passive fit does not yet prove that
+its cutter contacts the rock in every rotation. Before adoption, inspect the
+real outcrop hull, pick envelope, tool
 sweep, actor obstruction and rotation cases. An AABB overlap is neither proof
 of visible contact nor a licence to alter collision.
 

@@ -489,8 +489,12 @@ func prepare_stone(family: String) -> void:
 	print(JSON.stringify(result))
 	quit(0 if passed else 1)
 
-func prepare_outcrop(family: String, output: String) -> void:
+func prepare_outcrop(family: String, output: String, scale: Vector3 = Vector3.ONE) -> void:
 	# One immutable presentation mesh and its collision hull; no world authority.
+	if not scale.is_finite() or scale.x <= 0.0 or scale.y <= 0.0 or scale.z <= 0.0 \
+			or scale.x > 1.0 or scale.y > 1.0 or scale.z > 1.3:
+		fail("The provisional outcrop fit needs finite positive dimensions and at most 1.3 times the donor length.")
+		return
 	var pins := {
 		"boulder_01_1k.gltf": "51487934db898b4c24072780a451e34eca5c02e3ada24a62bbc600bbc4019e92",
 		"boulder_01.bin": "7f5b06503d62bd95bfe9c6b8a354a5cc8ff04a4d271a8cf87a3e3125db4232d7",
@@ -549,7 +553,18 @@ func prepare_outcrop(family: String, output: String) -> void:
 		bounds = bounds.expand(point)
 	var center := bounds.get_center()
 	for index in range(vertices.size()):
-		vertices[index] -= center
+		vertices[index] = (vertices[index] - center) * scale
+		if scale != Vector3.ONE:
+			var normal: Vector3 = (normals[index] / scale).normalized()
+			var tangent := Vector3(tangents[index * 4], tangents[index * 4 + 1],
+				tangents[index * 4 + 2]) * scale
+			tangent = (tangent - normal * tangent.dot(normal)).normalized()
+			if not normal.is_finite() or not tangent.is_finite() or tangent.length() < 0.99:
+				fail("The fitted outcrop changed its normal or tangent basis invalidly.")
+				return
+			normals[index] = normal
+			for component in range(3):
+				tangents[index * 4 + component] = [tangent.x, tangent.y, tangent.z][component]
 	var arrays: Array = []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = vertices
@@ -581,7 +596,8 @@ func prepare_outcrop(family: String, output: String) -> void:
 	var report := {"status": "pass", "engine": Engine.get_version_info().string,
 		"triangles": compact.size() / 3, "vertices": vertices.size(),
 		"hull_points": hull[Mesh.ARRAY_VERTEX].size(), "input_hull_points": shape.points.size(),
-		"selected_lod": 2, "source_lod_error": lods.get_surface_lod_size(0, 2), "files": {}}
+		"selected_lod": 2, "source_lod_error": lods.get_surface_lod_size(0, 2),
+		"fitted_scale": [scale.x, scale.y, scale.z], "files": {}}
 	for role in ["albedo", "normal", "arm"]:
 		var suffix: String = {"albedo": "diff", "normal": "nor_gl", "arm": "arm"}[role]
 		var image := Image.load_from_file(family.path_join("raw-source/textures/boulder_01_" + suffix + "_1k.jpg"))
@@ -628,6 +644,7 @@ func _initialize() -> void:
 	var family := ""
 	var material := "foliage"
 	var pine_output := ""
+	var outcrop_scale := Vector3.ONE
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--family="):
 			family = argument.trim_prefix("--family=")
@@ -635,6 +652,15 @@ func _initialize() -> void:
 			material = argument.trim_prefix("--material=")
 		elif argument.begins_with("--output="):
 			pine_output = argument.trim_prefix("--output=")
+		elif argument.begins_with("--outcrop-scale="):
+			var components := argument.trim_prefix("--outcrop-scale=").split(",")
+			var valid := components.size() == 3
+			for value in components:
+				valid = valid and value.is_valid_float()
+			if not valid:
+				fail("The outcrop scale must contain three finite decimal components.")
+				return
+			outcrop_scale = Vector3(float(components[0]), float(components[1]), float(components[2]))
 	if not family.is_absolute_path():
 		fail("Use an absolute owned source family.")
 		return
@@ -651,7 +677,7 @@ func _initialize() -> void:
 		prepare_stone(family)
 		return
 	if material == "outcrop":
-		prepare_outcrop(family, pine_output if not pine_output.is_empty() else family.path_join("prepared-outcrop"))
+		prepare_outcrop(family, pine_output if not pine_output.is_empty() else family.path_join("prepared-outcrop"), outcrop_scale)
 		return
 	if material != "foliage":
 		fail("Choose a declared asset or material preparation.")

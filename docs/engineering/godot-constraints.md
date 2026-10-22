@@ -244,9 +244,9 @@ The mineable source uses a sourced detailed mesh and its full convex envelope.
 Its descriptor retains the original 201-point cooking input separately from the
 200 cooked reference vertices and faces. Feeding the cooked debug vertices back
 as new input removed further points in the pinned engine, so bodies always use
-the original input and registration matches the resulting reference. The full
-hull leaves less than 0.2 millimetres of visible vertex protrusion in the retained
-asset check; it does not reproduce the mesh's concavities. Visible placement,
+the original input and registration matches the resulting reference. The fitted
+longer hull is checked against actual native registration and capsule contact;
+it does not reproduce the mesh's concavities. Visible placement,
 native construction obstruction and the actor body share one transform and
 envelope. Cached native `TriangleMesh.intersect_ray` queries drape stock-derived
 veins over the detailed surface only; they supply neither build height nor

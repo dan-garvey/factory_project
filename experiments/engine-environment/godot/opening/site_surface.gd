@@ -550,7 +550,7 @@ static func source_outcrop() -> Dictionary:
 	for index: int in SOURCE_OUTCROP_MESH.get_meta("native_hull_indices"):
 		faces.append(points[index])
 	var size := SOURCE_OUTCROP_MESH.get_aabb().size
-	return {"id": "source_outcrop", "center": Vector3(0.0, height_at(0.0, -0.30) + size.y * 0.4, -0.30),
+	return {"id": "source_outcrop", "center": Vector3(-1.05, height_at(-1.05, 0.05) + size.y * 0.4, 0.05),
 		"basis": Basis.IDENTITY, "size": size,
 		"points": SOURCE_OUTCROP_MESH.get_meta("native_hull_input_points"),
 		"native_points": points, "faces": faces}

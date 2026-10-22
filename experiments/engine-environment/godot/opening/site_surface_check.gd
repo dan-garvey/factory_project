@@ -26,6 +26,9 @@ func verify(condition: bool, message: String) -> void:
 		push_error(message)
 
 func _initialize() -> void:
+	if "--outcrop-native-only" in OS.get_cmdline_user_args():
+		check_outcrop_native()
+		return
 	if "--belt-water-native-only" in OS.get_cmdline_user_args():
 		check_belt_water_native(false)
 		return
@@ -361,6 +364,35 @@ func expect(value: bool, message: String) -> bool:
 		push_error(message)
 		quit(1)
 	return value
+
+func check_outcrop_native() -> void:
+	for cell_z in [0, 1]:
+		var context := "fitted-source-%d" % cell_z
+		var model = NativeModel.new(context, ["P"])
+		if not expect(model.boot_result.get("accepted", false),
+				"Bind the actual site and its source-rock obstacle"):
+			return
+		var before: Dictionary = model.projection()
+		if not expect(before.source_deposit.cells.has([0, cell_z]),
+				"The native source policy includes this exact seam cell"):
+			return
+		if not expect(model.publish_actor("P", [1.65, 1.0, float(cell_z) * Geometry.PITCH], 1).get("accepted", false),
+				"The actor can reach the seam from its clear east side"):
+			return
+		var placed: Dictionary = model.command({"context": context, "client": "P",
+			"request": "source-%d" % cell_z, "action": "place", "kind": "collector",
+			"cell": [0, cell_z], "axis": "z"})
+		if not expect(placed.get("accepted", false),
+				"A permitted collector placement survives the fitted native rock obstacle: " + str(placed)):
+			return
+		var after: Dictionary = model.projection()
+		if not expect(after.stock.source == before.stock.source and after.entities.has(placed.entity),
+				"Placement preserves the one finite source reserve and records one machine"):
+			return
+	print(JSON.stringify({"status": "pass", "checks": checks,
+		"scope": "actual native collector admission at both fitted source cells",
+		"desktop": "not_used", "human_play": "not_run"}))
+	quit(0)
 
 func check_belt_water_native(forward: bool) -> void:
 	var side := -1 if forward else 1

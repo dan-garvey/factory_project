@@ -62,8 +62,9 @@ establish human listening quality or the complete game mix.
 
 The source is one continuous natural rock exposure with branching mineral veins.
 It follows the same emitted terrain as the character, with at most forty
-millimetres of decorative relief. Its footprint comes from the native
-`source_deposit.cells` projection. The existing `stock.source` and `initial_feed`
+millimetres of decorative relief. The fixed footprint comes from the shared
+site descriptor; native `source_deposit.cells` determines whether it is shown.
+The existing `stock.source` and `initial_feed`
 control eight cached stages of visible depletion; exhausted rock remains after
 the mineral disappears. There is no rock-per-unit row, local quantity ledger,
 collider, manufactured site hardware or historical presentation fallback.
@@ -593,7 +594,7 @@ sets retain the earlier generated finish. Rendered quality remains unassessed.
 
 The ordinary offline and shared item redraw uses `workpiece_item_assets.gd` for
 raw seam stock, in-line billets and the visible press-outlet plate. The source is
-one substantial [sourced Boulder 01](mineral-outcrop/CREDITS.md), with restrained
+one narrow, longer [sourced Boulder 01](mineral-outcrop/CREDITS.md), with restrained
 mineral veins draped over its actual surface. Eight cached vein widths express
 the confirmed finite reserve; exhaustion removes the veins and retains the fixed
 geology. There is no repeated unit row or shallow replacement rock patch.
@@ -601,7 +602,8 @@ The same site descriptor supplies the rock's visible placement, native
 construction obstacle and actor convex body. Original cooking input and cooked
 reference facets are retained separately. The detailed rock has concavities
 inside that convex collision envelope; it is not triangle-exact physics.
-The starter collector at [0,1] remains outside the rock and uses the unchanged
+Both admitted collector cells stand beside the shared rock without losing their
+construction clearance; they use the unchanged
 native extraction rules. In-line billets and stamped products retain their
 existing machined assemblies, quantities and item envelopes. The item helper
 itself adds no collision, clock or state authority.

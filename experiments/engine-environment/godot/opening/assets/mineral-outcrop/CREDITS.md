@@ -8,7 +8,8 @@ not redistributed. Exact donor pins are in the
 
 The pinned Godot 4.7.2 preparation generates tangents, selects its third mesh
 distance level and retains only referenced vertices: 8,264 triangles and 5,748
-vertices. It recenters the mesh without changing its scale, normals or UVs.
+vertices. It recenters the mesh, then bakes a 0.45 × 0.75 × 1.25 narrow seam fit
+into its positions and normal/tangent frames while preserving the donor UVs.
 The compressed, material-free resource also retains the native 200-point convex
 hull and its triangles, together with its original 201-point cooking input.
 Bodies use that original input rather than recooking the already cooked debug
@@ -16,8 +17,8 @@ vertices. The site mount uses one specification for the immutable rock,
 its native construction obstacle and actor body. This resource has no
 independent mount or collision authority.
 The convex envelope approximates the detailed surface, not its concavities.
-The measured maximum mesh protrusion is below 0.2 millimetres after native
-hull cooking; this is not triangle-exact rock collision.
+Native registration and capsule-contact checks use the actual cooked hull;
+this is not triangle-exact rock collision.
 
 The color map uses a 512-pixel WebP at quality 0.84. OpenGL normals and packed
 occlusion/roughness/metallic maps use 256-pixel lossless WebP after float Lanczos
@@ -27,5 +28,6 @@ presentation surface; exhausting the finite reserve leaves the fixed rock.
 
 Reproduce from the pinned raw donor set with the existing
 `opening/assets/foliage/prepare_maps.gd` command, using `--material=outcrop`,
+`--outcrop-scale=0.45,0.75,1.25`,
 an absolute `--family` containing `raw-source`, and a fresh absolute `--output`.
 Geometry and image checks do not establish human visual quality.
