@@ -383,6 +383,15 @@ func _arrival_run() -> void:
 	if not _expect(opening.model.projection().actors.P.ready and opening.actor_world.bodies.P.is_on_floor(),
 			"The physical actor reaches the scene floor"):
 		return
+	var pod_state: Dictionary = opening.model.projection()
+	if not _expect(opening.landing_pod_visual != null and opening.landing_hub_visual != null
+			and opening.landing_pod_visual.get_meta("authority_entity", "") == pod_state.landing_pod.id
+			and opening.landing_hub_visual.get_meta("authority_entity", "") == pod_state.fabrication_hub.id
+			and opening.landing_pod_visual.position.distance_to(Vector3(1.65, 0.825, 6.6)) < 0.001
+			and opening.landing_hub_visual.position.distance_to(Vector3(3.3, 0.825, 6.6)) < 0.001
+			and opening.landing_crank_visual.visible == (mode == "arrival-press"),
+			"The settled hull and bench render at native anchors with the one crank in its actual custody"):
+		return
 	var panel = opening.arrival_assembly_controls
 	if not capture_prefix.is_empty() and mode == "arrival-press":
 		await process_frame
@@ -395,11 +404,13 @@ func _arrival_run() -> void:
 		if not _expect(opening.last_load_result.get("accepted", false)
 				and restored.cargo.P.products == 2 and restored.placed_components.size() == 7
 				and restored.press_assemblies.size() == 1 and restored.press_assemblies[0].status == "ready"
-				and restored.hand_crank.holder == "P" and panel.visible,
+				and restored.hand_crank.holder == "P" and panel.visible
+				and opening.landing_pod_visual != null and not opening.landing_crank_visual.visible,
 				"A fresh process reopens the exact modular press, cargo and one held crank"):
 			return
 		panel.crank_button.pressed.emit()
-		if not _expect(opening.model.projection().hand_crank.holder == "pod",
+		if not _expect(opening.model.projection().hand_crank.holder == "pod"
+				and opening.landing_crank_visual.visible,
 				"The resumed ordinary panel can make a new native command"):
 			return
 		_record("pass")
@@ -484,7 +495,9 @@ func _arrival_run() -> void:
 			"The selected press exposes its live feed routes in the ordinary panel"):
 		return
 	panel.crank_button.pressed.emit()
-	if not _expect(opening.model.projection().hand_crank.holder == "P", "The player takes the one conserved pod crank"):
+	if not _expect(opening.model.projection().hand_crank.holder == "P"
+			and not opening.landing_crank_visual.visible,
+			"The player takes the one conserved pod crank and its tray visual clears"):
 		return
 	panel.feed_button.pressed.emit()
 	if not _expect(opening.model.projection().cargo.P.raw == 1

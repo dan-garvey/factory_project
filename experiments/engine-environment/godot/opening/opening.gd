@@ -3370,6 +3370,21 @@ class ProductionEnvironment:
 				foundation.level * Geometry.HEIGHT_STEP, foundation.cell[1] * Geometry.PITCH)
 			volumes.append(AABB(top - Vector3(Geometry.PITCH * 0.5, Geometry.FOUNDATION_DEPTH, Geometry.PITCH * 0.5),
 				Vector3(Geometry.PITCH, Geometry.FOUNDATION_DEPTH, Geometry.PITCH)).grow(0.08))
+		if state.has("landing_pod") and state.has("fabrication_hub"):
+			var pod: Dictionary = state.landing_pod
+			var hub: Dictionary = state.fabrication_hub
+			if pod.get("deployed", false) and hub.has("position"):
+				var hub_position: Array = hub.position
+				var pod_center: Array = pod.center
+				var hub_center: Array = hub.center
+				var center := Vector3(float(hub_position[0]) - float(hub_center[0] - pod_center[0]) * Geometry.PITCH,
+					float(hub_position[1]),
+					float(hub_position[2]) - float(hub_center[2] - pod_center[2]) * Geometry.PITCH)
+				var half := Geometry.PITCH * 1.5
+				# The native deck is a cleared landing, including the air above it.
+				# Its nine floor volumes alone only hide plants below panel height.
+				volumes.append(AABB(center - Vector3(half, 0.5, half),
+					Vector3(half * 2.0, 2.7, half * 2.0)))
 		return volumes
 
 	static func _refresh_plant_patch(patch: MultiMeshInstance3D, volumes: Array[AABB]) -> void:
@@ -4346,6 +4361,9 @@ var component_height_controls: HBoxContainer
 var component_height_label: Label
 var component_offset_controls: HBoxContainer
 var component_offset_label: Label
+var landing_pod_visual: Node3D
+var landing_hub_visual: Node3D
+var landing_crank_visual: Node3D
 
 func _ready() -> void:
 	for argument in OS.get_cmdline_user_args():
@@ -5945,6 +5963,112 @@ func _build_world() -> void:
 	camera.make_current()
 	_update_camera()
 
+func _build_landing_pod_visual(pod: Dictionary, hub: Dictionary) -> void:
+	landing_pod_visual = Node3D.new()
+	landing_pod_visual.name = "DeployedLandingPod"
+	landing_pod_visual.set_meta("authority_entity", pod.id)
+	add_child(landing_pod_visual)
+	var shell := Node3D.new()
+	shell.name = "OpenedPodShell"
+	landing_pod_visual.add_child(shell)
+	var ivory := Color("d4d9d0")
+	var graphite := Color("293d41")
+	var amber := Color("e3a650")
+	var dark := Color("162c32")
+	# The occupied center stays open for the spawned actor. The rear pressure
+	# shell, split side doors and low hatch show where the deck unfolded from.
+	var capsule := MeshInstance3D.new()
+	capsule.name = "RearPressureShell"
+	var capsule_mesh := CapsuleMesh.new()
+	capsule_mesh.radius = 0.37
+	capsule_mesh.height = 1.28
+	capsule.mesh = capsule_mesh
+	capsule.material_override = ProductionVisuals.material(graphite, 0.68, 0.39)
+	capsule.position = Vector3(0, 0.70, 1.12)
+	capsule.rotation.x = PI / 2.0
+	shell.add_child(capsule)
+	_machine_box(shell, "RearArmorCrown", Vector3(0, 1.055, 1.12),
+		Vector3(0.60, 0.065, 0.72), ivory, 0.52, 0.34)
+	_machine_box(shell, "PressureSpine", Vector3(0, 0.73, 0.79), Vector3(0.74, 0.96, 0.25), graphite, 0.75, 0.35)
+	_machine_box(shell, "HatchThreshold", Vector3(0, 0.045, -0.94), Vector3(1.08, 0.09, 0.71), graphite, 0.60, 0.48)
+	_machine_box(shell, "HatchSafetyStripe", Vector3(0, 0.096, -1.20), Vector3(0.90, 0.012, 0.055), amber, 0.20, 0.42)
+	for side in [-1.0, 1.0]:
+		var suffix := "Port" if side < 0.0 else "Starboard"
+		var wing := Node3D.new()
+		wing.name = suffix + "OpenedWing"
+		shell.add_child(wing)
+		_machine_box(wing, "OuterArmor", Vector3(side * 0.98, 0.61, 0.26),
+			Vector3(0.18, 0.75, 1.52), ivory, 0.52, 0.34)
+		_machine_box(wing, "InnerLiner", Vector3(side * 0.86, 0.57, 0.26),
+			Vector3(0.065, 0.57, 1.35), dark, 0.25, 0.7)
+		_machine_box(wing, "CorporateStripe", Vector3(side * 0.98, 1.005, 0.24),
+			Vector3(0.17, 0.018, 1.30), amber, 0.35, 0.38)
+		for z in [-0.55, 0.91]:
+			_machine_cylinder(wing, "PanelHinge", Vector3(side * 0.65, 0.43, z),
+				0.09, 0.22, graphite, Vector3(PI / 2.0, 0, 0))
+			_machine_box(wing, "LandingFoot", Vector3(side * 1.11, 0.09, z),
+				Vector3(0.31, 0.18, 0.32), graphite, 0.70, 0.46)
+		_bar(wing, Vector3(side * 0.50, 0.45, 0.79), Vector3(side * 0.86, 0.74, -0.37), 0.055, Color("758e91"))
+		_machine_box(landing_pod_visual, suffix + "DeckHinge", Vector3(side * 0.82, 0.035, -0.74),
+			Vector3(0.55, 0.07, 0.08), graphite, 0.62, 0.42)
+	landing_hub_visual = Node3D.new()
+	landing_hub_visual.name = "PodFabricationHub"
+	landing_hub_visual.set_meta("authority_entity", hub.id)
+	add_child(landing_hub_visual)
+	for x in [-0.40, 0.40]:
+		for z in [-0.27, 0.27]:
+			_machine_box(landing_hub_visual, "BenchLeg", Vector3(x, 0.34, z),
+				Vector3(0.085, 0.68, 0.085), graphite, 0.78, 0.42)
+	_machine_box(landing_hub_visual, "BenchWorktop", Vector3(0, 0.74, 0),
+		Vector3(1.16, 0.115, 0.70), ivory, 0.52, 0.35)
+	_machine_box(landing_hub_visual, "BenchSteelInsert", Vector3(-0.16, 0.805, -0.06),
+		Vector3(0.52, 0.02, 0.38), graphite, 0.82, 0.28)
+	for x in [-0.35, 0.03]:
+		_machine_box(landing_hub_visual, "FabricationClampJaw", Vector3(x, 0.88, -0.06),
+			Vector3(0.075, 0.13, 0.27), dark, 0.78, 0.31)
+	_machine_cylinder(landing_hub_visual, "ToolPost", Vector3(0.35, 1.01, -0.19),
+		0.07, 0.44, graphite)
+	_bar(landing_hub_visual, Vector3(0.35, 1.23, -0.19), Vector3(0.05, 1.23, -0.19),
+		0.065, Color("a8b8ae"))
+	_machine_box(landing_hub_visual, "CuttingHead", Vector3(0.03, 1.16, -0.19),
+		Vector3(0.12, 0.17, 0.13), amber, 0.58, 0.34)
+	_machine_box(landing_hub_visual, "CrankTray", Vector3(0.34, 0.83, 0.20),
+		Vector3(0.35, 0.045, 0.19), dark, 0.58, 0.43)
+	landing_crank_visual = Node3D.new()
+	landing_crank_visual.name = "CrankInTray"
+	landing_crank_visual.set_meta("authority_entity", "pod-hand-crank")
+	landing_crank_visual.position = Vector3(0.34, 0.91, 0.20)
+	landing_hub_visual.add_child(landing_crank_visual)
+	_machine_cylinder(landing_crank_visual, "CrankAxle", Vector3.ZERO, 0.025, 0.26,
+		Color("bac5ba"), Vector3(0, 0, PI / 2.0))
+	_machine_box(landing_crank_visual, "CrankHandle", Vector3(0.12, 0.055, 0),
+		Vector3(0.045, 0.15, 0.045), amber, 0.20, 0.46)
+
+func _sync_landing_pod_visual() -> void:
+	if not state.has("landing_pod") or not state.has("fabrication_hub"):
+		if landing_pod_visual != null:
+			landing_pod_visual.free()
+			landing_hub_visual.free()
+			landing_pod_visual = null
+			landing_hub_visual = null
+			landing_crank_visual = null
+		return
+	var pod: Dictionary = state.landing_pod
+	var hub: Dictionary = state.fabrication_hub
+	if not pod.get("deployed", false) or not hub.has("position"):
+		return
+	if landing_pod_visual == null:
+		_build_landing_pod_visual(pod, hub)
+	var position: Array = hub.position
+	var pod_center: Array = pod.center
+	var hub_center: Array = hub.center
+	var hub_world := Vector3(float(position[0]), float(position[1]), float(position[2]))
+	landing_hub_visual.position = hub_world
+	landing_pod_visual.position = hub_world - Vector3(
+		float(hub_center[0] - pod_center[0]) * PITCH, 0,
+		float(hub_center[2] - pod_center[2]) * PITCH)
+	landing_crank_visual.visible = state.get("hand_crank", {}).get("holder", "") == "pod"
+
 func _box(parent: Node, at: Vector3, dimensions: Vector3, color: Color) -> MeshInstance3D:
 	var mesh := MeshInstance3D.new()
 	var shape := BoxMesh.new()
@@ -6948,6 +7072,7 @@ func _redraw_items() -> void:
 
 func _refresh() -> void:
 	state = model.projection()
+	_sync_landing_pod_visual()
 	# Shared profiles arrive after presenter creation. Choose this revisable
 	# default once, preserving any pitch already adjusted while connecting.
 	if not native_camera_initialized and _native_transmission():
