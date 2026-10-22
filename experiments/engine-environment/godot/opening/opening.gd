@@ -767,10 +767,25 @@ class ProductionPaddleArt:
 		blade.set_meta("paddle_index", index)
 		_part(blade, "PaddleRootCleat", timber_mesh(Vector3(0.04, 0.06, 0.10), physical_scale),
 			Vector3(-0.05, 0, 0), finish)
+		# Two continuous edge ribs stiffen the board without increasing its
+		# confirmed radial or axial envelope. Their grain uses the same local
+		# physical repeat as the broad paddle, even on a larger wheel.
+		for side in [-1.0, 1.0]:
+			_part(blade, "PaddleEdgeRib", timber_mesh(Vector3(0.12, 0.038, 0.018), physical_scale),
+				Vector3(-0.005, 0.022, side * 0.129), finish)
 		var iron := ProductionTransmissionFinish.material("worked", Color("46504e"), 0.85, 0.48)
 		if iron == null:
 			blade.free()
 			return false
+		# A folded outer wear strip stays physically thin as the native-selected
+		# wheel diameter changes. It is passive protection, not a new water rule.
+		if not meshes.has("wear_strip"):
+			meshes["wear_strip"] = ProductionVisuals.prism_mesh(PackedVector2Array([
+				Vector2(-0.026, -0.004), Vector2(0, -0.004), Vector2(0, 0.003),
+				Vector2(-0.006, 0.048), Vector2(-0.018, 0.048), Vector2(-0.026, 0.038)]), 0.28, 0.001)
+		var wear := _part(blade, "PaddleWearStrip", meshes["wear_strip"],
+			Vector3(0.07, 0.009 + 0.004 / physical_scale.y, 0), iron)
+		wear.scale = Vector3(1.0 / physical_scale.x, 1.0 / physical_scale.y, 1.0)
 		if not meshes.has("bolt"):
 			var bolt := CylinderMesh.new()
 			bolt.top_radius = 0.013

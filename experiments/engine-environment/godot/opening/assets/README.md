@@ -227,16 +227,20 @@ resource. The visual underside openings do not add collision or a new structural
 cargo or player-foundation rule. Their actual play-distance appearance remains
 unassessed. The beveled profile helper is shared with the collector casting.
 
-The sourced rotor now carries twelve thin [timber paddle blades](wheel-paddles/CREDITS.md)
-with fitted root cleats, iron straps and hexagonal fasteners. Their qualified
+The sourced rotor carries twelve [timber paddle assemblies](wheel-paddles/CREDITS.md)
+with fitted root cleats, two raised timber edge ribs, a folded worked-metal
+outer wear strip, iron straps and hexagonal fasteners. The ribs and wear strip
+make the broad board and its exposed edge legible at wheel scale; they add no
+water-capture or construction rule. Their qualified
 wood grain follows the longer blade span with local mapping as the rotor turns.
 For resized native wheels, per-diameter timber coordinates compensate the
 rotor's radial and axial scale while every vertex and attachment stays exact.
-The selected 0.6 m repeat remains stable across the blade and root-cleat broad
+The selected 0.6 m repeat remains stable across the blade, root-cleat and rib broad
 faces. This is an artistic mapping, not a source-certified timber dimension.
 Grain stays attached to each board as it turns; no world-space projection or
 animation clock is added. Isolated small- and large-paddle views hide the other
 wheel art to expose the material, and do not establish complete scene quality.
+The outer strip keeps a rigid metal cross-section as wheel diameter changes.
 The two machined heads on each blade retain a regular 13 mm corner radius and
 10 mm height as wheel diameter changes. Their upper faces meet the flat underside
 of the existing iron straps. These dimensions are provisional visual choices;

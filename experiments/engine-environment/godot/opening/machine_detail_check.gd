@@ -109,6 +109,31 @@ func check_paddle_hardware() -> void:
 					machine.free()
 					view.free()
 					continue
+				var wear := blade.get_node_or_null("PaddleWearStrip") as MeshInstance3D
+				verify(wear != null, "The confirmed wheel has one fitted outer paddle wear strip.")
+				if wear != null:
+					var wear_bounds: AABB = wear.transform * wear.mesh.get_aabb()
+					var physical_scale: Vector3 = rotor.scale * wear.scale
+					verify(absf(wear_bounds.end.x - 0.07) < 0.00001
+						and absf(wear_bounds.position.y - 0.009) < 0.00001
+						and absf(wear_bounds.end.z - 0.14) < 0.00001
+						and absf(physical_scale.x - 1.0) < 0.00001
+						and absf(physical_scale.y - 1.0) < 0.00001,
+						"The thin folded strip meets the original tip and board face without growing in section with wheel diameter.")
+					var raised := wear.transform
+					raised.origin.y += 0.01 / rotor.scale.y
+					verify((raised * wear.mesh.get_aabb()).position.y > 0.009,
+						"A ten-millimetre lifted wear strip no longer rests on the paddle face.")
+				var seated_ribs := 0
+				for part in blade.get_children():
+					if part.get_meta("detail_role", "") != "PaddleEdgeRib":
+						continue
+					var rib := part as MeshInstance3D
+					var rib_bounds: AABB = rib.transform * rib.mesh.get_aabb()
+					if rib_bounds.position.y < 0.009 and rib_bounds.end.y > 0.009 \
+							and absf(rib_bounds.position.z) <= 0.14 and absf(rib_bounds.end.z) <= 0.14:
+						seated_ribs += 1
+				verify(seated_ribs == 2, "Both timber edge ribs overlap the broad board inside its axial edge.")
 				var paddle_pose := rotor.transform * blade.transform
 				var bolt_count := 0
 				for part in blade.get_children():
@@ -220,9 +245,11 @@ func check_paddle_grain() -> void:
 				for row in rows:
 					var part: MeshInstance3D = row.node
 					var role: String = part.get_meta("detail_role", "")
-					if role not in ["WheelPaddle", "PaddleRootCleat"]:
+					if role not in ["WheelPaddle", "PaddleRootCleat", "PaddleEdgeRib"]:
 						continue
-					var size := Vector3(0.14, 0.018, 0.28) if role == "WheelPaddle" else Vector3(0.04, 0.06, 0.10)
+					var size: Vector3 = {"WheelPaddle": Vector3(0.14, 0.018, 0.28),
+						"PaddleRootCleat": Vector3(0.04, 0.06, 0.10),
+						"PaddleEdgeRib": Vector3(0.12, 0.038, 0.018)}[role]
 					var original := Visuals.box_mesh(size)
 					var arrays := part.mesh.surface_get_arrays(0)
 					var old_arrays := original.surface_get_arrays(0)
@@ -238,7 +265,9 @@ func check_paddle_grain() -> void:
 					var key := [role, tiles]
 					if not cache.has(key):
 						cache[key] = part.mesh
-						var limits := Vector2(0.00065, 0.00071) if role == "WheelPaddle" else Vector2(0.00021, 0.000241)
+						var limits: Vector2 = {"WheelPaddle": Vector2(0.00065, 0.00071),
+							"PaddleRootCleat": Vector2(0.00021, 0.000241),
+							"PaddleEdgeRib": Vector2(0.000079, 0.000085)}[role]
 						check_closed_asset_mesh(part.mesh, limits.x, limits.y)
 						var old_repeat := paddle_grain_range(part, row.pose, original)
 						verify(old_repeat.y > 2.0 and old_repeat.x > 0.7,
@@ -251,7 +280,7 @@ func check_paddle_grain() -> void:
 						and not part.material_override.uv1_triplanar,
 						"Equal diameters reuse the exact mesh and unchanged board-local timber material in both views.")
 					timber_parts += 1
-				verify(timber_parts == 24 and view.state == before and view.model == null and view.actor_world == null
+				verify(timber_parts == 48 and view.state == before and view.model == null and view.actor_world == null
 					and view.request_sequence == 0 and not view.is_inside_tree(),
 					"All twelve blades and cleats remain passive and change no native authority, observation or request.")
 				observations.append({"shared_profile": shared_profile, "axis": axis, "tiles": tiles,
@@ -259,8 +288,8 @@ func check_paddle_grain() -> void:
 				machine.free()
 				view.free()
 				assemblies += 1
-	verify(cache.size() == 6 and PaddleArt.timber_mesh(Vector3(0.14, 0.018, 0.28)) == Visuals.box_mesh(Vector3(0.14, 0.018, 0.28)),
-		"Six diameter/role variants are cached while the nonnative default retains its original mesh.")
+	verify(cache.size() == 9 and PaddleArt.timber_mesh(Vector3(0.14, 0.018, 0.28)) == Visuals.box_mesh(Vector3(0.14, 0.018, 0.28)),
+		"Nine diameter/role variants are cached while the nonnative default retains its original mesh.")
 	paddle_grain_checks_complete = not failed and assemblies == 12
 	print(JSON.stringify({"phase": "native paddle grain", "assemblies": observations, "cached_timber_meshes": cache.size(),
 		"completed": paddle_grain_checks_complete, "checks": checks, "native_world": false, "game_entry": false}))
@@ -2935,14 +2964,16 @@ func check_timber_paddles(historical: bool = false) -> void:
 					and child.basis.is_equal_approx(Basis(Vector3.BACK, angle)),
 					"Each original paddle position and angular frame remains fixed to the rotor.")
 				paddle_local_bounds(child, child.transform.affine_inverse())
-				verify(child.get_child_count() == 5 and count_role(child, "PaddleRootCleat") == 1
+				verify(child.get_child_count() == 8 and count_role(child, "PaddleRootCleat") == 1
+					and count_role(child, "PaddleEdgeRib") == 2 and count_role(child, "PaddleWearStrip") == 1
 					and count_role(child, "PaddleIronStrap") == 2 and count_role(child, "PaddleBolt") == 2,
-					"Every timber blade has one fitted root, two iron straps and two bolts.")
+					"Every timber blade has its fixed root, two edge ribs, one wear strip and the original paired hardware.")
 				var pieces: Array = [child]
 				pieces.append_array(child.get_children())
 				for part: MeshInstance3D in pieces:
 					var role: String = part.get_meta("detail_role")
 					var detail_end: float = {"WheelPaddle": 0.0, "PaddleRootCleat": 32.0,
+						"PaddleEdgeRib": 0.0, "PaddleWearStrip": 0.0,
 						"PaddleIronStrap": 26.0, "PaddleBolt": 18.0}[role]
 					verify(part.visibility_range_end == detail_end
 						and part.visibility_range_end_margin == (0.0 if detail_end == 0.0 else 2.0),
@@ -2950,7 +2981,8 @@ func check_timber_paddles(historical: bool = false) -> void:
 					if not cached.has(role):
 						cached[role] = [part.mesh, part.material_override]
 						var limits: Array = {"WheelPaddle": [0.00065, 0.00071], "PaddleRootCleat": [0.00021, 0.000241],
-						"PaddleIronStrap": [0.0000095, 0.0000106], "PaddleBolt": [0.0000042, 0.0000046]}[role]
+							"PaddleEdgeRib": [0.000079, 0.000085], "PaddleWearStrip": [0.00030, 0.00035],
+							"PaddleIronStrap": [0.0000095, 0.0000106], "PaddleBolt": [0.0000042, 0.0000046]}[role]
 						check_closed_asset_mesh(part.mesh, limits[0], limits[1])
 						if role == "WheelPaddle":
 							verify(part.mesh.get_aabb().size.is_equal_approx(Vector3(0.14, 0.018, 0.28)),
@@ -2969,7 +3001,7 @@ func check_timber_paddles(historical: bool = false) -> void:
 					verify(part.mesh == cached[role][0] and part.material_override == cached[role][1],
 						"All blade assemblies reuse their exact role-specific mesh and material resources.")
 					var material := part.material_override as StandardMaterial3D
-					verify(material != null and (material == PaddleArt.finish if role in ["WheelPaddle", "PaddleRootCleat"]
+					verify(material != null and (material == PaddleArt.finish if role in ["WheelPaddle", "PaddleRootCleat", "PaddleEdgeRib"]
 						else is_equal_approx(material.metallic, 0.85) and material.albedo_color == Color("46504e")),
 						"Timber and attachment iron retain distinct actual material bindings.")
 				if not shared_profile and axis == 0:
