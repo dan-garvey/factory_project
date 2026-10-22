@@ -962,6 +962,27 @@ The corrected adapter's focused mip checks and passive pixels belong to
 `factory-yau.6.45.21.25`. Coverage fidelity does not establish healthy vegetation
 color or complete scene quality.
 
+## GDC-20: transmission stands are a derived opening adapter
+
+**Experimental adapter and fixture rule.** The native Host derives one fixed
+stand seat for each placed shaft or cog from its confirmed center, axis, terrain
+and any foundation under the seat. It refuses a post through a terrain obstacle
+or foundation, and a stand taller than nine metres. Foundation placement and
+removal must leave every existing transmission stand valid. The projection
+supplies the foot and bearing points; the Godot presenter draws a stationary
+frame outside the rotating part. The stand is included in the carried shaft or
+cog for this opening, with no separate stock, connection or saved authority.
+
+The focused native support test covers seating, obstruction, removal and restore.
+A passive assembled-scene comparison belongs to `factory-yau.6.44.6`. The
+straight post and outboard bearing are a provisional visual construction rule,
+not the intended general system for structural loads or every player-built
+machine. The post has no separate physical actor collider; full clearance
+against neighboring machinery and moving belts, support strength, tall frames
+and human visual judgment remain open. An explicit buildable support system
+would need native quantities, collision, edit and save rules before replacing
+this adapter.
+
 ## Required follow-through
 
 This first source/API/evidence audit leaves actual backend identification,

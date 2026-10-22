@@ -67,6 +67,13 @@ cc_test(
 )
 
 cc_test(
+    name = "transmission_support_host_test",
+    srcs = ["tests/transmission_support_host_test.cpp"],
+    deps = [":host", ":test_site"],
+    size = "small",
+)
+
+cc_test(
     name = "material_attachment_test",
     srcs = ["tests/material_attachment_test.cpp"],
     deps = [":host", ":test_site"],

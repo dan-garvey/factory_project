@@ -131,6 +131,41 @@ func _valid_part(part: Variant) -> bool:
 	var size: Variant = part.get("teeth" if part.kind == "gear" else "half_span")
 	return typeof(size) == TYPE_INT and size > 0 and size <= 256
 
+func _support_point(value: Variant) -> bool:
+	if not value is Array or value.size() != 3:
+		return false
+	for coordinate: Variant in value:
+		if typeof(coordinate) != TYPE_FLOAT or not is_finite(coordinate):
+			return false
+	return true
+
+func _confirmed_support(id: String, part: Dictionary) -> void:
+	var support: Variant = part.get("support")
+	if not support is Dictionary or not _support_point(support.get("foot")) or not _support_point(support.get("bearing")):
+		return
+	var foot := Vector3(support.foot[0], support.foot[1], support.foot[2])
+	var bearing := Vector3(support.bearing[0], support.bearing[1], support.bearing[2])
+	if bearing.y <= foot.y or bearing.y - foot.y > 9.0:
+		return
+	var frame := Node3D.new()
+	frame.name = "FixedSupport"
+	frame.set_meta("supported_entity", id)
+	add_child(frame)
+	var color := Color("697475")
+	_segment(frame, foot, bearing, 0.17, color)
+	var shoe := MeshInstance3D.new()
+	shoe.name = "FootShoe"
+	var shoe_shape := BoxMesh.new()
+	shoe_shape.size = Vector3(0.38, 0.12, 0.38)
+	shoe.mesh = shoe_shape
+	shoe.position = foot + Vector3.UP * 0.06
+	_finish(shoe, Color("465354"))
+	frame.add_child(shoe)
+	var socket := _cylinder(frame, "BearingSocket", 0.17, 0.26, color)
+	socket.position = bearing
+	socket.basis = axis_basis(part.axis)
+	_segment(frame, bearing, world_center(part.center), 0.11, color)
+
 func _finish(mesh: MeshInstance3D, color: Color) -> void:
 	var material := StandardMaterial3D.new()
 	material.albedo_color = color
@@ -456,6 +491,7 @@ func refresh() -> void:
 		anchor.position = world_center(part.center)
 		anchor.basis = axis_basis(part.axis)
 		add_child(anchor)
+		_confirmed_support(id, part)
 		rendered[id] = anchor
 		var motion: Variant = motions.get(id, {})
 		var rotating: bool = motion is Dictionary and motion.get("state") == "rotating" and typeof(motion.get("numerator")) == TYPE_INT and typeof(motion.get("denominator")) == TYPE_INT and motion.denominator > 0 and motion.numerator != 0
