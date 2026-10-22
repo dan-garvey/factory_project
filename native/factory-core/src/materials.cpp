@@ -2,6 +2,7 @@
 
 #include <initializer_list>
 #include <limits>
+#include <numeric>
 #include <utility>
 
 namespace factory::materials {
@@ -148,14 +149,29 @@ std::optional<BeltAdvance> advance_belt_lane_rate(const BeltLane& lane, Quantity
     Wide magnitude = numerator;
     if (magnitude < 0) magnitude = -magnitude;
     const Wide distance = magnitude * (inclined ? 2896 : work_subticks_per_tick);
-    // When the source rate changes, convert the old fractional remainder to
-    // the new denominator. Conversion loses less than one new fraction of a
-    // subtick; unchanged rates accumulate exactly.
-    const Wide remainder = static_cast<Wide>(lane.remainder) * denominator / lane.remainder_denominator;
-    const Wide total = static_cast<Wide>(lane.phase) * denominator + remainder + direction * distance;
-    const Wide tile = static_cast<Wide>(work_subticks_per_tick) * denominator;
-    const Wide steps = total / tile;
-    const Wide fraction = total % tile;
+    // Preserve both fractions exactly whenever their least common denominator
+    // fits in the saved state. For exceptionally large combinations, round
+    // each fraction to the largest representable denominator, bounding the
+    // total error to one part in that denominator per rate change.
+    const auto divisor = std::gcd(lane.remainder_denominator, denominator);
+    const Wide common = static_cast<Wide>(lane.remainder_denominator / divisor) * denominator;
+    const auto limit = std::numeric_limits<Quantity>::max();
+    const Quantity saved_denominator = common <= limit ? static_cast<Quantity>(common) : limit;
+    const auto scale = [saved_denominator](Wide value, Quantity from) {
+        const Wide product = value * saved_denominator;
+        const Wide half = from / 2;
+        return product < 0 ? (product - half) / from : (product + half) / from;
+    };
+    Wide subticks = static_cast<Wide>(lane.phase) + direction * (distance / denominator);
+    Wide fraction = scale(lane.remainder, lane.remainder_denominator) +
+                    direction * scale(distance % denominator, denominator);
+    subticks += fraction / saved_denominator;
+    fraction %= saved_denominator;
+    // Keep the whole and fractional parts on the same side of zero so that
+    // tile boundary crossing uses truncation toward zero even on reversal.
+    if (subticks > 0 && fraction < 0) { --subticks; fraction += saved_denominator; }
+    if (subticks < 0 && fraction > 0) { ++subticks; fraction -= saved_denominator; }
+    const Wide steps = subticks / work_subticks_per_tick;
     auto advanced = advance_belt_lane(lane, 0, receiver_capacity);
     if (!advanced) return std::nullopt;
     advanced->candidate.phase = 0;
@@ -173,9 +189,9 @@ std::optional<BeltAdvance> advance_belt_lane_rate(const BeltLane& lane, Quantity
         advanced->delivered.insert(advanced->delivered.end(), next->delivered.begin(), next->delivered.end());
         remaining_steps -= chunk;
     }
-    advanced->candidate.phase = static_cast<Quantity>(fraction / denominator);
-    advanced->candidate.remainder = static_cast<Quantity>(fraction % denominator);
-    advanced->candidate.remainder_denominator = denominator;
+    advanced->candidate.phase = static_cast<Quantity>(subticks % work_subticks_per_tick);
+    advanced->candidate.remainder = static_cast<Quantity>(fraction);
+    advanced->candidate.remainder_denominator = saved_denominator;
     return advanced;
 }
 

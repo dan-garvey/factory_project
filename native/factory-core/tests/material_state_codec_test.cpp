@@ -124,6 +124,17 @@ int main() {
         on_belt.belt_lanes.emplace("span", m::BeltLane{{m::Cargo{1, 0, {}}, std::nullopt,
             m::Cargo{0, 0, {carried_lot}}}, -123, -2, 3});
         round_trip(on_belt);
+        auto changed_rate = m::advance_belt_lane_rate(on_belt.belt_lanes.at("span"), 1, 7, 1, false, 0);
+        check(changed_rate.has_value() && changed_rate->candidate.remainder_denominator == 21 && changed_rate->delivered.empty());
+        auto changed_state = on_belt;
+        changed_state.belt_lanes.at("span") = changed_rate->candidate;
+        const auto changed_encoded = m::encode_material_state(changed_state, config, path, roster);
+        check(std::holds_alternative<Value>(changed_encoded));
+        const auto changed_decoded = m::decode_material_state(std::get<Value>(changed_encoded), config, path, roster);
+        check(std::holds_alternative<m::State>(changed_decoded));
+        const auto continued = m::advance_belt_lane_rate(changed_rate->candidate, 1, 7, -1, false, 0);
+        const auto restored = m::advance_belt_lane_rate(std::get<m::State>(changed_decoded).belt_lanes.at("span"), 1, 7, -1, false, 0);
+        check(continued && restored && continued->candidate == restored->candidate && continued->delivered == restored->delivered);
         auto duplicated = on_belt;
         duplicated.cargo.at("Q").work_lots.push_back(carried_lot);
         check(m::validate(duplicated, config, path) == m::Error::invalid_state);

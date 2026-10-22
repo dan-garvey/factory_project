@@ -48,8 +48,10 @@ manual span recovery removes individual items through the World.
 
 `advance_belt_lane_rate` also retains the fractional part of a fixed-point
 subtick in the authoritative lane. An unchanged rational shaft rate accumulates
-exactly across ticks and checkpoints. When its denominator changes, converting
-the remainder can discard less than one fraction of a subtick. Finite lane
+exactly across ticks and checkpoints. When the rate changes, the lane retains
+both fractions exactly if their common denominator fits the saved integer;
+larger combinations use deterministic rounding with error below one part in
+the maximum signed 64-bit denominator per change. Finite lane
 occupancy bounds the work at extreme rates. Inclined travel retains its
 fixed-point approximation to diagonal distance.
 
