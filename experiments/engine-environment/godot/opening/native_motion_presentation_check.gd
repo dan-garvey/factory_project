@@ -129,9 +129,13 @@ func check_wheels() -> void:
 		var view := Opening.new()
 		mount(view)
 		view.state.entities.wheel.axis = axis
-		var holder := Node3D.new()
-		view.add_child(holder)
-		view._wheel_visual(holder, view.state.entities.wheel)
+		view.state.links = []
+		view.machine_root = Node3D.new()
+		view.add_child(view.machine_root)
+		view._rebuild_machines()
+		var holder := view.machine_root.get_child(0) as Node3D
+		# Measure the local artwork against the existing pick envelope.
+		holder.position = Vector3.ZERO
 		var before: Dictionary = view.state.duplicate(true)
 		var original: Transform3D = view.wheel_rotor.transform
 		view._animate_wheel(0.1)
@@ -143,7 +147,9 @@ func check_wheels() -> void:
 		verify(not inside_wheel_proxy(holder, Transform3D.IDENTITY, Geometry.wheel_half_extents(axis, 3)),
 			"The wheel envelope check rejects displaced artwork on axis " + str(axis))
 		holder.position.x = 0.0
-		view._wheel_visual(holder, view.state.entities.wheel)
+		view._rebuild_machines()
+		holder = view.machine_root.get_child(0) as Node3D
+		holder.position = Vector3.ZERO
 		view._animate_wheel(0.0)
 		verify(view.wheel_rotor.basis.is_equal_approx(original.basis * Basis(Vector3.BACK, one_step)), "A rebuilt wheel mesh recovers the same identity's cosmetic angle.")
 		for sample in range(12):

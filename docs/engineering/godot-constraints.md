@@ -532,6 +532,27 @@ Priming moves asset preparation into opening setup; it does not eliminate the
 one-time work. A complete native opening launch and input timing remain to be
 measured before treating its startup cost as accepted. Owner: Performance.
 
+**Motion update cost, measured but not fully resolved.** The presenter retains
+only unbatched animated anchors when topology changes; the opening retains
+machine motion anchors and resolves each conveyor loop once. It also uses the
+wheel rotor's fixed parent pose for batch updates. In paired isolated headless
+runs, 200 conveyors' body update fell from 0.730 to 0.416 ms median. In an
+exclusive complete-opening fixture with 400 synthetic confirmed cogs, the
+presenter change lowered process time from 2.491 to 1.919 ms median and frame
+time from 18.831 to 18.312 ms median; p95 frame time rose from 20.423 to
+22.681 ms in those single runs. The fixture does not exercise native placement
+or a human-built inventory, and this is not a steady 60 FPS result.
+With both motion caches present after the later terrain and opening join, a
+0/400-cog fixture pair measured 13.017/17.143 ms median and
+17.171/18.999 ms p95 on the same machine.
+
+An explicit distant wheel mesh experiment reduced the batched rotor from
+14,094 to 2,306 triangles per instance. Exclusive isolated 200/400-wheel
+medians improved from 22.905/34.773 to 20.302/32.077 ms, but the 200-wheel
+tail did not improve and a flat rendered comparison changed 2,154 pixels.
+That mesh substitution is not used in the opening. Generated mesh LOD alone
+gave no measured improvement in the same fixture; the cause was not isolated.
+
 **Asset import, observed for one source representation.** During the
 [scanned steel surface preparation](../../experiments/engine-environment/godot/opening/assets/steel/CREDITS.md),
 the pinned runtime's TinyEXR loader rejected the provider's normal EXR with an

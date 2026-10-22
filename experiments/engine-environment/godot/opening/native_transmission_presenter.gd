@@ -26,6 +26,7 @@ var _generations: Dictionary = {}
 var _visual_angles: Dictionary = {}
 var _visual_rotations: Dictionary = {}
 var _gear_batches: Dictionary = {}
+var _moving_anchors: Array[Node3D] = []
 var _direction_meshes: Dictionary = {}
 var _support_meshes: Dictionary = {}
 static var _relay_shells: Dictionary = {}
@@ -41,6 +42,7 @@ func _clear() -> void:
 	_cargo_elapsed.clear()
 	_cargo_anchors.clear()
 	_gear_batches.clear()
+	_moving_anchors.clear()
 	for child in get_children():
 		child.free()
 
@@ -88,25 +90,21 @@ func visual_rotation(id: String) -> float:
 	return float(_visual_rotations.get(id, 0.0))
 
 func _apply_angles() -> void:
-	for child: Node in get_children():
-		if child is Node3D and child.has_meta("belt_shaft"):
+	for child: Node3D in _moving_anchors:
+		if child.has_meta("belt_shaft"):
 			var loop := child.get_node_or_null("BeltLoop") as MeshInstance3D
 			if loop != null and loop.material_override is StandardMaterial3D:
 				var finish := loop.material_override as StandardMaterial3D
 				var offset := float(child.get_meta("belt_uv_origin")) + visual_rotation(str(child.get_meta("belt_shaft"))) * float(child.get_meta("belt_uv_factor"))
 				finish.uv1_offset.x = fposmod(offset, 1.0)
-		if not child is Node3D or not child.has_meta("axis"):
-			if child is Node3D and child.has_meta("relay_static"):
+		if not child.has_meta("axis"):
+			if child.has_meta("relay_static"):
 				var relay_id: String = str(child.get_meta("entity", ""))
 				var relay_angle := visual_angle(relay_id)
 				for port: Node in child.get_children():
 					if port is Node3D and port.has_meta("relay_port_axis"):
 						port.basis = axis_basis(int(port.get_meta("relay_port_axis"))) * \
 							Basis(Vector3.UP, relay_angle * float(port.get_meta("relay_factor")))
-			continue
-		if child.get_meta("batched_gear", false):
-			# The pick cylinders are symmetric about their own axle. Keep those
-			# physics bodies still while only the shared render instance spins.
 			continue
 		var id: String = str(child.get_meta("entity", ""))
 		var angle := visual_angle(id)
@@ -1072,5 +1070,11 @@ func refresh() -> void:
 			mark.basis = axis_basis(a.axis)
 			mark.set_meta("from", edge.a)
 			mark.set_meta("to", edge.b)
+	# Topology changes rebuild this list. A dense cog batch has pick anchors
+	# but no individual animated scene nodes to scan each render frame.
+	for child in get_children():
+		if child is Node3D and not child.get_meta("batched_gear", false) and (child.has_meta("axis")
+				or child.has_meta("belt_shaft") or child.has_meta("relay_static")):
+			_moving_anchors.append(child)
 	_apply_angles()
 	_refresh_belt_cargo(spans)
