@@ -229,6 +229,7 @@ func _interaction_controls() -> void:
 			view.session = SessionStub.new()
 		view.state = hotbar_observation()
 		view.state.entities = {"press": {"kind": "processor", "cell": [1, 0], "level": 0, "axis": 2}}
+		view.state.stock.output = 1
 		view.mode = "collector"
 		view.pointed = "press"
 		root.add_child(view)
@@ -305,6 +306,47 @@ func _interaction_controls() -> void:
 		verify(view.mode == "inspect" and view.selected == "press" and view.inspector.visible
 			and view.issued.is_empty() and view.request_sequence == sequence,
 			"E opens the pointed press through the existing read-only inspector without an authority request.")
+		key.keycode = KEY_R
+		for rotation in [["collector", "x", 1], ["processor", "x", 1], ["wheel", "z", 0],
+			["gear", "y", 0], ["drive", "y", 0], ["vertical_gearbox", "z", 0], ["chain_drive", "y", 0],
+			["foundation", "x", 0], ["gearbox", "y", 0], ["belt", "x", 0],
+			["flow", "x", 0], ["deconstruct", "x", 0]]:
+			view._select_tool(rotation[0])
+			view.transmission_controls._axis_selected(0)
+			view.building_rotation = 0
+			view._unhandled_input(key)
+			verify(view.transmission_controls.selected_axis == rotation[1] and view.building_rotation == rotation[2],
+				"R follows the existing orientation choices for %s." % rotation[0])
+			verify(view.issued.is_empty() and view.request_sequence == sequence and view.state == before
+				and view.selected == "press",
+				"R in %s mode never retrieves from the previously selected output-ready press." % rotation[0])
+			view.issued.clear()
+		view._select_tool("gear")
+		view.transmission_controls._axis_selected(0)
+		view.state.actors.P.ready = false
+		view._unhandled_input(key)
+		verify(view.transmission_controls.selected_axis == "x" and view.issued.is_empty(),
+			"An unready actor cannot rotate a cog or retrieve from its old selection.")
+		view.state.actors.P.ready = true
+		view.issued.clear()
+		if shared:
+			view.pending_actions = {"fixture": {"action": {"action": "retrieve"}, "outcome": {}}}
+			view._unhandled_input(key)
+			verify(view.transmission_controls.selected_axis == "x" and view.issued.is_empty(),
+				"A pending shared request blocks rotation without submitting another action.")
+			view.pending_actions.clear()
+			view.issued.clear()
+			view.session.ready = false
+			view._unhandled_input(key)
+			verify(view.transmission_controls.selected_axis == "x" and view.issued.is_empty(),
+				"A disconnected shared view cannot rotate a cog or submit a retrieval.")
+			view.session.ready = true
+			view.issued.clear()
+		view._select_tool("inspect")
+		view._unhandled_input(key)
+		verify(view.issued == [{"action": "retrieve", "amount": 1, "entity": "press"}] and view.state == before,
+			"R in inspection mode still submits the selected press's existing collection action.")
+		view.issued.clear()
 		key.keycode = KEY_F
 		view._unhandled_input(key)
 		verify(view.mode == "deconstruct" and view.transmission_controls.active_tool.is_empty(),
