@@ -214,8 +214,6 @@ void run() {
         at(4.95, 0); foundation(3, "press-base");
         const auto press = place("processor", 3, "press");
         at(-1.65, 0);
-        auto power = request("set_power", "power-on"); power.emplace("active", Value(true));
-        check(accepted(issue(host, power)), "A near actor enables the waterwheel.");
         auto projection = host.call("projection", {});
         check(field<bool>(projection, "powered") && field<Integer>(Value(field<Object>(projection, "parts")), "shaft") == 5,
               "The powered line consumes three physical shafts.");

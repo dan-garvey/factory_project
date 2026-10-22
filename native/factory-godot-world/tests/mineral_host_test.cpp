@@ -307,8 +307,7 @@ void full_finite_depletion() {
     const auto upper_reply = host.command("P", upper);
     check(accepted(upper_reply), "The cog transfers the wheel's rotation to the raised collector.");
     const auto gear_id = field<std::string>(upper_reply, "entity");
-    auto power = request("set_power", "power"); power.emplace("active", V(true));
-    check(accepted(host.command("P", power)), "The extraction case starts through the normal native command boundary.");
+    check(field<bool>(host.projection(), "powered"), "The extraction case runs when its wheel and collector are connected.");
     for (I batch = 0; batch < 128; ++batch) {
         for (int tick = 0; tick < 32; ++tick) (void)host.advance();
         const auto before = host.projection();
@@ -331,7 +330,7 @@ void full_finite_depletion() {
     const auto saved = host.checkpoint();
     check(accepted(host.validate_checkpoint(saved)), "The entire finite depletion and history fit the native checkpoint budget.");
     retain_checkpoint(saved, site);
-    check(field<I>(host.projection(), "order") == 133, "Five construction/power requests and 128 recoveries exhaust the node within history bounds.");
+    check(field<I>(host.projection(), "order") == 132, "Four construction requests and 128 recoveries exhaust the node within history bounds.");
     Host fresh; initialize(fresh, site);
     outcome(fresh.restore_checkpoint(saved), true, "restored");
     check(same(child(saved, "world"), child(fresh.checkpoint(), "world")), "Fresh native restoration preserves the complete depleted state and original cache.");

@@ -359,8 +359,8 @@ func _produce_p() -> bool:
 		return false
 	var ids := {"wheel": wheel.entity, "collector": collector.entity, "a": a.entity, "b": b.entity, "shaft_a": sa.entity, "shaft_b": sb.entity}
 	facts["ids"] = ids
-	if (await _callback("P ordinary Start drive", {"action": "set_power", "active": true}, [_anchor([-4, 0, 4])],
-		func(): opening.power_button.pressed.emit())).is_empty():
+	if (await _callback("P scripted fixture drive on", {"action": "set_power", "active": true}, [_anchor([-4, 0, 4])],
+		func(): opening.issue({"action": "set_power", "active": true}))).is_empty():
 		return false
 	while Time.get_ticks_msec() < deadline and opening.state.stock.source != 15:
 		await process_frame
@@ -368,8 +368,8 @@ func _produce_p() -> bool:
 		return false
 	if (await _barrier("Q-confirmed-running.bin")).is_empty():
 		return false
-	if (await _callback("P ordinary Stop drive", {"action": "set_power", "active": false}, [_anchor([-4, 0, 4])],
-		func(): opening.power_button.pressed.emit())).is_empty() or not _geometry(ids, false):
+	if (await _callback("P scripted fixture drive off", {"action": "set_power", "active": false}, [_anchor([-4, 0, 4])],
+		func(): opening.issue({"action": "set_power", "active": false}))).is_empty() or not _geometry(ids, false):
 		return false
 	var old_request: String = facts.steps[2].queued.request
 	var old_reply: Dictionary = facts.steps[2].outcome
@@ -439,15 +439,15 @@ func _resume_p() -> bool:
 	if rebuilt.is_empty() or not await _order(rebuilt.order) or not _geometry(rebuilt.ids, false):
 		return false
 	facts["ids"] = rebuilt.ids
-	if (await _callback("P starts Q's reconstructed train", {"action": "set_power", "active": true}, [_anchor([-4, 0, 4])],
-		func(): opening.power_button.pressed.emit())).is_empty() or not _geometry(rebuilt.ids, true):
+	if (await _callback("P enables Q's scripted fixture train", {"action": "set_power", "active": true}, [_anchor([-4, 0, 4])],
+		func(): opening.issue({"action": "set_power", "active": true}))).is_empty() or not _geometry(rebuilt.ids, true):
 		return false
 	if not _expect(_write("resumed-running.bin", {"status": "pass", "order": opening.state.order}), "P publishes resumed native motion"):
 		return false
 	if (await _barrier("Q-resumed-confirmed.bin")).is_empty():
 		return false
-	if (await _callback("P stops the reconstructed train", {"action": "set_power", "active": false}, [_anchor([-4, 0, 4])],
-		func(): opening.power_button.pressed.emit())).is_empty() or not _geometry(rebuilt.ids, false):
+	if (await _callback("P disables the scripted fixture train", {"action": "set_power", "active": false}, [_anchor([-4, 0, 4])],
+		func(): opening.issue({"action": "set_power", "active": false}))).is_empty() or not _geometry(rebuilt.ids, false):
 		return false
 	return _expect(opening.state.order == 12 and _write("P-resumed-stopped.bin", {"status": "pass", "order": opening.state.order}),
 		"The fresh cohort adds exactly four requests before its stopped save")

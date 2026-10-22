@@ -138,9 +138,7 @@ void historical_translation() {
     const auto belt = field<std::string>(belt_reply, "entity");
     at(4.95, 0); foundation(3, "press-base");
     const auto press = place("processor", 3, 1, 4, "z", "press");
-    at(-1.65, 0);
-    auto power = request("set_power", "power"); power.emplace("active", V(true));
-    check(accepted(host.command("P", power)), "The existing wheel supplies the test line.");
+    check(field<bool>(host.projection(), "powered"), "The existing wheel supplies the test line automatically.");
     for (int index = 0; index < 150; ++index) (void)host.advance();
     at(4.95, 0);
     auto collect = target("retrieve", "collect", press); collect.emplace("amount", V(I{1}));
@@ -166,7 +164,6 @@ void historical_translation() {
     reject("collect", "action", V("recover"));
     reject("span", "to", V(wheel));
     reject("span", "from", V(collector));
-    reject("power", "active", V(false));
     reject("collector", "cell", V(A{V(I{0}), V(I{0})}));
     reject("collector", "kind", V("belt"));
     Host fresh;

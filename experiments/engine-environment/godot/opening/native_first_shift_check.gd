@@ -108,7 +108,8 @@ func _conserved(snapshot: Dictionary) -> bool:
 	if not _expect(total == 4096 and products == snapshot.stock.player, "Every original unit has exactly one typed owner"):
 		return false
 	var part_totals: Dictionary = {"collector": 0, "belt": snapshot.belt_spans.size(), "processor": 0,
-		"wheel": 0, "shaft": 0, "gear": 0, "foundation": snapshot.foundations.size()}
+		"wheel": 0, "shaft": 0, "gear": 0, "gearbox": 0, "vertical_gearbox": 0,
+		"chain_drive": 0, "foundation": snapshot.foundations.size()}
 	for kit: Dictionary in snapshot.part_kits.values():
 		for kind: String in kit:
 			if not _expect(part_totals.has(kind) and typeof(kit[kind]) == TYPE_INT and kit[kind] >= 0, "Carried construction parts retain their finite integer counts"):
@@ -119,7 +120,8 @@ func _conserved(snapshot: Dictionary) -> bool:
 			return false
 		part_totals[part.kind] += 1
 	return _expect(_same(part_totals, {"collector": 1, "belt": 2, "processor": 1, "wheel": 1,
-		"shaft": 8, "gear": 10, "foundation": 24}), "Construction and refunds preserve the current finite physical kit")
+		"shaft": 8, "gear": 10, "gearbox": 2, "vertical_gearbox": 2, "chain_drive": 8,
+		"foundation": 24}), "Construction and refunds preserve the current finite physical kit")
 
 func _targets(before: Dictionary, action: Dictionary) -> Array:
 	var centers: Array = []
@@ -130,10 +132,6 @@ func _targets(before: Dictionary, action: Dictionary) -> Array:
 	elif action.action == "place_belt_span":
 		centers.append(before.transmission_parts[action.from].center)
 		centers.append(before.transmission_parts[action.to].center)
-	elif action.action == "set_power":
-		for entity: Dictionary in before.entities.values():
-			if entity.kind == "wheel":
-				centers.append([entity.cell[0] * 4, entity.level, entity.cell[1] * 4])
 	else:
 		var entity: Dictionary = before.entities[action.entity]
 		centers.append([entity.cell[0] * 4, entity.level, entity.cell[1] * 4])
@@ -268,9 +266,9 @@ func _menu(target: String, action: String, work_id: int = -1) -> Dictionary:
 	_expect(false, "The ordinary menu offers the exact requested carried form")
 	return {}
 
-func _power(enabled: bool) -> bool:
-	if opening.model.projection().power_enabled != enabled:
-		_action("toggle source", {"action": "set_power", "active": enabled}, opening._toggle_power)
+func _clock(enabled: bool) -> bool:
+	# The fixture controls elapsed ticks; drive power still follows the wheel.
+	opening.auto_advance = enabled
 	return not written
 
 func _retrieve(press: String) -> bool:
@@ -332,8 +330,9 @@ func _prepare() -> void:
 	if _setup({"action": "place_gear", "center": [0, 4, 0], "axis": "z", "teeth": 4}).is_empty(): return
 	if not await _approach_axis(0, -1.2) or not await _approach_axis(2, 3.3): return
 	if _setup({"action": "place_gear", "center": [-4, 4, 4], "axis": "x", "teeth": 4}).is_empty(): return
-	if not _power(true): return
-	if not (await _until(func() -> bool: return opening.model.projection().stock.collector == 1, "The incomplete powered line retains its first raw blank")): return
+	opening.model.advance()
+	opening._refresh()
+	if not _expect(opening.model.projection().stock.collector == 1, "The incomplete powered line retains its first raw blank"): return
 	_menu(collector, "recover")
 	if written or not _expect(opening.model.projection().cargo.P.raw == 1 and opening.model.projection().stock.source == 4095, "The bad-line menu recovers the actual blank without refilling the seam"): return
 	_select(collector)
@@ -342,16 +341,16 @@ func _prepare() -> void:
 	var rebuilt: String = _place("collector", Vector2i(0, 1))
 	if written or not _expect(rebuilt != collector, "Rebuilding allocates a new identity"): return
 	_menu(rebuilt, "insert_raw")
-	if written or not _power(false) or not await _approach_axis(0, 3.3): return
+	if written or not _clock(false) or not await _approach_axis(0, 3.3): return
 	if _setup({"action": "place_belt_span", "from": first, "to": last}).is_empty(): return
 	if not await _approach_axis(0, 4.95): return
 	var press: String = _place("processor", Vector2i(3, 1))
-	if written or not await _approach_axis(0, -1.2) or not _power(true) or not await _approach_axis(0, 4.95): return
+	if written or not await _approach_axis(0, -1.2) or not _clock(true) or not await _approach_axis(0, 4.95): return
 	if not (await _until(func() -> bool: return opening.model.projection().stock.output == 1, "The assembled native line produces a plate")): return
 	if not _retrieve(press): return
 	if not await _approach_axis(0, -1.2): return
 	if not (await _until(func() -> bool: return opening.model.projection().stock.held == 1 and opening.model.projection().remaining == 1, "A later workpiece makes partial progress in the press")): return
-	if not _power(false): return
+	if not _clock(false): return
 	if not await _approach_axis(0, 4.95): return
 	var held_before: Dictionary = opening.model.checkpoint().world.state.duplicate(true)
 	var remaining: int = opening.model.projection().remaining
@@ -393,13 +392,13 @@ func _resume() -> void:
 	if not _expect(_same(opening.startup_resume_checkpoint, prior.prepared_checkpoint) and _same(opening.model.checkpoint().world, prior.prepared_checkpoint.world), "The fresh ordinary Host loads the exact typed checkpoint and original history"): return
 	if not _expect(_same(opening.actor_world.diagnostics("P").declared_seed, prior.prepared_checkpoint.actors.P) and opening.request_sequence == 0 and opening.request_namespace != prior.original_namespace, "A new native registration uses the saved seed and a fresh request namespace"): return
 	var snapshot: Dictionary = opening.model.projection()
-	if not _conserved(snapshot) or not _expect(snapshot.inventories.P == 1 and snapshot.stock.held == 1 and snapshot.remaining == 1 and prior.recovered_work.remaining == 1 and prior.recovered_work.cycle_ticks == 2 and not snapshot.power_enabled, "Products and completed first-tick progress survive the new process"): return
+	if not _conserved(snapshot) or not _expect(snapshot.inventories.P == 1 and snapshot.stock.held == 1 and snapshot.remaining == 1 and prior.recovered_work.remaining == 1 and prior.recovered_work.cycle_ticks == 2 and snapshot.power_enabled, "Products and completed first-tick progress survive the new process"): return
 	var press := ""
 	for id: String in snapshot.entities:
 		if snapshot.entities[id].kind == "processor": press = id
 	if not _expect(not press.is_empty(), "The saved processor identity remains placed"): return
 	opening.character_presenter.set_physics_process(false)
-	if not await _approach_axis(0, -1.2) or not _power(true) or not await _approach_axis(0, 4.95): return
+	if not await _approach_axis(0, -1.2) or not _clock(true) or not await _approach_axis(0, 4.95): return
 	for _plate: int in range(3):
 		if not (await _until(func() -> bool: return opening.model.projection().stock.output == 1, "The reopened line produces the next plate")): return
 		if not _retrieve(press): return
@@ -421,8 +420,9 @@ func _run() -> void:
 		quit(1)
 		return
 	opening = load("res://opening/opening.tscn").instantiate()
+	opening.auto_advance = false
 	root.add_child(opening)
-	if not _expect(opening.model is NativeModel and opening.model.native != null and opening.model.native.get_class() == "FactoryNativeWorld" and opening.auto_advance and opening.save_slot_ready and opening.save_slot != destination, "The ordinary native scene owns its real clock and fresh save slot"): return
+	if not _expect(opening.model is NativeModel and opening.model.native != null and opening.model.native.get_class() == "FactoryNativeWorld" and not opening.auto_advance and opening.save_slot_ready and opening.save_slot != destination, "The ordinary native scene owns its real clock and fresh save slot"): return
 	if not (await _until(func() -> bool: return opening.model.projection().actors.P.ready and opening.actor_world.bodies.P.is_on_floor() and not opening.startup_save_pending, "The native character is ready on the floor before material commands")): return
 	if mode == "prepare":
 		await _prepare()

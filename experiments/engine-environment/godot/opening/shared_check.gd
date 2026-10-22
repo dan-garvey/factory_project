@@ -7,7 +7,7 @@ const KEYS := {"1": KEY_1, "2": KEY_2, "3": KEY_3, "4": KEY_4,
 	"F": KEY_F, "G": KEY_G, "I": KEY_I, "R": KEY_R, "H": KEY_H,
 	"SPACE": KEY_SPACE, "F5": KEY_F5, "F9": KEY_F9, "ESCAPE": KEY_ESCAPE,
 	"RIGHT": KEY_RIGHT, "LEFT": KEY_LEFT, "HOME": KEY_HOME}
-const BUTTONS := ["confirm_button", "retrieve_button", "power_button", "remove_button",
+const BUTTONS := ["confirm_button", "retrieve_button", "remove_button",
 	"save_button", "load_button", "reconnect_button", "disconnect_button",
 	"catalog_button",
 	"lesson_next", "lesson_previous", "lesson_return"]
@@ -372,7 +372,7 @@ func facts() -> Dictionary:
 	result["physical_view"] = {"legacy_fixture": scene.legacy_fixture,
 		"has_local_actor_world": scene.actor_world != null,
 		"has_presenter": scene.character_presenter != null,
-		"actor_label": scene.actor_label.text, "power_key": scene._power_key(),
+		"actor_label": scene.actor_label.text,
 		"camera": {"position": [scene.camera.position.x, scene.camera.position.y, scene.camera.position.z],
 			"focus": [scene.focus.x, scene.focus.y, scene.focus.z], "yaw": scene.orbit_yaw, "distance": scene.distance}}
 	if scene.character_presenter != null:

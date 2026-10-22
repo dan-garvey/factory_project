@@ -4279,7 +4279,6 @@ var engineering_presenter
 var mechanical_ambience
 var confirm_button: Button
 var retrieve_button: Button
-var power_button: Button
 var remove_button: Button
 var save_button: Button
 var load_button: Button
@@ -4335,7 +4334,7 @@ func _ready() -> void:
 	if _native_transmission():
 		_message(FIRST_COLLECTOR_HINT)
 	else:
-		_message("Build a small line. Choose a part, then click a grid square." if legacy_fixture else "WASD walks. Build nearby; approach the wheel to operate the drive [P].")
+		_message("Build a small line. Choose a part, then click a grid square." if legacy_fixture else "WASD walks. Build nearby; a wheel in the stream drives connected parts.")
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--resume-input="):
 			var result: Dictionary = _load_worksite(argument.trim_prefix("--resume-input="), true)
@@ -4723,9 +4722,6 @@ func _release_character_controls() -> void:
 	if character_presenter != null:
 		character_presenter.release()
 
-func _power_key() -> String:
-	return "Space" if legacy_fixture else "P"
-
 func configure_save_slot(path: String) -> void:
 	# The launcher supplies a fresh external session directory. One cooperating
 	# writer owns this slot; this is not a cross-process filesystem lock.
@@ -4819,7 +4815,7 @@ func issue(action: Dictionary) -> Dictionary:
 			"place_foundation": "Foundation placed. Its surface shares the machine grid.",
 			"place_foundations": "Foundation area placed on the world grid.",
 			"connect": "Material path connected.", "connect_drive": "Drive shaft connected.",
-			"retrieve": "Plate collected.", "pickup_material": "Loose material collected.", "load_belt_slot": "Material placed on the belt.", "set_power": "Drive updated.",
+			"retrieve": "Plate collected.", "pickup_material": "Loose material collected.", "load_belt_slot": "Material placed on the belt.",
 			"remove": "Part returned to your carried kit.",
 			"disconnect": "Material connection removed.",
 			"disconnect_drive": "Drive shaft returned."}.get(action.action, "Done."))
@@ -5134,10 +5130,9 @@ func _input(event: InputEvent) -> void:
 			return
 	# Consume both edges of global shortcuts so a
 	# previously focused GUI button cannot also activate on the release.
-	if event is InputEventKey and (event.keycode in [KEY_F5, KEY_F9] or event.keycode == (KEY_SPACE if legacy_fixture else KEY_P)):
+	if event is InputEventKey and event.keycode in [KEY_F5, KEY_F9]:
 		if event.pressed and not event.echo and not explanation_open:
 			match event.keycode:
-				KEY_SPACE, KEY_P: _toggle_power()
 				KEY_F5:
 					if not startup_save_pending:
 						_save_worksite()
@@ -5342,9 +5337,6 @@ func _open_pointed_machine() -> void:
 	_select_tool("inspect")
 	selected = target
 	_refresh_ui()
-
-func _toggle_power() -> void:
-	issue({"action": "set_power", "active": not state.get("power_enabled", true)})
 
 func _remove_selected() -> void:
 	if not selected.is_empty():
@@ -6575,10 +6567,7 @@ func _refresh_ui() -> void:
 	var belt_raw: int = int(state.get("line_belt_raw", 0)) if _native_transmission() else state.stock.belt
 	stock_label.text = "ORE DEPOSIT  %d blanks\nIN THE LINE  %d blanks\nPRESS OUTLET  %d plate" % [state.stock.source,
 		state.stock.collector + belt_raw + state.stock.input + state.stock.held, state.stock.output]
-	power_label.text = "DRIVE RUNNING" if state.get("powered", false) else "DRIVE SWITCHED OFF" if not state.get("power_enabled", true) else "DRIVE NEEDS CONNECTIONS"
-	power_button.text = ("Stop drive  [%s]" if state.get("power_enabled", true) else "Start drive  [%s]") % _power_key()
-	power_button.tooltip_text = "" if legacy_fixture else "Approach the waterwheel to operate the drive."
-	power_button.disabled = explanation_open
+	power_label.text = "DRIVE RUNNING" if state.get("powered", false) else "DRIVE NEEDS CONNECTIONS"
 	save_button.disabled = explanation_open or not save_slot_ready or startup_save_pending or (not legacy_fixture and not state.get("actors", {}).get(client, {}).get("ready", false))
 	load_button.disabled = explanation_open or not save_slot_ready or (legacy_fixture and not save_slot_owned)
 	load_button.text = "Load worksite  [F9]" if legacy_fixture else "How to reopen save  [F9]"
@@ -6695,7 +6684,6 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	for control in [stock_label, power_label, save_button, load_button]:
 		control.visible = show_details
 	actor_label.visible = show_details or not state.get("actors", {}).get(client, {}).get("ready", false)
-	power_button.visible = kinds.has("wheel")
 	controls_label.text = "B catalog  ·  1–8 build  ·  E open  ·  F dismantle  ·  H guide  ·  Ctrl+D details"
 	_refresh_engineering(snapshot_ready)
 	var target_selected: bool = _contains_target(state, selected)
@@ -7061,8 +7049,6 @@ func _guided_step(kinds: Dictionary) -> Dictionary:
 		return {"text": "Connect the material path. Help [H] shows an example.", "tool": "flow"}
 	if not kinds.has("wheel"):
 		return {"text": "Place a waterwheel in the stream.", "tool": "wheel"}
-	if not state.get("power_enabled", true):
-		return {"text": "Switch on the drive near the wheel [P].", "tool": "inspect"}
 	if _native_transmission():
 		var motion: Dictionary = state.get("motion", {})
 		for id in state.get("entities", {}):
@@ -7092,22 +7078,19 @@ func _inspection_hint() -> String:
 	# Describe confirmed projection facts only. This is advice, never admission
 	# or a second power solver; the authority still decides every command.
 	var kind: String = state.entities[selected].kind
-	var stop_before_link: bool = state.get("powered", false) and not state.get("options", {}).get("native", false)
 	var rotating: bool = state.get("powered", false)
 	if _native_transmission():
 		rotating = state.get("motion", {}).get(selected, {}).get("state", "") == "rotating"
 	if kind == "processor" and state.stock.output > 0:
 		return "Outlet full; plate ready.\n[R] collect to make room."
-	if not state.get("power_enabled", true):
-		return "Drive switched off.\n[%s] enables the drive%s." % [_power_key(), "" if legacy_fixture else " near wheel"]
 	if kind == "processor" and state.stock.held > 0 and rotating:
 		if state.remaining == 0:
 			return "Work done; blank retained.\nNext drive tick releases plate."
 		return "Working: %d ticks remaining.\nHeld blank stays in the press." % state.remaining
 	if kind in ["belt", "processor"] and not _has_material_connection(true):
-		return (("Inlet missing. Stop [%s].\n" % _power_key()) if stop_before_link else "No material inlet linked.\n") + ("[C]" if _native_transmission() else "[F]") + " link " + ("Collector → Belt." if kind == "belt" else "Belt → Press.")
+		return "No material inlet linked.\n" + ("[C]" if _native_transmission() else "[F]") + " link " + ("Collector → Belt." if kind == "belt" else "Belt → Press.")
 	if kind in ["collector", "belt"] and not _has_material_connection(false):
-		return (("Outlet missing. Stop [%s].\n" % _power_key()) if stop_before_link else "No material outlet linked.\n") + ("[C]" if _native_transmission() else "[F]") + " link " + ("Collector → Belt." if kind == "collector" else "Belt → Press.")
+		return "No material outlet linked.\n" + ("[C]" if _native_transmission() else "[F]") + " link " + ("Collector → Belt." if kind == "collector" else "Belt → Press.")
 	if not rotating:
 		if _native_transmission():
 			if kind == "wheel":
@@ -7126,7 +7109,7 @@ func _inspection_hint() -> String:
 		return "Collecting finite ore blanks.\nBelt takes the next blank."
 	if kind == "belt":
 		return "Belt carrying a blank.\nInspect the Press downstream." if state.stock.belt > 0 else "Waiting for a blank.\nInspect the Collector upstream."
-	return "Wheel rotates.\n[%s] stops it%s." % [_power_key(), " for editing" if legacy_fixture else " from nearby"]
+	return "Wheel rotates in the stream.\nConnected parts receive its motion."
 
 func _has_material_connection(incoming: bool) -> bool:
 	for pair in state.links:
@@ -7402,7 +7385,6 @@ func _build_interface() -> void:
 	inspector.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	retrieve_button = _button(right, "Collect plate  [Ctrl+R]", _retrieve)
 	_accent_button(retrieve_button)
-	power_button = _button(right, "Stop drive  [Space]", _toggle_power)
 	remove_button = _button(right, "Dismantle selected  [Delete]", _remove_selected)
 	# Older scripted launch payloads have a fixed roster without this native UI.
 	var recovery_path := "res://opening/recovery_actions.gd"

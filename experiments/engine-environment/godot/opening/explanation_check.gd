@@ -118,8 +118,8 @@ func _run() -> void:
 	_check(example_machines == 3,
 		"The isolated viewport draws the three confirmed native machines.")
 	var off := ledger("stopped", false)
-	_check(off.stock.source == 4096 and not off.power_enabled and presenter.ticks == 0 and presenter.step_button.disabled,
-		"The first lesson keeps its finite material at the seam with the drive off.")
+	_check(off.stock.source == 4096 and off.power_enabled and presenter.ticks == 0 and presenter.step_button.disabled,
+		"The first lesson keeps its finite material at the seam before advancing time.")
 	if not failures.is_empty():
 		finish()
 		return
