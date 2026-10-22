@@ -6187,6 +6187,8 @@ func _collect_wheel_rotor_parts(node: Node3D, pose: Transform3D, parts: Array[Di
 			var part := child as MeshInstance3D
 			if part.mesh == null or part.material_overlay != null:
 				return false
+			if part.visibility_range_end > 0.0:
+				continue
 			for surface in part.mesh.get_surface_count():
 				var finish: Material = part.material_override
 				if finish == null:
@@ -6197,19 +6199,22 @@ func _collect_wheel_rotor_parts(node: Node3D, pose: Transform3D, parts: Array[Di
 					return false
 				if part.mesh is ArrayMesh and part.mesh.surface_get_primitive_type(surface) != Mesh.PRIMITIVE_TRIANGLES:
 					return false
-				parts.append({"mesh": part.mesh, "surface": surface, "finish": finish,
+				parts.append({"source": part, "mesh": part.mesh, "surface": surface, "finish": finish,
 					"pose": child_pose, "shadow": part.cast_shadow, "layers": part.layers})
 		if not _collect_wheel_rotor_parts(child, child_pose, parts):
 			return false
 	return true
 
-func _wheel_rotor_batch_mesh(rotor: Node3D) -> Mesh:
+func _wheel_rotor_batch_mesh(rotor: Node3D, hidden_core: Array[MeshInstance3D]) -> Mesh:
 	var key: Array = rotor.get_meta("visual_batch_key", [])
-	if machine_batch_rotor_meshes.has(key):
-		return machine_batch_rotor_meshes[key]
 	var parts: Array[Dictionary] = []
 	if not _collect_wheel_rotor_parts(rotor, Transform3D.IDENTITY, parts) or parts.is_empty():
 		return null
+	for part in parts:
+		if part.source not in hidden_core:
+			hidden_core.append(part.source)
+	if machine_batch_rotor_meshes.has(key):
+		return machine_batch_rotor_meshes[key]
 	var groups := {}
 	var shadow: int = parts[0].shadow
 	var layers: int = parts[0].layers
@@ -6240,15 +6245,18 @@ func _batch_machine_visuals_walk(node: Node3D, pose: Transform3D,
 	var next_pose := pose * node.transform
 	var in_rotor: bool = rotating or node.name == "WheelRotor"
 	if node.name == "WheelRotor":
-		var combined := _wheel_rotor_batch_mesh(node)
+		var hidden_core: Array[MeshInstance3D] = []
+		var combined := _wheel_rotor_batch_mesh(node, hidden_core)
 		if combined != null:
 			var key := [combined.get_instance_id(), 0, GeometryInstance3D.SHADOW_CASTING_SETTING_ON, 1]
 			if not dynamic_groups.has(key):
 				dynamic_groups[key] = {"mesh": combined, "material": null,
 					"shadow": GeometryInstance3D.SHADOW_CASTING_SETTING_ON, "layers": 1, "parts": []}
-			dynamic_groups[key].parts.append({"node": node, "pose": next_pose})
+			dynamic_groups[key].parts.append({"node": node, "pose": next_pose,
+				"hide_nodes": hidden_core})
 			return
-	if node is MeshInstance3D and node.mesh != null and node.name != "ConveyorLoop":
+	if node is MeshInstance3D and node.mesh != null and node.name != "ConveyorLoop" \
+			and node.visibility_range_end <= 0.0:
 		var mesh_part := node as MeshInstance3D
 		var material := mesh_part.material_override
 		var overrides := mesh_part.material_overlay != null
@@ -6288,7 +6296,11 @@ func _emit_machine_mesh_batches(groups: Dictionary, batches: Node3D, dynamic: bo
 			var part_bounds: AABB = group.parts[index].pose * group.mesh.get_aabb()
 			bounds = bounds.merge(part_bounds)
 			motion_margin = maxf(motion_margin, part_bounds.size.length())
-			group.parts[index].node.visible = false
+			if group.parts[index].has("hide_nodes"):
+				for source in group.parts[index].hide_nodes:
+					source.visible = false
+			else:
+				group.parts[index].node.visible = false
 		multi.custom_aabb = bounds.grow(maxf(6.0, motion_margin)) if dynamic else bounds
 		var instance := MultiMeshInstance3D.new()
 		instance.name = "MachineBatch%d" % batch_index

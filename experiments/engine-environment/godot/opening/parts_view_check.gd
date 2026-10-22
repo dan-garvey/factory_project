@@ -97,16 +97,19 @@ func _initialize() -> void:
 	view.state.options.native = true
 	verify(view._display_parts() == {"collector": 0, "belt": 0, "processor": 1, "shaft": 0}, "Native Q displays Q's actual carried kit.")
 	verify(not view._parts_are_shared(), "Native per-actor kits use the carried caption.")
-	verify(view._guided_placement_cell().is_empty(), "P's available Belt cannot produce a cue for Q's empty kit.")
+	var belt_guidance: Dictionary = view._guided_step({"collector": true})
+	verify(belt_guidance.tool == "drive" and "shafts" in belt_guidance.text,
+		"Native guidance asks Q for a shaft route while only P carries a Belt.")
 	view.state.part_kits.P.belt = 0
 	view.state.parts.belt = 0
 	view.state.part_kits.Q.belt = 1
-	verify(view._guided_placement_cell().is_empty() and view._guided_step({"collector": true}).tool == "drive",
-		"Native shaft-belt guidance does not suggest a grid Belt cell even when Q carries a Belt.")
+	verify(view._guided_step({"collector": true}) == belt_guidance,
+		"Carrying a Belt does not replace native shaft-route guidance with a grid Belt cue.")
 	verify(view._display_parts().shaft == 0, "Q does not borrow P's shaft count.")
 	view.client = "P"
 	verify(view._display_parts().belt == 0 and view._display_parts().shaft == 3, "Changing the active actor changes every displayed kit field.")
-	verify(view._guided_placement_cell().is_empty(), "Q's Belt does not produce a cue for P.")
+	verify(view._guided_step({"collector": true}) == belt_guidance,
+		"Q's Belt does not change P's native shaft-route guidance.")
 	view.client = "Q"
 	view.state.part_kits.erase("Q")
 	verify(view._display_parts().is_empty(), "An absent native actor kit does not fall back to P.")
@@ -119,7 +122,7 @@ func _initialize() -> void:
 	var sequence: int = view.request_sequence
 	var namespace_id: String = view.request_namespace
 	verify(view._display_parts().belt == 0, "Carried material is distinct from construction parts.")
-	view._guided_placement_cell()
+	view._guided_step({"collector": true})
 	verify(view.state == before and view.model == null and view.request_sequence == sequence and view.request_namespace == namespace_id, "Display reads change neither projection nor authority/intent state.")
 	view.free()
 	print("OPENING_PARTS_VIEW_%s %d" % ["PASS" if failures == 0 else "FAIL", checks])
