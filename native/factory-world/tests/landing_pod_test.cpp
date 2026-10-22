@@ -25,6 +25,7 @@ std::pair<w::Profile, w::State> seed() {
     profile.initial_units = 16;
     profile.actors = {"P", "Q"};
     profile.foundation_parts = 24;
+    profile.starting_foundation_kits = {{"P", 15}, {"Q", 0}};
     profile.landing_pod_center = factory::mechanics::Point{4, 0, 16};
     profile.build_reach = 10;
     w::State state;
@@ -113,6 +114,56 @@ void seed_cannot_duplicate_or_forge_pod() {
     state.material.timber_remaining.emplace("pod-hand-crank", 8);
     check(!w::World::create("pod-world", profile, state),
           "A finite tree cannot reuse the issued hand crank identity.");
+}
+
+void foundation_custody_cannot_change_actor_on_restore() {
+    const auto [profile, state] = seed();
+    auto world = w::World::create("pod-foundation-custody", profile, state);
+    check(world != nullptr, "The actor custody fixture initializes.");
+    auto forged = world->snapshot();
+    --forged.state.foundation_kits.at("P");
+    ++forged.state.foundation_kits.at("Q");
+    check(!w::World::restore("pod-foundation-custody", profile, forged),
+          "A checkpoint cannot transfer a carried foundation part between actors without a transaction.");
+    const auto cut = [](const std::string& actor) -> std::optional<a::ActorCut> {
+        return a::ActorCut{actor, {4, 0, 16}, 7, true, 10};
+    };
+    const O recover{{"context", V("pod-foundation-custody")}, {"client", V("Q-client")},
+        {"request", V("Q-recover-floor")}, {"actor", V("Q")},
+        {"action", V("remove_foundation")}, {"target", V("pod-floor-0")},
+        {"generation", V(I{1})}};
+    const auto recovered = world->command({"Q", "Q-client"}, recover, cut);
+    check(recovered.completed() && std::get<bool>(recovered.result->at("accepted").storage()) &&
+          world->snapshot().state.foundation_kits.at("Q") == 1 &&
+          w::World::restore("pod-foundation-custody", profile, world->snapshot()) != nullptr,
+          "Q legitimately acquires one foundation part by recovering a real pod tile.");
+    const O rebuild{{"context", V("pod-foundation-custody")}, {"client", V("Q-client")},
+        {"request", V("Q-rebuild-floor")}, {"actor", V("Q")},
+        {"action", V("place_foundation")},
+        {"center", V(V::Array{V(I{0}), V(I{0}), V(I{12})})}};
+    const auto rebuilt = world->command({"Q", "Q-client"}, rebuild, cut);
+    check(rebuilt.completed() && std::get<bool>(rebuilt.result->at("accepted").storage()) &&
+          world->snapshot().state.foundation_kits.at("Q") == 0 &&
+          w::World::restore("pod-foundation-custody", profile, world->snapshot()) != nullptr,
+          "The recovered actor can spend that part on the same global grid and restore.");
+    const O area{{"context", V("pod-foundation-custody")}, {"client", V("P-client")},
+        {"request", V("P-expand-two")}, {"actor", V("P")},
+        {"action", V("place_foundations")},
+        {"center", V(V::Array{V(I{12}), V(I{0}), V(I{12})})},
+        {"end", V(V::Array{V(I{12}), V(I{0}), V(I{16})})}};
+    const auto expanded = world->command({"P", "P-client"}, area, cut);
+    check(expanded.completed() && std::get<bool>(expanded.result->at("accepted").storage()) &&
+          world->snapshot().state.foundation_kits.at("P") == 13 &&
+          w::World::restore("pod-foundation-custody", profile, world->snapshot()) != nullptr,
+          "Area construction spends two pieces from P's kit and restores that actor's balance.");
+    const auto saved = w::encode_checkpoint(profile, world->snapshot());
+    check(std::holds_alternative<V>(saved), "The real two-actor construction history encodes.");
+    auto substituted_profile = profile;
+    --substituted_profile.starting_foundation_kits.at("P");
+    ++substituted_profile.starting_foundation_kits.at("Q");
+    check(std::holds_alternative<w::CheckpointRefusal>(w::decode_checkpoint(
+              substituted_profile, "pod-foundation-custody", std::get<V>(saved))),
+          "The trusted initial actor allocation belongs in the checkpoint profile fingerprint.");
 }
 
 void one_hand_crank_moves_between_pod_and_actors() {
@@ -482,6 +533,7 @@ int main() {
     try {
         settled_pod_and_checkpoint();
         seed_cannot_duplicate_or_forge_pod();
+        foundation_custody_cannot_change_actor_on_restore();
         one_hand_crank_moves_between_pod_and_actors();
         deck_recovery_is_a_normal_world_transaction();
         reachable_craft_uses_one_hub_and_owned_ingredients();

@@ -736,6 +736,7 @@ Value Host::initialize_site(const std::string& context, const std::vector<std::s
         seed.kits.emplace(actor, actor == "P" ? profile.finite_parts : stationary::Kit{});
         seed.foundation_kits.emplace(actor, actor == "P" ?
             profile.foundation_parts - (arrival ? world::landing_deck_parts : 0) : 0);
+        profile.starting_foundation_kits.emplace(actor, seed.foundation_kits.at(actor));
         candidate->actors.emplace(actor, Actor{arrival ?
             authority::Point{pitch, 1.0, (actor == "P" ? 4.0 : 5.0) * pitch} :
             authority::Point{-pitch, 1.0, (actor == "P" ? 2.0 : 3.0) * pitch}, 0, false});

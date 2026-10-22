@@ -33,6 +33,7 @@ Site site() {
     profile.initial_units = 8;
     profile.actors = {"P", "Q"};
     profile.foundation_parts = 24;
+    profile.starting_foundation_kits = {{"P", 15}, {"Q", 0}};
     profile.landing_pod_center = g::Point{4, 0, 16};
     profile.meters_per_grid_unit = 0.4125;
     profile.anchor_offset = {0, 0.825, 0};

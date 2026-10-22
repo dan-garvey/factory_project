@@ -29,6 +29,7 @@ Fixture fixture(g::Integer rate = 1) {
     profile.initial_units = 2;
     profile.actors = {"P"};
     profile.foundation_parts = 9;
+    profile.starting_foundation_kits = {{"P", 0}};
     profile.landing_pod_center = g::Point{4, 0, 16};
     profile.collector_faces = {{{0, 0, 0}, {-1, 0, 0}}};
     profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, 1},

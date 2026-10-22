@@ -7,6 +7,7 @@ const Items = preload("res://opening/workpiece_item_assets.gd")
 const NativeModel = preload("res://opening/native_model.gd")
 const Finish = preload("res://opening/opening.gd").ProductionTransmissionFinish
 const Visuals = preload("res://opening/opening.gd").ProductionVisuals
+const WheelArt = preload("res://opening/opening.gd").ProductionWheelArt
 const UNIT := Geometry.PITCH / 4.0
 ## The native lane moves one horizontal tile per 0.45-second tick at rate 1.
 ## Its pulley rim must travel the same distance in that time.
@@ -911,6 +912,75 @@ func _shaft_splice(first: Dictionary, second: Dictionary, parent: Node3D,
 	else:
 		fitting.free()
 
+func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3) -> void:
+	var timber: Material = WheelArt.support_timber_finish()
+	if timber == null:
+		timber = Visuals.material(Color("76604a"), 0.12, 0.78)
+	var worked := Finish.material("worked", Color("9aaba5"), 0.78, 0.36)
+	var dark := Finish.material("cast", Color("354442"), 0.72, 0.52)
+	match kind:
+		"wooden_frame":
+			for x in [-0.155, 0.155]:
+				for z in [-0.155, 0.155]:
+					_support_box(anchor, "GroundedPost", Vector3(x, -0.05, z), Vector3(0.055, 0.80, 0.055), timber)
+					_support_box(anchor, "PostShoe", Vector3(x, -0.415, z), Vector3(0.09, 0.045, 0.09), dark)
+			for z in [-0.155, 0.155]:
+				_support_beam(anchor, "SideBrace", Vector3(-0.14, -0.29, z),
+					Vector3(0.14, 0.22, z), 0.035, timber)
+			_support_box(anchor, "OpenWorkBed", Vector3(0, 0.35, 0), Vector3(0.37, 0.06, 0.37), timber)
+			for z in [-0.155, 0.155]:
+				_support_box(anchor, "BedIron", Vector3(0, 0.385, z), Vector3(0.35, 0.012, 0.025), worked)
+		"tool_mount":
+			_support_box(anchor, "SlidingFoot", Vector3(0, -0.11, 0), Vector3(0.37, 0.06, 0.33), dark)
+			_support_box(anchor, "MountBlock", Vector3(0, 0.015, 0), Vector3(0.19, 0.22, 0.24), timber)
+			_support_box(anchor, "TopClamp", Vector3(0, 0.14, 0), Vector3(0.28, 0.045, 0.28), worked)
+		"cutting_edge":
+			_support_box(anchor, "BladeCarrier", Vector3(0, -0.07, 0), Vector3(0.40, 0.07, 0.32), dark)
+			for z in [-0.105, 0.105]:
+				_support_box(anchor, "ExposedTooth", Vector3(-0.11, 0.025, z), Vector3(0.17, 0.09, 0.065), worked)
+		"receiver_tray":
+			# The existing loose-blank centre is at the grid anchor. Its 8 cm
+			# visual sits directly on this open pan instead of floating above it.
+			_support_box(anchor, "OpenPan", Vector3(0, 0.025, 0), Vector3(0.34, 0.035, 0.38), dark)
+			for x in [-0.16, 0.16]:
+				_support_box(anchor, "PanSide", Vector3(x, 0.075, 0), Vector3(0.018, 0.14, 0.38), worked)
+			for z in [-0.18, 0.18]:
+				_support_box(anchor, "PanEnd", Vector3(0, 0.075, z), Vector3(0.34, 0.14, 0.018), worked)
+		"wooden_shaft", "softmetal_shaft":
+			var shaft_finish: Material = timber if kind == "wooden_shaft" else worked
+			_support_box(anchor, "BearingFoot", Vector3(0, -0.07, 0), Vector3(0.35, 0.07, 0.35), dark)
+			var direction := drive_direction if drive_direction.length_squared() > 0.5 else Vector3.RIGHT
+			_support_beam(anchor, "LooseDriveShaft", direction * -0.16, direction * 0.16, 0.10, shaft_finish)
+			var hub := _support_cylinder(anchor, "DriveCollar", 0.105, 0.07, worked)
+			hub.position.y = 0.02
+		_:
+			_support_box(anchor, "UnfittedPart", Vector3.ZERO, Vector3(0.24, 0.20, 0.24), dark)
+
+func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
+	var drives: Dictionary = {}
+	var assemblies: Variant = snapshot.get("collector_assemblies", [])
+	if assemblies is Array:
+		for assembly: Variant in assemblies:
+			if not assembly is Dictionary or assembly.get("status") != "ready" or not assembly.get("parts") is Dictionary:
+				continue
+			var frame_id: Variant = assembly.parts.get("frame")
+			var shaft_id: Variant = assembly.parts.get("shaft")
+			if not boxes.has(frame_id) or not boxes.has(shaft_id):
+				continue
+			var toward_frame: Vector3 = boxes[frame_id].center - boxes[shaft_id].center
+			toward_frame.y = 0.0
+			if toward_frame.length_squared() > 0.01:
+				drives[shaft_id] = toward_frame.normalized()
+	for id: String in boxes:
+		var spec: Dictionary = boxes[id]
+		var anchor := Node3D.new()
+		anchor.name = "PlacedComponent"
+		anchor.position = spec.center
+		anchor.set_meta("component_entity", id)
+		anchor.set_meta("component_kind", spec.component)
+		add_child(anchor)
+		_placed_component(anchor, spec.component, drives.get(id, Vector3.ZERO))
+
 func refresh() -> void:
 	if _host == null or not is_instance_valid(_host.get_ref()):
 		_clear()
@@ -928,7 +998,8 @@ func refresh() -> void:
 		return
 	var parts: Variant = snapshot.get("transmission_parts")
 	var motions: Variant = snapshot.get("motion", {})
-	if not parts is Dictionary or not motions is Dictionary:
+	var component_result: Dictionary = Geometry.component_boxes(snapshot)
+	if not parts is Dictionary or not motions is Dictionary or not component_result.get("accepted", false):
 		_clear()
 		_clear_motion()
 		_view_key = null
@@ -949,7 +1020,8 @@ func refresh() -> void:
 			var span: Variant = spans[id]
 			fixed_spans[id] = [span.get("generation"), span.get("from"), span.get("to")] if span is Dictionary else span
 	var next_key := [snapshot.get("context"), parts, motions, fixed_spans,
-		snapshot.get("engagements", []), snapshot.get("dropped_material", [])]
+		snapshot.get("engagements", []), snapshot.get("dropped_material", []),
+		component_result.boxes, snapshot.get("collector_assemblies", [])]
 	if next_key == _view_key:
 		_native_view_context = native_context if native_model else ""
 		_native_view_revision = native_revision if native_model else null
@@ -962,6 +1034,7 @@ func refresh() -> void:
 	_view_key = next_key.duplicate(true)
 	_native_view_context = native_context if native_model else ""
 	_native_view_revision = native_revision if native_model else null
+	_render_placed_components(snapshot, component_result.boxes)
 	var drops: Variant = snapshot.get("dropped_material", [])
 	if drops is Array:
 		for drop: Variant in drops:

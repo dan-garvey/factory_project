@@ -113,7 +113,13 @@ Value profile_value(const Profile& profile) {
         {"meters_per_grid_unit", Value(profile.meters_per_grid_unit)},
         {"anchor_offset", Value(Array{Value(profile.anchor_offset[0]), Value(profile.anchor_offset[1]), Value(profile.anchor_offset[2])})},
         {"build_reach", Value(profile.build_reach)}};
-    if (profile.foundation_parts > 0) output.emplace("foundation_parts", Value(profile.foundation_parts));
+    if (profile.foundation_parts > 0) {
+        output.emplace("foundation_parts", Value(profile.foundation_parts));
+        Object starting_kits;
+        for (const auto& [actor, count] : profile.starting_foundation_kits)
+            starting_kits.emplace(actor, Value(count));
+        output.emplace("starting_foundation_kits", Value(std::move(starting_kits)));
+    }
     if (profile.landing_pod_center) {
         const auto& center = *profile.landing_pod_center;
         output.emplace("landing_pod_center", Value(Array{Value(center[0]), Value(center[1]), Value(center[2])}));

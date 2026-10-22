@@ -70,7 +70,10 @@ history. Their finite per-actor custody and grid-aligned placed blocks are part
 of the complete State and checkpoint, outside the mechanical topology. Removal
 cannot orphan a supported machine or stacked block. The trusted site adapter
 validates terrain support; the World retains exact reach, conservation, overlap,
-generation and history checks. There is no old-save migration for this feature.
+generation and history checks. The trusted profile fixes each actor's initial
+foundation kit; accepted placement and recovery history must reproduce each
+retained actor balance, not only the global part total. There is no old-save
+migration for this feature.
 
 The experimental arrival profile also keeps crafted component counts in the
 canonical material State when parts leave an actor's cargo. World assigns each

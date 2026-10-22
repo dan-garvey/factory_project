@@ -83,6 +83,23 @@ void arrival_projection_and_restore() {
     const auto saved = host.checkpoint();
     check(get<bool>(host.validate_checkpoint(saved), "accepted"),
           "The normal physical checkpoint validates the pod and both actors.");
+    auto forged = std::get<O>(saved.storage());
+    auto forged_world = std::get<O>(forged.at("world").storage());
+    auto forged_state = std::get<O>(forged_world.at("state").storage());
+    auto forged_kits = std::get<O>(forged_state.at("foundation_kits").storage());
+    forged_kits.at("P") = V(I{13});
+    forged_kits.at("Q") = V(I{1});
+    forged_state.at("foundation_kits") = V(std::move(forged_kits));
+    forged_world.at("state") = V(std::move(forged_state));
+    forged.at("world") = V(std::move(forged_world));
+    const auto transferred = V(std::move(forged));
+    Host fresh;
+    initialized(fresh);
+    const auto fresh_checkpoint = fresh.checkpoint();
+    check(!get<bool>(host.validate_checkpoint(transferred), "accepted") &&
+          !get<bool>(fresh.restore_checkpoint(transferred), "accepted") &&
+          !factory::values::typed_difference(fresh_checkpoint, fresh.checkpoint()),
+          "Host refuses a conserved but unrecorded transfer of one foundation from P to Q without changing the fresh site.");
     Host restored;
     initialized(restored);
     check(get<bool>(restored.restore_checkpoint(saved), "accepted") &&
