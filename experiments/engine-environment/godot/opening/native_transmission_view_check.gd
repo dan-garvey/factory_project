@@ -307,9 +307,18 @@ func _belt_spans() -> void:
 		"A confirmed raw unit is rendered on its exact first endpoint tile.")
 	verify(_belt_item(span, 1) == null and item2 != null and item2.get_meta("belt_item") == "product" and item3 != null and item3.get_meta("belt_item") == "work",
 		"Empty positions remain empty and distinct confirmed item types retain their positions.")
+	var fixed_span_id := span.get_instance_id()
+	var fixed_pick_id := span.get_node("Pick").get_instance_id()
+	var fixed_shaft_id := _part(presenter, "left").get_instance_id()
+	var moving_item_id := item0.get_instance_id()
 	host.state.belt_spans["span"].phase = 2048
 	presenter.refresh()
 	span = _part(presenter, "span")
+	verify(span.get_instance_id() == fixed_span_id and span.get_node("Pick").get_instance_id() == fixed_pick_id
+		and _part(presenter, "left").get_instance_id() == fixed_shaft_id,
+		"A belt cargo phase update retains the rotating machine and fixed pick geometry.")
+	verify(_belt_item(span, 0).get_instance_id() == moving_item_id,
+		"Fractional cargo progress moves the fitted item without rebuilding it.")
 	verify(is_equal_approx(_belt_item(span, 0).position.x, -1.65), "A free slot shows the confirmed half-tile forward phase.")
 	verify(is_equal_approx(_belt_item(span, 2).position.x, 0.825) and is_equal_approx(_belt_item(span, 3).position.x, 2.475), "A chain blocked at the end does not visually pass through its neighbor.")
 	host.state.belt_spans["span"].phase = -2048
