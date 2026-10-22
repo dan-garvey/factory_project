@@ -2341,6 +2341,29 @@ class ProductionCollectorServiceArt:
 				poses.append(Transform3D(orientation, Vector3(x, y, 0)))
 		ProductionPressDieArt._hardware(hardware, poses)
 		meshes.hardware = hardware
+		meshes.frame_leaf = ProductionVisuals.box_mesh(Vector3(0.06, 0.07, 0.006))
+		meshes.panel_leaf = ProductionVisuals.box_mesh(Vector3(0.05, 0.07, 0.006))
+		var pin := CylinderMesh.new()
+		pin.top_radius = 0.011
+		pin.bottom_radius = 0.011
+		pin.height = 0.09
+		pin.radial_segments = 16
+		meshes.hinge_pin = pin
+		meshes.latch_back = ProductionVisuals.box_mesh(Vector3(0.10, 0.15, 0.006))
+		meshes.latch_stand = ProductionVisuals.box_mesh(Vector3(0.018, 0.022, 0.036))
+		meshes.latch_grip = ProductionVisuals.box_mesh(Vector3(0.025, 0.13, 0.018))
+		meshes.latch_keeper = ProductionVisuals.box_mesh(Vector3(0.055, 0.08, 0.006))
+		meshes.latch_tongue = ProductionVisuals.box_mesh(Vector3(0.10, 0.025, 0.026))
+
+	static func _fixed(parent: Node3D, role: String, mesh: Mesh, at: Vector3,
+			finish: Material) -> void:
+		var part := MeshInstance3D.new()
+		part.name = role
+		part.set_meta("collector_service_role", role)
+		part.mesh = mesh
+		part.position = at
+		part.material_override = finish
+		parent.add_child(part)
 
 	static func mount(parent: Node3D, color: Color) -> void:
 		_prepare()
@@ -2356,6 +2379,24 @@ class ProductionCollectorServiceArt:
 			part.position = Vector3(-0.22, 0.67, row[2])
 			part.material_override = row[3]
 			parent.add_child(part)
+		# Two fixed leaves visibly connect the removable panel to the casting.
+		# The pin bridges their different front planes; none is a service action.
+		for y in [0.52, 0.79]:
+			var suffix := "Lower" if y < 0.67 else "Upper"
+			_fixed(parent, "RearServiceFrameLeaf" + suffix, meshes.frame_leaf,
+				Vector3(-0.575, y, -0.513), steel)
+			_fixed(parent, "RearServicePanelLeaf" + suffix, meshes.panel_leaf,
+				Vector3(-0.51, y, -0.534), steel)
+			_fixed(parent, "RearServiceHingePin" + suffix, meshes.hinge_pin,
+				Vector3(-0.545, y, -0.525), steel)
+		# A visible pull and fixed keeper make the opposite edge read as closed.
+		_fixed(parent, "RearServiceLatchBack", meshes.latch_back, Vector3(0.015, 0.67, -0.534), steel)
+		for y in [0.615, 0.725]:
+			_fixed(parent, "RearServiceLatchStand" + ("Low" if y < 0.67 else "High"),
+				meshes.latch_stand, Vector3(0.015, y, -0.55), steel)
+		_fixed(parent, "RearServiceLatchGrip", meshes.latch_grip, Vector3(0.015, 0.67, -0.574), steel)
+		_fixed(parent, "RearServiceLatchKeeper", meshes.latch_keeper, Vector3(0.145, 0.67, -0.513), steel)
+		_fixed(parent, "RearServiceLatchTongue", meshes.latch_tongue, Vector3(0.11, 0.67, -0.524), steel)
 
 class ProductionEnvironment:
 	extends RefCounted

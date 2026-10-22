@@ -184,9 +184,12 @@ the original radius and its existing clearance inside the fixed liner.
 The native collector's rear casting has a separate bevelled service panel, a
 narrow gasket seam and four fitted washer/head assemblies. Their support planes
 meet the actual housing and panel; all three cached passive meshes stay inside
-the existing complete envelope and behind the cutter sweep. The panel shares
-the qualified coating and worked hardware finishes. This is visual assembly
-detail, without a service action, new part, collider or authoritative state.
+the existing complete envelope and behind the cutter sweep. Two short hinge
+leaves on each side of the pin meet the casting and panel faces. The opposite
+edge has a fixed pull and keeper, so the closed cover reads as an attached
+service part in the imported-source view. The panel shares the qualified
+coating and worked hardware finishes. This is visual assembly detail, without
+a service action, opening animation, new inventory part, collider or state.
 Historical fixtures keep their earlier rear casting.
 The common press/service fastener builder indexes its authored washers before
 combining them with indexed bolt heads, preserving both sets of render triangles.

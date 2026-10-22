@@ -5259,6 +5259,43 @@ func check_collector_rear_service() -> void:
 				maximum_seat_error = maxf(maximum_seat_error, absf(float(contact.area) - expected_area))
 				verify(contact.seated and absf(float(contact.area) - expected_area) < 0.000001,
 					"All four complete washer feet, not just their centres, lie on the real flat panel facets.")
+				var attached: Array[MeshInstance3D] = []
+				for suffix in ["Lower", "Upper"]:
+					var frame_leaf := detail.get_node("RearServiceFrameLeaf" + suffix) as MeshInstance3D
+					var panel_leaf := detail.get_node("RearServicePanelLeaf" + suffix) as MeshInstance3D
+					var pin := detail.get_node("RearServiceHingePin" + suffix) as MeshInstance3D
+					verify(collector_service_foot_contact(housing, frame_leaf).seated
+						and collector_service_foot_contact(panel, panel_leaf).seated,
+						"Each hinge leaf bears on the actual casting or door face, including its full footprint.")
+					verify((pin.transform * pin.mesh.get_aabb()).intersects(frame_leaf.transform * frame_leaf.mesh.get_aabb())
+						and (pin.transform * pin.mesh.get_aabb()).intersects(panel_leaf.transform * panel_leaf.mesh.get_aabb()),
+						"Each hinge pin reaches both fixed leaves across the housing-to-panel depth step.")
+					attached.append_array([frame_leaf, panel_leaf, pin])
+				var latch_back := detail.get_node("RearServiceLatchBack") as MeshInstance3D
+				var keeper := detail.get_node("RearServiceLatchKeeper") as MeshInstance3D
+				var tongue := detail.get_node("RearServiceLatchTongue") as MeshInstance3D
+				var grip := detail.get_node("RearServiceLatchGrip") as MeshInstance3D
+				var low_stand := detail.get_node("RearServiceLatchStandLow") as MeshInstance3D
+				var high_stand := detail.get_node("RearServiceLatchStandHigh") as MeshInstance3D
+				verify(collector_service_foot_contact(panel, latch_back).seated
+					and collector_service_foot_contact(housing, keeper).seated,
+					"The latch backing and opposite keeper rest on the real door and casting faces.")
+				verify((tongue.transform * tongue.mesh.get_aabb()).intersects(keeper.transform * keeper.mesh.get_aabb())
+					and (tongue.transform * tongue.mesh.get_aabb()).intersects(latch_back.transform * latch_back.mesh.get_aabb())
+					and (grip.transform * grip.mesh.get_aabb()).intersects(low_stand.transform * low_stand.mesh.get_aabb())
+					and (grip.transform * grip.mesh.get_aabb()).intersects(high_stand.transform * high_stand.mesh.get_aabb()),
+					"The fixed latch spans its keeper and the pull is physically attached to both standoffs.")
+				attached.append_array([latch_back, keeper, tongue, grip, low_stand, high_stand])
+				verify(attached.size() == 12, "The complete rear panel uses two hinges and one fixed latch kit.")
+				for part in attached:
+					verify(part.get_script() == null and part.get_child_count() == 0 and part.scale == Vector3.ONE
+						and part.material_override == hardware.material_override,
+						"Rear fittings reuse the qualified worked finish and have no active component or state.")
+					check_bounds(part, detail.transform)
+					for sweep in collector_tooling_sweeps(machine.get_meta("motion_meshes")):
+						var gap: float = sweep.low - (part.transform * part.mesh.get_aabb()).end.z
+						minimum_gap = minf(minimum_gap, gap)
+						verify(gap > 0.14, "The rear hinge and latch kit remains behind the complete cutter sweep.")
 				for part in [gasket, panel, hardware]:
 					var role: String = part.get_meta("collector_service_role")
 					if not cache.has(role):
