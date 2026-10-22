@@ -4,6 +4,7 @@ extends Node3D
 const Geometry = preload("res://opening/site_geometry.gd")
 const Assets = preload("res://opening/native_transmission_assets.gd")
 const Items = preload("res://opening/workpiece_item_assets.gd")
+const Finish = preload("res://opening/opening.gd").ProductionTransmissionFinish
 const UNIT := Geometry.PITCH / 4.0
 ## The native lane moves one horizontal tile per 0.45-second tick at rate 1.
 ## Its pulley rim must travel the same distance in that time.
@@ -151,20 +152,103 @@ func _confirmed_support(id: String, part: Dictionary) -> void:
 	frame.name = "FixedSupport"
 	frame.set_meta("supported_entity", id)
 	add_child(frame)
-	var color := Color("697475")
-	_segment(frame, foot, bearing, 0.17, color)
-	var shoe := MeshInstance3D.new()
-	shoe.name = "FootShoe"
-	var shoe_shape := BoxMesh.new()
-	shoe_shape.size = Vector3(0.38, 0.12, 0.38)
-	shoe.mesh = shoe_shape
-	shoe.position = foot + Vector3.UP * 0.06
-	_finish(shoe, Color("465354"))
-	frame.add_child(shoe)
-	var socket := _cylinder(frame, "BearingSocket", 0.17, 0.26, color)
-	socket.position = bearing
-	socket.basis = axis_basis(part.axis)
-	_segment(frame, bearing, world_center(part.center), 0.11, color)
+	var cast := Finish.material("cast", Color("82908d"), 0.78, 0.48)
+	var worked := Finish.material("worked", Color("bac5c0"), 0.86, 0.32)
+	var dark := Finish.material("cast", Color("424e4c"), 0.72, 0.53)
+	_support_box(frame, "FootShoe", foot + Vector3.UP * 0.06, Vector3(0.34, 0.12, 0.34), dark)
+	for x_sign in [-1.0, 1.0]:
+		for z_sign in [-1.0, 1.0]:
+			var bolt := _support_cylinder(frame, "FootAnchor", 0.018, 0.015, worked)
+			bolt.position = foot + Vector3(x_sign * 0.125, 0.128, z_sign * 0.125)
+	var height: float = bearing.y - foot.y
+	var across: Vector3 = Vector3.FORWARD if part.axis == 0 else Vector3.RIGHT
+	var side: Vector3 = Vector3.UP.cross(across)
+	# The visual frame stays near the one native-confirmed support point. These
+	# braces do not claim extra terrain seats, clearance or structural strength.
+	if height < 0.48:
+		_support_box(frame, "CompactPedestal", (foot + bearing) * 0.5,
+			Vector3(0.18, height, 0.18), cast)
+	else:
+		var bays: int = ceili(height / 1.15)
+		var bay_height: float = height / float(bays)
+		for rail_sign in [-1.0, 1.0]:
+			var rail_offset: Vector3 = across * float(rail_sign) * 0.09
+			for bay in range(bays):
+				var low: Vector3 = foot + Vector3.UP * float(bay) * bay_height + rail_offset
+				var high: Vector3 = low + Vector3.UP * bay_height
+				_support_beam(frame, "CastUpright", low, high, 0.065, cast)
+		for bay in range(bays):
+			var low: Vector3 = foot + Vector3.UP * float(bay) * bay_height - side * 0.07
+			_support_beam(frame, "RearSpine", low, low + Vector3.UP * bay_height, 0.06, dark)
+		for bay in range(bays):
+			var low_y: float = float(bay) * bay_height
+			var high_y: float = float(bay + 1) * bay_height
+			var low: Vector3 = foot + Vector3.UP * low_y - across * 0.09
+			var high: Vector3 = foot + Vector3.UP * high_y + across * 0.09
+			if bay % 2 == 1:
+				low = foot + Vector3.UP * low_y + across * 0.09
+				high = foot + Vector3.UP * high_y - across * 0.09
+			_support_beam(frame, "DiagonalBrace", low, high, 0.045, worked)
+			_support_beam(frame, "BayTie", foot + Vector3.UP * high_y - across * 0.09,
+				foot + Vector3.UP * high_y + across * 0.09, 0.05, worked)
+			_support_beam(frame, "SideBrace", foot + Vector3.UP * low_y - side * 0.07,
+				high, 0.035, cast)
+	if height >= 0.48:
+		_support_box(frame, "BearingSaddle", bearing - Vector3.UP * 0.075,
+			Vector3(0.31, 0.15, 0.31), cast)
+		var socket := _support_cylinder(frame, "BearingHousing", 0.16, 0.23, dark)
+		socket.position = bearing
+		socket.basis = axis_basis(part.axis)
+		var rim := _support_cylinder(frame, "MachinedBearingRim", 0.185, 0.045, worked)
+		rim.position = bearing + axis_basis(part.axis).y * 0.13
+		rim.basis = socket.basis
+	else:
+		_support_box(frame, "LowBearingCap", bearing - Vector3.UP * minf(0.03, height * 0.5),
+			Vector3(0.23, minf(0.06, height), 0.23), worked)
+	_support_beam(frame, "AxleBridge", bearing, world_center(part.center), 0.095, worked)
+
+func _support_box(parent: Node3D, name_value: String, at: Vector3, size: Vector3,
+		material: Material) -> void:
+	var mesh := MeshInstance3D.new()
+	mesh.name = name_value
+	var shape := BoxMesh.new()
+	shape.size = size
+	mesh.mesh = shape
+	mesh.position = at
+	mesh.material_override = material
+	parent.add_child(mesh)
+
+func _support_cylinder(parent: Node3D, name_value: String, radius: float, height: float,
+		material: Material) -> MeshInstance3D:
+	var mesh := MeshInstance3D.new()
+	mesh.name = name_value
+	var shape := CylinderMesh.new()
+	shape.top_radius = radius
+	shape.bottom_radius = radius
+	shape.height = height
+	shape.radial_segments = 20
+	mesh.mesh = shape
+	mesh.material_override = material
+	parent.add_child(mesh)
+	return mesh
+
+func _support_beam(parent: Node3D, name_value: String, a: Vector3, b: Vector3,
+		width: float, material: Material) -> void:
+	var direction := b - a
+	if direction.length_squared() < 0.000001:
+		return
+	var mesh := MeshInstance3D.new()
+	mesh.name = name_value
+	var shape := BoxMesh.new()
+	shape.size = Vector3(width, direction.length(), width)
+	mesh.mesh = shape
+	var along := direction.normalized()
+	var reference := Vector3.RIGHT if absf(along.dot(Vector3.RIGHT)) < 0.95 else Vector3.BACK
+	var across := reference.cross(along).normalized()
+	mesh.basis = Basis(across, along, across.cross(along))
+	mesh.position = (a + b) * 0.5
+	mesh.material_override = material
+	parent.add_child(mesh)
 
 func _finish(mesh: MeshInstance3D, color: Color) -> void:
 	var material := StandardMaterial3D.new()
