@@ -54,7 +54,10 @@ develops with the run blend, while the hands continue to swing opposite each
 other through the captured cycle. The source calf motion still bends
 behind the leg at some phases after retargeting. A presentation-only two-bone correction
 places each bent knee ahead of its hip-to-ankle line while retaining the
-captured ankle path and foot orientation. The fuller running leg pose lowers
+captured ankle path and foot orientation. The forward walking swing also folds
+the airborne calf before the boot reaches ahead, then releases that extra bend
+before stance. This leaves the planted toe path from the captured clip intact.
+The fuller running leg pose lowers
 its cosmetic visual root by five centimetres at full run weight to meet the
 unchanged support plane. The forearms retain extra flex and
 the captured torso sway is bounded after retargeting. The clip's vertical root
@@ -100,7 +103,7 @@ rosters that omit this folder retain their identified procedural worker.
 
 `worker_rig_check.gd` exercises the actual presentation adapter using invented
 confirmed samples. It checks source bindings, captured walk and run poses,
-forward knee bending, planted toe height and horizontal stance travel,
+forward knee bending, mid-swing knee flex, planted toe height and horizontal stance travel,
 opposing running hands, relaxed walking elbows and bounded lateral carriage,
 skinned dimensions,
 ascent, descent, leading-toe continuity, staged landing contact and skinned support height, per-player

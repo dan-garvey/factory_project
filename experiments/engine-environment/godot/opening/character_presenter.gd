@@ -528,6 +528,23 @@ func _apply_adult_locomotion(body: Node3D, phase: float, weight: float,
 				_adult_turn_joint(body, skeleton, skeleton.find_bone("Bip01 " + side + " Forearm"),
 					Quaternion(Vector3.RIGHT, -0.26 * walk_bend))
 		_adult_correct_grounded_knees(body, skeleton)
+		# The walk clip reaches forward with an almost locked swing knee well
+		# before the boot meets the ground. Fold that airborne leg during its
+		# forward arc, then release it before support so the planted path stays.
+		var walk_swing := strength * (1.0 - run_mix)
+		if walk_swing > 0.01:
+			for side in ["L", "R"]:
+				var swing_phase := fposmod(phase + (PI if side == "L" else 0.0), TAU)
+				var arc := smoothstep(3.2, 3.8, swing_phase) * \
+					(1.0 - smoothstep(4.4, 5.0, swing_phase))
+				var bend := 0.30 * walk_swing * arc
+				if bend > 0.001:
+					_adult_turn_joint(body, skeleton,
+						skeleton.find_bone("Bip01 " + side + " Calf"),
+						Quaternion(Vector3.RIGHT, bend))
+					_adult_turn_joint(body, skeleton,
+						skeleton.find_bone("Bip01 " + side + " Foot"),
+						Quaternion(Vector3.RIGHT, -bend))
 
 func _adult_pose_frames(skeleton: Skeleton3D) -> Array[Transform3D]:
 	# Pose setters outside the scene tree do not invalidate Godot's global-pose
