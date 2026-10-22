@@ -5,6 +5,7 @@ const Geometry = preload("res://opening/site_geometry.gd")
 const ActorWorld = preload("res://opening/actor_world.gd")
 const PhysicalActor = preload("res://opening/actor_body.gd")
 const Presenter = preload("res://opening/native_transmission_presenter.gd")
+const NativeModel = preload("res://opening/native_model.gd")
 const Assets = preload("res://opening/native_transmission_assets.gd")
 const LooseControls = preload("res://opening/recovery_actions.gd").LooseMaterialControls
 const Session = preload("res://opening-session/session.gd")
@@ -13,6 +14,7 @@ var failures := 0
 
 class HostStub extends RefCounted:
 	var state: Dictionary
+	var model: Variant = null
 	var client := "P"
 	var legacy_fixture := false
 	var explanation_open := false
@@ -1741,6 +1743,9 @@ func _scale_benchmark() -> void:
 	var cycle_axes := false
 	var verify_only := false
 	var whole_opening := false
+	var stopped := false
+	var refresh_every_frame := false
+	var trusted_revision := false
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--count="):
 			count = int(argument.trim_prefix("--count="))
@@ -1758,6 +1763,12 @@ func _scale_benchmark() -> void:
 			verify_only = true
 		elif argument == "--whole-opening":
 			whole_opening = true
+		elif argument == "--stopped":
+			stopped = true
+		elif argument == "--refresh-every-frame":
+			refresh_every_frame = true
+		elif argument == "--trusted-revision":
+			trusted_revision = true
 	if count < 0 or count > 800:
 		push_error("Choose 0 to 800 cogs.")
 		quit(2)
@@ -1769,6 +1780,10 @@ func _scale_benchmark() -> void:
 		opening.auto_advance = false
 		scene = opening
 		root.add_child(scene)
+		if trusted_revision:
+			# Exercise the presenter's native revision fast path with a synthetic
+			# projection; this does not boot or time the native World.
+			opening.model = NativeModel.new()
 		opening.focus = Vector3.ZERO
 		opening.distance = 14.0 if close_view else 55.0
 		opening.orbit_yaw = 0.0
@@ -1793,7 +1808,10 @@ func _scale_benchmark() -> void:
 			world_environment.environment = environment
 			scene.add_child(world_environment)
 	var host := HostStub.new()
-	host.state = opening.state.duplicate(true) if whole_opening else {"context": "synthetic-cog-scale", "options": {"native": true},
+	if trusted_revision:
+		host.model = NativeModel.new()
+	host.state = opening.state.duplicate(true) if whole_opening else {"context": "synthetic-cog-scale",
+		"revision": 1, "options": {"native": true},
 		"entities": {}, "transmission_parts": {}, "motion": {}, "belt_spans": {}, "engagements": []}
 	if whole_opening:
 		host.state.options.native = true
@@ -1812,7 +1830,8 @@ func _scale_benchmark() -> void:
 			var at := Vector3(float(x) * 1.65, 0.0, float(z) * 1.65)
 			host.state.transmission_parts[id].support = {"foot": [at.x, 0.24, at.z],
 				"bearing": [at.x, 0.7325, at.z]}
-		host.state.motion[id] = {"state": "rotating", "numerator": 1 if index % 2 == 0 else -1,
+		host.state.motion[id] = {"state": "stalled" if stopped else "rotating",
+			"numerator": 0 if stopped else (1 if index % 2 == 0 else -1),
 			"denominator": 1}
 	var presenter: Node3D
 	var before := Time.get_ticks_usec()
@@ -1870,12 +1889,30 @@ func _scale_benchmark() -> void:
 				matches = matches and pose_match and angle_match
 		if count >= Presenter.GEAR_BATCH_THRESHOLD and batched_count != count:
 			matches = false
+		if count > 0:
+			var previous_key: Variant = presenter._view_key.duplicate(true)
+			var original_motion: Dictionary = host.state.motion["cog-0"].duplicate(true)
+			host.state.motion["cog-0"] = {"state": "stalled", "numerator": 0, "denominator": 1}
+			if trusted_revision:
+				host.state.revision += 1
+			presenter.refresh()
+			matches = matches and presenter._view_key != previous_key
+			if count >= Presenter.GEAR_BATCH_THRESHOLD:
+				var stopped_pose: Transform3D = presenter._gear_batches[4 if large_every > 0 else 2].mesh.get_instance_transform(0)
+				presenter.advance_visual_motion(0.1)
+				matches = matches and presenter._gear_batches[4 if large_every > 0 else 2].mesh.get_instance_transform(0).is_equal_approx(stopped_pose)
+			host.state.motion["cog-0"] = original_motion
+			if trusted_revision:
+				host.state.revision += 1
+			presenter.refresh()
 		if count == Presenter.GEAR_BATCH_THRESHOLD:
 			var last := "cog-%d" % (count - 1)
 			var removed: Dictionary = host.state.transmission_parts[last]
 			var removed_motion: Dictionary = host.state.motion[last]
 			host.state.transmission_parts.erase(last)
 			host.state.motion.erase(last)
+			if trusted_revision:
+				host.state.revision += 1
 			presenter.refresh()
 			matches = matches and presenter._gear_batches.is_empty()
 			var ordinary := 0
@@ -1885,6 +1922,8 @@ func _scale_benchmark() -> void:
 			matches = matches and ordinary == count - 1
 			host.state.transmission_parts[last] = removed
 			host.state.motion[last] = removed_motion
+			if trusted_revision:
+				host.state.revision += 1
 			presenter.refresh()
 			var restored := 0
 			for group: Dictionary in presenter._gear_batches.values():
@@ -1898,14 +1937,20 @@ func _scale_benchmark() -> void:
 			"cycle_axes": cycle_axes, "large_every": large_every, "picks": pick_count,
 			"batched": batched_count, "status": "pass"}))
 		scene.free()
+		await process_frame
 		quit()
 		return
 	var frame_times: Array[float] = []
 	var motion_times: Array[float] = []
 	var process_times: Array[float] = []
+	var refresh_times: Array[float] = []
 	var draw_calls: Array[int] = []
 	for frame in 150:
 		var start := Time.get_ticks_usec()
+		var refresh_start := start
+		if whole_opening and refresh_every_frame:
+			opening._refresh_transmission()
+		var refresh_ms := float(Time.get_ticks_usec() - refresh_start) / 1000.0
 		if not whole_opening:
 			presenter.advance_visual_motion(1.0 / 60.0)
 		var motion_ms := float(Time.get_ticks_usec() - start) / 1000.0
@@ -1915,16 +1960,20 @@ func _scale_benchmark() -> void:
 			motion_times.append(opening.motion_ms if whole_opening else motion_ms)
 			if whole_opening:
 				process_times.append(opening.process_ms)
+				refresh_times.append(refresh_ms)
 			draw_calls.append(RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME))
 	frame_times.sort()
 	motion_times.sort()
 	process_times.sort()
+	refresh_times.sort()
 	draw_calls.sort()
 	if not capture.is_empty():
 		var image := root.get_texture().get_image()
 		image.save_png(capture)
 	var result := {"count": count, "build_ms": build_ms,
 		"supports": supports, "large_every": large_every,
+		"stopped": stopped, "refresh_every_frame": refresh_every_frame,
+		"trusted_revision": trusted_revision,
 		"motion_median_ms": motion_times[motion_times.size() / 2],
 		"frame_median_ms": frame_times[frame_times.size() / 2],
 		"frame_p95_ms": frame_times[int(frame_times.size() * 0.95)],
@@ -1933,12 +1982,15 @@ func _scale_benchmark() -> void:
 		"whole_opening": whole_opening}
 	if whole_opening:
 		result.process_median_ms = process_times[process_times.size() / 2]
+		result.refresh_median_ms = refresh_times[refresh_times.size() / 2]
 		if count > 0 and count < 800:
 			var added: Dictionary = host.state.transmission_parts["cog-0"].duplicate(true)
 			added.center = [columns * 4, 4, 0]
 			added.erase("support")
 			host.state.transmission_parts["cog-added"] = added
 			host.state.motion["cog-added"] = host.state.motion["cog-0"].duplicate(true)
+			if trusted_revision:
+				host.state.revision += 1
 			var refresh_start := Time.get_ticks_usec()
 			opening._refresh_transmission()
 			result.append_refresh_ms = float(Time.get_ticks_usec() - refresh_start) / 1000.0
