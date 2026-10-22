@@ -76,6 +76,39 @@ rotations and the retained level-4 view before accepting either art variant.
 The ordinary screenshot establishes this specific visual gap; it does not
 establish a new mining mechanism or human approval of a proposed fix.
 
+### Raised intake form study
+
+![Exploratory exterior lift beside a raised collector](concepts/collector-raised-lift-form-concept.png)
+
+This AI-generated edit of the retained failed scaffold view is a **form
+reference**, not game geometry, a sourced model, a tested mechanism or a new
+material rule. The edit request kept the existing outcrop, foundation and
+elevated collector while replacing the empty exterior frame with a rock-facing
+pickup, a guarded vertical carrier and a head discharge entering the upper
+bed. It suggests a readable sequence at a glance; none of its depicted joints,
+dimensions, bucket contents or clearances have been verified against the
+actual mesh or native bodies.
+
+Real equipment makes the missing joints clear. [BEUMER's bucket-elevator
+description](https://www.beumergroup.com/knowledge/mining/new-glossary/)
+distinguishes a lower pickup, vertical buckets and a head discharge;
+[Metso's apron-feeder explanation](https://www.metso.com/insights/blog/mining-and-metals/feeding-the-facts-part-1-apron-feeder-basics/)
+describes controlled extraction into another machine. These are engineering
+form references, not selected game assets. BEUMER's [heavy-duty elevator
+example](https://www.beumergroup.com/products-systems/conveyors-technology/bucket-elevators/heavdy-duty-belt-bucket-elevators/)
+is described for pieces up to 120 mm, while the present visual billet is about
+260 × 340 mm. A modeled carrier must fit the material it actually depicts,
+or depict smaller pre-billet fragments without inventing separate stock.
+
+The next candidate must measure its lower pickup against the one finite rock,
+route a real occupied volume outside the raised foundation, connect its head
+to the collector's admitted intake, and preserve the rotated native outlet.
+Any visible material on the carrier must derive from confirmed custody and
+disappear when the source is empty. The current Host and ActorWorld have no
+matching exterior-lift clearance or collider; this picture cannot authorize
+one. Compare both source cells, ground and level-four layouts, and outlet
+rotations in the actual worksite before treating the assembly as usable art.
+
 ## Assembly alternatives
 
 **A. Enclosed scoop below the present hood.** Keep the existing high drum and
