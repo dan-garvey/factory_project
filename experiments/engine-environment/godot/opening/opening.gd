@@ -6227,7 +6227,7 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		rotation_button.tooltip_text = "Turn the building by a quarter turn before placing it. Its input, output and horizontal drive axle turn together."
 		if mode == "wheel" and transmission_controls != null:
 			rotation_button.disabled = rotation_button.disabled or transmission_controls.selected_axis == "y"
-			rotation_button.tooltip_text = "Turn a horizontal wheel axle by 90 degrees. Choose an X or Z axle in the shaft/cog menu; a vertical axle is unchanged by a horizontal turn."
+			rotation_button.tooltip_text = "Turn the wheel axle between X and Z."
 	if foundation_level_controls != null:
 		foundation_level_controls.visible = _native_transmission() and mode in ["foundation", "wheel"] and not explanation_open and snapshot_ready
 		foundation_area_toggle.visible = foundation_level_controls.visible and mode == "foundation"
@@ -6419,7 +6419,7 @@ func _refresh_placement_options() -> void:
 	placement_options_panel.size = Vector2(maxf(302.0, placement_options_panel.get_combined_minimum_size().x), height)
 	var hotbar_height: float = building_hotbar.size.y if building_hotbar != null else 0.0
 	var footer_height: float = status_footer.size.y if status_footer != null and status_footer.visible else 0.0
-	placement_options_panel.position = Vector2((parent.size.x - placement_options_panel.size.x) * 0.5,
+	placement_options_panel.position = Vector2(maxf(18.0, parent.size.x - placement_options_panel.size.x - 18.0),
 		maxf(18.0, parent.size.y - hotbar_height - footer_height - placement_options_panel.size.y - 48.0))
 
 func _refresh_machine_preview() -> void:
