@@ -72,6 +72,8 @@ private:
         double half_x = 0.825, double half_z = 0.825) const;
     [[nodiscard]] const char* machine_site_refusal(const world::State&, const mechanics::Point& center,
         bool collector) const;
+    [[nodiscard]] const char* component_site_refusal(std::optional<materials::Component> kind,
+        const mechanics::Point& center) const;
     [[nodiscard]] std::map<std::string, TransmissionSupport> transmission_supports(const world::State&) const;
     [[nodiscard]] const char* support_change_refusal(const world::State& before,
         const world::State& after) const;

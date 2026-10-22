@@ -1103,6 +1103,32 @@ const char* Host::collector_site_refusal(const mechanics::Point& center) const {
     return allowed == mineral_site::Error::none ? nullptr : mineral_site::error_name(allowed);
 }
 
+const char* Host::component_site_refusal(std::optional<materials::Component> kind,
+        const mechanics::Point& center) const {
+    const authority::Point at{center[0] * height_step,
+        center[1] * height_step + anchor_height, center[2] * height_step};
+    const Bounds volume{at, {0.14, 0.14, 0.14}};
+    const auto ground = terrain_range(at[0], at[2], volume.half[0], volume.half[2]);
+    if (!ground) return "terrain_unavailable";
+    if (ground->second > at[1] - volume.half[1]) return "site_occupied";
+    // Only the named cutting edge at one of the two trusted ore faces may
+    // enter the source hull. The source obstacle is separately identified and
+    // validated when terrain binds; every other obstacle still blocks it.
+    bool source_contact = false;
+    if (kind == materials::Component::cutting_edge)
+        for (const auto& face : profile_.collector_faces)
+            for (Integer height : {Integer{0}, Integer{1}})
+                if (center == mechanics::Point{
+                    face.machine_center[0] + 2 * face.toward_ore[0],
+                    face.machine_center[1] + height,
+                    face.machine_center[2] + 2 * face.toward_ore[2]}) source_contact = true;
+    const auto ignored = source_contact ? source_obstacle_index_ : std::nullopt;
+    if (site_blocked({at[0] - volume.half[0], at[1] - volume.half[1], at[2] - volume.half[2]},
+                     {at[0] + volume.half[0], at[1] + volume.half[1], at[2] + volume.half[2]}, ignored))
+        return "site_occupied";
+    return nullptr;
+}
+
 world::ObserveActor Host::observe() const {
     return [this](const std::string& actor) -> std::optional<authority::ActorCut> {
         const auto found = owned_->actors.find(actor);
@@ -1210,18 +1236,14 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         const authority::Point at{center[0] * height_step,
             center[1] * height_step + anchor_height, center[2] * height_step};
         const Bounds volume{at, {0.14, 0.14, 0.14}};
-        const auto ground = terrain_range(at[0], at[2], volume.half[0], volume.half[2]);
-        if (!ground) return refuse("terrain_unavailable");
-        if (ground->second > at[1] - volume.half[1]) return refuse("site_occupied");
-        if (site_blocked({at[0] - 0.14, at[1] - 0.14, at[2] - 0.14},
-                         {at[0] + 0.14, at[1] + 0.14, at[2] + 0.14}))
-            return refuse("site_occupied");
+        const auto kind = materials::component_from_name(*field<std::string>(wire, "component"));
+        if (const auto* refusal = component_site_refusal(kind, center)) return refuse(refusal);
         if (placement_blocked(at, volume.half)) return refuse("actor_occupied");
         if (intersects_belt(snapshot.state, volume) ||
             std::any_of(snapshot.state.topology.parts.begin(), snapshot.state.topology.parts.end(),
                 [&](const auto& item) { return overlap(volume, part_bounds(profile_, item)); }))
             return refuse("occupied");
-        if (const auto kind = materials::component_from_name(*field<std::string>(wire, "component"))) {
+        if (kind) {
             auto proposed = snapshot.state;
             proposed.placed_components.emplace("proposed-component", world::PlacedComponent{*kind, center, 0});
             if (const auto* refusal = support_change_refusal(snapshot.state, proposed)) return refuse(refusal);
@@ -2020,6 +2042,11 @@ Host::Decoded Host::decode(const Value& input) const {
     if (!std::holds_alternative<world::Snapshot>(decoded)) return {nullptr, "native_checkpoint_refused"};
     auto snapshot = std::get<world::Snapshot>(decoded);
     if (!snapshot.state.topology.drive_enabled) return {nullptr, "native_checkpoint_refused"};
+    for (const auto& [id, component] : snapshot.state.placed_components) {
+        (void)id;
+        if (const auto* refusal = component_site_refusal(component.kind, component.center))
+            return {nullptr, refusal};
+    }
     const auto restored_supports = transmission_supports(snapshot.state);
     for (const auto& record : snapshot.history.records) {
         if (!field<Object>(record.intent, "wire")) return {nullptr, "missing_wire_history"};

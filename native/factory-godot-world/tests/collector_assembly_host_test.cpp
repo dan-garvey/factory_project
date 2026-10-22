@@ -26,6 +26,18 @@ O request(const std::string& id, const char* action) {
         {"request", V(id)}, {"action", V(action)}};
 }
 
+O source_contact_site(bool other_obstacle = false) {
+    auto terrain = factory::godot_world::tests::flat_site();
+    A obstacles{V(A{V(A{V(-1.05), V(0.35), V(-0.2)}),
+                    V(A{V(-0.75), V(0.95), V(1.8)})})};
+    if (other_obstacle)
+        obstacles.emplace_back(A{V(A{V(-0.96), V(0.70), V(-0.10)}),
+                                  V(A{V(-0.88), V(0.90), V(0.10)})});
+    terrain.at("obstacles") = V(std::move(obstacles));
+    terrain.emplace("source_obstacle", V(I{0}));
+    return terrain;
+}
+
 V ground_inspection(const Host& host) {
     const auto entries = get<A>(host.projection(), "collector_assemblies");
     check(entries.size() == 6, "Both ore workcells and three common-grid heights are inspected.");
@@ -44,7 +56,7 @@ std::string place(Host& host, const char* kind, I x, I y, I z, const char* id) {
 void collector_readiness_tracks_real_parts() {
     Host host;
     check(get<bool>(host.initialize_arrival("assembly-site", {"P", "Q"}), "accepted") &&
-          get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted"),
+          get<bool>(host.configure_terrain(source_contact_site()), "accepted"),
           "The experimental arrival binds one native resource and construction authority.");
     check(get<std::string>(ground_inspection(host), "status") == "missing_frame",
           "An empty ore workcell has no collector.");
@@ -75,6 +87,14 @@ void collector_readiness_tracks_real_parts() {
     check(get<std::string>(ground_inspection(host), "status") == "missing_mount",
           "A frame alone does not become a machine.");
     const auto mount = place(host, "tool_mount", -1, 0, 0, "mount");
+    auto wrong_source_part = request("wrong-source-part", "place_component");
+    wrong_source_part.emplace("component", V("receiver_tray"));
+    wrong_source_part.emplace("center", V(A{V(I{-2}), V(I{0}), V(I{0})}));
+    const auto wrong_source_result = host.command("P", wrong_source_part);
+    check(!get<bool>(wrong_source_result, "accepted") &&
+          get<std::string>(wrong_source_result, "reason") == "site_occupied" &&
+          get<O>(host.projection(), "placed_components").size() == 2,
+          "A non-cutting component cannot occupy the tagged ore source.");
     const auto edge = place(host, "cutting_edge", -2, 0, 0, "edge");
     const auto receiver = place(host, "receiver_tray", 0, 0, 1, "receiver");
     check(get<std::string>(ground_inspection(host), "status") == "missing_shaft",
@@ -140,11 +160,20 @@ void collector_readiness_tracks_real_parts() {
           "A complete component layout validates as an ordinary native checkpoint.");
     Host restored;
     check(get<bool>(restored.initialize_arrival("assembly-site", {"P", "Q"}), "accepted") &&
-          get<bool>(restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(restored.configure_terrain(source_contact_site()), "accepted") &&
           get<bool>(restored.restore_checkpoint(saved), "accepted") &&
           get<std::string>(ground_inspection(restored), "status") == "ready" &&
           get<I>(get<O>(restored.projection(), "hand_sources").at("opening-softmetal"), "remaining") == 14,
           "A fresh Host derives the same collector and conserved source after restore.");
+    Host obstructed;
+    check(get<bool>(obstructed.initialize_arrival("assembly-site", {"P", "Q"}), "accepted") &&
+          get<bool>(obstructed.configure_terrain(source_contact_site(true)), "accepted"),
+          "A distinct obstruction binds to the fresh Host beside the trusted source.");
+    const auto obstructed_restore = obstructed.restore_checkpoint(saved);
+    check(!get<bool>(obstructed_restore, "accepted") &&
+          get<std::string>(obstructed_restore, "reason") == "site_occupied" &&
+          get<O>(obstructed.projection(), "placed_components").empty(),
+          "A second obstacle at the cutter refuses checkpoint import without installing parts.");
     check(get<bool>(restored.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 7), "accepted"),
           "The restored actor publishes a current physical pose before edits.");
     auto pickup = request("pickup-first", "pickup_material");
