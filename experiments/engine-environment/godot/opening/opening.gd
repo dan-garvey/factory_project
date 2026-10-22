@@ -887,6 +887,62 @@ class ProductionWheelSupportArt:
 					_part(parent, "WheelFootBolt", suffix + ("L" if x < 0 else "R"), fasteners[scale_factor],
 						offset + stand_frame * Vector3(x * scale_factor, 0.36 * height_factor + 0.009 * scale_factor, 0), Basis.IDENTITY, worked)
 
+class ProductionWheelPierArt:
+	extends RefCounted
+	## Meshes consume the native Host's two terrain-seated support envelopes.
+	## They introduce no independently chosen footprint or mechanical state.
+	static func _beam(parent: Node3D, name_value: String, start: Vector3, finish_at: Vector3,
+			width: float, surface: Material) -> void:
+		var direction := finish_at - start
+		var mesh := BoxMesh.new()
+		mesh.size = Vector3(width, direction.length(), width)
+		var part := MeshInstance3D.new()
+		part.name = name_value
+		part.mesh = mesh
+		part.material_override = surface
+		part.position = (start + finish_at) * 0.5
+		part.basis = Basis(Quaternion(Vector3.UP, direction.normalized()))
+		part.set_meta("wheel_support_role", "RiverPier")
+		parent.add_child(part)
+
+	static func mount(parent: Node3D, entity: Dictionary) -> bool:
+		var projected: Dictionary = Geometry.wheel_support_boxes(entity)
+		if not projected.get("accepted", false):
+			return false
+		var axis: int = int(entity.get("axis", -1))
+		if axis not in [0, 2]:
+			return false
+		var radial := Vector3.BACK if axis == 0 else Vector3.RIGHT
+		var worked := ProductionTransmissionFinish.material("cast", Color("465a60"), 0.85, 0.55)
+		var stone := ProductionEnvironment.stone_material()
+		for original: Dictionary in projected.boxes:
+			var middle: Vector3 = original.center - parent.position
+			var size: Vector3 = original.size
+			var low: float = middle.y - size.y * 0.5
+			var high: float = middle.y + size.y * 0.5
+			for side in [-1.0, 1.0]:
+				_beam(parent, "RiverPierBrace", middle + radial * side * 0.32 + Vector3.UP * (low - middle.y + 0.12),
+					middle + Vector3.UP * (high - middle.y - 0.11), 0.22, worked)
+			var cap := MeshInstance3D.new()
+			cap.name = "RiverPierCap"
+			var cap_mesh := BoxMesh.new()
+			cap_mesh.size = Vector3(size.x, 0.12, size.z)
+			cap.mesh = cap_mesh
+			cap.position = Vector3(middle.x, high - 0.06, middle.z)
+			cap.material_override = worked
+			cap.set_meta("wheel_support_role", "RiverPierCap")
+			parent.add_child(cap)
+			var foot := MeshInstance3D.new()
+			foot.name = "RiverPierFoot"
+			var slab := BoxMesh.new()
+			slab.size = Vector3(size.x, 0.18, size.z)
+			foot.mesh = slab
+			foot.position = Vector3(middle.x, low + 0.09, middle.z)
+			foot.material_override = stone
+			foot.set_meta("wheel_support_role", "RiverPierFoot")
+			parent.add_child(foot)
+		return true
+
 class ProductionFeedSleeveArt:
 	extends RefCounted
 	## Render the existing confirmed feed link. No stock, transfer or power rule.
@@ -5677,6 +5733,13 @@ func _wheel_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 				Vector3(0.16, 0.54, 0.16) * scale_factor, frame)
 			_machine_cylinder(anchor, "AxleBearing", offset + Vector3.UP * 0.78 * scale_factor,
 				0.145 * scale_factor, 0.18 * scale_factor, Color("a6b4af"), bearing_rotation)
+	if native_profile and entity.has("supports"):
+		if ProductionWheelPierArt.mount(anchor, entity):
+			for child in anchor.get_children():
+				if child is MeshInstance3D and child.get_meta("wheel_support_role", "") == "WheelStand":
+					child.visible = false
+		else:
+			push_error("The native wheel support projection is invalid.")
 	wheel_rotor = Node3D.new()
 	wheel_rotor.name = "WheelRotor"
 	wheel_rotor.position = Vector3.UP * (Geometry.ANCHOR_HEIGHT if native_profile else 0.78)
@@ -5830,6 +5893,18 @@ func _rebuild_machines() -> void:
 		collider.shape = shape
 		collider.position.y = Geometry.ANCHOR_HEIGHT if kind == "wheel" and _native_transmission() else Geometry.MACHINE_CENTER_HEIGHT
 		body.add_child(collider)
+		if kind == "wheel" and _native_transmission() and entity.has("supports"):
+			var support_result: Dictionary = Geometry.wheel_support_boxes(entity)
+			if not support_result.get("accepted", false):
+				push_error("The wheel pick geometry lacks its native support boxes.")
+			else:
+				for support: Dictionary in support_result.boxes:
+					var support_pick := CollisionShape3D.new()
+					var support_box := BoxShape3D.new()
+					support_box.size = support.size
+					support_pick.shape = support_box
+					support_pick.position = support.center - anchor.position
+					body.add_child(support_pick)
 		anchor.add_child(body)
 		var caption_height := collider.position.y + shape.size.y * 0.5 + 0.275
 		var caption := _text(anchor, NAMES.get(kind, kind).to_upper(), Vector3(0, caption_height, 0), Color("f2e5c5"))

@@ -101,7 +101,7 @@ void finite_oriented_train_and_restore() {
     Host host;
     check(accepted(host.initialize("cog-api", {"P", "Q"})), "The original finite profile initializes.");
     check(accepted(host.configure_terrain(factory::godot_world::tests::channel_site())), "The test binds explicit synthetic terrain.");
-    observe(host, -1.65, 3.3, 1);
+    observe(host, -3.3, 3.3, 1);
     const auto specs = field<O>(host.projection(), "part_specifications");
     bool saw_gear = false, saw_large = false;
     for (const auto& entry : std::get<A>(specs.at("P").storage())) {
@@ -116,22 +116,25 @@ void finite_oriented_train_and_restore() {
     auto base = wire("place_foundation", "collector-base");
     base.emplace("cell", V(A{V(I{0}), V(I{1})})); base.emplace("level", V(I{4}));
     check(accepted(host.command("P", base)), "The synthetic stream bank supports a collector foundation.");
-    const auto wheel = create(host, machine("wheel", -2, "wheel", "z"));
+    const auto wheel = create(host, machine("wheel", -3, "wheel", "z"));
     auto collector_wire = machine("collector", 0, "collector", "z");
     collector_wire.emplace("level", V(I{4}));
     const auto collector = create(host, collector_wire);
     observe(host, 0, 0, 2);
-    observe(host, -3.3, 0, 3);
-    create(host, gear(-8, 4, 8, "upper", "z"));
-    observe(host, 0, 0, 4);
+    observe(host, -1.65, 3.3, 3);
+    create(host, gear(-12, 4, 8, "upper", "z"));
+    create(host, gear(-8, 4, 8, "bridge", "z"));
+    observe(host, -2.475, 1.65, 4);
     const auto a = create(host, gear(-4, 4, 8, "gear-A", "z"));
     const auto original_b = gear(0, 4, 8, "gear-B", "z");
     const auto b = create(host, original_b);
     auto power = wire("set_power", "start"); power.emplace("active", V(true));
-    check(accepted(host.command("P", power)), "The source enables the actual geometry train.");
-    check(field<I>(motion(host, a), "numerator") == -1 && field<I>(motion(host, a), "denominator") == 3 &&
-          field<I>(motion(host, b), "numerator") == 1 && field<I>(motion(host, b), "denominator") == 3 &&
-          field<I>(motion(host, collector), "numerator") == 1,
+    const auto power_reply = host.command("P", power);
+    check(accepted(power_reply), "The source enables the actual geometry train; reason=" +
+          field<std::string>(power_reply, "reason") + ".");
+    check(field<I>(motion(host, a), "numerator") == 25 && field<I>(motion(host, a), "denominator") == 84 &&
+          field<I>(motion(host, b), "numerator") == -25 && field<I>(motion(host, b), "denominator") == 84 &&
+          field<I>(motion(host, collector), "numerator") == -25,
           "Meshing equal gears reverses the exact signed rate through the touching axles.");
     check(!field<bool>(motion(host, a), "overloaded") &&
               field<double>(motion(host, a), "capacity") > field<double>(motion(host, a), "impact") &&
@@ -139,7 +142,7 @@ void finite_oriented_train_and_restore() {
           "The host projects the same non-overloaded component capacity to its members.");
     check(field<bool>(host.projection(), "powered") &&
           field<I>(V(field<O>(host.projection(), "parts")), "shaft") == 8 &&
-          field<I>(V(field<O>(host.projection(), "parts")), "gear") == 7,
+          field<I>(V(field<O>(host.projection(), "parts")), "gear") == 6,
           "The powered train retains the remaining shafts and cogs.");
     const auto ticked = host.advance();
     check(field<I>(V(field<O>(ticked, "stock")), "source") == 4095 &&
@@ -156,7 +159,7 @@ void finite_oriented_train_and_restore() {
     observe(host, 0, 0, 6);
     const auto rebuilt = create(host, gear(0, 4, 8, "rebuild-B", "z"));
     check(rebuilt != b && field<bool>(host.projection(), "powered") &&
-          field<I>(motion(host, rebuilt), "numerator") == 1,
+          field<I>(motion(host, rebuilt), "numerator") == -25,
           "Correct reconstruction restores geometric transmission with a new identity.");
     observe(host, 20, 20, 7);
     const auto retry = host.command("P", original_b);
@@ -184,31 +187,32 @@ void adjacent_axle_faces() {
     check(accepted(host.initialize("cog-api", {"P"})) &&
               accepted(host.configure_terrain(factory::godot_world::tests::channel_site())),
           "The direct-axle control binds an invented flowing channel.");
-    observe(host, -1.65, 3.3, 1);
+    observe(host, -3.3, 3.3, 1);
     auto base = wire("place_foundation", "direct-collector-base");
     base.emplace("cell", V(A{V(I{0}), V(I{1})})); base.emplace("level", V(I{4}));
     check(accepted(host.command("P", base)), "The fixture supports the collector foundation.");
-    const auto wheel = create(host, machine("wheel", -2, "direct-wheel", "z"));
+    const auto wheel = create(host, machine("wheel", -3, "direct-wheel", "z"));
     auto collector_wire = machine("collector", 0, "direct-collector", "z");
     collector_wire.emplace("level", V(I{4}));
     const auto collector = create(host, collector_wire);
     observe(host, 0, 0, 2);
-    observe(host, -3.3, 0, 3);
-    const auto upper = create(host, gear(-8, 4, 8, "direct-upper", "z"));
-    observe(host, 0, 0, 4);
+    observe(host, -1.65, 3.3, 3);
+    const auto upper = create(host, gear(-12, 4, 8, "direct-upper", "z"));
+    create(host, gear(-8, 4, 8, "direct-bridge", "z"));
+    observe(host, -2.475, 1.65, 4);
     const auto a = create(host, gear(-4, 4, 8, "direct-cog-a", "z"));
     const auto b = create(host, gear(0, 4, 8, "direct-cog-b", "z"));
-    observe(host, -1.65, 0, 5);
+    observe(host, -3.3, 1.65, 5);
     const auto redundant = host.command("P", connection(wheel, upper, "direct-redundant"));
     check(!accepted(redundant) && field<std::string>(redundant, "reason") == "individual_shaft_required" &&
               field<I>(V(field<O>(host.projection(), "parts")), "shaft") == 8,
           "Endpoint shaft construction is refused without consuming a part.");
     auto power = wire("set_power", "direct-start"); power.emplace("active", V(true));
     check(accepted(host.command("P", power)), "The current is enabled without installing a shaft.");
-    check(field<I>(motion(host, wheel), "numerator") == 1 && field<I>(motion(host, wheel), "denominator") == 3 &&
-              field<I>(motion(host, a), "numerator") == -1 &&
-              field<I>(motion(host, b), "numerator") == 1 &&
-              field<I>(motion(host, collector), "numerator") == 1 &&
+    check(field<I>(motion(host, wheel), "numerator") == 25 && field<I>(motion(host, wheel), "denominator") == 84 &&
+              field<I>(motion(host, a), "numerator") == 25 &&
+              field<I>(motion(host, b), "numerator") == -25 &&
+              field<I>(motion(host, collector), "numerator") == -25 &&
               field<I>(V(field<O>(host.projection(), "parts")), "shaft") == 8,
           "Adjacent axle faces carry signed rotation without consuming any finite shaft.");
     const auto saved = host.checkpoint();
@@ -284,27 +288,21 @@ void finite_large_cog() {
 
 void perpendicular_belt_line() {
     auto site = factory::godot_world::tests::channel_site();
-    auto water = std::get<A>(site.at("water").storage());
-    for (auto& sample_value : water) {
-        auto sample = std::get<A>(sample_value.storage());
-        sample[4] = V(I{-200});
-        sample_value = V(std::move(sample));
-    }
-    site.at("water") = V(std::move(water));
     Host host;
     check(accepted(host.initialize("cog-api", {"P", "Q"})) &&
               accepted(host.configure_terrain(site)),
           "The perpendicular-line Host binds its synthetic terrain.");
-    observe(host, -1.65, 3.3, 1);
+    observe(host, -3.3, 3.3, 1);
     auto base = wire("place_foundation", "line-collector-base");
     base.emplace("cell", V(A{V(I{0}), V(I{1})})); base.emplace("level", V(I{4}));
     check(accepted(host.command("P", base)), "The synthetic line has a supported collector.");
-    observe(host, -1.65, 3.3, 2);
-    const auto wheel = create(host, machine("wheel", -2, "line-machine-0", "z"));
-    observe(host, -3.3, 0, 3);
-    create(host, gear(-8, 4, 8, "line-gear-0", "z", 2));
+    observe(host, -3.3, 3.3, 2);
+    const auto wheel = create(host, machine("wheel", -3, "line-machine-0", "z"));
+    observe(host, -1.65, 3.3, 3);
+    create(host, gear(-12, 4, 8, "line-gear-0", "z", 2));
+    create(host, gear(-8, 4, 8, "line-extra-bridge", "z", 2));
+    observe(host, -2.475, 1.65, 4);
     create(host, gear(-4, 4, 8, "line-bridge", "z", 2));
-    observe(host, 0, 0, 4);
     auto collector_wire = machine("collector", 0, "line-collector", "z");
     collector_wire.emplace("level", V(I{4}));
     const auto collector = create(host, collector_wire);
@@ -318,20 +316,20 @@ void perpendicular_belt_line() {
     auto install = wire("place_belt_span", "line-span");
     install.emplace("from", V(first)); install.emplace("to", V(last));
     const auto belt = create(host, install);
-    observe(host, -1.65, 0, 8);
+    observe(host, -3.3, 1.65, 8);
     auto power = wire("set_power", "line-start"); power.emplace("active", V(true));
     check(accepted(host.command("P", power)), "The actor enables the source for the perpendicular line.");
     const auto projected = host.projection();
     check(field<A>(projected, "links").empty() && field<O>(projected, "belt_spans").size() == 1 &&
               field<I>(V(field<O>(projected, "parts")), "shaft") == 6 &&
-              field<I>(V(field<O>(projected, "parts")), "gear") == 6,
-          "The connected line uses four small cogs and two physical belt shafts.");
-    check(field<I>(motion(host, wheel), "numerator") == -1 &&
-              field<I>(motion(host, collector), "numerator") == -1 &&
-              field<I>(motion(host, first), "numerator") == 1 &&
-              field<I>(motion(host, last), "numerator") == 1 &&
-              field<I>(motion(host, first), "denominator") == 3 &&
-              field<I>(motion(host, last), "denominator") == 3,
+              field<I>(V(field<O>(projected, "parts")), "gear") == 5,
+          "The connected line uses five small cogs and two physical belt shafts.");
+    check(field<I>(motion(host, wheel), "numerator") == 25 &&
+              field<I>(motion(host, collector), "numerator") == -25 &&
+              field<I>(motion(host, first), "numerator") == 25 &&
+              field<I>(motion(host, last), "numerator") == 25 &&
+              field<I>(motion(host, first), "denominator") == 84 &&
+              field<I>(motion(host, last), "denominator") == 84,
           "The reversed belt shafts share the exact signed rate from the geared source.");
     const auto saved = host.checkpoint();
     Host fresh;
@@ -1055,11 +1053,11 @@ void cross_axis_belt_line() {
     auto power = wire("set_power", "cross-start"); power.emplace("active", V(true));
     check(accepted(host.command("P", power)), "The source starts the cross-axis line.");
     check(field<I>(motion(host, wheel), "numerator") != 0 &&
-              field<I>(motion(host, collector), "numerator") == -1 &&
-              field<I>(motion(host, first), "numerator") == 1 &&
-              field<I>(motion(host, last), "numerator") == 1 &&
-              field<I>(motion(host, press), "numerator") == 1 &&
-              field<I>(motion(host, first), "denominator") == 3,
+              field<I>(motion(host, collector), "numerator") == -25 &&
+              field<I>(motion(host, first), "numerator") == 25 &&
+              field<I>(motion(host, last), "numerator") == 25 &&
+              field<I>(motion(host, press), "numerator") == 25 &&
+              field<I>(motion(host, first), "denominator") == 84,
           "The corner drives the collector, both parallel belt shafts and the press at the expected signed rates.");
     const auto advanced = host.advance();
     const auto slots = field<A>(field<O>(advanced, "belt_spans").at(span), "slots");
@@ -1178,7 +1176,8 @@ void individual_shafts() {
     observe(host, -1.65, 3.3, 3);
     const auto second = create(host, shaft(-8, 4, 12, "second-segment"));
     auto power = wire("set_power", "shaft-start"); power.emplace("active", V(true));
-    check(accepted(host.command("P", power)) && field<I>(motion(host, second), "numerator") == 1,
+    check(accepted(host.command("P", power)) && field<I>(motion(host, second), "numerator") == 25 &&
+              field<I>(motion(host, second), "denominator") == 84,
           "Two individually placed, touching shaft segments carry the wheel rotation.");
     check(field<I>(V(field<O>(host.projection(), "parts")), "shaft") == 6,
           "Both segment placements consume their own finite parts.");
@@ -1187,8 +1186,8 @@ void individual_shafts() {
               field<I>(V(field<O>(host.projection(), "parts")), "shaft") == 7,
           "Removing the first segment disconnects the second and refunds one part.");
     const auto replacement = create(host, shaft(-8, 4, 8, "replacement-segment"));
-    check(field<I>(motion(host, replacement), "numerator") == 1 &&
-              field<I>(motion(host, second), "numerator") == 1,
+    check(field<I>(motion(host, replacement), "numerator") == 25 &&
+              field<I>(motion(host, second), "numerator") == 25,
           "A replacement one-tile segment reconnects the source to the remaining segment.");
     observe(host, 0, 3.3, 4);
     check(field<std::string>(host.command("P", shaft(0, 0, 8, "actor-overlap-shaft", "x")), "reason") == "actor_occupied",

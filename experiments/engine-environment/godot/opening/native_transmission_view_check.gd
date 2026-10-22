@@ -1021,6 +1021,52 @@ func _cog_axle_collision() -> void:
 		physical.queue_free()
 		await process_frame
 
+func _river_pier_collision() -> void:
+	for axis in [0, 2]:
+		var supports: Array = []
+		for side in [-1.0, 1.0]:
+			supports.append({"center": [side * 0.5 if axis == 0 else 0.0, 0.6375,
+				side * 0.5 if axis == 2 else 0.0],
+				"half": [0.18 if axis == 0 else 0.43, 1.7875, 0.18 if axis == 2 else 0.43]})
+		var authority := PhysicalProjection.new()
+		authority.state = {"options": {"native": true, "physical": true}, "actors": {},
+			"entities": {"wheel": {"kind": "wheel", "cell": [0, 0], "level": 4,
+				"axis": axis, "tiles": 3, "supports": supports}},
+			"foundations": {}, "transmission_parts": {}, "belt_spans": {}}
+		var physical := ActorWorld.new()
+		root.add_child(physical)
+		verify(physical.configure(authority).accepted, "A wheel projection registers its two fixed support shapes.")
+		await physics_frame
+		await physics_frame
+		var wheel: StaticBody3D = physical.machines.wheel
+		verify(physical._geometry_registered() and PhysicsServer3D.body_get_shape_count(wheel.get_rid()) == 3,
+			"The native body contains the rotating envelope and both projected river piers.")
+		var query := PhysicsShapeQueryParameters3D.new()
+		var probe := SphereShape3D.new()
+		probe.radius = 0.04
+		query.shape = probe
+		query.collision_mask = Geometry.MACHINE_LAYER
+		query.transform.origin = Vector3(0.5, 1.2, 0.0) if axis == 0 else Vector3(0.0, 1.2, 0.5)
+		var hits := physical.get_world_3d().direct_space_state.intersect_shape(query)
+		verify(hits.any(func(hit: Dictionary): return hit.rid == wheel.get_rid() and hit.shape == 2),
+			"A support-only probe hits the pier body, beyond the rotating wheel envelope.")
+		var support_shape: BoxShape3D = wheel.get_child(2).shape
+		var original_size := support_shape.size
+		support_shape.size *= 0.5
+		verify(not physical._geometry_registered(), "Changing the projected support collider fails registration.")
+		support_shape.size = original_size
+		authority.state.entities.clear()
+		verify(physical.sync_topology().accepted and physical.machines.is_empty(),
+			"Removing the wheel removes both support colliders.")
+		authority.state.entities.wheel = {"kind": "wheel", "cell": [0, 0], "level": 4,
+			"axis": axis, "tiles": 3, "supports": supports}
+		verify(physical.sync_topology().accepted, "Rebuilding the wheel restores its confirmed support volumes.")
+		await physics_frame
+		await physics_frame
+		verify(physical._geometry_registered(), "The restored wheel and support shapes match the projection.")
+		physical.queue_free()
+		await process_frame
+
 func _collision_body_lifecycle() -> void:
 	var authority := PhysicalProjection.new()
 	authority.state = {"options": {"native": true, "physical": true}, "actors": {}, "entities": {}, "foundations": {},
@@ -1379,6 +1425,8 @@ func _run() -> void:
 		await _collision_body_lifecycle()
 	elif "--cog-axle-collision-only" in OS.get_cmdline_user_args():
 		await _cog_axle_collision()
+	elif "--river-pier-collision-only" in OS.get_cmdline_user_args():
+		await _river_pier_collision()
 	elif "--belt-actor-only" in OS.get_cmdline_user_args():
 		await _belt_actor_transport()
 	elif "--inclined-belt-actor-only" in OS.get_cmdline_user_args():

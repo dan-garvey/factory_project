@@ -1814,7 +1814,8 @@ func check_wheel_supports() -> void:
 					and finish.uv1_scale.is_equal_approx(Vector3.ONE / Opening.ProductionTransmissionFinish.WORKED_METRES),
 					"The journal reuses the qualified local worked-metal maps at their physical repeat.")
 				if not cached.has("Journal"):
-					check_closed_asset_mesh(hub.mesh, 0.0108, 0.0116)
+					var journal_span_factor: float = Geometry.WATERWHEEL_RADIUS / (2.0 * Geometry.HEIGHT_STEP)
+					check_closed_asset_mesh(hub.mesh, 0.0108 * journal_span_factor, 0.0116 * journal_span_factor)
 					cached.Journal = [hub.mesh, finish]
 					var plain := CylinderMesh.new()
 					plain.top_radius = expected_radius
@@ -1977,6 +1978,73 @@ func check_wheel_supports() -> void:
 		"legacy_assemblies": legacy_assemblies,
 		"full_turn_check": "Conservative separation of actual facet envelopes, not native contact or force proof.",
 		"observations": "invented", "native_gameplay": "not_run", "rendered_quality": "not_assessed"}))
+
+func check_river_pier_projection() -> void:
+	for axis in [0, 2]:
+		for tiles in range(3, 9):
+			var supports: Array = []
+			for side in [-1.0, 1.0]:
+				supports.append({"center": [side * 0.50 if axis == 0 else 0.0, 0.6375,
+					side * 0.50 if axis == 2 else 0.0],
+					"half": [0.18 if axis == 0 else 0.43, 1.7875, 0.18 if axis == 2 else 0.43]})
+			var entity: Dictionary = {"kind": "wheel", "cell": [0, 0], "level": 4,
+				"axis": axis, "tiles": tiles, "generation": 1, "supports": supports}
+			var projected: Dictionary = Geometry.wheel_support_boxes(entity)
+			verify(projected.get("accepted", false), "Both horizontal axes accept all sized native support envelopes.")
+			var wrong_type := entity.duplicate(true)
+			wrong_type.supports[0].half[0] = true
+			verify(not Geometry.wheel_support_boxes(wrong_type).get("accepted", false),
+				"A boolean support half-width cannot become a native physical dimension.")
+			var view := Opening.new()
+			view.machine_root = Node3D.new()
+			view.add_child(view.machine_root)
+			view.state = {"context": "native-river-pier-fixture", "options": {"native": true},
+				"actors": {}, "foundations": {}, "transmission_parts": {}, "motion": {},
+				"entities": {"wheel": entity}, "links": [], "drive_links": [], "engagements": []}
+			view._rebuild_machines()
+			var anchor: Node3D = view.machine_root.get_child(0)
+			var rotor: Node3D = anchor.get_node("WheelRotor")
+			var rotating: Array[Dictionary] = []
+			for child in rotor.get_children():
+				if child is Node3D:
+					wheel_rotating_envelopes(child, Transform3D.IDENTITY, rotating)
+			var counts := {"RiverPier": 0, "RiverPierCap": 0, "RiverPierFoot": 0, "old_stands_visible": 0}
+			var pick: StaticBody3D
+			for child in anchor.get_children():
+				if child is MeshInstance3D:
+					var role: String = child.get_meta("wheel_support_role", "")
+					if counts.has(role):
+						counts[role] += 1
+						var side := 0 if child.position[axis] < 0.0 else 1
+						var box: Dictionary = projected.boxes[side]
+						var within := true
+						for corner in range(8):
+							var point: Vector3 = anchor.position + child.transform * child.mesh.get_aabb().get_endpoint(corner)
+							for dimension in range(3):
+								within = within and absf(point[dimension] - box.center[dimension]) <= box.size[dimension] * 0.5 + 0.0001
+						verify(within, "Every visible pier facet remains inside its native support box.")
+						verify(wheel_support_separates(child.mesh, rotor.transform.affine_inverse() * child.transform, rotating),
+							"Fixed pier artwork clears the rotating wheel through a complete turn.")
+					if role == "WheelStand" and child.visible:
+						counts.old_stands_visible += 1
+				elif child is StaticBody3D:
+					pick = child
+			verify(counts.RiverPier == 4 and counts.RiverPierCap == 2 and counts.RiverPierFoot == 2
+				and counts.old_stands_visible == 0,
+				"Every sized wheel has two terrain-seated A-frames, capped bearings and visible stone footings.")
+			verify(pick != null and pick.get_child_count() == 3,
+				"Picking includes the rotor and the same two fixed support volumes.")
+			if pick != null and pick.get_child_count() == 3:
+				for index in range(2):
+					var collider := pick.get_child(index + 1) as CollisionShape3D
+					var expected: Dictionary = projected.boxes[index]
+					verify(collider.shape is BoxShape3D and collider.shape.size.is_equal_approx(expected.size)
+						and collider.position.is_equal_approx(expected.center - anchor.position),
+						"The pick shape matches its projected native support volume exactly.")
+			view.free()
+	print(JSON.stringify({"phase": "native river piers", "checks": checks,
+		"axes": [0, 2], "tiles": [3, 4, 5, 6, 7, 8],
+		"observations": "invented", "native_gameplay": "not_run"}))
 
 func check_vertical_sized_wheels() -> int:
 	var checked := 0
@@ -5987,6 +6055,10 @@ func _initialize() -> void:
 	if OS.get_cmdline_user_args().has("--wheel-supports-only"):
 		check_wheel_supports()
 		verify(wheel_support_checks_complete, "The dedicated sized-wheel case passes all twenty-four required assemblies.")
+		finish()
+		return
+	if OS.get_cmdline_user_args().has("--river-piers-only"):
+		check_river_pier_projection()
 		finish()
 		return
 	if OS.get_cmdline_user_args().has("--collector-coating-only") or OS.get_cmdline_user_args().has("--historical-coating-only"):

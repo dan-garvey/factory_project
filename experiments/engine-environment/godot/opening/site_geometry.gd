@@ -9,7 +9,9 @@ const FOUNDATION_HEIGHT_UNITS := 2
 const FOUNDATION_DEPTH := FOUNDATION_HEIGHT_UNITS * HEIGHT_STEP
 const GRID_COORDINATE_LIMIT := 1000000 # Native integer representation bound.
 const ANCHOR_HEIGHT := PITCH / 2.0
-const WATERWHEEL_RADIUS := 2.0 * HEIGHT_STEP
+const WATERWHEEL_RADIUS_HUNDREDTHS := 224
+const WATERWHEEL_AXLE_OFFSET_HUNDREDTHS := 200
+const WATERWHEEL_RADIUS := WATERWHEEL_RADIUS_HUNDREDTHS * HEIGHT_STEP / 100.0
 const BASE_REACH := 4.0
 
 const CAPSULE_RADIUS := 0.3
@@ -30,6 +32,27 @@ const MACHINE_CENTER_HEIGHT := 0.8
 static func wheel_half_extents(axis: int, tiles: int) -> Vector3:
 	var radius := WATERWHEEL_RADIUS * tiles
 	return Vector3(0.3 if axis == 0 else radius, radius, 0.3 if axis == 2 else radius)
+
+static func wheel_support_boxes(entity: Dictionary) -> Dictionary:
+	var source: Variant = entity.get("supports")
+	if not source is Array or source.size() != 2:
+		return {"accepted": false}
+	var boxes: Array[Dictionary] = []
+	for value: Variant in source:
+		if not value is Dictionary or value.size() != 2 or not value.has("center") or not value.has("half"):
+			return {"accepted": false}
+		var center: Variant = value.center
+		var half: Variant = value.half
+		if not center is Array or not half is Array or center.size() != 3 or half.size() != 3:
+			return {"accepted": false}
+		for coordinate: Variant in center + half:
+			if typeof(coordinate) != TYPE_FLOAT or not is_finite(coordinate):
+				return {"accepted": false}
+		var size := Vector3(half[0], half[1], half[2]) * 2.0
+		if size.x <= 0.0 or size.y <= 0.0 or size.z <= 0.0:
+			return {"accepted": false}
+		boxes.append({"center": Vector3(center[0], center[1], center[2]), "size": size})
+	return {"accepted": true, "boxes": boxes}
 
 # Match the existing grid tile tops. The adapter uses WorldBoundaryShape3D;
 # its effective extent is backend-specific, not a selected game-world limit.

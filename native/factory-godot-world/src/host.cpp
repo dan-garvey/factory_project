@@ -3,6 +3,7 @@
 #include "factory/waterflow.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <initializer_list>
 #include <limits>
@@ -25,6 +26,9 @@ constexpr Integer height_denominator = 4;
 constexpr double height_step = pitch / height_denominator;
 constexpr double foundation_depth = 2 * height_step;
 constexpr double anchor_height = pitch / 2;
+// Hundredths of a height step, shared with the native opening rotor.
+constexpr Integer wheel_radius = 224;
+constexpr Integer wheel_axle_offset = 200;
 constexpr double reach = 4.0;
 constexpr double capsule_radius = 0.3;
 constexpr double capsule_height = 1.8;
@@ -33,6 +37,34 @@ constexpr double machine_height = 1.65;
 constexpr double machine_center_height = 0.8;
 
 struct Bounds { authority::Point center, half; };
+
+// The fixed bearings stand just outside the rotating disc. Terrain supplies
+// their lower seats; neither the player wire nor saved state supplies a pose.
+template<class TerrainRange>
+std::optional<std::array<Bounds, 2>> wheel_support_bounds(const mechanics::Point& center,
+        mechanics::Axis axis, TerrainRange&& terrain_range) {
+    if (axis != mechanics::Axis::x && axis != mechanics::Axis::z) return std::nullopt;
+    const auto x = center[0] * height_step, z = center[2] * height_step;
+    const auto axle_y = center[1] * height_step + anchor_height;
+    constexpr double axial_offset = 0.5, axial_half = 0.18, radial_half = 0.43;
+    std::array<Bounds, 2> supports{};
+    for (std::size_t index = 0; index < supports.size(); ++index) {
+        const auto side = index == 0 ? -1.0 : 1.0;
+        const auto foot_x = x + (axis == mechanics::Axis::x ? side * axial_offset : 0.0);
+        const auto foot_z = z + (axis == mechanics::Axis::z ? side * axial_offset : 0.0);
+        const auto half_x = axis == mechanics::Axis::x ? axial_half : radial_half;
+        const auto half_z = axis == mechanics::Axis::z ? axial_half : radial_half;
+        const auto terrain = terrain_range(foot_x, foot_z, half_x, half_z);
+        if (!terrain || !std::isfinite(terrain->first) || !std::isfinite(terrain->second) ||
+            terrain->second >= axle_y - 0.05) return std::nullopt;
+        // Seat the pad slightly into the lowest triangle, avoiding a floating
+        // corner on the emitted sloped surface.
+        const auto low = terrain->first - 0.04, high = axle_y - 0.05;
+        supports[index] = {{foot_x, (low + high) / 2, foot_z},
+                           {half_x, (high - low) / 2, half_z}};
+    }
+    return supports;
+}
 
 Bounds part_bounds(const world::Profile& profile, const stationary::PlacedPart& part) {
     const auto& c = part.geometry.center;
@@ -62,6 +94,11 @@ bool overlap(const Bounds& a, const Bounds& b) {
         if (distance >= extent - roundoff) return false;
     }
     return true;
+}
+
+bool overlaps_supports(const std::array<Bounds, 2>& supports, const Bounds& other) {
+    return std::any_of(supports.begin(), supports.end(),
+        [&](const auto& support) { return overlap(support, other); });
 }
 
 template<class T> const T* field(const Object& object, const char* name) {
@@ -477,6 +514,8 @@ Value Host::initialize(const std::string& context, const std::vector<std::string
     profile.initial_units = mineral_site::opening_reserve;
     profile.meters_per_grid_unit = pitch / 4.0;
     profile.anchor_offset = {0, anchor_height, 0};
+    profile.wheel_radius = wheel_radius;
+    profile.wheel_axle_offset = wheel_axle_offset;
     profile.build_reach = reach;
     profile.foundation_parts = 24;
     profile.finite_parts = {{{Role::collector, 0, 0}, 1}, {{Role::belt, 0, 0}, 2},
@@ -620,6 +659,16 @@ const char* Host::wheel_site_refusal(const mechanics::Point& center, mechanics::
         const double low_arc = y - std::sqrt(std::max(0.0, radius * radius - nearest * nearest));
         if (terrain->second > low_arc) return "site_occupied";
     }
+    const auto supports = wheel_support_bounds(center, axis,
+        [this](double sx, double sz, double hx, double hz) { return terrain_range(sx, sz, hx, hz); });
+    if (!supports) return "support_required";
+    for (const auto& support : *supports) {
+        const authority::Point low{support.center[0] - support.half[0],
+            support.center[1] - support.half[1], support.center[2] - support.half[2]};
+        const authority::Point high{support.center[0] + support.half[0],
+            support.center[1] + support.half[1], support.center[2] + support.half[2]};
+        if (site_blocked(low, high)) return "site_occupied";
+    }
     return nullptr;
 }
 
@@ -730,6 +779,15 @@ const char* Host::transmission_site_refusal(const world::State& state, const mec
     const auto bearing = std::max(at[1] - 0.18, (*foot)[1] + 0.02);
     if (site_blocked({(*foot)[0] - 0.11, (*foot)[1], (*foot)[2] - 0.11},
                      {(*foot)[0] + 0.11, bearing, (*foot)[2] + 0.11})) return "site_occupied";
+    for (const auto& part : state.topology.parts) if (part.role == Role::waterwheel) {
+        const auto supports = wheel_support_bounds(part.geometry.center, part.geometry.axis,
+            [this](double sx, double sz, double hx, double hz) {
+                return terrain_range(sx, sz, hx, hz);
+            });
+        if (!supports) return "support_required";
+        for (const auto& support : *supports)
+            if (transmission_intersects(support, center, axis, gear)) return "site_occupied";
+    }
     for (const auto& [id, foundation] : state.foundations) {
         (void)id;
         if (overlap({{(*foot)[0], ((*foot)[1] + bearing) / 2, (*foot)[2]},
@@ -861,9 +919,15 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                 continue;
             }
             if (part.role == Role::waterwheel) {
+                const auto supports = wheel_support_bounds(center, part.geometry.axis,
+                    [this](double sx, double sz, double hx, double hz) {
+                        return terrain_range(sx, sz, hx, hz);
+                    });
+                if (!supports) return refuse("support_required");
                 for (auto px = std::min(*x, *end_x); px <= std::max(*x, *end_x); ++px)
                     for (auto pz = std::min(*z, *end_z); pz <= std::max(*z, *end_z); ++pz)
-                        if (overlap(part_bounds(profile_, part), foundation_bounds({{4 * px, *level, 4 * pz}, 1})))
+                        if (const auto proposed = foundation_bounds({{4 * px, *level, 4 * pz}, 1});
+                            overlap(part_bounds(profile_, part), proposed) || overlaps_supports(*supports, proposed))
                             return refuse("occupied");
                 continue;
             }
@@ -915,12 +979,20 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         const auto selected_axis = axis ? *axis_value(*axis) : mechanics::Axis::x;
         const stationary::PlacedPart proposed{{"proposed", mechanics::Kind::hub, center, selected_axis, 0, 0},
             1, *kind_name == "wheel" ? Role::waterwheel : Role::collector, tiles ? *tiles : 3};
-        if (*kind_name == "wheel")
+        std::optional<std::array<Bounds, 2>> proposed_supports;
+        if (*kind_name == "wheel") {
             if (const auto* refusal = wheel_site_refusal(center, selected_axis, tiles ? *tiles : 3)) return refuse(refusal);
+            proposed_supports = wheel_support_bounds(center, selected_axis,
+                [this](double sx, double sz, double hx, double hz) {
+                    return terrain_range(sx, sz, hx, hz);
+                });
+            if (!proposed_supports) return refuse("support_required");
+        }
         for (const auto& [id, foundation] : snapshot.state.foundations) {
             (void)id;
             if (*kind_name == "wheel" &&
-                overlap(part_bounds(profile_, proposed), foundation_bounds(foundation))) return refuse("occupied");
+                (overlap(part_bounds(profile_, proposed), foundation_bounds(foundation)) ||
+                 overlaps_supports(*proposed_supports, foundation_bounds(foundation)))) return refuse("occupied");
             if (foundation.center[0] == center[0] && foundation.center[2] == center[2] &&
                 foundation.center[1] > center[1] && foundation.center[1] - 2 < center[1] + 4)
                 return refuse("occupied");
@@ -929,11 +1001,31 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             if (const auto* refusal = machine_site_refusal(snapshot.state, center)) return refuse(refusal);
         }
         if (*kind_name != "gear" && intersects_belt(snapshot.state, part_bounds(profile_, proposed))) return refuse("occupied");
+        if (proposed_supports) for (const auto& support : *proposed_supports)
+            if (intersects_belt(snapshot.state, support)) return refuse("occupied");
         for (const auto& part : snapshot.state.topology.parts) {
             if (part.geometry.center == center) return refuse("occupied");
             if (*kind_name != "gear" && part.role != Role::gear && part.role != Role::shaft &&
                 (*kind_name == "wheel" || part.role == Role::waterwheel) &&
                 overlap(part_bounds(profile_, proposed), part_bounds(profile_, part))) return refuse("occupied");
+            if (proposed_supports && part.role != Role::gear && part.role != Role::shaft &&
+                overlaps_supports(*proposed_supports, part_bounds(profile_, part))) return refuse("occupied");
+            if (proposed_supports && (part.role == Role::gear || part.role == Role::shaft))
+                for (const auto& support : *proposed_supports)
+                    if (transmission_intersects(support, part.geometry.center, part.geometry.axis,
+                                                part.role == Role::gear)) return refuse("occupied");
+            if (part.role == Role::waterwheel) {
+                const auto existing_supports = wheel_support_bounds(part.geometry.center, part.geometry.axis,
+                    [this](double sx, double sz, double hx, double hz) {
+                        return terrain_range(sx, sz, hx, hz);
+                    });
+                if (!existing_supports) return refuse("support_required");
+                if (*kind_name == "gear") {
+                    for (const auto& support : *existing_supports)
+                        if (transmission_intersects(support, center, selected_axis, true)) return refuse("occupied");
+                } else if (overlaps_supports(*existing_supports, part_bounds(profile_, proposed)))
+                    return refuse("occupied");
+            }
         }
         const auto is_gear = *kind_name == "gear";
         if (is_gear) {
@@ -950,6 +1042,8 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             authority::Point{machine_width / 2, machine_height / 2, machine_width / 2};
         if (intersects_belt(snapshot.state, {at, half})) return refuse("occupied");
         if (placement_blocked(at, half)) return refuse("actor_occupied");
+        if (proposed_supports) for (const auto& support : *proposed_supports)
+            if (placement_blocked(support.center, support.half)) return refuse("actor_occupied");
         if (is_gear && intersects_belt(snapshot.state, {at, gear_axle_half_extents(selected_axis)})) return refuse("occupied");
         if (is_gear && placement_blocked(at, gear_axle_half_extents(selected_axis))) return refuse("actor_occupied");
         normalized.at("action") = Value(*kind_name == "collector" || *kind_name == "processor" ?
@@ -1041,6 +1135,15 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             if (belt_intersects(first->geometry, last->geometry, bounds)) return refuse("occupied");
             if (placed.role == Role::gear && belt_intersects(first->geometry, last->geometry,
                 {bounds.center, gear_axle_half_extents(placed.geometry.axis)})) return refuse("occupied");
+            if (placed.role == Role::waterwheel) {
+                const auto supports = wheel_support_bounds(placed.geometry.center, placed.geometry.axis,
+                    [this](double sx, double sz, double hx, double hz) {
+                        return terrain_range(sx, sz, hx, hz);
+                    });
+                if (!supports) return refuse("support_required");
+                for (const auto& support : *supports)
+                    if (belt_intersects(first->geometry, last->geometry, support)) return refuse("occupied");
+            }
         }
         for (const auto& belt_bounds : sections) {
             const auto& at = belt_bounds.center;
@@ -1153,7 +1256,19 @@ Value Host::projection() const {
             {"axis", Value(static_cast<Integer>(part.geometry.axis))},
             {"teeth", Value(part.geometry.teeth)}, {"half_span", Value(part.geometry.half_span)},
             {"rotation", Value(part.rotation)}};
-        if (part.role == Role::waterwheel) projected.emplace("tiles", Value(part.wheel_tiles));
+        if (part.role == Role::waterwheel) {
+            projected.emplace("tiles", Value(part.wheel_tiles));
+            if (const auto supports = wheel_support_bounds(part.geometry.center, part.geometry.axis,
+                    [this](double sx, double sz, double hx, double hz) {
+                        return terrain_range(sx, sz, hx, hz);
+                    })) {
+                Array occupied;
+                for (const auto& support : *supports)
+                    occupied.emplace_back(Object{{"center", point_value(support.center)},
+                                                 {"half", point_value(support.half)}});
+                projected.emplace("supports", Value(std::move(occupied)));
+            }
+        }
         if (part.role == Role::shaft || part.role == Role::gear) {
             if (const auto foot = transmission_support_foot(state, part.geometry.center, part.geometry.axis)) {
                 const auto bearing = std::max(anchor_height + part.geometry.center[1] * height_step - 0.18,
@@ -1276,6 +1391,7 @@ Value Host::projection() const {
         {"adapter_profile", Value(Object{{"pitch", Value(pitch)}, {"anchor_height", Value(anchor_height)},
             {"height_denominator", Value(height_denominator)}, {"height_step", Value(height_step)},
             {"foundation_depth", Value(foundation_depth)},
+            {"wheel_radius", Value(wheel_radius)}, {"wheel_axle_offset", Value(wheel_axle_offset)},
             {"capsule_radius", Value(capsule_radius)}, {"capsule_height", Value(capsule_height)}})}});
 }
 
@@ -1325,13 +1441,25 @@ Host::Decoded Host::decode(const Value& input) const {
             if (const auto* refusal = collector_site_refusal(center)) return {nullptr, refusal};
         if (part.role == Role::waterwheel) {
             if (const auto* refusal = wheel_site_refusal(center, part.geometry.axis, part.wheel_tiles)) return {nullptr, refusal};
+            const auto supports = wheel_support_bounds(center, part.geometry.axis,
+                [this](double sx, double sz, double hx, double hz) {
+                    return terrain_range(sx, sz, hx, hz);
+                });
+            if (!supports) return {nullptr, "support_required"};
             for (const auto& [id, foundation] : snapshot.state.foundations) {
                 (void)id;
-                if (overlap(part_bounds(profile_, part), foundation_bounds(foundation))) return {nullptr, "occupied"};
+                if (overlap(part_bounds(profile_, part), foundation_bounds(foundation)) ||
+                    overlaps_supports(*supports, foundation_bounds(foundation))) return {nullptr, "occupied"};
             }
-            for (const auto& other : snapshot.state.topology.parts)
-                if (other.geometry.id != part.geometry.id && other.role != Role::gear && other.role != Role::shaft &&
-                    overlap(part_bounds(profile_, part), part_bounds(profile_, other))) return {nullptr, "occupied"};
+            for (const auto& other : snapshot.state.topology.parts) {
+                if (other.geometry.id == part.geometry.id) continue;
+                if (other.role == Role::gear || other.role == Role::shaft) {
+                    for (const auto& support : *supports)
+                        if (transmission_intersects(support, other.geometry.center, other.geometry.axis,
+                                                    other.role == Role::gear)) return {nullptr, "occupied"};
+                } else if (overlap(part_bounds(profile_, part), part_bounds(profile_, other)) ||
+                           overlaps_supports(*supports, part_bounds(profile_, other))) return {nullptr, "occupied"};
+            }
         } else if (part.role != Role::shaft && part.role != Role::gear)
             if (const auto* refusal = machine_site_refusal(snapshot.state, center)) return {nullptr, refusal};
         if (part.role == Role::shaft || part.role == Role::gear) {
@@ -1366,6 +1494,15 @@ Host::Decoded Host::decode(const Value& input) const {
             if (belt_intersects(first->geometry, last->geometry, bounds)) return {nullptr, "occupied"};
             if (placed.role == Role::gear && belt_intersects(first->geometry, last->geometry,
                 {bounds.center, gear_axle_half_extents(placed.geometry.axis)})) return {nullptr, "occupied"};
+            if (placed.role == Role::waterwheel) {
+                const auto supports = wheel_support_bounds(placed.geometry.center, placed.geometry.axis,
+                    [this](double sx, double sz, double hx, double hz) {
+                        return terrain_range(sx, sz, hx, hz);
+                    });
+                if (!supports) return {nullptr, "support_required"};
+                for (const auto& support : *supports)
+                    if (belt_intersects(first->geometry, last->geometry, support)) return {nullptr, "occupied"};
+            }
         }
         for (const auto& belt : belt_bounds(first->geometry, last->geometry)) {
             const auto& at = belt.center; const auto& half = belt.half;
