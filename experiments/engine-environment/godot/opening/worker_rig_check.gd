@@ -448,13 +448,21 @@ func inspect_adult(body: Node3D, other: Node3D, presenter: Node) -> void:
 	skeleton.force_update_all_bone_transforms()
 	var approach_toe_index := skeleton.find_bone("Bip01 L Toe0")
 	var unextended_toe: Vector3 = presenter._adult_joint(body, skeleton, approach_toe_index)
+	var unextended_hands := hand_forward_reaches(body)
 	presenter._set_gait(body, 0.0, 0.0, 1.0, -5.0, 0.0, 1.0, 1.0, 1.0, 1.0)
 	skeleton.force_update_all_bone_transforms()
 	var extended_toe: Vector3 = presenter._adult_joint(body, skeleton, approach_toe_index)
+	var extended_hands := hand_forward_reaches(body)
 	adult_measurements["precontact_toe"] = {"without": unextended_toe, "with": extended_toe}
+	adult_measurements["precontact_hands"] = {"without": unextended_hands,
+		"with": extended_hands}
 	verify(extended_toe.z > unextended_toe.z + 0.25
 		and extended_toe.y < unextended_toe.y + 0.04,
 		"The moving landing reaches the lead boot forward before contact without lifting it away from support.")
+	verify(extended_hands.R > unextended_hands.R + 0.06
+		and extended_hands.R - extended_hands.L > unextended_hands.R - unextended_hands.L + 0.04
+		and extended_hands.L < unextended_hands.L + 0.12,
+		"The approaching moving landing brings the counterbalancing hand forward without a two-arm brace.")
 	presenter._set_gait(body, 0.0, 0.0)
 	verify(body.position == Vector3.ZERO, "The visual body returns to its original rest origin.")
 

@@ -90,6 +90,9 @@ and open for balance in flight. During the final metre of a moving descent,
 the leading leg begins reaching toward its contact pose in proportion to
 confirmed horizontal speed. This spreads the forward boot motion across
 descent and first contact instead of snapping the full step into one frame.
+The arm opposite that boot reaches modestly ahead and the upper torso leans
+slightly forward during the final approach, before the foot takes load. This
+counterbalance leaves earlier flight and an in-place jump unchanged.
 When recent confirmed horizontal travel reaches contact, the left boot takes
 the first load while the right
 leg trails. The torso leans over that support, both knees absorb the fall, and

@@ -315,6 +315,8 @@ func _set_adult_air_and_landing(body: Node3D, air: float,
 	# A moving leading foot reaches ahead and stays low while the confirmed
 	# actor descends, so contact does not invent the whole step in one sample.
 	var pre_contact := clampf(landing_approach, 0.0, 1.0) * contact_stride * air
+	# Start the opposite arm's counterbalance with the lead boot's final reach;
+	# the other arm stays close instead of forming a two-handed brace.
 	# The leading boot reaches support promptly while the torso continues to
 	# absorb the load. Do not slow the established contact step with the torso.
 	var foot_load := smoothstep(0.0, 0.16, landing_progress) * \
@@ -350,16 +352,20 @@ func _set_adult_air_and_landing(body: Node3D, air: float,
 		var arm_air := (0.10 - 1.0 * rise - 0.30 * fall) * air
 		_adult_bone_delta(body, side + " UpperArm", Quaternion(Vector3.RIGHT,
 			arm_air - 0.48 * impact + 0.60 * sign * rise * air
-			+ 0.18 * air_asymmetry + 0.48 * sign * arm_balance) * stance)
+			+ 0.18 * air_asymmetry + 0.48 * sign * arm_balance
+			- (0.18 - 0.12 * sign) * pre_contact) * stance)
 		_adult_bone_delta(body, side + " Forearm", Quaternion(Vector3.RIGHT,
 			(-0.30 - 0.22 * rise - 0.20 * fall) * air - 0.78 * impact
-			+ 0.22 * sign * arm_balance))
+			+ 0.22 * sign * arm_balance
+			- (0.12 - 0.06 * sign) * pre_contact))
 	_adult_bone_delta(body, "Spine1", Quaternion(Vector3.RIGHT,
-		(0.18 * rise + 0.08 * fall) * air + 0.30 * impact + 0.42 * plant))
+		(0.18 * rise + 0.08 * fall) * air + 0.30 * impact + 0.42 * plant
+		+ 0.10 * pre_contact))
 	_adult_bone_delta(body, "Spine2", Quaternion(Vector3.RIGHT,
 		0.12 * impact + 0.18 * plant))
 	_adult_bone_delta(body, "Neck", Quaternion(Vector3.RIGHT,
-		(0.06 * rise - 0.08 * fall) * air - 0.22 * impact - 0.16 * plant))
+		(0.06 * rise - 0.08 * fall) * air - 0.22 * impact - 0.16 * plant
+		- 0.05 * pre_contact))
 	# Compression moves only the skinned view; the Character root is unchanged.
 	body.position.y = -0.065 * impact
 
