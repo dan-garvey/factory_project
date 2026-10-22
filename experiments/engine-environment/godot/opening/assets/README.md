@@ -686,8 +686,10 @@ patch weights, and sampled normal directions are rotated back before blending.
 Variance correction reduces color flattening; this is not full
 histogram-preserving synthesis. A stationary, warped color field adds cooler
 and warmer meadow swaths across several metres without rows, paths or a
-construction boundary. This is a provisional visual palette, not simulated
-soil moisture or a gameplay property. The current shader requires the qualified maps
+construction boundary. Reduced source chroma and a restrained tint preserve
+brightness detail without the former saturated lawn cast. This is a provisional
+visual palette, not simulated soil moisture or a gameplay property. The current
+shader requires the qualified maps
 and replaces the generated historical ground fallback. This changes shading
 only: terrain triangles, support geometry, native
 poses and construction anchors are unchanged. The steel material has its own
