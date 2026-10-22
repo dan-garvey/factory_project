@@ -334,7 +334,8 @@ void belt_span_checkpoint() {
         recover.emplace("slot", V(I{2}));
         V::Array lots;
         if (work) lots.emplace_back(O{{"id", V(I{1})}, {"recipe_input", V(I{1})}, {"cycle_ticks", V(I{2})},
-                                      {"remaining", V(I{1})}, {"completed_subticks", V(I{123})}});
+                                      {"remaining", V(I{1})}, {"completed_subticks", V(I{123})},
+                                      {"work_remainder", V(I{0})}, {"work_remainder_denominator", V(I{1})}});
         recover.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{work ? 0 : 1})}, {"work_lots", V(lots)}}));
         accepted(send(*carried_world, recover));
         check(carried_world->snapshot().state.material.cargo.at("P") == *carried_state.material.belt_lanes.at("belt").slots[2],
@@ -614,7 +615,8 @@ void inclined_material_route() {
                 {"center", V(V::Array{V(I{12}), V(I{16}), V(I{0})})}};
             V::Array expected_lots;
             if (workpiece) expected_lots.emplace_back(O{{"id", V(I{1})}, {"recipe_input", V(I{1})},
-                {"cycle_ticks", V(I{2})}, {"remaining", V(I{1})}, {"completed_subticks", V(I{0})}});
+                {"cycle_ticks", V(I{2})}, {"remaining", V(I{1})}, {"completed_subticks", V(I{0})},
+                {"work_remainder", V(I{0})}, {"work_remainder_denominator", V(I{1})}});
             pickup.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(workpiece ? I{0} : I{1})},
                                           {"work_lots", V(std::move(expected_lots))}}));
             accepted(send(*loaded, pickup));

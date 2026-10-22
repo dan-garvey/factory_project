@@ -36,7 +36,7 @@ m::State fixture() {
 // lot and P's raw unit plus ready carried lot account for all sixteen raw units.
 Value literal() {
     return Value(Object{
-        {"schema", integer(5)}, {"initial_units", integer(16)}, {"dropped_material", Value(Value::Array{})},
+        {"schema", integer(6)}, {"initial_units", integer(16)}, {"dropped_material", Value(Value::Array{})},
         {"belt_lanes", Value(Object{})},
         {"stock", Value(Object{{"source", integer(6)}, {"collector", integer(1)},
             {"belt", integer(1)}, {"input", integer(1)}, {"output", integer(1)}})},
@@ -46,14 +46,14 @@ Value literal() {
                     {"id", integer(8)},
                     {"recipe", Value(Object{{"input_units_per_product", integer(2)},
                                              {"cycle_ticks", integer(4)}})},
-                    {"remaining_ticks", integer(0)}, {"completed_subticks", integer(0)}})})}})},
+                    {"remaining_ticks", integer(0)}, {"completed_subticks", integer(0)}, {"work_remainder", integer(0)}, {"work_remainder_denominator", integer(1)}})})}})},
             {"Q", Value(Object{{"raw_units", integer(0)}, {"products", integer(0)},
                                 {"work_lots", Value(Value::Array{})}})}})},
         {"processing", Value(Object{
             {"id", integer(7)},
             {"recipe", Value(Object{{"input_units_per_product", integer(2)},
                                      {"cycle_ticks", integer(4)}})},
-            {"remaining_ticks", integer(3)}, {"completed_subticks", integer(m::work_subticks_per_tick / 2)}})},
+            {"remaining_ticks", integer(3)}, {"completed_subticks", integer(m::work_subticks_per_tick / 2)}, {"work_remainder", integer(0)}, {"work_remainder_denominator", integer(1)}})},
         {"next_work_id", integer(9)}});
 }
 
@@ -157,6 +157,7 @@ int main() {
         bad(edited(literal(), {"schema"}, integer(2)), m::CodecReason::unsupported_schema, "$.schema");
         bad(edited(literal(), {"schema"}, integer(3)), m::CodecReason::unsupported_schema, "$.schema");
         bad(edited(literal(), {"schema"}, integer(4)), m::CodecReason::unsupported_schema, "$.schema");
+        bad(edited(literal(), {"schema"}, integer(5)), m::CodecReason::unsupported_schema, "$.schema");
         bad(edited(literal(), {"dropped_material"}, std::nullopt), m::CodecReason::missing_field, "$.dropped_material");
         bad(edited(literal(), {"dropped_material"}, Value(Object{})), m::CodecReason::wrong_type, "$.dropped_material");
         const Value drop(Object{{"point", Value(Value::Array{integer(-2), integer(0), integer(4)})},
@@ -184,6 +185,9 @@ int main() {
         bad(edited(literal(), {"processing", "remaining_ticks"}, integer(5)), m::CodecReason::invalid_material_state, "$", m::Error::invalid_state);
         bad(edited(literal(), {"processing", "completed_subticks"}, integer(m::work_subticks_per_tick)), m::CodecReason::invalid_material_state, "$", m::Error::invalid_state);
         bad(edited(literal(), {"processing", "completed_subticks"}, std::nullopt), m::CodecReason::missing_field, "$.processing.completed_subticks");
+        bad(edited(literal(), {"processing", "work_remainder_denominator"}, integer(0)), m::CodecReason::invalid_material_state, "$", m::Error::invalid_state);
+        bad(edited(literal(), {"processing", "work_remainder"}, integer(1)), m::CodecReason::invalid_material_state, "$", m::Error::invalid_state);
+        bad(edited(literal(), {"processing", "work_remainder"}, std::nullopt), m::CodecReason::missing_field, "$.processing.work_remainder");
         bad(edited(literal(), {"processing", "recipe", "cycle_ticks"}, integer(5)), m::CodecReason::invalid_material_state, "$", m::Error::invalid_state);
         bad(edited(literal(), {"processing", "recipe", "extra"}, integer(0)), m::CodecReason::unexpected_field, "$.processing.recipe");
         bad(edited(literal(), {"cargo", "P", "raw_units"}, Value(1.0)), m::CodecReason::wrong_type, "$.cargo[\"P\"].raw_units");

@@ -157,6 +157,44 @@ void geared_processor(bool fast) {
     check(drive.processor && drive.processor_work_per_tick ==
           (fast ? 2 * mat::work_subticks_per_tick : mat::work_subticks_per_tick / 2),
           "Actual mixed-size cogs set the processor work rate.");
+    if (!fast) {
+        auto third_profile = profile;
+        third_profile.waterwheel_rate = {2, 3};
+        auto third_state = world->snapshot().state;
+        third_state.topology.sources.front().rate = {2, 3};
+        auto third_world = w::World::create("third-cog", third_profile, third_state);
+        check(third_world && third_world->tick().error == w::TransactionError::none &&
+                  third_world->snapshot().state.material.processing->completed_subticks == 1365 &&
+                  third_world->snapshot().state.material.processing->work_remainder == 1 &&
+                  third_world->snapshot().state.material.processing->work_remainder_denominator == 3,
+              "An actual geared one-third rate retains its fractional subtick.");
+        const auto third_save = w::encode_checkpoint(third_profile, third_world->snapshot());
+        check(std::holds_alternative<V>(third_save), "Fractional third-speed work checkpoints.");
+        const auto third_decoded = w::decode_checkpoint(third_profile, "third-cog", std::get<V>(third_save));
+        check(std::holds_alternative<w::Snapshot>(third_decoded), "Fractional third-speed work decodes.");
+        auto recovery_world = w::World::restore("third-cog", third_profile, std::get<w::Snapshot>(third_decoded));
+        O fractional_recover{{"context", V("third-cog")}, {"client", V("P-session")}, {"request", V("recover-third")},
+            {"actor", V("P")}, {"action", V("recover")}, {"target", V("press")}, {"generation", V(I{1})}};
+        check(recovery_world != nullptr, "The fractional work is available for recovery.");
+        const auto fractional_receipt = accepted(send(*recovery_world, fractional_recover));
+        const auto& fractional_lots = field<V::Array>(fractional_receipt, "moved_work");
+        check(fractional_lots.size() == 1 && field<I>(std::get<O>(fractional_lots[0].storage()), "work_remainder") == 1 &&
+                  field<I>(std::get<O>(fractional_lots[0].storage()), "work_remainder_denominator") == 3,
+              "Recovery transfers the precise fractional progress with the workpiece.");
+        const auto recovered_save = w::encode_checkpoint(third_profile, recovery_world->snapshot());
+        check(std::holds_alternative<V>(recovered_save), "Recovered fractional work and receipt checkpoint.");
+        const auto recovered_decoded = w::decode_checkpoint(third_profile, "third-cog", std::get<V>(recovered_save));
+        check(std::holds_alternative<w::Snapshot>(recovered_decoded) &&
+                  std::get<w::Snapshot>(recovered_decoded).state.material.cargo.at("P").work_lots.front().work_remainder == 1,
+              "Recovered fractional work survives checkpoint decoding.");
+        auto third_restored = w::World::restore("third-cog", third_profile, std::get<w::Snapshot>(third_decoded));
+        check(third_restored && third_restored->tick().error == w::TransactionError::none &&
+                  third_restored->tick().error == w::TransactionError::none &&
+                  third_restored->snapshot().state.material.processing->remaining_ticks == 1 &&
+                  third_restored->snapshot().state.material.processing->completed_subticks == 0 &&
+                  third_restored->snapshot().state.material.processing->work_remainder == 0,
+              "Two restored ticks complete exactly one work unit across three third-speed ticks.");
+    }
     if (fast) {
         auto faster = world->snapshot().state.topology;
         for (const I source_rate : {I{10}, I{-10}}) {
