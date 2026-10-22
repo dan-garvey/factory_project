@@ -1866,6 +1866,25 @@ Advance World::tick() noexcept {
         if (error != materials::Error::none) throw error;
         const auto motion = drive_power(candidate.topology).mechanical;
         if (!motion.accepted()) throw materials::Error::invalid_path;
+        // Only an assembled tray may feed the adjacent belt mouth. A tray is
+        // one quarter-grid step from its frame; the belt endpoint is the next
+        // full tile on that same side. Duplicate claims are left for pickup.
+        using CollectorMouth = std::pair<mechanics::Point, mechanics::Point>; // frame, tray
+        std::map<mechanics::Point, std::optional<CollectorMouth>> collector_mouths;
+        if (!profile_.collector_faces.empty()) {
+            const auto placed = assembly_parts(candidate);
+            for (const auto& face : profile_.collector_faces) {
+                const auto inspected = assembly::inspect_collector(placed, face);
+                if (!inspected.collector) continue;
+                const auto& collector = *inspected.collector;
+                auto mouth = collector.machine_center;
+                for (std::size_t axis = 0; axis < mouth.size(); ++axis)
+                    mouth[axis] += 4 * (collector.receiver_center[axis] - collector.machine_center[axis]);
+                const auto [entry, inserted] = collector_mouths.emplace(mouth,
+                    CollectorMouth{collector.machine_center, collector.receiver_center});
+                if (!inserted) entry->second.reset();
+            }
+        }
         // Capture loose items before any lane moves. This gives a deterministic
         // one-tick handoff between adjacent belts regardless of span ordering.
         for (const auto& span : candidate.topology.belt_spans) {
@@ -1913,6 +1932,28 @@ Advance World::tick() noexcept {
             const auto direction = mechanics::belt_cargo_direction(first->geometry, last->geometry, rate->second.rate);
             if (!direction)
                 throw materials::Error::invalid_state;
+            if (rate->second.state == mechanics::MotionState::rotating && *direction != 0) {
+                const bool toward_last = *direction > 0;
+                const auto inlet = toward_last ? path->tiles.front() : path->tiles.back();
+                const auto next = toward_last ? path->tiles[1] : path->tiles[path->tiles.size() - 2];
+                const auto mouth = collector_mouths.find(inlet);
+                auto& slot = toward_last ? lane->second.slots.front() : lane->second.slots.back();
+                if (mouth != collector_mouths.end() && mouth->second && !slot) {
+                    const auto& [frame, receiver] = *mouth->second;
+                    const auto distance = [](const mechanics::Point& point, auto x, auto z) {
+                        const auto dx = point[0] - x, dz = point[2] - z;
+                        return dx * dx + dz * dz;
+                    };
+                    if (distance(next, frame[0], frame[2]) >= distance(inlet, frame[0], frame[2])) {
+                        const auto loose = candidate.material.dropped_material.find(receiver);
+                        if (loose != candidate.material.dropped_material.end() &&
+                            loose->second == materials::Cargo{1, 0, {}}) {
+                            slot = loose->second;
+                            candidate.material.dropped_material.erase(loose);
+                        }
+                    }
+                }
+            }
             auto before = first->geometry.center;
             auto after = last->geometry.center;
             for (std::size_t axis = 0; axis < 3; ++axis) {

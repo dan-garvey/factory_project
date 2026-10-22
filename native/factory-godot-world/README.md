@@ -50,8 +50,10 @@ material. The trusted profile carries those same ore faces into World and its
 checkpoint fingerprint. A nearby actor holding the unique pod crank can send
 `turn_hand_crank` for an installed shaft in a ready layout. One accepted turn
 moves one finite ore blank into canonical loose-item custody at its receiver
-center. The receiver holds one item until a player picks it up; routing the
-quarter-grid receiver into a belt is subsequent work. Full output, missing
+center. Native World ticks can move that item onto a correctly positioned,
+outward-running belt endpoint, while stopped, reversed and full inlets retain
+it. The arrival profile does not yet let players fabricate belt spans, so
+this route has native World coverage but no ordinary scene consumer. Full output and missing
 parts, wrong holder and remote poses refuse without a debit. No autonomous
 drive or scene crank input exists yet.
 The arrival profile additionally exposes `hand_sources`: three named
@@ -60,8 +62,9 @@ accepts a target identity only after the bound physical actor is ready and
 within reach. It credits timber or raw ore in the same native actor cargo,
 with the ore debit shared by the collector. Source balances and carried timber
 survive the normal checkpoint. Current site coordinates are provisional; the
-live scene has no matching harvestable tree art, multitool input, depletion
-feedback or crafting consumer yet. The focused Host test uses synthetic poses.
+live scene has no matching harvestable tree art, depletion feedback or crafting
+consumer yet. The focused Host test uses synthetic poses; the ordinary view
+consumes the same exact source identities through its multitool interaction.
 
 The current opening adapter is a revisable profile: a finite 4,096-unit ore
 deposit, a 32-blank collector buffer, one-unit downstream buffers, a two-tick

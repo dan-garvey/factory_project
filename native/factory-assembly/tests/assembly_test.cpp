@@ -118,6 +118,89 @@ void malformed_and_ambiguous_input() {
     check(a::inspect_collector({base, duplicate}, face).status == a::Status::invalid_input,
           "An unknown component kind cannot enter the assembly projection.");
 }
+
+std::vector<a::Part> press_parts(g::Point frame = {0, 0, 0}, g::Point drive = {1, 0, 0}) {
+    const auto above = [&](g::Integer y) { return g::Point{frame[0], frame[1] + y, frame[2]}; };
+    return {
+        part("press-frame", m::Component::wooden_frame, frame),
+        part("press-anvil", m::Component::anvil, above(1)),
+        part("press-ram", m::Component::ram_face, above(2)),
+        part("press-guide", m::Component::sliding_guide, above(3)),
+        part("press-mount", m::Component::tool_mount, above(4)),
+        part("press-shaft", m::Component::wooden_shaft,
+             {frame[0] + drive[0], frame[1] + 4, frame[2] + drive[2]}),
+        part("press-cog", m::Component::wooden_cog,
+             {frame[0] + 2 * drive[0], frame[1] + 4, frame[2] + 2 * drive[2]}),
+    };
+}
+
+void press_arrangements_and_clearance() {
+    auto placed = press_parts();
+    const auto first = a::inspect_press(placed, {0, 0, 0});
+    check(first.status == a::PressStatus::ready && first.press &&
+          first.press->frame == "press-frame" && first.press->anvil == "press-anvil" &&
+          first.press->ram == "press-ram" && first.press->guide == "press-guide" &&
+          first.press->mount == "press-mount" && first.press->shaft == "press-shaft" &&
+          first.press->drive_cog == "press-cog" && first.press->work_center == g::Point{0, 1, 0} &&
+          first.press->open_feeds.size() == 4,
+          "Seven separately placed parts expose one press and four open lower feed directions.");
+    const g::Point elevated{8, 4, 12};
+    placed = press_parts(elevated, {0, 0, -1});
+    placed[5].kind = m::Component::softmetal_shaft;
+    placed[6].kind = m::Component::softmetal_cog;
+    placed.push_back(part("feed-obstacle", m::Component::wooden_shaft, {9, 5, 12}));
+    const auto alternate = a::inspect_press(placed, elevated);
+    check(alternate.status == a::PressStatus::ready && alternate.press &&
+          alternate.press->shaft_center == g::Point{8, 8, 11} &&
+          alternate.press->cog_center == g::Point{8, 8, 10} &&
+          alternate.press->shaft_material == m::Component::softmetal_shaft &&
+          alternate.press->cog_material == m::Component::softmetal_cog &&
+          alternate.press->open_feeds.size() == 2 &&
+          alternate.press->open_feeds.front().entry == g::Point{8, 5, 13},
+          "A raised metal drive on another side still admits the clear cross-axis feed pair.");
+    placed.push_back(part("north-block", m::Component::receiver_tray, {8, 5, 13}));
+    placed.push_back(part("south-block", m::Component::receiver_tray, {8, 5, 11}));
+    check(a::inspect_press(placed, elevated).status == a::PressStatus::blocked_feed,
+          "Every feed and exit pair is blocked by actual placed parts.");
+    placed.pop_back(); placed.pop_back(); placed.pop_back();
+    placed.push_back(part("other-shaft", m::Component::wooden_shaft, {7, 8, 12}));
+    placed.push_back(part("other-cog", m::Component::wooden_cog, {6, 8, 12}));
+    check(a::inspect_press(placed, elevated).status == a::PressStatus::ambiguous,
+          "Two complete drive candidates cannot silently choose an output machine.");
+}
+
+void press_missing_and_invalid_parts() {
+    const g::Point center{0, 0, 0};
+    auto placed = press_parts();
+    placed.erase(placed.begin());
+    check(a::inspect_press(placed, center).status == a::PressStatus::missing_frame,
+          "No nearby anvil substitutes for a load-bearing frame.");
+    placed = press_parts(); placed.erase(placed.begin() + 1);
+    check(a::inspect_press(placed, center).status == a::PressStatus::missing_anvil,
+          "A ram without a work support cannot form a press.");
+    placed = press_parts(); placed[2].center = {0, 5, 0};
+    check(a::inspect_press(placed, center).status == a::PressStatus::missing_ram,
+          "A face at the wrong height cannot contact the anvil.");
+    placed = press_parts(); placed.erase(placed.begin() + 3);
+    check(a::inspect_press(placed, center).status == a::PressStatus::missing_guide,
+          "A free ram without its sliding guide is incomplete.");
+    placed = press_parts(); placed.erase(placed.begin() + 4);
+    check(a::inspect_press(placed, center).status == a::PressStatus::missing_mount,
+          "A bare guide without its support mount is incomplete.");
+    placed = press_parts(); placed.erase(placed.begin() + 5);
+    check(a::inspect_press(placed, center).status == a::PressStatus::missing_shaft,
+          "A drive cog without its adjacent shaft is incomplete.");
+    placed = press_parts(); placed.erase(placed.begin() + 6);
+    check(a::inspect_press(placed, center).status == a::PressStatus::missing_cog,
+          "A shaft without a drive cog is incomplete.");
+    placed = press_parts(); placed[6].id = placed[5].id;
+    check(a::inspect_press(placed, center).status == a::PressStatus::invalid_input,
+          "One identity cannot be both shaft and cog.");
+    placed = press_parts(); placed[6].center = placed[5].center;
+    check(a::inspect_press(placed, center).status == a::PressStatus::invalid_input &&
+          a::inspect_press(placed, {1, 0, 0}).status == a::PressStatus::invalid_input,
+          "Duplicate centers and off-grid press origins refuse before recognition.");
+}
 }  // namespace
 
 int main() {
@@ -125,6 +208,8 @@ int main() {
         west_face_and_alternate_routes();
         raised_rotated_face_and_missing_parts();
         malformed_and_ambiguous_input();
+        press_arrangements_and_clearance();
+        press_missing_and_invalid_parts();
         std::cout << "assembly_test: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {
