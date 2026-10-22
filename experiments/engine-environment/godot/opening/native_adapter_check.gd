@@ -16,7 +16,7 @@ func _init() -> void:
 			destination = argument.trim_prefix("--native-check-output=")
 		if argument.begins_with("--native-check-mode="):
 			mode = argument.trim_prefix("--native-check-mode=")
-	deadline = Time.get_ticks_msec() + (45000 if mode == "foundations" else 15000)
+	deadline = Time.get_ticks_msec() + (45000 if mode == "foundations" else 60000)
 	call_deferred("_run")
 
 func _same(expected: Variant, actual: Variant, depth: int = 0) -> bool:
@@ -57,7 +57,11 @@ func _record(status: String, reason: String = "") -> void:
 	# The binary retains integer/float distinctions. JSON is only a short log.
 	file.store_buffer(var_to_bytes(facts))
 	file.close()
-	print(JSON.stringify({"status": status, "evidence": facts.evidence, "mode": mode, "checks": checks, "reason": reason}))
+	if opening != null:
+		opening.free()
+		opening = null
+	print(JSON.stringify({"status": status, "evidence": facts.evidence, "mode": mode, "checks": checks, "reason": reason,
+		"failure_step": facts.steps[-1] if status == "fail" and not facts.steps.is_empty() else {}}))
 	quit(0 if status == "pass" else 1)
 
 func _expect(condition: bool, message: String) -> bool:
@@ -74,6 +78,42 @@ func _issue(action: Dictionary) -> Dictionary:
 		cut = opening.actor_world.diagnostics("P", reply.reach.native_epoch)
 	facts.steps.append({"action": action.duplicate(true), "reply": reply.duplicate(true), "native_cut": cut})
 	return reply
+
+func _construct(action: Dictionary) -> Dictionary:
+	var reply := _issue(action)
+	return reply if _expect(reply.get("accepted", false), "The current immersed route admits " + str(action)) else {}
+
+func _approach(target: Vector2) -> bool:
+	if not await _walk_to(target):
+		return false
+	for _frame in range(4):
+		await physics_frame
+		await process_frame
+	var sample: Dictionary = opening.actor_world.diagnostics("P").sample
+	return _expect(sample.ready and sample.registered and sample.on_floor and sample.control == [0.0, 0.0],
+		"The real approach finishes with a released, registered actor on the floor")
+
+func _collector_route() -> Dictionary:
+	# Two large corner cogs turn the horizontal wheel's X axle onto Z. The
+	# actual shaft between the output cog and collector is removable stock.
+	var wheel := _construct({"action": "place", "kind": "wheel", "cell": [-2, 2], "axis": "x", "level": 4})
+	if wheel.is_empty() or not await _approach(Vector2(0.7, 3.3)):
+		return {}
+	if _construct({"action": "place_foundation", "cell": [0, 1], "level": 4}).is_empty():
+		return {}
+	var collector := _construct({"action": "place", "kind": "collector", "cell": [0, 1], "axis": "z", "level": 4})
+	if collector.is_empty():
+		return {}
+	var source_cog := _construct({"action": "place_gear", "center": [-4, 4, 8], "axis": "x", "teeth": 4})
+	var output_cog := {} if written else _construct({"action": "place_gear", "center": [0, 4, 12], "axis": "z", "teeth": 4})
+	var shaft := {} if written else _construct({"action": "place_shaft", "center": [0, 4, 8], "axis": "z", "half_span": 2})
+	if written or source_cog.is_empty() or output_cog.is_empty() or shaft.is_empty():
+		return {}
+	# Keep the character clear of the stand and within genuine source reach.
+	if not await _approach(Vector2(0.7, 2.9)) or not await _approach(Vector2(0.0, 2.9)):
+		return {}
+	return {"wheel": wheel.entity, "collector": collector.entity,
+		"source_cog": source_cog.entity, "output_cog": output_cog.entity, "shaft": shaft.entity}
 
 func _run() -> void:
 	if destination.is_empty() or mode not in ["produce", "resume", "foundations"]:
@@ -103,37 +143,39 @@ func _run() -> void:
 	if mode == "resume":
 		_resume()
 		return
-	var collector: Dictionary = _issue({"action": "place", "kind": "collector", "cell": [0, 1]})
-	if not _expect(collector.accepted, "The observed actor can place the nearby collector"):
-		return
-	var wheel: Dictionary = _issue({"action": "place", "kind": "wheel", "cell": [-1, 1]})
-	if not _expect(wheel.accepted, "The observed actor can place the nearby wheel"):
-		return
-	if not _expect(_issue({"action": "connect_drive", "from": wheel.entity, "to": collector.entity}).accepted, "The drive action must consume a real shaft"):
+	var route: Dictionary = await _collector_route()
+	if route.is_empty():
 		return
 	if not _expect(_issue({"action": "set_power", "active": true}).accepted, "The nearby source starts through native admission"):
 		return
 	while Time.get_ticks_msec() < deadline and opening.model.projection().stock.collector != 1:
 		await process_frame
 	var before: Dictionary = opening.model.projection()
-	if not _expect(before.stock.source == 15 and before.stock.collector == 1 and before.powered, "The ordinary scene's natural tick moves one of sixteen units"):
+	if not _expect(before.initial_feed == 4096 and before.stock.source == 4095 and before.stock.collector == 1 and before.powered,
+		"The ordinary scene's default clock extracts one unit from the current finite reserve"):
 		return
-	if not _expect(_issue({"action": "recover", "entity": collector.entity}).accepted, "Recovery moves the original raw unit into cargo"):
+	if not _expect(_issue({"action": "recover", "entity": route.collector}).accepted, "Recovery moves the original raw unit into cargo"):
 		return
 	var recovery_wire: Dictionary = opening.model.checkpoint().world.history.records[-1].intent.wire
-	if not _expect(_issue({"action": "remove", "entity": collector.entity}).accepted, "An emptied collector can be removed with the source still enabled"):
+	if not _expect(_issue({"action": "remove", "entity": route.collector}).accepted and opening.model.projection().power_enabled,
+		"An emptied collector can be removed with the source still enabled"):
 		return
-	var rebuilt: Dictionary = _issue({"action": "place", "kind": "collector", "cell": [0, 1]})
-	if not _expect(rebuilt.accepted and rebuilt.entity != collector.entity, "Rebuilding issues a new entity identity"):
+	var rebuilt: Dictionary = _issue({"action": "place", "kind": "collector", "cell": [0, 1], "axis": "z", "level": 4})
+	if not _expect(rebuilt.accepted and rebuilt.entity != route.collector, "Rebuilding issues a new entity identity"):
 		return
 	var retry: Dictionary = opening.model.command(recovery_wire)
 	facts["historical_retry"] = retry
-	if not _expect(retry.accepted and retry.duplicate and retry.entity == collector.entity, "An exact retry retains the removed target's original recovery"):
+	if not _expect(retry.accepted and retry.duplicate and retry.entity == route.collector, "An exact retry retains the removed target's original recovery"):
 		return
 	if not _expect(_issue({"action": "insert_raw", "entity": rebuilt.entity, "amount": 1}).accepted, "The carried unit returns without refill or conversion"):
 		return
 	var final: Dictionary = opening.model.projection()
-	if not _expect(final.stock.source == 15 and final.stock.collector == 1 and final.cargo.P.raw == 0 and final.order == 8 and final.power_enabled, "Running recovery and rebuilding retain the literal sixteen-unit custody"):
+	if not _expect(final.stock.source == 4095 and final.stock.collector == 1 and final.cargo.P.raw == 0 and final.order == 11 and final.power_enabled,
+		"Running recovery and rebuilding preserve the original extracted unit and current reserve"):
+		return
+	# Pause through the real source command before taking an exact checkpoint.
+	# The current 32-unit collector buffer is no longer blocked by one blank.
+	if not _expect(_issue({"action": "set_power", "active": false}).accepted, "The ordinary source control pauses the exact continuation checkpoint"):
 		return
 	var saved: Dictionary = opening._save_worksite()
 	facts["save_result"] = saved
@@ -289,11 +331,12 @@ func _resume() -> void:
 	if not _expect(expected is Dictionary and _same(expected, opening.startup_resume_checkpoint), "Store-loaded native state and original history must match every saved type and value"):
 		return
 	var initial: Dictionary = opening.model.projection()
-	if not _expect(opening.request_sequence == 0 and initial.order == 8 and initial.stock.source == 15 and initial.stock.collector == 1 and initial.cargo.P.raw == 0, "Fresh startup publishes no material command and preserves running custody"):
+	if not _expect(opening.request_sequence == 0 and initial.order == 12 and initial.stock.source == 4095 and initial.stock.collector == 1 and initial.cargo.P.raw == 0 and not initial.power_enabled,
+		"Fresh startup publishes no material command and preserves the deliberately paused custody"):
 		return
 	if not _expect(_same(opening.actor_world.seeds, expected.actors), "The fresh producer uses the exact saved actor seeds"):
 		return
-	if not _expect(_same(opening.model.checkpoint().world, expected.world), "Natural blocked ticks do not alter restored history or material state"):
+	if not _expect(_same(opening.model.checkpoint().world, expected.world), "The paused source preserves every restored history and material value"):
 		return
 	var collector := ""
 	for id in initial.entities:
@@ -302,7 +345,8 @@ func _resume() -> void:
 	if not _expect(not collector.is_empty() and _issue({"action": "recover", "entity": collector}).accepted, "The fresh process can recover the retained actual unit"):
 		return
 	var final: Dictionary = opening.model.projection()
-	if not _expect(final.stock.source == 15 and final.stock.collector == 0 and final.cargo.P.raw == 1 and final.order == 9, "Fresh native admission moves custody once without creating or losing material"):
+	if not _expect(final.stock.source == 4095 and final.stock.collector == 0 and final.cargo.P.raw == 1 and final.order == 13,
+		"Fresh native admission moves custody once without creating or losing material"):
 		return
 	var saved: Dictionary = opening._save_worksite()
 	facts["save_result"] = saved
