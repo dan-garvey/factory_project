@@ -5057,6 +5057,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_R:
 				if _native_transmission() and mode in ["collector", "processor", "wheel"]:
 					_rotate_building()
+				elif _native_transmission() and mode != "inspect":
+					_cycle_placement_axis()
 				else:
 					_retrieve()
 			KEY_H: _toggle_explanation()
