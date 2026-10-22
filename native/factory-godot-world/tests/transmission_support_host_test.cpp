@@ -131,26 +131,56 @@ void blocked_or_excessive_stand() {
         Value(Array{Value(1.8), Value(1.0), Value(0.5)})})});
     Host blocked;
     check(accepted(blocked.initialize("stand-test", {"P"})) &&
-          accepted(blocked.configure_terrain(site)), "The standalone post obstruction binds.");
+          accepted(blocked.configure_terrain(site)), "The ground-connected rock binds.");
     actor(blocked, 1.65, 1.0, 0.0, 1);
-    const auto refused = blocked.command("P", shaft(4, 4, 0, "blocked"));
-    check(!accepted(refused) && field<std::string>(refused, "reason") == "site_occupied",
-          "An obstruction below the clear axle refuses its native stand.");
+    const auto rock_seated = blocked.command("P", shaft(4, 4, 0, "rock-seated"));
+    check(accepted(rock_seated), "A clear shaft can stand on the rock below its axle.");
+    const auto rock_id = field<std::string>(rock_seated, "entity");
+    const auto rock_support = support(blocked, rock_id);
+    near(std::get<double>(std::get<Array>(rock_support.at("foot").storage())[1].storage()), 1.0,
+         "The native stand rests on the rock top instead of passing through it.");
+    check(accepted(blocked.validate_checkpoint(blocked.checkpoint())),
+          "A shaft seated on a rock remains valid on checkpoint review.");
     Host clear;
     check(accepted(clear.initialize("stand-test", {"P"})) &&
           accepted(clear.configure_terrain(factory::godot_world::tests::flat_site())),
           "The unobstructed control binds the same synthetic ground.");
     actor(clear, 1.65, 1.0, 0.0, 1);
-    check(accepted(clear.command("P", shaft(4, 4, 0, "clear"))),
+    const auto clear_shaft = clear.command("P", shaft(4, 4, 0, "clear"));
+    check(accepted(clear_shaft),
           "The same axle is admitted without the post obstruction.");
     const auto saved = clear.checkpoint();
     Host changed_site;
     check(accepted(changed_site.initialize("fresh", {"P"})) &&
           accepted(changed_site.configure_terrain(site)),
           "A fresh Host binds the obstructed terrain fixture.");
-    const auto incompatible = changed_site.restore_checkpoint(saved);
-    check(!accepted(incompatible) && field<std::string>(incompatible, "reason") == "site_occupied",
-          "A restored shaft cannot silently grow a stand through a new obstacle.");
+    const auto reseated = changed_site.restore_checkpoint(saved);
+    check(accepted(reseated), "Restoring against a new rock derives the higher valid seat.");
+    const auto restored_support = support(changed_site, field<std::string>(clear_shaft, "entity"));
+    near(std::get<double>(std::get<Array>(restored_support.at("foot").storage())[1].storage()), 1.0,
+         "The restored stand sits on the new rock.");
+    auto axle_site = site;
+    axle_site.at("obstacles") = Value(Array{Value(Array{
+        Value(Array{Value(1.5), Value(2.3), Value(0.25)}),
+        Value(Array{Value(1.8), Value(2.6), Value(0.5)})})});
+    Host axle_blocked;
+    check(accepted(axle_blocked.initialize("stand-test", {"P"})) &&
+          accepted(axle_blocked.configure_terrain(axle_site)), "The axle-intersecting rock binds.");
+    actor(axle_blocked, 1.65, 1.0, 0.0, 1);
+    const auto refused = axle_blocked.command("P", shaft(4, 4, 0, "axle-blocked"));
+    check(!accepted(refused) && field<std::string>(refused, "reason") == "site_occupied",
+          "A rock actually intersecting the shaft axle still refuses placement.");
+    auto floating_site = site;
+    floating_site.at("obstacles") = Value(Array{Value(Array{
+        Value(Array{Value(1.5), Value(0.8), Value(0.25)}),
+        Value(Array{Value(1.8), Value(1.0), Value(0.5)})})});
+    Host floating;
+    check(accepted(floating.initialize("stand-test", {"P"})) &&
+          accepted(floating.configure_terrain(floating_site)), "The elevated obstruction binds.");
+    actor(floating, 1.65, 1.0, 0.0, 1);
+    const auto floating_refusal = floating.command("P", shaft(4, 4, 0, "floating-blocked"));
+    check(!accepted(floating_refusal) && field<std::string>(floating_refusal, "reason") == "site_occupied",
+          "A floating obstruction cannot become a stand seat above an empty gap.");
     Host tall;
     check(accepted(tall.initialize("stand-test", {"P"})) &&
           accepted(tall.configure_terrain(factory::godot_world::tests::flat_site())),

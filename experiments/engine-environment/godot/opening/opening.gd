@@ -5768,10 +5768,29 @@ func _collector_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 				var guide: Dictionary = intake_result.boxes[index + 1]
 				_machine_box(anchor, "SourceLiftGuideLeft" if index == 0 else "SourceLiftGuideRight",
 					guide.center - anchor.position, guide.size, frame, 0.8, 0.45)
+			var carrier_mesh := ProductionVisuals.prism_mesh(PackedVector2Array([
+				Vector2(-0.125, 0.0), Vector2(0.125, 0.0),
+				Vector2(0.125, 0.105), Vector2(0.095, 0.105),
+				Vector2(0.095, 0.032), Vector2(-0.10, 0.032),
+				Vector2(-0.10, 0.055), Vector2(-0.125, 0.055)]), 0.27, 0.002)
+			var carrier_finish := ProductionTransmissionFinish.material("worked",
+				Color("b1a184"), 0.82, 0.42)
 			for index in range(5):
 				var flight: Dictionary = intake_result.boxes[index + 3]
-				_machine_box(anchor, "SourceLiftFlight%d" % index,
-					flight.center - anchor.position, flight.size, steel, 0.78, 0.42)
+				var step := _machine_box(anchor, "SourceLiftFlight%d" % index,
+					flight.center - anchor.position - Vector3.UP * Geometry.COLLECTOR_LIFT_PROFILE.flight_raise_y,
+					Vector3(flight.size.x, 0.035, flight.size.z), steel, 0.78, 0.42)
+				# The formed carrier is inside the same native occupied flight. It
+				# stays empty; actual inventory never becomes a decorative ore prop.
+				var bucket := MeshInstance3D.new()
+				bucket.name = "SourceLiftBucket"
+				bucket.mesh = carrier_mesh
+				bucket.position.y = 0.018
+				bucket.material_override = carrier_finish
+				step.add_child(bucket)
+				for side in [-1.0, 1.0]:
+					_machine_box(step, "SourceLiftBucketCheek", Vector3(0, 0.07, side * 0.138),
+						Vector3(0.25, 0.095, 0.024), frame, 0.78, 0.45)
 			var start := Vector3(carrier_at.x + 0.03, head_at.y, carrier_at.z)
 			var finish := Vector3(0.48, 1.28, 0.28)
 			var delta := finish - start

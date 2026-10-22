@@ -2,6 +2,7 @@ extends SceneTree
 ## Isolated visual resources and 3D world assembly. No gameplay or desktop input.
 const Opening = preload("res://opening/opening.gd")
 const Geometry = preload("res://opening/site_geometry.gd")
+const NativeModel = preload("res://opening/native_model.gd")
 const Scenery = Opening.ProductionEnvironment
 var checks := 0
 var failed := false
@@ -49,6 +50,61 @@ func inspect_visual(node: Node) -> void:
 	verify(node.get_script() == null, "Scenery has no independent controller or clock: " + str(node.name))
 	for child in node.get_children():
 		inspect_visual(child)
+
+func carrier_part_fits(part: MeshInstance3D, envelope: AABB) -> bool:
+	if part.mesh == null:
+		return false
+	for surface in range(part.mesh.get_surface_count()):
+		var vertices: PackedVector3Array = part.mesh.surface_get_arrays(surface)[Mesh.ARRAY_VERTEX]
+		if vertices.is_empty():
+			return false
+		for vertex in vertices:
+			if not envelope.has_point(part.global_transform * vertex):
+				return false
+	return true
+
+func check_collector_carrier() -> void:
+	var native := NativeModel.new("collector-carrier-geometry-check")
+	if not verify(native.boot_result.get("accepted", false),
+		"The native and scene carrier profiles agree before visual geometry is checked."):
+		return
+	for cell in [0, 1]:
+		for level in [4, 8]:
+			var view := FixtureView.new()
+			view.legacy_fixture = false
+			view.state = {"options": {"native": true}}
+			root.add_child(view)
+			var anchor := Node3D.new()
+			anchor.position = Vector3(0, float(level) * Geometry.HEIGHT_STEP,
+				float(cell) * Geometry.PITCH)
+			view.add_child(anchor)
+			var entity := {"kind": "collector", "cell": [0, cell],
+				"level": level, "axis": 0, "rotation": 0, "generation": 1}
+			var intake: Dictionary = Geometry.collector_intake_boxes(entity)
+			if not verify(intake.get("accepted", false) and intake.boxes.size() == 9,
+				"Both raised source cells expose the complete occupied carrier."):
+				view.free()
+				return
+			view._collector_visual(anchor, entity)
+			for index in range(5):
+				var flight: Dictionary = intake.boxes[index + 3]
+				var occupied := AABB(flight.center - flight.size * 0.5,
+					flight.size).grow(0.0001)
+				var step := anchor.get_node_or_null("SourceLiftFlight%d" % index) as MeshInstance3D
+				if not verify(step != null and step.get_child_count() == 3,
+					"Every occupied flight has one pan and two formed side cheeks."):
+					view.free()
+					return
+				verify(carrier_part_fits(step, occupied),
+					"The visible carrier floor stays inside its native flight body.")
+				for child in step.get_children():
+					verify(child is MeshInstance3D and carrier_part_fits(child, occupied),
+						"The bucket back and both cheeks stay inside the occupied flight body.")
+				var bucket := step.get_node("SourceLiftBucket") as MeshInstance3D
+				bucket.position.y += 0.03
+				verify(not carrier_part_fits(bucket, occupied),
+					"A raised bucket outside the native body is rejected by the same vertex check.")
+			view.free()
 
 func check_mesh_attributes(mesh: ArrayMesh, label: String, sample_step: int = 1) -> void:
 	var arrays := mesh.surface_get_arrays(0)
@@ -111,6 +167,7 @@ func check_multimesh(instances: MultiMesh, min_pad_clearance: float, label: Stri
 func finish() -> void:
 	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks, "mode": mode,
 		"scope": {"surface-composition": "shared renderer/physical geometry and bed/water composition",
+			"collector-carrier": "formed lift flight vertices against the matching native occupied profile",
 			"sourced-foliage": "runtime tuft import, cutout material and existing terrain placement",
 			"foliage-mipmaps": "corrected runtime texture mipmap generation and binding",
 			"meadow-patches": "changed terrain-aware grass patch placement and culling envelopes",
@@ -1789,6 +1846,11 @@ func check_bank_fir_lifecycle() -> void:
 		view.free()
 
 func run() -> void:
+	if mode == "collector-carrier":
+		check_collector_carrier()
+		verify(checks == 125, "All raised cells, levels and formed flights complete the fit check.")
+		finish()
+		return
 	if mode == "foundation-depth-vegetation":
 		check_foundation_depth_vegetation()
 		verify(checks >= 5, "The foundation-depth case completes its required observations.")

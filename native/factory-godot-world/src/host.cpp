@@ -110,9 +110,9 @@ std::vector<Bounds> collector_external_bounds(const mechanics::Point& center) {
         parts.push_back({{-1.05 + 0.09, carrier_middle, z + side * 0.17},
             {0.055 / 2, carrier_height / 2, 0.055 / 2}});
     for (int step = 0; step < 5; ++step)
-        parts.push_back({{-1.05 - 0.025, carrier_middle +
+        parts.push_back({{-1.05 - 0.025, carrier_middle + 0.05 +
                 carrier_height * (static_cast<double>(step) / 4 - 0.5) * 0.88, z},
-            {0.25 / 2, 0.035 / 2, 0.30 / 2}});
+            {0.25 / 2, 0.16 / 2, 0.30 / 2}});
     parts.push_back({{-0.60, rise + 1.77, (z + machine_z) / 2},
         {0.45, 0.18, machine_z == z ? 0.20 : 0.43}});
     return parts;
@@ -853,6 +853,17 @@ std::optional<authority::Point> Host::transmission_support_foot(const world::Sta
         if (std::abs(foot[0] - bounds.center[0]) + 0.11 <= bounds.half[0] &&
             std::abs(foot[2] - bounds.center[2]) + 0.11 <= bounds.half[2])
             seat = std::max(seat, bounds.center[1] + bounds.half[1]);
+    }
+    // A ground-connected rock beneath the bearing is a valid seat. Starting
+    // the post at the rock top keeps it out of the obstacle instead of
+    // rejecting a shaft whose axle has ample clearance above it.
+    const double base_seat = seat;
+    for (const auto& obstacle : terrain_obstacles_) {
+        if (obstacle.first[0] >= foot[0] + 0.11 || obstacle.second[0] <= foot[0] - 0.11 ||
+            obstacle.first[2] >= foot[2] + 0.11 || obstacle.second[2] <= foot[2] - 0.11)
+            continue;
+        if (obstacle.first[1] <= base_seat + 0.12)
+            seat = std::max(seat, obstacle.second[1]);
     }
     const auto axle_height = anchor_height + center[1] * height_step;
     if (seat > axle_height - 0.02) return std::nullopt;
@@ -1599,7 +1610,8 @@ Value Host::projection() const {
                 {"guide_offset", Value(Array{Value(0.09), Value(0.17)})},
                 {"guide_size", Value(Array{Value(0.055), Value(0.055)})},
                 {"flight_offset_x", Value(-0.025)},
-                {"flight_size", Value(Array{Value(0.25), Value(0.035), Value(0.30)})},
+                {"flight_raise_y", Value(0.05)},
+                {"flight_size", Value(Array{Value(0.25), Value(0.16), Value(0.30)})},
                 {"flight_count", Value(Integer{5})}, {"flight_span", Value(0.88)},
                 {"head_x", Value(-0.60)}, {"head_y_offset", Value(1.77)},
                 {"head_size_xy", Value(Array{Value(0.90), Value(0.36)})},

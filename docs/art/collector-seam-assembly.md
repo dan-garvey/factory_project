@@ -158,6 +158,12 @@ candidate blocked a working cog route; the open version passes native clearance
 and ordinary scene placement. Matched passive images still hide the lower
 route from the outlet side, so the lift is a partial structural improvement,
 not a completed presentation fit or a claim of moving material in its flights.
+The formed-carrier increment gives each formerly flat flight an empty open pan
+and two side cheeks inside a matching 0.16-metre-high native and actor envelope.
+A thin obstacle above the old flight now correctly refuses placement. The pans
+are clearer from the rock-facing side; the solid foundation still conceals
+most of the lower lift from the outlet side. No visible ore is assigned to an
+unobserved carrier position, and this increment does not complete the route.
 
 ![Illustrative ground-cutter assembly concept](concepts/collector-ground-cutter-concept.png)
 

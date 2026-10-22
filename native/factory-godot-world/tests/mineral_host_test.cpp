@@ -235,6 +235,22 @@ void raised_source_lift_clearance() {
         outcome(unmarked.command("P", place("unmarked-lift", "collector", 0, cell, level)),
             false, "site_occupied");
     }
+    // A thin obstruction above the old flat flight lies within the formed
+    // carrier's occupied back. It must refuse the whole raised placement.
+    auto obstructed_site = source_contact_site(false, 0.0);
+    auto obstacles = field<A>(V(obstructed_site), "obstacles");
+    obstacles.emplace_back(A{V(A{V(-1.15), V(0.90), V(-0.10)}),
+        V(A{V(-1.05), V(0.94), V(0.10)})});
+    obstructed_site.at("obstacles") = V(std::move(obstacles));
+    Host obstructed; initialize(obstructed, obstructed_site);
+    observe(obstructed, 2.65, 1.65, 1.65);
+    check(accepted(obstructed.command("P", foundation("bucket-base", 4))),
+          "The blocked-flight comparison still has a supported factory floor.");
+    const auto before_bucket = material_state(obstructed);
+    outcome(obstructed.command("P", place("blocked-carrier", "collector", 0, 0, 4)),
+        false, "site_occupied");
+    check(same(before_bucket, material_state(obstructed)),
+          "A blocked formed carrier cannot consume stock or construction inventory.");
     Host actor; initialize(actor, source_contact_site());
     observe(actor, 2.65, 1.65, 1.65);
     check(accepted(actor.command("P", foundation("actor-base", 4))),

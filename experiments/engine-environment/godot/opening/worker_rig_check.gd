@@ -611,6 +611,7 @@ func check_walk_touchdown_sweep() -> void:
 	var worst := 0.0
 	var worst_at := {}
 	var samples := 0
+	var samples_by_side := {"L": 0, "R": 0}
 	var exact_root := true
 	for frame in range(150):
 		host.state.actors.P.position[0] += 0.0175
@@ -628,6 +629,7 @@ func check_walk_touchdown_sweep() -> void:
 			var old: Dictionary = prior[side]
 			if frame > 75 and old.has("x") and toe.x > hip.x + 0.15 \
 					and clearance < 0.05 and float(old.clearance) < 0.05:
+				samples_by_side[side] = int(samples_by_side[side]) + 1
 				var retreat := float(old.x) - toe.x
 				if retreat > worst:
 					worst = retreat
@@ -635,8 +637,11 @@ func check_walk_touchdown_sweep() -> void:
 				samples += 1
 			prior[side] = {"x": toe.x, "clearance": clearance}
 	adult_measurements["walk_touchdown_sweep"] = {"samples": samples,
+		"samples_by_side": samples_by_side,
 		"maximum_backward_step": worst, "worst_at": worst_at}
-	verify(samples >= 4 and worst < 0.008 and exact_root and host.control_calls == 0,
+	verify(samples == int(samples_by_side.L) + int(samples_by_side.R)
+		and int(samples_by_side.L) >= 4 and int(samples_by_side.R) >= 4
+		and worst < 0.008 and exact_root and host.control_calls == 0,
 		"An incoming walking toe stops sweeping backward near terrain before support.")
 	host.free()
 
