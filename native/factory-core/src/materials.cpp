@@ -286,8 +286,7 @@ Error step(State& state, const Config& config, const Path& path,
         (power.belt && !path.belt_present) ||
         (power.processor && !path.processor_present) ||
         (power.belt && !power.belt_forward && !power.reverse_drop) ||
-        power.processor_work_per_tick < 1 ||
-        power.processor_work_per_tick > maximum_work_subticks_per_tick) return Error::invalid_path;
+        power.processor_work_per_tick < 1) return Error::invalid_path;
     if (!path.powered || (!power.collector && !power.belt && !power.processor))
         return Error::none;
     auto next = state;
@@ -296,14 +295,15 @@ Error step(State& state, const Config& config, const Path& path,
     if (power.processor && next.processing) {
         auto& lot = *next.processing;
         if (lot.remaining_ticks > 0) {
-            const auto progressed = lot.completed_subticks + power.processor_work_per_tick;
+            __extension__ using Wide = __int128;
+            const Wide progressed = static_cast<Wide>(lot.completed_subticks) + power.processor_work_per_tick;
             const auto whole = progressed / work_subticks_per_tick;
             if (whole >= lot.remaining_ticks) {
                 lot.remaining_ticks = 0;
                 lot.completed_subticks = 0;
             } else {
-                lot.remaining_ticks -= whole;
-                lot.completed_subticks = progressed % work_subticks_per_tick;
+                lot.remaining_ticks -= static_cast<Quantity>(whole);
+                lot.completed_subticks = static_cast<Quantity>(progressed % work_subticks_per_tick);
             }
         }
         if (lot.remaining_ticks == 0 && stock.output < 1) {

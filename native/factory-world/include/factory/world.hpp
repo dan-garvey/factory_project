@@ -66,6 +66,19 @@ struct Binding {
 
 using ObserveActor = std::function<std::optional<authority::ActorCut>(const std::string&)>;
 
+// Provisional speed-weighted load and source capacity for an entire connected
+// component. Values are derived from World topology, never client supplied.
+struct NetworkLoad {
+    double capacity{};
+    double impact{};
+    bool overloaded{};
+};
+struct DrivePower {
+    mechanics::Result mechanical;
+    std::map<std::string, NetworkLoad> load;
+};
+
+[[nodiscard]] DrivePower drive_power(const stationary::Topology&);
 [[nodiscard]] materials::Path material_path(const stationary::Topology&);
 [[nodiscard]] materials::MachinePower machine_power(const stationary::Topology&);
 [[nodiscard]] bool validate(const Profile&, const Snapshot&);

@@ -1096,11 +1096,19 @@ Value Host::projection() const {
             {"phase", Value(lane.phase)}, {"slots", Value(std::move(slots))}}));
     }
     for (const auto& link : state.topology.material_links) links.emplace_back(Array{Value(link.from.id), Value(link.to.id)});
-    const auto power = stationary::power_view(state.topology);
+    const auto power = world::drive_power(state.topology);
     Object motions;
-    for (const auto& [id, motion] : power.mechanical.motion) motions.emplace(id, Value(Object{
-        {"state", Value(mechanics::motion_state_name(motion.state))},
-        {"numerator", Value(motion.rate.numerator)}, {"denominator", Value(motion.rate.denominator)}}));
+    for (const auto& [id, motion] : power.mechanical.motion) {
+        Object projected{{"state", Value(mechanics::motion_state_name(motion.state))},
+            {"numerator", Value(motion.rate.numerator)}, {"denominator", Value(motion.rate.denominator)}};
+        const auto load = power.load.find(id);
+        if (load != power.load.end()) {
+            projected.emplace("capacity", Value(load->second.capacity));
+            projected.emplace("impact", Value(load->second.impact));
+            projected.emplace("overloaded", Value(load->second.overloaded));
+        }
+        motions.emplace(id, Value(std::move(projected)));
+    }
     for (const auto& edge : power.mechanical.engagements) engagements.emplace_back(Object{
         {"a", Value(edge.a)}, {"b", Value(edge.b)}, {"kind", Value(static_cast<Integer>(edge.kind))}});
     for (const auto& shaft : state.topology.parts) {

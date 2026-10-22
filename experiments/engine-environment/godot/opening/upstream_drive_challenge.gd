@@ -247,7 +247,7 @@ func evaluate() -> Dictionary:
 			diagnostic_text = "Connect a powered belt from the collector to the press and check that it carries blanks toward the press. Recover any loose blanks."
 		elif any_stalled:
 			diagnostic_code = "stalled_transmission"
-			diagnostic_text = "Transmission stalled: remove the conflicting parallel shaft or gear loop so each machine has a single consistent ratio."
+			diagnostic_text = "Transmission stalled: inspect a shaft or cog for overload, or remove a conflicting gear loop."
 		elif not wheel_coupled:
 			diagnostic_code = "missing_drive_shaft"
 			diagnostic_text = "Drive train incomplete: connect the upstream waterwheel and machines using aligned axles, cogs and shafts where needed."

@@ -133,6 +133,10 @@ void finite_oriented_train_and_restore() {
           field<I>(motion(host, b), "numerator") == 1 && field<I>(motion(host, b), "denominator") == 3 &&
           field<I>(motion(host, collector), "numerator") == 1,
           "Meshing equal gears reverses the exact signed rate through the touching axles.");
+    check(!field<bool>(motion(host, a), "overloaded") &&
+              field<double>(motion(host, a), "capacity") > field<double>(motion(host, a), "impact") &&
+              field<double>(motion(host, collector), "capacity") == field<double>(motion(host, a), "capacity"),
+          "The host projects the same non-overloaded component capacity to its members.");
     check(field<bool>(host.projection(), "powered") &&
           field<I>(V(field<O>(host.projection(), "parts")), "shaft") == 8 &&
           field<I>(V(field<O>(host.projection(), "parts")), "gear") == 7,

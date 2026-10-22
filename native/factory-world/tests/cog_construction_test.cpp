@@ -157,6 +157,35 @@ void geared_processor(bool fast) {
     check(drive.processor && drive.processor_work_per_tick ==
           (fast ? 2 * mat::work_subticks_per_tick : mat::work_subticks_per_tick / 2),
           "Actual mixed-size cogs set the processor work rate.");
+    if (fast) {
+        auto faster = world->snapshot().state.topology;
+        for (const I source_rate : {I{10}, I{-10}}) {
+            faster.sources.front().rate = {source_rate, 1};
+            const auto power = w::machine_power(faster);
+            check(power.processor && power.processor_work_per_tick == 20 * mat::work_subticks_per_tick,
+                  "Either source direction lets the gears drive the press above the former sixteen-times cap.");
+        }
+        auto fast_profile = profile;
+        fast_profile.material.cycle_ticks = 40;
+        fast_profile.waterwheel_rate = {10, 1};
+        auto fast_state = world->snapshot().state;
+        fast_state.topology.sources.front().rate = {10, 1};
+        fast_state.material.processing->recipe.cycle_ticks = 40;
+        fast_state.material.processing->remaining_ticks = 40;
+        auto fast_world = w::World::create("fast-cog", fast_profile, fast_state);
+        check(fast_world && fast_world->tick().error == w::TransactionError::none &&
+                  fast_world->snapshot().state.material.processing->remaining_ticks == 20,
+              "The actual twenty-times geared press advances twenty units of work.");
+        const auto encoded_fast = w::encode_checkpoint(fast_profile, fast_world->snapshot());
+        check(std::holds_alternative<V>(encoded_fast), "High-speed partial work checkpoints.");
+        const auto decoded_fast = w::decode_checkpoint(fast_profile, "fast-cog", std::get<V>(encoded_fast));
+        check(std::holds_alternative<w::Snapshot>(decoded_fast), "High-speed partial work decodes.");
+        auto resumed_fast = w::World::restore("fast-cog", fast_profile, std::get<w::Snapshot>(decoded_fast));
+        check(resumed_fast && resumed_fast->tick().error == w::TransactionError::none &&
+                  resumed_fast->snapshot().state.material.processing->remaining_ticks == 0 &&
+                  resumed_fast->snapshot().state.material.stock.output == 1,
+              "Restored high-speed work completes and waits behind the full output buffer.");
+    }
     check(world->tick().changed, "The powered World advances the original workpiece.");
     const auto cut = world->snapshot();
     check(cut.state.material.processing && cut.state.material.stock.output == 1 &&
@@ -456,6 +485,72 @@ void cross_axis_belt_line() {
     check(s::power_view(restored->snapshot().state.topology).mechanical.motion.at(field<std::string>(last, "entity")).state != m::MotionState::rotating,
           "Removing the right-angle output cog interrupts the belt.");
 }
+void geared_overload_and_recovery() {
+    namespace mat = factory::materials;
+    w::Profile profile;
+    profile.material = {1, 1, 80}; profile.initial_units = 1; profile.actors = {"P", "Q"};
+    profile.meters_per_grid_unit = 0.1; profile.build_reach = 4;
+    profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, 1}, {{s::Role::collector, 0, 0}, 1},
+        {{s::Role::processor, 0, 0}, 1}, {{s::Role::gear, 2, 0}, 2}, {{s::Role::gear, 4, 0}, 2}};
+    w::State state;
+    state.material.initial_units = 1; state.material.stock.source = 0;
+    state.material.processing = mat::WorkLot{1, {1, 80}, 80}; state.material.next_work_id = 2;
+    state.material.cargo = {{"P", {}}, {"Q", {}}}; state.kits = {{"P", {}}, {"Q", {}}};
+    state.topology.parts = {
+        {{"wheel", m::Kind::hub, {0, 0, -4}, m::Axis::z, 0, 0}, 1, s::Role::waterwheel},
+        {{"large1", m::Kind::gear, {0, 0, 0}, m::Axis::z, 4, 0}, 1, s::Role::gear},
+        {{"small1", m::Kind::gear, {4, 4, 0}, m::Axis::z, 2, 0}, 1, s::Role::gear},
+        {{"large2", m::Kind::gear, {4, 4, 4}, m::Axis::z, 4, 0}, 1, s::Role::gear},
+        {{"small2", m::Kind::gear, {8, 8, 4}, m::Axis::z, 2, 0}, 1, s::Role::gear},
+        {{"press", m::Kind::hub, {8, 8, 8}, m::Axis::z, 0, 0}, 1, s::Role::processor},
+        {{"collector", m::Kind::hub, {8, 8, 12}, m::Axis::z, 0, 0}, 1, s::Role::collector}};
+    state.topology.sources = {{"wheel", {1, 1}}}; state.topology.drive_enabled = true;
+    for (const auto& item : state.topology.parts) state.issued_entities.emplace(item.geometry.id, 1);
+    const auto stalled = w::drive_power(state.topology);
+    check(stalled.mechanical.motion.at("press").state == m::MotionState::stalled &&
+              stalled.load.at("press").overloaded && stalled.load.at("press").impact == 48 &&
+              stalled.load.at("press").capacity == 32,
+          "Two speed-doubling cog pairs overload the connected machines.");
+    auto reverse = state.topology;
+    reverse.sources[0].rate = {-1, 1};
+    const auto reversed = w::drive_power(reverse);
+    check(reversed.load.at("press").overloaded && reversed.load.at("press").impact == 48 &&
+              reversed.load.at("press").capacity == 32,
+          "Reverse rotation has the same load and capacity magnitudes.");
+    auto extra = state.topology;
+    extra.parts.push_back({{"wheel2", m::Kind::hub, {0, 0, -8}, m::Axis::z, 0, 0}, 1, s::Role::waterwheel});
+    extra.sources.push_back({"wheel2", {1, 1}});
+    const auto reinforced = w::drive_power(extra);
+    check(reinforced.mechanical.motion.at("press").rate == m::Rate{4, 1} &&
+              !reinforced.load.at("press").overloaded && reinforced.load.at("press").capacity == 64,
+          "A second connected source contributes capacity and restores rotation.");
+    auto world = w::World::create("cog-world", profile, state);
+    check(world && world->tick().error == w::TransactionError::none && world->snapshot().state == state,
+          "Overload pauses work without losing or modifying its material.");
+    const auto overloaded_save = w::encode_checkpoint(profile, world->snapshot());
+    check(std::holds_alternative<V>(overloaded_save), "The overloaded network checkpoints.");
+    const auto overloaded_decoded = w::decode_checkpoint(profile, "cog-world", std::get<V>(overloaded_save));
+    check(std::holds_alternative<w::Snapshot>(overloaded_decoded), "The overloaded checkpoint decodes.");
+    auto overloaded_restored = w::World::restore("cog-world", profile, std::get<w::Snapshot>(overloaded_decoded));
+    check(overloaded_restored && overloaded_restored->tick().error == w::TransactionError::none &&
+              overloaded_restored->snapshot().state.material.processing->remaining_ticks == 80 &&
+              w::drive_power(overloaded_restored->snapshot().state.topology).load.at("press").overloaded,
+          "Restoring an overloaded network preserves the stalled work and recomputes overload.");
+    accepted(send(*world, remove("collector", 1, "remove-overload")));
+    const auto released = w::drive_power(world->snapshot().state.topology);
+    check(!released.load.at("press").overloaded && released.load.at("press").impact == 32 &&
+              world->tick().error == w::TransactionError::none &&
+              world->snapshot().state.material.processing->remaining_ticks == 76,
+          "Removing the excess load restores the geared press at equal capacity.");
+    const auto encoded = w::encode_checkpoint(profile, world->snapshot());
+    check(std::holds_alternative<V>(encoded), "The recovered network checkpoints.");
+    const auto decoded = w::decode_checkpoint(profile, "cog-world", std::get<V>(encoded));
+    check(std::holds_alternative<w::Snapshot>(decoded), "The recovered network checkpoint decodes.");
+    auto restored = w::World::restore("cog-world", profile, std::get<w::Snapshot>(decoded));
+    check(restored && restored->tick().error == w::TransactionError::none &&
+              restored->snapshot().state.material.processing->remaining_ticks == 72,
+          "A fresh World recomputes load and continues the same work.");
+}
 } // namespace
 
 int main() {
@@ -467,6 +562,7 @@ int main() {
         perpendicular_belt_line();
         rotated_belt_line();
         cross_axis_belt_line();
+        geared_overload_and_recovery();
         std::cout << checks << " native World cog construction checks passed.\n";
         return 0;
     } catch (const std::exception& error) {

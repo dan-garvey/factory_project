@@ -129,6 +129,13 @@ func check_transmission_guidance(shared: bool) -> void:
 			"The inspector identifies the confirmed part and preserves its signed rate.")
 	var stopped: String = view._transmission_inspection({"kind": "gear", "teeth": 4, "axis": 0, "center": [0, 0, 0]}, {"state": "stalled"})
 	verify("Large Cogwheel" in stopped and "Stalled" in stopped, "The inspector preserves a stalled large-cog state.")
+	var overload: String = view._transmission_inspection({"kind": "shaft", "axis": 2, "center": [0, 0, 0]},
+		{"state": "stalled", "overloaded": true, "impact": 48.0, "capacity": 32.0})
+	verify("Overloaded" in overload and "48.00" in overload and "32.00" in overload,
+		"The inspector distinguishes overload and shows its confirmed load and capacity.")
+	var running: String = view._transmission_inspection({"kind": "shaft", "axis": 2, "center": [0, 0, 0]},
+		{"state": "rotating", "numerator": 1, "denominator": 1, "impact": 12.0, "capacity": 32.0})
+	verify("Load 12.00 / capacity 32.00" in running, "The inspector shows available capacity before overload.")
 	view.free()
 
 func pick_body(view: Node3D, id: String, position: Vector3, size: Vector3, offset: Vector3) -> void:
@@ -586,6 +593,12 @@ func _initialize() -> void:
 	call_deferred("_run")
 
 func _run() -> void:
+	if "--inspection-only" in OS.get_cmdline_user_args():
+		check_transmission_guidance(false)
+		check_transmission_guidance(true)
+		print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks, "failures": failures, "evidence": "synthetic_transmission_inspection", "desktop_operations": 0}))
+		quit(0 if failures == 0 else 1)
+		return
 	if "--terrain-host-only" in OS.get_cmdline_user_args():
 		await check_terrain_host()
 		print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks, "failures": failures, "evidence": "synthetic_terrain_pointer_native_host", "desktop_operations": 0}))

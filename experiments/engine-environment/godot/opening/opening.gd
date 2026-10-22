@@ -5643,6 +5643,10 @@ func _transmission_inspection(part: Dictionary, motion: Dictionary) -> String:
 	var description := "%s · %s axis\nGrid %s" % [name, ["X", "Y", "Z"][part.axis], str(part.center)]
 	if motion.get("state") == "rotating":
 		description += "\nRate %d / %d" % [motion.numerator, motion.denominator]
+		if motion.has("capacity"):
+			description += "\nLoad %.2f / capacity %.2f" % [motion.get("impact", 0.0), motion.capacity]
+	elif motion.get("overloaded", false):
+		description += "\nOverloaded · load %.2f / capacity %.2f" % [motion.get("impact", 0.0), motion.get("capacity", 0.0)]
 	else:
 		description += "\n" + str(motion.get("state", "disconnected")).capitalize()
 	return description
