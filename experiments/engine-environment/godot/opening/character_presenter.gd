@@ -1013,6 +1013,7 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 		previous.mode = mode
 		if mode != "landing":
 			previous.erase("landing_toe_anchor")
+			previous.erase("landing_arm_start")
 		if mode == "landing":
 			# Keep the pre-contact extension long enough for the leading leg to
 			# carry the first load; shed it through the recovery, not in four frames.
@@ -1083,17 +1084,33 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 		landing_progress = elapsed
 		# The feet reach support before the torso finishes absorbing the load.
 		# Let the visual compression peak a few samples after first contact.
-		impact = smoothstep(0.0, 0.30, elapsed) * pow(1.0 - clampf(elapsed, 0.0, 1.0), 1.25)
+		impact = 1.2 * smoothstep(0.0, 0.50, elapsed) \
+			* pow(1.0 - clampf(elapsed, 0.0, 1.0), 1.25)
 	var presentation_stride := float(previous.landing_stride)
 	var landing_approach := 0.0
 	if previous.mode == "descent":
 		presentation_stride = smoothstep(0.35, 1.35, float(previous.horizontal_speed))
 		landing_approach = 1.0 - smoothstep(0.25, 1.0,
 			maxf(0.0, at.y - float(previous.ground_y)))
+	if new_landing and body.get_meta("sourced_character", false):
+		var skeleton: Skeleton3D = body.get_node(body.get_meta("skeleton_path"))
+		var saved_arms := {}
+		for key in ["L UpperArm", "L Forearm", "R UpperArm", "R Forearm"]:
+			var index: int = body.get_meta("rig")[key].index
+			saved_arms[key] = skeleton.get_bone_pose_rotation(index)
+		previous.landing_arm_start = saved_arms
 	_set_gait(body, float(previous.phase), float(previous.weight), float(previous.air),
 		float(previous.vertical_speed), impact, float(previous.run_mix), landing_progress,
 		presentation_stride, landing_approach,
 		previous.get("landing_toe_anchor") if previous.mode == "landing" else null)
+	if previous.mode == "landing" and previous.has("landing_arm_start"):
+		var skeleton: Skeleton3D = body.get_node(body.get_meta("skeleton_path"))
+		var arm_blend := smoothstep(0.0, 0.42, landing_progress)
+		for key in previous.landing_arm_start:
+			var index: int = body.get_meta("rig")[key].index
+			var current: Quaternion = skeleton.get_bone_pose_rotation(index)
+			skeleton.set_bone_pose_rotation(index,
+				previous.landing_arm_start[key].slerp(current, arm_blend))
 	if previous.mode == "grounded" and float(previous.horizontal_speed) > 0.2 \
 			and body.get_meta("sourced_character", false):
 		_adult_hold_grounded_toe(body, previous, delta, float(previous.run_mix))

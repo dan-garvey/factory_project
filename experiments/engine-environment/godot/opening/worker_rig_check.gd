@@ -917,6 +917,8 @@ func landing_toe_hold_case(metres_per_frame: float) -> Dictionary:
 	var knee_forward := INF
 	var trailing_knee_forward := INF
 	var anchored := false
+	var arrival := {}
+	var last_upper := {}
 	for frame in range(heights.size()):
 		if frame > 0:
 			x += metres_per_frame
@@ -926,6 +928,21 @@ func landing_toe_hold_case(metres_per_frame: float) -> Dictionary:
 			anchored = presenter.motion.P.has("landing_toe_anchor")
 		roots_exact = roots_exact and presenter.views.P.position.is_equal_approx(
 			Vector3(x, heights[frame], 0.0))
+		if frame >= 5:
+			skeleton.force_update_all_bone_transforms()
+			var left_hand: Vector3 = body.to_global(presenter._adult_joint(body, skeleton,
+				skeleton.find_bone("Bip01 L Hand")))
+			var right_hand: Vector3 = body.to_global(presenter._adult_joint(body, skeleton,
+				skeleton.find_bone("Bip01 R Hand")))
+			var head: Vector3 = body.to_global(presenter._adult_joint(body, skeleton,
+				skeleton.find_bone("Bip01 Head")))
+			var upper := {"mode": presenter.motion.P.mode, "left": left_hand.x - x,
+				"right": right_hand.x - x, "head": head.y - heights[frame]}
+			if last_upper.get("mode", "") == "descent" and upper.mode == "landing":
+				arrival = {"left_step": absf(float(upper.left) - float(last_upper.left)),
+					"right_step": absf(float(upper.right) - float(last_upper.right)),
+					"head_step": absf(float(upper.head) - float(last_upper.head))}
+			last_upper = upper
 		if frame >= 6:
 			skeleton.force_update_all_bone_transforms()
 			var toe: Vector3 = body.to_global(presenter._adult_joint(body, skeleton,
@@ -949,7 +966,8 @@ func landing_toe_hold_case(metres_per_frame: float) -> Dictionary:
 			if not prior.is_empty():
 				contact_step = maxf(contact_step, absf(float(sample.x) - float(prior.x)))
 			prior = sample
-	var result := {"toes": toes, "trailing_toes": trailing_toes, "retreat": retreat,
+	var result := {"toes": toes, "trailing_toes": trailing_toes,
+		"arrival": arrival, "retreat": retreat,
 		"maximum_contact_step": contact_step, "root_x": x,
 		"root_exact": roots_exact, "minimum_knee_forward": knee_forward,
 		"trailing_knee_forward": trailing_knee_forward,
@@ -1136,6 +1154,13 @@ func run() -> void:
 			and still_boot_supported and still_contact.root_exact
 			and still_contact.control_calls == 0,
 			"The trailing boot clears a moving landing without lifting the stationary support or reversing its knee.")
+		verify(run_contact.arrival.left_step < 0.08
+			and run_contact.arrival.right_step < 0.08
+			and run_contact.arrival.head_step < 0.04
+			and still_contact.arrival.left_step < 0.03
+			and still_contact.arrival.right_step < 0.03
+			and still_contact.arrival.head_step < 0.035,
+			"Arms and head ease from descent into moving and stationary contact without a first-frame pose jump.")
 		check_landing_recovery_profile()
 		check_run_stop_contact()
 	else:
