@@ -1290,7 +1290,7 @@ Advance World::tick() noexcept {
                 });
                 const auto existing_drop = candidate.material.dropped_material.find(receiver_point);
                 Integer drop_capacity = 0;
-                if (!has_receiver && valid_drop_point &&
+                if (!has_receiver && !at(Role::collector, receiver_point) && valid_drop_point &&
                     (existing_drop != candidate.material.dropped_material.end() ||
                      candidate.material.dropped_material.size() < materials::maximum_drop_points)) {
                     Integer raw_total = existing_drop == candidate.material.dropped_material.end() ? 0 : existing_drop->second.raw_units;
