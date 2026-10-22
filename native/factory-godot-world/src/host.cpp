@@ -81,15 +81,41 @@ Bounds part_bounds(const world::Profile& profile, const stationary::PlacedPart& 
     return {{x, floor + machine_center_height, z}, {machine_width / 2, machine_height / 2, machine_width / 2}};
 }
 
-// The two admitted mineral cells face one fixed west-side rock. Their low
-// pickup shoes occupy different strips of its real hull, independent of the
-// selected material-output rotation. Raised collectors need a separate lift.
+// The two admitted mineral cells face one fixed west-side rock. Their pickup
+// shoes occupy different strips of its real hull, independent of output turn.
 std::optional<Bounds> collector_intake_bounds(const mechanics::Point& center) {
-    if (center[1] != 0 || center[0] != 0 || (center[2] != 0 && center[2] != height_denominator))
+    if (center[1] < 0 || center[1] > mineral_site::extraction_depth_steps ||
+        center[1] % height_denominator != 0 || center[0] != 0 ||
+        (center[2] != 0 && center[2] != height_denominator))
         return std::nullopt;
     const auto cell = mineral_site::Cell{0, center[2] / height_denominator};
     const double z = center[2] * height_step + (cell.z == 0 ? 0.0 : -0.6);
-    return Bounds{{center[0] * height_step - 0.84, 0.50, z}, {0.14, 0.10, 0.12}};
+    if (center[1] == 0) return Bounds{{-0.84, 0.50, z}, {0.14, 0.10, 0.12}};
+    return Bounds{{-1.04, 0.55, z}, {0.17, 0.15, 0.20}};
+}
+
+std::vector<Bounds> collector_external_bounds(const mechanics::Point& center) {
+    const auto pickup = collector_intake_bounds(center);
+    if (!pickup) return {};
+    if (center[1] == 0) return {*pickup};
+    const double rise = center[1] * height_step;
+    const double z = pickup->center[2];
+    const double machine_z = center[2] * height_step;
+    const double carrier_top = rise + 1.95;
+    const double carrier_bottom = 0.67;
+    const double carrier_middle = (carrier_bottom + carrier_top) / 2;
+    const double carrier_height = carrier_top - carrier_bottom;
+    std::vector<Bounds> parts{*pickup};
+    for (const double side : {-1.0, 1.0})
+        parts.push_back({{-1.05 + 0.09, carrier_middle, z + side * 0.17},
+            {0.055 / 2, carrier_height / 2, 0.055 / 2}});
+    for (int step = 0; step < 5; ++step)
+        parts.push_back({{-1.05 - 0.025, carrier_middle +
+                carrier_height * (static_cast<double>(step) / 4 - 0.5) * 0.88, z},
+            {0.25 / 2, 0.035 / 2, 0.30 / 2}});
+    parts.push_back({{-0.60, rise + 1.77, (z + machine_z) / 2},
+        {0.45, 0.18, machine_z == z ? 0.20 : 0.43}});
+    return parts;
 }
 
 Bounds foundation_bounds(const world::Foundation& foundation) {
@@ -795,13 +821,17 @@ const char* Host::machine_site_refusal(const world::State& state, const mechanic
     if (site_blocked({x - machine_width / 2, floor, z - machine_width / 2},
                      {x + machine_width / 2, floor + machine_height, z + machine_width / 2}))
         return "site_occupied";
-    if (collector) if (const auto intake = collector_intake_bounds(center)) {
-        const auto& at = intake->center; const auto& half = intake->half;
+    const auto external = collector ? collector_external_bounds(center) : std::vector<Bounds>{};
+    for (std::size_t index = 0; index < external.size(); ++index) {
+        const auto& at = external[index].center;
+        const auto& half = external[index].half;
         const authority::Point low{at[0] - half[0], at[1] - half[1], at[2] - half[2]};
         const authority::Point high{at[0] + half[0], at[1] + half[1], at[2] + half[2]};
         const auto ground = terrain_range(at[0], at[2], half[0], half[2]);
         if (!ground) return "terrain_unavailable";
-        if (ground->second > low[1] || site_blocked(low, high, source_obstacle_index_)) return "site_occupied";
+        if (ground->second > low[1] ||
+            site_blocked(low, high, index == 0 ? source_obstacle_index_ : std::nullopt))
+            return "site_occupied";
     }
     return nullptr;
 }
@@ -1003,10 +1033,11 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                             return refuse("occupied");
                 continue;
             }
-            if (part.role == Role::collector) if (const auto intake = collector_intake_bounds(center))
+            for (const auto& external : part.role == Role::collector ?
+                    collector_external_bounds(center) : std::vector<Bounds>{})
                 for (auto px = std::min(*x, *end_x); px <= std::max(*x, *end_x); ++px)
                     for (auto pz = std::min(*z, *end_z); pz <= std::max(*z, *end_z); ++pz)
-                        if (overlap(*intake, foundation_bounds({{4 * px, *level, 4 * pz}, 1})))
+                        if (overlap(external, foundation_bounds({{4 * px, *level, 4 * pz}, 1})))
                             return refuse("occupied");
             if (center[0] * pitch / 4 > std::min(*x, *end_x) * pitch - pitch &&
                 center[0] * pitch / 4 < std::max(*x, *end_x) * pitch + pitch &&
@@ -1077,12 +1108,13 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         if (*kind_name != "gear" && !(*kind_name == "wheel")) {
             if (const auto* refusal = machine_site_refusal(snapshot.state, center, *kind_name == "collector")) return refuse(refusal);
         }
-        const auto proposed_intake = *kind_name == "collector" ? collector_intake_bounds(center) : std::nullopt;
-        if (proposed_intake) {
-            if (intersects_belt(snapshot.state, *proposed_intake)) return refuse("occupied");
+        const auto proposed_external = *kind_name == "collector" ?
+            collector_external_bounds(center) : std::vector<Bounds>{};
+        for (const auto& external : proposed_external) {
+            if (intersects_belt(snapshot.state, external)) return refuse("occupied");
             for (const auto& [id, foundation] : snapshot.state.foundations) {
                 (void)id;
-                if (overlap(*proposed_intake, foundation_bounds(foundation))) return refuse("occupied");
+                if (overlap(external, foundation_bounds(foundation))) return refuse("occupied");
             }
         }
         if (*kind_name != "gear" && intersects_belt(snapshot.state, part_bounds(profile_, proposed))) return refuse("occupied");
@@ -1090,11 +1122,15 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             if (intersects_belt(snapshot.state, support)) return refuse("occupied");
         for (const auto& part : snapshot.state.topology.parts) {
             if (part.geometry.center == center) return refuse("occupied");
-            if (proposed_intake && collector_intake_intersects(*proposed_intake, profile_, part)) return refuse("occupied");
-            if (const auto intake = part.role == Role::collector ? collector_intake_bounds(part.geometry.center) : std::nullopt) {
-                if (*kind_name == "gear" ? transmission_intersects(*intake, center, selected_axis, true) :
-                    overlap(*intake, part_bounds(profile_, proposed))) return refuse("occupied");
-                if (proposed_supports && overlaps_supports(*proposed_supports, *intake)) return refuse("occupied");
+            for (const auto& external : proposed_external)
+                if (collector_intake_intersects(external, profile_, part)) return refuse("occupied");
+            for (const auto& external : part.role == Role::collector ?
+                    collector_external_bounds(part.geometry.center) : std::vector<Bounds>{}) {
+                if (*kind_name == "gear" ? transmission_intersects(external, center, selected_axis, true) :
+                    overlap(external, part_bounds(profile_, proposed))) return refuse("occupied");
+                if (proposed_supports && overlaps_supports(*proposed_supports, external)) return refuse("occupied");
+                for (const auto& proposed_box : proposed_external)
+                    if (overlap(external, proposed_box)) return refuse("occupied");
             }
             if (*kind_name != "gear" && part.role != Role::gear && part.role != Role::shaft &&
                 (*kind_name == "wheel" || part.role == Role::waterwheel) &&
@@ -1133,8 +1169,8 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             authority::Point{machine_width / 2, machine_height / 2, machine_width / 2};
         if (intersects_belt(snapshot.state, {at, half})) return refuse("occupied");
         if (placement_blocked(at, half)) return refuse("actor_occupied");
-        if (*kind_name == "collector") if (const auto intake = collector_intake_bounds(center))
-            if (placement_blocked(intake->center, intake->half)) return refuse("actor_occupied");
+        for (const auto& external : proposed_external)
+            if (placement_blocked(external.center, external.half)) return refuse("actor_occupied");
         if (proposed_supports) for (const auto& support : *proposed_supports)
             if (placement_blocked(support.center, support.half)) return refuse("actor_occupied");
         if (is_gear && intersects_belt(snapshot.state, {at, gear_axle_half_extents(selected_axis)})) return refuse("occupied");
@@ -1164,8 +1200,9 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         if (transmission_intersects_foundations(snapshot.state, *center, verified_axis, false)) return refuse("occupied");
         if (const auto* refusal = transmission_site_refusal(snapshot.state, *center, verified_axis, false)) return refuse(refusal);
         for (const auto& part : snapshot.state.topology.parts)
-            if (part.role == Role::collector) if (const auto intake = collector_intake_bounds(part.geometry.center))
-                if (transmission_intersects(*intake, *center, verified_axis, false)) return refuse("occupied");
+            if (part.role == Role::collector)
+                for (const auto& external : collector_external_bounds(part.geometry.center))
+                    if (transmission_intersects(external, *center, verified_axis, false)) return refuse("occupied");
         const authority::Point at{(*center)[0] * pitch / 4, anchor_height + (*center)[1] * pitch / 4, (*center)[2] * pitch / 4};
         authority::Point half{0.1, 0.1, 0.1};
         half[static_cast<std::size_t>(verified_axis)] = *span * pitch / 4;
@@ -1192,8 +1229,9 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         if (transmission_intersects_foundations(snapshot.state, *center, verified_axis, true)) return refuse("occupied");
         if (const auto* refusal = transmission_site_refusal(snapshot.state, *center, verified_axis, true)) return refuse(refusal);
         for (const auto& part : snapshot.state.topology.parts)
-            if (part.role == Role::collector) if (const auto intake = collector_intake_bounds(part.geometry.center))
-                if (transmission_intersects(*intake, *center, verified_axis, true)) return refuse("occupied");
+            if (part.role == Role::collector)
+                for (const auto& external : collector_external_bounds(part.geometry.center))
+                    if (transmission_intersects(external, *center, verified_axis, true)) return refuse("occupied");
         const authority::Point at{(*center)[0] * pitch / 4, anchor_height + (*center)[1] * pitch / 4, (*center)[2] * pitch / 4};
         const auto half = gear_half_extents(verified_axis, *teeth);
         if (intersects_belt(snapshot.state, {at, half})) return refuse("occupied");
@@ -1276,8 +1314,9 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         }
         for (const auto& placed : snapshot.state.topology.parts) {
             if (placed.role == Role::shaft) continue;
-            if (placed.role == Role::collector) if (const auto intake = collector_intake_bounds(placed.geometry.center))
-                if (belt_intersects(first->geometry, last->geometry, *intake)) return refuse("occupied");
+            if (placed.role == Role::collector)
+                for (const auto& external : collector_external_bounds(placed.geometry.center))
+                    if (belt_intersects(first->geometry, last->geometry, external)) return refuse("occupied");
             const auto& point = placed.geometry.center;
             const Bounds bounds = placed.role == Role::gear ? Bounds{
                 {point[0] * height_step, anchor_height + point[1] * height_step, point[2] * height_step},
@@ -1547,7 +1586,21 @@ Value Host::projection() const {
             {"capsule_radius", Value(capsule_radius)}, {"capsule_height", Value(capsule_height)},
             {"collector_intake_size", Value(Array{Value(0.28), Value(0.20), Value(0.24)})},
             {"collector_intake_x", Value(-0.84)}, {"collector_intake_y", Value(0.50)},
-            {"collector_second_cell_z", Value(-0.60)}})}});
+            {"collector_second_cell_z", Value(-0.60)},
+            {"collector_lift", Value(Object{{"pickup_x", Value(-1.04)},
+                {"pickup_y", Value(0.55)},
+                {"pickup_size", Value(Array{Value(0.34), Value(0.30), Value(0.40)})},
+                {"carrier_x", Value(-1.05)}, {"carrier_bottom", Value(0.67)},
+                {"carrier_top_offset", Value(1.95)},
+                {"carrier_size_xz", Value(Array{Value(0.34), Value(0.42)})},
+                {"guide_offset", Value(Array{Value(0.09), Value(0.17)})},
+                {"guide_size", Value(Array{Value(0.055), Value(0.055)})},
+                {"flight_offset_x", Value(-0.025)},
+                {"flight_size", Value(Array{Value(0.25), Value(0.035), Value(0.30)})},
+                {"flight_count", Value(Integer{5})}, {"flight_span", Value(0.88)},
+                {"head_x", Value(-0.60)}, {"head_y_offset", Value(1.77)},
+                {"head_size_xy", Value(Array{Value(0.90), Value(0.36)})},
+                {"head_z_size", Value(Array{Value(0.40), Value(0.86)})}})}})}});
 }
 
 Value Host::checkpoint() const {
@@ -1600,14 +1653,15 @@ Host::Decoded Host::decode(const Value& input) const {
             return {nullptr, "incompatible_geometry"};
         if (part.role == Role::collector)
             if (const auto* refusal = collector_site_refusal(center)) return {nullptr, refusal};
-        if (part.role == Role::collector) if (const auto intake = collector_intake_bounds(center)) {
-            if (intersects_belt(snapshot.state, *intake)) return {nullptr, "occupied"};
+        for (const auto& external : part.role == Role::collector ?
+                collector_external_bounds(center) : std::vector<Bounds>{}) {
+            if (intersects_belt(snapshot.state, external)) return {nullptr, "occupied"};
             for (const auto& [id, foundation] : snapshot.state.foundations) {
                 (void)id;
-                if (overlap(*intake, foundation_bounds(foundation))) return {nullptr, "occupied"};
+                if (overlap(external, foundation_bounds(foundation))) return {nullptr, "occupied"};
             }
             for (const auto& other : snapshot.state.topology.parts)
-                if (other.geometry.id != part.geometry.id && collector_intake_intersects(*intake, profile_, other))
+                if (other.geometry.id != part.geometry.id && collector_intake_intersects(external, profile_, other))
                     return {nullptr, "occupied"};
         }
         if (part.role == Role::waterwheel) {

@@ -148,8 +148,8 @@ void footprint_and_profile() {
     }
 }
 
-O source_contact_site(bool extra_obstacle = false) {
-    auto terrain = flat();
+O source_contact_site(bool extra_obstacle = false, double height = -0.02) {
+    auto terrain = flat(height);
     A obstacles{V(A{V(A{V(-1.03), V(0.35), V(-0.2)}),
                     V(A{V(-0.76), V(0.65), V(1.2)})})};
     if (extra_obstacle)
@@ -207,6 +207,40 @@ void grounded_intake_clearance() {
           "An unused neighboring foundation remains buildable before the collector exists.");
     outcome(intake_after_foundation.command("P", place("collector-after-foundation", "collector", 0, 0)),
             false, "occupied");
+}
+
+void raised_source_lift_clearance() {
+    for (const I cell : {I{0}, I{1}}) for (const I level : {I{4}, I{8}}) {
+        Host host; initialize(host, source_contact_site(false, 0.0));
+        observe(host, level * 0.4125 + 1.0, cell * 1.65 + 1.65);
+        auto base = foundation("lift-base", level);
+        base.at("cell") = V(A{V(I{0}), V(cell)});
+        check(accepted(host.command("P", base)), "The raised collector starts with its real supported foundation.");
+        outcome(host.command("P", place("lift", "collector", 0, cell, level)), true, "ok");
+        Host reopened; initialize(reopened, source_contact_site(false, 0.0));
+        outcome(reopened.restore_checkpoint(host.checkpoint()), true, "restored");
+        check(same(material_state(host), material_state(reopened)),
+              "A fresh native Host retains the exact raised collector and foundation custody.");
+        auto neighboring_base = foundation("neighboring-base", level);
+        neighboring_base.at("cell") = V(A{V(I{-1}), V(cell)});
+        const auto before = material_state(host);
+        outcome(host.command("P", neighboring_base), false, "occupied");
+        check(same(before, material_state(host)),
+              "A later neighboring foundation cannot cover the confirmed exterior carrier.");
+        auto missing = source_contact_site(false, 0.0);
+        missing.erase("source_obstacle");
+        Host unmarked; initialize(unmarked, missing);
+        observe(unmarked, level * 0.4125 + 1.0, cell * 1.65 + 1.65);
+        check(accepted(unmarked.command("P", base)), "The comparison foundation is independently admitted.");
+        outcome(unmarked.command("P", place("unmarked-lift", "collector", 0, cell, level)),
+            false, "site_occupied");
+    }
+    Host actor; initialize(actor, source_contact_site());
+    observe(actor, 2.65, 1.65, 1.65);
+    check(accepted(actor.command("P", foundation("actor-base", 4))),
+          "The actor-clear raised foundation is placed before the exterior carrier test.");
+    outcome(actor.publish_actor("P", {V(-1.05), V(1.4), V(0.0)}, 2), true, "actor_published");
+    outcome(actor.command("P", place("actor-lift", "collector", 0, 0, 4)), false, "actor_occupied");
 }
 
 void foundations_and_restore() {
@@ -312,7 +346,8 @@ void full_finite_depletion() {
 
 int main() {
     try {
-        footprint_and_profile(); grounded_intake_clearance(); foundations_and_restore(); full_finite_depletion();
+        footprint_and_profile(); grounded_intake_clearance(); raised_source_lift_clearance();
+        foundations_and_restore(); full_finite_depletion();
         std::cout << checks << " native mineral placement, depletion and checkpoint checks passed.\n";
     } catch (const std::exception& error) {
         std::cerr << "Failed after " << checks << " checks: " << error.what() << '\n';

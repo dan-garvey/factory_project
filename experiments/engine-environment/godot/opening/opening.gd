@@ -5690,7 +5690,7 @@ func _collector_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 		var intake_result: Dictionary = Geometry.collector_intake_boxes(entity)
 		if not intake_result.get("accepted", false):
 			push_error("The confirmed collector lacks an admitted source-facing intake.")
-		elif not intake_result.boxes.is_empty():
+		elif intake_result.boxes.size() == 1:
 			var pickup: Dictionary = intake_result.boxes[0]
 			var local_at: Vector3 = pickup.center - anchor.position
 			_machine_box(anchor, "SourcePickupHousing", local_at + Vector3(0.06, 0, 0),
@@ -5704,6 +5704,48 @@ func _collector_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 			var trough := _machine_box(anchor, "SourceGatheringTrough", (start + finish) * 0.5,
 				Vector3(delta.length(), 0.045, 0.10), steel, 0.85, 0.45)
 			trough.rotation.y = -atan2(delta.z, delta.x)
+		elif intake_result.boxes.size() == 9:
+			var pickup: Dictionary = intake_result.boxes[0]
+			var carrier: Dictionary = intake_result.carrier
+			var head: Dictionary = intake_result.head
+			var shoe_at: Vector3 = pickup.center - anchor.position
+			var carrier_at: Vector3 = carrier.center - anchor.position
+			var head_at: Vector3 = head.center - anchor.position
+			_machine_box(anchor, "SourceLiftPickup", shoe_at + Vector3(0.04, 0, 0),
+				Vector3(0.25, 0.17, 0.35), Color("465a60"), 0.85, 0.35)
+			for tooth in [-1.0, 0.0, 1.0]:
+				_machine_box(anchor, "SourceLiftPickupTooth", shoe_at + Vector3(-0.13, -0.01, tooth * 0.12),
+					Vector3(0.07, 0.11, 0.035), steel, 0.85, 0.32)
+			for index in range(2):
+				var guide: Dictionary = intake_result.boxes[index + 1]
+				_machine_box(anchor, "SourceLiftGuideLeft" if index == 0 else "SourceLiftGuideRight",
+					guide.center - anchor.position, guide.size, frame, 0.8, 0.45)
+			for index in range(5):
+				var flight: Dictionary = intake_result.boxes[index + 3]
+				_machine_box(anchor, "SourceLiftFlight%d" % index,
+					flight.center - anchor.position, flight.size, steel, 0.78, 0.42)
+			var start := Vector3(carrier_at.x + 0.03, head_at.y, carrier_at.z)
+			var finish := Vector3(0.48, 1.28, 0.28)
+			var delta := finish - start
+			var discharge := _machine_box(anchor, "SourceLiftDischarge", (start + finish) * 0.5,
+				Vector3(delta.length(), 0.07, 0.24), Color("b18a43"), 0.78, 0.46)
+			discharge.basis = Basis(Quaternion(Vector3.RIGHT, delta.normalized()))
+			var cross := Vector3(-delta.z, 0, delta.x).normalized()
+			for side in [-1.0, 1.0]:
+				var guard := _machine_box(anchor, "SourceLiftHeadGuardLeft" if side < 0.0 else "SourceLiftHeadGuardRight",
+					(start + finish) * 0.5 +
+					Vector3(0, 0.10, 0) + cross * side * 0.12,
+					Vector3(delta.length(), 0.16, 0.03), frame, 0.8, 0.42)
+				guard.basis = discharge.basis
+			_machine_box(anchor, "SourceLiftTransferHopper", finish + Vector3(0.03, -0.10, 0),
+				Vector3(0.33, 0.20, 0.36), frame, 0.78, 0.48)
+			var drop_start := finish + Vector3(0.03, -0.12, 0)
+			var stock_entry := Vector3(0.46, 0.65, 0.28)
+			var drop_delta := stock_entry - drop_start
+			var downspout := _machine_box(anchor, "SourceLiftDownspout",
+				(drop_start + stock_entry) * 0.5,
+				Vector3(drop_delta.length(), 0.17, 0.18), steel, 0.83, 0.40)
+			downspout.basis = Basis(Quaternion(Vector3.RIGHT, drop_delta.normalized()))
 	if not (_native_transmission() and ProductionCollectorFeedArt.mount(anchor, frame)):
 		for z in [-0.37, 0.37]:
 			_machine_box(anchor, "StockGuide", Vector3(0.05, 0.6, z), Vector3(1.15, 0.08, 0.06), frame)
