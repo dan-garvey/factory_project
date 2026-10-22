@@ -1208,6 +1208,44 @@ startup retains its existing profile. The offline view reads native resource
 stock and offers exact-target harvesting; pod/bench art, timed tool use and
 component crafting/placement controls remain unfinished.
 
+## GDC-22: first native tool presentation has separate cold costs
+
+The current arrival profile does not call the older `_prime_machine_visuals()`:
+its native projection has `hand_sources`. In a synthetic direct-function probe
+of the ordinary X11 Compatibility opening at 1280×800 on WSL2/D3D12, the
+first detached procedural collector, belt, press and wheel assemblies took
+567, 943, 1017 and 2297 ms. The first collector display frame took 615 ms;
+later instances shared their mesh resources and drew in roughly 50–60 ms.
+This is preview presentation work, not native command latency.
+
+The arrival now loads four bundled default amber preview scenes, renders and
+retains their nodes in the main viewport, and prepares one reusable foundation
+form. A focused headless fixture checks the baked local mesh geometry against
+procedural assembly, neutral material, lack of colliders or callbacks, pooled
+default selection and foundation area scaling. Nondefault orientations and
+wheel sizes still use procedural assembly. Belt selection in the current native
+profile opens a shaft-span tool, so its baked machine form does not represent
+that tool's placement ghost.
+
+An exclusive graphical direct-selection probe then separated the interface
+from the ghost by hiding only the warmed ghost for one frame. With invented
+carried parts and target cells, first collector and wheel interface frames
+were each about 117 ms; revealing their ghosts later took 55 and 45 ms, near
+neighboring frames. Warming those actual tool panels under the preparation
+cover reduced first interface frames to 57 and 50 ms, with selection calls
+about 4–5 ms. The foundation's first selection changed from 8.5 ms CPU and
+83 ms first frame to 4.2 ms CPU and 42 ms first frame after retaining its
+form. The same probe found no comparable first-use frame spike for native belt,
+cog, shaft or gearbox menus. These are single-run, direct-function results on
+an older locally compiled native extension; they do not establish mouse-driven
+or human use. Actor-ready preparation took about 15.5–16.0 seconds in those
+captures. The current source and evidence scripts, JSON and inspected collector
+screenshot are retained under `cog-performance-20261022/native-runtime`.
+An opaque-versus-0.99-alpha cover comparison did not improve the first-frame
+spike, so the translucent-cover trial was not kept. This WSL renderer still has
+a high frame-time floor, and static visual stress plus a zero-machine native
+Windows run do not prove hundreds of active machines in the playable opening.
+
 ## Required follow-through
 
 This first source/API/evidence audit leaves actual backend identification,
