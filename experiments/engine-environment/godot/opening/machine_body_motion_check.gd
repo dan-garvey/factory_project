@@ -3,6 +3,8 @@ extends SceneTree
 const Opening = preload("res://opening/opening.gd")
 const Shared = preload("res://opening/shared_opening.gd")
 const Presenter = preload("res://opening/native_transmission_presenter.gd")
+const Geometry = preload("res://opening/site_geometry.gd")
+const TransmissionAssets = preload("res://opening/native_transmission_assets.gd")
 var checks := 0
 var failed := false
 
@@ -101,6 +103,10 @@ func bounds_in_view(mesh: MeshInstance3D, view: Node3D) -> AABB:
 func conveyor_offset(view: Node3D, id: String) -> float:
 	return machine(view, id).get_node("ConveyorLoop").material_override.uv1_offset.x
 
+func expected_rotation(seconds: float) -> float:
+	# A rate-one belt covers one world tile per authoritative native tick.
+	return seconds * Geometry.PITCH / (Opening.STEP_SECONDS * TransmissionAssets.SPAN_OUTER_RADIUS)
+
 func check_conveyor_motion(shared: bool) -> void:
 	var view = Shared.new() if shared else Opening.new()
 	var facts := SessionFacts.new()
@@ -121,7 +127,7 @@ func check_conveyor_motion(shared: bool) -> void:
 	var negative := conveyor_offset(view, "forward")
 	var length_value := 4.0 * Opening.ProductionConveyorArt.HALF_SPAN + TAU * Opening.ProductionConveyorArt.RADIUS
 	var repeats := maxi(1, roundi(length_value / Opening.ProductionConveyorArt.SOURCE_METRES))
-	var expected := 0.08 * Opening.ProductionConveyorArt.RADIUS * repeats / length_value
+	var expected := expected_rotation(0.1) * Opening.ProductionConveyorArt.RADIUS * repeats / length_value
 	verify(is_equal_approx(positive, expected) and is_equal_approx(negative, 1.0 - expected),
 		"Opposite spindle signs move the top texture in opposite world directions at pulley surface speed.")
 	view._rebuild_machines()
@@ -130,7 +136,7 @@ func check_conveyor_motion(shared: bool) -> void:
 	for frame in range(40):
 		view._animate_wheel(0.1)
 	positive = conveyor_offset(view, "reverse")
-	verify(is_equal_approx(positive, expected * 41.0),
+	verify(is_equal_approx(positive, fposmod(expected * 41.0, 1.0)),
 		"The surface travels continuously through a wrapped shaft angle.")
 	view.state.motion.reverse.state = "stalled"
 	view._animate_wheel(0.1)
@@ -210,13 +216,14 @@ func _initialize() -> void:
 	verify(picks.size() == 2 and picks[0][2] == 4 and picks[0][3] == 0 and picks[0][6] == Vector3(1.45, 1.65, 1.45),
 		"The real builder retains literal pick dimensions and layers.")
 	view._animate_wheel(0.1)
-	verify(is_equal_approx(view.transmission_presenter.visual_angle("collector"), 0.08),
+	verify(is_equal_approx(view.transmission_presenter.visual_angle("collector"), expected_rotation(0.1)),
 		"The cutter consumes the existing presenter angle without a second rate clock.")
 	var flute_verified := false
 	for row in meshes(view, "collector"):
 		if row.node.get_meta("detail_role", "") == "CutterFlute" and row.rest.origin.is_equal_approx(Vector3(0.015, 1.1, -0.19)):
 			var actual: Transform3D = row.parent_inverse.affine_inverse() * row.node.transform
-			verify(actual.origin.is_equal_approx(Vector3(-0.22 + 0.235 * cos(0.08), 1.1 + 0.235 * sin(0.08), -0.19)),
+			verify(actual.origin.is_equal_approx(Vector3(-0.22 + 0.235 * cos(expected_rotation(0.1)),
+				1.1 + 0.235 * sin(expected_rotation(0.1)), -0.19)),
 				"A real flute orbits the fixed drum center using an independent trigonometric point.")
 			flute_verified = true
 	verify(flute_verified and view.state == original and pick_facts(view) == picks and view.request_sequence == sequence,
