@@ -12,6 +12,12 @@ class EmptySite extends RefCounted:
 		return {"options": {"native": true, "physical": true}, "actors": {}, "entities": {},
 			"transmission_parts": {}, "belt_spans": {}}
 
+class MatchCounter extends RefCounted:
+	var calls := 0
+	func match_native_rock(actual: PackedVector3Array, expected: PackedVector3Array) -> PackedVector3Array:
+		calls += 1
+		return Surface.match_native_rock(actual, expected)
+
 var checks := 0
 var failures: Array[String] = []
 var observations: Array[Dictionary] = []
@@ -19,6 +25,9 @@ var dimensions: Dictionary = {}
 var output := ""
 var registration_only := false
 var registration: Array[Dictionary] = []
+var cache_only := false
+var cache_results: Dictionary = {}
+var empty_corner_controls := 0
 var site
 var capsule
 
@@ -36,6 +45,8 @@ func _initialize() -> void:
 			output = argument.trim_prefix("--result=")
 		elif argument == "--registration-only":
 			registration_only = true
+		elif argument == "--cache-only":
+			cache_only = true
 	call_deferred("run")
 
 func finish() -> void:
@@ -44,7 +55,9 @@ func finish() -> void:
 	var facts := {"status": "pass" if failures.is_empty() else "fail", "checks": checks,
 		"failures": failures, "sweeps": observations, "capsule_dimensions": dimensions,
 		"registration": registration,
-		"scope": "Native capsule queries against all 65 ordinary registered convex rocks, including the mineable source",
+		"cache": cache_results,
+		"empty_corner_controls": empty_corner_controls,
+		"scope": "Native site-registration cache mutation controls" if cache_only else "Native capsule queries against all 65 ordinary registered convex rocks, including the mineable source",
 		"exclusions": "Each query isolates its target rock by excluding the ground and other supports.",
 		"desktop": "not_used", "game_authority": "not_started", "human_play": "not_run"}
 	if not output.is_empty():
@@ -83,6 +96,10 @@ func run() -> void:
 	var rocks := Surface.support_boxes()
 	verify(rocks.size() == 65, "All scenery rocks and the mineable source are covered.")
 	verify(site._geometry_registered(), "The ordinary producer binds the actual convex shape data before contact checks.")
+	if cache_only:
+		await check_registration_cache()
+		finish()
+		return
 	if registration_only:
 		for spec in rocks:
 			var target: StaticBody3D = site.site_bodies[spec.id]
@@ -155,14 +172,24 @@ func run() -> void:
 				parameters.exclude_bodies = all_excluded
 				verify(not PhysicsServer3D.body_test_motion(capsule.get_rid(), parameters),
 					"Removing only the target from the query removes the contact: " + spec.id)
-		# This line lies inside the former box's X/Z corner but outside the
-		# visible hull. A hidden surrounding box would produce a false hit.
+		# Select a line independently known to miss this actual detailed hull.
+		# A surrounding box would still stop it inside the declared envelope.
 		var transform := Transform3D(spec.basis, spec.center)
-		var corner := Vector3(spec.size.x * 0.45, spec.size.y * 2.0, spec.size.z * 0.45)
-		var ray := PhysicsRayQueryParameters3D.create(transform * corner,
-			transform * Vector3(corner.x, -corner.y, corner.z), Geometry.GROUND_LAYER, exclusions)
-		verify(site.get_world_3d().direct_space_state.intersect_ray(ray).is_empty(),
-			"The old box corner remains truly empty in native physics: " + spec.id)
+		var triangles := TriangleMesh.new()
+		triangles.create_from_faces(native_faces)
+		var found_empty := false
+		for signs in [Vector2(1, 1), Vector2(-1, 1), Vector2(1, -1), Vector2(-1, -1)]:
+			var corner := Vector3(spec.size.x * 0.49 * signs.x, spec.size.y * 2.0, spec.size.z * 0.49 * signs.y)
+			if not triangles.intersect_ray(corner, Vector3.DOWN).is_empty():
+				continue
+			var ray := PhysicsRayQueryParameters3D.create(transform * corner,
+				transform * Vector3(corner.x, -corner.y, corner.z), Geometry.GROUND_LAYER, exclusions)
+			verify(site.get_world_3d().direct_space_state.intersect_ray(ray).is_empty(),
+				"A line outside the actual hull is not blocked by an invisible surrounding box: " + spec.id)
+			found_empty = true
+			empty_corner_controls += 1
+			break
+		verify(found_empty, "An independently empty envelope corner supplies the no-box control: " + spec.id)
 		var inside := PhysicsShapeQueryParameters3D.new()
 		inside.shape = capsule.capsule
 		inside.transform = Transform3D(Basis.IDENTITY, spec.center)
@@ -175,3 +202,64 @@ func run() -> void:
 			"The real solid and analytical guard both detect a capsule through its interior: " + spec.id)
 	verify(observations.size() == rocks.size() * 5, "Five complete approaches cover every rock.")
 	finish()
+
+func check_registration_cache() -> void:
+	var source = site.site_surface
+	var counter := MatchCounter.new()
+	site.site_surface = counter
+	site._site_shape_matches.clear()
+	verify(site._geometry_registered() and counter.calls == 65,
+		"Every native site solid receives its initial full correspondence check.")
+	var first := counter.calls
+	verify(site._geometry_registered() and counter.calls == first,
+		"Unchanged native data reuses only previously validated correspondences.")
+	cache_results.initial_full_matches = first
+	var id := "rock_0"
+	var body: StaticBody3D = site.site_bodies[id]
+	var shape: ConvexPolygonShape3D = site.site_shapes[id]
+	var original_input: PackedVector3Array = shape.points.duplicate()
+	var original_reference: PackedVector3Array = site.site_specs[id].native_points.duplicate()
+	var original_data: PackedVector3Array = PhysicsServer3D.shape_get_data(shape.get_rid())
+	var changed := original_data.duplicate()
+	changed[0] += Vector3.RIGHT * 0.01
+	PhysicsServer3D.shape_set_data(shape.get_rid(), changed)
+	await physics_frame
+	await process_frame
+	verify(not site._geometry_registered(), "A direct backend shape mutation cannot hide behind the validated cache.")
+	PhysicsServer3D.shape_set_data(shape.get_rid(), original_input)
+	await physics_frame
+	await process_frame
+	if not verify(site._geometry_registered(), "Restoring the original cooking input restores native registration."):
+		return
+	changed = original_reference.duplicate()
+	changed[0] += Vector3.RIGHT * 0.01
+	site.site_specs[id].native_points = changed
+	var before := counter.calls
+	verify(not site._geometry_registered() and counter.calls == before + 1,
+		"A changed expected reference forces a full match and fails closed.")
+	site.site_specs[id].native_points = original_reference
+	verify(site._geometry_registered(), "Restoring the exact reference preserves the original valid geometry.")
+	shape.margin = 0.01
+	verify(not site._geometry_registered(), "A cached correspondence never bypasses the zero-margin guard.")
+	shape.margin = 0.0
+	body.position += Vector3.RIGHT * 0.01
+	await physics_frame
+	await process_frame
+	verify(not site._geometry_registered(), "A cached shape never bypasses the rigid site-pose guard.")
+	body.position = site.site_specs[id].center
+	await physics_frame
+	await process_frame
+	verify(site._geometry_registered(), "The original site pose restores registration.")
+	var replacement := ConvexPolygonShape3D.new()
+	replacement.points = original_input
+	replacement.margin = 0.0
+	body.get_child(0).shape = replacement
+	site.site_shapes[id] = replacement
+	await physics_frame
+	await process_frame
+	before = counter.calls
+	verify(site._geometry_registered() and replacement.get_rid() != shape.get_rid() and counter.calls == before + 1,
+		"A new valid native shape identity receives a fresh correspondence check.")
+	cache_results.total_full_matches = counter.calls
+	cache_results.backend_reference_margin_pose_and_identity_checked = true
+	site.site_surface = source
