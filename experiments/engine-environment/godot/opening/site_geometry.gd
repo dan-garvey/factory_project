@@ -32,17 +32,54 @@ const COLLECTOR_INTAKE_SIZE := [0.28, 0.20, 0.24]
 const COLLECTOR_INTAKE_X := -0.84
 const COLLECTOR_INTAKE_Y := 0.50
 const COLLECTOR_SECOND_CELL_Z := -0.60
+const COLLECTOR_LIFT_PROFILE := {
+	"pickup_x": -1.04, "pickup_y": 0.55, "pickup_size": [0.34, 0.30, 0.40],
+	"carrier_x": -1.05, "carrier_bottom": 0.67, "carrier_top_offset": 1.95,
+	"carrier_size_xz": [0.34, 0.42],
+	"guide_offset": [0.09, 0.17], "guide_size": [0.055, 0.055],
+	"flight_offset_x": -0.025, "flight_size": [0.25, 0.035, 0.30],
+	"flight_count": 5, "flight_span": 0.88,
+	"head_x": -0.60, "head_y_offset": 1.77,
+	"head_size_xy": [0.90, 0.36], "head_z_size": [0.40, 0.86],
+}
 
 static func collector_intake_boxes(entity: Dictionary) -> Dictionary:
-	if entity.get("kind") != "collector" or entity.get("level", 0) != 0:
+	if entity.get("kind") != "collector":
 		return {"accepted": true, "boxes": []}
 	var cell: Variant = entity.get("cell")
+	var level: Variant = entity.get("level", 0)
 	if not cell is Array or cell.size() != 2 or typeof(cell[0]) != TYPE_INT or typeof(cell[1]) != TYPE_INT \
-			or cell[0] != 0 or cell[1] not in [0, 1]:
+			or cell[0] != 0 or cell[1] not in [0, 1] or typeof(level) != TYPE_INT or level not in [0, 4, 8]:
 		return {"accepted": false, "boxes": []}
-	return {"accepted": true, "boxes": [{"center": Vector3(COLLECTOR_INTAKE_X,
-		COLLECTOR_INTAKE_Y, float(cell[1]) * PITCH + (0.0 if cell[1] == 0 else COLLECTOR_SECOND_CELL_Z)),
-		"size": Vector3(COLLECTOR_INTAKE_SIZE[0], COLLECTOR_INTAKE_SIZE[1], COLLECTOR_INTAKE_SIZE[2])}]}
+	var machine_z: float = float(cell[1]) * PITCH
+	var contact_z: float = machine_z + (0.0 if cell[1] == 0 else COLLECTOR_SECOND_CELL_Z)
+	if level == 0:
+		return {"accepted": true, "boxes": [{"name": "pickup",
+			"center": Vector3(COLLECTOR_INTAKE_X, COLLECTOR_INTAKE_Y, contact_z),
+			"size": Vector3(COLLECTOR_INTAKE_SIZE[0], COLLECTOR_INTAKE_SIZE[1], COLLECTOR_INTAKE_SIZE[2])}]}
+	var profile: Dictionary = COLLECTOR_LIFT_PROFILE
+	var rise: float = float(level) * HEIGHT_STEP
+	var top: float = rise + profile.carrier_top_offset
+	var carrier := {"center": Vector3(profile.carrier_x, (profile.carrier_bottom + top) * 0.5, contact_z),
+		"size": Vector3(profile.carrier_size_xz[0], top - profile.carrier_bottom, profile.carrier_size_xz[1])}
+	var head := {"name": "head", "center": Vector3(profile.head_x, rise + profile.head_y_offset,
+			(contact_z + machine_z) * 0.5),
+		"size": Vector3(profile.head_size_xy[0], profile.head_size_xy[1],
+			profile.head_z_size[0] if cell[1] == 0 else profile.head_z_size[1])}
+	var bodies: Array[Dictionary] = [{"name": "pickup",
+		"center": Vector3(profile.pickup_x, profile.pickup_y, contact_z),
+		"size": Vector3(profile.pickup_size[0], profile.pickup_size[1], profile.pickup_size[2])}]
+	for side in [-1.0, 1.0]:
+		bodies.append({"name": "guide", "center": carrier.center + Vector3(
+			profile.guide_offset[0], 0, side * profile.guide_offset[1]),
+			"size": Vector3(profile.guide_size[0], carrier.size.y, profile.guide_size[1])})
+	for step in range(profile.flight_count):
+		bodies.append({"name": "flight", "center": carrier.center + Vector3(
+			profile.flight_offset_x,
+			carrier.size.y * (float(step) / float(profile.flight_count - 1) - 0.5) * profile.flight_span, 0),
+			"size": Vector3(profile.flight_size[0], profile.flight_size[1], profile.flight_size[2])})
+	bodies.append(head)
+	return {"accepted": true, "boxes": bodies, "carrier": carrier, "head": head}
 
 static func wheel_half_extents(axis: int, tiles: int) -> Vector3:
 	var radius := WATERWHEEL_RADIUS * tiles

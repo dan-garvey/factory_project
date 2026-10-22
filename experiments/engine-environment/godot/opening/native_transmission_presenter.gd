@@ -117,8 +117,9 @@ func advance_visual_motion(delta: float) -> void:
 	var snapshot: Variant = host.get("state")
 	if not snapshot is Dictionary or not snapshot.get("motion") is Dictionary:
 		return
-	# refresh() already reconciles context and generations when a confirmed
-	# projection changes. The render clock only advances retained identities.
+	# A machine may be rebuilt from the current projection before the next
+	# presenter refresh. Reconcile those identities before advancing its motion.
+	_sync_motion(snapshot)
 	for id: String in _generations:
 		var rate := signed_rate(snapshot.motion.get(id))
 		if rate != 0.0:

@@ -3,15 +3,12 @@ extends Node3D
 ## upstream-drive engineering problem. Reads only host.state; never owns a
 ## second World, speculative inventory or separate progression clock.
 
-const Geometry = preload("res://opening/site_geometry.gd")
-
 const FIRST_TARGET := 4
 const FINAL_TARGET := 8
 const DEFAULT_WHEEL_CELL := Vector2i(-2, 0)
 
 var host: Object
 var target_wheel_cell := DEFAULT_WHEEL_CELL
-var _cached_key: Array = []
 
 
 func configure(owner_host: Object, wheel_cell: Vector2i = DEFAULT_WHEEL_CELL) -> void:
@@ -310,67 +307,5 @@ func goal_text() -> String:
 
 
 func refresh() -> void:
-	if not _native_enabled():
-		visible = false
-		_cached_key = []
-		for child in get_children():
-			remove_child(child)
-			child.free()
-		return
-	visible = true
-	var report := evaluate()
-	var state: Dictionary = host.state
-	var next_key := [
-		state.get("context", ""),
-		target_wheel_cell.x,
-		target_wheel_cell.y,
-		report.get("phase", ""),
-		report.get("source_at_target", false),
-		report.get("machines_running", false),
-		report.get("belt_forward", false),
-	]
-	if next_key == _cached_key and get_child_count() > 0:
-		return
-	_cached_key = next_key.duplicate(true)
-	for child in get_children():
-		remove_child(child)
-		child.free()
-
-	var marker := Node3D.new()
-	marker.name = "UpstreamRaceMarker"
-	marker.position = Vector3(
-		float(target_wheel_cell.x) * Geometry.PITCH,
-		0.04,
-		float(target_wheel_cell.y) * Geometry.PITCH
-	)
-	marker.set_meta("target_wheel_cell", [target_wheel_cell.x, target_wheel_cell.y])
-	marker.set_meta("phase", str(report.get("phase", "")))
-
-	var pad := MeshInstance3D.new()
-	pad.name = "RacePad"
-	var box := BoxMesh.new()
-	box.size = Vector3(1.24, 0.06, 1.24)
-	var mat := StandardMaterial3D.new()
-	if bool(report.get("machines_running", false)) and bool(report.get("source_at_target", false)) and bool(report.get("belt_forward", false)):
-		mat.albedo_color = Color("3a8f5b")
-	elif bool(report.get("source_at_target", false)):
-		mat.albedo_color = Color("b88b28")
-	else:
-		mat.albedo_color = Color("2d728f")
-	mat.roughness = 0.65
-	box.material = mat
-	pad.mesh = box
-	marker.add_child(pad)
-
-	var post := MeshInstance3D.new()
-	post.name = "BearingPost"
-	var cyl := CylinderMesh.new()
-	cyl.top_radius = 0.09
-	cyl.bottom_radius = 0.11
-	cyl.height = 0.46
-	cyl.material = mat
-	post.mesh = cyl
-	post.position = Vector3(0.0, 0.23, 0.0)
-	marker.add_child(post)
-
-	add_child(marker)
+	# Guidance belongs to the UI; only players construct machinery in the world.
+	visible = _native_enabled()

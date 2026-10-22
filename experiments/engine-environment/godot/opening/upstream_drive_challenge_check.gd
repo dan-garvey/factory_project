@@ -61,18 +61,16 @@ func _run() -> void:
 	verify(current.diagnostic_code == "producing_plates" and "4 / 8" in challenge.goal_text(),
 		"The working route prompts collection rather than missing machine links.")
 	verify(host.state == before, "Presenter configuration and inspection never mutate the projection.")
-	var marker: Node3D = challenge.get_node("UpstreamRaceMarker")
-	var marker_id := marker.get_instance_id()
-	verify(marker.position.is_equal_approx(Vector3(-2 * Geometry.PITCH, 0.04, 0)), "Marker uses the global target cell.")
+	verify(challenge.get_child_count() == 0, "Guidance creates no unbuilt world props.")
 	challenge.refresh()
-	verify(challenge.get_node("UpstreamRaceMarker").get_instance_id() == marker_id, "Unchanged refresh reuses the marker.")
+	verify(challenge.get_child_count() == 0 and host.state == before, "Refresh stays read-only without world props.")
 
 	# Native progress, not synthetic local counts, determines phase and direction.
 	host.state.opening_engineering.P = report("P", 4, "restore_drive", true, true, false)
 	current = challenge.evaluate()
 	challenge.refresh()
-	verify(challenge.get_node("UpstreamRaceMarker").get_instance_id() != marker_id,
-		"A direction change refreshes the marker instead of retaining the ready color.")
+	verify(challenge.get_child_count() == 0,
+		"A direction change keeps guidance in the UI.")
 	verify(current.phase == "restore_drive" and current.diagnostic_code == "missing_material_route"
 		and "toward the press" in current.diagnostic_text,
 		"Disconnected or reversed routes receive non-speculative route guidance.")
@@ -108,7 +106,7 @@ func _run() -> void:
 	verify(challenge.evaluate().phase == "ready" and challenge.evaluate().diagnostic_code == "challenge_complete", "Native ready state is displayed.")
 	host.state.options.native = false
 	challenge.refresh()
-	verify(not challenge.visible and challenge.get_child_count() == 0, "A non-native state hides the presenter and marker.")
+	verify(not challenge.visible and challenge.get_child_count() == 0, "A non-native state hides guidance without world props.")
 	challenge.free()
 	var ok := failures == 0 and checks >= 17
 	print("UPSTREAM_DRIVE_CHALLENGE_%s %d" % ["PASS" if ok else "FAIL", checks])
