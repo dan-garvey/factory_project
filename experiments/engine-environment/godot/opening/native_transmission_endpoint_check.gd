@@ -499,10 +499,98 @@ func check_actual_part_pointer() -> void:
 			view.queue_free()
 			await process_frame
 
+func check_terrain_host() -> void:
+	var surface = load("res://opening/site_surface.gd")
+	var view := OfflineHarness.new()
+	root.add_child(view)
+	mount(view)
+	view._install_transmission_terrain_picker()
+	view.camera = Camera3D.new()
+	view.add_child(view.camera)
+	view.camera.make_current()
+	await physics_frame
+	await physics_frame
+	var found := false
+	var tile := Vector2i.ZERO
+	var low_point := Vector3.ZERO
+	var obstacles: Array[AABB] = []
+	for fir in surface.fir_specs():
+		obstacles.append(fir.bounds)
+	for solid in surface.support_boxes():
+		obstacles.append(Transform3D(solid.basis, solid.center) * AABB(-solid.size * 0.5, solid.size))
+	for cx in range(-14, 15):
+		if found:
+			break
+		for cz in range(-14, 15):
+			var x: float = cx * Geometry.PITCH
+			var z: float = cz * Geometry.PITCH
+			var clear := true
+			for bounds: AABB in obstacles:
+				if bounds.position.x < x + Geometry.PITCH / 2.0 and bounds.end.x > x - Geometry.PITCH / 2.0 and bounds.position.z < z + Geometry.PITCH / 2.0 and bounds.end.z > z - Geometry.PITCH / 2.0:
+					clear = false
+					break
+			if not clear:
+				continue
+			var near_z: float = z - Geometry.PITCH * 0.45
+			var far_z: float = z + Geometry.PITCH * 0.45
+			var near_h: float = surface.height_at(x, near_z)
+			var far_h: float = surface.height_at(x, far_z)
+			if ceili(near_h / Geometry.PITCH) == ceili(far_h / Geometry.PITCH):
+				continue
+			tile = Vector2i(cx, cz)
+			low_point = Vector3(x, minf(near_h, far_h), near_z if near_h < far_h else far_z)
+			found = true
+			break
+	verify(found, "The native placement fixture found a sloped grid tile.")
+	if not found:
+		view.queue_free()
+		return
+	view.camera.position = low_point + Vector3.UP * 20.0
+	view.camera.look_at(low_point, Vector3.FORWARD)
+	var screen := view.camera.unproject_position(low_point)
+	var native_model = load("res://opening/native_model.gd")
+	for spec in [{"tool": "place_shaft", "teeth": 0}, {"tool": "gear", "teeth": 2}, {"tool": "gear", "teeth": 4}]:
+		for axis in ["x", "y", "z"]:
+			var context: String = "terrain-host-%s-%s-%d" % [spec.tool, axis, spec.teeth]
+			var model = native_model.new(context, ["P"])
+			verify(model.boot_result.get("accepted", false), "The real site binds to the native Host: " + str(model.boot_result))
+			if not model.boot_result.get("accepted", false):
+				continue
+			view.transmission_controls.choose_tool(spec.tool)
+			view.transmission_controls.selected_axis = axis
+			var center: Array = view._transmission_center(screen)
+			verify(center.size() == 3 and center[0] == tile.x * 4 and center[2] == tile.y * 4 and center[1] % 4 == 0,
+				"The pointer submits the selected global tile.")
+			var actor := [tile.x * Geometry.PITCH + 1.65, Geometry.ANCHOR_HEIGHT + center[1] * Geometry.HEIGHT_STEP, tile.y * Geometry.PITCH - 1.65]
+			verify(model.publish_actor("P", actor, 1).get("accepted", false), "The native Host accepts a synthetic nearby actor.")
+			var wire := {"context": context, "client": "P", "request": "place", "center": center, "axis": axis}
+			if spec.tool == "gear":
+				wire.merge({"action": "place_gear", "teeth": spec.teeth})
+			else:
+				wire.merge({"action": "place_shaft", "half_span": 2})
+			if spec.tool == "gear" and axis == "x":
+				var buried := wire.duplicate(true)
+				buried.request = "buried"
+				buried.center = [center[0], ceili(low_point.y / Geometry.PITCH) * 4, center[2]]
+				var refused: Dictionary = model.command(buried)
+				verify(not refused.get("accepted", false) and refused.get("reason") == "site_occupied",
+					"The native Host refuses the original low-edge target: " + str(refused))
+			var reply: Dictionary = model.command(wire)
+			verify(reply.get("accepted", false), "The native Host accepts the terrain-cleared " + context + ": " + str(reply))
+			if reply.get("accepted", false):
+				verify(model.validate_checkpoint(model.checkpoint()).get("accepted", false), "The constructed part passes native checkpoint validation.")
+	view.queue_free()
+	await process_frame
+
 func _initialize() -> void:
 	call_deferred("_run")
 
 func _run() -> void:
+	if "--terrain-host-only" in OS.get_cmdline_user_args():
+		await check_terrain_host()
+		print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks, "failures": failures, "evidence": "synthetic_terrain_pointer_native_host", "desktop_operations": 0}))
+		quit(0 if failures == 0 else 1)
+		return
 	check_shared_barriers()
 	if "--common-frame-only" not in OS.get_cmdline_user_args():
 		check_direct_shaft_entry(false)
