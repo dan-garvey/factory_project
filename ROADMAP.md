@@ -8,7 +8,7 @@ The objective remains a demoable **first chapter**, delivered through integrated
 
 Agents retain the user's standing delegation of routine reversible design and technical choices and keep their work moving without repeated approval cards. Record assumptions and evidence while keeping experimental defaults revisable. Detailed task evidence lives in the private shared Beads tracker with separate gist backup, not public history.
 
-The user clarified the order: **basic collector → machine → product first**; complete starter machines are acceptable. Player-built motion is welcome later in chapter 1, after the basics work and receive feedback. The first demo does not have to prove every intended-game differentiator. The old motion-first packet recommendation was not an accepted requirement.
+On 2026-10-22, the user redirected chapter one from complete starter machines to a **landing pod → manual harvest → local fabrication → modular collector and press → first product**. The pod unfolds into a shared-grid foundation and crafting hub, and the actor carries a multitool. Wooden and metal components need meaningful stress limits. The player should be able to choose arrangements and build order while the AI manager provides a clear off-site commission. The earlier complete-machine basic loop and its tests remain historical prototype evidence. See the [arrival contract](docs/design/chapter-one-arrival.md) and `factory-yau.1.10` for bounded implementation outcomes.
 
 The user now requires a **controlled physical character with proximity-limited component placement and machine construction**, with later technology able to extend that access. Fixed/stationary contraptions and subfactories are the early priority; they may contain moving parts. The existing free-camera opening does not satisfy the new character/reach requirement. Godot use is accepted with an explicit [framework constraint register](docs/engineering/godot-constraints.md), not implicit engine-default game rules.
 
@@ -16,7 +16,7 @@ The user now requires a **controlled physical character with proximity-limited c
 
 | Subtree | Outcome | Work boundaries; inspect Beads for live readiness |
 | --- | --- | --- |
-| `factory-yau.1` | First chapter and proposed release scope | `.6` delegated opening defaults recorded; `.4` later stage map; earlier A/B/C proposals are optional later inputs |
+| `factory-yau.1` | First chapter and proposed release scope | `.10` pod arrival, manual harvesting, component fabrication, modular machines and material quality; `.6` is the historical complete-machine fixture; earlier A/B/C proposals are optional inputs |
 | `factory-yau.2` | Shared-world learning, progression, logistics and resources | `.1` novice/advanced-team scenarios; later ownership, construction-access and lasting-supply decisions |
 | `factory-yau.3` | Authoritative rules and platform evidence | `.2` delegation/bounded first baseline recorded; `.3` sandbox/shared headless/3D path in progress; coupling limits explicit |
 | `factory-yau.4` | Geometry and moving machinery | `.1` rotary/gantry/train-like, obstruction/isolation, passenger and transfer fixtures |
@@ -26,7 +26,7 @@ The user now requires a **controlled physical character with proximity-limited c
 | `factory-yau.8` | Continuing factory/engineering-puzzle research | Per-game studies `.1`–`.8` feed an evidence-backed puzzle catalogue; close thorough game scopes, never the ongoing pipeline after one batch |
 | `factory-wj6` | Cadence and sole-machine operation | Resource admission and queue maintenance; source integration follows the demo goal |
 
-Suffixes in the third column are relative to the subtree in the first. This is a workstream map, not a current ready-task count. Read the full task before claiming it. No ready proposal authorizes engine adoption, large downloads or game implementation.
+Suffixes in the third column are relative to the subtree in the first. This is a workstream map, not a current ready-task count. Read the full task before claiming it. Engine adoption and large downloads still need their own authorization; the current chapter implementation is user-directed.
 
 ```bash
 br ready --type task --json
@@ -37,6 +37,16 @@ br dep cycles --json
 ```
 
 ## Convergence and decision gates
+
+The current chapter-one path is the `factory-yau.1.10` subtree. Its design
+contract feeds native pod/stock, manual harvest, fabrication and stress rules;
+the running opening then joins those rules with pod presentation, modular
+collector/press arrangements and staged AI guidance. Integrated tests and
+rendered inspection precede any human-play claim. Owners should coordinate
+shared World/Host/opening files through the relevant Bead, and can develop
+separate components against an agreed interface without a new approval gate.
+The following diagram preserves the older platform and complete-machine
+evidence path; it is not the target chapter script.
 
 ```text
 delegated opening defaults + bounded reversible environment
@@ -72,14 +82,14 @@ The Beads edges, not this drawing, are authoritative. They describe outcome and 
 
 ### Current physical-construction increment
 
-`factory-yau.3.11` agrees the thin actor-pose/construction-reach authority contract. It enables **parallel** `.5.21` authoritative reach enforcement (Platform) and `.6.36` physical-character stationary-opening consumer (Chapter), followed by `.6.37` independent actual-consumer validation (Playability, with Recovery). Review preparation may proceed against the agreed interface; its candidate links are non-blocking related edges so it need not wait for implementation closure. Final acceptance still needs the real combined frozen implementation and actual evidence.
+`factory-yau.3.11` agrees the thin actor-pose/construction-reach authority contract. It enabled **parallel** `.5.21` authoritative reach enforcement (Platform) and `.6.36` physical-character stationary-opening consumer (Chapter), followed by `.6.37` independent actual-consumer validation (Playability, with Recovery). That path established reusable actor/reach machinery and evidence; the new pod and harvesting work must use the same authority. Review preparation may proceed against an agreed interface; integration acceptance still needs the real combined frozen implementation and actual evidence.
 
 `factory-yau.3.10` audits the initial Godot constraint register; an exhaustive engine comparison is not a new blocker for the character increment. Broader production construction/supply task `.6.8` retains its later scope and is not an artificial prerequisite. Historical `.6.10` acceptance covers its original opening, not the newly required avatar/reach join. Record tunable defaults and unknowns without fixing a final camera, movement architecture or technology tree.
 
 Important gates:
 
 - `factory-yau.3.2`: completed record of delegated environment evaluation and the named bounded first sandbox; not production adoption.
-- `factory-yau.1.6`: completed delegated opening defaults; implement them without another routine approval card.
+- `factory-yau.1.6`: completed historical opening defaults; retain their evidence, but implement the new `factory-yau.1.10` direction without another routine approval card.
 - `factory-yau.2.3`: later ownership/check/delivery choices for systems that exercise them; scoped revisable decisions may be delegated, not silently made permanent.
 - `factory-yau.3.5`: evidence-based revisable production-direction decision, distinct from the sandbox and not already satisfied by delegation. No production stack is selected now.
 - `factory-yau.6.2`: independent combined technical witness; isolated green demos are insufficient.
@@ -92,7 +102,7 @@ Important gates:
 
 ## Fidelity checks
 
-The opening must first make physical-character movement, nearby construction, physical transport and processing understandable and usable. Fixed/stationary contraptions and subfactories take priority; player-built motion may follow later in chapter 1. Across progression, preserve new processes for new products and optional redesign of earlier supply, not just higher output numbers. Test geometry-dependent scaling, cog direction and meaningful vertical construction as those systems are introduced; do not require all of them for the initial demo. Old methods remain useful with practical drawbacks.
+The opening must make pod arrival, physical-character movement, nearby resource harvesting, local crafting, modular machine construction, physical transport and processing understandable and usable. Fixed/stationary contraptions and subfactories take priority; the first collector and press need arranged local motion, while larger moving assemblies may follow. Across progression, preserve new processes for new products and optional redesign of earlier supply, not just higher output numbers. Test geometry-dependent scaling, cog direction, component stress and meaningful vertical construction as those systems are introduced. Old methods remain useful with practical drawbacks.
 
 Moving factories must ultimately operate, harvest, transfer and carry players while moving; construction in motion is excluded. Early risk evidence includes a train-like constrained assembly and the candidate's actual player movement/collision/authority join, not only a parented transform. Broad connected-drivetrain stall and coupling isolation are accepted; independent pushing, detailed collision feedback, injury severity and docking rules remain deferred.
 
@@ -106,7 +116,7 @@ Workers own continuing workstream queues and may create/refine/claim bounded fol
 
 The next increment after shared-opening integration pairs a normal shared-play launcher (`factory-yau.5.13`, independent review `.6.24`) with an optional player-configured mechanical workshop (`factory-yau.6.23`, review `.6.25`). The latter explores motion and arrangement without replacing the basic production opening or pretending non-consuming geometry contacts are produced inventory. These are scoped experiments, not proof of a complete chapter, user play or a production-stack decision. Read the live Beads for current status and subsequent work rather than treating this snapshot as the whole queue.
 
-That launcher/workshop increment is historical. The physical-construction increment above is now the immediate priority. Preserve safely completed/frozen motion probes and their failures, but do not let new mobile-factory work displace stationary chapter development. Continuing research runs through owned per-game queues and safe review/interface waits, with the [catalogue contract](docs/research/README.md) governing evidence and completion.
+That launcher/workshop increment and the complete-machine physical-construction opening are historical inputs. The pod arrival and component-built stationary machines are the current chapter priority. Preserve safely completed motion probes and their failures, but do not let new mobile-factory work displace this work. Continuing research runs through owned per-game queues and safe review/interface waits, with the [catalogue contract](docs/research/README.md) governing evidence and completion.
 
 ## Demo-completion focus
 
