@@ -258,6 +258,34 @@ complete result at the real construction camera. The present source audit does
 not prove that those selected CAD solids will look good after conversion or
 that a new frame is physically supported by native collision.
 
+### Selected frame fit and passive render, 2026-10-22
+
+I imported the retained STEP file with [Gmsh 4.15.2](https://gmsh.info/),
+retaining its metre units and 60 separate CAD solids. A visual sample selected
+22 structural solids: the two feet, uprights, lower gussets and fasteners, top
+crossmember, and lower brace. It excluded the hydraulic pump, hose, gauge,
+cylinder, adjustable table and their controls. Surface tessellation produced
+18,732 triangles for the selected OBJ. Gmsh reported three mesh warnings on the
+complete donor assembly, so that output is a visual study, not a validated
+production mesh.
+
+In a disposable Godot project, I fitted the frame to the existing press span
+and height, hid the current sourced columns and fixed crown, and kept the
+original anvil, moving tool, guides and drive stubs. The OBJ imported and four
+isolated passive views rendered without a Godot import or script error. The
+H-shaped load path is more explicit close up, but the top reads as another broad
+slab, the bare CAD surface lacks a production finish, and the frame remains a
+small plain silhouette at construction-camera distance. I rejected this direct
+swap; no game asset, native collision or machine rule changed. The exact STEP
+inventory, selected OBJ, fit transform, warning log and matched images are
+retained under `press-frame-adaptation-20261022` and
+`press-crown-loadpath-20261022/cad-frame-trial` in local prototype evidence.
+
+The next adaptation needs authored connections between the frame, work opening
+and confirmed drive, plus appropriate surface treatment and a source mesh
+quality pass. A raw CAD conversion does not supply those relationships or meet
+the player's visual-quality target.
+
 Poly Haven's [license page](https://polyhaven.com/license) permits adaptation and
 redistribution of its CC0 assets. Its preview images and website content are
 separate from the asset license. Keep those provider previews out of our public
