@@ -701,10 +701,13 @@ Value Host::initialize_site(const std::string& context, const std::vector<std::s
             for (Integer level = 0; level <= mineral_site::extraction_depth_steps; level += 4)
                 profile.collector_faces.push_back({{4 * cell.x, level, 4 * cell.z}, {-1, 0, 0}});
         profile.material.timber_sites = {
-            {"tree-east-south", {{12, 0, 12}, 8}},
-            {"tree-east-north", {{12, 0, 24}, 8}},
+            {"tree-east-south", {{16, 0, 8}, 8}},
+            {"tree-east-north", {{16, 0, 28}, 8}},
             {"tree-north", {{0, 0, 28}, 8}}};
         profile.material.hand_carry_capacity = 24;
+        // The component limit leaves room to carry one last recipe input,
+        // making a full bag a reachable and recoverable workshop refusal.
+        profile.material.component_capacity = 20;
     }
     if (!arrival)
         profile.finite_parts = {{{Role::collector, 0, 0}, 1}, {{Role::belt, 0, 0}, 2},
@@ -1892,6 +1895,15 @@ Value Host::publish_actor(const std::string& actor, const Array& position, Integ
     return result(true, "actor_published");
 }
 
+Value Host::actor_projection(const std::string& actor) const {
+    if (!owned_) return result(false, "not_initialized");
+    const auto found = owned_->actors.find(actor);
+    if (found == owned_->actors.end()) return result(false, "unknown_actor");
+    const auto& current = found->second;
+    return Value(Object{{"accepted", Value(true)}, {"ready", Value(current.ready)},
+        {"position", point_value(current.position)}, {"native_epoch", Value(current.epoch)}});
+}
+
 Value Host::invalidate_actor(const std::string& actor) {
     if (!owned_ || !owned_->actors.contains(actor)) return result(false, "unknown_actor");
     // Retain the last ordinal so invalidation cannot permit a stale sample.
@@ -2106,6 +2118,19 @@ Value Host::projection() const {
             {"position", Value(Array{Value(hub.center[0] * profile_.meters_per_grid_unit + profile_.anchor_offset[0]),
                 Value(hub.center[1] * profile_.meters_per_grid_unit + profile_.anchor_offset[1]),
                 Value(hub.center[2] * profile_.meters_per_grid_unit + profile_.anchor_offset[2])})}}));
+        Object recipes;
+        for (const auto kind : {materials::Component::wooden_frame, materials::Component::wooden_shaft,
+                materials::Component::wooden_cog, materials::Component::receiver_tray,
+                materials::Component::tool_mount, materials::Component::sliding_guide,
+                materials::Component::cutting_edge, materials::Component::anvil,
+                materials::Component::ram_face, materials::Component::softmetal_shaft,
+                materials::Component::softmetal_cog}) {
+            const auto cost = materials::component_cost(kind);
+            if (cost) recipes.emplace(materials::component_name(kind), Value(Object{
+                {"timber", Value(cost->timber)}, {"softmetal", Value(cost->ore)}}));
+        }
+        projection.emplace("component_recipes", Value(std::move(recipes)));
+        projection.emplace("component_capacity", Value(profile_.material.component_capacity));
         const auto& crank = *state.hand_crank;
         projection.emplace("hand_crank", Value(Object{{"id", Value(crank.id)},
             {"generation", Value(crank.generation)},

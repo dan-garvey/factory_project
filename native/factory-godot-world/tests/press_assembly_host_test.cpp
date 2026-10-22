@@ -93,8 +93,8 @@ void placed_press_projection() {
           get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<A>(host.projection(), "press_assemblies").empty(),
           "A fresh arrival has no gifted press assembly.");
-    check(get<bool>(host.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 1), "accepted"),
-          "The actor is near the finite timber site.");
+    check(get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(4.95)}, 1), "accepted"),
+          "The actor approaches the finite timber site outside the pod deck.");
     for (int index = 0; index < 8; ++index) {
         auto cut = request("wood-" + std::to_string(index), "harvest_source");
         cut.emplace("target", V("tree-east-south"));

@@ -12,6 +12,25 @@ const Session = preload("res://opening-session/session.gd")
 var checks := 0
 var failures := 0
 
+class TopologyStub extends RefCounted:
+	var state: Dictionary = {}
+	var calls := 0
+	func projection() -> Dictionary:
+		calls += 1
+		return state
+
+class ActorBridgeStub extends RefCounted:
+	var actor: Dictionary = {"accepted": true, "ready": true,
+		"position": [1.0, 2.0, 3.0], "native_epoch": 7}
+	var narrow_calls := 0
+	var full_calls := 0
+	func actor_projection(_actor: String) -> Dictionary:
+		narrow_calls += 1
+		return actor
+	func projection() -> Dictionary:
+		full_calls += 1
+		return {"actors": {"P": actor}}
+
 class HostStub extends RefCounted:
 	var state: Dictionary
 	var model: Variant = null
@@ -1885,12 +1904,98 @@ func _fixed_support_frame() -> void:
 	await process_frame
 	await physics_frame
 
+func _physical_topology_cache_regression() -> void:
+	var model := TopologyStub.new()
+	model.state = {"context": "invented-geometry", "order": 0, "revision": 0,
+		"options": {"native": true, "physical": true}, "actors": {}, "entities": {},
+		"transmission_parts": {"cog-a": {"kind": "gear", "center": [0, 4, 0], "axis": 1, "teeth": 2}},
+		"belt_spans": {}, "placed_components": {}, "foundations": {}}
+	var physical := ActorWorld.new()
+	physical.model = model
+	root.add_child(physical)
+	verify(physical.mechanical_bodies.has("cog-a"), "Startup registers the first cog collider.")
+	var before_calls := model.calls
+	physical._on_native_cut()
+	verify(model.calls == before_calls + 1, "An unchanged native cut projects once without rederiving topology.")
+	verify(physical.mechanical_bodies.has("cog-a"), "An unchanged cut keeps its collider.")
+	model.state.transmission_parts.erase("cog-a")
+	model.state.transmission_parts["cog-b"] = {"kind": "gear", "center": [4, 4, 0], "axis": 1, "teeth": 2}
+	model.state.order += 1
+	physical._on_native_cut()
+	verify(not physical.mechanical_bodies.has("cog-a") and physical.mechanical_bodies.has("cog-b"),
+		"A new command order replaces removed geometry before the actor cut.")
+	var old_position: Vector3 = physical.mechanical_bodies["cog-b"].position
+	model.state.transmission_parts["cog-b"].center = [8, 4, 0]
+	verify(physical.sync_topology().accepted and physical.mechanical_bodies["cog-b"].position != old_position,
+		"An explicit restore or checkpoint sync rebuilds geometry even at the same order.")
+	model.state.transmission_parts["cog-b"].axis = 9
+	model.state.order += 1
+	verify(not physical.sync_topology().accepted, "An invalid changed topology is rejected.")
+	model.state.transmission_parts["cog-b"].axis = 1
+	var before_recovery := model.calls
+	physical._on_native_cut()
+	verify(model.calls >= before_recovery + 1 and physical.mechanical_bodies.has("cog-b"),
+		"A failed sync does not poison recovery at the same order.")
+	model.state.options.native = false
+	physical._on_native_cut()
+	verify(physical.mechanical_bodies.is_empty(), "A non-native profile does not reuse native colliders.")
+	physical.free()
+
+func _physical_actor_bridge_regression() -> void:
+	var bridge := ActorBridgeStub.new()
+	var physical := ActorWorld.new()
+	physical.model = bridge
+	var sample := {"position": [1.0, 2.0, 3.0], "native_epoch": 7}
+	verify(physical._bridge_current("P", sample) and bridge.narrow_calls == 1 and bridge.full_calls == 0,
+		"The native bridge verifies the published pose without a full worksite projection.")
+	bridge.actor.ready = false
+	verify(not physical._bridge_current("P", sample), "An invalidated actor cannot bridge as ready.")
+	bridge.actor.ready = true
+	bridge.actor.native_epoch = 6
+	verify(not physical._bridge_current("P", sample), "A stale actor publication cannot bridge.")
+	bridge.actor.native_epoch = 7
+	bridge.actor.position = [1.0, 2.0, 4.0]
+	verify(not physical._bridge_current("P", sample), "A different accepted position cannot bridge.")
+	bridge.actor.position = sample.position
+	bridge.actor.accepted = false
+	verify(not physical._bridge_current("P", sample), "A refused native view cannot bridge.")
+	var legacy := TopologyStub.new()
+	legacy.state = {"actors": {"P": {"ready": true, "native_epoch": 7, "position": sample.position}}}
+	physical.model = legacy
+	verify(physical._bridge_current("P", sample) and legacy.calls == 1,
+		"A non-native model retains full projection validation.")
+	physical.free()
+
+func _native_actor_view_regression() -> void:
+	var model = NativeModel.new("actor-view-fixture", ["P"], true)
+	verify(model.boot_result.get("accepted", false), "The real native arrival model boots for actor-view checks.")
+	if not model.boot_result.get("accepted", false):
+		return
+	var unready: Dictionary = model.actor_projection("P")
+	verify(unready.get("accepted", false) and not unready.get("ready", true) and unready.get("native_epoch", -1) == 0,
+		"The extension exposes an unready physical actor without full worksite projection.")
+	verify(model.publish_actor("P", [0.0, 1.0, 0.0], 1).get("accepted", false),
+		"The real native Host accepts the first trusted physical sample.")
+	var ready: Dictionary = model.actor_projection("P")
+	verify(ready.get("accepted", false) and ready.get("ready", false) and ready.get("native_epoch", -1) == 1
+		and ready.get("position", []) == [0.0, 1.0, 0.0],
+		"The extension returns exactly the accepted pose and ordinal.")
+	model.invalidate_actor("P")
+	verify(not model.actor_projection("P").get("ready", true),
+		"The extension reports explicit physical invalidation.")
+
 func _run() -> void:
 	if "--scale-benchmark" in OS.get_cmdline_user_args():
 		await _scale_benchmark()
 		return
 	if "--component-boxes-only" in OS.get_cmdline_user_args():
 		await _component_view()
+	elif "--physical-topology-cache-only" in OS.get_cmdline_user_args():
+		_physical_topology_cache_regression()
+	elif "--physical-actor-bridge-only" in OS.get_cmdline_user_args():
+		_physical_actor_bridge_regression()
+	elif "--native-actor-view-only" in OS.get_cmdline_user_args():
+		_native_actor_view_regression()
 	elif "--support-frame-only" in OS.get_cmdline_user_args():
 		await _fixed_support_frame()
 	elif "--finish-only" in OS.get_cmdline_user_args():

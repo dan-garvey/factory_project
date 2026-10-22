@@ -3370,6 +3370,21 @@ class ProductionEnvironment:
 				foundation.level * Geometry.HEIGHT_STEP, foundation.cell[1] * Geometry.PITCH)
 			volumes.append(AABB(top - Vector3(Geometry.PITCH * 0.5, Geometry.FOUNDATION_DEPTH, Geometry.PITCH * 0.5),
 				Vector3(Geometry.PITCH, Geometry.FOUNDATION_DEPTH, Geometry.PITCH)).grow(0.08))
+		if state.has("landing_pod") and state.has("fabrication_hub"):
+			var pod: Dictionary = state.landing_pod
+			var hub: Dictionary = state.fabrication_hub
+			if pod.get("deployed", false) and hub.has("position"):
+				var hub_position: Array = hub.position
+				var pod_center: Array = pod.center
+				var hub_center: Array = hub.center
+				var center := Vector3(float(hub_position[0]) - float(hub_center[0] - pod_center[0]) * Geometry.PITCH,
+					float(hub_position[1]),
+					float(hub_position[2]) - float(hub_center[2] - pod_center[2]) * Geometry.PITCH)
+				var half := Geometry.PITCH * 1.5
+				# The native deck is a cleared landing, including the air above it.
+				# Its nine floor volumes alone only hide plants below panel height.
+				volumes.append(AABB(center - Vector3(half, 0.5, half),
+					Vector3(half * 2.0, 2.7, half * 2.0)))
 		return volumes
 
 	static func _refresh_plant_patch(patch: MultiMeshInstance3D, volumes: Array[AABB]) -> void:
@@ -4264,8 +4279,11 @@ var workpiece_item_assets
 var hover: MeshInstance3D
 var selection_ring: MeshInstance3D
 var machine_preview: Node3D
+var mutable_machine_preview: Node3D
 var machine_preview_key := ""
 var machine_preview_material: StandardMaterial3D
+var packed_preview_templates: Dictionary = {}
+var packed_preview_nodes: Dictionary = {}
 var machine_dynamic_batches: Array[Dictionary] = []
 var machine_conveyor_batches: Array[Dictionary] = []
 var machine_rotors: Array[Dictionary] = []
@@ -4346,6 +4364,9 @@ var component_height_controls: HBoxContainer
 var component_height_label: Label
 var component_offset_controls: HBoxContainer
 var component_offset_label: Label
+var landing_pod_visual: Node3D
+var landing_hub_visual: Node3D
+var landing_crank_visual: Node3D
 
 func _ready() -> void:
 	for argument in OS.get_cmdline_user_args():
@@ -4360,8 +4381,11 @@ func _ready() -> void:
 	_build_world()
 	_build_interface()
 	_refresh()
-	if _native_transmission() and not state.has("hand_sources"):
-		_prime_machine_visuals()
+	if _native_transmission():
+		if state.has("hand_sources"):
+			call_deferred("_warm_packed_machine_previews")
+		else:
+			_prime_machine_visuals()
 	if _native_transmission():
 		_message("WASD moves. Point at a resource and use your multitool with E." if state.has("hand_sources") else FIRST_COLLECTOR_HINT)
 	else:
@@ -4863,7 +4887,7 @@ func issue(action: Dictionary) -> Dictionary:
 			"disconnect": "Material connection removed.",
 			"disconnect_drive": "Drive shaft returned."}.get(action.action, "Done."))
 	else:
-		_message(_material_refusal_message(outcome, {"occupied": "That square is occupied.", "no_part": "That part is already placed.",
+		var refusal := _material_refusal_message(outcome, {"occupied": "That square is occupied.", "no_part": "That part is already placed.",
 			"ports_not_adjacent": "Connect neighboring ports, following the arrow.",
 			"invalid_belt_axis": "The belt's drive shaft runs across the belt, perpendicular to material travel.",
 			"missing_entity": "Choose a placed machine at each end.",
@@ -4886,7 +4910,14 @@ func issue(action: Dictionary) -> Dictionary:
 			"contains_stock": "Retrieve the material before removing this machine.",
 			"not_at_stream": "Set the wheel in the water with its lower rim immersed and clear of the bed.",
 			"not_at_seam": "Place the collector on the ore-colored ground beside the rock.",
-			"no_shaft": "All carried shafts are in use."}.get(outcome.reason, "That action is unavailable here.")), true)
+			"no_shaft": "All carried shafts are in use."}.get(outcome.reason, "That action is unavailable here."))
+		if action.action == "craft_component":
+			refusal = {"unavailable_input": "Gather the timber or softmetal shown for this component.",
+				"inventory_full": "Your component bag is full. Place a carried part to make room.",
+				"out_of_reach": "Move beside the pod workshop to craft this component."}.get(outcome.get("reason", ""), refusal)
+		elif action.action == "reclaim_component" and outcome.get("reason", "") == "inventory_full":
+			refusal = "Your component bag is full. Place another carried part before reclaiming."
+		_message(refusal, true)
 	_refresh()
 	return outcome
 
@@ -5945,6 +5976,112 @@ func _build_world() -> void:
 	camera.make_current()
 	_update_camera()
 
+func _build_landing_pod_visual(pod: Dictionary, hub: Dictionary) -> void:
+	landing_pod_visual = Node3D.new()
+	landing_pod_visual.name = "DeployedLandingPod"
+	landing_pod_visual.set_meta("authority_entity", pod.id)
+	add_child(landing_pod_visual)
+	var shell := Node3D.new()
+	shell.name = "OpenedPodShell"
+	landing_pod_visual.add_child(shell)
+	var ivory := Color("d4d9d0")
+	var graphite := Color("293d41")
+	var amber := Color("e3a650")
+	var dark := Color("162c32")
+	# The occupied center stays open for the spawned actor. The rear pressure
+	# shell, split side doors and low hatch show where the deck unfolded from.
+	var capsule := MeshInstance3D.new()
+	capsule.name = "RearPressureShell"
+	var capsule_mesh := CapsuleMesh.new()
+	capsule_mesh.radius = 0.37
+	capsule_mesh.height = 1.28
+	capsule.mesh = capsule_mesh
+	capsule.material_override = ProductionVisuals.material(graphite, 0.68, 0.39)
+	capsule.position = Vector3(0, 0.70, 1.12)
+	capsule.rotation.x = PI / 2.0
+	shell.add_child(capsule)
+	_machine_box(shell, "RearArmorCrown", Vector3(0, 1.055, 1.12),
+		Vector3(0.60, 0.065, 0.72), ivory, 0.52, 0.34)
+	_machine_box(shell, "PressureSpine", Vector3(0, 0.73, 0.79), Vector3(0.74, 0.96, 0.25), graphite, 0.75, 0.35)
+	_machine_box(shell, "HatchThreshold", Vector3(0, 0.045, -0.94), Vector3(1.08, 0.09, 0.71), graphite, 0.60, 0.48)
+	_machine_box(shell, "HatchSafetyStripe", Vector3(0, 0.096, -1.20), Vector3(0.90, 0.012, 0.055), amber, 0.20, 0.42)
+	for side in [-1.0, 1.0]:
+		var suffix := "Port" if side < 0.0 else "Starboard"
+		var wing := Node3D.new()
+		wing.name = suffix + "OpenedWing"
+		shell.add_child(wing)
+		_machine_box(wing, "OuterArmor", Vector3(side * 0.98, 0.61, 0.26),
+			Vector3(0.18, 0.75, 1.52), ivory, 0.52, 0.34)
+		_machine_box(wing, "InnerLiner", Vector3(side * 0.86, 0.57, 0.26),
+			Vector3(0.065, 0.57, 1.35), dark, 0.25, 0.7)
+		_machine_box(wing, "CorporateStripe", Vector3(side * 0.98, 1.005, 0.24),
+			Vector3(0.17, 0.018, 1.30), amber, 0.35, 0.38)
+		for z in [-0.55, 0.91]:
+			_machine_cylinder(wing, "PanelHinge", Vector3(side * 0.65, 0.43, z),
+				0.09, 0.22, graphite, Vector3(PI / 2.0, 0, 0))
+			_machine_box(wing, "LandingFoot", Vector3(side * 1.11, 0.09, z),
+				Vector3(0.31, 0.18, 0.32), graphite, 0.70, 0.46)
+		_bar(wing, Vector3(side * 0.50, 0.45, 0.79), Vector3(side * 0.86, 0.74, -0.37), 0.055, Color("758e91"))
+		_machine_box(landing_pod_visual, suffix + "DeckHinge", Vector3(side * 0.82, 0.035, -0.74),
+			Vector3(0.55, 0.07, 0.08), graphite, 0.62, 0.42)
+	landing_hub_visual = Node3D.new()
+	landing_hub_visual.name = "PodFabricationHub"
+	landing_hub_visual.set_meta("authority_entity", hub.id)
+	add_child(landing_hub_visual)
+	for x in [-0.40, 0.40]:
+		for z in [-0.27, 0.27]:
+			_machine_box(landing_hub_visual, "BenchLeg", Vector3(x, 0.34, z),
+				Vector3(0.085, 0.68, 0.085), graphite, 0.78, 0.42)
+	_machine_box(landing_hub_visual, "BenchWorktop", Vector3(0, 0.74, 0),
+		Vector3(1.16, 0.115, 0.70), ivory, 0.52, 0.35)
+	_machine_box(landing_hub_visual, "BenchSteelInsert", Vector3(-0.16, 0.805, -0.06),
+		Vector3(0.52, 0.02, 0.38), graphite, 0.82, 0.28)
+	for x in [-0.35, 0.03]:
+		_machine_box(landing_hub_visual, "FabricationClampJaw", Vector3(x, 0.88, -0.06),
+			Vector3(0.075, 0.13, 0.27), dark, 0.78, 0.31)
+	_machine_cylinder(landing_hub_visual, "ToolPost", Vector3(0.35, 1.01, -0.19),
+		0.07, 0.44, graphite)
+	_bar(landing_hub_visual, Vector3(0.35, 1.23, -0.19), Vector3(0.05, 1.23, -0.19),
+		0.065, Color("a8b8ae"))
+	_machine_box(landing_hub_visual, "CuttingHead", Vector3(0.03, 1.16, -0.19),
+		Vector3(0.12, 0.17, 0.13), amber, 0.58, 0.34)
+	_machine_box(landing_hub_visual, "CrankTray", Vector3(0.34, 0.83, 0.20),
+		Vector3(0.35, 0.045, 0.19), dark, 0.58, 0.43)
+	landing_crank_visual = Node3D.new()
+	landing_crank_visual.name = "CrankInTray"
+	landing_crank_visual.set_meta("authority_entity", "pod-hand-crank")
+	landing_crank_visual.position = Vector3(0.34, 0.91, 0.20)
+	landing_hub_visual.add_child(landing_crank_visual)
+	_machine_cylinder(landing_crank_visual, "CrankAxle", Vector3.ZERO, 0.025, 0.26,
+		Color("bac5ba"), Vector3(0, 0, PI / 2.0))
+	_machine_box(landing_crank_visual, "CrankHandle", Vector3(0.12, 0.055, 0),
+		Vector3(0.045, 0.15, 0.045), amber, 0.20, 0.46)
+
+func _sync_landing_pod_visual() -> void:
+	if not state.has("landing_pod") or not state.has("fabrication_hub"):
+		if landing_pod_visual != null:
+			landing_pod_visual.free()
+			landing_hub_visual.free()
+			landing_pod_visual = null
+			landing_hub_visual = null
+			landing_crank_visual = null
+		return
+	var pod: Dictionary = state.landing_pod
+	var hub: Dictionary = state.fabrication_hub
+	if not pod.get("deployed", false) or not hub.has("position"):
+		return
+	if landing_pod_visual == null:
+		_build_landing_pod_visual(pod, hub)
+	var position: Array = hub.position
+	var pod_center: Array = pod.center
+	var hub_center: Array = hub.center
+	var hub_world := Vector3(float(position[0]), float(position[1]), float(position[2]))
+	landing_hub_visual.position = hub_world
+	landing_pod_visual.position = hub_world - Vector3(
+		float(hub_center[0] - pod_center[0]) * PITCH, 0,
+		float(hub_center[2] - pod_center[2]) * PITCH)
+	landing_crank_visual.visible = state.get("hand_crank", {}).get("holder", "") == "pod"
+
 func _box(parent: Node, at: Vector3, dimensions: Vector3, color: Color) -> MeshInstance3D:
 	var mesh := MeshInstance3D.new()
 	var shape := BoxMesh.new()
@@ -6487,6 +6624,88 @@ func _prime_machine_visuals() -> void:
 		anchor.free()
 	wheel_rotor = previous_rotor
 
+func _warm_packed_machine_previews() -> void:
+	if DisplayServer.get_name() == "headless":
+		for kind in ["collector", "belt", "processor", "wheel"]:
+			packed_preview_templates[kind] = load("res://opening/assets/prebuilt-preview-" + kind + ".scn")
+		return
+	var cover := CanvasLayer.new()
+	cover.name = "MachinePreviewWarmup"
+	cover.layer = 100
+	var color := ColorRect.new()
+	color.color = Color("101e20")
+	color.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	cover.add_child(color)
+	var progress := Label.new()
+	progress.text = "Preparing workshop..."
+	progress.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	progress.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	progress.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	cover.add_child(progress)
+	add_child(cover)
+	var view_size := get_viewport().get_visible_rect().size
+	for index in 4:
+		var kind: String = ["collector", "belt", "processor", "wheel"][index]
+		var packed: PackedScene = load("res://opening/assets/prebuilt-preview-" + kind + ".scn")
+		if packed == null:
+			continue
+		packed_preview_templates[kind] = packed
+		var anchor := packed.instantiate() as Node3D
+		add_child(anchor)
+		_style_machine_preview(anchor)
+		anchor.position = camera.project_position(Vector2(view_size.x * (0.2 + 0.2 * index), view_size.y * 0.5), 7.0)
+		packed_preview_nodes[kind] = anchor
+	var foundation := Node3D.new()
+	foundation.name = "FoundationPreviewTemplate"
+	add_child(foundation)
+	_assemble_foundation(foundation)
+	_style_machine_preview(foundation)
+	foundation.position = camera.project_position(view_size * Vector2(0.5, 0.65), 7.0)
+	packed_preview_nodes["foundation"] = foundation
+	await RenderingServer.frame_post_draw
+	await RenderingServer.frame_post_draw
+	for anchor in packed_preview_nodes.values():
+		anchor.visible = false
+	var frames_waited := 0
+	while not state.get("actors", {}).get(client, {}).get("ready", false) and frames_waited < 120:
+		frames_waited += 1
+		await get_tree().process_frame
+	if state.get("actors", {}).get(client, {}).get("ready", false):
+		# Draw the real tool panels behind the loading cover. Arrival has no
+		# carried kits yet, so only the temporary visual form is shown here.
+		var opening_message := status_label.text
+		var opening_refused := status_refused
+		var resume_processing := is_processing()
+		set_process(false)
+		for kind in ["collector", "foundation", "processor", "wheel"]:
+			var anchor: Node3D = packed_preview_nodes.get(kind)
+			if anchor == null:
+				continue
+			_select_tool(kind)
+			_choose_machine_preview(anchor)
+			anchor.visible = true
+			_refresh_placement_options()
+			await RenderingServer.frame_post_draw
+			anchor.visible = false
+		_select_tool("inspect")
+		set_process(resume_processing)
+		_message(opening_message, opening_refused)
+	cover.free()
+
+func _choose_machine_preview(pooled: Node3D = null) -> void:
+	var desired := pooled
+	if desired == null:
+		if mutable_machine_preview == null:
+			mutable_machine_preview = Node3D.new()
+			mutable_machine_preview.name = "MachinePlacementPreview"
+			add_child(mutable_machine_preview)
+		desired = mutable_machine_preview
+	if machine_preview != desired:
+		if machine_preview != null:
+			machine_preview.visible = false
+		machine_preview = desired
+		machine_preview_key = ""
+
 const MACHINE_BATCH_THRESHOLD := 12
 
 func _machine_batch_surface_mesh(part: MeshInstance3D) -> Mesh:
@@ -6948,6 +7167,7 @@ func _redraw_items() -> void:
 
 func _refresh() -> void:
 	state = model.projection()
+	_sync_landing_pod_visual()
 	# Shared profiles arrive after presenter creation. Choose this revisable
 	# default once, preserving any pitch already adjusted while connecting.
 	if not native_camera_initialized and _native_transmission():
@@ -7366,10 +7586,13 @@ func _refresh_machine_preview() -> void:
 		return
 	var key := "%s:%d:%s:%d:%d:%s" % [mode, axis, str(_native_transmission()), wheel_tiles if mode == "wheel" else 0, facing,
 		str([cell.x, cell.y, level]) if mode == "collector" else ""]
-	if machine_preview == null:
-		machine_preview = Node3D.new()
-		machine_preview.name = "MachinePlacementPreview"
-		add_child(machine_preview)
+	var packaged: bool = mode == "foundation" or _native_transmission() and axis == 0 and facing == 0 \
+		and (mode != "wheel" or wheel_tiles == 3) \
+		and (mode != "collector" or cell == Vector2i(0, 1))
+	var pooled: Node3D = packed_preview_nodes.get(mode) if packaged else null
+	_choose_machine_preview(pooled)
+	if pooled != null:
+		machine_preview_key = key
 	machine_preview.basis = Basis.IDENTITY
 	machine_preview.position = _cell_position([cell.x, cell.y]) + Vector3.UP * level * Geometry.HEIGHT_STEP
 	if key != machine_preview_key:
@@ -7381,10 +7604,20 @@ func _refresh_machine_preview() -> void:
 		if mode == "foundation":
 			_assemble_foundation(machine_preview)
 		else:
-			_assemble_machine(machine_preview, {"kind": mode, "axis": axis, "tiles": wheel_tiles,
-				"rotation": facing, "cell": [cell.x, cell.y], "level": level}, mode == "belt" and axis == 0)
-			if mode in ["collector", "processor"]:
-				_preview_port(machine_preview, facing, mode == "collector")
+			if packaged and packed_preview_templates.has(mode):
+				var packed: PackedScene = packed_preview_templates.get(mode)
+				var template := packed.instantiate() as Node3D
+				machine_preview.set_meta("material_rotated", template.get_meta("material_rotated", false))
+				for part in template.get_children():
+					part.owner = null
+					template.remove_child(part)
+					machine_preview.add_child(part)
+				template.free()
+			else:
+				_assemble_machine(machine_preview, {"kind": mode, "axis": axis, "tiles": wheel_tiles,
+					"rotation": facing, "cell": [cell.x, cell.y], "level": level}, mode == "belt" and axis == 0)
+				if mode in ["collector", "processor"]:
+					_preview_port(machine_preview, facing, mode == "collector")
 		wheel_rotor = placed_rotor
 		_style_machine_preview(machine_preview)
 		machine_preview_key = key
@@ -7415,10 +7648,7 @@ func _refresh_transmission_preview() -> void:
 		transmission_preview_point = center.duplicate()
 	if not Geometry._mechanical_point(center):
 		return
-	if machine_preview == null:
-		machine_preview = Node3D.new()
-		machine_preview.name = "MachinePlacementPreview"
-		add_child(machine_preview)
+	_choose_machine_preview()
 	machine_preview.position = Geometry._mechanical_center(center)
 	var key := "transmission:%s:%d:%d" % [transmission_controls.active_tool, axis, size]
 	if key != machine_preview_key:
