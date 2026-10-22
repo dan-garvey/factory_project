@@ -171,14 +171,31 @@ void historical_translation() {
     check(accepted(fresh.configure_terrain(site)), "The fresh Host binds the same synthetic terrain.");
     check(accepted(fresh.restore_checkpoint(saved)), "The unchanged complete checkpoint restores.");
     check(!factory::values::typed_difference(saved, fresh.checkpoint()), "Restore preserves the original typed history and state.");
+    const auto restored_actor = fresh.actor_projection("P");
+    check(accepted(restored_actor) && !field<bool>(restored_actor, "ready") &&
+          field<I>(restored_actor, "native_epoch") == 0 &&
+          !factory::values::typed_difference(V(field<A>(restored_actor, "position")),
+                                              V(field<A>(host.actor_projection("P"), "position"))),
+          "A restored Host retains the saved pose but requires a fresh physical publication.");
     const auto retry = fresh.command("P", recovery);
     check(accepted(retry) && field<bool>(retry, "duplicate") && field<std::string>(retry, "entity") == press,
           "Historical recovery replays before present target lookup or native readiness.");
 }
 
 void exact_observation_conversion() {
+    Host missing;
+    check(!accepted(missing.actor_projection("P")) &&
+          field<std::string>(missing.actor_projection("P"), "reason") == "not_initialized",
+          "The narrow actor view refuses an uninitialized Host.");
     Host host;
     check(accepted(host.initialize("host-boundary", {"P"})), "The observation test Host initializes.");
+    check(!accepted(host.actor_projection("Q")) &&
+          field<std::string>(host.actor_projection("Q"), "reason") == "unknown_actor",
+          "The narrow actor view refuses an unknown identity.");
+    const auto unready = host.actor_projection("P");
+    check(accepted(unready) && !field<bool>(unready, "ready") &&
+          field<I>(unready, "native_epoch") == 0,
+          "The registered actor is unready before a physical publication.");
     for (const I coordinate : {I{9007199254740993}, I{-9007199254740993}}) {
         const auto reply = host.publish_actor("P", {V(coordinate), V(I{1}), V(I{0})}, 1);
         check(!accepted(reply) && field<std::string>(reply, "reason") == "invalid_actor_sample",
@@ -191,9 +208,18 @@ void exact_observation_conversion() {
         check(accepted(host.publish_actor("P", {V(coordinate), V(I{1}), V(I{0})}, epoch++)),
               "An exact integer at either inclusive boundary remains accepted.");
         const auto actor = V(field<O>(V(field<O>(host.projection(), "actors")), "P"));
+        const auto narrow = host.actor_projection("P");
+        check(accepted(narrow) && field<bool>(narrow, "ready") == field<bool>(actor, "ready") &&
+              field<I>(narrow, "native_epoch") == field<I>(actor, "native_epoch") &&
+              !factory::values::typed_difference(V(field<A>(narrow, "position")),
+                                                  V(field<A>(actor, "position"))),
+              "The narrow actor view matches the accepted full projection exactly.");
         check(std::get<double>(field<A>(actor, "position").at(0).storage()) == static_cast<double>(coordinate),
               "The accepted boundary retains its exact numeric coordinate.");
     }
+    check(accepted(host.invalidate_actor("P")) && !field<bool>(host.actor_projection("P"), "ready") &&
+          field<I>(host.actor_projection("P"), "native_epoch") == epoch - 1,
+          "Invalidation clears readiness without rewinding the published ordinal.");
 }
 }  // namespace
 
