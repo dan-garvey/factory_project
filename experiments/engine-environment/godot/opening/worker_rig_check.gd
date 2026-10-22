@@ -471,6 +471,36 @@ func check_sparse_confirmed_walk() -> void:
 		"A new confirmed step after rest uses its own sample interval and exact root.")
 	host.free()
 
+func check_uneven_native_walk_samples() -> void:
+	var host := HostFixture.new()
+	host.state.context = "uneven-native-walk"
+	host.state.actors.P.native_epoch = 1
+	root.add_child(host)
+	var presenter := Presenter.new()
+	presenter.configure(host)
+	host.add_child(presenter)
+	presenter.set_process(false)
+	presenter.set_physics_process(false)
+	var delta := 1.0 / 30.0
+	var x := 0.0
+	var minimum_weight := 1.0
+	var maximum_weight := 0.0
+	for frame in range(80):
+		var observed_speed: float = [0.87, 0.87, 1.53][frame % 3]
+		x += observed_speed * delta
+		host.state.actors.P.position = [x, 0.9, 0.0]
+		host.state.actors.P.native_epoch += 2 if frame % 3 != 2 else 3
+		presenter.refresh(delta)
+		if frame >= 20:
+			minimum_weight = minf(minimum_weight, float(presenter.motion.P.weight))
+			maximum_weight = maxf(maximum_weight, float(presenter.motion.P.weight))
+	verify(minimum_weight > 0.92 and maximum_weight - minimum_weight < 0.08
+		and float(presenter.motion.P.run_mix) < 0.02,
+		"Uneven native snapshot spacing keeps a nearly steady walking pose at steady travel.")
+	verify(is_equal_approx(presenter.views.P.position.x, x) and host.control_calls == 0,
+		"Walking pose smoothing does not change the confirmed root or produce input.")
+	host.free()
+
 func landing_contact_case(metres_per_frame: float) -> Dictionary:
 	var host := HostFixture.new()
 	host.state.context = "landing-contact"
@@ -607,6 +637,7 @@ func run() -> void:
 		inspect_adult(body, q.get_node("BodyView"), presenter)
 		check_walking_support()
 		check_sparse_confirmed_walk()
+		check_uneven_native_walk_samples()
 		check_landing_contact_from_motion()
 		check_landing_recovery_profile()
 	else:
