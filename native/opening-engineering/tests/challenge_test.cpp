@@ -92,9 +92,11 @@ struct Run {
         check(accepted(result), std::string(name) + " succeeds: " + field<std::string>(result, "reason"));
         return result;
     }
-    std::string place(const char* kind, I x, I row, const char* axis) {
-        return field<std::string>(action("place", {{"kind", V(kind)}, {"cell", V(A{V(x), V(row)})},
-                                                    {"axis", V(axis)}, {"level", V(I{4})}}), "entity");
+    std::string place(const char* kind, I x, I row, const char* axis, std::optional<I> rotation = std::nullopt) {
+        O args{{"kind", V(kind)}, {"cell", V(A{V(x), V(row)})},
+               {"axis", V(axis)}, {"level", V(I{4})}};
+        if (rotation) args.emplace("rotation", V(*rotation));
+        return field<std::string>(action("place", std::move(args)), "entity");
     }
     void foundation(I x, I row) {
         (void)action("place_foundation", {{"cell", V(A{V(x), V(row)})}, {"level", V(I{4})}});
@@ -111,13 +113,13 @@ struct Run {
     }
 };
 
-std::string build(Run& run, I wheel_row, bool install_span = true, bool two_spans = false, int fork_order = 0, bool moving_fork = false, bool inclined_fork = false, bool collector_after_fork = false) {
+std::string build(Run& run, I wheel_row, bool install_span = true, bool two_spans = false, int fork_order = 0, bool moving_fork = false, bool inclined_fork = false, bool collector_after_fork = false, I collector_rotation = 0, I processor_rotation = 0) {
     const I offset = wheel_row * 4;
     const double dz = wheel_row * 1.65;
     const I press_x = two_spans ? 20 : 12;
     run.at(-1.65, 3.3 + dz); (void)run.place("wheel", -2, wheel_row, "x");
     run.at(0, dz); run.foundation(0, wheel_row + 1);
-    if (!collector_after_fork) (void)run.place("collector", 0, wheel_row + 1, "z");
+    if (!collector_after_fork) (void)run.place("collector", 0, wheel_row + 1, "z", collector_rotation);
     run.at(-3.3, dz); run.gear(-4, offset, "x", 4);
     run.at(-3.3, -1.65 + dz); run.gear(0, offset - 4, "z", 4);
     const A front = two_spans ? A{V(I{0}), V(I{4}), V(I{12})} : A{V(I{0}), V(I{4})};
@@ -146,14 +148,14 @@ std::string build(Run& run, I wheel_row, bool install_span = true, bool two_span
     if (fork_order == 1) fork();
     if (install_span) { run.at(2.475, dz); run.span(first, last); }
     if (fork_order == 2) fork();
-    if (collector_after_fork) { run.at(0, dz); (void)run.place("collector", 0, wheel_row + 1, "z"); }
+    if (collector_after_fork) { run.at(0, dz); (void)run.place("collector", 0, wheel_row + 1, "z", collector_rotation); }
     if (two_spans) {
         run.at(4.95, dz); const auto next = run.shaft(12, offset + 4);
         run.at(6.6, dz); const auto end = run.shaft(16, offset + 4);
         run.at(5.775, dz); run.span(next, end);
     }
     run.at(press_x * 1.65 / 4, dz); run.foundation(press_x / 4, wheel_row + 1);
-    const auto press = run.place("processor", press_x / 4, wheel_row + 1, "z");
+    const auto press = run.place("processor", press_x / 4, wheel_row + 1, "z", processor_rotation);
     run.at(-1.65, dz); (void)run.action("set_power", {{"active", V(true)}});
     return press;
 }
@@ -208,6 +210,22 @@ void negative_routes() {
     (void)build(reversed, 0);
     const auto backwards = e::inspect(reversed.host, "P");
     check(backwards.machines_running && !backwards.belt_forward, "A powered span carrying away from the press is not forward.");
+    Run turned_collector("turned-collector");
+    (void)build(turned_collector, 0, true, false, 0, false, false, false, 1);
+    check(!e::inspect(turned_collector.host, "P").belt_forward,
+          "A belt outside the collector's output port cannot satisfy the route.");
+    for (int turn = 0; turn < 40; ++turn) (void)turned_collector.host.advance();
+    const auto collector_stock = field<O>(turned_collector.host.projection(), "stock");
+    check(std::get<I>(collector_stock.at("input").storage()) == 0,
+          "The turned collector does not actually feed the processor.");
+    Run turned_processor("turned-processor");
+    (void)build(turned_processor, 0, true, false, 0, false, false, false, 0, 1);
+    check(!e::inspect(turned_processor.host, "P").belt_forward,
+          "A belt outside the processor's input port cannot satisfy the route.");
+    for (int turn = 0; turn < 40; ++turn) (void)turned_processor.host.advance();
+    const auto processor_stock = field<O>(turned_processor.host.projection(), "stock");
+    check(std::get<I>(processor_stock.at("input").storage()) == 0,
+          "The turned processor does not actually receive belt cargo.");
 }
 
 void wrong_source() {
@@ -333,7 +351,7 @@ void inclined_fork_fixture() {
         Run run("inclined-fork", false, std::nullopt, speed);
         const auto press = build(run, 0, true, false, order, true, true, collector_last);
         const auto initial = e::inspect(run.host, "P");
-        check(initial.belt_forward, "The inclined competing inlet eventually blocks against the collector.");
+        check(initial.belt_forward, "An inclined branch outside the collector's port leaves the facing route valid.");
         for (int turn = 0; turn < 200 && e::inspect(run.host, "P").products < 8; ++turn) {
             const auto stock = field<O>(run.host.projection(), "stock");
             if (std::get<I>(stock.at("output").storage()) > 0) {
@@ -344,7 +362,7 @@ void inclined_fork_fixture() {
         }
         const auto progress = e::inspect(run.host, "P");
         check(progress.belt_forward && progress.products == 8,
-              "Inclined competing cargo and challenge assessment agree for both construction orders.");
+              "Inclined branch construction order does not interrupt the facing route.");
         if (order == 1) {
             I diverted = 0;
             const auto projection = run.host.projection();
@@ -357,7 +375,7 @@ void inclined_fork_fixture() {
                 for (const auto& item : field<A>(span, "slots"))
                     if (item.type() != factory::values::Type::null) diverted += field<I>(item, "raw");
             }
-            check(diverted > 0, "The inclined competitor retains or ejects diverted material.");
+            check(diverted == 0, "A non-facing inclined branch cannot divert collector output.");
         }
         conserved(run.host);
         const auto saved = run.host.checkpoint();
@@ -379,7 +397,7 @@ void moving_fork_fixture() {
             const auto from = field<std::string>(span, "from");
             if (field<std::string>(motion.at(from), "state") == "rotating") ++rotating_spans;
         }
-        check(rotating_spans == 2, "The competing span and working span both rotate.");
+        check(rotating_spans == 2, "The orthogonal span and facing span both rotate.");
         if (speed == 400 && order == 1) {
             const auto spans = field<O>(start, "belt_spans");
             bool fast_first = false;
@@ -391,8 +409,8 @@ void moving_fork_fixture() {
                 fast_first = numerator >= field<I>(entry, "denominator") ||
                              -numerator >= field<I>(entry, "denominator");
             }
-            check(fast_first && !e::inspect(run.host, "P").belt_forward,
-                  "A fast first competing inlet prevents a forward route before any ticks.");
+            check(fast_first && e::inspect(run.host, "P").belt_forward,
+                  "A fast orthogonal lane outside the collector's port does not block the real route.");
         }
         for (int turn = 0; turn < 200 && e::inspect(run.host, "P").products < 8; ++turn) {
             const auto stock = field<O>(run.host.projection(), "stock");
@@ -403,17 +421,12 @@ void moving_fork_fixture() {
             (void)run.host.advance();
         }
         const auto progress = e::inspect(run.host, "P");
-        if (speed == 400 && order == 1) {
-            check(progress.products == 0 && !progress.belt_forward,
-                  "A faster first branch diverts production and must not be reported as a working route.");
-        } else {
-            check(progress.products == 8 && progress.belt_forward && progress.phase == e::Phase::ready,
-                  "The working route produces plates when it receives collected material.");
-        }
+        check(progress.products == 8 && progress.belt_forward && progress.phase == e::Phase::ready,
+              "The collector feeds its facing route regardless of orthogonal belt speed or creation order.");
         if (order == 1) {
             I spilled = 0;
             for (const auto& drop : field<A>(run.host.projection(), "dropped_material")) spilled += field<I>(drop, "raw");
-            check(spilled > 0, "The first competing span actually diverts and drops collected blanks.");
+            check(spilled == 0, "A non-facing moving branch cannot divert collector output.");
         }
         conserved(run.host);
         const auto saved = run.host.checkpoint();
@@ -438,9 +451,9 @@ void fork_fixture() {
         check(std::get<I>(stock.at("input").storage()) > 0 ||
               std::get<I>(stock.at("output").storage()) > 0 ||
               std::get<I>(stock.at("held").storage()) > 0,
-              "A stopped competing branch eventually fills, allowing the other route to process material.");
+              "The facing branch processes material despite a stopped orthogonal branch.");
         check(e::inspect(run.host, "P").belt_forward,
-              "A stopped competing branch does not hide an operating forward route.");
+              "A stopped non-facing branch does not hide an operating forward route.");
         if (order == 1) {
             const auto motion = field<O>(projection, "motion");
             bool stopped_branch_contains_raw = false;
@@ -452,7 +465,7 @@ void fork_fixture() {
                     if (slot.type() != factory::values::Type::null && field<I>(slot, "raw") > 0)
                         stopped_branch_contains_raw = true;
             }
-            check(stopped_branch_contains_raw, "The first stopped branch received and retained a real blank.");
+            check(!stopped_branch_contains_raw, "A stopped branch outside the collector's port receives no raw.");
         }
         const auto saved = run.host.checkpoint();
         Run resumed(order == 1 ? "fork-first-resume" : "fork-last-resume", false, saved);
