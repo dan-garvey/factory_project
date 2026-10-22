@@ -507,9 +507,21 @@ func _adult_hold_grounded_toe(body: Node3D, previous: Dictionary, delta: float,
 		previous.erase("support_contact_side")
 		previous.erase("support_contact_toe")
 		previous.erase("support_contact_age")
+		previous.erase("release_contact_side")
+		previous.erase("release_contact_toe")
+		previous.erase("release_contact_age")
+		previous.erase("release_contact_strength")
 		return
+	var walking_hold := 1.0 - smoothstep(0.25, 0.75, run_mix)
 	var side: String = previous.get("support_contact_side", "")
 	if side != "" and clearance[side] >= lerpf(0.060, 0.09, run_mix):
+		if walking_hold > 0.001:
+			# Keep the outgoing walking toe at its last planted point while it
+			# lifts into swing after the other boot accepts support.
+			previous.release_contact_side = side
+			previous.release_contact_toe = previous.support_contact_toe
+			previous.release_contact_age = 0.0
+			previous.release_contact_strength = walking_hold
 		previous.erase("support_contact_side")
 		previous.erase("support_contact_toe")
 		previous.erase("support_contact_age")
@@ -525,16 +537,29 @@ func _adult_hold_grounded_toe(body: Node3D, previous: Dictionary, delta: float,
 	if side != "":
 		previous.support_contact_age = float(previous.support_contact_age) + delta
 		var age: float = float(previous.support_contact_age)
-		var influence := (1.0 - smoothstep(lerpf(0.22, 0.16, run_mix),
-			lerpf(0.50, 0.26, run_mix), age)) \
-			* (1.0 - smoothstep(lerpf(0.035, 0.045, run_mix),
-				lerpf(0.080, 0.09, run_mix), clearance[side]))
+		var run_hold := (1.0 - smoothstep(0.16, 0.26, age)) \
+			* (1.0 - smoothstep(0.045, 0.09, clearance[side]))
+		# A walking support boot stays planted until the source clip lifts it.
+		# Running releases sooner as the short stance rolls through toe-off.
+		var influence := lerpf(run_hold, 1.0, walking_hold)
 		if influence > 0.001:
 			var anchor: Vector3 = previous.support_contact_toe
 			anchor.y = lerpf(anchor.y, toes[side].y, run_mix)
 			var toe_off_lift := 0.12 * smoothstep(0.30, 0.85, run_mix) \
 				* smoothstep(0.08, 0.18, age) * (1.0 - smoothstep(0.24, 0.30, age))
 			_adult_hold_contact_toe(body, skeleton, anchor, influence, toe_off_lift, side)
+	if previous.has("release_contact_side"):
+		previous.release_contact_age = float(previous.release_contact_age) + delta
+		var progress := clampf(float(previous.release_contact_age) / 0.14, 0.0, 1.0)
+		_adult_hold_contact_toe(body, skeleton, previous.release_contact_toe,
+			float(previous.release_contact_strength) * (1.0 - smoothstep(0.0, 1.0, progress)),
+			0.08 * float(previous.release_contact_strength) * sin(PI * progress),
+			previous.release_contact_side)
+		if progress >= 1.0:
+			previous.erase("release_contact_side")
+			previous.erase("release_contact_toe")
+			previous.erase("release_contact_age")
+			previous.erase("release_contact_strength")
 
 func _adult_clip_bindings(skeleton: Skeleton3D, clip: Animation) -> Dictionary:
 	var result := {"bindings": [], "root_track": -1, "root_reference": Vector3.ZERO}
@@ -1118,6 +1143,10 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 		previous.erase("support_contact_side")
 		previous.erase("support_contact_toe")
 		previous.erase("support_contact_age")
+		previous.erase("release_contact_side")
+		previous.erase("release_contact_toe")
+		previous.erase("release_contact_age")
+		previous.erase("release_contact_strength")
 	motion[actor] = previous
 	if previous.mode == "grounded" and (previous.get("stop_pending", false)
 			or previous.has("stop_toe_anchor")) and body.get_meta("sourced_character", false):

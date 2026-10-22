@@ -546,6 +546,8 @@ func check_native_cadence_walking_contact() -> void:
 	var step_sum := {"L": 0.0, "R": 0.0}
 	var step_max := {"L": 0.0, "R": 0.0}
 	var samples := {"L": 0, "R": 0}
+	var late_step_max := {"L": 0.0, "R": 0.0}
+	var late_samples := {"L": 0, "R": 0}
 	var minimum_knee := INF
 	var exact_root := true
 	var x := -1.5
@@ -564,16 +566,25 @@ func check_native_cadence_walking_contact() -> void:
 				skeleton.find_bone("Bip01 " + side + " Toe0")))
 			var clearance := toe.y - Surface.height_at(toe.x, toe.z)
 			var prior: Dictionary = previous[side]
+			var age: float = float(presenter.motion.P.get("support_contact_age", -1.0))
+			var late_stance: bool = presenter.motion.P.get("support_contact_side", "") == side \
+				and age >= 0.25 and age <= 0.65 and clearance < 0.04
+			if late_stance and prior.get("late_stance", false):
+				late_step_max[side] = maxf(late_step_max[side],
+					Vector2(toe.x - float(prior.x), toe.z - float(prior.z)).length())
+				late_samples[side] += 1
 			if clearance < 0.035 and prior.get("clearance", INF) < 0.035:
 				var step := Vector2(toe.x - float(prior.x), toe.z - float(prior.z)).length()
 				step_sum[side] += step
 				step_max[side] = maxf(step_max[side], step)
 				samples[side] += 1
-			previous[side] = {"x": toe.x, "z": toe.z, "clearance": clearance}
+			previous[side] = {"x": toe.x, "z": toe.z, "clearance": clearance,
+				"late_stance": late_stance}
 			minimum_knee = minf(minimum_knee, knee_forward_offset(body, side))
 	adult_measurements["walking_contact"] = {"samples": samples,
 		"maximum_step": step_max, "mean_step": {"L": step_sum.L / maxf(1, samples.L),
-		"R": step_sum.R / maxf(1, samples.R)}, "minimum_knee_forward": minimum_knee}
+		"R": step_sum.R / maxf(1, samples.R)}, "late_samples": late_samples,
+		"late_step_max": late_step_max, "minimum_knee_forward": minimum_knee}
 	verify(samples.L > 10 and samples.R > 10
 		and step_max.L < 0.035 and step_max.R < 0.035
 		and step_sum.L / float(samples.L) < 0.015
@@ -581,6 +592,9 @@ func check_native_cadence_walking_contact() -> void:
 		"Walking support boots stay near their world contact points at native snapshot cadence.")
 	verify(minimum_knee > 0.015 and exact_root and host.control_calls == 0,
 		"Walking contact keeps both knees forward and changes neither confirmed root nor input.")
+	verify(late_samples.L > 10 and late_samples.R > 10
+		and late_step_max.L < 0.015 and late_step_max.R < 0.015,
+		"Both late-stance walking boots remain planted until their swing begins.")
 	host.free()
 
 func check_native_cadence_running_contact() -> void:
