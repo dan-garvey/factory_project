@@ -495,6 +495,8 @@ though the general passive image runner returned success. Importing the image
 made the source mount available; the focused material check must verify that
 mount rather than treating an arbitrary rendered wheel image as source proof.
 The original failed trial remains in `waterwheel-timber-20261021`.
+The current sourced roster requires that graded atlas; a missing or unimported
+map is incomplete and refuses the sourced mount.
 
 **Data-map alpha is not surface opacity.** The
 [paddle timber source](../../experiments/engine-environment/godot/opening/assets/wheel-paddles/CREDITS.md)
