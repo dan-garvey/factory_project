@@ -5540,6 +5540,26 @@ func render_buildable_resources() -> void:
 		fill.light_color = Color("b9d2ea")
 		fill.light_energy = 0.18
 		studio.add_child(fill)
+		var required_sources := {"panorama": Opening.ProductionEnvironment.sky_source_status}
+		if subject.kind in ["cogwheel", "processor"]:
+			required_sources["transmission_surfaces"] = Opening.ProductionTransmissionFinish.source_status
+		if subject.kind == "processor":
+			required_sources["press_support"] = Opening.ProductionPressArt.source_status
+		var unavailable: Array[String] = []
+		for role: String in required_sources:
+			if required_sources[role] != "ready":
+				unavailable.append("%s=%s" % [role, required_sources[role]])
+		if not unavailable.is_empty():
+			report.status = "fail"
+			report.reason = "The resource view lacks imported source art: " + ", ".join(unavailable)
+			report.failed_subject = subject.name
+			report.resource_sources = required_sources
+			resource_render_write(manifest, report)
+			viewport.free()
+			view.free()
+			push_error(report.reason)
+			quit(1)
+			return
 		var camera := Camera3D.new()
 		camera.projection = Camera3D.PROJECTION_ORTHOGONAL
 		camera.size = diagonal * 1.15
@@ -5630,7 +5650,8 @@ func render_buildable_resources() -> void:
 				"camera_projection": "perspective" if perspective else "orthographic",
 				"camera_distance": 14.0 if perspective else diagonal * 2.0, "camera_fov": camera.fov if perspective else null,
 				"qualified_worked_maps": Opening.ProductionTransmissionFinish.source_status,
-				"panorama_source": Opening.ProductionEnvironment.sky_source_status}
+				"panorama_source": Opening.ProductionEnvironment.sky_source_status,
+				"required_sources": required_sources}
 			report.images.append(frame)
 			if not resource_render_write(manifest, report):
 				viewport.free()

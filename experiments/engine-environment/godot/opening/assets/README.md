@@ -9,17 +9,21 @@ The existing `machine_detail_check.gd` fixture also has a
 press, retired one-cell conveyor sample, waterwheel and foundation kit as passive
 resources. It reads its own
 960 by 960 pixel viewports after completed draw barriers and retains two studio
-views per buildable, image hashes, framing, the actual native presentation profile
+views per ordinary subject, four for the complete cog, image hashes, framing, the native presentation profile
 and renderer information. The fixture explicitly disables the historical profile
 before assembling the meshes and rejects a missing native presentation context.
-The normal material maps and sky illumination remain; a flat background makes silhouettes
-and blank readbacks easy to inspect. These are invented read-only resource
+Imported source maps and sky illumination remain in qualified views; the press
+and cog subjects refuse absent imported materials instead of reporting a fallback
+as a successful asset capture. A flat background makes silhouettes and blank
+readbacks easy to inspect. These are invented read-only resource
 observations, without a game entry, native World, input or simulation.
 
 This mode requires `FACTORY_RESOURCE_RENDER_MODE=isolated` and an existing
 absolute external `FACTORY_RESOURCE_RENDER_OUTPUT` directory. Run it only on a
 private virtual display with the verified engine, normal resource admission and
-a bounded owned supervisor. Headless dummy rendering cannot supply these images.
+a bounded owned supervisor. Import the disposable project copy before rendering
+so its source textures and scene resources are available. Headless dummy rendering
+cannot supply these images.
 The fixture refuses existing results and retains failed images when available.
 Its pixel checks detect empty or clipped output; personal inspection still needs
 to assess visible defects. Studio results do not establish ordinary app delivery,
