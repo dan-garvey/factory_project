@@ -639,8 +639,10 @@ adjacent triangles share their edge patches. This removes the old pair of fixed
 coordinate frames, which realigned every 6.5 metres. All channels use the same
 patch weights, and sampled normal directions are rotated back before blending.
 Variance correction reduces color flattening; this is not full
-histogram-preserving synthesis. Broad tint varies the surface over tens of
-metres. The current shader requires the qualified maps
+histogram-preserving synthesis. A stationary, warped color field adds cooler
+and warmer meadow swaths across several metres without rows, paths or a
+construction boundary. This is a provisional visual palette, not simulated
+soil moisture or a gameplay property. The current shader requires the qualified maps
 and replaces the generated historical ground fallback. This changes shading
 only: terrain triangles, support geometry, native
 poses and construction anchors are unchanged. The steel material has its own
