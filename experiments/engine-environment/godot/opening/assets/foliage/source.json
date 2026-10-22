@@ -129,7 +129,7 @@
       "blue": "metallic; factor zero"
     },
     "normal": "OpenGL. No green flip or data-map gamma conversion.",
-    "runtime": "Single cached runtime buffer import; explicit mipmaps, with normal-vector renormalization. No editor import cache."
+    "runtime": "Single cached runtime buffer import; explicit mipmaps, with normal-vector renormalization. Grass derives a muted green palette from source luminance detail and uses specular 0.2; source base opacity and mesh are unchanged. This reversible art grade does not apply to the shared fern profile. No editor import cache."
   },
   "presentation": {
     "instances": 96,

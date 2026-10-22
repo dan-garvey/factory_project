@@ -1069,6 +1069,30 @@ func check_foliage_mipmaps() -> void:
 	var color := material.albedo_texture.get_image()
 	color.convert(Image.FORMAT_RGBA8)
 	var color_data := color.get_data()
+	var document := GLTFDocument.new()
+	var raw := GLTFState.new()
+	raw.handle_binary_image_mode = GLTFState.HANDLE_BINARY_IMAGE_MODE_EMBED_AS_UNCOMPRESSED
+	if not verify(document.append_from_buffer(FileAccess.get_file_as_bytes(Scenery.FOLIAGE_FILE), "", raw) == OK,
+		"Decode the pinned original cutout for an independent base-opacity comparison."):
+		node.free()
+		return
+	var raw_mesh: ArrayMesh = raw.get_meshes()[0].mesh.get_mesh()
+	var raw_material := raw_mesh.surface_get_material(0) as StandardMaterial3D
+	var original := raw_material.albedo_texture.get_image()
+	original.convert(Image.FORMAT_RGBA8)
+	var original_data := original.get_data()
+	var alpha_exact := true
+	var green_min := 1.0
+	var green_max := 0.0
+	for pixel in range(color.get_width() * color.get_height()):
+		var at := pixel * 4
+		alpha_exact = alpha_exact and color_data[at + 3] == original_data[at + 3]
+		if color_data[at + 3] >= 128:
+			green_min = minf(green_min, float(color_data[at + 1]) / 255.0)
+			green_max = maxf(green_max, float(color_data[at + 1]) / 255.0)
+	verify(alpha_exact, "The grass color correction preserves every source base-opacity byte.")
+	verify(green_min >= 0.35, "Opaque grass blades retain green color instead of near-black photographed bands.")
+	verify(green_max - green_min > 0.10, "The corrected blades retain photographed detail instead of a flat fill.")
 	var coverage: Array[float] = []
 	for level in range(6):
 		var extent := color.get_width() >> level
@@ -1102,6 +1126,7 @@ func check_foliage_mipmaps() -> void:
 	var second := Scenery._foliage()
 	verify(second.material_override == material, "The corrected material is generated once and reused by later scenery.")
 	print(JSON.stringify({"maximum_normal_mip_length_error": maximum_error, "cutout_mip_coverage": coverage,
+		"source_alpha_exact": alpha_exact, "opaque_green_range": [green_min, green_max],
 		"geometry_checks": "reused from the retained first import", "rendered_quality": "not_assessed"}))
 	second.free()
 	node.free()

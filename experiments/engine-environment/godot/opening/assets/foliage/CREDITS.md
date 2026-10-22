@@ -24,7 +24,12 @@ spaces between blades. Cached color mips retain the nearest achievable source
 cutout coverage and dilate color into transparent borders; normal mips retain
 renormalized vectors. The original mesh and embedded map bytes are unchanged.
 Near-neutral instance tint avoids multiplying the photograph by the former dark
-generated-blade colors. Two-sided shadow participation is presentation only.
+generated-blade colors. The current grass material derives a muted green palette
+from the source luminance detail, preserving every base-opacity byte, and uses a
+lower dielectric specular response. This replaces the photograph's dark bands
+and dry coloration as a reversible meadow art choice; it is not a change to the
+licensed source files. The shared fern importer keeps its own color and finish.
+Two-sided shadow participation is presentation only.
 
 [Native packaging instructions](../../../../../../native/foliage-assets/README.md)
 describe the reproducible selection and image processing. The ordinary buffer

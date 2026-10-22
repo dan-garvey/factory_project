@@ -644,10 +644,14 @@ Complete captures replace primitive grass blades with a bounded CC0
 [Grass Medium 01 tuft](foliage/CREDITS.md). One self-contained mesh and three
 embedded maps are imported once and shared by the existing 96 terrain anchors.
 The photographed double-sided cutout retains transparent blade gaps, dielectric
-shading and normal mipmaps. The cached color mip chain dilates transparent color
+shading and normal mipmaps. Grass alone derives a muted green meadow palette
+from the photograph's luminance detail and reduces dielectric glare; the source's
+near-black bands and dry color are not retained as an art requirement. This is a
+reversible presentation default, with the source mesh and opacity unchanged.
+The cached color mip chain dilates transparent color
 borders and preserves the nearest achievable source coverage at the 0.5 cutout;
-an atlas smaller than one covered texel remains empty. This is noncolliding scenery; terrain and actor
-authority remain unchanged. Historical fixed rosters retain their
+an atlas smaller than one covered texel remains empty. This is noncolliding scenery;
+terrain and actor authority remain unchanged. Historical fixed rosters retain their
 generated fallback. Import checks do not establish rendered production quality.
 
 The same tuft also forms small spatially grouped meadow patches. Each patch

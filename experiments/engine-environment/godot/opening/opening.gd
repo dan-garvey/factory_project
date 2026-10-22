@@ -2878,6 +2878,16 @@ class ProductionEnvironment:
 		var scalars := finish.roughness_texture.get_image()
 		if color == null or normal == null or scalars == null or color.get_size() != Vector2i(384, 384) or normal.get_size() != Vector2i(256, 256) or scalars.get_size() != Vector2i(256, 256):
 			return {"status": "invalid", "reason": "texture_extent"}
+		if path == FOLIAGE_FILE:
+			# Reversible meadow palette: retain photographed detail, not black bands.
+			for y in range(color.get_height()):
+				for x in range(color.get_width()):
+					var pixel := color.get_pixel(x, y)
+					var detail := pixel.r * 0.2126 + pixel.g * 0.7152 + pixel.b * 0.0722
+					var green := Color(0.28, 0.38, 0.16).lerp(Color(0.5, 0.62, 0.30), detail)
+					green.a = pixel.a
+					color.set_pixel(x, y, green)
+			finish.metallic_specular = 0.2
 		# Runtime GLB buffer import preserves images but does not create their
 		# mip chains. Build them once with vector renormalization for normals.
 		if not _cutout_mipmaps(color) or normal.generate_mipmaps(true) != OK or scalars.generate_mipmaps() != OK:
