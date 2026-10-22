@@ -83,3 +83,28 @@ measured result for this visual fixture only; run-to-run variation and other
 machines remain unmeasured. Local logs, exact source hashes, environment and
 PNG captures are retained under
 `/home/dan/.local/state/factory-prototypes/mixed-chapter-assets-20261022`.
+
+## Current-main join measurement
+
+The fixture was joined with main at merge commit
+`0d63174185e3582fc2b93f4b3381a49bb4cf38c0`, including the landscape
+variety, wheel culling and landing-pod work then present. The joined
+`opening.gd` SHA-256 was
+`b2c8adac6e323723d86e1667d74b05cf1c6e6e61c47d97d162cdc985008a3918`;
+the joined `machine_visual_test.gd` SHA-256 was
+`598235108c1599f06fa486ed96c655e8fb81fa9ee40a0b82752c0a92fc24de9c`.
+The same machine, renderer, viewport, camera, warmup and sample count were
+used. The exclusive runs measured 14.460 ms median and 20.903 ms 95th
+percentile with no machine assemblies (93 median draw calls), and 36.960 ms
+median and 39.727 ms 95th percentile with 400 batched assemblies (322 median
+draw calls). The latter is approximately 27 FPS at the median. The joined
+batch motion fixture passed 17 assertions. Godot import reported no parser
+errors.
+
+The captured 400-assembly field is present beside the river, with repeated
+machine silhouettes visible across the bank. At this camera distance, fog and
+scale obscure small surface details. The zero-assembly capture shows the
+updated water, vegetation and rock silhouettes. These images establish the
+rendered arrangement at this revision, not close-view equivalence or human
+play quality. Logs and both captures are retained in the local directory
+above. The 8.333 ms frame budget remains unmet even before machine assemblies.
