@@ -1326,8 +1326,12 @@ Advance World::tick() noexcept {
                     (forward_leading == slots.end() ? nullptr : &**forward_leading);
                 const bool has_receiver = at(Role::processor, receiver_point);
                 const bool raw = item && *item == materials::Cargo{1, 0, {}};
-                const bool can_receive = raw && has_receiver &&
-                    candidate.material.stock.input < profile_.material.input_units_per_product;
+                const bool work = item && item->raw_units == 0 && item->products == 0 &&
+                    item->work_lots.size() == 1;
+                const bool can_receive = has_receiver &&
+                    ((raw && candidate.material.stock.input < profile_.material.input_units_per_product) ||
+                     (work && !candidate.material.processing && item->work_lots.front().recipe ==
+                         materials::RecipeSignature{profile_.material.input_units_per_product, profile_.material.cycle_ticks}));
                 const bool valid_drop_point = std::all_of(receiver_point.begin(), receiver_point.end(), [](auto coordinate) {
                     return coordinate >= -materials::maximum_drop_coordinate && coordinate <= materials::maximum_drop_coordinate;
                 });
@@ -1358,9 +1362,10 @@ Advance World::tick() noexcept {
                 if (!proposal) throw materials::Error::invalid_state;
                 if (!proposal->delivered.empty()) {
                     if (can_receive) {
-                        if (proposal->delivered.size() != 1 || proposal->delivered.front() != materials::Cargo{1, 0, {}})
+                        if (proposal->delivered.size() != 1 || proposal->delivered.front() != *item)
                             throw materials::Error::invalid_state;
-                        ++candidate.material.stock.input;
+                        if (raw) ++candidate.material.stock.input;
+                        else candidate.material.processing = proposal->delivered.front().work_lots.front();
                     } else {
                         auto& dropped = candidate.material.dropped_material[receiver_point];
                         for (const auto& delivered : proposal->delivered) {

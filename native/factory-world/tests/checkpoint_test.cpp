@@ -460,6 +460,56 @@ void fast_open_belt_discharge() {
               std::count_if(material.belt_lanes.at("belt").slots.begin(), material.belt_lanes.at("belt").slots.end(),
                             [](const auto& item) { return item.has_value(); }) == 2,
               "A one-item press accepts one blank and retains the remaining belt contents.");
+
+        auto partial_profile = press_profile;
+        partial_profile.initial_units = 1;
+        partial_profile.finite_parts[{s::Role::waterwheel, 0, 0}] = 2;
+        auto partial_state = press_state;
+        partial_state.material.initial_units = 1;
+        partial_state.material.next_work_id = 2;
+        const m::WorkLot partial{1, {1, 2}, 2, 1365, 1, 3};
+        auto& partial_slots = partial_state.material.belt_lanes.at("belt").slots;
+        partial_slots = {std::nullopt, std::nullopt, std::nullopt};
+        partial_slots[toward_negative != reversed ? 0 : 2] = m::Cargo{0, 0, {partial}};
+        partial_state.topology.parts.push_back({{"press-wheel", g::Kind::hub, {exit[0], 0, -4}, g::Axis::z, 0, 0},
+                                               1, s::Role::waterwheel});
+        partial_state.topology.sources.push_back({"press-wheel", partial_profile.waterwheel_rate});
+        partial_state.issued_entities.emplace("press-wheel", 1);
+        auto partial_world = w::World::create("partial-belt-press", partial_profile, partial_state);
+        check(partial_world && partial_world->tick().error == w::TransactionError::none,
+              "A powered press accepts the approaching partial workpiece.");
+        const auto arrived = partial_world->snapshot();
+        check(arrived.state.material.processing == partial && arrived.state.material.dropped_material.empty() &&
+                  std::none_of(arrived.state.material.belt_lanes.at("belt").slots.begin(),
+                               arrived.state.material.belt_lanes.at("belt").slots.end(),
+                               [](const auto& item) { return item.has_value(); }),
+              "The exact identity and fraction move from belt custody to the press once.");
+        const auto partial_save = w::encode_checkpoint(partial_profile, arrived);
+        check(std::holds_alternative<V>(partial_save), "The received partial work checkpoints.");
+        const auto partial_load = w::decode_checkpoint(partial_profile, "partial-belt-press", std::get<V>(partial_save));
+        check(std::holds_alternative<w::Snapshot>(partial_load), "The received partial work decodes.");
+        auto partial_restored = w::World::restore("partial-belt-press", partial_profile, std::get<w::Snapshot>(partial_load));
+        check(partial_restored && partial_restored->tick().error == w::TransactionError::none &&
+                  !partial_restored->snapshot().state.material.processing &&
+                  partial_restored->snapshot().state.material.stock.output == 1 &&
+                  partial_restored->snapshot().state.material.next_work_id == 2,
+              "The restored press finishes the original workpiece without creating another.");
+
+        auto busy_profile = partial_profile;
+        busy_profile.initial_units = 2;
+        auto busy_state = partial_state;
+        busy_state.material.initial_units = 2;
+        busy_state.material.next_work_id = 3;
+        busy_state.material.processing = m::WorkLot{2, {1, 2}, 2};
+        busy_state.topology.parts.pop_back();
+        busy_state.topology.sources.pop_back();
+        busy_state.issued_entities.erase("press-wheel");
+        busy_profile.finite_parts[{s::Role::waterwheel, 0, 0}] = 1;
+        auto busy_world = w::World::create("busy-belt-press", busy_profile, busy_state);
+        check(busy_world && busy_world->tick().error == w::TransactionError::none &&
+                  busy_world->snapshot().state.material.processing == busy_state.material.processing &&
+                  busy_world->snapshot().state.material.belt_lanes.at("belt").slots == partial_slots,
+              "A busy press blocks the partial workpiece without changing either lot.");
     }
 }
 
