@@ -136,6 +136,26 @@ func check_transmission_guidance(shared: bool) -> void:
 	var running: String = view._transmission_inspection({"kind": "shaft", "axis": 2, "center": [0, 0, 0]},
 		{"state": "rotating", "numerator": 1, "denominator": 1, "impact": 12.0, "capacity": 32.0})
 	verify("Load 12.00 / capacity 32.00" in running, "The inspector shows available capacity before overload.")
+	var overload_motion := {"state": "stalled", "overloaded": true, "impact": 48.0, "capacity": 32.0}
+	for kind in ["wheel", "collector", "processor"]:
+		var machine: String = view._machine_inspection({"kind": kind, "cell": [0, 1]}, {"input": 2, "held": 1, "output": 3}, overload_motion, true)
+		verify("Overloaded" in machine and "48.00" in machine and "32.00" in machine,
+			"Machine inspection exposes its confirmed overload: " + kind)
+		if kind == "processor":
+			verify("2 in · 1 held · 3 ready" in machine, "Press inspection retains the material ledger.")
+	var belt := {"from": "shaft", "slots": [null, {"raw": 1}, null]}
+	var belt_text: String = view._belt_inspection(belt, {"shaft": overload_motion})
+	verify("1 occupied position\n" in belt_text and "Overloaded" in belt_text and "48.00" in belt_text,
+		"Belt inspection uses its endpoint's confirmed overload and retains cargo count.")
+	verify("Rate 1 / 1" in view._belt_inspection(belt, {"shaft": {"state": "rotating", "numerator": 1, "denominator": 1}}),
+		"A running belt shows its confirmed endpoint rate.")
+	verify("Unpowered" in view._belt_inspection(belt, {"shaft": {"state": "unpowered"}}),
+		"A disconnected belt is not misreported as overloaded.")
+	verify("Power status unavailable" in view._belt_inspection(belt, {}), "Missing endpoint motion is reported as unavailable.")
+	verify("Power status unavailable" in view._machine_inspection({"kind": "wheel", "cell": [0, 1]}, {}, null, true),
+		"Missing machine motion is reported as unavailable.")
+	verify("Power status unavailable" not in view._machine_inspection({"kind": "wheel", "cell": [0, 1]}, {}, null, false),
+		"The legacy fixture does not acquire invented native power facts.")
 	view.free()
 
 func pick_body(view: Node3D, id: String, position: Vector3, size: Vector3, offset: Vector3) -> void:

@@ -5636,20 +5636,41 @@ func _display_parts() -> Dictionary:
 func _parts_are_shared() -> bool:
 	return false
 
+func _confirmed_drive_status(motion: Variant) -> String:
+	if not motion is Dictionary or motion.is_empty():
+		return "Power status unavailable"
+	if motion.get("state") == "rotating":
+		if typeof(motion.get("numerator")) != TYPE_INT or typeof(motion.get("denominator")) != TYPE_INT or motion.denominator <= 0:
+			return "Power status unavailable"
+		var description := "Rate %d / %d" % [motion.numerator, motion.denominator]
+		if motion.has("capacity"):
+			description += "\nLoad %.2f / capacity %.2f" % [motion.get("impact", 0.0), motion.capacity]
+		return description
+	elif motion.get("overloaded", false):
+		return "Overloaded · load %.2f / capacity %.2f" % [motion.get("impact", 0.0), motion.get("capacity", 0.0)]
+	return str(motion.get("state", "disconnected")).capitalize()
+
 func _transmission_inspection(part: Dictionary, motion: Dictionary) -> String:
 	var name := "Shaft"
 	if part.kind == "gear":
 		name = {2: "Small Cogwheel", 4: "Large Cogwheel"}.get(part.get("teeth"), "Cogwheel")
-	var description := "%s · %s axis\nGrid %s" % [name, ["X", "Y", "Z"][part.axis], str(part.center)]
-	if motion.get("state") == "rotating":
-		description += "\nRate %d / %d" % [motion.numerator, motion.denominator]
-		if motion.has("capacity"):
-			description += "\nLoad %.2f / capacity %.2f" % [motion.get("impact", 0.0), motion.capacity]
-	elif motion.get("overloaded", false):
-		description += "\nOverloaded · load %.2f / capacity %.2f" % [motion.get("impact", 0.0), motion.get("capacity", 0.0)]
-	else:
-		description += "\n" + str(motion.get("state", "disconnected")).capitalize()
+	return "%s · %s axis\nGrid %s\n%s" % [name, ["X", "Y", "Z"][part.axis], str(part.center), _confirmed_drive_status(motion)]
+
+func _machine_inspection(entity: Dictionary, stock: Dictionary, motion: Variant, native: bool) -> String:
+	var description := "%s\nSquare %s" % [NAMES.get(entity.kind, entity.kind), str(entity.cell)]
+	if entity.kind == "processor":
+		description += "\n%d in · %d held · %d ready" % [stock.get("input", 0), stock.get("held", 0), stock.get("output", 0)]
+	if native:
+		description += "\n" + _confirmed_drive_status(motion)
 	return description
+
+func _belt_inspection(span: Dictionary, motions: Dictionary) -> String:
+	var occupied := 0
+	for slot: Variant in span.get("slots", []):
+		if slot is Dictionary:
+			occupied += 1
+	var drive: Variant = motions.get(span.get("from", ""))
+	return "Mechanical belt\n%d occupied %s\n%s\nRecover contents before dismantling." % [occupied, "position" if occupied == 1 else "positions", _confirmed_drive_status(drive)]
 
 func _refresh_ui() -> void:
 	if stock_label == null:
@@ -5686,9 +5707,7 @@ func _refresh_ui() -> void:
 	selection_ring.visible = mode in ["inspect", "flow", "drive"] and state.entities.has(selected)
 	if state.entities.has(selected):
 		selection_ring.position = _entity_position(state.entities[selected]) + Vector3(0, 0.02, 0)
-		inspector.text = "%s\nSquare %s" % [NAMES.get(state.entities[selected].kind, selected), str(state.entities[selected].cell)]
-		if state.entities[selected].kind == "processor":
-			inspector.text += "\n%d in · %d held · %d ready" % [state.stock.input, state.stock.held, state.stock.output]
+		inspector.text = _machine_inspection(state.entities[selected], state.stock, state.get("motion", {}).get(selected), _native_transmission())
 		inspector.text += "\n" + _inspection_hint()
 	elif state.get("foundations", {}).has(selected):
 		var surface: Dictionary = state.foundations[selected]
@@ -5701,12 +5720,7 @@ func _refresh_ui() -> void:
 		var motion: Dictionary = state.get("motion", {}).get(selected, {})
 		inspector.text = _transmission_inspection(part, motion)
 	elif _native_transmission() and state.get("belt_spans", {}).has(selected):
-		var slots: Array = state.belt_spans[selected].get("slots", [])
-		var occupied := 0
-		for slot: Variant in slots:
-			if slot is Dictionary:
-				occupied += 1
-		inspector.text = "Mechanical belt\n%d occupied positions\nRecover contents before dismantling." % occupied
+		inspector.text = _belt_inspection(state.belt_spans[selected], state.get("motion", {}))
 	else:
 		inspector.text = "Select a machine to inspect\nor collect its finished work."
 	_refresh_guided_tools()
