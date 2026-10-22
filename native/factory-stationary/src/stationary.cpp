@@ -25,6 +25,10 @@ bool valid_spec(const PartSpec& spec) noexcept {
         case Role::shaft:
             return spec.teeth == 0 && spec.half_span > 0 &&
                    spec.half_span <= mechanics::maximum_dimension;
+        case Role::gearbox:
+        case Role::vertical_gearbox:
+        case Role::chain_drive:
+            return spec.teeth == 0 && spec.half_span == 0;
     }
     return false;
 }
@@ -78,9 +82,13 @@ bool structure(const Topology& topology) {
             !valid_spec(specification(part)) || !valid_rotation(part)) return false;
         const auto expected = part.role == Role::gear ? mechanics::Kind::gear :
                               part.role == Role::shaft ? mechanics::Kind::shaft :
+                              (part.role == Role::gearbox || part.role == Role::vertical_gearbox) ? mechanics::Kind::gearbox :
+                              part.role == Role::chain_drive ? mechanics::Kind::chain_drive :
                               mechanics::Kind::hub;
         if (part.geometry.kind != expected || !ids.insert(part.geometry.id).second)
             return false;
+        if ((part.role == Role::gearbox && part.geometry.axis != mechanics::Axis::y) ||
+            (part.role == Role::vertical_gearbox && part.geometry.axis == mechanics::Axis::y)) return false;
         if ((part.role == Role::collector || part.role == Role::processor) &&
             !machines.insert(part.role).second)
             return false;
@@ -137,7 +145,10 @@ bool occupied(Role role, const materials::State& state) noexcept {
                    state.processing.has_value();
         case Role::waterwheel:
         case Role::gear:
-        case Role::shaft: return false;
+        case Role::shaft:
+        case Role::gearbox:
+        case Role::vertical_gearbox:
+        case Role::chain_drive: return false;
     }
     return true;
 }
@@ -278,8 +289,13 @@ PlacementPlan prepare_placement(const Topology& topology, const Kit& kit,
 
     const auto expected = part.role == Role::gear ? mechanics::Kind::gear :
                           part.role == Role::shaft ? mechanics::Kind::shaft :
+                          (part.role == Role::gearbox || part.role == Role::vertical_gearbox) ? mechanics::Kind::gearbox :
+                          part.role == Role::chain_drive ? mechanics::Kind::chain_drive :
                           mechanics::Kind::hub;
     if (part.geometry.kind != expected)
+        return PlacementRefusal{PlacementError::invalid_part};
+    if ((part.role == Role::gearbox && part.geometry.axis != mechanics::Axis::y) ||
+        (part.role == Role::vertical_gearbox && part.geometry.axis == mechanics::Axis::y))
         return PlacementRefusal{PlacementError::invalid_part};
 
     if (part.role == Role::waterwheel) {

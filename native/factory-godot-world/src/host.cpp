@@ -75,6 +75,9 @@ Bounds part_bounds(const world::Profile& profile, const stationary::PlacedPart& 
             {part.geometry.axis == mechanics::Axis::x ? 0.3 : radius, radius,
              part.geometry.axis == mechanics::Axis::z ? 0.3 : radius}};
     }
+    if (part.role == Role::gearbox || part.role == Role::vertical_gearbox ||
+        part.role == Role::chain_drive)
+        return {{x, floor + anchor_height, z}, {pitch / 2, pitch / 2, pitch / 2}};
     return {{x, floor + machine_center_height, z}, {machine_width / 2, machine_height / 2, machine_width / 2}};
 }
 
@@ -320,6 +323,25 @@ bool historical_wire(const authority::Record& record) {
                 field<std::string>(intent, "role") && *field<std::string>(intent, "role") == "gear" &&
                 field<Integer>(intent, "half_span") && *field<Integer>(intent, "half_span") == 0;
         }
+        if (*original_action == "place_relay") {
+            const auto* center = field<Array>(*wire, "center");
+            const auto* axis = field<std::string>(*wire, "axis");
+            const auto* name = field<std::string>(*wire, "kind");
+            const auto* relay = field<std::string>(*wire, "relay_axis");
+            if (*action != "place" || !center || !gear_center(*center) || !axis || !axis_value(*axis) ||
+                !name || (*name != "gearbox" && *name != "vertical_gearbox" && *name != "chain_drive") ||
+                !keys(*wire, relay ? std::initializer_list<const char*>{"kind", "center", "axis", "relay_axis"} :
+                    std::initializer_list<const char*>{"kind", "center", "axis"}) ||
+                (relay != nullptr) != (*name == "chain_drive") ||
+                (relay && (!axis_value(*relay) || axis_value(*relay) == axis_value(*axis))) ||
+                (*name == "gearbox" && *axis != "y") ||
+                (*name == "vertical_gearbox" && *axis == "y")) return false;
+            return same("center", "center") && same("axis", "axis") &&
+                field<std::string>(intent, "role") && *field<std::string>(intent, "role") == *name &&
+                (!relay || same("relay_axis", "relay_axis")) &&
+                field<Integer>(intent, "teeth") && *field<Integer>(intent, "teeth") == 0 &&
+                field<Integer>(intent, "half_span") && *field<Integer>(intent, "half_span") == 0;
+        }
         const auto* name = field<std::string>(*wire, "kind");
         const auto* cell = field<Array>(*wire, "cell");
         const auto* axis = field<std::string>(*wire, "axis");
@@ -495,6 +517,9 @@ const char* kind(Role role) {
         case Role::waterwheel: return "wheel";
         case Role::gear: return "gear";
         case Role::shaft: return "shaft";
+        case Role::gearbox: return "gearbox";
+        case Role::vertical_gearbox: return "vertical_gearbox";
+        case Role::chain_drive: return "chain_drive";
     }
     return "invalid";
 }
@@ -513,7 +538,9 @@ Value cargo_value(const materials::Cargo& cargo) {
 Value kit_value(const stationary::Kit& kit) {
     Object counts{{"collector", Value(Integer{0})}, {"belt", Value(Integer{0})},
         {"processor", Value(Integer{0})}, {"wheel", Value(Integer{0})},
-        {"shaft", Value(Integer{0})}, {"gear", Value(Integer{0})}};
+        {"shaft", Value(Integer{0})}, {"gear", Value(Integer{0})},
+        {"gearbox", Value(Integer{0})}, {"vertical_gearbox", Value(Integer{0})},
+        {"chain_drive", Value(Integer{0})}};
     for (const auto& [specification, count] : kit) {
         const auto name = kind(specification.role);
         const auto previous = std::get<Integer>(counts.at(name).storage());
@@ -564,7 +591,9 @@ Value Host::initialize(const std::string& context, const std::vector<std::string
     profile.foundation_parts = 24;
     profile.finite_parts = {{{Role::collector, 0, 0}, 1}, {{Role::belt, 0, 0}, 2},
         {{Role::processor, 0, 0}, 1}, {{Role::waterwheel, 0, 0}, 1}, {{Role::shaft, 0, 2}, 8},
-        {{Role::gear, 2, 0}, 8}, {{Role::gear, 4, 0}, 2}};
+        {{Role::gear, 2, 0}, 8}, {{Role::gear, 4, 0}, 2},
+        {{Role::gearbox, 0, 0}, 2}, {{Role::vertical_gearbox, 0, 0}, 2},
+        {{Role::chain_drive, 0, 0}, 8}};
     world::State seed;
     seed.material.initial_units = profile.initial_units;
     seed.material.stock.source = profile.initial_units;
@@ -1215,6 +1244,55 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.emplace("axis", wire.at("axis"));
         normalized.emplace("teeth", wire.at("teeth"));
         normalized.emplace("half_span", Value(Integer{0}));
+    } else if (*action == "place_relay") {
+        const auto* name = field<std::string>(wire, "kind");
+        const auto* input = field<Array>(wire, "center");
+        const auto* axis_name = field<std::string>(wire, "axis");
+        const auto* relay_name = field<std::string>(wire, "relay_axis");
+        if (!name || (*name != "gearbox" && *name != "vertical_gearbox" && *name != "chain_drive") ||
+            !keys(wire, relay_name ? std::initializer_list<const char*>{"kind", "center", "axis", "relay_axis"} :
+                std::initializer_list<const char*>{"kind", "center", "axis"})) return refuse("invalid_command");
+        const auto center = input ? gear_center(*input) : std::nullopt;
+        const auto relay_axis = relay_name ? axis_value(*relay_name) : std::nullopt;
+        if (!center) return refuse("invalid_center");
+        if (!axis_name || !axis_value(*axis_name)) return refuse("invalid_axis");
+        const auto drive_axis = axis_value(*axis_name).value_or(mechanics::Axis::x);
+        if ((*name == "gearbox" && drive_axis != mechanics::Axis::y) ||
+            (*name == "vertical_gearbox" && drive_axis == mechanics::Axis::y) ||
+            (relay_name != nullptr) != (*name == "chain_drive") ||
+            (relay_name && (!relay_axis || *relay_axis == drive_axis))) return refuse("invalid_axis");
+        if (std::any_of(center->begin(), center->end(), [](Integer value) { return value % 4 != 0; }))
+            return refuse("invalid_cell");
+        const authority::Point at{(*center)[0] * height_step,
+            anchor_height + (*center)[1] * height_step, (*center)[2] * height_step};
+        const authority::Point half{pitch / 2, pitch / 2, pitch / 2};
+        const Bounds shell{at, half};
+        if (transmission_intersects_foundations(snapshot.state, *center, drive_axis, true)) return refuse("occupied");
+        if (const auto* refusal = transmission_site_refusal(snapshot.state, *center, drive_axis, true)) return refuse(refusal);
+        if (site_blocked({at[0] - half[0], at[1] - half[1], at[2] - half[2]},
+                         {at[0] + half[0], at[1] + half[1], at[2] + half[2]})) return refuse("site_occupied");
+        for (const auto& [id, foundation] : snapshot.state.foundations) {
+            (void)id;
+            if (overlap(shell, foundation_bounds(foundation))) return refuse("occupied");
+        }
+        for (const auto& part : snapshot.state.topology.parts) {
+            if (part.geometry.center == *center) return refuse("occupied");
+            if (part.role != Role::shaft && part.role != Role::gear &&
+                part.role != Role::gearbox && part.role != Role::vertical_gearbox &&
+                part.role != Role::chain_drive && overlap(shell, part_bounds(profile_, part)))
+                return refuse("occupied");
+            if (part.role == Role::collector) if (const auto intake = collector_intake_bounds(part.geometry.center))
+                if (overlap(shell, *intake)) return refuse("occupied");
+        }
+        if (intersects_belt(snapshot.state, shell)) return refuse("occupied");
+        if (placement_blocked(at, half)) return refuse("actor_occupied");
+        normalized.at("action") = Value("place");
+        normalized.emplace("role", Value(*name));
+        normalized.emplace("center", wire.at("center"));
+        normalized.emplace("axis", wire.at("axis"));
+        normalized.emplace("teeth", Value(Integer{0}));
+        normalized.emplace("half_span", Value(Integer{0}));
+        if (relay_name) normalized.emplace("relay_axis", wire.at("relay_axis"));
     } else if (*action == "select_belt_shaft") {
         if (!keys(wire, {"entity"}) || !target("entity", "target", "generation")) return refuse("invalid_command");
         normalized.at("action") = Value("select_belt_shaft");
@@ -1365,6 +1443,7 @@ Value Host::projection() const {
         Object projected{{"kind", Value(kind(part.role))}, {"generation", Value(part.generation)},
             {"center", Value(Array{Value(part.geometry.center[0]), Value(part.geometry.center[1]), Value(part.geometry.center[2])})},
             {"axis", Value(static_cast<Integer>(part.geometry.axis))},
+            {"relay_axis", Value(static_cast<Integer>(part.geometry.relay_axis))},
             {"teeth", Value(part.geometry.teeth)}, {"half_span", Value(part.geometry.half_span)},
             {"rotation", Value(part.rotation)}};
         if (part.role == Role::waterwheel) {
@@ -1380,7 +1459,8 @@ Value Host::projection() const {
                 projected.emplace("supports", Value(std::move(occupied)));
             }
         }
-        if (part.role == Role::shaft || part.role == Role::gear) {
+        if (part.role == Role::shaft || part.role == Role::gear || part.role == Role::gearbox ||
+            part.role == Role::vertical_gearbox || part.role == Role::chain_drive) {
             if (const auto foot = transmission_support_foot(state, part.geometry.center, part.geometry.axis)) {
                 const auto bearing = std::max(anchor_height + part.geometry.center[1] * height_step - 0.18,
                                               (*foot)[1] + 0.02);
@@ -1555,6 +1635,8 @@ Host::Decoded Host::decode(const Value& input) const {
     }
     for (const auto& part : snapshot.state.topology.parts) {
         const auto& center = part.geometry.center;
+        const bool relay = part.role == Role::gearbox || part.role == Role::vertical_gearbox ||
+                           part.role == Role::chain_drive;
         if (std::any_of(center.begin(), center.end(), [](auto value) {
             return value < -mechanics::maximum_coordinate || value > mechanics::maximum_coordinate;
         })) return {nullptr, "incompatible_geometry"};
@@ -1564,6 +1646,10 @@ Host::Decoded Host::decode(const Value& input) const {
         } else if (part.role == Role::gear) {
             if (part.geometry.teeth != 2 && part.geometry.teeth != 4) return {nullptr, "incompatible_geometry"};
         } else if (part.role == Role::belt || center[0] % 4 != 0 || center[2] % 4 != 0)
+            return {nullptr, "incompatible_geometry"};
+        if (relay && (center[1] % 4 != 0 ||
+            (part.role == Role::gearbox && part.geometry.axis != mechanics::Axis::y) ||
+            (part.role == Role::vertical_gearbox && part.geometry.axis == mechanics::Axis::y)))
             return {nullptr, "incompatible_geometry"};
         if (part.role == Role::collector)
             if (const auto* refusal = collector_site_refusal(center)) return {nullptr, refusal};
@@ -1599,13 +1685,37 @@ Host::Decoded Host::decode(const Value& input) const {
                 } else if (overlap(part_bounds(profile_, part), part_bounds(profile_, other)) ||
                            overlaps_supports(*supports, part_bounds(profile_, other))) return {nullptr, "occupied"};
             }
-        } else if (part.role != Role::shaft && part.role != Role::gear)
+        } else if (part.role != Role::shaft && part.role != Role::gear && !relay)
             if (const auto* refusal = machine_site_refusal(snapshot.state, center, part.role == Role::collector)) return {nullptr, refusal};
-        if (part.role == Role::shaft || part.role == Role::gear) {
+        if (part.role == Role::shaft || part.role == Role::gear || relay) {
             if (transmission_intersects_foundations(snapshot.state, center, part.geometry.axis, part.role == Role::gear))
                 return {nullptr, "occupied"};
             if (const auto* refusal = transmission_site_refusal(snapshot.state, center, part.geometry.axis, part.role == Role::gear))
                 return {nullptr, refusal};
+            if (relay) {
+                const authority::Point at{center[0] * height_step,
+                    anchor_height + center[1] * height_step, center[2] * height_step};
+                const authority::Point half{pitch / 2, pitch / 2, pitch / 2};
+                const Bounds shell{at, half};
+                if (site_blocked({at[0] - half[0], at[1] - half[1], at[2] - half[2]},
+                                 {at[0] + half[0], at[1] + half[1], at[2] + half[2]}))
+                    return {nullptr, "site_occupied"};
+                for (const auto& [id, foundation] : snapshot.state.foundations) {
+                    (void)id;
+                    if (overlap(shell, foundation_bounds(foundation))) return {nullptr, "occupied"};
+                }
+                for (const auto& other : snapshot.state.topology.parts) {
+                    if (other.geometry.id == part.geometry.id) continue;
+                    if (other.geometry.center == center) return {nullptr, "occupied"};
+                    if (other.role != Role::shaft && other.role != Role::gear &&
+                        other.role != Role::gearbox && other.role != Role::vertical_gearbox &&
+                        other.role != Role::chain_drive && overlap(shell, part_bounds(profile_, other)))
+                        return {nullptr, "occupied"};
+                    if (other.role == Role::collector) if (const auto intake = collector_intake_bounds(other.geometry.center))
+                        if (overlap(shell, *intake)) return {nullptr, "occupied"};
+                }
+                if (intersects_belt(snapshot.state, shell)) return {nullptr, "occupied"};
+            }
         }
     }
     if (!snapshot.state.topology.material_links.empty()) return {nullptr, "incompatible_geometry"};

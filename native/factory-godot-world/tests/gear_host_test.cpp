@@ -53,6 +53,15 @@ O shaft(I x, I y, I z, const char* id, const char* axis = "z", I span = 2) {
     return command;
 }
 
+O relay(const char* kind, I x, I y, I z, const char* id,
+        const char* axis, const char* link_axis = nullptr) {
+    auto command = wire("place_relay", id);
+    command.emplace("kind", V(kind)); command.emplace("center", V(A{V(x), V(y), V(z)}));
+    command.emplace("axis", V(axis));
+    if (link_axis) command.emplace("relay_axis", V(link_axis));
+    return command;
+}
+
 O target(const char* action, const std::string& entity, const char* id) {
     auto command = wire(action, id); command.emplace("entity", V(entity)); return command;
 }
@@ -284,6 +293,75 @@ void finite_large_cog() {
     create(host, gear(-4, 8, 4, "replace-large", "y", 4));
     check(!accepted(host.command("P", gear(0, 8, 4, "exhausted-again", "y", 4))),
           "Removal returns exactly one large cog for replacement.");
+}
+
+void finite_relays_and_restore() {
+    Host host;
+    check(accepted(host.initialize("cog-api", {"P", "Q"})), "The relay Host initializes.");
+    check(accepted(host.configure_terrain(low_flat_site())), "The relay Host binds its site.");
+    observe(host, -1.65, 1.65, 1);
+    const auto horizontal = create(host, relay("gearbox", -4, 8, 4, "horizontal-box", "y"));
+    observe(host, 0.0, 1.65, 2);
+    const auto vertical = create(host, relay("vertical_gearbox", 0, 8, 4, "vertical-box", "x"));
+    observe(host, 1.65, 1.65, 3);
+    const auto chain = create(host, relay("chain_drive", 4, 8, 4, "chain-case", "x", "z"));
+    const auto projection = host.projection();
+    const auto& projected = field<O>(projection, "transmission_parts");
+    check(field<std::string>(V(projected.at(horizontal)), "kind") == "gearbox" &&
+          field<std::string>(V(projected.at(vertical)), "kind") == "vertical_gearbox" &&
+          field<I>(V(projected.at(chain)), "relay_axis") == 2,
+          "The confirmed projection preserves both gearbox variants and the chain link axis.");
+    auto off_grid = relay("chain_drive", 5, 8, 4, "off-grid-chain", "x", "z");
+    check(!accepted(host.command("P", off_grid)), "A chain case cannot leave the global tile grid.");
+    check(!accepted(host.command("P", relay("gearbox", 8, 8, 4, "wrong-box", "x"))) &&
+          !accepted(host.command("P", relay("chain_drive", 8, 8, 4, "wrong-link", "x", "x"))),
+          "Horizontal gearbox and chain side-axis requirements are authoritative.");
+    const auto saved = host.checkpoint();
+    Host fresh;
+    check(accepted(fresh.initialize("fresh", {"P", "Q"})) &&
+          accepted(fresh.configure_terrain(low_flat_site())) &&
+          accepted(fresh.restore_checkpoint(saved)), "The new relay parts survive a fresh native Host restore.");
+    check(!factory::values::typed_difference(saved, fresh.checkpoint()),
+          "Save and restore preserve relay geometry and finite custody exactly.");
+    check(accepted(host.command("P", target("remove", chain, "remove-chain"))),
+          "Removing a chain case refunds its exact finite item.");
+    create(host, relay("chain_drive", 4, 8, 4, "replace-chain", "x", "z"));
+}
+
+void powered_relay_route() {
+    Host host;
+    check(accepted(host.initialize("cog-api", {"P", "Q"})) &&
+          accepted(host.configure_terrain(factory::godot_world::tests::channel_site())),
+          "The powered relay fixture uses the ordinary native Host and channel site.");
+    observe(host, -3.3, 3.3, 1);
+    create(host, machine("wheel", -3, "relay-wheel", "z"));
+    const auto first = create(host, relay("chain_drive", -12, 4, 8, "first-chain", "z", "x"));
+    observe(host, -1.65, 1.65, 2);
+    const auto second = create(host, relay("chain_drive", -8, 4, 8, "second-chain", "z", "x"));
+    observe(host, -1.65, 3.3, 3);
+    const auto gearbox = create(host, relay("gearbox", -8, 4, 12, "relay-box", "y"));
+    observe(host, 0.0, 3.3, 4);
+    const auto output = create(host, shaft(-4, 4, 12, "relay-output", "x"));
+    observe(host, -3.3, 3.3, 5);
+    auto power = wire("set_power", "start-relay"); power.emplace("active", V(true));
+    const auto started = host.command("P", power);
+    check(accepted(started), "The source enables the relay route: " + field<std::string>(started, "reason"));
+    check(field<std::string>(motion(host, first), "state") == "rotating" &&
+          field<I>(motion(host, first), "numerator") == field<I>(motion(host, second), "numerator") &&
+          field<std::string>(motion(host, gearbox), "state") == "rotating" &&
+          field<std::string>(motion(host, output), "state") == "rotating" &&
+          field<I>(motion(host, first), "numerator") == field<I>(motion(host, gearbox), "numerator") &&
+          field<I>(motion(host, first), "numerator") == field<I>(motion(host, output), "numerator") &&
+          field<I>(motion(host, first), "denominator") == field<I>(motion(host, output), "denominator"),
+          "A placed waterwheel drives both chain cases, the gearbox and its turned shaft.");
+    const auto saved = host.checkpoint();
+    Host fresh;
+    check(accepted(fresh.initialize("fresh", {"P", "Q"})) &&
+          accepted(fresh.configure_terrain(factory::godot_world::tests::channel_site())) &&
+          accepted(fresh.restore_checkpoint(saved)),
+          "A powered relay route survives a fresh Host checkpoint restore.");
+    check(!factory::values::typed_difference(saved, fresh.checkpoint()),
+          "The restored powered relay route retains exact native topology, custody and signed motion.");
 }
 
 void perpendicular_belt_line() {
@@ -1633,9 +1711,11 @@ void building_rotation() {
         const auto saved = host.checkpoint();
         Host restored;
         check(accepted(restored.initialize("fresh", {"P", "Q"})) &&
-              accepted(restored.configure_terrain(factory::godot_world::tests::flat_site())) &&
-              accepted(restored.restore_checkpoint(saved)),
-              "A fresh native Host restores the turned building and both actor records.");
+              accepted(restored.configure_terrain(factory::godot_world::tests::flat_site())),
+              "A fresh Host binds the same site before restoring a turned building.");
+        const auto restored_result = restored.restore_checkpoint(saved);
+        check(accepted(restored_result), "A fresh native Host restores the turned building and both actor records: " +
+              field<std::string>(restored_result, "reason"));
         check(!factory::values::typed_difference(saved, restored.checkpoint()) &&
               field<I>(field<O>(restored.projection(), "entities").at(id), "rotation") == turn,
               "Save and restore preserve the exact facing, custody and command history.");
@@ -1669,7 +1749,7 @@ int main(int argc, char** argv) {
         if (argc == 1) {
             building_rotation();
             finite_oriented_train_and_restore(); adjacent_axle_faces(); refusals_and_legacy_shape(); cog_axle_actor_clearance(); cog_at_belt_face(); transmission_site_clearance(); transmission_terrain_clearance(); transmission_foundation_clearance(); one_tile_placement(); restored_transmission_geometry();
-            transmission_tile_center(); transmission_above_half_foundation(); global_grid(); finite_large_cog(); perpendicular_belt_line(); retired_belt_machine(); typed_loose_host(); select_belt_shaft_host(); long_selected_belt_host(); belt_span_host_commands(); nonhorizontal_span_host(); complete_span_route_host(); complete_span_route_host(true); rotated_span_build_orders(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
+            transmission_tile_center(); transmission_above_half_foundation(); global_grid(); finite_large_cog(); finite_relays_and_restore(); powered_relay_route(); perpendicular_belt_line(); retired_belt_machine(); typed_loose_host(); select_belt_shaft_host(); long_selected_belt_host(); belt_span_host_commands(); nonhorizontal_span_host(); complete_span_route_host(); complete_span_route_host(true); rotated_span_build_orders(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
         } else if (argc != 2 || std::string(argv[1]) != "--placement-alias-only") {
             throw std::runtime_error("Expected no arguments or --placement-alias-only.");
         }
