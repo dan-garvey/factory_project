@@ -2905,8 +2905,6 @@ class ProductionEnvironment:
 	static func _clear_meadow_root(position: Vector3, solids: Array) -> bool:
 		# Reject an expanded whole-clump envelope, not just a point hidden
 		# inside an existing rock. Small plants remain noncolliding decoration.
-		if absf(position.x - 1.65) <= 7.7 and absf(position.z - 1.65) <= 7.7:
-			return false
 		if absf(position.x - river_center_x(position.z)) <= channel_half_width(position.z) + 0.8:
 			return false
 		for spec in solids:
@@ -2925,8 +2923,8 @@ class ProductionEnvironment:
 		var random := RandomNumberGenerator.new()
 		random.seed = 718093
 		for patch_index in range(24):
-			var heading := float(patch_index) * 2.399963
-			var radius := 9.8 + float(posmod(patch_index * 11, 31)) * 0.61
+			var heading := float(patch_index) * 2.399963 + random.randf_range(-0.7, 0.7)
+			var radius := sqrt(float(patch_index) / 24.0) * 27.0
 			var center := Vector3(1.65 + cos(heading) * radius, 0.0, 1.65 + sin(heading) * radius)
 			center.y = Surface.height_at(center.x, center.z)
 			var buffer := PackedFloat32Array()

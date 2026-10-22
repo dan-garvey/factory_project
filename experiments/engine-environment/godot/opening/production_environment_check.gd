@@ -245,6 +245,11 @@ func _expected_plants(patch: MultiMeshInstance3D, original: PackedFloat32Array, 
 			kept.append_array(original.slice(offset, offset + stride))
 	return kept
 
+func _plant_records_match(patch: MultiMeshInstance3D, expected: PackedFloat32Array) -> bool:
+	var stride := 16 if patch.multimesh.use_colors else 12
+	return patch.multimesh.instance_count * stride == expected.size() \
+		and patch.multimesh.buffer.slice(0, expected.size()) == expected
+
 func check_foundation_depth_vegetation() -> void:
 	var scenery := Node3D.new()
 	root.add_child(scenery)
@@ -365,8 +370,8 @@ func check_construction_vegetation() -> void:
 			for snapshot in snapshots:
 				var patch: MultiMeshInstance3D = snapshot.patch
 				var expected := _expected_plants(patch, snapshot.buffer, volumes)
-				verify(patch.multimesh.buffer == expected,
-					"Actual complete plant records match independent world-space clearance: " + scenario.name + "/" + str(patch.name))
+				verify(_plant_records_match(patch, expected),
+					"Actual active plant counts and records match independent world-space clearance: " + scenario.name + "/" + str(patch.name))
 				verify(patch.multimesh.mesh == snapshot.mesh and patch.material_override == snapshot.material
 					and patch.multimesh.custom_aabb == snapshot.aabb,
 					"Filtering preserves sourced resources and the conservative original visibility bounds.")
@@ -376,7 +381,7 @@ func check_construction_vegetation() -> void:
 			verify(view.state == supplied and view.model == null and view.actor_world == null and view.request_sequence == 0,
 				"Repeated offline/shared presentation leaves confirmed facts intact and creates no authority or requests.")
 			for snapshot in snapshots:
-				verify(snapshot.patch.multimesh.buffer == _expected_plants(snapshot.patch, snapshot.buffer, volumes),
+				verify(_plant_records_match(snapshot.patch, _expected_plants(snapshot.patch, snapshot.buffer, volumes)),
 					"Repeated filtering always uses the original candidates.")
 		var moved: MultiMeshInstance3D = snapshots.back().patch
 		var old_position := moved.position
@@ -391,13 +396,16 @@ func check_construction_vegetation() -> void:
 		view.state = {"entities": {}, "foundations": {"moved": {"cell": [moved_cell.x, moved_cell.y], "level": moved_level}}, "links": []}
 		view._rebuild_machines()
 		var moved_expected := _expected_plants(moved, moved_data, [moved_volume])
-		verify(moved_expected.size() < moved_data.size() and moved.multimesh.buffer == moved_expected,
+		verify(moved_expected.size() < moved_data.size() and _plant_records_match(moved, moved_expected),
 			"Translated local meadow records are cleared at their world-space height and position.")
 		moved.position = old_position
 		view.state = {"entities": {}, "foundations": {}, "links": []}
 		view._rebuild_machines()
 		for snapshot in snapshots:
-			verify(snapshot.patch.multimesh.buffer == snapshot.buffer, "Removing construction restores every original candidate byte.")
+			verify(_plant_records_match(snapshot.patch, snapshot.buffer), "Removing construction restores every original candidate count and byte.")
+		if DisplayServer.get_name().to_lower() != "headless":
+			await process_frame
+			await RenderingServer.frame_post_draw
 		view.free()
 
 func check_bank_ferns() -> void:
@@ -1095,6 +1103,8 @@ func check_meadow_patches() -> void:
 	var faces: PackedVector3Array = view.get_node("ProductionScenery/GroundSurface").mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
 	var solids: Array = Scenery.Surface.support_boxes()
 	var total := 0
+	var near_worker := 0
+	var worker: Array = Geometry.spawn("P")
 	for patch: MultiMeshInstance3D in meadow.get_children():
 		var instances := patch.multimesh
 		var data := instances.buffer
@@ -1127,9 +1137,10 @@ func check_meadow_patches() -> void:
 				break
 			verify(found and position.is_finite() and basis.is_finite() and basis.determinant() > 0.5,
 				"The actual patch transform has finite positive scale on the visible terrain.")
-			verify((absf(position.x - 1.65) > 7.7 or absf(position.z - 1.65) > 7.7)
-				and absf(position.x - Scenery.river_center_x(position.z)) > Scenery.channel_half_width(position.z) + 0.8,
-				"Uploaded meadow roots remain clear of the construction pad and river.")
+			verify(absf(position.x - Scenery.river_center_x(position.z)) > Scenery.channel_half_width(position.z) + 0.8,
+				"Uploaded meadow roots remain clear of the river.")
+			if Vector2(position.x, position.z).distance_to(Vector2(worker[0], worker[2])) < Geometry.PITCH * 2.0:
+				near_worker += 1
 			for solid in solids:
 				var point: Vector3 = solid.basis.transposed() * (position - solid.center)
 				verify(absf(point.x) > solid.size.x * 0.5 + 0.9 or absf(point.y) > solid.size.y * 0.5 + 0.9
@@ -1143,7 +1154,9 @@ func check_meadow_patches() -> void:
 							"The actual culling box encloses all transformed mesh bounds corners.")
 			total += 1
 	verify(total >= 384 and total <= 768, "The bounded composition adds a substantial patch population without exceeding its declared maximum.")
+	verify(near_worker > 0, "Actual meadow roots reach the worker's natural surroundings instead of reserving an empty build area.")
 	print(JSON.stringify({"patches": meadow.get_child_count(), "new_tufts": total,
+		"near_worker_tufts": near_worker,
 		"new_triangles_before_culling": total * 1257, "existing_tufts": 96,
 		"limits": "Resource and placement evidence, not rendered quality or measured performance."}))
 	view.free()
@@ -1693,7 +1706,10 @@ func run() -> void:
 		finish()
 		return
 	if mode == "construction-vegetation":
-		check_construction_vegetation()
+		await check_construction_vegetation()
+		if DisplayServer.get_name().to_lower() != "headless":
+			await process_frame
+			await RenderingServer.frame_post_draw
 		finish()
 		return
 	if mode == "bank-fir-lifecycle":

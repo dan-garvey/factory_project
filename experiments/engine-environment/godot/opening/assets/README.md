@@ -628,15 +628,17 @@ Complete captures replace primitive grass blades with a bounded CC0
 [Grass Medium 01 tuft](foliage/CREDITS.md). One self-contained mesh and three
 embedded maps are imported once and shared by the existing 96 terrain anchors.
 The photographed double-sided cutout retains transparent blade gaps, dielectric
-shading and normal mipmaps. This is noncolliding scenery; terrain, construction
-pad and actor authority remain unchanged. Historical fixed rosters retain their
+shading and normal mipmaps. This is noncolliding scenery; terrain and actor
+authority remain unchanged. Historical fixed rosters retain their
 generated fallback. Import checks do not establish rendered production quality.
 
 The same tuft also forms small spatially grouped meadow patches. Each patch
 contains at most 32 instances, with at most 24 patches, sharing the existing
-mesh and material. Roots follow the actual rendered terrain triangles and their
-face normals. Steep faces, the pad, river and expanded static-solid envelopes are
-excluded. The finite 62-metre visibility range is a reversible art/culling choice,
+mesh and material. Their irregular population reaches the worker's surroundings
+and nearby hills, without a reserved construction clearing. Roots follow the
+actual rendered terrain triangles and their face normals. Steep faces, the river
+and expanded static-solid envelopes are excluded. The finite 62-metre visibility
+range is a reversible art/culling choice,
 not a world or construction boundary. Patch bounds enclose the transformed mesh;
 the original sparse foliage and historical fallback remain intact. No density,
 culling or triangle count is a measured GPU-performance or human-quality result.
