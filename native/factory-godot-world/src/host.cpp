@@ -51,6 +51,23 @@ const char* collector_status_name(assembly::Status status) {
     return "invalid_input";
 }
 
+const char* press_status_name(assembly::PressStatus status) {
+    switch (status) {
+        case assembly::PressStatus::ready: return "ready";
+        case assembly::PressStatus::invalid_input: return "invalid_input";
+        case assembly::PressStatus::missing_frame: return "missing_frame";
+        case assembly::PressStatus::missing_anvil: return "missing_anvil";
+        case assembly::PressStatus::missing_ram: return "missing_ram";
+        case assembly::PressStatus::missing_guide: return "missing_guide";
+        case assembly::PressStatus::missing_mount: return "missing_mount";
+        case assembly::PressStatus::missing_shaft: return "missing_shaft";
+        case assembly::PressStatus::missing_cog: return "missing_cog";
+        case assembly::PressStatus::blocked_feed: return "blocked_feed";
+        case assembly::PressStatus::ambiguous: return "ambiguous";
+    }
+    return "invalid_input";
+}
+
 struct Bounds { authority::Point center, half; };
 
 bool fixed_transmission(Role role) {
@@ -1996,6 +2013,39 @@ Value Host::projection() const {
             collectors.emplace_back(std::move(entry));
         }
         projection.emplace("collector_assemblies", Value(std::move(collectors)));
+        Array presses;
+        for (const auto& frame : parts) {
+            if (frame.kind != materials::Component::wooden_frame) continue;
+            const auto inspection = assembly::inspect_press(parts, frame.center);
+            Object entry{{"frame", Value(frame.id)},
+                {"center", Value(Array{Value(frame.center[0]), Value(frame.center[1]),
+                    Value(frame.center[2])})},
+                {"status", Value(press_status_name(inspection.status))}};
+            if (inspection.press) {
+                const auto& press = *inspection.press;
+                entry.emplace("parts", Value(Object{{"frame", Value(press.frame)},
+                    {"anvil", Value(press.anvil)}, {"ram", Value(press.ram)},
+                    {"guide", Value(press.guide)}, {"mount", Value(press.mount)},
+                    {"shaft", Value(press.shaft)}, {"drive_cog", Value(press.drive_cog)}}));
+                entry.emplace("work_center", Value(Array{Value(press.work_center[0]),
+                    Value(press.work_center[1]), Value(press.work_center[2])}));
+                entry.emplace("shaft_center", Value(Array{Value(press.shaft_center[0]),
+                    Value(press.shaft_center[1]), Value(press.shaft_center[2])}));
+                entry.emplace("cog_center", Value(Array{Value(press.cog_center[0]),
+                    Value(press.cog_center[1]), Value(press.cog_center[2])}));
+                entry.emplace("shaft_material", Value(materials::component_name(press.shaft_material)));
+                entry.emplace("cog_material", Value(materials::component_name(press.cog_material)));
+                Array feeds;
+                for (const auto& feed : press.open_feeds)
+                    feeds.emplace_back(Object{{"entry", Value(Array{Value(feed.entry[0]),
+                        Value(feed.entry[1]), Value(feed.entry[2])})},
+                        {"exit", Value(Array{Value(feed.exit[0]), Value(feed.exit[1]),
+                            Value(feed.exit[2])})}});
+                entry.emplace("open_feeds", Value(std::move(feeds)));
+            }
+            presses.emplace_back(std::move(entry));
+        }
+        projection.emplace("press_assemblies", Value(std::move(presses)));
     }
     if (profile_.material.manual_ore) {
         const auto site_position = [this](const materials::DropPoint& center) {
