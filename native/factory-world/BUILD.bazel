@@ -73,3 +73,10 @@ cc_test(
     deps = [":world", ":checkpoint", "//native/factory-value:value"],
     size = "small",
 )
+
+cc_test(
+    name = "collector_belt_test",
+    srcs = ["tests/collector_belt_test.cpp"],
+    deps = [":checkpoint"],
+    size = "small",
+)
