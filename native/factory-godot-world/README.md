@@ -24,7 +24,12 @@ and `reclaim_component` move that stock between actor cargo and persistent
 quarter-grid world parts with one native material ledger. The Host projects
 their identities, positions and types and reserves a small collision volume
 against actors, terrain obstacles, belts and complete machines. A placed
-collector can now be turned manually; press assembly remains unfinished. There is still no pod or bench
+cutting edge at one of the profile's trusted ore faces may contact only the
+tagged source outcrop; other components and other obstacles still block it.
+Checkpoint import rechecks that same source fit against the receiving site.
+This narrow source contact does not enlarge the current component collision
+boxes to cover grounded frame legs or other future art. A placed collector can
+now be turned manually; press assembly remains unfinished. There is still no pod or bench
 mesh, scene crafting/placement controls or multitool input. The experimental
 arrival begins without inherited complete-machine or transmission kits; the
 historical initializer retains those fixtures. The live scene should switch
