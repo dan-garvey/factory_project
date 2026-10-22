@@ -1167,9 +1167,27 @@ func _belt_actor_transport() -> void:
 	var sample: Dictionary = authority.projection()
 	var expected_speed := Geometry.PITCH / (4.0 * 0.45)
 	verify(physical._belt_surface_velocity(sample, belt_id).is_equal_approx(Vector2(expected_speed, 0)), "The X travel rate matches the native quarter-tile per simulation step.")
+	sample.motion.left.denominator = 3
+	var third_speed := Geometry.PITCH / (3.0 * 0.45)
+	verify(physical._belt_surface_velocity(sample, belt_id).is_equal_approx(Vector2(third_speed, 0)), "Actor carry follows a third-speed shaft without rounding away each fractional subtick.")
+	sample.motion.left.denominator = 8192
+	var tiny_speed := physical._belt_surface_velocity(sample, belt_id).x
+	verify(tiny_speed > 0.0 and absf(tiny_speed / (Geometry.PITCH / (8192.0 * 0.45)) - 1.0) < 0.0001, "A very slow belt has no artificial one-subtick minimum speed.")
+	sample.motion.left.numerator = 20
+	sample.motion.left.denominator = 1
+	verify(physical._belt_surface_velocity(sample, belt_id).is_equal_approx(Vector2(-16.0 * Geometry.PITCH / 0.45, 0)), "Reversed actor carry obeys the native high-speed cap.")
+	sample.motion.left.numerator = -1
+	sample.motion.left.denominator = 4
 	sample.transmission_parts.right.center = [8, 16, 0]
 	var slope_speed := floorf(1024.0 * 2896.0 / 4096.0) / 4096.0 * Geometry.PITCH / 0.45
 	verify(physical._belt_surface_velocity(sample, belt_id).is_equal_approx(Vector2(slope_speed, 0)), "Inclined actor carry uses the same fixed-point horizontal progress as cargo.")
+	sample.motion.left.denominator = 3
+	verify(physical._belt_surface_velocity(sample, belt_id).is_equal_approx(Vector2(third_speed * 2896.0 / 4096.0, 0)), "Inclined fractional carry follows the accumulated native distance.")
+	sample.motion.left.numerator = -20
+	sample.motion.left.denominator = 1
+	verify(physical._belt_surface_velocity(sample, belt_id).is_equal_approx(Vector2(16.0 * Geometry.PITCH / 0.45 * 2896.0 / 4096.0, 0)), "The inclined rate cap matches the native lane.")
+	sample.motion.left.numerator = -1
+	sample.motion.left.denominator = 4
 	sample.transmission_parts.right.center = [8, 8, 0]
 	sample.transmission_parts.left.axis = 0
 	sample.motion.left.numerator = 1
