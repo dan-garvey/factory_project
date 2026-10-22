@@ -859,8 +859,10 @@ std::optional<authority::Point> Host::transmission_support_foot(const world::Sta
     // rejecting a shaft whose axle has ample clearance above it.
     const double base_seat = seat;
     for (const auto& obstacle : terrain_obstacles_) {
-        if (obstacle.first[0] >= foot[0] + 0.11 || obstacle.second[0] <= foot[0] - 0.11 ||
-            obstacle.first[2] >= foot[2] + 0.11 || obstacle.second[2] <= foot[2] - 0.11)
+        // A box grazing the outside of the post is still an obstruction, not
+        // a seat. Require rock beneath the foot center before lifting it.
+        if (obstacle.first[0] >= foot[0] || obstacle.second[0] <= foot[0] ||
+            obstacle.first[2] >= foot[2] || obstacle.second[2] <= foot[2])
             continue;
         if (obstacle.first[1] <= base_seat + 0.12)
             seat = std::max(seat, obstacle.second[1]);
