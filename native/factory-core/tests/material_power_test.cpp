@@ -95,6 +95,37 @@ void fractional_gear_speed() {
             "Extreme speed completes one buffered workpiece without overflowing progress.");
 }
 
+void fractional_press_rate() {
+    auto state = seed();
+    state.stock.source = 14;
+    state.processing = m::WorkLot{1, {2, 4}, 4};
+    state.next_work_id = 2;
+    m::MachinePower third{false, false, true};
+    third.processor_work_per_tick = 1365;
+    third.processor_work_remainder = 1;
+    third.processor_work_remainder_denominator = 3;
+    tick(state, third);
+    require(state.processing->completed_subticks == 1365 && state.processing->work_remainder == 1 &&
+                state.processing->work_remainder_denominator == 3, "The workpiece retains the fractional third-speed increment.");
+    const auto saved = state;
+    tick(state, {false, false, false});
+    require(state == saved, "Stopped work retains the fractional increment.");
+    tick(state, third);
+    tick(state, third);
+    require(state.processing->remaining_ticks == 3 && state.processing->completed_subticks == 0 &&
+                state.processing->work_remainder == 0, "Three third-speed ticks advance exactly one unit of work.");
+    m::MachinePower tiny{false, false, true};
+    tiny.processor_work_per_tick = 0;
+    tiny.processor_work_remainder = 4096;
+    tiny.processor_work_remainder_denominator = 8192;
+    tick(state, tiny);
+    require(state.processing->completed_subticks == 0 && state.processing->work_remainder * 2 == state.processing->work_remainder_denominator,
+            "A very slow shaft does not acquire an artificial minimum rate.");
+    tick(state, tiny);
+    require(state.processing->completed_subticks == 1 && state.processing->work_remainder == 0,
+            "Two half-subtick advances accumulate one subtick.");
+}
+
 void reversed_belt_custody() {
     auto state = seed();
     state.stock.source = 15;
@@ -324,6 +355,35 @@ void fractional_belt_rates() {
     slow = m::advance_belt_lane_rate(slow->candidate, 1, 8192, 1, false, 0);
     require(slow && slow->candidate.phase == 1 && slow->candidate.remainder == 0,
             "Sub-subtick motion accumulates rather than being discarded.");
+    auto third = m::advance_belt_lane_rate(tiny, 1, 3, 1, false, 0);
+    auto integer = m::advance_belt_lane_rate(third->candidate, 1, 1, 1, false, 0);
+    auto undo_integer = m::advance_belt_lane_rate(integer->candidate, 1, 1, -1, false, 0);
+    require(integer && integer->candidate.remainder == third->candidate.remainder &&
+                integer->candidate.remainder_denominator == third->candidate.remainder_denominator,
+            "Changing to an integer rate retains the prior fractional subtick.");
+    require(undo_integer && undo_integer->candidate.slots.back().has_value() &&
+                undo_integer->candidate.phase == -2730 && undo_integer->candidate.remainder == -2 &&
+                undo_integer->candidate.remainder_denominator == 3,
+            "Reversing the integer rate returns to the same position across the slot boundary.");
+    auto mixed = m::advance_belt_lane_rate(third->candidate, 1, 7, 1, false, 0);
+    require(mixed && mixed->candidate.remainder_denominator == 21 &&
+                mixed->candidate.phase == 1950 && mixed->candidate.remainder == 10,
+            "Different fractional rates combine with their exact common denominator.");
+    auto undo_mixed = m::advance_belt_lane_rate(mixed->candidate, 1, 7, -1, false, 0);
+    require(undo_mixed && undo_mixed->candidate.phase == third->candidate.phase &&
+                undo_mixed->candidate.remainder == third->candidate.remainder * 7 &&
+                undo_mixed->candidate.remainder_denominator == 21,
+            "Reversing one changed rate restores the exact original phase.");
+    m::BeltLane near_limit{{std::nullopt, std::nullopt}, 0};
+    near_limit.remainder = 1;
+    near_limit.remainder_denominator = std::numeric_limits<m::Quantity>::max() - 1;
+    auto rounded = m::advance_belt_lane_rate(near_limit, 1, std::numeric_limits<m::Quantity>::max(), 1, false, 0);
+    require(rounded && rounded->candidate.remainder_denominator == std::numeric_limits<m::Quantity>::max() &&
+                rounded->candidate.remainder == 4097 && rounded->candidate.phase == 0,
+            "An unrepresentable common denominator uses bounded deterministic rounding.");
+    auto undo_rounded = m::advance_belt_lane_rate(rounded->candidate, 1, std::numeric_limits<m::Quantity>::max(), -1, false, 0);
+    require(undo_rounded && undo_rounded->candidate.remainder == 1 && undo_rounded->candidate.phase == 0,
+            "The fallback retains the prior tiny motion when the new movement is reversed.");
     auto invalid = lane;
     invalid.remainder_denominator = 0;
     require(!m::advance_belt_lane_rate(invalid, 1, 3, 1, false, 0),
@@ -354,6 +414,7 @@ int main() {
     try {
         belt_speed_conversion();
         fractional_gear_speed();
+        fractional_press_rate();
         reversed_belt_custody();
         legacy_order_and_carried_work();
         independent_senders_and_partial_pause();

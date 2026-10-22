@@ -2,6 +2,7 @@
 
 #include <initializer_list>
 #include <limits>
+#include <numeric>
 #include <utility>
 
 namespace factory::materials {
@@ -33,7 +34,9 @@ bool valid_lot(const WorkLot& lot, const State& state, const Config& config) noe
         && lot.recipe == RecipeSignature{config.input_units_per_product, config.cycle_ticks}
         && lot.remaining_ticks >= 0 && lot.remaining_ticks <= lot.recipe.cycle_ticks
         && lot.completed_subticks >= 0 && lot.completed_subticks < work_subticks_per_tick
-        && (lot.remaining_ticks != 0 || lot.completed_subticks == 0);
+        && lot.work_remainder_denominator > 0 && lot.work_remainder >= 0
+        && lot.work_remainder < lot.work_remainder_denominator
+        && (lot.remaining_ticks != 0 || (lot.completed_subticks == 0 && lot.work_remainder == 0));
 }
 
 // Validation is allocation-free to preserve its noexcept contract. The first
@@ -108,7 +111,9 @@ std::optional<BeltAdvance> advance_belt_lane(const BeltLane& lane, Quantity sign
             if (lot.id <= 0 || lot.recipe.input_units_per_product < 1 || lot.recipe.cycle_ticks < 1 ||
                 lot.remaining_ticks < 0 || lot.remaining_ticks > lot.recipe.cycle_ticks ||
                 lot.completed_subticks < 0 || lot.completed_subticks >= work_subticks_per_tick ||
-                (lot.remaining_ticks == 0 && lot.completed_subticks != 0)) return std::nullopt;
+                lot.work_remainder_denominator <= 0 || lot.work_remainder < 0 ||
+                lot.work_remainder >= lot.work_remainder_denominator ||
+                (lot.remaining_ticks == 0 && (lot.completed_subticks != 0 || lot.work_remainder != 0))) return std::nullopt;
             for (std::size_t other = 0; other < index; ++other)
                 if (lane.slots[other] && !lane.slots[other]->work_lots.empty() &&
                     lane.slots[other]->work_lots.front().id == lot.id) return std::nullopt;
@@ -148,14 +153,29 @@ std::optional<BeltAdvance> advance_belt_lane_rate(const BeltLane& lane, Quantity
     Wide magnitude = numerator;
     if (magnitude < 0) magnitude = -magnitude;
     const Wide distance = magnitude * (inclined ? 2896 : work_subticks_per_tick);
-    // When the source rate changes, convert the old fractional remainder to
-    // the new denominator. Conversion loses less than one new fraction of a
-    // subtick; unchanged rates accumulate exactly.
-    const Wide remainder = static_cast<Wide>(lane.remainder) * denominator / lane.remainder_denominator;
-    const Wide total = static_cast<Wide>(lane.phase) * denominator + remainder + direction * distance;
-    const Wide tile = static_cast<Wide>(work_subticks_per_tick) * denominator;
-    const Wide steps = total / tile;
-    const Wide fraction = total % tile;
+    // Preserve both fractions exactly whenever their least common denominator
+    // fits in the saved state. For exceptionally large combinations, round
+    // each fraction to the largest representable denominator, bounding the
+    // total error to one part in that denominator per rate change.
+    const auto divisor = std::gcd(lane.remainder_denominator, denominator);
+    const Wide common = static_cast<Wide>(lane.remainder_denominator / divisor) * denominator;
+    const auto limit = std::numeric_limits<Quantity>::max();
+    const Quantity saved_denominator = common <= limit ? static_cast<Quantity>(common) : limit;
+    const auto scale = [saved_denominator](Wide value, Quantity from) {
+        const Wide product = value * saved_denominator;
+        const Wide half = from / 2;
+        return product < 0 ? (product - half) / from : (product + half) / from;
+    };
+    Wide subticks = static_cast<Wide>(lane.phase) + direction * (distance / denominator);
+    Wide fraction = scale(lane.remainder, lane.remainder_denominator) +
+                    direction * scale(distance % denominator, denominator);
+    subticks += fraction / saved_denominator;
+    fraction %= saved_denominator;
+    // Keep the whole and fractional parts on the same side of zero so that
+    // tile boundary crossing uses truncation toward zero even on reversal.
+    if (subticks > 0 && fraction < 0) { --subticks; fraction += saved_denominator; }
+    if (subticks < 0 && fraction > 0) { ++subticks; fraction -= saved_denominator; }
+    const Wide steps = subticks / work_subticks_per_tick;
     auto advanced = advance_belt_lane(lane, 0, receiver_capacity);
     if (!advanced) return std::nullopt;
     advanced->candidate.phase = 0;
@@ -173,9 +193,9 @@ std::optional<BeltAdvance> advance_belt_lane_rate(const BeltLane& lane, Quantity
         advanced->delivered.insert(advanced->delivered.end(), next->delivered.begin(), next->delivered.end());
         remaining_steps -= chunk;
     }
-    advanced->candidate.phase = static_cast<Quantity>(fraction / denominator);
-    advanced->candidate.remainder = static_cast<Quantity>(fraction % denominator);
-    advanced->candidate.remainder_denominator = denominator;
+    advanced->candidate.phase = static_cast<Quantity>(subticks % work_subticks_per_tick);
+    advanced->candidate.remainder = static_cast<Quantity>(fraction);
+    advanced->candidate.remainder_denominator = saved_denominator;
     return advanced;
 }
 
@@ -286,7 +306,9 @@ Error step(State& state, const Config& config, const Path& path,
         (power.belt && !path.belt_present) ||
         (power.processor && !path.processor_present) ||
         (power.belt && !power.belt_forward && !power.reverse_drop) ||
-        power.processor_work_per_tick < 1) return Error::invalid_path;
+        power.processor_work_per_tick < 0 || power.processor_work_remainder_denominator <= 0 ||
+        power.processor_work_remainder < 0 || power.processor_work_remainder >= power.processor_work_remainder_denominator ||
+        (power.processor && power.processor_work_per_tick == 0 && power.processor_work_remainder == 0)) return Error::invalid_path;
     if (!path.powered || (!power.collector && !power.belt && !power.processor))
         return Error::none;
     auto next = state;
@@ -296,14 +318,27 @@ Error step(State& state, const Config& config, const Path& path,
         auto& lot = *next.processing;
         if (lot.remaining_ticks > 0) {
             __extension__ using Wide = __int128;
-            const Wide progressed = static_cast<Wide>(lot.completed_subticks) + power.processor_work_per_tick;
+            const auto gcd = std::gcd(lot.work_remainder_denominator, power.processor_work_remainder_denominator);
+            const Wide common = static_cast<Wide>(lot.work_remainder_denominator / gcd) * power.processor_work_remainder_denominator;
+            const auto max = std::numeric_limits<Quantity>::max();
+            const Quantity denominator = common <= max ? static_cast<Quantity>(common) : max;
+            const auto scale = [denominator](Quantity numerator, Quantity from) {
+                return (static_cast<Wide>(numerator) * denominator + from / 2) / from;
+            };
+            const Wide fractional = scale(lot.work_remainder, lot.work_remainder_denominator) +
+                scale(power.processor_work_remainder, power.processor_work_remainder_denominator);
+            const Wide progressed = static_cast<Wide>(lot.completed_subticks) + power.processor_work_per_tick + fractional / denominator;
             const auto whole = progressed / work_subticks_per_tick;
             if (whole >= lot.remaining_ticks) {
                 lot.remaining_ticks = 0;
                 lot.completed_subticks = 0;
+                lot.work_remainder = 0;
+                lot.work_remainder_denominator = 1;
             } else {
                 lot.remaining_ticks -= static_cast<Quantity>(whole);
                 lot.completed_subticks = static_cast<Quantity>(progressed % work_subticks_per_tick);
+                lot.work_remainder = static_cast<Quantity>(fractional % denominator);
+                lot.work_remainder_denominator = lot.work_remainder == 0 ? 1 : denominator;
             }
         }
         if (lot.remaining_ticks == 0 && stock.output < 1) {

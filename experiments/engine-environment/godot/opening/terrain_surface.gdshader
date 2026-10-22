@@ -96,7 +96,6 @@ void fragment() {
 	weights /= weights.x + weights.y + weights.z;
 	vec3 dx = dFdx(world_point);
 	vec3 dy = dFdy(world_point);
-	float broad = broad_noise(world_point.xz / 17.0);
 	vec3 color = vec3(0.0);
 	vec2 scalars = vec2(0.0);
 	vec3 detail = vec3(0.0);
@@ -124,8 +123,14 @@ void fragment() {
 	// A flat source normal leaves the original terrain normal intact on slopes.
 	detail -= base * dot(base, detail);
 	NORMAL = normalize((VIEW_MATRIX * vec4(normalize(base + detail), 0.0)).xyz);
-	vec3 tint = mix(vec3(0.88, 0.94, 0.84), vec3(1.04, 1.01, 0.96), broad);
-	ALBEDO = color * COLOR.rgb * tint * mix(0.92, 1.02, broad_noise(world_point.xz / 41.0 + vec2(3.7, 1.2)));
+	// Broad meadow variation stays in world space. Warp the small field so its
+	// warmer and cooler swaths do not follow rows or a construction grid.
+	vec2 drift = vec2(broad_noise(world_point.xz / 23.0 + vec2(7.3, 2.1)),
+		broad_noise(world_point.xz / 23.0 + vec2(-4.8, 13.7)));
+	vec2 meadow = world_point.xz / 6.5 + drift * 2.0;
+	float cover = broad_noise(meadow) * 0.65 + broad_noise(meadow * 2.13 + vec2(3.7, -8.1)) * 0.35;
+	vec3 tint = mix(vec3(0.58, 0.78, 0.57), vec3(1.16, 1.08, 0.83), smoothstep(0.22, 0.78, cover));
+	ALBEDO = color * COLOR.rgb * tint * mix(0.88, 1.08, broad_noise(world_point.xz / 31.0 + vec2(3.7, 1.2)));
 	ROUGHNESS = scalars.y;
 	AO = scalars.x;
 	AO_LIGHT_AFFECT = 0.0;

@@ -892,7 +892,7 @@ func _loose_material() -> void:
 	session._apply_frame({"context": "helper-fixture", "serial": 1, "snapshot": host.state})
 	verify(session.projection().dropped_material == host.state.dropped_material,
 		"The read-only Session frame retains the server's loose-material projection.")
-	var mixed := {"center": [2, 0, 4], "raw": 1, "products": 1, "work_lots": [{"id": 7, "recipe_input": 1, "cycle_ticks": 2, "remaining": 1, "completed_subticks": 123}]}
+	var mixed := {"center": [2, 0, 4], "raw": 1, "products": 1, "work_lots": [{"id": 7, "recipe_input": 1, "cycle_ticks": 2, "remaining": 1, "completed_subticks": 123, "work_remainder": 1, "work_remainder_denominator": 3}]}
 	host.state.dropped_material = [mixed]
 	host.state.revision = 2
 	host.state.order = 2

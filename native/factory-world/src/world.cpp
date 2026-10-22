@@ -211,7 +211,8 @@ Value lots_value(const std::vector<materials::WorkLot>& lots) {
     for (const auto& lot : lots) output.emplace_back(Object{
         {"id", Value(lot.id)}, {"input_units_per_product", Value(lot.recipe.input_units_per_product)},
         {"cycle_ticks", Value(lot.recipe.cycle_ticks)}, {"remaining_ticks", Value(lot.remaining_ticks)},
-        {"completed_subticks", Value(lot.completed_subticks)}});
+        {"completed_subticks", Value(lot.completed_subticks)}, {"work_remainder", Value(lot.work_remainder)},
+        {"work_remainder_denominator", Value(lot.work_remainder_denominator)}});
     return Value(std::move(output));
 }
 
@@ -220,7 +221,8 @@ Value belt_cargo_value(const materials::Cargo& cargo) {
     for (const auto& lot : cargo.work_lots) lots.emplace_back(Object{
         {"id", Value(lot.id)}, {"recipe_input", Value(lot.recipe.input_units_per_product)},
         {"cycle_ticks", Value(lot.recipe.cycle_ticks)}, {"remaining", Value(lot.remaining_ticks)},
-        {"completed_subticks", Value(lot.completed_subticks)}});
+        {"completed_subticks", Value(lot.completed_subticks)}, {"work_remainder", Value(lot.work_remainder)},
+        {"work_remainder_denominator", Value(lot.work_remainder_denominator)}});
     return Value(Object{{"raw", Value(cargo.raw_units)}, {"products", Value(cargo.products)},
                         {"work_lots", Value(std::move(lots))}});
 }
@@ -287,7 +289,7 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         if (!add(weighted, *products * profile.material.input_units_per_product)) return false;
         for (const auto& value : *work) {
             const auto* lot = std::get_if<Object>(&value.storage());
-            if (!lot || lot->size() != 5 || !add(weighted, profile.material.input_units_per_product)) return false;
+            if (!lot || lot->size() != 7 || !add(weighted, profile.material.input_units_per_product)) return false;
         }
         const auto* expected = field<Object>(record.intent, "expected");
         if (!expected || expected->size() != 3 || !field<Integer>(*expected, "raw") || !field<Integer>(*expected, "products") ||
@@ -298,9 +300,10 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         for (std::size_t index = 0; index < work->size(); ++index) {
             const auto* selected = std::get_if<Object>(&selected_work[index].storage());
             const auto* moved = std::get_if<Object>(&(*work)[index].storage());
-            if (!selected || !moved || selected->size() != 5) return false;
+            if (!selected || !moved || selected->size() != 7) return false;
             for (const auto& [left, right] : {std::pair{"id", "id"}, {"recipe_input", "input_units_per_product"},
-                    {"cycle_ticks", "cycle_ticks"}, {"remaining", "remaining_ticks"}, {"completed_subticks", "completed_subticks"}})
+                    {"cycle_ticks", "cycle_ticks"}, {"remaining", "remaining_ticks"}, {"completed_subticks", "completed_subticks"},
+                    {"work_remainder", "work_remainder"}, {"work_remainder_denominator", "work_remainder_denominator"}})
                 if (!selected->contains(left) || !moved->contains(right) || values::typed_difference(selected->at(left), moved->at(right)))
                     return false;
         }
@@ -373,7 +376,7 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
     if (!add(weighted, *products * profile.material.input_units_per_product)) return false;
     for (const auto& value : *work) {
         const auto* lot = std::get_if<Object>(&value.storage());
-        if (!lot || lot->size() != 5 || !add(weighted, profile.material.input_units_per_product)) return false;
+        if (!lot || lot->size() != 7 || !add(weighted, profile.material.input_units_per_product)) return false;
     }
     if (weighted == 0 || weighted > profile.initial_units) return false;
     if (action == "recover_belt_slot") {
@@ -384,9 +387,10 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         for (std::size_t i = 0; i < work->size(); ++i) {
             const auto* a = std::get_if<Object>(&work->at(i).storage());
             const auto* b = std::get_if<Object>(&field<Value::Array>(*expected, "work_lots")->at(i).storage());
-            if (!a || !b || b->size() != 5) return false;
+            if (!a || !b || b->size() != 7) return false;
             for (const auto& [left, right] : {std::pair{"id", "id"}, {"input_units_per_product", "recipe_input"},
-                    {"cycle_ticks", "cycle_ticks"}, {"remaining_ticks", "remaining"}, {"completed_subticks", "completed_subticks"}}) {
+                    {"cycle_ticks", "cycle_ticks"}, {"remaining_ticks", "remaining"}, {"completed_subticks", "completed_subticks"},
+                    {"work_remainder", "work_remainder"}, {"work_remainder_denominator", "work_remainder_denominator"}}) {
                 if (!a->contains(left) || !b->contains(right) || values::typed_difference(a->at(left), b->at(right))) return false;
             }
         }
@@ -518,12 +522,15 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
                 const auto* cycle = field<Integer>(*object, "cycle_ticks");
                 const auto* remaining = field<Integer>(*object, "remaining_ticks");
                 const auto* completed = field<Integer>(*object, "completed_subticks");
+                const auto* remainder = field<Integer>(*object, "work_remainder");
+                const auto* denominator = field<Integer>(*object, "work_remainder_denominator");
                 if (!id || *id <= 0 || *id >= snapshot.state.material.next_work_id ||
                     !weight || *weight != profile.material.input_units_per_product ||
                     !cycle || *cycle != profile.material.cycle_ticks ||
                     !remaining || *remaining < 0 || *remaining > *cycle || !completed ||
                     *completed < 0 || *completed >= materials::work_subticks_per_tick ||
-                    (*remaining == 0 && *completed != 0)) return false;
+                    !remainder || !denominator || *denominator <= 0 || *remainder < 0 || *remainder >= *denominator ||
+                    (*remaining == 0 && (*completed != 0 || *remainder != 0))) return false;
             }
         }
     }
@@ -592,10 +599,14 @@ materials::MachinePower machine_power(const stationary::Topology& topology) {
                 __extension__ using Wide = __int128;
                 Wide numerator = found->second.rate.numerator;
                 if (numerator < 0) numerator = -numerator;
-                const Wide scaled = numerator * materials::work_subticks_per_tick /
-                    found->second.rate.denominator;
-                power.processor_work_per_tick = static_cast<Integer>(std::clamp<Wide>(
-                    scaled, 1, std::numeric_limits<Integer>::max()));
+                const Wide scaled = numerator * materials::work_subticks_per_tick;
+                const auto denominator = found->second.rate.denominator;
+                const Wide whole = scaled / denominator;
+                power.processor_work_per_tick = static_cast<Integer>(std::min<Wide>(whole, std::numeric_limits<Integer>::max()));
+                if (whole <= std::numeric_limits<Integer>::max()) {
+                    power.processor_work_remainder = static_cast<Integer>(scaled % denominator);
+                    if (power.processor_work_remainder != 0) power.processor_work_remainder_denominator = denominator;
+                }
             }
         }
     }

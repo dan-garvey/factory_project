@@ -38,6 +38,8 @@ struct WorkLot {
     RecipeSignature recipe;
     Quantity remaining_ticks{};
     Quantity completed_subticks{};
+    Quantity work_remainder{};
+    Quantity work_remainder_denominator{1};
     bool operator==(const WorkLot&) const = default;
 };
 
@@ -131,6 +133,8 @@ struct MachinePower {
     Quantity processor_work_per_tick{work_subticks_per_tick};
     bool belt_forward{true};
     std::optional<DropPoint> reverse_drop{};
+    Quantity processor_work_remainder{};
+    Quantity processor_work_remainder_denominator{1};
 };
 
 enum class Error {

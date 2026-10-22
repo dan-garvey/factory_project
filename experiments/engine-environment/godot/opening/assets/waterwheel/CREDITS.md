@@ -30,8 +30,8 @@ and packed normal/occlusion/roughness/metallic maps; it is an art-grade choice,
 not a new source photograph or a lighting/gameplay rule. Run the
 [offline color recipe](../../machine_detail_check.gd) in
 `--prepare-wheel-center-color` mode with a fresh output path to reproduce the
-map. Historical
-captures without the derived map retain the original shared color material.
+map. Earlier retained captures show the original shared color material before
+this derived atlas was introduced. The current runtime requires the new atlas.
 The OpenGL normal and packed occlusion/roughness/metallic maps are prepared at
 512 pixels, with floating-point Lanczos sampling, normal renormalization and
 nearest RGB8 encoding. WebP delivery is lossless relative to that prepared

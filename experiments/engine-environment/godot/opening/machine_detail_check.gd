@@ -3473,7 +3473,7 @@ func check_sourced_mesh(instance: MeshInstance3D, expected_vertices: int = 4056,
 
 func check_wheel_resource_contract() -> void:
 	var current := ["rim.gltf", "rim.bin", "hub_spokes.gltf", "hub_spokes.bin",
-		"wood_albedo.jpg", "wood_normal.webp", "wood_arm.webp"]
+		"wood_albedo.jpg", "wood_normal.webp", "wood_arm.webp", "wood_center_albedo.webp"]
 	var rosters := [
 		["rotor.gltf", "rotor.bin", "wood_albedo.jpg", "wood_normal.webp", "wood_arm.webp"],
 		current, current.slice(0, current.size() - 1)]
@@ -3488,7 +3488,7 @@ func check_wheel_resource_contract() -> void:
 				return
 			file.close()
 		verify(WheelArt.resource_status(directory) == ("complete" if index == 1 else "incomplete"),
-			"Only the current complete two-rim runtime roster is admitted; obsolete or partial rosters refuse.")
+			"Only the complete current roster with its graded center is admitted; obsolete or partial rosters refuse.")
 	verify(WheelArt.resource_status("user://wheel-roster-contract-missing") == "missing",
 		"Entirely missing resources remain distinct from an obsolete or partial set.")
 

@@ -191,7 +191,7 @@ func _malformed_projection_is_not_coerced() -> void:
 func _belt_span_recovery() -> void:
 	_new_fixture()
 	fixture.selected = "span"
-	var item := {"raw": 0, "products": 0, "work_lots": [{"id": LARGE_ID, "recipe_input": 1, "cycle_ticks": 4, "remaining": 2, "completed_subticks": 123}]}
+	var item := {"raw": 0, "products": 0, "work_lots": [{"id": LARGE_ID, "recipe_input": 1, "cycle_ticks": 4, "remaining": 2, "completed_subticks": 123, "work_remainder": 1, "work_remainder_denominator": 3}]}
 	fixture.snapshot.belt_spans = {"span": {"slots": [null, item, {"raw": 1, "products": 0, "work_lots": []}]}}
 	controls.refresh()
 	var popup := _open()
