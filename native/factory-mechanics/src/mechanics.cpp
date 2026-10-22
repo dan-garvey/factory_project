@@ -230,7 +230,7 @@ const char* motion_state_name(MotionState state) noexcept {
 }
 
 Result evaluate(const std::vector<Part>& input, const std::vector<Drive>& sources,
-                const std::vector<BeltSpan>& belts) {
+                const std::vector<BeltSpan>& belts, SourcePolicy source_policy) {
     if (input.size() > maximum_parts) return failure(Error::too_many_parts);
     if (sources.size() > maximum_parts) return failure(Error::invalid_drive);
     if (belts.size() > maximum_parts) return failure(Error::invalid_belt);
@@ -367,32 +367,60 @@ Result evaluate(const std::vector<Part>& input, const std::vector<Drive>& source
         std::sort(component.begin(), component.end());
         std::optional<std::size_t> source;
         for (const auto at : component) {
-            if (drives.contains(at)) { source = at; break; }
+            const auto drive = drives.find(at);
+            if (drive == drives.end()) continue;
+            if (source_policy == SourcePolicy::prescribed) { source = at; break; }
+            if (!source || drive->second.numerator != 0) source = at;
+            if (drive->second.numerator != 0) break;
         }
         std::vector<std::optional<Rate>> rates(parts.size());
         bool conflict = false;
         auto state = MotionState::unpowered;
         if (source) {
-            rates[*source] = drives.at(*source);
-            pending.push_back(*source);
-            while (!pending.empty()) {
-                const auto at = pending.front();
-                pending.pop_front();
-                for (const auto& link : adjacent[at]) {
-                    Rate expected;
-                    if (!multiply(*rates[at], link.multiplier, expected))
-                        return failure(Error::rate_overflow, parts[link.to]->id);
-                    if (rates[link.to]) {
-                        conflict = conflict || *rates[link.to] != expected;
-                    } else {
-                        rates[link.to] = expected;
-                        pending.push_back(link.to);
+            const auto propagate = [&](std::size_t driver) -> std::optional<std::size_t> {
+                std::fill(rates.begin(), rates.end(), std::nullopt);
+                rates[driver] = drives.at(driver);
+                pending.clear();
+                pending.push_back(driver);
+                while (!pending.empty()) {
+                    const auto at = pending.front();
+                    pending.pop_front();
+                    for (const auto& link : adjacent[at]) {
+                        Rate expected;
+                        if (!multiply(*rates[at], link.multiplier, expected)) return link.to;
+                        if (rates[link.to]) {
+                            conflict = conflict || *rates[link.to] != expected;
+                        } else {
+                            rates[link.to] = expected;
+                            pending.push_back(link.to);
+                        }
                     }
                 }
-            }
+                return std::nullopt;
+            };
+            if (const auto overflow = propagate(*source)) return failure(Error::rate_overflow, parts[*overflow]->id);
+            // Compare each source with the rate required at its own shaft. A
+            // stronger source in the same direction drives the entire train;
+            // zero-speed sources can be back-driven. Cross products are exact.
+            __extension__ using Wide = unsigned __int128;
             for (const auto at : component) {
                 const auto drive = drives.find(at);
-                if (drive != drives.end() && drive->second != *rates[at]) conflict = true;
+                if (drive == drives.end()) continue;
+                if (source_policy == SourcePolicy::prescribed) {
+                    conflict = conflict || drive->second != *rates[at];
+                    continue;
+                }
+                if (drive->second.numerator == 0) continue;
+                const auto expected = *rates[at];
+                if ((drive->second.numerator < 0) != (expected.numerator < 0)) {
+                    conflict = true;
+                    continue;
+                }
+                if (Wide{magnitude(drive->second.numerator)} * static_cast<Wide>(expected.denominator) >
+                    Wide{magnitude(expected.numerator)} * static_cast<Wide>(drive->second.denominator)) {
+                    source = at;
+                    if (const auto overflow = propagate(at)) return failure(Error::rate_overflow, parts[*overflow]->id);
+                }
             }
             state = conflict ? MotionState::stalled
                   : drives.at(*source).numerator == 0 ? MotionState::stopped

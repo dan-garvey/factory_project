@@ -189,8 +189,24 @@ void shafts_and_sources() {
            "B", MotionState::rotating, {-1, 2});
     motion(mechanical::evaluate(baseline(), {{"drive", {1, 1}}, {"sink", {1, 1}}}),
            "B", MotionState::stalled, {0, 1});
-    motion(mechanical::evaluate(baseline(), {{"drive", {0, 1}}, {"sink", {1, 1}}}),
-           "drive", MotionState::stalled, {0, 1});
+    motion(mechanical::evaluate(baseline(), {{"drive", {0, 1}}, {"sink", {1, 1}}}, {}, mechanical::SourcePolicy::overpower),
+           "drive", MotionState::rotating, {-2, 1});
+    const auto faster = mechanical::evaluate(baseline(), {{"drive", {1, 1}}, {"sink", {-2, 1}}}, {}, mechanical::SourcePolicy::overpower);
+    motion(faster, "drive", MotionState::rotating, {4, 1});
+    motion(faster, "sink", MotionState::rotating, {-2, 1});
+    check(faster == mechanical::evaluate(baseline(), {{"sink", {-2, 1}}, {"drive", {1, 1}}}, {}, mechanical::SourcePolicy::overpower),
+          "Compatible source overpowering is independent of source order.");
+    motion(mechanical::evaluate(baseline(), {{"drive", {-3, 2}}, {"sink", {1, 4}}}, {}, mechanical::SourcePolicy::overpower),
+           "sink", MotionState::rotating, {3, 4});
+    const std::vector<Part> direct{hub("first", {0, 0, 0}), hub("second", {0, 0, 4})};
+    constexpr auto largest = std::numeric_limits<Integer>::max();
+    constexpr auto smallest = std::numeric_limits<Integer>::min();
+    motion(mechanical::evaluate(direct, {{"first", {1, largest}}, {"second", {2, largest}}}, {}, mechanical::SourcePolicy::overpower),
+           "first", MotionState::rotating, {2, largest});
+    motion(mechanical::evaluate(direct, {{"first", {-1, 1}}, {"second", {smallest, 1}}}, {}, mechanical::SourcePolicy::overpower),
+           "first", MotionState::rotating, {smallest, 1});
+    motion(mechanical::evaluate(direct, {{"first", {largest, 1}}, {"second", {smallest, 1}}}, {}, mechanical::SourcePolicy::overpower),
+           "first", MotionState::stalled, {0, 1});
 }
 
 void local_conflicts() {

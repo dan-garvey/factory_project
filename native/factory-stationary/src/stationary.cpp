@@ -177,7 +177,7 @@ PowerView power_view(const Topology& topology) {
     std::vector<mechanics::BeltSpan> spans;
     spans.reserve(topology.belt_spans.size());
     for (const auto& span : topology.belt_spans) spans.push_back(span.geometry);
-    return {topology.drive_enabled, mechanics::evaluate(parts, sources, spans)};
+    return {topology.drive_enabled, mechanics::evaluate(parts, sources, spans, mechanics::SourcePolicy::overpower)};
 }
 
 RemovalPlan prepare_removal(const Topology& topology, const Kit& kit,
@@ -315,7 +315,8 @@ PlacementPlan prepare_belt_placement(const Topology& topology, const Kit& kit,
     if (!structure(topology)) return PlacementRefusal{PlacementError::invalid_topology};
     if (!valid_kit(topology, kit)) return PlacementRefusal{PlacementError::invalid_kit};
     if (!material_membership(topology, state)) return PlacementRefusal{PlacementError::invalid_material_state};
-    if (!power_view(topology).mechanical.accepted()) return PlacementRefusal{PlacementError::invalid_mechanics};
+    const auto before = power_view(topology);
+    if (!before.mechanical.accepted()) return PlacementRefusal{PlacementError::invalid_mechanics};
     if (!identity(span.geometry.id) || span.generation <= 0) return PlacementRefusal{PlacementError::invalid_part};
     if (find(topology, span.geometry.id) || std::any_of(topology.belt_spans.begin(), topology.belt_spans.end(),
         [&](const auto& existing) { return existing.geometry.id == span.geometry.id; }))
@@ -330,6 +331,22 @@ PlacementPlan prepare_belt_placement(const Topology& topology, const Kit& kit,
     plan.power = power_view(plan.candidate);
     if (!plan.power.mechanical.accepted()) return PlacementRefusal{PlacementError::invalid_mechanics,
         materials::Error::none, plan.power.mechanical.error};
+    // A new belt cannot join pulleys that are already turning at different
+    // rates, even when same-direction sources could otherwise overpower one
+    // another through an existing gear train. Include intermediate pulleys.
+    const auto* first = find(topology, span.geometry.first_shaft);
+    const auto* last = find(topology, span.geometry.last_shaft);
+    const auto path = mechanics::belt_path(first->geometry, last->geometry);
+    std::optional<mechanics::Rate> existing_rate;
+    for (const auto& part : topology.parts) {
+        if (part.role != Role::shaft || part.geometry.axis != first->geometry.axis || part.geometry.half_span != 2 ||
+            std::find(path->tiles.begin(), path->tiles.end(), part.geometry.center) == path->tiles.end()) continue;
+        const auto& motion = before.mechanical.motion.at(part.geometry.id);
+        if (motion.state == mechanics::MotionState::stalled) return PlacementRefusal{PlacementError::conflicting_belt};
+        if (motion.state != mechanics::MotionState::rotating) continue;
+        if (existing_rate && *existing_rate != motion.rate) return PlacementRefusal{PlacementError::conflicting_belt};
+        existing_rate = motion.rate;
+    }
     if (plan.power.mechanical.motion.at(span.geometry.first_shaft).state == mechanics::MotionState::stalled)
         return PlacementRefusal{PlacementError::conflicting_belt};
     plan.candidate_kit = kit;

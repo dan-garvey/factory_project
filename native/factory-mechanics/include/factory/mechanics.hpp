@@ -83,6 +83,9 @@ struct Engagement {
 };
 
 enum class MotionState { unpowered, stopped, rotating, stalled };
+// Prescribed rates are observations that must all hold; sources are physical
+// drivers that may back-drive a slower source in the same direction.
+enum class SourcePolicy { prescribed, overpower };
 struct Motion {
     MotionState state{MotionState::unpowered};
     Rate rate{};
@@ -124,6 +127,7 @@ struct Result {
 // Ratio conflicts stall only their connected component. Contact/load/phase,
 // quantities, construction admission and persistence belong to the authority.
 [[nodiscard]] Result evaluate(const std::vector<Part>&, const std::vector<Drive>&,
-                              const std::vector<BeltSpan>& belts = {});
+                              const std::vector<BeltSpan>& belts = {},
+                              SourcePolicy sources = SourcePolicy::prescribed);
 
 }  // namespace factory::mechanics
