@@ -37,7 +37,8 @@ const COLLECTOR_LIFT_PROFILE := {
 	"carrier_x": -1.05, "carrier_bottom": 0.67, "carrier_top_offset": 1.95,
 	"carrier_size_xz": [0.34, 0.42],
 	"guide_offset": [0.09, 0.17], "guide_size": [0.055, 0.055],
-	"flight_offset_x": -0.025, "flight_size": [0.25, 0.035, 0.30],
+	"flight_offset_x": -0.025, "flight_raise_y": 0.05,
+	"flight_size": [0.25, 0.16, 0.30],
 	"flight_count": 5, "flight_span": 0.88,
 	"head_x": -0.60, "head_y_offset": 1.77,
 	"head_size_xy": [0.90, 0.36], "head_z_size": [0.40, 0.86],
@@ -76,7 +77,7 @@ static func collector_intake_boxes(entity: Dictionary) -> Dictionary:
 	for step in range(profile.flight_count):
 		bodies.append({"name": "flight", "center": carrier.center + Vector3(
 			profile.flight_offset_x,
-			carrier.size.y * (float(step) / float(profile.flight_count - 1) - 0.5) * profile.flight_span, 0),
+			profile.flight_raise_y + carrier.size.y * (float(step) / float(profile.flight_count - 1) - 0.5) * profile.flight_span, 0),
 			"size": Vector3(profile.flight_size[0], profile.flight_size[1], profile.flight_size[2])})
 	bodies.append(head)
 	return {"accepted": true, "boxes": bodies, "carrier": carrier, "head": head}
