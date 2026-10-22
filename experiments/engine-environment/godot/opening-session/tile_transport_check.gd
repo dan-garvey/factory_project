@@ -16,7 +16,7 @@ extends SceneTree
 ## Add --overload to exercise speed-weighted load and recovery across restart.
 ## Add --fractional-press to exercise workpiece recovery and continuation.
 ## Add --reverse-belt to every process for
-## generated-site reverse deposition and pickup after restart. Add --belt-loading
+## generated-site reverse backpressure and recovery after restart. Add --belt-loading
 ## to exercise actual carried stock loaded over Session and restored via Store.
 ## The resumed Session uses the Store but
 ## does not exercise the ordinary server lifecycle or physical actor bodies.
@@ -151,9 +151,16 @@ func build_reverse_route(for_loading: bool = false) -> bool:
 		return false
 	for turn in range(96):
 		if for_loading and session.world.projection().stock.collector > 0: return true
-		if not session.world.projection().dropped_material.is_empty(): break
+		var view: Dictionary = session.world.projection()
+		var slots: Array = view.belt_spans.values()[0].slots
+		if not for_loading and slots[0] is Dictionary and slots[0].get("raw") == 1:
+			for blocked_turn in range(16): session.world.advance()
+			view = session.world.projection()
+			return view.belt_spans.values()[0].slots[0] is Dictionary \
+				and view.belt_spans.values()[0].slots[0].get("raw") == 1 \
+				and view.dropped_material.is_empty()
 		session.world.advance()
-	return not session.world.projection().dropped_material.is_empty()
+	return false
 
 func run_reverse() -> void:
 	var resumed := role.begins_with("resume-") or role == "server-resume"
@@ -165,19 +172,19 @@ func run_reverse() -> void:
 			verify(Store.read_into(session.world, save_path).get("accepted", false), "Restore the reverse-belt Store")
 			session.context = session.world.context
 		else:
-			verify(build_reverse_route(), "Generated river route deposits a reversed blank")
+			verify(build_reverse_route(), "Generated river route blocks a reversed blank against the collector")
 		if failed: quit(1); return
 		var snapshot: Dictionary = session.world.projection()
-		verify(not snapshot.dropped_material.is_empty() and snapshot.stock.output == 0, "Reversed route has loose raw material and no output")
+		verify(snapshot.dropped_material.is_empty() and snapshot.stock.output == 0, "The blocked reverse route has no loose item or output")
 		verify(snapshot.belt_spans.size() == 1 and snapshot.part_kits.P.belt == 1,
 			"The route uses one carried shaft-driven belt span")
 		if not snapshot.belt_spans.is_empty():
 			var span: Dictionary = snapshot.belt_spans.values()[0]
 			verify(_span_powered(snapshot, span) and snapshot.motion[span.from].numerator > 0,
 				"The reverse span connects matching positively rotating shafts")
+			verify(span.slots[0] is Dictionary and span.slots[0].get("raw") == 1, "The collector-facing end retains the blocked blank")
 		if failed: quit(1); return
-		var point: Array = snapshot.dropped_material[0].center
-		verify(pose(float(point[0]) * 1.65 / 4.0, float(point[2]) * 1.65 / 4.0 - 1.65), "P can reach the reverse-end stack")
+		verify(pose(0.0, 0.0), "P can reach the collector-facing belt slot")
 		verify(session.world.publish_actor("Q", [20.0, 1.0, 20.0], 1).get("accepted", false), "Synthetic Q observation is accepted")
 		if failed: quit(1); return
 		mark("resume-server-ready" if resumed else "server-ready")
@@ -196,21 +203,20 @@ func run_reverse() -> void:
 		if actor == "P":
 			if not await until(func(): return FileAccess.file_exists(directory.path_join("resume-Q-ready" if resumed else "Q-ready")), "Q joins the reverse-belt phase"): quit(1); return
 			var snapshot: Dictionary = session.projection()
-			verify(not snapshot.dropped_material.is_empty() and snapshot.cargo.P.raw == 0, "P sees the loose stack and empty cargo")
+			var span_id := str(snapshot.belt_spans.keys()[0])
+			var blocked: Variant = snapshot.belt_spans[span_id].slots[0]
+			verify(blocked is Dictionary and blocked.get("raw") == 1 and snapshot.cargo.P.raw == 0, "P sees the blocked blank and empty cargo")
 			if failed: quit(1); return
 			if resumed:
-				var before: int = snapshot.dropped_material[0].raw
-				var expected_drop: Dictionary = snapshot.dropped_material[0].duplicate(true)
-				expected_drop.erase("center")
-				var pickup := await issue({"action": "pickup_material", "center": snapshot.dropped_material[0].center, "expected": expected_drop})
-				verify(pickup.get("accepted", false), "P collects the restored stack over Session: " + str(pickup))
+				var pickup := await issue({"action": "recover_belt_slot", "entity": span_id, "slot": 0, "expected": blocked.duplicate(true)})
+				verify(pickup.get("accepted", false), "P recovers the restored blocked blank over Session")
 				var request: String = pickup.get("request", "")
-				verify(session.retry(request).get("queued", false), "Retry the pickup request")
+				verify(session.retry(request).get("queued", false), "Retry the belt recovery")
 				if await until(func(): return replies.has(request), "Retry receives the original receipt"):
-					verify(replies[request].get("accepted", false) and replies[request].get("duplicate", false), "Pickup retry is deduplicated")
+					verify(replies[request].get("accepted", false) and replies[request].get("duplicate", false), "Recovery retry is deduplicated")
 					replies.erase(request)
-				verify(session.projection().cargo.P.raw == before, "Pickup transfers the stack once")
-				verify(session.projection().dropped_material.is_empty(), "The recovered stack leaves the ground")
+				verify(session.projection().cargo.P.raw == 1 and session.projection().belt_spans[span_id].slots[0] == null,
+					"Recovery moves the blocked blank once")
 			if failed: quit(1); return
 			mark("resume-P-done" if resumed else "P-done")
 		else:
@@ -218,10 +224,12 @@ func run_reverse() -> void:
 			if not await until(func(): return FileAccess.file_exists(directory.path_join("resume-P-done" if resumed else "P-done")), "P finishes the reverse-belt phase"): quit(1); return
 			if resumed:
 				if not await until(func(): return session.projection().get("cargo", {}).get("P", {}).get("raw", 0) > 0, "Q observes recovered cargo"): quit(1); return
-				verify(not original.dropped_material.is_empty() and session.projection().cargo.P.raw == original.dropped_material[0].raw
-					and session.projection().dropped_material.is_empty(), "Q sees the exact stack transfer and no remaining ground cargo")
+				var original_span: Dictionary = original.belt_spans.values()[0]
+				var confirmed: Dictionary = session.projection()
+				verify(original_span.slots[0].raw == 1 and confirmed.cargo.P.raw == 1 and confirmed.belt_spans.values()[0].slots[0] == null,
+					"Q sees the exact blocked-blank transfer")
 			else:
-				verify(not session.projection().dropped_material.is_empty(), "Q sees the reverse-end stack")
+				verify(session.projection().belt_spans.values()[0].slots[0].get("raw") == 1, "Q sees the blocked end slot")
 			if failed: quit(1); return
 			mark("resume-clients-done" if resumed else "clients-done")
 			if not await until(func(): return FileAccess.file_exists(directory.path_join("resume-server-done" if resumed else "server-done")), "Authority completes the reverse-belt phase"): quit(1); return
