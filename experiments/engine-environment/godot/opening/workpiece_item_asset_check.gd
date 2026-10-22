@@ -358,14 +358,25 @@ func check_mineral_seam() -> void:
 				"The wider ore color remains a passive surface without a second shadow or collider.")
 			var soil: Texture2D = Assets.source_ground.albedo_texture
 			var ground_colors: PackedColorArray = ground.mesh.surface_get_arrays(0)[Mesh.ARRAY_COLOR]
+			var ground_points: PackedVector3Array = ground.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
 			var least_alpha := 1.0
 			var most_alpha := 0.0
-			for color in ground_colors:
+			var opaque_left := INF
+			var opaque_right := -INF
+			for index in ground_colors.size():
+				var color: Color = ground_colors[index]
 				least_alpha = minf(least_alpha, color.a)
 				most_alpha = maxf(most_alpha, color.a)
+				if color.a > 0.4 and index < ground_points.size():
+					opaque_left = minf(opaque_left, ground_points[index].x)
+					opaque_right = maxf(opaque_right, ground_points[index].x)
 			verify(soil != null and soil.get_size().x >= 1024 and ground_colors.size() > 240
 				and least_alpha < 0.01 and most_alpha > 0.30,
 				"The mineral ground uses a detailed prepared map with a transparent terrain edge.")
+			var rock_right: float = rock.position.x + rock.mesh.get_aabb().end.x
+			verify(ground_points.size() == ground_colors.size()
+				and opaque_left < rock_right - 0.16 and opaque_right > 0.0,
+				"Opaque mineral soil joins the actual rock toe and still marks the collector-side cells.")
 			var veins: MeshInstance3D = exposure.get_node("MineralVeins")
 			verify(veins.transform == Transform3D.IDENTITY, "The vein mesh uses the same world placement as its surface queries.")
 			check_exposure_mesh(veins.mesh)
