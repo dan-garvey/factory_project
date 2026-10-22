@@ -4204,6 +4204,8 @@ var wheel_rotor: Node3D
 var machine_body_context := ""
 var machine_press_poses: Dictionary = {}
 var status_label: Label
+var fps_label: Label
+var fps_elapsed := 0.0
 var status_footer: Control
 var status_refused := false
 var footer_snapshot_ready := false
@@ -4794,6 +4796,7 @@ func _material_refusal_message(outcome: Dictionary, fallback: String) -> String:
 	return fallback
 
 func _process(delta: float) -> void:
+	_update_fps_counter(delta)
 	if actor_world != null:
 		actor_world.set_belt_step_seconds(STEP_SECONDS if auto_advance else 0.0)
 	if auto_advance:
@@ -4818,6 +4821,14 @@ func _process(delta: float) -> void:
 		focus += Vector3(pan.x, 0, pan.y) * delta * 4.0
 		focus.x = clampf(focus.x, -4, 6)
 		focus.z = clampf(focus.z, -4, 6)
+
+func _update_fps_counter(delta: float) -> void:
+	if fps_label == null or not is_finite(delta) or delta <= 0.0:
+		return
+	fps_elapsed += delta
+	if fps_elapsed >= 0.25:
+		fps_elapsed = fmod(fps_elapsed, 0.25)
+		fps_label.text = "FPS %d" % maxi(0, roundi(Engine.get_frames_per_second()))
 
 func _water_time_seconds() -> float:
 	return float(Time.get_ticks_msec()) * 0.001
@@ -6679,6 +6690,18 @@ func _build_interface() -> void:
 	canvas.add_child(root)
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.theme = ProductionInterface.make_theme()
+	fps_label = _label(root, "FPS --", 13)
+	fps_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	fps_label.set_anchor_and_offset(SIDE_LEFT, 0.0, 16.0)
+	fps_label.set_anchor_and_offset(SIDE_RIGHT, 0.0, 98.0)
+	fps_label.set_anchor_and_offset(SIDE_BOTTOM, 1.0, -20.0)
+	fps_label.set_anchor_and_offset(SIDE_TOP, 1.0, -44.0)
+	var fps_style := LabelSettings.new()
+	fps_style.font_size = 13
+	fps_style.font_color = Color("e7ede5")
+	fps_style.outline_size = 4
+	fps_style.outline_color = Color("16242a")
+	fps_label.label_settings = fps_style
 	var build := _panel(root, Vector2(18, 18), Vector2(275, 620 if legacy_fixture else 0))
 	build_column = build
 	if not legacy_fixture:

@@ -232,6 +232,9 @@ func _hotbar() -> void:
 		await settle_widgets()
 		var bar = view.building_hotbar
 		var before: Dictionary = view.state.duplicate(true)
+		view._update_fps_counter(0.26)
+		verify(view.fps_label.text.begins_with("FPS ") and view.fps_label.mouse_filter == Control.MOUSE_FILTER_IGNORE,
+			"The live frame-rate readout updates without intercepting construction input.")
 		verify(bar.buttons.size() == 8 and not bar.catalog.visible and not view.tool_buttons.collector.is_visible_in_tree(),
 			"Eight quick slots replace the visible construction text list.")
 		verify(bar.selected_slot == -1 and not view.inspector.visible
@@ -341,6 +344,9 @@ func _hotbar() -> void:
 			var viewport := Rect2(Vector2.ZERO, Vector2(dimensions))
 			var bounds: Rect2 = bar.get_global_rect()
 			verify(viewport.encloses(bounds) and is_equal_approx(bounds.end.y, dimensions.y - 18.0), "The complete hotbar fits the supported viewport and bottom margin.")
+			var fps_bounds: Rect2 = view.fps_label.get_global_rect()
+			verify(viewport.encloses(fps_bounds) and fps_bounds.end.x < bounds.position.x - 8.0,
+				"The FPS readout stays in the free lower-left margin at supported viewport sizes.")
 			for button: Button in bar.buttons:
 				verify(bounds.encloses(button.get_global_rect()) and button.size.x >= button.get_combined_minimum_size().x, "Every slot remains inside the bar without shrinking its content.")
 			verify(view.status_footer.get_global_rect().end.y <= bounds.position.y - 11.5, "The status footer stays above the hotbar.")
@@ -381,6 +387,7 @@ func _render_hotbar() -> void:
 	view.add_child(view.selection_ring)
 	view._build_interface()
 	view._refresh_ui()
+	view._update_fps_counter(0.26)
 	view._message("Choose Collector [1] to build at the mineral seam.")
 	await settle_widgets()
 	await RenderingServer.frame_post_draw
