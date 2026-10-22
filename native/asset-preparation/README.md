@@ -59,7 +59,7 @@ Lossless WebP delivery must decode to those exact prepared pixels. Existing map
 paths are refused, and no channel reorder, normal-axis flip or gamma conversion
 is applied. There is no resize or additional lossy encoding of the albedo.
 
-For the optional hub-and-spoke color grade, run the existing parsed
+For the required hub-and-spoke color grade, run the existing parsed
 [asset preparation script](../../experiments/engine-environment/godot/opening/machine_detail_check.gd)
 against a captured project that
 contains the unchanged provider JPEG. It refuses a different source hash and
