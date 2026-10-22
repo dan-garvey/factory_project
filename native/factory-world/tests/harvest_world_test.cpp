@@ -92,6 +92,11 @@ void harvest_and_restore() {
     ++forged.state.material.cargo.at("P").timber;
     check(!w::World::restore("harvest-world", profile, forged),
           "A restored actor cannot receive unmined timber.");
+    forged = snapshot;
+    --forged.state.material.cargo.at("P").timber;
+    ++forged.state.material.cargo.at("Q").timber;
+    check(!w::World::restore("harvest-world", profile, forged),
+          "A checkpoint cannot move timber between actors without an accepted transfer.");
     auto moved_tree = profile;
     moved_tree.material.timber_sites.at("tree-a").center = {16, 0, 12};
     const auto moved = w::decode_checkpoint(moved_tree, "harvest-world", std::get<V>(saved));

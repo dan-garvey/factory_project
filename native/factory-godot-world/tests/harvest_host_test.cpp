@@ -54,6 +54,26 @@ void shared_harvest() {
     check(get<bool>(host.command("P", p_cut), "duplicate") &&
           !factory::values::typed_difference(after_first, host.checkpoint()),
           "Repeating the exact wire request cannot debit the tree twice.");
+    auto forged = std::get<O>(after_first.storage());
+    auto native = std::get<O>(forged.at("world").storage());
+    auto state = std::get<O>(native.at("state").storage());
+    auto material = std::get<O>(state.at("material").storage());
+    auto cargo = std::get<O>(material.at("cargo").storage());
+    auto p_cargo = std::get<O>(cargo.at("P").storage());
+    auto q_cargo = std::get<O>(cargo.at("Q").storage());
+    p_cargo.at("timber") = V(I{0});
+    q_cargo.at("timber") = V(I{1});
+    cargo.at("P") = V(std::move(p_cargo));
+    cargo.at("Q") = V(std::move(q_cargo));
+    material.at("cargo") = V(std::move(cargo));
+    state.at("material") = V(std::move(material));
+    native.at("state") = V(std::move(state));
+    forged.at("world") = V(std::move(native));
+    const V stolen(std::move(forged));
+    check(!get<bool>(host.validate_checkpoint(stolen), "accepted") &&
+          !get<bool>(host.restore_checkpoint(stolen), "accepted") &&
+          !factory::values::typed_difference(after_first, host.checkpoint()),
+          "A Host refuses cross-actor timber custody forgery without changing its worksite.");
     const auto far = host.command("Q", cut("Q", "far-tree", "tree-east-south"));
     check(!get<bool>(far, "accepted") && get<std::string>(far, "reason") == "out_of_reach" &&
           get<I>(get<O>(host.projection(), "cargo").at("Q"), "timber") == 0,
