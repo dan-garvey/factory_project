@@ -470,6 +470,15 @@ position. Its first per-instance readback failure is retained under
 `production-worksite-environment-20261020`. This harness boundary changes no
 physical collision, construction range or game rule.
 
+The continuous-meadow zero-instance case found that the dummy bulk getter can
+retain its previous array after the active instance count becomes zero. The
+clearance fixture checks that active count and its records, including counts
+restored after construction removal. Its first real-renderer probes passed the
+geometry assertions but emitted two texture-leak errors during teardown. Waiting
+for a completed frame while each view exists and another after freeing the views
+produced a clean completion. These original observations remain under
+`continuous-meadow-20261021`; the fixture adds no gameplay or collision rule.
+
 **Asset import, observed for one source representation.** During the
 [scanned steel surface preparation](../../experiments/engine-environment/godot/opening/assets/steel/CREDITS.md),
 the pinned runtime's TinyEXR loader rejected the provider's normal EXR with an
