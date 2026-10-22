@@ -16,7 +16,9 @@ foundations and one distinct fabrication hub on the common quarter-tile grid,
 puts both actors on the deck, and
 leaves fifteen of the original twenty-four foundation parts with P. Its
 projection includes `landing_pod`, `fabrication_hub` and the usual foundation records; the normal
-checkpoint retains both. The existing scene still calls `initialize`. This
+checkpoint retains both. The ordinary offline scene selects this profile through
+the NativeModel arrival argument; existing mechanics fixtures and shared startup
+still use `initialize`. This
 slice has native actor component cargo and an actor-reachable `craft_component`
 command at the east deck bench. The command spends the actor's own raw stock,
 reports the typed component and survives retry and restore. `place_component`
@@ -24,11 +26,13 @@ and `reclaim_component` move that stock between actor cargo and persistent
 quarter-grid world parts with one native material ledger. The Host projects
 their identities, positions and types and reserves a small collision volume
 against actors, terrain obstacles, belts and complete machines. A placed
-collector can now be turned manually; press assembly remains unfinished. There is still no pod or bench
-mesh, scene crafting/placement controls or multitool input. The experimental
+collector can now be turned manually; press assembly remains unfinished. The
+offline view now offers exact-target ore harvesting and native stock feedback.
+There is still no pod or bench mesh, scene component crafting/placement controls,
+timed tool use or aligned harvestable-tree presentation. The experimental
 arrival begins without inherited complete-machine or transmission kits; the
-historical initializer retains those fixtures. The live scene should switch
-only with the linked assembly and presentation work.
+historical initializer retains those mechanics fixtures. The new offline start
+is partial implementation toward the chapter contract, not chapter completion.
 The pod also starts with one identified detachable hand crank. A nearby
 physical actor can take it from the pod tray or return it through Host
 commands. Its single holder is projected and preserved through retries and

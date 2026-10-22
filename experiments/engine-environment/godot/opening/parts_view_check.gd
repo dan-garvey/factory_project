@@ -183,6 +183,14 @@ func _multitool_controls() -> void:
 		view._build_interface()
 		view._refresh_ui()
 		var before: Dictionary = view.state.duplicate(true)
+		verify("FIRST WORKSHOP" in view.objective_heading.text and "3 timber" in view.goal_label.text
+			and "1 softmetal" in view.goal_label.text and not view.goal_progress.visible,
+			"The arrival view teaches actual carried materials instead of the obsolete four-plate goal.")
+		verify(not view.confirm_button.visible and not view.lesson_button.visible,
+			"Arrival offers neither old objective confirmation nor the completed-machine lesson.")
+		view._toggle_explanation()
+		verify(not view.explanation_open and view.example_presenter == null,
+			"The retired lesson shortcut cannot create its historical example in arrival.")
 		view.hand_pointed = "ore"
 		view._refresh_placement_options()
 		verify(view.placement_options_panel.visible and view.placement_options_title.text == "CUT SOFTMETAL"
