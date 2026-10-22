@@ -141,6 +141,17 @@ void blocked_or_excessive_stand() {
          "The native stand rests on the rock top instead of passing through it.");
     check(accepted(blocked.validate_checkpoint(blocked.checkpoint())),
           "A shaft seated on a rock remains valid on checkpoint review.");
+    auto edge_site = site;
+    edge_site.at("obstacles") = Value(Array{Value(Array{
+        Value(Array{Value(1.75), Value(0.0), Value(0.25)}),
+        Value(Array{Value(1.95), Value(1.0), Value(0.5)})})});
+    Host edge;
+    check(accepted(edge.initialize("stand-test", {"P"})) &&
+          accepted(edge.configure_terrain(edge_site)), "The edge-only rock binds.");
+    actor(edge, 1.65, 1.0, 0.0, 1);
+    const auto edge_refusal = edge.command("P", shaft(4, 4, 0, "edge-only"));
+    check(!accepted(edge_refusal) && field<std::string>(edge_refusal, "reason") == "site_occupied",
+          "A rock grazing the post cannot raise its foot when the foot center is over bare ground.");
     Host clear;
     check(accepted(clear.initialize("stand-test", {"P"})) &&
           accepted(clear.configure_terrain(factory::godot_world::tests::flat_site())),

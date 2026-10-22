@@ -22,17 +22,19 @@ var transitions: Array = []
 
 func _ready() -> void:
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color("111f26")
-	style.border_color = Color("536565")
+	style.bg_color = Color("0e191e")
+	style.border_color = Color("627b7d")
 	style.set_border_width_all(1)
+	style.set_corner_radius_all(7)
 	style.set_content_margin_all(10)
 	add_theme_stylebox_override("panel", style)
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 8)
 	add_child(column)
 	var heading := Label.new()
-	heading.text = "SEPARATE EXAMPLE · resets on lesson change\nYour worksite keeps running. Right-drag orbit · Wheel zoom · WASD pan · Home reset"
+	heading.text = "GUIDED EXAMPLE  /  your worksite keeps running\nRight-drag orbit  ·  Wheel zoom  ·  WASD pan  ·  Home recenter"
 	heading.add_theme_font_size_override("font_size", 13)
+	heading.add_theme_color_override("font_color", Color("b9cfcb"))
 	column.add_child(heading)
 	surface = SubViewportContainer.new()
 	surface.custom_minimum_size = Vector2(650, 250)
@@ -59,13 +61,17 @@ func _ready() -> void:
 	var buttons := HBoxContainer.new()
 	column.add_child(buttons)
 	step_button = Button.new()
-	step_button.text = "Advance example one tick"
+	step_button.text = "Advance one tick  [Space]"
 	step_button.pressed.connect(_step)
 	buttons.add_child(step_button)
 	recover_button = Button.new()
-	recover_button.text = "Collect example plate → resume"
+	recover_button.text = "Collect plate  [Enter]"
 	recover_button.pressed.connect(_recover)
 	buttons.add_child(recover_button)
+	var replay_button := Button.new()
+	replay_button.text = "Replay lesson  [Backspace]"
+	replay_button.pressed.connect(func(): set_lesson(lesson))
+	buttons.add_child(replay_button)
 	set_lesson(0)
 
 func _command(action: Dictionary) -> Dictionary:

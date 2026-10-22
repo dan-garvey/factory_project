@@ -14,6 +14,20 @@ drives connected parts automatically. Choose a building with the hotbar, use its
 adjust placement, press E to open a pointed machine, or press F and click a part
 to deconstruct it. Right-drag orbits the following camera; its position grants no build
 reach. The four-world-unit reach and movement tuning are provisional demo values.
+
+The opening HUD keeps the current objective at the upper left, contextual
+actions at the right, and the assignable build bar at the bottom. Every visible
+button also has a keyboard route:
+
+| Task | Keys |
+| --- | --- |
+| Build and inspect | `B` opens the catalog; `1`–`8` select a hotbar slot; `E` opens the pointed machine; `F` dismantles; `C` connects material; `Esc` cancels. |
+| Assign a hotbar slot | In the catalog, `1`–`8` choose the destination, the displayed letter assigns a part, `Delete` clears, and `Esc` closes. Arrow keys, `Tab` and `Enter` also navigate the controls. |
+| Mechanical options | `Alt+1`–`Alt+6` select the six transmission tools. During placement, `T` opens mechanical options, `X` cycles the axle, `Shift+X` cycles chain direction, `K` changes cog size, `Shift+PageUp`/`Shift+PageDown` adjust transmission height, and `Ctrl+Home` follows the pointed surface again. |
+| Foundations and waterwheels | `PageUp`/`PageDown` change foundation or drive height; `Z` toggles access steps; `V` toggles two-corner area placement; `Shift+PageUp`/`Shift+PageDown` change waterwheel diameter when its size controls are shown; `R` rotates a building. |
+| Worksite actions | `P` operates the nearby drive; `Ctrl+R` collects a selected plate; `Delete` dismantles the selection; `Ctrl+M` opens the selected material menu; `Ctrl+L` opens loose-material pickup; `Ctrl+Enter` confirms four plates; `Ctrl+D` toggles details; `F5` saves and `F9` shows how to reopen the save. |
+| Help and shared sessions | `H` opens or closes Help. `Left`/`Right` change lesson, `Space` advances the example, `Enter` collects its plate, `Backspace` replays, and `Home` recenters. In a shared session, `Ctrl+J` reconnects and `Ctrl+Shift+J` disconnects. Menu choices use arrow keys and `Enter`; `Esc` closes the menu. |
+
 Early development prioritizes fixed/stationary contraptions and subfactories.
 Godot use is accepted with explicit [framework constraints](docs/engineering/godot-constraints.md),
 not engine defaults treated as game rules. A [continuing research catalogue](docs/research/README.md)

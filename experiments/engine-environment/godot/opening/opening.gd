@@ -257,6 +257,17 @@ class ProductionVisuals:
 			meshes["fastener/hex"] = head
 		return meshes["fastener/hex"]
 
+	static func cylinder_mesh(radius: float, height: float, segments: int = 48) -> CylinderMesh:
+		var key := ["machine/cylinder", radius, height, segments]
+		if not meshes.has(key):
+			var result := CylinderMesh.new()
+			result.top_radius = radius
+			result.bottom_radius = radius
+			result.height = height
+			result.radial_segments = segments
+			meshes[key] = result
+		return meshes[key]
+
 class ProductionTransmissionFinish:
 	extends RefCounted
 	## Shared surface presentation. Native dimensions and motion never read maps.
@@ -1374,6 +1385,7 @@ class ProductionConveyorArt:
 	const SOURCE_METRES := 0.75
 	static var loop_meshes: Dictionary = {}
 	static var finish: StandardMaterial3D
+	static var batch_finish: ShaderMaterial
 	static var source_status := "uninitialized"
 
 	static func read_images(directory: String = ROOT) -> Dictionary:
@@ -1492,6 +1504,36 @@ class ProductionConveyorArt:
 		belt.material_override = source.duplicate() if source != null else null
 		belt.set_meta("detail_role", "ConveyorLoop")
 		parent.add_child(belt)
+
+	static func multimesh_material() -> ShaderMaterial:
+		if batch_finish != null:
+			return batch_finish
+		var source := material()
+		if source == null or source_status != "ready":
+			return null
+		var shader := Shader.new()
+		shader.code = """
+shader_type spatial;
+render_mode diffuse_burley, specular_schlick_ggx;
+uniform sampler2D albedo_map : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D roughness_map : filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D normal_map : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
+void vertex() {
+	UV.x += INSTANCE_CUSTOM.r;
+}
+void fragment() {
+	ALBEDO = texture(albedo_map, UV).rgb;
+	METALLIC = 0.0;
+	ROUGHNESS = texture(roughness_map, UV).r;
+	NORMAL_MAP = texture(normal_map, UV).rgb;
+}
+"""
+		batch_finish = ShaderMaterial.new()
+		batch_finish.shader = shader
+		batch_finish.set_shader_parameter("albedo_map", source.albedo_texture)
+		batch_finish.set_shader_parameter("roughness_map", source.roughness_texture)
+		batch_finish.set_shader_parameter("normal_map", source.normal_texture)
+		return batch_finish
 
 class ProductionConveyorFrameArt:
 	extends RefCounted
@@ -4113,10 +4155,10 @@ class ProductionInterface:
 		var theme := Theme.new()
 		theme.default_font_size = 15
 		var original := ThemeDB.get_default_theme()
-		var fills := {"normal": Color("1c2a30"), "hover": Color("2d4149"),
-			"pressed": Color("5a472d"), "hover_pressed": Color("685337"), "disabled": Color("172126")}
-		var borders := {"normal": Color("41565e"), "hover": Color("8ca7a8"),
-			"pressed": Color("d6ab64"), "hover_pressed": Color("edcc8d"), "disabled": Color("2c3b41")}
+		var fills := {"normal": Color("18252b"), "hover": Color("294048"),
+			"pressed": Color("644a29"), "hover_pressed": Color("735935"), "disabled": Color("172126")}
+		var borders := {"normal": Color("52676b"), "hover": Color("a1bdba"),
+			"pressed": Color("e4ad61"), "hover_pressed": Color("f6c77f"), "disabled": Color("35454a")}
 		for control_type in ["Button", "MenuButton"]:
 			# Resolve the actual inherited defaults. MenuButton has its own
 			# zero-padding styles; borrowing Button metrics would widen it.
@@ -4125,10 +4167,10 @@ class ProductionInterface:
 				theme.set_stylebox(name_value, control_type, _style(probe.get_theme_stylebox(name_value), fills[name_value], borders[name_value]))
 			theme.set_stylebox("focus", control_type, _style(probe.get_theme_stylebox("focus"), Color.TRANSPARENT, Color("efc78a"), true))
 			for name_value in ["font_color", "font_hover_color", "font_focus_color"]:
-				theme.set_color(name_value, control_type, Color("e4ebe4"))
+				theme.set_color(name_value, control_type, Color("f1f5f0"))
 			for name_value in ["font_pressed_color", "font_hover_pressed_color"]:
-				theme.set_color(name_value, control_type, Color("fff2d6"))
-			theme.set_color("font_disabled_color", control_type, Color("879895"))
+				theme.set_color(name_value, control_type, Color("fff3de"))
+			theme.set_color("font_disabled_color", control_type, Color("a1b2ad"))
 			probe.free()
 		var separator := original.get_stylebox("separator", "HSeparator").duplicate() as StyleBox
 		if separator is StyleBoxLine:
@@ -4198,6 +4240,11 @@ var selection_ring: MeshInstance3D
 var machine_preview: Node3D
 var machine_preview_key := ""
 var machine_preview_material: StandardMaterial3D
+var machine_dynamic_batches: Array[Dictionary] = []
+var machine_conveyor_batches: Array[Dictionary] = []
+var machine_rotors: Array[Dictionary] = []
+var machine_batch_finished_meshes: Dictionary = {}
+var machine_batch_rotor_meshes: Dictionary = {}
 var transmission_preview_point: Array = []
 var wheel_rotor: Node3D
 var machine_body_context := ""
@@ -4212,8 +4259,10 @@ var footer_fit_pending := false
 var stock_label: Label
 var parts_label: Label
 var goal_label: Label
+var goal_progress: ProgressBar
 var power_label: Label
 var inspector: Label
+var inspector_title: Label
 var recovery_actions
 var loose_material_controls
 var transmission_controls
@@ -4247,6 +4296,7 @@ var wheel_size_controls: HBoxContainer
 var wheel_size_label: Label
 var state: Dictionary = {}
 var show_details := false
+var consumed_shortcut_keys: Dictionary = {}
 var catalog_button: Button
 var details_button: Button
 var controls_label: Label
@@ -4272,6 +4322,8 @@ func _ready() -> void:
 	_build_world()
 	_build_interface()
 	_refresh()
+	if _native_transmission():
+		_prime_machine_visuals()
 	if _native_transmission():
 		_message(FIRST_COLLECTOR_HINT)
 	else:
@@ -4445,6 +4497,8 @@ func _refresh_engineering(snapshot_ready: bool) -> void:
 	if not active:
 		goal_label.tooltip_text = ""
 		return
+	goal_progress.max_value = maxi(1, int(report.target))
+	goal_progress.value = clampi(int(report.products), 0, int(report.target))
 	var step: String = {
 		"move_source": "Move power upstream.",
 		"restore_drive": "Restore the drive.",
@@ -4860,15 +4914,11 @@ func _animate_wheel(delta: float) -> void:
 		if transmission_presenter == null:
 			return
 		transmission_presenter.advance_visual_motion(delta)
-		if wheel_rotor != null:
-			for id: String in state.get("entities", {}):
-				if state.entities[id].kind != "wheel":
-					continue
-				if not wheel_rotor.has_meta("visual_base_basis"):
-					wheel_rotor.set_meta("visual_base_basis", wheel_rotor.basis)
-				var base: Basis = wheel_rotor.get_meta("visual_base_basis")
-				wheel_rotor.basis = base * Basis(Vector3.BACK, transmission_presenter.visual_angle(id))
+		for wheel in machine_rotors:
+			wheel.rotor.basis = wheel.base * Basis(Vector3.BACK,
+				transmission_presenter.visual_angle(wheel.id))
 		_animate_machine_bodies(delta)
+		_update_machine_dynamic_batches()
 		return
 	# Historical scripted presentation remains separate. Native cosmetic
 	# angles above are neither a simulation clock nor saved/contact phase.
@@ -4991,10 +5041,86 @@ func _input(event: InputEvent) -> void:
 					KEY_RIGHT: _set_lesson(lesson_index + 1)
 					KEY_LEFT: _set_lesson(lesson_index - 1)
 					KEY_HOME: example_presenter.recenter()
+					KEY_SPACE:
+						if example_presenter != null and not example_presenter.step_button.disabled:
+							example_presenter.step_button.pressed.emit()
+					KEY_BACKSPACE:
+						if example_presenter != null:
+							example_presenter.set_lesson(lesson_index)
+					KEY_ENTER, KEY_KP_ENTER:
+						if example_presenter != null and not example_presenter.recover_button.disabled:
+							example_presenter.recover_button.pressed.emit()
 			get_viewport().set_input_as_handled()
 		elif example_presenter.handle_pointer(event):
 			get_viewport().set_input_as_handled()
 		return
+	if _catalog_open():
+		return
+	if event is InputEventKey and not event.pressed and consumed_shortcut_keys.has(event.keycode):
+		consumed_shortcut_keys.erase(event.keycode)
+		get_viewport().set_input_as_handled()
+		return
+	if event is InputEventKey and event.pressed and not event.echo:
+		var handled := false
+		if event.ctrl_pressed:
+			match event.keycode:
+				KEY_D: handled = _activate_button(details_button)
+				KEY_ENTER, KEY_KP_ENTER: handled = _activate_button(confirm_button)
+				KEY_R: handled = _activate_button(retrieve_button)
+				KEY_M: handled = _open_action_menu(recovery_actions.action_button if recovery_actions != null else null)
+				KEY_L: handled = _open_action_menu(loose_material_controls)
+				KEY_HOME:
+					if transmission_controls != null and transmission_controls.is_visible_in_tree():
+						transmission_controls._height_selected(2)
+						handled = true
+		elif event.alt_pressed and transmission_controls != null and _native_transmission() and _can_choose_tool():
+			var transmission_tools := {KEY_1: "gear", KEY_2: "drive", KEY_3: "belt",
+				KEY_4: "gearbox", KEY_5: "vertical_gearbox", KEY_6: "chain_drive"}
+			if transmission_tools.has(event.keycode):
+				var choice: String = transmission_tools[event.keycode]
+				var entry := building_hotbar.catalog_buttons.get(choice) as Button
+				if entry != null and not entry.disabled:
+					_select_tool(choice)
+					handled = true
+		elif not event.alt_pressed:
+			match event.keycode:
+				KEY_DELETE: handled = _activate_button(remove_button)
+				KEY_T: handled = _open_action_menu(transmission_controls)
+				KEY_X:
+					if event.shift_pressed and transmission_controls != null and transmission_controls.is_visible_in_tree():
+						var axes := ["x", "y", "z"]
+						var next := (axes.find(transmission_controls.selected_link_axis) + 1) % 3
+						if axes[next] == transmission_controls.selected_axis:
+							next = (next + 1) % 3
+						transmission_controls._link_axis_selected(next)
+						handled = true
+					elif placement_options_axis.is_visible_in_tree():
+						handled = _activate_button(placement_options_axis)
+				KEY_Z:
+					if foundation_steps_toggle.is_visible_in_tree() and not foundation_steps_toggle.disabled:
+						foundation_steps_toggle.button_pressed = not foundation_steps_toggle.button_pressed
+						_set_foundation_steps(foundation_steps_toggle.button_pressed)
+						handled = true
+				KEY_V:
+					if foundation_area_toggle.is_visible_in_tree() and not foundation_area_toggle.disabled:
+						foundation_area_toggle.button_pressed = not foundation_area_toggle.button_pressed
+						foundation_area_mode = foundation_area_toggle.button_pressed
+						foundation_area_started = false
+						handled = true
+				KEY_K:
+					if transmission_controls != null and transmission_controls.is_visible_in_tree() and mode == "gear":
+						transmission_controls._size_selected(1 if transmission_controls.gear_teeth == 2 else 0)
+						handled = true
+				KEY_PAGEUP, KEY_PAGEDOWN:
+					if event.shift_pressed and wheel_size_controls.is_visible_in_tree():
+						handled = _activate_button(wheel_size_controls.get_child(2 if event.keycode == KEY_PAGEUP else 0) as Button)
+					elif event.shift_pressed and transmission_controls != null and transmission_controls.is_visible_in_tree():
+						transmission_controls._height_selected(1 if event.keycode == KEY_PAGEUP else 0)
+						handled = true
+		if handled:
+			consumed_shortcut_keys[event.keycode] = true
+			get_viewport().set_input_as_handled()
+			return
 	# Consume both edges of global shortcuts so a
 	# previously focused GUI button cannot also activate on the release.
 	if event is InputEventKey and event.keycode in [KEY_F5, KEY_F9]:
@@ -5005,6 +5131,18 @@ func _input(event: InputEvent) -> void:
 						_save_worksite()
 				KEY_F9: _load_worksite()
 		get_viewport().set_input_as_handled()
+
+func _activate_button(button: Button) -> bool:
+	if button == null or not button.is_visible_in_tree() or button.disabled:
+		return false
+	button.pressed.emit()
+	return true
+
+func _open_action_menu(button: MenuButton) -> bool:
+	if button == null or not button.is_visible_in_tree() or button.disabled:
+		return false
+	button.show_popup()
+	return true
 
 func _unhandled_input(event: InputEvent) -> void:
 	if explanation_open:
@@ -5052,6 +5190,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_R:
 				if _native_transmission() and mode in ["collector", "processor", "wheel"]:
 					_rotate_building()
+				elif _native_transmission() and mode != "inspect":
+					_cycle_placement_axis()
 				else:
 					_retrieve()
 			KEY_H: _toggle_explanation()
@@ -5593,11 +5733,13 @@ func _machine_box(parent: Node3D, part_name: String, at: Vector3, dimensions: Ve
 
 func _machine_cylinder(parent: Node3D, part_name: String, at: Vector3, radius: float,
 		height: float, color: Color, orientation: Vector3 = Vector3.ZERO) -> MeshInstance3D:
-	var part := _cylinder(parent, at, radius, height, color)
+	var part := MeshInstance3D.new()
 	part.name = part_name
+	part.position = at
 	part.rotation = orientation
-	(part.mesh as CylinderMesh).radial_segments = 48
+	part.mesh = ProductionVisuals.cylinder_mesh(radius, height)
 	part.material_override = ProductionVisuals.material(color, 0.85, 0.4)
+	parent.add_child(part)
 	return part
 
 func _machine_axis(entity: Dictionary) -> Vector3:
@@ -5905,6 +6047,7 @@ func _wheel_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 		wheel_rotor.rotation.x = -PI / 2
 	anchor.add_child(wheel_rotor)
 	var sourced := ProductionWheelArt.mount(wheel_rotor, int(entity.get("tiles", 3)) if native_profile else 3)
+	wheel_rotor.set_meta("visual_batch_key", [native_profile, int(entity.get("tiles", 3)), sourced])
 	if not sourced:
 		var rim_profile := PackedVector2Array([
 			Vector2(0.51, -0.022), Vector2(0.518, -0.03), Vector2(0.582, -0.03),
@@ -5988,8 +6131,244 @@ func _assemble_machine(anchor: Node3D, entity: Dictionary, rotated := false) -> 
 	if not water_wheel:
 		_machine_surface_detail(anchor, entity.kind)
 
+func _prime_machine_visuals() -> void:
+	# Build once during opening setup so the first tool selection can reuse
+	# imported textures, procedural meshes, and their Godot render resources.
+	var previous_rotor := wheel_rotor
+	for kind in ["collector", "belt", "processor", "wheel"]:
+		var anchor := Node3D.new()
+		var cell := [0, 1] if kind == "collector" else [1, 2]
+		anchor.position = _cell_position(cell)
+		_assemble_machine(anchor, {"kind": kind, "axis": 0, "tiles": 3,
+			"rotation": 0, "cell": cell, "level": 0})
+		anchor.free()
+	wheel_rotor = previous_rotor
+
+const MACHINE_BATCH_THRESHOLD := 12
+
+func _machine_batch_surface_mesh(part: MeshInstance3D) -> Mesh:
+	var source: Mesh = part.mesh
+	var finishes: Array = []
+	var finish_ids: Array[int] = []
+	var has_overrides := false
+	for surface in source.get_surface_count():
+		var finish: Material = part.get_surface_override_material(surface)
+		has_overrides = has_overrides or finish != null
+		if finish == null:
+			finish = source.surface_get_material(surface)
+		finishes.append(finish)
+		finish_ids.append(finish.get_instance_id() if finish != null else 0)
+	if not has_overrides:
+		return source
+	var key := [source.get_instance_id(), finish_ids]
+	if machine_batch_finished_meshes.has(key):
+		return machine_batch_finished_meshes[key]
+	var result := ArrayMesh.new()
+	for surface in source.get_surface_count():
+		result.add_surface_from_arrays(source.surface_get_primitive_type(surface),
+			source.surface_get_arrays(surface))
+		result.surface_set_material(surface, finishes[surface])
+	machine_batch_finished_meshes[key] = result
+	return result
+
+func _collect_wheel_rotor_parts(node: Node3D, pose: Transform3D, parts: Array[Dictionary]) -> bool:
+	for child in node.get_children():
+		if not child is Node3D or not child.visible:
+			continue
+		var child_pose: Transform3D = pose * (child as Node3D).transform
+		if child is MeshInstance3D:
+			var part := child as MeshInstance3D
+			if part.mesh == null or part.material_overlay != null:
+				return false
+			for surface in part.mesh.get_surface_count():
+				var finish: Material = part.material_override
+				if finish == null:
+					finish = part.get_surface_override_material(surface)
+				if finish == null:
+					finish = part.mesh.surface_get_material(surface)
+				if finish is BaseMaterial3D and finish.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED:
+					return false
+				if part.mesh is ArrayMesh and part.mesh.surface_get_primitive_type(surface) != Mesh.PRIMITIVE_TRIANGLES:
+					return false
+				parts.append({"mesh": part.mesh, "surface": surface, "finish": finish,
+					"pose": child_pose, "shadow": part.cast_shadow, "layers": part.layers})
+		if not _collect_wheel_rotor_parts(child, child_pose, parts):
+			return false
+	return true
+
+func _wheel_rotor_batch_mesh(rotor: Node3D) -> Mesh:
+	var key: Array = rotor.get_meta("visual_batch_key", [])
+	if machine_batch_rotor_meshes.has(key):
+		return machine_batch_rotor_meshes[key]
+	var parts: Array[Dictionary] = []
+	if not _collect_wheel_rotor_parts(rotor, Transform3D.IDENTITY, parts) or parts.is_empty():
+		return null
+	var groups := {}
+	var shadow: int = parts[0].shadow
+	var layers: int = parts[0].layers
+	for part in parts:
+		if part.shadow != shadow or part.layers != layers:
+			return null
+		var finish: Material = part.finish
+		var finish_id := finish.get_instance_id() if finish != null else 0
+		if not groups.has(finish_id):
+			groups[finish_id] = {"finish": finish, "parts": []}
+		groups[finish_id].parts.append(part)
+	var combined: ArrayMesh
+	for group in groups.values():
+		var surface := SurfaceTool.new()
+		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+		for part in group.parts:
+			surface.append_from(part.mesh, part.surface, part.pose)
+		surface.set_material(group.finish)
+		combined = surface.commit(combined)
+	machine_batch_rotor_meshes[key] = combined
+	return combined
+
+func _batch_machine_visuals_walk(node: Node3D, pose: Transform3D,
+		moving: Dictionary, static_groups: Dictionary, dynamic_groups: Dictionary,
+		rotating := false) -> void:
+	if not node.visible:
+		return
+	var next_pose := pose * node.transform
+	var in_rotor: bool = rotating or node.name == "WheelRotor"
+	if node.name == "WheelRotor":
+		var combined := _wheel_rotor_batch_mesh(node)
+		if combined != null:
+			var key := [combined.get_instance_id(), 0, GeometryInstance3D.SHADOW_CASTING_SETTING_ON, 1]
+			if not dynamic_groups.has(key):
+				dynamic_groups[key] = {"mesh": combined, "material": null,
+					"shadow": GeometryInstance3D.SHADOW_CASTING_SETTING_ON, "layers": 1, "parts": []}
+			dynamic_groups[key].parts.append({"node": node, "pose": next_pose})
+			return
+	if node is MeshInstance3D and node.mesh != null and node.name != "ConveyorLoop":
+		var mesh_part := node as MeshInstance3D
+		var material := mesh_part.material_override
+		var overrides := mesh_part.material_overlay != null
+		for surface in mesh_part.mesh.get_surface_count():
+			var finish := mesh_part.get_surface_override_material(surface)
+			if finish is BaseMaterial3D:
+				overrides = overrides or finish.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED
+		if material is BaseMaterial3D:
+			overrides = overrides or material.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED
+		if not overrides:
+			var dynamic: bool = in_rotor or moving.has(node.get_instance_id())
+			var groups: Dictionary = dynamic_groups if dynamic else static_groups
+			var batch_mesh: Mesh = _machine_batch_surface_mesh(mesh_part)
+			var key := [batch_mesh.get_instance_id(), material.get_instance_id() if material != null else 0,
+				mesh_part.cast_shadow, mesh_part.layers]
+			if not groups.has(key):
+				groups[key] = {"mesh": batch_mesh, "material": material,
+					"shadow": mesh_part.cast_shadow, "layers": mesh_part.layers, "parts": []}
+			groups[key].parts.append({"node": mesh_part, "pose": next_pose})
+	for child in node.get_children():
+		if child is Node3D:
+			_batch_machine_visuals_walk(child, next_pose, moving, static_groups, dynamic_groups, in_rotor)
+
+func _emit_machine_mesh_batches(groups: Dictionary, batches: Node3D, dynamic: bool) -> void:
+	var batch_index := batches.get_child_count()
+	for group in groups.values():
+		if group.parts.size() < 2:
+			continue
+		var multi := MultiMesh.new()
+		multi.transform_format = MultiMesh.TRANSFORM_3D
+		multi.mesh = group.mesh
+		multi.instance_count = group.parts.size()
+		var bounds: AABB = group.parts[0].pose * group.mesh.get_aabb()
+		var motion_margin := bounds.size.length()
+		for index in group.parts.size():
+			multi.set_instance_transform(index, group.parts[index].pose)
+			var part_bounds: AABB = group.parts[index].pose * group.mesh.get_aabb()
+			bounds = bounds.merge(part_bounds)
+			motion_margin = maxf(motion_margin, part_bounds.size.length())
+			group.parts[index].node.visible = false
+		multi.custom_aabb = bounds.grow(maxf(6.0, motion_margin)) if dynamic else bounds
+		var instance := MultiMeshInstance3D.new()
+		instance.name = "MachineBatch%d" % batch_index
+		instance.multimesh = multi
+		instance.material_override = group.material
+		instance.cast_shadow = group.shadow
+		instance.layers = group.layers
+		batches.add_child(instance)
+		if dynamic:
+			machine_dynamic_batches.append({"mesh": multi, "parts": group.parts})
+		batch_index += 1
+
+func _update_machine_dynamic_batches() -> void:
+	if machine_dynamic_batches.is_empty() and machine_conveyor_batches.is_empty():
+		return
+	var to_local := machine_root.global_transform.affine_inverse()
+	for group in machine_dynamic_batches:
+		var mesh: MultiMesh = group.mesh
+		for index in group.parts.size():
+			mesh.set_instance_transform(index, to_local * group.parts[index].node.global_transform)
+	for group in machine_conveyor_batches:
+		var mesh: MultiMesh = group.mesh
+		for index in group.parts.size():
+			var loop: MeshInstance3D = group.parts[index]
+			mesh.set_instance_custom_data(index, Color(loop.material_override.uv1_offset.x, 0, 0))
+
+func _batch_conveyor_loops(batches: Node3D) -> void:
+	var loops: Array[MeshInstance3D] = []
+	for part in machine_root.find_children("ConveyorLoop", "MeshInstance3D", true, false):
+		if part.is_visible_in_tree() and part.mesh != null and part.material_override is StandardMaterial3D:
+			loops.append(part)
+	if loops.size() < MACHINE_BATCH_THRESHOLD:
+		return
+	for loop in loops:
+		if loop.mesh != loops[0].mesh or loop.cast_shadow != loops[0].cast_shadow or loop.layers != loops[0].layers:
+			return
+	var finish := ProductionConveyorArt.multimesh_material()
+	if finish == null:
+		return
+	var multi := MultiMesh.new()
+	multi.transform_format = MultiMesh.TRANSFORM_3D
+	multi.use_custom_data = true
+	multi.mesh = loops[0].mesh
+	multi.instance_count = loops.size()
+	var to_local := machine_root.global_transform.affine_inverse()
+	var bounds: AABB = to_local * loops[0].global_transform * loops[0].mesh.get_aabb()
+	for index in loops.size():
+		var loop := loops[index]
+		var pose: Transform3D = to_local * loop.global_transform
+		multi.set_instance_transform(index, pose)
+		multi.set_instance_custom_data(index, Color(loop.material_override.uv1_offset.x, 0, 0))
+		bounds = bounds.merge(pose * loop.mesh.get_aabb())
+		loop.visible = false
+	multi.custom_aabb = bounds
+	var instance := MultiMeshInstance3D.new()
+	instance.name = "ConveyorLoopBatch"
+	instance.multimesh = multi
+	instance.material_override = finish
+	instance.cast_shadow = loops[0].cast_shadow
+	instance.layers = loops[0].layers
+	batches.add_child(instance)
+	machine_conveyor_batches.append({"mesh": multi, "parts": loops})
+
+func _batch_machine_visuals() -> void:
+	machine_dynamic_batches.clear()
+	machine_conveyor_batches.clear()
+	if not _native_transmission() or machine_root.get_child_count() < MACHINE_BATCH_THRESHOLD:
+		return
+	var moving := {}
+	for anchor in machine_root.get_children():
+		for row in anchor.get_meta("motion_meshes", []):
+			moving[row.node.get_instance_id()] = true
+	var static_groups := {}
+	var dynamic_groups := {}
+	for anchor in machine_root.get_children():
+		if anchor is Node3D:
+			_batch_machine_visuals_walk(anchor, Transform3D.IDENTITY, moving, static_groups, dynamic_groups)
+	var batches := Node3D.new()
+	batches.name = "MachineVisualBatches"
+	machine_root.add_child(batches)
+	_emit_machine_mesh_batches(static_groups, batches, false)
+	_emit_machine_mesh_batches(dynamic_groups, batches, true)
+	_batch_conveyor_loops(batches)
+
 func _rebuild_machines() -> void:
 	_sync_machine_body_context()
+	machine_rotors.clear()
 	var foundation_masks := ProductionFoundationArt.neighbor_masks(state.get("foundations", {}))
 	var scenery := get_node_or_null("ProductionScenery")
 	if scenery != null and not legacy_fixture and ProductionEnvironment.Surface != null:
@@ -6021,6 +6400,9 @@ func _rebuild_machines() -> void:
 		anchor.position = _entity_position(entity)
 		machine_root.add_child(anchor)
 		_assemble_machine(anchor, entity, _material_rotated(entity_id, entity))
+		if kind == "wheel" and wheel_rotor != null:
+			machine_rotors.append({"id": entity_id, "rotor": wheel_rotor,
+				"base": wheel_rotor.basis})
 		anchor.set_meta("machine_entity", entity_id)
 		anchor.set_meta("machine_kind", kind)
 		var motion_meshes: Array[Dictionary] = []
@@ -6084,6 +6466,7 @@ func _rebuild_machines() -> void:
 		if not _native_transmission() and state.entities.has(pair[0]) and state.entities.has(pair[1]):
 			_bar(machine_root, _cell_position(state.entities[pair[0]].cell) + Vector3(0, 0.35, 0.55),
 				_cell_position(state.entities[pair[1]].cell) + Vector3(0, 0.35, 0.55), 0.09, Color("d1b56e"))
+	_batch_machine_visuals()
 
 func _redraw_items() -> void:
 	# The asset helper uses this script's shared surfaces, so load it after
@@ -6168,10 +6551,12 @@ func _refresh_ui() -> void:
 		return
 	_refresh_transmission()
 	var inventory := int(state.inventories.get(client, 0))
+	goal_progress.max_value = 4
+	goal_progress.value = clampi(inventory, 0, 4)
 	parts_label.text = "BUILD FROM SHARED KIT" if _parts_are_shared() else "BUILD FROM CARRIED PARTS"
 	goal_label.text = "FIRST SHIFT\nBring back 4 plates\n%d / 4 collected" % inventory
 	confirm_button.disabled = inventory < 4 or goal_confirmed or explanation_open
-	confirm_button.text = "Objective confirmed" if goal_confirmed else "Confirm four plates"
+	confirm_button.text = "Objective confirmed" if goal_confirmed else "Confirm four plates  [Ctrl+Enter]"
 	var belt_raw: int = int(state.get("line_belt_raw", 0)) if _native_transmission() else state.stock.belt
 	stock_label.text = "ORE DEPOSIT  %d blanks\nIN THE LINE  %d blanks\nPRESS OUTLET  %d plate" % [state.stock.source,
 		state.stock.collector + belt_raw + state.stock.input + state.stock.held, state.stock.output]
@@ -6238,8 +6623,14 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		foundation_level_controls.visible = _native_transmission() and mode in ["foundation", "wheel"] and not explanation_open and snapshot_ready
 		foundation_area_toggle.visible = foundation_level_controls.visible and mode == "foundation"
 		foundation_steps_toggle.visible = foundation_area_toggle.visible
+		foundation_steps_toggle.text = "Access steps  [Z]"
+		foundation_area_toggle.text = "Area: two corners  [V]"
 		foundation_level_label.text = _construction_height_text()
+		(foundation_level_controls.get_child(0) as Button).text = "−  [PgDn]"
+		(foundation_level_controls.get_child(2) as Button).text = "+  [PgUp]"
 		wheel_size_controls.visible = foundation_level_controls.visible and mode == "wheel"
+		(wheel_size_controls.get_child(0) as Button).text = "−  [Shift+PgDn]"
+		(wheel_size_controls.get_child(2) as Button).text = "+  [Shift+PgUp]"
 	footer_snapshot_ready = snapshot_ready
 	_queue_footer_fit()
 	if building_hotbar != null:
@@ -6267,10 +6658,10 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	for tool in tool_buttons:
 		var button: Button = tool_buttons[tool]
 		# Keyboard selection stays visible even when it precedes the suggestion.
-		button.visible = NAMES.has(tool) or tool in ["drive", "gear"] or offered.has(tool) or mode == tool
+		button.visible = NAMES.has(tool) or building_hotbar.catalog_buttons.has(tool) or offered.has(tool) or mode == tool
 		if tool == "foundation" and not state.get("options", {}).get("foundations", false):
 			button.visible = false
-		if tool == "gear" and not _native_transmission():
+		if tool in ["gear", "gearbox", "vertical_gearbox", "chain_drive"] and not _native_transmission():
 			button.visible = false
 		for color_name in ["font_color", "font_focus_color", "font_hover_color", "font_pressed_color", "font_hover_pressed_color"]:
 			if tool == step.tool:
@@ -6278,16 +6669,18 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 			else:
 				button.remove_theme_color_override(color_name)
 	var inventory := int(state.get("inventories", {}).get(client, 0))
-	goal_label.text = "Make 4 plates\n%s\n%d / 4 collected" % [step.text, inventory] if snapshot_ready else "Connect to the worksite."
+	goal_progress.value = clampi(inventory, 0, 4)
+	goal_label.text = "Make 4 plates  ·  %d / 4\n%s" % [inventory, step.text] if snapshot_ready else "Connect to the worksite."
 	confirm_button.visible = snapshot_ready and (inventory >= 4 or goal_confirmed)
-	details_button.text = "Less detail" if show_details else "Details"
+	details_button.text = "Less detail  [Ctrl+D]" if show_details else "Details  [Ctrl+D]"
 	details_button.disabled = explanation_open
 	for control in [stock_label, power_label, save_button, load_button]:
 		control.visible = show_details
 	actor_label.visible = show_details or not state.get("actors", {}).get(client, {}).get("ready", false)
-	controls_label.text = "WASD walk · E open · F dismantle · R rotate · Esc cancel · H help"
+	controls_label.text = "B catalog  ·  1–8 build  ·  E open  ·  F dismantle  ·  H guide  ·  Ctrl+D details"
 	_refresh_engineering(snapshot_ready)
 	var target_selected: bool = _contains_target(state, selected)
+	inspector_title.visible = target_selected or show_details or not snapshot_ready or not _can_choose_tool()
 	inspector.visible = target_selected or show_details \
 		or not snapshot_ready or not _can_choose_tool()
 	retrieve_button.visible = state.get("entities", {}).get(selected, {}).get("kind") == "processor"
@@ -6378,7 +6771,7 @@ func _refresh_placement_options() -> void:
 		"belt": "Click two parallel shafts · Esc cancels",
 	}.get(tool, "Left click to build · R rotates · Esc cancels")
 	placement_options_axis.visible = tool in ["wheel", "gear", "drive", "vertical_gearbox", "chain_drive"]
-	placement_options_axis.text = "Axle: %s  [click to change]" % (transmission_controls.selected_axis.to_upper()
+	placement_options_axis.text = "Axle: %s  [X]" % (transmission_controls.selected_axis.to_upper()
 		if transmission_controls != null else "X")
 	var parent := placement_options_panel.get_parent() as Control
 	var height: float = placement_options_panel.get_combined_minimum_size().y
@@ -6830,14 +7223,23 @@ func _button(parent: Node, words: String, callback: Callable) -> Button:
 	parent.add_child(button)
 	return button
 
+func _accent_button(button: Button) -> void:
+	for state_name in ["normal", "hover", "pressed", "hover_pressed"]:
+		var style := button.get_theme_stylebox(state_name).duplicate() as StyleBoxFlat
+		style.bg_color = Color("614721") if state_name in ["normal", "pressed"] else Color("806036")
+		style.border_color = Color("e9b873")
+		button.add_theme_stylebox_override(state_name, style)
+	button.add_theme_color_override("font_color", Color("fff5df"))
+	button.add_theme_color_override("font_hover_color", Color("fff5df"))
+
 func _panel(parent: Node, at: Vector2, dimensions: Vector2) -> VBoxContainer:
 	var panel := PanelContainer.new()
 	panel.position = at
 	panel.size = dimensions
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.078, 0.129, 0.157, 0.96)
-	style.border_color = Color("41565e")
-	style.set_corner_radius_all(5)
+	style.bg_color = Color(0.055, 0.092, 0.112, 0.94)
+	style.border_color = Color("52676b")
+	style.set_corner_radius_all(7)
 	style.border_width_left = 1
 	style.border_width_right = 1
 	style.border_width_top = 1
@@ -6879,14 +7281,28 @@ func _build_interface() -> void:
 	build_column = build
 	if not legacy_fixture:
 		build.add_theme_constant_override("separation", 6)
-	_label(build, "FACTORY / FIRST SHIFT", 20, Color("edcc8d"))
+	_label(build, "FIRST SHIFT  /  01", 13, Color("f4bf75"))
 	var tagline := _label(build, "A small line. Real materials.", 14, Color("9eb4b2"))
 	tagline.visible = legacy_fixture
 	build.add_child(HSeparator.new())
-	goal_label = _label(build, "", 18)
+	goal_label = _label(build, "", 19, Color("f4f5eb"))
 	if not legacy_fixture:
 		goal_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	confirm_button = _button(build, "Confirm four plates", _confirm_goal)
+	goal_progress = ProgressBar.new()
+	goal_progress.max_value = 4
+	goal_progress.show_percentage = false
+	goal_progress.custom_minimum_size.y = 7
+	var track := StyleBoxFlat.new()
+	track.bg_color = Color("293a3d")
+	track.set_corner_radius_all(3)
+	goal_progress.add_theme_stylebox_override("background", track)
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = Color("e6ae64")
+	fill.set_corner_radius_all(3)
+	goal_progress.add_theme_stylebox_override("fill", fill)
+	build.add_child(goal_progress)
+	confirm_button = _button(build, "Confirm four plates  [Ctrl+Enter]", _confirm_goal)
+	_accent_button(confirm_button)
 	build.add_child(HSeparator.new())
 	building_hotbar = BuildingHotbar.new()
 	building_hotbar.configure(self, root)
@@ -6937,7 +7353,7 @@ func _build_interface() -> void:
 	var view_options := HBoxContainer.new()
 	build.add_child(view_options)
 	view_options.visible = not legacy_fixture
-	details_button = _button(view_options, "Details", _toggle_details)
+	details_button = _button(view_options, "Details  [Ctrl+D]", _toggle_details)
 	details_button.tooltip_text = "Show worksite counters and save options."
 	_button(build, "How this line works  [H]", _toggle_explanation)
 	var right := _panel(root, Vector2(990, 18), Vector2(272, 490 if legacy_fixture else 0))
@@ -6947,11 +7363,12 @@ func _build_interface() -> void:
 	right_panel.set_anchor_and_offset(SIDE_LEFT, 1.0, -290)
 	right_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	if legacy_fixture:
-		_label(right, "WORKSITE", 13, Color("a3b8b4"))
+		_label(right, "WORKSITE", 13, Color("b0c4c0"))
 	else:
 		# The actor/connection rows identify the physical worksite. Leave room
 		# for a selected press and pending-server advice above the status panel.
 		right.add_theme_constant_override("separation", 6)
+		inspector_title = _label(right, "SELECTED / WORKSITE", 12, Color("f4bf75"))
 	actor_label = _label(right, "", 11, Color("a3b8b4"))
 	actor_label.visible = not legacy_fixture
 	power_label = _label(right, "", 14, Color("dfbc76"))
@@ -6959,8 +7376,9 @@ func _build_interface() -> void:
 	inspector = _label(right, "", 15)
 	inspector.custom_minimum_size.x = 238
 	inspector.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	retrieve_button = _button(right, "Collect plate  [R]", _retrieve)
-	remove_button = _button(right, "Dismantle selected", _remove_selected)
+	retrieve_button = _button(right, "Collect plate  [Ctrl+R]", _retrieve)
+	_accent_button(retrieve_button)
+	remove_button = _button(right, "Dismantle selected  [Delete]", _remove_selected)
 	# Older scripted launch payloads have a fixed roster without this native UI.
 	var recovery_path := "res://opening/recovery_actions.gd"
 	if ResourceLoader.exists(recovery_path, "Script"):
@@ -6983,7 +7401,7 @@ func _build_interface() -> void:
 	bottom_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	status_label = _label(bottom, "", 16)
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	controls_label = _label(bottom, "1–8 build · E open · F dismantle · R rotate · Esc cancel · H help", 12, Color("9eb4b2"))
+	controls_label = _label(bottom, "B catalog  ·  1–8 build  ·  E open  ·  F dismantle  ·  H guide  ·  Ctrl+D details", 12, Color("bfd1cc"))
 	bottom_panel.minimum_size_changed.connect(_queue_footer_fit)
 	bottom_panel.resized.connect(_queue_footer_fit)
 	for column: Control in [build, right]:
@@ -6997,7 +7415,7 @@ func _build_interface() -> void:
 	lesson_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var row := HBoxContainer.new()
 	lesson_column.add_child(row)
-	lesson_previous = _button(row, "Previous", func(): _set_lesson(lesson_index - 1))
-	lesson_next = _button(row, "Next", func(): _set_lesson(lesson_index + 1))
+	lesson_previous = _button(row, "Previous  [←]", func(): _set_lesson(lesson_index - 1))
+	lesson_next = _button(row, "Next  [→]", func(): _set_lesson(lesson_index + 1))
 	lesson_return = _button(row, "Return to building  [H]", _toggle_explanation)
 	lesson_panel.visible = false

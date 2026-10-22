@@ -192,6 +192,33 @@ fixed. It reports frame and opening-process times, draw calls, and the cost of
 refreshing after one added cog. It does not execute native construction or
 measure ordinary character movement.
 
+## Other machine presentation scale probe
+
+`machine_visual_test.gd --performance-benchmark` measures the existing collector,
+conveyor, press, and waterwheel assemblies. Choose `--kind=collector`, `belt`,
+`processor`, or `wheel`, and set `--count=100` or another count from 0 to 500.
+Run each kind with and without `--batch` under the exclusive `factory-local`
+benchmark lane in a graphical Godot process. `--prewarm` records the one-time
+asset preparation and measures the subsequent first selection; omit it to
+measure an unprepared selection. The probe reports construction and batch
+times, median and 95th-percentile frame times over 120 samples after 30 warmup
+frames, animated-part update time, and draw calls. `--capture=/absolute/path.png`
+saves the rendered frame for inspection. For example:
+
+```bash
+"$factory_local" --root "$PWD" benchmark -- "$godot_bin" \
+  --path experiments/engine-environment/godot \
+  --script res://opening/machine_visual_test.gd -- \
+  --performance-benchmark --kind=wheel --count=100 --prewarm --batch
+```
+
+Use `--batch-motion-check` headlessly and graphically to exercise the 12-to-11
+machine transition, independent wheel rotation across sizes and axes, and
+distinct conveyor loop phases. The scale probe repeats valid
+visual assemblies in a regular layout. It does not submit native placement
+commands or test inventory, actor reach, contacts, the complete opening, or
+human play. Headless frame times do not measure GPU work.
+
 After confirming four plates, the native opening marks an upstream waterwheel
 site at `[-2, 0]` and asks for eight carried plates in total. The wheel must be
 immersed and aligned with the flow. Reconnect the drive after moving it; recover

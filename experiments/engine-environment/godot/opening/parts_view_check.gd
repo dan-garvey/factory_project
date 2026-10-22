@@ -60,6 +60,9 @@ func fixture() -> Dictionary:
 		"stock": {"output": 0}, "inventories": {"P": 0, "Q": 0}}
 
 func _initialize() -> void:
+	if "--ui-shortcuts-only" in OS.get_cmdline_user_args():
+		call_deferred("_ui_shortcuts")
+		return
 	if "--interaction-only" in OS.get_cmdline_user_args():
 		call_deferred("_interaction_controls")
 		return
@@ -140,6 +143,62 @@ func hotbar_observation() -> Dictionary:
 func settle_widgets() -> void:
 	for _frame in range(4):
 		await process_frame
+
+func _ui_shortcuts() -> void:
+	for shared in [false, true]:
+		var view = SharedWidgets.new() if shared else OfflineWidgets.new()
+		if shared:
+			view.session = SessionStub.new()
+		view.state = hotbar_observation()
+		view.state.part_kits.P.gearbox = 1
+		view.mode = "inspect"
+		root.add_child(view)
+		view.selection_ring = MeshInstance3D.new()
+		view.add_child(view.selection_ring)
+		view._build_interface()
+		view._refresh_ui()
+		var before: Dictionary = view.state.duplicate(true)
+		var bar = view.building_hotbar
+		bar.open_catalog()
+		var event := InputEventKey.new()
+		event.pressed = true
+		event.keycode = KEY_8
+		bar._input(event)
+		verify(bar.destination.selected == 7, "Number keys choose a catalog destination without changing the world.")
+		event.keycode = KEY_H
+		bar._input(event)
+		verify(bar.slots[7] == "gearbox" and view.mode == "gearbox" and not bar.catalog.visible,
+			"A catalog letter assigns a mechanical part and activates its native placement view.")
+		bar.open_catalog(7)
+		event.keycode = KEY_DELETE
+		bar._input(event)
+		verify(bar.slots[7].is_empty() and view.mode == "inspect", "Delete clears the selected catalog slot.")
+		event.keycode = KEY_D
+		event.ctrl_pressed = true
+		view._input(event)
+		verify(view.show_details and view.stock_label.visible, "Ctrl+D reveals the detailed worksite view.")
+		view._input(event)
+		verify(not view.show_details and not view.stock_label.visible, "Ctrl+D closes the detailed worksite view.")
+		event.ctrl_pressed = false
+		event.alt_pressed = true
+		event.keycode = KEY_4
+		view._input(event)
+		verify(view.mode == "gearbox", "Alt+4 reaches a mechanical tool outside the default hotbar.")
+		event.alt_pressed = false
+		view._refresh_placement_options()
+		event.keycode = KEY_T
+		view._input(event)
+		verify(view.transmission_controls.get_popup().visible, "T opens the mounted mechanical options menu.")
+		view.transmission_controls.get_popup().hide()
+		event.keycode = KEY_DELETE
+		view._input(event)
+		verify(view.issued.is_empty(), "Delete cannot dismantle an absent or disabled selection.")
+		verify(view.state == before and view.model == null and view.actor_world == null and view.request_sequence == 0,
+			"UI shortcuts change only presentation until a valid world action is issued.")
+		view.free()
+	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
+		"failures": failures, "models": 0, "desktop_operations": 0, "scope": "ordinary/shared keyboard UI over invented projections"}))
+	quit(0 if failures == 0 else 1)
 
 func _building_rotation() -> void:
 	for shared in [false, true]:
@@ -229,6 +288,7 @@ func _interaction_controls() -> void:
 			view.session = SessionStub.new()
 		view.state = hotbar_observation()
 		view.state.entities = {"press": {"kind": "processor", "cell": [1, 0], "level": 0, "axis": 2}}
+		view.state.stock.output = 1
 		view.mode = "collector"
 		view.pointed = "press"
 		root.add_child(view)
@@ -305,6 +365,47 @@ func _interaction_controls() -> void:
 		verify(view.mode == "inspect" and view.selected == "press" and view.inspector.visible
 			and view.issued.is_empty() and view.request_sequence == sequence,
 			"E opens the pointed press through the existing read-only inspector without an authority request.")
+		key.keycode = KEY_R
+		for rotation in [["collector", "x", 1], ["processor", "x", 1], ["wheel", "z", 0],
+			["gear", "y", 0], ["drive", "y", 0], ["vertical_gearbox", "z", 0], ["chain_drive", "y", 0],
+			["foundation", "x", 0], ["gearbox", "y", 0], ["belt", "x", 0],
+			["flow", "x", 0], ["deconstruct", "x", 0]]:
+			view._select_tool(rotation[0])
+			view.transmission_controls._axis_selected(0)
+			view.building_rotation = 0
+			view._unhandled_input(key)
+			verify(view.transmission_controls.selected_axis == rotation[1] and view.building_rotation == rotation[2],
+				"R follows the existing orientation choices for %s." % rotation[0])
+			verify(view.issued.is_empty() and view.request_sequence == sequence and view.state == before
+				and view.selected == "press",
+				"R in %s mode never retrieves from the previously selected output-ready press." % rotation[0])
+			view.issued.clear()
+		view._select_tool("gear")
+		view.transmission_controls._axis_selected(0)
+		view.state.actors.P.ready = false
+		view._unhandled_input(key)
+		verify(view.transmission_controls.selected_axis == "x" and view.issued.is_empty(),
+			"An unready actor cannot rotate a cog or retrieve from its old selection.")
+		view.state.actors.P.ready = true
+		view.issued.clear()
+		if shared:
+			view.pending_actions = {"fixture": {"action": {"action": "retrieve"}, "outcome": {}}}
+			view._unhandled_input(key)
+			verify(view.transmission_controls.selected_axis == "x" and view.issued.is_empty(),
+				"A pending shared request blocks rotation without submitting another action.")
+			view.pending_actions.clear()
+			view.issued.clear()
+			view.session.ready = false
+			view._unhandled_input(key)
+			verify(view.transmission_controls.selected_axis == "x" and view.issued.is_empty(),
+				"A disconnected shared view cannot rotate a cog or submit a retrieval.")
+			view.session.ready = true
+			view.issued.clear()
+		view._select_tool("inspect")
+		view._unhandled_input(key)
+		verify(view.issued == [{"action": "retrieve", "amount": 1, "entity": "press"}] and view.state == before,
+			"R in inspection mode still submits the selected press's existing collection action.")
+		view.issued.clear()
 		key.keycode = KEY_F
 		view._unhandled_input(key)
 		verify(view.mode == "deconstruct" and view.transmission_controls.active_tool.is_empty(),

@@ -506,6 +506,29 @@ for a completed frame while each view exists and another after freeing the views
 produced a clean completion. These original observations remain under
 `continuous-meadow-20261021`; the fixture adds no gameplay or collision rule.
 
+**Machine mesh batching, adapter and fixture.** The native opening keeps one
+confirmed pick body and source part hierarchy per machine while repeated
+opaque render surfaces use shared `MultiMesh` instances. Source parts with
+separate surface finishes receive one cached visual mesh with those finishes
+bound to its surfaces before batching. Each wheel's rotor surfaces become one
+cached mesh with one independently updated transform per wheel. Conveyor loops
+use a shared shader and per-instance texture phase while their hidden source
+materials retain the original offset. Isolated 12-machine collector and press
+captures matched their direct renders byte for byte. The conveyor close view
+changed 90 pixels by at most one 8-bit channel step, and a flat wheel silhouette
+matched exactly; shaded wheels differed slightly. This fixture repeats
+visual assemblies in a regular layout and does not exercise native placement,
+the complete opening or human play. The threshold and batch sizes are adapter
+choices, not limits on constructable machines. Owner: Performance.
+
+The same isolated graphical process measured first unprepared preview
+construction at 0.86 s for a collector, 2.37 s for a conveyor, 2.45 s for a
+press and 4.82 s for a wheel. Priming all four visual assemblies once cost
+about 8.3 s in this fixture, after which first selection took 1 to 5 ms.
+Priming moves asset preparation into opening setup; it does not eliminate the
+one-time work. A complete native opening launch and input timing remain to be
+measured before treating its startup cost as accepted. Owner: Performance.
+
 **Asset import, observed for one source representation.** During the
 [scanned steel surface preparation](../../experiments/engine-environment/godot/opening/assets/steel/CREDITS.md),
 the pinned runtime's TinyEXR loader rejected the provider's normal EXR with an
