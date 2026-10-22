@@ -1,0 +1,21 @@
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "assembly",
+    srcs = ["src/assembly.cpp"],
+    hdrs = ["include/factory/assembly.hpp"],
+    strip_include_prefix = "include",
+    deps = [
+        "//native/factory-core:materials",
+        "//native/factory-mechanics:mechanics",
+    ],
+)
+
+cc_test(
+    name = "assembly_test",
+    srcs = ["tests/assembly_test.cpp"],
+    deps = [":assembly"],
+    size = "small",
+)
