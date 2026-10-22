@@ -220,7 +220,8 @@ static func tooth_mesh(radius: float, teeth: int) -> ArrayMesh:
 	meshes[key] = mesh
 	return mesh
 
-static func gear(parent: Node3D, radius: float, ratio_units: int, color: Color) -> void:
+static func gear(parent: Node3D, radius: float, ratio_units: int, color: Color,
+		detail_segments: int = 0) -> void:
 	# Eight render teeth per native ratio/radius unit. This tessellation stays
 	# proportional; it does not change the wire parameter or model tooth contact.
 	var count := ratio_units * 8
@@ -240,7 +241,8 @@ static func gear(parent: Node3D, radius: float, ratio_units: int, color: Color) 
 		Vector2(inner + band * 0.37, 0.07 - relief), Vector2(inner + band * 0.33, 0.07),
 		Vector2(inner + 0.006, 0.07), Vector2(inner, 0.06), Vector2(inner, -0.06),
 		Vector2(inner + 0.006, -0.07)])
-	_part(parent, "Gear", Visuals.turned_mesh(rim, maxi(48, count * 2)), Vector3.ZERO, color)
+	_part(parent, "Gear", Visuals.turned_mesh(rim, maxi(48, count * 2) if detail_segments == 0
+		else maxi(detail_segments, count)), Vector3.ZERO, color)
 	var tooth := tooth_mesh(radius, count)
 	var teeth: Array[Transform3D] = []
 	for n in range(count):
@@ -253,7 +255,8 @@ static func gear(parent: Node3D, radius: float, ratio_units: int, color: Color) 
 		Vector2(hub_radius, -0.102), Vector2(hub_radius, 0.102),
 		Vector2(hub_radius - 0.008, 0.11), Vector2(0.044, 0.11),
 		Vector2(0.039, 0.105), Vector2(0.039, -0.105), Vector2(0.044, -0.11)])
-	_part(parent, "Hub", Visuals.turned_mesh(hub), Vector3.ZERO, Color("a6b4af"))
+	_part(parent, "Hub", Visuals.turned_mesh(hub, detail_segments if detail_segments > 0 else 48),
+		Vector3.ZERO, Color("a6b4af"))
 	var spoke_length := inner - hub_radius + 0.04
 	var spokes: Array[Transform3D] = []
 	var fasteners: Array[Transform3D] = []
@@ -274,8 +277,8 @@ static func complete_gear_mesh(radius: float, ratio_units: int, color: Color, le
 	if complete_gears.has(key):
 		return complete_gears[key]
 	var assembly := Node3D.new()
-	gear(assembly, radius, ratio_units, color)
-	shaft(assembly, length, color)
+	gear(assembly, radius, ratio_units, color, 24)
+	shaft(assembly, length, color, 24)
 	var materials: Array[Material] = []
 	var surfaces: Array[SurfaceTool] = []
 	for child: Node in assembly.get_children():
@@ -313,16 +316,18 @@ static func complete_gear_mesh(radius: float, ratio_units: int, color: Color, le
 	complete_gears[key] = result
 	return result
 
-static func shaft(parent: Node3D, length: float, color: Color) -> void:
+static func shaft(parent: Node3D, length: float, color: Color, detail_segments: int = 0) -> void:
 	# Keep this public node's CylinderMesh and exact length for the established
 	# endpoint consumer. Fitted collars do not alter the pick cylinder.
-	_part(parent, "Shaft", _cylinder(SHAFT_CORE_RADIUS, length), Vector3.ZERO, color)
+	_part(parent, "Shaft", _cylinder(SHAFT_CORE_RADIUS, length, detail_segments if detail_segments > 0 else 48),
+		Vector3.ZERO, color)
 	var collar := PackedVector2Array([Vector2(0.03, -0.055), Vector2(0.0345, -0.055),
 		Vector2(0.036, -0.0535), Vector2(0.036, 0.0535), Vector2(0.0345, 0.055),
 		Vector2(0.03, 0.055), Vector2(0.03, -0.055)])
 	for sign_value in [-1.0, 1.0]:
 		var center: float = sign_value * (length / 2.0 - 0.06)
-		_part(parent, "ShaftCollar", Visuals.turned_mesh(collar), Vector3(0, center, 0), Color("a6b4af"))
+		_part(parent, "ShaftCollar", Visuals.turned_mesh(collar, detail_segments if detail_segments > 0 else 48),
+			Vector3(0, center, 0), Color("a6b4af"))
 		_part(parent, "ShaftKey", Visuals.box_mesh(Vector3(0.012, 0.08, 0.012)),
 			Vector3(0.031, center, 0), Color("b87945"))
 

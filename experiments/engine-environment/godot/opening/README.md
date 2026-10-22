@@ -162,6 +162,16 @@ geometry, signed motion, picks and orientation. The probe contains no native
 World, actor, inventory or ordinary placement commands. It cannot establish
 whole-opening frame rate, network or save scale, or human play quality.
 
+Add `--whole-opening` to measure the cog presenter inside the complete opening
+scenery and interface. Import the project with the pinned Godot editor before a
+direct source-tree run so its textures and icons are available. Compare identical
+`--count=0` and `--count=400 --supports --large-every=2` runs; `--close` uses a
+nearer camera. This fixture injects synthetic confirmed cogs into an opening
+projection and suppresses the physical actor callback so the fixture stays
+fixed. It reports frame and opening-process times, draw calls, and the cost of
+refreshing after one added cog. It does not execute native construction or
+measure ordinary character movement.
+
 After confirming four plates, the native opening marks an upstream waterwheel
 site at `[-2, 0]` and asks for eight carried plates in total. The wheel must be
 immersed and aligned with the flow. Reconnect the drive after moving it; recover
