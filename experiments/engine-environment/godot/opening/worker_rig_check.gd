@@ -122,6 +122,18 @@ func finger_reaches(body: Node3D) -> Dictionary:
 			result["%s%d" % [side, finger]] = hand.distance_to(distal)
 	return result
 
+func hand_forward_reaches(body: Node3D) -> Dictionary:
+	var skeleton := skeleton_of(body)
+	skeleton.force_update_all_bone_transforms()
+	var result := {}
+	for side in ["L", "R"]:
+		var shoulder: Vector3 = skeleton.get_bone_global_pose(
+			skeleton.find_bone("Bip01 " + side + " UpperArm")).origin
+		var hand: Vector3 = skeleton.get_bone_global_pose(
+			skeleton.find_bone("Bip01 " + side + " Hand")).origin
+		result[side] = hand.z - shoulder.z
+	return result
+
 func skin_points(body: Node3D) -> PackedVector3Array:
 	# Independent vertex oracle: use each exported skin bind and its current
 	# named bone pose, then the actual scene transform into BodyView space.
@@ -385,6 +397,16 @@ func inspect_adult(body: Node3D, other: Node3D, presenter: Node) -> void:
 	verify(landing_heights[0] < landing_heights[2] - 0.08
 		and other_skeleton.get_bone_global_pose(other_skeleton.find_bone("Bip01 L Thigh")) == other_pose,
 		"Landing load transfers through the visual body without moving a second actor's skeleton.")
+	presenter._set_gait(body, 0.0, 0.0, 0.4, 0.0, 0.65, 0.0, 0.25, 0.0)
+	var still_hands := hand_forward_reaches(body)
+	presenter._set_gait(body, 0.0, 0.0, 0.4, 0.0, 0.65, 0.0, 0.25, 1.0)
+	var moving_hands := hand_forward_reaches(body)
+	verify(absf(float(still_hands.R) - float(still_hands.L)) < 0.06
+		and float(moving_hands.R) - float(moving_hands.L)
+		> float(still_hands.R) - float(still_hands.L) + 0.04,
+		"A moving landing swings the opposite arm ahead of the leading boot; an in-place landing stays balanced.")
+	adult_measurements["landing_hand_forward"] = {"still": still_hands,
+		"moving": moving_hands}
 	presenter._set_gait(body, 0.0, 0.0, 1.0, 5.0, 0.0)
 	var rising_knee := skeleton.get_bone_pose_rotation(skeleton.find_bone("Bip01 L Calf"))
 	var rising_other_knee := skeleton.get_bone_pose_rotation(skeleton.find_bone("Bip01 R Calf"))

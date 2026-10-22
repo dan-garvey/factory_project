@@ -319,6 +319,9 @@ func _set_adult_air_and_landing(body: Node3D, air: float,
 	var foot_load := smoothstep(0.0, 0.16, landing_progress) * \
 		pow(1.0 - clampf(landing_progress, 0.0, 1.0), 1.7)
 	var plant := foot_load * (1.0 - smoothstep(0.12, 0.60, landing_progress)) * contact_stride
+	# The leading left boot takes a moving landing first. The opposite arm
+	# catches that rotation; an in-place landing keeps its symmetric balance.
+	var arm_balance := contact_stride * impact
 	for pair in [["L", 1.0], ["R", -1.0]]:
 		var side: String = pair[0]
 		var sign: float = pair[1]
@@ -346,9 +349,10 @@ func _set_adult_air_and_landing(body: Node3D, air: float,
 		var arm_air := (0.10 - 1.0 * rise - 0.30 * fall) * air
 		_adult_bone_delta(body, side + " UpperArm", Quaternion(Vector3.RIGHT,
 			arm_air - 0.48 * impact + 0.60 * sign * rise * air
-			+ 0.18 * air_asymmetry) * stance)
+			+ 0.18 * air_asymmetry + 0.48 * sign * arm_balance) * stance)
 		_adult_bone_delta(body, side + " Forearm", Quaternion(Vector3.RIGHT,
-			(-0.30 - 0.22 * rise - 0.20 * fall) * air - 0.78 * impact))
+			(-0.30 - 0.22 * rise - 0.20 * fall) * air - 0.78 * impact
+			+ 0.22 * sign * arm_balance))
 	_adult_bone_delta(body, "Spine1", Quaternion(Vector3.RIGHT,
 		(0.18 * rise + 0.08 * fall) * air + 0.30 * impact + 0.42 * plant))
 	_adult_bone_delta(body, "Spine2", Quaternion(Vector3.RIGHT,

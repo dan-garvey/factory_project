@@ -88,7 +88,9 @@ the first load while the right
 leg trails. The torso leans over that support, both knees absorb the fall, and
 the trailing boot joins as the body recovers over 0.32 seconds. A stationary
 jump settles both boots under the body without inventing a forward recovery
-step. The airborne pose fades through this recovery
+step. At moving contact the arm opposite the leading boot reaches farther
+forward for balance; the amount follows confirmed landing speed, so a
+stationary landing remains symmetric. The airborne pose fades through this recovery
 instead of disappearing in four frames. The lower of the two posed toes anchors
 the visual body to the confirmed support height during landing; the physical
 actor root stays unchanged. These poses
@@ -113,6 +115,7 @@ confirmed samples. It checks source bindings, captured walk and run poses,
 forward knee bending, mid-swing knee flex, planted toe height and horizontal stance travel,
 opposing running hands, relaxed walking elbows and bounded lateral carriage,
 loose grounded fingers that release during flight,
+opposite-arm balance at moving contact,
 skinned dimensions,
 ascent, descent, leading-toe continuity, staged landing contact and skinned support height, per-player
 isolation, projection
