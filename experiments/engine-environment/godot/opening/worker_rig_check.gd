@@ -273,6 +273,21 @@ func inspect_adult(body: Node3D, other: Node3D, presenter: Node) -> void:
 		verify(maximum.L > 0.14 and maximum.R > 0.14
 			and minimum.L > -0.03 and minimum.R > -0.03,
 			"Both knees flex forward and avoid visible hyperextension across each grounded gait cycle.")
+	for swing in [{"side": "L", "phase": 1.05}, {"side": "R", "phase": 4.2}]:
+		presenter._set_gait(body, float(swing.phase), 1.0, 0.0, 0.0, 0.0, 0.0)
+		skeleton.force_update_all_bone_transforms()
+		var hip: Vector3 = presenter._adult_joint(body, skeleton,
+			skeleton.find_bone("Bip01 " + swing.side + " Thigh"))
+		var knee: Vector3 = presenter._adult_joint(body, skeleton,
+			skeleton.find_bone("Bip01 " + swing.side + " Calf"))
+		var ankle: Vector3 = presenter._adult_joint(body, skeleton,
+			skeleton.find_bone("Bip01 " + swing.side + " Foot"))
+		var flex := 180.0 - rad_to_deg((hip - knee).angle_to(ankle - knee))
+		var toe: Vector3 = presenter._adult_joint(body, skeleton,
+			skeleton.find_bone("Bip01 " + swing.side + " Toe0"))
+		var clearance: float = Geometry.CAPSULE_HEIGHT / 2.0 + body.position.y + toe.y - 0.007
+		verify(flex > 18.0 and clearance > 0.02 and clearance < 0.20,
+			"Each forward walking swing keeps a bent knee and a clear boot before support.")
 	var contact_samples := []
 	for phase in [0.0, PI / 2.0, PI, 3.0 * PI / 2.0]:
 		presenter._set_gait(body, phase, 1.0, 0.0, 0.0, 0.0, 0.0)
