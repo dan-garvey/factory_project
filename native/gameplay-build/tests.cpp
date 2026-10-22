@@ -141,7 +141,7 @@ void retain_unowned_temporary(const fs::path& base) {
           "Refusal never deletes a file this attempt did not create.");
 }
 void dependency_advances(const fs::path& base) {
-    for (const auto* dependency : {"mineral-site", "waterwheel", "waterflow"})
+    for (const auto* dependency : {"mineral-site", "waterwheel", "waterflow", "factory-assembly"})
     for (const auto* changed : {"include/profile.hpp", "src/profile.cpp", "BUILD.bazel"}) {
         Fixture f(base);
         const auto clone = f.root / "build-checkout";
@@ -155,25 +155,28 @@ void dependency_advances(const fs::path& base) {
         check(read(f.options.launcher) == f.original && fs::is_empty(f.options.install_root),
               "Dependency refusal preserves the current launcher and installation.");
     }
-    Fixture f(base);
-    const auto clone = f.root / "build-checkout";
-    command({"/usr/bin/git", "clone", "--no-hardlinks", f.options.main_checkout.string(), clone.string()});
-    f.options.checkout = clone;
-    const auto before = gb::snapshot(f.options);
-    write(f.options.main_checkout / "native/waterflow/tests/example_test.cpp", "test-only change\n");
-    commit(f.options.main_checkout);
-    check(gb::complete(f.options, before, 0, f.binary) == 0,
-          "A waterflow test-only change does not stale unchanged production.");
+    for (const auto* dependency : {"waterflow", "factory-assembly"}) {
+        Fixture f(base);
+        const auto clone = f.root / "build-checkout";
+        command({"/usr/bin/git", "clone", "--no-hardlinks", f.options.main_checkout.string(), clone.string()});
+        f.options.checkout = clone;
+        const auto before = gb::snapshot(f.options);
+        write(f.options.main_checkout / "native" / dependency / "tests/example_test.cpp", "test-only change\n");
+        commit(f.options.main_checkout);
+        check(gb::complete(f.options, before, 0, f.binary) == 0,
+              "A dependency test-only change does not stale unchanged production.");
+    }
 }
 void launcher_dependency_guard(const fs::path& base) {
     const auto* runfiles = std::getenv("TEST_SRCDIR");
     if (!runfiles) throw std::runtime_error("Use Bazel's declared launcher-guard data.");
     const auto script = fs::path(runfiles) / "_main/scripts/ensure-gameplay-library.sh";
     check(fs::is_regular_file(script), "The fixture uses the real declared launcher guard.");
+    for (const auto* dependency : {"waterflow", "factory-assembly"})
     for (const auto* changed : {"include/profile.hpp", "src/profile.cpp", "BUILD.bazel", "tests/example_test.cpp"}) {
         Fixture f(base);
         const auto before = gb::snapshot(f.options);
-        write(f.options.checkout / "native/waterflow" / changed, "dependency edit\n");
+        write(f.options.checkout / "native" / dependency / changed, "dependency edit\n");
         commit(f.options.checkout);
         const auto after = gb::snapshot(f.options);
         const auto result = factory_launch::run_process({"/usr/bin/bash", script.string(), "check",
@@ -181,7 +184,7 @@ void launcher_dependency_guard(const fs::path& base) {
             factory_launch::sha256(read(f.binary))}, 10s, 65536);
         const bool test_only = std::string(changed).starts_with("tests/");
         check(result.exit_code == (test_only ? 0 : 1),
-              "The real launcher guard detects waterflow production edits while reusing test-only changes.");
+              "The real launcher guard detects dependency production edits while reusing test-only changes.");
         check(read(f.options.launcher) == f.original && fs::is_empty(f.options.install_root),
               "The check-only guard starts no build or installation.");
     }
