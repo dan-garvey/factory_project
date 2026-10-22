@@ -66,10 +66,6 @@
       "bytes": 34560,
       "sha256": "08ae7666de5dbd8061c0b91f3605ac6e9b99a0513b17da4759568692a0f0d04e"
     },
-    "coupling_albedo.jpg": {
-      "bytes": 553576,
-      "sha256": "c0233f66b18e3374dfbbb8c8078a41f6571a0809d3eb14dd9d3c332265cfde7b"
-    },
     "coupling_normal.webp": {
       "bytes": 297806,
       "sha256": "a01a9ddb0be355227de469fcbe820a396a290bf4546164ef7b415a2cadd03190"
@@ -77,6 +73,13 @@
     "coupling_arm.webp": {
       "bytes": 348746,
       "sha256": "d4dedc8fa401e8c9a0bf53d252ea21a61a0d399445f7b62b91853dc1bdfce7a7"
+    }
+  },
+  "shared_files": {
+    "pipe-fit/textures/modular_industrial_pipes_01_group01_diff_1k.jpg": {
+      "bytes": 553576,
+      "sha256": "c0233f66b18e3374dfbbb8c8078a41f6571a0809d3eb14dd9d3c332265cfde7b",
+      "role": "The byte-identical original Group 01 albedo used by the prepared pipe kit and this coupling."
     }
   },
   "preparation": {

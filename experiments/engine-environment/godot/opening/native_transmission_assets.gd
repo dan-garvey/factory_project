@@ -12,15 +12,18 @@ const PULLEY_RADIUS := 0.095
 const PULLEY_BORE := 0.039
 static var meshes: Dictionary = {}
 static var batches: Dictionary = {}
-const COUPLING_ROOT := "res://opening/assets/shaft-coupling"
-const COUPLING_IMAGES := {"albedo": "coupling_albedo.jpg", "normal": "coupling_normal.webp", "arm": "coupling_arm.webp"}
+const COUPLING_ROOT := "res://opening/assets"
+# The prepared pipe kit already tracks the identical original Group 01 JPEG.
+# Use canonical resource paths: imported textures do not resolve parent segments.
+const COUPLING_IMAGES := {"albedo": "pipe-fit/textures/modular_industrial_pipes_01_group01_diff_1k.jpg",
+	"normal": "shaft-coupling/coupling_normal.webp", "arm": "shaft-coupling/coupling_arm.webp"}
 const COUPLING_HALF_LENGTH := (0.42954 - 0.39) * 0.72
 static var coupling_mesh: ArrayMesh
 static var coupling_finish: StandardMaterial3D
 static var coupling_status := "uninitialized"
 
 static func _prepare_coupling() -> void:
-	var files: Array = ["coupling.gltf", "coupling.bin"]
+	var files: Array = ["shaft-coupling/coupling.gltf", "shaft-coupling/coupling.bin"]
 	files.append_array(COUPLING_IMAGES.values())
 	var present := 0
 	for file_name: String in files:
@@ -38,7 +41,7 @@ static func _prepare_coupling() -> void:
 		return
 	var document := GLTFDocument.new()
 	var imported := GLTFState.new()
-	if document.append_from_file(COUPLING_ROOT.path_join("coupling.gltf"), imported) != OK:
+	if document.append_from_file(COUPLING_ROOT.path_join("shaft-coupling/coupling.gltf"), imported) != OK:
 		push_error("Cannot load the prepared shaft coupling.")
 		return
 	var sources := imported.get_meshes()
