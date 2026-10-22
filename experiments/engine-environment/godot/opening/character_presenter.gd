@@ -479,10 +479,11 @@ func _adult_hold_contact_toe(body: Node3D, skeleton: Skeleton3D,
 		foot_frame * _adult_joint_frame(body, skeleton, foot).inverse())
 
 func _adult_lift_landing_swing_toe(body: Node3D, skeleton: Skeleton3D,
-		progress: float, stride: float) -> void:
+		progress: float, stride: float, fast_handoff: float) -> void:
 	# Lift the trailing boot as the anchored leading leg takes the impact.
 	var lift := 0.12 * clampf(stride, 0.0, 1.0) * smoothstep(0.0, 0.35, progress) \
-		* (1.0 - smoothstep(0.70, 0.95, progress))
+		* (1.0 - smoothstep(lerpf(0.70, 0.50, fast_handoff),
+			lerpf(0.95, 0.80, fast_handoff), progress))
 	if lift <= 0.001:
 		return
 	skeleton.force_update_all_bone_transforms()
@@ -942,18 +943,19 @@ func _set_gait(body: Node3D, phase: float, weight: float,
 				var ordinary_hold := walk_hold * (1.0 - smoothstep(0.30, 0.75, landing_progress)) \
 					+ run_hold * (1.0 - smoothstep(0.35, 0.78, landing_progress))
 				var hold := lerpf(ordinary_hold,
-					1.0 - smoothstep(0.85, 0.98, landing_progress), fast_handoff)
+					1.0 - smoothstep(0.68, 0.98, landing_progress), fast_handoff)
 				# Lift the leading boot as its support fades so the recovery travels
 				# through the air instead of sliding along the ground at jog speed.
 				var toe_off_lift := lerpf(0.11, 0.07, run_hold) \
-					* smoothstep(lerpf(0.32, 0.85, fast_handoff),
-						lerpf(0.44, 0.92, fast_handoff), landing_progress) \
+					* smoothstep(lerpf(0.32, 0.68, fast_handoff),
+						lerpf(0.44, 0.88, fast_handoff), landing_progress) \
 					* (1.0 - smoothstep(0.82, 1.0, landing_progress))
 				if hold > 0.0 or toe_off_lift > 0.0:
 					_adult_hold_contact_toe(body, skeleton, landing_toe_anchor, hold, toe_off_lift)
 			if landing_toe_anchor is Vector3:
 				_adult_lift_landing_swing_toe(body, skeleton,
-					landing_progress, landing_stride)
+					landing_progress, landing_stride,
+					smoothstep(0.75, 0.95, run_mix))
 		return
 	for pair in [["Left", 0.0], ["Right", PI]]:
 		var prefix: String = pair[0]
@@ -1039,7 +1041,7 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 					# Resume the captured run with its next right support step
 					# arriving as the left landing boot releases the load.
 					previous.phase = float(previous.phase) + wrapf(
-						3.60 - fposmod(float(previous.phase), TAU), -PI, PI)
+						4.20 - fposmod(float(previous.phase), TAU), -PI, PI)
 		if mode == "landing":
 			previous.impact_age += delta
 			if float(previous.impact_age) >= LANDING_SECONDS:
@@ -1200,7 +1202,7 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 		_adult_hold_contact_toe(body, skeleton, contact_toe,
 			1.0)
 		_adult_lift_landing_swing_toe(body, skeleton, landing_progress,
-			presentation_stride)
+			presentation_stride, smoothstep(0.75, 0.95, float(previous.run_mix)))
 		motion[actor] = previous
 
 func _new_view(actor: String) -> Node3D:

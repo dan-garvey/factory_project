@@ -1154,13 +1154,19 @@ func run() -> void:
 		verify(run_early_grounded,
 			"A warmed running landing holds its leading toe through the first supported samples.")
 		var support_overlap := true
+		var maximum_lead_lift_step := 0.0
 		for index in range(21):
 			support_overlap = support_overlap and minf(float(run_contact.toes[index].y),
 				float(run_contact.trailing_toes[index].y)) < 0.055
+			if index >= 13 and index <= 18:
+				maximum_lead_lift_step = maxf(maximum_lead_lift_step,
+					float(run_contact.toes[index].y) - float(run_contact.toes[index - 1].y))
 		verify(support_overlap and float(run_contact.toes[16].y) > 0.06
 			and float(run_contact.trailing_toes[16].y) < 0.05
 			and float(run_contact.toes[18].y) > 0.15,
 			"The moving landing keeps one boot supported until the trailing boot catches the load and the lead boot lifts.")
+		verify(maximum_lead_lift_step < 0.075,
+			"The running lead toe lifts through supported recovery without a one-frame pop.")
 		var running_swing_clear := true
 		for sample in run_contact.trailing_toes.slice(3, 7):
 			running_swing_clear = running_swing_clear and float(sample.y) > 0.13
