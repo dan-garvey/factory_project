@@ -1833,6 +1833,14 @@ func check_wheel_supports() -> void:
 						var high := -INF
 						for corner in range(8):
 							high = maxf(high, (child.transform * child.mesh.get_aabb().get_endpoint(corner)).y)
+						var suffix := "N" if child.name.ends_with("N") else "P"
+						var bearing: MeshInstance3D = machine.get_node("AxleBearing" + suffix)
+						var bearing_low := INF
+						for corner in range(8):
+							bearing_low = minf(bearing_low,
+								(bearing.transform * bearing.mesh.get_aabb().get_endpoint(corner)).y)
+						verify(high >= bearing_low + 0.005 * scale_factor,
+							"Each fixed support seats into its bearing housing instead of ending below it.")
 						verify(high < rotor.position.y - journal.radius,
 							"The fixed stand stays below the journal's actual swept cylinder.")
 						if not shared_profile and axis_index == 0 and controls == 2:
@@ -5428,7 +5436,8 @@ func render_buildable_resources() -> void:
 		{"name": "paddle-small", "kind": "wheel", "tiles": 3, "paddle_cutaway": true, "cutaway": true},
 		{"name": "paddle-large", "kind": "wheel", "tiles": 8, "paddle_cutaway": true, "cutaway": true},
 		{"name": "foundation", "kind": "foundation"}, {"name": "foundation-patch", "kind": "foundation"},
-		{"name": "foundation-corner", "kind": "foundation"}]
+		{"name": "foundation-corner", "kind": "foundation"},
+		{"name": "workpiece-billet", "kind": "item"}, {"name": "stamped-plate", "kind": "item"}]
 	var selected_subject := OS.get_environment("FACTORY_RESOURCE_RENDER_SUBJECT")
 	if not selected_subject.is_empty():
 		var wanted := selected_subject.split(",")
@@ -5475,6 +5484,11 @@ func render_buildable_resources() -> void:
 		elif subject.kind == "cogwheel":
 			TransmissionAssets.gear(model, Geometry.PITCH / 2.0, 2, Color("687a7b"))
 			TransmissionAssets.shaft(model, Geometry.PITCH, Color("687a7b"))
+		elif subject.kind == "item":
+			if subject.name == "workpiece-billet":
+				Items.workpiece_billet(model)
+			else:
+				Items.stamped_plate(model)
 		elif subject.kind == "tool_cartridge":
 			var cartridge := MeshInstance3D.new()
 			cartridge.name = subject.name
@@ -5616,12 +5630,16 @@ func render_buildable_resources() -> void:
 				{"name": "back-face", "offset": Vector3(-4, -4, -3)},
 				{"name": "construction-front", "offset": Vector3(3, 3, 4), "perspective": true},
 				{"name": "construction-oblique", "offset": Vector3(-4, 3, -3), "perspective": true}]
+		elif subject.kind == "item":
+			directions = [{"name": "close", "offset": Vector3(3, 3, 4)},
+				{"name": "construction-distance", "offset": Vector3(3, 3, 4), "perspective": true}]
 		for direction in directions:
 			var direction_offset: Vector3 = direction.offset
 			var perspective: bool = direction.get("perspective", false)
 			camera.projection = Camera3D.PROJECTION_PERSPECTIVE if perspective else Camera3D.PROJECTION_ORTHOGONAL
 			camera.fov = 45.0
-			camera.position = centre + direction_offset.normalized() * (14.0 if perspective else diagonal * 2.0)
+			var distance := (3.0 if subject.kind == "item" else 14.0) if perspective else diagonal * 2.0
+			camera.position = centre + direction_offset.normalized() * distance
 			camera.look_at(centre, Vector3.UP)
 			var framed := true
 			for corner in range(8):
@@ -5685,8 +5703,9 @@ func render_buildable_resources() -> void:
 				"camera_position": [camera.position.x, camera.position.y, camera.position.z],
 				"camera_target": [centre.x, centre.y, centre.z], "orthographic_size": camera.size if not perspective else null,
 				"camera_projection": "perspective" if perspective else "orthographic",
-				"camera_distance": 14.0 if perspective else diagonal * 2.0, "camera_fov": camera.fov if perspective else null,
+				"camera_distance": distance, "camera_fov": camera.fov if perspective else null,
 				"qualified_worked_maps": Opening.ProductionTransmissionFinish.source_status,
+				"item_surface": "generic_grain_calibrated" if subject.kind == "item" else null,
 				"panorama_source": Opening.ProductionEnvironment.sky_source_status,
 				"required_sources": required_sources}
 			report.images.append(frame)

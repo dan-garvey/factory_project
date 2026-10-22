@@ -212,7 +212,7 @@ static func workpiece_billet(parent: Node3D, at: Vector3 = Vector3.ZERO) -> Node
 		_part(assembly, "TrayRail", Visuals.box_mesh(Vector3(0.028, 0.032, 0.32)),
 			Vector3(x_off, -0.034, 0.0), Color("52666b"), 0.80, 0.44)
 	_part(assembly, "BilletCore", Visuals.box_mesh(Vector3(0.18, 0.104, 0.29)),
-		Vector3(0.0, 0.002, 0.0), Color("d8b26e"), 0.86, 0.34)
+		Vector3(0.0, 0.002, 0.0), Color("bca17c"), 0.78, 0.44)
 	for side in [-1.0, 1.0]:
 		var z_off: float = float(side) * 0.085
 		_part(assembly, "IndexRib", Visuals.box_mesh(Vector3(0.196, 0.028, 0.038)),
@@ -229,7 +229,7 @@ static func stamped_plate(parent: Node3D, at: Vector3 = Vector3.ZERO) -> Node3D:
 	assembly.set_meta("item_kind", "stamped_plate")
 	parent.add_child(assembly)
 	_part(assembly, "PlateSheet", Visuals.box_mesh(Vector3(0.42, 0.032, 0.50)),
-		Vector3(0.0, -0.014, 0.0), Color("dce0d9"), 0.88, 0.28)
+		Vector3(0.0, -0.014, 0.0), Color("c5ceca"), 0.80, 0.39)
 	for side in [-1.0, 1.0]:
 		var x_off: float = float(side) * 0.155
 		var z_off: float = float(side) * 0.195
