@@ -75,6 +75,49 @@ bool unique_lot(const State& state, WorkId id) noexcept {
 
 }  // namespace
 
+const char* component_name(Component component) noexcept {
+    switch (component) {
+        case Component::wooden_frame: return "wooden_frame";
+        case Component::wooden_shaft: return "wooden_shaft";
+        case Component::wooden_cog: return "wooden_cog";
+        case Component::receiver_tray: return "receiver_tray";
+        case Component::tool_mount: return "tool_mount";
+        case Component::sliding_guide: return "sliding_guide";
+        case Component::cutting_edge: return "cutting_edge";
+        case Component::anvil: return "anvil";
+        case Component::ram_face: return "ram_face";
+        case Component::softmetal_shaft: return "softmetal_shaft";
+        case Component::softmetal_cog: return "softmetal_cog";
+    }
+    return "invalid_component";
+}
+
+std::optional<Component> component_from_name(const std::string& name) noexcept {
+    for (const auto component : {Component::wooden_frame, Component::wooden_shaft,
+             Component::wooden_cog, Component::receiver_tray, Component::tool_mount,
+             Component::sliding_guide, Component::cutting_edge, Component::anvil,
+             Component::ram_face, Component::softmetal_shaft, Component::softmetal_cog})
+        if (name == component_name(component)) return component;
+    return std::nullopt;
+}
+
+std::optional<ComponentCost> component_cost(Component component) noexcept {
+    switch (component) {
+        case Component::wooden_frame: return ComponentCost{3, 0};
+        case Component::wooden_shaft: return ComponentCost{1, 0};
+        case Component::wooden_cog: return ComponentCost{2, 0};
+        case Component::receiver_tray: return ComponentCost{2, 0};
+        case Component::tool_mount: return ComponentCost{1, 0};
+        case Component::sliding_guide: return ComponentCost{1, 0};
+        case Component::cutting_edge: return ComponentCost{0, 1};
+        case Component::anvil: return ComponentCost{0, 2};
+        case Component::ram_face: return ComponentCost{0, 2};
+        case Component::softmetal_shaft: return ComponentCost{0, 2};
+        case Component::softmetal_cog: return ComponentCost{0, 2};
+    }
+    return std::nullopt;
+}
+
 const char* error_name(Error error) noexcept {
     switch (error) {
         case Error::none: return "none";
@@ -88,6 +131,8 @@ const char* error_name(Error error) noexcept {
         case Error::unavailable_drop: return "unavailable_drop";
         case Error::unavailable_source: return "unavailable_source";
         case Error::inventory_full: return "inventory_full";
+        case Error::unavailable_recipe: return "unavailable_recipe";
+        case Error::unavailable_input: return "unavailable_input";
     }
     return "unknown_error";
 }
@@ -104,9 +149,9 @@ std::optional<BeltAdvance> advance_belt_lane(const BeltLane& lane, Quantity sign
     for (std::size_t index = 0; index < lane.slots.size(); ++index) {
         if (!lane.slots[index]) continue;
         const auto& item = *lane.slots[index];
-        const bool raw = item.timber == 0 && item.raw_units == 1 && item.products == 0 && item.work_lots.empty();
-        const bool product = item.timber == 0 && item.raw_units == 0 && item.products == 1 && item.work_lots.empty();
-        const bool work = item.timber == 0 && item.raw_units == 0 && item.products == 0 && item.work_lots.size() == 1;
+        const bool raw = item.components.empty() && item.timber == 0 && item.raw_units == 1 && item.products == 0 && item.work_lots.empty();
+        const bool product = item.components.empty() && item.timber == 0 && item.raw_units == 0 && item.products == 1 && item.work_lots.empty();
+        const bool work = item.components.empty() && item.timber == 0 && item.raw_units == 0 && item.products == 0 && item.work_lots.size() == 1;
         if (!raw && !product && !work) return std::nullopt;
         if (work) {
             const auto& lot = item.work_lots.front();
@@ -204,7 +249,8 @@ std::optional<BeltAdvance> advance_belt_lane_rate(const BeltLane& lane, Quantity
 Error validate(const State& state, const Config& config, const Path& path) noexcept {
     if (config.input_units_per_product < 1 || config.collector_capacity < 1 ||
         config.cycle_ticks < 1 || config.hand_carry_capacity < 1 ||
-        config.hand_carry_capacity > 1000000 || config.timber_sites.size() > 16)
+        config.hand_carry_capacity > 1000000 || config.component_capacity < 1 ||
+        config.component_capacity > 1000000 || config.timber_sites.size() > 16)
         return Error::invalid_configuration;
     if (config.manual_ore && (config.manual_ore->id.empty() ||
         config.timber_sites.contains(config.manual_ore->id))) return Error::invalid_configuration;
@@ -267,7 +313,7 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
         for (const auto coordinate : point)
             if (coordinate < -maximum_drop_coordinate || coordinate > maximum_drop_coordinate)
                 return Error::invalid_state;
-        if (cargo.raw_units < 0 || cargo.products < 0 || cargo.timber != 0 ||
+        if (cargo.raw_units < 0 || cargo.products < 0 || cargo.timber != 0 || !cargo.components.empty() ||
             (cargo.raw_units == 0 && cargo.products == 0 && cargo.work_lots.empty())) return Error::invalid_state;
         if (!add(total, cargo.raw_units) || !products(total, cargo.products, config.input_units_per_product))
             return Error::quantity_overflow;
@@ -288,9 +334,9 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
             return Error::invalid_state;
         for (const auto& item : lane.slots) {
             if (!item) continue;
-            const bool raw = item->timber == 0 && item->raw_units == 1 && item->products == 0 && item->work_lots.empty();
-            const bool product = item->timber == 0 && item->raw_units == 0 && item->products == 1 && item->work_lots.empty();
-            const bool work = item->timber == 0 && item->raw_units == 0 && item->products == 0 && item->work_lots.size() == 1;
+            const bool raw = item->components.empty() && item->timber == 0 && item->raw_units == 1 && item->products == 0 && item->work_lots.empty();
+            const bool product = item->components.empty() && item->timber == 0 && item->raw_units == 0 && item->products == 1 && item->work_lots.empty();
+            const bool work = item->components.empty() && item->timber == 0 && item->raw_units == 0 && item->products == 0 && item->work_lots.size() == 1;
             if (!raw && !product && !work) return Error::invalid_state;
             if (raw && !add(total, 1)) return Error::quantity_overflow;
             if (product && !add(total, config.input_units_per_product)) return Error::quantity_overflow;
@@ -304,6 +350,16 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
     for (const auto& [actor, cargo] : state.cargo) {
         if (actor.empty() || cargo.raw_units < 0 || cargo.products < 0 || cargo.timber < 0 ||
             !add(timber_accounted, cargo.timber)) return Error::invalid_state;
+        Quantity component_count = 0;
+        for (const auto& [kind, count] : cargo.components) {
+            const auto cost = component_cost(kind);
+            if (!cost || count < 1 || !add(component_count, count) ||
+                component_count > config.component_capacity ||
+                (cost->timber > 0 && !products(timber_accounted, count, cost->timber)) ||
+                (cost->ore > 0 && !products(total, count, cost->ore))) return Error::invalid_state;
+        }
+        if ((!config.manual_ore && config.timber_sites.empty()) && component_count != 0)
+            return Error::invalid_state;
         if (!add(total, cargo.raw_units) || !products(total, cargo.products, config.input_units_per_product)) {
             return Error::quantity_overflow;
         }
@@ -441,7 +497,12 @@ Error harvest_source(State& state, const Config& config, const Path& path,
     __extension__ using Wide = __int128;
     const Wide used = static_cast<Wide>(carried.raw_units) + carried.products +
         carried.timber + carried.work_lots.size();
-    if (used >= config.hand_carry_capacity) return Error::inventory_full;
+    Wide component_count = 0;
+    for (const auto& [kind, count] : carried.components) {
+        (void)kind;
+        component_count += count;
+    }
+    if (used + component_count >= config.hand_carry_capacity) return Error::inventory_full;
     auto next = state;
     if (ore) {
         --next.stock.source;
@@ -450,6 +511,32 @@ Error harvest_source(State& state, const Config& config, const Path& path,
         --next.timber_remaining.at(source_id);
         ++next.cargo.at(actor).timber;
     }
+    const auto output_error = validate(next, config, path);
+    if (output_error != Error::none) return output_error;
+    state = std::move(next);
+    return Error::none;
+}
+
+Error craft_component(State& state, const Config& config, const Path& path,
+                      const std::string& actor, Component component) {
+    const auto input_error = validate(state, config, path);
+    if (input_error != Error::none) return input_error;
+    if (actor.empty() || !state.cargo.contains(actor)) return Error::invalid_actor;
+    const auto cost = component_cost(component);
+    if (!cost || (!config.manual_ore && config.timber_sites.empty())) return Error::unavailable_recipe;
+    const auto& carried = state.cargo.at(actor);
+    if (carried.timber < cost->timber || carried.raw_units < cost->ore) return Error::unavailable_input;
+    Quantity count = 0;
+    for (const auto& [kind, amount] : carried.components) {
+        (void)kind;
+        if (!add(count, amount)) return Error::quantity_overflow;
+    }
+    if (count >= config.component_capacity) return Error::inventory_full;
+    auto next = state;
+    auto& output = next.cargo.at(actor);
+    output.timber -= cost->timber;
+    output.raw_units -= cost->ore;
+    ++output.components[component];
     const auto output_error = validate(next, config, path);
     if (output_error != Error::none) return output_error;
     state = std::move(next);

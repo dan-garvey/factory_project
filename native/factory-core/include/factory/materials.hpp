@@ -44,6 +44,33 @@ struct WorkLot {
     bool operator==(const WorkLot&) const = default;
 };
 
+// The initial chapter bill has no intermediate recipe inputs: every component
+// is made directly from carried timber or softmetal ore. These IDs are stable
+// within the experimental arrival checkpoint, not a final item catalogue.
+enum class Component {
+    wooden_frame,
+    wooden_shaft,
+    wooden_cog,
+    receiver_tray,
+    tool_mount,
+    sliding_guide,
+    cutting_edge,
+    anvil,
+    ram_face,
+    softmetal_shaft,
+    softmetal_cog,
+};
+
+struct ComponentCost {
+    Quantity timber{};
+    Quantity ore{};
+    bool operator==(const ComponentCost&) const = default;
+};
+
+[[nodiscard]] const char* component_name(Component component) noexcept;
+[[nodiscard]] std::optional<Component> component_from_name(const std::string& name) noexcept;
+[[nodiscard]] std::optional<ComponentCost> component_cost(Component component) noexcept;
+
 struct Cargo {
     Quantity raw_units{};
     Quantity products{};
@@ -51,6 +78,8 @@ struct Cargo {
     // Unshaped timber stays in the same authoritative actor cargo as ore.
     // Existing machine buffers and belts do not accept timber yet.
     Quantity timber{};
+    // Crafted parts remain in the same actor custody ledger as their inputs.
+    std::map<Component, Quantity> components;
     Cargo() = default;
     Cargo(Quantity raw, Quantity finished, std::vector<WorkLot> lots, Quantity wood = 0)
         : raw_units(raw), products(finished), work_lots(std::move(lots)), timber(wood) {}
@@ -106,6 +135,7 @@ struct Config {
     std::map<std::string, TimberSite> timber_sites;
     std::optional<OreSite> manual_ore;
     Quantity hand_carry_capacity{32};
+    Quantity component_capacity{24};
     Config() = default;
     Config(Quantity input, Quantity capacity, Quantity ticks)
         : input_units_per_product(input), collector_capacity(capacity), cycle_ticks(ticks) {}
@@ -182,6 +212,8 @@ enum class Error {
     unavailable_drop,
     unavailable_source,
     inventory_full,
+    unavailable_recipe,
+    unavailable_input,
 };
 
 [[nodiscard]] const char* error_name(Error error) noexcept;
@@ -211,6 +243,11 @@ enum class Error {
 // The existing ore source feeds both hand extraction and the collector.
 [[nodiscard]] Error harvest_source(State&, const Config&, const Path&,
                                    const std::string& actor, const std::string& source_id);
+
+// World authenticates the actor and admits local hub/tool reach before calling.
+// Each recipe consumes only raw carried inputs and credits one typed part.
+[[nodiscard]] Error craft_component(State&, const Config&, const Path&,
+                                    const std::string& actor, Component component);
 
 // Call only after the authoritative adapter has admitted this actor and reach
 // and has excluded a cached request. This function is not an admission API.

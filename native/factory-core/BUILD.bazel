@@ -75,3 +75,10 @@ cc_test(
     deps = [":material_state_codec"],
     size = "small",
 )
+
+cc_test(
+    name = "component_craft_test",
+    srcs = ["tests/component_craft_test.cpp"],
+    deps = [":material_state_codec"],
+    size = "small",
+)

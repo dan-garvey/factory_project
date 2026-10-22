@@ -112,20 +112,35 @@ Value encode_cargo(const Cargo& cargo, bool resources) {
     for (const auto& lot : cargo.work_lots) lots.push_back(encode_lot(lot));
     Object output{{"raw_units", Value(cargo.raw_units)},
         {"products", Value(cargo.products)}, {"work_lots", Value(std::move(lots))}};
-    if (resources) output.emplace("timber", Value(cargo.timber));
+    if (resources) {
+        output.emplace("timber", Value(cargo.timber));
+        Object components;
+        for (const auto& [kind, count] : cargo.components)
+            components.emplace(component_name(kind), Value(count));
+        output.emplace("components", Value(std::move(components)));
+    }
     return Value(std::move(output));
 }
 
 Cargo decode_cargo(const Value& value, const std::string& path, bool resources) {
     const auto& entries = resources ?
-        fields(value, path, {"raw_units", "products", "work_lots", "timber"}) :
+        fields(value, path, {"raw_units", "products", "work_lots", "timber", "components"}) :
         fields(value, path, {"raw_units", "products", "work_lots"});
     const auto& lots = entries.at("work_lots");
     if (lots.type() != Type::array) refuse(CodecReason::wrong_type, path + ".work_lots");
     Cargo cargo;
     cargo.raw_units = integer(entries.at("raw_units"), path + ".raw_units");
     cargo.products = integer(entries.at("products"), path + ".products");
-    if (resources) cargo.timber = integer(entries.at("timber"), path + ".timber");
+    if (resources) {
+        cargo.timber = integer(entries.at("timber"), path + ".timber");
+        const auto& components = object(entries.at("components"), path + ".components");
+        if (components.size() > 11) refuse(CodecReason::invalid_material_state, path + ".components");
+        for (const auto& [name, count] : components) {
+            const auto component = component_from_name(name);
+            if (!component) refuse(CodecReason::invalid_material_state, path + ".components." + name);
+            cargo.components.emplace(*component, integer(count, path + ".components." + name));
+        }
+    }
     const auto& array = std::get<Value::Array>(lots.storage());
     cargo.work_lots.reserve(array.size());
     for (std::size_t index = 0; index < array.size(); ++index)
@@ -171,7 +186,7 @@ MaterialEncoding encode_material_state(const State& state, const Config& config,
         }
         const auto& stock = state.stock;
         Object output{
-            {"schema", Value(Value::Integer{resources ? 7 : 6})},
+            {"schema", Value(Value::Integer{resources ? 8 : 6})},
             {"initial_units", Value(state.initial_units)},
             {"stock", Value(Object{
                 {"source", Value(stock.source)}, {"collector", Value(stock.collector)},
@@ -200,7 +215,7 @@ MaterialDecoding decode_material_state(const Value& value, const Config& config,
         const auto& root = resources ? fields(value, "$",
             {"schema", "initial_units", "stock", "cargo", "dropped_material", "belt_lanes", "processing", "next_work_id", "timber_remaining"}) :
             fields(value, "$", {"schema", "initial_units", "stock", "cargo", "dropped_material", "belt_lanes", "processing", "next_work_id"});
-        if (integer(root.at("schema"), "$.schema") != (resources ? 7 : 6))
+        if (integer(root.at("schema"), "$.schema") != (resources ? 8 : 6))
             refuse(CodecReason::unsupported_schema, "$.schema");
         const auto& stock = fields(root.at("stock"), "$.stock",
                                     {"source", "collector", "belt", "input", "output"});
@@ -235,7 +250,7 @@ MaterialDecoding decode_material_state(const Value& value, const Config& config,
                     lane.slots.emplace_back(std::nullopt);
                 } else {
                     const auto& item = resources ?
-                        fields(value_item, "$.belt_lanes.item", {"raw_units", "products", "work_lots", "timber"}) :
+                        fields(value_item, "$.belt_lanes.item", {"raw_units", "products", "work_lots", "timber", "components"}) :
                         fields(value_item, "$.belt_lanes.item", {"raw_units", "products", "work_lots"});
                     if (item.at("work_lots").type() != Type::array ||
                         std::get<Value::Array>(item.at("work_lots").storage()).size() > 1)
