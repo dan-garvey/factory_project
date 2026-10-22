@@ -299,11 +299,15 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
         }
         if (snapshot.state.landing_pod) {
             const auto& pod = *snapshot.state.landing_pod;
+            const auto& hub = *snapshot.state.fabrication_hub;
             auto root = std::get<Object>(output.storage());
             auto state = std::get<Object>(root.at("state").storage());
             state.emplace("landing_pod", Value(Object{{"id", Value(pod.id)},
                 {"center", Value(Array{Value(pod.center[0]), Value(pod.center[1]), Value(pod.center[2])})},
                 {"generation", Value(pod.generation)}}));
+            state.emplace("fabrication_hub", Value(Object{{"id", Value(hub.id)},
+                {"center", Value(Array{Value(hub.center[0]), Value(hub.center[1]), Value(hub.center[2])})},
+                {"generation", Value(hub.generation)}}));
             root.at("state") = Value(std::move(state));
             output = Value(std::move(root));
         }
@@ -327,7 +331,7 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
         candidate.history = std::move(*history.history);
         if (candidate.history.context != expected_context) refuse(CheckpointReason::wrong_context, "$.history.context");
         const auto& state = profile.landing_pod_center ? fields(root.at("state"), "$.state",
-            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "foundations", "foundation_kits", "landing_pod"}) :
+            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "foundations", "foundation_kits", "landing_pod", "fabrication_hub"}) :
             profile.foundation_parts > 0 ? fields(root.at("state"), "$.state",
             {"material", "topology", "kits", "issued_entities", "next_entity_serial", "foundations", "foundation_kits"}) :
             fields(root.at("state"), "$.state", {"material", "topology", "kits", "issued_entities", "next_entity_serial"});
@@ -340,6 +344,14 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
                  scalar<Integer>(center[1], "$.state.landing_pod.center"),
                  scalar<Integer>(center[2], "$.state.landing_pod.center")},
                 integer(pod, "generation", "$.state.landing_pod")};
+            const auto& hub = fields(state.at("fabrication_hub"), "$.state.fabrication_hub", {"id", "center", "generation"});
+            const auto& hub_center = array(hub.at("center"), "$.state.fabrication_hub.center", 3);
+            if (hub_center.size() != 3) refuse(CheckpointReason::invalid_world, "$.state.fabrication_hub.center");
+            candidate.state.fabrication_hub = FabricationHub{scalar<std::string>(hub.at("id"), "$.state.fabrication_hub.id"),
+                {scalar<Integer>(hub_center[0], "$.state.fabrication_hub.center"),
+                 scalar<Integer>(hub_center[1], "$.state.fabrication_hub.center"),
+                 scalar<Integer>(hub_center[2], "$.state.fabrication_hub.center")},
+                integer(hub, "generation", "$.state.fabrication_hub")};
         }
         if (profile.foundation_parts > 0) {
             const auto& foundations = object(state.at("foundations"), "$.state.foundations");

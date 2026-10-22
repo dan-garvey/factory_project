@@ -31,8 +31,9 @@ in this same material State. Hand mining ore and the collector debit that same
 source. Strict conservation rejects missing, duplicated or refilled tree stock
 on decode. Eleven provisional component recipes each consume only carried
 timber or ore and retain those ingredient weights in actor cargo and checkpoints.
-Crafting currently has no World/Host hub command, placement consumer or
-timber/component belt representation; those are separate integration slices.
+The experimental World/Host now admits crafting at one physically reached pod
+bench. Component placement and timber/component belt transport remain separate
+integration slices.
 
 This first profile still has one raw material, one product recipe, and one
 collector/belt/processor fixture. Config supplies recipe weight, cycle duration

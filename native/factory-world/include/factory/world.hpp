@@ -56,6 +56,15 @@ struct LandingPod {
     bool operator==(const LandingPod&) const = default;
 };
 
+struct FabricationHub {
+    std::string id;
+    mechanics::Point center{};
+    authority::Integer generation{};
+    bool operator==(const FabricationHub&) const = default;
+};
+
+[[nodiscard]] mechanics::Point landing_hub_center(const mechanics::Point& pod_center);
+
 struct State {
     materials::State material;
     stationary::Topology topology;
@@ -67,6 +76,7 @@ struct State {
     std::map<std::string, Foundation> foundations;
     std::map<std::string, authority::Integer> foundation_kits;
     std::optional<LandingPod> landing_pod;
+    std::optional<FabricationHub> fabrication_hub;
     bool operator==(const State&) const = default;
 };
 

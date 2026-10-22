@@ -277,6 +277,10 @@ bool historical_wire(const authority::Record& record) {
     if (*action == "harvest_source")
         return *original_action == "harvest_source" && keys(*wire, {"target"}) &&
             field<std::string>(*wire, "target") && same("target", "target");
+    if (*action == "craft_component")
+        return *original_action == "craft_component" && keys(*wire, {"entity", "component"}) &&
+            field<std::string>(*wire, "entity") && field<std::string>(*wire, "component") &&
+            same("entity", "target") && same("component", "component");
     if (*action == "place_foundations") {
         const auto* cell = field<Array>(*wire, "cell");
         const auto* end = field<Array>(*wire, "end_cell");
@@ -534,7 +538,13 @@ Value cargo_value(const materials::Cargo& cargo, bool resources = false) {
         {"work_remainder_denominator", Value(lot.work_remainder_denominator)}});
     Object output{{"raw", Value(cargo.raw_units)}, {"products", Value(cargo.products)},
                   {"work_lots", Value(std::move(lots))}};
-    if (resources) output.emplace("timber", Value(cargo.timber));
+    if (resources) {
+        output.emplace("timber", Value(cargo.timber));
+        Object components;
+        for (const auto& [kind, count] : cargo.components)
+            components.emplace(materials::component_name(kind), Value(count));
+        output.emplace("components", Value(std::move(components)));
+    }
     return Value(std::move(output));
 }
 
@@ -627,6 +637,8 @@ Value Host::initialize_site(const std::string& context, const std::vector<std::s
         const auto& center = *profile.landing_pod_center;
         seed.landing_pod = world::LandingPod{"landing-pod", center, 1};
         seed.issued_entities.emplace("landing-pod", 1);
+        seed.fabrication_hub = world::FabricationHub{"pod-fabrication-hub", world::landing_hub_center(center), 1};
+        seed.issued_entities.emplace(seed.fabrication_hub->id, 1);
         const auto deck = world::landing_deck_centers(center);
         for (std::size_t index = 0; index < deck.size(); ++index) {
             const auto id = "pod-floor-" + std::to_string(index);
@@ -1026,6 +1038,15 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         if (!keys(wire, {"target"}) || !field<std::string>(wire, "target")) return refuse("invalid_command");
         normalized.at("action") = Value("harvest_source");
         normalized.emplace("target", wire.at("target"));
+    } else if (*action == "craft_component") {
+        if (!keys(wire, {"entity", "component"}) || !field<std::string>(wire, "entity") ||
+            !field<std::string>(wire, "component")) return refuse("invalid_command");
+        normalized.at("action") = Value("craft_component");
+        normalized.emplace("target", wire.at("entity"));
+        normalized.emplace("generation", Value(snapshot.state.fabrication_hub &&
+            snapshot.state.fabrication_hub->id == *field<std::string>(wire, "entity") ?
+            snapshot.state.fabrication_hub->generation : Integer{0}));
+        normalized.emplace("component", wire.at("component"));
     } else if (*action == "pickup_material") {
         if (!keys(wire, {"center", "expected"}) || !field<Object>(wire, "expected")) return refuse("invalid_command");
         const auto* center = field<Array>(wire, "center");
@@ -1577,7 +1598,8 @@ Value Host::projection() const {
     Integer player = 0;
     for (const auto& [actor, contents] : state.material.cargo) {
         inventories.emplace(actor, Value(contents.products)); player += contents.products;
-        cargo.emplace(actor, cargo_value(contents, profile_.material.manual_ore.has_value()));
+        cargo.emplace(actor, cargo_value(contents,
+            profile_.material.manual_ore.has_value() || !profile_.material.timber_sites.empty()));
     }
     for (const auto& [actor, kit] : state.kits) {
         auto projected_kit = std::get<Object>(kit_value(kit).storage());
@@ -1659,7 +1681,15 @@ Value Host::projection() const {
             {"generation", Value(pod.generation)},
             {"center", Value(Array{Value(pod.center[0] / height_denominator),
                 Value(pod.center[1]), Value(pod.center[2] / height_denominator)})},
-            {"deployed", Value(true)}, {"hub_ready", Value(false)}}));
+            {"deployed", Value(true)}, {"hub_ready", Value(state.fabrication_hub.has_value())}}));
+        const auto& hub = *state.fabrication_hub;
+        projection.emplace("fabrication_hub", Value(Object{{"id", Value(hub.id)},
+            {"generation", Value(hub.generation)},
+            {"center", Value(Array{Value(hub.center[0] / height_denominator),
+                Value(hub.center[1]), Value(hub.center[2] / height_denominator)})},
+            {"position", Value(Array{Value(hub.center[0] * profile_.meters_per_grid_unit + profile_.anchor_offset[0]),
+                Value(hub.center[1] * profile_.meters_per_grid_unit + profile_.anchor_offset[1]),
+                Value(hub.center[2] * profile_.meters_per_grid_unit + profile_.anchor_offset[2])})}}));
     }
     if (profile_.material.manual_ore) {
         const auto site_position = [this](const materials::DropPoint& center) {

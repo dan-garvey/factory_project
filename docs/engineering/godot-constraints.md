@@ -1128,10 +1128,19 @@ checkpoint restore retained both balances. This establishes the site adapter
 and bridge path, not input, movement, rendering or human play. The live scene
 has no multitool input or harvestable tree/depletion presenter yet. The
 provisional anchors must be reconciled with visible trees before adoption.
-The next experimental material schema also records typed crafted components
-with their original timber or ore weights. A rebuilt 4.7.2 extension restored
-the same two-source checkpoint after this schema change; recipe crafting itself
-has only native core tests and no Host command or scene consumer yet.
+The experimental material schema also records typed crafted components with
+their original timber or ore weights. A rebuilt 4.7.2 extension restored the
+same two-source checkpoint after this schema change.
+The experimental Host now also seeds a distinct bench on the east pod deck
+tile. Native World/Host tests admit component crafting only at that bound
+actor's reach, retain its source debit and typed output through retry and
+checkpoint, and refuse removal of its supporting foundation. A rebuilt pinned
+4.7.2 extension on the emitted site let synthetic P cut a tree and shape a
+wooden shaft, refused Q's remote bench attempt, then let Q cut ore and shape a
+metal edge after moving its supplied pose to the deck; a fresh Host restored
+both components and source balances. This is an authority and extension
+boundary, not evidence of a visible bench or ordinary player crafting;
+the live scene still uses `initialize`.
 
 ## Required follow-through
 

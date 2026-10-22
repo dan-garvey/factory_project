@@ -12,14 +12,17 @@ Session facades and never instantiate a native World.
 
 `initialize_arrival(context, actors)` is an experimental native site seed for
 the redesigned opening. It creates one settled landing pod and nine ordinary
-foundations on the common quarter-tile grid, puts both actors on the deck, and
+foundations and one distinct fabrication hub on the common quarter-tile grid,
+puts both actors on the deck, and
 leaves fifteen of the original twenty-four foundation parts with P. Its
-projection includes `landing_pod` and the usual foundation records; the normal
+projection includes `landing_pod`, `fabrication_hub` and the usual foundation records; the normal
 checkpoint retains both. The existing scene still calls `initialize`. This
-slice has no pod presentation, crafting inventory, multitool or component
-recipes. It still seeds the older machine kits, so the scene should switch
-only with the linked arrival and fabrication work.
-The projected `hub_ready` value is false until a real crafting hub exists.
+slice has native actor component cargo and an actor-reachable `craft_component`
+command at the east deck bench. The command spends the actor's own raw stock,
+reports the typed component and survives retry and restore. It still has no
+pod or bench mesh, scene crafting controls, multitool input or placed-component
+consumer. Older complete-machine kits still seed, so the scene should switch
+only with the linked assembly and presentation work.
 The arrival profile additionally exposes `hand_sources`: three named
 eight-piece timber sites and one sixteen-unit ore deposit. `harvest_source`
 accepts a target identity only after the bound physical actor is ready and

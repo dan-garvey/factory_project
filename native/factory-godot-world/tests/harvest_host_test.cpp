@@ -25,6 +25,12 @@ O cut(const char* client, const char* request, const char* target) {
         {"action", V("harvest_source")}, {"target", V(target)}};
 }
 
+O craft(const char* client, const char* request, const char* component) {
+    return {{"context", V("harvest-site")}, {"client", V(client)}, {"request", V(request)},
+        {"action", V("craft_component")}, {"entity", V("pod-fabrication-hub")},
+        {"component", V(component)}};
+}
+
 void shared_harvest() {
     Host host;
     check(get<bool>(host.initialize_arrival("harvest-site", {"P", "Q"}), "accepted") &&
@@ -57,6 +63,28 @@ void shared_harvest() {
           get<I>(get<O>(host.projection(), "hand_sources").at("opening-softmetal"), "remaining") == 15 &&
           get<I>(get<O>(host.projection(), "cargo").at("Q"), "raw") == 1,
           "Manual ore mining debits the same source that feeds a future collector.");
+    const auto bench = get<O>(host.projection(), "fabrication_hub");
+    check(get<std::string>(V(bench), "id") == "pod-fabrication-hub" &&
+          get<I>(V(bench), "generation") == 1,
+          "One native bench identity is shared by both actors.");
+    const auto first_part = craft("P", "wooden-shaft", "wooden_shaft");
+    check(get<bool>(host.command("P", first_part), "accepted") &&
+          get<I>(V(get<O>(get<O>(host.projection(), "cargo").at("P"), "components")), "wooden_shaft") == 1 &&
+          get<I>(get<O>(host.projection(), "cargo").at("P"), "timber") == 0,
+          "P shapes its own harvested timber into one typed shaft at the local bench.");
+    const auto after_part = host.checkpoint();
+    check(get<bool>(host.command("P", first_part), "duplicate") &&
+          !factory::values::typed_difference(after_part, host.checkpoint()),
+          "A cached craft wire cannot spend timber or add a second shaft.");
+    const auto remote = host.command("Q", craft("Q", "remote-edge", "cutting_edge"));
+    check(!get<bool>(remote, "accepted") && get<std::string>(remote, "reason") == "out_of_reach" &&
+          get<I>(get<O>(host.projection(), "cargo").at("Q"), "raw") == 1,
+          "Ore-side Q cannot use the bench at a distance.");
+    check(get<bool>(host.publish_actor("Q", {V(1.65), V(1.0), V(6.6)}, 3), "accepted") &&
+          get<bool>(host.command("Q", craft("Q", "near-edge", "cutting_edge")), "accepted") &&
+          get<I>(V(get<O>(get<O>(host.projection(), "cargo").at("Q"), "components")), "cutting_edge") == 1 &&
+          get<I>(get<O>(host.projection(), "cargo").at("Q"), "raw") == 0,
+          "Q's own ore becomes one metal cutting edge after physically reaching the hub.");
     const auto saved = host.checkpoint();
     check(get<bool>(host.validate_checkpoint(saved), "accepted"),
           "The real Host checkpoint validates tree and ore custody.");
