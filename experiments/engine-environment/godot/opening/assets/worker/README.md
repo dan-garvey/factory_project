@@ -93,7 +93,14 @@ forward for balance; the amount follows confirmed landing speed, so a
 stationary landing remains symmetric. The airborne pose fades through this recovery
 instead of disappearing in four frames. The lower of the two posed toes anchors
 the visual body to the confirmed support height during landing; the physical
-actor root stays unchanged. These poses
+actor root stays unchanged. On a moving landing, the leading boot also retains
+its first supported world position during the initial load. A two-bone visual
+leg correction keeps the knee forward, preserves leg lengths and foot facing,
+and releases the boot as the step rolls into walking or running. The running
+release starts earlier because the actor travels farther during the same
+contact interval. This is a presentation anchor, not physical foot contact;
+the support height still comes from the confirmed actor and can differ from
+the rendered terrain on a slope. These poses
 evolve with observed vertical speed rather than holding one shape throughout
 flight. A confirmed teleport, world
 change or unready actor discards its motion history. Because the shared
@@ -116,6 +123,7 @@ forward knee bending, mid-swing knee flex, planted toe height and horizontal sta
 opposing running hands, relaxed walking elbows and bounded lateral carriage,
 loose grounded fingers that release during flight,
 opposite-arm balance at moving contact,
+early walking and running landing boot placement with exact actor roots and no input,
 skinned dimensions,
 ascent, descent, leading-toe continuity, staged landing contact and skinned support height, per-player
 isolation, projection

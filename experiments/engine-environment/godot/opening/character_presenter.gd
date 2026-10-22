@@ -424,6 +424,45 @@ func _adult_correct_grounded_knees(body: Node3D, skeleton: Skeleton3D) -> void:
 		var foot_turn := old_foot_frame * _adult_joint_frame(body, skeleton, foot).inverse()
 		_adult_turn_joint(body, skeleton, foot, foot_turn)
 
+func _adult_hold_landing_toe(body: Node3D, skeleton: Skeleton3D,
+		anchor: Vector3, influence: float) -> void:
+	# Place only the visual leading boot at its first contact point. The hip,
+	# knee and ankle retain their lengths; the native actor never moves.
+	var thigh := skeleton.find_bone("Bip01 L Thigh")
+	var calf := skeleton.find_bone("Bip01 L Calf")
+	var foot := skeleton.find_bone("Bip01 L Foot")
+	var toe := skeleton.find_bone("Bip01 L Toe0")
+	skeleton.force_update_all_bone_transforms()
+	var hip_at := _adult_joint(body, skeleton, thigh)
+	var knee_at := _adult_joint(body, skeleton, calf)
+	var ankle_at := _adult_joint(body, skeleton, foot)
+	var toe_at := _adult_joint(body, skeleton, toe)
+	var foot_frame := _adult_joint_frame(body, skeleton, foot)
+	var upper := hip_at.distance_to(knee_at)
+	var lower := knee_at.distance_to(ankle_at)
+	var target_ankle := ankle_at + (body.to_local(anchor) - toe_at) * influence
+	var reach := target_ankle - hip_at
+	var distance := reach.length()
+	if distance < 0.01:
+		return
+	var along := reach / distance
+	distance = clampf(distance, absf(upper - lower) + 0.005, upper + lower - 0.005)
+	target_ankle = hip_at + along * distance
+	var forward := (Vector3.BACK - along * along.dot(Vector3.BACK)).normalized()
+	var advance := (upper * upper - lower * lower + distance * distance) / (2.0 * distance)
+	var height := sqrt(maxf(0.0, upper * upper - advance * advance))
+	var target_knee := hip_at + along * advance + forward * height
+	_adult_turn_joint(body, skeleton, thigh,
+		Quaternion((knee_at - hip_at).normalized(), (target_knee - hip_at).normalized()))
+	skeleton.force_update_all_bone_transforms()
+	var new_knee := _adult_joint(body, skeleton, calf)
+	var new_ankle := _adult_joint(body, skeleton, foot)
+	_adult_turn_joint(body, skeleton, calf,
+		Quaternion((new_ankle - new_knee).normalized(), (target_ankle - new_knee).normalized()))
+	skeleton.force_update_all_bone_transforms()
+	_adult_turn_joint(body, skeleton, foot,
+		foot_frame * _adult_joint_frame(body, skeleton, foot).inverse())
+
 func _adult_clip_bindings(skeleton: Skeleton3D, clip: Animation) -> Dictionary:
 	var result := {"bindings": [], "root_track": -1, "root_reference": Vector3.ZERO}
 	for track in range(clip.get_track_count()):
@@ -773,7 +812,8 @@ func _make_worker_visual() -> Node3D:
 func _set_gait(body: Node3D, phase: float, weight: float,
 		air: float = 0.0, vertical_speed: float = 0.0, impact: float = 0.0,
 		run_mix: float = 1.0, landing_progress: float = 1.0,
-		landing_stride: float = 1.0, landing_approach: float = 0.0) -> void:
+		landing_stride: float = 1.0, landing_approach: float = 0.0,
+		landing_toe_anchor: Variant = null) -> void:
 	if body.get_meta("appearance_unavailable", false):
 		return
 	if body.get_meta("sourced_character", false):
@@ -789,6 +829,13 @@ func _set_gait(body: Node3D, phase: float, weight: float,
 			# against it while the bent legs absorb and release the load.
 			var contact_y := -Geometry.CAPSULE_HEIGHT / 2.0 + 0.01 - minf(left_toe.y, right_toe.y)
 			body.position.y = lerpf(body.position.y, contact_y, clampf(impact * 8.0, 0.0, 1.0))
+			if landing_toe_anchor is Vector3:
+				var walk_hold := 1.0 - smoothstep(0.20, 0.90, run_mix)
+				var run_hold := smoothstep(0.75, 1.0, run_mix)
+				var hold := walk_hold * (1.0 - smoothstep(0.30, 0.75, landing_progress)) \
+					+ run_hold * (1.0 - smoothstep(0.35, 0.78, landing_progress))
+				if hold > 0.0:
+					_adult_hold_landing_toe(body, skeleton, landing_toe_anchor, hold)
 		return
 	for pair in [["Left", 0.0], ["Right", PI]]:
 		var prefix: String = pair[0]
@@ -821,6 +868,7 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 		sample_elapsed if native_epoch >= 0 else delta, 0.0001)
 	previous.sample_elapsed = sample_elapsed if repeated_sample else 0.0
 	previous.native_epoch = native_epoch
+	var new_landing := false
 	if horizontal.length() > DISCONTINUITY_HORIZONTAL or absf(displacement.y) > DISCONTINUITY_VERTICAL:
 		previous = {"position": at, "phase": 0.0, "weight": 0.0, "age": 1.0,
 			"mode": "grounded", "ground_y": at.y, "peak_y": at.y,
@@ -852,6 +900,7 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 					and displacement.y < 0.0 or absf(displacement.y) < 0.002
 					and float(previous.peak_y) - at.y > 0.10):
 				mode = "landing"
+				new_landing = true
 				previous.landing_air = float(previous.air)
 				previous.impact_age = 0.0
 				previous.ground_y = at.y
@@ -864,6 +913,8 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 			if float(previous.impact_age) >= LANDING_SECONDS:
 				mode = "grounded"
 		previous.mode = mode
+		if mode != "landing":
+			previous.erase("landing_toe_anchor")
 		if mode == "landing":
 			# Keep the pre-contact extension long enough for the leading leg to
 			# carry the first load; shed it through the recovery, not in four frames.
@@ -936,7 +987,19 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 			maxf(0.0, at.y - float(previous.ground_y)))
 	_set_gait(body, float(previous.phase), float(previous.weight), float(previous.air),
 		float(previous.vertical_speed), impact, float(previous.run_mix), landing_progress,
-		presentation_stride, landing_approach)
+		presentation_stride, landing_approach,
+		previous.get("landing_toe_anchor") if previous.mode == "landing" else null)
+	if new_landing and presentation_stride > 0.1 and body.get_meta("sourced_character", false):
+		var skeleton: Skeleton3D = body.get_node(body.get_meta("skeleton_path"))
+		skeleton.force_update_all_bone_transforms()
+		var contact_toe := body.to_global(_adult_joint(body, skeleton,
+			skeleton.find_bone("Bip01 L Toe0")))
+		contact_toe.y = at.y - Geometry.CAPSULE_HEIGHT / 2.0 + 0.01
+		previous.landing_toe_anchor = contact_toe
+		_adult_hold_landing_toe(body, skeleton, contact_toe,
+			1.0 - smoothstep(0.20, 0.90, float(previous.run_mix))
+			+ smoothstep(0.75, 1.0, float(previous.run_mix)))
+		motion[actor] = previous
 
 func _new_view(actor: String) -> Node3D:
 	var root := Node3D.new()
