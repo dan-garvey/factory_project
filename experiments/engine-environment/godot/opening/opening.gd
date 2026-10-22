@@ -5721,24 +5721,26 @@ func _collector_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 				_machine_box(anchor, "SourceLiftFlight%d" % index,
 					flight.center - anchor.position, flight.size, steel, 0.78, 0.42)
 			var start := Vector3(carrier_at.x + 0.03, head_at.y, carrier_at.z)
-			var finish := Vector3(-0.18, head_at.y, 0)
+			var finish := Vector3(0.48, 1.28, 0.28)
 			var delta := finish - start
 			var discharge := _machine_box(anchor, "SourceLiftDischarge", (start + finish) * 0.5,
-				Vector3(delta.length(), 0.055, 0.17), steel, 0.83, 0.43)
-			discharge.rotation.y = -atan2(delta.z, delta.x)
+				Vector3(delta.length(), 0.07, 0.24), Color("b18a43"), 0.78, 0.46)
+			discharge.basis = Basis(Quaternion(Vector3.RIGHT, delta.normalized()))
 			var cross := Vector3(-delta.z, 0, delta.x).normalized()
 			for side in [-1.0, 1.0]:
 				var guard := _machine_box(anchor, "SourceLiftHeadGuardLeft" if side < 0.0 else "SourceLiftHeadGuardRight",
 					(start + finish) * 0.5 +
-					Vector3(0, 0.09, 0) + cross * side * 0.075,
-					Vector3(delta.length(), 0.12, 0.025), Color("b18a43"), 0.8, 0.42)
-				guard.rotation.y = discharge.rotation.y
-			var drop_start := Vector3(-0.23, head_at.y, 0)
-			var stock_entry := Vector3(0.18, 0.65, 0.30)
+					Vector3(0, 0.10, 0) + cross * side * 0.12,
+					Vector3(delta.length(), 0.16, 0.03), frame, 0.8, 0.42)
+				guard.basis = discharge.basis
+			_machine_box(anchor, "SourceLiftTransferHopper", finish + Vector3(0.03, -0.10, 0),
+				Vector3(0.33, 0.20, 0.36), frame, 0.78, 0.48)
+			var drop_start := finish + Vector3(0.03, -0.12, 0)
+			var stock_entry := Vector3(0.46, 0.65, 0.28)
 			var drop_delta := stock_entry - drop_start
 			var downspout := _machine_box(anchor, "SourceLiftDownspout",
 				(drop_start + stock_entry) * 0.5,
-				Vector3(drop_delta.length(), 0.13, 0.15), steel, 0.83, 0.40)
+				Vector3(drop_delta.length(), 0.17, 0.18), steel, 0.83, 0.40)
 			downspout.basis = Basis(Quaternion(Vector3.RIGHT, drop_delta.normalized()))
 	if not (_native_transmission() and ProductionCollectorFeedArt.mount(anchor, frame)):
 		for z in [-0.37, 0.37]:
