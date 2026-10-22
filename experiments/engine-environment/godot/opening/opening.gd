@@ -257,6 +257,17 @@ class ProductionVisuals:
 			meshes["fastener/hex"] = head
 		return meshes["fastener/hex"]
 
+	static func cylinder_mesh(radius: float, height: float, segments: int = 48) -> CylinderMesh:
+		var key := ["machine/cylinder", radius, height, segments]
+		if not meshes.has(key):
+			var result := CylinderMesh.new()
+			result.top_radius = radius
+			result.bottom_radius = radius
+			result.height = height
+			result.radial_segments = segments
+			meshes[key] = result
+		return meshes[key]
+
 class ProductionTransmissionFinish:
 	extends RefCounted
 	## Shared surface presentation. Native dimensions and motion never read maps.
@@ -1374,6 +1385,7 @@ class ProductionConveyorArt:
 	const SOURCE_METRES := 0.75
 	static var loop_meshes: Dictionary = {}
 	static var finish: StandardMaterial3D
+	static var batch_finish: ShaderMaterial
 	static var source_status := "uninitialized"
 
 	static func read_images(directory: String = ROOT) -> Dictionary:
@@ -1492,6 +1504,36 @@ class ProductionConveyorArt:
 		belt.material_override = source.duplicate() if source != null else null
 		belt.set_meta("detail_role", "ConveyorLoop")
 		parent.add_child(belt)
+
+	static func multimesh_material() -> ShaderMaterial:
+		if batch_finish != null:
+			return batch_finish
+		var source := material()
+		if source == null or source_status != "ready":
+			return null
+		var shader := Shader.new()
+		shader.code = """
+shader_type spatial;
+render_mode diffuse_burley, specular_schlick_ggx;
+uniform sampler2D albedo_map : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D roughness_map : filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D normal_map : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
+void vertex() {
+	UV.x += INSTANCE_CUSTOM.r;
+}
+void fragment() {
+	ALBEDO = texture(albedo_map, UV).rgb;
+	METALLIC = 0.0;
+	ROUGHNESS = texture(roughness_map, UV).r;
+	NORMAL_MAP = texture(normal_map, UV).rgb;
+}
+"""
+		batch_finish = ShaderMaterial.new()
+		batch_finish.shader = shader
+		batch_finish.set_shader_parameter("albedo_map", source.albedo_texture)
+		batch_finish.set_shader_parameter("roughness_map", source.roughness_texture)
+		batch_finish.set_shader_parameter("normal_map", source.normal_texture)
+		return batch_finish
 
 class ProductionConveyorFrameArt:
 	extends RefCounted
@@ -4200,6 +4242,11 @@ var placement_target_label: Label3D
 var machine_preview: Node3D
 var machine_preview_key := ""
 var machine_preview_material: StandardMaterial3D
+var machine_dynamic_batches: Array[Dictionary] = []
+var machine_conveyor_batches: Array[Dictionary] = []
+var machine_rotors: Array[Dictionary] = []
+var machine_batch_finished_meshes: Dictionary = {}
+var machine_batch_rotor_meshes: Dictionary = {}
 var wheel_rotor: Node3D
 var machine_body_context := ""
 var machine_press_poses: Dictionary = {}
@@ -4274,6 +4321,8 @@ func _ready() -> void:
 	_build_world()
 	_build_interface()
 	_refresh()
+	if _native_transmission():
+		_prime_machine_visuals()
 	if _native_transmission():
 		_message(FIRST_COLLECTOR_HINT)
 	else:
@@ -4865,15 +4914,11 @@ func _animate_wheel(delta: float) -> void:
 		if transmission_presenter == null:
 			return
 		transmission_presenter.advance_visual_motion(delta)
-		if wheel_rotor != null:
-			for id: String in state.get("entities", {}):
-				if state.entities[id].kind != "wheel":
-					continue
-				if not wheel_rotor.has_meta("visual_base_basis"):
-					wheel_rotor.set_meta("visual_base_basis", wheel_rotor.basis)
-				var base: Basis = wheel_rotor.get_meta("visual_base_basis")
-				wheel_rotor.basis = base * Basis(Vector3.BACK, transmission_presenter.visual_angle(id))
+		for wheel in machine_rotors:
+			wheel.rotor.basis = wheel.base * Basis(Vector3.BACK,
+				transmission_presenter.visual_angle(wheel.id))
 		_animate_machine_bodies(delta)
+		_update_machine_dynamic_batches()
 		return
 	# Historical scripted presentation remains separate. Native cosmetic
 	# angles above are neither a simulation clock nor saved/contact phase.
@@ -5603,11 +5648,13 @@ func _machine_box(parent: Node3D, part_name: String, at: Vector3, dimensions: Ve
 
 func _machine_cylinder(parent: Node3D, part_name: String, at: Vector3, radius: float,
 		height: float, color: Color, orientation: Vector3 = Vector3.ZERO) -> MeshInstance3D:
-	var part := _cylinder(parent, at, radius, height, color)
+	var part := MeshInstance3D.new()
 	part.name = part_name
+	part.position = at
 	part.rotation = orientation
-	(part.mesh as CylinderMesh).radial_segments = 48
+	part.mesh = ProductionVisuals.cylinder_mesh(radius, height)
 	part.material_override = ProductionVisuals.material(color, 0.85, 0.4)
+	parent.add_child(part)
 	return part
 
 func _machine_axis(entity: Dictionary) -> Vector3:
@@ -5915,6 +5962,7 @@ func _wheel_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 		wheel_rotor.rotation.x = -PI / 2
 	anchor.add_child(wheel_rotor)
 	var sourced := ProductionWheelArt.mount(wheel_rotor, int(entity.get("tiles", 3)) if native_profile else 3)
+	wheel_rotor.set_meta("visual_batch_key", [native_profile, int(entity.get("tiles", 3)), sourced])
 	if not sourced:
 		var rim_profile := PackedVector2Array([
 			Vector2(0.51, -0.022), Vector2(0.518, -0.03), Vector2(0.582, -0.03),
@@ -5998,8 +6046,244 @@ func _assemble_machine(anchor: Node3D, entity: Dictionary, rotated := false) -> 
 	if not water_wheel:
 		_machine_surface_detail(anchor, entity.kind)
 
+func _prime_machine_visuals() -> void:
+	# Build once during opening setup so the first tool selection can reuse
+	# imported textures, procedural meshes, and their Godot render resources.
+	var previous_rotor := wheel_rotor
+	for kind in ["collector", "belt", "processor", "wheel"]:
+		var anchor := Node3D.new()
+		var cell := [0, 1] if kind == "collector" else [1, 2]
+		anchor.position = _cell_position(cell)
+		_assemble_machine(anchor, {"kind": kind, "axis": 0, "tiles": 3,
+			"rotation": 0, "cell": cell, "level": 0})
+		anchor.free()
+	wheel_rotor = previous_rotor
+
+const MACHINE_BATCH_THRESHOLD := 12
+
+func _machine_batch_surface_mesh(part: MeshInstance3D) -> Mesh:
+	var source: Mesh = part.mesh
+	var finishes: Array = []
+	var finish_ids: Array[int] = []
+	var has_overrides := false
+	for surface in source.get_surface_count():
+		var finish: Material = part.get_surface_override_material(surface)
+		has_overrides = has_overrides or finish != null
+		if finish == null:
+			finish = source.surface_get_material(surface)
+		finishes.append(finish)
+		finish_ids.append(finish.get_instance_id() if finish != null else 0)
+	if not has_overrides:
+		return source
+	var key := [source.get_instance_id(), finish_ids]
+	if machine_batch_finished_meshes.has(key):
+		return machine_batch_finished_meshes[key]
+	var result := ArrayMesh.new()
+	for surface in source.get_surface_count():
+		result.add_surface_from_arrays(source.surface_get_primitive_type(surface),
+			source.surface_get_arrays(surface))
+		result.surface_set_material(surface, finishes[surface])
+	machine_batch_finished_meshes[key] = result
+	return result
+
+func _collect_wheel_rotor_parts(node: Node3D, pose: Transform3D, parts: Array[Dictionary]) -> bool:
+	for child in node.get_children():
+		if not child is Node3D or not child.visible:
+			continue
+		var child_pose: Transform3D = pose * (child as Node3D).transform
+		if child is MeshInstance3D:
+			var part := child as MeshInstance3D
+			if part.mesh == null or part.material_overlay != null:
+				return false
+			for surface in part.mesh.get_surface_count():
+				var finish: Material = part.material_override
+				if finish == null:
+					finish = part.get_surface_override_material(surface)
+				if finish == null:
+					finish = part.mesh.surface_get_material(surface)
+				if finish is BaseMaterial3D and finish.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED:
+					return false
+				if part.mesh is ArrayMesh and part.mesh.surface_get_primitive_type(surface) != Mesh.PRIMITIVE_TRIANGLES:
+					return false
+				parts.append({"mesh": part.mesh, "surface": surface, "finish": finish,
+					"pose": child_pose, "shadow": part.cast_shadow, "layers": part.layers})
+		if not _collect_wheel_rotor_parts(child, child_pose, parts):
+			return false
+	return true
+
+func _wheel_rotor_batch_mesh(rotor: Node3D) -> Mesh:
+	var key: Array = rotor.get_meta("visual_batch_key", [])
+	if machine_batch_rotor_meshes.has(key):
+		return machine_batch_rotor_meshes[key]
+	var parts: Array[Dictionary] = []
+	if not _collect_wheel_rotor_parts(rotor, Transform3D.IDENTITY, parts) or parts.is_empty():
+		return null
+	var groups := {}
+	var shadow: int = parts[0].shadow
+	var layers: int = parts[0].layers
+	for part in parts:
+		if part.shadow != shadow or part.layers != layers:
+			return null
+		var finish: Material = part.finish
+		var finish_id := finish.get_instance_id() if finish != null else 0
+		if not groups.has(finish_id):
+			groups[finish_id] = {"finish": finish, "parts": []}
+		groups[finish_id].parts.append(part)
+	var combined: ArrayMesh
+	for group in groups.values():
+		var surface := SurfaceTool.new()
+		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+		for part in group.parts:
+			surface.append_from(part.mesh, part.surface, part.pose)
+		surface.set_material(group.finish)
+		combined = surface.commit(combined)
+	machine_batch_rotor_meshes[key] = combined
+	return combined
+
+func _batch_machine_visuals_walk(node: Node3D, pose: Transform3D,
+		moving: Dictionary, static_groups: Dictionary, dynamic_groups: Dictionary,
+		rotating := false) -> void:
+	if not node.visible:
+		return
+	var next_pose := pose * node.transform
+	var in_rotor: bool = rotating or node.name == "WheelRotor"
+	if node.name == "WheelRotor":
+		var combined := _wheel_rotor_batch_mesh(node)
+		if combined != null:
+			var key := [combined.get_instance_id(), 0, GeometryInstance3D.SHADOW_CASTING_SETTING_ON, 1]
+			if not dynamic_groups.has(key):
+				dynamic_groups[key] = {"mesh": combined, "material": null,
+					"shadow": GeometryInstance3D.SHADOW_CASTING_SETTING_ON, "layers": 1, "parts": []}
+			dynamic_groups[key].parts.append({"node": node, "pose": next_pose})
+			return
+	if node is MeshInstance3D and node.mesh != null and node.name != "ConveyorLoop":
+		var mesh_part := node as MeshInstance3D
+		var material := mesh_part.material_override
+		var overrides := mesh_part.material_overlay != null
+		for surface in mesh_part.mesh.get_surface_count():
+			var finish := mesh_part.get_surface_override_material(surface)
+			if finish is BaseMaterial3D:
+				overrides = overrides or finish.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED
+		if material is BaseMaterial3D:
+			overrides = overrides or material.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED
+		if not overrides:
+			var dynamic: bool = in_rotor or moving.has(node.get_instance_id())
+			var groups: Dictionary = dynamic_groups if dynamic else static_groups
+			var batch_mesh: Mesh = _machine_batch_surface_mesh(mesh_part)
+			var key := [batch_mesh.get_instance_id(), material.get_instance_id() if material != null else 0,
+				mesh_part.cast_shadow, mesh_part.layers]
+			if not groups.has(key):
+				groups[key] = {"mesh": batch_mesh, "material": material,
+					"shadow": mesh_part.cast_shadow, "layers": mesh_part.layers, "parts": []}
+			groups[key].parts.append({"node": mesh_part, "pose": next_pose})
+	for child in node.get_children():
+		if child is Node3D:
+			_batch_machine_visuals_walk(child, next_pose, moving, static_groups, dynamic_groups, in_rotor)
+
+func _emit_machine_mesh_batches(groups: Dictionary, batches: Node3D, dynamic: bool) -> void:
+	var batch_index := batches.get_child_count()
+	for group in groups.values():
+		if group.parts.size() < 2:
+			continue
+		var multi := MultiMesh.new()
+		multi.transform_format = MultiMesh.TRANSFORM_3D
+		multi.mesh = group.mesh
+		multi.instance_count = group.parts.size()
+		var bounds: AABB = group.parts[0].pose * group.mesh.get_aabb()
+		var motion_margin := bounds.size.length()
+		for index in group.parts.size():
+			multi.set_instance_transform(index, group.parts[index].pose)
+			var part_bounds: AABB = group.parts[index].pose * group.mesh.get_aabb()
+			bounds = bounds.merge(part_bounds)
+			motion_margin = maxf(motion_margin, part_bounds.size.length())
+			group.parts[index].node.visible = false
+		multi.custom_aabb = bounds.grow(maxf(6.0, motion_margin)) if dynamic else bounds
+		var instance := MultiMeshInstance3D.new()
+		instance.name = "MachineBatch%d" % batch_index
+		instance.multimesh = multi
+		instance.material_override = group.material
+		instance.cast_shadow = group.shadow
+		instance.layers = group.layers
+		batches.add_child(instance)
+		if dynamic:
+			machine_dynamic_batches.append({"mesh": multi, "parts": group.parts})
+		batch_index += 1
+
+func _update_machine_dynamic_batches() -> void:
+	if machine_dynamic_batches.is_empty() and machine_conveyor_batches.is_empty():
+		return
+	var to_local := machine_root.global_transform.affine_inverse()
+	for group in machine_dynamic_batches:
+		var mesh: MultiMesh = group.mesh
+		for index in group.parts.size():
+			mesh.set_instance_transform(index, to_local * group.parts[index].node.global_transform)
+	for group in machine_conveyor_batches:
+		var mesh: MultiMesh = group.mesh
+		for index in group.parts.size():
+			var loop: MeshInstance3D = group.parts[index]
+			mesh.set_instance_custom_data(index, Color(loop.material_override.uv1_offset.x, 0, 0))
+
+func _batch_conveyor_loops(batches: Node3D) -> void:
+	var loops: Array[MeshInstance3D] = []
+	for part in machine_root.find_children("ConveyorLoop", "MeshInstance3D", true, false):
+		if part.is_visible_in_tree() and part.mesh != null and part.material_override is StandardMaterial3D:
+			loops.append(part)
+	if loops.size() < MACHINE_BATCH_THRESHOLD:
+		return
+	for loop in loops:
+		if loop.mesh != loops[0].mesh or loop.cast_shadow != loops[0].cast_shadow or loop.layers != loops[0].layers:
+			return
+	var finish := ProductionConveyorArt.multimesh_material()
+	if finish == null:
+		return
+	var multi := MultiMesh.new()
+	multi.transform_format = MultiMesh.TRANSFORM_3D
+	multi.use_custom_data = true
+	multi.mesh = loops[0].mesh
+	multi.instance_count = loops.size()
+	var to_local := machine_root.global_transform.affine_inverse()
+	var bounds: AABB = to_local * loops[0].global_transform * loops[0].mesh.get_aabb()
+	for index in loops.size():
+		var loop := loops[index]
+		var pose: Transform3D = to_local * loop.global_transform
+		multi.set_instance_transform(index, pose)
+		multi.set_instance_custom_data(index, Color(loop.material_override.uv1_offset.x, 0, 0))
+		bounds = bounds.merge(pose * loop.mesh.get_aabb())
+		loop.visible = false
+	multi.custom_aabb = bounds
+	var instance := MultiMeshInstance3D.new()
+	instance.name = "ConveyorLoopBatch"
+	instance.multimesh = multi
+	instance.material_override = finish
+	instance.cast_shadow = loops[0].cast_shadow
+	instance.layers = loops[0].layers
+	batches.add_child(instance)
+	machine_conveyor_batches.append({"mesh": multi, "parts": loops})
+
+func _batch_machine_visuals() -> void:
+	machine_dynamic_batches.clear()
+	machine_conveyor_batches.clear()
+	if not _native_transmission() or machine_root.get_child_count() < MACHINE_BATCH_THRESHOLD:
+		return
+	var moving := {}
+	for anchor in machine_root.get_children():
+		for row in anchor.get_meta("motion_meshes", []):
+			moving[row.node.get_instance_id()] = true
+	var static_groups := {}
+	var dynamic_groups := {}
+	for anchor in machine_root.get_children():
+		if anchor is Node3D:
+			_batch_machine_visuals_walk(anchor, Transform3D.IDENTITY, moving, static_groups, dynamic_groups)
+	var batches := Node3D.new()
+	batches.name = "MachineVisualBatches"
+	machine_root.add_child(batches)
+	_emit_machine_mesh_batches(static_groups, batches, false)
+	_emit_machine_mesh_batches(dynamic_groups, batches, true)
+	_batch_conveyor_loops(batches)
+
 func _rebuild_machines() -> void:
 	_sync_machine_body_context()
+	machine_rotors.clear()
 	var foundation_masks := ProductionFoundationArt.neighbor_masks(state.get("foundations", {}))
 	var scenery := get_node_or_null("ProductionScenery")
 	if scenery != null and not legacy_fixture and ProductionEnvironment.Surface != null:
@@ -6031,6 +6315,9 @@ func _rebuild_machines() -> void:
 		anchor.position = _entity_position(entity)
 		machine_root.add_child(anchor)
 		_assemble_machine(anchor, entity, _material_rotated(entity_id, entity))
+		if kind == "wheel" and wheel_rotor != null:
+			machine_rotors.append({"id": entity_id, "rotor": wheel_rotor,
+				"base": wheel_rotor.basis})
 		anchor.set_meta("machine_entity", entity_id)
 		anchor.set_meta("machine_kind", kind)
 		var motion_meshes: Array[Dictionary] = []
@@ -6094,6 +6381,7 @@ func _rebuild_machines() -> void:
 		if not _native_transmission() and state.entities.has(pair[0]) and state.entities.has(pair[1]):
 			_bar(machine_root, _cell_position(state.entities[pair[0]].cell) + Vector3(0, 0.35, 0.55),
 				_cell_position(state.entities[pair[1]].cell) + Vector3(0, 0.35, 0.55), 0.09, Color("d1b56e"))
+	_batch_machine_visuals()
 
 func _redraw_items() -> void:
 	# The asset helper uses this script's shared surfaces, so load it after
