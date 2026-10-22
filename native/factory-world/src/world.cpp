@@ -489,7 +489,7 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         const auto* exit = field<Value::Array>(result, "exit_center");
         const auto* raw = field<Integer>(result, "work_raw");
         const auto* lots = field<Value::Array>(result, "work_lots");
-        const auto* products = field<Integer>(result, "exit_products");
+        const auto* products = field<Integer>(result, "formed_products");
         const auto shaft_point = shaft ? grid_point(Object{{"center", Value(*shaft)}}) : std::nullopt;
         const auto work_point = work ? grid_point(Object{{"center", Value(*work)}}) : std::nullopt;
         const auto exit_point = exit ? grid_point(Object{{"center", Value(*exit)}}) : std::nullopt;
@@ -799,7 +799,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
             const auto* work = field<Value::Array>(record.result, "work_center");
             const auto* shaft = field<Value::Array>(record.result, "shaft_center");
             const auto* lots = field<Value::Array>(record.result, "work_lots");
-            const auto* products = field<Integer>(record.result, "exit_products");
+            const auto* products = field<Integer>(record.result, "formed_products");
             const auto selected_exit = exit ? grid_point(Object{{"center", Value(*exit)}}) : std::nullopt;
             const auto selected_work = work ? grid_point(Object{{"center", Value(*work)}}) : std::nullopt;
             const auto selected_shaft = shaft ? grid_point(Object{{"center", Value(*shaft)}}) : std::nullopt;
@@ -838,7 +838,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
             const materials::WorkLot expected{entry.id,
                 {profile.material.input_units_per_product, profile.material.cycle_ticks}, entry.remaining};
             if (lots->size() == 1) {
-                if (values::typed_difference(lots_value({expected}), Value(*lots))) return false;
+                if (*products != 0 ||
+                    values::typed_difference(lots_value({expected}), Value(*lots))) return false;
             } else {
                 if (entry.remaining != 0 || *products != 1 ||
                     !press_products.insert(*selected_exit).second) return false;
@@ -1665,7 +1666,6 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         if (error != materials::Error::none)
             return refused(materials::error_name(error), *id, std::move(facts));
         const auto work_item = candidate.material.dropped_material.find(inspected.press->work_center);
-        const auto exit_item = candidate.material.dropped_material.find(*selected_exit);
         facts.emplace("generation", Value(*generation));
         facts.emplace("shaft_center", Value(Value::Array{Value(inspected.press->shaft_center[0]),
             Value(inspected.press->shaft_center[1]), Value(inspected.press->shaft_center[2])}));
@@ -1677,8 +1677,8 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             Integer{0} : work_item->second.raw_units));
         facts.emplace("work_lots", work_item == candidate.material.dropped_material.end() ?
             Value(Value::Array{}) : lots_value(work_item->second.work_lots));
-        facts.emplace("exit_products", Value(exit_item == candidate.material.dropped_material.end() ?
-            Integer{0} : exit_item->second.products));
+        facts.emplace("formed_products", Value(work_item == candidate.material.dropped_material.end() ?
+            Integer{1} : Integer{0}));
         return accepted(std::move(candidate), *id, std::move(facts));
     }
     if (*action == "place_component" || *action == "reclaim_component") {

@@ -280,12 +280,19 @@ void actor_feed_is_physical_custody() {
     remote_turn.at("request") = V("remote-press-turn");
     run.refuses("P", remote_turn, "out_of_reach");
     run.p = {2, 1, 0};
-    run.accept("P", turn);
+    const auto started = run.accept("P", turn);
     const auto first_work = run.world->snapshot();
-    check(first_work.state.material.dropped_material.at({8, 1, 0}).work_lots.front().remaining_ticks == 2 &&
+    check(std::get<I>(started.at("formed_products").storage()) == 0 &&
+          first_work.state.material.dropped_material.at({8, 1, 0}).work_lots.front().remaining_ticks == 2 &&
           std::holds_alternative<w::Snapshot>(w::decode_checkpoint(source.profile, "press-feed",
               std::get<V>(w::encode_checkpoint(source.profile, first_work)))),
           "The first crank allocates one persistent WorkLot without making a product.");
+    auto false_output = first_work;
+    for (auto& record : false_output.history.records)
+        if (std::get<std::string>(record.intent.at("request").storage()) == "turn-press-start")
+            record.result.at("formed_products") = V(I{1});
+    check(!w::World::restore("press-feed", source.profile, false_output),
+          "A saved crank receipt cannot report output absent from the physical exit.");
     const auto turn_retry = run.send("P", turn);
     check(turn_retry.completed() && turn_retry.result &&
           std::get<bool>(turn_retry.result->at("duplicate").storage()) &&
@@ -298,8 +305,9 @@ void actor_feed_is_physical_custody() {
           "The second turn advances the same partial work by one shared material tick.");
     auto third_turn = turn;
     third_turn.at("request") = V("turn-press-finish");
-    run.accept("P", third_turn);
-    check(!run.world->snapshot().state.material.dropped_material.contains({8, 1, 0}) &&
+    const auto finished = run.accept("P", third_turn);
+    check(std::get<I>(finished.at("formed_products").storage()) == 1 &&
+          !run.world->snapshot().state.material.dropped_material.contains({8, 1, 0}) &&
           run.world->snapshot().state.material.dropped_material.at({7, 1, 0}).products == 1,
           "The finished product leaves the work point at the selected physical exit.");
     const auto formed = run.world->snapshot();
