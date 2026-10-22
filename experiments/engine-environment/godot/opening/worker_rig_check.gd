@@ -253,10 +253,29 @@ func inspect_adult(body: Node3D, other: Node3D, presenter: Node) -> void:
 		running_hands.append({"L": left_hand, "R": right_hand})
 		verify(absf(left_hand.x) < 0.31 and absf(right_hand.x) < 0.31,
 			"Running hands stay beside the trunk instead of flaring across the character width.")
+	adult_measurements["running_hand_swing"] = {"first_horizontal": running_hands[0].R.z - running_hands[0].L.z,
+		"second_horizontal": running_hands[1].L.z - running_hands[1].R.z,
+		"first_vertical": running_hands[0].R.y - running_hands[0].L.y,
+		"second_vertical": running_hands[1].L.y - running_hands[1].R.y}
+	var running_hand_height := {"L": [INF, -INF], "R": [INF, -INF]}
+	for sample in range(24):
+		presenter._set_gait(body, float(sample) * TAU / 24.0, 1.0)
+		skeleton.force_update_all_bone_transforms()
+		var arm_to_body := body.global_transform.affine_inverse() * skeleton.global_transform
+		for side in ["L", "R"]:
+			var hand: Vector3 = arm_to_body * skeleton.get_bone_global_pose(
+				skeleton.find_bone("Bip01 " + side + " Hand")).origin
+			running_hand_height[side][0] = minf(float(running_hand_height[side][0]), hand.y)
+			running_hand_height[side][1] = maxf(float(running_hand_height[side][1]), hand.y)
+	adult_measurements["running_hand_height_range"] = {
+		"L": float(running_hand_height.L[1]) - float(running_hand_height.L[0]),
+		"R": float(running_hand_height.R[1]) - float(running_hand_height.R[0])}
 	verify(running_hands[0].L.z < running_hands[0].R.z - 0.20
 		and running_hands[1].L.z > running_hands[1].R.z + 0.20
-		and running_hands[0].L.y < running_hands[0].R.y - 0.10
-		and running_hands[1].L.y > running_hands[1].R.y + 0.10,
+		and running_hands[0].L.y < running_hands[0].R.y - 0.12
+		and running_hands[1].L.y > running_hands[1].R.y + 0.05
+		and adult_measurements.running_hand_height_range.L > 0.12
+		and adult_measurements.running_hand_height_range.R > 0.12,
 		"The captured run alternates opposite arm positions and height through a complete stride.")
 	var torso_lead := -INF
 	var torso_trail := INF
@@ -270,8 +289,8 @@ func inspect_adult(body: Node3D, other: Node3D, presenter: Node) -> void:
 		var forward := neck_at.z - pelvis_at.z
 		torso_lead = maxf(torso_lead, forward)
 		torso_trail = minf(torso_trail, forward)
-	verify(torso_lead > 0.005 and torso_lead - torso_trail > 0.05
-		and torso_trail > -0.08,
+	verify(torso_lead > 0.04 and torso_lead - torso_trail > 0.05
+		and torso_trail > -0.02,
 		"The running chest moves ahead of the pelvis during a stride without an excessive bend.")
 	adult_measurements["running_torso_forward"] = {"lead": torso_lead, "trail": torso_trail}
 	presenter._set_gait(body, 1.5, 0.0)

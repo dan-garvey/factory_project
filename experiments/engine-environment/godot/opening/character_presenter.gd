@@ -621,7 +621,7 @@ func _apply_adult_locomotion(body: Node3D, phase: float, weight: float,
 				# Retain the opposing swing while lowering the source's high fists.
 				run_target = original.slerp(run_frame, 0.72)
 			if binding.key == "Spine1" or binding.key == "Spine2":
-				var forward_pitch := 0.16 if binding.key == "Spine1" else 0.05
+				var forward_pitch := 0.25 if binding.key == "Spine1" else 0.08
 				var frame: Quaternion = rig[binding.key].space
 				run_target = (run_target * frame.inverse()
 					* Quaternion(Vector3.RIGHT, forward_pitch) * frame).normalized()
