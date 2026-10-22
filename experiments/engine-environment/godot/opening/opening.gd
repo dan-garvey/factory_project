@@ -19,6 +19,20 @@ class ProductionVisuals:
 		# are absent in a package. Preparation fixtures use external files.
 		if not path.begins_with("res://"):
 			return Image.load_from_file(path)
+		# Decode available source bytes before asking an imported texture for
+		# its image. Exports may omit source files, so retain
+		# the imported-resource path below.
+		if FileAccess.file_exists(path):
+			var bytes := FileAccess.get_file_as_bytes(path)
+			if not bytes.is_empty():
+				var source := Image.new()
+				var decoded := ERR_FILE_UNRECOGNIZED
+				match path.get_extension().to_lower():
+					"webp": decoded = source.load_webp_from_buffer(bytes)
+					"jpg", "jpeg": decoded = source.load_jpg_from_buffer(bytes)
+					"png": decoded = source.load_png_from_buffer(bytes)
+				if decoded == OK and not source.is_empty():
+					return source
 		if not ResourceLoader.exists(path, "Texture2D"):
 			return null
 		var texture := ResourceLoader.load(path, "Texture2D") as Texture2D

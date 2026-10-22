@@ -532,6 +532,21 @@ Priming moves asset preparation into opening setup; it does not eliminate the
 one-time work. A complete native opening launch and input timing remain to be
 measured before treating its startup cost as accepted. Owner: Performance.
 
+On Godot 4.7.2's graphical Compatibility path, decoding available authored
+JPEG/WebP/PNG bytes with `Image.load_*_from_buffer` avoids the measured cost
+of calling `get_image()` on imported textures. The imported `Texture2D`
+path remains the fallback when source bytes are absent, as may happen in an
+export. In separate isolated first-build runs, collector/conveyor/press/wheel
+assembly measured 870/1687/1784/4110 ms through imported texture readback
+and 595/946/1001/2334 ms through source-buffer decode. The actual four-kind
+preview priming fixture then measured 4772 ms, with first wheel selection
+at 2.0 ms; its earlier imported-texture runs were about 8.3 s and 1 to 5 ms.
+The 100-machine rendered frame was pixel-identical before and after this
+decode change. Relevant asset, transmission and preview checks passed, but an
+export without source bytes and full native startup have not been exercised.
+These are single-process measurements, not a loading-time guarantee. Owner:
+Performance.
+
 **Repeated static machine composites.** The native opening now combines the
 eligible static opaque surfaces of identical collector, conveyor and press
 assemblies into one cached mesh per exact source/finish/pose signature. Moving
