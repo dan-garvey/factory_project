@@ -274,6 +274,15 @@ func _batch_motion_check() -> void:
 	_check(batch_root != null and batch_root.get_child_count() > 0
 		and not view.machine_dynamic_batches.is_empty(),
 		"Twelve native wheels share static and moving render batches.")
+	var retained_joinery := 0
+	var hidden_core := 0
+	for part in view.machine_root.get_child(0).get_node("WheelRotor").find_children("*", "MeshInstance3D", true, false):
+		if part.visibility_range_end > 0.0 and part.visible:
+			retained_joinery += 1
+		elif part.visibility_range_end <= 0.0 and not part.visible:
+			hidden_core += 1
+	_check(retained_joinery > 0 and hidden_core > 0,
+		"Wheel core batches preserve the original distance-cullable joinery.")
 	var bases: Array[Basis] = []
 	for index in 12:
 		bases.append((view.machine_root.get_child(index).get_node("WheelRotor") as Node3D).basis)

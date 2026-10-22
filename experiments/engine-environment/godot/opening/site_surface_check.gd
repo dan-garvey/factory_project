@@ -478,7 +478,7 @@ func check_belt_water_native(forward: bool) -> void:
 		return
 	if not expect(model.projection().parts.shaft == 3, "Five one-tile shafts consume the finite starter stock"):
 		return
-	if not expect(observe.call(-1.65, 0.0) and issue.call("set_power", {"active": true}).get("accepted", false), "Start the actual current"):
+	if not expect(observe.call(-1.65, 0.0), "Observe the actual current"):
 		return
 	for entity in [hubs[1], endpoints[0], endpoints[1], hubs[2]]:
 		var motion: Dictionary = model.projection().motion[entity]
@@ -497,18 +497,18 @@ func check_belt_water_native(forward: bool) -> void:
 		model.advance()
 	if not forward:
 		var reverse: Dictionary = model.projection()
-		if not expect(reverse.stock.output == 0 and reverse.stock.input == 0 and not reverse.dropped_material.is_empty(), "Reverse belt deposits blanks at its upstream end"):
+		if not expect(reverse.stock.output == 0 and reverse.stock.input == 0 and reverse.stock.collector == 32,
+			"Reverse belt leaves extracted blanks buffered at the collector"):
 			return
 		var saved_reverse: Dictionary = model.checkpoint()
 		var restored = NativeModel.new("fresh-reverse-belt", ["P"])
-		if not expect(restored.boot_result.get("accepted", false) and restored.restore_checkpoint(saved_reverse).get("accepted", false) and restored.projection().dropped_material == reverse.dropped_material, "Reverse-end blanks survive checkpoint restore"):
+		if not expect(restored.boot_result.get("accepted", false) and restored.restore_checkpoint(saved_reverse).get("accepted", false)
+			and restored.projection().stock == reverse.stock, "Buffered reverse-route blanks survive checkpoint restore"):
 			return
-		var point: Array = reverse.dropped_material[0].center
-		var expected_drop: Dictionary = reverse.dropped_material[0].duplicate(true)
-		expected_drop.erase("center")
-		if not expect(observe.call(float(point[0]) * 1.65 / 4.0, float(point[2]) * 1.65 / 4.0 - 1.65) and issue.call("pickup_material", {"center": point, "expected": expected_drop}).get("accepted", false), "Pick up a reverse-end blank"):
+		if not expect(observe.call(0.0, 0.0) and issue.call("recover", {"entity": hubs[1]}).get("accepted", false),
+			"Recover the blanks held at the collector"):
 			return
-		if not expect(model.projection().cargo.P.raw > 0, "Picked-up blank belongs to the actor"):
+		if not expect(model.projection().cargo.P.raw == 32, "Recovered blanks belong to the actor"):
 			return
 		print("native actual river belt route controls passed: ", checks)
 		quit(0)
@@ -574,8 +574,6 @@ func check_flow_sections() -> void:
 		var wheel: Dictionary = model.command({"context": "flow-section-" + section.name, "client": "P", "request": "wheel", "action": "place", "kind": "wheel", "cell": section.cell, "level": section.level, "tiles": section.tiles, "axis": "x"})
 		if not expect(wheel.get("accepted", false), "The real bed admits the selected wheel at " + section.name + ": " + str(wheel)):
 			return
-		if not expect(model.command({"context": "flow-section-" + section.name, "client": "P", "request": "power", "action": "set_power", "active": true}).get("accepted", false), "Start " + section.name):
-			return
 		var motion: Dictionary = model.projection().motion[wheel.entity]
 		if not expect(motion.state == "rotating" and motion.numerator < 0, "Terrain descent supplies signed current at " + section.name):
 			return
@@ -614,9 +612,6 @@ func check_water_native() -> void:
 	if not expect(reply.get("accepted", false), "Actual river must admit an immersed wheel: " + str(reply)):
 		return
 	var id: String = reply.entity
-	var power: Dictionary = model.command({"context": "water-site", "client": "P", "request": "power", "action": "set_power", "active": true})
-	if not expect(power.get("accepted", false), "The near synthetic actor can enable the wheel: " + str(power)):
-		return
 	var motion: Dictionary = model.projection().motion[id]
 	if not expect(motion.state == "rotating" and motion.numerator < 0, "Downstream current drives the wheel in the expected direction"):
 		return
@@ -634,9 +629,6 @@ func check_water_native() -> void:
 	big.tiles = 5
 	var placed: Dictionary = large.command(big)
 	if not expect(placed.get("accepted", false), "The five-square wheel must clear actual terrain: " + str(placed)):
-		return
-	var start := {"context": "large-water-site", "client": "P", "request": "power", "action": "set_power", "active": true}
-	if not expect(large.command(start).get("accepted", false), "Enable the larger wheel"):
 		return
 	var slower: Dictionary = large.projection().motion[placed.entity]
 	if not expect(slower.numerator * motion.denominator * 5 == motion.numerator * slower.denominator * 3,
@@ -669,7 +661,7 @@ func check_water_native() -> void:
 			return
 		if not expect(line.command({"context": "actual-water-line", "client": "P", "request": link[0], "action": "connect_drive", "from": link[1], "to": link[2]}).get("reason", "") == "individual_shaft_required", "Endpoint-created shafts remain unavailable"):
 			return
-	if not expect(line.command({"context": "actual-water-line", "client": "P", "request": "start", "action": "set_power", "active": true}).get("accepted", false) and line.projection().powered, "River current reaches the collector through the built train"):
+	if not expect(line.projection().powered, "River current reaches the collector through the built train"):
 		return
 	line.advance()
 	if not expect(line.projection().stock.collector == 1, "The powered collector advances material at the actual site"):

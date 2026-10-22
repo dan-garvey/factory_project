@@ -84,7 +84,8 @@ func _motion(id: String, multiplier: int) -> bool:
 func _custody(gears_in_kit: int, raw_in_cargo: int, raw_in_collector: int) -> bool:
 	var state: Dictionary = opening.model.projection()
 	var expected_stock := {"source": 4095, "collector": raw_in_collector, "belt": 0, "input": 0, "held": 0, "output": 0, "player": 0}
-	var expected_kit := {"collector": 0, "belt": 2, "processor": 1, "wheel": 0, "gear": gears_in_kit + 8, "shaft": 7, "foundation": 23}
+	var expected_kit := {"collector": 0, "belt": 2, "processor": 1, "wheel": 0, "gear": gears_in_kit + 8,
+		"shaft": 7, "foundation": 23, "gearbox": 2, "vertical_gearbox": 2, "chain_drive": 8}
 	if not _expect(_same(state.stock, expected_stock) and _same(state.parts, expected_kit) and _same(state.cargo.P, {"raw": raw_in_cargo, "products": 0, "work_lots": []}) and state.inventories.P == 0 and 4095 + raw_in_cargo + raw_in_collector == 4096,
 		"The literal raw custody and carried physical kit must remain exact"):
 		return false
@@ -118,6 +119,7 @@ func _run() -> void:
 		quit(1)
 		return
 	opening = load("res://opening/opening.tscn").instantiate()
+	opening.auto_advance = false
 	root.add_child(opening)
 	if not _expect(opening.model is NativeModel and opening.model.native.get_class() == "FactoryNativeWorld", "The ordinary scene must use the sole native World"):
 		return
@@ -154,10 +156,10 @@ func _produce() -> void:
 			first_gear_wire = record.intent.wire.duplicate(true)
 	facts["first_gear_wire"] = first_gear_wire.duplicate(true)
 	if not _expect(not first_gear_wire.is_empty(), "The original output-cog intent remains identifiable in native history"): return
-	if _command({"action": "set_power", "active": true}, [_anchor([-8, 4, 8])]).is_empty() or not _motion(gear_a, 1) or not _motion(gear_b, 1) or not _motion(collector_id, 1):
+	if not _motion(gear_a, 1) or not _motion(gear_b, 1) or not _motion(collector_id, 1):
 		return
-	while Time.get_ticks_msec() < deadline and opening.model.projection().stock.collector != 1:
-		await process_frame
+	opening.model.advance() # Controlled fixture tick after automatic source motion is confirmed.
+	opening._refresh()
 	if not _custody(0, 0, 1):
 		return
 	if _command({"action": "remove", "entity": gear_b}, [_anchor([0, 4, 12])]).is_empty() or not _expect(not opening.model.projection().powered, "Running removal must actually interrupt collector transmission"):
@@ -178,13 +180,13 @@ func _produce() -> void:
 	if _command({"action": "remove", "entity": shaft_id}, [_anchor([0, 4, 8])]).is_empty() or not _expect(opening.model.projection().parts.shaft == 8 and not opening.model.projection().powered, "Removing the individual shaft returns it and removes collector power"):
 		return
 	var new_shaft := _command({"action": "place_shaft", "center": [0, 4, 8], "axis": "z", "half_span": 2}, [_anchor([0, 4, 8])])
-	if new_shaft.is_empty() or _command({"action": "set_power", "active": false}, [_anchor([-8, 4, 8])]).is_empty():
+	if new_shaft.is_empty():
 		return
 	shaft_id = new_shaft.entity
 	for _frame in range(4):
 		await physics_frame
 		await process_frame
-	if not _expect(opening.model.projection().order == 15, "Every accepted or refused original intent must remain in the fifteen-request history") or not _custody(0, 0, 1) or not _save():
+	if not _expect(opening.model.projection().order == 13, "Every accepted or refused original intent remains in the thirteen-request history") or not _custody(0, 0, 1) or not _save():
 		return
 	_record("pass")
 
@@ -200,7 +202,7 @@ func _resume() -> void:
 	facts["loaded_before_native"] = opening.startup_resume_checkpoint.duplicate(true)
 	if not _expect(saved is Dictionary and _same(saved, opening.startup_resume_checkpoint) and _same(saved.world, opening.model.checkpoint().world), "All original typed geometry, material, kit and cache must survive before fresh commands"):
 		return
-	if not _expect(opening.request_sequence == 0 and opening.model.projection().order == 15 and _same(opening.actor_world.seeds, saved.actors), "Fresh startup must preserve native seeds and issue zero material requests") or not _custody(0, 0, 1):
+	if not _expect(opening.request_sequence == 0 and opening.model.projection().order == 13 and _same(opening.actor_world.seeds, saved.actors), "Fresh startup must preserve native seeds and issue zero material requests") or not _custody(0, 0, 1):
 		return
 	for id in opening.model.projection().entities:
 		var entity: Dictionary = opening.model.projection().entities[id]
@@ -229,7 +231,7 @@ func _resume() -> void:
 	if not _expect(old_gear.intent.wire.action == "place_gear" and replay.get("accepted", false) and replay.get("duplicate", false) and replay.get("entity") == old_gear.result.entity and replay.entity != gear_b and _same(saved.world, opening.model.checkpoint().world),
 		"A fresh process must replay the removed gear's old receipt without treating its old observation as a new admission"):
 		return
-	if _command({"action": "set_power", "active": true}, [_anchor([-8, 4, 8])]).is_empty() or not _motion(gear_a, 1) or not _motion(gear_b, 1) or not _motion(collector_id, 1):
+	if not _motion(gear_a, 1) or not _motion(gear_b, 1) or not _motion(collector_id, 1):
 		return
 	if _command({"action": "remove", "entity": shaft_id}, [_anchor([0, 4, 8])]).is_empty() or not _expect(not opening.model.projection().powered and opening.model.projection().parts.shaft == 8, "Fresh individual-shaft removal must return its real part"):
 		return
@@ -240,6 +242,6 @@ func _resume() -> void:
 	if _command({"action": "recover", "entity": collector_id}, [_anchor([0, 4, 4])]).is_empty() or not _custody(1, 1, 0):
 		return
 	var final: Dictionary = opening.model.checkpoint()
-	if not _expect(final.world.history.order == 20 and _same(saved.world.history.records, final.world.history.records.slice(0, 15)), "All fifteen original intents and outcomes must remain unchanged before five fresh operations") or not _save():
+	if not _expect(final.world.history.order == 17 and _same(saved.world.history.records, final.world.history.records.slice(0, 13)), "All thirteen original intents and outcomes remain unchanged before four fresh operations") or not _save():
 		return
 	_record("pass")

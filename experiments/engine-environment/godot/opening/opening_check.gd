@@ -94,7 +94,7 @@ func _run() -> void:
 		if scene.model.projection().stock.held > 0:
 			break
 	_check(scene.model.projection().stock.held > 0, "The actual processor must own partial work.")
-	await _key(KEY_SPACE)
+	scene.issue({"action": "set_power", "active": false}) # Historical Model fixture only.
 	var paused: Dictionary = scene.model.projection()
 	scene.model.advance(5)
 	var still: Dictionary = scene.model.projection()
@@ -105,7 +105,7 @@ func _run() -> void:
 	var held_revision: int = scene.model.projection().revision
 	await _click_screen(scene.remove_button.get_global_rect().get_center())
 	_check(scene.model.projection().revision == held_revision, "Dismantle must refuse to lose held material.")
-	await _key(KEY_SPACE)
+	scene.issue({"action": "set_power", "active": true})
 	scene.model.advance(18)
 	scene._refresh()
 	_check(scene.model.projection().stock.output == 1, "Occupied output must retain exactly one plate.")
@@ -141,7 +141,7 @@ func _run() -> void:
 	_check(scene.goal_confirmed, "Actual confirm button must acknowledge eligible session goal.")
 	_check(scene.model.projection() == before_confirm, "Goal confirmation must not consume material.")
 	# Empty stopped wheel removal tests the real finite-part refund path.
-	await _key(KEY_SPACE)
+	scene.issue({"action": "set_power", "active": false})
 	await _key(KEY_I)
 	await _click_cell(-1)
 	await _click_screen(scene.remove_button.get_global_rect().get_center())
@@ -150,10 +150,9 @@ func _run() -> void:
 	await _click_cell(-1)
 	_check(scene.model.projection().parts.get("wheel", 1) == 0, "Rebuild must use that returned part.")
 	await _connect(KEY_G, -1, 0)
-	await _key(KEY_SPACE)
+	scene.issue({"action": "set_power", "active": true})
 	scene._refresh()
-	_check(scene.model.projection().powered, "Global Space must resume drive even after a GUI button had focus.")
-	_check(not scene.status_label.text.begins_with("Stop the drive"), "Space release must not also activate the previously focused dismantle button.")
+	_check(scene.model.projection().powered, "The retained scripted fixture resumes after rebuilding its wheel.")
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--capture=") and DisplayServer.get_name() != "headless":
 			await RenderingServer.frame_post_draw

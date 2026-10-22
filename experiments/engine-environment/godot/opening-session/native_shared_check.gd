@@ -119,8 +119,9 @@ func _menu(id: String, action: String, work_id: int = -1) -> bool:
 	return _expect(false, "The menu must offer the literal requested material transfer")
 
 func _power(enabled: bool, wheel: String) -> bool:
-	return not (await _call("Set drive", {"action": "set_power", "active": enabled}, [_target(wheel)],
-		func(): opening.power_button.pressed.emit())).is_empty() and _expect(opening.state.power_enabled == enabled, "The drive reaches its requested state")
+	# Retained scripted-profile fixture command; the opening exposes no switch.
+	return not (await _call("Scripted fixture drive", {"action": "set_power", "active": enabled}, [_target(wheel)],
+		func(): opening.issue({"action": "set_power", "active": enabled}))).is_empty() and _expect(opening.state.power_enabled == enabled, "The historical fixture drive reaches its requested state")
 
 func _collect(press: String) -> bool:
 	_select(press)
@@ -220,7 +221,7 @@ func _partial_changed(confirmed: Dictionary, wheel: String, watch: Dictionary) -
 		"edge": "progress" if progressed else "collection", "serial": session.last_serial,
 		"trigger_msec": Time.get_ticks_msec()}
 	var outcome := await _call("Pause partial work", {"action": "set_power", "active": false}, [_target(wheel)],
-		func(): opening.power_button.pressed.emit())
+		func(): opening.issue({"action": "set_power", "active": false}))
 	watch.settled = true
 	if outcome.is_empty():
 		return

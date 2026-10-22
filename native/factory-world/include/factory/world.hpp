@@ -4,6 +4,7 @@
 #include "factory/transactions.hpp"
 #include "factory/waterwheel.hpp"
 
+#include <array>
 #include <functional>
 #include <map>
 #include <memory>
@@ -12,6 +13,10 @@
 #include <string>
 
 namespace factory::world {
+
+inline constexpr authority::Integer landing_deck_parts = 9;
+[[nodiscard]] std::array<mechanics::Point, landing_deck_parts> landing_deck_centers(
+    const mechanics::Point& center);
 
 // An experimental finite stationary profile, not permanent game content.
 // These immutable facts are supplied by trusted startup, never decoded from a
@@ -33,12 +38,22 @@ struct Profile {
     double build_reach{4.0};
     // Separate construction custody; foundations are not mechanical hubs.
     authority::Integer foundation_parts{};
+    // Trusted landing-site center in the same quarter-tile grid as foundations.
+    // The unfolded 3 x 3 deck spends nine of foundation_parts at startup.
+    std::optional<mechanics::Point> landing_pod_center;
 };
 
 struct Foundation {
     mechanics::Point center{}; // X/Z tile centers, Y quarter-pitch top level.
     authority::Integer generation{};
     bool operator==(const Foundation&) const = default;
+};
+
+struct LandingPod {
+    std::string id;
+    mechanics::Point center{};
+    authority::Integer generation{};
+    bool operator==(const LandingPod&) const = default;
 };
 
 struct State {
@@ -51,6 +66,7 @@ struct State {
     authority::Integer next_entity_serial{1};
     std::map<std::string, Foundation> foundations;
     std::map<std::string, authority::Integer> foundation_kits;
+    std::optional<LandingPod> landing_pod;
     bool operator==(const State&) const = default;
 };
 

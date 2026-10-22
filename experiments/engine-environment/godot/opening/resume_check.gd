@@ -68,8 +68,8 @@ func _run() -> void:
 		and save_facts == [scene.save_slot, scene.save_slot_ready, scene.save_slot_owned,
 			scene.save_button.disabled, scene.load_button.disabled, scene.last_save_result, scene.last_load_result, scene.goal_confirmed],
 		"worked example returns without changing resumed stock, requests, selection, camera or save")
-	if not scene.state.power_enabled: await _key(KEY_SPACE)
-	_check(scene.state.powered, "ordinary Space resumes the actual connected drive")
+	if not scene.state.power_enabled: scene.issue({"action": "set_power", "active": true}) # Historical Model fixture only.
+	_check(scene.state.powered, "the retained fixture resumes its connected drive")
 	var initial_output: int = scene.state.stock.output
 	var work: int = scene.state.remaining
 	if initial_output == 0:

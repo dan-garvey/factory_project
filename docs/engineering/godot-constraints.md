@@ -513,9 +513,12 @@ separate surface finishes receive one cached visual mesh with those finishes
 bound to its surfaces before batching. Each wheel's rotor surfaces become one
 cached mesh with one independently updated transform per wheel. Conveyor loops
 use a shared shader and per-instance texture phase while their hidden source
-materials retain the original offset. Isolated 12-machine collector and press
-captures matched their direct renders byte for byte. The conveyor close view
-changed 90 pixels by at most one 8-bit channel step, and a flat wheel silhouette
+materials retain the original offset. Wheel joinery with an original visibility
+range remains an individual source part so its distance culling still applies;
+the shared rotor holds the silhouette and other permanent surfaces. Isolated
+12-machine collector and press captures matched their direct renders byte for
+byte. The conveyor close view changed 90 pixels by at most one 8-bit channel
+step, and a flat wheel silhouette
 matched exactly; shaded wheels differed slightly. This fixture repeats
 visual assemblies in a regular layout and does not exercise native placement,
 the complete opening or human play. The threshold and batch sizes are adapter
@@ -1047,6 +1050,23 @@ against neighboring machinery and moving belts, support strength, tall frames
 and human visual judgment remain open. An explicit buildable support system
 would need native quantities, collision, edit and save rules before replacing
 this adapter.
+
+## GDC-21: the arrival pod is a projected native site seed
+
+**Pinned engine and adapter observation.** The Godot 4.7.2 GDExtension method
+`FactoryNativeWorld.initialize_arrival` accepted a two-actor roster in an
+isolated headless script. Its projection reported one settled pod, nine deck
+foundations and fifteen carried foundation parts. The focused native World and
+Host tests also cover exact retry and checkpoint restore. The deck is seeded
+through the normal foundation records and common grid; the `landing_pod`
+descriptor is a presentation hint, not a second construction ledger.
+
+The live opening scene still invokes the historical initializer. There is no
+rendered pod, crafting hub, manual tool or human play observation from this
+probe. The older complete-machine kits remain in this adapter mode until the
+component economy replaces them. The pod center at grid `{4, 0, 16}` is a
+revisable site choice that still needs passive scene inspection with nearby
+resources and collision geometry.
 
 ## Required follow-through
 

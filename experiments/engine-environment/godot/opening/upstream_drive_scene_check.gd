@@ -87,7 +87,7 @@ func _run() -> void:
 	# Go around the stocked line using the motor, without passing through it.
 	if not await _approach_axis(0, 6.6) or not await _approach_axis(2, -3.3) \
 		or not await _approach_axis(0, -1.9) or not await _approach_axis(2, -1.2): return
-	if not _power(false): return
+	if not _clock(false): return
 	var frozen: Dictionary = opening.model.projection()
 	var material: Dictionary = opening.model.checkpoint().world.state.material.duplicate(true)
 	facts["frozen_material"] = material
@@ -118,18 +118,18 @@ func _run() -> void:
 	if not await _approach_axis(2, -4.95) or not await _approach_axis(0, 0.0): return
 	var wrong := _gear([0, 8, -8], "z", 4)
 	if written or wrong.is_empty(): return
-	if not await _approach_axis(0, -1.9) or not await _approach_axis(2, -1.2) or not _power(true): return
+	if not await _approach_axis(0, -1.9) or not await _approach_axis(2, -1.2) or not _clock(true): return
 	if not _expect(opening.state.opening_engineering.P.phase == "restore_drive"
 		and opening.engineering_presenter.evaluate().diagnostic_code == "missing_drive_shaft",
 		"The legal disconnected bridge has current confirmed-state advice."): return
-	if not _power(false) or not await _approach_axis(2, -4.95) or not await _approach_axis(0, 0.0): return
+	if not _clock(false) or not await _approach_axis(2, -4.95) or not await _approach_axis(0, 0.0): return
 	_remove_part(wrong)
 	if written: return
 	if not await _approach_axis(0, -0.7) or not await _approach_axis(2, -3.3): return
 	var repaired := _gear([0, 8, -4], "z", 4)
 	if written or repaired.is_empty(): return
-	if not _expect(_same(material, opening.model.checkpoint().world.state.material), "The stopped correction preserves the complete typed material cut."): return
-	if not await _approach_axis(0, -1.9) or not await _approach_axis(2, -1.2) or not _power(true): return
+	if not _expect(_same(material, opening.model.checkpoint().world.state.material), "The controlled-clock correction preserves the complete typed material cut."): return
+	if not await _approach_axis(0, -1.9) or not await _approach_axis(2, -1.2) or not _clock(true): return
 	var corrected: Dictionary = opening.model.projection()
 	var source_rate: Dictionary = corrected.motion[wheel]
 	var collector_rate: Dictionary = corrected.motion[collector]

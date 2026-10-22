@@ -397,8 +397,6 @@ bool historical_wire(const authority::Record& record) {
     if (*action == "load_belt_slot")
         return *original_action == "load_belt_slot" && keys(*wire, {"entity", "slot", "item", "work_id"}) &&
             same("entity", "target") && same("slot", "slot") && same("item", "item") && same("work_id", "work_id");
-    if (*action == "set_drive")
-        return *original_action == "set_power" && keys(*wire, {"active"}) && same("active", "enabled");
     if (*action == "remove" || *action == "recover")
         return *original_action == *action && keys(*wire, {"entity"}) && same("entity", "target");
     if (*action == "remove_foundation")
@@ -576,6 +574,15 @@ Object outward(const world::Delivery& delivery, const world::Snapshot& snapshot)
 }  // namespace
 
 Value Host::initialize(const std::string& context, const std::vector<std::string>& actors) {
+    return initialize_site(context, actors, false);
+}
+
+Value Host::initialize_arrival(const std::string& context, const std::vector<std::string>& actors) {
+    return initialize_site(context, actors, true);
+}
+
+Value Host::initialize_site(const std::string& context, const std::vector<std::string>& actors,
+                            bool arrival) {
     if (owned_) return result(false, "already_initialized");
     if (actors.empty() || actors.size() > 2 || actors.front() != "P") return result(false, "invalid_roster");
     world::Profile profile;
@@ -589,22 +596,40 @@ Value Host::initialize(const std::string& context, const std::vector<std::string
     profile.wheel_axle_offset = wheel_axle_offset;
     profile.build_reach = reach;
     profile.foundation_parts = 24;
+    // East of the river and clear of the exposed ore deposit. This is a
+    // reversible authored site anchor, expressed in the one quarter-tile grid.
+    if (arrival) profile.landing_pod_center = mechanics::Point{4, 0, 16};
     profile.finite_parts = {{{Role::collector, 0, 0}, 1}, {{Role::belt, 0, 0}, 2},
         {{Role::processor, 0, 0}, 1}, {{Role::waterwheel, 0, 0}, 1}, {{Role::shaft, 0, 2}, 8},
         {{Role::gear, 2, 0}, 8}, {{Role::gear, 4, 0}, 2},
         {{Role::gearbox, 0, 0}, 2}, {{Role::vertical_gearbox, 0, 0}, 2},
         {{Role::chain_drive, 0, 0}, 8}};
     world::State seed;
+    seed.topology.drive_enabled = true;
     seed.material.initial_units = profile.initial_units;
     seed.material.stock.source = profile.initial_units;
+    if (arrival) {
+        const auto& center = *profile.landing_pod_center;
+        seed.landing_pod = world::LandingPod{"landing-pod", center, 1};
+        seed.issued_entities.emplace("landing-pod", 1);
+        const auto deck = world::landing_deck_centers(center);
+        for (std::size_t index = 0; index < deck.size(); ++index) {
+            const auto id = "pod-floor-" + std::to_string(index);
+            seed.foundations.emplace(id, world::Foundation{deck[index], 1});
+            seed.issued_entities.emplace(id, 1);
+        }
+    }
     auto candidate = std::make_unique<Owned>();
     for (const auto& actor : actors) {
         if ((actor != "P" && actor != "Q") || !profile.actors.insert(actor).second)
             return result(false, "invalid_roster");
         seed.material.cargo.emplace(actor, materials::Cargo{});
         seed.kits.emplace(actor, actor == "P" ? profile.finite_parts : stationary::Kit{});
-        seed.foundation_kits.emplace(actor, actor == "P" ? profile.foundation_parts : 0);
-        candidate->actors.emplace(actor, Actor{{-pitch, 1.0, (actor == "P" ? 2.0 : 3.0) * pitch}, 0, false});
+        seed.foundation_kits.emplace(actor, actor == "P" ?
+            profile.foundation_parts - (arrival ? world::landing_deck_parts : 0) : 0);
+        candidate->actors.emplace(actor, Actor{arrival ?
+            authority::Point{pitch, 1.0, (actor == "P" ? 4.0 : 5.0) * pitch} :
+            authority::Point{-pitch, 1.0, (actor == "P" ? 2.0 : 3.0) * pitch}, 0, false});
     }
     candidate->world = world::World::create(context, profile, seed);
     if (!candidate->world) return result(false, "invalid_initial_world");
@@ -1382,15 +1407,6 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.emplace("slot", wire.at("slot"));
         normalized.emplace("item", wire.at("item"));
         normalized.emplace("work_id", wire.at("work_id"));
-    } else if (*action == "set_power") {
-        if (!keys(wire, {"active"}) || !field<bool>(wire, "active")) return refuse("invalid_command");
-        const auto wheel = std::find_if(snapshot.state.topology.parts.begin(), snapshot.state.topology.parts.end(),
-            [](const auto& part) { return part.role == Role::waterwheel; });
-        if (wheel == snapshot.state.topology.parts.end()) return refuse("missing_entity");
-        normalized.at("action") = Value("set_drive");
-        normalized.emplace("target", Value(wheel->geometry.id));
-        normalized.emplace("generation", Value(wheel->generation));
-        normalized.emplace("enabled", wire.at("active"));
     } else if (*action == "remove" || *action == "recover" || *action == "retrieve" ||
                *action == "insert_raw" || *action == "insert_work") {
         const bool amount = *action == "retrieve" || *action == "insert_raw";
@@ -1571,7 +1587,7 @@ Value Host::projection() const {
             {"level", Value(foundation.center[1])}, {"generation", Value(foundation.generation)}}));
     auto player_parts = std::get<Object>(kit_value(state.kits.at("P")).storage());
     player_parts.emplace("foundation", Value(state.foundation_kits.at("P")));
-    return Value(Object{{"context", Value(snapshot.history.context)}, {"revision", Value(snapshot.revision)},
+    Object projection{{"context", Value(snapshot.history.context)}, {"revision", Value(snapshot.revision)},
         {"order", Value(snapshot.history.order)}, {"initial_feed", Value(profile_.initial_units)},
         {"recipe_input", Value(profile_.material.input_units_per_product)}, {"entities", Value(std::move(entities))},
         {"transmission_parts", Value(std::move(transmissions))}, {"links", Value(std::move(links))},
@@ -1617,7 +1633,16 @@ Value Host::projection() const {
                 {"flight_count", Value(Integer{5})}, {"flight_span", Value(0.88)},
                 {"head_x", Value(-0.60)}, {"head_y_offset", Value(1.77)},
                 {"head_size_xy", Value(Array{Value(0.90), Value(0.36)})},
-                {"head_z_size", Value(Array{Value(0.40), Value(0.86)})}})}})}});
+                {"head_z_size", Value(Array{Value(0.40), Value(0.86)})}})}})}};
+    if (state.landing_pod) {
+        const auto& pod = *state.landing_pod;
+        projection.emplace("landing_pod", Value(Object{{"id", Value(pod.id)},
+            {"generation", Value(pod.generation)},
+            {"center", Value(Array{Value(pod.center[0] / height_denominator),
+                Value(pod.center[1]), Value(pod.center[2] / height_denominator)})},
+            {"deployed", Value(true)}, {"hub_ready", Value(true)}}));
+    }
+    return Value(std::move(projection));
 }
 
 Value Host::checkpoint() const {
@@ -1643,6 +1668,7 @@ Host::Decoded Host::decode(const Value& input) const {
     auto decoded = world::decode_checkpoint(profile_, *context, root->at("world"));
     if (!std::holds_alternative<world::Snapshot>(decoded)) return {nullptr, "native_checkpoint_refused"};
     auto snapshot = std::get<world::Snapshot>(decoded);
+    if (!snapshot.state.topology.drive_enabled) return {nullptr, "native_checkpoint_refused"};
     for (const auto& record : snapshot.history.records) {
         if (!field<Object>(record.intent, "wire")) return {nullptr, "missing_wire_history"};
         if (!historical_wire(record)) return {nullptr, "inconsistent_wire_history"};

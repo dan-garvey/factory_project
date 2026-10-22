@@ -196,7 +196,7 @@ func check_guards() -> void:
 	verify(not audio.confirmed(wire, result, "audio-fixture") and events.size() == 1,
 		"A repeated decision callback cannot replay the cue.")
 	var power := wire.duplicate(true)
-	power["action"] = "set_power"
+	power["action"] = "retrieve"
 	verify(not audio.confirmed(power, result, "audio-fixture") and events.size() == 1,
 		"Unrelated accepted operations do not become construction events.")
 	wire["context"] = "new-world"

@@ -38,7 +38,7 @@ func _ready() -> void:
 			offline_argument = true
 	_build_world()
 	_build_interface()
-	var column := power_button.get_parent()
+	var column := power_label.get_parent()
 	connection_label = _label(column, "NOT CONNECTED", 14)
 	column.move_child(connection_label, 1)
 	reconnect_button = _button(column, "Reconnect  [Ctrl+J]", _reconnect)
@@ -251,7 +251,7 @@ func _settle_pending() -> void:
 			elif item.action.action in ["remove", "remove_belt_span"] and selected == result.entity:
 				selected = ""
 			_message({"place": "Placed.", "place_foundation": "Foundation placed on the world grid.", "place_foundations": "Foundation area placed on the world grid.", "connect": "Material path connected.", "connect_drive": "Drive shaft connected.",
-				"retrieve": "Plate collected into your inventory.", "pickup_material": "Loose material collected into your inventory.", "load_belt_slot": "Material placed on the belt.", "set_power": "Drive updated.",
+				"retrieve": "Plate collected into your inventory.", "pickup_material": "Loose material collected into your inventory.", "load_belt_slot": "Material placed on the belt.",
 				"remove": "Part returned."}.get(item.action.action, "Action accepted."))
 		else:
 			_message(_material_refusal_message(result, "Not applied: " + {"occupied": "that square is occupied.", "no_part": "that part is already placed.",
@@ -309,12 +309,6 @@ func _retrieve() -> void:
 		return
 	super._retrieve()
 
-func _toggle_power() -> void:
-	if not _can_mutate():
-		issue({"action": "set_power"})
-		return
-	super._toggle_power()
-
 func _remove_selected() -> void:
 	if not _can_mutate():
 		issue({"action": "remove"})
@@ -368,7 +362,7 @@ func _refresh_ui() -> void:
 		selection_ring.visible = false
 		_refresh_guided_tools(false)
 	var enabled := _can_mutate()
-	for button in [confirm_button, retrieve_button, remove_button, power_button]:
+	for button in [confirm_button, retrieve_button, remove_button]:
 		button.disabled = button.disabled or not enabled
 	for tool in tool_buttons:
 		tool_buttons[tool].disabled = tool_buttons[tool].disabled or not enabled
