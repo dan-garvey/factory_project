@@ -967,7 +967,9 @@ func _carried_guidance() -> void:
 			"wheel": {"kind": "wheel", "cell": [0, 0]}}
 		view.state.links = [["collector", "belt"], ["belt", "press"]]
 		view.state.transmission_parts = {}
-		view.state.motion = {}
+		view.state.motion = {"collector": {"state": "rotating", "numerator": -1},
+			"belt": {"state": "rotating", "numerator": -1},
+			"press": {"state": "rotating", "numerator": -1}}
 		view.state.engagements = []
 		view.state.part_specifications = {"P": [], "Q": []}
 		view.state.cargo = {"P": {"raw": 0, "products": 0, "work_lots": []},
@@ -1024,9 +1026,12 @@ func _carried_guidance() -> void:
 			"Four collected products retain the original confirmation route.")
 		view.state.inventories[view.client] = 0
 		view.state.power_enabled = false
+		view.state.motion.collector.state = "stopped"
 		view._refresh_ui()
-		verify(view.goal_label.text.contains("Switch on"), "The existing power step retains its priority.")
+		verify(view.goal_label.text.contains("Use cogs and shafts"),
+			"Stopped native motion takes priority over carried-material reinsertion advice.")
 		view.state.power_enabled = true
+		view.state.motion.collector.state = "rotating"
 		view.state.options.native = false
 		view._refresh_ui()
 		verify(view.goal_label.text.contains("No blanks"), "Historical guidance ignores native carried-material fields.")
