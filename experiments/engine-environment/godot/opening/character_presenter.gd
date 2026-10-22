@@ -303,7 +303,7 @@ func _adult_bone_delta(body: Node3D, key: String, rotation: Quaternion) -> void:
 
 func _set_adult_air_and_landing(body: Node3D, air: float,
 		vertical_speed: float, impact: float, landing_progress: float = 1.0,
-		landing_stride: float = 1.0) -> void:
+		landing_stride: float = 1.0, landing_approach: float = 0.0) -> void:
 	# The captured run supplies grounded motion. These poses blend from its
 	# lowered-arm rest stance when confirmed height changes show a jump or fall.
 	var rise := clampf((vertical_speed + 0.4) / 5.0, 0.0, 1.0)
@@ -311,6 +311,9 @@ func _set_adult_air_and_landing(body: Node3D, air: float,
 	# Confirmed horizontal travel gives the leading foot room to catch the
 	# load; an in-place jump settles both boots beneath the body.
 	var contact_stride := clampf(landing_stride, 0.0, 1.0)
+	# A moving leading foot reaches ahead while the confirmed actor is still
+	# descending, so contact does not invent the whole step in one pose sample.
+	var pre_contact := clampf(landing_approach, 0.0, 1.0) * contact_stride * air
 	# The leading boot reaches support promptly while the torso continues to
 	# absorb the load. Do not slow the established contact step with the torso.
 	var foot_load := smoothstep(0.0, 0.16, landing_progress) * \
@@ -325,11 +328,13 @@ func _set_adult_air_and_landing(body: Node3D, air: float,
 		var hip := ((-0.42 - 0.15 * rise + 0.30 * fall
 			- 0.35 * sign * rise - 0.08 * sign * (1.0 - rise) * (1.0 - fall)) * air
 			- (0.48 + 0.08 * sign * contact_stride) * impact
-			+ (-0.24 if side == "L" else 0.32) * plant)
+			+ (-0.24 if side == "L" else 0.32) * plant
+			- (0.50 * pre_contact if side == "L" else 0.0))
 		var knee := ((0.90 + 0.10 * rise - 0.55 * fall
 			+ 0.35 * sign * rise + 0.08 * sign * (1.0 - rise) * (1.0 - fall)) * air
 			+ (1.02 + 0.08 * sign * contact_stride) * impact
-			+ (-0.54 if side == "L" else 0.32) * plant)
+			+ (-0.54 if side == "L" else 0.32) * plant
+			+ (0.40 * pre_contact if side == "L" else 0.0))
 		_adult_bone_delta(body, side + " Thigh", Quaternion(Vector3.RIGHT, hip))
 		_adult_bone_delta(body, side + " Calf", Quaternion(Vector3.RIGHT, knee))
 		_adult_bone_delta(body, side + " Foot", Quaternion(Vector3.RIGHT,
@@ -715,12 +720,12 @@ func _make_worker_visual() -> Node3D:
 func _set_gait(body: Node3D, phase: float, weight: float,
 		air: float = 0.0, vertical_speed: float = 0.0, impact: float = 0.0,
 		run_mix: float = 1.0, landing_progress: float = 1.0,
-		landing_stride: float = 1.0) -> void:
+		landing_stride: float = 1.0, landing_approach: float = 0.0) -> void:
 	if body.get_meta("appearance_unavailable", false):
 		return
 	if body.get_meta("sourced_character", false):
 		_set_adult_air_and_landing(body, air, vertical_speed, impact,
-			landing_progress, landing_stride)
+			landing_progress, landing_stride, landing_approach)
 		_apply_adult_locomotion(body, phase, weight, air, impact, run_mix)
 		if impact > 0.0:
 			var skeleton: Skeleton3D = body.get_node(body.get_meta("skeleton_path"))
@@ -860,9 +865,15 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 		# The feet reach support before the torso finishes absorbing the load.
 		# Let the visual compression peak a few samples after first contact.
 		impact = smoothstep(0.0, 0.30, elapsed) * pow(1.0 - clampf(elapsed, 0.0, 1.0), 1.25)
+	var presentation_stride := float(previous.landing_stride)
+	var landing_approach := 0.0
+	if previous.mode == "descent":
+		presentation_stride = smoothstep(0.35, 1.35, float(previous.horizontal_speed))
+		landing_approach = 1.0 - smoothstep(0.25, 1.0,
+			maxf(0.0, at.y - float(previous.ground_y)))
 	_set_gait(body, float(previous.phase), float(previous.weight), float(previous.air),
 		float(previous.vertical_speed), impact, float(previous.run_mix), landing_progress,
-		float(previous.landing_stride))
+		presentation_stride, landing_approach)
 
 func _new_view(actor: String) -> Node3D:
 	var root := Node3D.new()

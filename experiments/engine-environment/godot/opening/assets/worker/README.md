@@ -69,8 +69,12 @@ Confirmed rising and falling samples switch the visual skeleton into distinct
 takeoff, ascent, descent and compressed landing poses. The running takeoff lifts
 one knee while the trailing leg extends; the legs fold near the apex, reach
 down on descent and compress at impact. The arms drive asymmetrically on takeoff
-and open for balance in flight. When recent confirmed horizontal travel reaches
-contact, the left boot reaches forward and takes the first load while the right
+and open for balance in flight. During the final metre of a moving descent,
+the leading leg begins reaching toward its contact pose in proportion to
+confirmed horizontal speed. This spreads the forward boot motion across
+descent and first contact instead of snapping the full step into one frame.
+When recent confirmed horizontal travel reaches contact, the left boot takes
+the first load while the right
 leg trails. The torso leans over that support, both knees absorb the fall, and
 the trailing boot joins as the body recovers over 0.32 seconds. A stationary
 jump settles both boots under the body without inventing a forward recovery
@@ -99,7 +103,7 @@ confirmed samples. It checks source bindings, captured walk and run poses,
 forward knee bending, planted toe height and horizontal stance travel,
 opposing running hands, relaxed walking elbows and bounded lateral carriage,
 skinned dimensions,
-ascent, descent, staged landing contact and skinned support height, per-player
+ascent, descent, leading-toe continuity, staged landing contact and skinned support height, per-player
 isolation, projection
 immutability and the absence of input calls. It also preserves the original
 procedural-worker controls. A passively rendered contact sheet in the retained

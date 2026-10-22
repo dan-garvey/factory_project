@@ -470,11 +470,21 @@ func landing_contact_case(metres_per_frame: float) -> Dictionary:
 	var skeleton: Skeleton3D = skeleton_of(body)
 	var heights := [0.9, 1.12, 1.42, 1.78, 1.68, 1.38, 0.9, 0.9]
 	var x := 0.0
+	var descending_toe := 0.0
+	var contact_toe := 0.0
 	for frame in range(heights.size()):
 		if frame > 0 and frame < 6:
 			x += metres_per_frame
 		host.state.actors.P.position = [x, heights[frame], 0.0]
 		presenter.refresh(1.0 / 60.0)
+		if frame == 5 or frame == 6:
+			skeleton.force_update_all_bone_transforms()
+			var toe: Vector3 = presenter._adult_joint(body, skeleton,
+				skeleton.find_bone("Bip01 L Toe0"))
+			if frame == 5:
+				descending_toe = toe.z
+			else:
+				contact_toe = toe.z
 	skeleton.force_update_all_bone_transforms()
 	var left: Vector3 = presenter._adult_joint(body, skeleton,
 		skeleton.find_bone("Bip01 L Toe0"))
@@ -482,6 +492,7 @@ func landing_contact_case(metres_per_frame: float) -> Dictionary:
 		skeleton.find_bone("Bip01 R Toe0"))
 	var result := {"stride": float(presenter.motion.P.landing_stride),
 		"toe_spread": left.z - right.z, "root_x": view.position.x,
+		"first_contact_reach_jump": contact_toe - descending_toe,
 		"mode": presenter.motion.P.mode, "control_calls": host.control_calls}
 	host.free()
 	return result
@@ -501,6 +512,8 @@ func check_landing_contact_from_motion() -> void:
 		and is_equal_approx(float(moving.root_x), 0.15)
 		and still.control_calls == 0 and slow.control_calls == 0 and moving.control_calls == 0,
 		"Landing changes only the visual contact pose, never the confirmed actor or input.")
+	verify(absf(float(moving.first_contact_reach_jump)) < 0.16,
+		"The moving leading toe reaches forward during descent rather than snapping across first contact.")
 
 func check_landing_recovery_profile() -> void:
 	var host := HostFixture.new()
