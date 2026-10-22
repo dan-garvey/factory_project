@@ -267,13 +267,16 @@ func _relays() -> void:
 		"center": [0, 8, 4], "axis": 1, "teeth": 0, "half_span": 0}
 	host.state.transmission_parts["chain"] = {"kind": "chain_drive", "generation": 8,
 		"center": [4, 8, 4], "axis": 0, "relay_axis": 2, "teeth": 0, "half_span": 0}
+	host.state.transmission_parts["upright"] = {"kind": "vertical_gearbox", "generation": 9,
+		"center": [8, 8, 4], "axis": 0, "teeth": 0, "half_span": 0}
 	host.state.motion["box"] = {"state": "rotating", "numerator": 1, "denominator": 1}
 	host.state.motion["chain"] = {"state": "rotating", "numerator": 1, "denominator": 1}
+	host.state.motion["upright"] = {"state": "rotating", "numerator": 1, "denominator": 1}
 	var presenter := Presenter.new()
 	presenter.configure(host)
 	var physical_state: Dictionary = host.state.duplicate(true)
 	physical_state.transmission_parts = {"box": host.state.transmission_parts.box,
-		"chain": host.state.transmission_parts.chain}
+		"chain": host.state.transmission_parts.chain, "upright": host.state.transmission_parts.upright}
 	physical_state.belt_spans = {}
 	var collision: Dictionary = Geometry.mechanical_boxes(physical_state)
 	verify(collision.get("accepted", false) and collision.boxes.box.size == Vector3.ONE * Geometry.PITCH and
@@ -285,12 +288,33 @@ func _relays() -> void:
 		"A malformed chain link axis cannot produce a physical body.")
 	var box := _part(presenter, "box")
 	var chain := _part(presenter, "chain")
+	var upright := _part(presenter, "upright")
 	verify(box != null and box.has_node("FixedCase") and box.has_node("ShaftPort01") and
 		box.has_node("ShaftPort2-1") and box.get_node("Pick").get_meta("entity") == "box",
 		"A confirmed gearbox shows a fixed case, four ports and a one-tile pick body.")
 	verify(chain != null and chain.has_node("FixedCase") and chain.has_node("ChainLinkDirection") and
 		chain.get_node("Pick").get_meta("entity") == "chain",
 		"A confirmed chain case shows its link direction and can be selected.")
+	var formed := box.get_node("FixedCase") as MeshInstance3D
+	var cast: ArrayMesh = formed.mesh
+	var limits := cast.get_aabb()
+	var half := Geometry.PITCH * 0.5
+	verify(cast.get_surface_count() == 3 and cast == Presenter.relay_shell_mesh("gearbox", 1, 0) and
+		limits.position.x >= -half and limits.position.y >= -half and limits.position.z >= -half and
+		limits.end.x <= half and limits.end.y <= half and limits.end.z <= half,
+		"The formed gearbox reuses one casing mesh inside its unchanged physical and pick envelope.")
+	verify(cast.surface_get_material(0) is StandardMaterial3D and
+		(cast.surface_get_material(0) as StandardMaterial3D).normal_texture != null and
+		cast.surface_get_material(1) != null and cast.surface_get_material(2) != null,
+		"The fixed case carries its qualified cast, cover and worked-metal finishes.")
+	verify(box.has_node("ShaftPort01/BearingSocket") and box.has_node("ShaftPort01/MachinedCollar") and
+		box.has_node("ShaftPort2-1/BearingSocket") and not box.has_node("ShaftPort11") and
+		upright.has_node("ShaftPort11/MachinedCollar") and not upright.has_node("ShaftPort01"),
+		"Each gearbox exposes machined collars only on the native-confirmed faces.")
+	verify(chain.get_node("FixedCase").mesh != cast and
+		chain.get_node("FixedCase").mesh == Presenter.relay_shell_mesh("chain_drive", 0, 2) and
+		chain.has_node("ShaftPort01/MachinedCollar") and not chain.has_node("ShaftPort21"),
+		"The chain case has its own formed link-axis housing and only its confirmed shaft ports.")
 	presenter.free()
 
 func _belt_spans() -> void:

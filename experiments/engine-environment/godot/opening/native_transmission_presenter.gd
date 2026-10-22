@@ -5,6 +5,7 @@ const Geometry = preload("res://opening/site_geometry.gd")
 const Assets = preload("res://opening/native_transmission_assets.gd")
 const Items = preload("res://opening/workpiece_item_assets.gd")
 const Finish = preload("res://opening/opening.gd").ProductionTransmissionFinish
+const Visuals = preload("res://opening/opening.gd").ProductionVisuals
 const UNIT := Geometry.PITCH / 4.0
 ## The native lane moves one horizontal tile per 0.45-second tick at rate 1.
 ## Its pulley rim must travel the same distance in that time.
@@ -26,6 +27,7 @@ var _visual_rotations: Dictionary = {}
 var _gear_batches: Dictionary = {}
 var _direction_meshes: Dictionary = {}
 var _support_meshes: Dictionary = {}
+static var _relay_shells: Dictionary = {}
 
 func configure(host: Object) -> void:
 	_host = weakref(host)
@@ -349,7 +351,8 @@ func _finish(mesh: MeshInstance3D, color: Color) -> void:
 	material.roughness = 0.4
 	mesh.material_override = material
 
-func _cylinder(parent: Node3D, name_value: String, radius: float, height: float, color: Color) -> MeshInstance3D:
+func _cylinder(parent: Node3D, name_value: String, radius: float, height: float,
+		color: Color, sourced_finish: Material = null) -> MeshInstance3D:
 	var mesh := MeshInstance3D.new()
 	mesh.name = name_value
 	var shape := CylinderMesh.new()
@@ -358,7 +361,10 @@ func _cylinder(parent: Node3D, name_value: String, radius: float, height: float,
 	shape.height = height
 	shape.radial_segments = 24
 	mesh.mesh = shape
-	_finish(mesh, color)
+	if sourced_finish == null:
+		_finish(mesh, color)
+	else:
+		mesh.material_override = sourced_finish
 	parent.add_child(mesh)
 	return mesh
 
@@ -459,10 +465,7 @@ func _relay_case(anchor: Node3D, id: String, part: Dictionary) -> void:
 	anchor.set_meta("relay_static", true)
 	var case := MeshInstance3D.new()
 	case.name = "FixedCase"
-	var shape := BoxMesh.new()
-	shape.size = Vector3.ONE * (Geometry.PITCH - 0.12)
-	case.mesh = shape
-	_finish(case, Color("596972") if part.kind == "chain_drive" else Color("68736e"))
+	case.mesh = relay_shell_mesh(part.kind, part.axis, int(part.get("relay_axis", 0)))
 	anchor.add_child(case)
 	var pick := StaticBody3D.new()
 	pick.name = "Pick"
@@ -486,10 +489,15 @@ func _relay_case(anchor: Node3D, id: String, part: Dictionary) -> void:
 			var first := 0 if part.axis != 0 else 1
 			var factor: int = 1 if part.kind == "chain_drive" else (1 if axis == first else -1) * side
 			port.set_meta("relay_factor", factor)
-			port.position[axis] = float(side) * (Geometry.PITCH / 2.0 - 0.09)
+			port.position[axis] = float(side) * 0.72
 			port.basis = axis_basis(axis)
 			anchor.add_child(port)
-			_cylinder(port, "ExposedSpindle", 0.15, 0.10, Color("b8c1b8"))
+			_cylinder(port, "BearingSocket", 0.245, 0.045, Color("303c3e"),
+				Finish.material("cast", Color("303c3e"), 0.75, 0.52))
+			_cylinder(port, "MachinedCollar", 0.205, 0.07, Color("b8c1b8"),
+				Finish.material("worked", Color("b8c1b8"), 0.85, 0.34))
+			_cylinder(port, "ExposedSpindle", 0.11, 0.12, Color("667b7a"),
+				Finish.material("worked", Color("667b7a"), 0.84, 0.4))
 			_segment(port, Vector3(-0.11, 0.055, 0), Vector3(0.11, 0.055, 0), 0.024, Color("e7c780"))
 	if part.kind == "chain_drive":
 		for side in [-1, 1]:
@@ -502,6 +510,102 @@ func _relay_case(anchor: Node3D, id: String, part: Dictionary) -> void:
 			marker.position[part.relay_axis] = float(side) * (Geometry.PITCH / 2.0 - 0.045)
 			_finish(marker, Color("d3a761"))
 			anchor.add_child(marker)
+
+static func relay_shell_mesh(kind: String, closed_axis: int, link_axis: int) -> ArrayMesh:
+	var key := "%s:%d:%d" % [kind, closed_axis, link_axis]
+	if _relay_shells.has(key):
+		return _relay_shells[key]
+	var body := SurfaceTool.new()
+	body.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var outline := PackedVector2Array([Vector2(-0.62, -0.69), Vector2(0.62, -0.69),
+		Vector2(0.70, -0.61), Vector2(0.70, 0.61), Vector2(0.62, 0.69),
+		Vector2(-0.62, 0.69), Vector2(-0.70, 0.61), Vector2(-0.70, -0.61)])
+	Assets.append_triangles(body, Visuals.prism_mesh(outline, 1.40, 0.008), 0, Transform3D.IDENTITY)
+	var shell := ArrayMesh.new()
+	body.commit(shell)
+	shell.surface_set_material(0, Finish.material("cast",
+		Color("536369") if kind == "chain_drive" else Color("68736e"), 0.78, 0.50))
+	var panels := SurfaceTool.new()
+	panels.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var cover_size := Vector3.ONE * 1.16
+	cover_size[closed_axis] = 0.055
+	var cover := BoxMesh.new()
+	cover.size = cover_size
+	for side in [-1.0, 1.0]:
+		var at := Vector3.ZERO
+		at[closed_axis] = side * 0.705
+		Assets.append_triangles(panels, cover, 0, Transform3D(Basis.IDENTITY, at))
+	if kind == "chain_drive":
+		var hatch := BoxMesh.new()
+		hatch.size = Vector3.ONE * 0.92
+		hatch.size[link_axis] = 0.045
+		for side in [-1.0, 1.0]:
+			var at := Vector3.ZERO
+			at[link_axis] = side * 0.72
+			Assets.append_triangles(panels, hatch, 0, Transform3D(Basis.IDENTITY, at))
+	panels.commit(shell)
+	shell.surface_set_material(1, Finish.material("cast", Color("35464b"), 0.72, 0.60))
+	var trim := SurfaceTool.new()
+	trim.begin(Mesh.PRIMITIVE_TRIANGLES)
+	# Two raised ribs distinguish a guarded mechanical case from a plain cube.
+	# A chain case also carries one continuous external cover along its confirmed
+	# link axis; neither shape describes motion or adds a construction port.
+	var rib := BoxMesh.new()
+	rib.size = Vector3(1.39, 0.045, 0.075)
+	for side in [-1.0, 1.0]:
+		Assets.append_triangles(trim, rib, 0, Transform3D(Basis.IDENTITY,
+			Vector3(0, 0.745, side * 0.43)))
+	var upright := BoxMesh.new()
+	upright.size = Vector3(0.075, 1.28, 0.075)
+	for x in [-0.62, 0.62]:
+		for z in [-0.62, 0.62]:
+			Assets.append_triangles(trim, upright, 0,
+				Transform3D(Basis.IDENTITY, Vector3(x, 0, z)))
+	var fastener := CylinderMesh.new()
+	fastener.top_radius = 0.035
+	fastener.bottom_radius = 0.035
+	fastener.height = 0.024
+	fastener.radial_segments = 8
+	var first_side := (closed_axis + 1) % 3
+	var second_side := (closed_axis + 2) % 3
+	var bolt_normal := Vector3.UP
+	if closed_axis == 0:
+		bolt_normal = Vector3.RIGHT
+	elif closed_axis == 2:
+		bolt_normal = Vector3.BACK
+	var fastener_basis := Basis(Quaternion(Vector3.UP, bolt_normal))
+	for face in [-1.0, 1.0]:
+		for first in [-0.47, 0.47]:
+			for second in [-0.47, 0.47]:
+				var bolt_at := Vector3.ZERO
+				bolt_at[closed_axis] = face * 0.744
+				bolt_at[first_side] = first
+				bolt_at[second_side] = second
+				Assets.append_triangles(trim, fastener, 0, Transform3D(fastener_basis, bolt_at))
+	if kind == "chain_drive":
+		var spine := BoxMesh.new()
+		spine.size = Vector3(0.27, 0.08, 0.27)
+		spine.size[link_axis] = 1.48
+		var spine_at := Vector3(0, 0.745, 0)
+		if link_axis == 1:
+			spine.size.x = 0.08
+			spine_at = Vector3(0.745, 0, 0)
+		Assets.append_triangles(trim, spine, 0, Transform3D(Basis.IDENTITY, spine_at))
+		var hatch_bar := BoxMesh.new()
+		hatch_bar.size = Vector3(0.56, 0.065, 0.035)
+		var bar_axis := (link_axis + 1) % 3
+		hatch_bar.size[link_axis] = 0.035
+		hatch_bar.size[bar_axis] = 0.56
+		for face in [-1.0, 1.0]:
+			for row in [-0.22, 0.0, 0.22]:
+				var bar_at := Vector3.ZERO
+				bar_at[link_axis] = face * 0.76
+				bar_at[(link_axis + 2) % 3] = row
+				Assets.append_triangles(trim, hatch_bar, 0, Transform3D(Basis.IDENTITY, bar_at))
+	trim.commit(shell)
+	shell.surface_set_material(2, Finish.material("worked", Color("a3ada6"), 0.82, 0.39))
+	_relay_shells[key] = shell
+	return shell
 
 func _belt_span(id: String, span: Variant, parts: Dictionary, rendered: Dictionary) -> void:
 	if not span is Dictionary or typeof(span.get("from")) != TYPE_STRING or typeof(span.get("to")) != TYPE_STRING:
