@@ -1052,8 +1052,24 @@ materials::Path material_path(const stationary::Topology& topology) {
     return path;
 }
 
-DrivePower drive_power(const stationary::Topology& topology) {
-    DrivePower power{stationary::power_view(topology).mechanical, {}};
+namespace {
+
+constexpr long double wooden_rating = 8;
+constexpr long double softmetal_rating = 24;
+
+long double material_rating(materials::Component kind) {
+    return kind == materials::Component::wooden_shaft ||
+           kind == materials::Component::wooden_cog ? wooden_rating : softmetal_rating;
+}
+
+mechanics::Axis horizontal_axis(const mechanics::Point& from, const mechanics::Point& to) {
+    return from[0] != to[0] ? mechanics::Axis::x : mechanics::Axis::z;
+}
+
+DrivePower apply_load(const stationary::Topology& topology, mechanics::Result mechanical,
+        const std::map<std::string, long double>& ratings,
+        const std::map<std::string, long double>& assembly_impacts) {
+    DrivePower power{std::move(mechanical), {}};
     if (!power.mechanical.accepted()) return power;
     constexpr long double wheel_capacity = 32;
     constexpr long double collector_impact = 4;
@@ -1066,17 +1082,27 @@ DrivePower drive_power(const stationary::Topology& topology) {
         long double capacity = 0, impact = 0;
         for (const auto& id : component.parts) {
             const auto* item = part(topology, id);
-            if (!item) continue;
-            if (item->role == Role::waterwheel && topology.drive_enabled) {
+            if (item && item->role == Role::waterwheel && topology.drive_enabled) {
                 const auto source = std::find_if(topology.sources.begin(), topology.sources.end(),
                     [&](const auto& drive) { return drive.hub == id; });
                 if (source != topology.sources.end()) capacity += wheel_capacity * magnitude(source->rate);
             }
             const auto speed = magnitude(power.mechanical.motion.at(id).rate);
-            if (item->role == Role::collector) impact += collector_impact * speed;
-            if (item->role == Role::processor) impact += processor_impact * speed;
+            if (item && item->role == Role::collector) impact += collector_impact * speed;
+            if (item && item->role == Role::processor) impact += processor_impact * speed;
+            if (const auto found = assembly_impacts.find(id); found != assembly_impacts.end())
+                impact += found->second * speed;
         }
-        const NetworkLoad load{static_cast<double>(capacity), static_cast<double>(impact), impact > capacity};
+        std::string limiting_part;
+        for (const auto& id : component.parts) {
+            const auto found = ratings.find(id);
+            if (found != ratings.end() && found->second < capacity) {
+                capacity = found->second;
+                limiting_part = id;
+            }
+        }
+        const NetworkLoad load{static_cast<double>(capacity), static_cast<double>(impact),
+            impact > capacity, std::move(limiting_part)};
         for (const auto& id : component.parts) power.load.emplace(id, load);
         if (!load.overloaded) continue;
         component.state = mechanics::MotionState::stalled;
@@ -1086,9 +1112,8 @@ DrivePower drive_power(const stationary::Topology& topology) {
     return power;
 }
 
-materials::MachinePower machine_power(const stationary::Topology& topology) {
+materials::MachinePower machine_power_from(const stationary::Topology& topology, const DrivePower& view) {
     materials::MachinePower power;
-    const auto view = drive_power(topology);
     if (!view.mechanical.accepted()) return power;
     for (const auto& item : topology.parts) {
         const auto found = view.mechanical.motion.find(item.geometry.id);
@@ -1115,6 +1140,70 @@ materials::MachinePower machine_power(const stationary::Topology& topology) {
         }
     }
     return power;
+}
+
+}  // namespace
+
+DrivePower drive_power(const stationary::Topology& topology) {
+    return apply_load(topology, stationary::power_view(topology).mechanical, {}, {});
+}
+
+DrivePower drive_power(const Profile& profile, const State& state) {
+    const auto base = stationary::power_view(state.topology);
+    if (!base.mechanical.accepted()) return {base.mechanical, {}};
+    std::vector<mechanics::Part> parts;
+    parts.reserve(state.topology.parts.size() + state.placed_components.size());
+    for (const auto& item : state.topology.parts) parts.push_back(item.geometry);
+    std::map<std::string, long double> ratings, impacts;
+    const auto placed = assembly_parts(state);
+    const auto append = [&](mechanics::Part projected) {
+        parts.push_back(std::move(projected));
+    };
+    for (const auto& face : profile.collector_faces) {
+        const auto inspected = assembly::inspect_collector(placed, face);
+        if (!inspected.collector) continue;
+        const auto& found = *inspected.collector;
+        const auto axis = horizontal_axis(found.machine_center, found.shaft_center);
+        append({found.frame, mechanics::Kind::hub, found.machine_center, axis, 0, 0});
+        append({found.shaft, mechanics::Kind::shaft, found.shaft_center, axis, 0, 1});
+        ratings.emplace(found.shaft, material_rating(found.shaft_material));
+        impacts.emplace(found.frame, 4);
+    }
+    for (const auto& item : placed) {
+        if (item.kind != materials::Component::wooden_frame) continue;
+        const auto inspected = assembly::inspect_press(placed, item.center);
+        if (!inspected.press) continue;
+        const auto& found = *inspected.press;
+        const auto axis = horizontal_axis(found.shaft_center, found.cog_center);
+        const mechanics::Point hub{found.frame_center[0], found.shaft_center[1], found.frame_center[2]};
+        append({found.frame, mechanics::Kind::hub, hub, axis, 0, 0});
+        append({found.shaft, mechanics::Kind::shaft, found.shaft_center, axis, 0, 1});
+        append({found.drive_cog, mechanics::Kind::gear, found.cog_center, axis, 2, 0});
+        ratings.emplace(found.shaft, material_rating(found.shaft_material));
+        ratings.emplace(found.drive_cog, material_rating(found.cog_material));
+        impacts.emplace(found.frame, 8);
+    }
+    if (parts.size() > mechanics::maximum_parts) {
+        mechanics::Result result;
+        result.error = mechanics::Error::too_many_parts;
+        return {std::move(result), {}};
+    }
+    auto sources = state.topology.sources;
+    if (!state.topology.drive_enabled)
+        for (auto& source : sources) source.rate = {0, 1};
+    std::vector<mechanics::BeltSpan> spans;
+    spans.reserve(state.topology.belt_spans.size());
+    for (const auto& span : state.topology.belt_spans) spans.push_back(span.geometry);
+    return apply_load(state.topology,
+        mechanics::evaluate(parts, sources, spans, mechanics::SourcePolicy::overpower), ratings, impacts);
+}
+
+materials::MachinePower machine_power(const stationary::Topology& topology) {
+    return machine_power_from(topology, drive_power(topology));
+}
+
+materials::MachinePower machine_power(const Profile& profile, const State& state) {
+    return machine_power_from(state.topology, drive_power(profile, state));
 }
 
 bool validate(const Profile& profile, const Snapshot& snapshot) {
@@ -1363,7 +1452,7 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
     }
     if (state.material.belt_lanes.size() != state.topology.belt_spans.size()) return false;
     if (!state.topology.material_links.empty()) return false;
-    if (totals != profile.finite_parts || !stationary::power_view(state.topology).mechanical.accepted() ||
+    if (totals != profile.finite_parts || !drive_power(profile, state).mechanical.accepted() ||
         materials::validate(state.material, profile.material, material_path(state.topology)) != materials::Error::none)
         return false;
     return history_domain(profile, snapshot);
@@ -2205,11 +2294,11 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
 Advance World::tick() noexcept {
     return owner_->advance([&](const Snapshot& snapshot) -> std::optional<State> {
         auto candidate = snapshot.state;
-        const auto power = machine_power(candidate.topology);
+        const auto power = machine_power(profile_, candidate);
         const auto error = materials::step(candidate.material, profile_.material,
             material_path(candidate.topology), power);
         if (error != materials::Error::none) throw error;
-        const auto motion = drive_power(candidate.topology).mechanical;
+        const auto motion = drive_power(profile_, candidate).mechanical;
         if (!motion.accepted()) throw materials::Error::invalid_path;
         // Only an assembled tray may feed the adjacent belt mouth. A tray is
         // one quarter-grid step from its frame; the belt endpoint is the next

@@ -37,6 +37,7 @@ var _direction_meshes: Dictionary = {}
 var _support_meshes: Dictionary = {}
 static var _relay_shells: Dictionary = {}
 static var _cutting_blade_mesh: ArrayMesh
+static var _receiver_pan_mesh: ArrayMesh
 
 func configure(host: Object) -> void:
 	_host = weakref(host)
@@ -415,6 +416,58 @@ static func _formed_cutting_blade() -> ArrayMesh:
 	surface.generate_tangents()
 	_cutting_blade_mesh = surface.commit()
 	return _cutting_blade_mesh
+
+static func _formed_receiver_pan() -> ArrayMesh:
+	if _receiver_pan_mesh != null:
+		return _receiver_pan_mesh
+	# The flat seat is the existing native loose-blank height. The raised sheet
+	# folds are visual and stay inside the receiver's published occupied box.
+	var floor_bottom := 0.0075
+	var floor_top := 0.0425
+	var rim_top := 0.13
+	var floor := SurfaceTool.new()
+	floor.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_blade_quad(floor, Vector3(-0.17, floor_top, -0.19), Vector3(0.17, floor_top, -0.19),
+		Vector3(0.17, floor_top, 0.19), Vector3(-0.17, floor_top, 0.19), Vector3.UP)
+	_blade_quad(floor, Vector3(-0.17, floor_bottom, -0.19), Vector3(0.17, floor_bottom, -0.19),
+		Vector3(0.17, floor_bottom, 0.19), Vector3(-0.17, floor_bottom, 0.19), Vector3.DOWN)
+	floor.generate_tangents()
+	_receiver_pan_mesh = floor.commit()
+	_receiver_pan_mesh.surface_set_material(0, Finish.material("cast", Color("354442"), 0.72, 0.52))
+	var folds := SurfaceTool.new()
+	folds.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for sign_x in [-1.0, 1.0]:
+		var normal_x := Vector3(sign_x, 0, 0)
+		_blade_quad(folds, Vector3(sign_x * 0.15, floor_top, -0.19),
+			Vector3(sign_x * 0.15, floor_top, 0.19),
+			Vector3(sign_x * 0.16, rim_top, 0.19),
+			Vector3(sign_x * 0.16, rim_top, -0.19), -normal_x)
+		_blade_quad(folds, Vector3(sign_x * 0.17, floor_bottom, -0.19),
+			Vector3(sign_x * 0.17, floor_bottom, 0.19),
+			Vector3(sign_x * 0.17, rim_top, 0.19),
+			Vector3(sign_x * 0.17, rim_top, -0.19), normal_x)
+		_blade_quad(folds, Vector3(sign_x * 0.16, rim_top, -0.19),
+			Vector3(sign_x * 0.16, rim_top, 0.19),
+			Vector3(sign_x * 0.17, rim_top, 0.19),
+			Vector3(sign_x * 0.17, rim_top, -0.19), Vector3.UP)
+	for sign_z in [-1.0, 1.0]:
+		var normal_z := Vector3(0, 0, sign_z)
+		_blade_quad(folds, Vector3(-0.17, floor_top, sign_z * 0.17),
+			Vector3(0.17, floor_top, sign_z * 0.17),
+			Vector3(0.17, rim_top, sign_z * 0.18),
+			Vector3(-0.17, rim_top, sign_z * 0.18), -normal_z)
+		_blade_quad(folds, Vector3(-0.17, floor_bottom, sign_z * 0.19),
+			Vector3(0.17, floor_bottom, sign_z * 0.19),
+			Vector3(0.17, rim_top, sign_z * 0.19),
+			Vector3(-0.17, rim_top, sign_z * 0.19), normal_z)
+		_blade_quad(folds, Vector3(-0.17, rim_top, sign_z * 0.18),
+			Vector3(0.17, rim_top, sign_z * 0.18),
+			Vector3(0.17, rim_top, sign_z * 0.19),
+			Vector3(-0.17, rim_top, sign_z * 0.19), Vector3.UP)
+	folds.generate_tangents()
+	folds.commit(_receiver_pan_mesh)
+	_receiver_pan_mesh.surface_set_material(1, Finish.material("worked", Color("9aaba5"), 0.78, 0.36))
+	return _receiver_pan_mesh
 
 func _finish(mesh: MeshInstance3D, color: Color) -> void:
 	var material := StandardMaterial3D.new()
@@ -995,12 +1048,11 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3) -
 				fastener.position = Vector3(0.11, 0.095, z)
 		"receiver_tray":
 			# The existing loose-blank centre is at the grid anchor. Its 8 cm
-			# visual sits directly on this open pan instead of floating above it.
-			_support_box(anchor, "OpenPan", Vector3(0, 0.025, 0), Vector3(0.34, 0.035, 0.38), dark)
-			for x in [-0.16, 0.16]:
-				_support_box(anchor, "PanSide", Vector3(x, 0.075, 0), Vector3(0.018, 0.14, 0.38), worked)
-			for z in [-0.18, 0.18]:
-				_support_box(anchor, "PanEnd", Vector3(0, 0.075, z), Vector3(0.34, 0.14, 0.018), worked)
+			# visual sits on a level seat within the folded, open receiver.
+			var pan := MeshInstance3D.new()
+			pan.name = "OpenPan"
+			pan.mesh = _formed_receiver_pan()
+			anchor.add_child(pan)
 		"wooden_shaft", "softmetal_shaft":
 			var shaft_finish: Material = timber if kind == "wooden_shaft" else worked
 			_support_box(anchor, "BearingFoot", Vector3(0, -0.07, 0), Vector3(0.35, 0.07, 0.35), dark)

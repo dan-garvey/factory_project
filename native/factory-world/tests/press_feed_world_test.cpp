@@ -10,6 +10,7 @@ namespace w = factory::world;
 namespace a = factory::authority;
 namespace g = factory::mechanics;
 namespace m = factory::materials;
+namespace s = factory::stationary;
 using V = factory::values::Value;
 using O = V::Object;
 using I = V::Integer;
@@ -30,7 +31,7 @@ Site site() {
     profile.material.timber_sites = {{"tree", {{12, 0, 12}, 8}},
                                      {"tree-branch", {{12, 0, 24}, 4}}};
     profile.material.hand_carry_capacity = 24;
-    profile.initial_units = 8;
+    profile.initial_units = 10;
     profile.actors = {"P", "Q"};
     profile.foundation_parts = 24;
     profile.starting_foundation_kits = {{"P", 15}, {"Q", 0}};
@@ -38,19 +39,24 @@ Site site() {
     profile.meters_per_grid_unit = 0.4125;
     profile.anchor_offset = {0, 0.825, 0};
     profile.build_reach = 4;
-    state.material.initial_units = 8;
-    state.material.stock.source = 8;
+    profile.waterwheel_rate = {2, 1};
+    profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, 1}};
+    state.material.initial_units = 10;
+    state.material.stock.source = 10;
     state.material.cargo = {{"P", {}}, {"Q", {}}};
     state.material.timber_remaining = {{"tree", 8}, {"tree-branch", 4}};
     state.kits = {{"P", {}}, {"Q", {}}};
     state.foundation_kits = {{"P", 15}, {"Q", 0}};
     state.topology.drive_enabled = true;
+    state.topology.parts = {
+        {{"press-wheel", g::Kind::hub, {4, 4, 0}, g::Axis::x, 0, 0}, 1, s::Role::waterwheel}};
+    state.topology.sources = {{"press-wheel", profile.waterwheel_rate}};
     state.landing_pod = w::LandingPod{"landing-pod", *profile.landing_pod_center, 1};
     state.fabrication_hub = w::FabricationHub{"pod-fabrication-hub",
         w::landing_hub_center(*profile.landing_pod_center), 1};
     state.hand_crank = w::HandCrank{"pod-hand-crank", 1, std::nullopt};
     state.issued_entities = {{"landing-pod", 1}, {"pod-fabrication-hub", 1},
-        {"pod-hand-crank", 1}};
+        {"pod-hand-crank", 1}, {"press-wheel", 1}};
     const auto deck = w::landing_deck_centers(*profile.landing_pod_center);
     for (std::size_t index = 0; index < deck.size(); ++index) {
         const auto id = "pod-floor-" + std::to_string(index);
@@ -143,7 +149,7 @@ void actor_feed_is_physical_custody() {
         {"ram_face", {8, 2, 0}}, {"sliding_guide", {8, 3, 0}},
         {"tool_mount", {8, 4, 0}}, {"wooden_shaft", {9, 4, 0}},
         {"wooden_cog", {10, 4, 0}}};
-    std::string frame, shaft;
+    std::string frame, shaft, cog;
     g::Integer frame_generation{};
     for (const auto& part : parts) {
         auto place = request("P", std::string("place-") + part.name, "place_component");
@@ -155,6 +161,7 @@ void actor_feed_is_physical_custody() {
             frame_generation = std::get<I>(made.at("generation").storage());
         }
         if (std::string(part.name) == "wooden_shaft") shaft = std::get<std::string>(made.at("entity").storage());
+        if (std::string(part.name) == "wooden_cog") cog = std::get<std::string>(made.at("entity").storage());
         if (std::string(part.name) == "wooden_shaft") {
             auto incomplete = request("P", "feed-before-cog", "feed_press");
             incomplete.emplace("target", V(frame));
@@ -293,6 +300,26 @@ void actor_feed_is_physical_custody() {
             record.result.at("formed_products") = V(I{1});
     check(!w::World::restore("press-feed", source.profile, false_output),
           "A saved crank receipt cannot report output absent from the physical exit.");
+    const auto overloaded = w::drive_power(source.profile, first_work.state);
+    check(overloaded.mechanical.accepted() &&
+          overloaded.mechanical.motion.at(frame).state == g::MotionState::stalled &&
+          overloaded.load.at(shaft).overloaded && overloaded.load.at(shaft).capacity == 8 &&
+          overloaded.load.at(shaft).impact == 16 &&
+          !overloaded.load.at(shaft).limiting_part.empty(),
+          "The sourced press exceeds its actual wooden drive-part rating at double speed.");
+    check(run.world->tick().error == w::TransactionError::none &&
+          run.world->snapshot().state == first_work.state,
+          "An overloaded native tick leaves the partial WorkLot and all placed parts intact.");
+    const auto stalled_save = w::encode_checkpoint(source.profile, run.world->snapshot());
+    check(std::holds_alternative<V>(stalled_save), "The overloaded press checkpoint encodes.");
+    const auto stalled_decoded = w::decode_checkpoint(source.profile, "press-feed", std::get<V>(stalled_save));
+    check(std::holds_alternative<w::Snapshot>(stalled_decoded), "The overloaded press checkpoint decodes.");
+    auto stalled_restored = w::World::restore("press-feed", source.profile, std::get<w::Snapshot>(stalled_decoded));
+    check(stalled_restored && stalled_restored->snapshot().state == first_work.state &&
+          w::drive_power(source.profile, stalled_restored->snapshot().state).load.at(shaft).overloaded &&
+          stalled_restored->tick().error == w::TransactionError::none &&
+          stalled_restored->snapshot().state == first_work.state,
+          "A fresh World recomputes the same non-destructive stall after checkpoint restore.");
     const auto turn_retry = run.send("P", turn);
     check(turn_retry.completed() && turn_retry.result &&
           std::get<bool>(turn_retry.result->at("duplicate").storage()) &&
@@ -356,6 +383,49 @@ void actor_feed_is_physical_custody() {
     const auto recovered = run.world->snapshot();
     check(w::World::restore("press-feed", source.profile, recovered) != nullptr,
           "A saved harvest, craft, feed, form and pickup history restores with partial work in actor cargo.");
+    run.p = {0, 1, 1.65};
+    for (int n = 0; n < 4; ++n) {
+        auto ore = request("P", "upgrade-ore-" + std::to_string(n), "harvest_source");
+        ore.emplace("target", V("ore"));
+        run.accept("P", ore);
+    }
+    run.p = {1.65, 1, 6.6};
+    for (const auto* name : {"softmetal_shaft", "softmetal_cog"}) {
+        auto craft = request("P", std::string("craft-upgrade-") + name, "craft_component");
+        craft.emplace("target", V("pod-fabrication-hub"));
+        craft.emplace("generation", V(I{1}));
+        craft.emplace("component", V(name));
+        run.accept("P", craft);
+    }
+    run.p = {2, 1, 0};
+    auto remove_cog = request("P", "remove-wooden-cog", "reclaim_component");
+    remove_cog.emplace("target", V(cog));
+    remove_cog.emplace("generation", V(I{7}));
+    run.accept("P", remove_cog);
+    for (const auto& [name, center] : {std::pair{"softmetal_shaft", g::Point{9, 4, 0}},
+                                      std::pair{"softmetal_cog", g::Point{10, 4, 0}}}) {
+        auto place = request("P", std::string("place-upgrade-") + name, "place_component");
+        place.emplace("component", V(name));
+        place.emplace("center", V(point(center[0], center[1], center[2])));
+        run.accept("P", place);
+    }
+    const auto upgraded = run.world->snapshot();
+    const auto powered = w::drive_power(source.profile, upgraded.state);
+    check(powered.mechanical.accepted() &&
+          powered.mechanical.motion.at(frame).state == g::MotionState::rotating &&
+          powered.load.at(frame).impact == 16 && powered.load.at(frame).capacity == 24 &&
+          !powered.load.at(frame).overloaded,
+          "Replacing both wooden press drive parts with metal runs the same powered press at unchanged load.");
+    check(run.world->tick().error == w::TransactionError::none &&
+          run.world->snapshot().state == upgraded.state &&
+          run.world->snapshot().state.material.cargo.at("P").work_lots ==
+              std::vector<m::WorkLot>{partial},
+          "The upgraded empty press does not consume the retained partial WorkLot in actor custody.");
+    const auto upgraded_save = w::encode_checkpoint(source.profile, upgraded);
+    check(std::holds_alternative<V>(upgraded_save) &&
+          std::holds_alternative<w::Snapshot>(w::decode_checkpoint(source.profile, "press-feed",
+              std::get<V>(upgraded_save))),
+          "The upgraded drive identities and retained work survive the canonical checkpoint.");
 }
 } // namespace
 

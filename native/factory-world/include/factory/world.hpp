@@ -123,6 +123,9 @@ struct NetworkLoad {
     double capacity{};
     double impact{};
     bool overloaded{};
+    // Actual placed part when its material rating is the limiting capacity.
+    std::string limiting_part;
+    bool operator==(const NetworkLoad&) const = default;
 };
 struct DrivePower {
     mechanics::Result mechanical;
@@ -130,8 +133,10 @@ struct DrivePower {
 };
 
 [[nodiscard]] DrivePower drive_power(const stationary::Topology&);
+[[nodiscard]] DrivePower drive_power(const Profile&, const State&);
 [[nodiscard]] materials::Path material_path(const stationary::Topology&);
 [[nodiscard]] materials::MachinePower machine_power(const stationary::Topology&);
+[[nodiscard]] materials::MachinePower machine_power(const Profile&, const State&);
 [[nodiscard]] bool validate(const Profile&, const Snapshot&);
 
 // Native domain implementation, still unadopted. Session remains the transport

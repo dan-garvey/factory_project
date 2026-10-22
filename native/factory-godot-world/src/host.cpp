@@ -1972,7 +1972,7 @@ Value Host::projection() const {
             {"phase", Value(lane.phase)}, {"slots", Value(std::move(slots))}}));
     }
     for (const auto& link : state.topology.material_links) links.emplace_back(Array{Value(link.from.id), Value(link.to.id)});
-    const auto power = world::drive_power(state.topology);
+    const auto power = world::drive_power(profile_, state);
     Object motions;
     for (const auto& [id, motion] : power.mechanical.motion) {
         Object projected{{"state", Value(mechanics::motion_state_name(motion.state))},
@@ -1982,6 +1982,16 @@ Value Host::projection() const {
             projected.emplace("capacity", Value(load->second.capacity));
             projected.emplace("impact", Value(load->second.impact));
             projected.emplace("overloaded", Value(load->second.overloaded));
+            if (load->second.overloaded) {
+                projected.emplace("limiting_part", Value(load->second.limiting_part));
+                if (!load->second.limiting_part.empty()) {
+                    const auto found = state.placed_components.find(load->second.limiting_part);
+                    if (found != state.placed_components.end())
+                        projected.emplace("limiting_kind", Value(materials::component_name(found->second.kind)));
+                }
+                projected.emplace("remedy", Value(load->second.limiting_part.empty() ?
+                    "add_power_or_reduce_load" : "replace_with_softmetal_or_split_load"));
+            }
         }
         motions.emplace(id, Value(std::move(projected)));
     }
@@ -2028,7 +2038,7 @@ Value Host::projection() const {
     Array mineral_cells;
     for (const auto& cell : mineral_site::opening_cells)
         mineral_cells.emplace_back(Array{Value(cell.x), Value(cell.z)});
-    const auto local = world::machine_power(state.topology);
+    const auto local = world::machine_power(profile_, state);
     for (const auto& [id, foundation] : state.foundations)
         foundations.emplace(id, Value(Object{{"cell", Value(Array{Value(foundation.center[0] / 4), Value(foundation.center[2] / 4)})},
             {"level", Value(foundation.center[1])}, {"generation", Value(foundation.generation)}}));
