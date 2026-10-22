@@ -615,6 +615,64 @@ func check_landing_contact_from_motion() -> void:
 	verify(absf(float(moving.first_contact_reach_jump)) < 0.16,
 		"The moving leading toe reaches forward during descent rather than snapping across first contact.")
 
+func landing_toe_hold_case(metres_per_frame: float) -> Dictionary:
+	var host := HostFixture.new()
+	host.state.context = "landing-toe-hold"
+	root.add_child(host)
+	var presenter := Presenter.new()
+	presenter.configure(host)
+	host.add_child(presenter)
+	presenter.set_process(false)
+	presenter.set_physics_process(false)
+	var body: Node3D = presenter.views.P.get_node("BodyView")
+	var skeleton := skeleton_of(body)
+	var heights := [0.9, 1.12, 1.42, 1.78, 1.68, 1.38]
+	for sample in range(24):
+		heights.append(0.9)
+	var x := 0.0
+	for sample in range(60):
+		x += metres_per_frame
+		host.state.actors.P.position = [x, 0.9, 0.0]
+		presenter.refresh(1.0 / 60.0)
+	var toes := []
+	var roots_exact := true
+	var knee_forward := INF
+	var anchored := false
+	for frame in range(heights.size()):
+		if frame > 0:
+			x += metres_per_frame
+		host.state.actors.P.position = [x, heights[frame], 0.0]
+		presenter.refresh(1.0 / 60.0)
+		if frame == 6:
+			anchored = presenter.motion.P.has("landing_toe_anchor")
+		roots_exact = roots_exact and presenter.views.P.position.is_equal_approx(
+			Vector3(x, heights[frame], 0.0))
+		if frame >= 6:
+			skeleton.force_update_all_bone_transforms()
+			var toe: Vector3 = body.to_global(presenter._adult_joint(body, skeleton,
+				skeleton.find_bone("Bip01 L Toe0")))
+			toes.append({"x": toe.x, "y": toe.y, "mode": presenter.motion.P.mode})
+			if presenter.motion.P.mode == "landing":
+				knee_forward = minf(knee_forward, knee_forward_offset(body, "L"))
+	var retreat := 0.0
+	var furthest := float(toes[0].x)
+	var contact_step := 0.0
+	var prior := {}
+	for sample in toes:
+		if sample.mode == "landing" and float(sample.y) < 0.07:
+			retreat = maxf(retreat, furthest - float(sample.x))
+			furthest = maxf(furthest, float(sample.x))
+			if not prior.is_empty():
+				contact_step = maxf(contact_step, absf(float(sample.x) - float(prior.x)))
+			prior = sample
+	var result := {"toes": toes, "retreat": retreat,
+		"maximum_contact_step": contact_step, "root_x": x,
+		"root_exact": roots_exact, "minimum_knee_forward": knee_forward,
+		"anchored": anchored,
+		"control_calls": host.control_calls}
+	host.free()
+	return result
+
 func check_landing_recovery_profile() -> void:
 	var host := HostFixture.new()
 	host.state.context = "landing-recovery-profile"
@@ -694,6 +752,35 @@ func run() -> void:
 		check_sparse_confirmed_walk()
 		check_uneven_native_walk_samples()
 		check_landing_contact_from_motion()
+		var walk_contact := landing_toe_hold_case(0.018)
+		var jog_contact := landing_toe_hold_case(0.028)
+		var run_contact := landing_toe_hold_case(0.05)
+		adult_measurements["landing_toe_hold"] = {"walk": walk_contact,
+			"jog": jog_contact, "run": run_contact}
+		var walk_toes: Array = walk_contact.toes
+		var walk_contact_x: float = walk_toes[0].x
+		var early_grounded := true
+		for sample in walk_toes.slice(0, 6):
+			early_grounded = early_grounded and absf(float(sample.x) - walk_contact_x) < 0.015 \
+				and absf(float(sample.y) - 0.01) < 0.015
+		verify(walk_contact.anchored and early_grounded and walk_contact.root_exact
+			and walk_contact.minimum_knee_forward > 0.05 and walk_contact.control_calls == 0,
+			"A warmed walking landing plants the forward-facing lead boot through early contact without moving the actor root.")
+		verify(jog_contact.root_exact and jog_contact.minimum_knee_forward > -0.02
+			and jog_contact.maximum_contact_step < 0.12 and jog_contact.control_calls == 0
+			and run_contact.anchored and run_contact.root_exact
+			and run_contact.minimum_knee_forward > 0.04
+			and run_contact.retreat < 0.07 and run_contact.maximum_contact_step < 0.08
+			and run_contact.control_calls == 0,
+			"Jogging and running landings keep the leading boot close to contact without a backwards knee or input side effect.")
+		var run_contact_x: float = run_contact.toes[0].x
+		var run_early_grounded := true
+		for sample in run_contact.toes.slice(0, 6):
+			run_early_grounded = run_early_grounded \
+				and absf(float(sample.x) - run_contact_x) < 0.015 \
+				and absf(float(sample.y) - 0.01) < 0.015
+		verify(run_early_grounded,
+			"A warmed running landing holds its leading toe through the first supported samples.")
 		check_landing_recovery_profile()
 	else:
 		verify(body.mesh == q.get_node("BodyView").mesh and body.material_override != q.get_node("BodyView").material_override,
