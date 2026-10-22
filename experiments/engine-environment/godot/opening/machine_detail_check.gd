@@ -582,6 +582,7 @@ func hub_short_probe_determinant(housing: MeshInstance3D) -> float:
 	return maximum
 
 func check_conveyor_hub() -> void:
+	# This is an invented one-cell art sample; native player-built belts are shaft spans.
 	var cache: Dictionary = {}
 	var assemblies := 0
 	var shaft_cases := 0
@@ -612,7 +613,7 @@ func check_conveyor_hub() -> void:
 				verify(machine.get_meta("conveyor_hub", false)
 					and (machine.transform * journal.transform).origin.is_equal_approx(expected)
 					and journal.basis.y.dot(direction) > 0.99999 and journal.mesh is CylinderMesh,
-					"The actual view keeps the public journal on the native hub point and positive projected axis, including translated cells.")
+					"The sample journal keeps its historical hub datum and projected axis, including translated cells.")
 				var loop: MeshInstance3D = machine.get_node("ConveyorLoop")
 				verify(loop.mesh == ConveyorArt.loop_mesh() and loop.material_override == ConveyorArt.material(),
 					"The actual original rubber geometry and prepared material stay exact.")
@@ -641,7 +642,7 @@ func check_conveyor_hub() -> void:
 					"The compact journal and open housing share eight supported carrier pieces within the original machine.")
 				var items: Array[Dictionary] = []
 				hub_mesh_rows(view.item_root, Transform3D.IDENTITY, items)
-				verify(not items.is_empty(), "The ordinary item redraw supplies the actual retained billet artwork.")
+				verify(not items.is_empty(), "The sample item redraw supplies the retained billet artwork.")
 				for part in parts:
 					var role: String = part.get_meta("conveyor_hub_role")
 					var key := role + ("Y" if axis == 1 and role in ["HubHousing", "HubJournal"] else "")
@@ -777,7 +778,7 @@ func check_conveyor_hub() -> void:
 						var original_position := journal.position
 						journal.position.x += 0.01
 						verify(not (machine.transform * journal.transform).origin.is_equal_approx(expected),
-							"A displaced visible journal fails the confirmed native-point discriminator.")
+							"A displaced visible journal fails the sample hub-datum discriminator.")
 						journal.position = original_position
 						controls += 3
 				verify(view.state == before and view.model == null and view.actor_world == null and view.request_sequence == 0,
@@ -795,7 +796,8 @@ func check_conveyor_hub() -> void:
 			and is_equal_approx(journal.mesh.height, 0.18) and journal.position.is_equal_approx(Vector3(0, 0.35, 0.55)),
 			"Both nonnative views retain their exact historical decorative stub.")
 		view.free()
-	print(JSON.stringify({"phase": "conveyor hub", "assemblies": assemblies, "unique_mesh_roles": cache.size(),
+	print(JSON.stringify({"phase": "conveyor hub", "sample_only": true,
+		"assemblies": assemblies, "unique_mesh_roles": cache.size(),
 		"shaft_alternatives": shaft_cases, "actual_shaft_triangles_read": shaft_faces,
 		"retained_joint_probes": joint_probes,
 		"minimum_belt_facet_separation_metres": minimum_loop_gap, "minimum_local_shaft_clearance_metres": minimum_shaft_gap,
@@ -3763,8 +3765,9 @@ func check_historical_wheel() -> void:
 	view.free()
 
 func check_conveyor_loop() -> void:
+	# This is an invented one-cell art sample; native player-built belts are shaft spans.
 	var mesh := ConveyorArt.loop_mesh()
-	verify(mesh == ConveyorArt.loop_mesh(), "Every conveyor shares the same authored loop mesh.")
+	verify(mesh == ConveyorArt.loop_mesh(), "The sample reuses its authored loop mesh.")
 	var arrays := mesh.surface_get_arrays(0)
 	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
 	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
@@ -3837,7 +3840,7 @@ func check_conveyor_loop() -> void:
 		var anchor: Node3D = view.machine_root.get_child(0)
 		var loop := anchor.get_node("ConveyorLoop") as MeshInstance3D
 		verify(loop != null and loop.mesh == mesh and loop.material_override == ConveyorArt.material(),
-			"The ordinary belt assembly mounts the exact shared loop and cached rubber material.")
+			"The sample assembly mounts its authored loop and cached rubber material.")
 		verify(anchor.get_node_or_null("ConveyorBand") == null and anchor.get_node_or_null("ConveyorCleat") == null,
 			"The closed loop replaces the old solid band and floating top blocks.")
 		var legs := 0
@@ -3867,7 +3870,7 @@ func check_conveyor_loop() -> void:
 		var drive := anchor.get_node("DriveStub") as MeshInstance3D
 		var direction: Vector3 = [Vector3.RIGHT, Vector3.UP, Vector3.BACK][axis]
 		verify(absf(drive.basis.y.normalized().dot(direction)) > 0.99999,
-			"The original native drive interface still follows its projected axis.")
+			"The sample drive artwork follows its historical projected axis.")
 		view.item_root = Node3D.new()
 		view._redraw_items()
 		var lowest := INF
@@ -3915,7 +3918,8 @@ func check_conveyor_loop() -> void:
 		file.close()
 	verify(file != null and ConveyorArt.read_images(partial).status == "invalid",
 		"A partial source set is rejected rather than reported as valid artwork.")
-	print(JSON.stringify({"loop_volume": absf(volume), "longitudinal_repeats": 4,
+	print(JSON.stringify({"sample_only": true, "native_gameplay": "not_run",
+		"loop_volume": absf(volume), "longitudinal_repeats": 4,
 		"longitudinal_texture_metres": (4.0 * 0.57 + TAU * 0.09) / 4.0}))
 
 func prepare_conveyor_maps() -> void:
