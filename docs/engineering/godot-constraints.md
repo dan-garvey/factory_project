@@ -591,6 +591,35 @@ With both motion caches present after the later terrain and opening join, a
 0/400-cog fixture pair measured 13.017/17.143 ms median and
 17.171/18.999 ms p95 on the same machine.
 
+**Native transmission refresh cost.** The normal opening calls its
+transmission refresh from the per-frame UI refresh. The earlier paused scale
+fixture omitted that call and understated the cost of hundreds of cogs. An
+exclusive 1280×800 Godot 4.7.2 Compatibility probe on WSL2/D3D12 RTX 3090
+added the same refresh call on every frame of a synthetic opening. With 400
+supported mixed cogs, 30 warmup frames and 120 measured frames, its unchanged
+projection took 5.789 ms median to refresh and 23.003 ms median /
+27.858 ms p95 per frame with stopped cogs. Rotating cogs measured 5.834 ms
+refresh and 23.884 / 29.763 ms per frame. Those are source measurements
+before the change below, not earlier paused-fixture FPS results.
+
+The presenter now compares an owned deep snapshot instead of serializing
+every part to text. It skips the deep walk between revisions only when the
+host has the native Model, whose changed World snapshots increment revision.
+Synthetic hosts retain exact value comparison, including motion edits without
+a revision. Unchanged batched cog angles also avoid transform updates. In
+separate single runs using the same scene and sample rule, the final
+synthetic native-revision path measured 0.573 ms refresh and
+16.984 / 18.802 ms frames for stopped cogs, and 0.534 ms refresh and
+18.433 / 19.526 ms frames for rotating cogs. An earlier candidate run
+measured 16.647 / 17.598 and 18.041 / 19.374 ms frames respectively,
+showing run-to-run variation. A trusted-revision fixture advances its synthetic revision
+on append and tests the resulting rebuild; it does not boot the native World.
+The real native projection, player placement and full startup were not timed,
+and these rotating frames still exceed a steady 60 FPS budget. The fixture's
+verify-only whole-opening mode emits two GL texture leak errors at exit even
+without the trusted revision path; its isolated graphical pose, pick and
+revision checks complete without those errors. Owner: Performance.
+
 An explicit distant wheel mesh experiment reduced the batched rotor from
 14,094 to 2,306 triangles per instance. Exclusive isolated 200/400-wheel
 medians improved from 22.905/34.773 to 20.302/32.077 ms, but the 200-wheel

@@ -192,6 +192,14 @@ fixed. It reports frame and opening-process times, draw calls, and the cost of
 refreshing after one added cog. It does not execute native construction or
 measure ordinary character movement.
 
+Add `--refresh-every-frame --trusted-revision` to include the opening's
+per-frame transmission refresh and exercise the native revision fast path
+against a synthetic projection. The fixture advances its synthetic revision
+when appending a cog; it does not boot the native World. Add `--stopped` to
+measure non-rotating cogs, or `--verify-only` with counts 4 and 400 to check
+pose, picks, motion changes and batch transitions. Use the same flags and
+camera for before/after frame comparisons.
+
 ## Other machine presentation scale probe
 
 `machine_visual_test.gd --performance-benchmark` measures the existing collector,

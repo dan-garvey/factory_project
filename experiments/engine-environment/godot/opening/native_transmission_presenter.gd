@@ -4,6 +4,7 @@ extends Node3D
 const Geometry = preload("res://opening/site_geometry.gd")
 const Assets = preload("res://opening/native_transmission_assets.gd")
 const Items = preload("res://opening/workpiece_item_assets.gd")
+const NativeModel = preload("res://opening/native_model.gd")
 const Finish = preload("res://opening/opening.gd").ProductionTransmissionFinish
 const Visuals = preload("res://opening/opening.gd").ProductionVisuals
 const UNIT := Geometry.PITCH / 4.0
@@ -16,7 +17,9 @@ const INCLINED_SUBTICKS_PER_TICK := 2896.0 # Native lane advances one horizontal
 const GEAR_BATCH_THRESHOLD := 4
 
 var _host: WeakRef
-var _view_key := ""
+var _view_key: Variant = null
+var _native_view_context := ""
+var _native_view_revision: Variant = null
 var _cargo_keys: Dictionary = {}
 var _cargo_elapsed: Dictionary = {}
 var _cargo_anchors: Array[Node3D] = []
@@ -26,6 +29,7 @@ var _generations: Dictionary = {}
 var _visual_angles: Dictionary = {}
 var _visual_rotations: Dictionary = {}
 var _gear_batches: Dictionary = {}
+var _batched_gear_ids: Dictionary = {}
 var _moving_anchors: Array[Node3D] = []
 var _direction_meshes: Dictionary = {}
 var _support_meshes: Dictionary = {}
@@ -33,7 +37,9 @@ static var _relay_shells: Dictionary = {}
 
 func configure(host: Object) -> void:
 	_host = weakref(host)
-	_view_key = ""
+	_view_key = null
+	_native_view_context = ""
+	_native_view_revision = null
 	_clear_motion()
 	refresh()
 
@@ -42,6 +48,9 @@ func _clear() -> void:
 	_cargo_elapsed.clear()
 	_cargo_anchors.clear()
 	_gear_batches.clear()
+	_batched_gear_ids.clear()
+	_native_view_context = ""
+	_native_view_revision = null
 	_moving_anchors.clear()
 	for child in get_children():
 		child.free()
@@ -89,7 +98,7 @@ func visual_angle(id: String) -> float:
 func visual_rotation(id: String) -> float:
 	return float(_visual_rotations.get(id, 0.0))
 
-func _apply_angles() -> void:
+func _apply_angles(update_gears := true) -> void:
 	for child: Node3D in _moving_anchors:
 		if child.has_meta("belt_shaft"):
 			var loop := child.get_node_or_null("BeltLoop") as MeshInstance3D
@@ -113,15 +122,21 @@ func _apply_angles() -> void:
 		if arrow != null:
 			# Keep the signed-rate annotation fixed while its rotor turns.
 			arrow.rotation.y = -angle
-	for batch: Dictionary in _gear_batches.values():
-		var mesh: MultiMesh = batch.mesh
-		var ids: Array = batch.ids
-		var bases: Array = batch.bases
-		var origins: Array = batch.origins
-		for index in ids.size():
-			var basis: Basis = bases[index] * Basis(Vector3.UP,
-				float(_visual_angles.get(ids[index], 0.0)))
-			mesh.set_instance_transform(index, Transform3D(basis, origins[index]))
+	if update_gears:
+		for batch: Dictionary in _gear_batches.values():
+			var mesh: MultiMesh = batch.mesh
+			var ids: Array = batch.ids
+			var bases: Array = batch.bases
+			var origins: Array = batch.origins
+			var last_angles: Array[float] = batch.last_angles
+			for index in ids.size():
+				var angle := float(_visual_angles.get(ids[index], 0.0))
+				if angle == last_angles[index]:
+					continue
+				var basis: Basis = bases[index] * Basis(Vector3.UP, angle)
+				mesh.set_instance_transform(index, Transform3D(basis, origins[index]))
+				last_angles[index] = angle
+			batch.last_angles = last_angles
 
 func advance_visual_motion(delta: float) -> void:
 	if not is_finite(delta) or delta <= 0.0 or _host == null or not is_instance_valid(_host.get_ref()):
@@ -143,6 +158,7 @@ func advance_visual_motion(delta: float) -> void:
 			identity_count += parts.size()
 	if _motion_context != snapshot.get("context", "") or _motion_revision != snapshot.get("revision") or identity_count != _generations.size():
 		_sync_motion(snapshot)
+	var changed_gears := false
 	for id: String in _generations:
 		var rate := signed_rate(snapshot.motion.get(id))
 		if rate != 0.0:
@@ -151,7 +167,8 @@ func advance_visual_motion(delta: float) -> void:
 				continue
 			_visual_rotations[id] = visual_rotation(id) + step
 			_visual_angles[id] = wrapf(visual_angle(id) + step, -PI, PI)
-	_apply_angles()
+			changed_gears = changed_gears or _batched_gear_ids.has(id)
+	_apply_angles(changed_gears)
 	if not _cargo_anchors.is_empty():
 		_advance_belt_cargo(delta, snapshot)
 
@@ -898,7 +915,7 @@ func refresh() -> void:
 	if _host == null or not is_instance_valid(_host.get_ref()):
 		_clear()
 		_clear_motion()
-		_view_key = ""
+		_view_key = null
 		visible = false
 		return
 	var snapshot: Variant = _host.get_ref().get("state")
@@ -906,7 +923,7 @@ func refresh() -> void:
 	if not snapshot is Dictionary or not options is Dictionary or typeof(options.get("native")) != TYPE_BOOL or not options.native:
 		_clear()
 		_clear_motion()
-		_view_key = ""
+		_view_key = null
 		visible = false
 		return
 	var parts: Variant = snapshot.get("transmission_parts")
@@ -914,23 +931,37 @@ func refresh() -> void:
 	if not parts is Dictionary or not motions is Dictionary:
 		_clear()
 		_clear_motion()
-		_view_key = ""
+		_view_key = null
 		visible = false
 		return
 	visible = true
-	_sync_motion(snapshot)
+	var native_model: bool = _host.get_ref().get("model") is NativeModel
+	var native_revision: Variant = snapshot.get("revision")
+	var native_context: String = str(snapshot.get("context", ""))
+	# Native World increments revision for every changed snapshot. Reuse the
+	# already-rendered topology between cuts without walking hundreds of parts.
+	if native_model and typeof(native_revision) == TYPE_INT and native_context == _native_view_context and native_revision == _native_view_revision:
+		return
 	var spans: Variant = snapshot.get("belt_spans", {})
 	var fixed_spans := {}
 	if spans is Dictionary:
 		for id: Variant in spans:
 			var span: Variant = spans[id]
 			fixed_spans[id] = [span.get("generation"), span.get("from"), span.get("to")] if span is Dictionary else span
-	var next_key := JSON.stringify([snapshot.get("context"), parts, motions, fixed_spans, snapshot.get("engagements", []), snapshot.get("dropped_material", [])])
+	var next_key := [snapshot.get("context"), parts, motions, fixed_spans,
+		snapshot.get("engagements", []), snapshot.get("dropped_material", [])]
 	if next_key == _view_key:
+		_native_view_context = native_context if native_model else ""
+		_native_view_revision = native_revision if native_model else null
 		_refresh_belt_cargo(spans)
 		return
+	_sync_motion(snapshot)
 	_clear()
-	_view_key = next_key
+	# Projections can mutate their dictionaries after this call. Keep an owned
+	# snapshot so a later motion or topology change cannot change the baseline.
+	_view_key = next_key.duplicate(true)
+	_native_view_context = native_context if native_model else ""
+	_native_view_revision = native_revision if native_model else null
 	var drops: Variant = snapshot.get("dropped_material", [])
 	if drops is Array:
 		for drop: Variant in drops:
@@ -989,6 +1020,7 @@ func refresh() -> void:
 			var radius: float = Geometry.PITCH / 2.0
 			if batch_gears:
 				anchor.set_meta("batched_gear", true)
+				_batched_gear_ids[id] = true
 				if not gear_anchors.has(part.teeth):
 					gear_anchors[part.teeth] = []
 				gear_anchors[part.teeth].append(anchor)
@@ -1037,8 +1069,11 @@ func refresh() -> void:
 				origins.append(anchor.position)
 			var mesh := Assets.complete_gear_mesh(Geometry.PITCH / 2.0, teeth,
 				Color("687a7b"), Geometry.PITCH)
+			var last_angles: Array[float] = []
+			last_angles.resize(ids.size())
 			_gear_batches[teeth] = {"mesh": _add_batch(mesh, poses, "CogBatch%d" % teeth),
-				"anchors": anchors, "ids": ids, "bases": bases, "origins": origins}
+				"anchors": anchors, "ids": ids, "bases": bases, "origins": origins,
+				"last_angles": last_angles}
 		for sign_value: int in direction_poses:
 			var poses: Array[Transform3D] = []
 			poses.assign(direction_poses[sign_value])
