@@ -151,9 +151,13 @@ rotation must transform that normal using the native quarter turn. These are
 **art-study targets**, not proven clearances, new native sockets or a promise
 that the present plinth can be cut there. A matched mesh test must measure the
 real rock hull, terrain, plinth and tool sweep before retaining either shape.
-An elevated collector permitted by native extraction depth needs a separate
-verified support/intake variant; this ground-level artwork must not draw an
-invented shaft down through foundations.
+The current elevated collector uses a separate, occupied exterior lift beside
+its foundation. Its measured lower pickup touches the rock, and separate
+guides and flights reach a head above the machine. The first solid-carrier
+candidate blocked a working cog route; the open version passes native clearance
+and ordinary scene placement. Matched passive images still hide the lower
+route from the outlet side, so the lift is a partial structural improvement,
+not a completed presentation fit or a claim of moving material in its flights.
 
 ![Illustrative ground-cutter assembly concept](concepts/collector-ground-cutter-concept.png)
 

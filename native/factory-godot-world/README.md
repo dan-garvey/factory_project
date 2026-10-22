@@ -30,8 +30,13 @@ volume to the collector body. The trusted site adapter identifies the fixed
 outcrop obstacle so only that pickup may meet its rock; other scenery, actors,
 foundations and constructed parts still block the occupied volume. The scene
 renders a housing and trough from the pickup toward the stock bed and registers
-the same conservative box for physical contact and picking. A collector raised
-on a foundation still uses the original body and has no depicted ground pickup.
+the same conservative box for physical contact and picking. At four or eight
+height steps, a separate pickup touches the same rock face and an exterior
+open lift runs beside the foundation to an upper head. Its guides and flights
+are occupied native volumes with matching scene collision and picking; a solid
+carrier box would incorrectly obstruct the working cog route. The headless
+native and normal-scene checks establish this physical fit, while matched
+passive views still leave the lower route concealed from the outlet side.
 This fixed interface is a prototype asset fit, not simulated cutter teeth or a
 general rule for arbitrary ore nodes.
 
