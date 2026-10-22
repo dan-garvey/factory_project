@@ -93,6 +93,10 @@ func _run_operation(control: Dictionary) -> void:
 						check((value is int or value is float) and is_finite(float(value)) and float(value) == float(int(value)), "Private test cell input is integral")
 						cell.append(int(value))
 					action.cell = cell
+				if action.has("level"):
+					var level: Variant = action.level
+					check((level is int or level is float) and is_finite(float(level)) and float(level) == float(int(level)), "Private test height input is integral")
+					action.level = int(level)
 				queued = session.submit(action)
 				if queued.queued:
 					saved_intent = session._sent[queued.request].duplicate(true)

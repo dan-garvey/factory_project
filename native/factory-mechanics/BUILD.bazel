@@ -15,3 +15,10 @@ cc_test(
     deps = [":mechanics"],
     size = "small",
 )
+
+cc_test(
+    name = "scale_test",
+    srcs = ["tests/scale_test.cpp"],
+    deps = [":mechanics"],
+    size = "medium",
+)

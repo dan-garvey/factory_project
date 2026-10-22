@@ -165,7 +165,7 @@ func _welcomed(actor: String, namespace_value: String, _snapshot: Dictionary) ->
 	visual_revision = -1
 	elapsed = 0.0
 	_refresh()
-	_message(("Connected as %s. The shared worksite is ready." if legacy_fixture else "Connected as %s. WASD walks; Space jumps. Approach the wheel to operate it [P].") % client)
+	_message(("Connected as %s. The shared worksite is ready." if legacy_fixture else "Connected as %s. Point at a tree or ore deposit and use your multitool [E].") % client)
 	if _has_unknown_actions():
 		_message("Reconnected as %s. Earlier action is uncertain; inspect the current worksite." % client)
 

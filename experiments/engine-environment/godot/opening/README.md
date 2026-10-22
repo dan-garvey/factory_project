@@ -24,6 +24,25 @@ game session.
 The native physical view has eight quick-select slots and a short next-step
 prompt. It starts in inspection; choose **Collector [1]** to begin building.
 The placement preview appears after selecting a construction tool.
+The default native collector, belt, press and three-tile waterwheel forms have
+baked preview scenes in `assets/prebuilt-preview-*.scn`. After changing their
+procedural art, regenerate them with the pinned Godot executable from the Godot
+project directory:
+
+```bash
+godot --headless --path . --script res://opening/machine_preview_check.gd -- --bake-packed-previews
+```
+
+Run the same script without the bake argument to compare each baked mesh and
+transform with its procedural source and exercise native preview selection. The
+bake mode writes source assets; the ordinary check is read only. The native
+arrival also assembles one foundation preview and keeps these default forms
+ready in the main viewport before revealing the worksite. It draws the
+collector, foundation, press and waterwheel tool panels during preparation so
+their first selection does not initialize the interface. Rotated, resized and
+other variant forms still use procedural assembly.
+The native Belt slot places a shaft span, so its baked machine form is retained
+for the existing visual fixture rather than shown by that slot.
 **Build [B]** opens the catalog: choose a destination slot and a carried
 part to assign or replace it. Right-click a slot to edit it; an empty slot also
 opens the catalog. **1–8** select the displayed assignments. The default order is
