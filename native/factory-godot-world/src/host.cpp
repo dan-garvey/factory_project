@@ -705,6 +705,9 @@ Value Host::initialize_site(const std::string& context, const std::vector<std::s
             {"tree-east-north", {{12, 0, 24}, 8}},
             {"tree-north", {{0, 0, 28}, 8}}};
         profile.material.hand_carry_capacity = 24;
+        // The component limit leaves room to carry one last recipe input,
+        // making a full bag a reachable and recoverable workshop refusal.
+        profile.material.component_capacity = 20;
     }
     if (!arrival)
         profile.finite_parts = {{{Role::collector, 0, 0}, 1}, {{Role::belt, 0, 0}, 2},
@@ -2106,6 +2109,19 @@ Value Host::projection() const {
             {"position", Value(Array{Value(hub.center[0] * profile_.meters_per_grid_unit + profile_.anchor_offset[0]),
                 Value(hub.center[1] * profile_.meters_per_grid_unit + profile_.anchor_offset[1]),
                 Value(hub.center[2] * profile_.meters_per_grid_unit + profile_.anchor_offset[2])})}}));
+        Object recipes;
+        for (const auto kind : {materials::Component::wooden_frame, materials::Component::wooden_shaft,
+                materials::Component::wooden_cog, materials::Component::receiver_tray,
+                materials::Component::tool_mount, materials::Component::sliding_guide,
+                materials::Component::cutting_edge, materials::Component::anvil,
+                materials::Component::ram_face, materials::Component::softmetal_shaft,
+                materials::Component::softmetal_cog}) {
+            const auto cost = materials::component_cost(kind);
+            if (cost) recipes.emplace(materials::component_name(kind), Value(Object{
+                {"timber", Value(cost->timber)}, {"softmetal", Value(cost->ore)}}));
+        }
+        projection.emplace("component_recipes", Value(std::move(recipes)));
+        projection.emplace("component_capacity", Value(profile_.material.component_capacity));
         const auto& crank = *state.hand_crank;
         projection.emplace("hand_crank", Value(Object{{"id", Value(crank.id)},
             {"generation", Value(crank.generation)},

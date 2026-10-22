@@ -37,6 +37,7 @@ var floor_error := ""
 var observation_ordinal := 0
 var sample_history: Dictionary = {}
 var last_checkpoint_check: Dictionary = {}
+var _topology_stamp: Array = []
 
 func configure(authority) -> Dictionary:
 	if model != null and model != authority:
@@ -117,10 +118,23 @@ func _create_floor() -> bool:
 			add_child(body)
 	return true
 
-func sync_topology() -> Dictionary:
+func _native_topology_stamp(snapshot: Dictionary) -> Array:
+	# Native command order changes for every construction decision, while
+	# actor poses and material ticks can change revision without new solids.
+	# Other models keep the full validation path on every physics cut.
+	if snapshot.get("options", {}).get("native") != true or \
+			typeof(snapshot.get("context")) != TYPE_STRING or \
+			typeof(snapshot.get("order")) != TYPE_INT:
+		return []
+	return [model.get_instance_id(), snapshot.context, snapshot.order]
+
+func sync_topology(known_snapshot: Dictionary = {}) -> Dictionary:
 	if model == null or not is_inside_tree():
 		return {"accepted": false, "reason": "not_configured"}
-	var snapshot: Dictionary = model.projection()
+	# Explicit calls, including checkpoint and restore validation, always
+	# derive the geometry even if command order did not change.
+	_topology_stamp.clear()
+	var snapshot: Dictionary = model.projection() if known_snapshot.is_empty() else known_snapshot
 	var derived: Dictionary = Geometry.mechanical_boxes(snapshot)
 	if not derived.get("accepted", false):
 		return {"accepted": false, "reason": "invalid_transmission_topology"}
@@ -266,6 +280,7 @@ func sync_topology() -> Dictionary:
 		foundations[id] = body
 		foundation_specs[id] = spec.duplicate(true)
 		add_child(body)
+	_topology_stamp = _native_topology_stamp(snapshot)
 	return {"accepted": true, "reason": "topology_synchronized"}
 
 func ensure_actor(actor: String) -> Dictionary:
@@ -666,12 +681,14 @@ func _box_distance_squared(point: Vector3, half: Vector3) -> float:
 func _on_native_cut() -> void:
 	if model == null or not is_inside_tree():
 		return
-	var topology := sync_topology()
+	var snapshot: Dictionary = model.projection()
+	var stamp := _native_topology_stamp(snapshot)
+	var topology: Dictionary = {"accepted": true} if not stamp.is_empty() and stamp == _topology_stamp \
+		else sync_topology(snapshot)
 	if not topology.accepted:
 		for actor in bodies.keys():
 			_fail(actor, "actor_topology_invalid")
 		return
-	var snapshot: Dictionary = model.projection()
 	for actor in bodies.keys():
 		if failures.has(actor):
 			continue

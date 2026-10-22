@@ -116,7 +116,7 @@ func _collector_route() -> Dictionary:
 		"source_cog": source_cog.entity, "output_cog": output_cog.entity, "shaft": shaft.entity}
 
 func _run() -> void:
-	if mode in ["arrival-press", "arrival-resume"]:
+	if mode in ["arrival-press", "arrival-resume", "arrival-craft-capacity"]:
 		await _arrival_run()
 		return
 	if destination.is_empty() or mode not in ["produce", "resume", "foundations"]:
@@ -357,6 +357,66 @@ func _resume() -> void:
 		return
 	_record("pass")
 
+func _arrival_capacity_run(panel) -> void:
+	for source in [
+		{"point": Vector2(3.3, 4.95), "id": "tree-east-south", "cuts": 8},
+		{"point": Vector2(3.3, 9.9), "id": "tree-east-north", "cuts": 8},
+		{"point": Vector2(1.65, 11.55), "id": "tree-north", "cuts": 5},
+	]:
+		if not await _approach(source.point):
+			return
+		for index in range(source.cuts):
+			if _construct({"action": "harvest_source", "target": source.id}).is_empty():
+				return
+	if not await _approach(Vector2(1.65, 6.6)):
+		return
+	if not _expect(opening.model.projection().cargo.P.timber == 21,
+			"Three finite trees put twenty component inputs and one spare within the hand-carry limit"):
+		return
+	panel.component_choice.select(1)
+	panel._component_selected(1)
+	for count in range(20):
+		if not _expect(not panel.craft_button.disabled,
+				"The pod workshop keeps the native shaft recipe selectable while stock is available"):
+			return
+		var before: Dictionary = opening.model.projection()
+		panel.craft_button.pressed.emit()
+		var after: Dictionary = opening.model.projection()
+		if not _expect(after.order == before.order + 1 and after.cargo.P.timber == before.cargo.P.timber - 1
+				and after.cargo.P.components.get("wooden_shaft", 0) == count + 1,
+				"Each selected recipe converts exactly one carried timber into one wooden shaft"):
+			return
+	var full_before: Dictionary = opening.model.projection()
+	if not _expect("Parts 20 / 20" in panel.recipe_label.text and not panel.craft_button.disabled
+			and full_before.cargo.P.timber == 1,
+			"The ordinary panel shows a full component bag while one recipe input remains"):
+		return
+	panel.craft_button.pressed.emit()
+	var full_after: Dictionary = opening.model.projection()
+	if not _expect(full_after.order == full_before.order + 1 and full_after.cargo == full_before.cargo
+			and full_after.hand_sources == full_before.hand_sources
+			and "component bag is full" in opening.status_label.text,
+			"The native full-output refusal keeps the last timber and offers a clear placement remedy"):
+		return
+	panel.place_button.pressed.emit()
+	var before_placement: Dictionary = opening.model.projection()
+	opening._world_click(Vector2i(3, 4))
+	var placed: Dictionary = opening.model.projection()
+	if not _expect(placed.order == before_placement.order + 1
+			and placed.placed_components.size() == 1
+			and placed.cargo.P.components.get("wooden_shaft", 0) == 19
+			and placed.cargo.P.timber == 1,
+			"The ordinary placement control frees one component slot without changing the held timber"):
+		return
+	panel.craft_button.pressed.emit()
+	var recovered: Dictionary = opening.model.projection()
+	if not _expect(recovered.order == placed.order + 1 and recovered.cargo.P.timber == 0
+			and recovered.cargo.P.components.get("wooden_shaft", 0) == 20
+			and recovered.placed_components == placed.placed_components,
+			"The same hub recipe succeeds after an actual component is placed"):
+		return
+	_record("pass")
+
 ## Fresh arrival panel consumer with actor motor, finite sources and Store.
 func _arrival_run() -> void:
 	deadline = Time.get_ticks_msec() + 120000
@@ -364,7 +424,7 @@ func _arrival_run() -> void:
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--arrival-capture-prefix="):
 			capture_prefix = argument.trim_prefix("--arrival-capture-prefix=")
-	if destination.is_empty() or mode not in ["arrival-press", "arrival-resume"] or FileAccess.file_exists(destination):
+	if destination.is_empty() or mode not in ["arrival-press", "arrival-resume", "arrival-craft-capacity"] or FileAccess.file_exists(destination):
 		push_error("Arrival press check requires an unused output and a declared mode")
 		quit(1)
 		return
@@ -394,6 +454,9 @@ func _arrival_run() -> void:
 				"The graphical preview warmup releases its cover before the arrival is sampled"):
 			return
 	var panel = opening.arrival_assembly_controls
+	if mode == "arrival-craft-capacity":
+		await _arrival_capacity_run(panel)
+		return
 	if not capture_prefix.is_empty() and mode == "arrival-press":
 		await process_frame
 		var landfall: Image = root.get_texture().get_image()
@@ -410,9 +473,14 @@ func _arrival_run() -> void:
 		var restored: Dictionary = opening.model.projection()
 		if not _expect(opening.last_load_result.get("accepted", false)
 				and restored.cargo.P.products == 2 and restored.placed_components.size() == 7
+				and restored.cargo.P.components.get("wooden_frame", 0) == 1
+				and restored.cargo.P.components.get("receiver_tray", 0) == 1
+				and restored.cargo.P.components.get("cutting_edge", 0) == 1
+				and restored.cargo.P.components.get("tool_mount", 0) == 1
+				and restored.cargo.P.components.get("wooden_shaft", 0) == 1
 				and restored.press_assemblies.size() == 1 and restored.press_assemblies[0].status == "ready"
 				and restored.hand_crank.holder == "P" and panel.visible,
-				"A fresh process reopens the exact modular press, cargo and one held crank"):
+				"A fresh process reopens the press, unplaced collector bill and one held crank"):
 			return
 		panel.crank_button.pressed.emit()
 		if not _expect(opening.model.projection().hand_crank.holder == "pod",
@@ -420,47 +488,78 @@ func _arrival_run() -> void:
 			return
 		_record("pass")
 		return
-	if not _expect(panel != null and panel.visible and panel.craft_button.disabled,
+	if not _expect(panel != null and panel.visible and not panel.craft_button.disabled
+			and "3 timber" in panel.recipe_label.text and "Parts 0 / 20" in panel.recipe_label.text,
 			"The ordinary workshop panel appears at landfall"):
+		return
+	var empty_before: Dictionary = opening.model.projection()
+	panel.craft_button.pressed.emit()
+	var empty_after: Dictionary = opening.model.projection()
+	if not _expect(empty_after.order == empty_before.order + 1
+			and empty_after.cargo == empty_before.cargo
+			and empty_after.hand_sources == empty_before.hand_sources
+			and "Gather the timber or softmetal" in opening.status_label.text,
+			"The nearby hub records one missing-input refusal without changing carried or source stock"):
 		return
 	if not await _approach(Vector2(3.3, 4.95)):
 		return
 	for index in range(8):
 		if _construct({"action": "harvest_source", "target": "tree-east-south"}).is_empty():
 			return
+	if not await _approach(Vector2(3.3, 9.9)):
+		return
+	for index in range(7):
+		if _construct({"action": "harvest_source", "target": "tree-east-north"}).is_empty():
+			return
 	if not await _approach(Vector2(0.0, 1.65)):
 		return
-	for index in range(6):
+	for index in range(7):
 		if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
 			return
+	var distant_before: Dictionary = opening.model.projection()
+	panel.craft_button.pressed.emit()
+	var distant_after: Dictionary = opening.model.projection()
+	if not _expect(distant_after.order == distant_before.order + 1
+			and distant_after.cargo == distant_before.cargo
+			and distant_after.hand_sources == distant_before.hand_sources
+			and "Move beside the pod workshop" in opening.status_label.text,
+			"A remote hub attempt records a refusal and preserves the complete carried bill"):
+		return
 	if not await _approach(Vector2(1.65, 6.6)):
 		return
 	var initial: Dictionary = opening.model.projection()
-	if not _expect(initial.cargo.P.timber == 8 and initial.cargo.P.raw == 6 and initial.placed_components.is_empty(),
-			"Local finite sources supply the first press bill without a gifted machine"):
+	if not _expect(initial.cargo.P.timber == 15 and initial.cargo.P.raw == 7
+			and initial.placed_components.is_empty() and initial.component_recipes.size() == 11,
+			"Two finite trees and the ore deposit supply both chapter bills without gifted machines"):
 		return
 	var part_list := ["wooden_frame", "anvil", "ram_face", "sliding_guide",
 		"tool_mount", "wooden_shaft", "wooden_cog"]
-	for kind: String in part_list:
+	var collector_list := ["wooden_frame", "tool_mount", "cutting_edge", "receiver_tray", "wooden_shaft"]
+	for kind: String in part_list + collector_list:
 		var index := -1
 		for choice in range(panel.COMPONENTS.size()):
 			if panel.COMPONENTS[choice][0] == kind:
 				index = choice
-		if not _expect(index >= 0, "Every first-press part is available in the ordinary picker"):
+		if not _expect(index >= 0, "Every collector and press part is available in the ordinary picker"):
 			return
 		panel.component_choice.select(index)
 		panel._component_selected(index)
-		if not _expect(not panel.craft_button.disabled, "The harvested bill enables its actual hub recipe"):
+		var bill: Dictionary = opening.model.projection().component_recipes[kind]
+		if not _expect(not panel.craft_button.disabled
+				and ("Needs %d timber + %d softmetal" % [bill.timber, bill.softmetal]) in panel.recipe_label.text,
+				"The ordinary picker shows the selected native hub recipe"):
 			return
 		var before: int = opening.model.projection().order
+		var owned_before: int = opening.model.projection().cargo.P.components.get(kind, 0)
 		panel.craft_button.pressed.emit()
 		if not _expect(opening.model.projection().order == before + 1
-				and opening.model.projection().cargo.P.components.get(kind, 0) == 1,
+				and opening.model.projection().cargo.P.components.get(kind, 0) == owned_before + 1,
 				"The panel crafts one native component with exact finite cargo"):
 			return
 	if not _expect(opening.model.projection().cargo.P.timber == 0
-			and opening.model.projection().cargo.P.raw == 2,
-			"The complete press consumes eight timber and four ore blanks"):
+			and opening.model.projection().cargo.P.raw == 2
+			and opening.model.projection().cargo.P.components.values().reduce(func(total, amount): return total + amount, 0) == 12,
+			"Both chapter bills consume fifteen timber and five ore blanks, retaining two press inputs"):
 		return
 	if not await _approach(Vector2(3.3, 6.6)):
 		return
