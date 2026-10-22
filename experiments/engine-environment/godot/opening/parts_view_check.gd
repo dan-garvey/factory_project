@@ -302,6 +302,11 @@ func _interaction_controls() -> void:
 			"The same mode uses the distinct native belt-span removal action.")
 		view._world_click(Vector2i.ZERO)
 		verify(view.issued.size() == 2, "An empty click cannot invent a deconstruction target.")
+		view.transmission_controls.get_popup().id_pressed.emit(8)
+		view._refresh_placement_options()
+		verify(view.mode == "gearbox" and view.transmission_controls.active_tool == "gearbox"
+			and view.placement_options_panel.visible,
+			"Choosing a gearbox from the placement menu leaves deconstruction and shows its ghost options.")
 		key.keycode = KEY_ESCAPE
 		view._unhandled_input(key)
 		verify(view.mode == "inspect" and view.issued.size() == 2 and view.state.get("entities") == before.entities,

@@ -91,8 +91,15 @@ func _direction(id: String, expected: int) -> bool:
 	if not _expect(node != null, "The native part has a visible node."):
 		return false
 	var arrow: Node = node.get_node_or_null("ConfirmedDirection")
-	return _expect(arrow != null and arrow.get_meta("sign", 0) == expected,
-		"Arrow signs match the expected signed rate.")
+	if arrow != null:
+		return _expect(arrow.get_meta("sign", 0) == expected,
+			"The individual arrow matches the confirmed signed rate.")
+	var motion: Dictionary = opening.state.get("motion", {}).get(id, {})
+	var visual: MultiMeshInstance3D = opening.transmission_presenter.get_node_or_null(
+		"DirectionBatch%d" % expected) as MultiMeshInstance3D
+	return _expect(node.get_meta("batched_gear", false) and signi(int(motion.get("numerator", 0))) == expected
+		and visual != null and visual.multimesh.instance_count > 0,
+		"The batched cog has confirmed motion and a direction batch for its sign.")
 
 func _gear_tool() -> void:
 	opening.transmission_controls.get_popup().id_pressed.emit(1)
@@ -257,7 +264,8 @@ func _run() -> void:
 	if rebuilt.is_empty() or not _expect(rebuilt.entity != b.entity and opening.state.powered,
 		"Correct rebuilding restores power with a new identity.") or not _direction(rebuilt.entity, -1): return
 	if not _expect(opening.state.order == 14 and _same(opening.state.part_kits.P,
-		{"collector": 0, "belt": 2, "processor": 1, "wheel": 0, "gear": 6, "shaft": 6, "foundation": 23}),
+		{"collector": 0, "belt": 2, "processor": 1, "wheel": 0, "gear": 6, "shaft": 6,
+			"gearbox": 2, "vertical_gearbox": 2, "chain_drive": 8, "foundation": 23}),
 		"Fourteen requests conserve the kit."): return
 	var units := 0
 	for amount: Variant in opening.state.stock.values():

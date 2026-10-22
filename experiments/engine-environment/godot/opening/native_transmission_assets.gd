@@ -12,6 +12,7 @@ const PULLEY_RADIUS := 0.095
 const PULLEY_BORE := 0.039
 static var meshes: Dictionary = {}
 static var batches: Dictionary = {}
+static var complete_gears: Dictionary = {}
 const COUPLING_ROOT := "res://opening/assets"
 # The prepared pipe kit already tracks the identical original Group 01 JPEG.
 # Use canonical resource paths: imported textures do not resolve parent segments.
@@ -116,6 +117,27 @@ static func _part(parent: Node3D, name_value: String, mesh: Mesh, at: Vector3,
 	_finish(instance, name_value, color, metal, roughness)
 	parent.add_child(instance)
 	return instance
+
+static func append_triangles(surface: SurfaceTool, mesh: Mesh, face: int, pose: Transform3D) -> void:
+	# SurfaceTool.append_from copies indexed source vertices without their face
+	# order into a new unindexed stream. Expand source triangles explicitly.
+	var arrays := mesh.surface_get_arrays(face)
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL] if arrays[Mesh.ARRAY_NORMAL] is PackedVector3Array else PackedVector3Array()
+	var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV] if arrays[Mesh.ARRAY_TEX_UV] is PackedVector2Array else PackedVector2Array()
+	var tangents: PackedFloat32Array = arrays[Mesh.ARRAY_TANGENT] if arrays[Mesh.ARRAY_TANGENT] is PackedFloat32Array else PackedFloat32Array()
+	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX] if arrays[Mesh.ARRAY_INDEX] is PackedInt32Array else PackedInt32Array()
+	var count := indices.size() if not indices.is_empty() else vertices.size()
+	for corner in count:
+		var index: int = indices[corner] if not indices.is_empty() else corner
+		if not normals.is_empty():
+			surface.set_normal((pose.basis * normals[index]).normalized())
+		if not uvs.is_empty():
+			surface.set_uv(uvs[index])
+		if tangents.size() >= index * 4 + 4:
+			var direction := Vector3(tangents[index * 4], tangents[index * 4 + 1], tangents[index * 4 + 2])
+			surface.set_tangent(Plane((pose.basis * direction).normalized(), tangents[index * 4 + 3]))
+		surface.add_vertex(pose * vertices[index])
 
 static func _batch(parent: Node3D, role: String, key_value: Array, mesh: Mesh,
 		poses: Array[Transform3D], color: Color) -> void:
@@ -244,6 +266,52 @@ static func gear(parent: Node3D, radius: float, ratio_units: int, color: Color) 
 				Vector3(cos(angle) * hub_radius * 0.65, side * 0.108, sin(angle) * hub_radius * 0.65)))
 	_batch(parent, "GearSpoke", ["GearSpoke", radius], Visuals.box_mesh(Vector3(spoke_length, 0.08, 0.09)), spokes, color)
 	_batch(parent, "HubFastener", ["HubFastener", hub_radius], _cylinder(0.022, 0.012, 6), fasteners, Color("b8c3bb"))
+
+static func complete_gear_mesh(radius: float, ratio_units: int, color: Color, length: float) -> ArrayMesh:
+	# Bake the existing fitted assembly once per specification. Each finish keeps
+	# its own surface, while a whole cog becomes one rigid MultiMesh instance.
+	var key := [radius, ratio_units, color, length]
+	if complete_gears.has(key):
+		return complete_gears[key]
+	var assembly := Node3D.new()
+	gear(assembly, radius, ratio_units, color)
+	shaft(assembly, length, color)
+	var materials: Array[Material] = []
+	var surfaces: Array[SurfaceTool] = []
+	for child: Node in assembly.get_children():
+		var source: Mesh
+		var poses: Array[Transform3D] = []
+		var finish: Material
+		if child is MeshInstance3D:
+			source = child.mesh
+			poses.append(child.transform)
+			finish = child.material_override
+		elif child is MultiMeshInstance3D:
+			source = child.multimesh.mesh
+			for index in child.multimesh.instance_count:
+				poses.append(child.transform * child.multimesh.get_instance_transform(index))
+			finish = child.material_override
+		else:
+			continue
+		if source == null or finish == null:
+			continue
+		var group := materials.find(finish)
+		if group < 0:
+			group = materials.size()
+			materials.append(finish)
+			var surface := SurfaceTool.new()
+			surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+			surfaces.append(surface)
+		for pose in poses:
+			for face in source.get_surface_count():
+				append_triangles(surfaces[group], source, face, pose)
+	var result := ArrayMesh.new()
+	for index in surfaces.size():
+		surfaces[index].commit(result)
+		result.surface_set_material(index, materials[index])
+	assembly.free()
+	complete_gears[key] = result
+	return result
 
 static func shaft(parent: Node3D, length: float, color: Color) -> void:
 	# Keep this public node's CylinderMesh and exact length for the established

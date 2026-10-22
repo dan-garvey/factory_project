@@ -4143,7 +4143,7 @@ const NAMES := {"collector": "Collector", "belt": "Belt", "processor": "Press", 
 const COLORS := {"collector": Color("96805c"), "belt": Color("538e88"), "processor": Color("bd7054"), "wheel": Color("8b9caa")}
 const LESSONS := [
 	["01  /  BUILD THE PATH", "Place a collector at the seam and a press nearby. Put two one-tile shafts between them with parallel axles, then connect the shafts with a belt. Foundations provide level building surfaces."],
-	["02  /  CARRY ROTATION", "Use a waterwheel in flowing water. Small cogs with matching axes mesh side by side; mixed sizes mesh diagonally. Two large cogs on perpendicular axes meet one tile along each axle. Meshes reverse rotation; sizes change speed. Shafts carry rotation."],
+	["02  /  CARRY ROTATION", "Use a waterwheel in flowing water. Small cogs with matching axes mesh side by side; mixed sizes mesh diagonally. Two large cogs on perpendicular axes meet one tile along each axle. Meshes reverse rotation; sizes change speed. Shafts carry rotation. Horizontal and vertical gearboxes turn it through side ports; matching encased chain cases link sideways."],
 	["03  /  FOLLOW ONE BLANK", "The collector removes a blank from the finite seam. The belt carries it to the press. Advance the example one tick at a time. The held blank stays in the press until its plate can leave."],
 	["04  /  MAKE ROOM", "A full press outlet holds up the line. Collect the example plate below: the held blank finishes without being lost. Stopping the drive keeps the parts and unfinished work where they are."]
 ]
@@ -4400,7 +4400,7 @@ func _refresh_transmission() -> void:
 	transmission_presenter.refresh()
 	var active: bool = not transmission_controls.active_tool.is_empty()
 	transmission_controls.visible = active
-	if not active and mode in ["gear", "drive", "belt"]:
+	if not active and mode in ["gear", "drive", "belt", "gearbox", "vertical_gearbox", "chain_drive"]:
 		mode = "inspect"
 	_update_cursor()
 
@@ -4513,7 +4513,7 @@ func _transmission_terrain_high(x: float, z: float, half_x: float, half_z: float
 
 func _transmission_terrain_level(point: Vector3, x: float, z: float) -> int:
 	var level := ceili(point.y / PITCH)
-	if transmission_controls.active_tool not in ["place_shaft", "gear"]:
+	if transmission_controls.active_tool not in ["place_shaft", "gear", "gearbox", "vertical_gearbox", "chain_drive"]:
 		return level * Geometry.HEIGHT_DENOMINATOR
 	var axis: String = transmission_controls.selected_axis
 	var axle := Vector3(0.1, 0.1, 0.1)
@@ -4523,6 +4523,8 @@ func _transmission_terrain_level(point: Vector3, x: float, z: float) -> int:
 		var disc := Vector3.ONE * PITCH / 2.0
 		disc[["x", "y", "z"].find(axis)] = 0.04
 		footprints.append(disc)
+	elif transmission_controls.active_tool in ["gearbox", "vertical_gearbox", "chain_drive"]:
+		footprints = [Vector3.ONE * PITCH / 2.0]
 	for half: Vector3 in footprints:
 		var high := _transmission_terrain_high(x, z, half.x, half.z)
 		if is_finite(high):
@@ -4595,9 +4597,9 @@ func _belt_pulley_target(entity_id: String, hit_position: Vector3) -> Array:
 func _transmission_snap_target(entity_id: String, normal: Vector3, eye: Vector3) -> Array:
 	# Pick bodies identify confirmed construction. Use their common grid height
 	# when following surfaces; the menu can still choose an absolute air level.
-	if transmission_controls.active_tool in ["place_shaft", "gear"]:
+	if transmission_controls.active_tool in ["place_shaft", "gear", "gearbox", "vertical_gearbox", "chain_drive"]:
 		var part: Variant = state.get("transmission_parts", {}).get(entity_id)
-		if part is Dictionary and part.get("kind") in ["shaft", "gear"]:
+		if part is Dictionary and part.get("kind") in ["shaft", "gear", "gearbox", "vertical_gearbox", "chain_drive"]:
 			var center: Variant = part.get("center")
 			if not center is Array or center.size() != 3 or not normal.is_finite():
 				return []
@@ -4631,6 +4633,8 @@ func _transmission_snap_target(entity_id: String, normal: Vector3, eye: Vector3)
 	if level % Geometry.HEIGHT_DENOMINATOR != 0:
 		return []
 	var axis: int = ["x", "y", "z"].find(transmission_controls.selected_axis)
+	if transmission_controls.active_tool in ["gearbox", "vertical_gearbox"] and typeof(machine.get("axis")) == TYPE_INT:
+		axis = int(machine.axis)
 	if axis < 0:
 		return []
 	var center := Vector3(machine.cell[0] * PITCH, level * Geometry.HEIGHT_STEP + Geometry.ANCHOR_HEIGHT,
@@ -5071,8 +5075,9 @@ func _select_tool(tool: String) -> void:
 	mode = tool
 	foundation_area_started = false
 	pending_link = ""
-	if _native_transmission() and transmission_controls != null and tool in ["gear", "drive", "belt"]:
-		transmission_controls.choose_tool({"gear": "gear", "drive": "place_shaft", "belt": "belt_span"}[tool])
+	if _native_transmission() and transmission_controls != null and tool in ["gear", "drive", "belt", "gearbox", "vertical_gearbox", "chain_drive"]:
+		transmission_controls.choose_tool({"gear": "gear", "drive": "place_shaft", "belt": "belt_span",
+			"gearbox": "gearbox", "vertical_gearbox": "vertical_gearbox", "chain_drive": "chain_drive"}[tool])
 	_update_cursor()
 	_refresh_ui()
 	var instructions := {"flow": "Click the upstream machine, then its neighbor toward the brass arrow.",
@@ -5763,24 +5768,26 @@ func _collector_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 				_machine_box(anchor, "SourceLiftFlight%d" % index,
 					flight.center - anchor.position, flight.size, steel, 0.78, 0.42)
 			var start := Vector3(carrier_at.x + 0.03, head_at.y, carrier_at.z)
-			var finish := Vector3(-0.18, head_at.y, 0)
+			var finish := Vector3(0.48, 1.28, 0.28)
 			var delta := finish - start
 			var discharge := _machine_box(anchor, "SourceLiftDischarge", (start + finish) * 0.5,
-				Vector3(delta.length(), 0.055, 0.17), steel, 0.83, 0.43)
-			discharge.rotation.y = -atan2(delta.z, delta.x)
+				Vector3(delta.length(), 0.07, 0.24), Color("b18a43"), 0.78, 0.46)
+			discharge.basis = Basis(Quaternion(Vector3.RIGHT, delta.normalized()))
 			var cross := Vector3(-delta.z, 0, delta.x).normalized()
 			for side in [-1.0, 1.0]:
 				var guard := _machine_box(anchor, "SourceLiftHeadGuardLeft" if side < 0.0 else "SourceLiftHeadGuardRight",
 					(start + finish) * 0.5 +
-					Vector3(0, 0.09, 0) + cross * side * 0.075,
-					Vector3(delta.length(), 0.12, 0.025), Color("b18a43"), 0.8, 0.42)
-				guard.rotation.y = discharge.rotation.y
-			var drop_start := Vector3(-0.23, head_at.y, 0)
-			var stock_entry := Vector3(0.18, 0.65, 0.30)
+					Vector3(0, 0.10, 0) + cross * side * 0.12,
+					Vector3(delta.length(), 0.16, 0.03), frame, 0.8, 0.42)
+				guard.basis = discharge.basis
+			_machine_box(anchor, "SourceLiftTransferHopper", finish + Vector3(0.03, -0.10, 0),
+				Vector3(0.33, 0.20, 0.36), frame, 0.78, 0.48)
+			var drop_start := finish + Vector3(0.03, -0.12, 0)
+			var stock_entry := Vector3(0.46, 0.65, 0.28)
 			var drop_delta := stock_entry - drop_start
 			var downspout := _machine_box(anchor, "SourceLiftDownspout",
 				(drop_start + stock_entry) * 0.5,
-				Vector3(drop_delta.length(), 0.13, 0.15), steel, 0.83, 0.40)
+				Vector3(drop_delta.length(), 0.17, 0.18), steel, 0.83, 0.40)
 			downspout.basis = Basis(Quaternion(Vector3.RIGHT, drop_delta.normalized()))
 	if not (_native_transmission() and ProductionCollectorFeedArt.mount(anchor, frame)):
 		for z in [-0.37, 0.37]:
@@ -6120,6 +6127,12 @@ func _transmission_inspection(part: Dictionary, motion: Dictionary) -> String:
 	var name := "Shaft"
 	if part.kind == "gear":
 		name = {2: "Small Cogwheel", 4: "Large Cogwheel"}.get(part.get("teeth"), "Cogwheel")
+	elif part.kind == "gearbox":
+		name = "Horizontal Gearbox"
+	elif part.kind == "vertical_gearbox":
+		name = "Vertical Gearbox"
+	elif part.kind == "chain_drive":
+		name = "Encased Chain Drive · link %s" % ["X", "Y", "Z"][part.get("relay_axis", 0)]
 	return "%s · %s axis\nGrid %s\n%s" % [name, ["X", "Y", "Z"][part.axis], str(part.center), _confirmed_drive_status(motion)]
 
 func _machine_inspection(entity: Dictionary, stock: Dictionary, motion: Variant, native: bool) -> String:
@@ -6358,10 +6371,13 @@ func _rotate_building() -> void:
 	_refresh_ui()
 
 func _cycle_placement_axis() -> void:
-	if transmission_controls == null or not _can_choose_tool() or mode not in ["wheel", "gear", "drive"]:
+	if transmission_controls == null or not _can_choose_tool() or mode not in ["wheel", "gear", "drive", "vertical_gearbox", "chain_drive"]:
 		return
 	var axes := ["x", "y", "z"]
-	transmission_controls.selected_axis = axes[(axes.find(transmission_controls.selected_axis) + 1) % axes.size()]
+	var next_axis: int = (axes.find(transmission_controls.selected_axis) + 1) % axes.size()
+	if mode == "vertical_gearbox" and next_axis == 1:
+		next_axis = 2
+	transmission_controls._axis_selected(next_axis)
 	transmission_controls.refresh()
 	_update_cursor()
 	_refresh_ui()
@@ -6371,7 +6387,7 @@ func _refresh_placement_options() -> void:
 		return
 	var placing_machine := machine_preview != null and machine_preview.visible
 	var placing_transmission: bool = _native_transmission() and transmission_controls != null \
-		and transmission_controls.active_tool in ["gear", "place_shaft", "belt_span"]
+		and transmission_controls.active_tool in ["gear", "place_shaft", "belt_span", "gearbox", "vertical_gearbox", "chain_drive"]
 	var shown: bool = _native_transmission() and not explanation_open and not _catalog_open() and _can_choose_tool() \
 		and (placing_machine or placing_transmission)
 	placement_options_panel.visible = shown
@@ -6379,15 +6395,20 @@ func _refresh_placement_options() -> void:
 		return
 	var tool: String = {"place_shaft": "drive", "belt_span": "belt"}.get(transmission_controls.active_tool, mode) \
 		if placing_transmission else mode
-	placement_options_title.text = "CONNECT BELT" if tool == "belt" else "PLACE %s" % NAMES.get(tool, tool).to_upper()
+	placement_options_title.text = "CONNECT BELT" if tool == "belt" else "PLACE %s" % {
+		"gearbox": "HORIZONTAL GEARBOX", "vertical_gearbox": "VERTICAL GEARBOX",
+		"chain_drive": "ENCASED CHAIN DRIVE"}.get(tool, NAMES.get(tool, tool).to_upper())
 	placement_options_hint.text = {
 		"foundation": "Left click to build · choose height or area below · Esc cancels",
 		"wheel": "Left click to build · R turns the axle · choose size or height below",
 		"gear": "Left click to build · choose axle, height or size below",
 		"drive": "Left click to build · choose axle or height below",
+		"gearbox": "Left click to build · adjust height below",
+		"vertical_gearbox": "Left click to build · choose axle or height below",
+		"chain_drive": "Left click to build · choose axle and chain link direction below",
 		"belt": "Click two parallel shafts · Esc cancels",
 	}.get(tool, "Left click to build · R rotates · Esc cancels")
-	placement_options_axis.visible = tool in ["wheel", "gear", "drive"]
+	placement_options_axis.visible = tool in ["wheel", "gear", "drive", "vertical_gearbox", "chain_drive"]
 	placement_options_axis.text = "Axle: %s  [click to change]" % (transmission_controls.selected_axis.to_upper()
 		if transmission_controls != null else "X")
 	var parent := placement_options_panel.get_parent() as Control
@@ -6703,7 +6724,7 @@ func _update_cursor() -> void:
 	_refresh_machine_captions()
 	if _native_transmission() and transmission_controls != null and not transmission_controls.active_tool.is_empty():
 		hover.visible = false
-		if transmission_controls.active_tool in ["gear", "place_shaft"] and not explanation_open and _can_control_character():
+		if transmission_controls.active_tool in ["gear", "place_shaft", "gearbox", "vertical_gearbox", "chain_drive"] and not explanation_open and _can_control_character():
 			_set_transmission_hover(_transmission_center(get_viewport().get_mouse_position()))
 		_refresh_placement_options()
 		return

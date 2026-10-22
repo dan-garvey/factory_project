@@ -231,6 +231,66 @@ func _shaft_segments() -> void:
 	verify(long_view.shaft_half_span == 2, "The shaft tool always uses the one-tile specification.")
 	long_view.free()
 
+func _relays() -> void:
+	var host := HostStub.new()
+	host.state = fixture()
+	for kind in ["gearbox", "vertical_gearbox", "chain_drive"]:
+		host.state.part_specifications.P.append({"kind": kind, "teeth": 0, "half_span": 0, "count": 1})
+	var view := Controls.new()
+	view.configure(host)
+	view.choose_tool("gearbox")
+	verify(view.selected_axis == "y", "The horizontal gearbox selects its four side ports.")
+	view.handle_world_click([0, 8, 4], "")
+	verify(host.calls.back() == {"action": "place_relay", "kind": "gearbox", "center": [0, 8, 4], "axis": "y"},
+		"The horizontal gearbox sends one exact grid tile and its closed Y axis.")
+	view.choose_tool("vertical_gearbox")
+	verify(view.selected_axis in ["x", "z"], "The vertical gearbox closes a horizontal pair of faces.")
+	view.handle_world_click([4, 8, 4], "")
+	verify(host.calls.back() == {"action": "place_relay", "kind": "vertical_gearbox", "center": [4, 8, 4], "axis": view.selected_axis},
+		"The vertical gearbox sends its separate finite item and orientation.")
+	view.choose_tool("chain_drive")
+	view._link_axis_selected(1)
+	view.handle_world_click([8, 8, 4], "")
+	verify(host.calls.back() == {"action": "place_relay", "kind": "chain_drive", "center": [8, 8, 4],
+		"axis": view.selected_axis, "relay_axis": view.selected_link_axis} and view.selected_link_axis != view.selected_axis,
+		"The encased chain case submits distinct shaft and link axes.")
+	var sent := host.calls.size()
+	host.client = "Q"
+	view.refresh()
+	verify(view.handle_world_click([12, 8, 4], "") and host.calls.size() == sent,
+		"A second actor cannot spend the first actor's relay kit.")
+	host.client = "P"
+	view.free()
+	host.state.transmission_parts["box"] = {"kind": "gearbox", "generation": 7,
+		"center": [0, 8, 4], "axis": 1, "teeth": 0, "half_span": 0}
+	host.state.transmission_parts["chain"] = {"kind": "chain_drive", "generation": 8,
+		"center": [4, 8, 4], "axis": 0, "relay_axis": 2, "teeth": 0, "half_span": 0}
+	host.state.motion["box"] = {"state": "rotating", "numerator": 1, "denominator": 1}
+	host.state.motion["chain"] = {"state": "rotating", "numerator": 1, "denominator": 1}
+	var presenter := Presenter.new()
+	presenter.configure(host)
+	var physical_state: Dictionary = host.state.duplicate(true)
+	physical_state.transmission_parts = {"box": host.state.transmission_parts.box,
+		"chain": host.state.transmission_parts.chain}
+	physical_state.belt_spans = {}
+	var collision: Dictionary = Geometry.mechanical_boxes(physical_state)
+	verify(collision.get("accepted", false) and collision.boxes.box.size == Vector3.ONE * Geometry.PITCH and
+		collision.boxes.chain.size == Vector3.ONE * Geometry.PITCH,
+		"Both confirmed relay cases register one-tile physical actor bodies.")
+	var invalid: Dictionary = physical_state.duplicate(true)
+	invalid.transmission_parts.chain.relay_axis = invalid.transmission_parts.chain.axis
+	verify(not Geometry.mechanical_boxes(invalid).accepted,
+		"A malformed chain link axis cannot produce a physical body.")
+	var box := _part(presenter, "box")
+	var chain := _part(presenter, "chain")
+	verify(box != null and box.has_node("FixedCase") and box.has_node("ShaftPort01") and
+		box.has_node("ShaftPort2-1") and box.get_node("Pick").get_meta("entity") == "box",
+		"A confirmed gearbox shows a fixed case, four ports and a one-tile pick body.")
+	verify(chain != null and chain.has_node("FixedCase") and chain.has_node("ChainLinkDirection") and
+		chain.get_node("Pick").get_meta("entity") == "chain",
+		"A confirmed chain case shows its link direction and can be selected.")
+	presenter.free()
+
 func _belt_spans() -> void:
 	var host := HostStub.new()
 	host.state = fixture()
@@ -1411,6 +1471,9 @@ func _stable_finishes() -> void:
 	view.free()
 
 func _run() -> void:
+	if "--scale-benchmark" in OS.get_cmdline_user_args():
+		await _scale_benchmark()
+		return
 	if "--finish-only" in OS.get_cmdline_user_args():
 		_stable_finishes()
 	elif "--tool-guidance-only" in OS.get_cmdline_user_args():
@@ -1444,6 +1507,7 @@ func _run() -> void:
 	else:
 		_controls()
 		_gear_sizes()
+		_relays()
 		_shaft_segments()
 		_belt_spans()
 		_belt_retry()
@@ -1453,3 +1517,168 @@ func _run() -> void:
 		_stable_finishes()
 	print("NATIVE_TRANSMISSION_VIEW_%s %d" % ["PASS" if failures == 0 else "FAIL", checks])
 	quit(0 if failures == 0 else 1)
+
+func _scale_benchmark() -> void:
+	var count := 200
+	var supports := false
+	var capture := ""
+	var close_view := false
+	var large_every := 0
+	var cycle_axes := false
+	var verify_only := false
+	for argument in OS.get_cmdline_user_args():
+		if argument.begins_with("--count="):
+			count = int(argument.trim_prefix("--count="))
+		elif argument == "--supports":
+			supports = true
+		elif argument.begins_with("--capture="):
+			capture = argument.trim_prefix("--capture=")
+		elif argument == "--close":
+			close_view = true
+		elif argument.begins_with("--large-every="):
+			large_every = int(argument.trim_prefix("--large-every="))
+		elif argument == "--cycle-axes":
+			cycle_axes = true
+		elif argument == "--verify-only":
+			verify_only = true
+	if count < 0 or count > 800:
+		push_error("Choose 0 to 800 cogs.")
+		quit(2)
+		return
+	var scene := Node3D.new()
+	root.add_child(scene)
+	var camera := Camera3D.new()
+	camera.position = Vector3(0, 8, 12) if close_view else Vector3(0, 30, 43)
+	camera.fov = 65.0
+	camera.current = true
+	scene.add_child(camera)
+	camera.look_at(Vector3.ZERO)
+	var light := DirectionalLight3D.new()
+	light.rotation = Vector3(-0.8, -0.5, 0)
+	scene.add_child(light)
+	if close_view:
+		var environment := Environment.new()
+		environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+		environment.ambient_light_color = Color.WHITE
+		environment.ambient_light_energy = 0.8
+		var world_environment := WorldEnvironment.new()
+		world_environment.environment = environment
+		scene.add_child(world_environment)
+	var host := HostStub.new()
+	host.state = {"context": "synthetic-cog-scale", "options": {"native": true},
+		"entities": {}, "transmission_parts": {}, "motion": {}, "belt_spans": {}, "engagements": []}
+	var columns := ceili(sqrt(float(maxi(count, 1))))
+	for index in count:
+		var id := "cog-%d" % index
+		var x := index % columns - columns / 2
+		var z := floori(float(index) / float(columns)) - columns / 2
+		host.state.transmission_parts[id] = {"kind": "gear", "generation": 1,
+			"center": [x * 4, 4, z * 4], "axis": index % 3 if cycle_axes else 1,
+			"teeth": 4 if large_every > 0 and index % large_every == 0 else 2}
+		if supports:
+			var at := Vector3(float(x) * 1.65, 0.0, float(z) * 1.65)
+			host.state.transmission_parts[id].support = {"foot": [at.x, 0.24, at.z],
+				"bearing": [at.x, 0.7325, at.z]}
+		host.state.motion[id] = {"state": "rotating", "numerator": 1 if index % 2 == 0 else -1,
+			"denominator": 1}
+	var presenter := Presenter.new()
+	scene.add_child(presenter)
+	var before := Time.get_ticks_usec()
+	presenter.configure(host)
+	var build_ms := float(Time.get_ticks_usec() - before) / 1000.0
+	var pick_count := 0
+	var batched_count := 0
+	var valid_geometry := true
+	for child: Node in presenter.get_children():
+		if child.has_meta("entity"):
+			pick_count += int(child.has_node("Pick"))
+		if not child is MultiMeshInstance3D or not child.name.begins_with("CogBatch"):
+			continue
+		batched_count += child.multimesh.instance_count
+		var mesh: Mesh = child.multimesh.mesh
+		valid_geometry = valid_geometry and mesh.get_aabb().size.x > 1.4 and mesh.get_surface_count() >= 3
+		for index in mesh.get_surface_count():
+			var vertices: PackedVector3Array = mesh.surface_get_arrays(index)[Mesh.ARRAY_VERTEX]
+			valid_geometry = valid_geometry and vertices.size() > 0 and vertices.size() % 3 == 0
+			valid_geometry = valid_geometry and mesh.surface_get_material(index) != null
+	if pick_count != count or (count >= Presenter.GEAR_BATCH_THRESHOLD and
+			(batched_count != count or not valid_geometry)):
+		push_error("The rendered cog geometry or individual picks failed scale validation.")
+		quit(1)
+		return
+	if verify_only:
+		var unchanged: Dictionary = host.state.duplicate(true)
+		presenter.advance_visual_motion(0.1)
+		var matches := host.state == unchanged
+		if not matches:
+			print("COG_SCALE_MISMATCH host state changed")
+		for group: Dictionary in presenter._gear_batches.values():
+			for index in group.anchors.size():
+				var anchor: Node3D = group.anchors[index]
+				var id := str(anchor.get_meta("entity"))
+				var angle: float = presenter.visual_angle(id)
+				var expected := Transform3D(Presenter.axis_basis(int(anchor.get_meta("axis"))) *
+					Basis(Vector3.UP, angle), anchor.position)
+				var pose_match: bool = group.mesh.get_instance_transform(index).is_equal_approx(expected)
+				var angle_match: bool = absf(angle) > 0.0 and anchor.basis.is_equal_approx(Presenter.axis_basis(int(anchor.get_meta("axis"))))
+				if not pose_match or not angle_match:
+					print("COG_SCALE_MISMATCH " + str([id, pose_match, angle_match,
+						group.mesh.get_instance_transform(index), expected]))
+				matches = matches and pose_match and angle_match
+		if count >= Presenter.GEAR_BATCH_THRESHOLD and batched_count != count:
+			matches = false
+		if count == Presenter.GEAR_BATCH_THRESHOLD:
+			var last := "cog-%d" % (count - 1)
+			var removed: Dictionary = host.state.transmission_parts[last]
+			var removed_motion: Dictionary = host.state.motion[last]
+			host.state.transmission_parts.erase(last)
+			host.state.motion.erase(last)
+			presenter.refresh()
+			matches = matches and presenter._gear_batches.is_empty()
+			var ordinary := 0
+			for child: Node in presenter.get_children():
+				if child.has_meta("entity") and child.has_node("Gear") and child.has_node("Pick"):
+					ordinary += 1
+			matches = matches and ordinary == count - 1
+			host.state.transmission_parts[last] = removed
+			host.state.motion[last] = removed_motion
+			presenter.refresh()
+			var restored := 0
+			for group: Dictionary in presenter._gear_batches.values():
+				restored += group.mesh.instance_count
+			matches = matches and restored == count
+		if not matches:
+			push_error("Cog batch lost confirmed identity, pose, or read-only motion.")
+			quit(1)
+			return
+		print("COG_SCALE_VALIDATION " + JSON.stringify({"count": count, "supports": supports,
+			"cycle_axes": cycle_axes, "large_every": large_every, "picks": pick_count,
+			"batched": batched_count, "status": "pass"}))
+		quit()
+		return
+	var frame_times: Array[float] = []
+	var motion_times: Array[float] = []
+	var draw_calls: Array[int] = []
+	for frame in 150:
+		var start := Time.get_ticks_usec()
+		presenter.advance_visual_motion(1.0 / 60.0)
+		var motion_ms := float(Time.get_ticks_usec() - start) / 1000.0
+		await process_frame
+		if frame >= 30:
+			frame_times.append(float(Time.get_ticks_usec() - start) / 1000.0)
+			motion_times.append(motion_ms)
+			draw_calls.append(RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME))
+	frame_times.sort()
+	motion_times.sort()
+	draw_calls.sort()
+	if not capture.is_empty():
+		var image := root.get_texture().get_image()
+		image.save_png(capture)
+	print("COG_SCALE " + JSON.stringify({"count": count, "build_ms": build_ms,
+		"supports": supports, "large_every": large_every,
+		"motion_median_ms": motion_times[motion_times.size() / 2],
+		"frame_median_ms": frame_times[frame_times.size() / 2],
+		"frame_p95_ms": frame_times[int(frame_times.size() * 0.95)],
+		"draw_calls_median": draw_calls[draw_calls.size() / 2],
+		"renderer": ProjectSettings.get_setting("rendering/renderer/rendering_method")}))
+	quit()

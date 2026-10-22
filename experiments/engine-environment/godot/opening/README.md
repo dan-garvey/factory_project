@@ -105,7 +105,7 @@ This is surface presentation, not additional water depth or flow simulation.
 
 In the native profile, G selects an individual **finite shaft tile**. Click the
 highlighted tile to place it. Selecting a Cogwheel or Shaft hotbar slot exposes
-**Cogwheels and shafts…** for placement settings and transmission removal. The
+**Mechanical transmission…** for placement settings and transmission removal. The
 catalog can assign either tool at any time. The menu chooses X/Y/Z rotation axis
 and placement height in full-tile steps. Shafts and cogs occupy one 1.65 m tile
 and snap to the common world grid in all three dimensions. That axis also applies
@@ -113,7 +113,16 @@ to subsequent machine placement. A translucent cursor marks
 the requested gear plane, not permission to build there. Real character
 proximity remains authoritative. Adjacent aligned cog, shaft and machine axle
 ends connect directly; fill a longer gap with individual shaft tiles.
-Shafts and cogwheels must clear the terrain and site obstacles, including their
+The same menu places finite horizontal gearboxes, vertical gearboxes and
+encased chain cases. A horizontal gearbox closes its Y faces and connects four
+side faces; a vertical gearbox closes one horizontal face pair and connects
+two vertical and two side faces. The menu's Axis selects the closed pair.
+Opposite gearbox faces reverse the signed shaft rate, and a right-angle turn
+keeps its magnitude. An encased chain case exposes shafts along Axis and links
+to adjacent cases along a separate Chain link direction. Matching adjacent
+cases carry the same shaft rate; a mismatched direction does not connect.
+Each case occupies one common world tile and uses its own finite carried item.
+Shafts, cogwheels and cases must clear the terrain and site obstacles, including their
 axles. On the starter bank, raising the transmission and supporting machines
 on foundations can leave room beneath the cogs while keeping their axles aligned.
 
@@ -138,6 +147,7 @@ revisable visual reference speed; it does not supply a physics or processing
 clock. Angles are local presentation only, retained across ordinary refreshes
 but not saved or synchronized as tooth-contact phase. Unknown/stalled parts,
 Help, unready actors and disconnected shared views stop the illustration.
+
 The belt carries blanks toward the press only when its top surface moves in that
 direction. Reversing the drive carries them off the other end. A loose stack is
 shown at that end; stand nearby and use **Pick up loose material…** to collect it,
@@ -146,6 +156,31 @@ This prototype represents their fixed grid locations without gravity. Span-belt
 travel scales with the confirmed shaft rate. The press's work per tick scales with its
 confirmed angular rate and works in either turning direction. Cog and shaft
 quantities and dimensions are revisable fixture choices.
+
+## Cog presentation scale probe
+
+`native_transmission_view_check.gd --scale-benchmark` renders the real transmission
+presenter from synthetic confirmed projections. It includes individual pick bodies, animated cogs, signed
+arrows and optional fixed supports. It uses a fixed 1280 × 800 viewport, discards
+30 warmup frames and reports the median and 95th-percentile elapsed frame time
+over 120 frames, plus draw calls and construction time. Run it with a graphical
+Godot process; headless rendering does not measure GPU work or reliably read
+MultiMesh transforms. For example, from the repository root:
+
+```bash
+factory_local="$(git rev-parse --path-format=absolute --git-common-dir)/factory-local-resources/factory-local"
+godot_bin="$(git config --get factory.godotExecutable)"
+"$factory_local" --root "$PWD" benchmark -- "$godot_bin" \
+  --path experiments/engine-environment/godot \
+  --script res://opening/native_transmission_view_check.gd -- \
+  --scale-benchmark --count=400 --supports --large-every=2
+```
+
+Use `--scale-benchmark --count=4 --supports --cycle-axes --large-every=2 --verify-only` under the
+heavy lane to check the transition from individually drawn parts to grouped
+geometry, signed motion, picks and orientation. The probe contains no native
+World, actor, inventory or ordinary placement commands. It cannot establish
+whole-opening frame rate, network or save scale, or human play quality.
 
 After confirming four plates, the native opening marks an upstream waterwheel
 site at `[-2, 0]` and asks for eight carried plates in total. The wheel must be
