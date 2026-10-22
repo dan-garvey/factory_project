@@ -619,6 +619,13 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
     std::map<std::pair<std::string, materials::Component>, Integer> crafted_components;
     std::map<std::string, std::pair<materials::Component, mechanics::Point>> placed_components;
     std::set<mechanics::Point> fed_press_points;
+    const auto within_component_capacity = [&](const std::string& actor) {
+        Integer carried = 0;
+        for (const auto& [owner_kind, count] : crafted_components)
+            if (owner_kind.first == actor &&
+                (count < 0 || !add(carried, count) || carried > profile.material.component_capacity)) return false;
+        return true;
+    };
     std::optional<std::string> crank_holder;
     for (const auto& record : snapshot.history.records) {
         const auto* actor = field<std::string>(record.intent, "actor");
@@ -690,7 +697,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
             const auto cost = component ? materials::component_cost(*component) : std::nullopt;
             if (!cost || carried_timber[*actor] < cost->timber ||
                 !add(crafted_components[{*actor, *component}], 1) ||
-                crafted_components[{*actor, *component}] != *field<Integer>(record.result, "component_count"))
+                crafted_components[{*actor, *component}] != *field<Integer>(record.result, "component_count") ||
+                !within_component_capacity(*actor))
                 return false;
             carried_timber[*actor] -= cost->timber;
         }
@@ -771,7 +779,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
                 placed_components.erase(found);
                 ++carried;
             }
-            if (carried != *field<Integer>(record.result, "component_count")) return false;
+            if (carried != *field<Integer>(record.result, "component_count") ||
+                !within_component_capacity(*actor)) return false;
         }
         if (placement(*action)) {
             const auto* role_name = field<std::string>(record.intent, "role");
