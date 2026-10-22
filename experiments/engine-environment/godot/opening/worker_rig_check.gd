@@ -109,6 +109,19 @@ func knee_forward_offset(body: Node3D, side: String) -> float:
 	var forward := (Vector3.BACK - reach * reach.dot(Vector3.BACK)).normalized()
 	return (knee - hip).dot(forward)
 
+func finger_reaches(body: Node3D) -> Dictionary:
+	var skeleton := skeleton_of(body)
+	skeleton.force_update_all_bone_transforms()
+	var result := {}
+	for side in ["L", "R"]:
+		var hand: Vector3 = skeleton.get_bone_global_pose(
+			skeleton.find_bone("Bip01 " + side + " Hand")).origin
+		for finger in range(1, 5):
+			var distal: Vector3 = skeleton.get_bone_global_pose(
+				skeleton.find_bone("Bip01 %s Finger%d2" % [side, finger])).origin
+			result["%s%d" % [side, finger]] = hand.distance_to(distal)
+	return result
+
 func skin_points(body: Node3D) -> PackedVector3Array:
 	# Independent vertex oracle: use each exported skin bind and its current
 	# named bone pose, then the actual scene transform into BodyView space.
@@ -232,6 +245,26 @@ func inspect_adult(body: Node3D, other: Node3D, presenter: Node) -> void:
 		and running_hands[0].L.y < running_hands[0].R.y - 0.10
 		and running_hands[1].L.y > running_hands[1].R.y + 0.10,
 		"The captured run alternates opposite arm positions and height through a complete stride.")
+	presenter._set_gait(body, 1.5, 0.0)
+	var neutral_fingers := finger_reaches(body)
+	presenter._set_gait(body, 1.5, 1.0, 0.0, 0.0, 0.0, 0.0)
+	var walking_fingers := finger_reaches(body)
+	presenter._set_gait(body, 1.5, 1.0, 0.0, 0.0, 0.0, 1.0)
+	var running_fingers := finger_reaches(body)
+	presenter._set_gait(body, 1.5, 1.0, 1.0, -2.0, 0.0, 1.0)
+	var airborne_fingers := finger_reaches(body)
+	for side in ["L", "R"]:
+		for finger in range(1, 5):
+			var key := "%s%d" % [side, finger]
+			verify(float(running_fingers[key]) < float(neutral_fingers[key]) - 0.004
+				and float(running_fingers[key]) > 0.105
+				and float(walking_fingers[key]) < float(neutral_fingers[key])
+				and float(walking_fingers[key]) > float(running_fingers[key])
+				and absf(float(airborne_fingers[key]) - float(neutral_fingers[key])) < 0.002,
+				"Grounded fingers form a loose running hand, a softer walking hand, and release in flight.")
+	adult_measurements["hand_reach"] = {"neutral_middle": neutral_fingers.L2,
+		"walking_middle": walking_fingers.L2, "running_middle": running_fingers.L2,
+		"airborne_middle": airborne_fingers.L2}
 	var walking_elbow_max := 0.0
 	var walking_hand_extent := {"L": [INF, -INF], "R": [INF, -INF]}
 	for sample in range(24):

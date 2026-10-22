@@ -498,7 +498,12 @@ func _apply_adult_locomotion(body: Node3D, phase: float, weight: float,
 				walk_target = original + walk_frame - walk_reference
 			skeleton.set_bone_pose_position(index, original.lerp(walk_target.lerp(run_target, run_mix), influence))
 	for binding in body.get_meta("walk_only_bindings"):
-		var influence := _adult_clip_influence(binding.key, strength * (1.0 - run_mix))
+		# The run take has no finger channels. Retain the walk take's small hand
+		# articulation instead of reverting every running finger to its open bind.
+		var finger_channel: bool = binding.kind == Animation.TYPE_ROTATION_3D \
+			and "Finger" in binding.key
+		var influence := _adult_clip_influence(binding.key,
+			strength if finger_channel else strength * (1.0 - run_mix))
 		if binding.kind == Animation.TYPE_ROTATION_3D:
 			var original: Quaternion = binding.base
 			var frame := adult_walk_clip.rotation_track_interpolate(binding.track, walk_sample)
@@ -509,6 +514,17 @@ func _apply_adult_locomotion(body: Node3D, phase: float, weight: float,
 			var frame: Vector3 = adult_walk_clip.position_track_interpolate(binding.track, walk_sample)
 			var reference: Vector3 = binding.reference
 			skeleton.set_bone_pose_position(binding.index, original + (frame - reference) * influence)
+	# A relaxed hand carries the run without the asset's straight, splayed
+	# bind fingers. Keep the smaller walking curl and leave flight untouched.
+	var hand_curl := strength * lerpf(0.40, 1.0, run_mix)
+	for finger in body.get_meta("grounded_fingers"):
+		var index: int = finger.index
+		# Only some finger segments have source tracks. Reset the others to
+		# their bind rotations so repeated samples cannot accumulate a claw.
+		var pose: Quaternion = skeleton.get_bone_pose_rotation(index) if finger.animated else finger.base
+		var angle: float = float(finger.curl) * hand_curl
+		skeleton.set_bone_pose_rotation(index,
+			(pose * Quaternion(Vector3.BACK, angle)).normalized())
 	var run_lift := 0.0
 	if adult_run_root_track >= 0:
 		run_lift = adult_run_clip.position_track_interpolate(adult_run_root_track, run_sample).y - adult_run_root_reference.y
@@ -704,6 +720,22 @@ func _prepare_adult_template() -> bool:
 			walk_only_bindings.append(binding)
 	body.set_meta("walk_channels", walk_channels)
 	body.set_meta("walk_only_bindings", walk_only_bindings)
+	var grounded_fingers := []
+	for side in ["L", "R"]:
+		for finger in range(1, 5):
+			var finger_weight: float = [0.75, 0.90, 1.0, 1.10][finger - 1]
+			for segment in range(3):
+				var name := "Bip01 %s Finger%d%s" % [side, finger,
+					"" if segment == 0 else str(segment)]
+				var index := skeleton.find_bone(name)
+				if index < 0:
+					body.free()
+					return false
+				grounded_fingers.append({"index": index,
+					"curl": [0.62, 0.10, 0.06][segment] * finger_weight,
+					"animated": walk_channels.has("%d:%d" % [index, Animation.TYPE_ROTATION_3D]),
+					"base": skeleton.get_bone_pose_rotation(index)})
+	body.set_meta("grounded_fingers", grounded_fingers)
 	var bounds := _adult_rest_bounds(skeleton, mesh, to_model)
 	if bounds.size.y < 1.0 or bounds.size.y > 2.2:
 		body.free()

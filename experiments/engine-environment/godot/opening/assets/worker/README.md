@@ -54,7 +54,11 @@ This adjustment fades through the walk-to-run blend. At run speed,
 the source upper-arm pose retains its absolute stride position; the forearms
 blend that pose toward a less raised elbow angle. A small forward spine pitch
 develops with the run blend, while the hands continue to swing opposite each
-other through the captured cycle. The source calf motion still bends
+other through the captured cycle. The run take has no finger tracks, so it
+retains the walk take's subtle finger motion and a light, mostly proximal curl
+instead of exposing straight bind-pose fingers. The curl is softer during
+walking and releases during flight; untracked joints reset from the imported
+rest pose on every sample. The source calf motion still bends
 behind the leg at some phases after retargeting. A presentation-only two-bone correction
 places each bent knee ahead of its hip-to-ankle line while retaining the
 captured ankle path and foot orientation. The forward walking swing also folds
@@ -108,6 +112,7 @@ rosters that omit this folder retain their identified procedural worker.
 confirmed samples. It checks source bindings, captured walk and run poses,
 forward knee bending, mid-swing knee flex, planted toe height and horizontal stance travel,
 opposing running hands, relaxed walking elbows and bounded lateral carriage,
+loose grounded fingers that release during flight,
 skinned dimensions,
 ascent, descent, leading-toe continuity, staged landing contact and skinned support height, per-player
 isolation, projection
