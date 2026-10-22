@@ -424,14 +424,15 @@ func _adult_correct_grounded_knees(body: Node3D, skeleton: Skeleton3D) -> void:
 		var foot_turn := old_foot_frame * _adult_joint_frame(body, skeleton, foot).inverse()
 		_adult_turn_joint(body, skeleton, foot, foot_turn)
 
-func _adult_hold_landing_toe(body: Node3D, skeleton: Skeleton3D,
-		anchor: Vector3, influence: float, toe_off_lift: float = 0.0) -> void:
-	# Place only the visual leading boot at its first contact point. The hip,
-	# knee and ankle retain their lengths; the native actor never moves.
-	var thigh := skeleton.find_bone("Bip01 L Thigh")
-	var calf := skeleton.find_bone("Bip01 L Calf")
-	var foot := skeleton.find_bone("Bip01 L Foot")
-	var toe := skeleton.find_bone("Bip01 L Toe0")
+func _adult_hold_contact_toe(body: Node3D, skeleton: Skeleton3D,
+		anchor: Vector3, influence: float, toe_off_lift: float = 0.0,
+		side: String = "L") -> void:
+	# Place only the visual boot at its contact point. The hip, knee and ankle
+	# retain their lengths; the native actor never moves.
+	var thigh := skeleton.find_bone("Bip01 " + side + " Thigh")
+	var calf := skeleton.find_bone("Bip01 " + side + " Calf")
+	var foot := skeleton.find_bone("Bip01 " + side + " Foot")
+	var toe := skeleton.find_bone("Bip01 " + side + " Toe0")
 	skeleton.force_update_all_bone_transforms()
 	var hip_at := _adult_joint(body, skeleton, thigh)
 	var knee_at := _adult_joint(body, skeleton, calf)
@@ -840,7 +841,7 @@ func _set_gait(body: Node3D, phase: float, weight: float,
 				var toe_off_lift := 0.03 * run_hold * smoothstep(0.38, 0.62, landing_progress) \
 					* (1.0 - smoothstep(0.82, 1.0, landing_progress))
 				if hold > 0.0 or toe_off_lift > 0.0:
-					_adult_hold_landing_toe(body, skeleton, landing_toe_anchor, hold, toe_off_lift)
+					_adult_hold_contact_toe(body, skeleton, landing_toe_anchor, hold, toe_off_lift)
 		return
 	for pair in [["Left", 0.0], ["Right", PI]]:
 		var prefix: String = pair[0]
@@ -947,6 +948,13 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 		else:
 			gait_speed = lerpf(gait_speed, speed, 1.0 - exp(-delta / 0.16))
 		previous.gait_speed = gait_speed
+		if mode == "grounded" and speed < 0.01 and float(previous.horizontal_speed) > 0.5:
+			previous.stop_pending = true
+		if mode != "grounded" or horizontal.length() > 0.00001:
+			previous.erase("stop_pending")
+			previous.erase("stop_toe_anchor")
+			previous.erase("stop_side")
+			previous.erase("stop_step_age")
 		var target_run_mix := clampf((gait_speed - RUN_BLEND_START) / (RUN_BLEND_END - RUN_BLEND_START), 0.0, 1.0)
 		previous.run_mix = move_toward(float(previous.run_mix), target_run_mix, delta * 5.0)
 		if mode == "grounded" or mode == "landing":
@@ -994,6 +1002,39 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 		float(previous.vertical_speed), impact, float(previous.run_mix), landing_progress,
 		presentation_stride, landing_approach,
 		previous.get("landing_toe_anchor") if previous.mode == "landing" else null)
+	if previous.mode == "grounded" and (previous.get("stop_pending", false)
+			or previous.has("stop_toe_anchor")) and body.get_meta("sourced_character", false):
+		var skeleton: Skeleton3D = body.get_node(body.get_meta("skeleton_path"))
+		skeleton.force_update_all_bone_transforms()
+		if previous.get("stop_pending", false):
+			var left_toe := body.to_global(_adult_joint(body, skeleton,
+				skeleton.find_bone("Bip01 L Toe0")))
+			var right_toe := body.to_global(_adult_joint(body, skeleton,
+				skeleton.find_bone("Bip01 R Toe0")))
+			var side := "L" if left_toe.y < right_toe.y else "R"
+			var toe := left_toe if side == "L" else right_toe
+			if toe.y - (at.y - Geometry.CAPSULE_HEIGHT / 2.0) < 0.06:
+				previous.stop_toe_anchor = toe
+				previous.stop_side = side
+				previous.stop_step_age = 0.0
+				previous.erase("stop_pending")
+		if previous.has("stop_toe_anchor"):
+			var side: String = previous.stop_side
+			var resting_toe := body.to_global(_adult_joint(body, skeleton,
+				skeleton.find_bone("Bip01 " + side + " Toe0")))
+			var target: Vector3 = previous.stop_toe_anchor
+			var lift := 0.0
+			if float(previous.weight) <= 0.001:
+				previous.stop_step_age = minf(0.20, float(previous.stop_step_age) + delta)
+				var progress: float = float(previous.stop_step_age) / 0.20
+				target = target.lerp(resting_toe, smoothstep(0.0, 1.0, progress))
+				lift = 0.06 * sin(PI * progress)
+			_adult_hold_contact_toe(body, skeleton, target, 1.0, lift, side)
+			if float(previous.stop_step_age) >= 0.20:
+				previous.erase("stop_toe_anchor")
+				previous.erase("stop_side")
+				previous.erase("stop_step_age")
+		motion[actor] = previous
 	if new_landing and presentation_stride > 0.1 and body.get_meta("sourced_character", false):
 		var skeleton: Skeleton3D = body.get_node(body.get_meta("skeleton_path"))
 		skeleton.force_update_all_bone_transforms()
@@ -1001,7 +1042,7 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 			skeleton.find_bone("Bip01 L Toe0")))
 		contact_toe.y = at.y - Geometry.CAPSULE_HEIGHT / 2.0 + 0.01
 		previous.landing_toe_anchor = contact_toe
-		_adult_hold_landing_toe(body, skeleton, contact_toe,
+		_adult_hold_contact_toe(body, skeleton, contact_toe,
 			1.0 - smoothstep(0.20, 0.90, float(previous.run_mix))
 			+ smoothstep(0.75, 1.0, float(previous.run_mix)))
 		motion[actor] = previous

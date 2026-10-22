@@ -71,8 +71,12 @@ the captured torso sway is bounded after retargeting. The clip's vertical root
 variation is cosmetic, and its horizontal root travel does not move the physical
 or visual actor root. On a confirmed stop, the current stride pose holds for
 about two 60 Hz samples before settling toward rest, so a trailing boot does
-not stay suspended through the older six-sample pause. Airborne and landing
-poses retain their longer transition. The original FBX remains available at
+not stay suspended through the older six-sample pause. The first low boot
+plants at its observed world position during this settle, then lifts and takes
+a short step into the neutral stance. This avoids dragging a low toe toward
+rest while the confirmed actor root is stationary. The visual contact uses the
+confirmed actor's support height; uneven nearby terrain can still differ.
+Airborne and landing poses retain their longer transition. The original FBX remains available at
 the pinned source revision.
 
 Confirmed rising and falling samples switch the visual skeleton into distinct

@@ -716,6 +716,55 @@ func check_landing_recovery_profile() -> void:
 		"Landing recovery keeps the boot near ground and the confirmed actor root and input untouched.")
 	host.free()
 
+func check_run_stop_contact() -> void:
+	var host := HostFixture.new()
+	root.add_child(host)
+	var presenter := Presenter.new()
+	presenter.configure(host)
+	root.add_child(presenter)
+	presenter.set_process(false)
+	presenter.set_physics_process(false)
+	var view: Node3D = presenter.views.P
+	var body: Node3D = view.get_node("BodyView")
+	for step in range(92):
+		host.state.actors.P.position[0] += 0.05
+		presenter.refresh(1.0 / 60.0)
+	var stopped_x: float = host.state.actors.P.position[0]
+	var samples := []
+	for step in range(30):
+		presenter.refresh(1.0 / 60.0)
+		var skeleton := skeleton_of(body)
+		skeleton.force_update_all_bone_transforms()
+		var motion: Dictionary = presenter.motion.P
+		var side: String = motion.get("stop_side", "L")
+		var toe := body.to_global(presenter._adult_joint(body, skeleton,
+			skeleton.find_bone("Bip01 " + side + " Toe0")))
+		samples.append({"frame": step, "x": toe.x, "height": toe.y,
+			"knee_forward": knee_forward_offset(body, side),
+			"anchored": motion.has("stop_toe_anchor"), "weight": motion.weight})
+	var contact := []
+	var lifted := false
+	var minimum_knee := INF
+	for sample in samples:
+		if sample.anchored:
+			minimum_knee = minf(minimum_knee, float(sample.knee_forward))
+		if sample.anchored and sample.weight > 0.0 and sample.height < 0.06:
+			contact.append(sample)
+		if sample.anchored and sample.weight == 0.0 and sample.height > 0.06:
+			lifted = true
+	var stable := contact.size() >= 2
+	if stable:
+		for sample in contact:
+			stable = stable and absf(float(sample.x) - float(contact[0].x)) < 0.035
+	verify(stable and lifted and minimum_knee > -0.02
+		and absf(view.position.x - stopped_x) < 0.00001
+		and not presenter.motion.P.has("stop_toe_anchor")
+		and float(presenter.motion.P.weight) == 0.0 and host.control_calls == 0,
+		"A running stop plants its support toe, steps it into rest, and preserves the confirmed actor root and input.")
+	adult_measurements["run_stop"] = {"root_x": stopped_x, "samples": samples}
+	presenter.free()
+	host.free()
+
 func _initialize() -> void:
 	call_deferred("run")
 
@@ -786,6 +835,7 @@ func run() -> void:
 			and float(run_contact.toes[11].y) > 0.035,
 			"The running lead boot lifts into toe-off after its initial plant instead of dragging along support.")
 		check_landing_recovery_profile()
+		check_run_stop_contact()
 	else:
 		verify(body.mesh == q.get_node("BodyView").mesh and body.material_override != q.get_node("BodyView").material_override,
 			"Legacy workers share geometry while retaining distinct local and remote clothing.")
