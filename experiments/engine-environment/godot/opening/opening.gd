@@ -2381,6 +2381,40 @@ class ProductionCollectorFeedArt:
 					Vector3(x, 0.6445, z), steel, Vector3.ONE * 0.38)
 		return true
 
+class ProductionCollectorOutputArt:
+	extends RefCounted
+	## The intake stays aimed at the fixed seam. This passive cassette follows
+	## only the native material-output quarter turn inside the machine body.
+	static func _part(parent: Node3D, role: String, size: Vector3, at: Vector3,
+			finish: Material) -> void:
+		var part := MeshInstance3D.new()
+		part.name = role
+		part.mesh = ProductionVisuals.box_mesh(size)
+		part.position = at
+		part.material_override = finish
+		part.set_meta("collector_output_role", role)
+		parent.add_child(part)
+
+	static func mount(parent: Node3D, rotation: int) -> void:
+		var cassette := Node3D.new()
+		cassette.name = "CollectorOutputCassette"
+		cassette.rotation.y = -float(posmod(rotation, 4)) * PI / 2.0
+		parent.add_child(cassette)
+		var steel := ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.4)
+		var paint := ProductionCollectorArt.coating(Color("58634c"))
+		if steel == null or paint == null:
+			return
+		# The inner floor meets the original stock bed at y = 0.56 and ends
+		# inside the confirmed 0.725 m half-width. An open end remains open
+		# until the native material link supplies a real neighboring route.
+		_part(cassette, "OutletFloor", Vector3(0.48, 0.035, 0.38),
+			Vector3(0.45, 0.5675, 0), steel)
+		for side in [-1.0, 1.0]:
+			_part(cassette, "OutletSideLeft" if side < 0 else "OutletSideRight", Vector3(0.48, 0.105, 0.035),
+				Vector3(0.45, 0.635, side * 0.21), paint)
+		_part(cassette, "OutletLip", Vector3(0.055, 0.025, 0.46),
+			Vector3(0.69, 0.60, 0), steel)
+
 class ProductionCollectorToolingArt:
 	extends RefCounted
 	## Passive rigid tooling. The existing cutter rows and presenter own its pose.
@@ -5782,7 +5816,7 @@ func _material_rotated(_entity_id: String, entity: Dictionary) -> bool:
 func _assemble_machine(anchor: Node3D, entity: Dictionary, rotated := false) -> void:
 	anchor.set_meta("material_rotated", rotated)
 	var facing: int = int(entity.get("rotation", 0)) if _native_transmission() and entity.kind in ["collector", "processor"] else 0
-	if facing != 0:
+	if facing != 0 and entity.kind != "collector":
 		var visual := Node3D.new()
 		visual.name = "RotatedMachineVisual"
 		visual.rotation.y = -float(facing) * PI / 2.0
@@ -5815,7 +5849,10 @@ func _assemble_machine(anchor: Node3D, entity: Dictionary, rotated := false) -> 
 		plinth.set_meta("asset_role", "MachineSupportSkid")
 		anchor.add_child(plinth)
 	match entity.kind:
-		"collector": _collector_visual(anchor, entity)
+		"collector":
+			_collector_visual(anchor, entity)
+			if _native_transmission():
+				ProductionCollectorOutputArt.mount(anchor, facing)
 		"belt": _belt_visual(anchor, entity)
 		"processor": _press_visual(anchor, entity)
 		"wheel": _wheel_visual(anchor, entity)
