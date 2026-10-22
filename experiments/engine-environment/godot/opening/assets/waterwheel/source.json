@@ -45,9 +45,30 @@
     "maximum_output_radius_metres": 0.57,
     "vertices": 5632,
     "triangles": 8574,
+    "separated_components": {
+      "rim": {"seed": 9310, "vertices": 1576, "triangles": 1872, "source_radial_range_metres": [0.506, 0.57]},
+      "hub_and_twelve_spokes": {"vertices": 4056, "triangles": 6702, "maximum_source_radius_metres": 0.5241},
+      "runtime_mount": "One centered hub/spoke mesh and two instances of the same rim mesh at local axle Z = -0.08 and +0.08 metres. The unchanged full rotor is retained for historical captures."
+    },
     "attributes": "Source vertex shape and UV records retained; normals rotated and normalized. Triangle order retained. No simplification or discovery-weld vertex merging. Godot applies ordinary glTF import conversion and tangent generation."
   },
   "processed_files": {
+    "rim.gltf": {
+      "bytes": 961,
+      "sha256": "642d86be9dc87a96ed5d8668a0410fdc174c805be8d130c962f3779aac1665fd"
+    },
+    "rim.bin": {
+      "bytes": 61664,
+      "sha256": "34a53acd655766a6d5d035ad8f3f2701c1fa2fb50a08e9684a32c3692231171e"
+    },
+    "hub_spokes.gltf": {
+      "bytes": 976,
+      "sha256": "46d06d37b7809f9017d30bb6de0d9b4ac45e0beeaa05d84907aec23a81a15629"
+    },
+    "hub_spokes.bin": {
+      "bytes": 170004,
+      "sha256": "3f7fc930a57ccb99dedb1dfe1b491a086444f9c0d37d20ed82f51dfea7ae6cfa"
+    },
     "rotor.gltf": {
       "bytes": 969,
       "sha256": "5fdfe94db4e28d4f7d3c0de9e0e21689b4075e9d3be575a4ce503e6426ed9912"
@@ -86,6 +107,6 @@
     "budget_choice": "The original one-kilopixel lossless data maps were also prepared and retained externally. The shipped half-resolution data maps fit the current shared source allowance without another lossy encoding of the photographed color.",
     "runtime_api": "https://docs.godotengine.org/en/stable/classes/class_gltfdocument.html"
   },
-  "runtime": "One cached static rotor mesh and material, with source UVs and generated mipmaps. The original paddle positions, spindle and native projected axis/motion paths remain. Native fixed supports use original Factory cast stands and open worked liners, fitted around the unchanged journal. Historical captures without the sourced rotor, and nonnative wheels, retain their earlier support assemblies. No source scene, skeleton, animation, collider or controller is instantiated.",
-  "limits": "This is a source-derived art adaptation, not a mechanical waterwheel model or gameplay authority. The current native launcher captures raw source assets; packaged Godot exports are unverified. Asset and headless fixture checks do not establish rendered quality, GPU cost or human acceptance."
+  "runtime": "Two cached static source meshes share one material: one centered hub/spoke instance and two symmetric rim instances. The old rotor files remain byte-identical for historical captures. The original paddle positions, spindle and native projected axis/motion paths remain. Native fixed supports use original Factory cast stands and open worked liners, fitted around the unchanged journal. Historical captures without the separated files mount the earlier complete sourced rotor or procedural assembly. No source scene, skeleton, animation, collider or controller is instantiated.",
+  "limits": "This is a source-derived art adaptation, not a mechanical waterwheel model or gameplay authority. The second rim adds 1,872 visual triangles per wheel versus the original single rotor; GPU cost is unmeasured. The current native launcher captures raw source assets; packaged Godot exports are unverified. Asset/headless fixtures and passive isolated renders do not establish human visual acceptance."
 }
