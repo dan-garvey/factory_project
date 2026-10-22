@@ -55,19 +55,30 @@ ordinary camera. The previous rail/channel trials are evidence that another
 small underside piece will not fix that. Do not develop this as a further
 trim-only edit.
 
-**B. Open surface-intake carriage with a separate outlet cassette.** Model an
-open cutter frame around a visible, ground-facing intake at the admitted cell,
-rather than a closed lid above a freestanding rock. A pair of cast cheeks and
-a broad gathering floor should make the lower entry and rise to the stock bed
-read as one assembly. The current rotary drive can remain recognizable, but
-the art must visibly connect it to the intake. Keep a distinct outlet mouth
-facing `+X` at rotation zero and an exposed-end cap when no material link is
-confirmed. This is the chosen next **visual prototype**, not accepted game art
-or proof of physical cutter contact.
+**B. Open surface-intake carriage with a separate outlet cassette.** An open
+roof, broad lower arms and a gathering floor were tried in passive renders.
+The arms read as braces, and the floor did not explain the seam-to-tool route.
+A second low pan with five teeth read as forklift forks from the seam side and
+was barely visible from the outlet side. Both source trials were rejected and
+are retained under `collector-open-intake-20261022` and
+`collector-gathering-lip-20261022` in the local prototype evidence directory.
+Adding another small carriage part to the present press-like body is no longer
+the chosen prototype.
 
-For the ground-level opening, start within the unchanged 1.45 × 1.65 × 1.45 m
-machine pick box. A provisional intake mount is local `(0, 0.25, 0)`, with a
-0.60 m broad entry contained below the existing 0.51 m stock bed. A provisional
+**C. Ground-facing cutter and gathering body.** Replace the collector's visual
+silhouette as an assembly: an exposed low cutter head, a continuous gathering
+surface rising to the existing stock bed, a supported mechanical input and a
+separate outlet facing the native output direction. The cutter, bed and outlet
+must appear physically related at both the seam and output camera angles.
+Preserve the established native pick envelope, material ports and states; the
+view cannot create extraction, an additional reserve or a working connection.
+This is the next **visual prototype**, not accepted game art or proof that the
+cutter touches the fixed boulder in every admitted placement.
+
+The cutter-and-gathering body must fit the unchanged 1.45 × 1.65 × 1.45 m
+machine pick box. The rejected carriage used a provisional intake mount at
+local `(0, 0.25, 0)` and a 0.60 m entry below the existing 0.51 m stock bed;
+those values do not locate the new cutting head. A provisional
 outlet socket is at local `(0.725, 0.51, 0)`, with its outward normal `+X`;
 rotation must transform that normal using the native quarter turn. These are
 **art-study targets**, not proven clearances, new native sockets or a promise
@@ -76,6 +87,18 @@ real rock hull, terrain, plinth and tool sweep before retaining either shape.
 An elevated collector permitted by native extraction depth needs a separate
 verified support/intake variant; this ground-level artwork must not draw an
 invented shaft down through foundations.
+
+![Illustrative ground-cutter assembly concept](concepts/collector-ground-cutter-concept.png)
+
+The image is an AI-generated **form reference** made for this study on
+2026-10-22. It is not a measured asset, source mesh, validated mechanism or
+render from the game. Its strong ideas are a low exposed cutter, a visibly
+continuous gathering bed, rigid bearing supports and a separate lateral outlet.
+Its pictured loose rocks cannot be mounted as static stock: actual visible
+material must follow native quantity and custody. The large upper gear and
+side housing also cannot imply a mechanical connection absent from the native
+projection. The next modeled candidate must resolve those limits in real
+geometry and pass the normal-scene comparisons below.
 
 The module vocabulary should be reusable: `seam_frame`, `cutter_carriage`,
 `gathering_floor`, `stock_bed`, `output_end` and `drive_bearing`. Each carries a
