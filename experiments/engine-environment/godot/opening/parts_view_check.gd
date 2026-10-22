@@ -12,6 +12,7 @@ class OfflineWidgets:
 	extends "res://opening/opening.gd"
 	var issued: Array = []
 	var pointed := ""
+	var hand_pointed := ""
 	func issue(action: Dictionary) -> Dictionary:
 		issued.append(action.duplicate(true))
 		return {"accepted": false, "reason": "fixture_only"}
@@ -23,11 +24,14 @@ class OfflineWidgets:
 		pass
 	func _screen_entity(_screen: Vector2) -> String:
 		return pointed
+	func _screen_hand_source(_screen: Vector2) -> String:
+		return hand_pointed
 
 class SharedWidgets:
 	extends "res://opening/shared_opening.gd"
 	var issued: Array = []
 	var pointed := ""
+	var hand_pointed := ""
 	func issue(action: Dictionary) -> Dictionary:
 		issued.append(action.duplicate(true))
 		return {"accepted": false, "reason": "fixture_only"}
@@ -39,11 +43,20 @@ class SharedWidgets:
 		pass
 	func _screen_entity(_screen: Vector2) -> String:
 		return pointed
+	func _screen_hand_source(_screen: Vector2) -> String:
+		return hand_pointed
 
 class SessionStub extends RefCounted:
 	var ready := true
 	func is_ready() -> bool:
 		return ready
+
+class SourceRayView extends "res://opening/opening.gd":
+	func _ready() -> void:
+		set_process(false)
+
+class SourceBodyLookup extends RefCounted:
+	var site_bodies: Dictionary = {}
 
 func verify(condition: bool, reason: String) -> void:
 	checks += 1
@@ -60,6 +73,9 @@ func fixture() -> Dictionary:
 		"stock": {"output": 0}, "inventories": {"P": 0, "Q": 0}}
 
 func _initialize() -> void:
+	if "--multitool-only" in OS.get_cmdline_user_args():
+		call_deferred("_multitool_controls")
+		return
 	if "--ui-shortcuts-only" in OS.get_cmdline_user_args():
 		call_deferred("_ui_shortcuts")
 		return
@@ -146,6 +162,136 @@ func hotbar_observation() -> Dictionary:
 func settle_widgets() -> void:
 	for _frame in range(4):
 		await process_frame
+
+func _multitool_controls() -> void:
+	for shared in [false, true]:
+		var view = SharedWidgets.new() if shared else OfflineWidgets.new()
+		if not view.has_method("_interact_pointed"):
+			verify(false, "The ordinary opening must route a pointed source to the native multitool command.")
+			view.free()
+			continue
+		if shared:
+			view.session = SessionStub.new()
+		view.state = hotbar_observation()
+		view.state.hand_sources = {"ore": {"kind": "ore_deposit", "position": [0.0, 0.825, 0.0], "initial": 16, "remaining": 2},
+			"tree": {"kind": "tree", "position": [1.65, 0.825, 0.0], "initial": 8, "remaining": 1}}
+		view.state.cargo = {"P": {"raw": 1, "timber": 3}, "Q": {"raw": 0, "timber": 0}}
+		view.mode = "inspect"
+		root.add_child(view)
+		view.selection_ring = MeshInstance3D.new()
+		view.add_child(view.selection_ring)
+		view._build_interface()
+		view._refresh_ui()
+		var before: Dictionary = view.state.duplicate(true)
+		view.hand_pointed = "ore"
+		view._refresh_placement_options()
+		verify(view.placement_options_panel.visible and view.placement_options_title.text == "CUT SOFTMETAL"
+			and "2 remaining" in view.placement_options_hint.text and "E" in view.placement_options_hint.text,
+			"The pointed ore shows its native remaining stock and the real interaction key.")
+		view._interact_pointed()
+		verify(view.issued == [{"action": "harvest_source", "target": "ore"}],
+			"The ordinary source interaction submits only its native target identity.")
+		view.issued.clear()
+		view.hand_pointed = "tree"
+		view._refresh_placement_options()
+		verify(view.placement_options_title.text == "CUT TIMBER" and "1 remaining" in view.placement_options_hint.text,
+			"Timber uses the same confirmed-stock interaction rather than another inventory.")
+		view._interact_pointed()
+		verify(view.issued == [{"action": "harvest_source", "target": "tree"}], "The tree keeps its distinct native source identity.")
+		view.issued.clear()
+		verify(view.state == before and view.model == null and view.request_sequence == 0,
+			"Presentation and request selection do not debit local stock or create a Model.")
+		verify(view._harvest_result_text({"moved_timber": 1, "moved_raw": 0}) == "Collected 1 timber."
+			and view._harvest_result_text({"moved_timber": 0, "moved_raw": 1}) == "Collected 1 softmetal blank.",
+			"Success text reports actual native moved quantities for both resource kinds.")
+		verify("depleted" in view._material_refusal_message({"reason": "unavailable_source"}, "fallback")
+			and "full" in view._material_refusal_message({"reason": "inventory_full"}, "fallback"),
+			"Native stock and capacity refusals retain actionable advice.")
+		view.state.hand_sources.tree.remaining = 0
+		view._refresh_placement_options()
+		view._interact_pointed()
+		verify("Depleted" in view.placement_options_hint.text and view.issued.is_empty(),
+			"A confirmed depleted source stays readable without submitting another harvest.")
+		view.state.hand_sources.tree.remaining = 1
+		view.state.actors.P.ready = false
+		view._interact_pointed()
+		verify(view.issued.is_empty(), "An unready physical actor cannot submit a harvest.")
+		view.state.actors.P.ready = true
+		view.explanation_open = true
+		view._interact_pointed()
+		verify(view.issued.is_empty(), "Help prevents world interaction.")
+		view.explanation_open = false
+		view.building_hotbar.open_catalog()
+		view._interact_pointed()
+		verify(view.issued.is_empty(), "The catalog consumes interaction while open.")
+		view.building_hotbar.catalog.hide()
+		if shared:
+			view.pending_actions["pending"] = {"action": {}, "outcome": {}}
+			view._interact_pointed()
+			verify(view.issued.is_empty(), "An unsettled shared command prevents a second harvest request.")
+			view.hand_pointed = ""
+			view.pointed = "read-only-machine"
+			view.state.entities[view.pointed] = {"kind": "collector", "cell": [0, 0], "axis": 0, "generation": 1}
+			view._interact_pointed()
+			verify(view.selected == view.pointed and view.issued.is_empty(),
+				"A pending mutation still permits ordinary read-only machine inspection.")
+			view.pending_actions.clear()
+			view.session.ready = false
+			view.hand_pointed = "tree"
+			view._interact_pointed()
+			verify(view.issued.is_empty(), "A disconnected shared view cannot submit a harvest.")
+		view.free()
+	await _multitool_ray_selection()
+	print("MULTITOOL_UI_%s %d" % ["PASS" if failures == 0 else "FAIL", checks])
+	quit(0 if failures == 0 else 1)
+
+func _multitool_ray_selection() -> void:
+	var view := SourceRayView.new()
+	view.state = hotbar_observation()
+	view.state.hand_sources = {"ore": {"kind": "ore_deposit", "position": [0.0, 0.825, 0.0], "remaining": 2},
+		"tree": {"kind": "tree", "position": [0.0, 0.825, 0.0], "remaining": 3}}
+	root.add_child(view)
+	view.camera = Camera3D.new()
+	view.add_child(view.camera)
+	view.camera.position = Vector3(0.0, 2.0, 5.0)
+	view.camera.look_at(Vector3(0.0, 0.4, 0.0))
+	view.camera.make_current()
+	var ore := StaticBody3D.new()
+	ore.collision_layer = 1
+	ore.collision_mask = 0
+	ore.position = Vector3(0.0, 0.4, 0.0)
+	var shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3.ONE * 0.8
+	shape.shape = box
+	ore.add_child(shape)
+	view.add_child(ore)
+	var lookup := SourceBodyLookup.new()
+	lookup.site_bodies.source_outcrop = ore
+	view.actor_world = lookup
+	await physics_frame
+	await physics_frame
+	var screen: Vector2 = view.camera.unproject_position(ore.position)
+	verify(view._screen_hand_source(screen) == "ore", "A real ray hitting the existing ore collider resolves its sole native deposit identity.")
+	var wall := StaticBody3D.new()
+	wall.collision_layer = 2
+	wall.position = Vector3(0.0, 1.04, 2.0)
+	var wall_shape := CollisionShape3D.new()
+	wall_shape.shape = box
+	wall.add_child(wall_shape)
+	view.add_child(wall)
+	await physics_frame
+	verify(view._screen_hand_source(screen).is_empty(), "A foreground physical machine blocks resource interaction behind it.")
+	wall.free()
+	ore.set_meta("hand_source", "tree")
+	view.actor_world = null
+	await physics_frame
+	verify(view._screen_hand_source(screen) == "tree", "A shared view can read an exact source pick identity without owning an ActorWorld.")
+	ore.set_meta("hand_source", "unregistered")
+	verify(view._screen_hand_source(screen).is_empty(), "An unregistered hit identity cannot target another native source.")
+	view.free()
+	await process_frame
+	await physics_frame
 
 func _ui_shortcuts() -> void:
 	for shared in [false, true]:
