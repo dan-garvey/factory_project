@@ -83,6 +83,9 @@ func _conserved(snapshot: Dictionary) -> bool:
 	# Count each unit once and independently check the product aliases.
 	if not _expect(snapshot.initial_feed == 4096 and snapshot.recipe_input == 1, "The current finite recipe profile is unchanged"):
 		return false
+	if not _expect(typeof(snapshot.line_belt_raw) == TYPE_INT and snapshot.line_belt_raw >= 0,
+		"Belt material count remains a nonnegative integer"):
+		return false
 	var total: int = snapshot.line_belt_raw
 	for key: String in ["source", "collector", "belt", "input", "held", "output", "player"]:
 		var amount: Variant = snapshot.stock.get(key)
