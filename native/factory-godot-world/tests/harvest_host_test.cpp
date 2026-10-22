@@ -1,5 +1,6 @@
 #include "native/factory-godot-world/tests/site_fixture.hpp"
 
+#include <cmath>
 #include <iostream>
 #include <stdexcept>
 
@@ -85,6 +86,36 @@ void shared_harvest() {
           get<I>(V(get<O>(get<O>(host.projection(), "cargo").at("Q"), "components")), "cutting_edge") == 1 &&
           get<I>(get<O>(host.projection(), "cargo").at("Q"), "raw") == 0,
           "Q's own ore becomes one metal cutting edge after physically reaching the hub.");
+    const O place{{"context", V("harvest-site")}, {"client", V("P")},
+        {"request", V("install-shaft")}, {"action", V("place_component")},
+        {"component", V("wooden_shaft")}, {"center", V(A{V(I{8}), V(I{0}), V(I{12})})}};
+    const auto installed = host.command("P", place);
+    check(get<bool>(installed, "accepted") &&
+          get<O>(host.projection(), "placed_components").size() == 1 &&
+          get<O>(get<O>(host.projection(), "cargo").at("P"), "components").empty(),
+          "Host projects the single installed shaft and debits the actor's component cargo.");
+    const auto installed_id = get<std::string>(installed, "entity");
+    const auto installed_position = get<A>(get<O>(host.projection(), "placed_components").at(installed_id), "position");
+    check(installed_position.size() == 3 &&
+          std::abs(std::get<double>(installed_position[0].storage()) - 3.3) < 1e-8 &&
+          std::abs(std::get<double>(installed_position[1].storage()) - 0.825) < 1e-8 &&
+          std::abs(std::get<double>(installed_position[2].storage()) - 4.95) < 1e-8 &&
+          get<bool>(host.command("P", place), "duplicate"),
+          "The shaft uses the shared quarter-grid transform and exact wire retry.");
+    const O overlap{{"context", V("harvest-site")}, {"client", V("Q")},
+        {"request", V("overlap-shaft")}, {"action", V("place_component")},
+        {"component", V("cutting_edge")}, {"center", V(A{V(I{8}), V(I{0}), V(I{12})})}};
+    const auto blocked = host.command("Q", overlap);
+    check(!get<bool>(blocked, "accepted") && get<std::string>(blocked, "reason") == "occupied" &&
+          get<I>(V(get<O>(get<O>(host.projection(), "cargo").at("Q"), "components")), "cutting_edge") == 1,
+          "A second part cannot occupy the same quarter-grid center or consume its input on refusal.");
+    const O reclaim{{"context", V("harvest-site")}, {"client", V("Q")},
+        {"request", V("take-shaft")}, {"action", V("reclaim_component")},
+        {"entity", V(installed_id)}};
+    check(get<bool>(host.command("Q", reclaim), "accepted") &&
+          get<O>(host.projection(), "placed_components").empty() &&
+          get<I>(V(get<O>(get<O>(host.projection(), "cargo").at("Q"), "components")), "wooden_shaft") == 1,
+          "Q reclaims the real shaft into Q's cargo without recreating it.");
     const auto saved = host.checkpoint();
     check(get<bool>(host.validate_checkpoint(saved), "accepted"),
           "The real Host checkpoint validates tree and ore custody.");

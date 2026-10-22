@@ -166,6 +166,9 @@ struct State {
     // Each site's initial quantity is immutable Config; only these remaining
     // quantities move into actor cargo through the World request owner.
     std::map<std::string, Quantity> timber_remaining{};
+    // World owns geometry and identity; this count keeps installed parts in
+    // the same conserved material ledger as actor cargo and recipe inputs.
+    std::map<Component, Quantity> placed_components{};
     State() = default;
     State(Quantity initial, Stock contents, std::map<std::string, Cargo> actors,
           std::optional<WorkLot> work, WorkId serial)

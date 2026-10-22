@@ -72,6 +72,14 @@ cannot orphan a supported machine or stacked block. The trusted site adapter
 validates terrain support; the World retains exact reach, conservation, overlap,
 generation and history checks. There is no old-save migration for this feature.
 
+The experimental arrival profile also keeps crafted component counts in the
+canonical material State when parts leave an actor's cargo. World assigns each
+installed part a distinct identity and shared quarter-grid center. Placing and
+reclaiming are actor-reachable requests with exact retry, issue-history,
+checkpoint and two-actor custody validation. This placement layer does not yet
+infer collector or press behavior from an assembly; those rules must consume
+the same installed identities and preserve their material custody.
+
 Session supplies the authenticated actor and request namespace. Fresh commands
 use exact integer fields and known keys. They resolve current entity generations,
 derive native interaction anchors and obtain an observation from the host's

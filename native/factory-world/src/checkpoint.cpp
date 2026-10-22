@@ -308,6 +308,12 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
             state.emplace("fabrication_hub", Value(Object{{"id", Value(hub.id)},
                 {"center", Value(Array{Value(hub.center[0]), Value(hub.center[1]), Value(hub.center[2])})},
                 {"generation", Value(hub.generation)}}));
+            Object placed;
+            for (const auto& [id, component] : snapshot.state.placed_components)
+                placed.emplace(id, Value(Object{{"component", Value(materials::component_name(component.kind))},
+                    {"center", Value(Array{Value(component.center[0]), Value(component.center[1]),
+                        Value(component.center[2])})}, {"generation", Value(component.generation)}}));
+            state.emplace("placed_components", Value(std::move(placed)));
             root.at("state") = Value(std::move(state));
             output = Value(std::move(root));
         }
@@ -331,7 +337,7 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
         candidate.history = std::move(*history.history);
         if (candidate.history.context != expected_context) refuse(CheckpointReason::wrong_context, "$.history.context");
         const auto& state = profile.landing_pod_center ? fields(root.at("state"), "$.state",
-            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "foundations", "foundation_kits", "landing_pod", "fabrication_hub"}) :
+            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "placed_components"}) :
             profile.foundation_parts > 0 ? fields(root.at("state"), "$.state",
             {"material", "topology", "kits", "issued_entities", "next_entity_serial", "foundations", "foundation_kits"}) :
             fields(root.at("state"), "$.state", {"material", "topology", "kits", "issued_entities", "next_entity_serial"});
@@ -352,6 +358,21 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
                  scalar<Integer>(hub_center[1], "$.state.fabrication_hub.center"),
                  scalar<Integer>(hub_center[2], "$.state.fabrication_hub.center")},
                 integer(hub, "generation", "$.state.fabrication_hub")};
+            const auto& placed = object(state.at("placed_components"), "$.state.placed_components");
+            if (placed.size() > 4096) refuse(CheckpointReason::limit, "$.state.placed_components");
+            for (const auto& [id, value] : placed) {
+                const auto& entry = fields(value, "$.state.placed_components", {"component", "center", "generation"});
+                const auto name = scalar<std::string>(entry.at("component"), "$.state.placed_components.component");
+                const auto kind = materials::component_from_name(name);
+                if (!kind) refuse(CheckpointReason::invalid_world, "$.state.placed_components.component");
+                const auto& center = array(entry.at("center"), "$.state.placed_components.center", 3);
+                if (center.size() != 3) refuse(CheckpointReason::invalid_world, "$.state.placed_components.center");
+                candidate.state.placed_components.emplace(id, PlacedComponent{*kind,
+                    {scalar<Integer>(center[0], "$.state.placed_components.center"),
+                     scalar<Integer>(center[1], "$.state.placed_components.center"),
+                     scalar<Integer>(center[2], "$.state.placed_components.center")},
+                    integer(entry, "generation", "$.state.placed_components")});
+            }
         }
         if (profile.foundation_parts > 0) {
             const auto& foundations = object(state.at("foundations"), "$.state.foundations");

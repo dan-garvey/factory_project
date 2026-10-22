@@ -113,6 +113,10 @@ bool shape(const Object& intent, const std::string& action) {
     if (action == "craft_component") return keys(intent, {"target", "generation", "component"}) &&
         field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
         field<std::string>(intent, "component");
+    if (action == "place_component") return keys(intent, {"component", "center"}) &&
+        field<std::string>(intent, "component") && field<Value::Array>(intent, "center");
+    if (action == "reclaim_component") return keys(intent, {"target", "generation"}) &&
+        field<std::string>(intent, "target") && field<Integer>(intent, "generation");
     if (action == "place_foundations") return keys(intent, {"center", "end"});
     if (action == "place_foundation") return keys(intent, {"center"});
     if (action == "remove_foundation") return keys(intent, {"target", "generation"});
@@ -380,6 +384,26 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
             count && *count > 0 && *count <= profile.material.component_capacity &&
             targets.front() == anchor(profile, landing_hub_center(*profile.landing_pod_center)) && result.size() == 20;
     }
+    if (action == "place_component" || action == "reclaim_component") {
+        const auto* name = field<std::string>(result, "component");
+        const auto* count = field<Integer>(result, "component_count");
+        const auto* entity = field<std::string>(result, "entity");
+        const auto* generation = field<Integer>(result, "generation");
+        const auto* center = field<Value::Array>(result, "component_center");
+        const auto location = center ? grid_point(Object{{"center", Value(*center)}}) : std::nullopt;
+        if (!profile.landing_pod_center || !name || !materials::component_from_name(*name) ||
+            !count || *count < 0 || *count > profile.material.component_capacity ||
+            !entity || !generation || *generation <= 0 || !location ||
+            targets.front() != anchor(profile, *location) || result.size() != 19) return false;
+        if (action == "place_component") {
+            const auto* requested = field<std::string>(record.intent, "component");
+            return requested && *requested == *name &&
+                grid_point(record.intent) == location && entity->starts_with(allocated_prefix);
+        }
+        const auto* target = field<std::string>(record.intent, "target");
+        const auto* requested_generation = field<Integer>(record.intent, "generation");
+        return target && *target == *entity && requested_generation && *requested_generation == *generation;
+    }
     if (placement(action) || action == "place_foundation") {
         const auto location = grid_point(record.intent);
         if (action == "place_foundation")
@@ -500,6 +524,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
     std::map<std::string, Integer> harvested_timber;
     Integer harvested_ore = 0;
     std::map<std::pair<std::string, materials::Component>, Integer> crafted_components;
+    std::map<std::string, std::pair<materials::Component, mechanics::Point>> placed_components;
     for (const auto& record : snapshot.history.records) {
         const auto* actor = field<std::string>(record.intent, "actor");
         const auto* action = field<std::string>(record.intent, "action");
@@ -556,6 +581,24 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
             if (!component || !add(crafted_components[{*actor, *component}], 1) ||
                 crafted_components[{*actor, *component}] != *field<Integer>(record.result, "component_count"))
                 return false;
+        }
+        if (*action == "place_component" || *action == "reclaim_component") {
+            const auto component = materials::component_from_name(*field<std::string>(record.result, "component"));
+            const auto center = grid_point(Object{{"center", record.result.at("component_center")}});
+            if (!component || !center) return false;
+            auto& carried = crafted_components[{*actor, *component}];
+            if (*action == "place_component") {
+                if (carried < 1 || !placed_components.emplace(*entity, std::make_pair(*component, *center)).second)
+                    return false;
+                --carried;
+            } else {
+                const auto found = placed_components.find(*entity);
+                if (found == placed_components.end() || found->second != std::make_pair(*component, *center) ||
+                    carried >= profile.material.component_capacity) return false;
+                placed_components.erase(found);
+                ++carried;
+            }
+            if (carried != *field<Integer>(record.result, "component_count")) return false;
         }
         if (placement(*action)) {
             const auto* role_name = field<std::string>(record.intent, "role");
@@ -644,6 +687,11 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
             harvested_timber[id] != site.initial - remaining->second) return false;
     }
     if (harvested_ore > profile.initial_units - snapshot.state.material.stock.source) return false;
+    if (placed_components.size() != snapshot.state.placed_components.size()) return false;
+    for (const auto& [id, placed] : snapshot.state.placed_components) {
+        const auto found = placed_components.find(id);
+        if (found == placed_components.end() || found->second != std::make_pair(placed.kind, placed.center)) return false;
+    }
     for (const auto& [actor, cargo] : snapshot.state.material.cargo)
         for (const auto& [component, count] : cargo.components)
             if (crafted_components[{actor, component}] != count) return false;
@@ -651,7 +699,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
         const auto actor = snapshot.state.material.cargo.find(actor_component.first);
         if (actor == snapshot.state.material.cargo.end()) return false;
         const auto found = actor->second.components.find(actor_component.second);
-        if (found == actor->second.components.end() || found->second != count) return false;
+        if (count == 0 ? found != actor->second.components.end() :
+            found == actor->second.components.end() || found->second != count) return false;
     }
     return true;
 }
@@ -815,6 +864,25 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
         for (const auto& placed : state.topology.parts)
             if (material_machine(placed.role) && placed.geometry.center == hub.center) return false;
     }
+    if (!profile.landing_pod_center && !state.placed_components.empty()) return false;
+    if (state.placed_components.size() > maximum_issued_entities) return false;
+    std::map<materials::Component, Integer> component_totals;
+    std::set<mechanics::Point> component_centers;
+    for (const auto& [id, placed] : state.placed_components) {
+        const auto issued = state.issued_entities.find(id);
+        if (issued == state.issued_entities.end() || issued->second != placed.generation ||
+            placed.generation <= 0 || !id.starts_with(allocated_prefix) ||
+            !materials::component_cost(placed.kind) ||
+            !component_centers.insert(placed.center).second ||
+            (state.fabrication_hub && placed.center == state.fabrication_hub->center) ||
+            !add(component_totals[placed.kind], 1)) return false;
+        for (const auto coordinate : placed.center)
+            if (coordinate < -mechanics::maximum_coordinate || coordinate > mechanics::maximum_coordinate) return false;
+        if (part(state.topology, id) || state.foundations.contains(id) ||
+            std::any_of(state.topology.parts.begin(), state.topology.parts.end(),
+                [&](const auto& item) { return item.geometry.center == placed.center; })) return false;
+    }
+    if (component_totals != state.material.placed_components) return false;
     if (state.material.initial_units != profile.initial_units ||
         state.material.cargo.size() != profile.actors.size() || state.kits.size() != profile.actors.size() ||
         state.issued_entities.size() > maximum_issued_entities || state.next_entity_serial < 1 ||
@@ -1077,6 +1145,75 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         facts.emplace("component_count", Value(candidate.material.cargo.at(binding.actor).components.at(*component)));
         return accepted(std::move(candidate), *id, std::move(facts));
     }
+    if (*action == "place_component" || *action == "reclaim_component") {
+        if (!profile_.landing_pod_center) return refused("components_unavailable");
+        const bool placing = *action == "place_component";
+        const auto* requested = placing ? field<std::string>(intent, "component") : nullptr;
+        const auto component = requested ? materials::component_from_name(*requested) : std::nullopt;
+        const auto location = placing ? grid_point(intent) : std::nullopt;
+        const auto* target = placing ? nullptr : field<std::string>(intent, "target");
+        const auto* generation = placing ? nullptr : field<Integer>(intent, "generation");
+        const auto found = target ? state.placed_components.find(*target) : state.placed_components.end();
+        if (placing && (!component || !location)) return refused("invalid_component");
+        if (!placing && (!target || !generation)) return refused("invalid_target");
+        if (!placing && found == state.placed_components.end()) return refused("unknown_target", *target);
+        if (!placing && found->second.generation != *generation) return refused("stale_generation", *target);
+        const auto center = placing ? *location : found->second.center;
+        const auto kind = placing ? *component : found->second.kind;
+        const auto cut = observe ? observe(binding.actor) : std::nullopt;
+        if (!cut) return refused("actor_unready");
+        auto checked_cut = *cut;
+        checked_cut.build_reach = profile_.build_reach;
+        const auto checked = authority::check_reach(binding.actor, checked_cut, {anchor(profile_, center)});
+        auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
+        if (checked.error != authority::Error::none)
+            return refused(authority::error_name(checked.error), target ? *target : "", std::move(facts));
+        auto candidate = state;
+        auto& cargo = candidate.material.cargo.at(binding.actor).components;
+        std::string entity;
+        Integer serial{};
+        if (placing) {
+            const auto owned = cargo.find(kind);
+            if (owned == cargo.end() || owned->second < 1) return refused("no_component", "", std::move(facts));
+            if (state.placed_components.size() >= maximum_issued_entities ||
+                state.issued_entities.size() == maximum_issued_entities ||
+                state.next_entity_serial == std::numeric_limits<Integer>::max())
+                return refused("identity_limit", "", std::move(facts));
+            if ((state.fabrication_hub && center == state.fabrication_hub->center) ||
+                std::any_of(state.placed_components.begin(), state.placed_components.end(),
+                    [&](const auto& entry) { return entry.second.center == center; }) ||
+                std::any_of(state.topology.parts.begin(), state.topology.parts.end(),
+                    [&](const auto& item) { return item.geometry.center == center; }))
+                return refused("occupied", "", std::move(facts));
+            if (--owned->second == 0) cargo.erase(owned);
+            serial = candidate.next_entity_serial++;
+            entity = std::string(allocated_prefix) + std::to_string(serial);
+            if (candidate.issued_entities.contains(entity)) return refused("identity_conflict");
+            candidate.issued_entities.emplace(entity, serial);
+            candidate.placed_components.emplace(entity, PlacedComponent{kind, center, serial});
+            ++candidate.material.placed_components[kind];
+        } else {
+            Integer carried = 0;
+            for (const auto& [name, count] : cargo) {
+                (void)name;
+                if (!add(carried, count)) return refused("inventory_full", *target, std::move(facts));
+            }
+            if (carried >= profile_.material.component_capacity)
+                return refused("inventory_full", *target, std::move(facts));
+            entity = *target;
+            serial = *generation;
+            ++cargo[kind];
+            candidate.placed_components.erase(entity);
+            auto& placed = candidate.material.placed_components.at(kind);
+            if (--placed == 0) candidate.material.placed_components.erase(kind);
+        }
+        facts.emplace("generation", Value(serial));
+        facts.emplace("component", Value(materials::component_name(kind)));
+        facts.emplace("component_count", Value(candidate.material.cargo.at(binding.actor).components.contains(kind) ?
+            candidate.material.cargo.at(binding.actor).components.at(kind) : Integer{0}));
+        facts.emplace("component_center", Value(Value::Array{Value(center[0]), Value(center[1]), Value(center[2])}));
+        return accepted(std::move(candidate), entity, std::move(facts));
+    }
     if (*action == "place_foundations") {
         if (profile_.foundation_parts == 0) return refused("foundations_unavailable");
         const auto cells = foundation_area(intent);
@@ -1132,6 +1269,9 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             if (found == state.foundations.end()) return refused("unknown_target", *id);
             if (found->second.generation != *expected) return refused("stale_generation", *id);
             if (state.fabrication_hub && found->second.center == state.fabrication_hub->center)
+                return refused("foundation_in_use", *id);
+            if (std::any_of(state.placed_components.begin(), state.placed_components.end(),
+                    [&](const auto& entry) { return entry.second.center == found->second.center; }))
                 return refused("foundation_in_use", *id);
             location = found->second.center;
             entity = *id;

@@ -19,9 +19,13 @@ projection includes `landing_pod`, `fabrication_hub` and the usual foundation re
 checkpoint retains both. The existing scene still calls `initialize`. This
 slice has native actor component cargo and an actor-reachable `craft_component`
 command at the east deck bench. The command spends the actor's own raw stock,
-reports the typed component and survives retry and restore. It still has no
-pod or bench mesh, scene crafting controls, multitool input or placed-component
-consumer. Older complete-machine kits still seed, so the scene should switch
+reports the typed component and survives retry and restore. `place_component`
+and `reclaim_component` move that stock between actor cargo and persistent
+quarter-grid world parts with one native material ledger. The Host projects
+their identities, positions and types and reserves a small collision volume
+against actors, terrain obstacles, belts and complete machines. These are not
+yet functional collector or press assemblies. There is still no pod or bench
+mesh, scene crafting/placement controls or multitool input. Older complete-machine kits still seed, so the scene should switch
 only with the linked assembly and presentation work.
 The arrival profile additionally exposes `hand_sources`: three named
 eight-piece timber sites and one sixteen-unit ore deposit. `harvest_source`

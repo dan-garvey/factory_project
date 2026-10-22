@@ -281,6 +281,13 @@ bool historical_wire(const authority::Record& record) {
         return *original_action == "craft_component" && keys(*wire, {"entity", "component"}) &&
             field<std::string>(*wire, "entity") && field<std::string>(*wire, "component") &&
             same("entity", "target") && same("component", "component");
+    if (*action == "place_component")
+        return *original_action == "place_component" && keys(*wire, {"component", "center"}) &&
+            field<std::string>(*wire, "component") && field<Array>(*wire, "center") &&
+            same("component", "component") && same("center", "center");
+    if (*action == "reclaim_component")
+        return *original_action == "reclaim_component" && keys(*wire, {"entity"}) &&
+            field<std::string>(*wire, "entity") && same("entity", "target");
     if (*action == "place_foundations") {
         const auto* cell = field<Array>(*wire, "cell");
         const auto* end = field<Array>(*wire, "end_cell");
@@ -1047,6 +1054,45 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             snapshot.state.fabrication_hub->id == *field<std::string>(wire, "entity") ?
             snapshot.state.fabrication_hub->generation : Integer{0}));
         normalized.emplace("component", wire.at("component"));
+    } else if (*action == "place_component") {
+        if (!keys(wire, {"component", "center"}) || !field<std::string>(wire, "component") ||
+            !field<Array>(wire, "center")) return refuse("invalid_command");
+        const auto& point = *field<Array>(wire, "center");
+        if (point.size() != 3) return refuse("invalid_center");
+        mechanics::Point center{};
+        for (std::size_t axis = 0; axis < 3; ++axis) {
+            const auto* coordinate = std::get_if<Integer>(&point[axis].storage());
+            if (!coordinate || *coordinate < -mechanics::maximum_coordinate ||
+                *coordinate > mechanics::maximum_coordinate) return refuse("invalid_center");
+            center[axis] = *coordinate;
+        }
+        // A small reserved volume prevents placement inside terrain, an actor,
+        // a belt or an existing complete machine. Component-to-component fit
+        // remains governed by World's shared quarter-grid center occupancy.
+        const authority::Point at{center[0] * height_step,
+            center[1] * height_step + anchor_height, center[2] * height_step};
+        const Bounds volume{at, {0.14, 0.14, 0.14}};
+        const auto ground = terrain_range(at[0], at[2], volume.half[0], volume.half[2]);
+        if (!ground) return refuse("terrain_unavailable");
+        if (ground->second > at[1] - volume.half[1]) return refuse("site_occupied");
+        if (site_blocked({at[0] - 0.14, at[1] - 0.14, at[2] - 0.14},
+                         {at[0] + 0.14, at[1] + 0.14, at[2] + 0.14}))
+            return refuse("site_occupied");
+        if (placement_blocked(at, volume.half)) return refuse("actor_occupied");
+        if (intersects_belt(snapshot.state, volume) ||
+            std::any_of(snapshot.state.topology.parts.begin(), snapshot.state.topology.parts.end(),
+                [&](const auto& item) { return overlap(volume, part_bounds(profile_, item)); }))
+            return refuse("occupied");
+        normalized.at("action") = Value("place_component");
+        normalized.emplace("component", wire.at("component"));
+        normalized.emplace("center", wire.at("center"));
+    } else if (*action == "reclaim_component") {
+        if (!keys(wire, {"entity"}) || !field<std::string>(wire, "entity")) return refuse("invalid_command");
+        normalized.at("action") = Value("reclaim_component");
+        normalized.emplace("target", wire.at("entity"));
+        const auto found = snapshot.state.placed_components.find(*field<std::string>(wire, "entity"));
+        normalized.emplace("generation", Value(found == snapshot.state.placed_components.end() ?
+            Integer{0} : found->second.generation));
     } else if (*action == "pickup_material") {
         if (!keys(wire, {"center", "expected"}) || !field<Object>(wire, "expected")) return refuse("invalid_command");
         const auto* center = field<Array>(wire, "center");
@@ -1123,6 +1169,16 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                 center[2] * pitch / 4 < std::max(*z, *end_z) * pitch + pitch &&
                 center[1] * pitch / 4 < top && center[1] * pitch / 4 + machine_height > top - foundation_depth)
                 return refuse("occupied");
+        }
+        for (const auto& [id, component] : snapshot.state.placed_components) {
+            (void)id;
+            const Bounds occupied{{component.center[0] * height_step,
+                component.center[1] * height_step + anchor_height,
+                component.center[2] * height_step}, {0.14, 0.14, 0.14}};
+            for (auto px = std::min(*x, *end_x); px <= std::max(*x, *end_x); ++px)
+                for (auto pz = std::min(*z, *end_z); pz <= std::max(*z, *end_z); ++pz)
+                    if (overlap(occupied, foundation_bounds({{4 * px, *level, 4 * pz}, 1})))
+                        return refuse("occupied");
         }
         // A new foundation may become a stand's seat or cut through its post.
         // Check the resulting native geometry before World spends the part.
@@ -1690,6 +1746,17 @@ Value Host::projection() const {
             {"position", Value(Array{Value(hub.center[0] * profile_.meters_per_grid_unit + profile_.anchor_offset[0]),
                 Value(hub.center[1] * profile_.meters_per_grid_unit + profile_.anchor_offset[1]),
                 Value(hub.center[2] * profile_.meters_per_grid_unit + profile_.anchor_offset[2])})}}));
+        Object placed;
+        for (const auto& [id, component] : state.placed_components)
+            placed.emplace(id, Value(Object{{"component", Value(materials::component_name(component.kind))},
+                {"generation", Value(component.generation)},
+                {"center", Value(Array{Value(component.center[0]), Value(component.center[1]),
+                    Value(component.center[2])})},
+                {"position", Value(Array{
+                    Value(component.center[0] * profile_.meters_per_grid_unit + profile_.anchor_offset[0]),
+                    Value(component.center[1] * profile_.meters_per_grid_unit + profile_.anchor_offset[1]),
+                    Value(component.center[2] * profile_.meters_per_grid_unit + profile_.anchor_offset[2])})}}));
+        projection.emplace("placed_components", Value(std::move(placed)));
     }
     if (profile_.material.manual_ore) {
         const auto site_position = [this](const materials::DropPoint& center) {

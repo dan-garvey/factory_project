@@ -238,6 +238,126 @@ void reachable_craft_uses_one_hub_and_owned_ingredients() {
           !w::World::restore("pod-craft", wider_profile, forged),
           "Even conserved ingredient conversion cannot forge an unrecorded craft action.");
 }
+
+void placed_components_keep_custody_and_history() {
+    auto [profile, state] = seed();
+    profile.build_reach = 4;
+    profile.material.timber_sites = {{"tree", {{8, 0, 20}, 8}}};
+    state.material.timber_remaining = {{"tree", 8}};
+    auto world = w::World::create("placed-chapter", profile, state);
+    check(world != nullptr, "The placement fixture begins with finite timber and no parts.");
+    const auto near = [](const std::string& actor) -> std::optional<a::ActorCut> {
+        return a::ActorCut{actor, {8, 0, 16}, 2, true, 4};
+    };
+    const auto far = [](const std::string& actor) -> std::optional<a::ActorCut> {
+        return a::ActorCut{actor, {32, 0, 16}, 2, true, 4};
+    };
+    const auto send = [&](const O& request, w::ObserveActor pose = {}) {
+        const auto actor = std::get<std::string>(request.at("actor").storage());
+        const auto client = std::get<std::string>(request.at("client").storage());
+        return world->command({actor, client}, request, pose ? pose : w::ObserveActor(near));
+    };
+    for (int cut = 0; cut < 3; ++cut) {
+        const O harvest{{"context", V("placed-chapter")}, {"client", V("P-client")},
+            {"request", V("harvest-" + std::to_string(cut))}, {"actor", V("P")},
+            {"action", V("harvest_source")}, {"target", V("tree")}};
+        const auto result = send(harvest);
+        check(result.completed() && std::get<bool>(result.result->at("accepted").storage()),
+            "Three physical cuts make one wooden frame affordable.");
+    }
+    const O craft{{"context", V("placed-chapter")}, {"client", V("P-client")},
+        {"request", V("frame")}, {"actor", V("P")}, {"action", V("craft_component")},
+        {"target", V("pod-fabrication-hub")}, {"generation", V(I{1})},
+        {"component", V("wooden_frame")}};
+    const auto made = send(craft);
+    check(made.completed() && std::get<bool>(made.result->at("accepted").storage()),
+        "The bench makes one frame from harvested timber.");
+    const O place{{"context", V("placed-chapter")}, {"client", V("P-client")},
+        {"request", V("place-frame")}, {"actor", V("P")}, {"action", V("place_component")},
+        {"component", V("wooden_frame")},
+        {"center", V(V::Array{V(I{8}), V(I{0}), V(I{12})})}};
+    const auto remote = send(place, far);
+    check(remote.completed() && !std::get<bool>(remote.result->at("accepted").storage()) &&
+        std::get<std::string>(remote.result->at("reason").storage()) == "out_of_reach",
+        "The actor cannot install a part from a remote camera.");
+    auto q_place = place;
+    q_place.at("actor") = V("Q");
+    q_place.at("client") = V("Q-client");
+    q_place.at("request") = V("q-place");
+    const auto other = send(q_place);
+    check(other.completed() && !std::get<bool>(other.result->at("accepted").storage()) &&
+        std::get<std::string>(other.result->at("reason").storage()) == "no_component",
+        "The second actor cannot place the first actor's carried frame.");
+    auto admitted = place;
+    admitted.at("request") = V("place-frame-near");
+    const auto built = send(admitted);
+    check(built.completed() && std::get<bool>(built.result->at("accepted").storage()),
+        "Reachable placement consumes one carried part.");
+    const auto id = std::get<std::string>(built.result->at("entity").storage());
+    const auto serial = std::get<I>(built.result->at("generation").storage());
+    const auto installed = world->snapshot();
+    check(installed.state.material.cargo.at("P").components.empty() &&
+          installed.state.material.placed_components.at(m::Component::wooden_frame) == 1 &&
+          installed.state.placed_components.at(id).center == factory::mechanics::Point{8, 0, 12} &&
+          installed.state.material.timber_remaining.at("tree") == 5,
+        "The installed frame retains all three timber in the canonical material ledger.");
+    const O remove_support{{"context", V("placed-chapter")}, {"client", V("P-client")},
+        {"request", V("take-support")}, {"actor", V("P")}, {"action", V("remove_foundation")},
+        {"target", V("pod-floor-6")}, {"generation", V(I{1})}};
+    const auto supported = send(remove_support);
+    check(supported.completed() && !std::get<bool>(supported.result->at("accepted").storage()) &&
+          std::get<std::string>(supported.result->at("reason").storage()) == "foundation_in_use" &&
+          world->snapshot().state == installed.state,
+        "The support tile cannot be reclaimed while a built component occupies it.");
+    const auto retry = send(admitted,
+        [](const std::string&) -> std::optional<a::ActorCut> { return std::nullopt; });
+    check(retry.completed() && std::get<bool>(retry.result->at("duplicate").storage()) &&
+          world->snapshot().state == installed.state,
+        "An exact placement retry cannot install a second frame.");
+    auto overlap = place;
+    overlap.at("request") = V("overlap");
+    const auto occupied = send(overlap);
+    check(occupied.completed() && !std::get<bool>(occupied.result->at("accepted").storage()) &&
+          std::get<std::string>(occupied.result->at("reason").storage()) == "no_component",
+        "A second placement cannot create a frame without another carried component.");
+    const auto saved = w::encode_checkpoint(profile, installed);
+    check(std::holds_alternative<V>(saved), "Installed component custody and geometry save together.");
+    const auto decoded = w::decode_checkpoint(profile, "placed-chapter", std::get<V>(saved));
+    check(std::holds_alternative<w::Snapshot>(decoded) &&
+          w::World::restore("placed-chapter", profile, std::get<w::Snapshot>(decoded)) != nullptr,
+        "Fresh World restore accepts the exact installed identity and material balance.");
+    auto forged = installed;
+    forged.state.material.cargo.at("P").components.emplace(m::Component::wooden_frame, 1);
+    check(!w::World::restore("placed-chapter", profile, forged),
+        "An installed part cannot also remain in carried cargo.");
+    forged = installed;
+    forged.state.placed_components.at(id).center[2] += 1;
+    check(!w::World::restore("placed-chapter", profile, forged),
+        "A save cannot move an installed part away from its checked placement history.");
+    O reclaim{{"context", V("placed-chapter")}, {"client", V("Q-client")},
+        {"request", V("reclaim-frame")}, {"actor", V("Q")}, {"action", V("reclaim_component")},
+        {"target", V(id)}, {"generation", V(serial)}};
+    const auto taken = send(reclaim);
+    check(taken.completed() && std::get<bool>(taken.result->at("accepted").storage()) &&
+          world->snapshot().state.placed_components.empty() &&
+          world->snapshot().state.material.placed_components.empty() &&
+          world->snapshot().state.material.cargo.at("Q").components.at(m::Component::wooden_frame) == 1,
+        "Another nearby actor can reclaim the exact frame into their own cargo.");
+    const auto reclaimed = world->snapshot();
+    const auto again = send(reclaim);
+    check(again.completed() && std::get<bool>(again.result->at("duplicate").storage()) &&
+          world->snapshot().state == reclaimed.state,
+        "A reclaim retry cannot credit another frame.");
+    reclaim.at("request") = V("reclaim-again");
+    const auto missing = send(reclaim);
+    check(missing.completed() && !std::get<bool>(missing.result->at("accepted").storage()) &&
+          std::get<std::string>(missing.result->at("reason").storage()) == "unknown_target",
+        "A fresh command cannot reclaim a removed identity.");
+    const auto final_save = w::encode_checkpoint(profile, world->snapshot());
+    check(std::holds_alternative<V>(final_save) &&
+          std::holds_alternative<w::Snapshot>(w::decode_checkpoint(profile, "placed-chapter", std::get<V>(final_save))),
+        "The shared custody transfer survives strict checkpoint validation.");
+}
 }  // namespace
 
 int main() {
@@ -246,6 +366,7 @@ int main() {
         seed_cannot_duplicate_or_forge_pod();
         deck_recovery_is_a_normal_world_transaction();
         reachable_craft_uses_one_hub_and_owned_ingredients();
+        placed_components_keep_custody_and_history();
         std::cout << "landing_pod_test: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {

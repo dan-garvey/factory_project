@@ -368,6 +368,15 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
             if (!add(total, lot.recipe.input_units_per_product)) return Error::quantity_overflow;
         }
     }
+    if (state.placed_components.size() > 11) return Error::invalid_state;
+    for (const auto& [kind, count] : state.placed_components) {
+        const auto cost = component_cost(kind);
+        if (!cost || count < 1 || count > 4096 ||
+            (cost->timber > 0 && !products(timber_accounted, count, cost->timber)) ||
+            (cost->ore > 0 && !products(total, count, cost->ore))) return Error::invalid_state;
+    }
+    if (!state.placed_components.empty() && !config.manual_ore && config.timber_sites.empty())
+        return Error::invalid_state;
     return total == state.initial_units && timber_accounted == timber_total ?
         Error::none : Error::invalid_state;
 }

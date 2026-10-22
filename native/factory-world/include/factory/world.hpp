@@ -63,6 +63,13 @@ struct FabricationHub {
     bool operator==(const FabricationHub&) const = default;
 };
 
+struct PlacedComponent {
+    materials::Component kind{};
+    mechanics::Point center{}; // Absolute quarter-grid location, shared with other constructables.
+    authority::Integer generation{};
+    bool operator==(const PlacedComponent&) const = default;
+};
+
 [[nodiscard]] mechanics::Point landing_hub_center(const mechanics::Point& pod_center);
 
 struct State {
@@ -77,6 +84,7 @@ struct State {
     std::map<std::string, authority::Integer> foundation_kits;
     std::optional<LandingPod> landing_pod;
     std::optional<FabricationHub> fabrication_hub;
+    std::map<std::string, PlacedComponent> placed_components;
     bool operator==(const State&) const = default;
 };
 
