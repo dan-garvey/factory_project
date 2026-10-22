@@ -63,8 +63,8 @@ void collector_readiness_tracks_real_parts() {
           "The experimental arrival binds one native resource and construction authority.");
     check(get<std::string>(ground_inspection(host), "status") == "missing_frame",
           "An empty ore workcell has no collector.");
-    check(get<bool>(host.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 1), "accepted"),
-          "The actor is ready beside the pod bench and nearby tree.");
+    check(get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(4.95)}, 1), "accepted"),
+          "The actor reaches the nearby timber site outside the pod deck.");
     for (int index = 0; index < 7; ++index) {
         auto wire = request("timber-" + std::to_string(index), "harvest_source");
         wire.emplace("target", V("tree-east-south"));
@@ -243,7 +243,7 @@ void collector_readiness_tracks_real_parts() {
     check(get<bool>(restored.command("P", second_turn), "accepted") &&
           get<I>(get<O>(restored.projection(), "hand_sources").at("opening-softmetal"), "remaining") == 13,
           "The mirrored layout extracts from the same finite source.");
-    check(get<bool>(restored.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 8), "accepted"),
+    check(get<bool>(restored.publish_actor("P", {V(3.3), V(1.0), V(4.95)}, 8), "accepted"),
           "The actor returns to the last piece of nearby timber.");
     auto last_timber = request("last-timber", "harvest_source");
     last_timber.emplace("target", V("tree-east-south"));

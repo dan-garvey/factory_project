@@ -1,5 +1,6 @@
 #include "native/factory-godot-world/tests/site_fixture.hpp"
 
+#include <cmath>
 #include <iostream>
 #include <stdexcept>
 
@@ -42,6 +43,14 @@ void arrival_projection_and_restore() {
           !factory::values::typed_difference(V(get<A>(V(hub), "center")),
               V(A{V(I{2}), V(I{0}), V(I{4})})),
           "The bench has its own identity on the shared east deck tile.");
+    const auto trees = get<O>(view, "hand_sources");
+    const auto south = get<A>(trees.at("tree-east-south"), "position");
+    const auto north = get<A>(trees.at("tree-east-north"), "position");
+    check(std::abs(std::get<double>(south[0].storage()) - 6.6) < 1e-8 &&
+          std::abs(std::get<double>(south[2].storage()) - 3.3) < 1e-8 &&
+          std::abs(std::get<double>(north[0].storage()) - 6.6) < 1e-8 &&
+          std::abs(std::get<double>(north[2].storage()) - 11.55) < 1e-8,
+          "Both finite east timber sites stand beyond the pod deck and its east bench.");
     const auto recipes = get<O>(view, "component_recipes");
     check(recipes.size() == 11 && get<I>(view, "component_capacity") == 20 &&
           get<I>(recipes.at("wooden_frame"), "timber") == 3 &&

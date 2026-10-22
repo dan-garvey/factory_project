@@ -42,9 +42,9 @@ void shared_harvest() {
     check(sources.size() == 4 && get<I>(sources.at("tree-east-south"), "remaining") == 8 &&
           get<I>(sources.at("opening-softmetal"), "remaining") == 16,
           "Three finite trees and one shared ore reserve are visible to both actors.");
-    check(get<bool>(host.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 1), "accepted") &&
+    check(get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(4.95)}, 1), "accepted") &&
           get<bool>(host.publish_actor("Q", {V(1.65), V(1.0), V(8.25)}, 1), "accepted"),
-          "Physical actors become ready on the same deployed deck.");
+          "P walks to the clear east timber site while Q remains on the deployed deck.");
     const auto p_cut = cut("P", "tree-first", "tree-east-south");
     check(get<bool>(host.command("P", p_cut), "accepted") &&
           get<I>(get<O>(host.projection(), "hand_sources").at("tree-east-south"), "remaining") == 7 &&
@@ -106,6 +106,8 @@ void shared_harvest() {
           get<I>(V(get<O>(get<O>(host.projection(), "cargo").at("Q"), "components")), "cutting_edge") == 1 &&
           get<I>(get<O>(host.projection(), "cargo").at("Q"), "raw") == 0,
           "Q's own ore becomes one metal cutting edge after physically reaching the hub.");
+    check(get<bool>(host.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 2), "accepted"),
+          "P leaves the remote timber site before installing a part on the deck.");
     const O place{{"context", V("harvest-site")}, {"client", V("P")},
         {"request", V("install-shaft")}, {"action", V("place_component")},
         {"component", V("wooden_shaft")}, {"center", V(A{V(I{8}), V(I{0}), V(I{12})})}};
