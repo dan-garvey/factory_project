@@ -12,6 +12,13 @@ const Session = preload("res://opening-session/session.gd")
 var checks := 0
 var failures := 0
 
+class TopologyStub extends RefCounted:
+	var state: Dictionary = {}
+	var calls := 0
+	func projection() -> Dictionary:
+		calls += 1
+		return state
+
 class HostStub extends RefCounted:
 	var state: Dictionary
 	var model: Variant = null
@@ -1872,12 +1879,51 @@ func _fixed_support_frame() -> void:
 	await process_frame
 	await physics_frame
 
+func _physical_topology_cache_regression() -> void:
+	var model := TopologyStub.new()
+	model.state = {"context": "invented-geometry", "order": 0, "revision": 0,
+		"options": {"native": true, "physical": true}, "actors": {}, "entities": {},
+		"transmission_parts": {"cog-a": {"kind": "gear", "center": [0, 4, 0], "axis": 1, "teeth": 2}},
+		"belt_spans": {}, "placed_components": {}, "foundations": {}}
+	var physical := ActorWorld.new()
+	physical.model = model
+	root.add_child(physical)
+	verify(physical.mechanical_bodies.has("cog-a"), "Startup registers the first cog collider.")
+	var before_calls := model.calls
+	physical._on_native_cut()
+	verify(model.calls == before_calls + 1, "An unchanged native cut projects once without rederiving topology.")
+	verify(physical.mechanical_bodies.has("cog-a"), "An unchanged cut keeps its collider.")
+	model.state.transmission_parts.erase("cog-a")
+	model.state.transmission_parts["cog-b"] = {"kind": "gear", "center": [4, 4, 0], "axis": 1, "teeth": 2}
+	model.state.order += 1
+	physical._on_native_cut()
+	verify(not physical.mechanical_bodies.has("cog-a") and physical.mechanical_bodies.has("cog-b"),
+		"A new command order replaces removed geometry before the actor cut.")
+	var old_position: Vector3 = physical.mechanical_bodies["cog-b"].position
+	model.state.transmission_parts["cog-b"].center = [8, 4, 0]
+	verify(physical.sync_topology().accepted and physical.mechanical_bodies["cog-b"].position != old_position,
+		"An explicit restore or checkpoint sync rebuilds geometry even at the same order.")
+	model.state.transmission_parts["cog-b"].axis = 9
+	model.state.order += 1
+	verify(not physical.sync_topology().accepted, "An invalid changed topology is rejected.")
+	model.state.transmission_parts["cog-b"].axis = 1
+	var before_recovery := model.calls
+	physical._on_native_cut()
+	verify(model.calls >= before_recovery + 1 and physical.mechanical_bodies.has("cog-b"),
+		"A failed sync does not poison recovery at the same order.")
+	model.state.options.native = false
+	physical._on_native_cut()
+	verify(physical.mechanical_bodies.is_empty(), "A non-native profile does not reuse native colliders.")
+	physical.free()
+
 func _run() -> void:
 	if "--scale-benchmark" in OS.get_cmdline_user_args():
 		await _scale_benchmark()
 		return
 	if "--component-boxes-only" in OS.get_cmdline_user_args():
 		await _component_view()
+	elif "--physical-topology-cache-only" in OS.get_cmdline_user_args():
+		_physical_topology_cache_regression()
 	elif "--support-frame-only" in OS.get_cmdline_user_args():
 		await _fixed_support_frame()
 	elif "--finish-only" in OS.get_cmdline_user_args():
