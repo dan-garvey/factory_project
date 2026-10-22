@@ -13,6 +13,7 @@ const BELT_SUBTICKS_PER_TILE := 4096.0 # Matches the native material lane's fixe
 
 var _host: WeakRef
 var _view_key := ""
+var _cargo_keys: Dictionary = {}
 var _motion_context := ""
 var _generations: Dictionary = {}
 var _visual_angles: Dictionary = {}
@@ -25,6 +26,7 @@ func configure(host: Object) -> void:
 	refresh()
 
 func _clear() -> void:
+	_cargo_keys.clear()
 	for child in get_children():
 		child.free()
 
@@ -368,6 +370,10 @@ func _belt_span(id: String, span: Variant, parts: Dictionary, rendered: Dictiona
 	anchor.set_meta("entity", id)
 	anchor.set_meta("kind", "belt_span")
 	anchor.position = (world_center(first.center) + world_center(last.center)) / 2.0
+	anchor.set_meta("cargo_start", world_center(first.center) - anchor.position)
+	anchor.set_meta("cargo_end", world_center(last.center) - anchor.position)
+	anchor.set_meta("cargo_slots", steps + 1)
+	anchor.set_meta("cargo_allowed", first.axis != 1 and (delta.x != 0 or delta.z != 0))
 	add_child(anchor)
 	var loop := Assets.belt_loop(anchor, distance, 0)
 	if loop != null:
@@ -395,26 +401,6 @@ func _belt_span(id: String, span: Variant, parts: Dictionary, rendered: Dictiona
 				if index > 0 and index < steps:
 					pulley_offsets.append((world_center(pulley.center) - anchor.position).dot(loop_basis.x))
 				break
-	var slots: Variant = span.get("slots", [])
-	var expected_slots := steps + 1
-	if first.axis != 1 and (delta.x != 0 or delta.z != 0) and slots is Array and slots.size() == expected_slots:
-		var first_position := world_center(first.center) - anchor.position
-		var last_position := world_center(last.center) - anchor.position
-		for index in range(slots.size()):
-			var item: Variant = slots[index]
-			if not item is Dictionary or typeof(item.get("raw")) != TYPE_INT or typeof(item.get("products")) != TYPE_INT or not item.get("work_lots") is Array:
-				continue
-			var raw: bool = item.raw == 1 and item.products == 0 and item.work_lots.is_empty()
-			var product: bool = item.raw == 0 and item.products == 1 and item.work_lots.is_empty()
-			var work: bool = item.raw == 0 and item.products == 0 and item.work_lots.size() == 1
-			if not raw and not product and not work:
-				continue
-			var fraction := belt_slot_fraction(slots, index, span.get("phase"))
-			var position := first_position.lerp(last_position, (float(index) + fraction) / float(slots.size() - 1))
-			position.y += 0.18 if product else 0.24
-			var visual := Items.stamped_plate(anchor, position) if product else Items.workpiece_billet(anchor, position)
-			visual.set_meta("belt_slot", index)
-			visual.set_meta("belt_item", "product" if product else ("work" if work else "raw"))
 	# Keep the pick body between the pulleys so each endpoint shaft remains
 	# independently selectable. This body is for picking, not actor collision.
 	var body := StaticBody3D.new()
@@ -435,6 +421,61 @@ func _belt_span(id: String, span: Variant, parts: Dictionary, rendered: Dictiona
 		cursor = clampf(offset + 0.18, cursor, end)
 	_add_belt_pick_section(body, cursor, end)
 	anchor.add_child(body)
+
+func _refresh_belt_cargo(spans: Variant) -> void:
+	if not spans is Dictionary:
+		return
+	for anchor: Node in get_children():
+		if not anchor is Node3D or anchor.get_meta("kind", "") != "belt_span":
+			continue
+		var id: String = anchor.get_meta("entity", "")
+		var span: Variant = spans.get(id)
+		if not span is Dictionary:
+			continue
+		var slots: Variant = span.get("slots", [])
+		var cargo_key := JSON.stringify([slots, span.get("phase")])
+		if _cargo_keys.get(id) == cargo_key:
+			continue
+		_cargo_keys[id] = cargo_key
+		var existing := {}
+		for child: Node in anchor.get_children():
+			if child.has_meta("belt_slot"):
+				existing[int(child.get_meta("belt_slot"))] = child
+		if not anchor.get_meta("cargo_allowed", false) or not slots is Array or slots.size() != int(anchor.get_meta("cargo_slots")):
+			for child: Node in existing.values():
+				anchor.remove_child(child)
+				child.free()
+			continue
+		var first_position: Vector3 = anchor.get_meta("cargo_start")
+		var last_position: Vector3 = anchor.get_meta("cargo_end")
+		for index in range(slots.size()):
+			var item: Variant = slots[index]
+			if not item is Dictionary or typeof(item.get("raw")) != TYPE_INT or typeof(item.get("products")) != TYPE_INT or not item.get("work_lots") is Array:
+				continue
+			var raw: bool = item.raw == 1 and item.products == 0 and item.work_lots.is_empty()
+			var product: bool = item.raw == 0 and item.products == 1 and item.work_lots.is_empty()
+			var work: bool = item.raw == 0 and item.products == 0 and item.work_lots.size() == 1
+			if not raw and not product and not work:
+				continue
+			var fraction := belt_slot_fraction(slots, index, span.get("phase"))
+			var position := first_position.lerp(last_position, (float(index) + fraction) / float(slots.size() - 1))
+			position.y += 0.18 if product else 0.24
+			var kind := "product" if product else ("work" if work else "raw")
+			var visual: Node3D = existing.get(index)
+			if visual != null and visual.get_meta("belt_item") != kind:
+				anchor.remove_child(visual)
+				visual.free()
+				visual = null
+			if visual == null:
+				visual = Items.stamped_plate(anchor, position) if product else Items.workpiece_billet(anchor, position)
+			else:
+				visual.position = position
+			visual.set_meta("belt_slot", index)
+			visual.set_meta("belt_item", kind)
+			existing.erase(index)
+		for child: Node in existing.values():
+			anchor.remove_child(child)
+			child.free()
 
 func _add_belt_pick_section(body: StaticBody3D, start: float, end: float) -> void:
 	if end - start <= 0.001:
@@ -538,8 +579,15 @@ func refresh() -> void:
 		return
 	visible = true
 	_sync_motion(snapshot)
-	var next_key := JSON.stringify([snapshot.get("context"), parts, motions, snapshot.get("belt_spans", {}), snapshot.get("engagements", []), snapshot.get("dropped_material", [])])
+	var spans: Variant = snapshot.get("belt_spans", {})
+	var fixed_spans := {}
+	if spans is Dictionary:
+		for id: Variant in spans:
+			var span: Variant = spans[id]
+			fixed_spans[id] = [span.get("generation"), span.get("from"), span.get("to")] if span is Dictionary else span
+	var next_key := JSON.stringify([snapshot.get("context"), parts, motions, fixed_spans, snapshot.get("engagements", []), snapshot.get("dropped_material", [])])
 	if next_key == _view_key:
+		_refresh_belt_cargo(spans)
 		return
 	_clear()
 	_view_key = next_key
@@ -600,7 +648,6 @@ func refresh() -> void:
 			_finish(keyway, Color("e2c58a"))
 			anchor.add_child(keyway)
 			_pick(anchor, id, 0.08, length)
-	var spans: Variant = snapshot.get("belt_spans", {})
 	if spans is Dictionary:
 		for id: Variant in spans:
 			if typeof(id) == TYPE_STRING:
@@ -630,3 +677,4 @@ func refresh() -> void:
 			mark.set_meta("from", edge.a)
 			mark.set_meta("to", edge.b)
 	_apply_angles()
+	_refresh_belt_cargo(spans)
