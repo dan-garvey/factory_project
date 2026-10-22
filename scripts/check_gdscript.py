@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PROJECT = ROOT / "experiments/engine-environment/godot"
 VERSION = "4.7.2.stable.official.ed1daf0bf"
 MAX_BYTES = 128 * 1024**2
+MAX_PROJECT_SOURCE_BYTES = 48 * 1024**2
 
 
 def sha256(path):
@@ -81,12 +82,12 @@ def main():
                 continue
             if not source.is_file() or len(receipt["source_hashes"]) >= 512:
                 raise ValueError("Invalid or excessive staged project inputs")
-            if source.stat().st_size > 32 * 1024**2 - total:
-                raise ValueError("Staged prototype sources exceed the explicit 32 MiB allowance")
+            if source.stat().st_size > MAX_PROJECT_SOURCE_BYTES - total:
+                raise ValueError("Staged prototype sources exceed the explicit 48 MiB allowance")
             data = source.read_bytes()
             total += len(data)
-            if total > 32 * 1024**2:
-                raise ValueError("Staged prototype sources exceed the explicit 32 MiB allowance")
+            if total > MAX_PROJECT_SOURCE_BYTES:
+                raise ValueError("Staged prototype sources exceed the explicit 48 MiB allowance")
             target = project / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)

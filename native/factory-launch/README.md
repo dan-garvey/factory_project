@@ -59,7 +59,7 @@ Native tests create disposable Git repositories and utility children; they do no
 invoke a game, engine, live tracker or network socket. Root test-suite integration
 and shared build configuration remain the Bazel owner's responsibility.
 
-`source_budget_test` covers 20 MiB and exact 32 MiB captures and runtime copies,
+`source_budget_test` covers 20 MiB and exact 48 MiB captures and runtime copies,
 one-byte aggregate overflow, and the unchanged 2 MiB resume-file boundary. Its C++
 fixture also invokes the existing staged parser with a disclosed fake executable
 to check input admission and byte preservation. That utility does not import
@@ -96,7 +96,7 @@ represented as a complete capture. Existing outputs are never replaced.
 
 ## Bounds and limits
 
-- The current small-project limits are 32 MiB of source, 512 files and 128 `.gd`
+- The current project limits are 48 MiB of source, 512 files and 128 `.gd`
   scripts, matching the existing staged project allowance. All tracked resources
   are captured, including scenes and binary assets; this is not a dependency
   parser or permission to load untracked resources.
