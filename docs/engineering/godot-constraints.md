@@ -452,6 +452,14 @@ negative controls. This is a render-attribute observation allowance only. It
 changes no mesh envelope, physical pose, construction reach or game rule, and
 does not establish rendered material quality.
 
+**Mesh tangent input, observed in a source-derived wheel fixture.** The same
+pinned renderer rejected a resized mesh whose tangent array was present but
+empty: it required four tangent values per vertex. The wheel adapter instead
+transforms the source tangents with the changed geometry and orthogonalizes
+them against the transformed normals before rebuilding the indexed surface.
+This concerns Godot's mesh-array contract and the local art preparation path;
+it is not a wheel collision, power or material-quality rule.
+
 **Headless instance readback, observed and source-qualified.** The pinned dummy
 renderer ignores individual `MultiMesh` transform writes and returns identity
 from the corresponding getter. Its

@@ -594,8 +594,29 @@ void inclined_material_route() {
             check(reverse && reverse->tick().error == w::TransactionError::none &&
                       reverse->snapshot().state.material.belt_lanes.at("span").phase == -expected_phase &&
                       reverse->tick().error == w::TransactionError::none &&
-                      reverse->snapshot().state.material.dropped_material.at({-4, 0, 0}) == item,
-                  "Reversing power ejects the same typed item at the lower end.");
+                      !reverse->snapshot().state.material.dropped_material.contains({-4, 0, 0}) &&
+                      (reverse_endpoints ? reverse->snapshot().state.material.belt_lanes.at("span").slots.back() :
+                                           reverse->snapshot().state.material.belt_lanes.at("span").slots.front()) == item,
+                  "Reversing power retains typed cargo against the collector instead of ejecting it inside the machine.");
+            const auto blocked_snapshot = reverse->snapshot();
+            const auto blocked_encoded = w::encode_checkpoint(reverse_profile, blocked_snapshot);
+            check(std::holds_alternative<V>(blocked_encoded), "The blocked inclined belt encodes.");
+            const auto blocked_decoded = w::decode_checkpoint(reverse_profile, "typed-reverse", std::get<V>(blocked_encoded));
+            check(std::holds_alternative<w::Snapshot>(blocked_decoded), "The blocked inclined belt decodes.");
+            auto blocked_restored = w::World::restore("typed-reverse", reverse_profile, std::get<w::Snapshot>(blocked_decoded));
+            check(blocked_restored && blocked_restored->tick().error == w::TransactionError::none &&
+                      reverse->tick().error == w::TransactionError::none &&
+                      blocked_restored->snapshot().state == reverse->snapshot().state,
+                  "A restored blocked belt retains the same typed cargo and backpressure.");
+            auto resumed_state = blocked_restored->snapshot().state;
+            resumed_state.topology.sources = {{"collector-wheel", {-1, 1}}, {"belt-wheel", {-1, 1}}};
+            auto resumed = w::World::create("typed-resumed", profile, resumed_state);
+            check(resumed != nullptr, "The blocked cargo can resume when power reverses.");
+            for (int tick = 0; tick < 8; ++tick)
+                check(resumed->tick().error == w::TransactionError::none, "The reversed belt continues without losing cargo.");
+            const auto resumed_drop = resumed->snapshot().state.material.dropped_material.at(exit);
+            check(resumed_drop.products >= item.products && resumed_drop.work_lots == item.work_lots,
+                  "Reversing away from the collector ejects the original typed cargo at the open end.");
         }
         if (!reverse_endpoints) {
             auto capacity_profile = profile;
@@ -739,16 +760,21 @@ void belt_span_material_route() {
                 const auto& material = restored->snapshot().state.material;
                 check(material.stock.input == (reverse || gap ? 0 : 1),
                       "Only an adjacent processor in the direction of travel accepts raw material.");
-                if (reverse || gap) {
-                    const I travel = reverse ? -4 : 12;
+                if (reverse) {
+                    check(!material.dropped_material.contains({rotated ? 0 : -4, 0, rotated ? -4 : 0}) &&
+                              material.belt_lanes.begin()->second.slots.front().has_value(),
+                          "A collector blocks reversed cargo at the belt end.");
+                }
+                if (gap && !reverse) {
+                    const I travel = 12;
                     const m::DropPoint exit{rotated ? 0 : travel, 0, rotated ? travel : 0};
                     check(material.dropped_material.contains(exit) && material.dropped_material.at(exit).raw_units > 0,
                           "An unconnected outgoing end ejects conserved raw cargo at its actual endpoint.");
                 }
                 check(m::validate(material, profile.material, w::material_path(restored->snapshot().state.topology)) == m::Error::none,
                       "A full processor and reversed flow preserve every finite source unit.");
-                if (reverse || gap) {
-                    const I travel = reverse ? -4 : 12;
+                if (gap && !reverse) {
+                    const I travel = 12;
                     const m::DropPoint exit{rotated ? 0 : travel, 0, rotated ? travel : 0};
                     O pickup{{"context", V("route-world")}, {"client", V("P-old")}, {"request", V("pickup-ejected")},
                         {"actor", V("P")}, {"action", V("pickup_material")},

@@ -473,9 +473,15 @@ class ProductionWheelArt:
 	const ROOT := "res://opening/assets/waterwheel"
 	const FILES := ["rotor.gltf", "rotor.bin", "wood_albedo.jpg", "wood_normal.webp", "wood_arm.webp"]
 	const SPLIT_FILES := ["rim.gltf", "rim.bin", "hub_spokes.gltf", "hub_spokes.bin"]
+	const RIM_OUTER_RADIUS := 0.57
+	const RIM_INNER_RADIUS := 0.506
+	const HUB_OUTER_RADIUS := 0.06631
+	const SPOKE_OUTER_RADIUS := 0.5241
 	static var mesh: ArrayMesh
 	static var rim_mesh: ArrayMesh
 	static var hub_spokes_mesh: ArrayMesh
+	static var sized_rims: Dictionary = {}
+	static var sized_centres: Dictionary = {}
 	static var finish: StandardMaterial3D
 	static var source_status := "uninitialized"
 
@@ -565,16 +571,80 @@ class ProductionWheelArt:
 		mesh = prepared
 		rim_mesh = split_rim
 		hub_spokes_mesh = split_inner
+		sized_rims.clear()
+		sized_centres.clear()
 		finish = material
 		source_status = "ready"
 
-	static func mount(parent: Node3D) -> bool:
+	static func _sized_mesh(source: ArrayMesh, tiles: int, outer: bool) -> ArrayMesh:
+		if tiles <= 3:
+			return source
+		var arrays := source.surface_get_arrays(0)
+		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+		var tangents: PackedFloat32Array = arrays[Mesh.ARRAY_TANGENT]
+		var ratio := sqrt(3.0 / float(tiles))
+		var rim_inner := RIM_OUTER_RADIUS - (RIM_OUTER_RADIUS - RIM_INNER_RADIUS) * ratio
+		var spoke_outer := rim_inner + (SPOKE_OUTER_RADIUS - RIM_INNER_RADIUS)
+		for n in range(vertices.size()):
+			var point := vertices[n]
+			var radius := Vector2(point.x, point.y).length()
+			if radius < 0.000001:
+				continue
+			var slope := ratio
+			var target_radius := RIM_OUTER_RADIUS - (RIM_OUTER_RADIUS - radius) * ratio
+			if not outer:
+				if radius <= HUB_OUTER_RADIUS:
+					target_radius = radius * ratio
+				else:
+					slope = (spoke_outer - HUB_OUTER_RADIUS * ratio) / (SPOKE_OUTER_RADIUS - HUB_OUTER_RADIUS)
+					target_radius = HUB_OUTER_RADIUS * ratio + (radius - HUB_OUTER_RADIUS) * slope
+			var radial := Vector2(point.x, point.y) / radius
+			var angular := Vector2(-radial.y, radial.x)
+			var original_normal := normals[n]
+			var in_plane := Vector2(original_normal.x, original_normal.y)
+			var transformed := radial * (in_plane.dot(radial) / slope) \
+				+ angular * (in_plane.dot(angular) * radius / target_radius)
+			vertices[n] = Vector3(radial.x * target_radius, radial.y * target_radius, point.z)
+			var new_normal := Vector3(transformed.x, transformed.y, original_normal.z).normalized()
+			normals[n] = new_normal
+			var original_tangent := Vector3(tangents[n * 4], tangents[n * 4 + 1], tangents[n * 4 + 2])
+			var tangent_plane := Vector2(original_tangent.x, original_tangent.y)
+			var mapped := radial * (tangent_plane.dot(radial) * slope) \
+				+ angular * (tangent_plane.dot(angular) * target_radius / radius)
+			var new_tangent := Vector3(mapped.x, mapped.y, original_tangent.z)
+			new_tangent = (new_tangent - new_normal * new_tangent.dot(new_normal)).normalized()
+			tangents[n * 4] = new_tangent.x
+			tangents[n * 4 + 1] = new_tangent.y
+			tangents[n * 4 + 2] = new_tangent.z
+		arrays[Mesh.ARRAY_VERTEX] = vertices
+		arrays[Mesh.ARRAY_NORMAL] = normals
+		arrays[Mesh.ARRAY_TANGENT] = tangents
+		var prepared := ArrayMesh.new()
+		prepared.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		return prepared
+
+	static func rim_for_tiles(tiles: int) -> ArrayMesh:
+		if tiles <= 3 or rim_mesh == null:
+			return rim_mesh
+		if not sized_rims.has(tiles):
+			sized_rims[tiles] = _sized_mesh(rim_mesh, tiles, true)
+		return sized_rims[tiles]
+
+	static func centre_for_tiles(tiles: int) -> ArrayMesh:
+		if tiles <= 3 or hub_spokes_mesh == null:
+			return hub_spokes_mesh
+		if not sized_centres.has(tiles):
+			sized_centres[tiles] = _sized_mesh(hub_spokes_mesh, tiles, false)
+		return sized_centres[tiles]
+
+	static func mount(parent: Node3D, tiles: int = 3) -> bool:
 		if source_status == "uninitialized":
 			_prepare()
 		if source_status != "ready":
 			return false
-		var pieces := [["SourcedTimberRotor", hub_spokes_mesh, 0.0],
-			["SourcedTimberRimN", rim_mesh, -0.08], ["SourcedTimberRimP", rim_mesh, 0.08]] \
+		var pieces := [["SourcedTimberRotor", centre_for_tiles(tiles), 0.0],
+			["SourcedTimberRimN", rim_for_tiles(tiles), -0.08], ["SourcedTimberRimP", rim_for_tiles(tiles), 0.08]] \
 			if rim_mesh != null and hub_spokes_mesh != null else [["SourcedTimberRotor", mesh, 0.0]]
 		for piece in pieces:
 			var rotor := MeshInstance3D.new()
@@ -5379,7 +5449,7 @@ func _wheel_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	elif native_profile and axis == Vector3.UP:
 		wheel_rotor.rotation.x = -PI / 2
 	anchor.add_child(wheel_rotor)
-	var sourced := ProductionWheelArt.mount(wheel_rotor)
+	var sourced := ProductionWheelArt.mount(wheel_rotor, int(entity.get("tiles", 3)) if native_profile else 3)
 	if not sourced:
 		var rim_profile := PackedVector2Array([
 			Vector2(0.51, -0.022), Vector2(0.518, -0.03), Vector2(0.582, -0.03),
