@@ -115,8 +115,9 @@ leg correction keeps the knee forward, preserves leg lengths and foot facing,
 and releases the boot as the step rolls into walking or running. The running
 release starts earlier because the actor travels farther during the same
 contact interval. As the opposite boot accepts the running recovery, the lead
-ankle lifts slightly before following the next stride, avoiding a low backward
-drag. This is a presentation anchor, not physical foot contact;
+ankle lifts before following the next stride, so its backward travel happens
+clear of the ground rather than scraping through support. This is a
+presentation anchor, not physical foot contact;
 the support height still comes from the confirmed actor and can differ from
 the rendered terrain on a slope. These poses
 evolve with observed vertical speed rather than holding one shape throughout

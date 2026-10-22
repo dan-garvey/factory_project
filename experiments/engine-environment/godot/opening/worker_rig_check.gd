@@ -253,10 +253,29 @@ func inspect_adult(body: Node3D, other: Node3D, presenter: Node) -> void:
 		running_hands.append({"L": left_hand, "R": right_hand})
 		verify(absf(left_hand.x) < 0.31 and absf(right_hand.x) < 0.31,
 			"Running hands stay beside the trunk instead of flaring across the character width.")
+	adult_measurements["running_hand_swing"] = {"first_horizontal": running_hands[0].R.z - running_hands[0].L.z,
+		"second_horizontal": running_hands[1].L.z - running_hands[1].R.z,
+		"first_vertical": running_hands[0].R.y - running_hands[0].L.y,
+		"second_vertical": running_hands[1].L.y - running_hands[1].R.y}
+	var running_hand_height := {"L": [INF, -INF], "R": [INF, -INF]}
+	for sample in range(24):
+		presenter._set_gait(body, float(sample) * TAU / 24.0, 1.0)
+		skeleton.force_update_all_bone_transforms()
+		var arm_to_body := body.global_transform.affine_inverse() * skeleton.global_transform
+		for side in ["L", "R"]:
+			var hand: Vector3 = arm_to_body * skeleton.get_bone_global_pose(
+				skeleton.find_bone("Bip01 " + side + " Hand")).origin
+			running_hand_height[side][0] = minf(float(running_hand_height[side][0]), hand.y)
+			running_hand_height[side][1] = maxf(float(running_hand_height[side][1]), hand.y)
+	adult_measurements["running_hand_height_range"] = {
+		"L": float(running_hand_height.L[1]) - float(running_hand_height.L[0]),
+		"R": float(running_hand_height.R[1]) - float(running_hand_height.R[0])}
 	verify(running_hands[0].L.z < running_hands[0].R.z - 0.20
 		and running_hands[1].L.z > running_hands[1].R.z + 0.20
-		and running_hands[0].L.y < running_hands[0].R.y - 0.10
-		and running_hands[1].L.y > running_hands[1].R.y + 0.10,
+		and running_hands[0].L.y < running_hands[0].R.y - 0.12
+		and running_hands[1].L.y > running_hands[1].R.y + 0.05
+		and adult_measurements.running_hand_height_range.L > 0.12
+		and adult_measurements.running_hand_height_range.R > 0.12,
 		"The captured run alternates opposite arm positions and height through a complete stride.")
 	var torso_lead := -INF
 	var torso_trail := INF
@@ -270,8 +289,8 @@ func inspect_adult(body: Node3D, other: Node3D, presenter: Node) -> void:
 		var forward := neck_at.z - pelvis_at.z
 		torso_lead = maxf(torso_lead, forward)
 		torso_trail = minf(torso_trail, forward)
-	verify(torso_lead > 0.005 and torso_lead - torso_trail > 0.05
-		and torso_trail > -0.08,
+	verify(torso_lead > 0.04 and torso_lead - torso_trail > 0.05
+		and torso_trail > -0.02,
 		"The running chest moves ahead of the pelvis during a stride without an excessive bend.")
 	adult_measurements["running_torso_forward"] = {"lead": torso_lead, "trail": torso_trail}
 	presenter._set_gait(body, 1.5, 0.0)
@@ -598,8 +617,8 @@ func check_native_cadence_running_contact() -> void:
 			var toe: Vector3 = body.to_global(presenter._adult_joint(body, skeleton,
 				skeleton.find_bone("Bip01 " + side + " Toe0")))
 			var clearance := toe.y - Surface.height_at(toe.x, toe.z)
-			var age: float = float(presenter.motion.P.get("run_contact_age", -1.0))
-			var planted: bool = presenter.motion.P.get("run_contact_side", "") == side
+			var age: float = float(presenter.motion.P.get("support_contact_age", -1.0))
+			var planted: bool = presenter.motion.P.get("support_contact_side", "") == side
 			var early := planted and age <= 0.11 and clearance < 0.07
 			var prior: Dictionary = previous[side]
 			if early and prior.get("early", false):
@@ -622,6 +641,70 @@ func check_native_cadence_running_contact() -> void:
 	verify(toe_off.L and toe_off.R and minimum_knee > -0.03
 		and exact_root and host.control_calls == 0,
 		"Both running boots lift into toe-off without a backwards knee or actor input change.")
+	host.free()
+
+func check_native_cadence_jog_contact() -> void:
+	var host := HostFixture.new()
+	host.state.context = "jogging-contact"
+	host.state.actors.P.native_epoch = 1
+	host.state.actors.P.position = [-1.5, Surface.height_at(-1.5, 3.3) + 0.9, 3.3]
+	root.add_child(host)
+	var presenter := Presenter.new()
+	presenter.configure(host)
+	host.add_child(presenter)
+	presenter.set_process(false)
+	presenter.set_physics_process(false)
+	var view: Node3D = presenter.views.P
+	var body: Node3D = view.get_node("BodyView")
+	var skeleton: Skeleton3D = skeleton_of(body)
+	var previous := {"L": {}, "R": {}}
+	var early_steps := {"L": [], "R": []}
+	var anchored := {"L": 0, "R": 0}
+	var maximum_early_clearance := {"L": 0.0, "R": 0.0}
+	var minimum_knee := INF
+	var exact_root := true
+	var x := -1.5
+	for frame in range(140):
+		x += 2.01 / 30.0
+		var at := Vector3(x, Surface.height_at(x, 3.3) + 0.9, 3.3)
+		host.state.actors.P.position = [at.x, at.y, at.z]
+		host.state.actors.P.native_epoch += 2
+		presenter.refresh(1.0 / 30.0)
+		exact_root = exact_root and view.position.is_equal_approx(at)
+		if frame < 15:
+			continue
+		skeleton.force_update_all_bone_transforms()
+		for side in ["L", "R"]:
+			var toe: Vector3 = body.to_global(presenter._adult_joint(body, skeleton,
+				skeleton.find_bone("Bip01 " + side + " Toe0")))
+			var clearance := toe.y - Surface.height_at(toe.x, toe.z)
+			var age: float = float(presenter.motion.P.get("support_contact_age", -1.0))
+			var planted: bool = presenter.motion.P.get("support_contact_side", "") == side
+			var early := planted and age <= 0.12 and clearance < 0.075
+			if early:
+				anchored[side] += 1
+				maximum_early_clearance[side] = maxf(maximum_early_clearance[side], clearance)
+			var prior: Dictionary = previous[side]
+			if early and prior.get("early", false):
+				early_steps[side].append(Vector2(toe.x - float(prior.x),
+					toe.z - float(prior.z)).length())
+			previous[side] = {"x": toe.x, "z": toe.z, "early": early}
+			minimum_knee = minf(minimum_knee, knee_forward_offset(body, side))
+	var maximum_step := {"L": 0.0, "R": 0.0}
+	for side in ["L", "R"]:
+		for step in early_steps[side]:
+			maximum_step[side] = maxf(maximum_step[side], float(step))
+	adult_measurements["jogging_contact"] = {"anchored": anchored,
+		"early_steps": early_steps, "maximum_step": maximum_step,
+		"maximum_early_clearance": maximum_early_clearance,
+		"minimum_knee_forward": minimum_knee}
+	verify(anchored.L >= 5 and anchored.R >= 5
+		and early_steps.L.size() >= 2 and early_steps.R.size() >= 2
+		and maximum_step.L < 0.02 and maximum_step.R < 0.02
+		and maximum_early_clearance.L < 0.06 and maximum_early_clearance.R < 0.06,
+		"Both jogging support boots acquire world contact and stay near it through early plant.")
+	verify(minimum_knee > 0.0 and exact_root and host.control_calls == 0,
+		"Jogging contact keeps knees forward and preserves confirmed root and input authority.")
 	host.free()
 
 func check_sparse_confirmed_walk() -> void:
@@ -705,6 +788,49 @@ func check_uneven_native_walk_samples() -> void:
 		"Uneven native snapshot spacing keeps a nearly steady walking pose at steady travel.")
 	verify(is_equal_approx(presenter.views.P.position.x, x) and host.control_calls == 0,
 		"Walking pose smoothing does not change the confirmed root or produce input.")
+	host.free()
+
+func check_jog_blend_at_native_physics_cadence() -> void:
+	var host := HostFixture.new()
+	host.state.context = "native-jog-cadence"
+	host.state.actors.P.native_epoch = 1
+	root.add_child(host)
+	var presenter := Presenter.new()
+	presenter.configure(host)
+	host.add_child(presenter)
+	presenter.set_process(false)
+	presenter.set_physics_process(false)
+	var delta := 1.0 / 30.0
+	var x := 0.0
+	var physics_frame := 10
+	presenter.observe_native_sample("P", {"native_epoch": 1, "physics_frame": physics_frame})
+	presenter.refresh(delta)
+	var maximum_speed_error := 0.0
+	var maximum_blend_error := 0.0
+	var exact_root := true
+	for frame in range(80):
+		# The same 2.01 m/s actor advances by two or three physics ticks per draw.
+		var ticks := 3 if frame % 3 == 2 else 2
+		physics_frame += ticks
+		x += float(ticks) * 2.01 / 60.0
+		host.state.actors.P.position = [x, 0.9, 0.0]
+		host.state.actors.P.native_epoch += ticks
+		presenter.observe_native_sample("P", {"native_epoch": host.state.actors.P.native_epoch,
+			"physics_frame": physics_frame})
+		presenter.refresh(delta)
+		exact_root = exact_root and is_equal_approx(presenter.views.P.position.x, x)
+		if frame >= 20:
+			maximum_speed_error = maxf(maximum_speed_error,
+				absf(float(presenter.motion.P.horizontal_speed) - 2.01))
+			maximum_blend_error = maxf(maximum_blend_error,
+				absf(float(presenter.motion.P.run_mix) - (2.01 - Presenter.RUN_BLEND_START)
+					/ (Presenter.RUN_BLEND_END - Presenter.RUN_BLEND_START)))
+	adult_measurements["native_jog_cadence"] = {"maximum_speed_error": maximum_speed_error,
+		"maximum_blend_error": maximum_blend_error}
+	verify(maximum_speed_error < 0.002 and maximum_blend_error < 0.015,
+		"Intermediate jog speed and pose blend stay steady across two- and three-tick native cuts.")
+	verify(exact_root and host.control_calls == 0,
+		"Native-timed jog presentation does not move the actor root or send input.")
 	host.free()
 
 func landing_contact_case(metres_per_frame: float) -> Dictionary:
@@ -950,9 +1076,11 @@ func run() -> void:
 		inspect_adult(body, q.get_node("BodyView"), presenter)
 		check_walking_support()
 		check_native_cadence_walking_contact()
+		check_native_cadence_jog_contact()
 		check_native_cadence_running_contact()
 		check_sparse_confirmed_walk()
 		check_uneven_native_walk_samples()
+		check_jog_blend_at_native_physics_cadence()
 		check_landing_contact_from_motion()
 		var walk_contact := landing_toe_hold_case(0.018)
 		var jog_contact := landing_toe_hold_case(0.028)
@@ -968,13 +1096,14 @@ func run() -> void:
 		verify(walk_contact.anchored and early_grounded and walk_contact.root_exact
 			and walk_contact.minimum_knee_forward > 0.05 and walk_contact.control_calls == 0,
 			"A warmed walking landing plants the forward-facing lead boot through early contact without moving the actor root.")
-		verify(jog_contact.root_exact and jog_contact.minimum_knee_forward > -0.02
-			and jog_contact.maximum_contact_step < 0.12 and jog_contact.control_calls == 0
+		verify(jog_contact.root_exact and jog_contact.minimum_knee_forward > 0.05
+			and jog_contact.maximum_contact_step < 0.02 and jog_contact.retreat < 0.005
+			and walk_contact.retreat < 0.015 and jog_contact.control_calls == 0
 			and run_contact.anchored and run_contact.root_exact
 			and run_contact.minimum_knee_forward > 0.04
-			and run_contact.retreat < 0.07 and run_contact.maximum_contact_step < 0.08
+			and run_contact.retreat < 0.015 and run_contact.maximum_contact_step < 0.08
 			and run_contact.control_calls == 0,
-			"Jogging and running landings keep the leading boot close to contact without a backwards knee or input side effect.")
+			"Jogging and running landings clear the leading boot before it scrapes backward, without a backwards knee or input side effect.")
 		var run_contact_x: float = run_contact.toes[0].x
 		var run_early_grounded := true
 		for sample in run_contact.toes.slice(0, 6):
@@ -983,9 +1112,10 @@ func run() -> void:
 				and absf(float(sample.y) - 0.01) < 0.015
 		verify(run_early_grounded,
 			"A warmed running landing holds its leading toe through the first supported samples.")
-		verify(float(run_contact.toes[9].y) > 0.022
+		verify(float(run_contact.toes[9].y) > 0.045
 			and float(run_contact.toes[9].y) < 0.09
-			and float(run_contact.toes[11].y) > 0.035,
+			and float(run_contact.toes[11].y) > 0.07
+			and float(run_contact.toes[11].y) < 0.095,
 			"The running lead boot lifts into toe-off after its initial plant instead of dragging along support.")
 		check_landing_recovery_profile()
 		check_run_stop_contact()

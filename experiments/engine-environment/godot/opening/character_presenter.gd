@@ -34,10 +34,16 @@ var held_keys: Dictionary = {}
 var jump_requested := false
 var last_direction := Vector2.ZERO
 var motion: Dictionary = {}
+var native_sample_frames: Dictionary = {}
 var visual_context := ""
 
 func configure(view) -> void:
 	host = view
+
+func observe_native_sample(actor: String, sample: Dictionary) -> void:
+	# This is presentation timing only; the model still owns the confirmed pose.
+	native_sample_frames[actor] = {"epoch": sample.native_epoch,
+		"physics_frame": sample.physics_frame}
 
 func _ready() -> void:
 	get_window().focus_exited.connect(release)
@@ -472,11 +478,10 @@ func _adult_hold_contact_toe(body: Node3D, skeleton: Skeleton3D,
 	_adult_turn_joint(body, skeleton, foot,
 		foot_frame * _adult_joint_frame(body, skeleton, foot).inverse())
 
-func _adult_hold_walking_toe(body: Node3D, previous: Dictionary, delta: float,
+func _adult_hold_grounded_toe(body: Node3D, previous: Dictionary, delta: float,
 		run_mix: float) -> void:
-	# The source walk travels faster under one support boot than the confirmed
-	# actor does. Keep that boot at first contact while its natural pose stays
-	# near the ground, and fade the correction as it rises for toe-off.
+	# The walk and run clips share a single support boot through their blend.
+	# The confirmed actor owns travel; this anchor only prevents visual skating.
 	var skeleton: Skeleton3D = body.get_node(body.get_meta("skeleton_path"))
 	skeleton.force_update_all_bone_transforms()
 	var toes := {}
@@ -487,74 +492,36 @@ func _adult_hold_walking_toe(body: Node3D, previous: Dictionary, delta: float,
 		toes[side] = toe
 		clearance[side] = toe.y - Surface.height_at(toe.x, toe.z)
 	if not is_finite(clearance.L) or not is_finite(clearance.R):
-		previous.erase("walk_contact_side")
-		previous.erase("walk_contact_toe")
-		previous.erase("walk_contact_age")
+		previous.erase("support_contact_side")
+		previous.erase("support_contact_toe")
+		previous.erase("support_contact_age")
 		return
-	var side: String = previous.get("walk_contact_side", "")
-	if side != "" and clearance[side] >= 0.060:
-		previous.erase("walk_contact_side")
-		previous.erase("walk_contact_toe")
-		previous.erase("walk_contact_age")
+	var side: String = previous.get("support_contact_side", "")
+	if side != "" and clearance[side] >= lerpf(0.060, 0.09, run_mix):
+		previous.erase("support_contact_side")
+		previous.erase("support_contact_toe")
+		previous.erase("support_contact_age")
 		side = ""
-	if side == "" and run_mix < 0.1:
+	if side == "":
 		var next_side := "L" if clearance.L < clearance.R else "R"
-		if clearance[next_side] < 0.035 and clearance["R" if next_side == "L" else "L"] > 0.045:
-			previous.walk_contact_side = next_side
-			previous.walk_contact_toe = toes[next_side]
-			previous.walk_contact_age = 0.0
+		if clearance[next_side] < lerpf(0.035, 0.055, run_mix) \
+				and clearance["R" if next_side == "L" else "L"] > lerpf(0.045, 0.10, run_mix):
+			previous.support_contact_side = next_side
+			previous.support_contact_toe = toes[next_side]
+			previous.support_contact_age = 0.0
 			side = next_side
 	if side != "":
-		previous.walk_contact_age = float(previous.walk_contact_age) + delta
-		var influence := (1.0 - smoothstep(0.22, 0.50, float(previous.walk_contact_age))) \
-			* (1.0 - smoothstep(0.035, 0.080, clearance[side])) \
-			* (1.0 - smoothstep(0.08, 0.80, run_mix))
+		previous.support_contact_age = float(previous.support_contact_age) + delta
+		var age: float = float(previous.support_contact_age)
+		var influence := (1.0 - smoothstep(lerpf(0.22, 0.16, run_mix),
+			lerpf(0.50, 0.26, run_mix), age)) \
+			* (1.0 - smoothstep(lerpf(0.035, 0.045, run_mix),
+				lerpf(0.080, 0.09, run_mix), clearance[side]))
 		if influence > 0.001:
-			_adult_hold_contact_toe(body, skeleton, previous.walk_contact_toe,
-				influence, 0.0, side)
-
-func _adult_hold_running_toe(body: Node3D, previous: Dictionary, delta: float,
-		run_mix: float) -> void:
-	# The captured run has a short support interval. Hold its horizontal toe
-	# contact without freezing the clip's vertical lift into the next swing.
-	var skeleton: Skeleton3D = body.get_node(body.get_meta("skeleton_path"))
-	skeleton.force_update_all_bone_transforms()
-	var toes := {}
-	var clearance := {}
-	for side in ["L", "R"]:
-		var toe: Vector3 = body.to_global(_adult_joint(body, skeleton,
-			skeleton.find_bone("Bip01 " + side + " Toe0")))
-		toes[side] = toe
-		clearance[side] = toe.y - Surface.height_at(toe.x, toe.z)
-	if not is_finite(clearance.L) or not is_finite(clearance.R):
-		previous.erase("run_contact_side")
-		previous.erase("run_contact_toe")
-		previous.erase("run_contact_age")
-		return
-	var side: String = previous.get("run_contact_side", "")
-	if side != "" and clearance[side] >= 0.09:
-		previous.erase("run_contact_side")
-		previous.erase("run_contact_toe")
-		previous.erase("run_contact_age")
-		side = ""
-	if side == "" and run_mix > 0.90:
-		var next_side := "L" if clearance.L < clearance.R else "R"
-		if clearance[next_side] < 0.055 and clearance["R" if next_side == "L" else "L"] > 0.10:
-			previous.run_contact_side = next_side
-			previous.run_contact_toe = toes[next_side]
-			previous.run_contact_age = 0.0
-			side = next_side
-	if side != "":
-		previous.run_contact_age = float(previous.run_contact_age) + delta
-		var influence := (1.0 - smoothstep(0.16, 0.26, float(previous.run_contact_age))) \
-			* (1.0 - smoothstep(0.045, 0.09, clearance[side])) \
-			* smoothstep(0.75, 0.95, run_mix)
-		if influence > 0.001:
-			var anchor: Vector3 = previous.run_contact_toe
-			anchor.y = toes[side].y
-			var toe_off_lift := 0.12 * smoothstep(0.08, 0.18,
-				float(previous.run_contact_age)) * (1.0 - smoothstep(0.24, 0.30,
-				float(previous.run_contact_age)))
+			var anchor: Vector3 = previous.support_contact_toe
+			anchor.y = lerpf(anchor.y, toes[side].y, run_mix)
+			var toe_off_lift := 0.12 * smoothstep(0.30, 0.85, run_mix) \
+				* smoothstep(0.08, 0.18, age) * (1.0 - smoothstep(0.24, 0.30, age))
 			_adult_hold_contact_toe(body, skeleton, anchor, influence, toe_off_lift, side)
 
 func _adult_clip_bindings(skeleton: Skeleton3D, clip: Animation) -> Dictionary:
@@ -615,7 +582,7 @@ func _apply_adult_locomotion(body: Node3D, phase: float, weight: float,
 				# Retain the opposing swing while lowering the source's high fists.
 				run_target = original.slerp(run_frame, 0.72)
 			if binding.key == "Spine1" or binding.key == "Spine2":
-				var forward_pitch := 0.16 if binding.key == "Spine1" else 0.05
+				var forward_pitch := 0.25 if binding.key == "Spine1" else 0.08
 				var frame: Quaternion = rig[binding.key].space
 				run_target = (run_target * frame.inverse()
 					* Quaternion(Vector3.RIGHT, forward_pitch) * frame).normalized()
@@ -930,13 +897,16 @@ func _set_gait(body: Node3D, phase: float, weight: float,
 			var contact_y := -Geometry.CAPSULE_HEIGHT / 2.0 + 0.01 - minf(left_toe.y, right_toe.y)
 			body.position.y = lerpf(body.position.y, contact_y, clampf(impact * 8.0, 0.0, 1.0))
 			if landing_toe_anchor is Vector3:
-				var walk_hold := 1.0 - smoothstep(0.20, 0.90, run_mix)
-				var run_hold := smoothstep(0.75, 1.0, run_mix)
+				# Every moving landing needs a support boot. Hand the hold from
+				# walking to running without leaving an unsupported jog-speed gap.
+				var run_hold := smoothstep(0.55, 0.90, run_mix)
+				var walk_hold := 1.0 - run_hold
 				var hold := walk_hold * (1.0 - smoothstep(0.30, 0.75, landing_progress)) \
 					+ run_hold * (1.0 - smoothstep(0.35, 0.78, landing_progress))
-				# A running recovery passes weight to the opposite boot quickly.
-				# Lift this leading toe before its ankle follows the receding stride.
-				var toe_off_lift := 0.03 * run_hold * smoothstep(0.38, 0.62, landing_progress) \
+				# Lift the leading boot as its support fades so the recovery travels
+				# through the air instead of sliding along the ground at jog speed.
+				var toe_off_lift := lerpf(0.11, 0.07, run_hold) \
+					* smoothstep(0.32, 0.44, landing_progress) \
 					* (1.0 - smoothstep(0.82, 1.0, landing_progress))
 				if hold > 0.0 or toe_off_lift > 0.0:
 					_adult_hold_contact_toe(body, skeleton, landing_toe_anchor, hold, toe_off_lift)
@@ -954,31 +924,40 @@ func _set_gait(body: Node3D, phase: float, weight: float,
 		body.get_node(prefix + "Shoulder/Elbow").rotation.x = -0.12 * weight
 
 func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
-		native_epoch: int = -1) -> void:
+		native_epoch: int = -1, native_physics_frame: int = -1) -> void:
 	var body: Node3D = view.get_node("BodyView")
 	var previous: Dictionary = motion.get(actor, {"position": at, "phase": 0.0, "weight": 0.0,
 		"age": 1.0, "mode": "grounded", "ground_y": at.y, "peak_y": at.y,
 		"vertical_speed": 0.0, "air": 0.0, "impact_age": LANDING_SECONDS,
 		"run_mix": 0.0, "horizontal_speed": 0.0, "gait_speed": 0.0, "landing_stride": 0.0,
-		"native_epoch": -1, "sample_elapsed": 0.0})
+		"native_epoch": -1, "sample_elapsed": 0.0, "native_physics_frame": -1})
 	var displacement: Vector3 = at - previous.position
 	var horizontal := Vector2(displacement.x, displacement.z)
 	var repeated_sample := native_epoch >= 0 and native_epoch == int(previous.native_epoch) \
 		and displacement.length_squared() < 0.000000000001
 	var sample_elapsed: float = float(previous.sample_elapsed) + delta
-	# The native epoch identifies a fresh confirmed pose, not its time. Use the
-	# elapsed presentation time since that pose instead of one render interval.
+	# Native epochs identify cuts, not elapsed time. When the local native sample
+	# matches this pose, its physics frame gives the actual time between cuts.
+	# Shared projections without that sample retain the render-time fallback.
+	var confirmed_elapsed := -1.0
+	if native_physics_frame >= 0 and int(previous.native_physics_frame) >= 0 \
+			and native_physics_frame > int(previous.native_physics_frame):
+		confirmed_elapsed = float(native_physics_frame - int(previous.native_physics_frame)) \
+			/ float(Engine.physics_ticks_per_second)
 	var horizontal_speed := horizontal.length() / maxf(
-		sample_elapsed if native_epoch >= 0 else delta, 0.0001)
+		confirmed_elapsed if confirmed_elapsed > 0.0 else \
+			sample_elapsed if native_epoch >= 0 else delta, 0.0001)
 	previous.sample_elapsed = sample_elapsed if repeated_sample else 0.0
 	previous.native_epoch = native_epoch
+	previous.native_physics_frame = native_physics_frame
 	var new_landing := false
 	if horizontal.length() > DISCONTINUITY_HORIZONTAL or absf(displacement.y) > DISCONTINUITY_VERTICAL:
 		previous = {"position": at, "phase": 0.0, "weight": 0.0, "age": 1.0,
 			"mode": "grounded", "ground_y": at.y, "peak_y": at.y,
 			"vertical_speed": 0.0, "air": 0.0, "impact_age": LANDING_SECONDS,
 			"run_mix": 0.0, "horizontal_speed": 0.0, "gait_speed": 0.0, "landing_stride": 0.0,
-			"native_epoch": native_epoch, "sample_elapsed": 0.0}
+			"native_epoch": native_epoch, "sample_elapsed": 0.0,
+			"native_physics_frame": native_physics_frame}
 		body.rotation.y = 0
 	else:
 		var vertical_speed: float = displacement.y / maxf(delta, 0.0001)
@@ -1102,20 +1081,11 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 		previous.get("landing_toe_anchor") if previous.mode == "landing" else null)
 	if previous.mode == "grounded" and float(previous.horizontal_speed) > 0.2 \
 			and body.get_meta("sourced_character", false):
-		if float(previous.run_mix) < 0.8:
-			_adult_hold_walking_toe(body, previous, delta, float(previous.run_mix))
-		else:
-			_adult_hold_running_toe(body, previous, delta, float(previous.run_mix))
-	if previous.mode != "grounded" or float(previous.horizontal_speed) <= 0.2 \
-			or float(previous.run_mix) >= 0.8:
-		previous.erase("walk_contact_side")
-		previous.erase("walk_contact_toe")
-		previous.erase("walk_contact_age")
-	if previous.mode != "grounded" or float(previous.horizontal_speed) <= 0.2 \
-			or float(previous.run_mix) < 0.8:
-		previous.erase("run_contact_side")
-		previous.erase("run_contact_toe")
-		previous.erase("run_contact_age")
+		_adult_hold_grounded_toe(body, previous, delta, float(previous.run_mix))
+	if previous.mode != "grounded" or float(previous.horizontal_speed) <= 0.2:
+		previous.erase("support_contact_side")
+		previous.erase("support_contact_toe")
+		previous.erase("support_contact_age")
 	motion[actor] = previous
 	if previous.mode == "grounded" and (previous.get("stop_pending", false)
 			or previous.has("stop_toe_anchor")) and body.get_meta("sourced_character", false):
@@ -1158,8 +1128,7 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 		contact_toe.y = at.y - Geometry.CAPSULE_HEIGHT / 2.0 + 0.01
 		previous.landing_toe_anchor = contact_toe
 		_adult_hold_contact_toe(body, skeleton, contact_toe,
-			1.0 - smoothstep(0.20, 0.90, float(previous.run_mix))
-			+ smoothstep(0.75, 1.0, float(previous.run_mix)))
+			1.0)
 		motion[actor] = previous
 
 func _new_view(actor: String) -> Node3D:
@@ -1188,6 +1157,7 @@ func refresh(delta: float = 0.0) -> void:
 	if context != visual_context:
 		visual_context = context
 		motion.clear()
+		native_sample_frames.clear()
 	var actors: Dictionary = host.state.get("actors", {})
 	for actor in views.keys():
 		if not actors.has(actor):
@@ -1196,6 +1166,7 @@ func refresh(delta: float = 0.0) -> void:
 			old.queue_free()
 			views.erase(actor)
 			motion.erase(actor)
+			native_sample_frames.erase(actor)
 	for actor in actors:
 		if not views.has(actor):
 			views[actor] = _new_view(actor)
@@ -1211,8 +1182,12 @@ func refresh(delta: float = 0.0) -> void:
 				_set_gait(body, 0, 0)
 			if delta > 0.0:
 				var observed_epoch: Variant = data.get("native_epoch", -1)
+				var native_epoch := int(observed_epoch) if typeof(observed_epoch) == TYPE_INT else -1
+				var sample: Dictionary = native_sample_frames.get(actor, {})
+				var physics_frame := int(sample.get("physics_frame", -1)) \
+					if sample.get("epoch", -1) == native_epoch else -1
 				_animate_actor(actor, view, view.position, delta,
-					int(observed_epoch) if typeof(observed_epoch) == TYPE_INT else -1)
+					native_epoch, physics_frame)
 		else:
 			motion.erase(actor)
 	if not host.explanation_open and actors.has(host.client) and Geometry.valid_position(actors[host.client].get("position")):
