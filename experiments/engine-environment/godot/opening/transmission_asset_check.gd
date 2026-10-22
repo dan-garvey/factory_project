@@ -401,7 +401,7 @@ func check_materials() -> void:
 			if gear == null or shaft == null:
 				view.free()
 				continue
-			var tint := Color("ba9459") if moving else Color("687a7b")
+			var tint := Color("687a7b")
 			var expected_colors := {"Gear": tint, "GearSpoke": tint, "GearTooth": tint,
 				"Hub": Color("a6b4af"), "HubFastener": Color("b8c3bb"),
 				"Shaft": tint, "ShaftCollar": Color("a6b4af"), "ShaftKey": Color("b87945")}
@@ -419,7 +419,7 @@ func check_materials() -> void:
 					counts[["cast", "worked", "copper"].find(expected_surface)] += copies
 					verify(material != null and child.get_meta("surface_role") == expected_surface
 						and material.albedo_color == expected_color and material.albedo_texture == null,
-						"The actual part keeps its original motion or fixed metal tint and receives its declared surface role.")
+						"The actual part keeps its physical metal finish and declared surface role across motion states.")
 					if material == null:
 						continue
 					if expected_surface == "copper" or historical:
@@ -439,7 +439,8 @@ func check_materials() -> void:
 						and material.roughness_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_RED
 						and material.metallic_texture == null and not material.ao_enabled,
 						"Scalar roughness remains linear and no source color, metallic map, occlusion or displacement is invented.")
-			verify(counts == [5, 28, 2], "Each actual assembly separates five cast, twenty-eight worked and two copper pieces.")
+			# The cog's integral axle adds one core, two collars and two keys.
+			verify(counts == [5, 31, 4], "The cog, integral axle and separate shaft expose five cast, thirty-one worked and four copper pieces.")
 			var cylinder: CylinderMesh = shaft.get_node("Shaft").mesh
 			verify(is_equal_approx(cylinder.height, 1.65) and is_equal_approx(cylinder.top_radius, 0.03)
 				and gear.basis.y.is_equal_approx([Vector3.RIGHT, Vector3.UP, Vector3.BACK][axis]),
@@ -791,7 +792,7 @@ func check_gear_batches() -> void:
 					var moving: bool = member == gear
 					var center := Vector3(-1.65 if moving else 0.0, 0.9125, 3.3)
 					var angle := -0.04 if moving and phase == 1 else 0.0
-					var tint := Color("ba9459") if moving else Color("687a7b")
+					var tint := Color("687a7b")
 					for role in ["GearTooth", "GearSpoke", "HubFastener"]:
 						var group: MultiMeshInstance3D = member.get_node(role)
 						var report := batch_geometry_report(group, role, units, axis, center, angle, tint)
@@ -844,7 +845,7 @@ func check_gear_batches() -> void:
 						var altered := StandardMaterial3D.new()
 						altered.albedo_color = Color.RED
 						bad.material_override = altered
-					var report := batch_geometry_report(bad, "GearTooth", units, axis, Vector3(-1.65, 0.9125, 3.3), -0.04, Color("ba9459"))
+					var report := batch_geometry_report(bad, "GearTooth", units, axis, Vector3(-1.65, 0.9125, 3.3), -0.04, Color("687a7b"))
 					print(JSON.stringify({"control": control, "rejected": not report.valid, "first_mismatch": report.get("first_mismatch", {})}))
 					verify(not report.valid, "An altered count, displacement, transposed rotation, culling box or material is rejected.")
 					controls += 1
