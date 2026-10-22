@@ -28,6 +28,21 @@ const PICK_LAYER := 4
 const ACTOR_LAYER := 16
 const MACHINE_SIZE := [1.45, 1.65, 1.45]
 const MACHINE_CENTER_HEIGHT := 0.8
+const COLLECTOR_INTAKE_SIZE := [0.28, 0.20, 0.24]
+const COLLECTOR_INTAKE_X := -0.84
+const COLLECTOR_INTAKE_Y := 0.50
+const COLLECTOR_SECOND_CELL_Z := -0.60
+
+static func collector_intake_boxes(entity: Dictionary) -> Dictionary:
+	if entity.get("kind") != "collector" or entity.get("level", 0) != 0:
+		return {"accepted": true, "boxes": []}
+	var cell: Variant = entity.get("cell")
+	if not cell is Array or cell.size() != 2 or typeof(cell[0]) != TYPE_INT or typeof(cell[1]) != TYPE_INT \
+			or cell[0] != 0 or cell[1] not in [0, 1]:
+		return {"accepted": false, "boxes": []}
+	return {"accepted": true, "boxes": [{"center": Vector3(COLLECTOR_INTAKE_X,
+		COLLECTOR_INTAKE_Y, float(cell[1]) * PITCH + (0.0 if cell[1] == 0 else COLLECTOR_SECOND_CELL_Z)),
+		"size": Vector3(COLLECTOR_INTAKE_SIZE[0], COLLECTOR_INTAKE_SIZE[1], COLLECTOR_INTAKE_SIZE[2])}]}
 
 static func wheel_half_extents(axis: int, tiles: int) -> Vector3:
 	var radius := WATERWHEEL_RADIUS * tiles

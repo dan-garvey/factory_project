@@ -178,6 +178,16 @@ func sync_topology() -> Dictionary:
 		box.size = Geometry.wheel_half_extents(int(entities[entity].get("axis", 0)), int(entities[entity].get("tiles", 3))) * 2.0 if wheel else Vector3(Geometry.MACHINE_SIZE[0], Geometry.MACHINE_SIZE[1], Geometry.MACHINE_SIZE[2])
 		collider.shape = box
 		body.add_child(collider)
+		var intake_result: Dictionary = Geometry.collector_intake_boxes(entities[entity]) if snapshot.get("options", {}).get("native", false) else {"accepted": true, "boxes": []}
+		if not intake_result.accepted:
+			return {"accepted": false, "reason": "invalid_collector_intake"}
+		for intake: Dictionary in intake_result.boxes:
+			var intake_collider := CollisionShape3D.new()
+			var intake_shape := BoxShape3D.new()
+			intake_shape.size = intake.size
+			intake_collider.shape = intake_shape
+			intake_collider.position = intake.center - body.position
+			body.add_child(intake_collider)
 		if wheel:
 			var support_result: Dictionary = Geometry.wheel_support_boxes(entities[entity])
 			if not support_result.get("accepted", false):
@@ -357,9 +367,10 @@ func _geometry_registered() -> bool:
 		var entity_id: String = str(body.get_meta("entity", "")) if body != floor_body else ""
 		var entity_spec: Dictionary = machine_specs.get(entity_id, {})
 		var support_result: Dictionary = Geometry.wheel_support_boxes(entity_spec) if entity_spec.has("supports") else {"accepted": true, "boxes": []}
-		if not support_result.get("accepted", false):
+		var intake_result: Dictionary = Geometry.collector_intake_boxes(entity_spec) if model.projection().get("options", {}).get("native", false) else {"accepted": true, "boxes": []}
+		if not support_result.get("accepted", false) or not intake_result.get("accepted", false):
 			return false
-		var expected_shape_count: int = 1 + support_result.boxes.size()
+		var expected_shape_count: int = 1 + support_result.boxes.size() + intake_result.boxes.size()
 		if PhysicsServer3D.body_get_space(rid) != space or PhysicsServer3D.body_get_shape_count(rid) != expected_shape_count:
 			return false
 		var at: Transform3D = PhysicsServer3D.body_get_state(rid, PhysicsServer3D.BODY_STATE_TRANSFORM)
@@ -388,10 +399,17 @@ func _geometry_registered() -> bool:
 				half = Geometry.wheel_half_extents(int(spec.get("axis", 0)), int(spec.get("tiles", 3)))
 			if PhysicsServer3D.body_get_collision_layer(rid) != Geometry.MACHINE_LAYER or not data is Vector3 or data.distance_to(half) > Geometry.NATIVE_POSE_EPSILON:
 				return false
+			for index in range(intake_result.boxes.size()):
+				var intake: Dictionary = intake_result.boxes[index]
+				var intake_pose: Transform3D = PhysicsServer3D.body_get_shape_transform(rid, index + 1)
+				var intake_data: Variant = PhysicsServer3D.shape_get_data(PhysicsServer3D.body_get_shape(rid, index + 1))
+				if intake_pose.basis != Basis.IDENTITY or intake_pose.origin.distance_to(intake.center - body.global_position) > Geometry.NATIVE_POSE_EPSILON or not intake_data is Vector3 or intake_data.distance_to(intake.size / 2.0) > Geometry.NATIVE_POSE_EPSILON:
+					return false
 			for index in range(support_result.boxes.size()):
 				var support: Dictionary = support_result.boxes[index]
-				var support_pose: Transform3D = PhysicsServer3D.body_get_shape_transform(rid, index + 1)
-				var support_data: Variant = PhysicsServer3D.shape_get_data(PhysicsServer3D.body_get_shape(rid, index + 1))
+				var support_index: int = index + 1 + intake_result.boxes.size()
+				var support_pose: Transform3D = PhysicsServer3D.body_get_shape_transform(rid, support_index)
+				var support_data: Variant = PhysicsServer3D.shape_get_data(PhysicsServer3D.body_get_shape(rid, support_index))
 				if support_pose.basis != Basis.IDENTITY or support_pose.origin.distance_to(support.center - body.global_position) > Geometry.NATIVE_POSE_EPSILON:
 					return false
 				if not support_data is Vector3 or support_data.distance_to(support.size / 2.0) > Geometry.NATIVE_POSE_EPSILON:

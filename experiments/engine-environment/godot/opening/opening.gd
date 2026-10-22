@@ -5672,6 +5672,23 @@ func _collector_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 		steel, Vector3(PI / 2, 0, 0))
 	if _native_transmission():
 		ProductionCollectorToolingArt.mount_body(drum, hub)
+		var intake_result: Dictionary = Geometry.collector_intake_boxes(entity)
+		if not intake_result.get("accepted", false):
+			push_error("The confirmed collector lacks an admitted source-facing intake.")
+		elif not intake_result.boxes.is_empty():
+			var pickup: Dictionary = intake_result.boxes[0]
+			var local_at: Vector3 = pickup.center - anchor.position
+			_machine_box(anchor, "SourcePickupHousing", local_at + Vector3(0.06, 0, 0),
+				Vector3(0.16, 0.14, 0.20), Color("465a60"), 0.85, 0.35)
+			for tooth in [-1.0, 0.0, 1.0]:
+				_machine_box(anchor, "SourcePickupTooth", local_at + Vector3(-0.105, 0, tooth * 0.075),
+					Vector3(0.06, 0.12, 0.028), steel, 0.85, 0.32)
+			var start := Vector3(-0.74, 0.57, local_at.z)
+			var finish := Vector3(-0.15, 0.57, 0)
+			var delta := finish - start
+			var trough := _machine_box(anchor, "SourceGatheringTrough", (start + finish) * 0.5,
+				Vector3(delta.length(), 0.045, 0.10), steel, 0.85, 0.45)
+			trough.rotation.y = -atan2(delta.z, delta.x)
 	if not (_native_transmission() and ProductionCollectorFeedArt.mount(anchor, frame)):
 		for z in [-0.37, 0.37]:
 			_machine_box(anchor, "StockGuide", Vector3(0.05, 0.6, z), Vector3(1.15, 0.08, 0.06), frame)
@@ -5918,6 +5935,18 @@ func _rebuild_machines() -> void:
 		collider.shape = shape
 		collider.position.y = Geometry.ANCHOR_HEIGHT if kind == "wheel" and _native_transmission() else Geometry.MACHINE_CENTER_HEIGHT
 		body.add_child(collider)
+		if kind == "collector" and _native_transmission():
+			var intake_result: Dictionary = Geometry.collector_intake_boxes(entity)
+			if not intake_result.get("accepted", false):
+				push_error("The collector pick geometry lacks its native source-facing intake.")
+			else:
+				for intake: Dictionary in intake_result.boxes:
+					var intake_pick := CollisionShape3D.new()
+					var intake_box := BoxShape3D.new()
+					intake_box.size = intake.size
+					intake_pick.shape = intake_box
+					intake_pick.position = intake.center - anchor.position
+					body.add_child(intake_pick)
 		if kind == "wheel" and _native_transmission() and entity.has("supports"):
 			var support_result: Dictionary = Geometry.wheel_support_boxes(entity)
 			if not support_result.get("accepted", false):

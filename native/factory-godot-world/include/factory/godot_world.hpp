@@ -4,6 +4,7 @@
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -55,10 +56,13 @@ private:
     world::Profile profile_;
     std::vector<double> terrain_axis_, terrain_heights_;
     std::vector<std::pair<authority::Point, authority::Point>> terrain_obstacles_;
-    [[nodiscard]] bool site_blocked(const authority::Point& low, const authority::Point& high) const;
+    std::optional<std::size_t> source_obstacle_index_;
+    [[nodiscard]] bool site_blocked(const authority::Point& low, const authority::Point& high,
+        std::optional<std::size_t> ignored = std::nullopt) const;
     [[nodiscard]] std::optional<std::pair<double, double>> terrain_range(double x, double z,
         double half_x = 0.825, double half_z = 0.825) const;
-    [[nodiscard]] const char* machine_site_refusal(const world::State&, const mechanics::Point& center) const;
+    [[nodiscard]] const char* machine_site_refusal(const world::State&, const mechanics::Point& center,
+        bool collector) const;
     [[nodiscard]] std::optional<authority::Point> transmission_support_foot(const world::State&,
         const mechanics::Point& center, mechanics::Axis axis) const;
     [[nodiscard]] const char* transmission_site_refusal(const world::State&, const mechanics::Point& center,
