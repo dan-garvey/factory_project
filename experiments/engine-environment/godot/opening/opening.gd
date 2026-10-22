@@ -4439,7 +4439,7 @@ func issue(action: Dictionary) -> Dictionary:
 			"place_foundation": "Foundation placed. Its surface shares the machine grid.",
 			"place_foundations": "Foundation area placed on the world grid.",
 			"connect": "Material path connected.", "connect_drive": "Drive shaft connected.",
-			"retrieve": "Plate collected.", "pickup_material": "Loose material collected.", "set_power": "Drive updated.",
+			"retrieve": "Plate collected.", "pickup_material": "Loose material collected.", "load_belt_slot": "Material placed on the belt.", "set_power": "Drive updated.",
 			"remove": "Part returned to your carried kit.",
 			"disconnect": "Material connection removed.",
 			"disconnect_drive": "Drive shaft returned."}.get(action.action, "Done."))

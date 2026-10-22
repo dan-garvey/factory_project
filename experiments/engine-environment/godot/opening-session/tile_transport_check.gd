@@ -16,7 +16,9 @@ extends SceneTree
 ## Add --overload to exercise speed-weighted load and recovery across restart.
 ## Add --fractional-press to exercise workpiece recovery and continuation.
 ## Add --reverse-belt to every process for
-## generated-site reverse deposition and pickup after restart. The resumed Session uses the Store but
+## generated-site reverse deposition and pickup after restart. Add --belt-loading
+## to exercise actual carried stock loaded over Session and restored via Store.
+## The resumed Session uses the Store but
 ## does not exercise the ordinary server lifecycle or physical actor bodies.
 const Session = preload("res://opening-session/session.gd")
 const NativeModel = preload("res://opening/native_model.gd")
@@ -37,6 +39,7 @@ var middle_pulley := false
 var cog_train := false
 var overload := false
 var fractional_press := false
+var belt_loading := false
 var serial := 0
 var epoch := 0
 
@@ -59,6 +62,7 @@ func _initialize() -> void:
 		elif arg == "--cog-train": cog_train = true
 		elif arg == "--overload": overload = true
 		elif arg == "--fractional-press": fractional_press = true
+		elif arg == "--belt-loading": belt_loading = true
 	call_deferred("run")
 
 func verify(ok: bool, message: String) -> void:
@@ -110,7 +114,7 @@ func build(action: String, args: Dictionary) -> Dictionary:
 	if not result.get("accepted", false): push_error("Reverse route command refused: " + str(wire) + " " + str(result))
 	return result
 
-func build_reverse_route() -> bool:
+func build_reverse_route(for_loading: bool = false) -> bool:
 	# This is the generated river route used by the independent native site
 	# control. Positions are synthetic; commands still go through native Host.
 	if not pose(0.0, 0.0): return false
@@ -146,6 +150,7 @@ func build_reverse_route() -> bool:
 		push_error("Reverse belt motion: " + str(motion))
 		return false
 	for turn in range(96):
+		if for_loading and session.world.projection().stock.collector > 0: return true
 		if not session.world.projection().dropped_material.is_empty(): break
 		session.world.advance()
 	return not session.world.projection().dropped_material.is_empty()
@@ -670,6 +675,75 @@ func run_fractional_press() -> void:
 	print("FRACTIONAL_PRESS_SESSION_%s %s %d" % ["FAIL" if failed else "PASS", role, checks])
 	quit(1 if failed else 0)
 
+func run_belt_loading() -> void:
+	var resumed := role.begins_with("resume-") or role == "server-resume"
+	var prefix := "resume-" if resumed else ""
+	var save_path := directory.path_join("belt-loading.factory")
+	if role in ["server", "server-resume"]:
+		verify(session.serve_loopback(port, true, true, ["P", "Q"], true) == OK, "Start belt-loading authority")
+		if failed: quit(1); return
+		if resumed:
+			verify(Store.read_into(session.world, save_path).get("accepted", false), "Restore loaded belt and receipt")
+			session.context = session.world.context
+		else:
+			verify(build_reverse_route(true), "Construct a powered route with real collector stock")
+			var view: Dictionary = session.world.projection()
+			var collector := ""
+			for id in view.entities:
+				if view.entities[id].get("kind") == "collector": collector = str(id)
+			verify(not collector.is_empty() and pose(0.0, 0.0), "Reach the operating collector")
+			if not failed: verify(build("recover", {"entity": collector}).get("accepted", false), "Recover actual collector stock")
+		verify(pose(0.0, 0.0), "P can reach the first belt position")
+		verify(session.world.publish_actor("Q", [20.0, 1.0, 20.0], 1).get("accepted", false), "Q remains clear")
+		if failed: quit(1); return
+		mark(prefix + "server-ready")
+		if not await until(func(): return FileAccess.file_exists(directory.path_join(prefix + "clients-done")), "Both loading clients finish"): quit(1); return
+		if not resumed: verify(Store.write(session.world, save_path).get("accepted", false), "Store the loaded belt and receipt")
+		if failed: quit(1); return
+		mark(prefix + "server-done")
+	else:
+		var actor := role.trim_prefix("resume-") if resumed else role
+		verify(session.join_loopback(port, actor) == OK, "Join belt-loading authority")
+		if not await until(func(): return session.is_ready(), "Receive belt-loading projection"): quit(1); return
+		mark(prefix + actor + "-ready")
+		if actor == "P":
+			if not await until(func(): return FileAccess.file_exists(directory.path_join(prefix + "Q-ready")), "Q joins before transfer"): quit(1); return
+			var view: Dictionary = session.projection()
+			var id := str(view.belt_spans.keys()[0])
+			var slot: int = int(FileAccess.get_file_as_string(directory.path_join("loaded-slot"))) if resumed else view.belt_spans[id].slots.find(null)
+			if resumed:
+				var item: Dictionary = view.belt_spans[id].slots[slot]
+				verify(item.raw == 1, "P sees the loaded blank after restart")
+				var recovered := await issue({"action": "recover_belt_slot", "entity": id, "slot": slot, "expected": item})
+				verify(recovered.get("accepted", false), "P recovers the restored loaded blank")
+			else:
+				verify(view.cargo.P.raw > 0 and slot >= 0, "P carries stock and a belt position is empty: " + str([view.cargo.P, view.belt_spans[id].slots]))
+				if failed: quit(1); return
+				var slot_file := FileAccess.open(directory.path_join("loaded-slot"), FileAccess.WRITE)
+				verify(slot_file != null, "Retain the loaded slot for restart")
+				if slot_file != null: slot_file.store_string(str(slot)); slot_file.close()
+				var loaded := await issue({"action": "load_belt_slot", "entity": id, "slot": slot, "item": "raw", "work_id": 0})
+				verify(loaded.get("accepted", false), "P loads the carried blank over Session")
+				if failed: quit(1); return
+				var request: String = loaded.request
+				verify(session.retry(request).get("queued", false), "Retry the belt load")
+				if await until(func(): return replies.has(request), "The load retry receives its receipt"):
+					verify(replies[request].get("duplicate", false), "Retry does not duplicate the blank")
+					replies.erase(request)
+			if failed: quit(1); return
+			mark(prefix + "P-done")
+		else:
+			if not await until(func(): return FileAccess.file_exists(directory.path_join(prefix + "P-done")), "P completes the transfer"): quit(1); return
+			var slot := int(FileAccess.get_file_as_string(directory.path_join("loaded-slot")))
+			if not await until(func():
+				var slots: Array = session.projection().belt_spans.values()[0].slots
+				return slots[slot] == null if resumed else slots[slot] is Dictionary and slots[slot].get("raw") == 1,
+				"Q observes the confirmed belt slot"): quit(1); return
+			mark(prefix + "clients-done")
+			if not await until(func(): return FileAccess.file_exists(directory.path_join(prefix + "server-done")), "Authority completes loading phase"): quit(1); return
+	print("BELT_LOADING_SESSION_%s %s %d" % ["FAIL" if failed else "PASS", role, checks])
+	quit(1 if failed else 0)
+
 func run() -> void:
 	if fractional_press and (overload or cog_train or span_belt or reverse_belt or middle_pulley):
 		push_error("The fractional press case cannot be combined with other transmission cases")
@@ -698,6 +772,9 @@ func run() -> void:
 	container.add_child(session)
 	root.add_child(container)
 	session.outcome.connect(func(value: Dictionary): replies[value.request] = value)
+	if belt_loading:
+		await run_belt_loading()
+		return
 	if fractional_press:
 		await run_fractional_press()
 		return

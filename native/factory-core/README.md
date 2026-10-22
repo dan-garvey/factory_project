@@ -50,6 +50,8 @@ persists it, and advances occupied lanes from confirmed shaft motion. The World
 connects adjacent collectors and processor inputs at span endpoints. A press
 accepts a compatible carried work lot into its empty processing slot, preserving
 its identity and fractional progress; a busy press blocks it on the belt.
+Actors can also place one carried blank, plate or selected work lot into an
+empty reachable horizontal or inclined belt slot; power-only belts refuse cargo.
 An item travelling toward a collector remains on the lane rather than ejecting into
 the machine; open ends still eject. Confirmed item slots are projected to the presenter;
 manual span recovery removes individual items through the World.

@@ -701,6 +701,19 @@ void belt_span_host_commands() {
               field<I>(field<O>(loaded.projection(), "cargo").at("P"), "raw") == 1 &&
               field<A>(field<O>(loaded.projection(), "belt_spans").at(id), "slots")[1].type() == factory::values::Type::null,
           "The confirmed item moves into the actor's canonical custody.");
+    auto load = target("load_belt_slot", id, "span-load");
+    load.emplace("slot", V(I{1})); load.emplace("item", V("raw")); load.emplace("work_id", V(I{0}));
+    observe(loaded, 50, 50, 3);
+    check(!accepted(loaded.command("P", load)), "Loading also refuses an actor far from the slot.");
+    observe(loaded, 1.65, -1.65, 4); load.at("request") = V("span-load-near");
+    check(accepted(loaded.command("P", load)) &&
+              field<I>(field<O>(loaded.projection(), "cargo").at("P"), "raw") == 0 &&
+              field<I>(field<A>(field<O>(loaded.projection(), "belt_spans").at(id), "slots")[1], "raw") == 1,
+          "The Host loads one carried blank into the confirmed empty slot.");
+    check(field<bool>(loaded.command("P", load), "duplicate") && accepted(loaded.validate_checkpoint(loaded.checkpoint())),
+          "The loaded slot and its original wire receipt survive retry and checkpoint validation.");
+    recover.at("request") = V("span-recover-after-load");
+    check(accepted(loaded.command("P", recover)), "The newly loaded item remains recoverable.");
     check(accepted(loaded.command("P", target("remove_belt_span", id, "span-remove-recovered"))) &&
               field<bool>(loaded.command("P", recover), "duplicate") && accepted(loaded.validate_checkpoint(loaded.checkpoint())),
           "The emptied span can be removed and the recovery history survives removal and validation.");

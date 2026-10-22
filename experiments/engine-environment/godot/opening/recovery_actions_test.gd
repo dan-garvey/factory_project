@@ -65,7 +65,7 @@ func _choose(action: String, work_id: int = 0) -> void:
 	var popup: PopupMenu = controls.action_button.get_popup()
 	for index: int in range(popup.item_count):
 		var metadata: Dictionary = popup.get_item_metadata(index)
-		if metadata.wire.action == action and (action != "insert_work" or metadata.wire.work_id == work_id):
+		if metadata.wire.action == action and (action not in ["insert_work", "load_belt_slot"] or metadata.wire.work_id == work_id):
 			popup.id_pressed.emit(popup.get_item_id(index))
 			return
 	_expect(false, "The expected explicit menu action is missing.")
@@ -204,6 +204,34 @@ func _belt_span_recovery() -> void:
 	_choose("recover_belt_slot")
 	_expect(sent == [{"action": "recover_belt_slot", "entity": "span", "slot": 1, "expected": item}], "The request retains the original whole workpiece and position.")
 
+func _belt_loading() -> void:
+	_new_fixture()
+	fixture.selected = "span"
+	fixture.snapshot.cargo.P = {"raw": 1, "products": 1, "work_lots": [
+		{"id": LARGE_ID, "recipe_input": 1, "cycle_ticks": 4, "remaining": 2}]}
+	fixture.snapshot.transmission_parts = {"a": {"axis": 2, "center": [0, 4, 0]}, "b": {"axis": 2, "center": [4, 4, 0]}}
+	fixture.snapshot.belt_spans = {"span": {"from": "a", "to": "b", "slots": [null, null]}}
+	controls.refresh()
+	var popup := _open()
+	_expect(controls.visible and popup.item_count == 6, "Each empty horizontal position offers each carried material form.")
+	_choose("load_belt_slot", LARGE_ID)
+	_expect(sent == [{"action": "load_belt_slot", "entity": "span", "slot": 0, "item": "work", "work_id": LARGE_ID}],
+		"The selected workpiece identity is sent without rounding or prediction.")
+	sent.clear()
+	_open()
+	fixture.snapshot.belt_spans.span.slots[0] = {"raw": 1, "products": 0, "work_lots": []}
+	_choose("load_belt_slot", LARGE_ID)
+	_expect(sent.is_empty(), "A slot occupied after opening cannot retarget the pending load.")
+	fixture.snapshot.transmission_parts.b.center = [0, 8, 0]
+	controls.refresh()
+	popup = _open()
+	_expect(popup.item_count == 1, "A vertical power-only belt offers recovery but no loading.")
+	fixture.snapshot.transmission_parts.b.center = [4, 4, 0]
+	fixture.snapshot.transmission_parts.a.axis = 1
+	controls.refresh()
+	popup = _open()
+	_expect(popup.item_count == 1, "A sideways power-only belt offers no loading.")
+
 func _run() -> void:
 	_collector_recovery()
 	_raw_and_whole_work()
@@ -211,6 +239,7 @@ func _run() -> void:
 	_stale_holdings_do_not_retarget()
 	_malformed_projection_is_not_coerced()
 	_belt_span_recovery()
+	_belt_loading()
 	controls.free()
 	print(JSON.stringify({"status": "fail" if failed else "pass", "evidence": "invented_recovery_ui", "checks": checks}))
 	quit(1 if failed else 0)

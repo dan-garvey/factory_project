@@ -272,6 +272,51 @@ void belt_span_checkpoint() {
     state.issued_entities = {{"wheel", 1}, {"left", 1}, {"right", 1}, {"belt", 1}};
     auto world = w::World::create("saved-world", profile, state);
     check(world != nullptr, "A seeded world accepts a finite, identified belt span.");
+    auto absent_load = command("load_belt_slot", "missing-cargo", "belt");
+    absent_load.emplace("slot", V(I{1})); absent_load.emplace("item", V("raw")); absent_load.emplace("work_id", V(I{0}));
+    const auto absent = send(*world, absent_load);
+    check(absent.completed() && !field<bool>(*absent.result, "accepted") &&
+              field<std::string>(*absent.result, "reason") == "unavailable_cargo" && world->snapshot().state == state,
+          "Loading cannot create an item that the actor does not carry.");
+    for (const std::string kind : {"raw", "product", "work"}) {
+        auto loading_state = state;
+        loading_state.material.belt_lanes.at("belt").slots[2].reset();
+        const m::Cargo cargo = kind == "raw" ? m::Cargo{1, 0, {}} : kind == "product" ? m::Cargo{0, 1, {}} :
+            m::Cargo{0, 0, {{1, {1, 2}, 2, 1365, 1, 3}}};
+        loading_state.material.cargo.at("P") = cargo;
+        loading_state.material.next_work_id = kind == "work" ? 2 : 1;
+        auto loading = w::World::create("saved-world", profile, loading_state);
+        check(loading != nullptr, "An actor can carry a typed item for the belt.");
+        auto load = command("load_belt_slot", "load", "belt");
+        load.emplace("slot", V(I{2}));
+        load.emplace("item", V(kind));
+        load.emplace("work_id", V(I{kind == "work" ? 1 : 0}));
+        accepted(send(*loading, load));
+        const auto loaded = loading->snapshot();
+        check(loaded.state.material.belt_lanes.at("belt").slots[2] == cargo &&
+                  loaded.state.material.cargo.at("P") == m::Cargo{},
+              "Loading moves exactly the selected carried item to the belt.");
+        const auto retry = send(*loading, load);
+        check(retry.completed() && field<bool>(*retry.result, "duplicate") &&
+                  loading->snapshot().state == loaded.state,
+              "Retrying a belt load does not place the item twice.");
+        auto competing = load;
+        competing.at("request") = V("occupied");
+        const auto refused = send(*loading, competing);
+        check(refused.completed() && !field<bool>(*refused.result, "accepted") &&
+                  field<std::string>(*refused.result, "reason") == "slot_changed" &&
+                  loading->snapshot().state == loaded.state,
+              "A stale empty-slot selection cannot overwrite an item.");
+        const auto loaded_save = w::encode_checkpoint(profile, loading->snapshot());
+        check(std::holds_alternative<V>(loaded_save), "Loaded cargo and receipt checkpoint.");
+        const auto loaded_decode = w::decode_checkpoint(profile, "saved-world", std::get<V>(loaded_save));
+        check(std::holds_alternative<w::Snapshot>(loaded_decode), "Loaded cargo and receipt decode.");
+        auto loaded_restored = w::World::restore("saved-world", profile, std::get<w::Snapshot>(loaded_decode));
+        const auto restored_retry = send(*loaded_restored, load);
+        check(restored_retry.completed() && field<bool>(*restored_retry.result, "duplicate") &&
+                  loaded_restored->snapshot().state.material.belt_lanes.at("belt").slots[2] == cargo,
+              "A restart preserves the loaded item and its idempotent receipt.");
+    }
     auto fractional_profile = profile;
     fractional_profile.waterwheel_rate = {1, 3};
     auto fractional_state = state;
@@ -470,13 +515,19 @@ void fast_open_belt_discharge() {
         const m::WorkLot partial{1, {1, 2}, 2, 1365, 1, 3};
         auto& partial_slots = partial_state.material.belt_lanes.at("belt").slots;
         partial_slots = {std::nullopt, std::nullopt, std::nullopt};
-        partial_slots[toward_negative != reversed ? 0 : 2] = m::Cargo{0, 0, {partial}};
+        partial_state.material.cargo.at("P") = m::Cargo{0, 0, {partial}};
         partial_state.topology.parts.push_back({{"press-wheel", g::Kind::hub, {exit[0], 0, -4}, g::Axis::z, 0, 0},
                                                1, s::Role::waterwheel});
         partial_state.topology.sources.push_back({"press-wheel", partial_profile.waterwheel_rate});
         partial_state.issued_entities.emplace("press-wheel", 1);
         auto partial_world = w::World::create("partial-belt-press", partial_profile, partial_state);
-        check(partial_world && partial_world->tick().error == w::TransactionError::none,
+        check(partial_world != nullptr, "The press route admits the carried partial workpiece.");
+        auto load_partial = command("load_belt_slot", "load-partial", "belt");
+        load_partial.at("context") = V("partial-belt-press");
+        load_partial.emplace("slot", V(I{toward_negative != reversed ? 0 : 2}));
+        load_partial.emplace("item", V("work")); load_partial.emplace("work_id", V(I{1}));
+        accepted(send(*partial_world, load_partial));
+        check(partial_world->tick().error == w::TransactionError::none,
               "A powered press accepts the approaching partial workpiece.");
         const auto arrived = partial_world->snapshot();
         check(arrived.state.material.processing == partial && arrived.state.material.dropped_material.empty() &&
@@ -501,6 +552,8 @@ void fast_open_belt_discharge() {
         busy_state.material.initial_units = 2;
         busy_state.material.next_work_id = 3;
         busy_state.material.processing = m::WorkLot{2, {1, 2}, 2};
+        busy_state.material.cargo.at("P") = {};
+        busy_state.material.belt_lanes.at("belt").slots[toward_negative != reversed ? 0 : 2] = m::Cargo{0, 0, {partial}};
         busy_state.topology.parts.pop_back();
         busy_state.topology.sources.pop_back();
         busy_state.issued_entities.erase("press-wheel");
@@ -508,7 +561,7 @@ void fast_open_belt_discharge() {
         auto busy_world = w::World::create("busy-belt-press", busy_profile, busy_state);
         check(busy_world && busy_world->tick().error == w::TransactionError::none &&
                   busy_world->snapshot().state.material.processing == busy_state.material.processing &&
-                  busy_world->snapshot().state.material.belt_lanes.at("belt").slots == partial_slots,
+                  busy_world->snapshot().state.material.belt_lanes.at("belt").slots == busy_state.material.belt_lanes.at("belt").slots,
               "A busy press blocks the partial workpiece without changing either lot.");
     }
 }
@@ -954,6 +1007,12 @@ void belt_span_commands() {
               !factory::values::typed_difference(V(field<V::Array>(*recovered.result, "slot_center")),
                   V(V::Array{V(I{4}), V(I{4}), V(I{0})})),
           "Inclined cargo recovery targets the actual elevated tile.");
+    auto load_incline = command("load_belt_slot", "incline-load", inclined_id.c_str());
+    load_incline.at("generation") = V(field<I>(*inclined_built.result, "generation"));
+    load_incline.emplace("slot", V(I{1})); load_incline.emplace("item", V("raw")); load_incline.emplace("work_id", V(I{0}));
+    check(send(*recover_world, load_incline).completed() &&
+              recover_world->snapshot().state.material.belt_lanes.at(inclined_id).slots[1] == m::Cargo{1, 0, {}},
+          "The recovered blank can be placed back on the elevated inclined tile.");
     auto resumed_incline = w::World::restore("saved-world", profile,
         std::get<w::Snapshot>(w::decode_checkpoint(profile, "saved-world", std::get<V>(incline_save))));
     check(resumed_incline && resumed_incline->tick().error == w::TransactionError::none &&
@@ -973,6 +1032,18 @@ void belt_span_commands() {
     check(sideways_built.completed() && field<bool>(*sideways_built.result, "accepted"),
           "The native World places a sideways power-only belt.");
     const auto sideways_id = field<std::string>(*sideways_built.result, "entity");
+    auto carried_sideways = sideways_world->snapshot().state;
+    carried_sideways.material.stock.source = 0;
+    carried_sideways.material.cargo.at("P").raw_units = 1;
+    auto sideways_loading = w::World::create("saved-world", profile, carried_sideways);
+    auto sideways_load = command("load_belt_slot", "sideways-load", sideways_id.c_str());
+    sideways_load.at("generation") = V(field<I>(*sideways_built.result, "generation"));
+    sideways_load.emplace("slot", V(I{1})); sideways_load.emplace("item", V("raw")); sideways_load.emplace("work_id", V(I{0}));
+    const auto sideways_refusal = send(*sideways_loading, sideways_load);
+    check(sideways_refusal.completed() && !field<bool>(*sideways_refusal.result, "accepted") &&
+              field<std::string>(*sideways_refusal.result, "reason") == "belt_cannot_carry" &&
+              sideways_loading->snapshot().state == carried_sideways,
+          "A sideways power-only belt refuses a carried blank without changing custody.");
     auto sideways_cargo = sideways_world->snapshot().state;
     sideways_cargo.material.stock.source = 0;
     sideways_cargo.material.belt_lanes.at(sideways_id).slots[1] = m::Cargo{1, 0, {}};
@@ -995,6 +1066,18 @@ void belt_span_commands() {
     check(vertical_built.completed() && field<bool>(*vertical_built.result, "accepted"),
           "The native World places a vertical belt for power transmission.");
     const auto vertical_id = field<std::string>(*vertical_built.result, "entity");
+    auto carried_vertical = vertical_world->snapshot().state;
+    carried_vertical.material.stock.source = 0;
+    carried_vertical.material.cargo.at("P").raw_units = 1;
+    auto vertical_loading = w::World::create("saved-world", profile, carried_vertical);
+    auto vertical_load = command("load_belt_slot", "vertical-load", vertical_id.c_str());
+    vertical_load.at("generation") = V(field<I>(*vertical_built.result, "generation"));
+    vertical_load.emplace("slot", V(I{1})); vertical_load.emplace("item", V("raw")); vertical_load.emplace("work_id", V(I{0}));
+    const auto vertical_refusal = send(*vertical_loading, vertical_load);
+    check(vertical_refusal.completed() && !field<bool>(*vertical_refusal.result, "accepted") &&
+              field<std::string>(*vertical_refusal.result, "reason") == "belt_cannot_carry" &&
+              vertical_loading->snapshot().state == carried_vertical,
+          "A vertical power-only belt refuses a carried blank without changing custody.");
     auto illegal_cargo = vertical_world->snapshot().state;
     illegal_cargo.material.stock.source = 0;
     illegal_cargo.material.belt_lanes.at(vertical_id).slots[1] = m::Cargo{1, 0, {}};

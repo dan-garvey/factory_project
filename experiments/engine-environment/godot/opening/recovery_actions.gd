@@ -8,7 +8,7 @@ var _host: WeakRef
 func _init() -> void:
 	action_button = MenuButton.new()
 	action_button.text = "Move materials…"
-	action_button.tooltip_text = "Recover contents or insert carried material. Stand near the selected machine."
+	action_button.tooltip_text = "Move carried material. Stand near the selected machine or belt position."
 	action_button.get_popup().about_to_popup.connect(_open_menu)
 	action_button.get_popup().id_pressed.connect(_choose)
 	add_child(action_button)
@@ -55,15 +55,15 @@ func refresh() -> void:
 		return
 	var cargo: Dictionary = context.cargo
 	var lots: Array = cargo.work_lots
-	var carrying: bool = cargo.raw > 0 or not lots.is_empty()
+	var carrying: bool = cargo.raw > 0 or cargo.products > 0 or not lots.is_empty()
 	var occupied: bool = _has_contents(context)
-	visible = occupied if context.kind == "belt_span" else carrying or occupied
+	visible = carrying or occupied
 	# Keep this inspector addition to one action row, including expanded Details.
 	# The exact carried forms remain available without another wrapping label.
 	var summary: String = "%s, %s and %s carried." % [
 		_count(cargo.raw, "blank", "blanks"), _count(cargo.products, "plate", "plates"),
 		_count(lots.size(), "workpiece", "workpieces")]
-	action_button.tooltip_text = summary + "\nRecover contents or insert carried material. Stand near the selected machine."
+	action_button.tooltip_text = summary + "\nMove material near the selected machine or belt position."
 	action_button.text = "Move materials…" if occupied and carrying else "Recover contents…" if occupied else "Insert carried material…"
 	action_button.disabled = not context.usable or _offers(context).is_empty()
 	# Preserve a displayed menu's original payloads. A later refresh must not
@@ -124,6 +124,7 @@ func _context() -> Dictionary:
 	if entity is Dictionary and typeof(entity.get("kind")) == TYPE_STRING:
 		kind = entity.kind
 	var slots: Array = []
+	var belt_carries := false
 	var spans: Variant = snapshot.get("belt_spans", {})
 	if spans is Dictionary and spans.get(selected) is Dictionary:
 		var span_slots: Variant = spans[selected].get("slots")
@@ -131,13 +132,18 @@ func _context() -> Dictionary:
 			return {}
 		slots = span_slots
 		kind = "belt_span"
+		var parts: Variant = snapshot.get("transmission_parts", {})
+		var first: Variant = parts.get(spans[selected].get("from")) if parts is Dictionary else null
+		var last: Variant = parts.get(spans[selected].get("to")) if parts is Dictionary else null
+		if first is Dictionary and last is Dictionary and first.get("center") is Array and last.get("center") is Array and first.center.size() == 3 and last.center.size() == 3 and typeof(first.get("axis")) == TYPE_INT:
+			belt_carries = first.axis != 1 and (first.center[0] != last.center[0] or first.center[2] != last.center[2])
 	var usable: bool = host.get("explanation_open") == false and host.get("startup_save_pending") == false
 	if host.has_method("_can_mutate"):
 		var permission: Variant = host.call("_can_mutate")
 		usable = usable and typeof(permission) == TYPE_BOOL and permission
 	usable = usable and typeof(actor_sample.get("ready")) == TYPE_BOOL and actor_sample.ready
 	return {"world": world_context, "actor": actor, "target": selected, "kind": kind,
-		"cargo": cargo, "stock": stock, "slots": slots, "usable": usable}
+		"cargo": cargo, "stock": stock, "slots": slots, "belt_carries": belt_carries, "usable": usable}
 
 func _has_contents(context: Dictionary) -> bool:
 	match context.kind:
@@ -156,6 +162,17 @@ func _offers(context: Dictionary) -> Array[Dictionary]:
 	if context.kind == "belt_span":
 		for index: int in context.slots.size():
 			var item: Variant = context.slots[index]
+			if item == null and context.belt_carries:
+				for kind: String in ["raw", "product", "work"]:
+					var ids: Array = [0] if (kind == "raw" and context.cargo.raw > 0) or (kind == "product" and context.cargo.products > 0) else []
+					if kind == "work":
+						for lot: Dictionary in context.cargo.work_lots:
+							ids.append(lot.id)
+					for id: int in ids:
+						var label: String = "blank" if kind == "raw" else "plate" if kind == "product" else "workpiece %d" % id
+						offers.append({"text": "Put %s on belt position %d" % [label, index + 1],
+							"wire": {"action": "load_belt_slot", "entity": context.target, "slot": index, "item": kind, "work_id": id}})
+				continue
 			if not item is Dictionary or _quantity(item, "raw") < 0 or _quantity(item, "products") < 0 or not item.get("work_lots") is Array:
 				continue
 			var label: String = "blank" if item.raw > 0 else "plate" if item.products > 0 else "workpiece"

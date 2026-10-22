@@ -92,6 +92,8 @@ bool shape(const Object& intent, const std::string& action) {
         return keys(intent, {"target", "generation"});
     if (action == "recover_belt_slot") return keys(intent, {"target", "generation", "slot", "expected"}) &&
         field<Integer>(intent, "slot") && field<Object>(intent, "expected");
+    if (action == "load_belt_slot") return keys(intent, {"target", "generation", "slot", "item", "work_id"}) &&
+        field<Integer>(intent, "slot") && field<std::string>(intent, "item") && field<Integer>(intent, "work_id");
     if (action == "collect" || action == "insert_raw")
         return keys(intent, {"target", "generation", "amount"}) && field<Integer>(intent, "amount");
     if (action == "insert_work")
@@ -346,16 +348,16 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
             targets.back() != anchor(profile, *last_point) ||
             (action == "place_belt_span" && targets.front() != anchor(profile, *first_point))) return false;
     }
-    const bool transfer = action == "recover" || action == "recover_belt_slot" || action == "insert_raw" || action == "insert_work";
+    const bool transfer = action == "recover" || action == "recover_belt_slot" || action == "load_belt_slot" || action == "insert_raw" || action == "insert_work";
     if (result.size() != (action == "place_belt_span" || action == "place_selected_belt_span" ? 18 :
-                          action == "recover_belt_slot" ? 20 : transfer ? 19 : action == "collect" ||
+                          (action == "recover_belt_slot" || action == "load_belt_slot") ? 20 : transfer ? 19 : action == "collect" ||
                           (action == "remove_belt_span" && points->size() == 1) ? 17 : 16)) return false;
     if (action == "remove_belt_span" && points->size() == 1) {
         const auto* center = field<Value::Array>(result, "belt_center");
         const auto location = center ? grid_point(Object{{"center", Value(*center)}}) : std::nullopt;
         if (!location || targets.front() != anchor(profile, *location)) return false;
     }
-    if (action == "recover_belt_slot") {
+    if (action == "recover_belt_slot" || action == "load_belt_slot") {
         const auto* slot = field<Integer>(record.intent, "slot");
         const auto* center = field<Value::Array>(result, "slot_center");
         const auto location = center ? grid_point(Object{{"center", Value(*center)}}) : std::nullopt;
@@ -401,6 +403,16 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         if (*raw != 0 || *products != 0 || work->size() != 1) return false;
         const auto* id = field<Integer>(std::get<Object>(work->front().storage()), "id");
         return id && *id == *field<Integer>(record.intent, "work_id");
+    }
+    if (action == "load_belt_slot") {
+        const auto* kind = field<std::string>(record.intent, "item");
+        const auto* id = field<Integer>(record.intent, "work_id");
+        if (!kind || !id) return false;
+        if (*kind == "raw") return *id == 0 && *raw == 1 && *products == 0 && work->empty();
+        if (*kind == "product") return *id == 0 && *raw == 0 && *products == 1 && work->empty();
+        if (*kind != "work" || *id <= 0 || *raw != 0 || *products != 0 || work->size() != 1) return false;
+        const auto* lot_id = field<Integer>(std::get<Object>(work->front().storage()), "id");
+        return lot_id && *lot_id == *id;
     }
     return true;
 }
@@ -937,12 +949,12 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         facts.emplace("generation", Value(generation));
         return accepted(std::move(candidate), entity, std::move(facts));
     }
-    if (*action == "recover_belt_slot") {
+    if (*action == "recover_belt_slot" || *action == "load_belt_slot") {
         const auto* id = field<std::string>(intent, "target");
         const auto* generation = field<Integer>(intent, "generation");
         const auto* index = field<Integer>(intent, "slot");
         const auto* expected = field<Object>(intent, "expected");
-        if (!id || !generation || !index || !expected) return refused("invalid_target");
+        if (!id || !generation || !index || (*action == "recover_belt_slot" && !expected)) return refused("invalid_target");
         const auto span = std::find_if(state.topology.belt_spans.begin(), state.topology.belt_spans.end(),
             [&](const auto& item) { return item.geometry.id == *id; });
         if (span == state.topology.belt_spans.end()) return refused("unknown_target", *id);
@@ -954,6 +966,8 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         if (*index < 0 || static_cast<std::size_t>(*index) >= lane->second.slots.size()) return refused("invalid_slot", *id);
         const auto path = mechanics::belt_path(first->geometry, last->geometry);
         if (!path || static_cast<std::size_t>(*index) >= path->tiles.size()) return refused("invalid_mechanics", *id);
+        if (*action == "load_belt_slot" && (path->kind == mechanics::BeltPathKind::vertical ||
+            path->kind == mechanics::BeltPathKind::sideways)) return refused("belt_cannot_carry", *id);
         const auto center = path->tiles[static_cast<std::size_t>(*index)];
         auto cut = observe ? observe(binding.actor) : std::nullopt;
         if (!cut) return refused("actor_unready");
@@ -962,6 +976,33 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
         if (checked.error != authority::Error::none) return refused(authority::error_name(checked.error), *id, std::move(facts));
         const auto& item = lane->second.slots.at(static_cast<std::size_t>(*index));
+        if (*action == "load_belt_slot") {
+            if (item) return refused("slot_changed", *id, std::move(facts));
+            const auto* kind = field<std::string>(intent, "item");
+            const auto* work_id = field<Integer>(intent, "work_id");
+            if (!kind || !work_id || ((*kind == "raw" || *kind == "product") && *work_id != 0) ||
+                (*kind == "work" && *work_id <= 0) || (*kind != "raw" && *kind != "product" && *kind != "work"))
+                return refused("invalid_cargo", *id, std::move(facts));
+            auto candidate = state;
+            auto& cargo = candidate.material.cargo.at(binding.actor);
+            materials::Cargo moved;
+            if (*kind == "raw" && cargo.raw_units > 0) { --cargo.raw_units; moved.raw_units = 1; }
+            else if (*kind == "product" && cargo.products > 0) { --cargo.products; moved.products = 1; }
+            else if (*kind == "work") {
+                const auto lot = std::find_if(cargo.work_lots.begin(), cargo.work_lots.end(),
+                    [&](const auto& value) { return value.id == *work_id; });
+                if (lot == cargo.work_lots.end()) return refused("unavailable_cargo", *id, std::move(facts));
+                moved.work_lots.push_back(*lot);
+                cargo.work_lots.erase(lot);
+            } else return refused("unavailable_cargo", *id, std::move(facts));
+            candidate.material.belt_lanes.at(*id).slots.at(static_cast<std::size_t>(*index)) = moved;
+            facts.emplace("generation", Value(*generation));
+            facts.emplace("moved_raw", Value(moved.raw_units));
+            facts.emplace("moved_products", Value(moved.products));
+            facts.emplace("moved_work", lots_value(moved.work_lots));
+            facts.emplace("slot_center", Value(Value::Array{Value(center[0]), Value(center[1]), Value(center[2])}));
+            return accepted(std::move(candidate), *id, std::move(facts));
+        }
         if (!item || values::typed_difference(Value(*expected), belt_cargo_value(*item)))
             return refused("slot_changed", *id, std::move(facts));
         auto candidate = state;

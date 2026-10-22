@@ -243,7 +243,7 @@ func _settle_pending() -> void:
 			elif item.action.action in ["remove", "remove_belt_span"] and selected == result.entity:
 				selected = ""
 			_message({"place": "Placed.", "place_foundation": "Foundation placed on the world grid.", "place_foundations": "Foundation area placed on the world grid.", "connect": "Material path connected.", "connect_drive": "Drive shaft connected.",
-				"retrieve": "Plate collected into your inventory.", "pickup_material": "Loose material collected into your inventory.", "set_power": "Drive updated.",
+				"retrieve": "Plate collected into your inventory.", "pickup_material": "Loose material collected into your inventory.", "load_belt_slot": "Material placed on the belt.", "set_power": "Drive updated.",
 				"remove": "Part returned."}.get(item.action.action, "Action accepted."))
 		else:
 			_message(_material_refusal_message(result, "Not applied: " + {"occupied": "that square is occupied.", "no_part": "that part is already placed.",
