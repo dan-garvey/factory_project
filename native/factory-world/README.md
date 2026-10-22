@@ -86,9 +86,13 @@ Trusted ore-face samples now let a held crank drive a recognized placed-part
 collector through an actor-reachable `turn_hand_crank` request. Each accepted
 turn debits the one native ore reserve and leaves one raw item at the real
 receiver center in the existing loose-material ledger. The tray has one-item
-capacity; pickup, dismantle and checkpoint preserve the item. This is manual
-extraction only; power transmission, automatic extraction and scene input
-remain to be integrated.
+capacity; pickup, dismantle and checkpoint preserve the item. On a tick, a
+ready tray may hand that blank to the empty endpoint slot of an adjacent belt
+on the tray side. The signed belt motion must carry away from the collector;
+a stopped, reversed or full inlet leaves the blank in the tray. The belt
+mouth sits at the next full-tile center from the quarter-grid tray and the
+following belt tile must not approach the frame. This is manual extraction;
+automatic extraction and scene input remain to be integrated.
 
 Session supplies the authenticated actor and request namespace. Fresh commands
 use exact integer fields and known keys. They resolve current entity generations,
