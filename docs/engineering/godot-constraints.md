@@ -614,11 +614,27 @@ synthetic native-revision path measured 0.573 ms refresh and
 measured 16.647 / 17.598 and 18.041 / 19.374 ms frames respectively,
 showing run-to-run variation. A trusted-revision fixture advances its synthetic revision
 on append and tests the resulting rebuild; it does not boot the native World.
-The real native projection, player placement and full startup were not timed,
-and these rotating frames still exceed a steady 60 FPS budget. The fixture's
+Those synthetic runs did not boot the native World, and the rotating frames
+still exceed a steady 60 FPS budget. The fixture's
 verify-only whole-opening mode emits two GL texture leak errors at exit even
 without the trusted revision path; its isolated graphical pose, pick and
 revision checks complete without those errors. Owner: Performance.
+
+**Complete native opening baseline.** On the exact published `46dfd8b`
+source with a freshly built native extension, the ordinary opening at 1280×800
+on Godot 4.7.2 Compatibility, X11/WSL2/D3D12 RTX 3090, took 16.801 s to
+reach the first actor-ready observer frame. With no placed cogs or machines,
+30 warmup and 120 measured frames gave 75.923 ms median, 83.656 ms p95 and
+131 median draw calls. A blank same-project render measured 7.333 ms median,
+so the high floor is in the opening. Passive ablations attributed substantial
+cost to ProductionScenery and sun shadows, but hiding them visibly changed
+the scene and was not shipped. In a stripped three-draw opening, disconnecting
+only the ActorWorld physics-frame callback changed 31.263 to 13.946 ms median;
+the production physical character must keep that callback. The earlier
+synthetic cog fixture therefore cannot establish complete native opening
+frame rate. The passive screenshot confirms the worksite view and FPS display,
+not human playability. The source-matched probe, report and image are retained
+locally under `cog-performance-20261022/native-runtime`. Owner: Performance.
 
 An explicit distant wheel mesh experiment reduced the batched rotor from
 14,094 to 2,306 triangles per instance. Exclusive isolated 200/400-wheel
