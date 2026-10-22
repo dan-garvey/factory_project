@@ -41,8 +41,8 @@ func _ready() -> void:
 	var column := power_button.get_parent()
 	connection_label = _label(column, "NOT CONNECTED", 14)
 	column.move_child(connection_label, 1)
-	reconnect_button = _button(column, "Reconnect to session", _reconnect)
-	disconnect_button = _button(column, "Disconnect", _disconnect)
+	reconnect_button = _button(column, "Reconnect  [Ctrl+J]", _reconnect)
+	disconnect_button = _button(column, "Disconnect  [Ctrl+Shift+J]", _disconnect)
 	session.welcomed.connect(_welcomed)
 	session.changed.connect(_changed)
 	session.outcome.connect(_outcome_received)
@@ -58,6 +58,14 @@ func _ready() -> void:
 		return
 	if connect_on_ready:
 		_reconnect()
+
+func _input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo and event.ctrl_pressed and event.keycode == KEY_J:
+		var button := disconnect_button if event.shift_pressed else reconnect_button
+		if not explanation_open and _activate_button(button):
+			get_viewport().set_input_as_handled()
+		return
+	super._input(event)
 
 func _usable_snapshot() -> bool:
 	return state.has("entities") and state.has("stock") and state.has("inventories") and state.has("parts") and (legacy_fixture or (state.get("options", {}).get("physical", false) and state.has("actors")))
