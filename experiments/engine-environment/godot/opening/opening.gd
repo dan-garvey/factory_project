@@ -4897,6 +4897,8 @@ func issue(action: Dictionary) -> Dictionary:
 			refusal = {"unavailable_input": "Gather the timber or softmetal shown for this component.",
 				"inventory_full": "Your component bag is full. Place a carried part to make room.",
 				"out_of_reach": "Move beside the pod workshop to craft this component."}.get(outcome.get("reason", ""), refusal)
+		elif action.action == "reclaim_component" and outcome.get("reason", "") == "inventory_full":
+			refusal = "Your component bag is full. Place another carried part before reclaiming."
 		_message(refusal, true)
 	_refresh()
 	return outcome
