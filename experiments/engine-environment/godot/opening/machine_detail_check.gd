@@ -5428,7 +5428,7 @@ func render_buildable_resources() -> void:
 		{"name": "press-cartridge", "kind": "tool_cartridge", "tool": "press", "sample_only": true},
 		{"name": "cutter-cartridge-sample", "kind": "tool_cartridge", "tool": "cut_sample", "sample_only": true},
 		{"name": "guarded-cutter-sample", "kind": "tool_cartridge", "tool": "cut_sample", "guarded": true, "sample_only": true},
-		{"name": "conveyor", "kind": "belt", "sample_only": true}, {"name": "waterwheel", "kind": "wheel"},
+		{"name": "waterwheel", "kind": "wheel"},
 		{"name": "waterwheel-large", "kind": "wheel", "tiles": 8},
 		{"name": "belt-span", "kind": "belt_span"}, {"name": "belt-pulley", "kind": "belt_pulley"},
 		{"name": "cogwheel", "kind": "cogwheel"},
@@ -5721,7 +5721,7 @@ func render_buildable_resources() -> void:
 		await process_frame
 	report.status = "pass"
 	report.images_expected = subjects.size() * 2 + subjects.filter(func(subject): return subject.kind == "cogwheel").size() * 2
-	report.limits = "Studio lighting and passive mesh observations. The cutter cartridge is an isolated visual sample without native cutting. The one-cell conveyor is a retired art sample; playable belts are shaft spans. No actual app, game state, user understanding, export, performance or human-quality verdict."
+	report.limits = "Studio lighting and passive mesh observations. The cutter cartridge is an isolated visual sample without native cutting. The unsupported one-cell conveyor is omitted; playable belts are shaft spans. No actual app, game state, user understanding, export, performance or human-quality verdict."
 	if not resource_render_write(manifest, report):
 		push_error("The final resource-render result cannot be retained.")
 		quit(1)
@@ -5858,12 +5858,18 @@ func _initialize() -> void:
 		check_cutter_guard()
 		finish()
 		return
-	if OS.get_cmdline_user_args().has("--conveyor-hub-only"):
+	if OS.get_cmdline_user_args().has("--conveyor-hub-only") or OS.get_cmdline_user_args().has("--conveyor-frame-only"):
+		push_error("The one-cell conveyor is retired. Use --span-belt-only for player-built belts.")
+		quit(1)
+		return
+	if OS.get_cmdline_user_args().has("--diagnose-retired-conveyor-hub"):
 		check_conveyor_hub()
+		verify(false, "Historical hub checks cannot qualify a retired and unsupported one-cell machine.")
 		finish()
 		return
-	if OS.get_cmdline_user_args().has("--conveyor-frame-only"):
+	if OS.get_cmdline_user_args().has("--diagnose-retired-conveyor-frame"):
 		check_conveyor_frame()
+		verify(false, "Historical frame checks cannot qualify a retired and unsupported one-cell machine.")
 		finish()
 		return
 	if OS.get_cmdline_user_args().has("--press-crown-only"):

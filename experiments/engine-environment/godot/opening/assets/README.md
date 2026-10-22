@@ -6,7 +6,7 @@ authority. The current carried counts come from the opening's confirmed kit.
 
 The existing `machine_detail_check.gd` fixture also has a
 `--render-buildable-resources` mode for inspecting the current native collector,
-press, retired one-cell conveyor sample, waterwheel and foundation kit as passive
+press, shaft-span belt, waterwheel and foundation kit as passive
 resources. It reads its own
 960 by 960 pixel viewports after completed draw barriers and retains two studio
 views per ordinary subject, four for the complete cog, image hashes, framing, the native presentation profile
@@ -391,38 +391,29 @@ rule, contact, shaft geometry or collision envelope.
 The collector drum, hub and eight cutter flutes share that same cached cosmetic
 angle about their existing drum center. The press and cutter reuse the view's
 freshness gates and leave their pick bodies, item counts and item positions
-unchanged. The conveyor remains static: no belt surface speed or direction has
-been inferred from the separate material-transfer rules.
+unchanged. The retired one-cell conveyor sample is static. Active shaft-span
+belts use only confirmed transmission motion for cosmetic phase; material
+transfer rules do not supply a separate belt speed or direction.
 
-The retained one-cell conveyor art sample uses original flared cast end frames with fitted
-bearing cups, worked liners, retaining caps and rigid hexagonal fasteners. Lower
-formed side members join the frames while clearing the original roller tips.
-The upper guards now use closed folded sections with inward returns and four
-seated posts instead of unsupported rectangular bars. They retain a central
-opening for the existing Z-axis drive and clear the rubber edge. Their
-paint and exposed metal reuse the qualified cast/worked maps. The original rubber
-loop, roller geometry, drive, picks, items and authority remain unchanged; these
-visual bearings add no contact, force or transport simulation. Native World no
-longer admits this one-cell belt machine; player-built belts use shaft spans.
-Historical nonnative views retain their earlier posts and bearing disks.
-Technical geometry checks do not
-establish rendered quality, GPU cost or human assessment.
-
-The sample's drive artwork is a compact journal and supported open
-housing at the confirmed hub point and axis. Twin carrier rails sit inside the
-empty belt return, with cleats joining the existing side members. A vertical
-hub uses a forked mount. This replaces the old long decorative bar that crossed
-the rubber. The native hub supplies no cylinder dimensions; the artwork adds
-no shaft, new connection point or power path.
+The former one-cell conveyor remains in source as an isolated historical art
+sample, but the resource gallery no longer presents it as a current buildable.
+Native World rejects that machine form; player-built belts use shaft spans.
+Its authored guards, cast end frames and compact hub did not establish a fitted
+assembly: the horizontal pedestal ends around 0.46 metres while the housing
+surface begins around 0.78 metres, and the old clearance check also found a
+carried-work conflict. The original failing probes remain available for diagnosis
+under explicit retired-sample modes. The old positive hub and frame modes now
+refuse rather than presenting a misleading acceptance result. Historical
+nonnative views retain their original posts and bearing disks. This retirement
+changes no native admission, transport or construction authority.
 
 Reusable shaft artwork now has a 30-millimetre core radius, fitted narrower
 collars and keys, and a matching longitudinal keyway. Its prescribed centre,
 axis and length remain exact, and the original 80-millimetre selection radius
 stays unchanged. These are revisable art dimensions, not native collision or
 mechanical rules. Qualified finishes and signed cosmetic motion are reused.
-Local fit checks compare actual shaft envelopes with the fixed hub furniture
-and compare the new hub pieces with the belt and workpiece. They do not prove
-general shaft routing through an entire machine, native contact, torque or
+The retained sample fit checks remain diagnostic for its unresolved furniture;
+they do not prove an active shaft-span connection, native contact, torque or
 working phase. Nonnative conveyors keep their old stub. Rendered quality and
 human assessment remain open.
 
