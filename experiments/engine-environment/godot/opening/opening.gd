@@ -5075,9 +5075,12 @@ func _select_tool(tool: String) -> void:
 	mode = tool
 	foundation_area_started = false
 	pending_link = ""
-	if _native_transmission() and transmission_controls != null and tool in ["gear", "drive", "belt", "gearbox", "vertical_gearbox", "chain_drive"]:
-		transmission_controls.choose_tool({"gear": "gear", "drive": "place_shaft", "belt": "belt_span",
-			"gearbox": "gearbox", "vertical_gearbox": "vertical_gearbox", "chain_drive": "chain_drive"}[tool])
+	if _native_transmission() and transmission_controls != null:
+		if tool == "wheel" and transmission_controls.selected_axis == "y":
+			transmission_controls._axis_selected(0)
+		if tool in ["gear", "drive", "belt", "gearbox", "vertical_gearbox", "chain_drive"]:
+			transmission_controls.choose_tool({"gear": "gear", "drive": "place_shaft", "belt": "belt_span",
+				"gearbox": "gearbox", "vertical_gearbox": "vertical_gearbox", "chain_drive": "chain_drive"}[tool])
 	_update_cursor()
 	_refresh_ui()
 	var instructions := {"flow": "Click the upstream machine, then its neighbor toward the brass arrow.",
@@ -6375,7 +6378,7 @@ func _cycle_placement_axis() -> void:
 		return
 	var axes := ["x", "y", "z"]
 	var next_axis: int = (axes.find(transmission_controls.selected_axis) + 1) % axes.size()
-	if mode == "vertical_gearbox" and next_axis == 1:
+	if mode in ["wheel", "vertical_gearbox"] and next_axis == 1:
 		next_axis = 2
 	transmission_controls._axis_selected(next_axis)
 	transmission_controls.refresh()

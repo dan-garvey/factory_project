@@ -259,6 +259,22 @@ func _interaction_controls() -> void:
 		verify(view.placement_options_axis.visible and view.transmission_controls.selected_axis != old_axis
 			and view.foundation_level_controls.visible and view.wheel_size_controls.visible,
 			"The wheel ghost offers axle, height and diameter controls in the same menu.")
+		verify(view.transmission_controls.selected_axis in ["x", "z"],
+			"The wheel axle button offers only the horizontal axes accepted by native placement.")
+		view.placement_options_axis.pressed.emit()
+		verify(view.transmission_controls.selected_axis == old_axis,
+			"Two wheel axle choices return to the starting horizontal orientation.")
+		view._select_tool("drive")
+		view.transmission_controls._axis_selected(1)
+		view._select_tool("wheel")
+		verify(view.transmission_controls.selected_axis in ["x", "z"],
+			"Choosing a wheel after a vertical shaft restores a valid horizontal axle.")
+		var wheel_axis: String = view.transmission_controls.selected_axis
+		view._rotate_building()
+		verify(view.transmission_controls.selected_axis in ["x", "z"]
+			and view.transmission_controls.selected_axis != wheel_axis and view.issued.is_empty()
+			and view.request_sequence == sequence and view.state == before,
+			"Wheel rotation stays available without a native request or confirmed-state change.")
 		view.mode = "foundation"
 		view._refresh_ui()
 		view._refresh_placement_options()
