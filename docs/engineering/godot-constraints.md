@@ -532,6 +532,36 @@ Priming moves asset preparation into opening setup; it does not eliminate the
 one-time work. A complete native opening launch and input timing remain to be
 measured before treating its startup cost as accepted. Owner: Performance.
 
+**Repeated static machine composites.** The native opening now combines the
+eligible static opaque surfaces of identical collector, conveyor and press
+assemblies into one cached mesh per exact source/finish/pose signature. Moving
+parts, translucent parts, range-culled detail, conveyor loops and pick bodies
+retain their existing paths. Waterwheels keep their separate rotor composite;
+an additional support composite did not improve their 100-wheel tail time.
+In an exclusive 1280×800 Godot 4.7.2 Compatibility rendered fixture on
+WSL2/D3D12 RTX 3090, with the same static opening scenery, synthetic machines,
+camera rule, 30 warmup and 120 measured frames per case, the production batch
+path changed as follows (old grouping → static composites): 100 mixed
+collector/conveyor/press assemblies, 20.887 → 19.531 ms median and
+28.475 → 25.255 ms p95, with 264 → 221 median draw calls; 400 assemblies,
+16.971 → 15.232 ms median and 18.366 → 16.942 ms p95, with 191 → 117
+draw calls. These are single runs. The camera moves back as the array grows,
+so the 400 case shows smaller machines and cannot be read as constant-view
+scaling. First batch construction grew from 135.945 to 333.748 ms for 100 and
+343.025 to 598.913 ms for 400, leaving placement latency unresolved.
+The repository's `machine_visual_test.gd --mixed-scale --production-batch`
+repeated the final render with pixel-identical captures and 221/117 median
+draw calls; its separate 100/400 runs measured 19.133/14.761 ms median and
+26.350/15.645 ms p95, showing run-to-run frame-time variation.
+The 100-machine direct and composited frames differed at 4,442 of 1,024,000
+pixels; the previous batching path differed from direct at six pixels. The
+changed pixels cluster on small machine edges and highlights in the captured
+view. The source hierarchy and pick bodies remain, and the baked meshes use
+the original finishes. All-angle
+fidelity, native player placement, motion under a full authored worksite and
+human play remain unverified. Fixture scripts, logs and captures are retained
+locally under `cog-performance-20261022`. Owner: Performance.
+
 **Motion update cost, measured but not fully resolved.** The presenter retains
 only unbatched animated anchors when topology changes; the opening retains
 machine motion anchors and resolves each conveyor loop once. It also uses the

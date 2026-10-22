@@ -4253,6 +4253,7 @@ var machine_rotors: Array[Dictionary] = []
 var machine_motion_anchors: Array[Node3D] = []
 var machine_batch_finished_meshes: Dictionary = {}
 var machine_batch_rotor_meshes: Dictionary = {}
+var machine_batch_composite_meshes: Dictionary = {}
 var transmission_preview_point: Array = []
 var wheel_rotor: Node3D
 var machine_body_context := ""
@@ -6243,9 +6244,114 @@ func _wheel_rotor_batch_mesh(rotor: Node3D, hidden_core: Array[MeshInstance3D]) 
 	machine_batch_rotor_meshes[key] = combined
 	return combined
 
+func _collect_machine_composite_parts(node: Node3D, pose: Transform3D,
+		moving: Dictionary, parts: Array[Dictionary]) -> void:
+	# Keep moving, translucent, range-culled and conveyor-loop visuals on their
+	# existing paths. Only identical opaque static assemblies can be instanced.
+	for child in node.get_children():
+		if not child is Node3D or not child.visible or child.name == "WheelRotor":
+			continue
+		var child_pose: Transform3D = pose * child.transform
+		if child is MeshInstance3D:
+			var source := child as MeshInstance3D
+			if moving.has(source.get_instance_id()):
+				continue
+			# Hiding a scene parent would also hide its unbatched children.
+			if source.mesh != null and source.get_child_count() == 0 and source.name != "ConveyorLoop" \
+					and source.material_overlay == null \
+					and source.visibility_range_end <= 0.0:
+				var eligible_parts: Array[Dictionary] = []
+				for surface in source.mesh.get_surface_count():
+					var finish: Material = source.material_override
+					if finish == null:
+						finish = source.get_surface_override_material(surface)
+					if finish == null:
+						finish = source.mesh.surface_get_material(surface)
+					if (finish is BaseMaterial3D and finish.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED) \
+							or (source.mesh is ArrayMesh and source.mesh.surface_get_primitive_type(surface) != Mesh.PRIMITIVE_TRIANGLES):
+						eligible_parts.clear()
+						break
+					eligible_parts.append({"source": source, "mesh": source.mesh, "surface": surface,
+						"finish": finish, "pose": child_pose, "shadow": source.cast_shadow,
+						"layers": source.layers})
+				parts.append_array(eligible_parts)
+		_collect_machine_composite_parts(child, child_pose, moving, parts)
+
+func _machine_composite_mesh(parts: Array[Dictionary], key: Array) -> ArrayMesh:
+	if machine_batch_composite_meshes.has(key):
+		return machine_batch_composite_meshes[key]
+	var finishes := {}
+	for part in parts:
+		var finish: Material = part.finish
+		var finish_id := finish.get_instance_id() if finish != null else 0
+		if not finishes.has(finish_id):
+			finishes[finish_id] = {"material": finish, "parts": []}
+		finishes[finish_id].parts.append(part)
+	var combined: ArrayMesh
+	for group in finishes.values():
+		var surface := SurfaceTool.new()
+		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+		for part in group.parts:
+			surface.append_from(part.mesh, part.surface, part.pose)
+		surface.set_material(group.material)
+		combined = surface.commit(combined)
+	machine_batch_composite_meshes[key] = combined
+	return combined
+
+func _batch_machine_composites(moving: Dictionary, static_groups: Dictionary) -> Dictionary:
+	var candidates := {}
+	var skip_sources := {}
+	for anchor in machine_root.get_children():
+		# Wheel rotors already use a composite moving mesh; their supports did
+		# not improve the rendered frame-time comparison.
+		if not anchor is Node3D or not anchor.has_meta("machine_kind") \
+				or anchor.get_meta("machine_kind") == "wheel":
+			continue
+		var parts: Array[Dictionary] = []
+		_collect_machine_composite_parts(anchor, Transform3D.IDENTITY, moving, parts)
+		if parts.size() < 2:
+			continue
+		var shadow: int = parts[0].shadow
+		var layers: int = parts[0].layers
+		var key: Array = []
+		var compatible := true
+		for part in parts:
+			if part.shadow != shadow or part.layers != layers:
+				compatible = false
+				break
+			var finish: Material = part.finish
+			key.append_array([part.mesh.get_instance_id(), part.surface,
+				finish.get_instance_id() if finish != null else 0, part.pose])
+		if not compatible:
+			continue
+		if not candidates.has(key):
+			candidates[key] = {"parts": parts, "instances": []}
+		candidates[key].instances.append({"anchor": anchor, "parts": parts})
+	for key in candidates:
+		var candidate: Dictionary = candidates[key]
+		if candidate.instances.size() < 2:
+			continue
+		var mesh := _machine_composite_mesh(candidate.parts, key)
+		var shadow: int = candidate.parts[0].shadow
+		var layers: int = candidate.parts[0].layers
+		var group_key := [mesh.get_instance_id(), 0, shadow, layers]
+		if not static_groups.has(group_key):
+			static_groups[group_key] = {"mesh": mesh, "material": null,
+				"shadow": shadow, "layers": layers, "parts": []}
+		for instance in candidate.instances:
+			var sources: Array[MeshInstance3D] = []
+			for part in instance.parts:
+				if part.source not in sources:
+					sources.append(part.source)
+				skip_sources[part.source.get_instance_id()] = true
+			static_groups[group_key].parts.append({"node": instance.anchor,
+				"pose": instance.anchor.transform,
+				"hide_nodes": sources})
+	return skip_sources
+
 func _batch_machine_visuals_walk(node: Node3D, pose: Transform3D,
 		moving: Dictionary, static_groups: Dictionary, dynamic_groups: Dictionary,
-		rotating := false) -> void:
+		rotating := false, skip_sources: Dictionary = {}) -> void:
 	if not node.visible:
 		return
 	var next_pose := pose * node.transform
@@ -6261,7 +6367,7 @@ func _batch_machine_visuals_walk(node: Node3D, pose: Transform3D,
 			dynamic_groups[key].parts.append({"node": node, "pose": next_pose,
 				"parent_pose": pose, "hide_nodes": hidden_core})
 			return
-	if node is MeshInstance3D and node.mesh != null and node.name != "ConveyorLoop" \
+	if node is MeshInstance3D and not skip_sources.has(node.get_instance_id()) and node.mesh != null and node.name != "ConveyorLoop" \
 			and node.visibility_range_end <= 0.0:
 		var mesh_part := node as MeshInstance3D
 		var material := mesh_part.material_override
@@ -6284,7 +6390,8 @@ func _batch_machine_visuals_walk(node: Node3D, pose: Transform3D,
 			groups[key].parts.append({"node": mesh_part, "pose": next_pose})
 	for child in node.get_children():
 		if child is Node3D:
-			_batch_machine_visuals_walk(child, next_pose, moving, static_groups, dynamic_groups, in_rotor)
+			_batch_machine_visuals_walk(child, next_pose, moving, static_groups, dynamic_groups,
+				in_rotor, skip_sources)
 
 func _emit_machine_mesh_batches(groups: Dictionary, batches: Node3D, dynamic: bool) -> void:
 	var batch_index := batches.get_child_count()
@@ -6386,9 +6493,11 @@ func _batch_machine_visuals() -> void:
 			moving[row.node.get_instance_id()] = true
 	var static_groups := {}
 	var dynamic_groups := {}
+	var skip_sources := _batch_machine_composites(moving, static_groups)
 	for anchor in machine_root.get_children():
 		if anchor is Node3D:
-			_batch_machine_visuals_walk(anchor, Transform3D.IDENTITY, moving, static_groups, dynamic_groups)
+			_batch_machine_visuals_walk(anchor, Transform3D.IDENTITY, moving, static_groups,
+				dynamic_groups, false, skip_sources)
 	var batches := Node3D.new()
 	batches.name = "MachineVisualBatches"
 	machine_root.add_child(batches)
