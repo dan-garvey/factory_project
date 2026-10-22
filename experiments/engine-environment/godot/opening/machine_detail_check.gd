@@ -2015,6 +2015,12 @@ func check_river_pier_projection() -> void:
 					var role: String = child.get_meta("wheel_support_role", "")
 					if counts.has(role):
 						counts[role] += 1
+						verify(child.mesh is ArrayMesh,
+							"Pier braces, caps and feet use beveled meshes with physical UV coordinates.")
+						if role == "RiverPier":
+							var timber := child.material_override as StandardMaterial3D
+							verify(timber != null and timber.albedo_texture != null,
+								"A sourced wheel timber finish is fitted to each visible river brace.")
 						var side := 0 if child.position[axis] < 0.0 else 1
 						var box: Dictionary = projected.boxes[side]
 						var within := true

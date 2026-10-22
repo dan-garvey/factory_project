@@ -573,6 +573,11 @@ class ProductionWheelArt:
 		centre_finish = centre_material
 		source_status = "ready"
 
+	static func support_timber_finish() -> StandardMaterial3D:
+		if source_status == "uninitialized":
+			_prepare()
+		return centre_finish if source_status == "ready" else null
+
 	static func _sized_mesh(source: ArrayMesh, tiles: int, outer: bool) -> ArrayMesh:
 		if tiles <= 3:
 			return source
@@ -894,11 +899,11 @@ class ProductionWheelPierArt:
 	static func _beam(parent: Node3D, name_value: String, start: Vector3, finish_at: Vector3,
 			width: float, surface: Material) -> void:
 		var direction := finish_at - start
-		var mesh := BoxMesh.new()
-		mesh.size = Vector3(width, direction.length(), width)
 		var part := MeshInstance3D.new()
 		part.name = name_value
-		part.mesh = mesh
+		# The beveled mesh uses world-sized UVs, so the sourced grain keeps its
+		# scale along riverbed-height braces instead of stretching one image.
+		part.mesh = ProductionVisuals.box_mesh(Vector3(width, direction.length(), width))
 		part.material_override = surface
 		part.position = (start + finish_at) * 0.5
 		part.basis = Basis(Quaternion(Vector3.UP, direction.normalized()))
@@ -914,6 +919,9 @@ class ProductionWheelPierArt:
 			return false
 		var radial := Vector3.BACK if axis == 0 else Vector3.RIGHT
 		var worked := ProductionTransmissionFinish.material("cast", Color("465a60"), 0.85, 0.55)
+		var timber: Material = ProductionWheelArt.support_timber_finish()
+		if timber == null:
+			timber = worked
 		var stone := ProductionEnvironment.stone_material()
 		for original: Dictionary in projected.boxes:
 			var middle: Vector3 = original.center - parent.position
@@ -922,21 +930,17 @@ class ProductionWheelPierArt:
 			var high: float = middle.y + size.y * 0.5
 			for side in [-1.0, 1.0]:
 				_beam(parent, "RiverPierBrace", middle + radial * side * 0.32 + Vector3.UP * (low - middle.y + 0.12),
-					middle + Vector3.UP * (high - middle.y - 0.11), 0.22, worked)
+					middle + Vector3.UP * (high - middle.y - 0.11), 0.22, timber)
 			var cap := MeshInstance3D.new()
 			cap.name = "RiverPierCap"
-			var cap_mesh := BoxMesh.new()
-			cap_mesh.size = Vector3(size.x, 0.12, size.z)
-			cap.mesh = cap_mesh
+			cap.mesh = ProductionVisuals.box_mesh(Vector3(size.x, 0.12, size.z))
 			cap.position = Vector3(middle.x, high - 0.06, middle.z)
 			cap.material_override = worked
 			cap.set_meta("wheel_support_role", "RiverPierCap")
 			parent.add_child(cap)
 			var foot := MeshInstance3D.new()
 			foot.name = "RiverPierFoot"
-			var slab := BoxMesh.new()
-			slab.size = Vector3(size.x, 0.18, size.z)
-			foot.mesh = slab
+			foot.mesh = ProductionVisuals.box_mesh(Vector3(size.x, 0.18, size.z))
 			foot.position = Vector3(middle.x, low + 0.09, middle.z)
 			foot.material_override = stone
 			foot.set_meta("wheel_support_role", "RiverPierFoot")
