@@ -265,7 +265,7 @@ func _initialize() -> void:
 	quit(0 if ok else 1)
 
 
-func check_exposure_mesh(mesh: ArrayMesh, cells: Array) -> void:
+func check_exposure_mesh(mesh: ArrayMesh) -> void:
 	var arrays := mesh.surface_get_arrays(0)
 	var points: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
 	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
@@ -273,32 +273,35 @@ func check_exposure_mesh(mesh: ArrayMesh, cells: Array) -> void:
 	var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
 	verify(points.size() > 0 and points.size() % 3 == 0 and normals.size() == points.size()
 		and tangents.size() == points.size() * 4 and uvs.size() == points.size(),
-		"The low-relief exposure has complete actual triangle, normal, UV and tangent attributes.")
+		"The draped mineral relief has complete actual triangle, normal, UV and tangent attributes.")
 	var attributes := true
-	var footprint := true
 	var contact := true
 	var winding := true
+	var spec: Dictionary = Assets.Scenery.Surface.source_outcrop()
+	var inverse := Transform3D(spec.basis, spec.center).affine_inverse()
+	var query: TriangleMesh = Assets.Scenery.Surface.SOURCE_OUTCROP_MESH.generate_triangle_mesh()
 	for n in range(points.size()):
 		var point := points[n]
 		var tangent := Vector3(tangents[n * 4], tangents[n * 4 + 1], tangents[n * 4 + 2])
 		attributes = attributes and point.is_finite() and normals[n].is_finite() and uvs[n].is_finite()
 		attributes = attributes and is_equal_approx(normals[n].length(), 1.0) and tangent.is_finite()
 		attributes = attributes and absf(tangent.dot(normals[n])) < 0.0002
-		var cell := [roundi(point.x / Geometry.PITCH), roundi(point.z / Geometry.PITCH)]
-		footprint = footprint and cell in cells
+		var hit := query.intersect_ray(inverse * Vector3(point.x, spec.center.y + spec.size.y, point.z),
+			inverse.basis * Vector3.DOWN)
+		if hit.is_empty():
+			contact = false
+		else:
+			var rock_point: Vector3 = Transform3D(spec.basis, spec.center) * hit.position
+			var gap := point.y - rock_point.y
+			contact = contact and gap >= 0.0059 and gap <= 0.0141
 	for n in range(0, points.size(), 3):
 		var a := points[n]
 		var b := points[n + 1]
 		var c := points[n + 2]
 		var cross := (b - a).cross(c - a)
 		winding = winding and cross.length_squared() > 0.000000000001 and cross.dot(normals[n]) < 0
-		for weights in [Vector3(1, 0, 0), Vector3(0, 1, 0), Vector3(0, 0, 1), Vector3.ONE / 3.0]:
-			var at: Vector3 = a * weights.x + b * weights.y + c * weights.z
-			var gap: float = at.y - Assets.Scenery.Surface.height_at(at.x, at.z)
-			contact = contact and is_finite(gap) and gap >= 0.004 and gap <= 0.04
 	verify(attributes and winding, "All surface facets have finite orthogonal attributes and outward clockwise winding.")
-	verify(footprint, "Every visible source vertex stays inside native-declared extraction cells.")
-	verify(contact, "Actual facets stay within forty millimetres of the shared terrain, without floating solid rocks.")
+	verify(contact, "Every vein vertex lies within the declared relief above the actual delivered rock surface.")
 
 
 func check_mineral_seam() -> void:
@@ -325,11 +328,12 @@ func check_mineral_seam() -> void:
 		verify(rock.mesh == rock_mesh, "The exhausted host exposure reuses the same geometry throughout depletion.")
 		for part in exposure.get_children():
 			verify(part is MeshInstance3D and part.get_child_count() == 0 and part.get_script() == null
-				and not part is CollisionObject3D and part.position == Vector3.ZERO and part.scale == Vector3.ONE,
+				and not part is CollisionObject3D and part.scale == Vector3.ONE,
 				"The mineral node has no collider, script, input, clock, manufactured hardware or second authority.")
-			check_exposure_mesh(part.mesh, cells)
 		if amount > 0:
 			var veins: MeshInstance3D = exposure.get_node("MineralVeins")
+			verify(veins.transform == Transform3D.IDENTITY, "The vein mesh uses the same world placement as its surface queries.")
+			check_exposure_mesh(veins.mesh)
 			if mineral_material == null:
 				mineral_material = veins.material_override
 				full_veins = veins.mesh
@@ -346,45 +350,35 @@ func check_mineral_seam() -> void:
 		Assets.populate_items(holder, {"initial_feed": 4096, "source_deposit": {"cells": cells},
 			"entities": {}, "stock": {"source": amount}})
 		holder.free()
-	verify(Assets.source_meshes.size() == 9, "One host mesh and eight depletion surfaces bound the cache independently of reserve size.")
+	verify(Assets.source_meshes.size() == 8, "Eight depletion surfaces bound the vein cache independently of reserve size; the immutable rock is one resource.")
 	var unknown := Node3D.new()
 	Assets.populate_items(unknown, {"initial_feed": 4096, "entities": {}, "stock": {"source": 4096}})
 	verify(unknown.get_child_count() == 0, "Stock without declared source coverage never invents a local resource row.")
 	unknown.free()
 	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
 		"mode": "mineral-seam-only", "reserve_observations": [4096, 2048, 1023, 1, 0],
-		"cache_entries": Assets.source_meshes.size(), "maximum_relief_metres": 0.04,
+		"cache_entries": Assets.source_meshes.size(), "maximum_vein_relief_metres": 0.014,
 		"authority_started": false, "rendered_quality": "not_assessed", "desktop": "not_used"}))
 	quit(1 if failed else 0)
 
 
 func check_exposure_boundary(rock: MeshInstance3D) -> void:
-	var arrays: Array = rock.mesh.surface_get_arrays(0)
-	var colors := PackedColorArray()
-	if arrays[Mesh.ARRAY_COLOR] != null:
-		colors = arrays[Mesh.ARRAY_COLOR]
-	var core := false
-	var edge := false
-	for color in colors:
-		core = core or color.a > 0.99
-		edge = edge or color.a < 0.01
-	verify(core and edge and rock.material_override.vertex_color_use_as_albedo
-		and rock.material_override.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA,
-		"Exposed rock has an opaque core and a transparent ground transition consumed by its real material.")
-	var furthest := {}
-	for point: Vector3 in arrays[Mesh.ARRAY_VERTEX]:
-		# Normalize by the actual two-cell extraction footprint, independently
-		# of the art helper's ring spacing or radial shape formula.
-		var at := Vector2(point.x, point.z - Geometry.PITCH * 0.5) / Vector2(Geometry.PITCH * 0.5, Geometry.PITCH)
-		if at.length_squared() > 0.000001:
-			var sector := posmod(roundi(at.angle() * 32.0 / TAU), 32)
-			furthest[sector] = maxf(furthest.get(sector, 0.0), at.length())
-	var nearest_edge := INF
-	var farthest_edge := 0.0
-	for radius: float in furthest.values():
-		nearest_edge = minf(nearest_edge, radius)
-		farthest_edge = maxf(farthest_edge, radius)
-	verify(furthest.size() >= 24 and farthest_edge - nearest_edge > 0.2,
-		"The actual extraction footprint has distinct irregular insets rather than a nearly elliptical marker.")
-	verify(rock.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF,
-		"The thin ground transition cannot cast an artificial solid rim shadow.")
+	var surface = Assets.Scenery.Surface
+	var spec: Dictionary = surface.source_outcrop()
+	verify(rock.mesh == surface.SOURCE_OUTCROP_MESH
+		and rock.transform == Transform3D(spec.basis, spec.center),
+		"The visible fixed rock uses the sole site's immutable mesh and exact native obstacle transform.")
+	var visible: AABB = rock.transform * rock.mesh.get_aabb()
+	var obstacle: AABB = Transform3D(spec.basis, spec.center) * AABB(-spec.size * 0.5, spec.size)
+	verify(visible.is_equal_approx(obstacle) and visible.end.y - surface.height_at(spec.center.x, spec.center.z) > 0.75,
+		"The placement obstacle has the visible rock envelope and substantial relief above ground.")
+	verify(spec.points.size() == 201 and spec.native_points.size() == 200 and spec.faces.size() == 396 * 3,
+		"The shared descriptor keeps original cooking input and cooked reference facets separate.")
+	var finish: StandardMaterial3D = rock.material_override
+	verify(finish.albedo_texture.get_size() == Vector2(512, 512)
+		and finish.normal_texture.get_size() == Vector2(256, 256)
+		and finish.roughness_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_GREEN
+		and finish.metallic == 0.0 and finish.cull_mode == BaseMaterial3D.CULL_DISABLED,
+		"The actual rock material consumes its prepared color, OpenGL normal and packed roughness without changing the donor's metallic factor.")
+	verify(rock.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_ON,
+		"The substantial outcrop participates in the normal scene's shadows.")

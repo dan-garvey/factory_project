@@ -2,6 +2,7 @@ extends RefCounted
 ## Immutable fixture geometry shared by terrain rendering and native collision.
 ## These dimensions and heights are adapter data, not a selected world-size rule.
 const Geometry = preload("res://opening/site_geometry.gd")
+const SOURCE_OUTCROP_MESH: ArrayMesh = preload("res://opening/assets/mineral-outcrop/boulder.res")
 const SUBDIVISIONS := 72
 const SIZE := Geometry.DISPLAY_TERRAIN_SIZE
 const HALF := SIZE * 0.5
@@ -191,7 +192,7 @@ static func rock_faces(scale: Vector3 = Vector3.ONE) -> PackedVector3Array:
 static func match_native_rock(actual: PackedVector3Array, source: PackedVector3Array) -> PackedVector3Array:
 	# Pinned GodotPhysics3D cooks hull points on a per-AABB integer grid.
 	# Bind that documented projection without padding contacts or build reach.
-	if actual.size() != source.size() or source.size() != 12:
+	if actual.size() != source.size() or source.size() < 4 or source.size() > 512:
 		return PackedVector3Array()
 	var bounds := AABB(source[0], Vector3.ZERO)
 	for point in source:
@@ -217,13 +218,16 @@ static func match_native_rock(actual: PackedVector3Array, source: PackedVector3A
 		ordered.append(actual[found])
 	return ordered
 
-static func rock_faces_for_vertices(points: PackedVector3Array) -> PackedVector3Array:
+static func rock_faces_for_vertices(points: PackedVector3Array, spec: Dictionary) -> PackedVector3Array:
 	var result := PackedVector3Array()
-	if points.size() != 12:
+	var source: PackedVector3Array = spec.native_points
+	if points.size() != source.size():
 		return result
-	for first in range(0, ROCK_TRIANGLES.size(), 3):
-		for offset in [0, 2, 1]:
-			result.append(points[ROCK_TRIANGLES[first + offset]])
+	for face: Vector3 in spec.faces:
+		var index := source.find(face)
+		if index < 0:
+			return PackedVector3Array()
+		result.append(points[index])
 	return result
 
 static func river_center_x(z: float) -> float:
@@ -533,16 +537,30 @@ static func rock_boxes() -> Array[Dictionary]:
 		var scale := Vector3(0.75 + float(posmod(n * 5, 11)) * 0.12,
 			0.65 + float(posmod(n * 11, 9)) * 0.14, 0.75 + float(posmod(n * 17, 13)) * 0.11)
 		var rotation := Basis.from_euler(Vector3(sin(float(n) * 1.7) * 0.14, angle, cos(float(n) * 2.3) * 0.14))
+		var points := rock_vertices(scale)
 		result.append({"id": "rock_%d" % n, "center": Vector3(px, height_at(px, pz), pz),
 			"basis": rotation, "size": ROCK_SIZE * scale, "scale": scale,
-			"points": rock_vertices(scale), "faces": rock_faces(scale),
+			"points": points, "native_points": points, "faces": rock_faces(scale),
 			"color": Color("59605a").lerp(Color("7d7a6e"), float(n % 4) / 3.0)})
 	return result
+
+static func source_outcrop() -> Dictionary:
+	var points: PackedVector3Array = SOURCE_OUTCROP_MESH.get_meta("native_hull_points")
+	var faces := PackedVector3Array()
+	for index: int in SOURCE_OUTCROP_MESH.get_meta("native_hull_indices"):
+		faces.append(points[index])
+	var size := SOURCE_OUTCROP_MESH.get_aabb().size
+	return {"id": "source_outcrop", "center": Vector3(0.0, height_at(0.0, -0.30) + size.y * 0.4, -0.30),
+		"basis": Basis.IDENTITY, "size": size,
+		"points": SOURCE_OUTCROP_MESH.get_meta("native_hull_input_points"),
+		"native_points": points, "faces": faces}
 
 static func support_boxes() -> Array[Dictionary]:
 	# Retain the descriptor API for cosmetic clearance. Its size is an envelope;
 	# only the shared convex points/faces define visible and physical rock contact.
-	return rock_boxes()
+	var result := rock_boxes()
+	result.append(source_outcrop())
+	return result
 
 static func capsule_convex_overlap(at: Vector3, radius: float, height: float,
 		solid: Transform3D, triangles: PackedVector3Array) -> float:

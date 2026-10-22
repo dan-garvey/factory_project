@@ -8,10 +8,13 @@ const Geometry = preload("res://opening/site_geometry.gd")
 
 const BILLET_HALF_EXTENTS := Vector3(0.135, 0.09, 0.18)
 const PLATE_HALF_EXTENTS := Vector3(0.22, 0.035, 0.265)
-static var source_bounds := Rect2()
 static var source_meshes: Dictionary = {}
 static var source_rock: StandardMaterial3D
 static var source_mineral: StandardMaterial3D
+static var source_triangles: TriangleMesh
+static var source_to_world := Transform3D.IDENTITY
+static var world_to_source := Transform3D.IDENTITY
+static var source_ray_height := 0.0
 
 
 static func _part(parent: Node3D, role: String, mesh: Mesh, at: Vector3,
@@ -73,12 +76,22 @@ static func rivet_profile() -> PackedVector2Array:
 	])
 
 
-static func _seam_point(point: Vector2, mineral: bool = false, ridge: float = 0.0) -> Vector3:
-	# Millimetres of surface art follow the same terrain as the native body.
-	# The exposure is neither a new solid obstacle nor a local build datum.
-	var lift := 0.013 + 0.005 * sin(point.x * 5.1 + point.y) * cos(point.y * 4.3)
-	return Vector3(point.x, Scenery.Surface.height_at(point.x, point.y) + lift
-		+ (0.006 if mineral else 0.0) + ridge, point.y)
+static func _seam_point(point: Vector2, ridge: float = 0.0) -> Vector3:
+	# A native mesh query drapes the cosmetic veins over the delivered rock.
+	# It never supplies construction height or a second collision authority.
+	if source_triangles == null:
+		var spec: Dictionary = Scenery.Surface.source_outcrop()
+		source_triangles = Scenery.Surface.SOURCE_OUTCROP_MESH.generate_triangle_mesh()
+		source_to_world = Transform3D(spec.basis, spec.center)
+		world_to_source = source_to_world.affine_inverse()
+		source_ray_height = spec.center.y + spec.size.y
+	var origin := Vector3(point.x, source_ray_height, point.y)
+	var hit := source_triangles.intersect_ray(world_to_source * origin, world_to_source.basis * Vector3.DOWN)
+	if hit.is_empty():
+		push_error("A mineral vein lies outside the fixed source outcrop.")
+		return Vector3(NAN, NAN, NAN)
+	var at: Vector3 = source_to_world * hit.position
+	return at + Vector3.UP * (0.006 + ridge)
 
 
 static func _seam_radius(angle: float) -> float:
@@ -105,92 +118,91 @@ static func _seam_triangle(surface: SurfaceTool, a: Vector3, b: Vector3, c: Vect
 		surface.add_vertex(point)
 
 
-static func _seam_mesh(bounds: Rect2, band: int) -> ArrayMesh:
-	if bounds != source_bounds:
-		source_bounds = bounds
-		source_meshes.clear()
+static func _seam_mesh(band: int) -> ArrayMesh:
 	if source_meshes.has(band):
 		return source_meshes[band]
 	var surface := SurfaceTool.new()
 	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var center := bounds.get_center()
-	var half_size := bounds.size * 0.48
-	if band == -1:
-		for n in range(32):
-			var ring: Array[Vector2] = []
-			for index in [n, (n + 1) % 32]:
-				var angle := float(index) * TAU / 32.0
-				ring.append(_seam_offset(Vector2(cos(angle), sin(angle)), half_size))
-			var crest_a := _seam_point(center + ring[0] * 0.35, false,
-				0.004 + 0.003 * sin(float(n) * 1.9))
-			var crest_b := _seam_point(center + ring[1] * 0.35, false,
-				0.004 + 0.003 * sin(float(n + 1) * 1.9))
-			var inner_a := _seam_point(center + ring[0] * 0.7)
-			var inner_b := _seam_point(center + ring[1] * 0.7)
-			var outer_a := _seam_point(center + ring[0])
-			var outer_b := _seam_point(center + ring[1])
-			_seam_triangle(surface, _seam_point(center), crest_a, crest_b, Vector3.ONE)
-			_seam_triangle(surface, crest_a, inner_a, inner_b, Vector3.ONE)
-			_seam_triangle(surface, crest_a, inner_b, crest_b, Vector3.ONE)
-			_seam_triangle(surface, inner_a, outer_a, outer_b, Vector3(1, 0, 0))
-			_seam_triangle(surface, inner_a, outer_b, inner_b, Vector3(1, 0, 1))
-	else:
-		# Branching fractures, not one repeated mesh for each stored unit.
-		var paths := [
-			[Vector2(-0.65, -0.45), Vector2(-0.42, -0.46), Vector2(-0.20, -0.15), Vector2(0.12, 0.08), Vector2(0.18, 0.35), Vector2(0.48, 0.60), Vector2(0.64, 0.45)],
-			[Vector2(-0.70, 0.32), Vector2(-0.52, 0.25), Vector2(-0.40, 0.05), Vector2(-0.20, -0.15)],
-			[Vector2(0.12, 0.08), Vector2(0.46, -0.10), Vector2(0.62, -0.38), Vector2(0.62, -0.48)],
-			[Vector2(0.18, 0.35), Vector2(-0.13, 0.58), Vector2(-0.20, 0.72)],
-			[Vector2(-0.42, -0.46), Vector2(-0.40, -0.68)]]
-		var width := 0.065 * sqrt(float(band) / 8.0)
-		for branch in range(paths.size()):
-			var path: Array = paths[branch]
-			for segment in range(path.size() - 1):
-				var start: Vector2 = path[segment]
-				var finish: Vector2 = path[segment + 1]
-				var along := ((finish - start) * half_size).normalized()
-				var across := Vector2(-along.y, along.x)
-				for step in range(6):
-					var edges: Array[Vector3] = []
-					var crests: Array[Vector3] = []
-					for index in [step, step + 1]:
-						var t := float(index) / 6.0
-						var phase := float(branch * 7 + segment * 3) + t * 3.7
-						var local := start.lerp(finish, t)
-						var at := center + _seam_offset(local, half_size) + across * sin(t * PI) * sin(phase) * 0.025
-						var radius := width * (0.72 + 0.28 * sin(phase + 0.9)) * _seam_radius(local.angle())
-						edges.append(_seam_point(at - across * radius, true))
-						edges.append(_seam_point(at + across * radius, true))
-						crests.append(_seam_point(at, true, 0.008 * (0.8 + 0.2 * sin(phase))))
-					_seam_triangle(surface, edges[0], crests[0], crests[1], Vector3.ONE)
-					_seam_triangle(surface, edges[0], crests[1], edges[2], Vector3.ONE)
-					_seam_triangle(surface, crests[0], edges[1], edges[3], Vector3.ONE)
-					_seam_triangle(surface, crests[0], edges[3], crests[1], Vector3.ONE)
+	var spec: Dictionary = Scenery.Surface.source_outcrop()
+	var center := Vector2(spec.center.x, spec.center.z)
+	var half_size := Vector2(spec.size.x, spec.size.z) * 0.44
+	# Branching fractures, not one repeated mesh for each stored unit.
+	var paths := [
+		[Vector2(-0.65, -0.45), Vector2(-0.42, -0.46), Vector2(-0.20, -0.15), Vector2(0.12, 0.08), Vector2(0.18, 0.35), Vector2(0.48, 0.60), Vector2(0.64, 0.45)],
+		[Vector2(-0.70, 0.32), Vector2(-0.52, 0.25), Vector2(-0.40, 0.05), Vector2(-0.20, -0.15)],
+		[Vector2(0.12, 0.08), Vector2(0.46, -0.10), Vector2(0.62, -0.38), Vector2(0.62, -0.48)],
+		[Vector2(0.18, 0.35), Vector2(-0.13, 0.58), Vector2(-0.20, 0.72)],
+		[Vector2(-0.42, -0.46), Vector2(-0.40, -0.68)]]
+	var width := 0.065 * sqrt(float(band) / 8.0)
+	for branch in range(paths.size()):
+		var path: Array = paths[branch]
+		for segment in range(path.size() - 1):
+			var start: Vector2 = path[segment]
+			var finish: Vector2 = path[segment + 1]
+			var along := ((finish - start) * half_size).normalized()
+			var across := Vector2(-along.y, along.x)
+			for step in range(6):
+				var edges: Array[Vector3] = []
+				var crests: Array[Vector3] = []
+				for index in [step, step + 1]:
+					var t := float(index) / 6.0
+					var phase := float(branch * 7 + segment * 3) + t * 3.7
+					var local := start.lerp(finish, t)
+					var at := center + _seam_offset(local, half_size) + across * sin(t * PI) * sin(phase) * 0.025
+					var radius := width * (0.72 + 0.28 * sin(phase + 0.9)) * _seam_radius(local.angle())
+					edges.append(_seam_point(at - across * radius))
+					edges.append(_seam_point(at + across * radius))
+					crests.append(_seam_point(at, 0.008 * (0.8 + 0.2 * sin(phase))))
+				_seam_triangle(surface, edges[0], crests[0], crests[1], Vector3.ONE)
+				_seam_triangle(surface, edges[0], crests[1], edges[2], Vector3.ONE)
+				_seam_triangle(surface, crests[0], edges[1], edges[3], Vector3.ONE)
+				_seam_triangle(surface, crests[0], edges[3], crests[1], Vector3.ONE)
 	surface.generate_tangents()
 	var mesh := surface.commit()
 	source_meshes[band] = mesh
 	return mesh
 
 
-static func mineral_deposit(parent: Node3D, state: Dictionary, pitch: float) -> void:
+static func _outcrop_material() -> StandardMaterial3D:
+	if source_rock != null:
+		return source_rock
+	var textures := {}
+	for role: String in ["albedo", "normal", "arm"]:
+		var path := "res://opening/assets/mineral-outcrop/" + role + ".webp"
+		var image := Visuals.read_image(path)
+		var extent := 512 if role == "albedo" else 256
+		if image == null or image.get_size() != Vector2i(extent, extent) \
+			or image.generate_mipmaps(role == "normal") != OK:
+			push_error("The mineable outcrop requires its complete qualified material: " + role)
+			return null
+		textures[role] = ImageTexture.create_from_image(image)
+	source_rock = StandardMaterial3D.new()
+	source_rock.cull_mode = BaseMaterial3D.CULL_DISABLED
+	source_rock.albedo_texture = textures.albedo
+	source_rock.metallic = 0.0
+	source_rock.roughness = 1.0
+	source_rock.roughness_texture = textures.arm
+	source_rock.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_GREEN
+	source_rock.ao_enabled = true
+	source_rock.ao_texture = textures.arm
+	source_rock.ao_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
+	source_rock.normal_enabled = true
+	source_rock.normal_texture = textures.normal
+	source_rock.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	return source_rock
+
+
+static func mineral_deposit(parent: Node3D, state: Dictionary) -> void:
 	var cells: Array = state.get("source_deposit", {}).get("cells", [])
 	if cells.is_empty():
 		return
-	var low := Vector2(INF, INF)
-	var high := Vector2(-INF, -INF)
-	for cell in cells:
-		var center := Vector2(cell[0], cell[1]) * pitch
-		low = low.min(center - Vector2.ONE * pitch / 2.0)
-		high = high.max(center + Vector2.ONE * pitch / 2.0)
-	var bounds := Rect2(low, high - low)
 	var initial := maxi(1, int(state.initial_feed))
 	var fraction := clampf(float(state.stock.source) / float(initial), 0.0, 1.0)
 	var band := ceili(fraction * 8.0)
-	if source_rock == null:
-		source_rock = Scenery.stone_material().duplicate()
-		source_rock.albedo_color = Color("737b77")
-		source_rock.vertex_color_use_as_albedo = true
-		source_rock.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	var finish := _outcrop_material()
+	if finish == null:
+		return
+	if source_mineral == null:
 		source_mineral = Scenery.stone_material().duplicate()
 		source_mineral.albedo_color = Color("daa25d")
 		source_mineral.metallic = 0.58
@@ -201,11 +213,12 @@ static func mineral_deposit(parent: Node3D, state: Dictionary, pitch: float) -> 
 	exposure.set_meta("remaining", state.stock.source)
 	exposure.set_meta("depletion_band", band)
 	parent.add_child(exposure)
-	var host := _part(exposure, "ExposedRock", _seam_mesh(bounds, -1), Vector3.ZERO, Color.WHITE)
-	host.material_override = source_rock
-	host.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var spec: Dictionary = Scenery.Surface.source_outcrop()
+	var host := _part(exposure, "ExposedRock", Scenery.Surface.SOURCE_OUTCROP_MESH, spec.center, Color.WHITE)
+	host.basis = spec.basis
+	host.material_override = finish
 	if band > 0:
-		var mineral := _part(exposure, "MineralVeins", _seam_mesh(bounds, band), Vector3.ZERO, Color.WHITE)
+		var mineral := _part(exposure, "MineralVeins", _seam_mesh(band), Vector3.ZERO, Color.WHITE)
 		mineral.material_override = source_mineral
 		mineral.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
@@ -313,4 +326,4 @@ static func populate_items(item_root: Node3D, state: Dictionary, pitch: float = 
 			var plate := stamped_plate(item_root, pos + orientation * Vector3(0.46, 0.39, 0.15))
 			if turned:
 				plate.rotation.y = -PI / 2.0
-	mineral_deposit(item_root, state, pitch)
+	mineral_deposit(item_root, state)

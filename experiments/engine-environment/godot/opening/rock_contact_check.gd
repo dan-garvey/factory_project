@@ -9,7 +9,8 @@ const CONTACT_TOLERANCE := 0.004
 
 class EmptySite extends RefCounted:
 	func projection() -> Dictionary:
-		return {"options": {"native": true, "physical": true}, "actors": {}, "entities": {}}
+		return {"options": {"native": true, "physical": true}, "actors": {}, "entities": {},
+			"transmission_parts": {}, "belt_spans": {}}
 
 var checks := 0
 var failures: Array[String] = []
@@ -43,7 +44,7 @@ func finish() -> void:
 	var facts := {"status": "pass" if failures.is_empty() else "fail", "checks": checks,
 		"failures": failures, "sweeps": observations, "capsule_dimensions": dimensions,
 		"registration": registration,
-		"scope": "Native capsule queries against all 64 ordinary registered convex rocks",
+		"scope": "Native capsule queries against all 65 ordinary registered convex rocks, including the mineable source",
 		"exclusions": "Each query isolates its target rock by excluding the ground and other supports.",
 		"desktop": "not_used", "game_authority": "not_started", "human_play": "not_run"}
 	if not output.is_empty():
@@ -79,8 +80,8 @@ func run() -> void:
 		and capsule.capsule.height == native_dimensions[1]
 		and capsule.collision_mask == (Geometry.GROUND_LAYER | Geometry.MACHINE_LAYER),
 		"Sweeps use the unchanged ordinary capsule and collision mask.")
-	var rocks := Surface.rock_boxes()
-	verify(rocks.size() == 64, "All authored outcrops are covered.")
+	var rocks := Surface.support_boxes()
+	verify(rocks.size() == 65, "All scenery rocks and the mineable source are covered.")
 	verify(site._geometry_registered(), "The ordinary producer binds the actual convex shape data before contact checks.")
 	if registration_only:
 		for spec in rocks:
@@ -88,12 +89,12 @@ func run() -> void:
 			var shape_rid: RID = PhysicsServer3D.body_get_shape(target.get_rid(), 0)
 			var data: Variant = PhysicsServer3D.shape_get_data(shape_rid)
 			var entry := {"rock": spec.id, "shape_type": PhysicsServer3D.shape_get_type(shape_rid),
-				"data_type": typeof(data), "expected_vertices": spec.points.size()}
+				"data_type": typeof(data), "expected_vertices": spec.native_points.size()}
 			if data is PackedVector3Array:
 				entry.actual_vertices = data.size()
 				entry.maximum_nearest_distance = 0.0
 				entry.exact_matches = 0
-				for point in spec.points:
+				for point in spec.native_points:
 					entry.exact_matches += 1 if data.has(point) else 0
 					var distance := INF
 					for actual in data:
@@ -104,7 +105,7 @@ func run() -> void:
 					entry.expected_points = []
 					for point in data:
 						entry.actual_points.append([point.x, point.y, point.z])
-					for point in spec.points:
+					for point in spec.native_points:
 						entry.expected_points.append([point.x, point.y, point.z])
 			registration.append(entry)
 		finish()
@@ -116,11 +117,11 @@ func run() -> void:
 		var target_rid := target.get_rid()
 		var shape_rid: RID = PhysicsServer3D.body_get_shape(target_rid, 0)
 		var points: PackedVector3Array = PhysicsServer3D.shape_get_data(shape_rid)
-		var native_points := Surface.match_native_rock(points, spec.points)
+		var native_points := Surface.match_native_rock(points, spec.native_points)
 		verify(target.global_transform.is_equal_approx(Transform3D(spec.basis, spec.center))
 			and PhysicsServer3D.shape_get_type(shape_rid) == PhysicsServer3D.SHAPE_CONVEX_POLYGON
-			and native_points.size() == spec.points.size(), "Native transforms, hull type and documented cooked vertices match: " + spec.id)
-		var native_faces := Surface.rock_faces_for_vertices(native_points)
+			and native_points.size() == spec.native_points.size(), "Native transforms, hull type and documented cooked vertices match: " + spec.id)
+		var native_faces := Surface.rock_faces_for_vertices(native_points, spec)
 		var exclusions: Array[RID] = [site.floor_body.get_rid()]
 		for id in site.site_bodies:
 			if id != spec.id:
@@ -172,5 +173,5 @@ func run() -> void:
 			and Surface.capsule_convex_overlap(spec.center, Geometry.CAPSULE_RADIUS,
 				Geometry.CAPSULE_HEIGHT, transform, native_faces) > 0.29,
 			"The real solid and analytical guard both detect a capsule through its interior: " + spec.id)
-	verify(observations.size() == 320, "Five complete approaches cover every rock.")
+	verify(observations.size() == rocks.size() * 5, "Five complete approaches cover every rock.")
 	finish()

@@ -224,7 +224,7 @@ must use the actual cell endpoints rather than assume uniform spacing. The old
 tile, slab and canal-box catalogues are empty in this profile, while visible rock
 obstacles retain shared rigid descriptors. Local refinement and the natural bank
 profile are revisable adapter choices, not build-grid rules or measured frame-cost
-targets. Natural rocks share one asymmetric convex template between their visible
+targets. Scenery rocks share one asymmetric convex template between their visible
 facets and native hull points. The existing descriptor size remains a conservative
 plant-clearance envelope; it is not an invisible surrounding collider. The pinned
 [convex-shape API](https://raw.githubusercontent.com/godotengine/godot/4.7.2-stable/doc/classes/ConvexPolygonShape3D.xml)
@@ -240,6 +240,17 @@ epsilon. It does not enlarge contact or construction-reach margins. The analytic
 contact guard uses the actual cooked vertices after matching, rather than the
 nominal render facets. This adapter projection is specific to the pinned backend;
 an unsupported conversion fails closed rather than silently accepting another hull.
+The mineable source uses a sourced detailed mesh and its full convex envelope.
+Its descriptor retains the original 201-point cooking input separately from the
+200 cooked reference vertices and faces. Feeding the cooked debug vertices back
+as new input removed further points in the pinned engine, so bodies always use
+the original input and registration matches the resulting reference. The full
+hull leaves less than 0.2 millimetres of visible vertex protrusion in the retained
+asset check; it does not reproduce the mesh's concavities. Visible placement,
+native construction obstruction and the actor body share one transform and
+envelope. Cached native `TriangleMesh.intersect_ray` queries drape stock-derived
+veins over the detailed surface only; they supply neither build height nor
+collision authority. The fixed rock remains when its finite ore veins disappear.
 ActorWorld registers the terrain faces, backface flag and rigid site transforms
 before admitting saved bodies. Concave terrain is a hollow surface: an explicitly
 labelled analytical burial guard also refuses a saved capsule wholly below it,

@@ -151,7 +151,7 @@ func _initialize() -> void:
 func check_structures() -> void:
 	var specs := Surface.support_boxes()
 	var identities := {}
-	verify(specs.size() == 64, "Only the real natural rock obstacles remain in the box catalogue.")
+	verify(specs.size() == 65, "The real natural rocks and one mineable source are the only site obstacles.")
 	for spec in specs:
 		verify(not identities.has(spec.id), "Shared solid identities are unique: " + spec.id)
 		identities[spec.id] = true
@@ -159,7 +159,7 @@ func check_structures() -> void:
 			and spec.size.z > 0.0 and spec.basis.is_equal_approx(spec.basis.orthonormalized()), "Every native box descriptor is finite and rigid.")
 		verify(spec.get("finish", "stone") in ["stone", "dark_stone"],
 			"Solid canyon descriptors use natural stone finishes rather than timber or iron: " + spec.id)
-		verify(spec.id.begins_with("rock_"), "No invisible old canal, platform or seam barrier survives.")
+		verify(spec.id.begins_with("rock_") or spec.id == "source_outcrop", "No invisible old canal, platform or seam barrier survives.")
 	verify(identities.has("rock_63") and not identities.has("architecture_foam"), "Rock support is present; water/foam is excluded.")
 	var first: Vector3 = specs[0].center
 	specs[0].center = Vector3(999, 999, 999)
@@ -324,7 +324,8 @@ func check_native_hull_matching() -> void:
 	changed = source.duplicate()
 	changed[0] = Vector3(NAN, 0, 0)
 	verify(Surface.match_native_rock(changed, source).is_empty(), "Invalid native coordinates are refused.")
-	verify(Surface.rock_faces_for_vertices(source) == Surface.rock_faces(), "Mapped native vertices preserve the exact shared facet topology.")
+	verify(Surface.rock_faces_for_vertices(source, {"native_points": source, "faces": Surface.rock_faces()}) == Surface.rock_faces(),
+		"Mapped native vertices preserve the exact shared facet topology.")
 
 func check_flow_cells() -> void:
 	var rows: Array = Surface.flow_cells()

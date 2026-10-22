@@ -581,15 +581,19 @@ mesh, pick or native facts. Maps are prepared offline, and missing historical
 sets retain the earlier generated finish. Rendered quality remains unassessed.
 
 The ordinary offline and shared item redraw uses `workpiece_item_assets.gd` for
-raw seam stock, in-line billets and the visible press-outlet plate. Uncollected
-source units are compact mineral-bearing rock clusters, with three cached fracture
-shapes, the sourced stone finish and restrained metallic inclusions. They contain
-no manufactured cradles, clamps or lifting lugs. One cluster represents one
-confirmed source unit; depletion removes only those confirmed units. This changes
-the raw-stock appearance, not its recipe, quantity or geological identity. The
-in-line billets and stamped products retain their existing machined assemblies.
-All retain the original counts, world positions and item envelopes, using shared
-surfaces and cached meshes without collision or state authority.
+raw seam stock, in-line billets and the visible press-outlet plate. The source is
+one substantial [sourced Boulder 01](mineral-outcrop/CREDITS.md), with restrained
+mineral veins draped over its actual surface. Eight cached vein widths express
+the confirmed finite reserve; exhaustion removes the veins and retains the fixed
+geology. There is no repeated unit row or shallow replacement rock patch.
+The same site descriptor supplies the rock's visible placement, native
+construction obstacle and actor convex body. Original cooking input and cooked
+reference facets are retained separately. The detailed rock has concavities
+inside that convex collision envelope; it is not triangle-exact physics.
+The starter collector at [0,1] remains outside the rock and uses the unchanged
+native extraction rules. In-line billets and stamped products retain their
+existing machined assemblies, quantities and item envelopes. The item helper
+itself adds no collision, clock or state authority.
 The helper loads after the opening script to reuse its existing surface library.
 Historical scripted payloads with fixed file rosters keep their existing primitive
 items when the optional helper is absent. Native presentation requires the complete

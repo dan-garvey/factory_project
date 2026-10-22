@@ -12,9 +12,9 @@ vertices. It recenters the mesh without changing its scale, normals or UVs.
 The compressed, material-free resource also retains the native 200-point convex
 hull and its triangles, together with its original 201-point cooking input.
 Bodies use that original input rather than recooking the already cooked debug
-vertices. The later site mount must use one specification for the immutable
-rock, its native construction obstacle and actor body. This package alone
-does not mount a new obstacle in the playable opening.
+vertices. The site mount uses one specification for the immutable rock,
+its native construction obstacle and actor body. This resource has no
+independent mount or collision authority.
 The convex envelope approximates the detailed surface, not its concavities.
 The measured maximum mesh protrusion is below 0.2 millimetres after native
 hull cooking; this is not triangle-exact rock collision.

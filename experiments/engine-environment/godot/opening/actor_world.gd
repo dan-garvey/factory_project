@@ -386,7 +386,7 @@ func _geometry_registered() -> bool:
 			or not data is PackedVector3Array or site_shapes[id].get_rid() != shape_rid \
 			or site_shapes[id].points != expected or site_shapes[id].margin != 0.0:
 			return false
-		if site_surface.match_native_rock(data, expected).is_empty():
+		if site_surface.match_native_rock(data, site_specs[id].native_points).is_empty():
 			return false
 	return true
 
@@ -492,13 +492,13 @@ func _penetration(actor: String, other: RID, shape_index: int = 0) -> Dictionary
 			site_id = id
 	owned = owned or site_owned
 	if site_owned:
-		var expected: PackedVector3Array = site_specs[site_id].points
+		var expected: PackedVector3Array = site_specs[site_id].native_points
 		if not shape is PackedVector3Array:
 			return {"unsupported_overlap": true, "kind": "unexpected_site_solid"}
 		var actual: PackedVector3Array = site_surface.match_native_rock(shape, expected)
 		if actual.is_empty():
 			return {"unsupported_overlap": true, "kind": "changed_site_solid"}
-		var native_faces: PackedVector3Array = site_surface.rock_faces_for_vertices(actual)
+		var native_faces: PackedVector3Array = site_surface.rock_faces_for_vertices(actual, site_specs[site_id])
 		var overlap: float = site_surface.capsule_convex_overlap(at.origin, float(capsule.radius),
 			float(capsule.height), target, native_faces)
 		return {"unsupported_overlap": overlap > Geometry.SAFE_MARGIN, "geometric_overlap": overlap > 0.0,
