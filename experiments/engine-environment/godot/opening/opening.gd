@@ -4090,6 +4090,8 @@ var show_details := false
 var catalog_button: Button
 var details_button: Button
 var controls_label: Label
+var building_rotation := 0
+var rotation_button: Button
 
 func _ready() -> void:
 	for argument in OS.get_cmdline_user_args():
@@ -4860,7 +4862,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_F: _select_tool("flow")
 			KEY_G: _select_tool("drive")
 			KEY_I, KEY_ESCAPE: _select_tool("inspect")
-			KEY_R: _retrieve()
+			KEY_R:
+				if _native_transmission() and mode in ["collector", "processor", "wheel"]:
+					_rotate_building()
+				else:
+					_retrieve()
 			KEY_H: _toggle_explanation()
 			KEY_HOME:
 				if legacy_fixture:
@@ -4951,7 +4957,9 @@ func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 			# Dot assignment creates a StringName key; the native wire deliberately
 			# accepts only exact String dictionary keys, without coercion.
 			if mode != "foundation":
-				action["axis"] = transmission_controls.selected_axis
+				action["axis"] = ["x", "y", "z"][_preview_axis()]
+		if _native_transmission() and mode in ["collector", "processor"]:
+			action["rotation"] = building_rotation
 		var outcome := issue(action)
 		if outcome.accepted:
 			selected = outcome.entity
@@ -5630,21 +5638,23 @@ func _wheel_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 		journal.material_override = ProductionDriveJournalArt.material()
 		journal.scale = Vector3(1.0 / radial_scale, 1.0 / rotor_scale, 1.0 / radial_scale)
 
-func _material_rotated(entity_id: String, entity: Dictionary) -> bool:
-	if not _native_transmission():
-		return false
-	if entity.get("kind") == "belt":
-		return int(entity.get("axis", 2)) == 0
-	for pair in state.get("links", []):
-		if pair.size() != 2 or entity_id not in pair:
-			continue
-		var other: Dictionary = state.get("entities", {}).get(pair[1] if pair[0] == entity_id else pair[0], {})
-		if other.get("kind") == "belt":
-			return int(other.get("axis", 2)) == 0
-	return false
+func _material_rotated(_entity_id: String, entity: Dictionary) -> bool:
+	return _native_transmission() and entity.get("kind") == "belt" and int(entity.get("axis", 2)) == 0
 
 func _assemble_machine(anchor: Node3D, entity: Dictionary, rotated := false) -> void:
 	anchor.set_meta("material_rotated", rotated)
+	var facing: int = int(entity.get("rotation", 0)) if _native_transmission() and entity.kind in ["collector", "processor"] else 0
+	if facing != 0:
+		var visual := Node3D.new()
+		visual.name = "RotatedMachineVisual"
+		visual.rotation.y = -float(facing) * PI / 2.0
+		anchor.add_child(visual)
+		var local_entity := entity.duplicate()
+		local_entity["rotation"] = 0
+		if facing % 2 == 1 and int(entity.get("axis", 0)) != 1:
+			local_entity["axis"] = 2 - int(entity.get("axis", 0))
+		_assemble_machine(visual, local_entity)
+		return
 	if rotated:
 		var visual := Node3D.new()
 		visual.name = "RotatedMachineVisual"
@@ -5885,6 +5895,14 @@ func _toggle_details() -> void:
 		_refresh_ui()
 
 func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
+	if rotation_button != null:
+		rotation_button.visible = _native_transmission() and mode in ["collector", "processor", "wheel"] and not explanation_open
+		rotation_button.disabled = not snapshot_ready or not _can_choose_tool()
+		rotation_button.text = "Rotate [R]" if mode == "wheel" else "Rotate [R] · %d°" % (building_rotation * 90)
+		rotation_button.tooltip_text = "Turn the building by a quarter turn before placing it. Its input, output and horizontal drive axle turn together."
+		if mode == "wheel" and transmission_controls != null:
+			rotation_button.disabled = rotation_button.disabled or transmission_controls.selected_axis == "y"
+			rotation_button.tooltip_text = "Turn a horizontal wheel axle by 90 degrees. Choose an X or Z axle in the shaft/cog menu; a vertical axle is unchanged by a horizontal turn."
 	if foundation_level_controls != null:
 		foundation_level_controls.visible = _native_transmission() and mode in ["foundation", "wheel"] and not explanation_open and snapshot_ready
 		foundation_area_toggle.visible = foundation_level_controls.visible and mode == "foundation"
@@ -6004,7 +6022,23 @@ func _machine_preview_cell() -> Vector2i:
 func _preview_axis() -> int:
 	if not _native_transmission() or transmission_controls == null:
 		return 0
-	return ["x", "y", "z"].find(transmission_controls.selected_axis)
+	var axis: int = ["x", "y", "z"].find(transmission_controls.selected_axis)
+	if mode in ["collector", "processor"] and axis != 1 and building_rotation % 2 == 1:
+		return 2 - axis
+	return axis
+
+func _rotate_building() -> void:
+	if not _native_transmission() or not _can_choose_tool() or mode not in ["collector", "processor", "wheel"] or explanation_open:
+		return
+	if mode == "wheel":
+		if transmission_controls == null or transmission_controls.selected_axis not in ["x", "z"]:
+			return
+		transmission_controls.selected_axis = "z" if transmission_controls.selected_axis == "x" else "x"
+		transmission_controls.refresh()
+	else:
+		building_rotation = (building_rotation + 1) % 4
+	_update_cursor()
+	_refresh_ui()
 
 func _refresh_machine_preview() -> void:
 	if machine_preview != null:
@@ -6028,7 +6062,8 @@ func _refresh_machine_preview() -> void:
 	var axis := _preview_axis()
 	if axis < 0:
 		return
-	var key := "%s:%d:%s:%d" % [mode, axis, str(_native_transmission()), wheel_tiles if mode == "wheel" else 0]
+	var facing := building_rotation if mode in ["collector", "processor"] else 0
+	var key := "%s:%d:%s:%d:%d" % [mode, axis, str(_native_transmission()), wheel_tiles if mode == "wheel" else 0, facing]
 	if machine_preview == null:
 		machine_preview = Node3D.new()
 		machine_preview.name = "MachinePlacementPreview"
@@ -6042,7 +6077,9 @@ func _refresh_machine_preview() -> void:
 		if mode == "foundation":
 			_assemble_foundation(machine_preview)
 		else:
-			_assemble_machine(machine_preview, {"kind": mode, "axis": axis, "tiles": wheel_tiles}, mode == "belt" and axis == 0)
+			_assemble_machine(machine_preview, {"kind": mode, "axis": axis, "tiles": wheel_tiles, "rotation": facing}, mode == "belt" and axis == 0)
+			if mode in ["collector", "processor"]:
+				_preview_port(machine_preview, facing, mode == "collector")
 		wheel_rotor = placed_rotor
 		if machine_preview_material == null:
 			machine_preview_material = StandardMaterial3D.new()
@@ -6059,6 +6096,25 @@ func _refresh_machine_preview() -> void:
 		machine_preview.position.x = (area_origin.x + (area_size.x - 1) / 2.0) * PITCH
 		machine_preview.position.z = (area_origin.y + (area_size.y - 1) / 2.0) * PITCH
 	machine_preview.visible = true
+
+func _preview_port(parent: Node3D, facing: int, output: bool) -> void:
+	var forward := Vector3.RIGHT.rotated(Vector3.UP, -float(facing) * PI / 2.0)
+	var side := forward if output else -forward
+	var at := side * 0.9 + Vector3.UP * 0.6
+	var direction := forward
+	var across := Vector3(-direction.z, 0, direction.x)
+	var tip := at + direction * 0.23
+	_route_segment(parent, "PortArrow", at - direction * 0.23, tip, 0.055, Color("edcc8d"))
+	_route_segment(parent, "PortArrowLeft", tip - direction * 0.15 + across * 0.12, tip, 0.055, Color("edcc8d"))
+	_route_segment(parent, "PortArrowRight", tip - direction * 0.15 - across * 0.12, tip, 0.055, Color("edcc8d"))
+	var label := Label3D.new()
+	label.name = "MaterialPortLabel"
+	label.text = "OUT" if output else "IN"
+	label.position = side * 0.9 + Vector3.UP * 0.95
+	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	label.font_size = 28
+	label.set_meta("port_side", side)
+	parent.add_child(label)
 
 func _style_machine_preview(node: Node) -> void:
 	# Per-instance overrides leave shared placed materials and meshes intact.
@@ -6415,6 +6471,8 @@ func _build_interface() -> void:
 	tool_buttons.merge(building_hotbar.catalog_buttons)
 	parts_label = building_hotbar.parts_label
 	catalog_button = building_hotbar.catalog_button
+	rotation_button = _button(build, "Rotate [R]", _rotate_building)
+	rotation_button.visible = false
 	foundation_level_controls = HBoxContainer.new()
 	build.add_child(foundation_level_controls)
 	_button(foundation_level_controls, "−", _adjust_foundation_level.bind(-1))

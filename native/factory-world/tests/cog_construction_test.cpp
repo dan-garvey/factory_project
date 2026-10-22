@@ -378,6 +378,7 @@ void rotated_belt_line() {
                     auto command = place(("rotated-machine-" + std::to_string(n)).c_str(), {4, 0, n == 0 ? 0 : 12}, "x", 0);
                     command.at("role") = V(n == 0 ? "collector" : "processor");
                     command.at("action") = V("place_connected");
+                    command.emplace("rotation", V(I{1}));
                     accepted(send(*world, command));
                 }
             }

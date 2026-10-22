@@ -80,6 +80,14 @@ ActorWorld represents shafts, cog discs and cog axles with conservative boxes,
 alongside machine and foundation bodies and the shared terrain. The shapes do
 not model individual teeth and remain prototype contact geometry.
 
+Collector and press placement accepts an integer `rotation` from zero through
+three, in horizontal quarter turns. Zero faces +X; successive turns face +Z,
+−X and −Z. The default is zero. The confirmed projection and logical checkpoint
+retain it, independently of the explicit drive `axis`. The ordinary Rotate
+control turns both the body and a horizontal drive axis. A collector feeds only
+its output side; a press receives only through its opposite input side. A belt
+against a closed side keeps its cargo instead of dropping it inside a machine.
+
 Mechanical belt spans can also run vertically, sideways or at 45 degrees.
 The Host uses the same path for construction, subsequent obstruction and save
 validation. Its inclined clearance covers the rotated contact body with short
@@ -88,8 +96,9 @@ very close to the body even when the exact rotated boxes do not overlap.
 Vertical and sideways spans transmit rotation without carrying cargo or actors.
 
 The physical checkpoint has schema 3 and format `factory-native-physical`. Its
-logical World checkpoint has schema 4, including the trusted interaction offset
-and identified belt spans. The physical envelope remains schema 3.
+logical World checkpoint has schema 6, including building facings, the trusted
+interaction offset and identified belt spans. Earlier logical formats are
+refused without migration. The physical envelope remains schema 3.
 Its material payload has schema 5, including typed loose material; older material
 payloads are refused rather than migrated.
 It retains typed material, kits, topology, issued identities, original history and

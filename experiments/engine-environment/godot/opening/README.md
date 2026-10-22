@@ -32,6 +32,15 @@ and reset on a fresh launch; they are not inventory,
 technology unlocks or saved progression. F, G and I retain material, shaft and
 inspection selection. Reopening derives goal advice from the actual worksite.
 
+**Rotate [R]** turns a collector or press by 90 degrees before placement. The
+preview turns its body and horizontal drive axle and marks the collector's
+**OUT** side or the press's **IN** side. Material only crosses the matching side;
+a belt against another side queues its contents. Four turns return to the
+original facing. The chosen facing belongs to the placed machine and survives
+save/reopen and shared projection. R retains retrieval while inspecting a press.
+For a waterwheel, Rotate changes its horizontal axle; the shaft/cog menu retains
+the explicit axle choices. Square foundations keep the same world grid.
+
 **Foundation** builds a level surface from the carried kit. Its height controls
 and Page Up / Page Down move one foundation thickness (0.825 m, or two shared
 height units), so foundations at successive selected heights touch vertically.

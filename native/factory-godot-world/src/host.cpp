@@ -81,6 +81,12 @@ bool keys(const Object& object, std::initializer_list<const char*> extras) {
 }
 
 bool place_keys(const Object& object) {
+    if (object.contains("rotation")) {
+        auto without_rotation = object;
+        without_rotation.erase("rotation");
+        const auto* kind = field<std::string>(object, "kind");
+        return kind && (*kind == "collector" || *kind == "processor") && place_keys(without_rotation);
+    }
     if (object.contains("tiles")) {
         auto without_tiles = object;
         without_tiles.erase("tiles");
@@ -243,6 +249,11 @@ bool historical_wire(const authority::Record& record) {
         const auto* z = std::get_if<Integer>(&cell->at(1).storage());
         const auto* level = field<Integer>(*wire, "level");
         const auto* tiles = field<Integer>(*wire, "tiles");
+        const auto* rotation = field<Integer>(*wire, "rotation");
+        if (wire->contains("rotation") && (!rotation || *rotation < 0 || *rotation > 3)) return false;
+        if (wire->contains("rotation") != intent.contains("rotation")) return false;
+        if (rotation && (!field<Integer>(intent, "rotation") || *field<Integer>(intent, "rotation") != *rotation))
+            return false;
         if (!x || !z || *x < -250000 || *x > 250000 || *z < -250000 || *z > 250000 ||
             (wire->contains("level") && (!level || *level < -1000000 || *level > 1000000)) ||
             (*name != "collector" && *name != "processor" && *name != "wheel" && *name != "gear"))
@@ -883,6 +894,8 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         const auto* axis = field<std::string>(wire, "axis");
         if (wire.contains("axis") && (!axis || !axis_value(*axis))) return refuse("invalid_axis");
         const auto* kind_name = field<std::string>(wire, "kind");
+        const auto* rotation = field<Integer>(wire, "rotation");
+        if (wire.contains("rotation") && (!rotation || *rotation < 0 || *rotation > 3)) return refuse("invalid_rotation");
         const auto* cell = field<Array>(wire, "cell");
         if (!kind_name || !cell || cell->size() != 2) return refuse("invalid_cell");
         const auto* x = std::get_if<Integer>(&cell->at(0).storage());
@@ -946,6 +959,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.emplace("axis", Value(axis ? *axis : "x"));
         normalized.emplace("teeth", Value(Integer{*kind_name == "gear" ? 2 : 0}));
         normalized.emplace("half_span", Value(Integer{0}));
+        if (rotation) normalized.emplace("rotation", Value(*rotation));
         if (tiles) normalized.emplace("wheel_tiles", Value(*tiles));
     } else if (*action == "place_shaft") {
         if (!keys(wire, {"center", "axis", "half_span"})) return refuse("invalid_command");
@@ -1137,7 +1151,8 @@ Value Host::projection() const {
         Object projected{{"kind", Value(kind(part.role))}, {"generation", Value(part.generation)},
             {"center", Value(Array{Value(part.geometry.center[0]), Value(part.geometry.center[1]), Value(part.geometry.center[2])})},
             {"axis", Value(static_cast<Integer>(part.geometry.axis))},
-            {"teeth", Value(part.geometry.teeth)}, {"half_span", Value(part.geometry.half_span)}};
+            {"teeth", Value(part.geometry.teeth)}, {"half_span", Value(part.geometry.half_span)},
+            {"rotation", Value(part.rotation)}};
         if (part.role == Role::waterwheel) projected.emplace("tiles", Value(part.wheel_tiles));
         if (part.role == Role::shaft || part.role == Role::gear) {
             if (const auto foot = transmission_support_foot(state, part.geometry.center, part.geometry.axis)) {

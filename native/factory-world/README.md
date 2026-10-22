@@ -106,12 +106,13 @@ an X-axis belt, at the same height. A cell is four integer quarter-pitch units. 
 diagonals, other heights and nearby power components do not attach. This is a
 revisable adapter layout, not a general material-routing rule.
 
-The logical checkpoint uses schema 5 and retains identified horizontal, inclined,
+The logical checkpoint uses schema 6 and retains collector/press quarter-turn
+facings as well as identified horizontal, inclined,
 vertical and sideways belt spans and their shaft endpoints. A span counts against the same finite belt
 part inventory as a conveyor. `place_belt_span` consumes a belt and checks
 reach to both shaft identities; `remove_belt_span` refunds it. Both retain
 generation, retry history and the ordered shaft centers used by its reach receipt.
-Schema 4 checkpoints are not imported. The native Host checks actor and site clearance.
+Earlier checkpoints are refused rather than migrated. The native Host checks actor and site clearance.
 World owns canonical multi-slot lane custody; vertical and sideways power-only
 spans require empty lanes. The Godot Host admits all four path kinds with
 physical-body site and actor clearance.

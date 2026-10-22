@@ -422,6 +422,7 @@ void belt_span_checkpoint() {
             w::CheckpointReason::invalid_world);
     refusal(profile, edited(std::get<V>(encoded), {"schema"}, V(I{3})), w::CheckpointReason::unsupported_schema);
     refusal(profile, edited(std::get<V>(encoded), {"schema"}, V(I{4})), w::CheckpointReason::unsupported_schema);
+    refusal(profile, edited(std::get<V>(encoded), {"schema"}, V(I{5})), w::CheckpointReason::unsupported_schema);
     auto malformed = state; malformed.topology.belt_spans[0].geometry.last_shaft = "missing";
     check(!w::World::create("saved-world", profile, malformed), "A dangling saved belt endpoint is refused.");
     malformed = state; malformed.kits.at("P")[{s::Role::belt, 0, 0}] = 1;
@@ -495,7 +496,8 @@ void fast_open_belt_discharge() {
         press_state.material.next_work_id = 1;
         press_state.material.dropped_material.clear();
         press_state.material.belt_lanes.at("belt").slots = {m::Cargo{1, 0, {}}, m::Cargo{1, 0, {}}, m::Cargo{1, 0, {}}};
-        press_state.topology.parts.push_back({{"press", g::Kind::hub, exit, g::Axis::z, 0, 0}, 1, s::Role::processor});
+        press_state.topology.parts.push_back({{"press", g::Kind::hub, exit, g::Axis::z, 0, 0}, 1, s::Role::processor,
+                                             1, toward_negative ? 2 : 0});
         press_state.issued_entities.emplace("press", 1);
         auto press_world = w::World::create("fast-press", press_profile, press_state);
         check(press_world && press_world->tick().error == w::TransactionError::none,
@@ -658,6 +660,81 @@ void adjacent_belt_handoff() {
                   world->snapshot().state.material.dropped_material.at(exit) == cargo,
                   "The downstream open end retains the same raw, product or partial-work item.");
         }
+    }
+}
+
+void rotated_building_ports() {
+    for (I turn = 0; turn < 4; ++turn) for (const bool slope : {false, true})
+        for (const bool reverse : {false, true}) {
+        const auto rotate = [turn](g::Point point) {
+            for (I n = 0; n < turn; ++n) {
+                const auto x = point[0]; point[0] = -point[2]; point[2] = x;
+            }
+            return point;
+        };
+        const auto axis = turn % 2 == 0 ? g::Axis::z : g::Axis::x;
+        const I rate = turn == 1 || turn == 2 ? 1 : -1;
+        w::Profile profile;
+        profile.material = {1, 1, 2}; profile.initial_units = 3; profile.actors = {"P", "Q"};
+        profile.meters_per_grid_unit = 0.1; profile.waterwheel_rate = {rate, 1};
+        profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, 2}, {{s::Role::collector, 0, 0}, 1},
+            {{s::Role::processor, 0, 0}, 1}, {{s::Role::shaft, 0, 2}, 2}, {{s::Role::belt, 0, 0}, 1}};
+        w::State state;
+        state.material.initial_units = 3; state.material.stock.source = 3;
+        state.material.cargo = {{"P", {}}, {"Q", {}}}; state.kits = {{"P", {}}, {"Q", {}}};
+        state.topology.parts = {
+            {{"collector-wheel", g::Kind::hub, rotate({-4, 0, -4}), axis, 0, 0}, 1, s::Role::waterwheel},
+            {{"collector", g::Kind::hub, rotate({-4, 0, 0}), axis, 0, 0}, 1, s::Role::collector, 1, turn},
+            {{"belt-wheel", g::Kind::hub, rotate({0, slope ? 4 : 0, -4}), axis, 0, 0}, 1, s::Role::waterwheel},
+            {{"low", g::Kind::shaft, rotate({0, slope ? 4 : 0, 0}), axis, 0, 2}, 1, s::Role::shaft},
+            {{"high", g::Kind::shaft, rotate({8, slope ? 12 : 0, 0}), axis, 0, 2}, 1, s::Role::shaft},
+            {{"processor", g::Kind::hub, rotate({12, slope ? 16 : 0, 0}), axis, 0, 0}, 1, s::Role::processor, 1, turn}};
+        state.topology.sources = {{"collector-wheel", {rate, 1}}, {"belt-wheel", {rate, 1}}};
+        state.topology.drive_enabled = true;
+        state.topology.belt_spans = {{{"span", reverse ? "high" : "low", reverse ? "low" : "high"}, 1}};
+        state.material.belt_lanes.emplace("span", m::BeltLane{{std::nullopt, std::nullopt, std::nullopt}, 0});
+        for (const auto& part : state.topology.parts) state.issued_entities.emplace(part.geometry.id, 1);
+        state.issued_entities.emplace("span", 1);
+        for (const auto role : {s::Role::collector, s::Role::processor}) {
+            auto wrong = state;
+            for (auto& part : wrong.topology.parts) if (part.role == role) part.rotation = (turn + 1) % 4;
+            auto blocked = w::World::create("wrong-facing", profile, wrong);
+            check(blocked != nullptr, "A wrong-facing machine is a valid build with a closed material side.");
+            for (int tick = 0; tick < 10; ++tick)
+                check(blocked->tick().error == w::TransactionError::none, "A closed machine side preserves legal custody.");
+            const auto stopped = blocked->snapshot();
+            const auto& slots = stopped.state.material.belt_lanes.at("span").slots;
+            check(stopped.state.material.stock.input == 0 && stopped.state.material.dropped_material.empty(),
+                  "A wrong-facing input never receives or ejects cargo inside the machine.");
+            if (role == s::Role::collector)
+                check(stopped.state.material.stock.collector > 0 &&
+                      std::none_of(slots.begin(), slots.end(), [](const auto& slot) { return slot.has_value(); }),
+                      "A collector only feeds through its selected output side.");
+            else check(std::any_of(slots.begin(), slots.end(), [](const auto& slot) { return slot.has_value(); }),
+                       "A belt queues cargo against a press whose selected input faces elsewhere.");
+        }
+        auto world = w::World::create("turned-route", profile, state);
+        check(world != nullptr, "Each quarter-turn route binds the same native quantities and mechanical topology.");
+        for (int tick = 0; tick < 2; ++tick)
+            check(world->tick().error == w::TransactionError::none, "The selected outlet feeds the driven belt.");
+        const auto saved = w::encode_checkpoint(profile, world->snapshot());
+        check(std::holds_alternative<V>(saved), "The native checkpoint includes the selected machine facings.");
+        const auto decoded = w::decode_checkpoint(profile, "turned-route", std::get<V>(saved));
+        check(std::holds_alternative<w::Snapshot>(decoded), "The same current format decodes the in-flight route.");
+        auto restored = w::World::restore("turned-route", profile, std::get<w::Snapshot>(decoded));
+        check(restored && restored->snapshot().state == world->snapshot().state,
+              "Both actor records, all four facings and in-flight material survive restoration exactly.");
+        for (int tick = 0; tick < 10; ++tick)
+            check(world->tick().error == w::TransactionError::none && restored->tick().error == w::TransactionError::none &&
+                  world->snapshot().state == restored->snapshot().state,
+                  "Original and restored routes advance with identical orientation and custody.");
+        check(restored->snapshot().state.material.stock.input == 1 &&
+              restored->snapshot().state.material.dropped_material.empty(),
+              "The selected press input receives a blank for either endpoint order and either incline.");
+        auto invalid = state;
+        invalid.topology.parts[1].rotation = 4;
+        check(!w::World::create("invalid-facing", profile, invalid),
+              "A native state cannot contain an out-of-range building facing.");
     }
 }
 
@@ -852,6 +929,7 @@ void belt_span_material_route() {
                     for (auto& part : state.topology.parts) {
                         std::swap(part.geometry.center[0], part.geometry.center[2]);
                         part.geometry.axis = g::Axis::x;
+                        if (part.role == s::Role::collector || part.role == s::Role::processor) part.rotation = 1;
                     }
                 }
                 if (reverse_parts) std::reverse(state.topology.parts.begin(), state.topology.parts.end());
@@ -881,7 +959,7 @@ void belt_span_material_route() {
                             {"actor", V("P")}, {"action", V("place")}, {"role", V(role)},
                             {"center", V(V::Array{V(rotated ? I{0} : x), V(I{0}), V(rotated ? x : I{0})})},
                             {"axis", V(rotated ? "x" : "z")},
-                            {"teeth", V(I{0})}, {"half_span", V(I{0})}};
+                            {"teeth", V(I{0})}, {"half_span", V(I{0})}, {"rotation", V(I{rotated ? 1 : 0})}};
                         accepted(send(*world, place));
                     }
                 } else {
@@ -1146,7 +1224,7 @@ int main() {
         schema_and_authority_mutations();
         bounds_and_large_integers();
         belt_span_checkpoint();
-        belt_span_material_route(); fast_open_belt_discharge(); adjacent_belt_handoff(); inclined_material_route();
+        belt_span_material_route(); fast_open_belt_discharge(); adjacent_belt_handoff(); inclined_material_route(); rotated_building_ports();
         belt_span_commands();
         std::cout << "{\"status\":\"pass\",\"evidence\":\"invented_native_checkpoint\",\"checks\":" << checks << "}\n";
         return 0;

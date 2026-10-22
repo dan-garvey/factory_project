@@ -978,6 +978,7 @@ void rotated_span_build_orders() {
             } else {
                 command.at("cell") = V(A{V(I{0}), V(I{index == 0 ? 0 : 3})});
                 command.emplace("level", V(I{4}));
+                command.emplace("rotation", V(I{1}));
             }
             ids[index] = create(host, command);
         }
@@ -1592,10 +1593,65 @@ void transmission_above_half_foundation() {
     }
 }
 
+void building_rotation() {
+    for (I turn = 0; turn < 4; ++turn) {
+        Host host;
+        check(accepted(host.initialize("cog-api", {"P", "Q"})) &&
+              accepted(host.configure_terrain(factory::godot_world::tests::flat_site())),
+              "The rotation fixture uses one native Host and two actor identities.");
+        check(accepted(host.publish_actor("P", {V(0.0), V(1.0), V(0.0)}, 1)),
+              "The disclosed synthetic actor is within ordinary construction reach.");
+        const auto before = field<O>(host.projection(), "part_kits");
+        int bad_index = 0;
+        for (const V& invalid : {V(I{-1}), V(I{4}), V(1.0), V("1"), V(true)}) {
+            auto bad = machine("processor", 1, "invalid", "z");
+            bad.at("cell") = V(A{V(I{1}), V(I{0})});
+            bad.at("request") = V("bad-rotation-" + std::to_string(bad_index++));
+            bad.emplace("rotation", invalid);
+            const auto refused = host.command("P", bad);
+            check(!accepted(refused) && field<std::string>(refused, "reason") == "invalid_rotation" &&
+                  !factory::values::typed_difference(V(field<O>(host.projection(), "part_kits")), V(before)),
+                  "Malformed or out-of-range rotation refuses without consuming any parts.");
+        }
+        auto build = machine("processor", 1, "rotated-building", turn % 2 == 0 ? "z" : "x");
+        build.at("cell") = V(A{V(I{1}), V(I{0})});
+        build.emplace("rotation", V(turn));
+        const auto placed = host.command("P", build);
+        check(accepted(placed), "The selected quarter turn is admitted by the native authority.");
+        const auto id = field<std::string>(placed, "entity");
+        const auto projection = host.projection();
+        const auto& projected = field<O>(projection, "entities").at(id);
+        check(field<I>(projected, "rotation") == turn &&
+              field<I>(projected, "axis") == (turn % 2 == 0 ? 2 : 0),
+              "The shared projection retains the exact facing and horizontal drive axis.");
+        auto overlap = build;
+        overlap.at("request") = V("overlapping-turn");
+        overlap.at("rotation") = V((turn + 1) % 4);
+        const auto remaining = field<O>(host.projection(), "part_kits");
+        check(!accepted(host.command("P", overlap)) &&
+              !factory::values::typed_difference(V(field<O>(host.projection(), "part_kits")), V(remaining)),
+              "Rotating an occupied square cannot spend another carried part.");
+        const auto saved = host.checkpoint();
+        Host restored;
+        check(accepted(restored.initialize("fresh", {"P", "Q"})) &&
+              accepted(restored.configure_terrain(factory::godot_world::tests::flat_site())) &&
+              accepted(restored.restore_checkpoint(saved)),
+              "A fresh native Host restores the turned building and both actor records.");
+        check(!factory::values::typed_difference(saved, restored.checkpoint()) &&
+              field<I>(field<O>(restored.projection(), "entities").at(id), "rotation") == turn,
+              "Save and restore preserve the exact facing, custody and command history.");
+    }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::string(argv[1]) == "--building-rotation-only") {
+            building_rotation();
+            std::cout << "{\"status\":\"pass\",\"evidence\":\"native_building_rotation\",\"checks\":" << checks << "}\n";
+            return 0;
+        }
         if (argc == 2 && std::string(argv[1]) == "--tile-center-only") { transmission_tile_center(); transmission_above_half_foundation(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--foundation-only") { transmission_foundation_clearance(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--terrain-only") { transmission_terrain_clearance(); return 0; }
@@ -1612,6 +1668,7 @@ int main(int argc, char** argv) {
             return 0;
         }
         if (argc == 1) {
+            building_rotation();
             finite_oriented_train_and_restore(); adjacent_axle_faces(); refusals_and_legacy_shape(); cog_axle_actor_clearance(); cog_at_belt_face(); transmission_site_clearance(); transmission_terrain_clearance(); transmission_foundation_clearance(); one_tile_placement(); restored_transmission_geometry();
             transmission_tile_center(); transmission_above_half_foundation(); global_grid(); finite_large_cog(); perpendicular_belt_line(); retired_belt_machine(); typed_loose_host(); select_belt_shaft_host(); long_selected_belt_host(); belt_span_host_commands(); nonhorizontal_span_host(); complete_span_route_host(); complete_span_route_host(true); rotated_span_build_orders(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
         } else if (argc != 2 || std::string(argv[1]) != "--placement-alias-only") {

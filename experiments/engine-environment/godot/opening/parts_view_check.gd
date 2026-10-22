@@ -10,6 +10,10 @@ var failures := 0
 
 class OfflineWidgets:
 	extends "res://opening/opening.gd"
+	var issued: Array = []
+	func issue(action: Dictionary) -> Dictionary:
+		issued.append(action.duplicate(true))
+		return {"accepted": false, "reason": "fixture_only"}
 	func _ready() -> void:
 		set_process(false)
 	func _update_cursor() -> void:
@@ -19,6 +23,10 @@ class OfflineWidgets:
 
 class SharedWidgets:
 	extends "res://opening/shared_opening.gd"
+	var issued: Array = []
+	func issue(action: Dictionary) -> Dictionary:
+		issued.append(action.duplicate(true))
+		return {"accepted": false, "reason": "fixture_only"}
 	func _ready() -> void:
 		set_process(false)
 	func _update_cursor() -> void:
@@ -46,6 +54,9 @@ func fixture() -> Dictionary:
 		"stock": {"output": 0}, "inventories": {"P": 0, "Q": 0}}
 
 func _initialize() -> void:
+	if "--building-rotation-only" in OS.get_cmdline_user_args():
+		call_deferred("_building_rotation")
+		return
 	if "--hotbar-render-only" in OS.get_cmdline_user_args():
 		call_deferred("_render_hotbar")
 		return
@@ -120,6 +131,84 @@ func hotbar_observation() -> Dictionary:
 func settle_widgets() -> void:
 	for _frame in range(4):
 		await process_frame
+
+func _building_rotation() -> void:
+	for shared in [false, true]:
+		var view = SharedWidgets.new() if shared else OfflineWidgets.new()
+		if shared:
+			view.session = SessionStub.new()
+		view.state = hotbar_observation()
+		view.mode = "collector"
+		root.add_child(view)
+		view.selection_ring = MeshInstance3D.new()
+		view.add_child(view.selection_ring)
+		view._build_interface()
+		view._refresh_transmission()
+		view.transmission_controls.selected_axis = "z"
+		var before: Dictionary = view.state.duplicate(true)
+		var sequence: int = view.request_sequence
+		for turn in range(4):
+			view._refresh_ui()
+			verify(view.rotation_button.visible and not view.rotation_button.disabled and "%d°" % (turn * 90) in view.rotation_button.text,
+				"The ordinary rotate control shows each available facing in offline and shared views.")
+			verify(view.building_rotation == turn and view._preview_axis() == (2 if turn % 2 == 0 else 0),
+				"Quarter turns rotate the preview's horizontal drive axis with its body.")
+			var anchor := Node3D.new()
+			view._assemble_machine(anchor, {"kind": "collector", "axis": view._preview_axis(), "rotation": turn})
+			var body := anchor.get_node_or_null("RotatedMachineVisual")
+			verify((body == null and turn == 0) or (body != null and is_equal_approx(body.rotation.y, -float(turn) * PI / 2.0)),
+				"The actual machine art uses the selected quarter-turn transform.")
+			view._preview_port(anchor, turn, true)
+			var port: Label3D = anchor.get_node("MaterialPortLabel")
+			verify(port.text == "OUT" and (port.get_meta("port_side") as Vector3).is_equal_approx(Vector3.RIGHT.rotated(Vector3.UP, -float(turn) * PI / 2.0)),
+				"The collector preview labels the selected output side.")
+			anchor.free()
+			view._world_click(Vector2i(0, 1))
+			verify(view.issued.size() == turn + 1 and view.issued[-1] == {"action": "place", "kind": "collector", "cell": [0, 1],
+				"level": 0, "axis": ["z", "x", "z", "x"][turn], "rotation": turn},
+				"The ordinary placement callback emits the literal selected facing and drive axis.")
+			view.rotation_button.pressed.emit()
+		verify(view.building_rotation == 0 and view.state == before and view.request_sequence == sequence and view.model == null,
+			"Four ordinary rotate callbacks wrap without changing authority, stock or requests.")
+		view.mode = "processor"
+		var key := InputEventKey.new()
+		key.keycode = KEY_R
+		key.pressed = true
+		view._unhandled_input(key)
+		verify(view.building_rotation == 1 and view.request_sequence == sequence,
+			"The ordinary R callback turns a building without submitting an action.")
+		for _turn in range(3):
+			view._rotate_building()
+		var press_port := Node3D.new()
+		view._preview_port(press_port, 1, false)
+		verify(press_port.get_node("MaterialPortLabel").text == "IN" and (press_port.get_node("MaterialPortLabel").get_meta("port_side") as Vector3).is_equal_approx(Vector3.FORWARD),
+			"The press input is opposite its output at the rotated side.")
+		press_port.free()
+		view.explanation_open = true
+		view._rotate_building()
+		verify(view.building_rotation == 0, "Help prevents construction rotation callbacks.")
+		view.explanation_open = false
+		view.startup_save_pending = true
+		view._rotate_building()
+		verify(view.building_rotation == 0, "Pending startup restoration prevents construction rotation callbacks.")
+		view.startup_save_pending = false
+		view.mode = "wheel"
+		view.transmission_controls.selected_axis = "x"
+		view._rotate_building()
+		verify(view.transmission_controls.selected_axis == "z", "Rotate turns a horizontal wheel axle by a quarter turn.")
+		view.transmission_controls.selected_axis = "y"
+		view._refresh_ui()
+		view._rotate_building()
+		verify(view.rotation_button.disabled and view.transmission_controls.selected_axis == "y",
+			"A horizontal turn does not silently tilt a vertical wheel axle.")
+		view.mode = "foundation"
+		view._refresh_ui()
+		view._rotate_building()
+		verify(not view.rotation_button.visible and view.building_rotation == 0,
+			"Square foundations retain their common grid rather than a cosmetic rotation state.")
+		view.free()
+	print("%d building-rotation view checks" % checks)
+	quit(1 if failures else 0)
 
 func _hotbar() -> void:
 	root.gui_embed_subwindows = true

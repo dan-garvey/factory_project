@@ -147,7 +147,7 @@ Value topology_value(const stationary::Topology& topology) {
             {"axis", Value(static_cast<Integer>(geometry.axis))},
             {"center", Value(Array{Value(geometry.center[0]), Value(geometry.center[1]), Value(geometry.center[2])})},
             {"teeth", Value(geometry.teeth)}, {"half_span", Value(geometry.half_span)},
-            {"wheel_tiles", Value(part.wheel_tiles)}});
+            {"wheel_tiles", Value(part.wheel_tiles)}, {"rotation", Value(part.rotation)}});
     }
     for (const auto& link : topology.material_links)
         links.emplace_back(Object{{"from", ref_value(link.from)}, {"to", ref_value(link.to)}});
@@ -169,7 +169,7 @@ stationary::Topology decode_topology(const Value& value) {
     topology.drive_enabled = scalar<bool>(input.at("drive_enabled"), path + ".drive_enabled");
     for (const auto& value_part : array(input.at("parts"), path + ".parts", mechanics::maximum_parts)) {
         const auto& entry = fields(value_part, path + ".parts",
-            {"id", "generation", "role", "kind", "axis", "center", "teeth", "half_span", "wheel_tiles"});
+            {"id", "generation", "role", "kind", "axis", "center", "teeth", "half_span", "wheel_tiles", "rotation"});
         const auto& center = array(entry.at("center"), path + ".parts.center", 3);
         if (center.size() != 3) refuse(CheckpointReason::invalid_world, path + ".parts.center");
         topology.parts.push_back({{
@@ -182,7 +182,7 @@ stationary::Topology decode_topology(const Value& value) {
             integer(entry, "teeth", path + ".parts"), integer(entry, "half_span", path + ".parts")},
             integer(entry, "generation", path + ".parts"),
             enumeration<stationary::Role>(entry, "role", 5, path + ".parts"),
-            integer(entry, "wheel_tiles", path + ".parts")});
+            integer(entry, "wheel_tiles", path + ".parts"), integer(entry, "rotation", path + ".parts")});
     }
     for (const auto& value_link : array(input.at("links"), path + ".links", 2)) {
         const auto& entry = fields(value_link, path + ".links", {"from", "to"});
@@ -256,7 +256,7 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
         for (const auto& [actor, kit] : snapshot.state.kits) kits.emplace(actor, kit_value(kit));
         for (const auto& [id, generation] : snapshot.state.issued_entities) issued.emplace(id, Value(generation));
         Value output(Object{
-            {"schema", Value(Integer{5})}, {"profile", profile_value(profile)},
+            {"schema", Value(Integer{6})}, {"profile", profile_value(profile)},
             {"revision", Value(snapshot.revision)}, {"history", std::move(*history.value)},
             {"state", Value(Object{{"material", std::move(std::get<Value>(material))},
                 {"topology", topology_value(snapshot.state.topology)}, {"kits", Value(std::move(kits))},
@@ -286,7 +286,7 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
     try {
         Budget{}.visit(value);
         const auto& root = fields(value, "$", {"schema", "profile", "revision", "history", "state"});
-        if (integer(root, "schema", "$") != 5) refuse(CheckpointReason::unsupported_schema, "$.schema");
+        if (integer(root, "schema", "$") != 6) refuse(CheckpointReason::unsupported_schema, "$.schema");
         if (const auto difference = values::typed_difference(profile_value(profile), root.at("profile")))
             refuse(CheckpointReason::profile_mismatch, "$.profile" + difference->path.substr(1));
         Snapshot candidate;

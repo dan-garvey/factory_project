@@ -100,6 +100,8 @@ bool shape(const Object& intent, const std::string& action) {
         return keys(intent, {"target", "generation", "work_id"}) && field<Integer>(intent, "work_id");
     if (action == "set_drive")
         return keys(intent, {"target", "generation", "enabled"}) && field<bool>(intent, "enabled");
+    if (placement(action) && intent.contains("rotation"))
+        return keys(intent, {"role", "center", "axis", "teeth", "half_span", "rotation"});
     if (placement(action))
         return intent.contains("wheel_tiles") ? keys(intent, {"role", "center", "axis", "teeth", "half_span", "wheel_tiles"}) :
             keys(intent, {"role", "center", "axis", "teeth", "half_span"});
@@ -321,10 +323,13 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         const auto* teeth = field<Integer>(record.intent, "teeth");
         const auto* span = field<Integer>(record.intent, "half_span");
         const auto* wheel_tiles = field<Integer>(record.intent, "wheel_tiles");
+        const auto* rotation = field<Integer>(record.intent, "rotation");
         const auto selected_role = role_name ? role(*role_name) : std::nullopt;
         if (!location || !selected_role || !axis_name || !axis(*axis_name) || !teeth || !span ||
             !spec_valid({*selected_role, *teeth, *span}) || targets.front() != anchor(profile, *location) ||
             *selected_role == Role::belt ||
+            (record.intent.contains("rotation") && (!rotation || !material_machine(*selected_role) ||
+                *rotation < 0 || *rotation > 3)) ||
             (record.intent.contains("wheel_tiles") && (!wheel_tiles || *selected_role != Role::waterwheel ||
                 *wheel_tiles < 3 || *wheel_tiles > mechanics::maximum_dimension))) return false;
         if ((*selected_role == Role::gear || *selected_role == Role::shaft) &&
@@ -1145,10 +1150,13 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         const auto* teeth = field<Integer>(intent, "teeth");
         const auto* span = field<Integer>(intent, "half_span");
         const auto* wheel_tiles = field<Integer>(intent, "wheel_tiles");
+        const auto* rotation = field<Integer>(intent, "rotation");
         location = grid_point(intent);
         if (!role_name || !axis_name || !teeth || !span || !location ||
             !(selected_role = role(*role_name)) || !(selected_axis = axis(*axis_name)) ||
             !spec_valid({*selected_role, *teeth, *span}) ||
+            (intent.contains("rotation") && (!rotation || !material_machine(*selected_role) ||
+                *rotation < 0 || *rotation > 3)) ||
             (intent.contains("wheel_tiles") && (!wheel_tiles || *selected_role != Role::waterwheel ||
                 *wheel_tiles < 3 || *wheel_tiles > mechanics::maximum_dimension))) return refused("invalid_part");
         if (*selected_role == Role::belt) return refused("invalid_part");
@@ -1218,6 +1226,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
              *field<Integer>(intent, "half_span")}, generation, *selected_role};
         placed.geometry.id = entity;
         placed.generation = generation;
+        if (const auto* rotation = field<Integer>(intent, "rotation")) placed.rotation = *rotation;
         if (placed.role == Role::waterwheel && field<Integer>(intent, "wheel_tiles"))
             placed.wheel_tiles = *field<Integer>(intent, "wheel_tiles");
         stationary::PlacementSelection selection{placed, std::nullopt};
@@ -1347,8 +1356,20 @@ Advance World::tick() noexcept {
                 after[axis] += step;
             }
             const auto at = [&](Role role, const mechanics::Point& point) {
-                return std::any_of(candidate.topology.parts.begin(), candidate.topology.parts.end(),
+                const auto found = std::find_if(candidate.topology.parts.begin(), candidate.topology.parts.end(),
                     [&](const auto& part) { return part.role == role && part.geometry.center == point; });
+                return found == candidate.topology.parts.end() ? nullptr : &*found;
+            };
+            const auto port_matches = [&](Role role, const mechanics::Point& point,
+                                          const mechanics::Point& adjacent) {
+                const auto* machine = at(role, point);
+                if (!machine) return false;
+                constexpr std::array<mechanics::Point, 4> forwards{{{4, 0, 0}, {0, 0, 4}, {-4, 0, 0}, {0, 0, -4}}};
+                const auto& forward = forwards[static_cast<std::size_t>(machine->rotation)];
+                const auto sign = role == Role::collector ? 1 : -1;
+                // The path owns its incline. Facing selects the horizontal side.
+                return adjacent[0] - point[0] == sign * forward[0] &&
+                       adjacent[2] - point[2] == sign * forward[2];
             };
             if (rate->second.state == mechanics::MotionState::rotating &&
                 std::any_of(lane->second.slots.begin(), lane->second.slots.end(),
@@ -1365,7 +1386,8 @@ Advance World::tick() noexcept {
                     [](const auto& item) { return item.has_value(); });
                 const auto* item = toward_last ? (leading == slots.rend() ? nullptr : &**leading) :
                     (forward_leading == slots.end() ? nullptr : &**forward_leading);
-                const bool has_receiver = at(Role::processor, receiver_point);
+                const bool has_receiver = port_matches(Role::processor, receiver_point,
+                    toward_last ? last->geometry.center : first->geometry.center);
                 const bool raw = item && *item == materials::Cargo{1, 0, {}};
                 const bool work = item && item->raw_units == 0 && item->products == 0 &&
                     item->work_lots.size() == 1;
@@ -1378,7 +1400,7 @@ Advance World::tick() noexcept {
                 });
                 const auto existing_drop = candidate.material.dropped_material.find(receiver_point);
                 Integer drop_capacity = 0;
-                if (!has_receiver && !at(Role::collector, receiver_point) && valid_drop_point &&
+                if (!at(Role::processor, receiver_point) && !at(Role::collector, receiver_point) && valid_drop_point &&
                     (existing_drop != candidate.material.dropped_material.end() ||
                      candidate.material.dropped_material.size() < materials::maximum_drop_points)) {
                     Integer raw_total = existing_drop == candidate.material.dropped_material.end() ? 0 : existing_drop->second.raw_units;
@@ -1421,8 +1443,8 @@ Advance World::tick() noexcept {
             // A powered collector can fill an adjacent empty endpoint even if
             // the belt is stopped, just as it can fill a passive machine buffer.
             if (!collector_fed_span && power.collector && candidate.material.stock.collector > 0) {
-                const bool feed_first = at(Role::collector, before) && !lane->second.slots.front();
-                const bool feed_last = at(Role::collector, after) && !lane->second.slots.back();
+                const bool feed_first = port_matches(Role::collector, before, first->geometry.center) && !lane->second.slots.front();
+                const bool feed_last = port_matches(Role::collector, after, last->geometry.center) && !lane->second.slots.back();
                 if (feed_first || feed_last) {
                     (feed_first ? lane->second.slots.front() : lane->second.slots.back()) = materials::Cargo{1, 0, {}};
                     --candidate.material.stock.collector;

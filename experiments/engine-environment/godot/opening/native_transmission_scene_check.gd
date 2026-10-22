@@ -173,7 +173,7 @@ func _run() -> void:
 	if wheel.is_empty():
 		return
 	opening._select_tool("collector")
-	var collector := _invoke("oriented collector", {"action": "place", "kind": "collector", "cell": [0, 1], "axis": "y"},
+	var collector := _invoke("oriented collector", {"action": "place", "kind": "collector", "cell": [0, 1], "axis": "y", "rotation": 0},
 		[_anchor([0, 0, 4])], func(): opening._world_click(Vector2i(0, 1)))
 	if collector.is_empty():
 		return

@@ -33,6 +33,11 @@ PartSpec specification(const PlacedPart& part) noexcept {
     return {part.role, part.geometry.teeth, part.geometry.half_span};
 }
 
+bool valid_rotation(const PlacedPart& part) noexcept {
+    return part.rotation >= 0 && part.rotation < 4 &&
+        ((part.role == Role::collector || part.role == Role::processor) || part.rotation == 0);
+}
+
 const PlacedPart* find(const Topology& topology, const std::string& id) noexcept {
     const auto found = std::find_if(topology.parts.begin(), topology.parts.end(),
         [&](const auto& part) { return part.geometry.id == id; });
@@ -70,7 +75,7 @@ bool structure(const Topology& topology) {
     std::set<Role> machines;
     for (const auto& part : topology.parts) {
         if (part.role == Role::belt || !identity(part.geometry.id) || part.generation <= 0 ||
-            !valid_spec(specification(part))) return false;
+            !valid_spec(specification(part)) || !valid_rotation(part)) return false;
         const auto expected = part.role == Role::gear ? mechanics::Kind::gear :
                               part.role == Role::shaft ? mechanics::Kind::shaft :
                               mechanics::Kind::hub;
@@ -263,7 +268,8 @@ PlacementPlan prepare_placement(const Topology& topology, const Kit& kit,
 
     const auto& part = selection.part;
     const auto spec = specification(part);
-    if (part.role == Role::belt || !identity(part.geometry.id) || part.generation <= 0 || !valid_spec(spec))
+    if (part.role == Role::belt || !identity(part.geometry.id) || part.generation <= 0 || !valid_spec(spec) ||
+        !valid_rotation(part))
         return PlacementRefusal{PlacementError::invalid_part};
     if (find(topology, part.geometry.id) != nullptr)
         return PlacementRefusal{PlacementError::identity_conflict};
