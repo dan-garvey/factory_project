@@ -854,6 +854,17 @@ std::optional<authority::Point> Host::transmission_support_foot(const world::Sta
             std::abs(foot[2] - bounds.center[2]) + 0.11 <= bounds.half[2])
             seat = std::max(seat, bounds.center[1] + bounds.half[1]);
     }
+    // A ground-connected rock beneath the bearing is a valid seat. Starting
+    // the post at the rock top keeps it out of the obstacle instead of
+    // rejecting a shaft whose axle has ample clearance above it.
+    const double base_seat = seat;
+    for (const auto& obstacle : terrain_obstacles_) {
+        if (obstacle.first[0] >= foot[0] + 0.11 || obstacle.second[0] <= foot[0] - 0.11 ||
+            obstacle.first[2] >= foot[2] + 0.11 || obstacle.second[2] <= foot[2] - 0.11)
+            continue;
+        if (obstacle.first[1] <= base_seat + 0.12)
+            seat = std::max(seat, obstacle.second[1]);
+    }
     const auto axle_height = anchor_height + center[1] * height_step;
     if (seat > axle_height - 0.02) return std::nullopt;
     const auto bearing = std::max(axle_height - 0.18, seat + 0.02);
