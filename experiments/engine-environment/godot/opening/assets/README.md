@@ -544,7 +544,8 @@ hub and within the shaft's unchanged selection radius and length.
 The presenter consumes the native engagement row and both confirmed part IDs;
 nearby coaxial parts alone receive no fitting. Both halves share one cached mesh
 and follow the shaft's existing cosmetic phase. The original 1024-pixel albedo
-and prepared 512-pixel OpenGL normal and packed scalar maps shade the donor
+is shared byte-for-byte with the prepared pipe kit; the coupling keeps its
+prepared 512-pixel OpenGL normal and packed scalar maps to shade the donor
 surface; the new cut uses the existing worked-metal finish. No fluid system,
 additional connection rule, pick body, collision, quantity or saved state is
 introduced. Headless resource and fit checks leave rendered appearance, GPU
