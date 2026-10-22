@@ -593,6 +593,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
     std::set<std::pair<std::string, std::string>> used_belt_selections;
     std::map<std::pair<std::string, Integer>, mechanics::Point> placed_shafts;
     std::map<std::string, Integer> harvested_timber;
+    std::map<std::string, Integer> carried_timber;
     Integer harvested_ore = 0;
     Integer cranked_ore = 0;
     std::map<std::pair<std::string, materials::Component>, Integer> crafted_components;
@@ -647,13 +648,16 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
             const auto& id = *field<std::string>(record.intent, "target");
             if (profile.material.manual_ore && id == profile.material.manual_ore->id) {
                 if (!add(harvested_ore, 1)) return false;
-            } else if (!add(harvested_timber[id], 1)) return false;
+            } else if (!add(harvested_timber[id], 1) || !add(carried_timber[*actor], 1)) return false;
         }
         if (*action == "craft_component") {
             const auto component = materials::component_from_name(*field<std::string>(record.intent, "component"));
-            if (!component || !add(crafted_components[{*actor, *component}], 1) ||
+            const auto cost = component ? materials::component_cost(*component) : std::nullopt;
+            if (!cost || carried_timber[*actor] < cost->timber ||
+                !add(crafted_components[{*actor, *component}], 1) ||
                 crafted_components[{*actor, *component}] != *field<Integer>(record.result, "component_count"))
                 return false;
+            carried_timber[*actor] -= cost->timber;
         }
         if (*action == "take_hand_crank" || *action == "return_hand_crank") {
             if (!profile.landing_pod_center) return false;
@@ -786,6 +790,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
         if (remaining == snapshot.state.material.timber_remaining.end() ||
             harvested_timber[id] != site.initial - remaining->second) return false;
     }
+    for (const auto& [actor, cargo] : snapshot.state.material.cargo)
+        if (carried_timber[actor] != cargo.timber) return false;
     if (harvested_ore > profile.initial_units - snapshot.state.material.stock.source ||
         cranked_ore > profile.initial_units - snapshot.state.material.stock.source - harvested_ore)
         return false;
