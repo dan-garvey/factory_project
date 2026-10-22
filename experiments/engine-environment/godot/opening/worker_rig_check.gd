@@ -990,6 +990,57 @@ func landing_toe_hold_case(metres_per_frame: float) -> Dictionary:
 	host.free()
 	return result
 
+func check_first_landing_contact_at_render_cadence() -> void:
+	var host := HostFixture.new()
+	host.state.context = "landing-first-contact-render-cadence"
+	root.add_child(host)
+	var presenter := Presenter.new()
+	presenter.configure(host)
+	host.add_child(presenter)
+	presenter.set_process(false)
+	presenter.set_physics_process(false)
+	var view: Node3D = presenter.views.P
+	var body: Node3D = view.get_node("BodyView")
+	var skeleton: Skeleton3D = skeleton_of(body)
+	# Confirmed vertical samples reproduce a moving 20 fps jump and first
+	# contact. The actor root is supplied by the fixture, never the presenter.
+	var heights := [0.881, 0.881, 0.881, 0.881, 0.881, 1.077, 1.342,
+		1.572, 1.767, 1.927, 2.052, 2.142, 2.197, 2.217, 2.202,
+		2.152, 2.067, 1.947, 1.792, 1.602, 1.377, 1.117, 0.881]
+	var before := {}
+	var result := {}
+	var roots_exact := true
+	for index in range(heights.size()):
+		var position := Vector3(float(index) * 0.15, heights[index], 0.0)
+		host.state.actors.P.position = [position.x, position.y, position.z]
+		presenter.refresh(0.05)
+		skeleton.force_update_all_bone_transforms()
+		var joints := {}
+		for key in ["Head", "L Hand", "R Hand"]:
+			joints[key] = body.to_global(presenter._adult_joint(body, skeleton,
+				skeleton.find_bone("Bip01 " + key))) - position
+		roots_exact = roots_exact and view.position.is_equal_approx(position)
+		if presenter.motion.P.mode == "descent":
+			before = joints
+		elif presenter.motion.P.mode == "landing" and result.is_empty() and not before.is_empty():
+			var left_toe := body.to_global(presenter._adult_joint(body, skeleton,
+				skeleton.find_bone("Bip01 L Toe0")))
+			result = {"head_step": joints.Head.distance_to(before.Head),
+				"left_hand_step": joints["L Hand"].distance_to(before["L Hand"]),
+				"right_hand_step": joints["R Hand"].distance_to(before["R Hand"]),
+				"toe_height": left_toe.y,
+				"knee_forward": knee_forward_offset(body, "L")}
+	adult_measurements["landing_first_contact_20fps"] = result
+	verify(not result.is_empty(), "The render-cadence fixture reaches moving first contact.")
+	if not result.is_empty():
+		verify(result.head_step < 0.105 and result.left_hand_step < 0.16
+			and result.right_hand_step < 0.16,
+			"First landing contact eases the torso and hands without a single-frame pop.")
+		verify(absf(result.toe_height) < 0.04 and result.knee_forward > 0.02
+			and roots_exact and host.control_calls == 0,
+			"The leading boot and knee take first contact without changing actor authority.")
+	host.free()
+
 func check_landing_recovery_profile() -> void:
 	var host := HostFixture.new()
 	host.state.context = "landing-recovery-profile"
@@ -1122,6 +1173,7 @@ func run() -> void:
 		check_uneven_native_walk_samples()
 		check_jog_blend_at_native_physics_cadence()
 		check_landing_contact_from_motion()
+		check_first_landing_contact_at_render_cadence()
 		var still_contact := landing_toe_hold_case(0.0)
 		var walk_contact := landing_toe_hold_case(0.018)
 		var jog_contact := landing_toe_hold_case(0.028)

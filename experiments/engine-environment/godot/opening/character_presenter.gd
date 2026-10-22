@@ -328,6 +328,10 @@ func _set_adult_air_and_landing(body: Node3D, air: float,
 	var foot_load := smoothstep(0.0, 0.16, landing_progress) * \
 		pow(1.0 - clampf(landing_progress, 0.0, 1.0), 1.7)
 	var plant := foot_load * (1.0 - smoothstep(0.12, 0.60, landing_progress)) * contact_stride
+	# The lead boot must take support promptly, but the torso follows the load
+	# over the next few rendered samples instead of snapping into its brace.
+	var torso_brace := foot_load * smoothstep(0.0, 0.35, landing_progress) * \
+		(1.0 - smoothstep(0.20, 0.70, landing_progress)) * contact_stride
 	# The leading left boot takes a moving landing first. The opposite arm
 	# catches that rotation; an in-place landing keeps its symmetric balance.
 	var arm_balance := contact_stride * impact
@@ -365,12 +369,12 @@ func _set_adult_air_and_landing(body: Node3D, air: float,
 			+ 0.22 * sign * arm_balance
 			- (0.12 - 0.06 * sign) * pre_contact))
 	_adult_bone_delta(body, "Spine1", Quaternion(Vector3.RIGHT,
-		(0.18 * rise + 0.08 * fall) * air + 0.30 * impact + 0.42 * plant
+		(0.18 * rise + 0.08 * fall) * air + 0.30 * impact + 0.42 * torso_brace
 		+ 0.10 * pre_contact))
 	_adult_bone_delta(body, "Spine2", Quaternion(Vector3.RIGHT,
-		0.12 * impact + 0.18 * plant))
+		0.12 * impact + 0.18 * torso_brace))
 	_adult_bone_delta(body, "Neck", Quaternion(Vector3.RIGHT,
-		(0.06 * rise - 0.08 * fall) * air - 0.22 * impact - 0.16 * plant
+		(0.06 * rise - 0.08 * fall) * air - 0.22 * impact - 0.16 * torso_brace
 		- 0.05 * pre_contact))
 	# Compression moves only the skinned view; the Character root is unchanged.
 	body.position.y = -0.065 * impact
@@ -1141,7 +1145,7 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 		previous.get("landing_toe_anchor") if previous.mode == "landing" else null)
 	if previous.mode == "landing" and previous.has("landing_arm_start"):
 		var skeleton: Skeleton3D = body.get_node(body.get_meta("skeleton_path"))
-		var arm_blend := smoothstep(0.0, 0.42, landing_progress)
+		var arm_blend := smoothstep(0.0, 0.55, landing_progress)
 		for key in previous.landing_arm_start:
 			var index: int = body.get_meta("rig")[key].index
 			var current: Quaternion = skeleton.get_bone_pose_rotation(index)
