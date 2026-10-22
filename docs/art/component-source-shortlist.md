@@ -213,6 +213,51 @@ present render establishes donor appearance and source dimensions only; it
 does not establish tool compatibility, native mechanics, packaged export,
 playable composition or human visual acceptance.
 
+## Workshop H-frame press source, 2026-10-22
+
+The close and construction-distance comparison for the current press showed why
+small crown bevels do not solve its broad, slab-like silhouette. I inspected
+[Innerscene's workshop hydraulic press](https://www.innerscene.com/tools/library/3d-parts/workshop-hydraulic-press-e68b66c7)
+as a structural reference, not a replacement for the game's press. The provider
+identifies it as an original [CC0 library part](https://www.innerscene.com/tools/library/terms)
+and gives an overall size of 0.988 × 0.700 × 1.790 metres. Its downloaded
+1,459,511-byte STEP file is an Open CASCADE AP214 assembly in millimetres. The
+source contains 60 individually named child products, 60 assembly occurrences
+and 60 closed boundary-representation solids. These are actual source records,
+not an inference from a website image.
+
+The useful rigid groups are two anchoring feet, two hollow uprights with pin
+holes, foot gussets and fasteners, a bored top crossmember, a lower brace,
+adjustable table beams and their support pins. This is a much more explicit
+column-to-foot load path than the current crown-only art. The source places its
+uprights at approximately ±0.340 metres; the playable press's sourced columns
+are at ±0.480 metres. Moving those legs to the current mounts would leave the
+source crossmembers and table too short, so fitting it is an authored assembly
+adaptation, not a uniform scale or a raw import. The source's 1.790-metre height
+also exceeds the current 1.65-metre pick-body height by 0.140 metres.
+
+The hydraulic cylinder, hand pump, gauge, hose and ram are separately named
+source parts, but their action is not the game's mechanically driven press.
+Exclude them from any live adaptation unless the native World supplies the
+matching behavior. STEP placements identify CAD assembly members; they do not
+supply verified Godot pivots, animation channels, texture coordinates or a
+production material set. The file has seven RGB CAD colors and no inspected
+PBR texture package. I viewed the provider's linked preview: it makes the
+H-frame, pinned table and foot gussets legible, while its plain blue CAD finish
+is not a production-quality game surface. No local tessellation, Godot import or
+game render of this STEP source was performed. The exact downloaded file, page,
+provider preview and qualifications are retained in
+`press-frame-source-20261022/source-audit.json` outside Git.
+
+**Disposition:** accept the foot/upright/crossmember layout as a candidate
+reference for an original, rigid press frame. Reject the full model as a
+drop-in art replacement. A next prototype should tessellate only selected
+structural parts, reauthor their mounts and finishes at the existing confirmed
+press dimensions, keep the open feed and moving-tool envelopes, and compare the
+complete result at the real construction camera. The present source audit does
+not prove that those selected CAD solids will look good after conversion or
+that a new frame is physically supported by native collision.
+
 Poly Haven's [license page](https://polyhaven.com/license) permits adaptation and
 redistribution of its CC0 assets. Its preview images and website content are
 separate from the asset license. Keep those provider previews out of our public
