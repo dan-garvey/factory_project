@@ -574,13 +574,15 @@ launch an extra engine merely to fill this documentation gap. Owners: Platform
 and Ops; new consumer follow-up before a backend change, existing character/reach
 work `3.11`/`5.21`/`6.36`/`6.37` proceeds against its declared interface.
 
-The pinned X11 native-opening capture in `grass-daylight-color-20261022` exited
-zero and rendered the changed grass material, while reporting two ObjectDB
-instances at shutdown. A focused verbose rendered diagnostic identifies them as
+The pinned native-opening capture in `grass-daylight-color-20261022` requested
+X11, fell back to Wayland and exited zero after rendering the changed grass
+material, while reporting two ObjectDB instances at shutdown. A focused verbose
+rendered diagnostic also fell back to Wayland and identifies them as
 `DisplayServer` and `NativeMenu`; the corresponding headless diagnostic reports
-no ObjectDB leak. The original warning, object names, completions and source
-binding remain with that result. The underlying cause and longer-session leak
-behavior remain unknown; this is a bounded display shutdown observation.
+no ObjectDB leak. The original warnings, object names, completions and source
+binding remain with that result. The underlying cause, X11 behavior and
+longer-session leak behavior remain unknown; this is a bounded Wayland display
+shutdown observation.
 
 ## GDC-11: save and UI evidence have explicit coverage boundaries
 
