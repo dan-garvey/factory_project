@@ -176,6 +176,24 @@ func check_terrain_pointer(shared: bool) -> void:
 		view.transmission_controls._height_selected(1)
 		verify(view._transmission_center(screen) == [cell.x * 4, level + 4, cell.y * 4], "Explicit height overrides terrain following by one global tile.")
 		view.transmission_controls._height_selected(2)
+	var x: float = 20 * Geometry.PITCH
+	var z: float = 20 * Geometry.PITCH
+	var ground: float = surface.height_at(x, z)
+	var level := ceili(ground / Geometry.PITCH) * Geometry.HEIGHT_DENOMINATOR
+	view.camera.position = Vector3(x, ground + 20.0, z)
+	view.camera.look_at(Vector3(x, ground, z), Vector3.FORWARD)
+	var screen: Vector2 = view.camera.unproject_position(Vector3(x, ground, z))
+	view.state.transmission_parts["hidden"] = {"kind": "shaft", "center": [80, level - 8, 80], "axis": 0, "generation": 1}
+	pick_body(view, "hidden", Vector3(x, ground - 2.0, z), Vector3.ONE * 0.3, Vector3.ZERO)
+	await physics_frame
+	await physics_frame
+	view.transmission_controls.choose_tool("place_shaft")
+	verify(view._screen_entity(screen).is_empty(), "Terrain occludes the more distant transmission picker.")
+	verify(view._transmission_center(screen) == [80, level, 80], "A terrain hit selects its global tile instead of a hidden shaft face.")
+	pick_body(view, "visible", Vector3(x, ground + 2.0, z), Vector3.ONE * 0.3, Vector3.ZERO)
+	await physics_frame
+	await physics_frame
+	verify(view._screen_entity(screen) == "visible", "A transmission picker in front of terrain remains selectable.")
 	verify(view.requests.is_empty() and view.model == null, "Terrain pointing is local and creates no authority or construction request.")
 	view.queue_free()
 	await process_frame

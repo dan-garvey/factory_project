@@ -4079,6 +4079,7 @@ func _install_transmission_terrain_picker() -> void:
 		return
 	var terrain := StaticBody3D.new()
 	terrain.name = "TransmissionTerrainPicker"
+	terrain.set_meta("transmission_terrain", true)
 	terrain.collision_layer = TRANSMISSION_TERRAIN_PICK_LAYER
 	terrain.collision_mask = 0
 	var shape := ConcavePolygonShape3D.new()
@@ -4772,8 +4773,11 @@ func _screen_entity(screen: Vector2) -> String:
 func _screen_pick(screen: Vector2) -> Dictionary:
 	var origin := camera.project_ray_origin(screen)
 	var query := PhysicsRayQueryParameters3D.create(origin, origin + camera.project_ray_normal(screen) * 80)
-	query.collision_mask = Geometry.PICK_LAYER
-	return get_world_3d().direct_space_state.intersect_ray(query)
+	query.collision_mask = Geometry.PICK_LAYER | TRANSMISSION_TERRAIN_PICK_LAYER
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	if not hit.is_empty() and hit.collider.has_meta("transmission_terrain"):
+		return {}
+	return hit
 
 func _entity_at_cell(cell: Vector2i) -> String:
 	for entity_id in state.get("entities", {}):
