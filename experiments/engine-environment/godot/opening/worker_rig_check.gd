@@ -1125,12 +1125,14 @@ func check_landing_recovery_profile() -> void:
 		if frame < 10:
 			lowest_toe = minf(lowest_toe, minf(left_toe.y, right_toe.y))
 		roots_exact = roots_exact and view.position.is_equal_approx(Vector3(0.0, 0.9, 0.0))
+	var compression_depth: float = heads[0] - heads.slice(2, 10).min()
 	adult_measurements["landing_recovery"] = {"head_first": heads[0],
-		"head_low": heads.slice(1, 8).min(), "head_final": heads.back(),
+		"head_low": heads.slice(2, 10).min(), "compression_depth": compression_depth,
+		"head_final": heads.back(),
 		"lowest_toe": lowest_toe}
-	verify(heads.slice(1, 8).min() < heads[0] - 0.01 and heads.back() > heads[0] + 0.06
+	verify(compression_depth > 0.065 and heads.back() > heads.slice(2, 10).min() + 0.10
 		and presenter.motion.P.mode == "grounded",
-		"Landing takes load after first contact, then rises to a supported neutral stance.")
+		"Landing has visible load absorption after first contact, then rises to a supported stance.")
 	verify(lowest_toe > -0.03 and lowest_toe < 0.04
 		and roots_exact and host.control_calls == 0,
 		"Landing recovery keeps the boot near ground and the confirmed actor root and input untouched.")

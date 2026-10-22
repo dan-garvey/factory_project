@@ -1128,9 +1128,9 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 		var elapsed: float = float(previous.impact_age) / LANDING_SECONDS
 		landing_progress = elapsed
 		# The feet reach support before the torso finishes absorbing the load.
-		# Let the visual compression peak a few samples after first contact.
-		impact = 1.2 * smoothstep(0.0, 0.50, elapsed) \
-			* pow(1.0 - clampf(elapsed, 0.0, 1.0), 1.25)
+		# Delay the deeper compression until the support leg can take the load.
+		impact = 1.90 * smoothstep(0.04, 0.60, elapsed) \
+			* (1.0 - clampf(elapsed, 0.0, 1.0))
 	var presentation_stride := float(previous.landing_stride)
 	var landing_approach := 0.0
 	if previous.mode == "descent":
