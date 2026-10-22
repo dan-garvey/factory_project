@@ -86,6 +86,12 @@ recovery lets the larger reserve fit the prototype's request and save budgets.
 The view receives `source_deposit.cells`, initial stock, buffer capacity and
 maximum depth from this native owner; it holds no source ledger. The initial
 node covers cells `[0, 0]` and `[0, 1]`, with one carried collector.
+The native `motion` projection includes complete placed collector and press
+drive parts under their issued IDs. Overloaded parts expose the effective
+`capacity`, `impact`, `limiting_part` and `remedy`; an empty limiting part means
+the wheel source capacity is insufficient. A placed wooden shaft or cog can
+stall a connected line while another branch remains in motion. This is native
+load feedback, not a scene usability or human play result.
 
 The collector may operate above the mineral surface by at most eight common
 height steps (3.3 m), allowing a leveling foundation over sloped ore. Construction

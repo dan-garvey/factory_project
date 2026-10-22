@@ -6881,7 +6881,14 @@ func _confirmed_drive_status(motion: Variant) -> String:
 			description += "\nLoad %.2f / capacity %.2f" % [motion.get("impact", 0.0), motion.capacity]
 		return description
 	elif motion.get("overloaded", false):
-		return "Overloaded · load %.2f / capacity %.2f" % [motion.get("impact", 0.0), motion.get("capacity", 0.0)]
+		var description := "Overloaded · load %.2f / capacity %.2f" % [motion.get("impact", 0.0), motion.get("capacity", 0.0)]
+		var limiting: Variant = motion.get("limiting_part", "")
+		if limiting is String and not limiting.is_empty():
+			var part_kind: String = str(motion.get("limiting_kind", "drive part")).replace("_", " ").capitalize()
+			description += "\nLimit: %s (%s). Replace with softmetal or split the load." % [part_kind, limiting]
+		else:
+			description += "\nAdd power or reduce load."
+		return description
 	return str(motion.get("state", "disconnected")).capitalize()
 
 func _transmission_inspection(part: Dictionary, motion: Dictionary) -> String:

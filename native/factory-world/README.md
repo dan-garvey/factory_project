@@ -90,6 +90,18 @@ turns advance it on the shared fixed work clock, and a completed lot becomes one
 product at the selected physical exit. A full exit retains ready work; pickup
 after dismantling recovers the original blank or partial WorkLot. Work and
 products remain in the canonical loose-material ledger and strict checkpoint.
+The existing native drive evaluator now projects complete placed collector and
+press assemblies into the same connected graph as stationary shafts, cogs and
+wheel sources. The projected parts keep their issued identities. Speed-weighted
+machine load is limited by the weakest placed shaft or cog: provisional wooden
+rating 8 and softmetal rating 24, against the existing wheel capacity of 32
+per unit source rate. A connected overload stalls without consuming material
+or damaging parts; independent branches retain their own motion. World ticks
+and checkpoint restore recompute this graph from the one saved State. These
+ratings are calibration values for the first chapter, not permanent torque
+units. Hand-crank commands still operate by explicit actor action; automatic
+collector-to-press custody and continuous machine actuation remain integration
+work.
 One identified hand crank starts in the arrival pod. Reach-checked take and
 return requests move its custody between the pod and one actor. The same
 issued identity, request history and checkpoint preserve that custody. Crank
