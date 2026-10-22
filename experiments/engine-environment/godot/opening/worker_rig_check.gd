@@ -1012,8 +1012,9 @@ func run() -> void:
 		verify(walk_contact.anchored and early_grounded and walk_contact.root_exact
 			and walk_contact.minimum_knee_forward > 0.05 and walk_contact.control_calls == 0,
 			"A warmed walking landing plants the forward-facing lead boot through early contact without moving the actor root.")
-		verify(jog_contact.root_exact and jog_contact.minimum_knee_forward > -0.02
-			and jog_contact.maximum_contact_step < 0.12 and jog_contact.control_calls == 0
+		verify(jog_contact.root_exact and jog_contact.minimum_knee_forward > 0.05
+			and jog_contact.maximum_contact_step < 0.02 and jog_contact.retreat < 0.005
+			and walk_contact.retreat < 0.015 and jog_contact.control_calls == 0
 			and run_contact.anchored and run_contact.root_exact
 			and run_contact.minimum_knee_forward > 0.04
 			and run_contact.retreat < 0.015 and run_contact.maximum_contact_step < 0.08

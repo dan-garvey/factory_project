@@ -936,13 +936,16 @@ func _set_gait(body: Node3D, phase: float, weight: float,
 			var contact_y := -Geometry.CAPSULE_HEIGHT / 2.0 + 0.01 - minf(left_toe.y, right_toe.y)
 			body.position.y = lerpf(body.position.y, contact_y, clampf(impact * 8.0, 0.0, 1.0))
 			if landing_toe_anchor is Vector3:
-				var walk_hold := 1.0 - smoothstep(0.20, 0.90, run_mix)
-				var run_hold := smoothstep(0.75, 1.0, run_mix)
+				# Every moving landing needs a support boot. Hand the hold from
+				# walking to running without leaving an unsupported jog-speed gap.
+				var run_hold := smoothstep(0.55, 0.90, run_mix)
+				var walk_hold := 1.0 - run_hold
 				var hold := walk_hold * (1.0 - smoothstep(0.30, 0.75, landing_progress)) \
 					+ run_hold * (1.0 - smoothstep(0.35, 0.78, landing_progress))
-				# A running recovery passes weight to the opposite boot quickly.
-				# Lift this leading toe before its ankle follows the receding stride.
-				var toe_off_lift := 0.07 * run_hold * smoothstep(0.38, 0.62, landing_progress) \
+				# Lift the leading boot as its support fades so the recovery travels
+				# through the air instead of sliding along the ground at jog speed.
+				var toe_off_lift := lerpf(0.11, 0.07, run_hold) \
+					* smoothstep(0.32, 0.44, landing_progress) \
 					* (1.0 - smoothstep(0.82, 1.0, landing_progress))
 				if hold > 0.0 or toe_off_lift > 0.0:
 					_adult_hold_contact_toe(body, skeleton, landing_toe_anchor, hold, toe_off_lift)
@@ -1173,8 +1176,7 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 		contact_toe.y = at.y - Geometry.CAPSULE_HEIGHT / 2.0 + 0.01
 		previous.landing_toe_anchor = contact_toe
 		_adult_hold_contact_toe(body, skeleton, contact_toe,
-			1.0 - smoothstep(0.20, 0.90, float(previous.run_mix))
-			+ smoothstep(0.75, 1.0, float(previous.run_mix)))
+			1.0)
 		motion[actor] = previous
 
 func _new_view(actor: String) -> Node3D:
