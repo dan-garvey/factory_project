@@ -872,6 +872,8 @@ func frame_seat(bolt: MeshInstance3D, seat: MeshInstance3D, lifted: float = 0.0)
 	return result
 
 func check_conveyor_frame() -> void:
+	# This retained one-cell belt is an invented art sample. Native World now
+	# rejects that machine form; playable belts are physical shaft spans.
 	var cache: Dictionary = {}
 	var assemblies := 0
 	var minimum_gap := INF
@@ -895,7 +897,7 @@ func check_conveyor_frame() -> void:
 			var rotated := bool(anchor.get_meta("material_rotated", false))
 			var machine: Node3D = anchor.get_node("RotatedMachineVisual") if rotated else anchor
 			var rendered_axis := 2 if rotated else axis
-			verify(machine.get_meta("conveyor_frame", false), "The actual native conveyor mounts its fitted fixed furniture.")
+			verify(machine.get_meta("conveyor_frame", false), "The one-cell resource sample mounts its fitted fixed furniture.")
 			var rollers: Array[MeshInstance3D] = []
 			var parts: Array[MeshInstance3D] = []
 			var picks := 0
@@ -935,7 +937,7 @@ func check_conveyor_frame() -> void:
 			verify(journal_art
 				and drive.position.is_equal_approx(Vector3(0, Geometry.ANCHOR_HEIGHT, 0))
 				and absf(drive.basis.y.dot([Vector3.RIGHT, Vector3.UP, Vector3.BACK][rendered_axis])) > 0.99999,
-				"The native hub point and confirmed axis remain exact, with the declared current journal artwork.")
+				"The resource sample keeps its historical hub datum and projected axis.")
 			var shafts: Array[MeshInstance3D] = [drive]
 			shafts.append_array(rollers)
 			var guard_posts := 0
@@ -958,7 +960,7 @@ func check_conveyor_frame() -> void:
 					check_closed_asset_mesh(part.mesh, volumes[0], volumes[1])
 					cache[role] = [part.mesh, part.material_override]
 				verify(part.mesh == cache[role][0] and part.material_override == cache[role][1],
-					"Both builders and all drive axes share every compatible mesh and material.")
+					"Both presentation builders and all sample axes share every compatible mesh and material.")
 				var painted := role in ["FrameCheek", "BearingCup", "SideBeam", "GuardRail", "GuardHalf", "GuardPost"]
 				var material := part.material_override as StandardMaterial3D
 				verify(material.albedo_color == (Color("49666a") if painted else Color("a6b4af"))
@@ -1012,7 +1014,7 @@ func check_conveyor_frame() -> void:
 					verify(frame_seat(foot, seat, 0.001).coverage < 0.99, "A lifted foot bolt fails the same complete-face seating requirement.")
 					controls = 4
 			verify(guard_posts == 4 and guard_sections == (4 if rendered_axis == 2 else 2),
-				"Both sides retain fitted supports and the declared native-drive opening.")
+				"Both sides retain fitted supports and the sample drive opening.")
 			verify(view.state == before and view.model == null and view.actor_world == null and view.request_sequence == 0,
 				"The fixed furniture changes no projection, material request, physics or native authority.")
 			assemblies += 1
@@ -1027,7 +1029,7 @@ func check_conveyor_frame() -> void:
 			and count_role(machine, "ConveyorChannel") == 2 and count_role(machine, "RollerBearing") == 4,
 			"Both nonnative view classes retain their earlier posts, channels and bearing disks.")
 		view.free()
-	print(JSON.stringify({"phase": "conveyor frame", "assemblies": assemblies, "unique_mesh_roles": cache.size(),
+	print(JSON.stringify({"phase": "conveyor frame", "sample_only": true, "assemblies": assemblies, "unique_mesh_roles": cache.size(),
 		"minimum_facet_clearance_metres": minimum_gap, "minimum_roller_entry_metres": minimum_entry,
 		"complete_bolt_seats": seats, "altered_geometry_controls": controls,
 		"observations": "invented", "native_gameplay": "not_run", "rendered_quality": "not_assessed"}))
@@ -5377,7 +5379,7 @@ func render_buildable_resources() -> void:
 		{"name": "press-cartridge", "kind": "tool_cartridge", "tool": "press", "sample_only": true},
 		{"name": "cutter-cartridge-sample", "kind": "tool_cartridge", "tool": "cut_sample", "sample_only": true},
 		{"name": "guarded-cutter-sample", "kind": "tool_cartridge", "tool": "cut_sample", "guarded": true, "sample_only": true},
-		{"name": "conveyor", "kind": "belt"}, {"name": "waterwheel", "kind": "wheel"},
+		{"name": "conveyor", "kind": "belt", "sample_only": true}, {"name": "waterwheel", "kind": "wheel"},
 		{"name": "waterwheel-large", "kind": "wheel", "tiles": 8},
 		{"name": "belt-span", "kind": "belt_span"}, {"name": "belt-pulley", "kind": "belt_pulley"},
 		{"name": "waterwheel-journal", "kind": "wheel", "cutaway": true},
@@ -5624,7 +5626,7 @@ func render_buildable_resources() -> void:
 		await process_frame
 	report.status = "pass"
 	report.images_expected = subjects.size() * 2
-	report.limits = "Studio lighting and passive mesh observations. The cutter cartridge is an isolated visual sample, not native cutting or interchangeable gameplay. No actual app, game state, user understanding, export, performance or human-quality verdict."
+	report.limits = "Studio lighting and passive mesh observations. The cutter cartridge is an isolated visual sample without native cutting. The one-cell conveyor is a retired art sample; playable belts are shaft spans. No actual app, game state, user understanding, export, performance or human-quality verdict."
 	if not resource_render_write(manifest, report):
 		push_error("The final resource-render result cannot be retained.")
 		quit(1)

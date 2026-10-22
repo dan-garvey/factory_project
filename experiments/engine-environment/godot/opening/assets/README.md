@@ -6,7 +6,8 @@ authority. The current carried counts come from the opening's confirmed kit.
 
 The existing `machine_detail_check.gd` fixture also has a
 `--render-buildable-resources` mode for inspecting the current native collector,
-press, conveyor, waterwheel and foundation kit as passive resources. It reads its own
+press, retired one-cell conveyor sample, waterwheel and foundation kit as passive
+resources. It reads its own
 960 by 960 pixel viewports after completed draw barriers and retains two studio
 views per buildable, image hashes, framing, the actual native presentation profile
 and renderer information. The fixture explicitly disables the historical profile
@@ -386,7 +387,7 @@ freshness gates and leave their pick bodies, item counts and item positions
 unchanged. The conveyor remains static: no belt surface speed or direction has
 been inferred from the separate material-transfer rules.
 
-Native conveyor furniture uses original flared cast end frames with fitted
+The retained one-cell conveyor art sample uses original flared cast end frames with fitted
 bearing cups, worked liners, retaining caps and rigid hexagonal fasteners. Lower
 formed side members join the frames while clearing the original roller tips.
 The upper guards now use closed folded sections with inward returns and four
@@ -394,11 +395,13 @@ seated posts instead of unsupported rectangular bars. They retain a central
 opening for the existing Z-axis drive and clear the rubber edge. Their
 paint and exposed metal reuse the qualified cast/worked maps. The original rubber
 loop, roller geometry, drive, picks, items and authority remain unchanged; these
-visual bearings add no contact, force or transport simulation. Nonnative views
-retain their earlier posts and bearing disks. Technical geometry checks do not
+visual bearings add no contact, force or transport simulation. Native World no
+longer admits this one-cell belt machine; player-built belts use shaft spans.
+Historical nonnative views retain their earlier posts and bearing disks.
+Technical geometry checks do not
 establish rendered quality, GPU cost or human assessment.
 
-The native conveyor's drive artwork is a compact journal and supported open
+The sample's drive artwork is a compact journal and supported open
 housing at the confirmed hub point and axis. Twin carrier rails sit inside the
 empty belt return, with cleats joining the existing side members. A vertical
 hub uses a forked mount. This replaces the old long decorative bar that crossed
