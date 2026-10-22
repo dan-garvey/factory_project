@@ -33,10 +33,10 @@ void arrival_projection_and_restore() {
     const auto view = host.projection();
     const auto pod = get<O>(view, "landing_pod");
     check(get<std::string>(V(pod), "id") == "landing-pod" &&
-          get<bool>(V(pod), "deployed") && get<bool>(V(pod), "hub_ready") &&
+          get<bool>(V(pod), "deployed") && !get<bool>(V(pod), "hub_ready") &&
           !factory::values::typed_difference(V(get<A>(V(pod), "center")),
               V(A{V(I{1}), V(I{0}), V(I{4})})),
-          "The view describes the settled hub at the same global-grid center as its deck.");
+          "The view describes the settled pod and accurately leaves its unfinished hub unavailable.");
     const auto floors = get<O>(view, "foundations");
     check(floors.size() == 9 && floors.contains("pod-floor-0") && floors.contains("pod-floor-8"),
           "The unfolding pod supplied exactly nine ordinary visible foundation identities.");

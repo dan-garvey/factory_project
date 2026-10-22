@@ -1640,7 +1640,7 @@ Value Host::projection() const {
             {"generation", Value(pod.generation)},
             {"center", Value(Array{Value(pod.center[0] / height_denominator),
                 Value(pod.center[1]), Value(pod.center[2] / height_denominator)})},
-            {"deployed", Value(true)}, {"hub_ready", Value(true)}}));
+            {"deployed", Value(true)}, {"hub_ready", Value(false)}}));
     }
     return Value(std::move(projection));
 }
