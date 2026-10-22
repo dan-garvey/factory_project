@@ -241,20 +241,28 @@ static func _ore_ground_mesh(band: int, cells: Array) -> ArrayMesh:
 	var radius_z := float(last_z - first_z + 1) * Geometry.PITCH * 0.5
 	var source := SurfaceTool.new()
 	source.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var opacity := 0.72 * sqrt(float(band) / 8.0)
-	for sector in range(20):
-		var angles := [float(sector) * TAU / 20.0, float(sector + 1) * TAU / 20.0]
+	var opacity := sqrt(float(band) / 8.0)
+	var radii := [0.0, 0.38, 0.70, 0.90, 1.0]
+	var strengths := [0.88, 0.96, 0.74, 0.28, 0.0]
+	for sector in range(32):
+		var angles := [float(sector) * TAU / 32.0, float(sector + 1) * TAU / 32.0]
 		var center := Vector2(-0.03, middle_z)
-		var corners: Array[Vector2] = []
-		for angle in angles:
-			var irregular := 0.91 + 0.055 * sin(angle * 5.0 + 0.8) + 0.035 * cos(angle * 9.0)
-			corners.append(center + Vector2(cos(angle) * 0.81, sin(angle) * radius_z) * irregular)
-		for vertex: Vector2 in [center, corners[1], corners[0]]:
-			var edge: bool = vertex != center
-			source.set_normal(Vector3.UP)
-			source.set_uv(vertex * 0.5)
-			source.set_color(Color(1.0, 1.0, 1.0, opacity * (0.20 if edge else 1.0)))
-			source.add_vertex(Vector3(vertex.x, Scenery.Surface.height_at(vertex.x, vertex.y) + 0.012, vertex.y))
+		for ring in range(4):
+			var points: Array[Vector2] = []
+			var opacities: Array[float] = []
+			for radius_index in [ring, ring + 1]:
+				for angle in angles:
+					var irregular := 0.91 + 0.055 * sin(angle * 5.0 + 0.8) + 0.035 * cos(angle * 9.0)
+					points.append(center + Vector2(cos(angle) * 0.81, sin(angle) * radius_z)
+						* irregular * float(radii[radius_index]))
+					opacities.append(opacity * float(strengths[radius_index]))
+			var corners := [0, 3, 2] if ring == 0 else [0, 3, 2, 0, 1, 3]
+			for corner in corners:
+				var vertex: Vector2 = points[corner]
+				source.set_normal(Vector3.UP)
+				source.set_uv(vertex * 0.55)
+				source.set_color(Color(1.0, 1.0, 1.0, opacities[corner]))
+				source.add_vertex(Vector3(vertex.x, Scenery.Surface.height_at(vertex.x, vertex.y) + 0.014, vertex.y))
 	var mesh := source.commit()
 	ground_meshes[key] = mesh
 	return mesh
@@ -317,8 +325,13 @@ static func mineral_deposit(parent: Node3D, state: Dictionary) -> void:
 	host.material_override = finish
 	if band > 0:
 		if source_ground == null:
+			var soil := Visuals.read_image("res://opening/assets/mineral-outcrop/ore-soil.png")
+			if soil == null or soil.generate_mipmaps() != OK:
+				push_error("The mineable ground requires its prepared mineral-soil map.")
+				return
 			source_ground = StandardMaterial3D.new()
-			source_ground.albedo_color = Color("d27531")
+			source_ground.albedo_texture = ImageTexture.create_from_image(soil)
+			source_ground.albedo_color = Color.WHITE
 			source_ground.cull_mode = BaseMaterial3D.CULL_DISABLED
 			source_ground.vertex_color_use_as_albedo = true
 			source_ground.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA

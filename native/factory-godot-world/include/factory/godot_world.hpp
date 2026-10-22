@@ -17,6 +17,8 @@ class Host final {
 public:
     [[nodiscard]] values::Value initialize(const std::string& context,
                                           const std::vector<std::string>& actors);
+    [[nodiscard]] values::Value initialize_arrival(const std::string& context,
+                                                  const std::vector<std::string>& actors);
     // Trusted terrain producer, separate from the authenticated command wire.
     // Immutable emitted grid vertices are shared with rendered/native collision.
     [[nodiscard]] values::Value configure_terrain(const values::Value::Object&);
@@ -33,6 +35,9 @@ public:
     [[nodiscard]] values::Value restore_checkpoint(const values::Value&);
 
 private:
+    [[nodiscard]] values::Value initialize_site(const std::string& context,
+                                               const std::vector<std::string>& actors,
+                                               bool arrival);
     struct Actor {
         authority::Point position{};
         authority::Integer epoch{};

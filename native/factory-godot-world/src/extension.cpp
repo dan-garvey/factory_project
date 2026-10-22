@@ -93,10 +93,12 @@ struct EmptyText {
     void* get() { return storage.data(); }
 };
 
-enum class Method { initialize, terrain, command, publish, invalidate, advance, projection, checkpoint, restore, validate };
+enum class Method { initialize, initialize_arrival, terrain, command, publish, invalidate, advance, projection, checkpoint, restore, validate };
 struct Description { const char* name; Method method; std::uint32_t arguments; };
 std::array methods{
-    Description{"initialize", Method::initialize, 2}, Description{"command", Method::command, 2},
+    Description{"initialize", Method::initialize, 2},
+    Description{"initialize_arrival", Method::initialize_arrival, 2},
+    Description{"command", Method::command, 2},
     Description{"configure_terrain", Method::terrain, 1},
     Description{"publish_actor", Method::publish, 3}, Description{"invalidate_actor", Method::invalidate, 1},
     Description{"advance", Method::advance, 0}, Description{"projection", Method::projection, 0},
@@ -132,14 +134,17 @@ Value invoke(Instance& instance, Method method, const std::vector<Value>& args) 
     auto& host = instance.host;
     switch (method) {
         case Method::terrain: return host.configure_terrain(typed<Object>(args, 0));
-        case Method::initialize: {
+        case Method::initialize:
+        case Method::initialize_arrival: {
             std::vector<std::string> actors;
             for (const auto& value : typed<Value::Array>(args, 1)) {
                 const auto* actor = std::get_if<std::string>(&value.storage());
                 if (!actor) throw std::invalid_argument("Wrong actor roster type.");
                 actors.push_back(*actor);
             }
-            return host.initialize(typed<std::string>(args, 0), actors);
+            return method == Method::initialize_arrival ?
+                host.initialize_arrival(typed<std::string>(args, 0), actors) :
+                host.initialize(typed<std::string>(args, 0), actors);
         }
         case Method::command: return host.command(typed<std::string>(args, 0), typed<Object>(args, 1));
         case Method::publish: return host.publish_actor(typed<std::string>(args, 0), typed<Value::Array>(args, 1), typed<Value::Integer>(args, 2));

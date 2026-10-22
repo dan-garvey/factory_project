@@ -10,6 +10,17 @@ selects the historical scripted fixture. The existing shared server can explicit
 select this same native owner with `--native-world`; clients remain read-only
 Session facades and never instantiate a native World.
 
+`initialize_arrival(context, actors)` is an experimental native site seed for
+the redesigned opening. It creates one settled landing pod and nine ordinary
+foundations on the common quarter-tile grid, puts both actors on the deck, and
+leaves fifteen of the original twenty-four foundation parts with P. Its
+projection includes `landing_pod` and the usual foundation records; the normal
+checkpoint retains both. The existing scene still calls `initialize`. This
+slice has no pod presentation, crafting inventory, multitool or component
+recipes. It still seeds the older machine kits, so the scene should switch
+only with the linked arrival and fabrication work.
+The projected `hub_ready` value is false until a real crafting hub exists.
+
 The current opening adapter is a revisable profile: a finite 4,096-unit mineral
 deposit, a 32-blank collector buffer, one-unit downstream buffers, a two-tick
 press, four-world-unit reach and the existing site/capsule geometry. Batch raw

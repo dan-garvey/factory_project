@@ -542,8 +542,9 @@ presenter change lowered process time from 2.491 to 1.919 ms median and frame
 time from 18.831 to 18.312 ms median; p95 frame time rose from 20.423 to
 22.681 ms in those single runs. The fixture does not exercise native placement
 or a human-built inventory, and this is not a steady 60 FPS result.
-With both motion caches present, a later 0/400-cog fixture pair measured
-12.768/17.646 ms median and 16.975/19.300 ms p95 on the same machine.
+With both motion caches present after the later terrain and opening join, a
+0/400-cog fixture pair measured 13.017/17.143 ms median and
+17.171/18.999 ms p95 on the same machine.
 
 An explicit distant wheel mesh experiment reduced the batched rotor from
 14,094 to 2,306 triangles per instance. Exclusive isolated 200/400-wheel
@@ -1070,6 +1071,23 @@ against neighboring machinery and moving belts, support strength, tall frames
 and human visual judgment remain open. An explicit buildable support system
 would need native quantities, collision, edit and save rules before replacing
 this adapter.
+
+## GDC-21: the arrival pod is a projected native site seed
+
+**Pinned engine and adapter observation.** The Godot 4.7.2 GDExtension method
+`FactoryNativeWorld.initialize_arrival` accepted a two-actor roster in an
+isolated headless script. Its projection reported one settled pod, nine deck
+foundations and fifteen carried foundation parts. The focused native World and
+Host tests also cover exact retry and checkpoint restore. The deck is seeded
+through the normal foundation records and common grid; the `landing_pod`
+descriptor is a presentation hint, not a second construction ledger.
+
+The live opening scene still invokes the historical initializer. There is no
+rendered pod, crafting hub, manual tool or human play observation from this
+probe. The older complete-machine kits remain in this adapter mode until the
+component economy replaces them. The pod center at grid `{4, 0, 16}` is a
+revisable site choice that still needs passive scene inspection with nearby
+resources and collision geometry.
 
 ## Required follow-through
 

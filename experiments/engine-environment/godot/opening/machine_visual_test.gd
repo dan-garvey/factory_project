@@ -22,6 +22,110 @@ class MotionStub extends RefCounted:
 	func visual_angle(id: String) -> float:
 		return 0.1 * float(int(id.trim_prefix("wheel-")) + 1)
 
+class MixedAssetScaleView extends Opening:
+	## Render-only chapter-one density fixture. The production art constructors and
+	## worksite scenery are reused; no synthetic part enters the authoritative World.
+
+	var asset_count := 0
+	var batch_static := false
+	var built_meshes := 0
+	var batch_instances := 0
+	var batch_draw_groups := 0
+	var build_ms := 0.0
+	var fixture_root: Node3D
+
+	func _ready() -> void:
+		state = {"options": {"native": true}}
+		var start := Time.get_ticks_usec()
+		_build_world()
+		fixture_root = Node3D.new()
+		fixture_root.name = "SyntheticAssetField"
+		machine_root.add_child(fixture_root)
+		var columns := ceili(sqrt(float(maxi(asset_count, 1))))
+		var field_x := maxf(10.0, float(columns) * PITCH * 0.5 + 5.0)
+		for index in asset_count:
+			var x := index % columns
+			var z := floori(float(index) / float(columns))
+			var placement := Node3D.new()
+			var site_x := field_x + (float(x) - float(columns - 1) / 2.0) * PITCH
+			var site_z := 1.65 + (float(z) - float(columns - 1) / 2.0) * PITCH
+			var site_y: float = ProductionEnvironment.Surface.height_at(site_x, site_z)
+			placement.position = Vector3(site_x, site_y, site_z)
+			fixture_root.add_child(placement)
+			var anchor := Node3D.new()
+			placement.add_child(anchor)
+			var kind: String = ["collector", "belt", "processor"][index % 3]
+			_assemble_machine(anchor, {"kind": kind, "cell": [0, 0], "axis": 0,
+				"rotation": 0, "generation": 1})
+		built_meshes = _mesh_count(fixture_root)
+		if batch_static:
+			_batch_repeated_meshes()
+		build_ms = float(Time.get_ticks_usec() - start) / 1000.0
+		camera.fov = 58.0
+		camera.far = 130.0
+		var reach := maxf(13.0, float(columns) * PITCH * 1.45)
+		camera.position = Vector3(field_x + reach * 0.65, reach * 0.83, 1.65 + reach * 0.95)
+		camera.look_at(Vector3(field_x, 0.3, 1.65))
+		camera.make_current()
+
+	func _process(_delta: float) -> void:
+		# Keep the view and asset geometry fixed for equivalent frame comparisons.
+		pass
+
+	func _mesh_count(node: Node) -> int:
+		var count := int(node is MeshInstance3D)
+		for child in node.get_children():
+			count += _mesh_count(child)
+		return count
+
+	func _collect_meshes(node: Node, groups: Dictionary) -> void:
+		if node is MeshInstance3D:
+			var part := node as MeshInstance3D
+			if part.visible and part.mesh != null:
+				# The live opening helper copies any per-surface finish onto an exact
+				# mesh resource that MultiMesh can share without dropping that finish.
+				var prepared: Mesh = _machine_batch_surface_mesh(part)
+				part.set_meta("fixture_batch_mesh", prepared)
+				var finish := part.material_override
+				var overlay := part.material_overlay
+				var key := str([prepared.get_instance_id(),
+					finish.get_instance_id() if finish != null else 0,
+					overlay.get_instance_id() if overlay != null else 0,
+					part.cast_shadow, part.layers])
+				if not groups.has(key):
+					groups[key] = []
+				groups[key].append(part)
+		for child in node.get_children():
+			_collect_meshes(child, groups)
+
+	func _batch_repeated_meshes() -> void:
+		var groups := {}
+		_collect_meshes(fixture_root, groups)
+		for key in groups:
+			var parts: Array = groups[key]
+			if parts.size() < 2:
+				continue
+			var example := parts[0] as MeshInstance3D
+			var batch := MultiMesh.new()
+			batch.transform_format = MultiMesh.TRANSFORM_3D
+			batch.mesh = example.get_meta("fixture_batch_mesh") as Mesh
+			batch.instance_count = parts.size()
+			for index in parts.size():
+				var part := parts[index] as MeshInstance3D
+				batch.set_instance_transform(index,
+					fixture_root.global_transform.affine_inverse() * part.global_transform)
+				part.visible = false
+			var visual := MultiMeshInstance3D.new()
+			visual.name = "RepeatedAssetDetail"
+			visual.multimesh = batch
+			visual.material_override = example.material_override
+			visual.material_overlay = example.material_overlay
+			visual.cast_shadow = example.cast_shadow
+			visual.layers = example.layers
+			fixture_root.add_child(visual)
+			batch_instances += parts.size()
+			batch_draw_groups += 1
+
 var checks := 0
 var failed := false
 var mesh_count := 0
@@ -80,6 +184,9 @@ func _initialize() -> void:
 		if argument.begins_with("--compare-images="):
 			_compare_images(argument.trim_prefix("--compare-images="))
 			return
+	if "--mixed-scale" in OS.get_cmdline_user_args():
+		_mixed_scale_benchmark.call_deferred()
+		return
 	if "--performance-benchmark" in OS.get_cmdline_user_args():
 		_performance_benchmark.call_deferred()
 		return
@@ -391,4 +498,52 @@ func _performance_benchmark() -> void:
 		"batch_groups": batch_groups, "dynamic_groups": view.machine_dynamic_batches.size()}))
 	view.free()
 	scene.free()
+	quit()
+
+func _mixed_scale_benchmark() -> void:
+	var count := 200
+	var batched := false
+	var capture := ""
+	for argument in OS.get_cmdline_user_args():
+		if argument.begins_with("--count="):
+			count = int(argument.trim_prefix("--count="))
+		elif argument == "--batch":
+			batched = true
+		elif argument.begins_with("--capture="):
+			capture = argument.trim_prefix("--capture=")
+	if count < 0 or count > 400:
+		push_error("Choose 0 to 400 asset assemblies.")
+		quit(2)
+		return
+	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+	var view := MixedAssetScaleView.new()
+	view.asset_count = count
+	view.batch_static = batched
+	root.add_child(view)
+	var frame_ms: Array[float] = []
+	var calls: Array[int] = []
+	for frame in 150:
+		var start := Time.get_ticks_usec()
+		await process_frame
+		if frame >= 30:
+			frame_ms.append(float(Time.get_ticks_usec() - start) / 1000.0)
+			calls.append(RenderingServer.get_rendering_info(
+				RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME))
+	frame_ms.sort()
+	calls.sort()
+	if not capture.is_empty():
+		await RenderingServer.frame_post_draw
+		var image := root.get_texture().get_image()
+		if image == null or image.is_empty() or image.save_png(capture) != OK:
+			push_error("Cannot save rendered asset frame.")
+			quit(1)
+			return
+	print("MIXED_ASSET_SCALE " + JSON.stringify({"count": count, "batch": batched,
+		"built_meshes": view.built_meshes, "batch_instances": view.batch_instances,
+		"batch_groups": view.batch_draw_groups, "build_ms": view.build_ms,
+		"median_ms": frame_ms[frame_ms.size() / 2],
+		"p95_ms": frame_ms[int(frame_ms.size() * 0.95)],
+		"draw_calls_median": calls[calls.size() / 2],
+		"viewport": root.size, "renderer":
+			ProjectSettings.get_setting("rendering/renderer/rendering_method")}))
 	quit()

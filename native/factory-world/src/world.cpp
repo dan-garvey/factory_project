@@ -11,6 +11,17 @@
 #include <utility>
 
 namespace factory::world {
+
+std::array<mechanics::Point, landing_deck_parts> landing_deck_centers(
+        const mechanics::Point& center) {
+    std::array<mechanics::Point, landing_deck_parts> deck{};
+    std::size_t index = 0;
+    for (const auto x : {-4, 0, 4})
+        for (const auto z : {-4, 0, 4})
+            deck[index++] = {center[0] + x, center[1], center[2] + z};
+    return deck;
+}
+
 namespace {
 using Integer = authority::Integer;
 using Object = authority::Object;
@@ -655,6 +666,14 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
         profile.meters_per_grid_unit > 1000 || !std::isfinite(profile.build_reach) ||
         profile.build_reach <= 0 || profile.build_reach > 1000000 ||
         profile.foundation_parts < 0 || profile.foundation_parts > 256) return false;
+    if (profile.landing_pod_center) {
+        const auto& center = *profile.landing_pod_center;
+        if (profile.foundation_parts < landing_deck_parts || center[0] % 4 || center[1] % 4 || center[2] % 4)
+            return false;
+        for (const auto coordinate : center)
+            if (coordinate < -mechanics::maximum_coordinate + 4 ||
+                coordinate > mechanics::maximum_coordinate - 4) return false;
+    }
     if (profile.water.size() > 65536 || profile.wheel_radius <= 0 ||
         profile.wheel_radius > mechanics::maximum_coordinate / mechanics::maximum_dimension ||
         profile.wheel_axle_offset < -mechanics::maximum_coordinate ||
@@ -667,6 +686,35 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
     for (const auto& actor : profile.actors) if (!identity(actor)) return false;
     for (const auto coordinate : profile.anchor_offset) if (!std::isfinite(coordinate)) return false;
     const auto& state = snapshot.state;
+    if (state.landing_pod.has_value() != profile.landing_pod_center.has_value()) return false;
+    if (state.landing_pod) {
+        const auto& pod = *state.landing_pod;
+        const auto issued = state.issued_entities.find(pod.id);
+        if (pod.id != "landing-pod" || pod.generation != 1 ||
+            pod.center != *profile.landing_pod_center ||
+            issued == state.issued_entities.end() || issued->second != pod.generation ||
+            part(state.topology, pod.id) || state.foundations.contains(pod.id)) return false;
+        // The trusted seed must account for the complete unfolded deck.
+        // A missing tile needs a real accepted removal in this same history.
+        const auto deck = landing_deck_centers(pod.center);
+        for (std::size_t index = 0; index < deck.size(); ++index) {
+            const auto id = "pod-floor-" + std::to_string(index);
+            const auto issued_tile = state.issued_entities.find(id);
+            if (issued_tile == state.issued_entities.end() || issued_tile->second != 1) return false;
+            const auto tile = state.foundations.find(id);
+            if (tile != state.foundations.end()) {
+                if (tile->second.center != deck[index] || tile->second.generation != 1) return false;
+            } else if (snapshot.revision == 0 || std::none_of(snapshot.history.records.begin(),
+                    snapshot.history.records.end(), [&](const authority::Record& record) {
+                        const auto* action = field<std::string>(record.intent, "action");
+                        const auto* target = field<std::string>(record.intent, "target");
+                        const auto* generation = field<Integer>(record.intent, "generation");
+                        const auto* accepted = field<bool>(record.result, "accepted");
+                        return action && *action == "remove_foundation" && target && *target == id &&
+                               generation && *generation == 1 && accepted && *accepted;
+                    })) return false;
+        }
+    }
     if (state.material.initial_units != profile.initial_units ||
         state.material.cargo.size() != profile.actors.size() || state.kits.size() != profile.actors.size() ||
         state.issued_entities.size() > maximum_issued_entities || state.next_entity_serial < 1 ||
