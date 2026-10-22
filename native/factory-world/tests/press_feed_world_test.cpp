@@ -233,20 +233,109 @@ void actor_feed_is_physical_custody() {
     forged.state.material.dropped_material.emplace(g::Point{8, 1, 1}, cargo);
     check(!w::World::restore("press-feed", source.profile, forged),
           "A checkpoint cannot relocate a fed blank without an accepted pickup.");
+
+    run.p = {1.65, 1, 6.6};
+    auto take = request("P", "take-press-crank", "take_hand_crank");
+    take.emplace("target", V("pod-hand-crank"));
+    take.emplace("generation", V(I{1}));
+    run.accept("P", take);
+    run.p = {2, 1, 0};
+    auto turn = request("P", "turn-press-start", "turn_press_crank");
+    turn.emplace("target", V(frame));
+    turn.emplace("generation", V(frame_generation));
+    turn.emplace("drive", V(shaft));
+    turn.emplace("exit", V(point(7, 1, 0)));
+    auto wrong_drive = turn;
+    wrong_drive.at("request") = V("wrong-press-drive");
+    wrong_drive.at("drive") = V(frame);
+    run.refuses("P", wrong_drive, "wrong_drive_shaft");
+    auto other_turn = turn;
+    other_turn.at("client") = V("Q-client");
+    other_turn.at("actor") = V("Q");
+    other_turn.at("request") = V("q-turn-press");
+    run.refuses("Q", other_turn, "not_crank_holder");
+    auto output_obstruction = obstruction;
+    output_obstruction.at("request") = V("block-press-output");
+    output_obstruction.at("center") = V(point(7, 1, 0));
+    const auto blocked_output = run.accept("P", output_obstruction);
+    auto blocked_turn = turn;
+    blocked_turn.at("request") = V("turn-blocked-output");
+    run.refuses("P", blocked_turn, "blocked_exit");
+    auto clear_output = reclaim_obstacle;
+    clear_output.at("request") = V("clear-press-output");
+    clear_output.at("target") = blocked_output.at("entity");
+    clear_output.at("generation") = blocked_output.at("generation");
+    run.accept("P", clear_output);
+    run.p = {10, 1, 10};
+    auto remote_turn = turn;
+    remote_turn.at("request") = V("remote-press-turn");
+    run.refuses("P", remote_turn, "out_of_reach");
+    run.p = {2, 1, 0};
+    run.accept("P", turn);
+    const auto first_work = run.world->snapshot();
+    check(first_work.state.material.dropped_material.at({8, 1, 0}).work_lots.front().remaining_ticks == 2 &&
+          std::holds_alternative<w::Snapshot>(w::decode_checkpoint(source.profile, "press-feed",
+              std::get<V>(w::encode_checkpoint(source.profile, first_work)))),
+          "The first crank allocates one persistent WorkLot without making a product.");
+    const auto turn_retry = run.send("P", turn);
+    check(turn_retry.completed() && turn_retry.result &&
+          std::get<bool>(turn_retry.result->at("duplicate").storage()) &&
+          run.world->snapshot().state == first_work.state,
+          "Retrying a crank request cannot advance its WorkLot twice.");
+    auto second_turn = turn;
+    second_turn.at("request") = V("turn-press-progress");
+    run.accept("P", second_turn);
+    check(run.world->snapshot().state.material.dropped_material.at({8, 1, 0}).work_lots.front().remaining_ticks == 1,
+          "The second turn advances the same partial work by one shared material tick.");
+    auto third_turn = turn;
+    third_turn.at("request") = V("turn-press-finish");
+    run.accept("P", third_turn);
+    check(!run.world->snapshot().state.material.dropped_material.contains({8, 1, 0}) &&
+          run.world->snapshot().state.material.dropped_material.at({7, 1, 0}).products == 1,
+          "The finished product leaves the work point at the selected physical exit.");
+    const auto formed = run.world->snapshot();
+    check(std::holds_alternative<w::Snapshot>(w::decode_checkpoint(source.profile, "press-feed",
+              std::get<V>(w::encode_checkpoint(source.profile, formed)))),
+          "A formed product and the now empty work point survive strict checkpoint restore.");
+    auto forged_product = formed;
+    const auto produced = forged_product.state.material.dropped_material.at({7, 1, 0});
+    forged_product.state.material.dropped_material.erase({7, 1, 0});
+    forged_product.state.material.dropped_material.emplace(g::Point{7, 1, 1}, produced);
+    check(!w::World::restore("press-feed", source.profile, forged_product),
+          "A checkpoint cannot relocate the formed product without an accepted pickup.");
+    auto pickup_product = request("P", "pickup-formed-product", "pickup_material");
+    pickup_product.emplace("center", V(point(7, 1, 0)));
+    pickup_product.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{1})},
+        {"work_lots", V(V::Array{})}}));
+    run.accept("P", pickup_product);
+    check(run.world->snapshot().state.material.cargo.at("P").products == 1,
+          "A physical actor retrieves the single formed product.");
+    auto second_feed = feed;
+    second_feed.at("request") = V("feed-second");
+    run.accept("P", second_feed);
+    auto fourth_turn = turn;
+    fourth_turn.at("request") = V("turn-second-start");
+    run.accept("P", fourth_turn);
+    const auto partial = run.world->snapshot().state.material.dropped_material.at({8, 1, 0}).work_lots.front();
     auto remove = request("P", "remove-shaft", "reclaim_component");
     remove.emplace("target", V(shaft));
     remove.emplace("generation", V(I{6}));
     run.accept("P", remove);
-    check(run.world->snapshot().state.material.dropped_material.at({8, 1, 0}).raw_units == 1,
-          "Dismantling a drive leaves the real blank recoverable under the work head.");
-    auto pickup = request("P", "recover-blank", "pickup_material");
+    check(run.world->snapshot().state.material.dropped_material.at({8, 1, 0}).work_lots ==
+          std::vector<m::WorkLot>{partial},
+          "Dismantling a drive leaves the exact partial WorkLot under the work head.");
+    auto pickup = request("P", "recover-partial-work", "pickup_material");
     pickup.emplace("center", V(point(8, 1, 0)));
-    pickup.emplace("expected", V(O{{"raw", V(I{1})}, {"products", V(I{0})},
-        {"work_lots", V(V::Array{})}}));
+    pickup.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{0})},
+        {"work_lots", V(V::Array{V(O{{"id", V(partial.id)}, {"recipe_input", V(I{1})},
+            {"cycle_ticks", V(I{2})}, {"remaining", V(partial.remaining_ticks)},
+            {"completed_subticks", V(partial.completed_subticks)},
+            {"work_remainder", V(partial.work_remainder)},
+            {"work_remainder_denominator", V(partial.work_remainder_denominator)}})})}}));
     run.accept("P", pickup);
     check(run.world->snapshot().state.material.dropped_material.empty() &&
-          run.world->snapshot().state.material.cargo.at("P").raw_units == 2,
-          "Pickup after dismantling returns the same ore to the actor.");
+          run.world->snapshot().state.material.cargo.at("P").work_lots == std::vector<m::WorkLot>{partial},
+          "Pickup after dismantling returns the same partial work to actor custody.");
 }
 } // namespace
 

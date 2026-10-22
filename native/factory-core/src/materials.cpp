@@ -73,6 +73,33 @@ bool unique_lot(const State& state, WorkId id) noexcept {
     return seen;
 }
 
+void advance_work(WorkLot& lot, Quantity subticks, Quantity remainder, Quantity remainder_denominator) noexcept {
+    if (lot.remaining_ticks == 0) return;
+    __extension__ using Wide = __int128;
+    const auto gcd = std::gcd(lot.work_remainder_denominator, remainder_denominator);
+    const Wide common = static_cast<Wide>(lot.work_remainder_denominator / gcd) * remainder_denominator;
+    const auto max = std::numeric_limits<Quantity>::max();
+    const Quantity denominator = common <= max ? static_cast<Quantity>(common) : max;
+    const auto scale = [denominator](Quantity numerator, Quantity from) {
+        return (static_cast<Wide>(numerator) * denominator + from / 2) / from;
+    };
+    const Wide fractional = scale(lot.work_remainder, lot.work_remainder_denominator) +
+        scale(remainder, remainder_denominator);
+    const Wide progressed = static_cast<Wide>(lot.completed_subticks) + subticks + fractional / denominator;
+    const auto whole = progressed / work_subticks_per_tick;
+    if (whole >= lot.remaining_ticks) {
+        lot.remaining_ticks = 0;
+        lot.completed_subticks = 0;
+        lot.work_remainder = 0;
+        lot.work_remainder_denominator = 1;
+    } else {
+        lot.remaining_ticks -= static_cast<Quantity>(whole);
+        lot.completed_subticks = static_cast<Quantity>(progressed % work_subticks_per_tick);
+        lot.work_remainder = static_cast<Quantity>(fractional % denominator);
+        lot.work_remainder_denominator = lot.work_remainder == 0 ? 1 : denominator;
+    }
+}
+
 }  // namespace
 
 const char* component_name(Component component) noexcept {
@@ -404,31 +431,8 @@ Error step(State& state, const Config& config, const Path& path,
     // Preserve the existing order. Carried work is deliberately not visited.
     if (power.processor && next.processing) {
         auto& lot = *next.processing;
-        if (lot.remaining_ticks > 0) {
-            __extension__ using Wide = __int128;
-            const auto gcd = std::gcd(lot.work_remainder_denominator, power.processor_work_remainder_denominator);
-            const Wide common = static_cast<Wide>(lot.work_remainder_denominator / gcd) * power.processor_work_remainder_denominator;
-            const auto max = std::numeric_limits<Quantity>::max();
-            const Quantity denominator = common <= max ? static_cast<Quantity>(common) : max;
-            const auto scale = [denominator](Quantity numerator, Quantity from) {
-                return (static_cast<Wide>(numerator) * denominator + from / 2) / from;
-            };
-            const Wide fractional = scale(lot.work_remainder, lot.work_remainder_denominator) +
-                scale(power.processor_work_remainder, power.processor_work_remainder_denominator);
-            const Wide progressed = static_cast<Wide>(lot.completed_subticks) + power.processor_work_per_tick + fractional / denominator;
-            const auto whole = progressed / work_subticks_per_tick;
-            if (whole >= lot.remaining_ticks) {
-                lot.remaining_ticks = 0;
-                lot.completed_subticks = 0;
-                lot.work_remainder = 0;
-                lot.work_remainder_denominator = 1;
-            } else {
-                lot.remaining_ticks -= static_cast<Quantity>(whole);
-                lot.completed_subticks = static_cast<Quantity>(progressed % work_subticks_per_tick);
-                lot.work_remainder = static_cast<Quantity>(fractional % denominator);
-                lot.work_remainder_denominator = lot.work_remainder == 0 ? 1 : denominator;
-            }
-        }
+        advance_work(lot, power.processor_work_per_tick, power.processor_work_remainder,
+                     power.processor_work_remainder_denominator);
         if (lot.remaining_ticks == 0 && stock.output < 1) {
             next.processing.reset();
             ++stock.output;
@@ -469,6 +473,38 @@ Error step(State& state, const Config& config, const Path& path,
     }
     const auto output_error = validate(next, config, path);
     if (output_error != Error::none) return output_error;
+    state = std::move(next);
+    return Error::none;
+}
+
+Error turn_press(State& state, const Config& config, const Path& path,
+                 const DropPoint& work, const DropPoint& exit) {
+    const auto valid = validate(state, config, path);
+    if (valid != Error::none) return valid;
+    if (config.input_units_per_product != 1 || work == exit) return Error::unavailable_recipe;
+    const auto found = state.dropped_material.find(work);
+    if (found == state.dropped_material.end()) return Error::unavailable_input;
+    const auto& item = found->second;
+    if (item.products != 0 || item.raw_units + static_cast<Quantity>(item.work_lots.size()) != 1)
+        return Error::invalid_state;
+    if (item.work_lots.size() == 1 && item.work_lots.front().remaining_ticks == 0 &&
+        state.dropped_material.contains(exit)) return Error::unavailable_output;
+    auto next = state;
+    auto& active = next.dropped_material.at(work);
+    if (active.raw_units == 1) {
+        if (next.next_work_id == std::numeric_limits<WorkId>::max()) return Error::work_id_overflow;
+        active.raw_units = 0;
+        active.work_lots.push_back(WorkLot{next.next_work_id++, {1, config.cycle_ticks}, config.cycle_ticks});
+    } else {
+        advance_work(active.work_lots.front(), work_subticks_per_tick, 0, 1);
+    }
+    if (active.work_lots.front().remaining_ticks == 0 &&
+        !next.dropped_material.contains(exit) && next.dropped_material.size() < maximum_drop_points) {
+        next.dropped_material.erase(work);
+        next.dropped_material.emplace(exit, Cargo{0, 1, {}});
+    }
+    const auto result = validate(next, config, path);
+    if (result != Error::none) return result;
     state = std::move(next);
     return Error::none;
 }

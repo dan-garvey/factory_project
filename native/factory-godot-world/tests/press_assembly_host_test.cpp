@@ -62,6 +62,23 @@ O feed(const std::string& request_id, const std::string& frame, I x, I y, I z) {
     return wire;
 }
 
+O turn(const std::string& request_id, const std::string& frame,
+       const std::string& shaft, I x, I y, I z) {
+    auto wire = request(request_id, "turn_press_crank");
+    wire.emplace("entity", V(frame));
+    wire.emplace("drive", V(shaft));
+    wire.emplace("exit", V(A{V(x), V(y), V(z)}));
+    return wire;
+}
+
+void pickup_product(Host& host, I x, I y, I z, const char* request_id) {
+    auto wire = request(request_id, "pickup_material");
+    wire.emplace("center", V(A{V(x), V(y), V(z)}));
+    wire.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{1})},
+        {"work_lots", V(A{})}}));
+    accepted(host, wire);
+}
+
 void recover_blank(Host& host, I x, I y, I z, const char* request_id) {
     auto wire = request(request_id, "pickup_material");
     wire.emplace("center", V(A{V(x), V(y), V(z)}));
@@ -92,6 +109,9 @@ void placed_press_projection() {
     }
     check(get<bool>(host.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 3), "accepted"),
           "The actor returns with the first press bill and two real feed blanks.");
+    auto take = request("take-pod-crank", "take_hand_crank");
+    take.emplace("entity", V("pod-hand-crank"));
+    accepted(host, take);
     for (const auto* name : {"wooden_frame", "anvil", "ram_face", "sliding_guide",
                               "tool_mount", "wooden_shaft", "wooden_cog"}) {
         auto craft = request(std::string("craft-") + name, "craft_component");
@@ -174,7 +194,19 @@ void placed_press_projection() {
               V(A{V(I{7}), V(I{4}), V(I{0})})),
           "The same conserved pieces form a second real drive route.");
     accepted(host, feed("feed-mirrored", frame, 9, 1, 0));
-    recover_blank(host, 8, 1, 0, "recover-mirrored");
+    const auto mirrored_turn = turn("start-mirrored-work", frame, mirrored_shaft, 7, 1, 0);
+    accepted(host, mirrored_turn);
+    const auto pending = host.checkpoint();
+    check(get<bool>(host.command("P", mirrored_turn), "duplicate") &&
+          !factory::values::typed_difference(pending, host.checkpoint()),
+          "A shared Host retry cannot advance the mirrored press twice.");
+    accepted(host, turn("advance-mirrored-work", frame, mirrored_shaft, 7, 1, 0));
+    accepted(host, turn("finish-mirrored-work", frame, mirrored_shaft, 7, 1, 0));
+    check(get<A>(host.projection(), "dropped_material").size() == 1,
+          "The alternate drive makes one real product at its chosen lower exit.");
+    pickup_product(host, 7, 1, 0, "pickup-mirrored-product");
+    check(get<I>(get<O>(host.projection(), "cargo").at("P"), "products") == 1,
+          "The formed product enters the same actor cargo ledger after pickup.");
     const auto saved = host.checkpoint();
     Host restored;
     check(get<bool>(restored.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
@@ -207,6 +239,10 @@ void placed_press_projection() {
     accepted(obstructed, feed("alternate-clear-face", frame, 7, 1, 0));
     check(get<A>(obstructed.projection(), "dropped_material").size() == 1,
           "The same press remains usable from another physically clear face.");
+    const auto rock_turn = obstructed.command("P", turn("blocked-rock-exit", frame, mirrored_shaft, 9, 1, 0));
+    check(!get<bool>(rock_turn, "accepted") && get<std::string>(rock_turn, "reason") == "site_occupied" &&
+          get<A>(obstructed.projection(), "dropped_material").size() == 1,
+          "A scenery rock blocks product exit without destroying the fed blank.");
     for (const auto& [id, request_id] : {
              std::pair{mirrored_cog, "reclaim-mirrored-cog"},
              std::pair{mirrored_shaft, "reclaim-mirrored-shaft"},
@@ -237,6 +273,7 @@ void placed_press_projection() {
               V(A{V(I{8}), V(I{5}), V(I{0})})),
           "Reclaimed parts rebuild a working-height candidate on an independently placed foundation.");
     const auto raised_frame = get<std::string>(raised, "frame");
+    const auto raised_shaft = get<std::string>(V(get<O>(raised, "parts")), "shaft");
     accepted(host, feed("feed-raised", raised_frame, 9, 5, 0));
     check(get<A>(host.projection(), "dropped_material").size() == 1,
           "The elevated press accepts the same conserved feed rule.");
@@ -248,6 +285,14 @@ void placed_press_projection() {
           !factory::values::typed_difference(raised, inspection(raised_restored)) &&
           !factory::values::typed_difference(raised_saved, raised_restored.checkpoint()),
           "The raised foundation and fed press cargo survive a fresh Host restore.");
+    check(get<bool>(raised_restored.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 100), "accepted"),
+          "The restored actor provides a fresh pose at the elevated press.");
+    accepted(raised_restored, turn("start-raised-work", raised_frame, raised_shaft, 7, 5, 0));
+    accepted(raised_restored, turn("advance-raised-work", raised_frame, raised_shaft, 7, 5, 0));
+    accepted(raised_restored, turn("finish-raised-work", raised_frame, raised_shaft, 7, 5, 0));
+    pickup_product(raised_restored, 7, 5, 0, "pickup-raised-product");
+    check(get<I>(get<O>(raised_restored.projection(), "cargo").at("P"), "products") == 2,
+          "The elevated arrangement forms and retrieves a second product from finite ore.");
 }
 } // namespace
 
