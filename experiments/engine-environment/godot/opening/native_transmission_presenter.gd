@@ -8,6 +8,7 @@ const NativeModel = preload("res://opening/native_model.gd")
 const Finish = preload("res://opening/opening.gd").ProductionTransmissionFinish
 const Visuals = preload("res://opening/opening.gd").ProductionVisuals
 const WheelArt = preload("res://opening/opening.gd").ProductionWheelArt
+const ClampBody = preload("res://opening/assets/collector-clamp/collector_clamp.gltf")
 const UNIT := Geometry.PITCH / 4.0
 ## The native lane moves one horizontal tile per 0.45-second tick at rate 1.
 ## Its pulley rim must travel the same distance in that time.
@@ -974,8 +975,13 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3) -
 				_support_box(anchor, "BedIron", Vector3(0, 0.385, z), Vector3(0.35, 0.012, 0.025), worked)
 		"tool_mount":
 			_support_box(anchor, "SlidingFoot", Vector3(0, -0.11, 0), Vector3(0.37, 0.06, 0.33), dark)
-			_support_box(anchor, "MountBlock", Vector3(0, 0.015, 0), Vector3(0.19, 0.22, 0.24), timber)
-			_support_box(anchor, "TopClamp", Vector3(0, 0.14, 0), Vector3(0.28, 0.045, 0.28), worked)
+			var clamp := ClampBody.instantiate() as Node3D
+			clamp.name = "CastToolClamp"
+			# The selected source frame and fixed jaw are static. Their opening
+			# faces the confirmed cutter; the donor dial and handle are absent.
+			clamp.position = Vector3(-0.015, -0.08, 0)
+			clamp.rotation.y = PI * 0.5
+			anchor.add_child(clamp)
 		"cutting_edge":
 			_support_box(anchor, "BladeCarrier", Vector3(0, -0.07, 0), Vector3(0.40, 0.07, 0.32), dark)
 			var blade := MeshInstance3D.new()

@@ -265,15 +265,12 @@ void press_work_is_local_and_conserved() {
           m::turn_press(full_map, one, {}, first, first_exit) == m::Error::none &&
           m::turn_press(full_map, one, {}, first, first_exit) == m::Error::none &&
           m::turn_press(full_map, one, {}, first, first_exit) == m::Error::none &&
-          full_map.dropped_material.at(first).work_lots.front().remaining_ticks == 0,
-          "A full loose-item ledger lets the press finish work while retaining the ready lot.");
-    const auto full_before = full_map;
-    check(m::turn_press(full_map, one, {}, first, first_exit) == m::Error::unavailable_output &&
-          full_map == full_before &&
-          m::pickup_material(full_map, one, {}, "P", {1001, 0, 0}) == m::Error::none &&
-          m::turn_press(full_map, one, {}, first, first_exit) == m::Error::none &&
-          full_map.dropped_material.at(first_exit).products == 1,
-          "A capacity stall makes no phantom turn and releases after one real drop is collected.");
+          !full_map.dropped_material.contains(first) &&
+          full_map.dropped_material.contains(first_exit) &&
+          full_map.dropped_material.at(first_exit) == m::Cargo{0, 1, {}} &&
+          full_map.dropped_material.size() == m::maximum_drop_points &&
+          m::validate(full_map, one, {}) == m::Error::none,
+          "A finished plate replaces its work-point location even when every drop slot is in use.");
 }
 }  // namespace
 

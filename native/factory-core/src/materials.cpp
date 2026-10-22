@@ -488,8 +488,7 @@ Error turn_press(State& state, const Config& config, const Path& path,
     if (item.products != 0 || item.raw_units + static_cast<Quantity>(item.work_lots.size()) != 1)
         return Error::invalid_state;
     if (item.work_lots.size() == 1 && item.work_lots.front().remaining_ticks == 0 &&
-        (state.dropped_material.contains(exit) ||
-         state.dropped_material.size() >= maximum_drop_points)) return Error::unavailable_output;
+        state.dropped_material.contains(exit)) return Error::unavailable_output;
     auto next = state;
     auto& active = next.dropped_material.at(work);
     if (active.raw_units == 1) {
@@ -499,8 +498,10 @@ Error turn_press(State& state, const Config& config, const Path& path,
     } else {
         advance_work(active.work_lots.front(), work_subticks_per_tick, 0, 1);
     }
+    // The work location is removed before its product takes the clear exit,
+    // so the number of loose locations never grows during this transfer.
     if (active.work_lots.front().remaining_ticks == 0 &&
-        !next.dropped_material.contains(exit) && next.dropped_material.size() < maximum_drop_points) {
+        !next.dropped_material.contains(exit)) {
         next.dropped_material.erase(work);
         next.dropped_material.emplace(exit, Cargo{0, 1, {}});
     }

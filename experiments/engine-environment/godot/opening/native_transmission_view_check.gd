@@ -146,6 +146,25 @@ func _component_view() -> void:
 	verify(anchors.size() == 5 and anchors.frame.get_node_or_null("GroundedPost") != null
 		and anchors.tray.get_node_or_null("OpenPan") != null,
 		"The confirmed parts render separately with a grounded frame and open receiver.")
+	var clamp: Node3D = anchors.mount.get_node_or_null("CastToolClamp")
+	verify(clamp != null and clamp.get_child_count() == 2
+		and clamp.get_node_or_null("ClampCastBody") is MeshInstance3D
+		and clamp.get_node_or_null("ClampFixedJaw") is MeshInstance3D,
+		"Only the rigid sourced casting and fixed jaw appear on the confirmed tool mount.")
+	if clamp != null:
+		verify(clamp.basis.z.x > 0.99 and clamp.get_script() == null,
+			"The source jaw faces the real cutting edge without a second control script.")
+		for member: Node in clamp.get_children():
+			var mesh := member as MeshInstance3D
+			if mesh == null:
+				continue
+			var finish := mesh.mesh.surface_get_material(0) as StandardMaterial3D
+			verify(mesh.get_child_count() == 0 and mesh.get_script() == null
+				and finish != null and finish.albedo_texture != null
+				and finish.normal_texture != null and finish.roughness_texture != null
+				and finish.albedo_texture.get_size() == Vector2(1024, 1024)
+				and finish.normal_texture.get_size() == Vector2(1024, 1024),
+				"Each sourced rigid member retains the complete imported 1K PBR surface without rig or collider.")
 	var blade: MeshInstance3D = anchors.edge.get_node_or_null("FormedBlade")
 	verify(blade != null and blade.mesh is ArrayMesh,
 		"The confirmed cutting edge has one formed steel blade instead of detached box teeth.")
@@ -187,11 +206,13 @@ func _component_view() -> void:
 		verify(body.collision_layer == Geometry.MACHINE_LAYER and body.position == spec.center
 			and collider.shape.size == spec.size and anchors[id].position == spec.center,
 			"The visual anchor and physical box both use the native occupied record.")
-		for piece: MeshInstance3D in anchors[id].get_children():
-			var box: AABB = piece.transform * piece.mesh.get_aabb()
+		for found: Node in anchors[id].find_children("*", "MeshInstance3D", true, false):
+			var piece := found as MeshInstance3D
+			var local_transform: Transform3D = anchors[id].global_transform.affine_inverse() * piece.global_transform
+			var box: AABB = local_transform * piece.mesh.get_aabb()
 			var occupied := AABB(-spec.size * 0.5, spec.size).grow(0.0002)
 			verify(occupied.encloses(box), "Visible detail stays inside its occupied box.")
-			verify(piece.material_override != null,
+			verify(piece.material_override != null or piece.mesh.surface_get_material(0) != null,
 				"Each part keeps its sourced or deliberate fallback finish.")
 	await physics_frame
 	verify(physical._geometry_registered(),

@@ -5460,6 +5460,30 @@ func _prepare_hand_tree_assets() -> bool:
 	var trunk := ConcavePolygonShape3D.new()
 	trunk.backface_collision = true
 	trunk.set_faces(faces)
+	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+	var notch_pose := Transform3D.IDENTITY
+	var nearest_notch := INF
+	var notch_width := 0.0
+	for first in range(0, indices.size(), 3):
+		var a: int = indices[first]
+		var b: int = indices[first + 1]
+		var c: int = indices[first + 2]
+		var center := (vertices[a] + vertices[b] + vertices[c]) / 3.0 - root
+		var normal := (normals[a] + normals[b] + normals[c]).normalized()
+		if absf(normal.y) > 0.5:
+			continue
+		var score := absf(center.y - 0.18) + (1.0 - normal.z) * 0.015
+		if score < nearest_notch:
+			nearest_notch = score
+			notch_pose = Transform3D(Basis.looking_at(-normal, Vector3.UP), center + normal * 0.0015)
+			var side := Vector3.UP.cross(normal).normalized()
+			var ta := side.dot(vertices[a])
+			var tb := side.dot(vertices[b])
+			var tc := side.dot(vertices[c])
+			notch_width = (maxf(ta, maxf(tb, tc)) - minf(ta, minf(tb, tc))) * 0.6
+	if not is_finite(nearest_notch) or notch_width <= 0.0:
+		push_error("The harvestable pine has no supported bark notch face.")
+		return false
 	var stump := CylinderMesh.new()
 	stump.height = 0.12
 	stump.top_radius = radius * 0.85
@@ -5469,15 +5493,20 @@ func _prepare_hand_tree_assets() -> bool:
 	stump_shape.height = stump.height
 	stump_shape.radius = radius
 	var wood := StandardMaterial3D.new()
-	wood.albedo_color = Color("bb9664")
+	wood.albedo_color = Color("9c784d")
 	wood.roughness = 0.95
+	wood.metallic_specular = 0.1
+	wood.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var notch := QuadMesh.new()
+	notch.size = Vector2(notch_width, 0.004)
+	notch.material = wood
 	var cut := CylinderMesh.new()
 	cut.height = 0.002
 	cut.top_radius = radius * 0.85
 	cut.bottom_radius = cut.top_radius
 	cut.material = wood
 	hand_tree_assets = {"mesh": mesh, "root": root, "trunk": trunk, "stump": stump,
-		"stump_shape": stump_shape, "cut": cut, "radius": radius}
+		"stump_shape": stump_shape, "cut": cut, "notch": notch, "notch_pose": notch_pose}
 	return true
 
 func _refresh_hand_trees() -> void:
@@ -5541,11 +5570,10 @@ func _refresh_hand_trees() -> void:
 		picker.position.y = 0.0 if standing else 0.06
 		var cut: MeshInstance3D = body.get_node("Cut")
 		cut.visible = source.remaining < source.initial
-		cut.position = Vector3(0.0, 0.1805 if standing else 0.1205, float(hand_tree_assets.radius) * 0.9 if standing else 0.0)
-		cut.rotation.x = PI * 0.5 if standing else 0.0
+		cut.mesh = hand_tree_assets.notch if standing else hand_tree_assets.cut
+		cut.transform = hand_tree_assets.notch_pose if standing else Transform3D(Basis.IDENTITY, Vector3(0.0, 0.1205, 0.0))
 		var fraction := 1.0 - float(source.remaining) / float(source.initial)
-		var width := sqrt(fraction) if cut.visible else 1.0
-		cut.scale = Vector3(width, 1.0, width)
+		cut.scale = Vector3(sqrt(fraction), 1.0, 1.0) if standing and cut.visible else Vector3.ONE
 
 func _screen_hand_source(screen: Vector2) -> String:
 	if not _native_transmission() or camera == null or state.get("hand_sources", {}).is_empty():
