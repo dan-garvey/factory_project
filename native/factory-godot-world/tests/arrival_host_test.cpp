@@ -84,11 +84,56 @@ void arrival_projection_and_restore() {
           !factory::values::typed_difference(saved, restored.checkpoint()),
           "Late join and restore retain one settled pod with the exact same foundation custody.");
 }
+void unique_crank_custody_survives_host_restore() {
+    Host host;
+    initialized(host);
+    const auto initial = get<O>(host.projection(), "hand_crank");
+    check(get<std::string>(V(initial), "id") == "pod-hand-crank" &&
+          get<std::string>(V(initial), "holder") == "pod",
+          "The pod exposes one detachable crank in its tray.");
+    check(get<bool>(host.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 1), "accepted") &&
+          get<bool>(host.publish_actor("Q", {V(1.65), V(1.0), V(8.25)}, 1), "accepted"),
+          "Both actors can reach the pod tray.");
+    const auto command = [](const char* actor, const char* request, const char* action) {
+        return O{{"context", V("arrival-site")}, {"client", V(actor)},
+            {"request", V(request)}, {"action", V(action)},
+            {"entity", V("pod-hand-crank")}};
+    };
+    const auto take = command("P", "take-crank", "take_hand_crank");
+    check(get<bool>(host.command("P", take), "accepted") &&
+          get<std::string>(V(get<O>(host.projection(), "hand_crank")), "holder") == "P",
+          "Taking the crank transfers the single identity into P's custody.");
+    check(get<bool>(host.command("P", take), "duplicate") &&
+          get<std::string>(V(get<O>(host.projection(), "hand_crank")), "holder") == "P",
+          "A repeated Host command does not duplicate the crank.");
+    const auto other_take = host.command("Q", command("Q", "Q-take", "take_hand_crank"));
+    check(!get<bool>(other_take, "accepted") &&
+          get<std::string>(other_take, "reason") == "crank_held",
+          "Another actor cannot take the held crank.");
+    const auto saved = host.checkpoint();
+    check(get<bool>(host.validate_checkpoint(saved), "accepted"),
+          "Host validates a checkpoint with actor-held crank custody.");
+    Host restored;
+    initialized(restored);
+    check(get<bool>(restored.restore_checkpoint(saved), "accepted") &&
+          get<std::string>(V(get<O>(restored.projection(), "hand_crank")), "holder") == "P",
+          "Late join preserves the exact holder of the unique crank.");
+    check(get<bool>(restored.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 2), "accepted") &&
+          get<bool>(restored.publish_actor("Q", {V(1.65), V(1.0), V(8.25)}, 2), "accepted"),
+          "Restored actors publish fresh physical observations before new commands.");
+    check(get<bool>(restored.command("P", command("P", "return-crank", "return_hand_crank")), "accepted") &&
+          get<std::string>(V(get<O>(restored.projection(), "hand_crank")), "holder") == "pod",
+          "The holder can return the crank to its tray after restore.");
+    check(get<bool>(restored.command("Q", command("Q", "Q-take-after", "take_hand_crank")), "accepted") &&
+          get<std::string>(V(get<O>(restored.projection(), "hand_crank")), "holder") == "Q",
+          "The other actor can then take the same crank.");
+}
 }  // namespace
 
 int main() {
     try {
         arrival_projection_and_restore();
+        unique_crank_custody_survives_host_restore();
         std::cout << "arrival_host_test: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {

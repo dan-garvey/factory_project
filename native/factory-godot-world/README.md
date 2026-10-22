@@ -27,6 +27,10 @@ against actors, terrain obstacles, belts and complete machines. These are not
 yet functional collector or press assemblies. There is still no pod or bench
 mesh, scene crafting/placement controls or multitool input. Older complete-machine kits still seed, so the scene should switch
 only with the linked assembly and presentation work.
+The pod also starts with one identified detachable hand crank. A nearby
+physical actor can take it from the pod tray or return it through Host
+commands. Its single holder is projected and preserved through retries and
+checkpoints. It is not yet attached to, or driving, a built assembly.
 The arrival profile additionally exposes `hand_sources`: three named
 eight-piece timber sites and one sixteen-unit ore deposit. `harvest_source`
 accepts a target identity only after the bound physical actor is ready and

@@ -308,6 +308,10 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
             state.emplace("fabrication_hub", Value(Object{{"id", Value(hub.id)},
                 {"center", Value(Array{Value(hub.center[0]), Value(hub.center[1]), Value(hub.center[2])})},
                 {"generation", Value(hub.generation)}}));
+            const auto& crank = *snapshot.state.hand_crank;
+            state.emplace("hand_crank", Value(Object{{"id", Value(crank.id)},
+                {"generation", Value(crank.generation)},
+                {"holder", crank.holder ? Value(*crank.holder) : Value(nullptr)}}));
             Object placed;
             for (const auto& [id, component] : snapshot.state.placed_components)
                 placed.emplace(id, Value(Object{{"component", Value(materials::component_name(component.kind))},
@@ -337,7 +341,7 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
         candidate.history = std::move(*history.history);
         if (candidate.history.context != expected_context) refuse(CheckpointReason::wrong_context, "$.history.context");
         const auto& state = profile.landing_pod_center ? fields(root.at("state"), "$.state",
-            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "placed_components"}) :
+            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "hand_crank", "placed_components"}) :
             profile.foundation_parts > 0 ? fields(root.at("state"), "$.state",
             {"material", "topology", "kits", "issued_entities", "next_entity_serial", "foundations", "foundation_kits"}) :
             fields(root.at("state"), "$.state", {"material", "topology", "kits", "issued_entities", "next_entity_serial"});
@@ -358,6 +362,14 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
                  scalar<Integer>(hub_center[1], "$.state.fabrication_hub.center"),
                  scalar<Integer>(hub_center[2], "$.state.fabrication_hub.center")},
                 integer(hub, "generation", "$.state.fabrication_hub")};
+            const auto& crank = fields(state.at("hand_crank"), "$.state.hand_crank",
+                {"id", "generation", "holder"});
+            std::optional<std::string> holder;
+            if (crank.at("holder").type() != values::Type::null)
+                holder = scalar<std::string>(crank.at("holder"), "$.state.hand_crank.holder");
+            candidate.state.hand_crank = HandCrank{
+                scalar<std::string>(crank.at("id"), "$.state.hand_crank.id"),
+                integer(crank, "generation", "$.state.hand_crank"), std::move(holder)};
             const auto& placed = object(state.at("placed_components"), "$.state.placed_components");
             if (placed.size() > 4096) refuse(CheckpointReason::limit, "$.state.placed_components");
             for (const auto& [id, value] : placed) {

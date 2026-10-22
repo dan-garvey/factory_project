@@ -286,6 +286,9 @@ bool historical_wire(const authority::Record& record) {
         return *original_action == "craft_component" && keys(*wire, {"entity", "component"}) &&
             field<std::string>(*wire, "entity") && field<std::string>(*wire, "component") &&
             same("entity", "target") && same("component", "component");
+    if (*action == "take_hand_crank" || *action == "return_hand_crank")
+        return *original_action == *action && keys(*wire, {"entity"}) &&
+            field<std::string>(*wire, "entity") && same("entity", "target");
     if (*action == "place_component")
         return *original_action == "place_component" && keys(*wire, {"component", "center"}) &&
             field<std::string>(*wire, "component") && field<Array>(*wire, "center") &&
@@ -651,6 +654,8 @@ Value Host::initialize_site(const std::string& context, const std::vector<std::s
         seed.issued_entities.emplace("landing-pod", 1);
         seed.fabrication_hub = world::FabricationHub{"pod-fabrication-hub", world::landing_hub_center(center), 1};
         seed.issued_entities.emplace(seed.fabrication_hub->id, 1);
+        seed.hand_crank = world::HandCrank{"pod-hand-crank", 1, std::nullopt};
+        seed.issued_entities.emplace(seed.hand_crank->id, 1);
         const auto deck = world::landing_deck_centers(center);
         for (std::size_t index = 0; index < deck.size(); ++index) {
             const auto id = "pod-floor-" + std::to_string(index);
@@ -1149,6 +1154,14 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             snapshot.state.fabrication_hub->id == *field<std::string>(wire, "entity") ?
             snapshot.state.fabrication_hub->generation : Integer{0}));
         normalized.emplace("component", wire.at("component"));
+    } else if (*action == "take_hand_crank" || *action == "return_hand_crank") {
+        if (!keys(wire, {"entity"}) || !field<std::string>(wire, "entity"))
+            return refuse("invalid_command");
+        normalized.at("action") = Value(*action);
+        normalized.emplace("target", wire.at("entity"));
+        normalized.emplace("generation", Value(snapshot.state.hand_crank &&
+            snapshot.state.hand_crank->id == *field<std::string>(wire, "entity") ?
+            snapshot.state.hand_crank->generation : Integer{0}));
     } else if (*action == "place_component") {
         if (!keys(wire, {"component", "center"}) || !field<std::string>(wire, "component") ||
             !field<Array>(wire, "center")) return refuse("invalid_command");
@@ -1889,6 +1902,14 @@ Value Host::projection() const {
             {"position", Value(Array{Value(hub.center[0] * profile_.meters_per_grid_unit + profile_.anchor_offset[0]),
                 Value(hub.center[1] * profile_.meters_per_grid_unit + profile_.anchor_offset[1]),
                 Value(hub.center[2] * profile_.meters_per_grid_unit + profile_.anchor_offset[2])})}}));
+        const auto& crank = *state.hand_crank;
+        projection.emplace("hand_crank", Value(Object{{"id", Value(crank.id)},
+            {"generation", Value(crank.generation)},
+            {"holder", Value(crank.holder ? *crank.holder : "pod")},
+            {"pod_position", Value(Array{
+                Value(pod.center[0] * profile_.meters_per_grid_unit + profile_.anchor_offset[0]),
+                Value(pod.center[1] * profile_.meters_per_grid_unit + profile_.anchor_offset[1]),
+                Value(pod.center[2] * profile_.meters_per_grid_unit + profile_.anchor_offset[2])})}}));
         Object placed;
         for (const auto& [id, component] : state.placed_components)
             placed.emplace(id, Value(Object{{"component", Value(materials::component_name(component.kind))},

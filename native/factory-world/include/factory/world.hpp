@@ -63,6 +63,14 @@ struct FabricationHub {
     bool operator==(const FabricationHub&) const = default;
 };
 
+struct HandCrank {
+    std::string id;
+    authority::Integer generation{};
+    // Empty means the pod tray holds this one physical tool.
+    std::optional<std::string> holder;
+    bool operator==(const HandCrank&) const = default;
+};
+
 struct PlacedComponent {
     materials::Component kind{};
     mechanics::Point center{}; // Absolute quarter-grid location, shared with other constructables.
@@ -84,6 +92,7 @@ struct State {
     std::map<std::string, authority::Integer> foundation_kits;
     std::optional<LandingPod> landing_pod;
     std::optional<FabricationHub> fabrication_hub;
+    std::optional<HandCrank> hand_crank;
     std::map<std::string, PlacedComponent> placed_components;
     bool operator==(const State&) const = default;
 };

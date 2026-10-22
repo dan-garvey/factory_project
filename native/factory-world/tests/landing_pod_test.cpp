@@ -37,6 +37,8 @@ std::pair<w::Profile, w::State> seed() {
     state.issued_entities.emplace("landing-pod", 1);
     state.fabrication_hub = w::FabricationHub{"pod-fabrication-hub", w::landing_hub_center(*profile.landing_pod_center), 1};
     state.issued_entities.emplace("pod-fabrication-hub", 1);
+    state.hand_crank = w::HandCrank{"pod-hand-crank", 1, std::nullopt};
+    state.issued_entities.emplace("pod-hand-crank", 1);
     const auto deck = w::landing_deck_centers(*profile.landing_pod_center);
     for (std::size_t index = 0; index < deck.size(); ++index) {
         const auto id = "pod-floor-" + std::to_string(index);
@@ -94,6 +96,98 @@ void seed_cannot_duplicate_or_forge_pod() {
     state.fabrication_hub.reset();
     check(!w::World::create("pod-world", profile, state),
           "A pod save cannot omit the single fabrication hub.");
+    state = seed().second;
+    state.hand_crank.reset();
+    check(!w::World::create("pod-world", profile, state),
+          "A fresh pod cannot omit its detachable hand crank.");
+    state = seed().second;
+    state.hand_crank->holder = "Q";
+    check(!w::World::create("pod-world", profile, state),
+          "A hand crank cannot start in actor cargo without a take transaction.");
+}
+
+void one_hand_crank_moves_between_pod_and_actors() {
+    auto [profile, state] = seed();
+    profile.build_reach = 4;
+    auto world = w::World::create("pod-crank", profile, state);
+    check(world != nullptr && world->snapshot().state.hand_crank->holder == std::nullopt,
+          "One identified crank begins in the pod tray.");
+    const auto near = [](const std::string& actor) -> std::optional<a::ActorCut> {
+        return a::ActorCut{actor, {4, 0, 16}, 2, true, 4};
+    };
+    const auto far = [](const std::string& actor) -> std::optional<a::ActorCut> {
+        return a::ActorCut{actor, {20, 0, 16}, 2, true, 4};
+    };
+    const auto request = [](const char* actor, const char* client, const char* name, const char* action) {
+        return O{{"context", V("pod-crank")}, {"client", V(client)}, {"request", V(name)},
+            {"actor", V(actor)}, {"action", V(action)},
+            {"target", V("pod-hand-crank")}, {"generation", V(I{1})}};
+    };
+    const auto send = [&](const O& intent, const w::ObserveActor& pose) {
+        const auto actor = std::get<std::string>(intent.at("actor").storage());
+        const auto client = std::get<std::string>(intent.at("client").storage());
+        return world->command({actor, client}, intent, pose);
+    };
+    const auto first = request("P", "P-client", "take-first", "take_hand_crank");
+    const auto remote = send(first, far);
+    check(remote.completed() && !std::get<bool>(remote.result->at("accepted").storage()) &&
+          std::get<std::string>(remote.result->at("reason").storage()) == "out_of_reach" &&
+          !world->snapshot().state.hand_crank->holder,
+          "A remote actor cannot acquire the pod tool through the camera.");
+    auto admitted = first;
+    admitted.at("request") = V("take-near");
+    const auto taken = send(admitted, near);
+    check(taken.completed() && std::get<bool>(taken.result->at("accepted").storage()) &&
+          world->snapshot().state.hand_crank->holder == "P",
+          "A reachable actor takes the unique pod crank into actor custody.");
+    const auto held = world->snapshot();
+    const auto retry = send(admitted, [](const std::string&) -> std::optional<a::ActorCut> {
+        return std::nullopt;
+    });
+    check(retry.completed() && std::get<bool>(retry.result->at("duplicate").storage()) &&
+          world->snapshot().state == held.state,
+          "An exact take retry cannot mint a second crank after movement.");
+    auto stale = request("Q", "Q-client", "stale", "take_hand_crank");
+    stale.at("generation") = V(I{2});
+    const auto stale_result = send(stale, near);
+    check(stale_result.completed() && !std::get<bool>(stale_result.result->at("accepted").storage()) &&
+          std::get<std::string>(stale_result.result->at("reason").storage()) == "stale_generation",
+          "A stale generation cannot retarget the unique crank.");
+    const auto q_take = send(request("Q", "Q-client", "take-while-held", "take_hand_crank"), near);
+    check(q_take.completed() && !std::get<bool>(q_take.result->at("accepted").storage()) &&
+          std::get<std::string>(q_take.result->at("reason").storage()) == "crank_held" &&
+          world->snapshot().state == held.state,
+          "Q cannot take a crank already carried by P.");
+    const auto q_return = send(request("Q", "Q-client", "return-other", "return_hand_crank"), near);
+    check(q_return.completed() && !std::get<bool>(q_return.result->at("accepted").storage()) &&
+          std::get<std::string>(q_return.result->at("reason").storage()) == "not_holder",
+          "Q cannot return P's carried crank.");
+    const auto p_return = request("P", "P-client", "return-first", "return_hand_crank");
+    const auto remote_return = send(p_return, far);
+    check(remote_return.completed() && !std::get<bool>(remote_return.result->at("accepted").storage()) &&
+          std::get<std::string>(remote_return.result->at("reason").storage()) == "out_of_reach",
+          "Returning the crank requires physical access to the pod tray.");
+    auto near_return = p_return;
+    near_return.at("request") = V("return-near");
+    const auto returned = send(near_return, near);
+    check(returned.completed() && std::get<bool>(returned.result->at("accepted").storage()) &&
+          !world->snapshot().state.hand_crank->holder,
+          "Returning moves the same crank to its pod tray.");
+    const auto q_success = send(request("Q", "Q-client", "take-after-return", "take_hand_crank"), near);
+    check(q_success.completed() && std::get<bool>(q_success.result->at("accepted").storage()) &&
+          world->snapshot().state.hand_crank->holder == "Q",
+          "The other actor can use the same tool after a real return.");
+    const auto final_state = world->snapshot();
+    const auto encoded = w::encode_checkpoint(profile, final_state);
+    check(std::holds_alternative<V>(encoded), "A held crank checkpoint encodes.");
+    const auto decoded = w::decode_checkpoint(profile, "pod-crank", std::get<V>(encoded));
+    check(std::holds_alternative<w::Snapshot>(decoded) &&
+          w::World::restore("pod-crank", profile, std::get<w::Snapshot>(decoded)) != nullptr,
+          "A fresh World restores Q's exact crank custody and request history.");
+    auto forged = final_state;
+    forged.state.hand_crank->holder = "P";
+    check(!w::World::restore("pod-crank", profile, forged),
+          "Changing the held actor without a transaction is rejected on restore.");
 }
 
 void deck_recovery_is_a_normal_world_transaction() {
@@ -379,6 +473,7 @@ int main() {
     try {
         settled_pod_and_checkpoint();
         seed_cannot_duplicate_or_forge_pod();
+        one_hand_crank_moves_between_pod_and_actors();
         deck_recovery_is_a_normal_world_transaction();
         reachable_craft_uses_one_hub_and_owned_ingredients();
         placed_components_keep_custody_and_history();

@@ -79,6 +79,10 @@ reclaiming are actor-reachable requests with exact retry, issue-history,
 checkpoint and two-actor custody validation. This placement layer does not yet
 infer collector or press behavior from an assembly; those rules must consume
 the same installed identities and preserve their material custody.
+One identified hand crank starts in the arrival pod. Reach-checked take and
+return requests move its custody between the pod and one actor. The same
+issued identity, request history and checkpoint preserve that custody; machine
+drive and placement of the crank are subsequent work.
 
 Session supplies the authenticated actor and request namespace. Fresh commands
 use exact integer fields and known keys. They resolve current entity generations,
