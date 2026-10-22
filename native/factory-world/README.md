@@ -83,9 +83,13 @@ checkpoint and two-actor custody validation. Collector and press arrangements
 are recognized from those identities. `feed_press` requires a complete press,
 one of its clear feed faces and a reachable actor carrying one raw blank. It
 moves that blank into the canonical loose-material ledger at the press's work
-center. A second press has a different work point and cannot share its item;
-pickup after dismantling returns the same blank. Crank work and product output
-remain subsequent work.
+center. A second press has a different work point and cannot share its item.
+`turn_press_crank` names the exact frame, drive shaft and clear exit. The actor
+must hold the pod crank and reach that shaft. One turn starts a WorkLot, later
+turns advance it on the shared fixed work clock, and a completed lot becomes one
+product at the selected physical exit. A full exit retains ready work; pickup
+after dismantling recovers the original blank or partial WorkLot. Work and
+products remain in the canonical loose-material ledger and strict checkpoint.
 One identified hand crank starts in the arrival pod. Reach-checked take and
 return requests move its custody between the pod and one actor. The same
 issued identity, request history and checkpoint preserve that custody. Crank

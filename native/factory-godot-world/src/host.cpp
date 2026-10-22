@@ -350,6 +350,11 @@ bool historical_wire(const authority::Record& record) {
         return *original_action == *action && keys(*wire, {"entity", "entry"}) &&
             field<std::string>(*wire, "entity") && field<Array>(*wire, "entry") &&
             same("entity", "target") && same("entry", "entry");
+    if (*action == "turn_press_crank")
+        return *original_action == *action && keys(*wire, {"entity", "drive", "exit"}) &&
+            field<std::string>(*wire, "entity") && field<std::string>(*wire, "drive") &&
+            field<Array>(*wire, "exit") && same("entity", "target") &&
+            same("drive", "drive") && same("exit", "exit");
     if (*action == "place_component")
         return *original_action == "place_component" && keys(*wire, {"component", "center"}) &&
             field<std::string>(*wire, "component") && field<Array>(*wire, "center") &&
@@ -1319,6 +1324,30 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.emplace("generation", Value(found == snapshot.state.placed_components.end() ?
             Integer{0} : found->second.generation));
         normalized.emplace("entry", wire.at("entry"));
+    } else if (*action == "turn_press_crank") {
+        if (!keys(wire, {"entity", "drive", "exit"}) ||
+            !field<std::string>(wire, "entity") || !field<std::string>(wire, "drive") ||
+            !field<Array>(wire, "exit")) return refuse("invalid_command");
+        const auto& exit = *field<Array>(wire, "exit");
+        if (exit.size() == 3) {
+            mechanics::Point center{};
+            bool valid = true;
+            for (std::size_t axis = 0; axis < 3; ++axis) {
+                const auto* coordinate = std::get_if<Integer>(&exit[axis].storage());
+                if (!coordinate || *coordinate < -mechanics::maximum_coordinate ||
+                    *coordinate > mechanics::maximum_coordinate) valid = false;
+                else center[axis] = *coordinate;
+            }
+            if (valid) if (const auto* refusal = component_site_refusal(std::nullopt, center))
+                return refuse(refusal);
+        }
+        normalized.at("action") = Value("turn_press_crank");
+        normalized.emplace("target", wire.at("entity"));
+        const auto found = snapshot.state.placed_components.find(*field<std::string>(wire, "entity"));
+        normalized.emplace("generation", Value(found == snapshot.state.placed_components.end() ?
+            Integer{0} : found->second.generation));
+        normalized.emplace("drive", wire.at("drive"));
+        normalized.emplace("exit", wire.at("exit"));
     } else if (*action == "place_component") {
         if (!keys(wire, {"component", "center"}) || !field<std::string>(wire, "component") ||
             !field<Array>(wire, "center")) return refuse("invalid_command");

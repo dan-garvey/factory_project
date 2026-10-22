@@ -62,9 +62,13 @@ anvil, ram face, guide, mount, shaft and cog, the work and drive centers,
 material types and clear lower feed/exit routes. Missing or ambiguous entries
 stay visible for diagnosis. An actor-bound `feed_press` request selects a clear
 entry and moves one carried blank into the existing loose-material record at
-that press's work center. The item survives retry, checkpoint and dismantle
-until recovered with `pickup_material`. The press does not yet process a blank,
-assert power or have ordinary scene controls.
+that press's work center. An actor holding the identified pod crank can turn
+the press's installed drive shaft and select a clear lower exit. The native
+work clock creates a WorkLot, advances it on later turns and releases one
+formed product into the canonical loose-material ledger. A full or terrain
+blocked exit retains custody, and pickup recovers a blank, partial work or
+product after dismantling. The Host checks physical actor reach and exit site
+clearance; ordinary scene press controls and autonomous drive remain open.
 The arrival profile additionally exposes `hand_sources`: three named
 eight-piece timber sites and one sixteen-unit ore deposit. `harvest_source`
 accepts a target identity only after the bound physical actor is ready and
