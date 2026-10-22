@@ -425,7 +425,7 @@ func _adult_correct_grounded_knees(body: Node3D, skeleton: Skeleton3D) -> void:
 		_adult_turn_joint(body, skeleton, foot, foot_turn)
 
 func _adult_hold_landing_toe(body: Node3D, skeleton: Skeleton3D,
-		anchor: Vector3, influence: float) -> void:
+		anchor: Vector3, influence: float, toe_off_lift: float = 0.0) -> void:
 	# Place only the visual leading boot at its first contact point. The hip,
 	# knee and ankle retain their lengths; the native actor never moves.
 	var thigh := skeleton.find_bone("Bip01 L Thigh")
@@ -440,7 +440,8 @@ func _adult_hold_landing_toe(body: Node3D, skeleton: Skeleton3D,
 	var foot_frame := _adult_joint_frame(body, skeleton, foot)
 	var upper := hip_at.distance_to(knee_at)
 	var lower := knee_at.distance_to(ankle_at)
-	var target_ankle := ankle_at + (body.to_local(anchor) - toe_at) * influence
+	var target_ankle := ankle_at + (body.to_local(anchor) - toe_at) * influence \
+		+ Vector3.UP * toe_off_lift
 	var reach := target_ankle - hip_at
 	var distance := reach.length()
 	if distance < 0.01:
@@ -834,8 +835,12 @@ func _set_gait(body: Node3D, phase: float, weight: float,
 				var run_hold := smoothstep(0.75, 1.0, run_mix)
 				var hold := walk_hold * (1.0 - smoothstep(0.30, 0.75, landing_progress)) \
 					+ run_hold * (1.0 - smoothstep(0.35, 0.78, landing_progress))
-				if hold > 0.0:
-					_adult_hold_landing_toe(body, skeleton, landing_toe_anchor, hold)
+				# A running recovery passes weight to the opposite boot quickly.
+				# Lift this leading toe before its ankle follows the receding stride.
+				var toe_off_lift := 0.03 * run_hold * smoothstep(0.38, 0.62, landing_progress) \
+					* (1.0 - smoothstep(0.82, 1.0, landing_progress))
+				if hold > 0.0 or toe_off_lift > 0.0:
+					_adult_hold_landing_toe(body, skeleton, landing_toe_anchor, hold, toe_off_lift)
 		return
 	for pair in [["Left", 0.0], ["Right", PI]]:
 		var prefix: String = pair[0]

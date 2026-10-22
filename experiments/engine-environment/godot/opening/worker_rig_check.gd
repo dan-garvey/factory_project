@@ -781,6 +781,10 @@ func run() -> void:
 				and absf(float(sample.y) - 0.01) < 0.015
 		verify(run_early_grounded,
 			"A warmed running landing holds its leading toe through the first supported samples.")
+		verify(float(run_contact.toes[9].y) > 0.022
+			and float(run_contact.toes[9].y) < 0.09
+			and float(run_contact.toes[11].y) > 0.035,
+			"The running lead boot lifts into toe-off after its initial plant instead of dragging along support.")
 		check_landing_recovery_profile()
 	else:
 		verify(body.mesh == q.get_node("BodyView").mesh and body.material_override != q.get_node("BodyView").material_override,

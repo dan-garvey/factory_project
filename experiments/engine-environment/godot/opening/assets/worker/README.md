@@ -98,7 +98,9 @@ its first supported world position during the initial load. A two-bone visual
 leg correction keeps the knee forward, preserves leg lengths and foot facing,
 and releases the boot as the step rolls into walking or running. The running
 release starts earlier because the actor travels farther during the same
-contact interval. This is a presentation anchor, not physical foot contact;
+contact interval. As the opposite boot accepts the running recovery, the lead
+ankle lifts slightly before following the next stride, avoiding a low backward
+drag. This is a presentation anchor, not physical foot contact;
 the support height still comes from the confirmed actor and can differ from
 the rendered terrain on a slope. These poses
 evolve with observed vertical speed rather than holding one shape throughout
@@ -123,7 +125,8 @@ forward knee bending, mid-swing knee flex, planted toe height and horizontal sta
 opposing running hands, relaxed walking elbows and bounded lateral carriage,
 loose grounded fingers that release during flight,
 opposite-arm balance at moving contact,
-early walking and running landing boot placement with exact actor roots and no input,
+early walking and running landing boot placement, running toe-off clearance,
+exact actor roots and no input,
 skinned dimensions,
 ascent, descent, leading-toe continuity, staged landing contact and skinned support height, per-player
 isolation, projection
