@@ -8,7 +8,7 @@
 namespace {
 namespace m = factory::materials;
 int checks{};
-constexpr m::Config config{2, 2, 4};
+const m::Config config{2, 2, 4};
 constexpr m::Path line{true, true, true, true, true, true};
 
 void require(bool condition, const char* message) {

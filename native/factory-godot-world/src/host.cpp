@@ -274,6 +274,9 @@ bool historical_wire(const authority::Record& record) {
         }
         return true;
     }
+    if (*action == "harvest_source")
+        return *original_action == "harvest_source" && keys(*wire, {"target"}) &&
+            field<std::string>(*wire, "target") && same("target", "target");
     if (*action == "place_foundations") {
         const auto* cell = field<Array>(*wire, "cell");
         const auto* end = field<Array>(*wire, "end_cell");
@@ -522,15 +525,17 @@ const char* kind(Role role) {
     return "invalid";
 }
 
-Value cargo_value(const materials::Cargo& cargo) {
+Value cargo_value(const materials::Cargo& cargo, bool resources = false) {
     Array lots;
     for (const auto& lot : cargo.work_lots) lots.emplace_back(Object{
         {"id", Value(lot.id)}, {"recipe_input", Value(lot.recipe.input_units_per_product)},
         {"cycle_ticks", Value(lot.recipe.cycle_ticks)}, {"remaining", Value(lot.remaining_ticks)},
         {"completed_subticks", Value(lot.completed_subticks)}, {"work_remainder", Value(lot.work_remainder)},
         {"work_remainder_denominator", Value(lot.work_remainder_denominator)}});
-    return Value(Object{{"raw", Value(cargo.raw_units)}, {"products", Value(cargo.products)},
-                         {"work_lots", Value(std::move(lots))}});
+    Object output{{"raw", Value(cargo.raw_units)}, {"products", Value(cargo.products)},
+                  {"work_lots", Value(std::move(lots))}};
+    if (resources) output.emplace("timber", Value(cargo.timber));
+    return Value(std::move(output));
 }
 
 Value kit_value(const stationary::Kit& kit) {
@@ -589,7 +594,7 @@ Value Host::initialize_site(const std::string& context, const std::vector<std::s
     // Reversible opening content, with enough buffer to recover finite ore in
     // batches. All reserve and carried quantities remain in this one World.
     profile.material = {1, 32, 2};
-    profile.initial_units = mineral_site::opening_reserve;
+    profile.initial_units = arrival ? 16 : mineral_site::opening_reserve;
     profile.meters_per_grid_unit = pitch / 4.0;
     profile.anchor_offset = {0, anchor_height, 0};
     profile.wheel_radius = wheel_radius;
@@ -598,7 +603,15 @@ Value Host::initialize_site(const std::string& context, const std::vector<std::s
     profile.foundation_parts = 24;
     // East of the river and clear of the exposed ore deposit. This is a
     // reversible authored site anchor, expressed in the one quarter-tile grid.
-    if (arrival) profile.landing_pod_center = mechanics::Point{4, 0, 16};
+    if (arrival) {
+        profile.landing_pod_center = mechanics::Point{4, 0, 16};
+        profile.material.manual_ore = materials::OreSite{"opening-softmetal", {-3, 0, 0}};
+        profile.material.timber_sites = {
+            {"tree-east-south", {{12, 0, 12}, 8}},
+            {"tree-east-north", {{12, 0, 24}, 8}},
+            {"tree-north", {{0, 0, 28}, 8}}};
+        profile.material.hand_carry_capacity = 24;
+    }
     profile.finite_parts = {{{Role::collector, 0, 0}, 1}, {{Role::belt, 0, 0}, 2},
         {{Role::processor, 0, 0}, 1}, {{Role::waterwheel, 0, 0}, 1}, {{Role::shaft, 0, 2}, 8},
         {{Role::gear, 2, 0}, 8}, {{Role::gear, 4, 0}, 2},
@@ -608,6 +621,8 @@ Value Host::initialize_site(const std::string& context, const std::vector<std::s
     seed.topology.drive_enabled = true;
     seed.material.initial_units = profile.initial_units;
     seed.material.stock.source = profile.initial_units;
+    for (const auto& [id, site] : profile.material.timber_sites)
+        seed.material.timber_remaining.emplace(id, site.initial);
     if (arrival) {
         const auto& center = *profile.landing_pod_center;
         seed.landing_pod = world::LandingPod{"landing-pod", center, 1};
@@ -1007,7 +1022,11 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             belt != snapshot.state.topology.belt_spans.end() ? belt->generation : 0));
         return true;
     };
-    if (*action == "pickup_material") {
+    if (*action == "harvest_source") {
+        if (!keys(wire, {"target"}) || !field<std::string>(wire, "target")) return refuse("invalid_command");
+        normalized.at("action") = Value("harvest_source");
+        normalized.emplace("target", wire.at("target"));
+    } else if (*action == "pickup_material") {
         if (!keys(wire, {"center", "expected"}) || !field<Object>(wire, "expected")) return refuse("invalid_command");
         const auto* center = field<Array>(wire, "center");
         if (!center || center->size() != 3) return refuse("invalid_center");
@@ -1558,7 +1577,7 @@ Value Host::projection() const {
     Integer player = 0;
     for (const auto& [actor, contents] : state.material.cargo) {
         inventories.emplace(actor, Value(contents.products)); player += contents.products;
-        cargo.emplace(actor, cargo_value(contents));
+        cargo.emplace(actor, cargo_value(contents, profile_.material.manual_ore.has_value()));
     }
     for (const auto& [actor, kit] : state.kits) {
         auto projected_kit = std::get<Object>(kit_value(kit).storage());
@@ -1641,6 +1660,24 @@ Value Host::projection() const {
             {"center", Value(Array{Value(pod.center[0] / height_denominator),
                 Value(pod.center[1]), Value(pod.center[2] / height_denominator)})},
             {"deployed", Value(true)}, {"hub_ready", Value(false)}}));
+    }
+    if (profile_.material.manual_ore) {
+        const auto site_position = [this](const materials::DropPoint& center) {
+            return Value(Array{
+                Value(center[0] * profile_.meters_per_grid_unit + profile_.anchor_offset[0]),
+                Value(center[1] * profile_.meters_per_grid_unit + profile_.anchor_offset[1]),
+                Value(center[2] * profile_.meters_per_grid_unit + profile_.anchor_offset[2])});
+        };
+        Object sources;
+        for (const auto& [id, site] : profile_.material.timber_sites)
+            sources.emplace(id, Value(Object{{"kind", Value("tree")},
+                {"position", site_position(site.center)}, {"initial", Value(site.initial)},
+                {"remaining", Value(state.material.timber_remaining.at(id))}}));
+        const auto& ore = *profile_.material.manual_ore;
+        sources.emplace(ore.id, Value(Object{{"kind", Value("ore_deposit")},
+            {"position", site_position(ore.center)}, {"initial", Value(profile_.initial_units)},
+            {"remaining", Value(state.material.stock.source)}}));
+        projection.emplace("hand_sources", Value(std::move(sources)));
     }
     return Value(std::move(projection));
 }

@@ -16,7 +16,7 @@ using I = a::Integer;
 using O = a::Object;
 
 int checks{};
-constexpr m::Config config{2, 2, 4};
+const m::Config config{2, 2, 4};
 constexpr m::Path broken_line{true, false, false, false, false, false};
 constexpr m::Path complete_line{true, true, true, true, true, true};
 

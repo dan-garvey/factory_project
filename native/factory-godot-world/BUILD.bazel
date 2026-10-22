@@ -23,6 +23,13 @@ cc_test(
     size = "small",
 )
 
+cc_test(
+    name = "harvest_host_test",
+    srcs = ["tests/harvest_host_test.cpp"],
+    deps = [":host", ":test_site", "//native/factory-value:value"],
+    size = "small",
+)
+
 cc_library(
     name = "host",
     srcs = ["src/host.cpp"],

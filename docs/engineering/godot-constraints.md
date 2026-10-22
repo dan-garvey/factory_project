@@ -1119,6 +1119,16 @@ component economy replaces them. The pod center at grid `{4, 0, 16}` is a
 revisable site choice that still needs passive scene inspection with nearby
 resources and collision geometry.
 
+The experimental arrival Host also projects three finite timber sites and the
+existing ore reserve as `hand_sources`. Native `harvest_source` uses the bound
+actor observation and the same reach authority as construction. In an isolated
+pinned 4.7.2 extension probe, the actual emitted site accepted a synthetic
+deck actor cutting one tree and a synthetic ore-side actor mining one unit;
+checkpoint restore retained both balances. This establishes the site adapter
+and bridge path, not input, movement, rendering or human play. The live scene
+has no multitool input or harvestable tree/depletion presenter yet. The
+provisional anchors must be reconciled with visible trees before adoption.
+
 ## Required follow-through
 
 This first source/API/evidence audit leaves actual backend identification,

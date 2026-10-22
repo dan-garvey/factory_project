@@ -20,8 +20,16 @@ slice has no pod presentation, crafting inventory, multitool or component
 recipes. It still seeds the older machine kits, so the scene should switch
 only with the linked arrival and fabrication work.
 The projected `hub_ready` value is false until a real crafting hub exists.
+The arrival profile additionally exposes `hand_sources`: three named
+eight-piece timber sites and one sixteen-unit ore deposit. `harvest_source`
+accepts a target identity only after the bound physical actor is ready and
+within reach. It credits timber or raw ore in the same native actor cargo,
+with the ore debit shared by the collector. Source balances and carried timber
+survive the normal checkpoint. Current site coordinates are provisional; the
+live scene has no matching harvestable tree art, multitool input, depletion
+feedback or crafting consumer yet. The focused Host test uses synthetic poses.
 
-The current opening adapter is a revisable profile: a finite 4,096-unit mineral
+The current opening adapter is a revisable profile: a finite 4,096-unit ore
 deposit, a 32-blank collector buffer, one-unit downstream buffers, a two-tick
 press, four-world-unit reach and the existing site/capsule geometry. Batch raw
 recovery lets the larger reserve fit the prototype's request and save budgets.
