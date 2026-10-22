@@ -209,6 +209,57 @@ struct Link {
     Rate multiplier;
 };
 
+struct ContactBounds {
+    Point low;
+    Point high;
+};
+
+ContactBounds contact_bounds(const Part& part) noexcept {
+    ContactBounds bounds{};
+    for (std::size_t axis = 0; axis < 3; ++axis) {
+        // Every contact is either a neighboring face, an axle span, or a
+        // cog-radius overlap. These deliberately broad extents can admit
+        // extra candidates but cannot omit a real engagement or overlap.
+        Integer extent = 4;
+        if (part.kind == Kind::shaft && axis == coordinate(part.axis))
+            extent = std::max(extent, part.half_span);
+        if (part.kind == Kind::gear && axis != coordinate(part.axis))
+            extent = std::max(extent, part.teeth);
+        bounds.low[axis] = part.center[axis] - extent;
+        bounds.high[axis] = part.center[axis] + extent;
+    }
+    return bounds;
+}
+
+std::vector<std::pair<std::size_t, std::size_t>> contact_candidates(
+    const std::vector<const Part*>& parts) {
+    std::vector<ContactBounds> bounds;
+    bounds.reserve(parts.size());
+    for (const auto* part : parts) bounds.push_back(contact_bounds(*part));
+    std::vector<std::size_t> by_x(parts.size());
+    std::iota(by_x.begin(), by_x.end(), 0);
+    std::sort(by_x.begin(), by_x.end(), [&](std::size_t a, std::size_t b) {
+        if (bounds[a].low[0] != bounds[b].low[0]) return bounds[a].low[0] < bounds[b].low[0];
+        return a < b;
+    });
+    std::vector<std::size_t> active;
+    std::vector<std::pair<std::size_t, std::size_t>> candidates;
+    for (const auto b : by_x) {
+        active.erase(std::remove_if(active.begin(), active.end(), [&](std::size_t a) {
+            return bounds[a].high[0] < bounds[b].low[0];
+        }), active.end());
+        for (const auto a : active) {
+            if (bounds[a].high[1] < bounds[b].low[1] || bounds[b].high[1] < bounds[a].low[1] ||
+                bounds[a].high[2] < bounds[b].low[2] || bounds[b].high[2] < bounds[a].low[2])
+                continue;
+            candidates.emplace_back(std::min(a, b), std::max(a, b));
+        }
+        active.push_back(b);
+    }
+    std::sort(candidates.begin(), candidates.end());
+    return candidates;
+}
+
 }  // namespace
 
 std::optional<BeltPath> belt_path(const Part& first, const Part& last) {
@@ -310,57 +361,55 @@ Result evaluate(const std::vector<Part>& input, const std::vector<Drive>& source
 
     Result result;
     std::vector<std::vector<Link>> adjacent(parts.size());
-    for (std::size_t a = 0; a < parts.size(); ++a) {
-        for (std::size_t b = a + 1; b < parts.size(); ++b) {
-            const auto& left = *parts[a];
-            const auto& right = *parts[b];
-            Rate forward{1, 1}, backward{1, 1};
-            auto kind = EngagementKind::coaxial_shaft;
-            bool connected = shaft_contact(left, right);
-            if (const auto relay = relay_contact(left, right)) {
-                connected = true;
-                kind = EngagementKind::relay;
-                forward = backward = *relay;
+    for (const auto& [a, b] : contact_candidates(parts)) {
+        const auto& left = *parts[a];
+        const auto& right = *parts[b];
+        Rate forward{1, 1}, backward{1, 1};
+        auto kind = EngagementKind::coaxial_shaft;
+        bool connected = shaft_contact(left, right);
+        if (const auto relay = relay_contact(left, right)) {
+            connected = true;
+            kind = EngagementKind::relay;
+            forward = backward = *relay;
+        }
+        if (const auto corner = corner_cog_contact(left, right)) {
+            connected = true;
+            kind = EngagementKind::external_mesh;
+            forward = backward = *corner;
+        }
+        if (left.kind == Kind::gear && right.kind == Kind::gear &&
+            left.axis == right.axis &&
+            left.center[coordinate(left.axis)] == right.center[coordinate(right.axis)]) {
+            // Starter cogs occupy one tile regardless of their ratio label.
+            // Their engagement geometry follows Create's cog connections,
+            // while adjacent, nonmeshing tiles remain legal to place.
+            const bool large_pair = left.teeth == 4 && right.teeth == 4;
+            const bool small_pair = left.teeth == 2 && right.teeth == 2;
+            const auto distance = radial_squared(left, right);
+            const bool mixed_starter_cogs =
+                (left.teeth == 2 && right.teeth == 4) ||
+                (left.teeth == 4 && right.teeth == 2);
+            const bool starter_pair = large_pair || small_pair || mixed_starter_cogs;
+            const auto sum = starter_pair ? Integer{4} : left.teeth + right.teeth;
+            bool diagonal = mixed_starter_cogs;
+            for (std::size_t i = 0; i < 3 && diagonal; ++i) {
+                if (i == coordinate(left.axis)) continue;
+                const auto d = right.center[i] - left.center[i];
+                diagonal = d == 4 || d == -4;
             }
-            if (const auto corner = corner_cog_contact(left, right)) {
+            if (distance < sum * sum)
+                return failure(Error::overlapping_gears, left.id);
+            if (diagonal || (!large_pair && !mixed_starter_cogs && distance == sum * sum)) {
                 connected = true;
                 kind = EngagementKind::external_mesh;
-                forward = backward = *corner;
+                forward = normalized({-left.teeth, right.teeth});
+                backward = normalized({-right.teeth, left.teeth});
             }
-            if (left.kind == Kind::gear && right.kind == Kind::gear &&
-                left.axis == right.axis &&
-                left.center[coordinate(left.axis)] == right.center[coordinate(right.axis)]) {
-                // Starter cogs occupy one tile regardless of their ratio label.
-                // Their engagement geometry follows Create's cog connections,
-                // while adjacent, nonmeshing tiles remain legal to place.
-                const bool large_pair = left.teeth == 4 && right.teeth == 4;
-                const bool small_pair = left.teeth == 2 && right.teeth == 2;
-                const auto distance = radial_squared(left, right);
-                const bool mixed_starter_cogs =
-                    (left.teeth == 2 && right.teeth == 4) ||
-                    (left.teeth == 4 && right.teeth == 2);
-                const bool starter_pair = large_pair || small_pair || mixed_starter_cogs;
-                const auto sum = starter_pair ? Integer{4} : left.teeth + right.teeth;
-                bool diagonal = mixed_starter_cogs;
-                for (std::size_t i = 0; i < 3 && diagonal; ++i) {
-                    if (i == coordinate(left.axis)) continue;
-                    const auto d = right.center[i] - left.center[i];
-                    diagonal = d == 4 || d == -4;
-                }
-                if (distance < sum * sum)
-                    return failure(Error::overlapping_gears, left.id);
-                if (diagonal || (!large_pair && !mixed_starter_cogs && distance == sum * sum)) {
-                    connected = true;
-                    kind = EngagementKind::external_mesh;
-                    forward = normalized({-left.teeth, right.teeth});
-                    backward = normalized({-right.teeth, left.teeth});
-                }
-            }
-            if (!connected) continue;
-            result.engagements.push_back({left.id, right.id, kind, forward});
-            adjacent[a].push_back({b, forward});
-            adjacent[b].push_back({a, backward});
         }
+        if (!connected) continue;
+        result.engagements.push_back({left.id, right.id, kind, forward});
+        adjacent[a].push_back({b, forward});
+        adjacent[b].push_back({a, backward});
     }
 
     // Horizontal prototype spans use complete, unobstructed world tiles. A
@@ -403,6 +452,7 @@ Result evaluate(const std::vector<Part>& input, const std::vector<Drive>& source
     }
 
     std::vector<bool> visited(parts.size(), false);
+    std::vector<std::optional<Rate>> rates(parts.size());
     for (std::size_t root = 0; root < parts.size(); ++root) {
         if (visited[root]) continue;
         std::deque<std::size_t> pending{root};
@@ -427,12 +477,11 @@ Result evaluate(const std::vector<Part>& input, const std::vector<Drive>& source
             if (!source || drive->second.numerator != 0) source = at;
             if (drive->second.numerator != 0) break;
         }
-        std::vector<std::optional<Rate>> rates(parts.size());
         bool conflict = false;
         auto state = MotionState::unpowered;
         if (source) {
             const auto propagate = [&](std::size_t driver) -> std::optional<std::size_t> {
-                std::fill(rates.begin(), rates.end(), std::nullopt);
+                for (const auto at : component) rates[at].reset();
                 rates[driver] = drives.at(driver);
                 pending.clear();
                 pending.push_back(driver);
