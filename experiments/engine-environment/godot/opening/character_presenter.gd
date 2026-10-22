@@ -2,6 +2,7 @@ extends Node3D
 ## Input and confirmed actor presentation only. The native producer/server owns
 ## every physical pose; these meshes never grant construction permission.
 const Geometry = preload("res://opening/site_geometry.gd")
+const Surface = preload("res://opening/site_surface.gd")
 const ADULT_ASSETS := "res://opening/assets/worker/"
 const GAIT_CYCLE_DISTANCE := 2.30
 const WALK_CYCLE_DISTANCE := 1.30
@@ -464,6 +465,47 @@ func _adult_hold_contact_toe(body: Node3D, skeleton: Skeleton3D,
 	skeleton.force_update_all_bone_transforms()
 	_adult_turn_joint(body, skeleton, foot,
 		foot_frame * _adult_joint_frame(body, skeleton, foot).inverse())
+
+func _adult_hold_walking_toe(body: Node3D, previous: Dictionary, delta: float,
+		run_mix: float) -> void:
+	# The source walk travels faster under one support boot than the confirmed
+	# actor does. Keep that boot at first contact while its natural pose stays
+	# near the ground, and fade the correction as it rises for toe-off.
+	var skeleton: Skeleton3D = body.get_node(body.get_meta("skeleton_path"))
+	skeleton.force_update_all_bone_transforms()
+	var toes := {}
+	var clearance := {}
+	for side in ["L", "R"]:
+		var toe: Vector3 = body.to_global(_adult_joint(body, skeleton,
+			skeleton.find_bone("Bip01 " + side + " Toe0")))
+		toes[side] = toe
+		clearance[side] = toe.y - Surface.height_at(toe.x, toe.z)
+	if not is_finite(clearance.L) or not is_finite(clearance.R):
+		previous.erase("walk_contact_side")
+		previous.erase("walk_contact_toe")
+		previous.erase("walk_contact_age")
+		return
+	var side: String = previous.get("walk_contact_side", "")
+	if side != "" and clearance[side] >= 0.060:
+		previous.erase("walk_contact_side")
+		previous.erase("walk_contact_toe")
+		previous.erase("walk_contact_age")
+		side = ""
+	if side == "" and run_mix < 0.1:
+		var next_side := "L" if clearance.L < clearance.R else "R"
+		if clearance[next_side] < 0.035 and clearance["R" if next_side == "L" else "L"] > 0.045:
+			previous.walk_contact_side = next_side
+			previous.walk_contact_toe = toes[next_side]
+			previous.walk_contact_age = 0.0
+			side = next_side
+	if side != "":
+		previous.walk_contact_age = float(previous.walk_contact_age) + delta
+		var influence := (1.0 - smoothstep(0.22, 0.50, float(previous.walk_contact_age))) \
+			* (1.0 - smoothstep(0.035, 0.080, clearance[side])) \
+			* (1.0 - smoothstep(0.08, 0.80, run_mix))
+		if influence > 0.001:
+			_adult_hold_contact_toe(body, skeleton, previous.walk_contact_toe,
+				influence, 0.0, side)
 
 func _adult_clip_bindings(skeleton: Skeleton3D, clip: Animation) -> Dictionary:
 	var result := {"bindings": [], "root_track": -1, "root_reference": Vector3.ZERO}
@@ -1008,6 +1050,14 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 		float(previous.vertical_speed), impact, float(previous.run_mix), landing_progress,
 		presentation_stride, landing_approach,
 		previous.get("landing_toe_anchor") if previous.mode == "landing" else null)
+	if previous.mode == "grounded" and float(previous.horizontal_speed) > 0.2 \
+			and float(previous.run_mix) < 0.8 and body.get_meta("sourced_character", false):
+		_adult_hold_walking_toe(body, previous, delta, float(previous.run_mix))
+	else:
+		previous.erase("walk_contact_side")
+		previous.erase("walk_contact_toe")
+		previous.erase("walk_contact_age")
+	motion[actor] = previous
 	if previous.mode == "grounded" and (previous.get("stop_pending", false)
 			or previous.has("stop_toe_anchor")) and body.get_meta("sourced_character", false):
 		var skeleton: Skeleton3D = body.get_node(body.get_meta("skeleton_path"))

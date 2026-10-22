@@ -2,6 +2,7 @@ extends SceneTree
 ## Invented confirmed samples check a visual rig, never a physical actor.
 const Presenter = preload("res://opening/character_presenter.gd")
 const Geometry = preload("res://opening/site_geometry.gd")
+const Surface = preload("res://opening/site_surface.gd")
 var checks := 0
 var failed := false
 var mesh_count := 0
@@ -500,6 +501,61 @@ func check_walking_support() -> void:
 		"A full walking stride remains visual and leaves the confirmed actor and input untouched.")
 	host.free()
 
+func check_native_cadence_walking_contact() -> void:
+	var host := HostFixture.new()
+	host.state.context = "walking-contact"
+	host.state.actors.P.native_epoch = 1
+	host.state.actors.P.position = [-1.5, Surface.height_at(-1.5, 3.3) + 0.9, 3.3]
+	root.add_child(host)
+	var presenter := Presenter.new()
+	presenter.configure(host)
+	host.add_child(presenter)
+	presenter.set_process(false)
+	presenter.set_physics_process(false)
+	var view: Node3D = presenter.views.P
+	var body: Node3D = view.get_node("BodyView")
+	var skeleton: Skeleton3D = skeleton_of(body)
+	var previous := {"L": {}, "R": {}}
+	var step_sum := {"L": 0.0, "R": 0.0}
+	var step_max := {"L": 0.0, "R": 0.0}
+	var samples := {"L": 0, "R": 0}
+	var minimum_knee := INF
+	var exact_root := true
+	var x := -1.5
+	for frame in range(120):
+		x += 0.035 # Confirmed 1.05 m/s walk, observed at 30 Hz.
+		var at := Vector3(x, Surface.height_at(x, 3.3) + 0.9, 3.3)
+		host.state.actors.P.position = [at.x, at.y, at.z]
+		host.state.actors.P.native_epoch += 2
+		presenter.refresh(1.0 / 30.0)
+		exact_root = exact_root and view.position.is_equal_approx(at)
+		if frame < 15:
+			continue
+		skeleton.force_update_all_bone_transforms()
+		for side in ["L", "R"]:
+			var toe: Vector3 = body.to_global(presenter._adult_joint(body, skeleton,
+				skeleton.find_bone("Bip01 " + side + " Toe0")))
+			var clearance := toe.y - Surface.height_at(toe.x, toe.z)
+			var prior: Dictionary = previous[side]
+			if clearance < 0.035 and prior.get("clearance", INF) < 0.035:
+				var step := Vector2(toe.x - float(prior.x), toe.z - float(prior.z)).length()
+				step_sum[side] += step
+				step_max[side] = maxf(step_max[side], step)
+				samples[side] += 1
+			previous[side] = {"x": toe.x, "z": toe.z, "clearance": clearance}
+			minimum_knee = minf(minimum_knee, knee_forward_offset(body, side))
+	adult_measurements["walking_contact"] = {"samples": samples,
+		"maximum_step": step_max, "mean_step": {"L": step_sum.L / maxf(1, samples.L),
+		"R": step_sum.R / maxf(1, samples.R)}, "minimum_knee_forward": minimum_knee}
+	verify(samples.L > 10 and samples.R > 10
+		and step_max.L < 0.035 and step_max.R < 0.035
+		and step_sum.L / float(samples.L) < 0.015
+		and step_sum.R / float(samples.R) < 0.015,
+		"Walking support boots stay near their world contact points at native snapshot cadence.")
+	verify(minimum_knee > 0.015 and exact_root and host.control_calls == 0,
+		"Walking contact keeps both knees forward and changes neither confirmed root nor input.")
+	host.free()
+
 func check_sparse_confirmed_walk() -> void:
 	var host := HostFixture.new()
 	host.state.context = "sparse-confirmed-walk"
@@ -825,6 +881,7 @@ func run() -> void:
 	if sourced:
 		inspect_adult(body, q.get_node("BodyView"), presenter)
 		check_walking_support()
+		check_native_cadence_walking_contact()
 		check_sparse_confirmed_walk()
 		check_uneven_native_walk_samples()
 		check_landing_contact_from_motion()

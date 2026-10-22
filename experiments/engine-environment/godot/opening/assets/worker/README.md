@@ -63,9 +63,12 @@ behind the leg at some phases after retargeting. A presentation-only two-bone co
 places each bent knee ahead of its hip-to-ankle line while retaining the
 captured ankle path and foot orientation. The forward walking swing also folds
 the airborne calf before the boot reaches ahead, then releases that extra bend
-before stance. This leaves the planted toe path from the captured clip intact.
-The fuller running leg pose lowers
-its cosmetic visual root by five centimetres at full run weight to meet the
+before stance. This preserves the captured swing path until support.
+During a steady walk, the first near-ground boot holds its observed world toe
+position briefly, then releases through toe-off. The correction fades as the
+walk becomes a run and does not move the confirmed actor root. The fuller
+running leg pose lowers
+its cosmetic visual root by 4.7 centimetres at full run weight to meet the
 unchanged support plane. The forearms retain extra flex and
 the captured torso sway is bounded after retargeting. The clip's vertical root
 variation is cosmetic, and its horizontal root travel does not move the physical
@@ -125,7 +128,8 @@ rosters that omit this folder retain their identified procedural worker.
 
 `worker_rig_check.gd` exercises the actual presentation adapter using invented
 confirmed samples. It checks source bindings, captured walk and run poses,
-forward knee bending, mid-swing knee flex, planted toe height and horizontal stance travel,
+forward knee bending, mid-swing knee flex, planted toe height and horizontal
+stance travel at dense and native snapshot cadences,
 opposing running hands, relaxed walking elbows and bounded lateral carriage,
 loose grounded fingers that release during flight,
 opposite-arm balance at moving contact,
