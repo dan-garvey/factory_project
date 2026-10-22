@@ -1,8 +1,15 @@
 extends PanelContainer
 ## Local slot assignments over the host's confirmed carried kit.
 const TOOLS := {"collector": "Collector", "foundation": "Foundation", "belt": "Belt",
-	"processor": "Press", "wheel": "Waterwheel", "gear": "Cogwheel", "drive": "Shaft"}
+	"processor": "Press", "wheel": "Waterwheel", "gear": "Cogwheel", "drive": "Shaft",
+	"gearbox": "Horizontal gearbox", "vertical_gearbox": "Vertical gearbox", "chain_drive": "Chain drive"}
 const SHORT_NAMES := {"wheel": "Wheel", "gear": "Cog"}
+const CATALOG_KEYS := {KEY_C: "collector", KEY_F: "foundation", KEY_B: "belt",
+	KEY_P: "processor", KEY_W: "wheel", KEY_G: "gear", KEY_S: "drive",
+	KEY_H: "gearbox", KEY_V: "vertical_gearbox", KEY_N: "chain_drive"}
+const TOOL_KEYS := {"collector": "C", "foundation": "F", "belt": "B",
+	"processor": "P", "wheel": "W", "gear": "G", "drive": "S",
+	"gearbox": "H", "vertical_gearbox": "V", "chain_drive": "N"}
 var slots: Array[String] = ["collector", "foundation", "belt", "processor", "wheel", "gear", "drive", ""]
 var buttons: Array[Button] = []
 var catalog_buttons: Dictionary = {}
@@ -53,7 +60,7 @@ func configure(host, ui: Control) -> void:
 	column.add_theme_constant_override("separation", 10)
 	margin.add_child(column)
 	parts_label = host._label(column, "BUILDING CATALOG", 18)
-	host._label(column, "Choose a slot, then a part. Right-click a slot to replace it.", 14)
+	host._label(column, "1–8 choose slot  ·  letter assigns part  ·  Delete clears", 14)
 	destination = OptionButton.new()
 	column.add_child(destination)
 	for index in range(slots.size()):
@@ -63,20 +70,37 @@ func configure(host, ui: Control) -> void:
 	column.add_child(grid)
 	for tool: String in TOOLS:
 		var button: Button = host._button(grid, TOOLS[tool], assign.bind(tool))
-		button.custom_minimum_size = Vector2(246, 68)
+		button.custom_minimum_size = Vector2(246, 54)
 		button.icon = load("res://opening/assets/build-icons/" + tool + ".svg")
 		button.expand_icon = true
 		button.add_theme_constant_override("icon_max_width", 36)
 		catalog_buttons[tool] = button
 	var actions := HBoxContainer.new()
 	column.add_child(actions)
-	host._button(actions, "Clear slot", clear_slot)
+	host._button(actions, "Clear slot  [Delete]", clear_slot)
 	host._button(actions, "Close [Esc]", catalog.hide)
 	ui.resized.connect(_fit)
 	minimum_size_changed.connect(func(): _fit.call_deferred())
 	resized.connect(host._queue_footer_fit)
 	refresh(false)
 	_fit.call_deferred()
+
+func _input(event: InputEvent) -> void:
+	if not catalog.visible or not event is InputEventKey or not event.pressed or event.echo:
+		return
+	if event.ctrl_pressed or event.alt_pressed:
+		return
+	if event.keycode >= KEY_1 and event.keycode <= KEY_8:
+		destination.select(event.keycode - KEY_1)
+	elif event.keycode == KEY_DELETE:
+		clear_slot()
+	elif event.keycode == KEY_ESCAPE:
+		catalog.hide()
+	elif CATALOG_KEYS.has(event.keycode):
+		assign(CATALOG_KEYS[event.keycode])
+	else:
+		return
+	get_viewport().set_input_as_handled()
 
 func _fit() -> void:
 	if not is_inside_tree():
@@ -122,7 +146,7 @@ func refresh(snapshot_ready: bool = true) -> void:
 		var label: String = TOOLS.get(tool, "Empty")
 		var amount := _count(tool, parts)
 		var offered: bool = not (tool == "foundation" and not host.state.get("options", {}).get("foundations", false)) \
-			and not (tool == "gear" and not host._native_transmission())
+			and not (tool in ["gear", "gearbox", "vertical_gearbox", "chain_drive"] and not host._native_transmission())
 		buttons[index].text = "%d %s\n×%d" % [index + 1, SHORT_NAMES.get(tool, label), amount] if not tool.is_empty() else "%d\nAssign" % (index + 1)
 		buttons[index].icon = catalog_buttons[tool].icon if not tool.is_empty() else null
 		# Expanded icons do not contribute width to Button's minimum size.
@@ -134,10 +158,10 @@ func refresh(snapshot_ready: bool = true) -> void:
 	for tool: String in catalog_buttons:
 		var button: Button = catalog_buttons[tool]
 		var amount := _count(tool, parts)
-		button.text = "%s\n%d %s" % [TOOLS[tool], amount, scope]
+		button.text = "%s  [%s]\n%d %s" % [TOOLS[tool], TOOL_KEYS[tool], amount, scope]
 		button.disabled = not usable or amount < 1
 		button.visible = not (tool == "foundation" and not host.state.get("options", {}).get("foundations", false)) \
-			and not (tool == "gear" and not host._native_transmission())
+			and not (tool in ["gear", "gearbox", "vertical_gearbox", "chain_drive"] and not host._native_transmission())
 
 func open_catalog(index: int = -1) -> void:
 	var host = _view()
@@ -149,6 +173,7 @@ func open_catalog(index: int = -1) -> void:
 	refresh()
 	destination.select(index if index >= 0 and index < slots.size() else maxi(0, selected_slot))
 	catalog.popup_centered(Vector2i(560, 470))
+	destination.grab_focus()
 	host._refresh_guided_tools()
 	_place_catalog.call_deferred()
 
