@@ -6137,8 +6137,7 @@ func _preview_port(parent: Node3D, facing: int, output: bool) -> void:
 	label.position = side * 0.9 + Vector3.UP * 0.95
 	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	label.font_size = 32
-	label.pixel_size = 0.001
-	label.fixed_size = true
+	label.pixel_size = 0.01
 	label.outline_size = 6
 	label.set_meta("port_side", side)
 	parent.add_child(label)
