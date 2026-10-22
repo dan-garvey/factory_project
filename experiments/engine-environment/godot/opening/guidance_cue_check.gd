@@ -221,8 +221,8 @@ func check_foundation_inspector() -> void:
 		view._refresh_guided_tools()
 		await settle_footer()
 		var idle_height: float = panel.size.y
-		verify(panel.visible and view.power_button.visible and idle_height < 100.0,
-			"An unselected built worksite keeps a compact drive control instead of covering the machinery.")
+		verify(panel.visible and view.power_label.visible and idle_height < 100.0,
+			"An unselected built worksite keeps compact drive status instead of covering the machinery.")
 		verify(not view.inspector.visible and not view.retrieve_button.visible and not view.remove_button.visible,
 			"No target means no repeated selection prompt or unusable target actions.")
 		view.selected = "press-a"

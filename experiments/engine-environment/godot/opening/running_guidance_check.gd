@@ -35,10 +35,9 @@ func _initialize() -> void:
 				view.state.links = item.links.duplicate(true)
 				var before: Dictionary = view.state.duplicate(true)
 				var hint: String = view._inspection_hint()
-				verify(hint.contains("[F]") and hint.contains(item.pair),
+				verify(hint.contains("[C]" if native_profile else "[F]") and hint.contains(item.pair),
 					"Missing-link advice identifies the existing material tool and correct endpoints.")
-				verify(hint.contains("Stop") == (powered and not native_profile),
-					"Only a powered historical scripted profile requires stopping before linking.")
+				verify(not hint.contains("Stop"), "Link guidance does not ask for a drive switch.")
 				verify(view.state == before and view.model == null and view.request_sequence == 0,
 					"Inspecting an invented projection changes no state, request or authority.")
 				view.free()
@@ -47,13 +46,12 @@ func _initialize() -> void:
 	view.state = fixture()
 	view.state.powered = true
 	view.selected = "belt"
-	verify(view._inspection_hint().contains("Stop [Space]"),
-		"The explicit legacy fixture retains its actual drive key.")
+	verify(not view._inspection_hint().contains("Stop"),
+		"The legacy fixture also omits the drive switch from guidance.")
 	view.state.options.native = true
 	view.legacy_fixture = false
-	view.state.power_enabled = false
-	verify(view._inspection_hint().contains("Drive switched off") and not view._inspection_hint().contains("Stop"),
-		"An already switched-off native drive is described without a stop instruction.")
+	verify(not view._inspection_hint().contains("Stop"),
+		"Native guidance describes connection state without a stop instruction.")
 	view.state.stock.output = 1
 	view.selected = "press"
 	verify(view._inspection_hint().contains("[R]"),

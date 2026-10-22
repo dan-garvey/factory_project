@@ -158,7 +158,6 @@ std::string build(Run& run, I wheel_row, bool install_span = true, bool two_span
     }
     run.at(press_x * 1.65 / 4, dz); run.foundation(press_x / 4, wheel_row + 1);
     const auto press = run.place("processor", press_x / 4, wheel_row + 1, "z", processor_rotation);
-    run.at(-1.65, dz); (void)run.action("set_power", {{"active", V(true)}});
     return press;
 }
 
@@ -198,9 +197,18 @@ void forward_and_checkpoint(bool two_spans) {
     check(e::inspect(resumed.host, "Q").phase == e::Phase::first_shift, "The other actor does not receive P's products.");
     const auto before = resumed.host.checkpoint(); (void)e::inspect(resumed.host, "P");
     check(same(before, resumed.host.checkpoint()), "Inspection neither advances nor mutates the World.");
-    resumed.at(-1.65, 0); (void)resumed.action("set_power", {{"active", V(false)}});
+    const auto parts = field<O>(resumed.host.projection(), "transmission_parts");
+    std::string drive_cog;
+    for (const auto& [id, part] : parts)
+        if (field<std::string>(part, "kind") == "gear" &&
+            std::get<I>(field<A>(part, "center")[0].storage()) == -4 &&
+            std::get<I>(field<A>(part, "center")[2].storage()) == 0) {
+            drive_cog = id; break;
+        }
+    check(!drive_cog.empty(), "The constructed drive has a removable cog.");
+    resumed.at(-3.3, 0); (void)resumed.action("remove", {{"entity", V(drive_cog)}});
     check(e::inspect(resumed.host, "P").phase == e::Phase::restore_drive && !e::inspect(resumed.host, "P").belt_forward,
-          "Stopping the drive invalidates current readiness without consuming products.");
+          "Removing a drive cog invalidates current readiness without consuming products.");
 }
 
 void negative_routes() {
@@ -262,12 +270,15 @@ void relocate_stocked_line() {
         }
     }
     check(partial, "The powered original line begins a real unfinished workpiece.");
-    run.at(-1.65, -1.65); (void)run.action("set_power", {{"active", V(false)}});
     const auto stocked = run.host.projection();
     std::string collector;
+    std::string wheel;
     for (const auto& [id, entity] : field<O>(stocked, "entities"))
         if (field<std::string>(entity, "kind") == "collector") collector = id;
+        else if (field<std::string>(entity, "kind") == "wheel") wheel = id;
     check(!collector.empty(), "The original collector is present on the first seam tile.");
+    check(!wheel.empty(), "The original wheel is present on the first seam tile.");
+    run.at(-1.65, -1.65); (void)run.action("remove", {{"entity", V(wheel)}});
     run.at(4.95, 0);
     const auto recovery = run.action("recover", {{"entity", V(press)}});
     const auto work = field<A>(recovery, "moved_work");

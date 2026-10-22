@@ -21,7 +21,7 @@ func _ignore() -> void:
 	pass
 
 func _bounds(view) -> Dictionary:
-	var panel: Control = view.power_button.get_parent().get_parent()
+	var panel: Control = view.power_label.get_parent().get_parent()
 	var footer: Control = view.status_label.get_parent().get_parent()
 	var right: Rect2 = panel.get_global_rect()
 	var bottom: Rect2 = footer.get_global_rect()
@@ -48,7 +48,7 @@ func _run() -> void:
 	view.selection_ring = MeshInstance3D.new()
 	view.add_child(view.selection_ring)
 	view._build_interface()
-	var column: VBoxContainer = view.power_button.get_parent()
+	var column: VBoxContainer = view.power_label.get_parent()
 	view.connection_label = view._label(column, "", 14)
 	column.move_child(view.connection_label, 1)
 	view.reconnect_button = view._button(column, "Reconnect to session", _ignore)
@@ -71,7 +71,7 @@ func _run() -> void:
 	var baseline: Dictionary = _bounds(view)
 	view.state.options.native = true
 	view._refresh_ui()
-	var panel: Control = view.power_button.get_parent().get_parent()
+	var panel: Control = view.power_label.get_parent().get_parent()
 	panel.size.y = 490
 	await _settle()
 	var recovery: Dictionary = _bounds(view)

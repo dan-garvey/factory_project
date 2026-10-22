@@ -14,8 +14,8 @@ close range and returns as you zoom out. Clicked targets never stand in for your
 body.
 Build, dismantle, retrieve and connection targets must be within the
 authority's provisional four-world-unit sphere. Move closer after a refusal
-and deliberately retry. P (or the drive button) operates the wheel from nearby;
-it does not promise a global stop from the press. Read-only inspection, Help,
+and deliberately retry. A wheel in flowing water drives connected parts automatically.
+Read-only inspection, Help,
 saving and the non-consuming four-plate confirmation remain available at distance.
 The detached `--script res://opening/guidance_cue_check.gd -- --camera-zoom-only`
 verifies offline and shared camera transitions without launching a controlled
@@ -295,7 +295,7 @@ remain open. See the [physical contract](../../../../docs/engineering/physical-c
 ## Historical unrestricted fixture
 
 The following retained baseline description and old counts apply only to the
-explicit `--legacy-fixture` profile. Its free camera, Space power key, live Load
+explicit `--legacy-fixture` profile. Its free camera, historical scripted power command, live Load
 and schema 1 are not evidence of physical-character construction. Use
 `scripts/run_opening.py --legacy-fixture --check` for that regression suite.
 The older `opening/validate.py` entry point also names this fixture explicitly.
@@ -323,7 +323,7 @@ unchanged; `startup.json` retains the actual observation.
 Controls: 1 collector, 2 belt, 3 press, 4 waterwheel; click a square to place.
 Material ports face +x. F selects a material connection; G selects a drive
 connection; click its two neighboring ends. I selects inspection, R retrieves
-from the selected press, Space starts/stops the drive. Right-drag orbits, mouse
+from the selected press. Right-drag orbits, mouse
 wheel zooms, WASD pans and Home recenters. H opens a read-only explanation;
 construction controls are unavailable until it closes. Help shows a populated
 3D example in its own physics world, with a separate instance of the same rules
@@ -331,16 +331,14 @@ and its own finite 16 blanks and starter parts. It supplies nothing to your
 worksite. Your worksite clock continues while Help is open.
 
 The selected-machine inspector explains the next local step: a missing material
-inlet/outlet names the pair to link with F, an unconnected drive calls for G, and
-a switched-off drive calls for Space. A full press outlet calls for R to make
+inlet/outlet names the pair to link with F, and an unconnected drive calls for G.
+A full press outlet calls for R to make
 room; unfinished work stays in the press. These hints describe confirmed state
 and do not grant permission to edit. In shared play, a pending action shows that
 the server decision is still awaited, and a disconnected view remains read only.
 
-For a native-authority projection, missing material-link advice does not require
-stopping the drive: the stationary native rules allow linking while it runs.
-The explicit historical scripted profiles retain their stopped-edit advice.
-These are profile-specific hints, not permission or a replacement for the
+Missing material-link advice names the relevant connection tool. Native stationary
+rules allow linking while the drive runs. These are hints, not permission or a replacement for the
 authority's reach, identity, topology and material checks.
 
 Use Previous/Next (or left/right arrows) to inspect placement, drive, a blank
@@ -349,7 +347,7 @@ heading states. **Advance example one tick** moves that example through real
 rule transitions; **Collect example plate → resume** removes its blockage and
 continues retained work. Right-drag, wheel, WASD and Home control its camera;
 click a machine to inspect it. H, Escape or Return closes Help. Player build,
-retrieve, power and save/load shortcuts remain unavailable inside the example.
+retrieve and save/load shortcuts remain unavailable inside the example.
 These are reversible presentation choices, not a permanent tutorial policy.
 F5 or **Save worksite** stores this moment; F9 or **Load worksite** returns to
 the latest successful save in this session. Saving again replaces only that

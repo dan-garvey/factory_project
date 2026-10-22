@@ -137,10 +137,6 @@ void finite_oriented_train_and_restore() {
     const auto a = create(host, gear(-4, 4, 8, "gear-A", "z"));
     const auto original_b = gear(0, 4, 8, "gear-B", "z");
     const auto b = create(host, original_b);
-    auto power = wire("set_power", "start"); power.emplace("active", V(true));
-    const auto power_reply = host.command("P", power);
-    check(accepted(power_reply), "The source enables the actual geometry train; reason=" +
-          field<std::string>(power_reply, "reason") + ".");
     check(field<I>(motion(host, a), "numerator") == 25 && field<I>(motion(host, a), "denominator") == 84 &&
           field<I>(motion(host, b), "numerator") == -25 && field<I>(motion(host, b), "denominator") == 84 &&
           field<I>(motion(host, collector), "numerator") == -25,
@@ -216,8 +212,6 @@ void adjacent_axle_faces() {
     check(!accepted(redundant) && field<std::string>(redundant, "reason") == "individual_shaft_required" &&
               field<I>(V(field<O>(host.projection(), "parts")), "shaft") == 8,
           "Endpoint shaft construction is refused without consuming a part.");
-    auto power = wire("set_power", "direct-start"); power.emplace("active", V(true));
-    check(accepted(host.command("P", power)), "The current is enabled without installing a shaft.");
     check(field<I>(motion(host, wheel), "numerator") == 25 && field<I>(motion(host, wheel), "denominator") == 84 &&
               field<I>(motion(host, a), "numerator") == 25 &&
               field<I>(motion(host, b), "numerator") == -25 &&
@@ -373,9 +367,6 @@ void powered_relay_route() {
     observe(host, 0.0, 3.3, 4);
     const auto output = create(host, shaft(-4, 4, 12, "relay-output", "x"));
     observe(host, -3.3, 3.3, 5);
-    auto power = wire("set_power", "start-relay"); power.emplace("active", V(true));
-    const auto started = host.command("P", power);
-    check(accepted(started), "The source enables the relay route: " + field<std::string>(started, "reason"));
     check(field<std::string>(motion(host, first), "state") == "rotating" &&
           field<I>(motion(host, first), "numerator") == field<I>(motion(host, second), "numerator") &&
           field<std::string>(motion(host, gearbox), "state") == "rotating" &&
@@ -425,8 +416,6 @@ void perpendicular_belt_line() {
     install.emplace("from", V(first)); install.emplace("to", V(last));
     const auto belt = create(host, install);
     observe(host, -3.3, 1.65, 8);
-    auto power = wire("set_power", "line-start"); power.emplace("active", V(true));
-    check(accepted(host.command("P", power)), "The actor enables the source for the perpendicular line.");
     const auto projected = host.projection();
     check(field<A>(projected, "links").empty() && field<O>(projected, "belt_spans").size() == 1 &&
               field<I>(V(field<O>(projected, "parts")), "shaft") == 6 &&
@@ -924,7 +913,7 @@ void complete_span_route_host(bool two_spans = false) {
     at(-1.65, 3.3);
     auto wheel = machine("wheel", -2, "route-wheel", "x");
     wheel.at("cell") = V(A{V(I{-2}), V(I{0})});
-    create(host, wheel);
+    const auto wheel_id = create(host, wheel);
     at(0, 0);
     auto base = wire("place_foundation", "raised-collector-base");
     base.emplace("cell", V(A{V(I{0}), V(I{1})})); base.emplace("level", V(I{4}));
@@ -978,8 +967,6 @@ void complete_span_route_host(bool two_spans = false) {
     press_command.emplace("level", V(I{4}));
     const auto press = create(host, press_command);
     at(-1.65, 0);
-    auto power = wire("set_power", "route-start"); power.emplace("active", V(true));
-    check(accepted(host.command("P", power)), "The source starts the complete constructed route.");
     check(field<std::string>(motion(host, collector), "state") == "rotating" &&
               field<std::string>(motion(host, first), "state") == "rotating" &&
               field<std::string>(motion(host, press), "state") == "rotating" &&
@@ -1003,10 +990,10 @@ void complete_span_route_host(bool two_spans = false) {
     Host paused;
     check(accepted(paused.initialize("paused", {"P"})) &&
               accepted(paused.configure_terrain(stream)) && accepted(paused.restore_checkpoint(in_flight)),
-          "A separate Host restores the moving constructed route before stopping it.");
+          "A separate Host restores the moving constructed route before interrupting it.");
     observe(paused, -1.65, 0, 1000);
-    auto stop = wire("set_power", "route-pause"); stop.emplace("active", V(false));
-    check(accepted(paused.command("P", stop)), "The actual source can be stopped with cargo on the belt.");
+    auto remove_wheel = wire("remove", "route-interrupt"); remove_wheel.emplace("entity", V(wheel_id));
+    check(accepted(paused.command("P", remove_wheel)), "Removing the wheel interrupts the drive with cargo on the belt.");
     const auto lane_id = two_spans ? second_span : span;
     const auto stopped_lane = field<A>(field<O>(paused.projection(), "belt_spans").at(lane_id), "slots");
     const auto stopped_phase = field<I>(field<O>(paused.projection(), "belt_spans").at(lane_id), "phase");
@@ -1017,14 +1004,14 @@ void complete_span_route_host(bool two_spans = false) {
         if (stopped_lane[i].type() != factory::values::Type::null)
             retained = !factory::values::typed_difference(stopped_lane[i], held_lane[i]);
     check(retained && field<I>(field<O>(paused.projection(), "belt_spans").at(lane_id), "phase") == stopped_phase,
-          "Stopping preserves every in-flight item and the lane phase, even if a collector fills an empty slot.");
+          "Removing the wheel preserves every in-flight item and the lane phase, even if a collector fills an empty slot.");
     const auto stopped_checkpoint = paused.checkpoint();
     Host resumed;
     check(accepted(resumed.initialize("resumed", {"P"})) && accepted(resumed.configure_terrain(stream)) &&
-              accepted(resumed.restore_checkpoint(stopped_checkpoint)), "The stopped in-flight route restores in a fresh Host.");
-    observe(resumed, -1.65, 0, 1001);
-    auto restart = wire("set_power", "route-restart"); restart.emplace("active", V(true));
-    check(accepted(resumed.command("P", restart)), "The restored source restarts the geared belt.");
+              accepted(resumed.restore_checkpoint(stopped_checkpoint)), "The interrupted in-flight route restores in a fresh Host.");
+    observe(resumed, -1.65, 3.3, 1001);
+    wheel.at("request") = V("route-rebuilt-wheel");
+    create(resumed, wheel);
     for (int i = 0; i < 100; ++i) (void)resumed.advance();
     check(field<I>(V(field<O>(resumed.projection(), "stock")), "output") > 0,
           "The restarted route delivers cargo to the processor and produces a finished item.");
@@ -1158,8 +1145,6 @@ void cross_axis_belt_line() {
     at(4.95, 0);
     create(host, shaft(12, 4, 8, "cross-press-drive"));
     at(-1.65, 0);
-    auto power = wire("set_power", "cross-start"); power.emplace("active", V(true));
-    check(accepted(host.command("P", power)), "The source starts the cross-axis line.");
     check(field<I>(motion(host, wheel), "numerator") != 0 &&
               field<I>(motion(host, collector), "numerator") == -25 &&
               field<I>(motion(host, first), "numerator") == 25 &&
@@ -1283,8 +1268,7 @@ void individual_shafts() {
           "An overlapping placement refusal is stable on replay.");
     observe(host, -1.65, 3.3, 3);
     const auto second = create(host, shaft(-8, 4, 12, "second-segment"));
-    auto power = wire("set_power", "shaft-start"); power.emplace("active", V(true));
-    check(accepted(host.command("P", power)) && field<I>(motion(host, second), "numerator") == 25 &&
+    check(field<I>(motion(host, second), "numerator") == 25 &&
               field<I>(motion(host, second), "denominator") == 84,
           "Two individually placed, touching shaft segments carry the wheel rotation.");
     check(field<I>(V(field<O>(host.projection(), "parts")), "shaft") == 6,
@@ -1365,8 +1349,6 @@ void forward_belt_route() {
     at(4.95, 0);
     create(host, shaft(12, 4, 0, "forward-press-drive"));
     at(-3.3, 0);
-    auto power = wire("set_power", "forward-start"); power.emplace("active", V(true));
-    check(accepted(host.command("P", power)), "The extended cog train can start.");
     const auto wheel_rate = field<I>(motion(host, wheel), "numerator");
     const auto belt_rate = field<I>(motion(host, first), "numerator");
     check(wheel_rate < 0 && belt_rate < 0 && field<I>(motion(host, last), "numerator") == belt_rate &&

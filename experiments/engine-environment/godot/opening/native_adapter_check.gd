@@ -125,6 +125,7 @@ func _run() -> void:
 		quit(1)
 		return
 	opening = load("res://opening/opening.tscn").instantiate()
+	opening.auto_advance = false
 	root.add_child(opening)
 	if not _expect(opening.model is NativeModel and opening.model.native.get_class() == "FactoryNativeWorld", "The ordinary scene must own the native model"):
 		return
@@ -146,8 +147,7 @@ func _run() -> void:
 	var route: Dictionary = await _collector_route()
 	if route.is_empty():
 		return
-	if not _expect(_issue({"action": "set_power", "active": true}).accepted, "The nearby source starts through native admission"):
-		return
+	opening.auto_advance = true
 	while Time.get_ticks_msec() < deadline and opening.model.projection().stock.collector != 1:
 		await process_frame
 	var before: Dictionary = opening.model.projection()
@@ -170,12 +170,11 @@ func _run() -> void:
 	if not _expect(_issue({"action": "insert_raw", "entity": rebuilt.entity, "amount": 1}).accepted, "The carried unit returns without refill or conversion"):
 		return
 	var final: Dictionary = opening.model.projection()
-	if not _expect(final.stock.source == 4095 and final.stock.collector == 1 and final.cargo.P.raw == 0 and final.order == 11 and final.power_enabled,
+	if not _expect(final.stock.source == 4095 and final.stock.collector == 1 and final.cargo.P.raw == 0 and final.order == 10 and final.power_enabled,
 		"Running recovery and rebuilding preserve the original extracted unit and current reserve"):
 		return
-	# Pause through the real source command before taking an exact checkpoint.
-	# The current 32-unit collector buffer is no longer blocked by one blank.
-	if not _expect(_issue({"action": "set_power", "active": false}).accepted, "The ordinary source control pauses the exact continuation checkpoint"):
+	# Removing the wheel interrupts the drive while retaining collector custody.
+	if not _expect(_issue({"action": "remove", "entity": route.wheel}).accepted, "Removing the wheel interrupts the continuation checkpoint"):
 		return
 	var saved: Dictionary = opening._save_worksite()
 	facts["save_result"] = saved
@@ -331,8 +330,8 @@ func _resume() -> void:
 	if not _expect(expected is Dictionary and _same(expected, opening.startup_resume_checkpoint), "Store-loaded native state and original history must match every saved type and value"):
 		return
 	var initial: Dictionary = opening.model.projection()
-	if not _expect(opening.request_sequence == 0 and initial.order == 12 and initial.stock.source == 4095 and initial.stock.collector == 1 and initial.cargo.P.raw == 0 and not initial.power_enabled,
-		"Fresh startup publishes no material command and preserves the deliberately paused custody"):
+	if not _expect(opening.request_sequence == 0 and initial.order == 11 and initial.stock.source == 4095 and initial.stock.collector == 1 and initial.cargo.P.raw == 0 and not initial.powered,
+		"Fresh startup publishes no material command and preserves custody with the wheel removed"):
 		return
 	if not _expect(_same(opening.actor_world.seeds, expected.actors), "The fresh producer uses the exact saved actor seeds"):
 		return
@@ -345,7 +344,7 @@ func _resume() -> void:
 	if not _expect(not collector.is_empty() and _issue({"action": "recover", "entity": collector}).accepted, "The fresh process can recover the retained actual unit"):
 		return
 	var final: Dictionary = opening.model.projection()
-	if not _expect(final.stock.source == 4095 and final.stock.collector == 0 and final.cargo.P.raw == 1 and final.order == 13,
+	if not _expect(final.stock.source == 4095 and final.stock.collector == 0 and final.cargo.P.raw == 1 and final.order == 12,
 		"Fresh native admission moves custody once without creating or losing material"):
 		return
 	var saved: Dictionary = opening._save_worksite()
