@@ -662,6 +662,9 @@ class ProductionPaddleArt:
 	const ROOT := "res://opening/assets/wheel-paddles"
 	const FILES := {"albedo": "timber_albedo.jpg", "normal": "timber_normal_gl.webp", "roughness": "timber_roughness.webp"}
 	const TILE_METRES := 0.6
+	# Only small joinery is distance-cullable. The blade, spoke and rim
+	# silhouette stays present at every distance.
+	const DETAIL_END_METRES := {"PaddleBolt": 18.0, "PaddleIronStrap": 26.0, "PaddleRootCleat": 32.0}
 	static var finish: StandardMaterial3D
 	static var source_status := "uninitialized"
 	static var meshes: Dictionary = {}
@@ -721,6 +724,9 @@ class ProductionPaddleArt:
 		part.position = at
 		part.material_override = material
 		part.set_meta("detail_role", role)
+		if DETAIL_END_METRES.has(role):
+			part.visibility_range_end = DETAIL_END_METRES[role]
+			part.visibility_range_end_margin = 2.0
 		parent.add_child(part)
 		return part
 

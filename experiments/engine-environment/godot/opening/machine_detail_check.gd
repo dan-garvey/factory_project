@@ -2900,6 +2900,11 @@ func check_timber_paddles(historical: bool = false) -> void:
 				pieces.append_array(child.get_children())
 				for part: MeshInstance3D in pieces:
 					var role: String = part.get_meta("detail_role")
+					var detail_end: float = {"WheelPaddle": 0.0, "PaddleRootCleat": 32.0,
+						"PaddleIronStrap": 26.0, "PaddleBolt": 18.0}[role]
+					verify(part.visibility_range_end == detail_end
+						and part.visibility_range_end_margin == (0.0 if detail_end == 0.0 else 2.0),
+						"Only tiny paddle joinery has a bounded render-distance cutoff; blade silhouette remains unconditional.")
 					if not cached.has(role):
 						cached[role] = [part.mesh, part.material_override]
 						var limits: Array = {"WheelPaddle": [0.00065, 0.00071], "PaddleRootCleat": [0.00021, 0.000241],
