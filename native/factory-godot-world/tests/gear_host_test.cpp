@@ -335,14 +335,12 @@ void perpendicular_belt_line() {
               accepted(fresh.configure_terrain(site)) &&
               accepted(fresh.restore_checkpoint(saved)) && !factory::values::typed_difference(saved, fresh.checkpoint()),
           "The full perpendicular route and finite kit survive fresh Host restoration.");
-    for (int tick = 0; tick < 96 && field<A>(host.projection(), "dropped_material").empty(); ++tick) (void)host.advance();
+    for (int tick = 0; tick < 96; ++tick) (void)host.advance();
     const auto reversed = host.projection();
+    const auto blocked_slots = field<A>(field<O>(reversed, "belt_spans").at(belt), "slots");
     check(field<I>(V(field<O>(reversed, "stock")), "input") == 0 &&
-              field<A>(reversed, "dropped_material").size() == 1,
-          "Positive Z belt rotation sends a blank to the reverse end instead of the press.");
-    const auto drop = field<A>(reversed, "dropped_material").front();
-    check(!factory::values::typed_difference(V(field<A>(drop, "center")), V(A{V(I{0}), V(I{4}), V(I{4})})) && field<I>(drop, "raw") == 1,
-          "The loose blank has the native world-space reverse-end point.");
+              field<A>(reversed, "dropped_material").empty() && field<I>(blocked_slots.front(), "raw") == 1,
+          "Positive Z rotation retains a blank at the collector-facing belt end.");
     const auto reverse_save = host.checkpoint();
     Host loaded;
     check(accepted(loaded.initialize("other", {"P", "Q"})) &&
@@ -350,34 +348,34 @@ void perpendicular_belt_line() {
               accepted(loaded.restore_checkpoint(reverse_save)),
           "The reverse-end blank survives a fresh Host checkpoint restore.");
     observe(loaded, 100.0, 100.0, 1);
-    auto far_pickup = wire("pickup_material", "pickup-too-far");
-    far_pickup.emplace("center", V(A{V(I{0}), V(I{4}), V(I{4})}));
-    far_pickup.emplace("expected", V(O{{"raw", V(I{1})}, {"products", V(I{0})}, {"work_lots", V(A{})}}));
+    auto far_pickup = target("recover_belt_slot", belt, "pickup-too-far");
+    far_pickup.emplace("slot", V(I{0}));
+    far_pickup.emplace("expected", blocked_slots.front());
     const auto far_result = loaded.command("P", far_pickup);
     check(!accepted(far_result) && field<std::string>(far_result, "reason") == "out_of_reach" &&
-              field<A>(loaded.projection(), "dropped_material").size() == 1,
+              field<I>(field<A>(field<O>(loaded.projection(), "belt_spans").at(belt), "slots").front(), "raw") == 1,
           "A distant actor cannot pick up or consume the stack.");
     observe(loaded, 0.0, 0.0, 2);
-    auto pickup = wire("pickup_material", "pickup-reverse");
-    pickup.emplace("center", V(A{V(I{0}), V(I{4}), V(I{4})}));
+    auto pickup = target("recover_belt_slot", belt, "pickup-reverse");
+    pickup.emplace("slot", V(I{0}));
     pickup.emplace("expected", far_pickup.at("expected"));
     auto stale = pickup;
     stale.at("request") = V("pickup-stale");
     stale.at("expected") = V(O{{"raw", V(I{0})}, {"products", V(I{1})}, {"work_lots", V(A{})}});
     const auto stale_result = loaded.command("P", stale);
-    check(!accepted(stale_result) && field<std::string>(stale_result, "reason") == "drop_changed" &&
-              field<A>(loaded.projection(), "dropped_material").size() == 1,
+    check(!accepted(stale_result) && field<std::string>(stale_result, "reason") == "slot_changed" &&
+              field<I>(field<A>(field<O>(loaded.projection(), "belt_spans").at(belt), "slots").front(), "raw") == 1,
           "A stale selection cannot collect replacement material at the same point.");
     const auto result = loaded.command("P", pickup);
     check(accepted(result) && field<I>(result, "moved_raw") == 1 && field<A>(loaded.projection(), "dropped_material").empty(),
           "A reachable actor collects the original blank into canonical cargo.");
     check(accepted(loaded.publish_actor("Q", {V(0.0), V(1.0), V(0.0)}, 1)), "Q has a separate nearby synthetic observation.");
-    auto competing = wire("pickup_material", "pickup-competing");
+    auto competing = target("recover_belt_slot", belt, "pickup-competing");
     competing.at("client") = V("Q");
-    competing.emplace("center", V(A{V(I{0}), V(I{4}), V(I{4})}));
+    competing.emplace("slot", V(I{0}));
     competing.emplace("expected", far_pickup.at("expected"));
     const auto denied = loaded.command("Q", competing);
-    check(!accepted(denied) && field<std::string>(denied, "reason") == "unavailable_drop" &&
+    check(!accepted(denied) && field<std::string>(denied, "reason") == "slot_changed" &&
               field<I>(field<O>(loaded.projection(), "cargo").at("Q"), "raw") == 0,
           "A second actor cannot acquire a stack already picked up by P.");
     check(field<bool>(loaded.command("P", pickup), "duplicate") && accepted(loaded.validate_checkpoint(loaded.checkpoint())),
@@ -398,19 +396,16 @@ void perpendicular_belt_line() {
         check(accepted(host.command("P", recover)), "A reachable belt slot returns its actual retained item.");
     }
     check(accepted(host.command("P", target("remove_belt_span", belt, "line-remove-belt"))) &&
-              field<A>(host.projection(), "dropped_material").size() == 1,
-          "Recovering and dismantling the belt leaves its reverse-end blank in world custody.");
+              field<A>(host.projection(), "dropped_material").empty(),
+          "Recovering and dismantling the belt retains cargo without a phantom drop.");
     const auto after_removal = host.checkpoint();
     Host after;
     check(accepted(after.initialize("after", {"P", "Q"})) &&
               accepted(after.configure_terrain(site)) &&
               accepted(after.restore_checkpoint(after_removal)),
-          "A fresh Host retains loose material after its belt has been removed.");
-    observe(after, 0.0, 0.0, 1);
-    auto pickup_after = wire("pickup_material", "pickup-after-removal");
-    pickup_after.emplace("center", V(A{V(I{0}), V(I{4}), V(I{4})}));
-    pickup_after.emplace("expected", far_pickup.at("expected"));
-    check(accepted(after.command("P", pickup_after)), "The independent loose stack remains reachable after belt removal.");
+          "A fresh Host retains recovered cargo after the belt has been removed.");
+    check(field<I>(field<O>(after.projection(), "cargo").at("P"), "raw") > 0,
+          "The recovered blank remains in the actor's custody.");
 }
 
 void typed_loose_host() {

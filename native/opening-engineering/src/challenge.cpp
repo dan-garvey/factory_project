@@ -88,7 +88,7 @@ bool forward_route(const O& spans, const O& parts, const O& motion,
     // open space can continuously take every output. Do not report a later
     // route as working in that case. Slower lanes can leave their inlet occupied,
     // while stopped lanes eventually fill, so they remain eligible. A backward
-    // lane can also drop material back at the collector instead of filling.
+    // lane facing its collector eventually fills against the blocked output.
     std::sort(lanes.begin(), lanes.end(), [](const Lane& a, const Lane& b) { return a.order < b.order; });
     const auto reaches_processor = [&](std::size_t start) {
         std::vector<bool> reached(lanes.size());
@@ -128,7 +128,7 @@ bool forward_route(const O& spans, const O& parts, const O& motion,
         const bool valid_drop = std::all_of(output.begin(), output.end(), [](Count coordinate) {
             return coordinate >= -materials::maximum_drop_coordinate && coordinate <= materials::maximum_drop_coordinate;
         });
-        if (lane.fast && output != processor && !transfers_to_lane && valid_drop &&
+        if (lane.fast && output != processor && output != collector && !transfers_to_lane && valid_drop &&
             (existing_drop || drops.size() < materials::maximum_drop_points)) return false;
     }
     return false;

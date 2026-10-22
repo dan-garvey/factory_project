@@ -147,7 +147,9 @@ void retirement(bool left) {
     restore(fixture);
     if (!left) {
         ticks(fixture, 4);
-        check(!fixture.world->snapshot().state.material.dropped_material.empty() && !c::inspect(fixture.world->snapshot().state).ready(),
+        const auto reverse = fixture.world->snapshot().state;
+        check(std::any_of(reverse.material.belt_lanes.begin()->second.slots.begin(), reverse.material.belt_lanes.begin()->second.slots.end(),
+                          [](const auto& item) { return item.has_value(); }) && !c::inspect(reverse).ready(),
               "Retiring the right wheel reverses the belt and leaves recoverable blanks.");
         move_left_and_replace_gears(fixture);
         check(accepted(gear(fixture, {-4, 4, 0}, 4, {-4, 0, 0})),

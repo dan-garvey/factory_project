@@ -41,8 +41,9 @@ using signed fixed-point distance, preserves fractional phase across reversal,
 and propagates a full receiver's backpressure. It returns the candidate and
 delivered items without changing the input. World owns and validates each lane,
 persists it, and advances occupied lanes from confirmed shaft motion. The World
-connects adjacent collectors and processor inputs at span endpoints; other
-items remain on the lane. Confirmed item slots are projected to the presenter;
+connects adjacent collectors and processor inputs at span endpoints. An item
+travelling toward a collector remains on the lane rather than ejecting into
+the machine; open ends still eject. Confirmed item slots are projected to the presenter;
 manual span recovery removes individual items through the World.
 
 `advance_belt_lane_rate` also retains the fractional part of a fixed-point

@@ -332,9 +332,8 @@ void inclined_fork_fixture() {
     for (I speed : {I{200}, I{600}}) for (int order : {1, 2}) for (bool collector_last : {false, true}) {
         Run run("inclined-fork", false, std::nullopt, speed);
         const auto press = build(run, 0, true, false, order, true, true, collector_last);
-        const bool starving = speed == 600 && order == 1;
         const auto initial = e::inspect(run.host, "P");
-        check(initial.belt_forward != starving, "The inclined route accounts for a fast competing inlet.");
+        check(initial.belt_forward, "The inclined competing inlet eventually blocks against the collector.");
         for (int turn = 0; turn < 200 && e::inspect(run.host, "P").products < 8; ++turn) {
             const auto stock = field<O>(run.host.projection(), "stock");
             if (std::get<I>(stock.at("output").storage()) > 0) {
@@ -344,12 +343,21 @@ void inclined_fork_fixture() {
             (void)run.host.advance();
         }
         const auto progress = e::inspect(run.host, "P");
-        check(progress.belt_forward != starving && (starving ? progress.products == 0 : progress.products == 8),
+        check(progress.belt_forward && progress.products == 8,
               "Inclined competing cargo and challenge assessment agree for both construction orders.");
         if (order == 1) {
-            I spilled = 0;
-            for (const auto& drop : field<A>(run.host.projection(), "dropped_material")) spilled += field<I>(drop, "raw");
-            check(spilled > 0, "The inclined competitor actually diverts material.");
+            I diverted = 0;
+            const auto projection = run.host.projection();
+            for (const auto& drop : field<A>(projection, "dropped_material")) diverted += field<I>(drop, "raw");
+            const auto& parts = field<O>(projection, "transmission_parts");
+            for (const auto& [id, span] : field<O>(projection, "belt_spans")) {
+                (void)id;
+                const auto from = field<std::string>(span, "from");
+                if (field<I>(parts.at(from), "axis") != 0) continue;
+                for (const auto& item : field<A>(span, "slots"))
+                    if (item.type() != factory::values::Type::null) diverted += field<I>(item, "raw");
+            }
+            check(diverted > 0, "The inclined competitor retains or ejects diverted material.");
         }
         conserved(run.host);
         const auto saved = run.host.checkpoint();

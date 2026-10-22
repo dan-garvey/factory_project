@@ -352,23 +352,25 @@ void rotated_belt_line() {
             if (source_rate > 0)
                 check(state.material.stock.output == 1 && state.material.dropped_material.empty(), "Positive X rotation carries the blank to the press.");
             else {
-                check(state.material.stock.output == 0 && state.material.dropped_material.contains({4, 0, 0}),
-                      "Negative X rotation deposits the blank at the -Z end.");
+                const auto span = state.topology.belt_spans.front();
+                check(state.material.stock.output == 0 && state.material.dropped_material.empty() &&
+                          state.material.belt_lanes.at(span.geometry.id).slots.front() == factory::materials::Cargo{1, 0, {}},
+                      "Negative X rotation holds the blank at the collector-facing end.");
                 auto reloaded = w::World::restore("cog-world", profile, restored->snapshot());
-                check(reloaded != nullptr, "The rotated reverse drop survives restoration.");
+                check(reloaded != nullptr, "The blocked rotated belt survives restoration.");
                 O pickup{{"context", V("cog-world")}, {"client", V("P-session")}, {"request", V("rotated-pickup")},
-                    {"actor", V("P")}, {"action", V("pickup_material")},
-                    {"center", V(V::Array{V(I{4}), V(I{0}), V(I{0})})},
+                    {"actor", V("P")}, {"action", V("recover_belt_slot")},
+                    {"target", V(span.geometry.id)}, {"generation", V(span.generation)}, {"slot", V(I{0})},
                     {"expected", V(O{{"raw", V(I{1})}, {"products", V(I{0})}, {"work_lots", V(V::Array{})}})}};
                 const auto received = accepted(send(*reloaded, pickup));
                 check(field<I>(received, "moved_raw") == 1 && reloaded->snapshot().state.material.dropped_material.empty(),
-                      "The reverse-end blank moves into the actor's finite cargo.");
+                      "The blocked blank moves into the actor's finite cargo.");
                 auto competing = pickup;
                 competing.at("client") = V("Q-session"); competing.at("actor") = V("Q");
                 competing.at("request") = V("rotated-competing-pickup");
                 const auto refused = send(*reloaded, competing);
                 check(refused.completed() && !field<bool>(*refused.result, "accepted") &&
-                          field<std::string>(*refused.result, "reason") == "unavailable_drop",
+                          field<std::string>(*refused.result, "reason") == "slot_changed",
                       "A competing actor cannot take the same blank twice.");
                 check(w::World::restore("cog-world", profile, reloaded->snapshot()) != nullptr,
                       "The rotated pickup and competing refusal remain valid after restoration.");
