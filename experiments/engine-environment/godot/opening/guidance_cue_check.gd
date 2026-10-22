@@ -248,6 +248,45 @@ func check_foundation_inspector() -> void:
 		view.free()
 	finish_checks()
 
+func check_close_camera_footer(view) -> void:
+	view.camera = Camera3D.new()
+	view.add_child(view.camera)
+	view.camera.fov = 45.0
+	view.focus = Vector3(0, 1.18, 0)
+	view.distance = 4.0
+	view.orbit_pitch = 0.35
+	view.orbit_yaw = 0.68
+	view._message("Worksite reopened in this session. Your original save is kept.")
+	view._update_camera()
+	await settle_footer()
+	var bounds: Rect2 = view.status_footer.get_global_rect()
+	verify(is_equal_approx(bounds.position.y, 18.0)
+		and bounds.encloses(view.status_label.get_global_rect())
+		and bounds.encloses(view.controls_label.get_global_rect()),
+		"Close third-person guidance stays readable in the upper lane between the side panels.")
+	for height in [-0.02, 0.45, 0.9, 1.8]:
+		var point: Vector2 = view.camera.unproject_position(Vector3(0, height, 0))
+		verify(not bounds.grow(8.0).has_point(point),
+			"Close-view guidance leaves the worker's feet, knees, hips and head clear.")
+	view._message("Cannot place the press here. Build a factory floor at this height and leave its outlet clear.", true)
+	await settle_footer()
+	verify(view.status_label.visible and view.status_refused
+		and view.status_footer.get_global_rect().encloses(view.status_label.get_global_rect()),
+		"Moving the panel preserves the complete actionable refusal.")
+	view.distance = 14.0
+	view._update_camera()
+	await settle_footer()
+	verify(is_equal_approx(view.status_footer.get_global_rect().end.y, view.building_hotbar.position.y - 12.0),
+		"Zooming out returns the guidance above the hotbar.")
+	view.distance = 4.0
+	view.explanation_open = true
+	view._update_camera()
+	await settle_footer()
+	verify(is_equal_approx(view.status_footer.get_global_rect().end.y, view.building_hotbar.position.y - 12.0),
+		"Help retains the upper reading lane instead of sharing it with the status panel.")
+	verify(view.model == null and view.actor_world == null and view.request_sequence == 0,
+		"Camera and guidance layout create no gameplay authority or requests.")
+
 func check_footer_layout() -> void:
 	root.size = Vector2i(1280, 800)
 	var view := FooterView.new()
@@ -314,7 +353,17 @@ func check_footer_layout() -> void:
 		"Replacing an outcome with the redundant fresh introduction shrinks the strip again.")
 	verify(view.model == null and view.actor_world == null and view.request_sequence == 0,
 		"Real UI layout never constructs game authority or submits a request.")
+	await check_close_camera_footer(view)
 	view.free()
+	var shared := SharedFooterView.new()
+	shared.state = first_target_fixture()
+	shared.session = SessionStub.new()
+	root.add_child(shared)
+	shared._build_interface()
+	shared._refresh_guided_tools()
+	await check_close_camera_footer(shared)
+	shared.session = null
+	shared.free()
 	var legacy := FooterView.new()
 	legacy.legacy_fixture = true
 	legacy.state = fixture()

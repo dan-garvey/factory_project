@@ -5223,6 +5223,10 @@ func _update_camera() -> void:
 		var local_actor: Dictionary = state.get("actors", {}).get(client, {})
 		local_view.visible = distance > 1.0 and local_actor.get("ready", false) \
 			and Geometry.valid_position(local_actor.get("position"))
+	if status_footer != null:
+		var footer_anchor := 0.0 if _footer_above_view() else 1.0
+		if not is_equal_approx(status_footer.anchor_top, footer_anchor):
+			_queue_footer_fit()
 
 func _build_world() -> void:
 	if not legacy_fixture and ProductionEnvironment.Surface != null:
@@ -6447,6 +6451,11 @@ func _queue_footer_fit() -> void:
 	footer_fit_pending = true
 	_fit_guided_footer.call_deferred()
 
+func _footer_above_view() -> bool:
+	# A nearby third-person worker fills the lower centre of the view. Use the
+	# free lane above the worker; Help keeps its own upper reading space.
+	return not legacy_fixture and distance > 1.0 and distance <= 6.0 and not explanation_open
+
 func _fit_guided_footer() -> void:
 	footer_fit_pending = false
 	# Wrapped text settles after its container width. Fit again at that
@@ -6479,12 +6488,13 @@ func _fit_guided_footer() -> void:
 	var left_offset: float = right - status_footer.get_combined_minimum_size().x if redundant_intro else 310.0
 	if not is_equal_approx(status_footer.anchor_left, left_anchor) or not is_equal_approx(status_footer.offset_left, left_offset):
 		status_footer.set_anchor_and_offset(SIDE_LEFT, left_anchor, left_offset)
-	var bottom: float = -30.0 - building_hotbar.size.y
-	if not is_equal_approx(status_footer.offset_bottom, bottom):
-		status_footer.set_anchor_and_offset(SIDE_BOTTOM, 1.0, bottom)
+	var edge := 0.0 if _footer_above_view() else 1.0
+	var bottom: float = 18.0 + status_footer.get_combined_minimum_size().y if edge == 0.0 else -30.0 - building_hotbar.size.y
+	if not is_equal_approx(status_footer.anchor_bottom, edge) or not is_equal_approx(status_footer.offset_bottom, bottom):
+		status_footer.set_anchor_and_offset(SIDE_BOTTOM, edge, bottom)
 	var top: float = bottom - status_footer.get_combined_minimum_size().y
-	if not is_equal_approx(status_footer.offset_top, top):
-		status_footer.set_anchor_and_offset(SIDE_TOP, 1.0, top)
+	if not is_equal_approx(status_footer.anchor_top, edge) or not is_equal_approx(status_footer.offset_top, top):
+		status_footer.set_anchor_and_offset(SIDE_TOP, edge, top)
 	if _catalog_open():
 		building_hotbar._place_catalog()
 
