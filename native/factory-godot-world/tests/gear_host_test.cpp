@@ -424,7 +424,8 @@ void typed_loose_host() {
     auto stock = std::get<O>(material.at("stock").storage());
     stock.at("source") = V(field<I>(V(stock), "source") - 3);
     const V lot(O{{"id", V(I{1})}, {"recipe", V(O{{"input_units_per_product", V(I{1})}, {"cycle_ticks", V(I{2})}})},
-                 {"remaining_ticks", V(I{1})}, {"completed_subticks", V(I{123})}});
+                 {"remaining_ticks", V(I{1})}, {"completed_subticks", V(I{123})},
+                 {"work_remainder", V(I{0})}, {"work_remainder_denominator", V(I{1})}});
     material.at("stock") = V(std::move(stock));
     material.at("next_work_id") = V(I{2});
     material.at("dropped_material") = V(A{V(O{{"point", V(A{V(I{0}), V(I{0}), V(I{4})})},
@@ -668,7 +669,8 @@ void belt_span_host_commands() {
         A lots;
         if (work) {
             lots.emplace_back(O{{"id", V(I{1})}, {"recipe", V(O{{"input_units_per_product", V(I{1})}, {"cycle_ticks", V(I{2})}})},
-                {"remaining_ticks", V(I{1})}, {"completed_subticks", V(I{123})}});
+                {"remaining_ticks", V(I{1})}, {"completed_subticks", V(I{123})},
+                {"work_remainder", V(I{0})}, {"work_remainder_denominator", V(I{1})}});
             typed_material.at("next_work_id") = V(I{2});
         }
         typed_slots[1] = V(O{{"raw_units", V(I{0})}, {"products", V(I{work ? 0 : 1})}, {"work_lots", V(std::move(lots))}});

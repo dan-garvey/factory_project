@@ -20,6 +20,12 @@ ticks means ready work, including the valid boundary after output retrieval and
 before the next tick. Carried work pauses. Moving or reinserting a lot neither
 allocates a new identity nor resets or advances its timer.
 
+Processor work retains a fraction of a subtick on the WorkLot itself, so a
+fractional shaft rate accumulates without a minimum-speed floor and the exact
+progress follows recovery, carried cargo and checkpoints. Rate changes retain
+exact fractions when their common denominator fits; larger combinations use
+bounded integer rounding. The current material checkpoint uses schema 6.
+
 This first profile still has one raw material, one product recipe, and one
 collector/belt/processor fixture. Config supplies recipe weight, cycle duration
 and collector capacity. Path supplies already resolved component, edge and power
@@ -75,12 +81,12 @@ material library adds no solver, source, timer or second live authority.
 
 World maps the magnitude of the press's signed rational rotation rate to work
 per step, using 4,096 subticks per baseline work tick. The experimental mapping
-rounds down to a minimum of one subtick for a nonzero rate and saturates only
-at the integer representation limit. Opposite directions work equally; an unpowered or
+retains fractional subticks and saturates only at the integer representation
+limit. Opposite directions work equally; an unpowered or
 stalled press does no work. This makes gear ratios affect processing but does
 not claim Create's exact press timing, load, or stress behavior. Fractional
 progress belongs to the WorkLot and follows it through recovery and insertion.
-The material checkpoint schema is 5 and includes belt-lane and typed loose-material custody; earlier
+The material checkpoint schema is 6 and includes belt-lane and typed loose-material custody; earlier
 schemas are refused rather than inventing a compatibility migration.
 
 Product retrieval credits only an already admitted actor's Cargo.products.

@@ -95,6 +95,37 @@ void fractional_gear_speed() {
             "Extreme speed completes one buffered workpiece without overflowing progress.");
 }
 
+void fractional_press_rate() {
+    auto state = seed();
+    state.stock.source = 14;
+    state.processing = m::WorkLot{1, {2, 4}, 4};
+    state.next_work_id = 2;
+    m::MachinePower third{false, false, true};
+    third.processor_work_per_tick = 1365;
+    third.processor_work_remainder = 1;
+    third.processor_work_remainder_denominator = 3;
+    tick(state, third);
+    require(state.processing->completed_subticks == 1365 && state.processing->work_remainder == 1 &&
+                state.processing->work_remainder_denominator == 3, "The workpiece retains the fractional third-speed increment.");
+    const auto saved = state;
+    tick(state, {false, false, false});
+    require(state == saved, "Stopped work retains the fractional increment.");
+    tick(state, third);
+    tick(state, third);
+    require(state.processing->remaining_ticks == 3 && state.processing->completed_subticks == 0 &&
+                state.processing->work_remainder == 0, "Three third-speed ticks advance exactly one unit of work.");
+    m::MachinePower tiny{false, false, true};
+    tiny.processor_work_per_tick = 0;
+    tiny.processor_work_remainder = 4096;
+    tiny.processor_work_remainder_denominator = 8192;
+    tick(state, tiny);
+    require(state.processing->completed_subticks == 0 && state.processing->work_remainder * 2 == state.processing->work_remainder_denominator,
+            "A very slow shaft does not acquire an artificial minimum rate.");
+    tick(state, tiny);
+    require(state.processing->completed_subticks == 1 && state.processing->work_remainder == 0,
+            "Two half-subtick advances accumulate one subtick.");
+}
+
 void reversed_belt_custody() {
     auto state = seed();
     state.stock.source = 15;
@@ -383,6 +414,7 @@ int main() {
     try {
         belt_speed_conversion();
         fractional_gear_speed();
+        fractional_press_rate();
         reversed_belt_custody();
         legacy_order_and_carried_work();
         independent_senders_and_partial_pause();

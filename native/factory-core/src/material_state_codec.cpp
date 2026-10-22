@@ -87,11 +87,13 @@ Value encode_lot(const WorkLot& lot) {
             {"input_units_per_product", Value(lot.recipe.input_units_per_product)},
             {"cycle_ticks", Value(lot.recipe.cycle_ticks)}})},
         {"remaining_ticks", Value(lot.remaining_ticks)},
-        {"completed_subticks", Value(lot.completed_subticks)}});
+        {"completed_subticks", Value(lot.completed_subticks)},
+        {"work_remainder", Value(lot.work_remainder)},
+        {"work_remainder_denominator", Value(lot.work_remainder_denominator)}});
 }
 
 WorkLot decode_lot(const Value& value, const std::string& path) {
-    const auto& lot = fields(value, path, {"id", "recipe", "remaining_ticks", "completed_subticks"});
+    const auto& lot = fields(value, path, {"id", "recipe", "remaining_ticks", "completed_subticks", "work_remainder", "work_remainder_denominator"});
     const auto& recipe = fields(lot.at("recipe"), path + ".recipe",
                                 {"input_units_per_product", "cycle_ticks"});
     return WorkLot{
@@ -99,7 +101,9 @@ WorkLot decode_lot(const Value& value, const std::string& path) {
         {integer(recipe.at("input_units_per_product"), path + ".recipe.input_units_per_product"),
          integer(recipe.at("cycle_ticks"), path + ".recipe.cycle_ticks")},
         integer(lot.at("remaining_ticks"), path + ".remaining_ticks"),
-        integer(lot.at("completed_subticks"), path + ".completed_subticks")};
+        integer(lot.at("completed_subticks"), path + ".completed_subticks"),
+        integer(lot.at("work_remainder"), path + ".work_remainder"),
+        integer(lot.at("work_remainder_denominator"), path + ".work_remainder_denominator")};
 }
 
 Value encode_cargo(const Cargo& cargo) {
@@ -162,7 +166,7 @@ MaterialEncoding encode_material_state(const State& state, const Config& config,
         }
         const auto& stock = state.stock;
         return Value(Object{
-            {"schema", Value(Value::Integer{5})},
+            {"schema", Value(Value::Integer{6})},
             {"initial_units", Value(state.initial_units)},
             {"stock", Value(Object{
                 {"source", Value(stock.source)}, {"collector", Value(stock.collector)},
@@ -182,7 +186,7 @@ MaterialDecoding decode_material_state(const Value& value, const Config& config,
         const auto roster = expected_roster(actors);
         const auto& root = fields(value, "$",
             {"schema", "initial_units", "stock", "cargo", "dropped_material", "belt_lanes", "processing", "next_work_id"});
-        if (integer(root.at("schema"), "$.schema") != 5)
+        if (integer(root.at("schema"), "$.schema") != 6)
             refuse(CodecReason::unsupported_schema, "$.schema");
         const auto& stock = fields(root.at("stock"), "$.stock",
                                     {"source", "collector", "belt", "input", "output"});
