@@ -1138,12 +1138,12 @@ func check_press_crown() -> void:
 					var limits: Array = {"RearLowerTie": [0.016, 0.018],
 						"RearFootLeft": [0.0034, 0.0038], "RearFootRight": [0.0034, 0.0038],
 						"RearGussetLeft": [0.0042, 0.0052], "RearGussetRight": [0.0042, 0.0052],
-						"FrontUprightLeft": [0.013, 0.015], "FrontUprightRight": [0.013, 0.015]}[role]
+						"FrontUprightLeft": [0.019, 0.021], "FrontUprightRight": [0.019, 0.021]}[role]
 					check_closed_asset_mesh(part.mesh, limits[0], limits[1])
 					frame_cached[role] = [part.mesh, part.material_override]
 				verify(part.mesh == frame_cached[role][0] and part.material_override == frame_cached[role][1]
-					and part.material_override == Opening.ProductionCollectorArt.coating(Color("58634c")),
-					"The fixed frame reuses its closed meshes and the qualified press coating across views and axes.")
+					and part.material_override == Opening.ProductionTransmissionFinish.material("cast", Color("56635f"), 0.55, 0.74),
+					"The structural frame reuses its closed meshes and cast finish across views and axes.")
 				frame_fixed.append(part.transform)
 			var tie: MeshInstance3D = rear_frame.get_node("RearLowerTie")
 			var tie_box: AABB = tie.transform * tie.mesh.get_aabb()
@@ -1176,18 +1176,18 @@ func check_press_crown() -> void:
 				verify(part.get_script() == null and part.get_child_count() == 0 and part.scale.is_equal_approx(Vector3.ONE),
 					"Every crown piece is a plain fixed mesh with its dimensions baked in metres.")
 				if not cached.has(key):
-					var limits: Array = {"CastShoulderLeft": [0.028, 0.032], "CastShoulderRight": [0.028, 0.032],
-						"RearTie": [0.009, 0.013], "RamHousing": [0.006, 0.012],
+					var limits: Array = {"CastShoulderLeft": [0.031, 0.033], "CastShoulderRight": [0.031, 0.033],
+						"RearTie": [0.025, 0.027], "RamHousing": [0.006, 0.012],
 						"RamLiner": [0.00048, 0.00055], "GuideSocket": [0.0005, 0.00075]}[key]
 					check_closed_asset_mesh(part.mesh, limits[0], limits[1])
 					cached[key] = [part.mesh, part.material_override]
 				verify(part.mesh == cached[key][0] and part.material_override == cached[key][1],
 					"All view classes and drive axes reuse the exact compatible crown resources.")
 				var finish_value := part.material_override as StandardMaterial3D
-				var color := Color("58634c") if painted else (Color("a6b4af") if key == "RamLiner" else Color("b87945"))
-				verify(finish_value.albedo_color == color and is_equal_approx(finish_value.metallic, 0.0 if painted else 0.85)
+				var color := Color("56635f") if painted else (Color("a6b4af") if key == "RamLiner" else Color("b87945"))
+				verify(finish_value.albedo_color == color and is_equal_approx(finish_value.metallic, 0.55 if painted else 0.85)
 					and finish_value.normal_texture == Opening.ProductionTransmissionFinish.textures[("cast" if painted else "worked") + "_normal"],
-					"The actual crown separates qualified cast coating from exposed worked liners and sockets.")
+					"The actual crown separates structural cast iron from exposed worked liners and sockets.")
 				fixed.append(part.transform)
 			for side in [-1.0, 1.0]:
 				var support: MeshInstance3D = machine.get_node("CastPressSupportLeft" if side < 0 else "CastPressSupportRight")
@@ -1196,7 +1196,7 @@ func check_press_crown() -> void:
 					and is_equal_approx((support.transform * support.mesh.get_aabb()).end.y, 1.4),
 					"The original sourced columns keep their geometry, atlas, mounting positions and crown datum.")
 				verify(feed_ray_blocked(crown, Transform3D.IDENTITY,
-					Vector3(side * 0.48, 1.39, -0.38), Vector3(side * 0.48, 1.41, -0.38)),
+					Vector3(side * 0.48, 1.32, -0.38), Vector3(side * 0.48, 1.45, -0.38)),
 					"The actual shoulder facets meet each existing column instead of hovering above it.")
 			var piston: MeshInstance3D = machine.get_node("Piston")
 			var head: MeshInstance3D = machine.get_node("ToolHead")
@@ -1246,15 +1246,12 @@ func check_press_crown() -> void:
 				press_protected(machine, Transform3D.IDENTITY, protected_rows)
 				for part: MeshInstance3D in rear_frame.get_children():
 					press_clearance(part, protected_rows, 0.002)
+				var nonshaft_rows: Array[Dictionary] = []
+				for row in protected_rows:
+					if row.name != "Piston" and not row.name.begins_with("ToolGuide"):
+						nonshaft_rows.append(row)
 				for part: MeshInstance3D in crown.get_children():
-					var bounds: AABB = part.transform * part.mesh.get_aabb()
-					for row in protected_rows:
-						if row.name == "Piston" or row.name.begins_with("ToolGuide"):
-							continue
-						var box: AABB = row.bounds
-						var gap := maxf(maxf(maxf(box.position.x - bounds.end.x, bounds.position.x - box.end.x),
-							maxf(box.position.y - bounds.end.y, bounds.position.y - box.end.y)), maxf(box.position.z - bounds.end.z, bounds.position.z - box.end.z))
-						verify(gap > 0, "The crown conservatively clears the unchanged nonshaft working and drive meshes.")
+					press_clearance(part, nonshaft_rows)
 				for n in range(crown.get_child_count()):
 					verify(crown.get_child(n).transform == fixed[n], "The supporting crown stays fixed as the original tool moves.")
 				for n in range(rear_frame.get_child_count()):

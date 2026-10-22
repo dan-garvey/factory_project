@@ -1767,31 +1767,31 @@ class ProductionPressCrownArt:
 		parent.add_child(part)
 
 	static func mount(parent: Node3D, color: Color) -> bool:
-		var paint := ProductionCollectorArt.coating(color)
+		var cast_finish := ProductionTransmissionFinish.material("cast", Color("56635f"), 0.55, 0.74)
 		var steel := ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.38)
 		var guide_finish := ProductionTransmissionFinish.material("worked", Color("b87945"), 0.85, 0.4)
-		if paint == null or steel == null or guide_finish == null:
+		if cast_finish == null or steel == null or guide_finish == null:
 			return false
 		var crown := Node3D.new()
 		crown.name = "PressCrown"
 		parent.add_child(crown)
-		var shoulder := PackedVector2Array([Vector2(-0.60, -0.07), Vector2(-0.56, -0.10),
-			Vector2(-0.34, -0.10), Vector2(-0.24, -0.04), Vector2(-0.12, -0.04),
-			Vector2(-0.12, 0.10), Vector2(-0.56, 0.10), Vector2(-0.60, 0.06)])
+		var shoulder := PackedVector2Array([Vector2(-0.64, -0.14), Vector2(-0.55, -0.14),
+			Vector2(-0.40, -0.08), Vector2(-0.25, -0.08), Vector2(-0.25, 0.12),
+			Vector2(-0.64, 0.12)])
 		for right in [false, true]:
 			var profile := shoulder.duplicate()
 			if right:
 				for n in range(profile.size()):
 					profile[n].x = -profile[n].x
 			_part(crown, "CastShoulderRight" if right else "CastShoulderLeft",
-				ProductionVisuals.prism_mesh(profile, 0.36, 0.007), Vector3(0, 1.5, -0.3), paint)
+				ProductionVisuals.prism_mesh(profile, 0.36, 0.007), Vector3(0, 1.5, -0.3), cast_finish)
 		# The rear tie joins the shoulders without filling the ram's bore.
-		_part(crown, "RearTie", ProductionVisuals.box_mesh(Vector3(0.32, 0.14, 0.265)),
-			Vector3(0, 1.53, -0.3475), paint)
+		_part(crown, "RearTie", ProductionVisuals.box_mesh(Vector3(0.54, 0.18, 0.265)),
+			Vector3(0, 1.53, -0.3475), cast_finish)
 		var housing := PackedVector2Array([Vector2(0.083, -0.135), Vector2(0.115, -0.135),
 			Vector2(0.14, -0.115), Vector2(0.14, 0.11), Vector2(0.12, 0.135),
 			Vector2(0.083, 0.135), Vector2(0.083, -0.135)])
-		_part(crown, "RamHousing", ProductionVisuals.turned_mesh(housing), Vector3(0, 1.465, -0.08), paint)
+		_part(crown, "RamHousing", ProductionVisuals.turned_mesh(housing), Vector3(0, 1.465, -0.08), cast_finish)
 		var liner := PackedVector2Array([Vector2(0.079, -0.125), Vector2(0.083, -0.125),
 			Vector2(0.083, 0.125), Vector2(0.079, 0.125), Vector2(0.079, -0.125)])
 		_part(crown, "RamLiner", ProductionVisuals.turned_mesh(liner), Vector3(0, 1.465, -0.08), steel)
@@ -1821,8 +1821,8 @@ class ProductionPressRearFrameArt:
 		return part
 
 	static func mount(parent: Node3D, color: Color) -> bool:
-		var paint := ProductionCollectorArt.coating(color)
-		if paint == null:
+		var cast_finish := ProductionTransmissionFinish.material("cast", Color("56635f"), 0.55, 0.74)
+		if cast_finish == null:
 			return false
 		if not meshes.has("tie"):
 			# The lower tie remains behind the feed bed and joins both sourced
@@ -1837,8 +1837,8 @@ class ProductionPressRearFrameArt:
 				var upright := PackedVector2Array([
 					Vector2(0.53, 0.24), Vector2(0.64, 0.24),
 					Vector2(0.61, 0.36),
-					Vector2(0.61, 1.34), Vector2(0.63, 1.42),
-					Vector2(0.53, 1.42), Vector2(0.51, 1.34),
+					Vector2(0.65, 1.34), Vector2(0.65, 1.42),
+					Vector2(0.47, 1.42), Vector2(0.47, 1.34),
 					Vector2(0.51, 0.36)])
 				for n in range(profile.size()):
 					profile[n].x *= side
@@ -1849,14 +1849,14 @@ class ProductionPressRearFrameArt:
 		var frame := Node3D.new()
 		frame.name = "PressRearFrame"
 		parent.add_child(frame)
-		_part(frame, "RearLowerTie", meshes.tie, Vector3(0, 0.30, -0.46), paint)
+		_part(frame, "RearLowerTie", meshes.tie, Vector3(0, 0.30, -0.46), cast_finish)
 		for side in [-1.0, 1.0]:
 			_part(frame, "RearFootLeft" if side < 0 else "RearFootRight", meshes.foot,
-				Vector3(side * 0.48, 0.27, -0.40), paint)
+				Vector3(side * 0.48, 0.27, -0.40), cast_finish)
 			_part(frame, "RearGussetLeft" if side < 0 else "RearGussetRight",
-				meshes["gusset_n" if side < 0 else "gusset_p"], Vector3(0, 0, -0.46), paint)
+				meshes["gusset_n" if side < 0 else "gusset_p"], Vector3(0, 0, -0.46), cast_finish)
 			_part(frame, "FrontUprightLeft" if side < 0 else "FrontUprightRight",
-				meshes["upright_n" if side < 0 else "upright_p"], Vector3(0, 0, -0.25), paint)
+				meshes["upright_n" if side < 0 else "upright_p"], Vector3(0, 0, -0.25), cast_finish)
 		return true
 
 class ProductionPressFrameJointArt:
