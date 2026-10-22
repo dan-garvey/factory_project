@@ -26,6 +26,15 @@ resize; normal vectors are renormalized. The donor's zero metallic factor and
 double-sided material are retained. Ore veins are a separate stock-derived
 presentation surface; exhausting the finite reserve leaves the fixed rock.
 
+`ore-soil.png` is generated artwork, not part of Poly Haven's Boulder 01
+package or a scanned ground material. It was made with OpenAI's built-in image
+generation tool on 2026-10-22, using the adapted rock albedo only as a palette
+reference. The prompt requested an evenly lit, top-down diffuse surface of
+compacted tan soil, weathered bedrock chips, dark shale and restrained copper
+flecks, without perspective, large boulders or baked shadows. The presentation
+mesh fades this texture into terrain and removes it when the confirmed finite
+source is exhausted; the image supplies no collision or stock authority.
+
 Reproduce from the pinned raw donor set with the existing
 `opening/assets/foliage/prepare_maps.gd` command, using `--material=outcrop`,
 `--outcrop-scale=0.45,0.75,1.25`,
