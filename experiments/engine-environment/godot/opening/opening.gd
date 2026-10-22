@@ -3387,32 +3387,39 @@ class ProductionEnvironment:
 		var buffer := PackedFloat32Array()
 		var bounds := AABB()
 		var count := 0
-		# Young, soft-stemmed understory, not solid mature trees. Keep the
-		# working bank open and retain the complete source mesh at each root.
-		for n in range(24):
-			var z := -5.0 + float((n * 7) % 24) * 0.65
-			var x := river_center_x(z) - channel_half_width(z) - 2.2 - float(n % 3) * 0.75
+		# Age and bank position vary across the same sourced young-pine mesh.
+		# These remain soft plants that construction can clear, not mature solids.
+		for n in range(64):
+			var z := -17.0 + float((n * 11) % 43) * 0.72
+			var side := -1.0 if n % 2 == 0 else 1.0
+			var x := river_center_x(z) + side * (channel_half_width(z) + 3.2 + float(n % 4) * 1.1)
 			if _terrain_facet_normal(x, z).y < 0.86:
 				continue
 			var at := Vector3(x, Surface.height_at(x, z) - 0.015, z)
-			var basis := Basis(Vector3.UP, float(n) * 2.399963).scaled_local(Vector3.ONE * (0.85 + 0.1 * float(n % 5)))
+			var age := 1.15 + float((n * 7) % 9) * 0.23
+			var breadth := 0.86 + float(n % 4) * 0.09
+			var basis := Basis(Vector3.UP, float(n) * 2.399963).scaled_local(Vector3(age * breadth, age, age / breadth))
 			var envelope: AABB = Transform3D(basis, at) * pine_cluster_mesh.get_aabb()
-			var clear := envelope.position.z >= -8.0 and envelope.end.z <= 12.0
+			var clear := envelope.position.z >= -22.0 and envelope.end.z <= 22.0
 			var margin := 0.3 + 0.6 * envelope.size.z / 16.0
 			for row in range(9):
 				var edge_z := lerpf(envelope.position.z, envelope.end.z, float(row) / 8.0)
-				if envelope.end.x >= river_center_x(edge_z) - channel_half_width(edge_z) - margin:
+				var edge_x := river_center_x(edge_z) + side * (channel_half_width(edge_z) + margin)
+				if (side < 0.0 and envelope.end.x >= edge_x) or (side > 0.0 and envelope.position.x <= edge_x):
 					clear = false
 			for solid in Surface.support_boxes():
 				var half: Vector3 = solid.size * 0.5
 				var solid_bounds: AABB = Transform3D(solid.basis, solid.center) * AABB(-half, solid.size)
 				if envelope.intersects(solid_bounds.grow(0.2)):
 					clear = false
+			for fir in Surface.fir_specs():
+				if envelope.intersects(fir.bounds.grow(0.2)):
+					clear = false
 			if not clear:
 				continue
 			# Do not stack one expensive source mesh over another.
 			for offset in range(0, buffer.size(), 12):
-				if Vector2(at.x - buffer[offset + 3], at.z - buffer[offset + 11]).length() < 1.2:
+				if Vector2(at.x - buffer[offset + 3], at.z - buffer[offset + 11]).length() < 2.4:
 					clear = false
 			if not clear:
 				continue
@@ -3533,7 +3540,7 @@ class ProductionEnvironment:
 			var basis: Basis = spec.basis * Basis.from_scale(spec.mesh_scale)
 			var color: Color = spec.color
 			if stone_source_status == "ready":
-				color = Color.WHITE.lerp(color, 0.2)
+				color = Color.WHITE.lerp(color, 0.38)
 			buffer.append_array(PackedFloat32Array([
 				basis.x.x, basis.y.x, basis.z.x, position.x,
 				basis.x.y, basis.y.y, basis.z.y, position.y,

@@ -554,21 +554,35 @@ static func foundation_boxes() -> Array[Dictionary]:
 static func rock_boxes() -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
 	for n in range(64):
-		var angle := float(n) * 2.399963 + 0.45
-		var distance := 10.6 + float(posmod(n * 19, 41)) * 0.68
-		var px := 1.65 + cos(angle) * distance
-		var pz := 1.65 + sin(angle) * distance
+		# Four unlike stones share each loose geological pocket. Moving the
+		# pocket centres independently avoids the old evenly spaced stone ring.
+		var pocket := n / 4
+		var member := n % 4
+		var angle := float(pocket) * 2.399963 + 0.45
+		var distance := 12.2 + float(posmod(pocket * 17, 23)) * 1.08
+		var spread := 0.0 if member == 0 else 1.3 + float(posmod(pocket * 7 + member * 3, 7)) * 0.32
+		var bearing := angle + float(member) * 2.2 + sin(float(pocket) * 1.3) * 0.4
+		var px := 1.65 + cos(angle) * distance + cos(bearing) * spread
+		var pz := 1.65 + sin(angle) * distance + sin(bearing) * spread
 		if absf(px - river_center_x(pz)) < channel_half_width(pz) + 0.85:
 			px += 1.95 if px >= river_center_x(pz) else -1.95
-		var scale := Vector3(0.75 + float(posmod(n * 5, 11)) * 0.12,
-			0.65 + float(posmod(n * 11, 9)) * 0.14, 0.75 + float(posmod(n * 17, 13)) * 0.11)
-		var rotation := Basis.from_euler(Vector3(sin(float(n) * 1.7) * 0.14, angle, cos(float(n) * 2.3) * 0.14))
+		var form: Vector3
+		match member:
+			0: form = Vector3(1.45, 1.05, 1.2) # dominant weathered boulder
+			1: form = Vector3(1.2, 0.58, 1.8) # low, long fragment
+			2: form = Vector3(0.72, 1.65, 0.82) # raised broken edge
+			_: form = Vector3(0.7, 0.62, 0.88) # scattered smaller stone
+		var size_variation := 0.82 + float(posmod(pocket * 11 + member * 5, 9)) * 0.045
+		var scale := form * size_variation
+		var tilt := 0.16 if member < 2 else 0.48
+		var rotation := Basis.from_euler(Vector3(sin(float(n) * 1.7) * tilt,
+			angle + float(member) * 1.17, cos(float(n) * 2.3) * tilt))
 		var hull := _rock_hull(scale)
 		result.append({"id": "rock_%d" % n, "center": Vector3(px, height_at(px, pz), pz),
 			"basis": rotation, "size": hull.size, "scale": scale,
 			"mesh_scale": hull.mesh_scale, "points": hull.points.duplicate(),
 			"native_points": hull.native_points.duplicate(), "faces": hull.faces.duplicate(),
-			"color": Color("59605a").lerp(Color("7d7a6e"), float(n % 4) / 3.0)})
+			"color": Color("536354").lerp(Color("8b8270"), float(posmod(pocket * 3 + member, 7)) / 6.0)})
 	return result
 
 static func source_outcrop() -> Dictionary:
