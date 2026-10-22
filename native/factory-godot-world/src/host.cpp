@@ -705,6 +705,9 @@ Value Host::initialize_site(const std::string& context, const std::vector<std::s
             {"tree-east-north", {{12, 0, 24}, 8}},
             {"tree-north", {{0, 0, 28}, 8}}};
         profile.material.hand_carry_capacity = 24;
+        // The component limit leaves room to carry one last recipe input,
+        // making a full bag a reachable and recoverable workshop refusal.
+        profile.material.component_capacity = 20;
     }
     if (!arrival)
         profile.finite_parts = {{{Role::collector, 0, 0}, 1}, {{Role::belt, 0, 0}, 2},

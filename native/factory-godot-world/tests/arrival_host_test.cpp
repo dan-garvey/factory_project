@@ -43,7 +43,7 @@ void arrival_projection_and_restore() {
               V(A{V(I{2}), V(I{0}), V(I{4})})),
           "The bench has its own identity on the shared east deck tile.");
     const auto recipes = get<O>(view, "component_recipes");
-    check(recipes.size() == 11 && get<I>(view, "component_capacity") == 24 &&
+    check(recipes.size() == 11 && get<I>(view, "component_capacity") == 20 &&
           get<I>(recipes.at("wooden_frame"), "timber") == 3 &&
           get<I>(recipes.at("wooden_frame"), "softmetal") == 0 &&
           get<I>(recipes.at("softmetal_cog"), "timber") == 0 &&

@@ -116,6 +116,9 @@ func _collector_route() -> Dictionary:
 		"source_cog": source_cog.entity, "output_cog": output_cog.entity, "shaft": shaft.entity}
 
 func _run() -> void:
+	if mode in ["arrival-press", "arrival-resume", "arrival-craft-capacity"]:
+		await _arrival_run()
+		return
 	if destination.is_empty() or mode not in ["produce", "resume", "foundations"]:
 		push_error("The native adapter check requires an output and a declared mode")
 		quit(1)
@@ -352,4 +355,294 @@ func _resume() -> void:
 	facts["save_slot"] = opening.save_slot
 	if not _expect(saved.accepted, "The fresh process publishes its separate continuation save"):
 		return
+	_record("pass")
+
+func _arrival_capacity_run(panel) -> void:
+	for source in [
+		{"point": Vector2(3.3, 4.95), "id": "tree-east-south", "cuts": 8},
+		{"point": Vector2(3.3, 9.9), "id": "tree-east-north", "cuts": 8},
+		{"point": Vector2(1.65, 11.55), "id": "tree-north", "cuts": 5},
+	]:
+		if not await _approach(source.point):
+			return
+		for index in range(source.cuts):
+			if _construct({"action": "harvest_source", "target": source.id}).is_empty():
+				return
+	if not await _approach(Vector2(1.65, 6.6)):
+		return
+	if not _expect(opening.model.projection().cargo.P.timber == 21,
+			"Three finite trees put twenty component inputs and one spare within the hand-carry limit"):
+		return
+	panel.component_choice.select(1)
+	panel._component_selected(1)
+	for count in range(20):
+		if not _expect(not panel.craft_button.disabled,
+				"The pod workshop keeps the native shaft recipe selectable while stock is available"):
+			return
+		var before: Dictionary = opening.model.projection()
+		panel.craft_button.pressed.emit()
+		var after: Dictionary = opening.model.projection()
+		if not _expect(after.order == before.order + 1 and after.cargo.P.timber == before.cargo.P.timber - 1
+				and after.cargo.P.components.get("wooden_shaft", 0) == count + 1,
+				"Each selected recipe converts exactly one carried timber into one wooden shaft"):
+			return
+	var full_before: Dictionary = opening.model.projection()
+	if not _expect("Parts 20 / 20" in panel.recipe_label.text and not panel.craft_button.disabled
+			and full_before.cargo.P.timber == 1,
+			"The ordinary panel shows a full component bag while one recipe input remains"):
+		return
+	panel.craft_button.pressed.emit()
+	var full_after: Dictionary = opening.model.projection()
+	if not _expect(full_after.order == full_before.order + 1 and full_after.cargo == full_before.cargo
+			and full_after.hand_sources == full_before.hand_sources
+			and "component bag is full" in opening.status_label.text,
+			"The native full-output refusal keeps the last timber and offers a clear placement remedy"):
+		return
+	panel.place_button.pressed.emit()
+	var before_placement: Dictionary = opening.model.projection()
+	opening._world_click(Vector2i(3, 4))
+	var placed: Dictionary = opening.model.projection()
+	if not _expect(placed.order == before_placement.order + 1
+			and placed.placed_components.size() == 1
+			and placed.cargo.P.components.get("wooden_shaft", 0) == 19
+			and placed.cargo.P.timber == 1,
+			"The ordinary placement control frees one component slot without changing the held timber"):
+		return
+	panel.craft_button.pressed.emit()
+	var recovered: Dictionary = opening.model.projection()
+	if not _expect(recovered.order == placed.order + 1 and recovered.cargo.P.timber == 0
+			and recovered.cargo.P.components.get("wooden_shaft", 0) == 20
+			and recovered.placed_components == placed.placed_components,
+			"The same hub recipe succeeds after an actual component is placed"):
+		return
+	_record("pass")
+
+## Fresh arrival panel consumer with actor motor, finite sources and Store.
+func _arrival_run() -> void:
+	deadline = Time.get_ticks_msec() + 120000
+	var capture_prefix := ""
+	for argument: String in OS.get_cmdline_user_args():
+		if argument.begins_with("--arrival-capture-prefix="):
+			capture_prefix = argument.trim_prefix("--arrival-capture-prefix=")
+	if destination.is_empty() or mode not in ["arrival-press", "arrival-resume", "arrival-craft-capacity"] or FileAccess.file_exists(destination):
+		push_error("Arrival press check requires an unused output and a declared mode")
+		quit(1)
+		return
+	opening = load("res://opening/opening.tscn").instantiate()
+	opening.auto_advance = false
+	root.add_child(opening)
+	if not _expect(opening.model is NativeModel and opening.model.projection().has("fabrication_hub"),
+			"The ordinary arrival scene exposes its native pod hub"):
+		return
+	while Time.get_ticks_msec() < deadline:
+		await physics_frame
+		await process_frame
+		if opening.model.projection().actors.P.ready and opening.actor_world.bodies.P.is_on_floor() \
+				and not opening.startup_save_pending:
+			break
+	if not _expect(opening.model.projection().actors.P.ready and opening.actor_world.bodies.P.is_on_floor(),
+			"The physical actor reaches the scene floor"):
+		return
+	var panel = opening.arrival_assembly_controls
+	if mode == "arrival-craft-capacity":
+		await _arrival_capacity_run(panel)
+		return
+	if not capture_prefix.is_empty() and mode == "arrival-press":
+		await process_frame
+		var landfall: Image = root.get_texture().get_image()
+		if not _expect(landfall != null and landfall.save_png(capture_prefix + "-landfall.png") == OK,
+				"The passive landfall viewport is retained"):
+			return
+	if mode == "arrival-resume":
+		var restored: Dictionary = opening.model.projection()
+		if not _expect(opening.last_load_result.get("accepted", false)
+				and restored.cargo.P.products == 2 and restored.placed_components.size() == 7
+				and restored.cargo.P.components.get("wooden_frame", 0) == 1
+				and restored.cargo.P.components.get("receiver_tray", 0) == 1
+				and restored.cargo.P.components.get("cutting_edge", 0) == 1
+				and restored.cargo.P.components.get("tool_mount", 0) == 1
+				and restored.cargo.P.components.get("wooden_shaft", 0) == 1
+				and restored.press_assemblies.size() == 1 and restored.press_assemblies[0].status == "ready"
+				and restored.hand_crank.holder == "P" and panel.visible,
+				"A fresh process reopens the press, unplaced collector bill and one held crank"):
+			return
+		panel.crank_button.pressed.emit()
+		if not _expect(opening.model.projection().hand_crank.holder == "pod",
+				"The resumed ordinary panel can make a new native command"):
+			return
+		_record("pass")
+		return
+	if not _expect(panel != null and panel.visible and not panel.craft_button.disabled
+			and "3 timber" in panel.recipe_label.text and "Parts 0 / 20" in panel.recipe_label.text,
+			"The ordinary workshop panel appears at landfall"):
+		return
+	var empty_before: Dictionary = opening.model.projection()
+	panel.craft_button.pressed.emit()
+	var empty_after: Dictionary = opening.model.projection()
+	if not _expect(empty_after.order == empty_before.order + 1
+			and empty_after.cargo == empty_before.cargo
+			and empty_after.hand_sources == empty_before.hand_sources
+			and "Gather the timber or softmetal" in opening.status_label.text,
+			"The nearby hub records one missing-input refusal without changing carried or source stock"):
+		return
+	if not await _approach(Vector2(3.3, 4.95)):
+		return
+	for index in range(8):
+		if _construct({"action": "harvest_source", "target": "tree-east-south"}).is_empty():
+			return
+	if not await _approach(Vector2(3.3, 9.9)):
+		return
+	for index in range(7):
+		if _construct({"action": "harvest_source", "target": "tree-east-north"}).is_empty():
+			return
+	if not await _approach(Vector2(0.0, 1.65)):
+		return
+	for index in range(7):
+		if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
+			return
+	var distant_before: Dictionary = opening.model.projection()
+	panel.craft_button.pressed.emit()
+	var distant_after: Dictionary = opening.model.projection()
+	if not _expect(distant_after.order == distant_before.order + 1
+			and distant_after.cargo == distant_before.cargo
+			and distant_after.hand_sources == distant_before.hand_sources
+			and "Move beside the pod workshop" in opening.status_label.text,
+			"A remote hub attempt records a refusal and preserves the complete carried bill"):
+		return
+	if not await _approach(Vector2(1.65, 6.6)):
+		return
+	var initial: Dictionary = opening.model.projection()
+	if not _expect(initial.cargo.P.timber == 15 and initial.cargo.P.raw == 7
+			and initial.placed_components.is_empty() and initial.component_recipes.size() == 11,
+			"Two finite trees and the ore deposit supply both chapter bills without gifted machines"):
+		return
+	var part_list := ["wooden_frame", "anvil", "ram_face", "sliding_guide",
+		"tool_mount", "wooden_shaft", "wooden_cog"]
+	var collector_list := ["wooden_frame", "tool_mount", "cutting_edge", "receiver_tray", "wooden_shaft"]
+	for kind: String in part_list + collector_list:
+		var index := -1
+		for choice in range(panel.COMPONENTS.size()):
+			if panel.COMPONENTS[choice][0] == kind:
+				index = choice
+		if not _expect(index >= 0, "Every collector and press part is available in the ordinary picker"):
+			return
+		panel.component_choice.select(index)
+		panel._component_selected(index)
+		var bill: Dictionary = opening.model.projection().component_recipes[kind]
+		if not _expect(not panel.craft_button.disabled
+				and ("Needs %d timber + %d softmetal" % [bill.timber, bill.softmetal]) in panel.recipe_label.text,
+				"The ordinary picker shows the selected native hub recipe"):
+			return
+		var before: int = opening.model.projection().order
+		var owned_before: int = opening.model.projection().cargo.P.components.get(kind, 0)
+		panel.craft_button.pressed.emit()
+		if not _expect(opening.model.projection().order == before + 1
+				and opening.model.projection().cargo.P.components.get(kind, 0) == owned_before + 1,
+				"The panel crafts one native component with exact finite cargo"):
+			return
+	if not _expect(opening.model.projection().cargo.P.timber == 0
+			and opening.model.projection().cargo.P.raw == 2
+			and opening.model.projection().cargo.P.components.values().reduce(func(total, amount): return total + amount, 0) == 12,
+			"Both chapter bills consume fifteen timber and five ore blanks, retaining two press inputs"):
+		return
+	if not await _approach(Vector2(3.3, 6.6)):
+		return
+	opening._select_tool("component")
+	var expected_status := ["missing_anvil", "missing_ram", "missing_guide",
+		"missing_mount", "missing_shaft", "missing_cog", "ready"]
+	for index in range(part_list.size()):
+		var kind: String = part_list[index]
+		if not panel.craft_section.visible:
+			panel.craft_tab.pressed.emit()
+		var choice := -1
+		for item in range(panel.COMPONENTS.size()):
+			if panel.COMPONENTS[item][0] == kind:
+				choice = item
+		panel.component_choice.select(choice)
+		panel._component_selected(choice)
+		panel.place_button.pressed.emit()
+		var level: int = mini(index, 4)
+		var offset: int = maxi(index - 4, 0)
+		opening._adjust_component_level(level - opening.component_level)
+		opening._adjust_component_offset("x", offset - opening.component_offset.x)
+		var before: int = opening.model.projection().order
+		opening._world_click(Vector2i(3, 4))
+		var projection: Dictionary = opening.model.projection()
+		if not _expect(projection.order == before + 1 and projection.placed_components.size() == index + 1,
+				"An ordinary placement control fits %s at %s: %s" % [kind,
+					str(opening._component_place_center(Vector2i(3, 4), "")), opening.status_label.text]):
+			return
+		if not _expect(projection.press_assemblies.size() == 1
+				and projection.press_assemblies[0].status == expected_status[index],
+				"The native recognizer reports the current fitted press stage"):
+			return
+	var ready: Dictionary = opening.model.projection().press_assemblies[0]
+	panel.press_tab.pressed.emit()
+	if not _expect(panel.press_section.visible and panel.press_status.text.begins_with("Press ready")
+			and panel.route_choice.get_item_count() > 0,
+			"The selected press exposes its live feed routes in the ordinary panel"):
+		return
+	panel.crank_button.pressed.emit()
+	if not _expect(opening.model.projection().hand_crank.holder == "P", "The player takes the one conserved pod crank"):
+		return
+	panel.feed_button.pressed.emit()
+	if not _expect(opening.model.projection().cargo.P.raw == 1
+			and opening.model.projection().dropped_material.size() == 1,
+			"The panel moves one carried blank into retained press work"):
+		return
+	for turn in range(3):
+		if not _expect(not panel.turn_button.disabled, "A retained workpiece enables the selected drive"):
+			return
+		panel.turn_button.pressed.emit()
+	var after: Dictionary = opening.model.projection()
+	if not _expect(after.dropped_material.size() == 1 and after.dropped_material[0].products == 1,
+			"Repeated hand turns form one plate at the selected lower exit"):
+		return
+	if not _expect(not panel.pickup_button.disabled, "The formed plate is offered for physical pickup"):
+		return
+	panel.feed_button.pressed.emit()
+	if not _expect(opening.model.projection().cargo.P.raw == 0
+			and opening.model.projection().dropped_material.size() == 2,
+			"A second local blank can enter while the prior plate occupies the exit"):
+		return
+	for turn in range(3):
+		panel.turn_button.pressed.emit()
+	var held: Dictionary = opening.model.projection()
+	if not _expect(held.dropped_material.size() == 2
+			and panel.press_status.text.contains("Exit holds a plate"),
+			"A full exit retains the second workpiece and identifies the recovery action"):
+		return
+	if not _expect(not panel.pickup_button.disabled and not panel.recover_work_button.disabled,
+			"The player can choose either exit pickup or retained work recovery"):
+		return
+	panel.pickup_button.pressed.emit()
+	if not _expect(opening.model.projection().cargo.P.products == 1
+			and opening.model.projection().dropped_material.size() == 1,
+			"Exit pickup leaves the second workpiece in place"):
+		return
+	panel.turn_button.pressed.emit()
+	if not _expect(opening.model.projection().dropped_material.size() == 1
+			and opening.model.projection().dropped_material[0].products == 1,
+			"Clearing the exit lets the retained ready work form its second product"):
+		return
+	panel.pickup_button.pressed.emit()
+	if not _expect(opening.model.projection().cargo.P.products == 2
+			and opening.model.projection().dropped_material.is_empty(),
+			"Both formed plates enter finite carried custody through ordinary controls"):
+		return
+	facts["press_frame"] = ready.frame
+	facts["final_parts"] = opening.model.projection().placed_components
+	facts["panel_status"] = panel.press_status.text
+	var save: Dictionary = opening._save_worksite()
+	facts["save"] = save
+	if not _expect(save.get("accepted", false) and save.get("native_preflight", {}).get("accepted", false)
+			and FileAccess.file_exists(opening.save_slot),
+			"The ordinary Store retains a typed modular press and original physical actor"):
+		return
+	if not capture_prefix.is_empty():
+		await process_frame
+		var formed: Image = root.get_texture().get_image()
+		if not _expect(formed != null and formed.save_png(capture_prefix + "-press.png") == OK,
+				"The passive completed press viewport is retained"):
+			return
 	_record("pass")

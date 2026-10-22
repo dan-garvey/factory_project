@@ -1156,6 +1156,10 @@ DrivePower drive_power(const Profile& profile, const State& state) {
     for (const auto& item : state.topology.parts) parts.push_back(item.geometry);
     std::map<std::string, long double> ratings, impacts;
     const auto placed = assembly_parts(state);
+    std::set<std::string> reserved_ids;
+    for (const auto& part : state.topology.parts) reserved_ids.insert(part.geometry.id);
+    for (const auto& part : placed) reserved_ids.insert(part.id);
+    std::set<std::string> projected_hub_ids;
     const auto append = [&](mechanics::Part projected) {
         parts.push_back(std::move(projected));
     };
@@ -1165,6 +1169,7 @@ DrivePower drive_power(const Profile& profile, const State& state) {
         const auto& found = *inspected.collector;
         const auto axis = horizontal_axis(found.machine_center, found.shaft_center);
         append({found.frame, mechanics::Kind::hub, found.machine_center, axis, 0, 0});
+        projected_hub_ids.insert(found.frame);
         append({found.shaft, mechanics::Kind::shaft, found.shaft_center, axis, 0, 1});
         ratings.emplace(found.shaft, material_rating(found.shaft_material));
         impacts.emplace(found.frame, 4);
@@ -1176,12 +1181,23 @@ DrivePower drive_power(const Profile& profile, const State& state) {
         const auto& found = *inspected.press;
         const auto axis = horizontal_axis(found.shaft_center, found.cog_center);
         const mechanics::Point hub{found.frame_center[0], found.shaft_center[1], found.frame_center[2]};
-        append({found.frame, mechanics::Kind::hub, hub, axis, 0, 0});
+        std::string hub_id = found.frame;
+        if (projected_hub_ids.contains(hub_id)) {
+            // A single placed frame can carry a collector and a press at
+            // different heights. Their graph hubs need distinct identities.
+            std::size_t index = 0;
+            do {
+                hub_id = "projected-press-hub-" + std::to_string(index++);
+            } while (reserved_ids.contains(hub_id));
+            reserved_ids.insert(hub_id);
+        }
+        append({hub_id, mechanics::Kind::hub, hub, axis, 0, 0});
+        projected_hub_ids.insert(hub_id);
         append({found.shaft, mechanics::Kind::shaft, found.shaft_center, axis, 0, 1});
         append({found.drive_cog, mechanics::Kind::gear, found.cog_center, axis, 2, 0});
         ratings.emplace(found.shaft, material_rating(found.shaft_material));
         ratings.emplace(found.drive_cog, material_rating(found.cog_material));
-        impacts.emplace(found.frame, 8);
+        impacts.emplace(hub_id, 8);
     }
     if (parts.size() > mechanics::maximum_parts) {
         mechanics::Result result;

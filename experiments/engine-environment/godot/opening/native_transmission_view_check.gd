@@ -196,9 +196,29 @@ func _component_view() -> void:
 		and is_equal_approx(root_high - root_low, 0.105),
 		"The blade has outward facets and a thin cutting lip backed by a thicker clamped root.")
 	var pan: MeshInstance3D = anchors.tray.get_node("OpenPan")
-	verify(is_equal_approx(anchors.tray.position.y + pan.position.y + pan.mesh.get_aabb().size.y * 0.5,
+	var seat: PackedVector3Array = pan.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	var folds: PackedVector3Array = pan.mesh.surface_get_arrays(1)[Mesh.ARRAY_VERTEX]
+	var fold_normals: PackedVector3Array = pan.mesh.surface_get_arrays(1)[Mesh.ARRAY_NORMAL]
+	verify(pan.mesh is ArrayMesh and pan.mesh.get_surface_count() == 2
+		and seat.size() == 12 and folds.size() == 72
+		and pan.mesh.surface_get_material(0) != null and pan.mesh.surface_get_material(1) != null,
+		"The receiver is a two-finish formed sheet rather than five closed boxes.")
+	var floor_is_level := true
+	for point in seat:
+		floor_is_level = floor_is_level and (is_equal_approx(point.y, 0.0425)
+			or is_equal_approx(point.y, 0.0075))
+	verify(floor_is_level and is_equal_approx(anchors.tray.position.y + 0.0425,
 		Geometry.ANCHOR_HEIGHT - 0.04),
-		"A native loose blank rests on the receiver pan at its confirmed drop height.")
+		"The open sheet retains a level native blank seat at the confirmed drop height.")
+	var open_cavity := true
+	var outward_faces := folds.size() == fold_normals.size()
+	for index in range(0, folds.size(), 3):
+		var point: Vector3 = folds[index]
+		open_cavity = open_cavity and (absf(point.x) >= 0.15 or absf(point.z) >= 0.17)
+		var cross: Vector3 = (folds[index + 1] - point).cross(folds[index + 2] - point)
+		outward_faces = outward_faces and cross.dot(fold_normals[index]) < -0.000001
+	verify(open_cavity and outward_faces and pan.mesh.get_aabb().size.y > 0.12,
+		"Both raised sheet folds face outward while leaving the receiver cavity open.")
 	for id in parsed.boxes:
 		var spec: Dictionary = parsed.boxes[id]
 		var body: StaticBody3D = physical.component_bodies[id]
@@ -246,8 +266,12 @@ func _component_view() -> void:
 	for node: Node in view.get_children():
 		if node.get_meta("component_entity", "") == "shaft":
 			mirrored_shaft = node
-	verify(mirrored_shaft != null and absf(mirrored_shaft.get_node("LooseDriveShaft").basis.y.z) > 0.99,
-		"The side drive follows the confirmed assembly rather than a fixed axis.")
+	var rod: Node3D = mirrored_shaft.get_node("LooseDriveShaft") if mirrored_shaft != null else null
+	var core: MeshInstance3D = rod.get_node("Shaft") if rod != null else null
+	verify(rod != null and core != null and core.mesh is CylinderMesh
+		and absf(rod.basis.y.z) > 0.99 and is_equal_approx(core.mesh.height, 0.32)
+		and mirrored_shaft.find_children("BearingShell*", "MeshInstance3D", false, false).size() == 2,
+		"A ready side drive has one formed shaft and two journals on its confirmed axis.")
 	facts.state.placed_components.erase("tray")
 	facts.state.collector_assemblies[0] = {"status": "missing_receiver"}
 	facts.state.revision = 3
@@ -257,6 +281,13 @@ func _component_view() -> void:
 	verify(physical.component_bodies.size() == 4 and not physical.component_bodies.has("tray")
 		and view.get_children().filter(func(node: Node): return node.has_meta("component_entity")).size() == 4,
 		"Removing the receiver clears its visual and collider without inventing readiness.")
+	for node: Node in view.get_children():
+		if node.get_meta("component_entity", "") == "shaft":
+			var unready_rod: Node3D = node.get_node("LooseDriveShaft")
+			verify(unready_rod.basis.y.y > 0.99
+				and is_equal_approx((unready_rod.get_node("Shaft") as MeshInstance3D).mesh.height, 0.14)
+				and node.find_children("BearingShell*", "MeshInstance3D", false, false).is_empty(),
+				"An unready placed shaft is stock on its foot, without a falsely connected journal axis.")
 	view.free()
 	physical.free()
 	await process_frame
