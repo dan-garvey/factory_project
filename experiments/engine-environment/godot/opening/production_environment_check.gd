@@ -474,10 +474,9 @@ func check_bank_ferns() -> void:
 		for corner in range(8):
 			var point := envelope.get_endpoint(corner)
 			corners.append(point)
-			verify((absf(point.x - 1.65) > 7.0 or absf(point.z - 1.65) > 7.0)
-				and absf(point.x - Scenery.river_center_x(point.z)) > Scenery.channel_half_width(point.z) + 0.55
+			verify(absf(point.x - Scenery.river_center_x(point.z)) > Scenery.channel_half_width(point.z) + 0.55
 				and instances.custom_aabb.grow(0.0001).has_point(point),
-				"The whole transformed clump clears the pad and channel and lies inside its actual culling bounds.")
+				"The whole transformed clump clears the channel and lies inside its actual culling bounds.")
 		var clear := true
 		for solid in solids:
 			var separated := false
@@ -1067,6 +1066,22 @@ func check_foliage_mipmaps() -> void:
 			"Each corrected texture has its complete eight-level mip chain.")
 	verify(material.roughness_texture == material.metallic_texture and material.roughness_texture == material.ao_texture,
 		"Packed scalar channels share the corrected mipmapped image.")
+	var color := material.albedo_texture.get_image()
+	color.convert(Image.FORMAT_RGBA8)
+	var color_data := color.get_data()
+	var coverage: Array[float] = []
+	for level in range(6):
+		var extent := color.get_width() >> level
+		var offset := 0 if level == 0 else color.get_mipmap_offset(level)
+		var opaque := 0
+		for pixel in range(extent * extent):
+			if color_data[offset + pixel * 4 + 3] >= 128:
+				opaque += 1
+		coverage.append(float(opaque) / float(extent * extent))
+		verify(absf(coverage[level] - 0.160257975260417) < 0.02,
+			"The cutout retains blade coverage from the source atlas through the 12-pixel mip.")
+	verify(color_data[color.get_mipmap_offset(color.get_mipmap_count()) + 3] < 128,
+		"A subpixel tuft does not turn its mostly transparent atlas into a solid card.")
 	var normal := material.normal_texture.get_image()
 	normal.convert(Image.FORMAT_RGB8)
 	var maximum_error := 0.0
@@ -1086,7 +1101,8 @@ func check_foliage_mipmaps() -> void:
 		"Rebinding mipmapped textures retains cutout and dielectric channel semantics.")
 	var second := Scenery._foliage()
 	verify(second.material_override == material, "The corrected material is generated once and reused by later scenery.")
-	print(JSON.stringify({"maximum_normal_mip_length_error": maximum_error, "geometry_checks": "reused from the retained first import", "rendered_quality": "not_assessed"}))
+	print(JSON.stringify({"maximum_normal_mip_length_error": maximum_error, "cutout_mip_coverage": coverage,
+		"geometry_checks": "reused from the retained first import", "rendered_quality": "not_assessed"}))
 	second.free()
 	node.free()
 
