@@ -19,6 +19,7 @@ checkpoint retains both. The existing scene still calls `initialize`. This
 slice has no pod presentation, crafting inventory, multitool or component
 recipes. It still seeds the older machine kits, so the scene should switch
 only with the linked arrival and fabrication work.
+The projected `hub_ready` value is false until a real crafting hub exists.
 
 The current opening adapter is a revisable profile: a finite 4,096-unit mineral
 deposit, a 32-blank collector buffer, one-unit downstream buffers, a two-tick
