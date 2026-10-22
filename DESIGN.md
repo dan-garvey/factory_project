@@ -1,6 +1,6 @@
 # Factory game — working design document
 
-Status: discovery draft, revised 2026-10-20 UTC to include feedback from the user's first played demo. Requirements come from the user; demo defaults are identified separately. Godot use is accepted for current development, with its constraints explicitly recorded; no permanent production implementation stack has been selected.
+Status: discovery draft, revised 2026-10-22 UTC for the user-directed chapter-one arrival and modular fabrication change. Requirements come from the user; prototype quantities and names are identified separately. Godot use is accepted for current development, with its constraints explicitly recorded; no permanent production implementation stack has been selected.
 
 ## Stated goals
 
@@ -40,16 +40,18 @@ These are test cases for the design. We do not need to reproduce the original re
 ### First chapter: basics before elaborate machinery
 
 - The immediate objective is a demoable opening that lets the user give feedback on the initial systems. The user has now played the basic loop and confirmed that it meets the earlier functional scope, but requires substantially higher production quality. Satisfactory is the minimum graphical quality target; rough placeholder presentation must no longer set the baseline for continuing development. Graphics, machine design, interaction feedback and construction sound should develop together. See the [production presentation target](docs/art/production-quality.md).
-- The first playable loop can be as simple as placing a resource collector, feeding its output into a machine, and collecting the machine's product. Complete, single-placement starter machines are acceptable for this phase; constructing a complicated processor or moving factory is not required.
+- The earlier complete collector → belt → complete press → plate loop established a functional prototype. The new chapter-one direction begins with an AI-corporate landing pod that deploys a shared-grid foundation and local crafting hub. The player wears a work suit, carries a multitool, manually harvests local resources and fabricates the first machine components. The collector and press are player-designed assemblies, not complete single-placement starter machines. See the [arrival and fabrication contract](docs/design/chapter-one-arrival.md).
+- The starting site supplies timber and ore for a dependency-safe bootstrap. Wooden frames, shafts and cogwheels are cheap and useful under lighter loads; metal counterparts support higher stress at greater material/process cost. Overload stalls affected machinery without destructive cascades. Materials and part geometry should create choices in layout, gearing and scale, rather than a cosmetic item tier.
+- The pod and hub establish a safe foothold, not a permanent build boundary or unlimited inventory. The player can expand elsewhere, replace hub functions and reclaim components. The AI manager gives concise off-site commissions and occasional mystery hints while leaving players free to choose layouts, order and optional automation.
 - Fixed-place, stationary contraptions and subfactories are the priority for early chapter development. They may contain moving tools and mechanical transmission; this is not a ban on internal motion. Travelling factories, trains, and passenger integration must not displace the stationary basics.
 - The player controls a physical character and places components/builds machinery within limited proximity. Integrating that character and construction reach into the basic opening is now required; the existing unrestricted free-camera builder is a historical prototype, not evidence that this requirement is met.
-- Player-built motion is welcome later within chapter 1, after the basic placement, transport, and processing experience works. It need not be deferred to a later chapter, but it must not block the initial loop or feedback on it.
+- Player-built motion is part of the first modular collector and press through arranged shafts, heads and drive mechanisms. Larger gantries, travelling factories and more elaborate mechanisms can still follow later in chapter 1; they do not block the first component-built loop.
 - The user's resource A → machine B → product C example describes one production chain, not three products or a requirement to fit the earlier new-process/scaling pattern into the opening.
 - The broader engineering identity remains intact. Motion invention, cog routing, meaningful verticality, new-product progression, scaling choices, and eventual full automation can be introduced in stages rather than all being first-demo acceptance criteria.
-- The played first shift lacks an engineering challenge. Preserve the working introduction and follow it with a concrete spatial or mechanical constraint using familiar parts and more than one valid arrangement. This does not retrospectively reject the earlier basic-loop scope.
+- The played first shift lacks an engineering challenge. Replace its plainclothes/random-site introduction with the pod arrival and component-built machines, then offer a concrete spatial or mechanical constraint using familiar parts and more than one valid arrangement. The old basic-loop evidence remains valid for the exact prototype it exercised.
 - Building a belt between compatible devices should establish the material connection as part of that operation, without a separate connection step. Keep mechanical power transmission and authoritative endpoint validation intact.
 - Help must eventually demonstrate assembly and operation in readable Ponder-style stages rather than only present a completed machine. The user has left this follow-up open while graphics receives substantial focus.
-- The delegated opening defaults below resolve only the next reversible demo. Wider resources, recipes, reach distances, construction-supply details and progression remain open. Physical-character/proximity construction is confirmed, not an open choice. This scope clarification does not waive multiplayer-first development and authoritative item accounting.
+- The arrival contract resolves the new direction while keeping exact recipes, yields, reach distances and final progression revisable. Physical-character/proximity construction, multiplayer-first development and authoritative item accounting remain requirements.
 
 #### Feedback from the first played demo
 
@@ -63,11 +65,11 @@ The user's subsequent play feedback revises the original opening defaults:
 
 These are requested outcomes, not claims that the current implementation or any automated fixture fulfills them. The native implementation and Bazel requirements below also follow the user's later directions.
 
-#### Delegated defaults for the basic opening demo
+#### Historical delegated defaults for the basic opening demo
 
 The user has asked agents to choose from the documented preferences and wait for permission less often, with later course correction available. Use that authority for reversible prototype content and implementation decisions, recording assumptions and evidence. Do not turn an experimental default into a permanent game or production-stack commitment. Keep the established local resource limits, task ownership and independent integration review; ask about new paid commitments, destructive actions or publication beyond the already authorized scope.
 
-Start with the following bounded defaults. They are chosen for the opening experiment, rather than assertions that their balance or wider progression is proven.
+The following bounded defaults describe the earlier played and automated fixture. They are retained to interpret its evidence and tests, but no longer prescribe the new player's chapter-one start. In particular, its complete collector and press, finite carried machine kits, free belt parts and four-plate session objective are not the new arrival design. The [arrival contract](docs/design/chapter-one-arrival.md) replaces them for ongoing chapter implementation.
 
 | Surface | Opening default |
 | --- | --- |
@@ -105,7 +107,7 @@ The quantities and work-cycle duration are tunable fixture values, not game perf
 - Collision should matter. Pushing separate machines is deferred at the user's request; focus first on collision behavior. For this discussion, a gantry and its contraption count as a single machine, rather than an example of one independent machine pushing another.
 - Machinery can injure players. The injury model and detailed player-contact behavior remain open.
 - Camera perspective is flexible. Moving around, working in, and building the world should remain enjoyable over long sessions.
-- Complete functional tool heads, such as saws or press heads, are the preferred vocabulary for constructed machinery. Players construct their power transmission, feeding, and moving assemblies as those systems are introduced. Complete starter machines are also acceptable for the basic opening loop; the exact catalogue and later role of complete machines remain open.
+- Complete functional tool heads, such as saws or press heads, remain useful components within constructed machinery. In the new chapter-one start, players fabricate and arrange structural, tool, drive, feeding and receiving parts to build the collector and press themselves. Exact component catalogue and later convenience assemblies remain revisable.
 
 ### Complexity and automation
 
@@ -164,7 +166,7 @@ The quantities and work-cycle duration are tunable fixture values, not game perf
 - The manager primarily acts as a chapter guide: communicates objectives, responds to deliveries or milestones, and provides occasional mystery hints while leaving room for uninterrupted construction.
 - The campaign has a semi-ending, followed by a much harder true ending requiring specific throughput of several end-game recipes. Players can continue building beyond campaign milestones.
 - Choosing a preferred manager personality is a possible future feature to keep in reserve, not a current requirement.
-- An alien-world premise is acceptable. The specific setting, megaproject, narrative reveals, manager personality, and meaning of the two endings remain open.
+- An alien-world premise is acceptable. “Meridian Combine” is a provisional employer name for the pod arrival, not final canon. The specific setting, megaproject, narrative reveals, manager personality, and meaning of the two endings remain open.
 
 ### Multiplayer and progression ownership
 
@@ -198,7 +200,7 @@ source review does not establish implementation or user-play evidence.
 
 ### Machinery assembled from useful parts
 
-Develop complete functional tool heads that combine with player-built power transmission, feeding, and moving assemblies. Their layout and behavior should matter. The opening may use complete starter machines before introducing that construction vocabulary; further levels of component construction remain open.
+Develop complete functional tool heads that combine with player-built structure, power transmission, feeding and moving assemblies. Their layout and behavior should matter. The new opening introduces that vocabulary through a small locally crafted collector and press; further levels of component construction remain open.
 
 Design question: which tool heads and shared mechanisms provide the most useful construction vocabulary?
 
@@ -440,7 +442,7 @@ Before production adoption, assess the actual edit/build/play loop and one repre
 
 Continue discovery through question cards with suggested directions when the interface is available. Keep the discussion at the level of the intended experience, identity, and scope before resolving detailed simulation behavior.
 
-- Revise the documented opening defaults from implementation/play evidence and choose the next bounded chapter increment, potentially player-built motion. Use user feedback when available without waiting on routine approvals.
+- Test and revise the pod arrival, finite material bill, component vocabulary and strength ramp from implementation and actual play evidence. Keep machinery arrangements open and use user feedback without waiting on routine approvals.
 - Chapter objectives, optional-branch rewards, and the progression milestones that introduce lasting supply.
 - The role of fluid/gas management and alien substances within the mechanical technological arc.
 - The specific designed world, technology-gated areas, and limited terrain-reshaping capabilities.
@@ -462,11 +464,11 @@ No production engine/language, world format, final camera/art style, multiplayer
 | Topic | Current status | What will resolve it |
 | --- | --- | --- |
 | Essential experience | Motion invention, exact-count controls, cog routing, and geometry-dependent scaling grounded in user examples | New-product processes with optional benefits to earlier production |
-| First playable / chapter 1 | Basic collector → machine → product first; complete starter machines and delegated opening defaults; player-built motion welcome later in chapter 1 | Implement and validate basics, incorporate available user feedback, then iterate; not every intended-game mechanic or approval card is an opening gate |
+| First playable / chapter 1 | AI-corporate pod arrival, manual harvesting, local component fabrication, modular collector and press, then first product; the complete-machine loop is historical prototype evidence | Integrate the new physical start and conserved bootstrap; assess layouts, rendered quality and human play separately without making every intended-game mechanic an opening gate |
 | Early construction access | Controlled physical character; proximity-limited component placement/machine building; later technology can overcome reach restrictions | Integrate character and authoritative reach into the stationary opening; range, controls, operation coverage and upgrade details remain tunable/open |
 | Early factory priority | Fixed/stationary contraptions and subfactories before mobile-factory expansion; internal machinery may move | Playable stationary production, construction and teaching evidence, then scoped later motion |
 | World and terrain | Start with a designed peaceful frontier; technology gates safe access to some regions/resources and limited terrain reshaping | Concrete world, access technologies, and excavation capabilities; future world structure stays open |
-| Modular machinery | Complete starter machines allowed for the opening; functional tool heads combine with constructed transmission, feeding, and moving assemblies as progression introduces them | Tool catalogue and shared construction vocabulary |
+| Modular machinery | The opening collector and press are player-designed assemblies of fabricated structure, functional heads, drive and handling parts; wood and metal offer distinct load limits | Actual component geometry, interchangeable material ratings, recovery and multiple valid arrangements |
 | Moving contraptions | Required; operation, harvesting, transfers, and passengers in motion; no construction in motion; machinery can injure players | Global-grid construction/docking rules; detailed collision consequences and pushing deferred |
 | Spatial verticality | 3D required; gravity-driven processing plus tool faces/clearance are the first focus | Concrete processes and layouts; decay remains limited to possible special intermediates |
 | Mechanical power | Direction and orientation constraints valued; connected drivetrain stalls without damage; isolation through couplings | Load rules, inspectability, and detailed collision handling |
@@ -521,3 +523,4 @@ These are the named inspirations, not a commitment to reproduce their content or
 - 2026-10-15 UTC: The user delegated reversible choices from the documented preferences and asked for fewer permission waits. Selected a finite softmetal collector/belt/complete-press/plate opening, simple waterwheel power, physically carried starter parts, retained work under backpressure or loss of power, and a four-plate non-consuming inventory goal. These are course-correctable demo defaults, not permanent content, progression, production-stack or long-term supply decisions. Keep resource limits and independent integration review; do not repeatedly seek user approval for routine decisions within this delegated scope.
 - 2026-10-15 UTC: The user accepted Godot use while requiring explicit documentation of framework-imposed constraints so they do not become assumed game rules. Required a controlled physical character and proximity restrictions for placing components/building machinery, with technology overcoming reach restrictions later; final camera and numerical reach remain open. Reaffirmed fixed/stationary contraptions and subfactories as early chapter priority. Established continuing factory-builder/Zachtronics-adjacent puzzle research, with thoroughly scoped per-game completion for deduplication and an ongoing pipeline that does not close after one round.
 - 2026-10-20 UTC: Incorporated feedback from the user's first played opening: reduce text and simultaneous tools; recover material from bad lines; allow stationary removal without stopping the global drive; replace arbitrary drive links with individually placed geometric transmission parts; improve prototype graphics and resized layouts. Exact transmission content and final art style remain open. Recorded C++/Rust for new implementation and canonical incremental Bazel builds without treating either as proof of completed adoption or performance.
+- 2026-10-22 UTC: The user redirected chapter one to an AI-corporate pod arrival with a fold-out foundation and crafting hub, a carried multitool, manual local harvesting, and a collector and press built from simple components. Timber and stronger metal parts should create a visible material-quality ramp. The earlier complete-machine fixture remains historical evidence, not the new opening requirement; the pod name, exact yields and recipes are reversible prototype choices.
