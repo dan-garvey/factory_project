@@ -4281,6 +4281,57 @@ func die_materials(part: MeshInstance3D, color: Color) -> bool:
 		and part.get_surface_override_material(1) == Opening.ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.32) \
 		and part.get_surface_override_material(2) == Opening.ProductionTransmissionFinish.material("worked", Color("b8c3bb"), 0.85, 0.38)
 
+func check_cutter_guard() -> void:
+	var head := MeshInstance3D.new()
+	head.mesh = DieArt.tool_mesh("cut_sample")
+	var cutter_mesh := head.mesh
+	verify(Opening.ProductionCutterGuardArt.mount(head),
+		"The visual cutter sample accepts one fitted guard without a machine or state owner.")
+	var guard := head.get_node_or_null("CutterSampleGuard")
+	if guard == null:
+		head.free()
+		return
+	verify(guard.get_child_count() == 10 and guard.get_node_or_null("FrontLeftCheek") != null
+		and guard.get_node_or_null("FrontRightCheek") != null
+		and guard.get_node_or_null("RearLeftCheek") != null
+		and guard.get_node_or_null("RearRightCheek") != null,
+		"Both sides retain their guard cheeks, open crossbars and fitted fasteners.")
+	var overall := AABB()
+	var first := true
+	var open_front := true
+	var open_rear := true
+	for child in guard.get_children():
+		var part := child as MeshInstance3D
+		verify(part != null and part.mesh != null and part.material_override != null,
+			"Every cutter guard member is a passive finished mesh.")
+		if part == null or part.mesh == null:
+			continue
+		var box: AABB = part.transform * part.mesh.get_aabb()
+		overall = box if first else overall.merge(box)
+		first = false
+		open_front = open_front and not box.has_point(Vector3(0, 0.12, 0.27))
+		open_rear = open_rear and not box.has_point(Vector3(0, 0.12, -0.27))
+	verify(not first and overall.position.y >= 0.029 and overall.end.y <= 0.251
+		and overall.position.x >= -0.281 and overall.end.x <= 0.281
+		and overall.position.z >= -0.31 and overall.end.z <= 0.31,
+		"The guard stays above the cutter edge and inside its bounded outer head envelope.")
+	verify(open_front and open_rear and cutter_mesh.get_aabb().position.y <= -0.085,
+		"Both guarded faces leave a central viewing and material opening over the unchanged lower cutter edge.")
+	verify(not Opening.ProductionCutterGuardArt.mount(head) and guard.get_child_count() == 10
+		and head.mesh == cutter_mesh and head.transform == Transform3D.IDENTITY,
+		"A duplicate guard is refused without changing the head mesh or pose.")
+	var press := MeshInstance3D.new()
+	press.mesh = DieArt.tool_mesh("press")
+	verify(not Opening.ProductionCutterGuardArt.mount(press) and press.get_child_count() == 0,
+		"The ordinary installed press cannot acquire sample-only cutter artwork.")
+	print(JSON.stringify({"status": "pass" if not failed else "fail", "scope": "passive cutter guard geometry",
+		"members": guard.get_child_count(), "front_open": open_front, "rear_open": open_rear,
+		"bounds_min": [overall.position.x, overall.position.y, overall.position.z],
+		"bounds_max": [overall.end.x, overall.end.y, overall.end.z],
+		"native_gameplay": "not_run", "desktop_control": "not_used"}))
+	press.free()
+	head.free()
+
 func check_press_die() -> void:
 	var cache: Dictionary = {}
 	var assemblies := 0
@@ -5295,6 +5346,7 @@ func render_buildable_resources() -> void:
 	var subjects: Array = [{"name": "collector", "kind": "collector"}, {"name": "press", "kind": "processor"},
 		{"name": "press-cartridge", "kind": "tool_cartridge", "tool": "press", "sample_only": true},
 		{"name": "cutter-cartridge-sample", "kind": "tool_cartridge", "tool": "cut_sample", "sample_only": true},
+		{"name": "guarded-cutter-sample", "kind": "tool_cartridge", "tool": "cut_sample", "guarded": true, "sample_only": true},
 		{"name": "conveyor", "kind": "belt"}, {"name": "waterwheel", "kind": "wheel"},
 		{"name": "waterwheel-large", "kind": "wheel", "tiles": 8},
 		{"name": "belt-span", "kind": "belt_span"}, {"name": "belt-pulley", "kind": "belt_pulley"},
@@ -5356,6 +5408,15 @@ func render_buildable_resources() -> void:
 			cartridge.set_surface_override_material(2,
 				Opening.ProductionTransmissionFinish.material("worked", Color("b8c3bb"), 0.85, 0.38))
 			model.add_child(cartridge)
+			if subject.get("guarded", false) and not Opening.ProductionCutterGuardArt.mount(cartridge):
+				report.status = "fail"
+				report.reason = "The sample cutter guard did not mount to its tool head."
+				resource_render_write(manifest, report)
+				model.free()
+				view.free()
+				push_error(report.reason)
+				quit(1)
+				return
 		else:
 			view._assemble_machine(model, {"kind": subject.kind, "cell": [0, 0], "axis": 0, "tiles": subject.get("tiles", 3), "generation": 1})
 		if subject.get("paddle_cutaway", false):
@@ -5664,6 +5725,10 @@ func _initialize() -> void:
 		return
 	if OS.get_cmdline_user_args().has("--press-die-only"):
 		check_press_die()
+		finish()
+		return
+	if OS.get_cmdline_user_args().has("--cutter-guard-only"):
+		check_cutter_guard()
 		finish()
 		return
 	if OS.get_cmdline_user_args().has("--conveyor-hub-only"):

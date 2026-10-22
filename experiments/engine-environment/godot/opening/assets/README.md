@@ -205,6 +205,11 @@ the cutter is not mounted in the game and has no cutting command, collision,
 inventory or material outcome. Front and rear press comparisons and underside
 cartridge views check the visible assembly. They do not establish ordinary
 play-distance readability or human visual approval.
+The isolated cutter sample can now carry a separate two-sided guard with
+formed cheeks, open upper crossbars and seated worked-metal heads. It moves
+with that cartridge and leaves the common mount and lower working edge clear.
+The guard is shown only in disclosed passive samples; it is not an installed
+cutter, safety mechanism or playable combined press/cut machine.
 
 The common machine base now has a thin mounting deck, two open formed channels
 and internal cross ties instead of a solid block. These closed pieces share one

@@ -1960,6 +1960,50 @@ class ProductionPressDieArt:
 			rib.set_meta("press_die_role", "AnvilPedestal")
 			parent.add_child(rib)
 
+class ProductionCutterGuardArt:
+	extends RefCounted
+	## Sample-only visual guard for the cutter cartridge. No native cutting rule.
+	static func _part(parent: Node3D, role: String, mesh: Mesh, at: Vector3,
+			finish: Material) -> MeshInstance3D:
+		var part := MeshInstance3D.new()
+		part.name = role
+		part.set_meta("cutter_guard_role", role)
+		part.mesh = mesh
+		part.position = at
+		part.material_override = finish
+		parent.add_child(part)
+		return part
+
+	static func mount(head: MeshInstance3D) -> bool:
+		if head == null or head.mesh != ProductionPressDieArt.tool_mesh("cut_sample") \
+			or head.get_node_or_null("CutterSampleGuard") != null:
+			return false
+		var cast := ProductionCollectorArt.coating(Color("806a40"))
+		var steel := ProductionTransmissionFinish.material("worked", Color("c4d4cd"), 0.85, 0.32)
+		if cast == null or steel == null:
+			return false
+		var guard := Node3D.new()
+		guard.name = "CutterSampleGuard"
+		head.add_child(guard)
+		var cheek := PackedVector2Array([Vector2(-0.28, 0.03), Vector2(-0.28, 0.20),
+			Vector2(-0.25, 0.25), Vector2(-0.20, 0.25), Vector2(-0.20, 0.03)])
+		for face in [-1.0, 1.0]:
+			var face_name := "Rear" if face < 0 else "Front"
+			for right in [false, true]:
+				var profile := cheek.duplicate()
+				if right:
+					for n in range(profile.size()):
+						profile[n].x = -profile[n].x
+				_part(guard, face_name + ("RightCheek" if right else "LeftCheek"),
+					ProductionVisuals.prism_mesh(profile, 0.035, 0.004), Vector3(0, 0, face * 0.27), cast)
+			_part(guard, face_name + "Crossbar", ProductionVisuals.box_mesh(Vector3(0.40, 0.04, 0.038)),
+				Vector3(0, 0.23, face * 0.27), cast)
+			for x in [-0.22, 0.22]:
+				var fastener := _part(guard, face_name + "Fastener", ProductionVisuals.fastener_head_mesh(),
+					Vector3(x, 0.21, face * 0.288), steel)
+				fastener.basis = Basis(Quaternion(Vector3.UP, Vector3.BACK * face))
+		return true
+
 class ProductionPressTrayArt:
 	extends RefCounted
 	## Fixed sheet and brackets. The receiving datum and output item never move.
