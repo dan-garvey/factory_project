@@ -4143,7 +4143,7 @@ const NAMES := {"collector": "Collector", "belt": "Belt", "processor": "Press", 
 const COLORS := {"collector": Color("96805c"), "belt": Color("538e88"), "processor": Color("bd7054"), "wheel": Color("8b9caa")}
 const LESSONS := [
 	["01  /  BUILD THE PATH", "Place a collector at the seam and a press nearby. Put two one-tile shafts between them with parallel axles, then connect the shafts with a belt. Foundations provide level building surfaces."],
-	["02  /  CARRY ROTATION", "Use a waterwheel in flowing water. Small cogs with matching axes mesh side by side; mixed sizes mesh diagonally. Two large cogs on perpendicular axes meet one tile along each axle. Meshes reverse rotation; sizes change speed. Shafts carry rotation."],
+	["02  /  CARRY ROTATION", "Use a waterwheel in flowing water. Small cogs with matching axes mesh side by side; mixed sizes mesh diagonally. Two large cogs on perpendicular axes meet one tile along each axle. Meshes reverse rotation; sizes change speed. Shafts carry rotation. Horizontal and vertical gearboxes turn it through side ports; matching encased chain cases link sideways."],
 	["03  /  FOLLOW ONE BLANK", "The collector removes a blank from the finite seam. The belt carries it to the press. Advance the example one tick at a time. The held blank stays in the press until its plate can leave."],
 	["04  /  MAKE ROOM", "A full press outlet holds up the line. Collect the example plate below: the held blank finishes without being lost. Stopping the drive keeps the parts and unfinished work where they are."]
 ]
@@ -4507,7 +4507,7 @@ func _transmission_terrain_high(x: float, z: float, half_x: float, half_z: float
 
 func _transmission_terrain_level(point: Vector3, x: float, z: float) -> int:
 	var level := ceili(point.y / PITCH)
-	if transmission_controls.active_tool not in ["place_shaft", "gear"]:
+	if transmission_controls.active_tool not in ["place_shaft", "gear", "gearbox", "vertical_gearbox", "chain_drive"]:
 		return level * Geometry.HEIGHT_DENOMINATOR
 	var axis: String = transmission_controls.selected_axis
 	var axle := Vector3(0.1, 0.1, 0.1)
@@ -4517,6 +4517,8 @@ func _transmission_terrain_level(point: Vector3, x: float, z: float) -> int:
 		var disc := Vector3.ONE * PITCH / 2.0
 		disc[["x", "y", "z"].find(axis)] = 0.04
 		footprints.append(disc)
+	elif transmission_controls.active_tool in ["gearbox", "vertical_gearbox", "chain_drive"]:
+		footprints = [Vector3.ONE * PITCH / 2.0]
 	for half: Vector3 in footprints:
 		var high := _transmission_terrain_high(x, z, half.x, half.z)
 		if is_finite(high):
@@ -4589,9 +4591,9 @@ func _belt_pulley_target(entity_id: String, hit_position: Vector3) -> Array:
 func _transmission_snap_target(entity_id: String, normal: Vector3, eye: Vector3) -> Array:
 	# Pick bodies identify confirmed construction. Use their common grid height
 	# when following surfaces; the menu can still choose an absolute air level.
-	if transmission_controls.active_tool in ["place_shaft", "gear"]:
+	if transmission_controls.active_tool in ["place_shaft", "gear", "gearbox", "vertical_gearbox", "chain_drive"]:
 		var part: Variant = state.get("transmission_parts", {}).get(entity_id)
-		if part is Dictionary and part.get("kind") in ["shaft", "gear"]:
+		if part is Dictionary and part.get("kind") in ["shaft", "gear", "gearbox", "vertical_gearbox", "chain_drive"]:
 			var center: Variant = part.get("center")
 			if not center is Array or center.size() != 3 or not normal.is_finite():
 				return []
@@ -4625,6 +4627,8 @@ func _transmission_snap_target(entity_id: String, normal: Vector3, eye: Vector3)
 	if level % Geometry.HEIGHT_DENOMINATOR != 0:
 		return []
 	var axis: int = ["x", "y", "z"].find(transmission_controls.selected_axis)
+	if transmission_controls.active_tool in ["gearbox", "vertical_gearbox"] and typeof(machine.get("axis")) == TYPE_INT:
+		axis = int(machine.axis)
 	if axis < 0:
 		return []
 	var center := Vector3(machine.cell[0] * PITCH, level * Geometry.HEIGHT_STEP + Geometry.ANCHOR_HEIGHT,
@@ -6038,6 +6042,12 @@ func _transmission_inspection(part: Dictionary, motion: Dictionary) -> String:
 	var name := "Shaft"
 	if part.kind == "gear":
 		name = {2: "Small Cogwheel", 4: "Large Cogwheel"}.get(part.get("teeth"), "Cogwheel")
+	elif part.kind == "gearbox":
+		name = "Horizontal Gearbox"
+	elif part.kind == "vertical_gearbox":
+		name = "Vertical Gearbox"
+	elif part.kind == "chain_drive":
+		name = "Encased Chain Drive · link %s" % ["X", "Y", "Z"][part.get("relay_axis", 0)]
 	return "%s · %s axis\nGrid %s\n%s" % [name, ["X", "Y", "Z"][part.axis], str(part.center), _confirmed_drive_status(motion)]
 
 func _machine_inspection(entity: Dictionary, stock: Dictionary, motion: Variant, native: bool) -> String:
@@ -6564,7 +6574,7 @@ func _update_cursor() -> void:
 	_refresh_machine_captions()
 	if _native_transmission() and transmission_controls != null and not transmission_controls.active_tool.is_empty():
 		hover.visible = false
-		if transmission_controls.active_tool in ["gear", "place_shaft"] and not explanation_open and _can_control_character():
+		if transmission_controls.active_tool in ["gear", "place_shaft", "gearbox", "vertical_gearbox", "chain_drive"] and not explanation_open and _can_control_character():
 			_set_transmission_hover(_transmission_center(get_viewport().get_mouse_position()))
 		return
 	hover.basis = Basis.IDENTITY

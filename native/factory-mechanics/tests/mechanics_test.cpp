@@ -429,6 +429,21 @@ void one_tile_relays() {
     part(chain, "middle").axis = Axis::x;
     part(chain, "middle").relay_axis = Axis::x;
     refusal(chain, {{"source", {-5, 3}}}, Error::invalid_part);
+
+    for (const auto shaft_axis : {Axis::x, Axis::y, Axis::z})
+        for (const auto link_axis : {Axis::x, Axis::y, Axis::z}) {
+            if (shaft_axis == link_axis) continue;
+            Point drive{}, next{}, sink{};
+            drive[static_cast<std::size_t>(shaft_axis)] = -4;
+            next[static_cast<std::size_t>(link_axis)] = 4;
+            sink = next; sink[static_cast<std::size_t>(shaft_axis)] = 4;
+            const std::vector<Part> route{{"drive", Kind::hub, drive, shaft_axis},
+                {"case-a", Kind::chain_drive, {}, shaft_axis, 0, 0, link_axis},
+                {"case-b", Kind::chain_drive, next, shaft_axis, 0, 0, link_axis},
+                {"sink", Kind::shaft, sink, shaft_axis, 0, 2}};
+            motion(mechanical::evaluate(route, {{"drive", {7, 3}}}),
+                   "sink", MotionState::rotating, {7, 3});
+        }
 }
 
 void belt_path_geometry() {

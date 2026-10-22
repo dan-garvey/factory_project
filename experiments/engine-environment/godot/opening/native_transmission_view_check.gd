@@ -233,6 +233,66 @@ func _shaft_segments() -> void:
 	verify(long_view.shaft_half_span == 2, "The shaft tool always uses the one-tile specification.")
 	long_view.free()
 
+func _relays() -> void:
+	var host := HostStub.new()
+	host.state = fixture()
+	for kind in ["gearbox", "vertical_gearbox", "chain_drive"]:
+		host.state.part_specifications.P.append({"kind": kind, "teeth": 0, "half_span": 0, "count": 1})
+	var view := Controls.new()
+	view.configure(host)
+	view.choose_tool("gearbox")
+	verify(view.selected_axis == "y", "The horizontal gearbox selects its four side ports.")
+	view.handle_world_click([0, 8, 4], "")
+	verify(host.calls.back() == {"action": "place_relay", "kind": "gearbox", "center": [0, 8, 4], "axis": "y"},
+		"The horizontal gearbox sends one exact grid tile and its closed Y axis.")
+	view.choose_tool("vertical_gearbox")
+	verify(view.selected_axis in ["x", "z"], "The vertical gearbox closes a horizontal pair of faces.")
+	view.handle_world_click([4, 8, 4], "")
+	verify(host.calls.back() == {"action": "place_relay", "kind": "vertical_gearbox", "center": [4, 8, 4], "axis": view.selected_axis},
+		"The vertical gearbox sends its separate finite item and orientation.")
+	view.choose_tool("chain_drive")
+	view._link_axis_selected(1)
+	view.handle_world_click([8, 8, 4], "")
+	verify(host.calls.back() == {"action": "place_relay", "kind": "chain_drive", "center": [8, 8, 4],
+		"axis": view.selected_axis, "relay_axis": view.selected_link_axis} and view.selected_link_axis != view.selected_axis,
+		"The encased chain case submits distinct shaft and link axes.")
+	var sent := host.calls.size()
+	host.client = "Q"
+	view.refresh()
+	verify(view.handle_world_click([12, 8, 4], "") and host.calls.size() == sent,
+		"A second actor cannot spend the first actor's relay kit.")
+	host.client = "P"
+	view.free()
+	host.state.transmission_parts["box"] = {"kind": "gearbox", "generation": 7,
+		"center": [0, 8, 4], "axis": 1, "teeth": 0, "half_span": 0}
+	host.state.transmission_parts["chain"] = {"kind": "chain_drive", "generation": 8,
+		"center": [4, 8, 4], "axis": 0, "relay_axis": 2, "teeth": 0, "half_span": 0}
+	host.state.motion["box"] = {"state": "rotating", "numerator": 1, "denominator": 1}
+	host.state.motion["chain"] = {"state": "rotating", "numerator": 1, "denominator": 1}
+	var presenter := Presenter.new()
+	presenter.configure(host)
+	var physical_state: Dictionary = host.state.duplicate(true)
+	physical_state.transmission_parts = {"box": host.state.transmission_parts.box,
+		"chain": host.state.transmission_parts.chain}
+	physical_state.belt_spans = {}
+	var collision: Dictionary = Geometry.mechanical_boxes(physical_state)
+	verify(collision.get("accepted", false) and collision.boxes.box.size == Vector3.ONE * Geometry.PITCH and
+		collision.boxes.chain.size == Vector3.ONE * Geometry.PITCH,
+		"Both confirmed relay cases register one-tile physical actor bodies.")
+	var invalid: Dictionary = physical_state.duplicate(true)
+	invalid.transmission_parts.chain.relay_axis = invalid.transmission_parts.chain.axis
+	verify(not Geometry.mechanical_boxes(invalid).accepted,
+		"A malformed chain link axis cannot produce a physical body.")
+	var box := _part(presenter, "box")
+	var chain := _part(presenter, "chain")
+	verify(box != null and box.has_node("FixedCase") and box.has_node("ShaftPort01") and
+		box.has_node("ShaftPort2-1") and box.get_node("Pick").get_meta("entity") == "box",
+		"A confirmed gearbox shows a fixed case, four ports and a one-tile pick body.")
+	verify(chain != null and chain.has_node("FixedCase") and chain.has_node("ChainLinkDirection") and
+		chain.get_node("Pick").get_meta("entity") == "chain",
+		"A confirmed chain case shows its link direction and can be selected.")
+	presenter.free()
+
 func _belt_spans() -> void:
 	var host := HostStub.new()
 	host.state = fixture()
@@ -1449,6 +1509,7 @@ func _run() -> void:
 	else:
 		_controls()
 		_gear_sizes()
+		_relays()
 		_shaft_segments()
 		_belt_spans()
 		_belt_retry()

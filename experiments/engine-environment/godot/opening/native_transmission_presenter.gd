@@ -80,6 +80,13 @@ func _apply_angles() -> void:
 				var offset := float(child.get_meta("belt_uv_origin")) + visual_rotation(str(child.get_meta("belt_shaft"))) * float(child.get_meta("belt_uv_factor"))
 				finish.uv1_offset.x = fposmod(offset, 1.0)
 		if not child is Node3D or not child.has_meta("axis"):
+			if child is Node3D and child.has_meta("relay_static"):
+				var relay_id: String = str(child.get_meta("entity", ""))
+				var relay_angle := visual_angle(relay_id)
+				for port: Node in child.get_children():
+					if port is Node3D and port.has_meta("relay_port_axis"):
+						port.basis = axis_basis(int(port.get_meta("relay_port_axis"))) * \
+							Basis(Vector3.UP, relay_angle * float(port.get_meta("relay_factor")))
 			continue
 		var id: String = str(child.get_meta("entity", ""))
 		var angle := visual_angle(id)
@@ -121,7 +128,7 @@ static func world_center(center: Array) -> Vector3:
 	return Vector3(center[0] * UNIT, Geometry.ANCHOR_HEIGHT + center[1] * UNIT, center[2] * UNIT)
 
 func _valid_part(part: Variant) -> bool:
-	if not part is Dictionary or part.get("kind") not in ["gear", "shaft"]:
+	if not part is Dictionary or part.get("kind") not in ["gear", "shaft", "gearbox", "vertical_gearbox", "chain_drive"]:
 		return false
 	if typeof(part.get("axis")) != TYPE_INT or part.axis not in [0, 1, 2]:
 		return false
@@ -131,6 +138,14 @@ func _valid_part(part: Variant) -> bool:
 	for value: Variant in center:
 		if typeof(value) != TYPE_INT or value < -1048576 or value > 1048576:
 			return false
+	if part.kind == "gearbox" and part.axis != 1:
+		return false
+	if part.kind == "vertical_gearbox" and part.axis == 1:
+		return false
+	if part.kind == "chain_drive":
+		return typeof(part.get("relay_axis")) == TYPE_INT and part.relay_axis in [0, 1, 2] and part.relay_axis != part.axis
+	if part.kind in ["gearbox", "vertical_gearbox"]:
+		return true
 	var size: Variant = part.get("teeth" if part.kind == "gear" else "half_span")
 	return typeof(size) == TYPE_INT and size > 0 and size <= 256
 
@@ -328,6 +343,54 @@ func _pick(parent: Node3D, id: String, radius: float, height: float, axle_length
 		axle_collider.shape = axle_shape
 		body.add_child(axle_collider)
 	parent.add_child(body)
+
+func _relay_case(anchor: Node3D, id: String, part: Dictionary) -> void:
+	anchor.set_meta("relay_static", true)
+	var case := MeshInstance3D.new()
+	case.name = "FixedCase"
+	var shape := BoxMesh.new()
+	shape.size = Vector3.ONE * (Geometry.PITCH - 0.12)
+	case.mesh = shape
+	_finish(case, Color("596972") if part.kind == "chain_drive" else Color("68736e"))
+	anchor.add_child(case)
+	var pick := StaticBody3D.new()
+	pick.name = "Pick"
+	pick.collision_layer = Geometry.PICK_LAYER
+	pick.collision_mask = 0
+	pick.set_meta("entity", id)
+	var collider := CollisionShape3D.new()
+	var hull := BoxShape3D.new()
+	hull.size = Vector3.ONE * Geometry.PITCH
+	collider.shape = hull
+	pick.add_child(collider)
+	anchor.add_child(pick)
+	var ports: Array = [part.axis] if part.kind == "chain_drive" else [0, 1, 2]
+	for axis: int in ports:
+		if part.kind != "chain_drive" and axis == part.axis:
+			continue
+		for side in [-1, 1]:
+			var port := Node3D.new()
+			port.name = "ShaftPort%d%d" % [axis, side]
+			port.set_meta("relay_port_axis", axis)
+			var first := 0 if part.axis != 0 else 1
+			var factor: int = 1 if part.kind == "chain_drive" else (1 if axis == first else -1) * side
+			port.set_meta("relay_factor", factor)
+			port.position[axis] = float(side) * (Geometry.PITCH / 2.0 - 0.09)
+			port.basis = axis_basis(axis)
+			anchor.add_child(port)
+			_cylinder(port, "ExposedSpindle", 0.15, 0.10, Color("b8c1b8"))
+			_segment(port, Vector3(-0.11, 0.055, 0), Vector3(0.11, 0.055, 0), 0.024, Color("e7c780"))
+	if part.kind == "chain_drive":
+		for side in [-1, 1]:
+			var marker := MeshInstance3D.new()
+			marker.name = "ChainLinkDirection"
+			var stripe := BoxMesh.new()
+			stripe.size = Vector3(0.04, 0.04, 0.04)
+			stripe.size[part.axis] = 0.34
+			marker.mesh = stripe
+			marker.position[part.relay_axis] = float(side) * (Geometry.PITCH / 2.0 - 0.045)
+			_finish(marker, Color("d3a761"))
+			anchor.add_child(marker)
 
 func _belt_span(id: String, span: Variant, parts: Dictionary, rendered: Dictionary) -> void:
 	if not span is Dictionary or typeof(span.get("from")) != TYPE_STRING or typeof(span.get("to")) != TYPE_STRING:
@@ -619,9 +682,10 @@ func refresh() -> void:
 		anchor.name = "Part%d" % rendered.size()
 		anchor.set_meta("entity", id)
 		anchor.set_meta("kind", part.kind)
-		anchor.set_meta("axis", part.axis)
+		if part.kind in ["gear", "shaft"]:
+			anchor.set_meta("axis", part.axis)
 		anchor.position = world_center(part.center)
-		anchor.basis = axis_basis(part.axis)
+		anchor.basis = axis_basis(part.axis) if part.kind in ["gear", "shaft"] else Basis.IDENTITY
 		add_child(anchor)
 		_confirmed_support(id, part)
 		rendered[id] = anchor
@@ -636,7 +700,7 @@ func refresh() -> void:
 			_pick(anchor, id, radius, 0.24, Geometry.PITCH)
 			if rotating:
 				_direction(anchor, radius * 0.65, 1 if motion.numerator > 0 else -1)
-		else:
+		elif part.kind == "shaft":
 			var length: float = float(part.half_span) * UNIT * 2.0
 			Assets.shaft(anchor, length, color)
 			var keyway := MeshInstance3D.new()
@@ -648,6 +712,8 @@ func refresh() -> void:
 			_finish(keyway, Color("e2c58a"))
 			anchor.add_child(keyway)
 			_pick(anchor, id, 0.08, length)
+		else:
+			_relay_case(anchor, id, part)
 	if spans is Dictionary:
 		for id: Variant in spans:
 			if typeof(id) == TYPE_STRING:

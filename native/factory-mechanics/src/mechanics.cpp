@@ -78,6 +78,7 @@ bool multiply(Rate a, Rate b, Rate& result) noexcept {
 
 bool valid(const Part& part) noexcept {
     if (!valid_identity(part.id) || coordinate(part.axis) >= 3) return false;
+    if (part.kind != Kind::chain_drive && part.relay_axis != Axis::x) return false;
     for (const auto value : part.center)
         if (value < -maximum_coordinate || value > maximum_coordinate) return false;
     switch (part.kind) {

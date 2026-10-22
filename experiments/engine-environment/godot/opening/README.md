@@ -94,7 +94,7 @@ This is surface presentation, not additional water depth or flow simulation.
 
 In the native profile, G selects an individual **finite shaft tile**. Click the
 highlighted tile to place it. Selecting a Cogwheel or Shaft hotbar slot exposes
-**Cogwheels and shafts…** for placement settings and transmission removal. The
+**Mechanical transmission…** for placement settings and transmission removal. The
 catalog can assign either tool at any time. The menu chooses X/Y/Z rotation axis
 and placement height in full-tile steps. Shafts and cogs occupy one 1.65 m tile
 and snap to the common world grid in all three dimensions. That axis also applies
@@ -102,7 +102,16 @@ to subsequent machine placement. A translucent cursor marks
 the requested gear plane, not permission to build there. Real character
 proximity remains authoritative. Adjacent aligned cog, shaft and machine axle
 ends connect directly; fill a longer gap with individual shaft tiles.
-Shafts and cogwheels must clear the terrain and site obstacles, including their
+The same menu places finite horizontal gearboxes, vertical gearboxes and
+encased chain cases. A horizontal gearbox closes its Y faces and connects four
+side faces; a vertical gearbox closes one horizontal face pair and connects
+two vertical and two side faces. The menu's Axis selects the closed pair.
+Opposite gearbox faces reverse the signed shaft rate, and a right-angle turn
+keeps its magnitude. An encased chain case exposes shafts along Axis and links
+to adjacent cases along a separate Chain link direction. Matching adjacent
+cases carry the same shaft rate; a mismatched direction does not connect.
+Each case occupies one common world tile and uses its own finite carried item.
+Shafts, cogwheels and cases must clear the terrain and site obstacles, including their
 axles. On the starter bank, raising the transmission and supporting machines
 on foundations can leave room beneath the cogs while keeping their axles aligned.
 

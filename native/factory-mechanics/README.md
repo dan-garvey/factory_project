@@ -58,8 +58,8 @@ and the adjacent-axis signs follow Create's directional gearbox modifier at
 equal speed. A chain drive has a shaft `axis` and a different `relay_axis`:
 coaxial shaft faces couple normally, while adjacent chain drives connect
 along their matching relay axis at equal signed speed. Other side neighbors do
-not connect. These are geometric rules only; World construction, custody,
-checkpoint and scene controls must adopt the parts before they become playable.
+not connect. The native World and Host apply these rules to construction,
+custody and checkpoints, and expose the parts to scene controls.
 
 The kernel solves exact signed rational rates. Its prescribed-rate mode requires
 every supplied observation to hold, for mechanism and puzzle constraints. The

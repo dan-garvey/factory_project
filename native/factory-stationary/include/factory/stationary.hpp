@@ -16,7 +16,8 @@ namespace factory::stationary {
 
 // Pure stationary removal. World owns admission and the atomic live commit.
 // This package never edits a moving assembly or creates a second authority.
-enum class Role { collector, belt, processor, waterwheel, gear, shaft };
+enum class Role { collector, belt, processor, waterwheel, gear, shaft,
+                  gearbox, vertical_gearbox, chain_drive };
 
 // This is the finite inventory specification, independent of identity, location
 // and orientation. A gear's tooth count or shaft's length cannot change on refund.
