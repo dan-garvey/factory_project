@@ -306,6 +306,11 @@ conflict. This is an art and interface study until native construction admits
 that compound structure. Keep the shared palette and mount conventions across
 structures, transmission and logistics before expanding the machine catalogue.
 
+A [passive press-and-cutter sample](press-cut-frame-study.md) now tests two
+distinct tool forms on the fitted frame. Its rotary cutter reads more clearly
+than a second press at the sampled construction distance, but it adds no native
+compound construction, item transfer or tool motion.
+
 Start with a deterministic asset-comparison scene that consumes disclosed
 construction descriptors and submits no gameplay commands. Exercise existing
 admitted foundation tiles, shaft spans and axes as real inputs. Label compound
