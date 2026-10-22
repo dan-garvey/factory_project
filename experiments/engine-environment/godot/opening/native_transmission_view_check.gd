@@ -94,6 +94,7 @@ func _controls() -> void:
 	view.configure(host)
 	verify(view.gear_height == 0, "The default cog height shares the worksite machine level.")
 	view.gear_height = 4
+	view.snapped_height = 4
 	verify(view.visible and not view.disabled and "2 carried" in view.get_popup().get_item_text(0), "P sees its own finite kit.")
 	view.get_popup().emit_signal("id_pressed", 1)
 	var before: Dictionary = host.state.duplicate(true)
@@ -161,6 +162,7 @@ func _gear_sizes() -> void:
 	var view := Controls.new()
 	view.configure(host)
 	view.gear_height = 4
+	view.snapped_height = 4
 	view.choose_tool("gear")
 	view._axes.id_pressed.emit(1)
 	view._heights.id_pressed.emit(1)
@@ -438,8 +440,13 @@ func _span_guidance() -> void:
 	view.state.stock = {"source": 0, "collector": 0, "belt": 0, "input": 0, "held": 0, "output": 0}
 	var kinds := {"collector": true, "processor": true, "wheel": true}
 	var route: Dictionary = view._guided_span_routes()
-	verify(route.physical and route.powered and route.cargo and view._guided_step(kinds).text.begins_with("Follow a blank"),
+	verify(route.physical and route.powered and route.cargo and view._guided_step(kinds).text.begins_with("Follow the material"),
 		"A powered two-span line and its in-flight material need no legacy belt or manual links.")
+	for item in [{"raw": 0, "products": 1, "work_lots": []}, {"raw": 0, "products": 0, "work_lots": [{"id": 7}]}]:
+		view.state.belt_spans.second.slots[0] = item
+		verify(view._guided_span_routes().cargo and view._guided_step(kinds).text.begins_with("Follow the material"),
+			"Finished plates and workpieces on the belt receive accurate cargo guidance.")
+	view.state.belt_spans.second.slots[0] = {"raw": 1, "products": 0, "work_lots": []}
 	view.state.motion.b0.numerator = 1
 	verify(view._guided_span_routes().physical and not view._guided_span_routes().powered and "direction" in view._guided_step(kinds).text,
 		"A reversed downstream span cannot be advertised as a working route.")
