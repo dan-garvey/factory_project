@@ -350,6 +350,11 @@ bool historical_wire(const authority::Record& record) {
         return *original_action == *action && keys(*wire, {"entity", "entry"}) &&
             field<std::string>(*wire, "entity") && field<Array>(*wire, "entry") &&
             same("entity", "target") && same("entry", "entry");
+    if (*action == "turn_press_crank")
+        return *original_action == *action && keys(*wire, {"entity", "drive", "exit"}) &&
+            field<std::string>(*wire, "entity") && field<std::string>(*wire, "drive") &&
+            field<Array>(*wire, "exit") && same("entity", "target") &&
+            same("drive", "drive") && same("exit", "exit");
     if (*action == "place_component")
         return *original_action == "place_component" && keys(*wire, {"component", "center"}) &&
             field<std::string>(*wire, "component") && field<Array>(*wire, "center") &&
@@ -1319,6 +1324,30 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.emplace("generation", Value(found == snapshot.state.placed_components.end() ?
             Integer{0} : found->second.generation));
         normalized.emplace("entry", wire.at("entry"));
+    } else if (*action == "turn_press_crank") {
+        if (!keys(wire, {"entity", "drive", "exit"}) ||
+            !field<std::string>(wire, "entity") || !field<std::string>(wire, "drive") ||
+            !field<Array>(wire, "exit")) return refuse("invalid_command");
+        const auto& exit = *field<Array>(wire, "exit");
+        if (exit.size() == 3) {
+            mechanics::Point center{};
+            bool valid = true;
+            for (std::size_t axis = 0; axis < 3; ++axis) {
+                const auto* coordinate = std::get_if<Integer>(&exit[axis].storage());
+                if (!coordinate || *coordinate < -mechanics::maximum_coordinate ||
+                    *coordinate > mechanics::maximum_coordinate) valid = false;
+                else center[axis] = *coordinate;
+            }
+            if (valid) if (const auto* refusal = component_site_refusal(std::nullopt, center))
+                return refuse(refusal);
+        }
+        normalized.at("action") = Value("turn_press_crank");
+        normalized.emplace("target", wire.at("entity"));
+        const auto found = snapshot.state.placed_components.find(*field<std::string>(wire, "entity"));
+        normalized.emplace("generation", Value(found == snapshot.state.placed_components.end() ?
+            Integer{0} : found->second.generation));
+        normalized.emplace("drive", wire.at("drive"));
+        normalized.emplace("exit", wire.at("exit"));
     } else if (*action == "place_component") {
         if (!keys(wire, {"component", "center"}) || !field<std::string>(wire, "component") ||
             !field<Array>(wire, "center")) return refuse("invalid_command");
@@ -1943,7 +1972,7 @@ Value Host::projection() const {
             {"phase", Value(lane.phase)}, {"slots", Value(std::move(slots))}}));
     }
     for (const auto& link : state.topology.material_links) links.emplace_back(Array{Value(link.from.id), Value(link.to.id)});
-    const auto power = world::drive_power(state.topology);
+    const auto power = world::drive_power(profile_, state);
     Object motions;
     for (const auto& [id, motion] : power.mechanical.motion) {
         Object projected{{"state", Value(mechanics::motion_state_name(motion.state))},
@@ -1953,6 +1982,16 @@ Value Host::projection() const {
             projected.emplace("capacity", Value(load->second.capacity));
             projected.emplace("impact", Value(load->second.impact));
             projected.emplace("overloaded", Value(load->second.overloaded));
+            if (load->second.overloaded) {
+                projected.emplace("limiting_part", Value(load->second.limiting_part));
+                if (!load->second.limiting_part.empty()) {
+                    const auto found = state.placed_components.find(load->second.limiting_part);
+                    if (found != state.placed_components.end())
+                        projected.emplace("limiting_kind", Value(materials::component_name(found->second.kind)));
+                }
+                projected.emplace("remedy", Value(load->second.limiting_part.empty() ?
+                    "add_power_or_reduce_load" : "replace_with_softmetal_or_split_load"));
+            }
         }
         motions.emplace(id, Value(std::move(projected)));
     }
@@ -1999,7 +2038,7 @@ Value Host::projection() const {
     Array mineral_cells;
     for (const auto& cell : mineral_site::opening_cells)
         mineral_cells.emplace_back(Array{Value(cell.x), Value(cell.z)});
-    const auto local = world::machine_power(state.topology);
+    const auto local = world::machine_power(profile_, state);
     for (const auto& [id, foundation] : state.foundations)
         foundations.emplace(id, Value(Object{{"cell", Value(Array{Value(foundation.center[0] / 4), Value(foundation.center[2] / 4)})},
             {"level", Value(foundation.center[1])}, {"generation", Value(foundation.generation)}}));

@@ -178,6 +178,8 @@ void transfers_only_to_outward_belt() {
     check(world->snapshot().state.material.belt_lanes.empty() &&
           world->snapshot().state.material.cargo.at("P").raw_units == 1,
           "Recovering the blank before dismantling keeps it in actor cargo.");
+    check(w::World::restore("collector-belt", f.profile, world->snapshot()) != nullptr,
+          "A saved belt recovery restores the actor's raw balance.");
     check(world->tick().error == w::TransactionError::none,
           "A later tick does not invent another blank when the receiver is empty.");
     auto reverse = fixture(-1);
@@ -211,6 +213,8 @@ void transfers_only_to_outward_belt() {
     load.emplace("item", V("raw"));
     load.emplace("work_id", V(g::Integer{0}));
     accepted(*blocked, load);
+    check(w::World::restore("collector-belt", full.profile, blocked->snapshot()) != nullptr,
+          "A saved belt load restores after spending one actor-carried raw unit.");
     check(blocked->tick().error == w::TransactionError::none &&
           blocked->snapshot().state.material.dropped_material.contains({0, 0, 1}),
           "An occupied inlet holds the collector item without loss.");

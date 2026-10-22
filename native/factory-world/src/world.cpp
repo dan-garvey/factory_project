@@ -123,6 +123,10 @@ bool shape(const Object& intent, const std::string& action) {
         return keys(intent, {"target", "generation", "entry"}) &&
             field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
             field<Value::Array>(intent, "entry");
+    if (action == "turn_press_crank")
+        return keys(intent, {"target", "generation", "drive", "exit"}) &&
+            field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
+            field<std::string>(intent, "drive") && field<Value::Array>(intent, "exit");
     if (action == "place_component") return keys(intent, {"component", "center"}) &&
         field<std::string>(intent, "component") && field<Value::Array>(intent, "center");
     if (action == "reclaim_component") return keys(intent, {"target", "generation"}) &&
@@ -474,6 +478,30 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
             *generation > 0 && selected_entry && selected_work && moved && *moved == 1 &&
             targets.front() == anchor(profile, *selected_entry) && result.size() == 18;
     }
+    if (action == "turn_press_crank") {
+        const auto* target = field<std::string>(record.intent, "target");
+        const auto* requested_generation = field<Integer>(record.intent, "generation");
+        const auto* requested_exit = field<Value::Array>(record.intent, "exit");
+        const auto* entity = field<std::string>(result, "entity");
+        const auto* generation = field<Integer>(result, "generation");
+        const auto* shaft = field<Value::Array>(result, "shaft_center");
+        const auto* work = field<Value::Array>(result, "work_center");
+        const auto* exit = field<Value::Array>(result, "exit_center");
+        const auto* raw = field<Integer>(result, "work_raw");
+        const auto* lots = field<Value::Array>(result, "work_lots");
+        const auto* products = field<Integer>(result, "formed_products");
+        const auto shaft_point = shaft ? grid_point(Object{{"center", Value(*shaft)}}) : std::nullopt;
+        const auto work_point = work ? grid_point(Object{{"center", Value(*work)}}) : std::nullopt;
+        const auto exit_point = exit ? grid_point(Object{{"center", Value(*exit)}}) : std::nullopt;
+        const auto requested_point = requested_exit ?
+            grid_point(Object{{"center", Value(*requested_exit)}}) : std::nullopt;
+        return profile.landing_pod_center && target && entity && *target == *entity &&
+            requested_generation && generation && *requested_generation == *generation &&
+            *generation > 0 && shaft_point && work_point && exit_point &&
+            requested_point == exit_point && raw && *raw == 0 && lots && lots->size() <= 1 &&
+            products && (*products == 0 || *products == 1) &&
+            targets.front() == anchor(profile, *shaft_point) && result.size() == 22;
+    }
     if (action == "place_component" || action == "reclaim_component") {
         const auto* name = field<std::string>(result, "component");
         const auto* count = field<Integer>(result, "component_count");
@@ -614,11 +642,20 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
     auto foundation_kits = profile.starting_foundation_kits;
     std::map<std::string, Integer> harvested_timber;
     std::map<std::string, Integer> carried_timber;
+    // A landing starts every actor with empty raw cargo, so its command history
+    // can account for each later unit without inventing a second material State.
+    std::map<std::string, Integer> carried_raw;
     Integer harvested_ore = 0;
     Integer cranked_ore = 0;
     std::map<std::pair<std::string, materials::Component>, Integer> crafted_components;
     std::map<std::string, std::pair<materials::Component, mechanics::Point>> placed_components;
-    std::set<mechanics::Point> fed_press_points;
+    struct PressWorkRecord {
+        materials::WorkId id{}; // Zero means a fed raw blank.
+        Integer remaining{};
+    };
+    std::map<mechanics::Point, PressWorkRecord> press_work;
+    std::set<mechanics::Point> press_products;
+    std::set<materials::WorkId> press_work_ids;
     const auto within_component_capacity = [&](const std::string& actor) {
         Integer carried = 0;
         for (const auto& [owner_kind, count] : crafted_components)
@@ -689,18 +726,21 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
         if (*action == "harvest_source") {
             const auto& id = *field<std::string>(record.intent, "target");
             if (profile.material.manual_ore && id == profile.material.manual_ore->id) {
-                if (!add(harvested_ore, 1)) return false;
+                if (!add(harvested_ore, 1) ||
+                    (profile.landing_pod_center && !add(carried_raw[*actor], 1))) return false;
             } else if (!add(harvested_timber[id], 1) || !add(carried_timber[*actor], 1)) return false;
         }
         if (*action == "craft_component") {
             const auto component = materials::component_from_name(*field<std::string>(record.intent, "component"));
             const auto cost = component ? materials::component_cost(*component) : std::nullopt;
             if (!cost || carried_timber[*actor] < cost->timber ||
+                (profile.landing_pod_center && carried_raw[*actor] < cost->ore) ||
                 !add(crafted_components[{*actor, *component}], 1) ||
                 crafted_components[{*actor, *component}] != *field<Integer>(record.result, "component_count") ||
                 !within_component_capacity(*actor))
                 return false;
             carried_timber[*actor] -= cost->timber;
+            if (profile.landing_pod_center) carried_raw[*actor] -= cost->ore;
         }
         if (*action == "take_hand_crank" || *action == "return_hand_crank") {
             if (!profile.landing_pod_center) return false;
@@ -730,6 +770,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
                 !add(cranked_ore, 1)) return false;
         }
         if (*action == "feed_press") {
+            if (carried_raw[*actor] < 1) return false;
+            --carried_raw[*actor];
             const auto* entry = field<Value::Array>(record.intent, "entry");
             const auto* work = field<Value::Array>(record.result, "work_center");
             const auto selected_entry = entry ? grid_point(Object{{"center", Value(*entry)}}) : std::nullopt;
@@ -749,18 +791,102 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
                 inspected.press->work_center != *selected_work ||
                 std::none_of(inspected.press->open_feeds.begin(), inspected.press->open_feeds.end(),
                     [&](const assembly::PressFeed& feed) { return feed.entry == *selected_entry; }) ||
-                !fed_press_points.insert(*selected_work).second) return false;
+                !press_work.emplace(*selected_work, PressWorkRecord{}).second) return false;
+        }
+        if (*action == "turn_press_crank") {
+            const auto* drive = field<std::string>(record.intent, "drive");
+            const auto* exit = field<Value::Array>(record.intent, "exit");
+            const auto* work = field<Value::Array>(record.result, "work_center");
+            const auto* shaft = field<Value::Array>(record.result, "shaft_center");
+            const auto* lots = field<Value::Array>(record.result, "work_lots");
+            const auto* products = field<Integer>(record.result, "formed_products");
+            const auto selected_exit = exit ? grid_point(Object{{"center", Value(*exit)}}) : std::nullopt;
+            const auto selected_work = work ? grid_point(Object{{"center", Value(*work)}}) : std::nullopt;
+            const auto selected_shaft = shaft ? grid_point(Object{{"center", Value(*shaft)}}) : std::nullopt;
+            const auto frame = placed_components.find(*entity);
+            if (crank_holder != *actor || !drive || !selected_exit || !selected_work ||
+                !selected_shaft || !lots || !products || frame == placed_components.end() ||
+                frame->second.first != materials::Component::wooden_frame) return false;
+            std::vector<assembly::Part> parts;
+            parts.reserve(placed_components.size());
+            for (const auto& [id, placed] : placed_components) {
+                const auto issued = snapshot.state.issued_entities.find(id);
+                if (issued == snapshot.state.issued_entities.end()) return false;
+                parts.push_back({id, placed.first, placed.second, issued->second});
+            }
+            const auto inspected = assembly::inspect_press(parts, frame->second.second);
+            if (!inspected.press || inspected.press->frame != *entity ||
+                inspected.press->shaft != *drive ||
+                inspected.press->shaft_center != *selected_shaft ||
+                inspected.press->work_center != *selected_work ||
+                std::none_of(inspected.press->open_feeds.begin(), inspected.press->open_feeds.end(),
+                    [&](const assembly::PressFeed& feed) { return feed.exit == *selected_exit; })) return false;
+            const auto active = press_work.find(*selected_work);
+            if (active == press_work.end()) return false;
+            auto& entry = active->second;
+            if (entry.id == 0) {
+                if (lots->size() != 1) return false;
+                const auto* lot = std::get_if<Object>(&lots->front().storage());
+                const auto* id = lot ? field<Integer>(*lot, "id") : nullptr;
+                if (!id || *id <= 0 || *id >= snapshot.state.material.next_work_id ||
+                    !press_work_ids.insert(*id).second) return false;
+                entry = {*id, profile.material.cycle_ticks};
+            } else if (entry.remaining > 0) {
+                --entry.remaining;
+            }
+            if (entry.id <= 0) return false;
+            const materials::WorkLot expected{entry.id,
+                {profile.material.input_units_per_product, profile.material.cycle_ticks}, entry.remaining};
+            if (lots->size() == 1) {
+                if (*products != 0 ||
+                    values::typed_difference(lots_value({expected}), Value(*lots))) return false;
+            } else {
+                if (entry.remaining != 0 || *products != 1 ||
+                    !press_products.insert(*selected_exit).second) return false;
+                press_work.erase(active);
+            }
         }
         if (*action == "pickup_material") {
             const auto point = grid_point(record.intent, materials::maximum_drop_coordinate);
             if (!point) return false;
-            if (fed_press_points.contains(*point)) {
+            const auto active = press_work.find(*point);
+            if (active != press_work.end()) {
                 const auto* raw = field<Integer>(record.result, "moved_raw");
                 const auto* products = field<Integer>(record.result, "moved_products");
                 const auto* work = field<Value::Array>(record.result, "moved_work");
-                if (!raw || *raw != 1 || !products || *products != 0 || !work || !work->empty())
+                if (!raw || !products || *products != 0 || !work) return false;
+                if (active->second.id == 0) {
+                    if (*raw != 1 || !work->empty()) return false;
+                } else {
+                    const materials::WorkLot expected{active->second.id,
+                        {profile.material.input_units_per_product, profile.material.cycle_ticks},
+                        active->second.remaining};
+                    if (*raw != 0 || values::typed_difference(lots_value({expected}), Value(*work)))
+                        return false;
+                }
+                press_work.erase(active);
+            }
+            if (press_products.erase(*point)) {
+                const auto* raw = field<Integer>(record.result, "moved_raw");
+                const auto* products = field<Integer>(record.result, "moved_products");
+                const auto* work = field<Value::Array>(record.result, "moved_work");
+                if (!raw || *raw != 0 || !products || *products != 1 || !work || !work->empty())
                     return false;
-                fed_press_points.erase(*point);
+            }
+        }
+        if (profile.landing_pod_center &&
+            (*action == "pickup_material" || *action == "recover" ||
+             *action == "recover_belt_slot" || *action == "load_belt_slot" ||
+             *action == "insert_raw")) {
+            const auto* raw = field<Integer>(record.result, "moved_raw");
+            if (!raw || *raw < 0) return false;
+            auto& carried = carried_raw[*actor];
+            if (*action == "pickup_material" || *action == "recover" ||
+                *action == "recover_belt_slot") {
+                if (!add(carried, *raw)) return false;
+            } else {
+                if (carried < *raw) return false;
+                carried -= *raw;
             }
         }
         if (*action == "place_component" || *action == "reclaim_component") {
@@ -868,14 +994,29 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
         if (remaining == snapshot.state.material.timber_remaining.end() ||
             harvested_timber[id] != site.initial - remaining->second) return false;
     }
-    for (const auto& point : fed_press_points) {
+    for (const auto& [point, work] : press_work) {
+        const auto item = snapshot.state.material.dropped_material.find(point);
+        if (item == snapshot.state.material.dropped_material.end() || item->second.products != 0 ||
+            item->second.raw_units != (work.id == 0 ? 1 : 0)) return false;
+        if (work.id == 0) {
+            if (!item->second.work_lots.empty()) return false;
+        } else {
+            const materials::WorkLot expected{work.id,
+                {profile.material.input_units_per_product, profile.material.cycle_ticks}, work.remaining};
+            if (item->second.work_lots != std::vector<materials::WorkLot>{expected}) return false;
+        }
+    }
+    for (const auto& point : press_products) {
         const auto item = snapshot.state.material.dropped_material.find(point);
         if (item == snapshot.state.material.dropped_material.end() ||
-            item->second.raw_units != 1 || item->second.products != 0 ||
+            item->second.raw_units != 0 || item->second.products != 1 ||
             !item->second.work_lots.empty()) return false;
     }
     for (const auto& [actor, cargo] : snapshot.state.material.cargo)
         if (carried_timber[actor] != cargo.timber) return false;
+    if (profile.landing_pod_center)
+        for (const auto& [actor, cargo] : snapshot.state.material.cargo)
+            if (carried_raw[actor] != cargo.raw_units) return false;
     if (foundation_kits != snapshot.state.foundation_kits) return false;
     if (harvested_ore > profile.initial_units - snapshot.state.material.stock.source ||
         cranked_ore > profile.initial_units - snapshot.state.material.stock.source - harvested_ore)
@@ -911,8 +1052,24 @@ materials::Path material_path(const stationary::Topology& topology) {
     return path;
 }
 
-DrivePower drive_power(const stationary::Topology& topology) {
-    DrivePower power{stationary::power_view(topology).mechanical, {}};
+namespace {
+
+constexpr long double wooden_rating = 8;
+constexpr long double softmetal_rating = 24;
+
+long double material_rating(materials::Component kind) {
+    return kind == materials::Component::wooden_shaft ||
+           kind == materials::Component::wooden_cog ? wooden_rating : softmetal_rating;
+}
+
+mechanics::Axis horizontal_axis(const mechanics::Point& from, const mechanics::Point& to) {
+    return from[0] != to[0] ? mechanics::Axis::x : mechanics::Axis::z;
+}
+
+DrivePower apply_load(const stationary::Topology& topology, mechanics::Result mechanical,
+        const std::map<std::string, long double>& ratings,
+        const std::map<std::string, long double>& assembly_impacts) {
+    DrivePower power{std::move(mechanical), {}};
     if (!power.mechanical.accepted()) return power;
     constexpr long double wheel_capacity = 32;
     constexpr long double collector_impact = 4;
@@ -925,17 +1082,27 @@ DrivePower drive_power(const stationary::Topology& topology) {
         long double capacity = 0, impact = 0;
         for (const auto& id : component.parts) {
             const auto* item = part(topology, id);
-            if (!item) continue;
-            if (item->role == Role::waterwheel && topology.drive_enabled) {
+            if (item && item->role == Role::waterwheel && topology.drive_enabled) {
                 const auto source = std::find_if(topology.sources.begin(), topology.sources.end(),
                     [&](const auto& drive) { return drive.hub == id; });
                 if (source != topology.sources.end()) capacity += wheel_capacity * magnitude(source->rate);
             }
             const auto speed = magnitude(power.mechanical.motion.at(id).rate);
-            if (item->role == Role::collector) impact += collector_impact * speed;
-            if (item->role == Role::processor) impact += processor_impact * speed;
+            if (item && item->role == Role::collector) impact += collector_impact * speed;
+            if (item && item->role == Role::processor) impact += processor_impact * speed;
+            if (const auto found = assembly_impacts.find(id); found != assembly_impacts.end())
+                impact += found->second * speed;
         }
-        const NetworkLoad load{static_cast<double>(capacity), static_cast<double>(impact), impact > capacity};
+        std::string limiting_part;
+        for (const auto& id : component.parts) {
+            const auto found = ratings.find(id);
+            if (found != ratings.end() && found->second < capacity) {
+                capacity = found->second;
+                limiting_part = id;
+            }
+        }
+        const NetworkLoad load{static_cast<double>(capacity), static_cast<double>(impact),
+            impact > capacity, std::move(limiting_part)};
         for (const auto& id : component.parts) power.load.emplace(id, load);
         if (!load.overloaded) continue;
         component.state = mechanics::MotionState::stalled;
@@ -945,9 +1112,8 @@ DrivePower drive_power(const stationary::Topology& topology) {
     return power;
 }
 
-materials::MachinePower machine_power(const stationary::Topology& topology) {
+materials::MachinePower machine_power_from(const stationary::Topology& topology, const DrivePower& view) {
     materials::MachinePower power;
-    const auto view = drive_power(topology);
     if (!view.mechanical.accepted()) return power;
     for (const auto& item : topology.parts) {
         const auto found = view.mechanical.motion.find(item.geometry.id);
@@ -974,6 +1140,70 @@ materials::MachinePower machine_power(const stationary::Topology& topology) {
         }
     }
     return power;
+}
+
+}  // namespace
+
+DrivePower drive_power(const stationary::Topology& topology) {
+    return apply_load(topology, stationary::power_view(topology).mechanical, {}, {});
+}
+
+DrivePower drive_power(const Profile& profile, const State& state) {
+    const auto base = stationary::power_view(state.topology);
+    if (!base.mechanical.accepted()) return {base.mechanical, {}};
+    std::vector<mechanics::Part> parts;
+    parts.reserve(state.topology.parts.size() + state.placed_components.size());
+    for (const auto& item : state.topology.parts) parts.push_back(item.geometry);
+    std::map<std::string, long double> ratings, impacts;
+    const auto placed = assembly_parts(state);
+    const auto append = [&](mechanics::Part projected) {
+        parts.push_back(std::move(projected));
+    };
+    for (const auto& face : profile.collector_faces) {
+        const auto inspected = assembly::inspect_collector(placed, face);
+        if (!inspected.collector) continue;
+        const auto& found = *inspected.collector;
+        const auto axis = horizontal_axis(found.machine_center, found.shaft_center);
+        append({found.frame, mechanics::Kind::hub, found.machine_center, axis, 0, 0});
+        append({found.shaft, mechanics::Kind::shaft, found.shaft_center, axis, 0, 1});
+        ratings.emplace(found.shaft, material_rating(found.shaft_material));
+        impacts.emplace(found.frame, 4);
+    }
+    for (const auto& item : placed) {
+        if (item.kind != materials::Component::wooden_frame) continue;
+        const auto inspected = assembly::inspect_press(placed, item.center);
+        if (!inspected.press) continue;
+        const auto& found = *inspected.press;
+        const auto axis = horizontal_axis(found.shaft_center, found.cog_center);
+        const mechanics::Point hub{found.frame_center[0], found.shaft_center[1], found.frame_center[2]};
+        append({found.frame, mechanics::Kind::hub, hub, axis, 0, 0});
+        append({found.shaft, mechanics::Kind::shaft, found.shaft_center, axis, 0, 1});
+        append({found.drive_cog, mechanics::Kind::gear, found.cog_center, axis, 2, 0});
+        ratings.emplace(found.shaft, material_rating(found.shaft_material));
+        ratings.emplace(found.drive_cog, material_rating(found.cog_material));
+        impacts.emplace(found.frame, 8);
+    }
+    if (parts.size() > mechanics::maximum_parts) {
+        mechanics::Result result;
+        result.error = mechanics::Error::too_many_parts;
+        return {std::move(result), {}};
+    }
+    auto sources = state.topology.sources;
+    if (!state.topology.drive_enabled)
+        for (auto& source : sources) source.rate = {0, 1};
+    std::vector<mechanics::BeltSpan> spans;
+    spans.reserve(state.topology.belt_spans.size());
+    for (const auto& span : state.topology.belt_spans) spans.push_back(span.geometry);
+    return apply_load(state.topology,
+        mechanics::evaluate(parts, sources, spans, mechanics::SourcePolicy::overpower), ratings, impacts);
+}
+
+materials::MachinePower machine_power(const stationary::Topology& topology) {
+    return machine_power_from(topology, drive_power(topology));
+}
+
+materials::MachinePower machine_power(const Profile& profile, const State& state) {
+    return machine_power_from(state.topology, drive_power(profile, state));
 }
 
 bool validate(const Profile& profile, const Snapshot& snapshot) {
@@ -1222,7 +1452,7 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
     }
     if (state.material.belt_lanes.size() != state.topology.belt_spans.size()) return false;
     if (!state.topology.material_links.empty()) return false;
-    if (totals != profile.finite_parts || !stationary::power_view(state.topology).mechanical.accepted() ||
+    if (totals != profile.finite_parts || !drive_power(profile, state).mechanical.accepted() ||
         materials::validate(state.material, profile.material, material_path(state.topology)) != materials::Error::none)
         return false;
     return history_domain(profile, snapshot);
@@ -1483,6 +1713,61 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         facts.emplace("generation", Value(*generation));
         facts.emplace("work_center", Value(Value::Array{Value(work[0]), Value(work[1]), Value(work[2])}));
         facts.emplace("moved_raw", Value(Integer{1}));
+        return accepted(std::move(candidate), *id, std::move(facts));
+    }
+    if (*action == "turn_press_crank") {
+        if (!profile_.landing_pod_center) return refused("press_unavailable");
+        const auto* id = field<std::string>(intent, "target");
+        const auto* generation = field<Integer>(intent, "generation");
+        const auto* drive = field<std::string>(intent, "drive");
+        const auto* exit = field<Value::Array>(intent, "exit");
+        if (!id || !generation || !drive || !exit) return refused("invalid_target");
+        const auto selected_exit = grid_point(Object{{"center", Value(*exit)}});
+        if (!selected_exit) return refused("invalid_exit", *id);
+        const auto frame = state.placed_components.find(*id);
+        if (frame == state.placed_components.end()) return refused("unknown_target", *id);
+        if (frame->second.generation != *generation) return refused("stale_generation", *id);
+        if (frame->second.kind != materials::Component::wooden_frame)
+            return refused("not_press_frame", *id);
+        if (!state.hand_crank || state.hand_crank->holder != binding.actor)
+            return refused("not_crank_holder", *id);
+        const auto inspected = assembly::inspect_press(assembly_parts(state), frame->second.center);
+        if (inspected.status == assembly::PressStatus::ambiguous)
+            return refused("ambiguous_assembly", *id);
+        if (!inspected.press || inspected.press->frame != *id)
+            return refused("incomplete_assembly", *id);
+        if (inspected.press->shaft != *drive) return refused("wrong_drive_shaft", *id);
+        if (std::none_of(inspected.press->open_feeds.begin(), inspected.press->open_feeds.end(),
+                [&](const assembly::PressFeed& feed) { return feed.exit == *selected_exit; }))
+            return refused("blocked_exit", *id);
+        const auto cut = observe ? observe(binding.actor) : std::nullopt;
+        if (!cut) return refused("actor_unready", *id);
+        auto checked_cut = *cut;
+        checked_cut.build_reach = profile_.build_reach;
+        const auto checked = authority::check_reach(binding.actor, checked_cut,
+            {anchor(profile_, inspected.press->shaft_center)});
+        auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
+        if (checked.error != authority::Error::none)
+            return refused(authority::error_name(checked.error), *id, std::move(facts));
+        auto candidate = state;
+        const auto error = materials::turn_press(candidate.material, profile_.material,
+            material_path(candidate.topology), inspected.press->work_center, *selected_exit);
+        if (error != materials::Error::none)
+            return refused(materials::error_name(error), *id, std::move(facts));
+        const auto work_item = candidate.material.dropped_material.find(inspected.press->work_center);
+        facts.emplace("generation", Value(*generation));
+        facts.emplace("shaft_center", Value(Value::Array{Value(inspected.press->shaft_center[0]),
+            Value(inspected.press->shaft_center[1]), Value(inspected.press->shaft_center[2])}));
+        facts.emplace("work_center", Value(Value::Array{Value(inspected.press->work_center[0]),
+            Value(inspected.press->work_center[1]), Value(inspected.press->work_center[2])}));
+        facts.emplace("exit_center", Value(Value::Array{Value((*selected_exit)[0]),
+            Value((*selected_exit)[1]), Value((*selected_exit)[2])}));
+        facts.emplace("work_raw", Value(work_item == candidate.material.dropped_material.end() ?
+            Integer{0} : work_item->second.raw_units));
+        facts.emplace("work_lots", work_item == candidate.material.dropped_material.end() ?
+            Value(Value::Array{}) : lots_value(work_item->second.work_lots));
+        facts.emplace("formed_products", Value(work_item == candidate.material.dropped_material.end() ?
+            Integer{1} : Integer{0}));
         return accepted(std::move(candidate), *id, std::move(facts));
     }
     if (*action == "place_component" || *action == "reclaim_component") {
@@ -2009,11 +2294,11 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
 Advance World::tick() noexcept {
     return owner_->advance([&](const Snapshot& snapshot) -> std::optional<State> {
         auto candidate = snapshot.state;
-        const auto power = machine_power(candidate.topology);
+        const auto power = machine_power(profile_, candidate);
         const auto error = materials::step(candidate.material, profile_.material,
             material_path(candidate.topology), power);
         if (error != materials::Error::none) throw error;
-        const auto motion = drive_power(candidate.topology).mechanical;
+        const auto motion = drive_power(profile_, candidate).mechanical;
         if (!motion.accepted()) throw materials::Error::invalid_path;
         // Only an assembled tray may feed the adjacent belt mouth. A tray is
         // one quarter-grid step from its frame; the belt endpoint is the next

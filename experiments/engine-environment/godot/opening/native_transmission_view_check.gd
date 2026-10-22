@@ -146,10 +146,79 @@ func _component_view() -> void:
 	verify(anchors.size() == 5 and anchors.frame.get_node_or_null("GroundedPost") != null
 		and anchors.tray.get_node_or_null("OpenPan") != null,
 		"The confirmed parts render separately with a grounded frame and open receiver.")
+	var clamp: Node3D = anchors.mount.get_node_or_null("CastToolClamp")
+	verify(clamp != null and clamp.get_child_count() == 2
+		and clamp.get_node_or_null("ClampCastBody") is MeshInstance3D
+		and clamp.get_node_or_null("ClampFixedJaw") is MeshInstance3D,
+		"Only the rigid sourced casting and fixed jaw appear on the confirmed tool mount.")
+	if clamp != null:
+		verify(clamp.basis.z.x > 0.99 and clamp.get_script() == null,
+			"The source jaw faces the real cutting edge without a second control script.")
+		for member: Node in clamp.get_children():
+			var mesh := member as MeshInstance3D
+			if mesh == null:
+				continue
+			var finish := mesh.mesh.surface_get_material(0) as StandardMaterial3D
+			verify(mesh.get_child_count() == 0 and mesh.get_script() == null
+				and finish != null and finish.albedo_texture != null
+				and finish.normal_texture != null and finish.roughness_texture != null
+				and finish.albedo_texture.get_size() == Vector2(1024, 1024)
+				and finish.normal_texture.get_size() == Vector2(1024, 1024),
+				"Each sourced rigid member retains the complete imported 1K PBR surface without rig or collider.")
+	var blade: MeshInstance3D = anchors.edge.get_node_or_null("FormedBlade")
+	verify(blade != null and blade.mesh is ArrayMesh,
+		"The confirmed cutting edge has one formed steel blade instead of detached box teeth.")
+	if blade == null or not blade.mesh is ArrayMesh:
+		return
+	var blade_arrays: Array = blade.mesh.surface_get_arrays(0)
+	var blade_points: PackedVector3Array = blade_arrays[Mesh.ARRAY_VERTEX]
+	var blade_normals: PackedVector3Array = blade_arrays[Mesh.ARRAY_NORMAL]
+	var front_low := INF
+	var front_high := -INF
+	var root_low := INF
+	var root_high := -INF
+	var outward_winding := blade_points.size() == 36 and blade_normals.size() == 36
+	for index in range(0, blade_points.size(), 3):
+		if index + 2 >= blade_points.size():
+			outward_winding = false
+			break
+		var cross: Vector3 = (blade_points[index + 1] - blade_points[index]).cross(
+			blade_points[index + 2] - blade_points[index])
+		outward_winding = outward_winding and cross.dot(blade_normals[index]) < -0.000001
+	for point in blade_points:
+		if is_equal_approx(point.x, -0.195):
+			front_low = minf(front_low, point.y)
+			front_high = maxf(front_high, point.y)
+		if is_equal_approx(point.x, 0.075):
+			root_low = minf(root_low, point.y)
+			root_high = maxf(root_high, point.y)
+	verify(outward_winding and is_equal_approx(front_high - front_low, 0.030)
+		and is_equal_approx(root_high - root_low, 0.105),
+		"The blade has outward facets and a thin cutting lip backed by a thicker clamped root.")
 	var pan: MeshInstance3D = anchors.tray.get_node("OpenPan")
-	verify(is_equal_approx(anchors.tray.position.y + pan.position.y + pan.mesh.get_aabb().size.y * 0.5,
+	var seat: PackedVector3Array = pan.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	var folds: PackedVector3Array = pan.mesh.surface_get_arrays(1)[Mesh.ARRAY_VERTEX]
+	var fold_normals: PackedVector3Array = pan.mesh.surface_get_arrays(1)[Mesh.ARRAY_NORMAL]
+	verify(pan.mesh is ArrayMesh and pan.mesh.get_surface_count() == 2
+		and seat.size() == 12 and folds.size() == 72
+		and pan.mesh.surface_get_material(0) != null and pan.mesh.surface_get_material(1) != null,
+		"The receiver is a two-finish formed sheet rather than five closed boxes.")
+	var floor_is_level := true
+	for point in seat:
+		floor_is_level = floor_is_level and (is_equal_approx(point.y, 0.0425)
+			or is_equal_approx(point.y, 0.0075))
+	verify(floor_is_level and is_equal_approx(anchors.tray.position.y + 0.0425,
 		Geometry.ANCHOR_HEIGHT - 0.04),
-		"A native loose blank rests on the receiver pan at its confirmed drop height.")
+		"The open sheet retains a level native blank seat at the confirmed drop height.")
+	var open_cavity := true
+	var outward_faces := folds.size() == fold_normals.size()
+	for index in range(0, folds.size(), 3):
+		var point: Vector3 = folds[index]
+		open_cavity = open_cavity and (absf(point.x) >= 0.15 or absf(point.z) >= 0.17)
+		var cross: Vector3 = (folds[index + 1] - point).cross(folds[index + 2] - point)
+		outward_faces = outward_faces and cross.dot(fold_normals[index]) < -0.000001
+	verify(open_cavity and outward_faces and pan.mesh.get_aabb().size.y > 0.12,
+		"Both raised sheet folds face outward while leaving the receiver cavity open.")
 	for id in parsed.boxes:
 		var spec: Dictionary = parsed.boxes[id]
 		var body: StaticBody3D = physical.component_bodies[id]
@@ -157,11 +226,13 @@ func _component_view() -> void:
 		verify(body.collision_layer == Geometry.MACHINE_LAYER and body.position == spec.center
 			and collider.shape.size == spec.size and anchors[id].position == spec.center,
 			"The visual anchor and physical box both use the native occupied record.")
-		for piece: MeshInstance3D in anchors[id].get_children():
-			var box: AABB = piece.transform * piece.mesh.get_aabb()
+		for found: Node in anchors[id].find_children("*", "MeshInstance3D", true, false):
+			var piece := found as MeshInstance3D
+			var local_transform: Transform3D = anchors[id].global_transform.affine_inverse() * piece.global_transform
+			var box: AABB = local_transform * piece.mesh.get_aabb()
 			var occupied := AABB(-spec.size * 0.5, spec.size).grow(0.0002)
 			verify(occupied.encloses(box), "Visible detail stays inside its occupied box.")
-			verify(piece.material_override != null,
+			verify(piece.material_override != null or piece.mesh.surface_get_material(0) != null,
 				"Each part keeps its sourced or deliberate fallback finish.")
 	await physics_frame
 	verify(physical._geometry_registered(),

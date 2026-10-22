@@ -239,6 +239,13 @@ enum class Error {
 // and behavior. World still owns trusted stepping and mechanical derivation.
 [[nodiscard]] Error step(State&, const Config&, const Path&, const MachinePower&);
 
+// A placed press uses the same work clock and material ledger as the legacy
+// processor. World authenticates the crank, assembly, selected exit and reach.
+// The first turn starts a lot; later turns advance it one tick. A ready lot
+// waits at the work point until its physical exit can receive the product.
+[[nodiscard]] Error turn_press(State&, const Config&, const Path&,
+                               const DropPoint& work, const DropPoint& exit);
+
 // World must first authenticate the actor and admit reach to the exact point.
 [[nodiscard]] Error pickup_material(State&, const Config&, const Path&, const std::string&, const DropPoint&);
 

@@ -147,6 +147,7 @@ func refresh(snapshot_ready: bool = true) -> void:
 		var amount := _count(tool, parts)
 		var offered: bool = not (tool == "foundation" and not host.state.get("options", {}).get("foundations", false)) \
 			and not (tool in ["gear", "gearbox", "vertical_gearbox", "chain_drive"] and not host._native_transmission())
+		buttons[index].visible = not tool.is_empty() and offered and amount > 0
 		buttons[index].text = "%d %s\n×%d" % [index + 1, SHORT_NAMES.get(tool, label), amount] if not tool.is_empty() else "%d\nAssign" % (index + 1)
 		buttons[index].icon = catalog_buttons[tool].icon if not tool.is_empty() else null
 		# Expanded icons do not contribute width to Button's minimum size.

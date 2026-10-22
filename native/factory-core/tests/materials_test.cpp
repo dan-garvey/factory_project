@@ -214,6 +214,64 @@ void integer_boundaries() {
     check(last == snapshot(2, {}, lot(maximum - 1, 2), maximum),
           "The final allocatable serial is preserved exactly with a checked next counter.");
 }
+
+void press_work_is_local_and_conserved() {
+    const m::Config one{1, 1, 2};
+    constexpr m::DropPoint first{8, 1, 0}, first_exit{7, 1, 0};
+    constexpr m::DropPoint second{20, 5, 0}, second_exit{19, 5, 0};
+    auto state = snapshot(3, {});
+    state.dropped_material.emplace(first, m::Cargo{1, 0, {}});
+    state.dropped_material.emplace(first_exit, m::Cargo{1, 0, {}});
+    state.dropped_material.emplace(second, m::Cargo{1, 0, {}});
+    check(m::validate(state, one, {}) == m::Error::none,
+          "Two press work points and one blocked output share one conserved material state.");
+    check(m::turn_press(state, one, {}, first, first_exit) == m::Error::none &&
+          m::turn_press(state, one, {}, second, second_exit) == m::Error::none &&
+          state.dropped_material.at(first).work_lots.front().id == 1 &&
+          state.dropped_material.at(second).work_lots.front().id == 2,
+          "Each physical press starts its own unique lot from its own blank.");
+    check(m::turn_press(state, one, {}, first, first_exit) == m::Error::none &&
+          m::turn_press(state, one, {}, first, first_exit) == m::Error::none &&
+          state.dropped_material.at(first).work_lots.front().remaining_ticks == 0 &&
+          state.dropped_material.at(second).work_lots.front().remaining_ticks == 2,
+          "A blocked first output retains ready work while the second press remains untouched.");
+    const auto stalled = state;
+    check(m::turn_press(state, one, {}, first, first_exit) == m::Error::unavailable_output &&
+          state == stalled,
+          "A further turn cannot overwrite a blocked exit or spend ready work.");
+    check(m::pickup_material(state, one, {}, "P", first_exit) == m::Error::none &&
+          m::turn_press(state, one, {}, first, first_exit) == m::Error::none &&
+          state.dropped_material.at(first_exit).products == 1 &&
+          !state.dropped_material.contains(first),
+          "Clearing the exit releases exactly the waiting product.");
+    check(m::turn_press(state, one, {}, second, second_exit) == m::Error::none &&
+          m::turn_press(state, one, {}, second, second_exit) == m::Error::none &&
+          state.dropped_material.at(second_exit).products == 1 &&
+          !state.dropped_material.contains(second),
+          "The second press finishes its distinct WorkLot at its own exit.");
+    check(m::pickup_material(state, one, {}, "P", first_exit) == m::Error::none &&
+          m::pickup_material(state, one, {}, "Q", second_exit) == m::Error::none &&
+          state.cargo.at("P").raw_units == 1 && state.cargo.at("P").products == 1 &&
+          state.cargo.at("Q").products == 1 && state.dropped_material.empty() &&
+          m::validate(state, one, {}) == m::Error::none,
+          "Two actors recover both products and the obstructing raw unit with exact conservation.");
+
+    auto full_map = snapshot(static_cast<m::Quantity>(m::maximum_drop_points), {});
+    full_map.dropped_material.emplace(first, m::Cargo{1, 0, {}});
+    for (std::size_t index = 1; index < m::maximum_drop_points; ++index)
+        full_map.dropped_material.emplace(m::DropPoint{1000 + static_cast<m::Quantity>(index), 0, 0},
+                                          m::Cargo{1, 0, {}});
+    check(m::validate(full_map, one, {}) == m::Error::none &&
+          m::turn_press(full_map, one, {}, first, first_exit) == m::Error::none &&
+          m::turn_press(full_map, one, {}, first, first_exit) == m::Error::none &&
+          m::turn_press(full_map, one, {}, first, first_exit) == m::Error::none &&
+          !full_map.dropped_material.contains(first) &&
+          full_map.dropped_material.contains(first_exit) &&
+          full_map.dropped_material.at(first_exit) == m::Cargo{0, 1, {}} &&
+          full_map.dropped_material.size() == m::maximum_drop_points &&
+          m::validate(full_map, one, {}) == m::Error::none,
+          "A finished plate replaces its work-point location even when every drop slot is in use.");
+}
 }  // namespace
 
 int main() {
@@ -221,6 +279,7 @@ int main() {
     topology_and_power();
     refusals();
     integer_boundaries();
+    press_work_is_local_and_conserved();
     std::cout << "{\"status\":\"" << (failures == 0 ? "pass" : "fail")
               << "\",\"checks\":" << checks << ",\"failures\":" << failures
               << ",\"evidence\":\"native_logical_material_tests\"}\n";

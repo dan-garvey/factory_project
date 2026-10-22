@@ -8,6 +8,7 @@ const NativeModel = preload("res://opening/native_model.gd")
 const Finish = preload("res://opening/opening.gd").ProductionTransmissionFinish
 const Visuals = preload("res://opening/opening.gd").ProductionVisuals
 const WheelArt = preload("res://opening/opening.gd").ProductionWheelArt
+const ClampBody = preload("res://opening/assets/collector-clamp/collector_clamp.gltf")
 const UNIT := Geometry.PITCH / 4.0
 ## The native lane moves one horizontal tile per 0.45-second tick at rate 1.
 ## Its pulley rim must travel the same distance in that time.
@@ -35,6 +36,8 @@ var _moving_anchors: Array[Node3D] = []
 var _direction_meshes: Dictionary = {}
 var _support_meshes: Dictionary = {}
 static var _relay_shells: Dictionary = {}
+static var _cutting_blade_mesh: ArrayMesh
+static var _receiver_pan_mesh: ArrayMesh
 
 func configure(host: Object) -> void:
 	_host = weakref(host)
@@ -372,6 +375,99 @@ func _support_beam(parent: Node3D, name_value: String, a: Vector3, b: Vector3,
 	mesh.position = (a + b) * 0.5
 	mesh.material_override = material
 	parent.add_child(mesh)
+
+static func _blade_quad(surface: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3,
+		outward: Vector3) -> void:
+	var corners: Array[Vector3] = [a, b, c, d]
+	# Godot's front face is clockwise when viewed from outside.
+	if (b - a).cross(c - a).dot(outward) > 0.0:
+		corners = [a, d, c, b]
+	for index in [0, 1, 2, 0, 2, 3]:
+		var point: Vector3 = corners[index]
+		surface.set_normal(outward)
+		if absf(outward.y) > 0.5:
+			surface.set_uv(Vector2(point.x, point.z) * 4.0)
+		elif absf(outward.x) > 0.5:
+			surface.set_uv(Vector2(point.z, point.y) * 4.0)
+		else:
+			surface.set_uv(Vector2(point.x, point.y) * 4.0)
+		surface.add_vertex(point)
+
+static func _formed_cutting_blade() -> ArrayMesh:
+	if _cutting_blade_mesh != null:
+		return _cutting_blade_mesh
+	var front_low_left := Vector3(-0.195, -0.025, -0.145)
+	var front_low_right := Vector3(-0.195, -0.025, 0.145)
+	var front_high_left := Vector3(-0.195, 0.005, -0.145)
+	var front_high_right := Vector3(-0.195, 0.005, 0.145)
+	var root_low_left := Vector3(0.075, -0.025, -0.145)
+	var root_low_right := Vector3(0.075, -0.025, 0.145)
+	var root_high_left := Vector3(0.075, 0.080, -0.145)
+	var root_high_right := Vector3(0.075, 0.080, 0.145)
+	var surface := SurfaceTool.new()
+	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_blade_quad(surface, front_high_left, front_high_right, root_high_right, root_high_left,
+		Vector3(-0.075 / 0.270, 1.0, 0.0).normalized())
+	_blade_quad(surface, front_low_left, front_low_right, root_low_right, root_low_left, Vector3.DOWN)
+	_blade_quad(surface, front_low_left, front_low_right, front_high_right, front_high_left, Vector3.LEFT)
+	_blade_quad(surface, root_low_left, root_low_right, root_high_right, root_high_left, Vector3.RIGHT)
+	_blade_quad(surface, front_low_left, root_low_left, root_high_left, front_high_left, Vector3.FORWARD)
+	_blade_quad(surface, front_low_right, root_low_right, root_high_right, front_high_right, Vector3.BACK)
+	surface.generate_tangents()
+	_cutting_blade_mesh = surface.commit()
+	return _cutting_blade_mesh
+
+static func _formed_receiver_pan() -> ArrayMesh:
+	if _receiver_pan_mesh != null:
+		return _receiver_pan_mesh
+	# The flat seat is the existing native loose-blank height. The raised sheet
+	# folds are visual and stay inside the receiver's published occupied box.
+	var floor_bottom := 0.0075
+	var floor_top := 0.0425
+	var rim_top := 0.13
+	var floor := SurfaceTool.new()
+	floor.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_blade_quad(floor, Vector3(-0.17, floor_top, -0.19), Vector3(0.17, floor_top, -0.19),
+		Vector3(0.17, floor_top, 0.19), Vector3(-0.17, floor_top, 0.19), Vector3.UP)
+	_blade_quad(floor, Vector3(-0.17, floor_bottom, -0.19), Vector3(0.17, floor_bottom, -0.19),
+		Vector3(0.17, floor_bottom, 0.19), Vector3(-0.17, floor_bottom, 0.19), Vector3.DOWN)
+	floor.generate_tangents()
+	_receiver_pan_mesh = floor.commit()
+	_receiver_pan_mesh.surface_set_material(0, Finish.material("cast", Color("354442"), 0.72, 0.52))
+	var folds := SurfaceTool.new()
+	folds.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for sign_x in [-1.0, 1.0]:
+		var normal_x := Vector3(sign_x, 0, 0)
+		_blade_quad(folds, Vector3(sign_x * 0.15, floor_top, -0.19),
+			Vector3(sign_x * 0.15, floor_top, 0.19),
+			Vector3(sign_x * 0.16, rim_top, 0.19),
+			Vector3(sign_x * 0.16, rim_top, -0.19), -normal_x)
+		_blade_quad(folds, Vector3(sign_x * 0.17, floor_bottom, -0.19),
+			Vector3(sign_x * 0.17, floor_bottom, 0.19),
+			Vector3(sign_x * 0.17, rim_top, 0.19),
+			Vector3(sign_x * 0.17, rim_top, -0.19), normal_x)
+		_blade_quad(folds, Vector3(sign_x * 0.16, rim_top, -0.19),
+			Vector3(sign_x * 0.16, rim_top, 0.19),
+			Vector3(sign_x * 0.17, rim_top, 0.19),
+			Vector3(sign_x * 0.17, rim_top, -0.19), Vector3.UP)
+	for sign_z in [-1.0, 1.0]:
+		var normal_z := Vector3(0, 0, sign_z)
+		_blade_quad(folds, Vector3(-0.17, floor_top, sign_z * 0.17),
+			Vector3(0.17, floor_top, sign_z * 0.17),
+			Vector3(0.17, rim_top, sign_z * 0.18),
+			Vector3(-0.17, rim_top, sign_z * 0.18), -normal_z)
+		_blade_quad(folds, Vector3(-0.17, floor_bottom, sign_z * 0.19),
+			Vector3(0.17, floor_bottom, sign_z * 0.19),
+			Vector3(0.17, rim_top, sign_z * 0.19),
+			Vector3(-0.17, rim_top, sign_z * 0.19), normal_z)
+		_blade_quad(folds, Vector3(-0.17, rim_top, sign_z * 0.18),
+			Vector3(0.17, rim_top, sign_z * 0.18),
+			Vector3(0.17, rim_top, sign_z * 0.19),
+			Vector3(-0.17, rim_top, sign_z * 0.19), Vector3.UP)
+	folds.generate_tangents()
+	folds.commit(_receiver_pan_mesh)
+	_receiver_pan_mesh.surface_set_material(1, Finish.material("worked", Color("9aaba5"), 0.78, 0.36))
+	return _receiver_pan_mesh
 
 func _finish(mesh: MeshInstance3D, color: Color) -> void:
 	var material := StandardMaterial3D.new()
@@ -932,20 +1028,31 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3) -
 				_support_box(anchor, "BedIron", Vector3(0, 0.385, z), Vector3(0.35, 0.012, 0.025), worked)
 		"tool_mount":
 			_support_box(anchor, "SlidingFoot", Vector3(0, -0.11, 0), Vector3(0.37, 0.06, 0.33), dark)
-			_support_box(anchor, "MountBlock", Vector3(0, 0.015, 0), Vector3(0.19, 0.22, 0.24), timber)
-			_support_box(anchor, "TopClamp", Vector3(0, 0.14, 0), Vector3(0.28, 0.045, 0.28), worked)
+			var clamp := ClampBody.instantiate() as Node3D
+			clamp.name = "CastToolClamp"
+			# The selected source frame and fixed jaw are static. Their opening
+			# faces the confirmed cutter; the donor dial and handle are absent.
+			clamp.position = Vector3(-0.015, -0.08, 0)
+			clamp.rotation.y = PI * 0.5
+			anchor.add_child(clamp)
 		"cutting_edge":
 			_support_box(anchor, "BladeCarrier", Vector3(0, -0.07, 0), Vector3(0.40, 0.07, 0.32), dark)
-			for z in [-0.105, 0.105]:
-				_support_box(anchor, "ExposedTooth", Vector3(-0.11, 0.025, z), Vector3(0.17, 0.09, 0.065), worked)
+			var blade := MeshInstance3D.new()
+			blade.name = "FormedBlade"
+			blade.mesh = _formed_cutting_blade()
+			blade.material_override = worked
+			anchor.add_child(blade)
+			_support_box(anchor, "BladeClamp", Vector3(0.095, 0.080, 0), Vector3(0.11, 0.025, 0.30), dark)
+			for z in [-0.09, 0.09]:
+				var fastener := _support_cylinder(anchor, "ClampFastener", 0.017, 0.015, worked)
+				fastener.position = Vector3(0.11, 0.095, z)
 		"receiver_tray":
 			# The existing loose-blank centre is at the grid anchor. Its 8 cm
-			# visual sits directly on this open pan instead of floating above it.
-			_support_box(anchor, "OpenPan", Vector3(0, 0.025, 0), Vector3(0.34, 0.035, 0.38), dark)
-			for x in [-0.16, 0.16]:
-				_support_box(anchor, "PanSide", Vector3(x, 0.075, 0), Vector3(0.018, 0.14, 0.38), worked)
-			for z in [-0.18, 0.18]:
-				_support_box(anchor, "PanEnd", Vector3(0, 0.075, z), Vector3(0.34, 0.14, 0.018), worked)
+			# visual sits on a level seat within the folded, open receiver.
+			var pan := MeshInstance3D.new()
+			pan.name = "OpenPan"
+			pan.mesh = _formed_receiver_pan()
+			anchor.add_child(pan)
 		"wooden_shaft", "softmetal_shaft":
 			var shaft_finish: Material = timber if kind == "wooden_shaft" else worked
 			_support_box(anchor, "BearingFoot", Vector3(0, -0.07, 0), Vector3(0.35, 0.07, 0.35), dark)

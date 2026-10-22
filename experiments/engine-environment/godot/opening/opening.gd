@@ -4254,6 +4254,8 @@ var hover_cell := Vector2i(99, 99)
 var visual_revision := -1
 var geometry_key := ""
 var ui_refresh_key: Array = []
+var hand_tree_nodes: Dictionary = {}
+var hand_tree_assets: Dictionary = {}
 var camera: Camera3D
 var machine_root: Node3D
 var item_root: Node3D
@@ -5378,6 +5380,159 @@ func _hand_source(id: String) -> Dictionary:
 			or source.remaining < 0:
 		return {}
 	return source
+
+func _prepare_hand_tree_assets() -> bool:
+	if not hand_tree_assets.is_empty():
+		return true
+	var loaded := ProductionEnvironment.read_pine()
+	if loaded.status != "ready":
+		push_error("Harvestable trees require the qualified pine mesh.")
+		return false
+	var mesh: ArrayMesh = loaded.mesh
+	var bark_surface := -1
+	for surface in range(mesh.get_surface_count()):
+		var material := mesh.surface_get_material(surface) as StandardMaterial3D
+		if material != null and material.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED:
+			bark_surface = surface
+			break
+	if bark_surface < 0:
+		push_error("The harvestable pine has no opaque bark surface.")
+		return false
+	var arrays := mesh.surface_get_arrays(bark_surface)
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+	var base_height := mesh.get_aabb().position.y
+	var root_min := Vector3(INF, base_height, INF)
+	var root_max := Vector3(-INF, base_height, -INF)
+	for point in vertices:
+		if point.y <= base_height + 0.025:
+			root_min = root_min.min(point)
+			root_max = root_max.max(point)
+	if not root_min.is_finite() or not root_max.is_finite():
+		push_error("The harvestable pine has no grounded bark root.")
+		return false
+	var root := Vector3((root_min.x + root_max.x) * 0.5, base_height, (root_min.z + root_max.z) * 0.5)
+	var radius := maxf(root_max.x - root_min.x, root_max.z - root_min.z) * 0.5
+	var faces := PackedVector3Array()
+	for index in indices:
+		faces.append(vertices[index] - root)
+	var trunk := ConcavePolygonShape3D.new()
+	trunk.backface_collision = true
+	trunk.set_faces(faces)
+	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+	var notch_pose := Transform3D.IDENTITY
+	var nearest_notch := INF
+	var notch_width := 0.0
+	for first in range(0, indices.size(), 3):
+		var a: int = indices[first]
+		var b: int = indices[first + 1]
+		var c: int = indices[first + 2]
+		var center := (vertices[a] + vertices[b] + vertices[c]) / 3.0 - root
+		var normal := (normals[a] + normals[b] + normals[c]).normalized()
+		if absf(normal.y) > 0.5:
+			continue
+		var score := absf(center.y - 0.18) + (1.0 - normal.z) * 0.015
+		if score < nearest_notch:
+			nearest_notch = score
+			notch_pose = Transform3D(Basis.looking_at(-normal, Vector3.UP), center + normal * 0.0015)
+			var side := Vector3.UP.cross(normal).normalized()
+			var ta := side.dot(vertices[a])
+			var tb := side.dot(vertices[b])
+			var tc := side.dot(vertices[c])
+			notch_width = (maxf(ta, maxf(tb, tc)) - minf(ta, minf(tb, tc))) * 0.6
+	if not is_finite(nearest_notch) or notch_width <= 0.0:
+		push_error("The harvestable pine has no supported bark notch face.")
+		return false
+	var stump := CylinderMesh.new()
+	stump.height = 0.12
+	stump.top_radius = radius * 0.85
+	stump.bottom_radius = radius
+	stump.material = mesh.surface_get_material(bark_surface)
+	var stump_shape := CylinderShape3D.new()
+	stump_shape.height = stump.height
+	stump_shape.radius = radius
+	var wood := StandardMaterial3D.new()
+	wood.albedo_color = Color("9c784d")
+	wood.roughness = 0.95
+	wood.metallic_specular = 0.1
+	wood.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var notch := QuadMesh.new()
+	notch.size = Vector2(notch_width, 0.004)
+	notch.material = wood
+	var cut := CylinderMesh.new()
+	cut.height = 0.002
+	cut.top_radius = radius * 0.85
+	cut.bottom_radius = cut.top_radius
+	cut.material = wood
+	hand_tree_assets = {"mesh": mesh, "root": root, "trunk": trunk, "stump": stump,
+		"stump_shape": stump_shape, "cut": cut, "notch": notch, "notch_pose": notch_pose}
+	return true
+
+func _refresh_hand_trees() -> void:
+	var sources := {}
+	if _native_transmission() and ProductionEnvironment.Surface != null:
+		for id: String in state.get("hand_sources", {}):
+			var source := _hand_source(id)
+			if source.get("kind") == "tree" and typeof(source.get("initial")) == TYPE_INT \
+					and source.initial > 0 and source.remaining <= source.initial:
+				sources[id] = source
+	for id: String in hand_tree_nodes.keys():
+		if not sources.has(id) or hand_tree_nodes[id].get_meta("source_position") != sources[id].position:
+			hand_tree_nodes[id].free()
+			hand_tree_nodes.erase(id)
+	if sources.is_empty() or not _prepare_hand_tree_assets():
+		return
+	for id: String in sources:
+		var source: Dictionary = sources[id]
+		if not hand_tree_nodes.has(id):
+			var body := StaticBody3D.new()
+			body.collision_layer = Geometry.PICK_LAYER
+			body.collision_mask = 0
+			body.set_meta("hand_source", id)
+			body.set_meta("source_position", source.position.duplicate())
+			body.position = Vector3(source.position[0], 0.0, source.position[2])
+			body.position.y = ProductionEnvironment.Surface.height_at(body.position.x, body.position.z)
+			var variation := absi(id.hash())
+			body.basis = Basis(Vector3.UP, deg_to_rad(float(variation % 360))).scaled_local(Vector3.ONE * (4.0 + float(variation % 3) * 0.3))
+			var tree := MeshInstance3D.new()
+			tree.name = "Tree"
+			tree.mesh = hand_tree_assets.mesh
+			tree.position = -hand_tree_assets.root
+			tree.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED
+			body.add_child(tree)
+			var stump := MeshInstance3D.new()
+			stump.name = "Stump"
+			stump.mesh = hand_tree_assets.stump
+			stump.position.y = 0.06
+			body.add_child(stump)
+			var cut := MeshInstance3D.new()
+			cut.name = "Cut"
+			cut.mesh = hand_tree_assets.cut
+			body.add_child(cut)
+			var picker := CollisionShape3D.new()
+			picker.name = "PickShape"
+			body.add_child(picker)
+			add_child(body)
+			hand_tree_nodes[id] = body
+		var body: StaticBody3D = hand_tree_nodes[id]
+		var counts := [source.initial, source.remaining]
+		if body.get_meta("presented_counts", []) == counts:
+			continue
+		body.set_meta("presented_counts", counts)
+		var standing: bool = source.remaining > 0
+		body.get_node("Tree").visible = standing
+		body.get_node("Stump").visible = not standing
+		var picker: CollisionShape3D = body.get_node("PickShape")
+		var shape: Shape3D = hand_tree_assets.trunk if standing else hand_tree_assets.stump_shape
+		if picker.shape != shape:
+			picker.shape = shape
+		picker.position.y = 0.0 if standing else 0.06
+		var cut: MeshInstance3D = body.get_node("Cut")
+		cut.visible = source.remaining < source.initial
+		cut.mesh = hand_tree_assets.notch if standing else hand_tree_assets.cut
+		cut.transform = hand_tree_assets.notch_pose if standing else Transform3D(Basis.IDENTITY, Vector3(0.0, 0.1205, 0.0))
+		var fraction := 1.0 - float(source.remaining) / float(source.initial)
+		cut.scale = Vector3(sqrt(fraction), 1.0, 1.0) if standing and cut.visible else Vector3.ONE
 
 func _screen_hand_source(screen: Vector2) -> String:
 	if not _native_transmission() or camera == null or state.get("hand_sources", {}).is_empty():
@@ -6839,7 +6994,14 @@ func _confirmed_drive_status(motion: Variant) -> String:
 			description += "\nLoad %.2f / capacity %.2f" % [motion.get("impact", 0.0), motion.capacity]
 		return description
 	elif motion.get("overloaded", false):
-		return "Overloaded · load %.2f / capacity %.2f" % [motion.get("impact", 0.0), motion.get("capacity", 0.0)]
+		var description := "Overloaded · load %.2f / capacity %.2f" % [motion.get("impact", 0.0), motion.get("capacity", 0.0)]
+		var limiting: Variant = motion.get("limiting_part", "")
+		if limiting is String and not limiting.is_empty():
+			var part_kind: String = str(motion.get("limiting_kind", "drive part")).replace("_", " ").capitalize()
+			description += "\nLimit: %s (%s). Replace with softmetal or split the load." % [part_kind, limiting]
+		else:
+			description += "\nAdd power or reduce load."
+		return description
 	return str(motion.get("state", "disconnected")).capitalize()
 
 func _transmission_inspection(part: Dictionary, motion: Dictionary) -> String:
@@ -6871,6 +7033,7 @@ func _belt_inspection(span: Dictionary, motions: Dictionary) -> String:
 	return "Mechanical belt\n%d occupied %s\n%s\nRecover contents before dismantling." % [occupied, "position" if occupied == 1 else "positions", _confirmed_drive_status(drive)]
 
 func _refresh_ui() -> void:
+	_refresh_hand_trees()
 	if stock_label == null:
 		return
 	_refresh_transmission()

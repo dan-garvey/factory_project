@@ -100,6 +100,10 @@ limit. Opposite directions work equally; an unpowered or
 stalled press does no work. This makes gear ratios affect processing but does
 not claim Create's exact press timing, load, or stress behavior. Fractional
 progress belongs to the WorkLot and follows it through recovery and insertion.
+The modular arrival press uses the same WorkLot advance arithmetic. Its manual
+crank starts work on the first turn, advances one baseline work tick on each
+later turn and retains a ready lot at the physical work point when the selected
+exit is full. Multiple work points remain independent inside one material State.
 The material checkpoint schema is 6 and includes belt-lane and typed loose-material custody; earlier
 schemas are refused rather than inventing a compatibility migration.
 
