@@ -471,13 +471,12 @@ class ProductionWheelArt:
 	extends RefCounted
 	## A reusable visual component. Native geometry and motion never read this mesh.
 	const ROOT := "res://opening/assets/waterwheel"
-	const FILES := ["rotor.gltf", "rotor.bin", "wood_albedo.jpg", "wood_normal.webp", "wood_arm.webp"]
-	const SPLIT_FILES := ["rim.gltf", "rim.bin", "hub_spokes.gltf", "hub_spokes.bin"]
+	const FILES := ["rim.gltf", "rim.bin", "hub_spokes.gltf", "hub_spokes.bin",
+		"wood_albedo.jpg", "wood_normal.webp", "wood_arm.webp"]
 	const RIM_OUTER_RADIUS := 0.57
 	const RIM_INNER_RADIUS := 0.506
 	const HUB_OUTER_RADIUS := 0.06631
 	const SPOKE_OUTER_RADIUS := 0.5241
-	static var mesh: ArrayMesh
 	static var rim_mesh: ArrayMesh
 	static var hub_spokes_mesh: ArrayMesh
 	static var sized_rims: Dictionary = {}
@@ -492,15 +491,9 @@ class ProductionWheelArt:
 			var exists := ProductionVisuals.image_exists(path) if name_value.get_extension() in ["jpg", "webp"] else FileAccess.file_exists(path)
 			if exists:
 				present += 1
-		var split_present := 0
-		for name_value in SPLIT_FILES:
-			if FileAccess.file_exists(directory.path_join(name_value)):
-				split_present += 1
-		if present == 0 and split_present == 0:
+		if present == 0:
 			return "missing"
-		if present != FILES.size() or split_present not in [0, SPLIT_FILES.size()]:
-			return "incomplete"
-		return "complete_split" if split_present == SPLIT_FILES.size() else "complete"
+		return "complete" if present == FILES.size() else "incomplete"
 
 	static func _read_mesh(file_name: String) -> ArrayMesh:
 		var document := GLTFDocument.new()
@@ -525,20 +518,15 @@ class ProductionWheelArt:
 			# Old fixed source rosters have no art resources. Their earlier
 			# procedural rotor remains explicit rather than claiming sourced art.
 			return
-		if source_status not in ["complete", "complete_split"]:
+		if source_status != "complete":
 			push_error("The sourced waterwheel resource set is incomplete.")
 			return
-		var use_split := source_status == "complete_split"
 		source_status = "invalid"
 		# Read only mesh data. This creates no asset scene, requires no editor
 		# import cache, and cannot mount a source controller or collision body.
-		var prepared := _read_mesh("rotor.gltf")
-		if prepared == null:
-			push_error("The waterwheel must contain one prepared visual mesh.")
-			return
-		var split_rim := _read_mesh("rim.gltf") if use_split else null
-		var split_inner := _read_mesh("hub_spokes.gltf") if use_split else null
-		if use_split and (split_rim == null or split_inner == null):
+		var split_rim := _read_mesh("rim.gltf")
+		var split_inner := _read_mesh("hub_spokes.gltf")
+		if split_rim == null or split_inner == null:
 			push_error("The separated waterwheel components cannot be loaded.")
 			return
 		var images: Dictionary = {}
@@ -568,7 +556,6 @@ class ProductionWheelArt:
 		material.normal_enabled = true
 		material.normal_texture = ImageTexture.create_from_image(images.normal)
 		material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
-		mesh = prepared
 		rim_mesh = split_rim
 		hub_spokes_mesh = split_inner
 		sized_rims.clear()
@@ -644,8 +631,7 @@ class ProductionWheelArt:
 		if source_status != "ready":
 			return false
 		var pieces := [["SourcedTimberRotor", centre_for_tiles(tiles), 0.0],
-			["SourcedTimberRimN", rim_for_tiles(tiles), -0.08], ["SourcedTimberRimP", rim_for_tiles(tiles), 0.08]] \
-			if rim_mesh != null and hub_spokes_mesh != null else [["SourcedTimberRotor", mesh, 0.0]]
+			["SourcedTimberRimN", rim_for_tiles(tiles), -0.08], ["SourcedTimberRimP", rim_for_tiles(tiles), 0.08]]
 		for piece in pieces:
 			var rotor := MeshInstance3D.new()
 			rotor.name = piece[0]
@@ -5421,7 +5407,7 @@ func _wheel_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	var scale_factor: float = Geometry.ANCHOR_HEIGHT / 0.78 if native_profile else 1.0
 	var axis := _machine_axis(entity) if native_profile else Vector3.BACK
 	var bearing_rotation := _spindle_rotation(axis)
-	if native_profile and ProductionWheelArt.resource_status() in ["complete", "complete_split"]:
+	if native_profile and ProductionWheelArt.resource_status() == "complete":
 		# Preserve the bearing width while raising the shared mechanical center.
 		ProductionWheelSupportArt.mount(anchor, axis, 0.5 / 0.78, scale_factor)
 	elif native_profile and axis == Vector3.UP:

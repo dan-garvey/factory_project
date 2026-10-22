@@ -3457,8 +3457,29 @@ func check_sourced_mesh(instance: MeshInstance3D, expected_vertices: int = 4056,
 		and material.roughness_texture.get_image().has_mipmaps(),
 		"The atlas retains source UVs and has mipmapped normal, color and scalar textures.")
 
+func check_wheel_resource_contract() -> void:
+	var current := ["rim.gltf", "rim.bin", "hub_spokes.gltf", "hub_spokes.bin",
+		"wood_albedo.jpg", "wood_normal.webp", "wood_arm.webp"]
+	var rosters := [
+		["rotor.gltf", "rotor.bin", "wood_albedo.jpg", "wood_normal.webp", "wood_arm.webp"],
+		current, current.slice(0, current.size() - 1)]
+	for index in range(rosters.size()):
+		var directory := "user://wheel-roster-contract-" + str(index)
+		verify(DirAccess.make_dir_recursive_absolute(directory) == OK,
+			"Resource admission uses a fresh owned synthetic roster.")
+		for name_value: String in rosters[index]:
+			var file := FileAccess.open(directory.path_join(name_value), FileAccess.WRITE)
+			if file == null:
+				verify(false, "The synthetic roster file can be created.")
+				return
+			file.close()
+		verify(WheelArt.resource_status(directory) == ("complete" if index == 1 else "incomplete"),
+			"Only the current complete two-rim runtime roster is admitted; obsolete or partial rosters refuse.")
+	verify(WheelArt.resource_status("user://wheel-roster-contract-missing") == "missing",
+		"Entirely missing resources remain distinct from an obsolete or partial set.")
+
 func check_wheel_axes() -> void:
-	verify(WheelArt.resource_status() == "complete_split", "The separated source set is present in this captured project.")
+	verify(WheelArt.resource_status() == "complete", "The current two-rim source set is present in this captured project.")
 	var cached_mesh: Mesh
 	var cached_material: Material
 	for axis_index in range(3):
@@ -3516,7 +3537,7 @@ func check_wheel_axes() -> void:
 	verify(WheelArt.resource_status(missing) == "missing", "An absent historical source set is distinguishable from a complete asset.")
 	var partial := "user://wheel-resource-controls/partial"
 	DirAccess.make_dir_recursive_absolute(partial)
-	var file := FileAccess.open(partial.path_join("rotor.gltf"), FileAccess.WRITE)
+	var file := FileAccess.open(partial.path_join("rim.gltf"), FileAccess.WRITE)
 	if file != null:
 		file.store_string("{}")
 		file.close()
@@ -5661,6 +5682,12 @@ func _initialize() -> void:
 		return
 	if OS.get_cmdline_user_args().size() > 0 and OS.get_cmdline_user_args()[0] == "--prepare-coupling-maps":
 		prepare_component_maps("coupling")
+		return
+	if OS.get_cmdline_user_args().has("--wheel-resource-contract-only"):
+		check_wheel_resource_contract()
+		print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
+			"scope": "synthetic wheel resource admission", "native_gameplay": "not_run"}))
+		quit(1 if failed else 0)
 		return
 	if OS.get_cmdline_user_args().has("--sourced-wheel-material-only"):
 		var parent := Node3D.new()

@@ -349,8 +349,9 @@ existing paddles, spindle, bearings, axes and confirmed motion. The source
 meshes, cached size variants and one mipmapped material are shared between
 orientations;
 source controllers and physical bodies are never instantiated. The previous
-complete rotor files remain byte-identical for historical captures, and older
-fixed rosters retain their procedural assembly. A partial source set is reported
+complete rotor files remain byte-identical for provenance and reproduction.
+The live sourced assembly requires the separate rim and hub/spoke resources;
+the old unsplit roster is incomplete. A partial source set is reported
 explicitly. Larger wheel diameters cache radial mesh variants so the timber rim
 and hub grow more slowly than wheel radius while their spokes still reach the
 rim. This is visual sizing only; the source UVs still stretch around a longer
