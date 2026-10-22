@@ -34,10 +34,16 @@ var held_keys: Dictionary = {}
 var jump_requested := false
 var last_direction := Vector2.ZERO
 var motion: Dictionary = {}
+var native_sample_frames: Dictionary = {}
 var visual_context := ""
 
 func configure(view) -> void:
 	host = view
+
+func observe_native_sample(actor: String, sample: Dictionary) -> void:
+	# This is presentation timing only; the model still owns the confirmed pose.
+	native_sample_frames[actor] = {"epoch": sample.native_epoch,
+		"physics_frame": sample.physics_frame}
 
 func _ready() -> void:
 	get_window().focus_exited.connect(release)
@@ -954,31 +960,40 @@ func _set_gait(body: Node3D, phase: float, weight: float,
 		body.get_node(prefix + "Shoulder/Elbow").rotation.x = -0.12 * weight
 
 func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
-		native_epoch: int = -1) -> void:
+		native_epoch: int = -1, native_physics_frame: int = -1) -> void:
 	var body: Node3D = view.get_node("BodyView")
 	var previous: Dictionary = motion.get(actor, {"position": at, "phase": 0.0, "weight": 0.0,
 		"age": 1.0, "mode": "grounded", "ground_y": at.y, "peak_y": at.y,
 		"vertical_speed": 0.0, "air": 0.0, "impact_age": LANDING_SECONDS,
 		"run_mix": 0.0, "horizontal_speed": 0.0, "gait_speed": 0.0, "landing_stride": 0.0,
-		"native_epoch": -1, "sample_elapsed": 0.0})
+		"native_epoch": -1, "sample_elapsed": 0.0, "native_physics_frame": -1})
 	var displacement: Vector3 = at - previous.position
 	var horizontal := Vector2(displacement.x, displacement.z)
 	var repeated_sample := native_epoch >= 0 and native_epoch == int(previous.native_epoch) \
 		and displacement.length_squared() < 0.000000000001
 	var sample_elapsed: float = float(previous.sample_elapsed) + delta
-	# The native epoch identifies a fresh confirmed pose, not its time. Use the
-	# elapsed presentation time since that pose instead of one render interval.
+	# Native epochs identify cuts, not elapsed time. When the local native sample
+	# matches this pose, its physics frame gives the actual time between cuts.
+	# Shared projections without that sample retain the render-time fallback.
+	var confirmed_elapsed := -1.0
+	if native_physics_frame >= 0 and int(previous.native_physics_frame) >= 0 \
+			and native_physics_frame > int(previous.native_physics_frame):
+		confirmed_elapsed = float(native_physics_frame - int(previous.native_physics_frame)) \
+			/ float(Engine.physics_ticks_per_second)
 	var horizontal_speed := horizontal.length() / maxf(
-		sample_elapsed if native_epoch >= 0 else delta, 0.0001)
+		confirmed_elapsed if confirmed_elapsed > 0.0 else \
+			sample_elapsed if native_epoch >= 0 else delta, 0.0001)
 	previous.sample_elapsed = sample_elapsed if repeated_sample else 0.0
 	previous.native_epoch = native_epoch
+	previous.native_physics_frame = native_physics_frame
 	var new_landing := false
 	if horizontal.length() > DISCONTINUITY_HORIZONTAL or absf(displacement.y) > DISCONTINUITY_VERTICAL:
 		previous = {"position": at, "phase": 0.0, "weight": 0.0, "age": 1.0,
 			"mode": "grounded", "ground_y": at.y, "peak_y": at.y,
 			"vertical_speed": 0.0, "air": 0.0, "impact_age": LANDING_SECONDS,
 			"run_mix": 0.0, "horizontal_speed": 0.0, "gait_speed": 0.0, "landing_stride": 0.0,
-			"native_epoch": native_epoch, "sample_elapsed": 0.0}
+			"native_epoch": native_epoch, "sample_elapsed": 0.0,
+			"native_physics_frame": native_physics_frame}
 		body.rotation.y = 0
 	else:
 		var vertical_speed: float = displacement.y / maxf(delta, 0.0001)
@@ -1188,6 +1203,7 @@ func refresh(delta: float = 0.0) -> void:
 	if context != visual_context:
 		visual_context = context
 		motion.clear()
+		native_sample_frames.clear()
 	var actors: Dictionary = host.state.get("actors", {})
 	for actor in views.keys():
 		if not actors.has(actor):
@@ -1196,6 +1212,7 @@ func refresh(delta: float = 0.0) -> void:
 			old.queue_free()
 			views.erase(actor)
 			motion.erase(actor)
+			native_sample_frames.erase(actor)
 	for actor in actors:
 		if not views.has(actor):
 			views[actor] = _new_view(actor)
@@ -1211,8 +1228,12 @@ func refresh(delta: float = 0.0) -> void:
 				_set_gait(body, 0, 0)
 			if delta > 0.0:
 				var observed_epoch: Variant = data.get("native_epoch", -1)
+				var native_epoch := int(observed_epoch) if typeof(observed_epoch) == TYPE_INT else -1
+				var sample: Dictionary = native_sample_frames.get(actor, {})
+				var physics_frame := int(sample.get("physics_frame", -1)) \
+					if sample.get("epoch", -1) == native_epoch else -1
 				_animate_actor(actor, view, view.position, delta,
-					int(observed_epoch) if typeof(observed_epoch) == TYPE_INT else -1)
+					native_epoch, physics_frame)
 		else:
 			motion.erase(actor)
 	if not host.explanation_open and actors.has(host.client) and Geometry.valid_position(actors[host.client].get("position")):

@@ -707,6 +707,49 @@ func check_uneven_native_walk_samples() -> void:
 		"Walking pose smoothing does not change the confirmed root or produce input.")
 	host.free()
 
+func check_jog_blend_at_native_physics_cadence() -> void:
+	var host := HostFixture.new()
+	host.state.context = "native-jog-cadence"
+	host.state.actors.P.native_epoch = 1
+	root.add_child(host)
+	var presenter := Presenter.new()
+	presenter.configure(host)
+	host.add_child(presenter)
+	presenter.set_process(false)
+	presenter.set_physics_process(false)
+	var delta := 1.0 / 30.0
+	var x := 0.0
+	var physics_frame := 10
+	presenter.observe_native_sample("P", {"native_epoch": 1, "physics_frame": physics_frame})
+	presenter.refresh(delta)
+	var maximum_speed_error := 0.0
+	var maximum_blend_error := 0.0
+	var exact_root := true
+	for frame in range(80):
+		# The same 2.01 m/s actor advances by two or three physics ticks per draw.
+		var ticks := 3 if frame % 3 == 2 else 2
+		physics_frame += ticks
+		x += float(ticks) * 2.01 / 60.0
+		host.state.actors.P.position = [x, 0.9, 0.0]
+		host.state.actors.P.native_epoch += ticks
+		presenter.observe_native_sample("P", {"native_epoch": host.state.actors.P.native_epoch,
+			"physics_frame": physics_frame})
+		presenter.refresh(delta)
+		exact_root = exact_root and is_equal_approx(presenter.views.P.position.x, x)
+		if frame >= 20:
+			maximum_speed_error = maxf(maximum_speed_error,
+				absf(float(presenter.motion.P.horizontal_speed) - 2.01))
+			maximum_blend_error = maxf(maximum_blend_error,
+				absf(float(presenter.motion.P.run_mix) - (2.01 - Presenter.RUN_BLEND_START)
+					/ (Presenter.RUN_BLEND_END - Presenter.RUN_BLEND_START)))
+	adult_measurements["native_jog_cadence"] = {"maximum_speed_error": maximum_speed_error,
+		"maximum_blend_error": maximum_blend_error}
+	verify(maximum_speed_error < 0.002 and maximum_blend_error < 0.015,
+		"Intermediate jog speed and pose blend stay steady across two- and three-tick native cuts.")
+	verify(exact_root and host.control_calls == 0,
+		"Native-timed jog presentation does not move the actor root or send input.")
+	host.free()
+
 func landing_contact_case(metres_per_frame: float) -> Dictionary:
 	var host := HostFixture.new()
 	host.state.context = "landing-contact"
@@ -953,6 +996,7 @@ func run() -> void:
 		check_native_cadence_running_contact()
 		check_sparse_confirmed_walk()
 		check_uneven_native_walk_samples()
+		check_jog_blend_at_native_physics_cadence()
 		check_landing_contact_from_motion()
 		var walk_contact := landing_toe_hold_case(0.018)
 		var jog_contact := landing_toe_hold_case(0.028)

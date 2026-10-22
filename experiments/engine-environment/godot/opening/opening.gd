@@ -4239,6 +4239,8 @@ func _actor_pose(actor: String, sample: Dictionary) -> void:
 	if not result.accepted:
 		_actor_failed(actor, result.reason)
 		return
+	if character_presenter != null:
+		character_presenter.observe_native_sample(actor, sample)
 	_refresh()
 	if startup_save_pending and not startup_save_scheduled:
 		var all_ready := true
