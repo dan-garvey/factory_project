@@ -387,6 +387,50 @@ void one_tile_large_cogs() {
     }
 }
 
+void one_tile_relays() {
+    for (const auto blocked : {Axis::x, Axis::y, Axis::z}) {
+        const auto closed = static_cast<std::size_t>(blocked);
+        std::size_t first = closed == 0 ? 1 : 0;
+        std::size_t second = 3 - closed - first;
+        Point incoming{}, opposite{}, turned{}, unavailable{};
+        incoming[first] = -4; opposite[first] = 4;
+        turned[second] = 4; unavailable[closed] = 4;
+        std::vector<Part> parts{{"source", Kind::hub, incoming, static_cast<Axis>(first)},
+            {"box", Kind::gearbox, {}, blocked},
+            {"opposite", Kind::shaft, opposite, static_cast<Axis>(first), 0, 2},
+            {"turned", Kind::shaft, turned, static_cast<Axis>(second), 0, 2},
+            {"closed", Kind::shaft, unavailable, blocked, 0, 2}};
+        const auto result = mechanical::evaluate(parts, {{"source", {3, 2}}});
+        motion(result, "box", MotionState::rotating, {-3, 2});
+        motion(result, "opposite", MotionState::rotating, {-3, 2});
+        motion(result, "turned", MotionState::rotating, {3, 2});
+        motion(result, "closed", MotionState::unpowered, {0, 1});
+        auto reversed = parts;
+        part(reversed, "source").center[first] = 4;
+        part(reversed, "opposite").center[first] = -4;
+        motion(mechanical::evaluate(reversed, {{"source", {3, 2}}}),
+               "turned", MotionState::rotating, {-3, 2});
+    }
+
+    std::vector<Part> chain{{"source", Kind::hub, {-4, 0, 0}, Axis::x},
+        {"first", Kind::chain_drive, {0, 0, 0}, Axis::x, 0, 0, Axis::z},
+        {"middle", Kind::chain_drive, {0, 0, 4}, Axis::x, 0, 0, Axis::z},
+        {"last", Kind::chain_drive, {0, 0, 8}, Axis::x, 0, 0, Axis::z},
+        {"output", Kind::shaft, {4, 0, 8}, Axis::x, 0, 2}};
+    motion(mechanical::evaluate(chain, {{"source", {-5, 3}}}),
+           "output", MotionState::rotating, {-5, 3});
+    part(chain, "middle").relay_axis = Axis::y;
+    motion(mechanical::evaluate(chain, {{"source", {-5, 3}}}),
+           "output", MotionState::unpowered, {0, 1});
+    part(chain, "middle").relay_axis = Axis::z;
+    part(chain, "middle").axis = Axis::y;
+    motion(mechanical::evaluate(chain, {{"source", {-5, 3}}}),
+           "output", MotionState::unpowered, {0, 1});
+    part(chain, "middle").axis = Axis::x;
+    part(chain, "middle").relay_axis = Axis::x;
+    refusal(chain, {{"source", {-5, 3}}}, Error::invalid_part);
+}
+
 void belt_path_geometry() {
     using mechanical::BeltPathKind;
     for (const auto axle : {Axis::x, Axis::z}) {
@@ -552,6 +596,7 @@ int main() {
         shafts_and_sources();
         one_tile_shaft_faces();
         one_tile_large_cogs();
+        one_tile_relays();
         belt_path_geometry();
         nonhorizontal_belt_power();
         belt_cargo_directions();

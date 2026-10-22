@@ -91,6 +91,11 @@ bool valid(const Part& part) noexcept {
             return axial >= -maximum_coordinate + part.half_span &&
                    axial <= maximum_coordinate - part.half_span;
         }
+        case Kind::gearbox:
+            return part.teeth == 0 && part.half_span == 0;
+        case Kind::chain_drive:
+            return part.teeth == 0 && part.half_span == 0 &&
+                   coordinate(part.relay_axis) < 3 && part.relay_axis != part.axis;
     }
     return false;
 }
@@ -104,6 +109,7 @@ bool coaxial(const Part& a, const Part& b) noexcept {
 }
 
 bool shaft_contact(const Part& a, const Part& b) noexcept {
+    if (a.kind == Kind::gearbox || b.kind == Kind::gearbox) return false;
     if (!coaxial(a, b)) return false;
     const auto axis = coordinate(a.axis);
     if (a.kind != Kind::shaft && b.kind != Kind::shaft) {
@@ -124,6 +130,48 @@ bool shaft_contact(const Part& a, const Part& b) noexcept {
     }
     return a.center[axis] - a_span <= b.center[axis] + b_span &&
            b.center[axis] - b_span <= a.center[axis] + a_span;
+}
+
+// The canonical gearbox rate is viewed from the positive face of its first
+// available axis. Opposing faces reverse, as do positive faces on the second
+// available axis. This reproduces Create's directional gearbox modifiers while
+// keeping one exact signed rate per placed block.
+std::optional<Integer> port_factor(const Part& part, std::size_t face_axis,
+                                   Integer face_sign) noexcept {
+    if (part.kind == Kind::gearbox) {
+        if (face_axis == coordinate(part.axis)) return std::nullopt;
+        std::size_t first = 0;
+        if (first == coordinate(part.axis)) ++first;
+        const Integer axis_factor = face_axis == first ? 1 : -1;
+        return axis_factor * face_sign;
+    }
+    if (part.kind == Kind::chain_drive && face_axis != coordinate(part.axis))
+        return std::nullopt;
+    if (face_axis != coordinate(part.axis)) return std::nullopt;
+    return 1;
+}
+
+std::optional<Rate> relay_contact(const Part& a, const Part& b) noexcept {
+    std::size_t face_axis = 3;
+    Integer face_sign = 0;
+    for (std::size_t i = 0; i < 3; ++i) {
+        const auto delta = b.center[i] - a.center[i];
+        if (delta == 0) continue;
+        if (face_axis != 3 || (delta != 4 && delta != -4)) return std::nullopt;
+        face_axis = i;
+        face_sign = delta > 0 ? 1 : -1;
+    }
+    if (face_axis == 3) return std::nullopt;
+    if (a.kind == Kind::gearbox || b.kind == Kind::gearbox) {
+        const auto from = port_factor(a, face_axis, face_sign);
+        const auto to = port_factor(b, face_axis, -face_sign);
+        if (!from || !to) return std::nullopt;
+        return Rate{*from * *to, 1};
+    }
+    if (a.kind == Kind::chain_drive && b.kind == Kind::chain_drive &&
+        a.axis == b.axis && a.relay_axis == b.relay_axis &&
+        face_axis == coordinate(a.relay_axis)) return Rate{1, 1};
+    return std::nullopt;
 }
 
 // Create-style large cogwheels meet across one construction cell on each of
@@ -268,6 +316,11 @@ Result evaluate(const std::vector<Part>& input, const std::vector<Drive>& source
             Rate forward{1, 1}, backward{1, 1};
             auto kind = EngagementKind::coaxial_shaft;
             bool connected = shaft_contact(left, right);
+            if (const auto relay = relay_contact(left, right)) {
+                connected = true;
+                kind = EngagementKind::relay;
+                forward = backward = *relay;
+            }
             if (const auto corner = corner_cog_contact(left, right)) {
                 connected = true;
                 kind = EngagementKind::external_mesh;
