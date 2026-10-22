@@ -337,6 +337,24 @@ func roles(node: Node, role: String) -> int:
 		count += roles(child, role)
 	return count
 
+func check_rim_face_relief(mesh: Mesh, radius: float) -> void:
+	var inner := radius * 0.56
+	var band := radius - 0.1 - inner
+	var relief := minf(0.008, band * 0.075)
+	var recessed := [0, 0]
+	var shoulders := [0, 0]
+	for vertex in mesh.get_faces():
+		var radial := Vector2(vertex.x, vertex.z).length()
+		if radial < inner + band * 0.3 or radial > inner + band * 0.7:
+			continue
+		var side := 1 if vertex.y > 0 else 0
+		if absf(absf(vertex.y) - (0.07 - relief)) < 0.0001:
+			recessed[side] += 1
+		if absf(absf(vertex.y) - 0.07) < 0.0001:
+			shoulders[side] += 1
+	verify(recessed[0] > 0 and recessed[1] > 0 and shoulders[0] > 0 and shoulders[1] > 0,
+		"Both actual cog faces retain a measurable recessed annular track and full-height shoulders.")
+
 func check_assemblies() -> void:
 	var axes := [Vector3.RIGHT, Vector3.UP, Vector3.BACK]
 	var center := Vector3(-1.65, 0.9125, 3.3)
@@ -353,6 +371,7 @@ func check_assemblies() -> void:
 		previous = gear.get_node("Gear").mesh
 		verify(gear.get_node("GearTooth").multimesh.mesh == Assets.tooth_mesh(0.825, 16),
 			"Repeated teeth share one closed authored tooth asset.")
+		check_rim_face_relief(gear.get_node("Gear").mesh, 0.825)
 		check_bounds(gear, gear.transform, center, axes[axis], 0.825, 0.12)
 		var shaft := Node3D.new()
 		shaft.position = center
@@ -371,6 +390,7 @@ func check_assemblies() -> void:
 		var radius := float(units) * 0.4125
 		Assets.gear(gear, radius, units, Color("687a7b"))
 		verify(roles(gear, "GearTooth") == units * 8, "Decorative tooth density remains proportional for other ratio sizes.")
+		check_rim_face_relief(gear.get_node("Gear").mesh, radius)
 		check_bounds(gear, Transform3D.IDENTITY, Vector3.ZERO, Vector3.UP, radius, 0.12)
 		gear.free()
 

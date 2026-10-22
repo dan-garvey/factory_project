@@ -5386,6 +5386,7 @@ func render_buildable_resources() -> void:
 		{"name": "conveyor", "kind": "belt", "sample_only": true}, {"name": "waterwheel", "kind": "wheel"},
 		{"name": "waterwheel-large", "kind": "wheel", "tiles": 8},
 		{"name": "belt-span", "kind": "belt_span"}, {"name": "belt-pulley", "kind": "belt_pulley"},
+		{"name": "cogwheel", "kind": "cogwheel"},
 		{"name": "waterwheel-journal", "kind": "wheel", "cutaway": true},
 		{"name": "paddle-small", "kind": "wheel", "tiles": 3, "paddle_cutaway": true, "cutaway": true},
 		{"name": "paddle-large", "kind": "wheel", "tiles": 8, "paddle_cutaway": true, "cutaway": true},
@@ -5434,6 +5435,8 @@ func render_buildable_resources() -> void:
 			model.add_child(shaft)
 			TransmissionAssets.shaft(shaft, Geometry.PITCH, Color("a6b4af"))
 			TransmissionAssets.belt_pulley(shaft)
+		elif subject.kind == "cogwheel":
+			TransmissionAssets.gear(model, Geometry.PITCH / 2.0, 2, Color("687a7b"))
 		elif subject.kind == "tool_cartridge":
 			var cartridge := MeshInstance3D.new()
 			cartridge.name = subject.name
@@ -5550,9 +5553,17 @@ func render_buildable_resources() -> void:
 			# carrier hide the only difference between the two head samples.
 			directions = [{"name": "front-below", "offset": Vector3(3, -2.2, 4)},
 				{"name": "back-below", "offset": Vector3(-4, -1.8, -3)}]
+		elif subject.kind == "cogwheel":
+			directions = [{"name": "front-face", "offset": Vector3(3, 4, 4)},
+				{"name": "back-face", "offset": Vector3(-4, -4, -3)},
+				{"name": "construction-front", "offset": Vector3(3, 3, 4), "perspective": true},
+				{"name": "construction-oblique", "offset": Vector3(-4, 3, -3), "perspective": true}]
 		for direction in directions:
 			var direction_offset: Vector3 = direction.offset
-			camera.position = centre + direction_offset.normalized() * diagonal * 2.0
+			var perspective: bool = direction.get("perspective", false)
+			camera.projection = Camera3D.PROJECTION_PERSPECTIVE if perspective else Camera3D.PROJECTION_ORTHOGONAL
+			camera.fov = 45.0
+			camera.position = centre + direction_offset.normalized() * (14.0 if perspective else diagonal * 2.0)
 			camera.look_at(centre, Vector3.UP)
 			var framed := true
 			for corner in range(8):
@@ -5594,7 +5605,7 @@ func render_buildable_resources() -> void:
 				push_error(report.reason)
 				quit(1)
 				return
-			if float(pixels.fraction) < 0.02 or float(pixels.fraction) > 0.85 \
+			if float(pixels.fraction) < (0.002 if perspective else 0.02) or float(pixels.fraction) > 0.85 \
 				or int(pixels.bounds_min[0]) <= 2 or int(pixels.bounds_min[1]) <= 2 \
 				or int(pixels.bounds_max[0]) >= 957 or int(pixels.bounds_max[1]) >= 957:
 				report.status = "fail"
@@ -5614,7 +5625,9 @@ func render_buildable_resources() -> void:
 				"profile": {"legacy_fixture": view.legacy_fixture, "native_transmission": view._native_transmission(),
 					"native_options": view.state.options.native, "request_sequence": view.request_sequence},
 				"camera_position": [camera.position.x, camera.position.y, camera.position.z],
-				"camera_target": [centre.x, centre.y, centre.z], "orthographic_size": camera.size,
+				"camera_target": [centre.x, centre.y, centre.z], "orthographic_size": camera.size if not perspective else null,
+				"camera_projection": "perspective" if perspective else "orthographic",
+				"camera_distance": 14.0 if perspective else diagonal * 2.0, "camera_fov": camera.fov if perspective else null,
 				"qualified_worked_maps": Opening.ProductionTransmissionFinish.source_status,
 				"panorama_source": Opening.ProductionEnvironment.sky_source_status}
 			report.images.append(frame)
@@ -5629,7 +5642,7 @@ func render_buildable_resources() -> void:
 		view.free()
 		await process_frame
 	report.status = "pass"
-	report.images_expected = subjects.size() * 2
+	report.images_expected = subjects.size() * 2 + subjects.filter(func(subject): return subject.kind == "cogwheel").size() * 2
 	report.limits = "Studio lighting and passive mesh observations. The cutter cartridge is an isolated visual sample without native cutting. The one-cell conveyor is a retired art sample; playable belts are shaft spans. No actual app, game state, user understanding, export, performance or human-quality verdict."
 	if not resource_render_write(manifest, report):
 		push_error("The final resource-render result cannot be retained.")
