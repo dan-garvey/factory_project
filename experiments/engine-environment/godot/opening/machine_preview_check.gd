@@ -171,6 +171,84 @@ func check_assemblies() -> void:
 	live_rotor.free()
 	view.free()
 
+func check_packed_assemblies() -> void:
+	var view := PointerView.new()
+	view.state = observation()
+	view.transmission_controls = ControlsStub.new()
+	for kind in ["collector", "belt", "processor", "wheel"]:
+		var path: String = "res://opening/assets/prebuilt-preview-" + kind + ".scn"
+		var packed := load(path) as PackedScene
+		verify(packed != null, "A prebuilt preview exists for %s." % kind)
+		if packed == null:
+			continue
+		var source := packed.instantiate() as Node3D
+		view.add_child(source)
+		var expected := Node3D.new()
+		var cell := [0, 1] if kind == "collector" else [1, 2]
+		expected.position = view._cell_position(cell)
+		view._assemble_machine(expected, {"kind": kind, "axis": 0, "tiles": 3,
+			"rotation": 0, "cell": cell, "level": 0}, kind == "belt")
+		if kind in ["collector", "processor"]:
+			view._preview_port(expected, 0, kind == "collector")
+		verify(geometry(source) == geometry(expected),
+			"The baked %s preview keeps procedural mesh geometry and local transforms." % kind)
+		view._style_machine_preview(source)
+		check_preview_nodes(source, view.machine_preview_material)
+		if kind != "belt":
+			view.packed_preview_templates[kind] = packed
+			view.packed_preview_nodes[kind] = source
+			view.mode = kind
+			view.target = Vector2i(cell[0], cell[1])
+			view._refresh_machine_preview()
+			verify(view.machine_preview == source and view.machine_preview.visible
+				and geometry(view.machine_preview) == geometry(expected),
+				"The native %s selection reuses its warmed preview without changing its form." % kind)
+			check_preview_nodes(view.machine_preview, view.machine_preview_material)
+			view.packed_preview_nodes.erase(kind)
+			view._choose_machine_preview()
+			view._refresh_machine_preview()
+			verify(view.machine_preview != source and view.machine_preview.visible
+				and geometry(view.machine_preview) == geometry(expected),
+				"The native %s selection can also instantiate a baked preview." % kind)
+			verify(view.state == observation() and view.model == null and view.request_sequence == 0,
+				"The baked preview leaves %s authority unchanged." % kind)
+		expected.free()
+	view.free()
+
+func check_foundation_pool() -> void:
+	var view := PointerView.new()
+	view.state = observation()
+	view.state.part_kits.P["foundation"] = 2
+	view.transmission_controls = ControlsStub.new()
+	var pooled := Node3D.new()
+	view.add_child(pooled)
+	view._assemble_foundation(pooled)
+	view._style_machine_preview(pooled)
+	view.packed_preview_nodes["foundation"] = pooled
+	var expected := Node3D.new()
+	view._assemble_foundation(expected)
+	view.mode = "foundation"
+	view.target = Vector2i(1, 2)
+	var before: Dictionary = view.state.duplicate(true)
+	view._refresh_machine_preview()
+	verify(view.machine_preview == pooled and view.machine_preview.visible
+		and geometry(view.machine_preview) == geometry(expected),
+		"The native foundation preview reuses its warmed form.")
+	check_preview_nodes(view.machine_preview, view.machine_preview_material)
+	view.foundation_area_mode = true
+	view.foundation_area_started = true
+	view.foundation_area_start = Vector2i(1, 2)
+	view.target = Vector2i(2, 3)
+	view._refresh_machine_preview()
+	verify(view.machine_preview == pooled and pooled.scale == Vector3(2, 1, 2)
+		and is_equal_approx(pooled.position.x, 1.5 * Opening.PITCH)
+		and is_equal_approx(pooled.position.z, 2.5 * Opening.PITCH),
+		"The pooled foundation stretches across the selected grid area.")
+	verify(view.state == before and view.model == null and view.request_sequence == 0,
+		"The pooled foundation preview leaves construction authority untouched.")
+	expected.free()
+	view.free()
+
 func check_gates(view, shared: bool) -> void:
 	view.state = observation()
 	view.mode = "belt"
@@ -458,7 +536,45 @@ func check_transmission_previews(view, shared: bool) -> void:
 func _initialize() -> void:
 	call_deferred("_run")
 
+func _own_packed_preview(node: Node, root_node: Node) -> void:
+	for child in node.get_children():
+		child.owner = root_node
+		_own_packed_preview(child, root_node)
+
+func _bake_packed_previews() -> void:
+	# Explicit asset-generation mode. The ordinary check never writes source.
+	var view := PointerView.new()
+	view.state = observation()
+	view.transmission_controls = ControlsStub.new()
+	var results := {}
+	for kind in ["collector", "belt", "processor", "wheel"]:
+		var anchor := Node3D.new()
+		anchor.name = "PreviewTemplate"
+		var cell := [0, 1] if kind == "collector" else [1, 2]
+		anchor.position = view._cell_position(cell)
+		view._assemble_machine(anchor, {"kind": kind, "axis": 0, "tiles": 3,
+			"rotation": 0, "cell": cell, "level": 0}, kind == "belt")
+		if kind in ["collector", "processor"]:
+			view._preview_port(anchor, 0, kind == "collector")
+		view._style_machine_preview(anchor)
+		anchor.position = Vector3.ZERO
+		_own_packed_preview(anchor, anchor)
+		var packed := PackedScene.new()
+		var status := packed.pack(anchor)
+		var path: String = "res://opening/assets/prebuilt-preview-" + kind + ".scn"
+		if status == OK:
+			status = ResourceSaver.save(packed, path, ResourceSaver.FLAG_BUNDLE_RESOURCES)
+		results[kind] = {"status": status,
+			"bytes": FileAccess.get_file_as_bytes(path).size() if status == OK else 0}
+		anchor.free()
+	view.free()
+	print("PACKED_MACHINE_PREVIEWS " + JSON.stringify(results))
+	quit(0 if results.values().all(func(row): return row.status == OK) else 1)
+
 func _run() -> void:
+	if OS.get_cmdline_user_args().has("--bake-packed-previews"):
+		_bake_packed_previews()
+		return
 	if OS.get_cmdline_user_args().has("--transmission-previews-only"):
 		check_pointer_bounds()
 		check_transmission_previews(PointerView.new(), false)
@@ -492,6 +608,8 @@ func _run() -> void:
 	verify(not detached._preview_pointer_clear(), "A detached view cannot query or invent a usable pointer.")
 	detached.free()
 	check_assemblies()
+	check_packed_assemblies()
+	check_foundation_pool()
 	check_gates(PointerView.new(), false)
 	var shared := SharedPointerView.new()
 	shared.session = SessionStub.new()
