@@ -3,6 +3,7 @@
 #include "factory/materials.hpp"
 
 #include <algorithm>
+#include <array>
 #include <optional>
 #include <vector>
 
@@ -35,6 +36,23 @@ std::optional<mechanics::Point> point(const O& object) {
     return result;
 }
 
+struct MachinePort { mechanics::Point center; Count rotation; };
+
+std::optional<MachinePort> machine_port(const O& part) {
+    const auto center = point(part);
+    const auto* rotation = field<Count>(part, "rotation");
+    if (!center || !rotation || *rotation < 0 || *rotation > 3) return std::nullopt;
+    return MachinePort{*center, *rotation};
+}
+
+bool port_matches(const MachinePort& machine, const mechanics::Point& adjacent, bool output) {
+    constexpr std::array<mechanics::Point, 4> forwards{{{4, 0, 0}, {0, 0, 4}, {-4, 0, 0}, {0, 0, -4}}};
+    const auto& forward = forwards[static_cast<std::size_t>(machine.rotation)];
+    const auto sign = output ? 1 : -1;
+    return adjacent[0] - machine.center[0] == sign * forward[0] &&
+           adjacent[2] - machine.center[2] == sign * forward[2];
+}
+
 std::optional<mechanics::Part> shaft(const O& parts, const std::string& id) {
     const auto found = parts.find(id);
     const auto* part = found == parts.end() ? nullptr : std::get_if<O>(&found->second.storage());
@@ -46,11 +64,11 @@ std::optional<mechanics::Part> shaft(const O& parts, const std::string& id) {
     return mechanics::Part{id, mechanics::Kind::shaft, *center, static_cast<mechanics::Axis>(*axis), 0, *half};
 }
 
-// Follow the same tile geometry, direction, endpoint feeding and loose-item
-// handoff used by World::tick. A rotating but disconnected or backwards span
-// must not satisfy the challenge.
+// Follow the same tile geometry, oriented machine ports, direction, endpoint
+// feeding and loose-item handoff used by World::tick. A rotating but
+// disconnected or backwards span must not satisfy the challenge.
 bool forward_route(const O& spans, const O& parts, const O& motion,
-                   const mechanics::Point& collector, const mechanics::Point& processor, const V::Array& drops) {
+                   const MachinePort& collector, const MachinePort& processor, const V::Array& drops) {
     struct Lane { mechanics::BeltPath path; int direction; mechanics::Point before, after; Count order; bool fast; };
     std::vector<Lane> lanes;
     for (const auto& [id, value] : spans) {
@@ -83,7 +101,8 @@ bool forward_route(const O& spans, const O& parts, const O& motion,
         const bool fast = speed >= materials::work_subticks_per_tick;
         lanes.push_back({*path, *direction, before, after, *order, fast});
     }
-    // World offers collector output in construction order, after advancing each lane.
+    // World offers collector output to port-facing lanes in construction order,
+    // after advancing each lane. An orthogonal lane cannot divert that output.
     // A cargo lane that moves at least one tile per tick and drops into
     // open space can continuously take every output. Do not report a later
     // route as working in that case. Slower lanes can leave their inlet occupied,
@@ -97,7 +116,8 @@ bool forward_route(const O& spans, const O& parts, const O& motion,
         for (std::size_t cursor = 0; cursor < pending.size(); ++cursor) {
             const auto& current = lanes[pending[cursor]];
             const auto& output = current.direction > 0 ? current.after : current.before;
-            if (output == processor) return true;
+            if (output == processor.center && port_matches(processor,
+                    current.direction > 0 ? current.path.tiles.back() : current.path.tiles.front(), false)) return true;
             for (std::size_t i = 0; i < lanes.size(); ++i) {
                 if (!reached[i] && std::find(lanes[i].path.tiles.begin(), lanes[i].path.tiles.end(), output) != lanes[i].path.tiles.end()) {
                     reached[i] = true;
@@ -109,10 +129,12 @@ bool forward_route(const O& spans, const O& parts, const O& motion,
     };
     for (std::size_t index = 0; index < lanes.size(); ++index) {
         const auto& lane = lanes[index];
-        const bool collector_input = lane.before == collector || lane.after == collector;
+        const bool collector_input =
+            (lane.before == collector.center && port_matches(collector, lane.path.tiles.front(), true)) ||
+            (lane.after == collector.center && port_matches(collector, lane.path.tiles.back(), true));
         if (!collector_input) continue;
-        const bool moves_away = (lane.direction > 0 && lane.before == collector) ||
-                                (lane.direction < 0 && lane.after == collector);
+        const bool moves_away = (lane.direction > 0 && lane.before == collector.center) ||
+                                (lane.direction < 0 && lane.after == collector.center);
         if (moves_away && reaches_processor(index)) return true;
         const auto& output = lane.direction > 0 ? lane.after : lane.before;
         bool transfers_to_lane = false;
@@ -128,7 +150,7 @@ bool forward_route(const O& spans, const O& parts, const O& motion,
         const bool valid_drop = std::all_of(output.begin(), output.end(), [](Count coordinate) {
             return coordinate >= -materials::maximum_drop_coordinate && coordinate <= materials::maximum_drop_coordinate;
         });
-        if (lane.fast && output != processor && output != collector && !transfers_to_lane && valid_drop &&
+        if (lane.fast && output != processor.center && output != collector.center && !transfers_to_lane && valid_drop &&
             (existing_drop || drops.size() < materials::maximum_drop_points)) return false;
     }
     return false;
@@ -167,7 +189,7 @@ Progress inspect(const godot_world::Host& host, const std::string& actor) {
     Progress progress;
     progress.products = *products;
     unsigned machines{}, running{};
-    std::optional<mechanics::Point> collector, processor;
+    std::optional<MachinePort> collector, processor;
     for (const auto& [id, value] : *entities) {
         const auto* part = std::get_if<O>(&value.storage());
         if (!part) return {};
@@ -182,8 +204,10 @@ Progress inspect(const godot_world::Host& host, const std::string& actor) {
             progress.source_at_target = *x == content.wheel_cell[0] && *z == content.wheel_cell[1];
         } else if (*kind == "collector" || *kind == "processor") {
             ++machines;
-            if (*kind == "collector") collector = point(*part);
-            else processor = point(*part);
+            const auto port = machine_port(*part);
+            if (!port) return {};
+            if (*kind == "collector") collector = port;
+            else processor = port;
             const auto found = motion->find(id);
             if (found == motion->end()) return {};
             const auto* entry = std::get_if<O>(&found->second.storage());
