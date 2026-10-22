@@ -50,11 +50,16 @@ hub-to-hub or cog-to-hub contact consumes no separate shaft. A greater gap or la
 shaft endpoints couple; a gap does not. Different gear axes or planes do not
 create an external spur mesh. Coplanar overlapping pitch disks refuse.
 
-The kernel solves exact signed rational rates. An incompatible driven loop or
-conflicting sources stall only the connected component, with zero derived rates.
-A separate component can continue. Without a source the component is unpowered;
-an explicitly zero source is stopped. This models kinematic consistency, not
-torque distribution, native contact, inertia or a new damage rule.
+The kernel solves exact signed rational rates. Its prescribed-rate mode requires
+every supplied observation to hold, for mechanism and puzzle constraints. The
+stationary World uses physical-source mode: compatible sources turning the same
+way follow the strongest source, and a stationary source can be back-driven.
+An incompatible driven loop, opposing physical sources or conflicting
+prescribed observations stall only the connected component, with zero derived
+rates. A separate component can continue. Without a source the component is
+unpowered; sources that are all zero are stopped. This models kinematic
+consistency, not torque distribution, native contact, inertia or a new damage
+rule.
 
 ## Authority and presentation interface
 
@@ -96,8 +101,9 @@ including horizontal, vertical, 45-degree inclined and sideways paths. Each
 span validates aligned grid centers, a maximum of twenty
 tiles, unobstructed tile centers and exclusive belt occupancy. Aligned shafts
 within the span are pulleys; their signed angular rates match, including when
-the drive enters at either end. Incompatible sources stall the connected
-component. Stationary plans account for a carried belt, the World stores spans
+the drive enters at either end. Stationary placement refuses a new belt if any
+already rotating pulley on its path has a different rate. Stationary plans
+account for a carried belt, the World stores spans
 and cargo lanes, and ordinary controls can place and remove spans. This geometry
 check is not full terrain or body collision clearance.
 
