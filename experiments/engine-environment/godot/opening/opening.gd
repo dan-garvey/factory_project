@@ -5372,7 +5372,7 @@ func _screen_hand_source(screen: Vector2) -> String:
 		return ""
 	var eye := camera.project_ray_origin(screen)
 	var query := PhysicsRayQueryParameters3D.create(eye, eye + camera.project_ray_normal(screen) * 80.0,
-		Geometry.GROUND_LAYER | Geometry.MACHINE_LAYER | Geometry.PICK_LAYER)
+		Geometry.GROUND_LAYER | Geometry.MACHINE_LAYER | Geometry.PICK_LAYER | TRANSMISSION_TERRAIN_PICK_LAYER)
 	query.collide_with_areas = true
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
 	if hit.is_empty():
@@ -5380,6 +5380,10 @@ func _screen_hand_source(screen: Vector2) -> String:
 	# A resource presenter identifies the actual hit, rather than selecting a
 	# nearby source from camera distance. Host retains the actor-reach check.
 	var id: String = str(hit.collider.get_meta("hand_source", ""))
+	if id.is_empty() and hit.collider == get_node_or_null("SharedOreSourcePicker"):
+		# The shared view owns only a pick shape. The server projection supplies
+		# the source identity and remains the sole stock and reach authority.
+		id = str(state.get("source_deposit", {}).get("id", ""))
 	if id.is_empty() and actor_world != null and hit.collider == actor_world.site_bodies.get("source_outcrop"):
 		var deposits: Array[String] = []
 		for key: String in state.hand_sources:
