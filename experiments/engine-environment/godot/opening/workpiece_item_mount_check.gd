@@ -72,8 +72,8 @@ func check_view(view, shared: bool) -> void:
 		and has_item(view.item_root, "stamped_plate", Vector3(3.76, 0.39, 1.8)),
 		"Held/input work and the outlet plate retain the original press offsets.")
 	var deposit: Node3D = view.item_root.get_node("MineralDeposit")
-	verify(deposit.get_child_count() == 2 and deposit.get_meta("remaining") == 3
-		and deposit.has_node("ExposedRock") and deposit.has_node("MineralVeins"),
+	verify(deposit.get_child_count() == 3 and deposit.get_meta("remaining") == 3
+		and deposit.has_node("ExposedRock") and deposit.has_node("MineralVeins") and deposit.has_node("OreSurface"),
 		"The actual callback consumes native coverage and confirmed reserve without a per-unit prop row.")
 	verify(view.state == before and facts.state == before and view.actor_world == null
 		and view.request_sequence == 0, "Item refresh does not mutate projection facts or create authority/input.")
@@ -89,7 +89,8 @@ func check_view(view, shared: bool) -> void:
 	before = facts.state.duplicate(true)
 	view._refresh()
 	verify(counts(view.item_root) == {"workpiece_billet": 4, "mineral_deposit": 1}
-		and not view.item_root.get_node("MineralDeposit").has_node("MineralVeins"),
+		and not view.item_root.get_node("MineralDeposit").has_node("MineralVeins")
+		and not view.item_root.get_node("MineralDeposit").has_node("OreSurface"),
 		"The exhausted source retains bare host rock while collected plates and minerals disappear.")
 	var old_items_freed := true
 	for previous in old_items: old_items_freed = old_items_freed and previous.get_ref() == null

@@ -1027,10 +1027,13 @@ color or complete scene quality.
 ## GDC-20: transmission stands are a derived opening adapter
 
 **Experimental adapter and fixture rule.** The native Host derives one fixed
-stand seat for each placed shaft or cog from its confirmed center, axis, terrain
-and any foundation under the seat. It refuses a post through a terrain obstacle
-or foundation, and a stand taller than nine metres. Foundation placement and
-removal must leave every existing transmission stand valid. The projection
+stand seat for each placed shaft or cog from its confirmed center, axis, terrain,
+ground-connected site solids and any foundation under the seat. A rock below a
+clear axle can seat the stand on its supplied site box top. It refuses an axle
+intersecting that box, a post through an elevated obstruction or foundation,
+and a stand taller than
+nine metres. Foundation placement and removal must leave every existing
+transmission stand valid. The projection
 supplies the foot and bearing points; the Godot presenter draws a stationary
 frame outside the rotating part. The stand is included in the carried shaft or
 cog for this opening, with no separate stock, connection or saved authority.

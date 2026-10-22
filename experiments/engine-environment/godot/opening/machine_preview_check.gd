@@ -6,22 +6,57 @@ const SharedOpening = preload("res://opening/shared_opening.gd")
 class PointerView extends Opening:
 	var pointer_clear := true
 	var target := Vector2i(1, 2)
+	var part_target: Array = [4, 8, 12]
+	var options_hovered := false
+	var catalog_visible := false
+	var issued: Array = []
 	func _preview_pointer_clear() -> bool:
 		return pointer_clear
 	func _machine_preview_cell() -> Vector2i:
 		return target
+	func _pointed_screen_position() -> Vector2:
+		return Vector2.ZERO
+	func _transmission_center(_screen: Vector2) -> Array:
+		return part_target.duplicate()
+	func _pointer_over_placement_options() -> bool:
+		return options_hovered
+	func _catalog_open() -> bool:
+		return catalog_visible
+	func issue(action: Dictionary) -> Dictionary:
+		issued.append(action.duplicate(true))
+		return {"accepted": false, "reason": "fixture_only"}
 
 class SharedPointerView extends SharedOpening:
 	var pointer_clear := true
 	var target := Vector2i(1, 2)
+	var part_target: Array = [4, 8, 12]
+	var options_hovered := false
+	var catalog_visible := false
+	var issued: Array = []
 	func _preview_pointer_clear() -> bool:
 		return pointer_clear
 	func _machine_preview_cell() -> Vector2i:
 		return target
+	func _pointed_screen_position() -> Vector2:
+		return Vector2.ZERO
+	func _transmission_center(_screen: Vector2) -> Array:
+		return part_target.duplicate()
+	func _pointer_over_placement_options() -> bool:
+		return options_hovered
+	func _catalog_open() -> bool:
+		return catalog_visible
+	func issue(action: Dictionary) -> Dictionary:
+		issued.append(action.duplicate(true))
+		return {"accepted": false, "reason": "fixture_only"}
 
 class MarkerView extends Opening:
+	var pointed := Vector2.ZERO
+	func _ready() -> void:
+		set_process(false)
 	func _update_camera() -> void:
 		pass
+	func _pointed_screen_position() -> Vector2:
+		return pointed
 
 class ControlsStub extends RefCounted:
 	var selected_axis := "x"
@@ -318,7 +353,122 @@ func check_foundation_heights(view) -> void:
 		"Floor preview checks neither mutate the projection nor issue a request.")
 	view.free()
 
+func check_pointer_bounds() -> void:
+	var view := MarkerView.new()
+	root.add_child(view)
+	var extent := view.get_viewport().get_visible_rect().size
+	view.pointed = extent * 0.5
+	verify(view._preview_pointer_clear(), "A pointer inside the game viewport can show a preview.")
+	for point in [Vector2(-1, extent.y * 0.5), Vector2(extent.x, extent.y * 0.5),
+			Vector2(extent.x * 0.5, -1), Vector2(extent.x * 0.5, extent.y)]:
+		view.pointed = point
+		verify(not view._preview_pointer_clear(), "A pointer outside any viewport edge cannot leave a clipped ghost in the game.")
+	view.free()
+
+func check_transmission_previews(view, shared: bool) -> void:
+	var assets = load("res://opening/native_transmission_assets.gd")
+	var presenter = load("res://opening/native_transmission_presenter.gd")
+	view.state = observation()
+	view.state.transmission_parts = {}
+	view.state.part_kits.P.merge({"gear": 3, "shaft": 8, "foundation": 1})
+	view.state.part_specifications = {"P": [
+		{"kind": "gear", "teeth": 2, "half_span": 0, "count": 2},
+		{"kind": "gear", "teeth": 4, "half_span": 0, "count": 1},
+		{"kind": "shaft", "teeth": 0, "half_span": 2, "count": 8}]}
+	view.transmission_controls = load("res://opening/native_transmission_controls.gd").new()
+	view.add_child(view.transmission_controls)
+	view.transmission_controls.configure(view)
+	view.hover = MeshInstance3D.new()
+	view.add_child(view.hover)
+	var before: Dictionary = view.state.duplicate(true)
+	for selection in [["gear", 2], ["gear", 4], ["place_shaft", 2]]:
+		view.mode = "gear" if selection[0] == "gear" else "drive"
+		view.transmission_controls.gear_teeth = selection[1]
+		view.transmission_controls.choose_tool(selection[0])
+		for axis in range(3):
+			view.transmission_controls.selected_axis = ["x", "y", "z"][axis]
+			view.part_target = [4, 8, 12]
+			view._refresh_machine_preview()
+			verify(view.machine_preview != null and view.machine_preview.visible,
+				"A carried native cog or shaft has a three-dimensional placement preview.")
+			if view.machine_preview == null or not view.machine_preview.visible:
+				view.free()
+				return
+			verify(view.machine_preview.position.is_equal_approx(Opening.Geometry._mechanical_center(view.part_target))
+				and view.machine_preview.basis.is_equal_approx(presenter.axis_basis(axis)),
+				"Every preview axis uses the same native center, height origin and orientation as a placed part.")
+			if selection[0] == "gear":
+				var mesh: MeshInstance3D = view.machine_preview.get_child(0)
+				verify(mesh.mesh == assets.complete_gear_mesh(Opening.PITCH / 2.0, selection[1], Color("687a7b"), Opening.PITCH),
+					"Both cog sizes reuse the exact fitted mesh already used by confirmed cog batches.")
+			else:
+				var expected := Node3D.new()
+				assets.shaft(expected, Opening.PITCH, Color("687a7b"))
+				verify(geometry(view.machine_preview) == geometry(expected),
+					"Shaft preview geometry matches the existing one-tile shaft asset.")
+				expected.free()
+			if axis == 0:
+				check_preview_nodes(view.machine_preview, view.machine_preview_material)
+			var child_id: int = view.machine_preview.get_child(0).get_instance_id()
+			view.part_target = [-4, 12, 16]
+			view._refresh_machine_preview()
+			verify(view.machine_preview.get_child(0).get_instance_id() == child_id
+				and view.machine_preview.position.is_equal_approx(Opening.Geometry._mechanical_center(view.part_target)),
+				"Moving the target changes only the cached preview's position.")
+			view._update_cursor()
+			verify(not view.hover.visible, "Cog and shaft tools no longer expose the obsolete flat tile marker.")
+	verify(view.state == before and view.issued.is_empty() and view.request_sequence == 0
+		and view.model == null and view.actor_world == null,
+		"Preview assembly changes no facts and owns no Model, actor controller or authority request.")
+	view.options_hovered = true
+	view.part_target = [400, 0, 400]
+	view.transmission_controls.auto_height = false
+	view.transmission_controls.gear_height = 16
+	view._refresh_machine_preview()
+	verify(view.machine_preview.position.is_equal_approx(Opening.Geometry._mechanical_center([-4, 16, 16])),
+		"Editing height over the options panel retains the last pointed horizontal target.")
+	view.options_hovered = false
+	for gate in ["pointer_clear", "catalog_visible", "explanation_open", "startup_save_pending"]:
+		view.set(gate, gate != "pointer_clear")
+		view._refresh_machine_preview()
+		verify(not view.machine_preview.visible, "An unavailable pointer, catalog, Help or startup barrier hides the part preview.")
+		view.set(gate, gate == "pointer_clear")
+	view.transmission_controls.choose_tool("gear")
+	view.transmission_controls.gear_teeth = 2
+	view.state.part_specifications.P[0].count = 0
+	view._refresh_machine_preview()
+	verify(not view.machine_preview.visible, "An exhausted selected cog specification cannot borrow another size's kit.")
+	view.state.part_specifications.P[0].count = 2
+	if shared:
+		view.pending_actions = {"pending": {"action": {"action": "place_gear"}}}
+		view._refresh_machine_preview()
+		verify(not view.machine_preview.visible, "A pending shared mutation hides a speculative part preview.")
+		view.pending_actions.clear()
+		view.session.ready = false
+		view._refresh_machine_preview()
+		verify(not view.machine_preview.visible, "A disconnected shared view cannot retain its visible part preview.")
+		view.session.ready = true
+	view.mode = "foundation"
+	view.transmission_controls.cancel()
+	view._refresh_machine_preview()
+	verify(view.machine_preview.visible and view.machine_preview.basis.is_equal_approx(Basis.IDENTITY),
+		"Returning to a foundation removes the previous shaft-axis transform.")
+	view.free()
+
 func _initialize() -> void:
+	call_deferred("_run")
+
+func _run() -> void:
+	if OS.get_cmdline_user_args().has("--transmission-previews-only"):
+		check_pointer_bounds()
+		check_transmission_previews(PointerView.new(), false)
+		var transmission_shared := SharedPointerView.new()
+		transmission_shared.session = SessionStub.new()
+		check_transmission_previews(transmission_shared, true)
+		print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
+			"observations": "invented", "desktop": "not_used", "mode": "transmission_previews"}))
+		quit(1 if failed else 0)
+		return
 	if OS.get_cmdline_user_args().has("--selection-cursor-only"):
 		check_inspection_cursor(PointerView.new())
 		var cursor_shared := SharedPointerView.new()
@@ -352,6 +502,11 @@ func _initialize() -> void:
 	check_inspection_cursor(cursor_shared)
 	check_selection_marker()
 	check_partial_drive_guidance()
+	check_pointer_bounds()
+	check_transmission_previews(PointerView.new(), false)
+	var transmission_shared := SharedPointerView.new()
+	transmission_shared.session = SessionStub.new()
+	check_transmission_previews(transmission_shared, true)
 	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
 		"assembly_cases": assembly_cases, "observations": "invented", "desktop": "not_used",
 		"rendered_quality": "not_assessed"}))

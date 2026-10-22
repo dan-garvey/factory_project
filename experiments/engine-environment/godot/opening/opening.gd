@@ -4184,9 +4184,9 @@ const PITCH := Geometry.PITCH
 const NAMES := {"collector": "Collector", "belt": "Belt", "processor": "Press", "wheel": "Waterwheel", "foundation": "Foundation"}
 const COLORS := {"collector": Color("96805c"), "belt": Color("538e88"), "processor": Color("bd7054"), "wheel": Color("8b9caa")}
 const LESSONS := [
-	["01  /  BUILD THE PATH", "Place a collector at the seam and a press nearby. Put two one-tile shafts between them with parallel axles, then connect the shafts with a belt. Foundations provide level building surfaces."],
+	["01  /  BUILD THE PATH", "Place a collector at the ore deposit and a press nearby. Put two one-tile shafts between them with parallel axles, then connect the shafts with a belt. Foundations provide level building surfaces."],
 	["02  /  CARRY ROTATION", "Use a waterwheel in flowing water. Small cogs with matching axes mesh side by side; mixed sizes mesh diagonally. Two large cogs on perpendicular axes meet one tile along each axle. Meshes reverse rotation; sizes change speed. Shafts carry rotation. Horizontal and vertical gearboxes turn it through side ports; matching encased chain cases link sideways."],
-	["03  /  FOLLOW ONE BLANK", "The collector removes a blank from the finite seam. The belt carries it to the press. Advance the example one tick at a time. The held blank stays in the press until its plate can leave."],
+	["03  /  FOLLOW ONE BLANK", "The collector removes a blank from the finite ore deposit. The belt carries it to the press. Advance the example one tick at a time. The held blank stays in the press until its plate can leave."],
 	["04  /  MAKE ROOM", "A full press outlet holds up the line. Collect the example plate below: the held blank finishes without being lost. Stopping the drive keeps the parts and unfinished work where they are."]
 ]
 
@@ -4209,7 +4209,7 @@ var save_slot_owned := false
 var last_save_result: Dictionary = {}
 var last_load_result: Dictionary = {}
 var startup_resume_checkpoint: Dictionary = {}
-const FIRST_COLLECTOR_HINT := "Choose Collector [1] to build at the mineral seam."
+const FIRST_COLLECTOR_HINT := "Choose Collector [1] on the ore-colored ground beside the rock."
 var mode := "inspect"
 var pending_link := ""
 var selected := ""
@@ -4237,8 +4237,6 @@ var item_root: Node3D
 var workpiece_item_assets
 var hover: MeshInstance3D
 var selection_ring: MeshInstance3D
-var placement_hint: Node3D
-var placement_target_label: Label3D
 var machine_preview: Node3D
 var machine_preview_key := ""
 var machine_preview_material: StandardMaterial3D
@@ -4247,6 +4245,7 @@ var machine_conveyor_batches: Array[Dictionary] = []
 var machine_rotors: Array[Dictionary] = []
 var machine_batch_finished_meshes: Dictionary = {}
 var machine_batch_rotor_meshes: Dictionary = {}
+var transmission_preview_point: Array = []
 var wheel_rotor: Node3D
 var machine_body_context := ""
 var machine_press_poses: Dictionary = {}
@@ -4827,7 +4826,7 @@ func issue(action: Dictionary) -> Dictionary:
 			"held_stock": "Retrieve the material before removing this machine.",
 			"contains_stock": "Retrieve the material before removing this machine.",
 			"not_at_stream": "Set the wheel in the water with its lower rim immersed and clear of the bed.",
-			"not_at_seam": "Place the collector at the exposed mineral seam.",
+			"not_at_seam": "Place the collector on the ore-colored ground beside the rock.",
 			"no_shaft": "All carried shafts are in use."}.get(outcome.reason, "That action is unavailable here.")), true)
 	_refresh()
 	return outcome
@@ -4851,7 +4850,7 @@ func _material_refusal_message(outcome: Dictionary, fallback: String) -> String:
 		if typeof(text) == TYPE_STRING and not text.is_empty():
 			return text
 	if _native_transmission() and outcome.get("reason") == "not_at_seam":
-		return "Place the collector at the exposed mineral seam."
+		return "Place the collector on the ore-colored ground beside the rock. A foundation there at factory floor height can support it."
 	return fallback
 
 func _process(delta: float) -> void:
@@ -5103,6 +5102,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_R:
 				if _native_transmission() and mode in ["collector", "processor", "wheel"]:
 					_rotate_building()
+				elif _native_transmission() and mode != "inspect":
+					_cycle_placement_axis()
 				else:
 					_retrieve()
 			KEY_H: _toggle_explanation()
@@ -5120,6 +5121,7 @@ func _select_tool(tool: String) -> void:
 	mode = tool
 	foundation_area_started = false
 	pending_link = ""
+	transmission_preview_point.clear()
 	if _native_transmission() and transmission_controls != null:
 		if tool == "wheel" and transmission_controls.selected_axis == "y":
 			transmission_controls._axis_selected(0)
@@ -5132,10 +5134,10 @@ func _select_tool(tool: String) -> void:
 		"drive": "Click two neighboring machines to connect a drive shaft.",
 		"inspect": "Point at a machine and press E to open it." if _native_transmission() else "Click a machine to inspect it or collect its finished work.",
 		"deconstruct": "Point at a built part and click to dismantle it. Escape leaves dismantle mode.",
-		"collector": "Place the collector on the brass seam strip.",
+		"collector": "Place the collector on the ore deposit.",
 		"wheel": "Place the waterwheel in the flowing stream. Set its height to align its axle with your shafts."}
 	if _native_transmission():
-		instructions["collector"] = "Place the collector at the exposed mineral seam."
+		instructions["collector"] = "Place the collector on the ore-colored ground beside the rock, or on a foundation there at factory floor height."
 		instructions["belt"] = "Choose two parallel shafts within reach. The belt runs across their axle, not along it."
 		instructions["flow"] = "Choose the upstream machine, then its neighbor at the material outlet."
 		instructions["drive"] = "Point at a floor to match its height, a part face to snap beside it, or a belt to add a pulley. Set the shaft axis in its menu."
@@ -5385,7 +5387,6 @@ func _adjust_wheel_size(delta: int) -> void:
 		return
 	wheel_tiles = clampi(wheel_tiles + delta, 3, 4096)
 	wheel_size_label.text = "Wheel diameter: %d squares" % wheel_tiles
-	_refresh_placement_hint(true)
 
 func _assemble_foundation(parent: Node3D, neighbor_mask: int = 0) -> void:
 	# Only confirmed player-built surfaces or an explicit placement preview
@@ -5508,7 +5509,6 @@ func _build_world() -> void:
 	hover.visible = false
 	selection_ring = _selection_outline()
 	selection_ring.visible = false
-	_build_placement_hint()
 	camera = Camera3D.new()
 	camera.fov = 45
 	camera.near = 0.1
@@ -6471,7 +6471,7 @@ func _refresh_ui() -> void:
 	confirm_button.disabled = inventory < 4 or goal_confirmed or explanation_open
 	confirm_button.text = "Objective confirmed" if goal_confirmed else "Confirm four plates"
 	var belt_raw: int = int(state.get("line_belt_raw", 0)) if _native_transmission() else state.stock.belt
-	stock_label.text = "SEAM  %d blanks\nIN THE LINE  %d blanks\nPRESS OUTLET  %d plate" % [state.stock.source,
+	stock_label.text = "ORE DEPOSIT  %d blanks\nIN THE LINE  %d blanks\nPRESS OUTLET  %d plate" % [state.stock.source,
 		state.stock.collector + belt_raw + state.stock.input + state.stock.held, state.stock.output]
 	power_label.text = "DRIVE RUNNING" if state.get("powered", false) else "DRIVE SWITCHED OFF" if not state.get("power_enabled", true) else "DRIVE NEEDS CONNECTIONS"
 	power_button.text = ("Stop drive  [%s]" if state.get("power_enabled", true) else "Start drive  [%s]") % _power_key()
@@ -6541,7 +6541,6 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		foundation_steps_toggle.visible = foundation_area_toggle.visible
 		foundation_level_label.text = _construction_height_text()
 		wheel_size_controls.visible = foundation_level_controls.visible and mode == "wheel"
-	_refresh_placement_hint(snapshot_ready)
 	footer_snapshot_ready = snapshot_ready
 	_queue_footer_fit()
 	if building_hotbar != null:
@@ -6599,52 +6598,14 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		if divider is HSeparator:
 			divider.visible = show_details
 
-func _build_placement_hint() -> void:
-	placement_hint = Node3D.new()
-	placement_hint.name = "GuidedPlacementHint"
-	placement_hint.visible = false
-	add_child(placement_hint)
-	placement_target_label = _text(placement_hint, "MINERAL SEAM", Vector3(0, 0.65, 0), Color("ffdb94"), 0.006)
-	placement_target_label.name = "MineralSeamTarget"
-	placement_target_label.visible = false
-
-func _placement_hint_ready() -> bool:
+func _placement_ready() -> bool:
 	return _can_control_character()
-
-func _guided_placement_cell() -> Array:
-	if legacy_fixture or _catalog_open() or explanation_open or not _placement_hint_ready():
-		return []
-	if mode not in ["inspect", "collector"] or int(_display_parts().get("collector", 0)) < 1:
-		return []
-	# Wayfinding for the initial natural exposure, never placement permission.
-	if not _native_transmission() or not state.get("entities", {}).is_empty() \
-			or not state.get("transmission_parts", {}).is_empty() or int(state.get("stock", {}).get("source", 0)) < 1 \
-			or _guided_step({}).tool != "collector":
-		return []
-	return [0, 1]
-
-func _refresh_placement_hint(snapshot_ready: bool = true) -> void:
-	if placement_hint == null:
-		return
-	placement_target_label.visible = false
-	if transmission_controls != null and not transmission_controls.active_tool.is_empty():
-		placement_hint.visible = false
-		return
-	var cell: Array = _guided_placement_cell() if snapshot_ready else []
-	placement_hint.visible = not cell.is_empty()
-	if placement_hint.visible:
-		placement_hint.position = _cell_position(cell) + Vector3(0, 0.055, 0)
-		var ground: float = ProductionEnvironment.Surface.height_at(placement_hint.position.x, placement_hint.position.z)
-		if not is_finite(ground):
-			placement_hint.visible = false
-			return
-		placement_hint.position.y += ground
-		placement_target_label.visible = true
 
 func _preview_pointer_clear() -> bool:
 	# This query does not consume input or move the pointer. The live preview
 	# follows the current camera ray, including when the view moves under it.
-	return is_inside_tree() and (get_viewport().gui_get_hovered_control() == null or _pointer_over_placement_options())
+	return is_inside_tree() and get_viewport().get_visible_rect().has_point(_pointed_screen_position()) \
+		and (get_viewport().gui_get_hovered_control() == null or _pointer_over_placement_options())
 
 func _pointer_over_placement_options() -> bool:
 	if placement_options_panel == null or not placement_options_panel.visible or not is_inside_tree():
@@ -6732,7 +6693,11 @@ func _refresh_placement_options() -> void:
 func _refresh_machine_preview() -> void:
 	if machine_preview != null:
 		machine_preview.visible = false
-	if legacy_fixture or explanation_open or not _placement_hint_ready() or not _preview_pointer_clear():
+	if legacy_fixture or explanation_open or not _placement_ready() or not _preview_pointer_clear():
+		return
+	if _native_transmission() and transmission_controls != null \
+			and transmission_controls.active_tool in ["gear", "place_shaft"]:
+		_refresh_transmission_preview()
 		return
 	if not NAMES.has(mode) or int(_display_parts().get(mode, 0)) < 1:
 		return
@@ -6764,6 +6729,7 @@ func _refresh_machine_preview() -> void:
 		machine_preview = Node3D.new()
 		machine_preview.name = "MachinePlacementPreview"
 		add_child(machine_preview)
+	machine_preview.basis = Basis.IDENTITY
 	machine_preview.position = _cell_position([cell.x, cell.y]) + Vector3.UP * level * Geometry.HEIGHT_STEP
 	if key != machine_preview_key:
 		for child in machine_preview.get_children():
@@ -6779,12 +6745,6 @@ func _refresh_machine_preview() -> void:
 			if mode in ["collector", "processor"]:
 				_preview_port(machine_preview, facing, mode == "collector")
 		wheel_rotor = placed_rotor
-		if machine_preview_material == null:
-			machine_preview_material = StandardMaterial3D.new()
-			machine_preview_material.albedo_color = Color(0.88, 0.75, 0.49, 0.32)
-			machine_preview_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-			machine_preview_material.roughness = 0.75
-			machine_preview_material.metallic = 0.0
 		_style_machine_preview(machine_preview)
 		machine_preview_key = key
 	machine_preview.scale = Vector3.ONE
@@ -6792,6 +6752,49 @@ func _refresh_machine_preview() -> void:
 		machine_preview.scale = Vector3(area_size.x, 1, area_size.y)
 		machine_preview.position.x = (area_origin.x + (area_size.x - 1) / 2.0) * PITCH
 		machine_preview.position.z = (area_origin.y + (area_size.y - 1) / 2.0) * PITCH
+	machine_preview.visible = true
+
+func _refresh_transmission_preview() -> void:
+	var context: Dictionary = transmission_controls._context()
+	if context.is_empty() or not context.usable:
+		return
+	var gear: bool = transmission_controls.active_tool == "gear"
+	var size: int = transmission_controls.gear_teeth if gear else transmission_controls.shaft_half_span
+	if transmission_controls._count(context, "gear" if gear else "shaft", size if gear else 0, 0 if gear else size) < 1:
+		return
+	var axis := _preview_axis()
+	if axis < 0:
+		return
+	var center: Array
+	if _pointer_over_placement_options() and not transmission_preview_point.is_empty():
+		center = transmission_preview_point.duplicate()
+		center[1] = transmission_controls.snapped_height if transmission_controls.auto_height else transmission_controls.gear_height
+	else:
+		center = _transmission_center(_pointed_screen_position())
+		transmission_preview_point = center.duplicate()
+	if not Geometry._mechanical_point(center):
+		return
+	if machine_preview == null:
+		machine_preview = Node3D.new()
+		machine_preview.name = "MachinePlacementPreview"
+		add_child(machine_preview)
+	machine_preview.position = Geometry._mechanical_center(center)
+	var key := "transmission:%s:%d:%d" % [transmission_controls.active_tool, axis, size]
+	if key != machine_preview_key:
+		for child in machine_preview.get_children():
+			child.free()
+		var assets = load("res://opening/native_transmission_assets.gd")
+		machine_preview.basis = load("res://opening/native_transmission_presenter.gd").axis_basis(axis)
+		if gear:
+			var mesh := MeshInstance3D.new()
+			mesh.name = "Cogwheel"
+			mesh.mesh = assets.complete_gear_mesh(PITCH / 2.0, size, Color("687a7b"), PITCH)
+			machine_preview.add_child(mesh)
+		else:
+			assets.shaft(machine_preview, size * Geometry.HEIGHT_STEP * 2.0, Color("687a7b"))
+		_style_machine_preview(machine_preview)
+		machine_preview_key = key
+	machine_preview.scale = Vector3.ONE
 	machine_preview.visible = true
 
 func _preview_port(parent: Node3D, facing: int, output: bool) -> void:
@@ -6818,6 +6821,12 @@ func _preview_port(parent: Node3D, facing: int, output: bool) -> void:
 func _style_machine_preview(node: Node) -> void:
 	# Per-instance overrides leave shared placed materials and meshes intact.
 	# Neutral amber is a form/footprint preview, never an admission verdict.
+	if machine_preview_material == null:
+		machine_preview_material = StandardMaterial3D.new()
+		machine_preview_material.albedo_color = Color(0.88, 0.75, 0.49, 0.32)
+		machine_preview_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		machine_preview_material.roughness = 0.75
+		machine_preview_material.metallic = 0.0
 	if node is MeshInstance3D:
 		node.material_override = machine_preview_material
 		node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -6922,7 +6931,7 @@ func _guided_step(kinds: Dictionary) -> Dictionary:
 		return {"text": "Plate ready. Point at the press and open [E], then collect [R].", "tool": "inspect"}
 	if not kinds.has("collector"):
 		if _native_transmission():
-			return {"text": FIRST_COLLECTOR_HINT if mode == "inspect" else "Place a collector at the exposed mineral seam.", "tool": "collector"}
+			return {"text": FIRST_COLLECTOR_HINT if mode == "inspect" else "Place a collector at the exposed ore deposit.", "tool": "collector"}
 		return {"text": "Place a collector on the brass strip near you.", "tool": "collector"}
 	var spans: Dictionary = state.get("belt_spans", {}) if _native_transmission() else {}
 	if not kinds.has("belt") and spans.is_empty():
@@ -7001,10 +7010,10 @@ func _inspection_hint() -> String:
 		return "Waiting for a blank.\nInspect the Belt upstream."
 	if kind == "collector":
 		if state.stock.source == 0:
-			return "Seam depleted.\nNo blanks remain to collect."
+			return "Ore deposit depleted.\nNo blanks remain to collect."
 		if state.stock.collector > 0:
 			return "Collector outlet occupied.\nInspect the Belt downstream."
-		return "Collecting finite seam blanks.\nBelt takes the next blank."
+		return "Collecting finite ore blanks.\nBelt takes the next blank."
 	if kind == "belt":
 		return "Belt carrying a blank.\nInspect the Press downstream." if state.stock.belt > 0 else "Waiting for a blank.\nInspect the Collector upstream."
 	return "Wheel rotates.\n[%s] stops it%s." % [_power_key(), " for editing" if legacy_fixture else " from nearby"]
@@ -7034,7 +7043,7 @@ func _update_cursor() -> void:
 	_refresh_machine_captions()
 	if _native_transmission() and transmission_controls != null and not transmission_controls.active_tool.is_empty():
 		hover.visible = false
-		if transmission_controls.active_tool in ["gear", "place_shaft", "gearbox", "vertical_gearbox", "chain_drive"] and not explanation_open and _can_control_character():
+		if transmission_controls.active_tool in ["gearbox", "vertical_gearbox", "chain_drive"] and not explanation_open and _can_control_character():
 			_set_transmission_hover(_transmission_center(get_viewport().get_mouse_position()))
 		_refresh_placement_options()
 		return
@@ -7087,9 +7096,8 @@ func _fit_guided_footer() -> void:
 			var height: float = panel.get_combined_minimum_size().y
 			if not is_equal_approx(panel.size.y, height):
 				panel.size.y = height
-	# Only the ordinary fresh introduction duplicates the visible goal and
-	# source annotation. Explicit outcomes and unavailable-state advice stay.
-	var redundant_intro: bool = _native_transmission() and footer_snapshot_ready and _placement_hint_ready() and not status_refused \
+	# Only the ordinary fresh introduction duplicates the visible goal.
+	var redundant_intro: bool = _native_transmission() and footer_snapshot_ready and _placement_ready() and not status_refused \
 		and not show_details and not _catalog_open() and mode in ["inspect", "collector"] \
 		and state.get("entities", {}).is_empty() and state.get("transmission_parts", {}).is_empty() \
 		and _guided_step({}).tool == "collector" \

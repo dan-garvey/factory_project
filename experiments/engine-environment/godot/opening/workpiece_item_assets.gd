@@ -9,8 +9,10 @@ const Geometry = preload("res://opening/site_geometry.gd")
 const BILLET_HALF_EXTENTS := Vector3(0.135, 0.09, 0.18)
 const PLATE_HALF_EXTENTS := Vector3(0.22, 0.035, 0.265)
 static var source_meshes: Dictionary = {}
+static var ground_meshes: Dictionary = {}
 static var source_rock: StandardMaterial3D
 static var source_mineral: StandardMaterial3D
+static var source_ground: StandardMaterial3D
 static var source_triangles: TriangleMesh
 static var source_to_world := Transform3D.IDENTITY
 static var world_to_source := Transform3D.IDENTITY
@@ -226,6 +228,38 @@ static func _seam_mesh(band: int) -> ArrayMesh:
 	return mesh
 
 
+static func _ore_ground_mesh(band: int, cells: Array) -> ArrayMesh:
+	var key := "%d:%s" % [band, str(cells)]
+	if ground_meshes.has(key):
+		return ground_meshes[key]
+	var first_z := int(cells[0][1])
+	var last_z := first_z
+	for cell: Array in cells:
+		first_z = mini(first_z, int(cell[1]))
+		last_z = maxi(last_z, int(cell[1]))
+	var middle_z := float(first_z + last_z) * Geometry.PITCH * 0.5
+	var radius_z := float(last_z - first_z + 1) * Geometry.PITCH * 0.5
+	var source := SurfaceTool.new()
+	source.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var opacity := 0.72 * sqrt(float(band) / 8.0)
+	for sector in range(20):
+		var angles := [float(sector) * TAU / 20.0, float(sector + 1) * TAU / 20.0]
+		var center := Vector2(-0.03, middle_z)
+		var corners: Array[Vector2] = []
+		for angle in angles:
+			var irregular := 0.91 + 0.055 * sin(angle * 5.0 + 0.8) + 0.035 * cos(angle * 9.0)
+			corners.append(center + Vector2(cos(angle) * 0.81, sin(angle) * radius_z) * irregular)
+		for vertex: Vector2 in [center, corners[1], corners[0]]:
+			var edge: bool = vertex != center
+			source.set_normal(Vector3.UP)
+			source.set_uv(vertex * 0.5)
+			source.set_color(Color(1.0, 1.0, 1.0, opacity * (0.20 if edge else 1.0)))
+			source.add_vertex(Vector3(vertex.x, Scenery.Surface.height_at(vertex.x, vertex.y) + 0.012, vertex.y))
+	var mesh := source.commit()
+	ground_meshes[key] = mesh
+	return mesh
+
+
 static func _outcrop_material() -> StandardMaterial3D:
 	if source_rock != null:
 		return source_rock
@@ -242,6 +276,7 @@ static func _outcrop_material() -> StandardMaterial3D:
 	source_rock = StandardMaterial3D.new()
 	source_rock.cull_mode = BaseMaterial3D.CULL_DISABLED
 	source_rock.albedo_texture = textures.albedo
+	source_rock.albedo_color = Color("c78a54")
 	source_rock.metallic = 0.0
 	source_rock.roughness = 1.0
 	source_rock.roughness_texture = textures.arm
@@ -266,10 +301,10 @@ static func mineral_deposit(parent: Node3D, state: Dictionary) -> void:
 	if finish == null:
 		return
 	if source_mineral == null:
-		source_mineral = Scenery.stone_material().duplicate()
-		source_mineral.albedo_color = Color("daa25d")
-		source_mineral.metallic = 0.58
-		source_mineral.roughness = 0.46
+		source_mineral = StandardMaterial3D.new()
+		source_mineral.albedo_color = Color("f2ae56")
+		source_mineral.metallic = 0.38
+		source_mineral.roughness = 0.56
 	var exposure := Node3D.new()
 	exposure.name = "MineralDeposit"
 	exposure.set_meta("item_kind", "mineral_deposit")
@@ -281,6 +316,16 @@ static func mineral_deposit(parent: Node3D, state: Dictionary) -> void:
 	host.basis = spec.basis
 	host.material_override = finish
 	if band > 0:
+		if source_ground == null:
+			source_ground = StandardMaterial3D.new()
+			source_ground.albedo_color = Color("d27531")
+			source_ground.cull_mode = BaseMaterial3D.CULL_DISABLED
+			source_ground.vertex_color_use_as_albedo = true
+			source_ground.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			source_ground.roughness = 1.0
+		var ground := _part(exposure, "OreSurface", _ore_ground_mesh(band, cells), Vector3.ZERO, Color.WHITE)
+		ground.material_override = source_ground
+		ground.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		var mineral := _part(exposure, "MineralVeins", _seam_mesh(band), Vector3.ZERO, Color.WHITE)
 		mineral.material_override = source_mineral
 		mineral.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF

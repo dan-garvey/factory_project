@@ -84,6 +84,8 @@ func check_foundation_view() -> void:
 	view.state["links"] = []
 	root.add_child(view)
 	view._build_world()
+	verify(view.get_node_or_null("GuidedPlacementHint") == null,
+		"The native worksite has no floating ore label over the collector target.")
 	view._build_interface()
 	view._refresh_guided_tools()
 	for _frame in range(3):
@@ -101,7 +103,8 @@ func check_foundation_view() -> void:
 	view.foundation_level = 0
 	view.state["foundations"] = {
 		"left": {"cell": [5, 2], "level": 1, "generation": 1},
-		"right": {"cell": [6, 2], "level": 1, "generation": 2}}
+		"right": {"cell": [6, 2], "level": 1, "generation": 2},
+		"ore-floor": {"cell": [0, 1], "level": 4, "generation": 3}}
 	view._rebuild_machines()
 	for _frame in range(3):
 		await physics_frame
@@ -110,6 +113,12 @@ func check_foundation_view() -> void:
 	var top_screen := view.camera.unproject_position(top_point)
 	verify(view._screen_cell(top_screen) == Vector2i(5, 2) and view._screen_entity(top_screen) == "left",
 		"A projected foundation remains pickable at its real top height without ActorWorld.")
+	view.mode = "collector"
+	var deposit_floor := Vector3(0.0, 4 * Opening.Geometry.HEIGHT_STEP, Opening.Geometry.PITCH)
+	var deposit_screen := view.camera.unproject_position(deposit_floor)
+	verify(view._screen_cell(deposit_screen) == Vector2i(0, 1)
+		and view._construction_level(Vector2i(0, 1)) == 4,
+		"Pointing at a foundation above the deposit selects its supported collector height.")
 	view.mode = "belt"
 	verify(view._construction_level(Vector2i(5, 2)) == 1 and view._construction_level(Vector2i(6, 2)) == 1,
 		"Independent projected surfaces select the same machine height.")
@@ -294,7 +303,7 @@ func check_footer_layout() -> void:
 	root.add_child(view)
 	view._build_interface()
 	view._refresh_guided_tools()
-	var intro := "Choose Collector [1] to build at the mineral seam."
+	var intro := "Choose Collector [1] on the ore-colored ground beside the rock."
 	view._message(intro)
 	await settle_footer()
 	var panel: Control = view.status_label.get_parent().get_parent()
@@ -315,7 +324,7 @@ func check_footer_layout() -> void:
 	view._message(intro, true)
 	await settle_footer()
 	verify(view.status_label.visible, "Even matching introduction text remains visible when it is an explicit refusal.")
-	var refusal := "Cannot place the collector here. Approach the mineral seam and leave room for the material outlet. "
+	var refusal := "Cannot place the collector here. Approach the ore deposit and leave room for the material outlet. "
 	view._message(refusal.repeat(7), true)
 	await settle_footer()
 	var long_bounds: Rect2 = panel.get_global_rect()
@@ -545,110 +554,6 @@ func first_target_fixture() -> Dictionary:
 	snapshot.transmission_parts = {}
 	return snapshot
 
-func check_first_target() -> void:
-	var view = Opening.new()
-	view.building_hotbar = CatalogStub.new()
-	view.state = first_target_fixture()
-	verify(view.mode == "inspect", "A fresh view waits for an intentional construction-tool choice.")
-	verify("Collector [1]" in view._guided_step({}).text,
-		"Initial goal advice identifies the available first tool and its quick slot.")
-	view.request_sequence = 23
-	view._build_placement_hint()
-	var original: Dictionary = view.state.duplicate(true)
-	var original_namespace: String = view.request_namespace
-	verify(view._guided_placement_cell() == [0, 1], "A fresh native collector has a concrete starter-path suggestion.")
-	view._refresh_placement_hint()
-	var label := view.placement_hint.get_node_or_null("MineralSeamTarget") as Label3D
-	verify(label != null and label.visible and label.text == "MINERAL SEAM", "The first target identifies the mineral seam in the world.")
-	verify(view.placement_hint.get_child_count() == 1 and label != null and label.get_child_count() == 0,
-		"The natural target contains only its passive annotation, with no hidden frame geometry.")
-	var ground: float = Opening.ProductionEnvironment.Surface.height_at(0.0, 1.65)
-	verify(view.placement_hint.visible and view.placement_hint.position.is_equal_approx(Vector3(0.0, ground + 0.055, 1.65)),
-		"The advisory annotation follows the shared natural surface at the source column.")
-	verify(view.state == original and view.model == null and view.actor_world == null and view.request_sequence == 23 \
-		and view.request_namespace == original_namespace and view.selected.is_empty() and view.pending_link.is_empty(),
-		"Target presentation leaves confirmed facts, authority and intent unchanged.")
-	var original_hint_id: int = view.placement_hint.get_instance_id()
-	view._refresh_placement_hint()
-	verify(view.placement_hint.get_instance_id() == original_hint_id and label != null \
-		and view.placement_hint.get_node_or_null("MineralSeamTarget") == label, "Repeated refresh reuses the annotation.")
-	view.mode = "collector"
-	view._refresh_placement_hint()
-	verify(label.visible and "Place a collector" in view._guided_step({}).text,
-		"Choosing construction retains source wayfinding and changes the next action to placement.")
-	view.mode = "inspect"
-	view._refresh_placement_hint()
-	verify(label.visible, "Source wayfinding remains available before choosing a build tool.")
-	for tool in ["belt", "processor", "wheel", "foundation"]:
-		view.mode = tool
-		view._refresh_placement_hint()
-		verify(not view.placement_hint.visible and not label.visible,
-			"Changing tool clears the mineral annotation: " + tool)
-	view.state = fixture()
-	view.mode = "belt"
-	view._refresh_placement_hint()
-	verify(not view.placement_hint.visible and view._guided_placement_cell().is_empty(),
-		"The retired one-cell belt layout does not retain outlet advice.")
-	view.state.entities["belt-1"] = {"kind": "belt", "cell": [1, 1]}
-	view.mode = "processor"
-	view._refresh_placement_hint()
-	verify(not view.placement_hint.visible and view._guided_placement_cell().is_empty(),
-		"The retired one-cell press layout does not retain outlet advice.")
-	view.state = original.duplicate(true)
-	view.mode = "collector"
-	view._refresh_placement_hint()
-	verify(view.placement_hint.get_child_count() == 1 and label.visible,
-		"Returning to the mineral target reuses only its annotation.")
-	view.transmission_controls = ToolStub.new()
-	view._refresh_placement_hint()
-	verify(not view.placement_hint.visible and (label == null or not label.visible), "An active transmission tool clears the first target.")
-	view.transmission_controls = null
-	view.state.actors.P.position = [-100, 1, 100]
-	verify(view._guided_placement_cell() == [0, 1], "A target annotation is advice, never a reach permission.")
-	view.state = first_target_fixture()
-	for unavailable in ["help", "all_tools", "reopening", "actor", "kit", "source", "nonnative", "legacy", "built", "shaft", "goal"]:
-		view.state = first_target_fixture()
-		view.explanation_open = unavailable == "help"
-		view.building_hotbar.catalog.visible = unavailable == "all_tools"
-		view.startup_save_pending = unavailable == "reopening"
-		view.legacy_fixture = unavailable == "legacy"
-		match unavailable:
-			"actor": view.state.actors.P.ready = false
-			"kit": view.state.part_kits.P.collector = 0
-			"source": view.state.stock.source = 0
-			"nonnative": view.state.options.native = false
-			"built": view.state.entities["collector-1"] = {"kind": "collector", "cell": [0, 1]}
-			"shaft": view.state.transmission_parts["shaft-1"] = {"kind": "shaft"}
-			"goal": view.state.inventories.P = 4
-		view._refresh_placement_hint()
-		verify(not view.placement_hint.visible and (label == null or not label.visible), "Unavailable first-target advice clears: " + unavailable)
-	view.state = first_target_fixture()
-	view.legacy_fixture = false
-	view._refresh_placement_hint(false)
-	verify(not view.placement_hint.visible, "An unavailable confirmed snapshot clears the first target.")
-	view.state.entities["collector-1"] = {"kind": "collector", "cell": [0, 1]}
-	view.mode = "belt"
-	view._refresh_placement_hint()
-	verify(not view.placement_hint.visible and (label == null or not label.visible), "The shaft-first guidance clears the collector target and does not suggest an obsolete belt footprint.")
-	view.free()
-	var shared = SharedOpening.new()
-	var session := SessionStub.new()
-	shared.session = session
-	shared.client = "P"
-	shared.state = first_target_fixture()
-	shared._build_placement_hint()
-	shared._refresh_placement_hint()
-	verify(shared.placement_hint.visible, "A ready shared native projection can identify the first target.")
-	verify(shared.placement_hint.get_child_count() == 1 and shared.placement_target_label.visible,
-		"The shared natural target also consists only of its annotation.")
-	shared.pending_actions["request-1"] = {"action": {"action": "place"}, "outcome": {}}
-	shared._refresh_placement_hint()
-	verify(not shared.placement_hint.visible, "A pending shared command clears first-target advice.")
-	shared.pending_actions.clear()
-	session.ready = false
-	shared._refresh_placement_hint()
-	verify(not shared.placement_hint.visible, "Disconnected first-target advice is unavailable.")
-	shared.free()
 
 func fixture() -> Dictionary:
 	return {"entities": {"collector-1": {"kind": "collector", "cell": [0, 1]}},
@@ -715,6 +620,5 @@ func _initialize() -> void:
 		nested_failure_control()
 		finish_checks()
 		return
-	check_first_target()
 	check_native_route_report()
 	finish_checks()

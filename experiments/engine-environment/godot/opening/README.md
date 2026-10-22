@@ -227,13 +227,9 @@ eligibility come from the same native definition in offline and shared sessions.
 The current ideal hub mounts do not establish housing or floor clearance, and
 the geared route does not earn an invented processing-speed bonus.
 
-An in-world **MINERAL SEAM** label identifies the first exposed deposit without
-drawing a construction frame on the natural ground.
-
-The label is wayfinding advice. It reserves no ground and grants no construction
-permission or reach. It hides in Help, the catalog, pending/disconnected views
-and after the first construction. Machine placement previews show the selected
-construction tool's current target.
+The exposed ore deposit and collector placement preview identify the first
+construction target. No floating source label or construction frame is drawn
+on the natural ground; the goal panel gives the player placement advice.
 
 **Details** shows global stock/drive counters and the original save controls;
 it does not change their eligibility. Machine inspection, retrieval, dismantling,
@@ -482,7 +478,7 @@ Core/Platform's shared consumers rather than a second network/rules implementati
 The opening model option is the optional fourth constructor argument
 `{"opening": true}`. The existing three-argument neutral fixture and its 22
 assertions remain supported. Opening placement anchors the collector to the
-marked seam column and the wheel to its stream bank. Drive links consume three
+marked deposit area and the wheel to its stream bank. Drive links consume three
 finite shafts; the whole fixture runs only when all three working components
 are reachable from the enabled wheel. This is a simple opening power rule,
 not a load/torque model or proof of branch isolation.

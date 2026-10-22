@@ -372,30 +372,37 @@ func expect(value: bool, message: String) -> bool:
 
 func check_outcrop_native() -> void:
 	for cell_z in [0, 1]:
-		var context := "fitted-source-%d" % cell_z
-		var model = NativeModel.new(context, ["P"])
-		if not expect(model.boot_result.get("accepted", false),
-				"Bind the actual site and its source-rock obstacle"):
-			return
-		var before: Dictionary = model.projection()
-		if not expect(before.source_deposit.cells.has([0, cell_z]),
-				"The native source policy includes this exact seam cell"):
-			return
-		if not expect(model.publish_actor("P", [1.65, 1.0, float(cell_z) * Geometry.PITCH], 1).get("accepted", false),
-				"The actor can reach the seam from its clear east side"):
-			return
-		var placed: Dictionary = model.command({"context": context, "client": "P",
-			"request": "source-%d" % cell_z, "action": "place", "kind": "collector",
-			"cell": [0, cell_z], "axis": "z"})
-		if not expect(placed.get("accepted", false),
-				"A permitted collector placement survives the fitted native rock obstacle: " + str(placed)):
-			return
-		var after: Dictionary = model.projection()
-		if not expect(after.stock.source == before.stock.source and after.entities.has(placed.entity),
-				"Placement preserves the one finite source reserve and records one machine"):
-			return
+		for level in [0, 4]:
+			var context := "fitted-source-%d-%d" % [cell_z, level]
+			var model = NativeModel.new(context, ["P"])
+			if not expect(model.boot_result.get("accepted", false),
+					"Bind the actual site and its source-rock obstacle"):
+				return
+			var before: Dictionary = model.projection()
+			if not expect(before.source_deposit.cells.has([0, cell_z]),
+					"The native source policy includes this exact deposit cell"):
+				return
+			if not expect(model.publish_actor("P", [1.65, 1.0, float(cell_z) * Geometry.PITCH], 1).get("accepted", false),
+					"The actor can reach the deposit from its clear east side"):
+				return
+			if level > 0:
+				var foundation: Dictionary = model.command({"context": context, "client": "P",
+					"request": "floor-%d" % cell_z, "action": "place_foundation", "cell": [0, cell_z], "level": level})
+				if not expect(foundation.get("accepted", false),
+						"A foundation can cover the ore deposit: " + str(foundation)):
+					return
+			var placed: Dictionary = model.command({"context": context, "client": "P",
+				"request": "source-%d" % cell_z, "action": "place", "kind": "collector",
+				"cell": [0, cell_z], "level": level, "axis": "z"})
+			if not expect(placed.get("accepted", false),
+					"A collector fits the exposed or covered deposit: " + str(placed)):
+				return
+			var after: Dictionary = model.projection()
+			if not expect(after.stock.source == before.stock.source and after.entities.has(placed.entity),
+					"Placement preserves the one finite source reserve and records one machine"):
+				return
 	print(JSON.stringify({"status": "pass", "checks": checks,
-		"scope": "actual native collector admission at both fitted source cells",
+		"scope": "actual native collector admission at both source cells, ground and raised foundation",
 		"desktop": "not_used", "human_play": "not_run"}))
 	quit(0)
 
