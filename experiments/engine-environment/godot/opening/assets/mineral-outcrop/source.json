@@ -1,0 +1,29 @@
+{
+  "asset": "Boulder 01",
+  "author": "Rico Cilliers",
+  "asset_url": "https://polyhaven.com/a/boulder_01",
+  "license": "CC0-1.0",
+  "source_pins": "docs/art/mineral-outcrop-source.md",
+  "preparation": {
+    "recipe": "opening/assets/foliage/prepare_maps.gd --material=outcrop",
+    "engine": "4.7.2-stable (official)",
+    "source_triangles": 66122,
+    "selected_lod": 2,
+    "nominal_source_error_metres": 0.0335327722132206,
+    "triangles": 8264,
+    "vertices": 5748,
+    "native_hull_points": 200,
+    "native_hull_input_points": 201,
+    "geometry": "Generate tangents before simplification. Compact referenced attributes and recenter the selected AABB. Keep original scale and UVs. Retain the original hull cooking input and its cooked reference faces separately in mesh metadata.",
+    "color": "512-pixel sRGB WebP at quality 0.84.",
+    "data_maps": "Float Lanczos resize to 256 pixels, normalize OpenGL vectors, encode RGB8 and save lossless WebP with exact prepared-byte roundtrip."
+  },
+  "files": {
+    "boulder.res": {"bytes": 187355, "sha256": "0843092fa270939dca6d94abcf54b30da7cd45b3c75202f4e82df6ecaec32d36"},
+    "albedo.webp": {"bytes": 83630, "sha256": "24a616347325c0edb493959d4802ec615c34444aa86bfa1482ad2df711408c5c"},
+    "normal.webp": {"bytes": 135508, "sha256": "13472f9e674a952df12de713aa97fa1247aca681298ec99c60c0cd3357a9683f"},
+    "arm.webp": {"bytes": 85590, "sha256": "1f707253c122ad3e6648eba75e2874b4ae9ccbb0ca90062a909c53f157b4324e"}
+  },
+  "package_bytes": 492083,
+  "limits": "The native convex hull approximates the detailed surface without its concavities. The measured maximum mesh protrusion after hull cooking is below 0.2 millimetres. This asset has no script, clock, inventory or independent collision authority. Source error and automated checks are not human visual or gameplay acceptance."
+}

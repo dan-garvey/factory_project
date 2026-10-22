@@ -489,6 +489,141 @@ func prepare_stone(family: String) -> void:
 	print(JSON.stringify(result))
 	quit(0 if passed else 1)
 
+func prepare_outcrop(family: String, output: String) -> void:
+	# One immutable presentation mesh and its collision hull; no world authority.
+	var pins := {
+		"boulder_01_1k.gltf": "51487934db898b4c24072780a451e34eca5c02e3ada24a62bbc600bbc4019e92",
+		"boulder_01.bin": "7f5b06503d62bd95bfe9c6b8a354a5cc8ff04a4d271a8cf87a3e3125db4232d7",
+		"textures/boulder_01_diff_1k.jpg": "c38f0e918f6dc16b8d386ba3cdd89805c78320c119a1ceec85856f82b09a65b8",
+		"textures/boulder_01_nor_gl_1k.jpg": "0810cf6e89d89bb6eb065b4d2e2855288f5dcbd2c15c6e40ab90d462021b50aa",
+		"textures/boulder_01_arm_1k.jpg": "c57187c5746b6be913fa53846cb44ff78743e7ca5000f131c9627b99563c2b87"}
+	for name_value in pins:
+		if FileAccess.get_sha256(family.path_join("raw-source").path_join(name_value)) != pins[name_value]:
+			fail("The outcrop preparation requires the qualified donor bytes: " + name_value)
+			return
+	if not output.is_absolute_path() or DirAccess.dir_exists_absolute(output) \
+		or DirAccess.make_dir_absolute(output) != OK:
+		fail("Use a fresh absolute outcrop output directory; preserve earlier results.")
+		return
+	var document := GLTFDocument.new()
+	var state := GLTFState.new()
+	state.handle_binary_image_mode = GLTFState.HANDLE_BINARY_IMAGE_MODE_EMBED_AS_UNCOMPRESSED
+	if document.append_from_file(family.path_join("raw-source/boulder_01_1k.gltf"), state) != OK \
+		or state.get_meshes().size() != 1:
+		fail("Cannot import the qualified outcrop.")
+		return
+	var original: ImporterMesh = state.get_meshes()[0].mesh
+	var input := ArrayMesh.new()
+	input.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, original.get_surface_arrays(0))
+	var tangent_builder := SurfaceTool.new()
+	tangent_builder.create_from(input, 0)
+	tangent_builder.generate_tangents()
+	var source := tangent_builder.commit_to_arrays()
+	var lods := ImporterMesh.new()
+	lods.add_surface(Mesh.PRIMITIVE_TRIANGLES, source, [], {}, null, "Boulder")
+	lods.generate_lods(60.0, 0.0, [])
+	if lods.get_surface_lod_count(0) <= 2:
+		fail("The pinned engine did not produce the selected outcrop level.")
+		return
+	var indices := lods.get_surface_lod_indices(0, 2)
+	var remap := {}
+	var vertices := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var tangents := PackedFloat32Array()
+	var uvs := PackedVector2Array()
+	var compact := PackedInt32Array()
+	for index in indices:
+		if not remap.has(index):
+			remap[index] = vertices.size()
+			vertices.append(source[Mesh.ARRAY_VERTEX][index])
+			normals.append(source[Mesh.ARRAY_NORMAL][index])
+			uvs.append(source[Mesh.ARRAY_TEX_UV][index])
+			for component in range(4):
+				tangents.append(source[Mesh.ARRAY_TANGENT][index * 4 + component])
+		compact.append(remap[index])
+	if vertices.size() != 5748 or compact.size() != 8264 * 3:
+		fail("The pinned outcrop simplification changed; inspect it before adoption.")
+		return
+	var bounds := AABB(vertices[0], Vector3.ZERO)
+	for point in vertices:
+		bounds = bounds.expand(point)
+	var center := bounds.get_center()
+	for index in range(vertices.size()):
+		vertices[index] -= center
+	var arrays: Array = []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_TANGENT] = tangents
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_INDEX] = compact
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	var shape := mesh.create_convex_shape(true, false)
+	var debug := shape.get_debug_mesh()
+	var hull: Array = []
+	for surface in range(debug.get_surface_count()):
+		if debug.surface_get_primitive_type(surface) == Mesh.PRIMITIVE_TRIANGLES:
+			hull = debug.surface_get_arrays(surface)
+	if hull.is_empty() or hull[Mesh.ARRAY_VERTEX].size() < 4 or hull[Mesh.ARRAY_VERTEX].size() > 512:
+		fail("The full native outcrop hull is missing or exceeds the bounded convex-body allocation.")
+		return
+	mesh.set_meta("native_hull_points", hull[Mesh.ARRAY_VERTEX])
+	mesh.set_meta("native_hull_indices", hull[Mesh.ARRAY_INDEX])
+	# Reuse the original input when creating a body. Recooking the cooked
+	# debug vertices removes redundant points and accumulates quantization.
+	mesh.set_meta("native_hull_input_points", shape.points)
+	mesh.set_meta("source_center", center)
+	mesh.set_meta("source_lod_error", lods.get_surface_lod_size(0, 2))
+	if ResourceSaver.save(mesh, output.path_join("boulder.res"), ResourceSaver.FLAG_COMPRESS) != OK:
+		fail("Cannot save the prepared outcrop mesh.")
+		return
+	var report := {"status": "pass", "engine": Engine.get_version_info().string,
+		"triangles": compact.size() / 3, "vertices": vertices.size(),
+		"hull_points": hull[Mesh.ARRAY_VERTEX].size(), "input_hull_points": shape.points.size(),
+		"selected_lod": 2, "source_lod_error": lods.get_surface_lod_size(0, 2), "files": {}}
+	for role in ["albedo", "normal", "arm"]:
+		var suffix: String = {"albedo": "diff", "normal": "nor_gl", "arm": "arm"}[role]
+		var image := Image.load_from_file(family.path_join("raw-source/textures/boulder_01_" + suffix + "_1k.jpg"))
+		if image == null or image.get_size() != Vector2i(1024, 1024):
+			fail("Cannot decode the qualified outcrop map: " + role)
+			return
+		image.convert(Image.FORMAT_RGBF)
+		var extent := 512 if role == "albedo" else 256
+		image.resize(extent, extent, Image.INTERPOLATE_LANCZOS)
+		if role == "normal":
+			for y in range(extent):
+				for x in range(extent):
+					var pixel := image.get_pixel(x, y)
+					var vector := Vector3(pixel.r, pixel.g, pixel.b) * 2.0 - Vector3.ONE
+					if vector.length() <= 0.001:
+						fail("A resized outcrop normal is degenerate.")
+						return
+					vector = vector.normalized() * 0.5 + Vector3.ONE * 0.5
+					image.set_pixel(x, y, Color(vector.x, vector.y, vector.z))
+		image.convert(Image.FORMAT_RGB8)
+		var path := output.path_join(role + ".webp")
+		if image.save_webp(path, role == "albedo", 0.84) != OK:
+			fail("Cannot write the prepared outcrop map: " + role)
+			return
+		var decoded := Image.load_from_file(path)
+		if decoded == null or decoded.get_size() != image.get_size() \
+			or (role != "albedo" and decoded.get_data() != image.get_data()):
+			fail("Outcrop data-map delivery changed the prepared pixels: " + role)
+			return
+	var total := 0
+	for file_name in ["boulder.res", "albedo.webp", "normal.webp", "arm.webp"]:
+		var path := output.path_join(file_name)
+		var bytes := FileAccess.get_file_as_bytes(path).size()
+		report.files[file_name] = {"bytes": bytes, "sha256": FileAccess.get_sha256(path)}
+		total += bytes
+	report["package_bytes"] = total
+	var result := FileAccess.open(output.path_join("result.json"), FileAccess.WRITE)
+	result.store_string(JSON.stringify(report, "  ") + "\n")
+	result.close()
+	print(JSON.stringify(report))
+	quit(0)
+
 func _initialize() -> void:
 	var family := ""
 	var material := "foliage"
@@ -515,8 +650,11 @@ func _initialize() -> void:
 	if material == "stone":
 		prepare_stone(family)
 		return
+	if material == "outcrop":
+		prepare_outcrop(family, pine_output if not pine_output.is_empty() else family.path_join("prepared-outcrop"))
+		return
 	if material != "foliage":
-		fail("Choose the declared foliage or stone preparation.")
+		fail("Choose a declared asset or material preparation.")
 		return
 	var output := family.path_join("prepared-maps")
 	if DirAccess.dir_exists_absolute(output) or DirAccess.make_dir_absolute(output) != OK:
