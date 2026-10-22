@@ -28,26 +28,35 @@ class MixedAssetScaleView extends Opening:
 
 	var asset_count := 0
 	var batch_static := false
+	var production_batch := false
 	var built_meshes := 0
 	var batch_instances := 0
 	var batch_draw_groups := 0
 	var shared_conveyor_finish := false
 	var build_ms := 0.0
+	var batch_ms := 0.0
 	var fixture_root: Node3D
 
 	func _ready() -> void:
 		state = {"options": {"native": true}}
 		var start := Time.get_ticks_usec()
 		_build_world()
-		fixture_root = Node3D.new()
-		fixture_root.name = "SyntheticAssetField"
-		machine_root.add_child(fixture_root)
+		if production_batch:
+			fixture_root = machine_root
+		else:
+			fixture_root = Node3D.new()
+			fixture_root.name = "SyntheticAssetField"
+			machine_root.add_child(fixture_root)
 		var columns := ceili(sqrt(float(maxi(asset_count, 1))))
 		var field_x := maxf(10.0, float(columns) * PITCH * 0.5 + 5.0)
 		for index in asset_count:
 			var x := index % columns
 			var z := floori(float(index) / float(columns))
 			var placement := Node3D.new()
+			var kind: String = ["collector", "belt", "processor"][index % 3]
+			if production_batch:
+				placement.set_meta("machine_kind", kind)
+				placement.set_meta("machine_entity", "machine-%d" % index)
 			var site_x := field_x + (float(x) - float(columns - 1) / 2.0) * PITCH
 			var site_z := 1.65 + (float(z) - float(columns - 1) / 2.0) * PITCH
 			var site_y: float = ProductionEnvironment.Surface.height_at(site_x, site_z)
@@ -55,12 +64,25 @@ class MixedAssetScaleView extends Opening:
 			fixture_root.add_child(placement)
 			var anchor := Node3D.new()
 			placement.add_child(anchor)
-			var kind: String = ["collector", "belt", "processor"][index % 3]
 			_assemble_machine(anchor, {"kind": kind, "cell": [0, 0], "axis": 0,
 				"rotation": 0, "generation": 1})
+			if production_batch:
+				var rows: Array[Dictionary] = []
+				_remember_machine_motion(placement, kind, Transform3D.IDENTITY, rows)
+				placement.set_meta("motion_meshes", rows)
 		built_meshes = _mesh_count(fixture_root)
-		if batch_static:
+		var batch_start := Time.get_ticks_usec()
+		if production_batch:
+			_batch_machine_visuals()
+			var batches := machine_root.get_node_or_null("MachineVisualBatches")
+			if batches != null:
+				for visual in batches.get_children():
+					if visual is MultiMeshInstance3D:
+						batch_instances += visual.multimesh.instance_count
+						batch_draw_groups += 1
+		elif batch_static:
 			_batch_repeated_meshes()
+		batch_ms = float(Time.get_ticks_usec() - batch_start) / 1000.0
 		build_ms = float(Time.get_ticks_usec() - start) / 1000.0
 		camera.fov = 58.0
 		camera.far = 130.0
@@ -512,12 +534,16 @@ func _performance_benchmark() -> void:
 func _mixed_scale_benchmark() -> void:
 	var count := 200
 	var batched := false
+	var production_batch := false
 	var shared_conveyor_finish := false
 	var capture := ""
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--count="):
 			count = int(argument.trim_prefix("--count="))
 		elif argument == "--batch":
+			batched = true
+		elif argument == "--production-batch":
+			production_batch = true
 			batched = true
 		elif argument == "--share-static-conveyor-finish":
 			shared_conveyor_finish = true
@@ -531,6 +557,7 @@ func _mixed_scale_benchmark() -> void:
 	var view := MixedAssetScaleView.new()
 	view.asset_count = count
 	view.batch_static = batched
+	view.production_batch = production_batch
 	view.shared_conveyor_finish = shared_conveyor_finish
 	root.add_child(view)
 	var frame_ms: Array[float] = []
@@ -552,10 +579,11 @@ func _mixed_scale_benchmark() -> void:
 			quit(1)
 			return
 	print("MIXED_ASSET_SCALE " + JSON.stringify({"count": count, "batch": batched,
+		"production_batch": production_batch,
 		"shared_conveyor_finish": shared_conveyor_finish,
 		"built_meshes": view.built_meshes, "batch_instances": view.batch_instances,
-		"batch_groups": view.batch_draw_groups,
-		"build_ms": view.build_ms,
+		"batch_groups": view.batch_draw_groups, "build_ms": view.build_ms,
+		"batch_ms": view.batch_ms,
 		"median_ms": frame_ms[frame_ms.size() / 2],
 		"p95_ms": frame_ms[int(frame_ms.size() * 0.95)],
 		"draw_calls_median": calls[calls.size() / 2],
