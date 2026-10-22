@@ -22,7 +22,9 @@ verifies offline and shared camera transitions without launching a controlled
 game session.
 
 The native physical view has eight quick-select slots and a short next-step
-prompt. **Build [B]** opens the catalog: choose a destination slot and a carried
+prompt. It starts in inspection; choose **Collector [1]** to begin building.
+The placement preview appears after selecting a construction tool.
+**Build [B]** opens the catalog: choose a destination slot and a carried
 part to assign or replace it. Right-click a slot to edit it; an empty slot also
 opens the catalog. **1–8** select the displayed assignments. The default order is
 Collector, Foundation, Belt, Press, Waterwheel, Cogwheel, Shaft and one empty slot.

@@ -218,7 +218,6 @@ func _hotbar() -> void:
 		if shared:
 			view.session = SessionStub.new()
 		view.state = hotbar_observation()
-		view.mode = "inspect"
 		view.request_sequence = 17
 		root.add_child(view)
 		view.selection_ring = MeshInstance3D.new()
@@ -235,6 +234,17 @@ func _hotbar() -> void:
 		var before: Dictionary = view.state.duplicate(true)
 		verify(bar.buttons.size() == 8 and not bar.catalog.visible and not view.tool_buttons.collector.is_visible_in_tree(),
 			"Eight quick slots replace the visible construction text list.")
+		verify(bar.selected_slot == -1 and not view.inspector.visible
+			and not bar.buttons.any(func(button: Button): return button.button_pressed)
+			and view.issued.is_empty() and view.request_sequence == 17 and view.state == before,
+			"An untouched view has no active construction slot and sends no game request.")
+		var first_choice := InputEventKey.new()
+		first_choice.keycode = KEY_1
+		first_choice.pressed = true
+		view._unhandled_input(first_choice)
+		verify(view.mode == "collector" and bar.selected_slot == 0 and bar.buttons[0].button_pressed
+			and view.issued.is_empty() and view.request_sequence == 17 and view.state == before,
+			"An intentional Collector quick-slot choice selects only local construction state.")
 		var identities: Array = bar.buttons.map(func(button: Button): return button.get_instance_id())
 		view._refresh_ui()
 		view._refresh_ui()
@@ -371,7 +381,7 @@ func _render_hotbar() -> void:
 	view.add_child(view.selection_ring)
 	view._build_interface()
 	view._refresh_ui()
-	view._message("WASD walks. Approach the mineral seam to place your collector.")
+	view._message("Choose Collector [1] to build at the mineral seam.")
 	await settle_widgets()
 	await RenderingServer.frame_post_draw
 	verify(root.get_texture().get_image().save_png(prefix + "-bar.png") == OK, "Retain the isolated hotbar presentation.")

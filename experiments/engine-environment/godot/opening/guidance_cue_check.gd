@@ -294,7 +294,7 @@ func check_footer_layout() -> void:
 	root.add_child(view)
 	view._build_interface()
 	view._refresh_guided_tools()
-	var intro := "WASD walks. Approach the mineral seam to place your collector."
+	var intro := "Choose Collector [1] to build at the mineral seam."
 	view._message(intro)
 	await settle_footer()
 	var panel: Control = view.status_label.get_parent().get_parent()
@@ -549,7 +549,9 @@ func check_first_target() -> void:
 	var view = Opening.new()
 	view.building_hotbar = CatalogStub.new()
 	view.state = first_target_fixture()
-	view.mode = "collector"
+	verify(view.mode == "inspect", "A fresh view waits for an intentional construction-tool choice.")
+	verify("Collector [1]" in view._guided_step({}).text,
+		"Initial goal advice identifies the available first tool and its quick slot.")
 	view.request_sequence = 23
 	view._build_placement_hint()
 	var original: Dictionary = view.state.duplicate(true)
@@ -570,7 +572,14 @@ func check_first_target() -> void:
 	view._refresh_placement_hint()
 	verify(view.placement_hint.get_instance_id() == original_hint_id and label != null \
 		and view.placement_hint.get_node_or_null("MineralSeamTarget") == label, "Repeated refresh reuses the annotation.")
-	for tool in ["belt", "processor", "wheel", "foundation", "inspect"]:
+	view.mode = "collector"
+	view._refresh_placement_hint()
+	verify(label.visible and "Place a collector" in view._guided_step({}).text,
+		"Choosing construction retains source wayfinding and changes the next action to placement.")
+	view.mode = "inspect"
+	view._refresh_placement_hint()
+	verify(label.visible, "Source wayfinding remains available before choosing a build tool.")
+	for tool in ["belt", "processor", "wheel", "foundation"]:
 		view.mode = tool
 		view._refresh_placement_hint()
 		verify(not view.placement_hint.visible and not label.visible,
@@ -626,7 +635,6 @@ func check_first_target() -> void:
 	var session := SessionStub.new()
 	shared.session = session
 	shared.client = "P"
-	shared.mode = "collector"
 	shared.state = first_target_fixture()
 	shared._build_placement_hint()
 	shared._refresh_placement_hint()

@@ -4148,7 +4148,8 @@ var save_slot_owned := false
 var last_save_result: Dictionary = {}
 var last_load_result: Dictionary = {}
 var startup_resume_checkpoint: Dictionary = {}
-var mode := "collector"
+const FIRST_COLLECTOR_HINT := "Choose Collector [1] to build at the mineral seam."
+var mode := "inspect"
 var pending_link := ""
 var selected := ""
 var goal_confirmed := false
@@ -4247,7 +4248,7 @@ func _ready() -> void:
 	_build_interface()
 	_refresh()
 	if _native_transmission():
-		_message("WASD walks. Approach the mineral seam to place your collector.")
+		_message(FIRST_COLLECTOR_HINT)
 	else:
 		_message("Build a small line. Choose a part, then click a grid square." if legacy_fixture else "WASD walks. Build nearby; approach the wheel to operate the drive [P].")
 	for argument in OS.get_cmdline_user_args():
@@ -6129,7 +6130,7 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	controls_label.text = "WASD walk · Space jump · Right-drag view · Wheel zoom · H help"
 	_refresh_engineering(snapshot_ready)
 	var target_selected: bool = _contains_target(state, selected)
-	inspector.visible = target_selected or show_details or mode == "inspect" \
+	inspector.visible = target_selected or show_details \
 		or not snapshot_ready or not _can_choose_tool()
 	retrieve_button.visible = state.get("entities", {}).get(selected, {}).get("kind") == "processor"
 	remove_button.visible = target_selected
@@ -6152,7 +6153,7 @@ func _placement_hint_ready() -> bool:
 func _guided_placement_cell() -> Array:
 	if legacy_fixture or _catalog_open() or explanation_open or not _placement_hint_ready():
 		return []
-	if mode != "collector" or int(_display_parts().get("collector", 0)) < 1:
+	if mode not in ["inspect", "collector"] or int(_display_parts().get("collector", 0)) < 1:
 		return []
 	# Wayfinding for the initial natural exposure, never placement permission.
 	if not _native_transmission() or not state.get("entities", {}).is_empty() \
@@ -6392,7 +6393,9 @@ func _guided_step(kinds: Dictionary) -> Dictionary:
 	if int(state.get("stock", {}).get("output", 0)) > 0:
 		return {"text": "Plate ready. Select the press, then collect [R].", "tool": "inspect"}
 	if not kinds.has("collector"):
-		return {"text": "Place a collector at the exposed mineral seam." if _native_transmission() else "Place a collector on the brass strip near you.", "tool": "collector"}
+		if _native_transmission():
+			return {"text": FIRST_COLLECTOR_HINT if mode == "inspect" else "Place a collector at the exposed mineral seam.", "tool": "collector"}
+		return {"text": "Place a collector on the brass strip near you.", "tool": "collector"}
 	var spans: Dictionary = state.get("belt_spans", {}) if _native_transmission() else {}
 	if not kinds.has("belt") and spans.is_empty():
 		return {"text": "Place two parallel shafts, then connect them with a belt.", "tool": "drive"} if _native_transmission() else {"text": "Add a belt beside the collector.", "tool": "belt"}
@@ -6557,10 +6560,10 @@ func _fit_guided_footer() -> void:
 	# Only the ordinary fresh introduction duplicates the visible goal and
 	# source annotation. Explicit outcomes and unavailable-state advice stay.
 	var redundant_intro: bool = _native_transmission() and footer_snapshot_ready and _placement_hint_ready() and not status_refused \
-		and not show_details and not _catalog_open() and mode == "collector" \
+		and not show_details and not _catalog_open() and mode in ["inspect", "collector"] \
 		and state.get("entities", {}).is_empty() and state.get("transmission_parts", {}).is_empty() \
 		and _guided_step({}).tool == "collector" \
-		and status_label.text == "WASD walks. Approach the mineral seam to place your collector."
+		and status_label.text == FIRST_COLLECTOR_HINT
 	status_label.visible = not redundant_intro
 	var right: float = -308.0 if inspector.get_parent().get_parent().visible else -18.0
 	if not is_equal_approx(status_footer.offset_right, right):
