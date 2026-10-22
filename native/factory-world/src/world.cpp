@@ -1217,8 +1217,9 @@ Advance World::tick() noexcept {
                 throw materials::Error::invalid_state;
             const auto path = mechanics::belt_path(first->geometry, last->geometry);
             if (!path || path->tiles.size() != lane->second.slots.size()) throw materials::Error::invalid_state;
-            if (rate->second.state != mechanics::MotionState::rotating ||
-                path->kind == mechanics::BeltPathKind::vertical || path->kind == mechanics::BeltPathKind::sideways)
+            // A stationary belt still supports loose cargo; rotation is needed
+            // for movement, not for accepting an item onto an empty tile.
+            if (path->kind == mechanics::BeltPathKind::vertical || path->kind == mechanics::BeltPathKind::sideways)
                 continue;
             for (std::size_t i = 0; i < path->tiles.size(); ++i) {
                 if (lane->second.slots[i]) continue;

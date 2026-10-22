@@ -442,13 +442,33 @@ void adjacent_belt_handoff() {
             check(world->tick().error == w::TransactionError::none &&
                   world->snapshot().state.material.dropped_material.at(handoff) == cargo,
                   "The first belt deposits its exact cargo on the next belt tile.");
-            if (kind == 0 && !reversed && !reverse_order && !toward_negative) {
+            if (!reversed && !reverse_order && !toward_negative) {
                 auto stopped_state = world->snapshot().state;
                 stopped_state.topology.drive_enabled = false;
                 auto stopped = w::World::create("stopped-handoff", profile, stopped_state);
                 check(stopped && stopped->tick().error == w::TransactionError::none &&
-                          stopped->snapshot().state.material == stopped_state.material,
-                      "A stopped receiving belt does not collect loose cargo.");
+                          !stopped->snapshot().state.material.dropped_material.contains(handoff) &&
+                          stopped->snapshot().state.material.belt_lanes.at("span-b").slots[0] == cargo,
+                      "A stopped receiving belt holds the exact loose item on its entry tile.");
+                const auto held = stopped->snapshot();
+                check(stopped->tick().error == w::TransactionError::none && stopped->snapshot().state.material == held.state.material,
+                      "A stationary belt keeps the accepted item in place.");
+                const auto held_checkpoint = w::encode_checkpoint(profile, held);
+                check(std::holds_alternative<V>(held_checkpoint), "The stationary cargo checkpoint encodes.");
+                const auto held_decoded = w::decode_checkpoint(profile, "stopped-handoff", std::get<V>(held_checkpoint));
+                check(std::holds_alternative<w::Snapshot>(held_decoded), "The stationary cargo checkpoint decodes.");
+                auto held_restored = w::World::restore("stopped-handoff", profile, std::get<w::Snapshot>(held_decoded));
+                check(held_restored && held_restored->tick().error == w::TransactionError::none &&
+                          held_restored->snapshot().state.material == held.state.material,
+                      "Stationary cargo remains held after restore.");
+                auto restarted_state = held_restored->snapshot().state;
+                restarted_state.topology.drive_enabled = true;
+                auto restarted = w::World::create("restarted-handoff", profile, restarted_state);
+                check(restarted && restarted->tick().error == w::TransactionError::none &&
+                          restarted->snapshot().state.material.belt_lanes.at("span-b").slots[1] == cargo,
+                      "The same item advances when the belt is powered again.");
+            }
+            if (kind == 0 && !reversed && !reverse_order && !toward_negative) {
                 auto blocked_profile = profile; blocked_profile.initial_units = 2;
                 auto blocked_state = world->snapshot().state;
                 blocked_state.material.initial_units = 2;
@@ -505,6 +525,15 @@ void inclined_material_route() {
         auto open_state = state;
         std::erase_if(open_state.topology.parts, [](const auto& part) { return part.role == s::Role::processor; });
         open_state.kits.at("P")[{s::Role::processor, 0, 0}] = 1;
+        auto stopped_incline = open_state;
+        stopped_incline.topology.drive_enabled = false;
+        stopped_incline.material.stock.source = 2;
+        stopped_incline.material.dropped_material[{4, 8, 0}] = m::Cargo{1, 0, {}};
+        auto stopped_incline_world = w::World::create("stopped-incline", profile, stopped_incline);
+        check(stopped_incline_world && stopped_incline_world->tick().error == w::TransactionError::none &&
+                  stopped_incline_world->snapshot().state.material.dropped_material.empty() &&
+                  stopped_incline_world->snapshot().state.material.belt_lanes.at("span").slots[1] == m::Cargo{1, 0, {}},
+              "An unpowered inclined belt holds loose cargo on its middle tile in either endpoint order.");
         auto open_world = w::World::create("inclined-open", profile, open_state);
         check(open_world != nullptr, "An open inclined route conserves its unplaced processor.");
         for (int i = 0; i < 8; ++i)
@@ -812,6 +841,13 @@ void belt_span_commands() {
     sideways_cargo.material.belt_lanes.at(sideways_id).slots[1] = m::Cargo{1, 0, {}};
     check(w::World::create("saved-world", profile, sideways_cargo) == nullptr,
           "A sideways power-only belt cannot retain cargo.");
+    auto sideways_loose = sideways_world->snapshot().state;
+    sideways_loose.material.stock.source = 0;
+    sideways_loose.material.dropped_material[{4, 0, 0}] = m::Cargo{1, 0, {}};
+    auto sideways_loose_world = w::World::create("sideways-loose", profile, sideways_loose);
+    check(sideways_loose_world && sideways_loose_world->tick().error == w::TransactionError::none &&
+              sideways_loose_world->snapshot().state.material == sideways_loose.material,
+          "A sideways power-only belt leaves loose material outside its lane.");
     auto vertical = state;
     vertical.topology.parts.back().geometry.center = {0, 8, 0};
     auto vertical_world = w::World::create("saved-world", profile, vertical);
@@ -827,6 +863,13 @@ void belt_span_commands() {
     illegal_cargo.material.belt_lanes.at(vertical_id).slots[1] = m::Cargo{1, 0, {}};
     check(w::World::create("saved-world", profile, illegal_cargo) == nullptr,
           "A vertical power-only belt cannot retain cargo.");
+    auto vertical_loose = vertical_world->snapshot().state;
+    vertical_loose.material.stock.source = 0;
+    vertical_loose.material.dropped_material[{0, 4, 0}] = m::Cargo{1, 0, {}};
+    auto vertical_loose_world = w::World::create("vertical-loose", profile, vertical_loose);
+    check(vertical_loose_world && vertical_loose_world->tick().error == w::TransactionError::none &&
+              vertical_loose_world->snapshot().state.material == vertical_loose.material,
+          "A vertical power-only belt leaves loose material outside its lane.");
     check(vertical_world->tick().error == w::TransactionError::none &&
               s::power_view(vertical_world->snapshot().state.topology).mechanical.motion.at("right").rate == g::Rate{1, 1},
           "An empty vertical belt ticks and continues to transmit power.");
