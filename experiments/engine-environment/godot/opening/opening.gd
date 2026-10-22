@@ -4123,8 +4123,8 @@ const PITCH := Geometry.PITCH
 const NAMES := {"collector": "Collector", "belt": "Belt", "processor": "Press", "wheel": "Waterwheel", "foundation": "Foundation"}
 const COLORS := {"collector": Color("96805c"), "belt": Color("538e88"), "processor": Color("bd7054"), "wheel": Color("8b9caa")}
 const LESSONS := [
-	["01  /  BUILD THE PATH", "Place a collector, a belt and a press in a row. Material ports face along the brass arrow. Each placed machine uses a part from your carried kit."],
-	["02  /  CONNECT THE DRIVE", "Place the waterwheel beside your line. Choose Drive link, then click two neighboring machines. Carry its rotation through the whole line; the stream supplies motion without fuel."],
+	["01  /  BUILD THE PATH", "Place a collector at the seam and a press nearby. Put two one-tile shafts between them with parallel axles, then connect the shafts with a belt. Foundations provide level building surfaces."],
+	["02  /  CARRY ROTATION", "Use a waterwheel in flowing water. Small cogs with matching axes mesh side by side; mixed sizes mesh diagonally. Two large cogs on perpendicular axes meet one tile along each axle. Meshes reverse rotation; sizes change speed. Shafts carry rotation."],
 	["03  /  FOLLOW ONE BLANK", "The collector removes a blank from the finite seam. The belt carries it to the press. Advance the example one tick at a time. The held blank stays in the press until its plate can leave."],
 	["04  /  MAKE ROOM", "A full press outlet holds up the line. Collect the example plate below: the held blank finishes without being lost. Stopping the drive keeps the parts and unfinished work where they are."]
 ]
@@ -5147,7 +5147,7 @@ func _toggle_explanation() -> void:
 			# Set the far anchor first so the near anchor is not clamped.
 			example_presenter.set_anchor_and_offset(SIDE_RIGHT, 0.5, 340)
 			example_presenter.set_anchor_and_offset(SIDE_LEFT, 0.5, -330)
-			example_presenter.set_anchor_and_offset(SIDE_TOP, 0.0, 226)
+			example_presenter.set_anchor_and_offset(SIDE_TOP, 0.0, 238)
 			example_presenter.set_anchor_and_offset(SIDE_BOTTOM, 1.0, -128)
 		example_presenter.show()
 		example_presenter.viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
@@ -5164,10 +5164,6 @@ func _set_lesson(index: int) -> void:
 	lesson_index = posmod(index, LESSONS.size())
 	lesson_title.text = LESSONS[lesson_index][0]
 	lesson_body.text = LESSONS[lesson_index][1]
-	if lesson_index == 0 and _native_transmission():
-		lesson_body.text = "Place a collector and a press. Place one-tile shafts at the ends of the route, with their parallel axles across the belt's path. Connect the shafts with a belt. It carries blanks when its top moves toward the press."
-	if lesson_index == 1 and _native_transmission():
-		lesson_body.text = "Place the waterwheel in the stream with its lower rim wet and clear of the bed. Set its diameter, height and axle. Place one-tile shafts to carry rotation. Small cogs with matching axes mesh side by side in one plane; a small and a large cog mesh diagonally in that plane. These meshes reverse rotation, and different sizes change speed. Two large cogs on perpendicular axes turn a corner when offset one tile along each axle."
 	if example_presenter != null:
 		example_presenter.set_lesson(lesson_index)
 

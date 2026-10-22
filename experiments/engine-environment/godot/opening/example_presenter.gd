@@ -141,8 +141,9 @@ func set_lesson(index: int) -> void:
 	_command({"action": "set_power", "active": lesson >= 1})
 	if lesson >= 2:
 		for turn in range(512):
-			var stock: Dictionary = model.projection().stock
-			if stock.held > 0 and (lesson == 2 or stock.output > 0):
+			var state: Dictionary = model.projection()
+			var stock: Dictionary = state.stock
+			if stock.held > 0 and (lesson == 2 or (stock.output > 0 and state.remaining == 0)):
 				break
 			_advance()
 	transitions.append({"kind": "lesson", "state": model.projection()})
