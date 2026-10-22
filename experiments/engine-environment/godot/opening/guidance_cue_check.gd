@@ -496,6 +496,9 @@ func first_target_fixture() -> Dictionary:
 	snapshot.transmission_parts = {}
 	return snapshot
 
+func visible_hint_edges(view) -> int:
+	return view.placement_hint.get_children().filter(func(child): return child is MeshInstance3D and child.visible).size()
+
 func check_first_target() -> void:
 	var view = Opening.new()
 	view.building_hotbar = CatalogStub.new()
@@ -509,6 +512,7 @@ func check_first_target() -> void:
 	view._refresh_placement_hint()
 	var label := view.placement_hint.get_node_or_null("MineralSeamTarget") as Label3D
 	verify(label != null and label.visible and label.text == "MINERAL SEAM", "The first target identifies the mineral seam in the world.")
+	verify(visible_hint_edges(view) == 0, "A natural mineral target has no manufactured-looking frame edges.")
 	var ground: float = Opening.ProductionEnvironment.Surface.height_at(0.0, 1.65)
 	verify(view.placement_hint.visible and view.placement_hint.position.is_equal_approx(Vector3(0.0, ground + 0.055, 1.65)),
 		"The advisory footprint follows the shared natural surface at the source column.")
@@ -519,6 +523,16 @@ func check_first_target() -> void:
 	view._refresh_placement_hint()
 	verify(view.placement_hint.get_instance_id() == original_hint_id and label != null \
 		and view.placement_hint.get_node_or_null("MineralSeamTarget") == label, "Repeated refresh reuses the footprint and annotation.")
+	view.state = fixture()
+	view.mode = "belt"
+	view._refresh_placement_hint()
+	verify(view.placement_hint.visible and visible_hint_edges(view) == 4 and not label.visible,
+		"Changing from the mineral target to an outlet restores all four construction edges.")
+	view.state = original.duplicate(true)
+	view.mode = "collector"
+	view._refresh_placement_hint()
+	verify(visible_hint_edges(view) == 0 and label.visible,
+		"Returning to the mineral target clears the frame while retaining its annotation.")
 	view.transmission_controls = ToolStub.new()
 	view._refresh_placement_hint()
 	verify(not view.placement_hint.visible and (label == null or not label.visible), "An active transmission tool clears the first target.")
@@ -560,6 +574,8 @@ func check_first_target() -> void:
 	shared._build_placement_hint()
 	shared._refresh_placement_hint()
 	verify(shared.placement_hint.visible, "A ready shared native projection can identify the first target.")
+	verify(visible_hint_edges(shared) == 0 and shared.placement_target_label.visible,
+		"The shared natural target also retains its annotation without frame geometry.")
 	shared.pending_actions["request-1"] = {"action": {"action": "place"}, "outcome": {}}
 	shared._refresh_placement_hint()
 	verify(not shared.placement_hint.visible, "A pending shared command clears first-target advice.")
