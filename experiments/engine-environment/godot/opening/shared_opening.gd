@@ -270,10 +270,11 @@ func _settle_pending() -> void:
 			elif item.action.action in ["remove", "remove_belt_span"] and selected == result.entity:
 				selected = ""
 			_message(_harvest_result_text(result) if item.action.action == "harvest_source" else {"place": "Placed.", "place_foundation": "Foundation placed on the world grid.", "place_foundations": "Foundation area placed on the world grid.", "connect": "Material path connected.", "connect_drive": "Drive shaft connected.",
+				"craft_component": "Component crafted from carried material.", "place_component": "Component placed on the shared grid.", "reclaim_component": "Component returned to your carried cargo.",
 				"retrieve": "Plate collected into your inventory.", "pickup_material": "Loose material collected into your inventory.", "load_belt_slot": "Material placed on the belt.",
 				"remove": "Part returned."}.get(item.action.action, "Action accepted."))
 		else:
-			_message(_material_refusal_message(result, "Not applied: " + {"occupied": "that square is occupied.", "no_part": "that part is already placed.",
+			var refusal: String = _material_refusal_message(result, "Not applied: " + {"occupied": "that square is occupied.", "no_part": "that part is already placed.",
 				"not_at_seam": "place the collector on the ore-colored ground beside the rock.",
 				"not_at_stream": "place the waterwheel beside the stream bank.",
 				"unavailable_output": "there is no finished plate to collect.", "not_stopped": "stop the drive before editing.",
@@ -282,7 +283,14 @@ func _settle_pending() -> void:
 				"actor_occupied": "a character is in that square; move clear before placing the machine.",
 				"powered": "stop the drive before editing.", "held_stock": "material remains in that machine.",
 				"ports_not_adjacent": "choose neighboring ports in the arrow's direction.",
-				"no_shaft": "all shared shafts are in use."}.get(result.reason, str(result.reason))), true)
+				"no_shaft": "all shared shafts are in use."}.get(result.reason, str(result.reason)))
+			if item.action.action == "craft_component":
+				refusal = {"unavailable_input": "Gather the timber or softmetal shown for this component.",
+					"inventory_full": "Your component bag is full. Place a carried part to make room.",
+					"out_of_reach": "Move beside the pod workshop to craft this component."}.get(result.get("reason", ""), refusal)
+			elif item.action.action == "reclaim_component" and result.get("reason", "") == "inventory_full":
+				refusal = "Your component bag is full. Place another carried part before reclaiming."
+			_message(refusal, true)
 		if item.action.action == "select_belt_shaft" and transmission_controls != null:
 			transmission_controls.settle_belt_selection(request, result.accepted)
 		elif item.action.action == "place_selected_belt_span" and transmission_controls != null:
