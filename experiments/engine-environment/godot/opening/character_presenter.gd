@@ -3,6 +3,7 @@ extends Node3D
 ## every physical pose; these meshes never grant construction permission.
 const Geometry = preload("res://opening/site_geometry.gd")
 const Surface = preload("res://opening/site_surface.gd")
+const MULTITOOL = preload("res://opening/assets/multitool/multitool.tscn")
 const ADULT_ASSETS := "res://opening/assets/worker/"
 const GAIT_CYCLE_DISTANCE := 2.30
 const WALK_CYCLE_DISTANCE := 1.30
@@ -27,6 +28,7 @@ static var adult_run_root_reference := Vector3.ZERO
 static var adult_walk_clip: Animation
 static var adult_walk_root_track := -1
 static var adult_walk_root_reference := Vector3.ZERO
+static var multitool_hand_mesh: ArrayMesh
 
 var host
 var views: Dictionary = {}
@@ -36,6 +38,7 @@ var last_direction := Vector2.ZERO
 var motion: Dictionary = {}
 var native_sample_frames: Dictionary = {}
 var visual_context := ""
+var eye_multitool: Node3D
 
 func configure(view) -> void:
 	host = view
@@ -86,6 +89,156 @@ func _physics_process(_delta: float) -> void:
 
 func _process(delta: float) -> void:
 	refresh(delta)
+
+func _exit_tree() -> void:
+	if is_instance_valid(eye_multitool):
+		eye_multitool.queue_free()
+
+func _multitool_frame(body: Node3D) -> Transform3D:
+	# Rocketbox's hand X points along the fingers, Y out of the palm and Z
+	# across it. Keep the authored tool in metres despite the actor's fit scale.
+	var fitted_scale: float = body.get_node("AdultHuman").scale.x
+	return Transform3D(Basis(Vector3.DOWN, Vector3.BACK, Vector3.LEFT).scaled(Vector3.ONE / fitted_scale),
+		Vector3(0.065, -0.022, 0.0))
+
+func _attach_multitool(body: Node3D) -> BoneAttachment3D:
+	var skeleton: Skeleton3D = body.get_node(body.get_meta("skeleton_path"))
+	if skeleton.find_bone("Bip01 R Hand") < 0:
+		push_error("The qualified worker needs its right-hand tool attachment.")
+		return null
+	var attachment := BoneAttachment3D.new()
+	attachment.name = "MultitoolAttachment"
+	attachment.bone_name = "Bip01 R Hand"
+	skeleton.add_child(attachment)
+	var tool := MULTITOOL.instantiate() as Node3D
+	tool.transform = _multitool_frame(body)
+	attachment.add_child(tool)
+	body.set_meta("multitool_attachment", body.get_path_to(attachment))
+	return attachment
+
+func _hold_multitool(body: Node3D) -> void:
+	# Only the right-hand grip changes. Arm, gait, source pose and native body
+	# remain independent of the carried presentation object.
+	var skeleton: Skeleton3D = body.get_node(body.get_meta("skeleton_path"))
+	for finger: Dictionary in body.get_meta("grounded_fingers"):
+		var index: int = finger.index
+		var label := skeleton.get_bone_name(index)
+		if not label.begins_with("Bip01 R Finger"):
+			continue
+		var segment := 0 if label.length() == "Bip01 R Finger1".length() else int(label.right(1))
+		var angle: float = [1.35, 1.15, 0.65][segment]
+		skeleton.set_bone_pose_rotation(index, (finger.base * Quaternion(Vector3.BACK, angle)).normalized())
+
+func _bake_multitool_hand(body: Node3D) -> ArrayMesh:
+	if multitool_hand_mesh != null:
+		return multitool_hand_mesh
+	var skeleton: Skeleton3D = body.get_node(body.get_meta("skeleton_path"))
+	var frames := _adult_pose_frames(skeleton)
+	var to_tool := (frames[skeleton.find_bone("Bip01 R Hand")] * _multitool_frame(body)).affine_inverse()
+	var mesh: MeshInstance3D
+	for candidate: MeshInstance3D in body.find_children("*", "MeshInstance3D", true, false):
+		if candidate.skin != null:
+			mesh = candidate
+			break
+	if mesh == null:
+		return null
+	var binds: Array[Transform3D] = []
+	var hand_binds: Array[bool] = []
+	for bind in range(mesh.skin.get_bind_count()):
+		var index: int = mesh.skin.get_bind_bone(bind)
+		if index < 0:
+			index = skeleton.find_bone(mesh.skin.get_bind_name(bind))
+		if index < 0 or index >= frames.size():
+			return null
+		var label := skeleton.get_bone_name(index)
+		hand_binds.append(label == "Bip01 R Hand" or label.begins_with("Bip01 R Finger"))
+		binds.append(to_tool * frames[index] * mesh.skin.get_bind_pose(bind))
+	var result := ArrayMesh.new()
+	for surface in range(mesh.mesh.get_surface_count()):
+		var arrays: Array = mesh.mesh.surface_get_arrays(surface)
+		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+		var uv: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+		var bones: PackedInt32Array = arrays[Mesh.ARRAY_BONES]
+		var weights: PackedFloat32Array = arrays[Mesh.ARRAY_WEIGHTS]
+		var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+		var stride: int = bones.size() / vertices.size()
+		var selected := PackedByteArray()
+		var posed := PackedVector3Array()
+		var posed_normals := PackedVector3Array()
+		selected.resize(vertices.size())
+		posed.resize(vertices.size())
+		posed_normals.resize(vertices.size())
+		for vertex in range(vertices.size()):
+			var hand_weight := 0.0
+			for influence in range(stride):
+				var offset := vertex * stride + influence
+				var weight: float = weights[offset]
+				if weight <= 0.0:
+					continue
+				var bind: int = bones[offset]
+				posed[vertex] += binds[bind] * vertices[vertex] * weight
+				posed_normals[vertex] += binds[bind].basis * normals[vertex] * weight
+				if hand_binds[bind]:
+					hand_weight += weight
+			selected[vertex] = 1 if hand_weight >= 0.35 else 0
+		var builder := SurfaceTool.new()
+		builder.begin(Mesh.PRIMITIVE_TRIANGLES)
+		var count := 0
+		for triangle in range(0, indices.size(), 3):
+			if not selected[indices[triangle]] or not selected[indices[triangle + 1]] or not selected[indices[triangle + 2]]:
+				continue
+			for corner in range(3):
+				var vertex: int = indices[triangle + corner]
+				builder.set_normal(posed_normals[vertex].normalized())
+				builder.set_uv(uv[vertex])
+				builder.add_vertex(posed[vertex])
+				count += 1
+		if count > 0:
+			builder.index()
+			builder.generate_tangents()
+			builder.commit(result)
+			result.surface_set_material(result.get_surface_count() - 1, mesh.mesh.surface_get_material(surface))
+	if result.get_surface_count() == 0:
+		return null
+	multitool_hand_mesh = result
+	return result
+
+func _refresh_multitools() -> void:
+	var equipped: bool = host.state.get("options", {}).get("native", false) and host.state.has("hand_sources")
+	for actor: String in views:
+		var body: Node3D = views[actor].get_node("BodyView")
+		if not equipped and not body.has_meta("multitool_attachment"):
+			continue
+		if not body.has_meta("multitool_attachment") and _attach_multitool(body) == null:
+			get_tree().quit(1)
+			return
+		var attachment: BoneAttachment3D = body.get_node(body.get_meta("multitool_attachment"))
+		attachment.visible = equipped
+		if equipped:
+			_hold_multitool(body)
+	var local_ready: bool = host.state.get("actors", {}).get(host.client, {}).get("ready", false)
+	var show_eye: bool = equipped and local_ready and host.distance <= 1.0 and views.has(host.client)
+	if show_eye and eye_multitool == null:
+		var body: Node3D = views[host.client].get_node("BodyView")
+		var hand := _bake_multitool_hand(body)
+		if hand == null:
+			push_error("The qualified worker needs a valid first-person hand.")
+			get_tree().quit(1)
+			return
+		eye_multitool = MULTITOOL.instantiate() as Node3D
+		eye_multitool.name = "FirstPersonMultitool"
+		var hand_view := MeshInstance3D.new()
+		hand_view.name = "QualifiedRightHand"
+		hand_view.mesh = hand
+		eye_multitool.add_child(hand_view)
+		eye_multitool.position = Vector3(0.27, -0.25, -0.55)
+		eye_multitool.rotation_degrees = Vector3(18, 20, -8)
+		for part: MeshInstance3D in eye_multitool.find_children("*", "MeshInstance3D", true, false):
+			part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		host.camera.add_child(eye_multitool)
+	if eye_multitool != null:
+		eye_multitool.visible = show_eye
 
 func _worker_box(size: Vector3) -> BoxMesh:
 	var key := ["box", size]
@@ -1303,6 +1456,9 @@ func refresh(delta: float = 0.0) -> void:
 				sample.get("on_floor") if sample.get("epoch", -1) == native_epoch else null)
 		else:
 			motion.erase(actor)
+	_refresh_multitools()
+	if views.has(host.client) and host.distance <= 1.0:
+		views[host.client].visible = false
 	if not host.explanation_open and actors.has(host.client) and Geometry.valid_position(actors[host.client].get("position")):
 		var at: Array = actors[host.client].position
 		host.focus = Vector3(at[0], at[1] + 0.3, at[2])

@@ -1246,6 +1246,26 @@ spike, so the translucent-cover trial was not kept. This WSL renderer still has
 a high frame-time floor, and static visual stress plus a zero-machine native
 Windows run do not prove hundreds of active machines in the playable opening.
 
+## GDC-23: a carried tool is actor presentation, not another physical actor
+
+The opening's qualified worker exposes `Bip01 R Hand`. A `BoneAttachment3D`
+carries the original multitool scene there; its fit compensates for the worker's
+uniform presentation scale while retaining the authored tool dimensions. Only
+the right-hand finger grip changes. Native capsule, pose, stock, harvesting and
+construction admission remain outside this presentation.
+
+The local eye-level view reuses the same tool mesh and a cached hand extracted
+from the qualified worker's skin weights at that grip pose. It creates no second
+player or collision body. Returning to the ordinary camera hides the close view;
+readiness and source-profile facts govern its visibility. Meshes and attachments
+are retained across unchanged refreshes instead of being rebuilt each frame.
+
+The original rig inspection and 26 focused ordinary/shared presentation checks
+cover attachment, bounded hand geometry, resource identity, camera visibility
+and unchanged invented state. These checks create no live Model. They do not
+establish full-scene appearance, human understanding, timed tool use or contact
+animation; those require their own actual consumer evidence.
+
 ## Required follow-through
 
 This first source/API/evidence audit leaves actual backend identification,
