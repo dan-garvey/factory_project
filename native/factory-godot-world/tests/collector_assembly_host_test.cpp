@@ -26,13 +26,16 @@ O request(const std::string& id, const char* action) {
         {"request", V(id)}, {"action", V(action)}};
 }
 
-O source_contact_site(bool other_obstacle = false) {
+O source_contact_site(bool other_obstacle = false, bool foot_obstacle = false) {
     auto terrain = factory::godot_world::tests::flat_site();
     A obstacles{V(A{V(A{V(-1.05), V(0.35), V(-0.2)}),
                     V(A{V(-0.75), V(0.95), V(1.8)})})};
     if (other_obstacle)
         obstacles.emplace_back(A{V(A{V(-0.96), V(0.70), V(-0.10)}),
                                   V(A{V(-0.88), V(0.90), V(0.10)})});
+    if (foot_obstacle)
+        obstacles.emplace_back(A{V(A{V(-0.10), V(0.02), V(-0.10)}),
+                                  V(A{V(0.10), V(0.20), V(0.10)})});
     terrain.at("obstacles") = V(std::move(obstacles));
     terrain.emplace("source_obstacle", V(I{0}));
     return terrain;
@@ -84,6 +87,27 @@ void collector_readiness_tracks_real_parts() {
     check(get<bool>(host.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 4), "accepted"),
           "The actor approaches the deposit-facing workcell without occupying it.");
     const auto frame = place(host, "wooden_frame", 0, 0, 0, "frame");
+    const auto frame_occupied = get<O>(V(get<O>(host.projection(), "placed_components").at(frame)), "occupied");
+    const auto frame_center = get<A>(V(frame_occupied), "center");
+    const auto frame_half = get<A>(V(frame_occupied), "half");
+    check(std::get<double>(frame_center[1].storage()) == 0.45 &&
+          std::get<double>(frame_half[1].storage()) == 0.45 &&
+          std::get<double>(frame_half[0].storage()) == 0.2025,
+          "The frame publishes one load-bearing envelope from the floor to the installed bed.");
+    auto overlapping_deck = request("deck-through-frame", "place_foundation");
+    overlapping_deck.emplace("cell", V(A{V(I{0}), V(I{0})}));
+    overlapping_deck.emplace("level", V(I{2}));
+    const auto blocked_deck = host.command("P", overlapping_deck);
+    check(!get<bool>(blocked_deck, "accepted") &&
+          get<std::string>(blocked_deck, "reason") == "occupied",
+          "A later foundation cannot pass through the frame's grounded support.");
+    auto overlapping_machine = request("machine-through-frame", "place");
+    overlapping_machine.emplace("kind", V("processor"));
+    overlapping_machine.emplace("cell", V(A{V(I{0}), V(I{0})}));
+    const auto blocked_machine = host.command("P", overlapping_machine);
+    check(!get<bool>(blocked_machine, "accepted") &&
+          get<std::string>(blocked_machine, "reason") == "occupied",
+          "A later complete machine cannot cover a placed component.");
     check(get<std::string>(ground_inspection(host), "status") == "missing_mount",
           "A frame alone does not become a machine.");
     const auto mount = place(host, "tool_mount", -1, 0, 0, "mount");
@@ -174,6 +198,15 @@ void collector_readiness_tracks_real_parts() {
           get<std::string>(obstructed_restore, "reason") == "site_occupied" &&
           get<O>(obstructed.projection(), "placed_components").empty(),
           "A second obstacle at the cutter refuses checkpoint import without installing parts.");
+    Host foot_obstructed;
+    check(get<bool>(foot_obstructed.initialize_arrival("assembly-site", {"P", "Q"}), "accepted") &&
+          get<bool>(foot_obstructed.configure_terrain(source_contact_site(false, true)), "accepted"),
+          "A small independent ground obstacle binds below the saved frame.");
+    const auto foot_restore = foot_obstructed.restore_checkpoint(saved);
+    check(!get<bool>(foot_restore, "accepted") &&
+          get<std::string>(foot_restore, "reason") == "site_occupied" &&
+          get<O>(foot_obstructed.projection(), "placed_components").empty(),
+          "Fresh import rejects a foot-level obstruction that the old anchor cube would miss.");
     check(get<bool>(restored.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 7), "accepted"),
           "The restored actor publishes a current physical pose before edits.");
     auto pickup = request("pickup-first", "pickup_material");

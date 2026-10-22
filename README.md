@@ -1,23 +1,26 @@
 # Factory
 
-An experimental 3D opening for a mechanically focused factory game. Place a
-collector, press and waterwheel; build a belt between shaft tiles and use
-shafts, cogwheels, gearboxes and encased chain drives to transmit rotation;
-turn finite blanks into plates and
-explicitly confirm four collected products.
-Placeholder geometry and a small fixed worksite keep this first feedback loop
-bounded. This is not the complete chapter or a selected production stack.
+An experimental 3D opening for a mechanically focused factory game. The ordinary
+offline entry now starts from the native arrival profile: a common-grid deck,
+finite resources and carried foundation parts, with no complete starter machines.
+Point at the ore deposit in inspection mode and press E to collect through the
+native material owner. The HUD shows carried timber and softmetal. This is an
+unfinished chapter: visible harvestable-tree bindings, timed tool use, pod and
+workshop art, crafting/assembly controls and shared arrival adoption remain work.
+The earlier complete collector, belt, press and four-plate scenarios remain
+regression fixtures rather than the ordinary offline start.
 
 The default opening controls a physical character and limits construction to
 nearby targets. Walk with WASD and jump with Space. A waterwheel in flowing water
 drives connected parts automatically. Choose a building with the hotbar, use its ghost options to rotate or
-adjust placement, press E to open a pointed machine, or press F and click a part
+adjust placement, press E to interact with a pointed resource or machine, or press F and click a part
 to deconstruct it. Right-drag orbits the following camera; its position grants no build
 reach. The four-world-unit reach and movement tuning are provisional demo values.
 
 The opening HUD keeps the current objective at the upper left, contextual
 actions at the right, and the assignable build bar at the bottom. Every visible
-button also has a keyboard route:
+button also has a keyboard route. The table includes retained complete-machine
+fixture controls; arrival hides their old Help and four-plate confirmation:
 
 | Task | Keys |
 | --- | --- |

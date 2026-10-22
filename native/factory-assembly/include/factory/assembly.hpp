@@ -66,4 +66,56 @@ struct Inspection {
 [[nodiscard]] Inspection inspect_collector(const std::vector<Part>& placed,
                                            const OreFace& face);
 
+// One open lower feed face and its opposite exit. These are candidate routes,
+// not a selected recipe or a second mutable input/output buffer.
+struct PressFeed {
+    mechanics::Point entry{};
+    mechanics::Point exit{};
+    bool operator==(const PressFeed&) const = default;
+};
+
+struct Press {
+    std::string frame;
+    std::string anvil;
+    std::string ram;
+    std::string guide;
+    std::string mount;
+    std::string shaft;
+    std::string drive_cog;
+    mechanics::Point frame_center{};
+    mechanics::Point work_center{};
+    mechanics::Point shaft_center{};
+    mechanics::Point cog_center{};
+    materials::Component shaft_material{};
+    materials::Component cog_material{};
+    std::vector<PressFeed> open_feeds;
+    bool operator==(const Press&) const = default;
+};
+
+enum class PressStatus {
+    ready,
+    invalid_input,
+    missing_frame,
+    missing_anvil,
+    missing_ram,
+    missing_guide,
+    missing_mount,
+    missing_shaft,
+    missing_cog,
+    blocked_feed,
+    ambiguous,
+};
+
+struct PressInspection {
+    PressStatus status{PressStatus::invalid_input};
+    std::optional<Press> press;
+};
+
+// Recognize a press at any common-grid frame center. Anvil, ram, guide and
+// mount stack at distinct quarter-grid heights; a shaft and cog approach from
+// one horizontal side. Both opposed lower feed paths are inspected for actual
+// placed-part clearance. Work, power and item custody are separate authority.
+[[nodiscard]] PressInspection inspect_press(const std::vector<Part>& placed,
+                                            const mechanics::Point& frame_center);
+
 }  // namespace factory::assembly

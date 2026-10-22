@@ -37,6 +37,7 @@ func _ready() -> void:
 		elif argument.begins_with("--save-slot") or argument.begins_with("--resume"):
 			offline_argument = true
 	_build_world()
+	_install_shared_ore_picker()
 	_build_interface()
 	var column := power_label.get_parent()
 	connection_label = _label(column, "NOT CONNECTED", 14)
@@ -58,6 +59,24 @@ func _ready() -> void:
 		return
 	if connect_on_ready:
 		_reconnect()
+
+func _install_shared_ore_picker() -> void:
+	if legacy_fixture or ProductionEnvironment.Surface == null:
+		return
+	var spec: Dictionary = ProductionEnvironment.Surface.source_outcrop()
+	var body := StaticBody3D.new()
+	body.name = "SharedOreSourcePicker"
+	body.collision_layer = Geometry.PICK_LAYER
+	body.collision_mask = 0
+	body.position = spec.center
+	body.basis = spec.basis
+	var collider := CollisionShape3D.new()
+	var shape := ConvexPolygonShape3D.new()
+	shape.points = spec.points
+	shape.margin = 0.0
+	collider.shape = shape
+	body.add_child(collider)
+	add_child(body)
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo and event.ctrl_pressed and event.keycode == KEY_J:

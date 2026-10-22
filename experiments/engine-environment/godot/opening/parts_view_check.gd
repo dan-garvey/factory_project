@@ -5,6 +5,7 @@ extends SceneTree
 
 const Opening = preload("res://opening/opening.gd")
 const SharedOpening = preload("res://opening/shared_opening.gd")
+const SiteSurface = preload("res://opening/site_surface.gd")
 var checks := 0
 var failures := 0
 
@@ -54,6 +55,14 @@ class SessionStub extends RefCounted:
 class SourceRayView extends "res://opening/opening.gd":
 	func _ready() -> void:
 		set_process(false)
+
+class SharedSourceRayView extends "res://opening/shared_opening.gd":
+	var issued: Array = []
+	func _ready() -> void:
+		set_process(false)
+	func issue(action: Dictionary) -> Dictionary:
+		issued.append(action.duplicate(true))
+		return {"accepted": false, "reason": "fixture_only"}
 
 class SourceBodyLookup extends RefCounted:
 	var site_bodies: Dictionary = {}
@@ -183,6 +192,14 @@ func _multitool_controls() -> void:
 		view._build_interface()
 		view._refresh_ui()
 		var before: Dictionary = view.state.duplicate(true)
+		verify("FIRST WORKSHOP" in view.objective_heading.text and "3 timber" in view.goal_label.text
+			and "1 softmetal" in view.goal_label.text and not view.goal_progress.visible,
+			"The arrival view teaches actual carried materials instead of the obsolete four-plate goal.")
+		verify(not view.confirm_button.visible and not view.lesson_button.visible,
+			"Arrival offers neither old objective confirmation nor the completed-machine lesson.")
+		view._toggle_explanation()
+		verify(not view.explanation_open and view.example_presenter == null,
+			"The retired lesson shortcut cannot create its historical example in arrival.")
 		view.hand_pointed = "ore"
 		view._refresh_placement_options()
 		verify(view.placement_options_panel.visible and view.placement_options_title.text == "CUT SOFTMETAL"
@@ -242,6 +259,7 @@ func _multitool_controls() -> void:
 			verify(view.issued.is_empty(), "A disconnected shared view cannot submit a harvest.")
 		view.free()
 	await _multitool_ray_selection()
+	await _shared_ore_ray_selection()
 	print("MULTITOOL_UI_%s %d" % ["PASS" if failures == 0 else "FAIL", checks])
 	quit(0 if failures == 0 else 1)
 
@@ -289,6 +307,57 @@ func _multitool_ray_selection() -> void:
 	verify(view._screen_hand_source(screen) == "tree", "A shared view can read an exact source pick identity without owning an ActorWorld.")
 	ore.set_meta("hand_source", "unregistered")
 	verify(view._screen_hand_source(screen).is_empty(), "An unregistered hit identity cannot target another native source.")
+	view.free()
+	await process_frame
+	await physics_frame
+
+func _shared_ore_ray_selection() -> void:
+	var view := SharedSourceRayView.new()
+	view.state = hotbar_observation()
+	view.state.hand_sources = {"ore": {"kind": "ore_deposit", "position": [-1.05, 0.825, 0.05], "remaining": 2}}
+	view.state.source_deposit = {"id": "ore"}
+	view.client = "P"
+	view.mode = "inspect"
+	view.distance = 0.0
+	view.session = SessionStub.new()
+	root.add_child(view)
+	view._install_shared_ore_picker()
+	var spec: Dictionary = SiteSurface.source_outcrop()
+	var picker := view.get_node_or_null("SharedOreSourcePicker") as StaticBody3D
+	verify(picker != null and picker.position == spec.center and picker.collision_layer == 4
+		and picker.get_child(0).shape.points == spec.points,
+		"The normal shared view installs a read-only ore pick body at the visible source hull.")
+	view.camera = Camera3D.new()
+	view.add_child(view.camera)
+	view.camera.position = spec.center + Vector3(0.0, 0.7, 4.0)
+	view.camera.look_at(spec.center)
+	view.camera.make_current()
+	await physics_frame
+	await physics_frame
+	var screen: Vector2 = view.camera.unproject_position(spec.center)
+	verify(view._screen_hand_source(screen) == "ore", "A shared camera ray resolves the projected ore identity on its real source shape.")
+	view._interact_pointed()
+	verify(view.issued == [{"action": "harvest_source", "target": "ore"}],
+		"The shared source ray submits only the authoritative source target.")
+	view.issued.clear()
+	var occluder := StaticBody3D.new()
+	occluder.collision_layer = 4
+	occluder.position = spec.center + Vector3(0.0, 0.35, 2.0)
+	var collider := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(1.5, 1.5, 0.2)
+	collider.shape = shape
+	occluder.add_child(collider)
+	view.add_child(occluder)
+	await physics_frame
+	verify(view._screen_hand_source(screen).is_empty(), "A foreground machine blocks shared ore picking.")
+	occluder.collision_layer = 32
+	await physics_frame
+	verify(view._screen_hand_source(screen).is_empty(), "The shared terrain pick layer also blocks ore behind a ridge.")
+	occluder.free()
+	view.state.source_deposit.id = "other"
+	await physics_frame
+	verify(view._screen_hand_source(screen).is_empty(), "A source absent from the projection cannot be inferred from the shared pick body.")
 	view.free()
 	await process_frame
 	await physics_frame
