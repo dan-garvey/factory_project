@@ -114,7 +114,12 @@ void fragment() {
 	vec3 detail = vec3(0.0);
 	// Only genuinely steep banks expose rock; level meadows keep the existing
 	// grass projection. This changes shading, never the shared surface shape.
-	float stone_weight = smoothstep(0.18, 0.43, 1.0 - abs(base.y));
+	float exposure = 1.0 - abs(base.y);
+	float boundary = broad_noise(world_point.xz / 2.8 + vec2(11.7, -3.9)) - 0.5;
+	// Vary the material boundary across the bank without exposing stone on
+	// level meadow or changing the terrain's physical slope.
+	float stone_weight = smoothstep(0.18, 0.43,
+		exposure + boundary * 0.50 * smoothstep(0.08, 0.22, exposure));
 	vec3 stone_color = vec3(0.0);
 	vec2 stone_scalars = vec2(0.0);
 	vec3 stone_detail = vec3(0.0);
