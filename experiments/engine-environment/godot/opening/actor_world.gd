@@ -15,6 +15,8 @@ var machines: Dictionary = {}
 var machine_specs: Dictionary = {}
 var mechanical_bodies: Dictionary = {}
 var mechanical_specs: Dictionary = {}
+var component_bodies: Dictionary = {}
+var component_specs: Dictionary = {}
 var belt_step_seconds := 0.0
 var foundations: Dictionary = {}
 var foundation_specs: Dictionary = {}
@@ -122,6 +124,35 @@ func sync_topology() -> Dictionary:
 	var derived: Dictionary = Geometry.mechanical_boxes(snapshot)
 	if not derived.get("accepted", false):
 		return {"accepted": false, "reason": "invalid_transmission_topology"}
+	var component_result: Dictionary = Geometry.component_boxes(snapshot)
+	if not component_result.get("accepted", false):
+		return {"accepted": false, "reason": "invalid_component_topology"}
+	var components: Dictionary = component_result.boxes
+	for id in component_bodies.keys():
+		if not components.has(id) or component_specs[id] != components[id]:
+			var old: StaticBody3D = component_bodies[id]
+			remove_child(old)
+			old.queue_free()
+			component_bodies.erase(id)
+			component_specs.erase(id)
+	for id in components:
+		if component_bodies.has(id):
+			continue
+		var spec: Dictionary = components[id]
+		var body := StaticBody3D.new()
+		body.name = "PlacedComponent"
+		body.set_meta("component_entity", id)
+		body.collision_layer = Geometry.MACHINE_LAYER
+		body.collision_mask = Geometry.ACTOR_LAYER
+		body.position = spec.center
+		var collider := CollisionShape3D.new()
+		var shape := BoxShape3D.new()
+		shape.size = spec.size
+		collider.shape = shape
+		body.add_child(collider)
+		component_bodies[id] = body
+		component_specs[id] = spec.duplicate(true)
+		add_child(body)
 	var boxes: Dictionary = derived.boxes
 	for id in mechanical_bodies.keys():
 		if not boxes.has(id) or mechanical_specs[id] != boxes[id]:
@@ -334,6 +365,25 @@ func _geometry_registered() -> bool:
 	var derived: Dictionary = Geometry.mechanical_boxes(model.projection())
 	if not derived.get("accepted", false) or derived.boxes != mechanical_specs or mechanical_bodies.size() != mechanical_specs.size():
 		return false
+	var components: Dictionary = Geometry.component_boxes(model.projection())
+	if not components.get("accepted", false) or components.boxes != component_specs \
+			or component_bodies.size() != component_specs.size():
+		return false
+	for id in component_bodies:
+		var body: StaticBody3D = component_bodies[id]
+		var spec: Dictionary = component_specs[id]
+		var rid: RID = body.get_rid()
+		var pose: Transform3D = PhysicsServer3D.body_get_state(rid, PhysicsServer3D.BODY_STATE_TRANSFORM)
+		if PhysicsServer3D.body_get_space(rid) != space or PhysicsServer3D.body_get_shape_count(rid) != 1 \
+				or PhysicsServer3D.body_get_collision_layer(rid) != Geometry.MACHINE_LAYER \
+				or not pose.basis.is_equal_approx(Basis.IDENTITY) \
+				or pose.origin.distance_to(spec.center) > Geometry.NATIVE_POSE_EPSILON:
+			return false
+		var shape_pose: Transform3D = PhysicsServer3D.body_get_shape_transform(rid, 0)
+		var shape_data: Variant = PhysicsServer3D.shape_get_data(PhysicsServer3D.body_get_shape(rid, 0))
+		if shape_pose != Transform3D.IDENTITY or not shape_data is Vector3 \
+				or shape_data.distance_to(spec.size / 2.0) > Geometry.NATIVE_POSE_EPSILON:
+			return false
 	for id in mechanical_bodies:
 		var body: StaticBody3D = mechanical_bodies[id]
 		var rid: RID = body.get_rid()

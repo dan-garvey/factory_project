@@ -121,3 +121,24 @@ views and native placement/collision checks. Then test the mirrored receiver
 and side shaft, followed by the raised tool alternative. No screenshot or
 source study here establishes the user's production-quality target or human
 playability.
+
+## First physical component consumer
+
+The later native Host now projects a measured occupied box for each placed
+component and checks those boxes during placement and checkpoint import. The
+opening's ActorWorld consumes those exact boxes as static character collision.
+The native transmission presenter builds a separate frame, mount, exposed
+edge, open receiver and shaft from confirmed component identities. It orients
+the shaft toward the frame only when the native assembly reports a ready
+connection; removing a component removes its visual and collider. The receiver
+pan meets the current loose-blank presentation height.
+
+This is a bounded first construction kit, not an adopted final art style. Its
+finished metal and timber reuse existing scene materials, but the rigid forms
+are still simple authored geometry. A headless invented-projection check covers
+two arrangements, character collision, visible bounds and removal. The
+original native Host test covers construction and save validation. The scene
+has not been assessed in an ordinary-distance rendered image or by a human;
+material grain, joint fidelity, proportions and source-rock contact remain
+open visual work. The historical measurements above describe the earlier
+unfitted cube reservation, not the current projected boxes.

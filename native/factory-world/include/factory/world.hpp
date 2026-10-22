@@ -40,6 +40,9 @@ struct Profile {
     double build_reach{4.0};
     // Separate construction custody; foundations are not mechanical hubs.
     authority::Integer foundation_parts{};
+    // Immutable actor allocation before any construction history. A pod deck
+    // spends from the common total but does not grant another actor a kit.
+    std::map<std::string, authority::Integer> starting_foundation_kits;
     // Trusted landing-site center in the same quarter-tile grid as foundations.
     // The unfolded 3 x 3 deck spends nine of foundation_parts at startup.
     std::optional<mechanics::Point> landing_pod_center;
