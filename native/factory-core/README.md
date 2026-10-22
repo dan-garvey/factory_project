@@ -25,11 +25,14 @@ fractional shaft rate accumulates without a minimum-speed floor and the exact
 progress follows recovery, carried cargo and checkpoints. Rate changes retain
 exact fractions when their common denominator fits; larger combinations use
 bounded integer rounding. The earlier machine fixture uses material checkpoint
-schema 6. The experimental arrival profile uses schema 7: named finite timber
+schema 6. The experimental arrival profile uses schema 8: named finite timber
 balances and carried timber live beside the existing ore source and raw cargo
 in this same material State. Hand mining ore and the collector debit that same
 source. Strict conservation rejects missing, duplicated or refilled tree stock
-on decode. This slice has no crafted-component or timber-belt representation.
+on decode. Eleven provisional component recipes each consume only carried
+timber or ore and retain those ingredient weights in actor cargo and checkpoints.
+Crafting currently has no World/Host hub command, placement consumer or
+timber/component belt representation; those are separate integration slices.
 
 This first profile still has one raw material, one product recipe, and one
 collector/belt/processor fixture. Config supplies recipe weight, cycle duration

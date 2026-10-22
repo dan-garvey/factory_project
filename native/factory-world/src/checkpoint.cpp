@@ -126,6 +126,7 @@ Value profile_value(const Profile& profile) {
                 {"initial", Value(site.initial)}});
         output.emplace("timber_sites", Value(std::move(trees)));
         output.emplace("hand_carry_capacity", Value(profile.material.hand_carry_capacity));
+        output.emplace("component_capacity", Value(profile.material.component_capacity));
         if (profile.material.manual_ore) {
             const auto& site = *profile.material.manual_ore;
             output.emplace("manual_ore", Value(Object{{"id", Value(site.id)},
