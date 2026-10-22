@@ -25,6 +25,16 @@ checkpoint import use the same mineral footprint and depth rule. Rebuilding a
 collector, changing foundations or reopening cannot refill the deposit. No old
 sixteen-unit checkpoint migration is provided.
 
+At ground level, either admitted seam cell adds a short, source-facing pickup
+volume to the collector body. The trusted site adapter identifies the fixed
+outcrop obstacle so only that pickup may meet its rock; other scenery, actors,
+foundations and constructed parts still block the occupied volume. The scene
+renders a housing and trough from the pickup toward the stock bed and registers
+the same conservative box for physical contact and picking. A collector raised
+on a foundation still uses the original body and has no depicted ground pickup.
+This fixed interface is a prototype asset fit, not simulated cutter teeth or a
+general rule for arbitrary ore nodes.
+
 The adapter preserves the original wire intent in World's history. Exact retry
 lookup precedes current target translation, so removal, rebuilding and a fresh
 process cannot retarget an old receipt. Checkpoint import validates the original

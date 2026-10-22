@@ -148,6 +148,67 @@ void footprint_and_profile() {
     }
 }
 
+O source_contact_site(bool extra_obstacle = false) {
+    auto terrain = flat();
+    A obstacles{V(A{V(A{V(-1.03), V(0.35), V(-0.2)}),
+                    V(A{V(-0.76), V(0.65), V(1.2)})})};
+    if (extra_obstacle)
+        obstacles.emplace_back(A{V(A{V(-0.97), V(0.40), V(-0.1)}),
+                                  V(A{V(-0.88), V(0.58), V(0.1)})});
+    terrain.at("obstacles") = V(std::move(obstacles));
+    terrain.emplace("source_obstacle", V(I{0}));
+    return terrain;
+}
+
+void grounded_intake_clearance() {
+    auto missing = source_contact_site();
+    missing.erase("source_obstacle");
+    Host unmarked; initialize(unmarked, missing); observe(unmarked);
+    outcome(unmarked.command("P", place("unmarked", "collector", 0, 0)), false, "site_occupied");
+    auto wrong = source_contact_site();
+    wrong.at("source_obstacle") = V(I{1});
+    Host invalid;
+    outcome(invalid.initialize("mineral-site", {"P", "Q"}), true, "initialized");
+    outcome(invalid.configure_terrain(wrong), false, "invalid_terrain");
+    for (const I cell : {I{0}, I{1}}) {
+        Host host; initialize(host, source_contact_site());
+        observe(host, 1.0, cell * 1.65 + 1.65);
+        const auto placed = host.command("P", place("contact", "collector", 0, cell));
+        check(accepted(placed), "The trusted source hull permits the occupied pickup at both admitted cells.");
+        Host loaded; initialize(loaded, source_contact_site());
+        outcome(loaded.restore_checkpoint(host.checkpoint()), true, "restored");
+        check(same(material_state(host), material_state(loaded)),
+              "A fresh Host verifies the same source clearance and restores exact material custody.");
+        Host incompatible; initialize(incompatible, missing);
+        const auto before = incompatible.checkpoint();
+        outcome(incompatible.restore_checkpoint(host.checkpoint()), false, "site_occupied");
+        check(same(before, incompatible.checkpoint()), "Missing source identity refuses restore without changing the Host.");
+    }
+    Host blocked; initialize(blocked, source_contact_site(true)); observe(blocked);
+    const auto before = material_state(blocked);
+    outcome(blocked.command("P", place("blocked", "collector", 0, 0)), false, "site_occupied");
+    check(same(before, material_state(blocked)), "A different obstacle in the pickup remains a material-atomic refusal.");
+    Host actor; initialize(actor, source_contact_site());
+    observe(actor, 1.0, 0.0, -0.85);
+    outcome(actor.command("P", place("actor", "collector", 0, 0)), false, "actor_occupied");
+    Host neighboring_foundation; initialize(neighboring_foundation, source_contact_site());
+    observe(neighboring_foundation);
+    check(accepted(neighboring_foundation.command("P", place("contact", "collector", 0, 0))),
+          "The ground collector occupies its source-facing intake before a neighboring foundation is placed.");
+    auto foundation_at_intake = foundation("foundation-at-intake", 1);
+    foundation_at_intake.at("cell") = V(A{V(I{-1}), V(I{0})});
+    const auto saved = material_state(neighboring_foundation);
+    outcome(neighboring_foundation.command("P", foundation_at_intake), false, "occupied");
+    check(same(saved, material_state(neighboring_foundation)),
+          "An intersecting foundation cannot erase or cover a confirmed source-facing intake.");
+    Host intake_after_foundation; initialize(intake_after_foundation, source_contact_site());
+    observe(intake_after_foundation);
+    check(accepted(intake_after_foundation.command("P", foundation_at_intake)),
+          "An unused neighboring foundation remains buildable before the collector exists.");
+    outcome(intake_after_foundation.command("P", place("collector-after-foundation", "collector", 0, 0)),
+            false, "occupied");
+}
+
 void foundations_and_restore() {
     for (const I level : {I{-4}, I{0}, I{4}, I{8}, I{12}}) {
         Host host; initialize(host, flat(0.0)); observe(host, level * 0.4125 + 1.0);
@@ -251,7 +312,7 @@ void full_finite_depletion() {
 
 int main() {
     try {
-        footprint_and_profile(); foundations_and_restore(); full_finite_depletion();
+        footprint_and_profile(); grounded_intake_clearance(); foundations_and_restore(); full_finite_depletion();
         std::cout << checks << " native mineral placement, depletion and checkpoint checks passed.\n";
     } catch (const std::exception& error) {
         std::cerr << "Failed after " << checks << " checks: " << error.what() << '\n';

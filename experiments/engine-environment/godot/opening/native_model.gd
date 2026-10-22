@@ -29,17 +29,24 @@ func _init(world_context: String = "opening-native", actor_ids: Array = ["P"]):
 	for vertex in vertices:
 		heights.append(float(vertex.y))
 	var obstacles: Array = []
+	var source_obstacle := -1
 	for solid in surface.support_boxes():
+		if solid.id == "source_outcrop":
+			source_obstacle = obstacles.size()
 		var bounds: AABB = Transform3D(solid.basis, solid.center) * AABB(-solid.size * 0.5, solid.size)
 		obstacles.append([[bounds.position.x, bounds.position.y, bounds.position.z], [bounds.end.x, bounds.end.y, bounds.end.z]])
 	for fir in surface.fir_specs():
 		var bounds: AABB = fir.bounds
 		obstacles.append([[bounds.position.x, bounds.position.y, bounds.position.z], [bounds.end.x, bounds.end.y, bounds.end.z]])
-	boot_result = _invoke("configure_terrain", [{"axis": axis, "heights": heights, "obstacles": obstacles, "flow_cells": surface.flow_cells()}])
+	if source_obstacle < 0:
+		boot_result = {"accepted": false, "reason": "source_outcrop_missing"}
+		return
+	boot_result = _invoke("configure_terrain", [{"axis": axis, "heights": heights, "obstacles": obstacles,
+		"source_obstacle": source_obstacle, "flow_cells": surface.flow_cells()}])
 	if not boot_result.get("accepted", false):
 		return
 	var profile: Dictionary = projection().get("adapter_profile", {})
-	if profile.get("pitch") != Site.PITCH or profile.get("height_denominator") != Site.HEIGHT_DENOMINATOR or profile.get("height_step") != Site.HEIGHT_STEP or profile.get("foundation_depth") != Site.FOUNDATION_DEPTH or profile.get("anchor_height") != Site.ANCHOR_HEIGHT or profile.get("wheel_radius") != Site.WATERWHEEL_RADIUS_HUNDREDTHS or profile.get("wheel_axle_offset") != Site.WATERWHEEL_AXLE_OFFSET_HUNDREDTHS or profile.get("capsule_radius") != Site.CAPSULE_RADIUS or profile.get("capsule_height") != Site.CAPSULE_HEIGHT:
+	if profile.get("pitch") != Site.PITCH or profile.get("height_denominator") != Site.HEIGHT_DENOMINATOR or profile.get("height_step") != Site.HEIGHT_STEP or profile.get("foundation_depth") != Site.FOUNDATION_DEPTH or profile.get("anchor_height") != Site.ANCHOR_HEIGHT or profile.get("wheel_radius") != Site.WATERWHEEL_RADIUS_HUNDREDTHS or profile.get("wheel_axle_offset") != Site.WATERWHEEL_AXLE_OFFSET_HUNDREDTHS or profile.get("capsule_radius") != Site.CAPSULE_RADIUS or profile.get("capsule_height") != Site.CAPSULE_HEIGHT or profile.get("collector_intake_size") != Site.COLLECTOR_INTAKE_SIZE or profile.get("collector_intake_x") != Site.COLLECTOR_INTAKE_X or profile.get("collector_intake_y") != Site.COLLECTOR_INTAKE_Y or profile.get("collector_second_cell_z") != Site.COLLECTOR_SECOND_CELL_Z:
 		boot_result = {"accepted": false, "reason": "native_scene_profile_mismatch"}
 
 func _invoke(method: String, arguments: Array) -> Dictionary:

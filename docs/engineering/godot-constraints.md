@@ -708,6 +708,16 @@ superseded by the hotbar's detached widget and layout controls in
 display/backend limits belong to the exact retained `6.40` cases; source or parser
 success alone does not certify resizing, DPI, accessibility or actual user play.
 
+**Ground collector pickup is a fixed site adapter.** The two admitted seam
+cells have separate short, occupied pickup boxes that intersect the actual
+outcrop triangles. Native placement and restore allow the trusted, identified
+source obstacle at that pickup only; other scenery, actors and built parts
+remain blockers. ActorWorld and the ordinary pick body register matching boxes,
+while the renderer adds a housing and a passive trough to the stock bed. This
+does not model moving tooth contact, arbitrary mineral sources or a lift for
+collectors placed on foundations. Headless geometry and scene checks establish
+the source/physics fit, not final rendered quality or human usability.
+
 **Runtime scenery import is presentation only.** The sourced grass uses a
 self-contained GLB buffer through
 [GLTFDocument](https://docs.godotengine.org/en/stable/classes/class_gltfdocument.html)
