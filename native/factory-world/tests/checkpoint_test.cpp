@@ -279,6 +279,9 @@ void belt_span_checkpoint() {
     fractional_state.material.belt_lanes.at("belt").phase = 0;
     fractional_state.material.belt_lanes.at("belt").remainder = 0;
     fractional_state.material.belt_lanes.at("belt").remainder_denominator = 1;
+    const m::Cargo partial_work{0, 0, {{1, {1, 2}, 2, 1365, 1, 3}}};
+    fractional_state.material.belt_lanes.at("belt").slots[2] = partial_work;
+    fractional_state.material.next_work_id = 2;
     auto fractional = w::World::create("fractional-world", fractional_profile, fractional_state);
     check(fractional && fractional->tick().error == w::TransactionError::none,
           "A third-speed driven lane advances before saving.");
@@ -293,12 +296,30 @@ void belt_span_checkpoint() {
                   fractional_restored->tick().error == w::TransactionError::none &&
                   fractional->snapshot().state == fractional_restored->snapshot().state,
               "Restored and uninterrupted fractional belts remain identical.");
-    check(fractional->snapshot().state.material.belt_lanes.at("belt").slots[1].has_value() &&
+    check(fractional->snapshot().state.material.belt_lanes.at("belt").slots[1] == partial_work &&
               fractional->snapshot().state.material.belt_lanes.at("belt").phase == 0,
-          "Three third-speed ticks move the cargo exactly one tile across the checkpoint.");
+          "Three third-speed ticks move the exact fractional workpiece one tile across the checkpoint.");
+    auto recover_fraction = command("recover_belt_slot", "recover-fraction", "belt");
+    recover_fraction.at("context") = V("fractional-world");
+    recover_fraction.emplace("slot", V(I{1}));
+    recover_fraction.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{0})}, {"work_lots", V(V::Array{
+        V(O{{"id", V(I{1})}, {"recipe_input", V(I{1})}, {"cycle_ticks", V(I{2})},
+            {"remaining", V(I{2})}, {"completed_subticks", V(I{1365})},
+            {"work_remainder", V(I{1})}, {"work_remainder_denominator", V(I{3})}})})}}));
+    accepted(send(*fractional_restored, recover_fraction));
+    check(fractional_restored->snapshot().state.material.cargo.at("P") == partial_work,
+          "Belt recovery transfers the workpiece without changing its fractional progress.");
+    const auto recovered_fraction = w::encode_checkpoint(fractional_profile, fractional_restored->snapshot());
+    check(std::holds_alternative<V>(recovered_fraction), "Recovered fractional belt work checkpoints.");
+    const auto decoded_fraction = w::decode_checkpoint(fractional_profile, "fractional-world", std::get<V>(recovered_fraction));
+    check(std::holds_alternative<w::Snapshot>(decoded_fraction) &&
+              std::get<w::Snapshot>(decoded_fraction).state.material.cargo.at("P") == partial_work,
+          "The recovered fractional workpiece survives another checkpoint.");
     auto fast_profile = profile;
     fast_profile.waterwheel_rate = {20, 1};
     auto fast_state = fractional_state;
+    fast_state.material.belt_lanes.at("belt").slots[2] = m::Cargo{1, 0, {}};
+    fast_state.material.next_work_id = 1;
     fast_state.topology.sources = {{"wheel", {20, 1}}};
     auto fast_world = w::World::create("fast-world", fast_profile, fast_state);
     check(fast_world && fast_world->tick().error == w::TransactionError::none &&
