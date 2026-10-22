@@ -1833,6 +1833,14 @@ func check_wheel_supports() -> void:
 						var high := -INF
 						for corner in range(8):
 							high = maxf(high, (child.transform * child.mesh.get_aabb().get_endpoint(corner)).y)
+						var suffix := "N" if child.name.ends_with("N") else "P"
+						var bearing: MeshInstance3D = machine.get_node("AxleBearing" + suffix)
+						var bearing_low := INF
+						for corner in range(8):
+							bearing_low = minf(bearing_low,
+								(bearing.transform * bearing.mesh.get_aabb().get_endpoint(corner)).y)
+						verify(high >= bearing_low + 0.005 * scale_factor,
+							"Each fixed support seats into its bearing housing instead of ending below it.")
 						verify(high < rotor.position.y - journal.radius,
 							"The fixed stand stays below the journal's actual swept cylinder.")
 						if not shared_profile and axis_index == 0 and controls == 2:

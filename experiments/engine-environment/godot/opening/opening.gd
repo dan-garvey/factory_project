@@ -849,9 +849,12 @@ class ProductionWheelSupportArt:
 					_part(parent, "WheelFootBolt", ("N" if x < 0 else "P") + ("N" if z < 0 else "P"), fasteners[scale_factor],
 						Vector3(x, 0.349, z) * scale_factor, Basis.IDENTITY, worked)
 		else:
+			# The shaped upright must enter the underside of the fixed bearing.
+			# Its former 0.62-height top left a visible gap below the housing.
+			var seat_height := 0.78 - 0.17 * scale_factor / height_factor
 			var outline := PackedVector2Array([Vector2(-0.19, 0.24), Vector2(0.19, 0.24),
 				Vector2(0.19, 0.32), Vector2(0.18, 0.36), Vector2(0.075, 0.36),
-				Vector2(0.065, 0.58), Vector2(0.065, 0.62), Vector2(-0.065, 0.62),
+				Vector2(0.065, 0.58), Vector2(0.065, seat_height), Vector2(-0.065, seat_height),
 				Vector2(-0.065, 0.58), Vector2(-0.075, 0.36), Vector2(-0.18, 0.36), Vector2(-0.19, 0.32)])
 			for n in range(outline.size()):
 				outline[n] = Vector2(outline[n].x * scale_factor, outline[n].y * height_factor)
