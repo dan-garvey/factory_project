@@ -822,6 +822,91 @@ func _belt_surface_motion() -> void:
 				"Surface travel respects axle orientation and is independent of endpoint order.")
 			presenter.free()
 
+func _belt_cargo_cadence() -> void:
+	var host := HostStub.new()
+	host.state = fixture()
+	host.state.transmission_parts = {
+		"first": {"kind": "shaft", "generation": 1, "center": [0, 0, 0], "axis": 2, "half_span": 2},
+		"last": {"kind": "shaft", "generation": 1, "center": [8, 0, 0], "axis": 2, "half_span": 2}}
+	host.state.motion = {"first": {"state": "rotating", "numerator": -1, "denominator": 1}}
+	var raw := {"raw": 1, "products": 0, "work_lots": []}
+	host.state.belt_spans = {"span": {"generation": 1, "from": "first", "to": "last",
+		"phase": 0, "slots": [raw, null, null]}}
+	var view := Presenter.new()
+	view.configure(host)
+	var span := _part(view, "span")
+	var pick_id := span.get_node("Pick").get_instance_id()
+	var authoritative: Dictionary = host.state.duplicate(true)
+	var prior_x: float = _belt_item(span, 0).position.x
+	var largest_step := 0.0
+	for frame in 27:
+		view.advance_visual_motion(1.0 / 60.0)
+		var x: float = _belt_item(span, 0).position.x
+		largest_step = maxf(largest_step, absf(x - prior_x))
+		prior_x = x
+	verify(largest_step < 0.07 and is_equal_approx(prior_x, 0.0) and host.state == authoritative,
+		"Confirmed unit-rate material travels one tile in 27 render frames without altering native slots.")
+	host.state.belt_spans.span.slots = [null, raw, null]
+	view.refresh()
+	span = _part(view, "span")
+	verify(span.get_node("Pick").get_instance_id() == pick_id and
+		absf(_belt_item(span, 1).position.x - prior_x) < 0.001,
+		"The authoritative slot handoff meets the preceding visual at the same tile without rebuilding the pick.")
+	for frame in 27:
+		view.advance_visual_motion(1.0 / 60.0)
+	host.state.belt_spans.span.slots = [null, null, raw]
+	view.refresh()
+	span = _part(view, "span")
+	verify(is_equal_approx(_belt_item(span, 2).position.x, 1.65),
+		"An occupied endpoint stays within the confirmed span at its next native cut.")
+	host.state.motion.first = {"state": "rotating", "numerator": 1, "denominator": 1}
+	view.refresh()
+	span = _part(view, "span")
+	for frame in 27:
+		view.advance_visual_motion(1.0 / 60.0)
+	verify(is_equal_approx(_belt_item(span, 2).position.x, 0.0),
+		"Reversing the confirmed shaft moves the endpoint material smoothly back one tile.")
+	host.state.belt_spans.span.slots = [null, raw, null]
+	host.state.motion.first = {"state": "stalled", "numerator": 0, "denominator": 1}
+	view.refresh()
+	span = _part(view, "span")
+	view.advance_visual_motion(0.45)
+	verify(is_equal_approx(_belt_item(span, 1).position.x, 0.0),
+		"A stalled belt holds cargo at its last confirmed position.")
+	host.state.motion.first = {"state": "rotating", "numerator": -1, "denominator": 1}
+	host.state.belt_spans.span.slots = [raw, raw, raw]
+	view.refresh()
+	span = _part(view, "span")
+	view.advance_visual_motion(0.45)
+	verify(is_equal_approx(_belt_item(span, 0).position.x, -1.65) and
+		is_equal_approx(_belt_item(span, 1).position.x, 0.0),
+		"A full downstream chain never animates cargo through another item or beyond the end.")
+	view.free()
+	var incline := HostStub.new()
+	incline.state = fixture()
+	incline.state.transmission_parts = {
+		"first": {"kind": "shaft", "generation": 1, "center": [0, 0, 0], "axis": 2, "half_span": 2},
+		"last": {"kind": "shaft", "generation": 1, "center": [8, 8, 0], "axis": 2, "half_span": 2}}
+	incline.state.motion = {"first": {"state": "rotating", "numerator": -1, "denominator": 1}}
+	incline.state.belt_spans = {"span": {"generation": 1, "from": "first", "to": "last",
+		"phase": 0, "slots": [raw, null, null]}}
+	var incline_view := Presenter.new()
+	incline_view.configure(incline)
+	var incline_start: Vector3 = _belt_item(_part(incline_view, "span"), 0).position
+	incline_view.advance_visual_motion(0.45)
+	var incline_end: Vector3 = _belt_item(_part(incline_view, "span"), 0).position
+	var expected_distance := Geometry.PITCH * 2896.0 / 4096.0
+	verify(is_equal_approx(incline_end.x - incline_start.x, expected_distance) and
+		is_equal_approx(incline_end.y - incline_start.y, expected_distance),
+		"An inclined run follows its native sub-tile distance along both world axes.")
+	incline.state.motion.first = {"state": "rotating", "numerator": -1, "denominator": 2}
+	incline_view.refresh()
+	incline_view.advance_visual_motion(0.45)
+	var half_end: Vector3 = _belt_item(_part(incline_view, "span"), 0).position
+	verify(is_equal_approx(half_end.x - incline_start.x, expected_distance * 0.5),
+		"A fractional shaft rate proportionally slows inclined cargo travel.")
+	incline_view.free()
+
 func _cache_regression() -> void:
 	var host := HostStub.new()
 	host.state = fixture()
@@ -1482,6 +1567,7 @@ func _run() -> void:
 		_cache_regression()
 	elif "--belt-surface-only" in OS.get_cmdline_user_args():
 		_belt_surface_motion()
+		_belt_cargo_cadence()
 	elif "--direction-basis-only" in OS.get_cmdline_user_args():
 		_direction_basis()
 	elif "--loose-material-only" in OS.get_cmdline_user_args():
@@ -1513,6 +1599,7 @@ func _run() -> void:
 		_belt_retry()
 		_span_guidance()
 		_belt_surface_motion()
+		_belt_cargo_cadence()
 		_presentation()
 		_stable_finishes()
 	print("NATIVE_TRANSMISSION_VIEW_%s %d" % ["PASS" if failures == 0 else "FAIL", checks])

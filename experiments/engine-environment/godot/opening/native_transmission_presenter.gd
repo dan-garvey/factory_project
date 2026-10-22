@@ -10,11 +10,15 @@ const UNIT := Geometry.PITCH / 4.0
 ## Its pulley rim must travel the same distance in that time.
 const VISUAL_RADIANS_PER_SECOND := Geometry.PITCH / (Assets.SPAN_OUTER_RADIUS * 0.45)
 const BELT_SUBTICKS_PER_TILE := 4096.0 # Matches the native material lane's fixed-point denominator.
+const CARGO_TICK_SECONDS := 0.45
+const INCLINED_SUBTICKS_PER_TICK := 2896.0 # Native lane advances one horizontal tile of surface distance.
 const GEAR_BATCH_THRESHOLD := 4
 
 var _host: WeakRef
 var _view_key := ""
 var _cargo_keys: Dictionary = {}
+var _cargo_elapsed: Dictionary = {}
+var _cargo_anchors: Array[Node3D] = []
 var _motion_context := ""
 var _generations: Dictionary = {}
 var _visual_angles: Dictionary = {}
@@ -31,6 +35,8 @@ func configure(host: Object) -> void:
 
 func _clear() -> void:
 	_cargo_keys.clear()
+	_cargo_elapsed.clear()
+	_cargo_anchors.clear()
 	_gear_batches.clear()
 	for child in get_children():
 		child.free()
@@ -136,6 +142,8 @@ func advance_visual_motion(delta: float) -> void:
 			_visual_rotations[id] = visual_rotation(id) + step
 			_visual_angles[id] = wrapf(visual_angle(id) + step, -PI, PI)
 	_apply_angles()
+	if not _cargo_anchors.is_empty():
+		_advance_belt_cargo(delta, snapshot)
 
 static func axis_basis(axis: int) -> Basis:
 	match axis:
@@ -540,7 +548,13 @@ func _belt_span(id: String, span: Variant, parts: Dictionary, rendered: Dictiona
 	anchor.set_meta("cargo_end", world_center(last.center) - anchor.position)
 	anchor.set_meta("cargo_slots", steps + 1)
 	anchor.set_meta("cargo_allowed", first.axis != 1 and (delta.x != 0 or delta.z != 0))
+	var travel_axis := 2 if first.axis == 0 else 0
+	var positive_world: bool = first.axis == 0
+	anchor.set_meta("cargo_positive_rate_direction",
+		1 if positive_world == (last.center[travel_axis] > first.center[travel_axis]) else -1)
+	anchor.set_meta("cargo_subticks_per_tick", INCLINED_SUBTICKS_PER_TICK if delta.y != 0 else BELT_SUBTICKS_PER_TILE)
 	add_child(anchor)
+	_cargo_anchors.append(anchor)
 	var loop := Assets.belt_loop(anchor, distance, 0)
 	if loop != null:
 		loop.basis = loop_basis
@@ -591,9 +605,7 @@ func _belt_span(id: String, span: Variant, parts: Dictionary, rendered: Dictiona
 func _refresh_belt_cargo(spans: Variant) -> void:
 	if not spans is Dictionary:
 		return
-	for anchor: Node in get_children():
-		if not anchor is Node3D or anchor.get_meta("kind", "") != "belt_span":
-			continue
+	for anchor: Node3D in _cargo_anchors:
 		var id: String = anchor.get_meta("entity", "")
 		var span: Variant = spans.get(id)
 		if not span is Dictionary:
@@ -603,6 +615,7 @@ func _refresh_belt_cargo(spans: Variant) -> void:
 		if _cargo_keys.get(id) == cargo_key:
 			continue
 		_cargo_keys[id] = cargo_key
+		_cargo_elapsed[id] = 0.0
 		var existing := {}
 		for child: Node in anchor.get_children():
 			if child.has_meta("belt_slot"):
@@ -643,6 +656,41 @@ func _refresh_belt_cargo(spans: Variant) -> void:
 			anchor.remove_child(child)
 			child.free()
 
+func _advance_belt_cargo(delta: float, snapshot: Dictionary) -> void:
+	var spans: Variant = snapshot.get("belt_spans", {})
+	if not spans is Dictionary:
+		return
+	for anchor: Node3D in _cargo_anchors:
+		if not anchor.get_meta("cargo_allowed", false):
+			continue
+		var id: String = anchor.get_meta("entity", "")
+		var span: Variant = spans.get(id)
+		if not span is Dictionary or not span.get("slots") is Array or typeof(span.get("phase")) != TYPE_INT:
+			continue
+		var slots: Array = span.slots
+		if slots.size() != int(anchor.get_meta("cargo_slots")) or absi(span.phase) >= int(BELT_SUBTICKS_PER_TILE):
+			continue
+		var source: String = str(anchor.get_meta("belt_shaft", ""))
+		var rate := signed_rate(snapshot.motion.get(source))
+		var elapsed := minf(float(_cargo_elapsed.get(id, 0.0)) + delta, CARGO_TICK_SECONDS)
+		_cargo_elapsed[id] = elapsed
+		# The fitted loop already uses this confirmed source rate. Display cargo
+		# through its current tick, never beyond one tile or a blocked end.
+		var direction := float(anchor.get_meta("cargo_positive_rate_direction"))
+		var phase := clampf(float(span.phase) + rate * direction *
+			float(anchor.get_meta("cargo_subticks_per_tick")) * elapsed / CARGO_TICK_SECONDS,
+			-BELT_SUBTICKS_PER_TILE, BELT_SUBTICKS_PER_TILE)
+		var first_position: Vector3 = anchor.get_meta("cargo_start")
+		var last_position: Vector3 = anchor.get_meta("cargo_end")
+		for item: Node in anchor.get_children():
+			if not item is Node3D or not item.has_meta("belt_slot"):
+				continue
+			var index := int(item.get_meta("belt_slot"))
+			var fraction := belt_visual_fraction(slots, index, phase)
+			var position := first_position.lerp(last_position, (float(index) + fraction) / float(slots.size() - 1))
+			position.y += 0.18 if item.get_meta("belt_item") == "product" else 0.24
+			item.position = position
+
 func _add_belt_pick_section(body: StaticBody3D, start: float, end: float) -> void:
 	if end - start <= 0.001:
 		return
@@ -664,6 +712,17 @@ static func belt_slot_fraction(slots: Array, index: int, phase: Variant) -> floa
 	while next >= 0 and next < slots.size():
 		if slots[next] == null:
 			return float(phase) / BELT_SUBTICKS_PER_TILE
+		next += direction
+	return 0.0
+
+static func belt_visual_fraction(slots: Array, index: int, phase: float) -> float:
+	if not is_finite(phase) or is_zero_approx(phase) or index < 0 or index >= slots.size():
+		return 0.0
+	var direction := 1 if phase > 0.0 else -1
+	var next := index + direction
+	while next >= 0 and next < slots.size():
+		if slots[next] == null:
+			return clampf(phase / BELT_SUBTICKS_PER_TILE, -1.0, 1.0)
 		next += direction
 	return 0.0
 
