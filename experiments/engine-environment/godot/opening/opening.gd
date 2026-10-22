@@ -2,6 +2,7 @@ extends Node3D
 ## Input and presentation only. Every material/build mutation goes to model.gd.
 
 const Model = preload("res://model.gd")
+const NativeWorldModel = preload("res://opening/native_model.gd")
 const Store = preload("res://save-tests/checkpoint_file.gd")
 const ActorWorld = preload("res://opening/actor_world.gd")
 const CharacterPresenter = preload("res://opening/character_presenter.gd")
@@ -4252,6 +4253,7 @@ const FIRST_PERSON_BLEND_DISTANCE := 4.0
 var hover_cell := Vector2i(99, 99)
 var visual_revision := -1
 var geometry_key := ""
+var ui_refresh_key: Array = []
 var camera: Camera3D
 var machine_root: Node3D
 var item_root: Node3D
@@ -4404,7 +4406,11 @@ func _actor_pose(actor: String, sample: Dictionary) -> void:
 		return
 	if character_presenter != null:
 		character_presenter.observe_native_sample(actor, sample)
-	_refresh()
+	# The ordinary render-frame refresh follows this physics cut. The first
+	# ready pose and paused fixtures still need their immediate snapshot.
+	if not (model is NativeWorldModel and auto_advance \
+			and state.get("actors", {}).get(actor, {}).get("ready", false)):
+		_refresh()
 	if startup_save_pending and not startup_save_scheduled:
 		var all_ready := true
 		for current in model.projection().actors.values():
@@ -6701,18 +6707,33 @@ func _refresh() -> void:
 		native_camera_initialized = true
 		if orbit_pitch == 0.82:
 			orbit_pitch = 0.60
-	if actor_world != null:
-		actor_world.sync_topology()
-	var next_key := JSON.stringify([state.entities, state.links, state.get("drive_links", []), state.get("foundations", {})])
+	var next_key: String
+	if model is NativeWorldModel and typeof(state.get("order")) == TYPE_INT and typeof(state.get("context")) == TYPE_STRING:
+		# Commands can change topology; material ticks advance revision without
+		# changing the built geometry. A new model or context also needs a rebuild.
+		next_key = "native:" + str(model.get_instance_id()) + ":" + state.context + ":" + str(state.order)
+	else:
+		next_key = JSON.stringify([state.entities, state.links, state.get("drive_links", []), state.get("foundations", {})])
 	if next_key != geometry_key:
 		geometry_key = next_key
+		if actor_world != null:
+			actor_world.sync_topology()
 		_rebuild_machines()
 	if int(state.revision) != visual_revision:
 		visual_revision = int(state.revision)
 		_redraw_items()
 	if character_presenter != null:
 		character_presenter.refresh()
-	_refresh_ui()
+	if not model is NativeWorldModel or _native_ui_key() != ui_refresh_key:
+		_refresh_ui()
+
+func _native_ui_key() -> Array:
+	return [model.get_instance_id(), state.get("context"), state.get("revision"),
+		state.get("actors", {}).get(client, {}).get("ready", false),
+		selected, mode, explanation_open, startup_save_pending, save_slot_ready, save_slot_owned,
+		goal_confirmed, show_details, building_rotation, foundation_level, wheel_level, wheel_tiles,
+		transmission_controls.active_tool if transmission_controls != null else "",
+		transmission_controls.selected_axis if transmission_controls != null else ""]
 
 func _display_parts() -> Dictionary:
 	if state.get("options", {}).get("native", false):
@@ -6819,6 +6840,8 @@ func _refresh_ui() -> void:
 		recovery_actions.refresh()
 	if loose_material_controls != null:
 		loose_material_controls.refresh()
+	if model is NativeWorldModel:
+		ui_refresh_key = _native_ui_key()
 
 func _catalog_open() -> bool:
 	return building_hotbar != null and building_hotbar.catalog.visible
