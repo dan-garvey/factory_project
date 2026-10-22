@@ -564,6 +564,66 @@ func check_native_cadence_walking_contact() -> void:
 		"Walking contact keeps both knees forward and changes neither confirmed root nor input.")
 	host.free()
 
+func check_native_cadence_running_contact() -> void:
+	var host := HostFixture.new()
+	host.state.context = "running-contact"
+	host.state.actors.P.native_epoch = 1
+	host.state.actors.P.position = [-1.5, Surface.height_at(-1.5, 3.3) + 0.9, 3.3]
+	root.add_child(host)
+	var presenter := Presenter.new()
+	presenter.configure(host)
+	host.add_child(presenter)
+	presenter.set_process(false)
+	presenter.set_physics_process(false)
+	var view: Node3D = presenter.views.P
+	var body: Node3D = view.get_node("BodyView")
+	var skeleton: Skeleton3D = skeleton_of(body)
+	var previous := {"L": {}, "R": {}}
+	var early_steps := {"L": [], "R": []}
+	var toe_off := {"L": false, "R": false}
+	var minimum_knee := INF
+	var exact_root := true
+	var x := -1.5
+	for frame in range(100):
+		x += 0.1 # Confirmed 3 m/s run, observed at 30 Hz.
+		var at := Vector3(x, Surface.height_at(x, 3.3) + 0.9, 3.3)
+		host.state.actors.P.position = [at.x, at.y, at.z]
+		host.state.actors.P.native_epoch += 2
+		presenter.refresh(1.0 / 30.0)
+		exact_root = exact_root and view.position.is_equal_approx(at)
+		if frame < 15:
+			continue
+		skeleton.force_update_all_bone_transforms()
+		for side in ["L", "R"]:
+			var toe: Vector3 = body.to_global(presenter._adult_joint(body, skeleton,
+				skeleton.find_bone("Bip01 " + side + " Toe0")))
+			var clearance := toe.y - Surface.height_at(toe.x, toe.z)
+			var age: float = float(presenter.motion.P.get("run_contact_age", -1.0))
+			var planted: bool = presenter.motion.P.get("run_contact_side", "") == side
+			var early := planted and age <= 0.11 and clearance < 0.07
+			var prior: Dictionary = previous[side]
+			if early and prior.get("early", false):
+				early_steps[side].append(Vector2(toe.x - float(prior.x),
+					toe.z - float(prior.z)).length())
+			if planted and age >= 0.16 and clearance > 0.08:
+				toe_off[side] = true
+			previous[side] = {"x": toe.x, "z": toe.z, "early": early}
+			minimum_knee = minf(minimum_knee, knee_forward_offset(body, side))
+	var maximum_step := {"L": 0.0, "R": 0.0}
+	for side in ["L", "R"]:
+		for step in early_steps[side]:
+			maximum_step[side] = maxf(maximum_step[side], float(step))
+	adult_measurements["running_contact"] = {"early_steps": early_steps,
+		"maximum_step": maximum_step, "toe_off": toe_off,
+		"minimum_knee_forward": minimum_knee}
+	verify(early_steps.L.size() >= 3 and early_steps.R.size() >= 3
+		and maximum_step.L < 0.02 and maximum_step.R < 0.02,
+		"Each running support boot remains at its world point during its short early plant.")
+	verify(toe_off.L and toe_off.R and minimum_knee > -0.03
+		and exact_root and host.control_calls == 0,
+		"Both running boots lift into toe-off without a backwards knee or actor input change.")
+	host.free()
+
 func check_sparse_confirmed_walk() -> void:
 	var host := HostFixture.new()
 	host.state.context = "sparse-confirmed-walk"
@@ -890,6 +950,7 @@ func run() -> void:
 		inspect_adult(body, q.get_node("BodyView"), presenter)
 		check_walking_support()
 		check_native_cadence_walking_contact()
+		check_native_cadence_running_contact()
 		check_sparse_confirmed_walk()
 		check_uneven_native_walk_samples()
 		check_landing_contact_from_motion()

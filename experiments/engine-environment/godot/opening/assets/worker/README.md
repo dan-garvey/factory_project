@@ -67,9 +67,15 @@ before stance. This preserves the captured swing path until support.
 During a steady walk, the first near-ground boot holds its observed world toe
 position briefly, then releases through toe-off. The correction fades as the
 walk becomes a run and does not move the confirmed actor root. The fuller
-running leg pose lowers
-its cosmetic visual root by 4.7 centimetres at full run weight to meet the
-unchanged support plane. The forearms retain extra flex and
+running leg pose lowers its cosmetic visual root by 4.7 centimetres at full
+run weight to meet the unchanged support plane.
+
+At full running speed, each near-ground support boot briefly holds its
+observed horizontal world position. Its toe then lifts as the pelvis passes
+the planted foot, so the late stance does not scrape across the terrain.
+This presentation correction releases on swing, stopping, jumping and landing;
+it does not move the confirmed actor root or claim physical foot contact.
+The forearms retain extra flex and
 the captured torso sway is bounded after retargeting. The clip's vertical root
 variation is cosmetic, and its horizontal root travel does not move the physical
 or visual actor root. On a confirmed stop, the current stride pose holds for

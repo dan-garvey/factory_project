@@ -513,6 +513,50 @@ func _adult_hold_walking_toe(body: Node3D, previous: Dictionary, delta: float,
 			_adult_hold_contact_toe(body, skeleton, previous.walk_contact_toe,
 				influence, 0.0, side)
 
+func _adult_hold_running_toe(body: Node3D, previous: Dictionary, delta: float,
+		run_mix: float) -> void:
+	# The captured run has a short support interval. Hold its horizontal toe
+	# contact without freezing the clip's vertical lift into the next swing.
+	var skeleton: Skeleton3D = body.get_node(body.get_meta("skeleton_path"))
+	skeleton.force_update_all_bone_transforms()
+	var toes := {}
+	var clearance := {}
+	for side in ["L", "R"]:
+		var toe: Vector3 = body.to_global(_adult_joint(body, skeleton,
+			skeleton.find_bone("Bip01 " + side + " Toe0")))
+		toes[side] = toe
+		clearance[side] = toe.y - Surface.height_at(toe.x, toe.z)
+	if not is_finite(clearance.L) or not is_finite(clearance.R):
+		previous.erase("run_contact_side")
+		previous.erase("run_contact_toe")
+		previous.erase("run_contact_age")
+		return
+	var side: String = previous.get("run_contact_side", "")
+	if side != "" and clearance[side] >= 0.09:
+		previous.erase("run_contact_side")
+		previous.erase("run_contact_toe")
+		previous.erase("run_contact_age")
+		side = ""
+	if side == "" and run_mix > 0.90:
+		var next_side := "L" if clearance.L < clearance.R else "R"
+		if clearance[next_side] < 0.055 and clearance["R" if next_side == "L" else "L"] > 0.10:
+			previous.run_contact_side = next_side
+			previous.run_contact_toe = toes[next_side]
+			previous.run_contact_age = 0.0
+			side = next_side
+	if side != "":
+		previous.run_contact_age = float(previous.run_contact_age) + delta
+		var influence := (1.0 - smoothstep(0.16, 0.26, float(previous.run_contact_age))) \
+			* (1.0 - smoothstep(0.045, 0.09, clearance[side])) \
+			* smoothstep(0.75, 0.95, run_mix)
+		if influence > 0.001:
+			var anchor: Vector3 = previous.run_contact_toe
+			anchor.y = toes[side].y
+			var toe_off_lift := 0.12 * smoothstep(0.08, 0.18,
+				float(previous.run_contact_age)) * (1.0 - smoothstep(0.24, 0.30,
+				float(previous.run_contact_age)))
+			_adult_hold_contact_toe(body, skeleton, anchor, influence, toe_off_lift, side)
+
 func _adult_clip_bindings(skeleton: Skeleton3D, clip: Animation) -> Dictionary:
 	var result := {"bindings": [], "root_track": -1, "root_reference": Vector3.ZERO}
 	for track in range(clip.get_track_count()):
@@ -1057,12 +1101,21 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 		presentation_stride, landing_approach,
 		previous.get("landing_toe_anchor") if previous.mode == "landing" else null)
 	if previous.mode == "grounded" and float(previous.horizontal_speed) > 0.2 \
-			and float(previous.run_mix) < 0.8 and body.get_meta("sourced_character", false):
-		_adult_hold_walking_toe(body, previous, delta, float(previous.run_mix))
-	else:
+			and body.get_meta("sourced_character", false):
+		if float(previous.run_mix) < 0.8:
+			_adult_hold_walking_toe(body, previous, delta, float(previous.run_mix))
+		else:
+			_adult_hold_running_toe(body, previous, delta, float(previous.run_mix))
+	if previous.mode != "grounded" or float(previous.horizontal_speed) <= 0.2 \
+			or float(previous.run_mix) >= 0.8:
 		previous.erase("walk_contact_side")
 		previous.erase("walk_contact_toe")
 		previous.erase("walk_contact_age")
+	if previous.mode != "grounded" or float(previous.horizontal_speed) <= 0.2 \
+			or float(previous.run_mix) < 0.8:
+		previous.erase("run_contact_side")
+		previous.erase("run_contact_toe")
+		previous.erase("run_contact_age")
 	motion[actor] = previous
 	if previous.mode == "grounded" and (previous.get("stop_pending", false)
 			or previous.has("stop_toe_anchor")) and body.get_meta("sourced_character", false):
