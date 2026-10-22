@@ -16,37 +16,55 @@ foundations and one distinct fabrication hub on the common quarter-tile grid,
 puts both actors on the deck, and
 leaves fifteen of the original twenty-four foundation parts with P. Its
 projection includes `landing_pod`, `fabrication_hub` and the usual foundation records; the normal
-checkpoint retains both. The existing scene still calls `initialize`. This
+checkpoint retains both. The ordinary offline scene selects this profile through
+the NativeModel arrival argument; existing mechanics fixtures and shared startup
+still use `initialize`. This
 slice has native actor component cargo and an actor-reachable `craft_component`
 command at the east deck bench. The command spends the actor's own raw stock,
 reports the typed component and survives retry and restore. `place_component`
 and `reclaim_component` move that stock between actor cargo and persistent
 quarter-grid world parts with one native material ledger. The Host projects
 their identities, positions and types and reserves a small collision volume
-against actors, terrain obstacles, belts and complete machines. These are not
-yet functional collector or press assemblies. There is still no pod or bench
-mesh, scene crafting/placement controls or multitool input. The experimental
+against actors, terrain obstacles, belts and complete machines. A placed
+cutting edge at one of the profile's trusted ore faces may contact only the
+tagged source outcrop; other components and other obstacles still block it.
+Checkpoint import rechecks that same source fit against the receiving site.
+This narrow source contact does not enlarge the current component collision
+boxes to cover grounded frame legs or other future art. A placed collector can
+now be turned manually; press assembly remains unfinished. The offline view
+offers exact-target ore harvesting and native stock feedback. There is still
+no pod or bench mesh, scene component crafting/placement controls, timed tool
+use or aligned harvestable-tree presentation. The experimental
 arrival begins without inherited complete-machine or transmission kits; the
-historical initializer retains those fixtures. The live scene should switch
-only with the linked assembly and presentation work.
+historical initializer retains those mechanics fixtures. The new offline start
+is partial implementation toward the chapter contract, not chapter completion.
 The pod also starts with one identified detachable hand crank. A nearby
 physical actor can take it from the pod tray or return it through Host
 commands. Its single holder is projected and preserved through retries and
-checkpoints. It is not yet attached to, or driving, a built assembly.
+checkpoints. It is not yet physically attached to a shaft or driving continuous motion.
 The arrival projection derives `collector_assemblies` from those placed
 components at the two west-facing ore workcells and their supported grid
 heights. Each entry reports missing, ready or ambiguous geometry; a ready
 entry names the five exact installed identities, cutting height and shaft
-material. This is read-only inspection. It does not extract ore, attach the
-hand crank or license an arbitrary new deposit face.
+material. The trusted profile carries those same ore faces into World and its
+checkpoint fingerprint. A nearby actor holding the unique pod crank can send
+`turn_hand_crank` for an installed shaft in a ready layout. One accepted turn
+moves one finite ore blank into canonical loose-item custody at its receiver
+center. Native World ticks can move that item onto a correctly positioned,
+outward-running belt endpoint, while stopped, reversed and full inlets retain
+it. The arrival profile does not yet let players fabricate belt spans, so
+this route has native World coverage but no ordinary scene consumer. Full output and missing
+parts, wrong holder and remote poses refuse without a debit. No autonomous
+drive or scene crank input exists yet.
 The arrival profile additionally exposes `hand_sources`: three named
 eight-piece timber sites and one sixteen-unit ore deposit. `harvest_source`
 accepts a target identity only after the bound physical actor is ready and
 within reach. It credits timber or raw ore in the same native actor cargo,
 with the ore debit shared by the collector. Source balances and carried timber
 survive the normal checkpoint. Current site coordinates are provisional; the
-live scene has no matching harvestable tree art, multitool input, depletion
-feedback or crafting consumer yet. The focused Host test uses synthetic poses.
+live scene has no matching harvestable tree art, depletion feedback or crafting
+consumer yet. The focused Host test uses synthetic poses; the ordinary view
+consumes the same exact source identities through its multitool interaction.
 
 The current opening adapter is a revisable profile: a finite 4,096-unit ore
 deposit, a 32-blank collector buffer, one-unit downstream buffers, a two-tick

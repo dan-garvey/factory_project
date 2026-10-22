@@ -143,6 +143,28 @@ Bounds foundation_bounds(const world::Foundation& foundation) {
              foundation.center[2] * height_step}, {pitch / 2, foundation_depth / 2, pitch / 2}};
 }
 
+Bounds component_bounds(std::optional<materials::Component> kind, const mechanics::Point& center) {
+    const authority::Point at{center[0] * height_step,
+        center[1] * height_step + anchor_height, center[2] * height_step};
+    if (!kind) return {at, {0.14, 0.14, 0.14}};
+    switch (*kind) {
+        case materials::Component::wooden_frame:
+            // The frame's four load-bearing feet meet the level's floor.
+            return {{at[0], center[1] * height_step + 0.45, at[2]}, {0.2025, 0.45, 0.2025}};
+        case materials::Component::tool_mount:
+            return {{at[0], at[1] + 0.10, at[2]}, {0.20, 0.18, 0.19}};
+        case materials::Component::cutting_edge:
+            return {{at[0], at[1] - 0.015, at[2]}, {0.21, 0.12, 0.18}};
+        case materials::Component::receiver_tray:
+            return {{at[0], at[1] - 0.0825, at[2]}, {0.18, 0.15, 0.205}};
+        case materials::Component::wooden_shaft:
+        case materials::Component::softmetal_shaft:
+            return {at, {0.205, 0.12, 0.205}};
+        default:
+            return {at, {0.14, 0.14, 0.14}};
+    }
+}
+
 bool overlap(const Bounds& a, const Bounds& b) {
     for (std::size_t axis = 0; axis < 3; ++axis) {
         const auto distance = std::abs(a.center[axis] - b.center[axis]);
@@ -302,6 +324,9 @@ bool historical_wire(const authority::Record& record) {
             field<std::string>(*wire, "entity") && field<std::string>(*wire, "component") &&
             same("entity", "target") && same("component", "component");
     if (*action == "take_hand_crank" || *action == "return_hand_crank")
+        return *original_action == *action && keys(*wire, {"entity"}) &&
+            field<std::string>(*wire, "entity") && same("entity", "target");
+    if (*action == "turn_hand_crank")
         return *original_action == *action && keys(*wire, {"entity"}) &&
             field<std::string>(*wire, "entity") && same("entity", "target");
     if (*action == "place_component")
@@ -646,6 +671,9 @@ Value Host::initialize_site(const std::string& context, const std::vector<std::s
     if (arrival) {
         profile.landing_pod_center = mechanics::Point{4, 0, 16};
         profile.material.manual_ore = materials::OreSite{"opening-softmetal", {-3, 0, 0}};
+        for (const auto& cell : mineral_site::opening_cells)
+            for (Integer level = 0; level <= mineral_site::extraction_depth_steps; level += 4)
+                profile.collector_faces.push_back({{4 * cell.x, level, 4 * cell.z}, {-1, 0, 0}});
         profile.material.timber_sites = {
             {"tree-east-south", {{12, 0, 12}, 8}},
             {"tree-east-north", {{12, 0, 24}, 8}},
@@ -1014,9 +1042,7 @@ std::map<std::string, Host::TransmissionSupport> Host::transmission_supports(
                 }
                 for (const auto& [id, component] : state.placed_components) {
                     (void)id;
-                    if (overlap(box, {{component.center[0] * height_step,
-                            component.center[1] * height_step + anchor_height,
-                            component.center[2] * height_step}, {0.14, 0.14, 0.14}})) clear = false;
+                    if (overlap(box, component_bounds(component.kind, component.center))) clear = false;
                 }
                 for (const auto* other : parts) {
                     if (other == part) continue;
@@ -1097,6 +1123,63 @@ const char* Host::collector_site_refusal(const mechanics::Point& center) const {
     return allowed == mineral_site::Error::none ? nullptr : mineral_site::error_name(allowed);
 }
 
+const char* Host::component_site_refusal(std::optional<materials::Component> kind,
+        const mechanics::Point& center) const {
+    const auto volume = component_bounds(kind, center);
+    const auto& at = volume.center;
+    const auto ground = terrain_range(at[0], at[2], volume.half[0], volume.half[2]);
+    if (!ground) return "terrain_unavailable";
+    if (ground->second > at[1] - volume.half[1]) return "site_occupied";
+    // Only the named cutting edge at one of the two trusted ore faces may
+    // enter the source hull. The source obstacle is separately identified and
+    // validated when terrain binds; every other obstacle still blocks it.
+    bool source_contact = false;
+    if (kind == materials::Component::cutting_edge)
+        for (const auto& face : profile_.collector_faces)
+            for (Integer height : {Integer{0}, Integer{1}})
+                if (center == mechanics::Point{
+                    face.machine_center[0] + 2 * face.toward_ore[0],
+                    face.machine_center[1] + height,
+                    face.machine_center[2] + 2 * face.toward_ore[2]}) source_contact = true;
+    const auto ignored = source_contact ? source_obstacle_index_ : std::nullopt;
+    if (site_blocked({at[0] - volume.half[0], at[1] - volume.half[1], at[2] - volume.half[2]},
+                     {at[0] + volume.half[0], at[1] + volume.half[1], at[2] + volume.half[2]}, ignored))
+        return "site_occupied";
+    return nullptr;
+}
+
+const char* Host::component_space_refusal(const world::State& state,
+        std::optional<materials::Component> kind, const mechanics::Point& center,
+        const std::string* current_id) const {
+    const auto volume = component_bounds(kind, center);
+    for (const auto& [id, foundation] : state.foundations) {
+        (void)id;
+        if (overlap(volume, foundation_bounds(foundation))) return "occupied";
+    }
+    for (const auto& [id, other] : state.placed_components)
+        if ((!current_id || id != *current_id) &&
+            overlap(volume, component_bounds(other.kind, other.center))) return "occupied";
+    if (intersects_belt(state, volume)) return "occupied";
+    for (const auto& part : state.topology.parts) {
+        if (part.role == Role::gear || part.role == Role::shaft) {
+            if (transmission_intersects(volume, part.geometry.center, part.geometry.axis,
+                                        part.role == Role::gear)) return "occupied";
+        } else if (overlap(volume, part_bounds(profile_, part))) return "occupied";
+        if (part.role == Role::collector)
+            for (const auto& external : collector_external_bounds(part.geometry.center))
+                if (overlap(volume, external)) return "occupied";
+        if (part.role == Role::waterwheel) {
+            const auto supports = wheel_support_bounds(part.geometry.center, part.geometry.axis,
+                [this](double x, double z, double hx, double hz) {
+                    return terrain_range(x, z, hx, hz);
+                });
+            if (!supports) return "support_required";
+            if (overlaps_supports(*supports, volume)) return "occupied";
+        }
+    }
+    return nullptr;
+}
+
 world::ObserveActor Host::observe() const {
     return [this](const std::string& actor) -> std::optional<authority::ActorCut> {
         const auto found = owned_->actors.find(actor);
@@ -1157,6 +1240,12 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             belt != snapshot.state.topology.belt_spans.end() ? belt->generation : 0));
         return true;
     };
+    const auto occupied_by_component = [&](const Bounds& volume) {
+        return std::any_of(snapshot.state.placed_components.begin(), snapshot.state.placed_components.end(),
+            [&](const auto& entry) {
+                return overlap(volume, component_bounds(entry.second.kind, entry.second.center));
+            });
+    };
     if (*action == "harvest_source") {
         if (!keys(wire, {"target"}) || !field<std::string>(wire, "target")) return refuse("invalid_command");
         normalized.at("action") = Value("harvest_source");
@@ -1178,6 +1267,14 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.emplace("generation", Value(snapshot.state.hand_crank &&
             snapshot.state.hand_crank->id == *field<std::string>(wire, "entity") ?
             snapshot.state.hand_crank->generation : Integer{0}));
+    } else if (*action == "turn_hand_crank") {
+        if (!keys(wire, {"entity"}) || !field<std::string>(wire, "entity"))
+            return refuse("invalid_command");
+        normalized.at("action") = Value(*action);
+        normalized.emplace("target", wire.at("entity"));
+        const auto found = snapshot.state.placed_components.find(*field<std::string>(wire, "entity"));
+        normalized.emplace("generation", Value(found == snapshot.state.placed_components.end() ?
+            Integer{0} : found->second.generation));
     } else if (*action == "place_component") {
         if (!keys(wire, {"component", "center"}) || !field<std::string>(wire, "component") ||
             !field<Array>(wire, "center")) return refuse("invalid_command");
@@ -1190,24 +1287,14 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                 *coordinate > mechanics::maximum_coordinate) return refuse("invalid_center");
             center[axis] = *coordinate;
         }
-        // A small reserved volume prevents placement inside terrain, an actor,
-        // a belt or an existing complete machine. Component-to-component fit
-        // remains governed by World's shared quarter-grid center occupancy.
-        const authority::Point at{center[0] * height_step,
-            center[1] * height_step + anchor_height, center[2] * height_step};
-        const Bounds volume{at, {0.14, 0.14, 0.14}};
-        const auto ground = terrain_range(at[0], at[2], volume.half[0], volume.half[2]);
-        if (!ground) return refuse("terrain_unavailable");
-        if (ground->second > at[1] - volume.half[1]) return refuse("site_occupied");
-        if (site_blocked({at[0] - 0.14, at[1] - 0.14, at[2] - 0.14},
-                         {at[0] + 0.14, at[1] + 0.14, at[2] + 0.14}))
-            return refuse("site_occupied");
-        if (placement_blocked(at, volume.half)) return refuse("actor_occupied");
-        if (intersects_belt(snapshot.state, volume) ||
-            std::any_of(snapshot.state.topology.parts.begin(), snapshot.state.topology.parts.end(),
-                [&](const auto& item) { return overlap(volume, part_bounds(profile_, item)); }))
-            return refuse("occupied");
-        if (const auto kind = materials::component_from_name(*field<std::string>(wire, "component"))) {
+        // The confirmed component shape, rather than only its grid anchor,
+        // reserves actor, terrain and neighboring construction clearance.
+        const auto kind = materials::component_from_name(*field<std::string>(wire, "component"));
+        const auto volume = component_bounds(kind, center);
+        if (const auto* refusal = component_site_refusal(kind, center)) return refuse(refusal);
+        if (placement_blocked(volume.center, volume.half)) return refuse("actor_occupied");
+        if (const auto* refusal = component_space_refusal(snapshot.state, kind, center)) return refuse(refusal);
+        if (kind) {
             auto proposed = snapshot.state;
             proposed.placed_components.emplace("proposed-component", world::PlacedComponent{*kind, center, 0});
             if (const auto* refusal = support_change_refusal(snapshot.state, proposed)) return refuse(refusal);
@@ -1301,9 +1388,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         }
         for (const auto& [id, component] : snapshot.state.placed_components) {
             (void)id;
-            const Bounds occupied{{component.center[0] * height_step,
-                component.center[1] * height_step + anchor_height,
-                component.center[2] * height_step}, {0.14, 0.14, 0.14}};
+            const auto occupied = component_bounds(component.kind, component.center);
             for (auto px = std::min(*x, *end_x); px <= std::max(*x, *end_x); ++px)
                 for (auto pz = std::min(*z, *end_z); pz <= std::max(*z, *end_z); ++pz)
                     if (overlap(occupied, foundation_bounds({{4 * px, *level, 4 * pz}, 1})))
@@ -1419,6 +1504,11 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             authority::Point{selected_axis == mechanics::Axis::x ? 0.3 : radius, radius,
                 selected_axis == mechanics::Axis::z ? 0.3 : radius} :
             authority::Point{machine_width / 2, machine_height / 2, machine_width / 2};
+        if (occupied_by_component({at, half})) return refuse("occupied");
+        for (const auto& external : proposed_external)
+            if (occupied_by_component(external)) return refuse("occupied");
+        if (proposed_supports) for (const auto& support : *proposed_supports)
+            if (occupied_by_component(support)) return refuse("occupied");
         if (intersects_belt(snapshot.state, {at, half})) return refuse("occupied");
         if (placement_blocked(at, half)) return refuse("actor_occupied");
         for (const auto& external : proposed_external)
@@ -1427,6 +1517,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             if (placement_blocked(support.center, support.half)) return refuse("actor_occupied");
         if (is_gear && intersects_belt(snapshot.state, {at, gear_axle_half_extents(selected_axis)})) return refuse("occupied");
         if (is_gear && placement_blocked(at, gear_axle_half_extents(selected_axis))) return refuse("actor_occupied");
+        if (is_gear && occupied_by_component({at, gear_axle_half_extents(selected_axis)})) return refuse("occupied");
         normalized.at("action") = Value(*kind_name == "collector" || *kind_name == "processor" ?
                                         "place_connected" : "place");
         normalized.emplace("role", Value(*kind_name == "wheel" ? "waterwheel" : *kind_name));
@@ -1458,6 +1549,11 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         const authority::Point at{(*center)[0] * pitch / 4, anchor_height + (*center)[1] * pitch / 4, (*center)[2] * pitch / 4};
         authority::Point half{0.1, 0.1, 0.1};
         half[static_cast<std::size_t>(verified_axis)] = *span * pitch / 4;
+        for (const auto& [id, component] : snapshot.state.placed_components) {
+            (void)id;
+            if (transmission_intersects(component_bounds(component.kind, component.center),
+                    *center, verified_axis, false)) return refuse("occupied");
+        }
         if (placement_blocked(at, half)) return refuse("actor_occupied");
         normalized.at("action") = Value("place");
         normalized.emplace("role", Value("shaft"));
@@ -1486,6 +1582,11 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                     if (transmission_intersects(external, *center, verified_axis, true)) return refuse("occupied");
         const authority::Point at{(*center)[0] * pitch / 4, anchor_height + (*center)[1] * pitch / 4, (*center)[2] * pitch / 4};
         const auto half = gear_half_extents(verified_axis, *teeth);
+        for (const auto& [id, component] : snapshot.state.placed_components) {
+            (void)id;
+            if (transmission_intersects(component_bounds(component.kind, component.center),
+                    *center, verified_axis, true)) return refuse("occupied");
+        }
         if (intersects_belt(snapshot.state, {at, half})) return refuse("occupied");
         if (placement_blocked(at, half)) return refuse("actor_occupied");
         if (intersects_belt(snapshot.state, {at, gear_axle_half_extents(verified_axis)})) return refuse("occupied");
@@ -1519,6 +1620,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             anchor_height + (*center)[1] * height_step, (*center)[2] * height_step};
         const authority::Point half{pitch / 2, pitch / 2, pitch / 2};
         const Bounds shell{at, half};
+        if (occupied_by_component(shell)) return refuse("occupied");
         if (transmission_intersects_foundations(snapshot.state, *center, drive_axis, true)) return refuse("occupied");
         if (const auto* refusal = transmission_site_refusal(snapshot.state, *center, drive_axis, true)) return refuse(refusal);
         const auto shell_terrain = terrain_range(at[0], at[2], half[0], half[2]);
@@ -1563,6 +1665,8 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         if (first->role != Role::shaft || last->role != Role::shaft) return refuse("invalid_belt_geometry");
         const auto sections = belt_bounds(first->geometry, last->geometry);
         if (sections.empty()) return refuse("invalid_belt_geometry");
+        for (const auto& section : sections)
+            if (occupied_by_component(section)) return refuse("occupied");
         for (const auto& [foundation_id, foundation] : snapshot.state.foundations) {
             (void)foundation_id;
             if (belt_intersects(first->geometry, last->geometry, foundation_bounds(foundation))) return refuse("occupied");
@@ -1927,39 +2031,41 @@ Value Host::projection() const {
                 Value(pod.center[1] * profile_.meters_per_grid_unit + profile_.anchor_offset[1]),
                 Value(pod.center[2] * profile_.meters_per_grid_unit + profile_.anchor_offset[2])})}}));
         Object placed;
-        for (const auto& [id, component] : state.placed_components)
+        for (const auto& [id, component] : state.placed_components) {
+            const auto occupied = component_bounds(component.kind, component.center);
             placed.emplace(id, Value(Object{{"component", Value(materials::component_name(component.kind))},
                 {"generation", Value(component.generation)},
                 {"center", Value(Array{Value(component.center[0]), Value(component.center[1]),
                     Value(component.center[2])})},
+                {"occupied", Value(Object{{"center", point_value(occupied.center)},
+                    {"half", point_value(occupied.half)}})},
                 {"position", Value(Array{
                     Value(component.center[0] * profile_.meters_per_grid_unit + profile_.anchor_offset[0]),
                     Value(component.center[1] * profile_.meters_per_grid_unit + profile_.anchor_offset[1]),
                     Value(component.center[2] * profile_.meters_per_grid_unit + profile_.anchor_offset[2])})}}));
+        }
         projection.emplace("placed_components", Value(std::move(placed)));
         std::vector<assembly::Part> parts;
         parts.reserve(state.placed_components.size());
         for (const auto& [id, component] : state.placed_components)
             parts.push_back({id, component.kind, component.center, component.generation});
         Array collectors;
-        for (const auto& cell : mineral_site::opening_cells) {
-            for (Integer level = 0; level <= mineral_site::extraction_depth_steps; level += 4) {
-                const assembly::OreFace face{{4 * cell.x, level, 4 * cell.z}, {-1, 0, 0}};
-                const auto inspection = assembly::inspect_collector(parts, face);
-                Object entry{{"center", Value(Array{Value(face.machine_center[0]),
-                    Value(face.machine_center[1]), Value(face.machine_center[2])})},
-                    {"toward_ore", Value(Array{Value(Integer{-1}), Value(Integer{0}), Value(Integer{0})})},
-                    {"status", Value(collector_status_name(inspection.status))}};
-                if (inspection.collector) {
-                    const auto& assembled = *inspection.collector;
-                    entry.emplace("parts", Value(Object{{"frame", Value(assembled.frame)},
-                        {"mount", Value(assembled.mount)}, {"edge", Value(assembled.edge)},
-                        {"receiver", Value(assembled.receiver)}, {"shaft", Value(assembled.shaft)}}));
-                    entry.emplace("cutting_height", Value(assembled.cutting_height));
-                    entry.emplace("shaft_material", Value(materials::component_name(assembled.shaft_material)));
-                }
-                collectors.emplace_back(std::move(entry));
+        for (const auto& face : profile_.collector_faces) {
+            const auto inspection = assembly::inspect_collector(parts, face);
+            Object entry{{"center", Value(Array{Value(face.machine_center[0]),
+                Value(face.machine_center[1]), Value(face.machine_center[2])})},
+                {"toward_ore", Value(Array{Value(face.toward_ore[0]),
+                    Value(face.toward_ore[1]), Value(face.toward_ore[2])})},
+                {"status", Value(collector_status_name(inspection.status))}};
+            if (inspection.collector) {
+                const auto& assembled = *inspection.collector;
+                entry.emplace("parts", Value(Object{{"frame", Value(assembled.frame)},
+                    {"mount", Value(assembled.mount)}, {"edge", Value(assembled.edge)},
+                    {"receiver", Value(assembled.receiver)}, {"shaft", Value(assembled.shaft)}}));
+                entry.emplace("cutting_height", Value(assembled.cutting_height));
+                entry.emplace("shaft_material", Value(materials::component_name(assembled.shaft_material)));
             }
+            collectors.emplace_back(std::move(entry));
         }
         projection.emplace("collector_assemblies", Value(std::move(collectors)));
     }
@@ -2008,6 +2114,12 @@ Host::Decoded Host::decode(const Value& input) const {
     if (!std::holds_alternative<world::Snapshot>(decoded)) return {nullptr, "native_checkpoint_refused"};
     auto snapshot = std::get<world::Snapshot>(decoded);
     if (!snapshot.state.topology.drive_enabled) return {nullptr, "native_checkpoint_refused"};
+    for (const auto& [id, component] : snapshot.state.placed_components) {
+        if (const auto* refusal = component_site_refusal(component.kind, component.center))
+            return {nullptr, refusal};
+        if (const auto* refusal = component_space_refusal(snapshot.state, component.kind,
+                component.center, &id)) return {nullptr, refusal};
+    }
     const auto restored_supports = transmission_supports(snapshot.state);
     for (const auto& record : snapshot.history.records) {
         if (!field<Object>(record.intent, "wire")) return {nullptr, "missing_wire_history"};

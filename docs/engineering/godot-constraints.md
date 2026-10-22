@@ -1187,7 +1187,10 @@ wooden shaft, refused Q's remote bench attempt, then let Q cut ore and shape a
 metal edge after moving its supplied pose to the deck; a fresh Host restored
 both components and source balances. This is an authority and extension
 boundary, not evidence of a visible bench or ordinary player crafting;
-the live scene still uses `initialize`.
+the ordinary offline caller now selects `initialize_arrival`, while shared
+startup retains its existing profile. The offline view reads native resource
+stock and offers exact-target harvesting; pod/bench art, timed tool use and
+component crafting/placement controls remain unfinished.
 
 ## Required follow-through
 

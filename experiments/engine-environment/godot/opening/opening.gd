@@ -4282,6 +4282,8 @@ var footer_fit_pending := false
 var stock_label: Label
 var parts_label: Label
 var goal_label: Label
+var objective_heading: Label
+var lesson_button: Button
 var goal_progress: ProgressBar
 var power_label: Label
 var inspector: Label
@@ -4345,10 +4347,10 @@ func _ready() -> void:
 	_build_world()
 	_build_interface()
 	_refresh()
-	if _native_transmission():
+	if _native_transmission() and not state.has("hand_sources"):
 		_prime_machine_visuals()
 	if _native_transmission():
-		_message(FIRST_COLLECTOR_HINT)
+		_message("WASD moves. Point at a resource and use your multitool with E." if state.has("hand_sources") else FIRST_COLLECTOR_HINT)
 	else:
 		_message("Build a small line. Choose a part, then click a grid square." if legacy_fixture else "WASD walks. Build nearby; a wheel in the stream drives connected parts.")
 	for argument in OS.get_cmdline_user_args():
@@ -5370,7 +5372,7 @@ func _screen_hand_source(screen: Vector2) -> String:
 		return ""
 	var eye := camera.project_ray_origin(screen)
 	var query := PhysicsRayQueryParameters3D.create(eye, eye + camera.project_ray_normal(screen) * 80.0,
-		Geometry.GROUND_LAYER | Geometry.MACHINE_LAYER | Geometry.PICK_LAYER)
+		Geometry.GROUND_LAYER | Geometry.MACHINE_LAYER | Geometry.PICK_LAYER | TRANSMISSION_TERRAIN_PICK_LAYER)
 	query.collide_with_areas = true
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
 	if hit.is_empty():
@@ -5378,6 +5380,10 @@ func _screen_hand_source(screen: Vector2) -> String:
 	# A resource presenter identifies the actual hit, rather than selecting a
 	# nearby source from camera distance. Host retains the actor-reach check.
 	var id: String = str(hit.collider.get_meta("hand_source", ""))
+	if id.is_empty() and hit.collider == get_node_or_null("SharedOreSourcePicker"):
+		# The shared view owns only a pick shape. The server projection supplies
+		# the source identity and remains the sole stock and reach authority.
+		id = str(state.get("source_deposit", {}).get("id", ""))
 	if id.is_empty() and actor_world != null and hit.collider == actor_world.site_bodies.get("source_outcrop"):
 		var deposits: Array[String] = []
 		for key: String in state.hand_sources:
@@ -5422,7 +5428,7 @@ func _remove_selected() -> void:
 			_refresh_ui()
 
 func _confirm_goal() -> void:
-	if explanation_open:
+	if explanation_open or state.has("hand_sources"):
 		return
 	if int(model.projection().inventories.get(client, 0)) >= 4:
 		goal_confirmed = true
@@ -5430,6 +5436,8 @@ func _confirm_goal() -> void:
 		_refresh_ui()
 
 func _toggle_explanation() -> void:
+	if state.has("hand_sources"):
+		return
 	explanation_open = not explanation_open
 	lesson_panel.visible = explanation_open
 	if explanation_open:
@@ -6862,7 +6870,8 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		offered.flow = true
 	if kinds.has("wheel") and kinds.size() > 1:
 		offered.drive = true
-	var step := _guided_step(kinds)
+	var arrival := _native_transmission() and state.has("hand_sources")
+	var step := {"tool": "inspect", "text": ""} if arrival else _guided_step(kinds)
 	if state.get("options", {}).get("foundations", false):
 		offered.foundation = true
 	for tool in tool_buttons:
@@ -6880,14 +6889,23 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 				button.remove_theme_color_override(color_name)
 	var inventory := int(state.get("inventories", {}).get(client, 0))
 	goal_progress.value = clampi(inventory, 0, 4)
-	goal_label.text = "Make 4 plates  ·  %d / 4\n%s" % [inventory, step.text] if snapshot_ready else "Connect to the worksite."
-	confirm_button.visible = snapshot_ready and (inventory >= 4 or goal_confirmed)
+	goal_progress.visible = not arrival
+	objective_heading.text = "FIRST WORKSHOP  /  01" if arrival else "FIRST SHIFT  /  01"
+	if arrival:
+		var carried: Dictionary = state.get("cargo", {}).get(client, {})
+		goal_label.text = "Gather local materials\n%d timber · %d softmetal carried\nPoint at a resource and press E." % [carried.get("timber", 0), carried.get("raw", 0)] \
+			if snapshot_ready else "Connect to the worksite."
+	else:
+		goal_label.text = "Make 4 plates  ·  %d / 4\n%s" % [inventory, step.text] if snapshot_ready else "Connect to the worksite."
+	confirm_button.visible = not arrival and snapshot_ready and (inventory >= 4 or goal_confirmed)
+	lesson_button.visible = not arrival
 	details_button.text = "Less detail  [Ctrl+D]" if show_details else "Details  [Ctrl+D]"
 	details_button.disabled = explanation_open
 	for control in [stock_label, power_label, save_button, load_button]:
 		control.visible = show_details
 	actor_label.visible = show_details or not state.get("actors", {}).get(client, {}).get("ready", false)
-	controls_label.text = "B catalog  ·  1–8 build  ·  E open  ·  F dismantle  ·  H guide  ·  Ctrl+D details"
+	controls_label.text = "WASD move · E interact · B catalog · F dismantle · Ctrl+D details" if arrival \
+		else "B catalog  ·  1–8 build  ·  E open  ·  F dismantle  ·  H guide  ·  Ctrl+D details"
 	_refresh_engineering(snapshot_ready)
 	var target_selected: bool = _contains_target(state, selected)
 	inspector_title.visible = target_selected or show_details or not snapshot_ready or not _can_choose_tool()
@@ -7505,7 +7523,7 @@ func _build_interface() -> void:
 	build_column = build
 	if not legacy_fixture:
 		build.add_theme_constant_override("separation", 6)
-	_label(build, "FIRST SHIFT  /  01", 13, Color("f4bf75"))
+	objective_heading = _label(build, "FIRST SHIFT  /  01", 13, Color("f4bf75"))
 	var tagline := _label(build, "A small line. Real materials.", 14, Color("9eb4b2"))
 	tagline.visible = legacy_fixture
 	build.add_child(HSeparator.new())
@@ -7579,7 +7597,7 @@ func _build_interface() -> void:
 	view_options.visible = not legacy_fixture
 	details_button = _button(view_options, "Details  [Ctrl+D]", _toggle_details)
 	details_button.tooltip_text = "Show worksite counters and save options."
-	_button(build, "How this line works  [H]", _toggle_explanation)
+	lesson_button = _button(build, "How this line works  [H]", _toggle_explanation)
 	var right := _panel(root, Vector2(990, 18), Vector2(272, 490 if legacy_fixture else 0))
 	var right_panel: Control = right.get_parent()
 	# Set the far anchor first so the near anchor is not clamped.

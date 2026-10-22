@@ -116,6 +116,9 @@ bool shape(const Object& intent, const std::string& action) {
     if (action == "take_hand_crank" || action == "return_hand_crank")
         return keys(intent, {"target", "generation"}) && field<std::string>(intent, "target") &&
             field<Integer>(intent, "generation");
+    if (action == "turn_hand_crank")
+        return keys(intent, {"target", "generation"}) && field<std::string>(intent, "target") &&
+            field<Integer>(intent, "generation");
     if (action == "place_component") return keys(intent, {"component", "center"}) &&
         field<std::string>(intent, "component") && field<Value::Array>(intent, "center");
     if (action == "reclaim_component") return keys(intent, {"target", "generation"}) &&
@@ -223,6 +226,41 @@ Object reach_facts(const Binding& binding, const authority::ReachReceipt& reach)
     return {{"actor", Value(binding.actor)}, {"native_epoch", Value(reach.cut.native_epoch)},
         {"actor_position", point_value(reach.cut.position)}, {"targets", Value(std::move(targets))},
         {"distances_squared", Value(std::move(distances))}, {"build_reach", Value(reach.cut.build_reach)}};
+}
+
+std::vector<assembly::Part> assembly_parts(const State& state) {
+    std::vector<assembly::Part> parts;
+    parts.reserve(state.placed_components.size());
+    for (const auto& [id, placed] : state.placed_components)
+        parts.push_back({id, placed.kind, placed.center, placed.generation});
+    return parts;
+}
+
+struct CollectorMatch {
+    std::optional<assembly::Collector> collector;
+    bool ambiguous{};
+};
+
+CollectorMatch collector_for_shaft(const Profile& profile,
+        const std::vector<assembly::Part>& parts, const std::string& shaft) {
+    CollectorMatch found;
+    const auto selected = std::find_if(parts.begin(), parts.end(),
+        [&](const auto& part) { return part.id == shaft; });
+    if (selected == parts.end()) return found;
+    for (const auto& face : profile.collector_faces) {
+        const auto inspected = assembly::inspect_collector(parts, face);
+        const auto& center = face.machine_center;
+        const auto& at = selected->center;
+        const auto adjacent = std::abs(at[0] - center[0]) + std::abs(at[1] - center[1]) +
+            std::abs(at[2] - center[2]) == 1;
+        if (inspected.status == assembly::Status::ambiguous && adjacent)
+            found.ambiguous = true;
+        if (!inspected.collector || inspected.collector->shaft != shaft) continue;
+        if (found.collector) found.ambiguous = true;
+        found.collector = *inspected.collector;
+    }
+    if (found.ambiguous) found.collector.reset();
+    return found;
 }
 
 Owner::Decision refused(std::string reason, std::string entity = {}, Object facts = {}) {
@@ -399,6 +437,24 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
             holder && *holder == (action == "take_hand_crank" ? actor : "pod") &&
             targets.front() == anchor(profile, *profile.landing_pod_center) && result.size() == 17;
     }
+    if (action == "turn_hand_crank") {
+        const auto* target = field<std::string>(record.intent, "target");
+        const auto* requested_generation = field<Integer>(record.intent, "generation");
+        const auto* entity = field<std::string>(result, "entity");
+        const auto* generation = field<Integer>(result, "generation");
+        const auto* shaft = field<Value::Array>(result, "shaft_center");
+        const auto* receiver = field<Value::Array>(result, "receiver_center");
+        const auto shaft_center = shaft ? grid_point(Object{{"center", Value(*shaft)}}) : std::nullopt;
+        const auto receiver_center = receiver ? grid_point(Object{{"center", Value(*receiver)}}) : std::nullopt;
+        const auto* raw = field<Integer>(result, "receiver_raw");
+        const auto* source = field<Integer>(result, "source_remaining");
+        return profile.material.manual_ore && !profile.collector_faces.empty() &&
+            target && entity && *target == *entity && requested_generation && generation &&
+            *requested_generation == *generation && *generation > 0 &&
+            shaft_center && receiver_center && raw && *raw == 1 &&
+            source && *source >= 0 && *source < profile.initial_units &&
+            targets.front() == anchor(profile, *shaft_center) && result.size() == 20;
+    }
     if (action == "place_component" || action == "reclaim_component") {
         const auto* name = field<std::string>(result, "component");
         const auto* count = field<Integer>(result, "component_count");
@@ -537,7 +593,9 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
     std::set<std::pair<std::string, std::string>> used_belt_selections;
     std::map<std::pair<std::string, Integer>, mechanics::Point> placed_shafts;
     std::map<std::string, Integer> harvested_timber;
+    std::map<std::string, Integer> carried_timber;
     Integer harvested_ore = 0;
+    Integer cranked_ore = 0;
     std::map<std::pair<std::string, materials::Component>, Integer> crafted_components;
     std::map<std::string, std::pair<materials::Component, mechanics::Point>> placed_components;
     std::optional<std::string> crank_holder;
@@ -590,13 +648,16 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
             const auto& id = *field<std::string>(record.intent, "target");
             if (profile.material.manual_ore && id == profile.material.manual_ore->id) {
                 if (!add(harvested_ore, 1)) return false;
-            } else if (!add(harvested_timber[id], 1)) return false;
+            } else if (!add(harvested_timber[id], 1) || !add(carried_timber[*actor], 1)) return false;
         }
         if (*action == "craft_component") {
             const auto component = materials::component_from_name(*field<std::string>(record.intent, "component"));
-            if (!component || !add(crafted_components[{*actor, *component}], 1) ||
+            const auto cost = component ? materials::component_cost(*component) : std::nullopt;
+            if (!cost || carried_timber[*actor] < cost->timber ||
+                !add(crafted_components[{*actor, *component}], 1) ||
                 crafted_components[{*actor, *component}] != *field<Integer>(record.result, "component_count"))
                 return false;
+            carried_timber[*actor] -= cost->timber;
         }
         if (*action == "take_hand_crank" || *action == "return_hand_crank") {
             if (!profile.landing_pod_center) return false;
@@ -607,6 +668,23 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
                 if (crank_holder != *actor) return false;
                 crank_holder.reset();
             }
+        }
+        if (*action == "turn_hand_crank") {
+            if (crank_holder != *actor || !profile.material.manual_ore) return false;
+            std::vector<assembly::Part> parts;
+            parts.reserve(placed_components.size());
+            for (const auto& [id, placed] : placed_components) {
+                const auto issued = snapshot.state.issued_entities.find(id);
+                if (issued == snapshot.state.issued_entities.end()) return false;
+                parts.push_back({id, placed.first, placed.second, issued->second});
+            }
+            const auto selected = collector_for_shaft(profile, parts, *entity);
+            const auto* receiver = field<Value::Array>(record.result, "receiver_center");
+            const auto* shaft = field<Value::Array>(record.result, "shaft_center");
+            if (!selected.collector || !receiver || !shaft ||
+                grid_point(Object{{"center", Value(*receiver)}}) != selected.collector->receiver_center ||
+                grid_point(Object{{"center", Value(*shaft)}}) != selected.collector->shaft_center ||
+                !add(cranked_ore, 1)) return false;
         }
         if (*action == "place_component" || *action == "reclaim_component") {
             const auto component = materials::component_from_name(*field<std::string>(record.result, "component"));
@@ -712,7 +790,11 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
         if (remaining == snapshot.state.material.timber_remaining.end() ||
             harvested_timber[id] != site.initial - remaining->second) return false;
     }
-    if (harvested_ore > profile.initial_units - snapshot.state.material.stock.source) return false;
+    for (const auto& [actor, cargo] : snapshot.state.material.cargo)
+        if (carried_timber[actor] != cargo.timber) return false;
+    if (harvested_ore > profile.initial_units - snapshot.state.material.stock.source ||
+        cranked_ore > profile.initial_units - snapshot.state.material.stock.source - harvested_ore)
+        return false;
     if (profile.landing_pod_center && (!snapshot.state.hand_crank ||
         snapshot.state.hand_crank->holder != crank_holder)) return false;
     if (placed_components.size() != snapshot.state.placed_components.size()) return false;
@@ -835,6 +917,14 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
     };
     if (profile.material.manual_ore &&
         !valid_source(profile.material.manual_ore->id, profile.material.manual_ore->center)) return false;
+    if (profile.collector_faces.size() > 32 ||
+        (!profile.landing_pod_center && !profile.collector_faces.empty()) ||
+        (!profile.material.manual_ore && !profile.collector_faces.empty())) return false;
+    std::set<std::pair<mechanics::Point, mechanics::Point>> unique_faces;
+    for (const auto& face : profile.collector_faces)
+        if (assembly::inspect_collector({}, face).status != assembly::Status::missing_frame ||
+            !unique_faces.emplace(face.machine_center, face.toward_ore).second)
+            return false;
     for (const auto& [id, site] : profile.material.timber_sites)
         if (!valid_source(id, site.center)) return false;
     if (profile.water.size() > 65536 || profile.wheel_radius <= 0 ||
@@ -1206,6 +1296,50 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         candidate.hand_crank->holder = taking ? std::optional<std::string>{binding.actor} : std::nullopt;
         facts.emplace("generation", Value(*generation));
         facts.emplace("holder", Value(taking ? binding.actor : "pod"));
+        return accepted(std::move(candidate), *id, std::move(facts));
+    }
+    if (*action == "turn_hand_crank") {
+        if (!profile_.material.manual_ore || profile_.collector_faces.empty())
+            return refused("collector_unavailable");
+        const auto* id = field<std::string>(intent, "target");
+        const auto* generation = field<Integer>(intent, "generation");
+        if (!id || !generation) return refused("invalid_target");
+        const auto found = state.placed_components.find(*id);
+        if (found == state.placed_components.end()) return refused("unknown_target", *id);
+        if (found->second.generation != *generation) return refused("stale_generation", *id);
+        if (found->second.kind != materials::Component::wooden_shaft &&
+            found->second.kind != materials::Component::softmetal_shaft)
+            return refused("not_drive_shaft", *id);
+        if (!state.hand_crank || state.hand_crank->holder != binding.actor)
+            return refused("not_crank_holder", *id);
+        const auto assembly = collector_for_shaft(profile_, assembly_parts(state), *id);
+        if (assembly.ambiguous) return refused("ambiguous_assembly", *id);
+        if (!assembly.collector) return refused("incomplete_assembly", *id);
+        const auto cut = observe ? observe(binding.actor) : std::nullopt;
+        if (!cut) return refused("actor_unready", *id);
+        auto checked_cut = *cut;
+        checked_cut.build_reach = profile_.build_reach;
+        const auto checked = authority::check_reach(binding.actor, checked_cut,
+            {anchor(profile_, assembly.collector->shaft_center)});
+        auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
+        if (checked.error != authority::Error::none)
+            return refused(authority::error_name(checked.error), *id, std::move(facts));
+        if (state.material.stock.source == 0) return refused("source_depleted", *id, std::move(facts));
+        const auto receiver = assembly.collector->receiver_center;
+        if (state.material.dropped_material.contains(receiver))
+            return refused("receiver_full", *id, std::move(facts));
+        if (state.material.dropped_material.size() >= materials::maximum_drop_points)
+            return refused("output_full", *id, std::move(facts));
+        auto candidate = state;
+        --candidate.material.stock.source;
+        candidate.material.dropped_material.emplace(receiver, materials::Cargo{1, 0, {}});
+        facts.emplace("generation", Value(*generation));
+        facts.emplace("shaft_center", Value(Value::Array{Value(assembly.collector->shaft_center[0]),
+            Value(assembly.collector->shaft_center[1]), Value(assembly.collector->shaft_center[2])}));
+        facts.emplace("receiver_center", Value(Value::Array{Value(receiver[0]),
+            Value(receiver[1]), Value(receiver[2])}));
+        facts.emplace("receiver_raw", Value(Integer{1}));
+        facts.emplace("source_remaining", Value(candidate.material.stock.source));
         return accepted(std::move(candidate), *id, std::move(facts));
     }
     if (*action == "place_component" || *action == "reclaim_component") {
@@ -1738,6 +1872,25 @@ Advance World::tick() noexcept {
         if (error != materials::Error::none) throw error;
         const auto motion = drive_power(candidate.topology).mechanical;
         if (!motion.accepted()) throw materials::Error::invalid_path;
+        // Only an assembled tray may feed the adjacent belt mouth. A tray is
+        // one quarter-grid step from its frame; the belt endpoint is the next
+        // full tile on that same side. Duplicate claims are left for pickup.
+        using CollectorMouth = std::pair<mechanics::Point, mechanics::Point>; // frame, tray
+        std::map<mechanics::Point, std::optional<CollectorMouth>> collector_mouths;
+        if (!profile_.collector_faces.empty()) {
+            const auto placed = assembly_parts(candidate);
+            for (const auto& face : profile_.collector_faces) {
+                const auto inspected = assembly::inspect_collector(placed, face);
+                if (!inspected.collector) continue;
+                const auto& collector = *inspected.collector;
+                auto mouth = collector.machine_center;
+                for (std::size_t axis = 0; axis < mouth.size(); ++axis)
+                    mouth[axis] += 4 * (collector.receiver_center[axis] - collector.machine_center[axis]);
+                const auto [entry, inserted] = collector_mouths.emplace(mouth,
+                    CollectorMouth{collector.machine_center, collector.receiver_center});
+                if (!inserted) entry->second.reset();
+            }
+        }
         // Capture loose items before any lane moves. This gives a deterministic
         // one-tick handoff between adjacent belts regardless of span ordering.
         for (const auto& span : candidate.topology.belt_spans) {
@@ -1785,6 +1938,28 @@ Advance World::tick() noexcept {
             const auto direction = mechanics::belt_cargo_direction(first->geometry, last->geometry, rate->second.rate);
             if (!direction)
                 throw materials::Error::invalid_state;
+            if (rate->second.state == mechanics::MotionState::rotating && *direction != 0) {
+                const bool toward_last = *direction > 0;
+                const auto inlet = toward_last ? path->tiles.front() : path->tiles.back();
+                const auto next = toward_last ? path->tiles[1] : path->tiles[path->tiles.size() - 2];
+                const auto mouth = collector_mouths.find(inlet);
+                auto& slot = toward_last ? lane->second.slots.front() : lane->second.slots.back();
+                if (mouth != collector_mouths.end() && mouth->second && !slot) {
+                    const auto& [frame, receiver] = *mouth->second;
+                    const auto distance = [](const mechanics::Point& point, auto x, auto z) {
+                        const auto dx = point[0] - x, dz = point[2] - z;
+                        return dx * dx + dz * dz;
+                    };
+                    if (distance(next, frame[0], frame[2]) >= distance(inlet, frame[0], frame[2])) {
+                        const auto loose = candidate.material.dropped_material.find(receiver);
+                        if (loose != candidate.material.dropped_material.end() &&
+                            loose->second == materials::Cargo{1, 0, {}}) {
+                            slot = loose->second;
+                            candidate.material.dropped_material.erase(loose);
+                        }
+                    }
+                }
+            }
             auto before = first->geometry.center;
             auto after = last->geometry.center;
             for (std::size_t axis = 0; axis < 3; ++axis) {

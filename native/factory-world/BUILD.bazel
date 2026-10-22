@@ -23,6 +23,7 @@ cc_library(
     strip_include_prefix = "include",
     deps = [
         ":transactions",
+        "//native/factory-assembly:assembly",
         "//native/factory-core:materials",
         "//native/factory-core:recovery",
         "//native/factory-stationary:stationary",
@@ -70,5 +71,12 @@ cc_test(
     name = "harvest_world_test",
     srcs = ["tests/harvest_world_test.cpp"],
     deps = [":world", ":checkpoint", "//native/factory-value:value"],
+    size = "small",
+)
+
+cc_test(
+    name = "collector_belt_test",
+    srcs = ["tests/collector_belt_test.cpp"],
+    deps = [":checkpoint"],
     size = "small",
 )

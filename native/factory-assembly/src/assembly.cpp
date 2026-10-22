@@ -1,5 +1,6 @@
 #include "factory/assembly.hpp"
 
+#include <array>
 #include <map>
 #include <set>
 
@@ -27,6 +28,13 @@ const Part* shaft_at(const std::map<Point, const Part*>& by_center, const Point&
     return found != by_center.end() &&
         (found->second->kind == materials::Component::wooden_shaft ||
          found->second->kind == materials::Component::softmetal_shaft) ? found->second : nullptr;
+}
+
+const Part* cog_at(const std::map<Point, const Part*>& by_center, const Point& center) {
+    const auto found = by_center.find(center);
+    return found != by_center.end() &&
+        (found->second->kind == materials::Component::wooden_cog ||
+         found->second->kind == materials::Component::softmetal_cog) ? found->second : nullptr;
 }
 
 bool valid_face(const OreFace& face) {
@@ -100,6 +108,63 @@ Inspection inspect_collector(const std::vector<Part>& placed, const OreFace& fac
     if (!have_edge) return {Status::missing_edge, std::nullopt};
     if (!have_receiver) return {Status::missing_receiver, std::nullopt};
     return {Status::missing_shaft, std::nullopt};
+}
+
+PressInspection inspect_press(const std::vector<Part>& placed, const Point& center) {
+    for (const auto coordinate : center)
+        if (coordinate % 4 != 0 || coordinate < -mechanics::maximum_coordinate + 4 ||
+            coordinate > mechanics::maximum_coordinate - 4)
+            return {PressStatus::invalid_input, std::nullopt};
+    if (placed.size() > 4096) return {PressStatus::invalid_input, std::nullopt};
+    std::map<Point, const Part*> by_center;
+    std::set<std::string> ids;
+    for (const auto& item : placed)
+        if (!valid_part(item) || !ids.insert(item.id).second ||
+            !by_center.emplace(item.center, &item).second)
+            return {PressStatus::invalid_input, std::nullopt};
+    const auto raised = [&](Integer height) { return Point{center[0], center[1] + height, center[2]}; };
+    const auto* frame = at(by_center, center, materials::Component::wooden_frame);
+    if (!frame) return {PressStatus::missing_frame, std::nullopt};
+    const auto* anvil = at(by_center, raised(1), materials::Component::anvil);
+    if (!anvil) return {PressStatus::missing_anvil, std::nullopt};
+    const auto* ram = at(by_center, raised(2), materials::Component::ram_face);
+    if (!ram) return {PressStatus::missing_ram, std::nullopt};
+    const auto* guide = at(by_center, raised(3), materials::Component::sliding_guide);
+    if (!guide) return {PressStatus::missing_guide, std::nullopt};
+    const auto* mount = at(by_center, raised(4), materials::Component::tool_mount);
+    if (!mount) return {PressStatus::missing_mount, std::nullopt};
+
+    constexpr std::array<Point, 4> directions{{{1, 0, 0}, {-1, 0, 0}, {0, 0, 1}, {0, 0, -1}}};
+    bool shaft_seen = false;
+    std::vector<Press> candidates;
+    for (const auto& direction : directions) {
+        const Point shaft_center{center[0] + direction[0], center[1] + 4,
+                                 center[2] + direction[2]};
+        const auto* shaft = shaft_at(by_center, shaft_center);
+        if (!shaft) continue;
+        shaft_seen = true;
+        const Point cog_center{center[0] + 2 * direction[0], center[1] + 4,
+                               center[2] + 2 * direction[2]};
+        const auto* cog = cog_at(by_center, cog_center);
+        if (!cog) continue;
+        candidates.push_back({frame->id, anvil->id, ram->id, guide->id, mount->id,
+            shaft->id, cog->id, center, raised(1), shaft_center, cog_center,
+            shaft->kind, cog->kind, {}});
+    }
+    if (candidates.empty()) return {shaft_seen ? PressStatus::missing_cog : PressStatus::missing_shaft,
+                                    std::nullopt};
+    if (candidates.size() > 1) return {PressStatus::ambiguous, std::nullopt};
+    auto& press = candidates.front();
+    for (const auto& direction : directions) {
+        const Point entry{press.work_center[0] + direction[0], press.work_center[1],
+                          press.work_center[2] + direction[2]};
+        const Point exit{press.work_center[0] - direction[0], press.work_center[1],
+                         press.work_center[2] - direction[2]};
+        if (!by_center.contains(entry) && !by_center.contains(exit))
+            press.open_feeds.push_back({entry, exit});
+    }
+    if (press.open_feeds.empty()) return {PressStatus::blocked_feed, std::nullopt};
+    return {PressStatus::ready, std::move(press)};
 }
 
 }  // namespace factory::assembly

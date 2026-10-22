@@ -118,6 +118,15 @@ Value profile_value(const Profile& profile) {
         const auto& center = *profile.landing_pod_center;
         output.emplace("landing_pod_center", Value(Array{Value(center[0]), Value(center[1]), Value(center[2])}));
     }
+    if (!profile.collector_faces.empty()) {
+        Array faces;
+        for (const auto& face : profile.collector_faces)
+            faces.emplace_back(Object{{"center", Value(Array{Value(face.machine_center[0]),
+                Value(face.machine_center[1]), Value(face.machine_center[2])})},
+                {"toward_ore", Value(Array{Value(face.toward_ore[0]),
+                    Value(face.toward_ore[1]), Value(face.toward_ore[2])})}});
+        output.emplace("collector_faces", Value(std::move(faces)));
+    }
     if (profile.material.manual_ore || !profile.material.timber_sites.empty()) {
         Array trees;
         for (const auto& [id, site] : profile.material.timber_sites)

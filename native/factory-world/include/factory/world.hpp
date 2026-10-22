@@ -1,5 +1,6 @@
 #pragma once
 
+#include "factory/assembly.hpp"
 #include "factory/stationary.hpp"
 #include "factory/transactions.hpp"
 #include "factory/waterwheel.hpp"
@@ -11,6 +12,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <vector>
 
 namespace factory::world {
 
@@ -41,6 +43,9 @@ struct Profile {
     // Trusted landing-site center in the same quarter-tile grid as foundations.
     // The unfolded 3 x 3 deck spends nine of foundation_parts at startup.
     std::optional<mechanics::Point> landing_pod_center;
+    // Trusted ore-facing workcells. The profile, not a client command,
+    // decides which placed assemblies can extract from the finite deposit.
+    std::vector<assembly::OreFace> collector_faces;
 };
 
 struct Foundation {

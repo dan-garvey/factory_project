@@ -26,6 +26,21 @@ O request(const std::string& id, const char* action) {
         {"request", V(id)}, {"action", V(action)}};
 }
 
+O source_contact_site(bool other_obstacle = false, bool foot_obstacle = false) {
+    auto terrain = factory::godot_world::tests::flat_site();
+    A obstacles{V(A{V(A{V(-1.05), V(0.35), V(-0.2)}),
+                    V(A{V(-0.75), V(0.95), V(1.8)})})};
+    if (other_obstacle)
+        obstacles.emplace_back(A{V(A{V(-0.96), V(0.70), V(-0.10)}),
+                                  V(A{V(-0.88), V(0.90), V(0.10)})});
+    if (foot_obstacle)
+        obstacles.emplace_back(A{V(A{V(-0.10), V(0.02), V(-0.10)}),
+                                  V(A{V(0.10), V(0.20), V(0.10)})});
+    terrain.at("obstacles") = V(std::move(obstacles));
+    terrain.emplace("source_obstacle", V(I{0}));
+    return terrain;
+}
+
 V ground_inspection(const Host& host) {
     const auto entries = get<A>(host.projection(), "collector_assemblies");
     check(entries.size() == 6, "Both ore workcells and three common-grid heights are inspected.");
@@ -43,8 +58,8 @@ std::string place(Host& host, const char* kind, I x, I y, I z, const char* id) {
 
 void collector_readiness_tracks_real_parts() {
     Host host;
-    check(get<bool>(host.initialize_arrival("assembly-site", {"P"}), "accepted") &&
-          get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted"),
+    check(get<bool>(host.initialize_arrival("assembly-site", {"P", "Q"}), "accepted") &&
+          get<bool>(host.configure_terrain(source_contact_site()), "accepted"),
           "The experimental arrival binds one native resource and construction authority.");
     check(get<std::string>(ground_inspection(host), "status") == "missing_frame",
           "An empty ore workcell has no collector.");
@@ -72,9 +87,38 @@ void collector_readiness_tracks_real_parts() {
     check(get<bool>(host.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 4), "accepted"),
           "The actor approaches the deposit-facing workcell without occupying it.");
     const auto frame = place(host, "wooden_frame", 0, 0, 0, "frame");
+    const auto frame_occupied = get<O>(V(get<O>(host.projection(), "placed_components").at(frame)), "occupied");
+    const auto frame_center = get<A>(V(frame_occupied), "center");
+    const auto frame_half = get<A>(V(frame_occupied), "half");
+    check(std::get<double>(frame_center[1].storage()) == 0.45 &&
+          std::get<double>(frame_half[1].storage()) == 0.45 &&
+          std::get<double>(frame_half[0].storage()) == 0.2025,
+          "The frame publishes one load-bearing envelope from the floor to the installed bed.");
+    auto overlapping_deck = request("deck-through-frame", "place_foundation");
+    overlapping_deck.emplace("cell", V(A{V(I{0}), V(I{0})}));
+    overlapping_deck.emplace("level", V(I{2}));
+    const auto blocked_deck = host.command("P", overlapping_deck);
+    check(!get<bool>(blocked_deck, "accepted") &&
+          get<std::string>(blocked_deck, "reason") == "occupied",
+          "A later foundation cannot pass through the frame's grounded support.");
+    auto overlapping_machine = request("machine-through-frame", "place");
+    overlapping_machine.emplace("kind", V("processor"));
+    overlapping_machine.emplace("cell", V(A{V(I{0}), V(I{0})}));
+    const auto blocked_machine = host.command("P", overlapping_machine);
+    check(!get<bool>(blocked_machine, "accepted") &&
+          get<std::string>(blocked_machine, "reason") == "occupied",
+          "A later complete machine cannot cover a placed component.");
     check(get<std::string>(ground_inspection(host), "status") == "missing_mount",
           "A frame alone does not become a machine.");
     const auto mount = place(host, "tool_mount", -1, 0, 0, "mount");
+    auto wrong_source_part = request("wrong-source-part", "place_component");
+    wrong_source_part.emplace("component", V("receiver_tray"));
+    wrong_source_part.emplace("center", V(A{V(I{-2}), V(I{0}), V(I{0})}));
+    const auto wrong_source_result = host.command("P", wrong_source_part);
+    check(!get<bool>(wrong_source_result, "accepted") &&
+          get<std::string>(wrong_source_result, "reason") == "site_occupied" &&
+          get<O>(host.projection(), "placed_components").size() == 2,
+          "A non-cutting component cannot occupy the tagged ore source.");
     const auto edge = place(host, "cutting_edge", -2, 0, 0, "edge");
     const auto receiver = place(host, "receiver_tray", 0, 0, 1, "receiver");
     check(get<std::string>(ground_inspection(host), "status") == "missing_shaft",
@@ -89,17 +133,89 @@ void collector_readiness_tracks_real_parts() {
           get<std::string>(V(parts), "receiver") == receiver &&
           get<std::string>(V(parts), "shaft") == shaft,
           "Readiness names the exact five installed identities, not a recipe token.");
+    auto turn = request("first-turn", "turn_hand_crank");
+    turn.emplace("entity", V(shaft));
+    auto premature_turn = turn;
+    premature_turn.at("request") = V("no-crank-turn");
+    const auto no_crank = host.command("P", premature_turn);
+    check(!get<bool>(no_crank, "accepted") &&
+          get<std::string>(no_crank, "reason") == "not_crank_holder",
+          "A valid assembly cannot cut ore without the finite pod crank.");
+    check(get<bool>(host.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 5), "accepted"),
+          "The actor returns physically to the pod.");
+    auto take = request("take-crank", "take_hand_crank");
+    take.emplace("entity", V("pod-hand-crank"));
+    check(get<bool>(host.command("P", take), "accepted"),
+          "The actor takes the one identified crank from the pod tray.");
+    auto remote_turn = turn;
+    remote_turn.at("request") = V("remote-turn");
+    const auto far = host.command("P", remote_turn);
+    check(!get<bool>(far, "accepted") && get<std::string>(far, "reason") == "out_of_reach",
+          "Holding the crank does not grant camera-distance ore extraction.");
+    check(get<bool>(host.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 6), "accepted") &&
+          get<bool>(host.publish_actor("Q", {V(2.5), V(1.0), V(0.0)}, 1), "accepted"),
+          "Both actors observe the assembled shaft nearby.");
+    auto other_turn = turn;
+    other_turn.at("client") = V("Q");
+    other_turn.at("request") = V("other-turn");
+    const auto other = host.command("Q", other_turn);
+    check(!get<bool>(other, "accepted") &&
+          get<std::string>(other, "reason") == "not_crank_holder",
+          "Q cannot turn P's held crank.");
+    const auto extracted = host.command("P", turn);
+    check(get<bool>(extracted, "accepted") &&
+          get<I>(extracted, "source_remaining") == 14 &&
+          get<I>(extracted, "receiver_raw") == 1 &&
+          get<I>(get<O>(host.projection(), "hand_sources").at("opening-softmetal"), "remaining") == 14,
+          "One physical crank turn cuts exactly one finite ore blank into the receiver.");
+    const auto after_turn = host.checkpoint();
+    check(get<bool>(host.command("P", turn), "duplicate") &&
+          !factory::values::typed_difference(after_turn, host.checkpoint()),
+          "Exact retry cannot debit ore or duplicate the receiver item.");
+    auto full_turn = turn;
+    full_turn.at("request") = V("full-turn");
+    const auto full = host.command("P", full_turn);
+    check(!get<bool>(full, "accepted") &&
+          get<std::string>(full, "reason") == "receiver_full" &&
+          get<I>(get<O>(host.projection(), "hand_sources").at("opening-softmetal"), "remaining") == 14,
+          "The full receiver stops extraction before another ore debit.");
     const auto saved = host.checkpoint();
     check(get<bool>(host.validate_checkpoint(saved), "accepted"),
           "A complete component layout validates as an ordinary native checkpoint.");
     Host restored;
-    check(get<bool>(restored.initialize_arrival("assembly-site", {"P"}), "accepted") &&
-          get<bool>(restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+    check(get<bool>(restored.initialize_arrival("assembly-site", {"P", "Q"}), "accepted") &&
+          get<bool>(restored.configure_terrain(source_contact_site()), "accepted") &&
           get<bool>(restored.restore_checkpoint(saved), "accepted") &&
-          get<std::string>(ground_inspection(restored), "status") == "ready",
-          "A fresh Host derives the same collector candidate after restore.");
-    check(get<bool>(restored.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 5), "accepted"),
+          get<std::string>(ground_inspection(restored), "status") == "ready" &&
+          get<I>(get<O>(restored.projection(), "hand_sources").at("opening-softmetal"), "remaining") == 14,
+          "A fresh Host derives the same collector and conserved source after restore.");
+    Host obstructed;
+    check(get<bool>(obstructed.initialize_arrival("assembly-site", {"P", "Q"}), "accepted") &&
+          get<bool>(obstructed.configure_terrain(source_contact_site(true)), "accepted"),
+          "A distinct obstruction binds to the fresh Host beside the trusted source.");
+    const auto obstructed_restore = obstructed.restore_checkpoint(saved);
+    check(!get<bool>(obstructed_restore, "accepted") &&
+          get<std::string>(obstructed_restore, "reason") == "site_occupied" &&
+          get<O>(obstructed.projection(), "placed_components").empty(),
+          "A second obstacle at the cutter refuses checkpoint import without installing parts.");
+    Host foot_obstructed;
+    check(get<bool>(foot_obstructed.initialize_arrival("assembly-site", {"P", "Q"}), "accepted") &&
+          get<bool>(foot_obstructed.configure_terrain(source_contact_site(false, true)), "accepted"),
+          "A small independent ground obstacle binds below the saved frame.");
+    const auto foot_restore = foot_obstructed.restore_checkpoint(saved);
+    check(!get<bool>(foot_restore, "accepted") &&
+          get<std::string>(foot_restore, "reason") == "site_occupied" &&
+          get<O>(foot_obstructed.projection(), "placed_components").empty(),
+          "Fresh import rejects a foot-level obstruction that the old anchor cube would miss.");
+    check(get<bool>(restored.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 7), "accepted"),
           "The restored actor publishes a current physical pose before edits.");
+    auto pickup = request("pickup-first", "pickup_material");
+    pickup.emplace("center", V(A{V(I{0}), V(I{0}), V(I{1})}));
+    pickup.emplace("expected", V(O{{"raw", V(I{1})}, {"products", V(I{0})},
+        {"work_lots", V(A{})}}));
+    check(get<bool>(restored.command("P", pickup), "accepted") &&
+          get<I>(get<O>(restored.projection(), "cargo").at("P"), "raw") == 1,
+          "The actor can recover the actual receiver item after restore.");
     auto take_shaft = request("take-shaft", "reclaim_component");
     take_shaft.emplace("entity", V(shaft));
     check(get<bool>(restored.command("P", take_shaft), "accepted") &&
@@ -109,13 +225,62 @@ void collector_readiness_tracks_real_parts() {
     take_tray.emplace("entity", V(receiver));
     check(get<bool>(restored.command("P", take_tray), "accepted"),
           "The original receiver is recovered without losing its material.");
-    const auto mirrored_tray = place(restored, "receiver_tray", 0, 0, -1, "mirrored-tray");
     const auto side_shaft = place(restored, "wooden_shaft", 0, 0, 1, "side-shaft");
+    auto no_tray_turn = request("no-tray-turn", "turn_hand_crank");
+    no_tray_turn.emplace("entity", V(side_shaft));
+    const auto incomplete = restored.command("P", no_tray_turn);
+    check(!get<bool>(incomplete, "accepted") &&
+          get<std::string>(incomplete, "reason") == "incomplete_assembly",
+          "A shaft beside an unreceived cutter cannot debit ore.");
+    const auto mirrored_tray = place(restored, "receiver_tray", 0, 0, -1, "mirrored-tray");
     const auto mirrored = ground_inspection(restored);
     check(get<std::string>(mirrored, "status") == "ready" &&
           get<std::string>(V(get<O>(mirrored, "parts")), "receiver") == mirrored_tray &&
           get<std::string>(V(get<O>(mirrored, "parts")), "shaft") == side_shaft,
           "The same conserved components support a second receiver and drive layout.");
+    auto second_turn = request("second-layout-turn", "turn_hand_crank");
+    second_turn.emplace("entity", V(side_shaft));
+    check(get<bool>(restored.command("P", second_turn), "accepted") &&
+          get<I>(get<O>(restored.projection(), "hand_sources").at("opening-softmetal"), "remaining") == 13,
+          "The mirrored layout extracts from the same finite source.");
+    check(get<bool>(restored.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 8), "accepted"),
+          "The actor returns to the last piece of nearby timber.");
+    auto last_timber = request("last-timber", "harvest_source");
+    last_timber.emplace("target", V("tree-east-south"));
+    check(get<bool>(restored.command("P", last_timber), "accepted"),
+          "One finite timber piece remains for an alternate drive experiment.");
+    auto extra_craft = request("extra-shaft", "craft_component");
+    extra_craft.emplace("entity", V("pod-fabrication-hub"));
+    extra_craft.emplace("component", V("wooden_shaft"));
+    check(get<bool>(restored.command("P", extra_craft), "accepted") &&
+          get<bool>(restored.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 9), "accepted"),
+          "The actor shapes and carries one additional shaft back to the assembly.");
+    const auto extra_shaft = place(restored, "wooden_shaft", 1, 0, 0, "alternate-shaft");
+    check(get<std::string>(ground_inspection(restored), "status") == "ambiguous",
+          "Two valid drive routes cannot be selected silently.");
+    auto ambiguous_turn = request("ambiguous-turn", "turn_hand_crank");
+    ambiguous_turn.emplace("entity", V(side_shaft));
+    const auto ambiguous = restored.command("P", ambiguous_turn);
+    check(!get<bool>(ambiguous, "accepted") &&
+          get<std::string>(ambiguous, "reason") == "ambiguous_assembly" &&
+          get<I>(get<O>(restored.projection(), "hand_sources").at("opening-softmetal"), "remaining") == 13,
+          "An ambiguous assembly refuses a turn without spending ore.");
+    auto remove_extra = request("remove-extra-shaft", "reclaim_component");
+    remove_extra.emplace("entity", V(extra_shaft));
+    check(get<bool>(restored.command("P", remove_extra), "accepted") &&
+          get<std::string>(ground_inspection(restored), "status") == "ready",
+          "Removing the alternate route restores the unique valid collector.");
+    auto take_mirrored_tray = request("take-mirrored-tray", "reclaim_component");
+    take_mirrored_tray.emplace("entity", V(mirrored_tray));
+    check(get<bool>(restored.command("P", take_mirrored_tray), "accepted"),
+          "Dismantling a full receiver preserves its separately owned raw item.");
+    auto recover_loose = request("pickup-after-dismantle", "pickup_material");
+    recover_loose.emplace("center", V(A{V(I{0}), V(I{0}), V(I{-1})}));
+    recover_loose.emplace("expected", V(O{{"raw", V(I{1})}, {"products", V(I{0})},
+        {"work_lots", V(A{})}}));
+    check(get<bool>(restored.command("P", recover_loose), "accepted") &&
+          get<I>(get<O>(restored.projection(), "cargo").at("P"), "raw") == 2,
+          "The output remains recoverable after its collector tray is removed.");
 }
 }  // namespace
 
