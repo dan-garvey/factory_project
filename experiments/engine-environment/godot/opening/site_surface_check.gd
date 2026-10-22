@@ -183,18 +183,17 @@ func check_structures() -> void:
 func check_convex_rocks() -> void:
 	var points := Surface.rock_vertices()
 	var faces := Surface.rock_faces()
-	verify(points.size() == 12 and faces.size() == 60, "The shared natural solid has twelve vertices and twenty complete facets.")
+	verify(points.size() > 12 and points.size() <= 512 and faces.size() > 60 and faces.size() % 3 == 0,
+		"The simplified asset envelope retains its bounded cooked hull and complete facets.")
 	var edges := {}
 	for point in points:
-		verify(point.is_finite() and absf(point.x) <= Surface.ROCK_SIZE.x / 2.0
-			and absf(point.y) <= Surface.ROCK_SIZE.y / 2.0 and absf(point.z) <= Surface.ROCK_SIZE.z / 2.0,
-			"The true hull stays inside its unchanged conservative foliage envelope.")
+		verify(point.is_finite(), "Every native hull vertex is finite.")
 	for first in range(0, faces.size(), 3):
 		var a := faces[first]
 		var b := faces[first + 1]
 		var c := faces[first + 2]
 		var normal := (c - a).cross(b - a).normalized()
-		verify(normal.is_finite() and normal.dot(a) > 0.0, "Every visible facet faces out from the enclosed origin.")
+		verify(normal.is_finite() and normal.dot(a) > 0.0, "Every collision facet faces out from the enclosed origin.")
 		for point in points:
 			verify(normal.dot(point - a) < 0.000001, "Each facet bounds the same convex hull used by the physics server.")
 		for pair in [[a, b], [b, c], [c, a]]:
@@ -204,7 +203,8 @@ func check_convex_rocks() -> void:
 			var key := "%d:%d" % [mini(start, end), maxi(start, end)]
 			var entry: Vector2i = edges.get(key, Vector2i.ZERO)
 			edges[key] = entry + Vector2i(1, 1 if start < end else -1)
-	verify(edges.size() == 30, "The convex surface has the expected closed Euler relation.")
+	verify(points.size() - edges.size() + faces.size() / 3 == 2,
+		"The complete convex surface has the closed Euler relation.")
 	for edge in edges.values():
 		verify(edge == Vector2i(2, 0), "Every edge is shared twice with opposite directed winding.")
 	for angle in [0.0, 0.4, 1.1]:
@@ -225,8 +225,13 @@ func check_convex_rocks() -> void:
 			"A capsule crossing the solid interior cannot evade contact as a hollow surface.")
 	var specs := Surface.rock_boxes()
 	for spec in specs:
-		verify(spec.points.size() == 12 and spec.faces.size() == 60,
-			"Every instance carries the actual scaled hull, distinct from its clearance envelope.")
+		verify(spec.points.size() == Surface.rock_input_vertices().size()
+			and spec.native_points.size() > 12 and spec.native_points.size() <= 512 and spec.faces.size() % 3 == 0,
+			"Every instance separates original cooking input from its bounded cooked hull and clearance envelope.")
+		for point: Vector3 in spec.native_points:
+			verify(point.abs().x <= spec.size.x * 0.5 and point.abs().y <= spec.size.y * 0.5
+				and point.abs().z <= spec.size.z * 0.5,
+				"Every actual native point fits its declared physical clearance envelope.")
 	points[0] = Vector3(999, 999, 999)
 	faces[0] = Vector3(999, 999, 999)
 	specs[0].points[0] = Vector3(999, 999, 999)
@@ -314,7 +319,7 @@ func check_native_hull_matching() -> void:
 		"Native point ordering does not change the source vertex correspondence.")
 	var changed := source.duplicate()
 	changed[0] += Vector3.ONE * 0.00002
-	verify(Surface.match_native_rock(changed, source).size() == 12,
+	verify(Surface.match_native_rock(changed, source).size() == source.size(),
 		"A sub-quantum cooked displacement is distinguished from a geometry change.")
 	changed[0] += Vector3.RIGHT * 0.01
 	verify(Surface.match_native_rock(changed, source).is_empty(), "A real ten-millimetre shape change fails closed.")

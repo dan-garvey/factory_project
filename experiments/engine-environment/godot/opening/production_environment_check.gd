@@ -961,8 +961,26 @@ func check_rock_shapes(rocks: MultiMesh) -> void:
 	if buffer.size() != specs.size() * 16:
 		return
 	var vertices: PackedVector3Array = rocks.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
-	verify(vertices == Scenery.Surface.rock_faces(), "The actual rendered mesh uses the shared convex facets.")
-	check_mesh_attributes(rocks.mesh, "Natural convex rock")
+	verify(rocks.mesh == Scenery.Surface.SOURCE_OUTCROP_MESH and vertices.size() == 5748,
+		"The uploaded scenery reuses the complete detailed boulder instead of a primitive hull mesh.")
+	check_mesh_attributes(rocks.mesh, "Detailed natural rock")
+	var source_faces: PackedVector3Array = Scenery.Surface.rock_faces()
+	var planes: Array[Plane] = []
+	for first in range(0, source_faces.size(), 3):
+		var a := source_faces[first]
+		var b := source_faces[first + 1]
+		var c := source_faces[first + 2]
+		var normal := (c - a).cross(b - a).normalized()
+		planes.append(Plane(normal, normal.dot(a)))
+	var protrusion := 0.0
+	var normalized: Vector3 = Scenery.Surface.ROCK_SIZE / rocks.mesh.get_aabb().size
+	for point in vertices:
+		for plane in planes:
+			protrusion = maxf(protrusion, plane.distance_to(point * normalized))
+	var limit: float = Scenery.Surface.ROCK_SIZE.length() / 10216.0 + Geometry.NATIVE_POSE_EPSILON
+	print(JSON.stringify({"detailed_rock_protrusion_metres": protrusion, "native_cooking_bound_metres": limit}))
+	verify(protrusion <= limit,
+		"Every detailed vertex fits the actual normalized cooked hull at the documented native precision.")
 	for index in range(specs.size()):
 		var spec: Dictionary = specs[index]
 		var offset := index * 16
@@ -971,12 +989,13 @@ func check_rock_shapes(rocks: MultiMesh) -> void:
 			Vector3(buffer[offset + 1], buffer[offset + 5], buffer[offset + 9]),
 			Vector3(buffer[offset + 2], buffer[offset + 6], buffer[offset + 10]))
 		verify(origin.is_equal_approx(spec.center), "Visible and physical rock origins agree: " + spec.id)
-		for point in vertices:
-			var visible_point := origin + uploaded * point
-			var found := false
-			for physical_point in spec.points:
-				found = found or visible_point.is_equal_approx(spec.center + spec.basis * physical_point)
-			verify(found, "Every actually uploaded rock facet vertex belongs to the same native convex hull: " + spec.id)
+		verify(uploaded.is_equal_approx(spec.basis * Basis.from_scale(spec.mesh_scale)),
+			"The actual visible transform uses the same normalized scale as the cooked hull: " + spec.id)
+		var input: PackedVector3Array = Scenery.Surface.rock_input_vertices()
+		for vertex_index in range(input.size()):
+			verify((origin + uploaded * (input[vertex_index] / normalized)).is_equal_approx(
+				spec.center + spec.basis * spec.points[vertex_index]),
+				"Visible and physical original hull inputs share the same world transform: " + spec.id)
 
 func collect_solids(node: Node, result: Dictionary) -> void:
 	if node.has_meta("site_solid_id"):

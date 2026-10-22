@@ -13,13 +13,8 @@ static var _axis := PackedFloat32Array()
 static var _vertices := PackedVector3Array()
 static var _faces := PackedVector3Array()
 const ROCK_SIZE := Vector3(1.35, 0.88, 1.12)
-const ROCK_TRIANGLES := [
-	0, 11, 5, 0, 5, 1, 0, 1, 7, 0, 7, 10, 0, 10, 11,
-	1, 5, 9, 5, 11, 4, 11, 10, 2, 10, 7, 6, 7, 1, 8,
-	3, 9, 4, 3, 4, 2, 3, 2, 6, 3, 6, 8, 3, 8, 9,
-	4, 9, 5, 2, 4, 11, 6, 2, 10, 8, 6, 7, 9, 8, 1]
-static var _rock_points := PackedVector3Array()
-static var _rock_faces := PackedVector3Array()
+static var _rock_hulls: Dictionary = {}
+static var _rock_input := PackedVector3Array()
 
 const FIR_FILE := "res://opening/assets/fir/fir_tree.res"
 const FIR_SHA256 := "c7566da63c49d07c8ed21a9dd073bf546a262698ada717a3b2a58826f8c6c346"
@@ -158,36 +153,67 @@ static func _fir_capsule_distance(at: Vector3, radius: float, height: float) -> 
 			measured += 1
 	return {"distance": distance, "triangles_measured": measured, "closest": closest}
 
-static func _prepare_rock() -> void:
-	if not _rock_points.is_empty():
-		return
-	var t := (1.0 + sqrt(5.0)) / 2.0
-	var seeds := [Vector3(-1, t, 0), Vector3(1, t, 0), Vector3(-1, -t, 0), Vector3(1, -t, 0),
-		Vector3(0, -1, t), Vector3(0, 1, t), Vector3(0, -1, -t), Vector3(0, 1, -t),
-		Vector3(t, 0, -1), Vector3(t, 0, 1), Vector3(-t, 0, -1), Vector3(-t, 0, 1)]
-	# Irregular triangular facets replace the six flat sides of a cut block.
-	# Every point stays within the old conservative foliage-clearance envelope.
-	var radii := [0.93, 1.0, 0.88, 0.95, 0.91, 0.98, 0.94, 0.86, 0.97, 0.9, 1.0, 0.92]
-	for index in range(seeds.size()):
-		_rock_points.append(seeds[index] * (ROCK_SIZE * 0.5 / t) * radii[index])
-	for first in range(0, ROCK_TRIANGLES.size(), 3):
-		# Godot front faces use clockwise winding.
-		for offset in [0, 2, 1]:
-			_rock_faces.append(_rock_points[ROCK_TRIANGLES[first + offset]])
+static func rock_input_vertices(scale: Vector3 = Vector3.ONE) -> PackedVector3Array:
+	if _rock_input.is_empty():
+		# Reuse the asset's simplified convex envelope for native contacts.
+		var normalized := ROCK_SIZE / SOURCE_OUTCROP_MESH.get_aabb().size
+		var simplified := SOURCE_OUTCROP_MESH.create_convex_shape(true, true)
+		# The simplifier can cut into the original surface. Enclose its vertices
+		# without changing the simplified hull's stable topology or contact margin.
+		var expansion := 1.0
+		var debug := simplified.get_debug_mesh()
+		var source: PackedVector3Array = SOURCE_OUTCROP_MESH.get_meta("native_hull_input_points")
+		for surface_index in range(debug.get_surface_count()):
+			if debug.surface_get_primitive_type(surface_index) != Mesh.PRIMITIVE_TRIANGLES:
+				continue
+			var arrays := debug.surface_get_arrays(surface_index)
+			var points: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+			for first in range(0, indices.size(), 3):
+				var a := points[indices[first]]
+				var normal := (points[indices[first + 2]] - a).cross(points[indices[first + 1]] - a).normalized()
+				var distance := normal.dot(a)
+				for point in source:
+					expansion = maxf(expansion, normal.dot(point) / distance)
+		for point in simplified.points:
+			_rock_input.append(point * normalized * expansion)
+	var result := PackedVector3Array()
+	for point in _rock_input:
+		result.append(point * scale)
+	return result
+
+static func _rock_hull(scale: Vector3) -> Dictionary:
+	if _rock_hulls.has(scale):
+		return _rock_hulls[scale]
+	var mesh_scale := ROCK_SIZE / SOURCE_OUTCROP_MESH.get_aabb().size * scale
+	var input := rock_input_vertices(scale)
+	var shape := ConvexPolygonShape3D.new()
+	shape.margin = 0.0
+	shape.points = input
+	var debug: ArrayMesh = shape.get_debug_mesh()
+	var vertices := PackedVector3Array()
+	var faces := PackedVector3Array()
+	for surface_index in range(debug.get_surface_count()):
+		if debug.surface_get_primitive_type(surface_index) == Mesh.PRIMITIVE_TRIANGLES:
+			var arrays := debug.surface_get_arrays(surface_index)
+			vertices = arrays[Mesh.ARRAY_VERTEX]
+			for index: int in arrays[Mesh.ARRAY_INDEX]:
+				faces.append(vertices[index])
+	if vertices.size() < 4 or vertices.size() > 512 or faces.is_empty():
+		push_error("The detailed scenery rock has no supported native convex hull.")
+		return {}
+	var half := Vector3.ZERO
+	for point in vertices:
+		half = half.max(point.abs())
+	var hull := {"points": input, "native_points": vertices, "faces": faces, "mesh_scale": mesh_scale, "size": half * 2.0}
+	_rock_hulls[scale] = hull
+	return hull
 
 static func rock_vertices(scale: Vector3 = Vector3.ONE) -> PackedVector3Array:
-	_prepare_rock()
-	var result := PackedVector3Array()
-	for point in _rock_points:
-		result.append(point * scale)
-	return result
+	return _rock_hull(scale).native_points.duplicate()
 
 static func rock_faces(scale: Vector3 = Vector3.ONE) -> PackedVector3Array:
-	_prepare_rock()
-	var result := PackedVector3Array()
-	for point in _rock_faces:
-		result.append(point * scale)
-	return result
+	return _rock_hull(scale).faces.duplicate()
 
 static func match_native_rock(actual: PackedVector3Array, source: PackedVector3Array) -> PackedVector3Array:
 	# Pinned GodotPhysics3D cooks hull points on a per-AABB integer grid.
@@ -537,10 +563,11 @@ static func rock_boxes() -> Array[Dictionary]:
 		var scale := Vector3(0.75 + float(posmod(n * 5, 11)) * 0.12,
 			0.65 + float(posmod(n * 11, 9)) * 0.14, 0.75 + float(posmod(n * 17, 13)) * 0.11)
 		var rotation := Basis.from_euler(Vector3(sin(float(n) * 1.7) * 0.14, angle, cos(float(n) * 2.3) * 0.14))
-		var points := rock_vertices(scale)
+		var hull := _rock_hull(scale)
 		result.append({"id": "rock_%d" % n, "center": Vector3(px, height_at(px, pz), pz),
-			"basis": rotation, "size": ROCK_SIZE * scale, "scale": scale,
-			"points": points, "native_points": points, "faces": rock_faces(scale),
+			"basis": rotation, "size": hull.size, "scale": scale,
+			"mesh_scale": hull.mesh_scale, "points": hull.points.duplicate(),
+			"native_points": hull.native_points.duplicate(), "faces": hull.faces.duplicate(),
 			"color": Color("59605a").lerp(Color("7d7a6e"), float(n % 4) / 3.0)})
 	return result
 

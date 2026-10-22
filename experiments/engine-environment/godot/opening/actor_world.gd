@@ -29,6 +29,7 @@ var site_surface
 var site_bodies: Dictionary = {}
 var site_specs: Dictionary = {}
 var site_shapes: Dictionary = {}
+var _site_shape_matches: Dictionary = {}
 var terrain_faces := PackedVector3Array()
 var floor_error := ""
 var observation_ordinal := 0
@@ -410,8 +411,12 @@ func _geometry_registered() -> bool:
 			or not data is PackedVector3Array or site_shapes[id].get_rid() != shape_rid \
 			or site_shapes[id].points != expected or site_shapes[id].margin != 0.0:
 			return false
-		if site_surface.match_native_rock(data, site_specs[id].native_points).is_empty():
-			return false
+		var reference: PackedVector3Array = site_specs[id].native_points
+		var previous: Dictionary = _site_shape_matches.get(id, {})
+		if previous.get("rid") != shape_rid or previous.get("data") != data or previous.get("reference") != reference:
+			if site_surface.match_native_rock(data, reference).is_empty():
+				return false
+			_site_shape_matches[id] = {"rid": shape_rid, "data": data.duplicate(), "reference": reference.duplicate()}
 	return true
 
 func _read_actor(actor: String, cut: String) -> Dictionary:

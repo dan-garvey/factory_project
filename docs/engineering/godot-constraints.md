@@ -224,9 +224,19 @@ must use the actual cell endpoints rather than assume uniform spacing. The old
 tile, slab and canal-box catalogues are empty in this profile, while visible rock
 obstacles retain shared rigid descriptors. Local refinement and the natural bank
 profile are revisable adapter choices, not build-grid rules or measured frame-cost
-targets. Scenery rocks share one asymmetric convex template between their visible
-facets and native hull points. The existing descriptor size remains a conservative
-plant-clearance envelope; it is not an invisible surrounding collider. The pinned
+targets. Scenery rocks reuse the detailed sourced boulder mesh, normalized to
+their existing visible dimensions. The pinned engine's
+[mesh simplifier](https://raw.githubusercontent.com/godotengine/godot/4.7.2-stable/scene/resources/mesh.cpp)
+prepares one convex hull; a uniform expansion encloses the original asset vertices
+without retaining the simplifier's inward cuts. Each scaled instance retains its
+original hull cooking input separately from the cooked reference vertices and
+facets. Its plant-clearance envelope encloses the actual expanded hull; that box
+does not become a collider. The convex body approximates detailed concavities.
+The raw dense hull and a directional support-plane candidate missed some native
+character-body sweeps despite direct shape casts detecting contact. The fitted
+simplified hull passes the focused five-direction capsule queries for all sixty-five
+site rocks, with the existing contact tolerance and zero shape margin. This is
+bounded native query evidence, not a guarantee for every approach or backend. The pinned
 [convex-shape API](https://raw.githubusercontent.com/godotengine/godot/4.7.2-stable/doc/classes/ConvexPolygonShape3D.xml)
 accepts the points of a solid hull. ActorWorld verifies the native shape type and
 point set, with an explicit zero shape margin, against the shared descriptor.
@@ -251,6 +261,12 @@ native construction obstruction and the actor body share one transform and
 envelope. Cached native `TriangleMesh.intersect_ray` queries drape stock-derived
 veins over the detailed surface only; they supply neither build height nor
 collision authority. The fixed rock remains when its finite ore veins disappear.
+ActorWorld may reuse an already validated site-point correspondence only while
+the native shape identity, actual cooked data and expected reference are exactly
+unchanged. Shape type, space, rigid pose, original resource points and zero margin
+are still checked on every registration read. Changed correspondence inputs rerun
+the full bounded match; the cache does not relax its tolerance or admit an
+unvalidated shape.
 ActorWorld registers the terrain faces, backface flag and rigid site transforms
 before admitting saved bodies. Concave terrain is a hollow surface: an explicitly
 labelled analytical burial guard also refuses a saved capsule wholly below it,

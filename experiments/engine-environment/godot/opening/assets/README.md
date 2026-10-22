@@ -645,6 +645,15 @@ Historical fixed rosters retain their earlier generated finish. This surface
 work supports the natural setting; it does not restore prebuilt man-made scenery
 or establish a scanned silhouette, displacement or human visual-quality verdict.
 
+The sixty-four scenery rocks now reuse the detailed [Boulder 01 mesh](mineral-outcrop/CREDITS.md)
+already delivered for the mineral exposure. Their independent normalized scale
+retains each visible size. A simplified convex hull is expanded to enclose the
+asset; its actual bounds supply plant clearance. The shared rigid pose and
+original convex cooking input define the native body. Per-scale cooked reference
+points and facets are prepared once. This replaces the coarse procedural rock
+template without adding another asset package. The convex envelope approximates concavities, while the
+mineral exposure keeps its separate site pose and finite-source presentation.
+
 The ordinary environment uses the original CC0
 [Kloppenheim daylight HDR](sky/CREDITS.md) for its panorama, ambient and reflection
 resources. Floating radiance and generated mipmaps are cached once; existing
