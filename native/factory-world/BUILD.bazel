@@ -80,3 +80,10 @@ cc_test(
     deps = [":checkpoint"],
     size = "small",
 )
+
+cc_test(
+    name = "press_feed_world_test",
+    srcs = ["tests/press_feed_world_test.cpp"],
+    deps = [":checkpoint"],
+    size = "small",
+)

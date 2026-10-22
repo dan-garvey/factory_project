@@ -60,8 +60,11 @@ The read-only `press_assemblies` projection inspects each placed wooden frame
 against the same canonical component records. A ready entry names the separate
 anvil, ram face, guide, mount, shaft and cog, the work and drive centers,
 material types and clear lower feed/exit routes. Missing or ambiguous entries
-stay visible for diagnosis. It does not process a blank, store work, assert
-power or make the normal scene a modular-press consumer.
+stay visible for diagnosis. An actor-bound `feed_press` request selects a clear
+entry and moves one carried blank into the existing loose-material record at
+that press's work center. The item survives retry, checkpoint and dismantle
+until recovered with `pickup_material`. The press does not yet process a blank,
+assert power or have ordinary scene controls.
 The arrival profile additionally exposes `hand_sources`: three named
 eight-piece timber sites and one sixteen-unit ore deposit. `harvest_source`
 accepts a target identity only after the bound physical actor is ready and

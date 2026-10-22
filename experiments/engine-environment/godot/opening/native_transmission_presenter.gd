@@ -35,6 +35,7 @@ var _moving_anchors: Array[Node3D] = []
 var _direction_meshes: Dictionary = {}
 var _support_meshes: Dictionary = {}
 static var _relay_shells: Dictionary = {}
+static var _cutting_blade_mesh: ArrayMesh
 
 func configure(host: Object) -> void:
 	_host = weakref(host)
@@ -372,6 +373,47 @@ func _support_beam(parent: Node3D, name_value: String, a: Vector3, b: Vector3,
 	mesh.position = (a + b) * 0.5
 	mesh.material_override = material
 	parent.add_child(mesh)
+
+static func _blade_quad(surface: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3,
+		outward: Vector3) -> void:
+	var corners: Array[Vector3] = [a, b, c, d]
+	# Godot's front face is clockwise when viewed from outside.
+	if (b - a).cross(c - a).dot(outward) > 0.0:
+		corners = [a, d, c, b]
+	for index in [0, 1, 2, 0, 2, 3]:
+		var point: Vector3 = corners[index]
+		surface.set_normal(outward)
+		if absf(outward.y) > 0.5:
+			surface.set_uv(Vector2(point.x, point.z) * 4.0)
+		elif absf(outward.x) > 0.5:
+			surface.set_uv(Vector2(point.z, point.y) * 4.0)
+		else:
+			surface.set_uv(Vector2(point.x, point.y) * 4.0)
+		surface.add_vertex(point)
+
+static func _formed_cutting_blade() -> ArrayMesh:
+	if _cutting_blade_mesh != null:
+		return _cutting_blade_mesh
+	var front_low_left := Vector3(-0.195, -0.025, -0.145)
+	var front_low_right := Vector3(-0.195, -0.025, 0.145)
+	var front_high_left := Vector3(-0.195, 0.005, -0.145)
+	var front_high_right := Vector3(-0.195, 0.005, 0.145)
+	var root_low_left := Vector3(0.075, -0.025, -0.145)
+	var root_low_right := Vector3(0.075, -0.025, 0.145)
+	var root_high_left := Vector3(0.075, 0.080, -0.145)
+	var root_high_right := Vector3(0.075, 0.080, 0.145)
+	var surface := SurfaceTool.new()
+	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_blade_quad(surface, front_high_left, front_high_right, root_high_right, root_high_left,
+		Vector3(-0.075 / 0.270, 1.0, 0.0).normalized())
+	_blade_quad(surface, front_low_left, front_low_right, root_low_right, root_low_left, Vector3.DOWN)
+	_blade_quad(surface, front_low_left, front_low_right, front_high_right, front_high_left, Vector3.LEFT)
+	_blade_quad(surface, root_low_left, root_low_right, root_high_right, root_high_left, Vector3.RIGHT)
+	_blade_quad(surface, front_low_left, root_low_left, root_high_left, front_high_left, Vector3.FORWARD)
+	_blade_quad(surface, front_low_right, root_low_right, root_high_right, front_high_right, Vector3.BACK)
+	surface.generate_tangents()
+	_cutting_blade_mesh = surface.commit()
+	return _cutting_blade_mesh
 
 func _finish(mesh: MeshInstance3D, color: Color) -> void:
 	var material := StandardMaterial3D.new()
@@ -936,8 +978,15 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3) -
 			_support_box(anchor, "TopClamp", Vector3(0, 0.14, 0), Vector3(0.28, 0.045, 0.28), worked)
 		"cutting_edge":
 			_support_box(anchor, "BladeCarrier", Vector3(0, -0.07, 0), Vector3(0.40, 0.07, 0.32), dark)
-			for z in [-0.105, 0.105]:
-				_support_box(anchor, "ExposedTooth", Vector3(-0.11, 0.025, z), Vector3(0.17, 0.09, 0.065), worked)
+			var blade := MeshInstance3D.new()
+			blade.name = "FormedBlade"
+			blade.mesh = _formed_cutting_blade()
+			blade.material_override = worked
+			anchor.add_child(blade)
+			_support_box(anchor, "BladeClamp", Vector3(0.095, 0.080, 0), Vector3(0.11, 0.025, 0.30), dark)
+			for z in [-0.09, 0.09]:
+				var fastener := _support_cylinder(anchor, "ClampFastener", 0.017, 0.015, worked)
+				fastener.position = Vector3(0.11, 0.095, z)
 		"receiver_tray":
 			# The existing loose-blank centre is at the grid anchor. Its 8 cm
 			# visual sits directly on this open pan instead of floating above it.

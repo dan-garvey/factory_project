@@ -79,8 +79,13 @@ The experimental arrival profile also keeps crafted component counts in the
 canonical material State when parts leave an actor's cargo. World assigns each
 installed part a distinct identity and shared quarter-grid center. Placing and
 reclaiming are actor-reachable requests with exact retry, issue-history,
-checkpoint and two-actor custody validation. A collector arrangement is now
-recognized from those identities; press assembly remains future work.
+checkpoint and two-actor custody validation. Collector and press arrangements
+are recognized from those identities. `feed_press` requires a complete press,
+one of its clear feed faces and a reachable actor carrying one raw blank. It
+moves that blank into the canonical loose-material ledger at the press's work
+center. A second press has a different work point and cannot share its item;
+pickup after dismantling returns the same blank. Crank work and product output
+remain subsequent work.
 One identified hand crank starts in the arrival pod. Reach-checked take and
 return requests move its custody between the pod and one actor. The same
 issued identity, request history and checkpoint preserve that custody. Crank

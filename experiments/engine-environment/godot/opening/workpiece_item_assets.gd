@@ -246,14 +246,16 @@ static func _ore_ground_mesh(band: int, cells: Array) -> ArrayMesh:
 	var strengths := [0.88, 0.96, 0.74, 0.28, 0.0]
 	for sector in range(32):
 		var angles := [float(sector) * TAU / 32.0, float(sector + 1) * TAU / 32.0]
-		var center := Vector2(-0.03, middle_z)
+		# Extend the disturbed soil under the real rock toe while retaining the
+		# collector-cell cue on its east side. This is passive terrain color only.
+		var center := Vector2(-0.38, middle_z)
 		for ring in range(4):
 			var points: Array[Vector2] = []
 			var opacities: Array[float] = []
 			for radius_index in [ring, ring + 1]:
 				for angle in angles:
 					var irregular := 0.91 + 0.055 * sin(angle * 5.0 + 0.8) + 0.035 * cos(angle * 9.0)
-					points.append(center + Vector2(cos(angle) * 0.81, sin(angle) * radius_z)
+					points.append(center + Vector2(cos(angle) * 0.95, sin(angle) * radius_z)
 						* irregular * float(radii[radius_index]))
 					opacities.append(opacity * float(strengths[radius_index]))
 			var corners := [0, 3, 2] if ring == 0 else [0, 3, 2, 0, 1, 3]

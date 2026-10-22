@@ -695,8 +695,8 @@ func _mixed_scale_benchmark() -> void:
 		quit()
 		return
 	if profile_scene:
-		await _profile_mixed_scene(view)
-		quit()
+		var profiled: bool = await _profile_mixed_scene(view)
+		quit(0 if profiled else 1)
 		return
 	var frame_ms: Array[float] = []
 	var calls: Array[int] = []
@@ -739,13 +739,13 @@ func _mixed_scale_benchmark() -> void:
 			ProjectSettings.get_setting("rendering/renderer/rendering_method")}))
 	quit()
 
-func _profile_mixed_scene(view: MixedAssetScaleView) -> void:
+func _profile_mixed_scene(view: MixedAssetScaleView) -> bool:
 	# Diagnostic visibility ablations only. Every case starts from the same
 	# complete constructed scene and restores its changed setting afterward.
 	var scenery := view.get_node_or_null("ProductionScenery") as Node3D
 	if scenery == null:
 		push_error("The production scenery is required for a scene profile.")
-		return
+		return false
 	var cases: Array[Dictionary] = [{"name": "all_visible", "nodes": []}]
 	cases.append({"name": "machine_field", "nodes": [view.machine_root]})
 	for child in scenery.get_children():
@@ -766,6 +766,8 @@ func _profile_mixed_scene(view: MixedAssetScaleView) -> void:
 	var results: Array[Dictionary] = []
 	for entry in cases:
 		var hidden: Array = entry.nodes
+		var fog_before := environment.environment.fog_enabled if entry.get("fog", false) else false
+		var shadow_before := sun.shadow_enabled if entry.get("shadow", false) else false
 		for node in hidden:
 			(node as Node3D).visible = false
 		if entry.get("fog", false):
@@ -794,8 +796,9 @@ func _profile_mixed_scene(view: MixedAssetScaleView) -> void:
 		for node in hidden:
 			(node as Node3D).visible = true
 		if entry.get("fog", false):
-			environment.environment.fog_enabled = true
+			environment.environment.fog_enabled = fog_before
 		if entry.get("shadow", false):
-			sun.shadow_enabled = true
+			sun.shadow_enabled = shadow_before
 	print("MIXED_SCENE_PROFILE " + JSON.stringify({"count": view.asset_count,
 		"production_batch": view.production_batch, "cases": results}))
+	return true

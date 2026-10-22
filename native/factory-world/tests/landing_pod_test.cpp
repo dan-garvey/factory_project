@@ -396,6 +396,7 @@ void reachable_craft_uses_one_hub_and_owned_ingredients() {
 void placed_components_keep_custody_and_history() {
     auto [profile, state] = seed();
     profile.build_reach = 4;
+    profile.material.component_capacity = 1;
     profile.material.timber_sites = {{"tree", {{8, 0, 20}, 8}}};
     state.material.timber_remaining = {{"tree", 8}};
     auto world = w::World::create("placed-chapter", profile, state);
@@ -526,6 +527,58 @@ void placed_components_keep_custody_and_history() {
     check(std::holds_alternative<V>(final_save) &&
           std::holds_alternative<w::Snapshot>(w::decode_checkpoint(profile, "placed-chapter", std::get<V>(final_save))),
         "The shared custody transfer survives strict checkpoint validation.");
+
+    auto q_place_again = q_place;
+    q_place_again.at("request") = V("q-place-frame-again");
+    const auto frame = send(q_place_again);
+    check(frame.completed() && std::get<bool>(frame.result->at("accepted").storage()) &&
+          world->snapshot().state.material.cargo.at("Q").components.empty(),
+          "Q can reinstall its reclaimed frame and free its one carried component slot.");
+    const O harvest_more{{"context", V("placed-chapter")}, {"client", V("P-client")},
+        {"request", V("harvest-for-shaft")}, {"actor", V("P")},
+        {"action", V("harvest_source")}, {"target", V("tree")}};
+    check(send(harvest_more).completed(), "P harvests one more finite timber piece.");
+    const O craft_shaft{{"context", V("placed-chapter")}, {"client", V("P-client")},
+        {"request", V("craft-shaft")}, {"actor", V("P")}, {"action", V("craft_component")},
+        {"target", V("pod-fabrication-hub")}, {"generation", V(I{1})},
+        {"component", V("wooden_shaft")}};
+    check(send(craft_shaft).completed() &&
+          world->snapshot().state.material.cargo.at("P").components.at(m::Component::wooden_shaft) == 1,
+          "A distinct component type is made from P's own timber.");
+    auto place_shaft = place;
+    place_shaft.at("request") = V("place-shaft");
+    place_shaft.at("component") = V("wooden_shaft");
+    place_shaft.at("center") = V(V::Array{V(I{8}), V(I{0}), V(I{15})});
+    const auto shaft = send(place_shaft);
+    check(shaft.completed() && std::get<bool>(shaft.result->at("accepted").storage()),
+          "P installs its shaft while Q's frame remains installed.");
+    const auto shaft_id = std::get<std::string>(shaft.result->at("entity").storage());
+    auto reclaim_frame = reclaim;
+    reclaim_frame.at("request") = V("q-reclaim-frame-again");
+    reclaim_frame.at("target") = frame.result->at("entity");
+    reclaim_frame.at("generation") = frame.result->at("generation");
+    check(send(reclaim_frame).completed() &&
+          world->snapshot().state.material.cargo.at("Q").components.at(m::Component::wooden_frame) == 1,
+          "Q reclaims its frame with one free slot.");
+    auto q_reinstall = q_place_again;
+    q_reinstall.at("request") = V("q-reinstall-frame");
+    check(send(q_reinstall).completed() && world->snapshot().state.material.cargo.at("Q").components.empty(),
+          "Q frees its slot again by reinstalling the frame.");
+    auto q_reclaim_shaft = reclaim;
+    q_reclaim_shaft.at("request") = V("q-reclaim-shaft");
+    q_reclaim_shaft.at("target") = V(shaft_id);
+    q_reclaim_shaft.at("generation") = shaft.result->at("generation");
+    check(send(q_reclaim_shaft).completed() &&
+          world->snapshot().state.material.cargo.at("Q").components.at(m::Component::wooden_shaft) == 1 &&
+          w::World::restore("placed-chapter", profile, world->snapshot()) != nullptr,
+          "A legitimate mixed-type placement sequence restores under capacity one.");
+    auto impossible = world->snapshot();
+    auto& records = impossible.history.records;
+    std::swap(records[records.size() - 1], records[records.size() - 2]);
+    std::swap(records[records.size() - 1].result.at("order"), records[records.size() - 2].result.at("order"));
+    std::swap(records[records.size() - 1].result.at("revision"), records[records.size() - 2].result.at("revision"));
+    check(!w::World::restore("placed-chapter", profile, impossible),
+          "Restore rejects a forged history that temporarily carries a frame and shaft in one slot.");
 }
 }  // namespace
 
