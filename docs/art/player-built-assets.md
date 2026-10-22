@@ -85,6 +85,11 @@ not establish the user's graphical-quality target.
 | Material interfaces | Sleeves, rigid end cuffs and fasteners follow confirmed material-link endpoints. | A visible sleeve cannot grant connectivity, transport or a route absent from native state. |
 | Stock and products | Reusable source clusters, in-line billets and outlet plates follow confirmed custody. | Art variation cannot change quantities, recipes or retained item identity. |
 
+The [collector seam-facing assembly brief](collector-seam-assembly.md) records
+the next specific art prototype. It maps the confirmed mineral site and rotated
+output port to a cutter, gathering floor and exposed-end outlet, while leaving
+their visual fit for a matched ordinary-view comparison.
+
 The practical division is to source surfaces and suitable subcomponents, author
 the missing functional forms and joints, and generate the dimension-dependent
 middle. A catalogue model is not the construction system. The waterwheel uses
