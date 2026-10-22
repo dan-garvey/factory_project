@@ -178,8 +178,11 @@ void fragment() {
 		broad_noise(world_point.xz / 23.0 + vec2(-4.8, 13.7)));
 	vec2 meadow = world_point.xz / 6.5 + drift * 2.0;
 	float cover = broad_noise(meadow) * 0.65 + broad_noise(meadow * 2.13 + vec2(3.7, -8.1)) * 0.35;
-	vec3 tint = mix(vec3(0.58, 0.78, 0.57), vec3(1.16, 1.08, 0.83), smoothstep(0.22, 0.78, cover));
-	vec3 meadow_color = color * tint * mix(0.88, 1.08, broad_noise(world_point.xz / 31.0 + vec2(3.7, 1.2)));
+	// Keep the photograph's brightness detail without its saturated lawn cast.
+	float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
+	vec3 meadow_base = mix(vec3(luminance), color, 0.62);
+	vec3 tint = mix(vec3(0.80, 0.84, 0.77), vec3(1.10, 1.03, 0.88), smoothstep(0.22, 0.78, cover));
+	vec3 meadow_color = meadow_base * tint * mix(0.88, 1.08, broad_noise(world_point.xz / 31.0 + vec2(3.7, 1.2)));
 	ALBEDO = COLOR.rgb * mix(meadow_color, stone_color, stone_weight);
 	ROUGHNESS = mix(scalars.y, stone_scalars.y, stone_weight);
 	AO = mix(scalars.x, stone_scalars.x, stone_weight);
