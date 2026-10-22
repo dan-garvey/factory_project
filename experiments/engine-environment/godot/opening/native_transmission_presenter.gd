@@ -214,13 +214,17 @@ func _confirmed_support(id: String, part: Dictionary) -> Node3D:
 		for z_sign in [-1.0, 1.0]:
 			var bolt := _support_cylinder(frame, "FootAnchor", 0.018, 0.015, worked)
 			bolt.position = foot + Vector3(x_sign * 0.125, 0.128, z_sign * 0.125)
-	var height: float = bearing.y - foot.y
+	var height: float = bearing.y - 0.24 - foot.y
+	if height <= 0.0:
+		remove_child(frame)
+		frame.free()
+		return null
 	var across: Vector3 = Vector3.FORWARD if part.axis == 0 else Vector3.RIGHT
 	var side: Vector3 = Vector3.UP.cross(across)
 	# The visual frame stays near the one native-confirmed support point. These
 	# braces do not claim extra terrain seats, clearance or structural strength.
 	if height < 0.48:
-		_support_box(frame, "CompactPedestal", (foot + bearing) * 0.5,
+		_support_box(frame, "CompactPedestal", foot + Vector3.UP * height * 0.5,
 			Vector3(0.18, height, 0.18), cast)
 	else:
 		var bays: int = ceili(height / 1.15)
@@ -247,19 +251,18 @@ func _confirmed_support(id: String, part: Dictionary) -> Node3D:
 				foot + Vector3.UP * high_y + across * 0.09, 0.05, worked)
 			_support_beam(frame, "SideBrace", foot + Vector3.UP * low_y - side * 0.07,
 				high, 0.035, cast)
-	if height >= 0.48:
-		_support_box(frame, "BearingSaddle", bearing - Vector3.UP * 0.075,
-			Vector3(0.31, 0.15, 0.31), cast)
-		var socket := _support_cylinder(frame, "BearingHousing", 0.16, 0.23, dark)
-		socket.position = bearing
-		socket.basis = axis_basis(part.axis)
-		var rim := _support_cylinder(frame, "MachinedBearingRim", 0.185, 0.045, worked)
-		rim.position = bearing + axis_basis(part.axis).y * 0.13
-		rim.basis = socket.basis
+	if not is_equal_approx(foot.x, bearing.x) or not is_equal_approx(foot.z, bearing.z):
+		_support_beam(frame, "BearingArm", Vector3(foot.x, bearing.y - 0.24, foot.z),
+			bearing - Vector3.UP * 0.24, 0.095, worked)
 	else:
-		_support_box(frame, "LowBearingCap", bearing - Vector3.UP * minf(0.03, height * 0.5),
-			Vector3(0.23, minf(0.06, height), 0.23), worked)
-	_support_beam(frame, "AxleBridge", bearing, world_center(part.center), 0.095, worked)
+		_support_box(frame, "BearingArm", bearing - Vector3.UP * 0.24, Vector3(0.31, 0.095, 0.31), worked)
+	_support_box(frame, "BearingSaddle", bearing - Vector3.UP * 0.20, Vector3(0.31, 0.08, 0.31), cast)
+	var socket := _support_cylinder(frame, "BearingHousing", 0.16, 0.23, dark)
+	socket.position = bearing
+	socket.basis = axis_basis(part.axis)
+	var rim := _support_cylinder(frame, "MachinedBearingRim", 0.185, 0.045, worked)
+	rim.position = bearing + axis_basis(part.axis).y * 0.13
+	rim.basis = socket.basis
 	return frame
 
 func _support_style(part: Dictionary) -> String:

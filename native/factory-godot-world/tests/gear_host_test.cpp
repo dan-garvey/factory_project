@@ -293,11 +293,13 @@ void finite_relays_and_restore() {
     Host host;
     check(accepted(host.initialize("cog-api", {"P", "Q"})), "The relay Host initializes.");
     check(accepted(host.configure_terrain(low_flat_site())), "The relay Host binds its site.");
-    observe(host, -1.65, 1.65, 1);
+    // Keep the synthetic actor beside the complete frame, rather than inside
+    // a formerly unmodelled post below the elevated relay shell.
+    observe(host, -1.65, 0.0, 1);
     const auto horizontal = create(host, relay("gearbox", -4, 8, 4, "horizontal-box", "y"));
-    observe(host, 0.0, 1.65, 2);
+    observe(host, 0.0, 0.0, 2);
     const auto vertical = create(host, relay("vertical_gearbox", 0, 8, 4, "vertical-box", "x"));
-    observe(host, 1.65, 1.65, 3);
+    observe(host, 1.65, 0.0, 3);
     const auto chain = create(host, relay("chain_drive", 4, 8, 4, "chain-case", "x", "z"));
     const auto projection = host.projection();
     const auto& projected = field<O>(projection, "transmission_parts");
@@ -1466,8 +1468,13 @@ void transmission_terrain_clearance() {
         check(accepted(clear.initialize("cog-api", {"P"})) &&
               accepted(clear.configure_terrain(site_at(0.825 - half_height))), "The contact site binds.");
         observe(clear, 0, -1.65, 1);
-        check(accepted(clear.command("P", command("contact"))),
-              "A transmission part may touch the terrain without penetrating it.");
+        const auto contact = clear.command("P", command("contact"));
+        const bool stand_fits = is_gear || axis == 1;
+        check(accepted(contact) == stand_fits,
+              "Terrain contact is admitted only when the complete fixed bearing can also fit.");
+        if (!stand_fits)
+            check(field<std::string>(contact, "reason") == "support_required",
+                  "A horizontal axle touching the ground has no room for its fixed bearing bridge.");
         const auto saved = clear.checkpoint();
         Host buried;
         check(accepted(buried.initialize("cog-api", {"P"})) &&
@@ -1487,8 +1494,11 @@ void transmission_terrain_clearance() {
         check(!factory::values::typed_difference(before, world_state(buried)),
               "Terrain refusal leaves parts and material custody unchanged.");
         const auto restore = buried.validate_checkpoint(saved);
-        check(!accepted(restore) && field<std::string>(restore, "reason") == "site_occupied",
-              "Checkpoint validation applies the same terrain clearance.");
+        if (stand_fits)
+            check(!accepted(restore) && field<std::string>(restore, "reason") == "site_occupied",
+                  "Checkpoint validation applies the same terrain clearance.");
+        else
+            check(accepted(restore), "A refused low shaft leaves an empty, valid checkpoint.");
         Host unavailable;
         check(accepted(unavailable.initialize("cog-api", {"P"})), "The unbound site initializes.");
         observe(unavailable, 0, -1.65, 1);

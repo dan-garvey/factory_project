@@ -69,7 +69,7 @@ void stand_seat_and_recovery() {
     const auto& bearing = std::get<Array>(with_base.at("bearing").storage());
     near(std::get<double>(foot[0].storage()), 1.65, "The foot stays below its shaft center.");
     near(std::get<double>(foot[1].storage()), 0.0, "The native stand seats on the foundation top.");
-    near(std::get<double>(foot[2].storage()), 0.35, "A horizontal axle has an outboard bearing.");
+    near(std::get<double>(foot[2].storage()), 0.55, "A horizontal axle has an outboard bearing clear of its pulley.");
     check(std::get<double>(bearing[1].storage()) > std::get<double>(foot[1].storage()),
           "The bearing rises above the confirmed support seat.");
     const auto saved = host.checkpoint();
@@ -127,8 +127,8 @@ void stand_seat_and_recovery() {
 void blocked_or_excessive_stand() {
     auto site = factory::godot_world::tests::flat_site();
     site.at("obstacles") = Value(Array{Value(Array{
-        Value(Array{Value(1.5), Value(0.0), Value(0.25)}),
-        Value(Array{Value(1.8), Value(1.0), Value(0.5)})})});
+        Value(Array{Value(1.5), Value(0.0), Value(0.45)}),
+        Value(Array{Value(1.8), Value(1.0), Value(0.65)})})});
     Host blocked;
     check(accepted(blocked.initialize("stand-test", {"P"})) &&
           accepted(blocked.configure_terrain(site)), "The ground-connected rock binds.");
@@ -143,15 +143,20 @@ void blocked_or_excessive_stand() {
           "A shaft seated on a rock remains valid on checkpoint review.");
     auto edge_site = site;
     edge_site.at("obstacles") = Value(Array{Value(Array{
-        Value(Array{Value(1.75), Value(0.0), Value(0.25)}),
-        Value(Array{Value(1.95), Value(1.0), Value(0.5)})})});
+        Value(Array{Value(1.75), Value(0.0), Value(0.45)}),
+        Value(Array{Value(1.95), Value(1.0), Value(0.65)})})});
     Host edge;
     check(accepted(edge.initialize("stand-test", {"P"})) &&
           accepted(edge.configure_terrain(edge_site)), "The edge-only rock binds.");
     actor(edge, 1.65, 1.0, 0.0, 1);
-    const auto edge_refusal = edge.command("P", shaft(4, 4, 0, "edge-only"));
-    check(!accepted(edge_refusal) && field<std::string>(edge_refusal, "reason") == "site_occupied",
-          "A rock grazing the post cannot raise its foot when the foot center is over bare ground.");
+    const auto edge_placed = edge.command("P", shaft(4, 4, 0, "edge-only"));
+    check(accepted(edge_placed), "An alternative clear post can avoid the edge-only rock.");
+    const auto edge_support = support(edge, field<std::string>(edge_placed, "entity"));
+    const auto& edge_foot = std::get<Array>(edge_support.at("foot").storage());
+    near(std::get<double>(edge_foot[1].storage()), -0.02,
+         "The relocated post rests on real ground, not the rock grazing its former edge.");
+    check(std::get<double>(edge_foot[0].storage()) + 0.17 <= 1.75,
+          "The whole relocated post clears the side of the edge-only rock.");
     Host clear;
     check(accepted(clear.initialize("stand-test", {"P"})) &&
           accepted(clear.configure_terrain(factory::godot_world::tests::flat_site())),
@@ -172,8 +177,8 @@ void blocked_or_excessive_stand() {
          "The restored stand sits on the new rock.");
     auto axle_site = site;
     axle_site.at("obstacles") = Value(Array{Value(Array{
-        Value(Array{Value(1.5), Value(2.3), Value(0.25)}),
-        Value(Array{Value(1.8), Value(2.6), Value(0.5)})})});
+        Value(Array{Value(1.5), Value(2.3), Value(0.45)}),
+        Value(Array{Value(1.8), Value(2.6), Value(0.65)})})});
     Host axle_blocked;
     check(accepted(axle_blocked.initialize("stand-test", {"P"})) &&
           accepted(axle_blocked.configure_terrain(axle_site)), "The axle-intersecting rock binds.");
@@ -183,20 +188,22 @@ void blocked_or_excessive_stand() {
           "A rock actually intersecting the shaft axle still refuses placement.");
     auto floating_site = site;
     floating_site.at("obstacles") = Value(Array{Value(Array{
-        Value(Array{Value(1.5), Value(0.8), Value(0.25)}),
-        Value(Array{Value(1.8), Value(1.0), Value(0.5)})})});
+        Value(Array{Value(1.5), Value(0.8), Value(0.45)}),
+        Value(Array{Value(1.8), Value(1.0), Value(0.65)})})});
     Host floating;
     check(accepted(floating.initialize("stand-test", {"P"})) &&
           accepted(floating.configure_terrain(floating_site)), "The elevated obstruction binds.");
     actor(floating, 1.65, 1.0, 0.0, 1);
-    const auto floating_refusal = floating.command("P", shaft(4, 4, 0, "floating-blocked"));
-    check(!accepted(floating_refusal) && field<std::string>(floating_refusal, "reason") == "site_occupied",
-          "A floating obstruction cannot become a stand seat above an empty gap.");
+    const auto beside_floating = floating.command("P", shaft(4, 4, 0, "floating-blocked"));
+    check(accepted(beside_floating), "A clear lateral post can avoid the floating obstruction.");
+    const auto floating_support = support(floating, field<std::string>(beside_floating, "entity"));
+    near(std::get<double>(std::get<Array>(floating_support.at("foot").storage())[1].storage()), -0.02,
+         "The floating obstruction cannot become a stand seat above an empty gap.");
     Host tall;
     check(accepted(tall.initialize("stand-test", {"P"})) &&
           accepted(tall.configure_terrain(factory::godot_world::tests::flat_site())),
           "A separate native Host binds flat ground.");
-    actor(tall, 0.0, 10.5, 0.0, 1);
+    actor(tall, 1.65, 10.5, 0.0, 1);
     const auto unsupported = tall.command("P", gear(0, 24, 0, "too-tall"));
     check(!accepted(unsupported) && field<std::string>(unsupported, "reason") == "support_required",
           "An unbraced cog beyond the stand height refuses without using a gear.");
@@ -210,8 +217,10 @@ void blocked_or_excessive_stand() {
     high_base.emplace("level", Value(Integer{8}));
     check(accepted(overhead.command("P", high_base)), "A high foundation can exist above a free lower worksite.");
     const auto hanging = overhead.command("P", gear(0, 0, 0, "hanging"));
-    check(!accepted(hanging) && field<std::string>(hanging, "reason") == "support_required",
-          "A foundation above the axle cannot become its downward load-bearing seat.");
+    check(accepted(hanging), "A lateral post can stand beside an overhead foundation.");
+    const auto below_roof = support(overhead, field<std::string>(hanging, "entity"));
+    near(std::get<double>(std::get<Array>(below_roof.at("foot").storage())[1].storage()), -0.02,
+         "The lateral post uses the ground instead of hanging from the high foundation.");
 }
 void foundation_dependency() {
     auto deep_site = factory::godot_world::tests::flat_site();
@@ -238,6 +247,75 @@ void foundation_dependency() {
     check(accepted(host.validate_checkpoint(host.checkpoint())),
           "The retained foundation, shaft and refusal history remain restorable.");
 }
+
+void stacked_cog_stand_clearance() {
+    for (const char* axis : {"x", "z"}) {
+        Host host;
+        check(accepted(host.initialize("stand-test", {"P"})) &&
+              accepted(host.configure_terrain(factory::godot_world::tests::flat_site())),
+              "The stacked-cog case binds the disclosed synthetic terrain.");
+        actor(host, 1.65, 2.0, -1.65, 1);
+        auto base = request("place_foundation", "stack-base");
+        base.emplace("cell", Value(Array{Value(Integer{0}), Value(Integer{-1})}));
+        base.emplace("level", Value(Integer{4}));
+        check(accepted(host.command("P", base)), "The stacked gears share a player-built raised floor.");
+        auto lower_wire = gear(0, 4, -4, "lower-cog");
+        lower_wire.at("axis") = Value(axis);
+        auto upper_wire = gear(0, 8, -4, "upper-cog");
+        upper_wire.at("axis") = Value(axis);
+        const auto lower = host.command("P", lower_wire);
+        const auto upper = host.command("P", upper_wire);
+        check(accepted(lower) && accepted(upper), "Both separated cog discs and axles fit above the floor.");
+        const auto projected = support(host, field<std::string>(upper, "entity"));
+        const auto& foot = std::get<Array>(projected.at("foot").storage());
+        const auto& bearing = std::get<Array>(projected.at("bearing").storage());
+        const double x = std::get<double>(foot[0].storage());
+        const double z = std::get<double>(foot[2].storage());
+        const double bottom = std::get<double>(foot[1].storage());
+        const double top = std::get<double>(bearing[1].storage());
+        // The independent occupied-volume oracle uses the 0.17 m
+        // post half width and the native lower axle's one-tile span and 0.1 m half width.
+        const double axle_x = std::string(axis) == "x" ? 0.825 : 0.1;
+        const double axle_z = std::string(axis) == "z" ? 0.825 : 0.1;
+        check(bottom >= 2.475 + 0.1 || top <= 2.475 - 0.1 ||
+              std::abs(x) >= axle_x + 0.17 || std::abs(z + 1.65) >= axle_z + 0.17,
+              "An upper cog stand must not pass through the lower cog's integral axle.");
+        const auto& fixed_bearing = std::get<Array>(projected.at("bearing").storage());
+        near(std::get<double>(fixed_bearing[std::string(axis) == "x" ? 2 : 0].storage()),
+             std::string(axis) == "x" ? -1.65 : 0.0,
+             "The relocated post leaves the bearing coaxial with the horizontal shaft.");
+        actor(host, 1.65, 3.0, -1.65, 2);
+        auto third_wire = gear(0, 12, -4, "third-cog");
+        third_wire.at("axis") = Value(axis);
+        const auto third = host.command("P", third_wire);
+        check(accepted(third), "A third meshing cog can use a distinct post instead of overlapping the second.");
+        const auto third_support = support(host, field<std::string>(third, "entity"));
+        const auto& third_foot = std::get<Array>(third_support.at("foot").storage());
+        const auto lateral = std::string(axis) == "x" ? 2 : 0;
+        check(std::abs(std::get<double>(third_foot[lateral].storage()) -
+                       std::get<double>(foot[lateral].storage())) >= 0.34,
+              "The two upper posts have disjoint full-width columns.");
+        check(accepted(host.validate_checkpoint(host.checkpoint())),
+              "The separated native support arrangement remains valid on checkpoint review.");
+    }
+}
+
+void actor_at_fixed_support() {
+    Host host;
+    check(accepted(host.initialize("stand-test", {"P"})) &&
+          accepted(host.configure_terrain(factory::godot_world::tests::flat_site())),
+          "The actor/support overlap case binds a native flat site.");
+    actor(host, 1.65, 1.0, 0.55, 1);
+    const auto before = field<Object>(host.projection(), "parts");
+    const auto blocked = host.command("P", shaft(4, 4, 0, "post-occupied"));
+    check(!accepted(blocked) && field<std::string>(blocked, "reason") == "actor_occupied",
+          "A clear axle cannot place its fixed post through the physical actor.");
+    check(!factory::values::typed_difference(Value(field<Object>(host.projection(), "parts")), Value(before)),
+          "Refusing the occupied post does not consume a shaft or other kit.");
+    actor(host, 1.65, 1.0, -1.65, 2);
+    check(accepted(host.command("P", shaft(4, 4, 0, "post-clear"))),
+          "The same supported shaft is available after the actor leaves its column.");
+}
 } // namespace
 
 int main() {
@@ -245,6 +323,8 @@ int main() {
         stand_seat_and_recovery();
         blocked_or_excessive_stand();
         foundation_dependency();
+        stacked_cog_stand_clearance();
+        actor_at_fixed_support();
         std::cout << "{\"status\":\"pass\",\"evidence\":\"native_transmission_support\",\"checks\":"
                   << checks << "}\n";
         return 0;

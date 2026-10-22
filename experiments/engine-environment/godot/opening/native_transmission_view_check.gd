@@ -1595,11 +1595,98 @@ func _stable_finishes() -> void:
 			"Finish presentation never changes native facts or sends a request.")
 	view.free()
 
+func _fixed_support_frame() -> void:
+	var support := {"foot": [0.4, 1.65, -1.1], "bearing": [0.0, 4.125, -1.1], "boxes": [
+		{"center": [0.4, 2.7675, -1.1], "half": [0.17, 1.1175, 0.17]},
+		{"center": [0.0, 4.125, -1.1], "half": [0.185, 0.185, 0.1525]},
+		{"center": [0.0, 3.925, -1.1], "half": [0.155, 0.04, 0.155]},
+		{"center": [0.2, 3.885, -1.1], "half": [0.2475, 0.0475, 0.0475]}]}
+	var part := {"kind": "gear", "center": [0, 8, -4], "axis": 2, "teeth": 2, "half_span": 0,
+		"generation": 1, "support": support}
+	var model := PhysicalProjection.new()
+	model.state = {"options": {"native": true, "physical": true}, "actors": {}, "entities": {},
+		"foundations": {"deck": {"cell": [0, -1], "level": 4, "generation": 1}},
+		"transmission_parts": {"upper": part}, "belt_spans": {}}
+	var before: Dictionary = model.state.duplicate(true)
+	var physical := ActorWorld.new()
+	root.add_child(physical)
+	verify(physical.configure(model).accepted, "The physical adapter accepts the emitted support-box contract.")
+	await physics_frame
+	await physics_frame
+	var body: StaticBody3D = physical.mechanical_bodies.upper
+	var complete := PhysicsServer3D.body_get_shape_count(body.get_rid()) == 6
+	verify(complete and physical._geometry_registered(),
+		"The cog disc, axle and four fixed support boxes share one registered native body.")
+	if not complete:
+		physical.free()
+		await process_frame
+		return
+	var query := PhysicsRayQueryParameters3D.create(Vector3(0.9, 3.0, -1.1), Vector3(0, 3.0, -1.1), Geometry.MACHINE_LAYER)
+	var hit: Dictionary = physical.get_world_3d().direct_space_state.intersect_ray(query)
+	verify(hit.get("collider") == body and int(hit.get("shape", -1)) >= 2,
+		"A native query hits the relocated post where the rotating gear itself is absent.")
+	query.from = Vector3(0.9, 3.0, -1.75)
+	query.to = Vector3(0.0, 3.0, -1.75)
+	verify(physical.get_world_3d().direct_space_state.intersect_ray(query).is_empty(),
+		"The support does not fill the empty space behind its narrow column.")
+	var probe := CharacterBody3D.new()
+	probe.collision_layer = Geometry.ACTOR_LAYER
+	probe.collision_mask = Geometry.MACHINE_LAYER
+	var capsule := CapsuleShape3D.new()
+	capsule.radius = Geometry.CAPSULE_RADIUS
+	capsule.height = Geometry.CAPSULE_HEIGHT
+	var probe_shape := CollisionShape3D.new()
+	probe_shape.shape = capsule
+	probe.add_child(probe_shape)
+	probe.position = Vector3(0.4, 3.0, -1.1)
+	root.add_child(probe)
+	await physics_frame
+	physical.bodies["probe"] = probe
+	verify(physical._penetration("probe", body.get_rid(), 2).get("unsupported_overlap", false),
+		"The capsule admission measure uses the translated support shape's real location.")
+	physical.bodies.erase("probe")
+	probe.position = Vector3(0.0, 4.125, -1.65)
+	await physics_frame
+	physical.bodies["probe"] = probe
+	verify(not physical._penetration("probe", body.get_rid(), 2).get("geometric_overlap", true),
+		"The support query does not invent a column at the cog body's origin.")
+	physical.bodies.erase("probe")
+	probe.free()
+	var support_shape := body.get_child(2) as CollisionShape3D
+	var original_position := support_shape.position
+	support_shape.position.x += 0.1
+	verify(not physical._geometry_registered(), "A moved post collider fails native geometry registration.")
+	support_shape.position = original_position
+	var original_shape := support_shape.shape as BoxShape3D
+	var original_size := original_shape.size
+	original_shape.size *= 0.5
+	verify(not physical._geometry_registered(), "A resized post collider fails native geometry registration.")
+	original_shape.size = original_size
+	verify(physical._geometry_registered(), "Restoring the exact support pose and size restores registration.")
+	var presenter := Presenter.new()
+	root.add_child(presenter)
+	var frame := presenter._confirmed_support("upper", part)
+	var joined := false
+	for child in frame.get_children():
+		if child is MeshInstance3D and (child.transform * child.mesh.get_aabb()).has_point(Vector3(0.2, 3.885, -1.1)):
+			joined = true
+	verify(joined, "Solid presentation geometry joins the lateral post to the coaxial bearing.")
+	verify(model.state == before, "Support realization and queries leave the confirmed projection unchanged.")
+	model.state.transmission_parts.clear()
+	verify(physical.sync_topology().accepted and physical.mechanical_bodies.is_empty(),
+		"Removing the cog also removes its fixed support body.")
+	presenter.free()
+	physical.free()
+	await process_frame
+	await physics_frame
+
 func _run() -> void:
 	if "--scale-benchmark" in OS.get_cmdline_user_args():
 		await _scale_benchmark()
 		return
-	if "--finish-only" in OS.get_cmdline_user_args():
+	if "--support-frame-only" in OS.get_cmdline_user_args():
+		await _fixed_support_frame()
+	elif "--finish-only" in OS.get_cmdline_user_args():
 		_stable_finishes()
 	elif "--tool-guidance-only" in OS.get_cmdline_user_args():
 		_tool_guidance()
