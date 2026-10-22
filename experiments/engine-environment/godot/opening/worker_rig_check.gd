@@ -427,6 +427,17 @@ func inspect_adult(body: Node3D, other: Node3D, presenter: Node) -> void:
 		and apex_knee.angle_to(rig["L Calf"].rotation)
 		> falling_knee.angle_to(rig["L Calf"].rotation) + 0.25,
 		"The running jump leads with one knee, folds near the apex and extends before impact.")
+	presenter._set_gait(body, 0.0, 0.0, 1.0, -5.0, 0.0, 1.0, 1.0, 1.0, 0.0)
+	skeleton.force_update_all_bone_transforms()
+	var approach_toe_index := skeleton.find_bone("Bip01 L Toe0")
+	var unextended_toe: Vector3 = presenter._adult_joint(body, skeleton, approach_toe_index)
+	presenter._set_gait(body, 0.0, 0.0, 1.0, -5.0, 0.0, 1.0, 1.0, 1.0, 1.0)
+	skeleton.force_update_all_bone_transforms()
+	var extended_toe: Vector3 = presenter._adult_joint(body, skeleton, approach_toe_index)
+	adult_measurements["precontact_toe"] = {"without": unextended_toe, "with": extended_toe}
+	verify(extended_toe.z > unextended_toe.z + 0.25
+		and extended_toe.y < unextended_toe.y + 0.04,
+		"The moving landing reaches the lead boot forward before contact without lifting it away from support.")
 	presenter._set_gait(body, 0.0, 0.0)
 	verify(body.position == Vector3.ZERO, "The visual body returns to its original rest origin.")
 

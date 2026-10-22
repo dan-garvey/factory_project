@@ -311,8 +311,8 @@ func _set_adult_air_and_landing(body: Node3D, air: float,
 	# Confirmed horizontal travel gives the leading foot room to catch the
 	# load; an in-place jump settles both boots beneath the body.
 	var contact_stride := clampf(landing_stride, 0.0, 1.0)
-	# A moving leading foot reaches ahead while the confirmed actor is still
-	# descending, so contact does not invent the whole step in one pose sample.
+	# A moving leading foot reaches ahead and stays low while the confirmed
+	# actor descends, so contact does not invent the whole step in one sample.
 	var pre_contact := clampf(landing_approach, 0.0, 1.0) * contact_stride * air
 	# The leading boot reaches support promptly while the torso continues to
 	# absorb the load. Do not slow the established contact step with the torso.
@@ -332,12 +332,12 @@ func _set_adult_air_and_landing(body: Node3D, air: float,
 			- 0.35 * sign * rise - 0.08 * sign * (1.0 - rise) * (1.0 - fall)) * air
 			- (0.48 + 0.08 * sign * contact_stride) * impact
 			+ (-0.24 if side == "L" else 0.32) * plant
-			- (0.50 * pre_contact if side == "L" else 0.0))
+			- (0.25 * pre_contact if side == "L" else 0.0))
 		var knee := ((0.90 + 0.10 * rise - 0.55 * fall
 			+ 0.35 * sign * rise + 0.08 * sign * (1.0 - rise) * (1.0 - fall)) * air
 			+ (1.02 + 0.08 * sign * contact_stride) * impact
 			+ (-0.54 if side == "L" else 0.32) * plant
-			+ (0.40 * pre_contact if side == "L" else 0.0))
+			- (0.25 * pre_contact if side == "L" else 0.0))
 		_adult_bone_delta(body, side + " Thigh", Quaternion(Vector3.RIGHT, hip))
 		_adult_bone_delta(body, side + " Calf", Quaternion(Vector3.RIGHT, knee))
 		_adult_bone_delta(body, side + " Foot", Quaternion(Vector3.RIGHT,
