@@ -1,9 +1,11 @@
 # Production-quality assets for player construction
 
-Original research date: 2026-10-20. Implementation update: 2026-10-21, against
-main `44f2af04cf85dae2c49d0d6da7e7731997e89e34`. The source study proposed a
-production workflow; the update below maps it to components now in the demo.
-This document adds no asset import, test run or rendered assessment.
+Original research date: 2026-10-20. The initial implementation map was made on
+2026-10-21 against main `44f2af04cf85dae2c49d0d6da7e7731997e89e34`.
+The current source inventory below was refreshed on 2026-10-22 against main
+`b510fe89d34a9e96cfc097370ba0c035e317c295`. The original source study
+proposed a production workflow; this update maps it to construction now in the
+demo. It adds no asset import, test run or rendered assessment.
 
 ## Direction
 
@@ -30,7 +32,7 @@ The visual target remains the [production presentation target](production-qualit
 Successful mesh generation alone cannot establish it. A beautiful source model
 also needs appropriate composition, lighting and motion in the actual worksite.
 
-## Original source baseline
+## Original source baseline (historical)
 
 The inspected baseline is main `42adffeb4a09b0a605cff5e2b0cb1fd857363873`.
 These are source observations, with no new game execution:
@@ -61,14 +63,14 @@ These are source observations, with no new game execution:
   not model phase or load. A detailed animated assembly must not imply that
   coupled stroke timing or torque has already been simulated.
 
-Those profile limits are implementation boundaries. They do not narrow the
-user's requested construction system. Visual research can cover the wider
-system now; adopting new functional assemblies requires appropriate native
-outcomes later.
+Those were the implementation boundaries at the stated baseline, not a current
+inventory. They do not narrow the user's requested construction system. Visual
+research can cover the wider system now; adopting new functional assemblies
+requires appropriate native outcomes later.
 
 ## Components now implemented
 
-The following is a source inventory at the implementation revision above. The
+The following is a source inventory at the 2026-10-22 revision above. The
 [opening asset guide](../../experiments/engine-environment/godot/opening/assets/README.md)
 links the individual source manifests and technical qualifications. Mesh,
 resource and presenter checks support their declared technical scopes; they do
@@ -76,12 +78,12 @@ not establish the user's graphical-quality target.
 
 | Family | Current reusable content | Boundary still to solve |
 | --- | --- | --- |
-| Foundation surface resource | The qualified steel finish and fixed-panel art remain available in the historical terrain fallback. The current [native site](../../experiments/engine-environment/godot/opening/site_surface.gd) mounts natural ground, with no foundation panels or boxes. | There is no player-buildable foundation catalogue. Neighbor-dependent edges, holes and structural joins need native construction interfaces. |
-| Waterwheel | Selected sourced rim, hub and spokes combine with shaped timber paddles, cast stands and open journal bearings. | Player-selected radius, blade count and new power behavior are not supplied by the source model. |
+| Foundations and floors | Native [Host construction](../../native/factory-godot-world/src/host.cpp) places individual and rectangular groups of finite foundation tiles. The opening renders neighbor-aware steel tops, concrete exterior courses and formwork bays from the confirmed tile grid. | A solid tile is still the physical support and obstruction. Openings, underpasses and nonrectangular supports need matching native occupied geometry; decorative cutouts cannot grant clearance. |
+| Waterwheel | Selected sourced rim, hub and spokes combine with shaped timber paddles, cast stands and open journal bearings. The current native opening has a player-selected wheel diameter on supported horizontal axles. | The source model does not supply variable diameter or blade count. The current power and support rules do not establish an arbitrary player-designed hydraulic machine. |
 | Press | Selected drill-press columns and mounting pieces combine with an authored [cast frame and crown](press-cast-assembly.md), open ram housing, guide sockets and existing tool motion. | One fitted press does not provide multi-press frames, interchangeable cutters or shared tool timing. |
-| Collector and supports | Shaped cast cheeks, service details and an open skid replace undifferentiated blocks. | These remain parts of existing machines, without independent structural inventory or collision rules. |
-| Conveyor | A closed rubber loop, separate rollers, cast end frames, fasteners and a supported drive journal form the straight conveyor. | The local hub fit does not solve vertical shaft routing through a working belt, curves, grades or arbitrary lengths. |
-| Cogs and shafts | Parameterized rims and teeth, spokes, chamfered through-bores, shaft cores, collars and keys share cast and worked finishes. | Tooth density is decorative; exact visible contact, keyed locking, torque and load remain unproved. |
+| Collector and supports | Shaped cast cheeks, service details and an open skid support the existing machine. Ground placement has a source-facing pickup; raised placement has a bounded exterior lift and upper discharge. | The foundation still hides the lower raised route from the outlet view. A visible cutter-to-output path and a larger source-fitting body remain unresolved; any new carrier volume must match native admission and actor collision. |
+| Shaft belts | Confirmed shaft endpoints now construct spans with a fitted rubber loop, rollers, side channels, end frames, cargo presentation and supported journals. The view follows the admitted straight or inclined span. | Flexible curves, arbitrary junction hardware and cosmetic routes through occupied structures are not supplied by the current native span. End and support variants must follow confirmed geometry. |
+| Cogs, shafts and relays | Parameterized cog rims, teeth, spokes, through-bores, shafts, couplings and supported ends share cast and worked finishes. The native projection also exposes confirmed gearboxes and encased chain drives. | Decorative tooth pitch and marks do not prove exact contact phase, locking or torque. New compound transmissions require native connectivity and clearance before art may depict working joints. |
 | Material interfaces | Sleeves, rigid end cuffs and fasteners follow confirmed material-link endpoints. | A visible sleeve cannot grant connectivity, transport or a route absent from native state. |
 | Stock and products | Reusable source clusters, in-line billets and outlet plates follow confirmed custody. | Art variation cannot change quantities, recipes or retained item identity. |
 
@@ -110,7 +112,9 @@ axis, not a specification for a decorative cylinder's radius or endpoints.
 keeps detailed ends rigid while changing shaft length. Its 30-millimetre shaft
 core radius, collars and keys fit the 39-millimetre cog bore radius. Entry
 chamfers expose the opening without changing the outer hub or selection shape.
-This is a visual fit, not physical locking or a complete gearbox route.
+This is a visual fit, not physical locking. The separate native gearbox and
+chain-drive roles now have confirmed presentation; this bore fit alone does not
+establish either connection.
 
 Apply the same rule to other families: keep bolt heads, bearing bores, cuffs
 and tool interfaces at their intended sizes. Extend a plain rail, repeat a
@@ -210,9 +214,9 @@ to add every listed gameplay feature immediately.
 
 | Construction family | Authored kit content | Adaptation and difficult cases |
 | --- | --- | --- |
-| Foundations and floors | Surfaces, perimeter trims, corners, underside beams, feet and accessible edge treatments. | Tile or extend the interior at consistent texture scale. Select exposed-edge variants from confirmed neighbors; preserve gaps, height changes and holes. Existing fixed floor panels are not evidence of player-buildable foundations. |
+| Foundations and floors | Surfaces, perimeter trims, corners, underside beams, feet and accessible edge treatments. | The current player-built solid tiles and neighbor-aware edges provide a starting kit. Extend their interior at consistent texture scale, but require native support and collision for gaps, height changes, holes or open piers. |
 | Frames, beams and supports | Foot plates, end connections, elbows, braces and load-bearing silhouettes. | Change a plain middle span or repeat compatible bays while keeping end details rigid. Very short spans need explicit variants. Automatic supports must never create free structural inventory or unmodeled collision. |
-| Belts and material routing | End drums, rollers, side frames, junction fittings and support brackets. | Generate the admitted route surface with arc-length texture coordinates; place rigid rollers and supports separately. Turns, grades, short segments and direction reversals expose bad joins. Future curved routes require authority support; the current single belt is not that feature. |
+| Belts and material routing | End drums, rollers, side frames, junction fittings and support brackets. | Current shaft spans cover admitted straight and inclined routes. Generate only that confirmed surface; place rigid rollers and supports separately. Curves, grades outside the admitted profile, short segments and direction changes need distinct join and authority checks. |
 | Cogwheels and shafts | Hub, spokes, rim profiles, tooth profiles, collars, bearings and couplers. | Parameterize compatible sizes and spans. Preserve circular profiles and signed axes. Visible tooth pitch and phase alignment need explicit treatment; the current decorative tooth multiplier is insufficient proof of meshing appearance. |
 | Player-built waterwheels | Axle, hubs, spokes, rim sections, paddles or buckets, bearings and frame joins. | Assemble around an admitted axis with compatible dimensions. Player-selected paddle count or radius must remain separate from any unimplemented effect on power. Rim closure, water intersection and bearing support need visual scrutiny. |
 | Presses and multi-press structures | Columns, crossheads, anvils, guide rails, rams, dies, guards and feed openings. | Reuse frame bays and individual tool modules for different layouts. Each ram follows its own confirmed work state. Shared framing must not invent a common stroke, capacity or synchronization rule. |
@@ -238,9 +242,10 @@ Avoid baking an entire fixed machine's shadowing into parts that can separate.
 Keep rigid machinery as transformable subparts. Skinning is useful for genuinely
 deforming components, but a single skeleton for every possible player assembly
 would introduce unnecessary coupling. Confirmed stopped, stalled and unpowered
-states must remain visually distinct. Until the authority supplies phase and
-coupled work timing, animation can illustrate rate or state but cannot claim
-exact tooth contact, shared press timing or rate-scaled production.
+states must remain visually distinct. The native projection now includes load
+and overload results as well as signed rates. It still does not supply gear
+tooth phase or coupled tool-stroke timing; animation cannot invent either
+merely from rate.
 
 Separate the reusable mesh cache key from instance state. A candidate mesh key is
 `asset_revision + family + geometry_parameters + detail_level`. Identity,
@@ -292,20 +297,22 @@ choosing numerical budgets. No such costs were measured in this study.
 
 ## Next construction sample
 
-The original bearing, shaft and conveyor-end sample is now partly implemented.
-Reuse those components and their qualified source preparation. The next sample
-should expose missing composition rules: foundation edge/corner variants, short
-and long middle spans with rigid ends, and an explicit material-path versus
-shaft-routing conflict. Keep the shared palette and mount conventions across
+The original bearing, shaft, conveyor-end and solid-foundation samples now have
+native construction and presentation increments. Reuse those components and
+their qualified sources. The next sample should expose a missing composition
+rule: two independently confirmed tool modules on one player-selected frame,
+with explicit supports, rigid joins and a material-path versus shaft-routing
+conflict. This is an art and interface study until native construction admits
+that compound structure. Keep the shared palette and mount conventions across
 structures, transmission and logistics before expanding the machine catalogue.
 
 Start with a deterministic asset-comparison scene that consumes disclosed
 construction descriptors and submits no gameplay commands. Exercise existing
-admitted shaft dimensions and axes. Label proposed foundation and belt-route
-descriptors explicitly as presentation examples, with no claim of implemented
-placement, transport or saved gameplay. Then mount the applicable components in
-the ordinary native scene through the existing confirmed projection. A later
-native outcome owns new functional construction capabilities.
+admitted foundation tiles, shaft spans and axes as real inputs. Label compound
+tool-module descriptors explicitly as presentation examples, with no claim of
+implemented placement, transport or saved gameplay. Then mount applicable
+components in the ordinary native scene through the existing confirmed
+projection. A later native outcome owns new functional construction capabilities.
 
 The next increment should distinguish these failures:
 
