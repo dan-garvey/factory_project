@@ -553,15 +553,15 @@ materials::MachinePower machine_power(const stationary::Topology& topology) {
         if (item.role == Role::processor) {
             power.processor = rotating;
             if (rotating) {
-                // Use a bounded fixed-point mapping from signed mechanical rate
-                // to work. Reversal does not reverse the press cycle.
+                // Reversal does not reverse the press cycle. Saturate only at
+                // the integer representation limit, not a gameplay speed cap.
                 __extension__ using Wide = __int128;
                 Wide numerator = found->second.rate.numerator;
                 if (numerator < 0) numerator = -numerator;
                 const Wide scaled = numerator * materials::work_subticks_per_tick /
                     found->second.rate.denominator;
                 power.processor_work_per_tick = static_cast<Integer>(std::clamp<Wide>(
-                    scaled, 1, materials::maximum_work_subticks_per_tick));
+                    scaled, 1, std::numeric_limits<Integer>::max()));
             }
         }
     }

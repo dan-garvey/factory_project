@@ -157,6 +157,35 @@ void geared_processor(bool fast) {
     check(drive.processor && drive.processor_work_per_tick ==
           (fast ? 2 * mat::work_subticks_per_tick : mat::work_subticks_per_tick / 2),
           "Actual mixed-size cogs set the processor work rate.");
+    if (fast) {
+        auto faster = world->snapshot().state.topology;
+        for (const I source_rate : {I{10}, I{-10}}) {
+            faster.sources.front().rate = {source_rate, 1};
+            const auto power = w::machine_power(faster);
+            check(power.processor && power.processor_work_per_tick == 20 * mat::work_subticks_per_tick,
+                  "Either source direction lets the gears drive the press above the former sixteen-times cap.");
+        }
+        auto fast_profile = profile;
+        fast_profile.material.cycle_ticks = 40;
+        fast_profile.waterwheel_rate = {10, 1};
+        auto fast_state = world->snapshot().state;
+        fast_state.topology.sources.front().rate = {10, 1};
+        fast_state.material.processing->recipe.cycle_ticks = 40;
+        fast_state.material.processing->remaining_ticks = 40;
+        auto fast_world = w::World::create("fast-cog", fast_profile, fast_state);
+        check(fast_world && fast_world->tick().error == w::TransactionError::none &&
+                  fast_world->snapshot().state.material.processing->remaining_ticks == 20,
+              "The actual twenty-times geared press advances twenty units of work.");
+        const auto encoded_fast = w::encode_checkpoint(fast_profile, fast_world->snapshot());
+        check(std::holds_alternative<V>(encoded_fast), "High-speed partial work checkpoints.");
+        const auto decoded_fast = w::decode_checkpoint(fast_profile, "fast-cog", std::get<V>(encoded_fast));
+        check(std::holds_alternative<w::Snapshot>(decoded_fast), "High-speed partial work decodes.");
+        auto resumed_fast = w::World::restore("fast-cog", fast_profile, std::get<w::Snapshot>(decoded_fast));
+        check(resumed_fast && resumed_fast->tick().error == w::TransactionError::none &&
+                  resumed_fast->snapshot().state.material.processing->remaining_ticks == 0 &&
+                  resumed_fast->snapshot().state.material.stock.output == 1,
+              "Restored high-speed work completes and waits behind the full output buffer.");
+    }
     check(world->tick().changed, "The powered World advances the original workpiece.");
     const auto cut = world->snapshot();
     check(cut.state.material.processing && cut.state.material.stock.output == 1 &&

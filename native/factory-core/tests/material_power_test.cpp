@@ -73,10 +73,26 @@ void fractional_gear_speed() {
     const auto blocked = slow;
     tick(slow, twice);
     require(slow == blocked, "A blocked ready workpiece cannot accumulate extra progress.");
-    for (const auto invalid : {m::Quantity{0}, m::maximum_work_subticks_per_tick + 1}) {
+    for (const auto invalid : {m::Quantity{0}, m::Quantity{-1}}) {
         require(m::step(slow, config, line, {false, false, true, invalid}) == m::Error::invalid_path && slow == blocked,
                 "A malformed speed is refused without changing work or material custody.");
     }
+    auto fast = seed();
+    fast.stock.source = 14;
+    fast.processing = m::WorkLot{1, {2, 40}, 40};
+    fast.next_work_id = 2;
+    const m::Config fast_config{2, 2, 40};
+    require(m::step(fast, fast_config, line, {false, false, true, 20 * m::work_subticks_per_tick}) == m::Error::none &&
+                m::validate(fast, fast_config, line) == m::Error::none,
+            "The high-speed work uses its configured recipe and retains custody.");
+    require(fast.processing && fast.processing->remaining_ticks == 20,
+            "Twenty-times speed advances twenty units of real work in one tick.");
+    fast.processing->completed_subticks = m::work_subticks_per_tick - 1;
+    require(m::step(fast, fast_config, line, {false, false, true, std::numeric_limits<m::Quantity>::max()}) == m::Error::none &&
+                m::validate(fast, fast_config, line) == m::Error::none,
+            "Extreme progress remains valid and conserves the original input.");
+    require(!fast.processing && fast.stock.output == 1,
+            "Extreme speed completes one buffered workpiece without overflowing progress.");
 }
 
 void reversed_belt_custody() {
