@@ -87,8 +87,8 @@ func _parts_are_shared() -> bool:
 func _can_present_confirmed_motion() -> bool:
 	return session != null and session.is_ready() and _usable_snapshot() and super._can_present_confirmed_motion()
 
-func _placement_hint_ready() -> bool:
-	return _can_mutate() and super._placement_hint_ready()
+func _placement_ready() -> bool:
+	return _can_mutate() and super._placement_ready()
 
 func _reconnect() -> void:
 	if session.is_ready() or connecting:
@@ -247,7 +247,7 @@ func _settle_pending() -> void:
 				"remove": "Part returned."}.get(item.action.action, "Action accepted."))
 		else:
 			_message(_material_refusal_message(result, "Not applied: " + {"occupied": "that square is occupied.", "no_part": "that part is already placed.",
-				"not_at_seam": "place the collector on the brass seam strip.",
+				"not_at_seam": "place the collector on the ore-colored ground beside the rock.",
 				"not_at_stream": "place the waterwheel beside the stream bank.",
 				"unavailable_output": "there is no finished plate to collect.", "not_stopped": "stop the drive before editing.",
 				"out_of_reach": "move closer to the target before building or interacting.",

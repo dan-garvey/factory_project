@@ -509,7 +509,7 @@ func _render_hotbar() -> void:
 	view._build_interface()
 	view._refresh_ui()
 	view._update_fps_counter(0.26)
-	view._message("Choose Collector [1] to build at the mineral seam.")
+	view._message("Choose Collector [1] on the ore-colored ground beside the rock.")
 	await settle_widgets()
 	await RenderingServer.frame_post_draw
 	verify(root.get_texture().get_image().save_png(prefix + "-bar.png") == OK, "Retain the isolated hotbar presentation.")

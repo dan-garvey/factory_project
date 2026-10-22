@@ -174,7 +174,7 @@ func _refresh() -> void:
 		for slot: Variant in span.slots:
 			if slot is Dictionary:
 				belt_raw += int(slot.get("raw", 0))
-	readout.text = "EXAMPLE tick %d · %s · cycle %d\nSeam %d → collector %d → belt %d → input %d → held %d → outlet %d · collected %d" % [
+	readout.text = "EXAMPLE tick %d · %s · cycle %d\nOre deposit %d → collector %d → belt %d → input %d → held %d → outlet %d · collected %d" % [
 		ticks, "powered" if state.powered else ("stopped" if not state.power_enabled else "unpowered"), state.remaining,
 		stock.source, stock.collector, belt_raw, stock.input, stock.held, stock.output, stock.player]
 	inspect_label.text = "Click a machine in the example to inspect its material and drive connections."

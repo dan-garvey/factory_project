@@ -25,7 +25,7 @@ checkpoint import use the same mineral footprint and depth rule. Rebuilding a
 collector, changing foundations or reopening cannot refill the deposit. No old
 sixteen-unit checkpoint migration is provided.
 
-At ground level, either admitted seam cell adds a short, source-facing pickup
+At ground level, either admitted deposit cell adds a short, source-facing pickup
 volume to the collector body. The trusted site adapter identifies the fixed
 outcrop obstacle so only that pickup may meet its rock; other scenery, actors,
 foundations and constructed parts still block the occupied volume. The scene

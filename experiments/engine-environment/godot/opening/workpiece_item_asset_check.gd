@@ -337,7 +337,7 @@ func check_mineral_seam() -> void:
 			"A larger, partly mined or exhausted reserve is one natural exposure rather than a count of repeated pebbles.")
 		var exposure: Node3D = holder.get_child(0)
 		verify(exposure.get_script() == null and exposure.position == Vector3.ZERO
-			and exposure.get_meta("remaining") == amount and exposure.get_child_count() == (2 if amount > 0 else 1),
+			and exposure.get_meta("remaining") == amount and exposure.get_child_count() == (3 if amount > 0 else 1),
 			"Only unowned presentation surfaces represent confirmed reserve and depletion.")
 		var rock: MeshInstance3D = exposure.get_node("ExposedRock")
 		if rock_mesh == null:
@@ -349,6 +349,13 @@ func check_mineral_seam() -> void:
 				and not part is CollisionObject3D and part.scale == Vector3.ONE,
 				"The mineral node has no collider, script, input, clock, manufactured hardware or second authority.")
 		if amount > 0:
+			var ground: MeshInstance3D = exposure.get_node("OreSurface")
+			var footprint := ground.mesh.get_aabb()
+			verify(footprint.size.x > 1.3 and footprint.size.z > 2.6
+				and footprint.position.z < 0.0 and footprint.end.z > Geometry.PITCH,
+				"The visible ore field spans both admitted collector cells beyond the narrow source rock.")
+			verify(ground.material_override == Assets.source_ground and ground.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF,
+				"The wider ore color remains a passive surface without a second shadow or collider.")
 			var veins: MeshInstance3D = exposure.get_node("MineralVeins")
 			verify(veins.transform == Transform3D.IDENTITY, "The vein mesh uses the same world placement as its surface queries.")
 			check_exposure_mesh(veins.mesh)
@@ -360,7 +367,8 @@ func check_mineral_seam() -> void:
 			if amount == 1:
 				verify(veins.mesh != full_veins, "A nearly depleted reserve has visibly narrower mineral veins.")
 		else:
-			verify(not exposure.has_node("MineralVeins"), "No visible mineral remains when the sole native reserve is exhausted.")
+			verify(not exposure.has_node("MineralVeins") and not exposure.has_node("OreSurface"),
+				"No visible mineral remains when the sole native reserve is exhausted.")
 		verify(facts == before, "Geometry preparation never changes confirmed stock, coverage or value types.")
 		holder.free()
 	for amount in range(0, 4097, 256):
@@ -396,7 +404,8 @@ func check_exposure_boundary(rock: MeshInstance3D) -> void:
 	verify(finish.albedo_texture.get_size() == Vector2(512, 512)
 		and finish.normal_texture.get_size() == Vector2(256, 256)
 		and finish.roughness_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_GREEN
-		and finish.metallic == 0.0 and finish.cull_mode == BaseMaterial3D.CULL_DISABLED,
-		"The actual rock material consumes its prepared color, OpenGL normal and packed roughness without changing the donor's metallic factor.")
+		and finish.metallic == 0.0 and finish.cull_mode == BaseMaterial3D.CULL_DISABLED
+		and finish.albedo_color == Color("c78a54"),
+		"The actual rock uses its prepared texture and distinct copper tint while retaining the matched physical hull.")
 	verify(rock.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_ON,
 		"The substantial outcrop participates in the normal scene's shadows.")
