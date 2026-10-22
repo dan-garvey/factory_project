@@ -33,6 +33,12 @@ The pod also starts with one identified detachable hand crank. A nearby
 physical actor can take it from the pod tray or return it through Host
 commands. Its single holder is projected and preserved through retries and
 checkpoints. It is not yet attached to, or driving, a built assembly.
+The arrival projection derives `collector_assemblies` from those placed
+components at the two west-facing ore workcells and their supported grid
+heights. Each entry reports missing, ready or ambiguous geometry; a ready
+entry names the five exact installed identities, cutting height and shaft
+material. This is read-only inspection. It does not extract ore, attach the
+hand crank or license an arbitrary new deposit face.
 The arrival profile additionally exposes `hand_sources`: three named
 eight-piece timber sites and one sixteen-unit ore deposit. `harvest_source`
 accepts a target identity only after the bound physical actor is ready and
