@@ -13,6 +13,7 @@ extends SceneTree
 ## --reverse-endpoints to submit either span in the opposite endpoint order.
 ## Add --middle-pulley to --powered-span to insert and restore a driven pulley.
 ## Add --cog-train to exercise a powered large/small pair and its restore.
+## Add --overload to exercise speed-weighted load and recovery across restart.
 ## Add --reverse-belt to every process for
 ## generated-site reverse deposition and pickup after restart. The resumed Session uses the Store but
 ## does not exercise the ordinary server lifecycle or physical actor bodies.
@@ -33,6 +34,7 @@ var inclined_span := false
 var reverse_endpoints := false
 var middle_pulley := false
 var cog_train := false
+var overload := false
 var serial := 0
 var epoch := 0
 
@@ -53,6 +55,7 @@ func _initialize() -> void:
 		elif arg == "--reverse-endpoints": reverse_endpoints = true
 		elif arg == "--middle-pulley": middle_pulley = true
 		elif arg == "--cog-train": cog_train = true
+		elif arg == "--overload": overload = true
 	call_deferred("run")
 
 func verify(ok: bool, message: String) -> void:
@@ -460,7 +463,99 @@ func run_cog_train() -> void:
 	print("COG_TRAIN_SESSION_%s %s %d" % ["FAIL" if failed else "PASS", role, checks])
 	quit(1 if failed else 0)
 
+func _overload_motion(view: Dictionary, expect_overload: bool) -> bool:
+	var cog := _cog_at(view, [0, 12, 12])
+	if cog.is_empty(): return false
+	var motion: Dictionary = view.motion.get(cog, {})
+	var capacity: float = motion.get("capacity", 0.0)
+	var impact: float = motion.get("impact", 0.0)
+	return capacity > 0.0 and motion.get("overloaded", false) == expect_overload \
+		and motion.get("state") == ("stalled" if expect_overload else "rotating") \
+		and is_equal_approx(impact / capacity, 1.125 if expect_overload else 1.0)
+
+func run_overload() -> void:
+	var resumed := role.begins_with("resume-") or role == "server-resume"
+	var prefix := "resume-" if resumed else ""
+	var save_path := directory.path_join("overload.factory")
+	if role in ["server", "server-resume"]:
+		verify(session.serve_loopback(port, true, true, ["P", "Q"], true) == OK, "Start the overload authority")
+		if failed: quit(1); return
+		var saved_hash := ""
+		if resumed:
+			saved_hash = FileAccess.get_sha256(save_path)
+			verify(not saved_hash.is_empty() and Store.read_into(session.world, save_path).get("accepted", false), "Restore the overloaded Store")
+			session.context = session.world.context
+		verify(session.world.publish_actor("P", [0.0, 2.15, 3.3], 1).get("accepted", false), "Publish synthetic P")
+		verify(session.world.publish_actor("Q", [20.0, 1.0, 20.0], 1).get("accepted", false), "Publish synthetic Q")
+		if failed: quit(1); return
+		mark(prefix + "server-ready")
+		if not resumed:
+			if not await until(func(): return FileAccess.file_exists(directory.path_join("move-P")), "P requests a synthetic observation change"): quit(1); return
+			verify(session.world.publish_actor("P", [0.0, 3.5, 3.3], 2).get("accepted", false), "Move synthetic P within reach")
+			mark("P-moved")
+		if not await until(func(): return FileAccess.file_exists(directory.path_join(prefix + "clients-done")), "Both overload clients finish"): quit(1); return
+		var state: Dictionary = session.world.projection()
+		verify(_overload_motion(state, not resumed), "Authority sees the expected overload or recovered rotation: " + str(state.motion))
+		if resumed:
+			verify(FileAccess.get_sha256(save_path) == saved_hash, "Recovery leaves the original save unchanged")
+		else:
+			verify(Store.write(session.world, save_path).get("accepted", false), "Store the overloaded network")
+		if failed: quit(1); return
+		mark(prefix + "server-done")
+	else:
+		var actor := role.trim_prefix("resume-") if resumed else role
+		verify(session.join_loopback(port, actor) == OK, "Join the overload authority")
+		if not await until(func(): return session.is_ready(), "Receive the overload projection"): quit(1); return
+		mark(prefix + actor + "-ready")
+		if actor == "P":
+			if not await until(func(): return FileAccess.file_exists(directory.path_join(prefix + "Q-ready")), "Q joins before overload commands"): quit(1); return
+			if resumed:
+				var restored: Dictionary = session.projection()
+				verify(_overload_motion(restored, true), "P sees restored overload")
+				var collector := ""
+				for id in restored.entities:
+					if restored.entities[id].get("kind") == "collector": collector = str(id)
+				verify(not collector.is_empty(), "The collector survives restore")
+				if failed: quit(1); return
+				var removed := await issue({"action": "remove", "entity": collector})
+				verify(removed.get("accepted", false) and _overload_motion(session.projection(), false), "Removing collector load restores rotation: " + str(removed))
+			else:
+				var wheel := await issue({"action": "place", "kind": "wheel", "cell": [-2, 1], "axis": "x", "level": 4})
+				verify(wheel.get("accepted", false), "Build the source wheel: " + str(wheel))
+				for spec in [[[-4, 4, 4], 4], [[-4, 8, 8], 2], [[0, 8, 8], 4], [[0, 12, 12], 2]]:
+					var placed := await issue({"action": "place_gear", "center": spec[0], "axis": "x", "teeth": spec[1]})
+					verify(placed.get("accepted", false), "Build geared overload: " + str(placed))
+					if failed: quit(1); return
+				var power := await issue({"action": "set_power", "active": true})
+				verify(power.get("accepted", false), "Start the unloaded source: " + str(power.get("reason", "")))
+				if failed: quit(1); return
+				mark("move-P")
+				if not await until(func(): return FileAccess.file_exists(directory.path_join("P-moved")), "Authority moves synthetic P"): quit(1); return
+				for support in [[[0, 1], 4], [[1, 3], 12]]:
+					var foundation := await issue({"action": "place_foundation", "cell": support[0], "level": support[1]})
+					verify(foundation.get("accepted", false), "Build machine support: " + str(foundation))
+					if failed: quit(1); return
+				for spec in [["collector", [0, 1], 4], ["processor", [1, 3], 12]]:
+					var machine := await issue({"action": "place", "kind": spec[0], "cell": spec[1], "axis": "x", "level": spec[2]})
+					verify(machine.get("accepted", false), "Build driven machine: " + str(machine))
+					if failed: quit(1); return
+				var projected: Dictionary = session.projection()
+				verify(_overload_motion(projected, true), "P sees overload after connecting both machines: " + str(projected.motion))
+			if failed: quit(1); return
+			mark(prefix + "P-done")
+		else:
+			if not await until(func(): return FileAccess.file_exists(directory.path_join(prefix + "P-done")), "P completes overload commands"): quit(1); return
+			if not await until(func(): return _overload_motion(session.projection(), not resumed), "Q observes the expected load state"): quit(1); return
+			mark(prefix + "clients-done")
+			if not await until(func(): return FileAccess.file_exists(directory.path_join(prefix + "server-done")), "Authority finishes overload phase"): quit(1); return
+	print("OVERLOAD_SESSION_%s %s %d" % ["FAIL" if failed else "PASS", role, checks])
+	quit(1 if failed else 0)
+
 func run() -> void:
+	if overload and (cog_train or span_belt or reverse_belt or middle_pulley):
+		push_error("The overload case cannot be combined with other transmission cases")
+		quit(1)
+		return
 	if cog_train and (span_belt or reverse_belt or middle_pulley):
 		push_error("The cog-train case cannot be combined with belt cases")
 		quit(1)
@@ -480,6 +575,9 @@ func run() -> void:
 	container.add_child(session)
 	root.add_child(container)
 	session.outcome.connect(func(value: Dictionary): replies[value.request] = value)
+	if overload:
+		await run_overload()
+		return
 	if cog_train:
 		await run_cog_train()
 		return
