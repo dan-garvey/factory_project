@@ -383,6 +383,16 @@ func _arrival_run() -> void:
 	if not _expect(opening.model.projection().actors.P.ready and opening.actor_world.bodies.P.is_on_floor(),
 			"The physical actor reaches the scene floor"):
 		return
+	if DisplayServer.get_name() != "headless":
+		while opening.get_node_or_null("MachinePreviewWarmup") != null and Time.get_ticks_msec() < deadline:
+			await process_frame
+		var prepared := opening.get_node_or_null("MachinePreviewWarmup") == null
+		for kind in ["collector", "belt", "processor", "wheel"]:
+			prepared = prepared and opening.packed_preview_templates.get(kind) is PackedScene
+		if not _expect(prepared and opening.packed_preview_nodes.has("foundation")
+				and not opening.packed_preview_nodes.foundation.visible,
+				"The graphical preview warmup releases its cover before the arrival is sampled"):
+			return
 	var panel = opening.arrival_assembly_controls
 	if not capture_prefix.is_empty() and mode == "arrival-press":
 		await process_frame
@@ -390,6 +400,12 @@ func _arrival_run() -> void:
 		if not _expect(landfall != null and landfall.save_png(capture_prefix + "-landfall.png") == OK,
 				"The passive landfall viewport is retained"):
 			return
+	if DisplayServer.get_name() != "headless":
+		opening.building_hotbar.select_slot(1)
+		if not _expect(opening.mode == "foundation" and opening.placement_options_panel.visible,
+				"The carried foundation shortcut opens ordinary placement after preview warmup"):
+			return
+		opening._select_tool("inspect")
 	if mode == "arrival-resume":
 		var restored: Dictionary = opening.model.projection()
 		if not _expect(opening.last_load_result.get("accepted", false)
