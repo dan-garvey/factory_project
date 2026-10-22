@@ -11,7 +11,7 @@ var prior_path := ""
 var deadline := 0
 var checks := 0
 var written := false
-var facts: Dictionary = {"evidence": "native_first_shift_scene_consumer", "actions": []}
+var facts: Dictionary = {"evidence": "native_first_shift_scene_consumer", "actions": [], "approaches": []}
 
 func _init() -> void:
 	for argument: String in OS.get_cmdline_user_args():
@@ -21,7 +21,7 @@ func _init() -> void:
 			destination = argument.trim_prefix("--first-shift-output=")
 		elif argument.begins_with("--first-shift-prior="):
 			prior_path = argument.trim_prefix("--first-shift-prior=")
-	deadline = Time.get_ticks_msec() + 60000
+	deadline = Time.get_ticks_msec() + 115000
 	call_deferred("_run")
 
 func _same(a: Variant, b: Variant, depth: int = 0) -> bool:
@@ -59,8 +59,7 @@ func _finish(status: String, reason: String = "") -> void:
 		push_error("Cannot retain first-shift evidence")
 		quit(1)
 		return
-	# Preserve scalar types and original native observations, rather than using
-	# a JSON rendering as a typed checkpoint or physical-admission oracle.
+	# Binary evidence preserves checkpoint scalar types and native observations.
 	output.store_buffer(var_to_bytes(facts))
 	output.close()
 	print(JSON.stringify({"status": status, "mode": mode, "checks": checks, "reason": reason}))
@@ -81,12 +80,10 @@ func _until(condition: Callable, reason: String) -> bool:
 	return _expect(false, reason)
 
 func _conserved(snapshot: Dictionary) -> bool:
-	# Independent accounting for this disclosed 16-unit, one-blank-per-plate
-	# profile. Products appear in both cargo and inventory projections: count
-	# them once and require the aliases to agree. These are assertions only.
-	if not _expect(snapshot.initial_feed == 16 and snapshot.recipe_input == 1, "The declared finite recipe profile is unchanged"):
+	# Count each unit once and independently check the product aliases.
+	if not _expect(snapshot.initial_feed == 4096 and snapshot.recipe_input == 1, "The current finite recipe profile is unchanged"):
 		return false
-	var total: int = 0
+	var total: int = snapshot.line_belt_raw
 	for key: String in ["source", "collector", "belt", "input", "held", "output", "player"]:
 		var amount: Variant = snapshot.stock.get(key)
 		if not _expect(typeof(amount) == TYPE_INT and amount >= 0, "Every material count remains a nonnegative integer"):
@@ -105,9 +102,10 @@ func _conserved(snapshot: Dictionary) -> bool:
 			if not _expect(typeof(lot.recipe_input) == TYPE_INT and lot.recipe_input == 1 and typeof(lot.remaining) == TYPE_INT and lot.remaining >= 0 and lot.remaining <= lot.cycle_ticks, "A workpiece retains its recipe and progress"):
 				return false
 			total += lot.recipe_input
-	if not _expect(total == 16 and products == snapshot.stock.player, "All sixteen units have exactly one typed owner"):
+	if not _expect(total == 4096 and products == snapshot.stock.player, "Every original unit has exactly one typed owner"):
 		return false
-	var part_totals: Dictionary = {"collector": 0, "belt": 0, "processor": 0, "wheel": 0, "shaft": 0, "gear": 0}
+	var part_totals: Dictionary = {"collector": 0, "belt": snapshot.belt_spans.size(), "processor": 0,
+		"wheel": 0, "shaft": 0, "gear": 0, "foundation": snapshot.foundations.size()}
 	for kit: Dictionary in snapshot.part_kits.values():
 		for kind: String in kit:
 			if not _expect(part_totals.has(kind) and typeof(kit[kind]) == TYPE_INT and kit[kind] >= 0, "Carried construction parts retain their finite integer counts"):
@@ -117,25 +115,30 @@ func _conserved(snapshot: Dictionary) -> bool:
 		if not _expect(part_totals.has(part.kind), "Every placed construction part has a declared kind"):
 			return false
 		part_totals[part.kind] += 1
-	return _expect(_same(part_totals, {"collector": 1, "belt": 1, "processor": 1, "wheel": 1, "shaft": 4, "gear": 5}), "Construction and refunds preserve the declared finite physical kit")
+	return _expect(_same(part_totals, {"collector": 1, "belt": 2, "processor": 1, "wheel": 1,
+		"shaft": 8, "gear": 10, "foundation": 24}), "Construction and refunds preserve the current finite physical kit")
 
 func _targets(before: Dictionary, action: Dictionary) -> Array:
-	var cells: Array = []
-	if action.action == "place":
-		cells.append(action.cell)
-	elif action.action in ["connect", "connect_drive"]:
-		cells.append(before.entities[action.from].cell)
-		cells.append(before.entities[action.to].cell)
+	var centers: Array = []
+	if action.action in ["place", "place_foundation"]:
+		centers.append([action.cell[0] * 4, action.level, action.cell[1] * 4])
+	elif action.action in ["place_gear", "place_shaft"]:
+		centers.append(action.center)
+	elif action.action == "place_belt_span":
+		centers.append(before.transmission_parts[action.from].center)
+		centers.append(before.transmission_parts[action.to].center)
 	elif action.action == "set_power":
 		for entity: Dictionary in before.entities.values():
 			if entity.kind == "wheel":
-				cells.append(entity.cell)
+				centers.append([entity.cell[0] * 4, entity.level, entity.cell[1] * 4])
 	else:
-		cells.append(before.entities[action.entity].cell)
+		var entity: Dictionary = before.entities[action.entity]
+		centers.append([entity.cell[0] * 4, entity.level, entity.cell[1] * 4])
 	var output: Array = []
-	for cell: Array in cells:
+	for center: Array in centers:
 		# Literal fixture geometry, not a camera/raycast or permission helper.
-		output.append([float(cell[0]) * 1.65, 0.5, float(cell[1]) * 1.65])
+		output.append([float(center[0]) * 0.4125, 0.825 + float(center[1]) * 0.4125,
+			float(center[2]) * 0.4125])
 	return output
 
 func _finite_point3(value: Variant) -> bool:
@@ -151,30 +154,30 @@ func _native_admission(before: Dictionary, action: Dictionary, reply: Dictionary
 	if not _expect(reach.get("actor") == "P" and reach.get("build_reach") == 4.0
 		and typeof(reach.get("native_epoch")) == TYPE_INT and reach.native_epoch > 0
 		and typeof(reply.get("native_epoch")) == TYPE_INT and reply.native_epoch == reach.native_epoch,
-		"The original command has a physical P admission with one positive native epoch"):
+		"P has a positive original admission epoch."):
 		return false
 	var sample: Dictionary = cut.get("sample", {})
 	if not _expect(cut.get("available", false) and cut.get("actor") == "P"
 		and sample.get("registered", false) and sample.get("ready", false)
 		and typeof(sample.get("native_epoch")) == TYPE_INT and sample.native_epoch == reach.native_epoch,
-		"The receipt is bound to the retained ready registered native sample"):
+		"The receipt binds the original ready, registered sample."):
 		return false
 	if not _expect(_finite_point3(sample.get("position")) and _finite_point3(sample.get("node_position"))
 		and _finite_point3(reach.get("position")) and _finite_point3(reply.get("actor_position"))
 		and _same(sample.position, sample.node_position) and _same(sample.position, reach.position)
-		and _same(sample.position, reply.actor_position), "Admission retains exactly three finite native coordinates"):
+		and _same(sample.position, reply.actor_position), "All admission positions agree exactly."):
 		return false
 	var targets: Array = _targets(before, action)
-	if not _expect(_same(targets, reach.targets) and targets.size() == reach.distances_squared.size(), "Admission uses the literal original construction targets"):
+	if not _expect(_same(targets, reach.targets) and targets.size() == reach.distances_squared.size(), "Admission uses the literal targets."):
 		return false
 	for index: int in range(targets.size()):
-		if not _expect(_finite_point3(targets[index]), "Each literal construction target has exactly three finite coordinates"):
+		if not _expect(_finite_point3(targets[index]), "Each target has three finite coordinates."):
 			return false
 		var squared: float = 0.0
 		for axis: int in range(3):
 			var difference: float = float(reach.position[axis]) - float(targets[index][axis])
 			squared += difference * difference
-		if not _expect(squared == reach.distances_squared[index] and squared <= 16.0, "Literal three-dimensional reach agrees without an added epsilon"):
+		if not _expect(squared == reach.distances_squared[index] and squared <= 16.0, "Reach agrees exactly within four metres."):
 			return false
 	return true
 
@@ -191,9 +194,7 @@ func _action(label: String, action: Dictionary, callback: Callable, accepted: bo
 	var after: Dictionary = opening.model.projection()
 	var intent: Dictionary = action.duplicate(true)
 	intent.merge({"context": before.context, "client": "P", "request": opening.request_namespace + str(opening.request_sequence)}, true)
-	# Read the ORIGINAL outcome by exact retry only after the view issued it.
-	# A missing or different UI request cannot be substituted by this lookup:
-	# it must be a duplicate and must not advance or alter the projection.
+	# Retry only the original UI intent; its cached result must not alter the world.
 	var reply: Dictionary = opening.model.command(intent)
 	record["intent"] = intent
 	record["outcome"] = reply
@@ -201,28 +202,48 @@ func _action(label: String, action: Dictionary, callback: Callable, accepted: bo
 	if reply.get("reach") is Dictionary and typeof(reply.reach.get("native_epoch")) == TYPE_INT:
 		cut = opening.actor_world.diagnostics("P", reply.reach.native_epoch)
 	record["native_cut"] = cut
-	if not _expect(reply.get("duplicate", false) and reply.get("accepted") == accepted and after.order == before.order + 1 and _same(after, opening.model.projection()), label + " has its exact cached outcome without another material operation"):
+	if not _expect(reply.get("duplicate", false) and reply.get("accepted") == accepted and after.order == before.order + 1 and _same(after, opening.model.projection()), label + " returns its cached outcome without another operation."):
 		return {}
 	if not _native_admission(before, action, reply, cut) or not _conserved(after):
 		return {}
 	return reply
 
 func _place(kind: String, cell: Vector2i) -> String:
-	var action: Dictionary = {"action": "place", "kind": kind, "cell": [cell.x, cell.y]}
+	var action: Dictionary = {"action": "place", "kind": kind, "cell": [cell.x, cell.y],
+		"axis": "x" if kind == "wheel" else "z", "level": 4}
+	if kind == "wheel":
+		action["tiles"] = 3
+	else:
+		action["rotation"] = 0
 	var reply: Dictionary = _action("place " + kind, action, func() -> void:
 		opening._select_tool(kind)
+		opening.transmission_controls._axis_selected(0 if kind == "wheel" else 2)
+		opening.wheel_level = 4
 		opening._world_click(cell))
 	return reply.get("entity", "")
 
-func _click_pair(tool: String, from: String, to: String) -> void:
-	opening._select_tool(tool)
-	for target: String in [from, to]:
-		var cell: Array = opening.state.entities[target].cell
-		opening._world_click(Vector2i(cell[0], cell[1]), target)
+func _setup(action: Dictionary) -> String:
+	# Fixed setup uses the view binding; tool-selection coverage is separate.
+	var reply := _action("construct " + str(action.action), action, opening.issue.bind(action))
+	return reply.get("entity", "")
 
-func _connect(tool: String, from: String, to: String) -> bool:
-	_action("connect " + tool, {"action": "connect" if tool == "flow" else "connect_drive", "from": from, "to": to}, _click_pair.bind(tool, from, to))
-	return not written
+func _approach_axis(coordinate: int, target: float) -> bool:
+	var before: Dictionary = opening.actor_world.diagnostics("P")
+	var direction := signf(target - float(before.sample.position[coordinate]))
+	if not _expect(opening.actor_world.set_control("P", Vector2(direction, 0) if coordinate == 0 else Vector2(0, direction), false).accepted,
+		"The real native motor admits the declared approach leg"):
+		return false
+	var arrived: bool = await _until(func() -> bool:
+		var at: float = opening.model.projection().actors.P.position[coordinate]
+		return at >= target if direction > 0 else at <= target, "The native motor reaches the declared station")
+	opening.actor_world.release_control("P")
+	for _frame in range(4):
+		await physics_frame
+	var after: Dictionary = opening.actor_world.diagnostics("P")
+	facts.approaches.append({"coordinate": coordinate, "target": target,
+		"before": before, "after": after})
+	return arrived and _expect(after.sample.ready and after.sample.registered and after.sample.on_floor
+		and after.sample.control == [0.0, 0.0], "The approach releases the registered actor on its actual floor")
 
 func _select(target: String) -> void:
 	opening._select_tool("inspect")
@@ -263,12 +284,10 @@ func _key(code: Key, pressed: bool) -> void:
 
 func _prepare() -> void:
 	var initial: Dictionary = opening.model.projection()
-	if not _conserved(initial) or not _expect(initial.stock.source == 16 and initial.entities.is_empty(), "The declared fresh worksite starts once"):
+	if not _conserved(initial) or not _expect(initial.stock.source == 4096 and initial.entities.is_empty(), "The current fresh worksite starts once"):
 		return
 	var before_input: Dictionary = opening.actor_world.diagnostics("P")
-	# Default camera-relative D+S walks predominantly right, clear of the row.
-	# Use the ordinary presenter's key callbacks; its real physics input path
-	# and native motor remain unchanged. No OS event or pose setter is used.
+	# Exercise the presenter's key callbacks and native motor without OS input.
 	_key(KEY_D, true)
 	_key(KEY_S, true)
 	if not (await _until(func() -> bool: return opening.model.projection().actors.P.position[0] >= 0.7, "The actual motor reaches construction range")):
@@ -284,50 +303,73 @@ func _prepare() -> void:
 	if not _expect(after_input.controls > before_input.controls and after_input.releases > before_input.releases and body.velocity.x == 0.0 and body.velocity.z == 0.0, "The real input path walks and releases the native motor"):
 		return
 	facts["movement"] = {"before": before_input, "after": after_input}
+	# Later approach legs use the native motor without a competing input producer.
+	opening.character_presenter.set_physics_process(false)
+	if not await _approach_axis(0, -1.2) or not await _approach_axis(2, 3.3): return
+	var wheel: String = _place("wheel", Vector2i(-2, 1))
+	if written: return
+	if _setup({"action": "place_foundation", "cell": [0, 1], "level": 4}).is_empty(): return
 	var collector: String = _place("collector", Vector2i(0, 1))
 	if written: return
-	var wheel: String = _place("wheel", Vector2i(-1, 1))
-	if written or not _connect("drive", wheel, collector) or not _power(true): return
+	if not await _approach_axis(0, 4.95): return
+	if _setup({"action": "place_foundation", "cell": [3, 1], "level": 4}).is_empty(): return
+	var last := _setup({"action": "place_shaft", "center": [8, 4, 4], "axis": "z", "half_span": 2})
+	if written or not await _approach_axis(0, 3.3): return
+	var first := _setup({"action": "place_shaft", "center": [4, 4, 4], "axis": "z", "half_span": 2})
+	if written or not await _approach_axis(2, -1.65): return
+	for x in [12, 4]:
+		if _setup({"action": "place_shaft", "center": [x, 4, 0], "axis": "z", "half_span": 2}).is_empty(): return
+	if not await _approach_axis(2, -3.3): return
+	for x in [12, 8, 4]:
+		if _setup({"action": "place_gear", "center": [x, 4, -4], "axis": "z", "teeth": 2}).is_empty(): return
+	if not await _approach_axis(0, 0.0): return
+	for z in [-1, 0]:
+		if _setup({"action": "place_foundation", "cell": [0, z], "level": 4}).is_empty(): return
+	if _setup({"action": "place_gear", "center": [0, 4, -4], "axis": "z", "teeth": 2}).is_empty(): return
+	if _setup({"action": "place_gear", "center": [0, 4, 0], "axis": "z", "teeth": 4}).is_empty(): return
+	if not await _approach_axis(0, -1.2) or not await _approach_axis(2, 3.3): return
+	if _setup({"action": "place_gear", "center": [-4, 4, 4], "axis": "x", "teeth": 4}).is_empty(): return
+	if not _power(true): return
 	if not (await _until(func() -> bool: return opening.model.projection().stock.collector == 1, "The incomplete powered line retains its first raw blank")): return
 	_menu(collector, "recover")
-	if written or not _expect(opening.model.projection().cargo.P.raw == 1 and opening.model.projection().stock.source == 15, "The bad-line menu recovers the actual blank without refilling the seam"): return
+	if written or not _expect(opening.model.projection().cargo.P.raw == 1 and opening.model.projection().stock.source == 4095, "The bad-line menu recovers the actual blank without refilling the seam"): return
 	_select(collector)
 	_action("remove powered collector", {"action": "remove", "entity": collector}, opening._remove_selected)
 	if written or not _expect(opening.model.projection().power_enabled, "Stationary removal does not switch off the drive"): return
 	var rebuilt: String = _place("collector", Vector2i(0, 1))
 	if written or not _expect(rebuilt != collector, "Rebuilding allocates a new identity"): return
 	_menu(rebuilt, "insert_raw")
-	if written: return
-	var belt: String = _place("belt", Vector2i(1, 1))
-	if written: return
-	var press: String = _place("processor", Vector2i(2, 1))
-	if written: return
-	if not _connect("flow", rebuilt, belt) or not _connect("flow", belt, press) or not _connect("drive", rebuilt, belt) or not _connect("drive", belt, press): return
+	if written or not _power(false) or not await _approach_axis(0, 3.3): return
+	if _setup({"action": "place_belt_span", "from": first, "to": last}).is_empty(): return
+	if not await _approach_axis(0, 4.95): return
+	var press: String = _place("processor", Vector2i(3, 1))
+	if written or not await _approach_axis(0, -1.2) or not _power(true) or not await _approach_axis(0, 4.95): return
 	if not (await _until(func() -> bool: return opening.model.projection().stock.output == 1, "The assembled native line produces a plate")): return
 	if not _retrieve(press): return
+	if not await _approach_axis(0, -1.2): return
 	if not (await _until(func() -> bool: return opening.model.projection().stock.held == 1 and opening.model.projection().remaining == 1, "A later workpiece makes partial progress in the press")): return
 	if not _power(false): return
+	if not await _approach_axis(0, 4.95): return
 	var held_before: Dictionary = opening.model.checkpoint().world.state.duplicate(true)
 	var remaining: int = opening.model.projection().remaining
 	if not _expect(remaining == 1 and held_before.material.processing.recipe.cycle_ticks == 2 and held_before.material.processing.recipe.input_units_per_product == 1, "The saved work has progressed beyond its original two-tick recipe start"): return
 	_select(press)
 	var refused: Dictionary = _action("retain occupied press", {"action": "remove", "entity": press}, opening._remove_selected, false)
-	if written or not _expect(refused.reason == "occupied_target" and _same(held_before, opening.model.checkpoint().world.state), "Occupied removal preserves the complete material state and parts"): return
+	if written or not _expect(refused.reason == "occupied_target" and _same(held_before, opening.model.checkpoint().world.state), "Occupied removal preserves all state and parts."): return
 	_menu(press, "recover")
 	if written: return
 	var lots: Array = opening.model.projection().cargo.P.work_lots
 	if not _expect(lots.size() == 1 and lots[0].id == held_before.material.processing.id and lots[0].remaining == 1 and lots[0].cycle_ticks == 2 and lots[0].recipe_input == 1, "Recovery keeps the original work identity and completed first tick"): return
 	var work: Dictionary = lots[0].duplicate(true)
-	if not _expect(_same(held_before.material.processing, opening.model.checkpoint().world.state.material.cargo.P.work_lots[0]), "The entire typed recipe and work record survive recovery"): return
+	if not _expect(_same(held_before.material.processing, opening.model.checkpoint().world.state.material.cargo.P.work_lots[0]), "The complete typed work record survives recovery."): return
 	_select(press)
 	_action("remove emptied press", {"action": "remove", "entity": press}, opening._remove_selected)
 	if written: return
-	var new_press: String = _place("processor", Vector2i(2, 1))
+	var new_press: String = _place("processor", Vector2i(3, 1))
 	if written or not _expect(new_press != press, "The recovered press can be rebuilt without reusing its identity"): return
-	if not _connect("flow", belt, new_press): return
 	_menu(new_press, "insert_work", work.id)
-	if written or not _expect(opening.model.projection().stock.held == 1 and opening.model.projection().remaining == remaining and opening.model.projection().cargo.P.work_lots.is_empty(), "The menu reinserts the same partial work without restarting it"): return
-	if not _expect(_same(held_before.material.processing, opening.model.checkpoint().world.state.material.processing), "Reinsertion preserves the original typed recipe and work record"): return
+	if written or not _expect(opening.model.projection().stock.held == 1 and opening.model.projection().remaining == remaining and opening.model.projection().cargo.P.work_lots.is_empty(), "Reinsertion preserves the same partial work."): return
+	if not _expect(_same(held_before.material.processing, opening.model.checkpoint().world.state.material.processing), "Reinsertion preserves the complete typed work record."): return
 	facts["recovered_work"] = work
 	facts["prepared_projection"] = opening.model.projection()
 	facts["prepared_checkpoint"] = opening.model.checkpoint()
@@ -352,7 +394,9 @@ func _resume() -> void:
 	var press := ""
 	for id: String in snapshot.entities:
 		if snapshot.entities[id].kind == "processor": press = id
-	if not _expect(not press.is_empty(), "The saved processor identity remains placed") or not _power(true): return
+	if not _expect(not press.is_empty(), "The saved processor identity remains placed"): return
+	opening.character_presenter.set_physics_process(false)
+	if not await _approach_axis(0, -1.2) or not _power(true) or not await _approach_axis(0, 4.95): return
 	for _plate: int in range(3):
 		if not (await _until(func() -> bool: return opening.model.projection().stock.output == 1, "The reopened line produces the next plate")): return
 		if not _retrieve(press): return
