@@ -37,12 +37,12 @@ void belt_speed_conversion() {
             m::belt_speed_subticks(1, 1, true) == 2896,
             "Signed rates use the same magnitude and inclined travel is slower.");
     require(m::belt_speed_subticks(0, 1, false) == 0 && m::belt_speed_subticks(1, 0, false) == 0 &&
-            m::belt_speed_subticks(1, std::numeric_limits<m::Quantity>::max(), false) == 1,
-            "Stopped and malformed rates cannot move cargo; positive fractions retain minimum progress.");
+            m::belt_speed_subticks(1, std::numeric_limits<m::Quantity>::max(), false) == 0,
+            "Stopped and malformed rates cannot move cargo; a sub-subtick rate has no artificial minimum.");
     require(m::belt_speed_subticks(std::numeric_limits<m::Quantity>::min(), 1, false) ==
-                m::maximum_work_subticks_per_tick &&
-            m::belt_speed_subticks(std::numeric_limits<m::Quantity>::max(), 1, true) == 16 * 2896,
-            "Extreme signed rates clamp safely before inclined conversion.");
+                std::numeric_limits<m::Quantity>::max() &&
+            m::belt_speed_subticks(std::numeric_limits<m::Quantity>::max(), 1, true) == std::numeric_limits<m::Quantity>::max(),
+            "The integer speed query saturates only at its representational limit.");
 }
 
 void fractional_gear_speed() {
@@ -312,6 +312,25 @@ void fractional_belt_rates() {
     invalid.remainder_denominator = 0;
     require(!m::advance_belt_lane_rate(invalid, 1, 3, 1, false, 0),
             "An invalid saved fractional denominator is refused.");
+    m::BeltLane long_lane{std::vector<std::optional<m::Cargo>>(21), 0};
+    long_lane.slots.front() = m::Cargo{1, 0, {}};
+    auto fast = m::advance_belt_lane_rate(long_lane, 20, 1, 1, false, 0);
+    require(fast && fast->candidate.slots.back().has_value() && fast->candidate.phase == 0,
+            "A twenty-times shaft rate carries cargo twenty tiles in one tick.");
+    auto inclined_fast = m::advance_belt_lane_rate(long_lane, 20, 1, 1, true, 0);
+    require(inclined_fast && inclined_fast->candidate.slots[14].has_value() && inclined_fast->candidate.phase == 576,
+            "The full high rate also controls inclined displacement and retained phase.");
+    for (const int direction : {-1, 1}) for (const m::Quantity capacity : {0, 1, 21}) {
+        m::BeltLane full{std::vector<std::optional<m::Cargo>>(21, m::Cargo{1, 0, {}}), 0};
+        auto first = m::advance_belt_lane(full, direction * 16 * m::work_subticks_per_tick, capacity);
+        auto second = m::advance_belt_lane(first->candidate, direction * 5 * m::work_subticks_per_tick,
+            capacity - static_cast<m::Quantity>(first->delivered.size()));
+        auto extreme = m::advance_belt_lane_rate(full, std::numeric_limits<m::Quantity>::min(), 1, direction, false, capacity);
+        require(extreme && second && extreme->candidate.slots == second->candidate.slots &&
+                    extreme->delivered.size() == first->delivered.size() + second->delivered.size() &&
+                    extreme->candidate.phase == 0,
+                "Extreme shaft rates reach the same conserved finite-lane result without unbounded stepping.");
+    }
 }
 }  // namespace
 

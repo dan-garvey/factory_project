@@ -48,9 +48,9 @@ manual span recovery removes individual items through the World.
 `advance_belt_lane_rate` also retains the fractional part of a fixed-point
 subtick in the authoritative lane. An unchanged rational shaft rate accumulates
 exactly across ticks and checkpoints. When its denominator changes, converting
-the remainder can discard less than one fraction of a subtick. The existing
-sixteen-tile speed cap and inclined approximation remain; the presenter does
-not yet apply that cap, so extreme-rate surface speeds are not fully aligned.
+the remainder can discard less than one fraction of a subtick. Finite lane
+occupancy bounds the work at extreme rates. Inclined travel retains its
+fixed-point approximation to diagonal distance.
 
 The fixed order remains: advance or finish existing machine work; start eligible
 new work; move belt input; move collector stock; extract finite source feed.

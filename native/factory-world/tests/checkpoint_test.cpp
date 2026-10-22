@@ -296,6 +296,20 @@ void belt_span_checkpoint() {
     check(fractional->snapshot().state.material.belt_lanes.at("belt").slots[1].has_value() &&
               fractional->snapshot().state.material.belt_lanes.at("belt").phase == 0,
           "Three third-speed ticks move the cargo exactly one tile across the checkpoint.");
+    auto fast_profile = profile;
+    fast_profile.waterwheel_rate = {20, 1};
+    auto fast_state = fractional_state;
+    fast_state.topology.sources = {{"wheel", {20, 1}}};
+    auto fast_world = w::World::create("fast-world", fast_profile, fast_state);
+    check(fast_world && fast_world->tick().error == w::TransactionError::none &&
+              fast_world->snapshot().state.material.dropped_material.at({-4, 0, 0}) == m::Cargo{1, 0, {}},
+          "A fast shaft carries the blank off the open end in one tick.");
+    const auto fast_encoded = w::encode_checkpoint(fast_profile, fast_world->snapshot());
+    check(std::holds_alternative<V>(fast_encoded), "A high-speed belt checkpoint encodes.");
+    const auto fast_decoded = w::decode_checkpoint(fast_profile, "fast-world", std::get<V>(fast_encoded));
+    check(std::holds_alternative<w::Snapshot>(fast_decoded) &&
+              std::get<w::Snapshot>(fast_decoded).state == fast_world->snapshot().state,
+          "High-speed ejected cargo and exact belt phase survive the checkpoint.");
     const auto encoded = w::encode_checkpoint(profile, world->snapshot());
     check(std::holds_alternative<V>(encoded), "The world exports the span in the typed checkpoint.");
     const auto decoded = w::decode_checkpoint(profile, "saved-world", std::get<V>(encoded));

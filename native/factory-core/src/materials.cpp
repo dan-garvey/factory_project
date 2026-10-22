@@ -11,10 +11,8 @@ Quantity belt_speed_subticks(Quantity numerator, Quantity denominator, bool incl
     __extension__ using Wide = __int128;
     Wide magnitude = numerator;
     if (magnitude < 0) magnitude = -magnitude;
-    auto speed = static_cast<Quantity>(std::clamp<Wide>(
-        magnitude * work_subticks_per_tick / denominator, 1, maximum_work_subticks_per_tick));
-    if (inclined) speed = std::max<Quantity>(1, speed * 2896 / work_subticks_per_tick);
-    return speed;
+    const Wide speed = magnitude * (inclined ? 2896 : work_subticks_per_tick) / denominator;
+    return static_cast<Quantity>(std::min<Wide>(speed, std::numeric_limits<Quantity>::max()));
 }
 
 namespace {
@@ -149,18 +147,34 @@ std::optional<BeltAdvance> advance_belt_lane_rate(const BeltLane& lane, Quantity
     __extension__ using Wide = __int128;
     Wide magnitude = numerator;
     if (magnitude < 0) magnitude = -magnitude;
-    Wide distance = magnitude * (inclined ? 2896 : work_subticks_per_tick);
-    const Wide limit = static_cast<Wide>(inclined ? 16 * 2896 : maximum_work_subticks_per_tick) * denominator;
-    if (distance > limit) distance = limit;
+    const Wide distance = magnitude * (inclined ? 2896 : work_subticks_per_tick);
     // When the source rate changes, convert the old fractional remainder to
     // the new denominator. Conversion loses less than one new fraction of a
     // subtick; unchanged rates accumulate exactly.
     const Wide remainder = static_cast<Wide>(lane.remainder) * denominator / lane.remainder_denominator;
-    const Wide total = remainder + direction * distance;
-    const auto subticks = static_cast<Quantity>(total / denominator);
-    auto advanced = advance_belt_lane(lane, subticks, receiver_capacity);
+    const Wide total = static_cast<Wide>(lane.phase) * denominator + remainder + direction * distance;
+    const Wide tile = static_cast<Wide>(work_subticks_per_tick) * denominator;
+    const Wide steps = total / tile;
+    const Wide fraction = total % tile;
+    auto advanced = advance_belt_lane(lane, 0, receiver_capacity);
     if (!advanced) return std::nullopt;
-    advanced->candidate.remainder = static_cast<Quantity>(total % denominator);
+    advanced->candidate.phase = 0;
+    // At most one pass per slot can change a finite lane: after that every
+    // item has either exited or reached a blocked downstream position.
+    const Wide magnitude_steps = steps < 0 ? -steps : steps;
+    Quantity remaining_steps = static_cast<Quantity>(std::min<Wide>(magnitude_steps, lane.slots.size()));
+    while (remaining_steps > 0) {
+        const auto chunk = std::min<Quantity>(remaining_steps, maximum_work_subticks_per_tick / work_subticks_per_tick);
+        auto next = advance_belt_lane(advanced->candidate,
+            (steps < 0 ? -chunk : chunk) * work_subticks_per_tick,
+            receiver_capacity - static_cast<Quantity>(advanced->delivered.size()));
+        if (!next) return std::nullopt;
+        advanced->candidate = std::move(next->candidate);
+        advanced->delivered.insert(advanced->delivered.end(), next->delivered.begin(), next->delivered.end());
+        remaining_steps -= chunk;
+    }
+    advanced->candidate.phase = static_cast<Quantity>(fraction / denominator);
+    advanced->candidate.remainder = static_cast<Quantity>(fraction % denominator);
     advanced->candidate.remainder_denominator = denominator;
     return advanced;
 }
