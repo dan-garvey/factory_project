@@ -7,7 +7,7 @@ var _host: WeakRef
 
 func _init() -> void:
 	action_button = MenuButton.new()
-	action_button.text = "Move materials…"
+	action_button.text = "Move materials…  [Ctrl+M]"
 	action_button.tooltip_text = "Move carried material. Stand near the selected machine or belt position."
 	action_button.get_popup().about_to_popup.connect(_open_menu)
 	action_button.get_popup().id_pressed.connect(_choose)
@@ -64,7 +64,7 @@ func refresh() -> void:
 		_count(cargo.raw, "blank", "blanks"), _count(cargo.products, "plate", "plates"),
 		_count(lots.size(), "workpiece", "workpieces")]
 	action_button.tooltip_text = summary + "\nMove material near the selected machine or belt position."
-	action_button.text = "Move materials…" if occupied and carrying else "Recover contents…" if occupied else "Insert carried material…"
+	action_button.text = ("Move materials…" if occupied and carrying else "Recover contents…" if occupied else "Insert carried material…") + "  [Ctrl+M]"
 	action_button.disabled = not context.usable or _offers(context).is_empty()
 	# Preserve a displayed menu's original payloads. A later refresh must not
 	# silently retarget a queued selection to another workpiece at the same index.
@@ -237,7 +237,7 @@ class LooseMaterialControls:
 	var _actor := ""
 
 	func _init() -> void:
-		text = "Pick up loose material…"
+		text = "Pick up loose material…  [Ctrl+L]"
 		tooltip_text = "Stand near loose material, then choose it here."
 		get_popup().about_to_popup.connect(_open)
 		get_popup().id_pressed.connect(_choose)

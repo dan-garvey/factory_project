@@ -4155,10 +4155,10 @@ class ProductionInterface:
 		var theme := Theme.new()
 		theme.default_font_size = 15
 		var original := ThemeDB.get_default_theme()
-		var fills := {"normal": Color("1c2a30"), "hover": Color("2d4149"),
-			"pressed": Color("5a472d"), "hover_pressed": Color("685337"), "disabled": Color("172126")}
-		var borders := {"normal": Color("41565e"), "hover": Color("8ca7a8"),
-			"pressed": Color("d6ab64"), "hover_pressed": Color("edcc8d"), "disabled": Color("2c3b41")}
+		var fills := {"normal": Color("18252b"), "hover": Color("294048"),
+			"pressed": Color("644a29"), "hover_pressed": Color("735935"), "disabled": Color("172126")}
+		var borders := {"normal": Color("52676b"), "hover": Color("a1bdba"),
+			"pressed": Color("e4ad61"), "hover_pressed": Color("f6c77f"), "disabled": Color("35454a")}
 		for control_type in ["Button", "MenuButton"]:
 			# Resolve the actual inherited defaults. MenuButton has its own
 			# zero-padding styles; borrowing Button metrics would widen it.
@@ -4167,10 +4167,10 @@ class ProductionInterface:
 				theme.set_stylebox(name_value, control_type, _style(probe.get_theme_stylebox(name_value), fills[name_value], borders[name_value]))
 			theme.set_stylebox("focus", control_type, _style(probe.get_theme_stylebox("focus"), Color.TRANSPARENT, Color("efc78a"), true))
 			for name_value in ["font_color", "font_hover_color", "font_focus_color"]:
-				theme.set_color(name_value, control_type, Color("e4ebe4"))
+				theme.set_color(name_value, control_type, Color("f1f5f0"))
 			for name_value in ["font_pressed_color", "font_hover_pressed_color"]:
-				theme.set_color(name_value, control_type, Color("fff2d6"))
-			theme.set_color("font_disabled_color", control_type, Color("879895"))
+				theme.set_color(name_value, control_type, Color("fff3de"))
+			theme.set_color("font_disabled_color", control_type, Color("a1b2ad"))
 			probe.free()
 		var separator := original.get_stylebox("separator", "HSeparator").duplicate() as StyleBox
 		if separator is StyleBoxLine:
@@ -4259,8 +4259,10 @@ var footer_fit_pending := false
 var stock_label: Label
 var parts_label: Label
 var goal_label: Label
+var goal_progress: ProgressBar
 var power_label: Label
 var inspector: Label
+var inspector_title: Label
 var recovery_actions
 var loose_material_controls
 var transmission_controls
@@ -4295,6 +4297,7 @@ var wheel_size_controls: HBoxContainer
 var wheel_size_label: Label
 var state: Dictionary = {}
 var show_details := false
+var consumed_shortcut_keys: Dictionary = {}
 var catalog_button: Button
 var details_button: Button
 var controls_label: Label
@@ -4495,6 +4498,8 @@ func _refresh_engineering(snapshot_ready: bool) -> void:
 	if not active:
 		goal_label.tooltip_text = ""
 		return
+	goal_progress.max_value = maxi(1, int(report.target))
+	goal_progress.value = clampi(int(report.products), 0, int(report.target))
 	var step: String = {
 		"move_source": "Move power upstream.",
 		"restore_drive": "Restore the drive.",
@@ -5040,10 +5045,86 @@ func _input(event: InputEvent) -> void:
 					KEY_RIGHT: _set_lesson(lesson_index + 1)
 					KEY_LEFT: _set_lesson(lesson_index - 1)
 					KEY_HOME: example_presenter.recenter()
+					KEY_SPACE:
+						if example_presenter != null and not example_presenter.step_button.disabled:
+							example_presenter.step_button.pressed.emit()
+					KEY_BACKSPACE:
+						if example_presenter != null:
+							example_presenter.set_lesson(lesson_index)
+					KEY_ENTER, KEY_KP_ENTER:
+						if example_presenter != null and not example_presenter.recover_button.disabled:
+							example_presenter.recover_button.pressed.emit()
 			get_viewport().set_input_as_handled()
 		elif example_presenter.handle_pointer(event):
 			get_viewport().set_input_as_handled()
 		return
+	if _catalog_open():
+		return
+	if event is InputEventKey and not event.pressed and consumed_shortcut_keys.has(event.keycode):
+		consumed_shortcut_keys.erase(event.keycode)
+		get_viewport().set_input_as_handled()
+		return
+	if event is InputEventKey and event.pressed and not event.echo:
+		var handled := false
+		if event.ctrl_pressed:
+			match event.keycode:
+				KEY_D: handled = _activate_button(details_button)
+				KEY_ENTER, KEY_KP_ENTER: handled = _activate_button(confirm_button)
+				KEY_R: handled = _activate_button(retrieve_button)
+				KEY_M: handled = _open_action_menu(recovery_actions.action_button if recovery_actions != null else null)
+				KEY_L: handled = _open_action_menu(loose_material_controls)
+				KEY_HOME:
+					if transmission_controls != null and transmission_controls.is_visible_in_tree():
+						transmission_controls._height_selected(2)
+						handled = true
+		elif event.alt_pressed and transmission_controls != null and _native_transmission() and _can_choose_tool():
+			var transmission_tools := {KEY_1: "gear", KEY_2: "drive", KEY_3: "belt",
+				KEY_4: "gearbox", KEY_5: "vertical_gearbox", KEY_6: "chain_drive"}
+			if transmission_tools.has(event.keycode):
+				var choice: String = transmission_tools[event.keycode]
+				var entry := building_hotbar.catalog_buttons.get(choice) as Button
+				if entry != null and not entry.disabled:
+					_select_tool(choice)
+					handled = true
+		elif not event.alt_pressed:
+			match event.keycode:
+				KEY_DELETE: handled = _activate_button(remove_button)
+				KEY_T: handled = _open_action_menu(transmission_controls)
+				KEY_X:
+					if event.shift_pressed and transmission_controls != null and transmission_controls.is_visible_in_tree():
+						var axes := ["x", "y", "z"]
+						var next := (axes.find(transmission_controls.selected_link_axis) + 1) % 3
+						if axes[next] == transmission_controls.selected_axis:
+							next = (next + 1) % 3
+						transmission_controls._link_axis_selected(next)
+						handled = true
+					elif placement_options_axis.is_visible_in_tree():
+						handled = _activate_button(placement_options_axis)
+				KEY_Z:
+					if foundation_steps_toggle.is_visible_in_tree() and not foundation_steps_toggle.disabled:
+						foundation_steps_toggle.button_pressed = not foundation_steps_toggle.button_pressed
+						_set_foundation_steps(foundation_steps_toggle.button_pressed)
+						handled = true
+				KEY_V:
+					if foundation_area_toggle.is_visible_in_tree() and not foundation_area_toggle.disabled:
+						foundation_area_toggle.button_pressed = not foundation_area_toggle.button_pressed
+						foundation_area_mode = foundation_area_toggle.button_pressed
+						foundation_area_started = false
+						handled = true
+				KEY_K:
+					if transmission_controls != null and transmission_controls.is_visible_in_tree() and mode == "gear":
+						transmission_controls._size_selected(1 if transmission_controls.gear_teeth == 2 else 0)
+						handled = true
+				KEY_PAGEUP, KEY_PAGEDOWN:
+					if event.shift_pressed and wheel_size_controls.is_visible_in_tree():
+						handled = _activate_button(wheel_size_controls.get_child(2 if event.keycode == KEY_PAGEUP else 0) as Button)
+					elif event.shift_pressed and transmission_controls != null and transmission_controls.is_visible_in_tree():
+						transmission_controls._height_selected(1 if event.keycode == KEY_PAGEUP else 0)
+						handled = true
+		if handled:
+			consumed_shortcut_keys[event.keycode] = true
+			get_viewport().set_input_as_handled()
+			return
 	# Consume both edges of global shortcuts so a
 	# previously focused GUI button cannot also activate on the release.
 	if event is InputEventKey and (event.keycode in [KEY_F5, KEY_F9] or event.keycode == (KEY_SPACE if legacy_fixture else KEY_P)):
@@ -5055,6 +5136,18 @@ func _input(event: InputEvent) -> void:
 						_save_worksite()
 				KEY_F9: _load_worksite()
 		get_viewport().set_input_as_handled()
+
+func _activate_button(button: Button) -> bool:
+	if button == null or not button.is_visible_in_tree() or button.disabled:
+		return false
+	button.pressed.emit()
+	return true
+
+func _open_action_menu(button: MenuButton) -> bool:
+	if button == null or not button.is_visible_in_tree() or button.disabled:
+		return false
+	button.show_popup()
+	return true
 
 func _unhandled_input(event: InputEvent) -> void:
 	if explanation_open:
@@ -6478,10 +6571,12 @@ func _refresh_ui() -> void:
 		return
 	_refresh_transmission()
 	var inventory := int(state.inventories.get(client, 0))
+	goal_progress.max_value = 4
+	goal_progress.value = clampi(inventory, 0, 4)
 	parts_label.text = "BUILD FROM SHARED KIT" if _parts_are_shared() else "BUILD FROM CARRIED PARTS"
 	goal_label.text = "FIRST SHIFT\nBring back 4 plates\n%d / 4 collected" % inventory
 	confirm_button.disabled = inventory < 4 or goal_confirmed or explanation_open
-	confirm_button.text = "Objective confirmed" if goal_confirmed else "Confirm four plates"
+	confirm_button.text = "Objective confirmed" if goal_confirmed else "Confirm four plates  [Ctrl+Enter]"
 	var belt_raw: int = int(state.get("line_belt_raw", 0)) if _native_transmission() else state.stock.belt
 	stock_label.text = "ORE DEPOSIT  %d blanks\nIN THE LINE  %d blanks\nPRESS OUTLET  %d plate" % [state.stock.source,
 		state.stock.collector + belt_raw + state.stock.input + state.stock.held, state.stock.output]
@@ -6551,8 +6646,14 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		foundation_level_controls.visible = _native_transmission() and mode in ["foundation", "wheel"] and not explanation_open and snapshot_ready
 		foundation_area_toggle.visible = foundation_level_controls.visible and mode == "foundation"
 		foundation_steps_toggle.visible = foundation_area_toggle.visible
+		foundation_steps_toggle.text = "Access steps  [Z]"
+		foundation_area_toggle.text = "Area: two corners  [V]"
 		foundation_level_label.text = _construction_height_text()
+		(foundation_level_controls.get_child(0) as Button).text = "−  [PgDn]"
+		(foundation_level_controls.get_child(2) as Button).text = "+  [PgUp]"
 		wheel_size_controls.visible = foundation_level_controls.visible and mode == "wheel"
+		(wheel_size_controls.get_child(0) as Button).text = "−  [Shift+PgDn]"
+		(wheel_size_controls.get_child(2) as Button).text = "+  [Shift+PgUp]"
 	footer_snapshot_ready = snapshot_ready
 	_queue_footer_fit()
 	if building_hotbar != null:
@@ -6580,10 +6681,10 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	for tool in tool_buttons:
 		var button: Button = tool_buttons[tool]
 		# Keyboard selection stays visible even when it precedes the suggestion.
-		button.visible = NAMES.has(tool) or tool in ["drive", "gear"] or offered.has(tool) or mode == tool
+		button.visible = NAMES.has(tool) or building_hotbar.catalog_buttons.has(tool) or offered.has(tool) or mode == tool
 		if tool == "foundation" and not state.get("options", {}).get("foundations", false):
 			button.visible = false
-		if tool == "gear" and not _native_transmission():
+		if tool in ["gear", "gearbox", "vertical_gearbox", "chain_drive"] and not _native_transmission():
 			button.visible = false
 		for color_name in ["font_color", "font_focus_color", "font_hover_color", "font_pressed_color", "font_hover_pressed_color"]:
 			if tool == step.tool:
@@ -6591,17 +6692,19 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 			else:
 				button.remove_theme_color_override(color_name)
 	var inventory := int(state.get("inventories", {}).get(client, 0))
-	goal_label.text = "Make 4 plates\n%s\n%d / 4 collected" % [step.text, inventory] if snapshot_ready else "Connect to the worksite."
+	goal_progress.value = clampi(inventory, 0, 4)
+	goal_label.text = "Make 4 plates  ·  %d / 4\n%s" % [inventory, step.text] if snapshot_ready else "Connect to the worksite."
 	confirm_button.visible = snapshot_ready and (inventory >= 4 or goal_confirmed)
-	details_button.text = "Less detail" if show_details else "Details"
+	details_button.text = "Less detail  [Ctrl+D]" if show_details else "Details  [Ctrl+D]"
 	details_button.disabled = explanation_open
 	for control in [stock_label, power_label, save_button, load_button]:
 		control.visible = show_details
 	actor_label.visible = show_details or not state.get("actors", {}).get(client, {}).get("ready", false)
 	power_button.visible = kinds.has("wheel")
-	controls_label.text = "WASD walk · E open · F dismantle · R rotate · Esc cancel · H help"
+	controls_label.text = "B catalog  ·  1–8 build  ·  E open  ·  F dismantle  ·  H guide  ·  Ctrl+D details"
 	_refresh_engineering(snapshot_ready)
 	var target_selected: bool = _contains_target(state, selected)
+	inspector_title.visible = target_selected or show_details or not snapshot_ready or not _can_choose_tool()
 	inspector.visible = target_selected or show_details \
 		or not snapshot_ready or not _can_choose_tool()
 	retrieve_button.visible = state.get("entities", {}).get(selected, {}).get("kind") == "processor"
@@ -6692,7 +6795,7 @@ func _refresh_placement_options() -> void:
 		"belt": "Click two parallel shafts · Esc cancels",
 	}.get(tool, "Left click to build · R rotates · Esc cancels")
 	placement_options_axis.visible = tool in ["wheel", "gear", "drive", "vertical_gearbox", "chain_drive"]
-	placement_options_axis.text = "Axle: %s  [click to change]" % (transmission_controls.selected_axis.to_upper()
+	placement_options_axis.text = "Axle: %s  [X]" % (transmission_controls.selected_axis.to_upper()
 		if transmission_controls != null else "X")
 	var parent := placement_options_panel.get_parent() as Control
 	var height: float = placement_options_panel.get_combined_minimum_size().y
@@ -7149,14 +7252,23 @@ func _button(parent: Node, words: String, callback: Callable) -> Button:
 	parent.add_child(button)
 	return button
 
+func _accent_button(button: Button) -> void:
+	for state_name in ["normal", "hover", "pressed", "hover_pressed"]:
+		var style := button.get_theme_stylebox(state_name).duplicate() as StyleBoxFlat
+		style.bg_color = Color("614721") if state_name in ["normal", "pressed"] else Color("806036")
+		style.border_color = Color("e9b873")
+		button.add_theme_stylebox_override(state_name, style)
+	button.add_theme_color_override("font_color", Color("fff5df"))
+	button.add_theme_color_override("font_hover_color", Color("fff5df"))
+
 func _panel(parent: Node, at: Vector2, dimensions: Vector2) -> VBoxContainer:
 	var panel := PanelContainer.new()
 	panel.position = at
 	panel.size = dimensions
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.078, 0.129, 0.157, 0.96)
-	style.border_color = Color("41565e")
-	style.set_corner_radius_all(5)
+	style.bg_color = Color(0.055, 0.092, 0.112, 0.94)
+	style.border_color = Color("52676b")
+	style.set_corner_radius_all(7)
 	style.border_width_left = 1
 	style.border_width_right = 1
 	style.border_width_top = 1
@@ -7198,14 +7310,28 @@ func _build_interface() -> void:
 	build_column = build
 	if not legacy_fixture:
 		build.add_theme_constant_override("separation", 6)
-	_label(build, "FACTORY / FIRST SHIFT", 20, Color("edcc8d"))
+	_label(build, "FIRST SHIFT  /  01", 13, Color("f4bf75"))
 	var tagline := _label(build, "A small line. Real materials.", 14, Color("9eb4b2"))
 	tagline.visible = legacy_fixture
 	build.add_child(HSeparator.new())
-	goal_label = _label(build, "", 18)
+	goal_label = _label(build, "", 19, Color("f4f5eb"))
 	if not legacy_fixture:
 		goal_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	confirm_button = _button(build, "Confirm four plates", _confirm_goal)
+	goal_progress = ProgressBar.new()
+	goal_progress.max_value = 4
+	goal_progress.show_percentage = false
+	goal_progress.custom_minimum_size.y = 7
+	var track := StyleBoxFlat.new()
+	track.bg_color = Color("293a3d")
+	track.set_corner_radius_all(3)
+	goal_progress.add_theme_stylebox_override("background", track)
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = Color("e6ae64")
+	fill.set_corner_radius_all(3)
+	goal_progress.add_theme_stylebox_override("fill", fill)
+	build.add_child(goal_progress)
+	confirm_button = _button(build, "Confirm four plates  [Ctrl+Enter]", _confirm_goal)
+	_accent_button(confirm_button)
 	build.add_child(HSeparator.new())
 	building_hotbar = BuildingHotbar.new()
 	building_hotbar.configure(self, root)
@@ -7256,7 +7382,7 @@ func _build_interface() -> void:
 	var view_options := HBoxContainer.new()
 	build.add_child(view_options)
 	view_options.visible = not legacy_fixture
-	details_button = _button(view_options, "Details", _toggle_details)
+	details_button = _button(view_options, "Details  [Ctrl+D]", _toggle_details)
 	details_button.tooltip_text = "Show worksite counters and save options."
 	_button(build, "How this line works  [H]", _toggle_explanation)
 	var right := _panel(root, Vector2(990, 18), Vector2(272, 490 if legacy_fixture else 0))
@@ -7266,11 +7392,12 @@ func _build_interface() -> void:
 	right_panel.set_anchor_and_offset(SIDE_LEFT, 1.0, -290)
 	right_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	if legacy_fixture:
-		_label(right, "WORKSITE", 13, Color("a3b8b4"))
+		_label(right, "WORKSITE", 13, Color("b0c4c0"))
 	else:
 		# The actor/connection rows identify the physical worksite. Leave room
 		# for a selected press and pending-server advice above the status panel.
 		right.add_theme_constant_override("separation", 6)
+		inspector_title = _label(right, "SELECTED / WORKSITE", 12, Color("f4bf75"))
 	actor_label = _label(right, "", 11, Color("a3b8b4"))
 	actor_label.visible = not legacy_fixture
 	power_label = _label(right, "", 14, Color("dfbc76"))
@@ -7278,9 +7405,10 @@ func _build_interface() -> void:
 	inspector = _label(right, "", 15)
 	inspector.custom_minimum_size.x = 238
 	inspector.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	retrieve_button = _button(right, "Collect plate  [R]", _retrieve)
+	retrieve_button = _button(right, "Collect plate  [Ctrl+R]", _retrieve)
+	_accent_button(retrieve_button)
 	power_button = _button(right, "Stop drive  [Space]", _toggle_power)
-	remove_button = _button(right, "Dismantle selected", _remove_selected)
+	remove_button = _button(right, "Dismantle selected  [Delete]", _remove_selected)
 	# Older scripted launch payloads have a fixed roster without this native UI.
 	var recovery_path := "res://opening/recovery_actions.gd"
 	if ResourceLoader.exists(recovery_path, "Script"):
@@ -7303,7 +7431,7 @@ func _build_interface() -> void:
 	bottom_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	status_label = _label(bottom, "", 16)
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	controls_label = _label(bottom, "1–8 build · E open · F dismantle · R rotate · Esc cancel · H help", 12, Color("9eb4b2"))
+	controls_label = _label(bottom, "B catalog  ·  1–8 build  ·  E open  ·  F dismantle  ·  H guide  ·  Ctrl+D details", 12, Color("bfd1cc"))
 	bottom_panel.minimum_size_changed.connect(_queue_footer_fit)
 	bottom_panel.resized.connect(_queue_footer_fit)
 	for column: Control in [build, right]:
@@ -7317,7 +7445,7 @@ func _build_interface() -> void:
 	lesson_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var row := HBoxContainer.new()
 	lesson_column.add_child(row)
-	lesson_previous = _button(row, "Previous", func(): _set_lesson(lesson_index - 1))
-	lesson_next = _button(row, "Next", func(): _set_lesson(lesson_index + 1))
+	lesson_previous = _button(row, "Previous  [←]", func(): _set_lesson(lesson_index - 1))
+	lesson_next = _button(row, "Next  [→]", func(): _set_lesson(lesson_index + 1))
 	lesson_return = _button(row, "Return to building  [H]", _toggle_explanation)
 	lesson_panel.visible = false

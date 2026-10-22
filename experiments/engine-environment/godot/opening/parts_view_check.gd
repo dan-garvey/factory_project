@@ -60,6 +60,9 @@ func fixture() -> Dictionary:
 		"stock": {"output": 0}, "inventories": {"P": 0, "Q": 0}}
 
 func _initialize() -> void:
+	if "--ui-shortcuts-only" in OS.get_cmdline_user_args():
+		call_deferred("_ui_shortcuts")
+		return
 	if "--interaction-only" in OS.get_cmdline_user_args():
 		call_deferred("_interaction_controls")
 		return
@@ -94,16 +97,19 @@ func _initialize() -> void:
 	view.state.options.native = true
 	verify(view._display_parts() == {"collector": 0, "belt": 0, "processor": 1, "shaft": 0}, "Native Q displays Q's actual carried kit.")
 	verify(not view._parts_are_shared(), "Native per-actor kits use the carried caption.")
-	verify(view._guided_placement_cell().is_empty(), "P's available Belt cannot produce a cue for Q's empty kit.")
+	var belt_guidance: Dictionary = view._guided_step({"collector": true})
+	verify(belt_guidance.tool == "drive" and "shafts" in belt_guidance.text,
+		"Native guidance asks Q for a shaft route while only P carries a Belt.")
 	view.state.part_kits.P.belt = 0
 	view.state.parts.belt = 0
 	view.state.part_kits.Q.belt = 1
-	verify(view._guided_placement_cell().is_empty() and view._guided_step({"collector": true}).tool == "drive",
-		"Native shaft-belt guidance does not suggest a grid Belt cell even when Q carries a Belt.")
+	verify(view._guided_step({"collector": true}) == belt_guidance,
+		"Carrying a Belt does not replace native shaft-route guidance with a grid Belt cue.")
 	verify(view._display_parts().shaft == 0, "Q does not borrow P's shaft count.")
 	view.client = "P"
 	verify(view._display_parts().belt == 0 and view._display_parts().shaft == 3, "Changing the active actor changes every displayed kit field.")
-	verify(view._guided_placement_cell().is_empty(), "Q's Belt does not produce a cue for P.")
+	verify(view._guided_step({"collector": true}) == belt_guidance,
+		"Q's Belt does not change P's native shaft-route guidance.")
 	view.client = "Q"
 	view.state.part_kits.erase("Q")
 	verify(view._display_parts().is_empty(), "An absent native actor kit does not fall back to P.")
@@ -116,7 +122,7 @@ func _initialize() -> void:
 	var sequence: int = view.request_sequence
 	var namespace_id: String = view.request_namespace
 	verify(view._display_parts().belt == 0, "Carried material is distinct from construction parts.")
-	view._guided_placement_cell()
+	view._guided_step({"collector": true})
 	verify(view.state == before and view.model == null and view.request_sequence == sequence and view.request_namespace == namespace_id, "Display reads change neither projection nor authority/intent state.")
 	view.free()
 	print("OPENING_PARTS_VIEW_%s %d" % ["PASS" if failures == 0 else "FAIL", checks])
@@ -140,6 +146,62 @@ func hotbar_observation() -> Dictionary:
 func settle_widgets() -> void:
 	for _frame in range(4):
 		await process_frame
+
+func _ui_shortcuts() -> void:
+	for shared in [false, true]:
+		var view = SharedWidgets.new() if shared else OfflineWidgets.new()
+		if shared:
+			view.session = SessionStub.new()
+		view.state = hotbar_observation()
+		view.state.part_kits.P.gearbox = 1
+		view.mode = "inspect"
+		root.add_child(view)
+		view.selection_ring = MeshInstance3D.new()
+		view.add_child(view.selection_ring)
+		view._build_interface()
+		view._refresh_ui()
+		var before: Dictionary = view.state.duplicate(true)
+		var bar = view.building_hotbar
+		bar.open_catalog()
+		var event := InputEventKey.new()
+		event.pressed = true
+		event.keycode = KEY_8
+		bar._input(event)
+		verify(bar.destination.selected == 7, "Number keys choose a catalog destination without changing the world.")
+		event.keycode = KEY_H
+		bar._input(event)
+		verify(bar.slots[7] == "gearbox" and view.mode == "gearbox" and not bar.catalog.visible,
+			"A catalog letter assigns a mechanical part and activates its native placement view.")
+		bar.open_catalog(7)
+		event.keycode = KEY_DELETE
+		bar._input(event)
+		verify(bar.slots[7].is_empty() and view.mode == "inspect", "Delete clears the selected catalog slot.")
+		event.keycode = KEY_D
+		event.ctrl_pressed = true
+		view._input(event)
+		verify(view.show_details and view.stock_label.visible, "Ctrl+D reveals the detailed worksite view.")
+		view._input(event)
+		verify(not view.show_details and not view.stock_label.visible, "Ctrl+D closes the detailed worksite view.")
+		event.ctrl_pressed = false
+		event.alt_pressed = true
+		event.keycode = KEY_4
+		view._input(event)
+		verify(view.mode == "gearbox", "Alt+4 reaches a mechanical tool outside the default hotbar.")
+		event.alt_pressed = false
+		view._refresh_placement_options()
+		event.keycode = KEY_T
+		view._input(event)
+		verify(view.transmission_controls.get_popup().visible, "T opens the mounted mechanical options menu.")
+		view.transmission_controls.get_popup().hide()
+		event.keycode = KEY_DELETE
+		view._input(event)
+		verify(view.issued.is_empty(), "Delete cannot dismantle an absent or disabled selection.")
+		verify(view.state == before and view.model == null and view.actor_world == null and view.request_sequence == 0,
+			"UI shortcuts change only presentation until a valid world action is issued.")
+		view.free()
+	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
+		"failures": failures, "models": 0, "desktop_operations": 0, "scope": "ordinary/shared keyboard UI over invented projections"}))
+	quit(0 if failures == 0 else 1)
 
 func _building_rotation() -> void:
 	for shared in [false, true]:
