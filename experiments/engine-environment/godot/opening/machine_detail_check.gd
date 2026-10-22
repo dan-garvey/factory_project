@@ -889,29 +889,39 @@ func check_conveyor_frame() -> void:
 				"links": [], "drive_links": [], "engagements": []}
 			var before: Dictionary = view.state.duplicate(true)
 			view._rebuild_machines()
-			var machine: Node3D = view.machine_root.get_child(0)
+			var anchor: Node3D = view.machine_root.get_child(0)
+			# Native X-axis belts use the presenter's rotated visual root. Inspect
+			# the same local kit there while keeping the pick body on the anchor.
+			var rotated := bool(anchor.get_meta("material_rotated", false))
+			var machine: Node3D = anchor.get_node("RotatedMachineVisual") if rotated else anchor
+			var rendered_axis := 2 if rotated else axis
 			verify(machine.get_meta("conveyor_frame", false), "The actual native conveyor mounts its fitted fixed furniture.")
 			var rollers: Array[MeshInstance3D] = []
 			var parts: Array[MeshInstance3D] = []
 			var picks := 0
 			var loop: MeshInstance3D = machine.get_node("ConveyorLoop")
-			verify(loop.mesh == ConveyorArt.loop_mesh() and loop.material_override == ConveyorArt.material()
+			var rubber: StandardMaterial3D = ConveyorArt.material()
+			var loop_finish := loop.material_override as StandardMaterial3D
+			verify(loop.mesh == ConveyorArt.loop_mesh() and loop_finish != rubber and loop_finish != null
+				and loop_finish.albedo_texture == rubber.albedo_texture
+				and loop_finish.normal_texture == rubber.normal_texture
 				and loop.position.is_equal_approx(Vector3(0, 0.465, 0)),
-				"The new furniture preserves the exact original rubber loop, material and mounting height.")
+				"The new furniture preserves the exact rubber loop and independent phase-ready finish.")
 			for child in machine.get_children():
 				if child is MeshInstance3D:
 					if child.get_meta("detail_role", "") == "ConveyorRoller":
 						rollers.append(child)
 					if child.has_meta("conveyor_frame_role"):
 						parts.append(child)
-				elif child is StaticBody3D:
+			for child in anchor.get_children():
+				if child is StaticBody3D:
 					picks += 1
 					verify(child.collision_layer == Geometry.PICK_LAYER and child.collision_mask == 0
 						and child.get_child_count() == 1 and child.get_child(0).shape.size == Vector3(1.45, 1.65, 1.45)
 						and child.get_child(0).position.is_equal_approx(Vector3(0, 0.8, 0)),
 						"The sole entity pick body retains its original size, centre and masks.")
-			verify(picks == 1 and rollers.size() == 2 and parts.size() == (34 if axis == 2 else 32),
-				"The kit has four complete end frames, eight seated feet and the appropriate rigid guards.")
+			verify(picks == 1 and rollers.size() == 2 and parts.size() == (38 if rendered_axis == 2 else 36),
+				"The kit has four complete end frames, eight seated feet and four fitted guard posts.")
 			for roller in rollers:
 				verify(is_equal_approx(absf(roller.position.x), 0.57) and is_equal_approx(roller.position.y, 0.465)
 					and roller.position.z == 0 and roller.mesh.get_aabb().position.is_equal_approx(Vector3(-0.077, -0.35, -0.077))
@@ -919,17 +929,23 @@ func check_conveyor_frame() -> void:
 					"The literal original turned roller envelope and centre remain unchanged.")
 			var drive: MeshInstance3D = machine.get_node("DriveStub")
 			var compact: bool = machine.get_meta("conveyor_hub", false)
-			var journal_height := (0.08 if axis == 1 else 0.12) if compact else (0.9 if axis == 1 else 1.35)
+			var journal_height := (0.08 if rendered_axis == 1 else 0.12) if compact else (0.9 if rendered_axis == 1 else 1.35)
 			var journal_art: bool = (drive.mesh is CylinderMesh and is_equal_approx(drive.mesh.top_radius, 0.028)
 				and is_equal_approx(drive.mesh.height, journal_height)) if compact else drive.mesh == DriveJournalArt.mesh(journal_height)
 			verify(journal_art
-				and drive.position.is_equal_approx(Vector3(0, 0.5, 0))
-				and absf(drive.basis.y.dot([Vector3.RIGHT, Vector3.UP, Vector3.BACK][axis])) > 0.99999,
+				and drive.position.is_equal_approx(Vector3(0, Geometry.ANCHOR_HEIGHT, 0))
+				and absf(drive.basis.y.dot([Vector3.RIGHT, Vector3.UP, Vector3.BACK][rendered_axis])) > 0.99999,
 				"The native hub point and confirmed axis remain exact, with the declared current journal artwork.")
 			var shafts: Array[MeshInstance3D] = [drive]
 			shafts.append_array(rollers)
+			var guard_posts := 0
+			var guard_sections := 0
 			for part in parts:
 				var role: String = part.get_meta("conveyor_frame_role")
+				if role == "GuardPost":
+					guard_posts += 1
+				if role == "GuardRail" or role == "GuardHalf":
+					guard_sections += 1
 				verify(part.get_script() == null and part.get_child_count() == 0 and part.scale.is_equal_approx(Vector3.ONE),
 					"Every fixed piece is plain geometry with baked dimensions and no controller or collider.")
 				check_bounds(part, Transform3D.IDENTITY)
@@ -937,17 +953,29 @@ func check_conveyor_frame() -> void:
 					var volumes: Array = {"FrameCheek": [0.0012, 0.0018], "BearingCup": [0.0023, 0.0028],
 						"BearingLiner": [0.00007, 0.00008], "EndCap": [0.00014, 0.00020],
 						"CapBolt": [0.000021, 0.000024], "FootBolt": [0.0000043, 0.0000046],
-						"SideBeam": [0.0016, 0.0020], "GuardRail": [0.004, 0.006], "GuardHalf": [0.0020, 0.0024]}[role]
+						"SideBeam": [0.0016, 0.0020], "GuardRail": [0.004, 0.006],
+						"GuardHalf": [0.0020, 0.0024], "GuardPost": [0.00015, 0.0005]}[role]
 					check_closed_asset_mesh(part.mesh, volumes[0], volumes[1])
 					cache[role] = [part.mesh, part.material_override]
 				verify(part.mesh == cache[role][0] and part.material_override == cache[role][1],
 					"Both builders and all drive axes share every compatible mesh and material.")
-				var painted := role in ["FrameCheek", "BearingCup", "SideBeam", "GuardRail", "GuardHalf"]
+				var painted := role in ["FrameCheek", "BearingCup", "SideBeam", "GuardRail", "GuardHalf", "GuardPost"]
 				var material := part.material_override as StandardMaterial3D
-				verify(material.albedo_color == (Color("538e88") if painted else Color("a6b4af"))
+				verify(material.albedo_color == (Color("49666a") if painted else Color("a6b4af"))
 					and is_equal_approx(material.metallic, 0.0 if painted else 0.85)
 					and material.normal_texture == Opening.ProductionTransmissionFinish.textures[("cast" if painted else "worked") + "_normal"],
 					"The actual kit keeps cast coating and exposed worked metal distinct with shared qualified maps.")
+				if role == "GuardPost":
+					var post_box: AABB = part.transform * part.mesh.get_aabb()
+					verify(absf(post_box.position.y - 0.385) < 0.001 and absf(post_box.end.y - 0.53) < 0.001
+						and is_equal_approx(absf(part.position.x), 0.30)
+						and is_equal_approx(absf(part.position.z), 0.36),
+						"Each guard post seats directly between its fixed side beam and folded rail.")
+				if role == "GuardRail" or role == "GuardHalf":
+					var rail_box: AABB = part.transform * part.mesh.get_aabb()
+					verify(absf(rail_box.position.y - 0.53) < 0.001 and absf(rail_box.end.y - 0.61) < 0.001
+						and (rail_box.position.z >= 0.341 if part.position.z > 0 else rail_box.end.z <= -0.341),
+						"The folded rail preserves the rubber and material opening on either side.")
 				for shaft in shafts:
 					var gap := frame_shaft_clearance(part.mesh, part.transform, shaft)
 					minimum_gap = minf(minimum_gap, gap)
@@ -983,6 +1011,8 @@ func check_conveyor_frame() -> void:
 					var seat: MeshInstance3D = machine.get_node(NodePath(str(foot.get_meta("frame_seat"))))
 					verify(frame_seat(foot, seat, 0.001).coverage < 0.99, "A lifted foot bolt fails the same complete-face seating requirement.")
 					controls = 4
+			verify(guard_posts == 4 and guard_sections == (4 if rendered_axis == 2 else 2),
+				"Both sides retain fitted supports and the declared native-drive opening.")
 			verify(view.state == before and view.model == null and view.actor_world == null and view.request_sequence == 0,
 				"The fixed furniture changes no projection, material request, physics or native authority.")
 			assemblies += 1

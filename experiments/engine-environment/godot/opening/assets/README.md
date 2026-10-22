@@ -389,7 +389,9 @@ been inferred from the separate material-transfer rules.
 Native conveyor furniture uses original flared cast end frames with fitted
 bearing cups, worked liners, retaining caps and rigid hexagonal fasteners. Lower
 formed side members join the frames while clearing the original roller tips.
-The upper guards retain a central opening for the existing Z-axis drive. Their
+The upper guards now use closed folded sections with inward returns and four
+seated posts instead of unsupported rectangular bars. They retain a central
+opening for the existing Z-axis drive and clear the rubber edge. Their
 paint and exposed metal reuse the qualified cast/worked maps. The original rubber
 loop, roller geometry, drive, picks, items and authority remain unchanged; these
 visual bearings add no contact, force or transport simulation. Nonnative views

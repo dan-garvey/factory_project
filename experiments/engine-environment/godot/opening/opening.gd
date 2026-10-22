@@ -1488,14 +1488,28 @@ class ProductionConveyorFrameArt:
 			var suffix := "N" if side < 0 else "P"
 			_part(parent, "SideBeam", suffix, ProductionVisuals.prism_mesh(channel, 1.14, 0.002),
 				Vector3(0, 0.355, side * 0.36), Basis(Vector3.UP, side * PI / 2), paint)
+			# A closed folded section leaves its hollow visible at the ends. Its
+			# inward lips stop outside the rubber's unchanged 0.32 m half-width.
+			var guard_section := PackedVector2Array([Vector2(-0.047, -0.04), Vector2(0.018, -0.04),
+				Vector2(0.018, -0.015), Vector2(-0.024, -0.015), Vector2(-0.024, 0.015),
+				Vector2(0.018, 0.015), Vector2(0.018, 0.04), Vector2(-0.047, 0.04)])
+			var guard_basis := Basis(Vector3.UP, side * PI / 2)
 			if drive_axis == 2:
 				# Keep a real opening around the existing Z-axis drive stub.
 				for end in [-1.0, 1.0]:
 					_part(parent, "GuardHalf", suffix + ("N" if end < 0 else "P"),
-						ProductionVisuals.box_mesh(Vector3(0.57, 0.08, 0.05)), Vector3(end * 0.405, 0.57, side * 0.36), Basis.IDENTITY, paint)
+						ProductionVisuals.prism_mesh(guard_section, 0.57, 0.003),
+						Vector3(end * 0.405, 0.57, side * 0.36), guard_basis, paint)
 			else:
-				_part(parent, "GuardRail", suffix, ProductionVisuals.box_mesh(Vector3(1.38, 0.08, 0.05)),
-					Vector3(0, 0.57, side * 0.36), Basis.IDENTITY, paint)
+				_part(parent, "GuardRail", suffix, ProductionVisuals.prism_mesh(guard_section, 1.38, 0.003),
+					Vector3(0, 0.57, side * 0.36), guard_basis, paint)
+			var post_profile := PackedVector2Array([Vector2(-0.035, -0.0725), Vector2(0.035, -0.0725),
+				Vector2(0.035, -0.045), Vector2(0.025, 0.0725),
+				Vector2(-0.025, 0.0725), Vector2(-0.035, -0.045)])
+			for end in [-1.0, 1.0]:
+				_part(parent, "GuardPost", suffix + ("N" if end < 0 else "P"),
+					ProductionVisuals.prism_mesh(post_profile, 0.035, 0.002),
+					Vector3(end * 0.30, 0.4575, side * 0.36), Basis.IDENTITY, paint)
 		parent.set_meta("conveyor_frame", true)
 		return true
 
