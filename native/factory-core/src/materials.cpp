@@ -93,6 +93,8 @@ std::optional<BeltAdvance> advance_belt_lane(const BeltLane& lane, Quantity sign
                                              Quantity receiver_capacity) {
     if (lane.slots.size() < 2 || lane.slots.size() > maximum_belt_slots ||
         lane.phase <= -work_subticks_per_tick || lane.phase >= work_subticks_per_tick ||
+        lane.remainder_denominator <= 0 || lane.remainder <= -lane.remainder_denominator ||
+        lane.remainder >= lane.remainder_denominator ||
         signed_subticks < -maximum_work_subticks_per_tick ||
         signed_subticks > maximum_work_subticks_per_tick || receiver_capacity < 0)
         return std::nullopt;
@@ -136,6 +138,31 @@ std::optional<BeltAdvance> advance_belt_lane(const BeltLane& lane, Quantity sign
         }
     }
     return result;
+}
+
+std::optional<BeltAdvance> advance_belt_lane_rate(const BeltLane& lane, Quantity numerator,
+                                                   Quantity denominator, int direction,
+                                                   bool inclined, Quantity receiver_capacity) {
+    if (denominator <= 0 || (direction != -1 && direction != 1) || lane.remainder_denominator <= 0 ||
+        lane.remainder <= -lane.remainder_denominator || lane.remainder >= lane.remainder_denominator)
+        return std::nullopt;
+    __extension__ using Wide = __int128;
+    Wide magnitude = numerator;
+    if (magnitude < 0) magnitude = -magnitude;
+    Wide distance = magnitude * (inclined ? 2896 : work_subticks_per_tick);
+    const Wide limit = static_cast<Wide>(inclined ? 16 * 2896 : maximum_work_subticks_per_tick) * denominator;
+    if (distance > limit) distance = limit;
+    // When the source rate changes, convert the old fractional remainder to
+    // the new denominator. Conversion loses less than one new fraction of a
+    // subtick; unchanged rates accumulate exactly.
+    const Wide remainder = static_cast<Wide>(lane.remainder) * denominator / lane.remainder_denominator;
+    const Wide total = remainder + direction * distance;
+    const auto subticks = static_cast<Quantity>(total / denominator);
+    auto advanced = advance_belt_lane(lane, subticks, receiver_capacity);
+    if (!advanced) return std::nullopt;
+    advanced->candidate.remainder = static_cast<Quantity>(total % denominator);
+    advanced->candidate.remainder_denominator = denominator;
+    return advanced;
 }
 
 Error validate(const State& state, const Config& config, const Path& path) noexcept {
@@ -200,7 +227,9 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
     if (!products(total, stock.output, config.input_units_per_product)) return Error::quantity_overflow;
     for (const auto& [span_id, lane] : state.belt_lanes) {
         if (span_id.empty() || lane.slots.size() < 2 || lane.slots.size() > maximum_belt_slots ||
-            lane.phase <= -work_subticks_per_tick || lane.phase >= work_subticks_per_tick)
+            lane.phase <= -work_subticks_per_tick || lane.phase >= work_subticks_per_tick ||
+            lane.remainder_denominator <= 0 || lane.remainder <= -lane.remainder_denominator ||
+            lane.remainder >= lane.remainder_denominator)
             return Error::invalid_state;
         for (const auto& item : lane.slots) {
             if (!item) continue;

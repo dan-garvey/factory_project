@@ -157,7 +157,8 @@ MaterialEncoding encode_material_state(const State& state, const Config& config,
         for (const auto& [id, lane] : state.belt_lanes) {
             Value::Array slots;
             for (const auto& item : lane.slots) slots.push_back(item ? encode_cargo(*item) : Value(nullptr));
-            lanes.emplace(id, Value(Object{{"phase", Value(lane.phase)}, {"slots", Value(std::move(slots))}}));
+            lanes.emplace(id, Value(Object{{"phase", Value(lane.phase)}, {"remainder", Value(lane.remainder)},
+                {"remainder_denominator", Value(lane.remainder_denominator)}, {"slots", Value(std::move(slots))}}));
         }
         const auto& stock = state.stock;
         return Value(Object{
@@ -196,13 +197,15 @@ MaterialDecoding decode_material_state(const Value& value, const Config& config,
         const auto& lanes = object(root.at("belt_lanes"), "$.belt_lanes");
         if (lanes.size() > 256) refuse(CodecReason::invalid_material_state, "$.belt_lanes");
         for (const auto& [id, value_lane] : lanes) {
-            const auto& entry = fields(value_lane, "$.belt_lanes", {"phase", "slots"});
+            const auto& entry = fields(value_lane, "$.belt_lanes", {"phase", "remainder", "remainder_denominator", "slots"});
             if (entry.at("slots").type() != Type::array) refuse(CodecReason::wrong_type, "$.belt_lanes.slots");
             const auto& slots = std::get<Value::Array>(entry.at("slots").storage());
             if (slots.size() < 2 || slots.size() > maximum_belt_slots)
                 refuse(CodecReason::invalid_material_state, "$.belt_lanes.slots");
             BeltLane lane;
             lane.phase = integer(entry.at("phase"), "$.belt_lanes.phase");
+            lane.remainder = integer(entry.at("remainder"), "$.belt_lanes.remainder");
+            lane.remainder_denominator = integer(entry.at("remainder_denominator"), "$.belt_lanes.remainder_denominator");
             for (const auto& value_item : slots) {
                 if (value_item.type() == Type::null) {
                     lane.slots.emplace_back(std::nullopt);

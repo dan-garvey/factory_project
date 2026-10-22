@@ -56,6 +56,9 @@ struct BeltLane {
     std::vector<std::optional<Cargo>> slots;
     // Signed fractional distance retained when motion reverses or stops.
     Quantity phase{};
+    // Fraction of one subtick retained across ticks and power reversals.
+    Quantity remainder{};
+    Quantity remainder_denominator{1};
     bool operator==(const BeltLane&) const = default;
 };
 struct BeltAdvance {
@@ -70,6 +73,9 @@ struct BeltAdvance {
 // Invalid inputs return no proposal and leave the supplied lane untouched.
 [[nodiscard]] std::optional<BeltAdvance> advance_belt_lane(
     const BeltLane&, Quantity signed_subticks, Quantity receiver_capacity);
+[[nodiscard]] std::optional<BeltAdvance> advance_belt_lane_rate(
+    const BeltLane&, Quantity numerator, Quantity denominator, int direction,
+    bool inclined, Quantity receiver_capacity);
 
 // These are revisable fixture values, supplied by the caller, not game content.
 struct Config {

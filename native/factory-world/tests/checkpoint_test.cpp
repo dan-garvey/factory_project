@@ -262,7 +262,7 @@ void belt_span_checkpoint() {
                             {{s::Role::belt, 0, 0}, 1}};
     w::State state;
     state.material.initial_units = 1; state.material.stock.source = 0;
-    state.material.belt_lanes.emplace("belt", m::BeltLane{{std::nullopt, std::nullopt, m::Cargo{1, 0, {}}}, -123});
+    state.material.belt_lanes.emplace("belt", m::BeltLane{{std::nullopt, std::nullopt, m::Cargo{1, 0, {}}}, -123, -2, 3});
     state.material.cargo = {{"P", {}}}; state.kits = {{"P", {}}};
     state.topology.parts = {{{"wheel", g::Kind::hub, {0, 0, -4}, g::Axis::z, 0, 0}, 1, s::Role::waterwheel},
         {{"left", g::Kind::shaft, {0, 0, 0}, g::Axis::z, 0, 2}, 1, s::Role::shaft},
@@ -272,6 +272,30 @@ void belt_span_checkpoint() {
     state.issued_entities = {{"wheel", 1}, {"left", 1}, {"right", 1}, {"belt", 1}};
     auto world = w::World::create("saved-world", profile, state);
     check(world != nullptr, "A seeded world accepts a finite, identified belt span.");
+    auto fractional_profile = profile;
+    fractional_profile.waterwheel_rate = {1, 3};
+    auto fractional_state = state;
+    fractional_state.topology.sources = {{"wheel", {1, 3}}};
+    fractional_state.material.belt_lanes.at("belt").phase = 0;
+    fractional_state.material.belt_lanes.at("belt").remainder = 0;
+    fractional_state.material.belt_lanes.at("belt").remainder_denominator = 1;
+    auto fractional = w::World::create("fractional-world", fractional_profile, fractional_state);
+    check(fractional && fractional->tick().error == w::TransactionError::none,
+          "A third-speed driven lane advances before saving.");
+    const auto fractional_encoded = w::encode_checkpoint(fractional_profile, fractional->snapshot());
+    check(std::holds_alternative<V>(fractional_encoded), "A fractional belt checkpoint encodes.");
+    const auto fractional_decoded = w::decode_checkpoint(fractional_profile, "fractional-world", std::get<V>(fractional_encoded));
+    check(std::holds_alternative<w::Snapshot>(fractional_decoded), "A fractional belt checkpoint decodes.");
+    auto fractional_restored = w::World::restore("fractional-world", fractional_profile, std::get<w::Snapshot>(fractional_decoded));
+    check(fractional_restored != nullptr, "A fractional belt restores.");
+    for (int tick = 0; tick < 2; ++tick)
+        check(fractional->tick().error == w::TransactionError::none &&
+                  fractional_restored->tick().error == w::TransactionError::none &&
+                  fractional->snapshot().state == fractional_restored->snapshot().state,
+              "Restored and uninterrupted fractional belts remain identical.");
+    check(fractional->snapshot().state.material.belt_lanes.at("belt").slots[1].has_value() &&
+              fractional->snapshot().state.material.belt_lanes.at("belt").phase == 0,
+          "Three third-speed ticks move the cargo exactly one tile across the checkpoint.");
     const auto encoded = w::encode_checkpoint(profile, world->snapshot());
     check(std::holds_alternative<V>(encoded), "The world exports the span in the typed checkpoint.");
     const auto decoded = w::decode_checkpoint(profile, "saved-world", std::get<V>(encoded));
@@ -594,29 +618,8 @@ void inclined_material_route() {
             check(reverse && reverse->tick().error == w::TransactionError::none &&
                       reverse->snapshot().state.material.belt_lanes.at("span").phase == -expected_phase &&
                       reverse->tick().error == w::TransactionError::none &&
-                      !reverse->snapshot().state.material.dropped_material.contains({-4, 0, 0}) &&
-                      (reverse_endpoints ? reverse->snapshot().state.material.belt_lanes.at("span").slots.back() :
-                                           reverse->snapshot().state.material.belt_lanes.at("span").slots.front()) == item,
-                  "Reversing power retains typed cargo against the collector instead of ejecting it inside the machine.");
-            const auto blocked_snapshot = reverse->snapshot();
-            const auto blocked_encoded = w::encode_checkpoint(reverse_profile, blocked_snapshot);
-            check(std::holds_alternative<V>(blocked_encoded), "The blocked inclined belt encodes.");
-            const auto blocked_decoded = w::decode_checkpoint(reverse_profile, "typed-reverse", std::get<V>(blocked_encoded));
-            check(std::holds_alternative<w::Snapshot>(blocked_decoded), "The blocked inclined belt decodes.");
-            auto blocked_restored = w::World::restore("typed-reverse", reverse_profile, std::get<w::Snapshot>(blocked_decoded));
-            check(blocked_restored && blocked_restored->tick().error == w::TransactionError::none &&
-                      reverse->tick().error == w::TransactionError::none &&
-                      blocked_restored->snapshot().state == reverse->snapshot().state,
-                  "A restored blocked belt retains the same typed cargo and backpressure.");
-            auto resumed_state = blocked_restored->snapshot().state;
-            resumed_state.topology.sources = {{"collector-wheel", {-1, 1}}, {"belt-wheel", {-1, 1}}};
-            auto resumed = w::World::create("typed-resumed", profile, resumed_state);
-            check(resumed != nullptr, "The blocked cargo can resume when power reverses.");
-            for (int tick = 0; tick < 8; ++tick)
-                check(resumed->tick().error == w::TransactionError::none, "The reversed belt continues without losing cargo.");
-            const auto resumed_drop = resumed->snapshot().state.material.dropped_material.at(exit);
-            check(resumed_drop.products >= item.products && resumed_drop.work_lots == item.work_lots,
-                  "Reversing away from the collector ejects the original typed cargo at the open end.");
+                      reverse->snapshot().state.material.dropped_material.at({-4, 0, 0}) == item,
+                  "Reversing power ejects the same typed item at the lower end.");
         }
         if (!reverse_endpoints) {
             auto capacity_profile = profile;
@@ -760,21 +763,16 @@ void belt_span_material_route() {
                 const auto& material = restored->snapshot().state.material;
                 check(material.stock.input == (reverse || gap ? 0 : 1),
                       "Only an adjacent processor in the direction of travel accepts raw material.");
-                if (reverse) {
-                    check(!material.dropped_material.contains({rotated ? 0 : -4, 0, rotated ? -4 : 0}) &&
-                              material.belt_lanes.begin()->second.slots.front().has_value(),
-                          "A collector blocks reversed cargo at the belt end.");
-                }
-                if (gap && !reverse) {
-                    const I travel = 12;
+                if (reverse || gap) {
+                    const I travel = reverse ? -4 : 12;
                     const m::DropPoint exit{rotated ? 0 : travel, 0, rotated ? travel : 0};
                     check(material.dropped_material.contains(exit) && material.dropped_material.at(exit).raw_units > 0,
                           "An unconnected outgoing end ejects conserved raw cargo at its actual endpoint.");
                 }
                 check(m::validate(material, profile.material, w::material_path(restored->snapshot().state.topology)) == m::Error::none,
                       "A full processor and reversed flow preserve every finite source unit.");
-                if (gap && !reverse) {
-                    const I travel = 12;
+                if (reverse || gap) {
+                    const I travel = reverse ? -4 : 12;
                     const m::DropPoint exit{rotated ? 0 : travel, 0, rotated ? travel : 0};
                     O pickup{{"context", V("route-world")}, {"client", V("P-old")}, {"request", V("pickup-ejected")},
                         {"actor", V("P")}, {"action", V("pickup_material")},

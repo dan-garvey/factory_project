@@ -122,7 +122,7 @@ int main() {
         const auto carried_lot = on_belt.cargo.at("P").work_lots.front();
         on_belt.cargo.at("P").work_lots.clear();
         on_belt.belt_lanes.emplace("span", m::BeltLane{{m::Cargo{1, 0, {}}, std::nullopt,
-            m::Cargo{0, 0, {carried_lot}}}, -123});
+            m::Cargo{0, 0, {carried_lot}}}, -123, -2, 3});
         round_trip(on_belt);
         auto duplicated = on_belt;
         duplicated.cargo.at("Q").work_lots.push_back(carried_lot);

@@ -43,7 +43,14 @@ delivered items without changing the input. World owns and validates each lane,
 persists it, and advances occupied lanes from confirmed shaft motion. The World
 connects adjacent collectors and processor inputs at span endpoints; other
 items remain on the lane. Confirmed item slots are projected to the presenter;
-manual span recovery remains unimplemented.
+manual span recovery removes individual items through the World.
+
+`advance_belt_lane_rate` also retains the fractional part of a fixed-point
+subtick in the authoritative lane. An unchanged rational shaft rate accumulates
+exactly across ticks and checkpoints. When its denominator changes, converting
+the remainder can discard less than one fraction of a subtick. The existing
+sixteen-tile speed cap and inclined approximation remain; the presenter does
+not yet apply that cap, so extreme-rate surface speeds are not fully aligned.
 
 The fixed order remains: advance or finish existing machine work; start eligible
 new work; move belt input; move collector stock; extract finite source feed.

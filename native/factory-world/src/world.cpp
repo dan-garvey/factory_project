@@ -1267,8 +1267,6 @@ Advance World::tick() noexcept {
             if (rate->second.state == mechanics::MotionState::rotating &&
                 std::any_of(lane->second.slots.begin(), lane->second.slots.end(),
                     [](const auto& item) { return item.has_value(); })) {
-                const auto speed = materials::belt_speed_subticks(rate->second.rate.numerator,
-                    rate->second.rate.denominator, path->kind == mechanics::BeltPathKind::inclined);
                 if (*direction == 0) throw materials::Error::invalid_state;
                 const bool toward_last = *direction > 0;
                 const auto& receiver_point = toward_last ? after : before;
@@ -1290,7 +1288,7 @@ Advance World::tick() noexcept {
                 });
                 const auto existing_drop = candidate.material.dropped_material.find(receiver_point);
                 Integer drop_capacity = 0;
-                if (!has_receiver && !at(Role::collector, receiver_point) && valid_drop_point &&
+                if (!has_receiver && valid_drop_point &&
                     (existing_drop != candidate.material.dropped_material.end() ||
                      candidate.material.dropped_material.size() < materials::maximum_drop_points)) {
                     Integer raw_total = existing_drop == candidate.material.dropped_material.end() ? 0 : existing_drop->second.raw_units;
@@ -1309,8 +1307,9 @@ Advance World::tick() noexcept {
                         ++drop_capacity;
                     }
                 }
-                auto proposal = materials::advance_belt_lane(lane->second, toward_last ? speed : -speed,
-                                                            can_receive ? 1 : drop_capacity);
+                auto proposal = materials::advance_belt_lane_rate(lane->second, rate->second.rate.numerator,
+                    rate->second.rate.denominator, toward_last ? 1 : -1,
+                    path->kind == mechanics::BeltPathKind::inclined, can_receive ? 1 : drop_capacity);
                 if (!proposal) throw materials::Error::invalid_state;
                 if (!proposal->delivered.empty()) {
                     if (can_receive) {

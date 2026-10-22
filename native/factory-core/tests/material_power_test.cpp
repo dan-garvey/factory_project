@@ -288,6 +288,31 @@ void multi_slot_belt_lane() {
         }
     }
 }
+void fractional_belt_rates() {
+    m::BeltLane lane{{m::Cargo{1, 0, {}}, std::nullopt}, 0};
+    for (int tick = 0; tick < 3; ++tick) {
+        auto next = m::advance_belt_lane_rate(lane, 1, 3, 1, false, 0);
+        require(next.has_value(), "A third-speed belt advances.");
+        lane = next->candidate;
+    }
+    require(!lane.slots.front() && lane.slots.back() && lane.phase == 0 && lane.remainder == 0,
+            "Three exact third-speed ticks move one tile without losing the fractional subtick.");
+    auto forward = m::advance_belt_lane_rate(lane, 1, 3, 1, false, 0);
+    auto backward = m::advance_belt_lane_rate(forward->candidate, 1, 3, -1, false, 0);
+    require(backward && backward->candidate == lane,
+            "Reversing the same fractional rate restores the original phase and cargo.");
+    m::BeltLane tiny{{m::Cargo{1, 0, {}}, std::nullopt}, 0};
+    auto slow = m::advance_belt_lane_rate(tiny, 1, 8192, 1, false, 0);
+    require(slow && slow->candidate.phase == 0 && slow->candidate.remainder == 4096,
+            "A sub-subtick speed does not gain an artificial minimum movement.");
+    slow = m::advance_belt_lane_rate(slow->candidate, 1, 8192, 1, false, 0);
+    require(slow && slow->candidate.phase == 1 && slow->candidate.remainder == 0,
+            "Sub-subtick motion accumulates rather than being discarded.");
+    auto invalid = lane;
+    invalid.remainder_denominator = 0;
+    require(!m::advance_belt_lane_rate(invalid, 1, 3, 1, false, 0),
+            "An invalid saved fractional denominator is refused.");
+}
 }  // namespace
 
 int main() {
@@ -300,6 +325,7 @@ int main() {
         ready_work_and_disable();
         absent_masks_and_exhausted_identity();
         multi_slot_belt_lane();
+        fractional_belt_rates();
         std::cout << "{\"status\":\"pass\",\"evidence\":\"invented_machine_power\",\"checks\":"
                   << checks << "}\n";
         return 0;
