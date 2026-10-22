@@ -847,6 +847,58 @@ func check_jog_blend_at_native_physics_cadence() -> void:
 		"Native-timed jog presentation does not move the actor root or send input.")
 	host.free()
 
+func check_descent_at_native_physics_cadence() -> void:
+	var host := HostFixture.new()
+	host.state.context = "native-descent-cadence"
+	host.state.actors.P.native_epoch = 10
+	root.add_child(host)
+	var presenter := Presenter.new()
+	presenter.configure(host)
+	host.add_child(presenter)
+	presenter.set_process(false)
+	presenter.set_physics_process(false)
+	var physics_frame := 10
+	presenter.observe_native_sample("P", {"native_epoch": 10, "physics_frame": physics_frame})
+	presenter.refresh(1.0 / 30.0)
+	var height := 0.9
+	for _step in range(12):
+		physics_frame += 2
+		height += 0.1
+		host.state.actors.P.position = [0.0, height, 0.0]
+		host.state.actors.P.native_epoch += 2
+		presenter.observe_native_sample("P", {"native_epoch": host.state.actors.P.native_epoch,
+			"physics_frame": physics_frame})
+		presenter.refresh(1.0 / 30.0)
+	var maximum_error := 0.0
+	var repeated_speed := 0.0
+	var repeated_mode := ""
+	var exact_root := true
+	for frame in range(8):
+		# A steady four-metre-per-second fall is cut into alternating one- and
+		# two-tick native samples, even though each render takes about 1/30 s.
+		var ticks := 1 if frame % 2 == 0 else 2
+		physics_frame += ticks
+		height -= 4.0 * float(ticks) / 60.0
+		host.state.actors.P.position = [0.0, height, 0.0]
+		host.state.actors.P.native_epoch += ticks
+		presenter.observe_native_sample("P", {"native_epoch": host.state.actors.P.native_epoch,
+			"physics_frame": physics_frame})
+		presenter.refresh(1.0 / 30.0)
+		maximum_error = maxf(maximum_error, absf(float(presenter.motion.P.vertical_speed) + 4.0))
+		exact_root = exact_root and is_equal_approx(presenter.views.P.position.y, height)
+		if frame == 3:
+			presenter.refresh(1.0 / 60.0)
+			repeated_speed = float(presenter.motion.P.vertical_speed)
+			repeated_mode = presenter.motion.P.mode
+	adult_measurements["native_descent_cadence"] = {"maximum_speed_error": maximum_error,
+		"repeated_speed": repeated_speed, "repeated_mode": repeated_mode}
+	verify(presenter.motion.P.mode == "descent" and maximum_error < 0.02
+		and repeated_mode == "descent" and absf(repeated_speed + 4.0) < 0.02,
+		"Falling posture uses confirmed native time and holds through a repeated render sample.")
+	verify(exact_root and host.control_calls == 0,
+		"Native-timed falling presentation leaves the confirmed actor root and input unchanged.")
+	host.free()
+
 func landing_contact_case(metres_per_frame: float) -> Dictionary:
 	var host := HostFixture.new()
 	host.state.context = "landing-contact"
@@ -1172,6 +1224,7 @@ func run() -> void:
 		check_sparse_confirmed_walk()
 		check_uneven_native_walk_samples()
 		check_jog_blend_at_native_physics_cadence()
+		check_descent_at_native_physics_cadence()
 		check_landing_contact_from_motion()
 		check_first_landing_contact_at_render_cadence()
 		var still_contact := landing_toe_hold_case(0.0)

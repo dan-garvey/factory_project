@@ -994,9 +994,9 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 			and native_physics_frame > int(previous.native_physics_frame):
 		confirmed_elapsed = float(native_physics_frame - int(previous.native_physics_frame)) \
 			/ float(Engine.physics_ticks_per_second)
-	var horizontal_speed := horizontal.length() / maxf(
-		confirmed_elapsed if confirmed_elapsed > 0.0 else \
-			sample_elapsed if native_epoch >= 0 else delta, 0.0001)
+	var pose_elapsed := confirmed_elapsed if confirmed_elapsed > 0.0 else \
+		sample_elapsed if native_epoch >= 0 else delta
+	var horizontal_speed := horizontal.length() / maxf(pose_elapsed, 0.0001)
 	previous.sample_elapsed = sample_elapsed if repeated_sample else 0.0
 	previous.native_epoch = native_epoch
 	previous.native_physics_frame = native_physics_frame
@@ -1010,7 +1010,12 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 			"native_physics_frame": native_physics_frame}
 		body.rotation.y = 0
 	else:
-		var vertical_speed: float = displacement.y / maxf(delta, 0.0001)
+		# Native cuts may contain one, two or more physics ticks per rendered
+		# frame. Use their confirmed elapsed time for the fall pose, and hold the
+		# last pose when a draw repeats the same airborne sample.
+		var vertical_speed: float = float(previous.vertical_speed) if repeated_sample \
+			and sample_elapsed <= STALE_SAMPLE_SETTLE_SECONDS else \
+			displacement.y / maxf(pose_elapsed, 0.0001)
 		var mode: String = previous.mode
 		if mode == "grounded" or mode == "landing":
 			if displacement.y > TAKEOFF_DELTA and vertical_speed > 0.6:
@@ -1030,7 +1035,7 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 			if vertical_speed < -0.4:
 				mode = "descent"
 			if mode == "descent" and (at.y <= float(previous.ground_y) + 0.025
-					and displacement.y < 0.0 or absf(displacement.y) < 0.002
+					and displacement.y < 0.0 or not repeated_sample and absf(displacement.y) < 0.002
 					and float(previous.peak_y) - at.y > 0.10):
 				mode = "landing"
 				new_landing = true
