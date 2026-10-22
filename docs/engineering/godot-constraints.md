@@ -932,6 +932,26 @@ it does not smooth their positional hitch or establish real network cadence,
 whole-scene quality or human playability. The focused dense/sparse check and
 passive image comparison belong to `factory-yau.6.45.22.14`.
 
+## GDC-19: runtime cutout mip generation does not preserve blade coverage
+
+**Measured pinned-engine adapter behavior.** The runtime GLB grass import uses
+`Image.generate_mipmaps()`, outside the editor texture importer. Its source atlas
+has 16.03% cutout coverage, falling to 8.33% at 24 pixels and 4.17% at 12 pixels
+with ordinary averaging. The adapter now dilates transparent color borders and
+rescales each color mip's alpha to the nearest achievable source coverage at the
+existing 0.5 cutout. A subpixel mip can remain empty instead of making a solid
+card. Geometry, base opacity, normal/scalar maps and population are unchanged.
+The shared cutout import also serves the small fern clump.
+
+The installed `4.7.2.stable.official.ed1daf0bf` exposes only the one-argument
+`generate_mipmaps` call. The latest online Image documentation describes extra
+coverage arguments absent from this binary; the rejected three-argument probe
+is retained in `grass-distance-material-20261021/coverage-after.log`. It exited
+zero despite script errors and zero checks, so it is not a passing observation.
+The corrected adapter's focused mip checks and passive pixels belong to
+`factory-yau.6.45.21.25`. Coverage fidelity does not establish healthy vegetation
+color or complete scene quality.
+
 ## Required follow-through
 
 This first source/API/evidence audit leaves actual backend identification,

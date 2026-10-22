@@ -641,7 +641,9 @@ Complete captures replace primitive grass blades with a bounded CC0
 [Grass Medium 01 tuft](foliage/CREDITS.md). One self-contained mesh and three
 embedded maps are imported once and shared by the existing 96 terrain anchors.
 The photographed double-sided cutout retains transparent blade gaps, dielectric
-shading and normal mipmaps. This is noncolliding scenery; terrain and actor
+shading and normal mipmaps. The cached color mip chain dilates transparent color
+borders and preserves the nearest achievable source coverage at the 0.5 cutout;
+an atlas smaller than one covered texel remains empty. This is noncolliding scenery; terrain and actor
 authority remain unchanged. Historical fixed rosters retain their
 generated fallback. Import checks do not establish rendered production quality.
 

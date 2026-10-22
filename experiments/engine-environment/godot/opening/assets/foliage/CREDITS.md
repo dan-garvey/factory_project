@@ -12,14 +12,17 @@ Only the compact `grass_medium_01_mid_b_LOD0` variant is included: 1,386 vertice
 this mesh's triangle count. Source-local roots and geometry are preserved with
 a reversible uniform scale of two; the unrelated catalogue placement is omitted.
 Its resulting uninstanced height is about 0.355 metres. Existing terrain anchors,
-rotations and scale variations place 96 tufts outside the construction pad and
-river. They remain noncolliding scenery, with no independent script or clock.
+rotations and scale variations place the sparse outer tufts and continuous meadow
+patches around the natural worksite, clear of the river and constructed volumes.
+They remain noncolliding scenery, with no independent script or clock.
 
 The photographed color is combined with the provider's separate opacity map,
 then resized to 384 pixels. OpenGL normal and packed linear occlusion/roughness/
 metallic maps use 256 pixels. The source's zero metallic factor is preserved.
 Lossless embedded PNGs retain prepared bytes. A double-sided cutout at 0.5 keeps
-spaces between blades, with explicit mipmaps and renormalized normal mip levels.
+spaces between blades. Cached color mips retain the nearest achievable source
+cutout coverage and dilate color into transparent borders; normal mips retain
+renormalized vectors. The original mesh and embedded map bytes are unchanged.
 Near-neutral instance tint avoids multiplying the photograph by the former dark
 generated-blade colors. Two-sided shadow participation is presentation only.
 

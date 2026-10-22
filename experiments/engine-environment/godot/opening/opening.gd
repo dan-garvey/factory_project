@@ -2775,6 +2775,40 @@ class ProductionEnvironment:
 				part.set_meta("site_solid_id", spec.id)
 		return arch
 
+	static func _cutout_mipmaps(image: Image) -> bool:
+		image.convert(Image.FORMAT_RGBA8)
+		image.fix_alpha_edges()
+		if image.generate_mipmaps() != OK:
+			return false
+		var data := image.get_data()
+		var covered := 0
+		for pixel in range(image.get_width() * image.get_height()):
+			if data[pixel * 4 + 3] >= 128:
+				covered += 1
+		var coverage := float(covered) / float(image.get_width() * image.get_height())
+		for level in range(1, image.get_mipmap_count() + 1):
+			var pixels := maxi(1, image.get_width() >> level) * maxi(1, image.get_height() >> level)
+			var offset := image.get_mipmap_offset(level)
+			var histogram := PackedInt32Array()
+			histogram.resize(256)
+			for pixel in range(pixels):
+				histogram[data[offset + pixel * 4 + 3]] += 1
+			# Choose the nearest achievable coverage, including an empty subpixel mip.
+			var target := coverage * pixels
+			var cutoff := 256
+			var error := target
+			var count := 0
+			for alpha in range(255, 0, -1):
+				count += histogram[alpha]
+				if absf(count - target) < error:
+					error = absf(count - target)
+					cutoff = alpha
+			for pixel in range(pixels):
+				var at := offset + pixel * 4 + 3
+				data[at] = mini(255, int(float(data[at]) * 128.0 / cutoff))
+		image.set_data(image.get_width(), image.get_height(), true, Image.FORMAT_RGBA8, data)
+		return true
+
 	static func read_foliage(path: String = FOLIAGE_FILE, vertex_count: int = 1386, index_count: int = 3771) -> Dictionary:
 		if not FileAccess.file_exists(path):
 			return {"status": "missing"}
@@ -2805,7 +2839,7 @@ class ProductionEnvironment:
 			return {"status": "invalid", "reason": "texture_extent"}
 		# Runtime GLB buffer import preserves images but does not create their
 		# mip chains. Build them once with vector renormalization for normals.
-		if color.generate_mipmaps() != OK or normal.generate_mipmaps(true) != OK or scalars.generate_mipmaps() != OK:
+		if not _cutout_mipmaps(color) or normal.generate_mipmaps(true) != OK or scalars.generate_mipmaps() != OK:
 			return {"status": "invalid", "reason": "texture_mipmaps"}
 		finish.albedo_texture = ImageTexture.create_from_image(color)
 		finish.normal_texture = ImageTexture.create_from_image(normal)
