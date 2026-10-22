@@ -415,6 +415,37 @@ func _arrival_capacity_run(panel) -> void:
 			and recovered.placed_components == placed.placed_components,
 			"The same hub recipe succeeds after an actual component is placed"):
 		return
+	var first_id: String = str(recovered.placed_components.keys()[0])
+	opening.selected = first_id
+	opening._refresh_ui()
+	if not _expect(panel.reclaim_button.visible and not panel.reclaim_button.disabled,
+			"The selected placed shaft offers an ordinary reclaim control"):
+		return
+	panel.reclaim_button.pressed.emit()
+	var reclaim_refused: Dictionary = opening.model.projection()
+	if not _expect(reclaim_refused.order == recovered.order + 1
+			and reclaim_refused.cargo == recovered.cargo
+			and reclaim_refused.placed_components == recovered.placed_components
+			and "Place another carried part" in opening.status_label.text,
+			"Reclaiming into a full component bag refuses without duplicating or losing the shaft"):
+		return
+	panel.place_button.pressed.emit()
+	opening._world_click(Vector2i(3, 5))
+	var room_made: Dictionary = opening.model.projection()
+	if not _expect(room_made.order == reclaim_refused.order + 1
+			and room_made.cargo.P.components.get("wooden_shaft", 0) == 19
+			and room_made.placed_components.size() == 2,
+			"Placing a second real shaft frees one carried slot for the selected reclaim"):
+		return
+	opening.selected = first_id
+	opening._refresh_ui()
+	panel.reclaim_button.pressed.emit()
+	var reclaimed: Dictionary = opening.model.projection()
+	if not _expect(reclaimed.order == room_made.order + 1
+			and reclaimed.cargo.P.components.get("wooden_shaft", 0) == 20
+			and reclaimed.placed_components.size() == 1 and not reclaimed.placed_components.has(first_id),
+			"The same shaft returns to carried custody after room is made, leaving one placed identity"):
+		return
 	_record("pass")
 
 ## Fresh arrival panel consumer with actor motor, finite sources and Store.
@@ -443,6 +474,16 @@ func _arrival_run() -> void:
 	if not _expect(opening.model.projection().actors.P.ready and opening.actor_world.bodies.P.is_on_floor(),
 			"The physical actor reaches the scene floor"):
 		return
+	if DisplayServer.get_name() != "headless":
+		while opening.get_node_or_null("MachinePreviewWarmup") != null and Time.get_ticks_msec() < deadline:
+			await process_frame
+		var prepared := opening.get_node_or_null("MachinePreviewWarmup") == null
+		for kind in ["collector", "belt", "processor", "wheel"]:
+			prepared = prepared and opening.packed_preview_templates.get(kind) is PackedScene
+		if not _expect(prepared and opening.packed_preview_nodes.has("foundation")
+				and not opening.packed_preview_nodes.foundation.visible,
+				"The graphical preview warmup releases its cover before the arrival is sampled"):
+			return
 	var panel = opening.arrival_assembly_controls
 	if mode == "arrival-craft-capacity":
 		await _arrival_capacity_run(panel)
@@ -453,6 +494,12 @@ func _arrival_run() -> void:
 		if not _expect(landfall != null and landfall.save_png(capture_prefix + "-landfall.png") == OK,
 				"The passive landfall viewport is retained"):
 			return
+	if DisplayServer.get_name() != "headless":
+		opening.building_hotbar.select_slot(1)
+		if not _expect(opening.mode == "foundation" and opening.placement_options_panel.visible,
+				"The carried foundation shortcut opens ordinary placement after preview warmup"):
+			return
+		opening._select_tool("inspect")
 	if mode == "arrival-resume":
 		var restored: Dictionary = opening.model.projection()
 		if not _expect(opening.last_load_result.get("accepted", false)

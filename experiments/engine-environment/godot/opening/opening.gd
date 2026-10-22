@@ -4897,6 +4897,8 @@ func issue(action: Dictionary) -> Dictionary:
 			refusal = {"unavailable_input": "Gather the timber or softmetal shown for this component.",
 				"inventory_full": "Your component bag is full. Place a carried part to make room.",
 				"out_of_reach": "Move beside the pod workshop to craft this component."}.get(outcome.get("reason", ""), refusal)
+		elif action.action == "reclaim_component" and outcome.get("reason", "") == "inventory_full":
+			refusal = "Your component bag is full. Place another carried part before reclaiming."
 		_message(refusal, true)
 	_refresh()
 	return outcome
@@ -6547,6 +6549,8 @@ func _warm_packed_machine_previews() -> void:
 	if state.get("actors", {}).get(client, {}).get("ready", false):
 		# Draw the real tool panels behind the loading cover. Arrival has no
 		# carried kits yet, so only the temporary visual form is shown here.
+		var opening_message := status_label.text
+		var opening_refused := status_refused
 		var resume_processing := is_processing()
 		set_process(false)
 		for kind in ["collector", "foundation", "processor", "wheel"]:
@@ -6561,6 +6565,7 @@ func _warm_packed_machine_previews() -> void:
 			anchor.visible = false
 		_select_tool("inspect")
 		set_process(resume_processing)
+		_message(opening_message, opening_refused)
 	cover.free()
 
 func _choose_machine_preview(pooled: Node3D = null) -> void:
