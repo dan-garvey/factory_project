@@ -496,9 +496,6 @@ func first_target_fixture() -> Dictionary:
 	snapshot.transmission_parts = {}
 	return snapshot
 
-func visible_hint_edges(view) -> int:
-	return view.placement_hint.get_children().filter(func(child): return child is MeshInstance3D and child.visible).size()
-
 func check_first_target() -> void:
 	var view = Opening.new()
 	view.building_hotbar = CatalogStub.new()
@@ -512,27 +509,38 @@ func check_first_target() -> void:
 	view._refresh_placement_hint()
 	var label := view.placement_hint.get_node_or_null("MineralSeamTarget") as Label3D
 	verify(label != null and label.visible and label.text == "MINERAL SEAM", "The first target identifies the mineral seam in the world.")
-	verify(visible_hint_edges(view) == 0, "A natural mineral target has no manufactured-looking frame edges.")
+	verify(view.placement_hint.get_child_count() == 1 and label != null and label.get_child_count() == 0,
+		"The natural target contains only its passive annotation, with no hidden frame geometry.")
 	var ground: float = Opening.ProductionEnvironment.Surface.height_at(0.0, 1.65)
 	verify(view.placement_hint.visible and view.placement_hint.position.is_equal_approx(Vector3(0.0, ground + 0.055, 1.65)),
-		"The advisory footprint follows the shared natural surface at the source column.")
+		"The advisory annotation follows the shared natural surface at the source column.")
 	verify(view.state == original and view.model == null and view.actor_world == null and view.request_sequence == 23 \
 		and view.request_namespace == original_namespace and view.selected.is_empty() and view.pending_link.is_empty(),
 		"Target presentation leaves confirmed facts, authority and intent unchanged.")
 	var original_hint_id: int = view.placement_hint.get_instance_id()
 	view._refresh_placement_hint()
 	verify(view.placement_hint.get_instance_id() == original_hint_id and label != null \
-		and view.placement_hint.get_node_or_null("MineralSeamTarget") == label, "Repeated refresh reuses the footprint and annotation.")
+		and view.placement_hint.get_node_or_null("MineralSeamTarget") == label, "Repeated refresh reuses the annotation.")
+	for tool in ["belt", "processor", "wheel", "foundation", "inspect"]:
+		view.mode = tool
+		view._refresh_placement_hint()
+		verify(not view.placement_hint.visible and not label.visible,
+			"Changing tool clears the mineral annotation: " + tool)
 	view.state = fixture()
 	view.mode = "belt"
 	view._refresh_placement_hint()
-	verify(view.placement_hint.visible and visible_hint_edges(view) == 4 and not label.visible,
-		"Changing from the mineral target to an outlet restores all four construction edges.")
+	verify(not view.placement_hint.visible and view._guided_placement_cell().is_empty(),
+		"The retired one-cell belt layout does not retain outlet advice.")
+	view.state.entities["belt-1"] = {"kind": "belt", "cell": [1, 1]}
+	view.mode = "processor"
+	view._refresh_placement_hint()
+	verify(not view.placement_hint.visible and view._guided_placement_cell().is_empty(),
+		"The retired one-cell press layout does not retain outlet advice.")
 	view.state = original.duplicate(true)
 	view.mode = "collector"
 	view._refresh_placement_hint()
-	verify(visible_hint_edges(view) == 0 and label.visible,
-		"Returning to the mineral target clears the frame while retaining its annotation.")
+	verify(view.placement_hint.get_child_count() == 1 and label.visible,
+		"Returning to the mineral target reuses only its annotation.")
 	view.transmission_controls = ToolStub.new()
 	view._refresh_placement_hint()
 	verify(not view.placement_hint.visible and (label == null or not label.visible), "An active transmission tool clears the first target.")
@@ -574,8 +582,8 @@ func check_first_target() -> void:
 	shared._build_placement_hint()
 	shared._refresh_placement_hint()
 	verify(shared.placement_hint.visible, "A ready shared native projection can identify the first target.")
-	verify(visible_hint_edges(shared) == 0 and shared.placement_target_label.visible,
-		"The shared natural target also retains its annotation without frame geometry.")
+	verify(shared.placement_hint.get_child_count() == 1 and shared.placement_target_label.visible,
+		"The shared natural target also consists only of its annotation.")
 	shared.pending_actions["request-1"] = {"action": {"action": "place"}, "outcome": {}}
 	shared._refresh_placement_hint()
 	verify(not shared.placement_hint.visible, "A pending shared command clears first-target advice.")
@@ -651,96 +659,5 @@ func _initialize() -> void:
 		finish_checks()
 		return
 	check_first_target()
-	var view = Opening.new()
-	view.building_hotbar = CatalogStub.new()
-	view.mode = "belt"
-	view.state = fixture()
-	view.request_sequence = 17
-	view.selected = "collector-1"
-	view.pending_link = "collector-1"
-	view._build_placement_hint()
-	var before: Dictionary = view.state.duplicate(true)
-	var original_namespace: String = view.request_namespace
-	verify(view._guided_placement_cell() == [1, 1], "A Collector suggests its +x outlet for a Belt.")
-	view._refresh_placement_hint()
-	verify(view.placement_hint.visible and view.placement_hint.position.is_equal_approx(Vector3(1.65, 0.055, 1.65)), "The outline uses the world-space grid position.")
-	var edge_count := 0
-	for edge in view.placement_hint.get_children():
-		if edge is MeshInstance3D:
-			edge_count += 1
-			verify(edge.get_child_count() == 0, "Cue edges contain no input or collision nodes.")
-		else:
-			verify(edge is Label3D and not edge.visible and edge.get_child_count() == 0, "The nonnative cue keeps its target annotation hidden and passive.")
-	verify(edge_count == 4, "The outline consists of four mesh edges.")
-	verify(view.state == before and view.model == null and view.request_sequence == 17 and view.request_namespace == original_namespace and view.selected == "collector-1" and view.pending_link == "collector-1", "Drawing the cue leaves projection, authority and intent state unchanged.")
-	view._refresh_placement_hint(false)
-	verify(not view.placement_hint.visible, "An unavailable snapshot clears an already drawn cue.")
-	view.building_hotbar.catalog.visible = true
-	verify(view._guided_placement_cell().is_empty(), "The open catalog hides the world cue.")
-	view.building_hotbar.catalog.visible = false
-	view.explanation_open = true
-	verify(view._guided_placement_cell().is_empty(), "Help has no worksite cue.")
-	view.explanation_open = false
-	view.legacy_fixture = true
-	verify(view._guided_placement_cell().is_empty(), "The legacy fixture is unchanged.")
-	view.legacy_fixture = false
-	view.startup_save_pending = true
-	verify(view._guided_placement_cell().is_empty(), "An unfinished reopen does not suggest construction.")
-	view.startup_save_pending = false
-	view.state.actors.P.ready = false
-	verify(view._guided_placement_cell().is_empty(), "An unready actor has no cue.")
-	view.state = fixture()
-	view.mode = "processor"
-	verify(view._guided_placement_cell().is_empty(), "An early Press selection does not invent a Belt.")
-	view.mode = "belt"
-	view.state.parts.belt = 0
-	verify(view._guided_placement_cell().is_empty(), "An unavailable carried part has no suggested square.")
-	view.state = fixture()
-	view.state.entities["wheel-1"] = {"kind": "wheel", "cell": [1, 1]}
-	verify(view._guided_placement_cell().is_empty(), "An occupied outlet is not suggested.")
-	view.state = fixture()
-	view.state.entities["collector-2"] = {"kind": "collector", "cell": [0, 2]}
-	verify(view._guided_placement_cell().is_empty(), "Multiple upstream choices do not select an arbitrary route.")
-	view.state = fixture()
-	view.state.entities["collector-1"].cell = [4, 1]
-	verify(view._guided_placement_cell() == [5, 1], "The cue can continue beyond the retired construction rectangle.")
-	view.state = fixture()
-	view.state.stock.output = 1
-	verify(view._guided_placement_cell().is_empty(), "An available plate takes priority over construction advice.")
-	view.state = fixture()
-	view.state.inventories.P = 4
-	verify(view._guided_placement_cell().is_empty(), "A completed collection goal takes priority over construction.")
-	view.state = fixture()
-	view.goal_confirmed = true
-	verify(view._guided_placement_cell().is_empty(), "A confirmed goal has no prescribed next square.")
-	view.goal_confirmed = false
-	view.state.entities["belt-1"] = {"kind": "belt", "cell": [1, 1]}
-	view.mode = "processor"
-	verify(view._guided_placement_cell() == [2, 1], "A confirmed Belt suggests the Press outlet square.")
-	view.state.actors.P.position = [-100, 1, 100]
-	verify(view._guided_placement_cell() == [2, 1], "The cue is advice even outside reach, never a permission check.")
-	view.state.entities["processor-1"] = {"kind": "processor", "cell": [2, 1]}
-	verify(view._guided_placement_cell().is_empty(), "A placed Press advances beyond construction advice.")
-	view.free()
-
-	var shared = SharedOpening.new()
-	var session := SessionStub.new()
-	shared.session = session
-	shared.client = "P"
-	shared.mode = "belt"
-	shared.state = fixture()
-	shared._build_placement_hint()
-	shared._refresh_placement_hint()
-	verify(shared.placement_hint.visible, "A usable connected projection can show the cue.")
-	shared.pending_actions["request-1"] = {"action": {"action": "place"}, "outcome": {}}
-	shared._refresh_placement_hint()
-	verify(not shared.placement_hint.visible, "A pending command clears an existing cue.")
-	shared.pending_actions.clear()
-	session.ready = false
-	verify(shared._guided_placement_cell().is_empty(), "A disconnected view cannot suggest a live build.")
-	session.ready = true
-	shared.state.erase("stock")
-	verify(shared._guided_placement_cell().is_empty(), "An unusable shared snapshot has no cue.")
-	shared.free()
 	check_native_route_report()
 	finish_checks()

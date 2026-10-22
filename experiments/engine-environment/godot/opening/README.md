@@ -136,10 +136,10 @@ the geared route does not earn an invented processing-speed bonus.
 An in-world **MINERAL SEAM** label identifies the first exposed deposit without
 drawing a construction frame on the natural ground.
 
-Selecting the suggested Belt or Press also outlines the empty square at the
-confirmed upstream machine's outlet. This cue is a layout suggestion, not a
-construction permission or reach indicator. It hides in Help, the catalog and
-pending/disconnected views, and when the next square is occupied or ambiguous.
+The label is wayfinding advice. It reserves no ground and grants no construction
+permission or reach. It hides in Help, the catalog, pending/disconnected views
+and after the first construction. Machine placement previews show the selected
+construction tool's current target.
 
 **Details** shows global stock/drive counters and the original save controls;
 it does not change their eligibility. Machine inspection, retrieval, dismantling,
