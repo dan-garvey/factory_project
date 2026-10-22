@@ -19,11 +19,20 @@ enum class TransactionError {
 struct Delivery {
     TransactionError error{TransactionError::none};
     authority::Error history_error{authority::Error::none};
-    std::optional<authority::Object> result;
+    std::unique_ptr<authority::Object> result;
     // Separate from the original historical revision inside a cached result.
     authority::Integer current_revision{};
+    Delivery() = default;
+    Delivery(TransactionError failure, authority::Error history, std::nullopt_t,
+             authority::Integer revision) noexcept
+        : error(failure), history_error(history), current_revision(revision) {}
+    Delivery(TransactionError failure, authority::Error history, authority::Object value,
+             authority::Integer revision)
+        : error(failure), history_error(history),
+          result(std::make_unique<authority::Object>(std::move(value))),
+          current_revision(revision) {}
     [[nodiscard]] bool completed() const noexcept {
-        return error == TransactionError::none && result.has_value();
+        return error == TransactionError::none && bool(result);
     }
 };
 
