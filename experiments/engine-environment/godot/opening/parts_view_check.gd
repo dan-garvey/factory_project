@@ -82,6 +82,9 @@ func fixture() -> Dictionary:
 		"stock": {"output": 0}, "inventories": {"P": 0, "Q": 0}}
 
 func _initialize() -> void:
+	if "--hand-trees-only" in OS.get_cmdline_user_args():
+		call_deferred("_hand_tree_views")
+		return
 	if "--multitool-only" in OS.get_cmdline_user_args():
 		call_deferred("_multitool_controls")
 		return
@@ -171,6 +174,101 @@ func hotbar_observation() -> Dictionary:
 func settle_widgets() -> void:
 	for _frame in range(4):
 		await process_frame
+
+func _hand_tree_views() -> void:
+	var view = SourceRayView.new()
+	if not view.has_method("_refresh_hand_trees"):
+		verify(false, "Native timber sources require visible trees with their actual pick identities.")
+		view.free()
+		print("HAND_TREE_VIEW_FAIL %d" % checks)
+		quit(1)
+		return
+	view.state = hotbar_observation()
+	view.state.hand_sources = {
+		"tree-east-south": {"kind": "tree", "position": [4.95, 0.825, 4.95], "initial": 8, "remaining": 8},
+		"tree-east-north": {"kind": "tree", "position": [4.95, 0.825, 9.9], "initial": 8, "remaining": 8},
+		"tree-north": {"kind": "tree", "position": [0.0, 0.825, 11.55], "initial": 8, "remaining": 8},
+		"ore": {"kind": "ore_deposit", "position": [-1.2375, 0.825, 0.0], "initial": 16, "remaining": 16}}
+	var before: Dictionary = view.state.duplicate(true)
+	root.add_child(view)
+	view.camera = Camera3D.new()
+	view.add_child(view.camera)
+	view.camera.current = true
+	view._refresh_hand_trees()
+	verify(view.hand_tree_nodes.size() == 3, "Only native tree sources receive a presentation; ore and scenery remain separate.")
+	for id: String in view.hand_tree_nodes:
+		var body: StaticBody3D = view.hand_tree_nodes[id]
+		var source: Dictionary = view.state.hand_sources[id]
+		verify(body.get_meta("hand_source") == id and body.collision_layer == Opening.Geometry.PICK_LAYER and body.collision_mask == 0,
+			"Each soft tree has one exact pick identity and no new actor-collision authority.")
+		verify(is_equal_approx(body.position.x, float(source.position[0])) and is_equal_approx(body.position.z, float(source.position[2]))
+			and is_equal_approx(body.position.y, SiteSurface.height_at(body.position.x, body.position.z)),
+			"Visible tree roots use the native horizontal anchor and the actual emitted terrain height.")
+		var crown: MeshInstance3D = body.get_node("Tree")
+		verify(crown.visible and not body.get_node("Stump").visible, "Uncut native stock has a complete sourced tree.")
+		# Aim at a real bark triangle, using the qualified asset's independent
+		# 315-vertex surface identity. A fixed line above the root can miss a
+		# leaning trunk even when its rendered and picked geometry match.
+		var bark: Array = []
+		for surface in range(crown.mesh.get_surface_count()):
+			var arrays: Array = crown.mesh.surface_get_arrays(surface)
+			if arrays[Mesh.ARRAY_VERTEX].size() == 315:
+				bark = arrays
+		verify(not bark.is_empty(), "The fixture selects the original asset's bark rather than its needle planes.")
+		var vertices: PackedVector3Array = bark[Mesh.ARRAY_VERTEX]
+		var indices: PackedInt32Array = bark[Mesh.ARRAY_INDEX]
+		var target := Vector3.ZERO
+		var closest := INF
+		for first in range(0, indices.size(), 3):
+			var center := (vertices[indices[first]] + vertices[indices[first + 1]] + vertices[indices[first + 2]]) / 3.0
+			if absf(center.y - 0.18) < closest:
+				closest = absf(center.y - 0.18)
+				target = center
+		var aim: Vector3 = crown.to_global(target)
+		view.camera.position = aim + Vector3(0.0, 0.0, 3.0)
+		view.camera.look_at(aim)
+		await physics_frame
+		await process_frame
+		verify(view._screen_hand_source(view.camera.unproject_position(aim)) == id,
+			"A real PhysicsServer ray selects the visible native trunk.")
+	var old_body: StaticBody3D = view.hand_tree_nodes["tree-east-south"]
+	var old_shape: Shape3D = old_body.get_node("PickShape").shape
+	view._refresh_hand_trees()
+	verify(view.hand_tree_nodes["tree-east-south"] == old_body and old_body.get_node("PickShape").shape == old_shape,
+		"An unchanged refresh preserves the tree and pick-shape identities.")
+	verify(view.state == before and view.model == null and view.request_sequence == 0,
+		"Tree construction is a read-only projection with no Model or native request.")
+	view.state.hand_sources["tree-east-south"].remaining = 7
+	view._refresh_hand_trees()
+	verify(view.hand_tree_nodes["tree-east-south"] == old_body and old_body.get_node("Tree").visible
+		and old_body.get_node("PickShape").shape == old_shape and old_body.get_node("Cut").visible,
+		"A partial cut preserves the standing tree without rebuilding its pick body.")
+	view.state.hand_sources["tree-east-south"].remaining = 0
+	view._refresh_hand_trees()
+	verify(not old_body.get_node("Tree").visible and old_body.get_node("Stump").visible
+		and old_body.get_node("PickShape").shape != old_shape,
+		"Native depletion leaves a stump and removes the invisible full-trunk pick shape.")
+	var stump_aim := old_body.to_global(Vector3(0.0, 0.06, 0.0))
+	view.camera.position = stump_aim + Vector3(0.0, 0.0, 2.0)
+	view.camera.look_at(stump_aim)
+	await physics_frame
+	await process_frame
+	verify(view._screen_hand_source(view.camera.unproject_position(stump_aim)) == "tree-east-south",
+		"The remaining visible stump keeps the depleted identity on a real pick ray.")
+	var restored = SourceRayView.new()
+	restored.state = view.state.duplicate(true)
+	root.add_child(restored)
+	restored._refresh_hand_trees()
+	verify(not restored.hand_tree_nodes["tree-east-south"].get_node("Tree").visible,
+		"A newly constructed view of depleted native data cannot regrow the tree.")
+	view.state.hand_sources.erase("tree-east-north")
+	view._refresh_hand_trees()
+	verify(view.hand_tree_nodes.size() == 2 and not view.hand_tree_nodes.has("tree-east-north"),
+		"A removed source cannot leave a stale visible or selectable tree.")
+	view.free()
+	restored.free()
+	print("HAND_TREE_VIEW_%s %d" % ["PASS" if failures == 0 else "FAIL", checks])
+	quit(0 if failures == 0 else 1)
 
 func _multitool_controls() -> void:
 	for shared in [false, true]:

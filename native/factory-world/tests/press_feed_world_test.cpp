@@ -227,6 +227,15 @@ void actor_feed_is_physical_custody() {
     check(std::holds_alternative<w::Snapshot>(decoded) &&
           std::get<w::Snapshot>(decoded).state == saved.state,
           "Fresh World restore retains the actor, press and work-point material.");
+    auto wrong_actor = saved;
+    for (auto& record : wrong_actor.history.records) {
+        if (std::get<std::string>(record.intent.at("request").storage()) == "feed-first") {
+            record.intent.at("actor") = V("Q");
+            record.result.at("actor") = V("Q");
+        }
+    }
+    check(!w::World::restore("press-feed", source.profile, wrong_actor),
+          "A checkpoint cannot attribute P's spent ore to Q's empty cargo.");
     auto forged = saved;
     const auto cargo = forged.state.material.dropped_material.at({8, 1, 0});
     forged.state.material.dropped_material.erase({8, 1, 0});
@@ -336,6 +345,9 @@ void actor_feed_is_physical_custody() {
     check(run.world->snapshot().state.material.dropped_material.empty() &&
           run.world->snapshot().state.material.cargo.at("P").work_lots == std::vector<m::WorkLot>{partial},
           "Pickup after dismantling returns the same partial work to actor custody.");
+    const auto recovered = run.world->snapshot();
+    check(w::World::restore("press-feed", source.profile, recovered) != nullptr,
+          "A saved harvest, craft, feed, form and pickup history restores with partial work in actor cargo.");
 }
 } // namespace
 

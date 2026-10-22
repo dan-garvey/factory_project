@@ -642,6 +642,9 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
     auto foundation_kits = profile.starting_foundation_kits;
     std::map<std::string, Integer> harvested_timber;
     std::map<std::string, Integer> carried_timber;
+    // A landing starts every actor with empty raw cargo, so its command history
+    // can account for each later unit without inventing a second material State.
+    std::map<std::string, Integer> carried_raw;
     Integer harvested_ore = 0;
     Integer cranked_ore = 0;
     std::map<std::pair<std::string, materials::Component>, Integer> crafted_components;
@@ -723,18 +726,21 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
         if (*action == "harvest_source") {
             const auto& id = *field<std::string>(record.intent, "target");
             if (profile.material.manual_ore && id == profile.material.manual_ore->id) {
-                if (!add(harvested_ore, 1)) return false;
+                if (!add(harvested_ore, 1) ||
+                    (profile.landing_pod_center && !add(carried_raw[*actor], 1))) return false;
             } else if (!add(harvested_timber[id], 1) || !add(carried_timber[*actor], 1)) return false;
         }
         if (*action == "craft_component") {
             const auto component = materials::component_from_name(*field<std::string>(record.intent, "component"));
             const auto cost = component ? materials::component_cost(*component) : std::nullopt;
             if (!cost || carried_timber[*actor] < cost->timber ||
+                (profile.landing_pod_center && carried_raw[*actor] < cost->ore) ||
                 !add(crafted_components[{*actor, *component}], 1) ||
                 crafted_components[{*actor, *component}] != *field<Integer>(record.result, "component_count") ||
                 !within_component_capacity(*actor))
                 return false;
             carried_timber[*actor] -= cost->timber;
+            if (profile.landing_pod_center) carried_raw[*actor] -= cost->ore;
         }
         if (*action == "take_hand_crank" || *action == "return_hand_crank") {
             if (!profile.landing_pod_center) return false;
@@ -764,6 +770,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
                 !add(cranked_ore, 1)) return false;
         }
         if (*action == "feed_press") {
+            if (carried_raw[*actor] < 1) return false;
+            --carried_raw[*actor];
             const auto* entry = field<Value::Array>(record.intent, "entry");
             const auto* work = field<Value::Array>(record.result, "work_center");
             const auto selected_entry = entry ? grid_point(Object{{"center", Value(*entry)}}) : std::nullopt;
@@ -863,6 +871,21 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
                 const auto* work = field<Value::Array>(record.result, "moved_work");
                 if (!raw || *raw != 0 || !products || *products != 1 || !work || !work->empty())
                     return false;
+            }
+        }
+        if (profile.landing_pod_center &&
+            (*action == "pickup_material" || *action == "recover" ||
+             *action == "recover_belt_slot" || *action == "load_belt_slot" ||
+             *action == "insert_raw")) {
+            const auto* raw = field<Integer>(record.result, "moved_raw");
+            if (!raw || *raw < 0) return false;
+            auto& carried = carried_raw[*actor];
+            if (*action == "pickup_material" || *action == "recover" ||
+                *action == "recover_belt_slot") {
+                if (!add(carried, *raw)) return false;
+            } else {
+                if (carried < *raw) return false;
+                carried -= *raw;
             }
         }
         if (*action == "place_component" || *action == "reclaim_component") {
@@ -990,6 +1013,9 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
     }
     for (const auto& [actor, cargo] : snapshot.state.material.cargo)
         if (carried_timber[actor] != cargo.timber) return false;
+    if (profile.landing_pod_center)
+        for (const auto& [actor, cargo] : snapshot.state.material.cargo)
+            if (carried_raw[actor] != cargo.raw_units) return false;
     if (foundation_kits != snapshot.state.foundation_kits) return false;
     if (harvested_ore > profile.initial_units - snapshot.state.material.stock.source ||
         cranked_ore > profile.initial_units - snapshot.state.material.stock.source - harvested_ore)

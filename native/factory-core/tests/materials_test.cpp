@@ -255,6 +255,25 @@ void press_work_is_local_and_conserved() {
           state.cargo.at("Q").products == 1 && state.dropped_material.empty() &&
           m::validate(state, one, {}) == m::Error::none,
           "Two actors recover both products and the obstructing raw unit with exact conservation.");
+
+    auto full_map = snapshot(static_cast<m::Quantity>(m::maximum_drop_points), {});
+    full_map.dropped_material.emplace(first, m::Cargo{1, 0, {}});
+    for (std::size_t index = 1; index < m::maximum_drop_points; ++index)
+        full_map.dropped_material.emplace(m::DropPoint{1000 + static_cast<m::Quantity>(index), 0, 0},
+                                          m::Cargo{1, 0, {}});
+    check(m::validate(full_map, one, {}) == m::Error::none &&
+          m::turn_press(full_map, one, {}, first, first_exit) == m::Error::none &&
+          m::turn_press(full_map, one, {}, first, first_exit) == m::Error::none &&
+          m::turn_press(full_map, one, {}, first, first_exit) == m::Error::none &&
+          full_map.dropped_material.at(first).work_lots.front().remaining_ticks == 0,
+          "A full loose-item ledger lets the press finish work while retaining the ready lot.");
+    const auto full_before = full_map;
+    check(m::turn_press(full_map, one, {}, first, first_exit) == m::Error::unavailable_output &&
+          full_map == full_before &&
+          m::pickup_material(full_map, one, {}, "P", {1001, 0, 0}) == m::Error::none &&
+          m::turn_press(full_map, one, {}, first, first_exit) == m::Error::none &&
+          full_map.dropped_material.at(first_exit).products == 1,
+          "A capacity stall makes no phantom turn and releases after one real drop is collected.");
 }
 }  // namespace
 

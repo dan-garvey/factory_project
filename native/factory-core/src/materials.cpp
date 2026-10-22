@@ -488,7 +488,8 @@ Error turn_press(State& state, const Config& config, const Path& path,
     if (item.products != 0 || item.raw_units + static_cast<Quantity>(item.work_lots.size()) != 1)
         return Error::invalid_state;
     if (item.work_lots.size() == 1 && item.work_lots.front().remaining_ticks == 0 &&
-        state.dropped_material.contains(exit)) return Error::unavailable_output;
+        (state.dropped_material.contains(exit) ||
+         state.dropped_material.size() >= maximum_drop_points)) return Error::unavailable_output;
     auto next = state;
     auto& active = next.dropped_material.at(work);
     if (active.raw_units == 1) {
