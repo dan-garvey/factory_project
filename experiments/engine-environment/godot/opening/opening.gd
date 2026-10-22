@@ -5885,7 +5885,7 @@ func _guided_step(kinds: Dictionary) -> Dictionary:
 			if int(cargo.get("raw", 0)) > 0:
 				return {"text": "Select the press to insert a carried blank.", "tool": "inspect"}
 		return {"text": "No blanks remain here. Open Build to try another layout.", "tool": "inspect"}
-	return {"text": "Follow a blank to the press. Select a machine to inspect it.", "tool": "inspect"}
+	return {"text": "Follow the material toward the press. Select a machine to inspect it.", "tool": "inspect"}
 
 func _inspection_hint() -> String:
 	# Describe confirmed projection facts only. This is advice, never admission
