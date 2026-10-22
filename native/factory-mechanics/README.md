@@ -59,7 +59,12 @@ prescribed observations stall only the connected component, with zero derived
 rates. A separate component can continue. Without a source the component is
 unpowered; sources that are all zero are stopped. This models kinematic
 consistency, not torque distribution, native contact, inertia or a new damage
-rule.
+rule. The World separately derives experimental component load: each waterwheel
+supplies 32 units per unit of its generated speed, while the collector and press
+consume 4 and 8 units per unit of their respective theoretical speeds. If load
+exceeds capacity, the connected component stalls without damage and resumes
+when capacity or load changes. These provisional values support the opening and
+are not Create's configured values or a permanent progression decision.
 
 ## Authority and presentation interface
 
@@ -125,7 +130,7 @@ paths carry rotation but cannot carry objects, as in Create's
 [belt block](https://github.com/Creators-of-Create/Create/blob/mc1.21.1/dev/src/main/java/com/simibubi/create/content/kinetics/belt/BeltBlock.java).
 This rule does not itself admit cargo or provide physical collision.
 
-Full collision clearance, arbitrary bevel gears, clutches, tooth phase/contact, load,
+Full collision clearance, arbitrary bevel gears, clutches, tooth phase/contact,
 material feed direction, persisted phase and actual gameplay remain unfinished.
 A solver result cannot establish physical clearance for perpendicular parts.
 

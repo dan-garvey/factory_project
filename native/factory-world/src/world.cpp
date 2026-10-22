@@ -541,9 +541,43 @@ materials::Path material_path(const stationary::Topology& topology) {
     return path;
 }
 
+DrivePower drive_power(const stationary::Topology& topology) {
+    DrivePower power{stationary::power_view(topology).mechanical, {}};
+    if (!power.mechanical.accepted()) return power;
+    constexpr long double wheel_capacity = 32;
+    constexpr long double collector_impact = 4;
+    constexpr long double processor_impact = 8;
+    const auto magnitude = [](mechanics::Rate rate) {
+        return std::abs(static_cast<long double>(rate.numerator)) / static_cast<long double>(rate.denominator);
+    };
+    for (auto& component : power.mechanical.components) {
+        if (component.state != mechanics::MotionState::rotating) continue;
+        long double capacity = 0, impact = 0;
+        for (const auto& id : component.parts) {
+            const auto* item = part(topology, id);
+            if (!item) continue;
+            if (item->role == Role::waterwheel && topology.drive_enabled) {
+                const auto source = std::find_if(topology.sources.begin(), topology.sources.end(),
+                    [&](const auto& drive) { return drive.hub == id; });
+                if (source != topology.sources.end()) capacity += wheel_capacity * magnitude(source->rate);
+            }
+            const auto speed = magnitude(power.mechanical.motion.at(id).rate);
+            if (item->role == Role::collector) impact += collector_impact * speed;
+            if (item->role == Role::processor) impact += processor_impact * speed;
+        }
+        const NetworkLoad load{static_cast<double>(capacity), static_cast<double>(impact), impact > capacity};
+        for (const auto& id : component.parts) power.load.emplace(id, load);
+        if (!load.overloaded) continue;
+        component.state = mechanics::MotionState::stalled;
+        for (const auto& id : component.parts)
+            power.mechanical.motion.at(id) = {mechanics::MotionState::stalled, {0, 1}};
+    }
+    return power;
+}
+
 materials::MachinePower machine_power(const stationary::Topology& topology) {
     materials::MachinePower power;
-    const auto view = stationary::power_view(topology);
+    const auto view = drive_power(topology);
     if (!view.mechanical.accepted()) return power;
     for (const auto& item : topology.parts) {
         const auto found = view.mechanical.motion.find(item.geometry.id);
@@ -1204,7 +1238,7 @@ Advance World::tick() noexcept {
         const auto error = materials::step(candidate.material, profile_.material,
             material_path(candidate.topology), power);
         if (error != materials::Error::none) throw error;
-        const auto motion = stationary::power_view(candidate.topology).mechanical;
+        const auto motion = drive_power(candidate.topology).mechanical;
         if (!motion.accepted()) throw materials::Error::invalid_path;
         // Capture loose items before any lane moves. This gives a deterministic
         // one-tick handoff between adjacent belts regardless of span ordering.
