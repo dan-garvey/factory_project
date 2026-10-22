@@ -515,9 +515,10 @@ ownership. Isolated mesh checks do not establish the ordinary rendered result.
 The buildable cog rim has a shallow concentric recess on both cast faces. Its
 width and depth follow the admitted cog radius, while the original outer
 radius, face thickness, teeth and hub clearance remain unchanged. The passive
-resource gallery now shows both faces in detail and two 14-metre, 45-degree
-perspective samples matching the opening's default camera distance and field
-of view. Those samples isolate the cog under studio light; they do not prove
+resource gallery mounts the same gear and tile-length shaft as the native
+presenter, showing both faces in detail and two 14-metre, 45-degree perspective
+samples matching the opening's default camera distance and field of view.
+Those samples isolate the complete cog under studio light; they do not prove
 its legibility amid a working factory or establish human visual quality.
 
 The native presenter keeps the same restrained cast-metal tint when a part

@@ -5433,6 +5433,7 @@ func render_buildable_resources() -> void:
 			TransmissionAssets.belt_pulley(shaft)
 		elif subject.kind == "cogwheel":
 			TransmissionAssets.gear(model, Geometry.PITCH / 2.0, 2, Color("687a7b"))
+			TransmissionAssets.shaft(model, Geometry.PITCH, Color("687a7b"))
 		elif subject.kind == "tool_cartridge":
 			var cartridge := MeshInstance3D.new()
 			cartridge.name = subject.name
