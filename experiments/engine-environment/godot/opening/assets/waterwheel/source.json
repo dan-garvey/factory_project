@@ -83,6 +83,12 @@
       "resolution": [1024, 1024],
       "role": "sRGB color, original provider JPEG with no resize or re-encoding"
     },
+    "wood_center_albedo.webp": {
+      "bytes": 138306,
+      "sha256": "1654cc5b0e840aa4a7e6518db1da0f1fac3593e665892246394834831b03de0c",
+      "resolution": [1024, 1024],
+      "role": "Derived center-only warm shadow lift from the unmodified provider JPEG, lossy WebP quality 0.82"
+    },
     "wood_normal.webp": {
       "bytes": 380164,
       "sha256": "5ea97a2502ac00ab4ccf5a448b5c5f303dbe42e3977aae10a1384c19f9265a2d",
@@ -104,9 +110,10 @@
     "geometry_recipe": "native/asset-preparation/waterwheel.cpp",
     "map_recipe": "opening/machine_detail_check.gd --prepare-waterwheel-maps",
     "data_delivery": "Lossless WebP decodes to the exact prepared RGB8 pixels; no channel reorder, green flip or color-space conversion. Resizing does not preserve all original spatial detail.",
+    "center_color_recipe": "opening/machine_detail_check.gd --prepare-wheel-center-color pins wood_albedo.jpg and adds (0.18, 0.11, 0.06) times (1 - 0.2126 R - 0.7152 G - 0.0722 B) squared to each sRGB pixel, clamped to one; Godot save_webp uses lossy quality 0.82. The original JPEG and geometry are unchanged.",
     "budget_choice": "The original one-kilopixel lossless data maps were also prepared and retained externally. The shipped half-resolution data maps fit the current shared source allowance without another lossy encoding of the photographed color.",
     "runtime_api": "https://docs.godotengine.org/en/stable/classes/class_gltfdocument.html"
   },
-  "runtime": "Two source meshes share one material: one centered hub/spoke instance and two symmetric rim instances. Three-tile wheels retain the exact prepared geometry. Larger admitted wheels cache visual-only radial remaps: source rim outer radius stays fixed under the existing parent scale, while rim wall and timber hub grow with the square root of tile count relative to the three-tile wheel; spokes extend into the shifted inner rim. Source normals and tangents are transformed with the geometry, and source UVs remain. The old rotor files remain byte-identical for historical captures. Original paddle positions, spindle, native projected axis/motion, fixed stands and worked journal remain. Historical captures without the separated files mount the earlier complete sourced rotor or procedural assembly. No source scene, skeleton, animation, collider or controller is instantiated.",
+  "runtime": "Two source meshes use cached materials with the same normal and packed surface maps: one centered hub/spoke instance uses the derived color atlas when available, and two symmetric rim instances keep the provider color. Three-tile wheels retain the exact prepared geometry. Larger admitted wheels cache visual-only radial remaps: source rim outer radius stays fixed under the existing parent scale, while rim wall and timber hub grow with the square root of tile count relative to the three-tile wheel; spokes extend into the shifted inner rim. Source normals and tangents are transformed with the geometry, and source UVs remain. The old rotor files remain byte-identical for historical captures. Original paddle positions, spindle, native projected axis/motion, fixed stands and worked journal remain. Historical captures without the derived map keep the original shared color; without the separated files they mount the earlier complete sourced rotor or procedural assembly. No source scene, skeleton, animation, collider or controller is instantiated.",
   "limits": "The square-root proportion is an experimental art default, not a structural strength or mechanical design rule. Source UVs still stretch around the longer circumference; texture density and level of detail need further work. The second rim adds 1,872 visual triangles per wheel versus the original single rotor, and generated size meshes add cache memory; GPU cost is unmeasured. The current native launcher captures raw source assets; packaged Godot exports are unverified. Isolated asset fixtures and passive renders do not establish human visual acceptance or native power behavior."
 }

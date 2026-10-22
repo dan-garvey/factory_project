@@ -59,6 +59,27 @@ Lossless WebP delivery must decode to those exact prepared pixels. Existing map
 paths are refused, and no channel reorder, normal-axis flip or gamma conversion
 is applied. There is no resize or additional lossy encoding of the albedo.
 
+For the optional hub-and-spoke color grade, run the existing parsed
+[asset preparation script](../../experiments/engine-environment/godot/opening/machine_detail_check.gd)
+against a captured project that
+contains the unchanged provider JPEG. It refuses a different source hash and
+an existing output path:
+
+```bash
+"$FACTORY_GODOT" --headless --path "$CAPTURED_IMAGE_PROJECT" \
+  --script res://opening/machine_detail_check.gd \
+  -- --prepare-wheel-center-color "$WHEEL_PREPARED/wood_center_albedo.webp"
+```
+
+The recipe lifts dark sRGB pixels with a warm, luminance-weighted curve and
+encodes a 1024-pixel WebP at quality 0.82. The center alone uses this derived
+color; rim color, source UVs, normals and packed material channels remain
+unchanged. Reusing the existing script keeps the native launcher's 128-script
+capture limit unchanged. The resulting map
+adds 138,306 bytes to the tracked source roster, within its 32 MiB allowance
+at the measured publication candidate. It is an art presentation adjustment,
+not a source reclassification or an engine/gameplay rule.
+
 The first full-resolution conversion remains retained externally. The shipped
 half-resolution data maps kept the original component near 1.14 MB. The two
 new separated geometry files add 233,605 bytes to this resource set. This is a

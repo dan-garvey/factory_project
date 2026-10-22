@@ -489,6 +489,12 @@ the original pixels. The focused controls compare every loaded channel, includin
 HDR data and character mipmaps, and exercise imported remaps in a package without
 raw bitmap files. This is an image-loading contract, not a complete standalone
 game-export or human appearance verdict. Evidence: `imported-material-images-20261021`.
+For the derived wheel-center color, a source-render trial before editor import
+could not resolve the new `Texture2D` and showed the procedural fallback even
+though the general passive image runner returned success. Importing the image
+made the source mount available; the focused material check must verify that
+mount rather than treating an arbitrary rendered wheel image as source proof.
+The original failed trial remains in `waterwheel-timber-20261021`.
 
 **Data-map alpha is not surface opacity.** The
 [paddle timber source](../../experiments/engine-environment/godot/opening/assets/wheel-paddles/CREDITS.md)

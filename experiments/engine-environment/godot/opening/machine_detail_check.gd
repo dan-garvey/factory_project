@@ -1655,7 +1655,7 @@ func check_wheel_supports() -> void:
 					verify(enlarged.radius > measured_bore.minimum_radius,
 						"The actual journal facets fail the bore predicate when the old radial-growth transform is restored.")
 					rejected_rim_scale = true
-				verify(source.mesh == WheelArt.centre_for_tiles(sample.tiles) and source.material_override == WheelArt.finish
+				verify(source.mesh == WheelArt.centre_for_tiles(sample.tiles) and source.material_override == WheelArt.centre_finish
 					and source.transform == Transform3D.IDENTITY,
 					"The fitted assembly retains one correctly sized hub and spoke set with its atlas.")
 				check_split_wheel_rims(rotor, sample.tiles)
@@ -2864,7 +2864,7 @@ func check_timber_paddles(historical: bool = false) -> void:
 			var machine: Node3D = view.machine_root.get_child(0)
 			var rotor: Node3D = view.wheel_rotor
 			var source: MeshInstance3D = rotor.get_node("SourcedTimberRotor")
-			verify(source.mesh == WheelArt.hub_spokes_mesh and source.material_override == WheelArt.finish
+			verify(source.mesh == WheelArt.hub_spokes_mesh and source.material_override == WheelArt.centre_finish
 				and source.transform == Transform3D.IDENTITY and source.get_child_count() == 0,
 				"The separated hub and spokes keep their sourced atlas and rigid center.")
 			check_split_wheel_rims(rotor)
@@ -3439,10 +3439,19 @@ func check_sourced_mesh(instance: MeshInstance3D, expected_vertices: int = 4056,
 	verify((uv_high - uv_low).x > 0.7 and (uv_high - uv_low).y > minimum_v_span,
 		"The original atlas coordinates retain a nontrivial surface footprint.")
 	var material := instance.material_override as StandardMaterial3D
-	verify(material != null and material == WheelArt.finish,
-		"All sourced instances use the cached original material.")
+	var centre := instance.name == "SourcedTimberRotor"
+	verify(material != null and material == (WheelArt.centre_finish if centre else WheelArt.finish),
+		"The rim and center reuse their separate cached source-derived materials.")
 	if material == null:
 		return
+	if centre:
+		verify(material != WheelArt.finish and material.albedo_color == Color.WHITE
+			and material.albedo_texture != WheelArt.finish.albedo_texture
+			and material.normal_texture == WheelArt.finish.normal_texture
+			and material.roughness_texture == WheelArt.finish.roughness_texture
+			and material.metallic_texture == WheelArt.finish.metallic_texture
+			and material.ao_texture == WheelArt.finish.ao_texture,
+			"The center changes only its qualified color atlas; source normals and packed surface channels remain shared.")
 	verify(material.albedo_texture.get_size() == Vector2(1024, 1024)
 		and material.normal_texture.get_size() == Vector2(512, 512)
 		and material.roughness_texture.get_size() == Vector2(512, 512),
@@ -4040,6 +4049,44 @@ func prepare_component_maps(prefix: String) -> void:
 		"bytes": FileAccess.get_file_as_bytes(albedo_target).size()}
 	report.processing = "Float-precision Lanczos data-map resize, normalized OpenGL normals, nearest RGB8 encoding and lossless WebP. No channel reorder, normal-axis flip or color-space conversion."
 	print(JSON.stringify(report))
+	quit(0)
+
+func prepare_wheel_center_color() -> void:
+	const SOURCE := "res://opening/assets/waterwheel/wood_albedo.jpg"
+	const SOURCE_SHA256 := "b81f7849d93841e34c68292a26cb7825ceeff204b51717c3703b6c6a0b86450e"
+	var arguments := OS.get_cmdline_user_args()
+	if arguments.size() != 2 or not arguments[1].is_absolute_path() \
+		or FileAccess.file_exists(arguments[1]) or FileAccess.get_sha256(SOURCE) != SOURCE_SHA256:
+		push_error("Supply a fresh absolute output path and the pinned original wheel color atlas.")
+		quit(1)
+		return
+	var source := Image.load_from_file(SOURCE)
+	if source == null or source.get_size() != Vector2i(1024, 1024):
+		push_error("The original wheel color atlas is missing or has changed dimensions.")
+		quit(1)
+		return
+	var output := source.duplicate() as Image
+	var dark_count := 0
+	var total_lift := 0.0
+	for y in range(output.get_height()):
+		for x in range(output.get_width()):
+			var color := source.get_pixel(x, y)
+			var luminance := color.r * 0.2126 + color.g * 0.7152 + color.b * 0.0722
+			var weight := pow(1.0 - luminance, 2.0)
+			var tint := Color(0.18, 0.11, 0.06) * weight
+			output.set_pixel(x, y, Color(minf(color.r + tint.r, 1.0),
+				minf(color.g + tint.g, 1.0), minf(color.b + tint.b, 1.0)))
+			if luminance < 0.2:
+				dark_count += 1
+			total_lift += tint.r * 0.2126 + tint.g * 0.7152 + tint.b * 0.0722
+	if output.save_webp(arguments[1], true, 0.82) != OK:
+		push_error("Cannot save the center-only color candidate.")
+		quit(1)
+		return
+	print(JSON.stringify({"source": "wood_albedo.jpg", "width": output.get_width(),
+		"height": output.get_height(), "dark_pixels": dark_count,
+		"mean_luma_lift": total_lift / float(output.get_width() * output.get_height()),
+		"output_sha256": FileAccess.get_sha256(arguments[1])}))
 	quit(0)
 
 func prepare_paddle_maps() -> void:
@@ -5676,6 +5723,9 @@ func _initialize() -> void:
 		return
 	if OS.get_cmdline_user_args().size() > 0 and OS.get_cmdline_user_args()[0] == "--prepare-waterwheel-maps":
 		prepare_component_maps("wood")
+		return
+	if OS.get_cmdline_user_args().size() > 0 and OS.get_cmdline_user_args()[0] == "--prepare-wheel-center-color":
+		prepare_wheel_center_color()
 		return
 	if OS.get_cmdline_user_args().size() > 0 and OS.get_cmdline_user_args()[0] == "--prepare-press-support-maps":
 		prepare_component_maps("cast")

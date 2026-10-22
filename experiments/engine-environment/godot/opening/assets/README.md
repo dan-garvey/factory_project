@@ -346,8 +346,12 @@ Complete captures use sourced CC0 [timber components](waterwheel/CREDITS.md):
 one centered hub with twelve spokes and two instances of a separate rim mesh.
 This gives the waterwheel two visible sides while keeping the source atlas,
 existing paddles, spindle, bearings, axes and confirmed motion. The source
-meshes, cached size variants and one mipmapped material are shared between
-orientations;
+meshes and cached size variants are shared between orientations. The two rim
+instances keep the original mipmapped color material; the center uses a
+[source-derived shadow-lifted color atlas](waterwheel/CREDITS.md) so its timber
+grain remains legible under the same light. Both cached materials share the
+normal and packed surface maps. Historical captures without the derived color
+retain the original shared finish;
 source controllers and physical bodies are never instantiated. The previous
 complete rotor files remain byte-identical for provenance and reproduction.
 The live sourced assembly requires the separate rim and hub/spoke resources;

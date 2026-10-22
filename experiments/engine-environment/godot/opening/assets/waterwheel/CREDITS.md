@@ -21,6 +21,17 @@ source model is a mechanically functional waterwheel or supplies Factory's power
 The source material's double-sided shading is retained.
 
 The photographed color remains the original one-kilopixel provider JPEG.
+The centered hub and spokes also use a derived color atlas made from that JPEG.
+Its deterministic warm shadow lift adds `(0.18, 0.11, 0.06) * (1 - luminance)^2`
+to RGB, clamped to one, and leaves the rim on the untouched provider color.
+The 1024-pixel derived map is encoded as lossy WebP at quality 0.82 to fit
+the current native launcher source allowance. It keeps the same UV coordinates
+and packed normal/occlusion/roughness/metallic maps; it is an art-grade choice,
+not a new source photograph or a lighting/gameplay rule. Run the
+[offline color recipe](../../machine_detail_check.gd) in
+`--prepare-wheel-center-color` mode with a fresh output path to reproduce the
+map. Historical
+captures without the derived map retain the original shared color material.
 The OpenGL normal and packed occlusion/roughness/metallic maps are prepared at
 512 pixels, with floating-point Lanczos sampling, normal renormalization and
 nearest RGB8 encoding. WebP delivery is lossless relative to that prepared

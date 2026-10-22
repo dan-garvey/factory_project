@@ -473,6 +473,7 @@ class ProductionWheelArt:
 	const ROOT := "res://opening/assets/waterwheel"
 	const FILES := ["rim.gltf", "rim.bin", "hub_spokes.gltf", "hub_spokes.bin",
 		"wood_albedo.jpg", "wood_normal.webp", "wood_arm.webp"]
+	const CENTRE_COLOR := "wood_center_albedo.webp"
 	const RIM_OUTER_RADIUS := 0.57
 	const RIM_INNER_RADIUS := 0.506
 	const HUB_OUTER_RADIUS := 0.06631
@@ -482,6 +483,7 @@ class ProductionWheelArt:
 	static var sized_rims: Dictionary = {}
 	static var sized_centres: Dictionary = {}
 	static var finish: StandardMaterial3D
+	static var centre_finish: StandardMaterial3D
 	static var source_status := "uninitialized"
 
 	static func resource_status(directory: String = ROOT) -> String:
@@ -556,11 +558,22 @@ class ProductionWheelArt:
 		material.normal_enabled = true
 		material.normal_texture = ImageTexture.create_from_image(images.normal)
 		material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		var centre_material := material
+		var centre_path := ROOT.path_join(CENTRE_COLOR)
+		if ProductionVisuals.image_exists(centre_path):
+			var centre_color := ProductionVisuals.read_image(centre_path)
+			if centre_color == null or centre_color.get_size() != Vector2i(1024, 1024) \
+				or centre_color.generate_mipmaps(false) != OK:
+				push_error("Cannot prepare the wheel center color grade.")
+				return
+			centre_material = material.duplicate() as StandardMaterial3D
+			centre_material.albedo_texture = ImageTexture.create_from_image(centre_color)
 		rim_mesh = split_rim
 		hub_spokes_mesh = split_inner
 		sized_rims.clear()
 		sized_centres.clear()
 		finish = material
+		centre_finish = centre_material
 		source_status = "ready"
 
 	static func _sized_mesh(source: ArrayMesh, tiles: int, outer: bool) -> ArrayMesh:
@@ -637,7 +650,7 @@ class ProductionWheelArt:
 			rotor.name = piece[0]
 			rotor.mesh = piece[1]
 			rotor.position.z = piece[2]
-			rotor.material_override = finish
+			rotor.material_override = centre_finish if piece[2] == 0.0 else finish
 			rotor.set_meta("detail_role", "SourcedTimberRotor" if piece[2] == 0.0 else "SourcedTimberRim")
 			rotor.set_meta("source_asset", "Poly Haven spinning_wheel_01")
 			parent.add_child(rotor)
