@@ -128,7 +128,7 @@ func finish() -> void:
 			"bank-fir-lifecycle": "ordinary scene mounting inside the actual node tree",
 			"ground-material": "qualified grass material, data channels and cache separation",
 			"ground-render": "source-period and frame-stability observations on separate passive planes",
-			"site-render": "passive terrain and mature fir view from the worksite",
+			"site-render": "passive worksite, default-orbit and bank-side terrain views",
 			"water-flow": "layered translucent river resources and ordinary frame consumer",
 			"water-pattern": "straight-band normal energy and actual water-surface geometry",
 			"water-render": "isolated actual terrain and water with a fixed camera and presentation phases",
@@ -763,6 +763,17 @@ func check_ground_material() -> void:
 		and scalars.get_image().has_mipmaps(), "All shared terrain resources have mipmaps.")
 	verify(ground.shader == Scenery.GROUND_SHADER and is_equal_approx(ground.get_shader_parameter("source_extent"), 1.4),
 		"The cached stochastic surface binds the qualified 1.4-metre source scale and stationary world-space shader.")
+	var stone := Scenery.stone_material()
+	verify(Scenery.stone_source_status == "ready"
+		and ground.get_shader_parameter("stone_albedo_map") == stone.albedo_texture
+		and ground.get_shader_parameter("stone_normal_map") == stone.normal_texture
+		and ground.get_shader_parameter("stone_arm_map") == stone.roughness_texture
+		and is_equal_approx(ground.get_shader_parameter("stone_extent"), 1.5),
+		"Steep banks reuse the qualified rock color, normal and linear scalar maps at their declared physical scale.")
+	verify(stone.albedo_texture.get_image().has_mipmaps()
+		and stone.normal_texture.get_image().has_mipmaps()
+		and stone.roughness_texture.get_image().has_mipmaps(),
+		"Steep-bank sampling retains every qualified rock mip chain.")
 	var packed := Image.load_from_file(Scenery.GROUND_ROOT.path_join(Scenery.GROUND_FILES.arm))
 	var actual := scalars.get_image()
 	for pixel in [Vector2i(0, 0), Vector2i(117, 239), Vector2i(511, 511)]:
@@ -917,9 +928,27 @@ func check_site_render() -> void:
 	var destination := fixture_directory.path_join("site-passive.png")
 	verify(image.get_size() == viewport.size and not FileAccess.file_exists(destination)
 		and image.save_png(destination) == OK, "Retain the passive terrain and fir view without replacing prior evidence.")
+	view._update_camera()
+	await process_frame
+	await RenderingServer.frame_post_draw
+	var orbit_image := viewport.get_texture().get_image()
+	var orbit_path := fixture_directory.path_join("site-starting-orbit.png")
+	verify(orbit_image.get_size() == viewport.size and not FileAccess.file_exists(orbit_path)
+		and orbit_image.save_png(orbit_path) == OK,
+		"Retain the opening's default camera orbit over the unchanged passive scenery.")
+	view.camera.position = Vector3(-3.0, 3.2, 10.0)
+	view.camera.look_at(Vector3(1.0, 0.0, 3.0))
+	await process_frame
+	await RenderingServer.frame_post_draw
+	var bank_image := viewport.get_texture().get_image()
+	var bank_path := fixture_directory.path_join("site-bank-side.png")
+	verify(bank_image.get_size() == viewport.size and not FileAccess.file_exists(bank_path)
+		and bank_image.save_png(bank_path) == OK,
+		"Retain a close bank-side view of the steep slope without starting gameplay.")
 	verify(view.model == null and view.actor_world == null and view.request_sequence == 0,
 		"The passive view starts no game authority or player command.")
-	print(JSON.stringify({"phase": "site-render", "view": "west bank from east worksite", "viewport": [1280, 720],
+	print(JSON.stringify({"phase": "site-render", "views": ["west bank from east worksite",
+		"opening default orbit", "bank side from river"], "viewport": [1280, 720],
 		"input": "not_used", "gameplay": "not_run"}))
 	viewport.free()
 

@@ -5,6 +5,10 @@ uniform sampler2D albedo_map : source_color, repeat_enable, filter_linear_mipmap
 uniform sampler2D normal_map : hint_normal, repeat_enable, filter_linear_mipmap_anisotropic;
 uniform sampler2D arm_map : repeat_enable, filter_linear_mipmap_anisotropic;
 uniform float source_extent = 1.4;
+uniform sampler2D stone_albedo_map : source_color, repeat_enable, filter_linear_mipmap_anisotropic;
+uniform sampler2D stone_normal_map : hint_normal, repeat_enable, filter_linear_mipmap_anisotropic;
+uniform sampler2D stone_arm_map : repeat_enable, filter_linear_mipmap_anisotropic;
+uniform float stone_extent = 1.5;
 
 varying vec3 world_point;
 varying vec3 world_normal;
@@ -84,6 +88,15 @@ SurfaceSample sample_plane(vec2 point, vec2 dx, vec2 dy) {
 	return result;
 }
 
+SurfaceSample sample_stone_plane(vec2 point, vec2 dx, vec2 dy) {
+	vec2 uv = point / stone_extent;
+	SurfaceSample result;
+	result.color = textureGrad(stone_albedo_map, uv, dx / stone_extent, dy / stone_extent).rgb;
+	result.normal = textureGrad(stone_normal_map, uv, dx / stone_extent, dy / stone_extent).rgb * 2.0 - 1.0;
+	result.scalars = textureGrad(stone_arm_map, uv, dx / stone_extent, dy / stone_extent).rg;
+	return result;
+}
+
 void vertex() {
 	world_point = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	world_normal = normalize(MODEL_NORMAL_MATRIX * NORMAL);
@@ -99,28 +112,59 @@ void fragment() {
 	vec3 color = vec3(0.0);
 	vec2 scalars = vec2(0.0);
 	vec3 detail = vec3(0.0);
+	// Only genuinely steep banks expose rock; level meadows keep the existing
+	// grass projection. This changes shading, never the shared surface shape.
+	float stone_weight = smoothstep(0.18, 0.43, 1.0 - abs(base.y));
+	vec3 stone_color = vec3(0.0);
+	vec2 stone_scalars = vec2(0.0);
+	vec3 stone_detail = vec3(0.0);
 	if (weights.x > 0.001) {
-		SurfaceSample s = sample_plane(vec2(-world_point.z * face_sign.x, world_point.y),
-			vec2(-dx.z * face_sign.x, dx.y), vec2(-dy.z * face_sign.x, dy.y));
+		vec2 point = vec2(-world_point.z * face_sign.x, world_point.y);
+		vec2 point_dx = vec2(-dx.z * face_sign.x, dx.y);
+		vec2 point_dy = vec2(-dy.z * face_sign.x, dy.y);
+		SurfaceSample s = sample_plane(point, point_dx, point_dy);
 		color += s.color * weights.x;
 		scalars += s.scalars * weights.x;
 		detail += vec3(0.0, s.normal.y, -s.normal.x * face_sign.x) * weights.x / max(s.normal.z, 0.25);
+		if (stone_weight > 0.001) {
+			SurfaceSample rock = sample_stone_plane(point, point_dx, point_dy);
+			stone_color += rock.color * weights.x;
+			stone_scalars += rock.scalars * weights.x;
+			stone_detail += vec3(0.0, rock.normal.y, -rock.normal.x * face_sign.x) * weights.x / max(rock.normal.z, 0.25);
+		}
 	}
 	if (weights.y > 0.001) {
-		SurfaceSample s = sample_plane(vec2(world_point.x * face_sign.y, -world_point.z),
-			vec2(dx.x * face_sign.y, -dx.z), vec2(dy.x * face_sign.y, -dy.z));
+		vec2 point = vec2(world_point.x * face_sign.y, -world_point.z);
+		vec2 point_dx = vec2(dx.x * face_sign.y, -dx.z);
+		vec2 point_dy = vec2(dy.x * face_sign.y, -dy.z);
+		SurfaceSample s = sample_plane(point, point_dx, point_dy);
 		color += s.color * weights.y;
 		scalars += s.scalars * weights.y;
 		detail += vec3(s.normal.x * face_sign.y, 0.0, -s.normal.y) * weights.y / max(s.normal.z, 0.25);
+		if (stone_weight > 0.001) {
+			SurfaceSample rock = sample_stone_plane(point, point_dx, point_dy);
+			stone_color += rock.color * weights.y;
+			stone_scalars += rock.scalars * weights.y;
+			stone_detail += vec3(rock.normal.x * face_sign.y, 0.0, -rock.normal.y) * weights.y / max(rock.normal.z, 0.25);
+		}
 	}
 	if (weights.z > 0.001) {
-		SurfaceSample s = sample_plane(vec2(world_point.x * face_sign.z, world_point.y),
-			vec2(dx.x * face_sign.z, dx.y), vec2(dy.x * face_sign.z, dy.y));
+		vec2 point = vec2(world_point.x * face_sign.z, world_point.y);
+		vec2 point_dx = vec2(dx.x * face_sign.z, dx.y);
+		vec2 point_dy = vec2(dy.x * face_sign.z, dy.y);
+		SurfaceSample s = sample_plane(point, point_dx, point_dy);
 		color += s.color * weights.z;
 		scalars += s.scalars * weights.z;
 		detail += vec3(s.normal.x * face_sign.z, s.normal.y, 0.0) * weights.z / max(s.normal.z, 0.25);
+		if (stone_weight > 0.001) {
+			SurfaceSample rock = sample_stone_plane(point, point_dx, point_dy);
+			stone_color += rock.color * weights.z;
+			stone_scalars += rock.scalars * weights.z;
+			stone_detail += vec3(rock.normal.x * face_sign.z, rock.normal.y, 0.0) * weights.z / max(rock.normal.z, 0.25);
+		}
 	}
 	// A flat source normal leaves the original terrain normal intact on slopes.
+	detail = mix(detail, stone_detail, stone_weight);
 	detail -= base * dot(base, detail);
 	NORMAL = normalize((VIEW_MATRIX * vec4(normalize(base + detail), 0.0)).xyz);
 	// Broad meadow variation stays in world space. Warp the small field so its
@@ -130,9 +174,10 @@ void fragment() {
 	vec2 meadow = world_point.xz / 6.5 + drift * 2.0;
 	float cover = broad_noise(meadow) * 0.65 + broad_noise(meadow * 2.13 + vec2(3.7, -8.1)) * 0.35;
 	vec3 tint = mix(vec3(0.58, 0.78, 0.57), vec3(1.16, 1.08, 0.83), smoothstep(0.22, 0.78, cover));
-	ALBEDO = color * COLOR.rgb * tint * mix(0.88, 1.08, broad_noise(world_point.xz / 31.0 + vec2(3.7, 1.2)));
-	ROUGHNESS = scalars.y;
-	AO = scalars.x;
+	vec3 meadow_color = color * tint * mix(0.88, 1.08, broad_noise(world_point.xz / 31.0 + vec2(3.7, 1.2)));
+	ALBEDO = COLOR.rgb * mix(meadow_color, stone_color, stone_weight);
+	ROUGHNESS = mix(scalars.y, stone_scalars.y, stone_weight);
+	AO = mix(scalars.x, stone_scalars.x, stone_weight);
 	AO_LIGHT_AFFECT = 0.0;
 	METALLIC = 0.0;
 }

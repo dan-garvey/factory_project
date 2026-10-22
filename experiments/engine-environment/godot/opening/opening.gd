@@ -2452,6 +2452,11 @@ class ProductionEnvironment:
 		if loaded.status != "ready":
 			push_error("Ground shading requires its complete qualified surface set.")
 			return null
+		var rock := stone_material()
+		if stone_source_status != "ready":
+			ground_source_status = "invalid"
+			push_error("Steep ground shading requires its complete qualified stone set.")
+			return null
 		for role in loaded.images:
 			var image: Image = loaded.images[role]
 			if image.generate_mipmaps(role == "normal") != OK:
@@ -2462,8 +2467,12 @@ class ProductionEnvironment:
 		ground_finish.shader = GROUND_SHADER
 		for role in loaded.images:
 			ground_finish.set_shader_parameter(role + "_map", ImageTexture.create_from_image(loaded.images[role]))
+		ground_finish.set_shader_parameter("stone_albedo_map", rock.albedo_texture)
+		ground_finish.set_shader_parameter("stone_normal_map", rock.normal_texture)
+		ground_finish.set_shader_parameter("stone_arm_map", rock.roughness_texture)
 		# The stochastic mapping retains each source sample's physical scale.
 		ground_finish.set_shader_parameter("source_extent", 1.4)
+		ground_finish.set_shader_parameter("stone_extent", 1.5)
 		return ground_finish
 
 	static func _ripple_normals(seed: int, frequency: float) -> ImageTexture:
