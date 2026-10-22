@@ -174,31 +174,74 @@ func check_foundation_inspector() -> void:
 		root.add_child(view)
 		view._build_interface()
 		view._refresh_guided_tools()
+		await settle_footer()
 		var panel: Control = view.inspector.get_parent().get_parent()
 		verify(not panel.visible, "Foundation-only construction does not show unused machine inspection actions.")
 		view.mode = "inspect"
 		view.selected = "step-a"
 		view._refresh_guided_tools()
+		await settle_footer()
 		verify(panel.visible, "Explicit foundation inspection retains its panel and dismantling controls.")
 		view.mode = "collector"
 		view.selected = ""
 		view.show_details = true
 		view._refresh_guided_tools()
+		await settle_footer()
 		verify(panel.visible, "Explicit Details retains the inspection disclosure.")
 		view.show_details = false
 		view._refresh_guided_tools(false)
+		await settle_footer()
 		verify(panel.visible, "An unavailable snapshot retains inspection readiness notices.")
 		view.state.actors.P.ready = false
 		view._refresh_guided_tools()
+		await settle_footer()
 		verify(panel.visible, "An unready physical actor retains inspection readiness notices.")
 		view.state.actors.P.ready = true
 		view.explanation_open = true
 		view._refresh_guided_tools()
+		await settle_footer()
 		verify(panel.visible, "Help retains explicit inspection disclosure.")
 		view.explanation_open = false
 		view._refresh_guided_tools()
+		await settle_footer()
 		verify(not panel.visible and view.state == before and view.model == null and view.actor_world == null
 			and view.request_sequence == 0, "Returning to construction hides the unused panel without authority or requests.")
+		view.state.entities = {"wheel-a": {"kind": "wheel", "cell": [-2, 1]},
+			"press-a": {"kind": "processor", "cell": [3, 1]}}
+		var built_before: Dictionary = view.state.duplicate(true)
+		view._refresh_guided_tools()
+		await settle_footer()
+		var idle_height: float = panel.size.y
+		verify(panel.visible and view.power_button.visible and idle_height < 100.0,
+			"An unselected built worksite keeps a compact drive control instead of covering the machinery.")
+		verify(not view.inspector.visible and not view.retrieve_button.visible and not view.remove_button.visible,
+			"No target means no repeated selection prompt or unusable target actions.")
+		view.selected = "press-a"
+		view._refresh_guided_tools()
+		await settle_footer()
+		verify(view.inspector.visible and view.retrieve_button.visible and view.remove_button.visible
+			and panel.size.y > idle_height,
+			"Selecting the press restores its inspection, collection and dismantling actions.")
+		view.selected = "wheel-a"
+		view._refresh_guided_tools()
+		await settle_footer()
+		verify(view.inspector.visible and view.remove_button.visible and not view.retrieve_button.visible,
+			"Wheel inspection does not offer plate collection.")
+		view.selected = ""
+		view.mode = "inspect"
+		view._refresh_guided_tools()
+		await settle_footer()
+		verify(panel.visible and view.inspector.visible,
+			"Choosing Inspect keeps the selection prompt available without a target.")
+		view.mode = "collector"
+		view.recovery_actions.visible = true
+		view._refresh_guided_tools()
+		await settle_footer()
+		verify(panel.visible and view.recovery_actions.is_visible_in_tree(),
+			"A disclosed recovery component remains visible without a selected target.")
+		view.recovery_actions.visible = false
+		verify(view.state == built_before and view.model == null and view.actor_world == null and view.request_sequence == 0,
+			"Inspection disclosure never creates an authority, physical body or gameplay request.")
 		await settle_footer()
 		if shared_profile:
 			view.session = null

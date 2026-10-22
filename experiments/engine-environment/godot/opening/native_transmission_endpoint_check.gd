@@ -18,6 +18,7 @@ class OfflineHarness:
 class SharedHarness:
 	extends "res://opening/shared_opening.gd"
 	var requests: Array = []
+	func _ready() -> void: pass
 	func _update_cursor() -> void: pass
 	func _refresh_ui() -> void: pass
 	func _update_camera() -> void: pass
@@ -143,6 +144,59 @@ func pick_body(view: Node3D, id: String, position: Vector3, size: Vector3, offse
 	shape.position = offset
 	body.add_child(shape)
 	view.add_child(body)
+
+func check_terrain_pointer(shared: bool) -> void:
+	var view = SharedHarness.new() if shared else OfflineHarness.new()
+	if shared:
+		view.session = Connection.new()
+	root.add_child(view)
+	mount(view)
+	view._install_transmission_terrain_picker()
+	view.camera = Camera3D.new()
+	view.add_child(view.camera)
+	view.camera.make_current()
+	await physics_frame
+	await physics_frame
+	var surface = load("res://opening/site_surface.gd")
+	for cell in [Vector2i(20, 20), Vector2i(-8, -8)]:
+		var x: float = cell.x * Geometry.PITCH
+		var z: float = cell.y * Geometry.PITCH
+		var ground: float = surface.height_at(x, z)
+		var level := ceili(ground / Geometry.PITCH) * Geometry.HEIGHT_DENOMINATOR
+		if cell == Vector2i(20, 20):
+			verify(level != 0, "The elevated terrain control differs from the old zero-height fallback.")
+		view.camera.position = Vector3(x, ground + 20.0, z)
+		view.camera.look_at(Vector3(x, ground, z), Vector3.FORWARD)
+		var screen: Vector2 = view.camera.unproject_position(Vector3(x, ground, z))
+		for tool in ["place_shaft", "gear"]:
+			view.transmission_controls.choose_tool(tool)
+			var target: Array = view._transmission_center(screen)
+			verify(target == [cell.x * 4, level, cell.y * 4], "Bare terrain chooses the global tile at or above its actual surface.")
+			verify(view.transmission_controls.snapped_height == level, "The height control starts from the pointed terrain tile.")
+		view.transmission_controls._height_selected(1)
+		verify(view._transmission_center(screen) == [cell.x * 4, level + 4, cell.y * 4], "Explicit height overrides terrain following by one global tile.")
+		view.transmission_controls._height_selected(2)
+	var x: float = 20 * Geometry.PITCH
+	var z: float = 20 * Geometry.PITCH
+	var ground: float = surface.height_at(x, z)
+	var level := ceili(ground / Geometry.PITCH) * Geometry.HEIGHT_DENOMINATOR
+	view.camera.position = Vector3(x, ground + 20.0, z)
+	view.camera.look_at(Vector3(x, ground, z), Vector3.FORWARD)
+	var screen: Vector2 = view.camera.unproject_position(Vector3(x, ground, z))
+	view.state.transmission_parts["hidden"] = {"kind": "shaft", "center": [80, level - 8, 80], "axis": 0, "generation": 1}
+	pick_body(view, "hidden", Vector3(x, ground - 2.0, z), Vector3.ONE * 0.3, Vector3.ZERO)
+	await physics_frame
+	await physics_frame
+	view.transmission_controls.choose_tool("place_shaft")
+	verify(view._screen_entity(screen).is_empty(), "Terrain occludes the more distant transmission picker.")
+	verify(view._transmission_center(screen) == [80, level, 80], "A terrain hit selects its global tile instead of a hidden shaft face.")
+	pick_body(view, "visible", Vector3(x, ground + 2.0, z), Vector3.ONE * 0.3, Vector3.ZERO)
+	await physics_frame
+	await physics_frame
+	verify(view._screen_entity(screen) == "visible", "A transmission picker in front of terrain remains selectable.")
+	verify(view.requests.is_empty() and view.model == null, "Terrain pointing is local and creates no authority or construction request.")
+	view.queue_free()
+	await process_frame
 
 func check_raised_pointer() -> void:
 	# Passive rays over the same confirmed pick bodies used by the opening.
@@ -403,6 +457,8 @@ func _run() -> void:
 		check_direct_shaft_entry(true)
 		check_transmission_guidance(false)
 		check_transmission_guidance(true)
+		await check_terrain_pointer(false)
+		await check_terrain_pointer(true)
 		await check_raised_pointer()
 		await check_actual_belt_pointer()
 		await check_actual_part_pointer()

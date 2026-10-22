@@ -342,15 +342,16 @@ and inclined routes. These pieces sit outside the moving rubber and cargo lane,
 within the existing occupied span envelope. They are visual furniture attached
 to the admitted belt, not extra structural inventory or another power path.
 
-Complete captures now use a sourced CC0 [timber rotor](waterwheel/CREDITS.md)
-for the waterwheel rim, hub and twelve spokes. Its original modeled components
-and atlas replace the procedural rim silhouette. Existing paddles, spindle,
-bearings, axes and confirmed motion remain in the ordinary view. One cached
-static mesh and mipmapped material are shared between all orientations; source
-scene controllers and physical bodies are never instantiated. Historical fixed
-rosters retain their earlier procedural rotor, while a partial resource set is
-reported explicitly. This increment has isolated asset checks, not a rendered
-quality or human-approval result.
+Complete captures use sourced CC0 [timber components](waterwheel/CREDITS.md):
+one centered hub with twelve spokes and two instances of a separate rim mesh.
+This gives the waterwheel two visible sides while keeping the source atlas,
+existing paddles, spindle, bearings, axes and confirmed motion. Two cached
+static meshes and one mipmapped material are shared between orientations;
+source controllers and physical bodies are never instantiated. The previous
+complete rotor files remain byte-identical for historical captures, and older
+fixed rosters retain their procedural assembly. A partial source set is reported
+explicitly. Isolated asset checks and passive resource images support the
+assembly; human visual approval and GPU cost remain open.
 
 For the native scene profile, machine spindles, waterwheel axle and bearings
 follow each entity's projected X, Y or Z axis through the confirmed hub height.

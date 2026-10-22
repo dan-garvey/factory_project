@@ -1654,9 +1654,10 @@ func check_wheel_supports() -> void:
 					verify(enlarged.radius > measured_bore.minimum_radius,
 						"The actual journal facets fail the bore predicate when the old radial-growth transform is restored.")
 					rejected_rim_scale = true
-				verify(source.mesh == WheelArt.mesh and source.material_override == WheelArt.finish
+				verify(source.mesh == WheelArt.hub_spokes_mesh and source.material_override == WheelArt.finish
 					and source.transform == Transform3D.IDENTITY,
-					"The fitted assembly retains the original sourced rotor and atlas.")
+					"The fitted assembly retains one centered sourced hub and spoke set with its atlas.")
+				check_split_wheel_rims(rotor)
 				verify(hub.mesh is ArrayMesh and journal_shape_matches(hub.mesh, expected_half_span * 2.0, expected_radius),
 					"The actual journal retains its outer planes with real end chamfers, relieved bands and recessed centres.")
 				var finish := hub.material_override as StandardMaterial3D
@@ -2801,13 +2802,14 @@ func check_timber_paddles(historical: bool = false) -> void:
 			var machine: Node3D = view.machine_root.get_child(0)
 			var rotor: Node3D = view.wheel_rotor
 			var source: MeshInstance3D = rotor.get_node("SourcedTimberRotor")
-			verify(source.mesh == WheelArt.mesh and source.material_override == WheelArt.finish
+			verify(source.mesh == WheelArt.hub_spokes_mesh and source.material_override == WheelArt.finish
 				and source.transform == Transform3D.IDENTITY and source.get_child_count() == 0,
-				"The original sourced rotor mesh, atlas and rigid placement remain exact.")
+				"The separated hub and spokes keep their sourced atlas and rigid center.")
+			check_split_wheel_rims(rotor)
 			print(JSON.stringify({"phase": "paddle mount observation", "shared_class": shared_profile, "axis": axis,
 				"center": [rotor.position.x, rotor.position.y, rotor.position.z],
 				"axis_vector": [rotor.basis.z.normalized().x, rotor.basis.z.normalized().y, rotor.basis.z.normalized().z]}))
-			verify(rotor.position.is_equal_approx(Vector3(0, 0.5, 0))
+			verify(rotor.position.is_equal_approx(Vector3.UP * Geometry.ANCHOR_HEIGHT)
 				and rotor.basis.z.normalized().dot([Vector3.RIGHT, Vector3.UP, Vector3.BACK][axis]) > 0.99999,
 				"The ordinary wheel keeps its literal native center and projected spindle axis.")
 			var blades := 0
@@ -2862,26 +2864,43 @@ func check_timber_paddles(historical: bool = false) -> void:
 						else is_equal_approx(material.metallic, 0.85) and material.albedo_color == Color("46504e")),
 						"Timber and attachment iron retain distinct actual material bindings.")
 				if not shared_profile and axis == 0:
-					var vertices: PackedVector3Array = source.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
 					var inverse: Transform3D = child.transform.affine_inverse()
 					var cleat: MeshInstance3D = child.get_child(0)
 					var inside := 0
-					for point in vertices:
-						var local: Vector3 = inverse * point - cleat.position
-						if absf(local.x) < 0.015 and absf(local.y) < 0.025 and absf(local.z) < 0.045:
-							inside += 1
+					var displaced := 0
+					for side: String in ["N", "P"]:
+						var rim: MeshInstance3D = rotor.get_node("SourcedTimberRim" + side)
+						var arrays := rim.mesh.surface_get_arrays(0)
+						var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+						var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+						for n in range(0, indices.size(), 3):
+							var low := Vector3(INF, INF, INF)
+							var high := Vector3(-INF, -INF, -INF)
+							for corner in range(3):
+								var point: Vector3 = inverse * (rim.transform * vertices[indices[n + corner]]) - cleat.position
+								low = low.min(point)
+								high = high.max(point)
+							if low.x < 0.015 and high.x > -0.015 and low.y < 0.025 and high.y > -0.025 \
+								and low.z < 0.045 and high.z > -0.045:
+								inside += 1
+							if low.x < -0.185 and high.x > -0.215 and low.y < 0.025 and high.y > -0.025 \
+								and low.z < 0.045 and high.z > -0.045:
+								displaced += 1
 					root_counts.append(inside)
-					verify(inside > 0, "The actual unchanged imported rotor intersects every new root's conservative interior.")
+					verify(inside > 0 and displaced == 0,
+						"Actual rim triangle bounds meet every cleat's narrow attachment box; a radial displacement is rejected.")
 			verify(blades == 12 and PaddleArt.source_status == ("missing" if historical else "ready"),
 				"The ordinary builder keeps exactly twelve paddles and the declared source qualification.")
 			var base := rotor.basis
 			for sample in range(24):
 				rotor.basis = base * Basis(Vector3.BACK, float(sample) * TAU / 24)
-				check_bounds(rotor, Transform3D.IDENTITY)
+				check_native_wheel_bounds(rotor, Transform3D.IDENTITY,
+					[Vector3.RIGHT, Vector3.UP, Vector3.BACK][axis])
 			rotor.basis = base
 			view._animate_wheel(0.1)
-			verify(rotor.basis.is_equal_approx(base * Basis(Vector3.BACK, -0.16)) and view.state == before,
-				"The complete paddle assembly consumes the existing signed cosmetic angle without changing native observations.")
+			verify(rotor.basis.is_equal_approx(base * Basis(Vector3.BACK,
+				view.transmission_presenter.visual_angle("fixture"))) and view.state == before,
+				"The complete paddle assembly consumes the presenter's cosmetic angle without changing native observations.")
 			view.state.motion.fixture.state = "stalled"
 			var stopped: Dictionary = view.state.duplicate(true)
 			var held := rotor.basis
@@ -2895,7 +2914,7 @@ func check_timber_paddles(historical: bool = false) -> void:
 	if not historical:
 		check_paddle_maps()
 	print(JSON.stringify({"phase": "timber paddles", "assemblies": assemblies, "paddles_per_assembly": 12,
-		"historical_missing_set": historical, "original_source_vertices_inside_each_root": root_counts,
+		"historical_missing_set": historical, "rim_triangle_boxes_inside_each_root": root_counts,
 		"observations": "invented", "native_gameplay": "not_run"}))
 
 func point_triangle_distance(point: Vector2, a: Vector2, b: Vector2, c: Vector2) -> float:
@@ -3292,7 +3311,22 @@ func count_role(node: Node, role: String) -> int:
 		count += count_role(child, role)
 	return count
 
-func check_sourced_mesh(instance: MeshInstance3D) -> void:
+func check_split_wheel_rims(rotor: Node3D) -> void:
+	for side: String in ["N", "P"]:
+		var rim := rotor.get_node_or_null("SourcedTimberRim" + side) as MeshInstance3D
+		verify(rim != null, "Each side of the waterwheel has its own sourced rim instance.")
+		if rim == null:
+			continue
+		var offset := -0.08 if side == "N" else 0.08
+		verify(rim.mesh == WheelArt.rim_mesh and rim.material_override == WheelArt.finish
+			and rim.position.is_equal_approx(Vector3(0, 0, offset))
+			and rim.basis == Basis.IDENTITY and rim.get_script() == null and rim.get_child_count() == 0,
+			"Both sourced rims share one mesh and material at the exact symmetric axial seats.")
+	verify(count_role(rotor, "SourcedTimberRim") == 2 and count_role(rotor, "WheelRim") == 0,
+		"The split source replaces the procedural rims without creating a third wheel silhouette.")
+
+func check_sourced_mesh(instance: MeshInstance3D, expected_vertices: int = 4056,
+		expected_triangles: int = 6702, expected_radius: float = 0.524) -> void:
 	verify(instance.get_script() == null and instance.get_child_count() == 0,
 		"The sourced rotor is a plain mesh without a controller, skeleton or physical children.")
 	var arrays := instance.mesh.surface_get_arrays(0)
@@ -3301,8 +3335,8 @@ func check_sourced_mesh(instance: MeshInstance3D) -> void:
 	var coordinates: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
 	var tangents: PackedFloat32Array = arrays[Mesh.ARRAY_TANGENT]
 	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
-	verify(vertices.size() == 5632 and indices.size() == 8574 * 3,
-		"The loaded mesh contains exactly the extracted rim, hub and twelve spokes.")
+	verify(vertices.size() == expected_vertices and indices.size() == expected_triangles * 3,
+		"The loaded mesh contains exactly its selected source components.")
 	verify(normals.size() == vertices.size() and coordinates.size() == vertices.size()
 		and tangents.size() == vertices.size() * 4,
 		"The sourced mesh has complete normal-mapped attributes.")
@@ -3323,9 +3357,10 @@ func check_sourced_mesh(instance: MeshInstance3D) -> void:
 		uv_low = uv_low.min(coordinates[n])
 		uv_high = uv_high.max(coordinates[n])
 	verify(attributes_ok, "Actual imported source normals, tangents, positions and UVs remain finite and usable.")
-	verify(radius > 0.5699 and radius < 0.5701 and instance.mesh.get_aabb().size.z < 0.14,
-		"The source rotor has the normalized radial and axial envelope, without its stand or drive belt.")
-	verify((uv_high - uv_low).x > 0.5 and (uv_high - uv_low).y > 0.5,
+	verify(absf(radius - expected_radius) < 0.002 and instance.mesh.get_aabb().size.z < 0.14,
+		"The source component has its declared radial and axial envelope, without the stand or drive belt.")
+	var minimum_v_span := 0.35 if expected_vertices == 1576 else 0.7
+	verify((uv_high - uv_low).x > 0.7 and (uv_high - uv_low).y > minimum_v_span,
 		"The original atlas coordinates retain a nontrivial surface footprint.")
 	var material := instance.material_override as StandardMaterial3D
 	verify(material != null and material == WheelArt.finish,
@@ -3347,7 +3382,7 @@ func check_sourced_mesh(instance: MeshInstance3D) -> void:
 		"The atlas retains source UVs and has mipmapped normal, color and scalar textures.")
 
 func check_wheel_axes() -> void:
-	verify(WheelArt.resource_status() == "complete", "The complete source set is present in this captured project.")
+	verify(WheelArt.resource_status() == "complete_split", "The separated source set is present in this captured project.")
 	var cached_mesh: Mesh
 	var cached_material: Material
 	for axis_index in range(3):
@@ -3365,6 +3400,11 @@ func check_wheel_axes() -> void:
 			"Every supported wheel axis mounts the actual sourced rotor.")
 		if sourced != null:
 			check_sourced_mesh(sourced)
+			check_split_wheel_rims(rotor)
+			for side: String in ["N", "P"]:
+				var rim := rotor.get_node_or_null("SourcedTimberRim" + side) as MeshInstance3D
+				if rim != null:
+					check_sourced_mesh(rim, 1576, 1872, 0.57)
 			if cached_mesh == null:
 				cached_mesh = sourced.mesh
 				cached_material = sourced.material_override
@@ -3376,9 +3416,10 @@ func check_wheel_axes() -> void:
 			and rotor.basis.z.normalized().dot(axis) > 0.99999,
 			"The actual sourced rotor follows the confirmed native hub and projected axis.")
 		var hub: MeshInstance3D = rotor.get_node("WheelHub")
-		verify(hub.mesh is CylinderMesh and hub.position == Vector3.ZERO
-			and absf((rotor.basis * hub.basis.y).normalized().dot(axis)) > 0.99999,
-			"The existing visible spindle still lies on the native hub axis.")
+		verify(hub.mesh is ArrayMesh and hub.position == Vector3.ZERO
+			and journal_shape_matches(hub.mesh, 0.45 * Geometry.WATERWHEEL_RADIUS / 0.70,
+				0.13 * 0.5 / 0.78),
+			"The existing worked journal keeps its native axial form at the wheel center.")
 		var bearings := 0
 		for child in anchor.get_children():
 			if child is MeshInstance3D and str(child.name).begins_with("AxleBearing"):
@@ -3387,7 +3428,7 @@ func check_wheel_axes() -> void:
 					and absf(child.basis.y.normalized().dot(axis)) > 0.99999,
 					"The open bearing follows its actual projected axle.")
 		verify(bearings == (1 if axis_index == 1 else 2), "The original vertical and horizontal bearing layouts remain intact.")
-		check_bounds(rotor, Transform3D.IDENTITY)
+		check_native_wheel_bounds(rotor, Transform3D.IDENTITY, axis)
 		var original: Transform3D = rotor.transform
 		view._animate_wheel(1.0)
 		verify(rotor.transform == original, "Powered state alone cannot invent a native wheel phase.")
@@ -3566,7 +3607,7 @@ func check_historical_wheel() -> void:
 			verify(not child.has_meta("wheel_support_role"),
 				"The missing-source roster does not mount supports fitted to a different rotor.")
 			if child is MeshInstance3D and child.mesh == Visuals.box_mesh(Vector3(0.16, 0.54, 0.16)
-					* (0.5 / 0.78 if native_profile else 1.0)):
+					* (Geometry.ANCHOR_HEIGHT / 0.78 if native_profile else 1.0)):
 				old_supports += 1
 		verify(old_supports == 2, "The historical native and scripted wheel retain their original two posts.")
 		verify(WheelArt.source_status == "missing" and rotor.get_node_or_null("SourcedTimberRotor") == null,
@@ -5550,6 +5591,11 @@ func _initialize() -> void:
 		var rotor := parent.get_node_or_null("SourcedTimberRotor") as MeshInstance3D
 		if rotor != null:
 			check_sourced_mesh(rotor)
+			check_split_wheel_rims(parent)
+			for side: String in ["N", "P"]:
+				var rim := parent.get_node_or_null("SourcedTimberRim" + side) as MeshInstance3D
+				if rim != null:
+					check_sourced_mesh(rim, 1576, 1872, 0.57)
 			verify((rotor.material_override as StandardMaterial3D).cull_mode == BaseMaterial3D.CULL_DISABLED,
 				"The source material retains its documented double-sided shading.")
 		parent.free()
@@ -5599,8 +5645,9 @@ func _initialize() -> void:
 			"wheel":
 				var rotor: Node3D = machine.get_node("WheelRotor")
 				if WheelArt.source_status == "ready":
-					verify(count_role(rotor, "SourcedTimberRotor") == 1 and count_role(rotor, "WheelRim") == 0,
-						"The actual wheel mounts the sourced component instead of procedural rims.")
+					verify(count_role(rotor, "SourcedTimberRotor") == 1 and count_role(rotor, "SourcedTimberRim") == 2
+						and count_role(rotor, "WheelRim") == 0,
+						"The actual wheel mounts one sourced center and two sourced rims instead of procedural rims.")
 				else:
 					verify(count_role(rotor, "WheelRim") == 2 and count_role(rotor, "RimFastener") == 24,
 						"A historical capture retains its two continuous procedural rims and fitted fasteners.")

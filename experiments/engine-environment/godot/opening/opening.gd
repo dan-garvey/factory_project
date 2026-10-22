@@ -472,7 +472,10 @@ class ProductionWheelArt:
 	## A reusable visual component. Native geometry and motion never read this mesh.
 	const ROOT := "res://opening/assets/waterwheel"
 	const FILES := ["rotor.gltf", "rotor.bin", "wood_albedo.jpg", "wood_normal.webp", "wood_arm.webp"]
+	const SPLIT_FILES := ["rim.gltf", "rim.bin", "hub_spokes.gltf", "hub_spokes.bin"]
 	static var mesh: ArrayMesh
+	static var rim_mesh: ArrayMesh
+	static var hub_spokes_mesh: ArrayMesh
 	static var finish: StandardMaterial3D
 	static var source_status := "uninitialized"
 
@@ -483,31 +486,24 @@ class ProductionWheelArt:
 			var exists := ProductionVisuals.image_exists(path) if name_value.get_extension() in ["jpg", "webp"] else FileAccess.file_exists(path)
 			if exists:
 				present += 1
-		if present == 0:
+		var split_present := 0
+		for name_value in SPLIT_FILES:
+			if FileAccess.file_exists(directory.path_join(name_value)):
+				split_present += 1
+		if present == 0 and split_present == 0:
 			return "missing"
-		return "complete" if present == FILES.size() else "incomplete"
+		if present != FILES.size() or split_present not in [0, SPLIT_FILES.size()]:
+			return "incomplete"
+		return "complete_split" if split_present == SPLIT_FILES.size() else "complete"
 
-	static func _prepare() -> void:
-		source_status = resource_status()
-		if source_status == "missing":
-			# Old fixed source rosters have no art resources. Their earlier
-			# procedural rotor remains explicit rather than claiming sourced art.
-			return
-		if source_status != "complete":
-			push_error("The sourced waterwheel resource set is incomplete.")
-			return
-		source_status = "invalid"
-		# Read only mesh data. This creates no asset scene, requires no editor
-		# import cache, and cannot mount a source controller or collision body.
+	static func _read_mesh(file_name: String) -> ArrayMesh:
 		var document := GLTFDocument.new()
 		var imported := GLTFState.new()
-		if document.append_from_file(ROOT.path_join("rotor.gltf"), imported) != OK:
-			push_error("Cannot load the prepared waterwheel component.")
-			return
+		if document.append_from_file(ROOT.path_join(file_name), imported) != OK:
+			return null
 		var sources := imported.get_meshes()
 		if sources.size() != 1 or sources[0].mesh == null or sources[0].mesh.get_surface_count() != 1:
-			push_error("The waterwheel must contain one prepared visual mesh.")
-			return
+			return null
 		var prepared: ArrayMesh = sources[0].mesh.get_mesh()
 		var arrays := prepared.surface_get_arrays(0)
 		if arrays[Mesh.ARRAY_TANGENT] == null or arrays[Mesh.ARRAY_TANGENT].is_empty():
@@ -515,6 +511,30 @@ class ProductionWheelArt:
 			surface.create_from(prepared, 0)
 			surface.generate_tangents()
 			prepared = surface.commit()
+		return prepared
+
+	static func _prepare() -> void:
+		source_status = resource_status()
+		if source_status == "missing":
+			# Old fixed source rosters have no art resources. Their earlier
+			# procedural rotor remains explicit rather than claiming sourced art.
+			return
+		if source_status not in ["complete", "complete_split"]:
+			push_error("The sourced waterwheel resource set is incomplete.")
+			return
+		var use_split := source_status == "complete_split"
+		source_status = "invalid"
+		# Read only mesh data. This creates no asset scene, requires no editor
+		# import cache, and cannot mount a source controller or collision body.
+		var prepared := _read_mesh("rotor.gltf")
+		if prepared == null:
+			push_error("The waterwheel must contain one prepared visual mesh.")
+			return
+		var split_rim := _read_mesh("rim.gltf") if use_split else null
+		var split_inner := _read_mesh("hub_spokes.gltf") if use_split else null
+		if use_split and (split_rim == null or split_inner == null):
+			push_error("The separated waterwheel components cannot be loaded.")
+			return
 		var images: Dictionary = {}
 		for role: String in ["albedo", "normal", "arm"]:
 			var name_value: String = "wood_albedo.jpg" if role == "albedo" else "wood_" + role + ".webp"
@@ -543,6 +563,8 @@ class ProductionWheelArt:
 		material.normal_texture = ImageTexture.create_from_image(images.normal)
 		material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 		mesh = prepared
+		rim_mesh = split_rim
+		hub_spokes_mesh = split_inner
 		finish = material
 		source_status = "ready"
 
@@ -551,13 +573,18 @@ class ProductionWheelArt:
 			_prepare()
 		if source_status != "ready":
 			return false
-		var rotor := MeshInstance3D.new()
-		rotor.name = "SourcedTimberRotor"
-		rotor.mesh = mesh
-		rotor.material_override = finish
-		rotor.set_meta("detail_role", "SourcedTimberRotor")
-		rotor.set_meta("source_asset", "Poly Haven spinning_wheel_01")
-		parent.add_child(rotor)
+		var pieces := [["SourcedTimberRotor", hub_spokes_mesh, 0.0],
+			["SourcedTimberRimN", rim_mesh, -0.08], ["SourcedTimberRimP", rim_mesh, 0.08]] \
+			if rim_mesh != null and hub_spokes_mesh != null else [["SourcedTimberRotor", mesh, 0.0]]
+		for piece in pieces:
+			var rotor := MeshInstance3D.new()
+			rotor.name = piece[0]
+			rotor.mesh = piece[1]
+			rotor.position.z = piece[2]
+			rotor.material_override = finish
+			rotor.set_meta("detail_role", "SourcedTimberRotor" if piece[2] == 0.0 else "SourcedTimberRim")
+			rotor.set_meta("source_asset", "Poly Haven spinning_wheel_01")
+			parent.add_child(rotor)
 		return true
 
 class ProductionPaddleArt:
@@ -4043,6 +4070,26 @@ func _refresh_engineering(snapshot_ready: bool) -> void:
 	goal_label.tooltip_text = str(details.get("diagnostic_text", "")) + "\n" + str(details.get("tradeoff_text", ""))
 	confirm_button.visible = false
 
+# A local read-only picker for the same site triangles shown by the view.
+# Shared clients have no authority or character floor body of their own.
+const TRANSMISSION_TERRAIN_PICK_LAYER := 32
+
+func _install_transmission_terrain_picker() -> void:
+	if legacy_fixture or ProductionEnvironment.Surface == null or has_node("TransmissionTerrainPicker"):
+		return
+	var terrain := StaticBody3D.new()
+	terrain.name = "TransmissionTerrainPicker"
+	terrain.set_meta("transmission_terrain", true)
+	terrain.collision_layer = TRANSMISSION_TERRAIN_PICK_LAYER
+	terrain.collision_mask = 0
+	var shape := ConcavePolygonShape3D.new()
+	shape.backface_collision = true
+	shape.set_faces(ProductionEnvironment.Surface.faces())
+	var collider := CollisionShape3D.new()
+	collider.shape = shape
+	terrain.add_child(collider)
+	add_child(terrain)
+
 func _transmission_center(screen: Vector2) -> Array:
 	if transmission_controls == null:
 		return []
@@ -4056,6 +4103,15 @@ func _transmission_center(screen: Vector2) -> Array:
 		var target := _transmission_snap_target(str(hit.collider.get_meta("entity", "")), hit.normal, origin)
 		if not target.is_empty():
 			return target
+	if transmission_controls.auto_height:
+		var terrain_ray := PhysicsRayQueryParameters3D.create(origin, origin + camera.project_ray_normal(screen) * 80.0)
+		terrain_ray.collision_mask = TRANSMISSION_TERRAIN_PICK_LAYER
+		var terrain_hit := get_world_3d().direct_space_state.intersect_ray(terrain_ray)
+		if not terrain_hit.is_empty():
+			var point: Vector3 = terrain_hit.position
+			var level := ceili(point.y / PITCH) * Geometry.HEIGHT_DENOMINATOR
+			transmission_controls.snapped_height = level
+			return [roundi(point.x / PITCH) * 4, level, roundi(point.z / PITCH) * 4]
 	transmission_controls.snapped_height = 0
 	var height: int = 0 if transmission_controls.auto_height else transmission_controls.gear_height
 	var plane := Plane(Vector3.UP, Geometry.ANCHOR_HEIGHT + height * PITCH / 4.0)
@@ -4717,8 +4773,11 @@ func _screen_entity(screen: Vector2) -> String:
 func _screen_pick(screen: Vector2) -> Dictionary:
 	var origin := camera.project_ray_origin(screen)
 	var query := PhysicsRayQueryParameters3D.create(origin, origin + camera.project_ray_normal(screen) * 80)
-	query.collision_mask = Geometry.PICK_LAYER
-	return get_world_3d().direct_space_state.intersect_ray(query)
+	query.collision_mask = Geometry.PICK_LAYER | TRANSMISSION_TERRAIN_PICK_LAYER
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	if not hit.is_empty() and hit.collider.has_meta("transmission_terrain"):
+		return {}
+	return hit
 
 func _entity_at_cell(cell: Vector2i) -> String:
 	for entity_id in state.get("entities", {}):
@@ -4895,6 +4954,7 @@ func _build_world() -> void:
 			panel.set_meta("site_solid_id", spec.id)
 			if natural_ground != null:
 				panel.material_override = natural_ground
+	_install_transmission_terrain_picker()
 	machine_root = Node3D.new()
 	add_child(machine_root)
 	item_root = Node3D.new()
@@ -5238,7 +5298,7 @@ func _wheel_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	var scale_factor: float = Geometry.ANCHOR_HEIGHT / 0.78 if native_profile else 1.0
 	var axis := _machine_axis(entity) if native_profile else Vector3.BACK
 	var bearing_rotation := _spindle_rotation(axis)
-	if native_profile and ProductionWheelArt.resource_status() == "complete":
+	if native_profile and ProductionWheelArt.resource_status() in ["complete", "complete_split"]:
 		# Preserve the bearing width while raising the shared mechanical center.
 		ProductionWheelSupportArt.mount(anchor, axis, 0.5 / 0.78, scale_factor)
 	elif native_profile and axis == Vector3.UP:
@@ -5595,14 +5655,14 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	power_button.visible = kinds.has("wheel")
 	controls_label.text = "WASD walk · Space jump · Right-drag view · Wheel zoom · H help"
 	_refresh_engineering(snapshot_ready)
-	# Introduce inspection when it can help. Keep waiting notices and explicit
-	# disclosure available even before the first machine has been built.
-	# Foundations alone do not need the machine panel while building.
-	var unused_inspector: bool = _native_transmission() and snapshot_ready and _can_choose_tool() \
-		and kinds.is_empty() and state.get("transmission_parts", {}).is_empty() \
-		and not show_details and mode != "inspect"
-	var inspector_panel: Control = inspector.get_parent().get_parent()
-	inspector_panel.visible = not unused_inspector
+	var target_selected: bool = _contains_target(state, selected)
+	inspector.visible = target_selected or show_details or mode == "inspect" \
+		or not snapshot_ready or not _can_choose_tool()
+	retrieve_button.visible = state.get("entities", {}).get(selected, {}).get("kind") == "processor"
+	remove_button.visible = target_selected
+	for divider in inspector.get_parent().get_children():
+		if divider is HSeparator:
+			divider.visible = show_details
 
 func _build_placement_hint() -> void:
 	placement_hint = Node3D.new()
@@ -5988,6 +6048,13 @@ func _fit_guided_footer() -> void:
 	for column in [build_column, inspector.get_parent() if inspector != null else null]:
 		if column != null:
 			var panel: Control = column.get_parent()
+			if column == inspector.get_parent():
+				var content_visible := false
+				for control in column.get_children():
+					if control is Control and control.visible and not control is HSeparator:
+						content_visible = true
+						break
+				panel.visible = content_visible
 			var height: float = panel.get_combined_minimum_size().y
 			if not is_equal_approx(panel.size.y, height):
 				panel.size.y = height
