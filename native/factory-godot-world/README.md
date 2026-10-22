@@ -26,10 +26,15 @@ and `reclaim_component` move that stock between actor cargo and persistent
 quarter-grid world parts with one native material ledger. The Host projects
 their identities, positions and types and reserves a small collision volume
 against actors, terrain obstacles, belts and complete machines. A placed
-collector can now be turned manually; press assembly remains unfinished. The
-offline view now offers exact-target ore harvesting and native stock feedback.
-There is still no pod or bench mesh, scene component crafting/placement controls,
-timed tool use or aligned harvestable-tree presentation. The experimental
+cutting edge at one of the profile's trusted ore faces may contact only the
+tagged source outcrop; other components and other obstacles still block it.
+Checkpoint import rechecks that same source fit against the receiving site.
+This narrow source contact does not enlarge the current component collision
+boxes to cover grounded frame legs or other future art. A placed collector can
+now be turned manually; press assembly remains unfinished. The offline view
+offers exact-target ore harvesting and native stock feedback. There is still
+no pod or bench mesh, scene component crafting/placement controls, timed tool
+use or aligned harvestable-tree presentation. The experimental
 arrival begins without inherited complete-machine or transmission kits; the
 historical initializer retains those mechanics fixtures. The new offline start
 is partial implementation toward the chapter contract, not chapter completion.
