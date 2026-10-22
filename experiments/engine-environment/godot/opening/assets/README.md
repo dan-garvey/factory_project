@@ -298,6 +298,17 @@ Nonnative profiles and historical missing-support rosters keep their earlier
 bridge. Headless geometry and resource checks leave rendered appearance,
 contact behavior and human quality assessment open.
 
+The current native press adds a fixed original H-frame around those same sourced
+columns. A rear lower tie meets two formed foot gussets; two outer uprights run
+from the existing skid deck to the cast crown. Each foot sits at the original
+deck height, while the active feed, tray, ram, guides and drive remain open. The
+plain middle and formed end profiles use cached closed meshes and the same cast
+coating. This visibly grounds the structure at construction distance in the
+matched passive press views; it does not add a structural inventory part,
+collider, force path or new authority. The selected CC0 workshop press in the
+[source study](../../../../../docs/art/component-source-shortlist.md#workshop-h-frame-press-source-2026-10-22)
+informed the foot-to-column composition, but its hydraulic model was not imported.
+
 The native die and anvil now separate coated holders, exposed working inserts
 and mounting hardware. A stepped upper holder clamps a broad machined face;
 the lower saddle supports its own working plate. Each rigid assembly is one

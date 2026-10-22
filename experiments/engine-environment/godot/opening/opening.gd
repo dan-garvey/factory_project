@@ -1743,6 +1743,62 @@ class ProductionPressCrownArt:
 				ProductionVisuals.turned_mesh(socket), Vector3(side * 0.34, 1.39, -0.19), guide_finish)
 		return true
 
+class ProductionPressRearFrameArt:
+	extends RefCounted
+	## A fixed, original H-frame behind the existing sourced columns. It carries
+	## no separate support, collision, material or press-work authority.
+	static var meshes: Dictionary = {}
+
+	static func _part(parent: Node3D, role: String, mesh: Mesh, at: Vector3,
+			finish: StandardMaterial3D) -> MeshInstance3D:
+		var part := MeshInstance3D.new()
+		part.name = role
+		part.set_meta("press_frame_role", role)
+		part.mesh = mesh
+		part.position = at
+		part.material_override = finish
+		parent.add_child(part)
+		return part
+
+	static func mount(parent: Node3D, color: Color) -> bool:
+		var paint := ProductionCollectorArt.coating(color)
+		if paint == null:
+			return false
+		if not meshes.has("tie"):
+			# The lower tie remains behind the feed bed and joins both sourced
+			# columns, unlike an unsupported decorative bar across the tool.
+			meshes.tie = ProductionVisuals.box_mesh(Vector3(0.93, 0.14, 0.13))
+			meshes.foot = ProductionVisuals.box_mesh(Vector3(0.27, 0.06, 0.22))
+			for side in [-1.0, 1.0]:
+				var profile := PackedVector2Array([
+					Vector2(0.35, 0.29), Vector2(0.62, 0.29),
+					Vector2(0.59, 0.30), Vector2(0.53, 0.52),
+					Vector2(0.44, 0.52), Vector2(0.42, 0.36)])
+				var upright := PackedVector2Array([
+					Vector2(0.53, 0.24), Vector2(0.64, 0.24),
+					Vector2(0.61, 0.36),
+					Vector2(0.61, 1.34), Vector2(0.63, 1.42),
+					Vector2(0.53, 1.42), Vector2(0.51, 1.34),
+					Vector2(0.51, 0.36)])
+				for n in range(profile.size()):
+					profile[n].x *= side
+				for n in range(upright.size()):
+					upright[n].x *= side
+				meshes["gusset_n" if side < 0 else "gusset_p"] = ProductionVisuals.prism_mesh(profile, 0.14, 0.004)
+				meshes["upright_n" if side < 0 else "upright_p"] = ProductionVisuals.prism_mesh(upright, 0.12, 0.004)
+		var frame := Node3D.new()
+		frame.name = "PressRearFrame"
+		parent.add_child(frame)
+		_part(frame, "RearLowerTie", meshes.tie, Vector3(0, 0.30, -0.46), paint)
+		for side in [-1.0, 1.0]:
+			_part(frame, "RearFootLeft" if side < 0 else "RearFootRight", meshes.foot,
+				Vector3(side * 0.48, 0.27, -0.40), paint)
+			_part(frame, "RearGussetLeft" if side < 0 else "RearGussetRight",
+				meshes["gusset_n" if side < 0 else "gusset_p"], Vector3(0, 0, -0.46), paint)
+			_part(frame, "FrontUprightLeft" if side < 0 else "FrontUprightRight",
+				meshes["upright_n" if side < 0 else "upright_p"], Vector3(0, 0, -0.25), paint)
+		return true
+
 class ProductionPressFrameJointArt:
 	extends RefCounted
 	## Presentation-only joins between complete rigid press bays. Native World
@@ -5575,8 +5631,11 @@ func _press_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	else:
 		for x in [-0.48, 0.48]:
 			_machine_box(anchor, "PressUpright", Vector3(x, 0.82, -0.38), Vector3(0.15, 1.24, 0.28), frame)
-	if not (sourced and _native_transmission() and ProductionPressCrownArt.mount(anchor, frame)):
+	var fitted_crown := sourced and _native_transmission() and ProductionPressCrownArt.mount(anchor, frame)
+	if not fitted_crown:
 		_machine_box(anchor, "PressBridge", Vector3(0, 1.5, -0.3), Vector3(1.2, 0.2, 0.36), frame, 0.05 if sourced else 0.08)
+	else:
+		ProductionPressRearFrameArt.mount(anchor, frame)
 	var anvil := _machine_box(anchor, "Anvil", Vector3(0, 0.46, 0.05), Vector3(0.7, 0.16, 0.63), dark)
 	var head := _machine_box(anchor, "ToolHead", Vector3(0, 0.84, 0), Vector3(0.56, 0.17, 0.55), steel, 0.85, 0.32)
 	if _native_transmission():

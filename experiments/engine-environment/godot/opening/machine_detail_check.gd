@@ -1100,6 +1100,7 @@ func crown_shaft_gap(crown: Node3D, shaft: MeshInstance3D) -> float:
 
 func check_press_crown() -> void:
 	var cached: Dictionary = {}
+	var frame_cached: Dictionary = {}
 	var minimum_gap := INF
 	var assemblies := 0
 	var controls := 0
@@ -1118,10 +1119,55 @@ func check_press_crown() -> void:
 			view._rebuild_machines()
 			var machine: Node3D = view.machine_root.get_child(0)
 			var crown: Node3D = machine.get_node("PressCrown")
+			var rear_frame: Node3D = machine.get_node("PressRearFrame")
 			verify(PressArt.source_status == "ready" and crown.get_child_count() == 7
-				and crown.get_script() == null and machine.get_node_or_null("PressBridge") == null,
+				and crown.get_script() == null and rear_frame.get_child_count() == 7
+				and rear_frame.get_script() == null and machine.get_node_or_null("PressBridge") == null,
 				"The actual native sourced press replaces its box bridge with seven fixed crown pieces.")
 			check_bounds(crown, Transform3D.IDENTITY)
+			check_bounds(rear_frame, Transform3D.IDENTITY)
+			var frame_fixed: Array[Transform3D] = []
+			var frame_roles := ["RearLowerTie", "RearFootLeft", "RearFootRight", "RearGussetLeft",
+				"RearGussetRight", "FrontUprightLeft", "FrontUprightRight"]
+			for part: MeshInstance3D in rear_frame.get_children():
+				var role: String = part.get_meta("press_frame_role")
+				verify(role in frame_roles and part.get_script() == null and part.get_child_count() == 0
+					and part.scale.is_equal_approx(Vector3.ONE),
+					"The added frame consists only of the declared fixed render meshes.")
+				if not frame_cached.has(role):
+					var limits: Array = {"RearLowerTie": [0.016, 0.018],
+						"RearFootLeft": [0.0034, 0.0038], "RearFootRight": [0.0034, 0.0038],
+						"RearGussetLeft": [0.0042, 0.0052], "RearGussetRight": [0.0042, 0.0052],
+						"FrontUprightLeft": [0.013, 0.015], "FrontUprightRight": [0.013, 0.015]}[role]
+					check_closed_asset_mesh(part.mesh, limits[0], limits[1])
+					frame_cached[role] = [part.mesh, part.material_override]
+				verify(part.mesh == frame_cached[role][0] and part.material_override == frame_cached[role][1]
+					and part.material_override == Opening.ProductionCollectorArt.coating(Color("58634c")),
+					"The fixed frame reuses its closed meshes and the qualified press coating across views and axes.")
+				frame_fixed.append(part.transform)
+			var tie: MeshInstance3D = rear_frame.get_node("RearLowerTie")
+			var tie_box: AABB = tie.transform * tie.mesh.get_aabb()
+			for side_name in ["Left", "Right"]:
+				var foot: MeshInstance3D = rear_frame.get_node("RearFoot" + side_name)
+				var gusset: MeshInstance3D = rear_frame.get_node("RearGusset" + side_name)
+				var upright: MeshInstance3D = rear_frame.get_node("FrontUpright" + side_name)
+				var shoulder: MeshInstance3D = crown.get_node("CastShoulder" + side_name)
+				var foot_box: AABB = foot.transform * foot.mesh.get_aabb()
+				var gusset_box: AABB = gusset.transform * gusset.mesh.get_aabb()
+				var upright_box: AABB = upright.transform * upright.mesh.get_aabb()
+				verify(absf(foot_box.position.y - 0.24) < 0.00001
+					and absf(upright_box.position.y - 0.24) < 0.00001
+					and foot_box.intersects(gusset_box) and gusset_box.intersects(tie_box)
+					and upright_box.intersects(shoulder.transform * shoulder.mesh.get_aabb()),
+					"The new frame seats on the unchanged skid and connects its rear tie and front upright to the crown.")
+			if assemblies == 0:
+				var original_pose := tie.transform
+				tie.position.y += 0.5
+				var left_gusset: MeshInstance3D = rear_frame.get_node("RearGussetLeft")
+				verify(not (tie.transform * tie.mesh.get_aabb()).intersects(left_gusset.transform
+					* left_gusset.mesh.get_aabb()),
+					"A displaced lower tie is rejected as disconnected from its gusset.")
+				tie.transform = original_pose
 			var fixed: Array[Transform3D] = []
 			for part: MeshInstance3D in crown.get_children():
 				var role: String = part.get_meta("press_crown_role")
@@ -1198,6 +1244,8 @@ func check_press_crown() -> void:
 					"The original rod top stays fixed and the tool retains its exact previously accepted travel.")
 				var protected_rows: Array[Dictionary] = []
 				press_protected(machine, Transform3D.IDENTITY, protected_rows)
+				for part: MeshInstance3D in rear_frame.get_children():
+					press_clearance(part, protected_rows, 0.002)
 				for part: MeshInstance3D in crown.get_children():
 					var bounds: AABB = part.transform * part.mesh.get_aabb()
 					for row in protected_rows:
@@ -1209,6 +1257,9 @@ func check_press_crown() -> void:
 						verify(gap > 0, "The crown conservatively clears the unchanged nonshaft working and drive meshes.")
 				for n in range(crown.get_child_count()):
 					verify(crown.get_child(n).transform == fixed[n], "The supporting crown stays fixed as the original tool moves.")
+				for n in range(rear_frame.get_child_count()):
+					verify(rear_frame.get_child(n).transform == frame_fixed[n],
+						"The grounded frame remains fixed while the original tool moves.")
 			for offset in [Vector2.ZERO, Vector2(0.07, 0), Vector2(-0.07, 0), Vector2(0, 0.07), Vector2(0, -0.07)]:
 				verify(not feed_ray_blocked(crown, Transform3D.IDENTITY,
 					Vector3(offset.x, 1.32, -0.08 + offset.y), Vector3(offset.x, 1.61, -0.08 + offset.y)),
@@ -1245,6 +1296,7 @@ func check_press_crown() -> void:
 		view._assemble_machine(machine, {"kind": "processor"})
 		var bridge: MeshInstance3D = machine.get_node("PressBridge")
 		verify(machine.get_node_or_null("PressCrown") == null
+			and machine.get_node_or_null("PressRearFrame") == null
 			and bridge.mesh == Visuals.box_mesh(Vector3(1.2, 0.2, 0.36))
 			and bridge.position.is_equal_approx(Vector3(0, 1.5, -0.3)),
 			"Both nonnative view classes keep their original sourced box bridge and position.")
@@ -3642,12 +3694,20 @@ func press_protected(node: Node3D, parent_pose: Transform3D, rows: Array[Diction
 		if child is Node3D:
 			press_protected(child, pose, rows)
 
-func press_clearance(support: MeshInstance3D, protected_rows: Array[Dictionary]) -> void:
+func press_clearance(support: MeshInstance3D, protected_rows: Array[Dictionary], required_gap: float = 0.0) -> void:
 	var arrays := support.mesh.surface_get_arrays(0)
 	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
-	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX] if arrays[Mesh.ARRAY_INDEX] != null else PackedInt32Array()
+	if indices.is_empty():
+		# Some original box and prism helpers emit ordered triangle vertices
+		# without an index array. They need the same clearance oracle.
+		indices.resize(vertices.size())
+		for index in range(vertices.size()):
+			indices[index] = index
 	var clear := true
 	var first_overlap := ""
+	var nearest_gap := INF
+	var nearest_name := ""
 	# Individual triangle boxes keep the wide mounting collar at its actual
 	# low height; a whole-column box would falsely fill the empty upper space.
 	for n in range(0, indices.size(), 3):
@@ -3661,11 +3721,16 @@ func press_clearance(support: MeshInstance3D, protected_rows: Array[Dictionary])
 			var gap := maxf(maxf(maxf(box.position.x - high.x, low.x - box.end.x),
 				maxf(box.position.y - high.y, low.y - box.end.y)), maxf(box.position.z - high.z, low.z - box.end.z))
 			minimum_press_gap = minf(minimum_press_gap, gap)
+			if gap < nearest_gap:
+				nearest_gap = gap
+				nearest_name = row.name
 			if gap <= 0:
 				clear = false
 				if first_overlap.is_empty():
 					first_overlap = row.name
-	verify(clear, "The sourced support leaves the existing work, guide and drive meshes clear: " + first_overlap)
+	verify(clear and nearest_gap > required_gap,
+		"The fixed frame leaves a measurable gap to the original work, guide and drive meshes: "
+		+ str(support.name) + "/" + nearest_name + " gap=" + str(nearest_gap) + " overlap=" + first_overlap)
 
 func check_press_supports() -> void:
 	verify(PressArt.resource_status() == "complete", "The actual captured press resource set is complete.")
@@ -5662,6 +5727,9 @@ func render_buildable_resources() -> void:
 				{"name": "back-face", "offset": Vector3(-4, -4, -3)},
 				{"name": "construction-front", "offset": Vector3(3, 3, 4), "perspective": true},
 				{"name": "construction-oblique", "offset": Vector3(-4, 3, -3), "perspective": true}]
+		elif subject.kind == "processor":
+			directions.append({"name": "construction-front", "offset": Vector3(3, 3, 4), "perspective": true})
+			directions.append({"name": "construction-back", "offset": Vector3(-4, 3, -3), "perspective": true})
 		elif subject.kind == "item":
 			directions = [{"name": "close", "offset": Vector3(3, 3, 4)},
 				{"name": "construction-distance", "offset": Vector3(3, 3, 4), "perspective": true}]
