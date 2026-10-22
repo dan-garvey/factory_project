@@ -4043,6 +4043,25 @@ func _refresh_engineering(snapshot_ready: bool) -> void:
 	goal_label.tooltip_text = str(details.get("diagnostic_text", "")) + "\n" + str(details.get("tradeoff_text", ""))
 	confirm_button.visible = false
 
+# A local read-only picker for the same site triangles shown by the view.
+# Shared clients have no authority or character floor body of their own.
+const TRANSMISSION_TERRAIN_PICK_LAYER := 32
+
+func _install_transmission_terrain_picker() -> void:
+	if legacy_fixture or ProductionEnvironment.Surface == null or has_node("TransmissionTerrainPicker"):
+		return
+	var terrain := StaticBody3D.new()
+	terrain.name = "TransmissionTerrainPicker"
+	terrain.collision_layer = TRANSMISSION_TERRAIN_PICK_LAYER
+	terrain.collision_mask = 0
+	var shape := ConcavePolygonShape3D.new()
+	shape.backface_collision = true
+	shape.set_faces(ProductionEnvironment.Surface.faces())
+	var collider := CollisionShape3D.new()
+	collider.shape = shape
+	terrain.add_child(collider)
+	add_child(terrain)
+
 func _transmission_center(screen: Vector2) -> Array:
 	if transmission_controls == null:
 		return []
@@ -4056,6 +4075,15 @@ func _transmission_center(screen: Vector2) -> Array:
 		var target := _transmission_snap_target(str(hit.collider.get_meta("entity", "")), hit.normal, origin)
 		if not target.is_empty():
 			return target
+	if transmission_controls.auto_height:
+		var terrain_ray := PhysicsRayQueryParameters3D.create(origin, origin + camera.project_ray_normal(screen) * 80.0)
+		terrain_ray.collision_mask = TRANSMISSION_TERRAIN_PICK_LAYER
+		var terrain_hit := get_world_3d().direct_space_state.intersect_ray(terrain_ray)
+		if not terrain_hit.is_empty():
+			var point: Vector3 = terrain_hit.position
+			var level := ceili(point.y / PITCH) * Geometry.HEIGHT_DENOMINATOR
+			transmission_controls.snapped_height = level
+			return [roundi(point.x / PITCH) * 4, level, roundi(point.z / PITCH) * 4]
 	transmission_controls.snapped_height = 0
 	var height: int = 0 if transmission_controls.auto_height else transmission_controls.gear_height
 	var plane := Plane(Vector3.UP, Geometry.ANCHOR_HEIGHT + height * PITCH / 4.0)
@@ -4895,6 +4923,7 @@ func _build_world() -> void:
 			panel.set_meta("site_solid_id", spec.id)
 			if natural_ground != null:
 				panel.material_override = natural_ground
+	_install_transmission_terrain_picker()
 	machine_root = Node3D.new()
 	add_child(machine_root)
 	item_root = Node3D.new()
