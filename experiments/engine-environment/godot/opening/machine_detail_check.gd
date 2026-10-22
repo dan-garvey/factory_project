@@ -1613,6 +1613,7 @@ func check_wheel_supports() -> void:
 	var assemblies := 0
 	var controls := 0
 	var rejected_rim_scale := false
+	var checked_paddle_joins := 0
 	for shared_profile in [false, true]:
 		for axis_index in [0, 2]:
 			var axis: Vector3 = [Vector3.RIGHT, Vector3.UP, Vector3.BACK][axis_index]
@@ -1654,10 +1655,40 @@ func check_wheel_supports() -> void:
 					verify(enlarged.radius > measured_bore.minimum_radius,
 						"The actual journal facets fail the bore predicate when the old radial-growth transform is restored.")
 					rejected_rim_scale = true
-				verify(source.mesh == WheelArt.hub_spokes_mesh and source.material_override == WheelArt.finish
+				verify(source.mesh == WheelArt.centre_for_tiles(sample.tiles) and source.material_override == WheelArt.finish
 					and source.transform == Transform3D.IDENTITY,
-					"The fitted assembly retains one centered sourced hub and spoke set with its atlas.")
-				check_split_wheel_rims(rotor)
+					"The fitted assembly retains one correctly sized hub and spoke set with its atlas.")
+				check_split_wheel_rims(rotor, sample.tiles)
+				var rim: MeshInstance3D = rotor.get_node("SourcedTimberRimN")
+				var rim_radius := wheel_source_radial_extents(rim.mesh)
+				var spoke_radius := wheel_source_radial_extents(source.mesh)
+				var actual_wall := (rim_radius.y - rim_radius.x) * rotor.scale.x
+				var smallest_wall := (WheelArt.RIM_OUTER_RADIUS - WheelArt.RIM_INNER_RADIUS) \
+					* Geometry.WATERWHEEL_RADIUS / 0.70 * 3.0
+				var growth := sqrt(float(sample.tiles) / 3.0)
+				verify(absf(actual_wall - smallest_wall * growth) < 0.003
+					and spoke_radius.y > rim_radius.x + 0.015 and spoke_radius.y < rim_radius.y,
+					"The rim wall grows sublinearly with admitted diameter and retains seated spoke ends.")
+				var original_points: PackedVector3Array = WheelArt.hub_spokes_mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+				var sized_points: PackedVector3Array = source.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+				var original_hub := 0.0
+				var actual_hub := 0.0
+				for index in range(original_points.size()):
+					var source_radius := Vector2(original_points[index].x, original_points[index].y).length()
+					if source_radius <= WheelArt.HUB_OUTER_RADIUS:
+						original_hub = maxf(original_hub, source_radius)
+						actual_hub = maxf(actual_hub, Vector2(sized_points[index].x, sized_points[index].y).length())
+				verify(absf(actual_hub * rotor.scale.x - original_hub * Geometry.WATERWHEEL_RADIUS / 0.70 * 3.0 * growth) < 0.001,
+					"The timber hub grows sublinearly with the outer wheel rather than copying the wheel radius.")
+				if not shared_profile and axis_index == 0 and sample.cell == [0, 0]:
+					check_sourced_mesh(source, 4056, 6702, spoke_radius.y)
+					check_sourced_mesh(rim, 1576, 1872, rim_radius.y)
+					for child in rotor.get_children():
+						if child is MeshInstance3D and child.get_meta("detail_role", "") == "WheelPaddle":
+							var contact := wheel_root_rim_contact(rotor, child)
+							verify(contact.x > 0 and contact.y == 0,
+								"Every diameter seats its actual rim bounds in each paddle root and rejects displacement.")
+							checked_paddle_joins += 1
 				verify(hub.mesh is ArrayMesh and journal_shape_matches(hub.mesh, expected_half_span * 2.0, expected_radius),
 					"The actual journal retains its outer planes with real end chamfers, relieved bands and recessed centres.")
 				var finish := hub.material_override as StandardMaterial3D
@@ -1784,8 +1815,11 @@ func check_wheel_supports() -> void:
 					"Hardware construction changes no projection, request, native body or authority.")
 				assemblies += 1
 				view.free()
-	verify(controls == 3 and rejected_rim_scale and cached.size() == 5 and assemblies == 24,
-		"Both admitted axes, three diameters and two absolute placements exercise all fixed mesh roles and negative controls.")
+	verify(controls == 3 and rejected_rim_scale and cached.size() == 5 and assemblies == 24
+		and checked_paddle_joins == 36,
+		"Both horizontal axes, three diameters and two absolute placements exercise all fixed mesh roles and negative controls.")
+	var vertical_sizes := check_vertical_sized_wheels()
+	verify(vertical_sizes == 2, "Both larger vertical wheels reuse the same resized source components and native axis.")
 	var legacy_assemblies := 0
 	for shared_profile in [false, true]:
 		var view: Variant = Shared.new() if shared_profile else Opening.new()
@@ -1811,7 +1845,9 @@ func check_wheel_supports() -> void:
 		verify(counts.stands == 2 and counts.bearings == 2, "Both nonnative view classes retain the earlier two-support layout.")
 		legacy_assemblies += 1
 		view.free()
+	wheel_support_checks_complete = assemblies == 24 and vertical_sizes == 2 and not failed
 	print(JSON.stringify({"phase": "waterwheel supports", "assemblies": assemblies, "unique_mesh_roles": cached.size(),
+		"diameter_paddle_joins": checked_paddle_joins, "vertical_sizes": vertical_sizes,
 		"checks": checks, "checked_detail_parts": detail_meshes, "maximum_packed_tangent_dot": max_tangent_dot,
 		"minimum_journal_clearance_metres": minimum_gap, "journal_entries_metres": entries, "controls": controls,
 		"old_radial_growth_rejected": rejected_rim_scale,
@@ -1819,7 +1855,33 @@ func check_wheel_supports() -> void:
 		"full_turn_check": "Conservative separation of actual facet envelopes, not native contact or force proof.",
 		"observations": "invented", "native_gameplay": "not_run", "rendered_quality": "not_assessed"}))
 
-	wheel_support_checks_complete = assemblies == 24 and not failed
+func check_vertical_sized_wheels() -> int:
+	var checked := 0
+	for tiles in [5, 8]:
+		var view := Opening.new()
+		view.machine_root = Node3D.new()
+		view.add_child(view.machine_root)
+		view.state = {"options": {"native": true},
+			"entities": {"fixture": {"kind": "wheel", "cell": [0, 0], "axis": 1, "tiles": tiles, "generation": 1}},
+			"links": [], "drive_links": [], "motion": {}}
+		var before: Dictionary = view.state.duplicate(true)
+		view._rebuild_machines()
+		var rotor: Node3D = view.wheel_rotor
+		var source: MeshInstance3D = rotor.get_node("SourcedTimberRotor")
+		verify(source.mesh == WheelArt.centre_for_tiles(tiles)
+			and rotor.basis.z.normalized().dot(Vector3.UP) > 0.99999,
+			"The sized vertical wheel keeps its sourced center on the native axle.")
+		check_split_wheel_rims(rotor, tiles)
+		check_native_wheel_bounds(rotor, Transform3D.IDENTITY, Vector3.UP, tiles)
+		var supports := 0
+		for child in view.machine_root.get_child(0).get_children():
+			if child is MeshInstance3D and str(child.name).begins_with("AxleBearing"):
+				supports += 1
+		verify(supports == 1 and view.state == before and view.model == null and view.actor_world == null,
+			"The vertical support count and observed native state remain unchanged by art sizing.")
+		checked += 1
+		view.free()
+	return checked
 
 func satin_coating_properties(finish: StandardMaterial3D) -> bool:
 	var surface := Opening.ProductionTransmissionFinish
@@ -2864,30 +2926,9 @@ func check_timber_paddles(historical: bool = false) -> void:
 						else is_equal_approx(material.metallic, 0.85) and material.albedo_color == Color("46504e")),
 						"Timber and attachment iron retain distinct actual material bindings.")
 				if not shared_profile and axis == 0:
-					var inverse: Transform3D = child.transform.affine_inverse()
-					var cleat: MeshInstance3D = child.get_child(0)
-					var inside := 0
-					var displaced := 0
-					for side: String in ["N", "P"]:
-						var rim: MeshInstance3D = rotor.get_node("SourcedTimberRim" + side)
-						var arrays := rim.mesh.surface_get_arrays(0)
-						var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
-						var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
-						for n in range(0, indices.size(), 3):
-							var low := Vector3(INF, INF, INF)
-							var high := Vector3(-INF, -INF, -INF)
-							for corner in range(3):
-								var point: Vector3 = inverse * (rim.transform * vertices[indices[n + corner]]) - cleat.position
-								low = low.min(point)
-								high = high.max(point)
-							if low.x < 0.015 and high.x > -0.015 and low.y < 0.025 and high.y > -0.025 \
-								and low.z < 0.045 and high.z > -0.045:
-								inside += 1
-							if low.x < -0.185 and high.x > -0.215 and low.y < 0.025 and high.y > -0.025 \
-								and low.z < 0.045 and high.z > -0.045:
-								displaced += 1
-					root_counts.append(inside)
-					verify(inside > 0 and displaced == 0,
+					var contact := wheel_root_rim_contact(rotor, child)
+					root_counts.append(contact.x)
+					verify(contact.x > 0 and contact.y == 0,
 						"Actual rim triangle bounds meet every cleat's narrow attachment box; a radial displacement is rejected.")
 			verify(blades == 12 and PaddleArt.source_status == ("missing" if historical else "ready"),
 				"The ordinary builder keeps exactly twelve paddles and the declared source qualification.")
@@ -3284,7 +3325,7 @@ func check_bounds(node: Node3D, parent_pose: Transform3D) -> void:
 		if child is Node3D:
 			check_bounds(child, pose)
 
-func check_native_wheel_bounds(node: Node3D, parent_pose: Transform3D, axis: Vector3) -> void:
+func check_native_wheel_bounds(node: Node3D, parent_pose: Transform3D, axis: Vector3, tiles: int = 3) -> void:
 	var pose := parent_pose * node.transform
 	verify(not node is CollisionObject3D and not node is CollisionShape3D,
 		"Wheel artwork has no collision or construction authority.")
@@ -3299,11 +3340,11 @@ func check_native_wheel_bounds(node: Node3D, parent_pose: Transform3D, axis: Vec
 			bounded = bounded and point.is_finite() and absf(axial) <= Geometry.PITCH / 2.0 + 0.00001
 			# A mesh AABB corner can be outside the circular rotor even when
 			# its vertices fit; the enclosing square is the conservative bound.
-			bounded = bounded and radial <= Geometry.WATERWHEEL_RADIUS * 3.0 * sqrt(2.0) + 0.00001
-		verify(bounded, "Each actual wheel mesh stays within the three-tile rotor envelope.")
+			bounded = bounded and radial <= Geometry.WATERWHEEL_RADIUS * float(tiles) * sqrt(2.0) + 0.00001
+		verify(bounded, "Each actual wheel mesh stays within its selected rotor envelope.")
 	for child in node.get_children():
 		if child is Node3D:
-			check_native_wheel_bounds(child, pose, axis)
+			check_native_wheel_bounds(child, pose, axis, tiles)
 
 func count_role(node: Node, role: String) -> int:
 	var count := 1 if node.get_meta("detail_role", "") == role else 0
@@ -3311,14 +3352,49 @@ func count_role(node: Node, role: String) -> int:
 		count += count_role(child, role)
 	return count
 
-func check_split_wheel_rims(rotor: Node3D) -> void:
+func wheel_source_radial_extents(mesh: Mesh) -> Vector2:
+	var low := INF
+	var high := 0.0
+	var vertices: PackedVector3Array = mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	for point in vertices:
+		var radius := Vector2(point.x, point.y).length()
+		low = minf(low, radius)
+		high = maxf(high, radius)
+	return Vector2(low, high)
+
+func wheel_root_rim_contact(rotor: Node3D, blade: MeshInstance3D) -> Vector2i:
+	var inverse: Transform3D = blade.transform.affine_inverse()
+	var cleat: MeshInstance3D = blade.get_child(0)
+	var inside := 0
+	var displaced := 0
+	for side: String in ["N", "P"]:
+		var rim: MeshInstance3D = rotor.get_node("SourcedTimberRim" + side)
+		var arrays := rim.mesh.surface_get_arrays(0)
+		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+		for n in range(0, indices.size(), 3):
+			var low := Vector3(INF, INF, INF)
+			var high := Vector3(-INF, -INF, -INF)
+			for corner in range(3):
+				var point: Vector3 = inverse * (rim.transform * vertices[indices[n + corner]]) - cleat.position
+				low = low.min(point)
+				high = high.max(point)
+			if low.x < 0.015 and high.x > -0.015 and low.y < 0.025 and high.y > -0.025 \
+				and low.z < 0.045 and high.z > -0.045:
+				inside += 1
+			if low.x < -0.185 and high.x > -0.215 and low.y < 0.025 and high.y > -0.025 \
+				and low.z < 0.045 and high.z > -0.045:
+				displaced += 1
+	return Vector2i(inside, displaced)
+
+func check_split_wheel_rims(rotor: Node3D, tiles: int = 3) -> void:
 	for side: String in ["N", "P"]:
 		var rim := rotor.get_node_or_null("SourcedTimberRim" + side) as MeshInstance3D
 		verify(rim != null, "Each side of the waterwheel has its own sourced rim instance.")
 		if rim == null:
 			continue
 		var offset := -0.08 if side == "N" else 0.08
-		verify(rim.mesh == WheelArt.rim_mesh and rim.material_override == WheelArt.finish
+		verify(rim.mesh == WheelArt.rim_for_tiles(tiles) and rim.material_override == WheelArt.finish
 			and rim.position.is_equal_approx(Vector3(0, 0, offset))
 			and rim.basis == Basis.IDENTITY and rim.get_script() == null and rim.get_child_count() == 0,
 			"Both sourced rims share one mesh and material at the exact symmetric axial seats.")
@@ -5147,6 +5223,7 @@ func render_buildable_resources() -> void:
 		{"name": "press-cartridge", "kind": "tool_cartridge", "tool": "press", "sample_only": true},
 		{"name": "cutter-cartridge-sample", "kind": "tool_cartridge", "tool": "cut_sample", "sample_only": true},
 		{"name": "conveyor", "kind": "belt"}, {"name": "waterwheel", "kind": "wheel"},
+		{"name": "waterwheel-large", "kind": "wheel", "tiles": 8},
 		{"name": "belt-span", "kind": "belt_span"}, {"name": "belt-pulley", "kind": "belt_pulley"},
 		{"name": "waterwheel-journal", "kind": "wheel", "cutaway": true},
 		{"name": "paddle-small", "kind": "wheel", "tiles": 3, "paddle_cutaway": true, "cutaway": true},

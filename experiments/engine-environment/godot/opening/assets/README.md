@@ -345,12 +345,16 @@ to the admitted belt, not extra structural inventory or another power path.
 Complete captures use sourced CC0 [timber components](waterwheel/CREDITS.md):
 one centered hub with twelve spokes and two instances of a separate rim mesh.
 This gives the waterwheel two visible sides while keeping the source atlas,
-existing paddles, spindle, bearings, axes and confirmed motion. Two cached
-static meshes and one mipmapped material are shared between orientations;
+existing paddles, spindle, bearings, axes and confirmed motion. The source
+meshes, cached size variants and one mipmapped material are shared between
+orientations;
 source controllers and physical bodies are never instantiated. The previous
 complete rotor files remain byte-identical for historical captures, and older
 fixed rosters retain their procedural assembly. A partial source set is reported
-explicitly. Isolated asset checks and passive resource images support the
+explicitly. Larger wheel diameters cache radial mesh variants so the timber rim
+and hub grow more slowly than wheel radius while their spokes still reach the
+rim. This is visual sizing only; the source UVs still stretch around a longer
+circumference. Isolated asset checks and passive resource images support the
 assembly; human visual approval and GPU cost remain open.
 
 For the native scene profile, machine spindles, waterwheel axle and bearings
