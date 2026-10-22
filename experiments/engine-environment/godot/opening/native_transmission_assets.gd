@@ -201,9 +201,20 @@ static func gear(parent: Node3D, radius: float, ratio_units: int, color: Color) 
 	var count := ratio_units * 8
 	var inner := radius * 0.56
 	var outer := radius - 0.1
-	var rim := PackedVector2Array([Vector2(inner + 0.006, -0.07), Vector2(outer - 0.006, -0.07),
+	var band := outer - inner
+	var relief := minf(0.008, band * 0.075)
+	# Recess one annular track on each face of the wide cast rim. Its shoulders
+	# keep the original 70 mm face plane and its roots stay inside the native
+	# radius, so size variants share the same manufactured reading.
+	var rim := PackedVector2Array([Vector2(inner + 0.006, -0.07),
+		Vector2(inner + band * 0.33, -0.07), Vector2(inner + band * 0.37, -0.07 + relief),
+		Vector2(inner + band * 0.63, -0.07 + relief), Vector2(inner + band * 0.67, -0.07),
+		Vector2(outer - 0.006, -0.07),
 		Vector2(outer, -0.06), Vector2(outer, 0.06), Vector2(outer - 0.006, 0.07),
-		Vector2(inner + 0.006, 0.07), Vector2(inner, 0.06), Vector2(inner, -0.06), Vector2(inner + 0.006, -0.07)])
+		Vector2(inner + band * 0.67, 0.07), Vector2(inner + band * 0.63, 0.07 - relief),
+		Vector2(inner + band * 0.37, 0.07 - relief), Vector2(inner + band * 0.33, 0.07),
+		Vector2(inner + 0.006, 0.07), Vector2(inner, 0.06), Vector2(inner, -0.06),
+		Vector2(inner + 0.006, -0.07)])
 	_part(parent, "Gear", Visuals.turned_mesh(rim, maxi(48, count * 2)), Vector3.ZERO, color)
 	var tooth := tooth_mesh(radius, count)
 	var teeth: Array[Transform3D] = []

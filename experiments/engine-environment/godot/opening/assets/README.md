@@ -512,6 +512,14 @@ assemblies use shared machined surfaces and cached meshes, with no collider or
 input node. The presenter retains mounting, direction, animation and pick
 ownership. Isolated mesh checks do not establish the ordinary rendered result.
 
+The buildable cog rim has a shallow concentric recess on both cast faces. Its
+width and depth follow the admitted cog radius, while the original outer
+radius, face thickness, teeth and hub clearance remain unchanged. The passive
+resource gallery now shows both faces in detail and two 14-metre, 45-degree
+perspective samples matching the opening's default camera distance and field
+of view. Those samples isolate the cog under studio light; they do not prove
+its legibility amid a working factory or establish human visual quality.
+
 The native presenter keeps the same restrained cast-metal tint when a part
 starts, reverses or stops. Confirmed angles and direction marks communicate
 motion; the physical gear and shaft finish remains consistent.
