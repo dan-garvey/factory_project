@@ -42,6 +42,13 @@ void arrival_projection_and_restore() {
           !factory::values::typed_difference(V(get<A>(V(hub), "center")),
               V(A{V(I{2}), V(I{0}), V(I{4})})),
           "The bench has its own identity on the shared east deck tile.");
+    const auto recipes = get<O>(view, "component_recipes");
+    check(recipes.size() == 11 && get<I>(view, "component_capacity") == 20 &&
+          get<I>(recipes.at("wooden_frame"), "timber") == 3 &&
+          get<I>(recipes.at("wooden_frame"), "softmetal") == 0 &&
+          get<I>(recipes.at("softmetal_cog"), "timber") == 0 &&
+          get<I>(recipes.at("softmetal_cog"), "softmetal") == 2,
+          "The normal consumer receives every native recipe cost and the carried component limit.");
     const auto floors = get<O>(view, "foundations");
     check(floors.size() == 9 && floors.contains("pod-floor-0") && floors.contains("pod-floor-8"),
           "The unfolding pod supplied exactly nine ordinary visible foundation identities.");

@@ -4869,7 +4869,7 @@ func issue(action: Dictionary) -> Dictionary:
 			"disconnect": "Material connection removed.",
 			"disconnect_drive": "Drive shaft returned."}.get(action.action, "Done."))
 	else:
-		_message(_material_refusal_message(outcome, {"occupied": "That square is occupied.", "no_part": "That part is already placed.",
+		var refusal := _material_refusal_message(outcome, {"occupied": "That square is occupied.", "no_part": "That part is already placed.",
 			"ports_not_adjacent": "Connect neighboring ports, following the arrow.",
 			"invalid_belt_axis": "The belt's drive shaft runs across the belt, perpendicular to material travel.",
 			"missing_entity": "Choose a placed machine at each end.",
@@ -4892,7 +4892,12 @@ func issue(action: Dictionary) -> Dictionary:
 			"contains_stock": "Retrieve the material before removing this machine.",
 			"not_at_stream": "Set the wheel in the water with its lower rim immersed and clear of the bed.",
 			"not_at_seam": "Place the collector on the ore-colored ground beside the rock.",
-			"no_shaft": "All carried shafts are in use."}.get(outcome.reason, "That action is unavailable here.")), true)
+			"no_shaft": "All carried shafts are in use."}.get(outcome.reason, "That action is unavailable here."))
+		if action.action == "craft_component":
+			refusal = {"unavailable_input": "Gather the timber or softmetal shown for this component.",
+				"inventory_full": "Your component bag is full. Place a carried part to make room.",
+				"out_of_reach": "Move beside the pod workshop to craft this component."}.get(outcome.get("reason", ""), refusal)
+		_message(refusal, true)
 	_refresh()
 	return outcome
 
