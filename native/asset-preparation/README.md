@@ -27,9 +27,16 @@ The source hub centre is subtracted, then a proper rotation maps the original
 X axle to local Z. One uniform scale makes the maximum radial distance 0.57
 metres, inside the existing procedural rim. Normal vectors follow the same
 rotation and are normalized; source UVs and triangle order are preserved.
-The result contains 5,632 vertices with 16-bit indices. It adds no source node,
-collision, skeleton, animation or state. Godot performs its ordinary glTF
-coordinate and front-face conversion, generating tangent data when necessary.
+The original full rotor remains byte-identical: 5,632 vertices and 8,574
+triangles with 16-bit indices. The same verified source also produces a rim-only
+mesh (1,576 vertices, 1,872 triangles) and a centered hub with twelve spokes
+(4,056 vertices, 6,702 triangles). These two new meshes preserve the exact
+selected source triangles and atlas records; only their independent vertex
+indices differ. Runtime mounts two rim instances at symmetric local axle seats
+around one centered hub/spoke instance. The second rim adds 1,872 visual
+triangles per wheel. The recipe adds no source node, collision, skeleton,
+animation or state. Godot performs its ordinary glTF coordinate and front-face
+conversion, generating tangent data when necessary.
 
 Put the original pinned maps beside the source buffer as `albedo.jpg`,
 `normal.png` and `arm.png`. Use the pinned Godot image API in an immutable
@@ -53,9 +60,9 @@ paths are refused, and no channel reorder, normal-axis flip or gamma conversion
 is applied. There is no resize or additional lossy encoding of the albedo.
 
 The first full-resolution conversion remains retained externally. The shipped
-half-resolution data representation keeps this source-derived component near
-1.14 MB within the shared project input allowance. This is a revisable art
-packaging choice, not a quality or performance target.
+half-resolution data maps kept the original component near 1.14 MB. The two
+new separated geometry files add 233,605 bytes to this resource set. This is a
+revisable art packaging choice, not a quality or performance target.
 
 The actual geometry extraction, changed-source and existing-output refusals,
 image conversion and isolated wheel fixture are retained in

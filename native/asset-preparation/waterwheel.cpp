@@ -73,6 +73,78 @@ void write(const std::filesystem::path& path, const std::string& bytes) {
     require(bool(out), "Cannot finish the prepared asset.");
 }
 
+void write_component(const std::filesystem::path& output, const std::string& source,
+                     const std::vector<Point>& positions, const std::vector<std::size_t>& indices,
+                     factory_art::Components& components, const std::set<std::size_t>& roots,
+                     double scale, const std::string& stem, const std::string& mesh_name, std::size_t expected_triangles,
+                     std::size_t expected_vertices) {
+    std::vector<std::size_t> chosen;
+    for (std::size_t i = 0; i < indices.size(); i += 3)
+        if (roots.contains(components.root(indices[i])))
+            chosen.insert(chosen.end(), indices.begin() + i, indices.begin() + i + 3);
+    require(chosen.size() == expected_triangles * 3, "The separated source component changed.");
+    std::map<std::size_t, std::uint16_t> remap;
+    std::vector<std::size_t> vertices;
+    for (const auto i : chosen) {
+        if (remap.contains(i)) continue;
+        require(vertices.size() < 65536, "The separated index type cannot represent these vertices.");
+        remap.emplace(i, static_cast<std::uint16_t>(vertices.size()));
+        vertices.push_back(i);
+    }
+    require(vertices.size() == expected_vertices, "The separated source vertex count changed.");
+    std::string data;
+    Point low{100, 100, 100}, high{-100, -100, -100};
+    for (const auto i : vertices) {
+        const Point point{float(-(positions[i][2] - origin[2]) * scale),
+                          float((positions[i][1] - origin[1]) * scale),
+                          float((positions[i][0] - origin[0]) * scale)};
+        for (unsigned axis = 0; axis < 3; ++axis) {
+            append(data, point[axis]);
+            low[axis] = std::min(low[axis], point[axis]);
+            high[axis] = std::max(high[axis], point[axis]);
+        }
+    }
+    const auto normals_at = data.size();
+    for (const auto i : vertices) {
+        Point normal{-scalar(source, normal_offset + i * 12 + 8),
+                      scalar(source, normal_offset + i * 12 + 4),
+                      scalar(source, normal_offset + i * 12)};
+        const double length = std::sqrt(double(normal[0]) * normal[0] + double(normal[1]) * normal[1]
+                                        + double(normal[2]) * normal[2]);
+        require(length > 0.98 && length < 1.02, "A separated source normal is not usable.");
+        for (const auto n : normal) append(data, float(n / length));
+    }
+    const auto uv_at = data.size();
+    for (const auto i : vertices)
+        for (unsigned axis = 0; axis < 2; ++axis) append(data, scalar(source, uv_offset + i * 8 + axis * 4));
+    const auto indices_at = data.size();
+    for (const auto i : chosen) {
+        const auto index = remap.at(i);
+        data.push_back(static_cast<char>(index & 255));
+        data.push_back(static_cast<char>(index >> 8));
+    }
+    const auto index_bytes = data.size() - indices_at;
+    while (data.size() % 4) data.push_back('\0');
+    const auto count = vertices.size();
+    std::ostringstream gltf;
+    gltf << std::setprecision(9)
+         << "{\"asset\":{\"version\":\"2.0\",\"generator\":\"Factory CC0 rotor recipe\"},"
+         << "\"scene\":0,\"scenes\":[{\"nodes\":[0]}],\"nodes\":[{\"name\":\"WheelComponent\",\"mesh\":0}],"
+         << "\"meshes\":[{\"name\":\"" << mesh_name << "\",\"primitives\":[{\"attributes\":{\"POSITION\":0,\"NORMAL\":1,\"TEXCOORD_0\":2},\"indices\":3}]}],"
+         << "\"buffers\":[{\"uri\":\"" << stem << ".bin\",\"byteLength\":" << data.size() << "}],\"bufferViews\":["
+         << "{\"buffer\":0,\"byteOffset\":0,\"byteLength\":" << count * 12 << ",\"target\":34962},"
+         << "{\"buffer\":0,\"byteOffset\":" << normals_at << ",\"byteLength\":" << count * 12 << ",\"target\":34962},"
+         << "{\"buffer\":0,\"byteOffset\":" << uv_at << ",\"byteLength\":" << count * 8 << ",\"target\":34962},"
+         << "{\"buffer\":0,\"byteOffset\":" << indices_at << ",\"byteLength\":" << index_bytes << ",\"target\":34963}],"
+         << "\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":" << count << ",\"type\":\"VEC3\",\"min\":["
+         << low[0] << ',' << low[1] << ',' << low[2] << "],\"max\":[" << high[0] << ',' << high[1] << ',' << high[2] << "]},"
+         << "{\"bufferView\":1,\"componentType\":5126,\"count\":" << count << ",\"type\":\"VEC3\"},"
+         << "{\"bufferView\":2,\"componentType\":5126,\"count\":" << count << ",\"type\":\"VEC2\"},"
+         << "{\"bufferView\":3,\"componentType\":5123,\"count\":" << chosen.size() << ",\"type\":\"SCALAR\"}]}\n";
+    write(output / (stem + ".bin"), data);
+    write(output / (stem + ".gltf"), gltf.str());
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -178,6 +250,12 @@ int main(int argc, char** argv) {
              << "{\"bufferView\":3,\"componentType\":5123,\"count\":" << chosen.size() << ",\"type\":\"SCALAR\"}]}\n";
         require(std::filesystem::create_directory(output), "Cannot create the fresh asset directory.");
         write(output / "rotor.bin", data); write(output / "rotor.gltf", gltf.str());
+        write_component(output, bytes, positions, indices, components,
+                        {components.root(seeds.front())}, scale, "rim", "SourcedTimberRim", 1872, 1576);
+        std::set<std::size_t> inner_roots;
+        for (std::size_t i = 1; i < seeds.size(); ++i) inner_roots.insert(components.root(seeds[i]));
+        write_component(output, bytes, positions, indices, components,
+                        inner_roots, scale, "hub_spokes", "SourcedTimberHubSpokes", 6702, 4056);
         std::cout << "{\"status\":\"pass\",\"components\":" << selected.size() << ",\"vertices\":" << count
                   << ",\"triangles\":" << chosen.size() / 3 << ",\"bytes\":" << data.size()
                   << ",\"scale\":" << std::setprecision(17) << scale << "}\n";

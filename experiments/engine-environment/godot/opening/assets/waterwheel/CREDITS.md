@@ -6,12 +6,14 @@ The model and material maps are available under
 [CC0](https://polyhaven.com/license). Attribution is retained for provenance.
 Poly Haven's website preview is not included in this package.
 
-The original asset depicts a spinning machine. Factory uses only its wheel
-components as a timber rotor, with the original vertex shape, normals and atlas
-coordinates. A declared rigid coordinate change and uniform scale fit the
-existing waterwheel presentation. The stand, belt, treadle and other machine
-components are excluded. This adaptation does not imply that the source model
-is a mechanically functional waterwheel or supplies Factory's power rules.
+The original asset depicts a spinning machine. Factory extracts its rim separately
+from the hub and twelve spokes, retaining the original vertex shapes, normals and
+atlas coordinates. One centered hub/spoke mesh and two instances of the same rim
+mesh make a double-sided waterwheel presentation. The earlier complete rotor
+files remain unchanged for historical captures. A declared rigid coordinate
+change and uniform scale fit the existing assembly. The stand, belt, treadle and
+other machine components are excluded. This adaptation does not imply that the
+source model is a mechanically functional waterwheel or supplies Factory's power rules.
 The source material's double-sided shading is retained.
 
 The photographed color remains the original one-kilopixel provider JPEG.
@@ -23,9 +25,10 @@ No channel reorder, green-axis flip or color-space transform is applied.
 
 [source.json](source.json) records exact input and delivered hashes, dimensions
 and processing. The [C++ preparation recipe](../../../../../../native/asset-preparation/README.md)
-describes reproducible extraction. Runtime code shares the mesh and material,
-keeps the existing hub, paddle and bearing placement, and consumes the existing
-confirmed wheel motion. The art has no collision, quantity or transmission
-authority. Human visual quality and GPU cost remain unassessed.
+describes reproducible extraction. Runtime code shares the two meshes and one
+material between wheels, keeps the existing hub, paddle and bearing placement,
+and consumes the existing confirmed wheel motion. The art has no collision,
+quantity or transmission authority. The second rim adds visual triangles;
+GPU cost and human visual acceptance remain unassessed.
 The current native launcher captures raw source assets; packaged Godot exports
 are outside this fixture's verified resource closure.
