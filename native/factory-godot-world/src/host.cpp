@@ -1,4 +1,5 @@
 #include "factory/godot_world.hpp"
+#include "factory/assembly.hpp"
 #include "factory/mineral_site.hpp"
 #include "factory/waterflow.hpp"
 
@@ -35,6 +36,20 @@ constexpr double capsule_height = 1.8;
 constexpr double machine_width = 1.45;
 constexpr double machine_height = 1.65;
 constexpr double machine_center_height = 0.8;
+
+const char* collector_status_name(assembly::Status status) {
+    switch (status) {
+        case assembly::Status::ready: return "ready";
+        case assembly::Status::invalid_input: return "invalid_input";
+        case assembly::Status::missing_frame: return "missing_frame";
+        case assembly::Status::missing_mount: return "missing_mount";
+        case assembly::Status::missing_edge: return "missing_edge";
+        case assembly::Status::missing_receiver: return "missing_receiver";
+        case assembly::Status::missing_shaft: return "missing_shaft";
+        case assembly::Status::ambiguous: return "ambiguous";
+    }
+    return "invalid_input";
+}
 
 struct Bounds { authority::Point center, half; };
 
@@ -1922,6 +1937,31 @@ Value Host::projection() const {
                     Value(component.center[1] * profile_.meters_per_grid_unit + profile_.anchor_offset[1]),
                     Value(component.center[2] * profile_.meters_per_grid_unit + profile_.anchor_offset[2])})}}));
         projection.emplace("placed_components", Value(std::move(placed)));
+        std::vector<assembly::Part> parts;
+        parts.reserve(state.placed_components.size());
+        for (const auto& [id, component] : state.placed_components)
+            parts.push_back({id, component.kind, component.center, component.generation});
+        Array collectors;
+        for (const auto& cell : mineral_site::opening_cells) {
+            for (Integer level = 0; level <= mineral_site::extraction_depth_steps; level += 4) {
+                const assembly::OreFace face{{4 * cell.x, level, 4 * cell.z}, {-1, 0, 0}};
+                const auto inspection = assembly::inspect_collector(parts, face);
+                Object entry{{"center", Value(Array{Value(face.machine_center[0]),
+                    Value(face.machine_center[1]), Value(face.machine_center[2])})},
+                    {"toward_ore", Value(Array{Value(Integer{-1}), Value(Integer{0}), Value(Integer{0})})},
+                    {"status", Value(collector_status_name(inspection.status))}};
+                if (inspection.collector) {
+                    const auto& assembled = *inspection.collector;
+                    entry.emplace("parts", Value(Object{{"frame", Value(assembled.frame)},
+                        {"mount", Value(assembled.mount)}, {"edge", Value(assembled.edge)},
+                        {"receiver", Value(assembled.receiver)}, {"shaft", Value(assembled.shaft)}}));
+                    entry.emplace("cutting_height", Value(assembled.cutting_height));
+                    entry.emplace("shaft_material", Value(materials::component_name(assembled.shaft_material)));
+                }
+                collectors.emplace_back(std::move(entry));
+            }
+        }
+        projection.emplace("collector_assemblies", Value(std::move(collectors)));
     }
     if (profile_.material.manual_ore) {
         const auto site_position = [this](const materials::DropPoint& center) {
