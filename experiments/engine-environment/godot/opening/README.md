@@ -133,6 +133,9 @@ eligibility come from the same native definition in offline and shared sessions.
 The current ideal hub mounts do not establish housing or floor clearance, and
 the geared route does not earn an invented processing-speed bonus.
 
+An in-world **MINERAL SEAM** label identifies the first exposed deposit without
+drawing a construction frame on the natural ground.
+
 Selecting the suggested Belt or Press also outlines the empty square at the
 confirmed upstream machine's outlet. This cue is a layout suggestion, not a
 construction permission or reach indicator. It hides in Help, the catalog and

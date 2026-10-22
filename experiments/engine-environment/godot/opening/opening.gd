@@ -6000,6 +6000,9 @@ func _refresh_placement_hint(snapshot_ready: bool = true) -> void:
 	if placement_hint == null:
 		return
 	placement_target_label.visible = false
+	for child in placement_hint.get_children():
+		if child is MeshInstance3D:
+			child.visible = mode != "collector"
 	if transmission_controls != null and not transmission_controls.active_tool.is_empty():
 		placement_hint.visible = false
 		return
