@@ -19,9 +19,11 @@ estimating this candidate's rendering cost; neither number is a measured
 many-instance budget.
 
 Two lower-triangle sources were also considered from their provider pages:
-[Rock Face 01](https://polyhaven.com/a/rock_face_01) spans about 7.1 metres and
-lists 20,000 triangles, while [Rock Face 02](https://polyhaven.com/a/rock_face_02)
-spans about 4.9 metres and lists 30,000. They are cliff-face candidates rather
+[Rock Face 01](https://polyhaven.com/a/rock_face_01) spans about 7.1 metres and its
+[provider metadata](https://api.polyhaven.com/info/rock_face_01) lists 20,174
+triangles, while [Rock Face 02](https://polyhaven.com/a/rock_face_02) spans about
+4.9 metres and its [metadata](https://api.polyhaven.com/info/rock_face_02) lists
+29,566. They are cliff-face candidates rather
 than an obviously freestanding source node. Neither was downloaded or imported
 in this study. The choice of Boulder 01 is provisional and remains subject to
 the actual worksite composition, occlusion and collision fit.
