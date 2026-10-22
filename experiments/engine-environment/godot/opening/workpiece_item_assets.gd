@@ -76,15 +76,19 @@ static func rivet_profile() -> PackedVector2Array:
 	])
 
 
-static func _seam_point(point: Vector2, ridge: float = 0.0) -> Vector3:
-	# A native mesh query drapes the cosmetic veins over the delivered rock.
-	# It never supplies construction height or a second collision authority.
+static func _prepare_source_query() -> void:
 	if source_triangles == null:
 		var spec: Dictionary = Scenery.Surface.source_outcrop()
 		source_triangles = Scenery.Surface.SOURCE_OUTCROP_MESH.generate_triangle_mesh()
 		source_to_world = Transform3D(spec.basis, spec.center)
 		world_to_source = source_to_world.affine_inverse()
 		source_ray_height = spec.center.y + spec.size.y
+
+
+static func _seam_point(point: Vector2, ridge: float = 0.0) -> Vector3:
+	# A native mesh query drapes the cosmetic veins over the delivered rock.
+	# It never supplies construction height or a second collision authority.
+	_prepare_source_query()
 	var origin := Vector3(point.x, source_ray_height, point.y)
 	var hit := source_triangles.intersect_ray(world_to_source * origin, world_to_source.basis * Vector3.DOWN)
 	if hit.is_empty():
@@ -92,6 +96,20 @@ static func _seam_point(point: Vector2, ridge: float = 0.0) -> Vector3:
 		return Vector3(NAN, NAN, NAN)
 	var at: Vector3 = source_to_world * hit.position
 	return at + Vector3.UP * (0.006 + ridge)
+
+
+static func _side_seam_point(point: Vector2, ridge: float = 0.0) -> Vector3:
+	# Project from outside the west flank. The ridge remains cosmetic and
+	# follows the same immutable rock as the top relief and actor collider.
+	_prepare_source_query()
+	var spec: Dictionary = Scenery.Surface.source_outcrop()
+	var origin := Vector3(spec.center.x - spec.size.x * 0.5 - 0.1, point.y, point.x)
+	var hit := source_triangles.intersect_ray(world_to_source * origin, world_to_source.basis * Vector3.RIGHT)
+	if hit.is_empty():
+		push_error("A side mineral vein lies outside the fixed source outcrop.")
+		return Vector3(NAN, NAN, NAN)
+	var at: Vector3 = source_to_world * hit.position
+	return at + Vector3.LEFT * (0.006 + ridge)
 
 
 static func _seam_radius(angle: float) -> float:
@@ -115,6 +133,20 @@ static func _seam_triangle(surface: SurfaceTool, a: Vector3, b: Vector3, c: Vect
 		surface.set_normal(normal)
 		surface.set_uv(Vector2(point.x, point.z))
 		surface.set_color(Color(1.0, 1.0, 1.0, opacity[index]))
+		surface.add_vertex(point)
+
+
+static func _side_seam_triangle(surface: SurfaceTool, a: Vector3, b: Vector3, c: Vector3) -> void:
+	var normal := (c - a).cross(b - a).normalized()
+	if normal.x > 0:
+		var swap := b
+		b = c
+		c = swap
+		normal = -normal
+	for point in [a, b, c]:
+		surface.set_normal(normal)
+		surface.set_uv(Vector2(point.z, point.y))
+		surface.set_color(Color.WHITE)
 		surface.add_vertex(point)
 
 
@@ -157,6 +189,37 @@ static func _seam_mesh(band: int) -> ArrayMesh:
 				_seam_triangle(surface, edges[0], crests[1], edges[2], Vector3.ONE)
 				_seam_triangle(surface, crests[0], edges[1], edges[3], Vector3.ONE)
 				_seam_triangle(surface, crests[0], edges[3], crests[1], Vector3.ONE)
+	# The ordinary construction view sees the rock's west flank. Carry the
+	# same reserve band over that real surface instead of adding loose ore props.
+	var side_paths := [
+		[Vector2(-0.22, -0.12), Vector2(-0.10, -0.08), Vector2(0.02, 0.01),
+			Vector2(0.13, 0.08), Vector2(0.22, 0.10)],
+		[Vector2(-0.10, -0.08), Vector2(-0.06, 0.06), Vector2(0.00, 0.16)],
+		[Vector2(0.13, 0.08), Vector2(0.20, -0.06)]]
+	var side_width := 0.030 * sqrt(float(band) / 8.0)
+	for branch in range(side_paths.size()):
+		var path: Array = side_paths[branch]
+		for segment in range(path.size() - 1):
+			var start: Vector2 = path[segment]
+			var finish: Vector2 = path[segment + 1]
+			var along := (finish - start).normalized()
+			var across := Vector2(-along.y, along.x)
+			for step in range(6):
+				var edges: Array[Vector3] = []
+				var crests: Array[Vector3] = []
+				for index in [step, step + 1]:
+					var t := float(index) / 6.0
+					var local := start.lerp(finish, t)
+					var at := Vector2(spec.center.z + local.x * spec.size.z,
+						spec.center.y + local.y * spec.size.y)
+					var radius := side_width * (0.84 + 0.16 * sin(float(branch * 5 + segment * 2) + t * PI))
+					edges.append(_side_seam_point(at - across * radius))
+					edges.append(_side_seam_point(at + across * radius))
+					crests.append(_side_seam_point(at, 0.008))
+				_side_seam_triangle(surface, edges[0], crests[0], crests[1])
+				_side_seam_triangle(surface, edges[0], crests[1], edges[2])
+				_side_seam_triangle(surface, crests[0], edges[1], edges[3])
+				_side_seam_triangle(surface, crests[0], edges[3], crests[1])
 	surface.generate_tangents()
 	var mesh := surface.commit()
 	source_meshes[band] = mesh

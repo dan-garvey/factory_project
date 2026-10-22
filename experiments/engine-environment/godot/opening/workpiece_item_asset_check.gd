@@ -224,8 +224,12 @@ func _initialize() -> void:
 	for shared in [false, true]:
 		var view: Variant = DetachedShared.new() if shared else DetachedOpening.new()
 		view.state = rotated
-		for id in ["c", "b", "p"]:
-			verify(view._material_rotated(id, rotated.entities[id]), "Connected machine artwork follows the rotated belt in both consumers.")
+		verify(view._material_rotated("b", rotated.entities.b),
+			"The X-axis belt rotates its material artwork in both consumers.")
+		verify(not view._material_rotated("c", rotated.entities.c),
+			"The collector keeps its own confirmed facing when connected to the belt.")
+		verify(not view._material_rotated("p", rotated.entities.p),
+			"The press keeps its own confirmed facing when connected to the belt.")
 		var anchor := Node3D.new()
 		view._assemble_machine(anchor, rotated.entities.b, true)
 		var assembly := anchor.get_node_or_null("RotatedMachineVisual") as Node3D
@@ -277,6 +281,8 @@ func check_exposure_mesh(mesh: ArrayMesh) -> void:
 	var attributes := true
 	var contact := true
 	var winding := true
+	var top_contacts := 0
+	var side_contacts := 0
 	var spec: Dictionary = Assets.Scenery.Surface.source_outcrop()
 	var inverse := Transform3D(spec.basis, spec.center).affine_inverse()
 	var query: TriangleMesh = Assets.Scenery.Surface.SOURCE_OUTCROP_MESH.generate_triangle_mesh()
@@ -288,12 +294,23 @@ func check_exposure_mesh(mesh: ArrayMesh) -> void:
 		attributes = attributes and absf(tangent.dot(normals[n])) < 0.0002
 		var hit := query.intersect_ray(inverse * Vector3(point.x, spec.center.y + spec.size.y, point.z),
 			inverse.basis * Vector3.DOWN)
-		if hit.is_empty():
-			contact = false
-		else:
+		var on_top := false
+		if not hit.is_empty():
 			var rock_point: Vector3 = Transform3D(spec.basis, spec.center) * hit.position
 			var gap := point.y - rock_point.y
-			contact = contact and gap >= 0.0059 and gap <= 0.0141
+			on_top = gap >= 0.0059 and gap <= 0.0141 and normals[n].y >= 0.0
+		if on_top:
+			top_contacts += 1
+		else:
+			var west := Vector3(spec.center.x - spec.size.x * 0.5 - 0.1, point.y, point.z)
+			var side_hit := query.intersect_ray(inverse * west, inverse.basis * Vector3.RIGHT)
+			if side_hit.is_empty():
+				contact = false
+			else:
+				var side_point: Vector3 = Transform3D(spec.basis, spec.center) * side_hit.position
+				var side_gap := side_point.x - point.x
+				contact = contact and side_gap >= 0.0059 and side_gap <= 0.0141 and normals[n].x < 0.0
+				side_contacts += 1
 	for n in range(0, points.size(), 3):
 		var a := points[n]
 		var b := points[n + 1]
@@ -301,7 +318,8 @@ func check_exposure_mesh(mesh: ArrayMesh) -> void:
 		var cross := (b - a).cross(c - a)
 		winding = winding and cross.length_squared() > 0.000000000001 and cross.dot(normals[n]) < 0
 	verify(attributes and winding, "All surface facets have finite orthogonal attributes and outward clockwise winding.")
-	verify(contact, "Every vein vertex lies within the declared relief above the actual delivered rock surface.")
+	verify(contact and top_contacts > 0 and side_contacts > 0,
+		"Top and west-side mineral relief both hug the delivered rock within the declared allowance.")
 
 
 func check_mineral_seam() -> void:
