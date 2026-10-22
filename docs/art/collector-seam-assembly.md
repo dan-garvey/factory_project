@@ -2,9 +2,10 @@
 
 This is a design brief for the **presentation** of the existing collector, not a
 new mining or material rule. It follows the rejected small-chute trials in
-`factory-yau.6.45.23.82`. The current source and the ordinary native view were
-read on 2026-10-22 at main `b76ddea`. The next step is a matched visual
-prototype; no alternative below has passed that comparison.
+`factory-yau.6.45.23.82`. The source and ordinary native view were read on
+2026-10-22. The collector now keeps its frame and high cutter pointed toward
+the fixed source while a small outlet cassette follows the confirmed quarter
+turn. That corrects direction, but it does not establish a cutter-to-rock path.
 
 ## Why the current assembly is hard to read
 
@@ -33,17 +34,18 @@ not permanent gameplay dimensions.
 | Mineral site | [Mineral-site policy](../../native/mineral-site/include/factory/mineral_site.hpp) admits two opening cells, `(0, 0)` and `(0, 1)`. [Host admission](../../native/factory-godot-world/src/host.cpp) checks the chosen centre against that site and the terrain depth, including a bounded elevated-foundation reach. This is the extraction permission; no visible cutter triangle supplies it. |
 | Exposed rock | [The one site-surface descriptor](../../experiments/engine-environment/godot/opening/site_surface.gd) places the fitted outcrop at world `x = -1.05`, `z = 0.05`, with its centre height derived from real terrain. The prepared local box is about 0.572 × 0.753 × 2.288 m; the [outcrop source study](mineral-outcrop-source.md) records the larger unmodified donor. The visible and physical hull share this rigid descriptor. It is one geological cue spanning the two-cell seam, with one finite reserve. |
 | Existing tool | [Collector art](../../experiments/engine-environment/godot/opening/opening.gd) puts the drum centre at local `(-0.22, 1.10, -0.19)` with a 0.24 m radius and its stock bed at `(0, 0.51, 0)`. These nominal centres do not alone prove tool-to-rock surface contact; the actual transformed hulls and all cutter poses need measurement. |
-| Material outlet | [World material routing](../../native/factory-world/src/world.cpp) selects the collector's single horizontal output from the confirmed quarter-turn rotation. At rotation zero it faces `+X`; the other rotations turn that vector. An adjacent belt receives material only when its endpoint faces this output and its slot is free. Any outlet art must rotate with the collector and stop at an exposed end when no accepted belt exists. |
+| Material outlet | [World material routing](../../native/factory-world/src/world.cpp) selects the collector's single horizontal output from the confirmed quarter-turn rotation. At rotation zero it faces `+X`; the other rotations turn that vector. An adjacent belt receives material only when its endpoint faces this output and its slot is free. The small output cassette follows the native port while the source-facing frame stays fixed; its terminal remains exposed without an accepted belt. |
 | Custody and motion | Native World owns extraction, finite stock, cached commands, power and material transfer. The view may depict only confirmed source quantity and machine/cutter state. A decorative chute must not invent a travelling billet, extra reserve, working connection or cutting contact. |
 
 The fitted rock remains outside both machine construction envelopes and reaches
-near each permitted seam cell. Turning the output still rotates the entire
-machine visual while the outcrop stays put. The first prototype should show an
-intake at the **admitted cell surface**; the passive fit does not yet prove that
-its cutter contacts the rock in every rotation. Before adoption, inspect the
-real outcrop hull, pick envelope, tool
-sweep, actor obstruction and rotation cases. An AABB overlap is neither proof
-of visible contact nor a licence to alter collision.
+near each permitted seam cell. The output can now turn without turning the
+cutter away from the rock, but the cutter is still high above the seam.
+Read-only rays through the actual source triangles at a proposed low cutter
+height found roughly 15–21 cm between the rock and the west face of the present
+pick box. The earlier 4 cm gap came from the hull's overall AABB extreme and
+cannot justify contact art. A low intake that reaches the real surface needs
+an explicitly occupied envelope checked by native placement and ActorWorld;
+the view alone cannot create that space.
 
 ### Raised collector observed in the ordinary opening
 
@@ -133,13 +135,15 @@ silhouette as an assembly: an exposed low cutter head, a continuous gathering
 surface rising to the existing stock bed, a supported mechanical input and a
 separate outlet facing the native output direction. The cutter, bed and outlet
 must appear physically related at both the seam and output camera angles.
-Preserve the established native pick envelope, material ports and states; the
-view cannot create extraction, an additional reserve or a working connection.
+Preserve the established material ports and states; any new occupied intake
+must be added to native placement, ActorWorld collision and picking together.
+The view cannot create extraction, an additional reserve or a working connection.
 This is the next **visual prototype**, not accepted game art or proof that the
 cutter touches the fixed boulder in every admitted placement.
 
-The cutter-and-gathering body must fit the unchanged 1.45 × 1.65 × 1.45 m
-machine pick box. The rejected carriage used a provisional intake mount at
+The cutter-and-gathering body must declare its occupied extension beyond the
+current 1.45 × 1.65 × 1.45 m machine pick box. The rejected carriage used a
+provisional intake mount at
 local `(0, 0.25, 0)` and a 0.60 m entry below the existing 0.51 m stock bed;
 those values do not locate the new cutting head. A provisional
 outlet socket is at local `(0.725, 0.51, 0)`, with its outward normal `+X`;
@@ -184,9 +188,10 @@ reading labels. Reject the candidate if the cutter is still a hood ornament,
 the rock disappears behind sheet metal, the outlet implies a live belt where
 none exists, or the body becomes a single larger box. Compare both permitted
 cells, rotation zero and one, powered/stopped states, a connected belt and an
-exposed output. Preserve the actual source rock's physical hull, machine pick
-body and native output port; test the real tool sweep and actor clearance
-against any new triangles. Check reusable
+exposed output. Preserve the actual source rock's physical hull and native
+output port; update the machine's native occupied volume, ActorWorld body and
+pick body together if the tool reaches beyond them. Test the real sweep and
+actor clearance against any new triangles. Check reusable
 materials and meshes, then inspect passive normal native pixels. Headless
 geometry checks alone cannot establish this visual criterion or human quality.
 
