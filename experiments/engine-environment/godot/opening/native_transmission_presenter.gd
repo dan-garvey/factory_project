@@ -1054,12 +1054,29 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3) -
 			pan.mesh = _formed_receiver_pan()
 			anchor.add_child(pan)
 		"wooden_shaft", "softmetal_shaft":
-			var shaft_finish: Material = timber if kind == "wooden_shaft" else worked
 			_support_box(anchor, "BearingFoot", Vector3(0, -0.07, 0), Vector3(0.35, 0.07, 0.35), dark)
-			var direction := drive_direction if drive_direction.length_squared() > 0.5 else Vector3.RIGHT
-			_support_beam(anchor, "LooseDriveShaft", direction * -0.16, direction * 0.16, 0.10, shaft_finish)
-			var hub := _support_cylinder(anchor, "DriveCollar", 0.105, 0.07, worked)
-			hub.position.y = 0.02
+			var fitted := drive_direction.length_squared() > 0.5
+			var rod := Node3D.new()
+			rod.name = "LooseDriveShaft"
+			anchor.add_child(rod)
+			var direction := drive_direction.normalized() if fitted else Vector3.UP
+			var reference := Vector3.RIGHT if absf(direction.dot(Vector3.RIGHT)) < 0.95 else Vector3.BACK
+			var across := reference.cross(direction).normalized()
+			rod.basis = Basis(across, direction, across.cross(direction))
+			rod.position.y = 0.0 if fitted else 0.035
+			Assets.shaft(rod, 0.32 if fitted else 0.14, Color("947658") if kind == "wooden_shaft" else Color("9aaba5"))
+			var core := rod.get_node("Shaft") as MeshInstance3D
+			core.material_override = timber if kind == "wooden_shaft" else worked
+			if fitted:
+				# The two static journals belong to the confirmed frame-facing axis.
+				# Neither their geometry nor this rod becomes a second drive or collider.
+				for sign_value in [-1.0, 1.0]:
+					var suffix := "Near" if sign_value < 0.0 else "Far"
+					var bearing := _support_cylinder(anchor, "BearingShell" + suffix, 0.07, 0.045, dark)
+					bearing.position = direction * sign_value * 0.115
+					bearing.basis = rod.basis
+					_support_box(anchor, "BearingSeat" + suffix, bearing.position + Vector3.DOWN * 0.05,
+						Vector3(0.10, 0.06, 0.10), dark)
 		_:
 			_support_box(anchor, "UnfittedPart", Vector3.ZERO, Vector3(0.24, 0.20, 0.24), dark)
 

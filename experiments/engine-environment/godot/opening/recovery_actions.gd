@@ -298,3 +298,292 @@ class LooseMaterialControls:
 				expected.erase("center")
 				_host.get_ref().issue({"action": "pickup_material", "center": _offers[id].center.duplicate(), "expected": expected})
 				return
+
+class ArrivalAssemblyControls:
+	extends PanelContainer
+	## Views the native arrival cargo and sends exact component and press commands.
+	## No stock, work timer, reach rule or assembly identity is owned here.
+
+	const COMPONENTS := [
+		["wooden_frame", "Wooden frame"], ["wooden_shaft", "Wooden shaft"],
+		["wooden_cog", "Wooden cog"], ["receiver_tray", "Receiver tray"],
+		["tool_mount", "Tool mount"], ["sliding_guide", "Sliding guide"],
+		["cutting_edge", "Cutting edge"], ["anvil", "Anvil"],
+		["ram_face", "Ram face"], ["softmetal_shaft", "Softmetal shaft"],
+		["softmetal_cog", "Softmetal cog"],
+	]
+	const COMPONENT_COSTS := {
+		"wooden_frame": [3, 0], "wooden_shaft": [1, 0],
+		"wooden_cog": [2, 0], "receiver_tray": [2, 0],
+		"tool_mount": [1, 0], "sliding_guide": [1, 0],
+		"cutting_edge": [0, 1], "anvil": [0, 2],
+		"ram_face": [0, 2], "softmetal_shaft": [0, 2],
+		"softmetal_cog": [0, 2],
+	}
+	const PRESS_NEXT := {
+		"missing_anvil": "Fit an anvil one height step above the frame.",
+		"missing_ram": "Fit a ram face above the anvil.",
+		"missing_guide": "Fit a sliding guide above the ram.",
+		"missing_mount": "Fit a tool mount above the guide.",
+		"missing_shaft": "Fit a shaft beside the mount at the same height.",
+		"missing_cog": "Fit a cog beyond the shaft at the same height.",
+	}
+
+	var selected_component := "wooden_frame"
+	var _host: WeakRef
+	var _snapshot := {}
+	var _actor := "P"
+	var _selected := ""
+	var _press := {}
+	var _frame := ""
+	var _route_index := 0
+	var _last_frame := ""
+	var _press_page := false
+	var component_choice: OptionButton
+	var craft_button: Button
+	var recipe_label: Label
+	var place_button: Button
+	var reclaim_button: Button
+	var crank_button: Button
+	var press_status: Label
+	var route_choice: OptionButton
+	var feed_button: Button
+	var turn_button: Button
+	var pickup_button: Button
+	var recover_work_button: Button
+	var craft_section: VBoxContainer
+	var press_section: VBoxContainer
+	var craft_tab: Button
+	var press_tab: Button
+
+	func configure(host) -> void:
+		_host = weakref(host)
+		name = "ArrivalAssemblyControls"
+		custom_minimum_size.x = 296
+		var column := VBoxContainer.new()
+		column.add_theme_constant_override("separation", 5)
+		add_child(column)
+		var tabs := HBoxContainer.new()
+		column.add_child(tabs)
+		craft_tab = host._button(tabs, "Craft parts", _show_page.bind(false))
+		press_tab = host._button(tabs, "Press work", _show_page.bind(true))
+		craft_tab.toggle_mode = true
+		press_tab.toggle_mode = true
+		craft_section = VBoxContainer.new()
+		column.add_child(craft_section)
+		host._label(craft_section, "FIELD WORKSHOP", 13, Color("f4bf75"))
+		component_choice = OptionButton.new()
+		component_choice.name = "ComponentChoice"
+		for item in COMPONENTS:
+			component_choice.add_item(item[1])
+		component_choice.select(0)
+		component_choice.item_selected.connect(_component_selected)
+		craft_section.add_child(component_choice)
+		recipe_label = host._label(craft_section, "", 12, Color("bfd1cc"))
+		var component_actions := HBoxContainer.new()
+		craft_section.add_child(component_actions)
+		craft_button = host._button(component_actions, "Craft one", _craft)
+		place_button = host._button(component_actions, "Place", _place)
+		reclaim_button = host._button(craft_section, "Reclaim selected part", _reclaim)
+		press_section = VBoxContainer.new()
+		column.add_child(press_section)
+		press_status = host._label(press_section, "Select a frame with E", 13, Color("bfd1cc"))
+		press_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		route_choice = OptionButton.new()
+		route_choice.name = "PressRoute"
+		route_choice.item_selected.connect(func(index: int) -> void: _route_index = index)
+		press_section.add_child(route_choice)
+		var press_actions := HBoxContainer.new()
+		press_section.add_child(press_actions)
+		feed_button = host._button(press_actions, "Feed blank", _feed)
+		turn_button = host._button(press_actions, "Turn crank", _turn)
+		pickup_button = host._button(press_section, "Pick up exit product", _pickup_exit)
+		recover_work_button = host._button(press_section, "Recover held work", _recover_work)
+		crank_button = host._button(press_section, "Take pod crank", _crank)
+		_show_page(false)
+		visible = false
+
+	func selected_name() -> String:
+		return selected_component
+
+	func press_frame_for(selected: String) -> String:
+		return str(_selected_press(_snapshot, selected).get("frame", ""))
+
+	func _show_page(press: bool) -> void:
+		_press_page = press
+		craft_section.visible = not press
+		press_section.visible = press
+		craft_tab.button_pressed = not press
+		press_tab.button_pressed = press
+		var scroller := get_parent() as ScrollContainer
+		if scroller != null:
+			scroller.custom_minimum_size.y = 260 if press else 185
+
+	func _bearing(point: Array, center: Array) -> String:
+		if point.size() != 3 or center.size() != 3:
+			return "unknown"
+		if point[0] > center[0]: return "east"
+		if point[0] < center[0]: return "west"
+		if point[2] > center[2]: return "south"
+		return "north"
+
+	func refresh(snapshot: Dictionary, actor: String, selected: String, ready: bool) -> void:
+		_snapshot = snapshot
+		_actor = actor
+		_selected = selected
+		visible = snapshot.get("options", {}).get("native", false) and snapshot.has("hand_sources")
+		if not visible:
+			return
+		var cargo: Dictionary = snapshot.get("cargo", {}).get(actor, {})
+		var components: Dictionary = cargo.get("components", {})
+		var cost: Array = COMPONENT_COSTS[selected_component]
+		recipe_label.text = "Needs %d timber + %d softmetal · carry %d + %d" % [
+			cost[0], cost[1], cargo.get("timber", 0), cargo.get("raw", 0)]
+		for index in COMPONENTS.size():
+			var item: Array = COMPONENTS[index]
+			component_choice.set_item_text(index, "%s  ·  %d carried" % [item[1], components.get(item[0], 0)])
+		craft_button.disabled = not ready or snapshot.get("fabrication_hub", {}).is_empty() \
+			or int(cargo.get("timber", 0)) < cost[0] or int(cargo.get("raw", 0)) < cost[1]
+		place_button.disabled = not ready or int(components.get(selected_component, 0)) < 1
+		place_button.text = "Place %s" % COMPONENTS[component_choice.selected][1]
+		reclaim_button.visible = snapshot.get("placed_components", {}).has(selected)
+		reclaim_button.disabled = not ready or not reclaim_button.visible
+		var crank: Dictionary = snapshot.get("hand_crank", {})
+		crank_button.visible = not crank.is_empty()
+		crank_button.disabled = not ready or (crank.get("holder", "") != "pod" and crank.get("holder", "") != actor)
+		crank_button.text = "Return crank to pod" if crank.get("holder") == actor else "Take pod crank"
+		_press = _selected_press(snapshot, selected)
+		_frame = str(_press.get("frame", ""))
+		if _frame != _last_frame:
+			_route_index = 0
+			_last_frame = _frame
+			_show_page(not _frame.is_empty())
+		var routes: Array = _press.get("open_feeds", [])
+		route_choice.clear()
+		var work_center := _work_center()
+		for route in routes:
+			route_choice.add_item("Feed %s  →  exit %s" % [
+				_bearing(route.entry, work_center), _bearing(route.exit, work_center)])
+		if routes.size() > 0:
+			_route_index = mini(_route_index, routes.size() - 1)
+			route_choice.select(_route_index)
+		var status := str(_press.get("status", ""))
+		if _frame.is_empty():
+			press_status.text = "Press: place a frame, then point at it and press E.\nStack anvil → ram → guide → mount; fit a shaft and cog beside the mount."
+		elif status == "ready":
+			var work := _work_drop()
+			var exit_drop := _exit_drop()
+			var advice := "Feed one carried ore blank." if int(cargo.get("raw", 0)) > 0 \
+				else "Cut ore with the multitool or build a collector."
+			if not work.is_empty():
+				advice = "Exit holds a plate; pick it up, then turn again." if int(exit_drop.get("products", 0)) > 0 \
+					else "Turn the crank to advance retained work."
+			press_status.text = "Press ready · %d clear feed routes. %s" % [routes.size(), advice]
+		else:
+			press_status.text = "Press: %s. %s" % [status.replace("_", " "), PRESS_NEXT.get(status,
+				"Clear its fitting space or choose another frame.")]
+		route_choice.visible = not routes.is_empty()
+		var can_operate := ready and status == "ready" and not routes.is_empty()
+		feed_button.visible = not _frame.is_empty()
+		feed_button.disabled = not can_operate or int(cargo.get("raw", 0)) < 1
+		turn_button.visible = not _frame.is_empty()
+		turn_button.disabled = not can_operate or crank.get("holder") != actor or _work_drop().is_empty()
+		pickup_button.visible = not _frame.is_empty()
+		pickup_button.disabled = not ready or _exit_drop().is_empty()
+		recover_work_button.visible = not _frame.is_empty()
+		recover_work_button.disabled = not ready or _work_drop().is_empty()
+
+	func _selected_press(snapshot: Dictionary, selected: String) -> Dictionary:
+		for value in snapshot.get("press_assemblies", []):
+			if not value is Dictionary:
+				continue
+			var parts: Dictionary = value.get("parts", {})
+			if value.get("frame") == selected or parts.values().has(selected):
+				return value
+		return {}
+
+	func _route() -> Dictionary:
+		var routes: Array = _press.get("open_feeds", [])
+		return routes[_route_index] if _route_index >= 0 and _route_index < routes.size() else {}
+
+	func _work_center() -> Array:
+		if _press.has("work_center"):
+			return _press.work_center
+		var frame_center: Array = _press.get("center", [])
+		return [frame_center[0], frame_center[1] + 1, frame_center[2]] if frame_center.size() == 3 else []
+
+	func _drop_at(center: Array) -> Dictionary:
+		for value in _snapshot.get("dropped_material", []):
+			if value is Dictionary and value.get("center") == center:
+				return value
+		return {}
+
+	func _work_drop() -> Dictionary:
+		return _drop_at(_work_center())
+
+	func _exit_drop() -> Dictionary:
+		var route := _route()
+		return _drop_at(route.get("exit", []))
+
+	func _host_view():
+		return _host.get_ref() if _host != null else null
+
+	func _component_selected(index: int) -> void:
+		selected_component = str(COMPONENTS[index][0])
+		var host = _host_view()
+		if host != null:
+			refresh(host.state, host.client, host.selected, host._can_control_character())
+
+	func _craft() -> void:
+		var host = _host_view()
+		if host == null:
+			return
+		var hub: Dictionary = _snapshot.get("fabrication_hub", {})
+		if not hub.is_empty():
+			host.issue({"action": "craft_component", "entity": hub.id, "component": selected_component})
+
+	func _place() -> void:
+		var host = _host_view()
+		if host != null:
+			host._select_tool("component")
+
+	func _reclaim() -> void:
+		var host = _host_view()
+		if host != null and _snapshot.get("placed_components", {}).has(_selected):
+			host.issue({"action": "reclaim_component", "entity": _selected})
+
+	func _crank() -> void:
+		var host = _host_view()
+		if host == null:
+			return
+		var crank: Dictionary = _snapshot.get("hand_crank", {})
+		if not crank.is_empty():
+			host.issue({"action": "return_hand_crank" if crank.get("holder") == _actor else "take_hand_crank",
+				"entity": crank.id})
+
+	func _feed() -> void:
+		var host = _host_view()
+		var route := _route()
+		if host != null and not route.is_empty() and not _frame.is_empty():
+			host.issue({"action": "feed_press", "entity": _frame, "entry": route.entry})
+
+	func _turn() -> void:
+		var host = _host_view()
+		var route := _route()
+		var parts: Dictionary = _press.get("parts", {})
+		if host != null and not route.is_empty() and parts.has("shaft"):
+			host.issue({"action": "turn_press_crank", "entity": _frame,
+				"drive": parts.shaft, "exit": route.exit})
+
+	func _pickup_at(drop: Dictionary) -> void:
+		var host = _host_view()
+		if host != null and not drop.is_empty():
+			host.issue({"action": "pickup_material", "center": drop.center,
+				"expected": {"raw": drop.raw, "products": drop.products,
+					"work_lots": drop.work_lots}})
+
+	func _pickup_exit() -> void:
+		_pickup_at(_exit_drop())
+
+	func _recover_work() -> void:
+		_pickup_at(_work_drop())
