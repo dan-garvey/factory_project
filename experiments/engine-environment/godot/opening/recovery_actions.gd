@@ -312,14 +312,6 @@ class ArrivalAssemblyControls:
 		["ram_face", "Ram face"], ["softmetal_shaft", "Softmetal shaft"],
 		["softmetal_cog", "Softmetal cog"],
 	]
-	const COMPONENT_COSTS := {
-		"wooden_frame": [3, 0], "wooden_shaft": [1, 0],
-		"wooden_cog": [2, 0], "receiver_tray": [2, 0],
-		"tool_mount": [1, 0], "sliding_guide": [1, 0],
-		"cutting_edge": [0, 1], "anvil": [0, 2],
-		"ram_face": [0, 2], "softmetal_shaft": [0, 2],
-		"softmetal_cog": [0, 2],
-	}
 	const PRESS_NEXT := {
 		"missing_anvil": "Fit an anvil one height step above the frame.",
 		"missing_ram": "Fit a ram face above the anvil.",
@@ -436,14 +428,20 @@ class ArrivalAssemblyControls:
 			return
 		var cargo: Dictionary = snapshot.get("cargo", {}).get(actor, {})
 		var components: Dictionary = cargo.get("components", {})
-		var cost: Array = COMPONENT_COSTS[selected_component]
-		recipe_label.text = "Needs %d timber + %d softmetal · carry %d + %d" % [
-			cost[0], cost[1], cargo.get("timber", 0), cargo.get("raw", 0)]
+		var recipes: Dictionary = snapshot.get("component_recipes", {})
+		var cost: Dictionary = recipes.get(selected_component, {})
+		var total_parts := 0
+		for amount in components.values():
+			total_parts += int(amount)
+		recipe_label.text = "Needs %d timber + %d softmetal\nCarry %d timber + %d softmetal\nParts %d / %d · craft beside the pod" % [
+			cost.get("timber", 0), cost.get("softmetal", 0), cargo.get("timber", 0),
+			cargo.get("raw", 0), total_parts, snapshot.get("component_capacity", 0)]
 		for index in COMPONENTS.size():
 			var item: Array = COMPONENTS[index]
 			component_choice.set_item_text(index, "%s  ·  %d carried" % [item[1], components.get(item[0], 0)])
-		craft_button.disabled = not ready or snapshot.get("fabrication_hub", {}).is_empty() \
-			or int(cargo.get("timber", 0)) < cost[0] or int(cargo.get("raw", 0)) < cost[1]
+		# Let the hub report missing input, full output and distance using its
+		# confirmed result. The bill above stays visible before the attempt.
+		craft_button.disabled = not ready or snapshot.get("fabrication_hub", {}).is_empty() or cost.is_empty()
 		place_button.disabled = not ready or int(components.get(selected_component, 0)) < 1
 		place_button.text = "Place %s" % COMPONENTS[component_choice.selected][1]
 		reclaim_button.visible = snapshot.get("placed_components", {}).has(selected)
