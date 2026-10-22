@@ -106,22 +106,26 @@ WorkLot decode_lot(const Value& value, const std::string& path) {
         integer(lot.at("work_remainder_denominator"), path + ".work_remainder_denominator")};
 }
 
-Value encode_cargo(const Cargo& cargo) {
+Value encode_cargo(const Cargo& cargo, bool resources) {
     Value::Array lots;
     lots.reserve(cargo.work_lots.size());
     for (const auto& lot : cargo.work_lots) lots.push_back(encode_lot(lot));
-    return Value(Object{{"raw_units", Value(cargo.raw_units)},
-                        {"products", Value(cargo.products)},
-                        {"work_lots", Value(std::move(lots))}});
+    Object output{{"raw_units", Value(cargo.raw_units)},
+        {"products", Value(cargo.products)}, {"work_lots", Value(std::move(lots))}};
+    if (resources) output.emplace("timber", Value(cargo.timber));
+    return Value(std::move(output));
 }
 
-Cargo decode_cargo(const Value& value, const std::string& path) {
-    const auto& entries = fields(value, path, {"raw_units", "products", "work_lots"});
+Cargo decode_cargo(const Value& value, const std::string& path, bool resources) {
+    const auto& entries = resources ?
+        fields(value, path, {"raw_units", "products", "work_lots", "timber"}) :
+        fields(value, path, {"raw_units", "products", "work_lots"});
     const auto& lots = entries.at("work_lots");
     if (lots.type() != Type::array) refuse(CodecReason::wrong_type, path + ".work_lots");
     Cargo cargo;
     cargo.raw_units = integer(entries.at("raw_units"), path + ".raw_units");
     cargo.products = integer(entries.at("products"), path + ".products");
+    if (resources) cargo.timber = integer(entries.at("timber"), path + ".timber");
     const auto& array = std::get<Value::Array>(lots.storage());
     cargo.work_lots.reserve(array.size());
     for (std::size_t index = 0; index < array.size(); ++index)
@@ -148,25 +152,26 @@ const char* codec_reason_name(CodecReason reason) noexcept {
 MaterialEncoding encode_material_state(const State& state, const Config& config,
                                        const Path& path, const std::vector<std::string>& actors) {
     try {
+        const bool resources = config.manual_ore || !config.timber_sites.empty();
         const auto roster = expected_roster(actors);
         validate_state(state, config, path, roster);
         Object cargo;
         for (const auto& [actor, contents] : state.cargo)
-            cargo.emplace(actor, encode_cargo(contents));
+            cargo.emplace(actor, encode_cargo(contents, resources));
         Value::Array drops;
         for (const auto& [point, contents] : state.dropped_material)
             drops.emplace_back(Object{{"point", Value(Value::Array{Value(point[0]), Value(point[1]), Value(point[2])})},
-                                      {"cargo", encode_cargo(contents)}});
+                                      {"cargo", encode_cargo(contents, resources)}});
         Object lanes;
         for (const auto& [id, lane] : state.belt_lanes) {
             Value::Array slots;
-            for (const auto& item : lane.slots) slots.push_back(item ? encode_cargo(*item) : Value(nullptr));
+            for (const auto& item : lane.slots) slots.push_back(item ? encode_cargo(*item, resources) : Value(nullptr));
             lanes.emplace(id, Value(Object{{"phase", Value(lane.phase)}, {"remainder", Value(lane.remainder)},
                 {"remainder_denominator", Value(lane.remainder_denominator)}, {"slots", Value(std::move(slots))}}));
         }
         const auto& stock = state.stock;
-        return Value(Object{
-            {"schema", Value(Value::Integer{6})},
+        Object output{
+            {"schema", Value(Value::Integer{resources ? 7 : 6})},
             {"initial_units", Value(state.initial_units)},
             {"stock", Value(Object{
                 {"source", Value(stock.source)}, {"collector", Value(stock.collector)},
@@ -176,17 +181,26 @@ MaterialEncoding encode_material_state(const State& state, const Config& config,
             {"dropped_material", Value(std::move(drops))},
             {"belt_lanes", Value(std::move(lanes))},
             {"processing", state.processing ? encode_lot(*state.processing) : Value(nullptr)},
-            {"next_work_id", Value(state.next_work_id)}});
+            {"next_work_id", Value(state.next_work_id)}};
+        if (resources) {
+            Object remaining;
+            for (const auto& [id, count] : state.timber_remaining)
+                remaining.emplace(id, Value(count));
+            output.emplace("timber_remaining", Value(std::move(remaining)));
+        }
+        return Value(std::move(output));
     } catch (const CodecRefusal& refusal) { return refusal; }
 }
 
 MaterialDecoding decode_material_state(const Value& value, const Config& config,
                                        const Path& path, const std::vector<std::string>& actors) {
     try {
+        const bool resources = config.manual_ore || !config.timber_sites.empty();
         const auto roster = expected_roster(actors);
-        const auto& root = fields(value, "$",
-            {"schema", "initial_units", "stock", "cargo", "dropped_material", "belt_lanes", "processing", "next_work_id"});
-        if (integer(root.at("schema"), "$.schema") != 6)
+        const auto& root = resources ? fields(value, "$",
+            {"schema", "initial_units", "stock", "cargo", "dropped_material", "belt_lanes", "processing", "next_work_id", "timber_remaining"}) :
+            fields(value, "$", {"schema", "initial_units", "stock", "cargo", "dropped_material", "belt_lanes", "processing", "next_work_id"});
+        if (integer(root.at("schema"), "$.schema") != (resources ? 7 : 6))
             refuse(CodecReason::unsupported_schema, "$.schema");
         const auto& stock = fields(root.at("stock"), "$.stock",
                                     {"source", "collector", "belt", "input", "output"});
@@ -198,6 +212,12 @@ MaterialDecoding decode_material_state(const Value& value, const Config& config,
             integer(stock.at("belt"), "$.stock.belt"),
             integer(stock.at("input"), "$.stock.input"),
             integer(stock.at("output"), "$.stock.output")};
+        if (resources) {
+            const auto& trees = object(root.at("timber_remaining"), "$.timber_remaining");
+            if (trees.size() > 16) refuse(CodecReason::invalid_material_state, "$.timber_remaining");
+            for (const auto& [id, count] : trees)
+                candidate.timber_remaining.emplace(id, integer(count, "$.timber_remaining." + id));
+        }
         const auto& lanes = object(root.at("belt_lanes"), "$.belt_lanes");
         if (lanes.size() > 256) refuse(CodecReason::invalid_material_state, "$.belt_lanes");
         for (const auto& [id, value_lane] : lanes) {
@@ -214,11 +234,13 @@ MaterialDecoding decode_material_state(const Value& value, const Config& config,
                 if (value_item.type() == Type::null) {
                     lane.slots.emplace_back(std::nullopt);
                 } else {
-                    const auto& item = fields(value_item, "$.belt_lanes.item", {"raw_units", "products", "work_lots"});
+                    const auto& item = resources ?
+                        fields(value_item, "$.belt_lanes.item", {"raw_units", "products", "work_lots", "timber"}) :
+                        fields(value_item, "$.belt_lanes.item", {"raw_units", "products", "work_lots"});
                     if (item.at("work_lots").type() != Type::array ||
                         std::get<Value::Array>(item.at("work_lots").storage()).size() > 1)
                         refuse(CodecReason::invalid_material_state, "$.belt_lanes.item");
-                    lane.slots.emplace_back(decode_cargo(value_item, "$.belt_lanes.item"));
+                    lane.slots.emplace_back(decode_cargo(value_item, "$.belt_lanes.item", resources));
                 }
             }
             candidate.belt_lanes.emplace(id, std::move(lane));
@@ -235,14 +257,14 @@ MaterialDecoding decode_material_state(const Value& value, const Config& config,
             DropPoint point{};
             for (std::size_t j = 0; j < 3; ++j)
                 point[j] = integer(coordinates[j], path + ".point[" + std::to_string(j) + "]");
-            if (!candidate.dropped_material.emplace(point, decode_cargo(entry.at("cargo"), path + ".cargo")).second)
+            if (!candidate.dropped_material.emplace(point, decode_cargo(entry.at("cargo"), path + ".cargo", resources)).second)
                 refuse(CodecReason::invalid_material_state, path + ".point");
         }
         const auto& cargo = object(root.at("cargo"), "$.cargo");
         if (cargo.size() != roster.size()) refuse(CodecReason::roster_mismatch, "$.cargo");
         for (const auto& [actor, contents] : cargo) {
             if (!roster.contains(actor)) refuse(CodecReason::roster_mismatch, "$.cargo");
-            candidate.cargo.emplace(actor, decode_cargo(contents, actor_path(actor)));
+            candidate.cargo.emplace(actor, decode_cargo(contents, actor_path(actor), resources));
         }
         if (root.at("processing").type() != Type::null)
             candidate.processing = decode_lot(root.at("processing"), "$.processing");

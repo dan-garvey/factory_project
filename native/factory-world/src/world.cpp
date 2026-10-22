@@ -103,6 +103,7 @@ bool keys(const Object& object, std::initializer_list<const char*> extra) {
 
 bool shape(const Object& intent, const std::string& action) {
     if (action == "pickup_material") return keys(intent, {"center", "expected"}) && field<Object>(intent, "expected");
+    if (action == "harvest_source") return keys(intent, {"target"}) && field<std::string>(intent, "target");
     if (action == "place_foundations") return keys(intent, {"center", "end"});
     if (action == "place_foundation") return keys(intent, {"center"});
     if (action == "remove_foundation") return keys(intent, {"target", "generation"});
@@ -336,6 +337,21 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         }
         return weighted > 0 && weighted <= profile.initial_units;
     }
+    if (action == "harvest_source") {
+        const auto* id = field<std::string>(record.intent, "target");
+        const auto* entity = field<std::string>(result, "entity");
+        const auto* generation = field<Integer>(result, "generation");
+        const auto* raw = field<Integer>(result, "moved_raw");
+        const auto* timber = field<Integer>(result, "moved_timber");
+        if (!id || !entity || *entity != *id || !generation || *generation != 1 ||
+            !raw || !timber || result.size() != 18) return false;
+        if (profile.material.manual_ore && *id == profile.material.manual_ore->id)
+            return *raw == 1 && *timber == 0 &&
+                targets.front() == anchor(profile, profile.material.manual_ore->center);
+        const auto found = profile.material.timber_sites.find(*id);
+        return found != profile.material.timber_sites.end() && *raw == 0 && *timber == 1 &&
+            targets.front() == anchor(profile, found->second.center);
+    }
     if (placement(action) || action == "place_foundation") {
         const auto location = grid_point(record.intent);
         if (action == "place_foundation")
@@ -453,6 +469,8 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
 bool history_domain(const Profile& profile, const Snapshot& snapshot) {
     std::set<std::pair<std::string, std::string>> used_belt_selections;
     std::map<std::pair<std::string, Integer>, mechanics::Point> placed_shafts;
+    std::map<std::string, Integer> harvested_timber;
+    Integer harvested_ore = 0;
     for (const auto& record : snapshot.history.records) {
         const auto* actor = field<std::string>(record.intent, "actor");
         const auto* action = field<std::string>(record.intent, "action");
@@ -474,7 +492,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
         const auto* entity = field<std::string>(record.result, "entity");
         const auto* generation = field<Integer>(record.result, "generation");
         if (!result_actor || *result_actor != *actor || !entity || !generation) return false;
-        if (*action != "pickup_material") {
+        if (*action != "pickup_material" && *action != "harvest_source") {
             const auto issued = snapshot.state.issued_entities.find(*entity);
             if (issued == snapshot.state.issued_entities.end() || issued->second != *generation) return false;
         }
@@ -498,6 +516,12 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
                 destination == snapshot.state.issued_entities.end() || destination->second != *to_generation) return false;
         }
         if (!historical_facts(profile, record, *actor, *action)) return false;
+        if (*action == "harvest_source") {
+            const auto& id = *field<std::string>(record.intent, "target");
+            if (profile.material.manual_ore && id == profile.material.manual_ore->id) {
+                if (!add(harvested_ore, 1)) return false;
+            } else if (!add(harvested_timber[id], 1)) return false;
+        }
         if (placement(*action)) {
             const auto* role_name = field<std::string>(record.intent, "role");
             const auto center = grid_point(record.intent);
@@ -579,6 +603,12 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
             }
         }
     }
+    for (const auto& [id, site] : profile.material.timber_sites) {
+        const auto remaining = snapshot.state.material.timber_remaining.find(id);
+        if (remaining == snapshot.state.material.timber_remaining.end() ||
+            harvested_timber[id] != site.initial - remaining->second) return false;
+    }
+    if (harvested_ore > profile.initial_units - snapshot.state.material.stock.source) return false;
     return true;
 }
 }  // namespace
@@ -674,6 +704,17 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
             if (coordinate < -mechanics::maximum_coordinate + 4 ||
                 coordinate > mechanics::maximum_coordinate - 4) return false;
     }
+    const auto valid_source = [](const std::string& id, const materials::DropPoint& center) {
+        if (!identity(id) || id.starts_with(allocated_prefix)) return false;
+        for (const auto coordinate : center)
+            if (coordinate < -mechanics::maximum_coordinate ||
+                coordinate > mechanics::maximum_coordinate) return false;
+        return true;
+    };
+    if (profile.material.manual_ore &&
+        !valid_source(profile.material.manual_ore->id, profile.material.manual_ore->center)) return false;
+    for (const auto& [id, site] : profile.material.timber_sites)
+        if (!valid_source(id, site.center)) return false;
     if (profile.water.size() > 65536 || profile.wheel_radius <= 0 ||
         profile.wheel_radius > mechanics::maximum_coordinate / mechanics::maximum_dimension ||
         profile.wheel_axle_offset < -mechanics::maximum_coordinate ||
@@ -919,6 +960,30 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         facts.emplace("moved_products", Value(contents.products));
         facts.emplace("moved_work", lots_value(contents.work_lots));
         return accepted(std::move(candidate), "", std::move(facts));
+    }
+    if (*action == "harvest_source") {
+        const auto* id = field<std::string>(intent, "target");
+        if (!id) return refused("invalid_target");
+        const bool ore = profile_.material.manual_ore && profile_.material.manual_ore->id == *id;
+        const auto tree = profile_.material.timber_sites.find(*id);
+        if (!ore && tree == profile_.material.timber_sites.end()) return refused("unknown_target", *id);
+        const auto& center = ore ? profile_.material.manual_ore->center : tree->second.center;
+        const auto cut = observe ? observe(binding.actor) : std::nullopt;
+        if (!cut) return refused("actor_unready", *id);
+        auto checked_cut = *cut;
+        checked_cut.build_reach = profile_.build_reach;
+        const auto checked = authority::check_reach(binding.actor, checked_cut, {anchor(profile_, center)});
+        auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
+        if (checked.error != authority::Error::none)
+            return refused(authority::error_name(checked.error), *id, std::move(facts));
+        auto candidate = state;
+        const auto error = materials::harvest_source(candidate.material, profile_.material,
+            material_path(candidate.topology), binding.actor, *id);
+        if (error != materials::Error::none) return refused(materials::error_name(error), *id, std::move(facts));
+        facts.emplace("generation", Value(Integer{1}));
+        facts.emplace("moved_raw", Value(Integer{ore ? 1 : 0}));
+        facts.emplace("moved_timber", Value(Integer{ore ? 0 : 1}));
+        return accepted(std::move(candidate), *id, std::move(facts));
     }
     if (*action == "place_foundations") {
         if (profile_.foundation_parts == 0) return refused("foundations_unavailable");

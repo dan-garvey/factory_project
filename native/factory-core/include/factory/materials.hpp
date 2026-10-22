@@ -5,6 +5,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace factory::materials {
@@ -47,6 +48,12 @@ struct Cargo {
     Quantity raw_units{};
     Quantity products{};
     std::vector<WorkLot> work_lots;
+    // Unshaped timber stays in the same authoritative actor cargo as ore.
+    // Existing machine buffers and belts do not accept timber yet.
+    Quantity timber{};
+    Cargo() = default;
+    Cargo(Quantity raw, Quantity finished, std::vector<WorkLot> lots, Quantity wood = 0)
+        : raw_units(raw), products(finished), work_lots(std::move(lots)), timber(wood) {}
     bool operator==(const Cargo&) const = default;
 };
 
@@ -79,11 +86,29 @@ struct BeltAdvance {
     const BeltLane&, Quantity numerator, Quantity denominator, int direction,
     bool inclined, Quantity receiver_capacity);
 
+struct TimberSite {
+    DropPoint center{}; // The common quarter-tile world grid.
+    Quantity initial{};
+    bool operator==(const TimberSite&) const = default;
+};
+
+struct OreSite {
+    std::string id;
+    DropPoint center{};
+    bool operator==(const OreSite&) const = default;
+};
+
 // These are revisable fixture values, supplied by the caller, not game content.
 struct Config {
     Quantity input_units_per_product{1};
     Quantity collector_capacity{1};
     Quantity cycle_ticks{2};
+    std::map<std::string, TimberSite> timber_sites;
+    std::optional<OreSite> manual_ore;
+    Quantity hand_carry_capacity{32};
+    Config() = default;
+    Config(Quantity input, Quantity capacity, Quantity ticks)
+        : input_units_per_product(input), collector_capacity(capacity), cycle_ticks(ticks) {}
 };
 
 struct Stock {
@@ -108,6 +133,14 @@ struct State {
     // Live custody belongs to the one canonical material State, keyed by the
     // World-owned belt span identity. World validates matching geometry.
     std::map<std::string, BeltLane> belt_lanes{};
+    // Each site's initial quantity is immutable Config; only these remaining
+    // quantities move into actor cargo through the World request owner.
+    std::map<std::string, Quantity> timber_remaining{};
+    State() = default;
+    State(Quantity initial, Stock contents, std::map<std::string, Cargo> actors,
+          std::optional<WorkLot> work, WorkId serial)
+        : initial_units(initial), stock(contents), cargo(std::move(actors)),
+          processing(std::move(work)), next_work_id(serial) {}
     bool operator==(const State&) const = default;
 };
 
@@ -147,6 +180,8 @@ enum class Error {
     unavailable_output,
     work_id_overflow,
     unavailable_drop,
+    unavailable_source,
+    inventory_full,
 };
 
 [[nodiscard]] const char* error_name(Error error) noexcept;
@@ -171,6 +206,11 @@ enum class Error {
 
 // World must first authenticate the actor and admit reach to the exact point.
 [[nodiscard]] Error pickup_material(State&, const Config&, const Path&, const std::string&, const DropPoint&);
+
+// World authenticates the actor, target identity and physical reach first.
+// The existing ore source feeds both hand extraction and the collector.
+[[nodiscard]] Error harvest_source(State&, const Config&, const Path&,
+                                   const std::string& actor, const std::string& source_id);
 
 // Call only after the authoritative adapter has admitted this actor and reach
 // and has excluded a cached request. This function is not an admission API.

@@ -118,6 +118,20 @@ Value profile_value(const Profile& profile) {
         const auto& center = *profile.landing_pod_center;
         output.emplace("landing_pod_center", Value(Array{Value(center[0]), Value(center[1]), Value(center[2])}));
     }
+    if (profile.material.manual_ore || !profile.material.timber_sites.empty()) {
+        Array trees;
+        for (const auto& [id, site] : profile.material.timber_sites)
+            trees.emplace_back(Object{{"id", Value(id)},
+                {"center", Value(Array{Value(site.center[0]), Value(site.center[1]), Value(site.center[2])})},
+                {"initial", Value(site.initial)}});
+        output.emplace("timber_sites", Value(std::move(trees)));
+        output.emplace("hand_carry_capacity", Value(profile.material.hand_carry_capacity));
+        if (profile.material.manual_ore) {
+            const auto& site = *profile.material.manual_ore;
+            output.emplace("manual_ore", Value(Object{{"id", Value(site.id)},
+                {"center", Value(Array{Value(site.center[0]), Value(site.center[1]), Value(site.center[2])})}}));
+        }
+    }
     if (!profile.water.empty()) {
         Array water;
         for (const auto& [location, sample] : profile.water) water.emplace_back(Object{
