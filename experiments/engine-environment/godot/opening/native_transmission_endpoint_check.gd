@@ -168,14 +168,66 @@ func check_terrain_pointer(shared: bool) -> void:
 		view.camera.position = Vector3(x, ground + 20.0, z)
 		view.camera.look_at(Vector3(x, ground, z), Vector3.FORWARD)
 		var screen: Vector2 = view.camera.unproject_position(Vector3(x, ground, z))
+		var pointed_level := level
 		for tool in ["place_shaft", "gear"]:
 			view.transmission_controls.choose_tool(tool)
 			var target: Array = view._transmission_center(screen)
-			verify(target == [cell.x * 4, level, cell.y * 4], "Bare terrain chooses the global tile at or above its actual surface.")
-			verify(view.transmission_controls.snapped_height == level, "The height control starts from the pointed terrain tile.")
+			verify(target[0] == cell.x * 4 and target[2] == cell.y * 4 and target[1] >= level and target[1] % 4 == 0, "Bare terrain chooses a global tile at or above its actual surface.")
+			pointed_level = target[1]
+			verify(view.transmission_controls.snapped_height == pointed_level, "The height control starts from the pointed terrain tile.")
 		view.transmission_controls._height_selected(1)
-		verify(view._transmission_center(screen) == [cell.x * 4, level + 4, cell.y * 4], "Explicit height overrides terrain following by one global tile.")
+		verify(view._transmission_center(screen) == [cell.x * 4, pointed_level + 4, cell.y * 4], "Explicit height overrides terrain following by one global tile.")
 		view.transmission_controls._height_selected(2)
+	# Point at the low edge of a sloped tile whose opposite edge rises across
+	# a grid-height boundary. A vertical cog must clear its whole footprint.
+	var found_slope := false
+	for cx in range(-14, 15):
+		if found_slope:
+			break
+		for cz in range(-14, 15):
+			var tile_x: float = cx * Geometry.PITCH
+			var tile_z: float = cz * Geometry.PITCH
+			var near_z: float = tile_z - Geometry.PITCH * 0.45
+			var far_z: float = tile_z + Geometry.PITCH * 0.45
+			var near_h: float = surface.height_at(tile_x, near_z)
+			var far_h: float = surface.height_at(tile_x, far_z)
+			if ceili(near_h / Geometry.PITCH) == ceili(far_h / Geometry.PITCH):
+				continue
+			var low_z := near_z if near_h < far_h else far_z
+			var low_h := minf(near_h, far_h)
+			var high_h := maxf(near_h, far_h)
+			view.camera.position = Vector3(tile_x, low_h + 20.0, low_z)
+			view.camera.look_at(Vector3(tile_x, low_h, low_z), Vector3.FORWARD)
+			var slope_screen: Vector2 = view.camera.unproject_position(Vector3(tile_x, low_h, low_z))
+			view.transmission_controls.choose_tool("gear")
+			view.transmission_controls.selected_axis = "x"
+			var slope_target: Array = view._transmission_center(slope_screen)
+			verify(slope_target[0] == cx * 4 and slope_target[2] == cz * 4,
+				"Slope following retains the pointed global tile.")
+			verify(slope_target[1] * Geometry.HEIGHT_STEP >= high_h - 0.00001,
+				"Slope following clears the higher terrain under the cog footprint.")
+			for tool in ["place_shaft", "gear"]:
+				view.transmission_controls.choose_tool(tool)
+				for axis in ["x", "y", "z"]:
+					view.transmission_controls.selected_axis = axis
+					var target: Array = view._transmission_center(slope_screen)
+					var axle := Vector3(0.1, 0.1, 0.1)
+					axle[["x", "y", "z"].find(axis)] = Geometry.PITCH / 2.0
+					var footprints: Array = [axle]
+					if tool == "gear":
+						var disc := Vector3.ONE * Geometry.PITCH / 2.0
+						disc[["x", "y", "z"].find(axis)] = 0.04
+						footprints.append(disc)
+					var clears := true
+					for half: Vector3 in footprints:
+						for ix in range(5):
+							for iz in range(5):
+								var h: float = surface.height_at(tile_x + half.x * (ix / 2.0 - 1.0), tile_z + half.z * (iz / 2.0 - 1.0))
+								clears = clears and h <= Geometry.ANCHOR_HEIGHT + target[1] * Geometry.HEIGHT_STEP - half.y + 0.00001
+					verify(clears and target[1] % 4 == 0, "The oriented transmission footprint clears sampled terrain on the global grid.")
+			found_slope = true
+			break
+	verify(found_slope, "The site supplies a sloped tile crossing a height boundary.")
 	var x: float = 20 * Geometry.PITCH
 	var z: float = 20 * Geometry.PITCH
 	var ground: float = surface.height_at(x, z)

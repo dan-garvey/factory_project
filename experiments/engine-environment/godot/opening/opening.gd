@@ -4090,6 +4090,57 @@ func _install_transmission_terrain_picker() -> void:
 	terrain.add_child(collider)
 	add_child(terrain)
 
+# Find the highest point of the emitted terrain triangles inside a footprint.
+# Clipping the triangles also catches peaks and diagonal edges between samples.
+func _transmission_terrain_high(x: float, z: float, half_x: float, half_z: float) -> float:
+	var surface = ProductionEnvironment.Surface
+	if not surface.contains(x - half_x, z - half_z) or not surface.contains(x + half_x, z + half_z):
+		return NAN
+	var first: Vector2i = surface.cell(x - half_x, z - half_z)
+	var last: Vector2i = surface.cell(x + half_x, z + half_z)
+	var high := -INF
+	for gz in range(first.y, last.y + 1):
+		for gx in range(first.x, last.x + 1):
+			var a: Vector3 = surface.vertex(gx, gz)
+			var b: Vector3 = surface.vertex(gx + 1, gz)
+			var c: Vector3 = surface.vertex(gx + 1, gz + 1)
+			var d: Vector3 = surface.vertex(gx, gz + 1)
+			for triangle in [[a, b, c], [a, c, d]]:
+				var polygon: Array = triangle
+				for clip in [[0, x - half_x, 1.0], [0, x + half_x, -1.0], [2, z - half_z, 1.0], [2, z + half_z, -1.0]]:
+					var clipped: Array = []
+					for n in polygon.size():
+						var p: Vector3 = polygon[n]
+						var q: Vector3 = polygon[(n + 1) % polygon.size()]
+						var inside: bool = (p[clip[0]] - clip[1]) * clip[2] >= 0.0
+						var next_inside: bool = (q[clip[0]] - clip[1]) * clip[2] >= 0.0
+						if inside:
+							clipped.append(p)
+						if inside != next_inside:
+							clipped.append(p.lerp(q, (clip[1] - p[clip[0]]) / (q[clip[0]] - p[clip[0]])))
+					polygon = clipped
+				for p: Vector3 in polygon:
+					high = maxf(high, p.y)
+	return high
+
+func _transmission_terrain_level(point: Vector3, x: float, z: float) -> int:
+	var level := ceili(point.y / PITCH)
+	if transmission_controls.active_tool not in ["place_shaft", "gear"]:
+		return level * Geometry.HEIGHT_DENOMINATOR
+	var axis: String = transmission_controls.selected_axis
+	var axle := Vector3(0.1, 0.1, 0.1)
+	axle[["x", "y", "z"].find(axis)] = PITCH / 2.0
+	var footprints: Array = [axle]
+	if transmission_controls.active_tool == "gear":
+		var disc := Vector3.ONE * PITCH / 2.0
+		disc[["x", "y", "z"].find(axis)] = 0.04
+		footprints.append(disc)
+	for half: Vector3 in footprints:
+		var high := _transmission_terrain_high(x, z, half.x, half.z)
+		if is_finite(high):
+			level = maxi(level, ceili((high - Geometry.ANCHOR_HEIGHT + half.y - 0.000000001) / PITCH))
+	return level * Geometry.HEIGHT_DENOMINATOR
+
 func _transmission_center(screen: Vector2) -> Array:
 	if transmission_controls == null:
 		return []
@@ -4109,9 +4160,11 @@ func _transmission_center(screen: Vector2) -> Array:
 		var terrain_hit := get_world_3d().direct_space_state.intersect_ray(terrain_ray)
 		if not terrain_hit.is_empty():
 			var point: Vector3 = terrain_hit.position
-			var level := ceili(point.y / PITCH) * Geometry.HEIGHT_DENOMINATOR
+			var x := roundi(point.x / PITCH)
+			var z := roundi(point.z / PITCH)
+			var level := _transmission_terrain_level(point, x * PITCH, z * PITCH)
 			transmission_controls.snapped_height = level
-			return [roundi(point.x / PITCH) * 4, level, roundi(point.z / PITCH) * 4]
+			return [x * 4, level, z * 4]
 	transmission_controls.snapped_height = 0
 	var height: int = 0 if transmission_controls.auto_height else transmission_controls.gear_height
 	var plane := Plane(Vector3.UP, Geometry.ANCHOR_HEIGHT + height * PITCH / 4.0)
