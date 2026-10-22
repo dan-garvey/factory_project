@@ -592,6 +592,7 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
 bool history_domain(const Profile& profile, const Snapshot& snapshot) {
     std::set<std::pair<std::string, std::string>> used_belt_selections;
     std::map<std::pair<std::string, Integer>, mechanics::Point> placed_shafts;
+    auto foundation_kits = profile.starting_foundation_kits;
     std::map<std::string, Integer> harvested_timber;
     std::map<std::string, Integer> carried_timber;
     Integer harvested_ore = 0;
@@ -644,6 +645,20 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
                 destination == snapshot.state.issued_entities.end() || destination->second != *to_generation) return false;
         }
         if (!historical_facts(profile, record, *actor, *action)) return false;
+        if (*action == "place_foundations" || *action == "place_foundation" ||
+            *action == "remove_foundation") {
+            const auto kit = foundation_kits.find(*actor);
+            if (kit == foundation_kits.end()) return false;
+            auto& carried = kit->second;
+            if (*action == "remove_foundation") {
+                if (!add(carried, 1) || carried > profile.foundation_parts) return false;
+            } else {
+                const Integer spent = *action == "place_foundations" ?
+                    static_cast<Integer>(foundation_area(record.intent).size()) : 1;
+                if (spent < 1 || carried < spent) return false;
+                carried -= spent;
+            }
+        }
         if (*action == "harvest_source") {
             const auto& id = *field<std::string>(record.intent, "target");
             if (profile.material.manual_ore && id == profile.material.manual_ore->id) {
@@ -792,6 +807,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
     }
     for (const auto& [actor, cargo] : snapshot.state.material.cargo)
         if (carried_timber[actor] != cargo.timber) return false;
+    if (foundation_kits != snapshot.state.foundation_kits) return false;
     if (harvested_ore > profile.initial_units - snapshot.state.material.stock.source ||
         cranked_ore > profile.initial_units - snapshot.state.material.stock.source - harvested_ore)
         return false;
@@ -906,6 +922,18 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
         for (const auto coordinate : center)
             if (coordinate < -mechanics::maximum_coordinate + 4 ||
                 coordinate > mechanics::maximum_coordinate - 4) return false;
+    }
+    if (profile.foundation_parts == 0) {
+        if (!profile.starting_foundation_kits.empty()) return false;
+    } else {
+        if (profile.starting_foundation_kits.size() != profile.actors.size()) return false;
+        Integer allocated = profile.landing_pod_center ? landing_deck_parts : 0;
+        for (const auto& actor : profile.actors) {
+            const auto found = profile.starting_foundation_kits.find(actor);
+            if (found == profile.starting_foundation_kits.end() || !add(allocated, found->second))
+                return false;
+        }
+        if (allocated > profile.foundation_parts) return false;
     }
     const auto valid_source = [](const std::string& id, const materials::DropPoint& center) {
         if (!identity(id) || id.starts_with(allocated_prefix) || id == "landing-pod" ||
