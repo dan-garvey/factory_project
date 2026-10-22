@@ -146,6 +146,36 @@ func _component_view() -> void:
 	verify(anchors.size() == 5 and anchors.frame.get_node_or_null("GroundedPost") != null
 		and anchors.tray.get_node_or_null("OpenPan") != null,
 		"The confirmed parts render separately with a grounded frame and open receiver.")
+	var blade: MeshInstance3D = anchors.edge.get_node_or_null("FormedBlade")
+	verify(blade != null and blade.mesh is ArrayMesh,
+		"The confirmed cutting edge has one formed steel blade instead of detached box teeth.")
+	if blade == null or not blade.mesh is ArrayMesh:
+		return
+	var blade_arrays: Array = blade.mesh.surface_get_arrays(0)
+	var blade_points: PackedVector3Array = blade_arrays[Mesh.ARRAY_VERTEX]
+	var blade_normals: PackedVector3Array = blade_arrays[Mesh.ARRAY_NORMAL]
+	var front_low := INF
+	var front_high := -INF
+	var root_low := INF
+	var root_high := -INF
+	var outward_winding := blade_points.size() == 36 and blade_normals.size() == 36
+	for index in range(0, blade_points.size(), 3):
+		if index + 2 >= blade_points.size():
+			outward_winding = false
+			break
+		var cross: Vector3 = (blade_points[index + 1] - blade_points[index]).cross(
+			blade_points[index + 2] - blade_points[index])
+		outward_winding = outward_winding and cross.dot(blade_normals[index]) < -0.000001
+	for point in blade_points:
+		if is_equal_approx(point.x, -0.195):
+			front_low = minf(front_low, point.y)
+			front_high = maxf(front_high, point.y)
+		if is_equal_approx(point.x, 0.075):
+			root_low = minf(root_low, point.y)
+			root_high = maxf(root_high, point.y)
+	verify(outward_winding and is_equal_approx(front_high - front_low, 0.030)
+		and is_equal_approx(root_high - root_low, 0.105),
+		"The blade has outward facets and a thin cutting lip backed by a thicker clamped root.")
 	var pan: MeshInstance3D = anchors.tray.get_node("OpenPan")
 	verify(is_equal_approx(anchors.tray.position.y + pan.position.y + pan.mesh.get_aabb().size.y * 0.5,
 		Geometry.ANCHOR_HEIGHT - 0.04),
