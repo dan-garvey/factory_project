@@ -153,6 +153,43 @@ static func _mechanical_point(value: Variant) -> bool:
 static func _mechanical_center(point: Array) -> Vector3:
 	return Vector3(point[0] * HEIGHT_STEP, ANCHOR_HEIGHT + point[1] * HEIGHT_STEP, point[2] * HEIGHT_STEP)
 
+static func component_boxes(snapshot: Dictionary) -> Dictionary:
+	var result: Dictionary = {}
+	if snapshot.get("options", {}).get("native", false) != true:
+		return {"accepted": true, "boxes": result}
+	var components: Variant = snapshot.get("placed_components")
+	# Native profiles without the chapter material inventory have no placed
+	# components; a present record must carry its exact Host occupied box.
+	if components == null:
+		return {"accepted": true, "boxes": result}
+	if not components is Dictionary:
+		return {"accepted": false}
+	for id: Variant in components:
+		var part: Variant = components[id]
+		if typeof(id) != TYPE_STRING or id.is_empty() or not part is Dictionary \
+				or typeof(part.get("component")) != TYPE_STRING or part.component.is_empty() \
+				or typeof(part.get("generation")) != TYPE_INT or part.generation < 1:
+			return {"accepted": false}
+		var cell: Variant = part.get("center")
+		var occupied: Variant = part.get("occupied")
+		if not cell is Array or cell.size() != 3 or not occupied is Dictionary \
+				or not valid_position(occupied.get("center")) or not valid_position(occupied.get("half")):
+			return {"accepted": false}
+		for coordinate: Variant in cell:
+			if typeof(coordinate) != TYPE_INT or absi(coordinate) > GRID_COORDINATE_LIMIT:
+				return {"accepted": false}
+		var center := Vector3(occupied.center[0], occupied.center[1], occupied.center[2])
+		var half := Vector3(occupied.half[0], occupied.half[1], occupied.half[2])
+		var anchor := Vector3(cell[0] * HEIGHT_STEP, cell[1] * HEIGHT_STEP + ANCHOR_HEIGHT,
+			cell[2] * HEIGHT_STEP)
+		if half.x <= 0.0 or half.y <= 0.0 or half.z <= 0.0 \
+				or half.x > 1.0 or half.y > 1.0 or half.z > 1.0 \
+				or (center - anchor).length() > 1.0:
+			return {"accepted": false}
+		result[id] = {"center": center, "size": half * 2.0, "component": part.component,
+			"generation": part.generation}
+	return {"accepted": true, "boxes": result}
+
 static func mechanical_boxes(snapshot: Dictionary) -> Dictionary:
 	var result: Dictionary = {}
 	if snapshot.get("options", {}).get("native", false) != true:

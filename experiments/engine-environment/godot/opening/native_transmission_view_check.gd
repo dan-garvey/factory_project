@@ -102,6 +102,114 @@ func fixture() -> Dictionary:
 			"sz": {"state": "stalled", "numerator": 0, "denominator": 1}},
 		"engagements": [{"a": "a", "b": "b", "kind": 0}]}
 
+func _component_record(kind: String, cell: Array, center: Array, half: Array) -> Dictionary:
+	return {"component": kind, "generation": 1, "center": cell,
+		"occupied": {"center": center, "half": half}}
+
+func _component_fixture() -> Dictionary:
+	return {"context": "component-view-fixture", "revision": 1,
+		"options": {"native": true, "physical": true}, "actors": {}, "entities": {},
+		"foundations": {}, "transmission_parts": {}, "belt_spans": {}, "motion": {},
+		"placed_components": {
+			"frame": _component_record("wooden_frame", [0, 0, 0], [0.0, 0.45, 0.0], [0.2025, 0.45, 0.2025]),
+			"mount": _component_record("tool_mount", [-1, 0, 0], [-0.4125, 0.925, 0.0], [0.2, 0.18, 0.19]),
+			"edge": _component_record("cutting_edge", [-2, 0, 0], [-0.825, 0.81, 0.0], [0.21, 0.12, 0.18]),
+			"tray": _component_record("receiver_tray", [0, 0, 1], [0.0, 0.7425, 0.4125], [0.18, 0.15, 0.205]),
+			"shaft": _component_record("wooden_shaft", [1, 0, 0], [0.4125, 0.825, 0.0], [0.205, 0.12, 0.205])},
+		"collector_assemblies": [{"status": "ready", "parts": {"frame": "frame", "mount": "mount",
+			"edge": "edge", "receiver": "tray", "shaft": "shaft"}}]}
+
+func _component_view() -> void:
+	# Invented native facts exercise only the existing view and Godot physics.
+	var facts := PhysicalProjection.new()
+	facts.state = _component_fixture()
+	var parsed: Dictionary = Geometry.component_boxes(facts.state)
+	verify(parsed.get("accepted", false) and parsed.boxes.size() == 5,
+		"Five separately owned component boxes have a valid read-only consumer form.")
+	var bad: Dictionary = facts.state.duplicate(true)
+	bad.placed_components.frame.occupied.half[1] = -0.45
+	verify(not Geometry.component_boxes(bad).get("accepted", false),
+		"A malformed occupied box never becomes a collidable or visible part.")
+	var physical := ActorWorld.new()
+	root.add_child(physical)
+	verify(physical.configure(facts).get("accepted", false) and physical.component_bodies.size() == 5,
+		"The physical consumer registers the exact five projected identities.")
+	var host := HostStub.new()
+	host.state = facts.state
+	var view := Presenter.new()
+	root.add_child(view)
+	view.configure(host)
+	var anchors: Dictionary = {}
+	for node in view.get_children():
+		if node.has_meta("component_entity"):
+			anchors[node.get_meta("component_entity")] = node
+	verify(anchors.size() == 5 and anchors.frame.get_node_or_null("GroundedPost") != null
+		and anchors.tray.get_node_or_null("OpenPan") != null,
+		"The confirmed parts render separately with a grounded frame and open receiver.")
+	var pan: MeshInstance3D = anchors.tray.get_node("OpenPan")
+	verify(is_equal_approx(anchors.tray.position.y + pan.position.y + pan.mesh.get_aabb().size.y * 0.5,
+		Geometry.ANCHOR_HEIGHT - 0.04),
+		"A native loose blank rests on the receiver pan at its confirmed drop height.")
+	for id in parsed.boxes:
+		var spec: Dictionary = parsed.boxes[id]
+		var body: StaticBody3D = physical.component_bodies[id]
+		var collider: CollisionShape3D = body.get_child(0)
+		verify(body.collision_layer == Geometry.MACHINE_LAYER and body.position == spec.center
+			and collider.shape.size == spec.size and anchors[id].position == spec.center,
+			"The visual anchor and physical box both use the native occupied record.")
+		for piece: MeshInstance3D in anchors[id].get_children():
+			var box: AABB = piece.transform * piece.mesh.get_aabb()
+			var occupied := AABB(-spec.size * 0.5, spec.size).grow(0.0002)
+			verify(occupied.encloses(box), "Visible detail stays inside its occupied box.")
+			verify(piece.material_override != null,
+				"Each part keeps its sourced or deliberate fallback finish.")
+	await physics_frame
+	verify(physical._geometry_registered(),
+		"The physics server holds projected component shapes in the actor scene.")
+	var query := PhysicsRayQueryParameters3D.create(Vector3(0.8, 0.45, 0.0), Vector3(-0.8, 0.45, 0.0))
+	query.collision_mask = Geometry.MACHINE_LAYER
+	verify(root.world_3d.direct_space_state.intersect_ray(query).get("collider") == physical.component_bodies.frame,
+		"A physical ray through the frame reaches its actor-blocking body.")
+	var actor := PhysicalActor.new()
+	actor.position = Vector3(0.0, 0.9, -0.8)
+	root.add_child(actor)
+	await physics_frame
+	var contact: KinematicCollision3D = actor.move_and_collide(Vector3(0, 0, 1.0))
+	verify(contact != null and contact.get_collider() == physical.component_bodies.frame,
+		"The existing physical character cannot walk through the grounded frame.")
+	actor.queue_free()
+	facts.state.placed_components.tray.center = [0, 0, -1]
+	facts.state.placed_components.tray.occupied.center = [0.0, 0.7425, -0.4125]
+	facts.state.placed_components.shaft.center = [0, 0, 1]
+	facts.state.placed_components.shaft.occupied.center = [0.0, 0.825, 0.4125]
+	facts.state.revision = 2
+	host.state = facts.state
+	physical.sync_topology()
+	view.refresh()
+	verify(is_equal_approx(physical.component_bodies.tray.position.z, -0.4125)
+		and is_equal_approx(physical.component_bodies.shaft.position.z, 0.4125),
+		"A mirrored receiver and side drive move the physical components.")
+	verify(view.get_children().filter(func(node: Node): return node.has_meta("component_entity")).size() == 5,
+		"The mirrored arrangement rebuilds five parts without duplicate visuals.")
+	var mirrored_shaft: Node3D
+	for node: Node in view.get_children():
+		if node.get_meta("component_entity", "") == "shaft":
+			mirrored_shaft = node
+	verify(mirrored_shaft != null and absf(mirrored_shaft.get_node("LooseDriveShaft").basis.y.z) > 0.99,
+		"The side drive follows the confirmed assembly rather than a fixed axis.")
+	facts.state.placed_components.erase("tray")
+	facts.state.collector_assemblies[0] = {"status": "missing_receiver"}
+	facts.state.revision = 3
+	host.state = facts.state
+	physical.sync_topology()
+	view.refresh()
+	verify(physical.component_bodies.size() == 4 and not physical.component_bodies.has("tray")
+		and view.get_children().filter(func(node: Node): return node.has_meta("component_entity")).size() == 4,
+		"Removing the receiver clears its visual and collider without inventing readiness.")
+	view.free()
+	physical.free()
+	await process_frame
+
 func _initialize() -> void:
 	call_deferred("_run")
 
@@ -1686,7 +1794,9 @@ func _run() -> void:
 	if "--scale-benchmark" in OS.get_cmdline_user_args():
 		await _scale_benchmark()
 		return
-	if "--support-frame-only" in OS.get_cmdline_user_args():
+	if "--component-boxes-only" in OS.get_cmdline_user_args():
+		await _component_view()
+	elif "--support-frame-only" in OS.get_cmdline_user_args():
 		await _fixed_support_frame()
 	elif "--finish-only" in OS.get_cmdline_user_args():
 		_stable_finishes()
