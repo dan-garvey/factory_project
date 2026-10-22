@@ -346,6 +346,10 @@ bool historical_wire(const authority::Record& record) {
     if (*action == "turn_hand_crank")
         return *original_action == *action && keys(*wire, {"entity"}) &&
             field<std::string>(*wire, "entity") && same("entity", "target");
+    if (*action == "feed_press")
+        return *original_action == *action && keys(*wire, {"entity", "entry"}) &&
+            field<std::string>(*wire, "entity") && field<Array>(*wire, "entry") &&
+            same("entity", "target") && same("entry", "entry");
     if (*action == "place_component")
         return *original_action == "place_component" && keys(*wire, {"component", "center"}) &&
             field<std::string>(*wire, "component") && field<Array>(*wire, "center") &&
@@ -1292,6 +1296,28 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         const auto found = snapshot.state.placed_components.find(*field<std::string>(wire, "entity"));
         normalized.emplace("generation", Value(found == snapshot.state.placed_components.end() ?
             Integer{0} : found->second.generation));
+    } else if (*action == "feed_press") {
+        if (!keys(wire, {"entity", "entry"}) || !field<std::string>(wire, "entity") ||
+            !field<Array>(wire, "entry")) return refuse("invalid_command");
+        const auto& entry = *field<Array>(wire, "entry");
+        if (entry.size() == 3) {
+            mechanics::Point center{};
+            bool valid = true;
+            for (std::size_t axis = 0; axis < 3; ++axis) {
+                const auto* coordinate = std::get_if<Integer>(&entry[axis].storage());
+                if (!coordinate || *coordinate < -mechanics::maximum_coordinate ||
+                    *coordinate > mechanics::maximum_coordinate) valid = false;
+                else center[axis] = *coordinate;
+            }
+            if (valid) if (const auto* refusal = component_site_refusal(std::nullopt, center))
+                return refuse(refusal);
+        }
+        normalized.at("action") = Value("feed_press");
+        normalized.emplace("target", wire.at("entity"));
+        const auto found = snapshot.state.placed_components.find(*field<std::string>(wire, "entity"));
+        normalized.emplace("generation", Value(found == snapshot.state.placed_components.end() ?
+            Integer{0} : found->second.generation));
+        normalized.emplace("entry", wire.at("entry"));
     } else if (*action == "place_component") {
         if (!keys(wire, {"component", "center"}) || !field<std::string>(wire, "component") ||
             !field<Array>(wire, "center")) return refuse("invalid_command");

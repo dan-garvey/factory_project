@@ -119,6 +119,10 @@ bool shape(const Object& intent, const std::string& action) {
     if (action == "turn_hand_crank")
         return keys(intent, {"target", "generation"}) && field<std::string>(intent, "target") &&
             field<Integer>(intent, "generation");
+    if (action == "feed_press")
+        return keys(intent, {"target", "generation", "entry"}) &&
+            field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
+            field<Value::Array>(intent, "entry");
     if (action == "place_component") return keys(intent, {"component", "center"}) &&
         field<std::string>(intent, "component") && field<Value::Array>(intent, "center");
     if (action == "reclaim_component") return keys(intent, {"target", "generation"}) &&
@@ -455,6 +459,21 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
             source && *source >= 0 && *source < profile.initial_units &&
             targets.front() == anchor(profile, *shaft_center) && result.size() == 20;
     }
+    if (action == "feed_press") {
+        const auto* target = field<std::string>(record.intent, "target");
+        const auto* requested_generation = field<Integer>(record.intent, "generation");
+        const auto* entry = field<Value::Array>(record.intent, "entry");
+        const auto* work = field<Value::Array>(result, "work_center");
+        const auto selected_entry = entry ? grid_point(Object{{"center", Value(*entry)}}) : std::nullopt;
+        const auto selected_work = work ? grid_point(Object{{"center", Value(*work)}}) : std::nullopt;
+        const auto* entity = field<std::string>(result, "entity");
+        const auto* generation = field<Integer>(result, "generation");
+        const auto* moved = field<Integer>(result, "moved_raw");
+        return profile.landing_pod_center && target && entity && *target == *entity &&
+            requested_generation && generation && *requested_generation == *generation &&
+            *generation > 0 && selected_entry && selected_work && moved && *moved == 1 &&
+            targets.front() == anchor(profile, *selected_entry) && result.size() == 18;
+    }
     if (action == "place_component" || action == "reclaim_component") {
         const auto* name = field<std::string>(result, "component");
         const auto* count = field<Integer>(result, "component_count");
@@ -598,6 +617,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
     Integer cranked_ore = 0;
     std::map<std::pair<std::string, materials::Component>, Integer> crafted_components;
     std::map<std::string, std::pair<materials::Component, mechanics::Point>> placed_components;
+    std::set<mechanics::Point> fed_press_points;
     std::optional<std::string> crank_holder;
     for (const auto& record : snapshot.history.records) {
         const auto* actor = field<std::string>(record.intent, "actor");
@@ -685,6 +705,40 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
                 grid_point(Object{{"center", Value(*receiver)}}) != selected.collector->receiver_center ||
                 grid_point(Object{{"center", Value(*shaft)}}) != selected.collector->shaft_center ||
                 !add(cranked_ore, 1)) return false;
+        }
+        if (*action == "feed_press") {
+            const auto* entry = field<Value::Array>(record.intent, "entry");
+            const auto* work = field<Value::Array>(record.result, "work_center");
+            const auto selected_entry = entry ? grid_point(Object{{"center", Value(*entry)}}) : std::nullopt;
+            const auto selected_work = work ? grid_point(Object{{"center", Value(*work)}}) : std::nullopt;
+            const auto frame = placed_components.find(*entity);
+            if (frame == placed_components.end() || frame->second.first != materials::Component::wooden_frame ||
+                !selected_entry || !selected_work) return false;
+            std::vector<assembly::Part> parts;
+            parts.reserve(placed_components.size());
+            for (const auto& [id, placed] : placed_components) {
+                const auto issued = snapshot.state.issued_entities.find(id);
+                if (issued == snapshot.state.issued_entities.end()) return false;
+                parts.push_back({id, placed.first, placed.second, issued->second});
+            }
+            const auto inspected = assembly::inspect_press(parts, frame->second.second);
+            if (!inspected.press || inspected.press->frame != *entity ||
+                inspected.press->work_center != *selected_work ||
+                std::none_of(inspected.press->open_feeds.begin(), inspected.press->open_feeds.end(),
+                    [&](const assembly::PressFeed& feed) { return feed.entry == *selected_entry; }) ||
+                !fed_press_points.insert(*selected_work).second) return false;
+        }
+        if (*action == "pickup_material") {
+            const auto point = grid_point(record.intent, materials::maximum_drop_coordinate);
+            if (!point) return false;
+            if (fed_press_points.contains(*point)) {
+                const auto* raw = field<Integer>(record.result, "moved_raw");
+                const auto* products = field<Integer>(record.result, "moved_products");
+                const auto* work = field<Value::Array>(record.result, "moved_work");
+                if (!raw || *raw != 1 || !products || *products != 0 || !work || !work->empty())
+                    return false;
+                fed_press_points.erase(*point);
+            }
         }
         if (*action == "place_component" || *action == "reclaim_component") {
             const auto component = materials::component_from_name(*field<std::string>(record.result, "component"));
@@ -789,6 +843,12 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
         const auto remaining = snapshot.state.material.timber_remaining.find(id);
         if (remaining == snapshot.state.material.timber_remaining.end() ||
             harvested_timber[id] != site.initial - remaining->second) return false;
+    }
+    for (const auto& point : fed_press_points) {
+        const auto item = snapshot.state.material.dropped_material.find(point);
+        if (item == snapshot.state.material.dropped_material.end() ||
+            item->second.raw_units != 1 || item->second.products != 0 ||
+            !item->second.work_lots.empty()) return false;
     }
     for (const auto& [actor, cargo] : snapshot.state.material.cargo)
         if (carried_timber[actor] != cargo.timber) return false;
@@ -1341,6 +1401,51 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             Value(receiver[1]), Value(receiver[2])}));
         facts.emplace("receiver_raw", Value(Integer{1}));
         facts.emplace("source_remaining", Value(candidate.material.stock.source));
+        return accepted(std::move(candidate), *id, std::move(facts));
+    }
+    if (*action == "feed_press") {
+        if (!profile_.landing_pod_center) return refused("press_unavailable");
+        const auto* id = field<std::string>(intent, "target");
+        const auto* generation = field<Integer>(intent, "generation");
+        const auto* entry = field<Value::Array>(intent, "entry");
+        if (!id || !generation || !entry) return refused("invalid_target");
+        const auto selected_entry = grid_point(Object{{"center", Value(*entry)}});
+        if (!selected_entry) return refused("invalid_entry", *id);
+        const auto frame = state.placed_components.find(*id);
+        if (frame == state.placed_components.end()) return refused("unknown_target", *id);
+        if (frame->second.generation != *generation) return refused("stale_generation", *id);
+        if (frame->second.kind != materials::Component::wooden_frame)
+            return refused("not_press_frame", *id);
+        const auto inspected = assembly::inspect_press(assembly_parts(state), frame->second.center);
+        if (inspected.status == assembly::PressStatus::ambiguous)
+            return refused("ambiguous_assembly", *id);
+        if (!inspected.press || inspected.press->frame != *id)
+            return refused("incomplete_assembly", *id);
+        if (std::none_of(inspected.press->open_feeds.begin(), inspected.press->open_feeds.end(),
+                [&](const assembly::PressFeed& feed) { return feed.entry == *selected_entry; }))
+            return refused("blocked_feed", *id);
+        const auto cut = observe ? observe(binding.actor) : std::nullopt;
+        if (!cut) return refused("actor_unready", *id);
+        auto checked_cut = *cut;
+        checked_cut.build_reach = profile_.build_reach;
+        const auto checked = authority::check_reach(binding.actor, checked_cut,
+            {anchor(profile_, *selected_entry)});
+        auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
+        if (checked.error != authority::Error::none)
+            return refused(authority::error_name(checked.error), *id, std::move(facts));
+        if (state.material.cargo.at(binding.actor).raw_units < 1)
+            return refused("unavailable_input", *id, std::move(facts));
+        const auto work = inspected.press->work_center;
+        if (state.material.dropped_material.contains(work))
+            return refused("input_full", *id, std::move(facts));
+        if (state.material.dropped_material.size() >= materials::maximum_drop_points)
+            return refused("output_full", *id, std::move(facts));
+        auto candidate = state;
+        --candidate.material.cargo.at(binding.actor).raw_units;
+        candidate.material.dropped_material.emplace(work, materials::Cargo{1, 0, {}});
+        facts.emplace("generation", Value(*generation));
+        facts.emplace("work_center", Value(Value::Array{Value(work[0]), Value(work[1]), Value(work[2])}));
+        facts.emplace("moved_raw", Value(Integer{1}));
         return accepted(std::move(candidate), *id, std::move(facts));
     }
     if (*action == "place_component" || *action == "reclaim_component") {
