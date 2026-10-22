@@ -4243,6 +4243,7 @@ var machine_preview_material: StandardMaterial3D
 var machine_dynamic_batches: Array[Dictionary] = []
 var machine_conveyor_batches: Array[Dictionary] = []
 var machine_rotors: Array[Dictionary] = []
+var machine_motion_anchors: Array[Node3D] = []
 var machine_batch_finished_meshes: Dictionary = {}
 var machine_batch_rotor_meshes: Dictionary = {}
 var transmission_preview_point: Array = []
@@ -4945,7 +4946,7 @@ func _animate_machine_bodies(delta: float) -> void:
 	if not _can_present_confirmed_motion() or not is_finite(delta) or delta <= 0 or machine_root == null or transmission_presenter == null:
 		return
 	_sync_machine_body_context()
-	for anchor in machine_root.get_children():
+	for anchor in machine_motion_anchors:
 		var kind: String = anchor.get_meta("machine_kind", "")
 		var id: String = anchor.get_meta("machine_entity", "")
 		var rows: Array = anchor.get_meta("motion_meshes", [])
@@ -4975,7 +4976,12 @@ func _animate_machine_bodies(delta: float) -> void:
 			machine_press_poses[id].travel = travel
 
 func _apply_conveyor_motion(anchor: Node3D, rotation: float) -> void:
-	var loop := anchor.find_child("ConveyorLoop", true, false) as MeshInstance3D
+	var loop: MeshInstance3D
+	if anchor.has_meta("conveyor_loop"):
+		loop = anchor.get_meta("conveyor_loop") as MeshInstance3D
+	if not is_instance_valid(loop):
+		loop = anchor.find_child("ConveyorLoop", true, false) as MeshInstance3D
+		anchor.set_meta("conveyor_loop", loop)
 	if loop == null or not loop.material_override is StandardMaterial3D:
 		return
 	var length_value := 4.0 * ProductionConveyorArt.HALF_SPAN + TAU * ProductionConveyorArt.RADIUS
@@ -6246,7 +6252,7 @@ func _batch_machine_visuals_walk(node: Node3D, pose: Transform3D,
 				dynamic_groups[key] = {"mesh": combined, "material": null,
 					"shadow": GeometryInstance3D.SHADOW_CASTING_SETTING_ON, "layers": 1, "parts": []}
 			dynamic_groups[key].parts.append({"node": node, "pose": next_pose,
-				"hide_nodes": hidden_core})
+				"parent_pose": pose, "hide_nodes": hidden_core})
 			return
 	if node is MeshInstance3D and node.mesh != null and node.name != "ConveyorLoop" \
 			and node.visibility_range_end <= 0.0:
@@ -6313,7 +6319,12 @@ func _update_machine_dynamic_batches() -> void:
 	for group in machine_dynamic_batches:
 		var mesh: MultiMesh = group.mesh
 		for index in group.parts.size():
-			mesh.set_instance_transform(index, to_local * group.parts[index].node.global_transform)
+			var part: Dictionary = group.parts[index]
+			# Wheel ancestors remain fixed until the next topology rebuild. Keep
+			# their machine-root-relative pose and update only the moving rotor.
+			var motion_pose: Transform3D = part.parent_pose * part.node.transform if part.has("parent_pose") \
+				else to_local * part.node.global_transform
+			mesh.set_instance_transform(index, motion_pose)
 	for group in machine_conveyor_batches:
 		var mesh: MultiMesh = group.mesh
 		for index in group.parts.size():
@@ -6381,6 +6392,7 @@ func _batch_machine_visuals() -> void:
 func _rebuild_machines() -> void:
 	_sync_machine_body_context()
 	machine_rotors.clear()
+	machine_motion_anchors.clear()
 	var foundation_masks := ProductionFoundationArt.neighbor_masks(state.get("foundations", {}))
 	var scenery := get_node_or_null("ProductionScenery")
 	if scenery != null and not legacy_fixture and ProductionEnvironment.Surface != null:
@@ -6417,6 +6429,8 @@ func _rebuild_machines() -> void:
 				"base": wheel_rotor.basis})
 		anchor.set_meta("machine_entity", entity_id)
 		anchor.set_meta("machine_kind", kind)
+		if kind in ["collector", "belt", "processor"]:
+			machine_motion_anchors.append(anchor)
 		var motion_meshes: Array[Dictionary] = []
 		_remember_machine_motion(anchor, kind, Transform3D.IDENTITY, motion_meshes)
 		anchor.set_meta("motion_meshes", motion_meshes)
