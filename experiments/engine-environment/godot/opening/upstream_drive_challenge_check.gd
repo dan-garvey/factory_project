@@ -131,6 +131,19 @@ func _run_native_example() -> void:
 		"The example constructs a span and three machines without a belt machine.")
 	verify(first.get("transmission_parts", {}).size() == 12 and first.stock.source == first.initial_feed,
 		"The finite kit places seven cogs and five shafts before production.")
+	if failures > 0:
+		example.free()
+		print("NATIVE_EXAMPLE_FAIL %d" % checks)
+		quit(1)
+		return
+	var source_posts := 0
+	for part: Dictionary in first.transmission_parts.values():
+		if part.center in [[0, 4, 0], [0, 4, -4]]:
+			source_posts += 1
+			verify(part.support.foot[1] >= Geometry.PITCH and part.support.bearing[1] > part.support.foot[1],
+				"The native source-side stand begins above the outcrop on its factory floor.")
+	verify(source_posts == 2 and first.foundations.size() == 4 and first.part_kits.P.foundation == 20,
+		"Four aligned foundations and the remaining carried parts retain the finite native kit.")
 	var has_belt := false
 	for child in example.world.transmission_presenter.get_children():
 		if child.get_meta("kind", "") == "belt_span":
