@@ -91,6 +91,20 @@ void ordinary_states() {
     const auto empty = d::inspect({}, {}, {});
     check(empty.current.accepted() && empty.witnesses.empty(), "An empty accepted scene has no fabricated diagnosis.");
 }
+void physical_sources() {
+    auto scene = pair(2, 2, {1, 1}, {-2, 1});
+    auto report = d::inspect(scene.parts, scene.sources, {}, g::SourcePolicy::overpower);
+    check(report.current.accepted() && report.witnesses.empty() &&
+              report.current.motion.at("a-hub").rate == g::Rate{2, 1},
+          "A faster compatible physical source is not diagnosed as a stall.");
+    scene.parts.push_back({"c-hub", g::Kind::hub, {4, 0, 4}, g::Axis::z});
+    scene.sources.push_back({"c-hub", {1, 1}});
+    report = d::inspect(scene.parts, scene.sources, {}, g::SourcePolicy::overpower);
+    const auto& conflict = one(report, d::Kind::incompatible_sources);
+    check(conflict.source == "a-hub" && conflict.other_source == "c-hub" &&
+              conflict.first_rate.numerator < 0 && conflict.second_rate.numerator > 0,
+          "A physical-source witness skips the compatible mismatch and identifies opposing rotation.");
+}
 void loops_and_components() {
     Scene loop;
     wheel(loop, "a", {0, 0, 0}, 1, {1, 1});
@@ -220,7 +234,7 @@ void belt_connected_sources() {
 
 int main() {
     try {
-        source_conflicts(); ordinary_states(); loops_and_components(); limits_and_invalid_inputs();
+        source_conflicts(); ordinary_states(); physical_sources(); loops_and_components(); limits_and_invalid_inputs();
         belt_connected_sources(); actual_world();
         std::cout << checks << " native drive-diagnostic checks, 0 failures; applied_repairs=0, engine_calls=0.\n";
         return 0;

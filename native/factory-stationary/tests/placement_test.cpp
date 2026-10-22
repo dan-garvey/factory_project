@@ -265,6 +265,22 @@ void belt_span_custody() {
               std::get<s::PlacementRefusal>(refused).reason == s::PlacementError::conflicting_belt &&
               kit.at({s::Role::belt, 0, 0}) == 1,
           "Incompatible powered shafts refuse belt placement without consuming the belt.");
+    conflict.sources.back().rate = {2, 1};
+    const auto unequal = s::prepare_belt_placement(conflict, kit, state, belt);
+    check(std::holds_alternative<s::PlacementRefusal>(unequal) &&
+              std::get<s::PlacementRefusal>(unequal).reason == s::PlacementError::conflicting_belt,
+          "Same-direction shafts at different speeds cannot be joined by a new belt.");
+    conflict.parts.back().geometry.center = {4, 0, -4};
+    const auto intermediate_conflict = s::prepare_belt_placement(conflict, kit, state, belt);
+    check(std::holds_alternative<s::PlacementRefusal>(intermediate_conflict) &&
+              std::get<s::PlacementRefusal>(intermediate_conflict).reason == s::PlacementError::conflicting_belt,
+          "A differently driven intermediate pulley also prevents belt placement.");
+    conflict.sources.back().rate = {1, 1};
+    check(std::holds_alternative<s::PreparedPlacement>(s::prepare_belt_placement(conflict, kit, state, belt)),
+          "Pulleys already rotating together at the same rate can be joined.");
+    conflict.sources.back().rate = {0, 1};
+    check(std::holds_alternative<s::PreparedPlacement>(s::prepare_belt_placement(conflict, kit, state, belt)),
+          "A stationary pulley may be driven by a new belt.");
 }
 
 }  // namespace

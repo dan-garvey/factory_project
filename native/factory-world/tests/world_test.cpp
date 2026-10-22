@@ -436,6 +436,29 @@ void trusted_flow_drives_world() {
     view = s::power_view(owner->snapshot().state.topology).mechanical;
     check(view.motion.at("collector").state == g::MotionState::stopped,
           "A wheel outside sampled water cannot drive its connected shaft.");
+
+    w::Profile coupled_profile;
+    coupled_profile.material = {1, 1, 2};
+    coupled_profile.actors = {"P"};
+    coupled_profile.meters_per_grid_unit = 0.1;
+    coupled_profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, 2}, {{s::Role::shaft, 0, 2}, 1}};
+    coupled_profile.water = {{{0, 0}, {0, -500, 200, 0}}, {{0, 8}, {0, -500, 400, 0}}};
+    w::State coupled;
+    coupled.material.cargo = {{"P", {}}};
+    coupled.kits = {{"P", {}}};
+    coupled.topology.parts = {hub("slow", s::Role::waterwheel, 0, 0), shaft("bridge", 0),
+                              hub("fast", s::Role::waterwheel, 0, 8)};
+    coupled.topology.sources = {{"slow", {1, 3}}, {"fast", {2, 3}}};
+    coupled.topology.drive_enabled = true;
+    for (const auto& item : coupled.topology.parts) coupled.issued_entities.emplace(item.geometry.id, item.generation);
+    auto coupled_world = w::World::create("coupled-water", coupled_profile, coupled);
+    check(coupled_world != nullptr, "The World accepts two locally sourced waterwheel rates.");
+    const auto coupled_view = s::power_view(coupled_world->snapshot().state.topology).mechanical;
+    check(coupled_view.motion.at("slow") == g::Motion{g::MotionState::rotating, {2, 3}} &&
+              coupled_view.motion.at("bridge") == g::Motion{g::MotionState::rotating, {2, 3}},
+          "The faster compatible current drives both wheels and their shared shaft.");
+    check(coupled_world->tick().error == w::TransactionError::none,
+          "The real World advances with the compatible coupled sources.");
 }
 }  // namespace
 

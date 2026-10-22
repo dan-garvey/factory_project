@@ -497,6 +497,10 @@ assemblies use shared machined surfaces and cached meshes, with no collider or
 input node. The presenter retains mounting, direction, animation and pick
 ownership. Isolated mesh checks do not establish the ordinary rendered result.
 
+The native presenter keeps the same restrained cast-metal tint when a part
+starts, reverses or stops. Confirmed angles and direction marks communicate
+motion; the physical gear and shaft finish remains consistent.
+
 Cog hubs have open 78-millimetre through-bores with five-millimetre entry
 chamfers on both faces. The existing shaft, collars and keys clear the actual
 faceted bore across their complete rotating radial envelope. Hub outer sizes,

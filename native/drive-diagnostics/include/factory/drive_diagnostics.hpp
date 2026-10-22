@@ -25,5 +25,6 @@ struct Report {
 // Restricted-source evaluations are counterfactual queries, not applied repairs,
 // minimal fault sets, contact simulation or another mutable mechanical owner.
 [[nodiscard]] Report inspect(const std::vector<mechanics::Part>&, const std::vector<mechanics::Drive>&,
-                             const std::vector<mechanics::BeltSpan>&);
+                             const std::vector<mechanics::BeltSpan>&,
+                             mechanics::SourcePolicy = mechanics::SourcePolicy::prescribed);
 }  // namespace factory::drive_diagnostics

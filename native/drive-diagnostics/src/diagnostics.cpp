@@ -13,7 +13,7 @@ struct Solo {
     g::Result result;
 };
 Witness explain(const g::Component& component, const std::vector<g::Part>& parts,
-                const std::vector<g::Drive>& sources, const std::vector<g::BeltSpan>& belts) {
+                const std::vector<g::Drive>& sources, const std::vector<g::BeltSpan>& belts, g::SourcePolicy policy) {
     Witness witness;
     witness.component = component.parts;
     const std::set<std::string> members(component.parts.begin(), component.parts.end());
@@ -49,6 +49,9 @@ Witness explain(const g::Component& component, const std::vector<g::Part>& parts
             const auto first = previous.result.motion.at(drive.hub).rate;
             const auto second = alone.motion.at(drive.hub).rate;
             if (first == second) continue;
+            if (policy == g::SourcePolicy::overpower &&
+                (first.numerator == 0 || second.numerator == 0 || (first.numerator < 0) == (second.numerator < 0)))
+                continue;
             witness.kind = Kind::incompatible_sources;
             witness.source = previous.source;
             witness.other_source = drive.hub;
@@ -64,11 +67,11 @@ Witness explain(const g::Component& component, const std::vector<g::Part>& parts
 }  // namespace
 
 Report inspect(const std::vector<g::Part>& parts, const std::vector<g::Drive>& sources,
-               const std::vector<g::BeltSpan>& belts) {
-    Report report{g::evaluate(parts, sources, belts), {}};
+               const std::vector<g::BeltSpan>& belts, g::SourcePolicy policy) {
+    Report report{g::evaluate(parts, sources, belts, policy), {}};
     if (!report.current.accepted()) return report;
     for (const auto& component : report.current.components)
-        if (component.state == g::MotionState::stalled) report.witnesses.push_back(explain(component, parts, sources, belts));
+        if (component.state == g::MotionState::stalled) report.witnesses.push_back(explain(component, parts, sources, belts, policy));
     return report;
 }
 }  // namespace factory::drive_diagnostics
