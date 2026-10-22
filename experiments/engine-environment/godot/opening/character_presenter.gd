@@ -478,6 +478,18 @@ func _adult_hold_contact_toe(body: Node3D, skeleton: Skeleton3D,
 	_adult_turn_joint(body, skeleton, foot,
 		foot_frame * _adult_joint_frame(body, skeleton, foot).inverse())
 
+func _adult_lift_landing_swing_toe(body: Node3D, skeleton: Skeleton3D,
+		progress: float, stride: float) -> void:
+	# Lift the trailing boot as the anchored leading leg takes the impact.
+	var lift := 0.12 * clampf(stride, 0.0, 1.0) * smoothstep(0.0, 0.35, progress) \
+		* (1.0 - smoothstep(0.70, 0.95, progress))
+	if lift <= 0.001:
+		return
+	skeleton.force_update_all_bone_transforms()
+	var swing_toe := body.to_global(_adult_joint(body, skeleton,
+		skeleton.find_bone("Bip01 R Toe0")))
+	_adult_hold_contact_toe(body, skeleton, swing_toe, 1.0, lift, "R")
+
 func _adult_hold_grounded_toe(body: Node3D, previous: Dictionary, delta: float,
 		run_mix: float) -> void:
 	# The walk and run clips share a single support boot through their blend.
@@ -910,6 +922,9 @@ func _set_gait(body: Node3D, phase: float, weight: float,
 					* (1.0 - smoothstep(0.82, 1.0, landing_progress))
 				if hold > 0.0 or toe_off_lift > 0.0:
 					_adult_hold_contact_toe(body, skeleton, landing_toe_anchor, hold, toe_off_lift)
+			if landing_toe_anchor is Vector3:
+				_adult_lift_landing_swing_toe(body, skeleton,
+					landing_progress, landing_stride)
 		return
 	for pair in [["Left", 0.0], ["Right", PI]]:
 		var prefix: String = pair[0]
@@ -1129,6 +1144,8 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 		previous.landing_toe_anchor = contact_toe
 		_adult_hold_contact_toe(body, skeleton, contact_toe,
 			1.0)
+		_adult_lift_landing_swing_toe(body, skeleton, landing_progress,
+			presentation_stride)
 		motion[actor] = previous
 
 func _new_view(actor: String) -> Node3D:

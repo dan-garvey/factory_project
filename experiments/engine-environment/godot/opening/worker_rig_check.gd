@@ -912,8 +912,10 @@ func landing_toe_hold_case(metres_per_frame: float) -> Dictionary:
 		host.state.actors.P.position = [x, 0.9, 0.0]
 		presenter.refresh(1.0 / 60.0)
 	var toes := []
+	var trailing_toes := []
 	var roots_exact := true
 	var knee_forward := INF
+	var trailing_knee_forward := INF
 	var anchored := false
 	for frame in range(heights.size()):
 		if frame > 0:
@@ -928,9 +930,14 @@ func landing_toe_hold_case(metres_per_frame: float) -> Dictionary:
 			skeleton.force_update_all_bone_transforms()
 			var toe: Vector3 = body.to_global(presenter._adult_joint(body, skeleton,
 				skeleton.find_bone("Bip01 L Toe0")))
+			var trailing_toe: Vector3 = body.to_global(presenter._adult_joint(body, skeleton,
+				skeleton.find_bone("Bip01 R Toe0")))
 			toes.append({"x": toe.x, "y": toe.y, "mode": presenter.motion.P.mode})
+			trailing_toes.append({"x": trailing_toe.x, "y": trailing_toe.y})
 			if presenter.motion.P.mode == "landing":
 				knee_forward = minf(knee_forward, knee_forward_offset(body, "L"))
+				trailing_knee_forward = minf(trailing_knee_forward,
+					knee_forward_offset(body, "R"))
 	var retreat := 0.0
 	var furthest := float(toes[0].x)
 	var contact_step := 0.0
@@ -942,9 +949,10 @@ func landing_toe_hold_case(metres_per_frame: float) -> Dictionary:
 			if not prior.is_empty():
 				contact_step = maxf(contact_step, absf(float(sample.x) - float(prior.x)))
 			prior = sample
-	var result := {"toes": toes, "retreat": retreat,
+	var result := {"toes": toes, "trailing_toes": trailing_toes, "retreat": retreat,
 		"maximum_contact_step": contact_step, "root_x": x,
 		"root_exact": roots_exact, "minimum_knee_forward": knee_forward,
+		"trailing_knee_forward": trailing_knee_forward,
 		"anchored": anchored,
 		"control_calls": host.control_calls}
 	host.free()
@@ -1082,10 +1090,11 @@ func run() -> void:
 		check_uneven_native_walk_samples()
 		check_jog_blend_at_native_physics_cadence()
 		check_landing_contact_from_motion()
+		var still_contact := landing_toe_hold_case(0.0)
 		var walk_contact := landing_toe_hold_case(0.018)
 		var jog_contact := landing_toe_hold_case(0.028)
 		var run_contact := landing_toe_hold_case(0.05)
-		adult_measurements["landing_toe_hold"] = {"walk": walk_contact,
+		adult_measurements["landing_toe_hold"] = {"still": still_contact, "walk": walk_contact,
 			"jog": jog_contact, "run": run_contact}
 		var walk_toes: Array = walk_contact.toes
 		var walk_contact_x: float = walk_toes[0].x
@@ -1117,6 +1126,16 @@ func run() -> void:
 			and float(run_contact.toes[11].y) > 0.07
 			and float(run_contact.toes[11].y) < 0.095,
 			"The running lead boot lifts into toe-off after its initial plant instead of dragging along support.")
+		var running_swing_clear := true
+		for sample in run_contact.trailing_toes.slice(3, 12):
+			running_swing_clear = running_swing_clear and float(sample.y) > 0.16
+		var still_boot_supported := true
+		for sample in still_contact.trailing_toes.slice(2, 12):
+			still_boot_supported = still_boot_supported and absf(float(sample.y) - 0.01) < 0.015
+		verify(running_swing_clear and run_contact.trailing_knee_forward > 0.04
+			and still_boot_supported and still_contact.root_exact
+			and still_contact.control_calls == 0,
+			"The trailing boot clears a moving landing without lifting the stationary support or reversing its knee.")
 		check_landing_recovery_profile()
 		check_run_stop_contact()
 	else:
