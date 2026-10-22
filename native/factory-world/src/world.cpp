@@ -8,6 +8,7 @@
 #include <set>
 #include <string_view>
 #include <tuple>
+#include <unordered_map>
 #include <utility>
 
 namespace factory::world {
@@ -1071,6 +1072,15 @@ DrivePower apply_load(const stationary::Topology& topology, mechanics::Result me
         const std::map<std::string, long double>& assembly_impacts) {
     DrivePower power{std::move(mechanical), {}};
     if (!power.mechanical.accepted()) return power;
+    // Component IDs have already been resolved by mechanics::evaluate. Index
+    // the immutable topology once so disconnected machines do not rescan the
+    // entire worksite for every part and water source on each native tick.
+    std::unordered_map<std::string_view, const stationary::PlacedPart*> by_id;
+    by_id.reserve(topology.parts.size());
+    for (const auto& item : topology.parts) by_id.emplace(item.geometry.id, &item);
+    std::unordered_map<std::string_view, mechanics::Rate> sources;
+    sources.reserve(topology.sources.size());
+    for (const auto& source : topology.sources) sources.emplace(source.hub, source.rate);
     constexpr long double wheel_capacity = 32;
     constexpr long double collector_impact = 4;
     constexpr long double processor_impact = 8;
@@ -1081,11 +1091,11 @@ DrivePower apply_load(const stationary::Topology& topology, mechanics::Result me
         if (component.state != mechanics::MotionState::rotating) continue;
         long double capacity = 0, impact = 0;
         for (const auto& id : component.parts) {
-            const auto* item = part(topology, id);
+            const auto found_item = by_id.find(id);
+            const auto* item = found_item == by_id.end() ? nullptr : found_item->second;
             if (item && item->role == Role::waterwheel && topology.drive_enabled) {
-                const auto source = std::find_if(topology.sources.begin(), topology.sources.end(),
-                    [&](const auto& drive) { return drive.hub == id; });
-                if (source != topology.sources.end()) capacity += wheel_capacity * magnitude(source->rate);
+                const auto source = sources.find(id);
+                if (source != sources.end()) capacity += wheel_capacity * magnitude(source->second);
             }
             const auto speed = magnitude(power.mechanical.motion.at(id).rate);
             if (item && item->role == Role::collector) impact += collector_impact * speed;
