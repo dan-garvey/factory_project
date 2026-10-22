@@ -68,7 +68,7 @@ func serve_loopback(port: int, frozen_clock := false, physical_profile := false,
 		var adapter = load("res://opening/native_model.gd")
 		if adapter == null:
 			return ERR_UNAVAILABLE
-		candidate = adapter.new(next_context, actor_ids)
+		candidate = adapter.new(next_context, actor_ids, true)
 		if not candidate.boot_result.get("accepted", false):
 			return ERR_UNAVAILABLE
 	else:
