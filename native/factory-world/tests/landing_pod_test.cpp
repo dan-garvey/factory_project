@@ -104,6 +104,15 @@ void seed_cannot_duplicate_or_forge_pod() {
     state.hand_crank->holder = "Q";
     check(!w::World::create("pod-world", profile, state),
           "A hand crank cannot start in actor cargo without a take transaction.");
+    state = seed().second;
+    profile.material.manual_ore = m::OreSite{"pod-hand-crank", {-3, 0, 0}};
+    check(!w::World::create("pod-world", profile, state),
+          "A finite ore source cannot reuse the issued hand crank identity.");
+    profile.material.manual_ore.reset();
+    profile.material.timber_sites.emplace("pod-hand-crank", m::TimberSite{{12, 0, 12}, 8});
+    state.material.timber_remaining.emplace("pod-hand-crank", 8);
+    check(!w::World::create("pod-world", profile, state),
+          "A finite tree cannot reuse the issued hand crank identity.");
 }
 
 void one_hand_crank_moves_between_pod_and_actors() {

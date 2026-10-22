@@ -909,7 +909,8 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
     }
     const auto valid_source = [](const std::string& id, const materials::DropPoint& center) {
         if (!identity(id) || id.starts_with(allocated_prefix) || id == "landing-pod" ||
-            id == "pod-fabrication-hub" || id.starts_with("pod-floor-")) return false;
+        id == "pod-fabrication-hub" || id == "pod-hand-crank" ||
+        id.starts_with("pod-floor-")) return false;
         for (const auto coordinate : center)
             if (coordinate < -mechanics::maximum_coordinate ||
                 coordinate > mechanics::maximum_coordinate) return false;

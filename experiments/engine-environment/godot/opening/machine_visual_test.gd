@@ -33,6 +33,11 @@ class MixedAssetScaleView extends Opening:
 	var batch_instances := 0
 	var batch_draw_groups := 0
 	var shared_conveyor_finish := false
+	var inventory_only := false
+	var mesh_lod := false
+	var camera_close := false
+	var lod_inventory: Array[Dictionary] = []
+	var triangle_inventory := {}
 	var build_ms := 0.0
 	var batch_ms := 0.0
 	var fixture_root: Node3D
@@ -71,9 +76,13 @@ class MixedAssetScaleView extends Opening:
 				_remember_machine_motion(placement, kind, Transform3D.IDENTITY, rows)
 				placement.set_meta("motion_meshes", rows)
 		built_meshes = _mesh_count(fixture_root)
+		if inventory_only:
+			_collect_triangle_inventory(fixture_root, {})
 		var batch_start := Time.get_ticks_usec()
 		if production_batch:
 			_batch_machine_visuals()
+			if mesh_lod:
+				_prepare_composite_lod()
 			var batches := machine_root.get_node_or_null("MachineVisualBatches")
 			if batches != null:
 				for visual in batches.get_children():
@@ -89,17 +98,60 @@ class MixedAssetScaleView extends Opening:
 		var reach := maxf(13.0, float(columns) * PITCH * 1.45)
 		camera.position = Vector3(field_x + reach * 0.65, reach * 0.83, 1.65 + reach * 0.95)
 		camera.look_at(Vector3(field_x, 0.3, 1.65))
+		if camera_close and asset_count > 0:
+			var near_machine := fixture_root.get_child(asset_count / 2) as Node3D
+			camera.position = near_machine.position + Vector3(3.4, 2.5, 5.8)
+			camera.look_at(near_machine.position + Vector3(0.0, 0.9, 0.0))
 		camera.make_current()
 
 	func _process(_delta: float) -> void:
 		# Keep the view and asset geometry fixed for equivalent frame comparisons.
 		pass
 
+	func _prepare_composite_lod() -> void:
+		var batches := machine_root.get_node_or_null("MachineVisualBatches") as Node3D
+		if batches == null:
+			return
+		# Preserve the composite surfaces and material finishes while testing
+		# Godot's default one-pixel mesh LOD threshold.
+		for batch_index in 3:
+			var original := batches.get_node_or_null("MachineBatch%d" % batch_index) as MultiMeshInstance3D
+			if original == null:
+				continue
+			var importer := ImporterMesh.from_mesh(original.multimesh.mesh)
+			var start := Time.get_ticks_usec()
+			importer.generate_lods(60.0, 60.0, [])
+			var lod_mesh := importer.get_mesh()
+			var lod_counts: Array[int] = []
+			for surface_index in importer.get_surface_count():
+				lod_counts.append(importer.get_surface_lod_count(surface_index))
+			lod_inventory.append({"batch": batch_index, "surface_lods": lod_counts,
+				"generation_ms": float(Time.get_ticks_usec() - start) / 1000.0})
+			original.multimesh.mesh = lod_mesh
+
 	func _mesh_count(node: Node) -> int:
 		var count := int(node is MeshInstance3D)
 		for child in node.get_children():
 			count += _mesh_count(child)
 		return count
+
+	func _collect_triangle_inventory(node: Node, cache: Dictionary) -> void:
+		if node is MeshInstance3D:
+			var part := node as MeshInstance3D
+			if part.mesh != null:
+				var mesh: Mesh = part.mesh
+				var mesh_id := mesh.get_instance_id()
+				if not cache.has(mesh_id):
+					cache[mesh_id] = mesh.get_faces().size() / 3
+				var role := str(part.name)
+				if role.begins_with("@MeshInstance3D@"):
+					role = "(unnamed MeshInstance3D)"
+				if not triangle_inventory.has(role):
+					triangle_inventory[role] = {"instances": 0, "triangles": 0}
+				triangle_inventory[role].instances += 1
+				triangle_inventory[role].triangles += cache[mesh_id]
+		for child in node.get_children():
+			_collect_triangle_inventory(child, cache)
 
 	func _collect_meshes(node: Node, groups: Dictionary) -> void:
 		if node is MeshInstance3D:
@@ -536,6 +588,10 @@ func _mixed_scale_benchmark() -> void:
 	var batched := false
 	var production_batch := false
 	var shared_conveyor_finish := false
+	var profile_scene := false
+	var inventory_only := false
+	var mesh_lod := false
+	var camera_close := false
 	var capture := ""
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--count="):
@@ -547,6 +603,14 @@ func _mixed_scale_benchmark() -> void:
 			batched = true
 		elif argument == "--share-static-conveyor-finish":
 			shared_conveyor_finish = true
+		elif argument == "--profile-scene":
+			profile_scene = true
+		elif argument == "--inventory-only":
+			inventory_only = true
+		elif argument == "--mesh-lod":
+			mesh_lod = true
+		elif argument == "--camera-close":
+			camera_close = true
 		elif argument.begins_with("--capture="):
 			capture = argument.trim_prefix("--capture=")
 	if count < 0 or count > 1000:
@@ -559,9 +623,34 @@ func _mixed_scale_benchmark() -> void:
 	view.batch_static = batched
 	view.production_batch = production_batch
 	view.shared_conveyor_finish = shared_conveyor_finish
+	view.inventory_only = inventory_only
+	view.mesh_lod = mesh_lod
+	view.camera_close = camera_close
 	root.add_child(view)
+	if inventory_only:
+		var batch_rows: Array[Dictionary] = []
+		var batches := view.machine_root.get_node_or_null("MachineVisualBatches") as Node3D
+		if batches != null:
+			for child in batches.get_children():
+				if child is MultiMeshInstance3D:
+					var visual := child as MultiMeshInstance3D
+					var per_instance: int = visual.multimesh.mesh.get_faces().size() / 3
+					batch_rows.append({"name": str(visual.name),
+						"instances": visual.multimesh.instance_count,
+						"triangles_per_instance": per_instance,
+						"total_triangles": per_instance * visual.multimesh.instance_count})
+		print("MIXED_MESH_INVENTORY " + JSON.stringify({"count": count,
+			"roles": view.triangle_inventory, "batches": batch_rows,
+			"lod_inventory": view.lod_inventory}))
+		quit()
+		return
+	if profile_scene:
+		await _profile_mixed_scene(view)
+		quit()
+		return
 	var frame_ms: Array[float] = []
 	var calls: Array[int] = []
+	var primitives: Array[int] = []
 	for frame in 150:
 		var start := Time.get_ticks_usec()
 		await process_frame
@@ -569,8 +658,11 @@ func _mixed_scale_benchmark() -> void:
 			frame_ms.append(float(Time.get_ticks_usec() - start) / 1000.0)
 			calls.append(RenderingServer.get_rendering_info(
 				RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME))
+			primitives.append(RenderingServer.get_rendering_info(
+				RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME))
 	frame_ms.sort()
 	calls.sort()
+	primitives.sort()
 	if not capture.is_empty():
 		await RenderingServer.frame_post_draw
 		var image := root.get_texture().get_image()
@@ -580,6 +672,9 @@ func _mixed_scale_benchmark() -> void:
 			return
 	print("MIXED_ASSET_SCALE " + JSON.stringify({"count": count, "batch": batched,
 		"production_batch": production_batch,
+		"mesh_lod": mesh_lod,
+		"camera_close": camera_close,
+		"lod_inventory": view.lod_inventory,
 		"shared_conveyor_finish": shared_conveyor_finish,
 		"built_meshes": view.built_meshes, "batch_instances": view.batch_instances,
 		"batch_groups": view.batch_draw_groups, "build_ms": view.build_ms,
@@ -587,6 +682,68 @@ func _mixed_scale_benchmark() -> void:
 		"median_ms": frame_ms[frame_ms.size() / 2],
 		"p95_ms": frame_ms[int(frame_ms.size() * 0.95)],
 		"draw_calls_median": calls[calls.size() / 2],
+		"primitives_median": primitives[primitives.size() / 2],
 		"viewport": root.size, "renderer":
 			ProjectSettings.get_setting("rendering/renderer/rendering_method")}))
 	quit()
+
+func _profile_mixed_scene(view: MixedAssetScaleView) -> void:
+	# Diagnostic visibility ablations only. Every case starts from the same
+	# complete constructed scene and restores its changed setting afterward.
+	var scenery := view.get_node_or_null("ProductionScenery") as Node3D
+	if scenery == null:
+		push_error("The production scenery is required for a scene profile.")
+		return
+	var cases: Array[Dictionary] = [{"name": "all_visible", "nodes": []}]
+	cases.append({"name": "machine_field", "nodes": [view.machine_root]})
+	for child in scenery.get_children():
+		if child is Node3D:
+			cases.append({"name": str(child.name), "nodes": [child]})
+	var site_meshes: Array[Node3D] = []
+	for child in view.get_children():
+		if child is MeshInstance3D:
+			site_meshes.append(child)
+	cases.append({"name": "site_root_meshes", "nodes": site_meshes})
+	var environment := scenery.get_node_or_null("WorksiteEnvironment") as WorldEnvironment
+	if environment != null and environment.environment != null:
+		cases.append({"name": "fog", "nodes": [], "fog": true})
+	var sun := scenery.get_node_or_null("WorksiteSun") as DirectionalLight3D
+	if sun != null:
+		cases.append({"name": "sun_shadow", "nodes": [], "shadow": true})
+	cases.append({"name": "all_visible_repeat", "nodes": []})
+	var results: Array[Dictionary] = []
+	for entry in cases:
+		var hidden: Array = entry.nodes
+		for node in hidden:
+			(node as Node3D).visible = false
+		if entry.get("fog", false):
+			environment.environment.fog_enabled = false
+		if entry.get("shadow", false):
+			sun.shadow_enabled = false
+		var frame_ms: Array[float] = []
+		var calls: Array[int] = []
+		var primitives: Array[int] = []
+		for frame in 90:
+			var start := Time.get_ticks_usec()
+			await process_frame
+			if frame >= 30:
+				frame_ms.append(float(Time.get_ticks_usec() - start) / 1000.0)
+				calls.append(RenderingServer.get_rendering_info(
+					RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME))
+				primitives.append(RenderingServer.get_rendering_info(
+					RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME))
+		frame_ms.sort()
+		calls.sort()
+		primitives.sort()
+		results.append({"name": entry.name, "median_ms": frame_ms[frame_ms.size() / 2],
+			"p95_ms": frame_ms[int(frame_ms.size() * 0.95)],
+			"draw_calls_median": calls[calls.size() / 2],
+			"primitives_median": primitives[primitives.size() / 2]})
+		for node in hidden:
+			(node as Node3D).visible = true
+		if entry.get("fog", false):
+			environment.environment.fog_enabled = true
+		if entry.get("shadow", false):
+			sun.shadow_enabled = true
+	print("MIXED_SCENE_PROFILE " + JSON.stringify({"count": view.asset_count,
+		"production_batch": view.production_batch, "cases": results}))
