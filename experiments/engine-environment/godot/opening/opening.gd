@@ -3,6 +3,7 @@ extends Node3D
 
 const Model = preload("res://model.gd")
 const NativeWorldModel = preload("res://opening/native_model.gd")
+const RecoveryActions = preload("res://opening/recovery_actions.gd")
 const Store = preload("res://save-tests/checkpoint_file.gd")
 const ActorWorld = preload("res://opening/actor_world.gd")
 const CharacterPresenter = preload("res://opening/character_presenter.gd")
@@ -4340,6 +4341,14 @@ var placement_options_title: Label
 var placement_options_hint: Label
 var placement_options_axis: Button
 var placement_cell_cache := Vector2i.ZERO
+var arrival_assembly_controls
+var arrival_assembly_scroll: ScrollContainer
+var component_level := 0
+var component_offset := Vector2i.ZERO
+var component_height_controls: HBoxContainer
+var component_height_label: Label
+var component_offset_controls: HBoxContainer
+var component_offset_label: Label
 
 func _ready() -> void:
 	for argument in OS.get_cmdline_user_args():
@@ -4457,7 +4466,8 @@ func _can_present_confirmed_motion() -> bool:
 
 func _contains_target(snapshot: Dictionary, id: String) -> bool:
 	return snapshot.get("entities", {}).has(id) or snapshot.get("foundations", {}).has(id) or (snapshot.get("options", {}).get("native", false)
-		and (snapshot.get("transmission_parts", {}).has(id) or snapshot.get("belt_spans", {}).has(id)))
+		and (snapshot.get("transmission_parts", {}).has(id) or snapshot.get("belt_spans", {}).has(id)
+			or snapshot.get("placed_components", {}).has(id)))
 
 func _refresh_transmission() -> void:
 	if not _native_transmission():
@@ -4844,6 +4854,13 @@ func issue(action: Dictionary) -> Dictionary:
 			selected = ""
 		_construction_feedback(intent, outcome)
 		_message(_harvest_result_text(outcome) if action.action == "harvest_source" else {"place": "Placed. Parts stay with this worksite.",
+			"craft_component": "Component crafted from carried material.",
+			"place_component": "Component placed on the shared grid.",
+			"reclaim_component": "Component returned to your carried cargo.",
+			"take_hand_crank": "You have the pod crank. Turn a built shaft nearby.",
+			"return_hand_crank": "Crank returned to the pod tray.",
+			"feed_press": "One carried blank is now under the press head.",
+			"turn_press_crank": "The press advanced its work. Check the worksite for the formed plate.",
 			"place_foundation": "Foundation placed. Its surface shares the machine grid.",
 			"place_foundations": "Foundation area placed on the world grid.",
 			"connect": "Material path connected.", "connect_drive": "Drive shaft connected.",
@@ -4859,6 +4876,14 @@ func issue(action: Dictionary) -> Dictionary:
 			"already_connected": "Those ports are already connected.",
 			"unavailable_output": "There is no finished plate to collect yet.",
 			"out_of_reach": "Move closer to the target before building or interacting.",
+			"not_crank_holder": "Take the pod crank before turning this press.",
+			"wrong_drive_shaft": "Use this press's fitted drive shaft.",
+			"incomplete_assembly": "The press still needs the indicated component.",
+			"blocked_feed": "Choose a clear feed face.",
+			"blocked_exit": "Choose a clear lower exit.",
+			"input_full": "Recover or process the existing blank first.",
+			"unavailable_input": "Carry an ore blank or feed the selected press first.",
+			"site_occupied": "Rock or scenery blocks that placement or press route.",
 			"actor_unready": "Your character is not ready yet. Wait a moment.",
 			"actor_occupied": "A character is in that square. Move clear before placing the machine.",
 			"powered": "Stop the drive before changing the machinery.",
@@ -5226,8 +5251,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		match event.keycode:
 			KEY_B: building_hotbar.open_catalog()
-			KEY_PAGEUP: _adjust_foundation_level(1)
-			KEY_PAGEDOWN: _adjust_foundation_level(-1)
+			KEY_PAGEUP:
+				if mode == "component": _adjust_component_level(1)
+				else: _adjust_foundation_level(1)
+			KEY_PAGEDOWN:
+				if mode == "component": _adjust_component_level(-1)
+				else: _adjust_foundation_level(-1)
 			KEY_F: _select_tool("deconstruct" if _native_transmission() else "flow")
 			KEY_C:
 				if _native_transmission():
@@ -5272,6 +5301,7 @@ func _select_tool(tool: String) -> void:
 	_update_cursor()
 	_refresh_ui()
 	var instructions := {"flow": "Click the upstream machine, then its neighbor toward the brass arrow.",
+		"component": "Click a floor or built part face to snap. Use placement controls for quarter-grid offsets.",
 		"drive": "Click two neighboring machines to connect a drive shaft.",
 		"inspect": "Point at a machine and press E to open it." if _native_transmission() else "Click a machine to inspect it or collect its finished work.",
 		"deconstruct": "Point at a built part and click to dismantle it. Escape leaves dismantle mode.",
@@ -5295,10 +5325,27 @@ func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 		if target.is_empty():
 			_message("Point at a built part to dismantle it.", true)
 			return
-		var removal := "remove_belt_span" if state.get("belt_spans", {}).has(target) else "remove"
+		var removal := "reclaim_component" if state.get("placed_components", {}).has(target) else \
+			"remove_belt_span" if state.get("belt_spans", {}).has(target) else "remove"
 		var outcome := issue({"action": removal, "entity": target})
 		if outcome.accepted and selected == target:
 			selected = ""
+		_refresh_ui()
+		return
+	if mode == "component" and _native_transmission():
+		if arrival_assembly_controls == null:
+			return
+		var center := _component_place_center(cell, entity_id)
+		if not _component_center_allowed(center):
+			return
+		var component_name: String = arrival_assembly_controls.selected_name()
+		var selected_frame: String = arrival_assembly_controls.press_frame_for(selected)
+		var outcome := issue({"action": "place_component",
+			"component": component_name,
+			"center": center})
+		if outcome.accepted:
+			selected = selected_frame if component_name != "wooden_frame" and not selected_frame.is_empty() \
+				else str(outcome.get("entity", ""))
 		_refresh_ui()
 		return
 	if _native_transmission():
@@ -5588,7 +5635,8 @@ func _open_pointed_machine() -> void:
 
 func _remove_selected() -> void:
 	if not selected.is_empty():
-		var removal := "remove_belt_span" if _native_transmission() and state.get("belt_spans", {}).has(selected) else "remove"
+		var removal := "reclaim_component" if state.get("placed_components", {}).has(selected) else \
+			"remove_belt_span" if _native_transmission() and state.get("belt_spans", {}).has(selected) else "remove"
 		var outcome := issue({"action": removal, "entity": selected})
 		if outcome.accepted:
 			selected = ""
@@ -5653,12 +5701,56 @@ func _screen_cell(screen: Vector2) -> Vector2i:
 
 func _screen_entity(screen: Vector2) -> String:
 	var hit := _screen_pick(screen)
-	return str(hit.collider.get_meta("entity", "")) if not hit.is_empty() else ""
+	return str(hit.collider.get_meta("entity", hit.collider.get_meta("component_entity", ""))) if not hit.is_empty() else ""
+
+func _component_place_center(cell: Vector2i, pointed: String) -> Array:
+	# One quarter-grid step off a confirmed component face builds a stack or
+	# lateral drive. Host still decides support, occupancy, custody and reach.
+	var placed: Dictionary = state.get("placed_components", {})
+	if placed.has(pointed):
+		var hit := _screen_pick(_pointed_screen_position())
+		if not hit.is_empty() and hit.collider.get_meta("component_entity", "") == pointed:
+			var normal: Vector3 = hit.normal
+			var center: Array = placed[pointed].center.duplicate()
+			var axis := 0
+			if absf(normal.y) > absf(normal.x) and absf(normal.y) >= absf(normal.z):
+				axis = 1
+			elif absf(normal.z) > absf(normal.x):
+				axis = 2
+			center[axis] += 1 if normal[axis] >= 0.0 else -1
+			return center
+	return [cell.x * Geometry.HEIGHT_DENOMINATOR + component_offset.x,
+		_construction_level(cell) + component_level,
+		cell.y * Geometry.HEIGHT_DENOMINATOR + component_offset.y]
+
+func _adjust_component_level(delta: int) -> void:
+	if mode != "component" or not _native_transmission() or explanation_open:
+		return
+	component_level = clampi(component_level + delta, -1000000, 1000000)
+	component_height_label.text = "Height: %+d steps" % component_level
+	_update_cursor()
+
+func _adjust_component_offset(axis: String, delta: int) -> void:
+	if mode != "component" or not _native_transmission() or explanation_open:
+		return
+	if axis == "x":
+		component_offset.x = clampi(component_offset.x + delta, -3, 3)
+	else:
+		component_offset.y = clampi(component_offset.y + delta, -3, 3)
+	component_offset_label.text = "X %+d · Z %+d" % [component_offset.x, component_offset.y]
+	_update_cursor()
+
+func _component_center_allowed(center: Array) -> bool:
+	if center.size() != 3 or ProductionEnvironment.Surface == null:
+		return false
+	var half: float = ProductionEnvironment.Surface.HALF - Geometry.HEIGHT_STEP / 2.0
+	return absf(center[0] * Geometry.HEIGHT_STEP) <= half \
+		and absf(center[2] * Geometry.HEIGHT_STEP) <= half
 
 func _screen_pick(screen: Vector2) -> Dictionary:
 	var origin := camera.project_ray_origin(screen)
 	var query := PhysicsRayQueryParameters3D.create(origin, origin + camera.project_ray_normal(screen) * 80)
-	query.collision_mask = Geometry.PICK_LAYER | TRANSMISSION_TERRAIN_PICK_LAYER
+	query.collision_mask = Geometry.PICK_LAYER | Geometry.MACHINE_LAYER | TRANSMISSION_TERRAIN_PICK_LAYER
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
 	if not hit.is_empty() and hit.collider.has_meta("transmission_terrain"):
 		return {}
@@ -7081,9 +7173,17 @@ func _refresh_ui() -> void:
 		inspector.text = _transmission_inspection(part, motion)
 	elif _native_transmission() and state.get("belt_spans", {}).has(selected):
 		inspector.text = _belt_inspection(state.belt_spans[selected], state.get("motion", {}))
+	elif _native_transmission() and state.get("placed_components", {}).has(selected):
+		var component: Dictionary = state.placed_components[selected]
+		inspector.text = "%s\nGrid center %s\nReclaim with Delete or choose a press route below." % [
+			str(component.get("component", "part")).replace("_", " ").capitalize(),
+			str(component.get("center", []))]
 	else:
 		inspector.text = "Point at a machine and press E to open it."
 	_refresh_guided_tools()
+	if arrival_assembly_controls != null:
+		arrival_assembly_controls.refresh(state, client, selected, _can_control_character())
+		arrival_assembly_scroll.visible = arrival_assembly_controls.visible
 	if recovery_actions != null:
 		recovery_actions.refresh()
 	if loose_material_controls != null:
@@ -7120,6 +7220,11 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		wheel_size_controls.visible = foundation_level_controls.visible and mode == "wheel"
 		(wheel_size_controls.get_child(0) as Button).text = "−  [Shift+PgDn]"
 		(wheel_size_controls.get_child(2) as Button).text = "+  [Shift+PgUp]"
+	if component_height_controls != null:
+		component_height_controls.visible = _native_transmission() and mode == "component" and not explanation_open
+		component_height_label.text = "Height: %+d steps" % component_level
+		component_offset_controls.visible = component_height_controls.visible
+		component_offset_label.text = "X %+d · Z %+d" % [component_offset.x, component_offset.y]
 	footer_snapshot_ready = snapshot_ready
 	_queue_footer_fit()
 	if building_hotbar != null:
@@ -7164,8 +7269,22 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	objective_heading.text = "FIRST WORKSHOP  /  01" if arrival else "FIRST SHIFT  /  01"
 	if arrival:
 		var carried: Dictionary = state.get("cargo", {}).get(client, {})
-		goal_label.text = "Gather local materials\n%d timber · %d softmetal carried\nPoint at a resource and press E." % [carried.get("timber", 0), carried.get("raw", 0)] \
-			if snapshot_ready else "Connect to the worksite."
+		var next_work := "Cut timber or ore with the multitool [E]."
+		var press_ready := false
+		for press: Dictionary in state.get("press_assemblies", []):
+			press_ready = press_ready or press.get("status") == "ready"
+		if int(carried.get("products", 0)) > 0:
+			next_work = "First plate formed. Design the collector and next route."
+		elif press_ready:
+			next_work = "Use the press panel to feed, turn and collect."
+		elif not state.get("placed_components", {}).is_empty():
+			next_work = "Fit the press parts; a collector is optional first."
+		elif not carried.get("components", {}).is_empty():
+			next_work = "Place a frame, then fit a working press."
+		elif int(carried.get("timber", 0)) >= 3:
+			next_work = "Craft a frame at the pod field workshop."
+		goal_label.text = "FIRST ORDER · FORM A PLATE\n%d timber · %d ore blanks carried\n%s" % [
+			carried.get("timber", 0), carried.get("raw", 0), next_work] if snapshot_ready else "Connect to the worksite."
 	else:
 		goal_label.text = "Make 4 plates  ·  %d / 4\n%s" % [inventory, step.text] if snapshot_ready else "Connect to the worksite."
 	confirm_button.visible = not arrival and snapshot_ready and (inventory >= 4 or goal_confirmed)
@@ -7258,10 +7377,11 @@ func _refresh_placement_options() -> void:
 			_fit_placement_options()
 			return
 	var placing_machine := machine_preview != null and machine_preview.visible
+	var placing_component := mode == "component" and hover != null and hover.visible
 	var placing_transmission: bool = _native_transmission() and transmission_controls != null \
 		and transmission_controls.active_tool in ["gear", "place_shaft", "belt_span", "gearbox", "vertical_gearbox", "chain_drive"]
 	var shown: bool = _native_transmission() and not explanation_open and not _catalog_open() and _can_choose_tool() \
-		and (placing_machine or placing_transmission)
+		and (placing_machine or placing_component or placing_transmission)
 	placement_options_panel.visible = shown
 	if not shown:
 		return
@@ -7269,7 +7389,8 @@ func _refresh_placement_options() -> void:
 		if placing_transmission else mode
 	placement_options_title.text = "CONNECT BELT" if tool == "belt" else "PLACE %s" % {
 		"gearbox": "HORIZONTAL GEARBOX", "vertical_gearbox": "VERTICAL GEARBOX",
-		"chain_drive": "ENCASED CHAIN DRIVE"}.get(tool, NAMES.get(tool, tool).to_upper())
+		"chain_drive": "ENCASED CHAIN DRIVE",
+		"component": arrival_assembly_controls.selected_name().replace("_", " ").to_upper() if arrival_assembly_controls != null else "COMPONENT"}.get(tool, NAMES.get(tool, tool).to_upper())
 	placement_options_hint.text = {
 		"foundation": "Left click to build · choose height or area below · Esc cancels",
 		"wheel": "Left click to build · R turns the axle · choose size or height below",
@@ -7279,6 +7400,7 @@ func _refresh_placement_options() -> void:
 		"vertical_gearbox": "Left click to build · choose axle or height below",
 		"chain_drive": "Left click to build · choose axle and chain link direction below",
 		"belt": "Click two parallel shafts · Esc cancels",
+		"component": "Click to build · choose quarter-grid offset or height below · Esc cancels",
 	}.get(tool, "Left click to build · R rotates · Esc cancels")
 	placement_options_axis.visible = tool in ["wheel", "gear", "drive", "vertical_gearbox", "chain_drive"]
 	placement_options_axis.text = "Axle: %s  [X]" % (transmission_controls.selected_axis.to_upper()
@@ -7657,6 +7779,16 @@ func _update_cursor() -> void:
 		_refresh_placement_options()
 		return
 	hover.basis = Basis.IDENTITY
+	hover.scale = Vector3.ONE
+	if mode == "component" and _native_transmission():
+		var center := _component_place_center(hover_cell, _screen_entity(_pointed_screen_position()))
+		hover.visible = _preview_pointer_clear() and _component_center_allowed(center) and not explanation_open
+		if hover.visible:
+			hover.position = Vector3(center[0] * Geometry.HEIGHT_STEP,
+				center[1] * Geometry.HEIGHT_STEP + 0.03, center[2] * Geometry.HEIGHT_STEP)
+			hover.scale = Vector3(0.25, 1.0, 0.25)
+		_refresh_placement_options()
+		return
 	hover.visible = NAMES.has(mode) and _build_cell_allowed(hover_cell) and _machine_floor_aligned(hover_cell) \
 		and (mode == "foundation" or _entity_at_cell(hover_cell).is_empty()) and not explanation_open
 	if hover.visible:
@@ -7850,6 +7982,20 @@ func _build_interface() -> void:
 	foundation_level_label = _label(foundation_level_controls, _construction_height_text(), 14)
 	_button(foundation_level_controls, "+", _adjust_foundation_level.bind(1))
 	foundation_level_controls.visible = false
+	component_height_controls = HBoxContainer.new()
+	placement_options_column.add_child(component_height_controls)
+	_button(component_height_controls, "−  [PgDn]", _adjust_component_level.bind(-1))
+	component_height_label = _label(component_height_controls, "Height: +0 steps", 14)
+	_button(component_height_controls, "+  [PgUp]", _adjust_component_level.bind(1))
+	component_height_controls.visible = false
+	component_offset_controls = HBoxContainer.new()
+	placement_options_column.add_child(component_offset_controls)
+	_button(component_offset_controls, "X−", _adjust_component_offset.bind("x", -1))
+	_button(component_offset_controls, "X+", _adjust_component_offset.bind("x", 1))
+	component_offset_label = _label(component_offset_controls, "X +0 · Z +0", 12)
+	_button(component_offset_controls, "Z−", _adjust_component_offset.bind("z", -1))
+	_button(component_offset_controls, "Z+", _adjust_component_offset.bind("z", 1))
+	component_offset_controls.visible = false
 	foundation_steps_toggle = CheckButton.new()
 	foundation_steps_toggle.text = "Access steps"
 	foundation_steps_toggle.tooltip_text = "Use one height unit for walking steps. Normal height changes move one foundation thickness. Machines need whole-tile factory floors; turning this off snaps the selected height to one."
@@ -7879,11 +8025,11 @@ func _build_interface() -> void:
 	details_button = _button(view_options, "Details  [Ctrl+D]", _toggle_details)
 	details_button.tooltip_text = "Show worksite counters and save options."
 	lesson_button = _button(build, "How this line works  [H]", _toggle_explanation)
-	var right := _panel(root, Vector2(990, 18), Vector2(272, 490 if legacy_fixture else 0))
+	var right := _panel(root, Vector2(932, 18), Vector2(330, 490 if legacy_fixture else 0))
 	var right_panel: Control = right.get_parent()
 	# Set the far anchor first so the near anchor is not clamped.
 	right_panel.set_anchor_and_offset(SIDE_RIGHT, 1.0, -18)
-	right_panel.set_anchor_and_offset(SIDE_LEFT, 1.0, -290)
+	right_panel.set_anchor_and_offset(SIDE_LEFT, 1.0, -348)
 	right_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	if legacy_fixture:
 		_label(right, "WORKSITE", 13, Color("b0c4c0"))
@@ -7912,6 +8058,14 @@ func _build_interface() -> void:
 	loose_material_controls = load("res://opening/recovery_actions.gd").LooseMaterialControls.new()
 	right.add_child(loose_material_controls)
 	loose_material_controls.configure(self)
+	arrival_assembly_scroll = ScrollContainer.new()
+	arrival_assembly_scroll.name = "ArrivalWorkshopScroll"
+	arrival_assembly_scroll.custom_minimum_size.y = 260
+	right.add_child(arrival_assembly_scroll)
+	arrival_assembly_controls = RecoveryActions.ArrivalAssemblyControls.new()
+	arrival_assembly_scroll.add_child(arrival_assembly_controls)
+	arrival_assembly_controls.configure(self)
+	arrival_assembly_scroll.visible = false
 	right.add_child(HSeparator.new())
 	save_button = _button(right, "Save worksite  [F5]", _save_worksite)
 	load_button = _button(right, "Load worksite  [F9]", _load_worksite)
