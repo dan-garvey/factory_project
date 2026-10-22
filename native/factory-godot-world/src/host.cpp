@@ -38,6 +38,11 @@ constexpr double machine_center_height = 0.8;
 
 struct Bounds { authority::Point center, half; };
 
+bool fixed_transmission(Role role) {
+    return role == Role::shaft || role == Role::gear || role == Role::gearbox ||
+           role == Role::vertical_gearbox || role == Role::chain_drive;
+}
+
 // The fixed bearings stand just outside the rotating disc. Terrain supplies
 // their lower seats; neither the player wire nor saved state supplies a pose.
 template<class TerrainRange>
@@ -888,43 +893,138 @@ const char* Host::machine_site_refusal(const world::State& state, const mechanic
     return nullptr;
 }
 
-std::optional<authority::Point> Host::transmission_support_foot(const world::State& state,
-        const mechanics::Point& center, mechanics::Axis axis) const {
-    authority::Point foot{center[0] * height_step, 0, center[2] * height_step};
-    // The stand is part of the placed shaft or cog, not a second connection or
-    // material owner. Put its bearing beyond a cog's rotating disc plane.
-    if (axis == mechanics::Axis::x) foot[0] += 0.35;
-    else if (axis == mechanics::Axis::z) foot[2] += 0.35;
-    else foot[0] += 0.24;
-    const auto ground = terrain_range(foot[0], foot[2], 0.11, 0.11);
-    if (!ground) return std::nullopt;
-    double seat = ground->second;
-    for (const auto& [id, foundation] : state.foundations) {
-        (void)id;
-        const auto bounds = foundation_bounds(foundation);
-        if (std::abs(foot[0] - bounds.center[0]) + 0.11 <= bounds.half[0] &&
-            std::abs(foot[2] - bounds.center[2]) + 0.11 <= bounds.half[2])
-            seat = std::max(seat, bounds.center[1] + bounds.half[1]);
+std::map<std::string, Host::TransmissionSupport> Host::transmission_supports(
+        const world::State& state) const {
+    std::vector<const stationary::PlacedPart*> parts;
+    for (const auto& part : state.topology.parts) parts.push_back(&part);
+    auto jobs = parts;
+    std::erase_if(jobs, [](const auto* part) { return !fixed_transmission(part->role); });
+    std::sort(jobs.begin(), jobs.end(), [](const auto* a, const auto* b) {
+        const auto& ac = a->geometry.center;
+        const auto& bc = b->geometry.center;
+        return std::tie(ac[1], ac[0], ac[2], a->geometry.axis, a->geometry.id) <
+               std::tie(bc[1], bc[0], bc[2], b->geometry.axis, b->geometry.id);
+    });
+    std::map<std::string, TransmissionSupport> result;
+    std::vector<Bounds> occupied;
+    const auto beam = [](const authority::Point& a, const authority::Point& b) {
+        Bounds bounds{};
+        for (std::size_t dimension = 0; dimension < 3; ++dimension) {
+            bounds.center[dimension] = (a[dimension] + b[dimension]) / 2;
+            bounds.half[dimension] = std::abs(a[dimension] - b[dimension]) / 2 + 0.0475;
+        }
+        return bounds;
+    };
+    for (const auto* part : jobs) {
+        const auto& center = part->geometry.center;
+        const auto axis = part->geometry.axis;
+        const authority::Point at{center[0] * height_step,
+            anchor_height + center[1] * height_step, center[2] * height_step};
+        // Fixed bearings stay coaxial. Move only the post, using a short arm
+        // when another axle or a previously fitted stand occupies its column.
+        // Try the other end of a horizontal axle if its first bearing face is
+        // obstructed, for example by the collector's exterior lift.
+        const std::size_t lateral = axis == mechanics::Axis::x ? 2 : 0;
+        constexpr std::array offsets{0.0, 0.4, -0.4, 0.8, -0.8};
+        const auto routes = offsets.size() * (axis == mechanics::Axis::y ? 1 : 2);
+        for (std::size_t route = 0; route < routes; ++route) {
+            const double offset = offsets[route % offsets.size()];
+            const double axial = route < offsets.size() ? 0.55 : -0.55;
+            auto bearing = at;
+            if (axis == mechanics::Axis::x) bearing[0] += axial;
+            else if (axis == mechanics::Axis::z) bearing[2] += axial;
+            else bearing[1] -= 0.50;
+            auto foot = bearing;
+            if (axis == mechanics::Axis::y) foot[0] += 0.24;
+            foot[lateral] += offset;
+            const auto ground = terrain_range(foot[0], foot[2], 0.17, 0.17);
+            if (!ground) continue;
+            double seat = ground->second;
+            for (const auto& [id, foundation] : state.foundations) {
+                (void)id;
+                const auto bounds = foundation_bounds(foundation);
+                if (std::abs(foot[0] - bounds.center[0]) + 0.17 <= bounds.half[0] &&
+                    std::abs(foot[2] - bounds.center[2]) + 0.17 <= bounds.half[2])
+                    seat = std::max(seat, bounds.center[1] + bounds.half[1]);
+            }
+            const double base_seat = seat;
+            for (const auto& obstacle : terrain_obstacles_) {
+                if (obstacle.first[0] < foot[0] && obstacle.second[0] > foot[0] &&
+                    obstacle.first[2] < foot[2] && obstacle.second[2] > foot[2] &&
+                    obstacle.first[1] <= base_seat + 0.12)
+                    seat = std::max(seat, obstacle.second[1]);
+            }
+            if (seat > at[1] - 0.02) continue;
+            foot[1] = seat;
+            const auto fitted_bearing = bearing;
+            if (bearing[1] - seat > 9.0) continue;
+            const double post_top = bearing[1] - 0.24;
+            if (post_top <= seat) continue;
+            const double column_top = std::max(post_top, seat + 0.14);
+            std::vector<Bounds> boxes{{{foot[0], (seat + column_top) / 2, foot[2]},
+                                      {0.17, (column_top - seat) / 2, 0.17}}};
+            authority::Point half{0.185, 0.185, 0.185};
+            half[static_cast<std::size_t>(axis)] = 0.1525;
+            boxes.push_back({fitted_bearing, half});
+            boxes.push_back({{bearing[0], bearing[1] - 0.20, bearing[2]}, {0.155, 0.04, 0.155}});
+            if (foot[0] != fitted_bearing[0] || foot[2] != fitted_bearing[2]) {
+                auto post_arm = foot;
+                auto bearing_arm = fitted_bearing;
+                post_arm[1] = bearing_arm[1] -= 0.24;
+                boxes.push_back(beam(post_arm, bearing_arm));
+            } else boxes.push_back({{bearing[0], post_top, bearing[2]}, {0.155, 0.0475, 0.155}});
+            bool clear = true;
+            for (const auto& box : boxes) {
+                const auto terrain = terrain_range(box.center[0], box.center[2], box.half[0], box.half[2]);
+                const authority::Point low{box.center[0] - box.half[0], box.center[1] - box.half[1], box.center[2] - box.half[2]};
+                const authority::Point high{box.center[0] + box.half[0], box.center[1] + box.half[1], box.center[2] + box.half[2]};
+                if (!terrain || terrain->second > low[1] + 1e-9 || site_blocked(low, high) ||
+                    intersects_belt(state, box)) clear = false;
+                for (const auto& [id, foundation] : state.foundations) {
+                    (void)id;
+                    if (overlap(box, foundation_bounds(foundation))) clear = false;
+                }
+                for (const auto* other : parts) {
+                    if (other == part) continue;
+                    if (collector_intake_intersects(box, profile_, *other)) clear = false;
+                    if (other->role == Role::waterwheel) {
+                        const auto wheel_feet = wheel_support_bounds(other->geometry.center, other->geometry.axis,
+                            [this](double x, double z, double hx, double hz) { return terrain_range(x, z, hx, hz); });
+                        if (!wheel_feet) clear = false;
+                        else for (const auto& wheel_foot : *wheel_feet)
+                            if (overlap(box, wheel_foot)) clear = false;
+                    }
+                    if (other->role == Role::collector)
+                        for (const auto& external : collector_external_bounds(other->geometry.center))
+                            if (overlap(box, external)) clear = false;
+                }
+                for (const auto& prior : occupied) if (overlap(box, prior)) clear = false;
+                if (!clear) break;
+            }
+            if (!clear) continue;
+            TransmissionSupport fitted{foot, fitted_bearing, {}};
+            for (const auto& box : boxes) fitted.boxes.emplace_back(box.center, box.half);
+            result.emplace(part->geometry.id, std::move(fitted));
+            occupied.insert(occupied.end(), boxes.begin(), boxes.end());
+            break;
+        }
     }
-    // A ground-connected rock beneath the bearing is a valid seat. Starting
-    // the post at the rock top keeps it out of the obstacle instead of
-    // rejecting a shaft whose axle has ample clearance above it.
-    const double base_seat = seat;
-    for (const auto& obstacle : terrain_obstacles_) {
-        // A box grazing the outside of the post is still an obstruction, not
-        // a seat. Require rock beneath the foot center before lifting it.
-        if (obstacle.first[0] >= foot[0] || obstacle.second[0] <= foot[0] ||
-            obstacle.first[2] >= foot[2] || obstacle.second[2] <= foot[2])
-            continue;
-        if (obstacle.first[1] <= base_seat + 0.12)
-            seat = std::max(seat, obstacle.second[1]);
+    return result;
+}
+
+const char* Host::support_change_refusal(const world::State& before, const world::State& after) const {
+    const auto previous = transmission_supports(before);
+    const auto next = transmission_supports(after);
+    for (const auto& part : after.topology.parts)
+        if (fixed_transmission(part.role) && !next.contains(part.geometry.id)) return "support_required";
+    for (const auto& [id, support] : next) {
+        const auto old = previous.find(id);
+        if (old != previous.end() && old->second.foot == support.foot &&
+            old->second.bearing == support.bearing && old->second.boxes == support.boxes) continue;
+        for (const auto& [center, half] : support.boxes)
+            if (placement_blocked(center, half)) return "actor_occupied";
     }
-    const auto axle_height = anchor_height + center[1] * height_step;
-    if (seat > axle_height - 0.02) return std::nullopt;
-    const auto bearing = std::max(axle_height - 0.18, seat + 0.02);
-    if (bearing - seat > 9.0) return std::nullopt;
-    foot[1] = seat;
-    return foot;
+    return nullptr;
 }
 
 const char* Host::transmission_site_refusal(const world::State& state, const mechanics::Point& center,
@@ -941,11 +1041,6 @@ const char* Host::transmission_site_refusal(const world::State& state, const mec
     };
     if (const auto* refusal = check(axle)) return refusal;
     if (gear) if (const auto* refusal = check(gear_half_extents(axis, 0))) return refusal;
-    const auto foot = transmission_support_foot(state, center, axis);
-    if (!foot) return "support_required";
-    const auto bearing = std::max(at[1] - 0.18, (*foot)[1] + 0.02);
-    if (site_blocked({(*foot)[0] - 0.11, (*foot)[1], (*foot)[2] - 0.11},
-                     {(*foot)[0] + 0.11, bearing, (*foot)[2] + 0.11})) return "site_occupied";
     for (const auto& part : state.topology.parts) if (part.role == Role::waterwheel) {
         const auto supports = wheel_support_bounds(part.geometry.center, part.geometry.axis,
             [this](double sx, double sz, double hx, double hz) {
@@ -954,12 +1049,6 @@ const char* Host::transmission_site_refusal(const world::State& state, const mec
         if (!supports) return "support_required";
         for (const auto& support : *supports)
             if (transmission_intersects(support, center, axis, gear)) return "site_occupied";
-    }
-    for (const auto& [id, foundation] : state.foundations) {
-        (void)id;
-        if (overlap({{(*foot)[0], ((*foot)[1] + bearing) / 2, (*foot)[2]},
-                     {0.11, (bearing - (*foot)[1]) / 2, 0.11}}, foundation_bounds(foundation)))
-            return "site_occupied";
     }
     return nullptr;
 }
@@ -1124,17 +1213,6 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                 center[1] * pitch / 4 < top && center[1] * pitch / 4 + machine_height > top - foundation_depth)
                 return refuse("occupied");
         }
-        // A new foundation may become a stand's seat or cut through its post.
-        // Check the resulting native geometry before World spends the part.
-        auto with_foundations = snapshot.state;
-        for (auto px = std::min(*x, *end_x); px <= std::max(*x, *end_x); ++px)
-            for (auto pz = std::min(*z, *end_z); pz <= std::max(*z, *end_z); ++pz)
-                with_foundations.foundations.emplace("proposed-support-" + std::to_string(px) + ":" + std::to_string(pz),
-                                                    world::Foundation{{4 * px, *level, 4 * pz}, 1});
-        for (const auto& part : snapshot.state.topology.parts)
-            if (part.role == Role::shaft || part.role == Role::gear)
-                if (const auto* refusal = transmission_site_refusal(with_foundations, part.geometry.center,
-                        part.geometry.axis, part.role == Role::gear)) return refuse(refusal);
         normalized.at("action") = Value(*action);
         normalized.emplace("center", Value(Array{Value(4 * *x), Value(*level), Value(4 * *z)}));
         if (area) normalized.emplace("end", Value(Array{Value(4 * *end_x), Value(*level), Value(4 * *end_z)}));
@@ -1456,18 +1534,72 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         const auto* id = field<std::string>(wire, "entity");
         const auto foundation = id ? snapshot.state.foundations.find(*id) : snapshot.state.foundations.end();
         if (*action == "remove" && foundation != snapshot.state.foundations.end()) {
-            auto without_foundation = snapshot.state;
-            without_foundation.foundations.erase(*id);
-            for (const auto& part : snapshot.state.topology.parts)
-                if (part.role == Role::shaft || part.role == Role::gear)
-                    if (const auto* refusal = transmission_site_refusal(without_foundation, part.geometry.center,
-                            part.geometry.axis, part.role == Role::gear)) return refuse(refusal);
             normalized.at("action") = Value("remove_foundation");
             normalized.at("generation") = Value(foundation->second.generation);
         } else normalized.at("action") = Value(*action == "retrieve" ? "collect" : *action);
         if (amount) normalized.emplace("amount", wire.at("amount"));
         if (work) normalized.emplace("work_id", wire.at("work_id"));
     } else return refuse("unsupported_action");
+    const auto& edit = *field<std::string>(normalized, "action");
+    if (edit == "place" || edit == "place_connected" || edit == "remove" ||
+        edit == "place_foundation" || edit == "place_foundations" || edit == "remove_foundation" ||
+        edit == "place_belt_span" || edit == "place_selected_belt_span" || edit == "remove_belt_span") {
+        // Preview only the geometry fields. World still owns the transaction,
+        // inventory, material and history; no second World or clock is created.
+        world::State geometry;
+        geometry.topology = snapshot.state.topology;
+        geometry.foundations = snapshot.state.foundations;
+        std::string preview_id = "support-preview";
+        while (find(geometry, preview_id) || geometry.foundations.contains(preview_id) ||
+               std::any_of(geometry.topology.belt_spans.begin(), geometry.topology.belt_spans.end(),
+                   [&](const auto& span) { return span.geometry.id == preview_id; })) preview_id += '-';
+        if (edit == "place" || edit == "place_connected") {
+            stationary::PlacedPart part{};
+            const auto& name = *field<std::string>(normalized, "role");
+            std::optional<Role> role;
+            for (const auto value : {Role::collector, Role::belt, Role::processor, Role::waterwheel,
+                                    Role::shaft, Role::gear, Role::gearbox, Role::vertical_gearbox, Role::chain_drive})
+                if (name == (value == Role::waterwheel ? "waterwheel" : kind(value))) role = value;
+            if (!role) return refuse("invalid_command");
+            part.role = *role;
+            part.geometry.id = preview_id;
+            const auto& center = *field<Array>(normalized, "center");
+            for (std::size_t dimension = 0; dimension < 3; ++dimension)
+                part.geometry.center[dimension] = std::get<Integer>(center[dimension].storage());
+            part.geometry.axis = axis_value(*field<std::string>(normalized, "axis")).value();
+            if (const auto* teeth = field<Integer>(normalized, "teeth")) part.geometry.teeth = *teeth;
+            if (const auto* span = field<Integer>(normalized, "half_span")) part.geometry.half_span = *span;
+            part.geometry.kind = part.role == Role::shaft ? mechanics::Kind::shaft :
+                part.role == Role::gear ? mechanics::Kind::gear : mechanics::Kind::hub;
+            part.wheel_tiles = part.role == Role::waterwheel ? 3 : 1;
+            if (const auto* tiles = field<Integer>(normalized, "wheel_tiles")) part.wheel_tiles = *tiles;
+            if (std::any_of(geometry.topology.parts.begin(), geometry.topology.parts.end(),
+                    [&](const auto& old) { return old.geometry.center == part.geometry.center; })) return refuse("occupied");
+            geometry.topology.parts.push_back(std::move(part));
+        } else if (edit == "remove") {
+            const auto& target_id = *field<std::string>(normalized, "target");
+            std::erase_if(geometry.topology.parts, [&](const auto& part) { return part.geometry.id == target_id; });
+        } else if (edit == "place_foundation" || edit == "place_foundations") {
+            const auto& start = *field<Array>(normalized, "center");
+            const auto* end = field<Array>(normalized, "end");
+            const auto x = std::get<Integer>(start[0].storage()), y = std::get<Integer>(start[1].storage());
+            const auto z = std::get<Integer>(start[2].storage());
+            const auto ex = end ? std::get<Integer>((*end)[0].storage()) : x;
+            const auto ez = end ? std::get<Integer>((*end)[2].storage()) : z;
+            for (auto px = std::min(x, ex); px <= std::max(x, ex); px += 4)
+                for (auto pz = std::min(z, ez); pz <= std::max(z, ez); pz += 4)
+                    geometry.foundations.emplace(preview_id + ':' + std::to_string(px) + ':' + std::to_string(pz),
+                                                 world::Foundation{{px, y, pz}, 0});
+        } else if (edit == "remove_foundation") geometry.foundations.erase(*field<std::string>(normalized, "target"));
+        else if (edit == "remove_belt_span") {
+            const auto& target_id = *field<std::string>(normalized, "target");
+            std::erase_if(geometry.topology.belt_spans, [&](const auto& span) { return span.geometry.id == target_id; });
+        } else {
+            geometry.topology.belt_spans.push_back({{preview_id,
+                *field<std::string>(normalized, "target"), *field<std::string>(normalized, "to")}, 0});
+        }
+        if (const auto* refusal = support_change_refusal(snapshot.state, geometry)) return refuse(refusal);
+    }
     const auto delivered = owned_->world->command({bound_actor, *client}, normalized, observe());
     return Value(outward(delivered, owned_->world->snapshot()));
 }
@@ -1504,6 +1636,7 @@ Value Host::projection() const {
     if (!owned_) return result(false, "not_initialized");
     const auto snapshot = owned_->world->snapshot();
     const auto& state = snapshot.state;
+    const auto support_layout = transmission_supports(state);
     Object entities, transmissions, belt_spans, inventories, cargo, kits, specifications, actors, foundations;
     Array links, drive_links, engagements, dropped_material;
     for (const auto& [point, contents] : state.material.dropped_material) {
@@ -1531,14 +1664,13 @@ Value Host::projection() const {
                 projected.emplace("supports", Value(std::move(occupied)));
             }
         }
-        if (part.role == Role::shaft || part.role == Role::gear || part.role == Role::gearbox ||
-            part.role == Role::vertical_gearbox || part.role == Role::chain_drive) {
-            if (const auto foot = transmission_support_foot(state, part.geometry.center, part.geometry.axis)) {
-                const auto bearing = std::max(anchor_height + part.geometry.center[1] * height_step - 0.18,
-                                              (*foot)[1] + 0.02);
-                projected.emplace("support", Value(Object{
-                    {"foot", Value(Array{Value((*foot)[0]), Value((*foot)[1]), Value((*foot)[2])})},
-                    {"bearing", Value(Array{Value((*foot)[0]), Value(bearing), Value((*foot)[2])})}}));
+        if (fixed_transmission(part.role)) {
+            if (const auto support = support_layout.find(part.geometry.id); support != support_layout.end()) {
+                Array boxes;
+                for (const auto& [center, half] : support->second.boxes)
+                    boxes.emplace_back(Object{{"center", point_value(center)}, {"half", point_value(half)}});
+                projected.emplace("support", Value(Object{{"foot", point_value(support->second.foot)},
+                    {"bearing", point_value(support->second.bearing)}, {"boxes", Value(std::move(boxes))}}));
             }
             transmissions.emplace(part.geometry.id, Value(std::move(projected)));
         }
@@ -1736,6 +1868,7 @@ Host::Decoded Host::decode(const Value& input) const {
     if (!std::holds_alternative<world::Snapshot>(decoded)) return {nullptr, "native_checkpoint_refused"};
     auto snapshot = std::get<world::Snapshot>(decoded);
     if (!snapshot.state.topology.drive_enabled) return {nullptr, "native_checkpoint_refused"};
+    const auto restored_supports = transmission_supports(snapshot.state);
     for (const auto& record : snapshot.history.records) {
         if (!field<Object>(record.intent, "wire")) return {nullptr, "missing_wire_history"};
         if (!historical_wire(record)) return {nullptr, "inconsistent_wire_history"};
@@ -1802,6 +1935,7 @@ Host::Decoded Host::decode(const Value& input) const {
                 return {nullptr, "occupied"};
             if (const auto* refusal = transmission_site_refusal(snapshot.state, center, part.geometry.axis, part.role == Role::gear))
                 return {nullptr, refusal};
+            if (!restored_supports.contains(part.geometry.id)) return {nullptr, "support_required"};
             if (relay) {
                 const authority::Point at{center[0] * height_step,
                     anchor_height + center[1] * height_step, center[2] * height_step};

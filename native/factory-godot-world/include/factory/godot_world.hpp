@@ -52,6 +52,10 @@ private:
         std::unique_ptr<Owned> candidate;
         std::string refusal;
     };
+    struct TransmissionSupport {
+        authority::Point foot, bearing;
+        std::vector<std::pair<authority::Point, authority::Point>> boxes;
+    };
 
     [[nodiscard]] world::ObserveActor observe() const;
     [[nodiscard]] Decoded decode(const values::Value&) const;
@@ -68,8 +72,9 @@ private:
         double half_x = 0.825, double half_z = 0.825) const;
     [[nodiscard]] const char* machine_site_refusal(const world::State&, const mechanics::Point& center,
         bool collector) const;
-    [[nodiscard]] std::optional<authority::Point> transmission_support_foot(const world::State&,
-        const mechanics::Point& center, mechanics::Axis axis) const;
+    [[nodiscard]] std::map<std::string, TransmissionSupport> transmission_supports(const world::State&) const;
+    [[nodiscard]] const char* support_change_refusal(const world::State& before,
+        const world::State& after) const;
     [[nodiscard]] const char* transmission_site_refusal(const world::State&, const mechanics::Point& center,
         mechanics::Axis axis, bool gear) const;
     [[nodiscard]] const char* wheel_site_refusal(const mechanics::Point& center, mechanics::Axis axis, mechanics::Integer tiles) const;

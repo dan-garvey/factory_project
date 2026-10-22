@@ -150,6 +150,13 @@ func sync_topology() -> Dictionary:
 			axle_shape.size = boxes[id].axle_size
 			axle_collider.shape = axle_shape
 			body.add_child(axle_collider)
+		for support: Dictionary in boxes[id].get("support_boxes", []):
+			var support_collider := CollisionShape3D.new()
+			var support_shape := BoxShape3D.new()
+			support_shape.size = support.size
+			support_collider.shape = support_shape
+			support_collider.position = support.center - body.position
+			body.add_child(support_collider)
 		mechanical_bodies[id] = body
 		mechanical_specs[id] = boxes[id].duplicate(true)
 		add_child(body)
@@ -333,15 +340,21 @@ func _geometry_registered() -> bool:
 		var spec: Dictionary = mechanical_specs[id]
 		var pose: Transform3D = PhysicsServer3D.body_get_state(rid, PhysicsServer3D.BODY_STATE_TRANSFORM)
 		var expected_sizes: Array = [spec.size]
+		var expected_positions: Array[Vector3] = [Vector3.ZERO]
 		if spec.has("axle_size"):
 			expected_sizes.append(spec.axle_size)
+			expected_positions.append(Vector3.ZERO)
+		for support: Dictionary in spec.get("support_boxes", []):
+			expected_sizes.append(support.size)
+			expected_positions.append(support.center - spec.center)
 		if PhysicsServer3D.body_get_space(rid) != space or PhysicsServer3D.body_get_shape_count(rid) != expected_sizes.size() or PhysicsServer3D.body_get_collision_layer(rid) != Geometry.MACHINE_LAYER:
 			return false
 		var expected_basis: Basis = spec.get("basis", Basis.IDENTITY)
 		if not pose.basis.is_equal_approx(expected_basis) or not body.basis.is_equal_approx(expected_basis) or pose.origin.distance_to(spec.center) > Geometry.NATIVE_POSE_EPSILON or body.position.distance_to(spec.center) > Geometry.NATIVE_POSE_EPSILON:
 			return false
 		for index in expected_sizes.size():
-			if PhysicsServer3D.body_get_shape_transform(rid, index) != Transform3D.IDENTITY:
+			var shape_pose: Transform3D = PhysicsServer3D.body_get_shape_transform(rid, index)
+			if shape_pose.basis != Basis.IDENTITY or shape_pose.origin.distance_to(expected_positions[index]) > Geometry.NATIVE_POSE_EPSILON:
 				return false
 			var data: Variant = PhysicsServer3D.shape_get_data(PhysicsServer3D.body_get_shape(rid, index))
 			if not data is Vector3 or data.distance_to(expected_sizes[index] / 2.0) > Geometry.NATIVE_POSE_EPSILON:
@@ -510,6 +523,7 @@ func _penetration(actor: String, other: RID, shape_index: int = 0) -> Dictionary
 	var target: Transform3D = PhysicsServer3D.body_get_state(other, PhysicsServer3D.BODY_STATE_TRANSFORM)
 	if shape_index < 0 or shape_index >= PhysicsServer3D.body_get_shape_count(other):
 		return {"unsupported_overlap": true, "kind": "unexpected_shape"}
+	target = target * PhysicsServer3D.body_get_shape_transform(other, shape_index)
 	var shape = PhysicsServer3D.shape_get_data(PhysicsServer3D.body_get_shape(other, shape_index))
 	if other == floor_body.get_rid() and site_surface != null:
 		var measured: Dictionary = site_surface.capsule_overlap(at.origin, float(capsule.radius), float(capsule.height))

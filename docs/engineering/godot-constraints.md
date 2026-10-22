@@ -1095,27 +1095,30 @@ color or complete scene quality.
 
 ## GDC-20: transmission stands are a derived opening adapter
 
-**Experimental adapter and fixture rule.** The native Host derives one fixed
-stand seat for each placed shaft or cog from its confirmed center, axis, terrain,
-ground-connected site solids and any foundation under the seat. A rock below a
-clear axle can seat the stand on its supplied site box top. It refuses an axle
-intersecting that box, a post through an elevated obstruction or foundation,
-and a stand taller than
-nine metres. Foundation placement and removal must leave every existing
-transmission stand valid. The projection
-supplies the foot and bearing points; the Godot presenter draws a stationary
-frame outside the rotating part. The stand is included in the carried shaft or
-cog for this opening, with no separate stock, connection or saved authority.
+**Experimental adapter and fixture rule.** The native Host derives fixed frames
+for shafts, cogs and relay cases from their confirmed geometry and the current
+terrain, ground-connected site solids, foundations, machinery, belts and lower
+frames. Bearings remain coaxial. A horizontal bearing may use either axle face;
+a limited lateral post offset and short arm keep an upper post clear of lower
+axles. A rock below a clear axle can seat the post on its supplied site box top.
+No route may intersect an obstacle or foundation, leave another frame invalid,
+or exceed nine metres. Construction also refuses new or changed frame volumes
+occupied by a ready character.
 
-The focused native support test covers seating, obstruction, removal and restore.
-A passive assembled-scene comparison belongs to `factory-yau.6.44.6`. The
-straight post and outboard bearing are a provisional visual construction rule,
-not the intended general system for structural loads or every player-built
-machine. The post has no separate physical actor collider; full clearance
-against neighboring machinery and moving belts, support strength, tall frames
-and human visual judgment remain open. An explicit buildable support system
-would need native quantities, collision, edit and save rules before replacing
-this adapter.
+The projection supplies foot and bearing points plus four conservative support
+boxes. ActorWorld adds these boxes to the part's existing physical body and
+validates their native dimensions and local transforms. Capsule admission uses
+each actual shape transform, including a post offset from its part's centre.
+The presenter draws the stationary frame from the same foot and bearing.
+Removal deletes its collision shapes with the part. The frame remains included
+in the carried transmission part, with no separate stock, clock or saved state.
+
+The native support and detached physics fixtures cover stacked axle clearance,
+seating, actor occupancy, shape registration, removal and restore. Their
+synthetic poses and projected boxes do not establish human usability or exact
+mesh contact. This limited frame routing is an opening adapter, not a general
+structural-load or strength simulation. An explicit buildable support system
+would need its own native quantities, edit and save rules.
 
 ## GDC-21: the arrival pod is a projected native site seed
 

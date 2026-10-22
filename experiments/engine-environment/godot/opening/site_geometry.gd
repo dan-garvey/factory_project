@@ -188,6 +188,22 @@ static func mechanical_boxes(snapshot: Dictionary) -> Dictionary:
 			var axle_half := Vector3.ONE * 0.1
 			axle_half[part.axis] = PITCH / 2.0
 			result[id]["axle_size"] = axle_half * 2.0
+		if part.has("support"):
+			var support: Variant = part.support
+			if not support is Dictionary or not valid_position(support.get("foot")) \
+					or not valid_position(support.get("bearing")) or not support.get("boxes") is Array \
+					or support.boxes.size() != 4:
+				return {"accepted": false}
+			var support_boxes: Array[Dictionary] = []
+			for box: Variant in support.boxes:
+				if not box is Dictionary or not valid_position(box.get("center")) or not valid_position(box.get("half")):
+					return {"accepted": false}
+				for extent: Variant in box.half:
+					if float(extent) <= 0.0 or float(extent) > 10.0:
+						return {"accepted": false}
+				support_boxes.append({"center": Vector3(box.center[0], box.center[1], box.center[2]),
+					"size": Vector3(box.half[0], box.half[1], box.half[2]) * 2.0})
+			result[id]["support_boxes"] = support_boxes
 	for id: Variant in spans:
 		var span: Variant = spans[id]
 		if typeof(id) != TYPE_STRING or result.has(id) or not span is Dictionary or typeof(span.get("from")) != TYPE_STRING or typeof(span.get("to")) != TYPE_STRING:
