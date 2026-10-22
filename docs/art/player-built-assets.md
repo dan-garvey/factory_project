@@ -92,6 +92,10 @@ the next specific art prototype. It maps the confirmed mineral site and rotated
 output port to a cutter, gathering floor and exposed-end outlet, while leaving
 their visual fit for a matched ordinary-view comparison.
 
+The [modular collector fit study](modular-collector-fit.md) measures the newer
+five-component chapter-one layout, its present occupied-volume mismatch, and a
+selected source guard candidate. That study does not adopt a new collector.
+
 The practical division is to source surfaces and suitable subcomponents, author
 the missing functional forms and joints, and generate the dimension-dependent
 middle. A catalogue model is not the construction system. The waterwheel uses

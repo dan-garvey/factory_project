@@ -4827,7 +4827,7 @@ func issue(action: Dictionary) -> Dictionary:
 		elif action.action in ["remove", "remove_belt_span"] and selected == action.get("entity", ""):
 			selected = ""
 		_construction_feedback(intent, outcome)
-		_message({"place": "Placed. Parts stay with this worksite.",
+		_message(_harvest_result_text(outcome) if action.action == "harvest_source" else {"place": "Placed. Parts stay with this worksite.",
 			"place_foundation": "Foundation placed. Its surface shares the machine grid.",
 			"place_foundations": "Foundation area placed on the world grid.",
 			"connect": "Material path connected.", "connect_drive": "Drive shaft connected.",
@@ -4855,8 +4855,17 @@ func issue(action: Dictionary) -> Dictionary:
 	_refresh()
 	return outcome
 
+func _harvest_result_text(outcome: Dictionary) -> String:
+	var timber: int = outcome.get("moved_timber", 0)
+	if timber > 0:
+		return "Collected %d timber." % timber
+	var raw: int = outcome.get("moved_raw", 0)
+	return "Collected %d softmetal %s." % [raw, "blank" if raw == 1 else "blanks"]
+
 func _material_refusal_message(outcome: Dictionary, fallback: String) -> String:
-	var foundation_advice: String = {
+	var advice: String = {
+		"unavailable_source": "That source is unavailable or depleted. Choose another tree or ore deposit.",
+		"inventory_full": "Your carried inventory is full. Store or use material before collecting more.",
 		"unaligned_elevation": "Machines and wheels need a whole-tile height. Build a factory floor with Access steps off, or adjust the wheel's drive height.",
 		"axles_already_touch": "These axle ends already touch; no shaft is needed.",
 		"overlapping_shafts": "A shaft already occupies that length. Place the new segment end to end.",
@@ -4865,8 +4874,8 @@ func _material_refusal_message(outcome: Dictionary, fallback: String) -> String:
 		"foundation_in_use": "Remove the machinery on this foundation before reclaiming it.",
 		"site_occupied": "Rock or vegetation occupies this space. Choose a clear location.",
 		"terrain_unavailable": "There is no confirmed building surface here."}.get(outcome.get("reason", ""), "")
-	if not foundation_advice.is_empty():
-		return foundation_advice
+	if not advice.is_empty():
+		return advice
 	# Fixed-roster historical payloads may omit the helper or carry its older
 	# API. Formatting must never add a resource requirement or change admission.
 	if recovery_actions != null and recovery_actions.has_method("refusal_text"):
@@ -5210,7 +5219,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_G: _select_tool("drive")
 			KEY_E:
 				if _native_transmission():
-					_open_pointed_machine()
+					_interact_pointed()
 			KEY_I:
 				if not _native_transmission():
 					_select_tool("inspect")
@@ -5347,6 +5356,51 @@ func _retrieve() -> void:
 
 func _pointed_screen_position() -> Vector2:
 	return get_viewport().get_visible_rect().size * 0.5 if distance <= 0.0 else get_viewport().get_mouse_position()
+
+func _hand_source(id: String) -> Dictionary:
+	var source: Variant = state.get("hand_sources", {}).get(id)
+	if not source is Dictionary or source.get("kind") not in ["tree", "ore_deposit"] \
+			or not Geometry.valid_position(source.get("position")) or typeof(source.get("remaining")) != TYPE_INT \
+			or source.remaining < 0:
+		return {}
+	return source
+
+func _screen_hand_source(screen: Vector2) -> String:
+	if not _native_transmission() or camera == null or state.get("hand_sources", {}).is_empty():
+		return ""
+	var eye := camera.project_ray_origin(screen)
+	var query := PhysicsRayQueryParameters3D.create(eye, eye + camera.project_ray_normal(screen) * 80.0,
+		Geometry.GROUND_LAYER | Geometry.MACHINE_LAYER | Geometry.PICK_LAYER)
+	query.collide_with_areas = true
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	if hit.is_empty():
+		return ""
+	# A resource presenter identifies the actual hit, rather than selecting a
+	# nearby source from camera distance. Host retains the actor-reach check.
+	var id: String = str(hit.collider.get_meta("hand_source", ""))
+	if id.is_empty() and actor_world != null and hit.collider == actor_world.site_bodies.get("source_outcrop"):
+		var deposits: Array[String] = []
+		for key: String in state.hand_sources:
+			if _hand_source(key).get("kind") == "ore_deposit":
+				deposits.append(key)
+		if deposits.size() == 1:
+			id = deposits[0]
+	return id if not _hand_source(id).is_empty() else ""
+
+func _interact_pointed() -> void:
+	if not _can_control_character():
+		return
+	var source_id := _screen_hand_source(_pointed_screen_position()) if mode == "inspect" else ""
+	var source := _hand_source(source_id)
+	if source.is_empty():
+		_open_pointed_machine()
+		return
+	if not _placement_ready():
+		return
+	if source.remaining == 0:
+		_message("This source is depleted. Choose another tree or ore deposit.", true)
+		return
+	issue({"action": "harvest_source", "target": source_id})
 
 func _open_pointed_machine() -> void:
 	if _catalog_open() or not _can_control_character():
@@ -6903,6 +6957,17 @@ func _cycle_placement_axis() -> void:
 func _refresh_placement_options() -> void:
 	if placement_options_panel == null:
 		return
+	if _native_transmission() and mode == "inspect" and _placement_ready():
+		var source_id := _screen_hand_source(_pointed_screen_position())
+		var source := _hand_source(source_id)
+		if not source.is_empty():
+			placement_options_panel.visible = true
+			placement_options_title.text = "CUT TIMBER" if source.kind == "tree" else "CUT SOFTMETAL"
+			placement_options_hint.text = "Depleted · choose another source" if source.remaining == 0 \
+				else "Use multitool  [E] · %d remaining" % source.remaining
+			placement_options_axis.visible = false
+			_fit_placement_options()
+			return
 	var placing_machine := machine_preview != null and machine_preview.visible
 	var placing_transmission: bool = _native_transmission() and transmission_controls != null \
 		and transmission_controls.active_tool in ["gear", "place_shaft", "belt_span", "gearbox", "vertical_gearbox", "chain_drive"]
@@ -6929,6 +6994,9 @@ func _refresh_placement_options() -> void:
 	placement_options_axis.visible = tool in ["wheel", "gear", "drive", "vertical_gearbox", "chain_drive"]
 	placement_options_axis.text = "Axle: %s  [X]" % (transmission_controls.selected_axis.to_upper()
 		if transmission_controls != null else "X")
+	_fit_placement_options()
+
+func _fit_placement_options() -> void:
 	var parent := placement_options_panel.get_parent() as Control
 	var height: float = placement_options_panel.get_combined_minimum_size().y
 	placement_options_panel.size = Vector2(maxf(302.0, placement_options_panel.get_combined_minimum_size().x), height)
