@@ -597,6 +597,49 @@ func check_native_cadence_walking_contact() -> void:
 		"Both late-stance walking boots remain planted until their swing begins.")
 	host.free()
 
+func check_walk_touchdown_sweep() -> void:
+	var host := HostFixture.new()
+	host.state.actors.P.position = [-1.65, Surface.height_at(-1.65, 3.3) + 0.9, 3.3]
+	root.add_child(host)
+	var presenter := Presenter.new()
+	presenter.configure(host)
+	host.add_child(presenter)
+	presenter.set_process(false)
+	presenter.set_physics_process(false)
+	var body: Node3D = presenter.views.P.get_node("BodyView")
+	var prior := {"L": {}, "R": {}}
+	var worst := 0.0
+	var worst_at := {}
+	var samples := 0
+	var exact_root := true
+	for frame in range(150):
+		host.state.actors.P.position[0] += 0.0175
+		presenter.refresh(1.0 / 60.0)
+		exact_root = exact_root and absf(presenter.views.P.position.x -
+			float(host.state.actors.P.position[0])) < 0.00001
+		var skeleton := skeleton_of(body)
+		skeleton.force_update_all_bone_transforms()
+		for side in ["L", "R"]:
+			var hip := body.to_global(presenter._adult_joint(body, skeleton,
+				skeleton.find_bone("Bip01 " + side + " Thigh")))
+			var toe := body.to_global(presenter._adult_joint(body, skeleton,
+				skeleton.find_bone("Bip01 " + side + " Toe0")))
+			var clearance := toe.y - Surface.height_at(toe.x, toe.z)
+			var old: Dictionary = prior[side]
+			if frame > 75 and old.has("x") and toe.x > hip.x + 0.15 \
+					and clearance < 0.05 and float(old.clearance) < 0.05:
+				var retreat := float(old.x) - toe.x
+				if retreat > worst:
+					worst = retreat
+					worst_at = {"frame": frame, "side": side, "clearance": clearance}
+				samples += 1
+			prior[side] = {"x": toe.x, "clearance": clearance}
+	adult_measurements["walk_touchdown_sweep"] = {"samples": samples,
+		"maximum_backward_step": worst, "worst_at": worst_at}
+	verify(samples >= 4 and worst < 0.008 and exact_root and host.control_calls == 0,
+		"An incoming walking toe stops sweeping backward near terrain before support.")
+	host.free()
+
 func check_native_cadence_running_contact() -> void:
 	var host := HostFixture.new()
 	host.state.context = "running-contact"
@@ -1274,6 +1317,7 @@ func run() -> void:
 		inspect_adult(body, q.get_node("BodyView"), presenter)
 		check_walking_support()
 		check_native_cadence_walking_contact()
+		check_walk_touchdown_sweep()
 		check_native_cadence_jog_contact()
 		check_native_cadence_running_contact()
 		check_sparse_confirmed_walk()
