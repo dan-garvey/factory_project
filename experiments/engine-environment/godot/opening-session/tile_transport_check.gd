@@ -14,6 +14,7 @@ extends SceneTree
 ## Add --middle-pulley to --powered-span to insert and restore a driven pulley.
 ## Add --cog-train to exercise a powered large/small pair and its restore.
 ## Add --overload to exercise speed-weighted load and recovery across restart.
+## Add --fractional-press to exercise workpiece recovery and continuation.
 ## Add --reverse-belt to every process for
 ## generated-site reverse deposition and pickup after restart. The resumed Session uses the Store but
 ## does not exercise the ordinary server lifecycle or physical actor bodies.
@@ -35,6 +36,7 @@ var reverse_endpoints := false
 var middle_pulley := false
 var cog_train := false
 var overload := false
+var fractional_press := false
 var serial := 0
 var epoch := 0
 
@@ -56,6 +58,7 @@ func _initialize() -> void:
 		elif arg == "--middle-pulley": middle_pulley = true
 		elif arg == "--cog-train": cog_train = true
 		elif arg == "--overload": overload = true
+		elif arg == "--fractional-press": fractional_press = true
 	call_deferred("run")
 
 func verify(ok: bool, message: String) -> void:
@@ -551,7 +554,127 @@ func run_overload() -> void:
 	print("OVERLOAD_SESSION_%s %s %d" % ["FAIL" if failed else "PASS", role, checks])
 	quit(1 if failed else 0)
 
+func prepare_fractional_press() -> bool:
+	if not pose(-1.65, 3.3): return false
+	if not build("place", {"kind": "wheel", "cell": [-2, 1], "axis": "x", "level": 4}).get("accepted", false): return false
+	if not pose(0.0, 0.0): return false
+	if not build("place_foundation", {"cell": [0, 1], "level": 4}).get("accepted", false): return false
+	var collector := build("place", {"kind": "collector", "cell": [0, 1], "axis": "x", "level": 4})
+	if not collector.get("accepted", false): return false
+	if not pose(-3.3, 0.0): return false
+	if not build("place_gear", {"center": [-4, 4, 4], "axis": "x", "teeth": 4}).get("accepted", false): return false
+	if not pose(-3.3, 3.3): return false
+	if not build("place_gear", {"center": [-4, 8, 8], "axis": "x", "teeth": 2}).get("accepted", false): return false
+	if not pose(1.65, 3.3): return false
+	if not build("place_foundation", {"cell": [0, 2], "level": 8}).get("accepted", false): return false
+	var press := build("place", {"kind": "processor", "cell": [0, 2], "axis": "x", "level": 8})
+	if not press.get("accepted", false): return false
+	if not pose(-1.65, 0.0): return false
+	if not build("set_power", {"active": true}).get("accepted", false): return false
+	var rate: Dictionary = session.world.projection().motion[press.entity]
+	if rate.state != "rotating" or abs(int(rate.numerator)) * 75 != 8 * int(rate.denominator):
+		push_error("Expected an eight-seventy-fifths press rate: " + str(rate))
+		return false
+	for turn in range(32):
+		if session.world.projection().stock.collector > 0: break
+		session.world.advance()
+	if not pose(0.0, 0.0): return false
+	if not build("recover", {"entity": collector.entity}).get("accepted", false): return false
+	if not pose(1.65, 3.3): return false
+	if not build("insert_raw", {"entity": press.entity, "amount": 1}).get("accepted", false): return false
+	session.world.advance() # Starts the original workpiece.
+	session.world.advance() # Retains eight-seventy-fifths of a baseline work tick.
+	var saved: Dictionary = session.world.checkpoint()
+	var work: Variant = saved.get("world", {}).get("state", {}).get("material", {}).get("processing")
+	return work is Dictionary and work.get("remaining_ticks") == 2 and work.get("completed_subticks") == 436 \
+		and work.get("work_remainder") == 68 and work.get("work_remainder_denominator") == 75
+
+func run_fractional_press() -> void:
+	var resumed := role.begins_with("resume-") or role == "server-resume"
+	var prefix := "resume-" if resumed else ""
+	var save_path := directory.path_join("fractional-press.factory")
+	if role in ["server", "server-resume"]:
+		verify(session.serve_loopback(port, true, true, ["P", "Q"], true) == OK, "Start fractional press authority")
+		if failed: quit(1); return
+		if resumed:
+			verify(Store.read_into(session.world, save_path).get("accepted", false), "Restore fractional work and receipt")
+			session.context = session.world.context
+		else:
+			verify(prepare_fractional_press(), "Build and run a genuinely powered fractional press")
+		verify(session.world.publish_actor("P", [1.65, 1.0, 3.3], epoch + 1).get("accepted", false), "P is within press reach")
+		verify(session.world.publish_actor("Q", [20.0, 1.0, 20.0], 1).get("accepted", false), "Q remains clear")
+		if failed: quit(1); return
+		mark(prefix + "server-ready")
+		if resumed:
+			if not await until(func(): return FileAccess.file_exists(directory.path_join("resume-insert-observed")), "Both clients see the reinserted work"): quit(1); return
+			session.world.advance()
+			session._broadcast(session._frame())
+			mark("resume-work-advanced")
+		if not await until(func(): return FileAccess.file_exists(directory.path_join(prefix + "clients-done")), "Both fractional-work clients finish"): quit(1); return
+		if not resumed:
+			verify(Store.write(session.world, save_path).get("accepted", false), "Store the recovered fractional work and receipt")
+		if failed: quit(1); return
+		mark(prefix + "server-done")
+	else:
+		var actor := role.trim_prefix("resume-") if resumed else role
+		verify(session.join_loopback(port, actor) == OK, "Join fractional press authority")
+		if not await until(func(): return session.is_ready(), "Receive fractional press projection"): quit(1); return
+		mark(prefix + actor + "-ready")
+		if actor == "P":
+			if not await until(func(): return FileAccess.file_exists(directory.path_join(prefix + "Q-ready")), "Q joins before work transfer"): quit(1); return
+			var view: Dictionary = session.projection()
+			var press := ""
+			for id in view.entities:
+				if view.entities[id].get("kind") == "processor": press = str(id)
+			verify(not press.is_empty(), "The projected press keeps its identity")
+			if failed: quit(1); return
+			if resumed:
+				var lots: Array = view.cargo.P.work_lots
+				verify(lots.size() == 1 and lots[0].work_remainder == 68 and lots[0].work_remainder_denominator == 75,
+					"P receives the original carried fractional work after restart")
+				if failed: quit(1); return
+				var inserted := await issue({"action": "insert_work", "entity": press, "work_id": lots[0].id})
+				verify(inserted.get("accepted", false), "P reinserts the original workpiece")
+				if failed: quit(1); return
+				mark("resume-inserted")
+				if not await until(func(): return FileAccess.file_exists(directory.path_join("resume-work-advanced")), "Authority advances the restored work"): quit(1); return
+			var recovered := await issue({"action": "recover", "entity": press})
+			var receipt_lots: Array = recovered.get("moved_work", [])
+			verify(recovered.get("accepted", false) and receipt_lots.size() == 1, "P recovers the actual partial work")
+			if failed: quit(1); return
+			var lot: Dictionary = receipt_lots[0]
+			verify(lot.work_remainder == (61 if resumed else 68) and lot.work_remainder_denominator == 75
+				and lot.completed_subticks == (873 if resumed else 436)
+				and lot.remaining_ticks == 2, "Receipt retains the exact expected work fraction")
+			var request: String = recovered.request
+			verify(session.retry(request).get("queued", false), "Retry the fractional recovery")
+			if await until(func(): return replies.has(request), "The retry receives a receipt"):
+				verify(replies[request].get("duplicate", false) and replies[request].get("moved_work") == receipt_lots,
+					"The retry preserves the same work without moving it twice")
+				replies.erase(request)
+			if failed: quit(1); return
+			mark(prefix + "P-done")
+		else:
+			if resumed:
+				if not await until(func(): return FileAccess.file_exists(directory.path_join("resume-inserted")), "P reinserts the workpiece"): quit(1); return
+				if not await until(func(): return session.projection().get("cargo", {}).get("P", {}).get("work_lots", []).is_empty(), "Q observes the insertion"): quit(1); return
+				mark("resume-insert-observed")
+			if not await until(func(): return FileAccess.file_exists(directory.path_join(prefix + "P-done")), "P recovers fractional work"): quit(1); return
+			if not await until(func(): return session.projection().get("cargo", {}).get("P", {}).get("work_lots", []).size() == 1, "Q observes the recovered work"): quit(1); return
+			var lot: Dictionary = session.projection().cargo.P.work_lots[0]
+			verify(lot.work_remainder == (61 if resumed else 68) and lot.work_remainder_denominator == 75,
+				"Q observes the exact fractional work in P's custody")
+			if failed: quit(1); return
+			mark(prefix + "clients-done")
+			if not await until(func(): return FileAccess.file_exists(directory.path_join(prefix + "server-done")), "Authority completes the fractional-work phase"): quit(1); return
+	print("FRACTIONAL_PRESS_SESSION_%s %s %d" % ["FAIL" if failed else "PASS", role, checks])
+	quit(1 if failed else 0)
+
 func run() -> void:
+	if fractional_press and (overload or cog_train or span_belt or reverse_belt or middle_pulley):
+		push_error("The fractional press case cannot be combined with other transmission cases")
+		quit(1)
+		return
 	if overload and (cog_train or span_belt or reverse_belt or middle_pulley):
 		push_error("The overload case cannot be combined with other transmission cases")
 		quit(1)
@@ -575,6 +698,9 @@ func run() -> void:
 	container.add_child(session)
 	root.add_child(container)
 	session.outcome.connect(func(value: Dictionary): replies[value.request] = value)
+	if fractional_press:
+		await run_fractional_press()
+		return
 	if overload:
 		await run_overload()
 		return

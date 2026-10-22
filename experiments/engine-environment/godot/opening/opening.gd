@@ -471,9 +471,9 @@ class ProductionWheelArt:
 	extends RefCounted
 	## A reusable visual component. Native geometry and motion never read this mesh.
 	const ROOT := "res://opening/assets/waterwheel"
-	const FILES := ["rim.gltf", "rim.bin", "hub_spokes.gltf", "hub_spokes.bin",
-		"wood_albedo.jpg", "wood_normal.webp", "wood_arm.webp"]
 	const CENTRE_COLOR := "wood_center_albedo.webp"
+	const FILES := ["rim.gltf", "rim.bin", "hub_spokes.gltf", "hub_spokes.bin",
+		"wood_albedo.jpg", "wood_normal.webp", "wood_arm.webp", CENTRE_COLOR]
 	const RIM_OUTER_RADIUS := 0.57
 	const RIM_INNER_RADIUS := 0.506
 	const HUB_OUTER_RADIUS := 0.06631
@@ -558,16 +558,13 @@ class ProductionWheelArt:
 		material.normal_enabled = true
 		material.normal_texture = ImageTexture.create_from_image(images.normal)
 		material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
-		var centre_material := material
-		var centre_path := ROOT.path_join(CENTRE_COLOR)
-		if ProductionVisuals.image_exists(centre_path):
-			var centre_color := ProductionVisuals.read_image(centre_path)
-			if centre_color == null or centre_color.get_size() != Vector2i(1024, 1024) \
-				or centre_color.generate_mipmaps(false) != OK:
-				push_error("Cannot prepare the wheel center color grade.")
-				return
-			centre_material = material.duplicate() as StandardMaterial3D
-			centre_material.albedo_texture = ImageTexture.create_from_image(centre_color)
+		var centre_color := ProductionVisuals.read_image(ROOT.path_join(CENTRE_COLOR))
+		if centre_color == null or centre_color.get_size() != Vector2i(1024, 1024) \
+			or centre_color.generate_mipmaps(false) != OK:
+			push_error("Cannot prepare the wheel center color grade.")
+			return
+		var centre_material := material.duplicate() as StandardMaterial3D
+		centre_material.albedo_texture = ImageTexture.create_from_image(centre_color)
 		rim_mesh = split_rim
 		hub_spokes_mesh = split_inner
 		sized_rims.clear()
