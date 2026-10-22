@@ -6,11 +6,13 @@ Rico Cilliers with photography by Rob Tuytel. The source is licensed under
 [CC0](https://polyhaven.com/license). `source.json` records the original files,
 selection, preparation and shipped resource identity.
 
-The selected plant is approximately 1.05 metres tall with a roughly three-centimetre
-lower stem. It is young, noncolliding understory, not a mature rigid tree. Six
-instances at most share its full bark and modeled-needle geometry; no authored
-distance level exists in the source. The source catalogue's one-metre X offset is
-omitted, without changing the selected mesh coordinates.
+The selected source plant is approximately 1.05 metres tall with a roughly
+three-centimetre lower stem. Six instances scale its height within 1.15 to 2.99
+times source size, with modest width variation, and occupy both riverbanks.
+They remain young, noncolliding understory that construction can clear. The
+full bark and modeled-needle geometry is shared; no authored distance level
+exists in the source. The source catalogue's one-metre X offset is omitted,
+without changing the selected mesh coordinates.
 
 The pinned Godot 4.7.2 importer supplies compressed position, UV and normal/tangent
 attributes. We preserve those buffers rather than expanding and repacking them.

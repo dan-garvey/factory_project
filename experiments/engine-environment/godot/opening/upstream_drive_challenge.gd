@@ -68,7 +68,6 @@ func evaluate() -> Dictionary:
 		"actual_wheel_cell": [],
 		"collector_row": -999,
 		"source_at_target": false,
-		"power_enabled": false,
 		"machines_placed": 0,
 		"rotating_machines": 0,
 		"machines_running": false,
@@ -194,7 +193,6 @@ func evaluate() -> Dictionary:
 
 	var source_at_target: bool = native.source_at_target
 	var machines_running: bool = native.machines_running
-	var power_enabled: bool = state.get("power_enabled", false) == true
 	var spare_gears: int = _spare_count(state, actor, "gear")
 	var spare_shafts: int = _spare_count(state, actor, "shaft")
 
@@ -248,9 +246,6 @@ func evaluate() -> Dictionary:
 		elif not wheel_coupled:
 			diagnostic_code = "missing_drive_shaft"
 			diagnostic_text = "Drive train incomplete: connect the upstream waterwheel and machines using aligned axles, cogs and shafts where needed."
-		elif not power_enabled:
-			diagnostic_code = "drive_switched_off"
-			diagnostic_text = "Drive is switched off: press Start drive [P] near the waterwheel to power the transmission."
 		else:
 			diagnostic_code = "missing_drive_shaft"
 			diagnostic_text = "The collector, belt shafts and press must receive rotating power from the upstream waterwheel at [%d, %d]." % [
@@ -279,7 +274,6 @@ func evaluate() -> Dictionary:
 		"actual_wheel_cell": actual_wheel_cell,
 		"collector_row": collector_row,
 		"source_at_target": source_at_target,
-		"power_enabled": power_enabled,
 		"machines_placed": machines_placed,
 		"rotating_machines": rotating_machines,
 		"machines_running": machines_running,

@@ -356,6 +356,16 @@ func check_mineral_seam() -> void:
 				"The visible ore field spans both admitted collector cells beyond the narrow source rock.")
 			verify(ground.material_override == Assets.source_ground and ground.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF,
 				"The wider ore color remains a passive surface without a second shadow or collider.")
+			var soil: Texture2D = Assets.source_ground.albedo_texture
+			var ground_colors: PackedColorArray = ground.mesh.surface_get_arrays(0)[Mesh.ARRAY_COLOR]
+			var least_alpha := 1.0
+			var most_alpha := 0.0
+			for color in ground_colors:
+				least_alpha = minf(least_alpha, color.a)
+				most_alpha = maxf(most_alpha, color.a)
+			verify(soil != null and soil.get_size().x >= 1024 and ground_colors.size() > 240
+				and least_alpha < 0.01 and most_alpha > 0.30,
+				"The mineral ground uses a detailed prepared map with a transparent terrain edge.")
 			var veins: MeshInstance3D = exposure.get_node("MineralVeins")
 			verify(veins.transform == Transform3D.IDENTITY, "The vein mesh uses the same world placement as its surface queries.")
 			check_exposure_mesh(veins.mesh)

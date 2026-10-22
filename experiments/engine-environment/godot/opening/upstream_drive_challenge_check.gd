@@ -86,8 +86,7 @@ func _run() -> void:
 	host.state.motion.collector.state = "stalled"
 	verify(challenge.evaluate().diagnostic_code == "stalled_transmission", "A stalled component remains diagnosable.")
 	host.state.motion.collector.state = "unpowered"
-	host.state.power_enabled = false
-	verify(challenge.evaluate().diagnostic_code == "drive_switched_off", "A connected but switched-off drive remains diagnosable.")
+	verify(challenge.evaluate().diagnostic_code == "missing_drive_shaft", "A disconnected machine asks for a physical drive connection.")
 
 	host.state = fixture()
 	host.state.opening_engineering.P = report("P", 4, "move_source", false, true, true)

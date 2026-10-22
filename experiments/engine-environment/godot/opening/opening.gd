@@ -3429,32 +3429,39 @@ class ProductionEnvironment:
 		var buffer := PackedFloat32Array()
 		var bounds := AABB()
 		var count := 0
-		# Young, soft-stemmed understory, not solid mature trees. Keep the
-		# working bank open and retain the complete source mesh at each root.
-		for n in range(24):
-			var z := -5.0 + float((n * 7) % 24) * 0.65
-			var x := river_center_x(z) - channel_half_width(z) - 2.2 - float(n % 3) * 0.75
+		# Age and bank position vary across the same sourced young-pine mesh.
+		# These remain soft plants that construction can clear, not mature solids.
+		for n in range(64):
+			var z := -17.0 + float((n * 11) % 43) * 0.72
+			var side := -1.0 if n % 2 == 0 else 1.0
+			var x := river_center_x(z) + side * (channel_half_width(z) + 3.2 + float(n % 4) * 1.1)
 			if _terrain_facet_normal(x, z).y < 0.86:
 				continue
 			var at := Vector3(x, Surface.height_at(x, z) - 0.015, z)
-			var basis := Basis(Vector3.UP, float(n) * 2.399963).scaled_local(Vector3.ONE * (0.85 + 0.1 * float(n % 5)))
+			var age := 1.15 + float((n * 7) % 9) * 0.23
+			var breadth := 0.86 + float(n % 4) * 0.09
+			var basis := Basis(Vector3.UP, float(n) * 2.399963).scaled_local(Vector3(age * breadth, age, age / breadth))
 			var envelope: AABB = Transform3D(basis, at) * pine_cluster_mesh.get_aabb()
-			var clear := envelope.position.z >= -8.0 and envelope.end.z <= 12.0
+			var clear := envelope.position.z >= -22.0 and envelope.end.z <= 22.0
 			var margin := 0.3 + 0.6 * envelope.size.z / 16.0
 			for row in range(9):
 				var edge_z := lerpf(envelope.position.z, envelope.end.z, float(row) / 8.0)
-				if envelope.end.x >= river_center_x(edge_z) - channel_half_width(edge_z) - margin:
+				var edge_x := river_center_x(edge_z) + side * (channel_half_width(edge_z) + margin)
+				if (side < 0.0 and envelope.end.x >= edge_x) or (side > 0.0 and envelope.position.x <= edge_x):
 					clear = false
 			for solid in Surface.support_boxes():
 				var half: Vector3 = solid.size * 0.5
 				var solid_bounds: AABB = Transform3D(solid.basis, solid.center) * AABB(-half, solid.size)
 				if envelope.intersects(solid_bounds.grow(0.2)):
 					clear = false
+			for fir in Surface.fir_specs():
+				if envelope.intersects(fir.bounds.grow(0.2)):
+					clear = false
 			if not clear:
 				continue
 			# Do not stack one expensive source mesh over another.
 			for offset in range(0, buffer.size(), 12):
-				if Vector2(at.x - buffer[offset + 3], at.z - buffer[offset + 11]).length() < 1.2:
+				if Vector2(at.x - buffer[offset + 3], at.z - buffer[offset + 11]).length() < 2.4:
 					clear = false
 			if not clear:
 				continue
@@ -3575,7 +3582,7 @@ class ProductionEnvironment:
 			var basis: Basis = spec.basis * Basis.from_scale(spec.mesh_scale)
 			var color: Color = spec.color
 			if stone_source_status == "ready":
-				color = Color.WHITE.lerp(color, 0.2)
+				color = Color.WHITE.lerp(color, 0.38)
 			buffer.append_array(PackedFloat32Array([
 				basis.x.x, basis.y.x, basis.z.x, position.x,
 				basis.x.y, basis.y.y, basis.z.y, position.y,
@@ -4272,7 +4279,6 @@ var engineering_presenter
 var mechanical_ambience
 var confirm_button: Button
 var retrieve_button: Button
-var power_button: Button
 var remove_button: Button
 var save_button: Button
 var load_button: Button
@@ -4328,7 +4334,7 @@ func _ready() -> void:
 	if _native_transmission():
 		_message(FIRST_COLLECTOR_HINT)
 	else:
-		_message("Build a small line. Choose a part, then click a grid square." if legacy_fixture else "WASD walks. Build nearby; approach the wheel to operate the drive [P].")
+		_message("Build a small line. Choose a part, then click a grid square." if legacy_fixture else "WASD walks. Build nearby; a wheel in the stream drives connected parts.")
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--resume-input="):
 			var result: Dictionary = _load_worksite(argument.trim_prefix("--resume-input="), true)
@@ -4716,9 +4722,6 @@ func _release_character_controls() -> void:
 	if character_presenter != null:
 		character_presenter.release()
 
-func _power_key() -> String:
-	return "Space" if legacy_fixture else "P"
-
 func configure_save_slot(path: String) -> void:
 	# The launcher supplies a fresh external session directory. One cooperating
 	# writer owns this slot; this is not a cross-process filesystem lock.
@@ -4812,7 +4815,7 @@ func issue(action: Dictionary) -> Dictionary:
 			"place_foundation": "Foundation placed. Its surface shares the machine grid.",
 			"place_foundations": "Foundation area placed on the world grid.",
 			"connect": "Material path connected.", "connect_drive": "Drive shaft connected.",
-			"retrieve": "Plate collected.", "pickup_material": "Loose material collected.", "load_belt_slot": "Material placed on the belt.", "set_power": "Drive updated.",
+			"retrieve": "Plate collected.", "pickup_material": "Loose material collected.", "load_belt_slot": "Material placed on the belt.",
 			"remove": "Part returned to your carried kit.",
 			"disconnect": "Material connection removed.",
 			"disconnect_drive": "Drive shaft returned."}.get(action.action, "Done."))
@@ -5127,10 +5130,9 @@ func _input(event: InputEvent) -> void:
 			return
 	# Consume both edges of global shortcuts so a
 	# previously focused GUI button cannot also activate on the release.
-	if event is InputEventKey and (event.keycode in [KEY_F5, KEY_F9] or event.keycode == (KEY_SPACE if legacy_fixture else KEY_P)):
+	if event is InputEventKey and event.keycode in [KEY_F5, KEY_F9]:
 		if event.pressed and not event.echo and not explanation_open:
 			match event.keycode:
-				KEY_SPACE, KEY_P: _toggle_power()
 				KEY_F5:
 					if not startup_save_pending:
 						_save_worksite()
@@ -5335,9 +5337,6 @@ func _open_pointed_machine() -> void:
 	_select_tool("inspect")
 	selected = target
 	_refresh_ui()
-
-func _toggle_power() -> void:
-	issue({"action": "set_power", "active": not state.get("power_enabled", true)})
 
 func _remove_selected() -> void:
 	if not selected.is_empty():
@@ -6188,6 +6187,8 @@ func _collect_wheel_rotor_parts(node: Node3D, pose: Transform3D, parts: Array[Di
 			var part := child as MeshInstance3D
 			if part.mesh == null or part.material_overlay != null:
 				return false
+			if part.visibility_range_end > 0.0:
+				continue
 			for surface in part.mesh.get_surface_count():
 				var finish: Material = part.material_override
 				if finish == null:
@@ -6198,19 +6199,22 @@ func _collect_wheel_rotor_parts(node: Node3D, pose: Transform3D, parts: Array[Di
 					return false
 				if part.mesh is ArrayMesh and part.mesh.surface_get_primitive_type(surface) != Mesh.PRIMITIVE_TRIANGLES:
 					return false
-				parts.append({"mesh": part.mesh, "surface": surface, "finish": finish,
+				parts.append({"source": part, "mesh": part.mesh, "surface": surface, "finish": finish,
 					"pose": child_pose, "shadow": part.cast_shadow, "layers": part.layers})
 		if not _collect_wheel_rotor_parts(child, child_pose, parts):
 			return false
 	return true
 
-func _wheel_rotor_batch_mesh(rotor: Node3D) -> Mesh:
+func _wheel_rotor_batch_mesh(rotor: Node3D, hidden_core: Array[MeshInstance3D]) -> Mesh:
 	var key: Array = rotor.get_meta("visual_batch_key", [])
-	if machine_batch_rotor_meshes.has(key):
-		return machine_batch_rotor_meshes[key]
 	var parts: Array[Dictionary] = []
 	if not _collect_wheel_rotor_parts(rotor, Transform3D.IDENTITY, parts) or parts.is_empty():
 		return null
+	for part in parts:
+		if part.source not in hidden_core:
+			hidden_core.append(part.source)
+	if machine_batch_rotor_meshes.has(key):
+		return machine_batch_rotor_meshes[key]
 	var groups := {}
 	var shadow: int = parts[0].shadow
 	var layers: int = parts[0].layers
@@ -6241,15 +6245,18 @@ func _batch_machine_visuals_walk(node: Node3D, pose: Transform3D,
 	var next_pose := pose * node.transform
 	var in_rotor: bool = rotating or node.name == "WheelRotor"
 	if node.name == "WheelRotor":
-		var combined := _wheel_rotor_batch_mesh(node)
+		var hidden_core: Array[MeshInstance3D] = []
+		var combined := _wheel_rotor_batch_mesh(node, hidden_core)
 		if combined != null:
 			var key := [combined.get_instance_id(), 0, GeometryInstance3D.SHADOW_CASTING_SETTING_ON, 1]
 			if not dynamic_groups.has(key):
 				dynamic_groups[key] = {"mesh": combined, "material": null,
 					"shadow": GeometryInstance3D.SHADOW_CASTING_SETTING_ON, "layers": 1, "parts": []}
-			dynamic_groups[key].parts.append({"node": node, "pose": next_pose})
+			dynamic_groups[key].parts.append({"node": node, "pose": next_pose,
+				"hide_nodes": hidden_core})
 			return
-	if node is MeshInstance3D and node.mesh != null and node.name != "ConveyorLoop":
+	if node is MeshInstance3D and node.mesh != null and node.name != "ConveyorLoop" \
+			and node.visibility_range_end <= 0.0:
 		var mesh_part := node as MeshInstance3D
 		var material := mesh_part.material_override
 		var overrides := mesh_part.material_overlay != null
@@ -6289,7 +6296,11 @@ func _emit_machine_mesh_batches(groups: Dictionary, batches: Node3D, dynamic: bo
 			var part_bounds: AABB = group.parts[index].pose * group.mesh.get_aabb()
 			bounds = bounds.merge(part_bounds)
 			motion_margin = maxf(motion_margin, part_bounds.size.length())
-			group.parts[index].node.visible = false
+			if group.parts[index].has("hide_nodes"):
+				for source in group.parts[index].hide_nodes:
+					source.visible = false
+			else:
+				group.parts[index].node.visible = false
 		multi.custom_aabb = bounds.grow(maxf(6.0, motion_margin)) if dynamic else bounds
 		var instance := MultiMeshInstance3D.new()
 		instance.name = "MachineBatch%d" % batch_index
@@ -6568,10 +6579,7 @@ func _refresh_ui() -> void:
 	var belt_raw: int = int(state.get("line_belt_raw", 0)) if _native_transmission() else state.stock.belt
 	stock_label.text = "ORE DEPOSIT  %d blanks\nIN THE LINE  %d blanks\nPRESS OUTLET  %d plate" % [state.stock.source,
 		state.stock.collector + belt_raw + state.stock.input + state.stock.held, state.stock.output]
-	power_label.text = "DRIVE RUNNING" if state.get("powered", false) else "DRIVE SWITCHED OFF" if not state.get("power_enabled", true) else "DRIVE NEEDS CONNECTIONS"
-	power_button.text = ("Stop drive  [%s]" if state.get("power_enabled", true) else "Start drive  [%s]") % _power_key()
-	power_button.tooltip_text = "" if legacy_fixture else "Approach the waterwheel to operate the drive."
-	power_button.disabled = explanation_open
+	power_label.text = "DRIVE RUNNING" if state.get("powered", false) else "DRIVE NEEDS CONNECTIONS"
 	save_button.disabled = explanation_open or not save_slot_ready or startup_save_pending or (not legacy_fixture and not state.get("actors", {}).get(client, {}).get("ready", false))
 	load_button.disabled = explanation_open or not save_slot_ready or (legacy_fixture and not save_slot_owned)
 	load_button.text = "Load worksite  [F9]" if legacy_fixture else "How to reopen save  [F9]"
@@ -6688,7 +6696,6 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	for control in [stock_label, power_label, save_button, load_button]:
 		control.visible = show_details
 	actor_label.visible = show_details or not state.get("actors", {}).get(client, {}).get("ready", false)
-	power_button.visible = kinds.has("wheel")
 	controls_label.text = "B catalog  ·  1–8 build  ·  E open  ·  F dismantle  ·  H guide  ·  Ctrl+D details"
 	_refresh_engineering(snapshot_ready)
 	var target_selected: bool = _contains_target(state, selected)
@@ -7054,8 +7061,6 @@ func _guided_step(kinds: Dictionary) -> Dictionary:
 		return {"text": "Connect the material path. Help [H] shows an example.", "tool": "flow"}
 	if not kinds.has("wheel"):
 		return {"text": "Place a waterwheel in the stream.", "tool": "wheel"}
-	if not state.get("power_enabled", true):
-		return {"text": "Switch on the drive near the wheel [P].", "tool": "inspect"}
 	if _native_transmission():
 		var motion: Dictionary = state.get("motion", {})
 		for id in state.get("entities", {}):
@@ -7085,22 +7090,19 @@ func _inspection_hint() -> String:
 	# Describe confirmed projection facts only. This is advice, never admission
 	# or a second power solver; the authority still decides every command.
 	var kind: String = state.entities[selected].kind
-	var stop_before_link: bool = state.get("powered", false) and not state.get("options", {}).get("native", false)
 	var rotating: bool = state.get("powered", false)
 	if _native_transmission():
 		rotating = state.get("motion", {}).get(selected, {}).get("state", "") == "rotating"
 	if kind == "processor" and state.stock.output > 0:
 		return "Outlet full; plate ready.\n[R] collect to make room."
-	if not state.get("power_enabled", true):
-		return "Drive switched off.\n[%s] enables the drive%s." % [_power_key(), "" if legacy_fixture else " near wheel"]
 	if kind == "processor" and state.stock.held > 0 and rotating:
 		if state.remaining == 0:
 			return "Work done; blank retained.\nNext drive tick releases plate."
 		return "Working: %d ticks remaining.\nHeld blank stays in the press." % state.remaining
 	if kind in ["belt", "processor"] and not _has_material_connection(true):
-		return (("Inlet missing. Stop [%s].\n" % _power_key()) if stop_before_link else "No material inlet linked.\n") + ("[C]" if _native_transmission() else "[F]") + " link " + ("Collector → Belt." if kind == "belt" else "Belt → Press.")
+		return "No material inlet linked.\n" + ("[C]" if _native_transmission() else "[F]") + " link " + ("Collector → Belt." if kind == "belt" else "Belt → Press.")
 	if kind in ["collector", "belt"] and not _has_material_connection(false):
-		return (("Outlet missing. Stop [%s].\n" % _power_key()) if stop_before_link else "No material outlet linked.\n") + ("[C]" if _native_transmission() else "[F]") + " link " + ("Collector → Belt." if kind == "collector" else "Belt → Press.")
+		return "No material outlet linked.\n" + ("[C]" if _native_transmission() else "[F]") + " link " + ("Collector → Belt." if kind == "collector" else "Belt → Press.")
 	if not rotating:
 		if _native_transmission():
 			if kind == "wheel":
@@ -7119,7 +7121,7 @@ func _inspection_hint() -> String:
 		return "Collecting finite ore blanks.\nBelt takes the next blank."
 	if kind == "belt":
 		return "Belt carrying a blank.\nInspect the Press downstream." if state.stock.belt > 0 else "Waiting for a blank.\nInspect the Collector upstream."
-	return "Wheel rotates.\n[%s] stops it%s." % [_power_key(), " for editing" if legacy_fixture else " from nearby"]
+	return "Wheel rotates in the stream.\nConnected parts receive its motion."
 
 func _has_material_connection(incoming: bool) -> bool:
 	for pair in state.links:
@@ -7395,7 +7397,6 @@ func _build_interface() -> void:
 	inspector.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	retrieve_button = _button(right, "Collect plate  [Ctrl+R]", _retrieve)
 	_accent_button(retrieve_button)
-	power_button = _button(right, "Stop drive  [Space]", _toggle_power)
 	remove_button = _button(right, "Dismantle selected  [Delete]", _remove_selected)
 	# Older scripted launch payloads have a fixed roster without this native UI.
 	var recovery_path := "res://opening/recovery_actions.gd"

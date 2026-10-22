@@ -513,9 +513,12 @@ separate surface finishes receive one cached visual mesh with those finishes
 bound to its surfaces before batching. Each wheel's rotor surfaces become one
 cached mesh with one independently updated transform per wheel. Conveyor loops
 use a shared shader and per-instance texture phase while their hidden source
-materials retain the original offset. Isolated 12-machine collector and press
-captures matched their direct renders byte for byte. The conveyor close view
-changed 90 pixels by at most one 8-bit channel step, and a flat wheel silhouette
+materials retain the original offset. Wheel joinery with an original visibility
+range remains an individual source part so its distance culling still applies;
+the shared rotor holds the silhouette and other permanent surfaces. Isolated
+12-machine collector and press captures matched their direct renders byte for
+byte. The conveyor close view changed 90 pixels by at most one 8-bit channel
+step, and a flat wheel silhouette
 matched exactly; shaded wheels differed slightly. This fixture repeats
 visual assemblies in a regular layout and does not exercise native placement,
 the complete opening or human play. The threshold and batch sizes are adapter

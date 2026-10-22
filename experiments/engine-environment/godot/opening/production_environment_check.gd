@@ -1454,8 +1454,8 @@ func check_pine_root(basis: Basis, at: Vector3) -> void:
 			"The original stem root embeds slightly in the actual emitted terrain triangle.")
 		found = true
 	verify(found and basis.is_finite() and basis.y.normalized().dot(Vector3.UP) > 0.99999
-		and basis.y.length() >= 0.8499 and basis.y.length() <= 1.2501,
-		"Young stems keep gravity-up orientation and their declared near-source scale.")
+		and basis.y.length() >= 1.1499 and basis.y.length() <= 2.9901,
+		"Young stems keep gravity-up orientation across the bounded age range.")
 	print(JSON.stringify({"root": [at.x, at.y, at.z], "strict_triangle_inclusion": strict_found,
 		"edge_inclusive_triangle": found, "up": [basis.y.x, basis.y.y, basis.y.z]}))
 
@@ -1519,22 +1519,36 @@ func check_pine_understory() -> void:
 		verify(instances.mesh == mesh and original.size() == instances.instance_count * 12
 			and patch.visibility_range_end == 32.0 and patch.material_override == null,
 			"Both consumers share original surface materials, cached geometry and a declared visibility range.")
+		var west := 0
+		var east := 0
+		var shortest := INF
+		var tallest := 0.0
 		for offset in range(0, original.size(), 12):
 			var basis := Basis(Vector3(original[offset], original[offset + 4], original[offset + 8]),
 				Vector3(original[offset + 1], original[offset + 5], original[offset + 9]),
 				Vector3(original[offset + 2], original[offset + 6], original[offset + 10]))
 			var at := Vector3(original[offset + 3], original[offset + 7], original[offset + 11])
+			shortest = minf(shortest, basis.y.length())
+			tallest = maxf(tallest, basis.y.length())
 			check_pine_root(basis, at)
 			var envelope: AABB = Transform3D(basis, at) * mesh.get_aabb()
 			verify(instances.custom_aabb.grow(0.0001).encloses(envelope), "Culling bounds enclose every entire sapling.")
 			for row in range(33):
 				var z := lerpf(envelope.position.z, envelope.end.z, float(row) / 32.0)
-				verify(envelope.end.x < Scenery.river_center_x(z) - Scenery.channel_half_width(z) - 0.3,
-					"The complete plant stays outside the water and eastern construction bank.")
+				var west_edge := Scenery.river_center_x(z) - Scenery.channel_half_width(z) - 0.3
+				var east_edge := Scenery.river_center_x(z) + Scenery.channel_half_width(z) + 0.3
+				verify(envelope.end.x < west_edge or envelope.position.x > east_edge,
+					"The complete plant stays outside the water on its selected bank.")
+			if envelope.end.x < Scenery.river_center_x(at.z):
+				west += 1
+			else:
+				east += 1
 			for solid in Scenery.Surface.support_boxes():
 				var half: Vector3 = solid.size * 0.5
 				var solid_bounds: AABB = Transform3D(solid.basis, solid.center) * AABB(-half, solid.size)
 				verify(not envelope.intersects(solid_bounds.grow(0.2)), "The whole plant clears existing rock envelopes.")
+		verify(west > 0 and east > 0 and tallest - shortest > 0.6,
+			"The ordinary scene shows young pines of visibly different ages on both banks.")
 		# Disclosed invented confirmed facts call the actual offline/shared view;
 		# these are presentation controls, not new material or native admissions.
 		var cell := [roundi(original[3] / 1.65), roundi(original[11] / 1.65)]

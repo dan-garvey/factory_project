@@ -233,9 +233,7 @@ func _run() -> void:
 	var d := _cog([4, 4, 16], "z", 2)
 	if d.is_empty(): return
 	if not await _approach(Vector2(0.7, 2.9)) or not await _approach(Vector2(0.0, 2.9)): return
-	if not _expect(not opening.state.power_enabled, "The fresh source starts switched off."): return
-	if _invoke("Start drive button", {"action": "set_power", "active": true}, [_anchor([-8, 4, 8])],
-		func(): opening.power_button.pressed.emit()).is_empty(): return
+	if not _expect(opening.state.power_enabled, "The waterwheel drives the connected line automatically."): return
 	if not _direction(a.entity, -1) or not _direction(b.entity, -1) or not _direction(d.entity, 1): return
 	if not _expect(opening.state.powered, "Confirmed geometry powers the collector."): return
 	var anchor := _part_node(a.entity)

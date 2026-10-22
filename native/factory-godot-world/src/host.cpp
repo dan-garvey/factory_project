@@ -397,8 +397,6 @@ bool historical_wire(const authority::Record& record) {
     if (*action == "load_belt_slot")
         return *original_action == "load_belt_slot" && keys(*wire, {"entity", "slot", "item", "work_id"}) &&
             same("entity", "target") && same("slot", "slot") && same("item", "item") && same("work_id", "work_id");
-    if (*action == "set_drive")
-        return *original_action == "set_power" && keys(*wire, {"active"}) && same("active", "enabled");
     if (*action == "remove" || *action == "recover")
         return *original_action == *action && keys(*wire, {"entity"}) && same("entity", "target");
     if (*action == "remove_foundation")
@@ -607,6 +605,7 @@ Value Host::initialize_site(const std::string& context, const std::vector<std::s
         {{Role::gearbox, 0, 0}, 2}, {{Role::vertical_gearbox, 0, 0}, 2},
         {{Role::chain_drive, 0, 0}, 8}};
     world::State seed;
+    seed.topology.drive_enabled = true;
     seed.material.initial_units = profile.initial_units;
     seed.material.stock.source = profile.initial_units;
     if (arrival) {
@@ -1408,15 +1407,6 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.emplace("slot", wire.at("slot"));
         normalized.emplace("item", wire.at("item"));
         normalized.emplace("work_id", wire.at("work_id"));
-    } else if (*action == "set_power") {
-        if (!keys(wire, {"active"}) || !field<bool>(wire, "active")) return refuse("invalid_command");
-        const auto wheel = std::find_if(snapshot.state.topology.parts.begin(), snapshot.state.topology.parts.end(),
-            [](const auto& part) { return part.role == Role::waterwheel; });
-        if (wheel == snapshot.state.topology.parts.end()) return refuse("missing_entity");
-        normalized.at("action") = Value("set_drive");
-        normalized.emplace("target", Value(wheel->geometry.id));
-        normalized.emplace("generation", Value(wheel->generation));
-        normalized.emplace("enabled", wire.at("active"));
     } else if (*action == "remove" || *action == "recover" || *action == "retrieve" ||
                *action == "insert_raw" || *action == "insert_work") {
         const bool amount = *action == "retrieve" || *action == "insert_raw";
@@ -1678,6 +1668,7 @@ Host::Decoded Host::decode(const Value& input) const {
     auto decoded = world::decode_checkpoint(profile_, *context, root->at("world"));
     if (!std::holds_alternative<world::Snapshot>(decoded)) return {nullptr, "native_checkpoint_refused"};
     auto snapshot = std::get<world::Snapshot>(decoded);
+    if (!snapshot.state.topology.drive_enabled) return {nullptr, "native_checkpoint_refused"};
     for (const auto& record : snapshot.history.records) {
         if (!field<Object>(record.intent, "wire")) return {nullptr, "missing_wire_history"};
         if (!historical_wire(record)) return {nullptr, "inconsistent_wire_history"};

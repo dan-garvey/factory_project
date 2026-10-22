@@ -645,9 +645,11 @@ Historical fixed rosters retain their earlier generated finish. This surface
 work supports the natural setting; it does not restore prebuilt man-made scenery
 or establish a scanned silhouette, displacement or human visual-quality verdict.
 
-The sixty-four scenery rocks now reuse the detailed [Boulder 01 mesh](mineral-outcrop/CREDITS.md)
-already delivered for the mineral exposure. Their independent normalized scale
-retains each visible size. A simplified convex hull is expanded to enclose the
+The sixty-four scenery rocks reuse the detailed [Boulder 01 mesh](mineral-outcrop/CREDITS.md)
+already delivered for the mineral exposure. Sixteen loose pockets each mix a
+dominant boulder, a low fragment, a taller broken edge and smaller stones.
+Their independent normalized scale and rigid orientation vary the silhouette
+while retaining each visible size. A simplified convex hull is expanded to enclose the
 asset; its actual bounds supply plant clearance. The shared rigid pose and
 original convex cooking input define the native body. Per-scale cooked reference
 points and facets are prepared once. This replaces the coarse procedural rock
@@ -792,11 +794,11 @@ visual foliage. No harvesting, stock, growth or new controller is introduced.
 Resource, scene and isolated contact checks do not establish rendered balance,
 ordinary traversal, frame cost or the overall production-quality target.
 
-The optional [young pine component](pine/CREDITS.md) frames the opposite bank
-with at most six near-source-scale saplings. Each shares the complete selected
+The optional [young pine component](pine/CREDITS.md) adds six young trees of
+different heights across both banks. Each shares the complete selected
 bark and three-dimensional needle mesh, embedded prepared maps and a 32-metre
 visibility range. Roots follow emitted terrain; whole-plant envelopes clear
-water, rocks and confirmed construction volumes. Confirmed removal restores the derived
+water, mature firs, rocks and confirmed construction volumes. Confirmed removal restores the derived
 plants. These small stems add no collision or saved vegetation state. Historical
 captures without the resource omit them; native resource and presentation checks
 do not establish rendered quality, GPU cost or a general tree interaction policy.

@@ -143,8 +143,6 @@ func set_lesson(index: int) -> void:
 		endpoints.append(_command({"action": "place_shaft", "center": [x, 4, 4], "axis": "z", "half_span": 2}).entity)
 	_observe(2.475, 0.0)
 	_command({"action": "place_belt_span", "from": endpoints[0], "to": endpoints[1]})
-	_observe(-1.65, 0.0)
-	_command({"action": "set_power", "active": lesson >= 1})
 	if lesson >= 2:
 		for turn in range(512):
 			var state: Dictionary = model.projection()
@@ -181,7 +179,7 @@ func _refresh() -> void:
 			if slot is Dictionary:
 				belt_raw += int(slot.get("raw", 0))
 	readout.text = "EXAMPLE tick %d · %s · cycle %d\nOre deposit %d → collector %d → belt %d → input %d → held %d → outlet %d · collected %d" % [
-		ticks, "powered" if state.powered else ("stopped" if not state.power_enabled else "unpowered"), state.remaining,
+		ticks, "powered" if state.powered else "unpowered", state.remaining,
 		stock.source, stock.collector, belt_raw, stock.input, stock.held, stock.output, stock.player]
 	inspect_label.text = "Click a machine in the example to inspect its material and drive connections."
 	if state.entities.has(inspected):
