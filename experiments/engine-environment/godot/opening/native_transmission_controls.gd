@@ -18,15 +18,15 @@ var _sizes: PopupMenu
 var _links: PopupMenu
 
 func _init() -> void:
-	text = "Mechanical transmission…"
+	text = "Mechanical options  [T]"
 	var menu := get_popup()
 	menu.add_radio_check_item("Place cogwheel", 1)
 	menu.add_radio_check_item("Place shaft segment", 6)
 	menu.add_radio_check_item("Place horizontal gearbox", 8)
 	menu.add_radio_check_item("Place vertical gearbox", 9)
 	menu.add_radio_check_item("Place encased chain drive", 10)
-	menu.add_radio_check_item("Connect shafts with a belt", 7)
-	menu.add_item("Leave transmission tools", 5)
+	menu.add_radio_check_item("Connect shafts with a belt  [Alt+3]", 7)
+	menu.add_item("Leave transmission tools  [Esc]", 5)
 	menu.add_separator()
 	_axes = PopupMenu.new()
 	_axes.name = "Axis"
@@ -202,27 +202,27 @@ func refresh() -> void:
 	var gears := _count(context, "gear", gear_teeth, 0)
 	var menu := get_popup()
 	var gear_index := menu.get_item_index(1)
-	menu.set_item_text(gear_index, "Place cogwheel · %d carried" % gears)
+	menu.set_item_text(gear_index, "Place cogwheel  [Alt+1] · %d carried" % gears)
 	menu.set_item_disabled(gear_index, gears == 0)
 	var shaft_index := menu.get_item_index(6)
 	var selected_shafts := _count(context, "shaft", 0, shaft_half_span)
-	menu.set_item_text(shaft_index, "Place shaft segment · %d carried" % selected_shafts)
+	menu.set_item_text(shaft_index, "Place shaft  [Alt+2] · %d carried" % selected_shafts)
 	menu.set_item_disabled(shaft_index, selected_shafts == 0)
 	menu.set_item_checked(shaft_index, active_tool == "place_shaft")
 	menu.set_item_checked(gear_index, active_tool == "gear")
 	menu.set_item_checked(menu.get_item_index(7), active_tool == "belt_span")
 
-	for entry in [[8, "gearbox", "Horizontal gearbox"], [9, "vertical_gearbox", "Vertical gearbox"],
-		[10, "chain_drive", "Encased chain drive"]]:
+	for entry in [[8, "gearbox", "Horizontal gearbox  [Alt+4]"], [9, "vertical_gearbox", "Vertical gearbox  [Alt+5]"],
+		[10, "chain_drive", "Encased chain drive  [Alt+6]"]]:
 		var index: int = menu.get_item_index(entry[0])
 		var amount: int = _count(context, entry[1], 0, 0)
 		menu.set_item_text(index, "%s · %d carried" % [entry[2], amount])
 		menu.set_item_disabled(index, amount == 0)
 		menu.set_item_checked(index, active_tool == entry[1])
-	menu.set_item_text(menu.get_item_index(100), "Axis: " + selected_axis.to_upper())
-	menu.set_item_text(menu.get_item_index(103), "Chain link direction: " + selected_link_axis.to_upper())
-	menu.set_item_text(menu.get_item_index(101), "Placement height: %s" % ("Follow surface" if auto_height else "%d tiles" % (gear_height / 4)))
-	menu.set_item_text(menu.get_item_index(102), "Cog size: " + ("Small" if gear_teeth == 2 else "Large"))
+	menu.set_item_text(menu.get_item_index(100), "Axis [X]: " + selected_axis.to_upper())
+	menu.set_item_text(menu.get_item_index(103), "Chain direction [Shift+X]: " + selected_link_axis.to_upper())
+	menu.set_item_text(menu.get_item_index(101), "Height [Shift+PgUp/PgDn, Ctrl+Home]: %s" % ("Follow surface" if auto_height else "%d tiles" % (gear_height / 4)))
+	menu.set_item_text(menu.get_item_index(102), "Cog size [K]: " + ("Small" if gear_teeth == 2 else "Large"))
 	for index in range(2):
 		var teeth: int = [2, 4][index]
 		_sizes.set_item_checked(index, gear_teeth == teeth)
@@ -239,7 +239,7 @@ func refresh() -> void:
 	_heights.set_item_disabled(2, auto_height)
 	text = {"gear": "Place cogwheel", "place_shaft": "Place shaft segment", "belt_span": "Connect shafts with belt",
 		"gearbox": "Place horizontal gearbox", "vertical_gearbox": "Place vertical gearbox",
-		"chain_drive": "Place encased chain drive"}.get(active_tool, "Mechanical transmission…")
+		"chain_drive": "Place encased chain drive"}.get(active_tool, "Mechanical options") + "  [T]"
 	tooltip_text = "Axis %s · height %s. %d cogwheels and %d shafts carried." % [selected_axis.to_upper(), "follows surface" if auto_height else "%d tiles" % (gear_height / 4), gears, selected_shafts]
 
 func _part(context: Dictionary, id: String) -> Dictionary:
