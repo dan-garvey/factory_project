@@ -938,12 +938,16 @@ func _set_gait(body: Node3D, phase: float, weight: float,
 				# walking to running without leaving an unsupported jog-speed gap.
 				var run_hold := smoothstep(0.55, 0.90, run_mix)
 				var walk_hold := 1.0 - run_hold
-				var hold := walk_hold * (1.0 - smoothstep(0.30, 0.75, landing_progress)) \
+				var fast_handoff := smoothstep(0.75, 0.95, run_mix)
+				var ordinary_hold := walk_hold * (1.0 - smoothstep(0.30, 0.75, landing_progress)) \
 					+ run_hold * (1.0 - smoothstep(0.35, 0.78, landing_progress))
+				var hold := lerpf(ordinary_hold,
+					1.0 - smoothstep(0.85, 0.98, landing_progress), fast_handoff)
 				# Lift the leading boot as its support fades so the recovery travels
 				# through the air instead of sliding along the ground at jog speed.
 				var toe_off_lift := lerpf(0.11, 0.07, run_hold) \
-					* smoothstep(0.32, 0.44, landing_progress) \
+					* smoothstep(lerpf(0.32, 0.85, fast_handoff),
+						lerpf(0.44, 0.92, fast_handoff), landing_progress) \
 					* (1.0 - smoothstep(0.82, 1.0, landing_progress))
 				if hold > 0.0 or toe_off_lift > 0.0:
 					_adult_hold_contact_toe(body, skeleton, landing_toe_anchor, hold, toe_off_lift)
@@ -1031,6 +1035,11 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 				# sample itself stops. A jump without horizontal travel has no step.
 				previous.landing_stride = smoothstep(0.35, 1.35,
 					maxf(horizontal_speed, float(previous.horizontal_speed)))
+				if float(previous.run_mix) > 0.85:
+					# Resume the captured run with its next right support step
+					# arriving as the left landing boot releases the load.
+					previous.phase = float(previous.phase) + wrapf(
+						3.60 - fposmod(float(previous.phase), TAU), -PI, PI)
 		if mode == "landing":
 			previous.impact_age += delta
 			if float(previous.impact_age) >= LANDING_SECONDS:

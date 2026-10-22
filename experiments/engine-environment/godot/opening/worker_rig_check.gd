@@ -1153,21 +1153,24 @@ func run() -> void:
 				and absf(float(sample.y) - 0.01) < 0.015
 		verify(run_early_grounded,
 			"A warmed running landing holds its leading toe through the first supported samples.")
-		verify(float(run_contact.toes[9].y) > 0.045
-			and float(run_contact.toes[9].y) < 0.09
-			and float(run_contact.toes[11].y) > 0.07
-			and float(run_contact.toes[11].y) < 0.095,
-			"The running lead boot lifts into toe-off after its initial plant instead of dragging along support.")
+		var support_overlap := true
+		for index in range(21):
+			support_overlap = support_overlap and minf(float(run_contact.toes[index].y),
+				float(run_contact.trailing_toes[index].y)) < 0.055
+		verify(support_overlap and float(run_contact.toes[16].y) > 0.06
+			and float(run_contact.trailing_toes[16].y) < 0.05
+			and float(run_contact.toes[18].y) > 0.15,
+			"The moving landing keeps one boot supported until the trailing boot catches the load and the lead boot lifts.")
 		var running_swing_clear := true
-		for sample in run_contact.trailing_toes.slice(3, 12):
-			running_swing_clear = running_swing_clear and float(sample.y) > 0.16
+		for sample in run_contact.trailing_toes.slice(3, 7):
+			running_swing_clear = running_swing_clear and float(sample.y) > 0.13
 		var still_boot_supported := true
 		for sample in still_contact.trailing_toes.slice(2, 12):
 			still_boot_supported = still_boot_supported and absf(float(sample.y) - 0.01) < 0.015
 		verify(running_swing_clear and run_contact.trailing_knee_forward > 0.04
 			and still_boot_supported and still_contact.root_exact
 			and still_contact.control_calls == 0,
-			"The trailing boot clears a moving landing without lifting the stationary support or reversing its knee.")
+			"The trailing boot swings before moving contact without lifting stationary support or reversing its knee.")
 		verify(run_contact.arrival.left_step < 0.08
 			and run_contact.arrival.right_step < 0.08
 			and run_contact.arrival.head_step < 0.04
