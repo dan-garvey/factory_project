@@ -90,11 +90,31 @@ void mixed_material_bottleneck_and_isolation() {
           "A wooden shaft is a separate real bottleneck even with the upgraded press cog.");
 }
 
+void collector_and_press_share_one_frame() {
+    auto fixture = connected_line();
+    auto& placed = fixture.state.placed_components;
+    placed.erase("press-frame");
+    placed.at("press-anvil").center = {0, 5, 0};
+    placed.at("press-ram").center = {0, 6, 0};
+    placed.at("press-guide").center = {0, 7, 0};
+    placed.at("press-mount").center = {0, 8, 0};
+    placed.at("press-shaft").center = {0, 8, -1};
+    placed.at("press-cog").center = {0, 8, -2};
+    add(fixture.state, "projected-press-hub-0", mat::Component::wooden_cog, {60, 4, 0});
+    const auto power = w::drive_power(fixture.profile, fixture.state);
+    check(power.mechanical.accepted() && power.mechanical.motion.contains("collector-frame") &&
+              power.mechanical.motion.contains("projected-press-hub-1") &&
+              power.mechanical.motion.contains("press-shaft") &&
+              power.mechanical.motion.contains("press-cog"),
+          "One issued frame supports both fittings, and an issued ID cannot collide with its projected press hub.");
+}
+
 }  // namespace
 
 int main() {
     try {
         mixed_material_bottleneck_and_isolation();
+        collector_and_press_share_one_frame();
         std::cout << "material_strength_test: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {
