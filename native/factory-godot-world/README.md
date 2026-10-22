@@ -25,7 +25,9 @@ quarter-grid world parts with one native material ledger. The Host projects
 their identities, positions and types and reserves a small collision volume
 against actors, terrain obstacles, belts and complete machines. These are not
 yet functional collector or press assemblies. There is still no pod or bench
-mesh, scene crafting/placement controls or multitool input. Older complete-machine kits still seed, so the scene should switch
+mesh, scene crafting/placement controls or multitool input. The experimental
+arrival begins without inherited complete-machine or transmission kits; the
+historical initializer retains those fixtures. The live scene should switch
 only with the linked assembly and presentation work.
 The pod also starts with one identified detachable hand crank. A nearby
 physical actor can take it from the pod tray or return it through Host

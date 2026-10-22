@@ -637,11 +637,12 @@ Value Host::initialize_site(const std::string& context, const std::vector<std::s
             {"tree-north", {{0, 0, 28}, 8}}};
         profile.material.hand_carry_capacity = 24;
     }
-    profile.finite_parts = {{{Role::collector, 0, 0}, 1}, {{Role::belt, 0, 0}, 2},
-        {{Role::processor, 0, 0}, 1}, {{Role::waterwheel, 0, 0}, 1}, {{Role::shaft, 0, 2}, 8},
-        {{Role::gear, 2, 0}, 8}, {{Role::gear, 4, 0}, 2},
-        {{Role::gearbox, 0, 0}, 2}, {{Role::vertical_gearbox, 0, 0}, 2},
-        {{Role::chain_drive, 0, 0}, 8}};
+    if (!arrival)
+        profile.finite_parts = {{{Role::collector, 0, 0}, 1}, {{Role::belt, 0, 0}, 2},
+            {{Role::processor, 0, 0}, 1}, {{Role::waterwheel, 0, 0}, 1}, {{Role::shaft, 0, 2}, 8},
+            {{Role::gear, 2, 0}, 8}, {{Role::gear, 4, 0}, 2},
+            {{Role::gearbox, 0, 0}, 2}, {{Role::vertical_gearbox, 0, 0}, 2},
+            {{Role::chain_drive, 0, 0}, 8}};
     world::State seed;
     seed.topology.drive_enabled = true;
     seed.material.initial_units = profile.initial_units;

@@ -49,6 +49,11 @@ void arrival_projection_and_restore() {
     check(get<I>(kits.at("P"), "foundation") == 15 &&
           get<I>(kits.at("Q"), "foundation") == 0,
           "Only the initial shared stock supplied the deck and remaining carried floor parts.");
+    for (const auto& [actor, stock] : kits)
+        for (const auto& [name, count] : std::get<O>(stock.storage()))
+            if (name != "foundation")
+                check(std::get<I>(count.storage()) == 0,
+                      "Arrival must not gift a complete machine or transmission part to either actor.");
     const auto actors = get<O>(view, "actors");
     check(factory::values::typed_difference(V(get<A>(actors.at("P"), "position")),
           V(get<A>(actors.at("Q"), "position"))).has_value(),
@@ -83,6 +88,21 @@ void arrival_projection_and_restore() {
     check(get<bool>(restored.restore_checkpoint(saved), "accepted") &&
           !factory::values::typed_difference(saved, restored.checkpoint()),
           "Late join and restore retain one settled pod with the exact same foundation custody.");
+    check(get<I>(get<O>(restored.projection(), "part_kits").at("P"), "collector") == 0 &&
+          get<I>(get<O>(restored.projection(), "part_kits").at("P"), "processor") == 0 &&
+          std::get<A>(get<O>(restored.projection(), "part_specifications").at("P").storage()).empty(),
+          "The restored arrival still carries no complete collector or press.");
+}
+
+void historical_initializer_keeps_its_fixture_kit() {
+    Host host;
+    check(get<bool>(host.initialize("legacy-site", {"P"}), "accepted"),
+          "The historical initializer remains available for its existing fixture.");
+    const auto kits = get<O>(host.projection(), "part_kits");
+    check(get<I>(kits.at("P"), "collector") == 1 &&
+          get<I>(kits.at("P"), "processor") == 1 &&
+          get<I>(kits.at("P"), "shaft") == 8,
+          "The historical initializer keeps its original complete-machine kit.");
 }
 void unique_crank_custody_survives_host_restore() {
     Host host;
@@ -133,6 +153,7 @@ void unique_crank_custody_survives_host_restore() {
 int main() {
     try {
         arrival_projection_and_restore();
+        historical_initializer_keeps_its_fixture_kit();
         unique_crank_custody_survives_host_restore();
         std::cout << "arrival_host_test: " << checks << " checks passed\n";
         return 0;
