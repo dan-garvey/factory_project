@@ -972,9 +972,9 @@ func run() -> void:
 			and jog_contact.maximum_contact_step < 0.12 and jog_contact.control_calls == 0
 			and run_contact.anchored and run_contact.root_exact
 			and run_contact.minimum_knee_forward > 0.04
-			and run_contact.retreat < 0.07 and run_contact.maximum_contact_step < 0.08
+			and run_contact.retreat < 0.015 and run_contact.maximum_contact_step < 0.08
 			and run_contact.control_calls == 0,
-			"Jogging and running landings keep the leading boot close to contact without a backwards knee or input side effect.")
+			"Jogging and running landings clear the leading boot before it scrapes backward, without a backwards knee or input side effect.")
 		var run_contact_x: float = run_contact.toes[0].x
 		var run_early_grounded := true
 		for sample in run_contact.toes.slice(0, 6):
@@ -983,9 +983,10 @@ func run() -> void:
 				and absf(float(sample.y) - 0.01) < 0.015
 		verify(run_early_grounded,
 			"A warmed running landing holds its leading toe through the first supported samples.")
-		verify(float(run_contact.toes[9].y) > 0.022
+		verify(float(run_contact.toes[9].y) > 0.045
 			and float(run_contact.toes[9].y) < 0.09
-			and float(run_contact.toes[11].y) > 0.035,
+			and float(run_contact.toes[11].y) > 0.07
+			and float(run_contact.toes[11].y) < 0.095,
 			"The running lead boot lifts into toe-off after its initial plant instead of dragging along support.")
 		check_landing_recovery_profile()
 		check_run_stop_contact()

@@ -936,7 +936,7 @@ func _set_gait(body: Node3D, phase: float, weight: float,
 					+ run_hold * (1.0 - smoothstep(0.35, 0.78, landing_progress))
 				# A running recovery passes weight to the opposite boot quickly.
 				# Lift this leading toe before its ankle follows the receding stride.
-				var toe_off_lift := 0.03 * run_hold * smoothstep(0.38, 0.62, landing_progress) \
+				var toe_off_lift := 0.07 * run_hold * smoothstep(0.38, 0.62, landing_progress) \
 					* (1.0 - smoothstep(0.82, 1.0, landing_progress))
 				if hold > 0.0 or toe_off_lift > 0.0:
 					_adult_hold_contact_toe(body, skeleton, landing_toe_anchor, hold, toe_off_lift)
