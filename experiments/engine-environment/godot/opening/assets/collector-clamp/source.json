@@ -1,0 +1,18 @@
+{
+  "asset": "Bench Vice 01: cast body and fixed jaw",
+  "provider": "Poly Haven",
+  "authors": ["Antanas Kep", "Yann Kervran"],
+  "source_url": "https://polyhaven.com/a/bench_vice_01",
+  "license": "CC0-1.0",
+  "provider_manifest": "https://api.polyhaven.com/files/bench_vice_01",
+  "source_gltf_sha256": "52e61b473f1a7840ddbdabf024cca8dd32e07f694bd247e3a74e8ef5d9a101e2",
+  "preparation": "Select source meshes 0 and 1 as two static root nodes, remove skin references and joint/weight attributes, and leave selected vertex, normal, UV and index accessors and the buffer bytes unchanged. Exclude dial, bar and adjustment rig. Mount only when the native placed tool_mount exists.",
+  "files": {
+    "collector_clamp.gltf": {"bytes": 8226, "sha256": "7c108b210aa7bcd25376279a17499c4058be59dfbadc4f93a5122b0d389886f7"},
+    "bench_vice_01.bin": {"bytes": 131404, "sha256": "47b80c649a7791a7f3ea95d3dca929506a8c2e89506d3982a1a3380dcd3333ee"},
+    "textures/bench_vice_01_diff_1k.jpg": {"bytes": 724482, "sha256": "e453c1bc7c283fb6a9c8da0638173809dfafb8310f5e81112705f5ecf88b5ab7"},
+    "textures/bench_vice_01_nor_gl_1k.jpg": {"bytes": 866287, "sha256": "691b3a3888e689785bdd792522769839cd662d841071e2ea11184b70c012a65e"},
+    "textures/bench_vice_01_arm_1k.jpg": {"bytes": 704241, "sha256": "49d396c052622c12864e3cbfa7dc982e0bb4117bc37fccc15703a97af1b9f24c"}
+  },
+  "limits": "The donor is a static clamping visual in this game. No handle, dial, jaw motion, pressure, work or source collision is imported. Isolated source import and occupied-box checks do not establish rendered worksite or human visual quality."
+}
