@@ -341,6 +341,19 @@ func check_freight_beacon_view() -> void:
 		"The shipment cue retains the native world-space point east of the pod.")
 	for _frame in range(3):
 		await physics_frame
+	# Match the near first-person approach used by the ordinary delivery route.
+	# A centered ray can hit the pick body even when its label falls below the
+	# viewport; the target must advertise itself in that same view.
+	view.camera.position = view.freight_beacon_visual.position + Vector3(-0.05, 1.8, 1.65)
+	view.camera.look_at(view.freight_beacon_visual.position + Vector3(0, 1.5, 0))
+	var near_hit := view._screen_pick(root.get_visible_rect().size / 2.0)
+	var label_screen := view.camera.unproject_position(marker.global_position)
+	var view_size := root.get_visible_rect().size
+	verify(not near_hit.is_empty() and near_hit.collider == view.freight_beacon_visual
+		and not view.camera.is_position_behind(marker.global_position)
+		and label_screen.x > view_size.x * 0.1 and label_screen.x < view_size.x * 0.9
+		and label_screen.y > view_size.y * 0.2 and label_screen.y < view_size.y * 0.8,
+		"The ordinary near E ray sees the shipment label within the usable viewport.")
 	view.camera.position = view.freight_beacon_visual.position + Vector3(0, 2.0, 5.0)
 	view.camera.look_at(view.freight_beacon_visual.position + Vector3(0, 1.3, 0))
 	var hit := view._screen_pick(root.get_visible_rect().size / 2.0)
@@ -407,7 +420,7 @@ func check_freight_beacon_view() -> void:
 	verify(visible_follow_up(view),
 		"The confirmed first receipt reveals the three-plate follow-up in the Work log.")
 	verify("REPEAT ORDER · 0 / 3 PLATES" in view.goal_label.text
-		and marker != null and marker.visible and marker.text == "0 / 3"
+		and marker != null and marker.visible and marker.text == "FREIGHT · 0 / 3"
 		and view.freight_beacon_visual.collision_layer == Opening.Geometry.PICK_LAYER,
 		"The first confirmed receipt opens a selectable three-plate repeat order.")
 	shared.state = view.state.duplicate(true)
@@ -416,7 +429,7 @@ func check_freight_beacon_view() -> void:
 	verify(visible_follow_up(shared),
 		"The shared Work log reveals the follow-up from the same confirmed receipt.")
 	verify("REPEAT ORDER · 0 / 3 PLATES" in shared.goal_label.text
-		and remote_label.text == "0 / 3" and shared.state.cargo.Q.products == 0,
+		and remote_label.text == "FREIGHT · 0 / 3" and shared.state.cargo.Q.products == 0,
 		"The shared actor sees confirmed repeat progress without borrowing P's cargo.")
 	view.state.cargo.P.products = 1
 	view._sync_freight_beacon_visual()
@@ -431,7 +444,7 @@ func check_freight_beacon_view() -> void:
 	shared.state = view.state.duplicate(true)
 	shared._sync_freight_beacon_visual()
 	shared._refresh_ui()
-	verify(remote_label.text == "0 / 3" and "Carry the next plate" not in shared.goal_label.text,
+	verify(remote_label.text == "FREIGHT · 0 / 3" and "Carry the next plate" not in shared.goal_label.text,
 		"The shared repeat cue remains independent of P's unshipped plate.")
 	view.state.freight_beacon.repeat_order_shipped = 2
 	view.state.freight_beacon.shipped_products = 3
@@ -443,7 +456,7 @@ func check_freight_beacon_view() -> void:
 	shared._refresh_ui()
 	verify("REPEAT ORDER · 2 / 3 PLATES" in view.goal_label.text
 		and "REPEAT ORDER · 2 / 3 PLATES" in shared.goal_label.text
-		and marker.text == "2 / 3" and remote_label.text == "2 / 3",
+		and marker.text == "FREIGHT · 2 / 3" and remote_label.text == "FREIGHT · 2 / 3",
 		"Both views show the confirmed intermediate receipt without client-created stock.")
 	view.state.freight_beacon.repeat_order_shipped = 3
 	view.state.freight_beacon.repeat_order_complete = true

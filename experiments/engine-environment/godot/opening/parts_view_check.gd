@@ -48,6 +48,14 @@ class SharedWidgets:
 	func _screen_hand_source(_screen: Vector2) -> String:
 		return hand_pointed
 
+class OfflineWorkshopWidgets extends OfflineWidgets:
+	func _screen_pick(_screen: Vector2) -> Dictionary:
+		return {}
+
+class SharedWorkshopWidgets extends SharedWidgets:
+	func _screen_pick(_screen: Vector2) -> Dictionary:
+		return {}
+
 class SharedSettlementView:
 	extends "res://opening/shared_opening.gd"
 	var observed := ""
@@ -97,6 +105,9 @@ func fixture() -> Dictionary:
 		"stock": {"output": 0}, "inventories": {"P": 0, "Q": 0}}
 
 func _initialize() -> void:
+	if "--workshop-pages-only" in OS.get_cmdline_user_args():
+		call_deferred("_workshop_pages")
+		return
 	if "--field-craft-widget-only" in OS.get_cmdline_user_args():
 		call_deferred("_field_craft_widget")
 		return
@@ -1368,6 +1379,98 @@ func _shared_component_results() -> void:
 		"models": 0, "desktop_operations": 0, "scope": "confirmed shared component feedback"}))
 	quit(0 if failures == 0 else 1)
 
+func _workshop_pages() -> void:
+	root.size = Vector2i(1280, 800)
+	for shared in [false, true]:
+		var view = SharedWorkshopWidgets.new() if shared else OfflineWorkshopWidgets.new()
+		if shared:
+			view.session = SessionStub.new()
+			view.client = "Q"
+		view.state = fixture()
+		view.state.options.native = true
+		view.state.hand_sources = {}
+		view.state.stock = {"source": 16, "collector": 0, "belt": 0, "input": 0, "held": 0, "output": 0}
+		view.state.cargo = {"P": {"raw": 1, "timber": 3, "components": {}},
+			"Q": {"raw": 1, "timber": 3, "components": {}}}
+		view.state.component_recipes = {"wooden_frame": {"timber": 3, "softmetal": 0}}
+		view.state.component_capacity = 20
+		view.state.fabrication_hub = {"id": "pod-fabrication-hub", "installed": true}
+		view.state.fabrication_benches = [{"id": "field-bench", "center": [4, 0, 4]}]
+		view.state.placed_components = {"field-bench": {"component": "wooden_workbench", "center": [4, 0, 4]},
+			"press-frame": {"component": "wooden_frame", "center": [8, 0, 8]},
+			"collector-frame": {"component": "wooden_frame", "center": [0, 0, 0]}}
+		view.state.press_assemblies = [{"frame": "press-frame", "center": [8, 0, 8], "status": "ready",
+			"parts": {"shaft": "press-shaft"}, "open_feeds": [{"entry": [9, 1, 8], "exit": [7, 1, 8]}]}]
+		view.state.collector_assemblies = [{"status": "ready", "center": [0, 0, 0],
+			"parts": {"frame": "collector-frame", "shaft": "collector-shaft"}}]
+		view.state.hand_crank = {"id": "pod-hand-crank", "holder": view.client}
+		var before: Dictionary = view.state.duplicate(true)
+		root.add_child(view)
+		view.selection_ring = MeshInstance3D.new()
+		view.add_child(view.selection_ring)
+		view._build_interface()
+		view._refresh_ui()
+		var panel = view.arrival_assembly_controls
+		await process_frame
+		await process_frame
+		verify(panel.craft_tab.is_visible_in_tree() and panel.press_tab.is_visible_in_tree()
+			and not panel.craft_section.visible and not panel.press_section.visible,
+			"A fresh opening shows workshop entry tabs without the recipe and press details.")
+		verify(view.arrival_assembly_scroll.size.y <= 64.0,
+			"The fresh workshop entry occupies one compact row instead of the expanded recipe panel.")
+		if failures > 0:
+			view.free()
+			break
+		panel.craft_tab.pressed.emit()
+		verify(panel.craft_section.visible and not panel.press_section.visible
+			and panel.field_craft_button.is_visible_in_tree() and panel.craft_button.is_visible_in_tree(),
+			"The explicit Craft parts entry exposes the existing field and bench actions.")
+		panel.craft_tab.pressed.emit()
+		panel.refresh(view.state, view.client, view.selected, true)
+		verify(not panel.craft_section.visible and not panel.press_section.visible,
+			"Closing the active tab survives a refresh of the same target.")
+		panel.press_tab.pressed.emit()
+		verify(panel.press_section.visible and panel.press_status.is_visible_in_tree()
+			and not panel.craft_section.visible,
+			"Press work can be opened on demand before a frame is selected.")
+		panel.press_tab.pressed.emit()
+		view.pointed = "pod-fabrication-hub"
+		view._open_pointed_machine()
+		verify(panel.craft_section.visible and not panel.press_section.visible
+			and panel.selected_bench == view.pointed,
+			"Ordinary E on the pod workshop opens its crafting context.")
+		panel.craft_tab.pressed.emit()
+		view._refresh_ui()
+		verify(not panel.craft_section.visible, "A closed selected workshop stays closed on routine refresh.")
+		view._open_pointed_machine()
+		verify(panel.craft_section.visible, "Ordinary E reopens the same selected workshop after its tab is closed.")
+		view.pointed = "field-bench"
+		view._open_pointed_machine()
+		verify(panel.craft_section.visible and panel.selected_bench == "field-bench",
+			"Ordinary E selects a player-built workshop without reverting to the pod.")
+		view.pointed = "press-frame"
+		view._open_pointed_machine()
+		verify(panel.press_section.visible and not panel.craft_section.visible
+			and panel.feed_button.is_visible_in_tree() and not panel.feed_button.disabled,
+			"Ordinary E on a confirmed press exposes its existing feed controls.")
+		panel.press_tab.pressed.emit()
+		panel.refresh(view.state, view.client, view.selected, false)
+		verify(not panel.press_section.visible and panel.feed_button.disabled,
+			"A readiness refresh preserves a closed page and existing action admission.")
+		view._open_pointed_machine()
+		verify(panel.press_section.visible, "Ordinary E reopens the same selected press after its page is closed.")
+		view.pointed = "collector-frame"
+		view._open_pointed_machine()
+		verify(panel.craft_section.visible and not panel.press_section.visible
+			and panel.collector_cut_button.is_visible_in_tree(),
+			"Ordinary E on a collector keeps its existing cutting controls accessible.")
+		verify(view.state == before and view.issued.is_empty() and view.model == null,
+			"Workshop disclosure changes only local presentation, with no request or native state mutation.")
+		view.free()
+	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
+		"models": 0, "desktop_operations": 0, "scope": "offline/shared workshop disclosure and ordinary E callbacks over invented projections"}))
+	quit(0 if failures == 0 else 1)
+
 func _field_craft_widget() -> void:
 	var view := OfflineWidgets.new()
 	view.state = fixture()
@@ -1390,6 +1493,7 @@ func _field_craft_widget() -> void:
 	view._build_interface()
 	var panel = view.arrival_assembly_controls
 	panel.refresh(view.state, view.client, view.selected, true)
+	panel.craft_tab.pressed.emit()
 	verify(panel != null and panel.field_craft_button.visible and not panel.field_craft_button.disabled,
 		"An arriving actor carrying timber sees the multitool shape action for a wooden frame.")
 	panel.field_craft_button.pressed.emit()

@@ -1530,9 +1530,57 @@ its 25 resource requests completed at
 whole-scene candidate reached cover removal at 19.579 s, and its paired
 no-request control at 19.774 s. These are source-matched adapter and WSL
 renderer measurements, not a human selection or Windows target result.
-Wheel sizes above nine retain procedural preview construction; this is a
-preview-cache limit, not a native size rule. Exact logs and revision limits are
-in `factory-yau.9.27.1`.
+At that revision, wheel sizes above nine retained procedural preview
+construction. The follow-up below removes that selection path. Exact logs and
+revision limits are in `factory-yau.9.27.1`.
+
+## GDC-33: reuse loaded wheel art for unbaked preview sizes
+
+The ordinary baked three-tile wheel already contains the complete rotor,
+paddles, materials and support layout. Its first larger-than-nine selection
+previously called the full procedural assembly, which prepared source GLTF
+meshes and textures synchronously. On pinned Godot 4.7.2 WSL Wayland OpenGL
+Compatibility, NVIDIA RTX 3090, an isolated ten-tile baseline after drawing
+the baked default spent 2660.650 ms constructing and 3081.758 ms through the
+first draw. Preparing the source wheel art alone cost about 1505 ms in a
+separate graphical probe; changing its already loaded sized meshes took about
+12 ms. Those probes identify a cold visual resource path, not native placement
+work.
+
+The preview now clones the baked wheel, resizes only the sourced centre/rims,
+paddle timber UV meshes and scale-dependent small details, then attaches the
+existing alternate-axle support. The ordinary arrival primes the shared
+large-wheel geometry during its reveal, after removing the workshop cover.
+It does not add more source assets or loosen the 48 MiB staged compiler-input
+limit. An exact geometry and surface-attribute fixture compared sizes 10,
+16, 32 and 4096 on all three axes; all 120 variant cases and 53,284 checks
+passed headlessly. This covers presentation geometry, normals, tangents and
+UVs, not native acceptance of every large placement.
+
+In an isolated source-matched graphical probe with warmed shared geometry,
+first construction of sizes 10, 16, 32 and 128 took 8.414, 10.940, 9.061 and
+9.699 ms respectively; the first draw barriers completed at 18.175, 17.335,
+15.750 and 16.052 ms. Thus CPU selection is under one 16.7 ms frame in this
+WSL probe, while the first two draw barriers slightly exceed it. A passive
+ordinary native opening probe on the same WSL renderer removed the workshop
+cover at 19.526 s, completed all preview requests and large-wheel cache
+warming at 20.197 s, and ended the arrival reveal at 22.408 s.
+
+The same isolated fixture on pinned native Windows Godot 4.7.2 OpenGL
+Compatibility, NVIDIA RTX 3090, 1280 by 800 and VSync disabled measured
+a fresh-process ten-tile procedural baseline at 131.281 ms construction and
+438.641 ms through first draw. After priming the common loaded geometry, first
+preview construction of sizes 10, 16, 32 and 128 took 5.260, 5.396, 5.776
+and 5.441 ms; first draw barriers completed at 6.408, 6.389, 6.757 and
+6.520 ms. A Windows headless fixture repeated all 120 variant cases and
+53,284 checks without engine errors. The full Linux headless preview check
+passed 59,519 checks, including selection and authority boundaries.
+A separate Windows ordinary-opening probe using an earlier external native DLL
+stopped at `actor_topology_invalid` before the preview stage; it establishes
+no Windows ordinary-scene startup result. These are automated adapter
+observations, without desktop input, native large-wheel placement or human
+usability evidence. See `factory-yau.9.27.2` for exact logs and fixture
+provenance.
 
 ## Required follow-through
 

@@ -344,6 +344,7 @@ class ArrivalAssemblyControls:
 	var _held_work_ids: Array[int] = []
 	var _last_frame := ""
 	var _press_page := false
+	var _page_open := false
 	var component_choice: OptionButton
 	var bench_choice: OptionButton
 	var pod_workshop_button: Button
@@ -382,8 +383,8 @@ class ArrivalAssemblyControls:
 		add_child(column)
 		var tabs := HBoxContainer.new()
 		column.add_child(tabs)
-		craft_tab = host._button(tabs, "Craft parts", _show_page.bind(false))
-		press_tab = host._button(tabs, "Press work", _show_page.bind(true))
+		craft_tab = host._button(tabs, "Craft parts", _toggle_page.bind(false))
+		press_tab = host._button(tabs, "Press work", _toggle_page.bind(true))
 		craft_tab.toggle_mode = true
 		press_tab.toggle_mode = true
 		craft_section = VBoxContainer.new()
@@ -455,7 +456,7 @@ class ArrivalAssemblyControls:
 		pickup_button = host._button(press_section, "Pick up exit product", _pickup_exit)
 		recover_work_button = host._button(press_section, "Recover held work", _recover_work)
 		crank_button = host._button(press_section, "Take pod crank", _crank)
-		_show_page(false)
+		_update_page()
 		visible = false
 
 	func selected_name() -> String:
@@ -466,13 +467,29 @@ class ArrivalAssemblyControls:
 
 	func _show_page(press: bool) -> void:
 		_press_page = press
-		craft_section.visible = not press
-		press_section.visible = press
-		craft_tab.button_pressed = not press
-		press_tab.button_pressed = press
+		_page_open = true
+		_update_page()
+
+	func _toggle_page(press: bool) -> void:
+		_page_open = not _page_open or _press_page != press
+		_press_page = press
+		_update_page()
+
+	func _update_page() -> void:
+		craft_section.visible = _page_open and not _press_page
+		press_section.visible = _page_open and _press_page
+		craft_tab.button_pressed = craft_section.visible
+		press_tab.button_pressed = press_section.visible
 		var scroller := get_parent() as ScrollContainer
 		if scroller != null:
-			scroller.custom_minimum_size.y = 280 if press else 390
+			scroller.custom_minimum_size.y = (280 if _press_page else 390) if _page_open else 40
+
+	func open_context() -> void:
+		if _bench_ids.has(_selected) or (not _selected_collector(_snapshot, _selected).is_empty()
+				and _press.get("status") != "ready"):
+			_show_page(false)
+		elif not _frame.is_empty():
+			_show_page(true)
 
 	func _bearing(point: Array, center: Array) -> String:
 		if point.size() != 3 or center.size() != 3:
@@ -483,6 +500,7 @@ class ArrivalAssemblyControls:
 		return "north"
 
 	func refresh(snapshot: Dictionary, actor: String, selected: String, ready: bool) -> void:
+		var changed_target := selected != _selected
 		_snapshot = snapshot
 		_actor = actor
 		_selected = selected
@@ -601,7 +619,6 @@ class ArrivalAssemblyControls:
 		if _frame != _last_frame:
 			_route_index = 0
 			_last_frame = _frame
-			_show_page(not _frame.is_empty())
 		var routes: Array = _press.get("open_feeds", [])
 		route_choice.clear()
 		var work_center := _work_center()
@@ -651,6 +668,8 @@ class ArrivalAssemblyControls:
 		pickup_button.disabled = not ready or _exit_drop().is_empty()
 		recover_work_button.visible = not _frame.is_empty()
 		recover_work_button.disabled = not ready or _work_drop().is_empty()
+		if changed_target:
+			open_context()
 
 	func _receiver_route_status(snapshot: Dictionary) -> String:
 		var placed: Dictionary = snapshot.get("placed_components", {})

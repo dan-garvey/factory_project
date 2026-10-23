@@ -23,6 +23,9 @@ receiver and point at it with **E**. The native receipt removes exactly one
 plate from actor cargo, persists through save/rejoin and leaves the workshop
 open for more construction. The four-plate confirmation above describes the
 older complete-machine fixture, not an arrival objective.
+The workshop starts as two compact tabs. Choose **Craft parts** or **Press work**
+to open its controls; choose the same tab again to close them. Point at a
+workshop, collector or press and use **E** to open its relevant controls directly.
 The detached `--script res://opening/guidance_cue_check.gd -- --camera-zoom-only`
 verifies offline and shared camera transitions without launching a controlled
 game session.
@@ -50,10 +53,12 @@ their first selection does not initialize the interface. Collector site and
 axle variants, press rotations and axles, belt axles and resized waterwheels
 use baked presentation resources. The native opening requests those
 resources during its arrival reveal, then attaches them only after loading has
-finished. Waterwheel preview resources share one baked rotor per size and one
-support module per alternate axle. They cover sizes three through nine on
-all three axes; larger sizes retain the procedural preview path. This preview
-range is not a native wheel-size rule.
+finished. Waterwheel preview resources share one baked rotor per size through
+nine and one support module per alternate axle. Larger sizes resize only the
+sourced rotor and paddle meshes from the already loaded three-tile preview.
+The native arrival primes those shared mesh caches after the workshop cover
+is removed. The preview accepts the same tile-size range as construction; the
+baked range is only a source-size choice.
 The native Belt slot places a shaft span, so its baked machine form is retained
 for the existing visual fixture rather than shown by that slot.
 **Build [B]** opens the catalog: choose a destination slot and a carried

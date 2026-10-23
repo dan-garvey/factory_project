@@ -148,6 +148,42 @@ func same_packed_geometry(baked: Node3D, live: Node3D) -> bool:
 					return false
 	return true
 
+func wheel_surface_attributes(node: Node3D) -> Array:
+	var result: Array = []
+	if node is MeshInstance3D and not node.name.begins_with("PortArrow"):
+		for surface in node.mesh.get_surface_count():
+			var arrays: Array = node.mesh.surface_get_arrays(surface)
+			result.append({"normals": arrays[Mesh.ARRAY_NORMAL],
+				"tangents": arrays[Mesh.ARRAY_TANGENT], "uv": arrays[Mesh.ARRAY_TEX_UV]})
+	for child in node.get_children():
+		if child is Node3D:
+			result.append_array(wheel_surface_attributes(child))
+	return result
+
+func same_wheel_surface_attributes(baked: Node3D, live: Node3D) -> bool:
+	var left := wheel_surface_attributes(baked)
+	var right := wheel_surface_attributes(live)
+	if left.size() != right.size():
+		return false
+	for index in left.size():
+		for channel in ["normals", "tangents", "uv"]:
+			var first: Variant = left[index][channel]
+			var second: Variant = right[index][channel]
+			if first == null or second == null:
+				if first != second:
+					return false
+				continue
+			if first.size() != second.size():
+				return false
+			for entry in first.size():
+				var difference: Variant = first[entry] - second[entry]
+				if difference is Vector3 or difference is Vector2:
+					if difference.length_squared() > 1e-10:
+						return false
+				elif absf(difference) > 1e-5:
+					return false
+	return true
+
 func same_packed_geometry_unordered(baked: Node3D, live: Node3D) -> bool:
 	# The collector swaps a source intake module in place. Mesh child order is
 	# presentation-only; world transforms and every vertex still have to match.
@@ -335,6 +371,9 @@ func check_variant_assemblies() -> void:
 		for tiles in range(3, Opening.BAKED_WHEEL_PREVIEW_MAX_TILES + 1):
 			cases.append({"kind": "wheel", "axis": axis, "tiles": tiles,
 				"rotation": 0, "cell": [1, 2], "level": 4})
+		for tiles in [10, 16, 32, 4096]:
+			cases.append({"kind": "wheel", "axis": axis, "tiles": tiles,
+				"rotation": 0, "cell": [1, 2], "level": 4})
 	for entity in cases:
 		variant_cases += 1
 		var kind: String = entity.kind
@@ -360,6 +399,9 @@ func check_variant_assemblies() -> void:
 		verify(same,
 			"The %s preview variant preserves procedural geometry for axis %d, facing %d, size %d and site %s/%d." % [
 				kind, entity.axis, entity.rotation, entity.tiles, str(cell), entity.level])
+		if kind == "wheel" and entity.tiles > Opening.BAKED_WHEEL_PREVIEW_MAX_TILES:
+			verify(baked != null and same_wheel_surface_attributes(baked, expected),
+				"The large-wheel preview preserves normals, tangents and physical timber UVs.")
 		if baked != null:
 			view._style_machine_preview(baked)
 			check_preview_nodes(baked, view.machine_preview_material)

@@ -6197,6 +6197,8 @@ func _open_pointed_machine() -> void:
 	_select_tool("inspect")
 	selected = target
 	_refresh_ui()
+	if arrival_assembly_controls != null:
+		arrival_assembly_controls.open_context()
 
 func _remove_selected() -> void:
 	if not selected.is_empty():
@@ -6827,7 +6829,9 @@ func _sync_freight_beacon_visual() -> void:
 		freight_beacon_visual.add_child(point)
 		var label := Label3D.new()
 		label.name = "ShipmentLabel"
-		label.position.y = 0.50
+		# The pick body reaches eye height. Keep its label in the same near
+		# first-person view while the separate glyph marks the ground anchor.
+		label.position.y = 1.22
 		label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 		label.fixed_size = true
 		label.no_depth_test = false
@@ -6854,7 +6858,7 @@ func _sync_freight_beacon_visual() -> void:
 	var carried: bool = int(state.get("cargo", {}).get(client, {}).get("products", 0)) > 0
 	var caption := "FREIGHT"
 	if first_received:
-		caption = "%d / %d" % [repeat_shipped, repeat_target]
+		caption = "FREIGHT · %d / %d" % [repeat_shipped, repeat_target]
 		if carried:
 			caption = "SHIP [E]" if _can_control_character() else "PLATE READY"
 	elif carried:
@@ -7576,6 +7580,14 @@ func _finish_machine_preview_prefetch() -> void:
 		preview_prefetch_paths = remaining
 		if not preview_prefetch_paths.is_empty():
 			await get_tree().process_frame
+	if is_inside_tree():
+		# Prime the shared mesh and UV caches during the arrival reveal. Later
+		# wheel sizes use the same loaded source art and stay off the cold path.
+		var large_wheel := _packed_machine_preview_variant("wheel", 2, 10, 0, Vector2i(1, 2), 4)
+		if large_wheel != null:
+			large_wheel.free()
+		else:
+			push_error("Cannot prepare the large-wheel preview geometry.")
 	preview_prefetch_complete = preview_prefetch_paths.is_empty()
 
 func _packed_preview_resource(path: String) -> PackedScene:
@@ -7628,14 +7640,49 @@ func _rotate_packed_preview_port(anchor: Node3D, facing: int) -> void:
 			if child.name == "MaterialPortLabel":
 				child.set_meta("port_side", turn.basis * child.get_meta("port_side", Vector3.ZERO))
 
+func _resize_packed_wheel_rotor(rotor: Node3D, tiles: int) -> void:
+	# The packed three-tile wheel already owns its materials and paddle nodes.
+	# Reuse them rather than preparing GLTF and textures on the click frame.
+	var rim := rotor.get_node("SourcedTimberRimN") as MeshInstance3D
+	var centre := rotor.get_node("SourcedTimberRotor") as MeshInstance3D
+	var sized_rim := ProductionWheelArt._sized_mesh(rim.mesh as ArrayMesh, tiles, true)
+	var sized_centre := ProductionWheelArt._sized_mesh(centre.mesh as ArrayMesh, tiles, false)
+	var rotor_scale := Geometry.WATERWHEEL_RADIUS / 0.70
+	var radial_scale := rotor_scale * tiles
+	var physical_scale := Vector3(radial_scale, radial_scale, rotor_scale)
+	rotor.scale = physical_scale
+	centre.mesh = sized_centre
+	rim.mesh = sized_rim
+	(rotor.get_node("SourcedTimberRimP") as MeshInstance3D).mesh = sized_rim
+	(rotor.get_node("WheelHub") as MeshInstance3D).scale = Vector3(
+		1.0 / radial_scale, 1.0 / rotor_scale, 1.0 / radial_scale)
+	for child in rotor.get_children():
+		if not child is MeshInstance3D or child.get_meta("detail_role", "") != "WheelPaddle":
+			continue
+		var blade := child as MeshInstance3D
+		blade.mesh = ProductionPaddleArt.timber_mesh(Vector3(0.14, 0.018, 0.28), physical_scale)
+		for part in blade.get_children():
+			if not part is MeshInstance3D:
+				continue
+			match part.get_meta("detail_role", ""):
+				"PaddleRootCleat":
+					part.mesh = ProductionPaddleArt.timber_mesh(Vector3(0.04, 0.06, 0.10), physical_scale)
+				"PaddleEdgeRib":
+					part.mesh = ProductionPaddleArt.timber_mesh(Vector3(0.12, 0.038, 0.018), physical_scale)
+				"PaddleWearStrip":
+					part.position.y = 0.009 + 0.004 / physical_scale.y
+					part.scale = Vector3(1.0 / physical_scale.x, 1.0 / physical_scale.y, 1.0)
+				"PaddleBolt":
+					part.position.y = -0.036 - 0.005 / physical_scale.y
+					part.scale = Vector3.ONE / physical_scale
+	rotor.set_meta("visual_batch_key", [true, tiles, true])
+
 func _packed_machine_preview_variant(kind: String, axis: int, tiles: int,
 		facing: int, cell: Vector2i, level: int) -> Node3D:
 	preview_variant_pending = false
 	if not _native_transmission():
 		return null
 	if kind == "wheel":
-		if tiles > BAKED_WHEEL_PREVIEW_MAX_TILES:
-			return null
 		var default_wheel: PackedScene = packed_preview_templates.get("wheel")
 		if default_wheel == null:
 			default_wheel = load("res://opening/assets/prebuilt-preview-wheel.scn") as PackedScene
@@ -7648,7 +7695,7 @@ func _packed_machine_preview_variant(kind: String, axis: int, tiles: int,
 			if support_part == null:
 				return null
 		var rotor_part: PackedScene
-		if tiles != 3:
+		if tiles != 3 and tiles <= BAKED_WHEEL_PREVIEW_MAX_TILES:
 			rotor_part = _packed_preview_resource(
 				"res://opening/assets/prebuilt-preview-wheel-rotor-%d.scn" % tiles)
 			if rotor_part == null:
@@ -7668,6 +7715,8 @@ func _packed_machine_preview_variant(kind: String, axis: int, tiles: int,
 		if rotor_part != null:
 			_replace_preview_parts(wheel, rotor_part, ["WheelRotor"])
 		var rotor := wheel.get_node("WheelRotor") as Node3D
+		if tiles > BAKED_WHEEL_PREVIEW_MAX_TILES:
+			_resize_packed_wheel_rotor(rotor, tiles)
 		if axis == 1:
 			rotor.rotation = Vector3(-PI / 2.0, 0.0, 0.0)
 		elif axis == 2:
