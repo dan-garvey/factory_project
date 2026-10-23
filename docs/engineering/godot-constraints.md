@@ -1395,6 +1395,23 @@ about active native machines. Revisit the default with paired measurements on
 another GPU, renderer or scene layout. Evidence is in `factory-yau.9.25` and
 `factory-yau.9.12.34`.
 
+**Screen-space composite LOD, observed.** On the published `bffacfa` chapter
+source plus one candidate change, `ImporterMesh.generate_lods()` kept the
+full composite vertices, finish surfaces and materials while giving three
+cached machine meshes index levels for distant instances. In exclusive native
+Windows/NVIDIA Compatibility 1,000-static-machine mixed views, 600 measured
+frames at 1280 by 800, two reachable 24 m candidate runs measured
+7.239/7.608 and 7.223/7.530 ms median/p95, bracketing the 9.954/10.389 ms
+baseline. The close camera changed from 8.086/8.428 to 6.106/6.350 ms. The
+max-zoom candidate submitted 29.4 million rather than 47.8 million median
+primitives with the same 2,822 draws. Inspected captures kept the finishes and
+silhouette at normal view size; pixel differences concentrate on small machine
+edges. With viewport LOD disabled, an earlier same-source close control had
+zero pixels differing by more than one color byte, supporting unchanged full
+detail. This is a static presenter measurement, not native production or a
+whole playable frame. Source, captures and probe errors are in
+`factory-yau.9.12.50`.
+
 ## GDC-29: batched conveyor phases should update their visible instance
 
 The Opening still wrote hidden per-conveyor `StandardMaterial3D` UV offsets

@@ -301,6 +301,50 @@ void advance_with_domain_witness() {
     unchanged(*owner, accepted_state);
 }
 
+void retained_history_step_is_atomic() {
+    auto owner = Owner::create_new("world-1", Marker{}, valid);
+    require(owner != nullptr, "The retained-history owner starts from a valid State.");
+    const auto first = owner->apply(intent("retained:1"), [](const auto&, const auto&) {
+        return accepted(1);
+    });
+    require(first.completed(), "A real accepted request precedes the retained-history step.");
+    const auto before = owner->snapshot();
+    const auto rejected = owner->advance_retaining_history(
+        [](const auto&) -> std::optional<Marker> { return Marker{2, {"rejected"}}; },
+        [](const auto&) { return false; });
+    require(rejected.error == w::TransactionError::invalid_candidate,
+        "A retained-history domain rejection must not commit.");
+    unchanged(*owner, before);
+    const auto thrown = owner->advance_retaining_history(
+        [](const auto&) -> std::optional<Marker> { return Marker{2, {"throwing"}}; },
+        [](const auto&) -> bool { throw std::bad_alloc(); });
+    require(thrown.error == w::TransactionError::preparation_failed,
+        "A throwing retained-history validator must restore the original log.");
+    unchanged(*owner, before);
+    const auto changed = owner->advance_retaining_history(
+        [](const auto&) -> std::optional<Marker> { return Marker{2, {"advanced"}}; }, valid);
+    const auto after = owner->snapshot();
+    require(changed.error == w::TransactionError::none && changed.changed &&
+        after.state == Marker{2, {"advanced"}} && after.revision == before.revision + 1 &&
+        same_history(after.history, before.history) &&
+        a::validate_history(after.history, after.revision) == a::Error::none,
+        "A retained-history step publishes its State with exact accepted request bytes.");
+    bool handler_called{};
+    const auto duplicate = owner->apply(intent("retained:1"), [&](const auto&, const auto&) {
+        handler_called = true;
+        return accepted(9);
+    });
+    require(duplicate.completed() && !handler_called &&
+        std::get<bool>(duplicate.result->at("duplicate").storage()) &&
+        duplicate.current_revision == after.revision,
+        "A historical retry still resolves from the original request after a retained step.");
+    unchanged(*owner, after);
+    auto restored = Owner::restore(after, valid);
+    require(restored != nullptr && restored->snapshot().state == after.state &&
+        same_history(restored->snapshot().history, after.history),
+        "A retained-history step remains valid on an independent restore.");
+}
+
 void nested_writes_are_refused() {
     auto owner = Owner::create_new("world-1", Marker{}, valid);
     int inner_calls{};
@@ -328,6 +372,7 @@ int main() {
         failed_preparation_is_atomic();
         refused_state_copy_failure();
         advance_with_domain_witness();
+        retained_history_step_is_atomic();
         nested_writes_are_refused();
         std::cout << "{\"status\":\"pass\",\"evidence\":\"invented_native_transactions\","
                      "\"checks\":" << checks << "}\n";

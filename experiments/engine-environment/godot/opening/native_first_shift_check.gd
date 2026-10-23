@@ -64,11 +64,17 @@ func _finish(status: String, reason: String = "") -> void:
 	output.store_buffer(var_to_bytes(facts))
 	output.close()
 	var audio_refs: Array[WeakRef] = []
+	for kind in OpeningScene.MechanicalAmbience.loops:
+		audio_refs.append(weakref(OpeningScene.MechanicalAmbience.loops[kind]))
 	for cue in OpeningScene.ConstructionAudio.streams:
 		audio_refs.append(weakref(OpeningScene.ConstructionAudio.streams[cue]))
 	if opening != null:
+		if opening.mechanical_ambience != null:
+			opening.mechanical_ambience.silence()
 		if opening.construction_audio != null:
-			var playback = opening.construction_audio.get_stream_playback()
+			var playback: AudioStreamPlayback
+			if opening.construction_audio.playing:
+				playback = opening.construction_audio.get_stream_playback()
 			if playback != null:
 				audio_refs.append(weakref(playback))
 			playback = null
@@ -78,7 +84,8 @@ func _finish(status: String, reason: String = "") -> void:
 		opening = null
 	OpeningScene.ConstructionAudio.streams.clear()
 	OpeningScene.ConstructionAudio.source_status = "uninitialized"
-	# The dummy audio driver may release the three stopped voices after scene removal.
+	OpeningScene.MechanicalAmbience.loops.clear()
+	# The dummy audio driver may release stopped voices after scene removal.
 	# Observe the retained resources before ending this consumer.
 	var audio_deadline := Time.get_ticks_msec() + 2000
 	while not audio_refs.is_empty():
@@ -89,7 +96,7 @@ func _finish(status: String, reason: String = "") -> void:
 		if remaining == 0:
 			break
 		if Time.get_ticks_msec() >= audio_deadline:
-			push_error("First-shift teardown retains %d construction audio objects" % remaining)
+			push_error("First-shift teardown retains %d audio objects" % remaining)
 			quit(1)
 			return
 		await process_frame
