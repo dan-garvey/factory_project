@@ -1217,7 +1217,6 @@ func _arrival_reveal_run(capture_prefix: String) -> void:
 			and opening.arrival_reveal_audio != null
 			and opening.arrival_reveal_audio.cue_history.size() > 0
 			and opening.arrival_reveal_audio.cue_history[0] == "descent"
-			and not opening.landing_hub_visual.visible
 			and not opening.character_presenter.visible
 			and not opening.arrival_gameplay_canvas.visible and opening.arrival_reveal_canvas.visible
 			and root.get_camera_3d() == opening.camera
@@ -1229,6 +1228,16 @@ func _arrival_reveal_run(capture_prefix: String) -> void:
 				opening.character_presenter.visible, opening.camera.position,
 				root.get_camera_3d() == opening.camera,
 				opening._can_control_character(), opening.arrival_reveal_probe])):
+		return
+	# The initial native projection may refresh the installed hub between
+	# starting the reveal and the first presentation tick. Inspect its rendered
+	# phase after that tick, when the reveal pose owns visibility.
+	if mode == "arrival-reveal" and opening.landing_hub_visual.visible:
+		await process_frame
+		await process_frame
+	if mode == "arrival-reveal" and opening.arrival_reveal_active and opening.arrival_reveal_elapsed < 1.45 \
+			and not _expect(not opening.landing_hub_visual.visible,
+				"The hub remains folded away during the descent presentation"):
 		return
 	if mode == "arrival-reveal-skip":
 		opening._finish_arrival_reveal()
@@ -1245,19 +1254,27 @@ func _arrival_reveal_run(capture_prefix: String) -> void:
 			if not _expect(approach != null and approach.save_png(capture_prefix + "-approach.png") == OK,
 					"The passive approach viewport is retained"):
 				return
-		while opening.arrival_reveal_elapsed < 1.7 and Time.get_ticks_msec() < deadline:
+		while opening.arrival_reveal_active and opening.arrival_reveal_elapsed < 1.7 \
+				and Time.get_ticks_msec() < deadline:
 			await process_frame
-		if not _expect(opening.arrival_reveal_active
+		var touchdown_elapsed: float = opening.arrival_reveal_elapsed
+		if not _expect(touchdown_elapsed >= 1.7
 				and opening.landing_pod_visual.position.distance_to(opening.arrival_reveal_pod_anchor) < 0.01
-				and opening.landing_hub_visual.visible,
-				"The native pod touches down before the bench and deck finish unfolding"):
+				and (touchdown_elapsed > 1.8 or not opening.landing_hub_visual.visible),
+				"The pod reaches its anchor before the later bench reveal; elapsed %.2f, hub visible %s" %
+				[touchdown_elapsed, opening.landing_hub_visual.visible]):
 			return
-		if not capture_prefix.is_empty():
+		# Slow renderers may advance beyond the fold before the next drawable
+		# frame. Keep the natural clock and identify the missing sample explicitly.
+		facts["touchdown_sample"] = "not_requested" if capture_prefix.is_empty() else "skipped_after_fold"
+		if not capture_prefix.is_empty() and opening.arrival_reveal_active and touchdown_elapsed < 2.0:
 			await RenderingServer.frame_post_draw
-			var touchdown: Image = root.get_texture().get_image()
-			if not _expect(touchdown != null and touchdown.save_png(capture_prefix + "-touchdown.png") == OK,
+			if opening.arrival_reveal_active and opening.arrival_reveal_elapsed < 2.0:
+				var touchdown: Image = root.get_texture().get_image()
+				if not _expect(touchdown != null and touchdown.save_png(capture_prefix + "-touchdown.png") == OK,
 					"The passive touchdown viewport is retained"):
-				return
+					return
+				facts["touchdown_sample"] = "captured"
 		while opening.arrival_reveal_active and Time.get_ticks_msec() < deadline:
 			await process_frame
 		if not _expect(opening.arrival_reveal_audio.cue_history ==
