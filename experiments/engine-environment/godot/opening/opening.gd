@@ -7458,6 +7458,110 @@ func _collect_machine_composite_parts(node: Node3D, pose: Transform3D,
 				parts.append_array(eligible_parts)
 		_collect_machine_composite_parts(child, child_pose, moving, parts)
 
+func _machine_finish_mesh(source: ArrayMesh) -> ArrayMesh:
+	# Opaque parts can share a surface when their finish differs only by values
+	# carried on vertices. Keep the source mesh if an attribute is unsupported.
+	var groups := {}
+	for surface_index in source.get_surface_count():
+		var finish := source.surface_get_material(surface_index) as StandardMaterial3D
+		if finish == null or finish.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED \
+				or finish.albedo_texture != null \
+				or source.surface_get_primitive_type(surface_index) != Mesh.PRIMITIVE_TRIANGLES:
+			return source
+		var varied := not finish.uv1_triplanar and finish.normal_enabled \
+			and finish.normal_texture != null and finish.roughness_texture != null \
+			and finish.roughness_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_RED \
+			and finish.metallic_texture == null
+		var key := [varied]
+		for property in finish.get_property_list():
+			if (int(property.usage) & PROPERTY_USAGE_STORAGE) == 0 or property.name in [
+					"resource_name", "resource_path", "resource_local_to_scene",
+					"albedo_color", "vertex_color_use_as_albedo"]:
+				continue
+			if varied and property.name in ["metallic", "roughness"]:
+				continue
+			key.append([property.name, finish.get(property.name)])
+		if not groups.has(key):
+			groups[key] = {"finish": finish, "varied": varied, "vertices": [],
+				"normals": [], "tangents": [], "uv": [], "uv2": [], "colors": [], "indices": []}
+		var group: Dictionary = groups[key]
+		var arrays := source.surface_get_arrays(surface_index)
+		var points: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+		var tangents = arrays[Mesh.ARRAY_TANGENT]
+		var uv = arrays[Mesh.ARRAY_TEX_UV]
+		var colors = arrays[Mesh.ARRAY_COLOR]
+		var indices = arrays[Mesh.ARRAY_INDEX]
+		if normals.size() != points.size() or not tangents is PackedFloat32Array \
+				or tangents.size() != points.size() * 4 or not uv is PackedVector2Array \
+				or uv.size() != points.size():
+			return source
+		var start: int = group.vertices.size()
+		for point_index in points.size():
+			group.vertices.append(points[point_index])
+			group.normals.append(normals[point_index])
+			group.uv.append(uv[point_index])
+			for lane in 4:
+				group.tangents.append(tangents[point_index * 4 + lane])
+			var color := finish.albedo_color
+			if finish.vertex_color_use_as_albedo and colors is PackedColorArray \
+					and colors.size() == points.size():
+				color *= colors[point_index]
+			if varied:
+				color.a = finish.metallic
+				group.uv2.append(Vector2(finish.roughness, 0))
+			group.colors.append(color)
+		if not indices is PackedInt32Array or indices.is_empty():
+			for point_index in points.size():
+				group.indices.append(start + point_index)
+		else:
+			for point_index in indices:
+				group.indices.append(start + point_index)
+	if groups.size() >= source.get_surface_count():
+		return source
+	var result := ArrayMesh.new()
+	for group in groups.values():
+		var arrays := []
+		arrays.resize(Mesh.ARRAY_MAX)
+		arrays[Mesh.ARRAY_VERTEX] = PackedVector3Array(group.vertices)
+		arrays[Mesh.ARRAY_NORMAL] = PackedVector3Array(group.normals)
+		arrays[Mesh.ARRAY_TANGENT] = PackedFloat32Array(group.tangents)
+		arrays[Mesh.ARRAY_TEX_UV] = PackedVector2Array(group.uv)
+		if group.varied:
+			arrays[Mesh.ARRAY_TEX_UV2] = PackedVector2Array(group.uv2)
+		arrays[Mesh.ARRAY_COLOR] = PackedColorArray(group.colors)
+		arrays[Mesh.ARRAY_INDEX] = PackedInt32Array(group.indices)
+		result.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		var material: Material
+		if group.varied:
+			var shader := Shader.new()
+			shader.code = "shader_type spatial;\n" + \
+				"uniform sampler2D finish_rough : filter_linear_mipmap_anisotropic, repeat_enable;\n" + \
+				"uniform sampler2D finish_normal : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;\n" + \
+				"uniform vec2 finish_uv_scale;\n" + \
+				"uniform vec2 finish_uv_offset;\n" + \
+				"uniform float finish_normal_scale;\n" + \
+				"void fragment() { vec2 at = UV * finish_uv_scale + finish_uv_offset; " + \
+				"ALBEDO = COLOR.rgb; METALLIC = COLOR.a; " + \
+				"ROUGHNESS = UV2.x * texture(finish_rough, at).r; " + \
+				"NORMAL_MAP = texture(finish_normal, at).rgb; " + \
+				"NORMAL_MAP_DEPTH = finish_normal_scale; }"
+			var custom_finish := ShaderMaterial.new()
+			custom_finish.shader = shader
+			custom_finish.set_shader_parameter("finish_rough", group.finish.roughness_texture)
+			custom_finish.set_shader_parameter("finish_normal", group.finish.normal_texture)
+			custom_finish.set_shader_parameter("finish_uv_scale", Vector2(group.finish.uv1_scale.x, group.finish.uv1_scale.y))
+			custom_finish.set_shader_parameter("finish_uv_offset", Vector2(group.finish.uv1_offset.x, group.finish.uv1_offset.y))
+			custom_finish.set_shader_parameter("finish_normal_scale", group.finish.normal_scale)
+			material = custom_finish
+		else:
+			var standard := group.finish.duplicate() as StandardMaterial3D
+			standard.albedo_color = Color.WHITE
+			standard.vertex_color_use_as_albedo = true
+			material = standard
+		result.surface_set_material(result.get_surface_count() - 1, material)
+	return result
+
 func _machine_composite_mesh(parts: Array[Dictionary], key: Array) -> ArrayMesh:
 	if machine_batch_composite_meshes.has(key):
 		return machine_batch_composite_meshes[key]
@@ -7476,6 +7580,7 @@ func _machine_composite_mesh(parts: Array[Dictionary], key: Array) -> ArrayMesh:
 			surface.append_from(part.mesh, part.surface, part.pose)
 		surface.set_material(group.material)
 		combined = surface.commit(combined)
+	combined = _machine_finish_mesh(combined)
 	machine_batch_composite_meshes[key] = combined
 	return combined
 
