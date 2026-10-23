@@ -514,7 +514,7 @@ func _batch_motion_check() -> void:
 			"cell": [index, 0], "level": 0}
 	belt_view._rebuild_machines()
 	_check(belt_view.machine_conveyor_batches.size() == 1,
-		"Conveyor loops retain one shared render batch and individual source materials.")
+		"Conveyor loops retain one shared render batch.")
 	var grouped_belt_finish := false
 	for composite in belt_view.machine_batch_composite_meshes.values():
 		if composite.get_surface_count() != 3:
@@ -533,21 +533,39 @@ func _batch_motion_check() -> void:
 	if belt_view.machine_conveyor_batches.size() == 1:
 		var first := belt_view.machine_root.get_child(0) as Node3D
 		var second := belt_view.machine_root.get_child(1) as Node3D
+		var first_loop := first.find_child("ConveyorLoop", true, false) as MeshInstance3D
+		var second_loop := second.find_child("ConveyorLoop", true, false) as MeshInstance3D
+		var first_source_phase: float = first_loop.material_override.uv1_offset.x
+		var second_source_phase: float = second_loop.material_override.uv1_offset.x
 		belt_view._apply_conveyor_motion(first, 0.5)
 		belt_view._apply_conveyor_motion(second, 1.0)
 		belt_view._update_machine_dynamic_batches()
-		var first_loop := first.find_child("ConveyorLoop", true, false) as MeshInstance3D
-		var second_loop := second.find_child("ConveyorLoop", true, false) as MeshInstance3D
 		_check(first_loop != null and second_loop != null and not first_loop.visible
-			and not second_loop.visible and first_loop.material_override.uv1_offset.x !=
-			second_loop.material_override.uv1_offset.x,
-			"Batched conveyor loops keep distinct hidden source phases.")
+			and not second_loop.visible and is_equal_approx(
+				first_loop.material_override.uv1_offset.x, first_source_phase) and is_equal_approx(
+				second_loop.material_override.uv1_offset.x, second_source_phase),
+			"Batched conveyor motion leaves hidden source finishes unchanged.")
 		if DisplayServer.get_name() != "headless":
 			var belt_multi: MultiMesh = belt_view.machine_conveyor_batches[0].mesh
-			_check(absf(belt_multi.get_instance_custom_data(0).r -
-				first_loop.material_override.uv1_offset.x) < 0.001 and absf(
-				belt_multi.get_instance_custom_data(1).r - second_loop.material_override.uv1_offset.x) < 0.001,
-				"Each rendered conveyor loop follows its own source phase.")
+			var first_phase := belt_multi.get_instance_custom_data(0).r
+			var second_phase := belt_multi.get_instance_custom_data(1).r
+			_check(absf(first_phase - second_phase) > 0.001,
+				"Rendered conveyor loops retain distinct confirmed phases.")
+			belt_view._update_machine_dynamic_batches()
+			_check(absf(belt_multi.get_instance_custom_data(0).r - first_phase) < 0.001
+				and absf(belt_multi.get_instance_custom_data(1).r - second_phase) < 0.001,
+				"Updating other moving batches does not overwrite conveyor phases.")
+			belt_view._apply_conveyor_motion(first, 1.0)
+			_check(absf(belt_multi.get_instance_custom_data(0).r - second_phase) < 0.001
+				and absf(belt_multi.get_instance_custom_data(1).r - second_phase) < 0.001,
+				"One conveyor phase update leaves the neighboring slot unchanged.")
+			belt_view._rebuild_machines()
+			var rebuilt_first := belt_view.machine_root.get_child(0) as Node3D
+			belt_view._apply_conveyor_motion(rebuilt_first, 0.5)
+			var rebuilt_multi: MultiMesh = belt_view.machine_conveyor_batches[0].mesh
+			_check(rebuilt_multi != belt_multi and absf(
+				rebuilt_multi.get_instance_custom_data(0).r - first_phase) < 0.001,
+				"A rebuild replaces conveyor slots and catches up to confirmed phase.")
 	belt_view.free()
 	print("MACHINE_BATCH_MOTION_%s %d" % ["PASS" if not failed else "FAIL", checks])
 	quit(1 if failed else 0)
