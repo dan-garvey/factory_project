@@ -809,6 +809,10 @@ func _resume() -> void:
 
 func _arrival_capacity_run(panel, capture_prefix: String) -> void:
 	var recipes: Dictionary = opening.model.projection().component_recipes
+	opening._open_object_menu_for(str(opening.model.projection().fabrication_hub.id))
+	if not _expect(opening._object_menu_open() and panel.is_visible_in_tree(),
+			"The pod workshop exposes the native component choices in its centered panel"):
+		return
 	if not _expect(recipes.wooden_shaft.load_rating == 8
 			and recipes.wooden_cog.load_rating == 8
 			and recipes.softmetal_shaft.load_rating == 24
@@ -819,7 +823,7 @@ func _arrival_capacity_run(panel, capture_prefix: String) -> void:
 	panel._component_selected(9)
 	if not _expect("Drive limits: wood 8 · softmetal 24" in panel.recipe_label.text
 			and "Rated for 24 load" in panel.component_choice.tooltip_text
-			and "Needs 0 timber + 2 softmetal" in panel.recipe_label.text,
+			and "Need 0 timber + 2 softmetal" in panel.recipe_label.text,
 			"The selected softmetal upgrade shows stronger load and its actual local bill"):
 		return
 	if not capture_prefix.is_empty():
@@ -827,6 +831,43 @@ func _arrival_capacity_run(panel, capture_prefix: String) -> void:
 		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-drive-ratings.png") == OK,
 				"The native-backed workshop rating is retained in a normal viewport frame"):
 			return
+	var original_choice: String = panel.component_choice.get_item_text(9)
+	var original_place: String = panel.place_button.text
+	var original_route: String = panel.part_place_button.text
+	panel.component_choice.set_item_text(9, "Softmetal shaft  ×999")
+	panel.place_button.text = "Place softmetal shaft"
+	panel.part_place_button.text = "Connect shafts"
+	await process_frame
+	await process_frame
+	var menu_left: float = opening.object_menu.position.x
+	var menu_right: float = menu_left + opening.object_menu.size.x
+	var scroll_rect: Rect2 = opening.arrival_assembly_scroll.get_global_rect()
+	var place_rect: Rect2 = panel.place_button.get_global_rect()
+	# Embedded popup child rects are local to the popup window, while the popup
+	# position is in the root viewport. Compare them in the same space.
+	var scroll_left: float = menu_left + scroll_rect.position.x
+	var scroll_right: float = menu_left + scroll_rect.end.x
+	var place_right: float = menu_left + place_rect.end.x
+	facts["workshop_layout"] = {"menu_left": menu_left, "menu_right": menu_right,
+		"scroll_left": scroll_left, "scroll_right": scroll_right,
+		"place_right": place_right, "viewport_width": root.size.x,
+		"horizontal_scroll": opening.arrival_assembly_scroll.get_h_scroll_bar().visible}
+	if not capture_prefix.is_empty():
+		await RenderingServer.frame_post_draw
+		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-long-choice.png") == OK,
+				"The long component choice is retained in the centered workshop"):
+			return
+	if not _expect(menu_left >= 0 and menu_right <= root.size.x
+			and scroll_left >= menu_left and scroll_right <= menu_right
+			and place_right <= scroll_right
+			and not opening.arrival_assembly_scroll.get_h_scroll_bar().visible,
+			"Long component actions remain horizontally reachable inside the centered workshop"):
+		return
+	panel.component_choice.set_item_text(9, original_choice)
+	panel.place_button.text = original_place
+	panel.part_place_button.text = original_route
+	opening.object_menu.hide()
+	await process_frame
 	panel.component_choice.select(0)
 	panel._component_selected(0)
 	# Zero-cut entries are explicit clear-aisle waypoints, not resource actions.
@@ -861,7 +902,7 @@ func _arrival_capacity_run(panel, capture_prefix: String) -> void:
 				"Each selected recipe converts exactly one carried timber into one wooden shaft"):
 			return
 	var full_before: Dictionary = opening.model.projection()
-	if not _expect("Parts 20 / 20" in panel.recipe_label.text and not panel.craft_button.disabled
+	if not _expect("20 / 20 parts carried" in panel.recipe_label.text and not panel.craft_button.disabled
 			and full_before.cargo.P.timber == 1,
 			"The ordinary panel shows a full component bag while one recipe input remains"):
 		return

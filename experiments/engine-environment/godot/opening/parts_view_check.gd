@@ -1981,16 +1981,16 @@ func _field_craft_widget() -> void:
 	panel._component_selected(1)
 	verify("Rated for 8 load" in panel.component_choice.tooltip_text
 		and "Drive limits: wood 8 · softmetal 24" in panel.recipe_label.text
-		and "Needs 1 timber" in panel.recipe_label.text,
+		and "Need 1 timber" in panel.recipe_label.text,
 		"A wooden shaft shows the projected quality ramp beside its unchanged timber cost.")
 	panel.component_choice.select(9)
 	panel._component_selected(9)
 	verify("Rated for 24 load" in panel.component_choice.tooltip_text
 		and "Drive limits: wood 8 · softmetal 24" in panel.recipe_label.text
-		and "Needs 0 timber + 2 softmetal" in panel.recipe_label.text,
+		and "Need 0 timber + 2 softmetal" in panel.recipe_label.text,
 		"The softmetal replacement shows the stronger rating and workshop bill.")
-	# The ordinary right panel is 255 px wide before its padding and scrollbar.
 	# Stress the longest craft choice and action with a deliberately large count.
+	# The ordinary scene now fits these controls inside a centered workshop.
 	root.size = Vector2i(1280, 800)
 	var scroll: ScrollContainer = view.arrival_assembly_scroll
 	scroll.visible = true
@@ -2000,8 +2000,8 @@ func _field_craft_widget() -> void:
 	panel.part_place_button.text = "Connect shafts"
 	await process_frame
 	await process_frame
-	verify(scroll.size.x <= 255.0 and not scroll.get_h_scroll_bar().visible,
-		"Long craft choices and the bench, field and placement actions fit the compact worksite panel without sideways scrolling.")
+	verify(not scroll.get_h_scroll_bar().visible,
+		"Long craft choices and the bench, field and placement actions need no sideways scrolling.")
 	scroll.scroll_vertical = int(scroll.get_v_scroll_bar().max_value)
 	await process_frame
 	verify(scroll.get_global_rect().has_point(panel.part_place_button.get_global_rect().get_center()),
