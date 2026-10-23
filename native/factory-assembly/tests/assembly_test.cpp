@@ -1,5 +1,8 @@
 #include "factory/assembly.hpp"
 
+#include <algorithm>
+#include <array>
+#include <chrono>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -201,6 +204,87 @@ void press_missing_and_invalid_parts() {
           a::inspect_press(placed, {1, 0, 0}).status == a::PressStatus::invalid_input,
           "Duplicate centers and off-grid press origins refuse before recognition.");
 }
+
+void indexed_independent_assemblies() {
+    std::vector<a::Part> placed;
+    placed.reserve(1700);
+    std::vector<a::OreFace> faces;
+    for (int index = 0; index < 200; ++index) {
+        const g::Integer x = index * 8;
+        const auto name = "collector-" + std::to_string(index);
+        faces.push_back({{x, 0, 0}, {-1, 0, 0}});
+        placed.push_back({name + "-frame", m::Component::wooden_frame, {x, 0, 0}, 1});
+        placed.push_back({name + "-mount", m::Component::tool_mount, {x - 1, 0, 0}, 1});
+        placed.push_back({name + "-edge", m::Component::cutting_edge, {x - 2, 0, 0}, 1});
+        placed.push_back({name + "-tray", m::Component::receiver_tray, {x, 0, 1}, 1});
+        placed.push_back({name + "-shaft", m::Component::wooden_shaft, {x + 1, 0, 0}, 1});
+    }
+    for (int index = 0; index < 100; ++index) {
+        const g::Integer x = index * 8;
+        const auto name = "press-" + std::to_string(index);
+        placed.push_back({name + "-frame", m::Component::wooden_frame, {x, 8, 16}, 1});
+        placed.push_back({name + "-anvil", m::Component::anvil, {x, 9, 16}, 1});
+        placed.push_back({name + "-ram", m::Component::ram_face, {x, 10, 16}, 1});
+        placed.push_back({name + "-guide", m::Component::sliding_guide, {x, 11, 16}, 1});
+        placed.push_back({name + "-mount", m::Component::tool_mount, {x, 12, 16}, 1});
+        placed.push_back({name + "-shaft", m::Component::wooden_shaft, {x + 1, 12, 16}, 1});
+        placed.push_back({name + "-cog", m::Component::wooden_cog, {x + 2, 12, 16}, 1});
+    }
+    const a::Layout indexed(placed);
+    check(indexed.valid(), "Three hundred disjoint assemblies have unique component identities and centers.");
+    for (int index = 0; index < 200; ++index) {
+        const auto current = indexed.inspect_collector(faces[index]);
+        const auto direct = a::inspect_collector(placed, faces[index]);
+        check(current.status == a::Status::ready && current.collector && direct.collector &&
+              current.status == direct.status &&
+              current.collector == direct.collector && current.collector->frame ==
+                  "collector-" + std::to_string(index) + "-frame",
+              "The shared index identifies each independent collector exactly as direct inspection does.");
+    }
+    for (int index = 0; index < 100; ++index) {
+        const g::Point center{index * 8, 8, 16};
+        const auto current = indexed.inspect_press(center);
+        const auto direct = a::inspect_press(placed, center);
+        check(current.status == a::PressStatus::ready && current.press && direct.press &&
+              current.status == direct.status &&
+              current.press == direct.press && current.press->frame ==
+                  "press-" + std::to_string(index) + "-frame",
+              "The shared index keeps each press drive, work point and feed routes separate.");
+    }
+    std::array<double, 20> direct_ms{}, indexed_ms{};
+    for (std::size_t sample = 0; sample < direct_ms.size(); ++sample) {
+        std::size_t direct_count = 0, indexed_count = 0;
+        const auto direct_start = std::chrono::steady_clock::now();
+        for (const auto& face : faces)
+            direct_count += a::inspect_collector(placed, face).status == a::Status::ready;
+        for (int index = 0; index < 100; ++index)
+            direct_count += a::inspect_press(placed, {index * 8, 8, 16}).status == a::PressStatus::ready;
+        const auto indexed_start = std::chrono::steady_clock::now();
+        const a::Layout snapshot(placed);
+        for (const auto& face : faces)
+            indexed_count += snapshot.inspect_collector(face).status == a::Status::ready;
+        for (int index = 0; index < 100; ++index)
+            indexed_count += snapshot.inspect_press({index * 8, 8, 16}).status == a::PressStatus::ready;
+        const auto end = std::chrono::steady_clock::now();
+        check(direct_count == 300 && indexed_count == direct_count,
+              "Repeated direct and indexed cuts find the same complete assemblies.");
+        direct_ms[sample] = std::chrono::duration<double, std::milli>(indexed_start - direct_start).count();
+        indexed_ms[sample] = std::chrono::duration<double, std::milli>(end - indexed_start).count();
+    }
+    std::sort(direct_ms.begin(), direct_ms.end());
+    std::sort(indexed_ms.begin(), indexed_ms.end());
+    std::cout << "{\"evidence\":\"synthetic_assembly_inspection\",\"parts\":1700,"
+              << "\"collectors\":200,\"presses\":100,\"samples\":20,"
+              << "\"direct_median_ms\":" << direct_ms[10]
+              << ",\"direct_p95_ms\":" << direct_ms[19]
+              << ",\"indexed_median_ms\":" << indexed_ms[10]
+              << ",\"indexed_p95_ms\":" << indexed_ms[19] << "}\n";
+    placed.back().id = placed.front().id;
+    const a::Layout invalid(placed);
+    check(!invalid.valid() && invalid.inspect_collector(faces.front()).status == a::Status::invalid_input &&
+          invalid.inspect_press({0, 8, 16}).status == a::PressStatus::invalid_input,
+          "One duplicate identity invalidates the complete shared layout before either inspection.");
+}
 }  // namespace
 
 int main() {
@@ -210,6 +294,7 @@ int main() {
         malformed_and_ambiguous_input();
         press_arrangements_and_clearance();
         press_missing_and_invalid_parts();
+        indexed_independent_assemblies();
         std::cout << "assembly_test: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {
