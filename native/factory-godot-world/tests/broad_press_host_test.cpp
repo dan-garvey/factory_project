@@ -121,6 +121,16 @@ void broad_projection() {
     check(get<I>(V(get<O>(state, "material_mass")), "accounted_mass") == 64 &&
           get<I>(V(get<O>(state, "cargo").at("P")), "raw") == 0,
         "Constructing the broad area keeps every finite copper unit in custody.");
+    auto feed = request("broad-no-stock-feed", "feed_broad_press");
+    feed.emplace("entity", get<A>(V(get<O>(broad.front(), "parts")), "anvils").front());
+    pose(host, 4.95, 0.0, ++epoch);
+    const auto refused = host.command("P", feed);
+    if (get<std::string>(refused, "reason") != "unavailable_input")
+        throw std::runtime_error("Broad feed refusal: " + get<std::string>(refused, "reason"));
+    check(!get<bool>(refused, "accepted") &&
+          get<std::string>(refused, "reason") == "unavailable_input" &&
+          get<I>(V(get<O>(host.projection(), "cargo").at("P")), "raw") == 0,
+        "Host admits the real broad-feed wire but cannot gift three absent stock chunks.");
     const auto saved = host.checkpoint();
     Host fresh;
     check(get<bool>(fresh.initialize_arrival("broad-site", {"P", "Q"}), "accepted") &&

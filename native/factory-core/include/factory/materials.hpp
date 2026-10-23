@@ -27,9 +27,12 @@ inline constexpr Quantity maximum_work_subticks_per_tick = 16 * work_subticks_pe
 // Canonical data for the unadopted finite material fixture. The sole World and
 // its command, admission and persistence boundaries remain separate.
 
+enum class WorkOutput { plate, sheet };
+
 struct RecipeSignature {
     Quantity input_units_per_product{1};
     Quantity cycle_ticks{2};
+    WorkOutput output{WorkOutput::plate};
     bool operator==(const RecipeSignature&) const = default;
 };
 
@@ -44,6 +47,20 @@ struct WorkLot {
     Quantity work_remainder{};
     Quantity work_remainder_denominator{1};
     bool operator==(const WorkLot&) const = default;
+};
+
+// Apply one trusted signed-drive magnitude to an already authenticated lot.
+// Callers still own power, geometry and material-custody validation.
+void advance_work_lot(WorkLot&, Quantity subticks, Quantity remainder,
+                      Quantity remainder_denominator) noexcept;
+
+// The same serial survives the transition from one broad work batch to its
+// finished sheet. Rotation is a horizontal quarter turn relative to the
+// work-face origin; its 2x2 footprint remains one item until the shear.
+struct Sheet {
+    WorkId id{};
+    Quantity rotation{};
+    bool operator==(const Sheet&) const = default;
 };
 
 // The initial chapter bill has no intermediate recipe inputs: every component
@@ -79,9 +96,10 @@ struct Cargo {
     Quantity products{};
     std::vector<WorkLot> work_lots;
     // Copper forming retains the difference between a four-unit stock chunk
-    // and a three-unit plate. Sheets are a separate, twelve-unit form.
+    // and a three-unit plate. Sheets are separate twelve-unit items with
+    // retained identity and orientation, not an inventory count.
     Quantity offcuts{};
-    Quantity sheets{};
+    std::vector<Sheet> sheets;
     // Unshaped timber stays in the same authoritative actor cargo as ore.
     // Existing machine buffers and belts do not accept timber yet.
     Quantity timber{};
@@ -265,6 +283,19 @@ enum class Error {
 // waits at the work point until its physical exit can receive the product.
 [[nodiscard]] Error turn_press(State&, const Config&, const Path&,
                                const DropPoint& work, const DropPoint& exit);
+
+// World admits the four-cell contact, actor reach, live coupled drive and
+// outlet footprint before these custody changes. Feeding moves three carried
+// stock chunks to one supported work area; turning keeps one serial and exact
+// partial progress until one oriented twelve-mass sheet occupies that area.
+[[nodiscard]] Error feed_broad_press(State&, const Config&, const Path&,
+                                     const std::string& actor, const DropPoint& work,
+                                     std::optional<WorkId> carried_work = std::nullopt);
+[[nodiscard]] Error turn_broad_press(State&, const Config&, const Path&,
+                                     const DropPoint& work, Quantity output_rotation,
+                                     Quantity work_subticks = work_subticks_per_tick,
+                                     Quantity work_remainder = 0,
+                                     Quantity work_remainder_denominator = 1);
 
 // A ready press may compact exactly one stock chunk's mass of recovered
 // copper offcuts at its clear work point. World authenticates the assembled

@@ -85,7 +85,8 @@ Value encode_lot(const WorkLot& lot) {
         {"id", Value(lot.id)},
         {"recipe", Value(Object{
             {"input_units_per_product", Value(lot.recipe.input_units_per_product)},
-            {"cycle_ticks", Value(lot.recipe.cycle_ticks)}})},
+            {"cycle_ticks", Value(lot.recipe.cycle_ticks)},
+            {"output_form", Value(lot.recipe.output == WorkOutput::sheet ? "sheet" : "plate")}})},
         {"remaining_ticks", Value(lot.remaining_ticks)},
         {"completed_subticks", Value(lot.completed_subticks)},
         {"work_remainder", Value(lot.work_remainder)},
@@ -95,11 +96,17 @@ Value encode_lot(const WorkLot& lot) {
 WorkLot decode_lot(const Value& value, const std::string& path) {
     const auto& lot = fields(value, path, {"id", "recipe", "remaining_ticks", "completed_subticks", "work_remainder", "work_remainder_denominator"});
     const auto& recipe = fields(lot.at("recipe"), path + ".recipe",
-                                {"input_units_per_product", "cycle_ticks"});
+                                {"input_units_per_product", "cycle_ticks", "output_form"});
+    if (recipe.at("output_form").type() != Type::string)
+        refuse(CodecReason::wrong_type, path + ".recipe.output_form");
+    const auto& output_form = std::get<std::string>(recipe.at("output_form").storage());
+    if (output_form != "plate" && output_form != "sheet")
+        refuse(CodecReason::invalid_material_state, path + ".recipe.output_form");
     return WorkLot{
         integer(lot.at("id"), path + ".id"),
         {integer(recipe.at("input_units_per_product"), path + ".recipe.input_units_per_product"),
-         integer(recipe.at("cycle_ticks"), path + ".recipe.cycle_ticks")},
+         integer(recipe.at("cycle_ticks"), path + ".recipe.cycle_ticks"),
+         output_form == "sheet" ? WorkOutput::sheet : WorkOutput::plate},
         integer(lot.at("remaining_ticks"), path + ".remaining_ticks"),
         integer(lot.at("completed_subticks"), path + ".completed_subticks"),
         integer(lot.at("work_remainder"), path + ".work_remainder"),
@@ -121,7 +128,12 @@ Value encode_cargo(const Cargo& cargo, bool resources, bool copper) {
     }
     if (copper) {
         output.emplace("offcuts", Value(cargo.offcuts));
-        output.emplace("sheets", Value(cargo.sheets));
+        Value::Array sheets;
+        sheets.reserve(cargo.sheets.size());
+        for (const auto& sheet : cargo.sheets)
+            sheets.emplace_back(Object{{"id", Value(sheet.id)},
+                {"rotation", Value(sheet.rotation)}});
+        output.emplace("sheets", Value(std::move(sheets)));
     }
     return Value(std::move(output));
 }
@@ -139,7 +151,18 @@ Cargo decode_cargo(const Value& value, const std::string& path, bool resources, 
     cargo.products = integer(entries.at("products"), path + ".products");
     if (copper) {
         cargo.offcuts = integer(entries.at("offcuts"), path + ".offcuts");
-        cargo.sheets = integer(entries.at("sheets"), path + ".sheets");
+        if (entries.at("sheets").type() != Type::array)
+            refuse(CodecReason::wrong_type, path + ".sheets");
+        const auto& sheets = std::get<Value::Array>(entries.at("sheets").storage());
+        if (sheets.size() > maximum_live_work_lots)
+            refuse(CodecReason::invalid_material_state, path + ".sheets");
+        cargo.sheets.reserve(sheets.size());
+        for (std::size_t index = 0; index < sheets.size(); ++index) {
+            const auto sheet_path = path + ".sheets[" + std::to_string(index) + "]";
+            const auto& sheet = fields(sheets[index], sheet_path, {"id", "rotation"});
+            cargo.sheets.push_back({integer(sheet.at("id"), sheet_path + ".id"),
+                integer(sheet.at("rotation"), sheet_path + ".rotation")});
+        }
     }
     if (resources || copper) {
         cargo.timber = integer(entries.at("timber"), path + ".timber");
@@ -204,7 +227,7 @@ MaterialEncoding encode_material_state(const State& state, const Config& config,
             {"output", Value(stock.output)}};
         if (copper) stock_fields.emplace("offcuts", Value(stock.offcuts));
         Object output{
-            {"schema", Value(Value::Integer{copper ? 12 : resources ? 11 : 6})},
+            {"schema", Value(Value::Integer{copper ? 13 : resources ? 12 : 7})},
             {"initial_units", Value(state.initial_units)},
             {"stock", Value(std::move(stock_fields))},
             {"cargo", Value(std::move(cargo))},
@@ -238,7 +261,7 @@ MaterialDecoding decode_material_state(const Value& value, const Config& config,
         const auto& root = resources ? fields(value, "$",
             {"schema", "initial_units", "stock", "cargo", "dropped_material", "belt_lanes", "processing", "next_work_id", "timber_remaining", "placed_components", "fabricated_timber", "fabricated_raw", "shipped_products"}) :
             fields(value, "$", {"schema", "initial_units", "stock", "cargo", "dropped_material", "belt_lanes", "processing", "next_work_id"});
-        if (integer(root.at("schema"), "$.schema") != (copper ? 12 : resources ? 11 : 6))
+        if (integer(root.at("schema"), "$.schema") != (copper ? 13 : resources ? 12 : 7))
             refuse(CodecReason::unsupported_schema, "$.schema");
         const auto& stock = copper ? fields(root.at("stock"), "$.stock",
                 {"source", "collector", "belt", "input", "output", "offcuts"}) :

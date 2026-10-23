@@ -77,6 +77,13 @@ cc_test(
 )
 
 cc_test(
+    name = "broad_sheet_mass_test",
+    srcs = ["tests/broad_sheet_mass_test.cpp"],
+    deps = [":material_state_codec"],
+    size = "small",
+)
+
+cc_test(
     name = "harvest_material_test",
     srcs = ["tests/harvest_material_test.cpp"],
     deps = [":material_state_codec"],

@@ -476,6 +476,14 @@ bool historical_wire(const authority::Record& record) {
         return *original_action == *action && keys(*wire, {"entity", "entry"}) &&
             field<std::string>(*wire, "entity") && field<Array>(*wire, "entry") &&
             same("entity", "target") && same("entry", "entry");
+    if (*action == "feed_broad_press" || *action == "refeed_broad_press_work")
+        return *original_action == *action &&
+            keys(*wire, *action == "feed_broad_press" ?
+                std::initializer_list<const char*>{"entity"} :
+                std::initializer_list<const char*>{"entity", "work_id"}) &&
+            field<std::string>(*wire, "entity") && same("entity", "target") &&
+            (*action == "feed_broad_press" ||
+                (field<Integer>(*wire, "work_id") && same("work_id", "work_id")));
     if (*action == "compact_offcuts")
         return *original_action == *action && keys(*wire, {"entity", "entry", "drive"}) &&
             field<std::string>(*wire, "entity") && field<Array>(*wire, "entry") &&
@@ -748,11 +756,16 @@ const char* kind(Role role) {
 
 Value cargo_value(const materials::Cargo& cargo, bool resources = false, bool copper = false) {
     Array lots;
-    for (const auto& lot : cargo.work_lots) lots.emplace_back(Object{
+    for (const auto& lot : cargo.work_lots) {
+        Object item{
         {"id", Value(lot.id)}, {"recipe_input", Value(lot.recipe.input_units_per_product)},
         {"cycle_ticks", Value(lot.recipe.cycle_ticks)}, {"remaining", Value(lot.remaining_ticks)},
         {"completed_subticks", Value(lot.completed_subticks)}, {"work_remainder", Value(lot.work_remainder)},
-        {"work_remainder_denominator", Value(lot.work_remainder_denominator)}});
+        {"work_remainder_denominator", Value(lot.work_remainder_denominator)}};
+        if (lot.recipe.output == materials::WorkOutput::sheet)
+            item.emplace("output_form", Value("sheet"));
+        lots.emplace_back(std::move(item));
+    }
     Object output{{"raw", Value(cargo.raw_units)}, {"products", Value(cargo.products)},
                   {"work_lots", Value(std::move(lots))}};
     if (resources) {
@@ -764,7 +777,14 @@ Value cargo_value(const materials::Cargo& cargo, bool resources = false, bool co
     }
     if (copper) {
         output.emplace("offcuts", Value(cargo.offcuts));
-        output.emplace("sheets", Value(cargo.sheets));
+        output.emplace("sheets", Value(static_cast<Integer>(cargo.sheets.size())));
+        if (!cargo.sheets.empty()) {
+            Array sheet_items;
+            for (const auto& sheet : cargo.sheets)
+                sheet_items.emplace_back(Object{{"id", Value(sheet.id)},
+                    {"rotation", Value(sheet.rotation)}});
+            output.emplace("sheet_items", Value(std::move(sheet_items)));
+        }
     }
     return Value(std::move(output));
 }
@@ -785,7 +805,7 @@ Value material_mass_value(const materials::State& state, const materials::Config
         stock_chunks += cargo.raw_units;
         plates += cargo.products;
         offcuts += cargo.offcuts;
-        sheets += cargo.sheets;
+        sheets += static_cast<Integer>(cargo.sheets.size());
         for (const auto& lot : cargo.work_lots)
             work_chunks += lot.recipe.input_units_per_product;
         for (const auto& [kind, count] : cargo.components)
@@ -1612,6 +1632,18 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         const auto found = snapshot.state.placed_components.find(*field<std::string>(wire, "entity"));
         normalized.emplace("generation", Value(found == snapshot.state.placed_components.end() ?
             Integer{0} : found->second.generation));
+    } else if (*action == "feed_broad_press" || *action == "refeed_broad_press_work") {
+        const bool refeed = *action == "refeed_broad_press_work";
+        if (!keys(wire, refeed ? std::initializer_list<const char*>{"entity", "work_id"} :
+                std::initializer_list<const char*>{"entity"}) ||
+            !field<std::string>(wire, "entity") ||
+            (refeed && !field<Integer>(wire, "work_id"))) return refuse("invalid_command");
+        normalized.at("action") = Value(*action);
+        normalized.emplace("target", wire.at("entity"));
+        const auto found = snapshot.state.placed_components.find(*field<std::string>(wire, "entity"));
+        normalized.emplace("generation", Value(found == snapshot.state.placed_components.end() ?
+            Integer{0} : found->second.generation));
+        if (refeed) normalized.emplace("work_id", wire.at("work_id"));
     } else if (*action == "feed_press" || *action == "refeed_press_work" ||
                *action == "compact_offcuts") {
         const bool refeed_work = *action == "refeed_press_work";

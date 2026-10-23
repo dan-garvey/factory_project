@@ -32,8 +32,13 @@ bool products(Quantity& total, Quantity count, Quantity weight) noexcept {
 }
 
 bool valid_lot(const WorkLot& lot, const State& state, const Config& config) noexcept {
+    const bool plate = lot.recipe ==
+        RecipeSignature{config.input_units_per_product, config.cycle_ticks, WorkOutput::plate};
+    const bool sheet = config.sheet_mass > 0 &&
+        config.sheet_mass == 3 * config.raw_mass &&
+        lot.recipe == RecipeSignature{3, config.cycle_ticks, WorkOutput::sheet};
     return lot.id > 0 && lot.id < state.next_work_id
-        && lot.recipe == RecipeSignature{config.input_units_per_product, config.cycle_ticks}
+        && (plate || sheet)
         && lot.remaining_ticks >= 0 && lot.remaining_ticks <= lot.recipe.cycle_ticks
         && lot.completed_subticks >= 0 && lot.completed_subticks < work_subticks_per_tick
         && lot.work_remainder_denominator > 0 && lot.work_remainder >= 0
@@ -69,6 +74,11 @@ void advance_work(WorkLot& lot, Quantity subticks, Quantity remainder, Quantity 
 }
 
 }  // namespace
+
+void advance_work_lot(WorkLot& lot, Quantity subticks, Quantity remainder,
+                      Quantity remainder_denominator) noexcept {
+    advance_work(lot, subticks, remainder, remainder_denominator);
+}
 
 const char* component_name(Component component) noexcept {
     switch (component) {
@@ -147,13 +157,14 @@ std::optional<BeltAdvance> advance_belt_lane(const BeltLane& lane, Quantity sign
     for (std::size_t index = 0; index < lane.slots.size(); ++index) {
         if (!lane.slots[index]) continue;
         const auto& item = *lane.slots[index];
-        const bool raw = item.components.empty() && item.timber == 0 && item.offcuts == 0 && item.sheets == 0 && item.raw_units == 1 && item.products == 0 && item.work_lots.empty();
-        const bool product = item.components.empty() && item.timber == 0 && item.offcuts == 0 && item.sheets == 0 && item.raw_units == 0 && item.products == 1 && item.work_lots.empty();
-        const bool work = item.components.empty() && item.timber == 0 && item.offcuts == 0 && item.sheets == 0 && item.raw_units == 0 && item.products == 0 && item.work_lots.size() == 1;
+        const bool raw = item.components.empty() && item.timber == 0 && item.offcuts == 0 && item.sheets.empty() && item.raw_units == 1 && item.products == 0 && item.work_lots.empty();
+        const bool product = item.components.empty() && item.timber == 0 && item.offcuts == 0 && item.sheets.empty() && item.raw_units == 0 && item.products == 1 && item.work_lots.empty();
+        const bool work = item.components.empty() && item.timber == 0 && item.offcuts == 0 && item.sheets.empty() && item.raw_units == 0 && item.products == 0 && item.work_lots.size() == 1;
         if (!raw && !product && !work) return std::nullopt;
         if (work) {
             const auto& lot = item.work_lots.front();
-            if (lot.id <= 0 || lot.recipe.input_units_per_product < 1 || lot.recipe.cycle_ticks < 1 ||
+            if (lot.recipe.output != WorkOutput::plate || lot.id <= 0 ||
+                lot.recipe.input_units_per_product < 1 || lot.recipe.cycle_ticks < 1 ||
                 lot.remaining_ticks < 0 || lot.remaining_ticks > lot.recipe.cycle_ticks ||
                 lot.completed_subticks < 0 || lot.completed_subticks >= work_subticks_per_tick ||
                 lot.work_remainder_denominator <= 0 || lot.work_remainder < 0 ||
@@ -283,6 +294,8 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
         (void)actor;
         if (cargo.work_lots.size() > maximum_live_work_lots - current_work) return Error::invalid_state;
         current_work += cargo.work_lots.size();
+        if (cargo.sheets.size() > maximum_live_work_lots - current_work) return Error::invalid_state;
+        current_work += cargo.sheets.size();
     }
     if (state.belt_lanes.size() > maximum_belt_lanes) return Error::invalid_state;
     for (const auto& [id, lane] : state.belt_lanes) {
@@ -297,6 +310,8 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
         (void)point;
         if (cargo.work_lots.size() > maximum_live_work_lots - current_work) return Error::invalid_state;
         current_work += cargo.work_lots.size();
+        if (cargo.sheets.size() > maximum_live_work_lots - current_work) return Error::invalid_state;
+        current_work += cargo.sheets.size();
     }
     const auto& stock = state.stock;
     if (state.initial_units < 0 || state.shipped_products < 0 || stock.source < 0 || stock.collector < 0 ||
@@ -321,7 +336,15 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
         live_ids[live_count++] = lot.id;
         return true;
     };
-    if (state.processing && !record_lot(*state.processing)) return Error::invalid_state;
+    const auto record_sheet = [&](const Sheet& sheet) {
+        if (config.sheet_mass == 0 || sheet.id <= 0 || sheet.id >= state.next_work_id ||
+            sheet.rotation < 0 || sheet.rotation > 3) return false;
+        live_ids[live_count++] = sheet.id;
+        return true;
+    };
+    if (state.processing &&
+        (state.processing->recipe.output != WorkOutput::plate ||
+         !record_lot(*state.processing))) return Error::invalid_state;
     Quantity total = 0;
     for (const auto value : {stock.source, stock.collector, stock.belt, stock.input}) {
         if (!products(total, value, config.raw_mass)) return Error::quantity_overflow;
@@ -332,16 +355,17 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
         for (const auto coordinate : point)
             if (coordinate < -maximum_drop_coordinate || coordinate > maximum_drop_coordinate)
                 return Error::invalid_state;
-        if (cargo.raw_units < 0 || cargo.products < 0 || cargo.offcuts < 0 || cargo.sheets < 0 ||
-            (!copper && (cargo.offcuts != 0 || cargo.sheets != 0)) ||
-            (config.sheet_mass == 0 && cargo.sheets != 0) || cargo.timber != 0 || !cargo.components.empty() ||
+        if (cargo.raw_units < 0 || cargo.products < 0 || cargo.offcuts < 0 ||
+            (!copper && (cargo.offcuts != 0 || !cargo.sheets.empty())) ||
+            (config.sheet_mass == 0 && !cargo.sheets.empty()) || cargo.timber != 0 || !cargo.components.empty() ||
             (cargo.raw_units == 0 && cargo.products == 0 && cargo.offcuts == 0 &&
-             cargo.sheets == 0 && cargo.work_lots.empty())) return Error::invalid_state;
+             cargo.sheets.empty() && cargo.work_lots.empty())) return Error::invalid_state;
         if (!products(total, cargo.raw_units, config.raw_mass) ||
             !products(total, cargo.products, plate_mass) ||
             !add(total, cargo.offcuts) ||
-            (cargo.sheets != 0 && !products(total, cargo.sheets, config.sheet_mass)))
+            (!cargo.sheets.empty() && !products(total, static_cast<Quantity>(cargo.sheets.size()), config.sheet_mass)))
             return Error::quantity_overflow;
+        for (const auto& sheet : cargo.sheets) if (!record_sheet(sheet)) return Error::invalid_state;
         for (const auto& lot : cargo.work_lots) {
             if (!record_lot(lot)) return Error::invalid_state;
             if (!products(total, lot.recipe.input_units_per_product, config.raw_mass)) return Error::quantity_overflow;
@@ -360,23 +384,24 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
             return Error::invalid_state;
         for (const auto& item : lane.slots) {
             if (!item) continue;
-            const bool raw = item->components.empty() && item->timber == 0 && item->offcuts == 0 && item->sheets == 0 && item->raw_units == 1 && item->products == 0 && item->work_lots.empty();
-            const bool product = item->components.empty() && item->timber == 0 && item->offcuts == 0 && item->sheets == 0 && item->raw_units == 0 && item->products == 1 && item->work_lots.empty();
-            const bool work = item->components.empty() && item->timber == 0 && item->offcuts == 0 && item->sheets == 0 && item->raw_units == 0 && item->products == 0 && item->work_lots.size() == 1;
+            const bool raw = item->components.empty() && item->timber == 0 && item->offcuts == 0 && item->sheets.empty() && item->raw_units == 1 && item->products == 0 && item->work_lots.empty();
+            const bool product = item->components.empty() && item->timber == 0 && item->offcuts == 0 && item->sheets.empty() && item->raw_units == 0 && item->products == 1 && item->work_lots.empty();
+            const bool work = item->components.empty() && item->timber == 0 && item->offcuts == 0 && item->sheets.empty() && item->raw_units == 0 && item->products == 0 && item->work_lots.size() == 1;
             if (!raw && !product && !work) return Error::invalid_state;
             if (raw && !add(total, config.raw_mass)) return Error::quantity_overflow;
             if (product && !add(total, plate_mass)) return Error::quantity_overflow;
             if (work) {
                 const auto& lot = item->work_lots.front();
-                if (!record_lot(lot)) return Error::invalid_state;
+                if (lot.recipe.output != WorkOutput::plate || !record_lot(lot))
+                    return Error::invalid_state;
                 if (!products(total, lot.recipe.input_units_per_product, config.raw_mass)) return Error::quantity_overflow;
             }
         }
     }
     for (const auto& [actor, cargo] : state.cargo) {
         if (actor.empty() || cargo.raw_units < 0 || cargo.products < 0 || cargo.offcuts < 0 ||
-            (!copper && (cargo.offcuts != 0 || cargo.sheets != 0)) ||
-            cargo.sheets < 0 || (config.sheet_mass == 0 && cargo.sheets != 0) || cargo.timber < 0 ||
+            (!copper && (cargo.offcuts != 0 || !cargo.sheets.empty())) ||
+            (config.sheet_mass == 0 && !cargo.sheets.empty()) || cargo.timber < 0 ||
             !add(timber_accounted, cargo.timber)) return Error::invalid_state;
         Quantity component_count = 0;
         for (const auto& [kind, count] : cargo.components) {
@@ -390,9 +415,10 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
             return Error::invalid_state;
         if (!products(total, cargo.raw_units, config.raw_mass) ||
             !products(total, cargo.products, plate_mass) || !add(total, cargo.offcuts) ||
-            (cargo.sheets != 0 && !products(total, cargo.sheets, config.sheet_mass))) {
+            (!cargo.sheets.empty() && !products(total, static_cast<Quantity>(cargo.sheets.size()), config.sheet_mass))) {
             return Error::quantity_overflow;
         }
+        for (const auto& sheet : cargo.sheets) if (!record_sheet(sheet)) return Error::invalid_state;
         for (const auto& lot : cargo.work_lots) {
             if (!record_lot(lot)) return Error::invalid_state;
             if (!products(total, lot.recipe.input_units_per_product, config.raw_mass)) return Error::quantity_overflow;
@@ -498,7 +524,8 @@ Error turn_press(State& state, const Config& config, const Path& path,
     const auto found = state.dropped_material.find(work);
     if (found == state.dropped_material.end()) return Error::unavailable_input;
     const auto& item = found->second;
-    if (item.products != 0 || item.offcuts != 0 || item.sheets != 0 ||
+    if (item.products != 0 || item.offcuts != 0 || !item.sheets.empty() ||
+        (item.work_lots.size() == 1 && item.work_lots.front().recipe.output != WorkOutput::plate) ||
         item.raw_units + static_cast<Quantity>(item.work_lots.size()) != 1)
         return Error::unavailable_input;
     if (item.work_lots.size() == 1 && item.work_lots.front().remaining_ticks == 0 &&
@@ -524,6 +551,76 @@ Error turn_press(State& state, const Config& config, const Path& path,
             next.dropped_material.emplace(work, std::move(offcut));
         }
         next.dropped_material.emplace(exit, Cargo{0, 1, {}});
+    }
+    const auto result = validate(next, config, path);
+    if (result != Error::none) return result;
+    state = std::move(next);
+    return Error::none;
+}
+
+Error feed_broad_press(State& state, const Config& config, const Path& path,
+                       const std::string& actor, const DropPoint& work,
+                       std::optional<WorkId> carried_work) {
+    const auto valid = validate(state, config, path);
+    if (valid != Error::none) return valid;
+    if (config.input_units_per_product != 1 || config.sheet_mass == 0 ||
+        config.sheet_mass != 3 * config.raw_mass) return Error::unavailable_recipe;
+    const auto carried = state.cargo.find(actor);
+    if (actor.empty() || carried == state.cargo.end()) return Error::invalid_actor;
+    if (state.dropped_material.contains(work) ||
+        state.dropped_material.size() >= maximum_drop_points) return Error::unavailable_output;
+    auto next = state;
+    auto& cargo = next.cargo.at(actor);
+    if (carried_work) {
+        const auto found = std::find_if(cargo.work_lots.begin(), cargo.work_lots.end(),
+            [&](const WorkLot& lot) { return lot.id == *carried_work; });
+        if (found == cargo.work_lots.end() || found->recipe !=
+            RecipeSignature{3, config.cycle_ticks, WorkOutput::sheet})
+            return Error::unavailable_input;
+        const auto lot = *found;
+        cargo.work_lots.erase(found);
+        next.dropped_material.emplace(work, Cargo{0, 0, {lot}});
+    } else {
+        if (cargo.raw_units < 3) return Error::unavailable_input;
+        if (next.next_work_id == std::numeric_limits<WorkId>::max()) return Error::work_id_overflow;
+        cargo.raw_units -= 3;
+        next.dropped_material.emplace(work, Cargo{0, 0, {WorkLot{next.next_work_id++,
+            {3, config.cycle_ticks, WorkOutput::sheet}, config.cycle_ticks}}});
+    }
+    const auto result = validate(next, config, path);
+    if (result != Error::none) return result;
+    state = std::move(next);
+    return Error::none;
+}
+
+Error turn_broad_press(State& state, const Config& config, const Path& path,
+                       const DropPoint& work, Quantity output_rotation,
+                       Quantity work_subticks, Quantity work_remainder,
+                       Quantity work_remainder_denominator) {
+    const auto valid = validate(state, config, path);
+    if (valid != Error::none) return valid;
+    if (config.input_units_per_product != 1 || config.sheet_mass == 0 ||
+        config.sheet_mass != 3 * config.raw_mass || output_rotation < 0 ||
+        output_rotation > 3 || work_subticks < 0 || work_remainder < 0 ||
+        work_remainder_denominator <= 0 || work_remainder >= work_remainder_denominator ||
+        (work_subticks == 0 && work_remainder == 0)) return Error::unavailable_recipe;
+    const auto found = state.dropped_material.find(work);
+    if (found == state.dropped_material.end()) return Error::unavailable_input;
+    const auto& item = found->second;
+    const bool active = item.raw_units == 0 && item.products == 0 &&
+        item.offcuts == 0 && item.sheets.empty() && item.timber == 0 &&
+        item.components.empty() && item.work_lots.size() == 1 &&
+        item.work_lots.front().recipe ==
+            RecipeSignature{3, config.cycle_ticks, WorkOutput::sheet};
+    if (!active) return Error::unavailable_input;
+    auto next = state;
+    auto& working = next.dropped_material.at(work);
+    advance_work(working.work_lots.front(), work_subticks, work_remainder,
+        work_remainder_denominator);
+    if (working.work_lots.front().remaining_ticks == 0) {
+        const auto id = working.work_lots.front().id;
+        working = Cargo{};
+        working.sheets.push_back({id, output_rotation});
     }
     const auto result = validate(next, config, path);
     if (result != Error::none) return result;
@@ -578,9 +675,10 @@ Error step_presses(State& state, const Config& config, const Path& path,
         if (found == next.dropped_material.end()) continue;
         const auto raw = found->second == Cargo{1, 0, {}};
         const auto work = found->second.raw_units == 0 && found->second.products == 0 &&
-            found->second.offcuts == 0 && found->second.sheets == 0 &&
+            found->second.offcuts == 0 && found->second.sheets.empty() &&
             found->second.timber == 0 && found->second.components.empty() &&
-            found->second.work_lots.size() == 1;
+            found->second.work_lots.size() == 1 &&
+            found->second.work_lots.front().recipe.output == WorkOutput::plate;
         if (!raw && !work) continue;
         if (work && found->second.work_lots.front().remaining_ticks == 0 &&
             next.dropped_material.contains(step.exit)) continue;
@@ -624,9 +722,10 @@ Error pickup_material(State& state, const Config& config, const Path& path,
     auto& destination = next.cargo.at(actor);
     if (!add(destination.raw_units, found->second.raw_units) ||
         !add(destination.products, found->second.products) ||
-        !add(destination.offcuts, found->second.offcuts) ||
-        !add(destination.sheets, found->second.sheets))
+        !add(destination.offcuts, found->second.offcuts))
         return Error::quantity_overflow;
+    destination.sheets.insert(destination.sheets.end(),
+        found->second.sheets.begin(), found->second.sheets.end());
     destination.work_lots.insert(destination.work_lots.end(), found->second.work_lots.begin(), found->second.work_lots.end());
     next.dropped_material.erase(point);
     const auto output_error = validate(next, config, path);
@@ -648,7 +747,8 @@ Error harvest_source(State& state, const Config& config, const Path& path,
     const auto& carried = state.cargo.at(actor);
     __extension__ using Wide = __int128;
     const Wide used = static_cast<Wide>(carried.raw_units) + carried.products +
-        carried.offcuts + carried.sheets + carried.timber + carried.work_lots.size();
+        carried.offcuts + static_cast<Quantity>(carried.sheets.size()) +
+        carried.timber + carried.work_lots.size();
     Wide component_count = 0;
     for (const auto& [kind, count] : carried.components) {
         (void)kind;

@@ -273,6 +273,7 @@ private:
         std::map<mechanics::Point, std::optional<assembly::Collector>> collectors_by_receiver;
         std::vector<std::pair<mechanics::Point, assembly::PressInspection>> presses_by_frame;
         std::vector<std::pair<mechanics::Point, assembly::GuidedPressInspection>> presses_by_anvil;
+        std::vector<assembly::BroadPress> broad_presses;
         TickLayout(std::vector<assembly::Part> parts, const std::vector<assembly::OreFace>& faces)
             : placed(std::move(parts)), layout(placed) {
             // These inspections depend only on placed geometry. A material-only
@@ -287,8 +288,11 @@ private:
             for (const auto& part : placed)
                 if (part.kind == materials::Component::wooden_frame)
                     presses_by_frame.emplace_back(part.center, layout.inspect_press(part.center));
-                else if (part.kind == materials::Component::anvil)
+                else if (part.kind == materials::Component::anvil) {
                     presses_by_anvil.emplace_back(part.center, layout.inspect_guided_press(part.center));
+                    const auto broad = layout.inspect_broad_press(part.center);
+                    if (broad.press) broad_presses.push_back(*broad.press);
+                }
         }
     };
     // Tick changes material custody, not the power graph. Commands can change

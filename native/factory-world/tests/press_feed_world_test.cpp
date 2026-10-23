@@ -26,7 +26,9 @@ void check(bool condition, const char* message) {
 std::unique_ptr<w::World> codec_restore(const w::Profile& profile,
         const w::Snapshot& snapshot, const char* message) {
     const auto encoded = w::encode_checkpoint(profile, snapshot);
-    check(std::holds_alternative<V>(encoded), "The powered press state encodes as a checkpoint.");
+    if (!std::holds_alternative<V>(encoded))
+        throw std::runtime_error(std::string(message) + " (checkpoint encoding refused)");
+    ++checks;
     const auto decoded = w::decode_checkpoint(profile, "press-feed", std::get<V>(encoded));
     check(std::holds_alternative<w::Snapshot>(decoded), "The powered press checkpoint decodes.");
     auto restored = w::World::restore("press-feed", profile, std::get<w::Snapshot>(decoded));
@@ -112,10 +114,15 @@ struct Runner {
     }
     void refuses(const std::string& actor, const O& intent, const char* reason) {
         const auto result = send(actor, intent);
-        check(result.completed() && result.result &&
-              !std::get<bool>(result.result->at("accepted").storage()) &&
-              std::get<std::string>(result.result->at("reason").storage()) == reason,
-              "The authoritative command refuses for the expected concrete reason.");
+        if (!result.completed() || !result.result ||
+            std::get<bool>(result.result->at("accepted").storage()) ||
+            std::get<std::string>(result.result->at("reason").storage()) != reason)
+            throw std::runtime_error("Request " +
+                std::get<std::string>(intent.at("request").storage()) +
+                " expected refusal " + reason + ", received " +
+                (result.result ? std::get<std::string>(result.result->at("reason").storage()) :
+                    "no result"));
+        ++checks;
     }
 };
 
@@ -2014,6 +2021,229 @@ void belt_feeds_a_guided_press(bool copper) {
               "Q can recover the one real offcut without disturbing the finished plate.");
     }
 }
+
+void powered_broad_sheet_custody() {
+    auto source = site();
+    source.profile.build_reach = 100;
+    source.profile.initial_units = 40;
+    source.state.material.initial_units = 40;
+    source.state.material.stock.source = 40;
+    source.profile.material.hand_carry_capacity = 40;
+    source.profile.material.raw_mass = 4;
+    source.profile.material.plate_mass = 3;
+    source.profile.material.sheet_mass = 12;
+    source.profile.waterwheel_rate = {1, 2};
+    source.state.topology.parts.front().geometry.center = {8, 4, 0};
+    source.state.topology.sources = {{"press-wheel", source.profile.waterwheel_rate}};
+    source.profile.finite_parts[{s::Role::shaft, 0, 2}] = 1;
+    source.state.kits.at("P")[{s::Role::shaft, 0, 2}] = 1;
+    Runner run(source);
+    auto cross = request("P", "sheet-place-cross-shaft", "place");
+    cross.emplace("role", V("shaft"));
+    cross.emplace("center", V(point(14, 4, 0)));
+    cross.emplace("axis", V("x"));
+    cross.emplace("teeth", V(I{0}));
+    cross.emplace("half_span", V(I{2}));
+    auto misaligned = cross;
+    misaligned.at("request") = V("sheet-cross-shaft-wrong-grid");
+    misaligned.at("center") = V(point(14, 4, 2));
+    run.refuses("P", misaligned, "invalid_cell");
+    run.accept("P", cross);
+    for (int index = 0; index < 32; ++index) {
+        auto harvest = request("P", "sheet-ore-" + std::to_string(index), "harvest_source");
+        harvest.emplace("target", V("ore"));
+        run.accept("P", harvest);
+    }
+    for (int index = 0; index < 4; ++index) {
+        auto harvest = request("P", "sheet-tree-" + std::to_string(index), "harvest_source");
+        harvest.emplace("target", V("tree"));
+        run.accept("P", harvest);
+    }
+    for (const auto* kind : {"anvil", "ram_face", "sliding_guide",
+                             "softmetal_shaft", "softmetal_cog"})
+        for (int index = 0; index < 4; ++index) {
+            auto craft = request("P", std::string("sheet-craft-") + kind + std::to_string(index),
+                "craft_component");
+            craft.emplace("target", V("pod-fabrication-hub"));
+            craft.emplace("generation", V(I{1}));
+            craft.emplace("component", V(kind));
+            run.accept("P", craft);
+        }
+    std::string first_anvil;
+    I first_generation{};
+    for (int index = 0; index < 4; ++index) {
+        const I x = 12 + (index % 2) * 4;
+        const I z = (index / 2) * 4;
+        const I outward = index % 2 == 0 ? -1 : 1;
+        const std::pair<const char*, g::Point> parts[] = {
+            {"anvil", {x, 0, z}}, {"ram_face", {x, 1, z}},
+            {"sliding_guide", {x, 3, z}},
+            {"softmetal_shaft", {x + outward, 4, z}},
+            {"softmetal_cog", {x + outward * 2, 4, z}}};
+        for (const auto& [kind, center] : parts) {
+            auto place = request("P", std::string("sheet-place-") + kind + std::to_string(index),
+                "place_component");
+            place.emplace("component", V(kind));
+            place.emplace("center", V(point(center[0], center[1], center[2])));
+            const auto made = run.accept("P", place);
+            if (index == 0 && std::string(kind) == "anvil") {
+                first_anvil = std::get<std::string>(made.at("entity").storage());
+                first_generation = std::get<I>(made.at("generation").storage());
+            }
+        }
+    }
+    const auto geometry = factory::assembly::inspect_broad_press([&] {
+        std::vector<factory::assembly::Part> parts;
+        for (const auto& [id, placed] : run.world->snapshot().state.placed_components)
+            parts.push_back({id, placed.kind, placed.center, placed.generation});
+        return parts;
+    }(), {12, 0, 0});
+    check(geometry.press && w::BroadPressDriveIndex(w::drive_power(source.profile,
+        run.world->snapshot().state)).inspect(*geometry.press).status ==
+            w::BroadPressDriveStatus::ready,
+        "Twenty placed parts and the actual half-speed source form one live four-pad head.");
+    for (int index = 32; index < 35; ++index) {
+        auto harvest = request("P", "sheet-ore-" + std::to_string(index), "harvest_source");
+        harvest.emplace("target", V("ore"));
+        run.accept("P", harvest);
+    }
+    auto feed = request("P", "sheet-feed", "feed_broad_press");
+    feed.emplace("target", V(first_anvil));
+    feed.emplace("generation", V(first_generation));
+    run.accept("P", feed);
+    const auto fed = run.world->snapshot();
+    check(fed.state.material.cargo.at("P").raw_units == 0 &&
+          fed.state.material.dropped_material.at({12, 0, 0}).work_lots.front().recipe.output ==
+              m::WorkOutput::sheet &&
+          codec_restore(source.profile, fed, "The newly fed broad lot restores at its anvil."),
+        "Feeding three finite stock chunks creates exactly one located sheet-bound lot.");
+    Runner stopped(source);
+    stopped.world = w::World::restore("press-feed", source.profile, fed);
+    auto stop = request("P", "sheet-stop", "set_drive");
+    stop.emplace("target", V("press-wheel"));
+    stop.emplace("generation", V(I{1}));
+    stop.emplace("enabled", V(false));
+    stopped.accept("P", stop);
+    check(stopped.world->tick().error == w::TransactionError::none &&
+          stopped.world->snapshot().state.material.dropped_material.at(
+              {12, 0, 0}).work_lots.front().remaining_ticks == 2 &&
+          codec_restore(source.profile, stopped.world->snapshot(),
+              "The stopped broad work restores without invented progress."),
+        "An assembled but stopped four-pad drive leaves the exact batch untouched.");
+    Runner disconnected(source);
+    disconnected.world = w::World::restore("press-feed", source.profile, fed);
+    auto reclaim = request("P", "sheet-disconnect", "reclaim_component");
+    const auto& live_parts = fed.state.placed_components;
+    const auto missing = std::find_if(live_parts.begin(), live_parts.end(), [](const auto& entry) {
+        return entry.second.kind == m::Component::softmetal_cog &&
+            entry.second.center == g::Point{10, 4, 0};
+    });
+    check(missing != live_parts.end(), "The powered broad fixture has a removable pad cog.");
+    reclaim.emplace("target", V(missing->first));
+    reclaim.emplace("generation", V(missing->second.generation));
+    disconnected.accept("P", reclaim);
+    check(disconnected.world->tick().error == w::TransactionError::none &&
+          disconnected.world->snapshot().state.material.dropped_material.at(
+              {12, 0, 0}).work_lots.front().remaining_ticks == 2 &&
+          codec_restore(source.profile, disconnected.world->snapshot(),
+              "The disconnected broad work restores without invented progress."),
+        "Removing one cog stops all four pads without losing the unfinished sheet.");
+    auto spare = request("P", "sheet-spare-after-disconnect", "harvest_source");
+    spare.emplace("target", V("ore"));
+    disconnected.accept("P", spare);
+    const auto second = std::find_if(fed.state.placed_components.begin(),
+        fed.state.placed_components.end(), [](const auto& entry) {
+            return entry.second.kind == m::Component::anvil &&
+                entry.second.center == g::Point{16, 0, 0};
+        });
+    check(second != fed.state.placed_components.end(),
+        "The second cell retains its own anvil identity after a pad is dismantled.");
+    auto overlapping_small = request("P", "sheet-overlap-small", "feed_press");
+    overlapping_small.emplace("target", V(second->first));
+    overlapping_small.emplace("generation", V(second->second.generation));
+    overlapping_small.emplace("entry", V(point(17, 0, 0)));
+    disconnected.refuses("P", overlapping_small, "broad_work_occupied");
+    for (int index = 0; index < 2; ++index)
+        check(run.world->tick().error == w::TransactionError::none,
+            "The connected half-speed broad head can advance one real authority tick.");
+    const auto partial = run.world->snapshot();
+    check(partial.state.material.dropped_material.at({12, 0, 0}).work_lots.front().remaining_ticks == 1 &&
+          codec_restore(source.profile, partial, "The partial broad lot restores with exact work."),
+        "Two half-speed ticks retain the one-stroke partial work and its original identity.");
+    auto forged_partial = partial;
+    forged_partial.state.material.dropped_material.at({12, 0, 0}).work_lots.front().remaining_ticks = 2;
+    check(!w::World::restore("press-feed", source.profile, forged_partial),
+        "A mass-balanced checkpoint cannot rewrite the broad lot's proven powered progress.");
+    Runner refed(source);
+    refed.world = w::World::restore("press-feed", source.profile, partial);
+    const auto& partial_lot = partial.state.material.dropped_material.at({12, 0, 0}).work_lots.front();
+    auto recover_partial = request("P", "sheet-recover-partial", "pickup_material");
+    recover_partial.emplace("center", V(point(12, 0, 0)));
+    recover_partial.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{0})},
+        {"work_lots", V(V::Array{V(O{{"id", V(partial_lot.id)},
+            {"recipe_input", V(I{3})}, {"cycle_ticks", V(I{2})},
+            {"remaining", V(partial_lot.remaining_ticks)},
+            {"completed_subticks", V(partial_lot.completed_subticks)},
+            {"work_remainder", V(partial_lot.work_remainder)},
+            {"work_remainder_denominator", V(partial_lot.work_remainder_denominator)},
+            {"output_form", V("sheet")}})})},
+        {"offcuts", V(I{0})}, {"sheets", V(I{0})}}));
+    refed.accept("P", recover_partial);
+    check(w::validate(source.profile, refed.world->snapshot()),
+        "The picked broad partial lot has valid replay before refeed.");
+    auto fake_refeed = request("P", "sheet-wrong-refeed", "refeed_broad_press_work");
+    fake_refeed.emplace("target", V(first_anvil));
+    fake_refeed.emplace("generation", V(first_generation));
+    fake_refeed.emplace("work_id", V(partial_lot.id + 1));
+    refed.refuses("P", fake_refeed, "incompatible_work");
+    fake_refeed.at("request") = V("sheet-real-refeed");
+    fake_refeed.at("work_id") = V(partial_lot.id);
+    refed.accept("P", fake_refeed);
+    check(w::validate(source.profile, refed.world->snapshot()),
+        "The reinserted broad partial lot has valid replay after refeed.");
+    check(codec_restore(source.profile, refed.world->snapshot(),
+              "The same partial broad serial survives recovery and refeed.") != nullptr,
+        "The original partial workpiece returns to its four-pad face without new mass.");
+    for (int index = 0; index < 2; ++index)
+        check(run.world->tick().error == w::TransactionError::none,
+            "Two further half-speed ticks can finish the broad batch.");
+    const auto finished = run.world->snapshot();
+    check(finished.state.material.dropped_material.at({12, 0, 0}).sheets.size() == 1 &&
+          finished.state.material.dropped_material.at({12, 0, 0}).sheets.front().id ==
+              fed.state.material.dropped_material.at({12, 0, 0}).work_lots.front().id &&
+          codec_restore(source.profile, finished, "The formed twelve-mass sheet restores."),
+        "Four powered half-speed ticks form one sheet on the same four-cell work face.");
+    for (int index = 35; index < 38; ++index) {
+        auto harvest = request("P", "sheet-later-ore-" + std::to_string(index), "harvest_source");
+        harvest.emplace("target", V("ore"));
+        run.accept("P", harvest);
+    }
+    auto blocked_feed = feed;
+    blocked_feed.at("request") = V("sheet-blocked-feed");
+    run.refuses("P", blocked_feed, "input_full");
+    auto forged = finished;
+    forged.state.material.dropped_material.at({12, 0, 0}).sheets.front().rotation = 1;
+    check(!w::World::restore("press-feed", source.profile, forged),
+        "Fresh World restore refuses a sheet orientation invented after the powered stroke.");
+    auto pickup = request("Q", "sheet-pickup", "pickup_material");
+    pickup.emplace("center", V(point(12, 0, 0)));
+    pickup.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{0})},
+        {"work_lots", V(V::Array{})}, {"offcuts", V(I{0})}, {"sheets", V(I{1})},
+        {"sheet_items", V(V::Array{V(O{{"id", V(finished.state.material.dropped_material.at(
+            {12, 0, 0}).sheets.front().id)}, {"rotation", V(I{0})}})})}}));
+    run.q = {200, 1, 200};
+    run.refuses("Q", pickup, "out_of_reach");
+    check(run.world->snapshot().state.material.dropped_material.at({12, 0, 0}).sheets.size() == 1,
+        "A remote actor cannot claim the four-cell sheet by naming its origin.");
+    run.q = {5.5, 1, 1.0};
+    pickup.at("request") = V("sheet-near-pickup");
+    run.accept("Q", pickup);
+    const auto recovered = run.world->snapshot();
+    check(recovered.state.material.cargo.at("Q").sheets.size() == 1 &&
+          !recovered.state.material.dropped_material.contains({12, 0, 0}) &&
+          codec_restore(source.profile, recovered, "Q's exact sheet identity restores."),
+        "A second actor physically clears the completed sheet with exact checkpoint custody.");
+}
 } // namespace
 
 int main() {
@@ -2025,6 +2255,7 @@ int main() {
         belt_feeds_a_placed_press();
         belt_feeds_a_guided_press(false);
         belt_feeds_a_guided_press(true);
+        powered_broad_sheet_custody();
         std::cout << "press_feed_world_test: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {

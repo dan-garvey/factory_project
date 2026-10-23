@@ -36,7 +36,7 @@ m::State fixture() {
 // lot and P's raw unit plus ready carried lot account for all sixteen raw units.
 Value literal() {
     return Value(Object{
-        {"schema", integer(6)}, {"initial_units", integer(16)}, {"dropped_material", Value(Value::Array{})},
+        {"schema", integer(7)}, {"initial_units", integer(16)}, {"dropped_material", Value(Value::Array{})},
         {"belt_lanes", Value(Object{})},
         {"stock", Value(Object{{"source", integer(6)}, {"collector", integer(1)},
             {"belt", integer(1)}, {"input", integer(1)}, {"output", integer(1)}})},
@@ -45,14 +45,14 @@ Value literal() {
                 {"work_lots", Value(Value::Array{Value(Object{
                     {"id", integer(8)},
                     {"recipe", Value(Object{{"input_units_per_product", integer(2)},
-                                             {"cycle_ticks", integer(4)}})},
+                                             {"cycle_ticks", integer(4)}, {"output_form", Value("plate")}})},
                     {"remaining_ticks", integer(0)}, {"completed_subticks", integer(0)}, {"work_remainder", integer(0)}, {"work_remainder_denominator", integer(1)}})})}})},
             {"Q", Value(Object{{"raw_units", integer(0)}, {"products", integer(0)},
                                 {"work_lots", Value(Value::Array{})}})}})},
         {"processing", Value(Object{
             {"id", integer(7)},
             {"recipe", Value(Object{{"input_units_per_product", integer(2)},
-                                     {"cycle_ticks", integer(4)}})},
+                                     {"cycle_ticks", integer(4)}, {"output_form", Value("plate")}})},
             {"remaining_ticks", integer(3)}, {"completed_subticks", integer(m::work_subticks_per_tick / 2)}, {"work_remainder", integer(0)}, {"work_remainder_denominator", integer(1)}})},
         {"next_work_id", integer(9)}});
 }

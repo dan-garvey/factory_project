@@ -68,6 +68,35 @@ bool transmission_role(Role role) {
            role == Role::vertical_gearbox || role == Role::chain_drive;
 }
 
+bool transmission_center(Role role, const mechanics::Point& center,
+        mechanics::Axis axis, Integer half_span) {
+    if (!transmission_role(role)) return true;
+    const std::size_t along = axis == mechanics::Axis::x ? 0 :
+        axis == mechanics::Axis::y ? 1 : 2;
+    for (std::size_t index = 0; index < center.size(); ++index) {
+        const auto remainder = center[index] % 4;
+        if (remainder == 0) continue;
+        // A two-half-span shaft bridges adjacent full-grid ports from their
+        // common half-tile center. It still uses the same quarter-grid origin.
+        if (role != Role::shaft || half_span != 2 || index != along ||
+            std::abs(remainder) != 2) return false;
+    }
+    return true;
+}
+
+std::array<mechanics::Point, 4> broad_cells(const mechanics::Point& origin) {
+    return {origin, mechanics::Point{origin[0] + 4, origin[1], origin[2]},
+        mechanics::Point{origin[0], origin[1], origin[2] + 4},
+        mechanics::Point{origin[0] + 4, origin[1], origin[2] + 4}};
+}
+
+bool broad_item(const materials::Cargo& cargo) {
+    return !cargo.sheets.empty() || std::any_of(cargo.work_lots.begin(),
+        cargo.work_lots.end(), [](const auto& lot) {
+            return lot.recipe.output == materials::WorkOutput::sheet;
+        });
+}
+
 std::optional<mechanics::Rate> wheel_rate(const Profile& profile, const stationary::PlacedPart& placed) {
     if (profile.water.empty()) return profile.waterwheel_rate;
     const auto& part = placed.geometry;
@@ -150,6 +179,13 @@ bool shape(const Object& intent, const std::string& action) {
         return keys(intent, {"target", "generation", "entry"}) &&
             field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
             field<Value::Array>(intent, "entry");
+    if (action == "feed_broad_press")
+        return keys(intent, {"target", "generation"}) &&
+            field<std::string>(intent, "target") && field<Integer>(intent, "generation");
+    if (action == "refeed_broad_press_work")
+        return keys(intent, {"target", "generation", "work_id"}) &&
+            field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
+            field<Integer>(intent, "work_id");
     if (action == "compact_offcuts")
         return keys(intent, {"target", "generation", "entry", "drive"}) &&
             field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
@@ -431,12 +467,34 @@ std::optional<materials::ResolvedTarget> material_target(
 
 Value lots_value(const std::vector<materials::WorkLot>& lots) {
     Value::Array output;
-    for (const auto& lot : lots) output.emplace_back(Object{
+    for (const auto& lot : lots) {
+        Object item{
         {"id", Value(lot.id)}, {"input_units_per_product", Value(lot.recipe.input_units_per_product)},
         {"cycle_ticks", Value(lot.recipe.cycle_ticks)}, {"remaining_ticks", Value(lot.remaining_ticks)},
         {"completed_subticks", Value(lot.completed_subticks)}, {"work_remainder", Value(lot.work_remainder)},
-        {"work_remainder_denominator", Value(lot.work_remainder_denominator)}});
+        {"work_remainder_denominator", Value(lot.work_remainder_denominator)}};
+        if (lot.recipe.output == materials::WorkOutput::sheet)
+            item.emplace("output_form", Value("sheet"));
+        output.emplace_back(std::move(item));
+    }
     return Value(std::move(output));
+}
+
+std::optional<materials::WorkLot> sheet_lot(const Value& value) {
+    const auto* object = std::get_if<Object>(&value.storage());
+    if (!object || object->size() != 8) return std::nullopt;
+    const auto* id = field<Integer>(*object, "id");
+    const auto* input = field<Integer>(*object, "input_units_per_product");
+    const auto* cycle = field<Integer>(*object, "cycle_ticks");
+    const auto* remaining = field<Integer>(*object, "remaining_ticks");
+    const auto* completed = field<Integer>(*object, "completed_subticks");
+    const auto* remainder = field<Integer>(*object, "work_remainder");
+    const auto* denominator = field<Integer>(*object, "work_remainder_denominator");
+    const auto* output = field<std::string>(*object, "output_form");
+    if (!id || !input || !cycle || !remaining || !completed || !remainder ||
+        !denominator || !output || *output != "sheet") return std::nullopt;
+    return materials::WorkLot{*id, {*input, *cycle, materials::WorkOutput::sheet},
+        *remaining, *completed, *remainder, *denominator};
 }
 
 bool copper_profile(const materials::Config& config) {
@@ -445,16 +503,28 @@ bool copper_profile(const materials::Config& config) {
 
 Value belt_cargo_value(const materials::Cargo& cargo, bool copper = false) {
     Value::Array lots;
-    for (const auto& lot : cargo.work_lots) lots.emplace_back(Object{
+    for (const auto& lot : cargo.work_lots) {
+        Object item{
         {"id", Value(lot.id)}, {"recipe_input", Value(lot.recipe.input_units_per_product)},
         {"cycle_ticks", Value(lot.recipe.cycle_ticks)}, {"remaining", Value(lot.remaining_ticks)},
         {"completed_subticks", Value(lot.completed_subticks)}, {"work_remainder", Value(lot.work_remainder)},
-        {"work_remainder_denominator", Value(lot.work_remainder_denominator)}});
+        {"work_remainder_denominator", Value(lot.work_remainder_denominator)}};
+        if (lot.recipe.output == materials::WorkOutput::sheet)
+            item.emplace("output_form", Value("sheet"));
+        lots.emplace_back(std::move(item));
+    }
     Object output{{"raw", Value(cargo.raw_units)}, {"products", Value(cargo.products)},
                   {"work_lots", Value(std::move(lots))}};
     if (copper) {
         output.emplace("offcuts", Value(cargo.offcuts));
-        output.emplace("sheets", Value(cargo.sheets));
+        output.emplace("sheets", Value(static_cast<Integer>(cargo.sheets.size())));
+        if (!cargo.sheets.empty()) {
+            Value::Array sheet_items;
+            for (const auto& sheet : cargo.sheets)
+                sheet_items.emplace_back(Object{{"id", Value(sheet.id)},
+                    {"rotation", Value(sheet.rotation)}});
+            output.emplace("sheet_items", Value(std::move(sheet_items)));
+        }
     }
     return Value(std::move(output));
 }
@@ -483,9 +553,17 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
     const auto* position = field<Value::Array>(result, "actor_position");
     const auto* points = field<Value::Array>(result, "targets");
     const auto* distances = field<Value::Array>(result, "distances_squared");
+    const auto* picked_sheets = action == "pickup_material" ?
+        field<Integer>(result, "moved_sheets") : nullptr;
+    const auto* picked_work = action == "pickup_material" ?
+        field<Value::Array>(result, "moved_work") : nullptr;
+    const bool broad_pickup = (picked_sheets && *picked_sheets > 0) ||
+        (picked_work && std::any_of(picked_work->begin(), picked_work->end(),
+            [](const Value& value) { return sheet_lot(value).has_value(); }));
     if (!reason || *reason != "ok" || !epoch || *epoch <= 0 || !reach || *reach != profile.build_reach ||
         !position || !points || !distances ||
         (action == "remove_belt_span" ? points->size() != 1 && points->size() != 2 :
+         broad_pickup ? points->size() != 4 :
          points->size() != (((two_endpoints(action) && action != "place_selected_belt_span") ||
              action == "compact_offcuts") ? 2 : 1)) ||
         distances->size() != points->size()) return false;
@@ -528,31 +606,48 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         const auto* products = field<Integer>(result, "moved_products");
         const auto* offcuts = field<Integer>(result, "moved_offcuts");
         const auto* sheets = field<Integer>(result, "moved_sheets");
+        const auto* sheet_items = field<Value::Array>(result, "moved_sheet_items");
         const auto* work = field<Value::Array>(result, "moved_work");
         const auto* press_id = field<Integer>(result, "press_output_work_id");
         const auto* entity = field<std::string>(result, "entity");
         const auto* generation = field<Integer>(result, "generation");
-        if (!location || targets.front() != anchor(profile, *location) || !raw || *raw < 0 || !products || *products < 0 ||
+        if (!location || targets.front() != anchor(profile, *location) ||
+            (broad_pickup && (targets[1] != anchor(profile,
+                {(*location)[0] + 4, (*location)[1], (*location)[2]}) ||
+                targets[2] != anchor(profile,
+                {(*location)[0], (*location)[1], (*location)[2] + 4}) ||
+                targets[3] != anchor(profile,
+                {(*location)[0] + 4, (*location)[1], (*location)[2] + 4}))) ||
+            !raw || *raw < 0 || !products || *products < 0 ||
             !work || work->size() > maximum_current_work || !entity || !entity->empty() || !generation || *generation != 0 ||
             !press_id || *press_id < 0 || (*press_id > 0 && *products != 1) ||
-            result.size() != (copper ? 22 : 20) ||
-            (copper && (!offcuts || *offcuts < 0 || !sheets || *sheets != 0)))
+            result.size() != (copper ? (sheets && *sheets > 0 ? 23 : 22) : 20) ||
+            (copper && (!offcuts || *offcuts < 0 || !sheets || *sheets < 0 || *sheets > 1 ||
+                (*sheets > 0 && (!sheet_items || sheet_items->size() != 1)) ||
+                (*sheets == 0 && sheet_items))))
             return false;
         __extension__ using Wide = __int128;
         const Integer plate_mass = profile.material.plate_mass == 0 ?
             profile.material.input_units_per_product * profile.material.raw_mass : profile.material.plate_mass;
         Wide weighted = static_cast<Wide>(*raw) * profile.material.raw_mass +
-            static_cast<Wide>(*products) * plate_mass + (copper ? *offcuts : 0);
+            static_cast<Wide>(*products) * plate_mass + (copper ? *offcuts : 0) +
+            (copper ? static_cast<Wide>(*sheets) * profile.material.sheet_mass : 0);
         for (const auto& value : *work) {
             const auto* lot = std::get_if<Object>(&value.storage());
-            if (!lot || lot->size() != 7) return false;
-            weighted += static_cast<Wide>(profile.material.input_units_per_product) * profile.material.raw_mass;
+            if (!lot || (lot->size() != 7 && lot->size() != 8)) return false;
+            const auto* input = field<Integer>(*lot, "input_units_per_product");
+            if (!input || *input < 1 || (lot->size() == 8 &&
+                (!field<std::string>(*lot, "output_form") ||
+                 *field<std::string>(*lot, "output_form") != "sheet"))) return false;
+            weighted += static_cast<Wide>(*input) * profile.material.raw_mass;
         }
         const auto* expected = field<Object>(record.intent, "expected");
-        if (!expected || expected->size() != (copper ? 5 : 3) ||
+        if (!expected || expected->size() != (copper ? (*sheets > 0 ? 6 : 5) : 3) ||
             (copper && (!field<Integer>(*expected, "offcuts") || !field<Integer>(*expected, "sheets") ||
                 *field<Integer>(*expected, "offcuts") != *offcuts ||
-                *field<Integer>(*expected, "sheets") != *sheets)) ||
+                *field<Integer>(*expected, "sheets") != *sheets ||
+                (*sheets > 0 && (!field<Value::Array>(*expected, "sheet_items") ||
+                    values::typed_difference(expected->at("sheet_items"), Value(*sheet_items)))))) ||
             !field<Integer>(*expected, "raw") || !field<Integer>(*expected, "products") ||
             !field<Value::Array>(*expected, "work_lots") || *field<Integer>(*expected, "raw") != *raw ||
             *field<Integer>(*expected, "products") != *products || field<Value::Array>(*expected, "work_lots")->size() != work->size())
@@ -561,12 +656,18 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         for (std::size_t index = 0; index < work->size(); ++index) {
             const auto* selected = std::get_if<Object>(&selected_work[index].storage());
             const auto* moved = std::get_if<Object>(&(*work)[index].storage());
-            if (!selected || !moved || selected->size() != 7) return false;
+            if (!selected || !moved || selected->size() != moved->size() ||
+                (selected->size() != 7 && selected->size() != 8)) return false;
             for (const auto& [left, right] : {std::pair{"id", "id"}, {"recipe_input", "input_units_per_product"},
                     {"cycle_ticks", "cycle_ticks"}, {"remaining", "remaining_ticks"}, {"completed_subticks", "completed_subticks"},
                     {"work_remainder", "work_remainder"}, {"work_remainder_denominator", "work_remainder_denominator"}})
                 if (!selected->contains(left) || !moved->contains(right) || values::typed_difference(selected->at(left), moved->at(right)))
                     return false;
+            if (selected->size() == 8 &&
+                (!field<std::string>(*selected, "output_form") ||
+                 !field<std::string>(*moved, "output_form") ||
+                 *field<std::string>(*selected, "output_form") != "sheet" ||
+                 *field<std::string>(*moved, "output_form") != "sheet")) return false;
         }
         return weighted > 0 && weighted <= static_cast<Wide>(profile.initial_units) * profile.material.raw_mass;
     }
@@ -708,6 +809,30 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
             source && *source >= 0 && *source < profile.initial_units &&
             targets.front() == anchor(profile, *shaft_center) && result.size() == 20;
     }
+    if (action == "feed_broad_press" || action == "refeed_broad_press_work") {
+        const auto* target = field<std::string>(record.intent, "target");
+        const auto* requested_generation = field<Integer>(record.intent, "generation");
+        const auto* entity = field<std::string>(result, "entity");
+        const auto* generation = field<Integer>(result, "generation");
+        const auto* work = field<Value::Array>(result, "work_center");
+        const auto location = work ? grid_point(Object{{"center", Value(*work)}}) : std::nullopt;
+        const bool refeed = action == "refeed_broad_press_work";
+        const auto* raw = field<Integer>(result, "moved_raw");
+        const auto* formed_id = field<Integer>(result, "formed_work_id");
+        const auto* work_id = field<Integer>(record.intent, "work_id");
+        const auto* lots = field<Value::Array>(result, "moved_work");
+        const auto* lot = lots && lots->size() == 1 ?
+            std::get_if<Object>(&lots->front().storage()) : nullptr;
+        return target && entity && *target == *entity && requested_generation && generation &&
+            *requested_generation == *generation && *generation > 0 && location &&
+            targets.front() == anchor(profile, *location) &&
+            result.size() == (refeed ? 18 : 19) &&
+            (refeed ? (work_id && *work_id > 0 && lot && lot->size() == 8 &&
+                field<std::string>(*lot, "output_form") &&
+                *field<std::string>(*lot, "output_form") == "sheet" &&
+                field<Integer>(*lot, "id") && *field<Integer>(*lot, "id") == *work_id) :
+                (raw && *raw == 3 && formed_id && *formed_id > 0));
+    }
     if (action == "feed_press" || action == "refeed_press_work") {
         const auto* target = field<std::string>(record.intent, "target");
         const auto* requested_generation = field<Integer>(record.intent, "generation");
@@ -828,9 +953,7 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
             (relay_axis_name && (!axis(*relay_axis_name) || axis(*relay_axis_name) == axis(*axis_name))) ||
             (*selected_role == Role::gearbox && axis(*axis_name) != mechanics::Axis::y) ||
             (*selected_role == Role::vertical_gearbox && axis(*axis_name) == mechanics::Axis::y)) return false;
-        if (transmission_role(*selected_role) &&
-            std::any_of(location->begin(), location->end(),
-                        [](Integer coordinate) { return coordinate % 4 != 0; })) return false;
+        if (!transmission_center(*selected_role, *location, *axis(*axis_name), *span)) return false;
         if (action == "place_connected" && !material_machine(*selected_role)) return false;
     } else if (action != "shaft_between" && action != "remove_shaft_between" && action != "place_belt_span" && action != "place_selected_belt_span") {
         const auto* target = field<std::string>(record.intent, "target");
@@ -946,6 +1069,12 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
     std::map<std::string, Integer> carried_raw;
     std::map<std::string, Integer> carried_offcuts;
     std::map<std::string, std::map<materials::WorkId, Value>> carried_work;
+    std::map<mechanics::Point, materials::Cargo> broad_work;
+    std::map<std::string, std::vector<materials::Sheet>> carried_sheets;
+    std::set<materials::WorkId> broad_ids;
+    std::map<materials::WorkId, std::vector<PressAutoTransition>> broad_transitions;
+    std::map<materials::WorkId, Integer> broad_reductions;
+    std::set<materials::WorkId> broad_refed_ids;
     Integer harvested_ore = 0;
     Integer cranked_ore = 0;
     Integer shipped_plates = 0;
@@ -1306,6 +1435,66 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 (count < 0 || !add(carried, count) || carried > profile.material.component_capacity)) return false;
         return true;
     };
+    const auto replay_broad_ticks = [&](Integer first, Integer last) {
+        if (first > last || std::none_of(broad_work.begin(), broad_work.end(),
+                [](const auto& entry) { return !entry.second.work_lots.empty(); })) return true;
+        // A call spans only authority ticks between two request records.
+        // Geometry and the drive switch are constant across that interval.
+        const auto later_drive = drive_commands.upper_bound(first);
+        const auto earlier_drive = later_drive == drive_commands.begin() ?
+            drive_commands.end() : std::prev(later_drive);
+        if ((earlier_drive != drive_commands.end() && !earlier_drive->second) ||
+            (drive_commands.empty() && !snapshot.state.topology.drive_enabled)) return true;
+        const auto* at_revision = layout_at(first);
+        const auto* power = enabled_power_at(first);
+        if (!at_revision || !power) return false;
+        const auto historical = assembly_parts(*at_revision);
+        const assembly::Layout layout(historical);
+        const BroadPressDriveIndex drives(*power);
+        struct BroadRate { Integer subticks{}, remainder{}, denominator{1}; };
+        std::map<mechanics::Point, BroadRate> rates;
+        for (const auto& [point, cargo] : broad_work) {
+            if (cargo.work_lots.empty()) continue;
+            const auto geometry = layout.inspect_broad_press(point);
+            if (!geometry.press) continue;
+            const auto inspection = drives.inspect(*geometry.press);
+            if (inspection.status != BroadPressDriveStatus::ready ||
+                !inspection.stroke_rate || inspection.stroke_rate->numerator <= 0) continue;
+            __extension__ using Wide = __int128;
+            const Wide scaled = static_cast<Wide>(inspection.stroke_rate->numerator) *
+                materials::work_subticks_per_tick;
+            const auto denominator = inspection.stroke_rate->denominator;
+            if (denominator <= 0 || scaled / denominator > std::numeric_limits<Integer>::max())
+                return false;
+            rates.emplace(point, BroadRate{static_cast<Integer>(scaled / denominator),
+                static_cast<Integer>(scaled % denominator), denominator});
+        }
+        if (rates.empty()) return true;
+        for (Integer revision = first; revision <= last; ++revision) {
+            for (auto& [point, cargo] : broad_work) {
+                if (cargo.work_lots.empty()) continue;
+                const auto rate = rates.find(point);
+                if (rate == rates.end()) continue;
+                auto& lot = cargo.work_lots.front();
+                const auto before = lot.remaining_ticks;
+                const auto id = lot.id;
+                materials::advance_work_lot(lot, rate->second.subticks,
+                    rate->second.remainder, rate->second.denominator);
+                if (lot.remaining_ticks < before) {
+                    broad_reductions[id] += before - lot.remaining_ticks;
+                    broad_transitions[id].push_back({revision, point, before, lot.remaining_ticks});
+                }
+                if (lot.remaining_ticks == 0) {
+                    cargo.work_lots.clear();
+                    cargo.sheets.push_back({id, 0});
+                }
+            }
+            if (std::none_of(broad_work.begin(), broad_work.end(),
+                    [](const auto& entry) { return !entry.second.work_lots.empty(); })) return true;
+            if (revision == std::numeric_limits<Integer>::max()) break;
+        }
+        return true;
+    };
     std::optional<std::string> crank_holder;
     for (const auto& record : snapshot.history.records) {
         const auto* actor = field<std::string>(record.intent, "actor");
@@ -1316,6 +1505,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         if (!result_revision || *result_revision < history_revision) return false;
         const Integer revision_gap = *result_revision - history_revision;
         if (revision_gap < (*accepted_value ? 1 : 0)) return false;
+        if (!replay_broad_ticks(history_revision + 1,
+                *result_revision - (*accepted_value ? 1 : 0))) return false;
         // World::tick is the only authority advance without a request record.
         // Other accepted commands consume one revision each and cannot prove
         // that a pending press lot received automatic work.
@@ -1370,8 +1561,9 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             if (source == snapshot.state.issued_entities.end() || source->second != *from_generation ||
                 destination == snapshot.state.issued_entities.end() || destination->second != *to_generation) return false;
         }
-        if (!historical_facts(profile, record, *actor, *action, placed_components, historical_hub))
+        if (!historical_facts(profile, record, *actor, *action, placed_components, historical_hub)) {
             return false;
+        }
         if (*action == "stow_fabrication_hub") historical_hub->holder = *actor;
         if (*action == "deploy_fabrication_hub") {
             historical_hub->holder.reset();
@@ -1459,6 +1651,63 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 grid_point(Object{{"center", Value(*shaft)}}) != selected.collector->shaft_center ||
                 !add(cranked_ore, 1)) return false;
         }
+        if (*action == "feed_broad_press" || *action == "refeed_broad_press_work") {
+            const bool refeed = *action == "refeed_broad_press_work";
+            const auto placed = placed_components.find(*entity);
+            const auto* center = field<Value::Array>(record.result, "work_center");
+            const auto work = center ? grid_point(Object{{"center", Value(*center)}}) : std::nullopt;
+            if (placed == placed_components.end() ||
+                placed->second.first != materials::Component::anvil || !work ||
+                placed->second.second != *work) return false;
+            if (!historical_layout) {
+                historical_parts.clear();
+                for (const auto& [id, component] : placed_components) {
+                    const auto issued = snapshot.state.issued_entities.find(id);
+                    if (issued == snapshot.state.issued_entities.end()) return false;
+                    historical_parts.push_back({id, component.first, component.second, issued->second});
+                }
+                historical_layout.emplace(historical_parts);
+            }
+            const auto geometry = historical_layout->inspect_broad_press(*work);
+            if (!geometry.press || geometry.press->anvils.front() != *entity) return false;
+            for (const auto& cell : geometry.press->work_centers)
+                if (broad_work.contains(cell) || press_work.contains(cell) ||
+                    press_products.contains(cell) || expected_offcuts.contains(cell)) return false;
+            for (const auto& [other, cargo] : broad_work) {
+                (void)cargo;
+                const auto occupied = broad_cells(other);
+                if (std::any_of(geometry.press->work_centers.begin(),
+                        geometry.press->work_centers.end(), [&](const auto& cell) {
+                            return std::find(occupied.begin(), occupied.end(), cell) != occupied.end();
+                        })) return false;
+            }
+            materials::WorkLot lot;
+            if (refeed) {
+                const auto* id = field<Integer>(record.intent, "work_id");
+                const auto* moved = field<Value::Array>(record.result, "moved_work");
+                if (!id || !moved || moved->size() != 1) return false;
+                const auto carried = carried_work[*actor].find(*id);
+                const auto parsed = sheet_lot(moved->front());
+                if (carried == carried_work[*actor].end() || !parsed ||
+                    values::typed_difference(carried->second, moved->front()) ||
+                    !broad_ids.contains(*id)) return false;
+                lot = *parsed;
+                carried_work[*actor].erase(carried);
+                broad_refed_ids.insert(*id);
+            } else {
+                const auto* id = field<Integer>(record.result, "formed_work_id");
+                if (!id || *id <= 0 || *id >= snapshot.state.material.next_work_id ||
+                    !broad_ids.insert(*id).second || carried_raw[*actor] < 3) return false;
+                carried_raw[*actor] -= 3;
+                lot = materials::WorkLot{*id, {3, profile.material.cycle_ticks,
+                    materials::WorkOutput::sheet}, profile.material.cycle_ticks};
+            }
+            if (lot.recipe != materials::RecipeSignature{3, profile.material.cycle_ticks,
+                    materials::WorkOutput::sheet} || lot.remaining_ticks < 1 ||
+                lot.remaining_ticks > profile.material.cycle_ticks ||
+                !broad_work.emplace(*work, materials::Cargo{0, 0, {lot}}).second)
+                return false;
+        }
         if (*action == "feed_press" || *action == "refeed_press_work" ||
             *action == "compact_offcuts") {
             const bool refeed_work = *action == "refeed_press_work";
@@ -1509,6 +1758,12 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 inspected.press->work_center != *selected_work ||
                 std::none_of(inspected.press->open_feeds.begin(), inspected.press->open_feeds.end(),
                     [&](const assembly::PressFeed& feed) { return feed.entry == *selected_entry; })) return false;
+            for (const auto& [point, cargo] : broad_work) {
+                (void)cargo;
+                const auto occupied = broad_cells(point);
+                if (std::find(occupied.begin(), occupied.end(), *selected_work) != occupied.end())
+                    return false;
+            }
             if (compacting) {
                 const auto* drive = field<std::string>(record.intent, "drive");
                 const auto* shaft = field<Value::Array>(record.result, "shaft_center");
@@ -1751,6 +2006,37 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         if (*action == "pickup_material") {
             const auto point = grid_point(record.intent, materials::maximum_drop_coordinate);
             if (!point) return false;
+            if (const auto broad = broad_work.find(*point); broad != broad_work.end()) {
+                const auto* expected = field<Object>(record.intent, "expected");
+                const auto* moved = field<Value::Array>(record.result, "moved_work");
+                const auto* moved_sheets = field<Integer>(record.result, "moved_sheets");
+                const auto* moved_items = field<Value::Array>(record.result, "moved_sheet_items");
+                const auto* moved_raw = field<Integer>(record.result, "moved_raw");
+                const auto* moved_products = field<Integer>(record.result, "moved_products");
+                const auto* moved_offcuts = field<Integer>(record.result, "moved_offcuts");
+                if (!expected || values::typed_difference(Value(*expected),
+                        belt_cargo_value(broad->second, true)) || !moved ||
+                    values::typed_difference(Value(*moved), lots_value(broad->second.work_lots)) ||
+                    !moved_sheets || *moved_sheets != static_cast<Integer>(broad->second.sheets.size()) ||
+                    !moved_raw || *moved_raw != 0 || !moved_products || *moved_products != 0 ||
+                    !moved_offcuts || *moved_offcuts != 0) return false;
+                if (!broad->second.sheets.empty()) {
+                    const auto& sheet = broad->second.sheets.front();
+                    if (!moved_items || moved_items->size() != 1 ||
+                        values::typed_difference(moved_items->front(),
+                            Value(Object{{"id", Value(sheet.id)},
+                                {"rotation", Value(sheet.rotation)}}))) return false;
+                    carried_sheets[*actor].push_back(sheet);
+                }
+                broad_work.erase(broad);
+            } else {
+                const auto* moved_sheets = field<Integer>(record.result, "moved_sheets");
+                const auto* moved = field<Value::Array>(record.result, "moved_work");
+                if ((moved_sheets && *moved_sheets > 0) ||
+                    (moved && std::any_of(moved->begin(), moved->end(), [](const Value& value) {
+                        return sheet_lot(value).has_value();
+                    }))) return false;
+            }
             if (copper_profile(profile.material)) {
                 const auto* moved = field<Integer>(record.result, "moved_offcuts");
                 if (!moved || *moved < 0) return false;
@@ -1998,8 +2284,13 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 const auto* completed = field<Integer>(*object, "completed_subticks");
                 const auto* remainder = field<Integer>(*object, "work_remainder");
                 const auto* denominator = field<Integer>(*object, "work_remainder_denominator");
+                const bool sheet = object->size() == 8 &&
+                    field<std::string>(*object, "output_form") &&
+                    *field<std::string>(*object, "output_form") == "sheet";
                 if (!id || *id <= 0 || *id >= snapshot.state.material.next_work_id ||
-                    !weight || *weight != profile.material.input_units_per_product ||
+                    (object->size() != 7 && !sheet) ||
+                    !weight || *weight != (sheet ? 3 : profile.material.input_units_per_product) ||
+                    (sheet && !broad_ids.contains(*id)) ||
                     !cycle || *cycle != profile.material.cycle_ticks ||
                     !remaining || *remaining < 0 || *remaining > *cycle || !completed ||
                     *completed < 0 || *completed >= materials::work_subticks_per_tick ||
@@ -2009,6 +2300,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         }
     }
     if (snapshot.revision < history_revision) return false;
+    if (!replay_broad_ticks(history_revision + 1, snapshot.revision)) return false;
     ticks_seen += snapshot.revision - history_revision;
     for (const auto& [id, site] : profile.material.timber_sites) {
         const auto remaining = snapshot.state.material.timber_remaining.find(id);
@@ -2020,11 +2312,23 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             witness.automatic_remaining_ticks < 0 ||
             witness.automatic_remaining_ticks > profile.material.cycle_ticks ||
             witness.manual_seen != manually_advanced_ids.contains(id) ||
-            witness.refeed_seen != refed_ids.contains(id)) return false;
+            witness.refeed_seen != (refed_ids.contains(id) || broad_refed_ids.contains(id))) return false;
     for (const auto id : manually_advanced_ids)
         if (!snapshot.state.press_progress.contains(id)) return false;
     for (const auto id : refed_ids)
         if (!snapshot.state.press_progress.contains(id)) return false;
+    for (const auto id : broad_ids) {
+        const auto witness = snapshot.state.press_progress.find(id);
+        if (press_work_ids.contains(id) || witness == snapshot.state.press_progress.end() ||
+            witness->second.manual_seen || witness->second.automatic_remaining_ticks != broad_reductions[id] ||
+            witness->second.automatic_transitions != broad_transitions[id] ||
+            witness->second.refeed_seen != broad_refed_ids.contains(id)) return false;
+    }
+    for (const auto& [point, cargo] : broad_work) {
+        const auto found = snapshot.state.material.dropped_material.find(point);
+        if (found == snapshot.state.material.dropped_material.end() ||
+            found->second != cargo) return false;
+    }
     for (const auto& [point, work] : press_work) {
         const auto item = snapshot.state.material.dropped_material.find(point);
         const auto witness = work.id > 0 ? snapshot.state.press_progress.find(work.id) :
@@ -2041,7 +2345,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         const bool offcut_only = item != snapshot.state.material.dropped_material.end() &&
             offcut_per_plate > 0 && item->second.offcuts == offcut_per_plate &&
             item->second.raw_units == 0 && item->second.products == 0 &&
-            item->second.sheets == 0 && item->second.work_lots.empty();
+            item->second.sheets.empty() && item->second.work_lots.empty();
         if (work.id == 0) {
             if (item == snapshot.state.material.dropped_material.end() || offcut_only) {
                 if (!work.automatic_exit || work.last_tick_seen == ticks_seen ||
@@ -2133,7 +2437,10 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
     }
     for (const auto& [point, cargo] : snapshot.state.material.dropped_material)
         if ((cargo.offcuts > 0 && expected_offcuts[point] != cargo.offcuts) ||
-            (copper_profile(profile.material) && cargo.sheets != 0)) return false;
+            ((!cargo.sheets.empty() || std::any_of(cargo.work_lots.begin(),
+                cargo.work_lots.end(), [](const auto& lot) {
+                    return lot.recipe.output == materials::WorkOutput::sheet;
+                })) && !broad_work.contains(point))) return false;
     if (copper_profile(profile.material) && snapshot.state.material.stock.offcuts != 0)
         return false;
     for (const auto id : snapshot.state.belt_press_work_ids)
@@ -2191,7 +2498,18 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             if (carried_raw[actor] != cargo.raw_units) return false;
     if (copper_profile(profile.material))
         for (const auto& [actor, cargo] : snapshot.state.material.cargo)
-            if (carried_offcuts[actor] != cargo.offcuts || cargo.sheets != 0) return false;
+            if (carried_offcuts[actor] != cargo.offcuts || carried_sheets[actor] != cargo.sheets)
+                return false;
+    for (const auto& [actor, cargo] : snapshot.state.material.cargo)
+        for (const auto& lot : cargo.work_lots)
+            if (lot.recipe.output == materials::WorkOutput::sheet) {
+                const auto encoded = lots_value({lot});
+                const auto* array = std::get_if<Value::Array>(&encoded.storage());
+                if (!broad_ids.contains(lot.id) || !carried_work[actor].contains(lot.id) ||
+                    !array || array->size() != 1 ||
+                    values::typed_difference(carried_work[actor].at(lot.id), array->front()))
+                    return false;
+            }
     if (foundation_kits != snapshot.state.foundation_kits) return false;
     if (harvested_ore > profile.initial_units - snapshot.state.material.stock.source ||
         cranked_ore > profile.initial_units - snapshot.state.material.stock.source - harvested_ore)
@@ -2812,9 +3130,8 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
             (item.role != Role::waterwheel && item.wheel_tiles != 1)) return false;
         if (item.role == Role::belt) return false;
         if ((material_machine(item.role) || item.role == Role::waterwheel) && item.geometry.center[1] % 4 != 0) return false;
-        if (transmission_role(item.role) &&
-            std::any_of(item.geometry.center.begin(), item.geometry.center.end(),
-                        [](Integer coordinate) { return coordinate % 4 != 0; })) return false;
+        if (!transmission_center(item.role, item.geometry.center,
+                item.geometry.axis, item.geometry.half_span)) return false;
         if (transmission_role(item.role) && part_center_counts.at(item.geometry.center) != 1) return false;
         if (profile.foundation_parts > 0 && material_machine(item.role) && item.geometry.center[1] != 0 &&
             std::none_of(state.foundations.begin(), state.foundations.end(), [&](const auto& entry) {
@@ -2947,14 +3264,25 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
     if (*action == "pickup_material") {
         const auto point = grid_point(intent, materials::maximum_drop_coordinate);
         if (!point) return refused("invalid_center");
+        const auto located = state.material.dropped_material.find(*point);
+        const bool broad_item = located != state.material.dropped_material.end() &&
+            (!located->second.sheets.empty() ||
+             std::any_of(located->second.work_lots.begin(), located->second.work_lots.end(),
+                [](const auto& lot) { return lot.recipe.output == materials::WorkOutput::sheet; }));
         if (!observe) return refused("actor_unready");
         auto cut = observe(binding.actor);
         if (!cut) return refused("actor_unready");
         cut->build_reach = profile_.build_reach;
-        auto reach = authority::check_reach(binding.actor, *cut, {anchor(profile_, *point)});
+        std::vector<authority::Point> reach_targets{anchor(profile_, *point)};
+        if (broad_item)
+            for (const mechanics::Point offset : {mechanics::Point{4, 0, 0},
+                    mechanics::Point{0, 0, 4}, mechanics::Point{4, 0, 4}})
+                reach_targets.push_back(anchor(profile_, {(*point)[0] + offset[0],
+                    (*point)[1], (*point)[2] + offset[2]}));
+        auto reach = authority::check_reach(binding.actor, *cut, reach_targets);
         Object facts = reach.receipt ? reach_facts(binding, *reach.receipt) : Object{};
         if (reach.error != authority::Error::none) return refused(authority::error_name(reach.error), "", std::move(facts));
-        const auto found = state.material.dropped_material.find(*point);
+        const auto found = located;
         if (found == state.material.dropped_material.end()) return refused("unavailable_drop", "", std::move(facts));
         const auto* expected = field<Object>(intent, "expected");
         if (!expected || values::typed_difference(Value(*expected),
@@ -2984,7 +3312,14 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         facts.emplace("moved_products", Value(contents.products));
         if (copper_profile(profile_.material)) {
             facts.emplace("moved_offcuts", Value(contents.offcuts));
-            facts.emplace("moved_sheets", Value(contents.sheets));
+            facts.emplace("moved_sheets", Value(static_cast<Integer>(contents.sheets.size())));
+            if (!contents.sheets.empty()) {
+                Value::Array sheet_items;
+                for (const auto& sheet : contents.sheets)
+                    sheet_items.emplace_back(Object{{"id", Value(sheet.id)},
+                        {"rotation", Value(sheet.rotation)}});
+                facts.emplace("moved_sheet_items", Value(std::move(sheet_items)));
+            }
         }
         facts.emplace("moved_work", lots_value(contents.work_lots));
         facts.emplace("press_output_work_id", Value(press_work_id));
@@ -3274,6 +3609,73 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         facts.emplace("source_remaining", Value(candidate.material.stock.source));
         return accepted(std::move(candidate), *id, std::move(facts));
     }
+    if (*action == "feed_broad_press" || *action == "refeed_broad_press_work") {
+        if (!profile_.landing_pod_center || !copper_profile(profile_.material) ||
+            profile_.material.sheet_mass != 3 * profile_.material.raw_mass)
+            return refused("unavailable_recipe");
+        const auto* id = field<std::string>(intent, "target");
+        const auto* generation = field<Integer>(intent, "generation");
+        const bool refeed = *action == "refeed_broad_press_work";
+        const auto* work_id = refeed ? field<Integer>(intent, "work_id") : nullptr;
+        if (!id || !generation || (refeed && (!work_id || *work_id <= 0)))
+            return refused("invalid_target");
+        const auto found = state.placed_components.find(*id);
+        if (found == state.placed_components.end()) return refused("unknown_target", *id);
+        if (found->second.generation != *generation) return refused("stale_generation", *id);
+        if (found->second.kind != materials::Component::anvil)
+            return refused("not_press_anvil", *id);
+        const auto parts = assembly_parts(state);
+        const auto geometry = assembly::Layout(parts).inspect_broad_press(found->second.center);
+        if (!geometry.press || geometry.press->anvils.front() != *id)
+            return refused("incomplete_assembly", *id);
+        const auto& press = *geometry.press;
+        for (const auto& center : press.work_centers)
+            if (state.material.dropped_material.contains(center))
+                return refused("input_full", *id);
+        for (const auto& [point, cargo] : state.material.dropped_material) {
+            if (!broad_item(cargo)) continue;
+            const auto occupied = broad_cells(point);
+            if (std::any_of(press.work_centers.begin(), press.work_centers.end(),
+                    [&](const auto& cell) {
+                        return std::find(occupied.begin(), occupied.end(), cell) != occupied.end();
+                    })) return refused("input_full", *id);
+        }
+        const auto cut = observe ? observe(binding.actor) : std::nullopt;
+        if (!cut) return refused("actor_unready", *id);
+        auto checked_cut = *cut;
+        checked_cut.build_reach = profile_.build_reach;
+        const auto checked = authority::check_reach(binding.actor, checked_cut,
+            {anchor(profile_, press.origin)});
+        auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
+        if (checked.error != authority::Error::none)
+            return refused(authority::error_name(checked.error), *id, std::move(facts));
+        const auto& cargo = state.material.cargo.at(binding.actor);
+        const auto lot = refeed ? std::find_if(cargo.work_lots.begin(), cargo.work_lots.end(),
+            [&](const materials::WorkLot& item) { return item.id == *work_id; }) : cargo.work_lots.end();
+        if (refeed && (lot == cargo.work_lots.end() ||
+            lot->recipe != materials::RecipeSignature{3, profile_.material.cycle_ticks,
+                materials::WorkOutput::sheet}))
+            return refused("incompatible_work", *id, std::move(facts));
+        auto candidate = state;
+        const auto error = materials::feed_broad_press(candidate.material, profile_.material,
+            material_path(candidate.topology), binding.actor, press.origin,
+            refeed ? std::optional<materials::WorkId>(*work_id) : std::nullopt);
+        if (error != materials::Error::none)
+            return refused(materials::error_name(error), *id, std::move(facts));
+        if (!refeed) candidate.press_progress.try_emplace(
+            candidate.material.dropped_material.at(press.origin).work_lots.front().id);
+        else candidate.press_progress.at(*work_id).refeed_seen = true;
+        facts.emplace("generation", Value(*generation));
+        facts.emplace("work_center", Value(Value::Array{Value(press.origin[0]),
+            Value(press.origin[1]), Value(press.origin[2])}));
+        if (refeed) facts.emplace("moved_work", lots_value({*lot}));
+        else {
+            facts.emplace("moved_raw", Value(Integer{3}));
+            facts.emplace("formed_work_id", Value(candidate.material.dropped_material.at(
+                press.origin).work_lots.front().id));
+        }
+        return accepted(std::move(candidate), *id, std::move(facts));
+    }
     if (*action == "feed_press" || *action == "refeed_press_work" ||
         *action == "compact_offcuts") {
         const bool refeed_work = *action == "refeed_press_work";
@@ -3339,6 +3741,12 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             return refused("unavailable_input", *id, std::move(facts));
         }
         const auto work = inspected.press->work_center;
+        for (const auto& [point, item] : state.material.dropped_material) {
+            if (!broad_item(item)) continue;
+            const auto cells = broad_cells(point);
+            if (std::find(cells.begin(), cells.end(), work) != cells.end())
+                return refused("broad_work_occupied", *id, std::move(facts));
+        }
         if (state.material.dropped_material.contains(work))
             return refused("input_full", *id, std::move(facts));
         if (state.material.dropped_material.size() >= materials::maximum_drop_points)
@@ -3434,7 +3842,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             (work_item == candidate.material.dropped_material.end() ||
              (work_item->second.offcuts == profile_.material.raw_mass - profile_.material.plate_mass &&
               work_item->second.raw_units == 0 && work_item->second.products == 0 &&
-              work_item->second.sheets == 0 && work_item->second.work_lots.empty()));
+              work_item->second.sheets.empty() && work_item->second.work_lots.empty()));
         if (completed_id > 0) {
             candidate.press_progress[completed_id].manual_seen = true;
         } else if (work_item != candidate.material.dropped_material.end() &&
@@ -3874,9 +4282,8 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             *location == state.fabrication_hub->center) return refused("occupied");
         if ((material_machine(*selected_role) || *selected_role == Role::waterwheel) && (*location)[1] % 4 != 0)
             return refused("unaligned_elevation");
-        if (transmission_role(*selected_role) &&
-            std::any_of(location->begin(), location->end(),
-                        [](Integer coordinate) { return coordinate % 4 != 0; })) return refused("invalid_cell");
+        if (!transmission_center(*selected_role, *location, *selected_axis, *span))
+            return refused("invalid_cell");
         targets.push_back(anchor(profile_, *location));
         if (profile_.foundation_parts > 0 && material_machine(*selected_role) && (*location)[1] != 0) {
             const bool supported = std::any_of(state.foundations.begin(), state.foundations.end(),
@@ -4022,7 +4429,15 @@ Advance World::tick() noexcept {
         if (!tick_drive_) tick_drive_.emplace(placed.empty() ? drive_power(candidate.topology) :
             drive_power_with_layout(profile_, candidate, placed, layout));
         const auto& drive = *tick_drive_;
-        const auto power = machine_power_from(candidate.topology, drive);
+        std::set<mechanics::Point> broad_occupied_cells;
+        if (profile_.material.sheet_mass > 0)
+            for (const auto& [point, cargo] : candidate.material.dropped_material)
+                if (broad_item(cargo))
+                    for (const auto& cell : broad_cells(point))
+                        broad_occupied_cells.insert(cell);
+        auto power = machine_power_from(candidate.topology, drive);
+        if (power.reverse_drop && broad_occupied_cells.contains(*power.reverse_drop))
+            power.belt = false;
         const auto prior_processing = candidate.material.processing;
         const auto error = materials::step(candidate.material, profile_.material,
             material_path(candidate.topology), power);
@@ -4053,12 +4468,63 @@ Advance World::tick() noexcept {
         for (const auto& [receiver, collector] : collectors_by_receiver) {
             if (!collector || candidate.material.stock.source == 0 ||
                 candidate.material.dropped_material.contains(receiver) ||
+                broad_occupied_cells.contains(receiver) ||
                 candidate.material.dropped_material.size() >= materials::maximum_drop_points) continue;
             const auto shaft = motion.motion.find(collector->shaft);
             if (shaft == motion.motion.end() || shaft->second.state != mechanics::MotionState::rotating)
                 continue;
             --candidate.material.stock.source;
             candidate.material.dropped_material.emplace(receiver, materials::Cargo{1, 0, {}});
+        }
+        // A broad batch owns all four adjacent work cells, even while its
+        // twelve-mass output waits for physical removal. The drive index
+        // establishes one connected, signed and non-overloaded stroke.
+        std::optional<BroadPressDriveIndex> broad_drives;
+        for (const auto& press : tick_layout_->broad_presses) {
+            const auto found = candidate.material.dropped_material.find(press.origin);
+            if (found == candidate.material.dropped_material.end()) continue;
+            const auto& item = found->second;
+            if (!(item.raw_units == 0 && item.products == 0 && item.offcuts == 0 &&
+                  item.timber == 0 && item.components.empty() && item.sheets.empty() &&
+                  item.work_lots.size() == 1 &&
+                  item.work_lots.front().recipe.output == materials::WorkOutput::sheet) &&
+                item.sheets.empty()) continue;
+            if (!item.sheets.empty() || std::any_of(press.work_centers.begin() + 1,
+                    press.work_centers.end(), [&](const auto& cell) {
+                        return candidate.material.dropped_material.contains(cell);
+                    })) continue;
+            if (!broad_drives) broad_drives.emplace(drive);
+            const auto inspected = broad_drives->inspect(press);
+            if (inspected.status != BroadPressDriveStatus::ready || !inspected.stroke_rate ||
+                inspected.stroke_rate->numerator <= 0) continue;
+            const auto before_id = item.work_lots.size() == 1 ? item.work_lots.front().id : materials::WorkId{0};
+            const auto before_remaining = before_id > 0 ? item.work_lots.front().remaining_ticks : Integer{0};
+            __extension__ using Wide = __int128;
+            const Wide scaled = static_cast<Wide>(inspected.stroke_rate->numerator) *
+                materials::work_subticks_per_tick;
+            const Integer denominator = inspected.stroke_rate->denominator;
+            if (denominator <= 0 || scaled / denominator > std::numeric_limits<Integer>::max())
+                throw materials::Error::invalid_path;
+            const auto error = materials::turn_broad_press(candidate.material, profile_.material,
+                material_path(candidate.topology), press.origin, 0,
+                static_cast<Integer>(scaled / denominator),
+                static_cast<Integer>(scaled % denominator), denominator);
+            if (error != materials::Error::none) throw error;
+            const auto& after = candidate.material.dropped_material.at(press.origin);
+            if (before_id > 0) {
+                const auto remaining = after.work_lots.size() == 1 ?
+                    after.work_lots.front().remaining_ticks : Integer{0};
+                auto& witness = candidate.press_progress[before_id];
+                if (remaining > before_remaining ||
+                    !add(witness.automatic_remaining_ticks, before_remaining - remaining))
+                    throw materials::Error::invalid_state;
+                if (remaining < before_remaining) {
+                    if (snapshot.revision == std::numeric_limits<Integer>::max())
+                        throw materials::Error::invalid_state;
+                    witness.automatic_transitions.push_back({snapshot.revision + 1,
+                        press.origin, before_remaining, remaining});
+                }
+            }
         }
         // A placed press owns work at its anvil. Its provisional
         // unattended exit is opposite its drive shaft, so adding an obstacle
@@ -4069,7 +4535,7 @@ Advance World::tick() noexcept {
         const auto include_press = [&](const mechanics::Point& anchor_center,
                 const mechanics::Point& work_center, const mechanics::Point& shaft_center,
                 const std::string& shaft_id, const std::vector<assembly::PressFeed>& feeds) {
-            if (feeds.empty()) return;
+            if (feeds.empty() || broad_occupied_cells.contains(work_center)) return;
             const auto shaft = motion.motion.find(shaft_id);
             if (shaft == motion.motion.end() || shaft->second.state != mechanics::MotionState::rotating)
                 return;
@@ -4292,6 +4758,7 @@ Advance World::tick() noexcept {
                 auto loose = candidate.material.dropped_material.find(path->tiles[i]);
                 if (loose == candidate.material.dropped_material.end()) continue;
                 auto& cargo = loose->second;
+                if (broad_item(cargo)) continue;
                 materials::Cargo item;
                 if (cargo.raw_units > 0) { item.raw_units = 1; --cargo.raw_units; }
                 else if (cargo.products > 0) { item.products = 1; --cargo.products; }
@@ -4416,6 +4883,7 @@ Advance World::tick() noexcept {
                     farther(toward_last ? path->tiles[path->tiles.size() - 2] : path->tiles[1],
                         inlet->second->anchor) > farther(endpoint, inlet->second->anchor);
                 const bool can_feed_press = aligned_inlet && inlet->second->clear &&
+                    !broad_occupied_cells.contains(inlet->second->work) &&
                     !candidate.material.dropped_material.contains(inlet->second->work) &&
                     candidate.material.dropped_material.size() < materials::maximum_drop_points &&
                     (raw || (work && item->work_lots.front().recipe ==
@@ -4426,7 +4894,8 @@ Advance World::tick() noexcept {
                 });
                 const auto existing_drop = candidate.material.dropped_material.find(receiver_point);
                 Integer drop_capacity = 0;
-                if (!at(Role::processor, receiver_point) && !at(Role::collector, receiver_point) && valid_drop_point &&
+                if (!at(Role::processor, receiver_point) && !at(Role::collector, receiver_point) &&
+                    !broad_occupied_cells.contains(receiver_point) && valid_drop_point &&
                     (existing_drop != candidate.material.dropped_material.end() ||
                      candidate.material.dropped_material.size() < materials::maximum_drop_points)) {
                     Integer raw_total = existing_drop == candidate.material.dropped_material.end() ? 0 : existing_drop->second.raw_units;
