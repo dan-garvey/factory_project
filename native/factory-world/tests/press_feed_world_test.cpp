@@ -364,6 +364,39 @@ void actor_feed_is_physical_custody() {
               .work_lots.front().remaining_ticks == 1 &&
           w::World::restore("press-feed", source.profile, unrelated_belt.world->snapshot()) != nullptr,
           "The next real manual turn advances one tick despite unrelated belt movement.");
+    auto later_stop = request("P", "stop-after-unrelated-belt-tick", "set_drive");
+    later_stop.emplace("target", V("press-wheel"));
+    later_stop.emplace("generation", V(I{1}));
+    later_stop.emplace("enabled", V(false));
+    unrelated_belt.accept("P", later_stop);
+    auto later_resume = later_stop;
+    later_resume.at("request") = V("resume-after-unrelated-belt-tick");
+    later_resume.at("enabled") = V(true);
+    unrelated_belt.accept("P", later_resume);
+    auto later_drive_forgery = unrelated_belt.world->snapshot();
+    auto& later_lot = later_drive_forgery.state.material.dropped_material.at({8, 1, 0})
+        .work_lots.front();
+    const auto later_id = later_lot.id;
+    later_lot.remaining_ticks = 0;
+    for (auto& record : later_drive_forgery.history.records)
+        if (std::get<std::string>(record.intent.at("request").storage()) ==
+                "turn-after-unrelated-belt-tick") {
+            auto prior = std::get<V::Array>(record.result.at("prior_work_lots").storage());
+            auto prior_lot = std::get<O>(prior.front().storage());
+            prior_lot.at("remaining_ticks") = V(I{1});
+            record.result.at("prior_work_lots") = V(V::Array{V(prior_lot)});
+            auto lots = std::get<V::Array>(record.result.at("work_lots").storage());
+            auto lot = std::get<O>(lots.front().storage());
+            lot.at("remaining_ticks") = V(I{0});
+            record.result.at("work_lots") = V(V::Array{V(lot)});
+            record.result.at("prior_auto_remaining_ticks") = V(I{1});
+        }
+    auto& later_witness = later_drive_forgery.state.press_progress.at(later_id);
+    later_witness.automatic_remaining_ticks = 1;
+    later_witness.automatic_transitions.push_back({before_unrelated_tick.revision + 1,
+        {8, 1, 0}, 2, 1});
+    check(!w::World::restore("press-feed", source.profile, later_drive_forgery),
+          "A later drive change cannot lend an unrelated stalled tick to a press witness.");
     check(run.world->tick().error == w::TransactionError::none &&
           run.world->snapshot().state == first_work.state,
           "An overloaded native tick leaves the partial WorkLot and all placed parts intact.");
@@ -1008,13 +1041,33 @@ void two_placed_presses_advance_distinct_powered_work() {
           powered_then_manual.world->snapshot().state.material.dropped_material.at({0, 1, 0})
               .work_lots.front().remaining_ticks == 1,
           "A native powered tick advances the identified lot before the next manual turn.");
+    powered_then_manual.p = {2, 1, 0};
+    auto stop_after_real_progress = request("P", "stop-after-real-press-tick", "set_drive");
+    stop_after_real_progress.emplace("target", V("press-wheel"));
+    stop_after_real_progress.emplace("generation", V(I{1}));
+    stop_after_real_progress.emplace("enabled", V(false));
+    powered_then_manual.accept("P", stop_after_real_progress);
+    Runner stopped_then_manual(source);
+    stopped_then_manual.world = w::World::restore("press-feed", source.profile,
+        powered_then_manual.world->snapshot());
+    stopped_then_manual.p = {2, 1, 0};
+    auto finish_while_stopped = turn;
+    finish_while_stopped.at("request") = V("finish-after-real-press-tick-while-stopped");
+    const auto stopped_finish = stopped_then_manual.accept("P", finish_while_stopped);
+    check(std::get<I>(stopped_finish.at("prior_auto_remaining_ticks").storage()) == 1 &&
+          w::World::restore("press-feed", source.profile, stopped_then_manual.world->snapshot()),
+          "Real powered progress remains valid after the wheel stops and a manual turn finishes it.");
+    auto resume_after_real_progress = stop_after_real_progress;
+    resume_after_real_progress.at("request") = V("resume-after-real-press-tick");
+    resume_after_real_progress.at("enabled") = V(true);
+    powered_then_manual.accept("P", resume_after_real_progress);
     auto finish_after_power = turn;
     finish_after_power.at("request") = V("finish-after-powered-progress");
     const auto powered_finish = powered_then_manual.accept("P", finish_after_power);
     check(std::get<I>(powered_finish.at("formed_products").storage()) == 1 &&
           std::get<I>(powered_finish.at("prior_auto_remaining_ticks").storage()) == 1 &&
           w::World::restore("press-feed", source.profile, powered_then_manual.world->snapshot()) != nullptr,
-          "A real automatic tick followed by one manual turn completes and restores the same lot.");
+          "Real automatic progress survives later wheel toggles and a completing manual turn.");
     run.accept("P", turn);
     check(run.world->snapshot().state.material.dropped_material.at({0, 1, 0})
               .work_lots.front().remaining_ticks == 1 &&
