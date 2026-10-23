@@ -4603,6 +4603,7 @@ var machine_dynamic_batches: Array[Dictionary] = []
 var machine_conveyor_batches: Array[Dictionary] = []
 var machine_rotors: Array[Dictionary] = []
 var machine_batched_rotors: Dictionary = {}
+var machine_batched_rotor_slots: Dictionary = {}
 var wheel_batch_poses: Dictionary = {}
 var wheel_updated_rotors: Dictionary = {}
 var machine_motion_anchors: Array[Node3D] = []
@@ -7606,20 +7607,39 @@ func _emit_machine_mesh_batches(groups: Dictionary, batches: Node3D, dynamic: bo
 		instance.layers = group.layers
 		batches.add_child(instance)
 		if dynamic:
-			machine_dynamic_batches.append({"mesh": multi, "parts": group.parts})
+			var rotor_only := true
 			for part in group.parts:
+				rotor_only = rotor_only and part.node.name == "WheelRotor"
+			machine_dynamic_batches.append({"mesh": multi, "parts": group.parts, "rotor_only": rotor_only})
+			for index in group.parts.size():
+				var part: Dictionary = group.parts[index]
 				if part.node.name == "WheelRotor":
-					machine_batched_rotors[part.node.get_instance_id()] = true
+					var node_id: int = part.node.get_instance_id()
+					machine_batched_rotors[node_id] = true
+					machine_batched_rotor_slots[node_id] = {"mesh": multi, "index": index,
+						"node": part.node, "parent_pose": part.parent_pose}
 		batch_index += 1
 
 func _update_machine_dynamic_batches(visible_rotors_only := false) -> void:
 	if machine_dynamic_batches.is_empty() and machine_conveyor_batches.is_empty():
 		return
 	var to_local := machine_root.global_transform.affine_inverse()
+	if visible_rotors_only:
+		for node_id in wheel_updated_rotors:
+			var slot: Dictionary = machine_batched_rotor_slots.get(node_id, {})
+			if slot.is_empty():
+				continue
+			var pose: Transform3D = slot.parent_pose * (wheel_batch_poses[node_id] \
+				if wheel_batch_poses.has(node_id) else slot.node.transform)
+			slot.mesh.set_instance_transform(slot.index, pose)
 	for group in machine_dynamic_batches:
+		if visible_rotors_only and group.rotor_only:
+			continue
 		var mesh: MultiMesh = group.mesh
 		for index in group.parts.size():
 			var part: Dictionary = group.parts[index]
+			if visible_rotors_only and machine_batched_rotor_slots.has(part.node.get_instance_id()):
+				continue
 			# Wheel ancestors remain fixed until the next topology rebuild. Keep
 			# their machine-root-relative pose and update only the moving rotor.
 			var motion_pose: Transform3D
@@ -7680,6 +7700,7 @@ func _batch_machine_visuals() -> void:
 	machine_dynamic_batches.clear()
 	machine_conveyor_batches.clear()
 	machine_batched_rotors.clear()
+	machine_batched_rotor_slots.clear()
 	wheel_batch_poses.clear()
 	wheel_updated_rotors.clear()
 	if not _native_transmission() or machine_root.get_child_count() < MACHINE_BATCH_THRESHOLD:
