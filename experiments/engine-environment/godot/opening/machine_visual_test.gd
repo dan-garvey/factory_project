@@ -632,6 +632,7 @@ func _mixed_scale_benchmark() -> void:
 	var production_batch := false
 	var shared_conveyor_finish := false
 	var profile_scene := false
+	var profile_hidden_control := false
 	var inventory_only := false
 	var mesh_lod := false
 	var spatial_cells := 0
@@ -650,6 +651,8 @@ func _mixed_scale_benchmark() -> void:
 			shared_conveyor_finish = true
 		elif argument == "--profile-scene":
 			profile_scene = true
+		elif argument == "--profile-hidden-control":
+			profile_hidden_control = true
 		elif argument == "--inventory-only":
 			inventory_only = true
 		elif argument == "--mesh-lod":
@@ -664,6 +667,10 @@ func _mixed_scale_benchmark() -> void:
 			capture = argument.trim_prefix("--capture=")
 	if count < 0 or count > 1000:
 		push_error("Choose 0 to 1,000 asset assemblies.")
+		quit(2)
+		return
+	if profile_hidden_control and not profile_scene:
+		push_error("The hidden-node control requires scene profiling.")
 		quit(2)
 		return
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
@@ -695,7 +702,15 @@ func _mixed_scale_benchmark() -> void:
 		quit()
 		return
 	if profile_scene:
+		if profile_hidden_control:
+			view.machine_root.visible = false
 		var profiled: bool = await _profile_mixed_scene(view)
+		if profile_hidden_control:
+			if view.machine_root.visible:
+				push_error("Scene profiling changed an initially hidden machine field.")
+				profiled = false
+			else:
+				print("MIXED_SCENE_PROFILE_HIDDEN_PASS")
 		quit(0 if profiled else 1)
 		return
 	var frame_ms: Array[float] = []
@@ -768,8 +783,11 @@ func _profile_mixed_scene(view: MixedAssetScaleView) -> bool:
 		var hidden: Array = entry.nodes
 		var fog_before := environment.environment.fog_enabled if entry.get("fog", false) else false
 		var shadow_before := sun.shadow_enabled if entry.get("shadow", false) else false
+		var visible_before: Array[bool] = []
 		for node in hidden:
-			(node as Node3D).visible = false
+			var scene_node := node as Node3D
+			visible_before.append(scene_node.visible)
+			scene_node.visible = false
 		if entry.get("fog", false):
 			environment.environment.fog_enabled = false
 		if entry.get("shadow", false):
@@ -793,8 +811,8 @@ func _profile_mixed_scene(view: MixedAssetScaleView) -> bool:
 			"p95_ms": frame_ms[int(frame_ms.size() * 0.95)],
 			"draw_calls_median": calls[calls.size() / 2],
 			"primitives_median": primitives[primitives.size() / 2]})
-		for node in hidden:
-			(node as Node3D).visible = true
+		for index in hidden.size():
+			(hidden[index] as Node3D).visible = visible_before[index]
 		if entry.get("fog", false):
 			environment.environment.fog_enabled = fog_before
 		if entry.get("shadow", false):
