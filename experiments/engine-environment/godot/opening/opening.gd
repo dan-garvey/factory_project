@@ -7808,6 +7808,7 @@ func _batch_collector_cutters(dynamic_groups: Dictionary, skip_sources: Dictiona
 				break
 		if not compatible:
 			continue
+		key.append_array([shadow, layers])
 		if not candidates.has(key):
 			candidates[key] = {"parts": parts, "instances": []}
 		candidates[key].instances.append({"anchor": anchor, "sources": sources})

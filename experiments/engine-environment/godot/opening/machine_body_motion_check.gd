@@ -217,7 +217,8 @@ func check_batched_collector_motion() -> void:
 	view._rebuild_machines()
 	var observed: Dictionary = view.state.duplicate(true)
 	var picks := pick_facts(view)
-	view._batch_machine_visuals()
+	verify(view.machine_root.get_child_count() == view.state.entities.size() + 1,
+		"The topology rebuild emits one render-batch root for its machines.")
 	var first := machine(view, "collector")
 	var second := machine(view, "collector-0")
 	var first_slot: Dictionary = view.machine_cutter_batch_slots.get(first.get_instance_id(), {})
@@ -249,6 +250,23 @@ func check_batched_collector_motion() -> void:
 			"Each combined cutter follows its own confirmed phase and the real flute orbit.")
 	verify(view.state == observed and pick_facts(view) == picks and view.request_sequence == 0,
 		"Batching moving art leaves observed state, picks and request sequence unchanged.")
+	var cutter_rows: Array = meshes(view, "collector")
+	for property: String in ["layers", "cast_shadow"]:
+		var originals: Array = []
+		for row in cutter_rows:
+			originals.append(row.node.get(property))
+		var different: int = int(originals[0]) ^ 2 if property == "layers" else \
+			(GeometryInstance3D.SHADOW_CASTING_SETTING_ON if originals[0] == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF \
+			else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
+		for row in cutter_rows:
+			row.node.set(property, different)
+		var groups: Dictionary = {}
+		var skipped: Dictionary = {}
+		view._batch_collector_cutters(groups, skipped)
+		verify(groups.is_empty() and skipped.is_empty(),
+			"Collectors with distinct %s retain their own artwork below the compatible batch threshold." % property)
+		for index in cutter_rows.size():
+			cutter_rows[index].node.set(property, originals[index])
 	view._rebuild_machines()
 	var replacement := machine(view, "collector")
 	var replacement_slot: Dictionary = view.machine_cutter_batch_slots.get(replacement.get_instance_id(), {})
