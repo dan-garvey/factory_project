@@ -246,7 +246,7 @@ void bounds_and_large_integers() {
     V deep(nullptr);
     for (int index = 0; index < 34; ++index) deep = V(O{{"nested", std::move(deep)}});
     refusal(f.profile, edited(f.checkpoint, {"extra"}, std::move(deep)), w::CheckpointReason::limit);
-    V::Array lots(257, V(nullptr));
+    V::Array lots(m::maximum_live_work_lots + 1, V(nullptr));
     refusal(f.profile, edited(f.checkpoint, {"state", "material", "cargo", "P", "work_lots"}, V(lots)),
             w::CheckpointReason::limit);
     O issued;
