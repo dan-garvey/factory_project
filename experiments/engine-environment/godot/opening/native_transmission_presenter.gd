@@ -17,6 +17,7 @@ const BELT_SUBTICKS_PER_TILE := 4096.0 # Matches the native material lane's fixe
 const CARGO_TICK_SECONDS := 0.45
 const INCLINED_SUBTICKS_PER_TICK := 2896.0 # Native lane advances one horizontal tile of surface distance.
 const GEAR_BATCH_THRESHOLD := 4
+const LIVE_GEAR_BATCH_THRESHOLD := 1
 
 var _host: WeakRef
 var _view_key: Variant = null
@@ -1508,7 +1509,10 @@ func refresh() -> void:
 	for part: Variant in parts.values():
 		if _valid_part(part) and part.kind == "gear":
 			gear_count += 1
-	var batch_gears := gear_count >= GEAR_BATCH_THRESHOLD
+	# A live Model or Session batches its first cog. Detached art fixtures keep
+	# the constituent render nodes so their individual mesh contracts stay visible.
+	var batch_gears := gear_count >= (LIVE_GEAR_BATCH_THRESHOLD if _host.get_ref().get("model") != null \
+		else GEAR_BATCH_THRESHOLD)
 	# Native revisions identify confirmed topology. Keep identical batched pick
 	# bodies across cuts; the changing MultiMesh and support batches rebuild below.
 	var reused_gears: Dictionary = {}

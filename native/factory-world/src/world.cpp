@@ -1549,8 +1549,7 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
             std::any_of(hub.center.begin(), hub.center.end(),
                 [](Integer coordinate) { return coordinate < -mechanics::maximum_coordinate ||
                     coordinate > mechanics::maximum_coordinate; }) ||
-            std::any_of(hub.center.begin(), hub.center.end(),
-                [](Integer coordinate) { return coordinate % 4 != 0; }) ||
+            hub.center[0] % 4 != 0 || hub.center[2] % 4 != 0 ||
             (!hub.holder && hub.center[1] != 0 &&
              std::none_of(state.foundations.begin(), state.foundations.end(),
                  [&](const auto& entry) { return entry.second.center == hub.center; })))
@@ -1598,8 +1597,7 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
         for (const auto coordinate : placed.center)
             if (coordinate < -mechanics::maximum_coordinate || coordinate > mechanics::maximum_coordinate) return false;
         if (placed.kind == materials::Component::wooden_workbench &&
-            (std::any_of(placed.center.begin(), placed.center.end(),
-                [](Integer coordinate) { return coordinate % 4 != 0; }) ||
+            (placed.center[0] % 4 != 0 || placed.center[2] % 4 != 0 ||
              (placed.center[1] != 0 &&
               std::none_of(state.foundations.begin(), state.foundations.end(),
                   [&](const auto& entry) { return entry.second.center == placed.center; })))) return false;
@@ -2016,8 +2014,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         if (!location) return refused("invalid_cell", *id);
         const auto center = *location;
         if (deploy &&
-            (std::any_of(center.begin(), center.end(),
-                [](Integer coordinate) { return coordinate % 4 != 0; }) ||
+            (center[0] % 4 != 0 || center[2] % 4 != 0 ||
              (center[1] != 0 &&
               std::none_of(state.foundations.begin(), state.foundations.end(),
                   [&](const auto& entry) { return entry.second.center == center; }))))
@@ -2228,8 +2225,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         const auto center = placing ? *location : found->second.center;
         const auto kind = placing ? *component : found->second.kind;
         if (placing && kind == materials::Component::wooden_workbench &&
-            (std::any_of(center.begin(), center.end(),
-                [](Integer coordinate) { return coordinate % 4 != 0; }) ||
+            (center[0] % 4 != 0 || center[2] % 4 != 0 ||
              (center[1] != 0 &&
               std::none_of(state.foundations.begin(), state.foundations.end(),
                   [&](const auto& entry) { return entry.second.center == center; }))))

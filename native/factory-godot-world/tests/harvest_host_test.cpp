@@ -284,6 +284,11 @@ void placed_bench_preserves_two_actor_custody() {
         {"entity", V(bench_id)}, {"role", V("shaft")}, {"half_span", V(I{2})}};
     check(get<bool>(host.command("P", craft_shaft), "accepted"),
           "The player-built bench also replaces the pod for finite stationary shaft kits.");
+    const O raised_floor{{"context", V("bench-site")}, {"client", V("P")},
+        {"request", V("raised-pod-workshop-floor")}, {"action", V("place_foundation")},
+        {"cell", V(A{V(I{6}), V(I{2})})}, {"level", V(I{2})}};
+    check(get<bool>(host.command("P", raised_floor), "accepted"),
+          "P seats a second ordinary foundation at the two-unit height step.");
     const auto saved = host.checkpoint();
     check(get<bool>(host.command("Q", local_craft), "duplicate") &&
           !factory::values::typed_difference(saved, host.checkpoint()),
@@ -300,7 +305,7 @@ void placed_bench_preserves_two_actor_custody() {
     const O deploy{{"context", V("bench-site")}, {"client", V("P")},
         {"request", V("redeploy-pod-bench")}, {"action", V("deploy_fabrication_hub")},
         {"entity", V("pod-fabrication-hub")},
-        {"center", V(A{V(I{24}), V(I{0}), V(I{8})})}};
+        {"center", V(A{V(I{24}), V(I{2}), V(I{8})})}};
     const auto redeployed = restored.command("P", deploy);
     if (!get<bool>(redeployed, "accepted"))
         throw std::runtime_error("Pod workshop redeploy refused: " + get<std::string>(redeployed, "reason"));
@@ -312,7 +317,7 @@ void placed_bench_preserves_two_actor_custody() {
           get<bool>(V(get<O>(restored.projection(), "fabrication_hub")), "installed") &&
           get<I>(V(get<O>(restored.projection(), "fabrication_hub")), "generation") == 1 &&
           get<bool>(valid_redeploy, "accepted"),
-          "The same pod workshop redeploys on another clear tile after a fresh Host restore.");
+          "The same pod workshop redeploys on the half-height foundation after a fresh Host restore.");
 }
 }  // namespace
 

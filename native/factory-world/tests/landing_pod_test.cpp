@@ -794,12 +794,37 @@ void portable_bench_crafts_with_finite_shared_stock() {
           world->snapshot().state.fabrication_hub->center == factory::mechanics::Point{28, 0, 16} &&
           w::World::restore("portable-bench", profile, world->snapshot()) != nullptr,
           "The same issued pod workshop redeploys away from the pod and survives strict replay.");
+    const O raised_floor{{"context", V("portable-bench")}, {"client", V("P-client")},
+        {"request", V("raised-workshop-floor")}, {"actor", V("P")},
+        {"action", V("place_foundation")},
+        {"center", V(V::Array{V(I{24}), V(I{2}), V(I{16})})}};
+    const auto floor = send(raised_floor, {20, 0, 16});
+    check(floor.completed() && std::get<bool>(floor.result->at("accepted").storage()),
+          "P places an ordinary foundation two shared height units above ground.");
+    auto off_tile = place;
+    off_tile.at("request") = V("off-tile-workshop");
+    off_tile.at("center") = V(V::Array{V(I{25}), V(I{2}), V(I{16})});
+    const auto misaligned = send(off_tile, {20, 0, 16});
+    check(misaligned.completed() && !std::get<bool>(misaligned.result->at("accepted").storage()) &&
+          std::get<std::string>(misaligned.result->at("reason").storage()) == "unsupported_bench" &&
+          world->snapshot().state.material.cargo.at("P").components.at(m::Component::wooden_workbench) == 1,
+          "A nearby quarter cell does not become a separate bench grid or consume its component.");
     auto reinstall = place;
     reinstall.at("request") = V("reinstall-bench");
+    reinstall.at("center") = V(V::Array{V(I{24}), V(I{2}), V(I{16})});
     const auto reinstalled = send(reinstall, {20, 0, 16});
     check(reinstalled.completed() && std::get<bool>(reinstalled.result->at("accepted").storage()) &&
-          world->snapshot().state.material.cargo.at("P").components.empty(),
-          "P reinstalls the reclaimed bench and frees the one carried component slot.");
+          world->snapshot().state.material.cargo.at("P").components.empty() &&
+          w::World::restore("portable-bench", profile, world->snapshot()) != nullptr,
+          "P reinstalls the reclaimed bench at the half-height foundation and frees its carried slot.");
+    const O remove_floor{{"context", V("portable-bench")}, {"client", V("P-client")},
+        {"request", V("remove-raised-workshop-floor")}, {"actor", V("P")},
+        {"action", V("remove_foundation")}, {"target", floor.result->at("entity")},
+        {"generation", floor.result->at("generation")}};
+    const auto occupied_floor = send(remove_floor, {20, 0, 16});
+    check(occupied_floor.completed() && !std::get<bool>(occupied_floor.result->at("accepted").storage()) &&
+          std::get<std::string>(occupied_floor.result->at("reason").storage()) == "foundation_in_use",
+          "The raised workshop keeps its exact supporting floor from removal.");
     const O more_wood{{"context", V("portable-bench")}, {"client", V("P-client")},
         {"request", V("fifth-wood")}, {"actor", V("P")},
         {"action", V("harvest_source")}, {"target", V("field-tree")}};
@@ -812,6 +837,24 @@ void portable_bench_crafts_with_finite_shared_stock() {
     check(std::get<bool>(send(moved_craft, {28, 0, 16}).result->at("accepted").storage()) &&
           world->snapshot().state.material.cargo.at("P").components.at(m::Component::wooden_shaft) == 1,
           "The relocated pod workshop crafts from P's own new timber at its actual position.");
+    const O install_shaft{{"context", V("portable-bench")}, {"client", V("P-client")},
+        {"request", V("install-moved-shaft")}, {"actor", V("P")},
+        {"action", V("place_component")}, {"component", V("wooden_shaft")},
+        {"center", V(V::Array{V(I{20}), V(I{0}), V(I{20})})}};
+    check(std::get<bool>(send(install_shaft, {20, 0, 16}).result->at("accepted").storage()),
+          "Installing P's shaft frees the single carried component slot.");
+    auto sixth_wood = more_wood;
+    sixth_wood.at("request") = V("sixth-wood");
+    check(std::get<bool>(send(sixth_wood, {20, 0, 16}).result->at("accepted").storage()),
+          "A sixth cut provides finite timber for the raised bench.");
+    auto raised_craft = moved_craft;
+    raised_craft.at("request") = V("raised-bench-shaft");
+    raised_craft.at("target") = reinstalled.result->at("entity");
+    raised_craft.at("generation") = reinstalled.result->at("generation");
+    check(std::get<bool>(send(raised_craft, {24, 2, 16}).result->at("accepted").storage()) &&
+          world->snapshot().state.material.cargo.at("P").components.at(m::Component::wooden_shaft) == 1 &&
+          w::World::restore("portable-bench", profile, world->snapshot()) != nullptr,
+          "The half-height player-built bench crafts and restores on the same foundation level.");
 }
 }  // namespace
 

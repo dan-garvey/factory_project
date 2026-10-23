@@ -1593,6 +1593,15 @@ func _cache_regression() -> void:
 	var before: Dictionary = host.state.duplicate(true)
 	view.refresh()
 	verify(host.state == before and host.calls.is_empty(), "Cache refresh reads do not mutate projection or submit a command.")
+	# Shared clients hold a Session rather than NativeModel. The presence of a
+	# live projection source must still batch its first cog and keep both picks.
+	host.model = RefCounted.new()
+	host.state.context = "session-backed-fixture"
+	view.refresh()
+	var batch: Dictionary = view._gear_batches.get(2, {})
+	verify(not batch.is_empty() and batch.mesh.instance_count == 2
+		and _part(view, "a").has_node("Pick") and _part(view, "b").has_node("Pick"),
+		"A Session-backed projection batches early cogs without losing individual picks.")
 	view.free()
 
 func _direction_basis() -> void:
@@ -2594,6 +2603,7 @@ func _scale_benchmark() -> void:
 		push_error("Choose 0 to 800 cogs.")
 		quit(2)
 		return
+	var batch_minimum: int = Presenter.LIVE_GEAR_BATCH_THRESHOLD if trusted_revision else Presenter.GEAR_BATCH_THRESHOLD
 	var scene := Node3D.new()
 	var opening = null
 	if whole_opening:
@@ -2684,14 +2694,14 @@ func _scale_benchmark() -> void:
 			var vertices: PackedVector3Array = mesh.surface_get_arrays(index)[Mesh.ARRAY_VERTEX]
 			valid_geometry = valid_geometry and vertices.size() > 0 and vertices.size() % 3 == 0
 			valid_geometry = valid_geometry and mesh.surface_get_material(index) != null
-	if pick_count != count or (count >= Presenter.GEAR_BATCH_THRESHOLD and
+	if pick_count != count or (count >= batch_minimum and
 			(batched_count != count or not valid_geometry)):
 		push_error("The rendered cog geometry or individual picks failed scale validation.")
 		quit(1)
 		return
 	if verify_only:
 		var unchanged: Dictionary = host.state.duplicate(true)
-		var retained_anchor: Node3D = part_anchor(presenter, "cog-0") if trusted_revision and count >= Presenter.GEAR_BATCH_THRESHOLD else null
+		var retained_anchor: Node3D = part_anchor(presenter, "cog-0") if trusted_revision and count >= batch_minimum else null
 		var retained_pick: Node = retained_anchor.get_node("Pick") if retained_anchor != null else null
 		presenter.advance_visual_motion(0.1)
 		var matches := host.state == unchanged
@@ -2710,7 +2720,7 @@ func _scale_benchmark() -> void:
 					print("COG_SCALE_MISMATCH " + str([id, pose_match, angle_match,
 						group.mesh.get_instance_transform(index), expected]))
 				matches = matches and pose_match and angle_match
-		if count >= Presenter.GEAR_BATCH_THRESHOLD and batched_count != count:
+		if count >= batch_minimum and batched_count != count:
 			matches = false
 		if count > 0:
 			var previous_key: Variant = presenter._view_key.duplicate(true)
@@ -2720,7 +2730,7 @@ func _scale_benchmark() -> void:
 				host.state.revision += 1
 			presenter.refresh()
 			matches = matches and presenter._view_key != previous_key
-			if count >= Presenter.GEAR_BATCH_THRESHOLD:
+			if count >= batch_minimum:
 				var stopped_pose: Transform3D = presenter._gear_batches[4 if large_every > 0 else 2].mesh.get_instance_transform(0)
 				presenter.advance_visual_motion(0.1)
 				matches = matches and presenter._gear_batches[4 if large_every > 0 else 2].mesh.get_instance_transform(0).is_equal_approx(stopped_pose)
@@ -2760,7 +2770,7 @@ func _scale_benchmark() -> void:
 			presenter.refresh()
 			matches = matches and not is_instance_valid(regenerated_anchor) \
 				and part_anchor(presenter, "cog-0").has_node("Pick")
-		if count == Presenter.GEAR_BATCH_THRESHOLD:
+		if count == batch_minimum:
 			var last := "cog-%d" % (count - 1)
 			var removed: Dictionary = host.state.transmission_parts[last]
 			var removed_motion: Dictionary = host.state.motion[last]
