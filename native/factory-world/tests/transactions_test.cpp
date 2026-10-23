@@ -239,6 +239,33 @@ void trusted_command_validator_is_atomic() {
             "A rejected trusted command leaves its request identity and prefix proof reusable.");
 }
 
+void cumulative_history_limit_preserves_error_and_retry() {
+    auto owner = Owner::create_new("world-1", Marker{}, valid);
+    require(owner != nullptr, "The cumulative-budget witness starts from a valid owner.");
+    const a::Outcome large_refusal{false, "blocked", "", {{"payload", V(std::string(1'000'000, 'x'))}}};
+    for (int index = 0; index < 4; ++index) {
+        const auto request = "large:" + std::to_string(index);
+        const auto result = owner->apply(intent(request.c_str()), [&](const auto&, const auto&) {
+            return Owner::Decision{std::nullopt, large_refusal};
+        });
+        require(result.completed(), "An individually bounded receipt fits the validated prefix.");
+    }
+    const auto before = owner->snapshot();
+    const auto rejected = owner->apply(intent("large:4"), [&](const auto&, const auto&) {
+        return Owner::Decision{std::nullopt, large_refusal};
+    });
+    require(rejected.error == w::TransactionError::history &&
+            rejected.history_error == a::Error::limit && !rejected.result,
+            "A cumulative history budget refusal preserves the history/limit error category.");
+    unchanged(*owner, before);
+    const auto retried = owner->apply(intent("large:4"), [](const auto&, const auto&) {
+        return Owner::Decision{std::nullopt, {false, "blocked", "", {}}};
+    });
+    require(retried.completed() && owner->snapshot().history.order == 5 &&
+            a::validate_history(owner->snapshot().history, owner->current_revision()) == a::Error::none,
+            "A failed oversized request leaves its identity and history proof available for a bounded retry.");
+}
+
 struct CopyFault {
     static inline bool fail{};
     I marker{};
@@ -389,6 +416,7 @@ int main() {
         commit_refusal_and_historical_retry();
         failed_preparation_is_atomic();
         trusted_command_validator_is_atomic();
+        cumulative_history_limit_preserves_error_and_retry();
         refused_state_copy_failure();
         advance_with_domain_witness();
         retained_history_step_is_atomic();

@@ -264,8 +264,14 @@ public:
             ++next->history.order;
             append.appended = true;
             authority::HistoryProof next_proof;
-            if (!authority::validate_history_append(next->history, next->revision, proof_, next_proof) ||
-                !std::invoke(std::forward<CandidateValidator>(validate_candidate),
+            if (!authority::validate_history_append(next->history, next->revision, proof_, next_proof)) {
+                // The exceptional path may need the full scan to preserve the
+                // public history error category, including cumulative limits.
+                const auto error = authority::validate_history(next->history, next->revision);
+                return failure(TransactionError::history,
+                    error == authority::Error::none ? authority::Error::invalid_history : error);
+            }
+            if (!std::invoke(std::forward<CandidateValidator>(validate_candidate),
                              std::as_const(*next)))
                 return failure(TransactionError::invalid_candidate);
 
