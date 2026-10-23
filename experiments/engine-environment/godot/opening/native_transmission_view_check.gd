@@ -14,9 +14,12 @@ var failures := 0
 
 class CountingNativeModel extends "res://opening/native_model.gd":
 	var full_projection_calls := 0
+	var native_advance_calls := 0
 	func _invoke(method: String, arguments: Array) -> Dictionary:
 		if method == "projection":
 			full_projection_calls += 1
+		elif method == "advance":
+			native_advance_calls += 1
 		return super._invoke(method, arguments)
 
 class TopologyStub extends RefCounted:
@@ -2497,6 +2500,35 @@ func _native_view_cache_regression() -> void:
 		and restored_view.revision == tick.revision and not restored_view.actors.P.ready
 		and restored_view.actors.P == restored.projection().actors.P,
 		"A restored Host discards the old view and requires a new physical actor publication.")
+	var trusted := CountingNativeModel.new("trusted-tick-view-fixture", ["P"], true)
+	verify(trusted.boot_result.get("accepted", false), "The trusted tick fixture boots one real native Host.")
+	if not trusted.boot_result.get("accepted", false):
+		return
+	trusted.full_projection_calls = 0
+	var trusted_opening := AdvanceProjectionOpening.new()
+	trusted_opening.model = trusted
+	trusted_opening.auto_advance = true
+	trusted_opening._process(trusted_opening.STEP_SECONDS + 0.01)
+	verify(trusted_opening.state.has("entities") and trusted.native_advance_calls == 1
+		and trusted.full_projection_calls == 0
+		and trusted_opening.state == trusted._view_projection_borrowed(),
+		"The ordinary native opening consumes its accepted tick without another full read.")
+	var external_view := trusted.view_projection()
+	external_view.entities["invented-machine"] = {}
+	external_view.actors.P.ready = true
+	verify(not trusted._view_projection_borrowed().entities.has("invented-machine")
+		and not trusted._view_projection_borrowed().actors.P.ready,
+		"External view callers cannot edit a trusted opening tick.")
+	var public_tick := trusted.advance()
+	public_tick.entities["invented-machine"] = {}
+	verify(not trusted.view_projection().entities.has("invented-machine"),
+		"Public advance remains isolated after a trusted opening tick.")
+	var prior_trusted_view := trusted._view_projection_borrowed()
+	verify(trusted.publish_actor("P", [0.0, 1.0, 0.0], 1).get("accepted", false)
+		and trusted.view_projection().actors.P.ready
+		and not prior_trusted_view.actors.P.ready,
+		"Actor publication replaces the borrowed actor path without mutating a retained scene view.")
+	trusted_opening.free()
 
 func _run() -> void:
 	if "--scale-benchmark" in OS.get_cmdline_user_args():
