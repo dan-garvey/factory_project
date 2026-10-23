@@ -326,6 +326,31 @@ void actor_feed_is_physical_custody() {
           overloaded.load.at(shaft).impact == 16 &&
           !overloaded.load.at(shaft).limiting_part.empty(),
           "The sourced press exceeds its actual wooden drive-part rating at double speed.");
+    Runner unrelated_belt(source);
+    unrelated_belt.world = w::World::restore("press-feed", source.profile, first_work);
+    unrelated_belt.p = {2, 1, 0};
+    auto load_unrelated = request("P", "load-unrelated-belt-work", "load_belt_slot");
+    load_unrelated.emplace("target", V("press-output-belt"));
+    load_unrelated.emplace("generation", V(I{1}));
+    load_unrelated.emplace("slot", V(I{0}));
+    load_unrelated.emplace("item", V("raw"));
+    load_unrelated.emplace("work_id", V(I{0}));
+    unrelated_belt.accept("P", load_unrelated);
+    const auto before_unrelated_tick = unrelated_belt.world->snapshot();
+    const auto belt_tick = unrelated_belt.world->tick();
+    check(belt_tick.error == w::TransactionError::none && belt_tick.changed &&
+          unrelated_belt.world->snapshot().state.material.dropped_material.at({8, 1, 0})
+              .work_lots.front().remaining_ticks == 2 &&
+          unrelated_belt.world->snapshot().state.material.belt_lanes !=
+              before_unrelated_tick.state.material.belt_lanes,
+          "A belt can advance the World revision while the overloaded press does no work.");
+    auto turn_after_belt_tick = turn;
+    turn_after_belt_tick.at("request") = V("turn-after-unrelated-belt-tick");
+    unrelated_belt.accept("P", turn_after_belt_tick);
+    check(unrelated_belt.world->snapshot().state.material.dropped_material.at({8, 1, 0})
+              .work_lots.front().remaining_ticks == 1 &&
+          w::World::restore("press-feed", source.profile, unrelated_belt.world->snapshot()) != nullptr,
+          "The next real manual turn advances one tick despite unrelated belt movement.");
     check(run.world->tick().error == w::TransactionError::none &&
           run.world->snapshot().state == first_work.state,
           "An overloaded native tick leaves the partial WorkLot and all placed parts intact.");
@@ -349,6 +374,49 @@ void actor_feed_is_physical_custody() {
     run.accept("P", second_turn);
     check(run.world->snapshot().state.material.dropped_material.at({8, 1, 0}).work_lots.front().remaining_ticks == 1,
           "The second turn advances the same partial work by one shared material tick.");
+    check(bool(w::World::restore("press-feed", source.profile, run.world->snapshot())),
+          "A genuine stalled-tick manual-progress checkpoint restores before tamper checks.");
+    auto forged_progress_witness = run.world->snapshot();
+    const auto active_work_id = forged_progress_witness.state.material.dropped_material.at({8, 1, 0})
+        .work_lots.front().id;
+    forged_progress_witness.state.press_progress.at(active_work_id).automatic_remaining_ticks = 1;
+    check(!w::World::restore("press-feed", source.profile, forged_progress_witness),
+          "A saved automatic-progress witness must reconcile with the live press work item.");
+    auto forged_manual_progress = run.world->snapshot();
+    auto& forged_lot = forged_manual_progress.state.material.dropped_material.at({8, 1, 0}).work_lots.front();
+    forged_lot.remaining_ticks = 0;
+    for (auto& record : forged_manual_progress.history.records)
+        if (std::get<std::string>(record.intent.at("request").storage()) == "turn-press-progress") {
+            auto lots = std::get<V::Array>(record.result.at("work_lots").storage());
+            auto lot = std::get<O>(lots.front().storage());
+            lot.at("remaining_ticks") = V(I{0});
+            record.result.at("work_lots") = V(V::Array{V(lot)});
+        }
+    check(!w::World::restore("press-feed", source.profile, forged_manual_progress),
+          "One manual crank cannot claim more than one tick of work in a saved checkpoint.");
+    auto forged_tick_progress = forged_manual_progress;
+    for (auto& record : forged_tick_progress.history.records)
+        if (std::get<std::string>(record.intent.at("request").storage()) == "turn-press-progress") {
+            auto prior = std::get<V::Array>(record.result.at("prior_work_lots").storage());
+            auto lot = std::get<O>(prior.front().storage());
+            lot.at("remaining_ticks") = V(I{1});
+            record.result.at("prior_work_lots") = V(V::Array{V(lot)});
+        }
+    check(!w::World::restore("press-feed", source.profile, forged_tick_progress),
+          "Stalled World ticks cannot be presented as automatic press work before a manual turn.");
+    auto forged_unrelated_tick = forged_tick_progress;
+    ++forged_unrelated_tick.revision;
+    for (auto& record : forged_unrelated_tick.history.records)
+        if (std::get<std::string>(record.intent.at("request").storage()) == "turn-press-progress")
+            record.result.at("revision") = V(std::get<I>(record.result.at("revision").storage()) + 1);
+    check(!w::World::restore("press-feed", source.profile, forged_unrelated_tick),
+          "An unrelated World revision cannot justify progress in a stalled press.");
+    auto forged_auto_receipt = forged_unrelated_tick;
+    for (auto& record : forged_auto_receipt.history.records)
+        if (std::get<std::string>(record.intent.at("request").storage()) == "turn-press-progress")
+            record.result.at("prior_auto_remaining_ticks") = V(I{1});
+    check(!w::World::restore("press-feed", source.profile, forged_auto_receipt),
+          "A claimed automatic tick must match the saved witness for that work ID.");
     auto third_turn = turn;
     third_turn.at("request") = V("turn-press-finish");
     const auto finished = run.accept("P", third_turn);
@@ -360,6 +428,38 @@ void actor_feed_is_physical_custody() {
     check(std::holds_alternative<w::Snapshot>(w::decode_checkpoint(source.profile, "press-feed",
               std::get<V>(w::encode_checkpoint(source.profile, formed)))),
           "A formed product and the now empty work point survive strict checkpoint restore.");
+    Runner manual_blocked(source);
+    manual_blocked.world = w::World::restore("press-feed", source.profile, formed);
+    manual_blocked.p = {2, 1, 0};
+    auto blocked_feed = feed;
+    blocked_feed.at("request") = V("feed-behind-manual-output");
+    manual_blocked.accept("P", blocked_feed);
+    for (int index = 0; index < 3; ++index) {
+        auto blocked_turn = turn;
+        blocked_turn.at("request") = V("turn-against-manual-output-" + std::to_string(index));
+        manual_blocked.accept("P", blocked_turn);
+    }
+    const auto ready_behind_output = manual_blocked.world->snapshot();
+    const auto ready_checkpoint = w::encode_checkpoint(source.profile, ready_behind_output);
+    check(ready_behind_output.state.material.dropped_material.at({8, 1, 0})
+              .work_lots.front().remaining_ticks == 0 &&
+          ready_behind_output.state.material.dropped_material.at({7, 1, 0}).products == 1 &&
+          std::holds_alternative<V>(ready_checkpoint) &&
+          std::holds_alternative<w::Snapshot>(w::decode_checkpoint(source.profile, "press-feed",
+              std::get<V>(ready_checkpoint))),
+          "A manual ready lot remains at work behind a full exit and restores without losing progress.");
+    auto clear_manual_output = request("P", "clear-manual-output", "pickup_material");
+    clear_manual_output.emplace("center", V(point(7, 1, 0)));
+    clear_manual_output.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{1})},
+        {"work_lots", V(V::Array{})}}));
+    manual_blocked.accept("P", clear_manual_output);
+    auto release_ready = turn;
+    release_ready.at("request") = V("release-ready-manual-output");
+    const auto released = manual_blocked.accept("P", release_ready);
+    check(std::get<I>(released.at("formed_products").storage()) == 1 &&
+          !manual_blocked.world->snapshot().state.material.dropped_material.contains({8, 1, 0}) &&
+          w::World::restore("press-feed", source.profile, manual_blocked.world->snapshot()) != nullptr,
+          "Clearing the exit lets the exact ready manual lot form one product and restore.");
     auto exported = w::World::restore("press-feed", source.profile, formed);
     check(exported && exported->tick().error == w::TransactionError::none,
           "A powered outward belt accepts the finished modular press plate on a trusted tick.");
@@ -723,6 +823,20 @@ void two_placed_presses_advance_distinct_powered_work() {
     turn.emplace("generation", V(frame_generations[0]));
     turn.emplace("drive", V(shafts[0]));
     turn.emplace("exit", V(point(-1, 1, 0)));
+    Runner powered_then_manual(source);
+    powered_then_manual.world = w::World::restore("press-feed", source.profile, run.world->snapshot());
+    check(powered_then_manual.world &&
+          powered_then_manual.world->tick().error == w::TransactionError::none &&
+          powered_then_manual.world->snapshot().state.material.dropped_material.at({0, 1, 0})
+              .work_lots.front().remaining_ticks == 1,
+          "A native powered tick advances the identified lot before the next manual turn.");
+    auto finish_after_power = turn;
+    finish_after_power.at("request") = V("finish-after-powered-progress");
+    const auto powered_finish = powered_then_manual.accept("P", finish_after_power);
+    check(std::get<I>(powered_finish.at("formed_products").storage()) == 1 &&
+          std::get<I>(powered_finish.at("prior_auto_remaining_ticks").storage()) == 1 &&
+          w::World::restore("press-feed", source.profile, powered_then_manual.world->snapshot()) != nullptr,
+          "A real automatic tick followed by one manual turn completes and restores the same lot.");
     run.accept("P", turn);
     check(run.world->snapshot().state.material.dropped_material.at({0, 1, 0})
               .work_lots.front().remaining_ticks == 1 &&
@@ -1014,6 +1128,7 @@ void belt_feeds_a_placed_press() {
     take.emplace("target", V("pod-hand-crank"));
     take.emplace("generation", V(I{1}));
     mirrored.accept("P", take);
+    w::Snapshot belt_manual_partial;
     for (int n = 0; n < 3; ++n) {
         auto turn = request("P", "inlet-mirror-turn-" + std::to_string(n), "turn_press_crank");
         turn.emplace("target", V(frame));
@@ -1021,7 +1136,21 @@ void belt_feeds_a_placed_press() {
         turn.emplace("drive", V(mirror_shaft));
         turn.emplace("exit", V(point(-1, 1, 0)));
         mirrored.accept("P", turn);
+        if (n == 1) belt_manual_partial = mirrored.world->snapshot();
     }
+    check(w::World::restore("press-feed", source.profile, belt_manual_partial) != nullptr,
+          "A belt-fed manual partial WorkLot restores with its exact progress witness.");
+    auto forged_belt_turn = belt_manual_partial;
+    forged_belt_turn.state.material.dropped_material.at({0, 1, 0}).work_lots.front().remaining_ticks = 0;
+    for (auto& record : forged_belt_turn.history.records)
+        if (std::get<std::string>(record.intent.at("request").storage()) == "inlet-mirror-turn-1") {
+            auto lots = std::get<V::Array>(record.result.at("work_lots").storage());
+            auto lot = std::get<O>(lots.front().storage());
+            lot.at("remaining_ticks") = V(I{0});
+            record.result.at("work_lots") = V(V::Array{V(lot)});
+        }
+    check(!w::World::restore("press-feed", source.profile, forged_belt_turn),
+          "A belt-fed manual turn cannot claim two ticks of progress.");
     check(mirrored.world->snapshot().state.material.dropped_material.at({-1, 1, 0}) == m::Cargo{0, 1, {}} &&
           w::World::restore("press-feed", source.profile, mirrored.world->snapshot()) != nullptr,
           "A belt-fed mirrored press produces one plate through the same manual crank and restores.");

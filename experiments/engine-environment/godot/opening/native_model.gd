@@ -97,8 +97,15 @@ func command_as(authenticated_actor: String, intent: Dictionary) -> Dictionary:
 	return _invoke("command", [authenticated_actor, intent])
 
 func advance() -> Dictionary:
-	var observed: Dictionary = _invoke("advance", [])
+	var observed: Dictionary = _advance_borrowed()
 	_view_cache = observed.duplicate(true) if _complete_projection(observed) else {}
+	return observed
+
+func _advance_borrowed() -> Dictionary:
+	# The opening reads this confirmed tick without mutating it. Public advance()
+	# keeps its isolated cache for callers that may edit the returned dictionary.
+	var observed: Dictionary = _invoke("advance", [])
+	_view_cache = observed if _complete_projection(observed) else {}
 	return observed
 
 func publish_actor(actor: String, position: Array, native_epoch: int) -> Dictionary:

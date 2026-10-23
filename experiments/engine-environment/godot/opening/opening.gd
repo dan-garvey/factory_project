@@ -5331,7 +5331,7 @@ func _process(delta: float) -> void:
 		var advanced: Dictionary = {}
 		while elapsed >= STEP_SECONDS:
 			elapsed -= STEP_SECONDS
-			advanced = model.advance()
+			advanced = model._advance_borrowed() if model is NativeWorldModel else model.advance()
 		if advanced.has("context") and advanced.has("revision") and advanced.has("entities"):
 			_refresh_from_projection(advanced)
 		else:
