@@ -1353,6 +1353,9 @@ static DrivePower drive_power_with_layout(const Profile& profile, const State& s
 }
 
 DrivePower drive_power(const Profile& profile, const State& state) {
+    // With no placed modular components, the stationary solver already has
+    // the complete graph. Reuse that result instead of deriving it twice.
+    if (state.placed_components.empty()) return drive_power(state.topology);
     const auto placed = assembly_parts(state);
     const assembly::Layout layout(placed);
     return drive_power_with_layout(profile, state, placed, layout);
@@ -1585,6 +1588,17 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
     source_rates.reserve(state.topology.sources.size());
     for (const auto& source : state.topology.sources)
         source_rates[source.hub].push_back(source.rate);
+    std::map<mechanics::Point, std::size_t> part_center_counts;
+    std::unordered_map<std::string_view, const stationary::PlacedPart*> parts_by_id;
+    parts_by_id.reserve(state.topology.parts.size());
+    for (const auto& item : state.topology.parts) {
+        ++part_center_counts[item.geometry.center];
+        parts_by_id.emplace(item.geometry.id, &item);
+    }
+    const auto indexed_part = [&](const std::string& id) -> const stationary::PlacedPart* {
+        const auto found = parts_by_id.find(id);
+        return found == parts_by_id.end() ? nullptr : found->second;
+    };
     for (const auto& item : state.topology.parts) {
         if (item.wheel_tiles < (item.role == Role::waterwheel ? 3 : 1) || item.wheel_tiles > mechanics::maximum_dimension ||
             (item.role != Role::waterwheel && item.wheel_tiles != 1)) return false;
@@ -1593,10 +1607,7 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
         if (transmission_role(item.role) &&
             std::any_of(item.geometry.center.begin(), item.geometry.center.end(),
                         [](Integer coordinate) { return coordinate % 4 != 0; })) return false;
-        if (transmission_role(item.role) &&
-            std::count_if(state.topology.parts.begin(), state.topology.parts.end(), [&](const auto& other) {
-                return other.geometry.center == item.geometry.center;
-            }) != 1) return false;
+        if (transmission_role(item.role) && part_center_counts.at(item.geometry.center) != 1) return false;
         if (profile.foundation_parts > 0 && material_machine(item.role) && item.geometry.center[1] != 0 &&
             std::none_of(state.foundations.begin(), state.foundations.end(), [&](const auto& entry) {
                 return entry.second.center == item.geometry.center;
@@ -1616,8 +1627,8 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
         const auto issued = state.issued_entities.find(span.geometry.id);
         const auto total = totals.find({Role::belt, 0, 0});
         const auto lane = state.material.belt_lanes.find(span.geometry.id);
-        const auto* first = part(state.topology, span.geometry.first_shaft);
-        const auto* last = part(state.topology, span.geometry.last_shaft);
+        const auto* first = indexed_part(span.geometry.first_shaft);
+        const auto* last = indexed_part(span.geometry.last_shaft);
         if (!first || !last || lane == state.material.belt_lanes.end() ||
             first->role != Role::shaft || last->role != Role::shaft ||
             first->geometry.axis != last->geometry.axis) return false;
@@ -2558,13 +2569,34 @@ Advance World::tick() noexcept {
         // one graph evaluation for machine work and signed belt movement.
         const auto placed = assembly_parts(candidate);
         const assembly::Layout layout(placed);
-        const auto drive = drive_power_with_layout(profile_, candidate, placed, layout);
+        const auto drive = placed.empty() ? drive_power(candidate.topology) :
+            drive_power_with_layout(profile_, candidate, placed, layout);
         const auto power = machine_power_from(candidate.topology, drive);
         const auto error = materials::step(candidate.material, profile_.material,
             material_path(candidate.topology), power);
         if (error != materials::Error::none) throw error;
         const auto& motion = drive.mechanical;
         if (!motion.accepted()) throw materials::Error::invalid_path;
+        // Belt routes query the same immutable placed topology several times.
+        // Preserve the first matching part at a point while avoiding one full
+        // scan per endpoint and material port.
+        std::unordered_map<std::string_view, const stationary::PlacedPart*> belt_parts_by_id;
+        std::map<std::pair<Role, mechanics::Point>, const stationary::PlacedPart*> belt_parts_by_port;
+        if (!candidate.topology.belt_spans.empty()) {
+            belt_parts_by_id.reserve(candidate.topology.parts.size());
+            for (const auto& item : candidate.topology.parts) {
+                belt_parts_by_id.emplace(item.geometry.id, &item);
+                belt_parts_by_port.emplace(std::make_pair(item.role, item.geometry.center), &item);
+            }
+        }
+        const auto belt_part = [&](const std::string& id) -> const stationary::PlacedPart* {
+            const auto found = belt_parts_by_id.find(id);
+            return found == belt_parts_by_id.end() ? nullptr : found->second;
+        };
+        const auto at = [&](Role role, const mechanics::Point& point) -> const stationary::PlacedPart* {
+            const auto found = belt_parts_by_port.find(std::make_pair(role, point));
+            return found == belt_parts_by_port.end() ? nullptr : found->second;
+        };
         // Only an assembled tray may feed the adjacent belt mouth. A tray is
         // one quarter-grid step from its frame; the belt endpoint is the next
         // full tile on that same side. Duplicate claims are left for pickup.
@@ -2586,8 +2618,8 @@ Advance World::tick() noexcept {
         // Capture loose items before any lane moves. This gives a deterministic
         // one-tick handoff between adjacent belts regardless of span ordering.
         for (const auto& span : candidate.topology.belt_spans) {
-            const auto* first = part(candidate.topology, span.geometry.first_shaft);
-            const auto* last = part(candidate.topology, span.geometry.last_shaft);
+            const auto* first = belt_part(span.geometry.first_shaft);
+            const auto* last = belt_part(span.geometry.last_shaft);
             const auto rate = motion.motion.find(span.geometry.first_shaft);
             auto lane = candidate.material.belt_lanes.find(span.geometry.id);
             if (!first || !last || rate == motion.motion.end() || lane == candidate.material.belt_lanes.end())
@@ -2617,8 +2649,8 @@ Advance World::tick() noexcept {
         }
         bool collector_fed_span = false;
         for (const auto& span : candidate.topology.belt_spans) {
-            const auto* first = part(candidate.topology, span.geometry.first_shaft);
-            const auto* last = part(candidate.topology, span.geometry.last_shaft);
+            const auto* first = belt_part(span.geometry.first_shaft);
+            const auto* last = belt_part(span.geometry.last_shaft);
             const auto rate = motion.motion.find(span.geometry.first_shaft);
             auto lane = candidate.material.belt_lanes.find(span.geometry.id);
             if (!first || !last || rate == motion.motion.end() || lane == candidate.material.belt_lanes.end())
@@ -2659,11 +2691,6 @@ Advance World::tick() noexcept {
                 before[axis] -= step;
                 after[axis] += step;
             }
-            const auto at = [&](Role role, const mechanics::Point& point) {
-                const auto found = std::find_if(candidate.topology.parts.begin(), candidate.topology.parts.end(),
-                    [&](const auto& part) { return part.role == role && part.geometry.center == point; });
-                return found == candidate.topology.parts.end() ? nullptr : &*found;
-            };
             const auto port_matches = [&](Role role, const mechanics::Point& point,
                                           const mechanics::Point& adjacent) {
                 const auto* machine = at(role, point);
