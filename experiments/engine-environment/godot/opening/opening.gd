@@ -4327,6 +4327,7 @@ class MechanicalAmbience:
 	var scanned_revision := -1
 	var scanned_order := -1
 	var source_scan_ready := false
+	var scanned_native_revision := false
 
 	func _init() -> void:
 		listener = AudioListener3D.new()
@@ -4392,8 +4393,10 @@ class MechanicalAmbience:
 		scanned_revision = -1
 		scanned_order = -1
 		source_scan_ready = false
+		scanned_native_revision = false
 
-	func sync(snapshot: Dictionary, actor: String, ready: bool, camera_basis: Basis) -> void:
+	func sync(snapshot: Dictionary, actor: String, ready: bool, camera_basis: Basis,
+			trusted_native_revision := false) -> void:
 		var options: Variant = snapshot.get("options")
 		var actors: Variant = snapshot.get("actors")
 		var body: Variant = actors.get(actor) if actors is Dictionary else null
@@ -4415,15 +4418,16 @@ class MechanicalAmbience:
 		listener.basis = camera_basis.orthonormalized()
 		if not listener.is_current():
 			listener.make_current()
-		# A borrowed native observation keeps its source dictionaries immutable
-		# until the next confirmed cut. Actor publications may replace only its
-		# actor facts, so the physical ear position is a separate cache key.
-		# Camera rotation still reaches the listener on every render cut.
+		# Native World revisions cover source state changes even when a new
+		# projection allocates fresh dictionaries for an unchanged tick. Other
+		# callers retain the identity check for same-version replacements.
+		# Physical ear movement still rescans; camera rotation always reaches it.
 		var revision: Variant = snapshot.get("revision")
 		var order: Variant = snapshot.get("order")
 		var versioned := typeof(revision) == TYPE_INT and typeof(order) == TYPE_INT
 		if versioned and source_scan_ready and revision == scanned_revision and order == scanned_order \
-				and is_same(entities, scanned_entities) and is_same(motions, scanned_motions) \
+				and ((trusted_native_revision and scanned_native_revision) \
+					or (is_same(entities, scanned_entities) and is_same(motions, scanned_motions))) \
 				and listener.position == scanned_listener_position:
 			return
 		scanned_entities = entities
@@ -4432,6 +4436,7 @@ class MechanicalAmbience:
 		scanned_revision = int(revision) if versioned else -1
 		scanned_order = int(order) if versioned else -1
 		source_scan_ready = versioned
+		scanned_native_revision = versioned and trusted_native_revision
 		var audible: Dictionary = {}
 		for id: Variant in entities:
 			var entity: Variant = entities[id]
@@ -5358,7 +5363,7 @@ func _refresh_mechanical_audio() -> void:
 		mechanical_ambience = MechanicalAmbience.new()
 		mechanical_ambience.name = "MechanicalAmbience"
 		add_child(mechanical_ambience)
-	mechanical_ambience.sync(state, client, true, camera.global_basis)
+	mechanical_ambience.sync(state, client, true, camera.global_basis, model is NativeWorldModel)
 
 func _animate_wheel(delta: float) -> void:
 	if _native_transmission():
