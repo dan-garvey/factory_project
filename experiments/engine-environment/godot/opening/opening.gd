@@ -6528,54 +6528,98 @@ func _build_landing_pod_visual(pod: Dictionary, hub: Dictionary) -> void:
 	var shell := Node3D.new()
 	shell.name = "OpenedPodShell"
 	landing_pod_visual.add_child(shell)
-	var ivory := Color("a8b0a7")
 	var graphite := Color("293a3c")
 	var amber := Color("be8d43")
 	var dark := Color("17282c")
+	var hull_finish := ProductionCollectorArt.coating(Color("74766d"))
+	var service_finish := ProductionCollectorArt.coating(Color("394347"))
+	var worked_finish := ProductionTransmissionFinish.material("worked", Color("91938b"), 0.75, 0.48)
 	# One pressure canopy closes over the pallet in flight, then hinges back.
 	# The folded cover parks behind the pallet, clearing the front and east aisle.
 	_pod_panel(shell, "LowerHull", PackedVector2Array([
-		Vector2(-0.55, 0.12), Vector2(0.55, 0.12), Vector2(0.74, 0.26),
-		Vector2(0.68, 0.43), Vector2(-0.68, 0.43), Vector2(-0.74, 0.26)]),
+		Vector2(-0.56, 0.12), Vector2(0.56, 0.12), Vector2(0.67, 0.17),
+		Vector2(0.74, 0.26), Vector2(0.72, 0.34), Vector2(0.64, 0.43),
+		Vector2(-0.64, 0.43), Vector2(-0.72, 0.34), Vector2(-0.74, 0.26),
+		Vector2(-0.67, 0.17)]),
 		1.76, Vector3(0, 0, 0.02), ProductionCollectorArt.coating(graphite))
-	_machine_box(shell, "InteriorPallet", Vector3(0, 0.43, -0.03),
-		Vector3(1.07, 0.055, 1.41), dark, 0.12, 0.82)
-	_machine_box(shell, "RearBulkhead", Vector3(0, 0.66, 0.79),
-		Vector3(1.12, 0.58, 0.12), graphite, 0.28, 0.65)
+	var pallet := _pod_panel(shell, "InteriorPallet", PackedVector2Array([
+		Vector2(-0.535, -0.585), Vector2(-0.415, -0.705),
+		Vector2(0.415, -0.705), Vector2(0.535, -0.585),
+		Vector2(0.535, 0.585), Vector2(0.415, 0.705),
+		Vector2(-0.415, 0.705), Vector2(-0.535, 0.585)]),
+		0.055, Vector3(0, 0.43, -0.03), service_finish, 0.006)
+	pallet.rotation.x = PI / 2.0
+	_pod_panel(shell, "RearBulkhead", PackedVector2Array([
+		Vector2(-0.56, 0.37), Vector2(0.56, 0.37), Vector2(0.56, 0.81),
+		Vector2(0.42, 0.95), Vector2(-0.42, 0.95), Vector2(-0.56, 0.81)]),
+		0.12, Vector3(0, 0, 0.79), service_finish)
 	var canopy := Node3D.new()
 	canopy.name = "CanopyPivot"
 	canopy.position = Vector3(0, 0.72, 0.80)
 	shell.add_child(canopy)
-	_pod_panel(canopy, "PressureCanopy", PackedVector2Array([
-		Vector2(-0.68, 0.38), Vector2(-0.65, 1.08), Vector2(-0.42, 1.42),
-		Vector2(0.42, 1.42), Vector2(0.65, 1.08), Vector2(0.68, 0.38),
-		Vector2(0.56, 0.38), Vector2(0.54, 1.03), Vector2(0.35, 1.28),
-		Vector2(-0.35, 1.28), Vector2(-0.54, 1.03), Vector2(-0.56, 0.38)]),
-		1.70, Vector3(0, -0.72, -0.85), ProductionCollectorArt.coating(ivory))
-	_machine_box(canopy, "CanopyLiner", Vector3(0, 0.56, -0.85),
-		Vector3(1.03, 0.028, 1.49), dark, 0.10, 0.82)
-	_pod_panel(canopy, "ForwardHatch", PackedVector2Array([
-		Vector2(-0.56, 0.38), Vector2(0.56, 0.38), Vector2(0.54, 1.03),
-		Vector2(0.35, 1.28), Vector2(-0.35, 1.28), Vector2(-0.54, 1.03)]),
+	var inner_arch := PackedVector2Array([
+		Vector2(0.56, 0.38), Vector2(0.56, 0.84), Vector2(0.54, 1.00),
+		Vector2(0.48, 1.12), Vector2(0.37, 1.22), Vector2(0.20, 1.28),
+		Vector2(-0.20, 1.28), Vector2(-0.37, 1.22), Vector2(-0.48, 1.12),
+		Vector2(-0.54, 1.00), Vector2(-0.56, 0.84), Vector2(-0.56, 0.38)])
+	var canopy_profile := PackedVector2Array([
+		Vector2(-0.68, 0.38), Vector2(-0.68, 0.48), Vector2(-0.668, 0.53),
+		Vector2(-0.668, 0.88), Vector2(-0.65, 1.05), Vector2(-0.58, 1.20),
+		Vector2(-0.48, 1.32), Vector2(-0.34, 1.39), Vector2(-0.16, 1.42),
+		Vector2(0.16, 1.42), Vector2(0.34, 1.39), Vector2(0.48, 1.32),
+		Vector2(0.58, 1.20), Vector2(0.65, 1.05), Vector2(0.668, 0.88),
+		Vector2(0.668, 0.53), Vector2(0.68, 0.48), Vector2(0.68, 0.38)])
+	canopy_profile.append_array(inner_arch)
+	_pod_panel(canopy, "PressureCanopy", canopy_profile,
+		1.70, Vector3(0, -0.72, -0.85), hull_finish, 0.008)
+	var liner_profile := inner_arch.duplicate()
+	var liner_return := inner_arch.duplicate()
+	liner_return.reverse()
+	for index in range(liner_return.size()):
+		liner_return[index].x *= 0.965
+		liner_return[index].y = maxf(0.38, liner_return[index].y - 0.014)
+	liner_profile.append_array(liner_return)
+	_pod_panel(canopy, "CanopyLiner", liner_profile,
+		1.49, Vector3(0, -0.72, -0.85), service_finish, 0.002)
+	_pod_panel(canopy, "ForwardHatch", inner_arch,
 		0.075, Vector3(0, -0.72, -1.72), ProductionCollectorArt.coating(graphite))
 	_pod_panel(canopy, "SmokedVisor", PackedVector2Array([
-		Vector2(-0.38, 0.75), Vector2(0.38, 0.75), Vector2(0.34, 1.01),
-		Vector2(0.24, 1.15), Vector2(-0.24, 1.15), Vector2(-0.34, 1.01)]),
-		0.03, Vector3(0, -0.72, -1.77), ProductionVisuals.material(Color("36585e"), 0.05, 0.22))
-	_machine_box(canopy, "HatchLatch", Vector3(0, -0.14, -1.80),
-		Vector3(0.23, 0.065, 0.045), amber, 0.25, 0.58)
-	for side in [-1.0, 1.0]:
-		_machine_box(canopy, "CanopyStripe", Vector3(side * 0.25, 0.709, -0.85),
-			Vector3(0.065, 0.018, 1.51), amber, 0.18, 0.69)
+		Vector2(-0.36, 0.78), Vector2(0.36, 0.78), Vector2(0.33, 1.00),
+		Vector2(0.22, 1.12), Vector2(0.08, 1.16), Vector2(-0.08, 1.16),
+		Vector2(-0.22, 1.12), Vector2(-0.33, 1.00)]),
+		0.008, Vector3(0, -0.72, -1.754), ProductionVisuals.material(Color("36585e"), 0.05, 0.22), 0.002)
+	_pod_panel(canopy, "HatchLatch", PackedVector2Array([
+		Vector2(-0.115, -0.02), Vector2(-0.10, -0.0325),
+		Vector2(0.10, -0.0325), Vector2(0.115, -0.02),
+		Vector2(0.115, 0.02), Vector2(0.10, 0.0325),
+		Vector2(-0.10, 0.0325), Vector2(-0.115, 0.02)]),
+		0.018, Vector3(0, -0.14, -1.75), ProductionCollectorArt.coating(amber), 0.003)
 	for side in [-1.0, 1.0]:
 		var suffix := "Port" if side < 0.0 else "Starboard"
-		_machine_cylinder(shell, suffix + "CanopyHinge", Vector3(side * 0.53, 0.72, 0.80),
+		var panel := _pod_panel(canopy, suffix + "ServicePanel", PackedVector2Array([
+			Vector2(-0.65, 0.56), Vector2(-0.60, 0.52), Vector2(0.60, 0.52),
+			Vector2(0.65, 0.56), Vector2(0.65, 0.82), Vector2(0.60, 0.86),
+			Vector2(-0.60, 0.86), Vector2(-0.65, 0.82)]),
+			0.006, Vector3(side * 0.672, -0.72, -0.85), service_finish, 0.002)
+		panel.rotation.y = side * PI / 2.0
+		_machine_box(canopy, suffix + "CanopyStripe", Vector3(side * 0.11, 0.709, -0.85),
+			Vector3(0.055, 0.018, 1.51), amber, 0.18, 0.69)
+	for side in [-1.0, 1.0]:
+		var suffix := "Port" if side < 0.0 else "Starboard"
+		var hinge := _machine_cylinder(shell, suffix + "CanopyHinge", Vector3(side * 0.53, 0.72, 0.80),
 			0.09, 0.21, graphite, Vector3(0, 0, PI / 2.0))
+		hinge.material_override = worked_finish
 		_machine_cylinder(shell, suffix + "CanopyStrut", Vector3.ZERO, 0.026, 1.0, Color("8d9c99"))
 		for z in [-0.72, 0.72]:
-			_machine_box(shell, suffix + "LandingFoot", Vector3(side * 0.65, 0.07, z),
-				Vector3(0.28, 0.14, 0.29), graphite, 0.45, 0.68)
-			_machine_box(shell, "PalletSkid", Vector3(side * 0.58, 0.15, z),
+			var end := "Front" if z < 0 else "Rear"
+			var foot := _pod_panel(shell, suffix + "LandingFoot" + end, PackedVector2Array([
+				Vector2(-0.14, -0.10), Vector2(-0.095, -0.145),
+				Vector2(0.095, -0.145), Vector2(0.14, -0.10),
+				Vector2(0.14, 0.10), Vector2(0.095, 0.145),
+				Vector2(-0.095, 0.145), Vector2(-0.14, 0.10)]),
+				0.14, Vector3(side * 0.65, 0.07, z), ProductionCollectorArt.coating(graphite), 0.008)
+			foot.rotation.x = PI / 2.0
+			_machine_box(shell, suffix + "PalletSkid" + end, Vector3(side * 0.58, 0.15, z),
 				Vector3(0.09, 0.18, 0.13), graphite, 0.45, 0.68)
 	landing_hub_visual = Node3D.new()
 	landing_hub_visual.name = "PodFabricationHub"
