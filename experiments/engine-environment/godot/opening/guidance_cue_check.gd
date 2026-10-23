@@ -4,6 +4,7 @@ extends SceneTree
 
 const Opening = preload("res://opening/opening.gd")
 const SharedOpening = preload("res://opening/shared_opening.gd")
+const NativeModel = preload("res://opening/native_model.gd")
 var checks := 0
 var camera_failed := false
 var failed := false
@@ -246,6 +247,46 @@ func check_foundation_view() -> void:
 func settle_footer() -> void:
 	for _frame in range(4):
 		await process_frame
+
+func check_shared_manager_log() -> void:
+	var source := NativeModel.new("shared-manager-view-fixture", ["P"], true)
+	verify(source.boot_result.get("accepted", false), "A native arrival projection is available for the detached shared log view.")
+	if not source.boot_result.get("accepted", false):
+		finish_checks()
+		return
+	var view := SharedFooterView.new()
+	view.client = "P"
+	view.session = SessionStub.new()
+	view.state = source.projection()
+	view.state.actors.P.ready = true
+	var unchanged: Dictionary = view.state.duplicate(true)
+	root.add_child(view)
+	view._build_world()
+	view._build_interface()
+	view._refresh_ui()
+	verify("Cut timber or ore" in view.manager_log_current.text,
+		"A confirmed shared arrival shows the live material cue in its replayable manager log.")
+	view.session.ready = false
+	view._refresh_ui()
+	verify(view.manager_log_current.text.ends_with("Reconnect to continue."),
+		"A disconnected shared view replaces its stale work cue with reconnect guidance.")
+	view.session.ready = true
+	view.pending_actions["pending-fixture"] = {"action": {"action": "craft_component"}, "outcome": {}}
+	view._refresh_ui()
+	verify(view.manager_log_current.text.ends_with("Waiting for the server decision."),
+		"A pending shared command does not present its unconfirmed material result as the next action.")
+	view.pending_actions.clear()
+	view._refresh_ui()
+	view.manager_log_button.pressed.emit()
+	verify(view.manager_log_open and view.manager_log_layer.visible and view.state == unchanged
+		and view.model == null and view.request_sequence == 0,
+		"The shared work log replays without creating a client authority or sending a request.")
+	view._toggle_manager_log()
+	verify(not view.manager_log_open and not view.manager_log_layer.visible,
+		"A shared worker can close the work log and return to the confirmed site.")
+	view.session = null
+	view.free()
+	finish_checks()
 
 func check_foundation_inspector() -> void:
 	for shared_profile in [false, true]:
@@ -689,6 +730,9 @@ func _initialize() -> void:
 		return
 	if OS.get_cmdline_user_args().has("--footer-layout-only"):
 		call_deferred("check_footer_layout")
+		return
+	if OS.get_cmdline_user_args().has("--manager-log-shared-only"):
+		call_deferred("check_shared_manager_log")
 		return
 	if OS.get_cmdline_user_args().has("--camera-profile-only"):
 		check_camera_profiles()

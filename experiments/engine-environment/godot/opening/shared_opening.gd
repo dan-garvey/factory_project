@@ -408,6 +408,9 @@ func _refresh_ui() -> void:
 	if loose_material_controls != null:
 		loose_material_controls.refresh()
 	_refresh_transmission()
+	# Shared pending/reconnect notices replace the base goal after its refresh.
+	# Keep the personal log's current cue on that final confirmed view.
+	_refresh_manager_log()
 
 func _update_cursor() -> void:
 	super._update_cursor()
