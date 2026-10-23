@@ -481,6 +481,22 @@ void productive_line_scale(int line_count, bool audit_commands = false) {
         if (layout.inspect_collector(site.profile.collector_faces.front()).status != a::Status::ready)
             throw std::runtime_error("The measured assembly layout lost a ready collector.");
     });
+    std::vector<a::Part> inspected_parts;
+    inspected_parts.reserve(stage_snapshot.state.placed_components.size());
+    for (const auto& [id, component] : stage_snapshot.state.placed_components)
+        inspected_parts.push_back({id, component.kind, component.center, component.generation});
+    const a::Layout inspected_layout(inspected_parts);
+    measure_stage("assembly_inspection", [&] {
+        std::size_t collectors = 0, presses = 0;
+        for (const auto& face : site.profile.collector_faces)
+            collectors += inspected_layout.inspect_collector(face).collector.has_value();
+        for (const auto& part : inspected_parts)
+            if (part.kind == m::Component::wooden_frame)
+                presses += inspected_layout.inspect_press(part.center).press.has_value();
+        if (collectors != static_cast<std::size_t>(line_count) ||
+            presses != static_cast<std::size_t>(line_count))
+            throw std::runtime_error("Measured assembly inspections lost a productive machine.");
+    });
     std::vector<double> ticks;
     ticks.reserve(20);
     for (int sample = 0; sample < 20; ++sample) {

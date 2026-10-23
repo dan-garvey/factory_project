@@ -3221,7 +3221,8 @@ Advance World::tick() noexcept {
         auto candidate = snapshot.state;
         // Material stepping changes custody, not the placed power graph. Reuse
         // its drive across ticks until a command or refusal invalidates it.
-        if (!tick_layout_) tick_layout_ = std::make_unique<TickLayout>(assembly_parts(candidate));
+        if (!tick_layout_) tick_layout_ = std::make_unique<TickLayout>(assembly_parts(candidate),
+            profile_.collector_faces);
         const auto& placed = tick_layout_->placed;
         const auto& layout = tick_layout_->layout;
         if (!tick_drive_) tick_drive_.emplace(placed.empty() ? drive_power(candidate.topology) :
@@ -3254,14 +3255,7 @@ Advance World::tick() noexcept {
         // old whole-machine path, but each tray owns its own loose output.
         // Resolve all receiver claims before emitting so a repeated/ambiguous
         // site face cannot debit ore twice or select an arbitrary assembly.
-        std::map<mechanics::Point, std::optional<assembly::Collector>> collectors_by_receiver;
-        for (const auto& face : profile_.collector_faces) {
-            const auto inspected = layout.inspect_collector(face);
-            if (!inspected.collector) continue;
-            const auto [entry, inserted] = collectors_by_receiver.emplace(
-                inspected.collector->receiver_center, *inspected.collector);
-            if (!inserted) entry->second.reset();
-        }
+        const auto& collectors_by_receiver = tick_layout_->collectors_by_receiver;
         for (const auto& [receiver, collector] : collectors_by_receiver) {
             if (!collector || candidate.material.stock.source == 0 ||
                 candidate.material.dropped_material.contains(receiver) ||
@@ -3278,9 +3272,8 @@ Advance World::tick() noexcept {
         // Resolve every claim before running one batched material step.
         std::map<mechanics::Point, std::optional<materials::PressStep>> presses_by_work;
         std::map<mechanics::Point, std::size_t> exit_claims;
-        for (const auto& part : placed) {
-            if (part.kind != materials::Component::wooden_frame) continue;
-            const auto inspected = layout.inspect_press(part.center);
+        for (const auto& [frame_center, inspected] : tick_layout_->presses_by_frame) {
+            (void)frame_center;
             if (!inspected.press || inspected.press->open_feeds.empty()) continue;
             const auto& press = *inspected.press;
             const auto shaft = motion.motion.find(press.shaft);
@@ -3403,14 +3396,12 @@ Advance World::tick() noexcept {
         if (!candidate.topology.belt_spans.empty()) {
             std::set<mechanics::Point> component_centers;
             for (const auto& part : placed) component_centers.insert(part.center);
-            for (const auto& part : placed) {
-                if (part.kind != materials::Component::wooden_frame) continue;
-                const auto inspected = layout.inspect_press(part.center);
+            for (const auto& [frame_center, inspected] : tick_layout_->presses_by_frame) {
                 if (inspected.press || inspected.status == assembly::PressStatus::ambiguous) {
                     for (const auto& direction : {mechanics::Point{1, 0, 0}, mechanics::Point{-1, 0, 0},
                                                   mechanics::Point{0, 0, 1}, mechanics::Point{0, 0, -1}}) {
-                        const mechanics::Point mouth{part.center[0] + 4 * direction[0], part.center[1],
-                            part.center[2] + 4 * direction[2]};
+                        const mechanics::Point mouth{frame_center[0] + 4 * direction[0], frame_center[1],
+                            frame_center[2] + 4 * direction[2]};
                         ++press_inlet_claims[mouth];
                     }
                 }

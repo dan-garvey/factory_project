@@ -235,8 +235,23 @@ private:
     struct TickLayout {
         std::vector<assembly::Part> placed;
         assembly::Layout layout;
-        explicit TickLayout(std::vector<assembly::Part> parts)
-            : placed(std::move(parts)), layout(placed) {}
+        std::map<mechanics::Point, std::optional<assembly::Collector>> collectors_by_receiver;
+        std::vector<std::pair<mechanics::Point, assembly::PressInspection>> presses_by_frame;
+        TickLayout(std::vector<assembly::Part> parts, const std::vector<assembly::OreFace>& faces)
+            : placed(std::move(parts)), layout(placed) {
+            // These inspections depend only on placed geometry. A material-only
+            // tick cannot change them, while every command invalidates this cut.
+            for (const auto& face : faces) {
+                const auto inspected = layout.inspect_collector(face);
+                if (!inspected.collector) continue;
+                const auto [entry, inserted] = collectors_by_receiver.emplace(
+                    inspected.collector->receiver_center, *inspected.collector);
+                if (!inserted) entry->second.reset();
+            }
+            for (const auto& part : placed)
+                if (part.kind == materials::Component::wooden_frame)
+                    presses_by_frame.emplace_back(part.center, layout.inspect_press(part.center));
+        }
     };
     // Tick changes material custody, not the power graph. Commands can change
     // either topology or the drive switch and invalidate these derived views.
