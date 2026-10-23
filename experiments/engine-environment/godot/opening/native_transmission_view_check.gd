@@ -806,7 +806,7 @@ func _relays() -> void:
 		"The chain case has its own formed link-axis housing and only its confirmed shaft ports.")
 	presenter.free()
 
-func _belt_spans() -> void:
+func _belt_spans(omit_shared_product := false) -> void:
 	var host := HostStub.new()
 	host.state = fixture()
 	host.state.transmission_parts["left"] = {"kind": "shaft", "generation": 11, "center": [0, 0, 0], "axis": 2, "half_span": 2}
@@ -904,12 +904,21 @@ func _belt_spans() -> void:
 	session._ready_for_commands = true
 	host.state.revision = 1
 	host.state.order = 1
+	if omit_shared_product:
+		# A controlled missing item must fail as a test assertion, not escape as
+		# a script exception followed by a misleading success marker.
+		host.state.belt_spans["span"].slots[2] = null
 	session._apply_frame({"context": host.state.context, "serial": 1, "snapshot": host.state})
+	verify(session.projection().is_empty(),
+		"An ordinary shared frame remains pending until its scheduled state flush.")
+	await process_frame
+	await process_frame
 	var remote := HostStub.new()
 	remote.state = session.projection()
 	var remote_presenter := Presenter.new()
 	remote_presenter.configure(remote)
-	verify(_belt_item(_part(remote_presenter, "span"), 2).get_meta("belt_item") == "product",
+	var shared_product := _belt_item(_part(remote_presenter, "span"), 2)
+	verify(shared_product != null and shared_product.get_meta("belt_item") == "product",
 		"A read-only Session frame preserves the same confirmed belt contents.")
 	host.state.belt_spans["span"].slots = [null, raw, product, work]
 	presenter.refresh()
@@ -922,9 +931,12 @@ func _belt_spans() -> void:
 	host.state.revision = 2
 	host.state.order = 2
 	session._apply_frame({"context": host.state.context, "serial": 2, "snapshot": host.state})
+	await process_frame
+	await process_frame
 	remote.state = session.projection()
 	remote_presenter.refresh()
-	verify(_belt_item(_part(remote_presenter, "span"), 1).get_meta("belt_item") == "raw",
+	var shared_raw := _belt_item(_part(remote_presenter, "span"), 1)
+	verify(shared_raw != null and shared_raw.get_meta("belt_item") == "raw",
 		"A newer shared frame renders the updated confirmed slot.")
 	session._apply_frame({"context": host.state.context, "serial": 1, "snapshot": older})
 	verify(session.projection().belt_spans["span"].slots[1] == raw,
@@ -2397,12 +2409,16 @@ func _run() -> void:
 		await _belt_picking()
 	elif "--cog-axles-only" in OS.get_cmdline_user_args():
 		await _cog_axles()
+	elif "--belt-spans-only" in OS.get_cmdline_user_args():
+		await _belt_spans()
+	elif "--belt-spans-missing-only" in OS.get_cmdline_user_args():
+		await _belt_spans(true)
 	else:
 		_controls()
 		_gear_sizes()
 		_relays()
 		_shaft_segments()
-		_belt_spans()
+		await _belt_spans()
 		_belt_retry()
 		_span_guidance()
 		_belt_surface_motion()

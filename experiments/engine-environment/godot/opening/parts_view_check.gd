@@ -96,6 +96,12 @@ func fixture() -> Dictionary:
 		"stock": {"output": 0}, "inventories": {"P": 0, "Q": 0}}
 
 func _initialize() -> void:
+	if "--field-craft-widget-only" in OS.get_cmdline_user_args():
+		call_deferred("_field_craft_widget")
+		return
+	if "--pod-floor-only" in OS.get_cmdline_user_args():
+		call_deferred("_pod_floor_views")
+		return
 	if "--multitool-view-only" in OS.get_cmdline_user_args():
 		call_deferred("_multitool_presentation")
 		return
@@ -259,6 +265,74 @@ func _multitool_presentation() -> void:
 func settle_widgets() -> void:
 	for _frame in range(4):
 		await process_frame
+
+func _pod_floor_views() -> void:
+	for shared in [false, true]:
+		for level in [-4, 0, 8]:
+			var view = SharedSourceRayView.new() if shared else SourceRayView.new()
+			var floor_y: float = level * Opening.Geometry.HEIGHT_STEP
+			view.state = {"options": {"native": true},
+				"landing_pod": {"id": "landing-pod", "center": [1, level, 4], "deployed": true},
+				"fabrication_hub": {"id": "pod-fabrication-hub", "center": [2, level, 4],
+					"position": [3.3, floor_y + Opening.Geometry.ANCHOR_HEIGHT, 6.6]},
+				"hand_crank": {"holder": "pod"}}
+			var before: Dictionary = view.state.duplicate(true)
+			root.add_child(view)
+			view.camera = Camera3D.new()
+			view.add_child(view.camera)
+			view.machine_root = Node3D.new()
+			view.add_child(view.machine_root)
+			var deck := Node3D.new()
+			deck.position = view._entity_position({"cell": [1, 4], "level": level})
+			deck.set_meta("arrival_deck_panel", true)
+			deck.set_meta("arrival_deck_anchor", deck.position)
+			view.machine_root.add_child(deck)
+			view._sync_landing_pod_visual()
+			var pod_floor := Vector3(1.65, floor_y, 6.6)
+			var hub_floor := Vector3(3.3, floor_y, 6.6)
+			verify(view.landing_pod_visual.position.is_equal_approx(pod_floor)
+				and view.landing_hub_visual.position.is_equal_approx(hub_floor),
+				"Pod and bench roots share the foundation top plane at every native grid height.")
+			var foot: MeshInstance3D = view.landing_pod_visual.get_node("OpenedPodShell/PortOpenedWing/LandingFoot")
+			var leg: MeshInstance3D = view.landing_hub_visual.get_node("BenchLeg")
+			verify(absf((foot.global_transform * foot.get_aabb()).position.y - deck.position.y) < 0.00001
+				and absf((leg.global_transform * leg.get_aabb()).position.y - deck.position.y) < 0.00001,
+				"Actual authored feet and bench legs meet the deck instead of floating at the spindle anchor.")
+			var original_pod: Node3D = view.landing_pod_visual
+			var original_hub: Node3D = view.landing_hub_visual
+			view._sync_landing_pod_visual()
+			verify(view.landing_pod_visual == original_pod and view.landing_hub_visual == original_hub
+				and view.state == before and view.model == null and view.request_sequence == 0,
+				"An unchanged refresh reuses presentation without mutating native facts or making requests.")
+			var restored = SharedSourceRayView.new() if shared else SourceRayView.new()
+			restored.state = before.duplicate(true)
+			root.add_child(restored)
+			restored._sync_landing_pod_visual()
+			verify(restored.landing_pod_visual.position.is_equal_approx(pod_floor)
+				and restored.landing_hub_visual.position.is_equal_approx(hub_floor),
+				"A newly constructed saved-state view uses the same floor datum.")
+			view.arrival_reveal_pod_anchor = view.landing_pod_visual.position
+			view.arrival_reveal_active = true
+			view.arrival_reveal_elapsed = 0.0
+			view._pose_arrival_reveal()
+			verify(view.landing_pod_visual.position.is_equal_approx(pod_floor + Vector3.UP * 8.0)
+				and not view.landing_hub_visual.visible,
+				"The reveal starts above the actual floor and keeps the unopened bench hidden.")
+			view.arrival_reveal_elapsed = view.ARRIVAL_REVEAL_SECONDS
+			view._pose_arrival_reveal()
+			verify(view.landing_pod_visual.position.is_equal_approx(pod_floor)
+				and view.landing_hub_visual.position.is_equal_approx(hub_floor)
+				and view.landing_hub_visual.scale == Vector3.ONE and is_equal_approx(deck.position.y, floor_y),
+				"The reveal endpoint seats the pod and bench on the unfolded foundation.")
+			view.arrival_reveal_active = false
+			view._sync_landing_pod_visual()
+			verify(view.landing_pod_visual.position.is_equal_approx(pod_floor)
+				and view.landing_hub_visual.position.is_equal_approx(hub_floor) and view.state == before,
+				"Ordinary refresh after touchdown applies the datum conversion exactly once.")
+			restored.free()
+			view.free()
+	print("POD_FLOOR_VIEW_%s %d" % ["PASS" if failures == 0 else "FAIL", checks])
+	quit(0 if failures == 0 else 1)
 
 func _hand_tree_views() -> void:
 	var view = SourceRayView.new()
@@ -881,6 +955,13 @@ func _hotbar() -> void:
 			"The live frame-rate readout updates without intercepting construction input.")
 		verify(bar.buttons.size() == 8 and not bar.catalog.visible and not view.tool_buttons.collector.is_visible_in_tree(),
 			"Eight quick slots replace the visible construction text list.")
+		verify(bar.buttons.all(func(button: Button): return button.size == Vector2(54, 54) and button.text.is_empty())
+			and bar.slot_icons.all(func(icon: TextureRect): return icon.size == Vector2(32, 32)),
+			"The hotbar gives every part the same icon area and fixed slot size without face labels.")
+		var bar_surface := bar.get_theme_stylebox("panel") as StyleBoxFlat
+		verify(bar_surface.bg_color.a == 0.0 and bar_surface.border_width_left == 0
+			and (bar.buttons[0].get_theme_stylebox("normal") as StyleBoxFlat).bg_color.a < 0.5,
+			"The hotbar has no framing border and its idle cells leave the worksite visible.")
 		verify(bar.selected_slot == -1 and not view.inspector.visible
 			and not bar.buttons.any(func(button: Button): return button.button_pressed)
 			and view.issued.is_empty() and view.request_sequence == 17 and view.state == before,
@@ -939,17 +1020,17 @@ func _hotbar() -> void:
 		view.state.part_kits.P.collector = 0
 		view._refresh_ui()
 		bar.select_slot(0)
-		verify(bar.buttons[0].disabled and "×0" in bar.buttons[0].text and view.mode == "inspect",
+		verify(bar.buttons[0].disabled and bar.slot_counts[0].text == "0" and view.mode == "inspect",
 			"An exhausted kit disables the slot without borrowing the compatibility stock alias.")
 		bar.destination.select(7)
 		bar.catalog_buttons.collector.pressed.emit()
 		verify(bar.slots[7].is_empty() and view.mode == "inspect", "An unavailable catalog item cannot activate or fill a slot.")
 		view.client = "Q"
 		view._refresh_ui()
-		verify("×2" in bar.buttons[1].text and bar.buttons[0].disabled, "Every slot follows the active actor's own kit.")
+		verify(bar.slot_counts[1].text == "2" and bar.buttons[0].disabled, "Every slot follows the active actor's own kit.")
 		view.state.part_kits.erase("Q")
 		view._refresh_ui()
-		verify(bar.buttons[1].disabled and "×0" in bar.buttons[1].text, "Missing actor kits have no fallback owner.")
+		verify(bar.buttons[1].disabled and bar.slot_counts[1].text == "0", "Missing actor kits have no fallback owner.")
 		view.client = "P"
 		view.state = hotbar_observation()
 		if shared:
@@ -1043,6 +1124,14 @@ func _render_hotbar() -> void:
 		"Opening the fresh catalog does not expose an unused machine inspector.")
 	await RenderingServer.frame_post_draw
 	verify(root.get_texture().get_image().save_png(prefix + "-catalog.png") == OK, "Retain the isolated assignment catalog.")
+	bar.catalog.hide()
+	view.state.entities = {"press": {"kind": "processor", "cell": [2, 1]}}
+	view.selected = "press"
+	view._refresh_ui()
+	await settle_widgets()
+	await RenderingServer.frame_post_draw
+	verify(root.get_texture().get_image().save_png(prefix + "-inspection.png") == OK,
+		"Retain the compact selected-machine inspector in the same isolated view.")
 	var record := FileAccess.open(prefix + "-layout.json", FileAccess.WRITE)
 	verify(record != null, "Retain actual widget bounds beside the isolated images.")
 	if record != null:
@@ -1160,11 +1249,14 @@ func _carried_guidance() -> void:
 func _shared_component_results() -> void:
 	var cases := [
 		{"action": "craft_component", "accepted": true, "reason": "", "text": "Component crafted from carried material."},
+		{"action": "field_craft", "accepted": true, "reason": "", "text": "Wooden component shaped with your multitool."},
 		{"action": "place_component", "accepted": true, "reason": "", "text": "Component placed on the shared grid."},
 		{"action": "reclaim_component", "accepted": true, "reason": "", "text": "Component returned to your carried cargo."},
 		{"action": "craft_component", "accepted": false, "reason": "unavailable_input", "text": "Gather the timber or softmetal shown for this component."},
 		{"action": "craft_component", "accepted": false, "reason": "inventory_full", "text": "Your component bag is full. Place a carried part to make room."},
 		{"action": "craft_component", "accepted": false, "reason": "out_of_reach", "text": "Move beside the pod workshop to craft this component."},
+		{"action": "field_craft", "accepted": false, "reason": "unavailable_input", "text": "Gather the timber shown for this component."},
+		{"action": "field_craft", "accepted": false, "reason": "unavailable_recipe", "text": "Metal components need the pod bench."},
 		{"action": "reclaim_component", "accepted": false, "reason": "inventory_full", "text": "Your component bag is full. Place another carried part before reclaiming."}]
 	for sample: Dictionary in cases:
 		var view := SharedSettlementView.new()
@@ -1206,6 +1298,47 @@ func _shared_component_results() -> void:
 	waiting.free()
 	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
 		"models": 0, "desktop_operations": 0, "scope": "confirmed shared component feedback"}))
+	quit(0 if failures == 0 else 1)
+
+func _field_craft_widget() -> void:
+	var view := OfflineWidgets.new()
+	view.state = fixture()
+	view.state.options.native = true
+	view.state.hand_sources = {}
+	view.state.cargo = {"P": {"raw": 1, "timber": 3, "components": {}},
+		"Q": {"raw": 0, "timber": 0, "components": {}}}
+	view.state.component_recipes = {"wooden_frame": {"timber": 3, "softmetal": 0},
+		"cutting_edge": {"timber": 0, "softmetal": 1}}
+	view.state.component_capacity = 20
+	view.state.fabrication_hub = {"id": "pod-fabrication-hub"}
+	view.state.placed_components = {}
+	root.add_child(view)
+	view.selection_ring = MeshInstance3D.new()
+	view.add_child(view.selection_ring)
+	view._build_interface()
+	var panel = view.arrival_assembly_controls
+	panel.refresh(view.state, view.client, view.selected, true)
+	verify(panel != null and panel.field_craft_button.visible and not panel.field_craft_button.disabled,
+		"An arriving actor carrying timber sees the multitool shape action for a wooden frame.")
+	panel.field_craft_button.pressed.emit()
+	verify(view.issued == [{"action": "field_craft", "component": "wooden_frame"}],
+		"The field control submits the selected wooden recipe without a forged hub target or location.")
+	var edge_index := -1
+	for index in panel.COMPONENTS.size():
+		if panel.COMPONENTS[index][0] == "cutting_edge":
+			edge_index = index
+	verify(edge_index >= 0, "The metal cutting edge remains in the component picker.")
+	if edge_index >= 0:
+		panel.component_choice.select(edge_index)
+		panel._component_selected(edge_index)
+		verify(not panel.field_craft_button.visible and not panel.craft_button.disabled,
+			"Metal disables hand shaping and keeps the pod bench route selectable.")
+		panel.craft_button.pressed.emit()
+		verify(view.issued.back() == {"action": "craft_component", "entity": "pod-fabrication-hub", "component": "cutting_edge"},
+			"The metal button retains the native pod hub identity.")
+	view.free()
+	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
+		"models": 0, "desktop_operations": 0, "scope": "ordinary field craft controls over invented projection"}))
 	quit(0 if failures == 0 else 1)
 
 func _buttons() -> void:

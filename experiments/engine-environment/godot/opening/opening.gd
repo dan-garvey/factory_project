@@ -4599,6 +4599,7 @@ var machine_conveyor_batches: Array[Dictionary] = []
 var machine_rotors: Array[Dictionary] = []
 var machine_batched_rotors: Dictionary = {}
 var wheel_batch_poses: Dictionary = {}
+var wheel_updated_rotors: Dictionary = {}
 var machine_motion_anchors: Array[Node3D] = []
 var machine_batch_finished_meshes: Dictionary = {}
 var machine_batch_rotor_meshes: Dictionary = {}
@@ -4627,6 +4628,7 @@ var goal_progress: ProgressBar
 var power_label: Label
 var inspector: Label
 var inspector_title: Label
+var inspection_actions: HBoxContainer
 var recovery_actions
 var loose_material_controls
 var transmission_controls
@@ -5204,6 +5206,7 @@ func issue(action: Dictionary) -> Dictionary:
 		_construction_feedback(intent, outcome)
 		_message(_harvest_result_text(outcome) if action.action == "harvest_source" else {"place": "Placed. Parts stay with this worksite.",
 			"craft_component": "Component crafted from carried material.",
+			"field_craft": "Wooden component shaped with your multitool.",
 			"craft_part": "Transmission kit made from carried timber and softmetal.",
 			"place_component": "Component placed on the shared grid.",
 			"reclaim_component": "Component returned to your carried cargo.",
@@ -5248,6 +5251,10 @@ func issue(action: Dictionary) -> Dictionary:
 			refusal = {"unavailable_input": "Gather the timber or softmetal shown for this component.",
 				"inventory_full": "Your component bag is full. Place a carried part to make room.",
 				"out_of_reach": "Move beside the pod workshop to craft this component."}.get(outcome.get("reason", ""), refusal)
+		elif action.action == "field_craft":
+			refusal = {"unavailable_input": "Gather the timber shown for this component.",
+				"inventory_full": "Your component bag is full. Place a carried part to make room.",
+				"unavailable_recipe": "Metal components need the pod bench."}.get(outcome.get("reason", ""), refusal)
 		elif action.action == "craft_part":
 			refusal = {"unavailable_input": "Gather the timber or softmetal shown for this transmission kit.",
 				"out_of_reach": "Move beside the pod workshop to make a transmission kit.",
@@ -5359,11 +5366,23 @@ func _animate_wheel(delta: float) -> void:
 			return
 		transmission_presenter.advance_visual_motion(delta)
 		wheel_batch_poses.clear()
+		wheel_updated_rotors.clear()
 		var cull_far_joinery := camera != null and camera.is_inside_tree() and not machine_batched_rotors.is_empty()
 		var listener_position := camera.global_position if cull_far_joinery else Vector3.ZERO
+		var frustum: Array = camera.get_frustum() if camera != null and camera.is_inside_tree() else []
 		for wheel in machine_rotors:
+			# Keep nearby offscreen wheels live for their shadows. The confirmed
+			# cosmetic phase still advances when its hidden pose is held.
+			var outside_view := false
+			for plane: Plane in frustum:
+				if plane.distance_to(wheel.center) > WHEEL_MOTION_VISIBILITY_MARGIN:
+					outside_view = true
+					break
+			if outside_view:
+				continue
 			var basis: Basis = wheel.base * Basis(Vector3.BACK, transmission_presenter.visual_angle(wheel.id))
 			var rotor_id: int = wheel.rotor.get_instance_id()
+			wheel_updated_rotors[rotor_id] = true
 			# The full core is already in a MultiMesh. Beyond the last paddle
 			# detail range, advance that instance without dirtying the many
 			# hidden and distance-culled source nodes under its rotor.
@@ -5373,7 +5392,7 @@ func _animate_wheel(delta: float) -> void:
 			else:
 				wheel.rotor.basis = basis
 		_animate_machine_bodies(delta)
-		_update_machine_dynamic_batches()
+		_update_machine_dynamic_batches(true)
 		return
 	# Historical scripted presentation remains separate. Native cosmetic
 	# angles above are neither a simulation clock nor saved/contact phase.
@@ -6520,10 +6539,13 @@ func _sync_landing_pod_visual() -> void:
 	var position: Array = hub.position
 	var pod_center: Array = pod.center
 	var hub_center: Array = hub.center
-	var hub_world := Vector3(float(position[0]), float(position[1]), float(position[2]))
-	landing_hub_visual.position = hub_world
+	# Host positions use the shared spindle anchor; this art is authored from
+	# the floor. Apply the common offset once, including on restored views.
+	var hub_floor := Vector3(float(position[0]), float(position[1]), float(position[2])) \
+		- Vector3.UP * Geometry.ANCHOR_HEIGHT
+	landing_hub_visual.position = hub_floor
 	if not arrival_reveal_active:
-		landing_pod_visual.position = hub_world - Vector3(
+		landing_pod_visual.position = hub_floor - Vector3(
 			float(hub_center[0] - pod_center[0]) * PITCH, 0,
 			float(hub_center[2] - pod_center[2]) * PITCH)
 	landing_crank_visual.visible = state.get("hand_crank", {}).get("holder", "") == "pod"
@@ -7310,6 +7332,7 @@ const MACHINE_BATCH_THRESHOLD := 12
 # Paddle joinery ends by 32 m with a 2 m fade margin; the extra room
 # covers the largest authored rim and a camera move between render cuts.
 const WHEEL_DETAIL_UPDATE_RADIUS := 48.0
+const WHEEL_MOTION_VISIBILITY_MARGIN := 16.0
 
 func _machine_batch_surface_mesh(part: MeshInstance3D) -> Mesh:
 	var source: Mesh = part.mesh
@@ -7580,7 +7603,7 @@ func _emit_machine_mesh_batches(groups: Dictionary, batches: Node3D, dynamic: bo
 					machine_batched_rotors[part.node.get_instance_id()] = true
 		batch_index += 1
 
-func _update_machine_dynamic_batches() -> void:
+func _update_machine_dynamic_batches(visible_rotors_only := false) -> void:
 	if machine_dynamic_batches.is_empty() and machine_conveyor_batches.is_empty():
 		return
 	var to_local := machine_root.global_transform.affine_inverse()
@@ -7593,6 +7616,9 @@ func _update_machine_dynamic_batches() -> void:
 			var motion_pose: Transform3D
 			if part.has("parent_pose"):
 				var node_id: int = part.node.get_instance_id()
+				# An offscreen rotor keeps its last instance pose until it returns.
+				if visible_rotors_only and not wheel_updated_rotors.has(node_id):
+					continue
 				motion_pose = part.parent_pose * (wheel_batch_poses[node_id] \
 					if wheel_batch_poses.has(node_id) else part.node.transform)
 			else:
@@ -7646,6 +7672,7 @@ func _batch_machine_visuals() -> void:
 	machine_conveyor_batches.clear()
 	machine_batched_rotors.clear()
 	wheel_batch_poses.clear()
+	wheel_updated_rotors.clear()
 	if not _native_transmission() or machine_root.get_child_count() < MACHINE_BATCH_THRESHOLD:
 		return
 	var moving := {}
@@ -7941,6 +7968,10 @@ func _refresh_ui() -> void:
 			str(component.get("center", []))]
 	else:
 		inspector.text = "Point at a machine and press E to open it."
+	inspector.tooltip_text = inspector.text
+	if not show_details:
+		var inspection_lines := inspector.text.split("\n")
+		inspector.text = "\n".join(inspection_lines.slice(0, mini(3, inspection_lines.size())))
 	_refresh_guided_tools()
 	_refresh_manager_log()
 	if arrival_assembly_controls != null:
@@ -8077,13 +8108,13 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		goal_label.text = "Make 4 plates  ·  %d / 4\n%s" % [inventory, step.text] if snapshot_ready else "Connect to the worksite."
 	confirm_button.visible = not arrival and snapshot_ready and (inventory >= 4 or goal_confirmed)
 	lesson_button.visible = not arrival
-	details_button.text = "Less detail  [Ctrl+D]" if show_details else "Details  [Ctrl+D]"
+	details_button.text = "Less  ^D" if show_details else "Details  ^D"
 	details_button.disabled = explanation_open
 	for control in [stock_label, power_label, save_button, load_button]:
 		control.visible = show_details
 	actor_label.visible = show_details or not state.get("actors", {}).get(client, {}).get("ready", false)
-	controls_label.text = "WASD move · E interact · B catalog · F dismantle · Ctrl+D details" if arrival \
-		else "B catalog  ·  1–8 build  ·  E open  ·  F dismantle  ·  H guide  ·  Ctrl+D details"
+	controls_label.text = "WASD move · E interact · B build · F remove · Ctrl+D details" if arrival \
+		else "B catalog · 1–8 build · E open · F remove · H guide · Ctrl+D details"
 	_refresh_engineering(snapshot_ready)
 	var target_selected: bool = _contains_target(state, selected)
 	inspector_title.visible = target_selected or show_details or not snapshot_ready or not _can_choose_tool()
@@ -8091,6 +8122,7 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		or not snapshot_ready or not _can_choose_tool()
 	retrieve_button.visible = state.get("entities", {}).get(selected, {}).get("kind") == "processor"
 	remove_button.visible = target_selected
+	inspection_actions.visible = target_selected
 	for divider in inspector.get_parent().get_children():
 		if divider is HSeparator:
 			divider.visible = show_details
@@ -8625,8 +8657,9 @@ func _fit_guided_footer() -> void:
 			var height: float = panel.get_combined_minimum_size().y
 			if not is_equal_approx(panel.size.y, height):
 				panel.size.y = height
-	# Only the ordinary fresh introduction duplicates the visible goal.
-	var redundant_intro: bool = _native_transmission() and footer_snapshot_ready and _placement_ready() and not status_refused \
+	# Keep repeated guidance on the objective card instead of a second message panel.
+	var repeated_goal: bool = not status_label.text.is_empty() and goal_label.text.contains(status_label.text)
+	var redundant_intro: bool = repeated_goal or _native_transmission() and footer_snapshot_ready and _placement_ready() and not status_refused \
 		and not show_details and not _catalog_open() and mode in ["inspect", "collector"] \
 		and state.get("entities", {}).is_empty() and state.get("transmission_parts", {}).is_empty() \
 		and _guided_step({}).tool == "collector" \
@@ -8700,6 +8733,15 @@ func _panel(parent: Node, at: Vector2, dimensions: Vector2) -> VBoxContainer:
 	panel.add_child(column)
 	return column
 
+func _hud_surface(column: VBoxContainer, opacity: float, padding: int = 10) -> void:
+	var panel := column.get_parent() as PanelContainer
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.04, 0.07, 0.085, opacity)
+	style.set_corner_radius_all(6)
+	style.set_content_margin_all(padding)
+	panel.add_theme_stylebox_override("panel", style)
+	column.add_theme_constant_override("separation", 5)
+
 func _build_interface() -> void:
 	# A revisable opening adapter limit, not a fixed window or a game-world rule.
 	get_window().min_size = Vector2i(1280, 800)
@@ -8752,18 +8794,22 @@ func _build_interface() -> void:
 	fps_style.outline_size = 4
 	fps_style.outline_color = Color("16242a")
 	fps_label.label_settings = fps_style
-	var build := _panel(root, Vector2(18, 18), Vector2(275, 620 if legacy_fixture else 0))
+	var build := _panel(root, Vector2(18, 18), Vector2(260, 620 if legacy_fixture else 0))
+	if not legacy_fixture:
+		_hud_surface(build, 0.58)
 	build_column = build
 	if not legacy_fixture:
 		build.add_theme_constant_override("separation", 6)
 	objective_heading = _label(build, "FIRST SHIFT  /  01", 13, Color("f4bf75"))
 	var tagline := _label(build, "A small line. Real materials.", 14, Color("9eb4b2"))
 	tagline.visible = legacy_fixture
-	build.add_child(HSeparator.new())
-	goal_label = _label(build, "", 19, Color("f4f5eb"))
+	if legacy_fixture:
+		build.add_child(HSeparator.new())
+	goal_label = _label(build, "", 19 if legacy_fixture else 16, Color("f4f5eb"))
 	if not legacy_fixture:
 		goal_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		manager_log_button = _button(build, "Meridian work log  [J]", _toggle_manager_log)
+		manager_log_button = _button(build, "Work log  J", _toggle_manager_log)
+		manager_log_button.custom_minimum_size.y = 30
 	goal_progress = ProgressBar.new()
 	goal_progress.max_value = 4
 	goal_progress.show_percentage = false
@@ -8786,6 +8832,8 @@ func _build_interface() -> void:
 	parts_label = building_hotbar.parts_label
 	catalog_button = building_hotbar.catalog_button
 	placement_options_column = _panel(root, Vector2.ZERO, Vector2(302, 0))
+	if not legacy_fixture:
+		_hud_surface(placement_options_column, 0.66)
 	placement_options_panel = placement_options_column.get_parent() as PanelContainer
 	placement_options_panel.name = "PlacementOptions"
 	placement_options_panel.visible = false
@@ -8838,19 +8886,34 @@ func _build_interface() -> void:
 	foundation_area_toggle.visible = false
 	var selection_tools := HBoxContainer.new()
 	build.add_child(selection_tools)
-	tool_buttons.flow = _button(selection_tools, "Link [F]" if legacy_fixture else "Link [C]", _select_tool.bind("flow"))
+	tool_buttons.flow = _button(selection_tools, "Link [F]" if legacy_fixture else "Link  C", _select_tool.bind("flow"))
 	tool_buttons.flow.toggle_mode = true
+	if not legacy_fixture:
+		tool_buttons.flow.custom_minimum_size.y = 30
 	var view_options := HBoxContainer.new()
 	build.add_child(view_options)
 	view_options.visible = not legacy_fixture
-	details_button = _button(view_options, "Details  [Ctrl+D]", _toggle_details)
+	details_button = _button(view_options, "Details  ^D", _toggle_details)
+	details_button.custom_minimum_size.y = 30
 	details_button.tooltip_text = "Show worksite counters and save options."
-	lesson_button = _button(build, "How this line works  [H]", _toggle_explanation)
-	var right := _panel(root, Vector2(932, 18), Vector2(330, 490 if legacy_fixture else 0))
+	lesson_button = _button(build, "Guide  H", _toggle_explanation)
+	if not legacy_fixture:
+		lesson_button.custom_minimum_size.y = 30
+		manager_log_button.text = "Log  J"
+		var quick_actions := HBoxContainer.new()
+		quick_actions.add_theme_constant_override("separation", 4)
+		build.add_child(quick_actions)
+		for action in [manager_log_button, details_button, lesson_button]:
+			action.get_parent().remove_child(action)
+			quick_actions.add_child(action)
+		view_options.free()
+	var right := _panel(root, Vector2(932, 18), Vector2(255 if not legacy_fixture else 330, 490 if legacy_fixture else 0))
+	if not legacy_fixture:
+		_hud_surface(right, 0.58)
 	var right_panel: Control = right.get_parent()
 	# Set the far anchor first so the near anchor is not clamped.
 	right_panel.set_anchor_and_offset(SIDE_RIGHT, 1.0, -18)
-	right_panel.set_anchor_and_offset(SIDE_LEFT, 1.0, -348)
+	right_panel.set_anchor_and_offset(SIDE_LEFT, 1.0, -273 if not legacy_fixture else -348)
 	right_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	if legacy_fixture:
 		_label(right, "WORKSITE", 13, Color("b0c4c0"))
@@ -8863,12 +8926,18 @@ func _build_interface() -> void:
 	actor_label.visible = not legacy_fixture
 	power_label = _label(right, "", 14, Color("dfbc76"))
 	stock_label = _label(right, "", 16)
-	inspector = _label(right, "", 15)
-	inspector.custom_minimum_size.x = 238
+	inspector = _label(right, "", 13 if not legacy_fixture else 15)
+	inspector.custom_minimum_size.x = 195 if not legacy_fixture else 238
 	inspector.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	retrieve_button = _button(right, "Collect plate  [Ctrl+R]", _retrieve)
+	inspection_actions = HBoxContainer.new()
+	inspection_actions.add_theme_constant_override("separation", 5)
+	right.add_child(inspection_actions)
+	retrieve_button = _button(inspection_actions, "Collect  Ctrl+R", _retrieve)
 	_accent_button(retrieve_button)
-	remove_button = _button(right, "Dismantle selected  [Delete]", _remove_selected)
+	remove_button = _button(inspection_actions, "Remove  Del", _remove_selected)
+	for action in [retrieve_button, remove_button]:
+		action.custom_minimum_size.y = 30
+		action.add_theme_font_size_override("font_size", 12)
 	# Older scripted launch payloads have a fixed roster without this native UI.
 	var recovery_path := "res://opening/recovery_actions.gd"
 	if ResourceLoader.exists(recovery_path, "Script"):
@@ -8891,15 +8960,17 @@ func _build_interface() -> void:
 	save_button = _button(right, "Save worksite  [F5]", _save_worksite)
 	load_button = _button(right, "Load worksite  [F9]", _load_worksite)
 	var bottom := _panel(root, Vector2(310, 694), Vector2(952, 88))
+	if not legacy_fixture:
+		_hud_surface(bottom, 0.43, 7)
 	var bottom_panel: Control = bottom.get_parent()
 	status_footer = bottom_panel
 	bottom_panel.set_anchor_and_offset(SIDE_RIGHT, 1.0, -18)
 	bottom_panel.set_anchor_and_offset(SIDE_BOTTOM, 1.0, -128)
 	bottom_panel.set_anchor_and_offset(SIDE_TOP, 1.0, -216)
 	bottom_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	status_label = _label(bottom, "", 16)
+	status_label = _label(bottom, "", 14 if not legacy_fixture else 16)
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	controls_label = _label(bottom, "B catalog  ·  1–8 build  ·  E open  ·  F dismantle  ·  H guide  ·  Ctrl+D details", 12, Color("bfd1cc"))
+	controls_label = _label(bottom, "B catalog · 1–8 build · E open · F dismantle · H guide · Ctrl+D details", 11, Color("bfd1cc"))
 	bottom_panel.minimum_size_changed.connect(_queue_footer_fit)
 	bottom_panel.resized.connect(_queue_footer_fit)
 	for column: Control in [build, right]:
