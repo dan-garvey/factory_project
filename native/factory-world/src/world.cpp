@@ -2166,6 +2166,7 @@ std::unique_ptr<World> World::restore(const std::string& expected_context,
 
 Delivery World::command(const Binding& binding, const Object& intent, const ObserveActor& observe) noexcept {
     tick_drive_.reset();
+    tick_layout_.reset();
     const auto* actor = field<std::string>(intent, "actor");
     const auto* client = field<std::string>(intent, "client");
     if (!profile_.actors.contains(binding.actor) || !identity(binding.client) ||
@@ -2186,6 +2187,7 @@ Delivery World::command(const Binding& binding, const Object& intent, const Obse
 
 Delivery World::refuse(const Binding& binding, const Object& intent, std::string reason) noexcept {
     tick_drive_.reset();
+    tick_layout_.reset();
     const auto* actor = field<std::string>(intent, "actor");
     const auto* client = field<std::string>(intent, "client");
     if (!profile_.actors.contains(binding.actor) || !identity(binding.client) ||
@@ -3219,8 +3221,9 @@ Advance World::tick() noexcept {
         auto candidate = snapshot.state;
         // Material stepping changes custody, not the placed power graph. Reuse
         // its drive across ticks until a command or refusal invalidates it.
-        const auto placed = assembly_parts(candidate);
-        const assembly::Layout layout(placed);
+        if (!tick_layout_) tick_layout_ = std::make_unique<TickLayout>(assembly_parts(candidate));
+        const auto& placed = tick_layout_->placed;
+        const auto& layout = tick_layout_->layout;
         if (!tick_drive_) tick_drive_.emplace(placed.empty() ? drive_power(candidate.topology) :
             drive_power_with_layout(profile_, candidate, placed, layout));
         const auto& drive = *tick_drive_;
