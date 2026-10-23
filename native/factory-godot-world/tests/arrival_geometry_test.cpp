@@ -37,6 +37,14 @@ void floor_and_custody_geometry() {
     const auto top = original.at("pod-fabrication-hub/worktop").bounds;
     check(std::abs(top.center[0] - 3.3) < 1e-12 && std::abs(top.center[1] - 0.74) < 1e-12,
           "The workshop top follows its separate east-deck floor anchor.");
+    const auto west_jaw = original.at("pod-fabrication-hub/clamp-west").bounds;
+    const auto east_jaw = original.at("pod-fabrication-hub/clamp-east").bounds;
+    const auto cutting_rail = original.at("pod-fabrication-hub/tool-rail").bounds;
+    const double work_gap = (west_jaw.center[0] + west_jaw.half[0] +
+                             east_jaw.center[0] - east_jaw.half[0]) / 2;
+    check(cutting_rail.center[0] - cutting_rail.half[0] <= work_gap - 0.06 + 1e-12 &&
+              cutting_rail.center[0] + cutting_rail.half[0] >= work_gap + 0.06 - 1e-12,
+          "The occupied cutting rail covers the head above the vise work gap.");
     state.landing_pod->center[1] = -4;
     state.fabrication_hub->center[1] = -4;
     const auto lowered = godot_world::arrival_geometry::supplied(state, step);

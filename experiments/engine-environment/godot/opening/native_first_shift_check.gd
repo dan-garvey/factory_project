@@ -3,6 +3,7 @@ extends SceneTree
 ## Native World remains the only material/clock authority. This observer never
 ## sets a body pose, edits a projection, creates stock or calls advance().
 const NativeModel = preload("res://opening/native_model.gd")
+const OpeningScene = preload("res://opening/opening.gd")
 
 var opening
 var mode := ""
@@ -62,6 +63,36 @@ func _finish(status: String, reason: String = "") -> void:
 	# Binary evidence preserves checkpoint scalar types and native observations.
 	output.store_buffer(var_to_bytes(facts))
 	output.close()
+	var audio_refs: Array[WeakRef] = []
+	for cue in OpeningScene.ConstructionAudio.streams:
+		audio_refs.append(weakref(OpeningScene.ConstructionAudio.streams[cue]))
+	if opening != null:
+		if opening.construction_audio != null:
+			var playback = opening.construction_audio.get_stream_playback()
+			if playback != null:
+				audio_refs.append(weakref(playback))
+			playback = null
+			opening.construction_audio.stop()
+			opening.construction_audio.stream = null
+		opening.free()
+		opening = null
+	OpeningScene.ConstructionAudio.streams.clear()
+	OpeningScene.ConstructionAudio.source_status = "uninitialized"
+	# The dummy audio driver may release the three stopped voices after scene removal.
+	# Observe the retained resources before ending this consumer.
+	var audio_deadline := Time.get_ticks_msec() + 2000
+	while not audio_refs.is_empty():
+		var remaining := 0
+		for reference in audio_refs:
+			if reference.get_ref() != null:
+				remaining += 1
+		if remaining == 0:
+			break
+		if Time.get_ticks_msec() >= audio_deadline:
+			push_error("First-shift teardown retains %d construction audio objects" % remaining)
+			quit(1)
+			return
+		await process_frame
 	print(JSON.stringify({"status": status, "mode": mode, "checks": checks, "reason": reason}))
 	quit(0 if status == "pass" else 1)
 

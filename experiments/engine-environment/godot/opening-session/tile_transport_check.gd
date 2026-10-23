@@ -9,6 +9,8 @@ extends SceneTree
 ## Require all six processes to pass.
 ## The default native arrival route harvests two finite timber units, crafts
 ## two shaft kits at the pod, and builds, restores and reclaims those parts.
+## Add --chapter-product to build a separate collector and press from finite
+## chapter materials and carry their first plate through both client views.
 ## All actor positions in this fixture are synthetic trusted observations.
 ## Add --span-belt for a constructed
 ## mechanical span and its restored removal over the Session transport. Add
@@ -44,6 +46,7 @@ var cog_train := false
 var overload := false
 var fractional_press := false
 var belt_loading := false
+var chapter_product := false
 var serial := 0
 var epoch := 0
 
@@ -67,6 +70,7 @@ func _initialize() -> void:
 		elif arg == "--overload": overload = true
 		elif arg == "--fractional-press": fractional_press = true
 		elif arg == "--belt-loading": belt_loading = true
+		elif arg == "--chapter-product": chapter_product = true
 	call_deferred("run")
 
 func verify(ok: bool, message: String) -> void:
@@ -76,7 +80,8 @@ func verify(ok: bool, message: String) -> void:
 		push_error(message)
 
 func finish_role() -> void:
-	print("TILE_SESSION_%s %s %d" % ["FAIL" if failed else "PASS", role, checks])
+	var label := "CHAPTER_PRODUCT_SESSION" if chapter_product else "TILE_SESSION"
+	print("%s_%s %s %d" % [label, "FAIL" if failed else "PASS", role, checks])
 	quit(1 if failed else 0)
 
 func mark(name: String) -> void:
@@ -751,7 +756,443 @@ func run_belt_loading() -> void:
 	print("BELT_LOADING_SESSION_%s %s %d" % ["FAIL" if failed else "PASS", role, checks])
 	quit(1 if failed else 0)
 
+func chapter_ready(view: Dictionary, key: String) -> Dictionary:
+	for assembly in view.get(key, []):
+		if assembly is Dictionary and assembly.get("status") == "ready":
+			return assembly
+	return {}
+
+func chapter_drop(view: Dictionary, center: Array, raw: int, products: int) -> bool:
+	for drop in view.get("dropped_material", []):
+		if drop is Dictionary and drop.get("center") == center \
+				and drop.get("raw") == raw and drop.get("products") == products:
+			return true
+	return false
+
+func chapter_work(view: Dictionary) -> Dictionary:
+	for drop in view.get("dropped_material", []):
+		if drop is Dictionary and drop.get("work_lots", []) is Array \
+				and drop.work_lots.size() == 1 and drop.get("products", 0) == 0:
+			return drop.work_lots[0]
+	return {}
+
+func chapter_pending_work(view: Dictionary) -> bool:
+	return not chapter_work(view).is_empty()
+
+func chapter_component_ids(view: Dictionary) -> Array:
+	var ids: Array = view.get("placed_components", {}).keys()
+	ids.sort()
+	return ids
+
+func chapter_saved_work(witness: Variant) -> Dictionary:
+	if not witness is Dictionary or not witness.get("work") is Dictionary:
+		return {}
+	var restored_types := {}
+	for key in ["id", "recipe_input", "cycle_ticks", "remaining", "completed_subticks",
+		"work_remainder", "work_remainder_denominator"]:
+		var value: Variant = witness.work.get(key)
+		if not (value is int or value is float) or not is_finite(float(value)) \
+				or float(value) != float(int(value)):
+			return {}
+		restored_types[key] = int(value)
+	return restored_types
+
+func chapter_marker(name: String) -> bool:
+	return FileAccess.file_exists(directory.path_join(name))
+
+func chapter_pose(position: Array, native_epoch: int, label: String) -> void:
+	verify(session.world.publish_actor("P", position, native_epoch).get("accepted", false), label)
+
+func chapter_request(action: Dictionary, label: String) -> Dictionary:
+	var result: Dictionary = await issue(action)
+	verify(result.get("accepted", false), label + ": " + str(result.get("reason", "")))
+	return result
+
+func chapter_server() -> void:
+	verify(session.serve_loopback(port, true, true, ["P", "Q"], true) == OK,
+		"The one native arrival Session authority starts")
+	if failed: quit(1); return
+	var save_path := directory.path_join("worksite.factory")
+	if role == "server-resume":
+		var input_hash := FileAccess.get_sha256(save_path)
+		var witness: Variant = JSON.parse_string(FileAccess.get_file_as_string(directory.path_join("chapter-witness.json")))
+		verify(not input_hash.is_empty() and Store.read_into(session.world, save_path).get("accepted", false),
+			"A fresh native authority loads the original finite chapter Store")
+		if failed: quit(1); return
+		session.context = session.world.context
+		var retained: Dictionary = session.world.projection()
+		var exact_restore: bool = (witness is Dictionary
+			and chapter_component_ids(retained) == witness.get("component_ids")
+			and chapter_work(retained) == chapter_saved_work(witness)
+			and retained.cargo.P.products == 1 and chapter_pending_work(retained))
+		if not exact_restore:
+			print(JSON.stringify({"saved": witness, "restored_ids": chapter_component_ids(retained),
+				"restored_work": chapter_work(retained), "restored_products": retained.cargo.P.products}))
+		verify(exact_restore,
+			"Fresh Store preserves all twelve exact part IDs and unfinished WorkLot identity and phase")
+		chapter_pose([3.3, 1.0, 4.95], 9, "Restored P is physically observed beside the press aisle")
+		verify(session.world.publish_actor("Q", [0.7, 1.0, 3.3], 2).get("accepted", false),
+			"Restored Q is physically observed beside the collector")
+		if failed: quit(1); return
+		mark("resume-server-ready")
+		if not await until(func(): return chapter_marker("resume-P-ready") and chapter_marker("resume-Q-ready"),
+			"Both clients join the restored chapter authority"): quit(1); return
+		mark("chapter-resume-turn-ready")
+		if not await until(func(): return FileAccess.file_exists(directory.path_join("resume-clients-done")),
+			"Both restored clients observe the retained work finish"): quit(1); return
+		var continued: Dictionary = session.world.projection()
+		verify(continued.cargo.P.products == 2 and continued.hand_sources["opening-softmetal"].remaining == 9
+			and chapter_component_ids(continued) == witness.get("component_ids") and not chapter_pending_work(continued)
+			and not chapter_ready(continued, "collector_assemblies").is_empty()
+			and not chapter_ready(continued, "press_assemblies").is_empty(),
+			"Fresh-host continuation forms the retained second plate without changing either machine")
+		verify(FileAccess.get_sha256(save_path) == input_hash,
+			"Continued work leaves the original Store bytes unchanged")
+		verify(Store.write(session.world, directory.path_join("continued.factory")).get("accepted", false),
+			"The continued chapter state passes a second native Store save")
+		if failed: quit(1); return
+		mark("resume-server-done")
+		finish_role()
+		return
+	chapter_pose([3.3, 1.0, 4.95], 1, "P begins beside finite south timber")
+	verify(session.world.publish_actor("Q", [20.0, 1.0, 20.0], 1).get("accepted", false),
+		"Q begins without construction reach or free stock")
+	if failed: quit(1); return
+	mark("server-ready")
+	if not await until(func(): return FileAccess.file_exists(directory.path_join("chapter-south-done")),
+		"P harvests the first finite tree"): quit(1); return
+	verify(session.world.projection().cargo.P.timber == 8,
+		"Eight cut timber units belong to P before the second tree")
+	chapter_pose([3.3, 1.0, 9.9], 2, "P reaches the second finite tree")
+	if failed: quit(1); return
+	mark("chapter-north-ready")
+	if not await until(func(): return FileAccess.file_exists(directory.path_join("chapter-north-done")),
+		"P harvests seven more finite timber units"): quit(1); return
+	verify(session.world.projection().cargo.P.timber == 15,
+		"The two real trees supply both component bills")
+	chapter_pose([0.0, 1.0, 1.65], 3, "P reaches the finite ore deposit")
+	if failed: quit(1); return
+	mark("chapter-ore-ready")
+	if not await until(func(): return FileAccess.file_exists(directory.path_join("chapter-ore-done")),
+		"P harvests five finite component blanks"): quit(1); return
+	var mined: Dictionary = session.world.projection()
+	verify(mined.cargo.P.raw == 5 and mined.hand_sources["opening-softmetal"].remaining == 11,
+		"Five hand-cut ore blanks retain their exact source debit")
+	chapter_pose([3.3, 1.0, 4.8], 4, "P returns to the one pod workshop")
+	if failed: quit(1); return
+	mark("chapter-hub-ready")
+	if not await until(func(): return FileAccess.file_exists(directory.path_join("chapter-craft-done")),
+		"P makes twelve separate finite components and takes the pod crank"): quit(1); return
+	var crafted: Dictionary = session.world.projection()
+	verify(crafted.cargo.P.timber == 0 and crafted.cargo.P.raw == 0
+		and crafted.cargo.P.components.values().reduce(func(total, amount): return total + amount, 0) == 12
+		and crafted.hand_crank.holder == "P", "Both machine bills consume exactly fifteen timber and five ore")
+	chapter_pose([0.7, 1.0, 3.3], 5, "P reaches the deposit-facing collector workcell")
+	if failed: quit(1); return
+	mark("chapter-collector-ready")
+	if not await until(func(): return FileAccess.file_exists(directory.path_join("chapter-collector-observed")),
+		"Q observes P carrying the collector-cut blank"): quit(1); return
+	var collected: Dictionary = session.world.projection()
+	verify(collected.cargo.P.raw == 1 and collected.hand_sources["opening-softmetal"].remaining == 10
+		and collected.placed_components.size() == 5
+		and not chapter_ready(collected, "collector_assemblies").is_empty(),
+		"The collector transfers one new blank without duplicating its finite source")
+	chapter_pose([3.3, 1.0, 4.95], 6, "P reaches the separate press aisle")
+	if failed: quit(1); return
+	mark("chapter-press-ready")
+	if not await until(func(): return chapter_marker("chapter-first-observed"),
+		"Q sees the first plate before new collector work"): quit(1); return
+	var first_plate: Dictionary = session.world.projection()
+	verify(first_plate.cargo.P.products == 1 and first_plate.hand_sources["opening-softmetal"].remaining == 10,
+		"The first plate consumes one collector-cut blank and leaves finite ore")
+	chapter_pose([0.7, 1.0, 3.3], 7, "P returns to the collector for a second cut")
+	if failed: quit(1); return
+	mark("chapter-second-cut-ready")
+	if not await until(func(): return chapter_marker("chapter-second-cut-done"),
+		"P retrieves a second real collector blank"): quit(1); return
+	var second_blank: Dictionary = session.world.projection()
+	verify(second_blank.cargo.P.raw == 1 and second_blank.cargo.P.products == 1
+		and second_blank.hand_sources["opening-softmetal"].remaining == 9,
+		"The second collector cut spends one more ore while retaining the first plate")
+	chapter_pose([3.3, 1.0, 4.95], 8, "P returns to the separate press aisle with the second blank")
+	if failed: quit(1); return
+	mark("chapter-second-press-ready")
+	if not await until(func(): return FileAccess.file_exists(directory.path_join("clients-done")),
+		"P forms a plate, leaves second work pending, and Q observes both states"): quit(1); return
+	var formed: Dictionary = session.world.projection()
+	verify(formed.cargo.P.products == 1 and formed.cargo.P.raw == 0
+		and formed.hand_sources["opening-softmetal"].remaining == 9
+		and formed.placed_components.size() == 12 and chapter_pending_work(formed)
+		and not chapter_ready(formed, "collector_assemblies").is_empty()
+		and not chapter_ready(formed, "press_assemblies").is_empty(),
+		"The first product and retained second work follow both separate component-built machines")
+	var witness_file := FileAccess.open(directory.path_join("chapter-witness.json"), FileAccess.WRITE)
+	verify(witness_file != null, "The exact components and unfinished work can be retained for fresh-host comparison")
+	if witness_file != null:
+		witness_file.store_string(JSON.stringify({"component_ids": chapter_component_ids(formed),
+			"work": chapter_work(formed)}))
+		witness_file.close()
+	verify(Store.write(session.world, save_path).get("accepted", false),
+		"The one native Store saves the first plate, pending work and both assemblies")
+	if failed: quit(1); return
+	mark("server-done")
+	finish_role()
+
+func chapter_client() -> void:
+	var resumed := role.begins_with("resume-")
+	var actor := role.trim_prefix("resume-") if resumed else role
+	verify(session.join_loopback(port, actor) == OK, "Client connects to native chapter authority")
+	if not await until(func(): return session.is_ready(), "Client receives its authenticated native welcome"):
+		quit(1); return
+	mark(role + "-ready")
+	if resumed:
+		var restored: Dictionary = session.projection()
+		var collector: Dictionary = chapter_ready(restored, "collector_assemblies")
+		var witness: Variant = JSON.parse_string(FileAccess.get_file_as_string(directory.path_join("chapter-witness.json")))
+		verify(witness is Dictionary and chapter_component_ids(restored) == witness.get("component_ids")
+			and chapter_work(restored) == chapter_saved_work(witness)
+			and restored.cargo.P.products == 1 and restored.hand_sources["opening-softmetal"].remaining == 9
+			and chapter_pending_work(restored) and not collector.is_empty()
+			and not chapter_ready(restored, "press_assemblies").is_empty(),
+			"Both new clients receive the same saved product, pending work and exact component IDs")
+		if failed: quit(1); return
+		if not await until(func(): return chapter_marker("chapter-resume-turn-ready"),
+			"Restored P and Q reach their saved workstations"): quit(1); return
+		if actor == "Q":
+			var refused: Dictionary = await issue({"action": "turn_hand_crank", "entity": collector.parts.shaft})
+			verify(not refused.get("accepted", true) and refused.get("reason") == "not_crank_holder",
+				"Q cannot turn P's conserved pod crank after restart")
+			if failed: quit(1); return
+			mark("chapter-resume-Q-refused")
+			if not await until(func(): return chapter_marker("resume-P-done") and session.projection().cargo.P.products == 2,
+				"Q receives P's second plate after the Q refusal"): quit(1); return
+			var observed: Dictionary = session.projection()
+			verify(observed.hand_sources["opening-softmetal"].remaining == 9
+				and observed.placed_components.size() == 12 and not chapter_pending_work(observed),
+				"Q sees both plates and the exact finite source after unfinished work resumes")
+			if failed: quit(1); return
+			mark("resume-clients-done")
+			if not await until(func(): return FileAccess.file_exists(directory.path_join("resume-server-done")),
+				"The restored authority saves its continued work"): quit(1); return
+		else:
+			if not await until(func(): return FileAccess.file_exists(directory.path_join("chapter-resume-Q-refused")),
+				"Q's unauthorized crank attempt settles before P acts"): quit(1); return
+			var press: Dictionary = chapter_ready(session.projection(), "press_assemblies")
+			verify(not press.is_empty() and press.get("open_feeds", []).size() > 0,
+				"P sees the same ready press around retained work")
+			if failed: quit(1); return
+			var route: Dictionary = press.open_feeds[0]
+			for turn in range(2):
+				await chapter_request({"action": "turn_press_crank", "entity": press.frame,
+					"drive": press.parts.shaft, "exit": route.exit},
+					"P resumes unfinished second-plate turn %d" % turn)
+				if failed: quit(1); return
+			verify(chapter_drop(session.projection(), route.exit, 0, 1),
+				"The restored WorkLot becomes one second plate at the same press exit")
+			if failed: quit(1); return
+			await chapter_request({"action": "pickup_material", "center": route.exit,
+				"expected": {"raw": 0, "products": 1, "work_lots": []}},
+				"P collects the formed second plate without losing the first")
+			if failed: quit(1); return
+			mark("resume-P-done")
+		finish_role()
+		return
+	if actor == "Q":
+		if not await until(func(): return chapter_marker("chapter-cut-done") and session.projection().hand_sources["opening-softmetal"].remaining == 10 and chapter_drop(session.projection(), [0, 4, 3], 1, 0),
+			"Q sees the collector's first finite blank in its real receiver"): quit(1); return
+		verify(not chapter_ready(session.projection(), "collector_assemblies").is_empty(),
+			"Q sees a ready collector derived from five placed identities")
+		if failed: quit(1); return
+		mark("chapter-cut-observed")
+		if not await until(func(): return chapter_marker("chapter-collector-done") and session.projection().cargo.P.raw == 1,
+			"Q observes the blank move from receiver to P cargo"): quit(1); return
+		verify(session.projection().placed_components.size() == 5,
+			"The collector remains fitted while its cut blank travels to the press")
+		if failed: quit(1); return
+		mark("chapter-collector-observed")
+		if not await until(func(): return chapter_marker("chapter-first-product-done") and session.projection().cargo.P.products == 1,
+			"Q observes the first formed plate on the same native authority"): quit(1); return
+		verify(session.projection().hand_sources["opening-softmetal"].remaining == 10,
+			"Q sees exactly one collector debit for the first plate")
+		if failed: quit(1); return
+		mark("chapter-first-observed")
+		if not await until(func(): return chapter_marker("chapter-work-pending") and chapter_pending_work(session.projection()),
+			"Q sees the unfinished second WorkLot before the Store save"): quit(1); return
+		var final: Dictionary = session.projection()
+		verify(final.cargo.P.products == 1 and final.cargo.P.raw == 0
+			and final.placed_components.size() == 12
+			and final.hand_sources["opening-softmetal"].remaining == 9
+			and not chapter_ready(final, "collector_assemblies").is_empty()
+			and not chapter_ready(final, "press_assemblies").is_empty(),
+			"Q sees both fitted machines, the first plate and conserved pending second work")
+		mark("clients-done")
+		if not await until(func(): return FileAccess.file_exists(directory.path_join("server-done")),
+			"The authority saves the Q-observed first product"): quit(1); return
+		finish_role()
+		return
+	if not await until(func(): return FileAccess.file_exists(directory.path_join("Q-ready")),
+		"Q joins before P spends finite chapter stock"): quit(1); return
+	for index in range(8):
+		await chapter_request({"action": "harvest_source", "target": "tree-east-south"},
+			"P cuts finite south timber %d" % index)
+		if failed: quit(1); return
+	if failed: quit(1); return
+	mark("chapter-south-done")
+	if not await until(func(): return FileAccess.file_exists(directory.path_join("chapter-north-ready")),
+		"P reaches the second finite tree"): quit(1); return
+	for index in range(7):
+		await chapter_request({"action": "harvest_source", "target": "tree-east-north"},
+			"P cuts finite north timber %d" % index)
+		if failed: quit(1); return
+	if failed: quit(1); return
+	mark("chapter-north-done")
+	if not await until(func(): return FileAccess.file_exists(directory.path_join("chapter-ore-ready")),
+		"P reaches the ore deposit"): quit(1); return
+	for index in range(5):
+		await chapter_request({"action": "harvest_source", "target": "opening-softmetal"},
+			"P cuts finite component ore %d" % index)
+		if failed: quit(1); return
+	if failed: quit(1); return
+	mark("chapter-ore-done")
+	if not await until(func(): return FileAccess.file_exists(directory.path_join("chapter-hub-ready")),
+		"P reaches the one pod workshop"): quit(1); return
+	for kind in ["wooden_frame", "anvil", "ram_face", "sliding_guide", "tool_mount", "wooden_shaft", "wooden_cog",
+		"wooden_frame", "tool_mount", "cutting_edge", "receiver_tray", "wooden_shaft"]:
+		await chapter_request({"action": "craft_component", "entity": "pod-fabrication-hub", "component": kind},
+			"P fabricates a separate finite %s" % kind)
+		if failed: quit(1); return
+	if failed: quit(1); return
+	await chapter_request({"action": "take_hand_crank", "entity": "pod-hand-crank"},
+		"P takes the one reusable pod crank")
+	if failed: quit(1); return
+	mark("chapter-craft-done")
+	if not await until(func(): return FileAccess.file_exists(directory.path_join("chapter-collector-ready")),
+		"P reaches the collector workcell"): quit(1); return
+	await chapter_request({"action": "place_foundation", "cell": [0, 1], "level": 4},
+		"P extends the shared deck under the collector")
+	var collector_shaft := ""
+	for part in [
+		{"kind": "wooden_frame", "center": [0, 4, 4]},
+		{"kind": "tool_mount", "center": [-1, 4, 4]},
+		{"kind": "cutting_edge", "center": [-2, 4, 4]},
+		{"kind": "receiver_tray", "center": [0, 4, 3]},
+		{"kind": "wooden_shaft", "center": [1, 4, 4]}]:
+		var placed: Dictionary = await chapter_request({"action": "place_component",
+			"component": part.kind, "center": part.center}, "P fits the separate collector %s" % part.kind)
+		if failed: quit(1); return
+		if part.kind == "wooden_shaft": collector_shaft = str(placed.get("entity", ""))
+	if failed: quit(1); return
+	verify(not collector_shaft.is_empty() and not chapter_ready(session.projection(), "collector_assemblies").is_empty(),
+		"Five confirmed parts create a ready collector without a complete-machine token")
+	if failed: quit(1); return
+	var first_turn: Dictionary = await chapter_request({"action": "turn_hand_crank", "entity": collector_shaft},
+		"P hand-cranks one collector-cut blank")
+	verify(first_turn.get("source_remaining") == 10 and first_turn.get("receiver_raw") == 1,
+		"One collector turn debits one finite ore and fills its receiver")
+	if failed: quit(1); return
+	var first_request: String = str(first_turn.get("request", ""))
+	verify(not first_request.is_empty() and session.retry(first_request).get("queued", false),
+		"P resends the exact first-cut intent without a new request identity")
+	if failed: quit(1); return
+	if not await until(func(): return replies.has(first_request), "The first cut retry receives its cached outcome"):
+		quit(1); return
+	var replay: Dictionary = replies[first_request]
+	replies.erase(first_request)
+	verify(replay.get("accepted", false) and replay.get("duplicate", false)
+		and session.projection().hand_sources["opening-softmetal"].remaining == 10
+		and chapter_drop(session.projection(), [0, 4, 3], 1, 0),
+		"The exact retry cannot mine or deposit a second blank")
+	if failed: quit(1); return
+	var full: Dictionary = await issue({"action": "turn_hand_crank", "entity": collector_shaft})
+	verify(not full.get("accepted", true) and full.get("reason") == "receiver_full",
+		"A full receiver refuses another cut without ore loss")
+	if failed: quit(1); return
+	mark("chapter-cut-done")
+	if not await until(func(): return FileAccess.file_exists(directory.path_join("chapter-cut-observed")),
+		"Q observes the live receiver blank before pickup"): quit(1); return
+	await chapter_request({"action": "pickup_material", "center": [0, 4, 3],
+		"expected": {"raw": 1, "products": 0, "work_lots": []}},
+		"P physically retrieves the collector blank")
+	if failed: quit(1); return
+	mark("chapter-collector-done")
+	if not await until(func(): return FileAccess.file_exists(directory.path_join("chapter-press-ready")),
+		"P reaches the separate press workcell"): quit(1); return
+	var press_frame := ""
+	for part in [
+		{"kind": "wooden_frame", "center": [12, 0, 16]},
+		{"kind": "anvil", "center": [12, 1, 16]},
+		{"kind": "ram_face", "center": [12, 2, 16]},
+		{"kind": "sliding_guide", "center": [12, 3, 16]},
+		{"kind": "tool_mount", "center": [12, 4, 16]},
+		{"kind": "wooden_shaft", "center": [13, 4, 16]},
+		{"kind": "wooden_cog", "center": [14, 4, 16]}]:
+		var placed: Dictionary = await chapter_request({"action": "place_component",
+			"component": part.kind, "center": part.center}, "P fits the separate press %s" % part.kind)
+		if failed: quit(1); return
+		if part.kind == "wooden_frame": press_frame = str(placed.get("entity", ""))
+	if failed: quit(1); return
+	var press: Dictionary = chapter_ready(session.projection(), "press_assemblies")
+	verify(not press.is_empty() and press.get("frame") == press_frame and press.get("open_feeds", []).size() > 0,
+		"Seven confirmed parts form a ready press with a physical feed and exit")
+	if failed: quit(1); return
+	var route: Dictionary = press.open_feeds[0]
+	await chapter_request({"action": "feed_press", "entity": press_frame, "entry": route.entry},
+		"P feeds its collector-cut blank into the assembled press")
+	if failed: quit(1); return
+	for turn in range(3):
+		await chapter_request({"action": "turn_press_crank", "entity": press_frame,
+			"drive": press.parts.shaft, "exit": route.exit},
+			"P advances retained press work through hand turn %d" % turn)
+		if failed: quit(1); return
+	if failed: quit(1); return
+	verify(chapter_drop(session.projection(), route.exit, 0, 1),
+		"The separate press forms one actual plate at its selected exit")
+	if failed: quit(1); return
+	await chapter_request({"action": "pickup_material", "center": route.exit,
+		"expected": {"raw": 0, "products": 1, "work_lots": []}},
+		"P picks up the first plate formed from collector ore")
+	if failed: quit(1); return
+	mark("chapter-first-product-done")
+	if not await until(func(): return chapter_marker("chapter-second-cut-ready"),
+		"P reaches the collector again after Q sees the first plate"): quit(1); return
+	var second_cut: Dictionary = await chapter_request({"action": "turn_hand_crank", "entity": collector_shaft},
+		"P cuts a second blank while retaining the first plate")
+	verify(second_cut.get("source_remaining") == 9 and second_cut.get("receiver_raw") == 1,
+		"The second collector cut consumes exactly one further finite ore")
+	if failed: quit(1); return
+	await chapter_request({"action": "pickup_material", "center": [0, 4, 3],
+		"expected": {"raw": 1, "products": 0, "work_lots": []}},
+		"P retrieves the second collector blank")
+	if failed: quit(1); return
+	mark("chapter-second-cut-done")
+	if not await until(func(): return chapter_marker("chapter-second-press-ready"),
+		"P returns to the press with the second collector blank"): quit(1); return
+	await chapter_request({"action": "feed_press", "entity": press_frame, "entry": route.entry},
+		"P feeds a second collector blank while keeping the first plate")
+	if failed: quit(1); return
+	await chapter_request({"action": "turn_press_crank", "entity": press_frame,
+		"drive": press.parts.shaft, "exit": route.exit},
+		"P begins a second WorkLot that must survive Store and rejoin")
+	verify(chapter_pending_work(session.projection()) and session.projection().cargo.P.products == 1,
+		"One unfinished WorkLot coexists with the first carried plate")
+	if failed: quit(1); return
+	mark("chapter-work-pending")
+	if not await until(func(): return FileAccess.file_exists(directory.path_join("server-done")),
+		"The authority saves Q-observed first-product custody"): quit(1); return
+	finish_role()
+
+func run_chapter_product() -> void:
+	if role in ["server", "server-resume"]:
+		await chapter_server()
+	else:
+		await chapter_client()
+
 func run() -> void:
+	if chapter_product and (belt_loading or fractional_press or overload or cog_train or span_belt
+			or reverse_belt or middle_pulley):
+		push_error("The chapter-product case cannot be combined with historical transmission cases")
+		quit(1)
+		return
 	if fractional_press and (overload or cog_train or span_belt or reverse_belt or middle_pulley):
 		push_error("The fractional press case cannot be combined with other transmission cases")
 		quit(1)
@@ -779,6 +1220,9 @@ func run() -> void:
 	container.add_child(session)
 	root.add_child(container)
 	session.outcome.connect(func(value: Dictionary): replies[value.request] = value)
+	if chapter_product:
+		await run_chapter_product()
+		return
 	if belt_loading:
 		await run_belt_loading()
 		return
