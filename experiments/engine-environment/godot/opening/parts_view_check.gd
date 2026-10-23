@@ -105,6 +105,9 @@ func fixture() -> Dictionary:
 		"stock": {"output": 0}, "inventories": {"P": 0, "Q": 0}}
 
 func _initialize() -> void:
+	if "--object-menu-only" in OS.get_cmdline_user_args():
+		call_deferred("_object_menu_check")
+		return
 	if "--workshop-pages-only" in OS.get_cmdline_user_args():
 		call_deferred("_workshop_pages")
 		return
@@ -1631,4 +1634,144 @@ func _buttons() -> void:
 		view.free()
 	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
 		"failures": failures, "models": 0, "desktop_operations": 0, "scope": "actual kit buttons over invented projections"}))
+	quit(0 if failures == 0 else 1)
+
+## Passive pointer and E-panel consumer over a confirmed-shaped snapshot.
+class ObjectMenuWidgets:
+	extends "res://opening/opening.gd"
+	var hit := {}
+	var source_id := ""
+	var issued: Array = []
+	func _ready() -> void:
+		set_process(false)
+	func _screen_pick(_screen: Vector2) -> Dictionary:
+		return hit
+	func _screen_hand_source(_screen: Vector2) -> String:
+		return source_id
+	func _pointed_screen_position() -> Vector2:
+		return Vector2(640, 400)
+	func _update_camera() -> void:
+		pass
+	func _update_cursor() -> void:
+		pass
+	func issue(action: Dictionary) -> Dictionary:
+		issued.append(action.duplicate(true))
+		return {"accepted": false, "reason": "fixture_only"}
+
+func _object_menu_snapshot() -> Dictionary:
+	return {"context": "object-menu-fixture", "revision": 1, "order": 0,
+		"options": {"native": true, "physical": true, "foundations": true},
+		"actors": {"P": {"ready": true, "position": [0.0, 1.0, 0.0]}},
+		"inventories": {"P": 0}, "parts": {}, "part_kits": {"P": {}},
+		"entities": {}, "foundations": {}, "transmission_parts": {}, "belt_spans": {},
+		"placed_components": {"bench": {"component": "wooden_workbench", "center": [0, 0, 0]}},
+		"fabrication_benches": [{"id": "bench", "center": [0, 0, 0]}],
+		"fabrication_hub": {"id": "pod", "installed": true, "center": [4, 0, 0]},
+		"hand_sources": {"tree": {"kind": "tree", "position": [1.0, 1.0, 0.0], "remaining": 8}},
+		"cargo": {"P": {"timber": 4, "raw": 0, "components": {}}},
+		"component_recipes": {"wooden_frame": {"timber": 3, "softmetal": 0}},
+		"component_capacity": 20, "part_recipes": [], "part_specifications": {"P": []},
+		"press_assemblies": [], "collector_assemblies": [], "dropped_material": [],
+		"stock": {"source": 16, "collector": 0, "belt": 0, "input": 0, "held": 0, "output": 0},
+		"remaining": 0, "powered": false, "power_enabled": false, "motion": {},
+		"links": [], "drive_links": [], "opening_engineering": {}}
+
+func _object_menu_check() -> void:
+	var root := get_root()
+	root.gui_embed_subwindows = true
+	root.size = Vector2i(1280, 800)
+	var view := ObjectMenuWidgets.new()
+	view.state = _object_menu_snapshot()
+	view.camera = Camera3D.new()
+	view.add_child(view.camera)
+	view.selection_ring = MeshInstance3D.new()
+	view.add_child(view.selection_ring)
+	root.add_child(view)
+	view._build_interface()
+	view._refresh_ui()
+	var picker := StaticBody3D.new()
+	picker.set_meta("component_entity", "bench")
+	view.add_child(picker)
+	view.hit = {"collider": picker}
+	view.distance = 0.0
+	view._refresh_pointed_summary()
+	verify(view.pointed_summary.visible and view.pointed_name.text.to_lower() == "wooden workbench"
+		and view.pointed_detail.text.contains("E") and view.pointed_summary.mouse_filter == Control.MOUSE_FILTER_IGNORE,
+		"A pointed bench shows a small passive summary without capturing the pointer.")
+	verify(view.selected.is_empty() and view.issued.is_empty(),
+		"Passive inspection creates no selection or authority request.")
+	view.mode = "collector"
+	var key := InputEventKey.new()
+	key.pressed = true
+	key.keycode = KEY_I
+	view._unhandled_input(key)
+	verify(view.mode == "collector" and view.selected.is_empty(), "I no longer selects an Inspect tool.")
+	view.mode = "inspect"
+	view._world_click(Vector2i.ZERO, "bench")
+	verify(view.selected.is_empty() and view.issued.is_empty(),
+		"Clicking while idle does not pin an inspector or send a command.")
+	view._open_pointed_machine()
+	await process_frame
+	verify(view.object_menu.visible and view.object_menu_title.text.to_lower() == "wooden workbench"
+		and view.object_menu_operations.visible and view.arrival_assembly_controls.craft_section.visible,
+		"E opens the actual workbench controls in a centered object panel.")
+	verify(view.object_menu.position.x > 100 and view.object_menu.position.y > 40
+		and view.object_menu.size.x >= 740 and view.object_menu.size.y >= 500
+		and not view._can_control_character() and view._actor_ready_for_actions(),
+		"The large panel fits the viewport, holds movement, and leaves object actions available.")
+	verify(view.object_menu_scrim.visible and view.worksite_details_section.visible == false
+		and not view.object_workshop_route.visible
+		and view.arrival_assembly_controls.component_choice.is_visible_in_tree(),
+		"The object panel shades the worksite, shows its craft controls, and begins with global details collapsed.")
+	key.keycode = KEY_D
+	key.ctrl_pressed = true
+	view._input(key)
+	verify(view.worksite_details_section.visible and view.stock_label.is_visible_in_tree(),
+		"Ctrl+D reveals the worksite details inside the open object panel.")
+	key.ctrl_pressed = false
+	verify(view.issued.is_empty(), "Opening the workbench remains a read-only view action.")
+	key.keycode = KEY_ESCAPE
+	view._input(key)
+	await process_frame
+	verify(not view.object_menu.visible and not view.object_menu_scrim.visible
+		and view.selected.is_empty() and view.issued.is_empty(),
+		"Escape closes the panel and clears its selected object without a game request.")
+	view.hit = {}
+	view.source_id = "tree"
+	view._refresh_pointed_summary()
+	verify(view.pointed_summary.visible and view.pointed_name.text == "Timber tree"
+		and view.pointed_detail.text.contains("8 left"),
+		"The same passive summary identifies a confirmed harvestable source.")
+	view.source_id = ""
+	view.state.transmission_parts = {"shaft": {"kind": "shaft", "axis": 0, "center": [4, 0, 0]}}
+	picker.set_meta("entity", "shaft")
+	view.hit = {"collider": picker}
+	view._refresh_ui()
+	view._open_pointed_machine()
+	await process_frame
+	verify(view.object_menu.visible and view.object_menu_title.text == "Shaft"
+		and not view.object_menu_operations.visible and view.object_menu.size.x <= 550,
+		"E gives an ordinary part its details without unrelated workshop operations.")
+	view.object_menu.hide()
+	await process_frame
+	var prefix := ""
+	for argument in OS.get_cmdline_user_args():
+		if argument.begins_with("--image-prefix="):
+			prefix = argument.trim_prefix("--image-prefix=")
+	if not prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
+		picker.remove_meta("entity")
+		view.state.transmission_parts.erase("shaft")
+		view._refresh_ui()
+		view._refresh_pointed_summary()
+		await RenderingServer.frame_post_draw
+		verify(root.get_texture().get_image().save_png(prefix + "-hover.png") == OK,
+			"Retain the passive pointer summary pixels.")
+		view._open_pointed_machine()
+		await process_frame
+		await RenderingServer.frame_post_draw
+		verify(root.get_texture().get_image().save_png(prefix + "-menu.png") == OK,
+			"Retain the centered workbench panel pixels.")
+	view.free()
+	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
+		"models": 0, "desktop_operations": 0, "scope": "isolated ordinary workbench UI"}))
 	quit(0 if failures == 0 else 1)
