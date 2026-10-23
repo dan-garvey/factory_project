@@ -257,6 +257,26 @@ int fixture(int argc, char** argv) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         return fs::exists(argv[4]) ? 0 : 123;
     }
+    if (mode == "hold-supervisor" && argc == 5) {
+        write(argv[3],std::to_string(::getppid()) + "\n");
+        const auto end = Clock::now() + std::chrono::seconds(8);
+        while (!fs::exists(argv[4]) && Clock::now() < end)
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        return fs::exists(argv[4]) ? 0 : 123;
+    }
+    if (mode == "server-client" && argc == 5) {
+        const pid_t server = ::fork();
+        if (server < 0) return 126;
+        if (server == 0) {
+            write(argv[3],std::to_string(::getpid()) + "\n");
+            const auto end = Clock::now() + std::chrono::seconds(8);
+            while (!fs::exists(argv[4]) && Clock::now() < end)
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            return fs::exists(argv[4]) ? 0 : 123;
+        }
+        until([&] { return !text(argv[3]).empty(); },"Synthetic server did not start");
+        return 0;
+    }
     return 124;
 }
 
@@ -356,6 +376,60 @@ int main(int argc, char** argv) {
             expect(invoke(wrapped("heavy",{"/missing/factory-fixture-command"}))==1,"Failed exec became a command result");
             expect(invoke(wrapped("heavy",{executable.string(),"--fixture","exit","127"}))==127,"Real child exit 127 became an exec failure");
             expect(invoke(wrapped("benchmark"))==0,"A failure leaked admission");
+        });
+        test("server-safe execution keeps an active client admitted and releases its detached server",[&] {
+            std::vector<std::unique_ptr<resource::Admission>> others;
+            for (unsigned i=1;i<resource::heavy_slots;++i)
+                others.push_back(std::make_unique<resource::Admission>(common,resource::Mode::heavy,false));
+            const auto active_marker=artifacts/"server-safe-active-client";
+            const auto active_release=artifacts/"server-safe-active-release";
+            Process active(wrapped("heavy",{executable.string(),"--fixture","hold",active_marker.string(),active_release.string()},
+                {}));
+            until([&] { return !text(active_marker).empty(); },"Server-safe client did not start");
+            expect(invoke(wrapped("heavy"))==75,"Live server-safe client lost its heavy slot");
+            expect(invoke(wrapped("benchmark"))==75,"Live server-safe client lost shared activity");
+            write(active_release,"release\n");
+            expect(active.wait()==0,"Server-safe client did not finish");
+            const auto server_marker=artifacts/"server-safe-detached-server";
+            const auto server_release=artifacts/"server-safe-server-release";
+            Process client(wrapped("heavy",{executable.string(),"--fixture","server-client",
+                server_marker.string(),server_release.string()}));
+            until([&] { return !text(server_marker).empty(); },"Detached server did not start");
+            const pid_t server=static_cast<pid_t>(std::stol(text(server_marker)));
+            InheritedCommandGuard guard(client,server);
+            expect(client.wait()==0,"Server-safe client did not exit while server stayed alive");
+            expect(::kill(server,0)==0,"Detached server ended before permit checks");
+            others.clear();
+            const auto heavy_path=common/"factory-local-resources/heavy.lock";
+            resource::FileDescriptor legacy(::open(heavy_path.c_str(),O_RDWR));
+            expect(legacy.get()>=0 && ::flock(legacy.get(),LOCK_EX|LOCK_NB)==0,
+                "Detached server retained the legacy heavy gate");
+            expect(::flock(legacy.get(),LOCK_UN)==0,"Could not release legacy gate");
+            expect(invoke(wrapped("heavy"))==0,"Detached server retained a heavy slot");
+            expect(invoke(wrapped("benchmark"))==0,"Detached server retained activity");
+            expect(::kill(server,0)==0,"Detached server ended before admission controls completed");
+            write(server_release,"release\n");
+            expect(guard.wait()==0,"Detached server did not exit cleanly");
+        });
+        test("default immediate supervisor retains admission after outer wrapper death",[&] {
+            std::vector<std::unique_ptr<resource::Admission>> others;
+            for (unsigned i=1;i<resource::heavy_slots;++i)
+                others.push_back(std::make_unique<resource::Admission>(common,resource::Mode::heavy,false));
+            const auto marker=artifacts/"default-supervisor-pid";
+            const auto release=artifacts/"default-supervisor-release";
+            Process wrapper(wrapped("heavy",{executable.string(),"--fixture","hold-supervisor",
+                marker.string(),release.string()}));
+            until([&] { return !text(marker).empty(); },"Default supervisor did not start its command");
+            const pid_t supervisor=static_cast<pid_t>(std::stol(text(marker)));
+            InheritedCommandGuard guard(wrapper,supervisor);
+            expect(::kill(wrapper.pid,SIGKILL)==0,"Could not stop the outer wrapper");
+            expect(wrapper.wait()==137,"Outer wrapper did not record its termination");
+            expect(invoke(wrapped("heavy"))==75,"Wrapper death released a live supervisor's heavy slot");
+            expect(invoke(wrapped("benchmark"))==75,"Wrapper death released a live supervisor's activity");
+            write(release,"release\n");
+            expect(guard.wait()==0,"Default supervisor did not finish after its command");
+            others.clear();
+            expect(invoke(wrapped("benchmark"))==0,"Default supervisor leaked admission after exit");
         });
         test("capacity thresholds and malformed memory fail explicitly",[&] {
             resource::enforce_capacity({20*resource::gib,8*resource::gib},20,8);
@@ -458,7 +532,8 @@ int main(int argc, char** argv) {
                 others.push_back(std::make_unique<resource::Admission>(common,resource::Mode::heavy,false));
             const auto marker=artifacts/"inherited-child-pid";
             const auto release=artifacts/"release-inherited-child";
-            Process wrapper(wrapped("heavy",{executable.string(),"--fixture","hold",marker.string(),release.string()}));
+            Process wrapper(wrapped("heavy",{executable.string(),"--fixture","hold",marker.string(),release.string()},
+                {"--inherit-permits"}));
             until([&] {return !text(marker).empty();},"Inherited command did not start");
             const auto child=static_cast<pid_t>(std::stol(text(marker)));
             InheritedCommandGuard guard(wrapper,child);
@@ -478,7 +553,8 @@ int main(int argc, char** argv) {
             bool rejected=false,cleanup_complete=false;
             pid_t inherited=-1;
             {
-                Process wrapper(wrapped("heavy",{executable.string(),"--fixture","hold",marker.string(),release.string()}));
+                Process wrapper(wrapped("heavy",{executable.string(),"--fixture","hold",marker.string(),release.string()},
+                    {"--inherit-permits"}));
                 until([&] {return !text(marker).empty();},"Assertion fixture did not start");
                 inherited=static_cast<pid_t>(std::stol(text(marker)));
                 try {

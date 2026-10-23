@@ -24,7 +24,7 @@ installed=$(setting factory.gameplayInstallRoot)
     { printf 'Use an existing owned absolute gameplay artifact family.\n' >&2; exit 1; }
 umask 077
 session=$(mktemp -d "$artifacts/build-$(date -u +%Y%m%d-%H%M%S)-XXXXXX")
-exec "$common/factory-local-resources/factory-local" --root "$root" heavy -- "$tool" \
+exec "$common/factory-local-resources/factory-local" --root "$root" heavy --inherit-permits -- "$tool" \
     --checkout "$root" --main "$main" --bazel "$bazel" --artifacts "$artifacts" \
     --log "$session/build.log" --admission-directory "$common/factory-local-resources" \
     --launcher "$launcher" --install-root "$installed"

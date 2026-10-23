@@ -22,7 +22,7 @@ PASS line for that exact fixture revision:
 ```bash
 FACTORY_LOCAL="$(git rev-parse --path-format=absolute --git-common-dir)/factory-local-resources/factory-local"
 FACTORY_ADMISSION="$(git rev-parse --path-format=absolute --git-common-dir)/factory-local-resources"
-"$FACTORY_LOCAL" --root "$PWD" heavy -- \
+"$FACTORY_LOCAL" --root "$PWD" heavy --inherit-permits -- \
   /absolute/verified/factory-godot-fixture \
   --godot /absolute/verified/Godot_v4.7.2-stable_linux.x86_64 \
   --godot-sha256 VERIFIED_LOWERCASE_SHA256 \

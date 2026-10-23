@@ -234,7 +234,7 @@ installed admission tool is in the canonical Git directory:
 
 ```sh
 native_admission="$(git rev-parse --path-format=absolute --git-common-dir)/factory-local-resources"
-"$native_admission/factory-local" --root "$PWD" heavy -- \
+"$native_admission/factory-local" --root "$PWD" heavy --inherit-permits -- \
   /absolute/factory-opening-startup \
   --repo "$PWD" --tree "$(git rev-parse 'HEAD^{tree}')" \
   --output /absolute/owned/fresh-native-opening \

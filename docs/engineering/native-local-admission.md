@@ -40,7 +40,9 @@ The standalone CLI accepts an explicit checkout:
 ```
 
 Its default root is the caller's current directory. Options before `--` include
-`--jobs`, `--disk-floor-gib`, `--memory-reserve-gib` and `--no-wait`.
+`--jobs`, `--disk-floor-gib`, `--memory-reserve-gib`, `--no-wait` and
+`--inherit-permits`. Use the latter only for a command that verifies inherited
+permit identity and keeps any Bazel invocation bounded with `--batch`.
 Floor changes require a documented resource decision. Busy nonwaiting admission
 or insufficient capacity exits 75 before the command starts. Argument errors exit
 2, wrapper/exec failures exit 1, and real command exits pass through, including
@@ -56,14 +58,17 @@ overlap a native heavy job. They may temporarily reduce concurrency but cannot
 bypass the four-slot bound. Checks take shared activity; benchmarks take exclusive
 activity. A heavy waiter takes no activity permit until a slot is available.
 
-Both admission descriptors survive in the immediate command, including its slot
-if the wrapper exits. Unrelated descriptors close before Git discovery or command
-execution. Linux `close_range` and `F_OFD_SETLK` are required; unsupported calls
-fail closed. Lock files are never replaced or unlinked during rollout.
+Both admission descriptors survive in the immediate supervisor, including its
+slot if the outer wrapper exits. The command and any persistent server it starts
+receive no admission descriptors by default. An explicit `--inherit-permits`
+passes them to a verified direct command. Unrelated descriptors close before Git
+discovery or command execution. Linux `close_range` and `F_OFD_SETLK` are
+required; unsupported calls fail closed. Lock files are never replaced or
+unlinked during rollout.
 
 Capacity is checked after admission. It can change later and is not reserved.
-Detached services and escaped descendants remain unsupported; each workload still
-owns its timeout, process cleanup and aggregate artifact/log limits.
+Detached services still require their owning workload's timeout, process
+cleanup and aggregate artifact/log limits. Permit isolation does not supply those.
 
 ## Validation and remaining scope
 
@@ -72,7 +77,10 @@ waiters, benchmark exclusivity, both directions of legacy compatibility, the
 capacity refusals, command exits, literal arguments,
 job settings, hook-variable isolation, closed standard streams and unrelated
 descriptor closure. Wrapper-loss and deliberate assertion controls require the
-owned inherited child to be reaped and its permits released.
+owned inherited child to be reaped and its permits released. A synthetic
+persistent server control verifies that a completed direct client releases both
+permits while its server stays alive, with later legacy heavy, native heavy and
+benchmark entry.
 
 These operational tests do not establish safe rendering of four games, actual
 OS-focus behavior or gameplay acceptance. Agent-controlled desktop playtests

@@ -55,8 +55,17 @@ and disk can change after admission; the wrapper does not reserve bytes.
 By default admission waits. Use `--no-wait` for a scheduler that should defer
 instead of queueing work. Busy admission or a floor failure exits 75, without
 starting the child. Other wrapper errors exit 1, argument errors exit 2, and
-normal child exit codes pass through. A failed child releases admission. The immediate child inherits the
-lock descriptors, but detached descendants are not a supported workload model.
+normal child exit codes pass through. A failed child releases admission. The
+immediate supervisor holds the lock descriptors until the command exits, even if
+the outer wrapper dies. Commands and their descendants receive no admission
+descriptors, so an idle persistent Bazel server does not retain a slot or block a
+benchmark. This is permit lifetime control; it does not supervise or terminate
+detached services.
+
+The bounded native build runner verifies the admission descriptors itself. Use
+`--inherit-permits` before `--` only for that verified runner or a documented
+equivalent. That mode sends descriptors to the direct command and its descendants;
+its Bazel invocations must use `--batch` so no persistent server keeps the locks.
 
 This is cooperative coordination, not machine isolation. Unwrapped commands,
 other repositories, background services, and host activity are unaffected.
@@ -73,5 +82,5 @@ unconfigured hook keeps its legacy coordinator. See
 Legacy and native commands coordinate on the same
 retained `heavy.lock` and `activity.lock` inodes: native heavy jobs share the
 legacy gate and hold distinct open-file-description byte locks on the heavy
-descriptor. Both permits survive in the immediate child. No lock file is replaced
-or unlinked during rollout. Older serial checkouts may reduce concurrency.
+descriptor. Both permits survive in the immediate supervisor. No lock file is
+replaced or unlinked during rollout. Older serial checkouts may reduce concurrency.
