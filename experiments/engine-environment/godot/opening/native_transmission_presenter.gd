@@ -1141,7 +1141,7 @@ func _shaft_splice(first: Dictionary, second: Dictionary, parent: Node3D,
 
 func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 		occupied_size: Vector3, press_role: String, collector_angle: float,
-		collector_support_drop: float) -> void:
+		collector_support_drop: float, receiver_to_frame: Vector3) -> void:
 	var timber: Material = WheelArt.support_timber_finish()
 	if timber == null:
 		timber = Visuals.material(Color("76604a"), 0.12, 0.78)
@@ -1285,12 +1285,25 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 			# The near-side hooks and underside rails give this independently placed
 			# receiver a visible mounting direction without bridging the native
 			# occupied gap or inventing a second material path.
-			for x in [-0.125, 0.125]:
-				var side := "Left" if x < 0.0 else "Right"
-				_support_box(anchor, "ReceiverHook" + side, Vector3(x, 0.005, -0.1925),
-					Vector3(0.045, 0.17, 0.025), dark, true)
-				_support_beam(anchor, "ReceiverUnderRail" + side, Vector3(x, -0.08, -0.185),
-					Vector3(x, 0.005, 0.105), 0.025, dark, true)
+			var toward := receiver_to_frame if receiver_to_frame.length_squared() > 0.5 \
+				else Vector3.FORWARD
+			var along_x := absf(toward.x) > 0.5
+			var across := Vector3(0, 0, 1) if along_x else Vector3(1, 0, 0)
+			var face_half := occupied_size.x * 0.5 if along_x else occupied_size.z * 0.5
+			_support_box(anchor, "ReceiverFrameCrosshead",
+				toward * (face_half - 0.0225) + Vector3.DOWN * 0.04,
+				Vector3(0.045, 0.08, 0.30) if along_x else Vector3(0.30, 0.08, 0.045),
+				timber, true)
+			for side_value in [-1.0, 1.0]:
+				var side := "Left" if side_value < 0.0 else "Right"
+				var side_offset: Vector3 = across * side_value * 0.125
+				_support_box(anchor, "ReceiverHook" + side,
+					side_offset + toward * (face_half - 0.0125) + Vector3.UP * 0.005,
+					Vector3(0.025, 0.17, 0.045) if along_x else Vector3(0.045, 0.17, 0.025),
+					dark, true)
+				_support_beam(anchor, "ReceiverUnderRail" + side,
+					side_offset + toward * (face_half - 0.02) + Vector3.DOWN * 0.08,
+					side_offset - toward * 0.105 + Vector3.UP * 0.005, 0.025, dark, true)
 			for x in [-0.161, 0.161]:
 				_support_box(anchor, "ReceiverRolledSide%s" % ("Left" if x < 0.0 else "Right"),
 					Vector3(x, 0.133, 0),
@@ -1306,9 +1319,24 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 					var rivet := _support_cylinder(anchor, name_value, 0.009, 0.007, worked)
 					rivet.position = Vector3(x, 0.141, z)
 		"wooden_shaft", "softmetal_shaft":
-			_cast_mount_foot(anchor, "BearingFoot", Vector3(0, -0.07, 0),
-				Vector3(0.35, 0.07, 0.35), dark, worked)
 			var fitted := drive_direction.length_squared() > 0.5
+			var collector_fitting := fitted and press_role != "shaft"
+			if collector_fitting:
+				var along_x := absf(drive_direction.x) > 0.5
+				var carriage_size := Vector3(occupied_size.x, 0.075, 0.19) if along_x \
+					else Vector3(0.19, 0.075, occupied_size.z)
+				_support_box(anchor, "FrameMountedCarriage", Vector3(0, -0.075, 0),
+					carriage_size, timber, true)
+				for side in [-1.0, 1.0]:
+					var runner_position := Vector3(0, -0.025, side * 0.075) if along_x \
+						else Vector3(side * 0.075, -0.025, 0)
+					var runner_size := Vector3(occupied_size.x, 0.035, 0.028) if along_x \
+						else Vector3(0.028, 0.035, occupied_size.z)
+					_support_box(anchor, "CarriageRail%d" % anchor.get_child_count(),
+						runner_position, runner_size, dark, true)
+			else:
+				_cast_mount_foot(anchor, "BearingFoot", Vector3(0, -0.07, 0),
+					Vector3(0.35, 0.07, 0.35), dark, worked)
 			var rod := Node3D.new()
 			rod.name = "LooseDriveShaft"
 			anchor.add_child(rod)
@@ -1317,11 +1345,19 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 			var across := reference.cross(direction).normalized()
 			rod.basis = Basis(across, direction, across.cross(direction))
 			rod.position.y = 0.0 if fitted else 0.035
-			var shaft_length: float = occupied_size.dot(direction.abs()) if fitted and press_role == "shaft" else (0.32 if fitted else 0.14)
+			var shaft_length: float = occupied_size.dot(direction.abs()) if fitted else 0.14
 			Assets.shaft(rod, shaft_length, Color("947658") if kind == "wooden_shaft" else Color("9aaba5"))
 			var core := rod.get_node("Shaft") as MeshInstance3D
 			core.material_override = timber if kind == "wooden_shaft" else worked
 			if fitted:
+				if collector_fitting:
+					# A collector shaft reaches the frame from its own native box.
+					# The five-millimetre box seam stays clear of another part's
+					# independently removable collision and construction identity.
+					var along_x := absf(direction.x) > 0.5
+					var join_size := Vector3(0.05, 0.09, 0.14) if along_x else Vector3(0.14, 0.09, 0.05)
+					_support_box(anchor, "FrameJoinSocket", direction * (shaft_length * 0.5 - 0.025)
+						+ Vector3.DOWN * 0.015, join_size, dark, true)
 				# The two static journals belong to the confirmed frame-facing axis.
 				# Neither their geometry nor this rod becomes a second drive or collider.
 				for sign_value in [-1.0, 1.0]:
@@ -1381,6 +1417,7 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 	var press_roles: Dictionary = {}
 	var collector_facings: Dictionary = {}
 	var collector_floors: Dictionary = {}
+	var collector_receivers: Dictionary = {}
 	var by_cell: Dictionary = {}
 	var placed: Variant = snapshot.get("placed_components", {})
 	if placed is Dictionary:
@@ -1417,16 +1454,31 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 							if boxes.has(id) and boxes[id].component == expected:
 								collector_facings[id] = angle
 								collector_floors[id] = float(origin.y) * UNIT
+					# Placed shafts keep their frame-facing fitting when a different
+					# collector part is missing. Two possible shafts are ambiguous;
+					# neither receives a visual connection in that state.
+					var frame_id: Variant = by_cell.get(origin)
+					if boxes.has(frame_id) and boxes[frame_id].component == "wooden_frame":
+						var side := Vector3i(-direction.z, 0, direction.x)
+						for receiver_cell in [origin + side, origin - side]:
+							var receiver_id: Variant = by_cell.get(receiver_cell)
+							if boxes.has(receiver_id) and boxes[receiver_id].component == "receiver_tray":
+								var toward_frame: Vector3 = boxes[frame_id].center - boxes[receiver_id].center
+								toward_frame.y = 0.0
+								if toward_frame.length_squared() > 0.01:
+									collector_receivers[receiver_id] = toward_frame.normalized()
+						var shaft_ids: Array = []
+						for shaft_cell in [origin - direction, origin + side, origin - side]:
+							var shaft_id: Variant = by_cell.get(shaft_cell)
+							if boxes.has(shaft_id) and boxes[shaft_id].component in ["wooden_shaft", "softmetal_shaft"]:
+								shaft_ids.append(shaft_id)
+						if shaft_ids.size() == 1:
+							var toward_frame: Vector3 = boxes[frame_id].center - boxes[shaft_ids[0]].center
+							toward_frame.y = 0.0
+							if toward_frame.length_squared() > 0.01:
+								drives[shaft_ids[0]] = toward_frame.normalized()
 			if assembly.get("status") != "ready" or not assembly.get("parts") is Dictionary:
 				continue
-			var frame_id: Variant = assembly.parts.get("frame")
-			var shaft_id: Variant = assembly.parts.get("shaft")
-			if not boxes.has(frame_id) or not boxes.has(shaft_id):
-				continue
-			var toward_frame: Vector3 = boxes[frame_id].center - boxes[shaft_id].center
-			toward_frame.y = 0.0
-			if toward_frame.length_squared() > 0.01:
-				drives[shaft_id] = toward_frame.normalized()
 	var presses: Variant = snapshot.get("press_assemblies", [])
 	if presses is Array:
 		for press: Variant in presses:
@@ -1501,7 +1553,7 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 		add_child(anchor)
 		_placed_component(anchor, spec.component, drives.get(id, Vector3.ZERO),
 			spec.size, press_roles.get(id, ""), float(collector_facings.get(id, 0.0)),
-			support_drop)
+			support_drop, collector_receivers.get(id, Vector3.ZERO))
 
 func _render_receiver_chutes(snapshot: Dictionary) -> void:
 	# A chute joins only a native ready receiver to a native belt endpoint at

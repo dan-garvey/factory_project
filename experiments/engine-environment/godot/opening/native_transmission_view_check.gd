@@ -390,7 +390,7 @@ func _component_view() -> void:
 				and finish.albedo_texture.get_size() == Vector2(1024, 1024)
 				and finish.normal_texture.get_size() == Vector2(1024, 1024),
 				"Each sourced rigid member retains the complete imported 1K PBR surface without rig or collider.")
-	var fixed_feet := {"mount": "SlidingFoot", "edge": "BladeCarrier", "shaft": "BearingFoot"}
+	var fixed_feet := {"mount": "SlidingFoot", "edge": "BladeCarrier"}
 	for id in fixed_feet:
 		var foot_name: String = fixed_feet[id]
 		var foot: MeshInstance3D = anchors[id].get_node(foot_name)
@@ -409,7 +409,12 @@ func _component_view() -> void:
 		var fasteners: Array[Node] = anchors[id].find_children(
 			foot_name + "Fastener*", "MeshInstance3D", false, false)
 		verify(fasteners.size() == 4 and foot.get_script() == null,
-			"The clamp, blade and shaft each sit on one fixed four-fastener casting.")
+			"The clamp and blade each sit on one fixed four-fastener casting.")
+	var carriage: MeshInstance3D = anchors.shaft.get_node_or_null("FrameMountedCarriage")
+	verify(carriage != null and carriage.mesh is ArrayMesh
+		and anchors.shaft.find_children("CarriageRail*", "MeshInstance3D", false, false).size() == 2
+		and anchors.shaft.get_node_or_null("BearingFoot") == null,
+		"A fitted shaft uses a timber carriage and two rails instead of a detached casting pedestal.")
 	var blade: MeshInstance3D = anchors.edge.get_node_or_null("FormedBlade")
 	verify(blade != null and blade.mesh is ArrayMesh,
 		"The confirmed cutting edge has one formed steel blade instead of detached box teeth.")
@@ -542,11 +547,13 @@ func _component_view() -> void:
 	var rod: Node3D = mirrored_shaft.get_node("LooseDriveShaft") if mirrored_shaft != null else null
 	var core: MeshInstance3D = rod.get_node("Shaft") if rod != null else null
 	verify(rod != null and core != null and core.mesh is CylinderMesh
-		and absf(rod.basis.y.z) > 0.99 and is_equal_approx(core.mesh.height, 0.32)
+		and absf(rod.basis.y.z) > 0.99 and is_equal_approx(core.mesh.height, 0.41)
+		and mirrored_shaft.get_node_or_null("FrameJoinSocket") != null
 		and mirrored_shaft.find_children("BearingShell*", "MeshInstance3D", false, false).size() == 2,
-		"A ready side drive has one formed shaft and two journals on its confirmed axis.")
+		"A ready side drive reaches its native box face and seats two journals toward the frame.")
 	facts.state.placed_components.erase("tray")
-	facts.state.collector_assemblies[0] = {"status": "missing_receiver"}
+	facts.state.collector_assemblies[0].status = "missing_receiver"
+	facts.state.collector_assemblies[0].erase("parts")
 	facts.state.revision = 3
 	host.state = facts.state
 	physical.sync_topology()
@@ -557,10 +564,26 @@ func _component_view() -> void:
 	for node: Node in view.get_children():
 		if node.get_meta("component_entity", "") == "shaft":
 			var unready_rod: Node3D = node.get_node("LooseDriveShaft")
-			verify(unready_rod.basis.y.y > 0.99
-				and is_equal_approx((unready_rod.get_node("Shaft") as MeshInstance3D).mesh.height, 0.14)
-				and node.find_children("BearingShell*", "MeshInstance3D", false, false).is_empty(),
-				"An unready placed shaft is stock on its foot, without a falsely connected journal axis.")
+			verify(absf(unready_rod.basis.y.z) > 0.99
+				and is_equal_approx((unready_rod.get_node("Shaft") as MeshInstance3D).mesh.height, 0.41)
+				and node.get_node_or_null("FrameJoinSocket") != null
+				and node.find_children("BearingShell*", "MeshInstance3D", false, false).size() == 2,
+				"Removing the receiver leaves the independently placed shaft fitted to its frame without making the collector ready.")
+			var occupied_shaft: Dictionary = Geometry.component_boxes(facts.state).boxes.shaft
+			for detail: Node in node.find_children("*", "MeshInstance3D", true, false):
+				var mesh := detail as MeshInstance3D
+				verify(AABB(occupied_shaft.center - occupied_shaft.size * 0.5,
+					occupied_shaft.size).grow(0.0002).encloses(mesh.global_transform * mesh.mesh.get_aabb()),
+					"The partial shaft fitting remains inside its independent native occupied box.")
+	facts.state.collector_assemblies[0].status = "unsupported"
+	facts.state.revision = 4
+	host.state = facts.state
+	view.refresh()
+	for node: Node in view.get_children():
+		if node.get_meta("component_entity", "") == "shaft":
+			var loose_rod: Node3D = node.get_node("LooseDriveShaft")
+			verify(loose_rod.basis.y.y > 0.99 and node.get_node_or_null("FrameJoinSocket") == null,
+				"An unsupported face status does not supply a speculative frame fitting.")
 	var south: Dictionary = _component_fixture()
 	south.placed_components.mount.center = [0, 1, 1]
 	south.placed_components.mount.occupied.center = [0.0, 1.3375, 0.4125]
@@ -581,6 +604,14 @@ func _component_view() -> void:
 			south_anchors[node.get_meta("component_entity")] = node
 	var south_blade := south_anchors.edge.get_node("FormedBlade") as MeshInstance3D
 	var south_clamp := south_anchors.mount.get_node("CastToolClamp") as Node3D
+	var south_receiver_hook := south_anchors.tray.get_node("ReceiverHookLeft") as MeshInstance3D
+	var south_crosshead := south_anchors.tray.get_node("ReceiverFrameCrosshead") as MeshInstance3D
+	var south_receiver_box: Dictionary = Geometry.component_boxes(south).boxes.tray
+	verify(south_receiver_hook.position.x < -0.15
+		and AABB(south_receiver_box.center - south_receiver_box.size * 0.5,
+			south_receiver_box.size).grow(0.0002).encloses(
+			south_crosshead.global_transform * south_crosshead.mesh.get_aabb()),
+		"The south-facing receiver docks toward its frame inside its own native occupied box.")
 	verify(south_blade.basis.x.z < -0.89 and south_clamp.basis.z.z < -0.99,
 		"The raised south-facing native workcell turns the blade lip toward ore and its jaw toward the blade.")
 	var south_front := INF
