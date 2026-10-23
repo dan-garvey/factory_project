@@ -82,6 +82,9 @@ func advance() -> Dictionary:
 func publish_actor(actor: String, position: Array, native_epoch: int) -> Dictionary:
 	return _invoke("publish_actor", [actor, position, native_epoch])
 
+func actor_projection(actor: String) -> Dictionary:
+	return _invoke("actor_projection", [actor])
+
 func invalidate_actor(actor: String) -> void:
 	_invoke("invalidate_actor", [actor])
 

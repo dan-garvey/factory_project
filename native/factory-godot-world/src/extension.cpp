@@ -93,14 +93,15 @@ struct EmptyText {
     void* get() { return storage.data(); }
 };
 
-enum class Method { initialize, initialize_arrival, terrain, command, publish, invalidate, advance, projection, checkpoint, restore, validate };
+enum class Method { initialize, initialize_arrival, terrain, command, publish, actor_projection, invalidate, advance, projection, checkpoint, restore, validate };
 struct Description { const char* name; Method method; std::uint32_t arguments; };
 std::array methods{
     Description{"initialize", Method::initialize, 2},
     Description{"initialize_arrival", Method::initialize_arrival, 2},
     Description{"command", Method::command, 2},
     Description{"configure_terrain", Method::terrain, 1},
-    Description{"publish_actor", Method::publish, 3}, Description{"invalidate_actor", Method::invalidate, 1},
+    Description{"publish_actor", Method::publish, 3}, Description{"actor_projection", Method::actor_projection, 1},
+    Description{"invalidate_actor", Method::invalidate, 1},
     Description{"advance", Method::advance, 0}, Description{"projection", Method::projection, 0},
     Description{"checkpoint", Method::checkpoint, 0}, Description{"restore_checkpoint", Method::restore, 1},
     Description{"validate_checkpoint", Method::validate, 1}};
@@ -148,6 +149,7 @@ Value invoke(Instance& instance, Method method, const std::vector<Value>& args) 
         }
         case Method::command: return host.command(typed<std::string>(args, 0), typed<Object>(args, 1));
         case Method::publish: return host.publish_actor(typed<std::string>(args, 0), typed<Value::Array>(args, 1), typed<Value::Integer>(args, 2));
+        case Method::actor_projection: return host.actor_projection(typed<std::string>(args, 0));
         case Method::invalidate: return host.invalidate_actor(typed<std::string>(args, 0));
         case Method::advance: return with_opening_engineering(host, host.advance());
         case Method::projection: return with_opening_engineering(host, host.projection());

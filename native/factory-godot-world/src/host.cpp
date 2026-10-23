@@ -1895,6 +1895,15 @@ Value Host::publish_actor(const std::string& actor, const Array& position, Integ
     return result(true, "actor_published");
 }
 
+Value Host::actor_projection(const std::string& actor) const {
+    if (!owned_) return result(false, "not_initialized");
+    const auto found = owned_->actors.find(actor);
+    if (found == owned_->actors.end()) return result(false, "unknown_actor");
+    const auto& current = found->second;
+    return Value(Object{{"accepted", Value(true)}, {"ready", Value(current.ready)},
+        {"position", point_value(current.position)}, {"native_epoch", Value(current.epoch)}});
+}
+
 Value Host::invalidate_actor(const std::string& actor) {
     if (!owned_ || !owned_->actors.contains(actor)) return result(false, "unknown_actor");
     // Retain the last ordinal so invalidation cannot permit a stale sample.
