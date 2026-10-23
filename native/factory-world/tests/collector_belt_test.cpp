@@ -3,6 +3,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 
 namespace {
 namespace w = factory::world;
@@ -237,11 +238,91 @@ void transfers_only_to_outward_belt() {
           "An absent belt leaves the hand-cut blank in the ready receiver.");
 }
 
+void builds_powered_route_from_finite_arrival_stock() {
+    auto f = fixture();
+    f.profile.finite_parts.clear();
+    f.profile.fabrication_parts = {{{s::Role::shaft, 0, 2}, {1, 0}},
+        {{s::Role::belt, 0, 0}, {2, 1}}, {{s::Role::waterwheel, 0, 0}, {2, 1}}};
+    f.profile.material.timber_sites.at("tree").initial = 14;
+    f.state.material.timber_remaining.at("tree") = 14;
+    f.profile.initial_units = f.state.material.initial_units = f.state.material.stock.source = 4;
+    f.profile.material.hand_carry_capacity = 24;
+    f.state.topology.parts.clear();
+    f.state.topology.sources.clear();
+    f.state.topology.belt_spans.clear();
+    f.state.material.belt_lanes.clear();
+    f.state.kits.at("P").clear();
+    for (const auto& id : {"wheel", "inlet", "far", "span"}) f.state.issued_entities.erase(id);
+    auto world = prepared(f);
+    check(world->snapshot().state.material.dropped_material.contains({0, 0, 1}),
+          "The fresh collector retains its hand-cut blank while no belt is present.");
+    for (int index = 0; index < 7; ++index) {
+        auto harvest = request("route-wood-" + std::to_string(index), "harvest_source");
+        harvest.emplace("target", V("tree"));
+        accepted(*world, harvest);
+    }
+    for (int index = 0; index < 2; ++index) {
+        auto harvest = request("route-ore-" + std::to_string(index), "harvest_source");
+        harvest.emplace("target", V("ore"));
+        accepted(*world, harvest);
+    }
+    for (const auto& [name, role, span] : {
+            std::tuple{"inlet", "shaft", g::Integer{2}},
+            std::tuple{"middle", "shaft", g::Integer{2}},
+            std::tuple{"far", "shaft", g::Integer{2}},
+            std::tuple{"span", "belt", g::Integer{0}},
+            std::tuple{"wheel", "waterwheel", g::Integer{0}}}) {
+        auto craft = request(std::string("craft-route-") + name, "craft_part");
+        craft.emplace("target", V("pod-fabrication-hub"));
+        craft.emplace("generation", V(g::Integer{1}));
+        craft.emplace("role", V(role));
+        craft.emplace("half_span", V(span));
+        accepted(*world, craft);
+    }
+    const auto place = [&](const char* name, const char* role, g::Point center, const char* axis,
+                           g::Integer half_span) {
+        auto intent = request(std::string("place-route-") + name, "place");
+        intent.emplace("role", V(role));
+        intent.emplace("center", V(V::Array{V(center[0]), V(center[1]), V(center[2])}));
+        intent.emplace("axis", V(axis));
+        intent.emplace("teeth", V(g::Integer{0}));
+        intent.emplace("half_span", V(half_span));
+        return accepted(*world, intent);
+    };
+    const auto wheel = place("wheel", "waterwheel", {-8, 0, 4}, "x", 0);
+    place("middle", "shaft", {-4, 0, 4}, "x", 2);
+    const auto inlet = place("inlet", "shaft", {0, 0, 4}, "x", 2);
+    const auto far = place("far", "shaft", {0, 0, 8}, "x", 2);
+    auto span = request("place-route-span", "place_belt_span");
+    span.emplace("target", inlet.at("entity"));
+    span.emplace("generation", inlet.at("generation"));
+    span.emplace("to", far.at("entity"));
+    span.emplace("to_generation", far.at("generation"));
+    const auto placed_span = accepted(*world, span);
+    check(world->snapshot().state.material.fabricated_timber == 7 &&
+          world->snapshot().state.material.fabricated_raw == 2 &&
+          world->snapshot().state.material.timber_remaining.at("tree") == 0,
+          "The installed drive route embodies exactly seven finite timber and two ore units.");
+    check(world->tick().error == w::TransactionError::none,
+          "The built route accepts a powered tick.");
+    const auto& lane = world->snapshot().state.material.belt_lanes.at(
+        std::get<std::string>(placed_span.at("entity").storage()));
+    check(!world->snapshot().state.material.dropped_material.contains({0, 0, 1}) &&
+          (lane.slots[0] || lane.slots[1]),
+          "The real receiver blank crosses into the player-built outward belt.");
+    const auto encoded = w::encode_checkpoint(f.profile, world->snapshot());
+    check(std::holds_alternative<V>(encoded) &&
+          std::holds_alternative<w::Snapshot>(w::decode_checkpoint(f.profile, "collector-belt", std::get<V>(encoded))),
+          "The fabricated powered route and transferred blank survive the native checkpoint.");
+    (void)wheel;
+}
+
 } // namespace
 
 int main() {
     try {
         transfers_only_to_outward_belt();
+        builds_powered_route_from_finite_arrival_stock();
         std::cout << "collector_belt_test: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {

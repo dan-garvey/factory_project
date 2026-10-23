@@ -421,7 +421,20 @@ func _make_legacy_worker_visual() -> MeshInstance3D:
 
 func _adult_image(path: String) -> Image:
 	var image: Image = null
-	if ResourceLoader.exists(path, "Texture2D"):
+	var imported_ready := true
+	var descriptor_path := path + ".import"
+	if FileAccess.file_exists(descriptor_path):
+		var descriptor := ConfigFile.new()
+		if descriptor.load(descriptor_path) != OK:
+			return null
+		var cooked: Variant = descriptor.get_value("remap", "path", "")
+		if typeof(cooked) != TYPE_STRING or cooked.is_empty():
+			return null
+		# A tracked descriptor can outlive its generated cache in a fresh
+		# checkout. Avoid a failing ResourceLoader.load before decoding the
+		# fixed captured source image directly.
+		imported_ready = FileAccess.file_exists(cooked) or ResourceLoader.exists(cooked, "Texture2D")
+	if imported_ready and ResourceLoader.exists(path, "Texture2D"):
 		var texture := ResourceLoader.load(path, "Texture2D") as Texture2D
 		image = texture.get_image() if texture != null else null
 	elif FileAccess.file_exists(path):

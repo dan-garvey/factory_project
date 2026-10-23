@@ -104,8 +104,10 @@ The modular arrival press uses the same WorkLot advance arithmetic. Its manual
 crank starts work on the first turn, advances one baseline work tick on each
 later turn and retains a ready lot at the physical work point when the selected
 exit is full. Multiple work points remain independent inside one material State.
-The material checkpoint schema is 6 and includes belt-lane and typed loose-material custody; earlier
-schemas are refused rather than inventing a compatibility migration.
+The nonresource material checkpoint schema is 6. The arrival resource payload
+uses schema 10 and includes belt-lane and typed loose-material custody plus
+timber and ore embodied in fabricated stationary kits. Earlier schemas are
+refused rather than inventing a compatibility migration.
 
 Product retrieval credits only an already admitted actor's Cargo.products.
 It cannot create a new actor, collect raw material as a plate or consume a work

@@ -243,6 +243,17 @@ int main() {
         large_serial.processing->id = 9007199254740993LL;
         large_serial.next_work_id = 9007199254740994LL;
         round_trip(large_serial);
+        m::State many;
+        many.initial_units = 2000;
+        many.cargo = {{"P", {}}, {"Q", {}}};
+        many.next_work_id = 1001;
+        for (m::WorkId id = 1; id <= 1000; ++id)
+            many.dropped_material.emplace(m::DropPoint{id * 4, 0, 0},
+                m::Cargo{0, 0, {m::WorkLot{id, {2, 4}, 4}}});
+        for (int index = 0; index < 300; ++index)
+            many.belt_lanes.emplace("span-" + std::to_string(index),
+                m::BeltLane{{std::nullopt, std::nullopt}});
+        round_trip(many);
         m::State empty;
         round_trip(empty, {}, {});
         check(state == fixture());

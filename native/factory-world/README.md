@@ -134,7 +134,7 @@ survive recovery and reinsertion. A ready lot with zero remaining time still
 occupies its processor. Material links are the two permitted transport edges,
 not arbitrary power-transmission edges.
 
-This first profile limits the roster to 16 actors, current work to 256 lots and
+This first profile limits the roster to 16 actors, current work to 4096 lots and
 issued entity identities to 4096. Other inherited component bounds still apply.
 These are adapter limits, not permanent game requirements. Calls are serialized
 on the authority thread. The native host observation callback is trusted code;

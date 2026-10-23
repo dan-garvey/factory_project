@@ -37,7 +37,7 @@ using Role = stationary::Role;
 
 constexpr std::size_t maximum_actors = 16;
 constexpr std::size_t maximum_issued_entities = 4096;
-constexpr std::size_t maximum_current_work = 256;
+constexpr std::size_t maximum_current_work = materials::maximum_live_work_lots;
 constexpr Integer foundation_depth_levels = 2;
 constexpr std::string_view allocated_prefix = "native-part-";
 
@@ -92,6 +92,12 @@ bool add(Integer& total, Integer count) {
     return true;
 }
 
+bool weighted_add(Integer& total, Integer count, Integer unit) {
+    if (count < 0 || unit < 0 || (unit > 0 && count > std::numeric_limits<Integer>::max() / unit))
+        return false;
+    return add(total, count * unit);
+}
+
 const stationary::PlacedPart* part(const stationary::Topology& topology, const std::string& id) {
     const auto found = std::find_if(topology.parts.begin(), topology.parts.end(),
         [&](const auto& item) { return item.geometry.id == id; });
@@ -114,6 +120,9 @@ bool shape(const Object& intent, const std::string& action) {
     if (action == "craft_component") return keys(intent, {"target", "generation", "component"}) &&
         field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
         field<std::string>(intent, "component");
+    if (action == "craft_part") return keys(intent, {"target", "generation", "role", "half_span"}) &&
+        field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
+        field<std::string>(intent, "role") && field<Integer>(intent, "half_span");
     if (action == "take_hand_crank" || action == "return_hand_crank")
         return keys(intent, {"target", "generation"}) && field<std::string>(intent, "target") &&
             field<Integer>(intent, "generation");
@@ -434,6 +443,29 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
             count && *count > 0 && *count <= profile.material.component_capacity &&
             targets.front() == anchor(profile, landing_hub_center(*profile.landing_pod_center)) && result.size() == 20;
     }
+    if (action == "craft_part") {
+        const auto* target = field<std::string>(record.intent, "target");
+        const auto* requested_generation = field<Integer>(record.intent, "generation");
+        const auto* requested_role = field<std::string>(record.intent, "role");
+        const auto* requested_span = field<Integer>(record.intent, "half_span");
+        const auto selected = requested_role ? role(*requested_role) : std::nullopt;
+        const auto recipe = selected && requested_span ?
+            profile.fabrication_parts.find({*selected, 0, *requested_span}) : profile.fabrication_parts.end();
+        const auto* entity = field<std::string>(result, "entity");
+        const auto* generation = field<Integer>(result, "generation");
+        const auto* made_role = field<std::string>(result, "role");
+        const auto* made_span = field<Integer>(result, "half_span");
+        const auto* timber = field<Integer>(result, "spent_timber");
+        const auto* raw = field<Integer>(result, "spent_raw");
+        const auto* count = field<Integer>(result, "part_count");
+        return profile.landing_pod_center && target && *target == "pod-fabrication-hub" &&
+            requested_generation && *requested_generation == 1 && entity && *entity == *target &&
+            generation && *generation == 1 && requested_role && made_role && *made_role == *requested_role &&
+            requested_span && made_span && *made_span == *requested_span &&
+            recipe != profile.fabrication_parts.end() && timber && *timber == recipe->second.timber &&
+            raw && *raw == recipe->second.ore && count && *count > 0 && *count <= 4096 &&
+            targets.front() == anchor(profile, landing_hub_center(*profile.landing_pod_center)) && result.size() == 21;
+    }
     if (action == "take_hand_crank" || action == "return_hand_crank") {
         const auto* target = field<std::string>(record.intent, "target");
         const auto* requested_generation = field<Integer>(record.intent, "generation");
@@ -637,7 +669,7 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
     return true;
 }
 
-bool history_domain(const Profile& profile, const Snapshot& snapshot) {
+bool history_domain(const Profile& profile, const Snapshot& snapshot, const stationary::Kit& totals) {
     std::set<std::pair<std::string, std::string>> used_belt_selections;
     std::map<std::pair<std::string, Integer>, mechanics::Point> placed_shafts;
     auto foundation_kits = profile.starting_foundation_kits;
@@ -649,6 +681,9 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
     Integer harvested_ore = 0;
     Integer cranked_ore = 0;
     std::map<std::pair<std::string, materials::Component>, Integer> crafted_components;
+    stationary::Kit fabricated_parts;
+    std::map<std::string, stationary::Kit> fabricated_balances;
+    std::map<std::string, stationary::PartSpec> installed_fabrication;
     std::map<std::string, std::pair<materials::Component, mechanics::Point>> placed_components;
     struct PressWorkRecord {
         materials::WorkId id{}; // Zero means a fed raw blank.
@@ -742,6 +777,21 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
                 return false;
             carried_timber[*actor] -= cost->timber;
             if (profile.landing_pod_center) carried_raw[*actor] -= cost->ore;
+        }
+        if (*action == "craft_part") {
+            const auto selected = role(*field<std::string>(record.intent, "role"));
+            if (!selected) return false;
+            const stationary::PartSpec spec{*selected, 0, *field<Integer>(record.intent, "half_span")};
+            const auto recipe = profile.fabrication_parts.find(spec);
+            if (recipe == profile.fabrication_parts.end() ||
+                carried_timber[*actor] < recipe->second.timber ||
+                carried_raw[*actor] < recipe->second.ore ||
+                !add(fabricated_parts[spec], 1) || fabricated_parts[spec] > 4096 ||
+                !add(fabricated_balances[*actor][spec], 1) ||
+                fabricated_balances[*actor][spec] != *field<Integer>(record.result, "part_count"))
+                return false;
+            carried_timber[*actor] -= recipe->second.timber;
+            carried_raw[*actor] -= recipe->second.ore;
         }
         if (*action == "take_hand_crank" || *action == "return_hand_crank") {
             if (!profile.landing_pod_center) return false;
@@ -914,6 +964,29 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
             const auto center = grid_point(record.intent);
             if (role_name && *role_name == "shaft" && center)
                 placed_shafts.emplace(std::make_pair(*entity, *generation), *center);
+            const auto selected = role_name ? role(*role_name) : std::nullopt;
+            if (selected) {
+                const stationary::PartSpec spec{*selected, *field<Integer>(record.intent, "teeth"),
+                    *field<Integer>(record.intent, "half_span")};
+                if (profile.fabrication_parts.contains(spec) &&
+                    (fabricated_balances[*actor][spec] < 1 ||
+                     !installed_fabrication.emplace(*entity, spec).second)) return false;
+                if (profile.fabrication_parts.contains(spec)) --fabricated_balances[*actor][spec];
+            }
+        }
+        if (*action == "place_belt_span" || *action == "place_selected_belt_span") {
+            const stationary::PartSpec spec{Role::belt, 0, 0};
+            if (profile.fabrication_parts.contains(spec) &&
+                (fabricated_balances[*actor][spec] < 1 ||
+                 !installed_fabrication.emplace(*entity, spec).second)) return false;
+            if (profile.fabrication_parts.contains(spec)) --fabricated_balances[*actor][spec];
+        }
+        if (*action == "remove" || *action == "remove_belt_span") {
+            const auto installed = installed_fabrication.find(*entity);
+            if (installed != installed_fabrication.end()) {
+                if (!add(fabricated_balances[*actor][installed->second], 1)) return false;
+                installed_fabrication.erase(installed);
+            }
         }
         if (*action == "place_belt_span" || *action == "place_selected_belt_span") {
             for (const auto& [id_key, generation_key, center_key] : {
@@ -1038,6 +1111,38 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot) {
         const auto found = actor->second.components.find(actor_component.second);
         if (count == 0 ? found != actor->second.components.end() :
             found == actor->second.components.end() || found->second != count) return false;
+    }
+    auto expected_parts = profile.finite_parts;
+    for (const auto& [spec, recipe] : profile.fabrication_parts) {
+        (void)recipe;
+        expected_parts.try_emplace(spec, 0);
+    }
+    Integer embodied_timber = 0, embodied_raw = 0;
+    for (const auto& [spec, count] : fabricated_parts) {
+        const auto recipe = profile.fabrication_parts.find(spec);
+        if (recipe == profile.fabrication_parts.end() || count < 1 ||
+            !add(expected_parts[spec], count) ||
+            !weighted_add(embodied_timber, count, recipe->second.timber) ||
+            !weighted_add(embodied_raw, count, recipe->second.ore)) return false;
+    }
+    if (expected_parts != totals || embodied_timber != snapshot.state.material.fabricated_timber ||
+        embodied_raw != snapshot.state.material.fabricated_raw) return false;
+    for (const auto& [actor, kits] : snapshot.state.kits)
+        for (const auto& [spec, recipe] : profile.fabrication_parts) {
+            (void)recipe;
+            const auto current = kits.find(spec);
+            const auto balance = fabricated_balances[actor][spec];
+            if ((current == kits.end() ? 0 : current->second) != balance) return false;
+        }
+    for (const auto& [id, spec] : installed_fabrication) {
+        if (spec.role == Role::belt) {
+            if (std::none_of(snapshot.state.topology.belt_spans.begin(), snapshot.state.topology.belt_spans.end(),
+                    [&](const auto& span) { return span.geometry.id == id; })) return false;
+        } else {
+            const auto* live = part(snapshot.state.topology, id);
+            if (!live || stationary::PartSpec{live->role, live->geometry.teeth,
+                    live->geometry.half_span} != spec) return false;
+        }
     }
     return true;
 }
@@ -1234,12 +1339,18 @@ materials::MachinePower machine_power(const Profile& profile, const State& state
 
 bool validate(const Profile& profile, const Snapshot& snapshot) {
     if (profile.actors.empty() || profile.actors.size() > maximum_actors || profile.initial_units < 0 ||
-        profile.finite_parts.size() > stationary::maximum_specifications ||
+        profile.finite_parts.size() + profile.fabrication_parts.size() > stationary::maximum_specifications ||
         profile.waterwheel_rate.numerator == 0 || profile.waterwheel_rate.denominator <= 0 ||
         !std::isfinite(profile.meters_per_grid_unit) || profile.meters_per_grid_unit <= 0 ||
         profile.meters_per_grid_unit > 1000 || !std::isfinite(profile.build_reach) ||
         profile.build_reach <= 0 || profile.build_reach > 1000000 ||
         profile.foundation_parts < 0 || profile.foundation_parts > 256) return false;
+    if (!profile.fabrication_parts.empty() && !profile.landing_pod_center) return false;
+    for (const auto& [spec, cost] : profile.fabrication_parts)
+        if (!spec_valid(spec) || profile.finite_parts.contains(spec) ||
+            (spec.role != Role::waterwheel && spec.role != Role::shaft && spec.role != Role::belt) ||
+            cost.timber < 0 || cost.ore < 0 || (cost.timber == 0 && cost.ore == 0) ||
+            cost.timber > 256 || cost.ore > profile.initial_units) return false;
     if (profile.landing_pod_center) {
         const auto& center = *profile.landing_pod_center;
         if (profile.foundation_parts < landing_deck_parts || center[0] % 4 || center[1] % 4 || center[2] % 4)
@@ -1401,6 +1512,10 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
         if (!spec_valid(spec) || count <= 0) return false;
         totals.emplace(spec, 0);
     }
+    for (const auto& [spec, cost] : profile.fabrication_parts) {
+        (void)cost;
+        totals.emplace(spec, 0);
+    }
     for (const auto& actor : profile.actors) {
         const auto cargo = state.material.cargo.find(actor);
         const auto kit = state.kits.find(actor);
@@ -1485,10 +1600,10 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
     }
     if (state.material.belt_lanes.size() != state.topology.belt_spans.size()) return false;
     if (!state.topology.material_links.empty()) return false;
-    if (totals != profile.finite_parts || !drive_power(profile, state).mechanical.accepted() ||
+    if (!drive_power(profile, state).mechanical.accepted() ||
         materials::validate(state.material, profile.material, material_path(state.topology)) != materials::Error::none)
         return false;
-    return history_domain(profile, snapshot);
+    return history_domain(profile, snapshot, totals);
 }
 
 std::unique_ptr<World> World::create(std::string context, Profile profile, const State& seed) {
@@ -1632,6 +1747,50 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         facts.emplace("spent_timber", Value(cost->timber));
         facts.emplace("spent_raw", Value(cost->ore));
         facts.emplace("component_count", Value(candidate.material.cargo.at(binding.actor).components.at(*component)));
+        return accepted(std::move(candidate), *id, std::move(facts));
+    }
+    if (*action == "craft_part") {
+        const auto* id = field<std::string>(intent, "target");
+        const auto* generation = field<Integer>(intent, "generation");
+        const auto* requested = field<std::string>(intent, "role");
+        const auto* half_span = field<Integer>(intent, "half_span");
+        if (!id || !generation || !requested || !half_span) return refused("invalid_target");
+        if (!state.fabrication_hub || *id != state.fabrication_hub->id)
+            return refused("unknown_target", *id);
+        if (*generation != state.fabrication_hub->generation)
+            return refused("stale_generation", *id);
+        const auto selected = role(*requested);
+        const auto recipe = selected ? profile_.fabrication_parts.find({*selected, 0, *half_span}) :
+            profile_.fabrication_parts.end();
+        if (recipe == profile_.fabrication_parts.end()) return refused("unavailable_recipe", *id);
+        const auto cut = observe ? observe(binding.actor) : std::nullopt;
+        if (!cut) return refused("actor_unready", *id);
+        auto checked_cut = *cut;
+        checked_cut.build_reach = profile_.build_reach;
+        const auto checked = authority::check_reach(binding.actor, checked_cut,
+            {anchor(profile_, state.fabrication_hub->center)});
+        auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
+        if (checked.error != authority::Error::none)
+            return refused(authority::error_name(checked.error), *id, std::move(facts));
+        const auto cost = recipe->second;
+        const auto& carried = state.material.cargo.at(binding.actor);
+        if (carried.timber < cost.timber || carried.raw_units < cost.ore)
+            return refused("unavailable_input", *id, std::move(facts));
+        auto candidate = state;
+        auto& next_cargo = candidate.material.cargo.at(binding.actor);
+        next_cargo.timber -= cost.timber;
+        next_cargo.raw_units -= cost.ore;
+        if (!add(candidate.material.fabricated_timber, cost.timber) ||
+            !add(candidate.material.fabricated_raw, cost.ore) ||
+            !add(candidate.kits.at(binding.actor)[recipe->first], 1) ||
+            candidate.kits.at(binding.actor)[recipe->first] > 4096)
+            return refused("quantity_overflow", *id, std::move(facts));
+        facts.emplace("generation", Value(*generation));
+        facts.emplace("role", Value(*requested));
+        facts.emplace("half_span", Value(*half_span));
+        facts.emplace("spent_timber", Value(cost.timber));
+        facts.emplace("spent_raw", Value(cost.ore));
+        facts.emplace("part_count", Value(candidate.kits.at(binding.actor).at(recipe->first)));
         return accepted(std::move(candidate), *id, std::move(facts));
     }
     if (*action == "take_hand_crank" || *action == "return_hand_crank") {
@@ -2488,7 +2647,8 @@ Advance World::tick() noexcept {
                         const auto& cargo = *slots[index];
                         if (raw_total > std::numeric_limits<Integer>::max() - cargo.raw_units ||
                             product_total > std::numeric_limits<Integer>::max() - cargo.products ||
-                            work_total > 256 || cargo.work_lots.size() > 256 - work_total) break;
+                            work_total > materials::maximum_live_work_lots ||
+                            cargo.work_lots.size() > materials::maximum_live_work_lots - work_total) break;
                         raw_total += cargo.raw_units;
                         product_total += cargo.products;
                         work_total += cargo.work_lots.size();

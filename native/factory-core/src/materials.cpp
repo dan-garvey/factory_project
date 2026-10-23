@@ -1,5 +1,6 @@
 #include "factory/materials.hpp"
 
+#include <algorithm>
 #include <initializer_list>
 #include <limits>
 #include <numeric>
@@ -37,40 +38,6 @@ bool valid_lot(const WorkLot& lot, const State& state, const Config& config) noe
         && lot.work_remainder_denominator > 0 && lot.work_remainder >= 0
         && lot.work_remainder < lot.work_remainder_denominator
         && (lot.remaining_ticks != 0 || (lot.completed_subticks == 0 && lot.work_remainder == 0));
-}
-
-// Validation is allocation-free to preserve its noexcept contract. The first
-// finite fixture has few simultaneous lots; no factory-scale cost is claimed.
-bool unique_lot(const State& state, WorkId id) noexcept {
-    bool seen = state.processing && state.processing->id == id;
-    for (const auto& [actor, cargo] : state.cargo) {
-        (void)actor;
-        for (const auto& lot : cargo.work_lots) {
-            if (lot.id != id) continue;
-            if (seen) return false;
-            seen = true;
-        }
-    }
-    for (const auto& [span_id, lane] : state.belt_lanes) {
-        (void)span_id;
-        for (const auto& item : lane.slots) {
-            if (!item) continue;
-            for (const auto& lot : item->work_lots) {
-                if (lot.id != id) continue;
-                if (seen) return false;
-                seen = true;
-            }
-        }
-    }
-    for (const auto& [point, cargo] : state.dropped_material) {
-        (void)point;
-        for (const auto& lot : cargo.work_lots) {
-            if (lot.id != id) continue;
-            if (seen) return false;
-            seen = true;
-        }
-    }
-    return seen;
 }
 
 void advance_work(WorkLot& lot, Quantity subticks, Quantity remainder, Quantity remainder_denominator) noexcept {
@@ -299,21 +266,21 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
     std::size_t current_work = state.processing ? 1 : 0;
     for (const auto& [actor, cargo] : state.cargo) {
         (void)actor;
-        if (cargo.work_lots.size() > 256 - current_work) return Error::invalid_state;
+        if (cargo.work_lots.size() > maximum_live_work_lots - current_work) return Error::invalid_state;
         current_work += cargo.work_lots.size();
     }
-    if (state.belt_lanes.size() > 256) return Error::invalid_state;
+    if (state.belt_lanes.size() > maximum_belt_lanes) return Error::invalid_state;
     for (const auto& [id, lane] : state.belt_lanes) {
         (void)id;
         if (lane.slots.size() > maximum_belt_slots) return Error::invalid_state;
         for (const auto& item : lane.slots) if (item) {
-            if (item->work_lots.size() > 256 - current_work) return Error::invalid_state;
+            if (item->work_lots.size() > maximum_live_work_lots - current_work) return Error::invalid_state;
             current_work += item->work_lots.size();
         }
     }
     for (const auto& [point, cargo] : state.dropped_material) {
         (void)point;
-        if (cargo.work_lots.size() > 256 - current_work) return Error::invalid_state;
+        if (cargo.work_lots.size() > maximum_live_work_lots - current_work) return Error::invalid_state;
         current_work += cargo.work_lots.size();
     }
     const auto& stock = state.stock;
@@ -329,8 +296,16 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
         (!path.processor_present && (stock.input != 0 || state.processing || stock.output != 0))) {
         return Error::invalid_path;
     }
-    if (state.processing && (!valid_lot(*state.processing, state, config) ||
-                             !unique_lot(state, state.processing->id))) return Error::invalid_state;
+    // Collect serials once and compare sorted IDs. Repeated scans of all
+    // holders for every lot made checkpoint validation quadratic at scale.
+    std::array<WorkId, maximum_live_work_lots> live_ids{};
+    std::size_t live_count = 0;
+    const auto record_lot = [&](const WorkLot& lot) {
+        if (!valid_lot(lot, state, config)) return false;
+        live_ids[live_count++] = lot.id;
+        return true;
+    };
+    if (state.processing && !record_lot(*state.processing)) return Error::invalid_state;
     Quantity total = 0;
     for (const auto value : {stock.source, stock.collector, stock.belt, stock.input}) {
         if (!add(total, value)) return Error::quantity_overflow;
@@ -345,7 +320,7 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
         if (!add(total, cargo.raw_units) || !products(total, cargo.products, config.input_units_per_product))
             return Error::quantity_overflow;
         for (const auto& lot : cargo.work_lots) {
-            if (!valid_lot(lot, state, config) || !unique_lot(state, lot.id)) return Error::invalid_state;
+            if (!record_lot(lot)) return Error::invalid_state;
             if (!add(total, lot.recipe.input_units_per_product)) return Error::quantity_overflow;
         }
     }
@@ -369,7 +344,7 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
             if (product && !add(total, config.input_units_per_product)) return Error::quantity_overflow;
             if (work) {
                 const auto& lot = item->work_lots.front();
-                if (!valid_lot(lot, state, config) || !unique_lot(state, lot.id)) return Error::invalid_state;
+                if (!record_lot(lot)) return Error::invalid_state;
                 if (!add(total, lot.recipe.input_units_per_product)) return Error::quantity_overflow;
             }
         }
@@ -391,11 +366,13 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
             return Error::quantity_overflow;
         }
         for (const auto& lot : cargo.work_lots) {
-            if (!valid_lot(lot, state, config) || !unique_lot(state, lot.id)) return Error::invalid_state;
+            if (!record_lot(lot)) return Error::invalid_state;
             if (!add(total, lot.recipe.input_units_per_product)) return Error::quantity_overflow;
         }
     }
-    if (state.placed_components.size() > 11) return Error::invalid_state;
+    if (state.placed_components.size() > 11 || state.fabricated_timber < 0 ||
+        state.fabricated_raw < 0 || !add(timber_accounted, state.fabricated_timber) ||
+        !add(total, state.fabricated_raw)) return Error::invalid_state;
     for (const auto& [kind, count] : state.placed_components) {
         const auto cost = component_cost(kind);
         if (!cost || count < 1 || count > 4096 ||
@@ -404,6 +381,9 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
     }
     if (!state.placed_components.empty() && !config.manual_ore && config.timber_sites.empty())
         return Error::invalid_state;
+    std::sort(live_ids.begin(), live_ids.begin() + live_count);
+    if (std::adjacent_find(live_ids.begin(), live_ids.begin() + live_count) !=
+        live_ids.begin() + live_count) return Error::invalid_state;
     return total == state.initial_units && timber_accounted == timber_total ?
         Error::none : Error::invalid_state;
 }

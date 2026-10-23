@@ -13,7 +13,9 @@ namespace factory::materials {
 using Quantity = std::int64_t;
 using WorkId = std::int64_t;
 using DropPoint = std::array<Quantity, 3>;
-inline constexpr std::size_t maximum_drop_points = 256;
+inline constexpr std::size_t maximum_drop_points = 4096;
+inline constexpr std::size_t maximum_belt_lanes = 4096;
+inline constexpr std::size_t maximum_live_work_lots = 4096;
 inline constexpr Quantity maximum_drop_coordinate = 1000004;
 inline constexpr Quantity work_subticks_per_tick = 4096;
 inline constexpr Quantity maximum_work_subticks_per_tick = 16 * work_subticks_per_tick;
@@ -169,6 +171,11 @@ struct State {
     // World owns geometry and identity; this count keeps installed parts in
     // the same conserved material ledger as actor cargo and recipe inputs.
     std::map<Component, Quantity> placed_components{};
+    // Material embodied in fabricated stationary kits and their installed
+    // parts. World matches these totals to accepted fabrication history and
+    // the exact native kit/topology census.
+    Quantity fabricated_timber{};
+    Quantity fabricated_raw{};
     State() = default;
     State(Quantity initial, Stock contents, std::map<std::string, Cargo> actors,
           std::optional<WorkLot> work, WorkId serial)

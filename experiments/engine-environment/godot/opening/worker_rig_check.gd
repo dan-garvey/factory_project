@@ -19,6 +19,7 @@ class HostFixture:
 		"Q": {"ready": true, "position": [2.0, 0.9, 0.0]}}}
 	var client := "P"
 	var explanation_open := false
+	var distance := 2.0
 	var focus := Vector3.ZERO
 	var control_calls := 0
 	func _update_camera() -> void:
@@ -1383,6 +1384,16 @@ func run() -> void:
 			and cold_decoded.get_size() == Vector2i(2, 2) and cold_decoded.get_pixel(0, 0).b > 0.7,
 			"An unimported worker map decodes before an editor or export builds its texture cache.")
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(cold_path))
+	var opacity_path := Presenter.ADULT_ASSETS + "opacity_color.webp"
+	var tracked_descriptor := ConfigFile.new()
+	verify(tracked_descriptor.load(opacity_path + ".import") == OK,
+		"The tracked opacity map declares its imported texture target.")
+	var cooked: Variant = tracked_descriptor.get_value("remap", "path", "")
+	if typeof(cooked) == TYPE_STRING and not FileAccess.file_exists(cooked):
+		var cold_opacity: Image = presenter._adult_image(opacity_path)
+		verify(ResourceLoader.exists(opacity_path, "Texture2D") and cold_opacity != null
+			and cold_opacity.get_size().x > 0 and cold_opacity.get_size().y > 0,
+			"Tracked import metadata cannot suppress raw adult map decoding when its texture cache is absent.")
 	var p: Node3D = presenter.views.P
 	var q: Node3D = presenter.views.Q
 	var body: Node3D = p.get_node("BodyView")

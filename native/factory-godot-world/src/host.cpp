@@ -9,6 +9,7 @@
 #include <initializer_list>
 #include <limits>
 #include <optional>
+#include <set>
 #include <stdexcept>
 #include <tuple>
 #include <utility>
@@ -354,6 +355,11 @@ bool historical_wire(const authority::Record& record) {
         return *original_action == "craft_component" && keys(*wire, {"entity", "component"}) &&
             field<std::string>(*wire, "entity") && field<std::string>(*wire, "component") &&
             same("entity", "target") && same("component", "component");
+    if (*action == "craft_part")
+        return *original_action == "craft_part" && keys(*wire, {"entity", "role", "half_span"}) &&
+            field<std::string>(*wire, "entity") && field<std::string>(*wire, "role") &&
+            field<Integer>(*wire, "half_span") && same("entity", "target") &&
+            same("role", "role") && same("half_span", "half_span");
     if (*action == "take_hand_crank" || *action == "return_hand_crank")
         return *original_action == *action && keys(*wire, {"entity"}) &&
             field<std::string>(*wire, "entity") && same("entity", "target");
@@ -722,6 +728,10 @@ Value Host::initialize_site(const std::string& context, const std::vector<std::s
         // The component limit leaves room to carry one last recipe input,
         // making a full bag a reachable and recoverable workshop refusal.
         profile.material.component_capacity = 20;
+        // Reversible cold-workshop costs for a real powered receiver route.
+        // Every kit remains in the one World inventory and history ledger.
+        profile.fabrication_parts = {{{Role::shaft, 0, 2}, {1, 0}},
+            {{Role::belt, 0, 0}, {2, 1}}, {{Role::waterwheel, 0, 0}, {2, 1}}};
     }
     if (!arrival)
         profile.finite_parts = {{{Role::collector, 0, 0}, 1}, {{Role::belt, 0, 0}, 2},
@@ -1305,6 +1315,17 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             snapshot.state.fabrication_hub->id == *field<std::string>(wire, "entity") ?
             snapshot.state.fabrication_hub->generation : Integer{0}));
         normalized.emplace("component", wire.at("component"));
+    } else if (*action == "craft_part") {
+        if (!keys(wire, {"entity", "role", "half_span"}) ||
+            !field<std::string>(wire, "entity") || !field<std::string>(wire, "role") ||
+            !field<Integer>(wire, "half_span")) return refuse("invalid_command");
+        normalized.at("action") = Value("craft_part");
+        normalized.emplace("target", wire.at("entity"));
+        normalized.emplace("generation", Value(snapshot.state.fabrication_hub &&
+            snapshot.state.fabrication_hub->id == *field<std::string>(wire, "entity") ?
+            snapshot.state.fabrication_hub->generation : Integer{0}));
+        normalized.emplace("role", wire.at("role"));
+        normalized.emplace("half_span", wire.at("half_span"));
     } else if (*action == "take_hand_crank" || *action == "return_hand_crank") {
         if (!keys(wire, {"entity"}) || !field<std::string>(wire, "entity"))
             return refuse("invalid_command");
@@ -2050,8 +2071,16 @@ Value Host::projection() const {
         projected_kit.emplace("foundation", Value(state.foundation_kits.at(actor)));
         kits.emplace(actor, Value(std::move(projected_kit)));
         Array entries;
+        std::set<stationary::PartSpec> offered;
         for (const auto& [specification, initial] : profile_.finite_parts) {
             (void)initial;
+            offered.insert(specification);
+        }
+        for (const auto& [specification, cost] : profile_.fabrication_parts) {
+            (void)cost;
+            offered.insert(specification);
+        }
+        for (const auto& specification : offered) {
             const auto found = kit.find(specification);
             entries.emplace_back(Object{{"kind", Value(kind(specification.role))},
                 {"teeth", Value(specification.teeth)}, {"half_span", Value(specification.half_span)},
@@ -2146,6 +2175,12 @@ Value Host::projection() const {
                 {"timber", Value(cost->timber)}, {"softmetal", Value(cost->ore)}}));
         }
         projection.emplace("component_recipes", Value(std::move(recipes)));
+        Array fabrication;
+        for (const auto& [spec, cost] : profile_.fabrication_parts)
+            fabrication.emplace_back(Object{{"kind", Value(kind(spec.role))},
+                {"teeth", Value(spec.teeth)}, {"half_span", Value(spec.half_span)},
+                {"timber", Value(cost.timber)}, {"softmetal", Value(cost.ore)}});
+        projection.emplace("part_recipes", Value(std::move(fabrication)));
         projection.emplace("component_capacity", Value(profile_.material.component_capacity));
         const auto& crank = *state.hand_crank;
         projection.emplace("hand_crank", Value(Object{{"id", Value(crank.id)},

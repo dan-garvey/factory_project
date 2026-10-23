@@ -3,10 +3,13 @@
 An experimental 3D opening for a mechanically focused factory game. The ordinary
 offline entry now starts from the native arrival profile: a common-grid deck,
 finite resources and carried foundation parts, with no complete starter machines.
-Point at the ore deposit in inspection mode and press E to collect through the
-native material owner. The HUD shows carried timber and softmetal. This is an
-unfinished chapter: visible harvestable-tree bindings, timed tool use, pod and
-workshop art, crafting/assembly controls and shared arrival adoption remain work.
+Point at a tree or the ore deposit and press E to gather finite material through
+the native owner. At the pod workshop, make separate collector and press parts;
+the powered-route recipes make shaft tiles, belt spans and a waterwheel from
+carried stock. Fit a collector receiver beside an outward belt inlet, then turn
+its fitted shaft with the pod crank to cut a blank. The wheel powers belt travel.
+The HUD shows carried timber, softmetal and the next local step. This remains
+an unfinished chapter; shared arrival adoption and human play feedback remain open.
 The earlier complete collector, belt, press and four-plate scenarios remain
 regression fixtures rather than the ordinary offline start.
 
