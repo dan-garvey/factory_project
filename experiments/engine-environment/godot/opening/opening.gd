@@ -6598,8 +6598,8 @@ func _build_landing_pod_visual(pod: Dictionary, hub: Dictionary) -> void:
 	workspace.name = "FoldoutBench"
 	landing_hub_visual.add_child(workspace)
 	var frame_finish := ProductionCollectorArt.coating(graphite)
-	var work_finish := ProductionCollectorArt.coating(Color("52635c"))
-	var steel_finish := ProductionVisuals.material(Color("78867e"), 0.70, 0.57)
+	var work_finish := ProductionTransmissionFinish.material("worked", Color("50504b"), 0.55, 0.57)
+	var steel_finish := ProductionTransmissionFinish.material("worked", Color("979a95"), 0.85, 0.42)
 	var tool_finish := ProductionCollectorArt.coating(Color("99713c"))
 	for x in [-0.40, 0.40]:
 		var side := "West" if x < 0 else "East"
@@ -6637,12 +6637,15 @@ func _build_landing_pod_visual(pod: Dictionary, hub: Dictionary) -> void:
 		var face := _machine_box(workspace, "Vise" + jaw_name + "Face", Vector3(x + spec[1] * 0.032, 0.90, -0.06),
 			Vector3(0.009, 0.075, 0.25), Color("78867e"))
 		face.material_override = steel_finish
-	_machine_cylinder(workspace, "ViseLeadScrew", Vector3(-0.10, 0.847, -0.06),
-		0.014, 0.50, Color("78867e"), Vector3(0, 0, PI / 2.0))
-	_machine_cylinder(workspace, "ViseHandleBoss", Vector3(0.16, 0.847, -0.06),
-		0.028, 0.04, Color("78867e"), Vector3(0, 0, PI / 2.0))
-	_machine_cylinder(workspace, "ViseSlidingHandle", Vector3(0.16, 0.847, -0.06),
-		0.008, 0.14, Color("78867e"))
+	var lead_screw := _machine_cylinder(workspace, "ViseLeadScrew", Vector3(-0.10, 0.847, -0.06),
+		0.014, 0.50, Color("979a95"), Vector3(0, 0, PI / 2.0))
+	lead_screw.material_override = steel_finish
+	var handle_boss := _machine_cylinder(workspace, "ViseHandleBoss", Vector3(0.16, 0.847, -0.06),
+		0.028, 0.04, Color("979a95"), Vector3(0, 0, PI / 2.0))
+	handle_boss.material_override = steel_finish
+	var sliding_handle := _machine_cylinder(workspace, "ViseSlidingHandle", Vector3(0.16, 0.847, -0.06),
+		0.008, 0.14, Color("979a95"))
+	sliding_handle.material_override = steel_finish
 	_pod_panel(workspace, "ToolPost", PackedVector2Array([
 		Vector2(-0.07, -0.22), Vector2(0.07, -0.22), Vector2(0.07, -0.16),
 		Vector2(0.045, -0.12), Vector2(0.045, 0.18), Vector2(0.03, 0.22),
@@ -6650,17 +6653,18 @@ func _build_landing_pod_visual(pod: Dictionary, hub: Dictionary) -> void:
 		Vector2(-0.045, -0.12), Vector2(-0.07, -0.16)]),
 		0.14, Vector3(0.35, 1.01, -0.19), frame_finish, 0.005)
 	_pod_panel(workspace, "ToolArm", PackedVector2Array([
-		Vector2(-0.15, -0.018), Vector2(-0.13, -0.0325),
-		Vector2(0.15, -0.0325), Vector2(0.15, 0.0325),
-		Vector2(-0.13, 0.0325), Vector2(-0.15, 0.018)]),
-		0.065, Vector3(0.20, 1.23, -0.19), frame_finish, 0.004)
+		Vector2(-0.285, -0.018), Vector2(-0.265, -0.0325),
+		Vector2(0.285, -0.0325), Vector2(0.285, 0.0325),
+		Vector2(-0.265, 0.0325), Vector2(-0.285, 0.018)]),
+		0.065, Vector3(0.065, 1.23, -0.19), frame_finish, 0.004)
 	_pod_panel(workspace, "CuttingHead", PackedVector2Array([
 		Vector2(-0.06, 0.085), Vector2(0.06, 0.085), Vector2(0.055, -0.02),
 		Vector2(0.025, -0.07), Vector2(0.02, -0.085), Vector2(-0.02, -0.085),
 		Vector2(-0.025, -0.07), Vector2(-0.055, -0.02)]),
-		0.13, Vector3(0.03, 1.16, -0.19), tool_finish, 0.004)
-	_machine_cylinder(workspace, "CuttingSpindle", Vector3(0.03, 1.06, -0.19),
-		0.012, 0.04, Color("78867e"))
+		0.13, Vector3(-0.16, 1.16, -0.19), tool_finish, 0.004)
+	var spindle := _machine_cylinder(workspace, "CuttingSpindle", Vector3(-0.16, 1.06, -0.19),
+		0.012, 0.04, Color("979a95"))
+	spindle.material_override = steel_finish
 	var mounting_points := [Vector3(-0.39, 0.82, 0.09), Vector3(0.07, 0.82, 0.09),
 		Vector3(0.30, 0.805, -0.23), Vector3(0.40, 0.805, -0.23)]
 	for index in range(mounting_points.size()):
