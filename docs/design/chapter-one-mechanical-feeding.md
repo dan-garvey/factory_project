@@ -1,7 +1,8 @@
 # Chapter 1 mechanical feeding candidates
 
 This note records small, reversible geometry and forming rules for
-`factory-yau.1.10.17.1` and `factory-yau.1.10.17.4`.
+`factory-yau.1.10.17.1`, `factory-yau.1.10.17.2` and
+`factory-yau.1.10.17.4`.
 They are design choices for future native and ordinary-scene work, not claims
 about the current runtime or requirements for the first plate. The first plate
 remains hand-fed. `factory-yau.1.10.16.4` owns broad-item carrier behavior and
@@ -57,6 +58,43 @@ keeps elevation, while a gravity slide spends vertical room and requires a
 lower receiver. Both use the same fit and custody rule. A broad gantry carrier
 from `factory-yau.1.10.16.5` can also pass this fit test with its own supported
 deck and motion; the guide design does not implement or replace that carrier.
+
+## Passive sizing grate candidate
+
+`factory-yau.1.10.17.2` proposes a grate with open slots above a real lower
+receiving channel. This is a shape proposal, not a claim that today's copper
+items have these visible dimensions. The copper mass owner in
+`factory-yau.1.10.16.1` keeps its four-unit stock, three-unit plate and
+one-unit offcut accounting unchanged. For this paper fit check, one stock
+chunk and one plate each occupy about 3 × 3 quarter-grid steps in plan. The
+offcut is a visibly narrow 1 × 3 strip; a broad sheet spans 8 × 8 steps. A
+different final mesh can be used only if its actual projected dimensions and
+collision/fit rule agree.
+
+The grate uses the same world grid as the channels. It offers two easily
+distinguished clear aperture widths: two quarter steps for slivers and four steps for
+single-cell pieces. Every opening has a supported upper path and a declared
+lower receiver. A piece falls only when its *oriented swept outline* fits an
+opening, the lower fall and landing volume are clear, and the receiver has
+capacity. Otherwise it bridges on the upper grate or stops at its inlet. It
+never tests an item name, mass, recipe or forming progress. A piece arriving
+with unknown or unstable orientation waits for a guide or manual correction;
+random jam rolls do not replace the fit rule. A transverse 1 × 3 offcut can
+bridge a narrow slot even though its one-step side would fit when aligned.
+
+| Paper layout | Visible separation | Custody when interrupted |
+| --- | --- | --- |
+| Recover small-press offcuts | Four stock chunks hold 16 mass units. Four presses leave four 3-unit plates (12) and four 1-unit strips (4). An aligned narrow grate passes the four strips to a lower recovery tray while the plates continue on the supported upper route. The tally remains 16. | If the lower tray fills after two strips, those two units stay there, the remaining two strips stay on the upper path or at its inlet, and the four plates remain above. The route stops before moving another strip. All 16 units remain accessible. |
+| Separate broad work from small feed | Six original stock chunks hold 24 units; three are formed into one 12-unit sheet while three 4-unit chunks remain. A four-step grate passes the three small chunks (12) to a lower feeder but supports the 8 × 8 sheet (12) on its upper route toward a broad cutter. | A blocked lower feeder retains each untransferred chunk above. The sheet stays one item on its upper owner, not four plates. The combined tally stays 24. |
+
+Stock and plate have the same relevant 3 × 3 outline here, so neither aperture
+can sort one from the other. Depth-1 and depth-2 formed sheets likewise share
+the relevant 8 × 8 outline; this grate cannot tell whether forming is complete.
+The channels before and after the grate determine where each supported or
+fallen stream goes. Removing a jam, rotating an accessible strip, or emptying
+the lower receiver resumes the same items without a product menu, hidden
+filter or tuned cycle timing. This is optional routing after the first plate,
+not a prerequisite for hand recovery.
 
 ## Repeated cold forming candidate
 
