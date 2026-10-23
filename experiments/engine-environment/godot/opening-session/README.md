@@ -51,6 +51,17 @@ context and monotonic transport sequence/revision/order. Retries reuse the exact
 original intent within that connection. An old connection namespace refuses
 after rejoin while the original Model request cache and work remain retained.
 
+Ordinary full-state packets received in one poll are coalesced to the newest
+monotonic state before cloning the projection and notifying the view. Rebuilding
+the UI for every queued actor sample can leave the displayed character far
+behind its server-owned body. These replaceable snapshots use ordered unreliable
+channel 1, so an unacknowledged old view cannot hold up command traffic. Welcome,
+commands, controls and every original outcome remain reliable on channel 0.
+Continuous full-state publication replaces a lost snapshot. Outcomes immediately
+publish their snapshots and preserve every original result. A newer
+queued state may follow; an older state cannot roll it back. Disconnect clears
+pending delivery while preserving the last confirmed read-only projection.
+
 The server binds each role and namespace to its actual ENet peer. Claimed actor,
 context and namespace mismatches refuse before reaching Model commands. The
 ordinary Model remains the sole owner of validation, cached dispositions,

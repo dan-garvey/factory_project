@@ -16,12 +16,72 @@ var failures: Array[String] = []
 var lost_reason := ""
 
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--state-coalescing-only"):
+		call_deferred("check_state_coalescing")
+		return
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--session-port="): port = int(argument.trim_prefix("--session-port="))
 		elif argument.begins_with("--session-role="): role = argument.trim_prefix("--session-role=")
 		elif argument.begins_with("--control-dir="): directory = argument.trim_prefix("--control-dir=")
 	call_deferred("_boot")
 	process_frame.connect(_poll)
+
+func state_frame(serial: int, revision := 0, order := 0) -> Dictionary:
+	return {"context": "state-burst", "serial": serial,
+		"snapshot": {"context": "state-burst", "revision": revision, "order": order,
+			"actors": {"P": {"position": [serial, 0, 0]}}}}
+
+func check_state_coalescing() -> void:
+	# Invented authenticated receive data only. No socket, World or body.
+	var container := Node.new()
+	container.name = "OpeningShared"
+	session = Session.new()
+	session.name = "Session"
+	container.add_child(session)
+	root.add_child(container)
+	session.context = "state-burst"
+	session._ready_for_commands = true
+	var observations: Array = []
+	session.changed.connect(func(view: Dictionary): observations.append({"serial": session.last_serial, "view": view.duplicate(true)}))
+	for serial in [1, 2, 3]:
+		session._apply_frame(state_frame(serial))
+	check(observations.is_empty(), "An incoming state burst must not rebuild the view per packet.")
+	await process_frame
+	check(observations.size() == 1 and observations.back().serial == 3
+		and session.projection().actors.P.position == [3, 0, 0], "The deferred view receives exactly the newest complete state.")
+	if not failures.is_empty():
+		finish_state_checks(container)
+		return
+	session._apply_frame(state_frame(4))
+	session._apply_frame(state_frame(5, 1, 1), true)
+	check(observations.size() == 2 and observations.back().serial == 5 and session.projection().order == 1,
+		"A reliable outcome installs and publishes its snapshot immediately.")
+	await process_frame
+	check(observations.size() == 2, "An older queued state cannot follow the immediate outcome.")
+	session._apply_frame(state_frame(7, 2, 2))
+	session._apply_frame(state_frame(6, 1, 1), true)
+	check(observations.back().serial == 6, "An outcome remains visible even when a newer ordinary state is pending.")
+	await process_frame
+	check(observations.back().serial == 7 and session.projection().order == 2, "The newer complete state follows the outcome monotonically.")
+	var before: Dictionary = session.projection()
+	var count := observations.size()
+	session._apply_frame(state_frame(6, 1, 1))
+	var wrong := state_frame(8, 2, 2)
+	wrong.context = "another-context"
+	session._apply_frame(wrong)
+	await process_frame
+	check(session.projection() == before and observations.size() == count, "Stale and wrong-context states preserve the confirmed view.")
+	session._apply_frame(state_frame(8, 2, 2))
+	session.close()
+	await process_frame
+	check(session.projection() == before and observations.size() == count and session.world == null,
+		"Closing clears pending state while preserving the read-only view and absence of a World.")
+	finish_state_checks(container)
+
+func finish_state_checks(container: Node) -> void:
+	container.free()
+	print("SHARED_STATE_COALESCING_", "PASS" if failures.is_empty() else "FAIL", " ", checks)
+	quit(0 if failures.is_empty() else 1)
 
 func check(ok: bool, label: String) -> void:
 	checks += 1

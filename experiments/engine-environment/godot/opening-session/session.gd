@@ -26,6 +26,8 @@ var _ready_for_commands := false
 var _requested_role := ""
 var _transport: ENetMultiplayerPeer
 var _cache: Dictionary = {}
+var _pending_state: Dictionary = {}
+var _state_flush_queued := false
 var _sent: Dictionary = {}
 var _bindings: Dictionary = {}
 var _roles: Dictionary = {}
@@ -470,18 +472,39 @@ func _valid_frame(frame: Dictionary) -> bool:
 		and frame.snapshot.get("context") == frame.context and frame.snapshot.get("revision") is int
 		and frame.snapshot.get("order") is int)
 
-func _apply_frame(frame: Dictionary) -> void:
+func _apply_frame(frame: Dictionary, immediate := false) -> void:
 	if not _ready_for_commands or not _valid_frame(frame) or frame.context != context:
 		return
 	var view: Dictionary = frame.snapshot
 	if frame.serial <= last_serial or view.revision < _cache.get("revision", -1) or view.order < _cache.get("order", -1):
 		stale_views += 1
 		return
+	if not immediate:
+		if not _pending_state.is_empty() and (frame.serial <= _pending_state.serial \
+			or view.revision < _pending_state.snapshot.revision or view.order < _pending_state.snapshot.order):
+			stale_views += 1
+			return
+		# RPC arguments belong to this receive. Keep only the latest full state
+		# until the poll finishes, before cloning it or rebuilding the view.
+		_pending_state = frame
+		if not _state_flush_queued:
+			_state_flush_queued = true
+			call_deferred("_flush_state")
+		return
+	if not _pending_state.is_empty() and _pending_state.serial <= frame.serial:
+		_pending_state = {}
 	last_serial = frame.serial
 	_cache = view.duplicate(true)
 	changed.emit(_cache.duplicate(true))
 
-@rpc("authority", "call_remote", "reliable")
+func _flush_state() -> void:
+	var frame := _pending_state
+	_pending_state = {}
+	_state_flush_queued = false
+	if not frame.is_empty():
+		_apply_frame(frame, true)
+
+@rpc("authority", "call_remote", "unreliable_ordered", 1)
 func _wire_state(frame: Dictionary) -> void:
 	if not _authoritative and multiplayer.get_remote_sender_id() == 1:
 		_apply_frame(frame)
@@ -490,7 +513,7 @@ func _wire_state(frame: Dictionary) -> void:
 func _wire_outcome(envelope: Dictionary) -> void:
 	if _authoritative or not is_ready() or multiplayer.get_remote_sender_id() != 1 or envelope.get("context") != context:
 		return
-	_apply_frame(envelope)
+	_apply_frame(envelope, true)
 	outcome.emit(envelope.duplicate(true))
 
 @rpc("authority", "call_remote", "reliable")
@@ -517,6 +540,8 @@ func _peer_lost(peer: int) -> void:
 		server_event.emit()
 
 func _lost(reason: String) -> void:
+	_pending_state = {}
+	_state_flush_queued = false
 	var notify := _transport != null or _ready_for_commands
 	_ready_for_commands = false
 	_connect_started_msec = -1
