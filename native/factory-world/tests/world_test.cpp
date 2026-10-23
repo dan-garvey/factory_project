@@ -165,6 +165,10 @@ void startup_and_complete_validation() {
     check(!w::World::restore("fixture-world", legacy_profile, legacy),
           "A checkpoint cannot restore an obsolete single-cell belt machine.");
     f = fixture(); f.state.topology.sources.front().rate = {2, 1}; check(bad(f), "Client-selected source speed is not profile authority.");
+    f = fixture(); f.state.topology.sources.push_back(f.state.topology.sources.front());
+    check(bad(f), "A duplicate matching waterwheel source cannot pass exact-rate validation.");
+    f = fixture(); f.state.topology.sources.push_back({"wheel-A", {2, 1}});
+    check(bad(f), "An extra mismatched waterwheel source cannot enter a saved World.");
     f = fixture(); f.state.topology.parts.front().wheel_tiles = 2;
     check(bad(f), "An undersized saved wheel is not a valid World state.");
     f = fixture(); f.state.issued_entities.emplace("native-part-1", 1);
