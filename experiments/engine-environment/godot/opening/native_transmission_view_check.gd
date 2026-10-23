@@ -213,6 +213,41 @@ func _component_fixture() -> Dictionary:
 			"status": "ready", "parts": {"frame": "frame", "mount": "mount",
 			"edge": "edge", "receiver": "tray", "shaft": "shaft"}}]}
 
+func _supplied_envelope(state: Dictionary, entity: String) -> AABB:
+	var envelope := AABB()
+	var first_box := true
+	for record: Dictionary in state.supplied_hardware_boxes.values():
+		if record.entity != entity:
+			continue
+		var at: Array = record.center
+		var half: Array = record.half
+		var center := Vector3(at[0], at[1], at[2])
+		var extent := Vector3(half[0], half[1], half[2])
+		var box := AABB(center - extent, extent * 2.0)
+		envelope = box if first_box else envelope.merge(box)
+		first_box = false
+	return envelope
+
+func _meshes_inside(root_node: Node3D, envelope: AABB) -> bool:
+	var meshes := root_node.find_children("*", "MeshInstance3D", true, false)
+	var inside := not meshes.is_empty()
+	for mesh: MeshInstance3D in meshes:
+		if mesh.mesh == null:
+			inside = false
+			continue
+		var bounds := mesh.get_aabb()
+		var fits := true
+		for x in [0.0, 1.0]:
+			for y in [0.0, 1.0]:
+				for z in [0.0, 1.0]:
+					fits = fits and envelope.grow(0.0001).has_point(
+						mesh.global_transform * (bounds.position + bounds.size * Vector3(x, y, z)))
+		if not fits:
+			print(JSON.stringify({"outside_native_envelope": str(root_node.get_path_to(mesh)),
+				"native_envelope": envelope, "rendered_bounds": mesh.global_transform * bounds}))
+		inside = inside and fits
+	return inside
+
 func _supplied_hardware_view() -> void:
 	var model := NativeModel.new("supplied-hardware-view", ["P"], true)
 	verify(model.boot_result.get("accepted", false), "The supplied-hardware view boots the actual native arrival projection.")
@@ -249,33 +284,13 @@ func _supplied_hardware_view() -> void:
 	root.add_child(opening)
 	opening._sync_landing_pod_visual()
 	var bench: Node3D = opening.landing_hub_visual.get_node("FoldoutBench")
-	var envelope := AABB()
-	var first_box := true
-	for record: Dictionary in opening.state.supplied_hardware_boxes.values():
-		if record.entity != opening.state.fabrication_hub.id:
-			continue
-		var at: Array = record.center
-		var half: Array = record.half
-		var center := Vector3(at[0], at[1], at[2]) - bench.global_position
-		var extent := Vector3(half[0], half[1], half[2])
-		var box := AABB(center - extent, extent * 2.0)
-		envelope = box if first_box else envelope.merge(box)
-		first_box = false
-	var inside := not first_box
+	var envelope := _supplied_envelope(opening.state, opening.state.fabrication_hub.id)
 	var meshes := bench.find_children("*", "MeshInstance3D", true, false)
-	for mesh: MeshInstance3D in meshes:
-		inside = inside and mesh.mesh != null
-		if mesh.mesh == null:
-			continue
-		var bounds := mesh.get_aabb()
-		var local := bench.global_transform.affine_inverse() * mesh.global_transform
-		for x in [0.0, 1.0]:
-			for y in [0.0, 1.0]:
-				for z in [0.0, 1.0]:
-					inside = inside and envelope.grow(0.0001).has_point(
-						local * (bounds.position + bounds.size * Vector3(x, y, z)))
-	verify(inside and not meshes.is_empty(),
+	verify(_meshes_inside(bench, envelope),
 		"Every authored bench mesh stays within the native supplied hub envelope.")
+	var shell: Node3D = opening.landing_pod_visual.get_node("OpenedPodShell")
+	verify(_meshes_inside(shell, _supplied_envelope(opening.state, opening.state.landing_pod.id)),
+		"Every deployed pod shell mesh stays within the native supplied pod envelope.")
 	var fixed_face: MeshInstance3D = bench.get_node("ViseFixedFace")
 	var sliding_face: MeshInstance3D = bench.get_node("ViseSlidingFace")
 	var cutter: MeshInstance3D = bench.get_node("CuttingHead")
@@ -292,7 +307,12 @@ func _supplied_hardware_view() -> void:
 	for mesh: MeshInstance3D in meshes:
 		var counterpart: MeshInstance3D = other.get_node(bench.get_path_to(mesh))
 		reused = reused and mesh.mesh == counterpart.mesh and mesh.material_override == counterpart.material_override
-	verify(reused, "Repeated workshops share their authored mesh and material resources.")
+	var other_shell: Node3D = twin.landing_pod_visual.get_node("OpenedPodShell")
+	for mesh: MeshInstance3D in shell.find_children("*", "MeshInstance3D", true, false):
+		var counterpart := other_shell.get_node_or_null(shell.get_path_to(mesh)) as MeshInstance3D
+		reused = reused and counterpart != null and mesh.mesh == counterpart.mesh \
+			and mesh.material_override == counterpart.material_override
+	verify(reused, "Repeated pods and workshops share their authored mesh and material resources.")
 	var original_position := opening.landing_hub_visual.position
 	opening._sync_landing_pod_visual()
 	verify(opening.landing_hub_visual.get_node("FoldoutBench") == bench,
