@@ -4,6 +4,177 @@ extends "res://opening-session/native_shared_cog_check.gd"
 var prepared: Dictionary = {}
 var baseline: Dictionary = {}
 
+func _chapter_ui_material(snapshot: Dictionary) -> Dictionary:
+	return {"order": snapshot.get("order"), "cargo": snapshot.get("cargo"),
+		"hand_sources": snapshot.get("hand_sources"),
+		"placed_components": snapshot.get("placed_components")}
+
+func _chapter_ui_call(label: String, expected: Dictionary, callback: Callable) -> Dictionary:
+	var before: Dictionary = session.projection()
+	var sequence: int = session.request_sequence
+	callback.call()
+	var queued: Dictionary = opening.last_submission.duplicate(true)
+	var request: String = str(queued.get("request", ""))
+	var row := {"label": label, "expected": expected.duplicate(true), "before": _chapter_ui_material(before),
+		"queued": queued, "immediate": _chapter_ui_material(session.projection())}
+	facts.steps.append(row)
+	if not _expect(queued.get("queued") == true and queued.get("accepted") == false
+			and session.request_sequence == sequence + 1 and opening.pending_actions.has(request)
+			and _same(row.before, row.immediate),
+		label + " queues one ordinary view command without speculative material"):
+		return {}
+	if not await _until(func(): return replies.has(request) and not opening.pending_actions.has(request),
+		label + " settles its server outcome"):
+		return {}
+	var wire: Dictionary = session._sent.get(request, {}).duplicate(true)
+	for key in ["context", "client", "request"]:
+		wire.erase(key)
+	var result: Dictionary = replies[request][-1].duplicate(true)
+	row["wire"] = wire
+	row["outcome"] = result
+	row["after"] = _chapter_ui_material(session.projection())
+	if not _expect(_same(wire, expected) and result.get("accepted") == true
+			and result.get("duplicate") == false and result.get("order") == before.order + 1
+			and opening.state.order >= result.order and session.world == null and opening.actor_world == null,
+		label + " preserves its literal command and one native decision without client authority"):
+		return {}
+	return result
+
+func _chapter_ui_walk(target: Vector2) -> bool:
+	var start: Dictionary = session.projection().actors.P.duplicate(true)
+	var leg_deadline := mini(deadline, Time.get_ticks_msec() + 16000)
+	while Time.get_ticks_msec() < leg_deadline:
+		var pose: Array = session.projection().actors.P.position
+		var gap := target - Vector2(float(pose[0]), float(pose[2]))
+		if gap.length() < 0.15:
+			opening._release_character_input()
+			facts["actor_motion"] = {"start": start, "end": session.projection().actors.P.duplicate(true),
+				"source": "ordinary_shared_control_callback"}
+			return _expect(session.projection().actors.P.native_epoch > start.native_epoch
+				and session.projection().actors.P.ready, "The actual server actor walks into the harvest aisle")
+		opening._send_character_input(gap.normalized(), false)
+		await process_frame
+	opening._release_character_input()
+	return _expect(false, "The bounded ordinary control cannot reach the harvest aisle")
+
+func _chapter_ui_initial() -> bool:
+	var state: Dictionary = session.projection()
+	return _expect(state.get("options", {}).get("native") == true and state.order == 0
+		and state.get("fabrication_hub", {}).get("id") == "pod-fabrication-hub"
+		and state.get("placed_components", {}).is_empty()
+		and state.get("hand_sources", {}).get("tree-east-south", {}).get("remaining") == 8
+		and state.cargo.P.timber == 0 and session.world == null and opening.actor_world == null,
+		"Both ordinary shared scenes begin with one native pod and no fabricated components")
+
+func _chapter_ui_frame(snapshot: Dictionary, installed: bool) -> bool:
+	var parts: Dictionary = snapshot.get("placed_components", {})
+	return _expect(snapshot.order == (5 if installed else 6)
+		and snapshot.hand_sources["tree-east-south"].remaining == 5
+		and parts.size() == (1 if installed else 0)
+		and (not installed or parts.get("native-part-1", {}).get("component") == "wooden_frame")
+		and snapshot.cargo.P.components.get("wooden_frame", 0) == (0 if installed else 1)
+		and snapshot.cargo.P.timber == 0 and snapshot.cargo.Q.timber == 0,
+		"Both peers see the same finite tree debit and exact frame custody")
+
+func _chapter_ui_p() -> bool:
+	if (await _barrier("Q-ready.bin")).is_empty() or not _chapter_ui_initial():
+		return false
+	if not await _chapter_ui_walk(Vector2(3.3, 4.95)):
+		return false
+	opening.distance = 0.0
+	for index in range(3):
+		var pose: Array = session.projection().actors.P.position
+		opening.camera.global_position = Vector3(float(pose[0]), float(pose[1]) + 0.7, float(pose[2]))
+		opening.camera.look_at(Vector3(6.6, 0.2, 3.3))
+		if not _expect(opening._screen_hand_source(opening._pointed_screen_position()) == "tree-east-south",
+			"The ordinary E ray selects the physical finite tree trunk at each cut"):
+			return false
+		if (await _chapter_ui_call("Multitool harvest %d" % index,
+			{"action": "harvest_source", "target": "tree-east-south"},
+			opening._interact_pointed)).is_empty():
+			return false
+	var panel = opening.arrival_assembly_controls
+	if not _expect(panel != null and panel.field_craft_button.visible
+			and not panel.field_craft_button.disabled and panel.selected_name() == "wooden_frame"
+			and session.projection().cargo.P.timber == 3,
+		"Three cuts enable the ordinary wooden-frame multitool recipe"):
+		return false
+	if (await _chapter_ui_call("Field craft a wooden frame",
+		{"action": "field_craft", "component": "wooden_frame"}, panel.field_craft_button.pressed.emit)).is_empty():
+		return false
+	opening._select_tool("component")
+	var tile := Vector2i(3, 4)
+	if not _expect(opening._component_place_center(tile, "") == [12, 0, 16],
+		"The ordinary component cursor uses the shared quarter-grid center"):
+		return false
+	if (await _chapter_ui_call("Place the shaped press frame",
+		{"action": "place_component", "component": "wooden_frame", "center": [12, 0, 16]},
+		opening._world_click.bind(tile))).is_empty() or not _chapter_ui_frame(session.projection(), true):
+		return false
+	if not _expect(_write("P-complete.bin", {"status": "pass", "order": 5,
+			"component": "native-part-1"}), "Publish the confirmed ordinary P component"):
+		return false
+	if (await _barrier("Q-result.bin")).is_empty():
+		return false
+	return true
+
+func _chapter_ui_q() -> bool:
+	if not _chapter_ui_initial() or not _expect(_write("Q-ready.bin", {"status": "pass"}),
+		"Q joins the same native server before P harvests"):
+		return false
+	if (await _barrier("P-complete.bin")).is_empty() or not await _until(func(): return session.projection().order >= 5,
+		"Q receives P's placed frame"):
+		return false
+	return _chapter_ui_frame(session.projection(), true)
+
+func _chapter_ui_resume_p() -> bool:
+	if (await _barrier("Q-ready.bin")).is_empty() or not _chapter_ui_frame(session.projection(), true):
+		return false
+	opening._select_tool("deconstruct")
+	if (await _chapter_ui_call("Reclaim the restored frame",
+		{"action": "reclaim_component", "entity": "native-part-1"},
+		opening._world_click.bind(Vector2i(3, 4), "native-part-1"))).is_empty() \
+			or not _chapter_ui_frame(session.projection(), false):
+		return false
+	if not _expect(_write("P-complete.bin", {"status": "pass", "order": 6}),
+		"Publish the confirmed resumed component custody"):
+		return false
+	return not (await _barrier("Q-result.bin")).is_empty()
+
+func _chapter_ui_resume_q() -> bool:
+	if not _chapter_ui_frame(session.projection(), true) or not _expect(_write("Q-ready.bin", {"status": "pass"}),
+		"Q rejoins the saved native frame before P acts"):
+		return false
+	if (await _barrier("P-complete.bin")).is_empty() or not await _until(func(): return session.projection().order >= 6,
+		"Q receives P's resumed frame recovery"):
+		return false
+	return _chapter_ui_frame(session.projection(), false)
+
+func _run_chapter_ui() -> void:
+	if actor not in ["P", "Q"] or phase not in ["chapter-ui", "chapter-ui-resume"] \
+			or not directory.is_absolute_path():
+		push_error("The ordinary native chapter UI consumer needs role, phase and owned directory")
+		quit(1)
+		return
+	facts.evidence = "ordinary_shared_native_arrival_callbacks"
+	opening = load("res://opening/shared_opening.tscn").instantiate()
+	root.add_child(opening)
+	session = opening.session
+	session.outcome.connect(func(outcome: Dictionary):
+		var request: String = outcome.get("request", "")
+		if not replies.has(request):
+			replies[request] = []
+		replies[request].append(outcome.duplicate(true)))
+	if not await _until(func(): return session.is_ready(), "The ordinary scene joins its native Session"):
+		return
+	var passed := false
+	if phase == "chapter-ui":
+		passed = await _chapter_ui_p() if actor == "P" else await _chapter_ui_q()
+	else:
+		passed = await _chapter_ui_resume_p() if actor == "P" else await _chapter_ui_resume_q()
+	if passed and not written:
+		_record("pass")
+
 func _init() -> void:
 	super._init()
 	deadline = Time.get_ticks_msec() + 45000
@@ -187,6 +358,9 @@ func _q() -> bool:
 		"Only two explicit material transfers occur after reconnection") and _marker("Q-material-cycled.bin")
 
 func _run() -> void:
+	if phase in ["chapter-ui", "chapter-ui-resume"]:
+		await _run_chapter_ui()
+		return
 	if actor not in ["P", "Q"] or phase != "resume" or not directory.is_absolute_path() or not previous.is_absolute_path():
 		push_error("The reconnect consumer requires P or Q and the original producer directory")
 		quit(1)
