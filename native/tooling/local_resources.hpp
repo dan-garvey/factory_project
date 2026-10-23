@@ -21,6 +21,7 @@ struct Options {
     std::uint64_t disk_floor_gib = 20;
     std::uint64_t memory_reserve_gib = 8;
     bool wait = true;
+    bool inherit_permits = false;
     std::vector<std::string> command;
 };
 

@@ -54,7 +54,7 @@ std::uint64_t multiply(std::uint64_t amount, std::uint64_t unit) {
 }
 
 // Descriptors for admission deliberately do not have FD_CLOEXEC: the immediate
-// command must keep the same open-file-description locks if this wrapper dies.
+// supervisor must keep the same open-file-description locks if this wrapper dies.
 FileDescriptor locked_file(const std::filesystem::path& path, int operation,
                            bool wait, Mode mode) {
     FileDescriptor fd(::open(path.c_str(), O_RDWR | O_CREAT, 0600));
@@ -91,7 +91,7 @@ int close_unrelated(const std::vector<int>& preserved) noexcept {
 }
 
 int execute(const std::vector<std::string>& command, std::uint64_t jobs,
-            const std::vector<int>& admission_descriptors) {
+            const std::vector<int>& admission_descriptors, bool inherit_permits) {
     // An exec failure must be distinguishable from a real command exiting 127.
     int pipe_fds[2];
     if (::pipe2(pipe_fds, O_CLOEXEC) < 0) system_failure("exec error pipe");
@@ -107,7 +107,29 @@ int execute(const std::vector<std::string>& command, std::uint64_t jobs,
     if (child < 0) system_failure("fork command");
     if (child == 0) {
         ::close(reader.get());
-        int failure = close_unrelated(preserved);
+        if (!inherit_permits) {
+            // The immediate child owns the inherited permits even if the
+            // factory-local wrapper is killed. Its command, and any server
+            // that command starts, receive no admission descriptors.
+            const pid_t command_child = ::fork();
+            if (command_child < 0) {
+                const int failure = errno;
+                const auto ignored = ::write(writer.get(), &failure, sizeof(failure));
+                (void)ignored;
+                ::_exit(127);
+            }
+            if (command_child > 0) {
+                writer = FileDescriptor();
+                int status = 0;
+                pid_t waited;
+                do { waited = ::waitpid(command_child, &status, 0); } while (waited < 0 && errno == EINTR);
+                if (waited != command_child) ::_exit(125);
+                if (WIFEXITED(status)) ::_exit(WEXITSTATUS(status));
+                if (WIFSIGNALED(status)) ::_exit(128 + WTERMSIG(status));
+                ::_exit(125);
+            }
+        }
+        int failure = close_unrelated(inherit_permits ? preserved : std::vector<int>{writer.get()});
         if (!failure) {
             for (const char* variable : {"CMAKE_BUILD_PARALLEL_LEVEL", "CARGO_BUILD_JOBS", "CTEST_PARALLEL_LEVEL"}) {
                 if (::setenv(variable, jobs_text.c_str(), 1) < 0) {
@@ -175,7 +197,7 @@ Admission::Admission(const std::filesystem::path& common_dir, Mode mode, bool wa
     // Legacy wrappers take an exclusive flock on this same inode. Sharing that
     // gate excludes them without replacing a live lock or disturbing a child.
     // Slot locks belong to the open file description, so the immediate child
-    // retains its slot together with the existing heavy descriptor after exec.
+    // retains its slot together with the heavy descriptor after wrapper death.
     // A waiter has no activity lock and therefore cannot prevent a benchmark.
     if (mode == Mode::heavy) {
         auto heavy = locked_file(directory / "heavy.lock", LOCK_SH, wait, mode);
@@ -303,7 +325,7 @@ int run(const Options& options) {
         enforce_capacity({disk, memory_available()}, options.disk_floor_gib, options.memory_reserve_gib);
     }
     std::cerr << "local resources: admitted " << mode_name(options.mode) << ", jobs=" << options.jobs << '\n' << std::flush;
-    return execute(options.command, options.jobs, permit.inherited_descriptors());
+    return execute(options.command, options.jobs, permit.inherited_descriptors(), options.inherit_permits);
 }
 
 } // namespace factory::resources

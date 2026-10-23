@@ -42,7 +42,7 @@ bound, an 8 MiB log and the existing 2 GiB family ceiling. No network dependency
 download, resource-floor override or passing-test replay is introduced.
 
 ```bash
-"$FACTORY_LOCAL" --root "$BUILD_CHECKOUT" heavy -- \
+"$FACTORY_LOCAL" --root "$BUILD_CHECKOUT" heavy --inherit-permits -- \
   "$FACTORY_GAMEPLAY_BUILD" \
   --checkout "$BUILD_CHECKOUT" --main /home/dan/factory_project \
   --bazel "$FACTORY_BAZEL" --artifacts "$OWNED_BUILD_FAMILY" \

@@ -5,8 +5,9 @@ local Bazel validation on 2026-10-20. Its source has independent review. It does
 not replace installed admission, commit checks or game launchers, and does not
 repair the original incomplete bootstrap or failed setups.
 
-`factory-build-run` runs one explicit command synchronously through the existing
-`scripts/run_local.py heavy` entry. It requires the inherited heavy and activity
+`factory-build-run` runs one explicit command synchronously through an admitted
+heavy entry. With the native `factory-local`, pass `--inherit-permits` before `--`;
+the older `scripts/run_local.py heavy` entry also passes these descriptors. It requires the inherited heavy and activity
 permit files and preserves only those descriptors in the command. Matching their
 identities is not a new lock acquisition or proof that an unwrapped caller owns
 the lane. All other descriptors above the standard streams are closed. The child

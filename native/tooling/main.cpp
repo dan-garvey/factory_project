@@ -7,7 +7,9 @@ namespace {
 void usage(std::ostream& out) {
     out << "Usage: factory-local [--root CHECKOUT] MODE [OPTIONS] -- COMMAND [ARG ...]\n"
         << "Modes: check, heavy, benchmark\n"
-        << "Options: --jobs N, --disk-floor-gib N, --memory-reserve-gib N, --no-wait\n"
+        << "Options: --jobs N, --disk-floor-gib N, --memory-reserve-gib N, --no-wait, --inherit-permits\n"
+        << "The immediate supervisor holds admission until COMMAND exits. COMMAND receives no\n"
+        << "admission descriptors unless --inherit-permits is set for a verified runner.\n"
         << "Defaults: caller checkout, 8 jobs, 20 GiB disk, 8 GiB memory; wait for admission.\n";
 }
 }
@@ -26,6 +28,7 @@ int main(int argc, char** argv) {
             }
             if (argument == "--help" || argument == "-h") { usage(std::cout); return 0; }
             if (argument == "--no-wait") { options.wait = false; continue; }
+            if (argument == "--inherit-permits") { options.inherit_permits = true; continue; }
             const auto separator = argument.find('=');
             const auto key = argument.substr(0, separator);
             if (key == "--root" || key == "--jobs" || key == "--disk-floor-gib" || key == "--memory-reserve-gib") {
