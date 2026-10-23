@@ -3,6 +3,7 @@ extends "res://opening-session/native_shared_cog_check.gd"
 ## The ordinary server retains the only World, actor bodies and material clock.
 var prepared: Dictionary = {}
 var baseline: Dictionary = {}
+var shipment_capture_prefix := ""
 
 func _chapter_ui_material(snapshot: Dictionary) -> Dictionary:
 	return {"order": snapshot.get("order"), "cargo": snapshot.get("cargo"),
@@ -567,6 +568,135 @@ func _run_plate_ui() -> void:
 	if passed and not written:
 		_record("pass")
 
+func _shipment_initial() -> bool:
+	var earlier: Dictionary = _read(previous.path_join("P-result.bin"))
+	var plate: Dictionary = earlier.get("projection", {})
+	var current: Dictionary = session.projection()
+	return _expect(earlier.get("status") == "pass" and plate.get("order") == 57
+		and current.get("order") == plate.get("order")
+		and _same(current.get("placed_components"), plate.get("placed_components"))
+		and _same(current.get("cargo"), plate.get("cargo"))
+		and _same(current.get("hand_sources"), plate.get("hand_sources"))
+		and _same(current.get("dropped_material"), plate.get("dropped_material"))
+		and _same(current.get("freight_beacon"), plate.get("freight_beacon"))
+		and current.cargo.P.products == 1 and current.freight_beacon.shipped_products == 0
+		and current.hand_sources["opening-softmetal"].remaining == 10,
+		"Both scenes open the exact collector-derived carried plate checkpoint")
+
+func _shipment_p() -> bool:
+	if not _shipment_initial() or (await _barrier("Q-ready.bin")).is_empty():
+		return false
+	for target in [Vector2(4.95, 4.95), Vector2(6.6, 4.95),
+			Vector2(6.6, 8.25), Vector2(9.9, 8.25)]:
+		if not await _chapter_ui_walk(target):
+			return false
+	await process_frame
+	opening.distance = 0.0
+	opening.orbit_yaw = 0.0
+	opening.orbit_pitch = 0.18
+	opening._update_camera()
+	var hit: Dictionary = opening._screen_pick(root.get_visible_rect().size / 2.0)
+	if not _expect(not hit.is_empty() and hit.get("collider") == opening.freight_beacon_visual,
+		"The normal first-person E ray picks the actual freight beacon after walking there"):
+		return false
+	if not shipment_capture_prefix.is_empty():
+		await process_frame
+		if not _expect(root.get_texture().get_image().save_png(shipment_capture_prefix + "-ready.png") == OK,
+			"Retain the passive beacon view before its one-plate shipment"):
+			return false
+	var beacon: String = str(session.projection().freight_beacon.id)
+	if (await _chapter_ui_call("Ship the collector-derived plate through ordinary E",
+		{"action": "deliver_first_plate", "entity": beacon}, opening._interact_pointed)).is_empty():
+		return false
+	var shipped: Dictionary = session.projection()
+	if not _expect(shipped.order == 58 and shipped.cargo.P.products == 0
+		and shipped.freight_beacon.shipped_products == 1
+		and shipped.freight_beacon.order_complete
+		and shipped.freight_beacon.repeat_order_shipped == 0
+		and not shipped.freight_beacon.repeat_order_complete
+		and shipped.hand_sources["opening-softmetal"].remaining == 10
+		and shipped.dropped_material.is_empty()
+		and opening.manager_log_repeat_entry.visible
+		and "REPEAT ORDER" in opening.goal_label.text,
+		"The native beacon takes one real plate and reveals the repeat commission"):
+		return false
+	if not shipment_capture_prefix.is_empty():
+		await process_frame
+		if not _expect(root.get_texture().get_image().save_png(shipment_capture_prefix + "-delivered.png") == OK,
+			"Retain the passive completed freight view and next commission"):
+			return false
+	if not _expect(_write("P-shipped.bin", {"status": "pass", "order": shipped.order,
+		"beacon": beacon, "components": shipped.placed_components.size()}),
+		"Publish the exact freight receipt to Q"):
+		return false
+	return not (await _barrier("Q-shipped.bin")).is_empty()
+
+func _shipment_q() -> bool:
+	if not _shipment_initial() or not _expect(_write("Q-ready.bin", {"status": "pass"}),
+		"Q confirms the same pre-shipment plate custody"):
+		return false
+	var marker: Dictionary = await _barrier("P-shipped.bin")
+	if marker.is_empty() or not await _until(func(): return session.projection().order >= marker.order,
+		"Q receives the actual first freight receipt"):
+		return false
+	var shipped: Dictionary = session.projection()
+	if not _expect(shipped.order == 58 and shipped.cargo.P.products == 0
+		and shipped.freight_beacon.id == marker.beacon
+		and shipped.freight_beacon.shipped_products == 1
+		and shipped.freight_beacon.order_complete
+		and shipped.freight_beacon.repeat_order_shipped == 0
+		and shipped.placed_components.size() == marker.components
+		and shipped.hand_sources["opening-softmetal"].remaining == 10
+		and shipped.dropped_material.is_empty(),
+		"Q independently sees one shipped plate and unchanged two-machine stock"):
+		return false
+	return _expect(_write("Q-shipped.bin", {"status": "pass", "order": shipped.order}),
+		"Release P only after Q sees the freight debit")
+
+func _shipment_resume() -> bool:
+	var earlier: Dictionary = _read(previous.path_join("P-result.bin"))
+	var shipped: Dictionary = earlier.get("projection", {})
+	var current: Dictionary = session.projection()
+	return _expect(earlier.get("status") == "pass" and shipped.get("order") == 58
+		and current.get("order") == shipped.get("order")
+		and _same(current.get("placed_components"), shipped.get("placed_components"))
+		and _same(current.get("cargo"), shipped.get("cargo"))
+		and _same(current.get("hand_sources"), shipped.get("hand_sources"))
+		and _same(current.get("dropped_material"), shipped.get("dropped_material"))
+		and _same(current.get("freight_beacon"), shipped.get("freight_beacon"))
+		and current.freight_beacon.order_complete and current.freight_beacon.shipped_products == 1
+		and current.cargo.P.products == 0 and opening.manager_log_repeat_entry.visible,
+		"Fresh Store host preserves the exact source-to-shipment receipt and next commission")
+
+func _run_shipment_ui() -> void:
+	if actor not in ["P", "Q"] or phase not in ["collector-shipment", "collector-shipment-resume"] \
+			or not directory.is_absolute_path() or not previous.is_absolute_path():
+		push_error("The collector-derived shipment needs role, phase and owned evidence paths")
+		quit(1)
+		return
+	deadline = Time.get_ticks_msec() + 160000
+	for argument in OS.get_cmdline_user_args():
+		if argument.begins_with("--cog-capture-prefix="):
+			shipment_capture_prefix = argument.trim_prefix("--cog-capture-prefix=")
+	facts.evidence = "ordinary_shared_native_collector_to_freight_callbacks"
+	opening = load("res://opening/shared_opening.tscn").instantiate()
+	root.add_child(opening)
+	session = opening.session
+	session.outcome.connect(func(outcome: Dictionary):
+		var request: String = outcome.get("request", "")
+		if not replies.has(request):
+			replies[request] = []
+		replies[request].append(outcome.duplicate(true)))
+	if not await _until(func(): return session.is_ready(), "The ordinary freight scene joins native Session"):
+		return
+	var passed := false
+	if phase == "collector-shipment":
+		passed = await _shipment_p() if actor == "P" else await _shipment_q()
+	else:
+		passed = _shipment_resume()
+	if passed and not written:
+		_record("pass")
+
 func _run_chapter_ui() -> void:
 	if actor not in ["P", "Q"] or phase not in ["chapter-ui", "chapter-ui-resume"] \
 			or not directory.is_absolute_path():
@@ -775,6 +905,9 @@ func _q() -> bool:
 		"Only two explicit material transfers occur after reconnection") and _marker("Q-material-cycled.bin")
 
 func _run() -> void:
+	if phase in ["collector-shipment", "collector-shipment-resume"]:
+		await _run_shipment_ui()
+		return
 	if phase in ["collector-plate", "collector-plate-resume"]:
 		await _run_plate_ui()
 		return

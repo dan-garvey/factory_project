@@ -253,6 +253,19 @@ component placements through the ordinary scene's Session helper; its panel
 button callbacks and walking are automated input, not human play or a claim
 that every press part was placed through the pointer interface.
 
+`--cog-phase=collector-shipment` continues from the exact saved plate and
+`P-result.bin` above, using `--cog-previous` to name that plate evidence
+directory. P walks around the press and pod, aims the normal first-person E
+ray at the east freight beacon, and ships the collector-derived plate. Q sees
+the one-plate cargo debit, first-order receipt and unchanged source and machine
+stock. `--cog-phase=collector-shipment-resume` opens the resulting unchanged
+Store file on another fresh native host; both clients compare the receipt and
+custody to the shipment result. For a passive rendered P run, optional
+`--cog-capture-prefix=/absolute/owned/path` saves `-ready.png` and
+`-delivered.png` views. These are automated scene callbacks and passive pixels;
+they do not establish human understanding, full repeat-order automation or
+usable visual quality by themselves.
+
 The low-level dedicated entry accepts optional `--resume-input` and
 `--save-file` paths in the same owned directory as its lifecycle files. These
 are host process options, never RPCs. Input is decoded into the one actual
