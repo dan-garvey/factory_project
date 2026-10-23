@@ -1,0 +1,79 @@
+[gd_scene format=3]
+
+[ext_resource type="Texture2D" path="res://opening/assets/mineral-outcrop/albedo.webp" id="1_7fstq"]
+[ext_resource type="Texture2D" path="res://opening/assets/mineral-outcrop/arm.webp" id="2_hc2va"]
+[ext_resource type="Texture2D" path="res://opening/assets/mineral-outcrop/normal.webp" id="3_6pp16"]
+[ext_resource type="ArrayMesh" path="res://opening/assets/mineral-outcrop/boulder.res" id="4_pf06f"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_a1wf2"]
+resource_name = "Weathered source stone"
+albedo_texture = ExtResource("1_7fstq")
+metallic_texture = ExtResource("2_hc2va")
+metallic_texture_channel = 2
+roughness_texture = ExtResource("2_hc2va")
+roughness_texture_channel = 1
+normal_enabled = true
+normal_texture = ExtResource("3_6pp16")
+ao_enabled = true
+ao_texture = ExtResource("2_hc2va")
+uv1_scale = Vector3(0.6666667, 0.6666667, 0.6666667)
+uv1_triplanar = true
+uv1_triplanar_sharpness = 8.0
+uv1_world_triplanar = true
+texture_filter = 5
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_mpbce"]
+resource_name = "Weathered mineral staining"
+albedo_color = Color(0.82, 0.69, 0.55, 1)
+albedo_texture = ExtResource("1_7fstq")
+metallic_texture = ExtResource("2_hc2va")
+metallic_texture_channel = 2
+roughness = 0.93
+roughness_texture = ExtResource("2_hc2va")
+roughness_texture_channel = 1
+normal_enabled = true
+normal_texture = ExtResource("3_6pp16")
+ao_enabled = true
+ao_texture = ExtResource("2_hc2va")
+uv1_scale = Vector3(0.6666667, 0.6666667, 0.6666667)
+uv1_triplanar = true
+uv1_triplanar_sharpness = 8.0
+uv1_world_triplanar = true
+texture_filter = 5
+
+[node name="Riverlens" type="Node3D" unique_id=764336549]
+
+[node name="Rock00" type="MeshInstance3D" parent="." unique_id=1218666971]
+transform = Transform3D(5.2454486, 0, 0.37535498, 0, 3.5833342, 0, -1.1729842, 0, 1.6785437, -1.55, 0.36, -0.85)
+material_override = SubResource("StandardMaterial3D_a1wf2")
+mesh = ExtResource("4_pf06f")
+
+[node name="Rock01" type="MeshInstance3D" parent="." unique_id=882664762]
+transform = Transform3D(5.4581037, 0, -0.57880247, 0, 3.833334, 0, 1.8087577, 0, 1.7465932, 0.2, 0.41, -0.35)
+material_override = SubResource("StandardMaterial3D_a1wf2")
+mesh = ExtResource("4_pf06f")
+
+[node name="Rock02" type="MeshInstance3D" parent="." unique_id=347928443]
+transform = Transform3D(4.6968637, 0, 0.5486365, 0, 3.333334, 0, -1.714489, 0, 1.5029963, 1.65, 0.34, 0.8)
+material_override = SubResource("StandardMaterial3D_a1wf2")
+mesh = ExtResource("4_pf06f")
+
+[node name="Rock03" type="MeshInstance3D" parent="." unique_id=1073366477]
+transform = Transform3D(3.260138, 0, -0.9336175, 0, 2.9166672, 0, 2.9175546, 0, 1.0432441, -0.95, 0.26, 1.25)
+material_override = SubResource("StandardMaterial3D_a1wf2")
+mesh = ExtResource("4_pf06f")
+
+[node name="Rock04" type="MeshInstance3D" parent="." unique_id=474073675]
+transform = Transform3D(1.5296844, 0, 0.41229934, 0, 1.3333336, 0, -1.2884353, 0, 0.48949906, 1.7, 0.77, 0.3)
+material_override = SubResource("StandardMaterial3D_mpbce")
+mesh = ExtResource("4_pf06f")
+
+[node name="Rock05" type="MeshInstance3D" parent="." unique_id=2008354642]
+transform = Transform3D(1.8863364, 0, -0.07278502, 0, 1.2666669, 0, 0.22745319, 0, 0.6036276, -1.15, 0.68, 0.53)
+material_override = SubResource("StandardMaterial3D_mpbce")
+mesh = ExtResource("4_pf06f")
+
+[node name="Rock06" type="MeshInstance3D" parent="." unique_id=1759467633]
+transform = Transform3D(1.5573145, 0, 0.075316824, 0, 1.0500002, 0, -0.23536508, 0, 0.49834064, 2.85, 0.08, 1.7)
+material_override = SubResource("StandardMaterial3D_a1wf2")
+mesh = ExtResource("4_pf06f")
