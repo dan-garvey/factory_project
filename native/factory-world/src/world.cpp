@@ -125,6 +125,8 @@ bool shape(const Object& intent, const std::string& action) {
     if (action == "craft_component") return keys(intent, {"target", "generation", "component"}) &&
         field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
         field<std::string>(intent, "component");
+    if (action == "field_craft") return keys(intent, {"component"}) &&
+        field<std::string>(intent, "component");
     if (action == "deliver_first_plate") return keys(intent, {"target", "generation"}) &&
         field<std::string>(intent, "target") && field<Integer>(intent, "generation");
     if (action == "craft_part") return keys(intent, {"target", "generation", "role", "half_span"}) &&
@@ -451,6 +453,25 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
             count && *count > 0 && *count <= profile.material.component_capacity &&
             targets.front() == anchor(profile, landing_hub_center(*profile.landing_pod_center)) && result.size() == 20;
     }
+    if (action == "field_craft") {
+        const auto* requested = field<std::string>(record.intent, "component");
+        if (!requested) return false;
+        const auto component = materials::component_from_name(*requested);
+        if (!component) return false;
+        const auto cost = materials::component_cost(*component);
+        if (!cost) return false;
+        const auto* entity = field<std::string>(result, "entity");
+        const auto* generation = field<Integer>(result, "generation");
+        const auto* made = field<std::string>(result, "component");
+        const auto* timber = field<Integer>(result, "spent_timber");
+        const auto* raw = field<Integer>(result, "spent_raw");
+        const auto* count = field<Integer>(result, "component_count");
+        return cost->timber > 0 && cost->ore == 0 && entity && entity->empty() &&
+            generation && *generation == 0 && made && *made == *requested &&
+            timber && *timber == cost->timber && raw && *raw == 0 && count && *count > 0 &&
+            *count <= profile.material.component_capacity && targets.front() == *actor_position &&
+            result.size() == 20;
+    }
     if (action == "deliver_first_plate") {
         const auto* target = field<std::string>(record.intent, "target");
         const auto* generation = field<Integer>(record.intent, "generation");
@@ -742,7 +763,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         const auto* entity = field<std::string>(record.result, "entity");
         const auto* generation = field<Integer>(record.result, "generation");
         if (!result_actor || *result_actor != *actor || !entity || !generation) return false;
-        if (*action != "pickup_material" && *action != "harvest_source") {
+        if (*action != "pickup_material" && *action != "harvest_source" && *action != "field_craft") {
             const auto issued = snapshot.state.issued_entities.find(*entity);
             if (issued == snapshot.state.issued_entities.end() || issued->second != *generation) return false;
         }
@@ -788,7 +809,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             } else if (!add(harvested_timber[id], 1) || !add(carried_timber[*actor], 1)) return false;
         }
         if (*action == "deliver_first_plate" && (!add(shipped_plates, 1) || shipped_plates > 1)) return false;
-        if (*action == "craft_component") {
+        if (*action == "craft_component" || *action == "field_craft") {
             const auto component = materials::component_from_name(*field<std::string>(record.intent, "component"));
             const auto cost = component ? materials::component_cost(*component) : std::nullopt;
             if (!cost || carried_timber[*actor] < cost->timber ||
@@ -1766,6 +1787,32 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         facts.emplace("moved_raw", Value(Integer{ore ? 1 : 0}));
         facts.emplace("moved_timber", Value(Integer{ore ? 0 : 1}));
         return accepted(std::move(candidate), *id, std::move(facts));
+    }
+    if (*action == "field_craft") {
+        const auto* requested = field<std::string>(intent, "component");
+        if (!requested) return refused("invalid_command");
+        const auto component = materials::component_from_name(*requested);
+        const auto cost = component ? materials::component_cost(*component) : std::nullopt;
+        if (!cost || cost->ore != 0 || cost->timber < 1) return refused("unavailable_recipe");
+        const auto cut = observe ? observe(binding.actor) : std::nullopt;
+        if (!cut) return refused("actor_unready");
+        auto checked_cut = *cut;
+        checked_cut.build_reach = profile_.build_reach;
+        const auto checked = authority::check_reach(binding.actor, checked_cut, {checked_cut.position});
+        auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
+        if (checked.error != authority::Error::none)
+            return refused(authority::error_name(checked.error), {}, std::move(facts));
+        auto candidate = state;
+        const auto error = materials::craft_component(candidate.material, profile_.material,
+            material_path(candidate.topology), binding.actor, *component);
+        if (error != materials::Error::none)
+            return refused(materials::error_name(error), {}, std::move(facts));
+        facts.emplace("generation", Value(Integer{0}));
+        facts.emplace("component", Value(*requested));
+        facts.emplace("spent_timber", Value(cost->timber));
+        facts.emplace("spent_raw", Value(Integer{0}));
+        facts.emplace("component_count", Value(candidate.material.cargo.at(binding.actor).components.at(*component)));
+        return accepted(std::move(candidate), {}, std::move(facts));
     }
     if (*action == "craft_component") {
         const auto* id = field<std::string>(intent, "target");
