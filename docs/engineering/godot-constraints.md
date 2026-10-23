@@ -1282,6 +1282,30 @@ supports unreliable fragmentation. Large full-state packets can lose fragments;
 continued publication supplies a newer view. This is a bounded loopback adapter,
 not a claim of production networking, packet-loss tolerance or scale acceptance.
 
+## GDC-25: grouping opaque machine finishes reduces render surfaces
+
+At the pinned Godot 4.7.2 runtime, a static machine composite can retain its
+normal and roughness textures while putting albedo tint into vertex color.
+For the shared nontriplanar surface family, vertex alpha and a second UV carry
+metallic and roughness values to a spatial shader. Other eligible finishes keep
+their original `StandardMaterial3D` settings. Meshes with unsupported attributes
+stay on the original material path; moving pieces and preview scenes are separate.
+
+In a scripted WSL X11 overview of 400 synthetic collector, conveyor, press,
+and waterwheel visuals at 1280 by 800, this reduced the two visible static
+composites from 21 and 8 surfaces to 3 each, and draw calls from 137 to 114.
+The experimental grouped runs measured roughly 16.5 to 18.6 ms median frames;
+their spread needs adjacent controls before assigning a reliable frame-time gain.
+Screenshots and synthetic visuals do not establish active native simulation,
+placement latency, whole-opening frame rate or human visual judgment.
+
+`ImporterMesh.from_mesh`, `generate_lods`, and `get_mesh` also produced usable
+distance levels, but three cached composites cost 137 to 142 ms to prepare and
+two LOD samples gave only 20.03 and 20.41 ms around a 20.93 ms control.
+Distance LOD is therefore not used in this change. `ArrayMesh.surface_get_lods`
+is not a callable GDScript API in this runtime; an early probe raised a script
+error.
+
 ## Required follow-through
 
 This first source/API/evidence audit leaves actual backend identification,
