@@ -209,6 +209,20 @@ artifact family; it adds no replacement game entry, process supervisor or
 state authority.
 Source or compiler acceptance alone is not its runtime verdict.
 
+`native_shared_rejoin_check.gd` also has separate `--cog-phase=chapter-ui` and
+`--cog-phase=chapter-ui-resume` modes for the native arrival. Run its P and Q
+roles as separate ordinary `shared_opening.tscn` clients against one
+`server.gd --native-world` host. The first phase walks the host-owned actor
+through the shared control callback, aims the ordinary E picker at a finite
+tree trunk, uses the multitool button to shape a wooden frame, and places it
+with the common-grid component tool. Q observes the exact debit and part. Stop
+the host with `--save-file`, then start a fresh host with that unchanged Store
+input and run both resume roles: P uses the ordinary deconstruct control to
+reclaim the same part, and Q observes its returned cargo. Both phases require
+their separate P/Q result files and the host's accepted save report. These
+callbacks are automated client input, not a desktop or human playtest. They
+do not yet cover the complete collector and press controls.
+
 The low-level dedicated entry accepts optional `--resume-input` and
 `--save-file` paths in the same owned directory as its lifecycle files. These
 are host process options, never RPCs. Input is decoded into the one actual
