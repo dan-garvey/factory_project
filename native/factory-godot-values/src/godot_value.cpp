@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <string_view>
 #include <utility>
@@ -91,6 +92,7 @@ struct Builtin {
 
 struct Api : std::enable_shared_from_this<Api> {
     GDExtensionInterfaceVariantNewNil nil;
+    GDExtensionInterfaceVariantNewCopy copy;
     GDExtensionInterfaceVariantDestroy destroy;
     GDExtensionInterfaceVariantGetType type;
     GDExtensionInterfaceGetVariantFromTypeConstructor from_type;
@@ -117,6 +119,7 @@ struct Api : std::enable_shared_from_this<Api> {
             std::string_view(version.hash) != "ed1daf0bf001b61586d9930840f2f1394092c079")
             throw Error(ErrorCode::incompatible_engine, "The engine does not match the recorded native interface revision.");
         nil = required<GDExtensionInterfaceVariantNewNil>(lookup, "variant_new_nil");
+        copy = required<GDExtensionInterfaceVariantNewCopy>(lookup, "variant_new_copy");
         destroy = required<GDExtensionInterfaceVariantDestroy>(lookup, "variant_destroy");
         type = required<GDExtensionInterfaceVariantGetType>(lookup, "variant_get_type");
         from_type = required<GDExtensionInterfaceGetVariantFromTypeConstructor>(lookup, "get_variant_from_type_constructor");
@@ -261,8 +264,54 @@ struct Api : std::enable_shared_from_this<Api> {
         }
     }
 
-    NativeValue write(const values::Value& value, Budget& budget, std::size_t depth) {
+    struct ExportSlot {
+        std::string_view text;
+        std::optional<NativeValue> retained;
+        bool seen = false;
+    };
+    using ExportCache = std::array<ExportSlot, 512>;
+
+    NativeValue write_string(std::string_view text, Budget& budget, ExportCache& cache) {
+        budget.string(text.size());
+        auto& slot = cache[std::hash<std::string_view>{}(text) % cache.size()];
+        if (slot.seen && slot.text == text && slot.retained) {
+            auto result = fresh();
+            copy(result.get(), slot.retained->get());
+            result.storage_->initialized = true;
+            return result;
+        }
+        const bool repeated = slot.seen && slot.text == text;
+        validate_string(text);
+        Builtin native(string_destroy);
+        const auto error = string_new(native.get(), text.data(), static_cast<std::int64_t>(text.size()));
+        native.initialized = true;
+        if (error != 0) throw Error(ErrorCode::invalid_string, "The engine refused the explicitly validated UTF-8 string.");
+        const auto encoded_size = string_utf8(native.get(), nullptr, 0);
+        if (encoded_size < 0 || static_cast<std::uint64_t>(encoded_size) != text.size())
+            throw Error(ErrorCode::invalid_string, "The engine normalized the plain string instead of preserving it.");
+        std::string encoded(text.size(), '\0');
+        if ((encoded_size && string_utf8(native.get(), encoded.data(), encoded_size) != encoded_size) || encoded != text)
+            throw Error(ErrorCode::invalid_string, "The engine changed the plain string during conversion.");
+        auto result = fresh();
+        writers[GDEXTENSION_VARIANT_TYPE_STRING](result.get(), native.get());
+        result.storage_->initialized = true;
+        if (repeated) {
+            auto kept = fresh();
+            copy(kept.get(), result.get());
+            kept.storage_->initialized = true;
+            slot.retained.emplace(std::move(kept));
+        } else {
+            slot.retained.reset();
+            slot.text = text;
+            slot.seen = true;
+        }
+        return result;
+    }
+
+    NativeValue write(const values::Value& value, Budget& budget, std::size_t depth, ExportCache& cache) {
         budget.enter(depth);
+        if (value.type() == values::Type::string)
+            return write_string(std::get<std::string>(value.storage()), budget, cache);
         auto result = fresh();
         switch (value.type()) {
             case values::Type::null:
@@ -285,29 +334,13 @@ struct Api : std::enable_shared_from_this<Api> {
                 writers[GDEXTENSION_VARIANT_TYPE_FLOAT](result.get(), &number);
                 break;
             }
-            case values::Type::string: {
-                const auto& text = std::get<std::string>(value.storage());
-                budget.string(text.size());
-                validate_string(text);
-                Builtin native(string_destroy);
-                const auto error = string_new(native.get(), text.data(), static_cast<std::int64_t>(text.size()));
-                native.initialized = true;
-                if (error != 0) throw Error(ErrorCode::invalid_string, "The engine refused the explicitly validated UTF-8 string.");
-                const auto encoded_size = string_utf8(native.get(), nullptr, 0);
-                if (encoded_size < 0 || static_cast<std::uint64_t>(encoded_size) != text.size())
-                    throw Error(ErrorCode::invalid_string, "The engine normalized the plain string instead of preserving it.");
-                std::string encoded(text.size(), '\0');
-                if ((encoded_size && string_utf8(native.get(), encoded.data(), encoded_size) != encoded_size) || encoded != text)
-                    throw Error(ErrorCode::invalid_string, "The engine changed the plain string during conversion.");
-                writers[GDEXTENSION_VARIANT_TYPE_STRING](result.get(), native.get());
-                break;
-            }
+            case values::Type::string: break; // Handled before allocating the result.
             case values::Type::array: {
                 const auto& children = std::get<values::Value::Array>(value.storage());
                 budget.children(static_cast<std::int64_t>(children.size()));
                 result = empty(GDEXTENSION_VARIANT_TYPE_ARRAY);
                 for (const auto& child : children) {
-                    auto item = write(child, budget, depth + 1);
+                    auto item = write(child, budget, depth + 1, cache);
                     const GDExtensionConstVariantPtr args[]{item.get()};
                     (void)method(result.get(), "append", args, 1);
                 }
@@ -319,11 +352,10 @@ struct Api : std::enable_shared_from_this<Api> {
                 result = empty(GDEXTENSION_VARIANT_TYPE_DICTIONARY);
                 for (const auto& [name, child] : children) {
                     // Keys consume the string quota, but not a value node.
-                    auto key_budget = Budget{};
-                    key_budget.strings = budget.strings;
-                    auto key = write(values::Value(name), key_budget, depth + 1);
-                    budget.strings = key_budget.strings;
-                    auto item = write(child, budget, depth + 1);
+                    if (depth + 1 > max_depth)
+                        throw Error(ErrorCode::limit, "The plain-value nesting or node limit was exceeded.");
+                    auto key = write_string(name, budget, cache);
+                    auto item = write(child, budget, depth + 1, cache);
                     GDExtensionBool valid = false;
                     set(result.get(), key.get(), item.get(), &valid);
                     if (!valid) throw Error(ErrorCode::engine_call, "The engine dictionary refused a typed key or value.");
@@ -353,7 +385,8 @@ values::Value Boundary::import_value(GDExtensionConstVariantPtr source) const {
 }
 NativeValue Boundary::export_value(const values::Value& source) const {
     Budget budget;
-    return api_->write(source, budget, 0);
+    detail::Api::ExportCache cache;
+    return api_->write(source, budget, 0, cache);
 }
 
 }  // namespace factory::godot_values
