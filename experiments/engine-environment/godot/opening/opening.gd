@@ -4592,6 +4592,11 @@ var workpiece_item_assets
 var hover: MeshInstance3D
 var selection_ring: MeshInstance3D
 var machine_preview: Node3D
+var component_preview: Node3D
+var component_preview_kind := ""
+var component_preview_material: StandardMaterial3D
+var component_preview_blocked := false
+var component_preview_snap := ""
 var mutable_machine_preview: Node3D
 var machine_preview_key := ""
 var machine_preview_material: StandardMaterial3D
@@ -4711,12 +4716,8 @@ var placement_options_axis: Button
 var placement_cell_cache := Vector2i.ZERO
 var arrival_assembly_controls
 var arrival_assembly_scroll: ScrollContainer
-var component_level := 0
-var component_offset := Vector2i.ZERO
-var component_height_controls: HBoxContainer
-var component_height_label: Label
-var component_offset_controls: HBoxContainer
-var component_offset_label: Label
+var component_nudge_active := false
+var component_nudge_center: Array = []
 var landing_pod_visual: Node3D
 var landing_hub_visual: Node3D
 var landing_hub_pick: StaticBody3D
@@ -5378,6 +5379,7 @@ func _process(delta: float) -> void:
 		else:
 			_refresh()
 	_refresh_machine_preview()
+	_refresh_component_preview()
 	_refresh_placement_options()
 	_refresh_water()
 	_refresh_mechanical_audio()
@@ -5614,6 +5616,13 @@ func _input(event: InputEvent) -> void:
 			_finish_arrival_reveal(true)
 		get_viewport().set_input_as_handled()
 		return
+	if event is InputEventKey and event.keycode == KEY_ALT and not event.pressed \
+			and component_nudge_active:
+		component_nudge_active = false
+		component_nudge_center.clear()
+		_update_cursor()
+		get_viewport().set_input_as_handled()
+		return
 	if _object_menu_open():
 		if event is InputEventKey and event.pressed and not event.echo:
 			var used := false
@@ -5687,13 +5696,35 @@ func _input(event: InputEvent) -> void:
 		return
 	if _catalog_open():
 		return
+	if event is InputEventKey and event.keycode == KEY_ALT and mode == "component":
+		if event.pressed and not component_nudge_active:
+			component_nudge_center = _component_pointed_center()
+			component_nudge_active = true
+		elif not event.pressed:
+			component_nudge_active = false
+			component_nudge_center.clear()
+		_update_cursor()
+		get_viewport().set_input_as_handled()
+		return
 	if event is InputEventKey and not event.pressed and consumed_shortcut_keys.has(event.keycode):
 		consumed_shortcut_keys.erase(event.keycode)
 		get_viewport().set_input_as_handled()
 		return
 	if event is InputEventKey and event.pressed and not event.echo:
 		var handled := false
-		if event.ctrl_pressed:
+		if event.alt_pressed and mode == "component" and event.keycode in [KEY_LEFT, KEY_RIGHT,
+				KEY_UP, KEY_DOWN, KEY_PAGEUP, KEY_PAGEDOWN]:
+			if not component_nudge_active:
+				component_nudge_center = _component_pointed_center()
+				component_nudge_active = true
+			var axis := 1 if event.keycode in [KEY_PAGEUP, KEY_PAGEDOWN] else \
+				0 if event.keycode in [KEY_LEFT, KEY_RIGHT] else 2
+			var step := 1 if event.keycode in [KEY_RIGHT, KEY_UP, KEY_PAGEUP] else -1
+			component_nudge_center[axis] = clampi(int(component_nudge_center[axis]) + step,
+				-Geometry.GRID_COORDINATE_LIMIT, Geometry.GRID_COORDINATE_LIMIT)
+			_update_cursor()
+			handled = true
+		elif event.ctrl_pressed:
 			match event.keycode:
 				KEY_D: handled = _activate_button(details_button) if legacy_fixture else false
 				KEY_ENTER, KEY_KP_ENTER: handled = _activate_button(confirm_button)
@@ -5783,7 +5814,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			orbit_yaw -= event.relative.x * 0.007
 			orbit_pitch = clampf(orbit_pitch + event.relative.y * 0.005,
 				-1.25 if not legacy_fixture and distance == 0.0 else 0.35, 1.25)
-		else:
+		elif not component_nudge_active:
 			hover_cell = _screen_cell(event.position)
 			_update_cursor()
 	elif event is InputEventMouseButton and event.pressed:
@@ -5805,11 +5836,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		match event.keycode:
 			KEY_B: building_hotbar.open_catalog()
 			KEY_PAGEUP:
-				if mode == "component": _adjust_component_level(1)
-				else: _adjust_foundation_level(1)
+				if mode != "component": _adjust_foundation_level(1)
 			KEY_PAGEDOWN:
-				if mode == "component": _adjust_component_level(-1)
-				else: _adjust_foundation_level(-1)
+				if mode != "component": _adjust_foundation_level(-1)
 			KEY_F: _select_tool("deconstruct" if _native_transmission() else "flow")
 			KEY_C:
 				if _native_transmission():
@@ -5836,6 +5865,8 @@ func _unhandled_input(event: InputEvent) -> void:
 func _select_tool(tool: String) -> void:
 	if explanation_open:
 		return
+	component_nudge_active = false
+	component_nudge_center.clear()
 	if transmission_controls != null:
 		transmission_controls.cancel()
 	mode = tool
@@ -5851,7 +5882,7 @@ func _select_tool(tool: String) -> void:
 	_update_cursor()
 	_refresh_ui()
 	var instructions := {"flow": "Click the upstream machine, then its neighbor toward the brass arrow.",
-		"component": "Click a floor or built part face to snap. Use placement controls for quarter-grid offsets.",
+		"component": "Point at a part face to snap. Hold Alt and use arrows or Page Up / Down to nudge one quarter-grid step; click to place.",
 		"pod_workshop": "Click a clear full tile to reinstall the carried pod workshop. It can sit on ground or a foundation top.",
 		"drive": "Click two neighboring machines to connect a drive shaft.",
 		"inspect": "Point at a machine and press E to open it." if _native_transmission() else "Click a machine to inspect it or collect its finished work.",
@@ -6263,6 +6294,11 @@ func _open_pointed_machine() -> void:
 	if not _contains_target(state, target):
 		_message("Point at a machine or part and press E to open it.", true)
 		return
+	_open_object_menu_for(target)
+
+func _open_object_menu_for(target: String) -> void:
+	if not _contains_target(state, target):
+		return
 	_select_tool("inspect")
 	selected = target
 	_refresh_ui()
@@ -6388,9 +6424,15 @@ func _screen_entity(screen: Vector2) -> String:
 	var hit := _screen_pick(screen)
 	return str(hit.collider.get_meta("entity", hit.collider.get_meta("component_entity", ""))) if not hit.is_empty() else ""
 
-func _component_place_center(cell: Vector2i, pointed: String) -> Array:
+func _component_pointed_center() -> Array:
+	var screen := _pointed_screen_position()
+	return _component_place_center(_screen_cell(screen), _screen_entity(screen), false)
+
+func _component_place_center(cell: Vector2i, pointed: String, use_nudge := true) -> Array:
 	# One quarter-grid step off a confirmed component face builds a stack or
 	# lateral drive. Host still decides support, occupancy, custody and reach.
+	if use_nudge and component_nudge_active and component_nudge_center.size() == 3:
+		return component_nudge_center.duplicate()
 	if arrival_assembly_controls != null and arrival_assembly_controls.selected_name() == "wooden_workbench":
 		return [cell.x * Geometry.HEIGHT_DENOMINATOR, _construction_level(cell),
 			cell.y * Geometry.HEIGHT_DENOMINATOR]
@@ -6407,26 +6449,8 @@ func _component_place_center(cell: Vector2i, pointed: String) -> Array:
 				axis = 2
 			center[axis] += 1 if normal[axis] >= 0.0 else -1
 			return center
-	return [cell.x * Geometry.HEIGHT_DENOMINATOR + component_offset.x,
-		_construction_level(cell) + component_level,
-		cell.y * Geometry.HEIGHT_DENOMINATOR + component_offset.y]
-
-func _adjust_component_level(delta: int) -> void:
-	if mode != "component" or not _native_transmission() or explanation_open:
-		return
-	component_level = clampi(component_level + delta, -1000000, 1000000)
-	component_height_label.text = "Height: %+d steps" % component_level
-	_update_cursor()
-
-func _adjust_component_offset(axis: String, delta: int) -> void:
-	if mode != "component" or not _native_transmission() or explanation_open:
-		return
-	if axis == "x":
-		component_offset.x = clampi(component_offset.x + delta, -3, 3)
-	else:
-		component_offset.y = clampi(component_offset.y + delta, -3, 3)
-	component_offset_label.text = "X %+d · Z %+d" % [component_offset.x, component_offset.y]
-	_update_cursor()
+	return [cell.x * Geometry.HEIGHT_DENOMINATOR,
+		_construction_level(cell), cell.y * Geometry.HEIGHT_DENOMINATOR]
 
 func _component_center_allowed(center: Array) -> bool:
 	if center.size() != 3 or ProductionEnvironment.Surface == null:
@@ -6434,6 +6458,138 @@ func _component_center_allowed(center: Array) -> bool:
 	var half: float = ProductionEnvironment.Surface.HALF - Geometry.HEIGHT_STEP / 2.0
 	return absf(center[0] * Geometry.HEIGHT_STEP) <= half \
 		and absf(center[2] * Geometry.HEIGHT_STEP) <= half
+
+func _component_candidate_box(kind: String, center: Array) -> Dictionary:
+	var at := Vector3(center[0] * Geometry.HEIGHT_STEP,
+		center[1] * Geometry.HEIGHT_STEP + Geometry.ANCHOR_HEIGHT,
+		center[2] * Geometry.HEIGHT_STEP)
+	var occupied := at
+	var half := Vector3(0.14, 0.14, 0.14)
+	match kind:
+		"wooden_frame":
+			occupied.y = center[1] * Geometry.HEIGHT_STEP + 0.45
+			half = Vector3(0.2025, 0.45, 0.2025)
+		"wooden_workbench":
+			occupied.y = center[1] * Geometry.HEIGHT_STEP + 0.45
+			half = Vector3(0.34, 0.45, 0.30)
+		"anvil":
+			var low := at.y - Geometry.HEIGHT_STEP + (0.9 - Geometry.ANCHOR_HEIGHT)
+			var high := at.y + Geometry.HEIGHT_STEP * 0.3
+			occupied.y = (low + high) * 0.5
+			half.y = (high - low) * 0.5
+		"ram_face":
+			var low := at.y - Geometry.HEIGHT_STEP * 0.7
+			var high := at.y + Geometry.HEIGHT_STEP * 0.5
+			occupied.y = (low + high) * 0.5
+			half.y = (high - low) * 0.5
+		"sliding_guide":
+			var low := at.y - Geometry.HEIGHT_STEP * 0.5
+			var high := at.y + Geometry.HEIGHT_STEP - 0.08
+			occupied.y = (low + high) * 0.5
+			half.y = (high - low) * 0.5
+		"tool_mount":
+			occupied.y += 0.10
+			half = Vector3(Geometry.HEIGHT_STEP - 0.205, 0.18, Geometry.HEIGHT_STEP - 0.205)
+		"cutting_edge":
+			occupied.y -= 0.015
+			half = Vector3(0.21, 0.12, 0.18)
+		"receiver_tray":
+			occupied.y -= 0.0825
+			half = Vector3(0.18, 0.15, 0.205)
+		"wooden_shaft", "softmetal_shaft":
+			half = Vector3(0.205, 0.12, 0.205)
+		"wooden_cog", "softmetal_cog":
+			half = Vector3(Geometry.HEIGHT_STEP - 0.205, 0.14, Geometry.HEIGHT_STEP - 0.205)
+	return {"center": occupied, "half": half, "size": half * 2.0}
+
+func _component_candidate_blocked(box: Dictionary) -> bool:
+	var result: Dictionary = Geometry.component_boxes(state)
+	var occupied: Array = result.get("boxes", {}).values() if result.get("accepted", false) else []
+	var mechanical: Dictionary = Geometry.mechanical_boxes(state)
+	if mechanical.get("accepted", false):
+		occupied.append_array(mechanical.get("boxes", {}).values())
+	for entity: Dictionary in state.get("entities", {}).values():
+		if entity.get("cell") is Array and entity.cell.size() == 2:
+			occupied.append({"center": _entity_position(entity) + Vector3.UP * 0.8,
+				"size": Vector3(Geometry.MACHINE_SIZE[0], Geometry.MACHINE_SIZE[1], Geometry.MACHINE_SIZE[2])})
+	for actor: Dictionary in state.get("actors", {}).values():
+		var position: Variant = actor.get("position")
+		if Geometry.valid_position(position):
+			occupied.append({"center": Vector3(position[0], position[1], position[2]),
+				"size": Vector3(Geometry.CAPSULE_RADIUS * 2.0, Geometry.CAPSULE_HEIGHT,
+					Geometry.CAPSULE_RADIUS * 2.0)})
+	if ProductionEnvironment.Surface != null:
+		for solid: Dictionary in ProductionEnvironment.Surface.support_boxes():
+			if solid.get("id", "") != "source_outcrop":
+				continue
+			var obstacle: AABB = Transform3D(solid.basis, solid.center) * AABB(-solid.size * 0.5, solid.size)
+			occupied.append({"center": obstacle.get_center(), "size": obstacle.size})
+	for other: Dictionary in occupied:
+		var separation: Vector3 = (box.center - other.center).abs()
+		var extent: Vector3 = (box.half + other.size * 0.5) - Vector3.ONE * 0.001
+		if separation.x < extent.x and separation.y < extent.y and separation.z < extent.z:
+			return true
+	return false
+
+func _refresh_component_preview() -> void:
+	if component_preview == null:
+		return
+	component_preview.visible = false
+	if mode != "component" or not _native_transmission() or arrival_assembly_controls == null \
+			or transmission_presenter == null or explanation_open or not _placement_ready() \
+			or not _preview_pointer_clear():
+		return
+	var kind: String = arrival_assembly_controls.selected_name()
+	if int(state.get("cargo", {}).get(client, {}).get("components", {}).get(kind, 0)) < 1:
+		return
+	var pointed := _screen_entity(_pointed_screen_position()) if not component_nudge_active else ""
+	var center := _component_place_center(_screen_cell(_pointed_screen_position()), pointed)
+	if center.size() != 3:
+		return
+	var box := _component_candidate_box(kind, center)
+	component_preview_blocked = not _component_center_allowed(center) or _component_candidate_blocked(box)
+	component_preview_snap = ""
+	if component_nudge_active:
+		component_preview_snap = "Nudged point"
+	elif state.get("placed_components", {}).has(pointed):
+		var pointed_kind: String = str(state.placed_components[pointed].component)
+		var hit := _screen_pick(_pointed_screen_position())
+		component_preview_snap = "Above %s" % pointed_kind.replace("_", " ") if not hit.is_empty() and hit.normal.y > 0.5 \
+			else "Beside %s" % pointed_kind.replace("_", " ")
+	else:
+		component_preview_snap = "Floor grid"
+	if kind != component_preview_kind:
+		for child in component_preview.get_children():
+			child.free()
+		transmission_presenter.preview_component(component_preview, kind, box.size)
+		component_preview_kind = kind
+		component_preview_material = StandardMaterial3D.new()
+		component_preview_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		component_preview_material.roughness = 0.72
+		_style_component_preview(component_preview)
+	component_preview.position = box.center
+	component_preview_material.albedo_color = Color(0.94, 0.27, 0.21, 0.64) if component_preview_blocked \
+		else Color(0.91, 0.73, 0.40, 0.56)
+	component_preview.visible = true
+
+func _style_component_preview(node: Node) -> void:
+	if node is MeshInstance3D:
+		node.material_override = component_preview_material
+		node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	for child in node.get_children():
+		_style_component_preview(child)
+
+func _component_placement_hint() -> String:
+	if component_preview == null or not component_preview.visible:
+		return "Point at a floor or built part"
+	var center := _component_place_center(_screen_cell(_pointed_screen_position()),
+		_screen_entity(_pointed_screen_position()))
+	var location := "%s · X %d  Y %d  Z %d" % [component_preview_snap, center[0], center[1], center[2]]
+	var action := "Blocked here · move the ghost" if component_preview_blocked else "Click to place"
+	var kind: String = arrival_assembly_controls.selected_name()
+	var stack_hint := "Aim at the wooden frame top" if kind == "anvil" else \
+		"Aim at the anvil top" if kind == "ram_face" else "Point at a part face to snap"
+	return "%s\n%s · %s\nAlt + arrows / PgUp / PgDn nudges" % [location, action, stack_hint]
 
 func _screen_pick(screen: Vector2) -> Dictionary:
 	if camera == null or not camera.is_inside_tree():
@@ -6629,6 +6785,10 @@ func _build_world() -> void:
 	_install_transmission_terrain_picker()
 	machine_root = Node3D.new()
 	add_child(machine_root)
+	component_preview = Node3D.new()
+	component_preview.name = "ComponentPreview"
+	component_preview.visible = false
+	add_child(component_preview)
 	item_root = Node3D.new()
 	add_child(item_root)
 	hover = _box(self, Vector3.ZERO, Vector3(1.5, 0.035, 1.5), Color(0.85, 0.75, 0.45, 0.45))
@@ -9014,14 +9174,6 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		wheel_size_controls.visible = foundation_level_controls.visible and mode == "wheel"
 		(wheel_size_controls.get_child(0) as Button).text = "−  [Shift+PgDn]"
 		(wheel_size_controls.get_child(2) as Button).text = "+  [Shift+PgUp]"
-	if component_height_controls != null:
-		var whole_tile_component: bool = arrival_assembly_controls != null \
-			and arrival_assembly_controls.selected_name() == "wooden_workbench"
-		component_height_controls.visible = _native_transmission() and mode == "component" \
-			and not explanation_open and not whole_tile_component
-		component_height_label.text = "Height: %+d steps" % component_level
-		component_offset_controls.visible = component_height_controls.visible
-		component_offset_label.text = "X %+d · Z %+d" % [component_offset.x, component_offset.y]
 	footer_snapshot_ready = snapshot_ready
 	_queue_footer_fit()
 	if building_hotbar != null:
@@ -9048,6 +9200,8 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	if state.get("options", {}).get("foundations", false):
 		offered.foundation = true
 	for tool in tool_buttons:
+		if building_hotbar.catalog_buttons.has(tool):
+			continue
 		var button: Button = tool_buttons[tool]
 		# Keyboard selection stays visible even when it precedes the suggestion.
 		button.visible = (NAMES.has(tool) or building_hotbar.catalog_buttons.has(tool) or offered.has(tool) or mode == tool) \
@@ -9143,6 +9297,8 @@ func _placement_ready() -> bool:
 func _preview_pointer_clear() -> bool:
 	# This query does not consume input or move the pointer. The live preview
 	# follows the current camera ray, including when the view moves under it.
+	if component_nudge_active and mode == "component":
+		return is_inside_tree()
 	return is_inside_tree() and get_viewport().get_visible_rect().has_point(_pointed_screen_position()) \
 		and (get_viewport().gui_get_hovered_control() == null or _pointer_over_placement_options())
 
@@ -9196,7 +9352,7 @@ func _refresh_placement_options() -> void:
 	if placement_options_panel == null:
 		return
 	var placing_machine := machine_preview != null and machine_preview.visible
-	var placing_component := mode == "component" and hover != null and hover.visible
+	var placing_component := mode == "component" and component_preview != null and component_preview.visible
 	var placing_pod := mode == "pod_workshop" and hover != null and hover.visible
 	var placing_transmission: bool = _native_transmission() and transmission_controls != null \
 		and transmission_controls.active_tool in ["gear", "place_shaft", "belt_span", "gearbox", "vertical_gearbox", "chain_drive"]
@@ -9220,7 +9376,7 @@ func _refresh_placement_options() -> void:
 		"vertical_gearbox": "Left click to build · choose axle or height below",
 		"chain_drive": "Left click to build · choose axle and chain link direction below",
 		"belt": "Click two parallel shafts · Esc cancels",
-		"component": "Click to build · choose quarter-grid offset or height below · Esc cancels",
+		"component": _component_placement_hint(),
 		"pod_workshop": "Left click to reinstall on the full tile · Esc cancels",
 	}.get(tool, "Left click to build · R rotates · Esc cancels")
 	placement_options_axis.visible = tool in ["wheel", "gear", "drive", "vertical_gearbox", "chain_drive"]
@@ -9601,6 +9757,7 @@ func _refresh_machine_captions() -> void:
 
 func _update_cursor() -> void:
 	_refresh_machine_preview()
+	_refresh_component_preview()
 	_refresh_machine_captions()
 	if _native_transmission() and transmission_controls != null and not transmission_controls.active_tool.is_empty():
 		hover.visible = false
@@ -9620,13 +9777,7 @@ func _update_cursor() -> void:
 		_refresh_placement_options()
 		return
 	if mode == "component" and _native_transmission():
-		var center := _component_place_center(hover_cell, _screen_entity(_pointed_screen_position()))
-		hover.visible = _preview_pointer_clear() and _component_center_allowed(center) and not explanation_open
-		if hover.visible:
-			hover.position = Vector3(center[0] * Geometry.HEIGHT_STEP,
-				center[1] * Geometry.HEIGHT_STEP + 0.03, center[2] * Geometry.HEIGHT_STEP)
-			hover.scale = Vector3.ONE if arrival_assembly_controls != null \
-				and arrival_assembly_controls.selected_name() == "wooden_workbench" else Vector3(0.25, 1.0, 0.25)
+		hover.visible = false
 		_refresh_placement_options()
 		return
 	hover.visible = NAMES.has(mode) and _build_cell_allowed(hover_cell) and _machine_floor_aligned(hover_cell) \
@@ -10094,20 +10245,6 @@ func _build_interface() -> void:
 	foundation_level_label = _label(foundation_level_controls, _construction_height_text(), 14)
 	_button(foundation_level_controls, "+", _adjust_foundation_level.bind(1))
 	foundation_level_controls.visible = false
-	component_height_controls = HBoxContainer.new()
-	placement_options_column.add_child(component_height_controls)
-	_button(component_height_controls, "−  [PgDn]", _adjust_component_level.bind(-1))
-	component_height_label = _label(component_height_controls, "Height: +0 steps", 14)
-	_button(component_height_controls, "+  [PgUp]", _adjust_component_level.bind(1))
-	component_height_controls.visible = false
-	component_offset_controls = HBoxContainer.new()
-	placement_options_column.add_child(component_offset_controls)
-	_button(component_offset_controls, "X−", _adjust_component_offset.bind("x", -1))
-	_button(component_offset_controls, "X+", _adjust_component_offset.bind("x", 1))
-	component_offset_label = _label(component_offset_controls, "X +0 · Z +0", 12)
-	_button(component_offset_controls, "Z−", _adjust_component_offset.bind("z", -1))
-	_button(component_offset_controls, "Z+", _adjust_component_offset.bind("z", 1))
-	component_offset_controls.visible = false
 	foundation_steps_toggle = CheckButton.new()
 	foundation_steps_toggle.text = "Access steps"
 	foundation_steps_toggle.tooltip_text = "Use one height unit for walking steps. Normal height changes move one foundation thickness. Machines need whole-tile factory floors; turning this off snaps the selected height to one."

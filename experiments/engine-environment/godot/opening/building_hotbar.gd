@@ -25,6 +25,8 @@ var destination: OptionButton
 var component_row: HBoxContainer
 var component_choice: OptionButton
 var component_assign_button: Button
+var component_buttons: Dictionary = {}
+var component_grid: GridContainer
 var parts_label: Label
 var selected_slot := 0
 var _arrival_active := false
@@ -105,7 +107,7 @@ func configure(host, ui: Control) -> void:
 	column.add_theme_constant_override("separation", 10)
 	margin.add_child(column)
 	parts_label = host._label(column, "BUILDING CATALOG", 18)
-	host._label(column, "1–8 choose slot  ·  letter assigns part  ·  Delete clears", 14)
+	host._label(column, "1–8 slot · click a part · A assigns selected", 14)
 	destination = OptionButton.new()
 	column.add_child(destination)
 	for index in range(slots.size()):
@@ -120,6 +122,12 @@ func configure(host, ui: Control) -> void:
 		button.expand_icon = true
 		button.add_theme_constant_override("icon_max_width", 36)
 		catalog_buttons[tool] = button
+	host._label(column, "FABRICATED PARTS", 15)
+	component_grid = GridContainer.new()
+	component_grid.columns = 3
+	component_grid.add_theme_constant_override("h_separation", 6)
+	component_grid.add_theme_constant_override("v_separation", 6)
+	column.add_child(component_grid)
 	component_row = HBoxContainer.new()
 	column.add_child(component_row)
 	component_choice = OptionButton.new()
@@ -226,7 +234,12 @@ func _sync_arrival(host) -> void:
 			_component_names.append(component)
 			_component_labels[component] = str(item[1])
 			component_choice.add_item(str(item[1]))
+			var button: Button = host._button(component_grid, str(item[1]),
+				_assign_to_slot.bind(COMPONENT_PREFIX + component))
+			button.custom_minimum_size = Vector2(164, 38)
+			component_buttons[component] = button
 	component_row.visible = arrival
+	component_grid.visible = arrival
 
 func refresh(snapshot_ready: bool = true) -> void:
 	var host = _view()
@@ -266,12 +279,17 @@ func refresh(snapshot_ready: bool = true) -> void:
 		var amount := _count(tool, parts)
 		button.text = "%s  [%s]\n%d %s" % [TOOLS[tool], TOOL_KEYS[tool], amount, scope]
 		button.disabled = not usable or amount < 1 or not _offered(tool, host)
-		button.visible = _offered(tool, host)
+		button.visible = _offered(tool, host) and (not _arrival_active or amount > 0 or host.mode == tool)
 	if _arrival_active:
 		for index in range(_component_names.size()):
 			var component: String = _component_names[index]
+			var count := _count(COMPONENT_PREFIX + component, parts)
 			component_choice.set_item_text(index, "%s  ×%d" % [_component_labels[component],
-				_count(COMPONENT_PREFIX + component, parts)])
+				count])
+			var part_button: Button = component_buttons[component]
+			part_button.text = "%s  %d" % [_component_labels[component], count]
+			part_button.disabled = not usable or count < 1
+			part_button.tooltip_text = "Assign %s to slot %d and place it" % [_component_labels[component], destination.selected + 1]
 		component_assign_button.disabled = not usable or component_choice.selected < 0 or \
 			_count(COMPONENT_PREFIX + _component_names[component_choice.selected], parts) < 1
 
@@ -289,7 +307,7 @@ func open_catalog(index: int = -1) -> void:
 		if _component_names.has(selected_component):
 			component_choice.select(_component_names.find(selected_component))
 			refresh()
-	catalog.popup_centered(Vector2i(560, 480 if _arrival_active else 470))
+	catalog.popup_centered(Vector2i(560, 500 if _arrival_active else 470))
 	destination.grab_focus()
 	host._refresh_guided_tools()
 	_place_catalog.call_deferred()
