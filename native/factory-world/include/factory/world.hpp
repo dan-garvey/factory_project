@@ -232,6 +232,9 @@ private:
 
     Profile profile_;
     std::unique_ptr<Owner> owner_;
+    // Tick changes material custody, not the power graph. Commands can change
+    // either topology or the drive switch and invalidate this derived result.
+    std::optional<DrivePower> tick_drive_;
 };
 
 }  // namespace factory::world

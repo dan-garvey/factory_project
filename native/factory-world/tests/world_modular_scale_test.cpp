@@ -23,9 +23,9 @@ struct ProductiveSite {
     w::Snapshot snapshot;
 };
 
-ProductiveSite productive_site() {
+ProductiveSite productive_site(g::Integer cycle_ticks = 2) {
     w::Profile profile;
-    profile.material = {1, 2, 2};
+    profile.material = {1, 2, cycle_ticks};
     profile.material.manual_ore = m::OreSite{"ore", {-3, 0, 0}};
     profile.material.timber_sites = {{"tree", {{12, 0, 12}, 40}}};
     profile.material.hand_carry_capacity = 100;
@@ -145,9 +145,8 @@ ProductiveSite productive_site() {
     return {std::move(profile), world->snapshot()};
 }
 
-void powered_cog_world(bool benchmark) {
-    constexpr int cog_count = 400;
-    auto site = productive_site();
+void powered_cog_world(bool benchmark, int cog_count = 400, bool sustained = false) {
+    auto site = productive_site(sustained ? 200 : 2);
     auto& profile = site.profile;
     auto& seed = site.snapshot.state;
     for (int index = 0; index < cog_count; ++index) {
@@ -178,7 +177,7 @@ void powered_cog_world(bool benchmark) {
     if (!world) throw std::runtime_error("The World rejected the mixed modular and cog site.");
     const auto initial = world->snapshot();
     const auto power = w::drive_power(profile, initial.state);
-    if (!power.mechanical.accepted() || power.mechanical.motion.size() < cog_count * 3)
+    if (!power.mechanical.accepted() || power.mechanical.motion.size() < static_cast<std::size_t>(cog_count) * 3)
         throw std::runtime_error("The World lost a cog, axle, or source identity.");
     for (int index = 0; index < cog_count; ++index) {
         const auto id = "scale-cog-" + std::to_string(index) + "-gear";
@@ -245,11 +244,84 @@ void powered_cog_world(bool benchmark) {
         std::cout << "WORLD_COG_STAGE name=tick cogs=" << cog_count
                   << " samples=" << ticks.size() << " median_ms=" << ticks[50]
                   << " p95_ms=" << ticks[94] << '\n';
+        if (sustained) {
+            auto running = w::World::restore("mixed-scale", profile, initial);
+            if (!running) throw std::runtime_error("The sustained World did not restore.");
+            const auto start = std::chrono::steady_clock::now();
+            if (running->tick().error != w::TransactionError::none)
+                throw std::runtime_error("The first sustained cog tick failed.");
+            const double first_ms = std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - start).count();
+            const auto first = running->snapshot();
+            std::vector<double> repeated;
+            repeated.reserve(100);
+            for (int sample = 0; sample < 100; ++sample) {
+                const auto before = std::chrono::steady_clock::now();
+                if (running->tick().error != w::TransactionError::none)
+                    throw std::runtime_error("A sustained cog tick failed.");
+                repeated.push_back(std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - before).count());
+            }
+            const auto end = running->snapshot();
+            if (!w::validate(profile, end) || end.revision - initial.revision != 101 ||
+                end.state.material.stock.source >= initial.state.material.stock.source)
+                throw std::runtime_error("Sustained productive cog work lost finite custody.");
+            for (const auto base : {g::Integer{800}, g::Integer{840}}) {
+                const g::Point work{base, 1, 16};
+                const auto before = first.state.material.dropped_material.find(work);
+                const auto after = end.state.material.dropped_material.find(work);
+                if (before == first.state.material.dropped_material.end() ||
+                    after == end.state.material.dropped_material.end() ||
+                    before->second.work_lots.size() != 1 || after->second.work_lots.size() != 1 ||
+                    after->second.work_lots.front() == before->second.work_lots.front())
+                    throw std::runtime_error("Sustained modular press work did not advance.");
+            }
+            std::sort(repeated.begin(), repeated.end());
+            std::cout << "WORLD_COG_STAGE name=tick_sustained cogs=" << cog_count
+                      << " samples=" << repeated.size() << " first_ms=" << first_ms
+                      << " median_ms=" << repeated[50] << " p95_ms=" << repeated[94]
+                      << " changed_revisions=" << end.revision - initial.revision
+                      << " remaining_source=" << end.state.material.stock.source << '\n';
+        }
     }
     if (restored->tick().error != w::TransactionError::none ||
         restored->snapshot().state != advanced.state ||
         restored->snapshot().revision != advanced.revision)
         throw std::runtime_error("The restored mixed World diverged on its first tick.");
+    auto switched = w::World::restore("mixed-scale", profile, advanced);
+    if (!switched || switched->tick().error != w::TransactionError::none)
+        throw std::runtime_error("The drive-switch World did not warm its graph.");
+    const w::ObserveActor nearby = [](const std::string& actor) -> std::optional<factory::authority::ActorCut> {
+        return factory::authority::ActorCut{actor, {0, 0, 0}, 1, true, 10000};
+    };
+    const auto set_drive = [&](bool enabled, const char* request) {
+        const V::Object intent{{"context", V("mixed-scale")}, {"client", V("P-client")},
+            {"request", V(request)}, {"actor", V("P")}, {"action", V("set_drive")},
+            {"target", V("scale-cog-0-wheel")}, {"generation", V(g::Integer{1})},
+            {"enabled", V(enabled)}};
+        const auto result = switched->command({"P", "P-client"}, intent, nearby);
+        if (!result.completed() || !result.result ||
+            !std::get<bool>(result.result->at("accepted").storage()))
+            throw std::runtime_error("The drive switch was refused.");
+    };
+    const auto compare_next_tick = [&] {
+        auto fresh = w::World::restore("mixed-scale", profile, switched->snapshot());
+        if (!fresh || switched->tick().error != w::TransactionError::none ||
+            fresh->tick().error != w::TransactionError::none ||
+            switched->snapshot().state != fresh->snapshot().state ||
+            switched->snapshot().revision != fresh->snapshot().revision)
+            throw std::runtime_error("A cached drive diverged from a newly restored World.");
+    };
+    set_drive(false, "scale-drive-off");
+    if (w::drive_power(profile, switched->snapshot().state).mechanical.motion.at("scale-cog-0-gear").state !=
+            g::MotionState::stopped)
+        throw std::runtime_error("Disabling the drive left a scale cog rotating.");
+    compare_next_tick();
+    set_drive(true, "scale-drive-on");
+    if (w::drive_power(profile, switched->snapshot().state).mechanical.motion.at("scale-cog-0-gear").state !=
+            g::MotionState::rotating)
+        throw std::runtime_error("Reenabling the drive did not rotate a scale cog.");
+    compare_next_tick();
     for (int step = 0; step < 2; ++step)
         if (world->tick().error != w::TransactionError::none ||
             restored->tick().error != w::TransactionError::none ||
@@ -260,14 +332,16 @@ void powered_cog_world(bool benchmark) {
     if (!w::validate(profile, finished))
         throw std::runtime_error("Finished mixed work lost finite custody.");
     std::set<m::WorkId> produced_ids;
-    for (const auto base : {g::Integer{800}, g::Integer{840}}) {
-        const g::Point exit{base - 1, 1, 16};
-        const auto product = finished.state.material.dropped_material.find(exit);
-        const auto witness = finished.state.press_output_at_exit.find(exit);
-        if (product == finished.state.material.dropped_material.end() ||
-            product->second.products != 1 || witness == finished.state.press_output_at_exit.end() ||
-            !produced_ids.insert(witness->second).second)
-            throw std::runtime_error("One modular line failed to produce a plate.");
+    if (!sustained) {
+        for (const auto base : {g::Integer{800}, g::Integer{840}}) {
+            const g::Point exit{base - 1, 1, 16};
+            const auto product = finished.state.material.dropped_material.find(exit);
+            const auto witness = finished.state.press_output_at_exit.find(exit);
+            if (product == finished.state.material.dropped_material.end() ||
+                product->second.products != 1 || witness == finished.state.press_output_at_exit.end() ||
+                !produced_ids.insert(witness->second).second)
+                throw std::runtime_error("One modular line failed to produce a plate.");
+        }
     }
     std::cout << "WORLD_COG_SCALE_CHECK rotating=" << cog_count
               << " collectors=2 presses=2 passed\n";
@@ -350,7 +424,10 @@ int main(int argc, char** argv) {
                   << " samples=" << samples.size() << " median_ms=" << samples[10]
                   << " p95_ms=" << samples[19] << '\n';
     }
-    powered_cog_world(argc > 1 && std::string(argv[1]) == "--benchmark");
+    const std::string mode = argc > 1 ? argv[1] : "";
+    powered_cog_world(mode == "--benchmark" || mode == "--benchmark-sustained-400" ||
+        mode == "--benchmark-sustained-1000", mode == "--benchmark-sustained-1000" ? 1000 : 400,
+        mode == "--benchmark-sustained-400" || mode == "--benchmark-sustained-1000");
     std::cout << "WORLD_MODULAR_CHECK collectors=" << collectors
               << " presses=" << presses << " placed=" << state.placed_components.size()
               << " passed\n";

@@ -2133,6 +2133,7 @@ std::unique_ptr<World> World::restore(const std::string& expected_context,
 }
 
 Delivery World::command(const Binding& binding, const Object& intent, const ObserveActor& observe) noexcept {
+    tick_drive_.reset();
     const auto* actor = field<std::string>(intent, "actor");
     const auto* client = field<std::string>(intent, "client");
     if (!profile_.actors.contains(binding.actor) || !identity(binding.client) ||
@@ -2145,6 +2146,7 @@ Delivery World::command(const Binding& binding, const Object& intent, const Obse
 }
 
 Delivery World::refuse(const Binding& binding, const Object& intent, std::string reason) noexcept {
+    tick_drive_.reset();
     const auto* actor = field<std::string>(intent, "actor");
     const auto* client = field<std::string>(intent, "client");
     if (!profile_.actors.contains(binding.actor) || !identity(binding.client) ||
@@ -3169,17 +3171,15 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
 }
 
 Advance World::tick() noexcept {
-    std::optional<DrivePower> evaluated_drive;
     return owner_->advance([&](const Snapshot& snapshot) -> std::optional<State> {
         auto candidate = snapshot.state;
         // Material stepping changes custody, not the placed power graph. Reuse
-        // one graph evaluation for machine work, signed belt movement and the
-        // final full candidate validation.
+        // its drive across ticks until a command or refusal invalidates it.
         const auto placed = assembly_parts(candidate);
         const assembly::Layout layout(placed);
-        evaluated_drive.emplace(placed.empty() ? drive_power(candidate.topology) :
+        if (!tick_drive_) tick_drive_.emplace(placed.empty() ? drive_power(candidate.topology) :
             drive_power_with_layout(profile_, candidate, placed, layout));
-        const auto& drive = *evaluated_drive;
+        const auto& drive = *tick_drive_;
         const auto power = machine_power_from(candidate.topology, drive);
         const auto prior_processing = candidate.material.processing;
         const auto error = materials::step(candidate.material, profile_.material,
@@ -3641,7 +3641,7 @@ Advance World::tick() noexcept {
     }, [&](const Snapshot& candidate) {
         // Tick changes material and work bookkeeping, never topology or placed
         // components. The drive still describes this candidate's power graph.
-        return evaluated_drive && validate_with_drive(profile_, candidate, &*evaluated_drive);
+        return tick_drive_ && validate_with_drive(profile_, candidate, &*tick_drive_);
     });
 }
 
