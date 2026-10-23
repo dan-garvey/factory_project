@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <new>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -247,6 +248,59 @@ void refused_state_copy_failure() {
             "State copying after history preparation can fail without committing either half.");
 }
 
+void advance_with_domain_witness() {
+    int ordinary_calls{};
+    auto owner = Owner::create_new("world-1", Marker{}, [&](const auto& candidate) {
+        ++ordinary_calls;
+        return valid(candidate);
+    });
+    require(owner != nullptr && ordinary_calls == 1,
+            "The ordinary domain validator admits the initial State once.");
+    const auto initial = owner->snapshot();
+    int witness_calls{};
+    const auto reject = owner->advance([](const auto&) -> std::optional<Marker> {
+        return Marker{1, {"candidate"}};
+    }, [&](const auto& candidate) {
+        ++witness_calls;
+        return valid(candidate) && candidate.state.value == 2;
+    });
+    require(reject.error == w::TransactionError::invalid_candidate && witness_calls == 1 &&
+            ordinary_calls == 1, "A trusted step validator can reject before the atomic swap.");
+    unchanged(*owner, initial);
+    const auto accepted_step = owner->advance([](const auto&) -> std::optional<Marker> {
+        return Marker{2, {"witnessed"}};
+    }, [&](const auto& candidate) {
+        ++witness_calls;
+        return valid(candidate) && candidate.state.value == 2;
+    });
+    const auto accepted_state = owner->snapshot();
+    require(accepted_step.error == w::TransactionError::none && accepted_step.changed &&
+            accepted_state.state == Marker{2, {"witnessed"}} && accepted_state.revision == 1 &&
+            accepted_state.history.order == 0 && accepted_state.history.records.empty() &&
+            witness_calls == 2 && ordinary_calls == 1,
+            "A witnessed step retains generic history and revision semantics.");
+    const auto empty_step = owner->advance([](const auto&) -> std::optional<Marker> {
+        return std::nullopt;
+    }, [&](const auto&) {
+        ++witness_calls;
+        return false;
+    });
+    require(empty_step.error == w::TransactionError::none && !empty_step.changed &&
+            witness_calls == 2, "An unchanged step does not invoke candidate validation.");
+    const auto throwing_step = owner->advance([](const auto&) -> std::optional<Marker> {
+        return Marker{3, {"throwing"}};
+    }, [](const auto&) -> bool { throw std::bad_alloc(); });
+    require(throwing_step.error == w::TransactionError::preparation_failed,
+            "A trusted validator exception cannot commit a partial step.");
+    unchanged(*owner, accepted_state);
+    const auto ordinary_reject = owner->advance([](const auto&) -> std::optional<Marker> {
+        return Marker{11, {"invalid"}};
+    });
+    require(ordinary_reject.error == w::TransactionError::invalid_candidate && ordinary_calls == 2,
+            "Ordinary steps still use the stored complete validator.");
+    unchanged(*owner, accepted_state);
+}
+
 void nested_writes_are_refused() {
     auto owner = Owner::create_new("world-1", Marker{}, valid);
     int inner_calls{};
@@ -273,6 +327,7 @@ int main() {
         commit_refusal_and_historical_retry();
         failed_preparation_is_atomic();
         refused_state_copy_failure();
+        advance_with_domain_witness();
         nested_writes_are_refused();
         std::cout << "{\"status\":\"pass\",\"evidence\":\"invented_native_transactions\","
                      "\"checks\":" << checks << "}\n";
