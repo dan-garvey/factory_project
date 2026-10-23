@@ -139,7 +139,9 @@ class SharedSettlement extends "res://opening/shared_opening.gd":
 
 class PhysicalProjection extends RefCounted:
 	var state: Dictionary
+	var projection_calls := 0
 	func projection() -> Dictionary:
+		projection_calls += 1
 		return state.duplicate(true)
 	func observe(actor: String, sample: Dictionary) -> void:
 		state.actors[actor]["position"] = sample.position.duplicate()
@@ -1851,8 +1853,10 @@ func _river_pier_collision() -> void:
 		await physics_frame
 		await physics_frame
 		var wheel: StaticBody3D = physical.machines.wheel
-		verify(physical._geometry_registered() and PhysicsServer3D.body_get_shape_count(wheel.get_rid()) == 3,
-			"The native body contains the rotating envelope and both projected river piers.")
+		authority.projection_calls = 0
+		verify(physical._geometry_registered() and authority.projection_calls == 1
+			and PhysicsServer3D.body_get_shape_count(wheel.get_rid()) == 3,
+			"The native body and river piers match one current World projection.")
 		var query := PhysicsShapeQueryParameters3D.new()
 		var probe := SphereShape3D.new()
 		probe.radius = 0.04
