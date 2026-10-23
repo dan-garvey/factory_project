@@ -147,9 +147,9 @@ std::optional<BeltAdvance> advance_belt_lane(const BeltLane& lane, Quantity sign
     for (std::size_t index = 0; index < lane.slots.size(); ++index) {
         if (!lane.slots[index]) continue;
         const auto& item = *lane.slots[index];
-        const bool raw = item.components.empty() && item.timber == 0 && item.raw_units == 1 && item.products == 0 && item.work_lots.empty();
-        const bool product = item.components.empty() && item.timber == 0 && item.raw_units == 0 && item.products == 1 && item.work_lots.empty();
-        const bool work = item.components.empty() && item.timber == 0 && item.raw_units == 0 && item.products == 0 && item.work_lots.size() == 1;
+        const bool raw = item.components.empty() && item.timber == 0 && item.offcuts == 0 && item.sheets == 0 && item.raw_units == 1 && item.products == 0 && item.work_lots.empty();
+        const bool product = item.components.empty() && item.timber == 0 && item.offcuts == 0 && item.sheets == 0 && item.raw_units == 0 && item.products == 1 && item.work_lots.empty();
+        const bool work = item.components.empty() && item.timber == 0 && item.offcuts == 0 && item.sheets == 0 && item.raw_units == 0 && item.products == 0 && item.work_lots.size() == 1;
         if (!raw && !product && !work) return std::nullopt;
         if (work) {
             const auto& lot = item.work_lots.front();
@@ -245,7 +245,17 @@ std::optional<BeltAdvance> advance_belt_lane_rate(const BeltLane& lane, Quantity
 }
 
 Error validate(const State& state, const Config& config, const Path& path) noexcept {
+    __extension__ using Wide = __int128;
+    const Wide input_mass = static_cast<Wide>(config.input_units_per_product) * config.raw_mass;
+    if (input_mass < 1 || input_mass > std::numeric_limits<Quantity>::max())
+        return Error::invalid_configuration;
+    const Quantity plate_mass = config.plate_mass == 0 ?
+        static_cast<Quantity>(input_mass) : config.plate_mass;
+    const bool copper = config.raw_mass != 1 || config.plate_mass != 0 || config.sheet_mass != 0;
     if (config.input_units_per_product < 1 || config.collector_capacity < 1 ||
+        config.raw_mass < 1 || config.raw_mass > 1000000 || plate_mass < 1 ||
+        plate_mass > input_mass || config.sheet_mass < 0 ||
+        config.sheet_mass > 1000000 ||
         config.cycle_ticks < 1 || config.hand_carry_capacity < 1 ||
         config.hand_carry_capacity > 1000000 || config.component_capacity < 1 ||
         config.component_capacity > 1000000 || config.timber_sites.size() > 16)
@@ -291,6 +301,7 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
     const auto& stock = state.stock;
     if (state.initial_units < 0 || state.shipped_products < 0 || stock.source < 0 || stock.collector < 0 ||
         stock.belt < 0 || stock.input < 0 || stock.output < 0 ||
+        stock.offcuts < 0 || (!copper && stock.offcuts != 0) ||
         stock.collector > config.collector_capacity || stock.belt > 1 ||
         stock.input > config.input_units_per_product || stock.output > 1 ||
         state.next_work_id < 1) return Error::invalid_state;
@@ -313,27 +324,34 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
     if (state.processing && !record_lot(*state.processing)) return Error::invalid_state;
     Quantity total = 0;
     for (const auto value : {stock.source, stock.collector, stock.belt, stock.input}) {
-        if (!add(total, value)) return Error::quantity_overflow;
+        if (!products(total, value, config.raw_mass)) return Error::quantity_overflow;
     }
+    if (!add(total, stock.offcuts)) return Error::quantity_overflow;
     if (state.dropped_material.size() > maximum_drop_points) return Error::invalid_state;
     for (const auto& [point, cargo] : state.dropped_material) {
         for (const auto coordinate : point)
             if (coordinate < -maximum_drop_coordinate || coordinate > maximum_drop_coordinate)
                 return Error::invalid_state;
-        if (cargo.raw_units < 0 || cargo.products < 0 || cargo.timber != 0 || !cargo.components.empty() ||
-            (cargo.raw_units == 0 && cargo.products == 0 && cargo.work_lots.empty())) return Error::invalid_state;
-        if (!add(total, cargo.raw_units) || !products(total, cargo.products, config.input_units_per_product))
+        if (cargo.raw_units < 0 || cargo.products < 0 || cargo.offcuts < 0 || cargo.sheets < 0 ||
+            (!copper && (cargo.offcuts != 0 || cargo.sheets != 0)) ||
+            (config.sheet_mass == 0 && cargo.sheets != 0) || cargo.timber != 0 || !cargo.components.empty() ||
+            (cargo.raw_units == 0 && cargo.products == 0 && cargo.offcuts == 0 &&
+             cargo.sheets == 0 && cargo.work_lots.empty())) return Error::invalid_state;
+        if (!products(total, cargo.raw_units, config.raw_mass) ||
+            !products(total, cargo.products, plate_mass) ||
+            !add(total, cargo.offcuts) ||
+            (cargo.sheets != 0 && !products(total, cargo.sheets, config.sheet_mass)))
             return Error::quantity_overflow;
         for (const auto& lot : cargo.work_lots) {
             if (!record_lot(lot)) return Error::invalid_state;
-            if (!add(total, lot.recipe.input_units_per_product)) return Error::quantity_overflow;
+            if (!products(total, lot.recipe.input_units_per_product, config.raw_mass)) return Error::quantity_overflow;
         }
     }
-    if (state.processing && !add(total, state.processing->recipe.input_units_per_product)) {
+    if (state.processing && !products(total, state.processing->recipe.input_units_per_product, config.raw_mass)) {
         return Error::quantity_overflow;
     }
-    if (!products(total, stock.output, config.input_units_per_product) ||
-        !products(total, state.shipped_products, config.input_units_per_product)) return Error::quantity_overflow;
+    if (!products(total, stock.output, plate_mass) ||
+        !products(total, state.shipped_products, plate_mass)) return Error::quantity_overflow;
     for (const auto& [span_id, lane] : state.belt_lanes) {
         if (span_id.empty() || lane.slots.size() < 2 || lane.slots.size() > maximum_belt_slots ||
             lane.phase <= -work_subticks_per_tick || lane.phase >= work_subticks_per_tick ||
@@ -342,21 +360,23 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
             return Error::invalid_state;
         for (const auto& item : lane.slots) {
             if (!item) continue;
-            const bool raw = item->components.empty() && item->timber == 0 && item->raw_units == 1 && item->products == 0 && item->work_lots.empty();
-            const bool product = item->components.empty() && item->timber == 0 && item->raw_units == 0 && item->products == 1 && item->work_lots.empty();
-            const bool work = item->components.empty() && item->timber == 0 && item->raw_units == 0 && item->products == 0 && item->work_lots.size() == 1;
+            const bool raw = item->components.empty() && item->timber == 0 && item->offcuts == 0 && item->sheets == 0 && item->raw_units == 1 && item->products == 0 && item->work_lots.empty();
+            const bool product = item->components.empty() && item->timber == 0 && item->offcuts == 0 && item->sheets == 0 && item->raw_units == 0 && item->products == 1 && item->work_lots.empty();
+            const bool work = item->components.empty() && item->timber == 0 && item->offcuts == 0 && item->sheets == 0 && item->raw_units == 0 && item->products == 0 && item->work_lots.size() == 1;
             if (!raw && !product && !work) return Error::invalid_state;
-            if (raw && !add(total, 1)) return Error::quantity_overflow;
-            if (product && !add(total, config.input_units_per_product)) return Error::quantity_overflow;
+            if (raw && !add(total, config.raw_mass)) return Error::quantity_overflow;
+            if (product && !add(total, plate_mass)) return Error::quantity_overflow;
             if (work) {
                 const auto& lot = item->work_lots.front();
                 if (!record_lot(lot)) return Error::invalid_state;
-                if (!add(total, lot.recipe.input_units_per_product)) return Error::quantity_overflow;
+                if (!products(total, lot.recipe.input_units_per_product, config.raw_mass)) return Error::quantity_overflow;
             }
         }
     }
     for (const auto& [actor, cargo] : state.cargo) {
-        if (actor.empty() || cargo.raw_units < 0 || cargo.products < 0 || cargo.timber < 0 ||
+        if (actor.empty() || cargo.raw_units < 0 || cargo.products < 0 || cargo.offcuts < 0 ||
+            (!copper && (cargo.offcuts != 0 || cargo.sheets != 0)) ||
+            cargo.sheets < 0 || (config.sheet_mass == 0 && cargo.sheets != 0) || cargo.timber < 0 ||
             !add(timber_accounted, cargo.timber)) return Error::invalid_state;
         Quantity component_count = 0;
         for (const auto& [kind, count] : cargo.components) {
@@ -364,33 +384,37 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
             if (!cost || count < 1 || !add(component_count, count) ||
                 component_count > config.component_capacity ||
                 (cost->timber > 0 && !products(timber_accounted, count, cost->timber)) ||
-                (cost->ore > 0 && !products(total, count, cost->ore))) return Error::invalid_state;
+                (cost->ore > 0 && !products(total, count, cost->ore * config.raw_mass))) return Error::invalid_state;
         }
         if ((!config.manual_ore && config.timber_sites.empty()) && component_count != 0)
             return Error::invalid_state;
-        if (!add(total, cargo.raw_units) || !products(total, cargo.products, config.input_units_per_product)) {
+        if (!products(total, cargo.raw_units, config.raw_mass) ||
+            !products(total, cargo.products, plate_mass) || !add(total, cargo.offcuts) ||
+            (cargo.sheets != 0 && !products(total, cargo.sheets, config.sheet_mass))) {
             return Error::quantity_overflow;
         }
         for (const auto& lot : cargo.work_lots) {
             if (!record_lot(lot)) return Error::invalid_state;
-            if (!add(total, lot.recipe.input_units_per_product)) return Error::quantity_overflow;
+            if (!products(total, lot.recipe.input_units_per_product, config.raw_mass)) return Error::quantity_overflow;
         }
     }
     if (state.placed_components.size() > 12 || state.fabricated_timber < 0 ||
         state.fabricated_raw < 0 || !add(timber_accounted, state.fabricated_timber) ||
-        !add(total, state.fabricated_raw)) return Error::invalid_state;
+        !products(total, state.fabricated_raw, config.raw_mass)) return Error::invalid_state;
     for (const auto& [kind, count] : state.placed_components) {
         const auto cost = component_cost(kind);
         if (!cost || count < 1 || count > 4096 ||
             (cost->timber > 0 && !products(timber_accounted, count, cost->timber)) ||
-            (cost->ore > 0 && !products(total, count, cost->ore))) return Error::invalid_state;
+            (cost->ore > 0 && !products(total, count, cost->ore * config.raw_mass))) return Error::invalid_state;
     }
     if (!state.placed_components.empty() && !config.manual_ore && config.timber_sites.empty())
         return Error::invalid_state;
     std::sort(live_ids.begin(), live_ids.begin() + live_count);
     if (std::adjacent_find(live_ids.begin(), live_ids.begin() + live_count) !=
         live_ids.begin() + live_count) return Error::invalid_state;
-    return total == state.initial_units && timber_accounted == timber_total ?
+    Quantity initial_mass = 0;
+    if (!products(initial_mass, state.initial_units, config.raw_mass)) return Error::quantity_overflow;
+    return total == initial_mass && timber_accounted == timber_total ?
         Error::none : Error::invalid_state;
 }
 
@@ -422,6 +446,9 @@ Error step(State& state, const Config& config, const Path& path,
         if (lot.remaining_ticks == 0 && stock.output < 1) {
             next.processing.reset();
             ++stock.output;
+            const Quantity remnant = config.plate_mass == 0 ? 0 :
+                config.input_units_per_product * config.raw_mass - config.plate_mass;
+            if (!add(stock.offcuts, remnant)) return Error::quantity_overflow;
         }
     }
     if (power.processor && path.processor_present && !next.processing &&
@@ -471,8 +498,9 @@ Error turn_press(State& state, const Config& config, const Path& path,
     const auto found = state.dropped_material.find(work);
     if (found == state.dropped_material.end()) return Error::unavailable_input;
     const auto& item = found->second;
-    if (item.products != 0 || item.raw_units + static_cast<Quantity>(item.work_lots.size()) != 1)
-        return Error::invalid_state;
+    if (item.products != 0 || item.offcuts != 0 || item.sheets != 0 ||
+        item.raw_units + static_cast<Quantity>(item.work_lots.size()) != 1)
+        return Error::unavailable_input;
     if (item.work_lots.size() == 1 && item.work_lots.front().remaining_ticks == 0 &&
         state.dropped_material.contains(exit)) return Error::unavailable_output;
     auto next = state;
@@ -489,6 +517,12 @@ Error turn_press(State& state, const Config& config, const Path& path,
     if (active.work_lots.front().remaining_ticks == 0 &&
         !next.dropped_material.contains(exit)) {
         next.dropped_material.erase(work);
+        const auto remnant = config.plate_mass == 0 ? 0 : config.raw_mass - config.plate_mass;
+        if (remnant > 0) {
+            Cargo offcut;
+            offcut.offcuts = remnant;
+            next.dropped_material.emplace(work, std::move(offcut));
+        }
         next.dropped_material.emplace(exit, Cargo{0, 1, {}});
     }
     const auto result = validate(next, config, path);
@@ -524,6 +558,7 @@ Error step_presses(State& state, const Config& config, const Path& path,
         if (found == next.dropped_material.end()) continue;
         const auto raw = found->second == Cargo{1, 0, {}};
         const auto work = found->second.raw_units == 0 && found->second.products == 0 &&
+            found->second.offcuts == 0 && found->second.sheets == 0 &&
             found->second.timber == 0 && found->second.components.empty() &&
             found->second.work_lots.size() == 1;
         if (!raw && !work) continue;
@@ -543,6 +578,12 @@ Error step_presses(State& state, const Config& config, const Path& path,
         if (active.work_lots.front().remaining_ticks == 0 &&
             !next.dropped_material.contains(step.exit)) {
             next.dropped_material.erase(step.work);
+            const auto remnant = config.plate_mass == 0 ? 0 : config.raw_mass - config.plate_mass;
+            if (remnant > 0) {
+                Cargo offcut;
+                offcut.offcuts = remnant;
+                next.dropped_material.emplace(step.work, std::move(offcut));
+            }
             next.dropped_material.emplace(step.exit, Cargo{0, 1, {}});
         }
     }
@@ -561,7 +602,10 @@ Error pickup_material(State& state, const Config& config, const Path& path,
     if (found == state.dropped_material.end()) return Error::unavailable_drop;
     auto next = state;
     auto& destination = next.cargo.at(actor);
-    if (!add(destination.raw_units, found->second.raw_units) || !add(destination.products, found->second.products))
+    if (!add(destination.raw_units, found->second.raw_units) ||
+        !add(destination.products, found->second.products) ||
+        !add(destination.offcuts, found->second.offcuts) ||
+        !add(destination.sheets, found->second.sheets))
         return Error::quantity_overflow;
     destination.work_lots.insert(destination.work_lots.end(), found->second.work_lots.begin(), found->second.work_lots.end());
     next.dropped_material.erase(point);
@@ -584,7 +628,7 @@ Error harvest_source(State& state, const Config& config, const Path& path,
     const auto& carried = state.cargo.at(actor);
     __extension__ using Wide = __int128;
     const Wide used = static_cast<Wide>(carried.raw_units) + carried.products +
-        carried.timber + carried.work_lots.size();
+        carried.offcuts + carried.sheets + carried.timber + carried.work_lots.size();
     Wide component_count = 0;
     for (const auto& [kind, count] : carried.components) {
         (void)kind;

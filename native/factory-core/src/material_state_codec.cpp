@@ -106,25 +106,30 @@ WorkLot decode_lot(const Value& value, const std::string& path) {
         integer(lot.at("work_remainder_denominator"), path + ".work_remainder_denominator")};
 }
 
-Value encode_cargo(const Cargo& cargo, bool resources) {
+Value encode_cargo(const Cargo& cargo, bool resources, bool copper) {
     Value::Array lots;
     lots.reserve(cargo.work_lots.size());
     for (const auto& lot : cargo.work_lots) lots.push_back(encode_lot(lot));
     Object output{{"raw_units", Value(cargo.raw_units)},
         {"products", Value(cargo.products)}, {"work_lots", Value(std::move(lots))}};
-    if (resources) {
+    if (resources || copper) {
         output.emplace("timber", Value(cargo.timber));
         Object components;
         for (const auto& [kind, count] : cargo.components)
             components.emplace(component_name(kind), Value(count));
         output.emplace("components", Value(std::move(components)));
     }
+    if (copper) {
+        output.emplace("offcuts", Value(cargo.offcuts));
+        output.emplace("sheets", Value(cargo.sheets));
+    }
     return Value(std::move(output));
 }
 
-Cargo decode_cargo(const Value& value, const std::string& path, bool resources,
+Cargo decode_cargo(const Value& value, const std::string& path, bool resources, bool copper,
                    std::size_t& live_work_lots) {
-    const auto& entries = resources ?
+    const auto& entries = copper ?
+        fields(value, path, {"raw_units", "products", "work_lots", "timber", "components", "offcuts", "sheets"}) : resources ?
         fields(value, path, {"raw_units", "products", "work_lots", "timber", "components"}) :
         fields(value, path, {"raw_units", "products", "work_lots"});
     const auto& lots = entries.at("work_lots");
@@ -132,7 +137,11 @@ Cargo decode_cargo(const Value& value, const std::string& path, bool resources,
     Cargo cargo;
     cargo.raw_units = integer(entries.at("raw_units"), path + ".raw_units");
     cargo.products = integer(entries.at("products"), path + ".products");
-    if (resources) {
+    if (copper) {
+        cargo.offcuts = integer(entries.at("offcuts"), path + ".offcuts");
+        cargo.sheets = integer(entries.at("sheets"), path + ".sheets");
+    }
+    if (resources || copper) {
         cargo.timber = integer(entries.at("timber"), path + ".timber");
         const auto& components = object(entries.at("components"), path + ".components");
         if (components.size() > 12) refuse(CodecReason::invalid_material_state, path + ".components");
@@ -172,30 +181,32 @@ MaterialEncoding encode_material_state(const State& state, const Config& config,
                                        const Path& path, const std::vector<std::string>& actors) {
     try {
         const bool resources = config.manual_ore || !config.timber_sites.empty();
+        const bool copper = config.raw_mass != 1 || config.plate_mass != 0 || config.sheet_mass != 0;
         const auto roster = expected_roster(actors);
         validate_state(state, config, path, roster);
         Object cargo;
         for (const auto& [actor, contents] : state.cargo)
-            cargo.emplace(actor, encode_cargo(contents, resources));
+            cargo.emplace(actor, encode_cargo(contents, resources, copper));
         Value::Array drops;
         for (const auto& [point, contents] : state.dropped_material)
             drops.emplace_back(Object{{"point", Value(Value::Array{Value(point[0]), Value(point[1]), Value(point[2])})},
-                                      {"cargo", encode_cargo(contents, resources)}});
+                                      {"cargo", encode_cargo(contents, resources, copper)}});
         Object lanes;
         for (const auto& [id, lane] : state.belt_lanes) {
             Value::Array slots;
-            for (const auto& item : lane.slots) slots.push_back(item ? encode_cargo(*item, resources) : Value(nullptr));
+            for (const auto& item : lane.slots) slots.push_back(item ? encode_cargo(*item, resources, copper) : Value(nullptr));
             lanes.emplace(id, Value(Object{{"phase", Value(lane.phase)}, {"remainder", Value(lane.remainder)},
                 {"remainder_denominator", Value(lane.remainder_denominator)}, {"slots", Value(std::move(slots))}}));
         }
         const auto& stock = state.stock;
+        Object stock_fields{{"source", Value(stock.source)}, {"collector", Value(stock.collector)},
+            {"belt", Value(stock.belt)}, {"input", Value(stock.input)},
+            {"output", Value(stock.output)}};
+        if (copper) stock_fields.emplace("offcuts", Value(stock.offcuts));
         Object output{
-            {"schema", Value(Value::Integer{resources ? 11 : 6})},
+            {"schema", Value(Value::Integer{copper ? 12 : resources ? 11 : 6})},
             {"initial_units", Value(state.initial_units)},
-            {"stock", Value(Object{
-                {"source", Value(stock.source)}, {"collector", Value(stock.collector)},
-                {"belt", Value(stock.belt)}, {"input", Value(stock.input)},
-                {"output", Value(stock.output)}})},
+            {"stock", Value(std::move(stock_fields))},
             {"cargo", Value(std::move(cargo))},
             {"dropped_material", Value(std::move(drops))},
             {"belt_lanes", Value(std::move(lanes))},
@@ -222,14 +233,16 @@ MaterialDecoding decode_material_state(const Value& value, const Config& config,
                                        const Path& path, const std::vector<std::string>& actors) {
     try {
         const bool resources = config.manual_ore || !config.timber_sites.empty();
+        const bool copper = config.raw_mass != 1 || config.plate_mass != 0 || config.sheet_mass != 0;
         const auto roster = expected_roster(actors);
         const auto& root = resources ? fields(value, "$",
             {"schema", "initial_units", "stock", "cargo", "dropped_material", "belt_lanes", "processing", "next_work_id", "timber_remaining", "placed_components", "fabricated_timber", "fabricated_raw", "shipped_products"}) :
             fields(value, "$", {"schema", "initial_units", "stock", "cargo", "dropped_material", "belt_lanes", "processing", "next_work_id"});
-        if (integer(root.at("schema"), "$.schema") != (resources ? 11 : 6))
+        if (integer(root.at("schema"), "$.schema") != (copper ? 12 : resources ? 11 : 6))
             refuse(CodecReason::unsupported_schema, "$.schema");
-        const auto& stock = fields(root.at("stock"), "$.stock",
-                                    {"source", "collector", "belt", "input", "output"});
+        const auto& stock = copper ? fields(root.at("stock"), "$.stock",
+                {"source", "collector", "belt", "input", "output", "offcuts"}) :
+            fields(root.at("stock"), "$.stock", {"source", "collector", "belt", "input", "output"});
         State candidate;
         candidate.initial_units = integer(root.at("initial_units"), "$.initial_units");
         candidate.stock = {
@@ -238,6 +251,7 @@ MaterialDecoding decode_material_state(const Value& value, const Config& config,
             integer(stock.at("belt"), "$.stock.belt"),
             integer(stock.at("input"), "$.stock.input"),
             integer(stock.at("output"), "$.stock.output")};
+        if (copper) candidate.stock.offcuts = integer(stock.at("offcuts"), "$.stock.offcuts");
         if (resources) {
             candidate.shipped_products = integer(root.at("shipped_products"), "$.shipped_products");
             candidate.fabricated_timber = integer(root.at("fabricated_timber"), "$.fabricated_timber");
@@ -271,13 +285,14 @@ MaterialDecoding decode_material_state(const Value& value, const Config& config,
                 if (value_item.type() == Type::null) {
                     lane.slots.emplace_back(std::nullopt);
                 } else {
-                    const auto& item = resources ?
+                    const auto& item = copper ?
+                        fields(value_item, "$.belt_lanes.item", {"raw_units", "products", "work_lots", "timber", "components", "offcuts", "sheets"}) : resources ?
                         fields(value_item, "$.belt_lanes.item", {"raw_units", "products", "work_lots", "timber", "components"}) :
                         fields(value_item, "$.belt_lanes.item", {"raw_units", "products", "work_lots"});
                     if (item.at("work_lots").type() != Type::array ||
                         std::get<Value::Array>(item.at("work_lots").storage()).size() > 1)
                         refuse(CodecReason::invalid_material_state, "$.belt_lanes.item");
-                    lane.slots.emplace_back(decode_cargo(value_item, "$.belt_lanes.item", resources, live_work_lots));
+                    lane.slots.emplace_back(decode_cargo(value_item, "$.belt_lanes.item", resources, copper, live_work_lots));
                 }
             }
             candidate.belt_lanes.emplace(id, std::move(lane));
@@ -295,14 +310,14 @@ MaterialDecoding decode_material_state(const Value& value, const Config& config,
             for (std::size_t j = 0; j < 3; ++j)
                 point[j] = integer(coordinates[j], path + ".point[" + std::to_string(j) + "]");
             if (!candidate.dropped_material.emplace(point,
-                    decode_cargo(entry.at("cargo"), path + ".cargo", resources, live_work_lots)).second)
+                    decode_cargo(entry.at("cargo"), path + ".cargo", resources, copper, live_work_lots)).second)
                 refuse(CodecReason::invalid_material_state, path + ".point");
         }
         const auto& cargo = object(root.at("cargo"), "$.cargo");
         if (cargo.size() != roster.size()) refuse(CodecReason::roster_mismatch, "$.cargo");
         for (const auto& [actor, contents] : cargo) {
             if (!roster.contains(actor)) refuse(CodecReason::roster_mismatch, "$.cargo");
-            candidate.cargo.emplace(actor, decode_cargo(contents, actor_path(actor), resources, live_work_lots));
+            candidate.cargo.emplace(actor, decode_cargo(contents, actor_path(actor), resources, copper, live_work_lots));
         }
         if (root.at("processing").type() != Type::null) {
             if (live_work_lots == maximum_live_work_lots)
