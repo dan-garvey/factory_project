@@ -248,7 +248,7 @@ static func _ore_ground_mesh(band: int, cells: Array) -> ArrayMesh:
 		var angles := [float(sector) * TAU / 32.0, float(sector + 1) * TAU / 32.0]
 		# Extend the disturbed soil under the real rock toe while retaining the
 		# collector-cell cue on its east side. This is passive terrain color only.
-		var center := Vector2(-0.38, middle_z)
+		var center := Vector2(-0.58, middle_z)
 		for ring in range(4):
 			var points: Array[Vector2] = []
 			var opacities: Array[float] = []

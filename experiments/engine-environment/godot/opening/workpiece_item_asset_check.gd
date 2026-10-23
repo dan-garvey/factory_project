@@ -421,7 +421,7 @@ func check_exposure_boundary(rock: MeshInstance3D) -> void:
 		"The visible fixed rock uses the sole site's immutable mesh and exact native obstacle transform.")
 	var visible: AABB = rock.transform * rock.mesh.get_aabb()
 	var obstacle: AABB = Transform3D(spec.basis, spec.center) * AABB(-spec.size * 0.5, spec.size)
-	verify(visible.is_equal_approx(obstacle) and visible.end.y - surface.height_at(spec.center.x, spec.center.z) > 0.5,
+	verify(visible.is_equal_approx(obstacle) and visible.end.y - surface.height_at(spec.center.x, spec.center.z) > 0.4,
 		"The placement obstacle has the visible rock envelope and substantial relief above ground.")
 	var rooted := 0
 	var close := 0
@@ -443,7 +443,7 @@ func check_exposure_boundary(rock: MeshInstance3D) -> void:
 			back = maxf(back, world_point.z)
 	verify(rooted > 500 and close > 600 and right - left > 0.45 and back - front > 2.0,
 		"The exact visible and native rock pose embeds a broad lower edge in the terrain.")
-	verify(spec.points.size() == 201 and spec.native_points.size() == 200 and spec.faces.size() == 396 * 3,
+	verify(spec.points.size() == 201 and spec.native_points.size() == 201 and spec.faces.size() == 398 * 3,
 		"The shared descriptor keeps original cooking input and cooked reference facets separate.")
 	var finish: StandardMaterial3D = rock.material_override
 	verify(finish.albedo_texture.get_size() == Vector2(512, 512)

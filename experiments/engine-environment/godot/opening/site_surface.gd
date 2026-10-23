@@ -721,7 +721,7 @@ static func source_outcrop() -> Dictionary:
 	var size := SOURCE_OUTCROP_MESH.get_aabb().size
 	# Seat the rock's long lower edge in the terrain. The same pose is used by
 	# its rendered mesh, ActorWorld convex hull and native obstacle envelope.
-	return {"id": "source_outcrop", "center": Vector3(-1.05, height_at(-1.05, 0.05) + size.y * 0.24, 0.05),
+	return {"id": "source_outcrop", "center": Vector3(-1.15, height_at(-1.15, 0.05) + size.y * 0.24, 0.05),
 		"basis": Basis.IDENTITY, "size": size,
 		"points": SOURCE_OUTCROP_MESH.get_meta("native_hull_input_points"),
 		"native_points": points, "faces": faces}
