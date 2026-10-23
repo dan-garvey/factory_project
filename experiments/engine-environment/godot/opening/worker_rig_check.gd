@@ -175,6 +175,65 @@ func point_bounds(points: PackedVector3Array) -> AABB:
 		bounds = bounds.expand(point)
 	return bounds
 
+func inspect_second_adult(body: Node3D, first: Node3D, presenter: Node) -> void:
+	var skeleton := skeleton_of(body)
+	var first_skeleton := skeleton_of(first)
+	var meshes := body.find_children("*", "MeshInstance3D", true, false)
+	verify(body.get_meta("source", "") == "Microsoft Rocketbox Male_Adult_05"
+		and body.get_meta("second_adult", false) and meshes.size() == 1,
+		"Actor Q presents the pinned second adult, rather than another copy of actor P.")
+	if meshes.size() != 1:
+		return
+	var mesh: MeshInstance3D = meshes[0]
+	verify(skeleton.get_bone_count() == first_skeleton.get_bone_count() and mesh.skin.get_bind_count() == 80
+		and mesh.mesh.get_surface_count() == 3 and skeleton != first_skeleton,
+		"The second adult has a skinned visual rig separate from actor P and no new actor authority.")
+	for node in body.find_children("*", "", true, false):
+		verify(not node is CollisionObject3D and not node is CollisionShape3D
+			and not node is AnimationPlayer,
+			"The second adult introduces no collider, interaction shape or autonomous animation producer.")
+	for surface in range(mesh.mesh.get_surface_count()):
+		var material := mesh.mesh.surface_get_material(surface) as StandardMaterial3D
+		verify(material != null and material.resource_name in ["m009_body", "m009_head", "m009_opacity"]
+			and material.albedo_texture != null and material.albedo_texture.get_image().has_mipmaps(),
+			"The source vest, face and hair surfaces retain their prepared color maps.")
+	verify(Presenter.second_adult_run_clip != null and Presenter.second_adult_run_clip.get_track_count() == 37
+		and Presenter.second_adult_walk_clip != null and Presenter.second_adult_walk_clip.get_track_count() == 61
+		and body.get_meta("run_bindings").size() >= 28
+		and body.get_meta("walk_channels").size() >= 28,
+		"The second adult uses its own pinned male walk and run tracks.")
+	var neutral := point_bounds(skin_points(body))
+	verify(absf(neutral.position.y + 0.9) < 0.0001 and absf(neutral.size.y - 1.8) < 0.0001
+		and maxf(absf(neutral.position.x), absf(neutral.end.x)) < 0.35,
+		"The separate skinned adult fits the shared standing height and a bounded visual width.")
+	var first_pose := first_skeleton.get_bone_pose_rotation(first_skeleton.find_bone("Bip01 L Thigh"))
+	var gait_measurements: Array = []
+	for run_mix in [0.0, 1.0]:
+		for phase in [0.0, PI / 2.0, PI, PI * 1.5]:
+			presenter._set_gait(body, phase, 1.0, 0.0, 0.0, 0.0, run_mix)
+			var posed := point_bounds(skin_points(body))
+			var lowest: float = posed.position.y + body.position.y
+			gait_measurements.append({"run_mix": run_mix, "phase": phase, "lowest": lowest,
+				"root": [body.position.x, body.position.y, body.position.z]})
+			verify(lowest >= -0.925 and body.position.x == 0.0
+				and body.position.z == 0.0,
+				"The second adult's named-bone motion retains a finite foot plane without moving its actor root: "
+				+ str(gait_measurements[-1]))
+	adult_measurements["second_adult_gait"] = gait_measurements
+	verify(first_skeleton.get_bone_pose_rotation(first_skeleton.find_bone("Bip01 L Thigh")) == first_pose,
+		"Posing the second adult does not change the first adult's skeleton.")
+	presenter._set_gait(body, 0.0, 0.0)
+	var tool_attachment: BoneAttachment3D = presenter._attach_multitool(body)
+	verify(tool_attachment != null and tool_attachment.bone_name == "Bip01 R Hand"
+		and tool_attachment.get_child_count() == 1,
+		"The second adult carries the existing presentation tool on its own right hand.")
+	var first_hand: ArrayMesh = presenter._bake_multitool_hand(first)
+	var second_hand: ArrayMesh = presenter._bake_multitool_hand(body)
+	verify(first_hand != null and second_hand != null and first_hand != second_hand
+		and second_hand.get_surface_count() > 0
+		and second_hand.surface_get_material(0).resource_name.begins_with("m009_"),
+		"The second adult's first-person hand uses its own source skin and materials.")
+
 func inspect_adult(body: Node3D, other: Node3D, presenter: Node) -> void:
 	var skeleton := skeleton_of(body)
 	var other_skeleton := skeleton_of(other)
@@ -183,8 +242,11 @@ func inspect_adult(body: Node3D, other: Node3D, presenter: Node) -> void:
 	source_bones = skeleton.get_bone_count()
 	verify(mesh.skin.get_bind_count() == 80 and mesh.mesh.get_surface_count() == 3,
 		"The shipped adult retains all eighty source skin bindings and three materials.")
-	verify(mesh.mesh == other_mesh.mesh and mesh.skin == other_mesh.skin and skeleton != other_skeleton,
-		"Actors share immutable geometry, skin and textures while owning separate skeleton poses.")
+	var second_sourced := FileAccess.file_exists(Presenter.SECOND_ADULT_ASSETS + "adult_worker.glb")
+	verify((mesh.mesh != other_mesh.mesh and mesh.skin != other_mesh.skin if second_sourced
+		else mesh.mesh == other_mesh.mesh and mesh.skin == other_mesh.skin)
+		and skeleton != other_skeleton,
+		"The second sourced adult has distinct geometry while both actors own separate skeleton poses.")
 	for node in body.find_children("*", "", true, false):
 		verify(not node is CollisionObject3D and not node is CollisionShape3D and not node is AnimationPlayer,
 			"The adult asset contains only visual nodes, without physical or autonomous animation authority.")
@@ -1402,6 +1464,8 @@ func run() -> void:
 	legacy.free()
 	if sourced:
 		inspect_adult(body, q.get_node("BodyView"), presenter)
+		if FileAccess.file_exists(Presenter.SECOND_ADULT_ASSETS + "adult_worker.glb"):
+			inspect_second_adult(q.get_node("BodyView"), body, presenter)
 		check_walking_support()
 		check_native_cadence_walking_contact()
 		check_walk_touchdown_sweep()

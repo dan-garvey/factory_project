@@ -637,6 +637,69 @@ void actor_feed_is_physical_custody() {
     const auto recovered = run.world->snapshot();
     check(w::World::restore("press-feed", source.profile, recovered) != nullptr,
           "A saved harvest, craft, feed, form and pickup history restores with partial work in actor cargo.");
+    Runner refeed(source);
+    refeed.world = w::World::restore("press-feed", source.profile, recovered);
+    refeed.p = {2, 1, 0};
+    auto reinsert = request("P", "reinsert-recovered-work", "refeed_press_work");
+    reinsert.emplace("target", V(frame));
+    reinsert.emplace("generation", V(frame_generation));
+    reinsert.emplace("entry", V(point(9, 1, 0)));
+    reinsert.emplace("work_id", V(partial.id));
+    auto incomplete_refeed = reinsert;
+    incomplete_refeed.at("request") = V("reinsert-without-drive");
+    refeed.refuses("P", incomplete_refeed, "incomplete_assembly");
+    auto replace_shaft = request("P", "replace-recovered-shaft", "place_component");
+    replace_shaft.emplace("component", V("wooden_shaft"));
+    replace_shaft.emplace("center", V(point(9, 4, 0)));
+    const auto replacement_shaft = refeed.accept("P", replace_shaft);
+    auto wrong_work = reinsert;
+    wrong_work.at("request") = V("reinsert-wrong-work-id");
+    wrong_work.at("work_id") = V(partial.id + 1);
+    refeed.refuses("P", wrong_work, "unavailable_work");
+    refeed.p = {10, 1, 10};
+    auto remote_refeed = reinsert;
+    remote_refeed.at("request") = V("remote-reinsert-work");
+    refeed.refuses("P", remote_refeed, "out_of_reach");
+    refeed.p = {2, 1, 0};
+    const auto inserted_work = refeed.accept("P", reinsert);
+    check(std::get<V::Array>(inserted_work.at("moved_work").storage()).size() == 1 &&
+          refeed.world->snapshot().state.material.cargo.at("P").work_lots.empty() &&
+          refeed.world->snapshot().state.material.dropped_material.at({8, 1, 0}).work_lots ==
+              std::vector<m::WorkLot>{partial},
+          "Exact-ID hand refeed restores the recovered WorkLot to the same physical work point.");
+    const auto reinserted = refeed.world->snapshot();
+    check(w::World::restore("press-feed", source.profile, reinserted) != nullptr &&
+          std::get<bool>(refeed.send("P", reinsert).result->at("duplicate").storage()),
+          "A fresh restore retains the reinserted partial lot and an exact request retry is idempotent.");
+    auto forged_reinsert = reinserted;
+    for (auto& record : forged_reinsert.history.records)
+        if (std::get<std::string>(record.intent.at("request").storage()) == "reinsert-recovered-work") {
+            auto work = std::get<V::Array>(record.result.at("moved_work").storage());
+            auto lot = std::get<O>(work.front().storage());
+            lot.at("remaining_ticks") = V(I{0});
+            work.front() = V(lot);
+            record.result.at("moved_work") = V(work);
+        }
+    check(!w::World::restore("press-feed", source.profile, forged_reinsert),
+          "A forged hand-refeed receipt cannot change the recovered WorkLot progress.");
+    auto remaining_turn = turn;
+    remaining_turn.at("request") = V("advance-reinserted-work");
+    remaining_turn.at("drive") = replacement_shaft.at("entity");
+    refeed.accept("P", remaining_turn);
+    remaining_turn.at("request") = V("finish-reinserted-work");
+    const auto reformed = refeed.accept("P", remaining_turn);
+    check(std::get<I>(reformed.at("formed_products").storage()) == 1 &&
+          refeed.world->snapshot().state.material.dropped_material.at({7, 1, 0}).products == 1 &&
+          w::World::restore("press-feed", source.profile, refeed.world->snapshot()) != nullptr,
+          "The reinserted lot completes with its retained progress and one formed plate.");
+    auto pick_reformed = request("P", "pickup-reinserted-plate", "pickup_material");
+    pick_reformed.emplace("center", V(point(7, 1, 0)));
+    pick_reformed.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{1})},
+        {"work_lots", V(V::Array{})}}));
+    refeed.accept("P", pick_reformed);
+    check(refeed.world->snapshot().state.material.cargo.at("P").products == 2 &&
+          w::World::restore("press-feed", source.profile, refeed.world->snapshot()) != nullptr,
+          "The recovered work yields exactly one pickable plate in restored actor custody.");
     run.p = {0, 1, 1.65};
     for (int n = 0; n < 4; ++n) {
         auto ore = request("P", "upgrade-ore-" + std::to_string(n), "harvest_source");

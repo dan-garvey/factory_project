@@ -280,6 +280,43 @@ buttons are automated scene callbacks, not human play or pointer-placement
 coverage. This route tests two valid press layouts through the shared scene;
 it does not establish a usable building experience for all orientations.
 
+`--cog-phase=alternate-collector` also continues from the exact first-shipment
+Store. P recovers the original collector's empty receiver and shaft, then
+places those same parts on the opposite lateral route. The selected shaft's
+normal Cut button debits one more ore blank into the moved receiver; P picks
+it up. Q observes the changed part identities and centers, source debit and
+both receiver positions before the pickup. `--cog-phase=alternate-collector-resume`
+compares the resulting Store against both clients on a fresh host. This is a
+second physically distinct operating collector arrangement, with scripted
+walking, ordinary scene commands and an actual panel callback. It does not
+exercise every possible ore face, pointer placement or human usability.
+
+`--cog-phase=alternate-repeat` continues from the exact alternate collector
+save and result above. P physically carries that one blank to the existing
+press and uses its normal Feed, Turn and Pick up controls. Q sees the raw feed,
+retained WorkLot, formed plate and carried product before P walks to the
+freight pylon and delivers it with E. The beacon records one of the three
+additional plates requested by the repeat commission. Both clients then run
+`--cog-phase=alternate-repeat-resume` on a fresh native host to compare the
+repeat receipt and all stock to the saved state. This establishes that the
+alternate collector geometry yields usable press input through ordinary scene
+controls. Movement and button input are scripted; the fixture is not human
+play or proof that the repeat commission is finished. Optional
+`--cog-capture-prefix=/absolute/owned/path` saves passive `-ready.png` and
+`-delivered.png` pylon views for this phase too.
+
+`--cog-phase=hand-refeed` starts from the same alternate collector save. P
+feeds its carried blank, starts a partial WorkLot, then uses the selected
+press's Recover held work and Reinsert held work buttons. Q observes the same
+work ID moving from press to P's cargo and back before P finishes and picks
+up one plate. `--cog-phase=hand-refeed-resume` checks the resulting native
+Store on both fresh clients. The initial comparison checks placed component
+identities and centers; Host recalculates their occupied boxes from current
+geometry when loading the older alternate collector save. These are scripted scene callbacks and exact
+custody checks, not human usability evidence. Optional
+`--refeed-capture-prefix=/absolute/owned/path` saves a passive
+`-recovered.png` view of the selected press panel.
+
 The low-level dedicated entry accepts optional `--resume-input` and
 `--save-file` paths in the same owned directory as its lifecycle files. These
 are host process options, never RPCs. Input is decoded into the one actual

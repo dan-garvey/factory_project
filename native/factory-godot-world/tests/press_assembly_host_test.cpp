@@ -57,6 +57,23 @@ std::pair<double, double> vertical_faces(const O& placed, const std::string& id)
     return {y - extent, y + extent};
 }
 
+void drive_faces_meet(const O& placed, const std::string& first, const std::string& second) {
+    const auto shaft_box = get<O>(V(placed.at(first)), "occupied");
+    const auto cog_box = get<O>(V(placed.at(second)), "occupied");
+    const auto shaft_center = get<A>(V(shaft_box), "center");
+    const auto cog_center = get<A>(V(cog_box), "center");
+    const auto shaft_half = get<A>(V(shaft_box), "half");
+    const auto cog_half = get<A>(V(cog_box), "half");
+    for (std::size_t axis : {std::size_t{0}, std::size_t{2}}) {
+        const double distance = std::abs(std::get<double>(shaft_center[axis].storage()) -
+                                         std::get<double>(cog_center[axis].storage()));
+        if (distance < 1e-9) continue;
+        check(std::abs(distance - std::get<double>(shaft_half[axis].storage()) -
+                       std::get<double>(cog_half[axis].storage())) < 1e-9,
+              "The separate press drive occupied faces meet on their common-grid axis.");
+    }
+}
+
 std::string place(Host& host, const char* name, I x, I y, I z, const char* id) {
     auto wire = request(id, "place_component");
     wire.emplace("component", V(name));
@@ -153,6 +170,8 @@ void placed_press_projection() {
     const auto parts = get<O>(ready, "parts");
     const auto feeds = get<A>(ready, "open_feeds");
     const auto placed = get<O>(host.projection(), "placed_components");
+    drive_faces_meet(placed, shaft, cog);
+    drive_faces_meet(placed, mount, shaft);
     const auto frame_box = get<O>(V(placed.at(frame)), "occupied");
     const auto frame_center = get<A>(V(frame_box), "center");
     const auto frame_half = get<A>(V(frame_box), "half");
@@ -221,6 +240,8 @@ void placed_press_projection() {
     const auto mirrored_cog = place(host, "wooden_cog", 6, 4, 0, "mirror-cog");
     const auto mirrored = inspection(host);
     const auto mirrored_parts = get<O>(mirrored, "parts");
+    drive_faces_meet(get<O>(host.projection(), "placed_components"), mirrored_shaft, mirrored_cog);
+    drive_faces_meet(get<O>(host.projection(), "placed_components"), mount, mirrored_shaft);
     check(get<std::string>(mirrored, "status") == "ready" &&
           get<std::string>(V(mirrored_parts), "shaft") == mirrored_shaft &&
           get<std::string>(V(mirrored_parts), "drive_cog") == mirrored_cog &&
@@ -234,6 +255,69 @@ void placed_press_projection() {
     check(get<bool>(host.command("P", mirrored_turn), "duplicate") &&
           !factory::values::typed_difference(pending, host.checkpoint()),
           "A shared Host retry cannot advance the mirrored press twice.");
+    Host resumed_work;
+    check(get<bool>(resumed_work.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+          get<bool>(resumed_work.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(resumed_work.restore_checkpoint(pending), "accepted") &&
+          get<bool>(resumed_work.publish_actor("P", {V(1.0), V(1.0), V(0.0)}, 5), "accepted"),
+          "A fresh Host resumes the one-turn partial press work near its frame.");
+    const auto held_drop = std::get<O>(get<A>(resumed_work.projection(), "dropped_material").front().storage());
+    const auto held_lot = std::get<O>(get<A>(V(held_drop), "work_lots").front().storage());
+    const auto held_id = get<I>(V(held_lot), "id");
+    auto recover_work = request("recover-partial-work", "pickup_material");
+    recover_work.emplace("center", held_drop.at("center"));
+    recover_work.emplace("expected", V(O{{"raw", held_drop.at("raw")},
+        {"products", held_drop.at("products")}, {"work_lots", held_drop.at("work_lots")}}));
+    accepted(resumed_work, recover_work);
+    auto hand_refeed = request("hand-refeed-partial", "refeed_press_work");
+    hand_refeed.emplace("entity", V(frame));
+    hand_refeed.emplace("entry", V(A{V(I{9}), V(I{1}), V(I{0})}));
+    hand_refeed.emplace("work_id", V(held_id));
+    auto wrong_id = hand_refeed;
+    wrong_id.at("request") = V("hand-refeed-wrong-id");
+    wrong_id.at("work_id") = V(held_id + 1);
+    const auto wrong_result = resumed_work.command("P", wrong_id);
+    check(!get<bool>(wrong_result, "accepted") &&
+          get<std::string>(wrong_result, "reason") == "unavailable_work",
+          "The wire command rejects an uncarried WorkLot identity.");
+    accepted(resumed_work, hand_refeed);
+    const auto reinserted_work = resumed_work.checkpoint();
+    check(get<bool>(resumed_work.command("P", hand_refeed), "duplicate") &&
+          !factory::values::typed_difference(reinserted_work, resumed_work.checkpoint()) &&
+          get<A>(get<O>(resumed_work.projection(), "cargo").at("P"), "work_lots").empty(),
+          "Host hand refeed moves the exact partial lot once from actor custody into the press.");
+    check(get<bool>(resumed_work.publish_actor("P", {V(0.0), V(1.0), V(1.65)}, 6), "accepted"),
+          "P walks to the ore deposit for a separate busy-feed control blank.");
+    auto harvest_busy_blank = request("harvest-busy-control-blank", "harvest_source");
+    harvest_busy_blank.emplace("target", V("opening-softmetal"));
+    accepted(resumed_work, harvest_busy_blank);
+    check(get<bool>(resumed_work.publish_actor("P", {V(1.0), V(1.0), V(0.0)}, 7), "accepted"),
+          "P returns to the occupied press with one genuinely carried blank.");
+    const auto busy_projection = resumed_work.projection();
+    const auto busy_feed = resumed_work.command("P", feed("feed-occupied-reinserted-work", frame, 9, 1, 0));
+    check(!get<bool>(busy_feed, "accepted") && get<std::string>(busy_feed, "reason") == "input_full" &&
+          !factory::values::typed_difference(V(get<O>(busy_projection, "cargo")),
+              V(get<O>(resumed_work.projection(), "cargo"))) &&
+          !factory::values::typed_difference(V(get<A>(busy_projection, "dropped_material")),
+              V(get<A>(resumed_work.projection(), "dropped_material"))),
+          "A busy reinserted press cannot consume another carried blank.");
+    Host restored_work;
+    check(get<bool>(restored_work.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+          get<bool>(restored_work.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(restored_work.restore_checkpoint(reinserted_work), "accepted") &&
+          get<bool>(restored_work.publish_actor("P", {V(1.0), V(1.0), V(0.0)}, 6), "accepted"),
+          "Fresh Host restore retains the manually reinserted partial WorkLot.");
+    accepted(restored_work, turn("advance-reinserted-work", frame, mirrored_shaft, 7, 1, 0));
+    accepted(restored_work, turn("finish-reinserted-work", frame, mirrored_shaft, 7, 1, 0));
+    pickup_product(restored_work, 7, 1, 0, "pickup-reinserted-product");
+    check(get<I>(get<O>(restored_work.projection(), "cargo").at("P"), "products") == 1,
+          "The recovered partial WorkLot produces one pickable plate after fresh Host restore.");
+    Host final_work;
+    check(get<bool>(final_work.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+          get<bool>(final_work.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(final_work.restore_checkpoint(restored_work.checkpoint()), "accepted") &&
+          get<I>(get<O>(final_work.projection(), "cargo").at("P"), "products") == 1,
+          "Fresh Host recovery preserves the finished plate in P's cargo.");
     accepted(host, turn("advance-mirrored-work", frame, mirrored_shaft, 7, 1, 0));
     accepted(host, turn("finish-mirrored-work", frame, mirrored_shaft, 7, 1, 0));
     check(get<A>(host.projection(), "dropped_material").size() == 1,
@@ -242,6 +326,15 @@ void placed_press_projection() {
     check(get<I>(get<O>(host.projection(), "cargo").at("P"), "products") == 1,
           "The formed product enters the same actor cargo ledger after pickup.");
     const auto saved = host.checkpoint();
+    auto hub_obstruction = factory::godot_world::tests::flat_site();
+    hub_obstruction.at("obstacles") = V(A{V(A{
+        V(A{V(2.64), V(2.45), V(-0.03)}),
+        V(A{V(2.66), V(2.50), V(0.03)})})});
+    Host obstructed_hub;
+    check(get<bool>(obstructed_hub.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+          get<bool>(obstructed_hub.configure_terrain(hub_obstruction), "accepted") &&
+          !get<bool>(obstructed_hub.restore_checkpoint(saved), "accepted"),
+          "A solid in the newly occupied cog hub refuses the saved press instead of clipping its axle.");
     Host restored;
     check(get<bool>(restored.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
           get<bool>(restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted"),

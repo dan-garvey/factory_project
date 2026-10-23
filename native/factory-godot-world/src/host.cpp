@@ -29,6 +29,7 @@ constexpr Integer height_denominator = 4;
 constexpr double height_step = pitch / height_denominator;
 constexpr double foundation_depth = 2 * height_step;
 constexpr double anchor_height = pitch / 2;
+constexpr double component_shaft_half = 0.205;
 // Hundredths of a height step, shared with the native opening rotor.
 constexpr Integer wheel_radius = 224;
 constexpr Integer wheel_axle_offset = 200;
@@ -226,7 +227,9 @@ Bounds component_bounds(const world::Profile& profile,
             // A floor-seated table is usable on ground or an ordinary joined deck.
             return {{at[0], center[1] * height_step + 0.45, at[2]}, {0.34, 0.45, 0.30}};
         case materials::Component::tool_mount:
-            return {{at[0], at[1] + 0.10, at[2]}, {0.20, 0.18, 0.19}};
+            return {{at[0], at[1] + 0.10, at[2]},
+                    {height_step - component_shaft_half, 0.18,
+                     height_step - component_shaft_half}};
         case materials::Component::anvil:
             // The cast pedestal meets the frame's 0.9 m top and carries the
             // open work seat. The ram begins at its upper face.
@@ -244,7 +247,13 @@ Bounds component_bounds(const world::Profile& profile,
             return {{at[0], at[1] - 0.0825, at[2]}, {0.18, 0.15, 0.205}};
         case materials::Component::wooden_shaft:
         case materials::Component::softmetal_shaft:
-            return {at, {0.205, 0.12, 0.205}};
+            return {at, {component_shaft_half, 0.12, component_shaft_half}};
+        case materials::Component::wooden_cog:
+        case materials::Component::softmetal_cog:
+            // Either horizontal press layout seats this hub against the
+            // neighboring shaft without moving either common-grid center.
+            return {at, {height_step - component_shaft_half, 0.14,
+                         height_step - component_shaft_half}};
         default:
             return {at, {0.14, 0.14, 0.14}};
     }
@@ -436,6 +445,11 @@ bool historical_wire(const authority::Record& record) {
         return *original_action == *action && keys(*wire, {"entity", "entry"}) &&
             field<std::string>(*wire, "entity") && field<Array>(*wire, "entry") &&
             same("entity", "target") && same("entry", "entry");
+    if (*action == "refeed_press_work")
+        return *original_action == *action && keys(*wire, {"entity", "entry", "work_id"}) &&
+            field<std::string>(*wire, "entity") && field<Array>(*wire, "entry") &&
+            field<Integer>(*wire, "work_id") && same("entity", "target") &&
+            same("entry", "entry") && same("work_id", "work_id");
     if (*action == "turn_press_crank")
         return *original_action == *action && keys(*wire, {"entity", "drive", "exit"}) &&
             field<std::string>(*wire, "entity") && field<std::string>(*wire, "drive") &&
@@ -1513,9 +1527,12 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         const auto found = snapshot.state.placed_components.find(*field<std::string>(wire, "entity"));
         normalized.emplace("generation", Value(found == snapshot.state.placed_components.end() ?
             Integer{0} : found->second.generation));
-    } else if (*action == "feed_press") {
-        if (!keys(wire, {"entity", "entry"}) || !field<std::string>(wire, "entity") ||
-            !field<Array>(wire, "entry")) return refuse("invalid_command");
+    } else if (*action == "feed_press" || *action == "refeed_press_work") {
+        const bool refeed_work = *action == "refeed_press_work";
+        if (!keys(wire, refeed_work ? std::initializer_list<const char*>{"entity", "entry", "work_id"} :
+                std::initializer_list<const char*>{"entity", "entry"}) ||
+            !field<std::string>(wire, "entity") || !field<Array>(wire, "entry") ||
+            (refeed_work && !field<Integer>(wire, "work_id"))) return refuse("invalid_command");
         const auto& entry = *field<Array>(wire, "entry");
         if (entry.size() == 3) {
             mechanics::Point center{};
@@ -1529,12 +1546,13 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             if (valid) if (const auto* refusal = component_site_refusal(snapshot.state, std::nullopt, center))
                 return refuse(refusal);
         }
-        normalized.at("action") = Value("feed_press");
+        normalized.at("action") = Value(*action);
         normalized.emplace("target", wire.at("entity"));
         const auto found = snapshot.state.placed_components.find(*field<std::string>(wire, "entity"));
         normalized.emplace("generation", Value(found == snapshot.state.placed_components.end() ?
             Integer{0} : found->second.generation));
         normalized.emplace("entry", wire.at("entry"));
+        if (refeed_work) normalized.emplace("work_id", wire.at("work_id"));
     } else if (*action == "turn_press_crank") {
         if (!keys(wire, {"entity", "drive", "exit"}) ||
             !field<std::string>(wire, "entity") || !field<std::string>(wire, "drive") ||

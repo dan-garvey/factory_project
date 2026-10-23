@@ -1,0 +1,44 @@
+{
+  "asset": "Microsoft Rocketbox Male_Adult_05",
+  "publisher": "Microsoft",
+  "source_commit": "0943055db6ec570bcef9f2c8b41c9e5467c808f9",
+  "source_root": "https://github.com/microsoft/Microsoft-Rocketbox",
+  "license": "MIT",
+  "source_paths": {
+    "model": "Assets/Avatars/Adults/Male_Adult_05/Export/Male_Adult_05.fbx",
+    "textures": "Assets/Avatars/Adults/Male_Adult_05/Textures/m009_*.tga",
+    "walk": "Assets/Animations/all_animations_max_motextr_xy/m_walk_neutral.max.fbx",
+    "run": "Assets/Animations/all_animations_max_motextr_xy/m_run_neutral.max.fbx"
+  },
+  "source_sha256": {
+    "Male_Adult_05.fbx": "cd0e17505d7b4148cf3b19ccdec9a90f063671f841b60d193d3527a0980052d0",
+    "m009_body_color.tga": "cf5704a0c083d57dab9b7cfdb797d8440fffd0128c7b560b8daad15c5dbcaad7",
+    "m009_body_normal.tga": "17fe756165fb9d39ee0c1bbae956bcc01360fd2a333c258b95bbe4002975458d",
+    "m009_body_specular.tga": "9c2240291c1c3bddac51036a894fb47b8c5d4fd3ff8fc9f448183ace34669b61",
+    "m009_head_color.tga": "2ff27ddb9b4b63ec75ab121813890c34be569c26de99687cbf29e84cb814a22e",
+    "m009_head_normal.tga": "c7077420b31c5146ce30d2ead43d530d7ceeb432ead7f56db185f64496e26b6c",
+    "m009_head_specular.tga": "0ca98624af25a348b71715ca187be77c399def7cb47464979b4cad614b7d7871",
+    "m009_opacity_color.tga": "959801169cfd2274b72d8c7a052d4b83029c5f9a8afddf8d69837361fd411cf2",
+    "m_walk_neutral.max.fbx": "93089851a370e3a117a6bd04c002815f7133fce41c6271e9eb448ca1228b154f",
+    "m_run_neutral.max.fbx": "2f5647b86022ddbb702819ce939c7012e3636796fff93d1b979ea716a71dff5f"
+  },
+  "preparation": {
+    "engine": "Godot 4.7.2.stable.official.ed1daf0bf",
+    "mesh": "The imported skinned mesh and skin are exported as glTF without unused animation and footstep nodes. Named body, head and opacity material surfaces are assigned runtime maps.",
+    "color_maps": "Original color images resized to 1024 by 1024 with Lanczos and saved as lossy WebP at quality 0.88.",
+    "normal_maps": "Original normals resized to 512 by 512 with Lanczos, renormalized, quantized to RGB8 and saved as lossless WebP.",
+    "opacity_map": "Original opacity image resized to 512 by 512 with Lanczos and saved as lossless WebP.",
+    "clips": "Male neutral FBX takes retain only named-skeleton position and rotation tracks; source footstep and motion-helper tracks are excluded."
+  },
+  "prepared_sha256": {
+    "adult_worker.glb": "d8242dab030da38c36e1eb795f4d6930eb98293d139accb02a462f50e0857ecb",
+    "body_color.webp": "1a8baf805ac5fb4803c10d94146fbdc0acde71e87aa0ba3e2a5985a03ee3d274",
+    "body_normal.webp": "ada47118e4d954f33e378d10f5b6ad9c1a23c888619d577847871a2312eaddcf",
+    "head_color.webp": "427053f5a7adfa4f3e97f1644b2602b0d08075ba8d721d175a7ad759c8172035",
+    "head_normal.webp": "ad01b7d43747e417013320ccf39b6179806815790d0835871d305a27ecef320b",
+    "opacity_color.webp": "02d80a680806cf1d2b1f2a968f6d82323f935d50c360afbade3f7c8219b7e9b0",
+    "walk_neutral.res": "0512003e49ddfcbcd6283da4f9ad688a8e5df9ffcfc027467c6e2c5b8a937efa",
+    "run_neutral.res": "54a6063b97bf68735a3d347e49952103997f00c9b71a2fa8a103254f4ff973be"
+  },
+  "limits": "Source inspection and passive model images do not establish natural gait, ordinary-scene readability, human appearance quality or gameplay."
+}
