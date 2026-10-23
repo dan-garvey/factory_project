@@ -16,6 +16,9 @@ var failures: Array[String] = []
 var lost_reason := ""
 
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--pose-only"):
+		call_deferred("check_pose_protocol")
+		return
 	if OS.get_cmdline_user_args().has("--state-coalescing-only"):
 		call_deferred("check_state_coalescing")
 		return
@@ -81,6 +84,93 @@ func check_state_coalescing() -> void:
 func finish_state_checks(container: Node) -> void:
 	container.free()
 	print("SHARED_STATE_COALESCING_", "PASS" if failures.is_empty() else "FAIL", " ", checks)
+	quit(0 if failures.is_empty() else 1)
+
+func check_pose_protocol() -> void:
+	# Invented authenticated receive data checks ordering and packet size. The
+	# separate native P/Q run supplies actual ENet and World observations.
+	var container := Node.new()
+	container.name = "OpeningShared"
+	session = Session.new()
+	session.name = "Session"
+	container.add_child(session)
+	root.add_child(container)
+	session.context = "pose-check"
+	session._ready_for_commands = true
+	session.last_serial = 10
+	session._cache = {"context": session.context, "revision": 2, "order": 3,
+		"actors": {"P": {"ready": true, "position": [0.0, 1.0, 0.0],
+			"native_epoch": 1, "capabilities": {"build_reach": 4.0}},
+			"Q": {"ready": true, "position": [1.0, 1.0, 0.0],
+				"native_epoch": 1, "capabilities": {"build_reach": 4.0}}},
+		"stock": {"source": 16}}
+	var pose := {"context": session.context, "serial": 11, "revision": 2, "order": 3,
+		"actors": {"P": {"ready": true, "position": [2.0, 1.0, 0.0], "native_epoch": 2},
+			"Q": {"ready": true, "position": [3.0, 1.0, 0.0], "native_epoch": 2}}}
+	check(var_to_bytes(pose).size() < 1100, "Both actor samples fit below the pinned 1392-byte MTU with RPC headroom")
+	session._apply_pose(pose)
+	await process_frame
+	await process_frame
+	var observed: Dictionary = session.projection()
+	check(session.last_serial == 11 and observed.actors.P.position == [2.0, 1.0, 0.0]
+		and observed.actors.Q.position == [3.0, 1.0, 0.0]
+		and observed.actors.P.capabilities.build_reach == 4.0 and observed.stock.source == 16,
+		"One compact packet updates both actors without replacing material or capabilities")
+	var stale: Dictionary = pose.duplicate(true)
+	stale.actors.P.position = [99.0, 1.0, 0.0]
+	session._apply_pose(stale)
+	stale.serial = 12
+	stale.revision = 1
+	session._apply_pose(stale)
+	check(session.last_serial == 11 and session.projection() == observed,
+		"Old serials and World revisions cannot roll actor state back")
+	var incomplete: Dictionary = pose.duplicate(true)
+	incomplete.serial = 12
+	incomplete.actors.erase("Q")
+	session._apply_pose(incomplete)
+	var malformed: Dictionary = pose.duplicate(true)
+	malformed.serial = 12
+	malformed.actors.P.position = [NAN, 1.0, 0.0]
+	session._apply_pose(malformed)
+	check(session.last_serial == 11 and session.projection() == observed,
+		"Missing or non-finite actor samples cannot contaminate the client view")
+	var newer: Dictionary = observed.duplicate(true)
+	newer.revision = 3
+	newer.order = 4
+	newer.stock.source = 15
+	session._apply_frame({"context": session.context, "serial": 13, "snapshot": newer}, true)
+	var wrong_base: Dictionary = pose.duplicate(true)
+	wrong_base.serial = 14
+	session._apply_pose(wrong_base)
+	check(session.projection().stock.source == 15 and session.projection().actors.P.position == [2.0, 1.0, 0.0]
+		and session.last_serial == 13,
+		"An actor packet based on old material cannot overtake a newer full state")
+	var current: Dictionary = pose.duplicate(true)
+	current.serial = 15
+	current.revision = 3
+	current.order = 4
+	current.actors.P.position = [4.0, 1.0, 0.0]
+	session._apply_pose(current)
+	await process_frame
+	await process_frame
+	check(session.last_serial == 15 and session.projection().actors.P.position == [4.0, 1.0, 0.0]
+		and session.projection().stock.source == 15,
+		"A current actor packet follows the material state without replacing its stock")
+	var earlier: Dictionary = current.duplicate(true)
+	earlier.serial = 16
+	earlier.actors.P.position = [5.0, 1.0, 0.0]
+	var latest: Dictionary = earlier.duplicate(true)
+	latest.serial = 17
+	latest.actors.P.position = [6.0, 1.0, 0.0]
+	session._apply_pose(earlier)
+	session._apply_pose(latest)
+	await process_frame
+	await process_frame
+	check(session.last_serial == 17 and session.projection().actors.P.position == [6.0, 1.0, 0.0]
+		and session.projection().stock.source == 15,
+		"A burst keeps its newest actor packet without replaying older poses")
+	container.free()
+	print("POSE_PROTOCOL_", "PASS" if failures.is_empty() else "FAIL", " ", checks)
 	quit(0 if failures.is_empty() else 1)
 
 func check(ok: bool, label: String) -> void:
