@@ -4607,6 +4607,7 @@ var packed_preview_templates: Dictionary = {}
 var packed_preview_nodes: Dictionary = {}
 var machine_dynamic_batches: Array[Dictionary] = []
 var machine_conveyor_batches: Array[Dictionary] = []
+var machine_conveyor_batch_slots: Dictionary = {}
 var machine_rotors: Array[Dictionary] = []
 var machine_rotor_cells: Array[Dictionary] = []
 var machine_batched_rotors: Dictionary = {}
@@ -5513,6 +5514,11 @@ func _apply_conveyor_motion(anchor: Node3D, rotation: float) -> void:
 	# rotation carries the top toward -X, so the texture offset increases.
 	var direction := -1.0 if anchor.get_meta("material_rotated", false) else 1.0
 	var offset := fposmod(direction * rotation * ProductionConveyorArt.RADIUS * repeats / length_value, 1.0)
+	var slot: Dictionary = machine_conveyor_batch_slots.get(loop.get_instance_id(), {})
+	if not slot.is_empty():
+		# The visible batch reads custom data; the source material is hidden.
+		slot.mesh.set_instance_custom_data(slot.index, Color(offset, 0, 0))
+		return
 	loop.material_override.uv1_offset = Vector3(offset, 0, 0)
 
 func _sync_machine_body_context() -> void:
@@ -7969,7 +7975,7 @@ func _emit_machine_mesh_batches(groups: Dictionary, batches: Node3D, dynamic: bo
 			batch_index += 1
 
 func _update_machine_dynamic_batches(visible_rotors_only := false) -> void:
-	if machine_dynamic_batches.is_empty() and machine_conveyor_batches.is_empty():
+	if machine_dynamic_batches.is_empty():
 		return
 	var to_local := machine_root.global_transform.affine_inverse()
 	if visible_rotors_only:
@@ -8001,12 +8007,6 @@ func _update_machine_dynamic_batches(visible_rotors_only := false) -> void:
 			else:
 				motion_pose = to_local * part.node.global_transform
 			mesh.set_instance_transform(index, motion_pose)
-	for group in machine_conveyor_batches:
-		var mesh: MultiMesh = group.mesh
-		for index in group.parts.size():
-			var loop: MeshInstance3D = group.parts[index]
-			mesh.set_instance_custom_data(index, Color(loop.material_override.uv1_offset.x, 0, 0))
-
 func _batch_conveyor_loops(batches: Node3D) -> void:
 	var loops: Array[MeshInstance3D] = []
 	for part in machine_root.find_children("ConveyorLoop", "MeshInstance3D", true, false):
@@ -8043,10 +8043,13 @@ func _batch_conveyor_loops(batches: Node3D) -> void:
 	instance.layers = loops[0].layers
 	batches.add_child(instance)
 	machine_conveyor_batches.append({"mesh": multi, "parts": loops})
+	for index in loops.size():
+		machine_conveyor_batch_slots[loops[index].get_instance_id()] = {"mesh": multi, "index": index}
 
 func _batch_machine_visuals() -> void:
 	machine_dynamic_batches.clear()
 	machine_conveyor_batches.clear()
+	machine_conveyor_batch_slots.clear()
 	machine_batch_static_machine_count = 0
 	machine_batched_rotors.clear()
 	machine_batched_rotor_slots.clear()
