@@ -1786,6 +1786,104 @@ void belt_feeds_a_placed_press() {
           w::World::restore("press-feed", source.profile, recovered.world->snapshot()) != nullptr,
           "The same recovered work identity produces one plate after belt re-entry.");
 }
+
+void belt_feeds_a_guided_press() {
+    auto source = site();
+    source.profile.build_reach = 100;
+    source.profile.material.hand_carry_capacity = 64;
+    source.profile.waterwheel_rate = {1, 1};
+    source.profile.finite_parts[{s::Role::waterwheel, 0, 0}] = 2;
+    source.profile.finite_parts[{s::Role::shaft, 0, 2}] = 3;
+    source.profile.finite_parts[{s::Role::belt, 0, 0}] = 1;
+    source.state.topology.sources = {{"press-wheel", source.profile.waterwheel_rate},
+        {"feed-wheel", source.profile.waterwheel_rate}};
+    source.state.topology.parts.push_back(
+        {{"feed-wheel", g::Kind::hub, {8, 0, -8}, g::Axis::z, 0, 0}, 1, s::Role::waterwheel});
+    for (const auto& [id, center] : {std::pair{"feed-drive", g::Point{8, 0, -4}},
+                                     std::pair{"feed-outside", g::Point{8, 0, 0}},
+                                     std::pair{"feed-mouth", g::Point{4, 0, 0}}})
+        source.state.topology.parts.push_back({{id, g::Kind::shaft, center, g::Axis::z, 0, 2},
+            1, s::Role::shaft});
+    source.state.topology.belt_spans.push_back({{"guided-input-belt", "feed-outside", "feed-mouth"}, 1});
+    source.state.material.belt_lanes.emplace("guided-input-belt", m::BeltLane{{std::nullopt, std::nullopt}, 0});
+    for (const auto& part : source.state.topology.parts)
+        source.state.issued_entities.emplace(part.geometry.id, part.generation);
+    source.state.issued_entities.emplace("guided-input-belt", 1);
+    Runner run(source);
+    run.p = {4.95, 1, 9.9};
+    for (int index = 0; index < 5; ++index) {
+        auto cut = request("P", "belt-guided-wood-" + std::to_string(index), "harvest_source");
+        cut.emplace("target", V("tree"));
+        run.accept("P", cut);
+    }
+    run.p = {0, 1, 1.65};
+    for (int index = 0; index < 5; ++index) {
+        auto cut = request("P", "belt-guided-ore-" + std::to_string(index), "harvest_source");
+        cut.emplace("target", V("ore"));
+        run.accept("P", cut);
+    }
+    run.p = {1.65, 1, 6.6};
+    for (const auto* kind : {"anvil", "ram_face", "sliding_guide", "wooden_shaft", "wooden_cog"}) {
+        auto craft = request("P", std::string("belt-guided-craft-") + kind, "craft_component");
+        craft.emplace("target", V("pod-fabrication-hub"));
+        craft.emplace("generation", V(I{1}));
+        craft.emplace("component", V(kind));
+        run.accept("P", craft);
+    }
+    run.p = {2, 1, 0};
+    for (const auto& [kind, center] : {std::pair{"anvil", g::Point{0, 0, 0}},
+                                      std::pair{"ram_face", g::Point{0, 1, 0}},
+                                      std::pair{"sliding_guide", g::Point{0, 3, 0}},
+                                      std::pair{"wooden_shaft", g::Point{1, 4, 0}},
+                                      std::pair{"wooden_cog", g::Point{2, 4, 0}}}) {
+        auto place = request("P", std::string("belt-guided-place-") + kind, "place_component");
+        place.emplace("component", V(kind));
+        place.emplace("center", V(point(center[0], center[1], center[2])));
+        run.accept("P", place);
+    }
+    const auto empty = run.world->snapshot();
+    check(w::World::restore("press-feed", source.profile, empty) != nullptr,
+          "A belt beside five guided parts restores without a frame or mount.");
+    auto load = request("P", "belt-guided-load", "load_belt_slot");
+    load.emplace("target", V("guided-input-belt"));
+    load.emplace("generation", V(I{1}));
+    load.emplace("slot", V(I{0}));
+    load.emplace("item", V("raw"));
+    load.emplace("work_id", V(I{0}));
+    run.accept("P", load);
+    const auto loaded = run.world->snapshot();
+    Runner stopped(source);
+    stopped.world = w::World::restore("press-feed", source.profile, loaded);
+    check(stopped.world != nullptr, "The loaded guided belt restores before movement.");
+    auto stop = request("P", "belt-guided-stop", "set_drive");
+    stop.emplace("target", V("press-wheel"));
+    stop.emplace("generation", V(I{1}));
+    stop.emplace("enabled", V(false));
+    stopped.accept("P", stop);
+    check(stopped.world->tick().error == w::TransactionError::none &&
+          stopped.world->snapshot().state.material.belt_lanes.at("guided-input-belt").slots.front() ==
+              m::Cargo{1, 0, {}} &&
+          !stopped.world->snapshot().state.material.dropped_material.contains({0, 0, 0}) &&
+          w::World::restore("press-feed", source.profile, stopped.world->snapshot()) != nullptr,
+          "Stopped power retains the exact belt blank before guided press feed.");
+    check(run.world->tick().error == w::TransactionError::none &&
+          run.world->tick().error == w::TransactionError::none &&
+          run.world->snapshot().state.material.dropped_material.at({0, 0, 0}).raw_units == 1,
+          "The powered belt feeds exactly one blank to a frame-free anvil.");
+    const auto fed = run.world->snapshot();
+    check(w::validate(source.profile, fed), "A belt-fed guided blank has valid World history.");
+    check(codec_restore(source.profile, fed, "A belt-fed guided blank restores at its anvil.") != nullptr,
+          "The belt feed retains exact input custody through checkpoint serialization.");
+    for (int index = 0; index < 3; ++index)
+        check(run.world->tick().error == w::TransactionError::none,
+              "The frame-free belt-fed press advances under signed power.");
+    const auto finished = run.world->snapshot();
+    check(w::validate(source.profile, finished), "A belt-fed guided product has valid World history.");
+    check(finished.state.material.dropped_material.at({-1, 0, 0}).products == 1 &&
+          codec_restore(source.profile, finished,
+              "The guided belt-fed plate survives checkpoint reload.") != nullptr,
+          "The guided press forms one plate from its belt-fed blank.");
+}
 } // namespace
 
 int main() {
@@ -1795,6 +1893,7 @@ int main() {
         actor_feed_is_physical_custody();
         two_placed_presses_advance_distinct_powered_work();
         belt_feeds_a_placed_press();
+        belt_feeds_a_guided_press();
         std::cout << "press_feed_world_test: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {
