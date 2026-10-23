@@ -1235,13 +1235,19 @@ const char* Host::collector_site_refusal(const mechanics::Point& center) const {
     return allowed == mineral_site::Error::none ? nullptr : mineral_site::error_name(allowed);
 }
 
-const char* Host::component_site_refusal(std::optional<materials::Component> kind,
-        const mechanics::Point& center) const {
+const char* Host::component_site_refusal(const world::State& state,
+        std::optional<materials::Component> kind, const mechanics::Point& center) const {
     const auto volume = component_bounds(profile_, kind, center);
     const auto& at = volume.center;
     const auto ground = terrain_range(at[0], at[2], volume.half[0], volume.half[2]);
     if (!ground) return "terrain_unavailable";
     if (ground->second > at[1] - volume.half[1]) return "site_occupied";
+    if (kind == materials::Component::wooden_workbench) {
+        const bool supported = std::any_of(state.foundations.begin(), state.foundations.end(),
+            [&](const auto& entry) { return entry.second.center == center; });
+        if (!supported && ground->first < at[1] - volume.half[1] - 0.04)
+            return "support_required";
+    }
     // Only the named cutting edge at one of the two trusted ore faces may
     // enter the source hull. The source obstacle is separately identified and
     // validated when terrain binds; every other obstacle still blocks it.
@@ -1404,7 +1410,8 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                 center[axis] = *coordinate;
             }
             const auto volume = component_bounds(profile_, materials::Component::wooden_workbench, center);
-            if (const auto* refusal = component_site_refusal(materials::Component::wooden_workbench, center))
+            if (const auto* refusal = component_site_refusal(snapshot.state,
+                    materials::Component::wooden_workbench, center))
                 return refuse(refusal);
             if (placement_blocked(volume.center, volume.half)) return refuse("actor_occupied");
             if (const auto* refusal = component_space_refusal(snapshot.state,
@@ -1450,7 +1457,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                     *coordinate > mechanics::maximum_coordinate) valid = false;
                 else center[axis] = *coordinate;
             }
-            if (valid) if (const auto* refusal = component_site_refusal(std::nullopt, center))
+            if (valid) if (const auto* refusal = component_site_refusal(snapshot.state, std::nullopt, center))
                 return refuse(refusal);
         }
         normalized.at("action") = Value("feed_press");
@@ -1473,7 +1480,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                     *coordinate > mechanics::maximum_coordinate) valid = false;
                 else center[axis] = *coordinate;
             }
-            if (valid) if (const auto* refusal = component_site_refusal(std::nullopt, center))
+            if (valid) if (const auto* refusal = component_site_refusal(snapshot.state, std::nullopt, center))
                 return refuse(refusal);
         }
         normalized.at("action") = Value("turn_press_crank");
@@ -1499,7 +1506,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         // reserves actor, terrain and neighboring construction clearance.
         const auto kind = materials::component_from_name(*field<std::string>(wire, "component"));
         const auto volume = component_bounds(profile_, kind, center);
-        if (const auto* refusal = component_site_refusal(kind, center)) return refuse(refusal);
+        if (const auto* refusal = component_site_refusal(snapshot.state, kind, center)) return refuse(refusal);
         if (placement_blocked(volume.center, volume.half)) return refuse("actor_occupied");
         if (const auto* refusal = component_space_refusal(snapshot.state, kind, center)) return refuse(refusal);
         if (kind) {
@@ -2430,13 +2437,14 @@ Host::Decoded Host::decode(const Value& input) const {
         profile_.landing_pod_center && snapshot.state.fabrication_hub->center !=
             world::landing_hub_center(*profile_.landing_pod_center)) {
         const auto center = snapshot.state.fabrication_hub->center;
-        if (const auto* refusal = component_site_refusal(materials::Component::wooden_workbench, center))
+        if (const auto* refusal = component_site_refusal(snapshot.state,
+                materials::Component::wooden_workbench, center))
             return {nullptr, refusal};
         if (const auto* refusal = component_space_refusal(snapshot.state,
                 materials::Component::wooden_workbench, center)) return {nullptr, refusal};
     }
     for (const auto& [id, component] : snapshot.state.placed_components) {
-        if (const auto* refusal = component_site_refusal(component.kind, component.center))
+        if (const auto* refusal = component_site_refusal(snapshot.state, component.kind, component.center))
             return {nullptr, refusal};
         if (const auto* refusal = component_space_refusal(snapshot.state, component.kind,
                 component.center, &id)) return {nullptr, refusal};

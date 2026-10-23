@@ -75,8 +75,8 @@ private:
         double half_x = 0.825, double half_z = 0.825) const;
     [[nodiscard]] const char* machine_site_refusal(const world::State&, const mechanics::Point& center,
         bool collector) const;
-    [[nodiscard]] const char* component_site_refusal(std::optional<materials::Component> kind,
-        const mechanics::Point& center) const;
+    [[nodiscard]] const char* component_site_refusal(const world::State& state,
+        std::optional<materials::Component> kind, const mechanics::Point& center) const;
     [[nodiscard]] const char* component_space_refusal(const world::State& state,
         std::optional<materials::Component> kind, const mechanics::Point& center,
         const std::string* current_id = nullptr) const;

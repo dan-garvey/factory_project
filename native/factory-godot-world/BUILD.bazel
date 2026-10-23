@@ -44,6 +44,13 @@ cc_test(
     size = "small",
 )
 
+cc_test(
+    name = "bench_bearing_host_test",
+    srcs = ["tests/bench_bearing_host_test.cpp"],
+    deps = [":test_site"],
+    size = "small",
+)
+
 cc_library(
     name = "host",
     srcs = ["src/host.cpp"],
