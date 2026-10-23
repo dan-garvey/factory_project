@@ -1428,6 +1428,10 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 				if toward_shaft.length_squared() > 0.01:
 					drives[cog_id] = toward_shaft.normalized()
 	for id: String in boxes:
+		# Supplied hardware shares the collision table, but its ordinary scene
+		# already owns the pod and workshop artwork.
+		if not placed is Dictionary or not placed.has(id):
+			continue
 		var spec: Dictionary = boxes[id]
 		var anchor := Node3D.new()
 		anchor.name = "PlacedComponent"

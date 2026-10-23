@@ -120,6 +120,14 @@ public:
     // revision while retaining every historical request and original outcome.
     template<class Step>
     [[nodiscard]] Advance advance(Step&& step) noexcept {
+        return advance(std::forward<Step>(step), validator_);
+    }
+
+    // A trusted domain step may carry a computed validation witness into its
+    // complete candidate validator. Generic history checks and the atomic
+    // pointer swap remain here; callers must still validate their full domain.
+    template<class Step, class CandidateValidator>
+    [[nodiscard]] Advance advance(Step&& step, CandidateValidator&& validate_candidate) noexcept {
         if (applying_) return {TransactionError::reentrant, false, current_->revision};
         Active guard(applying_);
         try {
@@ -130,7 +138,7 @@ public:
             auto next = std::make_unique<Snapshot>(Snapshot{
                 std::move(*candidate), current_->history, current_->revision + 1});
             if (authority::validate_history(next->history, next->revision) != authority::Error::none ||
-                !validator_(*next))
+                !std::invoke(std::forward<CandidateValidator>(validate_candidate), std::as_const(*next)))
                 return {TransactionError::invalid_candidate, false, current_->revision};
             Advance result{TransactionError::none, true, next->revision};
             current_.swap(next);
