@@ -2,6 +2,7 @@ extends SceneTree
 ## Automated headless consumer of the ordinary scene, not a desktop playtest.
 const NativeModel = preload("res://opening/native_model.gd")
 const OpeningGeometry = preload("res://opening/site_geometry.gd")
+const OpeningScene = preload("res://opening/opening.gd")
 var opening
 var destination := ""
 var mode := ""
@@ -57,9 +58,36 @@ func _record(status: String, reason: String = "") -> void:
 	# The binary retains integer/float distinctions. JSON is only a short log.
 	file.store_buffer(var_to_bytes(facts))
 	file.close()
+	var audio_refs: Array[WeakRef] = []
+	for cue in OpeningScene.ConstructionAudio.streams:
+		audio_refs.append(weakref(OpeningScene.ConstructionAudio.streams[cue]))
 	if opening != null:
+		if opening.construction_audio != null:
+			var playback = opening.construction_audio.get_stream_playback()
+			if playback != null:
+				audio_refs.append(weakref(playback))
+			playback = null
+			opening.construction_audio.stop()
+			opening.construction_audio.stream = null
 		opening.free()
 		opening = null
+	OpeningScene.ConstructionAudio.streams.clear()
+	OpeningScene.ConstructionAudio.source_status = "uninitialized"
+	# The dummy audio driver can release a stopped playback after scene removal.
+	# Observe the actual resources before ending this short lived consumer.
+	var audio_deadline := Time.get_ticks_msec() + 2000
+	while not audio_refs.is_empty():
+		var remaining := 0
+		for reference in audio_refs:
+			if reference.get_ref() != null:
+				remaining += 1
+		if remaining == 0:
+			break
+		if Time.get_ticks_msec() >= audio_deadline:
+			push_error("Native scene teardown retains %d construction audio objects" % remaining)
+			quit(1)
+			return
+		await process_frame
 	print(JSON.stringify({"status": status, "evidence": facts.evidence, "mode": mode, "checks": checks, "reason": reason,
 		"failure_step": facts.steps[-1] if status == "fail" and not facts.steps.is_empty() else {}}))
 	quit(0 if status == "pass" else 1)
