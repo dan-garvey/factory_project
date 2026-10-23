@@ -99,6 +99,32 @@ void safe_path(const fs::path& path) {
     }
 }
 
+bool non_repository_discovery(const ProcessResult& result, const fs::path& destination_parent) {
+    if (result.exit_code != 128) return false;
+    if (result.output == "fatal: not a git repository (or any of the parent directories): .git\n")
+        return true;
+
+    // Git stops at a filesystem boundary unless cross-filesystem discovery is
+    // enabled. Its diagnostic names the directory on the other side of that
+    // boundary, so verify it against the actual canonical destination path.
+    const std::string prefix = "fatal: not a git repository (or any parent up to mount point ";
+    const std::string suffix = ")\nStopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).\n";
+    if (result.output.size() <= prefix.size() + suffix.size()
+        || result.output.compare(0, prefix.size(), prefix) != 0
+        || result.output.compare(result.output.size() - suffix.size(), suffix.size(), suffix) != 0)
+        return false;
+    const auto reported = result.output.substr(prefix.size(), result.output.size() - prefix.size() - suffix.size());
+    for (auto current = destination_parent; current != current.root_path();) {
+        const auto parent = current.parent_path();
+        struct stat current_status{}, parent_status{};
+        if (::stat(current.c_str(), &current_status) != 0 || ::stat(parent.c_str(), &parent_status) != 0)
+            return false;
+        if (current_status.st_dev != parent_status.st_dev) return reported == parent.string();
+        current = parent;
+    }
+    return false;
+}
+
 std::string file_bytes(const fs::path& path, std::size_t limit) {
     require(fs::is_regular_file(fs::symlink_status(path)), "A regular file is required.");
     const auto expected = fs::file_size(path);
@@ -317,8 +343,7 @@ CaptureResult capture_project(const CaptureOptions& options) {
         std::min(discovery_remaining, std::chrono::milliseconds(10000)), 65536,
         options.cancellation, true);
     require(ownership.exit_code != 0, "Keep captures outside Git worktrees and administration.");
-    require(ownership.exit_code == 128
-            && ownership.output == "fatal: not a git repository (or any of the parent directories): .git\n",
+    require(non_repository_discovery(ownership, options.output.parent_path()),
             "Destination Git ownership discovery failed; no capture is allowed.");
     require(trim_newline(read_git({"rev-parse", "--show-toplevel"})) == options.repository.string(),
             "Select the repository root explicitly.");
