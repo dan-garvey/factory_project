@@ -43,35 +43,49 @@ retarget. The current native World still owns actor position, collision,
 identity, input and proximity; the imported character may consume those facts
 but may not replace them.
 
-## Next reversible trial
+## Measured scratch comparisons
 
-Try one **core-asset-only MakeHuman/MPFB adult** outside the game repository.
-Use an adult body, a plainly licensed hair and work-clothing set, and an
-editable local source file. Export a skinned glTF with the material maps and
-one neutral walk. Import it into a scratch Godot 4.7.2 project and render it
-beside the two existing adults at identical normal and near camera positions,
-light and output size. Keep the result external until the source licenses and
-pixels justify adoption. This trial does not require a new character controller,
-native rule or public asset commit.
+The proposed core-only trial is complete. Blender 4.5.15 and MPFB 2.0.18
+exported a rigged adult using the officially listed CC0 system pack. Godot
+4.7.2 imported the 22.5 MB glTF package without an import error. Its mesh has
+38,024 triangles, 53 joints and no animation clips. The same passive studio
+rendered this adult and the published P and Q workers at matched camera
+positions, light and output size. The model has a casual logo shirt, bare feet
+and an unposed rig; its close appearance did not visibly exceed the two
+prepared adults. The comparison is recorded in the external
+`character-render-trial-20261023/assessment.json` family. This rejects the
+**core sample as an immediate replacement**, not the MakeHuman authoring system
+as a whole.
 
-The trial should record source hashes and licenses; body and head mesh counts;
-bone names, parent order and rest transforms; animation track and bind
-coverage; textures, alpha and normal orientation; imported resource size; and
-observed draw calls or frame cost in the same passive fixture. Reject it if
-the hair, skin or clothing looks less convincing than the shipped adults, if
-the footwear cannot meet the current actor ground at idle and walk, or if the
-source cannot be reduced to the project's artifact budget without obvious
-visual loss. A technically successful import is not a visual acceptance.
+A second scratch export used individually attributed hair, jacket, jeans and
+boots from the official [asset-pack catalogue](https://static.makehumancommunity.org/assets/assetpacks/index.html).
+The selected works by Elvaerwyn, punkduck and Mindfront are listed as CC-BY;
+none entered the public game repository. The outfit is more coherent than the
+core sample, but the matched close view shows gaps at the sleeves, weak face
+and hair material response, and no posed or animated motion. Its unoptimized
+glTF is 31.9 MB with 166,116 triangles and 53 joints. Blender reported texture
+sampler and four-joint-influence reduction warnings. The selected asset names,
+creators, pack hashes, images and limits are retained in the external
+`character-render-trial-20261023/attributed-assessment.json` family. This
+specific assembly is also **rejected as a game replacement**.
 
-If that local trial cannot beat the current models, the next source-quality
-step is a **properly licensed optimized MetaHuman export**, with the original
-head, body, textures, hair and outfit accounted for before conversion. The
-export and legal route must be established before putting any third-party raw
-asset on public main. Do not treat the Unreal optimization figures as a Godot
-performance prediction. Compare passive normal and near renders and ask for
-human appearance feedback before choosing a permanent character direction.
+The first full-environment scratch comparison produced no image after more
+than two minutes of software rendering and was stopped with its failure and
+cleanup preserved. The completed comparisons are isolated passive studio
+renders; they do not measure full-scene performance, animation quality or
+human attractiveness. Neither export changed the native actor, game assets
+or input path.
 
-This research did not download a new character, install software, launch a
-game, run Godot, or test human preference. It recommends a falsifiable art
-trial while the existing two actors and their independent review remain in
-place.
+## Next source requirement
+
+Seek a coherent adult source with a modeled face, hair, fitted field clothing
+and footwear, an editable rig and named material maps. Before integration,
+measure rest-pose and animation compatibility with the physical actor, correct
+garment clipping and material import, and reduce the selected runtime meshes
+and textures against the current project capture budget. Compare normal and
+near views with the published workers under identical lighting; keep every
+source license and attribution explicit. A conditional optimized MetaHuman
+export is still one possible route if its acquisition, outfit, hair, Godot
+conversion and public redistribution terms can be established. Human
+appearance feedback remains necessary before choosing the permanent art
+direction.
