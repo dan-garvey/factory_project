@@ -1,4 +1,5 @@
 #include "factory/godot_world.hpp"
+#include "factory/arrival_geometry.hpp"
 #include "factory/assembly.hpp"
 #include "factory/mineral_site.hpp"
 #include "factory/waterflow.hpp"
@@ -78,7 +79,18 @@ const char* press_status_name(assembly::PressStatus status) {
     return "invalid_input";
 }
 
-struct Bounds { authority::Point center, half; };
+using Bounds = arrival_geometry::Bounds;
+
+bool capsule_intersects(const authority::Point& actor, const Bounds& box, double tolerance = 0) {
+    const auto dx = std::max(std::abs(actor[0] - box.center[0]) - box.half[0], 0.0);
+    const auto dz = std::max(std::abs(actor[2] - box.center[2]) - box.half[2], 0.0);
+    const auto segment_half = capsule_height / 2 - capsule_radius;
+    const auto below = box.center[1] - box.half[1] - (actor[1] + segment_half);
+    const auto above = actor[1] - segment_half - (box.center[1] + box.half[1]);
+    const auto dy = std::max({below, above, 0.0});
+    const auto radius = capsule_radius - tolerance;
+    return dx * dx + dy * dy + dz * dz < radius * radius;
+}
 
 bool fixed_transmission(Role role) {
     return role == Role::shaft || role == Role::gear || role == Role::gearbox ||
@@ -1298,6 +1310,48 @@ const char* Host::component_space_refusal(const world::State& state,
     return nullptr;
 }
 
+const char* Host::supplied_space_refusal(const world::State& state) const {
+    const auto solids = arrival_geometry::supplied(state, height_step);
+    if (solids.empty()) return nullptr;
+    const auto supports = transmission_supports(state);
+    for (const auto& [id, solid] : solids) {
+        const auto& box = solid.bounds;
+        for (const auto& [other_id, other] : solids)
+            if (id < other_id && solid.entity != other.entity && overlap(box, other.bounds))
+                return "occupied";
+        for (const auto& [unused, floor] : state.foundations) {
+            (void)unused;
+            if (overlap(box, foundation_bounds(floor))) return "occupied";
+        }
+        for (const auto& [unused, component] : state.placed_components) {
+            (void)unused;
+            if (overlap(box, component_bounds(profile_, component.kind, component.center))) return "occupied";
+        }
+        if (intersects_belt(state, box)) return "occupied";
+        for (const auto& part : state.topology.parts) {
+            if (part.role == Role::shaft || part.role == Role::gear) {
+                if (transmission_intersects(box, part.geometry.center, part.geometry.axis,
+                        part.role == Role::gear)) return "occupied";
+            } else if (overlap(box, part_bounds(profile_, part))) return "occupied";
+            if (part.role == Role::collector)
+                for (const auto& external : collector_external_bounds(part.geometry.center))
+                    if (overlap(box, external)) return "occupied";
+            if (part.role == Role::waterwheel) {
+                const auto feet = wheel_support_bounds(part.geometry.center, part.geometry.axis,
+                    [this](double x, double z, double hx, double hz) { return terrain_range(x, z, hx, hz); });
+                if (!feet) return "support_required";
+                if (overlaps_supports(*feet, box)) return "occupied";
+            }
+        }
+        for (const auto& [unused, support] : supports) {
+            (void)unused;
+            for (const auto& [center, half] : support.boxes)
+                if (overlap(box, {center, half})) return "occupied";
+        }
+    }
+    return nullptr;
+}
+
 world::ObserveActor Host::observe() const {
     return [this](const std::string& actor) -> std::optional<authority::ActorCut> {
         const auto found = owned_->actors.find(actor);
@@ -1311,13 +1365,7 @@ bool Host::placement_blocked(const authority::Point& target, const authority::Po
     for (const auto& [actor, state] : owned_->actors) {
         (void)actor;
         if (!state.ready) continue;
-        const auto dx = std::max(std::abs(state.position[0] - target[0]) - half_extents[0], 0.0);
-        const auto dz = std::max(std::abs(state.position[2] - target[2]) - half_extents[2], 0.0);
-        const auto segment_half = capsule_height / 2 - capsule_radius;
-        const auto below = target[1] - half_extents[1] - (state.position[1] + segment_half);
-        const auto above = state.position[1] - segment_half - (target[1] + half_extents[1]);
-        const auto dy = std::max({below, above, 0.0});
-        if (dx * dx + dy * dy + dz * dz < capsule_radius * capsule_radius) return true;
+        if (capsule_intersects(state.position, {target, half_extents})) return true;
     }
     return false;
 }
@@ -1414,6 +1462,27 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                     materials::Component::wooden_workbench, center))
                 return refuse(refusal);
             if (placement_blocked(volume.center, volume.half)) return refuse("actor_occupied");
+            auto proposed = snapshot.state;
+            if (proposed.fabrication_hub) {
+                proposed.fabrication_hub->center = center;
+                proposed.fabrication_hub->holder.reset();
+                const bool supported = std::any_of(proposed.foundations.begin(), proposed.foundations.end(),
+                    [&](const auto& floor) { return floor.second.center == center; });
+                for (const auto& [unused, solid] : arrival_geometry::supplied(proposed, height_step)) {
+                    (void)unused;
+                    if (solid.entity != proposed.fabrication_hub->id) continue;
+                    const auto& box = solid.bounds;
+                    if (placement_blocked(box.center, box.half)) return refuse("actor_occupied");
+                    const auto ground = terrain_range(box.center[0], box.center[2], box.half[0], box.half[2]);
+                    if (!ground) return refuse("terrain_unavailable");
+                    const authority::Point low{box.center[0] - box.half[0], box.center[1] - box.half[1], box.center[2] - box.half[2]};
+                    const authority::Point high{box.center[0] + box.half[0], box.center[1] + box.half[1], box.center[2] + box.half[2]};
+                    if (ground->second > low[1] + 1e-9 || site_blocked(low, high)) return refuse("site_occupied");
+                    if (!supported && std::abs(low[1] - center[1] * height_step) < 1e-9 && ground->first < low[1] - 0.04)
+                        return refuse("support_required");
+                }
+                if (const auto* refusal = supplied_space_refusal(proposed)) return refuse(refusal);
+            }
             if (const auto* refusal = component_space_refusal(snapshot.state,
                     materials::Component::wooden_workbench, center)) return refuse(refusal);
             normalized.emplace("center", wire.at("center"));
@@ -1512,6 +1581,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         if (kind) {
             auto proposed = snapshot.state;
             proposed.placed_components.emplace("proposed-component", world::PlacedComponent{*kind, center, 0});
+            if (const auto* refusal = supplied_space_refusal(proposed)) return refuse(refusal);
             if (const auto* refusal = support_change_refusal(snapshot.state, proposed)) return refuse(refusal);
         }
         normalized.at("action") = Value("place_component");
@@ -1965,6 +2035,8 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         geometry.topology = snapshot.state.topology;
         geometry.foundations = snapshot.state.foundations;
         geometry.placed_components = snapshot.state.placed_components;
+        geometry.landing_pod = snapshot.state.landing_pod;
+        geometry.fabrication_hub = snapshot.state.fabrication_hub;
         std::string preview_id = "support-preview";
         while (find(geometry, preview_id) || geometry.foundations.contains(preview_id) ||
                std::any_of(geometry.topology.belt_spans.begin(), geometry.topology.belt_spans.end(),
@@ -2014,6 +2086,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             geometry.topology.belt_spans.push_back({{preview_id,
                 *field<std::string>(normalized, "target"), *field<std::string>(normalized, "to")}, 0});
         }
+        if (const auto* refusal = supplied_space_refusal(geometry)) return refuse(refusal);
         if (const auto* refusal = support_change_refusal(snapshot.state, geometry)) return refuse(refusal);
     }
     const auto delivered = owned_->world->command({bound_actor, *client}, normalized, observe());
@@ -2252,6 +2325,12 @@ Value Host::projection() const {
                 {"head_z_size", Value(Array{Value(0.40), Value(0.86)})}})}})}};
     if (state.landing_pod) {
         const auto& pod = *state.landing_pod;
+        Object supplied;
+        for (const auto& [id, solid] : arrival_geometry::supplied(state, height_step))
+            supplied.emplace(id, Value(Object{{"entity", Value(solid.entity)},
+                {"generation", Value(solid.generation)}, {"center", point_value(solid.bounds.center)},
+                {"half", point_value(solid.bounds.half)}}));
+        projection.emplace("supplied_hardware_boxes", Value(std::move(supplied)));
         projection.emplace("landing_pod", Value(Object{{"id", Value(pod.id)},
             {"generation", Value(pod.generation)},
             {"center", Value(Array{Value(pod.center[0] / height_denominator),
@@ -2436,6 +2515,7 @@ Host::Decoded Host::decode(const Value& input) const {
     if (!std::holds_alternative<world::Snapshot>(decoded)) return {nullptr, "native_checkpoint_refused"};
     auto snapshot = std::get<world::Snapshot>(decoded);
     if (!snapshot.state.topology.drive_enabled) return {nullptr, "native_checkpoint_refused"};
+    if (const auto* refusal = supplied_space_refusal(snapshot.state)) return {nullptr, refusal};
     if (snapshot.state.fabrication_hub && !snapshot.state.fabrication_hub->holder &&
         profile_.landing_pod_center && snapshot.state.fabrication_hub->center !=
             world::landing_hub_center(*profile_.landing_pod_center)) {
@@ -2603,6 +2683,12 @@ Host::Decoded Host::decode(const Value& input) const {
         if (!at || !std::all_of(position->begin(), position->end(), [](const auto& coordinate) {
                 return coordinate.type() == values::Type::floating;
             })) return {nullptr, "invalid_actor_seed"};
+        // Match ActorWorld's existing 1 mm contact margin. Saved positions
+        // inside supplied solid hardware are invalid, rather than migrated.
+        for (const auto& [unused, solid] : arrival_geometry::supplied(snapshot.state, height_step)) {
+            (void)unused;
+            if (capsule_intersects(*at, solid.bounds, 0.001)) return {nullptr, "actor_inside_supplied_hardware"};
+        }
         candidate->actors.emplace(actor, Actor{*at, 0, false});
     }
     candidate->world = world::World::restore(*context, profile_, snapshot);

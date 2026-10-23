@@ -156,7 +156,7 @@ func sync_topology(known_snapshot: Dictionary = {}) -> Dictionary:
 		var spec: Dictionary = components[id]
 		var body := StaticBody3D.new()
 		body.name = "PlacedComponent"
-		body.set_meta("component_entity", id)
+		body.set_meta("component_entity", spec.get("entity", id))
 		body.collision_layer = Geometry.MACHINE_LAYER
 		body.collision_mask = Geometry.ACTOR_LAYER
 		body.position = spec.center
@@ -611,6 +611,8 @@ func _penetration(actor: String, other: RID, shape_index: int = 0) -> Dictionary
 		owned = owned or machine.get_rid() == other
 	for mechanical in mechanical_bodies.values():
 		owned = owned or mechanical.get_rid() == other
+	for component in component_bodies.values():
+		owned = owned or component.get_rid() == other
 	var foundation_owned := false
 	for foundation in foundations.values():
 		foundation_owned = foundation_owned or foundation.get_rid() == other

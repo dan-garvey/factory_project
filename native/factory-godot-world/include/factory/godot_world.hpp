@@ -80,6 +80,7 @@ private:
     [[nodiscard]] const char* component_space_refusal(const world::State& state,
         std::optional<materials::Component> kind, const mechanics::Point& center,
         const std::string* current_id = nullptr) const;
+    [[nodiscard]] const char* supplied_space_refusal(const world::State& state) const;
     [[nodiscard]] std::map<std::string, TransmissionSupport> transmission_supports(const world::State&) const;
     [[nodiscard]] const char* support_change_refusal(const world::State& before,
         const world::State& after) const;

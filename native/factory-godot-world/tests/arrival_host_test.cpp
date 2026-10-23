@@ -172,8 +172,8 @@ void unique_crank_custody_survives_host_restore() {
     check(get<std::string>(V(initial), "id") == "pod-hand-crank" &&
           get<std::string>(V(initial), "holder") == "pod",
           "The pod exposes one detachable crank in its tray.");
-    check(get<bool>(host.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 1), "accepted") &&
-          get<bool>(host.publish_actor("Q", {V(1.65), V(1.0), V(8.25)}, 1), "accepted"),
+    check(get<bool>(host.publish_actor("P", {V(1.65), V(1.0), V(4.8)}, 1), "accepted") &&
+          get<bool>(host.publish_actor("Q", {V(3.3), V(1.0), V(8.25)}, 1), "accepted"),
           "Both actors can reach the pod tray.");
     const auto command = [](const char* actor, const char* request, const char* action) {
         return O{{"context", V("arrival-site")}, {"client", V(actor)},
@@ -199,8 +199,8 @@ void unique_crank_custody_survives_host_restore() {
     check(get<bool>(restored.restore_checkpoint(saved), "accepted") &&
           get<std::string>(V(get<O>(restored.projection(), "hand_crank")), "holder") == "P",
           "Late join preserves the exact holder of the unique crank.");
-    check(get<bool>(restored.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 2), "accepted") &&
-          get<bool>(restored.publish_actor("Q", {V(1.65), V(1.0), V(8.25)}, 2), "accepted"),
+    check(get<bool>(restored.publish_actor("P", {V(1.65), V(1.0), V(4.8)}, 2), "accepted") &&
+          get<bool>(restored.publish_actor("Q", {V(3.3), V(1.0), V(8.25)}, 2), "accepted"),
           "Restored actors publish fresh physical observations before new commands.");
     check(get<bool>(restored.command("P", command("P", "return-crank", "return_hand_crank")), "accepted") &&
           get<std::string>(V(get<O>(restored.projection(), "hand_crank")), "holder") == "pod",
@@ -243,7 +243,7 @@ void fabricated_transmission_stock_is_finite() {
         check(get<bool>(host.command("P", cut), "accepted"),
               "Each route clasp input comes from the finite native deposit.");
     }
-    check(get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(6.6)}, 4), "accepted"),
+    check(get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(4.8)}, 4), "accepted"),
           "The actor returns to the single fabrication hub with actual cargo.");
     for (const auto& [name, role, span] : {
             std::tuple{"shaft-a", "shaft", I{2}}, std::tuple{"shaft-b", "shaft", I{2}},
