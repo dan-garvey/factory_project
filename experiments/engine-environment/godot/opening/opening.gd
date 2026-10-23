@@ -4306,6 +4306,10 @@ var stock_label: Label
 var parts_label: Label
 var goal_label: Label
 var objective_heading: Label
+var manager_log_button: Button
+var manager_log_layer: CanvasLayer
+var manager_log_current: Label
+var manager_log_open := false
 var lesson_button: Button
 var goal_progress: ProgressBar
 var power_label: Label
@@ -4481,12 +4485,12 @@ func _actor_failed(actor: String, reason: String) -> void:
 	get_tree().quit(1)
 
 func _can_control_character() -> bool:
-	return not legacy_fixture and not arrival_reveal_active and not _catalog_open() and not explanation_open \
+	return not legacy_fixture and not arrival_reveal_active and not manager_log_open and not _catalog_open() and not explanation_open \
 		and not startup_save_pending and state.get("actors", {}).get(client, {}).get("ready", false)
 
 func _can_choose_tool() -> bool:
 	# The catalog holds movement while keeping its own choices available.
-	return not arrival_reveal_active and not explanation_open and not startup_save_pending \
+	return not arrival_reveal_active and not manager_log_open and not explanation_open and not startup_save_pending \
 		and (legacy_fixture or state.get("actors", {}).get(client, {}).get("ready", false))
 
 func _native_transmission() -> bool:
@@ -5158,6 +5162,17 @@ func _input(event: InputEvent) -> void:
 		if event is InputEventKey and event.pressed and not event.echo \
 				and event.keycode in [KEY_SPACE, KEY_ESCAPE]:
 			_finish_arrival_reveal()
+		get_viewport().set_input_as_handled()
+		return
+	if manager_log_open:
+		if event is InputEventKey:
+			if event.pressed and not event.echo and event.keycode in [KEY_J, KEY_ESCAPE]:
+				_toggle_manager_log()
+			get_viewport().set_input_as_handled()
+		return
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_J \
+			and _native_transmission() and not explanation_open and not _catalog_open():
+		_toggle_manager_log()
 		get_viewport().set_input_as_handled()
 		return
 	if explanation_open:
@@ -7439,6 +7454,7 @@ func _refresh_ui() -> void:
 	else:
 		inspector.text = "Point at a machine and press E to open it."
 	_refresh_guided_tools()
+	_refresh_manager_log()
 	if arrival_assembly_controls != null:
 		arrival_assembly_controls.refresh(state, client, selected, _can_control_character())
 		arrival_assembly_scroll.visible = arrival_assembly_controls.visible
@@ -7456,6 +7472,20 @@ func _toggle_details() -> void:
 	if not explanation_open:
 		show_details = not show_details
 		_refresh_ui()
+
+func _refresh_manager_log() -> void:
+	if manager_log_current == null or goal_label == null:
+		return
+	var lines := goal_label.text.split("\n")
+	var current := lines[lines.size() - 1] if not lines.is_empty() else "Inspect the worksite."
+	manager_log_current.text = "CURRENT FIELD CUE\n" + current
+
+func _toggle_manager_log() -> void:
+	if legacy_fixture or manager_log_layer == null or arrival_reveal_active or explanation_open or _catalog_open():
+		return
+	manager_log_open = not manager_log_open
+	manager_log_layer.visible = manager_log_open
+	_refresh_ui()
 
 func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	if rotation_button != null:
@@ -8231,6 +8261,7 @@ func _build_interface() -> void:
 	goal_label = _label(build, "", 19, Color("f4f5eb"))
 	if not legacy_fixture:
 		goal_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		manager_log_button = _button(build, "Meridian work log  [J]", _toggle_manager_log)
 	goal_progress = ProgressBar.new()
 	goal_progress.max_value = 4
 	goal_progress.show_percentage = false
@@ -8384,3 +8415,47 @@ func _build_interface() -> void:
 	lesson_next = _button(row, "Next  [→]", func(): _set_lesson(lesson_index + 1))
 	lesson_return = _button(row, "Return to building  [H]", _toggle_explanation)
 	lesson_panel.visible = false
+	if not legacy_fixture:
+		_build_manager_log()
+
+func _build_manager_log() -> void:
+	manager_log_layer = CanvasLayer.new()
+	manager_log_layer.name = "MeridianWorkLog"
+	manager_log_layer.layer = 20
+	manager_log_layer.visible = false
+	add_child(manager_log_layer)
+	var log_root := Control.new()
+	log_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	manager_log_layer.add_child(log_root)
+	log_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	log_root.theme = ProductionInterface.make_theme()
+	var shade := ColorRect.new()
+	shade.color = Color(0.02, 0.04, 0.05, 0.58)
+	shade.mouse_filter = Control.MOUSE_FILTER_STOP
+	log_root.add_child(shade)
+	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var column := _panel(log_root, Vector2.ZERO, Vector2(550, 430))
+	column.add_theme_constant_override("separation", 8)
+	var panel := column.get_parent() as PanelContainer
+	panel.anchor_left = 0.5
+	panel.anchor_right = 0.5
+	panel.anchor_top = 0.5
+	panel.anchor_bottom = 0.5
+	panel.offset_left = -275.0
+	panel.offset_right = 275.0
+	panel.offset_top = -215.0
+	panel.offset_bottom = 215.0
+	_label(column, "MERIDIAN COMBINE  /  WORK LOG", 19, Color("f1d7a5"))
+	_label(column, "Field Operations Manager · Shift 01", 13, Color("a9c3bb"))
+	column.add_child(HSeparator.new())
+	for entry in [
+		"00  LANDFALL\nLandfall confirmed. Your office is now the part of the planet under your boots.",
+		"01  FIELD KIT\nThe kit makes tools. The tools make a factory. Corporate has provided the kit.",
+		"02  FIRST ORDER\nForm one plate from local stock. Its final destination is outside your pay grade."]:
+		var line := _label(column, entry, 15)
+		line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		line.custom_minimum_size.x = 496.0
+	manager_log_current = _label(column, "CURRENT FIELD CUE\nInspect the worksite.", 15, Color("f1d7a5"))
+	manager_log_current.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var close_log := _button(column, "Return to work  [J / Esc]", _toggle_manager_log)
+	_accent_button(close_log)
