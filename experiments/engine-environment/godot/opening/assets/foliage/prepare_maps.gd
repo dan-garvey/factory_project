@@ -10,20 +10,6 @@ const PINE_PINS := {
 	"pine_sapling_small.bin": "b4d2fc73d53f1d8717eb5ef9a2c66957d2a53152787e543aace88fcd6fca94ef",
 	"pine_sapling_small_1k.gltf": "f358c01926861dd082f32dba60f7c9fba232b585a985cf38c0d2229eecf4bc48"
 }
-const BROADLEAF_PINS := {
-	"tree_small_02_1k.gltf": "3062a709614c05b80fdc1e56583998bc3cb1027b0d52f956c8ecfb882ff8ca6d",
-	"tree_small_02.bin": "8da6c3c389ad8748286d1b7488cd827f75ebdad9d8f59ef7dfb0916df5edc634",
-	"textures/tree_small_02_branch_diff_1k.jpg": "a71b768e330c0c6cca097e30314f6b4e842ef724a1370f6aab14b4434eec64cb",
-	"textures/tree_small_02_branch_nor_gl_1k.jpg": "a2efae9e7fede259601188cd5cb7e561fc502bd87e04d862a9532b2d8e647a62",
-	"textures/tree_small_02_branch_arm_1k.jpg": "8968b46d76c67da09ebbf4eed04b8123c9e0ddf5b55d123968b35b32aa76d27a",
-	"textures/tree_small_02_leaves_diff_1k.jpg": "261e7d7a5ac7d2e16ea8823ff8510be8f3f615999724232994039ad2885e5c36",
-	"textures/tree_small_02_leaves_alpha_1k.png": "4f143e2dda8a6a572f427ac378b92255d21761e4611de0d26e21816c01aa533b",
-	"textures/tree_small_02_leaves_nor_gl_1k.jpg": "8c72e04fb23e16ae1df79c01385a638473d1dd4dede3d51e83d70153c129f09b",
-	"textures/tree_small_02_leaves_arm_1k.jpg": "71f81374daf5a8f3e6eb2c694264a1769fdb0bea508178e4105618eecea83c3e",
-	"textures/tree_small_02_diff_1k.jpg": "4e0093f407b3a1120a36de49a48ebe5a465a9a9b77e361c7a3e66866e115e404",
-	"textures/tree_small_02_nor_gl_1k.jpg": "9c83be074c950ea1b94c732c0c0291b53b9ba357f932d378bafe3ca3b4418871",
-	"textures/tree_small_02_arm_1k.jpg": "891c5a1bb124292984b01558e9f2b0302d27d2fa3ccf9dfc6c34f9ea4ca24e6c"
-}
 const SHRUB_PINS := {
 	"searsia_lucida_1k.gltf": "ebdc8d776c058b9a6f9a04c57ca0540368531febd3bfa007d2e2d8af8d368f67",
 	"searsia_lucida.bin": "e0be13cac215725de1f8438d96e1010049d655512a0608c36eabe2ba5abff851",
@@ -33,10 +19,10 @@ const SHRUB_PINS := {
 	"textures/searsia_lucida_arm_1k.jpg": "f7bf2359e932d3633ac99a5f9e6a507eda439b64937eb6774585da3d0fb6d3d7"
 }
 
-func pine_image(path: String, role: String, target_size: int = 0) -> Image:
+func prepare_rgb_map(path: String, role: String, target_size: int = 0) -> Image:
 	var image := Image.load_from_file(path)
 	if image == null or image.get_size() != Vector2i(1024, 1024):
-		fail("Unexpected pine source image: " + path)
+		fail("Unexpected source image: " + path)
 		return null
 	image.convert(Image.FORMAT_RGBF)
 	if role == "albedo":
@@ -57,7 +43,7 @@ func pine_image(path: String, role: String, target_size: int = 0) -> Image:
 			elif role == "normal":
 				var normal := Vector3(color.r, color.g, color.b) * 2.0 - Vector3.ONE
 				if not normal.is_finite() or normal.length_squared() < 0.000001:
-					fail("Invalid pine source normal.")
+					fail("Invalid source normal.")
 					return null
 				normal = normal.normalized()
 				color = Color(normal.x * 0.5 + 0.5, normal.y * 0.5 + 0.5, normal.z * 0.5 + 0.5)
@@ -69,11 +55,11 @@ func pine_image(path: String, role: String, target_size: int = 0) -> Image:
 				var returned := Vector3(bytes[at], bytes[at + 1], bytes[at + 2]) / 255.0 * 2.0 - Vector3.ONE
 				maximum_normal_error = maxf(maximum_normal_error, absf(returned.length() - 1.0))
 	if maximum_normal_error > 0.01:
-		fail("Prepared pine normals exceed the encoding bound.")
+		fail("Prepared normals exceed the encoding bound.")
 		return null
 	var prepared := Image.create_from_data(image.get_width(), image.get_height(), false, Image.FORMAT_RGB8, bytes)
 	if prepared.generate_mipmaps(role == "normal") != OK:
-		fail("Cannot generate pine mipmaps.")
+		fail("Cannot generate source mipmaps.")
 		return null
 	return prepared
 
@@ -118,7 +104,7 @@ func prepare_pine(family: String, output: String) -> void:
 		var images: Dictionary = {}
 		for map_role in ["albedo", "normal", "arm"]:
 			var suffix: String = {"albedo": "diff", "normal": "nor_gl", "arm": "arm"}[map_role]
-			var image := pine_image(family.path_join("source/textures").path_join("pine_sapling_small_" + role + "_" + suffix + "_1k.jpg"), map_role)
+			var image := prepare_rgb_map(family.path_join("source/textures").path_join("pine_sapling_small_" + role + "_" + suffix + "_1k.jpg"), map_role)
 			if image == null:
 				return
 			images[map_role] = image
@@ -325,7 +311,7 @@ func prepare_fir(family: String, output: String) -> void:
 		var maps: Dictionary = {}
 		for map_role in ["albedo", "normal", "arm"]:
 			var suffix: String = {"albedo": "diff", "normal": "nor_gl", "arm": "arm"}[map_role]
-			var image := pine_image(family.path_join("source/textures/fir_sapling_medium_" + role + "_" + suffix + "_1k.jpg"), map_role)
+			var image := prepare_rgb_map(family.path_join("source/textures/fir_sapling_medium_" + role + "_" + suffix + "_1k.jpg"), map_role)
 			if image == null or image.save_png(output.path_join(role + "_" + map_role + ".png")) != OK:
 				fail("Cannot retain a prepared fir image.")
 				return
@@ -423,7 +409,7 @@ func _botanical_maps(family: String, prefix: String, cutout: bool = false, color
 	var maps := {}
 	for role in ["albedo", "normal", "arm"]:
 		var suffix: String = {"albedo": "diff", "normal": "nor_gl", "arm": "arm"}[role]
-		var image := pine_image(family.path_join("textures/" + prefix + "_" + suffix + "_1k.jpg"), role,
+		var image := prepare_rgb_map(family.path_join("textures/" + prefix + "_" + suffix + "_1k.jpg"), role,
 			color_size if role == "albedo" else data_size)
 		if image == null:
 			return {}
@@ -507,47 +493,68 @@ func prepare_broadleaf(family: String, output: String) -> void:
 	if not output.is_absolute_path() or DirAccess.dir_exists_absolute(output):
 		fail("Use a fresh external broadleaf output directory.")
 		return
-	for relative in BROADLEAF_PINS:
-		if FileAccess.get_sha256(family.path_join(relative)) != BROADLEAF_PINS[relative]:
-			fail("Broadleaf source identity changed: " + relative)
+	var manifest: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(
+		"res://opening/assets/broadleaf/source.json"))
+	if manifest.get("asset") != "island_tree_02" or not manifest.get("source_pins") is Array \
+			or manifest.source_pins.size() != 11:
+		fail("The declared Island Tree 02 source manifest is invalid.")
+		return
+	for pin: Dictionary in manifest.source_pins:
+		var source_file: String = family.path_join(pin.file)
+		if not FileAccess.file_exists(source_file) or FileAccess.get_sha256(source_file) != pin.sha256 \
+				or FileAccess.get_md5(source_file) != pin.api_md5 \
+				or FileAccess.get_file_as_bytes(source_file).size() != pin.bytes:
+			fail("Broadleaf source identity changed: " + pin.file)
 			return
 	var state := GLTFState.new()
 	state.handle_binary_image_mode = GLTFState.HANDLE_BINARY_IMAGE_MODE_EMBED_AS_UNCOMPRESSED
-	if GLTFDocument.new().append_from_file(family.path_join("tree_small_02_1k.gltf"), state) != OK or state.get_meshes().size() != 1:
+	if GLTFDocument.new().append_from_file(family.path_join("island_tree_02_1k.gltf"), state) != OK or state.get_meshes().size() != 1:
 		fail("Cannot import the qualified broadleaf source.")
 		return
 	var original: ImporterMesh = state.get_meshes()[0].mesh
 	if original.get_surface_count() != 3:
-		fail("Broadleaf source must have branch, leaf and trunk surfaces.")
+		fail("Broadleaf source must have trunk, leaf and branch surfaces.")
 		return
 	var mesh := ArrayMesh.new()
-	var report := {"status": "pass", "source_leaf_triangles": 1939380,
-		"selected_leaf_triangles": 215689, "surfaces": []}
+	var report := {"status": "pass", "source_leaf_triangles": 714744,
+		"selected_leaf_triangles": 275674, "surfaces": []}
 	for surface in range(3):
+		var source_surface: int = [2, 1, 0][surface]
 		var derived := ImporterMesh.new()
-		derived.add_surface(Mesh.PRIMITIVE_TRIANGLES, original.get_surface_arrays(surface), [], {},
-			original.get_surface_material(surface), ["Branches", "Leaves", "Trunk"][surface], original.get_surface_format(surface))
+		derived.add_surface(Mesh.PRIMITIVE_TRIANGLES, original.get_surface_arrays(source_surface), [], {},
+			original.get_surface_material(source_surface), ["Branches", "Leaves", "Trunk"][surface],
+			original.get_surface_format(source_surface))
 		derived.generate_lods(60.0, 0.0, [])
-		var level: int = [2, 1, 1][surface]
-		var expected: int = [11372, 215689, 7071][surface]
+		var level: int = [2, 0, 1][surface]
+		var expected: int = [39400, 275674, 6824][surface]
 		if derived.get_surface_lod_count(0) <= level or derived.get_surface_lod_indices(0, level).size() != expected * 3:
 			fail("Pinned broadleaf distance detail changed at surface " + str(surface))
 			return
-		var arrays: Array = _compact_botanical_surface(original.get_surface_arrays(surface),
+		var arrays: Array = _compact_botanical_surface(original.get_surface_arrays(source_surface),
 			derived.get_surface_lod_indices(0, level))
 		if arrays.is_empty():
 			fail("Broadleaf compaction produced an invalid surface.")
 			return
 		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays, [], {}, Mesh.ARRAY_FLAG_COMPRESS_ATTRIBUTES)
-		var role: String = ["branch", "leaves", ""][surface]
-		var prefix: String = "tree_small_02" + ("_" + role if not role.is_empty() else "")
-		var maps := _botanical_maps(family, prefix, surface == 1)
-		if maps.is_empty():
-			return
-		var finish := _botanical_finish(original.get_surface_material(surface), maps, surface == 1)
+		var prefix: String = "island_tree_02" + ["_branches", "_leaves", ""][surface]
+		var maps := {}
+		for role in ["albedo", "normal", "arm"]:
+			var suffix: String = {"albedo": "diff", "normal": "nor_gl", "arm": "arm"}[role]
+			var prepared: Image = prepare_rgb_map(family.path_join("textures/" + prefix + "_" + suffix + "_1k.jpg"),
+				role, 192 if role == "albedo" else 96)
+			if prepared == null:
+				return
+			maps[role] = ImageTexture.create_from_image(prepared)
+		var finish := original.get_surface_material(source_surface).duplicate(true) as StandardMaterial3D
 		if finish == null:
 			fail("Broadleaf source material is not a standard material.")
 			return
+		finish.albedo_texture = maps.albedo
+		finish.normal_texture = maps.normal
+		finish.roughness_texture = maps.arm
+		finish.metallic_texture = maps.arm
+		finish.ao_texture = maps.arm if finish.ao_enabled else null
+		finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 		mesh.surface_set_material(surface, finish)
 		report.surfaces.append({"vertices": mesh.surface_get_arrays(surface)[Mesh.ARRAY_VERTEX].size(),
 			"triangles": mesh.surface_get_arrays(surface)[Mesh.ARRAY_INDEX].size() / 3})

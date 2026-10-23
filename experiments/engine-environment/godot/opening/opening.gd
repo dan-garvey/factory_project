@@ -2816,7 +2816,6 @@ class ProductionEnvironment:
 	const SHRUB_SHA256 := ["b13e205e991152435f581e4c29a393098cc8ce0854c409846656f475b230bf25",
 		"ee2b375f3f26abef349419321534ad53618a348ddfbbdd226109c3b4d88f0565"]
 	static var shrub_meshes: Array[ArrayMesh] = []
-	static var broadleaf_fill_mesh: ArrayMesh
 	static var rock_boulder_mesh: ArrayMesh
 
 	static func ground_material() -> ShaderMaterial:
@@ -3705,11 +3704,6 @@ class ProductionEnvironment:
 		var mesh: ArrayMesh = Surface.broadleaf_mesh()
 		if mesh == null:
 			return group
-		if broadleaf_fill_mesh == null:
-			broadleaf_fill_mesh = ArrayMesh.new()
-			broadleaf_fill_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, mesh.surface_get_arrays(1), [], {},
-				Mesh.ARRAY_FLAG_COMPRESS_ATTRIBUTES)
-			broadleaf_fill_mesh.surface_set_material(0, mesh.surface_get_material(1))
 		for spec in Surface.broadleaf_specs():
 			var tree := MeshInstance3D.new()
 			tree.name = spec.id
@@ -3718,14 +3712,6 @@ class ProductionEnvironment:
 			tree.basis = spec.basis.scaled_local(Vector3.ONE * spec.scale)
 			tree.visibility_range_end = 70.0
 			tree.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED
-			for layer in range(2):
-				var leaves := MeshInstance3D.new()
-				leaves.name = "CrownFill%d" % layer
-				leaves.mesh = broadleaf_fill_mesh
-				leaves.basis = Basis(Vector3.UP, -0.42 if layer == 0 else 0.42)
-				leaves.visibility_range_end = 70.0
-				leaves.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED
-				tree.add_child(leaves)
 			group.add_child(tree)
 		return group
 
@@ -7508,6 +7494,7 @@ func _warm_packed_machine_previews() -> void:
 	await RenderingServer.frame_post_draw
 	for anchor in packed_preview_nodes.values():
 		anchor.visible = false
+	await _warm_transmission_placement_previews(view_size)
 	var frames_waited := 0
 	while not state.get("actors", {}).get(client, {}).get("ready", false) and frames_waited < 120:
 		frames_waited += 1
@@ -7533,6 +7520,32 @@ func _warm_packed_machine_previews() -> void:
 		set_process(resume_processing)
 		_message(opening_message, opening_refused)
 	cover.free()
+
+func _warm_transmission_placement_previews(view_size: Vector2) -> void:
+	# Draw the two cog sizes and the shaft while the workshop cover is visible.
+	# Their shared meshes and render resources then exist before a tool click.
+	var assets = load("res://opening/native_transmission_assets.gd")
+	var warm_nodes: Array[Node3D] = []
+	for teeth in [2, 4]:
+		var cog := MeshInstance3D.new()
+		cog.name = "CogPreviewWarmup%d" % teeth
+		cog.mesh = assets.complete_gear_mesh(PITCH / 2.0, teeth, Color("687a7b"), PITCH)
+		cog.position = camera.project_position(Vector2(view_size.x * (0.2 if teeth == 2 else 0.8),
+			view_size.y * 0.5), 7.0)
+		add_child(cog)
+		_style_machine_preview(cog)
+		warm_nodes.append(cog)
+	var shaft := Node3D.new()
+	shaft.name = "ShaftPreviewWarmup"
+	shaft.position = camera.project_position(view_size * Vector2(0.5, 0.5), 7.0)
+	add_child(shaft)
+	assets.shaft(shaft, PITCH, Color("687a7b"))
+	_style_machine_preview(shaft)
+	warm_nodes.append(shaft)
+	await RenderingServer.frame_post_draw
+	await RenderingServer.frame_post_draw
+	for node in warm_nodes:
+		node.free()
 
 func _choose_machine_preview(pooled: Node3D = null) -> void:
 	var desired := pooled

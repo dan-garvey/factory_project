@@ -1450,6 +1450,27 @@ procedural mesh setup in an isolated process; `factory-yau.9.22` tracks that
 separately. The representative active mixed-machine and Windows targets remain
 open in `factory-yau.9` and `factory-yau.9.12`.
 
+## GDC-31: first transmission preview triggers cold procedural render setup
+
+In a clean pinned Godot 4.7.2 WSL X11 Compatibility process on RTX 3090, the
+first small-cog preview took 438.635 ms to construct and 770.847 ms through
+its first draw. Selecting the same cog again drew in 6.787 ms. The first shaft
+and large-cog draws took 12.905 and 65.813 ms. This is a local Godot
+procedural mesh and render-resource cost, not a native construction rule.
+
+The native opening now draws both cog sizes and the shaft while its existing
+workshop preparation cover is visible, after the cover has itself drawn. A
+graphical fixture calling the production warmup measured 650.689 ms of added
+preparation; subsequent first selections of those three variants drew in
+5.905 to 7.056 ms. A separate synthetic supported-cog presenter fixture fell
+from 433.024 ms first build to 25.251 ms after prewarming the same mesh
+resources. All measured runs had no engine errors. This trades approximately
+0.65 s of covered preparation for a responsive first tool selection. One
+exclusive passive native-opening pair reached cover removal in 18.653 s before
+and 18.959 s after the change; one pair cannot isolate startup variance.
+Human-perceived startup and a player-command placement were not measured.
+See `factory-yau.9.22` for the exact fixture and revision evidence.
+
 ## Required follow-through
 
 This first source/API/evidence audit leaves actual backend identification,

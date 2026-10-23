@@ -26,7 +26,7 @@ static var _fir_contact_rows: Array[Dictionary] = []
 static var _fir_layout_counts := {"candidates": 0, "slope_rejections": 0, "envelope_rejections": 0, "accepted": 0}
 
 const BROADLEAF_FILE := "res://opening/assets/broadleaf/broadleaf_tree.res"
-const BROADLEAF_SHA256 := "47ee4e9c902ef94c3c6ef641a8aad7783f2dc77500376628e0c89d4c7287bf74"
+const BROADLEAF_SHA256 := "f60777631631d6510df34e8b0ab56b62e6ab99b664aa2246b1fa57085bc996ad"
 static var _broadleaf_initialized := false
 static var _broadleaf_mesh: ArrayMesh
 static var _broadleaf_descriptors: Array[Dictionary] = []
@@ -154,10 +154,6 @@ static func _prepare_broadleaf() -> void:
 		return
 	_broadleaf_mesh = loaded.mesh
 	var bounds := _broadleaf_mesh.get_aabb()
-	var leaf_positions: PackedVector3Array = _broadleaf_mesh.surface_get_arrays(1)[Mesh.ARRAY_VERTEX]
-	var leaf_bounds := AABB(leaf_positions[0], Vector3.ZERO)
-	for leaf_position in leaf_positions:
-		leaf_bounds = leaf_bounds.expand(leaf_position)
 	var solids := support_boxes()
 	var woody: Array[Dictionary] = fir_specs()
 	for candidate in range(320):
@@ -183,16 +179,13 @@ static func _prepare_broadleaf() -> void:
 		var normal := (c - a).cross(b - a).normalized() if tz <= tx else (d - a).cross(c - a).normalized()
 		if normal.y < 0.9:
 			continue
-		var at := Vector3(x, height_at(x, z) - 0.02, z)
+		# Seat the provider's pale scan base beneath local soil. The visible
+		# trunk and its physical triangles keep this same rooted transform.
+		var at := Vector3(x, height_at(x, z) - 0.16, z)
 		var scale := 1.26 + float(candidate % 3) * 0.08
 		var basis := Basis(Vector3.UP, float(candidate) * 2.399963)
 		var pose := Transform3D(basis.scaled_local(Vector3.ONE * scale), at)
-		# Two rotated copies of the selected leaf surface fill the crown.
-		# Clear their complete geometry along with the base tree.
 		var envelope: AABB = pose * bounds
-		for angle in [-0.42, 0.42]:
-			var fill_pose := pose * Transform3D(Basis(Vector3.UP, angle), Vector3.ZERO)
-			envelope = envelope.merge(fill_pose * leaf_bounds)
 		var clear := envelope.position.z >= -23.0 and envelope.end.z <= 23.0
 		var margin := 0.4 + 1.5 * envelope.size.z / 16.0
 		for row in range(9):
