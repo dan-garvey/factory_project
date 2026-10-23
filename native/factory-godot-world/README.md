@@ -335,6 +335,14 @@ Authority mutations, including refused commands and actor samples, invalidate
 the native comparison base, so the next delta delivers a complete view. Public
 `advance` and `projection` still deliver full snapshots.
 
+With a complete comparison base, `Host::advance_tick_fields` ticks the same
+World and projects its revision, belt slots and raw count, dropped material,
+stock, remaining work and manual source quantities. The extension merges them
+with the unchanged topology and actor facts. It recomputes the derived opening
+engineering view only when belt contents or loose drops change; actor inventory
+and topology changes invalidate the full base. Any new field changed by
+`World::tick` must join this field builder and its exact full-view fixtures.
+
 ## Shared native profile
 
 The server's explicit `--native-world` option uses the same fixed native profile

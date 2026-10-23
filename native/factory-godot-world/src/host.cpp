@@ -2130,18 +2130,81 @@ Value Host::advance() {
     return projection();
 }
 
-Value Host::projection() const {
+Value Host::advance_tick_fields() {
     if (!owned_) return result(false, "not_initialized");
-    const auto snapshot = owned_->world->snapshot();
+    const auto tick = owned_->world->tick();
+    if (tick.error != world::TransactionError::none) return result(false, "native_step_failed");
+    return Value(tick_fields(owned_->world->snapshot()));
+}
+
+Object Host::tick_fields(const world::Snapshot& snapshot) const {
     const auto& state = snapshot.state;
-    const auto support_layout = transmission_supports(state);
-    Object entities, transmissions, belt_spans, inventories, cargo, kits, specifications, actors, foundations;
-    Array links, drive_links, engagements, dropped_material;
+    Array dropped_material;
     for (const auto& [point, contents] : state.material.dropped_material) {
         auto drop = std::get<Object>(cargo_value(contents).storage());
         drop.emplace("center", Value(Array{Value(point[0]), Value(point[1]), Value(point[2])}));
         dropped_material.emplace_back(std::move(drop));
     }
+    Object belt_spans;
+    Integer span_order = 0;
+    // The validated ledger bounds this raw-equivalent total by initial stock.
+    // Finished products are not unprocessed blanks.
+    Integer belt_raw_units = 0;
+    for (const auto& span : state.topology.belt_spans) {
+        const auto& lane = state.material.belt_lanes.at(span.geometry.id);
+        Array slots;
+        for (const auto& item : lane.slots) {
+            slots.push_back(item ? cargo_value(*item) : Value(nullptr));
+            if (!item) continue;
+            belt_raw_units += item->raw_units;
+            for (const auto& lot : item->work_lots) belt_raw_units += lot.recipe.input_units_per_product;
+        }
+        belt_spans.emplace(span.geometry.id, Value(Object{{"generation", Value(span.generation)},
+            {"order", Value(span_order++)}, {"from", Value(span.geometry.first_shaft)}, {"to", Value(span.geometry.last_shaft)},
+            {"phase", Value(lane.phase)}, {"slots", Value(std::move(slots))}}));
+    }
+    Integer player = 0;
+    for (const auto& [actor, contents] : state.material.cargo) {
+        (void)actor;
+        player += contents.products;
+    }
+    const auto& stock = state.material.stock;
+    Object fields{{"revision", Value(snapshot.revision)},
+        {"belt_spans", Value(std::move(belt_spans))}, {"line_belt_raw", Value(belt_raw_units)},
+        {"dropped_material", Value(std::move(dropped_material))},
+        {"stock", Value(Object{{"source", Value(stock.source)}, {"collector", Value(stock.collector)},
+            {"belt", Value(stock.belt)}, {"input", Value(stock.input)},
+            {"held", Value(state.material.processing ? state.material.processing->recipe.input_units_per_product : 0)},
+            {"output", Value(stock.output)}, {"player", Value(player)}})},
+        {"remaining", Value(state.material.processing ? state.material.processing->remaining_ticks : 0)}};
+    if (profile_.material.manual_ore) {
+        const auto site_position = [this](const materials::DropPoint& center) {
+            return Value(Array{
+                Value(center[0] * profile_.meters_per_grid_unit + profile_.anchor_offset[0]),
+                Value(center[1] * profile_.meters_per_grid_unit + profile_.anchor_offset[1]),
+                Value(center[2] * profile_.meters_per_grid_unit + profile_.anchor_offset[2])});
+        };
+        Object sources;
+        for (const auto& [id, site] : profile_.material.timber_sites)
+            sources.emplace(id, Value(Object{{"kind", Value("tree")},
+                {"position", site_position(site.center)}, {"initial", Value(site.initial)},
+                {"remaining", Value(state.material.timber_remaining.at(id))}}));
+        const auto& ore = *profile_.material.manual_ore;
+        sources.emplace(ore.id, Value(Object{{"kind", Value("ore_deposit")},
+            {"position", site_position(ore.center)}, {"initial", Value(profile_.initial_units)},
+            {"remaining", Value(state.material.stock.source)}}));
+        fields.emplace("hand_sources", Value(std::move(sources)));
+    }
+    return fields;
+}
+
+Value Host::projection() const {
+    if (!owned_) return result(false, "not_initialized");
+    const auto snapshot = owned_->world->snapshot();
+    const auto& state = snapshot.state;
+    const auto support_layout = transmission_supports(state);
+    Object entities, transmissions, inventories, cargo, kits, specifications, actors, foundations;
+    Array links, drive_links, engagements;
     for (const auto& part : state.topology.parts) {
         Object projected{{"kind", Value(kind(part.role))}, {"generation", Value(part.generation)},
             {"center", Value(Array{Value(part.geometry.center[0]), Value(part.geometry.center[1]), Value(part.geometry.center[2])})},
@@ -2177,23 +2240,6 @@ Value Host::projection() const {
             if (part.geometry.center[1] != 0) projected.emplace("level", Value(part.geometry.center[1]));
             entities.emplace(part.geometry.id, Value(std::move(projected)));
         }
-    }
-    Integer span_order = 0;
-    // The validated ledger bounds this raw-equivalent total by initial stock.
-    // Finished products are not unprocessed blanks.
-    Integer belt_raw_units = 0;
-    for (const auto& span : state.topology.belt_spans) {
-        const auto& lane = state.material.belt_lanes.at(span.geometry.id);
-        Array slots;
-        for (const auto& item : lane.slots) {
-            slots.push_back(item ? cargo_value(*item) : Value(nullptr));
-            if (!item) continue;
-            belt_raw_units += item->raw_units;
-            for (const auto& lot : item->work_lots) belt_raw_units += lot.recipe.input_units_per_product;
-        }
-        belt_spans.emplace(span.geometry.id, Value(Object{{"generation", Value(span.generation)},
-            {"order", Value(span_order++)}, {"from", Value(span.geometry.first_shaft)}, {"to", Value(span.geometry.last_shaft)},
-            {"phase", Value(lane.phase)}, {"slots", Value(std::move(slots))}}));
     }
     for (const auto& link : state.topology.material_links) links.emplace_back(Array{Value(link.from.id), Value(link.to.id)});
     const auto power = world::drive_power(profile_, state);
@@ -2235,9 +2281,8 @@ Value Host::projection() const {
         }
         if (ends.size() == 2) drive_links.emplace_back(std::move(ends));
     }
-    Integer player = 0;
     for (const auto& [actor, contents] : state.material.cargo) {
-        inventories.emplace(actor, Value(contents.products)); player += contents.products;
+        inventories.emplace(actor, Value(contents.products));
         cargo.emplace(actor, cargo_value(contents,
             profile_.material.manual_ore.has_value() || !profile_.material.timber_sites.empty()));
     }
@@ -2266,7 +2311,6 @@ Value Host::projection() const {
     for (const auto& [actor, sample] : owned_->actors) actors.emplace(actor, Value(Object{
         {"position", point_value(sample.position)}, {"capabilities", Value(Object{{"build_reach", Value(reach)}})},
         {"ready", Value(sample.ready)}, {"native_epoch", Value(sample.epoch)}}));
-    const auto& stock = state.material.stock;
     Array mineral_cells;
     for (const auto& cell : mineral_site::opening_cells)
         mineral_cells.emplace_back(Array{Value(cell.x), Value(cell.z)});
@@ -2276,15 +2320,13 @@ Value Host::projection() const {
             {"level", Value(foundation.center[1])}, {"generation", Value(foundation.generation)}}));
     auto player_parts = std::get<Object>(kit_value(state.kits.at("P")).storage());
     player_parts.emplace("foundation", Value(state.foundation_kits.at("P")));
-    Object projection{{"context", Value(snapshot.history.context)}, {"revision", Value(snapshot.revision)},
+    Object projection{{"context", Value(snapshot.history.context)},
         {"order", Value(snapshot.history.order)}, {"initial_feed", Value(profile_.initial_units)},
         {"recipe_input", Value(profile_.material.input_units_per_product)}, {"entities", Value(std::move(entities))},
         {"transmission_parts", Value(std::move(transmissions))}, {"links", Value(std::move(links))},
-        {"belt_spans", Value(std::move(belt_spans))}, {"line_belt_raw", Value(belt_raw_units)},
         {"drive_links", Value(std::move(drive_links))}, {"engagements", Value(std::move(engagements))},
         {"motion", Value(std::move(motions))}, {"inventories", Value(std::move(inventories))},
         {"cargo", Value(std::move(cargo))}, {"part_kits", Value(std::move(kits))},
-        {"dropped_material", Value(std::move(dropped_material))},
         {"part_specifications", Value(std::move(specifications))},
         {"parts", Value(std::move(player_parts))}, {"actors", Value(std::move(actors))},
         {"foundations", Value(std::move(foundations))},
@@ -2292,11 +2334,6 @@ Value Host::projection() const {
             {"cells", Value(std::move(mineral_cells))}, {"initial_units", Value(profile_.initial_units)},
             {"collector_capacity", Value(profile_.material.collector_capacity)},
             {"maximum_depth", Value(mineral_site::extraction_depth_steps * height_step)}})},
-        {"stock", Value(Object{{"source", Value(stock.source)}, {"collector", Value(stock.collector)},
-            {"belt", Value(stock.belt)}, {"input", Value(stock.input)},
-            {"held", Value(state.material.processing ? state.material.processing->recipe.input_units_per_product : 0)},
-            {"output", Value(stock.output)}, {"player", Value(player)}})},
-        {"remaining", Value(state.material.processing ? state.material.processing->remaining_ticks : 0)},
         {"powered", Value(local.collector || local.belt || local.processor)},
         {"power_enabled", Value(state.topology.drive_enabled)},
         {"options", Value(Object{{"opening", Value(true)}, {"physical", Value(true)}, {"native", Value(true)}, {"foundations", Value(true)}})},
@@ -2470,24 +2507,7 @@ Value Host::projection() const {
         }
         projection.emplace("press_assemblies", Value(std::move(presses)));
     }
-    if (profile_.material.manual_ore) {
-        const auto site_position = [this](const materials::DropPoint& center) {
-            return Value(Array{
-                Value(center[0] * profile_.meters_per_grid_unit + profile_.anchor_offset[0]),
-                Value(center[1] * profile_.meters_per_grid_unit + profile_.anchor_offset[1]),
-                Value(center[2] * profile_.meters_per_grid_unit + profile_.anchor_offset[2])});
-        };
-        Object sources;
-        for (const auto& [id, site] : profile_.material.timber_sites)
-            sources.emplace(id, Value(Object{{"kind", Value("tree")},
-                {"position", site_position(site.center)}, {"initial", Value(site.initial)},
-                {"remaining", Value(state.material.timber_remaining.at(id))}}));
-        const auto& ore = *profile_.material.manual_ore;
-        sources.emplace(ore.id, Value(Object{{"kind", Value("ore_deposit")},
-            {"position", site_position(ore.center)}, {"initial", Value(profile_.initial_units)},
-            {"remaining", Value(state.material.stock.source)}}));
-        projection.emplace("hand_sources", Value(std::move(sources)));
-    }
+    projection.merge(tick_fields(snapshot));
     return Value(std::move(projection));
 }
 
