@@ -98,6 +98,55 @@ func geometry(node: Node3D, pose: Transform3D = Transform3D.IDENTITY) -> Array:
 			result.append_array(geometry(child, pose * child.transform))
 	return result
 
+func packed_geometry(node: Node3D, pose: Transform3D = Transform3D.IDENTITY) -> Array:
+	if node.name.begins_with("PortArrow"):
+		return []
+	var result: Array = []
+	if node is MeshInstance3D:
+		var surfaces: Array = []
+		for surface in node.mesh.get_surface_count():
+			var arrays: Array = node.mesh.surface_get_arrays(surface)
+			surfaces.append({"vertices": arrays[Mesh.ARRAY_VERTEX], "indices": arrays[Mesh.ARRAY_INDEX]})
+		result.append({"pose": pose, "bounds": node.mesh.get_aabb(), "surfaces": surfaces})
+	for child in node.get_children():
+		if child is Node3D:
+			result.append_array(packed_geometry(child, pose * child.transform))
+	return result
+
+func same_packed_geometry(baked: Node3D, live: Node3D) -> bool:
+	var left: Array = packed_geometry(baked)
+	var right: Array = packed_geometry(live)
+	if left.size() != right.size():
+		return false
+	for index in left.size():
+		var baked_pose: Transform3D = left[index].pose
+		var live_pose: Transform3D = right[index].pose
+		# Windows can retain subnormal coordinates in packed poses differently.
+		if left[index].bounds != right[index].bounds \
+				or baked_pose.origin.distance_squared_to(live_pose.origin) > 1e-12 \
+				or baked_pose.basis.x.distance_squared_to(live_pose.basis.x) > 1e-12 \
+				or baked_pose.basis.y.distance_squared_to(live_pose.basis.y) > 1e-12 \
+				or baked_pose.basis.z.distance_squared_to(live_pose.basis.z) > 1e-12:
+			return false
+		var baked_surfaces: Array = left[index].surfaces
+		var live_surfaces: Array = right[index].surfaces
+		if baked_surfaces.size() != live_surfaces.size():
+			return false
+		for surface in baked_surfaces.size():
+			if baked_surfaces[surface].indices != live_surfaces[surface].indices:
+				return false
+			var baked_vertices: PackedVector3Array = baked_surfaces[surface].vertices
+			var live_vertices: PackedVector3Array = live_surfaces[surface].vertices
+			if baked_vertices.size() != live_vertices.size():
+				return false
+			for vertex in baked_vertices.size():
+				# Packed scene serialization differs from procedural generation by
+				# subnormal vertex values on Windows. One micrometre still detects
+				# a real part or placement change at this metre-scale worksite.
+				if baked_vertices[vertex].distance_squared_to(live_vertices[vertex]) > 1e-12:
+					return false
+	return true
+
 func check_preview_nodes(node: Node, material: StandardMaterial3D) -> void:
 	verify(not node is CollisionObject3D and not node is CollisionShape3D
 		and (not node is Label3D or node.name == "MaterialPortLabel"),
@@ -193,7 +242,7 @@ func check_packed_assemblies() -> void:
 			"rotation": 0, "cell": cell, "level": 0}, kind == "belt")
 		if kind in ["collector", "processor"]:
 			view._preview_port(expected, 0, kind == "collector")
-		verify(geometry(source) == geometry(expected),
+		verify(same_packed_geometry(source, expected),
 			"The baked %s preview keeps procedural mesh geometry and local transforms." % kind)
 		view._style_machine_preview(source)
 		check_preview_nodes(source, view.machine_preview_material)
@@ -204,14 +253,14 @@ func check_packed_assemblies() -> void:
 			view.target = Vector2i(cell[0], cell[1])
 			view._refresh_machine_preview()
 			verify(view.machine_preview == source and view.machine_preview.visible
-				and geometry(view.machine_preview) == geometry(expected),
+				and same_packed_geometry(view.machine_preview, expected),
 				"The native %s selection reuses its warmed preview without changing its form." % kind)
 			check_preview_nodes(view.machine_preview, view.machine_preview_material)
 			view.packed_preview_nodes.erase(kind)
 			view._choose_machine_preview()
 			view._refresh_machine_preview()
 			verify(view.machine_preview != source and view.machine_preview.visible
-				and geometry(view.machine_preview) == geometry(expected),
+				and same_packed_geometry(view.machine_preview, expected),
 				"The native %s selection can also instantiate a baked preview." % kind)
 			verify(view.state == observation() and view.model == null and view.request_sequence == 0,
 				"The baked preview leaves %s authority unchanged." % kind)
