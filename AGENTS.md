@@ -1,5 +1,14 @@
 # Agent Instructions
 
+## UI design
+
+Treat text buttons as a last resort. People scan shapes, icons, placement and
+state faster than rows of labeled actions. Prefer recognizable icon controls,
+direct manipulation and clear spatial grouping; give every icon a tooltip,
+keyboard focus description and shortcut where useful. Use a text button only
+when an icon would be ambiguous or the action needs an explicit safety choice.
+Keep explanatory text beside controls rather than filling every button with it.
+
 ## Communication
 
 Write complete sentences with normal word spacing in chat, Beads, notes and
