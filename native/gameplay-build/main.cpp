@@ -2,6 +2,7 @@
 #include <charconv>
 #include <iostream>
 #include <map>
+#include <set>
 
 namespace {
 volatile std::sig_atomic_t cancelled = 0;
@@ -19,6 +20,12 @@ int main(int argc, char** argv) {
         std::map<std::string, std::string> args;
         for (int i = 1; i < argc; i += 2) {
             if (i + 1 == argc || !args.emplace(argv[i], argv[i + 1]).second) throw std::runtime_error("Invalid or duplicate option.");
+        }
+        const std::set<std::string> known{"--checkout", "--main", "--bazel", "--artifacts",
+            "--log", "--admission-directory", "--launcher", "--install-root", "--component"};
+        for (const auto& [name, value] : args) {
+            (void)value;
+            if (!known.contains(name)) throw std::runtime_error("Unknown build option: " + name);
         }
         if (args.size() != 8 && args.size() != 9)
             throw std::runtime_error("Use --help for the required options.");

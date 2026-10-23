@@ -246,6 +246,21 @@ void startup_install_and_guard(const fs::path& base) {
     refuses([&] { gb::complete(f.options, current, 0, f.binary); },
             "A newer source revision cannot publish a stale startup build.");
 }
+
+void unknown_cli_option_refuses() {
+    const auto* runfiles = std::getenv("TEST_SRCDIR");
+    if (!runfiles) throw std::runtime_error("Use Bazel's declared CLI test data.");
+    const auto executable = fs::path(runfiles) / "_main/native/gameplay-build/factory-gameplay-build";
+    check(fs::is_regular_file(executable), "The CLI test uses its declared built executable.");
+    const auto result = factory_launch::run_process({executable.string(),
+        "--checkout", "/unused/checkout", "--main", "/unused/main",
+        "--bazel", "/unused/bazel", "--artifacts", "/unused/artifacts",
+        "--log", "/unused/log", "--admission-directory", "/unused/admission",
+        "--launcher", "/unused/launcher", "--install-root", "/unused/installed",
+        "--componet", "startup"}, 10s, 65536, nullptr, true);
+    check(result.exit_code == 1 && result.output.find("Unknown build option: --componet") != std::string::npos,
+          "A misspelled startup selector refuses during parsing before build or installation.");
+}
 } // namespace
 int main() {
     try {
@@ -253,7 +268,7 @@ int main() {
         if (!temp) throw std::runtime_error("Use Bazel's private test temporary directory.");
         const auto root = fs::canonical(temp);
         success_and_failure(root); refusals(root); main_advances(root); retain_unowned_temporary(root); dependency_advances(root);
-        launcher_dependency_guard(root); startup_install_and_guard(root);
+        launcher_dependency_guard(root); startup_install_and_guard(root); unknown_cli_option_refuses();
         std::cout << "{\"status\":\"pass\",\"checks\":" << checks << ",\"game_launches\":0}\n";
         return 0;
     } catch (const std::exception& error) {

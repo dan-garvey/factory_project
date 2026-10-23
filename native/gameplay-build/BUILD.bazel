@@ -18,7 +18,7 @@ cc_binary(
 cc_test(
     name = "install_test",
     srcs = ["tests.cpp"],
-    data = ["//:scripts/ensure-gameplay-library.sh", "//:scripts/ensure-startup-launcher.sh"],
+    data = [":factory-gameplay-build", "//:scripts/ensure-gameplay-library.sh", "//:scripts/ensure-startup-launcher.sh"],
     deps = [":build", "//native/factory-launch:capture"],
     tags = ["host"],
     size = "small",
