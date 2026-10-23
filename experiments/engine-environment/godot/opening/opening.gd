@@ -6973,8 +6973,16 @@ func _collector_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 		elif intake_result.boxes.size() == 1:
 			var pickup: Dictionary = intake_result.boxes[0]
 			var local_at: Vector3 = pickup.center - anchor.position
-			_machine_box(anchor, "SourcePickupHousing", local_at + Vector3(0.06, 0, 0),
-				Vector3(0.16, 0.14, 0.20), Color("465a60"), 0.85, 0.35)
+			# The open scoop uses the full confirmed pickup box. Its floor meets
+			# the rock while the cheeks expose the teeth and lead into the trough.
+			_machine_box(anchor, "SourcePickupHousing", local_at + Vector3(0.10, 0, 0),
+				Vector3(0.08, 0.20, 0.24), Color("465a60"), 0.85, 0.35)
+			_machine_box(anchor, "SourcePickupFloor", local_at + Vector3(0, -0.07, 0),
+				Vector3(0.28, 0.045, 0.17), steel, 0.85, 0.42)
+			for side in [-1.0, 1.0]:
+				_machine_box(anchor, "SourcePickupCheekLeft" if side < 0.0 else "SourcePickupCheekRight",
+					local_at + Vector3(-0.02, 0, side * 0.1025),
+					Vector3(0.24, 0.20, 0.035), Color("465a60"), 0.85, 0.35)
 			for tooth in [-1.0, 0.0, 1.0]:
 				_machine_box(anchor, "SourcePickupTooth", local_at + Vector3(-0.105, 0, tooth * 0.075),
 					Vector3(0.06, 0.12, 0.028), steel, 0.85, 0.32)

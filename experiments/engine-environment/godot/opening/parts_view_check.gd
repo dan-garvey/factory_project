@@ -6,6 +6,7 @@ extends SceneTree
 const Opening = preload("res://opening/opening.gd")
 const SharedOpening = preload("res://opening/shared_opening.gd")
 const SiteSurface = preload("res://opening/site_surface.gd")
+const Geometry = preload("res://opening/site_geometry.gd")
 var checks := 0
 var failures := 0
 
@@ -723,6 +724,14 @@ func _building_rotation() -> void:
 			var body := anchor.get_node_or_null("RotatedMachineVisual")
 			verify(body == null and anchor.get_node_or_null("SourcePickupHousing") != null,
 				"The collector keeps its source-facing intake while its selected outlet turns.")
+			var pickup: Dictionary = Geometry.collector_intake_boxes({"kind": "collector",
+				"cell": [0, 0], "level": 0}).boxes[0]
+			var admitted := AABB(pickup.center - pickup.size * 0.5, pickup.size).grow(0.001)
+			for part_name in ["SourcePickupHousing", "SourcePickupFloor",
+					"SourcePickupCheekLeft", "SourcePickupCheekRight"]:
+				var part := anchor.get_node_or_null(part_name) as MeshInstance3D
+				verify(part != null and admitted.encloses(part.transform * part.mesh.get_aabb()),
+					"The open pickup fits the native intake box for every selected outlet.")
 			view._preview_port(anchor, turn, true)
 			var port: Label3D = anchor.get_node("MaterialPortLabel")
 			verify(port.text == "OUT" and (port.get_meta("port_side") as Vector3).is_equal_approx(Vector3.RIGHT.rotated(Vector3.UP, -float(turn) * PI / 2.0)),
