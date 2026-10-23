@@ -32,12 +32,12 @@ fixture controls; arrival hides their old Help and four-plate confirmation:
 
 | Task | Keys |
 | --- | --- |
-| Build and inspect | `B` opens the catalog; `1`–`8` select a hotbar slot; `E` opens the pointed machine; `F` dismantles; `C` connects material; `Esc` cancels. |
+| Build and inspect | `B` opens the catalog; `1`–`8` select a hotbar slot; `E` opens the pointed machine; `F` dismantles; `C` connects material; `Esc` closes the current menu or opens worksite actions from the game view. |
 | Assign a hotbar slot | In the catalog, `1`–`8` choose the destination. Click a carried part, or use `Tab` and `Enter`; `A` assigns the part selected in the list. `Delete` clears and `Esc` closes. |
 | Component placement | Point at a built part's top or side to snap the selected component. Hold `Alt` to lock the ghost; `Alt` with arrow keys nudges X/Z and `Alt+PageUp`/`Alt+PageDown` nudges height by one quarter-grid step. Click to place the visible ghost. A red ghost marks a known obstruction. |
 | Mechanical options | `Alt+1`–`Alt+6` select the six transmission tools. During placement, `T` opens mechanical options, `X` cycles the axle, `Shift+X` cycles chain direction, `K` changes cog size, `Shift+PageUp`/`Shift+PageDown` adjust transmission height, and `Ctrl+Home` follows the pointed surface again. |
 | Foundations and waterwheels | `PageUp`/`PageDown` change foundation or drive height; `Z` toggles access steps; `V` toggles two-corner area placement; `Shift+PageUp`/`Shift+PageDown` change waterwheel diameter when its size controls are shown; `R` rotates a building. |
-| Worksite actions | `P` operates the nearby drive; `Ctrl+R` collects a selected plate; `Delete` dismantles the selection; `Ctrl+M` opens the selected material menu; `Ctrl+L` opens loose-material pickup; `Ctrl+Enter` confirms four plates; `Ctrl+D` toggles details; `F5` saves and `F9` shows how to reopen the save. |
+| Worksite actions | `P` operates the nearby drive; `Ctrl+R` collects a selected plate; `Delete` dismantles the selection; `Ctrl+M` opens the selected material menu; `Ctrl+L` opens loose-material pickup; `Ctrl+Enter` confirms four plates; `Ctrl+D` toggles details. From the game view, `Esc` opens Resume, Save, reopen information and Exit; `F5` saves, `F9` shows how to reopen the save, and `Q` asks to exit while that menu is open. |
 | Help and shared sessions | `H` opens or closes Help. `Left`/`Right` change lesson, `Space` advances the example, `Enter` collects its plate, `Backspace` replays, and `Home` recenters. In a shared session, `Ctrl+J` reconnects and `Ctrl+Shift+J` disconnects. Menu choices use arrow keys and `Enter`; `Esc` closes the menu. |
 
 Early development prioritizes fixed/stationary contraptions and subfactories.

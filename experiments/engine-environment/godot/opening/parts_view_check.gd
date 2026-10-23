@@ -1783,6 +1783,11 @@ func _shared_component_results() -> void:
 
 func _workshop_pages() -> void:
 	root.size = Vector2i(1280, 800)
+	root.gui_embed_subwindows = true
+	var image_prefix := ""
+	for argument in OS.get_cmdline_user_args():
+		if argument.begins_with("--workshop-pages-image-prefix="):
+			image_prefix = argument.trim_prefix("--workshop-pages-image-prefix=")
 	for shared in [false, true]:
 		var view = SharedWorkshopWidgets.new() if shared else OfflineWorkshopWidgets.new()
 		if shared:
@@ -1820,6 +1825,23 @@ func _workshop_pages() -> void:
 		verify(not view.object_menu.visible and not panel.is_visible_in_tree()
 			and not panel.craft_section.visible and not panel.press_section.visible,
 			"A fresh opening leaves workshop controls off the game view.")
+		var escape := InputEventKey.new()
+		escape.pressed = true
+		escape.keycode = KEY_ESCAPE
+		view._unhandled_input(escape)
+		verify(view.pause_menu.visible and view.pause_menu_scrim.visible
+			and view.save_button.get_parent() == view.pause_resume_button.get_parent()
+			and view.load_button.get_parent() == view.pause_resume_button.get_parent()
+			and view.save_button.text.is_empty() and view.load_button.text.is_empty(),
+			"Idle Escape opens icon-led worksite actions outside the object panel.")
+		if not shared and not image_prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
+			await process_frame
+			await RenderingServer.frame_post_draw
+			verify(root.get_texture().get_image().save_png(image_prefix + "-escape.png") == OK,
+				"Retain the centered worksite menu over the ordinary scene.")
+		view._input(escape)
+		verify(not view.pause_menu.visible and not view.pause_menu_scrim.visible,
+			"Escape resumes the worksite from the pause menu.")
 		if failures > 0:
 			view.free()
 			break
@@ -1827,9 +1849,20 @@ func _workshop_pages() -> void:
 		view._open_pointed_machine()
 		verify(view.object_menu.visible and panel.craft_section.is_visible_in_tree() and not panel.press_section.visible
 			and panel.selected_bench == view.pointed and not panel.craft_tab.visible
-			and panel.field_craft_button.is_visible_in_tree() and panel.craft_button.is_visible_in_tree(),
+			and panel.field_craft_button.is_visible_in_tree() and panel.craft_button.is_visible_in_tree()
+			and not view.save_button.is_visible_in_tree() and not view.load_button.is_visible_in_tree(),
 			"Ordinary E shows pod crafting directly in its centered panel.")
-		view.object_menu.hide()
+		view._input(escape)
+		verify(not view.object_menu.visible and not view.pause_menu.visible,
+			"Escape closes an object panel without opening the worksite menu underneath it.")
+		view._unhandled_input(escape)
+		verify(view.pause_menu.visible, "The next idle Escape opens worksite actions.")
+		view.pause_exit_button.pressed.emit()
+		verify(view.pause_exit_confirmation.visible, "Exit asks before discarding unsaved work.")
+		view._input(escape)
+		verify(not view.pause_exit_confirmation.visible and view.pause_menu.visible,
+			"Escape dismisses exit confirmation and leaves worksite actions open.")
+		view.pause_menu.hide()
 		await process_frame
 		view._open_pointed_machine()
 		verify(view.object_menu.visible and panel.craft_section.is_visible_in_tree(),

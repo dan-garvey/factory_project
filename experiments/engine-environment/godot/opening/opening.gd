@@ -4670,6 +4670,11 @@ var object_workshop_collector: VBoxContainer
 var object_workshop_route: VBoxContainer
 var object_workshop_sections: Array[VBoxContainer] = []
 var object_menu_target := ""
+var pause_menu: PopupPanel
+var pause_menu_scrim: ColorRect
+var pause_resume_button: Button
+var pause_exit_button: Button
+var pause_exit_confirmation: ConfirmationDialog
 var recovery_actions
 var loose_material_controls
 var transmission_controls
@@ -4839,7 +4844,7 @@ func _actor_failed(actor: String, reason: String) -> void:
 	get_tree().quit(1)
 
 func _can_control_character() -> bool:
-	return _actor_ready_for_actions() and not _object_menu_open()
+	return _actor_ready_for_actions() and not _object_menu_open() and not _pause_menu_open()
 
 func _actor_ready_for_actions() -> bool:
 	return not legacy_fixture and not arrival_reveal_active and not manager_log_open and not _catalog_open() and not explanation_open \
@@ -4850,7 +4855,7 @@ func _can_use_object_actions() -> bool:
 
 func _can_choose_tool() -> bool:
 	# The catalog holds movement while keeping its own choices available.
-	return not arrival_reveal_active and not manager_log_open and not explanation_open and not startup_save_pending and not _object_menu_open() \
+	return not arrival_reveal_active and not manager_log_open and not explanation_open and not startup_save_pending and not _object_menu_open() and not _pause_menu_open() \
 		and (legacy_fixture or state.get("actors", {}).get(client, {}).get("ready", false))
 
 func _native_transmission() -> bool:
@@ -5663,6 +5668,25 @@ func _input(event: InputEvent) -> void:
 			if used:
 				get_viewport().set_input_as_handled()
 		return
+	if pause_exit_confirmation != null and pause_exit_confirmation.visible:
+		if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
+			pause_exit_confirmation.hide()
+			get_viewport().set_input_as_handled()
+		return
+	if _pause_menu_open():
+		if event is InputEventKey and event.pressed and not event.echo:
+			var used := true
+			match event.keycode:
+				KEY_ESCAPE: pause_menu.hide()
+				KEY_F5:
+					if not startup_save_pending:
+						_save_worksite()
+				KEY_F9: _load_worksite()
+				KEY_Q: pause_exit_confirmation.popup_centered()
+				_: used = false
+			if used:
+				get_viewport().set_input_as_handled()
+		return
 	if manager_log_open:
 		if event is InputEventKey:
 			if event.pressed and not event.echo and event.keycode in [KEY_J, KEY_ESCAPE]:
@@ -5808,7 +5832,7 @@ func _open_action_menu(button: MenuButton) -> bool:
 	return true
 
 func _unhandled_input(event: InputEvent) -> void:
-	if explanation_open or _object_menu_open():
+	if explanation_open or _object_menu_open() or _pause_menu_open():
 		return
 	if event is InputEventMouseMotion:
 		if Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
@@ -5848,7 +5872,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_E:
 				if _native_transmission():
 					_interact_pointed()
-			KEY_ESCAPE: _select_tool("inspect")
+			KEY_ESCAPE:
+				if legacy_fixture:
+					_select_tool("inspect")
+				else:
+					_open_pause_menu()
 			KEY_R:
 				if _native_transmission() and mode in ["collector", "processor", "wheel"]:
 					_rotate_building()
@@ -9088,9 +9116,13 @@ func _refresh_ui() -> void:
 	power_label.text = "DRIVE RUNNING" if state.get("powered", false) else "DRIVE NEEDS CONNECTIONS"
 	save_button.disabled = explanation_open or not save_slot_ready or startup_save_pending or (not legacy_fixture and not state.get("actors", {}).get(client, {}).get("ready", false))
 	load_button.disabled = explanation_open or not save_slot_ready or (legacy_fixture and not save_slot_owned)
-	load_button.text = "Load worksite  [F9]" if legacy_fixture else "How to reopen save  [F9]"
-	for button in [save_button, load_button]:
-		button.tooltip_text = "" if save_slot_ready else "Launch a fresh worksite session to enable saving."
+	if legacy_fixture:
+		load_button.text = "Load worksite  [F9]"
+		for button in [save_button, load_button]:
+			button.tooltip_text = "" if save_slot_ready else "Launch a fresh worksite session to enable saving."
+	else:
+		save_button.tooltip_text = "Save worksite  [F5]" if save_slot_ready else "Saving needs a fresh worksite session."
+		load_button.tooltip_text = "How to reopen save  [F9]"
 	if actor_label != null:
 		actor_label.visible = not legacy_fixture
 		actor_label.text = "CHARACTER READY · BUILD NEARBY" if state.get("actors", {}).get(client, {}).get("ready", false) else "CHARACTER STARTING…"
@@ -9321,7 +9353,7 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	details_button.text = ("Hide worksite  Ctrl+D" if show_details else "Worksite  Ctrl+D") if object_menu != null \
 		else ("Less  ^D" if show_details else "Details  ^D")
 	details_button.disabled = explanation_open
-	for control in [stock_label, power_label, save_button, load_button]:
+	for control in [stock_label, power_label]:
 		control.visible = show_details
 	if worksite_details_section != null:
 		worksite_details_section.visible = show_details
@@ -10038,7 +10070,7 @@ func _build_object_menu(root: Control, detail_panel: PanelContainer) -> void:
 	details_button.visible = true
 	worksite_details_section = VBoxContainer.new()
 	detail_column.add_child(worksite_details_section)
-	for control in [actor_label, power_label, stock_label, save_button, load_button]:
+	for control in [actor_label, power_label, stock_label]:
 		control.reparent(worksite_details_section)
 	worksite_details_section.visible = false
 	object_menu_operations = VBoxContainer.new()
@@ -10097,6 +10129,87 @@ func _layout_object_workshop() -> void:
 
 func _object_menu_open() -> bool:
 	return object_menu != null and object_menu.visible
+
+func _pause_menu_open() -> bool:
+	return pause_menu != null and pause_menu.visible
+
+func _open_pause_menu() -> void:
+	if pause_menu == null or _object_menu_open() or _catalog_open() or explanation_open or manager_log_open:
+		return
+	_release_character_controls()
+	pause_menu_scrim.visible = true
+	pause_menu.popup_centered(Vector2i(350, 290))
+	pause_resume_button.grab_focus()
+
+func _build_pause_menu(root: Control) -> void:
+	pause_menu_scrim = ColorRect.new()
+	pause_menu_scrim.name = "PauseMenuShade"
+	pause_menu_scrim.color = Color(0.01, 0.02, 0.025, 0.54)
+	pause_menu_scrim.mouse_filter = Control.MOUSE_FILTER_STOP
+	root.add_child(pause_menu_scrim)
+	pause_menu_scrim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	pause_menu_scrim.gui_input.connect(func(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+			pause_menu.hide())
+	pause_menu_scrim.visible = false
+	pause_menu = PopupPanel.new()
+	pause_menu.name = "PauseMenu"
+	pause_menu.theme = root.theme.duplicate()
+	var surface := StyleBoxFlat.new()
+	surface.bg_color = Color(0.035, 0.06, 0.075, 0.96)
+	surface.set_corner_radius_all(10)
+	pause_menu.theme.set_stylebox("panel", "PopupPanel", surface)
+	root.add_child(pause_menu)
+	var margin := MarginContainer.new()
+	for side in ["left", "right", "top", "bottom"]:
+		margin.add_theme_constant_override("margin_" + side, 18)
+	pause_menu.add_child(margin)
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 12)
+	margin.add_child(column)
+	_label(column, "WORKSITE", 18, Color("f1d7a5"))
+	_label(column, "Esc resumes  ·  F5 saves", 11, Color("b9ceca"))
+	var actions := GridContainer.new()
+	actions.columns = 2
+	actions.add_theme_constant_override("h_separation", 14)
+	actions.add_theme_constant_override("v_separation", 12)
+	column.add_child(actions)
+	pause_resume_button = _pause_action(actions, "resume", "Resume", "Esc", func(): pause_menu.hide())
+	save_button.reparent(actions)
+	_style_pause_action(save_button, "save", "Save worksite", "F5")
+	load_button.reparent(actions)
+	_style_pause_action(load_button, "reopen", "Reopen save", "F9")
+	pause_exit_button = _pause_action(actions, "exit", "Exit workshop", "Q", func(): pause_exit_confirmation.popup_centered())
+	pause_menu.popup_hide.connect(func(): pause_menu_scrim.visible = false)
+	pause_exit_confirmation = ConfirmationDialog.new()
+	pause_exit_confirmation.title = "Exit workshop"
+	pause_exit_confirmation.dialog_text = "Unsaved changes will be lost. Save with F5 before exiting."
+	pause_exit_confirmation.ok_button_text = "Exit without saving"
+	pause_exit_confirmation.confirmed.connect(func(): get_tree().quit())
+	root.add_child(pause_exit_confirmation)
+
+func _pause_action(parent: GridContainer, icon_name: String, action_name: String,
+		shortcut: String, callback: Callable) -> Button:
+	var button := _button(parent, "", callback)
+	_style_pause_action(button, icon_name, action_name, shortcut)
+	return button
+
+func _style_pause_action(button: Button, icon_name: String, action_name: String, shortcut: String) -> void:
+	button.text = ""
+	button.icon = load("res://opening/assets/menu-icons/%s.svg" % icon_name)
+	button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	button.expand_icon = false
+	button.custom_minimum_size = Vector2(140, 82)
+	button.tooltip_text = "%s  [%s]" % [action_name, shortcut]
+	button.accessibility_name = action_name
+	var caption := Label.new()
+	caption.text = action_name
+	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	caption.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	button.add_child(caption)
+	caption.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	caption.offset_top = -24
+	caption.add_theme_font_size_override("font_size", 11)
 
 func _on_object_menu_closed() -> void:
 	object_menu_scrim.visible = false
@@ -10166,7 +10279,7 @@ func _pointed_summary_data(screen: Vector2) -> Dictionary:
 func _refresh_pointed_summary() -> void:
 	if pointed_summary == null or camera == null:
 		return
-	if arrival_reveal_active or explanation_open or manager_log_open or _catalog_open() or _object_menu_open():
+	if arrival_reveal_active or explanation_open or manager_log_open or _catalog_open() or _object_menu_open() or _pause_menu_open():
 		pointed_summary.visible = false
 		return
 	var screen := _pointed_screen_position()
@@ -10390,6 +10503,7 @@ func _build_interface() -> void:
 	load_button = _button(right, "Load worksite  [F9]", _load_worksite)
 	if not legacy_fixture:
 		_build_object_menu(root, right_panel as PanelContainer)
+		_build_pause_menu(root)
 		_build_pointed_summary(root)
 	var bottom := _panel(root, Vector2(310, 694), Vector2(952, 88))
 	if not legacy_fixture:
