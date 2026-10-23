@@ -1336,9 +1336,38 @@ func _field_craft_widget() -> void:
 		panel.craft_button.pressed.emit()
 		verify(view.issued.back() == {"action": "craft_component", "entity": "pod-fabrication-hub", "component": "cutting_edge"},
 			"The metal button retains the native pod hub identity.")
+	# The ordinary right panel is 255 px wide before its padding and scrollbar.
+	# Stress the longest craft choice and action with a deliberately large count.
+	root.size = Vector2i(1280, 800)
+	var scroll: ScrollContainer = view.arrival_assembly_scroll
+	scroll.visible = true
+	panel.component_choice.set_item_text(9, "Softmetal shaft  ×999")
+	panel.place_button.text = "Place softmetal shaft"
+	panel.part_choice.add_item("Waterwheel  ×999")
+	panel.part_place_button.text = "Connect shafts"
+	await process_frame
+	await process_frame
+	verify(scroll.size.x <= 255.0 and not scroll.get_h_scroll_bar().visible,
+		"Long craft choices and the bench, field and placement actions fit the compact worksite panel without sideways scrolling.")
+	scroll.scroll_vertical = int(scroll.get_v_scroll_bar().max_value)
+	await process_frame
+	verify(scroll.get_global_rect().has_point(panel.part_place_button.get_global_rect().get_center()),
+		"Vertical scrolling reaches the final powered-route placement action in the compact panel.")
+	panel._show_page(true)
+	panel.press_status.text = "Press ready · 4 clear feed routes. Turn the crank to advance retained work."
+	panel.route_choice.add_item("Feed north → exit south")
+	panel.crank_button.visible = true
+	await process_frame
+	await process_frame
+	verify(not scroll.get_h_scroll_bar().visible,
+		"Press guidance and actions fit the compact worksite panel without sideways scrolling.")
+	scroll.scroll_vertical = int(scroll.get_v_scroll_bar().max_value)
+	await process_frame
+	verify(scroll.get_global_rect().has_point(panel.crank_button.get_global_rect().get_center()),
+		"Vertical scrolling reaches the final press action in the compact panel.")
 	view.free()
 	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
-		"models": 0, "desktop_operations": 0, "scope": "ordinary field craft controls over invented projection"}))
+		"models": 0, "desktop_operations": 0, "scope": "field craft controls and compact workshop layout over invented projection"}))
 	quit(0 if failures == 0 else 1)
 
 func _buttons() -> void:
