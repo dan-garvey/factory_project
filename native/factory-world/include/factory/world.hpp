@@ -18,6 +18,7 @@
 namespace factory::world {
 
 inline constexpr authority::Integer landing_deck_parts = 9;
+inline constexpr authority::Integer foundation_timber_cost = 2;
 [[nodiscard]] std::array<mechanics::Point, landing_deck_parts> landing_deck_centers(
     const mechanics::Point& center);
 

@@ -96,6 +96,7 @@ material for early cold forming; its geology and final name remain open.
 | Cutting edge | 1 softmetal blank | Fitted to the collector's tool mount. |
 | Anvil | 2 softmetal blanks | The press work support. |
 | Ram face | 2 softmetal blanks | Fitted to the press head's moving guide. |
+| Extra foundation | 2 timber | Extends a floor or access step on the shared world grid. |
 
 An illustrative collector uses one frame, tool mount, cutting edge, receiver
 and wooden shaft: **7 timber and 1 blank**. An illustrative press uses a
@@ -108,6 +109,18 @@ bill remains a separate, revisable bootstrap fixture. A third tree is available 
 alternate route, support, chute or rebuild. A detachable crank is reusable
 between these arrangements. This arithmetic is a starting fixture, not a
 promise that every geometry or belt route can fit inside two trees.
+
+The current landing carries fifteen spare foundation parts after its nine-panel
+pod deck. Three more foundations cost six timber from the same finite trees.
+One bounded expanded bill uses eleven timber and five blanks for the illustrative
+collector and press above, six timber for those three floors, and four timber
+plus two blanks for one belt and one waterwheel: **21 of 24 timber and seven of
+sixteen blanks**, before stock for forming. An upper/lower arrangement can spend
+four elevated floor panels, four access steps and three routing panels; an
+alternative staggered ground arrangement can spend twelve panels. Both fit
+within the fifteen supplied spares, while three locally crafted panels extend
+either arrangement without a hidden refill. These counts are a material budget,
+not a proof that a particular physical route has been built or played.
 
 The collector's frame and mount, and the separate guide, head, shaft and
 receiver remain separate world items.

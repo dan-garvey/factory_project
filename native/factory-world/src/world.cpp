@@ -5,6 +5,7 @@
 #include <cmath>
 #include <initializer_list>
 #include <limits>
+#include <numeric>
 #include <set>
 #include <string_view>
 #include <tuple>
@@ -154,6 +155,8 @@ bool shape(const Object& intent, const std::string& action) {
     if (action == "craft_component") return keys(intent, {"target", "generation", "component"}) &&
         field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
         field<std::string>(intent, "component");
+    if (action == "craft_foundation") return keys(intent, {"target", "generation"}) &&
+        field<std::string>(intent, "target") && field<Integer>(intent, "generation");
     if (action == "field_craft") return keys(intent, {"component"}) &&
         field<std::string>(intent, "component");
     if (action == "deliver_first_plate" || action == "deliver_repeat_plate")
@@ -767,6 +770,20 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
             raw && *raw == recipe->second.ore && count && *count > 0 && *count <= 4096 &&
             targets.front() == anchor(profile, *bench_center) && result.size() == 21;
     }
+    if (action == "craft_foundation") {
+        const auto* target = field<std::string>(record.intent, "target");
+        const auto* requested_generation = field<Integer>(record.intent, "generation");
+        const auto* entity = field<std::string>(result, "entity");
+        const auto* generation = field<Integer>(result, "generation");
+        const auto* timber = field<Integer>(result, "spent_timber");
+        const auto* count = field<Integer>(result, "foundation_count");
+        const auto bench_center = historical_bench_center(hub, placed_components, target);
+        return profile.landing_pod_center && bench_center && target && requested_generation &&
+            *requested_generation > 0 && entity && *entity == *target && generation &&
+            *generation == *requested_generation && timber && *timber == foundation_timber_cost &&
+            count && *count > 0 && *count <= 256 &&
+            targets.front() == anchor(profile, *bench_center) && result.size() == 18;
+    }
     if (action == "take_hand_crank" || action == "return_hand_crank") {
         const auto* target = field<std::string>(record.intent, "target");
         const auto* requested_generation = field<Integer>(record.intent, "generation");
@@ -1082,6 +1099,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
     Integer harvested_ore = 0;
     Integer cranked_ore = 0;
     Integer shipped_plates = 0;
+    Integer fabricated_foundations = 0;
     std::map<std::pair<std::string, materials::Component>, Integer> crafted_components;
     stationary::Kit fabricated_parts;
     std::map<std::string, stationary::Kit> fabricated_balances;
@@ -1579,13 +1597,21 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             if (kit == foundation_kits.end()) return false;
             auto& carried = kit->second;
             if (*action == "remove_foundation") {
-                if (!add(carried, 1) || carried > profile.foundation_parts) return false;
+                if (!add(carried, 1) || carried > profile.foundation_parts + fabricated_foundations) return false;
             } else {
                 const Integer spent = *action == "place_foundations" ?
                     static_cast<Integer>(foundation_area(record.intent).size()) : 1;
                 if (spent < 1 || carried < spent) return false;
                 carried -= spent;
             }
+        }
+        if (*action == "craft_foundation") {
+            if (carried_timber[*actor] < foundation_timber_cost ||
+                !add(fabricated_foundations, 1) || fabricated_foundations > 256 ||
+                !add(foundation_kits[*actor], 1) ||
+                foundation_kits[*actor] != *field<Integer>(record.result, "foundation_count"))
+                return false;
+            carried_timber[*actor] -= foundation_timber_cost;
         }
         if (*action == "harvest_source") {
             const auto& id = *field<std::string>(record.intent, "target");
@@ -2514,7 +2540,11 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                     values::typed_difference(carried_work[actor].at(lot.id), array->front()))
                     return false;
             }
-    if (foundation_kits != snapshot.state.foundation_kits) return false;
+    if (foundation_kits != snapshot.state.foundation_kits ||
+        static_cast<Integer>(snapshot.state.foundations.size()) +
+            std::accumulate(foundation_kits.begin(), foundation_kits.end(), Integer{0},
+                [](Integer sum, const auto& entry) { return sum + entry.second; }) !=
+            profile.foundation_parts + fabricated_foundations) return false;
     if (harvested_ore > profile.initial_units - snapshot.state.material.stock.source ||
         cranked_ore > profile.initial_units - snapshot.state.material.stock.source - harvested_ore)
         return false;
@@ -2543,6 +2573,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         expected_parts.try_emplace(spec, 0);
     }
     Integer embodied_timber = 0, embodied_raw = 0;
+    if (!weighted_add(embodied_timber, fabricated_foundations, foundation_timber_cost)) return false;
     for (const auto& [spec, count] : fabricated_parts) {
         const auto recipe = profile.fabrication_parts.find(spec);
         if (recipe == profile.fabrication_parts.end() || count < 1 ||
@@ -3065,7 +3096,7 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
             const auto kit = state.foundation_kits.find(actor);
             if (kit == state.foundation_kits.end() || !add(foundation_total, kit->second)) return false;
         }
-        if (foundation_total != profile.foundation_parts) return false;
+        if (foundation_total < profile.foundation_parts || foundation_total > 256) return false;
     }
     std::vector<mechanics::Point> foundation_centers;
     for (const auto& [id, foundation] : state.foundations) {
@@ -3375,6 +3406,48 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         facts.emplace("spent_raw", Value(Integer{0}));
         facts.emplace("component_count", Value(candidate.material.cargo.at(binding.actor).components.at(*component)));
         return accepted(std::move(candidate), {}, std::move(facts));
+    }
+    if (*action == "craft_foundation") {
+        const auto* id = field<std::string>(intent, "target");
+        const auto* generation = field<Integer>(intent, "generation");
+        if (!id || !generation) return refused("invalid_target");
+        const auto placed_bench = state.placed_components.find(*id);
+        const auto bench = state.fabrication_hub && !state.fabrication_hub->holder &&
+            *id == state.fabrication_hub->id ?
+            std::optional<FabricationHub>(*state.fabrication_hub) :
+            placed_bench != state.placed_components.end() &&
+                placed_bench->second.kind == materials::Component::wooden_workbench ?
+                std::optional<FabricationHub>(FabricationHub{*id, placed_bench->second.center,
+                    placed_bench->second.generation}) : std::nullopt;
+        if (!bench) return refused("unknown_target", *id);
+        if (*generation != bench->generation) return refused("stale_generation", *id);
+        if (!profile_.landing_pod_center || profile_.foundation_parts == 0)
+            return refused("unavailable_recipe", *id);
+        const auto cut = observe ? observe(binding.actor) : std::nullopt;
+        if (!cut) return refused("actor_unready", *id);
+        auto checked_cut = *cut;
+        checked_cut.build_reach = profile_.build_reach;
+        const auto checked = authority::check_reach(binding.actor, checked_cut,
+            {anchor(profile_, bench->center)});
+        auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
+        if (checked.error != authority::Error::none)
+            return refused(authority::error_name(checked.error), *id, std::move(facts));
+        auto candidate = state;
+        auto& carried = candidate.material.cargo.at(binding.actor);
+        if (carried.timber < foundation_timber_cost) return refused("unavailable_input", *id, std::move(facts));
+        Integer total = static_cast<Integer>(candidate.foundations.size());
+        for (const auto& [actor, count] : candidate.foundation_kits)
+            if (!add(total, count)) return refused("inventory_full", *id, std::move(facts));
+        if (total >= 256 || candidate.material.fabricated_timber >
+                std::numeric_limits<Integer>::max() - foundation_timber_cost)
+            return refused("inventory_full", *id, std::move(facts));
+        carried.timber -= foundation_timber_cost;
+        candidate.material.fabricated_timber += foundation_timber_cost;
+        const Integer count = ++candidate.foundation_kits.at(binding.actor);
+        facts.emplace("generation", Value(*generation));
+        facts.emplace("spent_timber", Value(foundation_timber_cost));
+        facts.emplace("foundation_count", Value(count));
+        return accepted(std::move(candidate), *id, std::move(facts));
     }
     if (*action == "craft_component") {
         const auto* id = field<std::string>(intent, "target");

@@ -311,6 +311,88 @@ void fabricated_transmission_stock_is_finite() {
           !factory::values::typed_difference(fresh_before, forged_target.checkpoint()),
           "A forged extra shaft fails even if its timber bill is made arithmetically conserved.");
 }
+void crafted_foundation_extends_exhausted_kit() {
+    Host host;
+    initialized(host);
+    const auto recipe = get<O>(host.projection(), "foundation_recipe");
+    check(get<I>(V(recipe), "timber") == factory::world::foundation_timber_cost &&
+          get<I>(V(recipe), "softmetal") == 0,
+          "The ordinary projection exposes the finite floor recipe cost.");
+    const O craft{{"context", V("arrival-site")}, {"client", V("P")},
+        {"request", V("make-floor")}, {"action", V("craft_foundation")},
+        {"entity", V("pod-fabrication-hub")}};
+    check(get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(4.8)}, 1), "accepted"),
+          "The actor can reach the real workshop with an empty pack.");
+    auto empty_request = craft;
+    empty_request.at("request") = V("empty-floor");
+    const auto empty = host.command("P", empty_request);
+    check(!get<bool>(empty, "accepted") && get<std::string>(empty, "reason") == "unavailable_input" &&
+          get<I>(get<O>(host.projection(), "part_kits").at("P"), "foundation") == 15,
+          "The floor recipe refuses missing timber without changing the supplied kit.");
+    check(get<bool>(host.publish_actor("P", {V(6.6), V(1.0), V(3.3)}, 2), "accepted"),
+          "The actor reaches a declared finite tree.");
+    for (int index = 0; index < 2; ++index) {
+        const O cut{{"context", V("arrival-site")}, {"client", V("P")},
+            {"request", V("floor-wood-" + std::to_string(index))},
+            {"action", V("harvest_source")}, {"target", V("tree-east-south")}};
+        check(get<bool>(host.command("P", cut), "accepted"),
+              "Foundation inputs are harvested from the finite local tree.");
+    }
+    check(get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(4.8)}, 3), "accepted"),
+          "The actor returns to the pod workshop.");
+    check(get<bool>(host.command("P", craft), "accepted") &&
+          get<I>(get<O>(host.projection(), "part_kits").at("P"), "foundation") == 16 &&
+          get<I>(get<O>(host.projection(), "cargo").at("P"), "timber") == 0,
+          "The bench exchanges exactly two carried timber for one foundation kit.");
+    check(get<bool>(host.command("P", craft), "duplicate") &&
+          get<I>(get<O>(host.projection(), "part_kits").at("P"), "foundation") == 16,
+          "Repeating the crafting receipt cannot duplicate a foundation.");
+    const O area{{"context", V("arrival-site")}, {"client", V("P")},
+        {"request", V("spend-floor-kit")}, {"action", V("place_foundations")},
+        {"cell", V(A{V(I{10}), V(I{10})})},
+        {"end_cell", V(A{V(I{13}), V(I{13})})}, {"level", V(I{0})}};
+    const auto placed = host.command("P", area);
+    check(get<bool>(placed, "accepted") &&
+          get<I>(get<O>(host.projection(), "part_kits").at("P"), "foundation") == 0,
+          "An aligned four by four expansion exhausts every original and crafted floor part.");
+    check(get<bool>(host.publish_actor("P", {V(6.6), V(1.0), V(3.3)}, 4), "accepted"),
+          "The actor returns to the same finite tree after exhausting the kit.");
+    for (int index = 2; index < 4; ++index) {
+        const O cut{{"context", V("arrival-site")}, {"client", V("P")},
+            {"request", V("floor-wood-" + std::to_string(index))},
+            {"action", V("harvest_source")}, {"target", V("tree-east-south")}};
+        check(get<bool>(host.command("P", cut), "accepted"),
+              "More floor inputs come from the declared remaining tree stock.");
+    }
+    check(get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(4.8)}, 5), "accepted"),
+          "The actor can use the same workshop after the starter kit is empty.");
+    auto later_craft = craft;
+    later_craft.at("request") = V("make-floor-after-exhaustion");
+    check(get<bool>(host.command("P", later_craft), "accepted") &&
+          get<I>(get<O>(host.projection(), "part_kits").at("P"), "foundation") == 1,
+          "An exhausted kit can gain exactly one locally crafted part.");
+    const O extra{{"context", V("arrival-site")}, {"client", V("P")},
+        {"request", V("extra-floor")}, {"action", V("place_foundation")},
+        {"cell", V(A{V(I{3}), V(I{4})})}, {"level", V(I{0})}};
+    const auto built = host.command("P", extra);
+    check(get<bool>(built, "accepted") &&
+          get<I>(get<O>(host.projection(), "part_kits").at("P"), "foundation") == 0,
+          "The extra floor joins the common grid after starter stock is exhausted.");
+    const O reclaim{{"context", V("arrival-site")}, {"client", V("P")},
+        {"request", V("reclaim-extra-floor")}, {"action", V("remove")},
+        {"entity", V(get<std::string>(built, "entity"))}};
+    check(get<bool>(host.command("P", reclaim), "accepted") &&
+          get<I>(get<O>(host.projection(), "part_kits").at("P"), "foundation") == 1,
+          "Reclaim returns the same crafted foundation to the actor's finite kit.");
+    const auto saved = host.checkpoint();
+    check(get<bool>(host.validate_checkpoint(saved), "accepted"),
+          "The crafted, placed and reclaimed floor has valid native history.");
+    Host restored;
+    initialized(restored);
+    check(get<bool>(restored.restore_checkpoint(saved), "accepted") &&
+          !factory::values::typed_difference(saved, restored.checkpoint()),
+          "A fresh Host restores the expanded floors and reclaimed part without minting stock.");
+}
 }  // namespace
 
 int main() {
@@ -319,6 +401,7 @@ int main() {
         historical_initializer_keeps_its_fixture_kit();
         unique_crank_custody_survives_host_restore();
         fabricated_transmission_stock_is_finite();
+        crafted_foundation_extends_exhausted_kit();
         std::cout << "arrival_host_test: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {

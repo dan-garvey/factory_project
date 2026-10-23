@@ -448,6 +448,9 @@ bool historical_wire(const authority::Record& record) {
         return *original_action == "craft_component" && keys(*wire, {"entity", "component"}) &&
             field<std::string>(*wire, "entity") && field<std::string>(*wire, "component") &&
             same("entity", "target") && same("component", "component");
+    if (*action == "craft_foundation")
+        return *original_action == "craft_foundation" && keys(*wire, {"entity"}) &&
+            field<std::string>(*wire, "entity") && same("entity", "target");
     if (*action == "field_craft")
         return *original_action == "field_craft" && keys(*wire, {"component"}) &&
             field<std::string>(*wire, "component") && same("component", "component");
@@ -1543,6 +1546,13 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.emplace("generation", Value(snapshot.state.freight_beacon &&
             snapshot.state.freight_beacon->id == *field<std::string>(wire, "entity") ?
             snapshot.state.freight_beacon->generation : Integer{0}));
+    } else if (*action == "craft_foundation") {
+        if (!keys(wire, {"entity"}) || !field<std::string>(wire, "entity"))
+            return refuse("invalid_command");
+        normalized.at("action") = Value("craft_foundation");
+        normalized.emplace("target", wire.at("entity"));
+        normalized.emplace("generation", Value(crafting_bench_generation(snapshot.state,
+            *field<std::string>(wire, "entity"))));
     } else if (*action == "craft_component") {
         if (!keys(wire, {"entity", "component"}) || !field<std::string>(wire, "entity") ||
             !field<std::string>(wire, "component")) return refuse("invalid_command");
@@ -2563,6 +2573,8 @@ Value Host::projection() const {
                 {"teeth", Value(spec.teeth)}, {"half_span", Value(spec.half_span)},
                 {"timber", Value(cost.timber)}, {"softmetal", Value(cost.ore)}});
         projection.emplace("part_recipes", Value(std::move(fabrication)));
+        projection.emplace("foundation_recipe", Value(Object{{"timber", Value(world::foundation_timber_cost)},
+            {"softmetal", Value(Integer{0})}}));
         projection.emplace("component_capacity", Value(profile_.material.component_capacity));
         const auto& beacon = *state.freight_beacon;
         projection.emplace("freight_beacon", Value(Object{{"id", Value(beacon.id)},
