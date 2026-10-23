@@ -337,6 +337,7 @@ class ArrivalAssemblyControls:
 	var _press_page := false
 	var component_choice: OptionButton
 	var bench_choice: OptionButton
+	var pod_workshop_button: Button
 	var craft_button: Button
 	var field_craft_button: Button
 	var part_choice: OptionButton
@@ -385,6 +386,7 @@ class ArrivalAssemblyControls:
 		bench_choice.name = "FabricationBenchChoice"
 		bench_choice.item_selected.connect(_bench_selected)
 		craft_section.add_child(bench_choice)
+		pod_workshop_button = host._button(craft_section, "Stow pod workshop", _pod_workshop)
 		recipe_label = host._label(craft_section, "", 12, Color("bfd1cc"))
 		var component_actions := VBoxContainer.new()
 		craft_section.add_child(component_actions)
@@ -486,6 +488,10 @@ class ArrivalAssemblyControls:
 			if bench.id == selected_bench:
 				bench_choice.select(bench_choice.item_count - 1)
 		bench_choice.disabled = not ready or benches.is_empty()
+		pod_workshop_button.visible = not pod.is_empty()
+		pod_workshop_button.disabled = not ready or (not pod.get("installed", false) and pod.get("holder") != actor)
+		pod_workshop_button.text = "Stow pod workshop" if pod.get("installed", false) else \
+			"Place carried pod workshop" if pod.get("holder") == actor else "Pod workshop carried by another worker"
 		var total_parts := 0
 		for amount in components.values():
 			total_parts += int(amount)
@@ -671,6 +677,16 @@ class ArrivalAssemblyControls:
 	func _bench_selected(index: int) -> void:
 		if index >= 0 and index < _bench_ids.size():
 			selected_bench = _bench_ids[index]
+
+	func _pod_workshop() -> void:
+		var host = _host_view()
+		var pod: Dictionary = _snapshot.get("fabrication_hub", {})
+		if host == null or pod.is_empty():
+			return
+		if pod.get("installed", false):
+			host.issue({"action": "stow_fabrication_hub", "entity": pod.id})
+		elif pod.get("holder") == _actor:
+			host._select_tool("pod_workshop")
 
 	func _craft() -> void:
 		var host = _host_view()
