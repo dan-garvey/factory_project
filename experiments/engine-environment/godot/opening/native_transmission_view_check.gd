@@ -202,6 +202,38 @@ func _component_fixture() -> Dictionary:
 			"status": "ready", "parts": {"frame": "frame", "mount": "mount",
 			"edge": "edge", "receiver": "tray", "shaft": "shaft"}}]}
 
+func _supplied_hardware_view() -> void:
+	var model := NativeModel.new("supplied-hardware-view", ["P"], true)
+	verify(model.boot_result.get("accepted", false), "The supplied-hardware view boots the actual native arrival projection.")
+	if not model.boot_result.get("accepted", false):
+		return
+	var host := HostStub.new()
+	host.state = model.projection()
+	var occupied: Dictionary = Geometry.component_boxes(host.state)
+	verify(occupied.get("accepted", false) and occupied.boxes.size() == 20,
+		"All twenty supplied solids remain available to the physics consumer.")
+	var view := Presenter.new()
+	root.add_child(view)
+	view.configure(host)
+	verify(view.find_children("*", "Node3D", false, false).is_empty(),
+		"Supplied collision proxies do not create component artwork or pick bodies.")
+	host.state.placed_components["player-frame"] = _component_record("wooden_frame",
+		[40, 0, 0], [16.5, 0.45, 0.0], [0.2025, 0.45, 0.2025])
+	view.refresh()
+	var identities: Array = []
+	for node: Node in view.get_children():
+		if node.has_meta("component_entity"):
+			identities.append(node.get_meta("component_entity"))
+	verify(identities == ["player-frame"],
+		"The same view renders the actual placed component without supplied proxy duplicates.")
+	verify(Geometry.component_boxes(host.state).boxes.size() == 21,
+		"Filtering presentation does not remove supplied collision or the placed occupied box.")
+	host.state.placed_components.clear()
+	view.refresh()
+	verify(view.get_child_count() == 0,
+		"Removing the placed component leaves no proxy artwork behind.")
+	view.free()
+
 func _component_view() -> void:
 	# Invented native facts exercise only the existing view and Godot physics.
 	var facts := PhysicalProjection.new()
@@ -2534,7 +2566,9 @@ func _run() -> void:
 	if "--scale-benchmark" in OS.get_cmdline_user_args():
 		await _scale_benchmark()
 		return
-	if "--component-boxes-only" in OS.get_cmdline_user_args():
+	if "--supplied-hardware-only" in OS.get_cmdline_user_args():
+		_supplied_hardware_view()
+	elif "--component-boxes-only" in OS.get_cmdline_user_args():
 		await _component_view()
 	elif "--press-components-only" in OS.get_cmdline_user_args():
 		await _press_component_view()
