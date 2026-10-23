@@ -91,7 +91,10 @@ func check_reveal_controls() -> void:
 		"Finishing the reveal clears queued keys and jump before ordinary input resumes.")
 	verify(view.model == null and view.request_sequence == 0,
 		"Reveal boundary release constructs no live Model and submits no gameplay request.")
+	# Let the stopped audio playback release its stream before this short-lived tree exits.
+	await create_timer(0.2).timeout
 	free_control_view(view)
+	await process_frame
 	finish_checks()
 
 func check_manager_controls() -> void:
