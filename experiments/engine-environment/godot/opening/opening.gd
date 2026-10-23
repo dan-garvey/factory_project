@@ -6827,7 +6827,9 @@ func _sync_freight_beacon_visual() -> void:
 		freight_beacon_visual.add_child(point)
 		var label := Label3D.new()
 		label.name = "ShipmentLabel"
-		label.position.y = 0.50
+		# The pick body reaches eye height. Keep its label in the same near
+		# first-person view while the separate glyph marks the ground anchor.
+		label.position.y = 1.22
 		label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 		label.fixed_size = true
 		label.no_depth_test = false
@@ -6854,7 +6856,7 @@ func _sync_freight_beacon_visual() -> void:
 	var carried: bool = int(state.get("cargo", {}).get(client, {}).get("products", 0)) > 0
 	var caption := "FREIGHT"
 	if first_received:
-		caption = "%d / %d" % [repeat_shipped, repeat_target]
+		caption = "FREIGHT · %d / %d" % [repeat_shipped, repeat_target]
 		if carried:
 			caption = "SHIP [E]" if _can_control_character() else "PLATE READY"
 	elif carried:
