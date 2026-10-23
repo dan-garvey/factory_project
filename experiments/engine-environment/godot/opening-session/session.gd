@@ -28,6 +28,14 @@ var _transport: ENetMultiplayerPeer
 var _cache: Dictionary = {}
 var _pending_state: Dictionary = {}
 var _state_flush_queued := false
+var _pending_pose: Dictionary = {}
+var _pose_flush_queued := false
+var _native_authority := false
+var _full_revision := -1
+var _full_order := -1
+var _pose_actors: Dictionary = {}
+var _full_inflight: Dictionary = {}
+var _full_latest: Dictionary = {}
 var _sent: Dictionary = {}
 var _bindings: Dictionary = {}
 var _roles: Dictionary = {}
@@ -84,6 +92,7 @@ func serve_loopback(port: int, frozen_clock := false, physical_profile := false,
 	_transport = peer
 	multiplayer.multiplayer_peer = peer
 	_authoritative = true
+	_native_authority = native_authority
 	_ready_for_commands = true
 	context = next_context
 	world = candidate
@@ -98,6 +107,11 @@ func start_physical_world() -> Error:
 		return ERR_UNAVAILABLE
 	if actor_world != null:
 		return ERR_ALREADY_IN_USE
+	if _native_authority:
+		var initial: Dictionary = world.projection()
+		_full_revision = initial.revision
+		_full_order = initial.order
+		_capture_pose_actors(initial)
 	var adapter = load("res://opening/actor_world.gd")
 	if adapter == null:
 		return ERR_UNAVAILABLE
@@ -140,13 +154,36 @@ func _actor_pose(actor_id: String, sample: Dictionary) -> void:
 		return
 	if not sample.get("ready", false):
 		world.invalidate_actor(actor_id)
-		_broadcast(_frame())
+		_publish_actor_state(actor_id)
 		return
 	var result: Dictionary = world.publish_actor(actor_id, sample.get("position", []), sample.get("native_epoch", 0))
 	if not result.accepted:
 		actor_error = result.reason
 		world.invalidate_actor(actor_id)
-	_broadcast(_frame())
+	_publish_actor_state(actor_id)
+
+func _capture_pose_actors(view: Dictionary) -> void:
+	_pose_actors.clear()
+	for actor_id in view.get("actors", {}):
+		var actor: Dictionary = view.actors[actor_id]
+		_pose_actors[actor_id] = {"ready": actor.ready, "position": actor.position,
+			"native_epoch": actor.native_epoch}
+
+func _publish_actor_state(actor_id: String) -> void:
+	if not _native_authority:
+		_broadcast(_frame())
+		return
+	var observed: Dictionary = world.actor_projection(actor_id)
+	if not observed.get("accepted", false) or not _pose_actors.has(actor_id):
+		_broadcast(_frame())
+		return
+	_pose_actors[actor_id] = {"ready": observed.ready, "position": observed.position,
+		"native_epoch": observed.native_epoch}
+	last_serial += 1
+	var frame := {"context": context, "serial": last_serial, "revision": _full_revision,
+		"order": _full_order, "actors": _pose_actors.duplicate(true)}
+	for peer in _bindings:
+		_wire_pose.rpc_id(peer, frame)
 
 func _actor_initialization_failed(actor_id: String, reason: String) -> void:
 	actor_error = actor_id + ":" + reason
@@ -291,15 +328,39 @@ func _process(delta: float) -> void:
 		_elapsed -= _tick_seconds
 		world.advance()
 		tick_count += 1
-		_broadcast(_frame())
+		var frame := _frame()
+		if not _native_authority or frame.snapshot.revision != _full_revision or frame.snapshot.order != _full_order:
+			_broadcast(frame)
 
-func _frame() -> Dictionary:
+func _frame(view: Dictionary = {}) -> Dictionary:
 	last_serial += 1
-	return {"context": context, "serial": last_serial, "snapshot": world.projection()}
+	return {"context": context, "serial": last_serial,
+		"snapshot": world.projection() if view.is_empty() else view}
+
+func _queue_full(peer: int, frame: Dictionary) -> void:
+	# At most one reliable full view can be in flight per peer. Keep only the
+	# latest replacement while that peer catches up on independent channel 2.
+	if _full_inflight.has(peer):
+		_full_latest[peer] = frame
+		return
+	_full_inflight[peer] = frame.serial
+	if rpc_id(peer, "_wire_full", frame) != OK:
+		_full_inflight.erase(peer)
+		_full_latest[peer] = frame
 
 func _broadcast(frame: Dictionary) -> void:
+	if _native_authority:
+		_full_revision = frame.snapshot.revision
+		_full_order = frame.snapshot.order
+		_capture_pose_actors(frame.snapshot)
 	for peer in _bindings:
-		_wire_state.rpc_id(peer, frame)
+		if _native_authority:
+			if _bindings[peer].get("state_ready", false):
+				_queue_full(peer, frame)
+			else:
+				_full_latest[peer] = frame
+		else:
+			_wire_state.rpc_id(peer, frame)
 
 @rpc("any_peer", "call_remote", "reliable")
 func _wire_join(requested_role: String) -> void:
@@ -323,9 +384,11 @@ func _wire_join(requested_role: String) -> void:
 		_wire_refused.rpc_id(sender, "actor_unready")
 		return
 	var namespace_value := "session-" + Crypto.new().generate_random_bytes(16).hex_encode() + "-"
-	_bindings[sender] = {"actor": requested_role, "namespace": namespace_value}
-	_roles[requested_role] = sender
 	var frame := _frame()
+	_bindings[sender] = {"actor": requested_role, "namespace": namespace_value,
+		"state_ready": false, "welcome_revision": frame.snapshot.revision,
+		"welcome_order": frame.snapshot.order}
+	_roles[requested_role] = sender
 	frame["actor"] = requested_role
 	frame["namespace"] = namespace_value
 	_wire_welcome.rpc_id(sender, frame)
@@ -463,6 +526,9 @@ func _wire_welcome(frame: Dictionary) -> void:
 	last_serial = frame.serial
 	_ready_for_commands = true
 	_connect_started_msec = -1
+	if rpc_id(1, "_wire_client_ready", request_namespace) != OK:
+		_lost("state_ready_send_failed")
+		return
 	welcomed.emit(actor, request_namespace, _cache.duplicate(true))
 	changed.emit(_cache.duplicate(true))
 
@@ -504,10 +570,108 @@ func _flush_state() -> void:
 	if not frame.is_empty():
 		_apply_frame(frame, true)
 
+func _valid_pose(frame: Dictionary) -> bool:
+	if not (frame.get("context") == context and frame.get("serial") is int
+			and frame.get("revision") is int and frame.get("order") is int
+			and frame.get("actors") is Dictionary and _cache.get("actors") is Dictionary):
+		return false
+	var actors: Dictionary = frame.actors
+	if actors.size() != _cache.actors.size():
+		return false
+	for actor_id in _cache.actors:
+		if not actors.get(actor_id) is Dictionary:
+			return false
+		var actor: Dictionary = actors[actor_id]
+		if not (actor.get("ready") is bool and actor.get("position") is Array
+				and actor.position.size() == 3 and actor.get("native_epoch") is int
+				and actor.native_epoch >= 0):
+			return false
+		for coordinate in actor.position:
+			if not (coordinate is float or coordinate is int) or not is_finite(float(coordinate)):
+				return false
+	return true
+
+func _apply_pose(frame: Dictionary) -> void:
+	if not _ready_for_commands or not _valid_pose(frame):
+		return
+	if frame.serial <= last_serial or frame.revision != _cache.revision or frame.order != _cache.order:
+		stale_views += 1
+		return
+	if not _pending_pose.is_empty() and frame.serial <= _pending_pose.serial:
+		stale_views += 1
+		return
+	_pending_pose = frame
+	if not _pose_flush_queued:
+		_pose_flush_queued = true
+		call_deferred("_flush_pose")
+
+func _flush_pose() -> void:
+	var frame := _pending_pose
+	_pending_pose = {}
+	_pose_flush_queued = false
+	if frame.is_empty() or not _ready_for_commands or not _valid_pose(frame):
+		return
+	if frame.serial <= last_serial or frame.revision != _cache.revision or frame.order != _cache.order:
+		stale_views += 1
+		return
+	var view: Dictionary = _cache.duplicate()
+	var actors: Dictionary = _cache.actors.duplicate()
+	for actor_id in frame.actors:
+		var actor: Dictionary = actors[actor_id].duplicate()
+		actor.merge(frame.actors[actor_id], true)
+		actors[actor_id] = actor
+	view.actors = actors
+	_cache = view
+	last_serial = frame.serial
+	changed.emit(_cache.duplicate(true))
+
 @rpc("authority", "call_remote", "unreliable_ordered", 1)
 func _wire_state(frame: Dictionary) -> void:
 	if not _authoritative and multiplayer.get_remote_sender_id() == 1:
 		_apply_frame(frame)
+
+@rpc("authority", "call_remote", "reliable", 2)
+func _wire_full(frame: Dictionary) -> void:
+	if not _authoritative and _ready_for_commands and multiplayer.get_remote_sender_id() == 1 \
+			and _valid_frame(frame) and frame.context == context:
+		_apply_frame(frame)
+		_wire_full_ack.rpc_id(1, frame.serial)
+
+@rpc("any_peer", "call_remote", "reliable")
+func _wire_client_ready(namespace_value: String) -> void:
+	if not _authoritative:
+		return
+	var sender := multiplayer.get_remote_sender_id()
+	if not _bindings.has(sender) or _bindings[sender].namespace != namespace_value \
+			or _bindings[sender].get("state_ready", false):
+		return
+	var binding: Dictionary = _bindings[sender]
+	binding.state_ready = true
+	_bindings[sender] = binding
+	var current: Dictionary = world.projection()
+	var changed_while_joining: bool = _full_latest.has(sender)
+	_full_latest.erase(sender)
+	if _native_authority and (changed_while_joining or current.revision != binding.welcome_revision
+			or current.order != binding.welcome_order):
+		_queue_full(sender, _frame(current))
+
+@rpc("any_peer", "call_remote", "reliable")
+func _wire_full_ack(serial: int) -> void:
+	if not _authoritative:
+		return
+	var sender := multiplayer.get_remote_sender_id()
+	if not _bindings.has(sender) or _full_inflight.get(sender, -1) != serial:
+		return
+	_full_inflight.erase(sender)
+	var latest: Dictionary = _full_latest.get(sender, {})
+	_full_latest.erase(sender)
+	if not latest.is_empty():
+		_queue_full(sender, latest)
+
+@rpc("authority", "call_remote", "unreliable_ordered", 1)
+func _wire_pose(frame: Dictionary) -> void:
+	if not _authoritative and multiplayer.get_remote_sender_id() == 1:
+		_apply_pose(frame)
 
 @rpc("authority", "call_remote", "reliable")
 func _wire_outcome(envelope: Dictionary) -> void:
@@ -528,6 +692,8 @@ func _peer_lost(peer: int) -> void:
 			actor_world.release_control(binding.actor)
 			_record_control({"peer": peer, "actor": binding.actor, "accepted": true, "reason": "disconnect_release", "physics_frame": Engine.get_physics_frames()})
 		_control_received.erase(peer)
+		_full_inflight.erase(peer)
+		_full_latest.erase(peer)
 		_roles.erase(binding.actor)
 		_bindings.erase(peer)
 		lifecycle.append({"event": "lost", "actor": binding.actor, "peer": peer})
@@ -542,6 +708,8 @@ func _peer_lost(peer: int) -> void:
 func _lost(reason: String) -> void:
 	_pending_state = {}
 	_state_flush_queued = false
+	_pending_pose = {}
+	_pose_flush_queued = false
 	var notify := _transport != null or _ready_for_commands
 	_ready_for_commands = false
 	_connect_started_msec = -1

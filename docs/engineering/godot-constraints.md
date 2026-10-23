@@ -1290,19 +1290,33 @@ animation; those require their own actual consumer evidence.
 
 ## GDC-24: replaceable shared views must not queue behind old actor samples
 
-The shared adapter publishes full state while native bodies move. Reliable
-delivery of every superseded pose can leave a slow rendered client displaying
-old positions and stock. Session uses ordered unreliable channel 1 for these
-replaceable snapshots and coalesces each received burst before cloning state and
-notifying the view. Welcome, input, commands and original outcomes remain reliable
-on channel 0; outcomes are processed immediately, with monotonic view checks.
-This changes presentation delivery, not the World clock or actor authority.
+The shared adapter originally published full state while native bodies moved.
+The native P/Q opening at `921940f` warned that its approximately 16.8 KB
+unreliable packet exceeded the pinned 1392-byte ENet MTU; the host advanced
+28,549 transport serials during 518 World ticks. Fragment loss could hide a
+whole view. Native Session now sends a compact two-actor view on ordered
+unreliable channel 1 and sends full state reliably on independent channel 2
+only when World revision or request order changes. The scripted Model retains
+its earlier full-state delivery. Welcome, input, commands and original outcomes
+remain reliable on channel 0. A welcome acknowledgement establishes the native
+full-state boundary; one full state may be in flight per peer, and a newer
+pending state replaces the older one until that peer acknowledges receipt.
+Both incoming streams coalesce and obey serial, revision and order watermarks.
+This changes presentation delivery, not the
+World clock or actor authority.
+
+The focused two-actor payload check encodes below 1,100 bytes. In the native
+loopback consumer, P's server-owned X position moved from 1.65 to 2.20 while
+Q's ordinary shared view observed it at 2.10 with unchanged World revision and
+stock. The corrected server logged no oversized packet warning during that
+motion, the P/Q construction/refusal run, or the fresh Store continuation.
 
 Godot's [transfer-mode and channel documentation](https://docs.godotengine.org/en/stable/tutorials/networking/high_level_multiplayer.html#channels)
 describes the independent streams. The [pinned ENet implementation](https://github.com/godotengine/godot/blob/ed1daf0bf/modules/enet/enet_multiplayer_peer.cpp#L315)
-supports unreliable fragmentation. Large full-state packets can lose fragments;
-continued publication supplies a newer view. This is a bounded loopback adapter,
-not a claim of production networking, packet-loss tolerance or scale acceptance.
+supports unreliable fragmentation. A lost compact native actor view is replaced
+by a later one, while a native material change uses reliable full delivery.
+This remains a bounded loopback adapter, not a claim of production networking,
+packet-loss tolerance or scale acceptance.
 
 ## GDC-25: grouping opaque machine finishes reduces render surfaces
 

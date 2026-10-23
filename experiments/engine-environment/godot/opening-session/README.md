@@ -51,16 +51,21 @@ context and monotonic transport sequence/revision/order. Retries reuse the exact
 original intent within that connection. An old connection namespace refuses
 after rejoin while the original Model request cache and work remain retained.
 
-Ordinary full-state packets received in one poll are coalesced to the newest
-monotonic state before cloning the projection and notifying the view. Rebuilding
-the UI for every queued actor sample can leave the displayed character far
-behind its server-owned body. These replaceable snapshots use ordered unreliable
-channel 1, so an unacknowledged old view cannot hold up command traffic. Welcome,
-commands, controls and every original outcome remain reliable on channel 0.
-Continuous full-state publication replaces a lost snapshot. Outcomes immediately
-publish their snapshots and preserve every original result. A newer
-queued state may follow; an older state cannot roll it back. Disconnect clears
-pending delivery while preserving the last confirmed read-only projection.
+Native actor samples carry both current actors in a compact replaceable packet
+on ordered unreliable channel 1. Only changed native World revisions or request
+orders send a full state, reliably on independent channel 2. The older scripted
+Model still sends its full replaceable states on channel 1. Received full states
+are coalesced within a poll before rebuilding the view; actor samples are also
+coalesced. A joined peer acknowledges its welcome before native full-state
+delivery; the server keeps at most one full state in flight per peer and replaces
+any waiting full state with the newest one. Welcome, commands, controls and
+every original outcome remain reliable on channel 0. A lost actor sample is
+replaced by the next one. A material change arrives as a full reliable state.
+Outcomes immediately publish their snapshots and preserve every original result.
+Serial, revision
+and order checks prevent either channel from rolling the client view back.
+Disconnect clears pending delivery while preserving the last confirmed
+read-only projection.
 
 The server binds each role and namespace to its actual ENet peer. Claimed actor,
 context and namespace mismatches refuse before reaching Model commands. The
