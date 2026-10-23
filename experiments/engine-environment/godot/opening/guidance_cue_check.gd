@@ -326,19 +326,19 @@ func check_freight_beacon_view() -> void:
 		and view.freight_beacon_visual.get_meta("freight_beacon") == beacon.id
 		and marker != null and marker.billboard == BaseMaterial3D.BILLBOARD_ENABLED,
 		"The native beacon has a camera-facing shipment label.")
-	verify(view.freight_beacon_visual.find_children("*", "MeshInstance3D", true, false).size() == 8
-		and view.freight_beacon_visual.get_node_or_null("GroundPad") is MeshInstance3D
-		and view.freight_beacon_visual.get_node_or_null("ReceivingSlot") is MeshInstance3D
-		and not marker.fixed_size and not marker.no_depth_test,
-		"The native freight point has a grounded visible receiver and a depth-tested attached cue.")
+	var point: Label3D = view.freight_beacon_visual.get_node_or_null("ShipmentPoint")
+	verify(view.freight_beacon_visual.find_children("*", "MeshInstance3D", true, false).is_empty()
+		and point != null and point.visible and point.fixed_size and not point.no_depth_test
+		and point.position.y < 0.15 and marker.fixed_size and not marker.no_depth_test,
+		"The shipment destination has legible depth-tested interface glyphs anchored to the ground without prebuilt machinery.")
 	verify(view.freight_beacon_visual.collision_layer == Opening.Geometry.PICK_LAYER
 		and view.freight_beacon_visual.collision_mask == 0,
-		"The dispatch pylon adds only selection, not actor collision or construction authority.")
+		"The shipment cue retains the native selection layer and unchanged actor collision.")
 	var position: Array = beacon.position
 	verify(is_equal_approx(view.freight_beacon_visual.position.x, float(position[0]))
 		and is_equal_approx(view.freight_beacon_visual.position.z, float(position[2]))
 		and beacon.center == [6, 0, 4],
-		"The visible dispatch pylon retains the native world-space point east of the pod.")
+		"The shipment cue retains the native world-space point east of the pod.")
 	for _frame in range(3):
 		await physics_frame
 	view.camera.position = view.freight_beacon_visual.position + Vector3(0, 2.0, 5.0)
@@ -354,7 +354,7 @@ func check_freight_beacon_view() -> void:
 	view.camera.look_at(view.freight_beacon_visual.position + Vector3(0, 2.5, 0))
 	var high_hit := view._screen_pick(root.get_visible_rect().size / 2.0)
 	verify(high_hit.is_empty() or high_hit.collider != view.freight_beacon_visual,
-		"The dispatch pylon has no invisible tall selection body.")
+		"The shipment cue has no invisible tall selection body.")
 	view.camera.position = view.freight_beacon_visual.position + Vector3(0, 2.0, 5.0)
 	view.camera.look_at(view.freight_beacon_visual.position + Vector3(0, 1.3, 0))
 	view.state.actors.P.ready = true
@@ -396,7 +396,8 @@ func check_freight_beacon_view() -> void:
 		"The shared marker cannot borrow another actor's carried product.")
 	var original := view.freight_beacon_visual
 	view._sync_freight_beacon_visual()
-	verify(view.freight_beacon_visual == original and view.freight_beacon_visual.get_node_or_null("ShipmentLabel") == marker,
+	verify(view.freight_beacon_visual == original and view.freight_beacon_visual.get_node_or_null("ShipmentLabel") == marker
+		and view.freight_beacon_visual.get_node_or_null("ShipmentPoint") == point,
 		"Unchanged refresh preserves the marker and label identities.")
 	view.state.freight_beacon.order_complete = true
 	view.state.freight_beacon.shipped_products = 1
@@ -454,7 +455,8 @@ func check_freight_beacon_view() -> void:
 	shared._refresh_ui()
 	verify("REPEAT ORDER · DELIVERED" in view.goal_label.text
 		and "REPEAT ORDER · DELIVERED" in shared.goal_label.text
-		and marker != null and not marker.visible and not remote_label.visible
+		and marker != null and not marker.visible and not remote_label.visible and not point.visible
+		and not shared.freight_beacon_visual.get_node("ShipmentPoint").visible
 		and view.freight_beacon_visual.collision_layer == 0
 		and shared.freight_beacon_visual.collision_layer == 0,
 		"The fourth confirmed receipt closes both prompts without leaving receiver hardware.")

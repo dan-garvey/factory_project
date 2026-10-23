@@ -6806,39 +6806,29 @@ func _sync_freight_beacon_visual() -> void:
 		freight_beacon_visual.collision_mask = 0
 		freight_beacon_visual.set_meta("freight_beacon", beacon.id)
 		add_child(freight_beacon_visual)
-		# A fixed Meridian dispatch point, not a player-built factory machine.
-		# Its visible body and pick shape share the native beacon's ground anchor.
-		var display_scale := 0.83
-		_box(freight_beacon_visual, Vector3(0, 0.08, 0) * display_scale,
-			Vector3(1.14, 0.16, 0.82) * display_scale,
-			Color("273c43")).name = "GroundPad"
-		for side in [-1.0, 1.0]:
-			_box(freight_beacon_visual, Vector3(side * 0.46, 0.84, -0.07) * display_scale,
-				Vector3(0.13, 1.48, 0.24) * display_scale, Color("344a50")).name = \
-				"DispatchUprightLeft" if side < 0 else "DispatchUprightRight"
-		_box(freight_beacon_visual, Vector3(0, 1.61, -0.07) * display_scale,
-			Vector3(1.05, 0.16, 0.25) * display_scale,
-			Color("344a50")).name = "DispatchHeader"
-		_box(freight_beacon_visual, Vector3(0, 0.94, -0.21) * display_scale,
-			Vector3(0.80, 0.98, 0.12) * display_scale,
-			Color("20343b")).name = "ReceiverBack"
-		_box(freight_beacon_visual, Vector3(0, 1.02, -0.13) * display_scale,
-			Vector3(0.68, 0.32, 0.09) * display_scale,
-			Color("0c1b23")).name = "ReceivingSlot"
-		_box(freight_beacon_visual, Vector3(0, 0.80, 0.00) * display_scale,
-			Vector3(0.74, 0.08, 0.42) * display_scale,
-			Color("d7a357")).name = "CargoSill"
-		_box(freight_beacon_visual, Vector3(0, 1.67, 0.09) * display_scale,
-			Vector3(0.78, 0.035, 0.035) * display_scale,
-			Color("efbc6c")).name = "SignalBar"
+		# Interface glyphs share the native destination's ground anchor.
+		var point := Label3D.new()
+		point.name = "ShipmentPoint"
+		point.text = "▽"
+		point.position.y = 0.10
+		point.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		point.fixed_size = true
+		point.no_depth_test = false
+		point.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+		point.font_size = 28
+		point.pixel_size = 0.00075
+		point.outline_size = 6
+		point.outline_modulate = Color("11282e")
+		point.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		freight_beacon_visual.add_child(point)
 		var label := Label3D.new()
 		label.name = "ShipmentLabel"
-		label.position = Vector3(0, 1.71, 0.17) * display_scale
+		label.position.y = 0.50
 		label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-		label.fixed_size = false
+		label.fixed_size = true
 		label.no_depth_test = false
-		label.font_size = 36
-		label.pixel_size = 0.0015
+		label.font_size = 32
+		label.pixel_size = 0.00075
 		label.outline_size = 6
 		label.outline_modulate = Color("11282e")
 		label.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -6877,6 +6867,9 @@ func _sync_freight_beacon_visual() -> void:
 			label.horizontal_alignment = alignment
 	label.modulate = Color("efbc6c") if carried else Color("d8e6dc")
 	label.visible = not delivered
+	var point: Label3D = freight_beacon_visual.get_node("ShipmentPoint")
+	point.modulate = label.modulate
+	point.visible = label.visible
 	freight_beacon_visual.collision_layer = 0 if delivered else Geometry.PICK_LAYER
 
 func _maybe_start_arrival_reveal() -> void:
