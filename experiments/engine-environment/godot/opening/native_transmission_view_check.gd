@@ -165,6 +165,19 @@ func _component_view() -> void:
 	verify(anchors.size() == 5 and anchors.frame.get_node_or_null("GroundedPost") != null
 		and anchors.tray.get_node_or_null("OpenPan") != null,
 		"The confirmed parts render separately with a grounded frame and open receiver.")
+	var formed_stock := 0
+	var joinery_pegs := 0
+	for child: Node in anchors.frame.get_children():
+		if child is MeshInstance3D and child.mesh is ArrayMesh:
+			formed_stock += 1
+			verify(child.mesh.surface_get_arrays(0)[Mesh.ARRAY_TEX_UV].size() > 0,
+				"Frame timber and iron use world-sized UVs on beveled stock, not raw boxes.")
+		if child is MeshInstance3D and str(child.name).begins_with("JoineryPeg"):
+			joinery_pegs += 1
+			verify(is_equal_approx(child.position.y, 0.384),
+				"Each visible post peg is seated in the confirmed work bed.")
+	verify(formed_stock == 13 and joinery_pegs == 4,
+		"The grounded frame keeps four posts and shoes, two braces, a bed, two straps and four pegged joints.")
 	var clamp: Node3D = anchors.mount.get_node_or_null("CastToolClamp")
 	verify(clamp != null and clamp.get_child_count() == 2
 		and clamp.get_node_or_null("ClampCastBody") is MeshInstance3D

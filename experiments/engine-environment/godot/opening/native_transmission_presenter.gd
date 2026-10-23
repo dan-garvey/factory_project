@@ -334,11 +334,12 @@ func _support_mesh(part: Dictionary, id: String, key: String) -> ArrayMesh:
 	return mesh
 
 func _support_box(parent: Node3D, name_value: String, at: Vector3, size: Vector3,
-		material: Material) -> void:
+		material: Material, formed := false) -> void:
 	var mesh := MeshInstance3D.new()
 	mesh.name = name_value
-	var shape := BoxMesh.new()
-	shape.size = size
+	var shape: Mesh = Visuals.box_mesh(size) if formed else BoxMesh.new()
+	if shape is BoxMesh:
+		(shape as BoxMesh).size = size
 	mesh.mesh = shape
 	mesh.position = at
 	mesh.material_override = material
@@ -359,14 +360,16 @@ func _support_cylinder(parent: Node3D, name_value: String, radius: float, height
 	return mesh
 
 func _support_beam(parent: Node3D, name_value: String, a: Vector3, b: Vector3,
-		width: float, material: Material) -> void:
+		width: float, material: Material, formed := false) -> void:
 	var direction := b - a
 	if direction.length_squared() < 0.000001:
 		return
 	var mesh := MeshInstance3D.new()
 	mesh.name = name_value
-	var shape := BoxMesh.new()
-	shape.size = Vector3(width, direction.length(), width)
+	var dimensions := Vector3(width, direction.length(), width)
+	var shape: Mesh = Visuals.box_mesh(dimensions) if formed else BoxMesh.new()
+	if shape is BoxMesh:
+		(shape as BoxMesh).size = dimensions
 	mesh.mesh = shape
 	var along := direction.normalized()
 	var reference := Vector3.RIGHT if absf(along.dot(Vector3.RIGHT)) < 0.95 else Vector3.BACK
@@ -1018,14 +1021,18 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3) -
 		"wooden_frame":
 			for x in [-0.155, 0.155]:
 				for z in [-0.155, 0.155]:
-					_support_box(anchor, "GroundedPost", Vector3(x, -0.05, z), Vector3(0.055, 0.80, 0.055), timber)
-					_support_box(anchor, "PostShoe", Vector3(x, -0.415, z), Vector3(0.09, 0.045, 0.09), dark)
+					_support_box(anchor, "GroundedPost", Vector3(x, -0.05, z), Vector3(0.055, 0.80, 0.055), timber, true)
+					_support_box(anchor, "PostShoe", Vector3(x, -0.415, z), Vector3(0.09, 0.045, 0.09), dark, true)
 			for z in [-0.155, 0.155]:
 				_support_beam(anchor, "SideBrace", Vector3(-0.14, -0.29, z),
-					Vector3(0.14, 0.22, z), 0.035, timber)
-			_support_box(anchor, "OpenWorkBed", Vector3(0, 0.35, 0), Vector3(0.37, 0.06, 0.37), timber)
+					Vector3(0.14, 0.22, z), 0.035, timber, true)
+			_support_box(anchor, "OpenWorkBed", Vector3(0, 0.35, 0), Vector3(0.37, 0.06, 0.37), timber, true)
 			for z in [-0.155, 0.155]:
-				_support_box(anchor, "BedIron", Vector3(0, 0.385, z), Vector3(0.35, 0.012, 0.025), worked)
+				_support_box(anchor, "BedIron", Vector3(0, 0.385, z), Vector3(0.35, 0.012, 0.025), worked, true)
+			for x in [-0.155, 0.155]:
+				for z in [-0.155, 0.155]:
+					var peg := _support_cylinder(anchor, "JoineryPeg%d" % anchor.get_child_count(), 0.011, 0.018, timber)
+					peg.position = Vector3(x, 0.384, z)
 		"tool_mount":
 			_support_box(anchor, "SlidingFoot", Vector3(0, -0.11, 0), Vector3(0.37, 0.06, 0.33), dark)
 			var clamp := ClampBody.instantiate() as Node3D
