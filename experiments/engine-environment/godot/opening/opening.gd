@@ -7462,6 +7462,7 @@ func _choose_machine_preview(pooled: Node3D = null) -> void:
 		machine_preview_key = ""
 
 const MACHINE_BATCH_THRESHOLD := 12
+const MACHINE_STATIC_SPATIAL_THRESHOLD := 256
 # Paddle joinery ends by 32 m with a 2 m fade margin; the extra room
 # covers the largest authored rim and a camera move between render cuts.
 const WHEEL_DETAIL_UPDATE_RADIUS := 48.0
@@ -7885,8 +7886,11 @@ func _emit_machine_mesh_batches(groups: Dictionary, batches: Node3D, dynamic: bo
 		if group.parts.size() < 2:
 			continue
 		var partitions: Array = [group.parts]
+		# Small mixed fields submit more cell batches than culling saves. Keep
+		# their composites whole; split the larger fields that benefit from it.
 		if not dynamic and group.get("spatial_composite", false) \
-				and machine_static_spatial_tiles > 0 and group.parts.size() >= 64:
+				and machine_static_spatial_tiles > 0 \
+				and group.parts.size() >= MACHINE_STATIC_SPATIAL_THRESHOLD:
 			var cells := {}
 			var cell_size := PITCH * float(machine_static_spatial_tiles)
 			for part in group.parts:
