@@ -204,22 +204,42 @@ func check_guards() -> void:
 		"Separate worlds retain separate action identities.")
 	audio.free()
 
+func check_modular_cues() -> void:
+	var expected := {
+		"place_belt_span": "belt_snap", "place_selected_belt_span": "belt_snap",
+		"place_foundation": "assembly", "place_foundations": "assembly",
+		"place_component": "assembly", "deploy_fabrication_hub": "assembly",
+		"craft_component": "assembly", "field_craft": "assembly", "craft_part": "assembly",
+		"place_gear": "coupling", "place_shaft": "coupling", "place_relay": "coupling",
+		"shaft_between": "coupling", "remove_belt_span": "release",
+		"remove_shaft_between": "release", "remove_foundation": "release",
+		"reclaim_component": "release", "stow_fabrication_hub": "release"}
+	for action: String in expected:
+		verify(Audio.cue_for({"action": action}) == expected[action],
+			"A confirmed modular construction action chooses its intended existing cue.")
+	for action in ["select_belt_shaft", "set_drive", "load_belt_slot", "feed_press"]:
+		verify(Audio.cue_for({"action": action}).is_empty(),
+			"A selection, control or material transfer cannot sound like accepted construction.")
+
 func check_actual_hooks() -> void:
+	var native_belt := {"action": "place_selected_belt_span", "from": "shaft-a",
+		"to": "shaft-b", "selection": "first-shaft-request"}
 	var offline := OfflineFixture.new()
 	root.add_child(offline)
 	var authority := AuthorityStub.new()
 	offline.model = authority
 	authority.accepts = false
-	offline.issue({"action": "place", "kind": "belt", "cell": [0, 0]})
+	offline.issue(native_belt)
 	verify(offline.construction_audio == null, "The actual offline refusal path does not create a construction cue.")
 	authority.accepts = true
-	offline.issue({"action": "place", "kind": "belt", "cell": [0, 0]})
+	offline.issue(native_belt)
 	verify(offline.construction_audio != null and offline.construction_audio.heard.size() == 1
 		and offline.construction_audio.stream == Audio.make_stream("belt_snap"),
 		"The actual offline issue path forwards its matched accepted identity to the belt cue.")
 	authority.duplicate = true
-	offline.issue({"action": "place", "kind": "belt", "cell": [0, 0]})
-	verify(offline.construction_audio.heard.size() == 1, "A cached duplicate is silent through the actual offline path.")
+	offline.issue(native_belt)
+	verify(offline.construction_audio != null and offline.construction_audio.heard.size() == 1,
+		"A cached duplicate is silent through the actual offline path.")
 	offline.free()
 	var shared := SharedFixture.new()
 	root.add_child(shared)
@@ -227,7 +247,7 @@ func check_actual_hooks() -> void:
 	shared.session = SessionStub.new()
 	shared.model = shared.session
 	shared.state = {"context": "audio-fixture", "revision": 2, "order": 2, "entities": {"fixture-belt": {"kind": "belt"}}}
-	var queued: Dictionary = shared.issue({"action": "place", "kind": "belt", "cell": [0, 0]})
+	var queued: Dictionary = shared.issue(native_belt)
 	verify(queued.queued and shared.construction_audio == null,
 		"The actual shared queued path remains silent before a server decision.")
 	var outcome := {"accepted": true, "context": "audio-fixture", "client": "P", "request": queued.request,
@@ -244,7 +264,7 @@ func check_actual_hooks() -> void:
 	shared._refresh()
 	verify(shared.construction_audio.heard.size() == 1, "Repeated envelopes and refreshes cannot replay a settled cue.")
 	shared.session.ready = false
-	shared.issue({"action": "place", "kind": "belt", "cell": [1, 0]})
+	shared.issue(native_belt)
 	verify(shared.construction_audio.heard.size() == 1, "The disconnected shared path stays silent.")
 	shared.free()
 
@@ -337,6 +357,7 @@ func run() -> void:
 			return
 		DirAccess.make_dir_recursive_absolute(preview_directory)
 	check_guards()
+	check_modular_cues()
 	check_actual_hooks()
 	check_samples()
 	var observed_source_status := Audio.source_status
