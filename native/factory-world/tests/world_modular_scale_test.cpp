@@ -172,7 +172,20 @@ ProductiveSite productive_site(g::Integer cycle_ticks = 2, int line_count = 2,
             {"generation", V(presses[index].second)},
             {"entry", V(V::Array{V(base + 1), V(g::Integer{1}), V(g::Integer{16})})}});
     }
-    return {std::move(profile), world->snapshot(), std::move(command_ms)};
+    const auto constructed = world->snapshot();
+    if (line_count == 10) {
+        // This owner already warmed its layout before the later press fitting
+        // was reclaimed and replaced. Its next tick must inspect the new
+        // component identities exactly like an uncached restored owner.
+        auto fresh = w::World::restore("mixed-scale", profile, constructed);
+        if (!fresh || world->tick().error != w::TransactionError::none ||
+            fresh->tick().error != w::TransactionError::none ||
+            world->snapshot().state != fresh->snapshot().state ||
+            world->snapshot().revision != fresh->snapshot().revision ||
+            !w::validate(profile, world->snapshot()))
+            throw std::runtime_error("A changed press layout reused stale tick geometry.");
+    }
+    return {std::move(profile), constructed, std::move(command_ms)};
 }
 
 void powered_cog_world(bool benchmark, int cog_count = 400, bool sustained = false) {
@@ -453,6 +466,20 @@ void productive_line_scale(int line_count, bool audit_commands = false) {
         const auto copied = stage_snapshot.history;
         if (copied.records.size() != stage_snapshot.history.records.size())
             throw std::runtime_error("The measured request history was not copied.");
+    });
+    measure_stage("state_copy", [&] {
+        const auto copied = stage_snapshot.state;
+        if (copied.placed_components.size() != stage_snapshot.state.placed_components.size())
+            throw std::runtime_error("The measured World state was not copied.");
+    });
+    measure_stage("assembly_layout", [&] {
+        std::vector<a::Part> placed;
+        placed.reserve(stage_snapshot.state.placed_components.size());
+        for (const auto& [id, component] : stage_snapshot.state.placed_components)
+            placed.push_back({id, component.kind, component.center, component.generation});
+        const a::Layout layout(placed);
+        if (layout.inspect_collector(site.profile.collector_faces.front()).status != a::Status::ready)
+            throw std::runtime_error("The measured assembly layout lost a ready collector.");
     });
     std::vector<double> ticks;
     ticks.reserve(20);

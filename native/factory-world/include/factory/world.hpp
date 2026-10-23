@@ -232,8 +232,15 @@ private:
 
     Profile profile_;
     std::unique_ptr<Owner> owner_;
+    struct TickLayout {
+        std::vector<assembly::Part> placed;
+        assembly::Layout layout;
+        explicit TickLayout(std::vector<assembly::Part> parts)
+            : placed(std::move(parts)), layout(placed) {}
+    };
     // Tick changes material custody, not the power graph. Commands can change
-    // either topology or the drive switch and invalidate this derived result.
+    // either topology or the drive switch and invalidate these derived views.
+    std::unique_ptr<TickLayout> tick_layout_;
     std::optional<DrivePower> tick_drive_;
 };
 
