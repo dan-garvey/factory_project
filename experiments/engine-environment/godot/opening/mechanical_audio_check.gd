@@ -223,6 +223,41 @@ func check_projection_audio() -> void:
 		"Readiness loss clears a retained versioned sound bed.")
 	cached_bed.silence()
 	cached_bed.free()
+	var native_bed := Ambience.new()
+	root.add_child(native_bed)
+	var native_cut := observation()
+	native_cut["revision"] = 7
+	native_cut["order"] = 4
+	native_bed.sync(native_cut, "P", true, facing, true)
+	var native_wheel: AudioStreamPlayer3D = native_bed.emitters.wheel
+	var republished := native_cut.duplicate(true)
+	native_bed.sync(republished, "P", true, facing, true)
+	verify(is_same(native_bed.scanned_entities, native_cut.entities)
+		and is_same(native_bed.scanned_motions, native_cut.motion)
+		and native_bed.emitters.wheel == native_wheel and native_wheel.playing,
+		"An unchanged native World revision reuses sounds across fresh projection dictionaries.")
+	republished.revision += 1
+	republished.motion.wheel.state = "stopped"
+	native_bed.sync(republished, "P", true, facing, true)
+	verify(not native_bed.emitters.has("wheel") and not is_instance_valid(native_wheel),
+		"A changed native World revision stops a source immediately.")
+	republished.actors.P.position = [165.0, 1.0, 165.0]
+	native_bed.sync(republished, "P", true, facing, true)
+	verify(native_bed.emitters.is_empty() and native_bed.listener.position == Vector3(165, 1.55, 165),
+		"The physical listener still rescans an unchanged native revision when it moves.")
+	native_bed.sync(republished, "P", false, facing, true)
+	verify(native_bed.emitters.is_empty() and not native_bed.listener.is_current(),
+		"Native readiness loss clears the revision cache and playback.")
+	native_bed.free()
+	var switched_bed := Ambience.new()
+	root.add_child(switched_bed)
+	switched_bed.sync(native_cut, "P", true, facing)
+	var unsupported := native_cut.duplicate(true)
+	unsupported.motion.wheel.state = "stopped"
+	switched_bed.sync(unsupported, "P", true, facing, true)
+	verify(not switched_bed.emitters.has("wheel"),
+		"Trust cannot retroactively turn an untrusted same-version observation into a cached native cut.")
+	switched_bed.free()
 
 func check_view_callbacks(shared: bool) -> void:
 	var view = SharedFixture.new() if shared else ViewFixture.new()
