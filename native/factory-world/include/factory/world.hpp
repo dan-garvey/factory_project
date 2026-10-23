@@ -105,6 +105,9 @@ struct PlacedComponent {
 
 [[nodiscard]] mechanics::Point landing_hub_center(const mechanics::Point& pod_center);
 [[nodiscard]] mechanics::Point landing_freight_center(const mechanics::Point& pod_center);
+// Reversible first-shift order sizes; shipped_products is cumulative physical custody.
+inline constexpr authority::Integer repeat_order_target = 3;
+inline constexpr authority::Integer completed_freight_target = 1 + repeat_order_target;
 
 struct State {
     materials::State material;

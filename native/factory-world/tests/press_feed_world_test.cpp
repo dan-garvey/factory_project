@@ -484,6 +484,25 @@ void actor_feed_is_physical_custody() {
         }
     check(!w::World::restore("press-feed", source.profile, forged_finish),
           "An unrelated accepted command cannot impersonate an automatic press tick in a saved pickup.");
+    Runner freight(source);
+    freight.world = w::World::restore("press-feed", source.profile, run.world->snapshot());
+    check(freight.world != nullptr, "The formed plate has a valid native shipment starting state.");
+    freight.p = {9.9, 1, 6.6};
+    auto repeat_order = request("P", "early-repeat-shipment", "deliver_repeat_plate");
+    repeat_order.emplace("target", V("first-freight-beacon"));
+    repeat_order.emplace("generation", V(I{1}));
+    freight.refuses("P", repeat_order, "first_order_open");
+    check(freight.world->snapshot().state.material.cargo.at("P").products == 1,
+          "An early follow-up request leaves the physically carried plate untouched.");
+    auto first_order = repeat_order;
+    first_order.at("request") = V("ship-first-native-plate");
+    first_order.at("action") = V("deliver_first_plate");
+    check(std::get<I>(freight.accept("P", first_order).at("shipped_products").storage()) == 1 &&
+          freight.world->snapshot().state.material.cargo.at("P").products == 0 &&
+          w::World::restore("press-feed", source.profile, freight.world->snapshot()) != nullptr,
+          "The direct World route ships one real plate and restores its first-order receipt.");
+    repeat_order.at("request") = V("empty-native-repeat");
+    freight.refuses("P", repeat_order, "no_plate");
     auto retake_crank = take;
     retake_crank.at("request") = V("retake-press-crank");
     run.p = {1.65, 1, 6.6};
