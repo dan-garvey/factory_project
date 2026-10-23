@@ -910,8 +910,9 @@ func _arrival_run() -> void:
 			return
 	if DisplayServer.get_name() != "headless":
 		opening.building_hotbar.select_slot(1)
-		if not _expect(opening.mode == "foundation" and opening.placement_options_panel.visible,
-				"The carried foundation shortcut opens ordinary placement after preview warmup"):
+		if not _expect(opening.mode == "foundation" and opening.machine_preview != null
+				and opening.placement_options_panel.visible == opening.machine_preview.visible,
+				"The foundation shortcut selects placement and shows options only with its valid ghost"):
 			return
 		opening._select_tool("inspect")
 	if mode == "arrival-resume":
