@@ -153,10 +153,22 @@ void geared_processor(bool fast) {
     check(world != nullptr, "The geared press uses the existing World and finite part custody.");
     accepted(send(*world, place("speed-input", {0, 0, 0}, "z", fast ? 4 : 2)));
     accepted(send(*world, place("speed-output", {4, 4, 0}, "z", fast ? 2 : 4)));
-    const auto drive = w::machine_power(world->snapshot().state.topology);
+    const auto topology = world->snapshot().state.topology;
+    const auto drive = w::machine_power(topology);
     check(drive.processor && drive.processor_work_per_tick ==
           (fast ? 2 * mat::work_subticks_per_tick : mat::work_subticks_per_tick / 2),
           "Actual mixed-size cogs set the processor work rate.");
+    const auto evaluated = w::drive_power(topology);
+    const auto reused = w::machine_power(topology, evaluated);
+    check(reused.processor == drive.processor &&
+          reused.processor_work_per_tick == drive.processor_work_per_tick &&
+          reused.processor_work_remainder == drive.processor_work_remainder &&
+          reused.processor_work_remainder_denominator == drive.processor_work_remainder_denominator,
+          "A previously derived drive gives the same processor work and fractional rate.");
+    auto stopped = evaluated;
+    stopped.mechanical.motion.at("press").state = m::MotionState::stalled;
+    check(!w::machine_power(topology, stopped).processor,
+          "The reuse overload consumes the supplied drive instead of deriving a second one.");
     if (!fast) {
         auto third_profile = profile;
         third_profile.waterwheel_rate = {2, 3};

@@ -64,6 +64,10 @@ actor roster, source rate, grid scale and reach. Validation checks material and
 physical-part conservation, exact roster agreement, current generations, issued
 identities, canonical topology and historical work references before every commit.
 There is no mutable compatibility inventory or separately authoritative projection.
+The derived `machine_power(topology, drive)` overload consumes an already
+evaluated `DrivePower`. The Host uses it when projecting the same confirmed
+motion and machine flags, avoiding a second drive graph evaluation without
+changing World state or wire fields.
 
 Foundations share this same transaction owner, identity sequence and request
 history. Their finite per-actor custody and grid-aligned placed blocks are part
