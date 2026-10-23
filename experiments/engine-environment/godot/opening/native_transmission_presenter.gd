@@ -345,6 +345,33 @@ func _support_box(parent: Node3D, name_value: String, at: Vector3, size: Vector3
 	mesh.material_override = material
 	parent.add_child(mesh)
 
+func _cast_mount_foot(parent: Node3D, name_value: String, at: Vector3,
+		size: Vector3, casting: Material, fastener_finish: Material) -> void:
+	# The broad lower flange and inset upper shoulders form one fixed casting
+	# inside its confirmed part box. The native occupied box stays authoritative.
+	var half_x := size.x * 0.5
+	var half_y := size.y * 0.5
+	var shoulder := minf(0.014, size.y * 0.25)
+	var inset := minf(0.035, size.x * 0.09)
+	var outline := PackedVector2Array([
+		Vector2(-half_x, -half_y), Vector2(half_x, -half_y),
+		Vector2(half_x, -half_y + shoulder), Vector2(half_x - inset, half_y),
+		Vector2(-half_x + inset, half_y), Vector2(-half_x, -half_y + shoulder)])
+	var foot := MeshInstance3D.new()
+	foot.name = name_value
+	foot.mesh = Visuals.prism_mesh(outline, size.z, minf(0.004, size.y * 0.08))
+	foot.position = at
+	foot.material_override = casting
+	parent.add_child(foot)
+	for x in [-1.0, 1.0]:
+		for z in [-1.0, 1.0]:
+			var corner := ("Left" if x < 0.0 else "Right") + ("Near" if z < 0.0 else "Far")
+			var fastener := _support_cylinder(parent, name_value + "Fastener" + corner, 0.011,
+				0.008, fastener_finish)
+			(fastener.mesh as CylinderMesh).radial_segments = 8
+			fastener.position = at + Vector3(x * (half_x - inset - 0.022),
+				half_y + 0.004, z * (size.z * 0.5 - 0.035))
+
 func _support_cylinder(parent: Node3D, name_value: String, radius: float, height: float,
 		material: Material) -> MeshInstance3D:
 	var mesh := MeshInstance3D.new()
@@ -1046,7 +1073,8 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 				_support_box(anchor, "PressCrownBearing", Vector3(0, -0.07, 0),
 					Vector3(0.20, 0.10, 0.20), worked)
 			else:
-				_support_box(anchor, "SlidingFoot", Vector3(0, -0.11, 0), Vector3(0.37, 0.06, 0.33), dark)
+				_cast_mount_foot(anchor, "SlidingFoot", Vector3(0, -0.11, 0),
+					Vector3(0.37, 0.06, 0.33), dark, worked)
 				var clamp := ClampBody.instantiate() as Node3D
 				clamp.name = "CastToolClamp"
 				# The selected source frame and fixed jaw are static. Their opening
@@ -1100,7 +1128,8 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 				placed_tooth.position = Vector3(sin(angle), 0, cos(angle)) * 0.113
 				placed_tooth.rotation.y = angle
 		"cutting_edge":
-			_support_box(anchor, "BladeCarrier", Vector3(0, -0.07, 0), Vector3(0.40, 0.07, 0.32), dark)
+			_cast_mount_foot(anchor, "BladeCarrier", Vector3(0, -0.07, 0),
+				Vector3(0.40, 0.07, 0.32), dark, worked)
 			var blade := MeshInstance3D.new()
 			blade.name = "FormedBlade"
 			blade.mesh = _formed_cutting_blade()
@@ -1141,7 +1170,8 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 					var rivet := _support_cylinder(anchor, name_value, 0.009, 0.007, worked)
 					rivet.position = Vector3(x, 0.141, z)
 		"wooden_shaft", "softmetal_shaft":
-			_support_box(anchor, "BearingFoot", Vector3(0, -0.07, 0), Vector3(0.35, 0.07, 0.35), dark)
+			_cast_mount_foot(anchor, "BearingFoot", Vector3(0, -0.07, 0),
+				Vector3(0.35, 0.07, 0.35), dark, worked)
 			var fitted := drive_direction.length_squared() > 0.5
 			var rod := Node3D.new()
 			rod.name = "LooseDriveShaft"

@@ -44,8 +44,9 @@ Fixture fixture(g::Integer rate = 1) {
     state.kits = {{"P", {}}};
     state.landing_pod = w::LandingPod{"landing-pod", *profile.landing_pod_center, 1};
     state.fabrication_hub = w::FabricationHub{"pod-fabrication-hub", w::landing_hub_center(*profile.landing_pod_center), 1};
+    state.freight_beacon = w::FreightBeacon{"first-freight-beacon", w::landing_freight_center(*profile.landing_pod_center), 1};
     state.hand_crank = w::HandCrank{"pod-hand-crank", 1, std::nullopt};
-    state.issued_entities = {{"landing-pod", 1}, {"pod-fabrication-hub", 1}, {"pod-hand-crank", 1}};
+    state.issued_entities = {{"landing-pod", 1}, {"pod-fabrication-hub", 1}, {"first-freight-beacon", 1}, {"pod-hand-crank", 1}};
     const auto deck = w::landing_deck_centers(*profile.landing_pod_center);
     for (std::size_t index = 0; index < deck.size(); ++index) {
         const auto id = "pod-floor-" + std::to_string(index);
@@ -163,7 +164,8 @@ void transfers_only_to_outward_belt() {
           std::get<std::string>(loaded.result->at("reason").storage()) == "occupied_target" &&
           world->snapshot().state.material.belt_lanes.at("span") == after.state.material.belt_lanes.at("span"),
           "A loaded belt refuses removal and retains its exact item.");
-    const auto& slots = world->snapshot().state.material.belt_lanes.at("span").slots;
+    const auto loaded_snapshot = world->snapshot();
+    const auto& slots = loaded_snapshot.state.material.belt_lanes.at("span").slots;
     const auto slot = slots.front() ? 0 : 1;
     auto recover = request("recover-belt-blank", "recover_belt_slot");
     recover.emplace("target", V("span"));
@@ -305,9 +307,10 @@ void builds_powered_route_from_finite_arrival_stock() {
           "The installed drive route embodies exactly seven finite timber and two ore units.");
     check(world->tick().error == w::TransactionError::none,
           "The built route accepts a powered tick.");
-    const auto& lane = world->snapshot().state.material.belt_lanes.at(
+    const auto after_tick = world->snapshot();
+    const auto& lane = after_tick.state.material.belt_lanes.at(
         std::get<std::string>(placed_span.at("entity").storage()));
-    check(!world->snapshot().state.material.dropped_material.contains({0, 0, 1}) &&
+    check(!after_tick.state.material.dropped_material.contains({0, 0, 1}) &&
           (lane.slots[0] || lane.slots[1]),
           "The real receiver blank crosses into the player-built outward belt.");
     const auto encoded = w::encode_checkpoint(f.profile, world->snapshot());

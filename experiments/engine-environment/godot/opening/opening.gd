@@ -4378,6 +4378,7 @@ var component_offset_label: Label
 var landing_pod_visual: Node3D
 var landing_hub_visual: Node3D
 var landing_crank_visual: Node3D
+var freight_beacon_visual: StaticBody3D
 var arrival_reveal_probe := false
 var arrival_reveal_active := false
 var arrival_reveal_elapsed := 0.0
@@ -4904,6 +4905,7 @@ func issue(action: Dictionary) -> Dictionary:
 			"return_hand_crank": "Crank returned to the pod tray.",
 			"feed_press": "One carried blank is now under the press head.",
 			"turn_press_crank": "The press advanced its work. Check the worksite for the formed plate.",
+			"deliver_first_plate": "Meridian received one formed plate. Your workshop remains yours to improve.",
 			"place_foundation": "Foundation placed. Its surface shares the machine grid.",
 			"place_foundations": "Foundation area placed on the world grid.",
 			"connect": "Material path connected.", "connect_drive": "Drive shaft connected.",
@@ -4946,6 +4948,10 @@ func issue(action: Dictionary) -> Dictionary:
 				"quantity_overflow": "Too many of this kit are already carried."}.get(outcome.get("reason", ""), refusal)
 		elif action.action == "reclaim_component" and outcome.get("reason", "") == "inventory_full":
 			refusal = "Your component bag is full. Place another carried part before reclaiming."
+		elif action.action == "deliver_first_plate":
+			refusal = {"no_plate": "Carry a formed plate to send this first order.",
+				"order_filled": "Meridian has already received the first plate.",
+				"out_of_reach": "Move beside the freight beacon to deliver the plate."}.get(outcome.get("reason", ""), refusal)
 		_message(refusal, true)
 	_refresh()
 	return outcome
@@ -5712,6 +5718,11 @@ func _interact_pointed() -> void:
 func _open_pointed_machine() -> void:
 	if _catalog_open() or not _can_control_character():
 		return
+	var hit := _screen_pick(_pointed_screen_position())
+	if not hit.is_empty() and hit.collider.has_meta("freight_beacon") \
+			and hit.collider.get_meta("freight_beacon") == state.get("freight_beacon", {}).get("id", ""):
+		issue({"action": "deliver_first_plate", "entity": state.freight_beacon.id})
+		return
 	var target := _screen_entity(_pointed_screen_position())
 	if not _contains_target(state, target):
 		_message("Point at a machine or part and press E to open it.", true)
@@ -6146,6 +6157,61 @@ func _sync_landing_pod_visual() -> void:
 			float(hub_center[0] - pod_center[0]) * PITCH, 0,
 			float(hub_center[2] - pod_center[2]) * PITCH)
 	landing_crank_visual.visible = state.get("hand_crank", {}).get("holder", "") == "pod"
+
+func _sync_freight_beacon_visual() -> void:
+	var beacon: Dictionary = state.get("freight_beacon", {})
+	if beacon.is_empty():
+		if freight_beacon_visual != null:
+			freight_beacon_visual.free()
+			freight_beacon_visual = null
+		return
+	if freight_beacon_visual == null:
+		freight_beacon_visual = StaticBody3D.new()
+		freight_beacon_visual.name = "MeridianFreightBeacon"
+		freight_beacon_visual.collision_layer = Geometry.PICK_LAYER
+		freight_beacon_visual.collision_mask = 0
+		freight_beacon_visual.set_meta("freight_beacon", beacon.id)
+		add_child(freight_beacon_visual)
+		var graphite := Color("23343a")
+		var alloy := Color("536c70")
+		var amber := Color("e8ad58")
+		_machine_box(freight_beacon_visual, "ReceiverPlinth", Vector3(0, 0.14, 0),
+			Vector3(1.42, 0.28, 1.42), graphite, 0.75, 0.43)
+		_machine_box(freight_beacon_visual, "CargoSocket", Vector3(0, 0.31, 0),
+			Vector3(0.80, 0.09, 0.80), amber, 0.73, 0.32)
+		_machine_box(freight_beacon_visual, "SocketWell", Vector3(0, 0.37, 0),
+			Vector3(0.61, 0.08, 0.61), graphite, 0.75, 0.37)
+		for side in [-1.0, 1.0]:
+			_machine_box(freight_beacon_visual, "SignalMast", Vector3(side * 0.46, 1.42, 0.36),
+				Vector3(0.16, 2.45, 0.16), graphite, 0.65, 0.42)
+			_machine_box(freight_beacon_visual, "MastStripe", Vector3(side * 0.46, 1.37, 0.265),
+				Vector3(0.055, 1.78, 0.018), alloy, 0.63, 0.39)
+			_machine_box(freight_beacon_visual, "LowerBrace", Vector3(side * 0.46, 0.75, 0.36),
+				Vector3(0.31, 0.20, 0.34), alloy, 0.73, 0.38)
+			_machine_box(freight_beacon_visual, "SignalCrown", Vector3(side * 0.46, 2.66, 0.36),
+				Vector3(0.27, 0.16, 0.27), amber, 0.52, 0.31)
+		_machine_box(freight_beacon_visual, "ReceiverBridge", Vector3(0, 2.12, 0.36),
+			Vector3(1.05, 0.14, 0.23), alloy, 0.78, 0.4)
+		var lamp := _machine_box(freight_beacon_visual, "OrderSignal", Vector3(0, 2.29, 0.36),
+			Vector3(0.38, 0.16, 0.15), amber, 0.35, 0.28)
+		var glow := StandardMaterial3D.new()
+		glow.albedo_color = Color("936a36")
+		glow.emission_enabled = true
+		glow.emission = amber
+		glow.emission_energy_multiplier = 0.65
+		lamp.material_override = glow
+		var pick := CollisionShape3D.new()
+		var box := BoxShape3D.new()
+		box.size = Vector3(1.45, 2.85, 1.45)
+		pick.shape = box
+		pick.position.y = 1.43
+		freight_beacon_visual.add_child(pick)
+	var position: Array = beacon.position
+	freight_beacon_visual.position = Vector3(float(position[0]),
+		ProductionEnvironment.Surface.height_at(float(position[0]), float(position[2])), float(position[2]))
+	var delivered: bool = beacon.get("order_complete", false)
+	freight_beacon_visual.get_node("OrderSignal").visible = not delivered
+	freight_beacon_visual.get_node("CargoSocket").visible = not delivered
 
 func _maybe_start_arrival_reveal() -> void:
 	var deadline := Time.get_ticks_msec() + 30000
@@ -7345,6 +7411,7 @@ func _refresh_from_projection(known_projection: Dictionary) -> void:
 	# again. A failed tick or a frame without one still reads current authority.
 	state = known_projection
 	_sync_landing_pod_visual()
+	_sync_freight_beacon_visual()
 	# Shared profiles arrive after presenter creation. Choose this revisable
 	# default once, preserving any pitch already adjusted while connecting.
 	if not native_camera_initialized and _native_transmission():
@@ -7604,9 +7671,11 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 			press_ready = press_ready or press.get("status") == "ready"
 		for collector: Dictionary in state.get("collector_assemblies", []):
 			collector_ready = collector_ready or collector.get("status") == "ready"
-		if int(carried.get("products", 0)) > 0:
-			next_work = "First plate formed. Make shafts, a belt and a wheel at the pod to automate its feed." \
-				if state.get("belt_spans", {}).is_empty() else "First plate formed. Continue the material route toward your press."
+		var shipped: bool = state.get("freight_beacon", {}).get("order_complete", false)
+		if shipped:
+			next_work = "First order received. Build a belt route or improve the line."
+		elif int(carried.get("products", 0)) > 0:
+			next_work = "Carry one plate to the east freight beacon; press E."
 		elif press_ready:
 			next_work = "Use the press panel to feed, turn and collect."
 		elif collector_ready and int(state.get("line_belt_raw", 0)) > 0:
@@ -7619,7 +7688,8 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 			next_work = "Place a frame, then fit a working press."
 		elif int(carried.get("timber", 0)) >= 3:
 			next_work = "Craft a frame at the pod field workshop."
-		goal_label.text = "FIRST ORDER · FORM A PLATE\n%d timber · %d ore blanks carried\n%s" % [
+		goal_label.text = "%s\n%d timber · %d ore blanks carried\n%s" % [
+			"FIRST ORDER · DELIVERED" if shipped else "FIRST ORDER · SHIP ONE PLATE",
 			carried.get("timber", 0), carried.get("raw", 0), next_work] if snapshot_ready else "Connect to the worksite."
 	else:
 		goal_label.text = "Make 4 plates  ·  %d / 4\n%s" % [inventory, step.text] if snapshot_ready else "Connect to the worksite."

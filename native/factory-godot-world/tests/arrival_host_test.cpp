@@ -44,6 +44,13 @@ void arrival_projection_and_restore() {
           !factory::values::typed_difference(V(get<A>(V(hub), "center")),
               V(A{V(I{2}), V(I{0}), V(I{4})})),
           "The bench has its own identity on the shared east deck tile.");
+    const auto beacon = get<O>(view, "freight_beacon");
+    check(get<std::string>(V(beacon), "id") == "first-freight-beacon" &&
+          !get<bool>(V(beacon), "order_complete") &&
+          get<I>(V(beacon), "shipped_products") == 0 &&
+          !factory::values::typed_difference(V(get<A>(V(beacon), "center")),
+              V(A{V(I{6}), V(I{0}), V(I{4})})),
+          "One empty freight beacon has a native identity five tiles beyond the pod center.");
     const auto trees = get<O>(view, "hand_sources");
     const auto south = get<A>(trees.at("tree-east-south"), "position");
     const auto north = get<A>(trees.at("tree-east-north"), "position");

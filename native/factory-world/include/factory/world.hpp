@@ -74,6 +74,13 @@ struct FabricationHub {
     bool operator==(const FabricationHub&) const = default;
 };
 
+struct FreightBeacon {
+    std::string id;
+    mechanics::Point center{};
+    authority::Integer generation{};
+    bool operator==(const FreightBeacon&) const = default;
+};
+
 struct HandCrank {
     std::string id;
     authority::Integer generation{};
@@ -90,6 +97,7 @@ struct PlacedComponent {
 };
 
 [[nodiscard]] mechanics::Point landing_hub_center(const mechanics::Point& pod_center);
+[[nodiscard]] mechanics::Point landing_freight_center(const mechanics::Point& pod_center);
 
 struct State {
     materials::State material;
@@ -103,6 +111,7 @@ struct State {
     std::map<std::string, authority::Integer> foundation_kits;
     std::optional<LandingPod> landing_pod;
     std::optional<FabricationHub> fabrication_hub;
+    std::optional<FreightBeacon> freight_beacon;
     std::optional<HandCrank> hand_crank;
     std::map<std::string, PlacedComponent> placed_components;
     bool operator==(const State&) const = default;

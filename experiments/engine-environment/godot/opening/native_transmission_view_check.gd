@@ -249,6 +249,26 @@ func _component_view() -> void:
 				and finish.albedo_texture.get_size() == Vector2(1024, 1024)
 				and finish.normal_texture.get_size() == Vector2(1024, 1024),
 				"Each sourced rigid member retains the complete imported 1K PBR surface without rig or collider.")
+	var fixed_feet := {"mount": "SlidingFoot", "edge": "BladeCarrier", "shaft": "BearingFoot"}
+	for id in fixed_feet:
+		var foot_name: String = fixed_feet[id]
+		var foot: MeshInstance3D = anchors[id].get_node(foot_name)
+		var vertices: PackedVector3Array = foot.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+		var low_width := 0.0
+		var high_width := 0.0
+		var bottom := foot.mesh.get_aabb().position.y
+		var top := foot.mesh.get_aabb().end.y
+		for point in vertices:
+			if absf(point.y - bottom) < 0.0001:
+				low_width = maxf(low_width, absf(point.x))
+			if absf(point.y - top) < 0.0001:
+				high_width = maxf(high_width, absf(point.x))
+		verify(foot.mesh is ArrayMesh and low_width - high_width > 0.025,
+			"Each fixed cast foot has a broad bed contact and visibly inset upper shoulders.")
+		var fasteners: Array[Node] = anchors[id].find_children(
+			foot_name + "Fastener*", "MeshInstance3D", false, false)
+		verify(fasteners.size() == 4 and foot.get_script() == null,
+			"The clamp, blade and shaft each sit on one fixed four-fastener casting.")
 	var blade: MeshInstance3D = anchors.edge.get_node_or_null("FormedBlade")
 	verify(blade != null and blade.mesh is ArrayMesh,
 		"The confirmed cutting edge has one formed steel blade instead of detached box teeth.")

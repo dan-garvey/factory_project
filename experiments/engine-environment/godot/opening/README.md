@@ -17,6 +17,12 @@ authority's provisional four-world-unit sphere. Move closer after a refusal
 and deliberately retry. A wheel in flowing water drives connected parts automatically.
 Read-only inspection, Help,
 saving and the non-consuming four-plate confirmation remain available at distance.
+In the new arrival, the first Meridian order instead asks for one actual
+formed plate at the freight beacon east of the pod. Carry the plate beside the
+receiver and point at it with **E**. The native receipt removes exactly one
+plate from actor cargo, persists through save/rejoin and leaves the workshop
+open for more construction. The four-plate confirmation above describes the
+older complete-machine fixture, not an arrival objective.
 The detached `--script res://opening/guidance_cue_check.gd -- --camera-zoom-only`
 verifies offline and shared camera transitions without launching a controlled
 game session.
