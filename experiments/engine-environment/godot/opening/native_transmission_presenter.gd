@@ -1327,7 +1327,7 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 					rivet.position = Vector3(x, 0.141, z)
 		"wooden_shaft", "softmetal_shaft":
 			var fitted := drive_direction.length_squared() > 0.5
-			var collector_fitting := fitted and press_role != "shaft"
+			var collector_fitting := fitted and press_role not in ["shaft", "guided_shaft"]
 			if collector_fitting:
 				var along_x := absf(drive_direction.x) > 0.5
 				var carriage_size := Vector3(occupied_size.x, 0.075, 0.19) if along_x \
@@ -1341,6 +1341,11 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 						else Vector3(0.028, 0.035, occupied_size.z)
 					_support_box(anchor, "CarriageRail%d" % anchor.get_child_count(),
 						runner_position, runner_size, dark, true)
+			elif press_role == "guided_shaft":
+				# The early guide and drive can float. A compact bearing stays
+				# inside this placed shaft's own occupied box, with no false frame.
+				_support_box(anchor, "GuidedBearingSeat", Vector3(0, -0.07, 0),
+					Vector3(0.25, 0.055, 0.25), dark)
 			else:
 				_cast_mount_foot(anchor, "BearingFoot", Vector3(0, -0.07, 0),
 					Vector3(0.35, 0.07, 0.35), dark, worked)
@@ -1529,6 +1534,39 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 				toward_shaft.y = 0.0
 				if toward_shaft.length_squared() > 0.01:
 					drives[cog_id] = toward_shaft.normalized()
+	var guided: Variant = snapshot.get("guided_press_assemblies", [])
+	if guided is Array:
+		for press: Variant in guided:
+			if not press is Dictionary or not press.get("center") is Array or press.center.size() != 3:
+				continue
+			var cell := Vector3i(press.center[0], press.center[1], press.center[2])
+			for member in [[cell, "anvil", "anvil"],
+					[cell + Vector3i(0, 1, 0), "ram_face", "ram"],
+					[cell + Vector3i(0, 3, 0), "sliding_guide", "guide"]]:
+				var id: Variant = by_cell.get(member[0])
+				if boxes.has(id) and boxes[id].component == member[1]:
+					press_roles[id] = member[2]
+			if press.get("status") != "ready" or not press.get("parts") is Dictionary:
+				continue
+			var fitted: Dictionary = press.parts
+			var shaft_id: Variant = fitted.get("shaft")
+			var cog_id: Variant = fitted.get("drive_cog")
+			var guide_id: Variant = fitted.get("guide")
+			if boxes.has(shaft_id) and boxes.has(guide_id) \
+					and boxes[shaft_id].component.ends_with("_shaft") \
+					and boxes[guide_id].component == "sliding_guide":
+				var toward_guide: Vector3 = boxes[guide_id].center - boxes[shaft_id].center
+				toward_guide.y = 0.0
+				if toward_guide.length_squared() > 0.01:
+					drives[shaft_id] = toward_guide.normalized()
+					press_roles[shaft_id] = "guided_shaft"
+			if boxes.has(cog_id) and boxes.has(shaft_id) \
+					and boxes[cog_id].component.ends_with("_cog"):
+				var toward_shaft: Vector3 = boxes[shaft_id].center - boxes[cog_id].center
+				toward_shaft.y = 0.0
+				if toward_shaft.length_squared() > 0.01:
+					drives[cog_id] = toward_shaft.normalized()
+					press_roles[cog_id] = "drive_cog"
 	for id: String in boxes:
 		# Supplied hardware shares the collision table, but its ordinary scene
 		# already owns the pod and workshop artwork.
@@ -1662,7 +1700,8 @@ func refresh() -> void:
 			fixed_spans[id] = [span.get("generation"), span.get("from"), span.get("to")] if span is Dictionary else span
 	var next_key := [snapshot.get("context"), parts, motions, fixed_spans,
 		snapshot.get("engagements", []), snapshot.get("dropped_material", []),
-		component_result.boxes, snapshot.get("collector_assemblies", []), snapshot.get("press_assemblies", [])]
+		component_result.boxes, snapshot.get("collector_assemblies", []),
+		snapshot.get("press_assemblies", []), snapshot.get("guided_press_assemblies", [])]
 	if next_key == _view_key:
 		_native_view_context = native_context if native_model else ""
 		_native_view_revision = native_revision if native_model else null

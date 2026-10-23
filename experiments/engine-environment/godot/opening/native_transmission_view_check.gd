@@ -913,6 +913,96 @@ func _press_component_view() -> void:
 	physical.free()
 	await process_frame
 
+func _guided_press_component_view() -> void:
+	var state := {"context": "guided-press-component-view", "revision": 1,
+		"options": {"native": true, "physical": true}, "actors": {}, "entities": {},
+		"foundations": {}, "transmission_parts": {}, "belt_spans": {}, "motion": {},
+		"collector_assemblies": [], "press_assemblies": [], "placed_components": {
+			"anvil": _component_record("anvil", [0, 0, 0], [0.0, 0.718125, 0.0], [0.14, 0.230625, 0.14]),
+			"ram": _component_record("ram_face", [0, 1, 0], [0.0, 1.19625, 0.0], [0.14, 0.2475, 0.14]),
+			"guide": _component_record("sliding_guide", [0, 3, 0], [0.0, 2.125625, 0.0], [0.14, 0.269375, 0.14]),
+			"shaft": _component_record("wooden_shaft", [1, 4, 0], [0.4125, 2.475, 0.0], [0.205, 0.12, 0.205]),
+			"cog": _component_record("wooden_cog", [2, 4, 0], [0.825, 2.475, 0.0], [0.2075, 0.14, 0.2075])},
+		"guided_press_assemblies": [{"anvil": "anvil", "center": [0, 0, 0], "status": "ready",
+			"parts": {"anvil": "anvil", "ram": "ram", "guide": "guide",
+				"shaft": "shaft", "drive_cog": "cog"}}]}
+	var parsed: Dictionary = Geometry.component_boxes(state)
+	verify(parsed.get("accepted", false) and parsed.boxes.size() == 5,
+		"The frame-free guided press keeps five independent native occupied boxes.")
+	var host := HostStub.new()
+	host.state = state
+	var view := Presenter.new()
+	root.add_child(view)
+	view.configure(host)
+	var anchors := {}
+	for node: Node in view.get_children():
+		if node.has_meta("component_entity"):
+			anchors[node.get_meta("component_entity")] = node
+	var shaft: Node3D = anchors.shaft.get_node_or_null("LooseDriveShaft")
+	var cog: Node3D = anchors.cog.get_node_or_null("PlacedDriveCog")
+	verify(anchors.size() == 5 and anchors.anvil.get_node_or_null("OpenAnvilSeat") != null
+		and anchors.ram.get_node_or_null("MovingDie") != null
+		and anchors.guide.get_node_or_null("GuideRail") != null
+		and anchors.shaft.get_node_or_null("GuidedBearingSeat") != null
+		and anchors.anvil.get_node_or_null("PressCrown") == null,
+		"The confirmed anvil, ram and guide render with a floating shaft bearing and no frame crown.")
+	verify(shaft != null and cog != null and shaft.basis.y.x < -0.99 and cog.basis.y.x < -0.99,
+		"The guided shaft and cog point toward the confirmed anvil work column.")
+	for id: String in parsed.boxes:
+		var spec: Dictionary = parsed.boxes[id]
+		verify(anchors[id].position == spec.center,
+			"Each guided press visual uses its own native occupied center.")
+		for found: Node in anchors[id].find_children("*", "MeshInstance3D", true, false):
+			var mesh := found as MeshInstance3D
+			var relative: Transform3D = anchors[id].global_transform.affine_inverse() * mesh.global_transform
+			verify(AABB(-spec.size * 0.5, spec.size).grow(0.0002).encloses(relative * mesh.mesh.get_aabb()),
+				"Each frame-free fitting stays inside its own native occupied volume.")
+	for argument: String in OS.get_cmdline_user_args():
+		if argument.begins_with("--capture="):
+			root.size = Vector2i(1280, 800)
+			var environment := Environment.new()
+			environment.background_mode = Environment.BG_COLOR
+			environment.background_color = Color("49535d")
+			environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+			environment.ambient_light_color = Color.WHITE
+			environment.ambient_light_energy = 1.4
+			var world_environment := WorldEnvironment.new()
+			world_environment.environment = environment
+			root.add_child(world_environment)
+			var light := DirectionalLight3D.new()
+			light.rotation_degrees = Vector3(-48, -35, 0)
+			light.light_energy = 2.0
+			root.add_child(light)
+			var camera := Camera3D.new()
+			camera.position = Vector3(3.0, 2.8, 4.2)
+			root.add_child(camera)
+			camera.look_at(Vector3(0.0, 1.2, 0.0))
+			camera.fov = 45.0
+			camera.current = true
+			await process_frame
+			await RenderingServer.frame_post_draw
+			verify(root.get_texture().get_image().save_png(argument.trim_prefix("--capture=")) == OK,
+				"The passive guided-press fixture retains its rendered view.")
+			camera.free()
+			light.free()
+			world_environment.free()
+	state.guided_press_assemblies[0] = {"anvil": "anvil", "center": [0, 0, 0], "status": "missing_cog"}
+	state.placed_components.erase("cog")
+	state.revision = 2
+	host.state = state
+	view.refresh()
+	var partial := {}
+	for node: Node in view.get_children():
+		if node.has_meta("component_entity"):
+			partial[node.get_meta("component_entity")] = node
+	var loose_shaft: Node3D = partial.shaft.get_node_or_null("LooseDriveShaft")
+	verify(partial.size() == 4 and loose_shaft != null
+		and partial.shaft.get_node_or_null("GuidedBearingSeat") == null
+		and loose_shaft.basis.y.y > 0.99,
+		"A partial native assembly loses its drive fitting without inventing a ready press.")
+	view.free()
+	await process_frame
+
 func _initialize() -> void:
 	call_deferred("_run")
 
@@ -2761,6 +2851,8 @@ func _run() -> void:
 		await _component_view()
 	elif "--press-components-only" in OS.get_cmdline_user_args():
 		await _press_component_view()
+	elif "--guided-press-components-only" in OS.get_cmdline_user_args():
+		await _guided_press_component_view()
 	elif "--physical-topology-cache-only" in OS.get_cmdline_user_args():
 		_physical_topology_cache_regression()
 	elif "--physical-actor-bridge-only" in OS.get_cmdline_user_args():
