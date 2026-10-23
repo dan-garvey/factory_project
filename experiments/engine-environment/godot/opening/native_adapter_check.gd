@@ -93,6 +93,12 @@ func _approach(target: Vector2) -> bool:
 	return _expect(sample.ready and sample.registered and sample.on_floor and sample.control == [0.0, 0.0],
 		"The real approach finishes with a released, registered actor on the floor")
 
+func _approach_points(points: Array[Vector2]) -> bool:
+	for point in points:
+		if not await _approach(point):
+			return false
+	return true
+
 func _arrival_field_craft_run(panel) -> void:
 	if not _expect(panel.visible and panel.field_craft_button.visible and not panel.field_craft_button.disabled,
 			"The ordinary arrival panel exposes the wooden multitool recipe"):
@@ -372,6 +378,9 @@ func _collector_route() -> Dictionary:
 		"source_cog": source_cog.entity, "output_cog": output_cog.entity, "shaft": shaft.entity}
 
 func _run() -> void:
+	if mode == "supplied-hardware":
+		await _arrival_run()
+		return
 	if mode in ["arrival-press", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-craft-capacity", "arrival-field-craft", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
 		await _arrival_run()
 		return
@@ -445,7 +454,8 @@ func _run() -> void:
 func _walk_to(target: Vector2, jump: bool = false) -> bool:
 	var jumped := false
 	var highest_foot := -INF
-	while Time.get_ticks_msec() < deadline:
+	var leg_deadline := mini(deadline, Time.get_ticks_msec() + 45000)
+	while Time.get_ticks_msec() < leg_deadline:
 		var body = opening.actor_world.bodies.P
 		var at: Vector3 = body.global_position
 		highest_foot = maxf(highest_foot, at.y - OpeningGeometry.CAPSULE_HEIGHT / 2.0)
@@ -463,7 +473,9 @@ func _walk_to(target: Vector2, jump: bool = false) -> bool:
 		await physics_frame
 		await process_frame
 	opening.actor_world.release_control("P")
-	return _expect(false, "The bounded native walk must reach its declared target")
+	var stopped_at: Vector3 = opening.actor_world.bodies.P.global_position
+	facts["failed_walk"] = {"target": target, "stopped_at": stopped_at}
+	return _expect(false, "The bounded native walk must reach %s; stopped at %s" % [target, stopped_at])
 
 func _deliver_first_arrival_plate(held_work: Dictionary, capture_prefix: String) -> bool:
 	var beacon: Dictionary = opening.model.projection().freight_beacon
@@ -472,8 +484,9 @@ func _deliver_first_arrival_plate(held_work: Dictionary, capture_prefix: String)
 			and opening.model.projection().cargo.P.products == 1,
 			"The carried plate cannot be shipped from the press by camera or remote command"):
 		return false
-	# Walk around the press with the ordinary motor; never set a native pose.
-	if not await _approach(Vector2(3.3, 8.25)) or not await _approach(Vector2(9.9, 8.25)):
+	# Walk east of the now-solid press and pod workshop; never set a native pose.
+	if not await _approach_points([Vector2(4.95, 4.95), Vector2(6.6, 4.95),
+			Vector2(6.6, 8.25), Vector2(9.9, 8.25)]):
 		return false
 	var sample: Dictionary = opening.actor_world.diagnostics("P").sample
 	if not _expect(sample.ready and sample.registered and sample.on_floor
@@ -528,7 +541,7 @@ func _deliver_first_arrival_plate(held_work: Dictionary, capture_prefix: String)
 		"physical_actor": sample}
 	opening.distance = prior_distance
 	opening._update_camera()
-	return await _approach(Vector2(3.3, 8.25)) and await _approach(Vector2(3.3, 6.6))
+	return await _approach_points([Vector2(6.6, 8.25), Vector2(6.6, 4.95), Vector2(4.95, 4.95)])
 
 func _deliver_repeat_arrival_plates(panel, capture_prefix: String) -> bool:
 	var beacon: Dictionary = opening.model.projection().freight_beacon
@@ -541,7 +554,9 @@ func _deliver_repeat_arrival_plates(panel, capture_prefix: String) -> bool:
 	for index in range(2):
 		if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
 			return false
-	if not await _approach(Vector2(3.3, 6.6)):
+	# The deployed pod workshop now has a real collider at (3.3, 6.6).
+	# Work from its clear front aisle, still within native press reach.
+	if not await _approach(Vector2(4.95, 4.95)):
 		return false
 	for index in range(2):
 		if not _expect(not panel.feed_button.disabled, "The ordinary press can accept another finite blank"):
@@ -559,7 +574,7 @@ func _deliver_repeat_arrival_plates(panel, capture_prefix: String) -> bool:
 			and opening.model.projection().dropped_material.is_empty(),
 			"Two more local blanks become plates beside the retained second plate without gifted stock"):
 		return false
-	if not await _approach(Vector2(3.3, 8.25)) or not await _approach(Vector2(9.9, 8.25)):
+	if not await _approach_points([Vector2(6.6, 4.95), Vector2(6.6, 8.25), Vector2(9.9, 8.25)]):
 		return false
 	opening.distance = 0.0
 	opening.orbit_yaw = 0.0
@@ -747,8 +762,11 @@ func _resume() -> void:
 	_record("pass")
 
 func _arrival_capacity_run(panel) -> void:
+	# Zero-cut entries are explicit clear-aisle waypoints, not resource actions.
 	for source in [
 		{"point": Vector2(3.3, 4.95), "id": "tree-east-south", "cuts": 8},
+		{"point": Vector2(4.95, 4.95), "cuts": 0},
+		{"point": Vector2(4.95, 9.9), "cuts": 0},
 		{"point": Vector2(3.3, 9.9), "id": "tree-east-north", "cuts": 8},
 		{"point": Vector2(1.65, 11.55), "id": "tree-north", "cuts": 5},
 	]:
@@ -757,7 +775,7 @@ func _arrival_capacity_run(panel) -> void:
 		for index in range(source.cuts):
 			if _construct({"action": "harvest_source", "target": source.id}).is_empty():
 				return
-	if not await _approach(Vector2(1.65, 6.6)):
+	if not await _approach_points([Vector2(4.95, 9.9), Vector2(4.95, 4.95), Vector2(3.3, 4.95)]):
 		return
 	if not _expect(opening.model.projection().cargo.P.timber == 21,
 			"Three finite trees put twenty component inputs and one spare within the hand-carry limit"):
@@ -842,7 +860,11 @@ func _arrival_belt_run(panel, capture_prefix: String) -> void:
 	# and the native terrain. Commands still pass through the one scene Model.
 	for source in [
 		{"point": Vector2(3.3, 4.95), "id": "tree-east-south", "cuts": 8},
+		{"point": Vector2(4.95, 4.95), "cuts": 0},
+		{"point": Vector2(4.95, 9.9), "cuts": 0},
 		{"point": Vector2(3.3, 9.9), "id": "tree-east-north", "cuts": 6},
+		{"point": Vector2(4.95, 9.9), "cuts": 0},
+		{"point": Vector2(4.95, 3.3), "cuts": 0},
 		{"point": Vector2(0.0, 1.65), "id": "opening-softmetal", "cuts": 3},
 	]:
 		if not await _approach(source.point):
@@ -850,7 +872,7 @@ func _arrival_belt_run(panel, capture_prefix: String) -> void:
 		for index in range(source.cuts):
 			if _construct({"action": "harvest_source", "target": source.id}).is_empty():
 				return
-	if not await _approach(Vector2(1.65, 6.6)):
+	if not await _approach(Vector2(3.3, 4.95)):
 		return
 	if not _expect(opening.model.projection().cargo.P.timber == 14
 			and opening.model.projection().cargo.P.raw == 3,
@@ -1231,6 +1253,123 @@ func _arrival_reveal_run(capture_prefix: String) -> void:
 		return
 	_record("pass")
 
+func _supplied_hardware_hits(at: Vector3) -> Array:
+	var query := PhysicsShapeQueryParameters3D.new()
+	query.shape = opening.actor_world.bodies.P.capsule
+	query.transform = Transform3D(Basis.IDENTITY, at)
+	query.collision_mask = OpeningGeometry.MACHINE_LAYER
+	return opening.get_world_3d().direct_space_state.intersect_shape(query, 64)
+
+func _supplied_hardware_run() -> void:
+	# Only this bounded automated case supplies trusted motor directions.
+	# Disable the ordinary idle input producer, never set an actor pose.
+	opening.set_process(false)
+	opening.character_presenter.set_physics_process(false)
+	var bridge = opening.actor_world
+	var body = bridge.bodies.P
+	var initial: Dictionary = opening.model.projection()
+	var material: Dictionary = opening.model.checkpoint().world.state.material
+	var solids: Dictionary = initial.supplied_hardware_boxes
+	if not _expect(solids.size() == 20 and bridge.component_bodies.size() == 20
+			and bridge._geometry_registered(), "The actual native scene registers every emitted supplied solid"):
+		return
+	var identities := {}
+	for id in bridge.component_bodies:
+		identities[id] = bridge.component_bodies[id].get_instance_id()
+	for repeat in 3:
+		if not _expect(bridge.sync_topology().accepted, "An unchanged topology remains valid"):
+			return
+	for id in identities:
+		if not _expect(bridge.component_bodies[id].get_instance_id() == identities[id],
+				"Unchanged supplied bodies keep their cached native identities"):
+			return
+	var missing: Dictionary = initial.duplicate(true)
+	missing.erase("supplied_hardware_boxes")
+	if not _expect(not OpeningGeometry.component_boxes(missing).accepted,
+			"A native pod without its occupied projection cannot silently lose collision"):
+		return
+	if not _expect(not _supplied_hardware_hits(Vector3(1.65, 0.9, 6.6)).is_empty()
+			and not _supplied_hardware_hits(Vector3(3.3, 0.9, 6.6)).is_empty()
+			and _supplied_hardware_hits(body.global_position).is_empty(),
+			"The real capsule query sees pod and workshop solids while the front aisle stays clear"):
+		return
+	var start: Vector3 = body.global_position
+	if not _expect(bridge.set_control("P", Vector2(0, 1), false).accepted,
+			"The trusted motor can approach the pod"):
+		return
+	var trace := []
+	for frame in 90:
+		await physics_frame
+		await process_frame
+		if frame % 15 == 0:
+			trace.append({"frame": frame, "position": body.global_position})
+	bridge.release_control("P")
+	facts["supplied_wall_trace"] = trace
+	if not _expect(body.global_position.z > start.z + 0.3 and body.global_position.z < 5.50
+			and body.is_on_floor() and opening.model.projection().actors.P.ready,
+			"The real native motor reaches the pod wall and cannot walk through it"):
+		return
+	var stopped: Vector3 = body.global_position
+	if not _expect(bridge.set_control("P", Vector2(1, 0), false).accepted,
+			"The same motor can choose the clear east aisle"):
+		return
+	for frame in 32:
+		await physics_frame
+		await process_frame
+	bridge.release_control("P")
+	if not _expect(body.global_position.x > stopped.x + 1.2 and body.is_on_floor(),
+			"The supplied hardware does not close the clear front and east access"):
+		return
+	if not await _approach_points([Vector2(4.95, 4.95), Vector2(4.95, 9.9),
+			Vector2(3.3, 9.9), Vector2(1.65, 11.55), Vector2(4.95, 9.9),
+			Vector2(4.95, 3.3), Vector2(0.0, 1.65), Vector2(3.3, 4.95)]):
+		return
+	if not _expect(_issue({"action": "stow_fabrication_hub", "entity": "pod-fabrication-hub"}).accepted,
+			"The physically nearby actor can stow the same issued workshop"):
+		return
+	bridge.sync_topology()
+	for frame in 4:
+		await physics_frame
+		await process_frame
+	if not _expect(bridge.component_bodies.size() == 10 and bridge._geometry_registered()
+			and _supplied_hardware_hits(Vector3(3.3, 0.9, 6.6)).is_empty(),
+			"Stowing removes its real collision bodies and clears the former worksite"):
+		return
+	if not _expect(_issue({"action": "deploy_fabrication_hub", "entity": "pod-fabrication-hub",
+			"center": [0, 0, 16]}).accepted, "The issued workshop redeploys at an independent common-grid anchor"):
+		return
+	bridge.sync_topology()
+	for frame in 4:
+		await physics_frame
+		await process_frame
+	if not _expect(bridge.component_bodies.size() == 20 and bridge._geometry_registered()
+			and not _supplied_hardware_hits(Vector3(0, 0.9, 6.6)).is_empty()
+			and _supplied_hardware_hits(Vector3(3.3, 0.9, 6.6)).is_empty(),
+			"The native collision follows the relocated workshop, without a ghost at its old site"):
+		return
+	for id in identities:
+		if id.begins_with("landing-pod/") and not _expect(
+				bridge.component_bodies[id].get_instance_id() == identities[id], "Workshop changes retain the fixed pod bodies"):
+			return
+	var shape: BoxShape3D = bridge.component_bodies["landing-pod/lower-hull"].get_child(0).shape
+	var original_size := shape.size
+	shape.size *= 1.1
+	var rejected: bool = not bridge._geometry_registered()
+	shape.size = original_size
+	if not _expect(rejected and bridge._geometry_registered(), "Native registration detects a changed supplied collider"):
+		return
+	var preflight: Dictionary = bridge.checkpoint_status()
+	if not _expect(preflight.accepted and opening.model.validate_checkpoint(opening.model.checkpoint()).accepted
+			and _same(material, opening.model.checkpoint().world.state.material),
+			"The settled clear actor and relocated workshop validate without changing material"):
+		return
+	facts["supplied_hardware"] = {"initial_count": 20, "stowed_count": 10, "final_count": 20,
+		"wall_trace": trace, "stopped": stopped, "final_actor": body.global_position,
+		"preflight": preflight, "material_unchanged": true, "desktop_operations": 0,
+		"evidence": "Actual native scene, capsule queries and trusted motor controls; no actor pose, harvesting or production replay."}
+	print("SUPPLIED_HARDWARE_PHYSICS " + JSON.stringify(facts.supplied_hardware))
+	_record("pass")
+
 ## Fresh arrival panel consumer with actor motor, finite sources and Store.
 func _arrival_run() -> void:
 	deadline = Time.get_ticks_msec() + 120000
@@ -1242,7 +1381,7 @@ func _arrival_run() -> void:
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--arrival-capture-prefix="):
 			capture_prefix = argument.trim_prefix("--arrival-capture-prefix=")
-	if destination.is_empty() or mode not in ["arrival-press", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-craft-capacity", "arrival-field-craft", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
+	if destination.is_empty() or mode not in ["supplied-hardware", "arrival-press", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-craft-capacity", "arrival-field-craft", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
 		push_error("Arrival press check requires an unused output and a declared mode")
 		quit(1)
 		return
@@ -1269,6 +1408,9 @@ func _arrival_run() -> void:
 			break
 	if not _expect(opening.model.projection().actors.P.ready and opening.actor_world.bodies.P.is_on_floor(),
 			"The physical actor reaches the scene floor"):
+		return
+	if mode == "supplied-hardware":
+		await _supplied_hardware_run()
 		return
 	if mode == "arrival-pod-workshop-resume":
 		await _arrival_pod_workshop_resume_run(opening.arrival_assembly_controls)
@@ -1369,7 +1511,8 @@ func _arrival_run() -> void:
 				"A resumed worker can return from the log without replaying arrival or changing stock"):
 			return
 		if repeat_complete:
-			if not await _approach(Vector2(3.3, 8.25)) or not await _approach(Vector2(1.65, 6.6)):
+			if not await _approach_points([Vector2(6.6, 8.25), Vector2(6.6, 4.95),
+					Vector2(1.65, 4.95)]):
 				return
 		panel.crank_button.pressed.emit()
 		if not _expect(opening.model.projection().hand_crank.holder == "pod"
@@ -1396,12 +1539,12 @@ func _arrival_run() -> void:
 	for index in range(8):
 		if _construct({"action": "harvest_source", "target": "tree-east-south"}).is_empty():
 			return
-	if not await _approach(Vector2(3.3, 9.9)):
+	if not await _approach_points([Vector2(4.95, 4.95), Vector2(4.95, 9.9), Vector2(3.3, 9.9)]):
 		return
 	for index in range(7):
 		if _construct({"action": "harvest_source", "target": "tree-east-north"}).is_empty():
 			return
-	if not await _approach(Vector2(0.0, 1.65)):
+	if not await _approach_points([Vector2(4.95, 9.9), Vector2(4.95, 3.3), Vector2(0.0, 1.65)]):
 		return
 	for index in range(7):
 		if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
@@ -1415,7 +1558,7 @@ func _arrival_run() -> void:
 			and "Move beside the selected workshop" in opening.status_label.text,
 			"A remote hub attempt records a refusal and preserves the complete carried bill"):
 		return
-	if not await _approach(Vector2(1.65, 6.6)):
+	if not await _approach(Vector2(3.3, 4.95)):
 		return
 	var initial: Dictionary = opening.model.projection()
 	if not _expect(initial.cargo.P.timber == 15 and initial.cargo.P.raw == 7
@@ -1450,8 +1593,6 @@ func _arrival_run() -> void:
 			and opening.model.projection().cargo.P.raw == 2
 			and opening.model.projection().cargo.P.components.values().reduce(func(total, amount): return total + amount, 0) == 12,
 			"Both chapter bills consume fifteen timber and five ore blanks, retaining two press inputs"):
-		return
-	if not await _approach(Vector2(3.3, 6.6)):
 		return
 	opening._select_tool("component")
 	var expected_status := ["missing_anvil", "missing_ram", "missing_guide",
@@ -1533,7 +1674,7 @@ func _arrival_run() -> void:
 		if not await _deliver_first_arrival_plate(held_work, capture_prefix):
 			return
 		opening.distance = 0.0
-		opening.orbit_yaw = -PI / 2.0
+		opening.orbit_yaw = PI
 		opening.orbit_pitch = 0.18
 		opening._update_camera()
 		opening._open_pointed_machine()
