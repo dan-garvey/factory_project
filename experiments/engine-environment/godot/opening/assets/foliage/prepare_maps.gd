@@ -522,14 +522,14 @@ func prepare_broadleaf(family: String, output: String) -> void:
 		return
 	var mesh := ArrayMesh.new()
 	var report := {"status": "pass", "source_leaf_triangles": 1939380,
-		"selected_leaf_triangles": 49120, "surfaces": []}
+		"selected_leaf_triangles": 215689, "surfaces": []}
 	for surface in range(3):
 		var derived := ImporterMesh.new()
 		derived.add_surface(Mesh.PRIMITIVE_TRIANGLES, original.get_surface_arrays(surface), [], {},
 			original.get_surface_material(surface), ["Branches", "Leaves", "Trunk"][surface], original.get_surface_format(surface))
 		derived.generate_lods(60.0, 0.0, [])
-		var level: int = [2, 2, 1][surface]
-		var expected: int = [11372, 49120, 7071][surface]
+		var level: int = [2, 1, 1][surface]
+		var expected: int = [11372, 215689, 7071][surface]
 		if derived.get_surface_lod_count(0) <= level or derived.get_surface_lod_indices(0, level).size() != expected * 3:
 			fail("Pinned broadleaf distance detail changed at surface " + str(surface))
 			return
@@ -612,13 +612,23 @@ func prepare_shrub(family: String, output: String) -> void:
 		var cluster := SurfaceTool.new()
 		cluster.begin(Mesh.PRIMITIVE_TRIANGLES)
 		cluster.set_material(finish)
-		var stems := 7 if variant == 0 else 5
-		for n in range(stems):
+		var tall_stems := 5 if variant == 0 else 3
+		var low_stems := 2
+		for n in range(tall_stems + low_stems):
 			var theta := float(n) * 2.399963 + float(variant) * 0.7
-			var radial := 0.0 if n == 0 else (0.13 + float(n % 3) * 0.045)
-			var offset := Vector3(cos(theta) * radial, 0.0, sin(theta) * radial)
-			var scale := 2.75 if variant == 0 else 2.2
-			cluster.append_from(stem, 0, Transform3D(Basis(Vector3.UP, theta).scaled_local(Vector3.ONE * scale), offset))
+			var undergrowth := n >= tall_stems
+			var radial := 0.0
+			if n > 0:
+				radial = 0.07 + float(n % 3) * 0.04 if undergrowth else 0.13 + float(n % 3) * 0.045
+			var offset := Vector3(cos(theta) * radial, 0.0, -sin(theta) * radial)
+			var scale := 0.0
+			if undergrowth:
+				scale = 1.28 + float(n % 3) * 0.13 if variant == 0 else 1.05 + float(n % 2) * 0.13
+			else:
+				scale = 2.75 - float(n % 4) * 0.12 if variant == 0 else 2.2 - float(n % 3) * 0.10
+			var lean := 0.0 if n == 0 else 0.12 + float(n % 3) * 0.045
+			var pose := Basis(Vector3.UP, theta) * Basis(Vector3.FORWARD, lean)
+			cluster.append_from(stem, 0, Transform3D(pose.scaled_local(Vector3.ONE * scale), offset))
 		var mesh := cluster.commit()
 		if mesh == null or mesh.get_surface_count() != 1:
 			fail("Cannot combine complete shrub stems.")
@@ -632,7 +642,8 @@ func prepare_shrub(family: String, output: String) -> void:
 		if loaded == null or not ResourceLoader.get_dependencies(path).is_empty() or loaded.surface_get_arrays(0) != mesh.surface_get_arrays(0):
 			fail("Shrub resource changed or has external dependencies.")
 			return
-		report.variants.append({"name": ["tall", "low"][variant], "source_mesh": variant, "complete_stems": stems,
+		report.variants.append({"name": ["tall", "low"][variant], "source_mesh": variant,
+			"complete_stems": tall_stems + low_stems, "lower_fill_stems": low_stems,
 			"triangles": mesh.surface_get_arrays(0)[Mesh.ARRAY_INDEX].size() / 3,
 			"bounds": str(mesh.get_aabb()), "bytes": FileAccess.get_file_as_bytes(path).size(), "sha256": FileAccess.get_sha256(path)})
 	var receipt := FileAccess.open(output.path_join("result.json"), FileAccess.WRITE)

@@ -447,6 +447,12 @@ void actor_feed_is_physical_custody() {
     forged_product.state.material.dropped_material.emplace(g::Point{7, 1, 1}, produced);
     check(!w::World::restore("press-feed", source.profile, forged_product),
           "A checkpoint cannot relocate the formed product without an accepted pickup.");
+    run.p = {1.65, 1, 6.6};
+    auto return_crank = request("P", "return-crank-between-press-and-pickup", "return_hand_crank");
+    return_crank.emplace("target", V("pod-hand-crank"));
+    return_crank.emplace("generation", V(I{1}));
+    run.accept("P", return_crank);
+    run.p = {2, 1, 0};
     auto pickup_product = request("P", "pickup-formed-product", "pickup_material");
     pickup_product.emplace("center", V(point(7, 1, 0)));
     pickup_product.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{1})},
@@ -454,6 +460,26 @@ void actor_feed_is_physical_custody() {
     run.accept("P", pickup_product);
     check(run.world->snapshot().state.material.cargo.at("P").products == 1,
           "A physical actor retrieves the single formed product.");
+    auto forged_finish = run.world->snapshot();
+    V::Array prior_work;
+    for (const auto& record : forged_finish.history.records)
+        if (std::get<std::string>(record.intent.at("request").storage()) == "turn-press-progress")
+            prior_work = std::get<V::Array>(record.result.at("work_lots").storage());
+    check(prior_work.size() == 1, "The tamper control starts from the real earlier partial lot.");
+    auto fake_ready = std::get<O>(prior_work.front().storage());
+    fake_ready.at("remaining_ticks") = V(I{0});
+    for (auto& record : forged_finish.history.records)
+        if (std::get<std::string>(record.intent.at("request").storage()) == "turn-press-finish") {
+            record.result.at("work_lots") = V(V::Array{V(fake_ready)});
+            record.result.at("formed_products") = V(I{0});
+        }
+    check(!w::World::restore("press-feed", source.profile, forged_finish),
+          "An unrelated accepted command cannot impersonate an automatic press tick in a saved pickup.");
+    auto retake_crank = take;
+    retake_crank.at("request") = V("retake-press-crank");
+    run.p = {1.65, 1, 6.6};
+    run.accept("P", retake_crank);
+    run.p = {2, 1, 0};
     auto second_feed = feed;
     second_feed.at("request") = V("feed-second");
     run.accept("P", second_feed);
@@ -547,7 +573,7 @@ void two_placed_presses_advance_distinct_powered_work() {
         harvest.emplace("target", V("tree-branch"));
         run.accept("P", harvest);
     }
-    for (int index = 0; index < 20; ++index) {
+    for (int index = 0; index < 21; ++index) {
         auto harvest = request("P", "two-press-ore-" + std::to_string(index), "harvest_source");
         harvest.emplace("target", V("ore"));
         run.accept("P", harvest);
@@ -676,6 +702,30 @@ void two_placed_presses_advance_distinct_powered_work() {
           run.world->snapshot().state.material.dropped_material.at({-1, 1, 0}) == m::Cargo{0, 1, {}} &&
           w::World::restore("press-feed", source.profile, run.world->snapshot()) != nullptr,
           "A manual crank and a powered tick share the same retained lot and valid checkpoint.");
+    auto clear_manual = pickup;
+    clear_manual.at("request") = V("clear-cranked-powered-exit");
+    run.accept("P", clear_manual);
+    auto feed_recovery = feed_again;
+    feed_recovery.at("request") = V("feed-powered-for-recovery");
+    run.accept("P", feed_recovery);
+    check(run.world->tick().error == w::TransactionError::none,
+          "Power starts the fifth blank before actor recovery.");
+    const auto recoverable = run.world->snapshot().state.material.dropped_material.at({0, 1, 0})
+        .work_lots.front();
+    auto recover = request("P", "recover-powered-partial", "pickup_material");
+    recover.emplace("center", V(point(0, 1, 0)));
+    recover.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{0})},
+        {"work_lots", V(V::Array{V(O{{"id", V(recoverable.id)}, {"recipe_input", V(I{1})},
+            {"cycle_ticks", V(I{2})}, {"remaining", V(recoverable.remaining_ticks)},
+            {"completed_subticks", V(recoverable.completed_subticks)},
+            {"work_remainder", V(recoverable.work_remainder)},
+            {"work_remainder_denominator", V(recoverable.work_remainder_denominator)}})})}}));
+    run.accept("P", recover);
+    check(recoverable.id == 5 &&
+          run.world->snapshot().state.material.cargo.at("P").work_lots.back() == recoverable &&
+          !run.world->snapshot().state.material.dropped_material.contains({0, 1, 0}) &&
+          w::World::restore("press-feed", source.profile, run.world->snapshot()) != nullptr,
+          "Actor recovery returns the exact automatically started partial lot and valid checkpoint.");
 }
 } // namespace
 

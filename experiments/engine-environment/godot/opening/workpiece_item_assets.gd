@@ -327,7 +327,7 @@ static func mineral_deposit(parent: Node3D, state: Dictionary) -> void:
 	host.material_override = finish
 	if band > 0:
 		if source_ground == null:
-			var soil := Visuals.read_image("res://opening/assets/mineral-outcrop/ore-soil.png")
+			var soil := Visuals.read_image("res://opening/assets/mineral-outcrop/ore-soil.webp")
 			if soil == null or soil.generate_mipmaps() != OK:
 				push_error("The mineable ground requires its prepared mineral-soil map.")
 				return
