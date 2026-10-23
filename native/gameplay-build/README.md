@@ -1,13 +1,14 @@
 # Build and refresh the human gameplay library
 
-`factory-gameplay-build` builds the canonical native World target and refreshes
-the human launcher's gameplay-library pins after success. It never launches Godot
-or controls a desktop. The Windows shortcut uses the tracked
-`scripts/ensure-gameplay-library.sh` check: when current main has newer
-production inputs, it invokes this build once, reloads the updated pins and
-then continues. A failed build leaves the shortcut closed and retains the old
-installation. `--prepare-only` exercises that preparation without starting the
-game; `--check` only validates the existing installation.
+`factory-gameplay-build` builds the canonical native World target, or the
+`factory-opening-startup` executable with `--component startup`, and refreshes
+only that component's three human-launcher pins after success. It never launches
+Godot or controls a desktop. The Windows shortcut uses the tracked startup and
+gameplay freshness guards. A changed source or missing installed binary triggers
+one bounded build for that component; the helper then reloads its pins and
+continues. A failed build leaves the shortcut closed and retains the old
+installation. `--prepare-only` exercises both preparations without starting the
+game; `--check` only validates existing installations.
 
 A pre-merge Bazel test or build checks an agent's branch, which may never reach
 main. It does not update the human shortcut. A plain `bazel build` remains an
@@ -15,8 +16,9 @@ artifact-only operation. The shortcut prepares its own current-main library
 when the human opens it.
 
 After one-time repository-local configuration, the normal entry point is
-`./scripts/build-gameplay.sh`. It takes one native heavy admission, builds, then
-installs on verified success; the shortcut calls it when needed. Configure the
+`./scripts/build-gameplay.sh`. Add `--startup` to select the startup executable.
+Each invocation takes one native heavy admission, builds, then installs on
+verified success; the shortcut calls it when needed. Configure the
 absolute owned paths and the retained tool's verified hash:
 
 ```bash
@@ -33,7 +35,7 @@ command. Each attempt gets a fresh log directory in the same cumulative family;
 it does not reset the family or retry a failure. Run after publishing the relevant
 native change, from a clean owned checkout whose production inputs match main.
 
-The build runs once through the existing bounded runner inside one ordinary
+Each build runs once through the existing bounded runner inside one ordinary
 `factory-local heavy` admission. Use the pinned Bazel 8.4.2 executable, an owned
 external family with verified dependency cache entries, and a clean committed
 build checkout. The main checkout must have the same production inputs. Build
@@ -57,16 +59,16 @@ publication controls are `//native/gameplay-build:install_test`; this explicit
 host test uses isolated temporary Git repositories and invented ELF headers,
 never a game, the real launcher or a real library loader.
 
-The tool snapshots the committed production closure and launcher before building.
+The tool snapshots the selected component's committed source closure and launcher before building.
 It refuses if the build checkout changes, production on main advances, launcher
 pins change concurrently, output is missing or malformed, or the destination is
 invalid. An unrelated documentation commit may advance main without invalidating
 the library. The existing startup/engine pins and all other launcher bytes remain
-unchanged. The library is copied into an immutable source-and-content-addressed
-directory before all three library pins are replaced in one atomic launcher
-update. Old libraries and failed-build logs are preserved. Interrupted filesystem
+unchanged. The successful binary is copied into an immutable source-and-content-
+addressed directory before only its three pins are replaced in one atomic launcher
+update. Old binaries and failed-build logs are preserved. Interrupted filesystem
 publication can leave an unused version directory; it cannot silently point the
-launcher at a partially copied library. The source guard remains active because
+launcher at a partially copied binary. Both source guards remain active because
 another production commit can land after any installation completes.
 
 This is a cooperative same-user workflow, not an adversarial package-signing or

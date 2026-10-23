@@ -3,9 +3,11 @@
 
 namespace factory::gameplay_build {
 namespace fs = std::filesystem;
+enum class Component { gameplay, startup };
 struct Options {
     fs::path checkout, main_checkout, launcher, install_root, bazel;
     build_support::Options runner;
+    Component component = Component::gameplay;
 };
 struct Snapshot {
     std::string revision, production, launcher;

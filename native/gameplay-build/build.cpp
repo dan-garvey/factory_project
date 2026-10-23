@@ -21,7 +21,7 @@ struct Descriptor {
 };
 // This is the production closure guarded by the human launcher, plus its build
 // definitions. Tests, assets and unrelated native prototypes do not stale it.
-const std::vector<std::string> paths{
+const std::vector<std::string> gameplay_paths{
     ".bazelrc", "MODULE.bazel", "MODULE.bazel.lock",
     "native/factory-godot-world/src", "native/factory-godot-world/include", "native/factory-godot-world/BUILD.bazel",
     "native/opening-engineering/src", "native/opening-engineering/include", "native/opening-engineering/BUILD.bazel",
@@ -36,6 +36,14 @@ const std::vector<std::string> paths{
     "native/factory-stationary/src", "native/factory-stationary/include", "native/factory-stationary/BUILD.bazel",
     "native/factory-authority/src", "native/factory-authority/include", "native/factory-authority/BUILD.bazel",
     "native/factory-mechanics/src", "native/factory-mechanics/include", "native/factory-mechanics/BUILD.bazel"};
+const std::vector<std::string> startup_paths{
+    ".bazelrc", "MODULE.bazel", "MODULE.bazel.lock",
+    "native/factory-launch/src", "native/factory-launch/include", "native/factory-launch/BUILD.bazel",
+    "native/build-support/runner.cpp", "native/build-support/runner.hpp", "native/build-support/BUILD.bazel"};
+
+const std::vector<std::string>& paths(Component component) {
+    return component == Component::startup ? startup_paths : gameplay_paths;
+}
 
 std::string git(const fs::path& root, std::vector<std::string> arguments) {
     arguments.insert(arguments.begin(), {"/usr/bin/git", "-C", root.string()});
@@ -50,9 +58,10 @@ std::string revision(const fs::path& root) {
             "Expected a full committed SHA-1 revision.");
     return value;
 }
-std::string production(const fs::path& root, const std::string& source) {
+std::string production(const fs::path& root, const std::string& source, Component component) {
     std::vector<std::string> args{"ls-tree", "-r", "-z", "--full-tree", source, "--"};
-    args.insert(args.end(), paths.begin(), paths.end());
+    const auto& selected = paths(component);
+    args.insert(args.end(), selected.begin(), selected.end());
     return factory_launch::sha256(git(root, args));
 }
 void clean(const fs::path& root) {
@@ -120,7 +129,7 @@ std::string replace(const std::string& text, const std::string& name, const std:
         if (end < text.size()) result += '\n';
         offset = end + 1;
     }
-    require(matched == 1, "The launcher must have exactly one of each gameplay-library pin.");
+    require(matched == 1, "The launcher must have exactly one of each requested native pin.");
     return result;
 }
 void validate(const Options& options) {
@@ -141,10 +150,15 @@ Snapshot snapshot(const Options& options) {
     validate(options);
     clean(options.checkout);
     Snapshot result{revision(options.checkout), {}, read(options.launcher, 65536)};
-    result.production = production(options.checkout, result.revision);
+    result.production = production(options.checkout, result.revision, options.component);
     // Validate the complete pin shape before spending time on a build.
-    for (const auto* name : {"library", "library_sha256", "library_source"})
-        (void)replace(result.launcher, name, "validation");
+    if (options.component == Component::startup) {
+        for (const auto* name : {"startup", "startup_sha256", "startup_source"})
+            (void)replace(result.launcher, name, "validation");
+    } else {
+        for (const auto* name : {"library", "library_sha256", "library_source"})
+            (void)replace(result.launcher, name, "validation");
+    }
     return result;
 }
 
@@ -152,20 +166,23 @@ int complete(const Options& options, const Snapshot& before, int build_exit, con
     if (build_exit != 0) return build_exit;
     validate(options);
     clean(options.checkout);
-    require(revision(options.checkout) == before.revision && production(options.checkout, before.revision) == before.production,
+    require(revision(options.checkout) == before.revision &&
+            production(options.checkout, before.revision, options.component) == before.production,
             "Build source changed; the previous installed library is unchanged.");
-    require(production(options.main_checkout, revision(options.main_checkout)) == before.production,
+    require(production(options.main_checkout, revision(options.main_checkout), options.component) == before.production,
             "Current main has newer production inputs; rebuild before installing.");
     const auto bytes = read(library, 64 * 1024 * 1024);
     require(bytes.size() >= 64 && bytes.compare(0, 4, "\177ELF") == 0 &&
-            bytes[4] == 2 && bytes[5] == 1 && bytes[16] == 3 && bytes[17] == 0 &&
-            bytes[18] == 62 && bytes[19] == 0, "The build did not produce the expected x86-64 shared ELF library.");
+            bytes[4] == 2 && bytes[5] == 1 && bytes[17] == 0 && bytes[18] == 62 && bytes[19] == 0 &&
+            (options.component == Component::startup ? (bytes[16] == 2 || bytes[16] == 3) : bytes[16] == 3),
+            "The build did not produce the expected x86-64 ELF output.");
     const auto digest = factory_launch::sha256(bytes);
-    const auto destination = options.install_root / (before.revision + "-" + digest);
-    const auto installed = destination / "factory-native-world.so";
-    auto updated = replace(before.launcher, "library", quote(installed.string()));
-    updated = replace(updated, "library_sha256", digest);
-    updated = replace(updated, "library_source", before.revision);
+    const bool startup = options.component == Component::startup;
+    const auto destination = options.install_root / ((startup ? "startup-" : "") + before.revision + "-" + digest);
+    const auto installed = destination / (startup ? "factory-opening-startup" : "factory-native-world.so");
+    auto updated = replace(before.launcher, startup ? "startup" : "library", quote(installed.string()));
+    updated = replace(updated, startup ? "startup_sha256" : "library_sha256", digest);
+    updated = replace(updated, startup ? "startup_source" : "library_source", before.revision);
     Descriptor lock{::open((options.install_root / ".gameplay-install.lock").c_str(), O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0600)};
     struct stat lock_stat{}, launcher_stat{};
     require(lock.value >= 0 && ::fstat(lock.value, &lock_stat) == 0 && S_ISREG(lock_stat.st_mode) &&
@@ -183,7 +200,8 @@ int complete(const Options& options, const Snapshot& before, int build_exit, con
         write(installed, bytes, 0555);
         write(destination / "source.json", "{\"revision\":" + factory_launch::json_string(before.revision) +
             ",\"production_sha256\":" + factory_launch::json_string(before.production) +
-            ",\"library_sha256\":" + factory_launch::json_string(digest) + "}\n", 0444);
+            (startup ? ",\"startup_sha256\":" : ",\"library_sha256\":") +
+            factory_launch::json_string(digest) + "}\n", 0444);
         sync_directory(destination);
         sync_directory(options.install_root);
     }
@@ -193,7 +211,7 @@ int complete(const Options& options, const Snapshot& before, int build_exit, con
         write(temporary, updated, launcher_stat.st_mode & 0777);
         temporary_created = true;
         require(read(options.launcher, 65536) == before.launcher &&
-                production(options.main_checkout, revision(options.main_checkout)) == before.production,
+                production(options.main_checkout, revision(options.main_checkout), options.component) == before.production,
                 "Publication inputs changed; the previous launcher is unchanged.");
         require(::rename(temporary.c_str(), options.launcher.c_str()) == 0, "Cannot atomically update the launcher pins.");
         sync_directory(options.launcher.parent_path());
@@ -228,14 +246,17 @@ int run(const Options& options) {
         "--symlink_prefix=" + (root / "links").string() + "/", "--jobs=8", "--lockfile_mode=error",
         "--repository_disable_download", "--registry=https://bcr.bazel.build",
         "--downloader_config=" + (options.checkout / "native/build-support/offline-downloader.cfg").string(),
-        "//native/factory-godot-world:factory-native-world.so"};
+        options.component == Component::startup ? "//native/factory-launch:factory-opening-startup" :
+            "//native/factory-godot-world:factory-native-world.so"};
     const auto old_cwd = fs::current_path();
     struct Restore { fs::path path; ~Restore() { std::error_code ignored; fs::current_path(path, ignored); } } restore{old_cwd};
     fs::current_path(options.checkout);
     const int exit = build_support::run(options.runner, command);
     if (exit != 0) return exit;
-    const auto binary = fs::canonical(root / "links/bin/native/factory-godot-world/factory-native-world.so");
-    require(binary.string().find(root.string() + "/output/") == 0, "Built library escaped its owned output family.");
+    const auto binary = fs::canonical(root / (options.component == Component::startup ?
+        "links/bin/native/factory-launch/factory-opening-startup" :
+        "links/bin/native/factory-godot-world/factory-native-world.so"));
+    require(binary.string().find(root.string() + "/output/") == 0, "Built output escaped its owned output family.");
     return complete(options, before, exit, binary);
 }
 } // namespace factory::gameplay_build

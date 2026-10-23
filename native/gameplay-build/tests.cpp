@@ -45,7 +45,7 @@ struct Fixture {
     fs::path root;
     gb::Options options;
     fs::path binary;
-    std::string original = "#!/bin/sh\nstartup=unchanged\nlibrary='old.so'\nlibrary_sha256=old\nlibrary_source=old\n# keep this footer\n";
+    std::string original = "#!/bin/sh\nstartup=unchanged\nstartup_sha256=old\nstartup_source=old\nlibrary='old.so'\nlibrary_sha256=old\nlibrary_source=old\n# keep this footer\n";
     explicit Fixture(const fs::path& base) {
         std::string pattern = (base / "install-XXXXXX").string();
         check(::mkdtemp(pattern.data()) != nullptr, "Private fixture directory created.");
@@ -189,6 +189,63 @@ void launcher_dependency_guard(const fs::path& base) {
               "The check-only guard starts no build or installation.");
     }
 }
+void startup_install_and_guard(const fs::path& base) {
+    Fixture f(base);
+    f.options.component = gb::Component::startup;
+    write(f.options.checkout / "native/factory-launch/src/capture.cpp", "original startup\n");
+    write(f.options.checkout / "native/build-support/runner.cpp", "original runner\n");
+    commit(f.options.checkout);
+    auto elf = read(f.binary);
+    elf[16] = 2;
+    write(f.binary, elf);
+    const auto before = gb::snapshot(f.options);
+    check(gb::complete(f.options, before, 9, f.root / "absent") == 9,
+          "A failed startup build retains its original exit.");
+    check(read(f.options.launcher) == f.original && fs::is_empty(f.options.install_root),
+          "A failed startup build preserves the old launcher and installation.");
+    check(gb::complete(f.options, before, 0, f.binary) == 0, "A successful startup build installs.");
+    const auto digest = factory_launch::sha256(elf);
+    const auto destination = f.options.install_root / ("startup-" + before.revision + "-" + digest);
+    check(read(destination / "factory-opening-startup") == elf,
+          "The immutable startup installation matches the built executable.");
+    const auto launcher = read(f.options.launcher);
+    check(launcher.find("startup_source=" + before.revision) != std::string::npos &&
+          launcher.find("startup_sha256=" + digest) != std::string::npos &&
+          launcher.find("library='old.so'") != std::string::npos,
+          "Startup publication updates only its own three pins.");
+    check(gb::complete(f.options, gb::snapshot(f.options), 0, f.binary) == 0 &&
+          read(f.options.launcher) == launcher, "An unchanged startup reuses its immutable installation.");
+    elf[16] = 3;
+    elf.back() = 1;
+    write(f.binary, elf);
+    check(gb::complete(f.options, gb::snapshot(f.options), 0, f.binary) == 0 &&
+          read(destination / "factory-opening-startup") != elf,
+          "A new valid startup output never overwrites the previous binary.");
+    fs::permissions(f.binary, fs::perms::owner_all);
+
+    const auto* runfiles = std::getenv("TEST_SRCDIR");
+    if (!runfiles) throw std::runtime_error("Use Bazel's declared launcher-guard data.");
+    const auto script = fs::path(runfiles) / "_main/scripts/ensure-startup-launcher.sh";
+    check(fs::is_regular_file(script), "The startup guard comes from declared test data.");
+    auto guard = [&](const std::string& installed_revision, const std::string& current_revision,
+                     const fs::path& binary, const std::string& hash) {
+        return factory_launch::run_process({"/usr/bin/bash", script.string(), "check", f.options.checkout.string(),
+            installed_revision, current_revision, binary.string(), hash}, 10s, 65536).exit_code;
+    };
+    const auto current = gb::snapshot(f.options);
+    check(guard(current.revision, current.revision, f.binary, factory_launch::sha256(read(f.binary))) == 0,
+          "Check mode accepts a matching startup without building or launching.");
+    write(f.options.checkout / "native/factory-launch/src/capture.cpp", "new startup source\n");
+    commit(f.options.checkout);
+    const auto changed = gb::snapshot(f.options);
+    check(guard(current.revision, changed.revision, f.binary, factory_launch::sha256(read(f.binary))) == 1,
+          "Check mode refuses a changed startup source.");
+    check(read(f.options.launcher) != f.original &&
+          read(destination / "factory-opening-startup") != elf,
+          "A guard refusal does not mutate prior startup installations.");
+    refuses([&] { gb::complete(f.options, current, 0, f.binary); },
+            "A newer source revision cannot publish a stale startup build.");
+}
 } // namespace
 int main() {
     try {
@@ -196,7 +253,7 @@ int main() {
         if (!temp) throw std::runtime_error("Use Bazel's private test temporary directory.");
         const auto root = fs::canonical(temp);
         success_and_failure(root); refusals(root); main_advances(root); retain_unowned_temporary(root); dependency_advances(root);
-        launcher_dependency_guard(root);
+        launcher_dependency_guard(root); startup_install_and_guard(root);
         std::cout << "{\"status\":\"pass\",\"checks\":" << checks << ",\"game_launches\":0}\n";
         return 0;
     } catch (const std::exception& error) {
