@@ -26,7 +26,7 @@ static var _fir_contact_rows: Array[Dictionary] = []
 static var _fir_layout_counts := {"candidates": 0, "slope_rejections": 0, "envelope_rejections": 0, "accepted": 0}
 
 const BROADLEAF_FILE := "res://opening/assets/broadleaf/broadleaf_tree.res"
-const BROADLEAF_SHA256 := "71b06d2f9252ca64f9d4bcfda6bcaf0db1fd2c67fdbd7d4c77bce810f913113f"
+const BROADLEAF_SHA256 := "47ee4e9c902ef94c3c6ef641a8aad7783f2dc77500376628e0c89d4c7287bf74"
 static var _broadleaf_initialized := false
 static var _broadleaf_mesh: ArrayMesh
 static var _broadleaf_descriptors: Array[Dictionary] = []
