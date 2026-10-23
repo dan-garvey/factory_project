@@ -556,6 +556,21 @@ func _batch_motion_check() -> void:
 	belt_view._rebuild_machines()
 	_check(belt_view.machine_conveyor_batches.size() == 1,
 		"Conveyor loops retain one shared render batch and individual source materials.")
+	var grouped_belt_finish := false
+	for composite in belt_view.machine_batch_composite_meshes.values():
+		if composite.get_surface_count() != 3:
+			continue
+		for surface_index in composite.get_surface_count():
+			var finish := composite.surface_get_material(surface_index) as ShaderMaterial
+			if finish == null:
+				continue
+			var arrays: Array = composite.surface_get_arrays(surface_index)
+			grouped_belt_finish = finish.get_shader_parameter("finish_normal") != null \
+				and finish.get_shader_parameter("finish_rough") != null \
+				and arrays[Mesh.ARRAY_COLOR].size() == arrays[Mesh.ARRAY_VERTEX].size() \
+				and arrays[Mesh.ARRAY_TEX_UV2].size() == arrays[Mesh.ARRAY_VERTEX].size()
+	_check(grouped_belt_finish,
+		"The repeated conveyor frame groups opaque finishes and retains textured surface inputs.")
 	if belt_view.machine_conveyor_batches.size() == 1:
 		var first := belt_view.machine_root.get_child(0) as Node3D
 		var second := belt_view.machine_root.get_child(1) as Node3D

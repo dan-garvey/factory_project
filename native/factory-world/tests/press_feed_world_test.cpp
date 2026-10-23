@@ -110,7 +110,23 @@ V::Array point(g::Integer x, g::Integer y, g::Integer z) {
 }
 
 void actor_feed_is_physical_custody() {
-    const auto source = site();
+    auto source = site();
+    source.profile.finite_parts[{s::Role::waterwheel, 0, 0}] = 2;
+    source.profile.finite_parts[{s::Role::shaft, 0, 2}] = 3;
+    source.profile.finite_parts[{s::Role::belt, 0, 0}] = 1;
+    source.state.topology.parts.push_back(
+        {{"output-wheel", g::Kind::hub, {0, 0, -8}, g::Axis::z, 0, 0}, 1, s::Role::waterwheel});
+    for (const auto& [id, center] : {std::pair{"output-drive", g::Point{0, 0, -4}},
+                                     std::pair{"output-west", g::Point{0, 0, 0}},
+                                     std::pair{"output-mouth", g::Point{4, 0, 0}}})
+        source.state.topology.parts.push_back({{id, g::Kind::shaft, center, g::Axis::z, 0, 2},
+            1, s::Role::shaft});
+    source.state.topology.belt_spans.push_back({{"press-output-belt", "output-mouth", "output-west"}, 1});
+    source.state.topology.sources.push_back({"output-wheel", source.profile.waterwheel_rate});
+    source.state.material.belt_lanes.emplace("press-output-belt", m::BeltLane{{std::nullopt, std::nullopt}, 0});
+    for (const auto& part : source.state.topology.parts)
+        source.state.issued_entities.emplace(part.geometry.id, part.generation);
+    source.state.issued_entities.emplace("press-output-belt", 1);
     Runner run(source);
     for (int n = 0; n < 8; ++n) {
         auto cut = request("P", "wood-" + std::to_string(n), "harvest_source");
@@ -343,12 +359,100 @@ void actor_feed_is_physical_custody() {
     check(std::holds_alternative<w::Snapshot>(w::decode_checkpoint(source.profile, "press-feed",
               std::get<V>(w::encode_checkpoint(source.profile, formed)))),
           "A formed product and the now empty work point survive strict checkpoint restore.");
+    auto exported = w::World::restore("press-feed", source.profile, formed);
+    check(exported && exported->tick().error == w::TransactionError::none,
+          "A powered outward belt accepts the finished modular press plate on a trusted tick.");
+    const auto on_route = exported->snapshot();
+    check(!on_route.state.material.dropped_material.contains({7, 1, 0}) &&
+          on_route.state.press_output_at_exit.empty() &&
+          on_route.state.press_output_exported.at({7, 1, 0}).size() == 1 &&
+          w::validate(source.profile, on_route),
+          "The plate leaves the quarter-grid exit once with its work identity and conserved material.");
+    const auto saved_route = w::encode_checkpoint(source.profile, on_route);
+    check(std::holds_alternative<V>(saved_route) &&
+          std::holds_alternative<w::Snapshot>(w::decode_checkpoint(source.profile, "press-feed",
+              std::get<V>(saved_route))),
+          "A fresh checkpoint admits the identified product after belt export.");
+    auto reverse_source = source;
+    reverse_source.profile.waterwheel_rate = {-2, 1};
+    auto reverse_state = formed;
+    for (auto& power : reverse_state.state.topology.sources)
+        power.rate = reverse_source.profile.waterwheel_rate;
+    auto reverse = w::World::restore("press-feed", reverse_source.profile, reverse_state);
+    check(reverse && reverse->tick().error == w::TransactionError::none &&
+          reverse->snapshot().state.material.dropped_material.at({7, 1, 0}).products == 1 &&
+          reverse->snapshot().state.press_output_at_exit.contains({7, 1, 0}),
+          "A belt running toward the press cannot pull the plate from its outlet.");
+    auto swapped = formed;
+    auto& reversed_span = swapped.state.topology.belt_spans.front().geometry;
+    std::swap(reversed_span.first_shaft, reversed_span.last_shaft);
+    auto opposite_order = w::World::restore("press-feed", source.profile, swapped);
+    check(opposite_order && opposite_order->tick().error == w::TransactionError::none &&
+          !opposite_order->snapshot().state.material.dropped_material.contains({7, 1, 0}) &&
+          opposite_order->snapshot().state.press_output_exported.at({7, 1, 0}).size() == 1,
+          "The same physical outward route works with the belt endpoint order reversed.");
+    Runner occupied(source);
+    occupied.world = w::World::restore("press-feed", source.profile, formed);
+    occupied.p = {2, 1, 0};
+    auto load = request("P", "block-press-belt-inlet", "load_belt_slot");
+    load.emplace("target", V("press-output-belt"));
+    load.emplace("generation", V(I{1}));
+    load.emplace("slot", V(I{0}));
+    load.emplace("item", V("raw"));
+    load.emplace("work_id", V(I{0}));
+    occupied.accept("P", load);
+    check(occupied.world->tick().error == w::TransactionError::none &&
+          occupied.world->snapshot().state.material.dropped_material.at({7, 1, 0}).products == 1 &&
+          occupied.world->snapshot().state.press_output_at_exit.contains({7, 1, 0}),
+          "An occupied inlet retains the real press output even when the belt later clears.");
+    check(occupied.world->tick().error == w::TransactionError::none &&
+          !occupied.world->snapshot().state.material.dropped_material.contains({7, 1, 0}) &&
+          occupied.world->snapshot().state.press_output_exported.at({7, 1, 0}).size() == 1,
+          "The same plate exits after the inlet clears without another press cycle.");
+    Runner obstructed(source);
+    obstructed.world = w::World::restore("press-feed", source.profile, formed);
+    obstructed.p = {2, 1, 0};
+    auto obstruction_in_chute = request("P", "obstruct-press-chute", "place_component");
+    obstruction_in_chute.emplace("component", V("tool_mount"));
+    obstruction_in_chute.emplace("center", V(point(6, 1, 0)));
+    const auto chute_obstacle = obstructed.accept("P", obstruction_in_chute);
+    check(obstructed.world->tick().error == w::TransactionError::none &&
+          obstructed.world->snapshot().state.material.dropped_material.at({7, 1, 0}).products == 1,
+          "A real placed part in the short chute blocks automatic output without consuming it.");
+    auto clear_chute = request("P", "clear-press-chute", "reclaim_component");
+    clear_chute.emplace("target", chute_obstacle.at("entity"));
+    clear_chute.emplace("generation", chute_obstacle.at("generation"));
+    obstructed.accept("P", clear_chute);
+    check(obstructed.world->tick().error == w::TransactionError::none &&
+          !obstructed.world->snapshot().state.material.dropped_material.contains({7, 1, 0}),
+          "Removing the obstacle releases the retained plate to the same belt.");
+    Runner repeated(source);
+    repeated.world = w::World::restore("press-feed", source.profile, on_route);
+    repeated.p = {2, 1, 0};
+    auto repeat_feed = feed;
+    repeat_feed.at("request") = V("feed-after-export");
+    repeated.accept("P", repeat_feed);
+    for (int index = 0; index < 3; ++index) {
+        auto next_turn = turn;
+        next_turn.at("request") = V("turn-after-export-" + std::to_string(index));
+        repeated.accept("P", next_turn);
+    }
+    check(repeated.world->tick().error == w::TransactionError::none &&
+          repeated.world->snapshot().state.press_output_exported.at({7, 1, 0}).size() == 2 &&
+          w::World::restore("press-feed", source.profile, repeated.world->snapshot()) != nullptr,
+          "Two separately formed plates leave the same port once each and restore with distinct work identities.");
     auto forged_product = formed;
     const auto produced = forged_product.state.material.dropped_material.at({7, 1, 0});
     forged_product.state.material.dropped_material.erase({7, 1, 0});
     forged_product.state.material.dropped_material.emplace(g::Point{7, 1, 1}, produced);
     check(!w::World::restore("press-feed", source.profile, forged_product),
           "A checkpoint cannot relocate the formed product without an accepted pickup.");
+    run.p = {1.65, 1, 6.6};
+    auto return_crank = request("P", "return-crank-between-press-and-pickup", "return_hand_crank");
+    return_crank.emplace("target", V("pod-hand-crank"));
+    return_crank.emplace("generation", V(I{1}));
+    run.accept("P", return_crank);
+    run.p = {2, 1, 0};
     auto pickup_product = request("P", "pickup-formed-product", "pickup_material");
     pickup_product.emplace("center", V(point(7, 1, 0)));
     pickup_product.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{1})},
@@ -356,6 +460,34 @@ void actor_feed_is_physical_custody() {
     run.accept("P", pickup_product);
     check(run.world->snapshot().state.material.cargo.at("P").products == 1,
           "A physical actor retrieves the single formed product.");
+    auto forged_export = run.world->snapshot();
+    check(forged_export.state.press_output_at_exit.empty() &&
+          forged_export.state.press_output_exported.empty(),
+          "The actor pickup fixture has no press output export witness.");
+    forged_export.state.press_output_exported[{7, 1, 0}].insert(
+        formed.state.press_output_at_exit.at({7, 1, 0}));
+    check(!w::World::restore("press-feed", source.profile, forged_export),
+          "A checkpoint cannot claim that an actor-picked plate was exported to a belt.");
+    auto forged_finish = run.world->snapshot();
+    V::Array prior_work;
+    for (const auto& record : forged_finish.history.records)
+        if (std::get<std::string>(record.intent.at("request").storage()) == "turn-press-progress")
+            prior_work = std::get<V::Array>(record.result.at("work_lots").storage());
+    check(prior_work.size() == 1, "The tamper control starts from the real earlier partial lot.");
+    auto fake_ready = std::get<O>(prior_work.front().storage());
+    fake_ready.at("remaining_ticks") = V(I{0});
+    for (auto& record : forged_finish.history.records)
+        if (std::get<std::string>(record.intent.at("request").storage()) == "turn-press-finish") {
+            record.result.at("work_lots") = V(V::Array{V(fake_ready)});
+            record.result.at("formed_products") = V(I{0});
+        }
+    check(!w::World::restore("press-feed", source.profile, forged_finish),
+          "An unrelated accepted command cannot impersonate an automatic press tick in a saved pickup.");
+    auto retake_crank = take;
+    retake_crank.at("request") = V("retake-press-crank");
+    run.p = {1.65, 1, 6.6};
+    run.accept("P", retake_crank);
+    run.p = {2, 1, 0};
     auto second_feed = feed;
     second_feed.at("request") = V("feed-second");
     run.accept("P", second_feed);

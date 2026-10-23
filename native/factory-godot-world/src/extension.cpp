@@ -126,7 +126,7 @@ Value with_opening_engineering(Value state) {
     }
     // A derived view only: no command, actor registration, progress flag or
     // checkpoint mutation. Session publishes these same per-actor facts.
-    Object root = *original;
+    Object root = std::move(state).take_object();
     root.emplace("opening_engineering", Value(std::move(progress)));
     return Value(std::move(root));
 }

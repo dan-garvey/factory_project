@@ -6495,6 +6495,16 @@ func _build_world() -> void:
 	camera.make_current()
 	_update_camera()
 
+func _pod_panel(parent: Node3D, part_name: String, profile: PackedVector2Array,
+		depth: float, at: Vector3, finish: Material) -> MeshInstance3D:
+	var part := MeshInstance3D.new()
+	part.name = part_name
+	part.mesh = ProductionVisuals.prism_mesh(profile, depth, 0.012)
+	part.position = at
+	part.material_override = finish
+	parent.add_child(part)
+	return part
+
 func _build_landing_pod_visual(pod: Dictionary, hub: Dictionary) -> void:
 	landing_pod_visual = Node3D.new()
 	landing_pod_visual.name = "DeployedLandingPod"
@@ -6503,46 +6513,55 @@ func _build_landing_pod_visual(pod: Dictionary, hub: Dictionary) -> void:
 	var shell := Node3D.new()
 	shell.name = "OpenedPodShell"
 	landing_pod_visual.add_child(shell)
-	var ivory := Color("d4d9d0")
-	var graphite := Color("293d41")
-	var amber := Color("e3a650")
-	var dark := Color("162c32")
-	# The occupied center stays open for the spawned actor. The rear pressure
-	# shell, split side doors and low hatch show where the deck unfolded from.
-	var capsule := MeshInstance3D.new()
-	capsule.name = "RearPressureShell"
-	var capsule_mesh := CapsuleMesh.new()
-	capsule_mesh.radius = 0.37
-	capsule_mesh.height = 1.28
-	capsule.mesh = capsule_mesh
-	capsule.material_override = ProductionVisuals.material(graphite, 0.68, 0.39)
-	capsule.position = Vector3(0, 0.70, 1.12)
-	capsule.rotation.x = PI / 2.0
-	shell.add_child(capsule)
-	_machine_box(shell, "RearArmorCrown", Vector3(0, 1.055, 1.12),
-		Vector3(0.60, 0.065, 0.72), ivory, 0.52, 0.34)
-	_machine_box(shell, "PressureSpine", Vector3(0, 0.73, 0.79), Vector3(0.74, 0.96, 0.25), graphite, 0.75, 0.35)
-	_machine_box(shell, "HatchThreshold", Vector3(0, 0.045, -0.94), Vector3(1.08, 0.09, 0.71), graphite, 0.60, 0.48)
-	_machine_box(shell, "HatchSafetyStripe", Vector3(0, 0.096, -1.20), Vector3(0.90, 0.012, 0.055), amber, 0.20, 0.42)
+	var ivory := Color("a8b0a7")
+	var graphite := Color("293a3c")
+	var amber := Color("be8d43")
+	var dark := Color("17282c")
+	# One pressure canopy closes over the pallet in flight, then hinges back.
+	# The folded cover parks behind the pallet, clearing the front and east aisle.
+	_pod_panel(shell, "LowerHull", PackedVector2Array([
+		Vector2(-0.55, 0.12), Vector2(0.55, 0.12), Vector2(0.74, 0.26),
+		Vector2(0.68, 0.43), Vector2(-0.68, 0.43), Vector2(-0.74, 0.26)]),
+		1.76, Vector3(0, 0, 0.02), ProductionCollectorArt.coating(graphite))
+	_machine_box(shell, "InteriorPallet", Vector3(0, 0.43, -0.03),
+		Vector3(1.07, 0.055, 1.41), dark, 0.12, 0.82)
+	_machine_box(shell, "RearBulkhead", Vector3(0, 0.66, 0.79),
+		Vector3(1.12, 0.58, 0.12), graphite, 0.28, 0.65)
+	var canopy := Node3D.new()
+	canopy.name = "CanopyPivot"
+	canopy.position = Vector3(0, 0.72, 0.80)
+	shell.add_child(canopy)
+	_pod_panel(canopy, "PressureCanopy", PackedVector2Array([
+		Vector2(-0.68, 0.38), Vector2(-0.65, 1.08), Vector2(-0.42, 1.42),
+		Vector2(0.42, 1.42), Vector2(0.65, 1.08), Vector2(0.68, 0.38),
+		Vector2(0.56, 0.38), Vector2(0.54, 1.03), Vector2(0.35, 1.28),
+		Vector2(-0.35, 1.28), Vector2(-0.54, 1.03), Vector2(-0.56, 0.38)]),
+		1.70, Vector3(0, -0.72, -0.85), ProductionCollectorArt.coating(ivory))
+	_machine_box(canopy, "CanopyLiner", Vector3(0, 0.56, -0.85),
+		Vector3(1.03, 0.028, 1.49), dark, 0.10, 0.82)
+	_pod_panel(canopy, "ForwardHatch", PackedVector2Array([
+		Vector2(-0.56, 0.38), Vector2(0.56, 0.38), Vector2(0.54, 1.03),
+		Vector2(0.35, 1.28), Vector2(-0.35, 1.28), Vector2(-0.54, 1.03)]),
+		0.075, Vector3(0, -0.72, -1.72), ProductionCollectorArt.coating(graphite))
+	_pod_panel(canopy, "SmokedVisor", PackedVector2Array([
+		Vector2(-0.38, 0.75), Vector2(0.38, 0.75), Vector2(0.34, 1.01),
+		Vector2(0.24, 1.15), Vector2(-0.24, 1.15), Vector2(-0.34, 1.01)]),
+		0.03, Vector3(0, -0.72, -1.77), ProductionVisuals.material(Color("36585e"), 0.05, 0.22))
+	_machine_box(canopy, "HatchLatch", Vector3(0, -0.14, -1.80),
+		Vector3(0.23, 0.065, 0.045), amber, 0.25, 0.58)
+	for side in [-1.0, 1.0]:
+		_machine_box(canopy, "CanopyStripe", Vector3(side * 0.25, 0.709, -0.85),
+			Vector3(0.065, 0.018, 1.51), amber, 0.18, 0.69)
 	for side in [-1.0, 1.0]:
 		var suffix := "Port" if side < 0.0 else "Starboard"
-		var wing := Node3D.new()
-		wing.name = suffix + "OpenedWing"
-		shell.add_child(wing)
-		_machine_box(wing, "OuterArmor", Vector3(side * 0.98, 0.61, 0.26),
-			Vector3(0.18, 0.75, 1.52), ivory, 0.52, 0.34)
-		_machine_box(wing, "InnerLiner", Vector3(side * 0.86, 0.57, 0.26),
-			Vector3(0.065, 0.57, 1.35), dark, 0.25, 0.7)
-		_machine_box(wing, "CorporateStripe", Vector3(side * 0.98, 1.005, 0.24),
-			Vector3(0.17, 0.018, 1.30), amber, 0.35, 0.38)
-		for z in [-0.55, 0.91]:
-			_machine_cylinder(wing, "PanelHinge", Vector3(side * 0.65, 0.43, z),
-				0.09, 0.22, graphite, Vector3(PI / 2.0, 0, 0))
-			_machine_box(wing, "LandingFoot", Vector3(side * 1.11, 0.09, z),
-				Vector3(0.31, 0.18, 0.32), graphite, 0.70, 0.46)
-		_bar(wing, Vector3(side * 0.50, 0.45, 0.79), Vector3(side * 0.86, 0.74, -0.37), 0.055, Color("758e91"))
-		_machine_box(landing_pod_visual, suffix + "DeckHinge", Vector3(side * 0.82, 0.035, -0.74),
-			Vector3(0.55, 0.07, 0.08), graphite, 0.62, 0.42)
+		_machine_cylinder(shell, suffix + "CanopyHinge", Vector3(side * 0.53, 0.72, 0.80),
+			0.09, 0.21, graphite, Vector3(0, 0, PI / 2.0))
+		_machine_cylinder(shell, suffix + "CanopyStrut", Vector3.ZERO, 0.026, 1.0, Color("8d9c99"))
+		for z in [-0.72, 0.72]:
+			_machine_box(shell, suffix + "LandingFoot", Vector3(side * 0.65, 0.07, z),
+				Vector3(0.28, 0.14, 0.29), graphite, 0.45, 0.68)
+			_machine_box(shell, "PalletSkid", Vector3(side * 0.58, 0.15, z),
+				Vector3(0.09, 0.18, 0.13), graphite, 0.45, 0.68)
 	landing_hub_visual = Node3D.new()
 	landing_hub_visual.name = "PodFabricationHub"
 	landing_hub_visual.set_meta("authority_entity", hub.id)
@@ -6560,36 +6579,62 @@ func _build_landing_pod_visual(pod: Dictionary, hub: Dictionary) -> void:
 	pick_shape.shape = pick_box
 	landing_hub_pick.add_child(pick_shape)
 	landing_hub_visual.add_child(landing_hub_pick)
+	var workspace := Node3D.new()
+	workspace.name = "FoldoutBench"
+	landing_hub_visual.add_child(workspace)
 	for x in [-0.40, 0.40]:
 		for z in [-0.27, 0.27]:
-			_machine_box(landing_hub_visual, "BenchLeg", Vector3(x, 0.34, z),
-				Vector3(0.085, 0.68, 0.085), graphite, 0.78, 0.42)
-	_machine_box(landing_hub_visual, "BenchWorktop", Vector3(0, 0.74, 0),
-		Vector3(1.16, 0.115, 0.70), ivory, 0.52, 0.35)
-	_machine_box(landing_hub_visual, "BenchSteelInsert", Vector3(-0.16, 0.805, -0.06),
-		Vector3(0.52, 0.02, 0.38), graphite, 0.82, 0.28)
+			_machine_box(workspace, "BenchLeg", Vector3(x, 0.34, z),
+				Vector3(0.085, 0.68, 0.085), graphite, 0.48, 0.57)
+		_bar(workspace, Vector3(x, 0.17, -0.27), Vector3(x, 0.56, 0.27), 0.04, graphite)
+	var worktop := _machine_box(workspace, "BenchWorktop", Vector3(0, 0.74, 0),
+		Vector3(1.16, 0.115, 0.70), ivory, 0.35, 0.64)
+	worktop.material_override = ProductionCollectorArt.coating(ivory)
+	_machine_box(workspace, "BenchSteelInsert", Vector3(-0.16, 0.805, -0.06),
+		Vector3(0.52, 0.02, 0.38), Color("596e6d"), 0.72, 0.46)
 	for x in [-0.35, 0.03]:
-		_machine_box(landing_hub_visual, "FabricationClampJaw", Vector3(x, 0.88, -0.06),
+		_machine_box(workspace, "FabricationClampJaw", Vector3(x, 0.88, -0.06),
 			Vector3(0.075, 0.13, 0.27), dark, 0.78, 0.31)
-	_machine_cylinder(landing_hub_visual, "ToolPost", Vector3(0.35, 1.01, -0.19),
+	_machine_cylinder(workspace, "ToolPost", Vector3(0.35, 1.01, -0.19),
 		0.07, 0.44, graphite)
-	_bar(landing_hub_visual, Vector3(0.35, 1.23, -0.19), Vector3(0.05, 1.23, -0.19),
+	_bar(workspace, Vector3(0.35, 1.23, -0.19), Vector3(0.05, 1.23, -0.19),
 		0.065, Color("a8b8ae"))
-	_machine_box(landing_hub_visual, "CuttingHead", Vector3(0.03, 1.16, -0.19),
+	_machine_box(workspace, "CuttingHead", Vector3(0.03, 1.16, -0.19),
 		Vector3(0.12, 0.17, 0.13), amber, 0.58, 0.34)
 	# The crank belongs to the landed pod even after its bench is moved.
 	var crank_mount := Vector3(PITCH + 0.34, 0.83, 0.20)
-	_machine_box(landing_pod_visual, "CrankTray", crank_mount,
+	var tray := Node3D.new()
+	tray.name = "CrankTrayMount"
+	tray.position = crank_mount
+	landing_pod_visual.add_child(tray)
+	_machine_box(tray, "CrankTray", Vector3.ZERO,
 		Vector3(0.35, 0.045, 0.19), dark, 0.58, 0.43)
+	_machine_box(tray, "TrayStand", Vector3(0, -0.415, 0),
+		Vector3(0.045, 0.83, 0.045), graphite, 0.45, 0.64)
+	_machine_box(tray, "TrayFoot", Vector3(0, -0.81, 0),
+		Vector3(0.22, 0.04, 0.20), graphite, 0.45, 0.64)
 	landing_crank_visual = Node3D.new()
 	landing_crank_visual.name = "CrankInTray"
 	landing_crank_visual.set_meta("authority_entity", "pod-hand-crank")
-	landing_crank_visual.position = crank_mount + Vector3(0, 0.08, 0)
-	landing_pod_visual.add_child(landing_crank_visual)
+	landing_crank_visual.position = Vector3(0, 0.08, 0)
+	tray.add_child(landing_crank_visual)
 	_machine_cylinder(landing_crank_visual, "CrankAxle", Vector3.ZERO, 0.025, 0.26,
 		Color("bac5ba"), Vector3(0, 0, PI / 2.0))
 	_machine_box(landing_crank_visual, "CrankHandle", Vector3(0.12, 0.055, 0),
 		Vector3(0.045, 0.15, 0.045), amber, 0.20, 0.46)
+	_pose_pod_canopy(1.0)
+
+func _pose_pod_canopy(amount: float) -> void:
+	var shell: Node3D = landing_pod_visual.get_node("OpenedPodShell")
+	var canopy: Node3D = shell.get_node("CanopyPivot")
+	canopy.rotation.x = PI * amount
+	for side in [-1.0, 1.0]:
+		var start := Vector3(side * 0.62, 0.28, 0.10)
+		var end: Vector3 = canopy.transform * Vector3(side * 0.62, 0.25, -0.90)
+		var strut: MeshInstance3D = shell.get_node(("Port" if side < 0.0 else "Starboard") + "CanopyStrut")
+		strut.position = (start + end) * 0.5
+		strut.basis = Basis.looking_at((end - start).normalized(), Vector3.RIGHT) * Basis(Vector3.RIGHT, PI / 2.0)
+		strut.scale = Vector3(1.0, start.distance_to(end), 1.0)
 
 func _sync_landing_pod_visual() -> void:
 	if not state.has("landing_pod") or not state.has("fabrication_hub"):
@@ -6695,7 +6740,7 @@ func _maybe_start_arrival_reveal() -> void:
 	_advance_arrival_reveal(0.0)
 
 func _arrival_fold_amount() -> float:
-	var phase := clampf((arrival_reveal_elapsed - 1.35) / 1.30, 0.0, 1.0)
+	var phase := clampf((arrival_reveal_elapsed - 1.45) / 1.20, 0.0, 1.0)
 	return phase * phase * (3.0 - 2.0 * phase)
 
 func _pose_arrival_reveal() -> void:
@@ -6704,14 +6749,17 @@ func _pose_arrival_reveal() -> void:
 	var fold := _arrival_fold_amount()
 	landing_pod_visual.position = arrival_reveal_pod_anchor + Vector3.UP * (8.0 * (1.0 - descent))
 	landing_pod_visual.rotation.y = 0.18 * (1.0 - descent)
-	for side in [-1.0, 1.0]:
-		var suffix := "Port" if side < 0.0 else "Starboard"
-		var wing := landing_pod_visual.get_node_or_null("OpenedPodShell/" + suffix + "OpenedWing") as Node3D
-		if wing != null:
-			wing.position.x = -side * 0.52 * (1.0 - fold)
-			wing.rotation.y = side * 0.52 * (1.0 - fold)
-	landing_hub_visual.visible = fold > 0.01
-	landing_hub_visual.scale = Vector3(1.0, maxf(0.05, fold), 1.0)
+	_pose_pod_canopy(smoothstep(0.0, 0.60, fold))
+	var bench_fold := smoothstep(0.35, 1.0, fold)
+	var workspace: Node3D = landing_hub_visual.get_node("FoldoutBench")
+	workspace.position = (arrival_reveal_pod_anchor - landing_hub_visual.position) * (1.0 - bench_fold) \
+		+ Vector3.UP * (0.5 * (1.0 - bench_fold))
+	workspace.rotation.z = -PI * 0.5 * (1.0 - bench_fold)
+	workspace.visible = bench_fold > 0.01
+	landing_hub_visual.visible = bench_fold > 0.01 and state.get("fabrication_hub", {}).get("installed", false)
+	var tray: Node3D = landing_pod_visual.get_node("CrankTrayMount")
+	tray.position = Vector3(PITCH + 0.34, 0.83, 0.20) * bench_fold
+	tray.visible = bench_fold > 0.01
 	if arrival_reveal_caption != null:
 		arrival_reveal_caption.text = "SITE PACKAGE UNFOLDING" if arrival_reveal_elapsed >= 1.45 else "FIELD DESCENT IN PROGRESS"
 	for panel in machine_root.get_children():
@@ -7525,6 +7573,110 @@ func _collect_machine_composite_parts(node: Node3D, pose: Transform3D,
 				parts.append_array(eligible_parts)
 		_collect_machine_composite_parts(child, child_pose, moving, parts)
 
+func _machine_finish_mesh(source: ArrayMesh) -> ArrayMesh:
+	# Opaque parts can share a surface when their finish differs only by values
+	# carried on vertices. Keep the source mesh if an attribute is unsupported.
+	var groups := {}
+	for surface_index in source.get_surface_count():
+		var finish := source.surface_get_material(surface_index) as StandardMaterial3D
+		if finish == null or finish.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED \
+				or finish.albedo_texture != null \
+				or source.surface_get_primitive_type(surface_index) != Mesh.PRIMITIVE_TRIANGLES:
+			return source
+		var varied := not finish.uv1_triplanar and finish.normal_enabled \
+			and finish.normal_texture != null and finish.roughness_texture != null \
+			and finish.roughness_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_RED \
+			and finish.metallic_texture == null
+		var key := [varied]
+		for property in finish.get_property_list():
+			if (int(property.usage) & PROPERTY_USAGE_STORAGE) == 0 or property.name in [
+					"resource_name", "resource_path", "resource_local_to_scene",
+					"albedo_color", "vertex_color_use_as_albedo"]:
+				continue
+			if varied and property.name in ["metallic", "roughness"]:
+				continue
+			key.append([property.name, finish.get(property.name)])
+		if not groups.has(key):
+			groups[key] = {"finish": finish, "varied": varied, "vertices": [],
+				"normals": [], "tangents": [], "uv": [], "uv2": [], "colors": [], "indices": []}
+		var group: Dictionary = groups[key]
+		var arrays := source.surface_get_arrays(surface_index)
+		var points: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+		var tangents = arrays[Mesh.ARRAY_TANGENT]
+		var uv = arrays[Mesh.ARRAY_TEX_UV]
+		var colors = arrays[Mesh.ARRAY_COLOR]
+		var indices = arrays[Mesh.ARRAY_INDEX]
+		if normals.size() != points.size() or not tangents is PackedFloat32Array \
+				or tangents.size() != points.size() * 4 or not uv is PackedVector2Array \
+				or uv.size() != points.size():
+			return source
+		var start: int = group.vertices.size()
+		for point_index in points.size():
+			group.vertices.append(points[point_index])
+			group.normals.append(normals[point_index])
+			group.uv.append(uv[point_index])
+			for lane in 4:
+				group.tangents.append(tangents[point_index * 4 + lane])
+			var color := finish.albedo_color
+			if finish.vertex_color_use_as_albedo and colors is PackedColorArray \
+					and colors.size() == points.size():
+				color *= colors[point_index]
+			if varied:
+				color.a = finish.metallic
+				group.uv2.append(Vector2(finish.roughness, 0))
+			group.colors.append(color)
+		if not indices is PackedInt32Array or indices.is_empty():
+			for point_index in points.size():
+				group.indices.append(start + point_index)
+		else:
+			for point_index in indices:
+				group.indices.append(start + point_index)
+	if groups.size() >= source.get_surface_count():
+		return source
+	var result := ArrayMesh.new()
+	for group in groups.values():
+		var arrays := []
+		arrays.resize(Mesh.ARRAY_MAX)
+		arrays[Mesh.ARRAY_VERTEX] = PackedVector3Array(group.vertices)
+		arrays[Mesh.ARRAY_NORMAL] = PackedVector3Array(group.normals)
+		arrays[Mesh.ARRAY_TANGENT] = PackedFloat32Array(group.tangents)
+		arrays[Mesh.ARRAY_TEX_UV] = PackedVector2Array(group.uv)
+		if group.varied:
+			arrays[Mesh.ARRAY_TEX_UV2] = PackedVector2Array(group.uv2)
+		arrays[Mesh.ARRAY_COLOR] = PackedColorArray(group.colors)
+		arrays[Mesh.ARRAY_INDEX] = PackedInt32Array(group.indices)
+		result.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		var material: Material
+		if group.varied:
+			var shader := Shader.new()
+			shader.code = "shader_type spatial;\n" + \
+				"uniform sampler2D finish_rough : filter_linear_mipmap_anisotropic, repeat_enable;\n" + \
+				"uniform sampler2D finish_normal : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;\n" + \
+				"uniform vec2 finish_uv_scale;\n" + \
+				"uniform vec2 finish_uv_offset;\n" + \
+				"uniform float finish_normal_scale;\n" + \
+				"void fragment() { vec2 at = UV * finish_uv_scale + finish_uv_offset; " + \
+				"ALBEDO = COLOR.rgb; METALLIC = COLOR.a; " + \
+				"ROUGHNESS = UV2.x * texture(finish_rough, at).r; " + \
+				"NORMAL_MAP = texture(finish_normal, at).rgb; " + \
+				"NORMAL_MAP_DEPTH = finish_normal_scale; }"
+			var custom_finish := ShaderMaterial.new()
+			custom_finish.shader = shader
+			custom_finish.set_shader_parameter("finish_rough", group.finish.roughness_texture)
+			custom_finish.set_shader_parameter("finish_normal", group.finish.normal_texture)
+			custom_finish.set_shader_parameter("finish_uv_scale", Vector2(group.finish.uv1_scale.x, group.finish.uv1_scale.y))
+			custom_finish.set_shader_parameter("finish_uv_offset", Vector2(group.finish.uv1_offset.x, group.finish.uv1_offset.y))
+			custom_finish.set_shader_parameter("finish_normal_scale", group.finish.normal_scale)
+			material = custom_finish
+		else:
+			var standard := group.finish.duplicate() as StandardMaterial3D
+			standard.albedo_color = Color.WHITE
+			standard.vertex_color_use_as_albedo = true
+			material = standard
+		result.surface_set_material(result.get_surface_count() - 1, material)
+	return result
+
 func _machine_composite_mesh(parts: Array[Dictionary], key: Array) -> ArrayMesh:
 	if machine_batch_composite_meshes.has(key):
 		return machine_batch_composite_meshes[key]
@@ -7543,6 +7695,7 @@ func _machine_composite_mesh(parts: Array[Dictionary], key: Array) -> ArrayMesh:
 			surface.append_from(part.mesh, part.surface, part.pose)
 		surface.set_material(group.material)
 		combined = surface.commit(combined)
+	combined = _machine_finish_mesh(combined)
 	machine_batch_composite_meshes[key] = combined
 	return combined
 

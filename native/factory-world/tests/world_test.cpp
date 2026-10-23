@@ -332,6 +332,76 @@ void preserve_work_through_recovery_and_rebuild() {
     check(w::validate(f.profile, owner->snapshot()), "Every accepted edit and step retains full World invariants.");
 }
 
+void completed_processor_exports_to_output_belt() {
+    auto prepared = fixture();
+    prepared.profile.finite_parts[{s::Role::waterwheel, 0, 0}] = 4;
+    prepared.profile.finite_parts[{s::Role::shaft, 0, 2}] = 8;
+    prepared.profile.finite_parts[{s::Role::belt, 0, 0}] = 2;
+    prepared.state.topology.parts.push_back(hub("output-wheel", s::Role::waterwheel, 16, 0));
+    for (const auto& [id, center] : {std::pair{"output-drive", g::Point{16, 0, 4}},
+                                     std::pair{"output-mouth", g::Point{16, 0, 8}},
+                                     std::pair{"output-east", g::Point{20, 0, 8}}})
+        prepared.state.topology.parts.push_back({{id, g::Kind::shaft, center, g::Axis::z, 0, 2},
+            1, s::Role::shaft});
+    prepared.state.topology.belt_spans.push_back({{"processor-output-belt", "output-mouth", "output-east"}, 1});
+    prepared.state.material.belt_lanes.emplace("processor-output-belt",
+        m::BeltLane{{std::nullopt, std::nullopt}, 0});
+    prepared.state.topology.sources.push_back({"output-wheel", prepared.profile.waterwheel_rate});
+    for (const auto& item : prepared.state.topology.parts)
+        prepared.state.issued_entities.emplace(item.geometry.id, item.generation);
+    prepared.state.issued_entities.emplace("processor-output-belt", 1);
+    prepared.state.material.stock.source = 15;
+    prepared.state.material.stock.output = 1;
+
+    for (const bool reverse_endpoints : {false, true}) {
+        auto f = prepared;
+        auto& span = f.state.topology.belt_spans.back().geometry;
+        if (reverse_endpoints) std::swap(span.first_shaft, span.last_shaft);
+        auto owner = world(f);
+        check(owner->tick().error == w::TransactionError::none,
+              "A rotating belt takes one finished plate from the processor output face.");
+        const auto moved = owner->snapshot();
+        const auto& lane = moved.state.material.belt_lanes.at("processor-output-belt");
+        check(moved.state.material.stock.output == 0 &&
+              (reverse_endpoints ? lane.slots.back() : lane.slots.front()) == m::Cargo{0, 1, {}} &&
+              w::World::restore("fixture-world", f.profile, moved) != nullptr,
+              "Both endpoint orders keep one typed product in a restorable belt lane.");
+    }
+    auto stopped = prepared;
+    stopped.state.topology.drive_enabled = false;
+    auto idle = world(stopped);
+    check(idle->tick().error == w::TransactionError::none &&
+          idle->snapshot().state.material.stock.output == 1 &&
+          !idle->snapshot().state.material.belt_lanes.at("processor-output-belt").slots.front(),
+          "A stopped belt leaves the press product available for manual collection.");
+    auto wrong_side = prepared;
+    for (auto& item : wrong_side.state.topology.parts)
+        if (item.geometry.id == "processor") item.rotation = 2;
+    auto turned = world(wrong_side);
+    check(turned->tick().error == w::TransactionError::none &&
+          turned->snapshot().state.material.stock.output == 1,
+          "A belt at the processor's input side cannot withdraw its finished output.");
+    auto reversed = prepared;
+    reversed.profile.waterwheel_rate = {1, 1};
+    for (auto& source : reversed.state.topology.sources) source.rate = reversed.profile.waterwheel_rate;
+    auto incoming = world(reversed);
+    check(incoming->tick().error == w::TransactionError::none &&
+          incoming->snapshot().state.material.stock.output == 1,
+          "A belt running toward the processor leaves the finished plate in its output slot.");
+    auto absent = prepared;
+    absent.state.topology.belt_spans.pop_back();
+    absent.state.material.belt_lanes.erase("processor-output-belt");
+    absent.state.kits.at("P")[{s::Role::belt, 0, 0}] = 1;
+    auto manual = world(absent);
+    Observer observer;
+    auto collect = target("collect", "manual-output", "processor");
+    collect.emplace("amount", V(I{1}));
+    outcome(send(*manual, collect, observer), true, "ok");
+    check(manual->snapshot().state.material.cargo.at("P").products == 1 &&
+          manual->snapshot().state.material.stock.output == 0,
+          "The same finished plate remains manually collectable without an output belt.");
+}
+
 void ready_work_and_two_endpoint_reach() {
     auto f = fixture();
     f.state.material.stock = {14, 0, 0, 0, 1};
@@ -472,6 +542,7 @@ int main() {
         authentication_reach_and_replay();
         running_removal_rebuild_and_tick();
         preserve_work_through_recovery_and_rebuild();
+        completed_processor_exports_to_output_belt();
         ready_work_and_two_endpoint_reach();
         atomic_step_and_callback_failures();
         trusted_flow_drives_world();
