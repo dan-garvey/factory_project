@@ -5226,6 +5226,7 @@ func issue(action: Dictionary) -> Dictionary:
 			"deploy_fabrication_hub": "Pod workshop installed at its new worksite.",
 			"take_hand_crank": "You have the pod crank. Turn a built shaft nearby.",
 			"return_hand_crank": "Crank returned to the pod tray.",
+			"turn_hand_crank": "Collector cut one ore blank into its receiver tray.",
 			"feed_press": "One carried blank is now under the press head.",
 			"turn_press_crank": "The press advanced its work. Check the worksite for the formed plate.",
 			"deliver_first_plate": "Meridian received one formed plate. Your workshop remains yours to improve.",
@@ -5248,6 +5249,7 @@ func issue(action: Dictionary) -> Dictionary:
 			"not_crank_holder": "Take the pod crank before turning this press.",
 			"wrong_drive_shaft": "Use this press's fitted drive shaft.",
 			"incomplete_assembly": "The press still needs the indicated component.",
+			"receiver_full": "Pick up the ore blank in the collector receiver before cutting again.",
 			"blocked_feed": "Choose a clear feed face.",
 			"blocked_exit": "Choose a clear lower exit.",
 			"input_full": "Recover or process the existing blank first.",
@@ -5263,7 +5265,7 @@ func issue(action: Dictionary) -> Dictionary:
 			"held_stock": "Retrieve the material before removing this machine.",
 			"contains_stock": "Retrieve the material before removing this machine.",
 			"not_at_stream": "Set the wheel in the water with its lower rim immersed and clear of the bed.",
-			"not_at_seam": "Place the collector on the ore-colored ground beside the rock.",
+			"not_at_seam": "Place the collector over the ore deposit beside the rock.",
 			"no_shaft": "All carried shafts are in use."}.get(outcome.reason, "That action is unavailable here."))
 		if action.action == "craft_component":
 			refusal = {"unavailable_input": "Gather the timber or softmetal shown for this component.",
@@ -5277,6 +5279,12 @@ func issue(action: Dictionary) -> Dictionary:
 			refusal = {"unavailable_input": "Gather the timber or softmetal shown for this transmission kit.",
 				"out_of_reach": "Move beside the selected workshop to make a transmission kit.",
 				"quantity_overflow": "Too many of this kit are already carried."}.get(outcome.get("reason", ""), refusal)
+		elif action.action == "turn_hand_crank":
+			refusal = {"not_crank_holder": "Take the pod crank before turning this collector.",
+				"incomplete_assembly": "Fit the collector's missing component before cutting ore.",
+				"source_depleted": "This ore deposit is depleted.",
+				"output_full": "Clear a loose material drop before cutting more ore.",
+				"out_of_reach": "Move beside the collector's fitted shaft to turn it."}.get(outcome.get("reason", ""), refusal)
 		elif action.action == "deploy_fabrication_hub" and outcome.get("reason", "") == "unsupported_bench":
 			refusal = "Set the pod workshop on clear ground or a foundation top."
 		elif action.action == "reclaim_component" and outcome.get("reason", "") == "inventory_full":

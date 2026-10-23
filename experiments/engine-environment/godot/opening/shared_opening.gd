@@ -273,11 +273,12 @@ func _settle_pending() -> void:
 				"craft_component": "Component crafted from carried material.", "field_craft": "Wooden component shaped with your multitool.",
 				"craft_part": "Transmission kit made from carried timber and softmetal.",
 				"place_component": "Component placed on the shared grid.", "reclaim_component": "Component returned to your carried cargo.",
+				"turn_hand_crank": "Collector cut one ore blank into its receiver tray.",
 				"retrieve": "Plate collected into your inventory.", "pickup_material": "Loose material collected into your inventory.", "load_belt_slot": "Material placed on the belt.",
 				"remove": "Part returned."}.get(item.action.action, "Action accepted."))
 		else:
 			var refusal: String = _material_refusal_message(result, "Not applied: " + {"occupied": "that square is occupied.", "no_part": "that part is already placed.",
-				"not_at_seam": "place the collector on the ore-colored ground beside the rock.",
+				"not_at_seam": "place the collector over the ore deposit beside the rock.",
 				"not_at_stream": "place the waterwheel beside the stream bank.",
 				"unavailable_output": "there is no finished plate to collect.", "not_stopped": "stop the drive before editing.",
 				"out_of_reach": "move closer to the target before building or interacting.",
@@ -298,6 +299,13 @@ func _settle_pending() -> void:
 				refusal = {"unavailable_input": "Gather the timber or softmetal shown for this transmission kit.",
 					"out_of_reach": "Move beside the selected workshop to make a transmission kit.",
 					"quantity_overflow": "Too many of this kit are already carried."}.get(result.get("reason", ""), refusal)
+			elif item.action.action == "turn_hand_crank":
+				refusal = {"not_crank_holder": "Take the pod crank before turning this collector.",
+					"incomplete_assembly": "Fit the collector's missing component before cutting ore.",
+					"receiver_full": "Pick up the ore blank in the collector receiver before cutting again.",
+					"source_depleted": "This ore deposit is depleted.",
+					"output_full": "Clear a loose material drop before cutting more ore.",
+					"out_of_reach": "Move beside the collector's fitted shaft to turn it."}.get(result.get("reason", ""), refusal)
 			elif item.action.action == "reclaim_component" and result.get("reason", "") == "inventory_full":
 				refusal = "Your component bag is full. Place another carried part before reclaiming."
 			_message(refusal, true)

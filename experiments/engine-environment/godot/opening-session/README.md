@@ -223,6 +223,21 @@ their separate P/Q result files and the host's accepted save report. These
 callbacks are automated client input, not a desktop or human playtest. They
 do not yet cover the complete collector and press controls.
 
+The same consumer has `--cog-phase=collector-ui` and
+`--cog-phase=collector-ui-resume` modes. With a native server and separate P/Q
+ordinary scenes, P walks to a finite tree and ore deposit, shapes four wooden
+components, crafts a cutting edge at the pod, takes the single crank, and fits
+five issued pieces on a raised foundation. It selects the fitted shaft and
+presses the visible collector cut button. Q checks the original resource debits
+and one receiver blank. The resumed mode opens the server's unchanged Store
+save with both clients; P picks up that blank, then uses the same button to cut
+one more, while Q checks separate carried, receiver and source custody. The
+fixture retains each wire command and settled native outcome. Its walking and
+button callbacks are automated scene input, not desktop or human play. The
+separate `tile_transport_check.gd --chapter-product` fixture covers the press
+and first plate with synthetic actor observations; this collector UI mode does
+not establish an ordinary player-controlled first plate.
+
 The low-level dedicated entry accepts optional `--resume-input` and
 `--save-file` paths in the same owned directory as its lifecycle files. These
 are host process options, never RPCs. Input is decoded into the one actual

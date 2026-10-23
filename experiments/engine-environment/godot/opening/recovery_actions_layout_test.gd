@@ -7,12 +7,16 @@ class SessionStub extends RefCounted:
 		return true
 
 class LayoutView extends "res://opening/shared_opening.gd":
+	var submitted: Array[Dictionary] = []
 	func _ready() -> void:
 		pass
 	func _process(_delta: float) -> void:
 		pass
 	func _update_cursor() -> void:
 		pass
+	func issue(action: Dictionary) -> Dictionary:
+		submitted.append(action.duplicate(true))
+		return {"accepted": false, "queued": true}
 
 func _initialize() -> void:
 	call_deferred("_run")
@@ -34,6 +38,41 @@ func _bounds(view) -> Dictionary:
 func _settle() -> void:
 	for _frame: int in range(4):
 		await process_frame
+
+func _collector_control(view: LayoutView) -> bool:
+	var panel = view.arrival_assembly_controls
+	var snapshot := {"options": {"native": true}, "hand_sources": {"ore": {}},
+		"cargo": {"P": {"components": {}, "timber": 0, "raw": 0}},
+		"placed_components": {"frame": {"component": "wooden_frame", "center": [0, 4, 4]},
+			"tray": {"component": "receiver_tray", "center": [0, 4, 3]}},
+		"hand_crank": {"id": "pod-hand-crank", "holder": "P"},
+		"collector_assemblies": [{"center": [0, 4, 4], "status": "ready",
+			"parts": {"frame": "frame", "mount": "mount", "edge": "edge",
+				"receiver": "tray", "shaft": "shaft"}}],
+		"dropped_material": []}
+	panel.refresh(snapshot, "P", "shaft", true)
+	var ready: bool = panel.collector_cut_button.visible and not panel.collector_cut_button.disabled \
+		and panel.collector_crank_button.visible and panel.crank_button.text == "Return crank to pod"
+	panel.collector_cut_button.pressed.emit()
+	var exact: bool = view.submitted == [{"action": "turn_hand_crank", "entity": "shaft"}]
+	view.submitted.clear()
+	snapshot.hand_crank.holder = "Q"
+	panel.refresh(snapshot, "P", "shaft", true)
+	var held_elsewhere: bool = panel.collector_cut_button.disabled and panel.collector_crank_button.disabled
+	snapshot.hand_crank.holder = "pod"
+	panel.refresh(snapshot, "P", "shaft", true)
+	panel.collector_crank_button.pressed.emit()
+	var take: bool = view.submitted == [{"action": "take_hand_crank", "entity": "pod-hand-crank"}]
+	view.submitted.clear()
+	snapshot.hand_crank.holder = "P"
+	snapshot.dropped_material = [{"center": [0, 4, 3], "raw": 1}]
+	panel.refresh(snapshot, "P", "shaft", true)
+	var full: bool = panel.collector_cut_button.disabled and "Pick it up" in panel.collector_status.text
+	snapshot.dropped_material = []
+	snapshot.collector_assemblies[0] = {"center": [0, 4, 4], "status": "missing_mount"}
+	panel.refresh(snapshot, "P", "frame", true)
+	var missing: bool = panel.collector_cut_button.disabled and "tool mount" in panel.collector_status.text
+	return ready and exact and held_elsewhere and take and full and missing and view.submitted.is_empty()
 
 func _run() -> void:
 	root.size = Vector2i(1280, 800)
@@ -81,11 +120,14 @@ func _run() -> void:
 	var bar_top: float = view.building_hotbar.get_global_rect().position.y
 	var fit: bool = not recovery.overlap and recovery.minimum_required_bottom <= bar_top - 12.0 \
 		and recovery.right[1] + recovery.right[3] <= bar_top - 12.0
-	var passed: bool = not baseline.overlap and fit and available and separate_forms and view.model == null
+	var collector_control: bool = _collector_control(view)
+	var passed: bool = not baseline.overlap and fit and available and separate_forms \
+		and collector_control and view.model == null
 	var report: Dictionary = {"status": "pass" if passed else "fail",
 		"evidence": "headless_ui_container_bounds", "viewport": [root.size.x, root.size.y],
 		"baseline_without_recovery": baseline, "with_recovery": recovery,
 		"action_available": available, "separate_carried_forms": separate_forms,
+		"collector_control": collector_control,
 		"carried_tooltip": tooltip, "model_created": view.model != null}
 	print(JSON.stringify(report))
 	view.queue_free()

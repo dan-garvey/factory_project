@@ -7,7 +7,9 @@ var baseline: Dictionary = {}
 func _chapter_ui_material(snapshot: Dictionary) -> Dictionary:
 	return {"order": snapshot.get("order"), "cargo": snapshot.get("cargo"),
 		"hand_sources": snapshot.get("hand_sources"),
-		"placed_components": snapshot.get("placed_components")}
+		"placed_components": snapshot.get("placed_components"),
+		"dropped_material": snapshot.get("dropped_material"),
+		"hand_crank": snapshot.get("hand_crank")}
 
 func _chapter_ui_call(label: String, expected: Dictionary, callback: Callable) -> Dictionary:
 	var before: Dictionary = session.projection()
@@ -149,6 +151,183 @@ func _chapter_ui_resume_q() -> bool:
 		"Q receives P's resumed frame recovery"):
 		return false
 	return _chapter_ui_frame(session.projection(), false)
+
+func _collector_ui_drop(snapshot: Dictionary) -> bool:
+	for value in snapshot.get("dropped_material", []):
+		if value is Dictionary and value.get("center") == [0, 4, 3] and value.get("raw") == 1:
+			return true
+	return false
+
+func _collector_ui_issue(label: String, action: Dictionary) -> Dictionary:
+	return await _chapter_ui_call(label, action, opening.issue.bind(action))
+
+func _collector_ui_select(shaft: String, receiver_clear: bool = true) -> bool:
+	opening._select_tool("inspect")
+	opening._world_click(Vector2i(0, 1), shaft)
+	var panel = opening.arrival_assembly_controls
+	return _expect(opening.selected == shaft and panel != null and panel.collector_cut_button.visible
+		and panel.collector_cut_button.disabled == not receiver_clear
+		and ("Collector ready" in panel.collector_status.text if receiver_clear else
+			"receiver holds" in panel.collector_status.text),
+		"The ordinary selected shaft reflects its confirmed collector receiver and crank")
+
+func _collector_ui_p() -> bool:
+	if (await _barrier("Q-ready.bin")).is_empty() or not _chapter_ui_initial():
+		return false
+	if not await _chapter_ui_walk(Vector2(3.3, 4.95)):
+		return false
+	opening.distance = 0.0
+	for index in range(7):
+		var pose: Array = session.projection().actors.P.position
+		opening.camera.global_position = Vector3(float(pose[0]), float(pose[1]) + 0.7, float(pose[2]))
+		opening.camera.look_at(Vector3(6.6, 0.2, 3.3))
+		if not _expect(opening._screen_hand_source(opening._pointed_screen_position()) == "tree-east-south",
+			"The ordinary E ray still sees the finite tree trunk"):
+			return false
+		if (await _chapter_ui_call("Multitool timber cut %d" % index,
+			{"action": "harvest_source", "target": "tree-east-south"},
+			opening._interact_pointed)).is_empty():
+			return false
+	for kind in ["wooden_frame", "tool_mount", "receiver_tray", "wooden_shaft"]:
+		if (await _collector_ui_issue("Shape collector " + kind,
+			{"action": "field_craft", "component": kind})).is_empty():
+			return false
+	if not await _chapter_ui_walk(Vector2(3.3, 1.65)) or not await _chapter_ui_walk(Vector2(0.0, 1.65)):
+		return false
+	if (await _collector_ui_issue("Harvest one finite edge blank",
+		{"action": "harvest_source", "target": "opening-softmetal"})).is_empty():
+		return false
+	if not await _chapter_ui_walk(Vector2(1.65, 4.95)):
+		return false
+	if (await _collector_ui_issue("Craft the separate cutting edge",
+		{"action": "craft_component", "entity": "pod-fabrication-hub", "component": "cutting_edge"})).is_empty():
+		return false
+	if (await _collector_ui_issue("Take the original pod crank",
+		{"action": "take_hand_crank", "entity": "pod-hand-crank"})).is_empty():
+		return false
+	if not await _chapter_ui_walk(Vector2(0.7, 3.3)):
+		return false
+	if (await _collector_ui_issue("Build the collector deck",
+		{"action": "place_foundation", "cell": [0, 1], "level": 4})).is_empty():
+		return false
+	var shaft := ""
+	for part in [
+		{"component": "wooden_frame", "center": [0, 4, 4]},
+		{"component": "tool_mount", "center": [-1, 4, 4]},
+		{"component": "cutting_edge", "center": [-2, 4, 4]},
+		{"component": "receiver_tray", "center": [0, 4, 3]},
+		{"component": "wooden_shaft", "center": [1, 4, 4]}]:
+		var placed: Dictionary = await _collector_ui_issue("Fit collector " + part.component,
+			{"action": "place_component", "component": part.component, "center": part.center})
+		if placed.is_empty():
+			return false
+		if part.component == "wooden_shaft":
+			shaft = str(placed.get("entity", ""))
+	if not _expect(not shaft.is_empty() and session.projection().collector_assemblies.any(
+		func(item: Dictionary) -> bool: return item.get("status") == "ready" and item.get("parts", {}).get("shaft") == shaft),
+		"Five issued pieces form one ready native collector") or not _collector_ui_select(shaft):
+		return false
+	var cut: Dictionary = await _chapter_ui_call("Press the ordinary collector cut button",
+		{"action": "turn_hand_crank", "entity": shaft},
+		opening.arrival_assembly_controls.collector_cut_button.pressed.emit)
+	if cut.is_empty() or not _expect(cut.get("receiver_raw") == 1 and _collector_ui_drop(session.projection())
+		and session.projection().hand_sources["opening-softmetal"].remaining == 14
+		and opening.arrival_assembly_controls.collector_cut_button.disabled,
+		"One accepted panel cut debits finite ore and fills the receiver without an automatic second cut"):
+		return false
+	if not _expect(_write("P-complete.bin", {"status": "pass", "order": session.projection().order,
+		"shaft": shaft}), "Retain the confirmed collector shaft and cut order"):
+		return false
+	return not (await _barrier("Q-result.bin")).is_empty()
+
+func _collector_ui_q() -> bool:
+	if not _chapter_ui_initial() or not _expect(_write("Q-ready.bin", {"status": "pass"}),
+		"Q joins before the ordinary collector assembly"):
+		return false
+	var complete: Dictionary = await _barrier("P-complete.bin")
+	if complete.is_empty() or not await _until(func(): return session.projection().order >= complete.order,
+		"Q receives P's confirmed collector cut"):
+		return false
+	return _expect(_collector_ui_drop(session.projection()) and session.projection().cargo.P.raw == 0
+		and session.projection().hand_sources["tree-east-south"].remaining == 1
+		and session.projection().hand_sources["opening-softmetal"].remaining == 14,
+		"Q sees the same seven timber debits, one ore debit and exact receiver custody")
+
+func _collector_ui_resume_p() -> bool:
+	if (await _barrier("Q-ready.bin")).is_empty():
+		return false
+	var restored: Dictionary = session.projection()
+	var shaft := ""
+	for item: Dictionary in restored.get("collector_assemblies", []):
+		if item.get("status") == "ready":
+			shaft = str(item.get("parts", {}).get("shaft", ""))
+	if not _expect(restored.order == 21 and not shaft.is_empty() and _collector_ui_drop(restored)
+		and restored.hand_crank.holder == "P" and restored.hand_sources["opening-softmetal"].remaining == 14,
+		"Fresh host restores the issued collector, full receiver and original crank holder") \
+			or not _collector_ui_select(shaft, false):
+		return false
+	if (await _collector_ui_issue("Pick up the saved receiver blank",
+		{"action": "pickup_material", "center": [0, 4, 3],
+			"expected": {"raw": 1, "products": 0, "work_lots": []}})).is_empty():
+		return false
+	if not _expect(session.projection().cargo.P.raw == 1 and not _collector_ui_drop(session.projection()),
+		"Original receiver blank becomes one carried blank after native pickup") \
+			or not _collector_ui_select(shaft):
+		return false
+	var cut: Dictionary = await _chapter_ui_call("Cut again after restored receiver pickup",
+		{"action": "turn_hand_crank", "entity": shaft},
+		opening.arrival_assembly_controls.collector_cut_button.pressed.emit)
+	if cut.is_empty() or not _expect(cut.get("source_remaining") == 13
+		and _collector_ui_drop(session.projection()) and session.projection().cargo.P.raw == 1
+		and opening.arrival_assembly_controls.collector_cut_button.disabled,
+		"Restored collector cuts exactly one more finite blank after its receiver is cleared"):
+		return false
+	if not _expect(_write("P-complete.bin", {"status": "pass", "order": 23, "shaft": shaft}),
+		"Retain restored collector work for Q"):
+		return false
+	return not (await _barrier("Q-result.bin")).is_empty()
+
+func _collector_ui_resume_q() -> bool:
+	var restored: Dictionary = session.projection()
+	if not _expect(restored.order == 21 and _collector_ui_drop(restored)
+		and restored.hand_sources["opening-softmetal"].remaining == 14,
+		"Q joins the same Store-restored native receiver") \
+			or not _expect(_write("Q-ready.bin", {"status": "pass"}),
+			"Q announces its restored collector view"):
+		return false
+	if (await _barrier("P-complete.bin")).is_empty() or not await _until(
+		func(): return session.projection().order >= 23,
+		"Q receives both restored receiver pickup and second cut"):
+		return false
+	return _expect(_collector_ui_drop(session.projection()) and session.projection().cargo.P.raw == 1
+		and session.projection().hand_sources["opening-softmetal"].remaining == 13,
+		"Q sees one carried blank, one receiver blank and exactly thirteen uncut ore units")
+
+func _run_collector_ui() -> void:
+	if actor not in ["P", "Q"] or phase not in ["collector-ui", "collector-ui-resume"] \
+			or not directory.is_absolute_path():
+		push_error("The collector UI consumer needs P or Q and an owned directory")
+		quit(1)
+		return
+	deadline = Time.get_ticks_msec() + 90000
+	facts.evidence = "ordinary_shared_native_collector_cut_callbacks"
+	opening = load("res://opening/shared_opening.tscn").instantiate()
+	root.add_child(opening)
+	session = opening.session
+	session.outcome.connect(func(outcome: Dictionary):
+		var request: String = outcome.get("request", "")
+		if not replies.has(request):
+			replies[request] = []
+		replies[request].append(outcome.duplicate(true)))
+	if not await _until(func(): return session.is_ready(), "The ordinary collector scene joins native Session"):
+		return
+	var passed := false
+	if phase == "collector-ui":
+		passed = await _collector_ui_p() if actor == "P" else await _collector_ui_q()
+	else:
+		passed = await _collector_ui_resume_p() if actor == "P" else await _collector_ui_resume_q()
+	if passed and not written:
+		_record("pass")
 
 func _run_chapter_ui() -> void:
 	if actor not in ["P", "Q"] or phase not in ["chapter-ui", "chapter-ui-resume"] \
@@ -358,6 +537,9 @@ func _q() -> bool:
 		"Only two explicit material transfers occur after reconnection") and _marker("Q-material-cycled.bin")
 
 func _run() -> void:
+	if phase in ["collector-ui", "collector-ui-resume"]:
+		await _run_collector_ui()
+		return
 	if phase in ["chapter-ui", "chapter-ui-resume"]:
 		await _run_chapter_ui()
 		return
