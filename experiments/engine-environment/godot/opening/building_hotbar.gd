@@ -9,16 +9,27 @@ const CATALOG_KEYS := {KEY_C: "collector", KEY_F: "foundation", KEY_B: "belt",
 const TOOL_KEYS := {"collector": "C", "foundation": "F", "belt": "B",
 	"processor": "P", "wheel": "W", "gear": "G", "drive": "S",
 	"gearbox": "H", "vertical_gearbox": "V", "chain_drive": "N"}
+const COMPONENT_PREFIX := "component:"
+const ARRIVAL_SLOTS: Array[String] = ["component:wooden_frame", "foundation", "component:wooden_shaft",
+	"component:tool_mount", "component:receiver_tray", "component:cutting_edge", "belt", "wheel"]
+const COMPONENT_ICON = preload("res://opening/assets/build-icons/component.svg")
 var slots: Array[String] = ["collector", "foundation", "belt", "processor", "wheel", "gear", "drive", ""]
 var buttons: Array[Button] = []
 var slot_icons: Array[TextureRect] = []
+var slot_tags: Array[Label] = []
 var slot_counts: Array[Label] = []
 var catalog_buttons: Dictionary = {}
 var catalog_button: Button
 var catalog: PopupPanel
 var destination: OptionButton
+var component_row: HBoxContainer
+var component_choice: OptionButton
+var component_assign_button: Button
 var parts_label: Label
 var selected_slot := 0
+var _arrival_active := false
+var _component_labels: Dictionary = {}
+var _component_names: Array[String] = []
 var _host: WeakRef
 
 func configure(host, ui: Control) -> void:
@@ -52,6 +63,14 @@ func configure(host, ui: Control) -> void:
 		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		button.add_child(icon)
 		slot_icons.append(icon)
+		var tag := Label.new()
+		tag.position = Vector2(5, 35)
+		tag.size = Vector2(22, 15)
+		tag.add_theme_font_size_override("font_size", 9)
+		tag.add_theme_color_override("font_color", Color("e7b875"))
+		tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		button.add_child(tag)
+		slot_tags.append(tag)
 		var key := Label.new()
 		key.text = str(index + 1)
 		key.position = Vector2(5, 2)
@@ -101,6 +120,13 @@ func configure(host, ui: Control) -> void:
 		button.expand_icon = true
 		button.add_theme_constant_override("icon_max_width", 36)
 		catalog_buttons[tool] = button
+	component_row = HBoxContainer.new()
+	column.add_child(component_row)
+	component_choice = OptionButton.new()
+	component_choice.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	component_choice.item_selected.connect(func(_index: int) -> void: refresh())
+	component_row.add_child(component_choice)
+	component_assign_button = host._button(component_row, "Assign part  [A]", assign_component)
 	var actions := HBoxContainer.new()
 	column.add_child(actions)
 	host._button(actions, "Clear slot  [Delete]", clear_slot)
@@ -138,6 +164,8 @@ func _input(event: InputEvent) -> void:
 		catalog.hide()
 	elif CATALOG_KEYS.has(event.keycode):
 		assign(CATALOG_KEYS[event.keycode])
+	elif event.keycode == KEY_A and _arrival_active:
+		assign_component()
 	else:
 		return
 	get_viewport().set_input_as_handled()
@@ -164,12 +192,47 @@ func _view():
 	return _host.get_ref() if _host != null else null
 
 func _count(tool: String, parts: Dictionary) -> int:
+	if tool.begins_with(COMPONENT_PREFIX):
+		var host = _view()
+		return maxi(0, int(host.state.get("cargo", {}).get(host.client, {}).get("components", {}).get(
+			tool.trim_prefix(COMPONENT_PREFIX), 0))) if host != null else 0
 	return maxi(0, int(parts.get("shaft" if tool == "drive" else tool, 0)))
+
+func _tool_label(tool: String) -> String:
+	return str(_component_labels.get(tool.trim_prefix(COMPONENT_PREFIX), "Component")) \
+		if tool.begins_with(COMPONENT_PREFIX) else str(TOOLS.get(tool, "Empty"))
+
+func _component_tag(tool: String) -> String:
+	if not tool.begins_with(COMPONENT_PREFIX):
+		return ""
+	var words: PackedStringArray = _tool_label(tool).split(" ")
+	return (words[0].left(1) + words[1].left(1)).to_upper() if words.size() > 1 else words[0].left(2).to_upper()
+
+func _offered(tool: String, host) -> bool:
+	return not (_arrival_active and tool in ["collector", "processor"]) \
+		and not (tool == "foundation" and not host.state.get("options", {}).get("foundations", false)) \
+		and not (tool in ["gear", "gearbox", "vertical_gearbox", "chain_drive"] and not host._native_transmission())
+
+func _sync_arrival(host) -> void:
+	var arrival: bool = host._native_transmission() and host.state.has("hand_sources")
+	if arrival != _arrival_active:
+		_arrival_active = arrival
+		slots = ARRIVAL_SLOTS.duplicate() if arrival else \
+			["collector", "foundation", "belt", "processor", "wheel", "gear", "drive", ""]
+		selected_slot = -1
+	if arrival and _component_names.is_empty() and host.arrival_assembly_controls != null:
+		for item in host.arrival_assembly_controls.COMPONENTS:
+			var component: String = str(item[0])
+			_component_names.append(component)
+			_component_labels[component] = str(item[1])
+			component_choice.add_item(str(item[1]))
+	component_row.visible = arrival
 
 func refresh(snapshot_ready: bool = true) -> void:
 	var host = _view()
 	if host == null:
 		return
+	_sync_arrival(host)
 	var parts: Dictionary = host._display_parts()
 	var scope := "shared" if host._parts_are_shared() else "carried"
 	var usable: bool = snapshot_ready and host._can_choose_tool()
@@ -177,19 +240,22 @@ func refresh(snapshot_ready: bool = true) -> void:
 	if host.explanation_open:
 		catalog.hide()
 	var active: String = host.mode
+	if active == "component" and host.arrival_assembly_controls != null:
+		active = COMPONENT_PREFIX + host.arrival_assembly_controls.selected_name()
 	if host.transmission_controls != null and not host.transmission_controls.active_tool.is_empty():
 		active = {"place_shaft": "drive", "belt_span": "belt"}.get(host.transmission_controls.active_tool, host.transmission_controls.active_tool)
 	if selected_slot < 0 or slots[selected_slot] != active:
 		selected_slot = slots.find(active)
 	for index in range(slots.size()):
 		var tool := slots[index]
-		var label: String = TOOLS.get(tool, "Empty")
+		var label: String = _tool_label(tool)
 		var amount := _count(tool, parts)
-		var offered: bool = not (tool == "foundation" and not host.state.get("options", {}).get("foundations", false)) \
-			and not (tool in ["gear", "gearbox", "vertical_gearbox", "chain_drive"] and not host._native_transmission())
+		var offered: bool = _offered(tool, host)
 		buttons[index].visible = true
-		slot_icons[index].texture = catalog_buttons[tool].icon if not tool.is_empty() else null
+		slot_icons[index].texture = COMPONENT_ICON if tool.begins_with(COMPONENT_PREFIX) else \
+			catalog_buttons[tool].icon if not tool.is_empty() else null
 		slot_icons[index].visible = not tool.is_empty()
+		slot_tags[index].text = _component_tag(tool)
 		slot_counts[index].text = str(amount) if not tool.is_empty() else "+"
 		buttons[index].tooltip_text = "%s · %d %s · slot %d" % [label, amount, scope, index + 1] if not tool.is_empty() else "Assign slot %d · B opens catalog" % (index + 1)
 		buttons[index].disabled = host.explanation_open or (not tool.is_empty() and (not usable or amount < 1 or not offered))
@@ -199,9 +265,15 @@ func refresh(snapshot_ready: bool = true) -> void:
 		var button: Button = catalog_buttons[tool]
 		var amount := _count(tool, parts)
 		button.text = "%s  [%s]\n%d %s" % [TOOLS[tool], TOOL_KEYS[tool], amount, scope]
-		button.disabled = not usable or amount < 1
-		button.visible = not (tool == "foundation" and not host.state.get("options", {}).get("foundations", false)) \
-			and not (tool in ["gear", "gearbox", "vertical_gearbox", "chain_drive"] and not host._native_transmission())
+		button.disabled = not usable or amount < 1 or not _offered(tool, host)
+		button.visible = _offered(tool, host)
+	if _arrival_active:
+		for index in range(_component_names.size()):
+			var component: String = _component_names[index]
+			component_choice.set_item_text(index, "%s  ×%d" % [_component_labels[component],
+				_count(COMPONENT_PREFIX + component, parts)])
+		component_assign_button.disabled = not usable or component_choice.selected < 0 or \
+			_count(COMPONENT_PREFIX + _component_names[component_choice.selected], parts) < 1
 
 func open_catalog(index: int = -1) -> void:
 	var host = _view()
@@ -212,7 +284,12 @@ func open_catalog(index: int = -1) -> void:
 		return
 	refresh()
 	destination.select(index if index >= 0 and index < slots.size() else maxi(0, selected_slot))
-	catalog.popup_centered(Vector2i(560, 470))
+	if _arrival_active and host.arrival_assembly_controls != null:
+		var selected_component: String = host.arrival_assembly_controls.selected_name()
+		if _component_names.has(selected_component):
+			component_choice.select(_component_names.find(selected_component))
+			refresh()
+	catalog.popup_centered(Vector2i(560, 480 if _arrival_active else 470))
 	destination.grab_focus()
 	host._refresh_guided_tools()
 	_place_catalog.call_deferred()
@@ -225,6 +302,14 @@ func _slot_input(event: InputEvent, index: int) -> void:
 func assign(tool: String) -> void:
 	if not catalog_buttons.has(tool) or catalog_buttons[tool].disabled:
 		return
+	_assign_to_slot(tool)
+
+func assign_component() -> void:
+	if not _arrival_active or component_assign_button.disabled or component_choice.selected < 0:
+		return
+	_assign_to_slot(COMPONENT_PREFIX + _component_names[component_choice.selected])
+
+func _assign_to_slot(tool: String) -> void:
 	var index := destination.selected
 	slots[index] = tool
 	catalog.hide()
@@ -252,6 +337,13 @@ func select_slot(index: int) -> void:
 		open_catalog(index)
 		return
 	var host = _view()
+	if tool.begins_with(COMPONENT_PREFIX):
+		if host.arrival_assembly_controls == null or not host.arrival_assembly_controls.select_component_name(
+			tool.trim_prefix(COMPONENT_PREFIX)):
+			return
+		selected_slot = index
+		host._select_tool("component")
+		return
 	if tool == "gear" and host.transmission_controls != null:
 		# Prefer an available carried size; this changes selection, never stock.
 		var chosen := -1

@@ -8915,7 +8915,8 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	for tool in tool_buttons:
 		var button: Button = tool_buttons[tool]
 		# Keyboard selection stays visible even when it precedes the suggestion.
-		button.visible = NAMES.has(tool) or building_hotbar.catalog_buttons.has(tool) or offered.has(tool) or mode == tool
+		button.visible = (NAMES.has(tool) or building_hotbar.catalog_buttons.has(tool) or offered.has(tool) or mode == tool) \
+			and not (arrival and tool in ["collector", "processor"])
 		if tool == "foundation" and not state.get("options", {}).get("foundations", false):
 			button.visible = false
 		if tool in ["gear", "gearbox", "vertical_gearbox", "chain_drive"] and not _native_transmission():

@@ -142,8 +142,14 @@ func _initialize() -> void:
 	if "--hotbar-render-only" in OS.get_cmdline_user_args():
 		call_deferred("_render_hotbar")
 		return
+	if "--arrival-hotbar-render-only" in OS.get_cmdline_user_args():
+		call_deferred("_render_arrival_hotbar")
+		return
 	if "--hotbar-only" in OS.get_cmdline_user_args():
 		call_deferred("_hotbar")
+		return
+	if "--arrival-hotbar-only" in OS.get_cmdline_user_args():
+		call_deferred("_arrival_hotbar")
 		return
 	if "--carried-guidance-only" in OS.get_cmdline_user_args():
 		call_deferred("_carried_guidance")
@@ -1177,6 +1183,121 @@ func _hotbar() -> void:
 		view.free()
 	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
 		"failures": failures, "models": 0, "desktop_operations": 0, "scope": "ordinary/shared hotbar over invented projections"}))
+	quit(0 if failures == 0 else 1)
+
+func _arrival_hotbar() -> void:
+	var view := OfflineWidgets.new()
+	view.client = "P"
+	view.state = hotbar_observation()
+	view.state.hand_sources = {}
+	view.state.cargo = {"P": {"components": {}}, "Q": {"components": {"wooden_frame": 1}}}
+	view.state.fabrication_hub = {"id": "pod-fabrication-hub", "installed": true}
+	view.state.component_recipes = {}
+	view.state.component_capacity = 20
+	view.state.placed_components = {}
+	root.add_child(view)
+	view.selection_ring = MeshInstance3D.new()
+	view.add_child(view.selection_ring)
+	view._build_interface()
+	view._refresh_ui()
+	var bar = view.building_hotbar
+	verify(bar.slots == bar.ARRIVAL_SLOTS and bar.slots[0] == "component:wooden_frame"
+		and not bar.slots.has("collector") and not bar.slots.has("processor")
+		and bar.slot_tags[0].text == "WF" and bar.slot_tags[3].text == "TM",
+		"Native arrival quick slots begin with modular parts and a foundation, without complete machines.")
+	verify(not bar.catalog_buttons.collector.visible and not bar.catalog_buttons.processor.visible
+		and bar.component_row.visible and bar.component_choice.item_count == view.arrival_assembly_controls.COMPONENTS.size(),
+		"The arrival catalog hides historical machines and offers every fabricated component.")
+	verify(bar.buttons[0].disabled and bar.slot_counts[0].text == "0"
+		and bar.component_assign_button.disabled,
+		"A part absent from the active actor's native cargo cannot be selected or assigned.")
+	var initial: Dictionary = view.state.duplicate(true)
+	view.state.cargo.P.components = {"wooden_frame": 2, "softmetal_cog": 1}
+	view._refresh_ui()
+	verify(not bar.buttons[0].disabled and bar.slot_counts[0].text == "2",
+		"A confirmed fabricated frame enables its quick slot with the active actor's count.")
+	bar.select_slot(0)
+	verify(view.mode == "component" and view.arrival_assembly_controls.selected_name() == "wooden_frame"
+		and bar.selected_slot == 0 and view.issued.is_empty(),
+		"A component quick slot changes the ordinary placement selection without issuing construction.")
+	bar.open_catalog(7)
+	var cog_index: int = bar._component_names.find("softmetal_cog")
+	verify(cog_index >= 0 and bar.catalog.visible, "The catalog includes the stronger metal cog.")
+	if cog_index >= 0:
+		bar.component_choice.select(cog_index)
+		bar.refresh()
+		verify(not bar.component_assign_button.disabled
+			and "×1" in bar.component_choice.get_item_text(cog_index),
+			"The catalog reads the carried metal cog from native component cargo.")
+		bar.assign_component()
+		verify(bar.slots[7] == "component:softmetal_cog" and view.mode == "component"
+			and view.arrival_assembly_controls.selected_name() == "softmetal_cog"
+			and view.arrival_assembly_controls.component_choice.selected == cog_index
+			and bar.slot_tags[7].text == "SC"
+			and view.issued.is_empty(),
+			"Catalog assignment selects the exact component in the existing workshop and placement path.")
+	view.client = "Q"
+	view._refresh_ui()
+	verify(bar.slot_counts[0].text == "1" and bar.slot_counts[7].text == "0" and bar.buttons[7].disabled,
+		"Switching actor changes component availability without borrowing the previous actor's cargo.")
+	view.client = "P"
+	view.state.cargo.P.components.softmetal_cog = 0
+	view._refresh_ui()
+	bar.select_slot(7)
+	verify(bar.buttons[7].disabled and bar.slot_counts[7].text == "0"
+		and view.arrival_assembly_controls.selected_name() == "softmetal_cog"
+		and view.issued.is_empty(),
+		"An exhausted fabricated component cannot create a construction command.")
+	verify(view.state.cargo.P.components.wooden_frame == 2 and initial.cargo.P.components.is_empty()
+		and view.model == null and view.actor_world == null,
+		"Hotbar interaction changes no component custody or simulation state.")
+	view.free()
+	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
+		"failures": failures, "models": 0, "desktop_operations": 0,
+		"scope": "native-arrival hotbar over invented projections"}))
+	quit(0 if failures == 0 else 1)
+
+func _render_arrival_hotbar() -> void:
+	var prefix := ""
+	for argument in OS.get_cmdline_user_args():
+		if argument.begins_with("--arrival-hotbar-image-prefix="):
+			prefix = argument.trim_prefix("--arrival-hotbar-image-prefix=")
+	if prefix.is_empty() or DisplayServer.get_name().to_lower() == "headless":
+		verify(false, "Arrival hotbar readback requires an output prefix and isolated rendered display.")
+		quit(1)
+		return
+	root.gui_embed_subwindows = true
+	root.size = Vector2i(1280, 800)
+	var view := OfflineWidgets.new()
+	view.client = "P"
+	view.state = hotbar_observation()
+	view.state.hand_sources = {}
+	view.state.part_kits.P = {"foundation": 15}
+	view.state.cargo = {"P": {"components": {"wooden_frame": 2, "wooden_shaft": 1,
+		"tool_mount": 1, "receiver_tray": 1, "cutting_edge": 1, "softmetal_cog": 1}}}
+	view.state.fabrication_hub = {"id": "pod-fabrication-hub", "installed": true}
+	view.state.component_recipes = {}
+	view.state.component_capacity = 20
+	view.state.placed_components = {}
+	root.add_child(view)
+	view.selection_ring = MeshInstance3D.new()
+	view.add_child(view.selection_ring)
+	view._build_interface()
+	view._refresh_ui()
+	await settle_widgets()
+	await RenderingServer.frame_post_draw
+	verify(root.get_texture().get_image().save_png(prefix + "-bar.png") == OK,
+		"Retain the rendered arrival component hotbar.")
+	var bar = view.building_hotbar
+	bar.open_catalog(7)
+	await settle_widgets()
+	await RenderingServer.frame_post_draw
+	verify(root.get_texture().get_image().save_png(prefix + "-catalog.png") == OK,
+		"Retain the rendered arrival component catalog.")
+	view.free()
+	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
+		"failures": failures, "models": 0, "desktop_operations": 0,
+		"scope": "isolated rendered arrival hotbar over invented cargo"}))
 	quit(0 if failures == 0 else 1)
 
 func _render_hotbar() -> void:

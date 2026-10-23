@@ -463,6 +463,14 @@ class ArrivalAssemblyControls:
 	func selected_name() -> String:
 		return selected_component
 
+	func select_component_name(component_name: String) -> bool:
+		for index in COMPONENTS.size():
+			if COMPONENTS[index][0] == component_name:
+				component_choice.select(index)
+				_component_selected(index)
+				return true
+		return false
+
 	func press_frame_for(selected: String) -> String:
 		return str(_selected_press(_snapshot, selected).get("frame", ""))
 
