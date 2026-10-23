@@ -257,6 +257,12 @@ func settle_footer() -> void:
 	for _frame in range(4):
 		await process_frame
 
+func visible_follow_up(view: Node) -> bool:
+	for entry: Node in view.manager_log_layer.find_children("*", "Label", true, false):
+		if entry.text.begins_with("03  FOLLOW-UP"):
+			return entry.visible
+	return false
+
 func check_shared_manager_log() -> void:
 	var source := NativeModel.new("shared-manager-view-fixture", ["P"], true)
 	verify(source.boot_result.get("accepted", false), "A native arrival projection is available for the detached shared log view.")
@@ -311,6 +317,9 @@ func check_freight_beacon_view() -> void:
 	view._build_world()
 	view._build_interface()
 	view._sync_freight_beacon_visual()
+	view._refresh_ui()
+	verify(not visible_follow_up(view),
+		"The first-order Work log keeps the later commission undisclosed before a receipt.")
 	var beacon: Dictionary = view.state.freight_beacon
 	var marker: Label3D = view.freight_beacon_visual.get_node_or_null("ShipmentLabel")
 	verify(view.freight_beacon_visual != null and view.freight_beacon_visual.name == "ShipmentMarker"
@@ -372,6 +381,8 @@ func check_freight_beacon_view() -> void:
 	shared._build_interface()
 	shared._sync_freight_beacon_visual()
 	shared._refresh_ui()
+	verify(not visible_follow_up(shared),
+		"A shared actor also sees only the active first order before delivery.")
 	var remote_label: Label3D = shared.freight_beacon_visual.get_node_or_null("ShipmentLabel")
 	verify(remote_label != null and remote_label.text == "FREIGHT"
 		and "FIRST ORDER" in shared.goal_label.text,
@@ -385,6 +396,8 @@ func check_freight_beacon_view() -> void:
 	view.state.cargo.P.products = 0
 	view._sync_freight_beacon_visual()
 	view._refresh_ui()
+	verify(visible_follow_up(view),
+		"The confirmed first receipt reveals the three-plate follow-up in the Work log.")
 	verify("REPEAT ORDER · 0 / 3 PLATES" in view.goal_label.text
 		and marker != null and marker.visible and marker.text == "0 / 3"
 		and view.freight_beacon_visual.collision_layer == Opening.Geometry.PICK_LAYER,
@@ -392,6 +405,8 @@ func check_freight_beacon_view() -> void:
 	shared.state = view.state.duplicate(true)
 	shared._sync_freight_beacon_visual()
 	shared._refresh_ui()
+	verify(visible_follow_up(shared),
+		"The shared Work log reveals the follow-up from the same confirmed receipt.")
 	verify("REPEAT ORDER · 0 / 3 PLATES" in shared.goal_label.text
 		and remote_label.text == "0 / 3" and shared.state.cargo.Q.products == 0,
 		"The shared actor sees confirmed repeat progress without borrowing P's cargo.")

@@ -519,6 +519,17 @@ func _deliver_first_arrival_plate(held_work: Dictionary, capture_prefix: String)
 			and shipped.press_assemblies == held_work.press_assemblies,
 			"E ships exactly the first carried plate while the second press work stays retained"):
 		return false
+	if not _expect(opening.manager_log_repeat_entry.visible
+			and "0 / 3 plates received" in opening.manager_log_repeat_entry.text,
+			"The ordinary Work log reveals the repeat commission only after the first native receipt"):
+		return false
+	if not capture_prefix.is_empty():
+		opening.manager_log_button.pressed.emit()
+		await process_frame
+		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-follow-up-log.png") == OK,
+				"The revealed Work log is retained in the normal viewport"):
+			return false
+		opening._toggle_manager_log()
 	if not capture_prefix.is_empty():
 		await process_frame
 		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-beacon.png") == OK,
@@ -1438,6 +1449,17 @@ func _arrival_run() -> void:
 				"The graphical preview warmup releases its cover before the arrival is sampled"):
 			return
 	var panel = opening.arrival_assembly_controls
+	if mode == "arrival-repeat-delivery":
+		if not _expect(not opening.manager_log_repeat_entry.visible,
+				"The ordinary first-order Work log keeps the repeat commission hidden"):
+			return
+		if not capture_prefix.is_empty():
+			opening.manager_log_button.pressed.emit()
+			await process_frame
+			if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-first-log.png") == OK,
+				"The first-order Work log is retained in the normal viewport"):
+				return
+			opening._toggle_manager_log()
 	if mode == "arrival-field-craft":
 		await _arrival_field_craft_run(panel)
 		return
@@ -1505,9 +1527,19 @@ func _arrival_run() -> void:
 				and opening.model.projection() == restored,
 				"The saved site reopens with the same replayable briefing and a current native-backed cue"):
 			return
+		if repeat_complete and not _expect(opening.manager_log_repeat_entry.visible
+				and "3 / 3 plates received" in opening.manager_log_repeat_entry.text,
+				"Fresh Store resume reopens the Work log with confirmed completed repeat progress"):
+			return
+		if repeat_complete and not capture_prefix.is_empty():
+			await process_frame
+			if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-resume-log.png") == OK,
+				"The Store-restored Work log is retained in the normal viewport"):
+				return
+		var before_log_close: Dictionary = opening.model.projection()
 		opening._toggle_manager_log()
 		if not _expect(not opening.manager_log_open and opening._can_control_character()
-				and opening.model.projection() == restored,
+				and opening.model.projection() == before_log_close,
 				"A resumed worker can return from the log without replaying arrival or changing stock"):
 			return
 		if repeat_complete:

@@ -4636,7 +4636,9 @@ var goal_label: Label
 var objective_heading: Label
 var manager_log_button: Button
 var manager_log_layer: CanvasLayer
+var manager_log_panel: PanelContainer
 var manager_log_current: Label
+var manager_log_repeat_entry: Label
 var manager_log_open := false
 var lesson_button: Button
 var goal_progress: ProgressBar
@@ -8392,6 +8394,15 @@ func _toggle_details() -> void:
 func _refresh_manager_log() -> void:
 	if manager_log_current == null or goal_label == null:
 		return
+	var beacon: Dictionary = state.get("freight_beacon", {})
+	var follow_up: bool = beacon.get("order_complete", false)
+	manager_log_repeat_entry.visible = follow_up
+	if follow_up:
+		manager_log_repeat_entry.text = "03  FOLLOW-UP\n%d / %d plates received. A continuous route can free your hands; the layout is yours." % [
+			int(beacon.get("repeat_order_shipped", 0)), int(beacon.get("repeat_order_target", 3))]
+	var half_height := 240.0 if follow_up else 215.0
+	manager_log_panel.offset_top = -half_height
+	manager_log_panel.offset_bottom = half_height
 	var lines := goal_label.text.split("\n")
 	var current := lines[lines.size() - 1] if not lines.is_empty() else "Inspect the worksite."
 	manager_log_current.text = "CURRENT FIELD CUE\n" + current
@@ -9439,6 +9450,7 @@ func _build_manager_log() -> void:
 	var column := _panel(log_root, Vector2.ZERO, Vector2(550, 480))
 	column.add_theme_constant_override("separation", 8)
 	var panel := column.get_parent() as PanelContainer
+	manager_log_panel = panel
 	panel.anchor_left = 0.5
 	panel.anchor_right = 0.5
 	panel.anchor_top = 0.5
@@ -9453,11 +9465,14 @@ func _build_manager_log() -> void:
 	for entry in [
 		"00  LANDFALL\nLandfall confirmed. Your office is now the part of the planet under your boots.",
 		"01  FIELD KIT\nThe kit makes tools. The tools make a factory. Corporate has provided the kit.",
-		"02  FIRST ORDER\nForm one plate from local stock. Its final destination is outside your pay grade.",
-		"03  FOLLOW-UP\nSend three more plates. A continuous route can free your hands, but the layout is yours."]:
+		"02  FIRST ORDER\nForm one plate from local stock. Its final destination is outside your pay grade."]:
 		var line := _label(column, entry, 15)
 		line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		line.custom_minimum_size.x = 496.0
+	manager_log_repeat_entry = _label(column, "", 15)
+	manager_log_repeat_entry.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	manager_log_repeat_entry.custom_minimum_size.x = 496.0
+	manager_log_repeat_entry.visible = false
 	manager_log_current = _label(column, "CURRENT FIELD CUE\nInspect the worksite.", 15, Color("f1d7a5"))
 	manager_log_current.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var close_log := _button(column, "Return to work  [J / Esc]", _toggle_manager_log)
