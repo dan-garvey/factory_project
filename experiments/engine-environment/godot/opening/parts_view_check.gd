@@ -49,8 +49,15 @@ class SharedWidgets:
 		return hand_pointed
 
 class OfflineWorkshopWidgets extends OfflineWidgets:
+	var freight_body: StaticBody3D
+	var accept_shipping := false
 	func _screen_pick(_screen: Vector2) -> Dictionary:
-		return {}
+		return {"collider": freight_body} if freight_body != null else {}
+	func issue(action: Dictionary) -> Dictionary:
+		if str(action.get("action", "")).begins_with("deliver_"):
+			issued.append(action.duplicate(true))
+			return {"accepted": accept_shipping}
+		return super.issue(action)
 
 class SharedWorkshopWidgets extends SharedWidgets:
 	func _screen_pick(_screen: Vector2) -> Dictionary:
@@ -1394,6 +1401,7 @@ func _workshop_pages() -> void:
 			"Q": {"raw": 1, "timber": 3, "components": {}}}
 		view.state.component_recipes = {"wooden_frame": {"timber": 3, "softmetal": 0}}
 		view.state.component_capacity = 20
+		view.state.freight_beacon = {"id": "first-freight-beacon", "order_complete": false}
 		view.state.fabrication_hub = {"id": "pod-fabrication-hub", "installed": true}
 		view.state.fabrication_benches = [{"id": "field-bench", "center": [4, 0, 4]}]
 		view.state.placed_components = {"field-bench": {"component": "wooden_workbench", "center": [4, 0, 4]},
@@ -1459,6 +1467,34 @@ func _workshop_pages() -> void:
 			"A readiness refresh preserves a closed page and existing action admission.")
 		view._open_pointed_machine()
 		verify(panel.press_section.visible, "Ordinary E reopens the same selected press after its page is closed.")
+		view.selected = ""
+		view._refresh_ui()
+		verify(not panel.craft_section.visible and not panel.press_section.visible
+			and view.arrival_assembly_scroll.size.y <= 64.0,
+			"Leaving a context-opened press compacts the workshop before the freight interaction.")
+		panel.press_tab.pressed.emit()
+		view._refresh_ui()
+		verify(panel.press_section.visible,
+			"A page opened explicitly without a selected machine survives routine refresh.")
+		if not shared:
+			var freight := StaticBody3D.new()
+			freight.set_meta("freight_beacon", "first-freight-beacon")
+			view.freight_body = freight
+			view._open_pointed_machine()
+			verify(panel.press_section.visible
+				and view.issued == [{"action": "deliver_first_plate", "entity": "first-freight-beacon"}],
+				"A rejected freight request leaves the explicitly opened page available.")
+			view.issued.clear()
+			view.accept_shipping = true
+			view._open_pointed_machine()
+			verify(not panel.craft_section.visible and not panel.press_section.visible
+				and view.issued == [{"action": "deliver_first_plate", "entity": "first-freight-beacon"}],
+				"Accepted freight E dismisses a manually opened Press work page after shipment.")
+			view.freight_body = null
+			freight.free()
+			view.issued.clear()
+		else:
+			panel.press_tab.pressed.emit()
 		view.pointed = "collector-frame"
 		view._open_pointed_machine()
 		verify(panel.craft_section.visible and not panel.press_section.visible

@@ -345,6 +345,7 @@ class ArrivalAssemblyControls:
 	var _last_frame := ""
 	var _press_page := false
 	var _page_open := false
+	var _context_page := false
 	var component_choice: OptionButton
 	var bench_choice: OptionButton
 	var pod_workshop_button: Button
@@ -468,11 +469,13 @@ class ArrivalAssemblyControls:
 	func _show_page(press: bool) -> void:
 		_press_page = press
 		_page_open = true
+		_context_page = true
 		_update_page()
 
 	func _toggle_page(press: bool) -> void:
 		_page_open = not _page_open or _press_page != press
 		_press_page = press
+		_context_page = false
 		_update_page()
 
 	func _update_page() -> void:
@@ -490,6 +493,15 @@ class ArrivalAssemblyControls:
 			_show_page(false)
 		elif not _frame.is_empty():
 			_show_page(true)
+		elif _context_page:
+			_context_page = false
+			_page_open = false
+			_update_page()
+
+	func close_for_shipment() -> void:
+		_context_page = false
+		_page_open = false
+		_update_page()
 
 	func _bearing(point: Array, center: Array) -> String:
 		if point.size() != 3 or center.size() != 3:

@@ -6187,8 +6187,10 @@ func _open_pointed_machine() -> void:
 	if not hit.is_empty() and hit.collider.has_meta("freight_beacon") \
 			and hit.collider.get_meta("freight_beacon") == state.get("freight_beacon", {}).get("id", ""):
 		selected = ""
-		issue({"action": "deliver_repeat_plate" if state.freight_beacon.get("order_complete", false) \
+		var shipment: Dictionary = issue({"action": "deliver_repeat_plate" if state.freight_beacon.get("order_complete", false) \
 			else "deliver_first_plate", "entity": state.freight_beacon.id})
+		if shipment.get("accepted", false) and arrival_assembly_controls != null:
+			arrival_assembly_controls.close_for_shipment()
 		return
 	var target := _screen_entity(_pointed_screen_position())
 	if not _contains_target(state, target):
