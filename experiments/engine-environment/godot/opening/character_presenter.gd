@@ -420,11 +420,29 @@ func _make_legacy_worker_visual() -> MeshInstance3D:
 	return body
 
 func _adult_image(path: String) -> Image:
-	if not ResourceLoader.exists(path, "Texture2D"):
+	var image: Image = null
+	if ResourceLoader.exists(path, "Texture2D"):
+		var texture := ResourceLoader.load(path, "Texture2D") as Texture2D
+		image = texture.get_image() if texture != null else null
+	elif FileAccess.file_exists(path):
+		# The new garment also has to render in a fresh checkout before an
+		# editor import. Decode only the captured image formats from file bytes;
+		# exported projects use the imported Texture2D path above.
+		var file := FileAccess.open(path, FileAccess.READ)
+		if file == null:
+			return null
+		var bytes := file.get_buffer(file.get_length())
+		file.close()
+		image = Image.new()
+		var decoded := ERR_FILE_UNRECOGNIZED
+		match path.get_extension().to_lower():
+			"png": decoded = image.load_png_from_buffer(bytes)
+			"webp": decoded = image.load_webp_from_buffer(bytes)
+		if decoded != OK:
+			return null
+	if image == null or image.is_empty():
 		return null
-	var texture := ResourceLoader.load(path, "Texture2D") as Texture2D
-	var image := texture.get_image() if texture != null else null
-	if image != null and image.is_compressed() and image.decompress() != OK:
+	if image.is_compressed() and image.decompress() != OK:
 		return null
 	return image
 
