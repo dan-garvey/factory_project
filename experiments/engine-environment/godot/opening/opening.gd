@@ -6664,16 +6664,16 @@ func _build_landing_pod_visual(pod: Dictionary, hub: Dictionary) -> void:
 		Vector2(-0.045, -0.12), Vector2(-0.07, -0.16)]),
 		0.14, Vector3(0.35, 1.01, -0.19), frame_finish, 0.005)
 	_pod_panel(workspace, "ToolArm", PackedVector2Array([
-		Vector2(-0.15, -0.018), Vector2(-0.13, -0.0325),
-		Vector2(0.15, -0.0325), Vector2(0.15, 0.0325),
-		Vector2(-0.13, 0.0325), Vector2(-0.15, 0.018)]),
-		0.065, Vector3(0.20, 1.23, -0.19), frame_finish, 0.004)
+		Vector2(-0.285, -0.018), Vector2(-0.265, -0.0325),
+		Vector2(0.285, -0.0325), Vector2(0.285, 0.0325),
+		Vector2(-0.265, 0.0325), Vector2(-0.285, 0.018)]),
+		0.065, Vector3(0.065, 1.23, -0.19), frame_finish, 0.004)
 	_pod_panel(workspace, "CuttingHead", PackedVector2Array([
 		Vector2(-0.06, 0.085), Vector2(0.06, 0.085), Vector2(0.055, -0.02),
 		Vector2(0.025, -0.07), Vector2(0.02, -0.085), Vector2(-0.02, -0.085),
 		Vector2(-0.025, -0.07), Vector2(-0.055, -0.02)]),
-		0.13, Vector3(0.03, 1.16, -0.19), tool_finish, 0.004)
-	_machine_cylinder(workspace, "CuttingSpindle", Vector3(0.03, 1.06, -0.19),
+		0.13, Vector3(-0.16, 1.16, -0.19), tool_finish, 0.004)
+	_machine_cylinder(workspace, "CuttingSpindle", Vector3(-0.16, 1.06, -0.19),
 		0.012, 0.04, Color("78867e"))
 	var mounting_points := [Vector3(-0.39, 0.82, 0.09), Vector3(0.07, 0.82, 0.09),
 		Vector3(0.30, 0.805, -0.23), Vector3(0.40, 0.805, -0.23)]

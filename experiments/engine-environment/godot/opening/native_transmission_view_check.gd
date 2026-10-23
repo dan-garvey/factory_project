@@ -276,6 +276,13 @@ func _supplied_hardware_view() -> void:
 						local * (bounds.position + bounds.size * Vector3(x, y, z)))
 	verify(inside and not meshes.is_empty(),
 		"Every authored bench mesh stays within the native supplied hub envelope.")
+	var fixed_face: MeshInstance3D = bench.get_node("ViseFixedFace")
+	var sliding_face: MeshInstance3D = bench.get_node("ViseSlidingFace")
+	var cutter: MeshInstance3D = bench.get_node("CuttingHead")
+	var spindle: MeshInstance3D = bench.get_node("CuttingSpindle")
+	var work_gap := (fixed_face.position.x + sliding_face.position.x) / 2.0
+	verify(is_equal_approx(cutter.position.x, work_gap) and is_equal_approx(spindle.position.x, work_gap),
+		"The cutting head and spindle are above the clamped work gap rather than a vise jaw.")
 	var twin := SuppliedOpening.new()
 	twin.state = model.projection()
 	root.add_child(twin)
