@@ -709,6 +709,30 @@ func _arrival_reveal_run(capture_prefix: String) -> void:
 		if not _expect(settled != null and settled.save_png(capture_prefix + "-settled.png") == OK,
 				"The passive settled viewport is retained"):
 			return
+	if "--arrival-close-camera" in OS.get_cmdline_user_args():
+		opening.distance = 0.0
+		opening._update_camera()
+	opening.manager_log_button.pressed.emit()
+	if not _expect(opening.manager_log_open and opening.manager_log_layer.visible
+			and not opening._can_control_character()
+			and "Cut timber or ore" in opening.manager_log_current.text
+			and opening.model.projection() == after,
+			"The replayable manager log opens after normal or skipped arrival without changing native work"):
+		return
+	if not capture_prefix.is_empty():
+		await RenderingServer.frame_post_draw
+		var log_view: Image = root.get_texture().get_image()
+		if not _expect(log_view != null and log_view.save_png(capture_prefix + "-work-log.png") == OK,
+				"The passive manager work log viewport is retained"):
+			return
+	opening._toggle_manager_log()
+	var after_log: Dictionary = opening.model.projection()
+	if not _expect(not opening.manager_log_open and not opening.manager_log_layer.visible
+			and opening._can_control_character() and after_log.order == after.order
+			and after_log.cargo == after.cargo and after_log.hand_sources == after.hand_sources
+			and after_log.landing_pod == after.landing_pod and after_log.fabrication_hub == after.fabrication_hub,
+			"Closing the work log restores construction and leaves native stock untouched"):
+		return
 	_record("pass")
 
 ## Fresh arrival panel consumer with actor motor, finite sources and Store.
@@ -797,6 +821,17 @@ func _arrival_run() -> void:
 				and opening.landing_pod_visual != null and not opening.landing_crank_visual.visible
 				and not opening.arrival_reveal_active,
 				"A fresh process reopens the press, unplaced collector bill and one held crank"):
+			return
+		opening.manager_log_button.pressed.emit()
+		if not _expect(opening.manager_log_open and opening.manager_log_layer.visible
+				and "First plate formed" in opening.manager_log_current.text
+				and opening.model.projection() == restored,
+				"The saved site reopens with the same replayable briefing and a current native-backed cue"):
+			return
+		opening._toggle_manager_log()
+		if not _expect(not opening.manager_log_open and opening._can_control_character()
+				and opening.model.projection() == restored,
+				"A resumed worker can return from the log without replaying arrival or changing stock"):
 			return
 		panel.crank_button.pressed.emit()
 		if not _expect(opening.model.projection().hand_crank.holder == "pod"
