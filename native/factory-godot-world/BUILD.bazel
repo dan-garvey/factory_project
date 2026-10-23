@@ -24,6 +24,13 @@ cc_test(
 )
 
 cc_test(
+    name = "arrival_geometry_test",
+    srcs = ["tests/arrival_geometry_test.cpp"],
+    deps = [":test_site"],
+    size = "small",
+)
+
+cc_test(
     name = "collector_assembly_host_test",
     srcs = ["tests/collector_assembly_host_test.cpp"],
     deps = [":test_site"],
@@ -54,7 +61,7 @@ cc_test(
 cc_library(
     name = "host",
     srcs = ["src/host.cpp"],
-    hdrs = ["include/factory/godot_world.hpp"],
+    hdrs = ["include/factory/arrival_geometry.hpp", "include/factory/godot_world.hpp"],
     strip_include_prefix = "include",
     deps = ["//native/factory-assembly:assembly", "//native/factory-world:checkpoint", "//native/mineral-site:mineral_site", "//native/waterflow:waterflow"],
 )

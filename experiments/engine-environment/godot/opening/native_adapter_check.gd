@@ -372,6 +372,9 @@ func _collector_route() -> Dictionary:
 		"source_cog": source_cog.entity, "output_cog": output_cog.entity, "shaft": shaft.entity}
 
 func _run() -> void:
+	if mode == "supplied-hardware":
+		await _arrival_run()
+		return
 	if mode in ["arrival-press", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-craft-capacity", "arrival-field-craft", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
 		await _arrival_run()
 		return
@@ -1160,6 +1163,119 @@ func _arrival_reveal_run(capture_prefix: String) -> void:
 		return
 	_record("pass")
 
+func _supplied_hardware_hits(at: Vector3) -> Array:
+	var query := PhysicsShapeQueryParameters3D.new()
+	query.shape = opening.actor_world.bodies.P.capsule
+	query.transform = Transform3D(Basis.IDENTITY, at)
+	query.collision_mask = OpeningGeometry.MACHINE_LAYER
+	return opening.get_world_3d().direct_space_state.intersect_shape(query, 64)
+
+func _supplied_hardware_run() -> void:
+	# Only this bounded automated case supplies trusted motor directions.
+	# Disable the ordinary idle input producer, never set an actor pose.
+	opening.set_process(false)
+	opening.character_presenter.set_physics_process(false)
+	var bridge = opening.actor_world
+	var body = bridge.bodies.P
+	var initial: Dictionary = opening.model.projection()
+	var material: Dictionary = opening.model.checkpoint().world.state.material
+	var solids: Dictionary = initial.supplied_hardware_boxes
+	if not _expect(solids.size() == 20 and bridge.component_bodies.size() == 20
+			and bridge._geometry_registered(), "The actual native scene registers every emitted supplied solid"):
+		return
+	var identities := {}
+	for id in bridge.component_bodies:
+		identities[id] = bridge.component_bodies[id].get_instance_id()
+	for repeat in 3:
+		if not _expect(bridge.sync_topology().accepted, "An unchanged topology remains valid"):
+			return
+	for id in identities:
+		if not _expect(bridge.component_bodies[id].get_instance_id() == identities[id],
+				"Unchanged supplied bodies keep their cached native identities"):
+			return
+	var missing: Dictionary = initial.duplicate(true)
+	missing.erase("supplied_hardware_boxes")
+	if not _expect(not OpeningGeometry.component_boxes(missing).accepted,
+			"A native pod without its occupied projection cannot silently lose collision"):
+		return
+	if not _expect(not _supplied_hardware_hits(Vector3(1.65, 0.9, 6.6)).is_empty()
+			and not _supplied_hardware_hits(Vector3(3.3, 0.9, 6.6)).is_empty()
+			and _supplied_hardware_hits(body.global_position).is_empty(),
+			"The real capsule query sees pod and workshop solids while the front aisle stays clear"):
+		return
+	var start: Vector3 = body.global_position
+	if not _expect(bridge.set_control("P", Vector2(0, 1), false).accepted,
+			"The trusted motor can approach the pod"):
+		return
+	var trace := []
+	for frame in 90:
+		await physics_frame
+		await process_frame
+		if frame % 15 == 0:
+			trace.append({"frame": frame, "position": body.global_position})
+	bridge.release_control("P")
+	facts["supplied_wall_trace"] = trace
+	if not _expect(body.global_position.z > start.z + 0.3 and body.global_position.z < 5.50
+			and body.is_on_floor() and opening.model.projection().actors.P.ready,
+			"The real native motor reaches the pod wall and cannot walk through it"):
+		return
+	var stopped: Vector3 = body.global_position
+	if not _expect(bridge.set_control("P", Vector2(1, 0), false).accepted,
+			"The same motor can choose the clear east aisle"):
+		return
+	for frame in 32:
+		await physics_frame
+		await process_frame
+	bridge.release_control("P")
+	if not _expect(body.global_position.x > stopped.x + 1.2 and body.is_on_floor(),
+			"The supplied hardware does not close the clear front and east access"):
+		return
+	if not _expect(_issue({"action": "stow_fabrication_hub", "entity": "pod-fabrication-hub"}).accepted,
+			"The physically nearby actor can stow the same issued workshop"):
+		return
+	bridge.sync_topology()
+	for frame in 4:
+		await physics_frame
+		await process_frame
+	if not _expect(bridge.component_bodies.size() == 10 and bridge._geometry_registered()
+			and _supplied_hardware_hits(Vector3(3.3, 0.9, 6.6)).is_empty(),
+			"Stowing removes its real collision bodies and clears the former worksite"):
+		return
+	if not _expect(_issue({"action": "deploy_fabrication_hub", "entity": "pod-fabrication-hub",
+			"center": [0, 0, 16]}).accepted, "The issued workshop redeploys at an independent common-grid anchor"):
+		return
+	bridge.sync_topology()
+	for frame in 4:
+		await physics_frame
+		await process_frame
+	if not _expect(bridge.component_bodies.size() == 20 and bridge._geometry_registered()
+			and not _supplied_hardware_hits(Vector3(0, 0.9, 6.6)).is_empty()
+			and _supplied_hardware_hits(Vector3(3.3, 0.9, 6.6)).is_empty(),
+			"The native collision follows the relocated workshop, without a ghost at its old site"):
+		return
+	for id in identities:
+		if id.begins_with("landing-pod/") and not _expect(
+				bridge.component_bodies[id].get_instance_id() == identities[id], "Workshop changes retain the fixed pod bodies"):
+			return
+	var shape: BoxShape3D = bridge.component_bodies["landing-pod/lower-hull"].get_child(0).shape
+	var original_size := shape.size
+	shape.size *= 1.1
+	var rejected: bool = not bridge._geometry_registered()
+	shape.size = original_size
+	if not _expect(rejected and bridge._geometry_registered(), "Native registration detects a changed supplied collider"):
+		return
+	var preflight: Dictionary = bridge.checkpoint_status()
+	if not _expect(preflight.accepted and opening.model.validate_checkpoint(opening.model.checkpoint()).accepted
+			and _same(material, opening.model.checkpoint().world.state.material),
+			"The settled clear actor and relocated workshop validate without changing material"):
+		return
+	facts["supplied_hardware"] = {"initial_count": 20, "stowed_count": 10, "final_count": 20,
+		"wall_trace": trace, "stopped": stopped, "final_actor": body.global_position,
+		"preflight": preflight, "material_unchanged": true, "desktop_operations": 0,
+		"evidence": "Actual native scene, capsule queries and trusted motor controls; no actor pose, harvesting or production replay."}
+	print("SUPPLIED_HARDWARE_PHYSICS " + JSON.stringify(facts.supplied_hardware))
+	_record("pass")
+
 ## Fresh arrival panel consumer with actor motor, finite sources and Store.
 func _arrival_run() -> void:
 	deadline = Time.get_ticks_msec() + (180000 if mode in ["arrival-belt", "arrival-belt-controls", "arrival-delivery"] else 120000)
@@ -1167,7 +1283,7 @@ func _arrival_run() -> void:
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--arrival-capture-prefix="):
 			capture_prefix = argument.trim_prefix("--arrival-capture-prefix=")
-	if destination.is_empty() or mode not in ["arrival-press", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-craft-capacity", "arrival-field-craft", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
+	if destination.is_empty() or mode not in ["supplied-hardware", "arrival-press", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-craft-capacity", "arrival-field-craft", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
 		push_error("Arrival press check requires an unused output and a declared mode")
 		quit(1)
 		return
@@ -1194,6 +1310,9 @@ func _arrival_run() -> void:
 			break
 	if not _expect(opening.model.projection().actors.P.ready and opening.actor_world.bodies.P.is_on_floor(),
 			"The physical actor reaches the scene floor"):
+		return
+	if mode == "supplied-hardware":
+		await _supplied_hardware_run()
 		return
 	if mode == "arrival-pod-workshop-resume":
 		await _arrival_pod_workshop_resume_run(opening.arrival_assembly_controls)

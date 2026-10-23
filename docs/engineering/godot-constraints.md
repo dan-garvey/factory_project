@@ -1214,10 +1214,21 @@ The existing view fixture checks actual mesh intersections, fixed bench scale,
 native facts and cache identity at three common-grid heights in offline/shared
 classes. Natural-clock app frames are separate rendered evidence, not human play.
 
-The supplied hull and issued workshop meshes do not currently add matching
-ActorWorld collision bodies. Ordinary foundation collision remains active;
-solid pod/workshop collision and matching native placement admission are a
-concrete follow-up, not an engine restriction or an accepted game requirement.
+The native Host now derives coarse occupied boxes for the deployed pod hull,
+folded canopy and installed issued workshop from the existing World state.
+ActorWorld mounts those boxes through its component-body path, including its
+registration and contact checks. Native construction and checkpoint admission
+use the same geometry; stowing removes the workshop boxes and redeployment moves
+them to the new common-grid anchor. A saved actor inside this hardware is refused
+rather than migrated. Thin decorative pieces and the fixed crank tray remain
+presentation, without separate solid geometry.
+
+The physical bodies use the deployed endpoint during the cosmetic reveal, while
+character control is suppressed. This does not simulate falling-pod dynamics.
+The bounded native-scene fixture uses real capsule queries and trusted motor
+directions to check the wall, clear aisle, relocation and collider registration;
+it supplies no actor pose, desktop input, harvesting or production replay. These
+checks are separate from rendered quality and human play.
 
 ## GDC-22: first native tool presentation has separate cold costs
 

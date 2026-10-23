@@ -157,6 +157,33 @@ static func component_boxes(snapshot: Dictionary) -> Dictionary:
 	var result: Dictionary = {}
 	if snapshot.get("options", {}).get("native", false) != true:
 		return {"accepted": true, "boxes": result}
+	if snapshot.has("landing_pod"):
+		var hardware: Variant = snapshot.get("supplied_hardware_boxes")
+		var pod: Variant = snapshot.landing_pod
+		var hub: Variant = snapshot.get("fabrication_hub")
+		if not hardware is Dictionary or hardware.is_empty() or not pod is Dictionary \
+				or not hub is Dictionary or typeof(pod.get("id")) != TYPE_STRING \
+				or typeof(hub.get("id")) != TYPE_STRING:
+			return {"accepted": false}
+		var owners := {pod.id: pod}
+		if hub.get("installed") == true:
+			owners[hub.id] = hub
+		for id: Variant in hardware:
+			var part: Variant = hardware[id]
+			if typeof(id) != TYPE_STRING or not part is Dictionary \
+					or typeof(part.get("entity")) != TYPE_STRING or not owners.has(part.entity) \
+					or not id.begins_with(part.entity + "/") \
+					or typeof(part.get("generation")) != TYPE_INT or part.generation < 1 \
+					or part.generation != owners[part.entity].get("generation") \
+					or not valid_position(part.get("center")) or not valid_position(part.get("half")):
+				return {"accepted": false}
+			var half := Vector3(part.half[0], part.half[1], part.half[2])
+			if half.x <= 0.0 or half.y <= 0.0 or half.z <= 0.0 \
+					or half.x > 1.0 or half.y > 1.0 or half.z > 1.0:
+				return {"accepted": false}
+			result[id] = {"center": Vector3(part.center[0], part.center[1], part.center[2]),
+				"size": half * 2.0, "entity": part.entity, "component": "supplied_hardware",
+				"generation": part.generation}
 	var components: Variant = snapshot.get("placed_components")
 	# Native profiles without the chapter material inventory have no placed
 	# components; a present record must carry its exact Host occupied box.
@@ -166,7 +193,7 @@ static func component_boxes(snapshot: Dictionary) -> Dictionary:
 		return {"accepted": false}
 	for id: Variant in components:
 		var part: Variant = components[id]
-		if typeof(id) != TYPE_STRING or id.is_empty() or not part is Dictionary \
+		if typeof(id) != TYPE_STRING or id.is_empty() or result.has(id) or not part is Dictionary \
 				or typeof(part.get("component")) != TYPE_STRING or part.component.is_empty() \
 				or typeof(part.get("generation")) != TYPE_INT or part.generation < 1:
 			return {"accepted": false}

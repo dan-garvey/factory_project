@@ -31,6 +31,15 @@ and offers the same local component and stationary-part crafting commands as the
 pod workshop. The original issued workshop can be stowed by a nearby actor and
 redeployed at a clear site; its holder and the placed bench identities survive
 checkpoint restore. Both benches spend only the crafting actor's carried stock.
+The Host also derives `supplied_hardware_boxes` for the fixed deployed pod and
+installed issued workshop. Their anchors use the foundation floor and common
+height unit, without the transmission spindle offset. Native construction and
+checkpoint checks share these coarse boxes with ActorWorld's existing component
+body cache; stow and relocation change the emitted geometry rather than a second
+scene authority. Actor seeds inside supplied hardware are invalid. The focused
+`arrival_geometry_test` and `native_adapter_check.gd` mode `supplied-hardware`
+cover native refusals, conservation, real capsule collision, clear access,
+relocation and registration. The reveal remains cosmetic, not falling-pod physics.
 A placed cutting edge at one of the profile's trusted ore faces may contact only the
 tagged source outcrop; other components and other obstacles still block it.
 Checkpoint import rechecks that same source fit against the receiving site.

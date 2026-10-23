@@ -47,7 +47,7 @@ void field_wood_uses_physical_actor_and_one_ledger() {
     check(get<bool>(host.initialize_arrival("field-site", {"P", "Q"}), "accepted") &&
           get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<bool>(host.publish_actor("P", {V(6.6), V(1.0), V(3.3)}, 1), "accepted") &&
-          get<bool>(host.publish_actor("Q", {V(1.65), V(1.0), V(8.25)}, 1), "accepted"),
+          get<bool>(host.publish_actor("Q", {V(3.3), V(1.0), V(8.25)}, 1), "accepted"),
           "Two physical actors initialize, with P beyond the pod bench's reach.");
     for (int index = 0; index < 4; ++index) {
         const auto request = "field-cut-" + std::to_string(index);
@@ -83,7 +83,7 @@ void field_wood_uses_physical_actor_and_one_ledger() {
           get<bool>(restored.restore_checkpoint(host.checkpoint()), "accepted") &&
           !factory::values::typed_difference(host.checkpoint(), restored.checkpoint()),
           "Fresh Host continuation retains the field craft, finite timber and refused requests.");
-    check(get<bool>(restored.publish_actor("P", {V(3.3), V(1.0), V(6.6)}, 2), "accepted") &&
+    check(get<bool>(restored.publish_actor("P", {V(3.3), V(1.0), V(4.8)}, 2), "accepted") &&
           get<bool>(restored.command("P", O{{"context", V("field-site")}, {"client", V("P")},
               {"request", V("bench-shaft")}, {"action", V("craft_component")},
               {"entity", V("pod-fabrication-hub")}, {"component", V("wooden_shaft")}}), "accepted"),
@@ -101,7 +101,7 @@ void shared_harvest() {
           get<I>(sources.at("opening-softmetal"), "remaining") == 16,
           "Three finite trees and one shared ore reserve are visible to both actors.");
     check(get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(4.95)}, 1), "accepted") &&
-          get<bool>(host.publish_actor("Q", {V(1.65), V(1.0), V(8.25)}, 1), "accepted"),
+          get<bool>(host.publish_actor("Q", {V(3.3), V(1.0), V(8.25)}, 1), "accepted"),
           "P walks to the clear east timber site while Q remains on the deployed deck.");
     const auto p_cut = cut("P", "tree-first", "tree-east-south");
     check(get<bool>(host.command("P", p_cut), "accepted") &&
@@ -159,12 +159,12 @@ void shared_harvest() {
     check(!get<bool>(remote, "accepted") && get<std::string>(remote, "reason") == "out_of_reach" &&
           get<I>(get<O>(host.projection(), "cargo").at("Q"), "raw") == 1,
           "Ore-side Q cannot use the bench at a distance.");
-    check(get<bool>(host.publish_actor("Q", {V(1.65), V(1.0), V(6.6)}, 3), "accepted") &&
+    check(get<bool>(host.publish_actor("Q", {V(0.0), V(1.0), V(4.8)}, 3), "accepted") &&
           get<bool>(host.command("Q", craft("Q", "near-edge", "cutting_edge")), "accepted") &&
           get<I>(V(get<O>(get<O>(host.projection(), "cargo").at("Q"), "components")), "cutting_edge") == 1 &&
           get<I>(get<O>(host.projection(), "cargo").at("Q"), "raw") == 0,
           "Q's own ore becomes one metal cutting edge after physically reaching the hub.");
-    check(get<bool>(host.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 2), "accepted"),
+    check(get<bool>(host.publish_actor("P", {V(1.65), V(1.0), V(4.8)}, 2), "accepted"),
           "P leaves the remote timber site before installing a part on the deck.");
     const O place{{"context", V("harvest-site")}, {"client", V("P")},
         {"request", V("install-shaft")}, {"action", V("place_component")},
