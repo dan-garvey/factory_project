@@ -87,21 +87,21 @@ material for early cold forming; its geology and final name remain open.
 
 | Component | Local fabrication input | Uses in the first arrangements |
 | --- | --- | --- |
-| Wooden frame | 3 timber | A load-bearing base for a collector or press. |
+| Wooden frame | 3 timber | A load-bearing base for the collector. |
 | Wooden shaft | 1 timber | Geometric drive from crank or later waterwheel. |
 | Wooden cog | 2 timber | Change rotation direction or drive ratio within its stress rating. |
 | Receiver tray | 2 timber | Catches a cut blank; full capacity pauses extraction. |
-| Tool mount | 1 timber | Supports a head at a chosen height and orientation. |
+| Tool mount | 1 timber | Supports the collector head at a chosen height and orientation. |
 | Sliding guide | 1 timber | Constrains the press ram beneath its drive. |
 | Cutting edge | 1 softmetal blank | Fitted to the collector's tool mount. |
 | Anvil | 2 softmetal blanks | The press work support. |
 | Ram face | 2 softmetal blanks | Fitted to the press head's moving guide. |
 
 An illustrative collector uses one frame, tool mount, cutting edge, receiver
-and wooden shaft: **7 timber and 1 blank**. An illustrative press uses one
-frame, tool mount, sliding guide, anvil, ram face, wooden shaft and cog:
-**8 timber and 4 blanks**. Both consume **15 timber and 5 blanks** to build,
-leaving one timber after harvesting two trees and eleven blanks at the original deposit;
+and wooden shaft: **7 timber and 1 blank**. An illustrative press uses a
+sliding guide, anvil, ram face, wooden shaft and cog: **4 timber and 4 blanks**.
+Both consume **11 timber and 5 blanks** to build, leaving five timber after
+harvesting two trees and eleven blanks at the original deposit;
 the current one-blank-to-one-plate runtime fixture consumes one more blank for its
 first product. The copper mass model below replaces that product rule; this part
 bill remains a separate, revisable bootstrap fixture. A third tree is available for an
@@ -109,7 +109,8 @@ alternate route, support, chute or rebuild. A detachable crank is reusable
 between these arrangements. This arithmetic is a starting fixture, not a
 promise that every geometry or belt route can fit inside two trees.
 
-The frame, mount, guide, head, shaft and receiver remain separate world items.
+The collector's frame and mount, and the separate guide, head, shaft and
+receiver remain separate world items.
 They have placement faces and physical clearance; a recipe creates a component,
 not an instant collector or press. The first plate can be made from a blank
 cut by hand. The collector reduces manual mining thereafter. Dismantling
@@ -138,12 +139,14 @@ driven by the detachable crank can share the same finite deposit and output
 port that a later waterwheel route uses. A full tray or belt output stops the
 next cut without debiting ore.
 
-The press needs an anvil under a guided ram face, a frame that carries the
-reaction, a drive/cam arrangement that moves the ram, and room to insert and
-remove work. A manually placed blank can become a plate before belt feed is
-built. Different working heights, shaft routes, feed faces and gravity paths
-are valid when the contact and clearance conditions hold. The same native
-custody owner retains partial work, input and output through a stall, edit,
+The early press needs an anvil under a guided ram face, a drive/cam
+arrangement that moves the ram, and room to insert and remove work. Its ram
+and guide may stand in empty space above the anvil; neither a structural frame
+nor a mounting point is required at this production stage. General anchoring
+remains a later design question. A manually placed blank can become a plate
+before belt feed is built. Different working heights, shaft routes, feed faces
+and gravity paths are valid when contact and clearance conditions hold. The
+same native custody owner retains partial work, input and output through a stall, edit,
 save or rejoin. A recipe restriction cannot replace the physical reason an
 arrangement succeeds or fails.
 
@@ -161,7 +164,7 @@ valid for the first plate and adds a **2 × 2 forming area** assembled from
 repeated, independently placed anvil and ram parts. Both use the common world
 grid and one thickness. The four cells form one supported stroke for one broad
 workpiece, rather than four adjacent independent presses. Matching contact
-faces, a guided stroke, contiguous frame support, clearance and a capable
+faces, a guided stroke, contiguous workpiece support, clearance and a capable
 drive make an arrangement ready. An enlarged recipe or gifted large machine
 does not substitute for those facts.
 No technology lock prevents a player who has enough parts from trying the
@@ -170,7 +173,7 @@ larger layout early.
 | Initial route | Exact mass custody in the prototype comparison | Distinct physical cost |
 | --- | --- | --- |
 | Four small strokes | Four stock chunks × 4 mass units = four plates × 3 plus four recoverable offcuts × 1. | Four work cycles and their feed, removal and offcut recovery. |
-| One broad forming and shear route | Three stock chunks × 4 mass units = one 2 × 2 sheet of 12, then four plates × 3 with no offcut. | Higher peak drive and frame load, four-cell support and clearance, broad-sheet transfer to a cutter. |
+| One broad forming and shear route | Three stock chunks × 4 mass units = one 2 × 2 sheet of 12, then four plates × 3 with no offcut. | Higher peak drive, four-cell workpiece support and clearance, broad-sheet transfer to a cutter. |
 
 The apparent three-quarter fresh-stock cost of the large route is **provisional
 balance**, not a mass discount: four recovered small offcuts hold enough mass
