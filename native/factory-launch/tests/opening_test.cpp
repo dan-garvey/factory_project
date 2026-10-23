@@ -96,7 +96,8 @@ int main(int argc, char** argv) {
               "Resume uses the same ordinary scene and Store input, without injecting state.");
         refuses([&] { copy_opening_resume(saved_path, incoming_path); }, "Existing incoming saves cannot be replaced.");
         refuses([&] { copy_opening_resume(saved_path, saved_path); }, "Resume cannot overwrite the original save.");
-        fs::create_symlink(saved_path, root / "save-alias.factory");
+        // Keep the refusal fixture valid when Bazel archives this output tree.
+        fs::create_symlink(saved_path.filename(), root / "save-alias.factory");
         refuses([&] { copy_opening_resume(root / "save-alias.factory", root / "alias-copy.factory"); },
                 "A symlink cannot masquerade as the original save.");
         check(!fs::exists(root / "alias-copy.factory"), "Invalid original paths create no incoming copy.");
