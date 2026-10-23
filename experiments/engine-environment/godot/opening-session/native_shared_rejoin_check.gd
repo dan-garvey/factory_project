@@ -329,6 +329,244 @@ func _run_collector_ui() -> void:
 	if passed and not written:
 		_record("pass")
 
+func _plate_ui_drop(snapshot: Dictionary, center: Array) -> Dictionary:
+	for item: Variant in snapshot.get("dropped_material", []):
+		if item is Dictionary and item.get("center", []) == center:
+			return item
+	return {}
+
+func _plate_ui_ready_press(snapshot: Dictionary) -> Dictionary:
+	for item: Variant in snapshot.get("press_assemblies", []):
+		if item is Dictionary and item.get("status") == "ready" and item.get("center") == [12, 0, 16]:
+			return item
+	return {}
+
+func _plate_ui_p() -> bool:
+	if (await _barrier("Q-ready.bin")).is_empty():
+		return false
+	var restored: Dictionary = session.projection()
+	var collector_shaft := ""
+	for item: Dictionary in restored.get("collector_assemblies", []):
+		if item.get("status") == "ready" and item.get("center") == [0, 4, 4]:
+			collector_shaft = str(item.get("parts", {}).get("shaft", ""))
+	if not _expect(restored.order == 21 and not collector_shaft.is_empty()
+		and restored.hand_crank.holder == "P" and _collector_ui_drop(restored)
+		and restored.hand_sources["opening-softmetal"].remaining == 14,
+		"Fresh host restores the actual first collector cut before press work"):
+		return false
+	for index in range(5):
+		if (await _collector_ui_issue("Pick up collector blank %d" % index,
+			{"action": "pickup_material", "center": [0, 4, 3],
+				"expected": {"raw": 1, "products": 0, "work_lots": []}})).is_empty():
+			return false
+		if index == 4:
+			break
+		if not _collector_ui_select(collector_shaft):
+			return false
+		var cut: Dictionary = await _chapter_ui_call("Turn the fitted collector shaft %d" % index,
+			{"action": "turn_hand_crank", "entity": collector_shaft},
+			opening.arrival_assembly_controls.collector_cut_button.pressed.emit)
+		if cut.is_empty() or not _expect(cut.get("receiver_raw") == 1 and _collector_ui_drop(session.projection()),
+			"Every panel cut fills only the cleared collector receiver"):
+			return false
+	if not _expect(session.projection().cargo.P.raw == 5 and not _collector_ui_drop(session.projection())
+		and session.projection().hand_sources["opening-softmetal"].remaining == 10,
+		"Five real collector cuts supply the four metal fittings and one press input"):
+		return false
+	if not await _chapter_ui_walk(Vector2(0.0, 9.9)):
+		return false
+	opening.distance = 0.0
+	for index in range(8):
+		var pose: Array = session.projection().actors.P.position
+		opening.camera.global_position = Vector3(float(pose[0]), float(pose[1]) + 0.7, float(pose[2]))
+		opening.camera.look_at(Vector3(0.0, 0.2, 11.55))
+		if not _expect(opening._screen_hand_source(opening._pointed_screen_position()) == "tree-north",
+			"The ordinary E ray identifies the second finite tree"):
+			return false
+		if (await _chapter_ui_call("Harvest second-tree timber %d" % index,
+			{"action": "harvest_source", "target": "tree-north"}, opening._interact_pointed)).is_empty():
+			return false
+	if not _expect(session.projection().cargo.P.timber == 8
+		and session.projection().hand_sources["tree-north"].remaining == 0,
+		"Eight actual cuts supply the separate press wood bill"):
+		return false
+	for kind in ["wooden_frame", "sliding_guide", "tool_mount", "wooden_shaft", "wooden_cog"]:
+		if (await _collector_ui_issue("Shape press " + kind,
+			{"action": "field_craft", "component": kind})).is_empty():
+			return false
+	if not await _chapter_ui_walk(Vector2(0.0, 4.95)) \
+			or not await _chapter_ui_walk(Vector2(1.65, 4.95)):
+		return false
+	for kind in ["anvil", "ram_face"]:
+		if (await _collector_ui_issue("Fabricate press " + kind,
+			{"action": "craft_component", "entity": "pod-fabrication-hub", "component": kind})).is_empty():
+			return false
+	if not _expect(session.projection().cargo.P.timber == 0 and session.projection().cargo.P.raw == 1,
+		"Four collector-cut blanks and eight timber became seven carried press components"):
+		return false
+	if not await _chapter_ui_walk(Vector2(3.3, 4.95)):
+		return false
+	var frame := ""
+	for part in [
+		{"component": "wooden_frame", "center": [12, 0, 16]},
+		{"component": "anvil", "center": [12, 1, 16]},
+		{"component": "ram_face", "center": [12, 2, 16]},
+		{"component": "sliding_guide", "center": [12, 3, 16]},
+		{"component": "tool_mount", "center": [12, 4, 16]},
+		{"component": "wooden_shaft", "center": [13, 4, 16]},
+		{"component": "wooden_cog", "center": [14, 4, 16]}]:
+		var placed: Dictionary = await _collector_ui_issue("Fit press " + part.component,
+			{"action": "place_component", "component": part.component, "center": part.center})
+		if placed.is_empty():
+			return false
+		if part.component == "wooden_frame":
+			frame = str(placed.get("entity", ""))
+	var press: Dictionary = _plate_ui_ready_press(session.projection())
+	if not _expect(not frame.is_empty() and press.get("frame") == frame
+		and press.get("open_feeds", []).size() > 0,
+		"Seven separately issued parts create one ready press beside the collector"):
+		return false
+	opening._select_tool("inspect")
+	opening._world_click(Vector2i(3, 4), frame)
+	var panel = opening.arrival_assembly_controls
+	if not _expect(opening.selected == frame and panel != null and panel.press_section.visible
+		and not panel.feed_button.disabled and "Press ready" in panel.press_status.text,
+		"Selecting the press frame opens its ordinary hand-feed controls"):
+		return false
+	var route: Dictionary = press.open_feeds[0]
+	if (await _chapter_ui_call("Press the ordinary Feed blank button",
+		{"action": "feed_press", "entity": frame, "entry": route.entry},
+		panel.feed_button.pressed.emit)).is_empty():
+		return false
+	if not _expect(_write("P-fed.bin", {"status": "pass", "order": session.projection().order,
+		"work_center": press.work_center, "exit": route.exit}),
+		"Retain the native feed before turning") or (await _barrier("Q-fed.bin")).is_empty():
+		return false
+	var turn_wire := {"action": "turn_press_crank", "entity": frame,
+		"drive": press.parts.shaft, "exit": route.exit}
+	for turn in range(3):
+		if not _expect(not panel.turn_button.disabled, "The carried crank can advance the retained press work"):
+			return false
+		if (await _chapter_ui_call("Press the ordinary Turn crank button %d" % turn,
+			turn_wire, panel.turn_button.pressed.emit)).is_empty():
+			return false
+		if turn == 0:
+			if not _expect(_write("P-work.bin", {"status": "pass", "order": session.projection().order,
+				"work_center": press.work_center}), "Retain one native WorkLot before it finishes") \
+					or (await _barrier("Q-work.bin")).is_empty():
+				return false
+	if not _expect(_plate_ui_drop(session.projection(), route.exit).get("products") == 1,
+		"Three ordinary crank turns form one physical plate at the selected exit"):
+		return false
+	if not _expect(_write("P-plate.bin", {"status": "pass", "order": session.projection().order,
+		"exit": route.exit}), "Retain the completed product before pickup") \
+			or (await _barrier("Q-plate.bin")).is_empty():
+		return false
+	if not _expect(not panel.pickup_button.disabled, "The ordinary press panel enables its actual exit pickup"):
+		return false
+	if (await _chapter_ui_call("Press the ordinary Pick up exit product button",
+		{"action": "pickup_material", "center": route.exit,
+			"expected": {"raw": 0, "products": 1, "work_lots": []}},
+		panel.pickup_button.pressed.emit)).is_empty():
+		return false
+	if not _expect(session.projection().cargo.P.products == 1 and session.projection().cargo.P.raw == 0
+		and session.projection().hand_sources["opening-softmetal"].remaining == 10
+		and _plate_ui_drop(session.projection(), route.exit).is_empty(),
+		"The first carried plate comes from the collector's finite ore through the separate press"):
+		return false
+	if not _expect(_write("P-complete.bin", {"status": "pass", "order": session.projection().order,
+		"collector_shaft": collector_shaft, "press_frame": frame}),
+		"Retain both real machine identities and the plate order"):
+		return false
+	return not (await _barrier("Q-result.bin")).is_empty()
+
+func _plate_ui_q() -> bool:
+	var restored: Dictionary = session.projection()
+	if not _expect(restored.order == 21 and _collector_ui_drop(restored)
+		and restored.hand_sources["opening-softmetal"].remaining == 14,
+		"Q starts from the unchanged first collector-cut Store input") \
+			or not _expect(_write("Q-ready.bin", {"status": "pass"}),
+			"Q joins before the ordinary press route moves material"):
+		return false
+	var fed: Dictionary = await _barrier("P-fed.bin")
+	if fed.is_empty() or not await _until(func(): return session.projection().order >= fed.order,
+		"Q receives the pressed blank after finite fabrication"):
+		return false
+	if not _expect(_plate_ui_drop(session.projection(), fed.work_center).get("raw") == 1
+		and session.projection().cargo.P.raw == 0
+		and session.projection().hand_sources["opening-softmetal"].remaining == 10,
+		"Q sees collector ore under the press head, with no remote raw copy") \
+			or not _expect(_write("Q-fed.bin", {"status": "pass"}), "Release P's first press turn"):
+		return false
+	var work: Dictionary = await _barrier("P-work.bin")
+	if work.is_empty() or not await _until(func(): return session.projection().order >= work.order,
+		"Q receives the unfinished native press work"):
+		return false
+	var held: Dictionary = _plate_ui_drop(session.projection(), work.work_center)
+	if not _expect(held.get("raw") == 0 and held.get("work_lots", []).size() == 1,
+		"Q sees one retained WorkLot rather than a speculative plate") \
+			or not _expect(_write("Q-work.bin", {"status": "pass"}), "Release P's remaining turns"):
+		return false
+	var formed: Dictionary = await _barrier("P-plate.bin")
+	if formed.is_empty() or not await _until(func(): return session.projection().order >= formed.order,
+		"Q receives the physical plate at its selected exit"):
+		return false
+	if not _expect(_plate_ui_drop(session.projection(), formed.exit).get("products") == 1
+		and session.projection().cargo.P.products == 0,
+		"Q sees one formed plate at the press, before P picks it up") \
+			or not _expect(_write("Q-plate.bin", {"status": "pass"}), "Release P's real product pickup"):
+		return false
+	var complete: Dictionary = await _barrier("P-complete.bin")
+	if complete.is_empty() or not await _until(func(): return session.projection().order >= complete.order,
+		"Q receives the same first carried plate"):
+		return false
+	return _expect(session.projection().cargo.P.products == 1 and session.projection().cargo.P.raw == 0
+		and session.projection().hand_sources["opening-softmetal"].remaining == 10
+		and not session.projection().placed_components.get(complete.press_frame, {}).is_empty()
+		and not session.projection().placed_components.get(complete.collector_shaft, {}).is_empty(),
+		"Q retains one product and both separate machines without stock duplication")
+
+func _plate_ui_resume() -> bool:
+	var earlier: Dictionary = _read(previous.path_join("P-result.bin"))
+	var saved: Dictionary = earlier.get("projection", {})
+	var restored: Dictionary = session.projection()
+	return _expect(earlier.get("status") == "pass" and saved.get("order") == 57
+		and restored.get("order") == saved.get("order")
+		and _same(restored.get("placed_components"), saved.get("placed_components"))
+		and _same(restored.get("dropped_material"), saved.get("dropped_material"))
+		and _same(restored.get("cargo"), saved.get("cargo"))
+		and _same(restored.get("hand_sources"), saved.get("hand_sources"))
+		and restored.get("hand_crank", {}).get("holder") == "P"
+		and restored.get("cargo", {}).get("P", {}).get("products") == 1
+		and not _plate_ui_ready_press(restored).is_empty(),
+		"Fresh native Store host preserves exact collector, press, source and first-plate custody")
+
+func _run_plate_ui() -> void:
+	if actor not in ["P", "Q"] or phase not in ["collector-plate", "collector-plate-resume"] \
+			or not directory.is_absolute_path() or (phase == "collector-plate-resume" and not previous.is_absolute_path()):
+		push_error("The ordinary collector-to-plate consumer needs role, phase and owned evidence paths")
+		quit(1)
+		return
+	deadline = Time.get_ticks_msec() + 160000
+	facts.evidence = "ordinary_shared_native_collector_to_press_callbacks"
+	opening = load("res://opening/shared_opening.tscn").instantiate()
+	root.add_child(opening)
+	session = opening.session
+	session.outcome.connect(func(outcome: Dictionary):
+		var request: String = outcome.get("request", "")
+		if not replies.has(request):
+			replies[request] = []
+		replies[request].append(outcome.duplicate(true)))
+	if not await _until(func(): return session.is_ready(), "The ordinary first-product scene joins native Session"):
+		return
+	var passed := false
+	if phase == "collector-plate":
+		passed = await _plate_ui_p() if actor == "P" else await _plate_ui_q()
+	else:
+		passed = _plate_ui_resume()
+	if passed and not written:
+		_record("pass")
+
 func _run_chapter_ui() -> void:
 	if actor not in ["P", "Q"] or phase not in ["chapter-ui", "chapter-ui-resume"] \
 			or not directory.is_absolute_path():
@@ -537,6 +775,9 @@ func _q() -> bool:
 		"Only two explicit material transfers occur after reconnection") and _marker("Q-material-cycled.bin")
 
 func _run() -> void:
+	if phase in ["collector-plate", "collector-plate-resume"]:
+		await _run_plate_ui()
+		return
 	if phase in ["collector-ui", "collector-ui-resume"]:
 		await _run_collector_ui()
 		return

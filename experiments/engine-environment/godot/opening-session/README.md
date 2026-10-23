@@ -238,6 +238,21 @@ separate `tile_transport_check.gd --chapter-product` fixture covers the press
 and first plate with synthetic actor observations; this collector UI mode does
 not establish an ordinary player-controlled first plate.
 
+The subsequent `--cog-phase=collector-plate` and
+`--cog-phase=collector-plate-resume` modes carry that first collector save
+through the press with the same normal P/Q scenes. P picks up five blanks made
+with the collector's cut button, harvests the second finite tree through the
+ordinary E ray, shapes five wood pieces and two metal fittings, and fits seven
+separate press parts beside the collector. P selects the press frame and uses
+the actual Feed, Turn crank, and Pick up exit product panel buttons. Q checks
+the raw blank under the press head, a retained WorkLot during turning, the
+finished plate at the exit, and final P cargo. A third fresh native host opens
+the unchanged plate save, and both clients compare placed identities, source
+stock, dropped material and cargo to the prior P result. This phase issues
+component placements through the ordinary scene's Session helper; its panel
+button callbacks and walking are automated input, not human play or a claim
+that every press part was placed through the pointer interface.
+
 The low-level dedicated entry accepts optional `--resume-input` and
 `--save-file` paths in the same owned directory as its lifecycle files. These
 are host process options, never RPCs. Input is decoded into the one actual
