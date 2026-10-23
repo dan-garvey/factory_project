@@ -358,7 +358,6 @@ class ArrivalAssemblyControls:
 	func configure(host) -> void:
 		_host = weakref(host)
 		name = "ArrivalAssemblyControls"
-		custom_minimum_size.x = 296
 		var column := VBoxContainer.new()
 		column.add_theme_constant_override("separation", 5)
 		add_child(column)
@@ -379,11 +378,12 @@ class ArrivalAssemblyControls:
 		component_choice.item_selected.connect(_component_selected)
 		craft_section.add_child(component_choice)
 		recipe_label = host._label(craft_section, "", 12, Color("bfd1cc"))
-		var component_actions := HBoxContainer.new()
+		var component_actions := VBoxContainer.new()
 		craft_section.add_child(component_actions)
 		craft_button = host._button(component_actions, "Craft at bench", _craft)
 		place_button = host._button(component_actions, "Place", _place)
-		field_craft_button = host._button(craft_section, "Shape wood with multitool", _field_craft)
+		field_craft_button = host._button(craft_section, "Shape wood · multitool", _field_craft)
+		field_craft_button.tooltip_text = "Shape the selected wooden component from carried timber."
 		reclaim_button = host._button(craft_section, "Reclaim selected part", _reclaim)
 		host._label(craft_section, "POWERED MATERIAL ROUTE", 13, Color("f4bf75"))
 		part_choice = OptionButton.new()
@@ -434,7 +434,7 @@ class ArrivalAssemblyControls:
 		press_tab.button_pressed = press
 		var scroller := get_parent() as ScrollContainer
 		if scroller != null:
-			scroller.custom_minimum_size.y = 260 if press else 335
+			scroller.custom_minimum_size.y = 280 if press else 390
 
 	func _bearing(point: Array, center: Array) -> String:
 		if point.size() != 3 or center.size() != 3:
@@ -463,7 +463,7 @@ class ArrivalAssemblyControls:
 			cargo.get("raw", 0), total_parts, snapshot.get("component_capacity", 0)]
 		for index in COMPONENTS.size():
 			var item: Array = COMPONENTS[index]
-			component_choice.set_item_text(index, "%s  ·  %d carried" % [item[1], components.get(item[0], 0)])
+			component_choice.set_item_text(index, "%s  ×%d" % [item[1], components.get(item[0], 0)])
 		# Let the hub report missing input, full output and distance using its
 		# confirmed result. The bill above stays visible before the attempt.
 		craft_button.disabled = not ready or snapshot.get("fabrication_hub", {}).is_empty() or cost.is_empty()
@@ -487,7 +487,7 @@ class ArrivalAssemblyControls:
 			if recipe_index == selected_part:
 				selected_count = count
 			var title: String = {"shaft": "Shaft tile", "belt": "Belt span", "wheel": "Waterwheel"}.get(recipe.get("kind", ""), "Part")
-			part_choice.add_item("%s  ·  %d carried" % [title, count])
+			part_choice.add_item("%s  ×%d" % [title, count])
 		if part_recipes.is_empty():
 			part_cost_label.text = "No powered-route recipes at this workshop."
 			part_craft_button.disabled = true
