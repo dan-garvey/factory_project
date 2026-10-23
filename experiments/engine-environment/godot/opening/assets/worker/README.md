@@ -9,6 +9,16 @@ The pinned source contains the editable FBX and original textures.
 Human feedback still determines whether this revisable character meets the
 requested appearance and motion quality.
 
+The opening samples `body_field_suit_color.png` for a petrol field jacket and
+graphite work trousers. It is an image-generated edit of the included body
+atlas. `field_suit.gdshader` uses the original atlas to limit the alternate to
+cloth; the original skin, footwear, empty UV margins, head, hair, body normal,
+rig and animations remain. The edited atlas is 1,254 pixels square and its UV
+islands are not pixel-identical to the original. This material boundary avoids
+spilling the generated colors onto skin, while garment detail and fit remain
+provisional until a human checks the actual character at ordinary and eye-level
+camera distances. The field suit is presentation only.
+
 The converted mesh has 5,438 vertices, 8,732 triangles, three material surfaces
 and 80 skin bindings. Color maps are 1,024 pixels square; normal and alpha maps
 are 512 pixels square. Conversion preserves the skin and mesh level, removes
