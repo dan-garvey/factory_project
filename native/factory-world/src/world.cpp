@@ -822,6 +822,10 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         std::optional<mechanics::Point> automatic_exit;
         Integer last_tick_seen{};
         Integer automatic_remaining_ticks_seen{};
+        Integer completed_subticks{};
+        Integer work_remainder{};
+        std::string shaft;
+        bool drive_changed{};
     };
     std::map<mechanics::Point, PressWorkRecord> press_work;
     std::map<mechanics::Point, Integer> press_products;
@@ -829,18 +833,59 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
     std::set<materials::WorkId> press_work_ids;
     std::set<materials::WorkId> manually_advanced_ids;
     std::map<materials::WorkId, Integer> manual_reductions;
+    std::set<materials::WorkId> picked_press_products;
+    Integer history_revision = 0;
+    Integer ticks_seen = 0;
+    std::optional<DrivePower> automatic_power;
     const auto automatic_finish_witnessed = [&](const PressWorkRecord& work) {
         if (work.id == 0) return true;
         const auto found = snapshot.state.press_progress.find(work.id);
+        if (!manually_advanced_ids.contains(work.id) && !work.drive_changed) {
+            if (!automatic_power) automatic_power.emplace(drive_power(profile, snapshot.state));
+            const auto shaft = automatic_power->mechanical.motion.find(work.shaft);
+            if (shaft == automatic_power->mechanical.motion.end()) return false;
+            // A stalled final network cannot describe its earlier speed.
+            // With an unchanged rotating network, elapsed ticks and its
+            // exact rate bound the work that could have been completed.
+            if (shaft->second.state == mechanics::MotionState::rotating) {
+                __extension__ using Wide = __int128;
+                Wide numerator = shaft->second.rate.numerator;
+                if (numerator < 0) numerator = -numerator;
+                const Wide denominator = shaft->second.rate.denominator;
+                if (denominator <= 0) return false;
+                const Wide per_tick = (numerator * materials::work_subticks_per_tick +
+                    denominator - 1) / denominator;
+                const Wide needed = static_cast<Wide>(work.remaining) *
+                    materials::work_subticks_per_tick - work.completed_subticks -
+                    (work.work_remainder > 0 ? 1 : 0);
+                if (static_cast<Wide>(ticks_seen - work.last_tick_seen) * per_tick < needed)
+                    return false;
+            } else if (shaft->second.state != mechanics::MotionState::stalled) {
+                return false;
+            }
+        }
+        if (found == snapshot.state.press_progress.end()) {
+            // An automatically finished lot drops its progress witness. The
+            // exact output identity still survives at its exit, on a belt or
+            // in an actor's accepted pickup history. A manual turn retains
+            // the progress witness and cannot take this path.
+            if (manually_advanced_ids.contains(work.id)) return false;
+            for (const auto& [point, id] : snapshot.state.press_output_at_exit) {
+                (void)point;
+                if (id == work.id) return true;
+            }
+            for (const auto& [point, ids] : snapshot.state.press_output_exported) {
+                (void)point;
+                if (ids.contains(work.id)) return true;
+            }
+            return picked_press_products.contains(work.id);
+        }
         return found != snapshot.state.press_progress.end() &&
             found->second.automatic_remaining_ticks >= work.automatic_remaining_ticks_seen &&
             found->second.automatic_remaining_ticks - work.automatic_remaining_ticks_seen ==
                 work.remaining;
     };
-    std::set<materials::WorkId> picked_press_products;
     std::map<mechanics::Point, std::pair<materials::WorkId, Integer>> belt_press_turns;
-    Integer history_revision = 0;
-    Integer ticks_seen = 0;
     const auto within_component_capacity = [&](const std::string& actor) {
         Integer carried = 0;
         for (const auto& [owner_kind, count] : crafted_components)
@@ -875,6 +920,16 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         // Malformed/refused commands retain their exact original intent too.
         if (!*accepted_value) continue;
         if (!shape(record.intent, *action)) return false;
+        if (placement(*action) || *action == "remove" || *action == "set_drive" ||
+            *action == "shaft_between" || *action == "remove_shaft_between" ||
+            *action == "place_belt_span" || *action == "place_selected_belt_span" ||
+            *action == "remove_belt_span" || *action == "place_component" ||
+            *action == "reclaim_component" || *action == "feed_press") {
+            for (auto& [point, work] : press_work) {
+                (void)point;
+                work.drive_changed = true;
+            }
+        }
         const auto* result_actor = field<std::string>(record.result, "actor");
         const auto* entity = field<std::string>(record.result, "entity");
         const auto* generation = field<Integer>(record.result, "generation");
@@ -999,10 +1054,12 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 std::get_if<Object>(&moved_work->front().storage()) : nullptr;
             const auto* moved_id = moved_lot ? field<Integer>(*moved_lot, "id") : nullptr;
             const auto* remaining = moved_lot ? field<Integer>(*moved_lot, "remaining_ticks") : nullptr;
+            const auto* completed = moved_lot ? field<Integer>(*moved_lot, "completed_subticks") : nullptr;
+            const auto* remainder = moved_lot ? field<Integer>(*moved_lot, "work_remainder") : nullptr;
             Integer prior_automatic = 0;
             if (refeed_work) {
                 if (!work_id || *work_id <= 0 || !moved_lot || moved_lot->size() != 7 ||
-                    !moved_id || *moved_id != *work_id || !remaining ||
+                    !moved_id || *moved_id != *work_id || !remaining || !completed || !remainder ||
                     *remaining < 0 || *remaining > profile.material.cycle_ticks) return false;
                 const auto carried = carried_work[*actor].find(*work_id);
                 if (carried == carried_work[*actor].end() ||
@@ -1039,7 +1096,9 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             }
             press_work.emplace(*selected_work, PressWorkRecord{
                 refeed_work ? *work_id : materials::WorkId{0},
-                refeed_work ? *remaining : Integer{0}, automatic_exit, ticks_seen, prior_automatic});
+                refeed_work ? *remaining : Integer{0}, automatic_exit, ticks_seen, prior_automatic,
+                refeed_work ? *completed : Integer{0}, refeed_work ? *remainder : Integer{0},
+                inspected.press->shaft});
         }
         if (*action == "turn_press_crank") {
             const auto* drive = field<std::string>(record.intent, "drive");
@@ -1475,7 +1534,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         const auto item = snapshot.state.material.dropped_material.find(point);
         const auto witness = work.id > 0 ? snapshot.state.press_progress.find(work.id) :
             snapshot.state.press_progress.end();
-        if (work.id > 0 && (witness == snapshot.state.press_progress.end() ||
+        if (work.id > 0 && (witness == snapshot.state.press_progress.end() ?
+            item != snapshot.state.material.dropped_material.end() || !automatic_finish_witnessed(work) :
             witness->second.automatic_remaining_ticks < work.automatic_remaining_ticks_seen ||
             witness->second.automatic_remaining_ticks - work.automatic_remaining_ticks_seen > work.remaining))
             return false;

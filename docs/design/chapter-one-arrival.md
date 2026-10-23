@@ -26,10 +26,10 @@ into a useful arrangement, not a magical source of unlimited stock. The player
 can inspect it, build beside it and eventually replace its functions and reclaim
 its parts. The scene should be skippable and rejoin safely at its settled state.
 
-The current freight beacon is a small Meridian dispatch pylon at its native
-delivery point. Its visible receiving slot and attached status cue identify
-where the first plate is shipped. It grants no factory hardware or stock;
-outside the supplied pod, the player builds the factory. The pylon's appearance
+The current freight destination uses a depth-aware shipment label and a ground
+pointer at its native delivery point. They are interface cues; outside the supplied
+pod/workshop, the player builds the visible machinery. The cue grants no hardware
+or stock and keeps the same first and repeat shipment operation. Its appearance
 remains a revisable presentation choice.
 
 The AI offers one instruction at a time, with replay in the work log. Candidate
