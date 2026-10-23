@@ -1,5 +1,6 @@
 extends SceneTree
 ## Exercise actual scene input, then inspect the shared authoritative model.
+const OpeningScene = preload("res://opening/opening.gd")
 
 var scene
 var failures: Array[String] = []
@@ -53,6 +54,15 @@ func _conserved() -> bool:
 	var raw: int = stock.source + stock.collector + stock.belt + stock.input + stock.held
 	return raw + snapshot.recipe_input * (stock.output + stock.player) == snapshot.initial_feed
 
+func _stop_scene_audio() -> void:
+	if scene == null:
+		return
+	if scene.mechanical_ambience != null:
+		scene.mechanical_ambience.silence()
+	if scene.construction_audio != null:
+		scene.construction_audio.stop()
+		scene.construction_audio.stream = null
+
 func _run() -> void:
 	root.size = Vector2i(1280, 800)
 	scene = load("res://opening/opening.tscn").instantiate()
@@ -84,8 +94,31 @@ func _run() -> void:
 	_check(scene.model.projection().powered, "Reachable waterwheel must power the built line.")
 	# Read-only explanation cannot issue an accidental placement.
 	await _key(KEY_H)
+	var teaching = scene.example_presenter
+	if ClassDB.class_exists("FactoryNativeWorld"):
+		_check(teaching.model.boot_result.get("accepted", false)
+			and teaching.readout.text.begins_with("EXAMPLE tick"),
+			"Help displays a live isolated lesson when its native rules are available.")
+	else:
+		_check(not teaching.model.boot_result.get("accepted", false)
+			and "unavailable" in teaching.readout.text and teaching.step_button.disabled,
+			"Help discloses an unavailable isolated lesson without arming actions.")
 	var explained: Dictionary = scene.model.projection()
 	await _click_cell(3, 1)
+	if not ClassDB.class_exists("FactoryNativeWorld"):
+		_check("cannot inspect" in teaching.inspect_label.text,
+			"Pointing inside an unavailable example leaves a stable explanatory readout.")
+		for _lesson in range(3):
+			await _key(KEY_RIGHT)
+		_check(scene.lesson_index == 3 and teaching.recover_button.disabled,
+			"Unavailable Help disables recovery even on the retrieval lesson.")
+		await _key(KEY_ENTER)
+		_check(scene.model.projection() == explained,
+			"Unavailable Help recovery cannot mutate the actual worksite.")
+		teaching.step_button.pressed.emit()
+		teaching.recover_button.pressed.emit()
+		_check(teaching.ticks == 0 and scene.model.projection() == explained,
+			"Unavailable example actions remain inert if a signal is emitted directly.")
 	_check(scene.model.projection() == explained, "Inspectable explanation must not mutate machinery.")
 	await _key(KEY_H)
 	# Stop with real in-process work, then ensure logical advancement retains it.
@@ -113,7 +146,10 @@ func _run() -> void:
 	# A fresh actual view of restored work must not reuse the old view's IDs.
 	var restored = load("res://model.gd").new()
 	_check(restored.restore_checkpoint(scene.model.checkpoint()).accepted, "The view can attach to restored authoritative work.")
+	_stop_scene_audio()
 	scene.free()
+	scene = null
+	await process_frame
 	scene = load("res://opening/opening.tscn").instantiate()
 	scene.model = restored
 	scene.auto_advance = false
@@ -158,9 +194,19 @@ func _run() -> void:
 			await RenderingServer.frame_post_draw
 			var image := root.get_texture().get_image()
 			_check(image.save_png(argument.trim_prefix("--capture=")) == OK, "Rendered viewport capture must be saved.")
+	var final_projection: Dictionary = scene.model.projection()
+	_stop_scene_audio()
+	scene.free()
+	scene = null
+	OpeningScene.ConstructionAudio.streams.clear()
+	OpeningScene.ConstructionAudio.source_status = "uninitialized"
+	OpeningScene.MechanicalAmbience.loops.clear()
+	# The audio server releases a stopped WAV playback on a later frame.
+	for _frame in range(10):
+		await process_frame
 	if failures.is_empty():
 		print("OPENING_INPUT_PASS: actual placement/flow/drive/retention/retrieval/refund/goal scene consumers")
-		print(JSON.stringify(scene.model.projection()))
+		print(JSON.stringify(final_projection))
 		quit(0)
 	else:
 		print("OPENING_INPUT_FAIL: ", JSON.stringify(failures))
