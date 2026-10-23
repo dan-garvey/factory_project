@@ -81,6 +81,12 @@ deconstruction, then click the part to reclaim it; **Esc** leaves the mode.
 The worksite still checks character reach and retained contents before removing
 anything. **C** selects a manual material link, and **G** selects a shaft tool.
 Inspect has no button or hotkey. Clicking while idle does not pin a selection.
+Inside an E panel, the visible actions use **C** craft or take the press crank,
+**P** place or pick up, **F** feed, **T** turn or take the collector crank,
+**X** cut, **R** reinsert, **U** recover, **V** shape, **S** stow the pod,
+**M** make a kit, and **K** place a kit. Use arrow keys and Enter in selectors.
+**Delete** removes the opened object, **Ctrl+D** expands worksite details, and
+**Esc** closes the panel. Disabled actions stay disabled from the keyboard.
 
 **Rotate [R]** turns a collector or press by 90 degrees before placement. The
 preview turns its outlet and horizontal drive axle while keeping the collector's

@@ -18,7 +18,7 @@ func capture(label: String) -> void:
 
 func inspect(x: int) -> void:
 	var before: Dictionary = scene.model.checkpoint()
-	await _key(KEY_I)
+	await _key(KEY_ESCAPE)
 	await _click_cell(x)
 	_check(scene.model.checkpoint() == before, "Inspection does not issue a command or change authority")
 

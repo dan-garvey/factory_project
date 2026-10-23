@@ -45,7 +45,7 @@ func _run() -> void:
 	var saved_bytes := FileAccess.get_file_as_bytes(slot)
 	var old_namespace: String = scene.request_namespace
 	# Change actual identity and geometry before loading a lower revision.
-	await _key(KEY_I)
+	await _key(KEY_ESCAPE)
 	await _click_cell(-1)
 	await _click_screen(scene.remove_button.get_global_rect().get_center())
 	await _key(KEY_5)
@@ -74,7 +74,7 @@ func _run() -> void:
 	scene.model.advance()
 	_check(scene.model.projection().stock.output == 1, "Second resumed tick completes exactly the retained plate.")
 	scene._refresh()
-	await _key(KEY_I)
+	await _key(KEY_ESCAPE)
 	await _click_cell(2)
 	await _key(KEY_R)
 	_check(scene.state.inventories.get("P", 0) == 1,
@@ -118,7 +118,7 @@ func _run() -> void:
 		"Rejected candidates preserve all live authority and the last good file.")
 	_check(scene.selected == selection and scene.pending_link == pending and scene.request_namespace == old_namespace and scene.request_sequence == sequence,
 		"Rejected loads preserve UI identity and pending input.")
-	await _key(KEY_I)
+	await _key(KEY_ESCAPE)
 	await _click_cell(2)
 	await _key(KEY_R)
 	_check(scene.state.inventories.get("P", 0) == 2, "Ordinary input continues immediately after a rejected load.")
@@ -178,7 +178,7 @@ func _run() -> void:
 	quit(0 if failures.is_empty() else 1)
 
 func _collect_four() -> void:
-	await _key(KEY_I)
+	await _key(KEY_ESCAPE)
 	await _click_cell(2)
 	for _tick in range(50):
 		if scene.model.projection().stock.output > 0:

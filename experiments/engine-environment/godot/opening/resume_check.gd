@@ -80,7 +80,7 @@ func _run() -> void:
 				_check(scene.state.stock.output == 0, "retained partial work cannot produce early")
 	_check(scene.state.stock.output == 1, "retained work reaches one real plate")
 	var prior_inventory: int = scene.state.inventories.get("P", 0)
-	await _key(KEY_I)
+	await _key(KEY_ESCAPE)
 	var cell: Array = scene.state.entities[processor].cell
 	await _click_cell(cell[0], cell[1])
 	await _key(KEY_R)

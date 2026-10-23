@@ -493,75 +493,68 @@ func check_foundation_inspector() -> void:
 		var before: Dictionary = view.state.duplicate(true)
 		root.add_child(view)
 		view._build_interface()
+		view.object_menu.popup_hide.disconnect(view._on_object_menu_closed)
 		view._refresh_guided_tools()
 		await settle_footer()
-		var panel: Control = view.inspector.get_parent().get_parent()
-		verify(not panel.visible, "Foundation-only construction does not show unused machine inspection actions.")
-		view.mode = "inspect"
+		verify(not view.object_menu.visible and not view.inspector.is_visible_in_tree(),
+			"An idle foundation worksite leaves its object details off the game view.")
 		view.selected = "step-a"
+		view.object_menu_target = "step-a"
+		view.object_menu.popup_centered(Vector2i(500, 400))
 		view._refresh_guided_tools()
 		await settle_footer()
-		verify(panel.visible, "Explicit foundation inspection retains its panel and dismantling controls.")
-		view.mode = "collector"
-		view.selected = ""
+		verify(view.object_menu.visible and view.selected == "step-a"
+			and view.inspector.is_visible_in_tree() and view.remove_button.is_visible_in_tree()
+			and not view.retrieve_button.visible and not view.object_menu_operations.visible,
+			"E opens only the pointed foundation's details and dismantling action.")
 		view.show_details = true
 		view._refresh_guided_tools()
-		await settle_footer()
-		verify(panel.visible, "Explicit Details retains the inspection disclosure.")
+		verify(view.worksite_details_section.visible and view.stock_label.is_visible_in_tree(),
+			"Worksite counters are available inside the open object panel.")
+		view.object_menu.hide()
+		view.selected = ""
 		view.show_details = false
-		view._refresh_guided_tools(false)
-		await settle_footer()
-		verify(panel.visible, "An unavailable snapshot retains inspection readiness notices.")
-		view.state.actors.P.ready = false
 		view._refresh_guided_tools()
 		await settle_footer()
-		verify(panel.visible, "An unready physical actor retains inspection readiness notices.")
+		verify(not view.object_menu.visible and view.selected.is_empty()
+			and not view.worksite_details_section.is_visible_in_tree(),
+			"Closing the panel releases its selected target and worksite disclosure.")
+		view.state.actors.P.ready = false
+		verify(not view._can_control_character(), "An unready actor cannot use object interactions.")
 		view.state.actors.P.ready = true
 		view.explanation_open = true
-		view._refresh_guided_tools()
-		await settle_footer()
-		verify(panel.visible, "Help retains explicit inspection disclosure.")
+		verify(not view._can_control_character(), "Help prevents object interactions.")
 		view.explanation_open = false
-		view._refresh_guided_tools()
-		await settle_footer()
-		verify(not panel.visible and view.state == before and view.model == null and view.actor_world == null
-			and view.request_sequence == 0, "Returning to construction hides the unused panel without authority or requests.")
+		verify(view.state == before and view.model == null and view.actor_world == null
+			and view.request_sequence == 0, "Foundation inspection creates no authority or request.")
 		view.state.entities = {"wheel-a": {"kind": "wheel", "cell": [-2, 1]},
 			"press-a": {"kind": "processor", "cell": [3, 1]}}
 		var built_before: Dictionary = view.state.duplicate(true)
 		view._refresh_guided_tools()
 		await settle_footer()
-		var idle_height: float = panel.size.y
-		verify(panel.visible and view.power_label.visible and idle_height < 100.0,
-			"An unselected built worksite keeps compact drive status instead of covering the machinery.")
-		verify(not view.inspector.visible and not view.retrieve_button.visible and not view.remove_button.visible,
-			"No target means no repeated selection prompt or unusable target actions.")
+		verify(not view.object_menu.visible and not view.inspector.is_visible_in_tree(),
+			"Built machinery still leaves the idle game view unobstructed.")
 		view.selected = "press-a"
+		view.object_menu_target = "press-a"
+		view.object_menu.popup_centered(Vector2i(500, 400))
 		view._refresh_guided_tools()
 		await settle_footer()
-		verify(view.inspector.visible and view.retrieve_button.visible and view.remove_button.visible
-			and panel.size.y > idle_height,
-			"Selecting the press restores its inspection, collection and dismantling actions.")
+		verify(view.object_menu.visible and view.inspector.is_visible_in_tree()
+			and view.retrieve_button.is_visible_in_tree() and view.remove_button.is_visible_in_tree(),
+			"The pointed press keeps collection and dismantling inside its E panel.")
+		view.object_menu.hide()
+		await settle_footer()
 		view.selected = "wheel-a"
+		view.object_menu_target = "wheel-a"
+		view.object_menu.popup_centered(Vector2i(500, 400))
 		view._refresh_guided_tools()
 		await settle_footer()
-		verify(view.inspector.visible and view.remove_button.visible and not view.retrieve_button.visible,
-			"Wheel inspection does not offer plate collection.")
-		view.selected = ""
-		view.mode = "inspect"
-		view._refresh_guided_tools()
-		await settle_footer()
-		verify(panel.visible and view.inspector.visible,
-			"Choosing Inspect keeps the selection prompt available without a target.")
-		view.mode = "collector"
-		view.recovery_actions.visible = true
-		view._refresh_guided_tools()
-		await settle_footer()
-		verify(panel.visible and view.recovery_actions.is_visible_in_tree(),
-			"A disclosed recovery component remains visible without a selected target.")
-		view.recovery_actions.visible = false
+		verify(view.object_menu.visible and view.remove_button.is_visible_in_tree()
+			and not view.retrieve_button.visible,
+			"The pointed wheel offers dismantling without a plate collection control.")
+		view.object_menu.hide()
 		verify(view.state == built_before and view.model == null and view.actor_world == null and view.request_sequence == 0,
-			"Inspection disclosure never creates an authority, physical body or gameplay request.")
+			"Object panels never create an authority, physical body or gameplay request.")
 		await settle_footer()
 		if shared_profile:
 			view.session = null

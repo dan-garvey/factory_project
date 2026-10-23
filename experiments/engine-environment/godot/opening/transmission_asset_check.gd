@@ -6,6 +6,11 @@ const Finish = Assets.Finish
 const Opening = preload("res://opening/opening.gd")
 const WORKED_SIZE := 256
 const WORKED_RELIEF_METRES := 0.00001
+# The presenter fits every gear in one 1.65 m tile; native ratio units change
+# tooth count, not world radius. Its signed half-rate phase is measured over
+# 0.1 s around the fitted span roller with the established visual phase scale.
+const PRESENTED_GEAR_RADIUS := 0.825
+const PRESENTED_HALF_RATE_STEP := -0.1 * 0.5 * 1.65 / (0.1425 * 0.45)
 var checks := 0
 var failed := false
 var checked_meshes: Dictionary = {}
@@ -604,7 +609,7 @@ func check_gear_bores() -> void:
 				"snapped_cache_facts": bore_mesh_facts(hub_mesh, empty_hub.transform, true)}))
 			check_mesh(hub_mesh)
 			verify(empty_facts.minimum_radius > 0.0388 and empty_facts.minimum_face_radius > 0.0438
-				and is_equal_approx(empty_facts.maximum_radius, minf(0.16, units * 0.4125 * 0.34))
+				and is_equal_approx(empty_facts.maximum_radius, minf(0.16, PRESENTED_GEAR_RADIUS * 0.34))
 				and is_equal_approx(empty_facts.low, -0.11) and is_equal_approx(empty_facts.high, 0.11),
 				"Actual hub triangles leave the whole passage open and chamfer both original end planes.")
 			host.state.transmission_parts["shaft"] = {"kind": "shaft", "center": center, "axis": axis, "half_span": 1, "generation": 2}
@@ -632,7 +637,7 @@ func check_gear_bores() -> void:
 				"The actual assemblies preserve the common confirmed point and positive axis.")
 			var gear_pick: CylinderShape3D = gear.get_node("Pick").get_child(0).shape
 			var shaft_pick: CylinderShape3D = shaft.get_node("Pick").get_child(0).shape
-			verify(is_equal_approx(gear_pick.radius, units * 0.4125 + 0.103125) and is_equal_approx(gear_pick.height, 0.24)
+			verify(is_equal_approx(gear_pick.radius, PRESENTED_GEAR_RADIUS) and is_equal_approx(gear_pick.height, 0.24)
 				and is_equal_approx(shaft_pick.radius, 0.08) and is_equal_approx(shaft_pick.height, 0.825),
 				"The bore changes no gear or shaft selection envelope or endpoint length.")
 			verify(roles(gear, "GearTooth") == units * 8 and roles(gear, "GearSpoke") == 4 and roles(gear, "HubFastener") == 8,
@@ -641,10 +646,11 @@ func check_gear_bores() -> void:
 				and hub.get_script() == null and hub.transform == Transform3D.IDENTITY,
 				"The open hub retains its cached machined finish and has no independent motion, offset or controller.")
 			view.advance_visual_motion(0.1)
-			verify(is_equal_approx(view.visual_angle("gear"), -0.04) and is_equal_approx(view.visual_angle("shaft"), -0.04)
+			verify(is_equal_approx(view.visual_angle("gear"), PRESENTED_HALF_RATE_STEP)
+				and is_equal_approx(view.visual_angle("shaft"), PRESENTED_HALF_RATE_STEP)
 				and gear.basis == shaft.basis and host.state == before,
 				"The existing signed cosmetic rate turns the same rigid assembly without changing the invented native facts.")
-			var cache_key := str(minf(0.16, units * 0.4125 * 0.34))
+			var cache_key := str(minf(0.16, PRESENTED_GEAR_RADIUS * 0.34))
 			verify(not hub_meshes.has(cache_key) or hub_meshes[cache_key] == hub.mesh,
 				"Equivalent local hub dimensions reuse their mesh across world axes and cog sizes.")
 			hub_meshes[cache_key] = hub.mesh
@@ -663,7 +669,8 @@ func check_gear_bores() -> void:
 		"projection_facts": "invented read-only", "general_machine_routing": "not_established"}))
 
 func batch_expected_mesh(role: String, units: int) -> Mesh:
-	var radius := float(units) * 0.4125
+	# One tile fixes the physical gear radius; native ratio changes tooth density.
+	var radius := PRESENTED_GEAR_RADIUS
 	if role == "GearTooth":
 		return Assets.tooth_mesh(radius, units * 8)
 	if role == "GearSpoke":
@@ -678,7 +685,7 @@ func batch_expected_mesh(role: String, units: int) -> Mesh:
 func batch_expected_member(role: String, index: int, units: int, point: Vector3, normal: bool) -> Vector3:
 	# Scalar reference for the prior individual-piece layout. This does not
 	# decode a buffer or use the production poses, Basis or batching helper.
-	var radius := units * 0.4125
+	var radius := PRESENTED_GEAR_RADIUS
 	var hub := minf(0.16, radius * 0.34)
 	if role == "GearTooth":
 		var angle := float(index) * TAU / float(units * 8)
@@ -711,7 +718,7 @@ func batch_geometry_report(group: MultiMeshInstance3D, role: String, units: int,
 	var data := batch.buffer
 	var result := {"role": role, "units": units, "axis": axis, "angle": angle,
 		"valid": false, "vertices_read": 0, "position_error": 0.0, "normal_error": 0.0,
-		"bounds_valid": true, "attributes_exact": false, "buffer": Array(data)}
+		"bounds_valid": true, "attributes_exact": false}
 	if batch.instance_count != count or batch.transform_format != MultiMesh.TRANSFORM_3D or batch.use_colors or batch.use_custom_data or data.size() != count * 12:
 		return result
 	var expected_mesh := batch_expected_mesh(role, units)
@@ -767,6 +774,7 @@ func batch_control_copy(source: MultiMeshInstance3D) -> MultiMeshInstance3D:
 	return copy
 
 func check_gear_batches() -> void:
+	const HEIGHT := 0.825 + 0.4125
 	var assemblies := 0
 	var expanded_vertices := 0
 	var maximum_position_error := 0.0
@@ -800,18 +808,20 @@ func check_gear_batches() -> void:
 				for child in member.get_children():
 					if child is GeometryInstance3D and child.has_meta("asset_role"):
 						draw_nodes += 1
-				verify(draw_nodes == 5 and roles(member, "GearTooth") == units * 8
-					and roles(member, "GearSpoke") == 4 and roles(member, "HubFastener") == 8,
-					"Five actual render objects retain every detailed piece represented by the prior individual assembly.")
-				mesh_nodes_saved += units * 8 + 14 - draw_nodes
+				verify(draw_nodes == 10 and roles(member, "GearTooth") == units * 8
+					and roles(member, "GearSpoke") == 4 and roles(member, "HubFastener") == 8
+					and roles(member, "Shaft") == 1 and roles(member, "ShaftCollar") == 2
+					and roles(member, "ShaftKey") == 2,
+					"Ten render objects retain the detailed gear and its five fitted shaft pieces.")
+				mesh_nodes_saved += units * 8 + 19 - draw_nodes
 				assemblies += 1
 			for phase in range(2):
 				if phase == 1:
 					view.advance_visual_motion(0.1)
 				for member in [gear, peer]:
 					var moving: bool = member == gear
-					var center := Vector3(-1.65 if moving else 0.0, 0.9125, 3.3)
-					var angle := -0.04 if moving and phase == 1 else 0.0
+					var center := Vector3(-1.65 if moving else 0.0, HEIGHT, 3.3)
+					var angle := PRESENTED_HALF_RATE_STEP if moving and phase == 1 else 0.0
 					var tint := Color("687a7b")
 					for role in ["GearTooth", "GearSpoke", "HubFastener"]:
 						var group: MultiMeshInstance3D = member.get_node(role)
@@ -828,9 +838,9 @@ func check_gear_batches() -> void:
 					var hub: MeshInstance3D = member.get_node("Hub")
 					verify(bore_mesh_facts(hub.mesh).minimum_radius > 0.0388 and hub.transform == Transform3D.IDENTITY,
 						"Batching leaves the open machined hub and its original mounting intact.")
-			verify(host.state == before and is_equal_approx(view.visual_angle("gear"), -0.04) and view.visual_angle("peer") == 0.0,
+			verify(host.state == before and is_equal_approx(view.visual_angle("gear"), PRESENTED_HALF_RATE_STEP) and view.visual_angle("peer") == 0.0,
 				"The original signed motion and stopped peer remain distinct without mutating the host projection.")
-			verify(is_equal_approx(original_shape.radius, units * 0.4125 + 0.103125) and is_equal_approx(original_shape.height, 0.24)
+			verify(is_equal_approx(original_shape.radius, PRESENTED_GEAR_RADIUS) and is_equal_approx(original_shape.height, 0.24)
 				and original_pick.collision_layer == 4 and original_pick.collision_mask == 0,
 				"The existing pick geometry and collision role remain exact.")
 			view.refresh()
@@ -839,7 +849,7 @@ func check_gear_batches() -> void:
 			host.ready = false
 			var old_basis := gear.basis
 			view.advance_visual_motion(0.1)
-			verify(gear.basis == old_basis and is_equal_approx(view.visual_angle("gear"), -0.04),
+			verify(gear.basis == old_basis and is_equal_approx(view.visual_angle("gear"), PRESENTED_HALF_RATE_STEP),
 				"An unavailable source cannot keep moving the new render groups.")
 			host.ready = true
 			if units == 2 and axis == 0:
@@ -865,9 +875,14 @@ func check_gear_batches() -> void:
 						var altered := StandardMaterial3D.new()
 						altered.albedo_color = Color.RED
 						bad.material_override = altered
-					var report := batch_geometry_report(bad, "GearTooth", units, axis, Vector3(-1.65, 0.9125, 3.3), -0.04, Color("687a7b"))
-					print(JSON.stringify({"control": control, "rejected": not report.valid, "first_mismatch": report.get("first_mismatch", {})}))
-					verify(not report.valid, "An altered count, displacement, transposed rotation, culling box or material is rejected.")
+					var report := batch_geometry_report(bad, "GearTooth", units, axis, Vector3(-1.65, HEIGHT, 3.3), PRESENTED_HALF_RATE_STEP, Color("687a7b"))
+					var rejected_for_change: bool = report.vertices_read == 0 if control == 0 else (
+						report.position_error > 0.000004 if control in [1, 2] else (
+							not report.bounds_valid if control == 3 else not report.material_valid))
+					print(JSON.stringify({"control": control, "rejected": not report.valid,
+						"changed_property_rejected": rejected_for_change, "first_mismatch": report.get("first_mismatch", {})}))
+					verify(not report.valid and rejected_for_change,
+						"An altered count, displacement, transposed rotation, culling box or material is rejected for its changed property.")
 					controls += 1
 					bad.free()
 				verify(source.multimesh.buffer == saved_buffer, "Negative controls leave the shared real batch data unchanged.")

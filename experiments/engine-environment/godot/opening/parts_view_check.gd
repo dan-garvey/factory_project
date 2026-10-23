@@ -49,8 +49,15 @@ class SharedWidgets:
 		return hand_pointed
 
 class OfflineWorkshopWidgets extends OfflineWidgets:
+	var freight_body: StaticBody3D
+	var accept_shipping := false
 	func _screen_pick(_screen: Vector2) -> Dictionary:
-		return {}
+		return {"collider": freight_body} if freight_body != null else {}
+	func issue(action: Dictionary) -> Dictionary:
+		if str(action.get("action", "")).begins_with("deliver_"):
+			issued.append(action.duplicate(true))
+			return {"accepted": accept_shipping}
+		return super.issue(action)
 
 class SharedWorkshopWidgets extends SharedWidgets:
 	func _screen_pick(_screen: Vector2) -> Dictionary:
@@ -720,6 +727,8 @@ func _ui_shortcuts() -> void:
 			view.session = SessionStub.new()
 		view.state = hotbar_observation()
 		view.state.part_kits.P.gearbox = 1
+		view.state.foundations = {"floor": {"cell": [0, 0], "level": 0}}
+		view.pointed = "floor"
 		view.mode = "inspect"
 		root.add_child(view)
 		view.selection_ring = MeshInstance3D.new()
@@ -745,10 +754,17 @@ func _ui_shortcuts() -> void:
 		event.keycode = KEY_D
 		event.ctrl_pressed = true
 		view._input(event)
-		verify(view.show_details and view.stock_label.visible, "Ctrl+D reveals the detailed worksite view.")
+		verify(not view.show_details, "Ctrl+D leaves the unobstructed game view unchanged.")
+		view._open_pointed_machine()
 		view._input(event)
-		verify(not view.show_details and not view.stock_label.visible, "Ctrl+D closes the detailed worksite view.")
+		verify(view.object_menu.visible and view.show_details and view.stock_label.is_visible_in_tree(),
+			"Ctrl+D reveals worksite details inside an opened object panel.")
+		view._input(event)
+		verify(not view.show_details and not view.stock_label.visible, "Ctrl+D folds the worksite details again.")
 		event.ctrl_pressed = false
+		event.keycode = KEY_ESCAPE
+		view._input(event)
+		verify(not view.object_menu.visible, "Escape closes the object panel before construction shortcuts resume.")
 		event.alt_pressed = true
 		event.keycode = KEY_4
 		view._input(event)
@@ -939,9 +955,14 @@ func _interaction_controls() -> void:
 		key.pressed = true
 		key.keycode = KEY_E
 		view._unhandled_input(key)
-		verify(view.mode == "inspect" and view.selected == "press" and view.inspector.visible
+		verify(view.mode == "inspect" and view.selected == "press" and view.object_menu.visible
+			and view.inspector.is_visible_in_tree()
 			and view.issued.is_empty() and view.request_sequence == sequence,
-			"E opens the pointed press through the existing read-only inspector without an authority request.")
+			"E opens the pointed press in its centered panel without an authority request.")
+		key.keycode = KEY_ESCAPE
+		view._input(key)
+		verify(not view.object_menu.visible and view.selected.is_empty(),
+			"Escape closes the object panel and releases its selected target.")
 		key.keycode = KEY_R
 		for rotation in [["collector", "x", 1], ["processor", "x", 1], ["wheel", "z", 0],
 			["gear", "y", 0], ["drive", "y", 0], ["vertical_gearbox", "z", 0], ["chain_drive", "y", 0],
@@ -954,8 +975,8 @@ func _interaction_controls() -> void:
 			verify(view.transmission_controls.selected_axis == rotation[1] and view.building_rotation == rotation[2],
 				"R follows the existing orientation choices for %s." % rotation[0])
 			verify(view.issued.is_empty() and view.request_sequence == sequence and view.state == before
-				and view.selected == "press",
-				"R in %s mode never retrieves from the previously selected output-ready press." % rotation[0])
+				and view.selected.is_empty(),
+				"R in %s mode never retrieves from a closed object panel." % rotation[0])
 			view.issued.clear()
 		view._select_tool("gear")
 		view.transmission_controls._axis_selected(0)
@@ -979,9 +1000,14 @@ func _interaction_controls() -> void:
 			view.session.ready = true
 			view.issued.clear()
 		view._select_tool("inspect")
-		view._unhandled_input(key)
+		view._open_pointed_machine()
+		key.ctrl_pressed = true
+		view._input(key)
 		verify(view.issued == [{"action": "retrieve", "amount": 1, "entity": "press"}] and view.state == before,
-			"R in inspection mode still submits the selected press's existing collection action.")
+			"Ctrl+R in the press panel submits the existing collection action.")
+		key.ctrl_pressed = false
+		key.keycode = KEY_ESCAPE
+		view._input(key)
 		view.issued.clear()
 		key.keycode = KEY_F
 		view._unhandled_input(key)
@@ -1390,6 +1416,7 @@ func _workshop_pages() -> void:
 			view.session = SessionStub.new()
 			view.client = "Q"
 		view.state = fixture()
+		view.state.merge({"context": "workshop-pages", "revision": 1, "order": 1})
 		view.state.options.native = true
 		view.state.hand_sources = {}
 		view.state.stock = {"source": 16, "collector": 0, "belt": 0, "input": 0, "held": 0, "output": 0}
@@ -1397,6 +1424,7 @@ func _workshop_pages() -> void:
 			"Q": {"raw": 1, "timber": 3, "components": {}}}
 		view.state.component_recipes = {"wooden_frame": {"timber": 3, "softmetal": 0}}
 		view.state.component_capacity = 20
+		view.state.freight_beacon = {"id": "first-freight-beacon", "order_complete": false}
 		view.state.fabrication_hub = {"id": "pod-fabrication-hub", "installed": true}
 		view.state.fabrication_benches = [{"id": "field-bench", "center": [4, 0, 4]}]
 		view.state.placed_components = {"field-bench": {"component": "wooden_workbench", "center": [4, 0, 4]},
@@ -1416,57 +1444,115 @@ func _workshop_pages() -> void:
 		var panel = view.arrival_assembly_controls
 		await process_frame
 		await process_frame
-		verify(panel.craft_tab.is_visible_in_tree() and panel.press_tab.is_visible_in_tree()
+		verify(not view.object_menu.visible and not panel.is_visible_in_tree()
 			and not panel.craft_section.visible and not panel.press_section.visible,
-			"A fresh opening shows workshop entry tabs without the recipe and press details.")
-		verify(view.arrival_assembly_scroll.size.y <= 64.0,
-			"The fresh workshop entry occupies one compact row instead of the expanded recipe panel.")
+			"A fresh opening leaves workshop controls off the game view.")
 		if failures > 0:
 			view.free()
 			break
-		panel.craft_tab.pressed.emit()
-		verify(panel.craft_section.visible and not panel.press_section.visible
-			and panel.field_craft_button.is_visible_in_tree() and panel.craft_button.is_visible_in_tree(),
-			"The explicit Craft parts entry exposes the existing field and bench actions.")
-		panel.craft_tab.pressed.emit()
-		panel.refresh(view.state, view.client, view.selected, true)
-		verify(not panel.craft_section.visible and not panel.press_section.visible,
-			"Closing the active tab survives a refresh of the same target.")
-		panel.press_tab.pressed.emit()
-		verify(panel.press_section.visible and panel.press_status.is_visible_in_tree()
-			and not panel.craft_section.visible,
-			"Press work can be opened on demand before a frame is selected.")
-		panel.press_tab.pressed.emit()
 		view.pointed = "pod-fabrication-hub"
 		view._open_pointed_machine()
-		verify(panel.craft_section.visible and not panel.press_section.visible
-			and panel.selected_bench == view.pointed,
-			"Ordinary E on the pod workshop opens its crafting context.")
-		panel.craft_tab.pressed.emit()
-		view._refresh_ui()
-		verify(not panel.craft_section.visible, "A closed selected workshop stays closed on routine refresh.")
+		verify(view.object_menu.visible and panel.craft_section.is_visible_in_tree() and not panel.press_section.visible
+			and panel.selected_bench == view.pointed and not panel.craft_tab.visible
+			and panel.field_craft_button.is_visible_in_tree() and panel.craft_button.is_visible_in_tree(),
+			"Ordinary E shows pod crafting directly in its centered panel.")
+		view.object_menu.hide()
+		await process_frame
 		view._open_pointed_machine()
-		verify(panel.craft_section.visible, "Ordinary E reopens the same selected workshop after its tab is closed.")
+		verify(view.object_menu.visible and panel.craft_section.is_visible_in_tree(),
+			"Ordinary E reopens the same workshop with its actions ready.")
+		view.object_menu.hide()
+		await process_frame
 		view.pointed = "field-bench"
 		view._open_pointed_machine()
-		verify(panel.craft_section.visible and panel.selected_bench == "field-bench",
-			"Ordinary E selects a player-built workshop without reverting to the pod.")
+		verify(view.object_menu.visible and panel.craft_section.is_visible_in_tree()
+			and panel.selected_bench == "field-bench" and not panel.bench_choice.visible
+			and not panel.pod_workshop_button.visible and not panel.reclaim_button.visible,
+			"The built workbench shows its own craft actions without unrelated pod or duplicate removal controls.")
+		view.object_menu.hide()
+		await process_frame
 		view.pointed = "press-frame"
 		view._open_pointed_machine()
-		verify(panel.press_section.visible and not panel.craft_section.visible
+		verify(view.object_menu.visible and panel.press_section.is_visible_in_tree() and not panel.craft_section.visible
 			and panel.feed_button.is_visible_in_tree() and not panel.feed_button.disabled,
 			"Ordinary E on a confirmed press exposes its existing feed controls.")
-		panel.press_tab.pressed.emit()
+		var action_key := InputEventKey.new()
+		action_key.pressed = true
+		action_key.keycode = KEY_F
+		view._input(action_key)
+		verify(view.issued == [{"action": "feed_press", "entity": "press-frame", "entry": [9, 1, 8]}],
+			"F in the press panel uses its visible feed button and existing request payload.")
+		view.issued.clear()
 		panel.refresh(view.state, view.client, view.selected, false)
-		verify(not panel.press_section.visible and panel.feed_button.disabled,
-			"A readiness refresh preserves a closed page and existing action admission.")
-		view._open_pointed_machine()
-		verify(panel.press_section.visible, "Ordinary E reopens the same selected press after its page is closed.")
+		verify(panel.press_section.is_visible_in_tree() and panel.feed_button.disabled,
+			"An unready actor cannot feed the press even while its panel is open.")
+		panel.refresh(view.state, view.client, view.selected, true)
+		view.object_menu.hide()
+		await process_frame
+		verify(view.selected.is_empty() and not view.object_menu.visible,
+			"Leaving the press panel releases its selected target before freight interaction.")
+		panel.press_tab.pressed.emit()
+		view._refresh_ui()
+		verify(panel.press_section.visible and not panel.press_section.is_visible_in_tree(),
+			"A page explicitly opened without a target stays offscreen until an object is opened.")
+		if not shared:
+			var freight := StaticBody3D.new()
+			freight.set_meta("freight_beacon", "first-freight-beacon")
+			view.freight_body = freight
+			view._open_pointed_machine()
+			verify(panel.press_section.visible
+				and view.issued == [{"action": "deliver_first_plate", "entity": "first-freight-beacon"}],
+				"A rejected freight request leaves the explicitly opened page available.")
+			view.issued.clear()
+			view.accept_shipping = true
+			view._open_pointed_machine()
+			verify(not panel.craft_section.visible and not panel.press_section.visible
+				and view.issued == [{"action": "deliver_first_plate", "entity": "first-freight-beacon"}],
+				"Accepted freight E dismisses a manually opened Press work page after shipment.")
+			view.freight_body = null
+			freight.free()
+			view.issued.clear()
+		else:
+			view.pending_actions["queued-delivery"] = {"action": {"action": "deliver_first_plate"}, "outcome": {}}
+			view._settle_pending()
+			verify(panel.press_section.visible and view.pending_actions.has("queued-delivery"),
+				"A queued shared shipment keeps a manually opened page until the server decides.")
+			view.pending_actions["queued-delivery"].outcome = {"accepted": false, "reason": "no_plate",
+				"context": "workshop-pages", "revision": 1, "order": 1}
+			view._settle_pending()
+			verify(panel.press_section.visible and view.pending_actions.is_empty(),
+				"A rejected shared shipment leaves the manually opened page available.")
+			view.pending_actions["accepted-delivery"] = {"action": {"action": "deliver_first_plate"},
+				"outcome": {"accepted": true, "context": "workshop-pages", "revision": 2, "order": 2}}
+			view._settle_pending()
+			verify(panel.press_section.visible and view.pending_actions.has("accepted-delivery"),
+				"An accepted shared shipment waits for the matching current projection before closing the page.")
+			view.state.revision = 2
+			view.state.order = 2
+			view._settle_pending()
+			verify(not panel.craft_section.visible and not panel.press_section.visible
+				and view.pending_actions.is_empty(),
+				"A confirmed shared shipment dismisses a manually opened page after the server decision.")
+			panel.press_tab.pressed.emit()
+			view.pending_actions["repeat-delivery"] = {"action": {"action": "deliver_repeat_plate"},
+				"outcome": {"accepted": true, "context": "workshop-pages", "revision": 2, "order": 2}}
+			view._settle_pending()
+			verify(not panel.press_section.visible and view.pending_actions.is_empty(),
+				"A confirmed follow-up shipment also dismisses an explicitly opened workshop page.")
+			view.state.revision = 1
+			view.state.order = 1
 		view.pointed = "collector-frame"
 		view._open_pointed_machine()
-		verify(panel.craft_section.visible and not panel.press_section.visible
-			and panel.collector_cut_button.is_visible_in_tree(),
-			"Ordinary E on a collector keeps its existing cutting controls accessible.")
+		verify(view.object_menu.visible and panel.craft_section.is_visible_in_tree()
+			and not panel.press_section.visible
+			and panel.collector_cut_button.is_visible_in_tree()
+			and not view.object_workshop_craft_column.visible,
+			"Ordinary E on a collector shows its cutting controls without unrelated crafting.")
+		action_key.keycode = KEY_X
+		view._input(action_key)
+		verify(view.issued == [{"action": "turn_hand_crank", "entity": "collector-shaft"}],
+			"X in the collector panel uses its visible cut button and existing request payload.")
+		view.issued.clear()
 		verify(view.state == before and view.issued.is_empty() and view.model == null,
 			"Workshop disclosure changes only local presentation, with no request or native state mutation.")
 		view.free()
@@ -1716,7 +1802,7 @@ func _object_menu_check() -> void:
 		and view.object_menu_operations.visible and view.arrival_assembly_controls.craft_section.visible,
 		"E opens the actual workbench controls in a centered object panel.")
 	verify(view.object_menu.position.x > 100 and view.object_menu.position.y > 40
-		and view.object_menu.size.x >= 740 and view.object_menu.size.y >= 500
+		and view.object_menu.size.x >= 740 and view.object_menu.size.y >= 420
 		and not view._can_control_character() and view._actor_ready_for_actions(),
 		"The large panel fits the viewport, holds movement, and leaves object actions available.")
 	verify(view.object_menu_scrim.visible and view.worksite_details_section.visible == false
@@ -1730,6 +1816,15 @@ func _object_menu_check() -> void:
 		"Ctrl+D reveals the worksite details inside the open object panel.")
 	key.ctrl_pressed = false
 	verify(view.issued.is_empty(), "Opening the workbench remains a read-only view action.")
+	key.keycode = KEY_C
+	view._input(key)
+	verify(view.issued == [{"action": "craft_component", "entity": "bench", "component": "wooden_frame"}],
+		"C activates the visible bench craft button through its normal action callback.")
+	view.issued.clear()
+	key.keycode = KEY_P
+	view._input(key)
+	verify(view.issued.is_empty() and view.arrival_assembly_controls.place_button.disabled,
+		"P cannot activate a disabled placement action in the workbench panel.")
 	key.keycode = KEY_ESCAPE
 	view._input(key)
 	await process_frame

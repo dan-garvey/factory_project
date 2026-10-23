@@ -838,7 +838,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
     std::set<materials::WorkId> picked_press_products;
     std::set<Integer> command_revisions;
     std::map<Integer, bool> drive_commands;
-    Integer latest_drive_mutation = 0;
+    Integer latest_layout_mutation = 0;
     for (const auto& record : snapshot.history.records) {
         const auto* accepted = field<bool>(record.result, "accepted");
         const auto* revision = field<Integer>(record.result, "revision");
@@ -846,11 +846,11 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         if (*accepted) {
             if (!command_revisions.insert(*revision).second) return false;
             const auto* action = field<std::string>(record.intent, "action");
-            if (action && (placement(*action) || *action == "remove" || *action == "set_drive" ||
+            if (action && (placement(*action) || *action == "remove" ||
                 *action == "shaft_between" || *action == "remove_shaft_between" ||
                 *action == "place_belt_span" || *action == "place_selected_belt_span" ||
                 *action == "remove_belt_span" || *action == "place_component" ||
-                *action == "reclaim_component")) latest_drive_mutation = *revision;
+                *action == "reclaim_component")) latest_layout_mutation = *revision;
             if (action && *action == "set_drive") {
                 const auto* enabled = field<bool>(record.intent, "enabled");
                 if (!enabled) return false;
@@ -898,6 +898,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
     Integer history_revision = 0;
     Integer ticks_seen = 0;
     std::optional<DrivePower> automatic_power;
+    std::optional<DrivePower> enabled_layout_power;
     const auto automatic_finish_witnessed = [&](const PressWorkRecord& work) {
         if (work.id == 0) return true;
         const auto found = snapshot.state.press_progress.find(work.id);
@@ -1203,10 +1204,18 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                             event.revision < *result_revision && event.work != *selected_work)
                             return false;
                         if (event.revision >= *result_revision ||
-                            event.revision <= latest_drive_mutation || event.work != *selected_work) continue;
-                        if (!automatic_power) automatic_power.emplace(drive_power(profile, snapshot.state));
-                        const auto motion = automatic_power->mechanical.motion.find(*drive);
-                        if (motion == automatic_power->mechanical.motion.end() ||
+                            event.revision <= latest_layout_mutation || event.work != *selected_work) continue;
+                        // A later wheel toggle does not change the placed graph or its load.
+                        // Evaluate that graph with its source enabled even when the saved
+                        // final wheel state is off. A genuinely changed layout cannot use
+                        // the final graph as evidence of an earlier tick.
+                        if (!enabled_layout_power) {
+                            auto enabled = snapshot.state;
+                            enabled.topology.drive_enabled = true;
+                            enabled_layout_power.emplace(drive_power(profile, enabled));
+                        }
+                        const auto motion = enabled_layout_power->mechanical.motion.find(*drive);
+                        if (motion == enabled_layout_power->mechanical.motion.end() ||
                             motion->second.state != mechanics::MotionState::rotating) return false;
                     }
             }

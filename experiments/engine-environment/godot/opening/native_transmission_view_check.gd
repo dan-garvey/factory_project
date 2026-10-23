@@ -1467,8 +1467,14 @@ func _nonhorizontal_presentation() -> void:
 		host.state.revision = 1
 		host.state.order = 1
 		session._apply_frame({"context": host.state.context, "serial": 1, "snapshot": host.state})
+		verify(session.projection().is_empty(),
+			"A normal Session frame remains pending until its scheduled state flush.")
+		await process_frame
+		await process_frame
 		var remote := HostStub.new()
 		remote.state = session.projection()
+		verify(remote.state.get("belt_spans") == host.state.belt_spans,
+			"The flushed Session projection retains the confirmed nonhorizontal path facts.")
 		var remote_presenter := Presenter.new()
 		remote_presenter.configure(remote)
 		var remote_span := _part(remote_presenter, "span")
@@ -2788,7 +2794,7 @@ func _run() -> void:
 	elif "--inclined-belt-actor-only" in OS.get_cmdline_user_args():
 		await _inclined_belt_actor()
 	elif "--nonhorizontal-presentation-only" in OS.get_cmdline_user_args():
-		_nonhorizontal_presentation()
+		await _nonhorizontal_presentation()
 	elif "--belt-picking-only" in OS.get_cmdline_user_args():
 		await _belt_picking()
 	elif "--cog-axles-only" in OS.get_cmdline_user_args():
