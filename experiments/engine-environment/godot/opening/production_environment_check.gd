@@ -1794,12 +1794,13 @@ func check_botanical_species() -> void:
 	if not verify(loaded.status == "ready", "The shipped broadleaf source has its pinned self-contained identity."):
 		return
 	var mesh: ArrayMesh = loaded.mesh
-	verify(mesh.get_surface_count() == 3 and mesh.surface_get_arrays(1)[Mesh.ARRAY_INDEX].size() == 215689 * 3,
+	verify(mesh.get_surface_count() == 3 and mesh.surface_get_arrays(0)[Mesh.ARRAY_INDEX].size() == 39400 * 3
+		and mesh.surface_get_arrays(1)[Mesh.ARRAY_INDEX].size() == 275674 * 3
+		and mesh.surface_get_arrays(2)[Mesh.ARRAY_INDEX].size() == 6824 * 3,
 		"A distinct modeled broadleaf canopy uses its selected source detail level.")
 	var leaf_finish := mesh.surface_get_material(1) as StandardMaterial3D
-	verify(leaf_finish != null and leaf_finish.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
-		and leaf_finish.albedo_texture.get_image().get_format() == Image.FORMAT_RGBA8,
-		"Broadleaf leaves use the provider's real cutout mask instead of opaque card backgrounds.")
+	verify(leaf_finish != null and leaf_finish.albedo_texture.get_image().get_format() == Image.FORMAT_RGB8,
+		"Modeled provider leaves retain their sourced color instead of added atlas cards.")
 	var specs: Array[Dictionary] = Scenery.Surface.broadleaf_specs()
 	if not verify(specs.size() == 2, "Two rooted broadleaf trees join the existing fir and pine species."):
 		return
@@ -1833,14 +1834,8 @@ func check_botanical_species() -> void:
 			verify(tree != null and tree.mesh == mesh and tree.name == spec.id and tree.position == spec.center
 				and tree.basis == spec.basis.scaled_local(Vector3.ONE * spec.scale),
 				"Each visible broadleaf has the exact rooted physical pose.")
-			verify(tree.get_child_count() == 2, "The selected broadleaf leaves fill each open crown twice.")
-			for leaves: MeshInstance3D in tree.get_children():
-				verify(leaves.mesh == Scenery.broadleaf_fill_mesh
-					and leaves.mesh.surface_get_arrays(0)[Mesh.ARRAY_INDEX] == mesh.surface_get_arrays(1)[Mesh.ARRAY_INDEX],
-					"Crown fill reuses the qualified leaf geometry without another trunk.")
-				var envelope: AABB = tree.transform * leaves.transform * leaves.mesh.get_aabb()
-				verify(spec.bounds.grow(0.001).encloses(envelope),
-					"Whole rotated crown fill remains inside the bank-clearance envelope.")
+			verify(tree.get_child_count() == 0 and spec.bounds.grow(0.001).encloses(tree.transform * mesh.get_aabb()),
+				"The complete sourced canopy stays inside its bank-clearance envelope without duplicate fill meshes.")
 		var shrubs: Node3D = scenery.get_node("ShrubUnderstory")
 		verify(shrubs.get_child_count() == 2, "Both complete woody shrub forms are mounted separately.")
 		for variant in range(2):
