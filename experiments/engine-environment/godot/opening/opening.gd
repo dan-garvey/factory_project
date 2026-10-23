@@ -6709,27 +6709,26 @@ func _sync_freight_beacon_visual() -> void:
 		freight_beacon_visual.collision_mask = 0
 		freight_beacon_visual.set_meta("freight_beacon", beacon.id)
 		add_child(freight_beacon_visual)
-		# A slim survey post remains recognizable even after the order is filled.
-		# Its small prompt gives way to the HUD for the actual commission detail.
-		_cylinder(freight_beacon_visual, Vector3(0, 0.06, 0), 0.23, 0.12, Color("293a3e"))
-		_box(freight_beacon_visual, Vector3(0, 0.91, 0), Vector3(0.045, 1.7, 0.045), Color("354b4c"))
-		_cylinder(freight_beacon_visual, Vector3(0, 1.8, 0), 0.08, 0.12, Color("8a6039"))
+		# This is a world-space UI cue. Factory hardware outside the supplied pod
+		# belongs to the player, and the native beacon still owns delivery reach.
 		var label := Label3D.new()
 		label.name = "ShipmentLabel"
 		label.position.y = 2.0
 		label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-		label.font_size = 16
-		label.pixel_size = 0.0012
-		label.outline_size = 3
+		label.fixed_size = true
+		label.no_depth_test = true
+		label.font_size = 32
+		label.pixel_size = 0.00075
+		label.outline_size = 6
 		label.outline_modulate = Color("11282e")
 		label.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		freight_beacon_visual.add_child(label)
 		var pick := CollisionShape3D.new()
 		pick.name = "PickShape"
 		var box := BoxShape3D.new()
-		box.size = Vector3(1.0, 1.8, 1.0)
+		box.size = Vector3(1.0, 2.2, 1.0)
 		pick.shape = box
-		pick.position.y = 0.9
+		pick.position.y = 1.1
 		freight_beacon_visual.add_child(pick)
 	var position: Array = beacon.position
 	freight_beacon_visual.position = Vector3(float(position[0]),
@@ -6749,6 +6748,13 @@ func _sync_freight_beacon_visual() -> void:
 	var label: Label3D = freight_beacon_visual.get_node("ShipmentLabel")
 	if label.text != caption:
 		label.text = caption
+	if camera != null:
+		var screen_x := camera.unproject_position(label.global_position).x
+		var width := get_viewport().get_visible_rect().size.x
+		var alignment := HORIZONTAL_ALIGNMENT_LEFT if screen_x < 140.0 else \
+			HORIZONTAL_ALIGNMENT_RIGHT if screen_x > width - 140.0 else HORIZONTAL_ALIGNMENT_CENTER
+		if label.horizontal_alignment != alignment:
+			label.horizontal_alignment = alignment
 	label.modulate = Color("efbc6c") if carried else Color("d8e6dc")
 	label.visible = not delivered
 	freight_beacon_visual.collision_layer = 0 if delivered else Geometry.PICK_LAYER

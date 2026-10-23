@@ -326,8 +326,8 @@ func check_freight_beacon_view() -> void:
 		and view.freight_beacon_visual.get_meta("freight_beacon") == beacon.id
 		and marker != null and marker.billboard == BaseMaterial3D.BILLBOARD_ENABLED,
 		"The native beacon has a camera-facing shipment label.")
-	verify(view.freight_beacon_visual.find_children("*", "MeshInstance3D", true, false).size() >= 3,
-		"The freight point has a small physical survey post below its prompt.")
+	verify(view.freight_beacon_visual.find_children("*", "MeshInstance3D", true, false).is_empty(),
+		"The freight point is a graphical cue without player-unbuilt receiver hardware.")
 	verify(view.freight_beacon_visual.collision_layer == Opening.Geometry.PICK_LAYER
 		and view.freight_beacon_visual.collision_mask == 0,
 		"The graphical marker adds only selection, not actor collision or construction authority.")
@@ -343,6 +343,10 @@ func check_freight_beacon_view() -> void:
 	var hit := view._screen_pick(root.get_visible_rect().size / 2.0)
 	verify(not hit.is_empty() and hit.collider == view.freight_beacon_visual,
 		"A camera ray selects the actual shipment label's pick target.")
+	view.camera.look_at(marker.global_position)
+	var label_hit := view._screen_pick(root.get_visible_rect().size / 2.0)
+	verify(not label_hit.is_empty() and label_hit.collider == view.freight_beacon_visual,
+		"Aiming at the visible label selects its receiver rather than empty space above it.")
 	view.camera.position = view.freight_beacon_visual.position + Vector3(0, 2.5, 5.0)
 	view.camera.look_at(view.freight_beacon_visual.position + Vector3(0, 2.5, 0))
 	var high_hit := view._screen_pick(root.get_visible_rect().size / 2.0)
@@ -450,7 +454,7 @@ func check_freight_beacon_view() -> void:
 		and marker != null and not marker.visible and not remote_label.visible
 		and view.freight_beacon_visual.collision_layer == 0
 		and shared.freight_beacon_visual.collision_layer == 0,
-		"The fourth confirmed receipt closes both prompts while keeping the post visible.")
+		"The fourth confirmed receipt closes both prompts without leaving receiver hardware.")
 	for _frame in range(2):
 		await physics_frame
 	var filled_hit := view._screen_pick(root.get_visible_rect().size / 2.0)
