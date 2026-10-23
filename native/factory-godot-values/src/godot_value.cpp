@@ -100,6 +100,7 @@ struct Api : std::enable_shared_from_this<Api> {
     GDExtensionInterfaceVariantConstruct construct;
     GDExtensionInterfaceVariantCall call;
     GDExtensionInterfaceVariantSet set;
+    GDExtensionInterfaceVariantSetIndexed set_indexed;
     GDExtensionInterfaceVariantGet get;
     GDExtensionInterfaceVariantGetIndexed indexed;
     GDExtensionInterfaceStringNewWithUtf8CharsAndLen2 string_new;
@@ -127,6 +128,7 @@ struct Api : std::enable_shared_from_this<Api> {
         construct = required<GDExtensionInterfaceVariantConstruct>(lookup, "variant_construct");
         call = required<GDExtensionInterfaceVariantCall>(lookup, "variant_call");
         set = required<GDExtensionInterfaceVariantSet>(lookup, "variant_set");
+        set_indexed = required<GDExtensionInterfaceVariantSetIndexed>(lookup, "variant_set_indexed");
         get = required<GDExtensionInterfaceVariantGet>(lookup, "variant_get");
         indexed = required<GDExtensionInterfaceVariantGetIndexed>(lookup, "variant_get_indexed");
         string_new = required<GDExtensionInterfaceStringNewWithUtf8CharsAndLen2>(lookup, "string_new_with_utf8_chars_and_len2");
@@ -339,10 +341,22 @@ struct Api : std::enable_shared_from_this<Api> {
                 const auto& children = std::get<values::Value::Array>(value.storage());
                 budget.children(static_cast<std::int64_t>(children.size()));
                 result = empty(GDEXTENSION_VARIANT_TYPE_ARRAY);
-                for (const auto& child : children) {
+                auto length = fresh();
+                auto count = static_cast<std::int64_t>(children.size());
+                writers[GDEXTENSION_VARIANT_TYPE_INT](length.get(), &count);
+                length.storage_->initialized = true;
+                const GDExtensionConstVariantPtr resize_args[]{length.get()};
+                auto resized = method(result.get(), "resize", resize_args, 1);
+                if (type(resized.get()) != GDEXTENSION_VARIANT_TYPE_INT ||
+                    scalar<std::int64_t>(GDEXTENSION_VARIANT_TYPE_INT, resized.get()) != 0)
+                    throw Error(ErrorCode::engine_call, "The engine array refused its requested length.");
+                for (std::size_t index = 0; index < children.size(); ++index) {
+                    const auto& child = children[index];
                     auto item = write(child, budget, depth + 1, cache);
-                    const GDExtensionConstVariantPtr args[]{item.get()};
-                    (void)method(result.get(), "append", args, 1);
+                    GDExtensionBool valid = false, out_of_bounds = false;
+                    set_indexed(result.get(), static_cast<std::int64_t>(index), item.get(), &valid, &out_of_bounds);
+                    if (!valid || out_of_bounds)
+                        throw Error(ErrorCode::engine_call, "The engine array refused a typed item.");
                 }
                 return result;
             }

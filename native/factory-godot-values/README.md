@@ -19,6 +19,10 @@ and value nodes to 100,000. These are adapter limits, not permanent game rules.
 Native strings are checked as Unicode scalars before encoding. Newly created
 engine strings must encode back to the exact input bytes; decoder normalization
 is refused rather than silently changing an identifier or historical value.
+Array export asks the engine to resize once, checks its returned error code,
+then writes each child through the pinned indexed Variant setter and checks
+validity and bounds. The adapter still constructs a fresh engine Array for
+each plain Array and retains the same node, depth and string limits.
 The portable value type itself retains byte-exact strings. A future state importer
 must explicitly refuse an unsupported checkpoint rather than reset or normalize it.
 

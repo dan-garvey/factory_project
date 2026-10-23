@@ -418,8 +418,8 @@ bool historical_wire(const authority::Record& record) {
         return *original_action == "deploy_fabrication_hub" && keys(*wire, {"entity", "center"}) &&
             field<std::string>(*wire, "entity") && field<Array>(*wire, "center") &&
             same("entity", "target") && same("center", "center");
-    if (*action == "deliver_first_plate")
-        return *original_action == "deliver_first_plate" && keys(*wire, {"entity"}) &&
+    if (*action == "deliver_first_plate" || *action == "deliver_repeat_plate")
+        return *original_action == *action && keys(*wire, {"entity"}) &&
             field<std::string>(*wire, "entity") && same("entity", "target");
     if (*action == "craft_part")
         return *original_action == "craft_part" && keys(*wire, {"entity", "role", "half_span"}) &&
@@ -1416,10 +1416,10 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         if (!keys(wire, {"target"}) || !field<std::string>(wire, "target")) return refuse("invalid_command");
         normalized.at("action") = Value("harvest_source");
         normalized.emplace("target", wire.at("target"));
-    } else if (*action == "deliver_first_plate") {
+    } else if (*action == "deliver_first_plate" || *action == "deliver_repeat_plate") {
         if (!keys(wire, {"entity"}) || !field<std::string>(wire, "entity"))
             return refuse("invalid_command");
-        normalized.at("action") = Value("deliver_first_plate");
+        normalized.at("action") = Value(*action);
         normalized.emplace("target", wire.at("entity"));
         normalized.emplace("generation", Value(snapshot.state.freight_beacon &&
             snapshot.state.freight_beacon->id == *field<std::string>(wire, "entity") ?
@@ -2386,7 +2386,10 @@ Value Host::projection() const {
                 Value(beacon.center[1] * profile_.meters_per_grid_unit + profile_.anchor_offset[1]),
                 Value(beacon.center[2] * profile_.meters_per_grid_unit + profile_.anchor_offset[2])})},
             {"shipped_products", Value(state.material.shipped_products)},
-            {"order_complete", Value(state.material.shipped_products == 1)}}));
+            {"order_complete", Value(state.material.shipped_products >= 1)},
+            {"repeat_order_shipped", Value(std::max<Integer>(0, state.material.shipped_products - 1))},
+            {"repeat_order_target", Value(world::repeat_order_target)},
+            {"repeat_order_complete", Value(state.material.shipped_products == world::completed_freight_target)}}));
         const auto& crank = *state.hand_crank;
         projection.emplace("hand_crank", Value(Object{{"id", Value(crank.id)},
             {"generation", Value(crank.generation)},

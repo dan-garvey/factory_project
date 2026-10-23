@@ -93,6 +93,12 @@ func _approach(target: Vector2) -> bool:
 	return _expect(sample.ready and sample.registered and sample.on_floor and sample.control == [0.0, 0.0],
 		"The real approach finishes with a released, registered actor on the floor")
 
+func _approach_points(points: Array[Vector2]) -> bool:
+	for point in points:
+		if not await _approach(point):
+			return false
+	return true
+
 func _arrival_field_craft_run(panel) -> void:
 	if not _expect(panel.visible and panel.field_craft_button.visible and not panel.field_craft_button.disabled,
 			"The ordinary arrival panel exposes the wooden multitool recipe"):
@@ -476,7 +482,7 @@ func _deliver_first_arrival_plate(held_work: Dictionary, capture_prefix: String)
 			"The carried plate cannot be shipped from the press by camera or remote command"):
 		return false
 	# Walk around the press with the ordinary motor; never set a native pose.
-	if not await _approach(Vector2(3.3, 8.25)) or not await _approach(Vector2(9.9, 8.25)):
+	if not await _approach_points([Vector2(4.95, 4.95), Vector2(4.95, 8.25), Vector2(9.9, 8.25)]):
 		return false
 	var sample: Dictionary = opening.actor_world.diagnostics("P").sample
 	if not _expect(sample.ready and sample.registered and sample.on_floor
@@ -528,7 +534,7 @@ func _deliver_first_arrival_plate(held_work: Dictionary, capture_prefix: String)
 		"physical_actor": sample}
 	opening.distance = prior_distance
 	opening._update_camera()
-	return await _approach(Vector2(3.3, 8.25)) and await _approach(Vector2(3.3, 6.6))
+	return await _approach_points([Vector2(4.95, 8.25), Vector2(4.95, 4.95), Vector2(3.3, 4.95)])
 
 func _foundations() -> void:
 	# A new automated construction case, not a replay of produce/resume, a
@@ -679,8 +685,11 @@ func _resume() -> void:
 	_record("pass")
 
 func _arrival_capacity_run(panel) -> void:
+	# Zero-cut entries are explicit clear-aisle waypoints, not resource actions.
 	for source in [
 		{"point": Vector2(3.3, 4.95), "id": "tree-east-south", "cuts": 8},
+		{"point": Vector2(4.95, 4.95), "cuts": 0},
+		{"point": Vector2(4.95, 9.9), "cuts": 0},
 		{"point": Vector2(3.3, 9.9), "id": "tree-east-north", "cuts": 8},
 		{"point": Vector2(1.65, 11.55), "id": "tree-north", "cuts": 5},
 	]:
@@ -689,7 +698,7 @@ func _arrival_capacity_run(panel) -> void:
 		for index in range(source.cuts):
 			if _construct({"action": "harvest_source", "target": source.id}).is_empty():
 				return
-	if not await _approach(Vector2(1.65, 6.6)):
+	if not await _approach_points([Vector2(4.95, 9.9), Vector2(4.95, 4.95), Vector2(3.3, 4.95)]):
 		return
 	if not _expect(opening.model.projection().cargo.P.timber == 21,
 			"Three finite trees put twenty component inputs and one spare within the hand-carry limit"):
@@ -774,7 +783,11 @@ func _arrival_belt_run(panel, capture_prefix: String) -> void:
 	# and the native terrain. Commands still pass through the one scene Model.
 	for source in [
 		{"point": Vector2(3.3, 4.95), "id": "tree-east-south", "cuts": 8},
+		{"point": Vector2(4.95, 4.95), "cuts": 0},
+		{"point": Vector2(4.95, 9.9), "cuts": 0},
 		{"point": Vector2(3.3, 9.9), "id": "tree-east-north", "cuts": 6},
+		{"point": Vector2(4.95, 9.9), "cuts": 0},
+		{"point": Vector2(4.95, 3.3), "cuts": 0},
 		{"point": Vector2(0.0, 1.65), "id": "opening-softmetal", "cuts": 3},
 	]:
 		if not await _approach(source.point):
@@ -782,7 +795,7 @@ func _arrival_belt_run(panel, capture_prefix: String) -> void:
 		for index in range(source.cuts):
 			if _construct({"action": "harvest_source", "target": source.id}).is_empty():
 				return
-	if not await _approach(Vector2(1.65, 6.6)):
+	if not await _approach(Vector2(3.3, 4.95)):
 		return
 	if not _expect(opening.model.projection().cargo.P.timber == 14
 			and opening.model.projection().cargo.P.raw == 3,
@@ -1230,6 +1243,10 @@ func _supplied_hardware_run() -> void:
 	if not _expect(body.global_position.x > stopped.x + 1.2 and body.is_on_floor(),
 			"The supplied hardware does not close the clear front and east access"):
 		return
+	if not await _approach_points([Vector2(4.95, 4.95), Vector2(4.95, 9.9),
+			Vector2(3.3, 9.9), Vector2(1.65, 11.55), Vector2(4.95, 9.9),
+			Vector2(4.95, 3.3), Vector2(0.0, 1.65), Vector2(3.3, 4.95)]):
+		return
 	if not _expect(_issue({"action": "stow_fabrication_hub", "entity": "pod-fabrication-hub"}).accepted,
 			"The physically nearby actor can stow the same issued workshop"):
 		return
@@ -1433,12 +1450,12 @@ func _arrival_run() -> void:
 	for index in range(8):
 		if _construct({"action": "harvest_source", "target": "tree-east-south"}).is_empty():
 			return
-	if not await _approach(Vector2(3.3, 9.9)):
+	if not await _approach_points([Vector2(4.95, 4.95), Vector2(4.95, 9.9), Vector2(3.3, 9.9)]):
 		return
 	for index in range(7):
 		if _construct({"action": "harvest_source", "target": "tree-east-north"}).is_empty():
 			return
-	if not await _approach(Vector2(0.0, 1.65)):
+	if not await _approach_points([Vector2(4.95, 9.9), Vector2(4.95, 3.3), Vector2(0.0, 1.65)]):
 		return
 	for index in range(7):
 		if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
@@ -1452,7 +1469,7 @@ func _arrival_run() -> void:
 			and "Move beside the selected workshop" in opening.status_label.text,
 			"A remote hub attempt records a refusal and preserves the complete carried bill"):
 		return
-	if not await _approach(Vector2(1.65, 6.6)):
+	if not await _approach(Vector2(3.3, 4.95)):
 		return
 	var initial: Dictionary = opening.model.projection()
 	if not _expect(initial.cargo.P.timber == 15 and initial.cargo.P.raw == 7
@@ -1487,8 +1504,6 @@ func _arrival_run() -> void:
 			and opening.model.projection().cargo.P.raw == 2
 			and opening.model.projection().cargo.P.components.values().reduce(func(total, amount): return total + amount, 0) == 12,
 			"Both chapter bills consume fifteen timber and five ore blanks, retaining two press inputs"):
-		return
-	if not await _approach(Vector2(3.3, 6.6)):
 		return
 	opening._select_tool("component")
 	var expected_status := ["missing_anvil", "missing_ram", "missing_guide",
