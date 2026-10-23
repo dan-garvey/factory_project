@@ -6525,10 +6525,10 @@ func _build_world() -> void:
 	_update_camera()
 
 func _pod_panel(parent: Node3D, part_name: String, profile: PackedVector2Array,
-		depth: float, at: Vector3, finish: Material) -> MeshInstance3D:
+		depth: float, at: Vector3, finish: Material, bevel: float = 0.012) -> MeshInstance3D:
 	var part := MeshInstance3D.new()
 	part.name = part_name
-	part.mesh = ProductionVisuals.prism_mesh(profile, depth, 0.012)
+	part.mesh = ProductionVisuals.prism_mesh(profile, depth, bevel)
 	part.position = at
 	part.material_override = finish
 	parent.add_child(part)
@@ -6611,25 +6611,80 @@ func _build_landing_pod_visual(pod: Dictionary, hub: Dictionary) -> void:
 	var workspace := Node3D.new()
 	workspace.name = "FoldoutBench"
 	landing_hub_visual.add_child(workspace)
+	var frame_finish := ProductionCollectorArt.coating(graphite)
+	var work_finish := ProductionCollectorArt.coating(Color("52635c"))
+	var steel_finish := ProductionVisuals.material(Color("78867e"), 0.70, 0.57)
+	var tool_finish := ProductionCollectorArt.coating(Color("99713c"))
 	for x in [-0.40, 0.40]:
+		var side := "West" if x < 0 else "East"
 		for z in [-0.27, 0.27]:
-			_machine_box(workspace, "BenchLeg", Vector3(x, 0.34, z),
-				Vector3(0.085, 0.68, 0.085), graphite, 0.48, 0.57)
-		_bar(workspace, Vector3(x, 0.17, -0.27), Vector3(x, 0.56, 0.27), 0.04, graphite)
-	var worktop := _machine_box(workspace, "BenchWorktop", Vector3(0, 0.74, 0),
-		Vector3(1.16, 0.115, 0.70), ivory, 0.35, 0.64)
-	worktop.material_override = ProductionCollectorArt.coating(ivory)
-	_machine_box(workspace, "BenchSteelInsert", Vector3(-0.16, 0.805, -0.06),
-		Vector3(0.52, 0.02, 0.38), Color("596e6d"), 0.72, 0.46)
-	for x in [-0.35, 0.03]:
-		_machine_box(workspace, "FabricationClampJaw", Vector3(x, 0.88, -0.06),
-			Vector3(0.075, 0.13, 0.27), dark, 0.78, 0.31)
-	_machine_cylinder(workspace, "ToolPost", Vector3(0.35, 1.01, -0.19),
-		0.07, 0.44, graphite)
-	_bar(workspace, Vector3(0.35, 1.23, -0.19), Vector3(0.05, 1.23, -0.19),
-		0.065, Color("a8b8ae"))
-	_machine_box(workspace, "CuttingHead", Vector3(0.03, 1.16, -0.19),
-		Vector3(0.12, 0.17, 0.13), amber, 0.58, 0.34)
+			_pod_panel(workspace, "BenchLeg%s%s" % [side, "Front" if z < 0 else "Rear"], PackedVector2Array([
+				Vector2(-0.0425, 0), Vector2(0.0425, 0),
+				Vector2(0.0425, 0.68), Vector2(-0.0425, 0.68)]),
+				0.085, Vector3(x, 0, z), frame_finish, 0.004)
+		var brace := _pod_panel(workspace, "BenchLockBrace" + side, PackedVector2Array([
+			Vector2(-0.27, 0.60), Vector2(0.27, 0.60),
+			Vector2(0.27, 0.53), Vector2(-0.27, 0.32)]),
+			0.035, Vector3(x, 0, 0), frame_finish, 0.004)
+		brace.rotation.y = PI / 2.0
+	for z in [-0.27, 0.27]:
+		var rail := _machine_box(workspace, "BenchFrontApron" if z < 0 else "BenchRearApron", Vector3(0, 0.645, z),
+			Vector3(0.88, 0.09, 0.06), graphite)
+		rail.material_override = frame_finish
+	var worktop := _pod_panel(workspace, "BenchWorktop", PackedVector2Array([
+		Vector2(-0.58, -0.30), Vector2(-0.53, -0.35), Vector2(0.53, -0.35),
+		Vector2(0.58, -0.30), Vector2(0.58, 0.30), Vector2(0.53, 0.35),
+		Vector2(-0.53, 0.35), Vector2(-0.58, 0.30)]),
+		0.115, Vector3(0, 0.74, 0), work_finish, 0.008)
+	worktop.rotation.x = PI / 2.0
+	var bed := _machine_box(workspace, "BenchSteelInsert", Vector3(-0.16, 0.805, -0.06),
+		Vector3(0.52, 0.02, 0.38), Color("596e6d"))
+	bed.material_override = steel_finish
+	for spec in [[-0.35, 1.0, "Fixed"], [0.03, -1.0, "Sliding"]]:
+		var x: float = spec[0]
+		var jaw_name: String = spec[2]
+		_pod_panel(workspace, "Vise" + jaw_name + "Jaw", PackedVector2Array([
+			Vector2(-0.0375, -0.065), Vector2(0.0375, -0.065),
+			Vector2(0.033, 0.035), Vector2(0.018, 0.065),
+			Vector2(-0.018, 0.065), Vector2(-0.0375, 0.035)]),
+			0.27, Vector3(x, 0.88, -0.06), frame_finish, 0.004)
+		var face := _machine_box(workspace, "Vise" + jaw_name + "Face", Vector3(x + spec[1] * 0.032, 0.90, -0.06),
+			Vector3(0.009, 0.075, 0.25), Color("78867e"))
+		face.material_override = steel_finish
+	_machine_cylinder(workspace, "ViseLeadScrew", Vector3(-0.10, 0.847, -0.06),
+		0.014, 0.50, Color("78867e"), Vector3(0, 0, PI / 2.0))
+	_machine_cylinder(workspace, "ViseHandleBoss", Vector3(0.16, 0.847, -0.06),
+		0.028, 0.04, Color("78867e"), Vector3(0, 0, PI / 2.0))
+	_machine_cylinder(workspace, "ViseSlidingHandle", Vector3(0.16, 0.847, -0.06),
+		0.008, 0.14, Color("78867e"))
+	_pod_panel(workspace, "ToolPost", PackedVector2Array([
+		Vector2(-0.07, -0.22), Vector2(0.07, -0.22), Vector2(0.07, -0.16),
+		Vector2(0.045, -0.12), Vector2(0.045, 0.18), Vector2(0.03, 0.22),
+		Vector2(-0.03, 0.22), Vector2(-0.045, 0.18),
+		Vector2(-0.045, -0.12), Vector2(-0.07, -0.16)]),
+		0.14, Vector3(0.35, 1.01, -0.19), frame_finish, 0.005)
+	_pod_panel(workspace, "ToolArm", PackedVector2Array([
+		Vector2(-0.15, -0.018), Vector2(-0.13, -0.0325),
+		Vector2(0.15, -0.0325), Vector2(0.15, 0.0325),
+		Vector2(-0.13, 0.0325), Vector2(-0.15, 0.018)]),
+		0.065, Vector3(0.20, 1.23, -0.19), frame_finish, 0.004)
+	_pod_panel(workspace, "CuttingHead", PackedVector2Array([
+		Vector2(-0.06, 0.085), Vector2(0.06, 0.085), Vector2(0.055, -0.02),
+		Vector2(0.025, -0.07), Vector2(0.02, -0.085), Vector2(-0.02, -0.085),
+		Vector2(-0.025, -0.07), Vector2(-0.055, -0.02)]),
+		0.13, Vector3(0.03, 1.16, -0.19), tool_finish, 0.004)
+	_machine_cylinder(workspace, "CuttingSpindle", Vector3(0.03, 1.06, -0.19),
+		0.012, 0.04, Color("78867e"))
+	var mounting_points := [Vector3(-0.39, 0.82, 0.09), Vector3(0.07, 0.82, 0.09),
+		Vector3(0.30, 0.805, -0.23), Vector3(0.40, 0.805, -0.23)]
+	for index in range(mounting_points.size()):
+		var bolt := MeshInstance3D.new()
+		bolt.name = "BenchFastener%d" % index
+		bolt.mesh = ProductionVisuals.fastener_head_mesh()
+		bolt.material_override = steel_finish
+		bolt.position = mounting_points[index]
+		bolt.scale = Vector3.ONE * 0.5
+		workspace.add_child(bolt)
 	# The crank belongs to the landed pod even after its bench is moved.
 	var crank_mount := Vector3(PITCH + 0.34, 0.83, 0.20)
 	var tray := Node3D.new()
