@@ -2813,8 +2813,8 @@ class ProductionEnvironment:
 	static var pine_source_status := "uninitialized"
 	static var pine_cluster_mesh: ArrayMesh
 	const SHRUB_FILES := ["res://opening/assets/shrub/shrub_tall.res", "res://opening/assets/shrub/shrub_low.res"]
-	const SHRUB_SHA256 := ["9de5a9dbc5822eda1ab866f95d790f946500951e02aed9576c20676952184ea2",
-		"f02d5281e688a05b6a94bc34b49723d8acd0c9762ca39acc9d6cf92950cad3c8"]
+	const SHRUB_SHA256 := ["9f8f09e07498e76781e863cc168d9ce5e515d9930f506b2b72371f5043159ab9",
+		"8184769f704233cdbf322d599e2eec7b0112f26f054965f1e8a567161315a7b0"]
 	static var shrub_meshes: Array[ArrayMesh] = []
 	static var broadleaf_fill_mesh: ArrayMesh
 	static var rock_boulder_mesh: ArrayMesh
