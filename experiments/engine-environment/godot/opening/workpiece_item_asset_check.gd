@@ -367,7 +367,11 @@ func check_mineral_seam() -> void:
 				var color: Color = ground_colors[index]
 				least_alpha = minf(least_alpha, color.a)
 				most_alpha = maxf(most_alpha, color.a)
-				if color.a > 0.4 and index < ground_points.size():
+			# A depleted band remains visible but is intentionally less opaque.
+			# Compare each band at the same fraction of its own strongest pixel.
+			for index in ground_colors.size():
+				var color: Color = ground_colors[index]
+				if color.a > most_alpha * 0.45 and index < ground_points.size():
 					opaque_left = minf(opaque_left, ground_points[index].x)
 					opaque_right = maxf(opaque_right, ground_points[index].x)
 			verify(soil != null and soil.get_size().x >= 1024 and ground_colors.size() > 240
@@ -376,7 +380,7 @@ func check_mineral_seam() -> void:
 			var rock_right: float = rock.position.x + rock.mesh.get_aabb().end.x
 			verify(ground_points.size() == ground_colors.size()
 				and opaque_left < rock_right - 0.16 and opaque_right > 0.0,
-				"Opaque mineral soil joins the actual rock toe and still marks the collector-side cells.")
+				"Visible mineral soil joins the actual rock toe and still marks the collector-side cells at every depletion band.")
 			var veins: MeshInstance3D = exposure.get_node("MineralVeins")
 			verify(veins.transform == Transform3D.IDENTITY, "The vein mesh uses the same world placement as its surface queries.")
 			check_exposure_mesh(veins.mesh)
@@ -417,8 +421,28 @@ func check_exposure_boundary(rock: MeshInstance3D) -> void:
 		"The visible fixed rock uses the sole site's immutable mesh and exact native obstacle transform.")
 	var visible: AABB = rock.transform * rock.mesh.get_aabb()
 	var obstacle: AABB = Transform3D(spec.basis, spec.center) * AABB(-spec.size * 0.5, spec.size)
-	verify(visible.is_equal_approx(obstacle) and visible.end.y - surface.height_at(spec.center.x, spec.center.z) > 0.6,
+	verify(visible.is_equal_approx(obstacle) and visible.end.y - surface.height_at(spec.center.x, spec.center.z) > 0.5,
 		"The placement obstacle has the visible rock envelope and substantial relief above ground.")
+	var rooted := 0
+	var close := 0
+	var left := INF
+	var right := -INF
+	var front := INF
+	var back := -INF
+	var rock_vertices: PackedVector3Array = rock.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	for local_point in rock_vertices:
+		var world_point: Vector3 = rock.transform * local_point
+		var gap: float = world_point.y - surface.height_at(world_point.x, world_point.z)
+		if gap < -0.02:
+			rooted += 1
+		elif gap <= 0.08:
+			close += 1
+			left = minf(left, world_point.x)
+			right = maxf(right, world_point.x)
+			front = minf(front, world_point.z)
+			back = maxf(back, world_point.z)
+	verify(rooted > 500 and close > 600 and right - left > 0.45 and back - front > 2.0,
+		"The exact visible and native rock pose embeds a broad lower edge in the terrain.")
 	verify(spec.points.size() == 201 and spec.native_points.size() == 200 and spec.faces.size() == 396 * 3,
 		"The shared descriptor keeps original cooking input and cooked reference facets separate.")
 	var finish: StandardMaterial3D = rock.material_override
