@@ -6391,10 +6391,13 @@ func _sync_landing_pod_visual() -> void:
 	var position: Array = hub.position
 	var pod_center: Array = pod.center
 	var hub_center: Array = hub.center
-	var hub_world := Vector3(float(position[0]), float(position[1]), float(position[2]))
-	landing_hub_visual.position = hub_world
+	# Host positions use the shared spindle anchor; this art is authored from
+	# the floor. Apply the common offset once, including on restored views.
+	var hub_floor := Vector3(float(position[0]), float(position[1]), float(position[2])) \
+		- Vector3.UP * Geometry.ANCHOR_HEIGHT
+	landing_hub_visual.position = hub_floor
 	if not arrival_reveal_active:
-		landing_pod_visual.position = hub_world - Vector3(
+		landing_pod_visual.position = hub_floor - Vector3(
 			float(hub_center[0] - pod_center[0]) * PITCH, 0,
 			float(hub_center[2] - pod_center[2]) * PITCH)
 	landing_crank_visual.visible = state.get("hand_crank", {}).get("holder", "") == "pod"

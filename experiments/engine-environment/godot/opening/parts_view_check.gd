@@ -96,6 +96,9 @@ func fixture() -> Dictionary:
 		"stock": {"output": 0}, "inventories": {"P": 0, "Q": 0}}
 
 func _initialize() -> void:
+	if "--pod-floor-only" in OS.get_cmdline_user_args():
+		call_deferred("_pod_floor_views")
+		return
 	if "--multitool-view-only" in OS.get_cmdline_user_args():
 		call_deferred("_multitool_presentation")
 		return
@@ -259,6 +262,74 @@ func _multitool_presentation() -> void:
 func settle_widgets() -> void:
 	for _frame in range(4):
 		await process_frame
+
+func _pod_floor_views() -> void:
+	for shared in [false, true]:
+		for level in [-4, 0, 8]:
+			var view = SharedSourceRayView.new() if shared else SourceRayView.new()
+			var floor_y: float = level * Opening.Geometry.HEIGHT_STEP
+			view.state = {"options": {"native": true},
+				"landing_pod": {"id": "landing-pod", "center": [1, level, 4], "deployed": true},
+				"fabrication_hub": {"id": "pod-fabrication-hub", "center": [2, level, 4],
+					"position": [3.3, floor_y + Opening.Geometry.ANCHOR_HEIGHT, 6.6]},
+				"hand_crank": {"holder": "pod"}}
+			var before: Dictionary = view.state.duplicate(true)
+			root.add_child(view)
+			view.camera = Camera3D.new()
+			view.add_child(view.camera)
+			view.machine_root = Node3D.new()
+			view.add_child(view.machine_root)
+			var deck := Node3D.new()
+			deck.position = view._entity_position({"cell": [1, 4], "level": level})
+			deck.set_meta("arrival_deck_panel", true)
+			deck.set_meta("arrival_deck_anchor", deck.position)
+			view.machine_root.add_child(deck)
+			view._sync_landing_pod_visual()
+			var pod_floor := Vector3(1.65, floor_y, 6.6)
+			var hub_floor := Vector3(3.3, floor_y, 6.6)
+			verify(view.landing_pod_visual.position.is_equal_approx(pod_floor)
+				and view.landing_hub_visual.position.is_equal_approx(hub_floor),
+				"Pod and bench roots share the foundation top plane at every native grid height.")
+			var foot: MeshInstance3D = view.landing_pod_visual.get_node("OpenedPodShell/PortOpenedWing/LandingFoot")
+			var leg: MeshInstance3D = view.landing_hub_visual.get_node("BenchLeg")
+			verify(absf((foot.global_transform * foot.get_aabb()).position.y - deck.position.y) < 0.00001
+				and absf((leg.global_transform * leg.get_aabb()).position.y - deck.position.y) < 0.00001,
+				"Actual authored feet and bench legs meet the deck instead of floating at the spindle anchor.")
+			var original_pod: Node3D = view.landing_pod_visual
+			var original_hub: Node3D = view.landing_hub_visual
+			view._sync_landing_pod_visual()
+			verify(view.landing_pod_visual == original_pod and view.landing_hub_visual == original_hub
+				and view.state == before and view.model == null and view.request_sequence == 0,
+				"An unchanged refresh reuses presentation without mutating native facts or making requests.")
+			var restored = SharedSourceRayView.new() if shared else SourceRayView.new()
+			restored.state = before.duplicate(true)
+			root.add_child(restored)
+			restored._sync_landing_pod_visual()
+			verify(restored.landing_pod_visual.position.is_equal_approx(pod_floor)
+				and restored.landing_hub_visual.position.is_equal_approx(hub_floor),
+				"A newly constructed saved-state view uses the same floor datum.")
+			view.arrival_reveal_pod_anchor = view.landing_pod_visual.position
+			view.arrival_reveal_active = true
+			view.arrival_reveal_elapsed = 0.0
+			view._pose_arrival_reveal()
+			verify(view.landing_pod_visual.position.is_equal_approx(pod_floor + Vector3.UP * 8.0)
+				and not view.landing_hub_visual.visible,
+				"The reveal starts above the actual floor and keeps the unopened bench hidden.")
+			view.arrival_reveal_elapsed = view.ARRIVAL_REVEAL_SECONDS
+			view._pose_arrival_reveal()
+			verify(view.landing_pod_visual.position.is_equal_approx(pod_floor)
+				and view.landing_hub_visual.position.is_equal_approx(hub_floor)
+				and view.landing_hub_visual.scale == Vector3.ONE and is_equal_approx(deck.position.y, floor_y),
+				"The reveal endpoint seats the pod and bench on the unfolded foundation.")
+			view.arrival_reveal_active = false
+			view._sync_landing_pod_visual()
+			verify(view.landing_pod_visual.position.is_equal_approx(pod_floor)
+				and view.landing_hub_visual.position.is_equal_approx(hub_floor) and view.state == before,
+				"Ordinary refresh after touchdown applies the datum conversion exactly once.")
+			restored.free()
+			view.free()
+	print("POD_FLOOR_VIEW_%s %d" % ["PASS" if failures == 0 else "FAIL", checks])
+	quit(0 if failures == 0 else 1)
 
 func _hand_tree_views() -> void:
 	var view = SourceRayView.new()
