@@ -26,6 +26,10 @@ into a useful arrangement, not a magical source of unlimited stock. The player
 can inspect it, build beside it and eventually replace its functions and reclaim
 its parts. The scene should be skippable and rejoin safely at its settled state.
 
+The current freight beacon uses a graphical world-space shipment label at its
+native delivery point. Outside the supplied pod, the player builds the factory
+hardware. The marker's appearance remains a revisable presentation choice.
+
 The AI offers one instruction at a time, with replay in the work log. Candidate
 lines are short enough to leave the game view readable:
 

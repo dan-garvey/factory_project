@@ -6559,51 +6559,42 @@ func _sync_freight_beacon_visual() -> void:
 		return
 	if freight_beacon_visual == null:
 		freight_beacon_visual = StaticBody3D.new()
-		freight_beacon_visual.name = "MeridianFreightBeacon"
-		freight_beacon_visual.collision_layer = Geometry.PICK_LAYER
+		freight_beacon_visual.name = "ShipmentMarker"
 		freight_beacon_visual.collision_mask = 0
 		freight_beacon_visual.set_meta("freight_beacon", beacon.id)
 		add_child(freight_beacon_visual)
-		var graphite := Color("23343a")
-		var alloy := Color("536c70")
-		var amber := Color("e8ad58")
-		_machine_box(freight_beacon_visual, "ReceiverPlinth", Vector3(0, 0.14, 0),
-			Vector3(1.42, 0.28, 1.42), graphite, 0.75, 0.43)
-		_machine_box(freight_beacon_visual, "CargoSocket", Vector3(0, 0.31, 0),
-			Vector3(0.80, 0.09, 0.80), amber, 0.73, 0.32)
-		_machine_box(freight_beacon_visual, "SocketWell", Vector3(0, 0.37, 0),
-			Vector3(0.61, 0.08, 0.61), graphite, 0.75, 0.37)
-		for side in [-1.0, 1.0]:
-			_machine_box(freight_beacon_visual, "SignalMast", Vector3(side * 0.46, 1.42, 0.36),
-				Vector3(0.16, 2.45, 0.16), graphite, 0.65, 0.42)
-			_machine_box(freight_beacon_visual, "MastStripe", Vector3(side * 0.46, 1.37, 0.265),
-				Vector3(0.055, 1.78, 0.018), alloy, 0.63, 0.39)
-			_machine_box(freight_beacon_visual, "LowerBrace", Vector3(side * 0.46, 0.75, 0.36),
-				Vector3(0.31, 0.20, 0.34), alloy, 0.73, 0.38)
-			_machine_box(freight_beacon_visual, "SignalCrown", Vector3(side * 0.46, 2.66, 0.36),
-				Vector3(0.27, 0.16, 0.27), amber, 0.52, 0.31)
-		_machine_box(freight_beacon_visual, "ReceiverBridge", Vector3(0, 2.12, 0.36),
-			Vector3(1.05, 0.14, 0.23), alloy, 0.78, 0.4)
-		var lamp := _machine_box(freight_beacon_visual, "OrderSignal", Vector3(0, 2.29, 0.36),
-			Vector3(0.38, 0.16, 0.15), amber, 0.35, 0.28)
-		var glow := StandardMaterial3D.new()
-		glow.albedo_color = Color("936a36")
-		glow.emission_enabled = true
-		glow.emission = amber
-		glow.emission_energy_multiplier = 0.65
-		lamp.material_override = glow
+		# This is a world-space interface marker, not a supplied factory.
+		var label := Label3D.new()
+		label.name = "ShipmentLabel"
+		label.position.y = 1.3
+		label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		label.font_size = 28
+		label.pixel_size = 0.0045
+		label.outline_size = 8
+		label.outline_modulate = Color("11282e")
+		label.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		freight_beacon_visual.add_child(label)
 		var pick := CollisionShape3D.new()
+		pick.name = "PickShape"
 		var box := BoxShape3D.new()
-		box.size = Vector3(1.45, 2.85, 1.45)
+		box.size = Vector3(1.6, 0.6, 1.6)
 		pick.shape = box
-		pick.position.y = 1.43
+		pick.position.y = 1.3
 		freight_beacon_visual.add_child(pick)
 	var position: Array = beacon.position
 	freight_beacon_visual.position = Vector3(float(position[0]),
 		ProductionEnvironment.Surface.height_at(float(position[0]), float(position[2])), float(position[2]))
 	var delivered: bool = beacon.get("order_complete", false)
-	freight_beacon_visual.get_node("OrderSignal").visible = not delivered
-	freight_beacon_visual.get_node("CargoSocket").visible = not delivered
+	var carried: bool = int(state.get("cargo", {}).get(client, {}).get("products", 0)) > 0
+	var caption := "MERIDIAN SHIPMENT\nForm one plate"
+	if carried:
+		caption = "MERIDIAN SHIPMENT\nShip one plate [E]" if _can_control_character() else "MERIDIAN SHIPMENT\nOne plate ready"
+	var label: Label3D = freight_beacon_visual.get_node("ShipmentLabel")
+	if label.text != caption:
+		label.text = caption
+	label.modulate = Color("efbc6c") if carried else Color("d8e6dc")
+	label.visible = not delivered
+	freight_beacon_visual.collision_layer = 0 if delivered else Geometry.PICK_LAYER
 
 func _maybe_start_arrival_reveal() -> void:
 	var deadline := Time.get_ticks_msec() + 30000

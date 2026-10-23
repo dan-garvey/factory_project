@@ -259,8 +259,7 @@ func _deliver_first_arrival_plate(held_work: Dictionary, capture_prefix: String)
 			and opening.model.projection().cargo.P.products == 1,
 			"The carried plate cannot be shipped from the press by camera or remote command"):
 		return false
-	# The press and the beacon both occupy the direct route. Walk around their
-	# physical bodies with the ordinary motor; never set a native actor pose.
+	# Walk around the press with the ordinary motor; never set a native pose.
 	if not await _approach(Vector2(3.3, 8.25)) or not await _approach(Vector2(9.9, 8.25)):
 		return false
 	var sample: Dictionary = opening.actor_world.diagnostics("P").sample
@@ -286,7 +285,7 @@ func _deliver_first_arrival_plate(held_work: Dictionary, capture_prefix: String)
 	var shipped: Dictionary = opening.model.projection()
 	if not _expect(shipped.order == before.order + 1 and shipped.cargo.P.products == 0
 			and shipped.freight_beacon.order_complete and shipped.freight_beacon.shipped_products == 1
-			and not opening.freight_beacon_visual.get_node("OrderSignal").visible
+			and not opening.freight_beacon_visual.get_node("ShipmentLabel").visible
 			and shipped.dropped_material == held_work.dropped_material
 			and shipped.press_assemblies == held_work.press_assemblies,
 			"E ships exactly the first carried plate while the second press work stays retained"):
@@ -1053,7 +1052,7 @@ func _arrival_run() -> void:
 		if mode == "arrival-delivery-resume" and not _expect(restored.actors.has("Q")
 				and opening.actor_world.bodies.has("Q")
 				and "DELIVERED" in opening.goal_label.text
-				and not opening.freight_beacon_visual.get_node("OrderSignal").visible,
+				and not opening.freight_beacon_visual.get_node("ShipmentLabel").visible,
 				"The saved shipment and second actor remain visible on the resumed worksite"):
 			return
 		opening.manager_log_button.pressed.emit()

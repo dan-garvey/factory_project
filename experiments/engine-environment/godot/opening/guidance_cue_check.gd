@@ -312,23 +312,35 @@ func check_freight_beacon_view() -> void:
 	view._build_interface()
 	view._sync_freight_beacon_visual()
 	var beacon: Dictionary = view.state.freight_beacon
-	verify(view.freight_beacon_visual != null and view.freight_beacon_visual.name == "MeridianFreightBeacon"
+	var marker: Label3D = view.freight_beacon_visual.get_node_or_null("ShipmentLabel")
+	verify(view.freight_beacon_visual != null and view.freight_beacon_visual.name == "ShipmentMarker"
 		and view.freight_beacon_visual.get_meta("freight_beacon") == beacon.id
-		and view.freight_beacon_visual.get_node_or_null("OrderSignal") != null
-		and view.freight_beacon_visual.get_node_or_null("CargoSocket") != null,
-		"The confirmed native identity has a visible receiver and signal in the ordinary scene.")
+		and marker != null and marker.billboard == BaseMaterial3D.BILLBOARD_ENABLED,
+		"The native beacon has a camera-facing shipment label.")
+	verify(view.freight_beacon_visual.find_children("*", "MeshInstance3D", true, false).is_empty(),
+		"The unbuilt freight point contains no fabricated plinth, posts or gantry meshes.")
+	verify(view.freight_beacon_visual.collision_layer == Opening.Geometry.PICK_LAYER
+		and view.freight_beacon_visual.collision_mask == 0,
+		"The graphical marker adds only selection, not actor collision or construction authority.")
 	var position: Array = beacon.position
 	verify(is_equal_approx(view.freight_beacon_visual.position.x, float(position[0]))
 		and is_equal_approx(view.freight_beacon_visual.position.z, float(position[2]))
 		and beacon.center == [6, 0, 4],
-		"The receiver uses the native world-space anchor east of the pod.")
+		"The shipment marker retains the native world-space point east of the pod.")
 	for _frame in range(3):
 		await physics_frame
 	view.camera.position = view.freight_beacon_visual.position + Vector3(0, 2.0, 5.0)
 	view.camera.look_at(view.freight_beacon_visual.position + Vector3(0, 1.3, 0))
 	var hit := view._screen_pick(root.get_visible_rect().size / 2.0)
 	verify(not hit.is_empty() and hit.collider == view.freight_beacon_visual,
-		"A camera ray selects the freight receiver's visible physical pick target.")
+		"A camera ray selects the actual shipment label's pick target.")
+	view.camera.position = view.freight_beacon_visual.position + Vector3(0, 2.5, 5.0)
+	view.camera.look_at(view.freight_beacon_visual.position + Vector3(0, 2.5, 0))
+	var high_hit := view._screen_pick(root.get_visible_rect().size / 2.0)
+	verify(high_hit.is_empty() or high_hit.collider != view.freight_beacon_visual,
+		"The removed gantry leaves no invisible tall selection body.")
+	view.camera.position = view.freight_beacon_visual.position + Vector3(0, 2.0, 5.0)
+	view.camera.look_at(view.freight_beacon_visual.position + Vector3(0, 1.3, 0))
 	view.state.actors.P.ready = true
 	view.distance = 0.0
 	view._open_pointed_machine()
@@ -345,17 +357,39 @@ func check_freight_beacon_view() -> void:
 		"The initial Meridian order asks for a shipment while construction remains open.")
 	view.state = view.state.duplicate(true)
 	view.state.cargo.P.products = 1
+	view._sync_freight_beacon_visual()
 	view._refresh_ui()
 	verify("east freight beacon" in view.goal_label.text,
 		"A carried product changes the next cue to a reachable world-space delivery.")
+	verify(marker != null and "Ship one plate [E]" in marker.text,
+		"A ready actor with a confirmed carried plate sees the shipping action on the marker.")
+	var shared := SharedFooterView.new()
+	shared.state = view.state.duplicate(true)
+	shared.client = "Q"
+	shared.session = SessionStub.new()
+	root.add_child(shared)
+	shared._sync_freight_beacon_visual()
+	var remote_label: Label3D = shared.freight_beacon_visual.get_node_or_null("ShipmentLabel")
+	verify(remote_label != null and "Form one plate" in remote_label.text,
+		"The shared marker cannot borrow another actor's carried product.")
+	var original := view.freight_beacon_visual
+	view._sync_freight_beacon_visual()
+	verify(view.freight_beacon_visual == original and view.freight_beacon_visual.get_node_or_null("ShipmentLabel") == marker,
+		"Unchanged refresh preserves the marker and label identities.")
 	view.state.freight_beacon.order_complete = true
 	view.state.freight_beacon.shipped_products = 1
 	view.state.cargo.P.products = 0
 	view._sync_freight_beacon_visual()
 	view._refresh_ui()
 	verify("DELIVERED" in view.goal_label.text and "Build a belt route" in view.goal_label.text
-		and not view.freight_beacon_visual.get_node("OrderSignal").visible,
-		"The completed receipt changes the signal and leaves open-ended building visible.")
+		and marker != null and not marker.visible and view.freight_beacon_visual.collision_layer == 0,
+		"The completed receipt hides the marker and selection while leaving continued building visible.")
+	for _frame in range(2):
+		await physics_frame
+	var filled_hit := view._screen_pick(root.get_visible_rect().size / 2.0)
+	verify(filled_hit.is_empty() or filled_hit.collider != view.freight_beacon_visual,
+		"A completed shipment leaves no invisible delivery target.")
+	shared.free()
 	view.free()
 	finish_checks()
 
