@@ -1337,6 +1337,19 @@ renderer for this batch-pose check; headless motion tests still cover phase and
 state behavior. Neither fixture establishes full-opening frame rate or native
 mechanical throughput.
 
+## GDC-27: native Array export uses checked indexed writes
+
+**Pinned engine/API and adapter observation.** The Godot 4.7.2 GDExtension
+`variant_set_indexed` interface accepts children of a resized Variant Array.
+The adapter checks the `resize` result and each setter's valid and bounds flags;
+it preserves owned plain values, type fidelity and its existing quota checks.
+The real-engine value fixture covers empty, mixed and 1,024-element arrays,
+including detached ownership after an indexed mutation. An external 1,000-wheel
+full-view probe preserved the complete view digest while reducing median Variant
+export time from 12.497/13.383 ms in adjacent baselines to 10.976 ms. This is
+wheel-only headless conversion evidence; it does not establish a mixed rendered
+scene at 120 FPS.
+
 ## Required follow-through
 
 This first source/API/evidence audit leaves actual backend identification,

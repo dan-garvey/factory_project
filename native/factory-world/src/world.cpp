@@ -1797,11 +1797,15 @@ DrivePower drive_power(const Profile& profile, const State& state) {
 }
 
 materials::MachinePower machine_power(const stationary::Topology& topology) {
-    return machine_power_from(topology, drive_power(topology));
+    return machine_power(topology, drive_power(topology));
+}
+
+materials::MachinePower machine_power(const stationary::Topology& topology, const DrivePower& drive) {
+    return machine_power_from(topology, drive);
 }
 
 materials::MachinePower machine_power(const Profile& profile, const State& state) {
-    return machine_power_from(state.topology, drive_power(profile, state));
+    return machine_power(state.topology, drive_power(profile, state));
 }
 
 bool validate(const Profile& profile, const Snapshot& snapshot) {

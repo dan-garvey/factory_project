@@ -2197,7 +2197,7 @@ Value Host::projection() const {
     Array mineral_cells;
     for (const auto& cell : mineral_site::opening_cells)
         mineral_cells.emplace_back(Array{Value(cell.x), Value(cell.z)});
-    const auto local = world::machine_power(profile_, state);
+    const auto local = world::machine_power(state.topology, power);
     for (const auto& [id, foundation] : state.foundations)
         foundations.emplace(id, Value(Object{{"cell", Value(Array{Value(foundation.center[0] / 4), Value(foundation.center[2] / 4)})},
             {"level", Value(foundation.center[1])}, {"generation", Value(foundation.generation)}}));

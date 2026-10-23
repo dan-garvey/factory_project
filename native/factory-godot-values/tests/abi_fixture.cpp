@@ -56,6 +56,7 @@ void run() {
         Value(Value::Integer{0}), Value(std::numeric_limits<Value::Integer>::min()),
         Value(std::numeric_limits<Value::Integer>::max()), Value(Value::Integer{9007199254740993}),
         Value(0.0), Value(-0.0), Value(4.5), Value(""), Value("P \xf0\x9f\x9a\x80"),
+        Value(Value::Array{}),
         Value(Value::Array{Value(Value::Integer{1}), Value(1.0), Value(false)}),
         Value(Value::Object{{"P", Value(Value::Integer{4})}, {"Q", Value(Value::Integer{1})},
                            {"nested", Value(Value::Array{Value(), Value("text"), Value(2.0)})}})
@@ -130,6 +131,24 @@ void run() {
     require(valid && !values::typed_difference(original, imported), "An imported plain dictionary must not alias later engine mutation.");
     require(values::typed_difference(original, boundary.import_value(exported.get())).has_value(),
             "The altered engine value must actually change while original plain custody remains detached.");
+
+    Value::Array long_items;
+    for (Value::Integer index = 0; index < 1024; ++index)
+        long_items.emplace_back(index);
+    const Value long_array(std::move(long_items));
+    auto long_native = boundary.export_value(long_array);
+    const auto long_imported = boundary.import_value(long_native.get());
+    require(!values::typed_difference(long_array, long_imported),
+            "An indexed engine array must preserve its length, order and integer values.");
+    const auto set_indexed = api<GDExtensionInterfaceVariantSetIndexed>("variant_set_indexed");
+    auto replacement = boundary.export_value(Value(Value::Integer{9999}));
+    GDExtensionBool out_of_bounds = false;
+    valid = false;
+    set_indexed(long_native.get(), 500, replacement.get(), &valid, &out_of_bounds);
+    require(valid && !out_of_bounds && !values::typed_difference(long_array, long_imported),
+            "An imported long array must not alias a later engine indexed mutation.");
+    require(values::typed_difference(long_array, boundary.import_value(long_native.get())).has_value(),
+            "The engine indexed mutation must actually change the exported array.");
 }
 
 void initialize(void* data, GDExtensionInitializationLevel level) {
