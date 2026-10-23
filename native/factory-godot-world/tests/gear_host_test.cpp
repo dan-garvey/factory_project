@@ -1704,10 +1704,22 @@ void restored_transmission_geometry() {
         state.at("topology") = V(std::move(topology)); world.at("state") = V(std::move(state));
         envelope.at("world") = V(std::move(world));
         const V altered(std::move(envelope));
-        check(!accepted(host.validate_checkpoint(altered)) && !accepted(host.restore_checkpoint(altered)) &&
+        const auto validation = host.validate_checkpoint(altered);
+        check(!accepted(validation) && field<std::string>(validation, "reason") == "native_checkpoint_refused" &&
                   !factory::values::typed_difference(saved, host.checkpoint()),
-              "Off-grid or oversized restored transmission is refused without changing the live world.");
-        check(accepted(host.validate_checkpoint(saved)), "The original aligned one-tile checkpoint remains valid.");
+              "Off-grid or oversized transmission fails native validation without changing the live world.");
+        Host fresh;
+        check(accepted(fresh.initialize("fresh", {"P"})) &&
+                  accepted(fresh.configure_terrain(factory::godot_world::tests::flat_site())),
+              "The malformed restore target is a fresh Host on the same site.");
+        const auto initial = fresh.checkpoint();
+        const auto rejection = fresh.restore_checkpoint(altered);
+        check(!accepted(rejection) && field<std::string>(rejection, "reason") == "native_checkpoint_refused" &&
+                  !factory::values::typed_difference(initial, fresh.checkpoint()),
+              "Malformed transmission restore reaches native decoding and preserves the fresh Host.");
+        check(accepted(fresh.restore_checkpoint(saved)) &&
+                  !factory::values::typed_difference(saved, fresh.checkpoint()),
+              "The original aligned one-tile checkpoint restores exactly after a malformed refusal.");
     }
 }
 
