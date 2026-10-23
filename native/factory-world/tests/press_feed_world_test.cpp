@@ -373,30 +373,65 @@ void actor_feed_is_physical_custody() {
     later_resume.at("request") = V("resume-after-unrelated-belt-tick");
     later_resume.at("enabled") = V(true);
     unrelated_belt.accept("P", later_resume);
-    auto later_drive_forgery = unrelated_belt.world->snapshot();
-    auto& later_lot = later_drive_forgery.state.material.dropped_material.at({8, 1, 0})
-        .work_lots.front();
-    const auto later_id = later_lot.id;
-    later_lot.remaining_ticks = 0;
-    for (auto& record : later_drive_forgery.history.records)
-        if (std::get<std::string>(record.intent.at("request").storage()) ==
-                "turn-after-unrelated-belt-tick") {
-            auto prior = std::get<V::Array>(record.result.at("prior_work_lots").storage());
-            auto prior_lot = std::get<O>(prior.front().storage());
-            prior_lot.at("remaining_ticks") = V(I{1});
-            record.result.at("prior_work_lots") = V(V::Array{V(prior_lot)});
-            auto lots = std::get<V::Array>(record.result.at("work_lots").storage());
-            auto lot = std::get<O>(lots.front().storage());
-            lot.at("remaining_ticks") = V(I{0});
-            record.result.at("work_lots") = V(V::Array{V(lot)});
-            record.result.at("prior_auto_remaining_ticks") = V(I{1});
-        }
-    auto& later_witness = later_drive_forgery.state.press_progress.at(later_id);
-    later_witness.automatic_remaining_ticks = 1;
-    later_witness.automatic_transitions.push_back({before_unrelated_tick.revision + 1,
-        {8, 1, 0}, 2, 1});
-    check(!w::World::restore("press-feed", source.profile, later_drive_forgery),
-          "A later drive change cannot lend an unrelated stalled tick to a press witness.");
+    const auto forge_later_press_tick = [&](w::Snapshot forged) {
+        auto& lot = forged.state.material.dropped_material.at({8, 1, 0}).work_lots.front();
+        const auto id = lot.id;
+        lot.remaining_ticks = 0;
+        for (auto& record : forged.history.records)
+            if (std::get<std::string>(record.intent.at("request").storage()) ==
+                    "turn-after-unrelated-belt-tick") {
+                auto prior = std::get<V::Array>(record.result.at("prior_work_lots").storage());
+                auto prior_lot = std::get<O>(prior.front().storage());
+                prior_lot.at("remaining_ticks") = V(I{1});
+                record.result.at("prior_work_lots") = V(V::Array{V(prior_lot)});
+                auto lots = std::get<V::Array>(record.result.at("work_lots").storage());
+                auto result_lot = std::get<O>(lots.front().storage());
+                result_lot.at("remaining_ticks") = V(I{0});
+                record.result.at("work_lots") = V(V::Array{V(result_lot)});
+                record.result.at("prior_auto_remaining_ticks") = V(I{1});
+            }
+        auto& witness = forged.state.press_progress.at(id);
+        witness.automatic_remaining_ticks = 1;
+        witness.automatic_transitions.push_back({before_unrelated_tick.revision + 1,
+            {8, 1, 0}, 2, 1});
+        return forged;
+    };
+    const auto after_toggle = unrelated_belt.world->snapshot();
+    check(!w::World::restore("press-feed", source.profile,
+              forge_later_press_tick(after_toggle)),
+          "Wheel toggles alone cannot lend an unrelated stalled tick to a press witness.");
+    auto later_layout = output_obstruction;
+    later_layout.at("request") = V("obstruct-after-unrelated-belt-tick");
+    unrelated_belt.accept("P", later_layout);
+    check(w::World::restore("press-feed", source.profile, unrelated_belt.world->snapshot()) != nullptr,
+          "The genuine later component placement remains restorable.");
+    check(!w::World::restore("press-feed", source.profile,
+              forge_later_press_tick(unrelated_belt.world->snapshot())),
+          "A later component placement cannot hide a forged stalled press tick.");
+    Runner topology_after_tick(source);
+    topology_after_tick.world = w::World::restore("press-feed", source.profile, after_toggle);
+    topology_after_tick.p = {2, 1, 0};
+    auto remove_wheel_after_tick = request("P", "remove-wheel-after-unrelated-belt-tick", "remove");
+    remove_wheel_after_tick.emplace("target", V("press-wheel"));
+    remove_wheel_after_tick.emplace("generation", V(I{1}));
+    topology_after_tick.accept("P", remove_wheel_after_tick);
+    const auto removed_wheel = topology_after_tick.world->snapshot();
+    check(codec_restore(source.profile, removed_wheel,
+              "The genuine later wheel removal survives the encoded checkpoint.") != nullptr,
+          "The genuine later topology mutation remains restorable.");
+    auto missing_removed_shape = removed_wheel;
+    missing_removed_shape.history.records.back().result.erase("removed_part");
+    check(!w::World::restore("press-feed", source.profile, missing_removed_shape),
+          "A later removal cannot erase the geometry needed to verify an earlier tick.");
+    auto displaced_removed_shape = removed_wheel;
+    auto removed_shape = std::get<O>(displaced_removed_shape.history.records.back().result.at("removed_part").storage());
+    removed_shape.at("center") = V(point(8, 4, 0));
+    displaced_removed_shape.history.records.back().result.at("removed_part") = V(removed_shape);
+    check(!w::World::restore("press-feed", source.profile, displaced_removed_shape),
+          "A saved removed-part shape cannot move away from its accepted reach target.");
+    check(!w::World::restore("press-feed", source.profile,
+              forge_later_press_tick(removed_wheel)),
+          "A later wheel removal cannot hide a forged stalled press tick.");
     check(run.world->tick().error == w::TransactionError::none &&
           run.world->snapshot().state == first_work.state,
           "An overloaded native tick leaves the partial WorkLot and all placed parts intact.");
@@ -1041,6 +1076,27 @@ void two_placed_presses_advance_distinct_powered_work() {
           powered_then_manual.world->snapshot().state.material.dropped_material.at({0, 1, 0})
               .work_lots.front().remaining_ticks == 1,
           "A native powered tick advances the identified lot before the next manual turn.");
+    Runner edited_after_power(source);
+    edited_after_power.world = w::World::restore("press-feed", source.profile,
+        powered_then_manual.world->snapshot());
+    edited_after_power.p = {2, 1, 0};
+    auto reclaim_after_power = request("P", "reclaim-press-shaft-after-real-tick", "reclaim_component");
+    reclaim_after_power.emplace("target", V(shafts[0]));
+    reclaim_after_power.emplace("generation", V(
+        edited_after_power.world->snapshot().state.placed_components.at(shafts[0]).generation));
+    edited_after_power.accept("P", reclaim_after_power);
+    check(w::World::restore("press-feed", source.profile, edited_after_power.world->snapshot()) != nullptr,
+          "Real powered progress remains valid after reclaiming its drive component.");
+    Runner stopped_after_power(source);
+    stopped_after_power.world = w::World::restore("press-feed", source.profile,
+        powered_then_manual.world->snapshot());
+    stopped_after_power.p = {2, 1, 0};
+    auto remove_wheel_after_power = request("P", "remove-wheel-after-real-tick", "remove");
+    remove_wheel_after_power.emplace("target", V("press-wheel"));
+    remove_wheel_after_power.emplace("generation", V(I{1}));
+    stopped_after_power.accept("P", remove_wheel_after_power);
+    check(w::World::restore("press-feed", source.profile, stopped_after_power.world->snapshot()) != nullptr,
+          "Real powered progress remains valid after removing its wheel.");
     powered_then_manual.p = {2, 1, 0};
     auto stop_after_real_progress = request("P", "stop-after-real-press-tick", "set_drive");
     stop_after_real_progress.emplace("target", V("press-wheel"));

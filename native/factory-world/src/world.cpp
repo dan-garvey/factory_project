@@ -258,6 +258,70 @@ Value point_value(const authority::Point& point) {
     return Value(Value::Array{Value(point[0]), Value(point[1]), Value(point[2])});
 }
 
+Value removed_part_value(const stationary::PlacedPart& part) {
+    const auto& shape = part.geometry;
+    return Value(Object{{"role", Value(Integer{static_cast<int>(part.role)})},
+        {"center", Value(Value::Array{Value(shape.center[0]), Value(shape.center[1]), Value(shape.center[2])})},
+        {"axis", Value(Integer{static_cast<int>(shape.axis)})},
+        {"teeth", Value(shape.teeth)}, {"half_span", Value(shape.half_span)},
+        {"relay_axis", Value(Integer{static_cast<int>(shape.relay_axis)})},
+        {"rotation", Value(part.rotation)}, {"wheel_tiles", Value(part.wheel_tiles)}});
+}
+
+std::optional<stationary::PlacedPart> removed_part(const Value& value,
+        const std::string& entity, Integer generation) {
+    const auto* saved = std::get_if<Object>(&value.storage());
+    if (!saved || saved->size() != 8 || !identity(entity)) return std::nullopt;
+    const auto* role_code = field<Integer>(*saved, "role");
+    const auto* axis_code = field<Integer>(*saved, "axis");
+    const auto* relay_code = field<Integer>(*saved, "relay_axis");
+    const auto* teeth = field<Integer>(*saved, "teeth");
+    const auto* span = field<Integer>(*saved, "half_span");
+    const auto* rotation = field<Integer>(*saved, "rotation");
+    const auto* wheel_tiles = field<Integer>(*saved, "wheel_tiles");
+    const auto center = grid_point(*saved);
+    if (!role_code || *role_code < static_cast<Integer>(Role::collector) ||
+        *role_code > static_cast<Integer>(Role::chain_drive) ||
+        !axis_code || *axis_code < 0 || *axis_code > 2 ||
+        !relay_code || *relay_code < 0 || *relay_code > 2 ||
+        !teeth || !span || !rotation || *rotation < 0 || *rotation > 3 ||
+        !wheel_tiles || *wheel_tiles < 1 || *wheel_tiles > mechanics::maximum_dimension ||
+        !center || generation <= 0) return std::nullopt;
+    const auto role = static_cast<Role>(*role_code);
+    if (!spec_valid({role, *teeth, *span}) ||
+        (role == Role::waterwheel ? *wheel_tiles < 3 : *wheel_tiles != 1) ||
+        (!material_machine(role) && *rotation != 0) ||
+        (role == Role::chain_drive && *relay_code == *axis_code) ||
+        (role != Role::chain_drive && *relay_code != 0) ||
+        (role == Role::gearbox && *axis_code != 1) ||
+        (role == Role::vertical_gearbox && *axis_code == 1)) return std::nullopt;
+    const auto kind = role == Role::gear ? mechanics::Kind::gear :
+        role == Role::shaft ? mechanics::Kind::shaft :
+        (role == Role::gearbox || role == Role::vertical_gearbox) ? mechanics::Kind::gearbox :
+        role == Role::chain_drive ? mechanics::Kind::chain_drive : mechanics::Kind::hub;
+    stationary::PlacedPart part{{entity, kind, *center, static_cast<mechanics::Axis>(*axis_code),
+        *teeth, *span, static_cast<mechanics::Axis>(*relay_code)}, generation, role};
+    part.rotation = *rotation;
+    part.wheel_tiles = *wheel_tiles;
+    return part;
+}
+
+Value removed_span_value(const stationary::PlacedBeltSpan& span) {
+    return Value(Object{{"first_shaft", Value(span.geometry.first_shaft)},
+        {"last_shaft", Value(span.geometry.last_shaft)}});
+}
+
+std::optional<stationary::PlacedBeltSpan> removed_span(const Value& value,
+        const std::string& entity, Integer generation) {
+    const auto* saved = std::get_if<Object>(&value.storage());
+    if (!saved || saved->size() != 2 || !identity(entity)) return std::nullopt;
+    const auto* first = field<std::string>(*saved, "first_shaft");
+    const auto* last = field<std::string>(*saved, "last_shaft");
+    if (!first || !last || !identity(*first) || !identity(*last) ||
+        *first == *last || generation <= 0) return std::nullopt;
+    return stationary::PlacedBeltSpan{{entity, *first, *last}, generation};
+}
+
 Object reach_facts(const Binding& binding, const authority::ReachReceipt& reach) {
     Value::Array targets, distances;
     for (const auto& target : reach.targets) targets.push_back(point_value(target));
@@ -708,8 +772,17 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
     }
     const bool transfer = action == "recover" || action == "recover_belt_slot" || action == "load_belt_slot" || action == "insert_raw" || action == "insert_work";
     if (result.size() != (action == "place_belt_span" || action == "place_selected_belt_span" ? 18 :
-                          (action == "recover_belt_slot" || action == "load_belt_slot") ? 20 : transfer ? 19 : action == "collect" ||
-                          (action == "remove_belt_span" && points->size() == 1) ? 17 : 16)) return false;
+                          (action == "recover_belt_slot" || action == "load_belt_slot") ? 20 : transfer ? 19 :
+                          (action == "remove_belt_span" && points->size() == 1) ? 18 :
+                          (action == "collect" || action == "remove") ? 17 : 16)) return false;
+    if (action == "remove") {
+        const auto* entity = field<std::string>(result, "entity");
+        const auto* generation = field<Integer>(result, "generation");
+        const auto saved = result.find("removed_part");
+        const auto restored = saved != result.end() && entity && generation ?
+            removed_part(saved->second, *entity, *generation) : std::nullopt;
+        if (!restored || targets.front() != anchor(profile, restored->geometry.center)) return false;
+    }
     if (action == "remove_belt_span" && points->size() == 1) {
         const auto* center = field<Value::Array>(result, "belt_center");
         const auto location = center ? grid_point(Object{{"center", Value(*center)}}) : std::nullopt;
@@ -838,7 +911,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
     std::set<materials::WorkId> picked_press_products;
     std::set<Integer> command_revisions;
     std::map<Integer, bool> drive_commands;
-    Integer latest_layout_mutation = 0;
+    std::set<Integer> layout_mutations;
     for (const auto& record : snapshot.history.records) {
         const auto* accepted = field<bool>(record.result, "accepted");
         const auto* revision = field<Integer>(record.result, "revision");
@@ -850,7 +923,21 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 *action == "shaft_between" || *action == "remove_shaft_between" ||
                 *action == "place_belt_span" || *action == "place_selected_belt_span" ||
                 *action == "remove_belt_span" || *action == "place_component" ||
-                *action == "reclaim_component")) latest_layout_mutation = *revision;
+                *action == "reclaim_component")) layout_mutations.insert(*revision);
+            if (action && *action == "remove") {
+                const auto* entity = field<std::string>(record.result, "entity");
+                const auto* generation = field<Integer>(record.result, "generation");
+                const auto found = record.result.find("removed_part");
+                if (!entity || !generation || found == record.result.end() ||
+                    !removed_part(found->second, *entity, *generation)) return false;
+            }
+            if (action && *action == "remove_belt_span") {
+                const auto* entity = field<std::string>(record.result, "entity");
+                const auto* generation = field<Integer>(record.result, "generation");
+                const auto found = record.result.find("removed_span");
+                if (!entity || !generation || found == record.result.end() ||
+                    !removed_span(found->second, *entity, *generation)) return false;
+            }
             if (action && *action == "set_drive") {
                 const auto* enabled = field<bool>(record.intent, "enabled");
                 if (!enabled) return false;
@@ -899,6 +986,88 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
     Integer ticks_seen = 0;
     std::optional<DrivePower> automatic_power;
     std::optional<DrivePower> enabled_layout_power;
+    // All ticks between layout edits share a graph. Cache by that epoch,
+    // not by tick revision, so a busy press does not copy the graph per tick.
+    std::map<Integer, DrivePower> historical_layout_power;
+    const auto enabled_power_at = [&](Integer event_revision) -> const DrivePower* {
+        // Reverse only accepted geometry edits after this tick. Removed parts
+        // and spans carry the original shapes in their native receipts, so a
+        // later edit cannot make an earlier stalled tick look productive.
+        if (layout_mutations.empty() || event_revision >= *layout_mutations.rbegin()) {
+            if (!enabled_layout_power) {
+                State enabled;
+                enabled.topology = snapshot.state.topology;
+                enabled.placed_components = snapshot.state.placed_components;
+                enabled.topology.drive_enabled = true;
+                enabled_layout_power.emplace(drive_power(profile, enabled));
+            }
+            return &*enabled_layout_power;
+        }
+        const auto following = layout_mutations.upper_bound(event_revision);
+        const Integer epoch = following == layout_mutations.begin() ? 0 : *std::prev(following);
+        if (const auto cached = historical_layout_power.find(epoch);
+            cached != historical_layout_power.end()) return &cached->second;
+        State prior;
+        prior.topology = snapshot.state.topology;
+        prior.placed_components = snapshot.state.placed_components;
+        prior.topology.drive_enabled = true;
+        for (auto record = snapshot.history.records.rbegin();
+             record != snapshot.history.records.rend(); ++record) {
+            const auto* accepted = field<bool>(record->result, "accepted");
+            const auto* revision = field<Integer>(record->result, "revision");
+            const auto* action = field<std::string>(record->intent, "action");
+            if (!accepted || !*accepted || !revision || *revision <= event_revision || !action) continue;
+            const auto* entity = field<std::string>(record->result, "entity");
+            const auto* generation = field<Integer>(record->result, "generation");
+            if (placement(*action)) {
+                if (!entity) return nullptr;
+                const auto found = std::find_if(prior.topology.parts.begin(), prior.topology.parts.end(),
+                    [&](const auto& item) { return item.geometry.id == *entity; });
+                if (found == prior.topology.parts.end()) return nullptr;
+                if (found->role == Role::waterwheel) {
+                    const auto source = std::find_if(prior.topology.sources.begin(), prior.topology.sources.end(),
+                        [&](const auto& item) { return item.hub == *entity; });
+                    if (source == prior.topology.sources.end()) return nullptr;
+                    prior.topology.sources.erase(source);
+                }
+                prior.topology.parts.erase(found);
+            } else if (*action == "remove") {
+                const auto saved = record->result.find("removed_part");
+                const auto restored = saved != record->result.end() && entity && generation ?
+                    removed_part(saved->second, *entity, *generation) : std::nullopt;
+                if (!restored) return nullptr;
+                prior.topology.parts.push_back(*restored);
+                if (restored->role == Role::waterwheel) {
+                    const auto rate = wheel_rate(profile, *restored);
+                    if (!rate) return nullptr;
+                    prior.topology.sources.push_back({*entity, *rate});
+                }
+            } else if (*action == "place_belt_span" || *action == "place_selected_belt_span") {
+                if (!entity) return nullptr;
+                const auto found = std::find_if(prior.topology.belt_spans.begin(), prior.topology.belt_spans.end(),
+                    [&](const auto& item) { return item.geometry.id == *entity; });
+                if (found == prior.topology.belt_spans.end()) return nullptr;
+                prior.topology.belt_spans.erase(found);
+            } else if (*action == "remove_belt_span") {
+                const auto saved = record->result.find("removed_span");
+                const auto restored = saved != record->result.end() && entity && generation ?
+                    removed_span(saved->second, *entity, *generation) : std::nullopt;
+                if (!restored) return nullptr;
+                prior.topology.belt_spans.push_back(*restored);
+            } else if (*action == "place_component") {
+                if (!entity || prior.placed_components.erase(*entity) != 1) return nullptr;
+            } else if (*action == "reclaim_component") {
+                const auto* kind = field<std::string>(record->result, "component");
+                const auto* center_value = field<Value::Array>(record->result, "component_center");
+                const auto center = center_value ? grid_point(Object{{"center", Value(*center_value)}}) : std::nullopt;
+                const auto component = kind ? materials::component_from_name(*kind) : std::nullopt;
+                if (!entity || !generation || !center || !component ||
+                    !prior.placed_components.emplace(*entity,
+                        PlacedComponent{*component, *center, *generation}).second) return nullptr;
+            } else if (*action == "shaft_between" || *action == "remove_shaft_between") return nullptr;
+        }
+        return &historical_layout_power.emplace(epoch, drive_power(profile, prior)).first->second;
+    };
     const auto automatic_finish_witnessed = [&](const PressWorkRecord& work) {
         if (work.id == 0) return true;
         const auto found = snapshot.state.press_progress.find(work.id);
@@ -1203,19 +1372,13 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                         if (event.revision > last_refeed_revision[*id] &&
                             event.revision < *result_revision && event.work != *selected_work)
                             return false;
-                        if (event.revision >= *result_revision ||
-                            event.revision <= latest_layout_mutation || event.work != *selected_work) continue;
-                        // A later wheel toggle does not change the placed graph or its load.
-                        // Evaluate that graph with its source enabled even when the saved
-                        // final wheel state is off. A genuinely changed layout cannot use
-                        // the final graph as evidence of an earlier tick.
-                        if (!enabled_layout_power) {
-                            auto enabled = snapshot.state;
-                            enabled.topology.drive_enabled = true;
-                            enabled_layout_power.emplace(drive_power(profile, enabled));
-                        }
-                        const auto motion = enabled_layout_power->mechanical.motion.find(*drive);
-                        if (motion == enabled_layout_power->mechanical.motion.end() ||
+                        if (event.revision >= *result_revision || event.work != *selected_work) continue;
+                        // Use the graph at the tick, including parts since
+                        // removed, rather than the saved final arrangement.
+                        const auto* power = enabled_power_at(event.revision);
+                        if (!power) return false;
+                        const auto motion = power->mechanical.motion.find(*drive);
+                        if (motion == power->mechanical.motion.end() ||
                             motion->second.state != mechanics::MotionState::rotating) return false;
                     }
             }
@@ -3278,6 +3441,10 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             facts.emplace("first_center", Value(Value::Array{Value(first->geometry.center[0]), Value(first->geometry.center[1]), Value(first->geometry.center[2])}));
             facts.emplace("last_center", Value(Value::Array{Value(last->geometry.center[0]), Value(last->geometry.center[1]), Value(last->geometry.center[2])}));
         } else {
+            const auto removed = std::find_if(state.topology.belt_spans.begin(), state.topology.belt_spans.end(),
+                [&](const auto& span) { return span.geometry.id == entity; });
+            if (removed == state.topology.belt_spans.end()) return refused("unknown_target", entity);
+            facts.emplace("removed_span", removed_span_value(*removed));
             auto proposal = stationary::prepare_belt_removal(state.topology, state.kits.at(binding.actor), state.material,
                                                              {entity, generation});
             if (const auto* error = std::get_if<stationary::RemovalRefusal>(&proposal))
@@ -3410,6 +3577,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         entity = selected->geometry.id;
         generation = selected->generation;
         if (*action == "remove") {
+            facts.emplace("removed_part", removed_part_value(*selected));
             auto proposal = stationary::prepare_removal(state.topology, state.kits.at(binding.actor),
                 state.material, {{entity, generation}});
             if (const auto* error = std::get_if<stationary::RemovalRefusal>(&proposal))
