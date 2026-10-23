@@ -5232,6 +5232,7 @@ func issue(action: Dictionary) -> Dictionary:
 			"feed_press": "One carried blank is now under the press head.",
 			"turn_press_crank": "The press advanced its work. Check the worksite for the formed plate.",
 			"deliver_first_plate": "Meridian received one formed plate. Your workshop remains yours to improve.",
+			"deliver_repeat_plate": "Meridian received follow-up plate %d / 3." % (int(outcome.get("shipped_products", 1)) - 1),
 			"place_foundation": "Foundation placed. Its surface shares the machine grid.",
 			"place_foundations": "Foundation area placed on the world grid.",
 			"connect": "Material path connected.", "connect_drive": "Drive shaft connected.",
@@ -5283,9 +5284,10 @@ func issue(action: Dictionary) -> Dictionary:
 			refusal = "Set the pod workshop on clear ground or a foundation top."
 		elif action.action == "reclaim_component" and outcome.get("reason", "") == "inventory_full":
 			refusal = "Your component bag is full. Place another carried part before reclaiming."
-		elif action.action == "deliver_first_plate":
-			refusal = {"no_plate": "Carry a formed plate to send this first order.",
-				"order_filled": "Meridian has already received the first plate.",
+		elif action.action in ["deliver_first_plate", "deliver_repeat_plate"]:
+			refusal = {"no_plate": "Carry a formed plate to the freight beacon.",
+				"first_order_open": "Send the first plate before the follow-up order.",
+				"order_filled": "Meridian has received every plate for this order.",
 				"out_of_reach": "Move beside the freight beacon to deliver the plate."}.get(outcome.get("reason", ""), refusal)
 		_message(refusal, true)
 	_refresh()
@@ -6161,7 +6163,9 @@ func _open_pointed_machine() -> void:
 	var hit := _screen_pick(_pointed_screen_position())
 	if not hit.is_empty() and hit.collider.has_meta("freight_beacon") \
 			and hit.collider.get_meta("freight_beacon") == state.get("freight_beacon", {}).get("id", ""):
-		issue({"action": "deliver_first_plate", "entity": state.freight_beacon.id})
+		selected = ""
+		issue({"action": "deliver_repeat_plate" if state.freight_beacon.get("order_complete", false) \
+			else "deliver_first_plate", "entity": state.freight_beacon.id})
 		return
 	var target := _screen_entity(_pointed_screen_position())
 	if not _contains_target(state, target):
@@ -6680,32 +6684,43 @@ func _sync_freight_beacon_visual() -> void:
 		freight_beacon_visual.collision_mask = 0
 		freight_beacon_visual.set_meta("freight_beacon", beacon.id)
 		add_child(freight_beacon_visual)
-		# This is a world-space interface marker, not a supplied factory.
+		# A slim survey post remains recognizable even after the order is filled.
+		# Its small prompt gives way to the HUD for the actual commission detail.
+		_cylinder(freight_beacon_visual, Vector3(0, 0.06, 0), 0.23, 0.12, Color("293a3e"))
+		_box(freight_beacon_visual, Vector3(0, 0.91, 0), Vector3(0.045, 1.7, 0.045), Color("354b4c"))
+		_cylinder(freight_beacon_visual, Vector3(0, 1.8, 0), 0.08, 0.12, Color("8a6039"))
 		var label := Label3D.new()
 		label.name = "ShipmentLabel"
-		label.position.y = 1.3
+		label.position.y = 2.0
 		label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-		label.font_size = 28
-		label.pixel_size = 0.0045
-		label.outline_size = 8
+		label.font_size = 16
+		label.pixel_size = 0.0012
+		label.outline_size = 3
 		label.outline_modulate = Color("11282e")
 		label.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		freight_beacon_visual.add_child(label)
 		var pick := CollisionShape3D.new()
 		pick.name = "PickShape"
 		var box := BoxShape3D.new()
-		box.size = Vector3(1.6, 0.6, 1.6)
+		box.size = Vector3(1.0, 1.8, 1.0)
 		pick.shape = box
-		pick.position.y = 1.3
+		pick.position.y = 0.9
 		freight_beacon_visual.add_child(pick)
 	var position: Array = beacon.position
 	freight_beacon_visual.position = Vector3(float(position[0]),
 		ProductionEnvironment.Surface.height_at(float(position[0]), float(position[2])), float(position[2]))
-	var delivered: bool = beacon.get("order_complete", false)
+	var delivered: bool = beacon.get("repeat_order_complete", false)
+	var first_received: bool = beacon.get("order_complete", false)
+	var repeat_shipped: int = int(beacon.get("repeat_order_shipped", 0))
+	var repeat_target: int = int(beacon.get("repeat_order_target", 3))
 	var carried: bool = int(state.get("cargo", {}).get(client, {}).get("products", 0)) > 0
-	var caption := "MERIDIAN SHIPMENT\nForm one plate"
-	if carried:
-		caption = "MERIDIAN SHIPMENT\nShip one plate [E]" if _can_control_character() else "MERIDIAN SHIPMENT\nOne plate ready"
+	var caption := "FREIGHT"
+	if first_received:
+		caption = "%d / %d" % [repeat_shipped, repeat_target]
+		if carried:
+			caption = "SHIP [E]" if _can_control_character() else "PLATE READY"
+	elif carried:
+		caption = "SHIP [E]" if _can_control_character() else "PLATE READY"
 	var label: Label3D = freight_beacon_visual.get_node("ShipmentLabel")
 	if label.text != caption:
 		label.text = caption
@@ -8349,7 +8364,9 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	var inventory := int(state.get("inventories", {}).get(client, 0))
 	goal_progress.value = clampi(inventory, 0, 4)
 	goal_progress.visible = not arrival
-	objective_heading.text = "FIRST WORKSHOP  /  01" if arrival else "FIRST SHIFT  /  01"
+	var arrival_repeat: bool = arrival and state.get("freight_beacon", {}).get("order_complete", false)
+	objective_heading.text = ("FIRST WORKSHOP  /  02" if arrival_repeat else "FIRST WORKSHOP  /  01") \
+		if arrival else "FIRST SHIFT  /  01"
 	if arrival:
 		var carried: Dictionary = state.get("cargo", {}).get(client, {})
 		var next_work := "Cut timber or ore with the multitool [E]."
@@ -8359,9 +8376,19 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 			press_ready = press_ready or press.get("status") == "ready"
 		for collector: Dictionary in state.get("collector_assemblies", []):
 			collector_ready = collector_ready or collector.get("status") == "ready"
-		var shipped: bool = state.get("freight_beacon", {}).get("order_complete", false)
-		if shipped:
-			next_work = "First order received. Build a belt route or improve the line."
+		var beacon: Dictionary = state.get("freight_beacon", {})
+		var shipped: bool = beacon.get("order_complete", false)
+		var repeat_done: bool = beacon.get("repeat_order_complete", false)
+		var repeat_shipped: int = int(beacon.get("repeat_order_shipped", 0))
+		var repeat_target: int = int(beacon.get("repeat_order_target", 3))
+		if repeat_done:
+			next_work = "Repeat order received. Keep building or improve the line."
+		elif shipped and int(carried.get("products", 0)) > 0:
+			next_work = "Carry the next plate to the east freight beacon; press E."
+		elif shipped and press_ready:
+			next_work = "Finish another plate at the press. A belt route can automate feed."
+		elif shipped:
+			next_work = "Make another plate. The workshop remains yours to redesign."
 		elif int(carried.get("products", 0)) > 0:
 			next_work = "Carry one plate to the east freight beacon; press E."
 		elif press_ready:
@@ -8376,8 +8403,13 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 			next_work = "Place a frame, then fit a working press."
 		elif int(carried.get("timber", 0)) >= 3:
 			next_work = "Craft a frame at the pod field workshop."
+		var order_heading := "FIRST ORDER · SHIP ONE PLATE"
+		if repeat_done:
+			order_heading = "REPEAT ORDER · DELIVERED"
+		elif shipped:
+			order_heading = "REPEAT ORDER · %d / %d PLATES" % [repeat_shipped, repeat_target]
 		goal_label.text = "%s\n%d timber · %d ore blanks carried\n%s" % [
-			"FIRST ORDER · DELIVERED" if shipped else "FIRST ORDER · SHIP ONE PLATE",
+			order_heading,
 			carried.get("timber", 0), carried.get("raw", 0), next_work] if snapshot_ready else "Connect to the worksite."
 	else:
 		goal_label.text = "Make 4 plates  ·  %d / 4\n%s" % [inventory, step.text] if snapshot_ready else "Connect to the worksite."
@@ -9294,7 +9326,7 @@ func _build_manager_log() -> void:
 	shade.mouse_filter = Control.MOUSE_FILTER_STOP
 	log_root.add_child(shade)
 	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	var column := _panel(log_root, Vector2.ZERO, Vector2(550, 430))
+	var column := _panel(log_root, Vector2.ZERO, Vector2(550, 480))
 	column.add_theme_constant_override("separation", 8)
 	var panel := column.get_parent() as PanelContainer
 	panel.anchor_left = 0.5
@@ -9303,15 +9335,16 @@ func _build_manager_log() -> void:
 	panel.anchor_bottom = 0.5
 	panel.offset_left = -275.0
 	panel.offset_right = 275.0
-	panel.offset_top = -215.0
-	panel.offset_bottom = 215.0
+	panel.offset_top = -240.0
+	panel.offset_bottom = 240.0
 	_label(column, "MERIDIAN COMBINE  /  WORK LOG", 19, Color("f1d7a5"))
 	_label(column, "Field Operations Manager · Shift 01", 13, Color("a9c3bb"))
 	column.add_child(HSeparator.new())
 	for entry in [
 		"00  LANDFALL\nLandfall confirmed. Your office is now the part of the planet under your boots.",
 		"01  FIELD KIT\nThe kit makes tools. The tools make a factory. Corporate has provided the kit.",
-		"02  FIRST ORDER\nForm one plate from local stock. Its final destination is outside your pay grade."]:
+		"02  FIRST ORDER\nForm one plate from local stock. Its final destination is outside your pay grade.",
+		"03  FOLLOW-UP\nSend three more plates. A continuous route can free your hands, but the layout is yours."]:
 		var line := _label(column, entry, 15)
 		line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		line.custom_minimum_size.x = 496.0
