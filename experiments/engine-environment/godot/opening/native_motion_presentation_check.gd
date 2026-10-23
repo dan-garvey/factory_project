@@ -174,6 +174,33 @@ func check_shared_freshness() -> void:
 	verify(view.state == before and view.model == null, "Shared presentation emits no command or material update.")
 	view.free()
 
+func check_wheel_enters_view() -> void:
+	var view := Opening.new()
+	mount(view)
+	view.state.links = []
+	view.machine_root = Node3D.new()
+	view.add_child(view.machine_root)
+	view._rebuild_machines()
+	var center: Vector3 = view.machine_rotors[0].center
+	var rest: Basis = view.wheel_rotor.basis
+	var camera := Camera3D.new()
+	get_root().add_child(camera)
+	camera.position = center + Vector3(0, 0, 100)
+	camera.look_at(center + Vector3(0, 0, 200))
+	camera.make_current()
+	view.camera = camera
+	view._animate_wheel(0.1)
+	verify(view.wheel_rotor.basis.is_equal_approx(rest) and view.transmission_presenter.visual_angle("wheel") != 0.0,
+		"An offscreen rotor keeps its last rendered pose while confirmed cosmetic phase advances.")
+	camera.position = center + Vector3(0, 0, 10)
+	camera.look_at(center)
+	view._animate_wheel(0.1)
+	verify(view.wheel_rotor.basis.is_equal_approx(rest * Basis(Vector3.BACK,
+		view.transmission_presenter.visual_angle("wheel"))), "The first visible cut catches the rotor up to its confirmed phase.")
+	view.camera = null
+	camera.free()
+	view.free()
+
 func _initialize() -> void:
 	call_deferred("_run")
 
@@ -181,6 +208,7 @@ func _run() -> void:
 	check_rotation_and_identity()
 	check_wheels()
 	check_shared_freshness()
+	check_wheel_enters_view()
 	for motion: Variant in [{}, {"state": "rotating", "numerator": true, "denominator": 1},
 		{"state": "rotating", "numerator": 1, "denominator": 0}, {"state": "rotating", "numerator": 1.0, "denominator": 1}]:
 		verify(Presenter.signed_rate(motion) == 0.0, "Malformed rate facts cannot animate parts.")

@@ -4469,6 +4469,7 @@ var machine_conveyor_batches: Array[Dictionary] = []
 var machine_rotors: Array[Dictionary] = []
 var machine_batched_rotors: Dictionary = {}
 var wheel_batch_poses: Dictionary = {}
+var wheel_updated_rotors: Dictionary = {}
 var machine_motion_anchors: Array[Node3D] = []
 var machine_batch_finished_meshes: Dictionary = {}
 var machine_batch_rotor_meshes: Dictionary = {}
@@ -5230,11 +5231,23 @@ func _animate_wheel(delta: float) -> void:
 			return
 		transmission_presenter.advance_visual_motion(delta)
 		wheel_batch_poses.clear()
+		wheel_updated_rotors.clear()
 		var cull_far_joinery := camera != null and camera.is_inside_tree() and not machine_batched_rotors.is_empty()
 		var listener_position := camera.global_position if cull_far_joinery else Vector3.ZERO
+		var frustum: Array = camera.get_frustum() if camera != null and camera.is_inside_tree() else []
 		for wheel in machine_rotors:
+			# Keep nearby offscreen wheels live for their shadows. The confirmed
+			# cosmetic phase still advances when its hidden pose is held.
+			var outside_view := false
+			for plane: Plane in frustum:
+				if plane.distance_to(wheel.center) > WHEEL_MOTION_VISIBILITY_MARGIN:
+					outside_view = true
+					break
+			if outside_view:
+				continue
 			var basis: Basis = wheel.base * Basis(Vector3.BACK, transmission_presenter.visual_angle(wheel.id))
 			var rotor_id: int = wheel.rotor.get_instance_id()
+			wheel_updated_rotors[rotor_id] = true
 			# The full core is already in a MultiMesh. Beyond the last paddle
 			# detail range, advance that instance without dirtying the many
 			# hidden and distance-culled source nodes under its rotor.
@@ -5244,7 +5257,7 @@ func _animate_wheel(delta: float) -> void:
 			else:
 				wheel.rotor.basis = basis
 		_animate_machine_bodies(delta)
-		_update_machine_dynamic_batches()
+		_update_machine_dynamic_batches(true)
 		return
 	# Historical scripted presentation remains separate. Native cosmetic
 	# angles above are neither a simulation clock nor saved/contact phase.
@@ -6391,10 +6404,13 @@ func _sync_landing_pod_visual() -> void:
 	var position: Array = hub.position
 	var pod_center: Array = pod.center
 	var hub_center: Array = hub.center
-	var hub_world := Vector3(float(position[0]), float(position[1]), float(position[2]))
-	landing_hub_visual.position = hub_world
+	# Host positions use the shared spindle anchor; this art is authored from
+	# the floor. Apply the common offset once, including on restored views.
+	var hub_floor := Vector3(float(position[0]), float(position[1]), float(position[2])) \
+		- Vector3.UP * Geometry.ANCHOR_HEIGHT
+	landing_hub_visual.position = hub_floor
 	if not arrival_reveal_active:
-		landing_pod_visual.position = hub_world - Vector3(
+		landing_pod_visual.position = hub_floor - Vector3(
 			float(hub_center[0] - pod_center[0]) * PITCH, 0,
 			float(hub_center[2] - pod_center[2]) * PITCH)
 	landing_crank_visual.visible = state.get("hand_crank", {}).get("holder", "") == "pod"
@@ -7181,6 +7197,7 @@ const MACHINE_BATCH_THRESHOLD := 12
 # Paddle joinery ends by 32 m with a 2 m fade margin; the extra room
 # covers the largest authored rim and a camera move between render cuts.
 const WHEEL_DETAIL_UPDATE_RADIUS := 48.0
+const WHEEL_MOTION_VISIBILITY_MARGIN := 16.0
 
 func _machine_batch_surface_mesh(part: MeshInstance3D) -> Mesh:
 	var source: Mesh = part.mesh
@@ -7451,7 +7468,7 @@ func _emit_machine_mesh_batches(groups: Dictionary, batches: Node3D, dynamic: bo
 					machine_batched_rotors[part.node.get_instance_id()] = true
 		batch_index += 1
 
-func _update_machine_dynamic_batches() -> void:
+func _update_machine_dynamic_batches(visible_rotors_only := false) -> void:
 	if machine_dynamic_batches.is_empty() and machine_conveyor_batches.is_empty():
 		return
 	var to_local := machine_root.global_transform.affine_inverse()
@@ -7464,6 +7481,9 @@ func _update_machine_dynamic_batches() -> void:
 			var motion_pose: Transform3D
 			if part.has("parent_pose"):
 				var node_id: int = part.node.get_instance_id()
+				# An offscreen rotor keeps its last instance pose until it returns.
+				if visible_rotors_only and not wheel_updated_rotors.has(node_id):
+					continue
 				motion_pose = part.parent_pose * (wheel_batch_poses[node_id] \
 					if wheel_batch_poses.has(node_id) else part.node.transform)
 			else:
@@ -7517,6 +7537,7 @@ func _batch_machine_visuals() -> void:
 	machine_conveyor_batches.clear()
 	machine_batched_rotors.clear()
 	wheel_batch_poses.clear()
+	wheel_updated_rotors.clear()
 	if not _native_transmission() or machine_root.get_child_count() < MACHINE_BATCH_THRESHOLD:
 		return
 	var moving := {}
