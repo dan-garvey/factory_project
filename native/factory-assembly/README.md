@@ -33,5 +33,15 @@ sliding guide is three steps above it, and a shaft with a cog approaches at
 the next full-grid axle height. No frame or tool mount is required. The same
 clear-feed and ambiguous-drive refusals apply at ground or raised height.
 Assembly inspection remains read-only; native World owns power, work and
-material custody, while Host and the ordinary scene still need this new
-arrangement as consumers.
+material custody. Native World and Host consume the guided arrangement; the
+ordinary scene still consumes framed rows.
+
+`inspect_broad_press` recognizes one 2 × 2 work face from four separately
+placed anvils, four matching ram faces and four guides. Each stroke cell must
+be clear between its ram and guide. Each separate ram needs its own shaft and
+cog pair approaching from an exterior edge; a second complete pair at one pad
+is ambiguous. The result preserves all twelve work-face identities and four
+drive pairs on the same global grid at ground or raised height. It contains no
+frame, mount, material recipe or broad-sheet custody. Native World must verify
+that all four drives have compatible signed motion before a broad stroke; it
+and the ordinary scene have not yet adopted this geometry for production.
