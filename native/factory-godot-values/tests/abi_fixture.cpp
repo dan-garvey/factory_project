@@ -91,6 +91,19 @@ void run() {
         refuses([&]{ (void)boundary.export_value(Value(text)); }, adapter::ErrorCode::invalid_string);
     refuses([&]{ (void)boundary.export_value(Value(std::string(1024 * 1024 + 1, 'x'))); }, adapter::ErrorCode::limit);
 
+    const Value repeated(Value::Array{
+        Value(Value::Object{{"shared", Value("Ångström")}}),
+        Value(Value::Object{{"shared", Value("Ångström")}}),
+        Value(Value::Object{{"shared", Value("Ångström")}}),
+        Value(Value::Object{{"shared", Value("Ångström")}})});
+    auto repeated_native = boundary.export_value(repeated);
+    require(!values::typed_difference(repeated, boundary.import_value(repeated_native.get())),
+            "Repeated UTF-8 keys and values retain their exact typed engine representation.");
+    Value::Array over_budget;
+    for (int index = 0; index < 6; ++index)
+        over_budget.emplace_back(std::string(800000, 'q'));
+    refuses([&]{ (void)boundary.export_value(Value(over_budget)); }, adapter::ErrorCode::limit);
+
     Value nested(Value::Integer{7});
     for (int depth = 0; depth < 32; ++depth) nested = Value(Value::Array{nested});
     auto deep = boundary.export_value(nested);
