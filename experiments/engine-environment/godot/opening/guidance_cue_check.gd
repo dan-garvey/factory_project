@@ -535,6 +535,12 @@ func check_footer_layout() -> void:
 		"The fresh controls fit a compact strip instead of reserving the old two-row banner.")
 	verify(short_bounds.size.x < 952.0, "The fresh strip removes blank width while fitting every control hint.")
 	verify(is_equal_approx(short_bounds.end.y, view.building_hotbar.position.y - 12.0), "The compact footer stays above the hotbar.")
+	view._message("")
+	await settle_footer()
+	verify(not view.status_label.visible and view.controls_label.is_visible_in_tree() \
+		and is_equal_approx(panel.get_global_rect().size.y, short_bounds.size.y),
+		"An empty event status reserves no row while the control legend remains readable.")
+	view._message(intro)
 	root.size = Vector2i(1600, 900)
 	await settle_footer()
 	var wide_bounds: Rect2 = panel.get_global_rect()

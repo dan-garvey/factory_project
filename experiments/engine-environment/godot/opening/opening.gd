@@ -4730,10 +4730,10 @@ func _ready() -> void:
 			call_deferred("_warm_packed_machine_previews")
 		else:
 			_prime_machine_visuals()
-	if _native_transmission():
-		_message("WASD moves. Point at a resource and use your multitool with E." if state.has("hand_sources") else FIRST_COLLECTOR_HINT)
-	else:
+	if not _native_transmission():
 		_message("Build a small line. Choose a part, then click a grid square." if legacy_fixture else "WASD walks. Build nearby; a wheel in the stream drives connected parts.")
+	elif not state.has("hand_sources"):
+		_message(FIRST_COLLECTOR_HINT)
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--resume-input="):
 			var result: Dictionary = _load_worksite(argument.trim_prefix("--resume-input="), true)
@@ -9087,12 +9087,14 @@ func _fit_guided_footer() -> void:
 				panel.size.y = height
 	# Keep repeated guidance on the objective card instead of a second message panel.
 	var repeated_goal: bool = not status_label.text.is_empty() and goal_label.text.contains(status_label.text)
-	var redundant_intro: bool = repeated_goal or _native_transmission() and footer_snapshot_ready and _placement_ready() and not status_refused \
-		and not show_details and not _catalog_open() and mode in ["inspect", "collector"] \
+	var can_omit_instruction: bool = footer_snapshot_ready and _placement_ready() \
+		and not status_refused and not show_details and not _catalog_open() and not explanation_open
+	var redundant_intro: bool = can_omit_instruction and (repeated_goal or _native_transmission() \
+		and mode in ["inspect", "collector"] \
 		and state.get("entities", {}).is_empty() and state.get("transmission_parts", {}).is_empty() \
 		and _guided_step({}).tool == "collector" \
-		and status_label.text == FIRST_COLLECTOR_HINT
-	status_label.visible = not redundant_intro
+		and status_label.text == FIRST_COLLECTOR_HINT)
+	status_label.visible = not status_label.text.is_empty() and not redundant_intro
 	var inspector_panel: Control = inspector.get_parent().get_parent()
 	var right: float = inspector_panel.get_global_rect().position.x - get_viewport().get_visible_rect().end.x - 18.0 \
 		if inspector_panel.visible else -18.0
