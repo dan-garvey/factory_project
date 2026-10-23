@@ -1,8 +1,8 @@
 # Chapter 1 mechanical feeding candidates
 
 This note records small, reversible geometry and forming rules for
-`factory-yau.1.10.17.1`, `factory-yau.1.10.17.2` and
-`factory-yau.1.10.17.4`.
+`factory-yau.1.10.17.1`, `factory-yau.1.10.17.2`,
+`factory-yau.1.10.17.3` and `factory-yau.1.10.17.4`.
 They are design choices for future native and ordinary-scene work, not claims
 about the current runtime or requirements for the first plate. The first plate
 remains hand-fed. `factory-yau.1.10.16.4` owns broad-item carrier behavior and
@@ -95,6 +95,56 @@ fallen stream goes. Removing a jam, rotating an accessible strip, or emptying
 the lower receiver resumes the same items without a product menu, hidden
 filter or tuned cycle timing. This is optional routing after the first plate,
 not a prerequisite for hand recovery.
+
+## Fixed-pocket metering slide candidate
+
+`factory-yau.1.10.17.3` proposes one sliding pocket behind a housing that
+never exposes a straight path from inlet to outlet. Choose a one-slot or
+three-slot insert; each slot is one shared-grid workcell wide and supports one
+standard chunk-shaped item. The three-slot insert is three distinct spaces,
+not permission to put a 2 × 2 sheet in one long cavity. The visible empty or
+occupied spaces define capacity. Any item that physically fits may enter,
+including mixed materials; the slide has no recipe or item-name filter. A
+downstream process may refuse a mixed batch without making it disappear.
+
+The slide runs one fixed basic cycle. The fill mouth is open only at its home
+stop. When every slot is occupied, a full-pocket latch permits one powered
+travel to the sealed unloading stop. A blocked receiver holds that same full
+pocket at the unload stop. Once the receiver admits the whole batch, all
+items transfer in one custody change and the empty pocket returns home.
+Housing, latch and end stops are one supplied mechanism, not separate tiny
+parts the player must phase-align. No timing, delay, count or phase control is
+exposed to the player.
+
+| State | Visible pocket and authority | Next admitted event |
+| --- | --- | --- |
+| Filling | Home at the fill mouth; the pocket owns zero to capacity-minus-one items. | Each fitting arrival occupies one free slot. Empty supply waits here. |
+| Ready | Home with every slot occupied; the same pocket owns the full batch. | Power and a clear travel volume move the sealed pocket. A partial batch never triggers this move. |
+| Transfer | Inlet and outlet are covered; the pocket still owns every item. | Reaching the unload stop exposes the receiver. Power loss stops the pocket in place with its contents. |
+| Unloading or blocked | At the unload stop; the pocket still owns the full batch until the matching receiver accepts every item. | On full admission, one atomic handoff changes ownership and empties the pocket. A full or incompatible receiver holds the pocket here. |
+| Return | Empty pocket moves to its home stop. | The fill mouth opens only at home; a power loss holds the empty pocket without losing a cycle. |
+
+For a three-slot example, two copper chunks `C1` and `C2` hold eight mass
+units in the filling pocket while the third slot is visibly empty. Starvation
+leaves those exact two chunks there; it cannot send a two-chunk batch. Arrival
+of `C3` raises the pocket tally to twelve units and makes it ready. If power
+stops halfway, the sealed pocket still owns `C1`, `C2` and `C3`. If the former
+is occupied at unloading, all three remain at the unload stop. Only a clear
+receiver takes all three together; an accepted handoff moves twelve units,
+with none left in the pocket. A stopped, stationary pocket has an accessible
+service face for manual retrieval of its exact contents before a repair or
+reroute. The same owner, slots and travel stop survive save and rejoin.
+
+Two uses share this cycle. A three-slot slide batches three stock chunks for
+one broad forming inlet, making supply and backpressure visible. A one-slot
+slide spaces pieces into a cutter inlet without demanding a new controller.
+Both may receive any fitting piece; destination fit and recipe checks remain
+with the destination. A wrong-shaped sheet never enters the standard slots,
+while three fitting but unsuitable pieces stay recoverable when the receiver
+refuses them. The closed `factory-yau.4.23` fixed-pattern distributor proves
+an ordered one-item planner can hold its index under backpressure. It owns no
+live items or physical pocket, so this design takes only the hold principle;
+World would still need one authoritative transfer and cycle state.
 
 ## Repeated cold forming candidate
 
