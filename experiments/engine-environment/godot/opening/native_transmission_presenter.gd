@@ -1721,11 +1721,19 @@ func refresh() -> void:
 			else:
 				visual = Items.workpiece_billet(self, location)
 			var label := Label3D.new()
-			label.text = "%d blank(s), %d plate(s), %d workpiece(s) · pick up in menu" % [drop.raw, drop.products, drop.work_lots.size()]
-			if drop.has("offcuts"):
-				label.text = "%d blank(s), %d plate(s), %d workpiece(s), %d offcut(s), %d sheet(s) · pick up in menu" % [drop.raw, drop.products, drop.work_lots.size(), drop.offcuts, drop.sheets]
-			label.position.y = 0.3
+			if drop.raw > 0:
+				label.text = "%d blank" % drop.raw
+			elif drop.products > 0:
+				label.text = "%d plate" % drop.products
+			elif int(drop.get("offcuts", 0)) > 0:
+				label.text = "%d offcut" % int(drop.offcuts)
+			elif int(drop.get("sheets", 0)) > 0:
+				label.text = "%d copper sheet" % int(drop.sheets)
+			else:
+				label.text = "%d held workpiece" % drop.work_lots.size()
+			label.position.y = 1.2 if int(drop.get("offcuts", 0)) > 0 else 0.3
 			label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+			label.no_depth_test = int(drop.get("offcuts", 0)) > 0
 			visual.add_child(label)
 	var rendered: Dictionary = {}
 	var gear_anchors: Dictionary = {}

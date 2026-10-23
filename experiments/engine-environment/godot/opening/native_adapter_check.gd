@@ -615,10 +615,21 @@ func _deliver_repeat_arrival_plates(panel, capture_prefix: String) -> bool:
 		if not _expect(not panel.pickup_button.disabled, "The next formed plate can be picked up physically"):
 			return false
 		panel.pickup_button.pressed.emit()
+		if not _expect(not panel.recover_work_button.disabled
+				and panel.recover_work_button.text.contains("offcut"),
+				"The next press stroke retains a separate recoverable copper trimming"):
+			return false
+		panel.recover_work_button.pressed.emit()
 	if not _expect(opening.model.projection().cargo.P.products == 3
+			and opening.model.projection().cargo.P.offcuts == 4
 			and opening.model.projection().cargo.P.raw == 0
-			and opening.model.projection().dropped_material.is_empty(),
+			and opening.model.projection().dropped_material.is_empty()
+			and opening.model.projection().material_mass.accounted_mass == 64,
 			"Two more local blanks become plates beside the retained second plate without gifted stock"):
+		return false
+	opening.object_menu_close.pressed.emit()
+	if not _expect(not opening._object_menu_open(),
+			"Closing the inspected press returns ordinary E control for the repeat shipment"):
 		return false
 	if not await _approach_points([Vector2(6.6, 4.95), Vector2(6.6, 8.25), Vector2(9.9, 8.25)]):
 		return false
@@ -1612,6 +1623,8 @@ func _arrival_run() -> void:
 		if not _expect(opening.last_load_result.get("accepted", false)
 				and opening.arrival_reveal_audio == null
 				and restored.cargo.P.products == (0 if repeat_complete else 1 if first_delivered else 2)
+				and restored.cargo.P.offcuts == (4 if repeat_complete else 2)
+				and restored.material_mass.accounted_mass == 64
 				and restored.freight_beacon.order_complete == first_delivered
 				and restored.freight_beacon.shipped_products == (4 if repeat_complete else 1 if first_delivered else 0)
 				and restored.freight_beacon.repeat_order_shipped == (3 if repeat_complete else 0)
@@ -1804,10 +1817,29 @@ func _arrival_run() -> void:
 			return
 		panel.turn_button.pressed.emit()
 	var after: Dictionary = opening.model.projection()
-	if not _expect(after.dropped_material.size() == 1 and after.dropped_material[0].products == 1,
-			"Repeated hand turns form one plate at the selected lower exit"):
+	if not _expect(after.dropped_material.size() == 2
+			and after.dropped_material.any(func(drop: Variant) -> bool: return drop.products == 1)
+			and after.dropped_material.any(func(drop: Variant) -> bool: return drop.offcuts == 1)
+			and after.material_mass.accounted_mass == 64,
+			"Repeated hand turns form one plate and retain one copper offcut at the work point"):
 		return
+	if not capture_prefix.is_empty():
+		await process_frame
+		var copper_output: Image = root.get_texture().get_image()
+		if not _expect(copper_output != null and copper_output.save_png(capture_prefix + "-plate-offcut.png") == OK,
+				"The separate formed plate and copper offcut are retained as passive pixels"):
+			return
 	if not _expect(not panel.pickup_button.disabled, "The formed plate is offered for physical pickup"):
+		return
+	if not _expect(not panel.recover_work_button.disabled
+			and panel.recover_work_button.text.contains("offcut")
+			and panel.feed_button.disabled,
+			"The next feed waits for the visible copper offcut to be recovered"):
+		return
+	panel.recover_work_button.pressed.emit()
+	if not _expect(opening.model.projection().cargo.P.offcuts == 1
+			and opening.model.projection().dropped_material.size() == 1,
+			"Ordinary press recovery moves only the copper offcut into actor custody"):
 		return
 	panel.feed_button.pressed.emit()
 	if not _expect(opening.model.projection().cargo.P.raw == 0
@@ -1842,14 +1874,22 @@ func _arrival_run() -> void:
 				"Returning from freight opens the press again through the ordinary E ray"):
 			return
 	panel.turn_button.pressed.emit()
-	if not _expect(opening.model.projection().dropped_material.size() == 1
-			and opening.model.projection().dropped_material[0].products == 1,
+	if not _expect(opening.model.projection().dropped_material.size() == 2
+			and opening.model.projection().dropped_material.any(func(drop: Variant) -> bool: return drop.products == 1)
+			and opening.model.projection().dropped_material.any(func(drop: Variant) -> bool: return drop.offcuts == 1),
 			"Clearing the exit lets the retained ready work form its second product"):
 		return
 	panel.pickup_button.pressed.emit()
+	if not _expect(not panel.recover_work_button.disabled
+			and opening.model.projection().dropped_material.size() == 1,
+			"The second plate pickup leaves its separate copper offcut beneath the ram"):
+		return
+	panel.recover_work_button.pressed.emit()
 	if not _expect(opening.model.projection().cargo.P.products == (1 if mode in ["arrival-delivery", "arrival-repeat-delivery"] else 2)
-			and opening.model.projection().dropped_material.is_empty(),
-			"The second formed plate enters finite carried custody through ordinary controls"):
+			and opening.model.projection().cargo.P.offcuts == 2
+			and opening.model.projection().dropped_material.is_empty()
+			and opening.model.projection().material_mass.accounted_mass == 64,
+			"Both plates and both copper offcuts enter finite carried custody through ordinary controls"):
 		return
 	if mode == "arrival-repeat-delivery" and not await _deliver_repeat_arrival_plates(panel, capture_prefix):
 		return
