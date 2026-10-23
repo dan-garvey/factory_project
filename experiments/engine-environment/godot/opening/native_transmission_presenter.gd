@@ -32,6 +32,9 @@ var _generations: Dictionary = {}
 var _visual_rates: Dictionary = {}
 var _visual_angles: Dictionary = {}
 var _visual_rotations: Dictionary = {}
+var _native_phase_elapsed := 0.0
+var _native_phase_lazy := false
+var _moving_batched_gears := false
 var _gear_batches: Dictionary = {}
 var _batched_gear_ids: Dictionary = {}
 var _gear_anchor_cache: Dictionary = {}
@@ -56,6 +59,7 @@ func _clear(retained_nodes: Dictionary = {}) -> void:
 	_cargo_anchors.clear()
 	_gear_batches.clear()
 	_batched_gear_ids.clear()
+	_moving_batched_gears = false
 	_gear_anchor_cache.clear()
 	_native_view_context = ""
 	_native_view_revision = null
@@ -71,6 +75,16 @@ func _clear_motion() -> void:
 	_visual_rates.clear()
 	_visual_angles.clear()
 	_visual_rotations.clear()
+	_native_phase_elapsed = 0.0
+	_native_phase_lazy = false
+	_moving_batched_gears = false
+
+func _refresh_moving_batched_gears() -> void:
+	_moving_batched_gears = false
+	for id: String in _batched_gear_ids:
+		if _visual_rates.has(id):
+			_moving_batched_gears = true
+			return
 
 func _sync_motion(snapshot: Dictionary) -> void:
 	var context: Variant = snapshot.get("context")
@@ -80,6 +94,13 @@ func _sync_motion(snapshot: Dictionary) -> void:
 	if _motion_context != context:
 		_clear_motion()
 		_motion_context = context
+	elif _native_phase_lazy and _native_phase_elapsed > 0.0:
+		# A new confirmed rate starts from the last phase under the old rate.
+		# This one walk is tied to a native revision, not every render frame.
+		for id: String in _visual_rates:
+			_visual_rotations[id] = visual_rotation(id)
+			_visual_angles[id] = visual_angle(id)
+	_native_phase_elapsed = 0.0
 	var current: Dictionary = {}
 	for group: String in ["entities", "transmission_parts"]:
 		var parts: Variant = snapshot.get(group, {})
@@ -104,6 +125,9 @@ func _sync_motion(snapshot: Dictionary) -> void:
 			var rate := signed_rate(motions.get(id))
 			if rate != 0.0:
 				_visual_rates[id] = rate
+	_native_phase_lazy = _host != null and is_instance_valid(_host.get_ref()) \
+		and _host.get_ref().get("model") is NativeModel
+	_refresh_moving_batched_gears()
 	_motion_revision = snapshot.get("revision")
 
 static func signed_rate(motion: Variant) -> float:
@@ -112,10 +136,17 @@ static func signed_rate(motion: Variant) -> float:
 	return float(motion.numerator) / float(motion.denominator)
 
 func visual_angle(id: String) -> float:
-	return float(_visual_angles.get(id, 0.0))
+	var angle := float(_visual_angles.get(id, 0.0))
+	if _native_phase_lazy and _visual_rates.has(id):
+		angle = wrapf(angle + _native_phase_elapsed * float(_visual_rates[id]) *
+			VISUAL_RADIANS_PER_SECOND, -PI, PI)
+	return angle
 
 func visual_rotation(id: String) -> float:
-	return float(_visual_rotations.get(id, 0.0))
+	var rotation := float(_visual_rotations.get(id, 0.0))
+	if _native_phase_lazy and _visual_rates.has(id):
+		rotation += _native_phase_elapsed * float(_visual_rates[id]) * VISUAL_RADIANS_PER_SECOND
+	return rotation
 
 func _apply_angles(update_gears := true) -> void:
 	for child: Node3D in _moving_anchors:
@@ -149,7 +180,7 @@ func _apply_angles(update_gears := true) -> void:
 			var origins: Array = batch.origins
 			var last_angles: Array[float] = batch.last_angles
 			for index in ids.size():
-				var angle := float(_visual_angles.get(ids[index], 0.0))
+				var angle := visual_angle(ids[index])
 				if angle == last_angles[index]:
 					continue
 				var basis: Basis = bases[index] * Basis(Vector3.UP, angle)
@@ -168,31 +199,39 @@ func advance_visual_motion(delta: float) -> void:
 	var snapshot: Variant = host.get("state")
 	if not snapshot is Dictionary or not snapshot.get("motion") is Dictionary:
 		return
-	# A machine can be rebuilt before the next presenter refresh. Catch that
-	# addition here; ordinary replacement projections carry a new revision.
+	var native_motion := host.get("model") is NativeModel
+	# Native World changes revision with each projection. Scripted fixtures can
+	# rebuild their identity dictionary in place before a presenter refresh.
 	var identity_count := 0
-	for group: String in ["entities", "transmission_parts"]:
-		var parts: Variant = snapshot.get(group)
-		if parts is Dictionary:
-			identity_count += parts.size()
-	if _motion_context != snapshot.get("context", "") or _motion_revision != snapshot.get("revision") or identity_count != _generations.size():
+	if not native_motion:
+		for group: String in ["entities", "transmission_parts"]:
+			var parts: Variant = snapshot.get(group)
+			if parts is Dictionary:
+				identity_count += parts.size()
+	if _motion_context != snapshot.get("context", "") or _motion_revision != snapshot.get("revision") \
+			or (not native_motion and identity_count != _generations.size()):
 		_sync_motion(snapshot)
-	var changed_gears := false
 	# Synthetic callers can mutate one revision in place, so they retain the
 	# direct lookup. Native World increments revision on every changed state.
-	var native_motion := host.get("model") is NativeModel
-	var rates: Dictionary = _visual_rates if native_motion else _generations
-	for id: String in rates:
-		var rate: float = rates[id] if native_motion else signed_rate(snapshot.motion.get(id))
-		if rate != 0.0:
-			var step := delta * rate * VISUAL_RADIANS_PER_SECOND
-			var rotation := visual_rotation(id) + step
-			if not is_finite(step) or not is_finite(rotation):
-				continue
-			_visual_rotations[id] = rotation
-			_visual_angles[id] = wrapf(visual_angle(id) + step, -PI, PI)
-			changed_gears = changed_gears or _batched_gear_ids.has(id)
-	_apply_angles(changed_gears)
+	if native_motion:
+		var next_elapsed := _native_phase_elapsed + delta
+		if not is_finite(next_elapsed):
+			return
+		_native_phase_elapsed = next_elapsed
+		_apply_angles(_moving_batched_gears)
+	else:
+		var changed_gears := false
+		for id: String in _generations:
+			var rate := signed_rate(snapshot.motion.get(id))
+			if rate != 0.0:
+				var step := delta * rate * VISUAL_RADIANS_PER_SECOND
+				var rotation := visual_rotation(id) + step
+				if not is_finite(step) or not is_finite(rotation):
+					continue
+				_visual_rotations[id] = rotation
+				_visual_angles[id] = wrapf(visual_angle(id) + step, -PI, PI)
+				changed_gears = changed_gears or _batched_gear_ids.has(id)
+		_apply_angles(changed_gears)
 	if not _cargo_anchors.is_empty():
 		_advance_belt_cargo(delta, snapshot)
 
@@ -1710,5 +1749,6 @@ func refresh() -> void:
 		if child is Node3D and not child.get_meta("batched_gear", false) and (child.has_meta("axis")
 				or child.has_meta("belt_shaft") or child.has_meta("relay_static")):
 			_moving_anchors.append(child)
+	_refresh_moving_batched_gears()
 	_apply_angles()
 	_refresh_belt_cargo(spans)

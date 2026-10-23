@@ -1317,6 +1317,26 @@ Distance LOD is therefore not used in this change. `ArrayMesh.surface_get_lods`
 is not a callable GDScript API in this runtime; an early probe raised a script
 error.
 
+## GDC-26: native visual phases can advance at their readers
+
+The native World marks each changed projection with a new context or revision.
+The transmission presenter retains confirmed signed rates and one elapsed time
+for that revision. It calculates a part's cosmetic angle when a visible rotor,
+shaft, belt or cog batch reads it, then carries the phase forward when a new
+revision changes the rate. The World clock, saved state and mechanical motion
+remain authoritative; this adapter changes only presentation work between
+projections. Scripted fixtures that mutate one revision in place keep their
+direct motion lookup.
+
+The focused native-model fixture supplies invented projections rather than
+running a native World. On the pinned Godot 4.7.2 WSL build, a 400-cog
+`MultiMesh.get_instance_transform` readback check returned identity transforms
+under the headless renderer after the update, but the same graphical
+Compatibility check passed all 400 pose and pick assertions. Use the graphical
+renderer for this batch-pose check; headless motion tests still cover phase and
+state behavior. Neither fixture establishes full-opening frame rate or native
+mechanical throughput.
+
 ## Required follow-through
 
 This first source/API/evidence audit leaves actual backend identification,

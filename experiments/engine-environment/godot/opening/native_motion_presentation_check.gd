@@ -5,10 +5,18 @@ const Opening = preload("res://opening/opening.gd")
 const Shared = preload("res://opening/shared_opening.gd")
 const Presenter = preload("res://opening/native_transmission_presenter.gd")
 const Geometry = preload("res://opening/site_geometry.gd")
+const NativeModel = preload("res://opening/native_model.gd")
 
 class Connection extends RefCounted:
 	var ready := true
 	func is_ready() -> bool:
+		return ready
+
+class NativeHost extends RefCounted:
+	var state: Dictionary
+	var model: Variant
+	var ready := true
+	func _can_present_confirmed_motion() -> bool:
 		return ready
 
 var checks := 0
@@ -201,6 +209,58 @@ func check_wheel_enters_view() -> void:
 	camera.free()
 	view.free()
 
+func check_native_lazy_phases() -> void:
+	var host := NativeHost.new()
+	host.model = NativeModel.new()
+	host.state = {"context": "native-phase-fixture", "revision": 1,
+		"options": {"native": true}, "entities": {}, "transmission_parts": {},
+		"motion": {}, "belt_spans": {}, "engagements": [],
+		"placed_components": {}, "dropped_material": []}
+	for id in ["a", "b", "c"]:
+		host.state.entities[id] = {"kind": "wheel", "generation": 1, "cell": [0, 0]}
+	host.state.motion = {"a": {"state": "rotating", "numerator": 1, "denominator": 1},
+		"b": {"state": "rotating", "numerator": -1, "denominator": 2},
+		"c": {"state": "rotating", "numerator": 1, "denominator": 3}}
+	var presenter := Presenter.new()
+	get_root().add_child(presenter)
+	presenter.configure(host)
+	for frame in 10:
+		presenter.advance_visual_motion(0.1)
+	var radians: float = Presenter.VISUAL_RADIANS_PER_SECOND
+	verify(absf(presenter.visual_angle("a") - wrapf(radians, -PI, PI)) < 0.0001 \
+		and absf(presenter.visual_angle("b") - wrapf(-radians * 0.5, -PI, PI)) < 0.0001 \
+		and absf(presenter.visual_angle("c") - wrapf(radians / 3.0, -PI, PI)) < 0.0001,
+		"Offscreen native wheel phases catch up at independent signed confirmed rates.")
+	verify(absf(presenter.visual_rotation("c") - radians / 3.0) < 0.0001,
+		"Unwrapped native phase remains available to a conveyor UV loop.")
+	host.state.motion.a.numerator = -2
+	host.state.motion.b.state = "stalled"
+	host.state.revision += 1
+	presenter.advance_visual_motion(0.1)
+	verify(absf(presenter.visual_angle("a") - wrapf(radians * 0.8, -PI, PI)) < 0.0001 \
+		and absf(presenter.visual_angle("b") - wrapf(-radians * 0.5, -PI, PI)) < 0.0001,
+		"A native revision preserves prior phase, then applies new or stopped rates.")
+	host.ready = false
+	var frozen: float = presenter.visual_angle("a")
+	presenter.advance_visual_motion(0.5)
+	verify(absf(presenter.visual_angle("a") - frozen) < 0.0001,
+		"Unavailable confirmed motion cannot advance a deferred native phase.")
+	host.ready = true
+	host.state.entities.c.generation = 2
+	host.state.revision += 1
+	presenter.advance_visual_motion(0.1)
+	verify(absf(presenter.visual_angle("c") - wrapf(radians / 30.0, -PI, PI)) < 0.0001,
+		"A replaced offscreen wheel starts at its own zero phase.")
+	host.state.context = "next-native-world"
+	host.state.revision = 1
+	presenter.advance_visual_motion(0.1)
+	verify(absf(presenter.visual_angle("a") - wrapf(-radians * 0.2, -PI, PI)) < 0.0001,
+		"A new native context cannot borrow the prior wheel phase.")
+	var input: Dictionary = host.state.duplicate(true)
+	presenter.advance_visual_motion(0.1)
+	verify(host.state == input, "Lazy presentation never writes to native projection input.")
+	presenter.free()
+
 func _initialize() -> void:
 	call_deferred("_run")
 
@@ -209,9 +269,10 @@ func _run() -> void:
 	check_wheels()
 	check_shared_freshness()
 	check_wheel_enters_view()
+	check_native_lazy_phases()
 	for motion: Variant in [{}, {"state": "rotating", "numerator": true, "denominator": 1},
 		{"state": "rotating", "numerator": 1, "denominator": 0}, {"state": "rotating", "numerator": 1.0, "denominator": 1}]:
 		verify(Presenter.signed_rate(motion) == 0.0, "Malformed rate facts cannot animate parts.")
 	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks, "failures": failures,
-		"evidence": "isolated_native_motion_presentation", "native_models": 0, "desktop_operations": 0}))
+		"evidence": "isolated_native_motion_presentation", "native_models": 1, "desktop_operations": 0}))
 	quit(0 if failures == 0 else 1)
