@@ -77,7 +77,8 @@ bool same(const Object& a, const Object& b) {
     return !values::typed_difference(Value(a), Value(b));
 }
 
-Error validate(const History& history, Integer revision, Budget& budget) {
+Error validate(const History& history, Integer revision, Budget& budget,
+               HistoryProof* proof = nullptr) {
     if (revision < 0 || !identity(history.context) || history.order < 0
         || history.records.size() > maximum_records
         || history.order != static_cast<Integer>(history.records.size())) return Error::invalid_history;
@@ -113,6 +114,8 @@ Error validate(const History& history, Integer revision, Budget& budget) {
         if (*accepted && *result_revision == previous_revision) return Error::invalid_history;
         previous_revision = *result_revision;
     }
+    if (proof) *proof = {history.context, history.records.size(), budget.nodes,
+        budget.bytes, previous_revision};
     return Error::none;
 }
 
@@ -146,8 +149,55 @@ Error validate_history(const History& history, Integer current_revision) {
     return validate(history, current_revision, budget);
 }
 
+std::optional<HistoryProof> prove_history(const History& history, Integer current_revision) {
+    Budget budget;
+    HistoryProof proof;
+    if (validate(history, current_revision, budget, &proof) != Error::none) return std::nullopt;
+    return proof;
+}
+
+bool validate_history_append(const History& history, Integer current_revision,
+                             const HistoryProof& prior, HistoryProof& next) {
+    if (history.context != prior.context || history.records.size() != prior.records + 1 ||
+        history.records.size() > maximum_records || history.order != static_cast<Integer>(history.records.size()) ||
+        current_revision < prior.last_record_revision) return false;
+    const auto& record = history.records.back();
+    Budget budget{prior.nodes, prior.bytes};
+    if (!budget.node(2) || !budget.text("intent") || !budget.object(record.intent, 3) ||
+        !budget.text("result") || !budget.object(record.result, 3) ||
+        intent_error(history, record.intent) != Error::none) return false;
+    const auto& client = *as<std::string>(field(record.intent, "client"));
+    const auto& request = *as<std::string>(field(record.intent, "request"));
+    for (std::size_t index = 0; index < prior.records; ++index) {
+        const auto& earlier = history.records[index];
+        if (*as<std::string>(field(earlier.intent, "client")) == client &&
+            *as<std::string>(field(earlier.intent, "request")) == request) return false;
+    }
+    const auto* accepted = as<bool>(field(record.result, "accepted"));
+    const auto* duplicate = as<bool>(field(record.result, "duplicate"));
+    const auto* reason = as<std::string>(field(record.result, "reason"));
+    const auto* entity = as<std::string>(field(record.result, "entity"));
+    const auto* result_context = as<std::string>(field(record.result, "context"));
+    const auto* result_client = as<std::string>(field(record.result, "client"));
+    const auto* result_request = as<std::string>(field(record.result, "request"));
+    const auto* result_revision = as<Integer>(field(record.result, "revision"));
+    const auto* result_order = as<Integer>(field(record.result, "order"));
+    if (!accepted || !duplicate || *duplicate || !reason || reason->empty() || !entity ||
+        !result_context || *result_context != history.context || !result_client || *result_client != client ||
+        !result_request || *result_request != request || !result_revision ||
+        *result_revision < prior.last_record_revision || *result_revision > current_revision ||
+        !result_order || *result_order != history.order ||
+        (*accepted && *result_revision == prior.last_record_revision)) return false;
+    next = {prior.context, history.records.size(), budget.nodes, budget.bytes, *result_revision};
+    return true;
+}
+
 Lookup inspect_request(const History& history, const Object& intent, Integer current_revision) {
     if (const auto error = validate_history(history, current_revision); error != Error::none) return {error, {}};
+    return inspect_validated_request(history, intent);
+}
+
+Lookup inspect_validated_request(const History& history, const Object& intent) {
     Budget budget;
     if (!budget.object(intent, 0)) return {Error::limit, {}};
     if (const auto error = intent_error(history, intent); error != Error::none) return {error, {}};
@@ -163,22 +213,19 @@ Lookup inspect_request(const History& history, const Object& intent, Integer cur
     return {};
 }
 
-Preparation prepare_record(const History& history, const Object& intent,
-                           const Outcome& outcome, Integer current_revision) {
-    const auto lookup = inspect_request(history, intent, current_revision);
-    if (lookup.error != Error::none) return {lookup.error, {}, {}, false, 0};
-    if (lookup.cached) return {Error::none, {}, lookup.cached, true, current_revision};
-    if (history.records.size() == maximum_records) return {Error::limit, {}, {}, false, 0};
+TailPreparation prepare_record_tail(const History& history, const Object& intent,
+                                    const Outcome& outcome, Integer current_revision) {
+    if (history.records.size() == maximum_records) return {Error::limit, {}, 0};
     if (history.order == std::numeric_limits<Integer>::max()
         || (outcome.accepted && current_revision == std::numeric_limits<Integer>::max())) {
-        return {Error::counter_overflow, {}, {}, false, 0};
+        return {Error::counter_overflow, {}, 0};
     }
     Budget facts;
-    if (outcome.reason.empty()) return {Error::invalid_outcome, {}, {}, false, 0};
+    if (outcome.reason.empty()) return {Error::invalid_outcome, {}, 0};
     if (!facts.text(outcome.reason) || !facts.text(outcome.entity)
-        || !facts.object(outcome.facts, 0)) return {Error::limit, {}, {}, false, 0};
+        || !facts.object(outcome.facts, 0)) return {Error::limit, {}, 0};
     for (const auto* reserved : {"accepted", "reason", "entity", "context", "revision", "order", "duplicate", "client", "request"}) {
-        if (outcome.facts.contains(reserved)) return {Error::invalid_outcome, {}, {}, false, 0};
+        if (outcome.facts.contains(reserved)) return {Error::invalid_outcome, {}, 0};
     }
     const Integer next_revision = current_revision + (outcome.accepted ? 1 : 0);
     Object result = outcome.facts;
@@ -192,11 +239,23 @@ Preparation prepare_record(const History& history, const Object& intent,
     result.emplace("client", *field(intent, "client"));
     result.emplace("request", *field(intent, "request"));
     Record record{intent, std::move(result)};
+    return {Error::none, std::move(record), next_revision};
+}
+
+Preparation prepare_record(const History& history, const Object& intent,
+                           const Outcome& outcome, Integer current_revision) {
+    const auto lookup = inspect_request(history, intent, current_revision);
+    if (lookup.error != Error::none) return {lookup.error, {}, {}, false, 0};
+    if (lookup.cached) return {Error::none, {}, lookup.cached, true, current_revision};
+    auto tail = prepare_record_tail(history, intent, outcome, current_revision);
+    if (tail.error != Error::none || !tail.record)
+        return {tail.error, {}, {}, false, 0};
     History next = history;
     ++next.order;
-    next.records.push_back(record);
-    if (const auto error = validate_history(next, next_revision); error != Error::none) return {error, {}, {}, false, 0};
-    return {Error::none, std::move(next), std::move(record), false, next_revision};
+    next.records.push_back(*tail.record);
+    if (const auto error = validate_history(next, tail.resulting_revision); error != Error::none)
+        return {error, {}, {}, false, 0};
+    return {Error::none, std::move(next), std::move(tail.record), false, tail.resulting_revision};
 }
 
 EncodedHistory encode_history(const History& history, Integer current_revision) {

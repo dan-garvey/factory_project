@@ -21,9 +21,11 @@ using V = factory::values::Value;
 struct ProductiveSite {
     w::Profile profile;
     w::Snapshot snapshot;
+    std::vector<double> command_ms;
 };
 
-ProductiveSite productive_site(g::Integer cycle_ticks = 2, int line_count = 2) {
+ProductiveSite productive_site(g::Integer cycle_ticks = 2, int line_count = 2,
+                              bool audit_commands = false) {
     if (line_count < 2 || line_count > 80)
         throw std::runtime_error("The productive scale count is outside the bounded fixture.");
     w::Profile profile;
@@ -86,13 +88,17 @@ ProductiveSite productive_site(g::Integer cycle_ticks = 2, int line_count = 2) {
         return factory::authority::ActorCut{actor, {0, 0, 0}, 1, true, 10000};
     };
     int request = 0;
+    std::vector<double> command_ms;
     const auto issue = [&](const char* action, V::Object fields) -> V::Object {
         fields.emplace("context", V("mixed-scale"));
         fields.emplace("client", V("P-client"));
         fields.emplace("request", V("scale-setup-" + std::to_string(++request)));
         fields.emplace("actor", V("P"));
         fields.emplace("action", V(action));
+        const auto started = std::chrono::steady_clock::now();
         const auto result = world->command({"P", "P-client"}, fields, nearby);
+        command_ms.push_back(std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - started).count());
         if (!result.completed() || !result.result ||
             !std::get<bool>(result.result->at("accepted").storage()))
             throw std::runtime_error(std::string("Mixed site setup refused ") + action + ": " +
@@ -100,6 +106,9 @@ ProductiveSite productive_site(g::Integer cycle_ticks = 2, int line_count = 2) {
                     "no result at request " + std::to_string(request) + " (transaction " +
                     std::to_string(static_cast<int>(result.error)) + ", history " +
                     std::to_string(static_cast<int>(result.history_error)) + ")"));
+        if (audit_commands && !w::validate(profile, world->snapshot()))
+            throw std::runtime_error("A trusted native command failed full independent history validation at request " +
+                std::to_string(request));
         return *result.result;
     };
     for (int index = 0; index < line_count * 15; ++index)
@@ -163,7 +172,7 @@ ProductiveSite productive_site(g::Integer cycle_ticks = 2, int line_count = 2) {
             {"generation", V(presses[index].second)},
             {"entry", V(V::Array{V(base + 1), V(g::Integer{1}), V(g::Integer{16})})}});
     }
-    return {std::move(profile), world->snapshot()};
+    return {std::move(profile), world->snapshot(), std::move(command_ms)};
 }
 
 void powered_cog_world(bool benchmark, int cog_count = 400, bool sustained = false) {
@@ -368,11 +377,14 @@ void powered_cog_world(bool benchmark, int cog_count = 400, bool sustained = fal
               << " collectors=2 presses=2 passed\n";
 }
 
-void productive_line_scale(int line_count) {
+void productive_line_scale(int line_count, bool audit_commands = false) {
     const auto build_started = std::chrono::steady_clock::now();
-    auto site = productive_site(200, line_count);
+    auto site = productive_site(200, line_count, audit_commands);
     const double build_ms = std::chrono::duration<double, std::milli>(
         std::chrono::steady_clock::now() - build_started).count();
+    std::vector<double> tail_commands(site.command_ms.end() - std::min<std::size_t>(100, site.command_ms.size()),
+        site.command_ms.end());
+    std::sort(tail_commands.begin(), tail_commands.end());
     if (site.snapshot.state.placed_components.size() != static_cast<std::size_t>(line_count) * 12 ||
         site.snapshot.state.topology.parts.size() != static_cast<std::size_t>(line_count) * 2 ||
         site.profile.collector_faces.size() != static_cast<std::size_t>(line_count))
@@ -492,6 +504,9 @@ void productive_line_scale(int line_count) {
               << " components=" << site.snapshot.state.placed_components.size()
               << " records=" << site.snapshot.history.records.size()
               << " work=" << work_ids.size() << " build_ms=" << build_ms
+              << " audited_commands=" << (audit_commands ? site.command_ms.size() : 0)
+              << " command_tail_median_ms=" << tail_commands[tail_commands.size() / 2]
+              << " command_tail_p95_ms=" << tail_commands[tail_commands.size() * 95 / 100]
               << " first_tick_ms=" << first_tick_ms
               << " tick_median_ms=" << ticks[10] << " tick_p95_ms=" << ticks[18]
               << " passed\n";
@@ -576,9 +591,10 @@ int main(int argc, char** argv) {
     }
     const std::string mode = argc > 1 ? argv[1] : "";
     if (mode == "--lines-10" || mode == "--lines-20" || mode == "--lines-40" ||
-        mode == "--lines-80")
+        mode == "--lines-80" || mode == "--lines-40-audit" || mode == "--lines-80-audit")
         productive_line_scale(mode == "--lines-10" ? 10 : mode == "--lines-20" ? 20 :
-            mode == "--lines-40" ? 40 : 80);
+            mode == "--lines-40" || mode == "--lines-40-audit" ? 40 : 80,
+            mode == "--lines-40-audit" || mode == "--lines-80-audit");
     else
         powered_cog_world(mode == "--benchmark" || mode == "--benchmark-sustained-400" ||
             mode == "--benchmark-sustained-1000", mode == "--benchmark-sustained-1000" ? 1000 : 400,
