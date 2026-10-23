@@ -74,6 +74,68 @@ void settled_pod_and_checkpoint() {
           "A saved pod cannot be moved by changing trusted site profile facts.");
 }
 
+void field_wood_shaping_keeps_actor_custody() {
+    auto [profile, state] = seed();
+    profile.build_reach = 2;
+    profile.material.timber_sites = {{"field-tree", {{20, 0, 16}, 8}}};
+    profile.material.component_capacity = 1;
+    state.material.timber_remaining = {{"field-tree", 8}};
+    auto world = w::World::create("field-shaping", profile, state);
+    check(world != nullptr, "Finite timber and the pod hub initialize for field shaping.");
+    const auto field = [](const std::string& actor) -> std::optional<a::ActorCut> {
+        return a::ActorCut{actor, {20, 0, 16}, 1, true, 2};
+    };
+    for (int index = 0; index < 4; ++index) {
+        const O cut{{"context", V("field-shaping")}, {"client", V("P-client")},
+            {"request", V("cut-" + std::to_string(index))}, {"actor", V("P")},
+            {"action", V("harvest_source")}, {"target", V("field-tree")}};
+        const auto result = world->command({"P", "P-client"}, cut, field);
+        check(result.completed() && std::get<bool>(result.result->at("accepted").storage()),
+              "The field actor cuts one named finite timber at a time.");
+    }
+    const O craft{{"context", V("field-shaping")}, {"client", V("P-client")},
+        {"request", V("shape-frame")}, {"actor", V("P")},
+        {"action", V("field_craft")}, {"component", V("wooden_frame")}};
+    const auto first = world->command({"P", "P-client"}, craft, field);
+    check(first.completed() && std::get<bool>(first.result->at("accepted").storage()) &&
+          world->snapshot().state.material.cargo.at("P").timber == 1 &&
+          world->snapshot().state.material.cargo.at("P").components.at(m::Component::wooden_frame) == 1 &&
+          world->snapshot().state.material.timber_remaining.at("field-tree") == 4,
+          "The physical actor shapes a frame away from the hub using three carried timber.");
+    const auto saved = world->snapshot();
+    const auto duplicate = world->command({"P", "P-client"}, craft, field);
+    check(duplicate.completed() && std::get<bool>(duplicate.result->at("duplicate").storage()) &&
+          world->snapshot().state == saved.state,
+          "A retried field craft cannot mint another component or spend more timber.");
+    auto full = craft;
+    full.at("request") = V("full-bag");
+    full.at("component") = V("wooden_shaft");
+    const auto refused_full = world->command({"P", "P-client"}, full, field);
+    check(refused_full.completed() &&
+          std::get<std::string>(refused_full.result->at("reason").storage()) == "inventory_full" &&
+          world->snapshot().state == saved.state,
+          "The field tool refuses a full component bag without consuming its last timber.");
+    auto metal = craft;
+    metal.at("request") = V("metal-field");
+    metal.at("component") = V("cutting_edge");
+    const auto refused_metal = world->command({"P", "P-client"}, metal, field);
+    check(refused_metal.completed() &&
+          std::get<std::string>(refused_metal.result->at("reason").storage()) == "unavailable_recipe" &&
+          world->snapshot().state == saved.state,
+          "A softmetal edge cannot be formed with the field multitool.");
+    auto empty = craft;
+    empty.at("client") = V("Q-client");
+    empty.at("actor") = V("Q");
+    empty.at("request") = V("empty-actor");
+    const auto refused_empty = world->command({"Q", "Q-client"}, empty, field);
+    check(refused_empty.completed() &&
+          std::get<std::string>(refused_empty.result->at("reason").storage()) == "unavailable_input" &&
+          world->snapshot().state == saved.state,
+          "A second actor cannot shape from the first actor's timber.");
+    check(w::World::restore("field-shaping", profile, world->snapshot()) != nullptr,
+          "Field-shaped wood and all refused attempts survive native checkpoint validation.");
+}
+
 void seed_cannot_duplicate_or_forge_pod() {
     auto [profile, state] = seed();
     state.foundation_kits.at("P") += 9;
@@ -587,6 +649,7 @@ void placed_components_keep_custody_and_history() {
 int main() {
     try {
         settled_pod_and_checkpoint();
+        field_wood_shaping_keeps_actor_custody();
         seed_cannot_duplicate_or_forge_pod();
         foundation_custody_cannot_change_actor_on_restore();
         one_hand_crank_moves_between_pod_and_actors();

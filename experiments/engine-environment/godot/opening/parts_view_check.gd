@@ -96,6 +96,9 @@ func fixture() -> Dictionary:
 		"stock": {"output": 0}, "inventories": {"P": 0, "Q": 0}}
 
 func _initialize() -> void:
+	if "--field-craft-widget-only" in OS.get_cmdline_user_args():
+		call_deferred("_field_craft_widget")
+		return
 	if "--multitool-view-only" in OS.get_cmdline_user_args():
 		call_deferred("_multitool_presentation")
 		return
@@ -1139,11 +1142,14 @@ func _carried_guidance() -> void:
 func _shared_component_results() -> void:
 	var cases := [
 		{"action": "craft_component", "accepted": true, "reason": "", "text": "Component crafted from carried material."},
+		{"action": "field_craft", "accepted": true, "reason": "", "text": "Wooden component shaped with your multitool."},
 		{"action": "place_component", "accepted": true, "reason": "", "text": "Component placed on the shared grid."},
 		{"action": "reclaim_component", "accepted": true, "reason": "", "text": "Component returned to your carried cargo."},
 		{"action": "craft_component", "accepted": false, "reason": "unavailable_input", "text": "Gather the timber or softmetal shown for this component."},
 		{"action": "craft_component", "accepted": false, "reason": "inventory_full", "text": "Your component bag is full. Place a carried part to make room."},
 		{"action": "craft_component", "accepted": false, "reason": "out_of_reach", "text": "Move beside the pod workshop to craft this component."},
+		{"action": "field_craft", "accepted": false, "reason": "unavailable_input", "text": "Gather the timber shown for this component."},
+		{"action": "field_craft", "accepted": false, "reason": "unavailable_recipe", "text": "Metal components need the pod bench."},
 		{"action": "reclaim_component", "accepted": false, "reason": "inventory_full", "text": "Your component bag is full. Place another carried part before reclaiming."}]
 	for sample: Dictionary in cases:
 		var view := SharedSettlementView.new()
@@ -1185,6 +1191,47 @@ func _shared_component_results() -> void:
 	waiting.free()
 	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
 		"models": 0, "desktop_operations": 0, "scope": "confirmed shared component feedback"}))
+	quit(0 if failures == 0 else 1)
+
+func _field_craft_widget() -> void:
+	var view := OfflineWidgets.new()
+	view.state = fixture()
+	view.state.options.native = true
+	view.state.hand_sources = {}
+	view.state.cargo = {"P": {"raw": 1, "timber": 3, "components": {}},
+		"Q": {"raw": 0, "timber": 0, "components": {}}}
+	view.state.component_recipes = {"wooden_frame": {"timber": 3, "softmetal": 0},
+		"cutting_edge": {"timber": 0, "softmetal": 1}}
+	view.state.component_capacity = 20
+	view.state.fabrication_hub = {"id": "pod-fabrication-hub"}
+	view.state.placed_components = {}
+	root.add_child(view)
+	view.selection_ring = MeshInstance3D.new()
+	view.add_child(view.selection_ring)
+	view._build_interface()
+	var panel = view.arrival_assembly_controls
+	panel.refresh(view.state, view.client, view.selected, true)
+	verify(panel != null and panel.field_craft_button.visible and not panel.field_craft_button.disabled,
+		"An arriving actor carrying timber sees the multitool shape action for a wooden frame.")
+	panel.field_craft_button.pressed.emit()
+	verify(view.issued == [{"action": "field_craft", "component": "wooden_frame"}],
+		"The field control submits the selected wooden recipe without a forged hub target or location.")
+	var edge_index := -1
+	for index in panel.COMPONENTS.size():
+		if panel.COMPONENTS[index][0] == "cutting_edge":
+			edge_index = index
+	verify(edge_index >= 0, "The metal cutting edge remains in the component picker.")
+	if edge_index >= 0:
+		panel.component_choice.select(edge_index)
+		panel._component_selected(edge_index)
+		verify(not panel.field_craft_button.visible and not panel.craft_button.disabled,
+			"Metal disables hand shaping and keeps the pod bench route selectable.")
+		panel.craft_button.pressed.emit()
+		verify(view.issued.back() == {"action": "craft_component", "entity": "pod-fabrication-hub", "component": "cutting_edge"},
+			"The metal button retains the native pod hub identity.")
+	view.free()
+	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
+		"models": 0, "desktop_operations": 0, "scope": "ordinary field craft controls over invented projection"}))
 	quit(0 if failures == 0 else 1)
 
 func _buttons() -> void:

@@ -5074,6 +5074,7 @@ func issue(action: Dictionary) -> Dictionary:
 		_construction_feedback(intent, outcome)
 		_message(_harvest_result_text(outcome) if action.action == "harvest_source" else {"place": "Placed. Parts stay with this worksite.",
 			"craft_component": "Component crafted from carried material.",
+			"field_craft": "Wooden component shaped with your multitool.",
 			"craft_part": "Transmission kit made from carried timber and softmetal.",
 			"place_component": "Component placed on the shared grid.",
 			"reclaim_component": "Component returned to your carried cargo.",
@@ -5118,6 +5119,10 @@ func issue(action: Dictionary) -> Dictionary:
 			refusal = {"unavailable_input": "Gather the timber or softmetal shown for this component.",
 				"inventory_full": "Your component bag is full. Place a carried part to make room.",
 				"out_of_reach": "Move beside the pod workshop to craft this component."}.get(outcome.get("reason", ""), refusal)
+		elif action.action == "field_craft":
+			refusal = {"unavailable_input": "Gather the timber shown for this component.",
+				"inventory_full": "Your component bag is full. Place a carried part to make room.",
+				"unavailable_recipe": "Metal components need the pod bench."}.get(outcome.get("reason", ""), refusal)
 		elif action.action == "craft_part":
 			refusal = {"unavailable_input": "Gather the timber or softmetal shown for this transmission kit.",
 				"out_of_reach": "Move beside the pod workshop to make a transmission kit.",

@@ -270,7 +270,8 @@ func _settle_pending() -> void:
 			elif item.action.action in ["remove", "remove_belt_span"] and selected == result.entity:
 				selected = ""
 			_message(_harvest_result_text(result) if item.action.action == "harvest_source" else {"place": "Placed.", "place_foundation": "Foundation placed on the world grid.", "place_foundations": "Foundation area placed on the world grid.", "connect": "Material path connected.", "connect_drive": "Drive shaft connected.",
-				"craft_component": "Component crafted from carried material.", "craft_part": "Transmission kit made from carried timber and softmetal.",
+				"craft_component": "Component crafted from carried material.", "field_craft": "Wooden component shaped with your multitool.",
+				"craft_part": "Transmission kit made from carried timber and softmetal.",
 				"place_component": "Component placed on the shared grid.", "reclaim_component": "Component returned to your carried cargo.",
 				"retrieve": "Plate collected into your inventory.", "pickup_material": "Loose material collected into your inventory.", "load_belt_slot": "Material placed on the belt.",
 				"remove": "Part returned."}.get(item.action.action, "Action accepted."))
@@ -289,6 +290,10 @@ func _settle_pending() -> void:
 				refusal = {"unavailable_input": "Gather the timber or softmetal shown for this component.",
 					"inventory_full": "Your component bag is full. Place a carried part to make room.",
 					"out_of_reach": "Move beside the pod workshop to craft this component."}.get(result.get("reason", ""), refusal)
+			elif item.action.action == "field_craft":
+				refusal = {"unavailable_input": "Gather the timber shown for this component.",
+					"inventory_full": "Your component bag is full. Place a carried part to make room.",
+					"unavailable_recipe": "Metal components need the pod bench."}.get(result.get("reason", ""), refusal)
 			elif item.action.action == "craft_part":
 				refusal = {"unavailable_input": "Gather the timber or softmetal shown for this transmission kit.",
 					"out_of_reach": "Move beside the pod workshop to make a transmission kit.",

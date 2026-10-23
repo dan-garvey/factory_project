@@ -93,6 +93,49 @@ func _approach(target: Vector2) -> bool:
 	return _expect(sample.ready and sample.registered and sample.on_floor and sample.control == [0.0, 0.0],
 		"The real approach finishes with a released, registered actor on the floor")
 
+func _arrival_field_craft_run(panel) -> void:
+	if not _expect(panel.visible and panel.field_craft_button.visible and not panel.field_craft_button.disabled,
+			"The ordinary arrival panel exposes the wooden multitool recipe"):
+		return
+	if not await _approach(Vector2(6.0, 3.45)):
+		return
+	var distant: Dictionary = opening.model.projection()
+	panel.craft_button.pressed.emit()
+	if not _expect(opening.model.projection().order == distant.order + 1
+			and opening.model.projection().cargo == distant.cargo
+			and "Move beside the pod workshop" in opening.status_label.text,
+			"The physical field position is beyond bench crafting reach"):
+		return
+	for index in range(3):
+		if _construct({"action": "harvest_source", "target": "tree-east-south"}).is_empty():
+			return
+	var gathered: Dictionary = opening.model.projection()
+	if not _expect(gathered.cargo.P.timber == 3 and gathered.hand_sources["tree-east-south"].remaining == 5,
+			"Three finite cuts reach the same physically present field actor"):
+		return
+	panel.field_craft_button.pressed.emit()
+	var shaped: Dictionary = opening.model.projection()
+	if not _expect(shaped.order == gathered.order + 1 and shaped.cargo.P.timber == 0
+			and shaped.cargo.P.components.get("wooden_frame", 0) == 1
+			and shaped.hand_sources == gathered.hand_sources
+			and "multitool" in opening.status_label.text,
+			"The ordinary multitool control shapes one wooden frame without the pod"):
+		return
+	var rejected: Dictionary = _issue({"action": "field_craft", "component": "cutting_edge"})
+	if not _expect(not rejected.accepted and rejected.reason == "unavailable_recipe"
+			and opening.model.projection().cargo == shaped.cargo
+			and "pod bench" in opening.status_label.text,
+			"The field tool refuses metal while preserving the shaped frame"):
+		return
+	var saved: Dictionary = opening._save_worksite()
+	facts["save_result"] = saved
+	facts["save_slot"] = opening.save_slot
+	if not _expect(saved.accepted and saved.native_preflight.accepted
+			and FileAccess.file_exists(opening.save_slot),
+			"Store saves the field-shaped component and source depletion from the real actor"):
+		return
+	_record("pass")
+
 func _collector_route() -> Dictionary:
 	# Two large corner cogs turn the horizontal wheel's X axle onto Z. The
 	# actual shaft between the output cog and collector is removable stock.
@@ -116,7 +159,7 @@ func _collector_route() -> Dictionary:
 		"source_cog": source_cog.entity, "output_cog": output_cog.entity, "shaft": shaft.entity}
 
 func _run() -> void:
-	if mode in ["arrival-press", "arrival-resume", "arrival-craft-capacity", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
+	if mode in ["arrival-press", "arrival-resume", "arrival-craft-capacity", "arrival-field-craft", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
 		await _arrival_run()
 		return
 	if destination.is_empty() or mode not in ["produce", "resume", "foundations"]:
@@ -849,7 +892,7 @@ func _arrival_run() -> void:
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--arrival-capture-prefix="):
 			capture_prefix = argument.trim_prefix("--arrival-capture-prefix=")
-	if destination.is_empty() or mode not in ["arrival-press", "arrival-resume", "arrival-craft-capacity", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
+	if destination.is_empty() or mode not in ["arrival-press", "arrival-resume", "arrival-craft-capacity", "arrival-field-craft", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
 		push_error("Arrival press check requires an unused output and a declared mode")
 		quit(1)
 		return
@@ -893,6 +936,9 @@ func _arrival_run() -> void:
 				"The graphical preview warmup releases its cover before the arrival is sampled"):
 			return
 	var panel = opening.arrival_assembly_controls
+	if mode == "arrival-field-craft":
+		await _arrival_field_craft_run(panel)
+		return
 	if mode in ["arrival-belt", "arrival-belt-controls"]:
 		await _arrival_belt_run(panel, capture_prefix)
 		return
