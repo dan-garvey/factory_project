@@ -3,6 +3,7 @@
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
+#include <tuple>
 
 namespace {
 using V = factory::values::Value;
@@ -123,8 +124,8 @@ void arrival_projection_and_restore() {
           "Late join and restore retain one settled pod with the exact same foundation custody.");
     check(get<I>(get<O>(restored.projection(), "part_kits").at("P"), "collector") == 0 &&
           get<I>(get<O>(restored.projection(), "part_kits").at("P"), "processor") == 0 &&
-          std::get<A>(get<O>(restored.projection(), "part_specifications").at("P").storage()).empty(),
-          "The restored arrival still carries no complete collector or press.");
+          std::get<A>(get<O>(restored.projection(), "part_specifications").at("P").storage()).size() == 3,
+          "The restored arrival offers three finite route recipes but no complete collector or press.");
 }
 
 void historical_initializer_keeps_its_fixture_kit() {
@@ -181,6 +182,102 @@ void unique_crank_custody_survives_host_restore() {
           get<std::string>(V(get<O>(restored.projection(), "hand_crank")), "holder") == "Q",
           "The other actor can then take the same crank.");
 }
+void fabricated_transmission_stock_is_finite() {
+    Host host;
+    initialized(host);
+    const auto recipes = get<A>(host.projection(), "part_recipes");
+    check(recipes.size() == 3, "Arrival projects three powered-route recipes without gifting their kits.");
+    check(get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(6.6)}, 1), "accepted"),
+          "The actor reaches the actual pod workshop before trying a route recipe.");
+    const auto craft = [](const std::string& request, const char* role, I span) {
+        return O{{"context", V("arrival-site")}, {"client", V("P")},
+            {"request", V(request)}, {"action", V("craft_part")},
+            {"entity", V("pod-fabrication-hub")}, {"role", V(role)},
+            {"half_span", V(span)}};
+    };
+    const auto empty = host.command("P", craft("empty-shaft", "shaft", 2));
+    check(!get<bool>(empty, "accepted") && get<std::string>(empty, "reason") == "unavailable_input",
+          "The bench refuses a shaft without real harvested timber.");
+    check(get<bool>(host.publish_actor("P", {V(6.6), V(1.0), V(3.3)}, 2), "accepted"),
+          "The physical actor reaches the first finite tree.");
+    for (int index = 0; index < 8; ++index) {
+        const O cut{{"context", V("arrival-site")}, {"client", V("P")},
+            {"request", V("timber-" + std::to_string(index))}, {"action", V("harvest_source")},
+            {"target", V("tree-east-south")}};
+        check(get<bool>(host.command("P", cut), "accepted"),
+              "Each route timber input comes from the finite visible tree.");
+    }
+    check(get<bool>(host.publish_actor("P", {V(0.0), V(1.0), V(1.65)}, 3), "accepted"),
+          "The actor reaches the finite softmetal outcrop.");
+    for (int index = 0; index < 2; ++index) {
+        const O cut{{"context", V("arrival-site")}, {"client", V("P")},
+            {"request", V("ore-" + std::to_string(index))}, {"action", V("harvest_source")},
+            {"target", V("opening-softmetal")}};
+        check(get<bool>(host.command("P", cut), "accepted"),
+              "Each route clasp input comes from the finite native deposit.");
+    }
+    check(get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(6.6)}, 4), "accepted"),
+          "The actor returns to the single fabrication hub with actual cargo.");
+    for (const auto& [name, role, span] : {
+            std::tuple{"shaft-a", "shaft", I{2}}, std::tuple{"shaft-b", "shaft", I{2}},
+            std::tuple{"shaft-c", "shaft", I{2}},
+            std::tuple{"belt", "belt", I{0}}, std::tuple{"wheel", "waterwheel", I{0}}}) {
+        const auto made = host.command("P", craft(name, role, span));
+        check(get<bool>(made, "accepted"), "The pod converts actual cargo into one native stationary kit.");
+    }
+    const auto view = host.projection();
+    const auto kit = std::get<O>(get<O>(view, "part_kits").at("P").storage());
+    const auto cargo = std::get<O>(get<O>(view, "cargo").at("P").storage());
+    check(get<I>(V(kit), "shaft") == 3 && get<I>(V(kit), "belt") == 1 &&
+          get<I>(V(kit), "wheel") == 1 && get<I>(V(cargo), "timber") == 1 &&
+          get<I>(V(cargo), "raw") == 0,
+          "Three shafts, one belt and one wheel embody seven timber and two ore without gifted stock.");
+    const auto saved = host.checkpoint();
+    check(get<bool>(host.validate_checkpoint(saved), "accepted"),
+          "The World checkpoint binds recipe, actor kit custody and spent material history.");
+    Host reopened;
+    initialized(reopened);
+    check(get<bool>(reopened.restore_checkpoint(saved), "accepted") &&
+          !factory::values::typed_difference(saved, reopened.checkpoint()),
+          "A fresh native process restores the exact fabricated kit and remaining source stock.");
+    const auto retried = host.command("P", craft("shaft-a", "shaft", 2));
+    check(get<bool>(retried, "accepted") && get<bool>(retried, "duplicate") &&
+          !factory::values::typed_difference(saved, host.checkpoint()),
+          "Retrying the original shaft receipt cannot consume another timber or mint another kit.");
+    auto forged = std::get<O>(saved.storage());
+    auto world = std::get<O>(forged.at("world").storage());
+    auto state = std::get<O>(world.at("state").storage());
+    auto kits = std::get<O>(state.at("kits").storage());
+    auto stock = std::get<A>(kits.at("P").storage());
+    bool found_shaft = false;
+    for (auto& item : stock) {
+        auto entry = std::get<O>(item.storage());
+        if (get<I>(V(entry), "role") != static_cast<I>(factory::stationary::Role::shaft)) continue;
+        entry.at("count") = V(get<I>(V(entry), "count") + 1);
+        item = V(std::move(entry));
+        found_shaft = true;
+    }
+    check(found_shaft, "The checkpoint carries one explicit fabricated shaft specification.");
+    kits.at("P") = V(std::move(stock));
+    state.at("kits") = V(std::move(kits));
+    auto material = std::get<O>(state.at("material").storage());
+    auto cargo_table = std::get<O>(material.at("cargo").storage());
+    auto player = std::get<O>(cargo_table.at("P").storage());
+    player.at("timber") = V(get<I>(V(player), "timber") - 1);
+    cargo_table.at("P") = V(std::move(player));
+    material.at("cargo") = V(std::move(cargo_table));
+    material.at("fabricated_timber") = V(get<I>(V(material), "fabricated_timber") + 1);
+    state.at("material") = V(std::move(material));
+    world.at("state") = V(std::move(state));
+    forged.at("world") = V(std::move(world));
+    Host forged_target;
+    initialized(forged_target);
+    const auto fresh_before = forged_target.checkpoint();
+    check(!get<bool>(host.validate_checkpoint(V(forged)), "accepted") &&
+          !get<bool>(forged_target.restore_checkpoint(V(std::move(forged))), "accepted") &&
+          !factory::values::typed_difference(fresh_before, forged_target.checkpoint()),
+          "A forged extra shaft fails even if its timber bill is made arithmetically conserved.");
+}
 }  // namespace
 
 int main() {
@@ -188,6 +285,7 @@ int main() {
         arrival_projection_and_restore();
         historical_initializer_keeps_its_fixture_kit();
         unique_crank_custody_survives_host_restore();
+        fabricated_transmission_stock_is_finite();
         std::cout << "arrival_host_test: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {

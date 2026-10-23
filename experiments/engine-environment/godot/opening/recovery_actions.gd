@@ -322,6 +322,7 @@ class ArrivalAssemblyControls:
 	}
 
 	var selected_component := "wooden_frame"
+	var selected_part := 0
 	var _host: WeakRef
 	var _snapshot := {}
 	var _actor := "P"
@@ -333,6 +334,11 @@ class ArrivalAssemblyControls:
 	var _press_page := false
 	var component_choice: OptionButton
 	var craft_button: Button
+	var part_choice: OptionButton
+	var part_cost_label: Label
+	var part_craft_button: Button
+	var part_place_button: Button
+	var route_status_label: Label
 	var recipe_label: Label
 	var place_button: Button
 	var reclaim_button: Button
@@ -377,6 +383,23 @@ class ArrivalAssemblyControls:
 		craft_button = host._button(component_actions, "Craft one", _craft)
 		place_button = host._button(component_actions, "Place", _place)
 		reclaim_button = host._button(craft_section, "Reclaim selected part", _reclaim)
+		host._label(craft_section, "POWERED MATERIAL ROUTE", 13, Color("f4bf75"))
+		part_choice = OptionButton.new()
+		part_choice.name = "TransmissionRecipe"
+		part_choice.item_selected.connect(func(index: int) -> void:
+			selected_part = index
+			var current = _host_view()
+			if current != null:
+				refresh(current.state, current.client, current.selected, current._can_control_character()))
+		craft_section.add_child(part_choice)
+		part_cost_label = host._label(craft_section, "", 12, Color("bfd1cc"))
+		part_cost_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		var part_actions := HBoxContainer.new()
+		craft_section.add_child(part_actions)
+		part_craft_button = host._button(part_actions, "Make kit", _craft_part)
+		part_place_button = host._button(part_actions, "Place kit", _place_part)
+		route_status_label = host._label(craft_section, "", 12, Color("bfd1cc"))
+		route_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		press_section = VBoxContainer.new()
 		column.add_child(press_section)
 		press_status = host._label(press_section, "Select a frame with E", 13, Color("bfd1cc"))
@@ -409,7 +432,7 @@ class ArrivalAssemblyControls:
 		press_tab.button_pressed = press
 		var scroller := get_parent() as ScrollContainer
 		if scroller != null:
-			scroller.custom_minimum_size.y = 260 if press else 185
+			scroller.custom_minimum_size.y = 260 if press else 335
 
 	func _bearing(point: Array, center: Array) -> String:
 		if point.size() != 3 or center.size() != 3:
@@ -446,6 +469,33 @@ class ArrivalAssemblyControls:
 		place_button.text = "Place %s" % COMPONENTS[component_choice.selected][1]
 		reclaim_button.visible = snapshot.get("placed_components", {}).has(selected)
 		reclaim_button.disabled = not ready or not reclaim_button.visible
+		var part_recipes: Array = snapshot.get("part_recipes", [])
+		selected_part = clampi(selected_part, 0, maxi(0, part_recipes.size() - 1))
+		part_choice.clear()
+		var kit_specs: Array = snapshot.get("part_specifications", {}).get(actor, [])
+		var selected_count := 0
+		for recipe_index in part_recipes.size():
+			var recipe: Dictionary = part_recipes[recipe_index]
+			var count := 0
+			for spec in kit_specs:
+				if spec is Dictionary and spec.get("kind") == recipe.get("kind") and spec.get("teeth") == recipe.get("teeth") and spec.get("half_span") == recipe.get("half_span"):
+					count = int(spec.get("count", 0))
+			if recipe_index == selected_part:
+				selected_count = count
+			var title: String = {"shaft": "Shaft tile", "belt": "Belt span", "wheel": "Waterwheel"}.get(recipe.get("kind", ""), "Part")
+			part_choice.add_item("%s  ·  %d carried" % [title, count])
+		if part_recipes.is_empty():
+			part_cost_label.text = "No powered-route recipes at this workshop."
+			part_craft_button.disabled = true
+			part_place_button.disabled = true
+		else:
+			part_choice.select(selected_part)
+			var recipe: Dictionary = part_recipes[selected_part]
+			part_cost_label.text = "Needs %d timber + %d softmetal\nMake beside the pod" % [recipe.get("timber", 0), recipe.get("softmetal", 0)]
+			part_craft_button.disabled = not ready or snapshot.get("fabrication_hub", {}).is_empty()
+			part_place_button.disabled = not ready or selected_count < 1
+			part_place_button.text = "Connect shafts" if recipe.get("kind") == "belt" else "Place kit"
+		route_status_label.text = _receiver_route_status(snapshot)
 		var crank: Dictionary = snapshot.get("hand_crank", {})
 		crank_button.visible = not crank.is_empty()
 		crank_button.disabled = not ready or (crank.get("holder", "") != "pod" and crank.get("holder", "") != actor)
@@ -490,6 +540,56 @@ class ArrivalAssemblyControls:
 		pickup_button.disabled = not ready or _exit_drop().is_empty()
 		recover_work_button.visible = not _frame.is_empty()
 		recover_work_button.disabled = not ready or _work_drop().is_empty()
+
+	func _receiver_route_status(snapshot: Dictionary) -> String:
+		var placed: Dictionary = snapshot.get("placed_components", {})
+		var spans: Dictionary = snapshot.get("belt_spans", {})
+		var shafts: Dictionary = snapshot.get("transmission_parts", {})
+		var motion: Dictionary = snapshot.get("motion", {})
+		for collector: Variant in snapshot.get("collector_assemblies", []):
+			if not collector is Dictionary or collector.get("status") != "ready":
+				continue
+			var fitted: Dictionary = collector.get("parts", {})
+			var frame: Dictionary = placed.get(fitted.get("frame"), {})
+			var receiver: Dictionary = placed.get(fitted.get("receiver"), {})
+			if not frame.get("center") is Array or not receiver.get("center") is Array:
+				continue
+			var frame_grid: Array = frame.center
+			var tray_grid: Array = receiver.center
+			if frame_grid.size() != 3 or tray_grid.size() != 3:
+				continue
+			var mouth: Array = []
+			for axis in 3:
+				mouth.append(int(frame_grid[axis]) + 4 * (int(tray_grid[axis]) - int(frame_grid[axis])))
+			for span_id: Variant in spans:
+				var span: Variant = spans[span_id]
+				if not span is Dictionary:
+					continue
+				var first: Dictionary = shafts.get(span.get("from"), {})
+				var last: Dictionary = shafts.get(span.get("to"), {})
+				var inlet_first: bool = first.get("center", []) == mouth
+				if not inlet_first and last.get("center", []) != mouth:
+					continue
+				var axle: int = int(first.get("axis", -1))
+				var speed: Dictionary = motion.get(span.get("from"), {})
+				var slots: Array = span.get("slots", [])
+				var inlet_slot: int = 0 if inlet_first else slots.size() - 1
+				if inlet_slot >= 0 and inlet_slot < slots.size() and slots[inlet_slot] is Dictionary:
+					return "Receiver mouth: belt inlet occupied. Move or recover its blank before another transfer."
+				if speed.get("state") != "rotating" or int(speed.get("numerator", 0)) == 0:
+					return "Receiver mouth linked; power the belt shafts with the stream wheel."
+				var first_grid: Array = first.get("center", [])
+				var last_grid: Array = last.get("center", [])
+				if first_grid.size() != 3 or last_grid.size() != 3 or axle not in [0, 2]:
+					return "Receiver mouth linked; use a horizontal belt across its shaft axis."
+				var along: int = int(last_grid[2] - first_grid[2]) if axle == 0 else int(last_grid[0] - first_grid[0])
+				var positive: bool = (axle == 0 and int(speed.numerator) > 0) or (axle == 2 and int(speed.numerator) < 0)
+				var toward_last: bool = positive == (along > 0)
+				var outward: bool = toward_last == inlet_first
+				return "Receiver mouth: belt runs outward toward its far shaft." if outward else \
+					"Receiver mouth: belt runs toward the tray. Reverse the shaft rotation."
+			return "Ready receiver faces %s. Place a parallel shaft at the next full tile and connect a belt outward." % _bearing(tray_grid, frame_grid)
+		return "Fit a collector receiver tray before connecting its belt mouth."
 
 	func _selected_press(snapshot: Dictionary, selected: String) -> Dictionary:
 		for value in snapshot.get("press_assemblies", []):
@@ -539,6 +639,28 @@ class ArrivalAssemblyControls:
 		var hub: Dictionary = _snapshot.get("fabrication_hub", {})
 		if not hub.is_empty():
 			host.issue({"action": "craft_component", "entity": hub.id, "component": selected_component})
+
+	func _craft_part() -> void:
+		var host = _host_view()
+		var recipes: Array = _snapshot.get("part_recipes", [])
+		if host == null or selected_part < 0 or selected_part >= recipes.size():
+			return
+		var hub: Dictionary = _snapshot.get("fabrication_hub", {})
+		if hub.is_empty():
+			return
+		var recipe: Dictionary = recipes[selected_part]
+		host.issue({"action": "craft_part", "entity": hub.id,
+			"role": "waterwheel" if recipe.get("kind") == "wheel" else recipe.get("kind"),
+			"half_span": recipe.get("half_span", 0)})
+
+	func _place_part() -> void:
+		var host = _host_view()
+		var recipes: Array = _snapshot.get("part_recipes", [])
+		if host == null or selected_part < 0 or selected_part >= recipes.size():
+			return
+		var tool: String = {"wheel": "wheel", "shaft": "drive", "belt": "belt"}.get(recipes[selected_part].get("kind", ""), "")
+		if not tool.is_empty():
+			host._select_tool(tool)
 
 	func _place() -> void:
 		var host = _host_view()

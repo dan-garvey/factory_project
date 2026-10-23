@@ -4873,6 +4873,7 @@ func issue(action: Dictionary) -> Dictionary:
 		_construction_feedback(intent, outcome)
 		_message(_harvest_result_text(outcome) if action.action == "harvest_source" else {"place": "Placed. Parts stay with this worksite.",
 			"craft_component": "Component crafted from carried material.",
+			"craft_part": "Transmission kit made from carried timber and softmetal.",
 			"place_component": "Component placed on the shared grid.",
 			"reclaim_component": "Component returned to your carried cargo.",
 			"take_hand_crank": "You have the pod crank. Turn a built shaft nearby.",
@@ -4915,6 +4916,10 @@ func issue(action: Dictionary) -> Dictionary:
 			refusal = {"unavailable_input": "Gather the timber or softmetal shown for this component.",
 				"inventory_full": "Your component bag is full. Place a carried part to make room.",
 				"out_of_reach": "Move beside the pod workshop to craft this component."}.get(outcome.get("reason", ""), refusal)
+		elif action.action == "craft_part":
+			refusal = {"unavailable_input": "Gather the timber or softmetal shown for this transmission kit.",
+				"out_of_reach": "Move beside the pod workshop to make a transmission kit.",
+				"quantity_overflow": "Too many of this kit are already carried."}.get(outcome.get("reason", ""), refusal)
 		elif action.action == "reclaim_component" and outcome.get("reason", "") == "inventory_full":
 			refusal = "Your component bag is full. Place another carried part before reclaiming."
 		_message(refusal, true)
@@ -7406,12 +7411,20 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		var carried: Dictionary = state.get("cargo", {}).get(client, {})
 		var next_work := "Cut timber or ore with the multitool [E]."
 		var press_ready := false
+		var collector_ready := false
 		for press: Dictionary in state.get("press_assemblies", []):
 			press_ready = press_ready or press.get("status") == "ready"
+		for collector: Dictionary in state.get("collector_assemblies", []):
+			collector_ready = collector_ready or collector.get("status") == "ready"
 		if int(carried.get("products", 0)) > 0:
-			next_work = "First plate formed. Design the collector and next route."
+			next_work = "First plate formed. Make shafts, a belt and a wheel at the pod to automate its feed." \
+				if state.get("belt_spans", {}).is_empty() else "First plate formed. Continue the material route toward your press."
 		elif press_ready:
 			next_work = "Use the press panel to feed, turn and collect."
+		elif collector_ready and int(state.get("line_belt_raw", 0)) > 0:
+			next_work = "Blank on belt. Recover it, or build a press at the outlet."
+		elif collector_ready:
+			next_work = "Collector ready. Make route kits at the pod and fit a belt beside its receiver."
 		elif not state.get("placed_components", {}).is_empty():
 			next_work = "Fit the press parts; a collector is optional first."
 		elif not carried.get("components", {}).is_empty():

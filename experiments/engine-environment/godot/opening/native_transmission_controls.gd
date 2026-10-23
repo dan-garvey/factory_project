@@ -210,7 +210,11 @@ func refresh() -> void:
 	menu.set_item_disabled(shaft_index, selected_shafts == 0)
 	menu.set_item_checked(shaft_index, active_tool == "place_shaft")
 	menu.set_item_checked(gear_index, active_tool == "gear")
-	menu.set_item_checked(menu.get_item_index(7), active_tool == "belt_span")
+	var belt_index := menu.get_item_index(7)
+	var belts := _count(context, "belt", 0, 0)
+	menu.set_item_text(belt_index, "Connect shafts with a belt  [Alt+3] · %d carried" % belts)
+	menu.set_item_disabled(belt_index, belts == 0)
+	menu.set_item_checked(belt_index, active_tool == "belt_span")
 
 	for entry in [[8, "gearbox", "Horizontal gearbox  [Alt+4]"], [9, "vertical_gearbox", "Vertical gearbox  [Alt+5]"],
 		[10, "chain_drive", "Encased chain drive  [Alt+6]"]]:

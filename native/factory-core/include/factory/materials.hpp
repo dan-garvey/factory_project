@@ -169,6 +169,11 @@ struct State {
     // World owns geometry and identity; this count keeps installed parts in
     // the same conserved material ledger as actor cargo and recipe inputs.
     std::map<Component, Quantity> placed_components{};
+    // Material embodied in fabricated stationary kits and their installed
+    // parts. World matches these totals to accepted fabrication history and
+    // the exact native kit/topology census.
+    Quantity fabricated_timber{};
+    Quantity fabricated_raw{};
     State() = default;
     State(Quantity initial, Stock contents, std::map<std::string, Cargo> actors,
           std::optional<WorkLot> work, WorkId serial)

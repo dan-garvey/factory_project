@@ -28,6 +28,9 @@ struct Profile {
     materials::Quantity initial_units{};
     std::set<std::string> actors;
     stationary::Kit finite_parts;
+    // Trusted hub recipes mint stationary kits from the same finite actor
+    // material cargo. The World history accounts for every minted piece.
+    std::map<stationary::PartSpec, materials::ComponentCost> fabrication_parts;
     mechanics::Rate waterwheel_rate{1, 1};
     // Optional trusted, immutable site samples keyed by the wheel's X/Z grid
     // coordinates. Heights, radius and velocity use one hundredth of a grid

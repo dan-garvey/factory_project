@@ -116,7 +116,7 @@ func _collector_route() -> Dictionary:
 		"source_cog": source_cog.entity, "output_cog": output_cog.entity, "shaft": shaft.entity}
 
 func _run() -> void:
-	if mode in ["arrival-press", "arrival-resume", "arrival-craft-capacity"]:
+	if mode in ["arrival-press", "arrival-resume", "arrival-craft-capacity", "arrival-belt", "arrival-belt-resume"]:
 		await _arrival_run()
 		return
 	if destination.is_empty() or mode not in ["produce", "resume", "foundations"]:
@@ -448,14 +448,209 @@ func _arrival_capacity_run(panel) -> void:
 		return
 	_record("pass")
 
+func _arrival_belt_run(panel, capture_prefix: String) -> void:
+	# This uses the ordinary arrival scene, its physical actor, workshop buttons
+	# and the native terrain. Commands still pass through the one scene Model.
+	for source in [
+		{"point": Vector2(3.3, 4.95), "id": "tree-east-south", "cuts": 8},
+		{"point": Vector2(3.3, 9.9), "id": "tree-east-north", "cuts": 6},
+		{"point": Vector2(0.0, 1.65), "id": "opening-softmetal", "cuts": 3},
+	]:
+		if not await _approach(source.point):
+			return
+		for index in range(source.cuts):
+			if _construct({"action": "harvest_source", "target": source.id}).is_empty():
+				return
+	if not await _approach(Vector2(1.65, 6.6)):
+		return
+	if not _expect(opening.model.projection().cargo.P.timber == 14
+			and opening.model.projection().cargo.P.raw == 3,
+			"Two finite trees and the outcrop supply the exact collector and powered-route bill"):
+		return
+	for kind in ["wooden_frame", "tool_mount", "cutting_edge", "receiver_tray", "wooden_shaft"]:
+		var index := -1
+		for choice in panel.COMPONENTS.size():
+			if panel.COMPONENTS[choice][0] == kind:
+				index = choice
+		if not _expect(index >= 0, "The native collector component is listed in the ordinary workshop"):
+			return
+		panel.component_choice.select(index)
+		panel._component_selected(index)
+		panel.craft_button.pressed.emit()
+		if not _expect(int(opening.model.projection().cargo.P.components.get(kind, 0)) == 1,
+				"The ordinary workshop makes one finite collector component"):
+			return
+	for route_part in ["shaft", "shaft", "shaft", "belt", "wheel"]:
+		var index := -1
+		var recipes: Array = opening.model.projection().part_recipes
+		for choice in recipes.size():
+			if recipes[choice].kind == route_part:
+				index = choice
+		if not _expect(index >= 0, "The native transmission recipe is listed in the ordinary workshop"):
+			return
+		panel.part_choice.select(index)
+		panel.part_choice.item_selected.emit(index)
+		var before: Dictionary = opening.model.projection()
+		panel.part_craft_button.pressed.emit()
+		var after: Dictionary = opening.model.projection()
+		if not _expect(after.order == before.order + 1 and after.part_kits.P[route_part] == before.part_kits.P[route_part] + 1,
+				"The ordinary workshop turns carried stock into one exact native route kit"):
+			return
+	if not _expect(opening.model.projection().cargo.P.timber == 0
+			and opening.model.projection().cargo.P.raw == 0,
+			"The complete collector and three-shaft route spend fourteen timber and three ore"):
+		return
+	panel.crank_button.pressed.emit()
+	if not _expect(opening.model.projection().hand_crank.holder == "P",
+			"The physical actor takes the single pod crank before leaving the workshop"):
+		return
+	if not await _approach(Vector2(0.0, 1.3)):
+		return
+	var wheel_recipe := -1
+	for choice in opening.model.projection().part_recipes.size():
+		if opening.model.projection().part_recipes[choice].kind == "wheel":
+			wheel_recipe = choice
+	panel.part_choice.select(wheel_recipe)
+	panel.part_choice.item_selected.emit(wheel_recipe)
+	panel.part_place_button.pressed.emit()
+	if not _expect(opening.mode == "wheel", "The ordinary workshop arms its crafted waterwheel tool"):
+		return
+	var wheel: Dictionary = _construct({"action": "place", "kind": "wheel", "cell": [-2, 0], "axis": "x", "level": 4})
+	if wheel.is_empty():
+		return
+	var shaft_recipe := -1
+	for choice in opening.model.projection().part_recipes.size():
+		if opening.model.projection().part_recipes[choice].kind == "shaft":
+			shaft_recipe = choice
+	panel.part_choice.select(shaft_recipe)
+	panel.part_choice.item_selected.emit(shaft_recipe)
+	panel.part_place_button.pressed.emit()
+	if not _expect(opening.mode == "drive", "The ordinary workshop arms its crafted shaft tool"):
+		return
+	var inlet := ""
+	var far := ""
+	for route_shaft in [
+		{"center": [-4, 4, 0], "name": "middle"},
+		{"center": [0, 4, 0], "name": "inlet"},
+		{"center": [0, 4, -4], "name": "far"},
+	]:
+		var placed: Dictionary = _construct({"action": "place_shaft", "center": route_shaft.center,
+			"axis": "x", "half_span": 2})
+		if placed.is_empty():
+			return
+		if route_shaft.name == "inlet": inlet = placed.entity
+		if route_shaft.name == "far": far = placed.entity
+	var belt_recipe := -1
+	for choice in opening.model.projection().part_recipes.size():
+		if opening.model.projection().part_recipes[choice].kind == "belt":
+			belt_recipe = choice
+	panel.part_choice.select(belt_recipe)
+	panel.part_choice.item_selected.emit(belt_recipe)
+	panel.part_place_button.pressed.emit()
+	if not _expect(opening.mode == "belt", "The ordinary workshop arms its crafted belt tool"):
+		return
+	var span: Dictionary = _construct({"action": "place_belt_span", "from": inlet, "to": far})
+	if span.is_empty():
+		return
+	if not await _approach(Vector2(0.7, 3.3)):
+		return
+	if _construct({"action": "place_foundation", "cell": [0, 1], "level": 4}).is_empty():
+		return
+	for component in [
+		{"kind": "wooden_frame", "center": [0, 4, 4]},
+		{"kind": "tool_mount", "center": [-1, 4, 4]},
+		{"kind": "cutting_edge", "center": [-2, 4, 4]},
+		{"kind": "receiver_tray", "center": [0, 4, 3]},
+		{"kind": "wooden_shaft", "center": [1, 4, 4]},
+	]:
+		if _construct({"action": "place_component", "component": component.kind,
+				"center": component.center}).is_empty():
+			return
+	var built: Dictionary = opening.model.projection()
+	if not _expect(built.collector_assemblies.any(func(item: Variant) -> bool:
+		return item is Dictionary and item.get("status") == "ready")
+			and panel.route_status_label.text.contains("outward"),
+			"The fitted north receiver meets a powered outward belt mouth in the ordinary panel"):
+		return
+	var drive := ""
+	for id in built.placed_components:
+		if built.placed_components[id].get("component") == "wooden_shaft":
+			drive = id
+	if _construct({"action": "turn_hand_crank", "entity": drive}).is_empty():
+		return
+	var before_tick: Dictionary = opening.model.projection()
+	if not _expect(before_tick.dropped_material.any(func(drop: Variant) -> bool:
+		return drop is Dictionary and drop.get("raw", 0) == 1),
+		"The hand crank puts one true ore blank in the fitted receiver"):
+		return
+	var stepped: Dictionary = opening.model.advance()
+	if not _expect(stepped.has("belt_spans") and int(stepped.get("revision", 0)) > int(before_tick.revision),
+		"The ordinary scene advances the shared native drive once"):
+		return
+	opening._refresh()
+	var after_tick: Dictionary = opening.model.projection()
+	if not _expect(not after_tick.belt_spans[span.entity].slots.is_empty()
+			and after_tick.belt_spans[span.entity].slots.any(func(slot: Variant) -> bool:
+				return slot is Dictionary and slot.get("raw", 0) == 1),
+			"The first hand-cut receiver blank enters the player-built belt"):
+		return
+	if not _expect(opening.transmission_presenter.get_node_or_null("CollectorReceiverChute") != null,
+			"The confirmed receiver and belt render a short physical chute"):
+		return
+	var save: Dictionary = opening._save_worksite()
+	facts["save"] = save
+	if not _expect(save.get("accepted", false) and save.get("native_preflight", {}).get("accepted", false),
+			"Store keeps the fabricated route and its transferred blank in one checkpoint"):
+		return
+	if not capture_prefix.is_empty():
+		for frame in 3:
+			await process_frame
+		var rendered: Image = root.get_texture().get_image()
+		if not _expect(rendered != null and rendered.save_png(capture_prefix + "-belt.png") == OK,
+				"The passive receiver chute and moving belt viewport are retained"):
+			return
+		opening.arrival_assembly_scroll.scroll_vertical = 10000
+		await RenderingServer.frame_post_draw
+		var workshop: Image = root.get_texture().get_image()
+		if not _expect(workshop != null and workshop.save_png(capture_prefix + "-workshop.png") == OK,
+				"The scrollable receiver-status controls are retained in a second passive frame"):
+			return
+	_record("pass")
+
+func _arrival_belt_resume_run() -> void:
+	var restored: Dictionary = opening.model.projection()
+	if not _expect(opening.last_load_result.get("accepted", false)
+			and restored.collector_assemblies.any(func(item: Variant) -> bool:
+				return item is Dictionary and item.get("status") == "ready")
+			and restored.belt_spans.size() == 1 and restored.line_belt_raw == 1
+			and restored.part_kits.P.shaft == 0 and restored.part_kits.P.belt == 0
+			and restored.part_kits.P.wheel == 0,
+			"A fresh scene process restores the exact installed finite route and the original blank"):
+		return
+	if not _expect(opening.transmission_presenter.get_node_or_null("CollectorReceiverChute") != null,
+			"The restored route re-creates its receiver chute from the native projection"):
+		return
+	var before: Dictionary = opening.model.checkpoint()
+	var advanced: Dictionary = opening.model.advance()
+	var loose_raw := 0
+	for drop in advanced.get("dropped_material", []):
+		loose_raw += int(drop.get("raw", 0))
+	if not _expect(advanced.has("belt_spans") and advanced.line_belt_raw + loose_raw == 1
+			and advanced.stock.source == restored.stock.source
+			and opening.model.validate_checkpoint(opening.model.checkpoint()).get("accepted", false)
+			and before.world.history.order == opening.model.checkpoint().world.history.order,
+			"The rejoined route can advance without duplicating or dropping the retained blank"):
+		return
+	_record("pass")
+
 ## Fresh arrival panel consumer with actor motor, finite sources and Store.
 func _arrival_run() -> void:
-	deadline = Time.get_ticks_msec() + 120000
+	deadline = Time.get_ticks_msec() + (180000 if mode == "arrival-belt" else 120000)
 	var capture_prefix := ""
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--arrival-capture-prefix="):
 			capture_prefix = argument.trim_prefix("--arrival-capture-prefix=")
-	if destination.is_empty() or mode not in ["arrival-press", "arrival-resume", "arrival-craft-capacity"] or FileAccess.file_exists(destination):
+	if destination.is_empty() or mode not in ["arrival-press", "arrival-resume", "arrival-craft-capacity", "arrival-belt", "arrival-belt-resume"] or FileAccess.file_exists(destination):
 		push_error("Arrival press check requires an unused output and a declared mode")
 		quit(1)
 		return
@@ -494,6 +689,12 @@ func _arrival_run() -> void:
 				"The graphical preview warmup releases its cover before the arrival is sampled"):
 			return
 	var panel = opening.arrival_assembly_controls
+	if mode == "arrival-belt":
+		await _arrival_belt_run(panel, capture_prefix)
+		return
+	if mode == "arrival-belt-resume":
+		await _arrival_belt_resume_run()
+		return
 	if mode == "arrival-craft-capacity":
 		await _arrival_capacity_run(panel)
 		return

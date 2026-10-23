@@ -186,7 +186,7 @@ MaterialEncoding encode_material_state(const State& state, const Config& config,
         }
         const auto& stock = state.stock;
         Object output{
-            {"schema", Value(Value::Integer{resources ? 9 : 6})},
+            {"schema", Value(Value::Integer{resources ? 10 : 6})},
             {"initial_units", Value(state.initial_units)},
             {"stock", Value(Object{
                 {"source", Value(stock.source)}, {"collector", Value(stock.collector)},
@@ -206,6 +206,8 @@ MaterialEncoding encode_material_state(const State& state, const Config& config,
             for (const auto& [kind, count] : state.placed_components)
                 placed.emplace(component_name(kind), Value(count));
             output.emplace("placed_components", Value(std::move(placed)));
+            output.emplace("fabricated_timber", Value(state.fabricated_timber));
+            output.emplace("fabricated_raw", Value(state.fabricated_raw));
         }
         return Value(std::move(output));
     } catch (const CodecRefusal& refusal) { return refusal; }
@@ -217,9 +219,9 @@ MaterialDecoding decode_material_state(const Value& value, const Config& config,
         const bool resources = config.manual_ore || !config.timber_sites.empty();
         const auto roster = expected_roster(actors);
         const auto& root = resources ? fields(value, "$",
-            {"schema", "initial_units", "stock", "cargo", "dropped_material", "belt_lanes", "processing", "next_work_id", "timber_remaining", "placed_components"}) :
+            {"schema", "initial_units", "stock", "cargo", "dropped_material", "belt_lanes", "processing", "next_work_id", "timber_remaining", "placed_components", "fabricated_timber", "fabricated_raw"}) :
             fields(value, "$", {"schema", "initial_units", "stock", "cargo", "dropped_material", "belt_lanes", "processing", "next_work_id"});
-        if (integer(root.at("schema"), "$.schema") != (resources ? 9 : 6))
+        if (integer(root.at("schema"), "$.schema") != (resources ? 10 : 6))
             refuse(CodecReason::unsupported_schema, "$.schema");
         const auto& stock = fields(root.at("stock"), "$.stock",
                                     {"source", "collector", "belt", "input", "output"});
@@ -232,6 +234,8 @@ MaterialDecoding decode_material_state(const Value& value, const Config& config,
             integer(stock.at("input"), "$.stock.input"),
             integer(stock.at("output"), "$.stock.output")};
         if (resources) {
+            candidate.fabricated_timber = integer(root.at("fabricated_timber"), "$.fabricated_timber");
+            candidate.fabricated_raw = integer(root.at("fabricated_raw"), "$.fabricated_raw");
             const auto& trees = object(root.at("timber_remaining"), "$.timber_remaining");
             if (trees.size() > 16) refuse(CodecReason::invalid_material_state, "$.timber_remaining");
             for (const auto& [id, count] : trees)

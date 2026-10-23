@@ -395,7 +395,9 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
             if (!add(total, lot.recipe.input_units_per_product)) return Error::quantity_overflow;
         }
     }
-    if (state.placed_components.size() > 11) return Error::invalid_state;
+    if (state.placed_components.size() > 11 || state.fabricated_timber < 0 ||
+        state.fabricated_raw < 0 || !add(timber_accounted, state.fabricated_timber) ||
+        !add(total, state.fabricated_raw)) return Error::invalid_state;
     for (const auto& [kind, count] : state.placed_components) {
         const auto cost = component_cost(kind);
         if (!cost || count < 1 || count > 4096 ||
