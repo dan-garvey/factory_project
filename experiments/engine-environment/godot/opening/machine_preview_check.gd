@@ -136,6 +136,9 @@ func check_assemblies() -> void:
 				"cell": [target_cell.x, target_cell.y], "level": level}}
 			view._rebuild_machines()
 			var expected: Node3D = view.machine_root.get_child(0)
+			if kind == "wheel":
+				verify(view.machine_rotors[0].center == view.machine_root.transform * expected.transform * view.wheel_rotor.position,
+					"A detached wheel records its culling center without querying a global transform.")
 			view.state.entities.clear()
 			var before: Dictionary = view.state.duplicate(true)
 			var plinth := expected.get_node_or_null("Plinth") as MeshInstance3D
@@ -574,6 +577,12 @@ func _bake_packed_previews() -> void:
 func _run() -> void:
 	if OS.get_cmdline_user_args().has("--bake-packed-previews"):
 		_bake_packed_previews()
+		return
+	if OS.get_cmdline_user_args().has("--assemblies-only"):
+		check_assemblies()
+		print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
+			"assembly_cases": assembly_cases, "observations": "invented", "desktop": "not_used"}))
+		quit(1 if failed else 0)
 		return
 	if OS.get_cmdline_user_args().has("--transmission-previews-only"):
 		check_pointer_bounds()

@@ -7353,8 +7353,11 @@ func _rebuild_machines() -> void:
 		machine_root.add_child(anchor)
 		_assemble_machine(anchor, entity, _material_rotated(entity_id, entity))
 		if kind == "wheel" and wheel_rotor != null:
+			# A detached presentation fixture has no global transform yet.
+			var rotor_center: Vector3 = wheel_rotor.global_position if wheel_rotor.is_inside_tree() \
+				else machine_root.transform * anchor.transform * wheel_rotor.position
 			machine_rotors.append({"id": entity_id, "rotor": wheel_rotor,
-				"base": wheel_rotor.basis, "center": wheel_rotor.global_position})
+				"base": wheel_rotor.basis, "center": rotor_center})
 		anchor.set_meta("machine_entity", entity_id)
 		anchor.set_meta("machine_kind", kind)
 		if kind in ["collector", "belt", "processor"]:
