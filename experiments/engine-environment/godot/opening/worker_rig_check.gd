@@ -1372,6 +1372,17 @@ func run() -> void:
 	root.add_child(presenter)
 	presenter.set_process(false)
 	presenter.set_physics_process(false)
+	var cold_path := "user://cold-worker-color-%d.png" % OS.get_process_id()
+	var cold_map := Image.create(2, 2, false, Image.FORMAT_RGBA8)
+	cold_map.fill(Color(0.1, 0.4, 0.8))
+	var cold_written := cold_map.save_png(cold_path) == OK
+	verify(cold_written, "The worker fixture can write an unimported captured map.")
+	if cold_written:
+		var cold_decoded: Image = presenter._adult_image(cold_path)
+		verify(not ResourceLoader.exists(cold_path, "Texture2D") and cold_decoded != null
+			and cold_decoded.get_size() == Vector2i(2, 2) and cold_decoded.get_pixel(0, 0).b > 0.7,
+			"An unimported worker map decodes before an editor or export builds its texture cache.")
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(cold_path))
 	var p: Node3D = presenter.views.P
 	var q: Node3D = presenter.views.Q
 	var body: Node3D = p.get_node("BodyView")
