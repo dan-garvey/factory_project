@@ -715,8 +715,8 @@ Value Host::initialize_site(const std::string& context, const std::vector<std::s
             for (Integer level = 0; level <= mineral_site::extraction_depth_steps; level += 4)
                 profile.collector_faces.push_back({{4 * cell.x, level, 4 * cell.z}, {-1, 0, 0}});
         profile.material.timber_sites = {
-            {"tree-east-south", {{12, 0, 12}, 8}},
-            {"tree-east-north", {{12, 0, 24}, 8}},
+            {"tree-east-south", {{16, 0, 8}, 8}},
+            {"tree-east-north", {{16, 0, 28}, 8}},
             {"tree-north", {{0, 0, 28}, 8}}};
         profile.material.hand_carry_capacity = 24;
         // The component limit leaves room to carry one last recipe input,
@@ -1907,6 +1907,15 @@ Value Host::publish_actor(const std::string& actor, const Array& position, Integ
     current = {*at, epoch, true};
     owned_->native_started = true;
     return result(true, "actor_published");
+}
+
+Value Host::actor_projection(const std::string& actor) const {
+    if (!owned_) return result(false, "not_initialized");
+    const auto found = owned_->actors.find(actor);
+    if (found == owned_->actors.end()) return result(false, "unknown_actor");
+    const auto& current = found->second;
+    return Value(Object{{"accepted", Value(true)}, {"ready", Value(current.ready)},
+        {"position", point_value(current.position)}, {"native_epoch", Value(current.epoch)}});
 }
 
 Value Host::invalidate_actor(const std::string& actor) {

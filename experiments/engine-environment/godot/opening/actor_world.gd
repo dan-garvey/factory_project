@@ -732,8 +732,12 @@ func _publish_existing(actor: String, cut: String) -> void:
 		_fail(actor, "actor_bridge_failed")
 
 func _bridge_current(actor: String, sample: Dictionary) -> bool:
-	var current: Dictionary = model.projection().get("actors", {}).get(actor, {})
-	return current.get("ready", false) and current.get("native_epoch", -1) == sample.native_epoch and current.get("position", []) == sample.position
+	# Native Host can report the published pose without rebuilding the whole
+	# worksite projection and re-evaluating every machine's power.
+	var current: Dictionary = model.actor_projection(actor) if model.has_method("actor_projection") \
+		else model.projection().get("actors", {}).get(actor, {})
+	return current.get("accepted", true) and current.get("ready", false) \
+		and current.get("native_epoch", -1) == sample.native_epoch and current.get("position", []) == sample.position
 
 func checkpoint_status() -> Dictionary:
 	# Validate a current native cut before the caller writes any checkpoint.

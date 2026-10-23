@@ -27,6 +27,9 @@ public:
     [[nodiscard]] values::Value publish_actor(const std::string& actor,
                                              const values::Value::Array& position,
                                              values::Value::Integer epoch);
+    // Read only the accepted actor pose for the physical bridge. Full
+    // projection also derives every machine's power and material state.
+    [[nodiscard]] values::Value actor_projection(const std::string& actor) const;
     [[nodiscard]] values::Value invalidate_actor(const std::string& actor);
     [[nodiscard]] values::Value advance();
     [[nodiscard]] values::Value projection() const;
