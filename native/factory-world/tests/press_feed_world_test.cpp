@@ -1877,8 +1877,13 @@ void belt_feeds_a_placed_press() {
           "The same recovered work identity produces one plate after belt re-entry.");
 }
 
-void belt_feeds_a_guided_press() {
+void belt_feeds_a_guided_press(bool copper) {
     auto source = site();
+    if (copper) {
+        source.profile.material.raw_mass = 4;
+        source.profile.material.plate_mass = 3;
+        source.profile.material.sheet_mass = 12;
+    }
     source.profile.build_reach = 100;
     source.profile.material.hand_carry_capacity = 64;
     source.profile.waterwheel_rate = {1, 1};
@@ -1970,9 +1975,44 @@ void belt_feeds_a_guided_press() {
     const auto finished = run.world->snapshot();
     check(w::validate(source.profile, finished), "A belt-fed guided product has valid World history.");
     check(finished.state.material.dropped_material.at({-1, 0, 0}).products == 1 &&
+          (!copper || finished.state.material.dropped_material.at({0, 0, 0}).offcuts == 1) &&
           codec_restore(source.profile, finished,
               "The guided belt-fed plate survives checkpoint reload.") != nullptr,
-          "The guided press forms one plate from its belt-fed blank.");
+          "The guided press forms one plate and any required offcut from its belt-fed blank.");
+    if (copper) {
+        auto moved = finished;
+        moved.state.material.dropped_material.at({0, 0, 0}).offcuts = 0;
+        moved.state.material.dropped_material.emplace(g::Point{0, 0, 4},
+            m::Cargo{0, 0, {}, 1});
+        check(!w::World::restore("press-feed", source.profile, moved),
+              "A saved copper offcut cannot move away from its belt-fed work point.");
+        auto doubled = finished;
+        doubled.state.material.dropped_material.emplace(g::Point{0, 0, 4},
+            m::Cargo{0, 0, {}, 1});
+        check(!w::World::restore("press-feed", source.profile, doubled),
+              "A second belt-fed copper offcut cannot be invented at another work point.");
+        auto attributed = finished;
+        attributed.state.material.dropped_material.at({0, 0, 0}).offcuts = 0;
+        attributed.state.material.dropped_material.emplace(g::Point{0, 0, 4},
+            m::Cargo{0, 0, {}, 1});
+        for (auto& [id, witness] : attributed.state.press_progress) {
+            if (!attributed.state.belt_press_work_ids.contains(id)) continue;
+            for (auto& event : witness.automatic_transitions) event.work = {0, 0, 4};
+        }
+        check(!w::World::restore("press-feed", source.profile, attributed),
+              "Forged transition coordinates cannot attribute the offcut to another work point.");
+        auto recover = request("Q", "belt-guided-recover-offcut", "pickup_material");
+        recover.emplace("center", V(point(0, 0, 0)));
+        recover.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{0})},
+            {"work_lots", V(V::Array{})}, {"offcuts", V(I{1})}, {"sheets", V(I{0})}}));
+        run.accept("Q", recover);
+        const auto recovered = run.world->snapshot();
+        check(recovered.state.material.cargo.at("Q").offcuts == 1 &&
+              !recovered.state.material.dropped_material.contains({0, 0, 0}) &&
+              codec_restore(source.profile, recovered,
+                  "The second actor's recovered belt offcut survives a fresh checkpoint.") != nullptr,
+              "Q can recover the one real offcut without disturbing the finished plate.");
+    }
 }
 } // namespace
 
@@ -1983,7 +2023,8 @@ int main() {
         actor_feed_is_physical_custody();
         two_placed_presses_advance_distinct_powered_work();
         belt_feeds_a_placed_press();
-        belt_feeds_a_guided_press();
+        belt_feeds_a_guided_press(false);
+        belt_feeds_a_guided_press(true);
         std::cout << "press_feed_world_test: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {
