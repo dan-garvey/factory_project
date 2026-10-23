@@ -267,6 +267,16 @@ func settle_widgets() -> void:
 	for _frame in range(4):
 		await process_frame
 
+func _pod_surface_hit(node: Node3D, start: Vector3, end: Vector3) -> bool:
+	for part: MeshInstance3D in node.find_children("*", "MeshInstance3D", true, false):
+		var a := part.to_local(start)
+		var b := part.to_local(end)
+		var faces := part.mesh.get_faces()
+		for index in range(0, faces.size(), 3):
+			if Geometry3D.segment_intersects_triangle(a, b, faces[index], faces[index + 1], faces[index + 2]) != null:
+				return true
+	return false
+
 func _pod_floor_views() -> void:
 	for shared in [false, true]:
 		for level in [-4, 0, 8]:
@@ -274,7 +284,7 @@ func _pod_floor_views() -> void:
 			var floor_y: float = level * Opening.Geometry.HEIGHT_STEP
 			view.state = {"options": {"native": true},
 				"landing_pod": {"id": "landing-pod", "center": [1, level, 4], "deployed": true},
-				"fabrication_hub": {"id": "pod-fabrication-hub", "center": [2, level, 4],
+				"fabrication_hub": {"id": "pod-fabrication-hub", "installed": true, "center": [2, level, 4],
 					"position": [3.3, floor_y + Opening.Geometry.ANCHOR_HEIGHT, 6.6]},
 				"hand_crank": {"holder": "pod"}}
 			var before: Dictionary = view.state.duplicate(true)
@@ -294,8 +304,8 @@ func _pod_floor_views() -> void:
 			verify(view.landing_pod_visual.position.is_equal_approx(pod_floor)
 				and view.landing_hub_visual.position.is_equal_approx(hub_floor),
 				"Pod and bench roots share the foundation top plane at every native grid height.")
-			var foot: MeshInstance3D = view.landing_pod_visual.get_node("OpenedPodShell/PortOpenedWing/LandingFoot")
-			var leg: MeshInstance3D = view.landing_hub_visual.get_node("BenchLeg")
+			var foot: MeshInstance3D = view.landing_pod_visual.find_children("*LandingFoot*", "MeshInstance3D", true, false)[0]
+			var leg: MeshInstance3D = view.landing_hub_visual.find_children("BenchLeg*", "MeshInstance3D", true, false)[0]
 			verify(absf((foot.global_transform * foot.get_aabb()).position.y - deck.position.y) < 0.00001
 				and absf((leg.global_transform * leg.get_aabb()).position.y - deck.position.y) < 0.00001,
 				"Actual authored feet and bench legs meet the deck instead of floating at the spindle anchor.")
@@ -319,17 +329,65 @@ func _pod_floor_views() -> void:
 			verify(view.landing_pod_visual.position.is_equal_approx(pod_floor + Vector3.UP * 8.0)
 				and not view.landing_hub_visual.visible,
 				"The reveal starts above the actual floor and keeps the unopened bench hidden.")
+			var cabin: Node3D = view.landing_pod_visual
+			var interior: Vector3 = cabin.to_global(Vector3(0, 0.75, -0.25))
+			verify(_pod_surface_hit(cabin, interior, cabin.to_global(Vector3(0, 2.0, -0.25)))
+				and _pod_surface_hit(cabin, interior, cabin.to_global(Vector3(0, 0.75, -1.4))),
+				"The descending package has actual roof and forward hatch surfaces over its interior.")
+			verify(leg.global_basis.get_scale().is_equal_approx(Vector3.ONE),
+				"The packed bench remains rigid rather than shrinking vertically.")
+			var pod_children: Array = view.landing_pod_visual.find_children("*", "MeshInstance3D", true, false)
+			for sample in [1.7, 2.2]:
+				view.arrival_reveal_elapsed = sample
+				view._pose_arrival_reveal()
+				verify(leg.global_basis.get_scale().is_equal_approx(Vector3.ONE)
+					and view.landing_pod_visual.find_children("*", "MeshInstance3D", true, false) == pod_children
+					and view.state == before,
+					"Unfolding preserves rigid bench geometry, cached meshes and confirmed native facts.")
 			view.arrival_reveal_elapsed = view.ARRIVAL_REVEAL_SECONDS
 			view._pose_arrival_reveal()
 			verify(view.landing_pod_visual.position.is_equal_approx(pod_floor)
 				and view.landing_hub_visual.position.is_equal_approx(hub_floor)
 				and view.landing_hub_visual.scale == Vector3.ONE and is_equal_approx(deck.position.y, floor_y),
 				"The reveal endpoint seats the pod and bench on the unfolded foundation.")
+			interior = cabin.to_global(Vector3(0, 0.75, -0.25))
+			verify(not _pod_surface_hit(cabin, interior, cabin.to_global(Vector3(0, 2.0, -0.25)))
+				and not _pod_surface_hit(cabin, interior, cabin.to_global(Vector3(0, 0.75, -1.4))),
+				"The folded canopy leaves the front opening clear after touchdown.")
+			var restored_interior: Vector3 = restored.landing_pod_visual.to_global(Vector3(0, 0.75, -0.25))
+			verify(not _pod_surface_hit(restored.landing_pod_visual, restored_interior,
+					restored.landing_pod_visual.to_global(Vector3(0, 2.0, -0.25))),
+				"Saved and shared deployed views construct the already opened canopy without replaying arrival.")
 			view.arrival_reveal_active = false
 			view._sync_landing_pod_visual()
 			verify(view.landing_pod_visual.position.is_equal_approx(pod_floor)
 				and view.landing_hub_visual.position.is_equal_approx(hub_floor) and view.state == before,
 				"Ordinary refresh after touchdown applies the datum conversion exactly once.")
+			var crank_at: Vector3 = view.landing_crank_visual.global_position
+			view.state = before.duplicate(true)
+			view.state.fabrication_hub.installed = false
+			view.state.fabrication_hub.holder = "P"
+			view._sync_landing_pod_visual()
+			verify(not view.landing_hub_visual.visible and view.landing_hub_pick.collision_layer == 0
+				and view.landing_crank_visual.is_visible_in_tree()
+				and view.landing_crank_visual.global_position.is_equal_approx(crank_at),
+				"Stowing the issued workshop removes its view and pick while the crank remains at the landed pod.")
+			view.arrival_reveal_elapsed = 2.2
+			view._pose_arrival_reveal()
+			verify(not view.landing_hub_visual.visible and view.landing_hub_pick.collision_layer == 0,
+				"Local reveal posing cannot make a natively held workshop visible or selectable.")
+			view.arrival_reveal_elapsed = view.ARRIVAL_REVEAL_SECONDS
+			view._pose_arrival_reveal()
+			view.state.fabrication_hub.installed = true
+			view.state.fabrication_hub.erase("holder")
+			view.state.fabrication_hub.center = [4, level, 4]
+			view.state.fabrication_hub.position = [6.6, floor_y + Opening.Geometry.ANCHOR_HEIGHT, 6.6]
+			view._sync_landing_pod_visual()
+			verify(view.landing_hub_visual.visible and view.landing_hub_pick.collision_layer == Opening.Geometry.PICK_LAYER
+				and view.landing_hub_visual.position.is_equal_approx(Vector3(6.6, floor_y, 6.6))
+				and view.landing_pod_visual.position.is_equal_approx(pod_floor)
+				and view.landing_crank_visual.global_position.is_equal_approx(crank_at),
+				"A moved workshop keeps the rigid bench and matching pick separate from the fixed pod and crank.")
 			restored.free()
 			view.free()
 	print("POD_FLOOR_VIEW_%s %d" % ["PASS" if failures == 0 else "FAIL", checks])

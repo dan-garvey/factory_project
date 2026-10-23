@@ -1,5 +1,16 @@
 # Opening presentation assets
 
+The supplied Meridian pod uses cached bevelled panels, a rear-hinged pressure
+canopy and a rigid foldout workbench in `opening.gd`. Its native pod and workshop
+identities, floor anchors and ordinary foundation deck remain authoritative.
+The local arrival presentation closes the canopy during descent, folds it into
+a rear storage tray after touchdown, then swings the bench onto its native
+east-deck anchor. A restored or
+shared deployed view starts with the canopy folded back and the bench seated. These
+are revisable original meshes using the existing qualified cast-surface coating
+maps and a separate smoked visor finish, not a new deployment
+simulation, material grant or pod collision implementation.
+
 `build-icons/` contains seven original vector symbols for the building catalog
 and quick slots. They are interface drawings, not world geometry or construction
 authority. The current carried counts come from the opening's confirmed kit.
