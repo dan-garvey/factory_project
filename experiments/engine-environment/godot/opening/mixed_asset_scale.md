@@ -209,3 +209,43 @@ This fixture contains static render assets and no authoritative machine
 activity. The native gameplay extension currently lists only Linux libraries;
 the Windows run does not establish 1,000 active native machines or playable
 chapter-one performance.
+
+## Production static composite cells, 2026-10-23
+
+The normal opening now partitions large **static** collector, conveyor and
+processor composite batches into four-pitch world cells. Each cell retains the
+original full mesh, materials, transforms, shadows and visual layer. Moving
+cutters and wheel rotors keep their separate motion batches. In this fixture,
+`--production-batch` uses the normal opening helper: `--spatial-cells=0`
+disables its static split for comparison, and a positive value selects the
+cell width in construction pitches. Neither option enables mesh LOD.
+
+On published parent `71e44a0`, the baseline `opening.gd` SHA-256 was
+`62d8f3ac693b46f6ae973b3552c474eda84edca7009904f27dc8b765e805d4d6`.
+The candidate opening and fixture SHA-256 values were
+`49c75911641d7bda5aa918e172168049aaff722ee5efa3d0fc882e7be229b147`
+and `ceb34143fe90cc8cd2d59db5c4e2dbda861b45c37438d61677d2a3049c3e809c`.
+Official Godot 4.7.2 Windows Compatibility on the RTX 3090 measured the same
+1,000 terrain-seated static assemblies at 1280 by 800 with VSync off. Each
+exclusive run had 30 warmup and 2,970 sampled frames. All retained timing
+logs exited without engine errors.
+
+| Close view | Median | P95 | Median draws | Median primitives |
+| --- | ---: | ---: | ---: | ---: |
+| Parent, whole-field composites | 13.545 ms | 13.926 ms | 243 | 88,771,294 |
+| Candidate, four-pitch cells | 7.500 ms | 7.763 ms | 2,100 | 40,027,822 |
+| Parent repeat | 13.617 ms | 13.996 ms | 243 | 88,771,294 |
+
+The first parent and candidate close PNGs are byte-identical. At the same
+wide camera, parent/candidate median and p95 were 5.802/5.997 and
+5.892/6.072 ms. Five pixels differed by at most 0.012 in one channel; two
+parent close captures also differed at four pixels by at most 0.004. The
+wide aerial fixture remains visibly washed out in both variants, so it does
+not prove full visual quality. Logs named `static-spatial-71e-*-{close,wide}.log`
+are retained under
+`~/.local/state/factory-prototypes/thousand-chapter-assets-20261022/windows-godot/`.
+
+This reaches the 8.333 ms budget for the **static render fixture close view**.
+The normal opening still needs an ordinary player camera, authoritative
+machine activity, custody and end-to-end frame sampling at 1,000 complete
+machines before the user target can be accepted.
