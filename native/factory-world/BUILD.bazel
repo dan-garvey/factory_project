@@ -52,6 +52,13 @@ cc_test(
     size = "medium",
 )
 
+cc_test(
+    name = "world_belt_scale_test",
+    srcs = ["tests/world_belt_scale_test.cpp"],
+    deps = [":checkpoint"],
+    size = "medium",
+)
+
 cc_library(
     name = "checkpoint",
     srcs = ["src/checkpoint.cpp"],

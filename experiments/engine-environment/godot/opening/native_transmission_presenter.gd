@@ -36,7 +36,7 @@ var _moving_anchors: Array[Node3D] = []
 var _direction_meshes: Dictionary = {}
 var _support_meshes: Dictionary = {}
 static var _relay_shells: Dictionary = {}
-static var _cutting_blade_mesh: ArrayMesh
+static var _cutting_blade_meshes: Dictionary = {}
 static var _receiver_pan_mesh: ArrayMesh
 
 func configure(host: Object) -> void:
@@ -423,13 +423,16 @@ static func _blade_quad(surface: SurfaceTool, a: Vector3, b: Vector3, c: Vector3
 			surface.set_uv(Vector2(point.x, point.y) * 4.0)
 		surface.add_vertex(point)
 
-static func _formed_cutting_blade() -> ArrayMesh:
-	if _cutting_blade_mesh != null:
-		return _cutting_blade_mesh
-	var front_low_left := Vector3(-0.195, -0.025, -0.145)
-	var front_low_right := Vector3(-0.195, -0.025, 0.145)
-	var front_high_left := Vector3(-0.195, 0.005, -0.145)
-	var front_high_right := Vector3(-0.195, 0.005, 0.145)
+static func _formed_cutting_blade(north_south := false) -> ArrayMesh:
+	if _cutting_blade_meshes.has(north_south):
+		return _cutting_blade_meshes[north_south]
+	# The fixed native edge box is narrower along Z. Form a shorter front lip
+	# for a north/south workcell while preserving the clamped root dimensions.
+	var front := -0.175 if north_south else -0.195
+	var front_low_left := Vector3(front, -0.025, -0.145)
+	var front_low_right := Vector3(front, -0.025, 0.145)
+	var front_high_left := Vector3(front, 0.005, -0.145)
+	var front_high_right := Vector3(front, 0.005, 0.145)
 	var root_low_left := Vector3(0.075, -0.025, -0.145)
 	var root_low_right := Vector3(0.075, -0.025, 0.145)
 	var root_high_left := Vector3(0.075, 0.080, -0.145)
@@ -437,15 +440,15 @@ static func _formed_cutting_blade() -> ArrayMesh:
 	var surface := SurfaceTool.new()
 	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
 	_blade_quad(surface, front_high_left, front_high_right, root_high_right, root_high_left,
-		Vector3(-0.075 / 0.270, 1.0, 0.0).normalized())
+		Vector3(-0.075 / (0.075 - front), 1.0, 0.0).normalized())
 	_blade_quad(surface, front_low_left, front_low_right, root_low_right, root_low_left, Vector3.DOWN)
 	_blade_quad(surface, front_low_left, front_low_right, front_high_right, front_high_left, Vector3.LEFT)
 	_blade_quad(surface, root_low_left, root_low_right, root_high_right, root_high_left, Vector3.RIGHT)
 	_blade_quad(surface, front_low_left, root_low_left, root_high_left, front_high_left, Vector3.FORWARD)
 	_blade_quad(surface, front_low_right, root_low_right, root_high_right, front_high_right, Vector3.BACK)
 	surface.generate_tangents()
-	_cutting_blade_mesh = surface.commit()
-	return _cutting_blade_mesh
+	_cutting_blade_meshes[north_south] = surface.commit()
+	return _cutting_blade_meshes[north_south]
 
 static func _formed_receiver_pan() -> ArrayMesh:
 	if _receiver_pan_mesh != null:
@@ -1039,7 +1042,7 @@ func _shaft_splice(first: Dictionary, second: Dictionary, parent: Node3D,
 		fitting.free()
 
 func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
-		occupied_size: Vector3, press_role: String) -> void:
+		occupied_size: Vector3, press_role: String, collector_angle: float) -> void:
 	var timber: Material = WheelArt.support_timber_finish()
 	if timber == null:
 		timber = Visuals.material(Color("76604a"), 0.12, 0.78)
@@ -1079,8 +1082,13 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 				clamp.name = "CastToolClamp"
 				# The selected source frame and fixed jaw are static. Their opening
 				# faces the confirmed cutter; the donor dial and handle are absent.
-				clamp.position = Vector3(-0.015, -0.08, 0)
-				clamp.rotation.y = PI * 0.5
+				var jaw_seat := Vector3(-0.015, -0.08, 0)
+				# The native box is 2 cm narrower along Z. Seat the rigid source
+				# casting 7 mm back when it faces north or south; keep its scale.
+				if absf(sin(collector_angle)) > 0.5:
+					jaw_seat.x += 0.007
+				clamp.position = Basis(Vector3.UP, collector_angle) * jaw_seat
+				clamp.rotation.y = PI * 0.5 + collector_angle
 				anchor.add_child(clamp)
 		"anvil":
 			var bottom := -occupied_size.y * 0.5
@@ -1132,13 +1140,17 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 				Vector3(0.40, 0.07, 0.32), dark, worked)
 			var blade := MeshInstance3D.new()
 			blade.name = "FormedBlade"
-			blade.mesh = _formed_cutting_blade()
+			blade.mesh = _formed_cutting_blade(absf(sin(collector_angle)) > 0.5)
+			blade.rotation.y = collector_angle
 			blade.material_override = worked
 			anchor.add_child(blade)
-			_support_box(anchor, "BladeClamp", Vector3(0.095, 0.080, 0), Vector3(0.11, 0.025, 0.30), dark)
+			var facing := Basis(Vector3.UP, collector_angle)
+			_support_box(anchor, "BladeClamp", facing * Vector3(0.095, 0.080, 0),
+				Vector3(0.11, 0.025, 0.30), dark)
+			(anchor.get_node("BladeClamp") as MeshInstance3D).rotation.y = collector_angle
 			for z in [-0.09, 0.09]:
 				var fastener := _support_cylinder(anchor, "ClampFastener", 0.017, 0.015, worked)
-				fastener.position = Vector3(0.11, 0.095, z)
+				fastener.position = facing * Vector3(0.11, 0.095, z)
 		"receiver_tray":
 			# The existing loose-blank centre is at the grid anchor. Its 8 cm
 			# visual sits on a level seat within the folded, open receiver.
@@ -1200,6 +1212,7 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 	var drives: Dictionary = {}
 	var press_roles: Dictionary = {}
+	var collector_facings: Dictionary = {}
 	var by_cell: Dictionary = {}
 	var placed: Variant = snapshot.get("placed_components", {})
 	if placed is Dictionary:
@@ -1211,7 +1224,31 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 	var assemblies: Variant = snapshot.get("collector_assemblies", [])
 	if assemblies is Array:
 		for assembly: Variant in assemblies:
-			if not assembly is Dictionary or assembly.get("status") != "ready" or not assembly.get("parts") is Dictionary:
+			if not assembly is Dictionary:
+				continue
+			# Native trusted ore faces exist before all five parts are ready.
+			# Exact face-relative cells orient only parts already placed there;
+			# no visual angle is a new work or connection decision.
+			var center: Variant = assembly.get("center")
+			var toward: Variant = assembly.get("toward_ore")
+			if assembly.get("status") in ["ready", "missing_frame", "missing_mount",
+					"missing_edge", "missing_receiver", "missing_shaft"] \
+					and center is Array and center.size() == 3 and toward is Array and toward.size() == 3 \
+					and typeof(center[0]) == TYPE_INT and typeof(center[1]) == TYPE_INT \
+					and typeof(center[2]) == TYPE_INT and typeof(toward[0]) == TYPE_INT \
+					and typeof(toward[1]) == TYPE_INT and typeof(toward[2]) == TYPE_INT:
+				var direction := Vector3i(toward[0], toward[1], toward[2])
+				if direction.y == 0 and absi(direction.x) + absi(direction.z) == 1:
+					var origin := Vector3i(center[0], center[1], center[2])
+					var angle := atan2(float(direction.z), -float(direction.x))
+					for height in [0, 1]:
+						var base := origin + Vector3i(0, height, 0)
+						for step in [1, 2]:
+							var id: Variant = by_cell.get(base + direction * step)
+							var expected := "tool_mount" if step == 1 else "cutting_edge"
+							if boxes.has(id) and boxes[id].component == expected:
+								collector_facings[id] = angle
+			if assembly.get("status") != "ready" or not assembly.get("parts") is Dictionary:
 				continue
 			var frame_id: Variant = assembly.parts.get("frame")
 			var shaft_id: Variant = assembly.parts.get("shaft")
@@ -1271,7 +1308,7 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 		anchor.set_meta("component_kind", spec.component)
 		add_child(anchor)
 		_placed_component(anchor, spec.component, drives.get(id, Vector3.ZERO),
-			spec.size, press_roles.get(id, ""))
+			spec.size, press_roles.get(id, ""), float(collector_facings.get(id, 0.0)))
 
 func _render_receiver_chutes(snapshot: Dictionary) -> void:
 	# A chute joins only a native ready receiver to a native belt endpoint at

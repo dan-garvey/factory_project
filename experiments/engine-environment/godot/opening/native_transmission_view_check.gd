@@ -187,7 +187,8 @@ func _component_fixture() -> Dictionary:
 			"edge": _component_record("cutting_edge", [-2, 0, 0], [-0.825, 0.81, 0.0], [0.21, 0.12, 0.18]),
 			"tray": _component_record("receiver_tray", [0, 0, 1], [0.0, 0.7425, 0.4125], [0.18, 0.15, 0.205]),
 			"shaft": _component_record("wooden_shaft", [1, 0, 0], [0.4125, 0.825, 0.0], [0.205, 0.12, 0.205])},
-		"collector_assemblies": [{"status": "ready", "parts": {"frame": "frame", "mount": "mount",
+		"collector_assemblies": [{"center": [0, 0, 0], "toward_ore": [-1, 0, 0],
+			"status": "ready", "parts": {"frame": "frame", "mount": "mount",
 			"edge": "edge", "receiver": "tray", "shaft": "shaft"}}]}
 
 func _component_view() -> void:
@@ -420,6 +421,66 @@ func _component_view() -> void:
 				and is_equal_approx((unready_rod.get_node("Shaft") as MeshInstance3D).mesh.height, 0.14)
 				and node.find_children("BearingShell*", "MeshInstance3D", false, false).is_empty(),
 				"An unready placed shaft is stock on its foot, without a falsely connected journal axis.")
+	var south: Dictionary = _component_fixture()
+	south.placed_components.mount.center = [0, 1, 1]
+	south.placed_components.mount.occupied.center = [0.0, 1.3375, 0.4125]
+	south.placed_components.edge.center = [0, 1, 2]
+	south.placed_components.edge.occupied.center = [0.0, 1.2225, 0.825]
+	south.placed_components.tray.center = [1, 0, 0]
+	south.placed_components.tray.occupied.center = [0.4125, 0.7425, 0.0]
+	south.placed_components.shaft.center = [-1, 0, 0]
+	south.placed_components.shaft.occupied.center = [-0.4125, 0.825, 0.0]
+	south.collector_assemblies[0].toward_ore = [0, 0, 1]
+	facts.state = south
+	host.state = south
+	physical.sync_topology()
+	view.refresh()
+	var south_anchors: Dictionary = {}
+	for node: Node in view.get_children():
+		if node.has_meta("component_entity"):
+			south_anchors[node.get_meta("component_entity")] = node
+	var south_blade := south_anchors.edge.get_node("FormedBlade") as MeshInstance3D
+	var south_clamp := south_anchors.mount.get_node("CastToolClamp") as Node3D
+	verify(south_blade.basis.x.z < -0.89 and south_clamp.basis.z.z < -0.99,
+		"The raised south-facing native workcell turns the blade lip toward ore and its jaw toward the blade.")
+	var south_front := INF
+	var south_root := -INF
+	for point: Vector3 in south_blade.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]:
+		south_front = minf(south_front, point.x)
+		south_root = maxf(south_root, point.x)
+	verify(is_equal_approx(south_front, -0.175) and is_equal_approx(south_root, 0.075)
+		and south_blade.scale == Vector3.ONE,
+		"The north/south blade forms a shorter lip within the box without scaling its fitted root.")
+	var south_boxes: Dictionary = Geometry.component_boxes(south).boxes
+	for id in ["mount", "edge"]:
+		var spec: Dictionary = south_boxes[id]
+		var body: StaticBody3D = physical.component_bodies[id]
+		var collider: CollisionShape3D = body.get_child(0)
+		verify(body.position == spec.center and collider.shape.size == spec.size,
+			"Facing a raised tool preserves its exact native actor-blocking box.")
+		for found: Node in south_anchors[id].find_children("*", "MeshInstance3D", true, false):
+			var piece := found as MeshInstance3D
+			var relative: Transform3D = south_anchors[id].global_transform.affine_inverse() * piece.global_transform
+			var detail: AABB = relative * piece.mesh.get_aabb()
+			verify(AABB(-spec.size * 0.5, spec.size).grow(0.0002).encloses(detail),
+				"South-facing %s/%s stays inside its native occupied box: %s." % [id, piece.name, detail])
+	south.placed_components.erase("shaft")
+	south.collector_assemblies[0].status = "missing_shaft"
+	host.state = south
+	physical.sync_topology()
+	view.refresh()
+	for node: Node in view.get_children():
+		if node.get_meta("component_entity", "") == "edge":
+			verify((node.get_node("FormedBlade") as MeshInstance3D).basis.x.z < -0.89,
+				"The trusted ore face keeps a placed cutter oriented while an unrelated drive part is missing.")
+	verify(not physical.component_bodies.has("shaft"),
+		"Removing the drive part also removes only its native physical body.")
+	south.collector_assemblies[0].status = "unsupported"
+	view.refresh()
+	for node: Node in view.get_children():
+		if node.get_meta("component_entity", "") == "edge":
+			verify((node.get_node("FormedBlade") as MeshInstance3D).basis.x.x > 0.99,
+				"An unknown assembly status cannot supply a speculative tool orientation.")
 	view.free()
 	physical.free()
 	await process_frame

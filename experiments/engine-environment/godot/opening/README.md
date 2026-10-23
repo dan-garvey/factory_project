@@ -159,8 +159,8 @@ character is within reach; the first selection is recorded by the worksite.
 Intermediate aligned shafts turn with the belt. Horizontal
 and inclined belts can carry material. Vertical and sideways belts transmit
 rotation only. A belt holds loose items on an empty tile even when stopped; once
-powered, adjacent belts can pass material between them. The starter kit carries two belts. The
-belt appears after the worksite confirms placement, and the
+powered, adjacent belts can pass material between them. The pod workshop can craft belts from
+harvested material. The belt appears after the worksite confirms placement, and the
 deconstruction mode can reclaim it when it is empty and a belt tile is
 within reach. The opening guidance recognizes a powered route through one or
 more spans, including loose-item handoffs between them.
@@ -181,6 +181,14 @@ This prototype represents their fixed grid locations without gravity. Span-belt
 travel scales with the confirmed shaft rate. The press's work per tick scales with its
 confirmed angular rate and works in either turning direction. Cog and shaft
 quantities and dimensions are revisable fixture choices.
+
+The automated `native_adapter_check.gd` mode `arrival-belt-controls` starts at the
+pod, harvests and crafts a finite powered belt route, then checks F deconstruction
+of a reachable shaft, its original native reach cut, exact retry identity, belt
+custody and a guarded Store save. The old transmission scene consumer assumed
+issued construction kits and was retired when the pod-first opening replaced
+that start. The check uses scripted callbacks and actor movement; it is not a
+human playtest.
 
 ## Cog presentation scale probe
 
