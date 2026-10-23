@@ -223,6 +223,12 @@ Admission::Admission(const std::filesystem::path& common_dir, Mode mode, bool wa
         } while (!acquired);
         handles_.push_back(std::move(heavy));
     }
+    // Take the order gate only after a heavy slot is available. A heavy waiter
+    // must not hold it while waiting for the legacy gate or all four slots:
+    // that would block an otherwise eligible exclusive benchmark. A benchmark
+    // keeps this gate while waiting for activity, so later shared entrants
+    // cannot continually pass it. Release it before command execution.
+    auto order = locked_file(directory / "admission-order.lock", LOCK_EX, wait, mode);
     handles_.push_back(locked_file(directory / "activity.lock",
         mode == Mode::benchmark ? LOCK_EX : LOCK_SH, wait, mode));
 }

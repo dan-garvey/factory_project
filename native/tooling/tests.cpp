@@ -526,6 +526,52 @@ int main(int argc, char** argv) {
             occupied=resource::FileDescriptor();
             expect(queued.wait()==0,"Slot waiter did not resume after capacity returned");
         });
+        test("queued benchmark enters before later heavy arrivals",[&] {
+            auto active=std::make_unique<resource::Admission>(common,resource::Mode::heavy,false);
+            const auto order_path=common/"factory-local-resources/admission-order.lock";
+            resource::FileDescriptor probe(::open(order_path.c_str(),O_RDWR));
+            expect(probe.get()>=0,"Cannot inspect the retained admission order gate");
+            const auto benchmark_marker=artifacts/"queued-benchmark-entered";
+            const auto benchmark_release=artifacts/"release-queued-benchmark";
+            Process benchmark({cli.string(),"--root",repo.string(),"benchmark","--",
+                executable.string(),"--fixture","hold",benchmark_marker.string(),benchmark_release.string()});
+            until([&] {
+                if (::flock(probe.get(),LOCK_EX|LOCK_NB)==0) {
+                    expect(::flock(probe.get(),LOCK_UN)==0,"Cannot release admission order probe");
+                    return false;
+                }
+                expect(errno==EWOULDBLOCK || errno==EAGAIN,"Admission order probe failed unexpectedly");
+                return true;
+            },"Benchmark did not take its place in the admission queue");
+            std::vector<std::unique_ptr<Process>> later;
+            std::vector<fs::path> later_markers;
+            const auto heavy_release=artifacts/"release-later-heavy";
+            for (unsigned i=0;i<6;++i) {
+                const auto marker=artifacts/("later-heavy-"+std::to_string(i));
+                later_markers.push_back(marker);
+                later.push_back(std::make_unique<Process>(std::vector<std::string>{cli.string(),"--root",repo.string(),"heavy","--",
+                    executable.string(),"--fixture","hold",marker.string(),heavy_release.string()}));
+            }
+            until([&] {
+                return std::all_of(later.begin(),later.end(),[](const auto& contender) {
+                    return text(contender->log).find("waiting for heavy admission")!=std::string::npos;
+                });
+            },"Later heavy contenders did not reach admission");
+            expect(invoke(wrapped("heavy"))==75,"A new heavy command passed the queued benchmark");
+            expect(invoke(wrapped("check"))==75,"A new check passed the queued benchmark");
+            for (const auto& marker : later_markers)
+                expect(!fs::exists(marker),"A later heavy command passed an already queued benchmark");
+            active.reset();
+            until([&] {return !text(benchmark_marker).empty();},"Benchmark starved after the active heavy command finished");
+            for (const auto& marker : later_markers)
+                expect(!fs::exists(marker),"A later heavy command entered before the queued benchmark");
+            write(benchmark_release,"release\n");
+            expect(benchmark.wait()==0,"Queued benchmark did not finish");
+            write(heavy_release,"release\n");
+            for (auto& contender : later)
+                expect(contender->wait()==0,"Later heavy command did not resume after the benchmark");
+            expect(invoke(wrapped("benchmark"))==0,"Admission order queue left activity locked");
+        });
         test("the immediate command retains admission if its wrapper is killed",[&] {
             std::vector<std::unique_ptr<resource::Admission>> others;
             for (unsigned i=1;i<resource::heavy_slots;++i)

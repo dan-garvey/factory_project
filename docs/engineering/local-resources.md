@@ -21,8 +21,16 @@ a cheap permit. Runtime selection and retained compiler diagnostics are describe
 in [CONTRIBUTING](../../CONTRIBUTING.md#checks-and-local-hooks).
 
 Cheap checks can coexist with each other and up to four heavy commands. Each
-heavy command holds one of four slots. A benchmark excludes all wrapped checks, heavy commands, and
-other benchmarks until its child exits. Locks live in the common Git directory,
+heavy command holds one of four slots. A benchmark excludes all wrapped checks,
+heavy commands, and other benchmarks until its child exits. Native admission uses a retained
+`admission-order.lock` only while acquiring its workload locks. Heavy work
+waits for the legacy gate and a free slot before taking the order gate, so a
+heavy waiter cannot block a benchmark that is otherwise eligible. A queued
+benchmark holds this gate until active shared commands finish, so later native
+heavy arrivals cannot repeatedly pass it. The gate is released before the
+benchmark command starts; already admitted work remains concurrent. The older
+Python wrapper does not participate in this ordering and can still delay a
+queued benchmark until that route is retired. Locks live in the common Git directory,
 so linked worktrees cooperate. Lock files are retained; never unlink them while
 commands might be using them. Do not nest wrappers against the same repository.
 

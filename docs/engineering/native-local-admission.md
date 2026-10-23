@@ -57,6 +57,14 @@ shared activity. Older wrappers take the exclusive legacy gate, so they cannot
 overlap a native heavy job. They may temporarily reduce concurrency but cannot
 bypass the four-slot bound. Checks take shared activity; benchmarks take exclusive
 activity. A heavy waiter takes no activity permit until a slot is available.
+All native entrants take one retained admission-order gate while acquiring
+their activity locks. Heavy commands first wait for the legacy gate and a free
+slot without holding the order gate or activity. A benchmark keeps the gate
+while waiting for exclusive activity, preventing later native shared arrivals
+from overtaking it. The gate
+is released before child execution, so it does not serialize admitted work.
+The legacy Python wrapper still coordinates on the heavy and activity locks but
+does not use the order gate.
 
 Both admission descriptors survive in the immediate supervisor, including its
 slot if the outer wrapper exits. The command and any persistent server it starts
@@ -77,7 +85,9 @@ waiters, benchmark exclusivity, both directions of legacy compatibility, the
 capacity refusals, command exits, literal arguments,
 job settings, hook-variable isolation, closed standard streams and unrelated
 descriptor closure. Wrapper-loss and deliberate assertion controls require the
-owned inherited child to be reaped and its permits released. A synthetic
+owned inherited child to be reaped and its permits released. An ordered queue
+control holds a benchmark behind active heavy work, starts later heavy entrants,
+and proves the benchmark enters before them. A synthetic
 persistent server control verifies that a completed direct client releases both
 permits while its server stays alive, with later legacy heavy, native heavy and
 benchmark entry.
