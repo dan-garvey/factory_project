@@ -61,6 +61,7 @@ enum class Component {
     ram_face,
     softmetal_shaft,
     softmetal_cog,
+    wooden_workbench,
 };
 
 struct ComponentCost {

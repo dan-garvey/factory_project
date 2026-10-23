@@ -206,12 +206,121 @@ void shared_harvest() {
           !factory::values::typed_difference(saved, restored.checkpoint()),
           "A fresh Host restores both actors and all finite source balances.");
 }
+
+void placed_bench_preserves_two_actor_custody() {
+    Host host;
+    check(get<bool>(host.initialize_arrival("bench-site", {"P", "Q"}), "accepted") &&
+          get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(host.publish_actor("P", {V(6.6), V(1.0), V(3.3)}, 1), "accepted") &&
+          get<bool>(host.publish_actor("Q", {V(1.65), V(1.0), V(1.65)}, 1), "accepted"),
+          "Two actors initialize beside different finite material sources.");
+    for (int index = 0; index < 4; ++index) {
+        const O cut_wood{{"context", V("bench-site")}, {"client", V("P")},
+            {"request", V("bench-timber-" + std::to_string(index))},
+            {"action", V("harvest_source")}, {"target", V("tree-east-south")}};
+        check(get<bool>(host.command("P", cut_wood), "accepted"),
+              "P harvests one of four finite workbench timbers.");
+    }
+    const O shape_bench{{"context", V("bench-site")}, {"client", V("P")},
+        {"request", V("shape-workbench")}, {"action", V("field_craft")},
+        {"component", V("wooden_workbench")}};
+    check(get<bool>(host.command("P", shape_bench), "accepted") &&
+          get<I>(V(get<O>(get<O>(host.projection(), "cargo").at("P"), "components")),
+              "wooden_workbench") == 1,
+          "P shapes a bench from four carried timbers away from the pod.");
+    const O place_bench{{"context", V("bench-site")}, {"client", V("P")},
+        {"request", V("place-workbench")}, {"action", V("place_component")},
+        {"component", V("wooden_workbench")},
+        {"center", V(A{V(I{20}), V(I{0}), V(I{8})})}};
+    const auto placed = host.command("P", place_bench);
+    check(get<bool>(placed, "accepted"),
+          "P installs the wooden bench on a ground tile beyond the pod deck.");
+    const auto bench_id = get<std::string>(placed, "entity");
+    const auto benches = get<A>(host.projection(), "fabrication_benches");
+    check(benches.size() == 1 && get<std::string>(benches.front(), "id") == bench_id &&
+          get<I>(benches.front(), "generation") == get<I>(placed, "generation") &&
+          get<O>(get<O>(host.projection(), "cargo").at("P"), "components").empty(),
+          "Host projects the confirmed bench identity and moves P's part into placed custody.");
+    check(get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(6.6)}, 2), "accepted"),
+          "P reaches the pod workshop before unbolting it.");
+    const O stow{{"context", V("bench-site")}, {"client", V("P")},
+        {"request", V("stow-pod-bench")}, {"action", V("stow_fabrication_hub")},
+        {"entity", V("pod-fabrication-hub")}};
+    check(get<bool>(host.command("P", stow), "accepted") &&
+          !get<bool>(V(get<O>(host.projection(), "fabrication_hub")), "installed") &&
+          get<std::string>(V(get<O>(host.projection(), "fabrication_hub")), "holder") == "P",
+          "The issued pod workshop moves into P's explicit custody without removing the placed bench.");
+    const O mine{{"context", V("bench-site")}, {"client", V("Q")},
+        {"request", V("bench-ore")}, {"action", V("harvest_source")},
+        {"target", V("opening-softmetal")}};
+    check(get<bool>(host.command("Q", mine), "accepted"),
+          "Q mines one softmetal blank from the same finite source used by collectors.");
+    const O craft_edge{{"context", V("bench-site")}, {"client", V("Q")},
+        {"request", V("remote-bench-edge")}, {"action", V("craft_component")},
+        {"entity", V(bench_id)}, {"component", V("cutting_edge")}};
+    const auto remote = host.command("Q", craft_edge);
+    check(!get<bool>(remote, "accepted") && get<std::string>(remote, "reason") == "out_of_reach" &&
+          get<I>(get<O>(host.projection(), "cargo").at("Q"), "raw") == 1,
+          "Q cannot spend its ore from outside physical bench reach.");
+    check(get<bool>(host.publish_actor("Q", {V(8.25), V(1.0), V(4.95)}, 2), "accepted"),
+          "Q walks to the player-built bench without moving its inventory into P's custody.");
+    auto local_craft = craft_edge;
+    local_craft.at("request") = V("local-bench-edge");
+    const auto shaped = host.command("Q", local_craft);
+    check(get<bool>(shaped, "accepted") &&
+          get<I>(V(get<O>(get<O>(host.projection(), "cargo").at("Q"), "components")),
+              "cutting_edge") == 1 &&
+          get<I>(get<O>(host.projection(), "cargo").at("Q"), "raw") == 0,
+          "Q uses the placed bench to cold shape its own ore into one cutting edge.");
+    check(get<bool>(host.publish_actor("P", {V(6.6), V(1.0), V(3.3)}, 3), "accepted"),
+          "P returns to the timber site while Q's crafted edge remains in Q's cargo.");
+    auto fifth_wood = O{{"context", V("bench-site")}, {"client", V("P")},
+        {"request", V("bench-fifth-timber")}, {"action", V("harvest_source")},
+        {"target", V("tree-east-south")}};
+    check(get<bool>(host.command("P", fifth_wood), "accepted"),
+          "P harvests one more finite timber for a powered route kit.");
+    const O craft_shaft{{"context", V("bench-site")}, {"client", V("P")},
+        {"request", V("placed-bench-shaft")}, {"action", V("craft_part")},
+        {"entity", V(bench_id)}, {"role", V("shaft")}, {"half_span", V(I{2})}};
+    check(get<bool>(host.command("P", craft_shaft), "accepted"),
+          "The player-built bench also replaces the pod for finite stationary shaft kits.");
+    const auto saved = host.checkpoint();
+    check(get<bool>(host.command("Q", local_craft), "duplicate") &&
+          !factory::values::typed_difference(saved, host.checkpoint()),
+          "A repeated craft wire does not mint another metal component.");
+    Host restored;
+    check(get<bool>(restored.initialize_arrival("bench-site", {"P", "Q"}), "accepted") &&
+          get<bool>(restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(restored.restore_checkpoint(saved), "accepted") &&
+          !factory::values::typed_difference(saved, restored.checkpoint()) &&
+          get<A>(restored.projection(), "fabrication_benches").size() == 1,
+          "Fresh Host restore retains the placed bench and both actors' exact material ownership.");
+    check(get<bool>(restored.publish_actor("P", {V(8.25), V(1.0), V(1.65)}, 1), "accepted"),
+          "P establishes a fresh physical observation after the checkpoint restore.");
+    const O deploy{{"context", V("bench-site")}, {"client", V("P")},
+        {"request", V("redeploy-pod-bench")}, {"action", V("deploy_fabrication_hub")},
+        {"entity", V("pod-fabrication-hub")},
+        {"center", V(A{V(I{24}), V(I{0}), V(I{8})})}};
+    const auto redeployed = restored.command("P", deploy);
+    if (!get<bool>(redeployed, "accepted"))
+        throw std::runtime_error("Pod workshop redeploy refused: " + get<std::string>(redeployed, "reason"));
+    const auto valid_redeploy = restored.validate_checkpoint(restored.checkpoint());
+    if (!get<bool>(valid_redeploy, "accepted"))
+        throw std::runtime_error("Redeployed workshop checkpoint refused: " +
+            get<std::string>(valid_redeploy, "reason"));
+    check(get<bool>(redeployed, "accepted") &&
+          get<bool>(V(get<O>(restored.projection(), "fabrication_hub")), "installed") &&
+          get<I>(V(get<O>(restored.projection(), "fabrication_hub")), "generation") == 1 &&
+          get<bool>(valid_redeploy, "accepted"),
+          "The same pod workshop redeploys on another clear tile after a fresh Host restore.");
+}
 }  // namespace
 
 int main() {
     try {
         shared_harvest();
         field_wood_uses_physical_actor_and_one_ledger();
+        placed_bench_preserves_two_actor_custody();
         std::cout << "harvest_host_test: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {

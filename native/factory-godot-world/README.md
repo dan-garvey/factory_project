@@ -26,15 +26,20 @@ and `reclaim_component` move that stock between actor cargo and persistent
 quarter-grid world parts with one native material ledger. The Host projects
 their identities, positions and types and reserves component-specific occupied
 bounds against actors, terrain obstacles, belts and complete machines. A placed
-cutting edge at one of the profile's trusted ore faces may contact only the
+wooden workbench costs four harvested timbers, occupies a supported aligned tile,
+and offers the same local component and stationary-part crafting commands as the
+pod workshop. The original issued workshop can be stowed by a nearby actor and
+redeployed at a clear site; its holder and the placed bench identities survive
+checkpoint restore. Both benches spend only the crafting actor's carried stock.
+A placed cutting edge at one of the profile's trusted ore faces may contact only the
 tagged source outcrop; other components and other obstacles still block it.
 Checkpoint import rechecks that same source fit against the receiving site.
 Grounded frame legs and the current collector components have fitted bounds;
 future component art still needs its own fit review. A placed collector can
 now be turned manually; press assembly remains unfinished. The offline view
-offers exact-target ore harvesting and native stock feedback. There is still
-no pod or bench mesh, scene component crafting/placement controls, timed tool
-use or aligned harvestable-tree presentation. The experimental
+offers exact-target ore harvesting and native stock feedback. Scene controls
+for placing, selecting, stowing and redeploying the portable workbench still
+need integration. The experimental
 arrival begins without inherited complete-machine or transmission kits; the
 historical initializer retains those mechanics fixtures. The new offline start
 is partial implementation toward the chapter contract, not chapter completion.
@@ -194,8 +199,9 @@ very close to the body even when the exact rotated boxes do not overlap.
 Vertical and sideways spans transmit rotation without carrying cargo or actors.
 
 The physical checkpoint has schema 3 and format `factory-native-physical`. Its
-logical World checkpoint has schema 8, including the first freight beacon,
-building facings, the trusted interaction offset and identified belt spans.
+logical World checkpoint has schema 9, including workshop custody and placement,
+the first freight beacon, building facings, the trusted interaction offset and
+identified belt spans.
 The arrival material ledger inside it has schema 11 and retains shipped plate
 custody. Earlier logical formats are refused without migration. The physical
 envelope remains schema 3. Its arrival material payload has schema 11, including
