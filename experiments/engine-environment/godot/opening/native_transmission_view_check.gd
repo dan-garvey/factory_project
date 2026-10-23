@@ -12,6 +12,13 @@ const Session = preload("res://opening-session/session.gd")
 var checks := 0
 var failures := 0
 
+class CountingNativeModel extends "res://opening/native_model.gd":
+	var full_projection_calls := 0
+	func _invoke(method: String, arguments: Array) -> Dictionary:
+		if method == "projection":
+			full_projection_calls += 1
+		return super._invoke(method, arguments)
+
 class TopologyStub extends RefCounted:
 	var state: Dictionary = {}
 	var calls := 0
@@ -30,6 +37,25 @@ class ActorBridgeStub extends RefCounted:
 	func projection() -> Dictionary:
 		full_calls += 1
 		return {"actors": {"P": actor}}
+
+class AdvanceProjectionStub extends RefCounted:
+	var advances := 0
+	var projections := 0
+	var revision := 0
+	var refuse_next := false
+	func _state() -> Dictionary:
+		return {"context": "advance-projection-fixture", "revision": revision,
+			"order": 0, "entities": {}, "links": [], "options": {}}
+	func advance() -> Dictionary:
+		advances += 1
+		if refuse_next:
+			refuse_next = false
+			return {"accepted": false, "reason": "native_step_failed"}
+		revision += 1
+		return _state()
+	func projection() -> Dictionary:
+		projections += 1
+		return _state()
 
 class HostStub extends RefCounted:
 	var state: Dictionary
@@ -76,6 +102,32 @@ class ScaleOpening extends "res://opening/opening.gd":
 		var before := Time.get_ticks_usec()
 		super._process(delta)
 		process_ms = float(Time.get_ticks_usec() - before) / 1000.0
+
+class AdvanceProjectionOpening extends "res://opening/opening.gd":
+	func _ready() -> void:
+		pass
+	func _sync_landing_pod_visual() -> void:
+		pass
+	func _rebuild_machines() -> void:
+		pass
+	func _redraw_items() -> void:
+		pass
+	func _refresh_ui() -> void:
+		pass
+	func _refresh_machine_preview() -> void:
+		pass
+	func _refresh_placement_options() -> void:
+		pass
+	func _refresh_water() -> void:
+		pass
+	func _refresh_mechanical_audio() -> void:
+		pass
+	func _animate_wheel(_delta: float) -> void:
+		pass
+	func _update_camera() -> void:
+		pass
+	func _update_fps_counter(_delta: float) -> void:
+		pass
 
 class SharedSettlement extends "res://opening/shared_opening.gd":
 	func _usable_snapshot() -> bool:
@@ -2056,6 +2108,35 @@ func _physical_actor_bridge_regression() -> void:
 		"A non-native model retains full projection validation.")
 	physical.free()
 
+func _advance_projection_regression() -> void:
+	var view := AdvanceProjectionOpening.new()
+	var source := AdvanceProjectionStub.new()
+	view.model = source
+	view.auto_advance = true
+	view._process(0.0)
+	verify(source.advances == 0 and source.projections == 1 and view.state.revision == 0,
+		"A render cut without an authority tick still requests the current projection.")
+	source.advances = 0
+	source.projections = 0
+	view.elapsed = 0.0
+	view._process(view.STEP_SECONDS + 0.01)
+	verify(source.advances == 1 and source.projections == 0 and view.state.revision == 1,
+		"One accepted tick supplies its own complete render projection.")
+	source.advances = 0
+	source.projections = 0
+	view.elapsed = 0.0
+	view._process(view.STEP_SECONDS * 3.0 + 0.01)
+	verify(source.advances == 3 and source.projections == 0 and view.state.revision == 4,
+		"A catch-up render cut uses the last of several accepted tick projections.")
+	source.advances = 0
+	source.projections = 0
+	source.refuse_next = true
+	view.elapsed = 0.0
+	view._process(view.STEP_SECONDS + 0.01)
+	verify(source.advances == 1 and source.projections == 1 and view.state.revision == 4,
+		"A refused native tick falls back to a fresh authority projection.")
+	view.free()
+
 func _native_actor_view_regression() -> void:
 	var model = NativeModel.new("actor-view-fixture", ["P"], true)
 	verify(model.boot_result.get("accepted", false), "The real native arrival model boots for actor-view checks.")
@@ -2074,6 +2155,82 @@ func _native_actor_view_regression() -> void:
 	verify(not model.actor_projection("P").get("ready", true),
 		"The extension reports explicit physical invalidation.")
 
+func _native_view_cache_regression() -> void:
+	var model := CountingNativeModel.new("view-cache-fixture", ["P"], true)
+	verify(model.boot_result.get("accepted", false), "The native view-cache fixture boots the real extension.")
+	if not model.boot_result.get("accepted", false):
+		return
+	model.full_projection_calls = 0
+	var first: Dictionary = model.view_projection()
+	var repeated: Dictionary = model.view_projection()
+	verify(model.full_projection_calls == 1 and first == repeated and first.actors.P.ready == false,
+		"Repeated view reads share one complete native observation before any tick.")
+	var first_full_calls := model.full_projection_calls
+	var opening_view := AdvanceProjectionOpening.new()
+	opening_view.model = model
+	opening_view._refresh()
+	verify(model.full_projection_calls == 1 and opening_view.state == first,
+		"The ordinary opening refresh reads the confirmed cached native projection.")
+	opening_view.free()
+	var physical := ActorWorld.new()
+	physical.model = model
+	root.add_child(physical)
+	model.full_projection_calls = 0
+	physical._on_native_cut()
+	verify(model.full_projection_calls == 0,
+		"An ordinary physical cut does not reproject the full native worksite.")
+	physical.free()
+	model.full_projection_calls = first_full_calls
+	repeated.entities["invented-machine"] = {}
+	repeated.actors.P.ready = true
+	var isolated: Dictionary = model.view_projection()
+	verify(model.full_projection_calls == 1 and not isolated.entities.has("invented-machine")
+		and not isolated.actors.P.ready, "A view caller cannot mutate the cached native facts.")
+	verify(model.publish_actor("P", [0.0, 1.0, 0.0], 1).get("accepted", false),
+		"The real Host accepts a trusted physical pose for the cache check.")
+	var moved: Dictionary = model.view_projection()
+	verify(model.full_projection_calls == 1 and moved.actors.P.ready and moved.actors.P.native_epoch == 1
+		and moved.actors.P.position == [0.0, 1.0, 0.0]
+		and moved.actors.P == model.projection().actors.P,
+		"Accepted pose publication patches only the view actor to exact Host facts.")
+	model.full_projection_calls = 0
+	var tick: Dictionary = model.advance()
+	verify(tick.has("entities") and model.view_projection() == tick and model.full_projection_calls == 0,
+		"A successful native tick supplies the complete next view without another projection.")
+	var saved: Dictionary = model.checkpoint()
+	model.full_projection_calls = 0
+	model.command_as("P", {"action": "invalid", "context": tick.context,
+		"client": "P", "request": "cache-refusal"})
+	var after_command: Dictionary = model.view_projection()
+	verify(model.full_projection_calls == 1 and after_command == model.projection(),
+		"Even a refused command invalidates the view before the next observation.")
+	model.full_projection_calls = 0
+	model.invalidate_actor("P")
+	var invalidated: Dictionary = model.view_projection()
+	verify(model.full_projection_calls == 1 and not invalidated.actors.P.ready
+		and invalidated.actors.P == model.projection().actors.P,
+		"Physical invalidation cannot leave a ready actor in the view cache.")
+	verify(model.publish_actor("P", [0.0, 1.0, 0.0], 2).get("accepted", false),
+		"A fresh trusted ordinal restores the invalidated actor before refusal coverage.")
+	model.full_projection_calls = 0
+	var rejected: Dictionary = model.publish_actor("P", [], 3)
+	var after_rejection: Dictionary = model.view_projection()
+	verify(not rejected.get("accepted", true) and model.full_projection_calls == 1
+		and not after_rejection.actors.P.ready and after_rejection.actors.P == model.projection().actors.P,
+		"A malformed rejected actor sample refreshes the view after Host revokes readiness.")
+	var restored := CountingNativeModel.new("view-cache-fixture", ["P"], true)
+	verify(restored.boot_result.get("accepted", false), "A fresh Host boots for saved-view restoration.")
+	if not restored.boot_result.get("accepted", false):
+		return
+	restored.view_projection()
+	restored.full_projection_calls = 0
+	var restore_result: Dictionary = restored.restore_checkpoint(saved)
+	var restored_view: Dictionary = restored.view_projection()
+	verify(restore_result.get("accepted", false) and restored.full_projection_calls == 1
+		and restored_view.revision == tick.revision and not restored_view.actors.P.ready
+		and restored_view.actors.P == restored.projection().actors.P,
+		"A restored Host discards the old view and requires a new physical actor publication.")
+
 func _run() -> void:
 	if "--scale-benchmark" in OS.get_cmdline_user_args():
 		await _scale_benchmark()
@@ -2086,8 +2243,12 @@ func _run() -> void:
 		_physical_topology_cache_regression()
 	elif "--physical-actor-bridge-only" in OS.get_cmdline_user_args():
 		_physical_actor_bridge_regression()
+	elif "--advance-projection-only" in OS.get_cmdline_user_args():
+		_advance_projection_regression()
 	elif "--native-actor-view-only" in OS.get_cmdline_user_args():
 		_native_actor_view_regression()
+	elif "--native-view-cache-only" in OS.get_cmdline_user_args():
+		_native_view_cache_regression()
 	elif "--support-frame-only" in OS.get_cmdline_user_args():
 		await _fixed_support_frame()
 	elif "--finish-only" in OS.get_cmdline_user_args():
