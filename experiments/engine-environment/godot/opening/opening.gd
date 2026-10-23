@@ -6119,6 +6119,7 @@ func _maybe_start_arrival_reveal() -> void:
 		return
 	arrival_reveal_pod_anchor = landing_pod_visual.position
 	arrival_reveal_elapsed = 0.0
+	_release_character_controls()
 	arrival_reveal_active = true
 	if character_presenter != null:
 		character_presenter.visible = false
@@ -6185,6 +6186,7 @@ func _advance_arrival_reveal(delta: float) -> void:
 func _finish_arrival_reveal() -> void:
 	if not arrival_reveal_active:
 		return
+	_release_character_controls()
 	arrival_reveal_elapsed = ARRIVAL_REVEAL_SECONDS
 	_pose_arrival_reveal()
 	arrival_reveal_active = false
@@ -7283,7 +7285,8 @@ func _redraw_items() -> void:
 	workpiece_item_assets.populate_items(item_root, state, PITCH)
 
 func _refresh() -> void:
-	_refresh_from_projection(model.projection())
+	_refresh_from_projection(model._view_projection_borrowed() if model.has_method("_view_projection_borrowed") \
+		else model.view_projection() if model.has_method("view_projection") else model.projection())
 
 func _refresh_from_projection(known_projection: Dictionary) -> void:
 	# Both model paths return the complete projection from advance(). Reuse the

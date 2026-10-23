@@ -4,6 +4,7 @@ const Site = preload("res://opening/site_geometry.gd")
 
 var native: Object
 var boot_result: Dictionary = {"accepted": false, "reason": "native_library_missing"}
+var _view_cache: Dictionary = {}
 var context: String:
 	get:
 		return str(projection().get("context", ""))
@@ -68,24 +69,65 @@ func _invoke(method: String, arguments: Array) -> Dictionary:
 func projection() -> Dictionary:
 	return _invoke("projection", [])
 
+func view_projection() -> Dictionary:
+	# External callers receive an isolated snapshot they may safely inspect or edit.
+	return _view_projection_borrowed().duplicate(true)
+
+func _view_projection_borrowed() -> Dictionary:
+	# Only the opening and actor bridge borrow these confirmed World facts. They
+	# read without modifying them; commands and ticks replace the cached value.
+	if _view_cache.is_empty():
+		var observed: Dictionary = projection()
+		if not _complete_projection(observed):
+			return observed
+		_view_cache = observed
+	return _view_cache
+
+func _complete_projection(value: Dictionary) -> bool:
+	return value.get("context") is String and typeof(value.get("revision")) == TYPE_INT \
+		and value.get("entities") is Dictionary and value.get("actors") is Dictionary
+
 func command(intent: Dictionary) -> Dictionary:
 	return command_as("P", intent)
 
 func command_as(authenticated_actor: String, intent: Dictionary) -> Dictionary:
 	# Session supplies its authenticated binding, never a client-selected actor.
 	# The native Host independently requires the wire client to match it.
+	_view_cache = {}
 	return _invoke("command", [authenticated_actor, intent])
 
 func advance() -> Dictionary:
-	return _invoke("advance", [])
+	var observed: Dictionary = _invoke("advance", [])
+	_view_cache = observed.duplicate(true) if _complete_projection(observed) else {}
+	return observed
 
 func publish_actor(actor: String, position: Array, native_epoch: int) -> Dictionary:
-	return _invoke("publish_actor", [actor, position, native_epoch])
+	var result: Dictionary = _invoke("publish_actor", [actor, position, native_epoch])
+	if not result.get("accepted", false):
+		# A rejected malformed sample may invalidate the Host actor.
+		_view_cache = {}
+	elif not _view_cache.is_empty():
+		if not _view_cache.actors.has(actor):
+			_view_cache = {}
+		else:
+			# Scene readers may still hold the previous snapshot. Replace only the
+			# actor path so their first-ready decision observes its original state.
+			var updated: Dictionary = _view_cache.duplicate()
+			var actors: Dictionary = _view_cache.actors.duplicate()
+			var current: Dictionary = actors[actor].duplicate()
+			current.position = [float(position[0]), float(position[1]), float(position[2])]
+			current.ready = true
+			current.native_epoch = native_epoch
+			actors[actor] = current
+			updated.actors = actors
+			_view_cache = updated
+	return result
 
 func actor_projection(actor: String) -> Dictionary:
 	return _invoke("actor_projection", [actor])
 
 func invalidate_actor(actor: String) -> void:
+	_view_cache = {}
 	_invoke("invalidate_actor", [actor])
 
 func checkpoint() -> Dictionary:
@@ -95,4 +137,5 @@ func validate_checkpoint(value: Dictionary) -> Dictionary:
 	return _invoke("validate_checkpoint", [value])
 
 func restore_checkpoint(value: Variant) -> Dictionary:
+	_view_cache = {}
 	return _invoke("restore_checkpoint", [value])

@@ -31,6 +31,54 @@ class SharedFooterView extends SharedOpening:
 	func _process(_delta: float) -> void:
 		pass
 
+class RevealControlsView extends FooterView:
+	func _refresh_ui() -> void:
+		pass
+	func _pose_arrival_reveal() -> void:
+		pass
+	func _update_camera() -> void:
+		pass
+
+func check_reveal_controls() -> void:
+	var view := RevealControlsView.new()
+	root.add_child(view)
+	view.client = "P"
+	view.landing_pod_visual = Node3D.new()
+	view.landing_hub_visual = Node3D.new()
+	view.add_child(view.landing_pod_visual)
+	view.add_child(view.landing_hub_visual)
+	view.actor_world = load("res://opening/actor_world.gd").new()
+	var body = load("res://opening/actor_body.gd").new()
+	view.actor_world.bodies.P = body
+	view.actor_world.release_counts.P = 0
+	view.character_presenter = load("res://opening/character_presenter.gd").new()
+	view.character_presenter.configure(view)
+	view.add_child(view.character_presenter)
+	view.character_presenter.set_process(false)
+	view.character_presenter.set_physics_process(false)
+	body.set_control(Vector2.RIGHT, true)
+	body.velocity = Vector3(3.0, 2.0, 0.0)
+	view.character_presenter.held_keys[KEY_W] = true
+	view.character_presenter.jump_requested = true
+	await view._maybe_start_arrival_reveal()
+	verify(view.arrival_reveal_active and body.direction == Vector2.ZERO and not body.jump_requested \
+		and body.velocity.x == 0.0 and body.velocity.y == 2.0 \
+		and view.character_presenter.held_keys.is_empty() and not view.character_presenter.jump_requested,
+		"Starting the reveal releases existing motion and keys while preserving vertical physics.")
+	view.character_presenter.held_keys[KEY_W] = true
+	view.character_presenter.jump_requested = true
+	view._finish_arrival_reveal()
+	verify(not view.arrival_reveal_active and view.character_presenter.held_keys.is_empty() \
+		and not view.character_presenter.jump_requested and body.direction == Vector2.ZERO and not body.jump_requested,
+		"Finishing the reveal clears queued keys and jump before ordinary input resumes.")
+	verify(view.model == null and view.request_sequence == 0,
+		"Reveal boundary release constructs no live Model and submits no gameplay request.")
+	body.free()
+	view.actor_world.free()
+	view.actor_world = null
+	view.free()
+	finish_checks()
+
 class AckView extends SharedOpening:
 	var advice := ""
 	func _refresh_ui() -> void:
@@ -596,6 +644,9 @@ func run_native_route_report() -> void:
 	finish_checks()
 
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--reveal-controls-only"):
+		call_deferred("check_reveal_controls")
+		return
 	if OS.get_cmdline_user_args().has("--route-report-only"):
 		run_native_route_report.call_deferred()
 		return
