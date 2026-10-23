@@ -1959,7 +1959,7 @@ func check_bank_fir_lifecycle() -> void:
 		root.add_child(view)
 		view._build_world()
 		var group: Node3D = view.get_node("ProductionScenery/BankFirs")
-		verify(group.is_inside_tree() and group.get_child_count() == 3, "The ordinary fir group is mounted inside the real node tree.")
+		verify(group.is_inside_tree() and group.get_child_count() == 6, "The ordinary six-fir group is mounted inside the real node tree.")
 		verify(view.camera.is_inside_tree() and view.camera.global_transform.is_finite(), "The normal camera mount is valid during world assembly.")
 		verify(view.model == null and view.actor_world == null and view.request_sequence == 0, "The mounted fixture still starts no game authority or requests.")
 		view.free()
