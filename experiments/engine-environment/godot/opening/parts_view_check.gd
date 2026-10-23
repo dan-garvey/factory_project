@@ -328,12 +328,33 @@ func _hand_tree_views() -> void:
 	verify(view.hand_tree_nodes["tree-east-south"] == old_body and old_body.get_node("Tree").visible
 		and old_body.get_node("PickShape").shape == old_shape and old_body.get_node("Cut").visible,
 		"A partial cut preserves the standing tree without rebuilding its pick body.")
+	var scar: MeshInstance3D = old_body.get_node("Cut")
+	verify(scar.mesh is ArrayMesh and scar.mesh.get_aabb().size.y > 0.5
+		and scar.material_override is ShaderMaterial
+		and is_equal_approx(scar.material_override.get_shader_parameter("cut_fraction"), 0.125),
+		"The first cut covers the actual bark mesh with native-count-driven surface scarring.")
+	var scar_material: Material = scar.material_override
+	view.state.hand_sources["tree-east-south"].remaining = 6
+	var changed_counts: Dictionary = view.state.duplicate(true)
+	view._refresh_hand_trees()
+	verify(scar.material_override == scar_material
+		and is_equal_approx(scar.material_override.get_shader_parameter("cut_fraction"), 0.25)
+		and old_body.get_node("PickShape").shape == old_shape and view.state == changed_counts,
+		"Further cuts reuse the same material and pick geometry without changing native data.")
 	view.state.hand_sources["tree-east-south"].remaining = 0
 	view._refresh_hand_trees()
 	verify(not old_body.get_node("Tree").visible and old_body.get_node("Stump").visible
 		and old_body.get_node("PickShape").shape != old_shape,
 		"Native depletion leaves a stump and removes the invisible full-trunk pick shape.")
-	var stump_aim := old_body.to_global(Vector3(0.0, 0.06, 0.0))
+	var stump: MeshInstance3D = old_body.get_node("Stump")
+	verify(stump.mesh is ArrayMesh and stump.mesh.get_aabb().end.y < 0.06
+		and old_body.get_node("Cut").mesh is ArrayMesh and scar.material_override == null,
+		"Depletion uses a low clipped trunk with its matching cap, not a lathed post or scar override.")
+	var cut_plane_matches := true
+	for point: Vector3 in old_body.get_node("Cut").mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]:
+		cut_plane_matches = cut_plane_matches and absf(point.y - 0.045 - point.x * 0.15 - point.z * 0.10) < 0.000001
+	verify(cut_plane_matches, "The irregular cap follows the same shallow plane that clips the actual bark.")
+	var stump_aim := old_body.to_global(Vector3(0.0, 0.02, 0.0))
 	view.camera.position = stump_aim + Vector3(0.0, 0.0, 2.0)
 	view.camera.look_at(stump_aim)
 	await physics_frame

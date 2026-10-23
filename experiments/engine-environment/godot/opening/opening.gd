@@ -5735,54 +5735,114 @@ func _prepare_hand_tree_assets() -> bool:
 	var trunk := ConcavePolygonShape3D.new()
 	trunk.backface_collision = true
 	trunk.set_faces(faces)
-	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
-	var notch_pose := Transform3D.IDENTITY
-	var nearest_notch := INF
-	var notch_width := 0.0
-	for first in range(0, indices.size(), 3):
-		var a: int = indices[first]
-		var b: int = indices[first + 1]
-		var c: int = indices[first + 2]
-		var center := (vertices[a] + vertices[b] + vertices[c]) / 3.0 - root
-		var normal := (normals[a] + normals[b] + normals[c]).normalized()
-		if absf(normal.y) > 0.5:
-			continue
-		var score := absf(center.y - 0.18) + (1.0 - normal.z) * 0.015
-		if score < nearest_notch:
-			nearest_notch = score
-			notch_pose = Transform3D(Basis.looking_at(-normal, Vector3.UP), center + normal * 0.0015)
-			var side := Vector3.UP.cross(normal).normalized()
-			var ta := side.dot(vertices[a])
-			var tb := side.dot(vertices[b])
-			var tc := side.dot(vertices[c])
-			notch_width = (maxf(ta, maxf(tb, tc)) - minf(ta, minf(tb, tc))) * 0.6
-	if not is_finite(nearest_notch) or notch_width <= 0.0:
-		push_error("The harvestable pine has no supported bark notch face.")
-		return false
-	var stump := CylinderMesh.new()
-	stump.height = 0.12
-	stump.top_radius = radius * 0.85
-	stump.bottom_radius = radius
-	stump.material = mesh.surface_get_material(bark_surface)
-	var stump_shape := CylinderShape3D.new()
-	stump_shape.height = stump.height
-	stump_shape.radius = radius
 	var wood := StandardMaterial3D.new()
-	wood.albedo_color = Color("9c784d")
-	wood.roughness = 0.95
-	wood.metallic_specular = 0.1
+	wood.albedo_color = Color("68503b")
+	wood.roughness = 1.0
+	wood.metallic_specular = 0.0
 	wood.cull_mode = BaseMaterial3D.CULL_DISABLED
-	var notch := QuadMesh.new()
-	notch.size = Vector2(notch_width, 0.004)
-	notch.material = wood
-	var cut := CylinderMesh.new()
-	cut.height = 0.002
-	cut.top_radius = radius * 0.85
-	cut.bottom_radius = cut.top_radius
-	cut.material = wood
-	hand_tree_assets = {"mesh": mesh, "root": root, "trunk": trunk, "stump": stump,
-		"stump_shape": stump_shape, "cut": cut, "notch": notch, "notch_pose": notch_pose}
+	var base := _hand_tree_stump(arrays, root, mesh.surface_get_material(bark_surface), wood)
+	if base.is_empty():
+		return false
+	# The scar follows every actual bark face. A single tiny quad could face
+	# away from the worker after the tree's deterministic rotation.
+	var scar_arrays: Array = arrays.duplicate(true)
+	var scar_vertices := PackedVector3Array()
+	for point in vertices:
+		scar_vertices.append(point - root)
+	scar_arrays[Mesh.ARRAY_VERTEX] = scar_vertices
+	var scar := ArrayMesh.new()
+	scar.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, scar_arrays)
+	var scar_shader := Shader.new()
+	scar_shader.code = """shader_type spatial;
+render_mode cull_disabled;
+uniform float cut_fraction : hint_range(0.0, 1.0) = 0.125;
+varying vec3 bark;
+void vertex() {
+	bark = VERTEX;
+	VERTEX += NORMAL * 0.0006;
+}
+void fragment() {
+	float angle = atan(bark.z, bark.x);
+	float rough_edge = sin(angle * 5.0 + 2.0) * 0.002 + sin(angle * 11.0) * 0.001;
+	float half_height = mix(0.006, 0.026, cut_fraction) * (0.8 + 0.2 * sin(angle * 3.0));
+	float edge = abs(bark.y - 0.18 - rough_edge) / half_height;
+	if (edge > 1.0) { discard; }
+	float grain = 0.9 + 0.1 * sin(bark.x * 2200.0 + bark.z * 1700.0 + sin(bark.y * 75.0));
+	ALBEDO = mix(vec3(0.43, 0.30, 0.19) * grain, vec3(0.23, 0.14, 0.07), smoothstep(0.7, 1.0, edge));
+	ROUGHNESS = 1.0;
+	SPECULAR = 0.0;
+}
+"""
+	var scar_material := ShaderMaterial.new()
+	scar_material.shader = scar_shader
+	scar.surface_set_material(0, scar_material)
+	var stump_shape := CylinderShape3D.new()
+	stump_shape.height = base.height
+	stump_shape.radius = radius
+	hand_tree_assets = {"mesh": mesh, "root": root, "trunk": trunk, "stump": base.mesh,
+		"stump_shape": stump_shape, "stump_height": base.height, "cut": base.cap, "notch": scar}
 	return true
+
+func _hand_tree_stump(arrays: Array, root: Vector3, bark: Material, wood: Material) -> Dictionary:
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+	var uv: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+	var sides := SurfaceTool.new()
+	sides.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var rim: Array[Vector3] = []
+	# Clip the qualified trunk rather than substituting a lathed post. The
+	# shallow sloping cut preserves its flare, lean, texture and irregular rim.
+	for first in range(0, indices.size(), 3):
+		var polygon: Array[Dictionary] = []
+		for index in indices.slice(first, first + 3):
+			polygon.append({"p": vertices[index] - root, "n": normals[index], "uv": uv[index]})
+		var clipped: Array[Dictionary] = []
+		for i in range(3):
+			var a: Dictionary = polygon[i]
+			var b: Dictionary = polygon[(i + 1) % 3]
+			var da: float = a.p.y - 0.045 - a.p.x * 0.15 - a.p.z * 0.10
+			var db: float = b.p.y - 0.045 - b.p.x * 0.15 - b.p.z * 0.10
+			if da <= 0.0:
+				clipped.append(a)
+			if (da <= 0.0) != (db <= 0.0):
+				var t := da / (da - db)
+				var point: Vector3 = a.p.lerp(b.p, t)
+				clipped.append({"p": point, "n": a.n.lerp(b.n, t).normalized(), "uv": a.uv.lerp(b.uv, t)})
+				var unique := true
+				for existing in rim:
+					if existing.distance_squared_to(point) < 0.0000000001:
+						unique = false
+						break
+				if unique:
+					rim.append(point)
+		for i in range(1, clipped.size() - 1):
+			for point: Dictionary in [clipped[0], clipped[i], clipped[i + 1]]:
+				sides.set_normal(point.n)
+				sides.set_uv(point.uv)
+				sides.add_vertex(point.p)
+	if rim.size() < 3:
+		push_error("The qualified pine has no closed stump section.")
+		return {}
+	var center := Vector3.ZERO
+	var height := 0.0
+	for point in rim:
+		center += point
+		height = maxf(height, point.y)
+	center /= float(rim.size())
+	rim.sort_custom(func(a: Vector3, b: Vector3) -> bool:
+		return atan2(a.z - center.z, a.x - center.x) < atan2(b.z - center.z, b.x - center.x))
+	var top := SurfaceTool.new()
+	top.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for i in range(rim.size()):
+		for point: Vector3 in [center, rim[i], rim[(i + 1) % rim.size()]]:
+			top.set_normal(Vector3(-0.15, 1.0, -0.10).normalized())
+			top.add_vertex(point)
+	var stump := sides.commit()
+	stump.surface_set_material(0, bark)
+	var cap := top.commit()
+	cap.surface_set_material(0, wood)
+	return {"mesh": stump, "cap": cap, "height": height}
 
 func _refresh_hand_trees() -> void:
 	var sources := {}
@@ -5819,7 +5879,6 @@ func _refresh_hand_trees() -> void:
 			var stump := MeshInstance3D.new()
 			stump.name = "Stump"
 			stump.mesh = hand_tree_assets.stump
-			stump.position.y = 0.06
 			body.add_child(stump)
 			var cut := MeshInstance3D.new()
 			cut.name = "Cut"
@@ -5842,13 +5901,18 @@ func _refresh_hand_trees() -> void:
 		var shape: Shape3D = hand_tree_assets.trunk if standing else hand_tree_assets.stump_shape
 		if picker.shape != shape:
 			picker.shape = shape
-		picker.position.y = 0.0 if standing else 0.06
+		picker.position.y = 0.0 if standing else hand_tree_assets.stump_height * 0.5
 		var cut: MeshInstance3D = body.get_node("Cut")
 		cut.visible = source.remaining < source.initial
 		cut.mesh = hand_tree_assets.notch if standing else hand_tree_assets.cut
-		cut.transform = hand_tree_assets.notch_pose if standing else Transform3D(Basis.IDENTITY, Vector3(0.0, 0.1205, 0.0))
+		cut.transform = Transform3D.IDENTITY
 		var fraction := 1.0 - float(source.remaining) / float(source.initial)
-		cut.scale = Vector3(sqrt(fraction), 1.0, 1.0) if standing and cut.visible else Vector3.ONE
+		if standing and cut.visible:
+			if cut.material_override == null:
+				cut.material_override = hand_tree_assets.notch.surface_get_material(0).duplicate()
+			cut.material_override.set_shader_parameter("cut_fraction", fraction)
+		else:
+			cut.material_override = null
 
 func _screen_hand_source(screen: Vector2) -> String:
 	if not _native_transmission() or camera == null or state.get("hand_sources", {}).is_empty():
