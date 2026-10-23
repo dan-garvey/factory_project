@@ -993,24 +993,34 @@ void complete_span_route_host(bool two_spans = false) {
     check(accepted(paused.initialize("paused", {"P"})) &&
               accepted(paused.configure_terrain(stream)) && accepted(paused.restore_checkpoint(in_flight)),
           "A separate Host restores the moving constructed route before interrupting it.");
+    check(!factory::values::typed_difference(in_flight, paused.checkpoint()),
+          "The moving route restores its exact in-flight cargo and phase before interruption.");
     observe(paused, -1.65, 0, 1000);
     auto remove_wheel = wire("remove", "route-interrupt"); remove_wheel.emplace("entity", V(wheel_id));
     check(accepted(paused.command("P", remove_wheel)), "Removing the wheel interrupts the drive with cargo on the belt.");
-    const auto lane_id = two_spans ? second_span : span;
-    const auto stopped_lane = field<A>(field<O>(paused.projection(), "belt_spans").at(lane_id), "slots");
-    const auto stopped_phase = field<I>(field<O>(paused.projection(), "belt_spans").at(lane_id), "phase");
+    std::vector<std::string> lane_ids{span};
+    if (two_spans) lane_ids.push_back(second_span);
+    const auto stopped_spans = field<O>(paused.projection(), "belt_spans");
     for (int i = 0; i < 5; ++i) (void)paused.advance();
-    const auto held_lane = field<A>(field<O>(paused.projection(), "belt_spans").at(lane_id), "slots");
-    bool retained = stopped_lane.size() == held_lane.size();
-    for (std::size_t i = 0; i < stopped_lane.size() && retained; ++i)
-        if (stopped_lane[i].type() != factory::values::Type::null)
-            retained = !factory::values::typed_difference(stopped_lane[i], held_lane[i]);
-    check(retained && field<I>(field<O>(paused.projection(), "belt_spans").at(lane_id), "phase") == stopped_phase,
-          "Removing the wheel preserves every in-flight item and the lane phase, even if a collector fills an empty slot.");
+    const auto held_spans = field<O>(paused.projection(), "belt_spans");
+    for (const auto& lane_id : lane_ids) {
+        const auto stopped_lane = field<A>(stopped_spans.at(lane_id), "slots");
+        const auto held_lane = field<A>(held_spans.at(lane_id), "slots");
+        bool retained = stopped_lane.size() == held_lane.size();
+        for (std::size_t i = 0; i < stopped_lane.size() && retained; ++i)
+            if (stopped_lane[i].type() != factory::values::Type::null)
+                retained = !factory::values::typed_difference(stopped_lane[i], held_lane[i]);
+        check(retained && field<I>(held_spans.at(lane_id), "phase") ==
+                  field<I>(stopped_spans.at(lane_id), "phase"),
+              "Removing the wheel preserves every in-flight item and phase on span " + lane_id +
+                  ", even if a collector fills an empty slot.");
+    }
     const auto stopped_checkpoint = paused.checkpoint();
     Host resumed;
     check(accepted(resumed.initialize("resumed", {"P"})) && accepted(resumed.configure_terrain(stream)) &&
               accepted(resumed.restore_checkpoint(stopped_checkpoint)), "The interrupted in-flight route restores in a fresh Host.");
+    check(!factory::values::typed_difference(stopped_checkpoint, resumed.checkpoint()),
+          "The stopped route restores its exact retained cargo and phase before restart.");
     observe(resumed, -1.65, 3.3, 1001);
     wheel.at("request") = V("route-rebuilt-wheel");
     create(resumed, wheel);
