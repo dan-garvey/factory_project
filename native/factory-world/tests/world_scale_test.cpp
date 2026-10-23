@@ -78,6 +78,10 @@ int main(int argc, char** argv) {
         measure("validate", [&] {
             if (!world::validate(profile, snapshot)) throw std::runtime_error("Measured validation failed.");
         });
+        measure("stationary_power_view", [&] {
+            if (!stationary::power_view(snapshot.state.topology).mechanical.accepted())
+                throw std::runtime_error("Measured stationary power derivation failed.");
+        });
         measure("drive_power", [&] {
             if (!world::drive_power(snapshot.state.topology).mechanical.accepted())
                 throw std::runtime_error("Measured drive derivation failed.");
