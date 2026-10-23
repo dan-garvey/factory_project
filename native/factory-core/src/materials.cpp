@@ -628,6 +628,33 @@ Error turn_broad_press(State& state, const Config& config, const Path& path,
     return Error::none;
 }
 
+Error place_sheet(State& state, const Config& config, const Path& path,
+                  const std::string& actor, WorkId sheet_id,
+                  const DropPoint& origin) {
+    const auto valid = validate(state, config, path);
+    if (valid != Error::none) return valid;
+    if (config.sheet_mass == 0) return Error::unavailable_recipe;
+    const auto carried = state.cargo.find(actor);
+    if (actor.empty() || carried == state.cargo.end()) return Error::invalid_actor;
+    const auto selected = std::find_if(carried->second.sheets.begin(),
+        carried->second.sheets.end(), [&](const Sheet& sheet) { return sheet.id == sheet_id; });
+    if (selected == carried->second.sheets.end()) return Error::unavailable_input;
+    if (state.dropped_material.contains(origin) ||
+        state.dropped_material.size() >= maximum_drop_points) return Error::unavailable_output;
+    auto next = state;
+    auto& sheets = next.cargo.at(actor).sheets;
+    const auto owned = std::find_if(sheets.begin(), sheets.end(),
+        [&](const Sheet& sheet) { return sheet.id == sheet_id; });
+    Cargo placed;
+    placed.sheets.push_back(*owned);
+    sheets.erase(owned);
+    next.dropped_material.emplace(origin, std::move(placed));
+    const auto result = validate(next, config, path);
+    if (result != Error::none) return result;
+    state = std::move(next);
+    return Error::none;
+}
+
 Error compact_offcuts(State& state, const Config& config, const Path& path,
                       const std::string& actor, const DropPoint& work) {
     const auto valid = validate(state, config, path);

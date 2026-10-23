@@ -105,10 +105,43 @@ int main() {
     check(m::pickup_material(compact, recipe, path, "P", work) == m::Error::none &&
           compact.cargo.at("P").raw_units == 1 && m::validate(compact, recipe, path) == m::Error::none,
           "The reprocessed stock remains recoverable through ordinary pickup.");
+    m::State sheet;
+    sheet.initial_units = 3;
+    sheet.next_work_id = 2;
+    sheet.cargo.emplace("P", m::Cargo{});
+    sheet.cargo.emplace("Q", m::Cargo{});
+    sheet.cargo.at("P").sheets.push_back({1, 2});
+    check(m::validate(sheet, recipe, path) == m::Error::none,
+          "One carried oriented sheet conserves the mass of three stock chunks.");
+    const auto carried_sheet = sheet;
+    check(m::place_sheet(sheet, recipe, path, "P", 2, work) == m::Error::unavailable_input &&
+          sheet == carried_sheet,
+          "An unknown sheet serial cannot debit another item from the actor.");
+    check(m::place_sheet(sheet, recipe, path, "P", 1, work) == m::Error::none &&
+          sheet.cargo.at("P").sheets.empty() &&
+          sheet.dropped_material.at(work).sheets == std::vector<m::Sheet>{{1, 2}} &&
+          m::validate(sheet, recipe, path) == m::Error::none,
+          "Placement keeps the exact sheet serial, orientation and twelve mass units.");
+    const auto placed_sheet = sheet;
+    check(m::place_sheet(sheet, recipe, path, "P", 1, work) == m::Error::unavailable_input &&
+          sheet == placed_sheet,
+          "Retrying placement cannot duplicate a sheet already at the work area.");
+    check(m::pickup_material(sheet, recipe, path, "Q", work) == m::Error::none &&
+          sheet.cargo.at("Q").sheets == std::vector<m::Sheet>{{1, 2}} &&
+          !sheet.dropped_material.contains(work) && m::validate(sheet, recipe, path) == m::Error::none,
+          "A second actor can recover the same oriented sheet without minting mass.");
+    const auto sheet_checkpoint = m::encode_material_state(sheet, recipe, path, {"P", "Q"});
+    m::MaterialDecoding decoded_sheet = m::CodecRefusal{};
+    if (const auto* value = std::get_if<v::Value>(&sheet_checkpoint))
+        decoded_sheet = m::decode_material_state(*value, recipe, path, {"P", "Q"});
+    check(std::holds_alternative<v::Value>(sheet_checkpoint) &&
+          std::holds_alternative<m::State>(decoded_sheet) &&
+          std::get<m::State>(decoded_sheet) == sheet,
+          "Fresh material decoding retains the recovered sheet serial and rotation.");
     state.cargo.at("P").offcuts = 0;
     check(m::validate(state, recipe, path) == m::Error::invalid_state,
           "Removing even one offcut unit breaks native mass conservation.");
-    check(before != formed && checks == 20, "The fixture exercised actual stock and formed states.");
+    check(before != formed && checks == 26, "The fixture exercised actual stock and formed states.");
     std::cout << "{\"checks\":" << checks << ",\"evidence\":\"copper_material_mass\"}\n";
-    return failures == 0 && checks == 21 ? 0 : 1;
+    return failures == 0 && checks == 27 ? 0 : 1;
 }

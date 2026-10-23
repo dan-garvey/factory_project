@@ -441,6 +441,11 @@ bool historical_wire(const authority::Record& record) {
         }
         return true;
     }
+    if (*action == "place_sheet")
+        return *original_action == "place_sheet" &&
+            keys(*wire, {"center", "sheet_id"}) &&
+            field<Array>(*wire, "center") && field<Integer>(*wire, "sheet_id") &&
+            same("center", "center") && same("sheet_id", "sheet_id");
     if (*action == "harvest_source")
         return *original_action == "harvest_source" && keys(*wire, {"target"}) &&
             field<std::string>(*wire, "target") && same("target", "target");
@@ -1756,6 +1761,20 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.at("action") = Value("pickup_material");
         normalized.emplace("center", wire.at("center"));
         normalized.emplace("expected", wire.at("expected"));
+    } else if (*action == "place_sheet") {
+        if (!keys(wire, {"center", "sheet_id"}) ||
+            !field<Integer>(wire, "sheet_id")) return refuse("invalid_command");
+        const auto* center = field<Array>(wire, "center");
+        if (!center || center->size() != 3) return refuse("invalid_center");
+        for (const auto& value : *center) {
+            const auto* coordinate = std::get_if<Integer>(&value.storage());
+            if (!coordinate || *coordinate < -materials::maximum_drop_coordinate ||
+                *coordinate > materials::maximum_drop_coordinate)
+                return refuse("invalid_center");
+        }
+        normalized.at("action") = Value("place_sheet");
+        normalized.emplace("center", wire.at("center"));
+        normalized.emplace("sheet_id", wire.at("sheet_id"));
     } else if (*action == "place_foundation" || *action == "place_foundations") {
         const bool area = *action == "place_foundations";
         if (!(area ? keys(wire, {"cell", "end_cell", "level"}) : keys(wire, {"cell", "level"})))

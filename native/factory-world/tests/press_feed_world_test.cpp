@@ -2024,9 +2024,9 @@ void belt_feeds_a_guided_press(bool copper) {
 
 void powered_broad_sheet_custody() {
     auto source = site();
-    source.profile.initial_units = 40;
-    source.state.material.initial_units = 40;
-    source.state.material.stock.source = 40;
+    source.profile.initial_units = 48;
+    source.state.material.initial_units = 48;
+    source.state.material.stock.source = 48;
     source.profile.material.hand_carry_capacity = 40;
     source.profile.material.raw_mass = 4;
     source.profile.material.plate_mass = 3;
@@ -2286,6 +2286,102 @@ void powered_broad_sheet_custody() {
           !recovered.state.material.dropped_material.contains({12, 0, 0}) &&
           codec_restore(source.profile, recovered, "Q's exact sheet identity restores."),
         "A second actor physically clears the completed sheet with exact checkpoint custody.");
+    const auto sheet_id = recovered.state.material.cargo.at("Q").sheets.front().id;
+    auto stage = request("Q", "sheet-stage", "place_sheet");
+    stage.emplace("center", V(point(24, 0, 0)));
+    stage.emplace("sheet_id", V(sheet_id));
+    run.q = {10.7, 1, 0.8};
+    auto no_support = stage;
+    no_support.at("request") = V("sheet-stage-no-support");
+    run.refuses("Q", no_support, "missing_support");
+    run.p = {0, 1, 1.65};
+    for (int index = 38; index < 46; ++index) {
+        auto harvest = request("P", "sheet-stage-ore-" + std::to_string(index), "harvest_source");
+        harvest.emplace("target", V("ore"));
+        run.accept("P", harvest);
+    }
+    run.p = {1.65, 1, 6.6};
+    for (int index = 0; index < 4; ++index) {
+        auto craft = request("P", "sheet-stage-craft-anvil-" + std::to_string(index),
+            "craft_component");
+        craft.emplace("target", V("pod-fabrication-hub"));
+        craft.emplace("generation", V(I{1}));
+        craft.emplace("component", V("anvil"));
+        run.accept("P", craft);
+    }
+    std::string support;
+    I support_generation{};
+    for (int index = 0; index < 4; ++index) {
+        const I x = 24 + (index % 2) * 4;
+        const I z = (index / 2) * 4;
+        run.p = {static_cast<double>(x) * 0.4125, 1,
+            static_cast<double>(z) * 0.4125};
+        auto place = request("P", "sheet-stage-anvil-" + std::to_string(index),
+            "place_component");
+        place.emplace("component", V("anvil"));
+        place.emplace("center", V(point(x, 0, z)));
+        const auto made = run.accept("P", place);
+        if (index == 0) {
+            support = std::get<std::string>(made.at("entity").storage());
+            support_generation = std::get<I>(made.at("generation").storage());
+        }
+        if (index == 2) {
+            auto three_supports = stage;
+            three_supports.at("request") = V("sheet-stage-three-supports");
+            run.refuses("Q", three_supports, "missing_support");
+        }
+    }
+    for (int index = 0; index < 4; ++index) {
+        const g::Point cell{24 + (index % 2) * 4, 0, (index / 2) * 4};
+        check(std::any_of(run.world->snapshot().state.placed_components.begin(),
+                run.world->snapshot().state.placed_components.end(),
+                [&](const auto& entry) {
+                    return entry.second.kind == factory::materials::Component::anvil &&
+                        entry.second.center == cell;
+                }), "Each separate support cell retains its placed anvil.");
+    }
+    auto wrong_sheet = stage;
+    wrong_sheet.at("request") = V("sheet-stage-wrong-id");
+    wrong_sheet.at("sheet_id") = V(sheet_id + 1);
+    run.refuses("Q", wrong_sheet, "unavailable_input");
+    run.q = {7.65, 1, 0};
+    auto far_corner = stage;
+    far_corner.at("request") = V("sheet-stage-far-corner");
+    run.refuses("Q", far_corner, "out_of_reach");
+    run.q = {10.7, 1, 0.8};
+    run.accept("Q", stage);
+    const auto staged = run.world->snapshot();
+    check(staged.state.material.cargo.at("Q").sheets.empty() &&
+          staged.state.material.dropped_material.at({24, 0, 0}).sheets ==
+              recovered.state.material.cargo.at("Q").sheets &&
+          codec_restore(source.profile, staged, "The staged sheet restores at its separate support."),
+        "One identity-bearing sheet moves from Q to a second supported four-cell area.");
+    auto forged_staging = staged;
+    forged_staging.state.material.dropped_material.at({24, 0, 0}).sheets.front().rotation = 1;
+    check(!w::World::restore("press-feed", source.profile, forged_staging),
+        "Staged sheet orientation cannot be rewritten without an authoritative turn.");
+    auto duplicate = stage;
+    duplicate.at("request") = V("sheet-stage-duplicate");
+    run.refuses("Q", duplicate, "occupied");
+    auto reclaim_support = request("P", "sheet-stage-reclaim-support", "reclaim_component");
+    reclaim_support.emplace("target", V(support));
+    reclaim_support.emplace("generation", V(support_generation));
+    run.p = {9.9, 1, 0};
+    run.refuses("P", reclaim_support, "occupied");
+    auto recover_staged = request("P", "sheet-stage-recover", "pickup_material");
+    recover_staged.emplace("center", V(point(24, 0, 0)));
+    recover_staged.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{0})},
+        {"work_lots", V(V::Array{})}, {"offcuts", V(I{0})}, {"sheets", V(I{1})},
+        {"sheet_items", V(V::Array{V(O{{"id", V(sheet_id)},
+            {"rotation", V(I{0})}})})}}));
+    run.p = {10.7, 1, 0.8};
+    run.accept("P", recover_staged);
+    const auto restaged = run.world->snapshot();
+    check(restaged.state.material.cargo.at("P").sheets ==
+              recovered.state.material.cargo.at("Q").sheets &&
+          !restaged.state.material.dropped_material.contains({24, 0, 0}) &&
+          codec_restore(source.profile, restaged, "P's recovered staged sheet restores."),
+        "P can recover the same sheet from the second support without duplication.");
 }
 } // namespace
 

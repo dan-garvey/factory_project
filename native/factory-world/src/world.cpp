@@ -151,6 +151,8 @@ bool keys(const Object& object, std::initializer_list<const char*> extra) {
 
 bool shape(const Object& intent, const std::string& action) {
     if (action == "pickup_material") return keys(intent, {"center", "expected"}) && field<Object>(intent, "expected");
+    if (action == "place_sheet") return keys(intent, {"center", "sheet_id"}) &&
+        field<Value::Array>(intent, "center") && field<Integer>(intent, "sheet_id");
     if (action == "harvest_source") return keys(intent, {"target"}) && field<std::string>(intent, "target");
     if (action == "craft_component") return keys(intent, {"target", "generation", "component"}) &&
         field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
@@ -574,7 +576,7 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
     if (!reason || *reason != "ok" || !epoch || *epoch <= 0 || !reach || *reach != profile.build_reach ||
         !position || !points || !distances ||
         (action == "remove_belt_span" ? points->size() != 1 && points->size() != 2 :
-         (broad_pickup || action == "feed_broad_press" ||
+         (broad_pickup || action == "place_sheet" || action == "feed_broad_press" ||
              action == "refeed_broad_press_work") ? points->size() != 4 :
          points->size() != (((two_endpoints(action) && action != "place_selected_belt_span") ||
              action == "compact_offcuts") ? 2 : 1)) ||
@@ -677,6 +679,22 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
                  *field<std::string>(*moved, "output_form") != "sheet")) return false;
         }
         return weighted > 0 && weighted <= static_cast<Wide>(profile.initial_units) * profile.material.raw_mass;
+    }
+    if (action == "place_sheet") {
+        const auto origin = grid_point(record.intent, materials::maximum_drop_coordinate);
+        const auto* requested_id = field<Integer>(record.intent, "sheet_id");
+        const auto* placed_id = field<Integer>(result, "sheet_id");
+        const auto* rotation = field<Integer>(result, "rotation");
+        const auto* entity = field<std::string>(result, "entity");
+        const auto* generation = field<Integer>(result, "generation");
+        return origin && (*origin)[0] % 4 == 0 && (*origin)[2] % 4 == 0 &&
+            (*origin)[0] <= materials::maximum_drop_coordinate - 4 &&
+            (*origin)[2] <= materials::maximum_drop_coordinate - 4 &&
+            requested_id && *requested_id > 0 && placed_id &&
+            *placed_id == *requested_id && rotation && *rotation >= 0 &&
+            *rotation < 4 && entity && entity->empty() && generation &&
+            *generation == 0 && targets == broad_reach_targets(profile, *origin) &&
+            result.size() == 18;
     }
     if (action == "harvest_source") {
         const auto* id = field<std::string>(record.intent, "target");
@@ -1560,7 +1578,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         const auto* entity = field<std::string>(record.result, "entity");
         const auto* generation = field<Integer>(record.result, "generation");
         if (!result_actor || *result_actor != *actor || !entity || !generation) return false;
-        if (*action != "pickup_material" && *action != "harvest_source" && *action != "field_craft") {
+        if (*action != "pickup_material" && *action != "place_sheet" &&
+            *action != "harvest_source" && *action != "field_craft") {
             const auto issued = snapshot.state.issued_entities.find(*entity);
             if (issued == snapshot.state.issued_entities.end() || issued->second != *generation) return false;
         }
@@ -2163,6 +2182,36 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             }
             belt_press_turns.erase(*point);
         }
+        if (*action == "place_sheet") {
+            const auto origin = grid_point(record.intent, materials::maximum_drop_coordinate);
+            const auto* id = field<Integer>(record.intent, "sheet_id");
+            const auto* rotation = field<Integer>(record.result, "rotation");
+            if (!origin || !id || !rotation ||
+                *id <= 0 || !broad_ids.contains(*id)) return false;
+            const auto cells = broad_cells(*origin);
+            for (const auto& cell : cells) {
+                if (std::none_of(placed_components.begin(), placed_components.end(),
+                        [&](const auto& part) {
+                            return part.second.first == materials::Component::anvil &&
+                                part.second.second == cell;
+                        }) || press_work.contains(cell) || press_products.contains(cell) ||
+                    expected_offcuts.contains(cell) ||
+                    std::any_of(broad_work.begin(), broad_work.end(),
+                        [&](const auto& entry) {
+                            const auto occupied = broad_cells(entry.first);
+                            return std::find(occupied.begin(), occupied.end(), cell) != occupied.end();
+                        })) return false;
+            }
+            const auto sheet = std::find_if(carried_sheets[*actor].begin(),
+                carried_sheets[*actor].end(),
+                [&](const auto& item) { return item.id == *id; });
+            if (sheet == carried_sheets[*actor].end() || sheet->rotation != *rotation)
+                return false;
+            materials::Cargo staged;
+            staged.sheets.push_back(*sheet);
+            if (!broad_work.emplace(*origin, std::move(staged)).second) return false;
+            carried_sheets[*actor].erase(sheet);
+        }
         if (*action == "pickup_material" || *action == "recover" ||
             *action == "recover_belt_slot") {
             const auto* moved_work = field<Value::Array>(record.result, "moved_work");
@@ -2213,6 +2262,12 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 const auto found = placed_components.find(*entity);
                 if (found == placed_components.end() || found->second != std::make_pair(*component, *center) ||
                     carried >= profile.material.component_capacity) return false;
+                if (*component == materials::Component::anvil &&
+                    std::any_of(broad_work.begin(), broad_work.end(),
+                        [&](const auto& entry) {
+                            const auto cells = broad_cells(entry.first);
+                            return std::find(cells.begin(), cells.end(), *center) != cells.end();
+                        })) return false;
                 placed_components.erase(found);
                 ++carried;
             }
@@ -3357,6 +3412,56 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         facts.emplace("press_output_work_id", Value(press_work_id));
         return accepted(std::move(candidate), "", std::move(facts));
     }
+    if (*action == "place_sheet") {
+        if (!profile_.landing_pod_center || !copper_profile(profile_.material) ||
+            profile_.material.sheet_mass == 0) return refused("unavailable_recipe");
+        const auto origin = grid_point(intent, materials::maximum_drop_coordinate);
+        const auto* id = field<Integer>(intent, "sheet_id");
+        if (!origin || (*origin)[0] % 4 || (*origin)[2] % 4 || !id || *id <= 0 ||
+            (*origin)[0] > materials::maximum_drop_coordinate - 4 ||
+            (*origin)[2] > materials::maximum_drop_coordinate - 4)
+            return refused("invalid_sheet_target");
+        const auto cells = broad_cells(*origin);
+        for (const auto& cell : cells) {
+            if (std::none_of(state.placed_components.begin(), state.placed_components.end(),
+                    [&](const auto& entry) {
+                        return entry.second.kind == materials::Component::anvil &&
+                            entry.second.center == cell;
+                    })) return refused("missing_support");
+            if (state.material.dropped_material.contains(cell))
+                return refused("occupied");
+        }
+        for (const auto& [point, cargo] : state.material.dropped_material) {
+            if (!broad_item(cargo)) continue;
+            const auto occupied = broad_cells(point);
+            if (std::any_of(cells.begin(), cells.end(), [&](const auto& cell) {
+                    return std::find(occupied.begin(), occupied.end(), cell) != occupied.end();
+                })) return refused("occupied");
+        }
+        const auto cut = observe ? observe(binding.actor) : std::nullopt;
+        if (!cut) return refused("actor_unready");
+        auto checked_cut = *cut;
+        checked_cut.build_reach = profile_.build_reach;
+        const auto checked = authority::check_reach(binding.actor, checked_cut,
+            broad_reach_targets(profile_, *origin));
+        auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
+        if (checked.error != authority::Error::none)
+            return refused(authority::error_name(checked.error), "", std::move(facts));
+        const auto& carried = state.material.cargo.at(binding.actor).sheets;
+        const auto sheet = std::find_if(carried.begin(), carried.end(),
+            [&](const auto& item) { return item.id == *id; });
+        if (sheet == carried.end()) return refused("unavailable_input", "", std::move(facts));
+        const auto rotation = sheet->rotation;
+        auto candidate = state;
+        const auto error = materials::place_sheet(candidate.material, profile_.material,
+            material_path(candidate.topology), binding.actor, *id, *origin);
+        if (error != materials::Error::none)
+            return refused(materials::error_name(error), "", std::move(facts));
+        facts.emplace("generation", Value(Integer{0}));
+        facts.emplace("sheet_id", Value(*id));
+        facts.emplace("rotation", Value(rotation));
+        return accepted(std::move(candidate), "", std::move(facts));
+    }
     if (*action == "harvest_source") {
         const auto* id = field<std::string>(intent, "target");
         if (!id) return refused("invalid_target");
@@ -4017,6 +4122,13 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             }
             if (carried >= profile_.material.component_capacity)
                 return refused("inventory_full", *target, std::move(facts));
+            if (kind == materials::Component::anvil &&
+                std::any_of(state.material.dropped_material.begin(),
+                    state.material.dropped_material.end(), [&](const auto& entry) {
+                        if (!broad_item(entry.second)) return false;
+                        const auto cells = broad_cells(entry.first);
+                        return std::find(cells.begin(), cells.end(), center) != cells.end();
+                    })) return refused("occupied", *target, std::move(facts));
             entity = *target;
             serial = *generation;
             ++cargo[kind];
