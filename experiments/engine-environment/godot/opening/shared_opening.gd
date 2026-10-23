@@ -94,6 +94,9 @@ func _can_control_character() -> bool:
 	# binding supplies input; the server alone owns the body's pose.
 	return session != null and session.is_ready() and _usable_snapshot() and super._can_control_character()
 
+func _can_use_object_actions() -> bool:
+	return _can_mutate() and super._can_use_object_actions()
+
 func _can_choose_tool() -> bool:
 	return _can_mutate() and super._can_choose_tool()
 

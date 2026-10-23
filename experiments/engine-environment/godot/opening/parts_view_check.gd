@@ -1876,7 +1876,8 @@ func _object_menu_snapshot() -> Dictionary:
 		"fabrication_hub": {"id": "pod", "installed": true, "center": [4, 0, 0]},
 		"hand_sources": {"tree": {"kind": "tree", "position": [1.0, 1.0, 0.0], "remaining": 8}},
 		"cargo": {"P": {"timber": 4, "raw": 0, "components": {}}},
-		"component_recipes": {"wooden_frame": {"timber": 3, "softmetal": 0}},
+		"component_recipes": {"wooden_frame": {"timber": 3, "softmetal": 0},
+			"wooden_shaft": {"timber": 2, "softmetal": 0}},
 		"component_capacity": 20, "part_recipes": [], "part_specifications": {"P": []},
 		"press_assemblies": [], "collector_assemblies": [], "dropped_material": [],
 		"stock": {"source": 16, "collector": 0, "belt": 0, "input": 0, "held": 0, "output": 0},
@@ -1952,6 +1953,37 @@ func _object_menu_check() -> void:
 	verify(view.issued == [{"action": "craft_component", "entity": "bench", "component": "wooden_frame"}],
 		"C activates the visible bench craft button through its normal action callback.")
 	view.issued.clear()
+	view.arrival_assembly_controls.component_choice.select(1)
+	view.arrival_assembly_controls.component_choice.item_selected.emit(1)
+	verify(not view.arrival_assembly_controls.craft_button.disabled,
+		"Choosing another valid component keeps the open workbench ready to craft.")
+	view._input(key)
+	verify(view.issued == [{"action": "craft_component", "entity": "bench", "component": "wooden_shaft"}],
+		"C crafts the newly chosen component while its object panel remains open.")
+	view.issued.clear()
+	view.state.part_recipes = [
+		{"kind": "shaft", "teeth": 0, "half_span": 2, "timber": 1, "softmetal": 0},
+		{"kind": "wheel", "teeth": 0, "half_span": 0, "timber": 2, "softmetal": 0}]
+	view._refresh_ui()
+	verify(view.object_workshop_route.visible and not view.arrival_assembly_controls.part_craft_button.disabled,
+		"A valid transmission recipe starts actionable in the open workshop panel.")
+	view.arrival_assembly_controls.part_choice.select(1)
+	view.arrival_assembly_controls.part_choice.item_selected.emit(1)
+	verify(not view.arrival_assembly_controls.part_craft_button.disabled,
+		"Changing the transmission recipe preserves the modal workshop's action readiness.")
+	key.keycode = KEY_M
+	view._input(key)
+	verify(view.issued == [{"action": "craft_part", "entity": "bench", "role": "waterwheel", "half_span": 0}],
+		"M crafts the newly chosen transmission recipe while the panel remains open.")
+	view.issued.clear()
+	view.state.actors.P.ready = false
+	view.arrival_assembly_controls.component_choice.select(0)
+	view.arrival_assembly_controls.component_choice.item_selected.emit(0)
+	verify(view.arrival_assembly_controls.craft_button.disabled
+		and view.arrival_assembly_controls.part_craft_button.disabled,
+		"An unready actor cannot enable either recipe action by changing the selection.")
+	view.state.actors.P.ready = true
+	view._refresh_ui()
 	key.keycode = KEY_P
 	view._input(key)
 	verify(view.issued.is_empty() and view.arrival_assembly_controls.place_button.disabled,
@@ -1998,6 +2030,43 @@ func _object_menu_check() -> void:
 		verify(root.get_texture().get_image().save_png(prefix + "-menu.png") == OK,
 			"Retain the centered workbench panel pixels.")
 	view.free()
+	var shared := SharedWidgets.new()
+	shared.session = SessionStub.new()
+	shared.client = "P"
+	shared.state = _object_menu_snapshot()
+	shared.state.parts = {}
+	shared.pointed = "bench"
+	shared.camera = Camera3D.new()
+	shared.add_child(shared.camera)
+	shared.selection_ring = MeshInstance3D.new()
+	shared.add_child(shared.selection_ring)
+	root.add_child(shared)
+	shared._build_interface()
+	shared._refresh_ui()
+	shared._open_pointed_machine()
+	await process_frame
+	verify(shared.object_menu.visible and not shared.arrival_assembly_controls.craft_button.disabled,
+		"A connected shared worker can use the selected workbench while movement is held.")
+	shared.arrival_assembly_controls.component_choice.select(1)
+	shared.arrival_assembly_controls.component_choice.item_selected.emit(1)
+	verify(not shared.arrival_assembly_controls.craft_button.disabled,
+		"Changing the shared worker's valid component keeps its open workbench actionable.")
+	shared.pending_actions = {"waiting": {}}
+	shared._refresh_ui()
+	verify(shared.arrival_assembly_controls.craft_button.disabled,
+		"An unresolved shared action disables the object-panel craft button.")
+	shared.object_menu.hide()
+	await process_frame
+	verify(shared._can_control_character(),
+		"An unresolved shared action does not stop ordinary character movement after closing the panel.")
+	shared.pending_actions.clear()
+	shared._open_pointed_machine()
+	await process_frame
+	shared.session.ready = false
+	shared._refresh_ui()
+	verify(shared.arrival_assembly_controls.craft_button.disabled,
+		"Disconnection makes the retained shared workbench panel read-only.")
+	shared.free()
 	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
 		"models": 0, "desktop_operations": 0, "scope": "isolated ordinary workbench UI"}))
 	quit(0 if failures == 0 else 1)

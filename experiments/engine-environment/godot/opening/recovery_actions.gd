@@ -419,7 +419,7 @@ class ArrivalAssemblyControls:
 			selected_part = index
 			var current = _host_view()
 			if current != null:
-				refresh(current.state, current.client, current.selected, current._can_control_character()))
+				refresh(current.state, current.client, current.selected, current._can_use_object_actions()))
 		craft_section.add_child(part_choice)
 		part_cost_label = host._label(craft_section, "", 12, Color("bfd1cc"))
 		part_cost_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -797,7 +797,7 @@ class ArrivalAssemblyControls:
 		selected_component = str(COMPONENTS[index][0])
 		var host = _host_view()
 		if host != null:
-			refresh(host.state, host.client, host.selected, host._can_control_character())
+			refresh(host.state, host.client, host.selected, host._can_use_object_actions())
 			host._update_cursor()
 
 	func _bench_selected(index: int) -> void:

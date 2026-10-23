@@ -4843,6 +4843,9 @@ func _actor_ready_for_actions() -> bool:
 	return not legacy_fixture and not arrival_reveal_active and not manager_log_open and not _catalog_open() and not explanation_open \
 		and not startup_save_pending and state.get("actors", {}).get(client, {}).get("ready", false)
 
+func _can_use_object_actions() -> bool:
+	return _actor_ready_for_actions()
+
 func _can_choose_tool() -> bool:
 	# The catalog holds movement while keeping its own choices available.
 	return not arrival_reveal_active and not manager_log_open and not explanation_open and not startup_save_pending and not _object_menu_open() \
@@ -8931,7 +8934,7 @@ func _refresh_ui() -> void:
 	_refresh_guided_tools()
 	_refresh_manager_log()
 	if arrival_assembly_controls != null:
-		arrival_assembly_controls.refresh(state, client, selected, _actor_ready_for_actions())
+		arrival_assembly_controls.refresh(state, client, selected, _can_use_object_actions())
 		if _object_menu_open():
 			var hub_id: String = str(state.get("fabrication_hub", {}).get("id", ""))
 			var selected_hub := not hub_id.is_empty() and selected == hub_id
