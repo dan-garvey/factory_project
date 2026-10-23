@@ -41,6 +41,7 @@ void arrival_projection_and_restore() {
           "The view describes a settled pod with a usable local fabrication hub.");
     const auto hub = get<O>(view, "fabrication_hub");
     check(get<std::string>(V(hub), "id") == "pod-fabrication-hub" &&
+          get<bool>(V(hub), "installed") && get<A>(view, "fabrication_benches").empty() &&
           !factory::values::typed_difference(V(get<A>(V(hub), "center")),
               V(A{V(I{2}), V(I{0}), V(I{4})})),
           "The bench has its own identity on the shared east deck tile.");
@@ -60,9 +61,11 @@ void arrival_projection_and_restore() {
           std::abs(std::get<double>(north[2].storage()) - 11.55) < 1e-8,
           "Both finite east timber sites stand beyond the pod deck and its east bench.");
     const auto recipes = get<O>(view, "component_recipes");
-    check(recipes.size() == 11 && get<I>(view, "component_capacity") == 20 &&
+    check(recipes.size() == 12 && get<I>(view, "component_capacity") == 20 &&
           get<I>(recipes.at("wooden_frame"), "timber") == 3 &&
           get<I>(recipes.at("wooden_frame"), "softmetal") == 0 &&
+          get<I>(recipes.at("wooden_workbench"), "timber") == 4 &&
+          get<I>(recipes.at("wooden_workbench"), "softmetal") == 0 &&
           get<I>(recipes.at("softmetal_cog"), "timber") == 0 &&
           get<I>(recipes.at("softmetal_cog"), "softmetal") == 2,
           "The normal consumer receives every native recipe cost and the carried component limit.");

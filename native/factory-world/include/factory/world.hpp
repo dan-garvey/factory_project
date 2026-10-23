@@ -12,6 +12,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace factory::world {
@@ -71,6 +72,12 @@ struct FabricationHub {
     std::string id;
     mechanics::Point center{};
     authority::Integer generation{};
+    // A single issued pod workshop can be unbolted and carried by one actor.
+    // Empty means it is installed at center on the common construction grid.
+    std::optional<std::string> holder;
+    FabricationHub(std::string name, mechanics::Point at, authority::Integer serial,
+                   std::optional<std::string> carried_by = std::nullopt)
+        : id(std::move(name)), center(at), generation(serial), holder(std::move(carried_by)) {}
     bool operator==(const FabricationHub&) const = default;
 };
 

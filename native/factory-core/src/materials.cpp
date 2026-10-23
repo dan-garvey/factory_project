@@ -82,6 +82,7 @@ const char* component_name(Component component) noexcept {
         case Component::ram_face: return "ram_face";
         case Component::softmetal_shaft: return "softmetal_shaft";
         case Component::softmetal_cog: return "softmetal_cog";
+        case Component::wooden_workbench: return "wooden_workbench";
     }
     return "invalid_component";
 }
@@ -90,7 +91,8 @@ std::optional<Component> component_from_name(const std::string& name) noexcept {
     for (const auto component : {Component::wooden_frame, Component::wooden_shaft,
              Component::wooden_cog, Component::receiver_tray, Component::tool_mount,
              Component::sliding_guide, Component::cutting_edge, Component::anvil,
-             Component::ram_face, Component::softmetal_shaft, Component::softmetal_cog})
+             Component::ram_face, Component::softmetal_shaft, Component::softmetal_cog,
+             Component::wooden_workbench})
         if (name == component_name(component)) return component;
     return std::nullopt;
 }
@@ -108,6 +110,7 @@ std::optional<ComponentCost> component_cost(Component component) noexcept {
         case Component::ram_face: return ComponentCost{0, 2};
         case Component::softmetal_shaft: return ComponentCost{0, 2};
         case Component::softmetal_cog: return ComponentCost{0, 2};
+        case Component::wooden_workbench: return ComponentCost{4, 0};
     }
     return std::nullopt;
 }
@@ -372,7 +375,7 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
             if (!add(total, lot.recipe.input_units_per_product)) return Error::quantity_overflow;
         }
     }
-    if (state.placed_components.size() > 11 || state.fabricated_timber < 0 ||
+    if (state.placed_components.size() > 12 || state.fabricated_timber < 0 ||
         state.fabricated_raw < 0 || !add(timber_accounted, state.fabricated_timber) ||
         !add(total, state.fabricated_raw)) return Error::invalid_state;
     for (const auto& [kind, count] : state.placed_components) {

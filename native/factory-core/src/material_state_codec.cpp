@@ -135,7 +135,7 @@ Cargo decode_cargo(const Value& value, const std::string& path, bool resources,
     if (resources) {
         cargo.timber = integer(entries.at("timber"), path + ".timber");
         const auto& components = object(entries.at("components"), path + ".components");
-        if (components.size() > 11) refuse(CodecReason::invalid_material_state, path + ".components");
+        if (components.size() > 12) refuse(CodecReason::invalid_material_state, path + ".components");
         for (const auto& [name, count] : components) {
             const auto component = component_from_name(name);
             if (!component) refuse(CodecReason::invalid_material_state, path + ".components." + name);
@@ -247,7 +247,7 @@ MaterialDecoding decode_material_state(const Value& value, const Config& config,
             for (const auto& [id, count] : trees)
                 candidate.timber_remaining.emplace(id, integer(count, "$.timber_remaining." + id));
             const auto& placed = object(root.at("placed_components"), "$.placed_components");
-            if (placed.size() > 11) refuse(CodecReason::invalid_material_state, "$.placed_components");
+            if (placed.size() > 12) refuse(CodecReason::invalid_material_state, "$.placed_components");
             for (const auto& [name, count] : placed) {
                 const auto kind = component_from_name(name);
                 if (!kind) refuse(CodecReason::invalid_material_state, "$.placed_components." + name);

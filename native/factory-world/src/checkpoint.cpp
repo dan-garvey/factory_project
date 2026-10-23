@@ -301,7 +301,7 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
         for (const auto& [actor, kit] : snapshot.state.kits) kits.emplace(actor, kit_value(kit));
         for (const auto& [id, generation] : snapshot.state.issued_entities) issued.emplace(id, Value(generation));
         Value output(Object{
-            {"schema", Value(Integer{8})}, {"profile", profile_value(profile)},
+            {"schema", Value(Integer{9})}, {"profile", profile_value(profile)},
             {"revision", Value(snapshot.revision)}, {"history", std::move(*history.value)},
             {"state", Value(Object{{"material", std::move(std::get<Value>(material))},
                 {"topology", topology_value(snapshot.state.topology)}, {"kits", Value(std::move(kits))},
@@ -331,7 +331,8 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
                 {"generation", Value(pod.generation)}}));
             state.emplace("fabrication_hub", Value(Object{{"id", Value(hub.id)},
                 {"center", Value(Array{Value(hub.center[0]), Value(hub.center[1]), Value(hub.center[2])})},
-                {"generation", Value(hub.generation)}}));
+                {"generation", Value(hub.generation)},
+                {"holder", hub.holder ? Value(*hub.holder) : Value(nullptr)}}));
             const auto& beacon = *snapshot.state.freight_beacon;
             state.emplace("freight_beacon", Value(Object{{"id", Value(beacon.id)},
                 {"center", Value(Array{Value(beacon.center[0]), Value(beacon.center[1]), Value(beacon.center[2])})},
@@ -359,7 +360,7 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
     try {
         Budget{}.visit(value);
         const auto& root = fields(value, "$", {"schema", "profile", "revision", "history", "state"});
-        if (integer(root, "schema", "$") != 8) refuse(CheckpointReason::unsupported_schema, "$.schema");
+        if (integer(root, "schema", "$") != 9) refuse(CheckpointReason::unsupported_schema, "$.schema");
         if (const auto difference = values::typed_difference(profile_value(profile), root.at("profile")))
             refuse(CheckpointReason::profile_mismatch, "$.profile" + difference->path.substr(1));
         Snapshot candidate;
@@ -382,14 +383,17 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
                  scalar<Integer>(center[1], "$.state.landing_pod.center"),
                  scalar<Integer>(center[2], "$.state.landing_pod.center")},
                 integer(pod, "generation", "$.state.landing_pod")};
-            const auto& hub = fields(state.at("fabrication_hub"), "$.state.fabrication_hub", {"id", "center", "generation"});
+            const auto& hub = fields(state.at("fabrication_hub"), "$.state.fabrication_hub", {"id", "center", "generation", "holder"});
             const auto& hub_center = array(hub.at("center"), "$.state.fabrication_hub.center", 3);
             if (hub_center.size() != 3) refuse(CheckpointReason::invalid_world, "$.state.fabrication_hub.center");
+            std::optional<std::string> hub_holder;
+            if (hub.at("holder").type() != values::Type::null)
+                hub_holder = scalar<std::string>(hub.at("holder"), "$.state.fabrication_hub.holder");
             candidate.state.fabrication_hub = FabricationHub{scalar<std::string>(hub.at("id"), "$.state.fabrication_hub.id"),
                 {scalar<Integer>(hub_center[0], "$.state.fabrication_hub.center"),
                  scalar<Integer>(hub_center[1], "$.state.fabrication_hub.center"),
                  scalar<Integer>(hub_center[2], "$.state.fabrication_hub.center")},
-                integer(hub, "generation", "$.state.fabrication_hub")};
+                integer(hub, "generation", "$.state.fabrication_hub"), std::move(hub_holder)};
             const auto& beacon = fields(state.at("freight_beacon"), "$.state.freight_beacon", {"id", "center", "generation"});
             const auto& beacon_center = array(beacon.at("center"), "$.state.freight_beacon.center", 3);
             if (beacon_center.size() != 3) refuse(CheckpointReason::invalid_world, "$.state.freight_beacon.center");
