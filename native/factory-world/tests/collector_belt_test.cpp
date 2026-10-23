@@ -320,12 +320,123 @@ void builds_powered_route_from_finite_arrival_stock() {
     (void)wheel;
 }
 
+void powers_two_modular_collectors_with_distinct_custody() {
+    auto f = fixture();
+    f.profile.collector_faces.push_back({{8, 0, 0}, {-1, 0, 0}});
+    f.profile.material.timber_sites.at("tree").initial = 16;
+    f.state.material.timber_remaining.at("tree") = 16;
+    f.profile.initial_units = f.state.material.initial_units = f.state.material.stock.source = 8;
+    f.profile.material.hand_carry_capacity = 24;
+    f.profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, 1}};
+    f.state.topology.parts = {{{"wheel", g::Kind::hub, {4, 0, 0}, g::Axis::x, 0, 0},
+                               1, s::Role::waterwheel}};
+    f.state.topology.belt_spans.clear();
+    f.state.material.belt_lanes.clear();
+    for (const auto& id : {"inlet", "far", "span"}) f.state.issued_entities.erase(id);
+    auto world = prepared(f);
+    for (int index = 0; index < 7; ++index) {
+        auto harvest = request("second-wood-" + std::to_string(index), "harvest_source");
+        harvest.emplace("target", V("tree"));
+        accepted(*world, harvest);
+    }
+    auto ore = request("second-ore", "harvest_source");
+    ore.emplace("target", V("ore"));
+    accepted(*world, ore);
+    struct Part { const char* name; g::Point center; };
+    const Part parts[] = {{"wooden_frame", {8, 0, 0}}, {"tool_mount", {7, 0, 0}},
+        {"cutting_edge", {6, 0, 0}}, {"receiver_tray", {8, 0, 1}},
+        {"wooden_shaft", {9, 0, 0}}};
+    std::string second_shaft;
+    for (const auto& part : parts) {
+        auto craft = request(std::string("craft-second-") + part.name, "craft_component");
+        craft.emplace("target", V("pod-fabrication-hub"));
+        craft.emplace("generation", V(g::Integer{1}));
+        craft.emplace("component", V(part.name));
+        accepted(*world, craft);
+        auto place = request(std::string("place-second-") + part.name, "place_component");
+        place.emplace("component", V(part.name));
+        place.emplace("center", V(V::Array{V(part.center[0]), V(part.center[1]), V(part.center[2])}));
+        const auto placed = accepted(*world, place);
+        if (std::string(part.name) == "wooden_shaft")
+            second_shaft = std::get<std::string>(placed.at("entity").storage());
+    }
+    const auto powered = w::drive_power(f.profile, world->snapshot().state).mechanical;
+    check(powered.accepted() &&
+          powered.motion.at("native-part-5").state == g::MotionState::rotating &&
+          powered.motion.at(second_shaft).state == g::MotionState::rotating,
+          "Two physically distinct assembled shafts receive the wheel's real rotation.");
+    const auto before = world->snapshot();
+    check(world->tick().error == w::TransactionError::none,
+          "The first two-collector powered tick is accepted.");
+    const auto first_tick = world->snapshot();
+    check(first_tick.state.material.stock.source == before.state.material.stock.source - 1 &&
+          first_tick.state.material.dropped_material.at({0, 0, 1}) == m::Cargo{1, 0, {}} &&
+          first_tick.state.material.dropped_material.at({8, 0, 1}) == m::Cargo{1, 0, {}},
+          "The full first tray blocks only its own source debit while the second fills.");
+    check(world->tick().error == w::TransactionError::none &&
+          world->snapshot().state.material.stock.source == first_tick.state.material.stock.source,
+          "Two full receivers leave the finite source unchanged on a later tick.");
+    auto pickup = request("empty-first-receiver", "pickup_material");
+    pickup.emplace("center", V(V::Array{V(g::Integer{0}), V(g::Integer{0}), V(g::Integer{1})}));
+    pickup.emplace("expected", V(V::Object{{"raw", V(g::Integer{1})},
+        {"products", V(g::Integer{0})}, {"work_lots", V(V::Array{})}}));
+    accepted(*world, pickup);
+    auto stop = request("stop-two-collectors", "set_drive");
+    stop.emplace("target", V("wheel"));
+    stop.emplace("generation", V(g::Integer{1}));
+    stop.emplace("enabled", V(false));
+    accepted(*world, stop);
+    check(world->tick().error == w::TransactionError::none &&
+          !world->snapshot().state.material.dropped_material.contains({0, 0, 1}) &&
+          world->snapshot().state.material.stock.source == first_tick.state.material.stock.source,
+          "A stopped actual wheel cannot debit ore into the cleared receiver.");
+    auto resume = stop;
+    resume.at("request") = V("resume-two-collectors");
+    resume.at("enabled") = V(true);
+    accepted(*world, resume);
+    check(world->tick().error == w::TransactionError::none &&
+          world->snapshot().state.material.dropped_material.contains({0, 0, 1}) &&
+          world->snapshot().state.material.stock.source == first_tick.state.material.stock.source - 1,
+          "Clearing one receiver lets its own powered collector resume without emptying the other.");
+    const auto saved = world->snapshot();
+    const auto encoded = w::encode_checkpoint(f.profile, saved);
+    check(std::holds_alternative<V>(encoded) &&
+          std::holds_alternative<w::Snapshot>(w::decode_checkpoint(f.profile, "collector-belt", std::get<V>(encoded))) &&
+          w::World::restore("collector-belt", f.profile, saved) != nullptr,
+          "Both produced receiver items and distinct assemblies survive checkpoint and restore.");
+    auto duplicate = f.profile;
+    duplicate.collector_faces.push_back(duplicate.collector_faces.front());
+    check(w::World::restore("collector-belt", duplicate, saved) == nullptr,
+          "A duplicate trusted face cannot create a second claim on the same collector.");
+    pickup.at("request") = V("empty-first-before-ambiguity");
+    accepted(*world, pickup);
+    auto harvest = request("wood-for-ambiguous-shaft", "harvest_source");
+    harvest.emplace("target", V("tree"));
+    accepted(*world, harvest);
+    auto craft = request("craft-ambiguous-shaft", "craft_component");
+    craft.emplace("target", V("pod-fabrication-hub"));
+    craft.emplace("generation", V(g::Integer{1}));
+    craft.emplace("component", V("wooden_shaft"));
+    accepted(*world, craft);
+    auto place = request("place-ambiguous-shaft", "place_component");
+    place.emplace("component", V("wooden_shaft"));
+    place.emplace("center", V(V::Array{V(g::Integer{0}), V(g::Integer{0}), V(g::Integer{-1})}));
+    accepted(*world, place);
+    const auto ambiguous = world->snapshot();
+    check(world->tick().error == w::TransactionError::none &&
+          !world->snapshot().state.material.dropped_material.contains({0, 0, 1}) &&
+          world->snapshot().state.material.dropped_material.contains({8, 0, 1}) &&
+          world->snapshot().state.material.stock.source == ambiguous.state.material.stock.source,
+          "Two candidate collector shafts make that face inert while the other tray retains its item.");
+}
+
 } // namespace
 
 int main() {
     try {
         transfers_only_to_outward_belt();
         builds_powered_route_from_finite_arrival_stock();
+        powers_two_modular_collectors_with_distinct_custody();
         std::cout << "collector_belt_test: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {
