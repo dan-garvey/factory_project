@@ -339,6 +339,39 @@ std::vector<assembly::Part> assembly_parts(const State& state) {
     return parts;
 }
 
+struct WorkingPress {
+    std::string anchor;
+    mechanics::Point anchor_center{};
+    mechanics::Point work_center{};
+    mechanics::Point shaft_center{};
+    std::string shaft;
+    std::vector<assembly::PressFeed> open_feeds;
+};
+
+struct WorkingPressInspection {
+    assembly::PressStatus status{assembly::PressStatus::invalid_input};
+    std::optional<WorkingPress> press;
+};
+
+WorkingPressInspection inspect_working_press(const assembly::Layout& layout,
+        materials::Component anchor_kind, const mechanics::Point& center) {
+    if (anchor_kind == materials::Component::anvil) {
+        const auto inspected = layout.inspect_guided_press(center);
+        if (!inspected.press) return {inspected.status, std::nullopt};
+        const auto& press = *inspected.press;
+        return {inspected.status, WorkingPress{press.anvil, center, press.work_center,
+            press.shaft_center, press.shaft, press.open_feeds}};
+    }
+    if (anchor_kind == materials::Component::wooden_frame) {
+        const auto inspected = layout.inspect_press(center);
+        if (!inspected.press) return {inspected.status, std::nullopt};
+        const auto& press = *inspected.press;
+        return {inspected.status, WorkingPress{press.frame, center, press.work_center,
+            press.shaft_center, press.shaft, press.open_feeds}};
+    }
+    return {};
+}
+
 struct CollectorMatch {
     std::optional<assembly::Collector> collector;
     bool ambiguous{};
@@ -901,19 +934,20 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
     // placement or reclaim changes that prefix.
     std::vector<assembly::Part> historical_parts;
     std::optional<assembly::Layout> historical_layout;
-    const auto inspect_historical_press = [&](const mechanics::Point& center) {
+    const auto inspect_historical_press = [&](materials::Component kind,
+            const mechanics::Point& center) {
         if (!historical_layout) {
             historical_parts.clear();
             historical_parts.reserve(placed_components.size());
             for (const auto& [id, placed] : placed_components) {
                 const auto issued = snapshot.state.issued_entities.find(id);
                 if (issued == snapshot.state.issued_entities.end())
-                    return assembly::PressInspection{};
+                    return WorkingPressInspection{};
                 historical_parts.push_back({id, placed.first, placed.second, issued->second});
             }
             historical_layout.emplace(historical_parts);
         }
-        return historical_layout->inspect_press(center);
+        return inspect_working_press(*historical_layout, kind, center);
     };
     std::optional<FabricationHub> historical_hub;
     if (profile.landing_pod_center)
@@ -1351,16 +1385,18 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             const auto selected_entry = entry ? grid_point(Object{{"center", Value(*entry)}}) : std::nullopt;
             const auto selected_work = work ? grid_point(Object{{"center", Value(*work)}}) : std::nullopt;
             const auto frame = placed_components.find(*entity);
-            if (frame == placed_components.end() || frame->second.first != materials::Component::wooden_frame ||
+            if (frame == placed_components.end() ||
+                (frame->second.first != materials::Component::wooden_frame &&
+                 frame->second.first != materials::Component::anvil) ||
                 !selected_entry || !selected_work) return false;
-            const auto inspected = inspect_historical_press(frame->second.second);
-            if (!inspected.press || inspected.press->frame != *entity ||
+            const auto inspected = inspect_historical_press(frame->second.first, frame->second.second);
+            if (!inspected.press || inspected.press->anchor != *entity ||
                 inspected.press->work_center != *selected_work ||
                 std::none_of(inspected.press->open_feeds.begin(), inspected.press->open_feeds.end(),
                     [&](const assembly::PressFeed& feed) { return feed.entry == *selected_entry; })) return false;
             auto automatic_exit = inspected.press->work_center;
-            automatic_exit[0] -= inspected.press->shaft_center[0] - inspected.press->frame_center[0];
-            automatic_exit[2] -= inspected.press->shaft_center[2] - inspected.press->frame_center[2];
+            automatic_exit[0] -= inspected.press->shaft_center[0] - inspected.press->anchor_center[0];
+            automatic_exit[2] -= inspected.press->shaft_center[2] - inspected.press->anchor_center[2];
             historical_press_exits.insert(automatic_exit);
             if (const auto previous = press_work.find(*selected_work); previous != press_work.end()) {
                 if (!previous->second.automatic_exit || previous->second.last_tick_seen == ticks_seen ||
@@ -1392,9 +1428,10 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             if (crank_holder != *actor || !drive || !selected_exit || !selected_work ||
                 !selected_shaft || !lots || !products || !prior_raw || !prior_lots || !prior_auto ||
                 !formed_id || frame == placed_components.end() ||
-                frame->second.first != materials::Component::wooden_frame) return false;
-            const auto inspected = inspect_historical_press(frame->second.second);
-            if (!inspected.press || inspected.press->frame != *entity ||
+                (frame->second.first != materials::Component::wooden_frame &&
+                 frame->second.first != materials::Component::anvil)) return false;
+            const auto inspected = inspect_historical_press(frame->second.first, frame->second.second);
+            if (!inspected.press || inspected.press->anchor != *entity ||
                 inspected.press->shaft != *drive ||
                 inspected.press->shaft_center != *selected_shaft ||
                 inspected.press->work_center != *selected_work ||
@@ -2236,6 +2273,20 @@ static DrivePower drive_power_with_layout(const Profile& profile, const State& s
         ratings.emplace(found.drive_cog, material_rating(found.cog_material));
         impacts.emplace(hub_id, 8);
     }
+    for (const auto& item : placed) {
+        if (item.kind != materials::Component::anvil) continue;
+        const auto inspected = layout.inspect_guided_press(item.center);
+        if (!inspected.press) continue;
+        const auto& found = *inspected.press;
+        const auto axis = horizontal_axis(found.shaft_center, found.cog_center);
+        const mechanics::Point hub{found.work_center[0], found.shaft_center[1], found.work_center[2]};
+        append({found.anvil, mechanics::Kind::hub, hub, axis, 0, 0});
+        append({found.shaft, mechanics::Kind::shaft, found.shaft_center, axis, 0, 1});
+        append({found.drive_cog, mechanics::Kind::gear, found.cog_center, axis, 2, 0});
+        ratings.emplace(found.shaft, material_rating(found.shaft_material));
+        ratings.emplace(found.drive_cog, material_rating(found.cog_material));
+        impacts.emplace(found.anvil, 8);
+    }
     if (parts.size() > mechanics::maximum_parts) {
         mechanics::Result result;
         result.error = mechanics::Error::too_many_parts;
@@ -3028,12 +3079,15 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         const auto frame = state.placed_components.find(*id);
         if (frame == state.placed_components.end()) return refused("unknown_target", *id);
         if (frame->second.generation != *generation) return refused("stale_generation", *id);
-        if (frame->second.kind != materials::Component::wooden_frame)
+        if (frame->second.kind != materials::Component::wooden_frame &&
+            frame->second.kind != materials::Component::anvil)
             return refused("not_press_frame", *id);
-        const auto inspected = assembly::inspect_press(assembly_parts(state), frame->second.center);
+        const auto parts = assembly_parts(state);
+        const auto inspected = inspect_working_press(assembly::Layout(parts),
+            frame->second.kind, frame->second.center);
         if (inspected.status == assembly::PressStatus::ambiguous)
             return refused("ambiguous_assembly", *id);
-        if (!inspected.press || inspected.press->frame != *id)
+        if (!inspected.press || inspected.press->anchor != *id)
             return refused("incomplete_assembly", *id);
         if (std::none_of(inspected.press->open_feeds.begin(), inspected.press->open_feeds.end(),
                 [&](const assembly::PressFeed& feed) { return feed.entry == *selected_entry; }))
@@ -3097,14 +3151,17 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         const auto frame = state.placed_components.find(*id);
         if (frame == state.placed_components.end()) return refused("unknown_target", *id);
         if (frame->second.generation != *generation) return refused("stale_generation", *id);
-        if (frame->second.kind != materials::Component::wooden_frame)
+        if (frame->second.kind != materials::Component::wooden_frame &&
+            frame->second.kind != materials::Component::anvil)
             return refused("not_press_frame", *id);
         if (!state.hand_crank || state.hand_crank->holder != binding.actor)
             return refused("not_crank_holder", *id);
-        const auto inspected = assembly::inspect_press(assembly_parts(state), frame->second.center);
+        const auto parts = assembly_parts(state);
+        const auto inspected = inspect_working_press(assembly::Layout(parts),
+            frame->second.kind, frame->second.center);
         if (inspected.status == assembly::PressStatus::ambiguous)
             return refused("ambiguous_assembly", *id);
-        if (!inspected.press || inspected.press->frame != *id)
+        if (!inspected.press || inspected.press->anchor != *id)
             return refused("incomplete_assembly", *id);
         if (inspected.press->shaft != *drive) return refused("wrong_drive_shaft", *id);
         if (std::none_of(inspected.press->open_feeds.begin(), inspected.press->open_feeds.end(),
@@ -3770,31 +3827,31 @@ Advance World::tick() noexcept {
             --candidate.material.stock.source;
             candidate.material.dropped_material.emplace(receiver, materials::Cargo{1, 0, {}});
         }
-        // A placed press owns work at its frame's work point. Its provisional
+        // A placed press owns work at its anvil. Its provisional
         // unattended exit is opposite its drive shaft, so adding an obstacle
         // cannot silently redirect ready work to another open face.
         // Resolve every claim before running one batched material step.
         std::map<mechanics::Point, std::optional<materials::PressStep>> presses_by_work;
         std::map<mechanics::Point, std::size_t> exit_claims;
-        for (const auto& [frame_center, inspected] : tick_layout_->presses_by_frame) {
-            (void)frame_center;
-            if (!inspected.press || inspected.press->open_feeds.empty()) continue;
-            const auto& press = *inspected.press;
-            const auto shaft = motion.motion.find(press.shaft);
+        const auto include_press = [&](const mechanics::Point& anchor_center,
+                const mechanics::Point& work_center, const mechanics::Point& shaft_center,
+                const std::string& shaft_id, const std::vector<assembly::PressFeed>& feeds) {
+            if (feeds.empty()) return;
+            const auto shaft = motion.motion.find(shaft_id);
             if (shaft == motion.motion.end() || shaft->second.state != mechanics::MotionState::rotating)
-                continue;
-            auto exit = press.work_center;
-            exit[0] -= press.shaft_center[0] - press.frame_center[0];
-            exit[2] -= press.shaft_center[2] - press.frame_center[2];
-            if (std::none_of(press.open_feeds.begin(), press.open_feeds.end(),
-                    [&](const assembly::PressFeed& feed) { return feed.exit == exit; })) continue;
+                return;
+            auto exit = work_center;
+            exit[0] -= shaft_center[0] - anchor_center[0];
+            exit[2] -= shaft_center[2] - anchor_center[2];
+            if (std::none_of(feeds.begin(), feeds.end(),
+                    [&](const assembly::PressFeed& feed) { return feed.exit == exit; })) return;
             __extension__ using Wide = __int128;
             Wide numerator = shaft->second.rate.numerator;
             if (numerator < 0) numerator = -numerator;
             const Wide scaled = numerator * materials::work_subticks_per_tick;
             const auto denominator = shaft->second.rate.denominator;
             const Wide whole = scaled / denominator;
-            materials::PressStep step{press.work_center, exit};
+            materials::PressStep step{work_center, exit};
             step.work_subticks = static_cast<Integer>(std::min<Wide>(whole, std::numeric_limits<Integer>::max()));
             if (whole <= std::numeric_limits<Integer>::max()) {
                 step.work_remainder = static_cast<Integer>(scaled % denominator);
@@ -3803,6 +3860,18 @@ Advance World::tick() noexcept {
             const auto [entry, inserted] = presses_by_work.emplace(step.work, step);
             if (!inserted) entry->second.reset();
             ++exit_claims[step.exit];
+        };
+        for (const auto& [frame_center, inspected] : tick_layout_->presses_by_frame) {
+            if (!inspected.press) continue;
+            const auto& press = *inspected.press;
+            include_press(frame_center, press.work_center, press.shaft_center,
+                press.shaft, press.open_feeds);
+        }
+        for (const auto& [anvil_center, inspected] : tick_layout_->presses_by_anvil) {
+            if (!inspected.press) continue;
+            const auto& press = *inspected.press;
+            include_press(anvil_center, press.work_center, press.shaft_center,
+                press.shaft, press.open_feeds);
         }
         std::vector<materials::PressStep> press_steps;
         press_steps.reserve(presses_by_work.size());

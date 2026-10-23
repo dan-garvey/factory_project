@@ -123,6 +123,157 @@ V::Array point(g::Integer x, g::Integer y, g::Integer z) {
     return {V(x), V(y), V(z)};
 }
 
+void frame_free_hand_press(g::Point center, g::Point direction) {
+    auto source = site();
+    source.profile.build_reach = 100;
+    source.profile.material.raw_mass = 4;
+    source.profile.material.plate_mass = 3;
+    source.profile.material.sheet_mass = 12;
+    source.profile.waterwheel_rate = {1, 1};
+    source.state.topology.sources = {{"press-wheel", source.profile.waterwheel_rate}};
+    auto& wheel = source.state.topology.parts.front().geometry;
+    wheel.center = {center[0] - 4 * direction[0], center[1] + 4,
+                    center[2] - 4 * direction[2]};
+    wheel.axis = direction[0] ? g::Axis::x : g::Axis::z;
+    Runner run(source);
+    for (int index = 0; index < 5; ++index) {
+        auto harvest = request("P", "guided-timber-" + std::to_string(index), "harvest_source");
+        harvest.emplace("target", V("tree"));
+        run.accept("P", harvest);
+    }
+    run.p = {0, 1, 1.65};
+    for (int index = 0; index < 5; ++index) {
+        auto harvest = request("P", "guided-ore-" + std::to_string(index), "harvest_source");
+        harvest.emplace("target", V("ore"));
+        run.accept("P", harvest);
+    }
+    run.p = {1.65, 1, 6.6};
+    for (const auto* kind : {"anvil", "ram_face", "sliding_guide", "wooden_shaft", "wooden_cog",
+                             "tool_mount"}) {
+        auto craft = request("P", std::string("guided-craft-") + kind, "craft_component");
+        craft.emplace("target", V("pod-fabrication-hub"));
+        craft.emplace("generation", V(I{1}));
+        craft.emplace("component", V(kind));
+        run.accept("P", craft);
+    }
+    run.p = {2, 1, 0};
+    if (center[1] > 0) {
+        auto foundation = request("P", "guided-raised-foundation", "place_foundation");
+        foundation.emplace("center", V(point(center[0], center[1], center[2])));
+        run.accept("P", foundation);
+    }
+    const std::pair<const char*, g::Point> parts[] = {
+        {"anvil", center}, {"ram_face", {center[0], center[1] + 1, center[2]}},
+        {"sliding_guide", {center[0], center[1] + 3, center[2]}},
+        {"wooden_shaft", {center[0] + direction[0], center[1] + 4,
+                           center[2] + direction[2]}},
+        {"wooden_cog", {center[0] + 2 * direction[0], center[1] + 4,
+                         center[2] + 2 * direction[2]}}};
+    std::string anvil, shaft;
+    I anvil_generation{};
+    for (const auto& [kind, center] : parts) {
+        auto place = request("P", std::string("guided-place-") + kind, "place_component");
+        place.emplace("component", V(kind));
+        place.emplace("center", V(point(center[0], center[1], center[2])));
+        const auto made = run.accept("P", place);
+        if (std::string(kind) == "anvil") {
+            anvil = std::get<std::string>(made.at("entity").storage());
+            anvil_generation = std::get<I>(made.at("generation").storage());
+        }
+        if (std::string(kind) == "wooden_shaft") shaft = std::get<std::string>(made.at("entity").storage());
+        if (std::string(kind) == "wooden_shaft") {
+            auto incomplete = request("P", "guided-incomplete-feed", "feed_press");
+            incomplete.emplace("target", V(anvil));
+            incomplete.emplace("generation", V(anvil_generation));
+            incomplete.emplace("entry", V(point(center[0] + direction[0], center[1],
+                                                center[2] + direction[2])));
+            run.refuses("P", incomplete, "incomplete_assembly");
+        }
+    }
+    auto feed = request("P", "guided-feed", "feed_press");
+    feed.emplace("target", V(anvil));
+    feed.emplace("generation", V(anvil_generation));
+    feed.emplace("entry", V(point(center[0] + direction[0], center[1],
+                                 center[2] + direction[2])));
+    run.accept("P", feed);
+    const auto power = w::drive_power(source.profile, run.world->snapshot().state);
+    check(power.mechanical.accepted() && power.mechanical.motion.at(anvil).state ==
+          g::MotionState::rotating,
+          "A frame-free press projects an actual powered hub and signed drive shaft.");
+    const auto fed = run.world->snapshot();
+    check(fed.state.material.dropped_material.at(center).raw_units == 1 &&
+          codec_restore(source.profile, fed, "A frame-free fed press restores with exact custody."),
+          "A placed anvil owns the fed raw piece without a frame or mount.");
+    Runner halted(source);
+    halted.world = w::World::restore("press-feed", source.profile, fed);
+    auto stop = request("P", "guided-stop-drive", "set_drive");
+    stop.emplace("target", V("press-wheel"));
+    stop.emplace("generation", V(I{1}));
+    stop.emplace("enabled", V(false));
+    halted.accept("P", stop);
+    check(halted.world->tick().error == w::TransactionError::none &&
+          halted.world->snapshot().state.material.dropped_material.at(center).raw_units == 1 &&
+          w::World::restore("press-feed", source.profile, halted.world->snapshot()) != nullptr,
+          "Stopping the drive retains the exact frame-free input for later continuation.");
+    Runner automated(source);
+    automated.world = w::World::restore("press-feed", source.profile, fed);
+    check(automated.world != nullptr, "The same fed frame-free press restores for powered continuation.");
+    for (int index = 0; index < 4; ++index)
+        check(automated.world->tick().error == w::TransactionError::none,
+              "The connected floating press advances under real signed shaft motion.");
+    const auto automatic = automated.world->snapshot();
+    const g::Point exit{center[0] - direction[0], center[1], center[2] - direction[2]};
+    check(automatic.state.material.dropped_material.at(exit).products == 1 &&
+          automatic.state.material.dropped_material.at(center).offcuts == 1 &&
+          w::validate(source.profile, automatic),
+          "Powered frame-free forming conserves one plate and its work-face offcut.");
+    codec_restore(source.profile, automatic,
+                  "Powered frame-free production and its offcut survive checkpoint reload.");
+    run.p = {1.65, 1, 6.6};
+    auto take = request("P", "guided-take-crank", "take_hand_crank");
+    take.emplace("target", V("pod-hand-crank"));
+    take.emplace("generation", V(I{1}));
+    run.accept("P", take);
+    run.p = {2, 1, 0};
+    auto turn = request("P", "guided-turn", "turn_press_crank");
+    turn.emplace("target", V(anvil));
+    turn.emplace("generation", V(anvil_generation));
+    turn.emplace("drive", V(shaft));
+    turn.emplace("exit", V(point(exit[0], exit[1], exit[2])));
+    auto wrong_drive = turn;
+    wrong_drive.at("request") = V("guided-wrong-drive");
+    wrong_drive.at("drive") = V(anvil);
+    const auto before_wrong_drive = run.world->snapshot().state;
+    run.refuses("P", wrong_drive, "wrong_drive_shaft");
+    check(run.world->snapshot().state == before_wrong_drive,
+          "A non-drive target cannot advance or discard frame-free work.");
+    auto obstacle = request("P", "guided-block-exit", "place_component");
+    obstacle.emplace("component", V("tool_mount"));
+    obstacle.emplace("center", V(point(exit[0], exit[1], exit[2])));
+    const auto placed_obstacle = run.accept("P", obstacle);
+    const auto before_blocked = run.world->snapshot().state;
+    auto blocked_turn = turn;
+    blocked_turn.at("request") = V("guided-turn-blocked");
+    run.refuses("P", blocked_turn, "blocked_exit");
+    check(run.world->snapshot().state == before_blocked,
+          "A blocked exit retains the same input and partial work.");
+    auto clear = request("P", "guided-clear-exit", "reclaim_component");
+    clear.emplace("target", placed_obstacle.at("entity"));
+    clear.emplace("generation", placed_obstacle.at("generation"));
+    run.accept("P", clear);
+    for (int index = 0; index < 3; ++index) {
+        turn.at("request") = V("guided-turn-" + std::to_string(index));
+        run.accept("P", turn);
+    }
+    const auto finished = run.world->snapshot();
+    check(finished.state.material.dropped_material.at(exit).products == 1 &&
+          finished.state.material.dropped_material.at(center).offcuts == 1 &&
+          w::validate(source.profile, finished),
+          "A frame-free press makes one plate and one retained offcut from finite copper.");
+    codec_restore(source.profile, finished,
+                  "A frame-free finished press and its separate offcut survive checkpoint reload.");
+}
+
 void actor_feed_is_physical_custody() {
     auto source = site();
     source.profile.finite_parts[{s::Role::waterwheel, 0, 0}] = 2;
@@ -1639,6 +1790,8 @@ void belt_feeds_a_placed_press() {
 
 int main() {
     try {
+        frame_free_hand_press({8, 0, 0}, {1, 0, 0});
+        frame_free_hand_press({8, 4, 8}, {0, 0, 1});
         actor_feed_is_physical_custody();
         two_placed_presses_advance_distinct_powered_work();
         belt_feeds_a_placed_press();

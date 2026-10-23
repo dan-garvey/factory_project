@@ -182,19 +182,19 @@ GuidedPressInspection Layout::inspect_guided_press(const Point& center) const {
     if (!anvil) return {PressStatus::missing_anvil, std::nullopt};
     const auto* ram = at(by_center, raised(1), materials::Component::ram_face);
     if (!ram) return {PressStatus::missing_ram, std::nullopt};
-    const auto* guide = at(by_center, raised(2), materials::Component::sliding_guide);
+    const auto* guide = at(by_center, raised(3), materials::Component::sliding_guide);
     if (!guide) return {PressStatus::missing_guide, std::nullopt};
 
     constexpr std::array<Point, 4> directions{{{1, 0, 0}, {-1, 0, 0}, {0, 0, 1}, {0, 0, -1}}};
     bool shaft_seen = false;
     std::vector<GuidedPress> candidates;
     for (const auto& direction : directions) {
-        const Point shaft_center{center[0] + direction[0], center[1] + 2,
+        const Point shaft_center{center[0] + direction[0], center[1] + 4,
                                  center[2] + direction[2]};
         const auto* shaft = shaft_at(by_center, shaft_center);
         if (!shaft) continue;
         shaft_seen = true;
-        const Point cog_center{center[0] + 2 * direction[0], center[1] + 2,
+        const Point cog_center{center[0] + 2 * direction[0], center[1] + 4,
                                center[2] + 2 * direction[2]};
         const auto* cog = cog_at(by_center, cog_center);
         if (!cog) continue;

@@ -212,11 +212,11 @@ void guided_press_without_structure() {
             part("ram", m::Component::ram_face,
                  {center[0], center[1] + 1, center[2]}),
             part("guide", m::Component::sliding_guide,
-                 {center[0], center[1] + 2, center[2]}),
+                 {center[0], center[1] + 3, center[2]}),
             part("shaft", m::Component::wooden_shaft,
-                 {center[0] + drive[0], center[1] + 2, center[2] + drive[2]}),
+                 {center[0] + drive[0], center[1] + 4, center[2] + drive[2]}),
             part("cog", m::Component::wooden_cog,
-                 {center[0] + 2 * drive[0], center[1] + 2, center[2] + 2 * drive[2]}),
+                 {center[0] + 2 * drive[0], center[1] + 4, center[2] + 2 * drive[2]}),
         };
     };
     const g::Point ground{0, 0, 0};
@@ -235,13 +235,13 @@ void guided_press_without_structure() {
     const auto elevated = layout.inspect_guided_press(raised);
     check(elevated.status == a::PressStatus::ready && elevated.press &&
           elevated.press->work_center == raised &&
-          elevated.press->shaft_center == g::Point{8, 6, 11} &&
+          elevated.press->shaft_center == g::Point{8, 8, 11} &&
           elevated.press->cog_material == m::Component::softmetal_cog,
           "The same anvil-centered rule admits raised, rotated and metal drive geometry.");
-    placed[1].center[1] += 1;
+    placed[1].center[1] += 2;
     check(a::inspect_guided_press(placed, raised).status == a::PressStatus::invalid_input,
           "A ram cannot occupy the guide's grid position.");
-    placed[1].center = {8, 7, 12};
+    placed[1].center = {8, 6, 12};
     check(a::inspect_guided_press(placed, raised).status == a::PressStatus::missing_ram,
           "A misaligned ram cannot claim workpiece contact.");
     placed[1].center = {8, 5, 12};
@@ -249,8 +249,8 @@ void guided_press_without_structure() {
     check(a::inspect_guided_press(placed, raised).status == a::PressStatus::missing_guide,
           "A free ram requires a placed stroke guide.");
     placed = parts_at(ground, {1, 0, 0});
-    placed.push_back(part("west-shaft", m::Component::wooden_shaft, {-1, 2, 0}));
-    placed.push_back(part("west-cog", m::Component::wooden_cog, {-2, 2, 0}));
+    placed.push_back(part("west-shaft", m::Component::wooden_shaft, {-1, 4, 0}));
+    placed.push_back(part("west-cog", m::Component::wooden_cog, {-2, 4, 0}));
     check(a::inspect_guided_press(placed, ground).status == a::PressStatus::ambiguous,
           "Two complete drives require an explicit selection.");
     placed.pop_back(); placed.pop_back();
