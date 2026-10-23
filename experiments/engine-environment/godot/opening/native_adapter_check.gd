@@ -772,7 +772,28 @@ func _resume() -> void:
 		return
 	_record("pass")
 
-func _arrival_capacity_run(panel) -> void:
+func _arrival_capacity_run(panel, capture_prefix: String) -> void:
+	var recipes: Dictionary = opening.model.projection().component_recipes
+	if not _expect(recipes.wooden_shaft.load_rating == 8
+			and recipes.wooden_cog.load_rating == 8
+			and recipes.softmetal_shaft.load_rating == 24
+			and recipes.softmetal_cog.load_rating == 24,
+			"The ordinary workshop receives its drive ratings from the native projection"):
+		return
+	panel.component_choice.select(9)
+	panel._component_selected(9)
+	if not _expect("Drive limits: wood 8 · softmetal 24" in panel.recipe_label.text
+			and "Rated for 24 load" in panel.component_choice.tooltip_text
+			and "Needs 0 timber + 2 softmetal" in panel.recipe_label.text,
+			"The selected softmetal upgrade shows stronger load and its actual local bill"):
+		return
+	if not capture_prefix.is_empty():
+		await process_frame
+		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-drive-ratings.png") == OK,
+				"The native-backed workshop rating is retained in a normal viewport frame"):
+			return
+	panel.component_choice.select(0)
+	panel._component_selected(0)
 	# Zero-cut entries are explicit clear-aisle waypoints, not resource actions.
 	for source in [
 		{"point": Vector2(3.3, 4.95), "id": "tree-east-south", "cuts": 8},
@@ -1476,7 +1497,7 @@ func _arrival_run() -> void:
 		await _arrival_belt_resume_run()
 		return
 	if mode == "arrival-craft-capacity":
-		await _arrival_capacity_run(panel)
+		await _arrival_capacity_run(panel, capture_prefix)
 		return
 	if not capture_prefix.is_empty() and mode in ["arrival-press", "arrival-delivery", "arrival-repeat-delivery"]:
 		await process_frame

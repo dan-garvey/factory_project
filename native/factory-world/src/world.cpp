@@ -1618,12 +1618,8 @@ materials::Path material_path(const stationary::Topology& topology) {
 
 namespace {
 
-constexpr long double wooden_rating = 8;
-constexpr long double softmetal_rating = 24;
-
 long double material_rating(materials::Component kind) {
-    return kind == materials::Component::wooden_shaft ||
-           kind == materials::Component::wooden_cog ? wooden_rating : softmetal_rating;
+    return static_cast<long double>(placed_drive_load_rating(kind).value_or(0));
 }
 
 mechanics::Axis horizontal_axis(const mechanics::Point& from, const mechanics::Point& to) {

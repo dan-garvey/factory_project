@@ -1376,9 +1376,13 @@ func _field_craft_widget() -> void:
 	view.state.cargo = {"P": {"raw": 1, "timber": 3, "components": {}},
 		"Q": {"raw": 0, "timber": 0, "components": {}}}
 	view.state.component_recipes = {"wooden_frame": {"timber": 3, "softmetal": 0},
-		"cutting_edge": {"timber": 0, "softmetal": 1}}
+		"cutting_edge": {"timber": 0, "softmetal": 1},
+		"wooden_shaft": {"timber": 1, "softmetal": 0, "load_rating": 8},
+		"wooden_cog": {"timber": 2, "softmetal": 0, "load_rating": 8},
+		"softmetal_shaft": {"timber": 0, "softmetal": 2, "load_rating": 24},
+		"softmetal_cog": {"timber": 0, "softmetal": 2, "load_rating": 24}}
 	view.state.component_capacity = 20
-	view.state.fabrication_hub = {"id": "pod-fabrication-hub"}
+	view.state.fabrication_hub = {"id": "pod-fabrication-hub", "installed": true}
 	view.state.placed_components = {}
 	root.add_child(view)
 	view.selection_ring = MeshInstance3D.new()
@@ -1404,6 +1408,21 @@ func _field_craft_widget() -> void:
 		panel.craft_button.pressed.emit()
 		verify(view.issued.back() == {"action": "craft_component", "entity": "pod-fabrication-hub", "component": "cutting_edge"},
 			"The metal button retains the native pod hub identity.")
+	verify(panel.component_choice.get_item_text(1) == "Wooden shaft  ×0"
+		and panel.component_choice.get_item_text(9) == "Softmetal shaft  ×0",
+		"The compact component picker retains full part names and carried counts.")
+	panel.component_choice.select(1)
+	panel._component_selected(1)
+	verify("Rated for 8 load" in panel.component_choice.tooltip_text
+		and "Drive limits: wood 8 · softmetal 24" in panel.recipe_label.text
+		and "Needs 1 timber" in panel.recipe_label.text,
+		"A wooden shaft shows the projected quality ramp beside its unchanged timber cost.")
+	panel.component_choice.select(9)
+	panel._component_selected(9)
+	verify("Rated for 24 load" in panel.component_choice.tooltip_text
+		and "Drive limits: wood 8 · softmetal 24" in panel.recipe_label.text
+		and "Needs 0 timber + 2 softmetal" in panel.recipe_label.text,
+		"The softmetal replacement shows the stronger rating and workshop bill.")
 	# The ordinary right panel is 255 px wide before its padding and scrollbar.
 	# Stress the longest craft choice and action with a deliberately large count.
 	root.size = Vector2i(1280, 800)
@@ -1433,6 +1452,20 @@ func _field_craft_widget() -> void:
 	await process_frame
 	verify(scroll.get_global_rect().has_point(panel.crank_button.get_global_rect().get_center()),
 		"Vertical scrolling reaches the final press action in the compact panel.")
+	var shared := SharedWidgets.new()
+	shared.session = SessionStub.new()
+	shared.client = "Q"
+	shared.state = view.state.duplicate(true)
+	root.add_child(shared)
+	shared._build_interface()
+	var shared_panel = shared.arrival_assembly_controls
+	shared_panel.component_choice.select(9)
+	shared_panel._component_selected(9)
+	verify("Drive limits: wood 8 · softmetal 24" in shared_panel.recipe_label.text
+		and "Rated for 24 load" in shared_panel.component_choice.tooltip_text
+		and shared.issued.is_empty(),
+		"The shared workshop reads the confirmed rating without sending a craft command.")
+	shared.free()
 	view.free()
 	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
 		"models": 0, "desktop_operations": 0, "scope": "field craft controls and compact workshop layout over invented projection"}))

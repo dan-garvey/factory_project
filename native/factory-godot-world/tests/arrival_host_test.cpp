@@ -69,6 +69,12 @@ void arrival_projection_and_restore() {
           get<I>(recipes.at("softmetal_cog"), "timber") == 0 &&
           get<I>(recipes.at("softmetal_cog"), "softmetal") == 2,
           "The normal consumer receives every native recipe cost and the carried component limit.");
+    check(get<I>(recipes.at("wooden_shaft"), "load_rating") == 8 &&
+          get<I>(recipes.at("wooden_cog"), "load_rating") == 8 &&
+          get<I>(recipes.at("softmetal_shaft"), "load_rating") == 24 &&
+          get<I>(recipes.at("softmetal_cog"), "load_rating") == 24 &&
+          !std::get<O>(recipes.at("wooden_frame").storage()).contains("load_rating"),
+          "The native recipe projection exposes only the four placed drive ratings.");
     const auto floors = get<O>(view, "foundations");
     check(floors.size() == 9 && floors.contains("pod-floor-0") && floors.contains("pod-floor-8"),
           "The unfolding pod supplied exactly nine ordinary visible foundation identities.");

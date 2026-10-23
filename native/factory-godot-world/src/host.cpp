@@ -2403,8 +2403,12 @@ Value Host::projection() const {
                 materials::Component::ram_face, materials::Component::softmetal_shaft,
                 materials::Component::softmetal_cog, materials::Component::wooden_workbench}) {
             const auto cost = materials::component_cost(kind);
-            if (cost) recipes.emplace(materials::component_name(kind), Value(Object{
-                {"timber", Value(cost->timber)}, {"softmetal", Value(cost->ore)}}));
+            if (cost) {
+                Object recipe{{"timber", Value(cost->timber)}, {"softmetal", Value(cost->ore)}};
+                if (const auto rating = world::placed_drive_load_rating(kind))
+                    recipe.emplace("load_rating", Value(*rating));
+                recipes.emplace(materials::component_name(kind), Value(std::move(recipe)));
+            }
         }
         projection.emplace("component_recipes", Value(std::move(recipes)));
         Array fabrication;

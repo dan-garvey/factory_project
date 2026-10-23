@@ -117,6 +117,19 @@ struct PressProgressWitness {
 inline constexpr authority::Integer repeat_order_target = 3;
 inline constexpr authority::Integer completed_freight_target = 1 + repeat_order_target;
 
+// Provisional first-chapter ratings for placed drive components. The same
+// values bound native motion and are projected with workshop recipes.
+[[nodiscard]] constexpr std::optional<authority::Integer> placed_drive_load_rating(
+        materials::Component kind) noexcept {
+    switch (kind) {
+        case materials::Component::wooden_shaft:
+        case materials::Component::wooden_cog: return 8;
+        case materials::Component::softmetal_shaft:
+        case materials::Component::softmetal_cog: return 24;
+        default: return std::nullopt;
+    }
+}
+
 struct State {
     materials::State material;
     stationary::Topology topology;

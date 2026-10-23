@@ -388,6 +388,7 @@ class ArrivalAssemblyControls:
 		craft_section.add_child(bench_choice)
 		pod_workshop_button = host._button(craft_section, "Stow pod workshop", _pod_workshop)
 		recipe_label = host._label(craft_section, "", 12, Color("bfd1cc"))
+		recipe_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		var component_actions := VBoxContainer.new()
 		craft_section.add_child(component_actions)
 		craft_button = host._button(component_actions, "Craft at bench", _craft)
@@ -498,6 +499,16 @@ class ArrivalAssemblyControls:
 		recipe_label.text = "Needs %d timber + %d softmetal\nCarry %d timber + %d softmetal\nParts %d / %d · metal needs a workshop" % [
 			cost.get("timber", 0), cost.get("softmetal", 0), cargo.get("timber", 0),
 			cargo.get("raw", 0), total_parts, snapshot.get("component_capacity", 0)]
+		var selected_rating: int = int(cost.get("load_rating", 0))
+		component_choice.tooltip_text = "Rated for %d load. The weakest shaft or cog limits a connected drive; overload stalls without damage." % selected_rating \
+			if selected_rating > 0 else ""
+		if selected_rating > 0:
+			var wood_rating: int = int(recipes.get("wooden_shaft", {}).get("load_rating", 0))
+			var metal_rating: int = int(recipes.get("softmetal_shaft", {}).get("load_rating", 0))
+			if wood_rating > 0 and metal_rating > 0:
+				recipe_label.text += "\nDrive limits: wood %d · softmetal %d" % [wood_rating, metal_rating]
+			else:
+				recipe_label.text += "\nDrive limit: %d load" % selected_rating
 		for index in COMPONENTS.size():
 			var item: Array = COMPONENTS[index]
 			component_choice.set_item_text(index, "%s  ×%d" % [item[1], components.get(item[0], 0)])
