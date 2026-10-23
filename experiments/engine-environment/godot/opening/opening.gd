@@ -4602,6 +4602,7 @@ var packed_preview_nodes: Dictionary = {}
 var machine_dynamic_batches: Array[Dictionary] = []
 var machine_conveyor_batches: Array[Dictionary] = []
 var machine_rotors: Array[Dictionary] = []
+var machine_rotor_cells: Array[Dictionary] = []
 var machine_batched_rotors: Dictionary = {}
 var machine_batched_rotor_slots: Dictionary = {}
 var wheel_batch_poses: Dictionary = {}
@@ -5377,27 +5378,43 @@ func _animate_wheel(delta: float) -> void:
 		var cull_far_joinery := camera != null and camera.is_inside_tree() and not machine_batched_rotors.is_empty()
 		var listener_position := camera.global_position if cull_far_joinery else Vector3.ZERO
 		var frustum: Array = camera.get_frustum() if camera != null and camera.is_inside_tree() else []
-		for wheel in machine_rotors:
-			# Keep nearby offscreen wheels live for their shadows. The confirmed
-			# cosmetic phase still advances when its hidden pose is held.
-			var outside_view := false
+		for cell in machine_rotor_cells:
+			var bounds: AABB = cell.bounds
+			var minimum := bounds.position
+			var maximum := bounds.end
+			var cell_outside := false
 			for plane: Plane in frustum:
-				if plane.distance_to(wheel.center) > WHEEL_MOTION_VISIBILITY_MARGIN:
-					outside_view = true
+				# The nearest corner has the minimum plane distance. Culling it
+				# excludes only cells whose every wheel is beyond the old margin.
+				var nearest := Vector3(minimum.x if plane.normal.x >= 0.0 else maximum.x,
+					minimum.y if plane.normal.y >= 0.0 else maximum.y,
+					minimum.z if plane.normal.z >= 0.0 else maximum.z)
+				if plane.distance_to(nearest) > WHEEL_MOTION_VISIBILITY_MARGIN:
+					cell_outside = true
 					break
-			if outside_view:
+			if cell_outside:
 				continue
-			var basis: Basis = wheel.base * Basis(Vector3.BACK, transmission_presenter.visual_angle(wheel.id))
-			var rotor_id: int = wheel.rotor.get_instance_id()
-			wheel_updated_rotors[rotor_id] = true
-			# The full core is already in a MultiMesh. Beyond the last paddle
-			# detail range, advance that instance without dirtying the many
-			# hidden and distance-culled source nodes under its rotor.
-			if cull_far_joinery and machine_batched_rotors.has(rotor_id) \
-					and listener_position.distance_squared_to(wheel.center) > WHEEL_DETAIL_UPDATE_RADIUS * WHEEL_DETAIL_UPDATE_RADIUS:
-				wheel_batch_poses[rotor_id] = Transform3D(basis, wheel.rotor.position)
-			else:
-				wheel.rotor.basis = basis
+			for wheel in cell.wheels:
+				# Keep nearby offscreen wheels live for their shadows. The confirmed
+				# cosmetic phase still advances when its hidden pose is held.
+				var outside_view := false
+				for plane: Plane in frustum:
+					if plane.distance_to(wheel.center) > WHEEL_MOTION_VISIBILITY_MARGIN:
+						outside_view = true
+						break
+				if outside_view:
+					continue
+				var basis: Basis = wheel.base * Basis(Vector3.BACK, transmission_presenter.visual_angle(wheel.id))
+				var rotor_id: int = wheel.rotor.get_instance_id()
+				wheel_updated_rotors[rotor_id] = true
+				# The full core is already in a MultiMesh. Beyond the last paddle
+				# detail range, advance that instance without dirtying the many
+				# hidden and distance-culled source nodes under its rotor.
+				if cull_far_joinery and machine_batched_rotors.has(rotor_id) \
+						and listener_position.distance_squared_to(wheel.center) > WHEEL_DETAIL_UPDATE_RADIUS * WHEEL_DETAIL_UPDATE_RADIUS:
+					wheel_batch_poses[rotor_id] = Transform3D(basis, wheel.rotor.position)
+				else:
+					wheel.rotor.basis = basis
 		_animate_machine_bodies(delta)
 		_update_machine_dynamic_batches(true)
 		return
@@ -7727,6 +7744,21 @@ func _batch_machine_visuals() -> void:
 	_emit_machine_mesh_batches(dynamic_groups, batches, true)
 	_batch_conveyor_loops(batches)
 
+func _index_machine_rotors() -> void:
+	machine_rotor_cells.clear()
+	var cell_indices := {}
+	for wheel in machine_rotors:
+		var center: Vector3 = wheel.center
+		var key := Vector3i(floori(center.x / WHEEL_ROTOR_BATCH_CELL),
+			floori(center.y / WHEEL_ROTOR_BATCH_CELL), floori(center.z / WHEEL_ROTOR_BATCH_CELL))
+		if not cell_indices.has(key):
+			cell_indices[key] = machine_rotor_cells.size()
+			machine_rotor_cells.append({"bounds": AABB(center, Vector3.ZERO), "wheels": [wheel]})
+		else:
+			var cell: Dictionary = machine_rotor_cells[cell_indices[key]]
+			cell.bounds = (cell.bounds as AABB).expand(center)
+			cell.wheels.append(wheel)
+
 func _rebuild_machines() -> void:
 	_sync_machine_body_context()
 	machine_rotors.clear()
@@ -7835,6 +7867,7 @@ func _rebuild_machines() -> void:
 		if not _native_transmission() and state.entities.has(pair[0]) and state.entities.has(pair[1]):
 			_bar(machine_root, _cell_position(state.entities[pair[0]].cell) + Vector3(0, 0.35, 0.55),
 				_cell_position(state.entities[pair[1]].cell) + Vector3(0, 0.35, 0.55), 0.09, Color("d1b56e"))
+	_index_machine_rotors()
 	_batch_machine_visuals()
 
 func _redraw_items() -> void:
