@@ -1810,8 +1810,32 @@ materials::MachinePower machine_power(const Profile& profile, const State& state
     return machine_power(state.topology, drive_power(profile, state));
 }
 
+static bool tick_preserves_history_bound_fields(const State& prior, const State& candidate) {
+    // The historical replay owns construction, actor inventory, fabrication
+    // and shipment facts. A native tick may move material and WorkLots, but
+    // must never rewrite one of those command-bound facts behind the log.
+    return candidate.topology == prior.topology &&
+        candidate.kits == prior.kits &&
+        candidate.issued_entities == prior.issued_entities &&
+        candidate.next_entity_serial == prior.next_entity_serial &&
+        candidate.foundations == prior.foundations &&
+        candidate.foundation_kits == prior.foundation_kits &&
+        candidate.landing_pod == prior.landing_pod &&
+        candidate.fabrication_hub == prior.fabrication_hub &&
+        candidate.freight_beacon == prior.freight_beacon &&
+        candidate.hand_crank == prior.hand_crank &&
+        candidate.placed_components == prior.placed_components &&
+        candidate.material.cargo == prior.material.cargo &&
+        candidate.material.timber_remaining == prior.material.timber_remaining &&
+        candidate.material.shipped_products == prior.material.shipped_products &&
+        candidate.material.fabricated_timber == prior.material.fabricated_timber &&
+        candidate.material.fabricated_raw == prior.material.fabricated_raw &&
+        candidate.material.next_work_id >= prior.material.next_work_id;
+}
+
 static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot,
-                                const DrivePower* evaluated_drive) {
+                                const DrivePower* evaluated_drive,
+                                bool replay_history = true) {
     if (profile.actors.empty() || profile.actors.size() > maximum_actors || profile.initial_units < 0 ||
         profile.finite_parts.size() + profile.fabrication_parts.size() > stationary::maximum_specifications ||
         profile.waterwheel_rate.numerator == 0 || profile.waterwheel_rate.denominator <= 0 ||
@@ -1982,7 +2006,8 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
     if (state.material.initial_units != profile.initial_units ||
         state.material.cargo.size() != profile.actors.size() || state.kits.size() != profile.actors.size() ||
         state.issued_entities.size() > maximum_issued_entities || state.next_entity_serial < 1 ||
-        authority::validate_history(snapshot.history, snapshot.revision) != authority::Error::none)
+        (replay_history && authority::validate_history(snapshot.history, snapshot.revision) !=
+            authority::Error::none))
         return false;
     std::size_t current_work = state.material.processing ? 1 : 0;
     stationary::Kit totals;
@@ -2115,7 +2140,7 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
                            !drive_power(profile, state).mechanical.accepted()) ||
         materials::validate(state.material, profile.material, material_path(state.topology)) != materials::Error::none)
         return false;
-    return history_domain(profile, snapshot, totals);
+    return !replay_history || history_domain(profile, snapshot, totals);
 }
 
 bool validate(const Profile& profile, const Snapshot& snapshot) {
@@ -3177,7 +3202,9 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
 }
 
 Advance World::tick() noexcept {
+    const Snapshot* prior = nullptr;
     return owner_->advance_retaining_history([&](const Snapshot& snapshot) -> std::optional<State> {
+        prior = &snapshot;
         auto candidate = snapshot.state;
         // Material stepping changes custody, not the placed power graph. Reuse
         // its drive across ticks until a command or refusal invalidates it.
@@ -3646,8 +3673,11 @@ Advance World::tick() noexcept {
         return candidate;
     }, [&](const Snapshot& candidate) {
         // Tick changes material and work bookkeeping, never topology or placed
-        // components. The drive still describes this candidate's power graph.
-        return tick_drive_ && validate_with_drive(profile_, candidate, &*tick_drive_);
+        // components. Create, restore and each committed command have already
+        // proved the exact history. This trusted transition retains that log,
+        // checks command-bound fields above, then validates current State.
+        return prior && tick_preserves_history_bound_fields(prior->state, candidate.state) &&
+            tick_drive_ && validate_with_drive(profile_, candidate, &*tick_drive_, false);
     });
 }
 
