@@ -434,8 +434,12 @@ func _batch_motion_check() -> void:
 	var far_id := far_rotor.get_instance_id()
 	view._animate_wheel(0.1)
 	_check(near_rotor.basis.is_equal_approx(bases[0] * Basis(Vector3.BACK, 0.1))
-		and far_rotor.basis.is_equal_approx(far_base) and view.wheel_batch_poses.has(far_id),
-		"Near joinery turns while a distant batched rotor avoids changing hidden source nodes.")
+		and far_rotor.basis.is_equal_approx(far_base) and not view.wheel_batch_poses.has(far_id),
+		"Near joinery turns while an offscreen distant rotor holds its last pose.")
+	view.camera.look_at(far_rotor.global_position)
+	view._animate_wheel(0.1)
+	_check(far_rotor.basis.is_equal_approx(far_base) and view.wheel_batch_poses.has(far_id),
+		"A visible distant rotor resumes its moving batch without dirtying hidden source nodes.")
 	var far_instance_found := false
 	for group in view.machine_dynamic_batches:
 		for index in group.parts.size():
@@ -465,8 +469,13 @@ func _batch_motion_check() -> void:
 	var unbatched_rotor := view.machine_root.get_child(0).get_node("WheelRotor") as Node3D
 	var unbatched_base := unbatched_rotor.basis
 	view._animate_wheel(0.1)
+	_check(unbatched_rotor.basis.is_equal_approx(unbatched_base),
+		"An offscreen unbatched wheel also holds its last rendered pose.")
+	view.camera.global_position = unbatched_rotor.global_position + Vector3(0, 0, 10)
+	view.camera.look_at(unbatched_rotor.global_position)
+	view._animate_wheel(0.1)
 	_check(unbatched_rotor.basis.is_equal_approx(unbatched_base * Basis(Vector3.BACK, 0.1)),
-		"An unbatched wheel keeps turning even when its joinery is far from the camera.")
+		"An unbatched wheel catches up immediately when its joinery enters view.")
 	view.free()
 	var belt_view := PerformanceView.new()
 	belt_view.state = {"context": "synthetic-conveyor-check", "options": {"native": true},

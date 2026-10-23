@@ -990,10 +990,10 @@ func _arrival_run() -> void:
 	if not _expect(opening.landing_pod_visual != null and opening.landing_hub_visual != null
 			and opening.landing_pod_visual.get_meta("authority_entity", "") == pod_state.landing_pod.id
 			and opening.landing_hub_visual.get_meta("authority_entity", "") == pod_state.fabrication_hub.id
-			and opening.landing_pod_visual.position.distance_to(Vector3(1.65, 0.825, 6.6)) < 0.001
-			and opening.landing_hub_visual.position.distance_to(Vector3(3.3, 0.825, 6.6)) < 0.001
+			and opening.landing_pod_visual.position.distance_to(Vector3(1.65, 0, 6.6)) < 0.001
+			and opening.landing_hub_visual.position.distance_to(Vector3(3.3, 0, 6.6)) < 0.001
 			and opening.landing_crank_visual.visible == (pod_state.hand_crank.holder == "pod"),
-			"The settled hull and bench render at native anchors with the one crank in its actual custody"):
+			"The settled hull and bench meet the native foundation top plane with the crank in its actual custody"):
 		return
 	if DisplayServer.get_name() != "headless":
 		while opening.get_node_or_null("MachinePreviewWarmup") != null and Time.get_ticks_msec() < deadline:
