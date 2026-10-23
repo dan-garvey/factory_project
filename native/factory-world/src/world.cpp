@@ -2451,6 +2451,75 @@ DrivePower drive_power(const Profile& profile, const State& state) {
     return drive_power_with_layout(profile, state, placed, layout);
 }
 
+BroadPressDriveIndex::BroadPressDriveIndex(const DrivePower& power) : power_(power) {
+    for (std::size_t index = 0; index < power.mechanical.components.size(); ++index)
+        for (const auto& id : power.mechanical.components[index].parts)
+            component_by_part_.emplace(id, index);
+}
+
+BroadPressDriveInspection BroadPressDriveIndex::inspect(const assembly::BroadPress& press) const {
+    if (!power_.mechanical.accepted()) return {BroadPressDriveStatus::invalid_power, std::nullopt, {}};
+    std::set<std::string> distinct;
+    std::optional<mechanics::Axis> common_axis;
+    std::array<int, 4> pad_winding{};
+    for (std::size_t index = 0; index < press.shafts.size(); ++index) {
+        const auto& id = press.shafts[index];
+        if (id.empty() || !distinct.insert(id).second)
+            return {BroadPressDriveStatus::invalid_geometry, std::nullopt, {}};
+        const auto& shaft = press.shaft_centers[index];
+        const auto& cog = press.cog_centers[index];
+        __extension__ using Wide = __int128;
+        const Wide dx = static_cast<Wide>(cog[0]) - shaft[0];
+        const Wide dz = static_cast<Wide>(cog[2]) - shaft[2];
+        if (shaft[1] != cog[1] ||
+            !(((dx == 1 || dx == -1) && dz == 0) ||
+              ((dz == 1 || dz == -1) && dx == 0)))
+            return {BroadPressDriveStatus::invalid_geometry, std::nullopt, {}};
+        const auto axis = dx != 0 ? mechanics::Axis::x : mechanics::Axis::z;
+        if (common_axis && *common_axis != axis)
+            return {BroadPressDriveStatus::incompatible_axis, std::nullopt, {}};
+        common_axis = axis;
+        // Adjacent exterior starter cogs mesh and reverse their shaft rates.
+        // A broad head has mirrored keyed cams across those rows or columns,
+        // so compare the resulting vertical stroke rather than raw rotation.
+        pad_winding[index] = (axis == mechanics::Axis::x ? index / 2 : index % 2) == 0 ? 1 : -1;
+    }
+    std::optional<mechanics::Rate> common_rate;
+    std::optional<std::size_t> common_component;
+    for (std::size_t index = 0; index < press.shafts.size(); ++index) {
+        const auto& id = press.shafts[index];
+        const auto motion = power_.mechanical.motion.find(id);
+        if (motion == power_.mechanical.motion.end() ||
+            motion->second.state == mechanics::MotionState::unpowered)
+            return {BroadPressDriveStatus::unpowered, std::nullopt, pad_winding};
+        if (motion->second.state == mechanics::MotionState::stalled ||
+            (power_.load.contains(id) && power_.load.at(id).overloaded))
+            return {BroadPressDriveStatus::stalled, std::nullopt, pad_winding};
+        if (motion->second.state != mechanics::MotionState::rotating ||
+            motion->second.rate.numerator == 0)
+            return {BroadPressDriveStatus::stopped, std::nullopt, pad_winding};
+        const auto rate = motion->second.rate;
+        __extension__ using Wide = __int128;
+        const Wide numerator = static_cast<Wide>(rate.numerator) * pad_winding[index];
+        if (rate.denominator <= 0 || numerator > std::numeric_limits<Integer>::max() ||
+            numerator < std::numeric_limits<Integer>::min())
+            return {BroadPressDriveStatus::invalid_power, std::nullopt, pad_winding};
+        const mechanics::Rate stroke{static_cast<Integer>(numerator), rate.denominator};
+        if (common_rate) {
+            if (static_cast<Wide>(stroke.numerator) * common_rate->denominator !=
+                static_cast<Wide>(common_rate->numerator) * stroke.denominator)
+                return {BroadPressDriveStatus::mismatched_rate, std::nullopt, pad_winding};
+        }
+        common_rate = stroke;
+        const auto component = component_by_part_.find(id);
+        if (component == component_by_part_.end() ||
+            (common_component && *common_component != component->second))
+            return {BroadPressDriveStatus::disconnected, std::nullopt, pad_winding};
+        common_component = component->second;
+    }
+    return {BroadPressDriveStatus::ready, common_rate, pad_winding};
+}
+
 materials::MachinePower machine_power(const stationary::Topology& topology) {
     return machine_power(topology, drive_power(topology));
 }

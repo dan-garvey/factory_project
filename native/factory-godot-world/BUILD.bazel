@@ -45,6 +45,13 @@ cc_test(
 )
 
 cc_test(
+    name = "broad_press_host_test",
+    srcs = ["tests/broad_press_host_test.cpp"],
+    deps = [":test_site"],
+    size = "small",
+)
+
+cc_test(
     name = "harvest_host_test",
     srcs = ["tests/harvest_host_test.cpp"],
     deps = [":host", ":test_site", "//native/factory-value:value"],

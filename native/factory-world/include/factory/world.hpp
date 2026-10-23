@@ -198,6 +198,30 @@ struct DrivePower {
     std::map<std::string, NetworkLoad> load;
 };
 
+enum class BroadPressDriveStatus {
+    ready, invalid_power, invalid_geometry, unpowered, stopped, stalled,
+    incompatible_axis, mismatched_rate, disconnected,
+};
+
+struct BroadPressDriveInspection {
+    BroadPressDriveStatus status{BroadPressDriveStatus::invalid_power};
+    std::optional<mechanics::Rate> stroke_rate;
+    std::array<int, 4> pad_winding{};
+};
+
+// One index over a confirmed mechanical cut serves every four-cell candidate.
+// Equal rates on separate networks are insufficient: the four cams must share
+// one mechanically constrained component. The mirrored pad winding derives
+// from its broad work-face row or column and is projected for visible art.
+class BroadPressDriveIndex {
+public:
+    explicit BroadPressDriveIndex(const DrivePower& power);
+    [[nodiscard]] BroadPressDriveInspection inspect(const assembly::BroadPress& press) const;
+private:
+    const DrivePower& power_;
+    std::map<std::string, std::size_t> component_by_part_;
+};
+
 [[nodiscard]] DrivePower drive_power(const stationary::Topology&);
 [[nodiscard]] DrivePower drive_power(const Profile&, const State&);
 [[nodiscard]] materials::Path material_path(const stationary::Topology&);

@@ -39,6 +39,13 @@ cc_test(
 )
 
 cc_test(
+    name = "broad_press_drive_world_test",
+    srcs = ["tests/broad_press_drive_world_test.cpp"],
+    deps = [":world"],
+    size = "small",
+)
+
+cc_test(
     name = "world_scale_test",
     srcs = ["tests/world_scale_test.cpp"],
     deps = [":world"],

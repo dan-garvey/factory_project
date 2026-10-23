@@ -81,6 +81,36 @@ const char* press_status_name(assembly::PressStatus status) {
     return "invalid_input";
 }
 
+const char* broad_geometry_status_name(assembly::BroadPressStatus status) {
+    switch (status) {
+        case assembly::BroadPressStatus::ready: return "ready";
+        case assembly::BroadPressStatus::invalid_input: return "invalid_input";
+        case assembly::BroadPressStatus::missing_anvil: return "missing_anvil";
+        case assembly::BroadPressStatus::missing_ram: return "missing_ram";
+        case assembly::BroadPressStatus::missing_guide: return "missing_guide";
+        case assembly::BroadPressStatus::blocked_stroke: return "blocked_stroke";
+        case assembly::BroadPressStatus::missing_shaft: return "missing_shaft";
+        case assembly::BroadPressStatus::missing_cog: return "missing_cog";
+        case assembly::BroadPressStatus::ambiguous: return "ambiguous";
+    }
+    return "invalid_input";
+}
+
+const char* broad_drive_status_name(world::BroadPressDriveStatus status) {
+    switch (status) {
+        case world::BroadPressDriveStatus::ready: return "ready";
+        case world::BroadPressDriveStatus::invalid_power: return "invalid_power";
+        case world::BroadPressDriveStatus::invalid_geometry: return "invalid_geometry";
+        case world::BroadPressDriveStatus::unpowered: return "unpowered";
+        case world::BroadPressDriveStatus::stopped: return "stopped";
+        case world::BroadPressDriveStatus::stalled: return "stalled";
+        case world::BroadPressDriveStatus::incompatible_axis: return "incompatible_axis";
+        case world::BroadPressDriveStatus::mismatched_rate: return "mismatched_rate";
+        case world::BroadPressDriveStatus::disconnected: return "disconnected";
+    }
+    return "invalid_power";
+}
+
 using Bounds = arrival_geometry::Bounds;
 
 bool capsule_intersects(const authority::Point& actor, const Bounds& box, double tolerance = 0) {
@@ -2626,6 +2656,56 @@ Value Host::projection() const {
             guided_presses.emplace_back(std::move(entry));
         }
         projection.emplace("guided_press_assemblies", Value(std::move(guided_presses)));
+        Array broad_presses;
+        std::set<mechanics::Point> anvil_centers;
+        for (const auto& part : parts)
+            if (part.kind == materials::Component::anvil) anvil_centers.insert(part.center);
+        std::vector<mechanics::Point> broad_origins;
+        for (const auto& origin : anvil_centers)
+            if (anvil_centers.contains({origin[0] + 4, origin[1], origin[2]}) &&
+                anvil_centers.contains({origin[0], origin[1], origin[2] + 4}) &&
+                anvil_centers.contains({origin[0] + 4, origin[1], origin[2] + 4}))
+                broad_origins.push_back(origin);
+        const auto ids_value = [](const std::array<std::string, 4>& ids) {
+            Array values;
+            for (const auto& id : ids) values.emplace_back(id);
+            return Value(std::move(values));
+        };
+        const auto grid_value = [](const mechanics::Point& center) {
+            return Value(Array{Value(center[0]), Value(center[1]), Value(center[2])});
+        };
+        if (!broad_origins.empty()) {
+            const assembly::Layout broad_layout(parts);
+            const world::BroadPressDriveIndex broad_drives(power);
+            for (const auto& origin : broad_origins) {
+                const auto geometry = broad_layout.inspect_broad_press(origin);
+                Object entry{{"origin", grid_value(origin)},
+                    {"geometry_status", Value(broad_geometry_status_name(geometry.status))},
+                    {"status", Value(broad_geometry_status_name(geometry.status))}};
+                if (geometry.press) {
+                    const auto& press = *geometry.press;
+                    const auto drive = broad_drives.inspect(press);
+                    entry["status"] = Value(broad_drive_status_name(drive.status));
+                    Array work_centers;
+                    for (const auto& center : press.work_centers)
+                        work_centers.emplace_back(grid_value(center));
+                    entry.emplace("work_centers", Value(std::move(work_centers)));
+                    entry.emplace("parts", Value(Object{{"anvils", ids_value(press.anvils)},
+                        {"rams", ids_value(press.rams)}, {"guides", ids_value(press.guides)},
+                        {"shafts", ids_value(press.shafts)},
+                        {"drive_cogs", ids_value(press.drive_cogs)}}));
+                    Array windings;
+                    for (const auto winding : drive.pad_winding)
+                        windings.emplace_back(static_cast<Integer>(winding));
+                    entry.emplace("pad_winding", Value(std::move(windings)));
+                    if (drive.stroke_rate)
+                        entry.emplace("stroke_rate", Value(Array{Value(drive.stroke_rate->numerator),
+                            Value(drive.stroke_rate->denominator)}));
+                }
+                broad_presses.emplace_back(std::move(entry));
+            }
+        }
+        projection.emplace("broad_press_assemblies", Value(std::move(broad_presses)));
     }
     projection.merge(tick_fields(snapshot));
     return Value(std::move(projection));
