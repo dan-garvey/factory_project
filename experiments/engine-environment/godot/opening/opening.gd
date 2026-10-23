@@ -4292,6 +4292,8 @@ var packed_preview_nodes: Dictionary = {}
 var machine_dynamic_batches: Array[Dictionary] = []
 var machine_conveyor_batches: Array[Dictionary] = []
 var machine_rotors: Array[Dictionary] = []
+var machine_batched_rotors: Dictionary = {}
+var wheel_batch_poses: Dictionary = {}
 var machine_motion_anchors: Array[Node3D] = []
 var machine_batch_finished_meshes: Dictionary = {}
 var machine_batch_rotor_meshes: Dictionary = {}
@@ -5044,9 +5046,20 @@ func _animate_wheel(delta: float) -> void:
 		if transmission_presenter == null:
 			return
 		transmission_presenter.advance_visual_motion(delta)
+		wheel_batch_poses.clear()
+		var cull_far_joinery := camera != null and camera.is_inside_tree() and not machine_batched_rotors.is_empty()
+		var listener_position := camera.global_position if cull_far_joinery else Vector3.ZERO
 		for wheel in machine_rotors:
-			wheel.rotor.basis = wheel.base * Basis(Vector3.BACK,
-				transmission_presenter.visual_angle(wheel.id))
+			var basis: Basis = wheel.base * Basis(Vector3.BACK, transmission_presenter.visual_angle(wheel.id))
+			var rotor_id: int = wheel.rotor.get_instance_id()
+			# The full core is already in a MultiMesh. Beyond the last paddle
+			# detail range, advance that instance without dirtying the many
+			# hidden and distance-culled source nodes under its rotor.
+			if cull_far_joinery and machine_batched_rotors.has(rotor_id) \
+					and listener_position.distance_squared_to(wheel.center) > WHEEL_DETAIL_UPDATE_RADIUS * WHEEL_DETAIL_UPDATE_RADIUS:
+				wheel_batch_poses[rotor_id] = Transform3D(basis, wheel.rotor.position)
+			else:
+				wheel.rotor.basis = basis
 		_animate_machine_bodies(delta)
 		_update_machine_dynamic_batches()
 		return
@@ -6849,6 +6862,9 @@ func _choose_machine_preview(pooled: Node3D = null) -> void:
 		machine_preview_key = ""
 
 const MACHINE_BATCH_THRESHOLD := 12
+# Paddle joinery ends by 32 m with a 2 m fade margin; the extra room
+# covers the largest authored rim and a camera move between render cuts.
+const WHEEL_DETAIL_UPDATE_RADIUS := 48.0
 
 func _machine_batch_surface_mesh(part: MeshInstance3D) -> Mesh:
 	var source: Mesh = part.mesh
@@ -7114,6 +7130,9 @@ func _emit_machine_mesh_batches(groups: Dictionary, batches: Node3D, dynamic: bo
 		batches.add_child(instance)
 		if dynamic:
 			machine_dynamic_batches.append({"mesh": multi, "parts": group.parts})
+			for part in group.parts:
+				if part.node.name == "WheelRotor":
+					machine_batched_rotors[part.node.get_instance_id()] = true
 		batch_index += 1
 
 func _update_machine_dynamic_batches() -> void:
@@ -7126,8 +7145,13 @@ func _update_machine_dynamic_batches() -> void:
 			var part: Dictionary = group.parts[index]
 			# Wheel ancestors remain fixed until the next topology rebuild. Keep
 			# their machine-root-relative pose and update only the moving rotor.
-			var motion_pose: Transform3D = part.parent_pose * part.node.transform if part.has("parent_pose") \
-				else to_local * part.node.global_transform
+			var motion_pose: Transform3D
+			if part.has("parent_pose"):
+				var node_id: int = part.node.get_instance_id()
+				motion_pose = part.parent_pose * (wheel_batch_poses[node_id] \
+					if wheel_batch_poses.has(node_id) else part.node.transform)
+			else:
+				motion_pose = to_local * part.node.global_transform
 			mesh.set_instance_transform(index, motion_pose)
 	for group in machine_conveyor_batches:
 		var mesh: MultiMesh = group.mesh
@@ -7175,6 +7199,8 @@ func _batch_conveyor_loops(batches: Node3D) -> void:
 func _batch_machine_visuals() -> void:
 	machine_dynamic_batches.clear()
 	machine_conveyor_batches.clear()
+	machine_batched_rotors.clear()
+	wheel_batch_poses.clear()
 	if not _native_transmission() or machine_root.get_child_count() < MACHINE_BATCH_THRESHOLD:
 		return
 	var moving := {}
@@ -7234,7 +7260,7 @@ func _rebuild_machines() -> void:
 		_assemble_machine(anchor, entity, _material_rotated(entity_id, entity))
 		if kind == "wheel" and wheel_rotor != null:
 			machine_rotors.append({"id": entity_id, "rotor": wheel_rotor,
-				"base": wheel_rotor.basis})
+				"base": wheel_rotor.basis, "center": wheel_rotor.global_position})
 		anchor.set_meta("machine_entity", entity_id)
 		anchor.set_meta("machine_kind", kind)
 		if kind in ["collector", "belt", "processor"]:
