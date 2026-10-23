@@ -4611,6 +4611,7 @@ var machine_rotors: Array[Dictionary] = []
 var machine_rotor_cells: Array[Dictionary] = []
 var machine_batched_rotors: Dictionary = {}
 var machine_batched_rotor_slots: Dictionary = {}
+var machine_cutter_batch_slots: Dictionary = {}
 var wheel_batch_poses: Dictionary = {}
 var wheel_updated_rotors: Dictionary = {}
 var machine_motion_anchors: Array[Node3D] = []
@@ -5529,6 +5530,18 @@ func _observed_press_target() -> Variant:
 	return 0.015 if held > 0 else 0.0
 
 func _apply_cutter_pose(anchor: Node3D, rows: Array, angle: float) -> void:
+	var spin := _cutter_spin(anchor, angle)
+	var slot: Dictionary = machine_cutter_batch_slots.get(anchor.get_instance_id(), {})
+	if not slot.is_empty():
+		slot.mesh.set_instance_transform(slot.index, anchor.transform * spin)
+		anchor.set_meta("cutter_angle", angle)
+		return
+	for row in rows:
+		if is_instance_valid(row.node) and row.role == "cutter":
+			row.node.transform = row.parent_inverse * spin * row.rest
+	anchor.set_meta("cutter_angle", angle)
+
+func _cutter_spin(anchor: Node3D, angle: float) -> Transform3D:
 	var pivot := Vector3(-0.22, 1.1, -0.19)
 	var axle := Vector3.BACK
 	if anchor.get_meta("material_rotated", false):
@@ -5537,10 +5550,7 @@ func _apply_cutter_pose(anchor: Node3D, rows: Array, angle: float) -> void:
 		axle = turn * axle
 	var spin := Transform3D(Basis(axle, angle), Vector3.ZERO)
 	spin.origin = pivot - spin.basis * pivot
-	for row in rows:
-		if is_instance_valid(row.node) and row.role == "cutter":
-			row.node.transform = row.parent_inverse * spin * row.rest
-	anchor.set_meta("cutter_angle", angle)
+	return spin
 
 func _apply_press_pose(rows: Array, travel: float) -> void:
 	for row in rows:
@@ -7768,6 +7778,73 @@ func _batch_machine_composites(moving: Dictionary, static_groups: Dictionary) ->
 				"hide_nodes": sources})
 	return skip_sources
 
+func _batch_collector_cutters(dynamic_groups: Dictionary, skip_sources: Dictionary) -> void:
+	var candidates := {}
+	for anchor in machine_motion_anchors:
+		if anchor.get_meta("machine_kind", "") != "collector":
+			continue
+		var parts: Array[Dictionary] = []
+		var sources: Array[MeshInstance3D] = []
+		var key: Array = ["collector_cutter"]
+		var compatible := true
+		for row in anchor.get_meta("motion_meshes", []):
+			if row.role != "cutter":
+				continue
+			var source: MeshInstance3D = row.node
+			if not is_instance_valid(source) or source.mesh == null or source.get_child_count() != 0 \
+					or source.material_overlay != null or source.visibility_range_end > 0.0:
+				compatible = false
+				break
+			sources.append(source)
+			for surface in source.mesh.get_surface_count():
+				var finish: Material = source.material_override
+				if finish == null:
+					finish = source.get_surface_override_material(surface)
+				if finish == null:
+					finish = source.mesh.surface_get_material(surface)
+				if (finish is BaseMaterial3D and finish.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED) \
+						or (source.mesh is ArrayMesh and source.mesh.surface_get_primitive_type(surface) != Mesh.PRIMITIVE_TRIANGLES):
+					compatible = false
+					break
+				parts.append({"source": source, "mesh": source.mesh, "surface": surface,
+					"finish": finish, "pose": row.rest, "shadow": source.cast_shadow,
+					"layers": source.layers})
+				key.append_array([source.mesh.get_instance_id(), surface,
+					finish.get_instance_id() if finish != null else 0, row.rest])
+			if not compatible:
+				break
+		if not compatible or sources.size() != 10 or parts.is_empty():
+			continue
+		var shadow: int = parts[0].shadow
+		var layers: int = parts[0].layers
+		for part in parts:
+			if part.shadow != shadow or part.layers != layers:
+				compatible = false
+				break
+		if not compatible:
+			continue
+		if not candidates.has(key):
+			candidates[key] = {"parts": parts, "instances": []}
+		candidates[key].instances.append({"anchor": anchor, "sources": sources})
+	for key in candidates:
+		var candidate: Dictionary = candidates[key]
+		if candidate.instances.size() < MACHINE_BATCH_THRESHOLD:
+			continue
+		var mesh := _machine_composite_mesh(candidate.parts, key)
+		var group_key := [mesh.get_instance_id(), 0, candidate.parts[0].shadow,
+			candidate.parts[0].layers, "collector_cutter"]
+		dynamic_groups[group_key] = {"mesh": mesh, "material": null,
+			"shadow": candidate.parts[0].shadow, "layers": candidate.parts[0].layers,
+			"parts": []}
+		for instance in candidate.instances:
+			var anchor: Node3D = instance.anchor
+			var angle: float = float(anchor.get_meta("cutter_angle", 0.0))
+			dynamic_groups[group_key].parts.append({"node": anchor,
+				"pose": anchor.transform * _cutter_spin(anchor, angle),
+				"hide_nodes": instance.sources, "cutter": true})
+			for source in instance.sources:
+				skip_sources[source.get_instance_id()] = true
+
 func _batch_machine_visuals_walk(node: Node3D, pose: Transform3D,
 		moving: Dictionary, static_groups: Dictionary, dynamic_groups: Dictionary,
 		rotating := false, skip_sources: Dictionary = {}) -> void:
@@ -7845,11 +7922,16 @@ func _emit_machine_mesh_batches(groups: Dictionary, batches: Node3D, dynamic: bo
 		batches.add_child(instance)
 		if dynamic:
 			var rotor_only := true
+			var cutter_only := true
 			for part in group.parts:
 				rotor_only = rotor_only and part.node.name == "WheelRotor"
-			machine_dynamic_batches.append({"mesh": multi, "parts": group.parts, "rotor_only": rotor_only})
+				cutter_only = cutter_only and part.get("cutter", false)
+			machine_dynamic_batches.append({"mesh": multi, "parts": group.parts,
+				"rotor_only": rotor_only, "cutter_only": cutter_only})
 			for index in group.parts.size():
 				var part: Dictionary = group.parts[index]
+				if part.get("cutter", false):
+					machine_cutter_batch_slots[part.node.get_instance_id()] = {"mesh": multi, "index": index}
 				if part.node.name == "WheelRotor":
 					var node_id: int = part.node.get_instance_id()
 					machine_batched_rotors[node_id] = true
@@ -7870,7 +7952,7 @@ func _update_machine_dynamic_batches(visible_rotors_only := false) -> void:
 				if wheel_batch_poses.has(node_id) else slot.node.transform)
 			slot.mesh.set_instance_transform(slot.index, pose)
 	for group in machine_dynamic_batches:
-		if visible_rotors_only and group.rotor_only:
+		if visible_rotors_only and (group.rotor_only or group.get("cutter_only", false)):
 			continue
 		var mesh: MultiMesh = group.mesh
 		for index in group.parts.size():
@@ -7938,6 +8020,7 @@ func _batch_machine_visuals() -> void:
 	machine_conveyor_batches.clear()
 	machine_batched_rotors.clear()
 	machine_batched_rotor_slots.clear()
+	machine_cutter_batch_slots.clear()
 	wheel_batch_poses.clear()
 	wheel_updated_rotors.clear()
 	if not _native_transmission() or machine_root.get_child_count() < MACHINE_BATCH_THRESHOLD:
@@ -7949,6 +8032,7 @@ func _batch_machine_visuals() -> void:
 	var static_groups := {}
 	var dynamic_groups := {}
 	var skip_sources := _batch_machine_composites(moving, static_groups)
+	_batch_collector_cutters(dynamic_groups, skip_sources)
 	for anchor in machine_root.get_children():
 		if anchor is Node3D:
 			_batch_machine_visuals_walk(anchor, Transform3D.IDENTITY, moving, static_groups,
@@ -7979,6 +8063,7 @@ func _rebuild_machines() -> void:
 	_sync_machine_body_context()
 	machine_rotors.clear()
 	machine_motion_anchors.clear()
+	machine_cutter_batch_slots.clear()
 	var foundation_masks := ProductionFoundationArt.neighbor_masks(state.get("foundations", {}))
 	var scenery := get_node_or_null("ProductionScenery")
 	if scenery != null and not legacy_fixture and ProductionEnvironment.Surface != null:

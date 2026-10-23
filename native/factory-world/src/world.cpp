@@ -1808,7 +1808,8 @@ materials::MachinePower machine_power(const Profile& profile, const State& state
     return machine_power(state.topology, drive_power(profile, state));
 }
 
-bool validate(const Profile& profile, const Snapshot& snapshot) {
+static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot,
+                                const DrivePower* evaluated_drive) {
     if (profile.actors.empty() || profile.actors.size() > maximum_actors || profile.initial_units < 0 ||
         profile.finite_parts.size() + profile.fabrication_parts.size() > stationary::maximum_specifications ||
         profile.waterwheel_rate.numerator == 0 || profile.waterwheel_rate.denominator <= 0 ||
@@ -2108,10 +2109,15 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
     }
     if (state.material.belt_lanes.size() != state.topology.belt_spans.size()) return false;
     if (!state.topology.material_links.empty()) return false;
-    if (!drive_power(profile, state).mechanical.accepted() ||
+    if ((evaluated_drive ? !evaluated_drive->mechanical.accepted() :
+                           !drive_power(profile, state).mechanical.accepted()) ||
         materials::validate(state.material, profile.material, material_path(state.topology)) != materials::Error::none)
         return false;
     return history_domain(profile, snapshot, totals);
+}
+
+bool validate(const Profile& profile, const Snapshot& snapshot) {
+    return validate_with_drive(profile, snapshot, nullptr);
 }
 
 std::unique_ptr<World> World::create(std::string context, Profile profile, const State& seed) {
@@ -3167,14 +3173,17 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
 }
 
 Advance World::tick() noexcept {
+    std::optional<DrivePower> evaluated_drive;
     return owner_->advance([&](const Snapshot& snapshot) -> std::optional<State> {
         auto candidate = snapshot.state;
         // Material stepping changes custody, not the placed power graph. Reuse
-        // one graph evaluation for machine work and signed belt movement.
+        // one graph evaluation for machine work, signed belt movement and the
+        // final full candidate validation.
         const auto placed = assembly_parts(candidate);
         const assembly::Layout layout(placed);
-        const auto drive = placed.empty() ? drive_power(candidate.topology) :
-            drive_power_with_layout(profile_, candidate, placed, layout);
+        evaluated_drive.emplace(placed.empty() ? drive_power(candidate.topology) :
+            drive_power_with_layout(profile_, candidate, placed, layout));
+        const auto& drive = *evaluated_drive;
         const auto power = machine_power_from(candidate.topology, drive);
         const auto prior_processing = candidate.material.processing;
         const auto error = materials::step(candidate.material, profile_.material,
@@ -3633,6 +3642,10 @@ Advance World::tick() noexcept {
         }
         if (candidate.material == snapshot.state.material) return std::nullopt;
         return candidate;
+    }, [&](const Snapshot& candidate) {
+        // Tick changes material and work bookkeeping, never topology or placed
+        // components. The drive still describes this candidate's power graph.
+        return evaluated_drive && validate_with_drive(profile_, candidate, &*evaluated_drive);
     });
 }
 

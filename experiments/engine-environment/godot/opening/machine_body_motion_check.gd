@@ -13,6 +13,10 @@ class SessionFacts extends RefCounted:
 	func is_ready() -> bool:
 		return ready
 
+class BatchedView extends Opening:
+	func _ready() -> void:
+		pass
+
 func verify(condition: bool, message: String) -> void:
 	checks += 1
 	if not condition:
@@ -199,6 +203,60 @@ func check_held_workpiece_clearance() -> void:
 		"workpiece_top": workpiece_top, "gap": head_bounds.position.y - workpiece_top}))
 	view.free()
 
+func check_batched_collector_motion() -> void:
+	var view := BatchedView.new()
+	root.add_child(view)
+	mount(view)
+	for index in range(11):
+		var id := "collector-%d" % index
+		# This render fixture reuses the admitted source cell with distinct IDs;
+		# it does not claim twelve legal simultaneous placements.
+		view.state.entities[id] = {"kind": "collector", "cell": [0, 0],
+			"generation": 1, "axis": 2}
+		view.state.motion[id] = {"state": "rotating", "numerator": 1, "denominator": 1}
+	view._rebuild_machines()
+	var observed: Dictionary = view.state.duplicate(true)
+	var picks := pick_facts(view)
+	view._batch_machine_visuals()
+	var first := machine(view, "collector")
+	var second := machine(view, "collector-0")
+	var first_slot: Dictionary = view.machine_cutter_batch_slots.get(first.get_instance_id(), {})
+	var second_slot: Dictionary = view.machine_cutter_batch_slots.get(second.get_instance_id(), {})
+	verify(view.machine_cutter_batch_slots.size() == 12 and not first_slot.is_empty()
+		and not second_slot.is_empty() and first_slot.mesh == second_slot.mesh
+		and first_slot.index != second_slot.index,
+		"Twelve collectors share one complete moving assembly while retaining distinct instance slots.")
+	if first_slot.is_empty() or second_slot.is_empty():
+		view.free()
+		return
+	for row in meshes(view, "collector"):
+		verify(not row.node.visible, "The batched cutter hides its individual source geometry.")
+	view.transmission_presenter._native_phase_lazy = true
+	view.transmission_presenter._visual_rates["collector"] = 1.0
+	view.transmission_presenter._visual_rates["collector-0"] = -1.0
+	view.transmission_presenter._native_phase_elapsed = 0.25
+	view._animate_machine_bodies(0.1)
+	for entry in [[first, first_slot, 1.0], [second, second_slot, -1.0]]:
+		var anchor: Node3D = entry[0]
+		var slot: Dictionary = entry[1]
+		var signed_rate: float = entry[2]
+		var angle: float = 0.25 * signed_rate * Presenter.VISUAL_RADIANS_PER_SECOND
+		var center := anchor.position + Vector3(-0.22, 1.1, -0.19)
+		var flute_at_rest := Vector3(0.015, 1.1, -0.19)
+		var expected := center + Basis(Vector3.BACK, angle) * (flute_at_rest - Vector3(-0.22, 1.1, -0.19))
+		var actual: Transform3D = slot.mesh.get_instance_transform(slot.index)
+		verify((actual * flute_at_rest).is_equal_approx(expected),
+			"Each combined cutter follows its own confirmed phase and the real flute orbit.")
+	verify(view.state == observed and pick_facts(view) == picks and view.request_sequence == 0,
+		"Batching moving art leaves observed state, picks and request sequence unchanged.")
+	view._rebuild_machines()
+	var replacement := machine(view, "collector")
+	var replacement_slot: Dictionary = view.machine_cutter_batch_slots.get(replacement.get_instance_id(), {})
+	verify(replacement != first and view.machine_cutter_batch_slots.size() == 12
+		and not replacement_slot.is_empty() and replacement_slot.mesh != first_slot.mesh,
+		"A topology rebuild replaces stale cutter render slots with the new anchors.")
+	view.free()
+
 func _initialize() -> void:
 	if "--clearance-only" in OS.get_cmdline_user_args():
 		check_held_workpiece_clearance()
@@ -306,6 +364,7 @@ func _initialize() -> void:
 	verify(pose_list(shared) == disconnected, "Lost shared freshness freezes both cutter and tool.")
 	shared.free()
 	check_held_workpiece_clearance()
+	check_batched_collector_motion()
 	check_conveyor_motion(false)
 	check_conveyor_motion(true)
 	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
