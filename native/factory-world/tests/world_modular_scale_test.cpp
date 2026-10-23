@@ -388,7 +388,13 @@ void productive_line_scale(int line_count) {
         throw std::runtime_error("The multiline checkpoint did not conserve its construction.");
     auto live = w::World::restore("mixed-scale", site.profile, site.snapshot);
     auto fresh = w::World::restore("mixed-scale", site.profile, std::get<w::Snapshot>(decoded));
-    if (!live || !fresh || live->tick().error != w::TransactionError::none ||
+    if (!live || !fresh)
+        throw std::runtime_error("The productive multiline World did not restore.");
+    const auto first_started = std::chrono::steady_clock::now();
+    const auto first_tick = live->tick();
+    const double first_tick_ms = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - first_started).count();
+    if (first_tick.error != w::TransactionError::none ||
         fresh->tick().error != w::TransactionError::none ||
         live->snapshot().state != fresh->snapshot().state ||
         live->snapshot().revision != fresh->snapshot().revision)
@@ -449,10 +455,44 @@ void productive_line_scale(int line_count) {
     if (!w::validate(site.profile, live->snapshot()) ||
         live->snapshot().state.press_progress.size() != static_cast<std::size_t>(line_count))
         throw std::runtime_error("Sustained multiline work or finite custody was invalid.");
+    // Audit every accelerated candidate with the public complete validator on
+    // a separate owner. Keep these full replay checks outside timed samples.
+    auto audited = w::World::restore("mixed-scale", site.profile, stage_snapshot);
+    if (!audited) throw std::runtime_error("The multiline audit World did not restore.");
+    for (int sample = 0; sample < 20; ++sample)
+        if (audited->tick().error != w::TransactionError::none ||
+            !w::validate(site.profile, audited->snapshot()))
+            throw std::runtime_error("An accelerated multiline tick failed full historical validation.");
+    if (audited->snapshot().state != live->snapshot().state ||
+        audited->snapshot().revision != live->snapshot().revision)
+        throw std::runtime_error("Timed and fully audited multiline ticks diverged.");
+    if (line_count == 10) {
+        const V::Object missing_drive{{"context", V("mixed-scale")},
+            {"client", V("P-client")}, {"request", V("scale-audit-refusal")},
+            {"actor", V("P")}, {"action", V("set_drive")},
+            {"target", V("missing-wheel")}, {"generation", V(g::Integer{1})},
+            {"enabled", V(false)}};
+        const w::ObserveActor nearby = [](const std::string& actor)
+                -> std::optional<factory::authority::ActorCut> {
+            return factory::authority::ActorCut{actor, {0, 0, 0}, 1, true, 10000};
+        };
+        const auto refused = live->command({"P", "P-client"}, missing_drive, nearby);
+        if (!refused.completed() || !refused.result ||
+            std::get<bool>(refused.result->at("accepted").storage()))
+            throw std::runtime_error("The audit refusal was not recorded exactly.");
+        auto fresh_after_refusal = w::World::restore("mixed-scale", site.profile, live->snapshot());
+        if (!fresh_after_refusal || live->tick().error != w::TransactionError::none ||
+            fresh_after_refusal->tick().error != w::TransactionError::none ||
+            live->snapshot().state != fresh_after_refusal->snapshot().state ||
+            live->snapshot().revision != fresh_after_refusal->snapshot().revision ||
+            !w::validate(site.profile, live->snapshot()))
+            throw std::runtime_error("The post-refusal tick reused a stale historical proof.");
+    }
     std::cout << "WORLD_PRODUCTIVE_LINES count=" << line_count
               << " components=" << site.snapshot.state.placed_components.size()
               << " records=" << site.snapshot.history.records.size()
               << " work=" << work_ids.size() << " build_ms=" << build_ms
+              << " first_tick_ms=" << first_tick_ms
               << " tick_median_ms=" << ticks[10] << " tick_p95_ms=" << ticks[18]
               << " passed\n";
 }

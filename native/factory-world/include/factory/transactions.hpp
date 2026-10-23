@@ -151,9 +151,9 @@ public:
     // A trusted system step keeps the exact request history. The current
     // owner already validated it on create, restore or the last transaction;
     // increasing only the revision cannot invalidate any recorded revision.
-    // Temporarily transfer that history to the candidate so its complete
-    // domain validator still sees every record. A failed or throwing validator
-    // restores the original before returning, without copying the log.
+    // Temporarily transfer that history to the candidate so its validator can
+    // read the exact log when needed. Rejection or an exception restores the
+    // original before returning, without copying the log.
     template<class Step, class CandidateValidator>
     [[nodiscard]] Advance advance_retaining_history(
             Step&& step, CandidateValidator&& validate_candidate) noexcept {
