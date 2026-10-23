@@ -228,18 +228,18 @@ func _mesh_bounds(node: Node, parent_transform: Transform3D, low: Vector3, high:
 	if node is MeshInstance3D:
 		mesh_count += 1
 		var mesh := node as MeshInstance3D
-		var bounds: AABB = mesh.mesh.get_aabb()
 		_check(mesh.material_override is StandardMaterial3D, "Machine meshes retain explicit built-in materials.")
-		for x in [bounds.position.x, bounds.end.x]:
-			for y in [bounds.position.y, bounds.end.y]:
-				for z in [bounds.position.z, bounds.end.z]:
-					var point: Vector3 = at * Vector3(x, y, z)
-					# This allowance only accommodates mesh float arithmetic. It
-					# changes neither a collider nor an interaction/reach check.
-					_check(point.x >= low.x - 0.00001 and point.x <= high.x + 0.00001
-						and point.y >= low.y - 0.00001 and point.y <= high.y + 0.00001
-						and point.z >= low.z - 0.00001 and point.z <= high.z + 0.00001,
-						"Machine mesh exceeds the unchanged collision envelope: " + str(node.name))
+		for surface in mesh.mesh.get_surface_count():
+			var vertices: PackedVector3Array = mesh.mesh.surface_get_arrays(surface)[Mesh.ARRAY_VERTEX]
+			for vertex in vertices:
+				var point: Vector3 = at * vertex
+				# Rotated bounds include empty corners outside a circular rim. Test
+				# actual rendered vertices against the unchanged pick envelope.
+				# This allowance only accommodates mesh float arithmetic.
+				_check(point.x >= low.x - 0.00001 and point.x <= high.x + 0.00001
+					and point.y >= low.y - 0.00001 and point.y <= high.y + 0.00001
+					and point.z >= low.z - 0.00001 and point.z <= high.z + 0.00001,
+					"Machine mesh exceeds the unchanged collision envelope: " + str(node.name))
 	for child in node.get_children():
 		_mesh_bounds(child, at, low, high)
 
