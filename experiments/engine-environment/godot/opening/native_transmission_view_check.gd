@@ -2210,6 +2210,14 @@ func _native_view_cache_regression() -> void:
 	verify(model.full_projection_calls == 1 and not invalidated.actors.P.ready
 		and invalidated.actors.P == model.projection().actors.P,
 		"Physical invalidation cannot leave a ready actor in the view cache.")
+	verify(model.publish_actor("P", [0.0, 1.0, 0.0], 2).get("accepted", false),
+		"A fresh trusted ordinal restores the invalidated actor before refusal coverage.")
+	model.full_projection_calls = 0
+	var rejected: Dictionary = model.publish_actor("P", [], 3)
+	var after_rejection: Dictionary = model.view_projection()
+	verify(not rejected.get("accepted", true) and model.full_projection_calls == 1
+		and not after_rejection.actors.P.ready and after_rejection.actors.P == model.projection().actors.P,
+		"A malformed rejected actor sample refreshes the view after Host revokes readiness.")
 	var restored := CountingNativeModel.new("view-cache-fixture", ["P"], true)
 	verify(restored.boot_result.get("accepted", false), "A fresh Host boots for saved-view restoration.")
 	if not restored.boot_result.get("accepted", false):
