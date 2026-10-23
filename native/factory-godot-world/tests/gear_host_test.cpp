@@ -941,7 +941,7 @@ void complete_span_route_host(bool two_spans = false) {
     }
     const I press_x = two_spans ? 20 : 12;
     at(press_x * 1.65 / 4, -3.3);
-    create(host, shaft(press_x, 4, 0, "route-press-drive"));
+    const auto press_drive = create(host, shaft(press_x, 4, 0, "route-press-drive"));
     at(1.65, 0);
     const auto first = create(host, shaft(4, 4, 4, "route-first"));
     at(3.3, 0);
@@ -1017,6 +1017,62 @@ void complete_span_route_host(bool two_spans = false) {
     for (int i = 0; i < 100; ++i) (void)resumed.advance();
     check(field<I>(V(field<O>(resumed.projection(), "stock")), "output") > 0,
           "The restarted route delivers cargo to the processor and produces a finished item.");
+    if (!two_spans) {
+        Host output_host;
+        check(accepted(output_host.initialize("processor-output", {"P"})) &&
+              accepted(output_host.configure_terrain(stream)) &&
+              accepted(output_host.restore_checkpoint(resumed.checkpoint())),
+              "The finished processor and its original drive route restore before adding an output belt.");
+        observe(output_host, 6.6, 0.0, 1200);
+        for (const auto& [cell, request_id] : {
+                 std::pair{I{4}, "output-mouth-floor"},
+                 std::pair{I{5}, "output-far-floor"}}) {
+            auto foundation = wire("place_foundation", request_id);
+            foundation.emplace("cell", V(A{V(cell), V(I{1})}));
+            foundation.emplace("level", V(I{4}));
+            create(output_host, foundation);
+        }
+        observe(output_host, 4.95, -1.65, 1201);
+        check(accepted(output_host.command("P", target("remove", press_drive, "replace-press-drive"))),
+              "The held plate survives replacing its original press-drive shaft.");
+        create(output_host, relay("chain_drive", 12, 4, 0, "press-branch-drive", "z", "x"));
+        create(output_host, relay("chain_drive", 16, 4, 0, "output-branch-drive", "z", "x"));
+        observe(output_host, 6.6, 3.3, 1202);
+        const auto mouth = create(output_host, shaft(16, 4, 4, "output-mouth-shaft"));
+        const auto far = create(output_host, shaft(20, 4, 4, "output-far-shaft"));
+        auto belt = wire("place_belt_span", "output-span");
+        belt.emplace("from", V(mouth));
+        belt.emplace("to", V(far));
+        const auto output_span = create(output_host, belt);
+        const auto before_export = field<I>(V(field<O>(output_host.projection(), "stock")), "output");
+        check(before_export == 1 && field<std::string>(motion(output_host, mouth), "state") == "rotating",
+              "The added output-side span has one held plate and a real rotating inlet; held=" +
+                  std::to_string(before_export) + ", inlet=" +
+                  field<std::string>(motion(output_host, mouth), "state") + ".");
+        (void)output_host.advance();
+        const auto shown = output_host.projection();
+        const auto output_slots = field<A>(field<O>(shown, "belt_spans").at(output_span), "slots");
+        check(field<I>(V(field<O>(shown, "stock")), "output") == 0 &&
+              output_slots.front().type() != factory::values::Type::null &&
+              field<I>(output_slots.front(), "products") == 1,
+              "The detached Host projects exactly one processor plate on the supported output belt; held=" +
+                  std::to_string(field<I>(V(field<O>(shown, "stock")), "output")) + ", rate=" +
+                  std::to_string(field<I>(motion(output_host, mouth), "numerator")) + ", first-empty=" +
+                  (output_slots.front().type() == factory::values::Type::null ? "true" : "false") + ".");
+        Host output_restored;
+        check(accepted(output_restored.initialize("output-restored", {"P"})) &&
+              accepted(output_restored.configure_terrain(stream)),
+              "The output route has a fresh Host with matching terrain.");
+        const auto output_restore = output_restored.restore_checkpoint(output_host.checkpoint());
+        check(accepted(output_restore), "The exported plate restores in a fresh Host; reason=" +
+              field<std::string>(output_restore, "reason") + ".");
+        auto before_projection = std::get<O>(shown.storage());
+        auto after_projection = std::get<O>(output_restored.projection().storage());
+        before_projection.erase("actors");
+        after_projection.erase("actors");
+        check(!factory::values::typed_difference(V(before_projection), V(after_projection)),
+              "A fresh shared Host projects the identical exported plate and route after restore.");
+    }
     Host restored;
     check(accepted(restored.initialize("fresh", {"P"})) &&
               accepted(restored.configure_terrain(stream)) &&
