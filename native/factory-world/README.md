@@ -153,7 +153,8 @@ diagonals, other heights and nearby power components do not attach. This is a
 revisable adapter layout, not a general material-routing rule.
 
 The logical checkpoint uses schema 11 and retains the single identified freight
-beacon, its conserved first shipment, the pod workshop's installed or held
+beacon, its first shipment and three later conserved shipments in the same
+material ledger, the pod workshop's installed or held
 custody and relocated center, and collector/press quarter-turn
 facings as well as identified horizontal, inclined,
 vertical and sideways belt spans and their shaft endpoints. A span counts against the same finite belt

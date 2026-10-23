@@ -1005,10 +1005,19 @@ func check_site_render() -> void:
 	verify(bank_image.get_size() == viewport.size and not FileAccess.file_exists(bank_path)
 		and bank_image.save_png(bank_path) == OK,
 		"Retain a close bank-side view of the steep slope without starting gameplay.")
+	view.camera.position = Vector3(5.0, Scenery.Surface.height_at(5.0, 10.0) + 1.6, 10.0)
+	view.camera.look_at(Vector3(3.0, Scenery.Surface.height_at(3.0, 0.0) + 0.65, 0.0))
+	await process_frame
+	await RenderingServer.frame_post_draw
+	var eye_image := viewport.get_texture().get_image()
+	var eye_path := fixture_directory.path_join("site-worksite-eye.png")
+	verify(eye_image.get_size() == viewport.size and not FileAccess.file_exists(eye_path)
+		and eye_image.save_png(eye_path) == OK,
+		"Retain a fixed eye-height view across the meadow without game input.")
 	verify(view.model == null and view.actor_world == null and view.request_sequence == 0,
 		"The passive view starts no game authority or player command.")
 	print(JSON.stringify({"phase": "site-render", "views": ["west bank from east worksite",
-		"opening default orbit", "bank side from river"], "viewport": [1280, 720],
+		"opening default orbit", "bank side from river", "fixed eye height across worksite"], "viewport": [1280, 720],
 		"input": "not_used", "gameplay": "not_run"}))
 	viewport.free()
 
@@ -1247,7 +1256,7 @@ func check_meadow_patches() -> void:
 	inspect_visual(meadow)
 	verify(view.model == null and view.actor_world == null and view.state.is_empty(),
 		"Ordinary meadow assembly creates no authority or simulation state.")
-	verify(meadow.get_child_count() > 0 and meadow.get_child_count() <= 24,
+	verify(meadow.get_child_count() > 0 and meadow.get_child_count() <= 40,
 		"Ordinary scenery has a bounded set of spatially grouped grass patches.")
 	var faces: PackedVector3Array = view.get_node("ProductionScenery/GroundSurface").mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
 	var solids: Array = Scenery.Surface.support_boxes()
@@ -1257,8 +1266,8 @@ func check_meadow_patches() -> void:
 	for patch: MultiMeshInstance3D in meadow.get_children():
 		var instances := patch.multimesh
 		var data := instances.buffer
-		verify(instances.instance_count > 0 and instances.instance_count <= 32 and data.size() == instances.instance_count * 16,
-			"Each patch uploads at most 32 complete transform/color records.")
+		verify(instances.instance_count > 0 and instances.instance_count <= 48 and data.size() == instances.instance_count * 16,
+			"Each patch uploads at most 48 complete transform/color records.")
 		verify(instances.mesh == Scenery.foliage_cluster_mesh and patch.material_override == Scenery.foliage_finish
 			and patch.visibility_range_end == 62.0 and patch.visibility_range_begin == 0.0,
 			"Patches share the published resource cache and declare a bounded cosmetic visibility range.")
@@ -1302,8 +1311,8 @@ func check_meadow_patches() -> void:
 						verify(bounds.has_point(basis * Vector3(x, y, z) + local),
 							"The actual culling box encloses all transformed mesh bounds corners.")
 			total += 1
-	verify(total >= 384 and total <= 768, "The bounded composition adds a substantial patch population without exceeding its declared maximum.")
-	verify(near_worker > 0, "Actual meadow roots reach the worker's natural surroundings instead of reserving an empty build area.")
+	verify(total >= 850 and total <= 1400, "The meadow fills more of the valley without exceeding its triangle budget.")
+	verify(near_worker >= 15, "Actual meadow roots reach the worker's natural surroundings instead of reserving an empty build area.")
 	print(JSON.stringify({"patches": meadow.get_child_count(), "new_tufts": total,
 		"near_worker_tufts": near_worker,
 		"new_triangles_before_culling": total * 1257, "existing_tufts": 96,
