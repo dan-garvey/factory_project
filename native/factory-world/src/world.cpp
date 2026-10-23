@@ -37,7 +37,7 @@ using Role = stationary::Role;
 
 constexpr std::size_t maximum_actors = 16;
 constexpr std::size_t maximum_issued_entities = 4096;
-constexpr std::size_t maximum_current_work = 256;
+constexpr std::size_t maximum_current_work = materials::maximum_live_work_lots;
 constexpr Integer foundation_depth_levels = 2;
 constexpr std::string_view allocated_prefix = "native-part-";
 
@@ -2647,7 +2647,8 @@ Advance World::tick() noexcept {
                         const auto& cargo = *slots[index];
                         if (raw_total > std::numeric_limits<Integer>::max() - cargo.raw_units ||
                             product_total > std::numeric_limits<Integer>::max() - cargo.products ||
-                            work_total > 256 || cargo.work_lots.size() > 256 - work_total) break;
+                            work_total > materials::maximum_live_work_lots ||
+                            cargo.work_lots.size() > materials::maximum_live_work_lots - work_total) break;
                         raw_total += cargo.raw_units;
                         product_total += cargo.products;
                         work_total += cargo.work_lots.size();

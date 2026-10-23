@@ -272,6 +272,26 @@ void press_work_is_local_and_conserved() {
           m::validate(full_map, one, {}) == m::Error::none,
           "A finished plate replaces its work-point location even when every drop slot is in use.");
 }
+
+void many_independent_work_lots() {
+    const m::Config pair{2, 2, 4};
+    auto state = snapshot(2000, {}, {}, 1001);
+    for (m::WorkId id = 1; id <= 1000; ++id)
+        state.dropped_material.emplace(m::DropPoint{id * 4, 0, 0},
+            m::Cargo{0, 0, {m::WorkLot{id, {2, 4}, 4}}});
+    check(m::validate(state, pair, {}) == m::Error::none,
+          "One thousand distinct retained machine work lots conserve their material.");
+    auto duplicate = state;
+    duplicate.dropped_material.at({4000, 0, 0}).work_lots.front().id = 1;
+    check(m::validate(duplicate, pair, {}) == m::Error::invalid_state,
+          "A duplicate serial across separate machine work points is refused.");
+    auto over_limit = state;
+    for (m::WorkId id = 1001; id <= static_cast<m::WorkId>(m::maximum_live_work_lots) + 1; ++id)
+        over_limit.dropped_material.at({4, 0, 0}).work_lots.push_back(
+            m::WorkLot{id, {2, 4}, 4});
+    check(m::validate(over_limit, pair, {}) == m::Error::invalid_state,
+          "The bounded live-work limit still rejects oversized machine custody.");
+}
 }  // namespace
 
 int main() {
@@ -280,6 +300,7 @@ int main() {
     refusals();
     integer_boundaries();
     press_work_is_local_and_conserved();
+    many_independent_work_lots();
     std::cout << "{\"status\":\"" << (failures == 0 ? "pass" : "fail")
               << "\",\"checks\":" << checks << ",\"failures\":" << failures
               << ",\"evidence\":\"native_logical_material_tests\"}\n";

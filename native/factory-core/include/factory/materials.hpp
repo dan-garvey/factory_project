@@ -13,7 +13,9 @@ namespace factory::materials {
 using Quantity = std::int64_t;
 using WorkId = std::int64_t;
 using DropPoint = std::array<Quantity, 3>;
-inline constexpr std::size_t maximum_drop_points = 256;
+inline constexpr std::size_t maximum_drop_points = 4096;
+inline constexpr std::size_t maximum_belt_lanes = 4096;
+inline constexpr std::size_t maximum_live_work_lots = 4096;
 inline constexpr Quantity maximum_drop_coordinate = 1000004;
 inline constexpr Quantity work_subticks_per_tick = 4096;
 inline constexpr Quantity maximum_work_subticks_per_tick = 16 * work_subticks_per_tick;

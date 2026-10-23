@@ -122,7 +122,8 @@ Value encode_cargo(const Cargo& cargo, bool resources) {
     return Value(std::move(output));
 }
 
-Cargo decode_cargo(const Value& value, const std::string& path, bool resources) {
+Cargo decode_cargo(const Value& value, const std::string& path, bool resources,
+                   std::size_t& live_work_lots) {
     const auto& entries = resources ?
         fields(value, path, {"raw_units", "products", "work_lots", "timber", "components"}) :
         fields(value, path, {"raw_units", "products", "work_lots"});
@@ -142,6 +143,9 @@ Cargo decode_cargo(const Value& value, const std::string& path, bool resources) 
         }
     }
     const auto& array = std::get<Value::Array>(lots.storage());
+    if (array.size() > maximum_live_work_lots - live_work_lots)
+        refuse(CodecReason::invalid_material_state, path + ".work_lots");
+    live_work_lots += array.size();
     cargo.work_lots.reserve(array.size());
     for (std::size_t index = 0; index < array.size(); ++index)
         cargo.work_lots.push_back(decode_lot(array[index],
@@ -249,7 +253,8 @@ MaterialDecoding decode_material_state(const Value& value, const Config& config,
             }
         }
         const auto& lanes = object(root.at("belt_lanes"), "$.belt_lanes");
-        if (lanes.size() > 256) refuse(CodecReason::invalid_material_state, "$.belt_lanes");
+        if (lanes.size() > maximum_belt_lanes) refuse(CodecReason::invalid_material_state, "$.belt_lanes");
+        std::size_t live_work_lots = 0;
         for (const auto& [id, value_lane] : lanes) {
             const auto& entry = fields(value_lane, "$.belt_lanes", {"phase", "remainder", "remainder_denominator", "slots"});
             if (entry.at("slots").type() != Type::array) refuse(CodecReason::wrong_type, "$.belt_lanes.slots");
@@ -270,7 +275,7 @@ MaterialDecoding decode_material_state(const Value& value, const Config& config,
                     if (item.at("work_lots").type() != Type::array ||
                         std::get<Value::Array>(item.at("work_lots").storage()).size() > 1)
                         refuse(CodecReason::invalid_material_state, "$.belt_lanes.item");
-                    lane.slots.emplace_back(decode_cargo(value_item, "$.belt_lanes.item", resources));
+                    lane.slots.emplace_back(decode_cargo(value_item, "$.belt_lanes.item", resources, live_work_lots));
                 }
             }
             candidate.belt_lanes.emplace(id, std::move(lane));
@@ -287,17 +292,22 @@ MaterialDecoding decode_material_state(const Value& value, const Config& config,
             DropPoint point{};
             for (std::size_t j = 0; j < 3; ++j)
                 point[j] = integer(coordinates[j], path + ".point[" + std::to_string(j) + "]");
-            if (!candidate.dropped_material.emplace(point, decode_cargo(entry.at("cargo"), path + ".cargo", resources)).second)
+            if (!candidate.dropped_material.emplace(point,
+                    decode_cargo(entry.at("cargo"), path + ".cargo", resources, live_work_lots)).second)
                 refuse(CodecReason::invalid_material_state, path + ".point");
         }
         const auto& cargo = object(root.at("cargo"), "$.cargo");
         if (cargo.size() != roster.size()) refuse(CodecReason::roster_mismatch, "$.cargo");
         for (const auto& [actor, contents] : cargo) {
             if (!roster.contains(actor)) refuse(CodecReason::roster_mismatch, "$.cargo");
-            candidate.cargo.emplace(actor, decode_cargo(contents, actor_path(actor), resources));
+            candidate.cargo.emplace(actor, decode_cargo(contents, actor_path(actor), resources, live_work_lots));
         }
-        if (root.at("processing").type() != Type::null)
+        if (root.at("processing").type() != Type::null) {
+            if (live_work_lots == maximum_live_work_lots)
+                refuse(CodecReason::invalid_material_state, "$.processing");
+            ++live_work_lots;
             candidate.processing = decode_lot(root.at("processing"), "$.processing");
+        }
         candidate.next_work_id = integer(root.at("next_work_id"), "$.next_work_id");
         validate_state(candidate, config, path, roster);
         return candidate;

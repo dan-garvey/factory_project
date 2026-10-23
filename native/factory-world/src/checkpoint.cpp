@@ -247,7 +247,7 @@ stationary::Topology decode_topology(const Value& value) {
 }
 
 void material_collection_limits(const Value& value) {
-    // Bound before the material codec's allocation and quadratic serial check.
+    // Bound collections before decoding material custody.
     const auto& material = object(value, "$.state.material");
     const auto found = material.find("cargo");
     if (found == material.end()) refuse(CheckpointReason::missing_field, "$.state.material.cargo");
@@ -259,16 +259,18 @@ void material_collection_limits(const Value& value) {
         const auto& entry = object(contents, "$.state.material.cargo");
         const auto found_lots = entry.find("work_lots");
         if (found_lots == entry.end()) refuse(CheckpointReason::missing_field, "$.state.material.cargo.work_lots");
-        lots += array(found_lots->second, "$.state.material.cargo.work_lots", 256).size();
-        if (lots > 256) refuse(CheckpointReason::limit, "$.state.material.cargo.work_lots");
+        lots += array(found_lots->second, "$.state.material.cargo.work_lots", materials::maximum_live_work_lots).size();
+        if (lots > materials::maximum_live_work_lots) refuse(CheckpointReason::limit, "$.state.material.cargo.work_lots");
     }
     const auto processing = material.find("processing");
-    if (processing != material.end() && processing->second.type() != values::Type::null && ++lots > 256)
+    if (processing != material.end() && processing->second.type() != values::Type::null &&
+        ++lots > materials::maximum_live_work_lots)
         refuse(CheckpointReason::limit, "$.state.material.processing");
     const auto lanes = material.find("belt_lanes");
     if (lanes == material.end()) refuse(CheckpointReason::missing_field, "$.state.material.belt_lanes");
     const auto& entries = object(lanes->second, "$.state.material.belt_lanes");
-    if (entries.size() > 256) refuse(CheckpointReason::limit, "$.state.material.belt_lanes");
+    if (entries.size() > materials::maximum_belt_lanes)
+        refuse(CheckpointReason::limit, "$.state.material.belt_lanes");
     for (const auto& [id, value] : entries) {
         (void)id;
         const auto& lane = object(value, "$.state.material.belt_lanes");
@@ -280,7 +282,8 @@ void material_collection_limits(const Value& value) {
             const auto found_work = contents.find("work_lots");
             if (found_work == contents.end()) refuse(CheckpointReason::missing_field, "$.state.material.belt_lanes.item.work_lots");
             lots += array(found_work->second, "$.state.material.belt_lanes.item.work_lots", 1).size();
-            if (lots > 256) refuse(CheckpointReason::limit, "$.state.material.belt_lanes.item.work_lots");
+            if (lots > materials::maximum_live_work_lots)
+                refuse(CheckpointReason::limit, "$.state.material.belt_lanes.item.work_lots");
         }
     }
 }
