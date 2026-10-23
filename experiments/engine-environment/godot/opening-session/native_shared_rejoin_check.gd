@@ -668,17 +668,390 @@ func _shipment_resume() -> bool:
 		and current.cargo.P.products == 0 and opening.manager_log_repeat_entry.visible,
 		"Fresh Store host preserves the exact source-to-shipment receipt and next commission")
 
+func _mirrored_press_p() -> bool:
+	if not _shipment_resume() or (await _barrier("Q-ready.bin")).is_empty():
+		return false
+	for target in [Vector2(6.6, 8.25), Vector2(6.6, 4.95),
+			Vector2(4.95, 4.95), Vector2(3.3, 4.95)]:
+		if not await _chapter_ui_walk(target):
+			return false
+	var original: Dictionary = _plate_ui_ready_press(session.projection())
+	var frame: String = str(original.get("frame", ""))
+	var old_shaft: String = str(original.get("parts", {}).get("shaft", ""))
+	var old_cog: String = str(original.get("parts", {}).get("drive_cog", ""))
+	if not _expect(not frame.is_empty() and original.shaft_center == [13, 4, 16]
+		and original.cog_center == [14, 4, 16] and not old_shaft.is_empty() and not old_cog.is_empty(),
+		"The first shipped plate left the original east-side press drive intact"):
+		return false
+	for item in [old_cog, old_shaft]:
+		if (await _collector_ui_issue("Reclaim the original press drive " + item,
+			{"action": "reclaim_component", "entity": item})).is_empty():
+			return false
+	var reclaimed: Dictionary = session.projection()
+	if not _expect(not reclaimed.placed_components.has(old_cog)
+		and not reclaimed.placed_components.has(old_shaft)
+		and reclaimed.cargo.P.components.get("wooden_shaft", 0) == 1
+		and reclaimed.cargo.P.components.get("wooden_cog", 0) == 1
+		and reclaimed.dropped_material.is_empty()
+		and reclaimed.hand_sources["opening-softmetal"].remaining == 10,
+		"Reclaiming the empty drive returns exactly the two reusable wooden parts"):
+		return false
+	var new_shaft: Dictionary = await _collector_ui_issue("Fit the press shaft on its south face",
+		{"action": "place_component", "component": "wooden_shaft", "center": [12, 4, 15]})
+	if new_shaft.is_empty():
+		return false
+	var new_cog: Dictionary = await _collector_ui_issue("Fit the press cog beyond its south shaft",
+		{"action": "place_component", "component": "wooden_cog", "center": [12, 4, 14]})
+	if new_cog.is_empty():
+		return false
+	var mirrored: Dictionary = _plate_ui_ready_press(session.projection())
+	if not _expect(mirrored.get("frame") == frame
+		and mirrored.get("shaft_center") == [12, 4, 15]
+		and mirrored.get("cog_center") == [12, 4, 14]
+		and mirrored.get("parts", {}).get("shaft") == new_shaft.get("entity")
+		and mirrored.get("parts", {}).get("drive_cog") == new_cog.get("entity")
+		and mirrored.get("open_feeds", []).size() > 0
+		and session.projection().cargo.P.components.get("wooden_shaft", 0) == 0
+		and session.projection().cargo.P.components.get("wooden_cog", 0) == 0,
+		"The same frame now has a real ready drive on a different world-grid face"):
+		return false
+	if not _expect(_write("P-mirrored.bin", {"status": "pass", "order": session.projection().order,
+		"frame": frame, "old_shaft": old_shaft, "old_cog": old_cog,
+		"new_shaft": new_shaft.entity, "new_cog": new_cog.entity}),
+		"Retain both exact drive layouts before obtaining the next blank") \
+			or (await _barrier("Q-mirrored.bin")).is_empty():
+		return false
+	for target in [Vector2(1.65, 4.95), Vector2(0.0, 4.95)]:
+		if not await _chapter_ui_walk(target):
+			return false
+	var collector_shaft := ""
+	for item: Dictionary in session.projection().get("collector_assemblies", []):
+		if item.get("status") == "ready" and item.get("center") == [0, 4, 4]:
+			collector_shaft = str(item.get("parts", {}).get("shaft", ""))
+	if not _expect(not collector_shaft.is_empty() and _collector_ui_select(collector_shaft),
+		"The original collector remains selectable after the press drive moves"):
+		return false
+	var panel = opening.arrival_assembly_controls
+	if (await _chapter_ui_call("Cut a second plate blank at the original collector",
+		{"action": "turn_hand_crank", "entity": collector_shaft},
+		panel.collector_cut_button.pressed.emit)).is_empty():
+		return false
+	if not _expect(_collector_ui_drop(session.projection())
+		and session.projection().hand_sources["opening-softmetal"].remaining == 9,
+		"The second layout needs one more genuinely collector-cut ore blank"):
+		return false
+	if not _expect(_write("P-cut.bin", {"status": "pass", "order": session.projection().order}),
+		"Publish the one-blank collector receiver before pickup") \
+			or (await _barrier("Q-cut.bin")).is_empty():
+		return false
+	if not await _chapter_ui_walk(Vector2(0.0, 3.3)):
+		return false
+	if (await _collector_ui_issue("Carry the second collector blank",
+		{"action": "pickup_material", "center": [0, 4, 3],
+			"expected": {"raw": 1, "products": 0, "work_lots": []}})).is_empty():
+		return false
+	for target in [Vector2(1.65, 4.95), Vector2(3.3, 4.95)]:
+		if not await _chapter_ui_walk(target):
+			return false
+	opening._select_tool("inspect")
+	opening._world_click(Vector2i(3, 4), frame)
+	panel = opening.arrival_assembly_controls
+	if not _expect(opening.selected == frame and panel.press_section.visible
+		and not panel.feed_button.disabled and not _plate_ui_ready_press(session.projection()).is_empty(),
+		"The ordinary panel reopens the newly mirrored press for hand feeding"):
+		return false
+	var route: Dictionary = mirrored.open_feeds[0]
+	if (await _chapter_ui_call("Feed the new collector blank into the mirrored press",
+		{"action": "feed_press", "entity": frame, "entry": route.entry},
+		panel.feed_button.pressed.emit)).is_empty():
+		return false
+	if not _expect(_write("P-fed.bin", {"status": "pass", "order": session.projection().order,
+		"work_center": mirrored.work_center}), "Publish the second retained feed") \
+			or (await _barrier("Q-fed.bin")).is_empty():
+		return false
+	var turn_wire := {"action": "turn_press_crank", "entity": frame,
+		"drive": new_shaft.entity, "exit": route.exit}
+	for turn in range(3):
+		if not _expect(not panel.turn_button.disabled, "The mirrored press drive remains hand-operable"):
+			return false
+		if (await _chapter_ui_call("Turn the mirrored press crank %d" % turn,
+			turn_wire, panel.turn_button.pressed.emit)).is_empty():
+			return false
+	if not _expect(_plate_ui_drop(session.projection(), route.exit).get("products") == 1,
+		"The mirrored drive forms one second plate at its selected clear exit"):
+		return false
+	if not _expect(_write("P-formed.bin", {"status": "pass", "order": session.projection().order,
+		"exit": route.exit}), "Publish the formed second plate before pickup") \
+			or (await _barrier("Q-formed.bin")).is_empty():
+		return false
+	if (await _chapter_ui_call("Pick up the second mirrored-drive plate",
+		{"action": "pickup_material", "center": route.exit,
+			"expected": {"raw": 0, "products": 1, "work_lots": []}},
+		panel.pickup_button.pressed.emit)).is_empty():
+		return false
+	var complete: Dictionary = session.projection()
+	if not _expect(complete.order == 69 and complete.cargo.P.products == 1
+		and complete.cargo.P.raw == 0 and complete.dropped_material.is_empty()
+		and complete.freight_beacon.shipped_products == 1
+		and complete.hand_sources["opening-softmetal"].remaining == 9,
+		"The mirrored press holds a new carried product after the first freight receipt"):
+		return false
+	if not _expect(_write("P-complete.bin", {"status": "pass", "order": complete.order,
+		"frame": frame, "new_shaft": new_shaft.entity, "new_cog": new_cog.entity}),
+		"Publish the second real product and both changed drive identities"):
+		return false
+	return not (await _barrier("Q-result.bin")).is_empty()
+
+func _mirrored_press_q() -> bool:
+	if not _shipment_resume() or not _expect(_write("Q-ready.bin", {"status": "pass"}),
+		"Q joins the same first-shipment Store before the press is changed"):
+		return false
+	var mirror: Dictionary = await _barrier("P-mirrored.bin")
+	if mirror.is_empty() or not await _until(func(): return session.projection().order >= mirror.order,
+		"Q receives the changed press geometry"):
+		return false
+	var state: Dictionary = session.projection()
+	var press: Dictionary = _plate_ui_ready_press(state)
+	if not _expect(state.order == 62 and not state.placed_components.has(mirror.old_shaft)
+		and not state.placed_components.has(mirror.old_cog)
+		and state.placed_components.has(mirror.new_shaft)
+		and state.placed_components.has(mirror.new_cog)
+		and press.get("frame") == mirror.frame and press.get("shaft_center") == [12, 4, 15]
+		and press.get("cog_center") == [12, 4, 14]
+		and state.hand_sources["opening-softmetal"].remaining == 10,
+		"Q sees reused parts on the new face without a material debit") \
+			or not _expect(_write("Q-mirrored.bin", {"status": "pass"}), "Release the second collector cut"):
+		return false
+	var cut: Dictionary = await _barrier("P-cut.bin")
+	if cut.is_empty() or not await _until(func(): return session.projection().order >= cut.order,
+		"Q receives the second collector cut"):
+		return false
+	if not _expect(_collector_ui_drop(session.projection())
+		and session.projection().hand_sources["opening-softmetal"].remaining == 9,
+		"Q sees one source-debited blank in the original collector receiver") \
+			or not _expect(_write("Q-cut.bin", {"status": "pass"}), "Release the second blank pickup"):
+		return false
+	var fed: Dictionary = await _barrier("P-fed.bin")
+	if fed.is_empty() or not await _until(func(): return session.projection().order >= fed.order,
+		"Q receives the mirrored press feed"):
+		return false
+	if not _expect(_plate_ui_drop(session.projection(), fed.work_center).get("raw") == 1
+		and session.projection().cargo.P.raw == 0,
+		"Q sees the same second blank under the mirrored press head") \
+			or not _expect(_write("Q-fed.bin", {"status": "pass"}), "Release the mirrored press turns"):
+		return false
+	var formed: Dictionary = await _barrier("P-formed.bin")
+	if formed.is_empty() or not await _until(func(): return session.projection().order >= formed.order,
+		"Q receives the second formed plate"):
+		return false
+	if not _expect(_plate_ui_drop(session.projection(), formed.exit).get("products") == 1
+		and session.projection().cargo.P.products == 0,
+		"Q sees the mirrored press output before P takes it") \
+			or not _expect(_write("Q-formed.bin", {"status": "pass"}), "Release product pickup"):
+		return false
+	var complete: Dictionary = await _barrier("P-complete.bin")
+	if complete.is_empty() or not await _until(func(): return session.projection().order >= complete.order,
+		"Q receives the same carried second plate"):
+		return false
+	return _expect(session.projection().cargo.P.products == 1
+		and session.projection().hand_sources["opening-softmetal"].remaining == 9
+		and session.projection().freight_beacon.shipped_products == 1
+		and not _plate_ui_ready_press(session.projection()).is_empty()
+		and session.projection().placed_components.has(complete.new_shaft)
+		and session.projection().placed_components.has(complete.new_cog),
+		"Q retains the second plate and mirrored drive without duplicating the first shipment")
+
+func _mirrored_press_resume() -> bool:
+	var earlier: Dictionary = _read(previous.path_join("P-result.bin"))
+	var saved: Dictionary = earlier.get("projection", {})
+	var restored: Dictionary = session.projection()
+	var press: Dictionary = _plate_ui_ready_press(restored)
+	return _expect(earlier.get("status") == "pass" and saved.get("order") == 69
+		and restored.get("order") == saved.get("order")
+		and _same(restored.get("placed_components"), saved.get("placed_components"))
+		and _same(restored.get("cargo"), saved.get("cargo"))
+		and _same(restored.get("hand_sources"), saved.get("hand_sources"))
+		and _same(restored.get("dropped_material"), saved.get("dropped_material"))
+		and _same(restored.get("freight_beacon"), saved.get("freight_beacon"))
+		and press.get("shaft_center") == [12, 4, 15]
+		and press.get("cog_center") == [12, 4, 14]
+		and restored.cargo.P.products == 1 and restored.freight_beacon.shipped_products == 1,
+		"Fresh Store host preserves the second plate and reused mirrored drive identities")
+
+func _alternate_collector(snapshot: Dictionary) -> Dictionary:
+	for item: Variant in snapshot.get("collector_assemblies", []):
+		if item is Dictionary and item.get("status") == "ready" and item.get("center") == [0, 4, 4]:
+			return item
+	return {}
+
+func _alternate_collector_p() -> bool:
+	if not _shipment_resume() or (await _barrier("Q-ready.bin")).is_empty():
+		return false
+	for target in [Vector2(6.6, 8.25), Vector2(6.6, 4.95),
+			Vector2(4.95, 4.95), Vector2(3.3, 4.95),
+			Vector2(1.65, 4.95), Vector2(0.0, 4.95), Vector2(0.0, 3.3)]:
+		if not await _chapter_ui_walk(target):
+			return false
+	var original: Dictionary = _alternate_collector(session.projection())
+	var frame: String = str(original.get("parts", {}).get("frame", ""))
+	var old_tray: String = str(original.get("parts", {}).get("receiver", ""))
+	var old_shaft: String = str(original.get("parts", {}).get("shaft", ""))
+	if not _expect(not frame.is_empty() and not old_tray.is_empty() and not old_shaft.is_empty()
+		and session.projection().placed_components.get(old_tray, {}).get("center") == [0, 4, 3]
+		and session.projection().placed_components.get(old_shaft, {}).get("center") == [1, 4, 4],
+		"The first shipment leaves the original south receiver and east drive ready"):
+		return false
+	for item in [old_shaft, old_tray]:
+		if (await _collector_ui_issue("Recover original collector part " + item,
+			{"action": "reclaim_component", "entity": item})).is_empty():
+			return false
+	var recovered: Dictionary = session.projection()
+	if not _expect(not recovered.placed_components.has(old_shaft)
+		and not recovered.placed_components.has(old_tray)
+		and recovered.cargo.P.components.get("wooden_shaft", 0) == 1
+		and recovered.cargo.P.components.get("receiver_tray", 0) == 1
+		and recovered.dropped_material.is_empty()
+		and recovered.hand_sources["opening-softmetal"].remaining == 10,
+		"An empty receiver and its drive return as the same reusable parts"):
+		return false
+	var new_tray: Dictionary = await _collector_ui_issue("Fit the collector receiver on its north side",
+		{"action": "place_component", "component": "receiver_tray", "center": [0, 4, 5]})
+	if new_tray.is_empty():
+		return false
+	var new_shaft: Dictionary = await _collector_ui_issue("Fit the collector drive opposite its receiver",
+		{"action": "place_component", "component": "wooden_shaft", "center": [0, 4, 3]})
+	if new_shaft.is_empty():
+		return false
+	var alternate: Dictionary = _alternate_collector(session.projection())
+	if not _expect(alternate.get("parts", {}).get("frame") == frame
+		and session.projection().placed_components.get(new_tray.entity, {}).get("center") == [0, 4, 5]
+		and session.projection().placed_components.get(new_shaft.entity, {}).get("center") == [0, 4, 3]
+		and alternate.get("parts", {}).get("receiver") == new_tray.get("entity")
+		and alternate.get("parts", {}).get("shaft") == new_shaft.get("entity")
+		and session.projection().cargo.P.components.get("receiver_tray", 0) == 0
+		and session.projection().cargo.P.components.get("wooden_shaft", 0) == 0,
+		"The same collector cuts toward ore with a different physical receiver and drive route"):
+		return false
+	if not _expect(_write("P-alternate.bin", {"status": "pass", "order": session.projection().order,
+		"frame": frame, "old_tray": old_tray, "old_shaft": old_shaft,
+		"new_tray": new_tray.entity, "new_shaft": new_shaft.entity}),
+		"Publish exact replacement identities before operating the second layout") \
+			or (await _barrier("Q-alternate.bin")).is_empty():
+		return false
+	if not _collector_ui_select(new_shaft.entity):
+		return false
+	var panel = opening.arrival_assembly_controls
+	var cut: Dictionary = await _chapter_ui_call("Cut ore using the alternate collector arrangement",
+		{"action": "turn_hand_crank", "entity": new_shaft.entity},
+		panel.collector_cut_button.pressed.emit)
+	if cut.is_empty() or not _expect(cut.get("source_remaining") == 9
+		and _plate_ui_drop(session.projection(), [0, 4, 5]).get("raw") == 1
+		and _plate_ui_drop(session.projection(), [0, 4, 3]).is_empty(),
+		"The alternate outlet receives exactly one finite ore blank"):
+		return false
+	if not _expect(_write("P-cut.bin", {"status": "pass", "order": session.projection().order}),
+		"Publish the new receiver stock before it is picked up") \
+			or (await _barrier("Q-cut.bin")).is_empty():
+		return false
+	if (await _collector_ui_issue("Carry the blank from the alternate receiver",
+		{"action": "pickup_material", "center": [0, 4, 5],
+			"expected": {"raw": 1, "products": 0, "work_lots": []}})).is_empty():
+		return false
+	var complete: Dictionary = session.projection()
+	if not _expect(complete.order == 64 and complete.cargo.P.raw == 1
+		and complete.cargo.P.products == 0 and complete.dropped_material.is_empty()
+		and complete.hand_sources["opening-softmetal"].remaining == 9
+		and complete.freight_beacon.shipped_products == 1
+		and not _plate_ui_ready_press(complete).is_empty(),
+		"The alternate collector yields a carried blank beside the unchanged press and freight receipt"):
+		return false
+	if not _expect(_write("P-complete.bin", {"status": "pass", "order": complete.order,
+		"new_tray": new_tray.entity, "new_shaft": new_shaft.entity}),
+		"Retain exact carried ore and alternate part identities"):
+		return false
+	return not (await _barrier("Q-result.bin")).is_empty()
+
+func _alternate_collector_q() -> bool:
+	if not _shipment_resume() or not _expect(_write("Q-ready.bin", {"status": "pass"}),
+		"Q joins the same first-shipment Store before collector recovery"):
+		return false
+	var alternate: Dictionary = await _barrier("P-alternate.bin")
+	if alternate.is_empty() or not await _until(func(): return session.projection().order >= alternate.order,
+		"Q receives the alternate collector arrangement"):
+		return false
+	var changed: Dictionary = session.projection()
+	var collector: Dictionary = _alternate_collector(changed)
+	if not _expect(changed.order == 62 and collector.get("parts", {}).get("frame") == alternate.frame
+		and collector.get("parts", {}).get("receiver") == alternate.new_tray
+		and collector.get("parts", {}).get("shaft") == alternate.new_shaft
+		and not changed.placed_components.has(alternate.old_tray)
+		and not changed.placed_components.has(alternate.old_shaft)
+		and changed.placed_components.get(alternate.new_tray, {}).get("center") == [0, 4, 5]
+		and changed.placed_components.get(alternate.new_shaft, {}).get("center") == [0, 4, 3]
+		and changed.hand_sources["opening-softmetal"].remaining == 10
+		and changed.dropped_material.is_empty(),
+		"Q sees the same parts reused in a distinct ready collector geometry") \
+			or not _expect(_write("Q-alternate.bin", {"status": "pass"}),
+			"Release the new collector cut after Q observes its geometry"):
+		return false
+	var cut: Dictionary = await _barrier("P-cut.bin")
+	if cut.is_empty() or not await _until(func(): return session.projection().order >= cut.order,
+		"Q receives one actual cut through the alternate layout"):
+		return false
+	if not _expect(session.projection().order == 63
+		and session.projection().hand_sources["opening-softmetal"].remaining == 9
+		and _plate_ui_drop(session.projection(), [0, 4, 5]).get("raw") == 1
+		and _plate_ui_drop(session.projection(), [0, 4, 3]).is_empty(),
+		"Q sees one finite blank only in the moved receiver") \
+			or not _expect(_write("Q-cut.bin", {"status": "pass"}),
+			"Release pickup after Q observes the deposited ore"):
+		return false
+	var complete: Dictionary = await _barrier("P-complete.bin")
+	if complete.is_empty() or not await _until(func(): return session.projection().order >= complete.order,
+		"Q receives exact final alternate collector custody"):
+		return false
+	var final: Dictionary = session.projection()
+	return _expect(final.order == 64 and final.cargo.P.raw == 1
+		and final.dropped_material.is_empty() and final.freight_beacon.shipped_products == 1
+		and final.hand_sources["opening-softmetal"].remaining == 9
+		and _alternate_collector(final).get("parts", {}).get("receiver") == complete.new_tray
+		and _alternate_collector(final).get("parts", {}).get("shaft") == complete.new_shaft,
+		"Q retains the carried alternate blank, source debit and distinct part identities")
+
+func _alternate_collector_resume() -> bool:
+	var earlier: Dictionary = _read(previous.path_join("P-result.bin"))
+	var saved: Dictionary = earlier.get("projection", {})
+	var restored: Dictionary = session.projection()
+	var collector: Dictionary = _alternate_collector(restored)
+	return _expect(earlier.get("status") == "pass" and saved.get("order") == 64
+		and restored.get("order") == saved.get("order")
+		and _same(restored.get("placed_components"), saved.get("placed_components"))
+		and _same(restored.get("cargo"), saved.get("cargo"))
+		and _same(restored.get("hand_sources"), saved.get("hand_sources"))
+		and _same(restored.get("dropped_material"), saved.get("dropped_material"))
+		and _same(restored.get("freight_beacon"), saved.get("freight_beacon"))
+		and restored.cargo.P.raw == 1 and restored.freight_beacon.shipped_products == 1
+		and restored.placed_components.get(collector.get("parts", {}).get("receiver", ""), {}).get("center") == [0, 4, 5]
+		and restored.placed_components.get(collector.get("parts", {}).get("shaft", ""), {}).get("center") == [0, 4, 3],
+		"Fresh Store host preserves the alternate collector and its finite carried blank")
+
 func _run_shipment_ui() -> void:
-	if actor not in ["P", "Q"] or phase not in ["collector-shipment", "collector-shipment-resume"] \
+	if actor not in ["P", "Q"] or phase not in ["collector-shipment", "collector-shipment-resume",
+			"mirrored-press", "mirrored-press-resume", "alternate-collector", "alternate-collector-resume"] \
 			or not directory.is_absolute_path() or not previous.is_absolute_path():
 		push_error("The collector-derived shipment needs role, phase and owned evidence paths")
 		quit(1)
 		return
-	deadline = Time.get_ticks_msec() + 160000
+	deadline = Time.get_ticks_msec() + 180000
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--cog-capture-prefix="):
 			shipment_capture_prefix = argument.trim_prefix("--cog-capture-prefix=")
-	facts.evidence = "ordinary_shared_native_collector_to_freight_callbacks"
+	if phase.begins_with("mirrored-"):
+		facts.evidence = "ordinary_shared_native_mirrored_press_callbacks"
+	elif phase.begins_with("alternate-"):
+		facts.evidence = "ordinary_shared_native_alternate_collector_callbacks"
+	else:
+		facts.evidence = "ordinary_shared_native_collector_to_freight_callbacks"
 	opening = load("res://opening/shared_opening.tscn").instantiate()
 	root.add_child(opening)
 	session = opening.session
@@ -692,8 +1065,16 @@ func _run_shipment_ui() -> void:
 	var passed := false
 	if phase == "collector-shipment":
 		passed = await _shipment_p() if actor == "P" else await _shipment_q()
-	else:
+	elif phase == "collector-shipment-resume":
 		passed = _shipment_resume()
+	elif phase == "mirrored-press":
+		passed = await _mirrored_press_p() if actor == "P" else await _mirrored_press_q()
+	elif phase == "mirrored-press-resume":
+		passed = _mirrored_press_resume()
+	elif phase == "alternate-collector":
+		passed = await _alternate_collector_p() if actor == "P" else await _alternate_collector_q()
+	else:
+		passed = _alternate_collector_resume()
 	if passed and not written:
 		_record("pass")
 
@@ -905,7 +1286,8 @@ func _q() -> bool:
 		"Only two explicit material transfers occur after reconnection") and _marker("Q-material-cycled.bin")
 
 func _run() -> void:
-	if phase in ["collector-shipment", "collector-shipment-resume"]:
+	if phase in ["collector-shipment", "collector-shipment-resume", "mirrored-press", "mirrored-press-resume",
+			"alternate-collector", "alternate-collector-resume"]:
 		await _run_shipment_ui()
 		return
 	if phase in ["collector-plate", "collector-plate-resume"]:
