@@ -1087,6 +1087,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
     // All ticks between layout edits share a graph. Cache by that epoch,
     // not by tick revision, so a busy press does not copy the graph per tick.
     std::map<Integer, DrivePower> historical_layout_power;
+    std::map<Integer, State> historical_layout_states;
     const auto enabled_power_at = [&](Integer event_revision) -> const DrivePower* {
         // Reverse only accepted geometry edits after this tick. Removed parts
         // and spans carry the original shapes in their native receipts, so a
@@ -1164,8 +1165,91 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                         PlacedComponent{*component, *center, *generation}).second) return nullptr;
             } else if (*action == "shaft_between" || *action == "remove_shaft_between") return nullptr;
         }
-        return &historical_layout_power.emplace(epoch, drive_power(profile, prior)).first->second;
+        const auto power = drive_power(profile, prior);
+        historical_layout_states.emplace(epoch, std::move(prior));
+        return &historical_layout_power.emplace(epoch, std::move(power)).first->second;
     };
+    const auto layout_at = [&](Integer event_revision) -> const State* {
+        if (!enabled_power_at(event_revision)) return nullptr;
+        if (layout_mutations.empty() || event_revision >= *layout_mutations.rbegin())
+            return &snapshot.state;
+        const auto following = layout_mutations.upper_bound(event_revision);
+        const Integer epoch = following == layout_mutations.begin() ? 0 : *std::prev(following);
+        const auto found = historical_layout_states.find(epoch);
+        return found == historical_layout_states.end() ? nullptr : &found->second;
+    };
+    struct BeltOffcutClaim {
+        mechanics::Point work{};
+        mechanics::Point exit{};
+        Integer completed_revision{};
+    };
+    std::map<materials::WorkId, BeltOffcutClaim> belt_offcut_claims;
+    std::set<materials::WorkId> recovered_belt_offcuts;
+    if (offcut_per_plate > 0) {
+        for (const auto id : snapshot.state.belt_press_work_ids) {
+            const auto found = snapshot.state.press_progress.find(id);
+            if (found == snapshot.state.press_progress.end() || found->second.manual_seen ||
+                found->second.refeed_seen ||
+                found->second.automatic_remaining_ticks != profile.material.cycle_ticks)
+                continue;
+            const auto& transitions = found->second.automatic_transitions;
+            if (transitions.empty() || transitions.back().after_remaining != 0) return false;
+            std::optional<mechanics::Point> work, exit;
+            for (const auto& event : transitions) {
+                const auto* layout_state = layout_at(event.revision);
+                const auto* power = enabled_power_at(event.revision);
+                if (!layout_state || !power || (work && *work != event.work)) return false;
+                const auto placed = assembly_parts(*layout_state);
+                const assembly::Layout layout(placed);
+                std::optional<WorkingPress> selected;
+                for (const auto& part : placed) {
+                    if (part.kind != materials::Component::anvil &&
+                        part.kind != materials::Component::wooden_frame) continue;
+                    const auto inspected = inspect_working_press(layout, part.kind, part.center);
+                    if (!inspected.press || inspected.press->work_center != event.work) continue;
+                    if (selected) return false;
+                    selected = *inspected.press;
+                }
+                if (!selected) return false;
+                const auto motion = power->mechanical.motion.find(selected->shaft);
+                if (motion == power->mechanical.motion.end() ||
+                    motion->second.state != mechanics::MotionState::rotating) return false;
+                __extension__ using Wide = __int128;
+                Wide numerator = motion->second.rate.numerator;
+                if (numerator < 0) numerator = -numerator;
+                const Wide denominator = motion->second.rate.denominator;
+                if (denominator <= 0 ||
+                    static_cast<Wide>(event.before_remaining - event.after_remaining) >
+                        (numerator + denominator - 1) / denominator) return false;
+                auto selected_exit = event.work;
+                selected_exit[0] -= selected->shaft_center[0] - selected->anchor_center[0];
+                selected_exit[2] -= selected->shaft_center[2] - selected->anchor_center[2];
+                if (std::none_of(selected->open_feeds.begin(), selected->open_feeds.end(),
+                        [&](const assembly::PressFeed& feed) { return feed.exit == selected_exit; }) ||
+                    (exit && *exit != selected_exit)) return false;
+                Integer exit_claims = 0;
+                for (const auto& part : placed) {
+                    if (part.kind != materials::Component::anvil &&
+                        part.kind != materials::Component::wooden_frame) continue;
+                    const auto other = inspect_working_press(layout, part.kind, part.center);
+                    if (!other.press) continue;
+                    const auto other_motion = power->mechanical.motion.find(other.press->shaft);
+                    if (other_motion == power->mechanical.motion.end() ||
+                        other_motion->second.state != mechanics::MotionState::rotating) continue;
+                    auto other_exit = other.press->work_center;
+                    other_exit[0] -= other.press->shaft_center[0] - other.press->anchor_center[0];
+                    other_exit[2] -= other.press->shaft_center[2] - other.press->anchor_center[2];
+                    if (other_exit == selected_exit) ++exit_claims;
+                }
+                if (exit_claims != 1) return false;
+                work = event.work;
+                exit = selected_exit;
+            }
+            if (!work || !exit ||
+                !belt_offcut_claims.emplace(id, BeltOffcutClaim{*work, *exit,
+                    transitions.back().revision}).second) return false;
+        }
+    }
     const auto automatic_finish_witnessed = [&](const PressWorkRecord& work) {
         if (work.id == 0) return true;
         const auto found = snapshot.state.press_progress.find(work.id);
@@ -1673,12 +1757,24 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 if (*moved > 0) {
                     if (!expected_offcuts.contains(*point)) {
                         const auto active = press_work.find(*point);
-                        if (active == press_work.end() || !active->second.automatic_exit ||
-                            active->second.last_tick_seen == ticks_seen ||
-                            !automatic_finish_witnessed(active->second) ||
-                            !record_offcut(*point) ||
-                            !add(press_products[*active->second.automatic_exit], 1)) return false;
-                        press_work.erase(active);
+                        if (active != press_work.end()) {
+                            if (!active->second.automatic_exit ||
+                                active->second.last_tick_seen == ticks_seen ||
+                                !automatic_finish_witnessed(active->second) ||
+                                !record_offcut(*point) ||
+                                !add(press_products[*active->second.automatic_exit], 1)) return false;
+                            press_work.erase(active);
+                        } else {
+                            auto claim = std::find_if(belt_offcut_claims.begin(),
+                                belt_offcut_claims.end(), [&](const auto& entry) {
+                                    return entry.second.work == *point &&
+                                        entry.second.completed_revision < *result_revision &&
+                                        !recovered_belt_offcuts.contains(entry.first);
+                                });
+                            if (claim == belt_offcut_claims.end() || !record_offcut(*point))
+                                return false;
+                            recovered_belt_offcuts.insert(claim->first);
+                        }
                     }
                     const auto found = expected_offcuts.find(*point);
                     if (found == expected_offcuts.end() || found->second != *moved) return false;
@@ -2023,6 +2119,12 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             if (id <= 0 || id >= snapshot.state.material.next_work_id ||
                 !snapshot.state.belt_press_work_ids.contains(id) ||
                 !witnessed_products.contains(id)) return false;
+    }
+    for (const auto& [id, claim] : belt_offcut_claims) {
+        const auto products = snapshot.state.belt_press_products.find(claim.exit);
+        if ((products == snapshot.state.belt_press_products.end() ||
+             !products->second.contains(id)) && !picked_press_products.contains(id)) return false;
+        if (!recovered_belt_offcuts.contains(id) && !record_offcut(claim.work)) return false;
     }
     for (const auto& [point, count] : expected_offcuts) {
         const auto found = snapshot.state.material.dropped_material.find(point);
@@ -3977,7 +4079,8 @@ Advance World::tick() noexcept {
                             prior->second.second, remaining});
                     }
                     if (completed &&
-                    !witness.manual_seen && !witness.refeed_seen)
+                    !witness.manual_seen && !witness.refeed_seen &&
+                    !candidate.belt_press_work_ids.contains(prior->second.first))
                         candidate.press_progress.erase(prior->second.first);
                 } else if (current != candidate.material.dropped_material.end() &&
                            current->second.work_lots.size() == 1) {
