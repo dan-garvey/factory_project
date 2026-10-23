@@ -78,6 +78,10 @@ struct Cargo {
     Quantity raw_units{};
     Quantity products{};
     std::vector<WorkLot> work_lots;
+    // Copper forming retains the difference between a four-unit stock chunk
+    // and a three-unit plate. Sheets are a separate, twelve-unit form.
+    Quantity offcuts{};
+    Quantity sheets{};
     // Unshaped timber stays in the same authoritative actor cargo as ore.
     // Existing machine buffers and belts do not accept timber yet.
     Quantity timber{};
@@ -139,6 +143,10 @@ struct Config {
     std::optional<OreSite> manual_ore;
     Quantity hand_carry_capacity{32};
     Quantity component_capacity{24};
+    Quantity raw_mass{1};
+    // Zero keeps the existing whole-input recipe mass for non-copper fixtures.
+    Quantity plate_mass{};
+    Quantity sheet_mass{};
     Config() = default;
     Config(Quantity input, Quantity capacity, Quantity ticks)
         : input_units_per_product(input), collector_capacity(capacity), cycle_ticks(ticks) {}
@@ -150,6 +158,7 @@ struct Stock {
     Quantity belt{};
     Quantity input{};
     Quantity output{};
+    Quantity offcuts{};
     bool operator==(const Stock&) const = default;
 };
 

@@ -70,6 +70,13 @@ cc_test(
 )
 
 cc_test(
+    name = "copper_mass_test",
+    srcs = ["tests/copper_mass_test.cpp"],
+    deps = [":material_state_codec"],
+    size = "small",
+)
+
+cc_test(
     name = "harvest_material_test",
     srcs = ["tests/harvest_material_test.cpp"],
     deps = [":material_state_codec"],
