@@ -334,6 +334,7 @@ class ArrivalAssemblyControls:
 	var _press_page := false
 	var component_choice: OptionButton
 	var craft_button: Button
+	var field_craft_button: Button
 	var part_choice: OptionButton
 	var part_cost_label: Label
 	var part_craft_button: Button
@@ -380,8 +381,9 @@ class ArrivalAssemblyControls:
 		recipe_label = host._label(craft_section, "", 12, Color("bfd1cc"))
 		var component_actions := HBoxContainer.new()
 		craft_section.add_child(component_actions)
-		craft_button = host._button(component_actions, "Craft one", _craft)
+		craft_button = host._button(component_actions, "Craft at bench", _craft)
 		place_button = host._button(component_actions, "Place", _place)
+		field_craft_button = host._button(craft_section, "Shape wood with multitool", _field_craft)
 		reclaim_button = host._button(craft_section, "Reclaim selected part", _reclaim)
 		host._label(craft_section, "POWERED MATERIAL ROUTE", 13, Color("f4bf75"))
 		part_choice = OptionButton.new()
@@ -456,7 +458,7 @@ class ArrivalAssemblyControls:
 		var total_parts := 0
 		for amount in components.values():
 			total_parts += int(amount)
-		recipe_label.text = "Needs %d timber + %d softmetal\nCarry %d timber + %d softmetal\nParts %d / %d · craft beside the pod" % [
+		recipe_label.text = "Needs %d timber + %d softmetal\nCarry %d timber + %d softmetal\nParts %d / %d · metal needs the pod bench" % [
 			cost.get("timber", 0), cost.get("softmetal", 0), cargo.get("timber", 0),
 			cargo.get("raw", 0), total_parts, snapshot.get("component_capacity", 0)]
 		for index in COMPONENTS.size():
@@ -465,6 +467,8 @@ class ArrivalAssemblyControls:
 		# Let the hub report missing input, full output and distance using its
 		# confirmed result. The bill above stays visible before the attempt.
 		craft_button.disabled = not ready or snapshot.get("fabrication_hub", {}).is_empty() or cost.is_empty()
+		field_craft_button.visible = not cost.is_empty() and int(cost.get("timber", 0)) > 0 and int(cost.get("softmetal", 0)) == 0
+		field_craft_button.disabled = not ready or not field_craft_button.visible
 		place_button.disabled = not ready or int(components.get(selected_component, 0)) < 1
 		place_button.text = "Place %s" % COMPONENTS[component_choice.selected][1]
 		reclaim_button.visible = snapshot.get("placed_components", {}).has(selected)
@@ -639,6 +643,11 @@ class ArrivalAssemblyControls:
 		var hub: Dictionary = _snapshot.get("fabrication_hub", {})
 		if not hub.is_empty():
 			host.issue({"action": "craft_component", "entity": hub.id, "component": selected_component})
+
+	func _field_craft() -> void:
+		var host = _host_view()
+		if host != null and field_craft_button.visible:
+			host.issue({"action": "field_craft", "component": selected_component})
 
 	func _craft_part() -> void:
 		var host = _host_view()
