@@ -1244,8 +1244,8 @@ The arrival now loads four bundled default amber preview scenes, renders and
 retains their nodes in the main viewport, and prepares one reusable foundation
 form. A focused headless fixture checks the baked local mesh geometry against
 procedural assembly, neutral material, lack of colliders or callbacks, pooled
-default selection and foundation area scaling. Nondefault orientations and
-wheel sizes still use procedural assembly. Belt selection in the current native
+default selection and foundation area scaling. At that revision, nondefault
+orientations and wheel sizes still used procedural assembly. Belt selection in the current native
 profile opens a shaft-span tool, so its baked machine form does not represent
 that tool's placement ghost.
 
@@ -1487,6 +1487,48 @@ exclusive passive native-opening pair reached cover removal in 18.653 s before
 and 18.959 s after the change; one pair cannot isolate startup variance.
 Human-perceived startup and a player-command placement were not measured.
 See `factory-yau.9.22` for the exact fixture and revision evidence.
+
+## GDC-32: packed preview loading does not remove first-use node cost
+
+The default machine previews were already drawn behind the workshop cover,
+but the first rotated press, alternate collector intake and nine-tile wheel
+still assembled their sourced art on the selection frame. A passive native
+opening probe measured cold procedural construction near 0.10, 1.0 and 2.26 s
+respectively after its default preview preparation. Moving all art preparation
+behind the cover removed the selection stalls but extended covered startup by
+about 4.6 s in an earlier pair, so that option was rejected.
+
+A packed whole-collector preview loaded asynchronously yet still spent about
+107 ms on its first main-thread instantiation in an isolated graphical probe;
+the rotated press packed scene spent about 6 ms and an uncompressed nine-tile
+wheel about 3 ms. [Godot's thread-safety guide](https://docs.godotengine.org/en/stable/tutorials/performance/thread_safe_apis.html)
+says detached scene chunks can be built in a worker, but instancing rendering
+nodes on worker threads is not thread safe by default. The current preview
+adapter therefore reuses the packed collector and press bodies, swaps small
+prebaked intake or drive modules and rotates exact existing parts on the main
+thread. Wheel sizes three through sixteen share one compressed baked rotor per
+size, two alternate-axle support modules and the default packed wheel. This
+preserves exact procedural geometry without duplicating every size for every
+axle. Resource requests run four at a time during the native arrival reveal,
+after the workshop cover is removed. The 25 variant resources keep the staged
+Godot project below the existing 48 MiB compiler-input cap.
+
+An invented-state graphical fixture on pinned Godot 4.7.2 WSL Compatibility,
+RTX 3090 and 1280 by 800 measured the earlier whole-scene candidate's first
+alternate collector, rotated press, nine-tile wheel and belt preview updates
+at about 4.1, 1.8, 4.6 and 6.5 ms CPU after the default form had drawn. Their
+first visible draw intervals were about 9 to 14 ms. The shared-rotor candidate
+measured 5.672 ms CPU and 6.472 ms first draw for an alternate-axle nine-tile
+wheel on WSL Wayland. One hundred twenty-nine headless variant cases compared
+baked world geometry with procedural forms. A passive ordinary native opening
+reached cover removal at 19.847 s; its 25 resource requests completed at
+20.606 s, before the 22.693 s end of the arrival reveal. The earlier
+whole-scene candidate reached cover removal at 19.579 s, and its paired
+no-request control at 19.774 s. These are source-matched adapter and WSL
+renderer measurements, not a human selection or Windows target result.
+Wheel sizes above sixteen retain procedural preview construction; this is a
+preview-cache limit, not a native size rule. Exact logs and revision limits are
+in `factory-yau.9.27.1`.
 
 ## Required follow-through
 

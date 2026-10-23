@@ -37,16 +37,23 @@ project directory:
 
 ```bash
 godot --headless --path . --script res://opening/machine_preview_check.gd -- --bake-packed-previews
+godot --headless --path . --script res://opening/machine_preview_check.gd -- --bake-preview-variants
 ```
 
-Run the same script without the bake argument to compare each baked mesh and
-transform with its procedural source and exercise native preview selection. The
-bake mode writes source assets; the ordinary check is read only. The native
+Run `machine_preview_check.gd` without a bake argument to compare each baked
+mesh and transform with its procedural source and exercise preview selection.
+The bake commands write source assets; the ordinary check is read only. The native
 arrival also assembles one foundation preview and keeps these default forms
 ready in the main viewport before revealing the worksite. It draws the
 collector, foundation, press and waterwheel tool panels during preparation so
-their first selection does not initialize the interface. Rotated, resized and
-other variant forms still use procedural assembly.
+their first selection does not initialize the interface. Collector site and
+axle variants, press rotations and axles, belt axles and resized waterwheels
+use baked presentation resources. The native opening requests those
+resources during its arrival reveal, then attaches them only after loading has
+finished. Waterwheel preview resources share one baked rotor per size and one
+support module per alternate axle. They cover sizes three through sixteen on
+all three axes; larger sizes retain the procedural preview path. This preview
+range is not a native wheel-size rule.
 The native Belt slot places a shaft span, so its baked machine form is retained
 for the existing visual fixture rather than shown by that slot.
 **Build [B]** opens the catalog: choose a destination slot and a carried

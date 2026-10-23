@@ -70,6 +70,7 @@ class SessionStub extends RefCounted:
 var checks := 0
 var failed := false
 var assembly_cases := 0
+var variant_cases := 0
 
 func verify(condition: bool, message: String) -> void:
 	checks += 1
@@ -147,6 +148,54 @@ func same_packed_geometry(baked: Node3D, live: Node3D) -> bool:
 					return false
 	return true
 
+func same_packed_geometry_unordered(baked: Node3D, live: Node3D) -> bool:
+	# The collector swaps a source intake module in place. Mesh child order is
+	# presentation-only; world transforms and every vertex still have to match.
+	var left: Array = packed_geometry(baked)
+	var right: Array = packed_geometry(live)
+	if left.size() != right.size():
+		return false
+	var matched := {}
+	for part in left:
+		var found := false
+		for index in right.size():
+			if matched.has(index) or part.bounds != right[index].bounds:
+				continue
+			var pose: Transform3D = part.pose
+			var other: Transform3D = right[index].pose
+			if pose.origin.distance_squared_to(other.origin) > 1e-12 \
+					or pose.basis.x.distance_squared_to(other.basis.x) > 1e-12 \
+					or pose.basis.y.distance_squared_to(other.basis.y) > 1e-12 \
+					or pose.basis.z.distance_squared_to(other.basis.z) > 1e-12:
+				continue
+			var surfaces: Array = part.surfaces
+			var other_surfaces: Array = right[index].surfaces
+			if surfaces.size() != other_surfaces.size():
+				continue
+			var same := true
+			for surface in surfaces.size():
+				if surfaces[surface].indices != other_surfaces[surface].indices:
+					same = false
+					break
+				var vertices: PackedVector3Array = surfaces[surface].vertices
+				var other_vertices: PackedVector3Array = other_surfaces[surface].vertices
+				if vertices.size() != other_vertices.size():
+					same = false
+					break
+				for vertex in vertices.size():
+					if vertices[vertex].distance_squared_to(other_vertices[vertex]) > 1e-12:
+						same = false
+						break
+				if not same:
+					break
+			if same:
+				matched[index] = true
+				found = true
+				break
+		if not found:
+			return false
+	return true
+
 func check_preview_nodes(node: Node, material: StandardMaterial3D) -> void:
 	verify(not node is CollisionObject3D and not node is CollisionShape3D
 		and (not node is Label3D or node.name == "MaterialPortLabel"),
@@ -198,11 +247,9 @@ func check_assemblies() -> void:
 			verify(view.machine_preview.visible and view.machine_preview.position == Vector3(
 				target_cell.x * Opening.PITCH, height, target_cell.y * Opening.PITCH),
 				"The fitted preview uses the target square and the common construction height.")
-			verify(geometry(view.machine_preview) == geometry(expected),
+			verify((same_packed_geometry_unordered(view.machine_preview, expected) if kind == "collector"
+				else same_packed_geometry(view.machine_preview, expected)),
 				"Preview and placed assembly have identical meshes and local transforms for %s axis %d." % [kind, axis])
-			if plinth != null:
-				verify(view.machine_preview.get_node("Plinth").mesh == plinth.mesh,
-					"The preview reuses the actual cached machined plinth mesh.")
 			verify(view.wheel_rotor == old_rotor and (material == null or (material.albedo_color == color
 				and material.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED)),
 				"Preview creation preserves the placed wheel target and opaque shared surface.")
@@ -264,6 +311,59 @@ func check_packed_assemblies() -> void:
 				"The native %s selection can also instantiate a baked preview." % kind)
 			verify(view.state == observation() and view.model == null and view.request_sequence == 0,
 				"The baked preview leaves %s authority unchanged." % kind)
+		expected.free()
+	view.free()
+
+func check_variant_assemblies() -> void:
+	var view := PointerView.new()
+	view.state = observation()
+	view.transmission_controls = ControlsStub.new()
+	var cases: Array[Dictionary] = []
+	for site in [0, 1]:
+		for level in [0, 4, 8]:
+			for axis in range(3):
+				for facing in range(4):
+					cases.append({"kind": "collector", "axis": axis, "tiles": 3,
+						"rotation": facing, "cell": [0, site], "level": level})
+	for axis in range(3):
+		for facing in range(4):
+			cases.append({"kind": "processor", "axis": axis, "tiles": 3,
+				"rotation": facing, "cell": [1, 2], "level": 0})
+	for axis in range(3):
+		cases.append({"kind": "belt", "axis": axis, "tiles": 3,
+			"rotation": 0, "cell": [1, 2], "level": 0})
+		for tiles in range(3, Opening.BAKED_WHEEL_PREVIEW_MAX_TILES + 1):
+			cases.append({"kind": "wheel", "axis": axis, "tiles": tiles,
+				"rotation": 0, "cell": [1, 2], "level": 4})
+	for entity in cases:
+		variant_cases += 1
+		var kind: String = entity.kind
+		var cell := Vector2i(entity.cell[0], entity.cell[1])
+		var baked: Node3D
+		if kind == "collector" and cell == Vector2i(0, 1) and entity.level == 0 \
+				and entity.axis == 0 and entity.rotation == 0 \
+				or kind == "processor" and entity.axis == 0 and entity.rotation == 0 \
+				or kind == "belt" and entity.axis == 0 \
+				or kind == "wheel" and entity.axis == 0 and entity.tiles == 3:
+			baked = (load("res://opening/assets/prebuilt-preview-%s.scn" % kind) as PackedScene).instantiate() as Node3D
+		else:
+			baked = view._packed_machine_preview_variant(kind, entity.axis, entity.tiles,
+				entity.rotation, cell, entity.level)
+		var expected := Node3D.new()
+		expected.position = view._cell_position(entity.cell) + Vector3.UP * entity.level * Opening.Geometry.HEIGHT_STEP
+		view._assemble_machine(expected, entity, kind == "belt" and entity.axis == 0)
+		if kind in ["collector", "processor"]:
+			view._preview_port(expected, entity.rotation, kind == "collector")
+		var same := baked != null and not view.preview_variant_pending and (
+			same_packed_geometry_unordered(baked, expected) if kind == "collector"
+			else same_packed_geometry(baked, expected))
+		verify(same,
+			"The %s preview variant preserves procedural geometry for axis %d, facing %d, size %d and site %s/%d." % [
+				kind, entity.axis, entity.rotation, entity.tiles, str(cell), entity.level])
+		if baked != null:
+			view._style_machine_preview(baked)
+			check_preview_nodes(baked, view.machine_preview_material)
+			baked.free()
 		expected.free()
 	view.free()
 
@@ -615,7 +715,8 @@ func _bake_packed_previews() -> void:
 		var status := packed.pack(anchor)
 		var path: String = "res://opening/assets/prebuilt-preview-" + kind + ".scn"
 		if status == OK:
-			status = ResourceSaver.save(packed, path, ResourceSaver.FLAG_BUNDLE_RESOURCES)
+			status = ResourceSaver.save(packed, path,
+				ResourceSaver.FLAG_BUNDLE_RESOURCES | ResourceSaver.FLAG_COMPRESS)
 		results[kind] = {"status": status,
 			"bytes": FileAccess.get_file_as_bytes(path).size() if status == OK else 0}
 		anchor.free()
@@ -623,9 +724,102 @@ func _bake_packed_previews() -> void:
 	print("PACKED_MACHINE_PREVIEWS " + JSON.stringify(results))
 	quit(0 if results.values().all(func(row): return row.status == OK) else 1)
 
+func _save_preview_variant(anchor: Node3D, path: String) -> Dictionary:
+	anchor.name = "PreviewTemplate"
+	_own_packed_preview(anchor, anchor)
+	var packed := PackedScene.new()
+	var status := packed.pack(anchor)
+	if status == OK:
+		# Share the rotor across axles and compress repeated sized geometry.
+		var flags := ResourceSaver.FLAG_BUNDLE_RESOURCES
+		if path.contains("prebuilt-preview-wheel-") or path.contains("prebuilt-preview-belt-axis-"):
+			flags |= ResourceSaver.FLAG_COMPRESS
+		status = ResourceSaver.save(packed, path, flags)
+	var bytes := FileAccess.get_file_as_bytes(path).size() if status == OK else 0
+	anchor.free()
+	return {"status": status, "bytes": bytes}
+
+func _bake_preview_variants() -> void:
+	# Explicit asset-generation mode. The ordinary check never writes source.
+	var view := PointerView.new()
+	view.state = observation()
+	view.transmission_controls = ControlsStub.new()
+	var results := {}
+	for site in [0, 1]:
+		for level in [0, 4, 8]:
+			var cell := [0, site]
+			var anchor := Node3D.new()
+			anchor.position = view._cell_position(cell) + Vector3.UP * level * Opening.Geometry.HEIGHT_STEP
+			view._assemble_machine(anchor, {"kind": "collector", "axis": 0, "tiles": 3,
+				"rotation": 0, "cell": cell, "level": level})
+			var source := Node3D.new()
+			for child in anchor.get_children():
+				if child.name.begins_with("Source"):
+					anchor.remove_child(child)
+					source.add_child(child)
+			view._style_machine_preview(source)
+			var path: String = "res://opening/assets/prebuilt-preview-collector-source-%d-%d.scn" % [site, level]
+			results[path] = _save_preview_variant(source, path)
+			anchor.free()
+	for axis in [1, 2]:
+		var drive := Node3D.new()
+		view._machine_drive_stub(drive, {"axis": axis}, true)
+		view._style_machine_preview(drive)
+		var drive_path: String = "res://opening/assets/prebuilt-preview-processor-drive-%d.scn" % axis
+		results[drive_path] = _save_preview_variant(drive, drive_path)
+		var belt := Node3D.new()
+		belt.position = view._cell_position([1, 2])
+		view._assemble_machine(belt, {"kind": "belt", "axis": axis, "tiles": 3,
+			"rotation": 0, "cell": [1, 2], "level": 0})
+		view._style_machine_preview(belt)
+		belt.position = Vector3.ZERO
+		var belt_path: String = "res://opening/assets/prebuilt-preview-belt-axis-%d.scn" % axis
+		results[belt_path] = _save_preview_variant(belt, belt_path)
+		var wheel := Node3D.new()
+		view._assemble_machine(wheel, {"kind": "wheel", "axis": axis, "tiles": 3,
+			"rotation": 0, "cell": [1, 2], "level": 4})
+		var supports := Node3D.new()
+		for child in wheel.get_children():
+			if child.name != "WheelRotor":
+				wheel.remove_child(child)
+				supports.add_child(child)
+		view._style_machine_preview(supports)
+		var supports_path: String = "res://opening/assets/prebuilt-preview-wheel-support-%d.scn" % axis
+		results[supports_path] = _save_preview_variant(supports, supports_path)
+		wheel.free()
+	for tiles in range(4, Opening.BAKED_WHEEL_PREVIEW_MAX_TILES + 1):
+		var wheel := Node3D.new()
+		view._assemble_machine(wheel, {"kind": "wheel", "axis": 0, "tiles": tiles,
+			"rotation": 0, "cell": [1, 2], "level": 4})
+		var rotor := wheel.get_node("WheelRotor") as Node3D
+		wheel.remove_child(rotor)
+		var rotor_part := Node3D.new()
+		rotor_part.add_child(rotor)
+		view._style_machine_preview(rotor_part)
+		var rotor_path: String = "res://opening/assets/prebuilt-preview-wheel-rotor-%d.scn" % tiles
+		results[rotor_path] = _save_preview_variant(rotor_part, rotor_path)
+		wheel.free()
+	view.free()
+	var failures := results.values().filter(func(row: Dictionary): return row.status != OK)
+	var total_bytes := 0
+	for row in results.values():
+		total_bytes += int(row.bytes)
+	print("PACKED_PREVIEW_VARIANTS ", JSON.stringify({"count": results.size(),
+		"total_bytes": total_bytes, "failures": failures}))
+	quit(0 if failures.is_empty() else 1)
+
 func _run() -> void:
+	if OS.get_cmdline_user_args().has("--variant-assemblies-only"):
+		check_variant_assemblies()
+		print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
+			"variant_cases": variant_cases, "observations": "invented", "desktop": "not_used"}))
+		quit(1 if failed else 0)
+		return
 	if OS.get_cmdline_user_args().has("--bake-packed-previews"):
 		_bake_packed_previews()
+		return
+	if OS.get_cmdline_user_args().has("--bake-preview-variants"):
+		_bake_preview_variants()
 		return
 	if OS.get_cmdline_user_args().has("--assemblies-only"):
 		check_assemblies()
@@ -667,6 +861,7 @@ func _run() -> void:
 	detached.free()
 	check_assemblies()
 	check_packed_assemblies()
+	check_variant_assemblies()
 	check_foundation_pool()
 	check_gates(PointerView.new(), false)
 	var shared := SharedPointerView.new()
@@ -684,6 +879,7 @@ func _run() -> void:
 	transmission_shared.session = SessionStub.new()
 	check_transmission_previews(transmission_shared, true)
 	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
-		"assembly_cases": assembly_cases, "observations": "invented", "desktop": "not_used",
+		"assembly_cases": assembly_cases, "variant_cases": variant_cases,
+		"observations": "invented", "desktop": "not_used",
 		"rendered_quality": "not_assessed"}))
 	quit(1 if failed else 0)

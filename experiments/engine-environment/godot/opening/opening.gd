@@ -4591,6 +4591,10 @@ var machine_preview_key := ""
 var machine_preview_material: StandardMaterial3D
 var packed_preview_templates: Dictionary = {}
 var packed_preview_nodes: Dictionary = {}
+var preview_variant_pending := false
+var preview_prefetch_paths: Array[String] = []
+var preview_prefetch_complete := false
+const BAKED_WHEEL_PREVIEW_MAX_TILES := 16
 var machine_dynamic_batches: Array[Dictionary] = []
 var machine_conveyor_batches: Array[Dictionary] = []
 var machine_conveyor_batch_slots: Dictionary = {}
@@ -7260,8 +7264,9 @@ func _collector_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 				_machine_box(anchor, "SourcePickupCheekLeft" if side < 0.0 else "SourcePickupCheekRight",
 					local_at + Vector3(-0.02, 0, side * 0.1025),
 					Vector3(0.24, 0.20, 0.035), Color("465a60"), 0.85, 0.35)
-			for tooth in [-1.0, 0.0, 1.0]:
-				_machine_box(anchor, "SourcePickupTooth", local_at + Vector3(-0.105, 0, tooth * 0.075),
+			for tooth_index in range(3):
+				_machine_box(anchor, "SourcePickupTooth%d" % tooth_index,
+					local_at + Vector3(-0.105, 0, (tooth_index - 1) * 0.075),
 					Vector3(0.06, 0.12, 0.028), steel, 0.85, 0.32)
 			var start := Vector3(-0.74, 0.57, local_at.z)
 			var finish := Vector3(-0.15, 0.57, 0)
@@ -7278,8 +7283,9 @@ func _collector_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 			var head_at: Vector3 = head.center - anchor.position
 			_machine_box(anchor, "SourceLiftPickup", shoe_at + Vector3(0.04, 0, 0),
 				Vector3(0.25, 0.17, 0.35), Color("465a60"), 0.85, 0.35)
-			for tooth in [-1.0, 0.0, 1.0]:
-				_machine_box(anchor, "SourceLiftPickupTooth", shoe_at + Vector3(-0.13, -0.01, tooth * 0.12),
+			for tooth_index in range(3):
+				_machine_box(anchor, "SourceLiftPickupTooth%d" % tooth_index,
+					shoe_at + Vector3(-0.13, -0.01, (tooth_index - 1) * 0.12),
 					Vector3(0.07, 0.11, 0.035), steel, 0.85, 0.32)
 			for index in range(2):
 				var guide: Dictionary = intake_result.boxes[index + 1]
@@ -7531,6 +7537,221 @@ func _prime_machine_visuals() -> void:
 		anchor.free()
 	wheel_rotor = previous_rotor
 
+func _collector_preview_source_path(cell: Vector2i, level: int) -> String:
+	return "res://opening/assets/prebuilt-preview-collector-source-%d-%d.scn" % [cell.y, level]
+
+func _prefetch_machine_preview_variants() -> void:
+	# Load during the arrival reveal, after the workshop cover is gone. Spread
+	# requests over frames; no variant is built on the selection frame.
+	var paths: Array[String] = []
+	for site in [0, 1]:
+		for level in [0, 4, 8]:
+			paths.append(_collector_preview_source_path(Vector2i(0, site), level))
+	for axis in [1, 2]:
+		paths.append("res://opening/assets/prebuilt-preview-processor-drive-%d.scn" % axis)
+		paths.append("res://opening/assets/prebuilt-preview-belt-axis-%d.scn" % axis)
+	for axis in [1, 2]:
+		paths.append("res://opening/assets/prebuilt-preview-wheel-support-%d.scn" % axis)
+	for tiles in range(4, BAKED_WHEEL_PREVIEW_MAX_TILES + 1):
+		paths.append("res://opening/assets/prebuilt-preview-wheel-rotor-%d.scn" % tiles)
+	preview_prefetch_complete = false
+	for index in paths.size():
+		if not is_inside_tree():
+			return
+		var path: String = paths[index]
+		if ResourceLoader.load_threaded_request(path) == OK:
+			preview_prefetch_paths.append(path)
+		else:
+			push_error("Cannot prepare a machine preview resource: " + path)
+		if index % 4 == 3:
+			await get_tree().process_frame
+	call_deferred("_finish_machine_preview_prefetch")
+
+func _finish_machine_preview_prefetch() -> void:
+	while is_inside_tree() and not preview_prefetch_paths.is_empty():
+		var remaining: Array[String] = []
+		for path in preview_prefetch_paths:
+			if packed_preview_templates.has(path):
+				continue
+			var status := ResourceLoader.load_threaded_get_status(path)
+			if status == ResourceLoader.THREAD_LOAD_IN_PROGRESS:
+				remaining.append(path)
+			elif status == ResourceLoader.THREAD_LOAD_LOADED:
+				packed_preview_templates[path] = ResourceLoader.load_threaded_get(path)
+			else:
+				push_error("Cannot load a machine preview resource: " + path)
+		preview_prefetch_paths = remaining
+		if not preview_prefetch_paths.is_empty():
+			await get_tree().process_frame
+	preview_prefetch_complete = preview_prefetch_paths.is_empty()
+
+func _packed_preview_resource(path: String) -> PackedScene:
+	if packed_preview_templates.has(path):
+		return packed_preview_templates[path]
+	var status := ResourceLoader.load_threaded_get_status(path)
+	if status == ResourceLoader.THREAD_LOAD_IN_PROGRESS:
+		preview_variant_pending = true
+		return null
+	var packed := (ResourceLoader.load_threaded_get(path) if status == ResourceLoader.THREAD_LOAD_LOADED
+		else load(path)) as PackedScene
+	if packed != null:
+		packed_preview_templates[path] = packed
+	return packed
+
+func _clear_preview_owners(node: Node) -> void:
+	node.owner = null
+	for child in node.get_children():
+		_clear_preview_owners(child)
+
+func _replace_preview_parts(anchor: Node3D, replacement: PackedScene, prefixes: Array[String]) -> void:
+	var first := -1
+	for child in anchor.get_children():
+		var replace := false
+		for prefix in prefixes:
+			if child.name.begins_with(prefix):
+				replace = true
+				break
+		if replace:
+			if first < 0:
+				first = child.get_index()
+			child.free()
+	var prepared := replacement.instantiate() as Node3D
+	for child in prepared.get_children():
+		_clear_preview_owners(child)
+		prepared.remove_child(child)
+		anchor.add_child(child)
+		if first >= 0:
+			anchor.move_child(child, first)
+			first += 1
+	prepared.free()
+
+func _rotate_packed_preview_port(anchor: Node3D, facing: int) -> void:
+	if facing == 0:
+		return
+	var turn := Transform3D(Basis(Vector3.UP, -float(facing) * PI / 2.0), Vector3.ZERO)
+	for child in anchor.get_children():
+		if child.name.begins_with("PortArrow") or child.name == "MaterialPortLabel":
+			child.transform = turn * child.transform
+			if child.name == "MaterialPortLabel":
+				child.set_meta("port_side", turn.basis * child.get_meta("port_side", Vector3.ZERO))
+
+func _packed_machine_preview_variant(kind: String, axis: int, tiles: int,
+		facing: int, cell: Vector2i, level: int) -> Node3D:
+	preview_variant_pending = false
+	if not _native_transmission():
+		return null
+	if kind == "wheel":
+		if tiles > BAKED_WHEEL_PREVIEW_MAX_TILES:
+			return null
+		var default_wheel: PackedScene = packed_preview_templates.get("wheel")
+		if default_wheel == null:
+			default_wheel = load("res://opening/assets/prebuilt-preview-wheel.scn") as PackedScene
+		if default_wheel == null:
+			return null
+		var support_part: PackedScene
+		if axis != 0:
+			support_part = _packed_preview_resource(
+				"res://opening/assets/prebuilt-preview-wheel-support-%d.scn" % axis)
+			if support_part == null:
+				return null
+		var rotor_part: PackedScene
+		if tiles != 3:
+			rotor_part = _packed_preview_resource(
+				"res://opening/assets/prebuilt-preview-wheel-rotor-%d.scn" % tiles)
+			if rotor_part == null:
+				return null
+		var wheel := default_wheel.instantiate() as Node3D
+		if support_part != null:
+			for child in wheel.get_children():
+				if child.name != "WheelRotor":
+					child.free()
+			var prepared := support_part.instantiate() as Node3D
+			for child in prepared.get_children():
+				_clear_preview_owners(child)
+				prepared.remove_child(child)
+				wheel.add_child(child)
+				wheel.move_child(child, wheel.get_node("WheelRotor").get_index())
+			prepared.free()
+		if rotor_part != null:
+			_replace_preview_parts(wheel, rotor_part, ["WheelRotor"])
+		var rotor := wheel.get_node("WheelRotor") as Node3D
+		if axis == 1:
+			rotor.rotation = Vector3(-PI / 2.0, 0.0, 0.0)
+		elif axis == 2:
+			rotor.rotation = Vector3.ZERO
+		return wheel
+	if kind == "belt":
+		var belt_path := ("res://opening/assets/prebuilt-preview-belt.scn" if axis == 0
+			else "res://opening/assets/prebuilt-preview-belt-axis-%d.scn" % axis)
+		var belt: PackedScene = _packed_preview_resource(belt_path)
+		return belt.instantiate() as Node3D if belt != null else null
+	if kind not in ["collector", "processor"]:
+		return null
+	var default: PackedScene = packed_preview_templates.get(kind)
+	if default == null:
+		default = load("res://opening/assets/prebuilt-preview-" + kind + ".scn") as PackedScene
+	if default == null:
+		return null
+	var anchor := default.instantiate() as Node3D
+	if kind == "collector":
+		if cell != Vector2i(0, 1) or level != 0:
+			var source: PackedScene = _packed_preview_resource(_collector_preview_source_path(cell, level))
+			if source == null:
+				anchor.free()
+				return null
+			_replace_preview_parts(anchor, source, ["Source"])
+		var drive := anchor.get_node("DriveStub") as MeshInstance3D
+		if axis == 1:
+			for child in anchor.get_children():
+				if child.name.begins_with("CollectorInput"):
+					child.free()
+			drive.mesh = ProductionDriveJournalArt.mesh(0.9)
+			drive.rotation = Vector3.ZERO
+		elif axis == 2:
+			var turn := Transform3D(Basis(Vector3.UP, -PI / 2.0), Vector3.ZERO)
+			for child in anchor.get_children():
+				if child.name == "DriveStub" or child.name.begins_with("CollectorInput"):
+					child.transform = turn * child.transform
+					if child.name == "DriveStub":
+						child.rotation = _spindle_rotation(Vector3.BACK)
+					elif child.name.begins_with("CollectorInputBearing"):
+						child.basis = Basis(Quaternion(Vector3.UP, Vector3.BACK))
+					elif child.name.begins_with("CollectorInputPost"):
+						child.basis = Basis.IDENTITY
+						child.mesh = ProductionVisuals.box_mesh(Vector3(0.16, 0.50, 0.08))
+					elif child.name.begins_with("CollectorInputFoot"):
+						child.basis = Basis.IDENTITY
+						child.mesh = ProductionVisuals.box_mesh(Vector3(0.20, 0.10, 0.26))
+		var cassette := anchor.get_node_or_null("CollectorOutputCassette") as Node3D
+		if cassette != null:
+			cassette.rotation.y = -float(facing) * PI / 2.0
+		_rotate_packed_preview_port(anchor, facing)
+		return anchor
+	var local_axis := 2 - axis if facing % 2 == 1 and axis != 1 else axis
+	if local_axis != 0:
+		var drive_part: PackedScene = _packed_preview_resource(
+			"res://opening/assets/prebuilt-preview-processor-drive-%d.scn" % local_axis)
+		if drive_part == null:
+			anchor.free()
+			return null
+		_replace_preview_parts(anchor, drive_part, ["DriveStub", "PressInput"])
+		# Press bearings follow the drive stub in the source assembly.
+		# The drive resource owns their complete alternative layout.
+	if facing != 0:
+		var holder := Node3D.new()
+		holder.name = "RotatedMachineVisual"
+		for child in anchor.get_children():
+			if child.name.begins_with("PortArrow") or child.name == "MaterialPortLabel":
+				continue
+			_clear_preview_owners(child)
+			anchor.remove_child(child)
+			holder.add_child(child)
+		holder.rotation.y = -float(facing) * PI / 2.0
+		anchor.add_child(holder)
+		anchor.move_child(holder, 0)
+		_rotate_packed_preview_port(anchor, facing)
+	return anchor
+
 func _warm_packed_machine_previews() -> void:
 	if DisplayServer.get_name() == "headless":
 		for kind in ["collector", "belt", "processor", "wheel"]:
@@ -7599,6 +7820,9 @@ func _warm_packed_machine_previews() -> void:
 		set_process(resume_processing)
 		_message(opening_message, opening_refused)
 	cover.free()
+	# The first native input window follows the arrival reveal. Begin loading
+	# finite variants now, after the covered startup is complete.
+	_prefetch_machine_preview_variants()
 
 func _warm_transmission_placement_previews(view_size: Vector2) -> void:
 	# Draw the two cog sizes and the shaft while the workshop cover is visible.
@@ -8872,7 +9096,7 @@ func _refresh_machine_preview() -> void:
 		str([cell.x, cell.y, level]) if mode == "collector" else ""]
 	var packaged: bool = mode == "foundation" or _native_transmission() and axis == 0 and facing == 0 \
 		and (mode != "wheel" or wheel_tiles == 3) \
-		and (mode != "collector" or cell == Vector2i(0, 1))
+		and (mode != "collector" or cell == Vector2i(0, 1) and level == 0)
 	var pooled: Node3D = packed_preview_nodes.get(mode) if packaged else null
 	_choose_machine_preview(pooled)
 	if pooled != null:
@@ -8898,10 +9122,22 @@ func _refresh_machine_preview() -> void:
 					machine_preview.add_child(part)
 				template.free()
 			else:
-				_assemble_machine(machine_preview, {"kind": mode, "axis": axis, "tiles": wheel_tiles,
-					"rotation": facing, "cell": [cell.x, cell.y], "level": level}, mode == "belt" and axis == 0)
-				if mode in ["collector", "processor"]:
-					_preview_port(machine_preview, facing, mode == "collector")
+				var variant := _packed_machine_preview_variant(mode, axis, wheel_tiles, facing, cell, level)
+				if preview_variant_pending:
+					wheel_rotor = placed_rotor
+					return
+				if variant != null:
+					machine_preview.set_meta("material_rotated", variant.get_meta("material_rotated", false))
+					for part in variant.get_children():
+						_clear_preview_owners(part)
+						variant.remove_child(part)
+						machine_preview.add_child(part)
+					variant.free()
+				else:
+					_assemble_machine(machine_preview, {"kind": mode, "axis": axis, "tiles": wheel_tiles,
+						"rotation": facing, "cell": [cell.x, cell.y], "level": level}, mode == "belt" and axis == 0)
+					if mode in ["collector", "processor"]:
+						_preview_port(machine_preview, facing, mode == "collector")
 		wheel_rotor = placed_rotor
 		_style_machine_preview(machine_preview)
 		machine_preview_key = key
