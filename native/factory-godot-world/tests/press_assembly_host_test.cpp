@@ -134,6 +134,89 @@ void conserved_copper(const Host& host) {
           "Every projected arrival holder accounts for the finite copper reserve.");
 }
 
+void guided_press_host_path() {
+    Host host;
+    check(get<bool>(host.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+          get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<A>(host.projection(), "guided_press_assemblies").empty(),
+          "A fresh arrival has no guided press or gifted frame.");
+    check(get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(4.95)}, 1), "accepted"),
+          "The actor reaches finite timber for the five-part press.");
+    for (int index = 0; index < 4; ++index) {
+        auto cut = request("guided-wood-" + std::to_string(index), "harvest_source");
+        cut.emplace("target", V("tree-east-south"));
+        accepted(host, cut);
+    }
+    check(get<bool>(host.publish_actor("P", {V(0.0), V(1.0), V(1.65)}, 2), "accepted"),
+          "The actor reaches finite metal stock.");
+    for (int index = 0; index < 5; ++index) {
+        auto cut = request("guided-ore-" + std::to_string(index), "harvest_source");
+        cut.emplace("target", V("opening-softmetal"));
+        accepted(host, cut);
+    }
+    check(get<bool>(host.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 3), "accepted"),
+          "The actor reaches the pod bench with the exact guided-press bill.");
+    auto take = request("guided-take-crank", "take_hand_crank");
+    take.emplace("entity", V("pod-hand-crank"));
+    accepted(host, take);
+    for (const auto* kind : {"anvil", "ram_face", "sliding_guide", "wooden_shaft", "wooden_cog"}) {
+        auto craft = request(std::string("guided-craft-") + kind, "craft_component");
+        craft.emplace("entity", V("pod-fabrication-hub"));
+        craft.emplace("component", V(kind));
+        accepted(host, craft);
+    }
+    check(get<bool>(host.publish_actor("P", {V(1.0), V(1.0), V(0.0)}, 4), "accepted"),
+          "The actor reaches the selected workcell and its drive shaft.");
+    const auto anvil = place(host, "anvil", 8, 0, 0, "guided-place-anvil");
+    check(get<A>(host.projection(), "press_assemblies").empty() &&
+          get<std::string>(get<A>(host.projection(), "guided_press_assemblies").front(), "status") ==
+              "missing_ram",
+          "An anvil is a guided candidate but does not masquerade as a framed press.");
+    const auto ram = place(host, "ram_face", 8, 1, 0, "guided-place-ram");
+    const auto guide = place(host, "sliding_guide", 8, 3, 0, "guided-place-guide");
+    const auto shaft = place(host, "wooden_shaft", 9, 4, 0, "guided-place-shaft");
+    check(get<std::string>(get<A>(host.projection(), "guided_press_assemblies").front(), "status") ==
+              "missing_cog", "A guided head still needs the actual drive cog.");
+    check(!get<bool>(host.command("P", feed("guided-premature-feed", anvil, 9, 0, 0)),
+              "accepted"), "An incomplete guided press refuses feed without consuming a blank.");
+    const auto cog = place(host, "wooden_cog", 10, 4, 0, "guided-place-cog");
+    const auto ready = get<A>(host.projection(), "guided_press_assemblies").front();
+    const auto pieces = get<O>(ready, "parts");
+    check(get<std::string>(ready, "status") == "ready" &&
+          get<std::string>(ready, "anvil") == anvil &&
+          get<std::string>(V(pieces), "anvil") == anvil &&
+          get<std::string>(V(pieces), "ram") == ram &&
+          get<std::string>(V(pieces), "guide") == guide &&
+          get<std::string>(V(pieces), "shaft") == shaft &&
+          get<std::string>(V(pieces), "drive_cog") == cog &&
+          !pieces.contains("frame") && !pieces.contains("mount") &&
+          get<A>(ready, "open_feeds").size() == 4,
+          "The Host names exactly five issued working parts and four open feed directions.");
+    accepted(host, feed("guided-feed", anvil, 9, 0, 0));
+    check(!get<bool>(host.command("P", turn("guided-wrong-drive", anvil, cog, 7, 0, 0)),
+              "accepted"), "A nearby cog cannot impersonate the guided press drive shaft.");
+    for (int index = 0; index < 3; ++index)
+        accepted(host, turn("guided-turn-" + std::to_string(index), anvil, shaft, 7, 0, 0));
+    const auto drops = get<A>(host.projection(), "dropped_material");
+    check(std::any_of(drops.begin(), drops.end(), [](const V& drop) {
+              return !factory::values::typed_difference(V(get<A>(drop, "center")),
+                  V(A{V(I{7}), V(I{0}), V(I{0})})) && get<I>(drop, "products") == 1;
+          }) && std::any_of(drops.begin(), drops.end(), [](const V& drop) {
+              return !factory::values::typed_difference(V(get<A>(drop, "center")),
+                  V(A{V(I{8}), V(I{0}), V(I{0})})) && get<I>(drop, "offcuts") == 1;
+          }), "The ordinary Host wire makes a real plate and retained offcut without a frame.");
+    conserved_copper(host);
+    const auto saved = host.checkpoint();
+    Host restored;
+    check(get<bool>(restored.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+          get<bool>(restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(restored.restore_checkpoint(saved), "accepted") &&
+          !factory::values::typed_difference(saved, restored.checkpoint()) &&
+          get<std::string>(get<A>(restored.projection(), "guided_press_assemblies").front(),
+              "status") == "ready",
+          "A fresh Host resumes the exact guided assembly and conserved copper worksite.");
+}
+
 void placed_press_projection() {
     Host host;
     check(get<bool>(host.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
@@ -777,6 +860,7 @@ void belt_fed_press_projection() {
 
 int main() {
     try {
+        guided_press_host_path();
         placed_press_projection();
         belt_fed_press_projection();
         std::cout << "press_assembly_host_test: " << checks << " checks passed\n";

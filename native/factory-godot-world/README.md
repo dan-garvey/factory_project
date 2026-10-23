@@ -91,6 +91,11 @@ formed product into the canonical loose-material ledger. A full or terrain
 blocked exit retains custody, and pickup recovers a blank, partial work or
 product after dismantling. The Host checks physical actor reach and exit site
 clearance; ordinary scene press controls and autonomous drive remain open.
+The separate read-only `guided_press_assemblies` projection inspects each
+placed anvil for the five-part, frame-free press. Ready entries identify the
+anvil, ram, guide, shaft and cog, their work and drive centers, and the four
+open feed routes. The same actor-bound feed and hand-crank requests accept its
+anvil identity; the ordinary scene still consumes the framed projection.
 The arrival profile additionally exposes `hand_sources`: three named
 eight-piece timber sites and one sixteen-unit ore deposit. `harvest_source`
 accepts a target identity only after the bound physical actor is ready and

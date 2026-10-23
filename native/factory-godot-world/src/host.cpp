@@ -2583,6 +2583,38 @@ Value Host::projection() const {
             presses.emplace_back(std::move(entry));
         }
         projection.emplace("press_assemblies", Value(std::move(presses)));
+        Array guided_presses;
+        for (const auto& anvil : parts) {
+            if (anvil.kind != materials::Component::anvil) continue;
+            const auto inspection = assembly::inspect_guided_press(parts, anvil.center);
+            Object entry{{"anvil", Value(anvil.id)},
+                {"center", Value(Array{Value(anvil.center[0]), Value(anvil.center[1]),
+                    Value(anvil.center[2])})},
+                {"status", Value(press_status_name(inspection.status))}};
+            if (inspection.press) {
+                const auto& press = *inspection.press;
+                entry.emplace("parts", Value(Object{{"anvil", Value(press.anvil)},
+                    {"ram", Value(press.ram)}, {"guide", Value(press.guide)},
+                    {"shaft", Value(press.shaft)}, {"drive_cog", Value(press.drive_cog)}}));
+                entry.emplace("work_center", Value(Array{Value(press.work_center[0]),
+                    Value(press.work_center[1]), Value(press.work_center[2])}));
+                entry.emplace("shaft_center", Value(Array{Value(press.shaft_center[0]),
+                    Value(press.shaft_center[1]), Value(press.shaft_center[2])}));
+                entry.emplace("cog_center", Value(Array{Value(press.cog_center[0]),
+                    Value(press.cog_center[1]), Value(press.cog_center[2])}));
+                entry.emplace("shaft_material", Value(materials::component_name(press.shaft_material)));
+                entry.emplace("cog_material", Value(materials::component_name(press.cog_material)));
+                Array feeds;
+                for (const auto& feed : press.open_feeds)
+                    feeds.emplace_back(Object{{"entry", Value(Array{Value(feed.entry[0]),
+                        Value(feed.entry[1]), Value(feed.entry[2])})},
+                        {"exit", Value(Array{Value(feed.exit[0]), Value(feed.exit[1]),
+                            Value(feed.exit[2])})}});
+                entry.emplace("open_feeds", Value(std::move(feeds)));
+            }
+            guided_presses.emplace_back(std::move(entry));
+        }
+        projection.emplace("guided_press_assemblies", Value(std::move(guided_presses)));
     }
     projection.merge(tick_fields(snapshot));
     return Value(std::move(projection));
