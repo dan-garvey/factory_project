@@ -12,6 +12,14 @@ const Session = preload("res://opening-session/session.gd")
 var checks := 0
 var failures := 0
 
+class SuppliedOpening extends "res://opening/opening.gd":
+	func _ready() -> void:
+		pass
+	func _process(_delta: float) -> void:
+		pass
+	func _physics_process(_delta: float) -> void:
+		pass
+
 class CountingNativeModel extends "res://opening/native_model.gd":
 	var full_projection_calls := 0
 	var native_advance_calls := 0
@@ -236,6 +244,65 @@ func _supplied_hardware_view() -> void:
 	verify(view.get_child_count() == 0,
 		"Removing the placed component leaves no proxy artwork behind.")
 	view.free()
+	var opening := SuppliedOpening.new()
+	opening.state = model.projection()
+	root.add_child(opening)
+	opening._sync_landing_pod_visual()
+	var bench: Node3D = opening.landing_hub_visual.get_node("FoldoutBench")
+	var envelope := AABB()
+	var first_box := true
+	for record: Dictionary in opening.state.supplied_hardware_boxes.values():
+		if record.entity != opening.state.fabrication_hub.id:
+			continue
+		var at: Array = record.center
+		var half: Array = record.half
+		var center := Vector3(at[0], at[1], at[2]) - bench.global_position
+		var extent := Vector3(half[0], half[1], half[2])
+		var box := AABB(center - extent, extent * 2.0)
+		envelope = box if first_box else envelope.merge(box)
+		first_box = false
+	var inside := not first_box
+	var meshes := bench.find_children("*", "MeshInstance3D", true, false)
+	for mesh: MeshInstance3D in meshes:
+		inside = inside and mesh.mesh != null
+		if mesh.mesh == null:
+			continue
+		var bounds := mesh.get_aabb()
+		var local := bench.global_transform.affine_inverse() * mesh.global_transform
+		for x in [0.0, 1.0]:
+			for y in [0.0, 1.0]:
+				for z in [0.0, 1.0]:
+					inside = inside and envelope.grow(0.0001).has_point(
+						local * (bounds.position + bounds.size * Vector3(x, y, z)))
+	verify(inside and not meshes.is_empty(),
+		"Every authored bench mesh stays within the native supplied hub envelope.")
+	var twin := SuppliedOpening.new()
+	twin.state = model.projection()
+	root.add_child(twin)
+	twin._sync_landing_pod_visual()
+	var other: Node3D = twin.landing_hub_visual.get_node("FoldoutBench")
+	var reused := true
+	for mesh: MeshInstance3D in meshes:
+		var counterpart: MeshInstance3D = other.get_node(bench.get_path_to(mesh))
+		reused = reused and mesh.mesh == counterpart.mesh and mesh.material_override == counterpart.material_override
+	verify(reused, "Repeated workshops share their authored mesh and material resources.")
+	var original_position := opening.landing_hub_visual.position
+	opening._sync_landing_pod_visual()
+	verify(opening.landing_hub_visual.get_node("FoldoutBench") == bench,
+		"An unchanged projection preserves the complete bench node tree.")
+	opening.state.fabrication_hub.installed = false
+	opening._sync_landing_pod_visual()
+	verify(not opening.landing_hub_visual.visible and opening.landing_hub_pick.collision_layer == 0,
+		"A stowed workshop hides its artwork and disables its pick target.")
+	opening.state.fabrication_hub.installed = true
+	opening.state.fabrication_hub.position[0] += opening.PITCH
+	opening._sync_landing_pod_visual()
+	verify(opening.landing_hub_visual.visible and opening.landing_hub_pick.collision_layer == Geometry.PICK_LAYER
+		and opening.landing_hub_visual.position.is_equal_approx(original_position + Vector3(opening.PITCH, 0, 0))
+		and opening.landing_hub_visual.get_node("FoldoutBench") == bench,
+		"Redeployment moves the same bench by the projected world-grid pitch without a new local datum.")
+	twin.free()
+	opening.free()
 
 func _component_view() -> void:
 	# Invented native facts exercise only the existing view and Godot physics.
