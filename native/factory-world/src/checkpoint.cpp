@@ -301,7 +301,7 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
         for (const auto& [actor, kit] : snapshot.state.kits) kits.emplace(actor, kit_value(kit));
         for (const auto& [id, generation] : snapshot.state.issued_entities) issued.emplace(id, Value(generation));
         Value output(Object{
-            {"schema", Value(Integer{10})}, {"profile", profile_value(profile)},
+            {"schema", Value(Integer{11})}, {"profile", profile_value(profile)},
             {"revision", Value(snapshot.revision)}, {"history", std::move(*history.value)},
             {"state", Value(Object{{"material", std::move(std::get<Value>(material))},
                 {"topology", topology_value(snapshot.state.topology)}, {"kits", Value(std::move(kits))},
@@ -359,6 +359,12 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
             }
             state.emplace("press_output_at_exit", Value(std::move(waiting)));
             state.emplace("press_output_exported", Value(std::move(exported)));
+            Array progress;
+            for (const auto& [id, witness] : snapshot.state.press_progress)
+                progress.emplace_back(Object{{"work_id", Value(id)},
+                    {"automatic_remaining_ticks", Value(witness.automatic_remaining_ticks)},
+                    {"manual_seen", Value(witness.manual_seen)}});
+            state.emplace("press_progress", Value(std::move(progress)));
             root.at("state") = Value(std::move(state));
             output = Value(std::move(root));
         }
@@ -372,7 +378,7 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
     try {
         Budget{}.visit(value);
         const auto& root = fields(value, "$", {"schema", "profile", "revision", "history", "state"});
-        if (integer(root, "schema", "$") != 10) refuse(CheckpointReason::unsupported_schema, "$.schema");
+        if (integer(root, "schema", "$") != 11) refuse(CheckpointReason::unsupported_schema, "$.schema");
         if (const auto difference = values::typed_difference(profile_value(profile), root.at("profile")))
             refuse(CheckpointReason::profile_mismatch, "$.profile" + difference->path.substr(1));
         Snapshot candidate;
@@ -382,7 +388,7 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
         candidate.history = std::move(*history.history);
         if (candidate.history.context != expected_context) refuse(CheckpointReason::wrong_context, "$.history.context");
         const auto& state = profile.landing_pod_center ? fields(root.at("state"), "$.state",
-            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "freight_beacon", "hand_crank", "placed_components", "press_output_at_exit", "press_output_exported"}) :
+            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "freight_beacon", "hand_crank", "placed_components", "press_output_at_exit", "press_output_exported", "press_progress"}) :
             profile.foundation_parts > 0 ? fields(root.at("state"), "$.state",
             {"material", "topology", "kits", "issued_entities", "next_entity_serial", "foundations", "foundation_kits"}) :
             fields(root.at("state"), "$.state", {"material", "topology", "kits", "issued_entities", "next_entity_serial"});
@@ -462,6 +468,15 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
                 for (const auto& id : work_ids)
                     if (!ids.insert(scalar<Integer>(id, "$.state.press_output_exported.work_ids")).second)
                         refuse(CheckpointReason::invalid_world, "$.state.press_output_exported.work_ids");
+            }
+            for (const auto& value : array(state.at("press_progress"), "$.state.press_progress", 8192)) {
+                const auto& entry = fields(value, "$.state.press_progress",
+                    {"work_id", "automatic_remaining_ticks", "manual_seen"});
+                const auto id = integer(entry, "work_id", "$.state.press_progress");
+                if (!candidate.state.press_progress.emplace(id, PressProgressWitness{
+                        integer(entry, "automatic_remaining_ticks", "$.state.press_progress"),
+                        scalar<bool>(entry.at("manual_seen"), "$.state.press_progress.manual_seen")}).second)
+                    refuse(CheckpointReason::invalid_world, "$.state.press_progress");
             }
         }
         if (profile.foundation_parts > 0) {
