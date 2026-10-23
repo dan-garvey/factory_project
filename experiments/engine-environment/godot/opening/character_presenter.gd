@@ -460,28 +460,13 @@ func _adult_image(path: String) -> Image:
 	return image
 
 func _adult_material(material_name: String) -> Material:
-	var stem: String = {"f001_body": "body", "f001_head": "head", "f001_opacity": "opacity"}.get(material_name, "")
+	var stem: String = {"f004_body": "body", "f004_head": "head", "f004_opacity": "opacity"}.get(material_name, "")
 	if stem.is_empty():
 		return null
 	var color := _adult_image(ADULT_ASSETS + stem + "_color.webp")
 	if color == null or color.is_empty():
 		return null
 	color.generate_mipmaps()
-	if stem == "body":
-		var suit := _adult_image(ADULT_ASSETS + "body_field_suit_color.png")
-		var normal := _adult_image(ADULT_ASSETS + "body_normal.webp")
-		var shader := load(ADULT_ASSETS + "field_suit.gdshader") as Shader
-		if suit == null or suit.is_empty() or normal == null or normal.is_empty() or shader == null:
-			return null
-		suit.generate_mipmaps()
-		normal.generate_mipmaps(true)
-		var field_suit := ShaderMaterial.new()
-		field_suit.resource_name = material_name
-		field_suit.shader = shader
-		field_suit.set_shader_parameter("base_albedo", ImageTexture.create_from_image(color))
-		field_suit.set_shader_parameter("suit_albedo", ImageTexture.create_from_image(suit))
-		field_suit.set_shader_parameter("body_normal_map", ImageTexture.create_from_image(normal))
-		return field_suit
 	var material := StandardMaterial3D.new()
 	material.resource_name = material_name
 	material.albedo_texture = ImageTexture.create_from_image(color)
@@ -1108,7 +1093,7 @@ func _prepare_adult_template() -> bool:
 	appearance.scale = Vector3.ONE * fitted_scale
 	appearance.position.y = -Geometry.CAPSULE_HEIGHT / 2.0 - bounds.position.y * fitted_scale
 	body.set_meta("source_rest_bounds", bounds)
-	body.set_meta("source", "Microsoft Rocketbox Female_Adult_01")
+	body.set_meta("source", "Microsoft Rocketbox Female_Adult_04")
 	var packed := PackedScene.new()
 	var error: Error = packed.pack(body)
 	body.free()

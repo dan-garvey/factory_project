@@ -4618,6 +4618,7 @@ var machine_motion_anchors: Array[Node3D] = []
 var machine_batch_finished_meshes: Dictionary = {}
 var machine_batch_rotor_meshes: Dictionary = {}
 var machine_batch_composite_meshes: Dictionary = {}
+var machine_static_spatial_tiles := 4
 var transmission_preview_point: Array = []
 var wheel_rotor: Node3D
 var machine_body_context := ""
@@ -7476,6 +7477,7 @@ func _choose_machine_preview(pooled: Node3D = null) -> void:
 		machine_preview_key = ""
 
 const MACHINE_BATCH_THRESHOLD := 12
+const MACHINE_STATIC_SPATIAL_THRESHOLD := 256
 # Paddle joinery ends by 32 m with a 2 m fade margin; the extra room
 # covers the largest authored rim and a camera move between render cuts.
 const WHEEL_DETAIL_UPDATE_RADIUS := 48.0
@@ -7766,7 +7768,8 @@ func _batch_machine_composites(moving: Dictionary, static_groups: Dictionary) ->
 		var group_key := [mesh.get_instance_id(), 0, shadow, layers]
 		if not static_groups.has(group_key):
 			static_groups[group_key] = {"mesh": mesh, "material": null,
-				"shadow": shadow, "layers": layers, "parts": []}
+				"shadow": shadow, "layers": layers, "parts": [],
+				"spatial_composite": true}
 		for instance in candidate.instances:
 			var sources: Array[MeshInstance3D] = []
 			for part in instance.parts:
@@ -7823,6 +7826,7 @@ func _batch_collector_cutters(dynamic_groups: Dictionary, skip_sources: Dictiona
 				break
 		if not compatible:
 			continue
+		key.append_array([shadow, layers])
 		if not candidates.has(key):
 			candidates[key] = {"parts": parts, "instances": []}
 		candidates[key].instances.append({"anchor": anchor, "sources": sources})
@@ -7896,48 +7900,65 @@ func _emit_machine_mesh_batches(groups: Dictionary, batches: Node3D, dynamic: bo
 	for group in groups.values():
 		if group.parts.size() < 2:
 			continue
-		var multi := MultiMesh.new()
-		multi.transform_format = MultiMesh.TRANSFORM_3D
-		multi.mesh = group.mesh
-		multi.instance_count = group.parts.size()
-		var bounds: AABB = group.parts[0].pose * group.mesh.get_aabb()
-		var motion_margin := bounds.size.length()
-		for index in group.parts.size():
-			multi.set_instance_transform(index, group.parts[index].pose)
-			var part_bounds: AABB = group.parts[index].pose * group.mesh.get_aabb()
-			bounds = bounds.merge(part_bounds)
-			motion_margin = maxf(motion_margin, part_bounds.size.length())
-			if group.parts[index].has("hide_nodes"):
-				for source in group.parts[index].hide_nodes:
-					source.visible = false
-			else:
-				group.parts[index].node.visible = false
-		multi.custom_aabb = bounds.grow(maxf(6.0, motion_margin)) if dynamic else bounds
-		var instance := MultiMeshInstance3D.new()
-		instance.name = "MachineBatch%d" % batch_index
-		instance.multimesh = multi
-		instance.material_override = group.material
-		instance.cast_shadow = group.shadow
-		instance.layers = group.layers
-		batches.add_child(instance)
-		if dynamic:
-			var rotor_only := true
-			var cutter_only := true
+		var partitions: Array = [group.parts]
+		# Small mixed fields submit more cell batches than culling saves. Keep
+		# their composites whole; split the larger fields that benefit from it.
+		if not dynamic and group.get("spatial_composite", false) \
+				and machine_static_spatial_tiles > 0 \
+				and group.parts.size() >= MACHINE_STATIC_SPATIAL_THRESHOLD:
+			var cells := {}
+			var cell_size := PITCH * float(machine_static_spatial_tiles)
 			for part in group.parts:
-				rotor_only = rotor_only and part.node.name == "WheelRotor"
-				cutter_only = cutter_only and part.get("cutter", false)
-			machine_dynamic_batches.append({"mesh": multi, "parts": group.parts,
-				"rotor_only": rotor_only, "cutter_only": cutter_only})
-			for index in group.parts.size():
-				var part: Dictionary = group.parts[index]
-				if part.get("cutter", false):
-					machine_cutter_batch_slots[part.node.get_instance_id()] = {"mesh": multi, "index": index}
-				if part.node.name == "WheelRotor":
-					var node_id: int = part.node.get_instance_id()
-					machine_batched_rotors[node_id] = true
-					machine_batched_rotor_slots[node_id] = {"mesh": multi, "index": index,
-						"node": part.node, "parent_pose": part.parent_pose}
-		batch_index += 1
+				var at: Vector3 = part.pose.origin
+				var cell := Vector2i(floori(at.x / cell_size), floori(at.z / cell_size))
+				if not cells.has(cell):
+					cells[cell] = []
+				cells[cell].append(part)
+			partitions = cells.values()
+		for parts in partitions:
+			var multi := MultiMesh.new()
+			multi.transform_format = MultiMesh.TRANSFORM_3D
+			multi.mesh = group.mesh
+			multi.instance_count = parts.size()
+			var bounds: AABB = parts[0].pose * group.mesh.get_aabb()
+			var motion_margin := bounds.size.length()
+			for index in parts.size():
+				multi.set_instance_transform(index, parts[index].pose)
+				var part_bounds: AABB = parts[index].pose * group.mesh.get_aabb()
+				bounds = bounds.merge(part_bounds)
+				motion_margin = maxf(motion_margin, part_bounds.size.length())
+				if parts[index].has("hide_nodes"):
+					for source in parts[index].hide_nodes:
+						source.visible = false
+				else:
+					parts[index].node.visible = false
+			multi.custom_aabb = bounds.grow(maxf(6.0, motion_margin)) if dynamic else bounds
+			var instance := MultiMeshInstance3D.new()
+			instance.name = "MachineBatch%d" % batch_index
+			instance.multimesh = multi
+			instance.material_override = group.material
+			instance.cast_shadow = group.shadow
+			instance.layers = group.layers
+			instance.set_meta("spatial_composite", group.get("spatial_composite", false))
+			batches.add_child(instance)
+			if dynamic:
+				var rotor_only := true
+				var cutter_only := true
+				for part in parts:
+					rotor_only = rotor_only and part.node.name == "WheelRotor"
+					cutter_only = cutter_only and part.get("cutter", false)
+				machine_dynamic_batches.append({"mesh": multi, "parts": parts,
+					"rotor_only": rotor_only, "cutter_only": cutter_only})
+				for index in parts.size():
+					var part: Dictionary = parts[index]
+					if part.get("cutter", false):
+						machine_cutter_batch_slots[part.node.get_instance_id()] = {"mesh": multi, "index": index}
+					if part.node.name == "WheelRotor":
+						var node_id: int = part.node.get_instance_id()
+						machine_batched_rotors[node_id] = true
+						machine_batched_rotor_slots[node_id] = {"mesh": multi, "index": index,
+							"node": part.node, "parent_pose": part.parent_pose}
+			batch_index += 1
 
 func _update_machine_dynamic_batches(visible_rotors_only := false) -> void:
 	if machine_dynamic_batches.is_empty() and machine_conveyor_batches.is_empty():
