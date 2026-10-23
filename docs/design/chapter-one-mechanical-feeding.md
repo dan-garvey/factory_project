@@ -1,6 +1,7 @@
 # Chapter 1 mechanical feeding candidates
 
-This note records small, reversible geometry rules for `factory-yau.1.10.17.1`.
+This note records small, reversible geometry and forming rules for
+`factory-yau.1.10.17.1` and `factory-yau.1.10.17.4`.
 They are design choices for future native and ordinary-scene work, not claims
 about the current runtime or requirements for the first plate. The first plate
 remains hand-fed. `factory-yau.1.10.16.4` owns broad-item carrier behavior and
@@ -56,3 +57,51 @@ keeps elevation, while a gravity slide spends vertical room and requires a
 lower receiver. Both use the same fit and custody rule. A broad gantry carrier
 from `factory-yau.1.10.16.5` can also pass this fit test with its own supported
 deck and motion; the guide design does not implement or replace that carrier.
+
+## Repeated cold forming candidate
+
+`factory-yau.1.10.17.4` compares three ways to reach the *same* finished
+2 × 2 sheet before shearing. These numbers are an illustrative tuning fixture,
+not adopted copper physics or a first-plate prerequisite. The sheet keeps its
+one identity and twelve mass units through every accepted pass. Its bounded
+forming state is depth 0, 1 or 2; only depth 2 can enter the shear. Progress
+belongs to the workpiece, not to a particular press or an intermediate recipe
+output. It travels with the sheet through pickup, blockage, save and rejoin.
+
+Two fixed stroke choices are enough for this comparison:
+
+| Stroke | Admission | Effect on one supported sheet |
+| --- | --- | --- |
+| Full | Peak drive force at least 8 units and at least 12 work units in one guided, clear cycle | Depth 0 reaches depth 2. |
+| Shallow | Peak drive force at least 5 units and at least 6 work units in one guided, clear cycle | Depth increases by one, at most to 2. |
+
+Both strokes require the same matching anvil and ram working footprint, contact
+and clearance. The larger sheet uses four supported workcells on the common
+grid; a floating guide needs no structural anchor. Force below 5, insufficient
+work, a missed work face or a blocked discharge completes no pass and changes
+no forming state. Weak taps cannot accumulate fractions of a pass. The
+illustrative total useful work is at least 12 units on either route; the
+single full stroke buys time with higher peak force.
+
+| Arrangement | Productive cycles and cost | Handling and footprint |
+| --- | --- | --- |
+| One strong stage | One full cycle at peak force 8 and work 12. | One 2 × 2 working area, one feed and one exit. Needs a stronger drive but can process a new sheet on the next cycle. |
+| Two shallow stages | Two shallow cycles at peak force 5 and work 6 each. | Two distinct 2 × 2 working areas plus a clear transfer between them. Each station has a fixed depth setting, so an unattended line can pipeline separate sheets without timing controls. |
+| One shallow stage with return | Two shallow cycles at peak force 5 and work 6 each, plus at least one return transfer. | One 2 × 2 working area and a broad, supported return route. Hand-tended pickup or a later mechanically justified fixed diverter can send the depth-1 sheet back; the depth-2 sheet leaves for cutting. |
+
+A stopped first pass remains a depth-1 sheet at the station exit or its last
+accepted carrier. An occupied return, stopped drive or full downstream shear
+does not erase progress or produce a second sheet. Clearing the route, carrying
+the sheet to another capable press or restoring drive resumes from depth 1.
+The compact return layout saves a second press at the cost of extra handling
+and lower unattended throughput. The two-stage layout spends area and parts to
+reduce peak force while preserving flow. The strong layout spends peak force to
+save area and cycles. None dominates every site.
+
+A simple width grate cannot distinguish depth 1 from depth 2 when their
+horizontal outline is unchanged. The two-stage route needs no sorting sensor;
+the compact loop is hand-tended until a physical thickness or other observable
+change can drive a fixed diverter and its custody can be tested. Heating is a
+separate later candidate under `factory-yau.1.10.17.5`, not an implicit force
+discount here. This comparison belongs after the first hand-fed product as an
+optional later Chapter 1 forming and throughput challenge.
