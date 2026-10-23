@@ -71,11 +71,28 @@ void arrival_projection_and_restore() {
                 check(std::get<I>(count.storage()) == 0,
                       "Arrival must not gift a complete machine or transmission part to either actor.");
     const auto actors = get<O>(view, "actors");
+    const auto& p_spawn = get<A>(actors.at("P"), "position");
+    const auto& q_spawn = get<A>(actors.at("Q"), "position");
+    // Independent envelope from the retained opened-pod mesh: its frontmost
+    // hatch begins at z = 6.6 - 0.94 - 0.71 / 2. Keep the whole native capsule
+    // on the nine-panel deck and in front of that envelope, with a small gap.
+    constexpr double radius = 0.3;
+    constexpr double hull_front = 6.6 - 0.94 - 0.71 / 2.0;
+    for (const auto* spawn : {&p_spawn, &q_spawn}) {
+        const auto x = std::get<double>((*spawn)[0].storage());
+        const auto z = std::get<double>((*spawn)[2].storage());
+        check(x - radius >= -0.825 && x + radius <= 4.125 &&
+              z - radius >= 4.125 && z + radius + 0.1 <= hull_front,
+              "Each complete arrival capsule starts on the clear front deck, outside the visible pod hull.");
+    }
+    check(std::hypot(std::get<double>(p_spawn[0].storage()) - std::get<double>(q_spawn[0].storage()),
+          std::get<double>(p_spawn[2].storage()) - std::get<double>(q_spawn[2].storage())) >= 2 * radius + 0.1,
+          "The two default arrival capsules have a positive separation.");
     check(factory::values::typed_difference(V(get<A>(actors.at("P"), "position")),
           V(get<A>(actors.at("Q"), "position"))).has_value(),
           "The two actors receive distinct deck positions without duplicate pod stock.");
-    check(get<bool>(host.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 1), "accepted") &&
-          get<bool>(host.publish_actor("Q", {V(1.65), V(1.0), V(8.25)}, 1), "accepted"),
+    check(get<bool>(host.publish_actor("P", p_spawn, 1), "accepted") &&
+          get<bool>(host.publish_actor("Q", q_spawn, 1), "accepted"),
           "Both physical actors can become ready on the same deployed deck.");
     const O build{{"context", V("arrival-site")}, {"client", V("P")},
         {"request", V("expand-east")}, {"action", V("place_foundation")},
@@ -90,7 +107,7 @@ void arrival_projection_and_restore() {
     auto other = build;
     other.at("client") = V("Q");
     other.at("request") = V("Q-expand");
-    other.at("cell") = V(A{V(I{3}), V(I{5})});
+    other.at("cell") = V(A{V(I{1}), V(I{2})});
     const auto q_result = host.command("Q", other);
     check(!get<bool>(q_result, "accepted") &&
           get<std::string>(q_result, "reason") == "no_part" &&

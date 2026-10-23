@@ -759,8 +759,10 @@ Value Host::initialize_site(const std::string& context, const std::vector<std::s
         seed.foundation_kits.emplace(actor, actor == "P" ?
             profile.foundation_parts - (arrival ? world::landing_deck_parts : 0) : 0);
         profile.starting_foundation_kits.emplace(actor, seed.foundation_kits.at(actor));
+        // Start on the unfolded front deck, clear of the rear pressure shell,
+        // side doors and threshold. Both capsules remain near the local bench.
         candidate->actors.emplace(actor, Actor{arrival ?
-            authority::Point{pitch, 1.0, (actor == "P" ? 4.0 : 5.0) * pitch} :
+            authority::Point{(actor == "P" ? 1.0 : 0.5) * pitch, 1.0, 4.8} :
             authority::Point{-pitch, 1.0, (actor == "P" ? 2.0 : 3.0) * pitch}, 0, false});
     }
     candidate->world = world::World::create(context, profile, seed);

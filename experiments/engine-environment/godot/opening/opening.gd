@@ -8102,7 +8102,9 @@ func _fit_guided_footer() -> void:
 		and _guided_step({}).tool == "collector" \
 		and status_label.text == FIRST_COLLECTOR_HINT
 	status_label.visible = not redundant_intro
-	var right: float = -308.0 if inspector.get_parent().get_parent().visible else -18.0
+	var inspector_panel: Control = inspector.get_parent().get_parent()
+	var right: float = inspector_panel.get_global_rect().position.x - get_viewport().get_visible_rect().end.x - 18.0 \
+		if inspector_panel.visible else -18.0
 	if not is_equal_approx(status_footer.offset_right, right):
 		status_footer.set_anchor_and_offset(SIDE_RIGHT, 1.0, right)
 	var left_anchor := 1.0 if redundant_intro else 0.0
