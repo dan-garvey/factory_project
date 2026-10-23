@@ -57,6 +57,23 @@ std::pair<double, double> vertical_faces(const O& placed, const std::string& id)
     return {y - extent, y + extent};
 }
 
+void drive_faces_meet(const O& placed, const std::string& first, const std::string& second) {
+    const auto shaft_box = get<O>(V(placed.at(first)), "occupied");
+    const auto cog_box = get<O>(V(placed.at(second)), "occupied");
+    const auto shaft_center = get<A>(V(shaft_box), "center");
+    const auto cog_center = get<A>(V(cog_box), "center");
+    const auto shaft_half = get<A>(V(shaft_box), "half");
+    const auto cog_half = get<A>(V(cog_box), "half");
+    for (std::size_t axis : {std::size_t{0}, std::size_t{2}}) {
+        const double distance = std::abs(std::get<double>(shaft_center[axis].storage()) -
+                                         std::get<double>(cog_center[axis].storage()));
+        if (distance < 1e-9) continue;
+        check(std::abs(distance - std::get<double>(shaft_half[axis].storage()) -
+                       std::get<double>(cog_half[axis].storage())) < 1e-9,
+              "The separate press drive occupied faces meet on their common-grid axis.");
+    }
+}
+
 std::string place(Host& host, const char* name, I x, I y, I z, const char* id) {
     auto wire = request(id, "place_component");
     wire.emplace("component", V(name));
@@ -153,6 +170,8 @@ void placed_press_projection() {
     const auto parts = get<O>(ready, "parts");
     const auto feeds = get<A>(ready, "open_feeds");
     const auto placed = get<O>(host.projection(), "placed_components");
+    drive_faces_meet(placed, shaft, cog);
+    drive_faces_meet(placed, mount, shaft);
     const auto frame_box = get<O>(V(placed.at(frame)), "occupied");
     const auto frame_center = get<A>(V(frame_box), "center");
     const auto frame_half = get<A>(V(frame_box), "half");
@@ -221,6 +240,8 @@ void placed_press_projection() {
     const auto mirrored_cog = place(host, "wooden_cog", 6, 4, 0, "mirror-cog");
     const auto mirrored = inspection(host);
     const auto mirrored_parts = get<O>(mirrored, "parts");
+    drive_faces_meet(get<O>(host.projection(), "placed_components"), mirrored_shaft, mirrored_cog);
+    drive_faces_meet(get<O>(host.projection(), "placed_components"), mount, mirrored_shaft);
     check(get<std::string>(mirrored, "status") == "ready" &&
           get<std::string>(V(mirrored_parts), "shaft") == mirrored_shaft &&
           get<std::string>(V(mirrored_parts), "drive_cog") == mirrored_cog &&
@@ -242,6 +263,15 @@ void placed_press_projection() {
     check(get<I>(get<O>(host.projection(), "cargo").at("P"), "products") == 1,
           "The formed product enters the same actor cargo ledger after pickup.");
     const auto saved = host.checkpoint();
+    auto hub_obstruction = factory::godot_world::tests::flat_site();
+    hub_obstruction.at("obstacles") = V(A{V(A{
+        V(A{V(2.64), V(2.45), V(-0.03)}),
+        V(A{V(2.66), V(2.50), V(0.03)})})});
+    Host obstructed_hub;
+    check(get<bool>(obstructed_hub.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+          get<bool>(obstructed_hub.configure_terrain(hub_obstruction), "accepted") &&
+          !get<bool>(obstructed_hub.restore_checkpoint(saved), "accepted"),
+          "A solid in the newly occupied cog hub refuses the saved press instead of clipping its axle.");
     Host restored;
     check(get<bool>(restored.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
           get<bool>(restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted"),

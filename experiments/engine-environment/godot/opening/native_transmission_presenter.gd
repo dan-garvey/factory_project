@@ -1190,8 +1190,8 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 						Vector3(0.045, 0.27, 0.30), dark)
 				_support_box(anchor, "PressCrown", Vector3(0, 0.115, 0),
 					Vector3(0.37, 0.075, 0.34), worked)
-				_support_box(anchor, "PressCrownBearing", Vector3(0, -0.07, 0),
-					Vector3(0.20, 0.10, 0.20), worked)
+				_support_box(anchor, "PressCrownBearing", Vector3(0, -0.10, 0),
+					Vector3(occupied_size.x, 0.10, occupied_size.z), worked)
 			else:
 				if collector_support_drop > 0.0:
 					_collector_tool_support(anchor, "Mount", collector_angle,
@@ -1246,7 +1246,8 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 			anchor.add_child(rotor)
 			var finish: Material = timber if kind == "wooden_cog" else worked
 			_support_cylinder(rotor, "CogRim", 0.095, 0.05, finish)
-			_support_cylinder(rotor, "CogHub", 0.05, 0.105, dark)
+			var hub_length: float = occupied_size.dot(direction.abs()) if press_role == "drive_cog" else 0.105
+			_support_cylinder(rotor, "CogHub", 0.05, hub_length, dark)
 			for index in range(12):
 				var angle := TAU * float(index) / 12.0
 				_support_box(rotor, "CogTooth%02d" % index, Vector3.ZERO,
@@ -1316,7 +1317,8 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 			var across := reference.cross(direction).normalized()
 			rod.basis = Basis(across, direction, across.cross(direction))
 			rod.position.y = 0.0 if fitted else 0.035
-			Assets.shaft(rod, 0.32 if fitted else 0.14, Color("947658") if kind == "wooden_shaft" else Color("9aaba5"))
+			var shaft_length: float = occupied_size.dot(direction.abs()) if fitted and press_role == "shaft" else (0.32 if fitted else 0.14)
+			Assets.shaft(rod, shaft_length, Color("947658") if kind == "wooden_shaft" else Color("9aaba5"))
 			var core := rod.get_node("Shaft") as MeshInstance3D
 			core.material_override = timber if kind == "wooden_shaft" else worked
 			if fitted:
@@ -1444,9 +1446,11 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 					if not boxes.has(shaft_id) or not boxes[shaft_id].component.ends_with("_shaft"):
 						continue
 					drives[shaft_id] = Vector3(-direction.x, 0, -direction.z)
+					press_roles[shaft_id] = "shaft"
 					var cog_id: Variant = by_cell.get(origin + Vector3i(0, 4, 0) + direction * 2)
 					if boxes.has(cog_id) and boxes[cog_id].component.ends_with("_cog"):
 						drives[cog_id] = Vector3(-direction.x, 0, -direction.z)
+						press_roles[cog_id] = "drive_cog"
 			if press.get("status") != "ready" or not press.get("parts") is Dictionary:
 				continue
 			var fitted: Dictionary = press.parts

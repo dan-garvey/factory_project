@@ -746,6 +746,32 @@ func _component_view() -> void:
 	physical.free()
 	await process_frame
 
+func _verify_press_drive_contact(anchors: Dictionary, state: Dictionary) -> void:
+	var rod: MeshInstance3D = anchors.shaft.get_node("LooseDriveShaft/Shaft")
+	var hub: MeshInstance3D = anchors.cog.get_node("PlacedDriveCog/CogHub")
+	var crown: MeshInstance3D = anchors.mount.get_node("PressCrownBearing")
+	var axis: Vector3 = (hub.global_position - rod.global_position).normalized()
+	var rod_half := rod.global_basis.y * (rod.mesh as CylinderMesh).height * 0.5
+	var hub_half := hub.global_basis.y * (hub.mesh as CylinderMesh).height * 0.5
+	var rod_tip := rod.global_position + axis * absf(rod_half.dot(axis))
+	var hub_tip := hub.global_position - axis * absf(hub_half.dot(axis))
+	verify(absf(rod.global_basis.y.normalized().dot(axis)) > 0.999 \
+		and absf(hub.global_basis.y.normalized().dot(axis)) > 0.999,
+		"The shaft core and cog hub share the actual drive axis.")
+	verify(rod_tip.distance_to(hub_tip) < 0.0002,
+		"The visible press shaft and cog hub meet at their confirmed common-grid positions.")
+	var crown_bounds: AABB = crown.global_transform * crown.mesh.get_aabb()
+	var crown_tip := crown_bounds.get_center() + axis * crown_bounds.size.dot(axis.abs()) * 0.5
+	var rod_near_tip := rod.global_position - axis * absf(rod_half.dot(axis))
+	verify(crown_tip.distance_to(rod_near_tip) < 0.0002,
+		"The crown bearing seats the other end of the same press shaft.")
+	var boxes: Dictionary = Geometry.component_boxes(state).boxes
+	for member in [["shaft", rod], ["cog", hub], ["mount", crown]]:
+		var box: Dictionary = boxes[member[0]]
+		var mesh: MeshInstance3D = member[1]
+		verify(AABB(box.center - box.size * 0.5, box.size).grow(0.0002).encloses(mesh.global_transform * mesh.mesh.get_aabb()),
+			"The connected drive member remains inside its own native occupied volume.")
+
 func _press_component_view() -> void:
 	# Native Host owns these seven occupied records. This fixture inspects only
 	# the existing renderer and actor collision consumer at its projected faces.
@@ -757,9 +783,9 @@ func _press_component_view() -> void:
 			"anvil": _component_record("anvil", [0, 1, 0], [0.0, 1.130625, 0.0], [0.14, 0.230625, 0.14]),
 			"ram": _component_record("ram_face", [0, 2, 0], [0.0, 1.60875, 0.0], [0.14, 0.2475, 0.14]),
 			"guide": _component_record("sliding_guide", [0, 3, 0], [0.0, 2.125625, 0.0], [0.14, 0.269375, 0.14]),
-			"mount": _component_record("tool_mount", [0, 4, 0], [0.0, 2.575, 0.0], [0.2, 0.18, 0.19]),
+			"mount": _component_record("tool_mount", [0, 4, 0], [0.0, 2.575, 0.0], [0.2075, 0.18, 0.2075]),
 			"shaft": _component_record("wooden_shaft", [1, 4, 0], [0.4125, 2.475, 0.0], [0.205, 0.12, 0.205]),
-			"cog": _component_record("wooden_cog", [2, 4, 0], [0.825, 2.475, 0.0], [0.14, 0.14, 0.14])},
+			"cog": _component_record("wooden_cog", [2, 4, 0], [0.825, 2.475, 0.0], [0.2075, 0.14, 0.2075])},
 		"press_assemblies": [{"status": "ready", "parts": {"frame": "frame", "anvil": "anvil",
 			"ram": "ram", "guide": "guide", "mount": "mount", "shaft": "shaft", "drive_cog": "cog"}}]}
 	var parsed: Dictionary = Geometry.component_boxes(state)
@@ -789,6 +815,7 @@ func _press_component_view() -> void:
 	verify(rotor != null and rotor.find_children("CogTooth*", "MeshInstance3D", false, false).size() == 12
 		and anchors.shaft.get_node_or_null("LooseDriveShaft") != null,
 		"The projected shaft and cog are distinct supported drive parts.")
+	_verify_press_drive_contact(anchors, state)
 	for id: String in parsed.boxes:
 		var spec: Dictionary = parsed.boxes[id]
 		var body: StaticBody3D = physical.component_bodies[id]
@@ -817,9 +844,27 @@ func _press_component_view() -> void:
 	verify(mirrored.size() == 7 and mirrored_shaft != null and mirrored_shaft.basis.y.x > 0.99
 		and physical.component_bodies.shaft.position.x < 0.0,
 		"An opposite-side confirmed drive still fits the same seven-part press.")
+	_verify_press_drive_contact(mirrored, state)
+	var retained_shaft_length: float = (mirrored_shaft.get_node("Shaft").mesh as CylinderMesh).height
+	for direction in [-1, 1]:
+		state.placed_components.shaft.center = [0, 4, direction]
+		state.placed_components.shaft.occupied.center = [0.0, 2.475, float(direction) * 0.4125]
+		state.placed_components.cog.center = [0, 4, direction * 2]
+		state.placed_components.cog.occupied.center = [0.0, 2.475, float(direction) * 0.825]
+		state.revision += 1
+		host.state = state
+		physical.sync_topology()
+		view.refresh()
+		var transverse := {}
+		for node: Node in view.get_children():
+			if node.has_meta("component_entity"):
+				transverse[node.get_meta("component_entity")] = node
+		_verify_press_drive_contact(transverse, state)
+		verify(physical.component_bodies.shaft.position.z * float(direction) > 0.4,
+			"The transverse press keeps the shaft's native body on its confirmed grid axis.")
 	state.placed_components.erase("cog")
 	state.press_assemblies[0] = {"frame": "frame", "center": [0, 0, 0], "status": "missing_cog"}
-	state.revision = 3
+	state.revision += 1
 	host.state = state
 	physical.sync_topology()
 	view.refresh()
@@ -830,7 +875,8 @@ func _press_component_view() -> void:
 	var partial_shaft: Node3D = partial.shaft.get_node_or_null("LooseDriveShaft")
 	verify(not physical.component_bodies.has("cog") and partial.size() == 6
 		and partial.mount.get_node_or_null("PressCrown") != null
-		and partial_shaft != null and partial_shaft.basis.y.x > 0.99,
+		and partial_shaft != null and partial_shaft.basis.y.z < -0.99 \
+		and is_equal_approx((partial_shaft.get_node("Shaft").mesh as CylinderMesh).height, retained_shaft_length),
 		"Reclaiming the cog clears its body while the remaining crown and shaft keep their press fitting.")
 	view.free()
 	physical.free()

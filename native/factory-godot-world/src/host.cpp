@@ -29,6 +29,7 @@ constexpr Integer height_denominator = 4;
 constexpr double height_step = pitch / height_denominator;
 constexpr double foundation_depth = 2 * height_step;
 constexpr double anchor_height = pitch / 2;
+constexpr double component_shaft_half = 0.205;
 // Hundredths of a height step, shared with the native opening rotor.
 constexpr Integer wheel_radius = 224;
 constexpr Integer wheel_axle_offset = 200;
@@ -226,7 +227,9 @@ Bounds component_bounds(const world::Profile& profile,
             // A floor-seated table is usable on ground or an ordinary joined deck.
             return {{at[0], center[1] * height_step + 0.45, at[2]}, {0.34, 0.45, 0.30}};
         case materials::Component::tool_mount:
-            return {{at[0], at[1] + 0.10, at[2]}, {0.20, 0.18, 0.19}};
+            return {{at[0], at[1] + 0.10, at[2]},
+                    {height_step - component_shaft_half, 0.18,
+                     height_step - component_shaft_half}};
         case materials::Component::anvil:
             // The cast pedestal meets the frame's 0.9 m top and carries the
             // open work seat. The ram begins at its upper face.
@@ -244,7 +247,13 @@ Bounds component_bounds(const world::Profile& profile,
             return {{at[0], at[1] - 0.0825, at[2]}, {0.18, 0.15, 0.205}};
         case materials::Component::wooden_shaft:
         case materials::Component::softmetal_shaft:
-            return {at, {0.205, 0.12, 0.205}};
+            return {at, {component_shaft_half, 0.12, component_shaft_half}};
+        case materials::Component::wooden_cog:
+        case materials::Component::softmetal_cog:
+            // Either horizontal press layout seats this hub against the
+            // neighboring shaft without moving either common-grid center.
+            return {at, {height_step - component_shaft_half, 0.14,
+                         height_step - component_shaft_half}};
         default:
             return {at, {0.14, 0.14, 0.14}};
     }
