@@ -155,10 +155,14 @@ func set_lesson(index: int) -> void:
 	_refresh()
 
 func _step() -> void:
+	if model == null or not model.boot_result.get("accepted", false):
+		return
 	_advance()
 	_refresh()
 
 func _recover() -> void:
+	if model == null or not model.boot_result.get("accepted", false):
+		return
 	if lesson != 3 or model.projection().stock.output != 1:
 		return
 	_observe(4.95, 0.0)
@@ -173,6 +177,7 @@ func _refresh() -> void:
 		inspect_label.text = "The example cannot inspect parts until its native rules are available."
 		step_button.disabled = true
 		recover_button.visible = false
+		recover_button.disabled = true
 		return
 	world._refresh()
 	var state: Dictionary = model.projection()

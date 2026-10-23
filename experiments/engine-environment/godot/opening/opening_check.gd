@@ -108,6 +108,17 @@ func _run() -> void:
 	if not ClassDB.class_exists("FactoryNativeWorld"):
 		_check("cannot inspect" in teaching.inspect_label.text,
 			"Pointing inside an unavailable example leaves a stable explanatory readout.")
+		for _lesson in range(3):
+			await _key(KEY_RIGHT)
+		_check(scene.lesson_index == 3 and teaching.recover_button.disabled,
+			"Unavailable Help disables recovery even on the retrieval lesson.")
+		await _key(KEY_ENTER)
+		_check(scene.model.projection() == explained,
+			"Unavailable Help recovery cannot mutate the actual worksite.")
+		teaching.step_button.pressed.emit()
+		teaching.recover_button.pressed.emit()
+		_check(teaching.ticks == 0 and scene.model.projection() == explained,
+			"Unavailable example actions remain inert if a signal is emitted directly.")
 	_check(scene.model.projection() == explained, "Inspectable explanation must not mutate machinery.")
 	await _key(KEY_H)
 	# Stop with real in-process work, then ensure logical advancement retains it.
