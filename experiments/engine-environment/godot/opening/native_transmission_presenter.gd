@@ -1011,7 +1011,8 @@ func _shaft_splice(first: Dictionary, second: Dictionary, parent: Node3D,
 	else:
 		fitting.free()
 
-func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3) -> void:
+func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
+		occupied_size: Vector3, press_role: String) -> void:
 	var timber: Material = WheelArt.support_timber_finish()
 	if timber == null:
 		timber = Visuals.material(Color("76604a"), 0.12, 0.78)
@@ -1034,14 +1035,70 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3) -
 					var peg := _support_cylinder(anchor, "JoineryPeg%d" % anchor.get_child_count(), 0.011, 0.018, timber)
 					peg.position = Vector3(x, 0.384, z)
 		"tool_mount":
-			_support_box(anchor, "SlidingFoot", Vector3(0, -0.11, 0), Vector3(0.37, 0.06, 0.33), dark)
-			var clamp := ClampBody.instantiate() as Node3D
-			clamp.name = "CastToolClamp"
-			# The selected source frame and fixed jaw are static. Their opening
-			# faces the confirmed cutter; the donor dial and handle are absent.
-			clamp.position = Vector3(-0.015, -0.08, 0)
-			clamp.rotation.y = PI * 0.5
-			anchor.add_child(clamp)
+			if press_role == "mount":
+				# This crown is a separate fitted part. Its sockets reach the guide
+				# face without inventing another pick body or covering the work face.
+				for x in [-0.145, 0.145]:
+					_support_box(anchor, "PressCrownSocket", Vector3(x, -0.035, 0),
+						Vector3(0.045, 0.27, 0.30), dark)
+				_support_box(anchor, "PressCrown", Vector3(0, 0.115, 0),
+					Vector3(0.37, 0.075, 0.34), worked)
+				_support_box(anchor, "PressCrownBearing", Vector3(0, -0.07, 0),
+					Vector3(0.20, 0.10, 0.20), worked)
+			else:
+				_support_box(anchor, "SlidingFoot", Vector3(0, -0.11, 0), Vector3(0.37, 0.06, 0.33), dark)
+				var clamp := ClampBody.instantiate() as Node3D
+				clamp.name = "CastToolClamp"
+				# The selected source frame and fixed jaw are static. Their opening
+				# faces the confirmed cutter; the donor dial and handle are absent.
+				clamp.position = Vector3(-0.015, -0.08, 0)
+				clamp.rotation.y = PI * 0.5
+				anchor.add_child(clamp)
+		"anvil":
+			var bottom := -occupied_size.y * 0.5
+			_support_box(anchor, "CastPedestalFoot", Vector3(0, bottom + 0.03, 0),
+				Vector3(0.265, 0.055, 0.265), dark)
+			_support_box(anchor, "CastPedestal", Vector3(0, bottom + 0.14, 0),
+				Vector3(0.17, 0.235, 0.17), dark)
+			_support_box(anchor, "OpenAnvilSeat", Vector3(0, bottom + 0.29, 0),
+				Vector3(0.265, 0.055, 0.245), worked)
+			for z in [-0.107, 0.107]:
+				_support_box(anchor, "AnvilEdge", Vector3(0, bottom + 0.35, z),
+					Vector3(0.23, 0.06, 0.03), dark)
+		"ram_face":
+			var bottom := -occupied_size.y * 0.5
+			_support_box(anchor, "MovingDie", Vector3(0, bottom + 0.045, 0),
+				Vector3(0.25, 0.075, 0.25), worked)
+			_support_box(anchor, "RamBody", Vector3(0, bottom + occupied_size.y * 0.5, 0),
+				Vector3(0.125, occupied_size.y - 0.10, 0.125), dark)
+			for z in [-0.105, 0.105]:
+				_support_box(anchor, "RamSlide", Vector3(0, bottom + occupied_size.y * 0.57, z),
+					Vector3(0.20, occupied_size.y * 0.64, 0.028), worked)
+		"sliding_guide":
+			for x in [-0.103, 0.103]:
+				_support_box(anchor, "GuideRail", Vector3(x, 0, 0),
+					Vector3(0.045, occupied_size.y - 0.012, 0.21), worked)
+			_support_box(anchor, "GuideCrown", Vector3(0, occupied_size.y * 0.5 - 0.035, 0),
+				Vector3(0.25, 0.055, 0.25), dark)
+		"wooden_cog", "softmetal_cog":
+			var direction := drive_direction.normalized() if drive_direction.length_squared() > 0.5 else Vector3.UP
+			var reference := Vector3.RIGHT if absf(direction.dot(Vector3.RIGHT)) < 0.95 else Vector3.BACK
+			var across := reference.cross(direction).normalized()
+			var rotor := Node3D.new()
+			rotor.name = "PlacedDriveCog"
+			rotor.basis = Basis(across, direction, across.cross(direction))
+			anchor.add_child(rotor)
+			var finish: Material = timber if kind == "wooden_cog" else worked
+			_support_cylinder(rotor, "CogRim", 0.095, 0.05, finish)
+			_support_cylinder(rotor, "CogHub", 0.05, 0.105, dark)
+			for index in range(12):
+				var angle := TAU * float(index) / 12.0
+				_support_box(rotor, "CogTooth%02d" % index, Vector3.ZERO,
+					Vector3(0.027, 0.065, 0.035), finish)
+				# _support_box installs the mesh but has no return value.
+				var placed_tooth := rotor.get_child(rotor.get_child_count() - 1) as MeshInstance3D
+				placed_tooth.position = Vector3(sin(angle), 0, cos(angle)) * 0.113
+				placed_tooth.rotation.y = angle
 		"cutting_edge":
 			_support_box(anchor, "BladeCarrier", Vector3(0, -0.07, 0), Vector3(0.40, 0.07, 0.32), dark)
 			var blade := MeshInstance3D.new()
@@ -1089,6 +1146,15 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3) -
 
 func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 	var drives: Dictionary = {}
+	var press_roles: Dictionary = {}
+	var by_cell: Dictionary = {}
+	var placed: Variant = snapshot.get("placed_components", {})
+	if placed is Dictionary:
+		for id: String in placed:
+			var record: Variant = placed[id]
+			if not record is Dictionary or not record.get("center") is Array or record.center.size() != 3:
+				continue
+			by_cell[Vector3i(record.center[0], record.center[1], record.center[2])] = id
 	var assemblies: Variant = snapshot.get("collector_assemblies", [])
 	if assemblies is Array:
 		for assembly: Variant in assemblies:
@@ -1102,6 +1168,47 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 			toward_frame.y = 0.0
 			if toward_frame.length_squared() > 0.01:
 				drives[shaft_id] = toward_frame.normalized()
+	var presses: Variant = snapshot.get("press_assemblies", [])
+	if presses is Array:
+		for press: Variant in presses:
+			if not press is Dictionary:
+				continue
+			# The frame's native cell and the placed cells keep partial fittings
+			# styled and oriented when a drive part is removed. Readiness still
+			# comes only from the native assembly projection.
+			var cell: Variant = press.get("center")
+			if cell is Array and cell.size() == 3:
+				var origin := Vector3i(cell[0], cell[1], cell[2])
+				var mount_id: Variant = by_cell.get(origin + Vector3i(0, 4, 0))
+				if boxes.has(mount_id) and boxes[mount_id].component == "tool_mount":
+					press_roles[mount_id] = "mount"
+				for direction in [Vector3i.RIGHT, Vector3i.LEFT, Vector3i.FORWARD, Vector3i.BACK]:
+					var shaft_id: Variant = by_cell.get(origin + Vector3i(0, 4, 0) + direction)
+					if not boxes.has(shaft_id) or not boxes[shaft_id].component.ends_with("_shaft"):
+						continue
+					drives[shaft_id] = Vector3(-direction.x, 0, -direction.z)
+					var cog_id: Variant = by_cell.get(origin + Vector3i(0, 4, 0) + direction * 2)
+					if boxes.has(cog_id) and boxes[cog_id].component.ends_with("_cog"):
+						drives[cog_id] = Vector3(-direction.x, 0, -direction.z)
+			if press.get("status") != "ready" or not press.get("parts") is Dictionary:
+				continue
+			var fitted: Dictionary = press.parts
+			for role: String in fitted:
+				var id: Variant = fitted[role]
+				if boxes.has(id):
+					press_roles[id] = role
+			if boxes.has(fitted.get("mount")) and boxes.has(fitted.get("shaft")):
+				var shaft_id: String = str(fitted.shaft)
+				var toward_mount: Vector3 = boxes[fitted.mount].center - boxes[shaft_id].center
+				toward_mount.y = 0.0
+				if toward_mount.length_squared() > 0.01:
+					drives[shaft_id] = toward_mount.normalized()
+			if boxes.has(fitted.get("shaft")) and boxes.has(fitted.get("drive_cog")):
+				var cog_id: String = str(fitted.drive_cog)
+				var toward_shaft: Vector3 = boxes[fitted.shaft].center - boxes[cog_id].center
+				toward_shaft.y = 0.0
+				if toward_shaft.length_squared() > 0.01:
+					drives[cog_id] = toward_shaft.normalized()
 	for id: String in boxes:
 		var spec: Dictionary = boxes[id]
 		var anchor := Node3D.new()
@@ -1110,7 +1217,8 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 		anchor.set_meta("component_entity", id)
 		anchor.set_meta("component_kind", spec.component)
 		add_child(anchor)
-		_placed_component(anchor, spec.component, drives.get(id, Vector3.ZERO))
+		_placed_component(anchor, spec.component, drives.get(id, Vector3.ZERO),
+			spec.size, press_roles.get(id, ""))
 
 func refresh() -> void:
 	if _host == null or not is_instance_valid(_host.get_ref()):
@@ -1152,7 +1260,7 @@ func refresh() -> void:
 			fixed_spans[id] = [span.get("generation"), span.get("from"), span.get("to")] if span is Dictionary else span
 	var next_key := [snapshot.get("context"), parts, motions, fixed_spans,
 		snapshot.get("engagements", []), snapshot.get("dropped_material", []),
-		component_result.boxes, snapshot.get("collector_assemblies", [])]
+		component_result.boxes, snapshot.get("collector_assemblies", []), snapshot.get("press_assemblies", [])]
 	if next_key == _view_key:
 		_native_view_context = native_context if native_model else ""
 		_native_view_revision = native_revision if native_model else null

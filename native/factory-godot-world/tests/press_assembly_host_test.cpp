@@ -1,5 +1,6 @@
 #include "native/factory-godot-world/tests/site_fixture.hpp"
 
+#include <cmath>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -40,6 +41,18 @@ V inspection(const Host& host) {
     const auto presses = get<A>(host.projection(), "press_assemblies");
     check(presses.size() == 1, "Exactly the one installed frame is a press candidate.");
     return presses.front();
+}
+
+std::pair<double, double> vertical_faces(const O& placed, const std::string& id) {
+    const auto occupied = get<O>(V(placed.at(id)), "occupied");
+    const auto center = get<A>(V(occupied), "center");
+    const auto half = get<A>(V(occupied), "half");
+    const double y = std::get<double>(center[1].storage());
+    const double extent = std::get<double>(half[1].storage());
+    check(std::abs(std::get<double>(half[0].storage()) - 0.14) < 1e-9 &&
+          std::abs(std::get<double>(half[2].storage()) - 0.14) < 1e-9,
+          "Press fittings retain their narrow feed and exit clearance.");
+    return {y - extent, y + extent};
 }
 
 std::string place(Host& host, const char* name, I x, I y, I z, const char* id) {
@@ -137,6 +150,25 @@ void placed_press_projection() {
     const auto ready = inspection(host);
     const auto parts = get<O>(ready, "parts");
     const auto feeds = get<A>(ready, "open_feeds");
+    const auto placed = get<O>(host.projection(), "placed_components");
+    const auto frame_box = get<O>(V(placed.at(frame)), "occupied");
+    const auto frame_center = get<A>(V(frame_box), "center");
+    const auto frame_half = get<A>(V(frame_box), "half");
+    const double frame_top = std::get<double>(frame_center[1].storage()) +
+        std::get<double>(frame_half[1].storage());
+    const auto anvil_faces = vertical_faces(placed, anvil);
+    const auto ram_faces = vertical_faces(placed, ram);
+    const auto guide_faces = vertical_faces(placed, guide);
+    const auto mount_box = get<O>(V(placed.at(mount)), "occupied");
+    const auto mount_center = get<A>(V(mount_box), "center");
+    const auto mount_half = get<A>(V(mount_box), "half");
+    const double mount_bottom = std::get<double>(mount_center[1].storage()) -
+        std::get<double>(mount_half[1].storage());
+    check(std::abs(frame_top - anvil_faces.first) < 1e-9 &&
+          std::abs(anvil_faces.second - ram_faces.first) < 1e-9 &&
+          std::abs(ram_faces.second - guide_faces.first) < 1e-9 &&
+          std::abs(guide_faces.second - mount_bottom) < 1e-9,
+          "Seven separately owned press parts meet at physical frame, anvil, ram, guide and crown faces.");
     check(get<std::string>(ready, "status") == "ready" &&
           get<std::string>(V(parts), "frame") == frame &&
           get<std::string>(V(parts), "anvil") == anvil &&

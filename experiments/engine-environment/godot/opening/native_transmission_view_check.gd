@@ -31,6 +31,25 @@ class ActorBridgeStub extends RefCounted:
 		full_calls += 1
 		return {"actors": {"P": actor}}
 
+class AdvanceProjectionStub extends RefCounted:
+	var advances := 0
+	var projections := 0
+	var revision := 0
+	var refuse_next := false
+	func _state() -> Dictionary:
+		return {"context": "advance-projection-fixture", "revision": revision,
+			"order": 0, "entities": {}, "links": [], "options": {}}
+	func advance() -> Dictionary:
+		advances += 1
+		if refuse_next:
+			refuse_next = false
+			return {"accepted": false, "reason": "native_step_failed"}
+		revision += 1
+		return _state()
+	func projection() -> Dictionary:
+		projections += 1
+		return _state()
+
 class HostStub extends RefCounted:
 	var state: Dictionary
 	var model: Variant = null
@@ -76,6 +95,32 @@ class ScaleOpening extends "res://opening/opening.gd":
 		var before := Time.get_ticks_usec()
 		super._process(delta)
 		process_ms = float(Time.get_ticks_usec() - before) / 1000.0
+
+class AdvanceProjectionOpening extends "res://opening/opening.gd":
+	func _ready() -> void:
+		pass
+	func _sync_landing_pod_visual() -> void:
+		pass
+	func _rebuild_machines() -> void:
+		pass
+	func _redraw_items() -> void:
+		pass
+	func _refresh_ui() -> void:
+		pass
+	func _refresh_machine_preview() -> void:
+		pass
+	func _refresh_placement_options() -> void:
+		pass
+	func _refresh_water() -> void:
+		pass
+	func _refresh_mechanical_audio() -> void:
+		pass
+	func _animate_wheel(_delta: float) -> void:
+		pass
+	func _update_camera() -> void:
+		pass
+	func _update_fps_counter(_delta: float) -> void:
+		pass
 
 class SharedSettlement extends "res://opening/shared_opening.gd":
 	func _usable_snapshot() -> bool:
@@ -320,6 +365,96 @@ func _component_view() -> void:
 				and is_equal_approx((unready_rod.get_node("Shaft") as MeshInstance3D).mesh.height, 0.14)
 				and node.find_children("BearingShell*", "MeshInstance3D", false, false).is_empty(),
 				"An unready placed shaft is stock on its foot, without a falsely connected journal axis.")
+	view.free()
+	physical.free()
+	await process_frame
+
+func _press_component_view() -> void:
+	# Native Host owns these seven occupied records. This fixture inspects only
+	# the existing renderer and actor collision consumer at its projected faces.
+	var state := {"context": "press-component-view", "revision": 1,
+		"options": {"native": true, "physical": true}, "actors": {}, "entities": {},
+		"foundations": {}, "transmission_parts": {}, "belt_spans": {}, "motion": {},
+		"collector_assemblies": [], "placed_components": {
+			"frame": _component_record("wooden_frame", [0, 0, 0], [0.0, 0.45, 0.0], [0.2025, 0.45, 0.2025]),
+			"anvil": _component_record("anvil", [0, 1, 0], [0.0, 1.130625, 0.0], [0.14, 0.230625, 0.14]),
+			"ram": _component_record("ram_face", [0, 2, 0], [0.0, 1.60875, 0.0], [0.14, 0.2475, 0.14]),
+			"guide": _component_record("sliding_guide", [0, 3, 0], [0.0, 2.125625, 0.0], [0.14, 0.269375, 0.14]),
+			"mount": _component_record("tool_mount", [0, 4, 0], [0.0, 2.575, 0.0], [0.2, 0.18, 0.19]),
+			"shaft": _component_record("wooden_shaft", [1, 4, 0], [0.4125, 2.475, 0.0], [0.205, 0.12, 0.205]),
+			"cog": _component_record("wooden_cog", [2, 4, 0], [0.825, 2.475, 0.0], [0.14, 0.14, 0.14])},
+		"press_assemblies": [{"status": "ready", "parts": {"frame": "frame", "anvil": "anvil",
+			"ram": "ram", "guide": "guide", "mount": "mount", "shaft": "shaft", "drive_cog": "cog"}}]}
+	var parsed: Dictionary = Geometry.component_boxes(state)
+	verify(parsed.get("accepted", false) and parsed.boxes.size() == 7,
+		"The complete press retains seven separate native occupied boxes.")
+	var facts := PhysicalProjection.new()
+	facts.state = state
+	var physical := ActorWorld.new()
+	root.add_child(physical)
+	verify(physical.configure(facts).get("accepted", false) and physical.component_bodies.size() == 7,
+		"The actual actor world registers every confirmed press part separately.")
+	var host := HostStub.new()
+	host.state = state
+	var view := Presenter.new()
+	root.add_child(view)
+	view.configure(host)
+	var anchors := {}
+	for node: Node in view.get_children():
+		if node.has_meta("component_entity"):
+			anchors[node.get_meta("component_entity")] = node
+	verify(anchors.size() == 7 and anchors.anvil.get_node_or_null("OpenAnvilSeat") != null
+		and anchors.ram.get_node_or_null("MovingDie") != null
+		and anchors.guide.get_node_or_null("GuideRail") != null
+		and anchors.mount.get_node_or_null("PressCrown") != null,
+		"The seven identities form a supported anvil, die, guide and press crown.")
+	var rotor: Node3D = anchors.cog.get_node_or_null("PlacedDriveCog")
+	verify(rotor != null and rotor.find_children("CogTooth*", "MeshInstance3D", false, false).size() == 12
+		and anchors.shaft.get_node_or_null("LooseDriveShaft") != null,
+		"The projected shaft and cog are distinct supported drive parts.")
+	for id: String in parsed.boxes:
+		var spec: Dictionary = parsed.boxes[id]
+		var body: StaticBody3D = physical.component_bodies[id]
+		var collider: CollisionShape3D = body.get_child(0)
+		verify(body.get_meta("component_entity") == id and body.position == spec.center
+			and collider.shape.size == spec.size and anchors[id].position == spec.center,
+			"Press visuals and actor collision share each projected native identity and occupied box.")
+		for found: Node in anchors[id].find_children("*", "MeshInstance3D", true, false):
+			var mesh := found as MeshInstance3D
+			var relative: Transform3D = anchors[id].global_transform.affine_inverse() * mesh.global_transform
+			verify(AABB(-spec.size * 0.5, spec.size).grow(0.0002).encloses(relative * mesh.mesh.get_aabb()),
+				"Each visible press member stays inside its own native collision volume.")
+	state.placed_components.shaft.center = [-1, 4, 0]
+	state.placed_components.shaft.occupied.center = [-0.4125, 2.475, 0.0]
+	state.placed_components.cog.center = [-2, 4, 0]
+	state.placed_components.cog.occupied.center = [-0.825, 2.475, 0.0]
+	state.revision = 2
+	host.state = state
+	physical.sync_topology()
+	view.refresh()
+	var mirrored := {}
+	for node: Node in view.get_children():
+		if node.has_meta("component_entity"):
+			mirrored[node.get_meta("component_entity")] = node
+	var mirrored_shaft: Node3D = mirrored.shaft.get_node_or_null("LooseDriveShaft")
+	verify(mirrored.size() == 7 and mirrored_shaft != null and mirrored_shaft.basis.y.x > 0.99
+		and physical.component_bodies.shaft.position.x < 0.0,
+		"An opposite-side confirmed drive still fits the same seven-part press.")
+	state.placed_components.erase("cog")
+	state.press_assemblies[0] = {"frame": "frame", "center": [0, 0, 0], "status": "missing_cog"}
+	state.revision = 3
+	host.state = state
+	physical.sync_topology()
+	view.refresh()
+	var partial := {}
+	for node: Node in view.get_children():
+		if node.has_meta("component_entity"):
+			partial[node.get_meta("component_entity")] = node
+	var partial_shaft: Node3D = partial.shaft.get_node_or_null("LooseDriveShaft")
+	verify(not physical.component_bodies.has("cog") and partial.size() == 6
+		and partial.mount.get_node_or_null("PressCrown") != null
+		and partial_shaft != null and partial_shaft.basis.y.x > 0.99,
+		"Reclaiming the cog clears its body while the remaining crown and shaft keep their press fitting.")
 	view.free()
 	physical.free()
 	await process_frame
@@ -1966,6 +2101,35 @@ func _physical_actor_bridge_regression() -> void:
 		"A non-native model retains full projection validation.")
 	physical.free()
 
+func _advance_projection_regression() -> void:
+	var view := AdvanceProjectionOpening.new()
+	var source := AdvanceProjectionStub.new()
+	view.model = source
+	view.auto_advance = true
+	view._process(0.0)
+	verify(source.advances == 0 and source.projections == 1 and view.state.revision == 0,
+		"A render cut without an authority tick still requests the current projection.")
+	source.advances = 0
+	source.projections = 0
+	view.elapsed = 0.0
+	view._process(view.STEP_SECONDS + 0.01)
+	verify(source.advances == 1 and source.projections == 0 and view.state.revision == 1,
+		"One accepted tick supplies its own complete render projection.")
+	source.advances = 0
+	source.projections = 0
+	view.elapsed = 0.0
+	view._process(view.STEP_SECONDS * 3.0 + 0.01)
+	verify(source.advances == 3 and source.projections == 0 and view.state.revision == 4,
+		"A catch-up render cut uses the last of several accepted tick projections.")
+	source.advances = 0
+	source.projections = 0
+	source.refuse_next = true
+	view.elapsed = 0.0
+	view._process(view.STEP_SECONDS + 0.01)
+	verify(source.advances == 1 and source.projections == 1 and view.state.revision == 4,
+		"A refused native tick falls back to a fresh authority projection.")
+	view.free()
+
 func _native_actor_view_regression() -> void:
 	var model = NativeModel.new("actor-view-fixture", ["P"], true)
 	verify(model.boot_result.get("accepted", false), "The real native arrival model boots for actor-view checks.")
@@ -1990,10 +2154,14 @@ func _run() -> void:
 		return
 	if "--component-boxes-only" in OS.get_cmdline_user_args():
 		await _component_view()
+	elif "--press-components-only" in OS.get_cmdline_user_args():
+		await _press_component_view()
 	elif "--physical-topology-cache-only" in OS.get_cmdline_user_args():
 		_physical_topology_cache_regression()
 	elif "--physical-actor-bridge-only" in OS.get_cmdline_user_args():
 		_physical_actor_bridge_regression()
+	elif "--advance-projection-only" in OS.get_cmdline_user_args():
+		_advance_projection_regression()
 	elif "--native-actor-view-only" in OS.get_cmdline_user_args():
 		_native_actor_view_regression()
 	elif "--support-frame-only" in OS.get_cmdline_user_args():
