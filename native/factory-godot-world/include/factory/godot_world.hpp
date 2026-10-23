@@ -32,12 +32,16 @@ public:
     [[nodiscard]] values::Value actor_projection(const std::string& actor) const;
     [[nodiscard]] values::Value invalidate_actor(const std::string& actor);
     [[nodiscard]] values::Value advance();
+    // Trusted tick reader: only fields that World::tick can change. The
+    // extension merges these into its last complete projection.
+    [[nodiscard]] values::Value advance_tick_fields();
     [[nodiscard]] values::Value projection() const;
     [[nodiscard]] values::Value checkpoint() const;
     [[nodiscard]] values::Value validate_checkpoint(const values::Value&) const;
     [[nodiscard]] values::Value restore_checkpoint(const values::Value&);
 
 private:
+    [[nodiscard]] values::Value::Object tick_fields(const world::Snapshot&) const;
     [[nodiscard]] values::Value initialize_site(const std::string& context,
                                                const std::vector<std::string>& actors,
                                                bool arrival);
