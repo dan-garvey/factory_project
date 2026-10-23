@@ -298,7 +298,7 @@ func check_shared_manager_log() -> void:
 	finish_checks()
 
 func check_freight_beacon_view() -> void:
-	var source := NativeModel.new("freight-view-fixture", ["P"], true)
+	var source := NativeModel.new("freight-view-fixture", ["P", "Q"], true)
 	verify(source.boot_result.get("accepted", false), "The real native arrival supplies a beacon projection.")
 	if not source.boot_result.get("accepted", false):
 		finish_checks()
@@ -317,8 +317,8 @@ func check_freight_beacon_view() -> void:
 		and view.freight_beacon_visual.get_meta("freight_beacon") == beacon.id
 		and marker != null and marker.billboard == BaseMaterial3D.BILLBOARD_ENABLED,
 		"The native beacon has a camera-facing shipment label.")
-	verify(view.freight_beacon_visual.find_children("*", "MeshInstance3D", true, false).is_empty(),
-		"The unbuilt freight point contains no fabricated plinth, posts or gantry meshes.")
+	verify(view.freight_beacon_visual.find_children("*", "MeshInstance3D", true, false).size() >= 3,
+		"The freight point has a small physical survey post below its prompt.")
 	verify(view.freight_beacon_visual.collision_layer == Opening.Geometry.PICK_LAYER
 		and view.freight_beacon_visual.collision_mask == 0,
 		"The graphical marker adds only selection, not actor collision or construction authority.")
@@ -361,16 +361,20 @@ func check_freight_beacon_view() -> void:
 	view._refresh_ui()
 	verify("east freight beacon" in view.goal_label.text,
 		"A carried product changes the next cue to a reachable world-space delivery.")
-	verify(marker != null and "Ship one plate [E]" in marker.text,
+	verify(marker != null and marker.text == "SHIP [E]",
 		"A ready actor with a confirmed carried plate sees the shipping action on the marker.")
 	var shared := SharedFooterView.new()
 	shared.state = view.state.duplicate(true)
 	shared.client = "Q"
 	shared.session = SessionStub.new()
 	root.add_child(shared)
+	shared._build_world()
+	shared._build_interface()
 	shared._sync_freight_beacon_visual()
+	shared._refresh_ui()
 	var remote_label: Label3D = shared.freight_beacon_visual.get_node_or_null("ShipmentLabel")
-	verify(remote_label != null and "Form one plate" in remote_label.text,
+	verify(remote_label != null and remote_label.text == "FREIGHT"
+		and "FIRST ORDER" in shared.goal_label.text,
 		"The shared marker cannot borrow another actor's carried product.")
 	var original := view.freight_beacon_visual
 	view._sync_freight_beacon_visual()
@@ -381,9 +385,57 @@ func check_freight_beacon_view() -> void:
 	view.state.cargo.P.products = 0
 	view._sync_freight_beacon_visual()
 	view._refresh_ui()
-	verify("DELIVERED" in view.goal_label.text and "Build a belt route" in view.goal_label.text
-		and marker != null and not marker.visible and view.freight_beacon_visual.collision_layer == 0,
-		"The completed receipt hides the marker and selection while leaving continued building visible.")
+	verify("REPEAT ORDER · 0 / 3 PLATES" in view.goal_label.text
+		and marker != null and marker.visible and marker.text == "0 / 3"
+		and view.freight_beacon_visual.collision_layer == Opening.Geometry.PICK_LAYER,
+		"The first confirmed receipt opens a selectable three-plate repeat order.")
+	shared.state = view.state.duplicate(true)
+	shared._sync_freight_beacon_visual()
+	shared._refresh_ui()
+	verify("REPEAT ORDER · 0 / 3 PLATES" in shared.goal_label.text
+		and remote_label.text == "0 / 3" and shared.state.cargo.Q.products == 0,
+		"The shared actor sees confirmed repeat progress without borrowing P's cargo.")
+	view.state.cargo.P.products = 1
+	view._sync_freight_beacon_visual()
+	view._refresh_ui()
+	view._open_pointed_machine()
+	verify(view.requests == [
+		{"action": "deliver_first_plate", "entity": beacon.id},
+		{"action": "deliver_repeat_plate", "entity": beacon.id}],
+		"E on the same receiver requests the native repeat action after the first confirmed receipt.")
+	verify(marker.text == "SHIP [E]" and "Carry the next plate" in view.goal_label.text,
+		"A locally carried repeat plate changes only the local shipping cue.")
+	shared.state = view.state.duplicate(true)
+	shared._sync_freight_beacon_visual()
+	shared._refresh_ui()
+	verify(remote_label.text == "0 / 3" and "Carry the next plate" not in shared.goal_label.text,
+		"The shared repeat cue remains independent of P's unshipped plate.")
+	view.state.freight_beacon.repeat_order_shipped = 2
+	view.state.freight_beacon.shipped_products = 3
+	view.state.cargo.P.products = 0
+	view._sync_freight_beacon_visual()
+	view._refresh_ui()
+	shared.state = view.state.duplicate(true)
+	shared._sync_freight_beacon_visual()
+	shared._refresh_ui()
+	verify("REPEAT ORDER · 2 / 3 PLATES" in view.goal_label.text
+		and "REPEAT ORDER · 2 / 3 PLATES" in shared.goal_label.text
+		and marker.text == "2 / 3" and remote_label.text == "2 / 3",
+		"Both views show the confirmed intermediate receipt without client-created stock.")
+	view.state.freight_beacon.repeat_order_shipped = 3
+	view.state.freight_beacon.repeat_order_complete = true
+	view.state.freight_beacon.shipped_products = 4
+	view._sync_freight_beacon_visual()
+	view._refresh_ui()
+	shared.state = view.state.duplicate(true)
+	shared._sync_freight_beacon_visual()
+	shared._refresh_ui()
+	verify("REPEAT ORDER · DELIVERED" in view.goal_label.text
+		and "REPEAT ORDER · DELIVERED" in shared.goal_label.text
+		and marker != null and not marker.visible and not remote_label.visible
+		and view.freight_beacon_visual.collision_layer == 0
+		and shared.freight_beacon_visual.collision_layer == 0,
+		"The fourth confirmed receipt closes both prompts while keeping the post visible.")
 	for _frame in range(2):
 		await physics_frame
 	var filled_hit := view._screen_pick(root.get_visible_rect().size / 2.0)

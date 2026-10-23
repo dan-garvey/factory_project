@@ -328,6 +328,13 @@ argument counts and scalar types. `native_dispatch_check.gd` guards that metadat
 before compiling and invoking a typed native receiver. The old library is rejected
 before that previously unsafe path; this is distinct from physical-body coverage.
 
+The opening's trusted tick reader uses `advance_delta` after it has a complete
+view. A delivery contains either `full` or top-level `changes` and `removed`
+keys. The bridge merges those fields before any scene reader sees the result.
+Authority mutations, including refused commands and actor samples, invalidate
+the native comparison base, so the next delta delivers a complete view. Public
+`advance` and `projection` still deliver full snapshots.
+
 ## Shared native profile
 
 The server's explicit `--native-world` option uses the same fixed native profile

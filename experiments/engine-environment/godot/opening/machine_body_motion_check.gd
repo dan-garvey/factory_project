@@ -17,6 +17,17 @@ class BatchedView extends Opening:
 	func _ready() -> void:
 		pass
 
+class StaticFlagView extends BatchedView:
+	var varied_property := "layers"
+	func _assemble_machine(anchor: Node3D, entity: Dictionary, rotated := false) -> void:
+		super._assemble_machine(anchor, entity, rotated)
+		for node in anchor.find_children("*", "MeshInstance3D", true, false):
+			var mesh := node as MeshInstance3D
+			mesh.layers = 3 if entity.get("different_flags", false) and varied_property == "layers" else 1
+			mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF \
+				if entity.get("different_flags", false) and varied_property == "cast_shadow" \
+				else GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+
 func verify(condition: bool, message: String) -> void:
 	checks += 1
 	if not condition:
@@ -275,6 +286,54 @@ func check_batched_collector_motion() -> void:
 		"A topology rebuild replaces stale cutter render slots with the new anchors.")
 	view.free()
 
+func check_static_composite_render_flags() -> void:
+	for property: String in ["layers", "cast_shadow"]:
+		var view := StaticFlagView.new()
+		view.varied_property = property
+		root.add_child(view)
+		mount(view)
+		view.state.entities.clear()
+		view.state.motion.clear()
+		for index in 12:
+			view.state.entities["processor-%d" % index] = {"kind": "processor",
+				"cell": [0, 0], "generation": 1, "axis": 0,
+				"different_flags": index >= 6}
+		var observed: Dictionary = view.state.duplicate(true)
+		view._rebuild_machines()
+		var batches := view.machine_root.get_node_or_null("MachineVisualBatches")
+		verify(batches != null and view.machine_root.get_child_count() == 13,
+			"Normal rebuild makes one batch root for twelve processor presentations.")
+		if batches == null:
+			view.free()
+			continue
+		var by_flag := {}
+		for child in batches.get_children():
+			if not child is MultiMeshInstance3D or not child.get_meta("spatial_composite", false):
+				continue
+			var flag: int = child.layers if property == "layers" else child.cast_shadow
+			by_flag[flag] = int(by_flag.get(flag, 0)) + child.multimesh.instance_count
+		var ordinary := 1 if property == "layers" else GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+		var different := 3 if property == "layers" else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		verify(by_flag.size() == 2 and by_flag.get(ordinary, 0) == 6 \
+			and by_flag.get(different, 0) == 6,
+			"Static composite batches preserve distinct %s across matching assemblies." % property)
+		var pick_count := 0
+		var hidden_assemblies := 0
+		for anchor in view.machine_root.get_children():
+			if not anchor.has_meta("machine_entity"):
+				continue
+			for mesh in anchor.find_children("*", "MeshInstance3D", true, false):
+				if not mesh.visible:
+					hidden_assemblies += 1
+					break
+			for node in anchor.get_children():
+				if node is StaticBody3D and node.get_meta("entity", "") == anchor.get_meta("machine_entity"):
+					pick_count += 1
+		verify(hidden_assemblies == 12 and pick_count == 12 and view.state == observed
+			and view.request_sequence == 0,
+			"Static composites replace source artwork without changing picks, state or requests.")
+		view.free()
+
 func _initialize() -> void:
 	if "--clearance-only" in OS.get_cmdline_user_args():
 		check_held_workpiece_clearance()
@@ -383,6 +442,7 @@ func _initialize() -> void:
 	shared.free()
 	check_held_workpiece_clearance()
 	check_batched_collector_motion()
+	check_static_composite_render_flags()
 	check_conveyor_motion(false)
 	check_conveyor_motion(true)
 	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,

@@ -7755,6 +7755,7 @@ func _batch_machine_composites(moving: Dictionary, static_groups: Dictionary) ->
 				finish.get_instance_id() if finish != null else 0, part.pose])
 		if not compatible:
 			continue
+		key.append_array([shadow, layers])
 		if not candidates.has(key):
 			candidates[key] = {"parts": parts, "instances": []}
 		candidates[key].instances.append({"anchor": anchor, "parts": parts})
