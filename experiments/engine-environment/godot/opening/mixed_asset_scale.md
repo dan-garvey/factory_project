@@ -212,13 +212,16 @@ chapter-one performance.
 
 ## Production static composite cells, 2026-10-23
 
-The normal opening now partitions large **static** collector, conveyor and
-processor composite batches into four-pitch world cells. Each cell retains the
-original full mesh, materials, transforms, shadows and visual layer. Moving
-cutters and wheel rotors keep their separate motion batches. In this fixture,
+The original production change partitioned large **static** collector,
+conveyor and processor composites into four-pitch world cells. Each cell
+retains the original full mesh, materials, transforms, shadows and visual
+layer. Moving cutters and wheel rotors keep separate motion batches. The
+current default uses this split for large Windows Godot fields; non-Windows
+builds keep whole-field composites after the WSL measurement in
+[`GDC-28`](../../../../docs/engineering/godot-constraints.md). In this fixture,
 `--production-batch` uses the normal opening helper: `--spatial-cells=0`
 disables its static split for comparison, and a positive value selects the
-cell width in construction pitches. Neither option enables mesh LOD.
+cell width for eligible large fields. Neither option enables mesh LOD.
 
 On published parent `71e44a0`, the baseline `opening.gd` SHA-256 was
 `62d8f3ac693b46f6ae973b3552c474eda84edca7009904f27dc8b765e805d4d6`.
