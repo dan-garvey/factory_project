@@ -1,6 +1,7 @@
 #include "factory/checkpoint.hpp"
 
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <tuple>
@@ -20,6 +21,18 @@ int checks{};
 void check(bool condition, const char* message) {
     ++checks;
     if (!condition) throw std::runtime_error(message);
+}
+
+std::unique_ptr<w::World> codec_restore(const w::Profile& profile,
+        const w::Snapshot& snapshot, const char* message) {
+    const auto encoded = w::encode_checkpoint(profile, snapshot);
+    check(std::holds_alternative<V>(encoded), "The powered press state encodes as a checkpoint.");
+    const auto decoded = w::decode_checkpoint(profile, "press-feed", std::get<V>(encoded));
+    check(std::holds_alternative<w::Snapshot>(decoded), "The powered press checkpoint decodes.");
+    auto restored = w::World::restore("press-feed", profile, std::get<w::Snapshot>(decoded));
+    check(restored && restored->snapshot().state == snapshot.state &&
+          restored->snapshot().revision == snapshot.revision, message);
+    return restored;
 }
 
 struct Site { w::Profile profile; w::State state; };
@@ -849,6 +862,8 @@ void two_placed_presses_advance_distinct_powered_work() {
               std::vector<m::WorkLot>{half_lot} &&
           w::World::restore("press-feed", half_source.profile, half_reinserted) != nullptr,
           "Hand refeed preserves the original ID and fractional progress on the powered work point.");
+    fractional.world = codec_restore(half_source.profile, half_reinserted,
+          "The serialized half-speed hand refeed retains its exact WorkLot and revision.");
     auto forged_half_finish = half_reinserted;
     forged_half_finish.state.material.dropped_material.erase({0, 1, 0});
     forged_half_finish.state.material.dropped_material.emplace(g::Point{-1, 1, 0}, m::Cargo{0, 1, {}});
@@ -857,9 +872,10 @@ void two_placed_presses_advance_distinct_powered_work() {
     check(!w::World::restore("press-feed", half_source.profile, forged_half_finish),
           "A forged instant product cannot skip the remaining fractional power after hand refeed.");
     for (int tick = 0; tick < 3; ++tick) {
-        check(fractional.world->tick().error == w::TransactionError::none &&
-              w::World::restore("press-feed", half_source.profile, fractional.world->snapshot()) != nullptr,
-              "Each real half-speed continuation step retains a restorable WorkLot or product.");
+        check(fractional.world->tick().error == w::TransactionError::none,
+              "The restored half-speed press advances one real powered step.");
+        fractional.world = codec_restore(half_source.profile, fractional.world->snapshot(),
+              "Each half-speed continuation round trip retains its WorkLot or product exactly.");
         if (tick == 0) {
             auto premature = fractional.world->snapshot();
             premature.state.material.dropped_material.erase({0, 1, 0});
@@ -877,6 +893,16 @@ void two_placed_presses_advance_distinct_powered_work() {
     check(fractional.world->snapshot().state.material.dropped_material.at({-1, 1, 0}).products == 1 &&
           !fractional.world->snapshot().state.material.dropped_material.contains({0, 1, 0}),
           "The retained half-tick plus three later half-speed ticks form exactly one plate.");
+    const auto finished_half = w::encode_checkpoint(half_source.profile, fractional.world->snapshot());
+    check(std::holds_alternative<V>(finished_half), "The genuine half-speed plate encodes.");
+    auto premature_save = std::get<V>(finished_half);
+    auto root = std::get<O>(premature_save.storage());
+    root.at("revision") = V(fractional.world->snapshot().revision - 2);
+    premature_save = V(std::move(root));
+    const auto premature_decoded = w::decode_checkpoint(half_source.profile, "press-feed", premature_save);
+    check(std::holds_alternative<w::CheckpointRefusal>(premature_decoded) &&
+          std::get<w::CheckpointRefusal>(premature_decoded).reason == w::CheckpointReason::invalid_world,
+          "A serialized plate with only one continuation tick fails World work validation.");
     for (int index = 0; index < 2; ++index) {
         auto feed = request("P", "feed-powered-" + std::to_string(index), "feed_press");
         feed.emplace("target", V(frames[index]));
@@ -1027,18 +1053,21 @@ void two_placed_presses_advance_distinct_powered_work() {
               std::vector<m::WorkLot>{recoverable} &&
           w::World::restore("press-feed", source.profile, reinserted_powered) != nullptr,
           "Exact-ID hand refeed preserves an automatically advanced lot under its original press.");
+    refeed_powered.world = codec_restore(source.profile, reinserted_powered,
+          "The serialized full-speed hand refeed retains its exact powered WorkLot.");
     const auto products_before = reinserted_powered.state.material.cargo.at("P").products;
     check(refeed_powered.world->tick().error == w::TransactionError::none,
           "The reinserted partial WorkLot accepts one more real powered tick.");
     check(refeed_powered.world->snapshot().state.material.dropped_material.at({-1, 1, 0}).products == 1,
           "One remaining powered tick forms a single product from the reinserted WorkLot.");
-    check(w::World::restore("press-feed", source.profile, refeed_powered.world->snapshot()) != nullptr,
-          "The powered completion of reinserted work restores from its history.");
+    refeed_powered.world = codec_restore(source.profile, refeed_powered.world->snapshot(),
+          "The powered plate retains its identity and custody through checkpoint serialization.");
     auto pick_reformed = pickup;
     pick_reformed.at("request") = V("pickup-refed-powered-product");
     refeed_powered.accept("P", pick_reformed);
     check(refeed_powered.world->snapshot().state.material.cargo.at("P").products == products_before + 1 &&
-          w::World::restore("press-feed", source.profile, refeed_powered.world->snapshot()) != nullptr,
+          codec_restore(source.profile, refeed_powered.world->snapshot(),
+              "The picked plate round trips through the actual checkpoint codec.") != nullptr,
           "The reformed product enters actor cargo once with valid powered history.");
 }
 
