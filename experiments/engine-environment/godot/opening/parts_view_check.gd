@@ -7,6 +7,7 @@ const Opening = preload("res://opening/opening.gd")
 const SharedOpening = preload("res://opening/shared_opening.gd")
 const SiteSurface = preload("res://opening/site_surface.gd")
 const Geometry = preload("res://opening/site_geometry.gd")
+const ComponentPresenter = preload("res://opening/native_transmission_presenter.gd")
 var checks := 0
 var failures := 0
 
@@ -112,6 +113,9 @@ func fixture() -> Dictionary:
 		"stock": {"output": 0}, "inventories": {"P": 0, "Q": 0}}
 
 func _initialize() -> void:
+	if "--component-placement-only" in OS.get_cmdline_user_args():
+		call_deferred("_component_placement_check")
+		return
 	if "--object-menu-only" in OS.get_cmdline_user_args():
 		call_deferred("_object_menu_check")
 		return
@@ -208,6 +212,236 @@ func _initialize() -> void:
 	verify(view.state == before and view.model == null and view.request_sequence == sequence and view.request_namespace == namespace_id, "Display reads change neither projection nor authority/intent state.")
 	view.free()
 	print("OPENING_PARTS_VIEW_%s %d" % ["PASS" if failures == 0 else "FAIL", checks])
+	quit(0 if failures == 0 else 1)
+
+class ComponentPlacementChoice extends Node:
+	var kind := "anvil"
+	func selected_name() -> String:
+		return kind
+	func press_frame_for(_selected: String) -> String:
+		return ""
+
+class ComponentPlacementView extends "res://opening/opening.gd":
+	var aimed := "frame"
+	var pointed_cell := Vector2i.ZERO
+	var hit_body: StaticBody3D
+	var issued: Array = []
+	func _ready() -> void:
+		set_process(false)
+	func _screen_cell(_screen: Vector2) -> Vector2i:
+		return pointed_cell
+	func _screen_pick(_screen: Vector2) -> Dictionary:
+		return {"collider": hit_body, "normal": Vector3.UP} if not aimed.is_empty() else {}
+	func _screen_entity(_screen: Vector2) -> String:
+		return aimed
+	func _preview_pointer_clear() -> bool:
+		return true
+	func _placement_ready() -> bool:
+		return true
+	func _refresh_machine_preview() -> void:
+		pass
+	func _refresh_machine_captions() -> void:
+		pass
+	func _refresh_placement_options() -> void:
+		pass
+	func _update_cursor() -> void:
+		_refresh_component_preview()
+	func _refresh_ui() -> void:
+		pass
+	func issue(action: Dictionary) -> Dictionary:
+		issued.append(action.duplicate(true))
+		return {"accepted": false, "reason": "fixture_only"}
+
+func _component_key(code: Key, pressed: bool, alt := false) -> InputEventKey:
+	var event := InputEventKey.new()
+	event.keycode = code
+	event.pressed = pressed
+	event.alt_pressed = alt
+	return event
+
+func _component_placement_check() -> void:
+	var prefix := ""
+	for argument in OS.get_cmdline_user_args():
+		if argument.begins_with("--image-prefix="):
+			prefix = argument.trim_prefix("--image-prefix=")
+	var view := ComponentPlacementView.new()
+	view.mode = "component"
+	view.state = {"options": {"native": true}, "actors": {"P": {"ready": true}},
+		"cargo": {"P": {"components": {"anvil": 1, "ram_face": 1}}},
+		"placed_components": {"frame": {"component": "wooden_frame", "center": [0, 0, 0],
+			"generation": 1, "occupied": {"center": [0.0, 0.45, 0.0],
+			"half": [0.2025, 0.45, 0.2025]}}},
+		"transmission_parts": {}, "belt_spans": {}, "entities": {}, "foundations": {}}
+	root.add_child(view)
+	var choice := ComponentPlacementChoice.new()
+	view.add_child(choice)
+	view.arrival_assembly_controls = choice
+	var presenter := ComponentPresenter.new()
+	view.add_child(presenter)
+	view.transmission_presenter = presenter
+	var body := StaticBody3D.new()
+	body.set_meta("component_entity", "frame")
+	view.add_child(body)
+	view.hit_body = body
+	var frame := Node3D.new()
+	frame.position.y = 0.45
+	view.add_child(frame)
+	presenter.preview_component(frame, "wooden_frame", Vector3(0.405, 0.9, 0.405))
+	var environment := WorldEnvironment.new()
+	var backdrop := Environment.new()
+	backdrop.background_mode = Environment.BG_COLOR
+	backdrop.background_color = Color("263039")
+	environment.environment = backdrop
+	view.add_child(environment)
+	view.component_preview = Node3D.new()
+	view.add_child(view.component_preview)
+	var light := DirectionalLight3D.new()
+	light.rotation_degrees = Vector3(-50, -25, 0)
+	view.add_child(light)
+	var camera := Camera3D.new()
+	camera.position = Vector3(1.15, 2.05, 2.4)
+	camera.fov = 40
+	view.add_child(camera)
+	camera.look_at(Vector3(0, 1.15, 0))
+	camera.make_current()
+	view.camera = camera
+	var snapped: Array = view._component_place_center(Vector2i.ZERO, "frame")
+	verify(snapped == [0, 1, 0], "The anvil snaps one height step above a pointed frame top.")
+	view._refresh_component_preview()
+	verify(view.component_preview.visible and view.component_preview_kind == "anvil"
+		and view.component_preview.has_node("CastPedestal") and not view.component_preview_blocked,
+		"The frame-top anvil ghost uses the placed anvil mesh and is initially clear.")
+	verify(view.component_preview_snap == "Above wooden frame"
+		and "Aim at the wooden frame top" in view._component_placement_hint(),
+		"The placement hint names both the snap target and the selected part's support.")
+	view._input(_component_key(KEY_ALT, true, true))
+	view._input(_component_key(KEY_RIGHT, true, true))
+	view._input(_component_key(KEY_PAGEUP, true, true))
+	verify(view.component_nudge_center == [1, 2, 0],
+		"Alt, Right and Page Up move the locked center by quarter-grid steps.")
+	view.aimed = ""
+	view.pointed_cell = Vector2i(4, 4)
+	var old_hover := view.hover_cell
+	var motion := InputEventMouseMotion.new()
+	motion.position = Vector2(900, 300)
+	view._unhandled_input(motion)
+	verify(view.hover_cell == old_hover,
+		"Mouse motion does not update the component pointer datum while Alt is held.")
+	# The fixture uses a close passive camera; the view's normal motion handler
+	# also updates its gameplay camera, so restore this capture framing.
+	camera.position = Vector3(1.15, 2.05, 2.4)
+	camera.look_at(Vector3(0, 1.15, 0))
+	verify(view._component_place_center(view.pointed_cell, "") == [1, 2, 0],
+		"Pointer movement does not move the ghost while Alt is held.")
+	view._world_click(view.pointed_cell)
+	verify(view.issued.size() == 1 and view.issued[0].center == [1, 2, 0],
+		"Click sends the exact visible nudged center to Host.")
+	view._input(_component_key(KEY_ALT, false))
+	verify(not view.component_nudge_active and view._component_place_center(view.pointed_cell, "") == [16, 0, 16],
+		"Releasing Alt resumes the pointer's construction datum.")
+	view.aimed = "frame"
+	view.pointed_cell = Vector2i.ZERO
+	view.state.placed_components["anvil"] = {"component": "anvil", "center": [0, 1, 0],
+		"generation": 1, "occupied": {"center": [0.0, 1.130625, 0.0],
+		"half": [0.14, 0.230625, 0.14]}}
+	var placed_anvil := Node3D.new()
+	placed_anvil.position.y = 1.130625
+	view.add_child(placed_anvil)
+	presenter.preview_component(placed_anvil, "anvil", Vector3(0.28, 0.46125, 0.28))
+	view._refresh_component_preview()
+	verify(view.component_preview_blocked and view.component_preview_material.albedo_color.r > 0.9
+		and view.component_preview_material.albedo_color.g < 0.4,
+		"An occupied candidate stays visible and turns red.")
+	if not prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
+		await process_frame
+		await RenderingServer.frame_post_draw
+		verify(root.get_texture().get_image().save_png(prefix + "-blocked.png") == OK,
+			"Retain the red ghost at an occupied anvil point.")
+	view._input(_component_key(KEY_ALT, true, true))
+	view._input(_component_key(KEY_RIGHT, true, true))
+	verify(view.component_nudge_center == [1, 1, 0] and not view.component_preview_blocked
+		and view.component_preview.visible,
+		"An obstructed red ghost can be nudged directly to a clear amber point.")
+	view._input(_component_key(KEY_ALT, false))
+	choice.kind = "ram_face"
+	body.set_meta("component_entity", "anvil")
+	view.aimed = "anvil"
+	view._refresh_component_preview()
+	verify(view._component_place_center(Vector2i.ZERO, "anvil") == [0, 2, 0]
+		and view.component_preview.has_node("MovingDie") and not view.component_preview_blocked,
+		"The ram face snaps above the anvil with its placed-part die visible.")
+	if not prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
+		await process_frame
+		await RenderingServer.frame_post_draw
+		verify(root.get_texture().get_image().save_png(prefix + "-ram.png") == OK,
+			"Retain the isolated ram-face ghost over an anvil and wooden frame.")
+		choice.kind = "anvil"
+		body.set_meta("component_entity", "frame")
+		view.aimed = "frame"
+		view.state.placed_components.erase("anvil")
+		placed_anvil.free()
+		view._refresh_component_preview()
+		await process_frame
+		await RenderingServer.frame_post_draw
+		verify(root.get_texture().get_image().save_png(prefix + "-anvil.png") == OK,
+			"Retain the isolated anvil ghost snapped to the frame top.")
+	view.state.placed_components.clear()
+	view.state.cargo.P.components.wooden_frame = 1
+	choice.kind = "wooden_frame"
+	view.aimed = ""
+	view.component_nudge_active = true
+	view.state.foundations = {"raised_floor": {"cell": [1, 0], "level": 1}}
+	view.component_nudge_center = [4, 0, 0]
+	view._refresh_component_preview()
+	verify(view.component_preview.visible and view.component_preview_blocked,
+		"A component nudged into a projected foundation shows the native occupied point in red.")
+	if not prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
+		camera.position = view.component_preview.position + Vector3(1.15, 1.7, 2.4)
+		camera.look_at(view.component_preview.position)
+		await process_frame
+		await RenderingServer.frame_post_draw
+		verify(root.get_texture().get_image().save_png(prefix + "-foundation-blocked.png") == OK,
+			"Retain the foundation-obstructed component ghost.")
+	view.component_nudge_center = [8, 0, 0]
+	view._refresh_component_preview()
+	verify(view.component_preview.visible and not view.component_preview_blocked,
+		"Nudging away from the foundation restores a clear ghost.")
+	view.state.foundations.clear()
+	var rock: Dictionary = SiteSurface.support_boxes()[0]
+	view.component_nudge_center = [roundi(rock.center.x / Geometry.HEIGHT_STEP),
+		roundi(rock.center.y / Geometry.HEIGHT_STEP),
+		roundi(rock.center.z / Geometry.HEIGHT_STEP)]
+	view._refresh_component_preview()
+	verify(view.component_preview.visible and view.component_preview_blocked,
+		"A normal terrain rock's shared occupied envelope turns the ghost red.")
+	view.state.cargo.P.components.cutting_edge = 1
+	view.state.collector_assemblies = [{"center": [0, 0, 0], "toward_ore": [-1, 0, 0]}]
+	choice.kind = "cutting_edge"
+	view.component_nudge_center = [-2, 0, 0]
+	var source: Dictionary = SiteSurface.source_outcrop()
+	var source_box: AABB = Transform3D(source.basis, source.center) * \
+		AABB(-source.size * 0.5, source.size)
+	var cutter: Dictionary = view._component_candidate_box(choice.kind, view.component_nudge_center)
+	verify(source_box.intersects(AABB(cutter.center - cutter.half, cutter.size)),
+		"The trusted cutter point actually overlaps the source envelope in this control.")
+	view._refresh_component_preview()
+	verify(view.component_preview.visible and not view.component_preview_blocked,
+		"The trusted ore-face cutting edge remains clear despite its allowed source contact.")
+	verify(view.component_preview.has_node("EdgeSupportPostLeft")
+		and is_equal_approx(view.component_preview.position.y,
+			view.component_nudge_center[1] * Geometry.HEIGHT_STEP + Geometry.ANCHOR_HEIGHT - 0.015),
+		"The cutter ghost includes its floor-reaching support at the native head height.")
+	if not prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
+		camera.position = view.component_preview.position + Vector3(1.15, 1.7, 2.4)
+		camera.look_at(view.component_preview.position)
+		await process_frame
+		await RenderingServer.frame_post_draw
+		verify(root.get_texture().get_image().save_png(prefix + "-ore-cutter.png") == OK,
+			"Retain the allowed ore-face cutter and its floor-reaching support.")
+	view.free()
+	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
+		"failures": failures, "models": 0, "desktop_operations": 0,
+		"scope": "isolated component placement input and preview"}))
 	quit(0 if failures == 0 else 1)
 
 func hotbar_observation() -> Dictionary:
@@ -1230,19 +1464,31 @@ func _arrival_hotbar() -> void:
 	verify(not bar.catalog_buttons.collector.visible and not bar.catalog_buttons.processor.visible
 		and bar.component_row.visible and bar.component_choice.item_count == view.arrival_assembly_controls.COMPONENTS.size(),
 		"The arrival catalog hides historical machines and offers every fabricated component.")
+	verify(bar.component_buttons.has("anvil") and bar.component_buttons.has("ram_face")
+		and bar.component_buttons.anvil.disabled and bar.component_buttons.ram_face.disabled,
+		"The catalog names anvil and ram face directly and disables parts absent from carried cargo.")
 	verify(bar.buttons[0].disabled and bar.slot_counts[0].text == "0"
 		and bar.component_assign_button.disabled,
 		"A part absent from the active actor's native cargo cannot be selected or assigned.")
 	var initial: Dictionary = view.state.duplicate(true)
-	view.state.cargo.P.components = {"wooden_frame": 2, "softmetal_cog": 1}
+	view.state.cargo.P.components = {"wooden_frame": 2, "softmetal_cog": 1,
+		"anvil": 1, "ram_face": 1}
 	view._refresh_ui()
+	verify(not bar.component_buttons.anvil.disabled and not bar.component_buttons.ram_face.disabled
+		and "1" in bar.component_buttons.anvil.text,
+		"The direct component choices show available carried press parts and their counts.")
 	verify(not bar.buttons[0].disabled and bar.slot_counts[0].text == "2",
 		"A confirmed fabricated frame enables its quick slot with the active actor's count.")
 	bar.select_slot(0)
 	verify(view.mode == "component" and view.arrival_assembly_controls.selected_name() == "wooden_frame"
 		and bar.selected_slot == 0 and view.issued.is_empty(),
 		"A component quick slot changes the ordinary placement selection without issuing construction.")
+	view.state.part_kits.P = {"foundation": 15}
+	view._refresh_ui()
 	bar.open_catalog(7)
+	verify(bar.catalog_buttons.foundation.visible and not bar.catalog_buttons.belt.visible
+		and not bar.catalog_buttons.wheel.visible,
+		"The arrival catalog gives space to carried parts instead of unavailable machine cards.")
 	var cog_index: int = bar._component_names.find("softmetal_cog")
 	verify(cog_index >= 0 and bar.catalog.visible, "The catalog includes the stronger metal cog.")
 	if cog_index >= 0:
@@ -1258,11 +1504,17 @@ func _arrival_hotbar() -> void:
 			and bar.slot_tags[7].text == "SC"
 			and view.issued.is_empty(),
 			"Catalog assignment selects the exact component in the existing workshop and placement path.")
+	bar.open_catalog(6)
+	bar.component_buttons.ram_face.pressed.emit()
+	verify(bar.slots[6] == "component:ram_face" and view.mode == "component"
+		and view.arrival_assembly_controls.selected_name() == "ram_face" and view.issued.is_empty(),
+		"One direct catalog action assigns and selects the ram face for placement.")
 	view.client = "Q"
 	view._refresh_ui()
 	verify(bar.slot_counts[0].text == "1" and bar.slot_counts[7].text == "0" and bar.buttons[7].disabled,
 		"Switching actor changes component availability without borrowing the previous actor's cargo.")
 	view.client = "P"
+	bar.select_slot(7)
 	view.state.cargo.P.components.softmetal_cog = 0
 	view._refresh_ui()
 	bar.select_slot(7)

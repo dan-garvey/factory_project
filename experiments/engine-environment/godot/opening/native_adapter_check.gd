@@ -1626,9 +1626,14 @@ func _arrival_run() -> void:
 			return
 		_record("pass")
 		return
-	if not _expect(panel != null and panel.visible and not panel.craft_button.disabled
-			and "3 timber" in panel.recipe_label.text and "Parts 0 / 20" in panel.recipe_label.text,
-			"The ordinary workshop panel appears at landfall"):
+	if not _expect(panel != null and not opening._object_menu_open(),
+			"The workshop waits for its centered E interaction at landfall"):
+		return
+	opening._open_object_menu_for(str(pod_state.fabrication_hub.id))
+	if not _expect(opening._object_menu_open() and panel.is_visible_in_tree()
+			and not panel.craft_button.disabled and "3 timber" in panel.recipe_label.text
+			and "0 / 20 parts carried" in panel.recipe_label.text,
+			"Opening the pod workshop exposes the current carried recipe and craft action"):
 		return
 	var empty_before: Dictionary = opening.model.projection()
 	panel.craft_button.pressed.emit()
@@ -1639,6 +1644,8 @@ func _arrival_run() -> void:
 			and "Gather the timber or softmetal" in opening.status_label.text,
 			"The nearby hub records one missing-input refusal without changing carried or source stock"):
 		return
+	opening.object_menu.hide()
+	await process_frame
 	if not await _approach(Vector2(3.3, 4.95)):
 		return
 	for index in range(8):
@@ -1683,8 +1690,11 @@ func _arrival_run() -> void:
 		panel.component_choice.select(index)
 		panel._component_selected(index)
 		var bill: Dictionary = opening.model.projection().component_recipes[kind]
+		var bill_text := "%d timber" % bill.timber
+		if int(bill.softmetal) > 0:
+			bill_text += " + %d softmetal" % bill.softmetal
 		if not _expect(not panel.craft_button.disabled
-				and ("Needs %d timber + %d softmetal" % [bill.timber, bill.softmetal]) in panel.recipe_label.text,
+				and ("Need " + bill_text) in panel.recipe_label.text,
 				"The ordinary picker shows the selected native hub recipe"):
 			return
 		var before: int = opening.model.projection().order
@@ -1715,14 +1725,18 @@ func _arrival_run() -> void:
 		panel.place_button.pressed.emit()
 		var level: int = mini(index, 4)
 		var offset: int = maxi(index - 4, 0)
-		opening._adjust_component_level(level - opening.component_level)
-		opening._adjust_component_offset("x", offset - opening.component_offset.x)
+		var requested_center := [3 * OpeningGeometry.HEIGHT_DENOMINATOR + offset,
+			level, 4 * OpeningGeometry.HEIGHT_DENOMINATOR]
+		opening.component_nudge_active = true
+		opening.component_nudge_center = requested_center.duplicate()
 		var before: int = opening.model.projection().order
 		opening._world_click(Vector2i(3, 4))
+		opening.component_nudge_active = false
+		opening.component_nudge_center.clear()
 		var projection: Dictionary = opening.model.projection()
 		if not _expect(projection.order == before + 1 and projection.placed_components.size() == index + 1,
-				"An ordinary placement control fits %s at %s: %s" % [kind,
-					str(opening._component_place_center(Vector2i(3, 4), "")), opening.status_label.text]):
+				"The ordinary click submits the locked %s point at %s: %s" % [kind,
+					str(requested_center), opening.status_label.text]):
 			return
 		if not _expect(projection.press_assemblies.size() == 1
 				and projection.press_assemblies[0].status == expected_status[index],

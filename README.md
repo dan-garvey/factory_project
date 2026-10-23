@@ -20,8 +20,8 @@ regression fixtures rather than the ordinary offline start.
 
 The default opening controls a physical character and limits construction to
 nearby targets. Walk with WASD and jump with Space. A waterwheel in flowing water
-drives connected parts automatically. Choose a building with the hotbar, use its ghost options to rotate or
-adjust placement, press E to interact with a pointed resource or machine, or press F and click a part
+drives connected parts automatically. Choose a building with the hotbar, aim its ghost at a floor or part face,
+press E to interact with a pointed resource or machine, or press F and click a part
 to deconstruct it. Right-drag orbits the following camera; its position grants no build
 reach. The four-world-unit reach and movement tuning are provisional demo values.
 
@@ -33,7 +33,8 @@ fixture controls; arrival hides their old Help and four-plate confirmation:
 | Task | Keys |
 | --- | --- |
 | Build and inspect | `B` opens the catalog; `1`–`8` select a hotbar slot; `E` opens the pointed machine; `F` dismantles; `C` connects material; `Esc` cancels. |
-| Assign a hotbar slot | In the catalog, `1`–`8` choose the destination, the displayed letter assigns a part, `Delete` clears, and `Esc` closes. Arrow keys, `Tab` and `Enter` also navigate the controls. |
+| Assign a hotbar slot | In the catalog, `1`–`8` choose the destination. Click a carried part, or use `Tab` and `Enter`; `A` assigns the part selected in the list. `Delete` clears and `Esc` closes. |
+| Component placement | Point at a built part's top or side to snap the selected component. Hold `Alt` to lock the ghost; `Alt` with arrow keys nudges X/Z and `Alt+PageUp`/`Alt+PageDown` nudges height by one quarter-grid step. Click to place the visible ghost. A red ghost marks a known obstruction. |
 | Mechanical options | `Alt+1`–`Alt+6` select the six transmission tools. During placement, `T` opens mechanical options, `X` cycles the axle, `Shift+X` cycles chain direction, `K` changes cog size, `Shift+PageUp`/`Shift+PageDown` adjust transmission height, and `Ctrl+Home` follows the pointed surface again. |
 | Foundations and waterwheels | `PageUp`/`PageDown` change foundation or drive height; `Z` toggles access steps; `V` toggles two-corner area placement; `Shift+PageUp`/`Shift+PageDown` change waterwheel diameter when its size controls are shown; `R` rotates a building. |
 | Worksite actions | `P` operates the nearby drive; `Ctrl+R` collects a selected plate; `Delete` dismantles the selection; `Ctrl+M` opens the selected material menu; `Ctrl+L` opens loose-material pickup; `Ctrl+Enter` confirms four plates; `Ctrl+D` toggles details; `F5` saves and `F9` shows how to reopen the save. |

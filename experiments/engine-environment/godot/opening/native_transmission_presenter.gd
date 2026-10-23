@@ -1139,6 +1139,13 @@ func _shaft_splice(first: Dictionary, second: Dictionary, parent: Node3D,
 	else:
 		fitting.free()
 
+func preview_component(anchor: Node3D, kind: String, occupied_size: Vector3,
+		collector_angle: float = 0.0, collector_support_drop: float = 0.0) -> void:
+	# Use the same meshes and finishes as a confirmed placed component. The
+	# caller supplies a visual candidate box; only Host can admit placement.
+	_placed_component(anchor, kind, Vector3.ZERO, occupied_size, "",
+		collector_angle, collector_support_drop, Vector3.ZERO)
+
 func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 		occupied_size: Vector3, press_role: String, collector_angle: float,
 		collector_support_drop: float, receiver_to_frame: Vector3) -> void:
