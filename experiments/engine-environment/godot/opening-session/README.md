@@ -280,6 +280,17 @@ buttons are automated scene callbacks, not human play or pointer-placement
 coverage. This route tests two valid press layouts through the shared scene;
 it does not establish a usable building experience for all orientations.
 
+`--cog-phase=alternate-collector` also continues from the exact first-shipment
+Store. P recovers the original collector's empty receiver and shaft, then
+places those same parts on the opposite lateral route. The selected shaft's
+normal Cut button debits one more ore blank into the moved receiver; P picks
+it up. Q observes the changed part identities and centers, source debit and
+both receiver positions before the pickup. `--cog-phase=alternate-collector-resume`
+compares the resulting Store against both clients on a fresh host. This is a
+second physically distinct operating collector arrangement, with scripted
+walking, ordinary scene commands and an actual panel callback. It does not
+exercise every possible ore face, pointer placement or human usability.
+
 The low-level dedicated entry accepts optional `--resume-input` and
 `--save-file` paths in the same owned directory as its lifecycle files. These
 are host process options, never RPCs. Input is decoded into the one actual

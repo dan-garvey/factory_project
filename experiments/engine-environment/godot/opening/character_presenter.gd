@@ -5,6 +5,7 @@ const Geometry = preload("res://opening/site_geometry.gd")
 const Surface = preload("res://opening/site_surface.gd")
 const MULTITOOL = preload("res://opening/assets/multitool/multitool.tscn")
 const ADULT_ASSETS := "res://opening/assets/worker/"
+const SECOND_ADULT_ASSETS := "res://opening/assets/worker-second/"
 const GAIT_CYCLE_DISTANCE := 2.30
 const WALK_CYCLE_DISTANCE := 1.30
 const FULL_WALK_POSE_SPEED := 1.05
@@ -22,13 +23,20 @@ static var mesh_cache: Dictionary = {}
 static var material_cache: Dictionary = {}
 static var cloth_normal: NoiseTexture2D
 static var adult_template: PackedScene
+static var second_adult_template: PackedScene
 static var adult_run_clip: Animation
 static var adult_run_root_track := -1
 static var adult_run_root_reference := Vector3.ZERO
 static var adult_walk_clip: Animation
 static var adult_walk_root_track := -1
 static var adult_walk_root_reference := Vector3.ZERO
-static var multitool_hand_mesh: ArrayMesh
+static var second_adult_run_clip: Animation
+static var second_adult_run_root_track := -1
+static var second_adult_run_root_reference := Vector3.ZERO
+static var second_adult_walk_clip: Animation
+static var second_adult_walk_root_track := -1
+static var second_adult_walk_root_reference := Vector3.ZERO
+static var multitool_hand_meshes: Dictionary = {}
 
 var host
 var views: Dictionary = {}
@@ -179,8 +187,9 @@ func _hold_multitool(body: Node3D) -> void:
 		skeleton.set_bone_pose_rotation(index, (finger.base * Quaternion(Vector3.BACK, angle)).normalized())
 
 func _bake_multitool_hand(body: Node3D) -> ArrayMesh:
-	if multitool_hand_mesh != null:
-		return multitool_hand_mesh
+	var source: String = body.get_meta("source", "")
+	if multitool_hand_meshes.has(source):
+		return multitool_hand_meshes[source]
 	var skeleton: Skeleton3D = body.get_node(body.get_meta("skeleton_path"))
 	var frames := _adult_pose_frames(skeleton)
 	var to_tool := (frames[skeleton.find_bone("Bip01 R Hand")] * _multitool_frame(body)).affine_inverse()
@@ -250,7 +259,7 @@ func _bake_multitool_hand(body: Node3D) -> ArrayMesh:
 			result.surface_set_material(result.get_surface_count() - 1, mesh.mesh.surface_get_material(surface))
 	if result.get_surface_count() == 0:
 		return null
-	multitool_hand_mesh = result
+	multitool_hand_meshes[source] = result
 	return result
 
 func _refresh_multitools() -> void:
@@ -508,11 +517,12 @@ func _adult_image(path: String) -> Image:
 		return null
 	return image
 
-func _adult_material(material_name: String) -> Material:
-	var stem: String = {"f004_body": "body", "f004_head": "head", "f004_opacity": "opacity"}.get(material_name, "")
+func _adult_material(material_name: String, asset_root: String = ADULT_ASSETS) -> Material:
+	var stem: String = {"f004_body": "body", "f004_head": "head", "f004_opacity": "opacity",
+		"m009_body": "body", "m009_head": "head", "m009_opacity": "opacity"}.get(material_name, "")
 	if stem.is_empty():
 		return null
-	var color := _adult_image(ADULT_ASSETS + stem + "_color.webp")
+	var color := _adult_image(asset_root + stem + "_color.webp")
 	if color == null or color.is_empty():
 		return null
 	color.generate_mipmaps()
@@ -526,7 +536,7 @@ func _adult_material(material_name: String) -> Material:
 		material.cull_mode = BaseMaterial3D.CULL_DISABLED
 		material.metallic_specular = 0.0
 	else:
-		var normal := _adult_image(ADULT_ASSETS + stem + "_normal.webp")
+		var normal := _adult_image(asset_root + stem + "_normal.webp")
 		if normal == null or normal.is_empty():
 			return null
 		normal.generate_mipmaps(true)
@@ -840,9 +850,12 @@ func _adult_clip_bindings(skeleton: Skeleton3D, clip: Animation) -> Dictionary:
 func _apply_adult_locomotion(body: Node3D, phase: float, weight: float,
 		air: float, impact: float, run_mix: float) -> void:
 	var skeleton: Skeleton3D = body.get_node(body.get_meta("skeleton_path"))
+	var second: bool = body.get_meta("second_adult", false)
+	var run_clip: Animation = second_adult_run_clip if second else adult_run_clip
+	var walk_clip: Animation = second_adult_walk_clip if second else adult_walk_clip
 	var strength := weight * (1.0 - air) * (1.0 - impact * 0.7)
-	var run_sample := fposmod(phase / TAU, 1.0) * adult_run_clip.length
-	var walk_sample := fposmod(phase / TAU, 1.0) * adult_walk_clip.length
+	var run_sample := fposmod(phase / TAU, 1.0) * run_clip.length
+	var walk_sample := fposmod(phase / TAU, 1.0) * walk_clip.length
 	var rig: Dictionary = body.get_meta("rig")
 	var walk_channels: Dictionary = body.get_meta("walk_channels")
 	for binding in body.get_meta("run_bindings"):
@@ -857,7 +870,7 @@ func _apply_adult_locomotion(body: Node3D, phase: float, weight: float,
 		if binding.kind == Animation.TYPE_ROTATION_3D:
 			var original: Quaternion = binding.base
 			var from: Quaternion = skeleton.get_bone_pose_rotation(index) if rig.has(binding.key) else original
-			var run_frame := adult_run_clip.rotation_track_interpolate(binding.track, run_sample)
+			var run_frame := run_clip.rotation_track_interpolate(binding.track, run_sample)
 			var source_leg: bool = binding.key in ["L Thigh", "L Calf", "L Foot",
 				"R Thigh", "R Calf", "R Foot"]
 			var source_run_arm: bool = binding.key in ["L UpperArm", "L Forearm",
@@ -876,7 +889,7 @@ func _apply_adult_locomotion(body: Node3D, phase: float, weight: float,
 					* Quaternion(Vector3.RIGHT, forward_pitch) * frame).normalized()
 			var walk_target := original
 			if walk_binding is Dictionary:
-				var walk_frame := adult_walk_clip.rotation_track_interpolate(walk_binding.track, walk_sample)
+				var walk_frame := walk_clip.rotation_track_interpolate(walk_binding.track, walk_sample)
 				walk_target = walk_frame if source_leg else \
 					(original * walk_binding.reference.inverse() * walk_frame).normalized()
 				if binding.key == "L UpperArm" or binding.key == "R UpperArm":
@@ -885,12 +898,12 @@ func _apply_adult_locomotion(body: Node3D, phase: float, weight: float,
 			skeleton.set_bone_pose_rotation(index, from.slerp(walk_target.slerp(run_target, run_mix), influence))
 		else:
 			var original: Vector3 = binding.base
-			var run_frame: Vector3 = adult_run_clip.position_track_interpolate(binding.track, run_sample)
+			var run_frame: Vector3 = run_clip.position_track_interpolate(binding.track, run_sample)
 			var run_reference: Vector3 = binding.reference
 			var run_target: Vector3 = original + run_frame - run_reference
 			var walk_target: Vector3 = original
 			if walk_binding is Dictionary:
-				var walk_frame: Vector3 = adult_walk_clip.position_track_interpolate(walk_binding.track, walk_sample)
+				var walk_frame: Vector3 = walk_clip.position_track_interpolate(walk_binding.track, walk_sample)
 				var walk_reference: Vector3 = walk_binding.reference
 				walk_target = original + walk_frame - walk_reference
 			skeleton.set_bone_pose_position(index, original.lerp(walk_target.lerp(run_target, run_mix), influence))
@@ -903,12 +916,12 @@ func _apply_adult_locomotion(body: Node3D, phase: float, weight: float,
 			strength if finger_channel else strength * (1.0 - run_mix))
 		if binding.kind == Animation.TYPE_ROTATION_3D:
 			var original: Quaternion = binding.base
-			var frame := adult_walk_clip.rotation_track_interpolate(binding.track, walk_sample)
+			var frame := walk_clip.rotation_track_interpolate(binding.track, walk_sample)
 			var target: Quaternion = (original * binding.reference.inverse() * frame).normalized()
 			skeleton.set_bone_pose_rotation(binding.index, original.slerp(target, influence))
 		else:
 			var original: Vector3 = binding.base
-			var frame: Vector3 = adult_walk_clip.position_track_interpolate(binding.track, walk_sample)
+			var frame: Vector3 = walk_clip.position_track_interpolate(binding.track, walk_sample)
 			var reference: Vector3 = binding.reference
 			skeleton.set_bone_pose_position(binding.index, original + (frame - reference) * influence)
 	# A relaxed hand carries the run without the asset's straight, splayed
@@ -923,11 +936,15 @@ func _apply_adult_locomotion(body: Node3D, phase: float, weight: float,
 		skeleton.set_bone_pose_rotation(index,
 			(pose * Quaternion(Vector3.BACK, angle)).normalized())
 	var run_lift := 0.0
-	if adult_run_root_track >= 0:
-		run_lift = adult_run_clip.position_track_interpolate(adult_run_root_track, run_sample).y - adult_run_root_reference.y
+	var run_root_track: int = second_adult_run_root_track if second else adult_run_root_track
+	var run_root_reference: Vector3 = second_adult_run_root_reference if second else adult_run_root_reference
+	if run_root_track >= 0:
+		run_lift = run_clip.position_track_interpolate(run_root_track, run_sample).y - run_root_reference.y
 	var walk_lift := 0.0
-	if adult_walk_root_track >= 0:
-		walk_lift = adult_walk_clip.position_track_interpolate(adult_walk_root_track, walk_sample).y - adult_walk_root_reference.y
+	var walk_root_track: int = second_adult_walk_root_track if second else adult_walk_root_track
+	var walk_root_reference: Vector3 = second_adult_walk_root_reference if second else adult_walk_root_reference
+	if walk_root_track >= 0:
+		walk_lift = walk_clip.position_track_interpolate(walk_root_track, walk_sample).y - walk_root_reference.y
 	# The preserved running stride bends both legs more than the previous
 	# first-frame-relative pose, so lower only its visual root toward support.
 	# Leave three millimetres of clearance for the fuller running spine motion.
@@ -1038,12 +1055,12 @@ func _adult_rest_bounds(skeleton: Skeleton3D, mesh: MeshInstance3D, to_model: Tr
 				bounds = bounds.expand(at)
 	return bounds
 
-func _prepare_adult_template() -> bool:
+func _prepare_adult_template(asset_root: String = ADULT_ASSETS, second: bool = false) -> bool:
 	var document := GLTFDocument.new()
 	var state := GLTFState.new()
 	# Direct runtime glTF reading also supports cold native captures without an
 	# editor import cache. Textures are explicitly decoded from the captured maps.
-	if document.append_from_file(ADULT_ASSETS + "adult_worker.glb", state) != OK:
+	if document.append_from_file(asset_root + "adult_worker.glb", state) != OK:
 		return false
 	var appearance: Node = document.generate_scene(state)
 	if not appearance is Node3D:
@@ -1063,7 +1080,7 @@ func _prepare_adult_template() -> bool:
 		return false
 	for surface in range(mesh.mesh.get_surface_count()):
 		var source: Material = mesh.mesh.surface_get_material(surface)
-		var material: Material = _adult_material(source.resource_name if source != null else "")
+		var material: Material = _adult_material(source.resource_name if source != null else "", asset_root)
 		if material == null:
 			appearance.free()
 			return false
@@ -1076,6 +1093,7 @@ func _prepare_adult_template() -> bool:
 	for descendant in appearance.find_children("*", "", true, false):
 		descendant.owner = body
 	body.set_meta("sourced_character", true)
+	body.set_meta("second_adult", second)
 	body.set_meta("skeleton_path", body.get_path_to(skeleton))
 	var rig := {}
 	var frames := _adult_pose_frames(skeleton)
@@ -1092,19 +1110,15 @@ func _prepare_adult_template() -> bool:
 		rig[key] = {"index": index, "rotation": skeleton.get_bone_pose_rotation(index),
 			"space": (to_model.basis * frames[index].basis).get_rotation_quaternion()}
 	body.set_meta("rig", rig)
-	adult_run_clip = load(ADULT_ASSETS + "run_neutral.res") as Animation
-	adult_walk_clip = load(ADULT_ASSETS + "walk_neutral.res") as Animation
-	if adult_run_clip == null or adult_run_clip.length <= 0.0 \
-			or adult_walk_clip == null or adult_walk_clip.length <= 0.0:
+	var run_clip := load(asset_root + "run_neutral.res") as Animation
+	var walk_clip := load(asset_root + "walk_neutral.res") as Animation
+	if run_clip == null or run_clip.length <= 0.0 \
+			or walk_clip == null or walk_clip.length <= 0.0:
 		body.free()
 		return false
 	_set_adult_air_and_landing(body, 0.0, 0.0, 0.0)
-	var run_data := _adult_clip_bindings(skeleton, adult_run_clip)
-	var walk_data := _adult_clip_bindings(skeleton, adult_walk_clip)
-	adult_run_root_track = run_data.root_track
-	adult_run_root_reference = run_data.root_reference
-	adult_walk_root_track = walk_data.root_track
-	adult_walk_root_reference = walk_data.root_reference
+	var run_data := _adult_clip_bindings(skeleton, run_clip)
+	var walk_data := _adult_clip_bindings(skeleton, walk_clip)
 	body.set_meta("run_bindings", run_data.bindings)
 	var run_channels := {}
 	for binding in run_data.bindings:
@@ -1141,24 +1155,48 @@ func _prepare_adult_template() -> bool:
 	var fitted_scale: float = Geometry.CAPSULE_HEIGHT / bounds.size.y
 	appearance.scale = Vector3.ONE * fitted_scale
 	appearance.position.y = -Geometry.CAPSULE_HEIGHT / 2.0 - bounds.position.y * fitted_scale
-	if not _attach_field_badge(body, skeleton):
+	if not second and not _attach_field_badge(body, skeleton):
 		body.free()
 		return false
 	body.set_meta("source_rest_bounds", bounds)
-	body.set_meta("source", "Microsoft Rocketbox Female_Adult_04")
+	body.set_meta("source", "Microsoft Rocketbox Male_Adult_05" if second
+		else "Microsoft Rocketbox Female_Adult_04")
 	var packed := PackedScene.new()
 	var error: Error = packed.pack(body)
 	body.free()
 	if error != OK:
 		return false
-	adult_template = packed
+	if second:
+		second_adult_template = packed
+		second_adult_run_clip = run_clip
+		second_adult_walk_clip = walk_clip
+		second_adult_run_root_track = run_data.root_track
+		second_adult_run_root_reference = run_data.root_reference
+		second_adult_walk_root_track = walk_data.root_track
+		second_adult_walk_root_reference = walk_data.root_reference
+	else:
+		adult_template = packed
+		adult_run_clip = run_clip
+		adult_walk_clip = walk_clip
+		adult_run_root_track = run_data.root_track
+		adult_run_root_reference = run_data.root_reference
+		adult_walk_root_track = walk_data.root_track
+		adult_walk_root_reference = walk_data.root_reference
 	return true
 
-func _make_worker_visual() -> Node3D:
+func _make_worker_visual(actor: String) -> Node3D:
 	# Fixed historical source rosters do not include the new asset. They retain
 	# their explicitly documented procedural appearance, without new file reads.
 	if not FileAccess.file_exists(ADULT_ASSETS + "adult_worker.glb"):
 		return _make_legacy_worker_visual()
+	if actor == "Q" and FileAccess.file_exists(SECOND_ADULT_ASSETS + "adult_worker.glb"):
+		if second_adult_template == null and not _prepare_adult_template(SECOND_ADULT_ASSETS, true):
+			push_error("The second adult character asset is incomplete or invalid.")
+			var unavailable := Node3D.new()
+			unavailable.name = "BodyView"
+			unavailable.set_meta("appearance_unavailable", true)
+			return unavailable
+		return second_adult_template.instantiate()
 	if adult_template == null and not _prepare_adult_template():
 		push_error("The captured adult character asset is incomplete or invalid.")
 		var unavailable := Node3D.new()
@@ -1483,7 +1521,7 @@ func _new_view(actor: String) -> Node3D:
 	var root := Node3D.new()
 	root.name = "Character" + actor
 	root.set_meta("actor", actor)
-	var mesh := _make_worker_visual()
+	var mesh := _make_worker_visual(actor)
 	if mesh is MeshInstance3D:
 		mesh.material_override = _worker_material(Color("c87847") if actor == host.client else Color("50899a"), 0.85, 0, true)
 	root.add_child(mesh)
