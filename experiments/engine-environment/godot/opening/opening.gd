@@ -7298,7 +7298,8 @@ func _redraw_items() -> void:
 	workpiece_item_assets.populate_items(item_root, state, PITCH)
 
 func _refresh() -> void:
-	_refresh_from_projection(model.view_projection() if model.has_method("view_projection") else model.projection())
+	_refresh_from_projection(model._view_projection_borrowed() if model.has_method("_view_projection_borrowed") \
+		else model.view_projection() if model.has_method("view_projection") else model.projection())
 
 func _refresh_from_projection(known_projection: Dictionary) -> void:
 	# Both model paths return the complete projection from advance(). Reuse the
