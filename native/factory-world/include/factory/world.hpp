@@ -121,6 +121,11 @@ struct State {
     std::optional<FreightBeacon> freight_beacon;
     std::optional<HandCrank> hand_crank;
     std::map<std::string, PlacedComponent> placed_components;
+    // A finished modular press item retains its work identity while waiting at
+    // its outlet. Once it enters a belt, the exported identity remains as a
+    // checkpoint witness; material quantities still belong only to Cargo.
+    std::map<mechanics::Point, materials::WorkId> press_output_at_exit;
+    std::map<mechanics::Point, std::set<materials::WorkId>> press_output_exported;
     bool operator==(const State&) const = default;
 };
 

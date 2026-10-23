@@ -301,7 +301,7 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
         for (const auto& [actor, kit] : snapshot.state.kits) kits.emplace(actor, kit_value(kit));
         for (const auto& [id, generation] : snapshot.state.issued_entities) issued.emplace(id, Value(generation));
         Value output(Object{
-            {"schema", Value(Integer{9})}, {"profile", profile_value(profile)},
+            {"schema", Value(Integer{10})}, {"profile", profile_value(profile)},
             {"revision", Value(snapshot.revision)}, {"history", std::move(*history.value)},
             {"state", Value(Object{{"material", std::move(std::get<Value>(material))},
                 {"topology", topology_value(snapshot.state.topology)}, {"kits", Value(std::move(kits))},
@@ -347,6 +347,18 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
                     {"center", Value(Array{Value(component.center[0]), Value(component.center[1]),
                         Value(component.center[2])})}, {"generation", Value(component.generation)}}));
             state.emplace("placed_components", Value(std::move(placed)));
+            Array waiting, exported;
+            for (const auto& [center, id] : snapshot.state.press_output_at_exit)
+                waiting.emplace_back(Object{{"center", Value(Array{Value(center[0]), Value(center[1]), Value(center[2])})},
+                    {"work_id", Value(id)}});
+            for (const auto& [center, ids] : snapshot.state.press_output_exported) {
+                Array work_ids;
+                for (const auto id : ids) work_ids.emplace_back(id);
+                exported.emplace_back(Object{{"center", Value(Array{Value(center[0]), Value(center[1]), Value(center[2])})},
+                    {"work_ids", Value(std::move(work_ids))}});
+            }
+            state.emplace("press_output_at_exit", Value(std::move(waiting)));
+            state.emplace("press_output_exported", Value(std::move(exported)));
             root.at("state") = Value(std::move(state));
             output = Value(std::move(root));
         }
@@ -360,7 +372,7 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
     try {
         Budget{}.visit(value);
         const auto& root = fields(value, "$", {"schema", "profile", "revision", "history", "state"});
-        if (integer(root, "schema", "$") != 9) refuse(CheckpointReason::unsupported_schema, "$.schema");
+        if (integer(root, "schema", "$") != 10) refuse(CheckpointReason::unsupported_schema, "$.schema");
         if (const auto difference = values::typed_difference(profile_value(profile), root.at("profile")))
             refuse(CheckpointReason::profile_mismatch, "$.profile" + difference->path.substr(1));
         Snapshot candidate;
@@ -370,7 +382,7 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
         candidate.history = std::move(*history.history);
         if (candidate.history.context != expected_context) refuse(CheckpointReason::wrong_context, "$.history.context");
         const auto& state = profile.landing_pod_center ? fields(root.at("state"), "$.state",
-            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "freight_beacon", "hand_crank", "placed_components"}) :
+            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "freight_beacon", "hand_crank", "placed_components", "press_output_at_exit", "press_output_exported"}) :
             profile.foundation_parts > 0 ? fields(root.at("state"), "$.state",
             {"material", "topology", "kits", "issued_entities", "next_entity_serial", "foundations", "foundation_kits"}) :
             fields(root.at("state"), "$.state", {"material", "topology", "kits", "issued_entities", "next_entity_serial"});
@@ -424,6 +436,32 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
                      scalar<Integer>(center[1], "$.state.placed_components.center"),
                      scalar<Integer>(center[2], "$.state.placed_components.center")},
                     integer(entry, "generation", "$.state.placed_components")});
+            }
+            const auto read_point = [&](const Value& value, const std::string& path) {
+                const auto& center = array(value, path, 3);
+                if (center.size() != 3) refuse(CheckpointReason::invalid_world, path);
+                return mechanics::Point{scalar<Integer>(center[0], path),
+                    scalar<Integer>(center[1], path), scalar<Integer>(center[2], path)};
+            };
+            const auto& waiting = array(state.at("press_output_at_exit"), "$.state.press_output_at_exit", 4096);
+            for (const auto& value : waiting) {
+                const auto& entry = fields(value, "$.state.press_output_at_exit", {"center", "work_id"});
+                if (!candidate.state.press_output_at_exit.emplace(
+                        read_point(entry.at("center"), "$.state.press_output_at_exit.center"),
+                        integer(entry, "work_id", "$.state.press_output_at_exit")).second)
+                    refuse(CheckpointReason::invalid_world, "$.state.press_output_at_exit");
+            }
+            const auto& exported = array(state.at("press_output_exported"), "$.state.press_output_exported", 4096);
+            for (const auto& value : exported) {
+                const auto& entry = fields(value, "$.state.press_output_exported", {"center", "work_ids"});
+                const auto center = read_point(entry.at("center"), "$.state.press_output_exported.center");
+                const auto& work_ids = array(entry.at("work_ids"), "$.state.press_output_exported.work_ids", 4096);
+                auto& ids = candidate.state.press_output_exported[center];
+                if (!ids.empty() || work_ids.empty())
+                    refuse(CheckpointReason::invalid_world, "$.state.press_output_exported");
+                for (const auto& id : work_ids)
+                    if (!ids.insert(scalar<Integer>(id, "$.state.press_output_exported.work_ids")).second)
+                        refuse(CheckpointReason::invalid_world, "$.state.press_output_exported.work_ids");
             }
         }
         if (profile.foundation_parts > 0) {

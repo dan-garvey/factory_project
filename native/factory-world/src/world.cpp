@@ -777,7 +777,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         Integer last_tick_seen{};
     };
     std::map<mechanics::Point, PressWorkRecord> press_work;
-    std::set<mechanics::Point> press_products;
+    std::map<mechanics::Point, Integer> press_products;
+    std::set<mechanics::Point> historical_press_exits;
     std::set<materials::WorkId> press_work_ids;
     Integer history_revision = 0;
     Integer ticks_seen = 0;
@@ -950,9 +951,10 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             auto automatic_exit = inspected.press->work_center;
             automatic_exit[0] -= inspected.press->shaft_center[0] - inspected.press->frame_center[0];
             automatic_exit[2] -= inspected.press->shaft_center[2] - inspected.press->frame_center[2];
+            historical_press_exits.insert(automatic_exit);
             if (const auto previous = press_work.find(*selected_work); previous != press_work.end()) {
                 if (!previous->second.automatic_exit || previous->second.last_tick_seen == ticks_seen ||
-                    !press_products.insert(*previous->second.automatic_exit).second) return false;
+                    !add(press_products[*previous->second.automatic_exit], 1)) return false;
                 press_work.erase(previous);
             }
             press_work.emplace(*selected_work, PressWorkRecord{0, 0, automatic_exit, ticks_seen});
@@ -985,6 +987,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 inspected.press->work_center != *selected_work ||
                 std::none_of(inspected.press->open_feeds.begin(), inspected.press->open_feeds.end(),
                     [&](const assembly::PressFeed& feed) { return feed.exit == *selected_exit; })) return false;
+            historical_press_exits.insert(*selected_exit);
             const auto active = press_work.find(*selected_work);
             if (active == press_work.end()) return false;
             auto& entry = active->second;
@@ -1009,7 +1012,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             } else {
                 // An automatic tick can complete a lot between manual turns.
                 if (!lots->empty() || *products != 1 ||
-                    !press_products.insert(*selected_exit).second) return false;
+                    !add(press_products[*selected_exit], 1)) return false;
                 press_work.erase(active);
             }
         }
@@ -1018,7 +1021,12 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             if (!point) return false;
             // An older finished product can wait at the same exit while the
             // next feed is still working. Consume that older claim first.
-            bool claimed_product = press_products.erase(*point) != 0;
+            bool claimed_product = false;
+            if (const auto claimed = press_products.find(*point);
+                claimed != press_products.end() && claimed->second > 0) {
+                claimed_product = true;
+                if (--claimed->second == 0) press_products.erase(claimed);
+            }
             if (!claimed_product) {
                 for (auto active = press_work.begin(); active != press_work.end(); ++active) {
                     if (active->second.automatic_exit != *point ||
@@ -1210,10 +1218,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         const auto item = snapshot.state.material.dropped_material.find(point);
         if (work.id == 0) {
             if (item == snapshot.state.material.dropped_material.end()) {
-                if (!work.automatic_exit || work.last_tick_seen == ticks_seen) return false;
-                const auto output = snapshot.state.material.dropped_material.find(*work.automatic_exit);
-                if (output == snapshot.state.material.dropped_material.end() ||
-                    output->second != materials::Cargo{0, 1, {}}) return false;
+                if (!work.automatic_exit || work.last_tick_seen == ticks_seen ||
+                    !add(press_products[*work.automatic_exit], 1)) return false;
             } else if (item->second == materials::Cargo{1, 0, {}}) {
                 // The blank has not yet received power.
             } else if (item->second.raw_units == 0 && item->second.products == 0 &&
@@ -1226,10 +1232,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             } else return false;
         } else {
             if (item == snapshot.state.material.dropped_material.end()) {
-                if (!work.automatic_exit || work.last_tick_seen == ticks_seen) return false;
-                const auto output = snapshot.state.material.dropped_material.find(*work.automatic_exit);
-                if (output == snapshot.state.material.dropped_material.end() ||
-                    output->second != materials::Cargo{0, 1, {}}) return false;
+                if (!work.automatic_exit || work.last_tick_seen == ticks_seen ||
+                    !add(press_products[*work.automatic_exit], 1)) return false;
             } else if (item->second.raw_units != 0 || item->second.products != 0 ||
                        item->second.timber != 0 || !item->second.components.empty() ||
                        item->second.work_lots.size() != 1 ||
@@ -1239,12 +1243,54 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                        item->second.work_lots.front().remaining_ticks > work.remaining) return false;
         }
     }
-    for (const auto& point : press_products) {
+    std::set<materials::WorkId> witnessed_products;
+    Integer witness_count = 0;
+    for (const auto& [point, id] : snapshot.state.press_output_at_exit) {
         const auto item = snapshot.state.material.dropped_material.find(point);
         if (item == snapshot.state.material.dropped_material.end() ||
-            item->second.raw_units != 0 || item->second.products != 1 ||
-            !item->second.work_lots.empty()) return false;
+            item->second != materials::Cargo{0, 1, {}} ||
+            !press_products.contains(point) || id <= 0 ||
+            id >= snapshot.state.material.next_work_id || !witnessed_products.insert(id).second ||
+            !add(witness_count, 1)) return false;
     }
+    for (const auto& [point, ids] : snapshot.state.press_output_exported) {
+        if (ids.empty() || !historical_press_exits.contains(point)) return false;
+        for (const auto id : ids)
+            if (id <= 0 || id >= snapshot.state.material.next_work_id ||
+                !witnessed_products.insert(id).second || !add(witness_count, 1)) return false;
+    }
+    for (const auto& [point, claimed] : press_products) {
+        const Integer waiting = snapshot.state.press_output_at_exit.contains(point) ? 1 : 0;
+        const auto exported = snapshot.state.press_output_exported.find(point);
+        const auto exported_count = exported == snapshot.state.press_output_exported.end() ?
+            0 : static_cast<Integer>(exported->second.size());
+        if (claimed < 1 || claimed > waiting + exported_count) return false;
+    }
+    Integer live_products = 0;
+    if (!add(live_products, snapshot.state.material.stock.output) ||
+        !add(live_products, snapshot.state.material.shipped_products)) return false;
+    const auto count_cargo = [&](const materials::Cargo& cargo) {
+        if (!add(live_products, cargo.products)) return false;
+        for (const auto& work : cargo.work_lots)
+            if (witnessed_products.contains(work.id)) return false;
+        return true;
+    };
+    if (snapshot.state.material.processing &&
+        witnessed_products.contains(snapshot.state.material.processing->id)) return false;
+    for (const auto& [actor, cargo] : snapshot.state.material.cargo) {
+        (void)actor;
+        if (!count_cargo(cargo)) return false;
+    }
+    for (const auto& [point, cargo] : snapshot.state.material.dropped_material) {
+        (void)point;
+        if (!count_cargo(cargo)) return false;
+    }
+    for (const auto& [id, lane] : snapshot.state.material.belt_lanes) {
+        (void)id;
+        for (const auto& slot : lane.slots)
+            if (slot && !count_cargo(*slot)) return false;
+    }
+    if (witness_count > live_products) return false;
     for (const auto& [actor, cargo] : snapshot.state.material.cargo)
         if (carried_timber[actor] != cargo.timber) return false;
     if (profile.landing_pod_center)
@@ -1891,6 +1937,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         const auto error = materials::pickup_material(candidate.material, profile_.material,
                                                   material_path(candidate.topology), binding.actor, *point);
         if (error != materials::Error::none) return refused(materials::error_name(error), "", std::move(facts));
+        if (contents.products == 1) candidate.press_output_at_exit.erase(*point);
         facts.emplace("generation", Value(Integer{0}));
         facts.emplace("moved_raw", Value(contents.raw_units));
         facts.emplace("moved_products", Value(contents.products));
@@ -2256,11 +2303,18 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         if (checked.error != authority::Error::none)
             return refused(authority::error_name(checked.error), *id, std::move(facts));
         auto candidate = state;
+        const auto previous_work = state.material.dropped_material.find(inspected.press->work_center);
+        const auto completed_id = previous_work != state.material.dropped_material.end() &&
+            previous_work->second.work_lots.size() == 1 ?
+            previous_work->second.work_lots.front().id : materials::WorkId{0};
         const auto error = materials::turn_press(candidate.material, profile_.material,
             material_path(candidate.topology), inspected.press->work_center, *selected_exit);
         if (error != materials::Error::none)
             return refused(materials::error_name(error), *id, std::move(facts));
         const auto work_item = candidate.material.dropped_material.find(inspected.press->work_center);
+        if (work_item == candidate.material.dropped_material.end() &&
+            (completed_id <= 0 || !candidate.press_output_at_exit.emplace(*selected_exit, completed_id).second))
+            return refused("invalid_press_output", *id, std::move(facts));
         facts.emplace("generation", Value(*generation));
         facts.emplace("shaft_center", Value(Value::Array{Value(inspected.press->shaft_center[0]),
             Value(inspected.press->shaft_center[1]), Value(inspected.press->shaft_center[2])}));
@@ -2885,9 +2939,22 @@ Advance World::tick() noexcept {
                 press_steps.push_back(*step);
         }
         if (!press_steps.empty()) {
+            std::map<mechanics::Point, materials::WorkId> completing;
+            for (const auto& step : press_steps) {
+                const auto work = candidate.material.dropped_material.find(step.work);
+                if (work != candidate.material.dropped_material.end() && work->second.work_lots.size() == 1)
+                    completing.emplace(step.work, work->second.work_lots.front().id);
+            }
             const auto press_error = materials::step_presses(candidate.material, profile_.material,
                 material_path(candidate.topology), press_steps);
             if (press_error != materials::Error::none) throw press_error;
+            for (const auto& step : press_steps) {
+                const auto prior = completing.find(step.work);
+                if (prior != completing.end() && !candidate.material.dropped_material.contains(step.work) &&
+                    candidate.material.dropped_material.contains(step.exit) &&
+                    !candidate.press_output_at_exit.emplace(step.exit, prior->second).second)
+                    throw materials::Error::invalid_state;
+            }
         }
         // Belt routes query the same immutable placed topology several times.
         // Preserve the first matching part at a point while avoiding one full
@@ -2922,6 +2989,37 @@ Advance World::tick() noexcept {
             const auto [entry, inserted] = collector_mouths.emplace(mouth,
                 CollectorMouth{collector->machine_center, receiver});
             if (!inserted) entry->second.reset();
+        }
+        struct PressMouth { mechanics::Point frame; mechanics::Point exit; };
+        std::map<mechanics::Point, std::optional<PressMouth>> press_mouths;
+        if (!candidate.topology.belt_spans.empty()) {
+            std::set<mechanics::Point> component_centers;
+            for (const auto& part : placed) component_centers.insert(part.center);
+            for (const auto& part : placed) {
+                if (part.kind != materials::Component::wooden_frame) continue;
+                const auto inspected = layout.inspect_press(part.center);
+                if (!inspected.press) continue;
+                const auto& press = *inspected.press;
+                for (const auto& feed : press.open_feeds) {
+                    const auto direction = mechanics::Point{feed.exit[0] - press.work_center[0], 0,
+                        feed.exit[2] - press.work_center[2]};
+                    auto mouth = press.frame_center;
+                    mouth[0] += 4 * direction[0];
+                    mouth[2] += 4 * direction[2];
+                    // The open work face alone is insufficient: the short chute
+                    // down to a full-tile belt mouth must remain physically clear.
+                    bool clear = true;
+                    for (Integer distance = 2; distance <= 3; ++distance) {
+                        const mechanics::Point along{press.work_center[0] + distance * direction[0],
+                            press.work_center[1], press.work_center[2] + distance * direction[2]};
+                        if (component_centers.contains(along)) { clear = false; break; }
+                    }
+                    if (!clear) continue;
+                    const auto [entry, inserted] = press_mouths.emplace(mouth,
+                        PressMouth{press.frame_center, feed.exit});
+                    if (!inserted) entry->second.reset();
+                }
+            }
         }
         // Capture loose items before any lane moves. This gives a deterministic
         // one-tick handoff between adjacent belts regardless of span ordering.
@@ -2991,6 +3089,28 @@ Advance World::tick() noexcept {
                         }
                     }
                 }
+                const auto output = press_mouths.find(inlet);
+                if (output != press_mouths.end() && output->second && !slot) {
+                    const auto& [frame, exit] = *output->second;
+                    const auto farther = [&](const mechanics::Point& point) {
+                        const auto dx = point[0] - frame[0], dz = point[2] - frame[2];
+                        return dx * dx + dz * dz;
+                    };
+                    if (farther(next) > farther(inlet)) {
+                        const auto loose = candidate.material.dropped_material.find(exit);
+                        if (loose != candidate.material.dropped_material.end() &&
+                            loose->second == materials::Cargo{0, 1, {}}) {
+                            slot = loose->second;
+                            candidate.material.dropped_material.erase(loose);
+                            const auto witness = candidate.press_output_at_exit.find(exit);
+                            if (witness != candidate.press_output_at_exit.end()) {
+                                if (!candidate.press_output_exported[exit].insert(witness->second).second)
+                                    throw materials::Error::invalid_state;
+                                candidate.press_output_at_exit.erase(witness);
+                            }
+                        }
+                    }
+                }
             }
             auto before = first->geometry.center;
             auto after = last->geometry.center;
@@ -3000,12 +3120,12 @@ Advance World::tick() noexcept {
                 after[axis] += step;
             }
             const auto port_matches = [&](Role role, const mechanics::Point& point,
-                                          const mechanics::Point& adjacent) {
+                                          const mechanics::Point& adjacent, bool output = false) {
                 const auto* machine = at(role, point);
                 if (!machine) return false;
                 constexpr std::array<mechanics::Point, 4> forwards{{{4, 0, 0}, {0, 0, 4}, {-4, 0, 0}, {0, 0, -4}}};
                 const auto& forward = forwards[static_cast<std::size_t>(machine->rotation)];
-                const auto sign = role == Role::collector ? 1 : -1;
+                const auto sign = role == Role::collector || output ? 1 : -1;
                 // The path owns its incline. Facing selects the horizontal side.
                 return adjacent[0] - point[0] == sign * forward[0] &&
                        adjacent[2] - point[2] == sign * forward[2];
@@ -3089,6 +3209,20 @@ Advance World::tick() noexcept {
                     (feed_first ? lane->second.slots.front() : lane->second.slots.back()) = materials::Cargo{1, 0, {}};
                     --candidate.material.stock.collector;
                     collector_fed_span = true;
+                }
+            }
+            // A completed whole-processor slot can discharge at its rotated
+            // output face. The receiving belt must actually run away from it;
+            // a stopped or reversed lane leaves the product available by hand.
+            if (candidate.material.stock.output > 0 && rate->second.state == mechanics::MotionState::rotating &&
+                *direction != 0) {
+                const bool toward_last = *direction > 0;
+                const auto& machine_point = toward_last ? before : after;
+                const auto& endpoint = toward_last ? first->geometry.center : last->geometry.center;
+                auto& slot = toward_last ? lane->second.slots.front() : lane->second.slots.back();
+                if (!slot && port_matches(Role::processor, machine_point, endpoint, true)) {
+                    slot = materials::Cargo{0, 1, {}};
+                    --candidate.material.stock.output;
                 }
             }
         }

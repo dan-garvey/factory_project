@@ -1175,12 +1175,12 @@ Host tests also cover exact retry and checkpoint restore. The deck is seeded
 through the normal foundation records and common grid; the `landing_pod`
 descriptor is a presentation hint, not a second construction ledger.
 
-The live opening scene still invokes the historical initializer. There is no
-rendered pod, crafting hub, manual tool or human play observation from this
-probe. The older complete-machine kits remain in this adapter mode until the
-component economy replaces them. The pod center at grid `{4, 0, 16}` is a
-revisable site choice that still needs passive scene inspection with nearby
-resources and collision geometry.
+That original extension probe supplied no rendered pod or human-play evidence.
+The current ordinary offline and shared arrival paths use the native arrival
+profile, with visible pod, workshop, multitool and component controls. The pod
+center at grid `{4, 0, 16}` remains a revisable site choice. Host anchors include
+the common spindle offset; floor-authored pod and bench meshes subtract that
+offset once so their feet meet the ordinary foundation top plane.
 
 The experimental arrival Host also projects three finite timber sites and the
 existing ore reserve as `hand_sources`. Native `harvest_source` uses the bound
@@ -1188,9 +1188,9 @@ actor observation and the same reach authority as construction. In an isolated
 pinned 4.7.2 extension probe, the actual emitted site accepted a synthetic
 deck actor cutting one tree and a synthetic ore-side actor mining one unit;
 checkpoint restore retained both balances. This establishes the site adapter
-and bridge path, not input, movement, rendering or human play. The live scene
-has no multitool input or harvestable tree/depletion presenter yet. The
-provisional anchors must be reconciled with visible trees before adoption.
+and bridge path, not input, movement, rendering or human play. The later scene
+presenter binds its harvestable trees and depletion to those projected sites;
+the original synthetic probe alone does not establish that presentation.
 The experimental material schema also records typed crafted components with
 their original timber or ore weights. A rebuilt 4.7.2 extension restored the
 same two-source checkpoint after this schema change.
@@ -1202,11 +1202,22 @@ checkpoint, and refuse removal of its supporting foundation. A rebuilt pinned
 wooden shaft, refused Q's remote bench attempt, then let Q cut ore and shape a
 metal edge after moving its supplied pose to the deck; a fresh Host restored
 both components and source balances. This is an authority and extension
-boundary, not evidence of a visible bench or ordinary player crafting;
-the ordinary offline caller now selects `initialize_arrival`, while shared
-startup retains its existing profile. The offline view reads native resource
-stock and offers exact-target harvesting; pod/bench art, timed tool use and
-component crafting/placement controls remain unfinished.
+boundary, not evidence of ordinary player crafting. Current component and
+workshop controls still send exact identities to that native authority.
+
+The fresh opening's 2.8-second descent and unfolding sequence is local cosmetic
+presentation of an already deployed native site, not simulated falling-pod
+physics. It releases character controls while active. The canopy closes in
+flight and hinges back after touchdown; the rigid bench swings onto its native
+anchor. Restored and shared deployed views construct the open endpoint directly.
+The existing view fixture checks actual mesh intersections, fixed bench scale,
+native facts and cache identity at three common-grid heights in offline/shared
+classes. Natural-clock app frames are separate rendered evidence, not human play.
+
+The supplied hull and issued workshop meshes do not currently add matching
+ActorWorld collision bodies. Ordinary foundation collision remains active;
+solid pod/workshop collision and matching native placement admission are a
+concrete follow-up, not an engine restriction or an accepted game requirement.
 
 ## GDC-22: first native tool presentation has separate cold costs
 
