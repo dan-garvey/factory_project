@@ -272,8 +272,9 @@ CollectorMatch collector_for_shaft(const Profile& profile,
     const auto selected = std::find_if(parts.begin(), parts.end(),
         [&](const auto& part) { return part.id == shaft; });
     if (selected == parts.end()) return found;
+    const assembly::Layout layout(parts);
     for (const auto& face : profile.collector_faces) {
-        const auto inspected = assembly::inspect_collector(parts, face);
+        const auto inspected = layout.inspect_collector(face);
         const auto& center = face.machine_center;
         const auto& at = selected->center;
         const auto adjacent = std::abs(at[0] - center[0]) + std::abs(at[1] - center[1]) +
@@ -1285,14 +1286,14 @@ DrivePower drive_power(const stationary::Topology& topology) {
     return apply_load(topology, stationary::power_view(topology).mechanical, {}, {});
 }
 
-DrivePower drive_power(const Profile& profile, const State& state) {
+static DrivePower drive_power_with_layout(const Profile& profile, const State& state,
+        const std::vector<assembly::Part>& placed, const assembly::Layout& layout) {
     const auto base = stationary::power_view(state.topology);
     if (!base.mechanical.accepted()) return {base.mechanical, {}};
     std::vector<mechanics::Part> parts;
     parts.reserve(state.topology.parts.size() + state.placed_components.size());
     for (const auto& item : state.topology.parts) parts.push_back(item.geometry);
     std::map<std::string, long double> ratings, impacts;
-    const auto placed = assembly_parts(state);
     std::set<std::string> reserved_ids;
     for (const auto& part : state.topology.parts) reserved_ids.insert(part.geometry.id);
     for (const auto& part : placed) reserved_ids.insert(part.id);
@@ -1301,7 +1302,7 @@ DrivePower drive_power(const Profile& profile, const State& state) {
         parts.push_back(std::move(projected));
     };
     for (const auto& face : profile.collector_faces) {
-        const auto inspected = assembly::inspect_collector(placed, face);
+        const auto inspected = layout.inspect_collector(face);
         if (!inspected.collector) continue;
         const auto& found = *inspected.collector;
         const auto axis = horizontal_axis(found.machine_center, found.shaft_center);
@@ -1313,7 +1314,7 @@ DrivePower drive_power(const Profile& profile, const State& state) {
     }
     for (const auto& item : placed) {
         if (item.kind != materials::Component::wooden_frame) continue;
-        const auto inspected = assembly::inspect_press(placed, item.center);
+        const auto inspected = layout.inspect_press(item.center);
         if (!inspected.press) continue;
         const auto& found = *inspected.press;
         const auto axis = horizontal_axis(found.shaft_center, found.cog_center);
@@ -1349,6 +1350,12 @@ DrivePower drive_power(const Profile& profile, const State& state) {
     for (const auto& span : state.topology.belt_spans) spans.push_back(span.geometry);
     return apply_load(state.topology,
         mechanics::evaluate(parts, sources, spans, mechanics::SourcePolicy::overpower), ratings, impacts);
+}
+
+DrivePower drive_power(const Profile& profile, const State& state) {
+    const auto placed = assembly_parts(state);
+    const assembly::Layout layout(placed);
+    return drive_power_with_layout(profile, state, placed, layout);
 }
 
 materials::MachinePower machine_power(const stationary::Topology& topology) {
@@ -1404,7 +1411,7 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
     };
     if (profile.material.manual_ore &&
         !valid_source(profile.material.manual_ore->id, profile.material.manual_ore->center)) return false;
-    if (profile.collector_faces.size() > 32 ||
+    if (profile.collector_faces.size() > maximum_issued_entities ||
         (!profile.landing_pod_center && !profile.collector_faces.empty()) ||
         (!profile.material.manual_ore && !profile.collector_faces.empty())) return false;
     std::set<std::pair<mechanics::Point, mechanics::Point>> unique_faces;
@@ -2549,7 +2556,9 @@ Advance World::tick() noexcept {
         auto candidate = snapshot.state;
         // Material stepping changes custody, not the placed power graph. Reuse
         // one graph evaluation for machine work and signed belt movement.
-        const auto drive = drive_power(profile_, candidate);
+        const auto placed = assembly_parts(candidate);
+        const assembly::Layout layout(placed);
+        const auto drive = drive_power_with_layout(profile_, candidate, placed, layout);
         const auto power = machine_power_from(candidate.topology, drive);
         const auto error = materials::step(candidate.material, profile_.material,
             material_path(candidate.topology), power);
@@ -2562,9 +2571,8 @@ Advance World::tick() noexcept {
         using CollectorMouth = std::pair<mechanics::Point, mechanics::Point>; // frame, tray
         std::map<mechanics::Point, std::optional<CollectorMouth>> collector_mouths;
         if (!profile_.collector_faces.empty()) {
-            const auto placed = assembly_parts(candidate);
             for (const auto& face : profile_.collector_faces) {
-                const auto inspected = assembly::inspect_collector(placed, face);
+                const auto inspected = layout.inspect_collector(face);
                 if (!inspected.collector) continue;
                 const auto& collector = *inspected.collector;
                 auto mouth = collector.machine_center;
