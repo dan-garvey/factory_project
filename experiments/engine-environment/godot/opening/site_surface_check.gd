@@ -547,6 +547,28 @@ func check_belt_water_native(forward: bool) -> void:
 	var fresh = NativeModel.new("fresh-belt-water-site", ["P"])
 	if not expect(fresh.boot_result.get("accepted", false) and fresh.restore_checkpoint(saved).get("accepted", false), "Restore actual-site route"):
 		return
+	var restored: Dictionary = fresh.projection()
+	if not expect(fresh.checkpoint() == saved and restored.inventories.P == 4
+		and restored.stock.output == 0 and not restored.actors.P.ready,
+		"The fresh Host restores the exact productive line and custody without inheriting actor readiness"):
+		return
+	if not expect(fresh.publish_actor("P", [4.95, 1.0, 0.0], 1).get("accepted", false),
+		"A new trusted actor observation readies the restored producer"):
+		return
+	var resumed_output := false
+	for turn in range(512):
+		fresh.advance()
+		if fresh.projection().stock.output > 0:
+			resumed_output = true
+			break
+	if not expect(resumed_output, "The restored river line produces a later plate through its shaft span"):
+		return
+	var resumed_receipt: Dictionary = fresh.command({"context": "belt-water-site", "client": "P",
+		"request": "restored-product", "action": "retrieve", "entity": hubs[2], "amount": 1})
+	if not expect(resumed_receipt.get("accepted", false) and fresh.projection().inventories.P == 5
+		and model.checkpoint() == saved,
+		"The resumed plate reaches the same actor while the original Host stays unchanged"):
+		return
 	if not expect(observe.call(-3.3, side * 1.65) and issue.call("remove", {"entity": output.entity}).get("accepted", false), "Remove the corner cog"):
 		return
 	if not expect(model.projection().motion[endpoints[0]].state != "rotating", "Removing the corner cog stops the belt"):
