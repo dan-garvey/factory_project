@@ -736,6 +736,9 @@ func _arrival_reveal_run(capture_prefix: String) -> void:
 	var before: Dictionary = opening.model.projection()
 	if not _expect(opening.arrival_reveal_active
 			and opening.landing_pod_visual.position.y > 6.0
+			and opening.arrival_reveal_audio != null
+			and opening.arrival_reveal_audio.cue_history.size() > 0
+			and opening.arrival_reveal_audio.cue_history[0] == "descent"
 			and not opening.landing_hub_visual.visible
 			and not opening.character_presenter.visible
 			and not opening.arrival_gameplay_canvas.visible and opening.arrival_reveal_canvas.visible
@@ -751,6 +754,12 @@ func _arrival_reveal_run(capture_prefix: String) -> void:
 		return
 	if mode == "arrival-reveal-skip":
 		opening._finish_arrival_reveal()
+		opening.arrival_reveal_audio.advance(100.0)
+		if not _expect(opening.arrival_reveal_audio.cue_history == ["descent"]
+				and opening.arrival_reveal_audio.all_stopped(),
+				"Skip immediately silences the score before touchdown and leaves no queued cue"):
+			return
+		await create_timer(0.2).timeout
 	else:
 		if not capture_prefix.is_empty():
 			await RenderingServer.frame_post_draw
@@ -773,6 +782,17 @@ func _arrival_reveal_run(capture_prefix: String) -> void:
 				return
 		while opening.arrival_reveal_active and Time.get_ticks_msec() < deadline:
 			await process_frame
+		if not _expect(opening.arrival_reveal_audio.cue_history ==
+				["descent", "touchdown", "latch_port", "latch_starboard", "hub_ready"]
+				and not opening.arrival_reveal_audio.active,
+				"Normal descent, impact, two latches and hub signal play once on the reveal clock"):
+			return
+		# Let the final chime complete before the short-lived test tree frees it.
+		await create_timer(0.45).timeout
+		await process_frame
+		if not _expect(opening.arrival_reveal_audio.all_stopped(),
+				"The naturally completed arrival score releases every playback voice"):
+			return
 	var after: Dictionary = opening.model.projection()
 	var deck_settled := true
 	for panel in opening.machine_root.get_children():
@@ -897,6 +917,7 @@ func _arrival_run() -> void:
 	if mode == "arrival-resume":
 		var restored: Dictionary = opening.model.projection()
 		if not _expect(opening.last_load_result.get("accepted", false)
+				and opening.arrival_reveal_audio == null
 				and restored.cargo.P.products == 2 and restored.placed_components.size() == 7
 				and restored.cargo.P.components.get("wooden_frame", 0) == 1
 				and restored.cargo.P.components.get("receiver_tray", 0) == 1
@@ -911,7 +932,7 @@ func _arrival_run() -> void:
 			return
 		opening.manager_log_button.pressed.emit()
 		if not _expect(opening.manager_log_open and opening.manager_log_layer.visible
-				and "First plate formed" in opening.manager_log_current.text
+				and "east freight beacon" in opening.manager_log_current.text
 				and opening.model.projection() == restored,
 				"The saved site reopens with the same replayable briefing and a current native-backed cue"):
 			return
