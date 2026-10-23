@@ -4182,9 +4182,15 @@ class ConstructionAudio:
 					return "belt_snap"
 				if action.get("kind") in ["collector", "processor", "wheel"]:
 					return "assembly"
-			"place_gear", "place_shaft", "connect_drive", "connect":
+			"place_belt_span", "place_selected_belt_span":
+				return "belt_snap"
+			"place_foundation", "place_foundations", "place_component", "deploy_fabrication_hub", \
+			"craft_component", "field_craft", "craft_part":
+				return "assembly"
+			"place_gear", "place_shaft", "place_relay", "shaft_between", "connect_drive", "connect":
 				return "coupling"
-			"remove", "disconnect_drive", "disconnect":
+			"remove", "remove_belt_span", "remove_shaft_between", "remove_foundation", \
+			"reclaim_component", "stow_fabrication_hub", "disconnect_drive", "disconnect":
 				return "release"
 		return ""
 
