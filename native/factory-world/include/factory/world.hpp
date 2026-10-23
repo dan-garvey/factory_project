@@ -103,11 +103,22 @@ struct PlacedComponent {
     bool operator==(const PlacedComponent&) const = default;
 };
 
+struct PressAutoTransition {
+    authority::Integer revision{};
+    mechanics::Point work{};
+    authority::Integer before_remaining{};
+    authority::Integer after_remaining{};
+    bool operator==(const PressAutoTransition&) const = default;
+};
+
 struct PressProgressWitness {
-    // Whole remaining-tick reductions observed in actual automatic material
-    // steps. This is checkpoint evidence, not a second owner of WorkLot state.
+    // Native tick records each whole remaining-tick reduction for this WorkId.
+    // These are checkpoint consistency evidence, not a second owner of work or
+    // authentication of an arbitrarily rewritten checkpoint.
     authority::Integer automatic_remaining_ticks{};
     bool manual_seen{};
+    bool refeed_seen{};
+    std::vector<PressAutoTransition> automatic_transitions;
     bool operator==(const PressProgressWitness&) const = default;
 };
 

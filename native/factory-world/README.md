@@ -156,7 +156,7 @@ an X-axis belt, at the same height. A cell is four integer quarter-pitch units. 
 diagonals, other heights and nearby power components do not attach. This is a
 revisable adapter layout, not a general material-routing rule.
 
-The logical checkpoint uses schema 11 and retains the single identified freight
+The logical checkpoint uses schema 12 and retains the single identified freight
 beacon, its first shipment and three later conserved shipments in the same
 material ledger, the pod workshop's installed or held
 custody and relocated center, and collector/press quarter-turn
@@ -168,9 +168,12 @@ generation, retry history and the ordered shaft centers used by its reach receip
 For a modular press, the checkpoint also retains the work identities waiting at
 its exit or already exported to a belt. Those witnesses do not own material;
 the single material ledger continues to hold every plate and belt slot.
-Manual press receipts also retain the work item immediately before each turn,
-while per-work automatic progress witnesses come only from productive material
-ticks. Restore checks each one-turn transition against that work identity;
+Manual press receipts also retain the work item immediately before each turn.
+Per-work automatic progress witnesses record productive material ticks, their
+World revisions and press work points. Restore reconciles them with manual
+receipts, refeed history and known stalled drive intervals. These mutable
+checkpoint records provide internal consistency checks, not authentication of
+an arbitrarily rewritten save.
 unrelated World revisions do not count as press progress. The witnesses do not
 own cargo or create products.
 An inward powered belt may feed one raw blank or matching WorkLot through a

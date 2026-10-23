@@ -305,7 +305,7 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
         for (const auto& [actor, kit] : snapshot.state.kits) kits.emplace(actor, kit_value(kit));
         for (const auto& [id, generation] : snapshot.state.issued_entities) issued.emplace(id, Value(generation));
         Value output(Object{
-            {"schema", Value(Integer{11})}, {"profile", profile_value(profile)},
+            {"schema", Value(Integer{12})}, {"profile", profile_value(profile)},
             {"revision", Value(snapshot.revision)}, {"history", std::move(*history.value)},
             {"state", Value(Object{{"material", std::move(std::get<Value>(material))},
                 {"topology", topology_value(snapshot.state.topology)}, {"kits", Value(std::move(kits))},
@@ -373,10 +373,19 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
             state.emplace("press_output_at_exit", Value(std::move(waiting)));
             state.emplace("press_output_exported", Value(std::move(exported)));
             Array progress;
-            for (const auto& [id, witness] : snapshot.state.press_progress)
+            for (const auto& [id, witness] : snapshot.state.press_progress) {
+                Array transitions;
+                for (const auto& event : witness.automatic_transitions)
+                    transitions.emplace_back(Object{{"revision", Value(event.revision)},
+                        {"work", Value(Array{Value(event.work[0]), Value(event.work[1]), Value(event.work[2])})},
+                        {"before_remaining", Value(event.before_remaining)},
+                        {"after_remaining", Value(event.after_remaining)}});
                 progress.emplace_back(Object{{"work_id", Value(id)},
                     {"automatic_remaining_ticks", Value(witness.automatic_remaining_ticks)},
-                    {"manual_seen", Value(witness.manual_seen)}});
+                    {"manual_seen", Value(witness.manual_seen)},
+                    {"refeed_seen", Value(witness.refeed_seen)},
+                    {"automatic_transitions", Value(std::move(transitions))}});
+            }
             state.emplace("press_progress", Value(std::move(progress)));
             state.emplace("belt_press_work", Value(std::move(belt_work)));
             state.emplace("belt_press_products", Value(std::move(belt_products)));
@@ -396,7 +405,7 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
     try {
         Budget{}.visit(value);
         const auto& root = fields(value, "$", {"schema", "profile", "revision", "history", "state"});
-        if (integer(root, "schema", "$") != 11) refuse(CheckpointReason::unsupported_schema, "$.schema");
+        if (integer(root, "schema", "$") != 12) refuse(CheckpointReason::unsupported_schema, "$.schema");
         if (const auto difference = values::typed_difference(profile_value(profile), root.at("profile")))
             refuse(CheckpointReason::profile_mismatch, "$.profile" + difference->path.substr(1));
         Snapshot candidate;
@@ -489,11 +498,23 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
             }
             for (const auto& value : array(state.at("press_progress"), "$.state.press_progress", 8192)) {
                 const auto& entry = fields(value, "$.state.press_progress",
-                    {"work_id", "automatic_remaining_ticks", "manual_seen"});
+                    {"work_id", "automatic_remaining_ticks", "manual_seen", "refeed_seen", "automatic_transitions"});
                 const auto id = integer(entry, "work_id", "$.state.press_progress");
-                if (!candidate.state.press_progress.emplace(id, PressProgressWitness{
+                PressProgressWitness witness{
                         integer(entry, "automatic_remaining_ticks", "$.state.press_progress"),
-                        scalar<bool>(entry.at("manual_seen"), "$.state.press_progress.manual_seen")}).second)
+                        scalar<bool>(entry.at("manual_seen"), "$.state.press_progress.manual_seen"),
+                        scalar<bool>(entry.at("refeed_seen"), "$.state.press_progress.refeed_seen"), {}};
+                for (const auto& value : array(entry.at("automatic_transitions"),
+                        "$.state.press_progress.automatic_transitions", 4096)) {
+                    const auto& event = fields(value, "$.state.press_progress.automatic_transitions",
+                        {"revision", "work", "before_remaining", "after_remaining"});
+                    witness.automatic_transitions.push_back({
+                        integer(event, "revision", "$.state.press_progress.automatic_transitions"),
+                        read_point(event.at("work"), "$.state.press_progress.automatic_transitions.work"),
+                        integer(event, "before_remaining", "$.state.press_progress.automatic_transitions"),
+                        integer(event, "after_remaining", "$.state.press_progress.automatic_transitions")});
+                }
+                if (!candidate.state.press_progress.emplace(id, std::move(witness)).second)
                     refuse(CheckpointReason::invalid_world, "$.state.press_progress");
             }
             for (const auto& value : array(state.at("belt_press_work"), "$.state.belt_press_work", 4096)) {

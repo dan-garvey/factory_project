@@ -430,6 +430,21 @@ void actor_feed_is_physical_custody() {
             record.result.at("prior_auto_remaining_ticks") = V(I{1});
     check(!w::World::restore("press-feed", source.profile, forged_auto_receipt),
           "A claimed automatic tick must match the saved witness for that work ID.");
+    auto forged_counter_and_receipt = forged_auto_receipt;
+    forged_counter_and_receipt.state.press_progress.at(active_work_id).automatic_remaining_ticks = 1;
+    check(!w::World::restore("press-feed", source.profile, forged_counter_and_receipt),
+          "A forged automatic counter and matching receipt cannot borrow an unrelated World revision.");
+    auto forged_transition = forged_counter_and_receipt;
+    for (const auto& record : forged_transition.history.records)
+        if (std::get<std::string>(record.intent.at("request").storage()) == "turn-press-progress")
+            forged_transition.state.press_progress.at(active_work_id).automatic_transitions.push_back({
+                std::get<I>(record.result.at("revision").storage()) - 1, {8, 1, 0}, 2, 1});
+    check(!w::World::restore("press-feed", source.profile, forged_transition),
+          "A claimed press transition during a stalled drive cannot justify forged automatic work.");
+    auto forged_wrong_work = forged_transition;
+    forged_wrong_work.state.press_progress.at(active_work_id).automatic_transitions.front().work = {0, 1, 0};
+    check(!w::World::restore("press-feed", source.profile, forged_wrong_work),
+          "A progress event for another press work point cannot justify this WorkLot.");
     auto third_turn = turn;
     third_turn.at("request") = V("turn-press-finish");
     const auto finished = run.accept("P", third_turn);

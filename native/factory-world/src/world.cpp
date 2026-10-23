@@ -832,8 +832,69 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
     std::set<mechanics::Point> historical_press_exits;
     std::set<materials::WorkId> press_work_ids;
     std::set<materials::WorkId> manually_advanced_ids;
+    std::set<materials::WorkId> refed_ids;
+    std::map<materials::WorkId, Integer> last_refeed_revision;
     std::map<materials::WorkId, Integer> manual_reductions;
     std::set<materials::WorkId> picked_press_products;
+    std::set<Integer> command_revisions;
+    std::map<Integer, bool> drive_commands;
+    Integer latest_drive_mutation = 0;
+    for (const auto& record : snapshot.history.records) {
+        const auto* accepted = field<bool>(record.result, "accepted");
+        const auto* revision = field<Integer>(record.result, "revision");
+        if (!accepted || !revision) return false;
+        if (*accepted) {
+            if (!command_revisions.insert(*revision).second) return false;
+            const auto* action = field<std::string>(record.intent, "action");
+            if (action && (placement(*action) || *action == "remove" || *action == "set_drive" ||
+                *action == "shaft_between" || *action == "remove_shaft_between" ||
+                *action == "place_belt_span" || *action == "place_selected_belt_span" ||
+                *action == "remove_belt_span" || *action == "place_component" ||
+                *action == "reclaim_component")) latest_drive_mutation = *revision;
+            if (action && *action == "set_drive") {
+                const auto* enabled = field<bool>(record.intent, "enabled");
+                if (!enabled) return false;
+                drive_commands.emplace(*revision, *enabled);
+            }
+        }
+    }
+    for (const auto& [id, witness] : snapshot.state.press_progress) {
+        if (id <= 0 || id >= snapshot.state.material.next_work_id ||
+            witness.automatic_transitions.size() >
+                static_cast<std::size_t>(profile.material.cycle_ticks)) return false;
+        Integer total = 0, last_revision = 0, last_remaining = profile.material.cycle_ticks;
+        for (const auto& event : witness.automatic_transitions) {
+            const auto following_drive = drive_commands.lower_bound(event.revision);
+            const auto preceding_drive = following_drive == drive_commands.begin() ?
+                drive_commands.end() : std::prev(following_drive);
+            if (event.revision <= last_revision || event.revision > snapshot.revision ||
+                command_revisions.contains(event.revision) ||
+                (preceding_drive != drive_commands.end() && !preceding_drive->second) ||
+                (drive_commands.empty() && !snapshot.state.topology.drive_enabled) ||
+                event.before_remaining <= event.after_remaining ||
+                event.before_remaining > last_remaining || event.after_remaining < 0 ||
+                event.after_remaining > profile.material.cycle_ticks ||
+                !std::all_of(event.work.begin(), event.work.end(), [](Integer value) {
+                    return value >= -materials::maximum_drop_coordinate &&
+                           value <= materials::maximum_drop_coordinate;
+                }) ||
+                !add(total, event.before_remaining - event.after_remaining)) return false;
+            last_revision = event.revision;
+            last_remaining = event.after_remaining;
+        }
+        if (total != witness.automatic_remaining_ticks) return false;
+    }
+    const auto witnessed_auto_before = [&](materials::WorkId id, Integer revision)
+            -> std::optional<Integer> {
+        const auto found = snapshot.state.press_progress.find(id);
+        if (found == snapshot.state.press_progress.end()) return Integer{0};
+        Integer total = 0;
+        for (const auto& event : found->second.automatic_transitions) {
+            if (event.revision >= revision) break;
+            if (!add(total, event.before_remaining - event.after_remaining)) return std::nullopt;
+        }
+        return total;
+    };
     Integer history_revision = 0;
     Integer ticks_seen = 0;
     std::optional<DrivePower> automatic_power;
@@ -1067,7 +1128,11 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 carried_work[*actor].erase(carried);
                 prior_automatic = profile.material.cycle_ticks - *remaining - manual_reductions[*work_id];
                 if (prior_automatic < 0 || prior_automatic > profile.material.cycle_ticks ||
-                    !press_work_ids.contains(*work_id)) return false;
+                    !press_work_ids.contains(*work_id) ||
+                    witnessed_auto_before(*work_id, *result_revision) != prior_automatic)
+                    return false;
+                refed_ids.insert(*work_id);
+                last_refeed_revision[*work_id] = *result_revision;
             } else {
                 if (carried_raw[*actor] < 1) return false;
                 --carried_raw[*actor];
@@ -1126,6 +1191,25 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 inspected.press->work_center != *selected_work ||
                 std::none_of(inspected.press->open_feeds.begin(), inspected.press->open_feeds.end(),
                     [&](const assembly::PressFeed& feed) { return feed.exit == *selected_exit; })) return false;
+            if (prior_lots->size() == 1) {
+                const auto* prior = std::get_if<Object>(&prior_lots->front().storage());
+                const auto* id = prior ? field<Integer>(*prior, "id") : nullptr;
+                if (!id || witnessed_auto_before(*id, *result_revision) != *prior_auto)
+                    return false;
+                const auto witness = snapshot.state.press_progress.find(*id);
+                if (witness != snapshot.state.press_progress.end())
+                    for (const auto& event : witness->second.automatic_transitions) {
+                        if (event.revision > last_refeed_revision[*id] &&
+                            event.revision < *result_revision && event.work != *selected_work)
+                            return false;
+                        if (event.revision >= *result_revision ||
+                            event.revision <= latest_drive_mutation || event.work != *selected_work) continue;
+                        if (!automatic_power) automatic_power.emplace(drive_power(profile, snapshot.state));
+                        const auto motion = automatic_power->mechanical.motion.find(*drive);
+                        if (motion == automatic_power->mechanical.motion.end() ||
+                            motion->second.state != mechanics::MotionState::rotating) return false;
+                    }
+            }
             historical_press_exits.insert(*selected_exit);
             const auto active = press_work.find(*selected_work);
             if (active == press_work.end()) {
@@ -1527,13 +1611,20 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         if (id <= 0 || id >= snapshot.state.material.next_work_id ||
             witness.automatic_remaining_ticks < 0 ||
             witness.automatic_remaining_ticks > profile.material.cycle_ticks ||
-            witness.manual_seen != manually_advanced_ids.contains(id)) return false;
+            witness.manual_seen != manually_advanced_ids.contains(id) ||
+            witness.refeed_seen != refed_ids.contains(id)) return false;
     for (const auto id : manually_advanced_ids)
+        if (!snapshot.state.press_progress.contains(id)) return false;
+    for (const auto id : refed_ids)
         if (!snapshot.state.press_progress.contains(id)) return false;
     for (const auto& [point, work] : press_work) {
         const auto item = snapshot.state.material.dropped_material.find(point);
         const auto witness = work.id > 0 ? snapshot.state.press_progress.find(work.id) :
             snapshot.state.press_progress.end();
+        if (witness != snapshot.state.press_progress.end())
+            for (const auto& event : witness->second.automatic_transitions)
+                if (event.revision > last_refeed_revision[work.id] && event.work != point)
+                    return false;
         if (work.id > 0 && (witness == snapshot.state.press_progress.end() ?
             item != snapshot.state.material.dropped_material.end() || !automatic_finish_witnessed(work) :
             witness->second.automatic_remaining_ticks < work.automatic_remaining_ticks_seen ||
@@ -2722,6 +2813,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
                 [&](const materials::WorkLot& item) { return item.id == *work_id; }));
             candidate.material.dropped_material.emplace(work,
                 materials::Cargo{0, 0, std::vector<materials::WorkLot>{lot}});
+            candidate.press_progress.at(*work_id).refeed_seen = true;
             facts.emplace("moved_work", lots_value(std::vector<materials::WorkLot>{lot}));
         } else {
             --candidate.material.cargo.at(binding.actor).raw_units;
@@ -3466,12 +3558,19 @@ Advance World::tick() noexcept {
                         current->second.work_lots.size() == 1 &&
                         current->second.work_lots.front().id == prior->second.first ?
                         current->second.work_lots.front().remaining_ticks : Integer{0};
+                    auto& witness = candidate.press_progress[prior->second.first];
                     if (remaining > prior->second.second ||
-                        !add(candidate.press_progress[prior->second.first].automatic_remaining_ticks,
+                        !add(witness.automatic_remaining_ticks,
                              prior->second.second - remaining))
                         throw materials::Error::invalid_state;
+                    if (remaining < prior->second.second) {
+                        if (snapshot.revision == std::numeric_limits<Integer>::max())
+                            throw materials::Error::invalid_state;
+                        witness.automatic_transitions.push_back({snapshot.revision + 1, step.work,
+                            prior->second.second, remaining});
+                    }
                     if (current == candidate.material.dropped_material.end() &&
-                        !candidate.press_progress.at(prior->second.first).manual_seen)
+                    !witness.manual_seen && !witness.refeed_seen)
                         candidate.press_progress.erase(prior->second.first);
                 } else if (current != candidate.material.dropped_material.end() &&
                            current->second.work_lots.size() == 1) {
