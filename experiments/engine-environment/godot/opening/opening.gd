@@ -4497,6 +4497,7 @@ var goal_progress: ProgressBar
 var power_label: Label
 var inspector: Label
 var inspector_title: Label
+var inspection_actions: HBoxContainer
 var recovery_actions
 var loose_material_controls
 var transmission_controls
@@ -5740,54 +5741,114 @@ func _prepare_hand_tree_assets() -> bool:
 	var trunk := ConcavePolygonShape3D.new()
 	trunk.backface_collision = true
 	trunk.set_faces(faces)
-	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
-	var notch_pose := Transform3D.IDENTITY
-	var nearest_notch := INF
-	var notch_width := 0.0
-	for first in range(0, indices.size(), 3):
-		var a: int = indices[first]
-		var b: int = indices[first + 1]
-		var c: int = indices[first + 2]
-		var center := (vertices[a] + vertices[b] + vertices[c]) / 3.0 - root
-		var normal := (normals[a] + normals[b] + normals[c]).normalized()
-		if absf(normal.y) > 0.5:
-			continue
-		var score := absf(center.y - 0.18) + (1.0 - normal.z) * 0.015
-		if score < nearest_notch:
-			nearest_notch = score
-			notch_pose = Transform3D(Basis.looking_at(-normal, Vector3.UP), center + normal * 0.0015)
-			var side := Vector3.UP.cross(normal).normalized()
-			var ta := side.dot(vertices[a])
-			var tb := side.dot(vertices[b])
-			var tc := side.dot(vertices[c])
-			notch_width = (maxf(ta, maxf(tb, tc)) - minf(ta, minf(tb, tc))) * 0.6
-	if not is_finite(nearest_notch) or notch_width <= 0.0:
-		push_error("The harvestable pine has no supported bark notch face.")
-		return false
-	var stump := CylinderMesh.new()
-	stump.height = 0.12
-	stump.top_radius = radius * 0.85
-	stump.bottom_radius = radius
-	stump.material = mesh.surface_get_material(bark_surface)
-	var stump_shape := CylinderShape3D.new()
-	stump_shape.height = stump.height
-	stump_shape.radius = radius
 	var wood := StandardMaterial3D.new()
-	wood.albedo_color = Color("9c784d")
-	wood.roughness = 0.95
-	wood.metallic_specular = 0.1
+	wood.albedo_color = Color("68503b")
+	wood.roughness = 1.0
+	wood.metallic_specular = 0.0
 	wood.cull_mode = BaseMaterial3D.CULL_DISABLED
-	var notch := QuadMesh.new()
-	notch.size = Vector2(notch_width, 0.004)
-	notch.material = wood
-	var cut := CylinderMesh.new()
-	cut.height = 0.002
-	cut.top_radius = radius * 0.85
-	cut.bottom_radius = cut.top_radius
-	cut.material = wood
-	hand_tree_assets = {"mesh": mesh, "root": root, "trunk": trunk, "stump": stump,
-		"stump_shape": stump_shape, "cut": cut, "notch": notch, "notch_pose": notch_pose}
+	var base := _hand_tree_stump(arrays, root, mesh.surface_get_material(bark_surface), wood)
+	if base.is_empty():
+		return false
+	# The scar follows every actual bark face. A single tiny quad could face
+	# away from the worker after the tree's deterministic rotation.
+	var scar_arrays: Array = arrays.duplicate(true)
+	var scar_vertices := PackedVector3Array()
+	for point in vertices:
+		scar_vertices.append(point - root)
+	scar_arrays[Mesh.ARRAY_VERTEX] = scar_vertices
+	var scar := ArrayMesh.new()
+	scar.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, scar_arrays)
+	var scar_shader := Shader.new()
+	scar_shader.code = """shader_type spatial;
+render_mode cull_disabled;
+uniform float cut_fraction : hint_range(0.0, 1.0) = 0.125;
+varying vec3 bark;
+void vertex() {
+	bark = VERTEX;
+	VERTEX += NORMAL * 0.0006;
+}
+void fragment() {
+	float angle = atan(bark.z, bark.x);
+	float rough_edge = sin(angle * 5.0 + 2.0) * 0.002 + sin(angle * 11.0) * 0.001;
+	float half_height = mix(0.006, 0.026, cut_fraction) * (0.8 + 0.2 * sin(angle * 3.0));
+	float edge = abs(bark.y - 0.18 - rough_edge) / half_height;
+	if (edge > 1.0) { discard; }
+	float grain = 0.9 + 0.1 * sin(bark.x * 2200.0 + bark.z * 1700.0 + sin(bark.y * 75.0));
+	ALBEDO = mix(vec3(0.43, 0.30, 0.19) * grain, vec3(0.23, 0.14, 0.07), smoothstep(0.7, 1.0, edge));
+	ROUGHNESS = 1.0;
+	SPECULAR = 0.0;
+}
+"""
+	var scar_material := ShaderMaterial.new()
+	scar_material.shader = scar_shader
+	scar.surface_set_material(0, scar_material)
+	var stump_shape := CylinderShape3D.new()
+	stump_shape.height = base.height
+	stump_shape.radius = radius
+	hand_tree_assets = {"mesh": mesh, "root": root, "trunk": trunk, "stump": base.mesh,
+		"stump_shape": stump_shape, "stump_height": base.height, "cut": base.cap, "notch": scar}
 	return true
+
+func _hand_tree_stump(arrays: Array, root: Vector3, bark: Material, wood: Material) -> Dictionary:
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+	var uv: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+	var sides := SurfaceTool.new()
+	sides.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var rim: Array[Vector3] = []
+	# Clip the qualified trunk rather than substituting a lathed post. The
+	# shallow sloping cut preserves its flare, lean, texture and irregular rim.
+	for first in range(0, indices.size(), 3):
+		var polygon: Array[Dictionary] = []
+		for index in indices.slice(first, first + 3):
+			polygon.append({"p": vertices[index] - root, "n": normals[index], "uv": uv[index]})
+		var clipped: Array[Dictionary] = []
+		for i in range(3):
+			var a: Dictionary = polygon[i]
+			var b: Dictionary = polygon[(i + 1) % 3]
+			var da: float = a.p.y - 0.045 - a.p.x * 0.15 - a.p.z * 0.10
+			var db: float = b.p.y - 0.045 - b.p.x * 0.15 - b.p.z * 0.10
+			if da <= 0.0:
+				clipped.append(a)
+			if (da <= 0.0) != (db <= 0.0):
+				var t := da / (da - db)
+				var point: Vector3 = a.p.lerp(b.p, t)
+				clipped.append({"p": point, "n": a.n.lerp(b.n, t).normalized(), "uv": a.uv.lerp(b.uv, t)})
+				var unique := true
+				for existing in rim:
+					if existing.distance_squared_to(point) < 0.0000000001:
+						unique = false
+						break
+				if unique:
+					rim.append(point)
+		for i in range(1, clipped.size() - 1):
+			for point: Dictionary in [clipped[0], clipped[i], clipped[i + 1]]:
+				sides.set_normal(point.n)
+				sides.set_uv(point.uv)
+				sides.add_vertex(point.p)
+	if rim.size() < 3:
+		push_error("The qualified pine has no closed stump section.")
+		return {}
+	var center := Vector3.ZERO
+	var height := 0.0
+	for point in rim:
+		center += point
+		height = maxf(height, point.y)
+	center /= float(rim.size())
+	rim.sort_custom(func(a: Vector3, b: Vector3) -> bool:
+		return atan2(a.z - center.z, a.x - center.x) < atan2(b.z - center.z, b.x - center.x))
+	var top := SurfaceTool.new()
+	top.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for i in range(rim.size()):
+		for point: Vector3 in [center, rim[i], rim[(i + 1) % rim.size()]]:
+			top.set_normal(Vector3(-0.15, 1.0, -0.10).normalized())
+			top.add_vertex(point)
+	var stump := sides.commit()
+	stump.surface_set_material(0, bark)
+	var cap := top.commit()
+	cap.surface_set_material(0, wood)
+	return {"mesh": stump, "cap": cap, "height": height}
 
 func _refresh_hand_trees() -> void:
 	var sources := {}
@@ -5824,7 +5885,6 @@ func _refresh_hand_trees() -> void:
 			var stump := MeshInstance3D.new()
 			stump.name = "Stump"
 			stump.mesh = hand_tree_assets.stump
-			stump.position.y = 0.06
 			body.add_child(stump)
 			var cut := MeshInstance3D.new()
 			cut.name = "Cut"
@@ -5847,13 +5907,18 @@ func _refresh_hand_trees() -> void:
 		var shape: Shape3D = hand_tree_assets.trunk if standing else hand_tree_assets.stump_shape
 		if picker.shape != shape:
 			picker.shape = shape
-		picker.position.y = 0.0 if standing else 0.06
+		picker.position.y = 0.0 if standing else hand_tree_assets.stump_height * 0.5
 		var cut: MeshInstance3D = body.get_node("Cut")
 		cut.visible = source.remaining < source.initial
 		cut.mesh = hand_tree_assets.notch if standing else hand_tree_assets.cut
-		cut.transform = hand_tree_assets.notch_pose if standing else Transform3D(Basis.IDENTITY, Vector3(0.0, 0.1205, 0.0))
+		cut.transform = Transform3D.IDENTITY
 		var fraction := 1.0 - float(source.remaining) / float(source.initial)
-		cut.scale = Vector3(sqrt(fraction), 1.0, 1.0) if standing and cut.visible else Vector3.ONE
+		if standing and cut.visible:
+			if cut.material_override == null:
+				cut.material_override = hand_tree_assets.notch.surface_get_material(0).duplicate()
+			cut.material_override.set_shader_parameter("cut_fraction", fraction)
+		else:
+			cut.material_override = null
 
 func _screen_hand_source(screen: Vector2) -> String:
 	if not _native_transmission() or camera == null or state.get("hand_sources", {}).is_empty():
@@ -7752,6 +7817,10 @@ func _refresh_ui() -> void:
 			str(component.get("center", []))]
 	else:
 		inspector.text = "Point at a machine and press E to open it."
+	inspector.tooltip_text = inspector.text
+	if not show_details:
+		var inspection_lines := inspector.text.split("\n")
+		inspector.text = "\n".join(inspection_lines.slice(0, mini(3, inspection_lines.size())))
 	_refresh_guided_tools()
 	_refresh_manager_log()
 	if arrival_assembly_controls != null:
@@ -7888,13 +7957,13 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		goal_label.text = "Make 4 plates  ·  %d / 4\n%s" % [inventory, step.text] if snapshot_ready else "Connect to the worksite."
 	confirm_button.visible = not arrival and snapshot_ready and (inventory >= 4 or goal_confirmed)
 	lesson_button.visible = not arrival
-	details_button.text = "Less detail  [Ctrl+D]" if show_details else "Details  [Ctrl+D]"
+	details_button.text = "Less  ^D" if show_details else "Details  ^D"
 	details_button.disabled = explanation_open
 	for control in [stock_label, power_label, save_button, load_button]:
 		control.visible = show_details
 	actor_label.visible = show_details or not state.get("actors", {}).get(client, {}).get("ready", false)
-	controls_label.text = "WASD move · E interact · B catalog · F dismantle · Ctrl+D details" if arrival \
-		else "B catalog  ·  1–8 build  ·  E open  ·  F dismantle  ·  H guide  ·  Ctrl+D details"
+	controls_label.text = "WASD move · E interact · B build · F remove · Ctrl+D details" if arrival \
+		else "B catalog · 1–8 build · E open · F remove · H guide · Ctrl+D details"
 	_refresh_engineering(snapshot_ready)
 	var target_selected: bool = _contains_target(state, selected)
 	inspector_title.visible = target_selected or show_details or not snapshot_ready or not _can_choose_tool()
@@ -7902,6 +7971,7 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		or not snapshot_ready or not _can_choose_tool()
 	retrieve_button.visible = state.get("entities", {}).get(selected, {}).get("kind") == "processor"
 	remove_button.visible = target_selected
+	inspection_actions.visible = target_selected
 	for divider in inspector.get_parent().get_children():
 		if divider is HSeparator:
 			divider.visible = show_details
@@ -8436,8 +8506,9 @@ func _fit_guided_footer() -> void:
 			var height: float = panel.get_combined_minimum_size().y
 			if not is_equal_approx(panel.size.y, height):
 				panel.size.y = height
-	# Only the ordinary fresh introduction duplicates the visible goal.
-	var redundant_intro: bool = _native_transmission() and footer_snapshot_ready and _placement_ready() and not status_refused \
+	# Keep repeated guidance on the objective card instead of a second message panel.
+	var repeated_goal: bool = not status_label.text.is_empty() and goal_label.text.contains(status_label.text)
+	var redundant_intro: bool = repeated_goal or _native_transmission() and footer_snapshot_ready and _placement_ready() and not status_refused \
 		and not show_details and not _catalog_open() and mode in ["inspect", "collector"] \
 		and state.get("entities", {}).is_empty() and state.get("transmission_parts", {}).is_empty() \
 		and _guided_step({}).tool == "collector" \
@@ -8511,6 +8582,15 @@ func _panel(parent: Node, at: Vector2, dimensions: Vector2) -> VBoxContainer:
 	panel.add_child(column)
 	return column
 
+func _hud_surface(column: VBoxContainer, opacity: float, padding: int = 10) -> void:
+	var panel := column.get_parent() as PanelContainer
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.04, 0.07, 0.085, opacity)
+	style.set_corner_radius_all(6)
+	style.set_content_margin_all(padding)
+	panel.add_theme_stylebox_override("panel", style)
+	column.add_theme_constant_override("separation", 5)
+
 func _build_interface() -> void:
 	# A revisable opening adapter limit, not a fixed window or a game-world rule.
 	get_window().min_size = Vector2i(1280, 800)
@@ -8563,18 +8643,22 @@ func _build_interface() -> void:
 	fps_style.outline_size = 4
 	fps_style.outline_color = Color("16242a")
 	fps_label.label_settings = fps_style
-	var build := _panel(root, Vector2(18, 18), Vector2(275, 620 if legacy_fixture else 0))
+	var build := _panel(root, Vector2(18, 18), Vector2(260, 620 if legacy_fixture else 0))
+	if not legacy_fixture:
+		_hud_surface(build, 0.58)
 	build_column = build
 	if not legacy_fixture:
 		build.add_theme_constant_override("separation", 6)
 	objective_heading = _label(build, "FIRST SHIFT  /  01", 13, Color("f4bf75"))
 	var tagline := _label(build, "A small line. Real materials.", 14, Color("9eb4b2"))
 	tagline.visible = legacy_fixture
-	build.add_child(HSeparator.new())
-	goal_label = _label(build, "", 19, Color("f4f5eb"))
+	if legacy_fixture:
+		build.add_child(HSeparator.new())
+	goal_label = _label(build, "", 19 if legacy_fixture else 16, Color("f4f5eb"))
 	if not legacy_fixture:
 		goal_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		manager_log_button = _button(build, "Meridian work log  [J]", _toggle_manager_log)
+		manager_log_button = _button(build, "Work log  J", _toggle_manager_log)
+		manager_log_button.custom_minimum_size.y = 30
 	goal_progress = ProgressBar.new()
 	goal_progress.max_value = 4
 	goal_progress.show_percentage = false
@@ -8597,6 +8681,8 @@ func _build_interface() -> void:
 	parts_label = building_hotbar.parts_label
 	catalog_button = building_hotbar.catalog_button
 	placement_options_column = _panel(root, Vector2.ZERO, Vector2(302, 0))
+	if not legacy_fixture:
+		_hud_surface(placement_options_column, 0.66)
 	placement_options_panel = placement_options_column.get_parent() as PanelContainer
 	placement_options_panel.name = "PlacementOptions"
 	placement_options_panel.visible = false
@@ -8649,19 +8735,34 @@ func _build_interface() -> void:
 	foundation_area_toggle.visible = false
 	var selection_tools := HBoxContainer.new()
 	build.add_child(selection_tools)
-	tool_buttons.flow = _button(selection_tools, "Link [F]" if legacy_fixture else "Link [C]", _select_tool.bind("flow"))
+	tool_buttons.flow = _button(selection_tools, "Link [F]" if legacy_fixture else "Link  C", _select_tool.bind("flow"))
 	tool_buttons.flow.toggle_mode = true
+	if not legacy_fixture:
+		tool_buttons.flow.custom_minimum_size.y = 30
 	var view_options := HBoxContainer.new()
 	build.add_child(view_options)
 	view_options.visible = not legacy_fixture
-	details_button = _button(view_options, "Details  [Ctrl+D]", _toggle_details)
+	details_button = _button(view_options, "Details  ^D", _toggle_details)
+	details_button.custom_minimum_size.y = 30
 	details_button.tooltip_text = "Show worksite counters and save options."
-	lesson_button = _button(build, "How this line works  [H]", _toggle_explanation)
-	var right := _panel(root, Vector2(932, 18), Vector2(330, 490 if legacy_fixture else 0))
+	lesson_button = _button(build, "Guide  H", _toggle_explanation)
+	if not legacy_fixture:
+		lesson_button.custom_minimum_size.y = 30
+		manager_log_button.text = "Log  J"
+		var quick_actions := HBoxContainer.new()
+		quick_actions.add_theme_constant_override("separation", 4)
+		build.add_child(quick_actions)
+		for action in [manager_log_button, details_button, lesson_button]:
+			action.get_parent().remove_child(action)
+			quick_actions.add_child(action)
+		view_options.free()
+	var right := _panel(root, Vector2(932, 18), Vector2(255 if not legacy_fixture else 330, 490 if legacy_fixture else 0))
+	if not legacy_fixture:
+		_hud_surface(right, 0.58)
 	var right_panel: Control = right.get_parent()
 	# Set the far anchor first so the near anchor is not clamped.
 	right_panel.set_anchor_and_offset(SIDE_RIGHT, 1.0, -18)
-	right_panel.set_anchor_and_offset(SIDE_LEFT, 1.0, -348)
+	right_panel.set_anchor_and_offset(SIDE_LEFT, 1.0, -273 if not legacy_fixture else -348)
 	right_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	if legacy_fixture:
 		_label(right, "WORKSITE", 13, Color("b0c4c0"))
@@ -8674,12 +8775,18 @@ func _build_interface() -> void:
 	actor_label.visible = not legacy_fixture
 	power_label = _label(right, "", 14, Color("dfbc76"))
 	stock_label = _label(right, "", 16)
-	inspector = _label(right, "", 15)
-	inspector.custom_minimum_size.x = 238
+	inspector = _label(right, "", 13 if not legacy_fixture else 15)
+	inspector.custom_minimum_size.x = 195 if not legacy_fixture else 238
 	inspector.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	retrieve_button = _button(right, "Collect plate  [Ctrl+R]", _retrieve)
+	inspection_actions = HBoxContainer.new()
+	inspection_actions.add_theme_constant_override("separation", 5)
+	right.add_child(inspection_actions)
+	retrieve_button = _button(inspection_actions, "Collect  Ctrl+R", _retrieve)
 	_accent_button(retrieve_button)
-	remove_button = _button(right, "Dismantle selected  [Delete]", _remove_selected)
+	remove_button = _button(inspection_actions, "Remove  Del", _remove_selected)
+	for action in [retrieve_button, remove_button]:
+		action.custom_minimum_size.y = 30
+		action.add_theme_font_size_override("font_size", 12)
 	# Older scripted launch payloads have a fixed roster without this native UI.
 	var recovery_path := "res://opening/recovery_actions.gd"
 	if ResourceLoader.exists(recovery_path, "Script"):
@@ -8702,15 +8809,17 @@ func _build_interface() -> void:
 	save_button = _button(right, "Save worksite  [F5]", _save_worksite)
 	load_button = _button(right, "Load worksite  [F9]", _load_worksite)
 	var bottom := _panel(root, Vector2(310, 694), Vector2(952, 88))
+	if not legacy_fixture:
+		_hud_surface(bottom, 0.43, 7)
 	var bottom_panel: Control = bottom.get_parent()
 	status_footer = bottom_panel
 	bottom_panel.set_anchor_and_offset(SIDE_RIGHT, 1.0, -18)
 	bottom_panel.set_anchor_and_offset(SIDE_BOTTOM, 1.0, -128)
 	bottom_panel.set_anchor_and_offset(SIDE_TOP, 1.0, -216)
 	bottom_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	status_label = _label(bottom, "", 16)
+	status_label = _label(bottom, "", 14 if not legacy_fixture else 16)
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	controls_label = _label(bottom, "B catalog  ·  1–8 build  ·  E open  ·  F dismantle  ·  H guide  ·  Ctrl+D details", 12, Color("bfd1cc"))
+	controls_label = _label(bottom, "B catalog · 1–8 build · E open · F dismantle · H guide · Ctrl+D details", 11, Color("bfd1cc"))
 	bottom_panel.minimum_size_changed.connect(_queue_footer_fit)
 	bottom_panel.resized.connect(_queue_footer_fit)
 	for column: Control in [build, right]:

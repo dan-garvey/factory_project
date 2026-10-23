@@ -331,12 +331,33 @@ func _hand_tree_views() -> void:
 	verify(view.hand_tree_nodes["tree-east-south"] == old_body and old_body.get_node("Tree").visible
 		and old_body.get_node("PickShape").shape == old_shape and old_body.get_node("Cut").visible,
 		"A partial cut preserves the standing tree without rebuilding its pick body.")
+	var scar: MeshInstance3D = old_body.get_node("Cut")
+	verify(scar.mesh is ArrayMesh and scar.mesh.get_aabb().size.y > 0.5
+		and scar.material_override is ShaderMaterial
+		and is_equal_approx(scar.material_override.get_shader_parameter("cut_fraction"), 0.125),
+		"The first cut covers the actual bark mesh with native-count-driven surface scarring.")
+	var scar_material: Material = scar.material_override
+	view.state.hand_sources["tree-east-south"].remaining = 6
+	var changed_counts: Dictionary = view.state.duplicate(true)
+	view._refresh_hand_trees()
+	verify(scar.material_override == scar_material
+		and is_equal_approx(scar.material_override.get_shader_parameter("cut_fraction"), 0.25)
+		and old_body.get_node("PickShape").shape == old_shape and view.state == changed_counts,
+		"Further cuts reuse the same material and pick geometry without changing native data.")
 	view.state.hand_sources["tree-east-south"].remaining = 0
 	view._refresh_hand_trees()
 	verify(not old_body.get_node("Tree").visible and old_body.get_node("Stump").visible
 		and old_body.get_node("PickShape").shape != old_shape,
 		"Native depletion leaves a stump and removes the invisible full-trunk pick shape.")
-	var stump_aim := old_body.to_global(Vector3(0.0, 0.06, 0.0))
+	var stump: MeshInstance3D = old_body.get_node("Stump")
+	verify(stump.mesh is ArrayMesh and stump.mesh.get_aabb().end.y < 0.06
+		and old_body.get_node("Cut").mesh is ArrayMesh and scar.material_override == null,
+		"Depletion uses a low clipped trunk with its matching cap, not a lathed post or scar override.")
+	var cut_plane_matches := true
+	for point: Vector3 in old_body.get_node("Cut").mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]:
+		cut_plane_matches = cut_plane_matches and absf(point.y - 0.045 - point.x * 0.15 - point.z * 0.10) < 0.000001
+	verify(cut_plane_matches, "The irregular cap follows the same shallow plane that clips the actual bark.")
+	var stump_aim := old_body.to_global(Vector3(0.0, 0.02, 0.0))
 	view.camera.position = stump_aim + Vector3(0.0, 0.0, 2.0)
 	view.camera.look_at(stump_aim)
 	await physics_frame
@@ -863,6 +884,13 @@ func _hotbar() -> void:
 			"The live frame-rate readout updates without intercepting construction input.")
 		verify(bar.buttons.size() == 8 and not bar.catalog.visible and not view.tool_buttons.collector.is_visible_in_tree(),
 			"Eight quick slots replace the visible construction text list.")
+		verify(bar.buttons.all(func(button: Button): return button.size == Vector2(54, 54) and button.text.is_empty())
+			and bar.slot_icons.all(func(icon: TextureRect): return icon.size == Vector2(32, 32)),
+			"The hotbar gives every part the same icon area and fixed slot size without face labels.")
+		var bar_surface := bar.get_theme_stylebox("panel") as StyleBoxFlat
+		verify(bar_surface.bg_color.a == 0.0 and bar_surface.border_width_left == 0
+			and (bar.buttons[0].get_theme_stylebox("normal") as StyleBoxFlat).bg_color.a < 0.5,
+			"The hotbar has no framing border and its idle cells leave the worksite visible.")
 		verify(bar.selected_slot == -1 and not view.inspector.visible
 			and not bar.buttons.any(func(button: Button): return button.button_pressed)
 			and view.issued.is_empty() and view.request_sequence == 17 and view.state == before,
@@ -921,17 +949,17 @@ func _hotbar() -> void:
 		view.state.part_kits.P.collector = 0
 		view._refresh_ui()
 		bar.select_slot(0)
-		verify(bar.buttons[0].disabled and "×0" in bar.buttons[0].text and view.mode == "inspect",
+		verify(bar.buttons[0].disabled and bar.slot_counts[0].text == "0" and view.mode == "inspect",
 			"An exhausted kit disables the slot without borrowing the compatibility stock alias.")
 		bar.destination.select(7)
 		bar.catalog_buttons.collector.pressed.emit()
 		verify(bar.slots[7].is_empty() and view.mode == "inspect", "An unavailable catalog item cannot activate or fill a slot.")
 		view.client = "Q"
 		view._refresh_ui()
-		verify("×2" in bar.buttons[1].text and bar.buttons[0].disabled, "Every slot follows the active actor's own kit.")
+		verify(bar.slot_counts[1].text == "2" and bar.buttons[0].disabled, "Every slot follows the active actor's own kit.")
 		view.state.part_kits.erase("Q")
 		view._refresh_ui()
-		verify(bar.buttons[1].disabled and "×0" in bar.buttons[1].text, "Missing actor kits have no fallback owner.")
+		verify(bar.buttons[1].disabled and bar.slot_counts[1].text == "0", "Missing actor kits have no fallback owner.")
 		view.client = "P"
 		view.state = hotbar_observation()
 		if shared:
@@ -1025,6 +1053,14 @@ func _render_hotbar() -> void:
 		"Opening the fresh catalog does not expose an unused machine inspector.")
 	await RenderingServer.frame_post_draw
 	verify(root.get_texture().get_image().save_png(prefix + "-catalog.png") == OK, "Retain the isolated assignment catalog.")
+	bar.catalog.hide()
+	view.state.entities = {"press": {"kind": "processor", "cell": [2, 1]}}
+	view.selected = "press"
+	view._refresh_ui()
+	await settle_widgets()
+	await RenderingServer.frame_post_draw
+	verify(root.get_texture().get_image().save_png(prefix + "-inspection.png") == OK,
+		"Retain the compact selected-machine inspector in the same isolated view.")
 	var record := FileAccess.open(prefix + "-layout.json", FileAccess.WRITE)
 	verify(record != null, "Retain actual widget bounds beside the isolated images.")
 	if record != null:
