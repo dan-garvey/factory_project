@@ -45,6 +45,13 @@ cc_test(
     size = "medium",
 )
 
+cc_test(
+    name = "world_modular_scale_test",
+    srcs = ["tests/world_modular_scale_test.cpp"],
+    deps = [":world"],
+    size = "medium",
+)
+
 cc_library(
     name = "checkpoint",
     srcs = ["src/checkpoint.cpp"],

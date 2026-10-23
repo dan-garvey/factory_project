@@ -424,11 +424,49 @@ func _batch_motion_check() -> void:
 		_check(rotor != null and rotor.basis.is_equal_approx(bases[index] * Basis(Vector3.BACK,
 			0.1 * float(index + 1))),
 			"Every wheel keeps its own confirmed motion instead of borrowing the last wheel rotor.")
+	view.state.entities["wheel-11"].cell = [100, 0]
+	view._rebuild_machines()
+	view.camera = Camera3D.new()
+	view.add_child(view.camera)
+	var near_rotor := view.machine_root.get_child(0).get_node("WheelRotor") as Node3D
+	var far_rotor := view.machine_root.get_child(11).get_node("WheelRotor") as Node3D
+	var far_base := far_rotor.basis
+	var far_id := far_rotor.get_instance_id()
+	view._animate_wheel(0.1)
+	_check(near_rotor.basis.is_equal_approx(bases[0] * Basis(Vector3.BACK, 0.1))
+		and far_rotor.basis.is_equal_approx(far_base) and view.wheel_batch_poses.has(far_id),
+		"Near joinery turns while a distant batched rotor avoids changing hidden source nodes.")
+	var far_instance_found := false
+	for group in view.machine_dynamic_batches:
+		for index in group.parts.size():
+			var part: Dictionary = group.parts[index]
+			if part.node != far_rotor:
+				continue
+			far_instance_found = true
+			var expected: Transform3D = part.parent_pose * Transform3D(
+				far_base * Basis(Vector3.BACK, 1.2), far_rotor.position)
+			_check(view.wheel_batch_poses[far_id].is_equal_approx(Transform3D(
+				far_base * Basis(Vector3.BACK, 1.2), far_rotor.position)),
+				"The distant wheel keeps its independently advanced core pose.")
+			if DisplayServer.get_name() != "headless":
+				_check(group.mesh.get_instance_transform(index).is_equal_approx(expected),
+					"The rendered wheel core follows its ordinary moving MultiMesh.")
+	_check(far_instance_found, "A distant wheel retains its moving core batch.")
+	view.camera.global_position = far_rotor.global_position
+	view._animate_wheel(0.1)
+	_check(not view.wheel_batch_poses.has(far_id)
+		and far_rotor.basis.is_equal_approx(far_base * Basis(Vector3.BACK, 1.2)),
+		"Walking to a distant wheel immediately catches its detailed joinery up to motion.")
 	view.state.entities.erase("wheel-11")
 	view._rebuild_machines()
 	_check(view.machine_root.get_node_or_null("MachineVisualBatches") == null
 		and view.machine_dynamic_batches.is_empty(),
 		"Falling below the batching threshold restores direct render meshes.")
+	var unbatched_rotor := view.machine_root.get_child(0).get_node("WheelRotor") as Node3D
+	var unbatched_base := unbatched_rotor.basis
+	view._animate_wheel(0.1)
+	_check(unbatched_rotor.basis.is_equal_approx(unbatched_base * Basis(Vector3.BACK, 0.1)),
+		"An unbatched wheel keeps turning even when its joinery is far from the camera.")
 	view.free()
 	var belt_view := PerformanceView.new()
 	belt_view.state = {"context": "synthetic-conveyor-check", "options": {"native": true},

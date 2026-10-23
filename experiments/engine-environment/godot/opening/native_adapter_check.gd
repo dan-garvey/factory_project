@@ -700,6 +700,12 @@ func _arrival_reveal_run(capture_prefix: String) -> void:
 				and not opening.arrival_reveal_audio.active,
 				"Normal descent, impact, two latches and hub signal play once on the reveal clock"):
 			return
+		# Let the final chime complete before the short-lived test tree frees it.
+		await create_timer(0.45).timeout
+		await process_frame
+		if not _expect(opening.arrival_reveal_audio.all_stopped(),
+				"The naturally completed arrival score releases every playback voice"):
+			return
 	var after: Dictionary = opening.model.projection()
 	var deck_settled := true
 	for panel in opening.machine_root.get_children():

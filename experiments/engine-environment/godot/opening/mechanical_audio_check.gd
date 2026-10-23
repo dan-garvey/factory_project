@@ -184,6 +184,45 @@ func check_projection_audio() -> void:
 		"A thousand silent distant wheels do not allocate sound players around one nearby source.")
 	crowded_bed.silence()
 	crowded_bed.free()
+	var cached_bed := Ambience.new()
+	root.add_child(cached_bed)
+	var versioned := observation()
+	versioned["revision"] = 7
+	versioned["order"] = 4
+	cached_bed.sync(versioned, "P", true, facing)
+	var retained_belt: AudioStreamPlayer3D = cached_bed.emitters.belt
+	var turned := Basis(Vector3.UP, 0.3)
+	cached_bed.sync(versioned, "P", true, turned)
+	verify(cached_bed.emitters.belt == retained_belt and retained_belt.playing
+		and cached_bed.listener.basis.is_equal_approx(turned),
+		"A repeated confirmed source cut retains playback while camera orientation reaches the physical listener.")
+	var changed_motion := versioned.duplicate(true)
+	changed_motion.motion.belt.state = "stopped"
+	cached_bed.sync(changed_motion, "P", true, turned)
+	verify(not cached_bed.emitters.has("belt") and not is_instance_valid(retained_belt),
+		"Fresh confirmed motion stops an emitter even when order and revision have not changed.")
+	var changed_entities := changed_motion.duplicate(true)
+	changed_entities.entities.erase("wheel")
+	cached_bed.sync(changed_entities, "P", true, turned)
+	verify(not cached_bed.emitters.has("wheel"),
+		"A fresh confirmed entity dictionary removes a missing source at the same version.")
+	var changed_version := changed_entities.duplicate()
+	changed_version.revision = 8
+	changed_version.motion.processor.state = "stopped"
+	cached_bed.sync(changed_version, "P", true, turned)
+	verify(not cached_bed.emitters.has("processor"),
+		"A changed native revision rescans a shared source dictionary before retaining playback.")
+	var moved := changed_entities.duplicate()
+	moved.actors = changed_entities.actors.duplicate(true)
+	moved.actors.P.position = [165.0, 1.0, 165.0]
+	cached_bed.sync(moved, "P", true, turned)
+	verify(cached_bed.emitters.is_empty() and cached_bed.listener.position == Vector3(165, 1.55, 165),
+		"A physical listener move rescans shared source dictionaries and releases inaudible emitters.")
+	cached_bed.sync(versioned, "P", false, facing)
+	verify(cached_bed.emitters.is_empty() and not cached_bed.listener.is_current(),
+		"Readiness loss clears a retained versioned sound bed.")
+	cached_bed.silence()
+	cached_bed.free()
 
 func check_view_callbacks(shared: bool) -> void:
 	var view = SharedFixture.new() if shared else ViewFixture.new()
