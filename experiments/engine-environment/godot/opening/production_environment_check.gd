@@ -1898,7 +1898,7 @@ func check_bank_firs() -> void:
 		Scenery.Surface._fir_initialized = false
 	var specs: Array[Dictionary] = Scenery.Surface.fir_specs()
 	print(JSON.stringify({"phase": "fir layout", "trees": specs.size(), "counts": Scenery.Surface._fir_layout_counts, "poses": specs}))
-	if not verify(specs.size() == 3, "The source-qualified site composes exactly three bank trees."):
+	if not verify(specs.size() == 6, "The source-qualified site composes three original bank firs and three upper-bank firs."):
 		return
 	var actual_faces: PackedVector3Array = Scenery.Surface.fir_collision_faces()
 	verify(actual_faces.size() > 45000 and actual_faces.size() % 3 == 0,
@@ -1927,8 +1927,9 @@ func check_bank_firs() -> void:
 				"Whole canopies keep the working ring clear and retain a finite visibility range.")
 			for row in range(65):
 				var z := lerpf(envelope.position.z, envelope.end.z, float(row) / 64)
-				verify(envelope.end.x < Scenery.river_center_x(z) - Scenery.channel_half_width(z) - 0.4,
-					"The actual complete canopy stays on the opposite bank, clear of the channel.")
+				var bank_clear := envelope.end.x < Scenery.river_center_x(z) - Scenery.channel_half_width(z) - 0.4 \
+					if index < 3 else envelope.position.x > Scenery.river_center_x(z) + Scenery.channel_half_width(z) + 0.4
+				verify(bank_clear, "The actual complete canopy stays on its own bank, clear of the channel.")
 			for surface in [0, 2]:
 				var arrays := tree.mesh.surface_get_arrays(surface)
 				var positions: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
@@ -1949,7 +1950,7 @@ func check_bank_firs() -> void:
 	actual_faces[0] = Vector3(999, 999, 999)
 	verify(Scenery.Surface.fir_specs()[0].center == first_root and Scenery.Surface.fir_collision_faces()[0].x < 100,
 		"Callers cannot mutate later shared tree poses or native triangle input.")
-	print(JSON.stringify({"trees": 3, "actual_wood_triangles": Scenery.Surface.fir_collision_faces().size() / 3,
+	print(JSON.stringify({"trees": specs.size(), "actual_wood_triangles": Scenery.Surface.fir_collision_faces().size() / 3,
 		"rendered_quality": "not_assessed", "physics": "separate_case", "authority": "not_started"}))
 
 func check_bank_fir_lifecycle() -> void:

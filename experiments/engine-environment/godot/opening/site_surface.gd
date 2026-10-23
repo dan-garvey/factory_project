@@ -62,10 +62,16 @@ static func _prepare_firs() -> void:
 	_fir_mesh = loaded.mesh
 	var bounds := _fir_mesh.get_aabb()
 	var solids := support_boxes()
+	# These gentle upper-bank sites are outside the first work ring and the
+	# broadleaf crowns. The same exact trunk triangles remain physical there.
+	var upper_sites := [Vector2(12.0, -10.0), Vector2(13.0, -1.0), Vector2(18.0, 6.0)]
 	for candidate in range(512):
 		_fir_layout_counts.candidates += 1
-		var z := -18.0 + float((candidate * 97) % 256) * 0.14
-		var x := river_center_x(z) - channel_half_width(z) - 5.5 - float(candidate % 17) * 0.6
+		var side := -1.0 if _fir_descriptors.size() < 3 else 1.0
+		var upper: Vector2 = upper_sites[_fir_descriptors.size() - 3] if side > 0.0 else Vector2.ZERO
+		var z := upper.y if side > 0.0 else -18.0 + float((candidate * 97) % 256) * 0.14
+		var x := upper.x if side > 0.0 else river_center_x(z) - channel_half_width(z) \
+			- 5.5 - float(candidate % 17) * 0.6
 		var grid := cell(x, z)
 		var a := vertex(grid.x, grid.y)
 		var b := vertex(grid.x + 1, grid.y)
@@ -79,17 +85,19 @@ static func _prepare_firs() -> void:
 			continue
 		var at := Vector3(x, height_at(x, z) - 0.02, z)
 		# Mature riverbank trees should tower above the two-metre worker.
-		var size := 1.4 + float(candidate % 4) * 0.05
-		var basis := Basis(Vector3.UP, float(candidate) * 2.399963)
+		var size := 1.45 if side > 0.0 else 1.4 + float(candidate % 4) * 0.05
+		var basis := Basis.IDENTITY if side > 0.0 else Basis(Vector3.UP, float(candidate) * 2.399963)
 		var pose := Transform3D(basis.scaled_local(Vector3.ONE * size), at)
 		var envelope: AABB = pose * bounds
 		var clear := envelope.position.z >= -22.0 and envelope.end.z <= 22.0
-		# The west river edge's derivative is globally bounded below 1.5.
+		# The river edge's derivative is globally bounded below 1.5.
 		# Half a sample interval plus an art margin covers unsampled points.
 		var margin := 0.4 + 1.5 * envelope.size.z / 16.0
 		for row in range(9):
 			var edge_z := lerpf(envelope.position.z, envelope.end.z, float(row) / 8.0)
-			if envelope.end.x >= river_center_x(edge_z) - channel_half_width(edge_z) - margin:
+			var bank_x := river_center_x(edge_z) + side * (channel_half_width(edge_z) + margin)
+			if (side < 0.0 and envelope.end.x >= bank_x) \
+					or (side > 0.0 and envelope.position.x <= bank_x):
 				clear = false
 		var nearest := Vector2(clampf(1.65, envelope.position.x, envelope.end.x), clampf(1.65, envelope.position.z, envelope.end.z))
 		clear = clear and nearest.distance_to(Vector2(1.65, 1.65)) > 8.0
@@ -119,7 +127,7 @@ static func _prepare_firs() -> void:
 		_fir_faces.append_array(faces)
 		_fir_contact_rows.append({"id": id, "faces": faces, "bounds": envelope})
 		_fir_layout_counts.accepted += 1
-		if _fir_descriptors.size() == 3:
+		if _fir_descriptors.size() == 6:
 			break
 
 static func fir_specs() -> Array[Dictionary]:
