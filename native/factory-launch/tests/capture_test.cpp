@@ -104,6 +104,17 @@ int main(int argc, char** argv) {
         const fs::path root = parent / ("first-" + std::to_string(::getpid()));
         check(!fs::exists(root), "Each native test invocation requires a fresh artifact root.");
         fs::create_directories(root);
+        if (parent == "/dev/shm" || parent.string().rfind("/dev/shm/", 0) == 0) {
+            const auto discovery = run_process(
+                {"/usr/bin/git", "--no-replace-objects", "--literal-pathspecs", "-C", root.string(),
+                 "rev-parse", "--absolute-git-dir", "--is-inside-work-tree", "--is-inside-git-dir"},
+                5s, 4096, nullptr, true);
+            check(discovery.exit_code == 128
+                    && discovery.output.find("fatal: not a git repository (or any parent up to mount point ") == 0
+                    && discovery.output.find("Stopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).\n")
+                           != std::string::npos,
+                  "The explicit /dev/shm fixture must exercise Git's filesystem-boundary diagnostic.");
+        }
 
         check(sha256("") == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "Empty SHA256 vector.");
         check(sha256("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", "ABC SHA256 vector.");
