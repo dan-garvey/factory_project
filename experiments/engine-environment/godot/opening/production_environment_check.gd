@@ -176,6 +176,7 @@ func finish() -> void:
 			"bank-ferns": "sourced low-fern import, whole-clump terrain placement and ordinary scene consumer",
 			"foreground-bank": "near-bank placement and confirmed offline/shared machine-footprint suppression",
 			"pine-understory": "complete pine resource, terrain and confirmed-machine visibility consumer",
+			"botanical-species": "distinct broadleaf trunk contact and soft sourced shrub variants in both opening builders",
 			"construction-vegetation": "detached offline/shared plant clearance at confirmed construction heights",
 			"foundation-depth-vegetation": "actual clump clearance below and inside a short foundation",
 			"pine-roots": "focused edge-inclusive terrain-root oracle correction",
@@ -1777,6 +1778,97 @@ func check_fir_resource() -> void:
 	print(JSON.stringify({"base_triangles": full_triangles, "woody_triangles": wood_triangles, "lod_triangle_counts": levels,
 		"mounted_trees": 0, "physics": "not_started", "rendered_quality": "not_assessed"}))
 
+func check_botanical_species() -> void:
+	var loaded: Dictionary = Scenery.Surface.read_broadleaf()
+	if not verify(loaded.status == "ready", "The shipped broadleaf source has its pinned self-contained identity."):
+		return
+	var mesh: ArrayMesh = loaded.mesh
+	verify(mesh.get_surface_count() == 3 and mesh.surface_get_arrays(1)[Mesh.ARRAY_INDEX].size() == 49120 * 3,
+		"A distinct modeled broadleaf canopy uses its selected source detail level.")
+	var leaf_finish := mesh.surface_get_material(1) as StandardMaterial3D
+	verify(leaf_finish != null and leaf_finish.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+		and leaf_finish.albedo_texture.get_image().get_format() == Image.FORMAT_RGBA8,
+		"Broadleaf leaves use the provider's real cutout mask instead of opaque card backgrounds.")
+	var specs: Array[Dictionary] = Scenery.Surface.broadleaf_specs()
+	if not verify(specs.size() == 2, "Two rooted broadleaf trees join the existing fir and pine species."):
+		return
+	var source_trunk: PackedInt32Array = mesh.surface_get_arrays(2)[Mesh.ARRAY_INDEX]
+	verify(Scenery.Surface.broadleaf_collision_faces().size() == source_trunk.size() * specs.size(),
+		"Every rendered broadleaf trunk contributes its exact source triangles to physical contact.")
+	var west := 0
+	var east := 0
+	for spec in specs:
+		if spec.center.x < Scenery.river_center_x(spec.center.z):
+			west += 1
+		else:
+			east += 1
+		verify(spec.bounds.position.z >= -23.0 and spec.bounds.end.z <= 23.0,
+			"Whole broadleaf crowns stay within the opening worksite.")
+		for solid in Scenery.Surface.support_boxes():
+			var half: Vector3 = solid.size * 0.5
+			var rock_bounds: AABB = Transform3D(solid.basis, solid.center) * AABB(-half, solid.size)
+			verify(not spec.bounds.intersects(rock_bounds.grow(0.25)), "Broadleaf crowns clear fixed scenery rocks.")
+	verify(west == 1 and east == 1, "The broadleaf species reads from both riverbanks.")
+	for shared in [false, true]:
+		var view: Variant = SharedBankView.new() if shared else FixtureView.new()
+		root.add_child(view)
+		view._build_world()
+		var scenery: Node3D = view.get_node("ProductionScenery")
+		var trees: Node3D = scenery.get_node("BankBroadleaf")
+		verify(trees.get_child_count() == specs.size(), "Both normal builders mount the source-bound broadleaf group.")
+		for index in range(specs.size()):
+			var tree := trees.get_child(index) as MeshInstance3D
+			var spec: Dictionary = specs[index]
+			verify(tree != null and tree.mesh == mesh and tree.name == spec.id and tree.position == spec.center
+				and tree.basis == spec.basis.scaled_local(Vector3.ONE * spec.scale),
+				"Each visible broadleaf has the exact rooted physical pose.")
+			verify(tree.get_child_count() == 2, "The selected broadleaf leaves fill each open crown twice.")
+			for leaves: MeshInstance3D in tree.get_children():
+				verify(leaves.mesh == Scenery.broadleaf_fill_mesh
+					and leaves.mesh.surface_get_arrays(0)[Mesh.ARRAY_INDEX] == mesh.surface_get_arrays(1)[Mesh.ARRAY_INDEX],
+					"Crown fill reuses the qualified leaf geometry without another trunk.")
+				var envelope: AABB = tree.transform * leaves.transform * leaves.mesh.get_aabb()
+				verify(spec.bounds.grow(0.001).encloses(envelope),
+					"Whole rotated crown fill remains inside the bank-clearance envelope.")
+		var shrubs: Node3D = scenery.get_node("ShrubUnderstory")
+		verify(shrubs.get_child_count() == 2, "Both original shrub forms are mounted separately.")
+		for variant in range(2):
+			var patch := shrubs.get_child(variant) as MultiMeshInstance3D
+			if not verify(patch != null and patch.multimesh != null and patch.multimesh.instance_count >= 5,
+				"Each shrub form grows at several terrain roots."):
+				continue
+			var shrub_finish := patch.multimesh.mesh.surface_get_material(0) as StandardMaterial3D
+			verify(shrub_finish != null and shrub_finish.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+				and shrub_finish.albedo_texture.get_image().get_format() == Image.FORMAT_RGBA8,
+				"Shrub leaf cards use their source cutout silhouette.")
+			var candidate: PackedFloat32Array = patch.get_meta("candidate_buffer")
+			verify(candidate.size() == patch.multimesh.instance_count * 12 and patch.visibility_range_end <= 40.0,
+				"Soft bushes retain complete transforms and a bounded visibility range.")
+			for offset in range(0, candidate.size(), 12):
+				var basis := Basis(Vector3(candidate[offset], candidate[offset + 4], candidate[offset + 8]),
+					Vector3(candidate[offset + 1], candidate[offset + 5], candidate[offset + 9]),
+					Vector3(candidate[offset + 2], candidate[offset + 6], candidate[offset + 10]))
+				var at := Vector3(candidate[offset + 3], candidate[offset + 7], candidate[offset + 11])
+				var envelope: AABB = Transform3D(basis, at) * patch.multimesh.mesh.get_aabb()
+				verify(patch.multimesh.custom_aabb.grow(0.001).encloses(envelope),
+					"Bush culling bounds enclose every complete plant.")
+				verify(envelope.end.x < Scenery.river_center_x(at.z) - Scenery.channel_half_width(at.z)
+					or envelope.position.x > Scenery.river_center_x(at.z) + Scenery.channel_half_width(at.z),
+					"Bush geometry stays clear of the river.")
+		var first: MultiMeshInstance3D = shrubs.get_child(0)
+		var before := first.multimesh.instance_count
+		var candidate: PackedFloat32Array = first.get_meta("candidate_buffer")
+		var cell := [roundi(candidate[3] / Geometry.PITCH), roundi(candidate[11] / Geometry.PITCH)]
+		Scenery.refresh_vegetation(scenery, {"entities": {"shrub-clearance": {"kind": "belt", "cell": cell}}})
+		verify(first.multimesh.instance_count < before, "Confirmed construction suppresses intersecting soft bushes.")
+		Scenery.refresh_vegetation(scenery, {"entities": {}})
+		verify(first.multimesh.instance_count == before, "Removing the confirmed volume restores all bushes.")
+		verify(view.model == null and view.actor_world == null and view.request_sequence == 0,
+			"The botanical view starts no authoritative world or requests.")
+		view.free()
+	print(JSON.stringify({"broadleaf_trees": specs.size(), "broadleaf_wood_triangles": source_trunk.size() / 3 * specs.size(),
+		"shrub_variants": 2, "authority_started": false}))
+
 func check_bank_firs() -> void:
 	# Exercise the actual absent-file branch before any fir layout cache is
 	# built. Only this private captured project's optional asset is moved.
@@ -1860,6 +1952,10 @@ func check_bank_fir_lifecycle() -> void:
 		view.free()
 
 func run() -> void:
+	if mode == "botanical-species":
+		check_botanical_species()
+		finish()
+		return
 	if mode == "collector-carrier":
 		check_collector_carrier()
 		verify(checks == 125, "All raised cells, levels and formed flights complete the fit check.")

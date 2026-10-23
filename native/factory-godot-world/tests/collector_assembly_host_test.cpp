@@ -1,8 +1,10 @@
 #include "native/factory-godot-world/tests/site_fixture.hpp"
 
+#include <cmath>
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 namespace {
 using V = factory::values::Value;
@@ -52,6 +54,9 @@ std::string place(Host& host, const char* kind, I x, I y, I z, const char* id) {
     wire.emplace("component", V(kind));
     wire.emplace("center", V(A{V(x), V(y), V(z)}));
     const auto response = host.command("P", wire);
+    if (!get<bool>(response, "accepted"))
+        std::cerr << "place_component " << kind << " at [" << x << ',' << y << ',' << z
+                  << "] refused: " << get<std::string>(response, "reason") << '\n';
     check(get<bool>(response, "accepted"), "A crafted component installs through the ordinary Host command.");
     return get<std::string>(response, "entity");
 }
@@ -86,6 +91,7 @@ void collector_readiness_tracks_real_parts() {
     }
     check(get<bool>(host.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 4), "accepted"),
           "The actor approaches the deposit-facing workcell without occupying it.");
+    const auto prepared_layout = host.checkpoint();
     const auto frame = place(host, "wooden_frame", 0, 0, 0, "frame");
     const auto frame_occupied = get<O>(V(get<O>(host.projection(), "placed_components").at(frame)), "occupied");
     const auto frame_center = get<A>(V(frame_occupied), "center");
@@ -120,6 +126,23 @@ void collector_readiness_tracks_real_parts() {
           get<O>(host.projection(), "placed_components").size() == 2,
           "A non-cutting component cannot occupy the tagged ore source.");
     const auto edge = place(host, "cutting_edge", -2, 0, 0, "edge");
+    const auto placed_tools = get<O>(host.projection(), "placed_components");
+    const auto mount_box = get<O>(V(placed_tools.at(mount)), "occupied");
+    const auto edge_box = get<O>(V(placed_tools.at(edge)), "occupied");
+    const auto mount_center = get<A>(V(mount_box), "center");
+    const auto mount_half = get<A>(V(mount_box), "half");
+    const auto edge_center = get<A>(V(edge_box), "center");
+    const auto edge_half = get<A>(V(edge_box), "half");
+    const auto component_face = [](const A& center, const A& half, int axis, int side) {
+        return std::get<double>(center[axis].storage()) +
+            side * std::get<double>(half[axis].storage());
+    };
+    check(std::abs(component_face(mount_center, mount_half, 1, -1)) < 1e-9 &&
+          std::abs(component_face(edge_center, edge_half, 1, -1)) < 1e-9 &&
+          std::abs(component_face(mount_center, mount_half, 0, 1) + 0.2025) < 1e-9 &&
+          std::abs(component_face(mount_center, mount_half, 0, -1) -
+              component_face(edge_center, edge_half, 0, 1)) < 1e-9,
+          "Trusted collector tool boxes meet the floor, frame and each other without overlap.");
     const auto receiver = place(host, "receiver_tray", 0, 0, 1, "receiver");
     check(get<std::string>(ground_inspection(host), "status") == "missing_shaft",
           "The exposed edge and tray still need a geometric drive endpoint.");
@@ -281,6 +304,47 @@ void collector_readiness_tracks_real_parts() {
     check(get<bool>(restored.command("P", recover_loose), "accepted") &&
           get<I>(get<O>(restored.projection(), "cargo").at("P"), "raw") == 2,
           "The output remains recoverable after its collector tray is removed.");
+    auto support_site = source_contact_site();
+    auto support_obstacles = std::get<A>(support_site.at("obstacles").storage());
+    support_obstacles.emplace_back(A{V(A{V(-0.55), V(0.05), V(-0.10)}),
+                                     V(A{V(-0.35), V(0.25), V(0.10)})});
+    support_site.at("obstacles") = V(std::move(support_obstacles));
+    Host blocked_support;
+    check(get<bool>(blocked_support.initialize_arrival("assembly-site", {"P", "Q"}), "accepted") &&
+          get<bool>(blocked_support.configure_terrain(support_site), "accepted") &&
+          get<bool>(blocked_support.restore_checkpoint(prepared_layout), "accepted"),
+          "A fresh Host retains the prepared kit beside a distinct low obstruction.");
+    check(get<bool>(blocked_support.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 1), "accepted"),
+          "The restored actor supplies a fresh native cut before testing support clearance.");
+    auto blocked_mount = request("blocked-mount-support", "place_component");
+    blocked_mount.emplace("component", V("tool_mount"));
+    blocked_mount.emplace("center", V(A{V(I{-1}), V(I{0}), V(I{0})}));
+    const auto blocked_mount_result = blocked_support.command("P", blocked_mount);
+    check(!get<bool>(blocked_mount_result, "accepted") &&
+          get<std::string>(blocked_mount_result, "reason") == "site_occupied",
+          "A floor-level obstruction refuses the installed mount's visible support volume.");
+    Host upper_tools;
+    check(get<bool>(upper_tools.initialize_arrival("assembly-site", {"P", "Q"}), "accepted") &&
+          get<bool>(upper_tools.configure_terrain(source_contact_site()), "accepted") &&
+          get<bool>(upper_tools.restore_checkpoint(prepared_layout), "accepted"),
+          "A fresh Host retains the real crafted kit before a one-step raised cutter layout.");
+    check(get<bool>(upper_tools.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 1), "accepted"),
+          "The restored actor supplies a fresh native cut before building the raised layout.");
+    place(upper_tools, "wooden_frame", 0, 0, 0, "upper-frame");
+    const auto upper_mount = place(upper_tools, "tool_mount", -1, 1, 0, "upper-mount");
+    const auto upper_edge = place(upper_tools, "cutting_edge", -2, 1, 0, "upper-edge");
+    const auto upper_parts = get<O>(upper_tools.projection(), "placed_components");
+    const auto upper_mount_box = get<O>(V(upper_parts.at(upper_mount)), "occupied");
+    const auto upper_edge_box = get<O>(V(upper_parts.at(upper_edge)), "occupied");
+    const auto upper_mount_center = get<A>(V(upper_mount_box), "center");
+    const auto upper_mount_half = get<A>(V(upper_mount_box), "half");
+    const auto upper_edge_center = get<A>(V(upper_edge_box), "center");
+    const auto upper_edge_half = get<A>(V(upper_edge_box), "half");
+    check(std::abs(component_face(upper_mount_center, upper_mount_half, 1, -1)) < 1e-9 &&
+          std::abs(component_face(upper_edge_center, upper_edge_half, 1, -1)) < 1e-9 &&
+          std::abs(component_face(upper_mount_center, upper_mount_half, 0, -1) -
+              component_face(upper_edge_center, upper_edge_half, 0, 1)) < 1e-9,
+          "A one-step raised cutter still has separately occupied supports down to its frame floor.");
 }
 }  // namespace
 

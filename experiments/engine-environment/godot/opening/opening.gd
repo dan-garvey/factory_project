@@ -2812,6 +2812,11 @@ class ProductionEnvironment:
 	const PINE_SPECULAR := [0.1, 0.07071067811865476]
 	static var pine_source_status := "uninitialized"
 	static var pine_cluster_mesh: ArrayMesh
+	const SHRUB_FILES := ["res://opening/assets/shrub/shrub_tall.res", "res://opening/assets/shrub/shrub_low.res"]
+	const SHRUB_SHA256 := ["9de5a9dbc5822eda1ab866f95d790f946500951e02aed9576c20676952184ea2",
+		"f02d5281e688a05b6a94bc34b49723d8acd0c9762ca39acc9d6cf92950cad3c8"]
+	static var shrub_meshes: Array[ArrayMesh] = []
+	static var broadleaf_fill_mesh: ArrayMesh
 	static var rock_boulder_mesh: ArrayMesh
 
 	static func ground_material() -> ShaderMaterial:
@@ -3563,6 +3568,10 @@ class ProductionEnvironment:
 		var volumes := _construction_volumes(state)
 		for name in ["GroundFoliage", "ForegroundBank", "PineUnderstory"]:
 			_refresh_plant_patch(scenery.get_node_or_null(name) as MultiMeshInstance3D, volumes)
+		var shrubs := scenery.get_node_or_null("ShrubUnderstory")
+		if shrubs != null:
+			for patch: MultiMeshInstance3D in shrubs.get_children():
+				_refresh_plant_patch(patch, volumes)
 		var meadow := scenery.get_node_or_null("MeadowPatches")
 		if meadow != null:
 			for patch: MultiMeshInstance3D in meadow.get_children():
@@ -3635,6 +3644,9 @@ class ProductionEnvironment:
 			for fir in Surface.fir_specs():
 				if envelope.intersects(fir.bounds.grow(0.2)):
 					clear = false
+			for broadleaf in Surface.broadleaf_specs():
+				if envelope.intersects(broadleaf.bounds.grow(0.2)):
+					clear = false
 			if not clear:
 				continue
 			# Do not stack one expensive source mesh over another.
@@ -3679,6 +3691,122 @@ class ProductionEnvironment:
 			tree.visibility_range_end = 65.0
 			tree.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED
 			group.add_child(tree)
+		return group
+
+	static func _bank_broadleaf() -> Node3D:
+		var group := Node3D.new()
+		group.name = "BankBroadleaf"
+		var mesh: ArrayMesh = Surface.broadleaf_mesh()
+		if mesh == null:
+			return group
+		if broadleaf_fill_mesh == null:
+			broadleaf_fill_mesh = ArrayMesh.new()
+			broadleaf_fill_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, mesh.surface_get_arrays(1), [], {},
+				Mesh.ARRAY_FLAG_COMPRESS_ATTRIBUTES)
+			broadleaf_fill_mesh.surface_set_material(0, mesh.surface_get_material(1))
+		for spec in Surface.broadleaf_specs():
+			var tree := MeshInstance3D.new()
+			tree.name = spec.id
+			tree.mesh = mesh
+			tree.position = spec.center
+			tree.basis = spec.basis.scaled_local(Vector3.ONE * spec.scale)
+			tree.visibility_range_end = 70.0
+			tree.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED
+			for layer in range(2):
+				var leaves := MeshInstance3D.new()
+				leaves.name = "CrownFill%d" % layer
+				leaves.mesh = broadleaf_fill_mesh
+				leaves.basis = Basis(Vector3.UP, -0.42 if layer == 0 else 0.42)
+				leaves.visibility_range_end = 70.0
+				leaves.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED
+				tree.add_child(leaves)
+			group.add_child(tree)
+		return group
+
+	static func _read_shrubs() -> bool:
+		if shrub_meshes.size() == 2:
+			return true
+		shrub_meshes.clear()
+		for variant in range(2):
+			var path: String = SHRUB_FILES[variant]
+			if not FileAccess.file_exists(path) or FileAccess.get_sha256(path) != SHRUB_SHA256[variant]:
+				push_error("Qualified shrub resource is missing or changed: " + path)
+				return false
+			var file := FileAccess.open(path, FileAccess.READ)
+			if file == null or file.get_length() > 2097152:
+				push_error("Qualified shrub resource exceeds its component allocation.")
+				return false
+			file.close()
+			var mesh := ResourceLoader.load(path, "ArrayMesh") as ArrayMesh
+			if mesh == null or mesh.get_surface_count() != 1 or not ResourceLoader.get_dependencies(path).is_empty():
+				push_error("Qualified shrub resource has missing or external components.")
+				return false
+			shrub_meshes.append(mesh)
+		return true
+
+	static func _bank_shrubs() -> Node3D:
+		var group := Node3D.new()
+		group.name = "ShrubUnderstory"
+		if not _read_shrubs():
+			return group
+		var solids: Array[Dictionary] = Surface.support_boxes()
+		var trees: Array = Surface.fir_specs() + Surface.broadleaf_specs()
+		for variant in range(2):
+			var mesh: ArrayMesh = shrub_meshes[variant]
+			var buffer := PackedFloat32Array()
+			var bounds := AABB()
+			var count := 0
+			for n in range(64):
+				var z := -19.0 + float((n * 13 + variant * 7) % 40)
+				var side := 1.0 if (n + variant) % 2 == 0 else -1.0
+				var x := river_center_x(z) + side * (channel_half_width(z) + 2.7 + float(n % 4) * 1.45)
+				if _terrain_facet_normal(x, z).y < 0.84:
+					continue
+				var at := Vector3(x, Surface.height_at(x, z) - 0.02, z)
+				var size := 0.88 + float((n * 3 + variant) % 5) * 0.085
+				var basis := Basis(Vector3.UP, float(n) * 2.399963).scaled_local(Vector3.ONE * size)
+				var envelope: AABB = Transform3D(basis, at) * mesh.get_aabb()
+				var clear := envelope.position.z >= -23.0 and envelope.end.z <= 23.0
+				var margin := 0.25 + 0.6 * envelope.size.z / 16.0
+				for row in range(5):
+					var edge_z := lerpf(envelope.position.z, envelope.end.z, float(row) / 4.0)
+					var edge_x := river_center_x(edge_z) + side * (channel_half_width(edge_z) + margin)
+					if (side < 0.0 and envelope.end.x >= edge_x) or (side > 0.0 and envelope.position.x <= edge_x):
+						clear = false
+				for solid in solids:
+					var half: Vector3 = solid.size * 0.5
+					var solid_bounds: AABB = Transform3D(solid.basis, solid.center) * AABB(-half, solid.size)
+					if envelope.intersects(solid_bounds.grow(0.15)):
+						clear = false
+				for tree in trees:
+					if envelope.intersects(tree.bounds.grow(0.15)):
+						clear = false
+				for offset in range(0, buffer.size(), 12):
+					if Vector2(at.x - buffer[offset + 3], at.z - buffer[offset + 11]).length() < 1.6:
+						clear = false
+				if not clear:
+					continue
+				buffer.append_array(PackedFloat32Array([
+					basis.x.x, basis.y.x, basis.z.x, at.x,
+					basis.x.y, basis.y.y, basis.z.y, at.y,
+					basis.x.z, basis.y.z, basis.z.z, at.z]))
+				bounds = envelope if count == 0 else bounds.merge(envelope)
+				count += 1
+				if count == 7:
+					break
+			var instances := MultiMesh.new()
+			instances.transform_format = MultiMesh.TRANSFORM_3D
+			instances.mesh = mesh
+			instances.instance_count = count
+			instances.buffer = buffer
+			instances.custom_aabb = bounds
+			var patch := MultiMeshInstance3D.new()
+			patch.name = "TallShrubs" if variant == 0 else "LowShrubs"
+			patch.multimesh = instances
+			patch.visibility_range_end = 38.0
+			patch.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED
+			patch.set_meta("candidate_buffer", buffer)
+			group.add_child(patch)
 		return group
 
 	static func _bank_ferns() -> Node3D:
@@ -3836,6 +3964,8 @@ class ProductionEnvironment:
 		scenery.add_child(_foreground_bank())
 		scenery.add_child(_pine_understory())
 		scenery.add_child(_bank_firs())
+		scenery.add_child(_bank_broadleaf())
+		scenery.add_child(_bank_shrubs())
 		return scenery
 
 class FlatFixtureEnvironment:
