@@ -400,10 +400,34 @@ void powers_two_modular_collectors_with_distinct_custody() {
           "Clearing one receiver lets its own powered collector resume without emptying the other.");
     const auto saved = world->snapshot();
     const auto encoded = w::encode_checkpoint(f.profile, saved);
-    check(std::holds_alternative<V>(encoded) &&
-          std::holds_alternative<w::Snapshot>(w::decode_checkpoint(f.profile, "collector-belt", std::get<V>(encoded))) &&
-          w::World::restore("collector-belt", f.profile, saved) != nullptr,
-          "Both produced receiver items and distinct assemblies survive checkpoint and restore.");
+    check(std::holds_alternative<V>(encoded),
+          "Both produced receiver items and distinct assemblies encode in a checkpoint.");
+    const auto decoded = w::decode_checkpoint(f.profile, "collector-belt", std::get<V>(encoded));
+    check(std::holds_alternative<w::Snapshot>(decoded) &&
+          std::get<w::Snapshot>(decoded).state == saved.state &&
+          std::get<w::Snapshot>(decoded).revision == saved.revision,
+          "Decoded custody and revision equal the saved two-collector state.");
+    auto restored = w::World::restore("collector-belt", f.profile, std::get<w::Snapshot>(decoded));
+    check(restored != nullptr && restored->snapshot().state == saved.state,
+          "The decoded two-collector state restores with both receiver items and assemblies.");
+    auto restored_pickup = pickup;
+    restored_pickup.at("request") = V("empty-restored-first-receiver");
+    accepted(*restored, restored_pickup);
+    restored_pickup.at("request") = V("empty-restored-second-receiver");
+    restored_pickup.at("center") = V(V::Array{V(g::Integer{8}), V(g::Integer{0}), V(g::Integer{1})});
+    accepted(*restored, restored_pickup);
+    const auto cleared = restored->snapshot();
+    check(!cleared.state.material.dropped_material.contains({0, 0, 1}) &&
+          !cleared.state.material.dropped_material.contains({8, 0, 1}) &&
+          cleared.state.material.stock.source == saved.state.material.stock.source,
+          "Emptying both restored trays transfers custody without another source debit.");
+    check(restored->tick().error == w::TransactionError::none,
+          "Both restored collector shafts accept the same powered tick.");
+    const auto refilled = restored->snapshot();
+    check(refilled.state.material.dropped_material.at({0, 0, 1}) == m::Cargo{1, 0, {}} &&
+          refilled.state.material.dropped_material.at({8, 0, 1}) == m::Cargo{1, 0, {}} &&
+          refilled.state.material.stock.source == cleared.state.material.stock.source - 2,
+          "Two restored rotating collectors refill distinct receivers from exactly two finite source units.");
     auto duplicate = f.profile;
     duplicate.collector_faces.push_back(duplicate.collector_faces.front());
     check(w::World::restore("collector-belt", duplicate, saved) == nullptr,

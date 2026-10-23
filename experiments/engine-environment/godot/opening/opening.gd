@@ -2813,8 +2813,8 @@ class ProductionEnvironment:
 	static var pine_source_status := "uninitialized"
 	static var pine_cluster_mesh: ArrayMesh
 	const SHRUB_FILES := ["res://opening/assets/shrub/shrub_tall.res", "res://opening/assets/shrub/shrub_low.res"]
-	const SHRUB_SHA256 := ["9de5a9dbc5822eda1ab866f95d790f946500951e02aed9576c20676952184ea2",
-		"f02d5281e688a05b6a94bc34b49723d8acd0c9762ca39acc9d6cf92950cad3c8"]
+	const SHRUB_SHA256 := ["9f8f09e07498e76781e863cc168d9ce5e515d9930f506b2b72371f5043159ab9",
+		"8184769f704233cdbf322d599e2eec7b0112f26f054965f1e8a567161315a7b0"]
 	static var shrub_meshes: Array[ArrayMesh] = []
 	static var broadleaf_fill_mesh: ArrayMesh
 	static var rock_boulder_mesh: ArrayMesh
@@ -3522,21 +3522,24 @@ class ProductionEnvironment:
 				foundation.level * Geometry.HEIGHT_STEP, foundation.cell[1] * Geometry.PITCH)
 			volumes.append(AABB(top - Vector3(Geometry.PITCH * 0.5, Geometry.FOUNDATION_DEPTH, Geometry.PITCH * 0.5),
 				Vector3(Geometry.PITCH, Geometry.FOUNDATION_DEPTH, Geometry.PITCH)).grow(0.08))
-		if state.has("landing_pod") and state.has("fabrication_hub"):
+		if state.has("landing_pod"):
 			var pod: Dictionary = state.landing_pod
-			var hub: Dictionary = state.fabrication_hub
-			if pod.get("deployed", false) and hub.has("position"):
-				var hub_position: Array = hub.position
+			if pod.get("deployed", false):
 				var pod_center: Array = pod.center
-				var hub_center: Array = hub.center
-				var center := Vector3(float(hub_position[0]) - float(hub_center[0] - pod_center[0]) * Geometry.PITCH,
-					float(hub_position[1]),
-					float(hub_position[2]) - float(hub_center[2] - pod_center[2]) * Geometry.PITCH)
+				var center := Vector3(float(pod_center[0]) * Geometry.PITCH,
+					float(pod_center[1]) * Geometry.HEIGHT_STEP,
+					float(pod_center[2]) * Geometry.PITCH)
 				var half := Geometry.PITCH * 1.5
 				# The native deck is a cleared landing, including the air above it.
 				# Its nine floor volumes alone only hide plants below panel height.
 				volumes.append(AABB(center - Vector3(half, 0.5, half),
 					Vector3(half * 2.0, 2.7, half * 2.0)))
+				var hub: Dictionary = state.get("fabrication_hub", {})
+				if hub.get("installed", false) and hub.has("position"):
+					var position: Array = hub.position
+					var hub_floor := Vector3(float(position[0]), float(position[1]) - Geometry.ANCHOR_HEIGHT,
+						float(position[2]))
+					volumes.append(AABB(hub_floor - Vector3(0.7, 0.1, 0.5), Vector3(1.4, 1.5, 1.0)))
 		return volumes
 
 	static func _refresh_plant_patch(patch: MultiMeshInstance3D, volumes: Array[AABB]) -> void:
@@ -4534,7 +4537,7 @@ class ProductionInterface:
 
 const STEP_SECONDS := 0.45
 const PITCH := Geometry.PITCH
-const NAMES := {"collector": "Collector", "belt": "Belt", "processor": "Press", "wheel": "Waterwheel", "foundation": "Foundation"}
+const NAMES := {"collector": "Collector", "belt": "Belt", "processor": "Press", "wheel": "Waterwheel", "foundation": "Foundation", "pod_workshop": "Pod workshop"}
 const COLORS := {"collector": Color("96805c"), "belt": Color("538e88"), "processor": Color("bd7054"), "wheel": Color("8b9caa")}
 const LESSONS := [
 	["01  /  BUILD THE PATH", "Place a collector at the ore deposit and a press nearby. Put two one-tile shafts between them with parallel axles, then connect the shafts with a belt. Foundations provide level building surfaces."],
@@ -4602,7 +4605,9 @@ var packed_preview_nodes: Dictionary = {}
 var machine_dynamic_batches: Array[Dictionary] = []
 var machine_conveyor_batches: Array[Dictionary] = []
 var machine_rotors: Array[Dictionary] = []
+var machine_rotor_cells: Array[Dictionary] = []
 var machine_batched_rotors: Dictionary = {}
+var machine_batched_rotor_slots: Dictionary = {}
 var wheel_batch_poses: Dictionary = {}
 var wheel_updated_rotors: Dictionary = {}
 var machine_motion_anchors: Array[Node3D] = []
@@ -4689,6 +4694,7 @@ var component_offset_controls: HBoxContainer
 var component_offset_label: Label
 var landing_pod_visual: Node3D
 var landing_hub_visual: Node3D
+var landing_hub_pick: StaticBody3D
 var landing_crank_visual: Node3D
 var freight_beacon_visual: StaticBody3D
 var arrival_reveal_probe := false
@@ -4823,7 +4829,9 @@ func _can_present_confirmed_motion() -> bool:
 func _contains_target(snapshot: Dictionary, id: String) -> bool:
 	return snapshot.get("entities", {}).has(id) or snapshot.get("foundations", {}).has(id) or (snapshot.get("options", {}).get("native", false)
 		and (snapshot.get("transmission_parts", {}).has(id) or snapshot.get("belt_spans", {}).has(id)
-			or snapshot.get("placed_components", {}).has(id)))
+			or snapshot.get("placed_components", {}).has(id)
+			or (snapshot.get("fabrication_hub", {}).get("installed", false)
+				and snapshot.fabrication_hub.get("id", "") == id)))
 
 func _refresh_transmission() -> void:
 	if not _native_transmission():
@@ -5206,6 +5214,8 @@ func issue(action: Dictionary) -> Dictionary:
 	if outcome.accepted:
 		if action.action in ["place_gear", "place_shaft"]:
 			selected = str(outcome.get("entity", ""))
+		elif action.action == "stow_fabrication_hub" and selected == action.get("entity", ""):
+			selected = ""
 		elif action.action in ["remove", "remove_belt_span"] and selected == action.get("entity", ""):
 			selected = ""
 		_construction_feedback(intent, outcome)
@@ -5215,6 +5225,8 @@ func issue(action: Dictionary) -> Dictionary:
 			"craft_part": "Transmission kit made from carried timber and softmetal.",
 			"place_component": "Component placed on the shared grid.",
 			"reclaim_component": "Component returned to your carried cargo.",
+			"stow_fabrication_hub": "Pod workshop unbolted. Place it on clear ground or a foundation top.",
+			"deploy_fabrication_hub": "Pod workshop installed at its new worksite.",
 			"take_hand_crank": "You have the pod crank. Turn a built shaft nearby.",
 			"return_hand_crank": "Crank returned to the pod tray.",
 			"feed_press": "One carried blank is now under the press head.",
@@ -5243,6 +5255,9 @@ func issue(action: Dictionary) -> Dictionary:
 			"input_full": "Recover or process the existing blank first.",
 			"unavailable_input": "Carry an ore blank or feed the selected press first.",
 			"site_occupied": "Rock or scenery blocks that placement or press route.",
+			"unsupported_bench": "Set the workbench on clear ground or a foundation top.",
+			"not_holder": "Only the worker carrying the pod workshop can place it.",
+			"already_stowed": "The pod workshop is already carried.",
 			"actor_unready": "Your character is not ready yet. Wait a moment.",
 			"actor_occupied": "A character is in that square. Move clear before placing the machine.",
 			"powered": "Stop the drive before changing the machinery.",
@@ -5255,15 +5270,17 @@ func issue(action: Dictionary) -> Dictionary:
 		if action.action == "craft_component":
 			refusal = {"unavailable_input": "Gather the timber or softmetal shown for this component.",
 				"inventory_full": "Your component bag is full. Place a carried part to make room.",
-				"out_of_reach": "Move beside the pod workshop to craft this component."}.get(outcome.get("reason", ""), refusal)
+				"out_of_reach": "Move beside the selected workshop to craft this component."}.get(outcome.get("reason", ""), refusal)
 		elif action.action == "field_craft":
 			refusal = {"unavailable_input": "Gather the timber shown for this component.",
 				"inventory_full": "Your component bag is full. Place a carried part to make room.",
-				"unavailable_recipe": "Metal components need the pod bench."}.get(outcome.get("reason", ""), refusal)
+				"unavailable_recipe": "Metal components need a workshop."}.get(outcome.get("reason", ""), refusal)
 		elif action.action == "craft_part":
 			refusal = {"unavailable_input": "Gather the timber or softmetal shown for this transmission kit.",
-				"out_of_reach": "Move beside the pod workshop to make a transmission kit.",
+				"out_of_reach": "Move beside the selected workshop to make a transmission kit.",
 				"quantity_overflow": "Too many of this kit are already carried."}.get(outcome.get("reason", ""), refusal)
+		elif action.action == "deploy_fabrication_hub" and outcome.get("reason", "") == "unsupported_bench":
+			refusal = "Set the pod workshop on clear ground or a foundation top."
 		elif action.action == "reclaim_component" and outcome.get("reason", "") == "inventory_full":
 			refusal = "Your component bag is full. Place another carried part before reclaiming."
 		elif action.action == "deliver_first_plate":
@@ -5375,27 +5392,43 @@ func _animate_wheel(delta: float) -> void:
 		var cull_far_joinery := camera != null and camera.is_inside_tree() and not machine_batched_rotors.is_empty()
 		var listener_position := camera.global_position if cull_far_joinery else Vector3.ZERO
 		var frustum: Array = camera.get_frustum() if camera != null and camera.is_inside_tree() else []
-		for wheel in machine_rotors:
-			# Keep nearby offscreen wheels live for their shadows. The confirmed
-			# cosmetic phase still advances when its hidden pose is held.
-			var outside_view := false
+		for cell in machine_rotor_cells:
+			var bounds: AABB = cell.bounds
+			var minimum := bounds.position
+			var maximum := bounds.end
+			var cell_outside := false
 			for plane: Plane in frustum:
-				if plane.distance_to(wheel.center) > WHEEL_MOTION_VISIBILITY_MARGIN:
-					outside_view = true
+				# The nearest corner has the minimum plane distance. Culling it
+				# excludes only cells whose every wheel is beyond the old margin.
+				var nearest := Vector3(minimum.x if plane.normal.x >= 0.0 else maximum.x,
+					minimum.y if plane.normal.y >= 0.0 else maximum.y,
+					minimum.z if plane.normal.z >= 0.0 else maximum.z)
+				if plane.distance_to(nearest) > WHEEL_MOTION_VISIBILITY_MARGIN:
+					cell_outside = true
 					break
-			if outside_view:
+			if cell_outside:
 				continue
-			var basis: Basis = wheel.base * Basis(Vector3.BACK, transmission_presenter.visual_angle(wheel.id))
-			var rotor_id: int = wheel.rotor.get_instance_id()
-			wheel_updated_rotors[rotor_id] = true
-			# The full core is already in a MultiMesh. Beyond the last paddle
-			# detail range, advance that instance without dirtying the many
-			# hidden and distance-culled source nodes under its rotor.
-			if cull_far_joinery and machine_batched_rotors.has(rotor_id) \
-					and listener_position.distance_squared_to(wheel.center) > WHEEL_DETAIL_UPDATE_RADIUS * WHEEL_DETAIL_UPDATE_RADIUS:
-				wheel_batch_poses[rotor_id] = Transform3D(basis, wheel.rotor.position)
-			else:
-				wheel.rotor.basis = basis
+			for wheel in cell.wheels:
+				# Keep nearby offscreen wheels live for their shadows. The confirmed
+				# cosmetic phase still advances when its hidden pose is held.
+				var outside_view := false
+				for plane: Plane in frustum:
+					if plane.distance_to(wheel.center) > WHEEL_MOTION_VISIBILITY_MARGIN:
+						outside_view = true
+						break
+				if outside_view:
+					continue
+				var basis: Basis = wheel.base * Basis(Vector3.BACK, transmission_presenter.visual_angle(wheel.id))
+				var rotor_id: int = wheel.rotor.get_instance_id()
+				wheel_updated_rotors[rotor_id] = true
+				# The full core is already in a MultiMesh. Beyond the last paddle
+				# detail range, advance that instance without dirtying the many
+				# hidden and distance-culled source nodes under its rotor.
+				if cull_far_joinery and machine_batched_rotors.has(rotor_id) \
+						and listener_position.distance_squared_to(wheel.center) > WHEEL_DETAIL_UPDATE_RADIUS * WHEEL_DETAIL_UPDATE_RADIUS:
+					wheel_batch_poses[rotor_id] = Transform3D(basis, wheel.rotor.position)
+				else:
+					wheel.rotor.basis = basis
 		_animate_machine_bodies(delta)
 		_update_machine_dynamic_batches(true)
 		return
@@ -5725,6 +5758,7 @@ func _select_tool(tool: String) -> void:
 	_refresh_ui()
 	var instructions := {"flow": "Click the upstream machine, then its neighbor toward the brass arrow.",
 		"component": "Click a floor or built part face to snap. Use placement controls for quarter-grid offsets.",
+		"pod_workshop": "Click a clear full tile to reinstall the carried pod workshop. It can sit on ground or a foundation top.",
 		"drive": "Click two neighboring machines to connect a drive shaft.",
 		"inspect": "Point at a machine and press E to open it." if _native_transmission() else "Click a machine to inspect it or collect its finished work.",
 		"deconstruct": "Point at a built part and click to dismantle it. Escape leaves dismantle mode.",
@@ -5748,12 +5782,24 @@ func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 		if target.is_empty():
 			_message("Point at a built part to dismantle it.", true)
 			return
-		var removal := "reclaim_component" if state.get("placed_components", {}).has(target) else \
+		var removal := "stow_fabrication_hub" if target == state.get("fabrication_hub", {}).get("id", "") else \
+			"reclaim_component" if state.get("placed_components", {}).has(target) else \
 			"remove_belt_span" if state.get("belt_spans", {}).has(target) else "remove"
 		var outcome := issue({"action": removal, "entity": target})
 		if outcome.accepted and selected == target:
 			selected = ""
 		_refresh_ui()
+		return
+	if mode == "pod_workshop" and _native_transmission():
+		var hub: Dictionary = state.get("fabrication_hub", {})
+		if hub.get("holder") != client or not _build_cell_allowed(cell):
+			return
+		var center := [cell.x * Geometry.HEIGHT_DENOMINATOR, _construction_level(cell),
+			cell.y * Geometry.HEIGHT_DENOMINATOR]
+		var outcome := issue({"action": "deploy_fabrication_hub", "entity": hub.id, "center": center})
+		if outcome.accepted:
+			selected = str(hub.id)
+			_select_tool("inspect")
 		return
 	if mode == "component" and _native_transmission():
 		if arrival_assembly_controls == null:
@@ -6127,7 +6173,8 @@ func _open_pointed_machine() -> void:
 
 func _remove_selected() -> void:
 	if not selected.is_empty():
-		var removal := "reclaim_component" if state.get("placed_components", {}).has(selected) else \
+		var removal := "stow_fabrication_hub" if selected == state.get("fabrication_hub", {}).get("id", "") else \
+			"reclaim_component" if state.get("placed_components", {}).has(selected) else \
 			"remove_belt_span" if _native_transmission() and state.get("belt_spans", {}).has(selected) else "remove"
 		var outcome := issue({"action": removal, "entity": selected})
 		if outcome.accepted:
@@ -6198,6 +6245,9 @@ func _screen_entity(screen: Vector2) -> String:
 func _component_place_center(cell: Vector2i, pointed: String) -> Array:
 	# One quarter-grid step off a confirmed component face builds a stack or
 	# lateral drive. Host still decides support, occupancy, custody and reach.
+	if arrival_assembly_controls != null and arrival_assembly_controls.selected_name() == "wooden_workbench":
+		return [cell.x * Geometry.HEIGHT_DENOMINATOR, _construction_level(cell),
+			cell.y * Geometry.HEIGHT_DENOMINATOR]
 	var placed: Dictionary = state.get("placed_components", {})
 	if placed.has(pointed):
 		var hit := _screen_pick(_pointed_screen_position())
@@ -6497,6 +6547,19 @@ func _build_landing_pod_visual(pod: Dictionary, hub: Dictionary) -> void:
 	landing_hub_visual.name = "PodFabricationHub"
 	landing_hub_visual.set_meta("authority_entity", hub.id)
 	add_child(landing_hub_visual)
+	landing_hub_pick = StaticBody3D.new()
+	landing_hub_pick.name = "WorkshopPickBody"
+	landing_hub_pick.set_meta("component_entity", hub.id)
+	landing_hub_pick.collision_layer = Geometry.PICK_LAYER
+	landing_hub_pick.collision_mask = 0
+	landing_hub_pick.position.y = 0.68
+	var pick_shape := CollisionShape3D.new()
+	pick_shape.name = "PickShape"
+	var pick_box := BoxShape3D.new()
+	pick_box.size = Vector3(1.16, 1.25, 0.70)
+	pick_shape.shape = pick_box
+	landing_hub_pick.add_child(pick_shape)
+	landing_hub_visual.add_child(landing_hub_pick)
 	for x in [-0.40, 0.40]:
 		for z in [-0.27, 0.27]:
 			_machine_box(landing_hub_visual, "BenchLeg", Vector3(x, 0.34, z),
@@ -6514,13 +6577,15 @@ func _build_landing_pod_visual(pod: Dictionary, hub: Dictionary) -> void:
 		0.065, Color("a8b8ae"))
 	_machine_box(landing_hub_visual, "CuttingHead", Vector3(0.03, 1.16, -0.19),
 		Vector3(0.12, 0.17, 0.13), amber, 0.58, 0.34)
-	_machine_box(landing_hub_visual, "CrankTray", Vector3(0.34, 0.83, 0.20),
+	# The crank belongs to the landed pod even after its bench is moved.
+	var crank_mount := Vector3(PITCH + 0.34, 0.83, 0.20)
+	_machine_box(landing_pod_visual, "CrankTray", crank_mount,
 		Vector3(0.35, 0.045, 0.19), dark, 0.58, 0.43)
 	landing_crank_visual = Node3D.new()
 	landing_crank_visual.name = "CrankInTray"
 	landing_crank_visual.set_meta("authority_entity", "pod-hand-crank")
-	landing_crank_visual.position = Vector3(0.34, 0.91, 0.20)
-	landing_hub_visual.add_child(landing_crank_visual)
+	landing_crank_visual.position = crank_mount + Vector3(0, 0.08, 0)
+	landing_pod_visual.add_child(landing_crank_visual)
 	_machine_cylinder(landing_crank_visual, "CrankAxle", Vector3.ZERO, 0.025, 0.26,
 		Color("bac5ba"), Vector3(0, 0, PI / 2.0))
 	_machine_box(landing_crank_visual, "CrankHandle", Vector3(0.12, 0.055, 0),
@@ -6533,26 +6598,28 @@ func _sync_landing_pod_visual() -> void:
 			landing_hub_visual.free()
 			landing_pod_visual = null
 			landing_hub_visual = null
+			landing_hub_pick = null
 			landing_crank_visual = null
 		return
 	var pod: Dictionary = state.landing_pod
 	var hub: Dictionary = state.fabrication_hub
-	if not pod.get("deployed", false) or not hub.has("position"):
+	if not pod.get("deployed", false):
 		return
 	if landing_pod_visual == null:
 		_build_landing_pod_visual(pod, hub)
-	var position: Array = hub.position
 	var pod_center: Array = pod.center
-	var hub_center: Array = hub.center
-	# Host positions use the shared spindle anchor; this art is authored from
-	# the floor. Apply the common offset once, including on restored views.
-	var hub_floor := Vector3(float(position[0]), float(position[1]), float(position[2])) \
-		- Vector3.UP * Geometry.ANCHOR_HEIGHT
-	landing_hub_visual.position = hub_floor
+	var pod_floor := Vector3(float(pod_center[0]) * PITCH,
+		float(pod_center[1]) * Geometry.HEIGHT_STEP, float(pod_center[2]) * PITCH)
 	if not arrival_reveal_active:
-		landing_pod_visual.position = hub_floor - Vector3(
-			float(hub_center[0] - pod_center[0]) * PITCH, 0,
-			float(hub_center[2] - pod_center[2]) * PITCH)
+		landing_pod_visual.position = pod_floor
+	var installed: bool = hub.get("installed", false)
+	landing_hub_visual.visible = installed
+	landing_hub_pick.collision_layer = Geometry.PICK_LAYER if installed else 0
+	if installed and hub.has("position"):
+		var position: Array = hub.position
+		# Host positions use the shared spindle anchor; the bench art sits on its floor.
+		landing_hub_visual.position = Vector3(float(position[0]), float(position[1]), float(position[2])) \
+			- Vector3.UP * Geometry.ANCHOR_HEIGHT
 	landing_crank_visual.visible = state.get("hand_crank", {}).get("holder", "") == "pod"
 
 func _sync_freight_beacon_visual() -> void:
@@ -7711,20 +7778,39 @@ func _emit_machine_mesh_batches(groups: Dictionary, batches: Node3D, dynamic: bo
 		instance.layers = group.layers
 		batches.add_child(instance)
 		if dynamic:
-			machine_dynamic_batches.append({"mesh": multi, "parts": group.parts})
+			var rotor_only := true
 			for part in group.parts:
+				rotor_only = rotor_only and part.node.name == "WheelRotor"
+			machine_dynamic_batches.append({"mesh": multi, "parts": group.parts, "rotor_only": rotor_only})
+			for index in group.parts.size():
+				var part: Dictionary = group.parts[index]
 				if part.node.name == "WheelRotor":
-					machine_batched_rotors[part.node.get_instance_id()] = true
+					var node_id: int = part.node.get_instance_id()
+					machine_batched_rotors[node_id] = true
+					machine_batched_rotor_slots[node_id] = {"mesh": multi, "index": index,
+						"node": part.node, "parent_pose": part.parent_pose}
 		batch_index += 1
 
 func _update_machine_dynamic_batches(visible_rotors_only := false) -> void:
 	if machine_dynamic_batches.is_empty() and machine_conveyor_batches.is_empty():
 		return
 	var to_local := machine_root.global_transform.affine_inverse()
+	if visible_rotors_only:
+		for node_id in wheel_updated_rotors:
+			var slot: Dictionary = machine_batched_rotor_slots.get(node_id, {})
+			if slot.is_empty():
+				continue
+			var pose: Transform3D = slot.parent_pose * (wheel_batch_poses[node_id] \
+				if wheel_batch_poses.has(node_id) else slot.node.transform)
+			slot.mesh.set_instance_transform(slot.index, pose)
 	for group in machine_dynamic_batches:
+		if visible_rotors_only and group.rotor_only:
+			continue
 		var mesh: MultiMesh = group.mesh
 		for index in group.parts.size():
 			var part: Dictionary = group.parts[index]
+			if visible_rotors_only and machine_batched_rotor_slots.has(part.node.get_instance_id()):
+				continue
 			# Wheel ancestors remain fixed until the next topology rebuild. Keep
 			# their machine-root-relative pose and update only the moving rotor.
 			var motion_pose: Transform3D
@@ -7785,6 +7871,7 @@ func _batch_machine_visuals() -> void:
 	machine_dynamic_batches.clear()
 	machine_conveyor_batches.clear()
 	machine_batched_rotors.clear()
+	machine_batched_rotor_slots.clear()
 	wheel_batch_poses.clear()
 	wheel_updated_rotors.clear()
 	if not _native_transmission() or machine_root.get_child_count() < MACHINE_BATCH_THRESHOLD:
@@ -7806,6 +7893,21 @@ func _batch_machine_visuals() -> void:
 	_emit_machine_mesh_batches(static_groups, batches, false)
 	_emit_machine_mesh_batches(dynamic_groups, batches, true)
 	_batch_conveyor_loops(batches)
+
+func _index_machine_rotors() -> void:
+	machine_rotor_cells.clear()
+	var cell_indices := {}
+	for wheel in machine_rotors:
+		var center: Vector3 = wheel.center
+		var key := Vector3i(floori(center.x / WHEEL_ROTOR_BATCH_CELL),
+			floori(center.y / WHEEL_ROTOR_BATCH_CELL), floori(center.z / WHEEL_ROTOR_BATCH_CELL))
+		if not cell_indices.has(key):
+			cell_indices[key] = machine_rotor_cells.size()
+			machine_rotor_cells.append({"bounds": AABB(center, Vector3.ZERO), "wheels": [wheel]})
+		else:
+			var cell: Dictionary = machine_rotor_cells[cell_indices[key]]
+			cell.bounds = (cell.bounds as AABB).expand(center)
+			cell.wheels.append(wheel)
 
 func _rebuild_machines() -> void:
 	_sync_machine_body_context()
@@ -7915,6 +8017,7 @@ func _rebuild_machines() -> void:
 		if not _native_transmission() and state.entities.has(pair[0]) and state.entities.has(pair[1]):
 			_bar(machine_root, _cell_position(state.entities[pair[0]].cell) + Vector3(0, 0.35, 0.55),
 				_cell_position(state.entities[pair[1]].cell) + Vector3(0, 0.35, 0.55), 0.09, Color("d1b56e"))
+	_index_machine_rotors()
 	_batch_machine_visuals()
 
 func _redraw_items() -> void:
@@ -8075,11 +8178,18 @@ func _refresh_ui() -> void:
 		inspector.text = _transmission_inspection(part, motion)
 	elif _native_transmission() and state.get("belt_spans", {}).has(selected):
 		inspector.text = _belt_inspection(state.belt_spans[selected], state.get("motion", {}))
+	elif _native_transmission() and state.get("fabrication_hub", {}).get("installed", false) \
+			and selected == state.fabrication_hub.get("id", ""):
+		inspector.text = "Pod workshop\nGrid center %s\nStow here or under Craft parts to move it." % \
+			str(state.fabrication_hub.get("center", []))
 	elif _native_transmission() and state.get("placed_components", {}).has(selected):
 		var component: Dictionary = state.placed_components[selected]
-		inspector.text = "%s\nGrid center %s\nReclaim with Delete or choose a press route below." % [
+		var detail := "Choose this workshop under Craft parts, then stand nearby to use it."
+		if component.get("component", "") != "wooden_workbench":
+			detail = "Reclaim with Delete or choose a press route below."
+		inspector.text = "%s\nGrid center %s\n%s" % [
 			str(component.get("component", "part")).replace("_", " ").capitalize(),
-			str(component.get("center", []))]
+			str(component.get("center", [])), detail]
 	else:
 		inspector.text = "Point at a machine and press E to open it."
 	inspector.tooltip_text = inspector.text
@@ -8143,7 +8253,10 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		(wheel_size_controls.get_child(0) as Button).text = "−  [Shift+PgDn]"
 		(wheel_size_controls.get_child(2) as Button).text = "+  [Shift+PgUp]"
 	if component_height_controls != null:
-		component_height_controls.visible = _native_transmission() and mode == "component" and not explanation_open
+		var whole_tile_component: bool = arrival_assembly_controls != null \
+			and arrival_assembly_controls.selected_name() == "wooden_workbench"
+		component_height_controls.visible = _native_transmission() and mode == "component" \
+			and not explanation_open and not whole_tile_component
 		component_height_label.text = "Height: %+d steps" % component_level
 		component_offset_controls.visible = component_height_controls.visible
 		component_offset_label.text = "X %+d · Z %+d" % [component_offset.x, component_offset.y]
@@ -8312,10 +8425,11 @@ func _refresh_placement_options() -> void:
 			return
 	var placing_machine := machine_preview != null and machine_preview.visible
 	var placing_component := mode == "component" and hover != null and hover.visible
+	var placing_pod := mode == "pod_workshop" and hover != null and hover.visible
 	var placing_transmission: bool = _native_transmission() and transmission_controls != null \
 		and transmission_controls.active_tool in ["gear", "place_shaft", "belt_span", "gearbox", "vertical_gearbox", "chain_drive"]
 	var shown: bool = _native_transmission() and not explanation_open and not _catalog_open() and _can_choose_tool() \
-		and (placing_machine or placing_component or placing_transmission)
+		and (placing_machine or placing_component or placing_pod or placing_transmission)
 	placement_options_panel.visible = shown
 	if not shown:
 		return
@@ -8335,6 +8449,7 @@ func _refresh_placement_options() -> void:
 		"chain_drive": "Left click to build · choose axle and chain link direction below",
 		"belt": "Click two parallel shafts · Esc cancels",
 		"component": "Click to build · choose quarter-grid offset or height below · Esc cancels",
+		"pod_workshop": "Left click to reinstall on the full tile · Esc cancels",
 	}.get(tool, "Left click to build · R rotates · Esc cancels")
 	placement_options_axis.visible = tool in ["wheel", "gear", "drive", "vertical_gearbox", "chain_drive"]
 	placement_options_axis.text = "Axle: %s  [X]" % (transmission_controls.selected_axis.to_upper()
@@ -8714,13 +8829,23 @@ func _update_cursor() -> void:
 		return
 	hover.basis = Basis.IDENTITY
 	hover.scale = Vector3.ONE
+	if mode == "pod_workshop" and _native_transmission():
+		var hub: Dictionary = state.get("fabrication_hub", {})
+		hover.visible = hub.get("holder") == client and _preview_pointer_clear() \
+			and _build_cell_allowed(hover_cell) and not explanation_open
+		if hover.visible:
+			hover.position = _cell_position([hover_cell.x, hover_cell.y]) + Vector3.UP * \
+				(0.03 + _construction_level(hover_cell) * Geometry.HEIGHT_STEP)
+		_refresh_placement_options()
+		return
 	if mode == "component" and _native_transmission():
 		var center := _component_place_center(hover_cell, _screen_entity(_pointed_screen_position()))
 		hover.visible = _preview_pointer_clear() and _component_center_allowed(center) and not explanation_open
 		if hover.visible:
 			hover.position = Vector3(center[0] * Geometry.HEIGHT_STEP,
 				center[1] * Geometry.HEIGHT_STEP + 0.03, center[2] * Geometry.HEIGHT_STEP)
-			hover.scale = Vector3(0.25, 1.0, 0.25)
+			hover.scale = Vector3.ONE if arrival_assembly_controls != null \
+				and arrival_assembly_controls.selected_name() == "wooden_workbench" else Vector3(0.25, 1.0, 0.25)
 		_refresh_placement_options()
 		return
 	hover.visible = NAMES.has(mode) and _build_cell_allowed(hover_cell) and _machine_floor_aligned(hover_cell) \

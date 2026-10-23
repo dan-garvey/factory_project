@@ -1,8 +1,12 @@
 #include "factory/materials.hpp"
 
+#include <algorithm>
+#include <chrono>
 #include <iostream>
 #include <limits>
+#include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace m = factory::materials;
 namespace {
@@ -273,6 +277,47 @@ void press_work_is_local_and_conserved() {
           "A finished plate replaces its work-point location even when every drop slot is in use.");
 }
 
+void batch_presses_keep_separate_work_and_backpressure() {
+    const m::Config one{1, 1, 2};
+    constexpr m::DropPoint first{8, 1, 0}, first_exit{7, 1, 0};
+    constexpr m::DropPoint second{20, 5, 0}, second_exit{19, 5, 0};
+    auto state = snapshot(3, {});
+    state.dropped_material.emplace(first, m::Cargo{1, 0, {}});
+    state.dropped_material.emplace(first_exit, m::Cargo{1, 0, {}});
+    state.dropped_material.emplace(second, m::Cargo{1, 0, {}});
+    const std::vector<m::PressStep> powered{{first, first_exit}, {second, second_exit}};
+    check(m::step_presses(state, one, {}, powered) == m::Error::none &&
+          state.dropped_material.at(first).work_lots.front().id == 1 &&
+          state.dropped_material.at(second).work_lots.front().id == 2,
+          "One batched tick starts two distinct physical press lots in stable work-point order.");
+    const auto stopped = state;
+    check(m::step_presses(state, one, {}, {}) == m::Error::none && state == stopped,
+          "With no rotating press instruction, both partial lots retain exact progress.");
+    check(m::step_presses(state, one, {}, powered) == m::Error::none &&
+          state.dropped_material.at(first).work_lots.front().remaining_ticks == 1 &&
+          state.dropped_material.at(second).work_lots.front().remaining_ticks == 1,
+          "Both independently powered presses progress in one material step.");
+    check(m::step_presses(state, one, {}, powered) == m::Error::none &&
+          state.dropped_material.at(first).work_lots.front().remaining_ticks == 0 &&
+          state.dropped_material.at(second_exit) == m::Cargo{0, 1, {}} &&
+          !state.dropped_material.contains(second),
+          "The blocked output holds ready work while the other press releases its own plate.");
+    const auto blocked = state;
+    check(m::step_presses(state, one, {}, powered) == m::Error::none && state == blocked,
+          "A full first exit cannot consume its ready lot or duplicate the second product.");
+    check(m::pickup_material(state, one, {}, "P", first_exit) == m::Error::none &&
+          m::step_presses(state, one, {}, powered) == m::Error::none &&
+          state.dropped_material.at(first_exit) == m::Cargo{0, 1, {}} &&
+          !state.dropped_material.contains(first) &&
+          m::validate(state, one, {}) == m::Error::none,
+          "Clearing one physical exit releases exactly its retained product with conserved cargo.");
+    const auto before_invalid = state;
+    const std::vector<m::PressStep> duplicate{{first, first_exit}, {first, second_exit}};
+    check(m::step_presses(state, one, {}, duplicate) == m::Error::invalid_path &&
+          state == before_invalid,
+          "Duplicate work-point claims refuse the entire candidate without changing custody.");
+}
+
 void many_independent_work_lots() {
     const m::Config pair{2, 2, 4};
     auto state = snapshot(2000, {}, {}, 1001);
@@ -292,15 +337,48 @@ void many_independent_work_lots() {
     check(m::validate(over_limit, pair, {}) == m::Error::invalid_state,
           "The bounded live-work limit still rejects oversized machine custody.");
 }
+
+void measure_thousand_powered_presses() {
+    const m::Config recipe{1, 2, 4};
+    auto base = snapshot(1000, {}, {}, 1001);
+    std::vector<m::PressStep> presses;
+    presses.reserve(1000);
+    for (m::WorkId id = 1; id <= 1000; ++id) {
+        const m::DropPoint work{id * 4, 0, 0};
+        const m::DropPoint exit{id * 4 - 1, 0, 0};
+        base.dropped_material.emplace(work,
+            m::Cargo{0, 0, {m::WorkLot{id, {1, 4}, 4}}});
+        presses.push_back({work, exit});
+    }
+    std::vector<double> samples;
+    samples.reserve(20);
+    for (int sample = 0; sample < 20; ++sample) {
+        auto state = base;
+        const auto start = std::chrono::steady_clock::now();
+        const auto result = m::step_presses(state, recipe, {}, presses);
+        samples.push_back(std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - start).count());
+        if (result != m::Error::none ||
+            state.dropped_material.at({4, 0, 0}).work_lots.front().remaining_ticks != 3 ||
+            state.dropped_material.at({4000, 0, 0}).work_lots.front().remaining_ticks != 3)
+            throw std::runtime_error("The measured batch lost a powered work lot.");
+    }
+    std::sort(samples.begin(), samples.end());
+    std::cout << "MATERIAL_THOUSAND_PRESSES count=1000 samples=" << samples.size()
+              << " median_ms=" << samples[10] << " p95_ms=" << samples[19] << '\n';
+}
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
     processing();
     topology_and_power();
     refusals();
     integer_boundaries();
     press_work_is_local_and_conserved();
+    batch_presses_keep_separate_work_and_backpressure();
     many_independent_work_lots();
+    if (argc > 1 && std::string(argv[1]) == "--benchmark")
+        measure_thousand_powered_presses();
     std::cout << "{\"status\":\"" << (failures == 0 ? "pass" : "fail")
               << "\",\"checks\":" << checks << ",\"failures\":" << failures
               << ",\"evidence\":\"native_logical_material_tests\"}\n";

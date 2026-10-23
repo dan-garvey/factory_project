@@ -1783,7 +1783,7 @@ func check_botanical_species() -> void:
 	if not verify(loaded.status == "ready", "The shipped broadleaf source has its pinned self-contained identity."):
 		return
 	var mesh: ArrayMesh = loaded.mesh
-	verify(mesh.get_surface_count() == 3 and mesh.surface_get_arrays(1)[Mesh.ARRAY_INDEX].size() == 49120 * 3,
+	verify(mesh.get_surface_count() == 3 and mesh.surface_get_arrays(1)[Mesh.ARRAY_INDEX].size() == 215689 * 3,
 		"A distinct modeled broadleaf canopy uses its selected source detail level.")
 	var leaf_finish := mesh.surface_get_material(1) as StandardMaterial3D
 	verify(leaf_finish != null and leaf_finish.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR

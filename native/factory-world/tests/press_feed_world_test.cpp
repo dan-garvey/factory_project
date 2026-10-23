@@ -349,6 +349,12 @@ void actor_feed_is_physical_custody() {
     forged_product.state.material.dropped_material.emplace(g::Point{7, 1, 1}, produced);
     check(!w::World::restore("press-feed", source.profile, forged_product),
           "A checkpoint cannot relocate the formed product without an accepted pickup.");
+    run.p = {1.65, 1, 6.6};
+    auto return_crank = request("P", "return-crank-between-press-and-pickup", "return_hand_crank");
+    return_crank.emplace("target", V("pod-hand-crank"));
+    return_crank.emplace("generation", V(I{1}));
+    run.accept("P", return_crank);
+    run.p = {2, 1, 0};
     auto pickup_product = request("P", "pickup-formed-product", "pickup_material");
     pickup_product.emplace("center", V(point(7, 1, 0)));
     pickup_product.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{1})},
@@ -356,6 +362,26 @@ void actor_feed_is_physical_custody() {
     run.accept("P", pickup_product);
     check(run.world->snapshot().state.material.cargo.at("P").products == 1,
           "A physical actor retrieves the single formed product.");
+    auto forged_finish = run.world->snapshot();
+    V::Array prior_work;
+    for (const auto& record : forged_finish.history.records)
+        if (std::get<std::string>(record.intent.at("request").storage()) == "turn-press-progress")
+            prior_work = std::get<V::Array>(record.result.at("work_lots").storage());
+    check(prior_work.size() == 1, "The tamper control starts from the real earlier partial lot.");
+    auto fake_ready = std::get<O>(prior_work.front().storage());
+    fake_ready.at("remaining_ticks") = V(I{0});
+    for (auto& record : forged_finish.history.records)
+        if (std::get<std::string>(record.intent.at("request").storage()) == "turn-press-finish") {
+            record.result.at("work_lots") = V(V::Array{V(fake_ready)});
+            record.result.at("formed_products") = V(I{0});
+        }
+    check(!w::World::restore("press-feed", source.profile, forged_finish),
+          "An unrelated accepted command cannot impersonate an automatic press tick in a saved pickup.");
+    auto retake_crank = take;
+    retake_crank.at("request") = V("retake-press-crank");
+    run.p = {1.65, 1, 6.6};
+    run.accept("P", retake_crank);
+    run.p = {2, 1, 0};
     auto second_feed = feed;
     second_feed.at("request") = V("feed-second");
     run.accept("P", second_feed);
@@ -429,11 +455,186 @@ void actor_feed_is_physical_custody() {
               std::get<V>(upgraded_save))),
           "The upgraded drive identities and retained work survive the canonical checkpoint.");
 }
+
+void two_placed_presses_advance_distinct_powered_work() {
+    auto source = site();
+    source.profile.build_reach = 100;
+    source.profile.material.hand_carry_capacity = 64;
+    source.profile.initial_units = source.state.material.initial_units =
+        source.state.material.stock.source = 24;
+    source.profile.waterwheel_rate = {1, 1};
+    source.state.topology.sources = {{"press-wheel", source.profile.waterwheel_rate}};
+    Runner run(source);
+    for (int index = 0; index < 8; ++index) {
+        auto harvest = request("P", "two-press-tree-" + std::to_string(index), "harvest_source");
+        harvest.emplace("target", V("tree"));
+        run.accept("P", harvest);
+    }
+    for (int index = 0; index < 2; ++index) {
+        auto harvest = request("P", "two-press-branch-" + std::to_string(index), "harvest_source");
+        harvest.emplace("target", V("tree-branch"));
+        run.accept("P", harvest);
+    }
+    for (int index = 0; index < 21; ++index) {
+        auto harvest = request("P", "two-press-ore-" + std::to_string(index), "harvest_source");
+        harvest.emplace("target", V("ore"));
+        run.accept("P", harvest);
+    }
+    struct Part { const char* name; g::Point center; };
+    std::vector<std::string> frames, shafts;
+    std::vector<I> frame_generations;
+    for (int index = 0; index < 2; ++index) {
+        const I x = index * 8;
+        const Part parts[] = {{"wooden_frame", {x, 0, 0}}, {"anvil", {x, 1, 0}},
+            {"ram_face", {x, 2, 0}}, {"sliding_guide", {x, 3, 0}},
+            {"tool_mount", {x, 4, 0}}, {"softmetal_shaft", {x + 1, 4, 0}},
+            {"softmetal_cog", {x + 2, 4, 0}}};
+        for (const auto& part : parts) {
+            const auto tag = std::to_string(index) + "-" + part.name;
+            auto craft = request("P", "craft-powered-" + tag, "craft_component");
+            craft.emplace("target", V("pod-fabrication-hub"));
+            craft.emplace("generation", V(I{1}));
+            craft.emplace("component", V(part.name));
+            run.accept("P", craft);
+            auto place = request("P", "place-powered-" + tag, "place_component");
+            place.emplace("component", V(part.name));
+            place.emplace("center", V(point(part.center[0], part.center[1], part.center[2])));
+            const auto placed = run.accept("P", place);
+            if (std::string(part.name) == "wooden_frame") {
+                frames.push_back(std::get<std::string>(placed.at("entity").storage()));
+                frame_generations.push_back(std::get<I>(placed.at("generation").storage()));
+            }
+            if (std::string(part.name) == "softmetal_shaft")
+                shafts.push_back(std::get<std::string>(placed.at("entity").storage()));
+        }
+    }
+    const auto drive = w::drive_power(source.profile, run.world->snapshot().state);
+    check(drive.mechanical.accepted() &&
+          drive.mechanical.motion.at(shafts[0]).state == g::MotionState::rotating &&
+          drive.mechanical.motion.at(shafts[1]).state == g::MotionState::rotating &&
+          frames[0] != frames[1] && shafts[0] != shafts[1],
+          "Two placed press frames and shafts receive distinct actual rotating identities.");
+    for (int index = 0; index < 2; ++index) {
+        auto feed = request("P", "feed-powered-" + std::to_string(index), "feed_press");
+        feed.emplace("target", V(frames[index]));
+        feed.emplace("generation", V(frame_generations[index]));
+        feed.emplace("entry", V(point(index * 8 + 1, 1, 0)));
+        run.accept("P", feed);
+    }
+    check(run.world->tick().error == w::TransactionError::none &&
+          run.world->snapshot().state.material.dropped_material.at({0, 1, 0}).work_lots.front().id == 1 &&
+          run.world->snapshot().state.material.dropped_material.at({8, 1, 0}).work_lots.front().id == 2,
+          "One native tick starts two independent WorkLots at their placed press work points.");
+    const auto partial = run.world->snapshot();
+    const auto encoded = w::encode_checkpoint(source.profile, partial);
+    check(std::holds_alternative<V>(encoded) &&
+          std::holds_alternative<w::Snapshot>(w::decode_checkpoint(source.profile, "press-feed", std::get<V>(encoded))) &&
+          w::World::restore("press-feed", source.profile, partial) != nullptr,
+          "Both partial lots and placed drive identities survive checkpoint and restore.");
+    auto stop = request("P", "stop-powered-presses", "set_drive");
+    stop.emplace("target", V("press-wheel"));
+    stop.emplace("generation", V(I{1}));
+    stop.emplace("enabled", V(false));
+    run.accept("P", stop);
+    const auto stopped = run.world->snapshot();
+    check(run.world->tick().error == w::TransactionError::none &&
+          run.world->snapshot().state.material == stopped.state.material,
+          "Stopping the real wheel pauses both partial lots without loss.");
+    auto resume = stop;
+    resume.at("request") = V("resume-powered-presses");
+    resume.at("enabled") = V(true);
+    run.accept("P", resume);
+    check(run.world->tick().error == w::TransactionError::none &&
+          run.world->snapshot().state.material.dropped_material.at({0, 1, 0}).work_lots.front().remaining_ticks == 1 &&
+          run.world->snapshot().state.material.dropped_material.at({8, 1, 0}).work_lots.front().remaining_ticks == 1,
+          "Both retained lots advance one cycle tick when their shafts resume.");
+    check(run.world->tick().error == w::TransactionError::none &&
+          run.world->snapshot().state.material.dropped_material.at({-1, 1, 0}) == m::Cargo{0, 1, {}} &&
+          run.world->snapshot().state.material.dropped_material.at({7, 1, 0}) == m::Cargo{0, 1, {}} &&
+          !run.world->snapshot().state.material.dropped_material.contains({0, 1, 0}) &&
+          !run.world->snapshot().state.material.dropped_material.contains({8, 1, 0}),
+          "Two plates leave separate drive-opposed exits after distinct finite work cycles.");
+    auto feed_again = request("P", "feed-powered-again", "feed_press");
+    feed_again.emplace("target", V(frames[0]));
+    feed_again.emplace("generation", V(frame_generations[0]));
+    feed_again.emplace("entry", V(point(1, 1, 0)));
+    run.accept("P", feed_again);
+    for (int index = 0; index < 3; ++index)
+        check(run.world->tick().error == w::TransactionError::none,
+              "A ready WorkLot may advance while its own output is full.");
+    const auto blocked = run.world->snapshot();
+    check(blocked.state.material.dropped_material.at({0, 1, 0}).work_lots.front().remaining_ticks == 0 &&
+          blocked.state.material.dropped_material.at({-1, 1, 0}) == m::Cargo{0, 1, {}} &&
+          blocked.state.material.dropped_material.at({7, 1, 0}) == m::Cargo{0, 1, {}} &&
+          run.world->tick().error == w::TransactionError::none &&
+          run.world->snapshot().state.material == blocked.state.material,
+          "A full first exit retains exactly its ready work while the second product remains separate.");
+    auto pickup = request("P", "clear-powered-exit", "pickup_material");
+    pickup.emplace("center", V(point(-1, 1, 0)));
+    pickup.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{1})},
+        {"work_lots", V(V::Array{})}}));
+    run.accept("P", pickup);
+    check(run.world->tick().error == w::TransactionError::none &&
+          run.world->snapshot().state.material.dropped_material.at({-1, 1, 0}) == m::Cargo{0, 1, {}} &&
+          !run.world->snapshot().state.material.dropped_material.contains({0, 1, 0}) &&
+          w::World::restore("press-feed", source.profile, run.world->snapshot()) != nullptr,
+          "Clearing the blocked exit releases the same ready lot and restores without duplication.");
+    auto clear_again = pickup;
+    clear_again.at("request") = V("clear-powered-exit-again");
+    run.accept("P", clear_again);
+    auto feed_manual = feed_again;
+    feed_manual.at("request") = V("feed-powered-for-crank");
+    run.accept("P", feed_manual);
+    check(run.world->tick().error == w::TransactionError::none &&
+          run.world->snapshot().state.material.dropped_material.at({0, 1, 0}).work_lots.front().id == 4,
+          "The fourth blank starts a new automatically powered lot.");
+    auto take = request("P", "take-crank-with-power", "take_hand_crank");
+    take.emplace("target", V("pod-hand-crank"));
+    take.emplace("generation", V(I{1}));
+    run.accept("P", take);
+    auto turn = request("P", "turn-after-powered-start", "turn_press_crank");
+    turn.emplace("target", V(frames[0]));
+    turn.emplace("generation", V(frame_generations[0]));
+    turn.emplace("drive", V(shafts[0]));
+    turn.emplace("exit", V(point(-1, 1, 0)));
+    run.accept("P", turn);
+    check(run.world->snapshot().state.material.dropped_material.at({0, 1, 0})
+              .work_lots.front().remaining_ticks == 1 &&
+          run.world->tick().error == w::TransactionError::none &&
+          run.world->snapshot().state.material.dropped_material.at({-1, 1, 0}) == m::Cargo{0, 1, {}} &&
+          w::World::restore("press-feed", source.profile, run.world->snapshot()) != nullptr,
+          "A manual crank and a powered tick share the same retained lot and valid checkpoint.");
+    auto clear_manual = pickup;
+    clear_manual.at("request") = V("clear-cranked-powered-exit");
+    run.accept("P", clear_manual);
+    auto feed_recovery = feed_again;
+    feed_recovery.at("request") = V("feed-powered-for-recovery");
+    run.accept("P", feed_recovery);
+    check(run.world->tick().error == w::TransactionError::none,
+          "Power starts the fifth blank before actor recovery.");
+    const auto recoverable = run.world->snapshot().state.material.dropped_material.at({0, 1, 0})
+        .work_lots.front();
+    auto recover = request("P", "recover-powered-partial", "pickup_material");
+    recover.emplace("center", V(point(0, 1, 0)));
+    recover.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{0})},
+        {"work_lots", V(V::Array{V(O{{"id", V(recoverable.id)}, {"recipe_input", V(I{1})},
+            {"cycle_ticks", V(I{2})}, {"remaining", V(recoverable.remaining_ticks)},
+            {"completed_subticks", V(recoverable.completed_subticks)},
+            {"work_remainder", V(recoverable.work_remainder)},
+            {"work_remainder_denominator", V(recoverable.work_remainder_denominator)}})})}}));
+    run.accept("P", recover);
+    check(recoverable.id == 5 &&
+          run.world->snapshot().state.material.cargo.at("P").work_lots.back() == recoverable &&
+          !run.world->snapshot().state.material.dropped_material.contains({0, 1, 0}) &&
+          w::World::restore("press-feed", source.profile, run.world->snapshot()) != nullptr,
+          "Actor recovery returns the exact automatically started partial lot and valid checkpoint.");
+}
 } // namespace
 
 int main() {
     try {
         actor_feed_is_physical_custody();
+        two_placed_presses_advance_distinct_powered_work();
         std::cout << "press_feed_world_test: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {

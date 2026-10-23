@@ -4,6 +4,7 @@
 #include <initializer_list>
 #include <limits>
 #include <numeric>
+#include <set>
 #include <utility>
 
 namespace factory::materials {
@@ -489,6 +490,61 @@ Error turn_press(State& state, const Config& config, const Path& path,
         !next.dropped_material.contains(exit)) {
         next.dropped_material.erase(work);
         next.dropped_material.emplace(exit, Cargo{0, 1, {}});
+    }
+    const auto result = validate(next, config, path);
+    if (result != Error::none) return result;
+    state = std::move(next);
+    return Error::none;
+}
+
+Error step_presses(State& state, const Config& config, const Path& path,
+                   const std::vector<PressStep>& steps) {
+    const auto input_error = validate(state, config, path);
+    if (input_error != Error::none) return input_error;
+    if (config.input_units_per_product != 1) return Error::unavailable_recipe;
+    if (steps.size() > maximum_drop_points) return Error::invalid_path;
+    std::set<DropPoint> work_points, exit_points;
+    for (const auto& step : steps) {
+        if (step.work == step.exit || step.work_subticks < 0 ||
+            step.work_remainder_denominator <= 0 || step.work_remainder < 0 ||
+            step.work_remainder >= step.work_remainder_denominator ||
+            (step.work_subticks == 0 && step.work_remainder == 0) ||
+            !work_points.insert(step.work).second || !exit_points.insert(step.exit).second)
+            return Error::invalid_path;
+        for (const auto coordinate : step.exit)
+            if (coordinate < -maximum_drop_coordinate || coordinate > maximum_drop_coordinate)
+                return Error::invalid_path;
+    }
+    for (const auto& step : steps)
+        if (work_points.contains(step.exit)) return Error::invalid_path;
+    if (steps.empty()) return Error::none;
+    auto next = state;
+    for (const auto& step : steps) {
+        const auto found = next.dropped_material.find(step.work);
+        if (found == next.dropped_material.end()) continue;
+        const auto raw = found->second == Cargo{1, 0, {}};
+        const auto work = found->second.raw_units == 0 && found->second.products == 0 &&
+            found->second.timber == 0 && found->second.components.empty() &&
+            found->second.work_lots.size() == 1;
+        if (!raw && !work) continue;
+        if (work && found->second.work_lots.front().remaining_ticks == 0 &&
+            next.dropped_material.contains(step.exit)) continue;
+        auto& active = found->second;
+        if (raw) {
+            if (next.next_work_id == std::numeric_limits<WorkId>::max())
+                return Error::work_id_overflow;
+            active.raw_units = 0;
+            active.work_lots.push_back(WorkLot{next.next_work_id++,
+                {1, config.cycle_ticks}, config.cycle_ticks});
+        } else {
+            advance_work(active.work_lots.front(), step.work_subticks,
+                         step.work_remainder, step.work_remainder_denominator);
+        }
+        if (active.work_lots.front().remaining_ticks == 0 &&
+            !next.dropped_material.contains(step.exit)) {
+            next.dropped_material.erase(step.work);
+            next.dropped_material.emplace(step.exit, Cargo{0, 1, {}});
+        }
     }
     const auto result = validate(next, config, path);
     if (result != Error::none) return result;

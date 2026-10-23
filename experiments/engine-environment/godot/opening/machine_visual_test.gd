@@ -383,6 +383,26 @@ func _compare_images(paths: String) -> void:
 		"low": [low.x, low.y], "high": [high.x, high.y]}))
 	quit()
 
+func _expected_visible_wheel_rotors(view: PerformanceView) -> Dictionary:
+	var expected := {}
+	var frustum: Array = view.camera.get_frustum()
+	for wheel in view.machine_rotors:
+		var outside := false
+		for plane: Plane in frustum:
+			if plane.distance_to(wheel.center) > Opening.WHEEL_MOTION_VISIBILITY_MARGIN:
+				outside = true
+				break
+		if not outside:
+			expected[wheel.rotor.get_instance_id()] = true
+	return expected
+
+func _check_indexed_wheel_visibility(view: PerformanceView, condition: String) -> void:
+	var expected := _expected_visible_wheel_rotors(view)
+	var matches := view.wheel_updated_rotors.size() == expected.size()
+	for rotor_id in expected:
+		matches = matches and view.wheel_updated_rotors.has(rotor_id)
+	_check(matches, condition)
+
 func _batch_motion_check() -> void:
 	var view := PerformanceView.new()
 	view.state = {"context": "synthetic-batch-check", "options": {"native": true},
@@ -400,6 +420,8 @@ func _batch_motion_check() -> void:
 	_check(batch_root != null and batch_root.get_child_count() > 0
 		and not view.machine_dynamic_batches.is_empty(),
 		"Twelve native wheels share static and moving render batches.")
+	_check(view.machine_batched_rotor_slots.size() == 12,
+		"Each batched wheel has a direct moving-instance slot.")
 	var retained_joinery := 0
 	var hidden_core := 0
 	for part in view.machine_root.get_child(0).get_node("WheelRotor").find_children("*", "MeshInstance3D", true, false):
@@ -424,17 +446,23 @@ func _batch_motion_check() -> void:
 		_check(rotor != null and rotor.basis.is_equal_approx(bases[index] * Basis(Vector3.BACK,
 			0.1 * float(index + 1))),
 			"Every wheel keeps its own confirmed motion instead of borrowing the last wheel rotor.")
-	view.state.entities["wheel-11"].cell = [100, 0]
+	view.state.entities["wheel-11"].cell = [-100, 0]
 	view._rebuild_machines()
 	var isolated_rotor := view.machine_root.get_child(11).get_node("WheelRotor") as Node3D
 	_check(not view.machine_batched_rotors.has(isolated_rotor.get_instance_id())
 		and isolated_rotor.find_children("*", "MeshInstance3D", true, false).any(
 			func(part: Node) -> bool: return part.visible and (part as MeshInstance3D).visibility_range_end <= 0.0),
 		"A lone wheel in a spatial cell keeps its original rendered rotor mesh.")
-	view.state.entities["wheel-8"].cell = [101, 0]
+	view.state.entities["wheel-8"].cell = [-101, 0]
+	view.state.entities["wheel-7"].cell = [101, 0]
 	view._rebuild_machines()
 	view.camera = Camera3D.new()
 	view.add_child(view.camera)
+	var indexed_wheels := 0
+	for cell in view.machine_rotor_cells:
+		indexed_wheels += cell.wheels.size()
+	_check(indexed_wheels == 12 and view.machine_rotor_cells.size() >= 3,
+		"The rotor index includes nearby and positive and negative distant cells.")
 	var near_rotor := view.machine_root.get_child(0).get_node("WheelRotor") as Node3D
 	var far_rotor := view.machine_root.get_child(11).get_node("WheelRotor") as Node3D
 	var near_group := -1
@@ -449,12 +477,22 @@ func _batch_motion_check() -> void:
 		"Nearby and distant wheels use separate moving batches with the same authored rotor mesh.")
 	var far_base := far_rotor.basis
 	var far_id := far_rotor.get_instance_id()
+	var far_slot: Dictionary = view.machine_batched_rotor_slots.get(far_id, {})
+	_check(not far_slot.is_empty(), "The distant wheel keeps its own moving-instance slot.")
+	var far_instance_before: Transform3D = far_slot.mesh.get_instance_transform(far_slot.index)
 	view._animate_wheel(0.1)
+	_check_indexed_wheel_visibility(view,
+		"The near camera updates exactly the rotors inside the original per-wheel frustum margin.")
 	_check(near_rotor.basis.is_equal_approx(bases[0] * Basis(Vector3.BACK, 0.1))
 		and far_rotor.basis.is_equal_approx(far_base) and not view.wheel_batch_poses.has(far_id),
 		"Near joinery turns while an offscreen distant rotor holds its last pose.")
+	if DisplayServer.get_name() != "headless":
+		_check(far_slot.mesh.get_instance_transform(far_slot.index).is_equal_approx(far_instance_before),
+			"The offscreen wheel slot holds its last rendered pose.")
 	view.camera.look_at(far_rotor.global_position)
 	view._animate_wheel(0.1)
+	_check_indexed_wheel_visibility(view,
+		"Turning toward the negative distant cell updates its first visible frame.")
 	_check(far_rotor.basis.is_equal_approx(far_base) and view.wheel_batch_poses.has(far_id),
 		"A visible distant rotor resumes its moving batch without dirtying hidden source nodes.")
 	var far_instance_found := false
@@ -475,13 +513,24 @@ func _batch_motion_check() -> void:
 	_check(far_instance_found, "A distant wheel retains its moving core batch.")
 	view.camera.global_position = far_rotor.global_position
 	view._animate_wheel(0.1)
+	_check_indexed_wheel_visibility(view,
+		"Moving across cells preserves the exact per-wheel visibility set.")
 	_check(not view.wheel_batch_poses.has(far_id)
 		and far_rotor.basis.is_equal_approx(far_base * Basis(Vector3.BACK, 1.2)),
 		"Walking to a distant wheel immediately catches its detailed joinery up to motion.")
+	var near_slot: Dictionary = view.machine_batched_rotor_slots[near_rotor.get_instance_id()]
+	var original_near_basis := near_rotor.basis
+	near_rotor.basis = original_near_basis * Basis(Vector3.BACK, 0.17)
+	view._update_machine_dynamic_batches()
+	if DisplayServer.get_name() != "headless":
+		_check(near_slot.mesh.get_instance_transform(near_slot.index).is_equal_approx(
+			near_slot.parent_pose * near_rotor.transform),
+			"A direct full batch refresh still updates a rotor outside the visible-only path.")
+	near_rotor.basis = original_near_basis
 	view.state.entities.erase("wheel-11")
 	view._rebuild_machines()
 	_check(view.machine_root.get_node_or_null("MachineVisualBatches") == null
-		and view.machine_dynamic_batches.is_empty(),
+		and view.machine_dynamic_batches.is_empty() and view.machine_batched_rotor_slots.is_empty(),
 		"Falling below the batching threshold restores direct render meshes.")
 	var unbatched_rotor := view.machine_root.get_child(0).get_node("WheelRotor") as Node3D
 	var unbatched_base := unbatched_rotor.basis
