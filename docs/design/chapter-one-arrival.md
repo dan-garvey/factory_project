@@ -1,6 +1,6 @@
 # Chapter one: arrival and the first workshop
 
-Status: user-directed chapter direction, 2026-10-22. The landing pod, manual
+Status: user-directed chapter direction, revised 2026-10-23. The landing pod, manual
 harvesting, locally made components, modular collector and modular press replace
 the old complete-machine opening as the target experience. Names, quantities and
 recipes here are reversible prototype choices until tested in a running game.
@@ -102,7 +102,9 @@ and wooden shaft: **7 timber and 1 blank**. An illustrative press uses one
 frame, tool mount, sliding guide, anvil, ram face, wooden shaft and cog:
 **8 timber and 4 blanks**. Both consume **15 timber and 5 blanks** to build,
 leaving one timber after harvesting two trees and eleven blanks at the original deposit;
-the first plate consumes one more blank. A third tree is available for an
+the current one-blank-to-one-plate runtime fixture consumes one more blank for its
+first product. The copper mass model below replaces that product rule; this part
+bill remains a separate, revisable bootstrap fixture. A third tree is available for an
 alternate route, support, chute or rebuild. A detachable crank is reusable
 between these arrangements. This arithmetic is a starting fixture, not a
 promise that every geometry or belt route can fit inside two trees.
@@ -151,6 +153,66 @@ height. Present one legible example in staged Help, then let the player alter
 it. An engineering challenge after the first product should invite a more
 compact or more continuous line using familiar parts, with multiple valid
 solutions. It should not require hidden construction order.
+
+## Size-scaled copper forming and broad-sheet handling
+
+The user-directed next engineering step keeps the hand-tended **1 × 1 press**
+valid for the first plate and adds a **2 × 2 forming area** assembled from
+repeated, independently placed anvil and ram parts. Both use the common world
+grid and one thickness. The four cells form one supported stroke for one broad
+workpiece, rather than four adjacent independent presses. Matching contact
+faces, a guided stroke, contiguous frame support, clearance and a capable
+drive make an arrangement ready. An enlarged recipe or gifted large machine
+does not substitute for those facts.
+No technology lock prevents a player who has enough parts from trying the
+larger layout early.
+
+| Initial route | Exact mass custody in the prototype comparison | Distinct physical cost |
+| --- | --- | --- |
+| Four small strokes | Four stock chunks × 4 mass units = four plates × 3 plus four recoverable offcuts × 1. | Four work cycles and their feed, removal and offcut recovery. |
+| One broad forming and shear route | Three stock chunks × 4 mass units = one 2 × 2 sheet of 12, then four plates × 3 with no offcut. | Higher peak drive and frame load, four-cell support and clearance, broad-sheet transfer to a cutter. |
+
+The apparent three-quarter fresh-stock cost of the large route is **provisional
+balance**, not a mass discount: four recovered small offcuts hold enough mass
+for another plate if an explicit reprocessing operation accepts them. The
+material ledger must follow stock, sheet, plate and offcut form through every
+hand, tray, machine and carrier. A refusal, occupied output, dismantle, save or
+two-client continuation must preserve both mass and partially completed work.
+After tuning, the broad route must still offer a real material or sustained
+throughput benefit; complete offcut recycling may erase its initial fresh-stock
+advantage, so the larger machine also needs a useful production-rate payoff.
+This replaces the current single-blank product fixture without invalidating
+the fixture's historical evidence. “Copper” from an exposed native deposit is
+a provisional name and geology choice; ordinary copper ore is not silently
+cold-formable stock. A preparation step is required if the selected deposit
+yields ore rather than workable metal.
+
+A normal one-wide belt refuses the broad sheet by footprint. One candidate
+uses a gantry carriage to move the workpiece between forming and cutting tools;
+which tools ride with it remains a prototype choice. A clear gravity slide or
+drop to a lower cutter offers another route. Both need visible swept volume,
+support and backpressure. Any gantry carriage and attached tooling form one
+internally moving stationary installation; this does not authorize mobile
+factories or pushing independent machines. Blocked transfer leaves the broad
+item accessible for repair and retry. Further sizes and exact ratios are open;
+variants should come from geometry and conserved quantity rather than a recipe
+per size.
+
+Build and verify native mass, 1 × 1 and 2 × 2 assembly, broad-item carriage,
+gantry and vertical transfer before making new Ponder lessons for this loop.
+The lessons should show actual construction, material travel and recovery,
+not cover missing mechanics. The implementation family is
+`factory-yau.1.10.16`, with these bounded outcomes in the private tracker:
+
+| Bead | Outcome |
+| --- | --- |
+| `factory-yau.1.10.16.1` | Conserved copper mass and recoverable offcuts. |
+| `factory-yau.1.10.16.2` | Matching 1 × 1 and 2 × 2 anvil and ram areas. |
+| `factory-yau.1.10.16.3` | Broad sheet forming and plate shearing. |
+| `factory-yau.1.10.16.4` | Footprint and clearance in material carriers. |
+| `factory-yau.1.10.16.5` | Gantry transfer between forming and cutting tools. |
+| `factory-yau.1.10.16.6` | Gravity slide or drop to a lower cutter. |
+| `factory-yau.1.10.16.7` | Ordinary arrival presentation and interaction. |
 
 ## Material quality creates a choice
 
