@@ -381,7 +381,7 @@ func _run() -> void:
 	if mode == "supplied-hardware":
 		await _arrival_run()
 		return
-	if mode in ["arrival-press", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-craft-capacity", "arrival-field-craft", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
+	if mode in ["arrival-press", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-craft-capacity", "arrival-field-craft", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
 		await _arrival_run()
 		return
 	if destination.is_empty() or mode not in ["produce", "resume", "foundations"]:
@@ -454,7 +454,8 @@ func _run() -> void:
 func _walk_to(target: Vector2, jump: bool = false) -> bool:
 	var jumped := false
 	var highest_foot := -INF
-	while Time.get_ticks_msec() < deadline:
+	var leg_deadline := mini(deadline, Time.get_ticks_msec() + 45000)
+	while Time.get_ticks_msec() < leg_deadline:
 		var body = opening.actor_world.bodies.P
 		var at: Vector3 = body.global_position
 		highest_foot = maxf(highest_foot, at.y - OpeningGeometry.CAPSULE_HEIGHT / 2.0)
@@ -472,7 +473,9 @@ func _walk_to(target: Vector2, jump: bool = false) -> bool:
 		await physics_frame
 		await process_frame
 	opening.actor_world.release_control("P")
-	return _expect(false, "The bounded native walk must reach its declared target")
+	var stopped_at: Vector3 = opening.actor_world.bodies.P.global_position
+	facts["failed_walk"] = {"target": target, "stopped_at": stopped_at}
+	return _expect(false, "The bounded native walk must reach %s; stopped at %s" % [target, stopped_at])
 
 func _deliver_first_arrival_plate(held_work: Dictionary, capture_prefix: String) -> bool:
 	var beacon: Dictionary = opening.model.projection().freight_beacon
@@ -481,8 +484,9 @@ func _deliver_first_arrival_plate(held_work: Dictionary, capture_prefix: String)
 			and opening.model.projection().cargo.P.products == 1,
 			"The carried plate cannot be shipped from the press by camera or remote command"):
 		return false
-	# Walk around the press with the ordinary motor; never set a native pose.
-	if not await _approach_points([Vector2(4.95, 4.95), Vector2(4.95, 8.25), Vector2(9.9, 8.25)]):
+	# Walk east of the now-solid press and pod workshop; never set a native pose.
+	if not await _approach_points([Vector2(4.95, 4.95), Vector2(6.6, 4.95),
+			Vector2(6.6, 8.25), Vector2(9.9, 8.25)]):
 		return false
 	var sample: Dictionary = opening.actor_world.diagnostics("P").sample
 	if not _expect(sample.ready and sample.registered and sample.on_floor
@@ -507,7 +511,10 @@ func _deliver_first_arrival_plate(held_work: Dictionary, capture_prefix: String)
 	var shipped: Dictionary = opening.model.projection()
 	if not _expect(shipped.order == before.order + 1 and shipped.cargo.P.products == 0
 			and shipped.freight_beacon.order_complete and shipped.freight_beacon.shipped_products == 1
-			and not opening.freight_beacon_visual.get_node("ShipmentLabel").visible
+			and shipped.freight_beacon.repeat_order_shipped == 0
+			and not shipped.freight_beacon.repeat_order_complete
+			and opening.freight_beacon_visual.get_node("ShipmentLabel").visible
+			and "REPEAT ORDER" in opening.goal_label.text
 			and shipped.dropped_material == held_work.dropped_material
 			and shipped.press_assemblies == held_work.press_assemblies,
 			"E ships exactly the first carried plate while the second press work stays retained"):
@@ -534,7 +541,77 @@ func _deliver_first_arrival_plate(held_work: Dictionary, capture_prefix: String)
 		"physical_actor": sample}
 	opening.distance = prior_distance
 	opening._update_camera()
-	return await _approach_points([Vector2(4.95, 8.25), Vector2(4.95, 4.95), Vector2(3.3, 4.95)])
+	return await _approach_points([Vector2(6.6, 8.25), Vector2(6.6, 4.95), Vector2(4.95, 4.95)])
+
+func _deliver_repeat_arrival_plates(panel, capture_prefix: String) -> bool:
+	var beacon: Dictionary = opening.model.projection().freight_beacon
+	if not _expect(beacon.order_complete and beacon.repeat_order_shipped == 0
+			and opening.model.projection().cargo.P.products == 1,
+			"The first saved receipt exposes an open repeat order and one real carried plate"):
+		return false
+	if not await _approach(Vector2(0.0, 1.65)):
+		return false
+	for index in range(2):
+		if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
+			return false
+	# The deployed pod workshop now has a real collider at (3.3, 6.6).
+	# Work from its clear front aisle, still within native press reach.
+	if not await _approach(Vector2(4.95, 4.95)):
+		return false
+	for index in range(2):
+		if not _expect(not panel.feed_button.disabled, "The ordinary press can accept another finite blank"):
+			return false
+		panel.feed_button.pressed.emit()
+		for turn in range(3):
+			if not _expect(not panel.turn_button.disabled, "The player can advance the retained work with the crank"):
+				return false
+			panel.turn_button.pressed.emit()
+		if not _expect(not panel.pickup_button.disabled, "The next formed plate can be picked up physically"):
+			return false
+		panel.pickup_button.pressed.emit()
+	if not _expect(opening.model.projection().cargo.P.products == 3
+			and opening.model.projection().cargo.P.raw == 0
+			and opening.model.projection().dropped_material.is_empty(),
+			"Two more local blanks become plates beside the retained second plate without gifted stock"):
+		return false
+	if not await _approach_points([Vector2(6.6, 4.95), Vector2(6.6, 8.25), Vector2(9.9, 8.25)]):
+		return false
+	opening.distance = 0.0
+	opening.orbit_yaw = 0.0
+	opening.orbit_pitch = 0.18
+	opening._update_camera()
+	for index in range(3):
+		var hit: Dictionary = opening._screen_pick(root.get_visible_rect().size / 2.0)
+		if not _expect(not hit.is_empty() and hit.collider == opening.freight_beacon_visual,
+				"The still-visible repeat marker accepts the ordinary E ray"):
+			return false
+		var before: Dictionary = opening.model.projection()
+		opening._interact_pointed()
+		var after: Dictionary = opening.model.projection()
+		if not _expect(after.order == before.order + 1
+				and after.cargo.P.products == 2 - index
+				and after.freight_beacon.shipped_products == 2 + index
+				and after.freight_beacon.repeat_order_shipped == 1 + index
+				and after.freight_beacon.repeat_order_target == 3
+				and after.freight_beacon.repeat_order_complete == (index == 2)
+				and opening.freight_beacon_visual.get_node("ShipmentLabel").visible == (index < 2),
+				"Each ordinary E action ships one carried follow-up plate and updates the visible count"):
+			return false
+	var full: Dictionary = _issue({"action": "deliver_repeat_plate", "entity": beacon.id})
+	if not _expect(not full.get("accepted", false) and full.get("reason") == "order_filled"
+			and opening.model.projection().cargo.P.products == 0
+			and opening.model.projection().freight_beacon.shipped_products == 4
+			and "REPEAT ORDER · DELIVERED" in opening.goal_label.text,
+			"A fifth shipment refuses after the repeat order closes without changing material custody"):
+		return false
+	if not capture_prefix.is_empty():
+		await process_frame
+		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-repeat-beacon.png") == OK,
+				"The completed repeat order has a passive ordinary receiver frame"):
+			return false
+	facts["repeat_delivery"] = {"beacon": opening.model.projection().freight_beacon,
+		"actor": opening.actor_world.diagnostics("P").sample}
+	return true
 
 func _foundations() -> void:
 	# A new automated construction case, not a replay of produce/resume, a
@@ -1295,17 +1372,21 @@ func _supplied_hardware_run() -> void:
 
 ## Fresh arrival panel consumer with actor motor, finite sources and Store.
 func _arrival_run() -> void:
-	deadline = Time.get_ticks_msec() + (180000 if mode in ["arrival-belt", "arrival-belt-controls", "arrival-delivery"] else 120000)
+	deadline = Time.get_ticks_msec() + 120000
+	if mode == "arrival-repeat-delivery":
+		deadline = Time.get_ticks_msec() + 240000
+	elif mode in ["arrival-belt", "arrival-belt-controls", "arrival-delivery"]:
+		deadline = Time.get_ticks_msec() + 180000
 	var capture_prefix := ""
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--arrival-capture-prefix="):
 			capture_prefix = argument.trim_prefix("--arrival-capture-prefix=")
-	if destination.is_empty() or mode not in ["supplied-hardware", "arrival-press", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-craft-capacity", "arrival-field-craft", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
+	if destination.is_empty() or mode not in ["supplied-hardware", "arrival-press", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-craft-capacity", "arrival-field-craft", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
 		push_error("Arrival press check requires an unused output and a declared mode")
 		quit(1)
 		return
 	opening = load("res://opening/opening.tscn").instantiate()
-	if mode in ["arrival-delivery", "arrival-delivery-resume"]:
+	if mode in ["arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume"]:
 		# Reuse the ordinary presentation and physical producer with a second
 		# native actor provisioned for a later peer on this same checkpoint.
 		facts["evidence"] = "native_arrival_scene_dual_actor_consumer"
@@ -1375,7 +1456,7 @@ func _arrival_run() -> void:
 	if mode == "arrival-craft-capacity":
 		await _arrival_capacity_run(panel)
 		return
-	if not capture_prefix.is_empty() and mode in ["arrival-press", "arrival-delivery"]:
+	if not capture_prefix.is_empty() and mode in ["arrival-press", "arrival-delivery", "arrival-repeat-delivery"]:
 		await process_frame
 		var landfall: Image = root.get_texture().get_image()
 		if not _expect(landfall != null and landfall.save_png(capture_prefix + "-landfall.png") == OK,
@@ -1388,13 +1469,17 @@ func _arrival_run() -> void:
 				"The foundation shortcut selects placement and shows options only with its valid ghost"):
 			return
 		opening._select_tool("inspect")
-	if mode in ["arrival-resume", "arrival-delivery-resume"]:
+	if mode in ["arrival-resume", "arrival-delivery-resume", "arrival-repeat-delivery-resume"]:
 		var restored: Dictionary = opening.model.projection()
+		var repeat_complete: bool = mode == "arrival-repeat-delivery-resume"
+		var first_delivered: bool = mode in ["arrival-delivery-resume", "arrival-repeat-delivery-resume"]
 		if not _expect(opening.last_load_result.get("accepted", false)
 				and opening.arrival_reveal_audio == null
-				and restored.cargo.P.products == (1 if mode == "arrival-delivery-resume" else 2)
-				and restored.freight_beacon.order_complete == (mode == "arrival-delivery-resume")
-				and restored.freight_beacon.shipped_products == (1 if mode == "arrival-delivery-resume" else 0)
+				and restored.cargo.P.products == (0 if repeat_complete else 1 if first_delivered else 2)
+				and restored.freight_beacon.order_complete == first_delivered
+				and restored.freight_beacon.shipped_products == (4 if repeat_complete else 1 if first_delivered else 0)
+				and restored.freight_beacon.repeat_order_shipped == (3 if repeat_complete else 0)
+				and restored.freight_beacon.repeat_order_complete == repeat_complete
 				and restored.placed_components.size() == 7
 				and restored.cargo.P.components.get("wooden_frame", 0) == 1
 				and restored.cargo.P.components.get("receiver_tray", 0) == 1
@@ -1407,11 +1492,11 @@ func _arrival_run() -> void:
 				and not opening.arrival_reveal_active,
 				"A fresh process reopens the press, finite cargo, freight receipt and one held crank"):
 			return
-		if mode == "arrival-delivery-resume" and not _expect(restored.actors.has("Q")
+		if first_delivered and not _expect(restored.actors.has("Q")
 				and opening.actor_world.bodies.has("Q")
-				and "DELIVERED" in opening.goal_label.text
-				and not opening.freight_beacon_visual.get_node("ShipmentLabel").visible,
-				"The saved shipment and second actor remain visible on the resumed worksite"):
+				and ("REPEAT ORDER · DELIVERED" if repeat_complete else "REPEAT ORDER · 0 / 3") in opening.goal_label.text
+				and opening.freight_beacon_visual.get_node("ShipmentLabel").visible == (not repeat_complete),
+				"The saved first and repeat receipts remain visible to both actors on the resumed worksite"):
 			return
 		opening.manager_log_button.pressed.emit()
 		if not _expect(opening.manager_log_open and opening.manager_log_layer.visible
@@ -1425,6 +1510,10 @@ func _arrival_run() -> void:
 				and opening.model.projection() == restored,
 				"A resumed worker can return from the log without replaying arrival or changing stock"):
 			return
+		if repeat_complete:
+			if not await _approach_points([Vector2(6.6, 8.25), Vector2(6.6, 4.95),
+					Vector2(1.65, 4.95)]):
+				return
 		panel.crank_button.pressed.emit()
 		if not _expect(opening.model.projection().hand_crank.holder == "pod"
 				and opening.landing_crank_visual.visible,
@@ -1580,9 +1669,17 @@ func _arrival_run() -> void:
 			and opening.model.projection().dropped_material.size() == 1,
 			"Exit pickup leaves the second workpiece in place"):
 		return
-	if mode == "arrival-delivery":
+	if mode in ["arrival-delivery", "arrival-repeat-delivery"]:
 		var held_work: Dictionary = opening.model.projection()
 		if not await _deliver_first_arrival_plate(held_work, capture_prefix):
+			return
+		opening.distance = 0.0
+		opening.orbit_yaw = PI
+		opening.orbit_pitch = 0.18
+		opening._update_camera()
+		opening._open_pointed_machine()
+		if not _expect(not opening.selected.is_empty() and panel.press_section.visible,
+				"Returning from freight opens the press again through the ordinary E ray"):
 			return
 	panel.turn_button.pressed.emit()
 	if not _expect(opening.model.projection().dropped_material.size() == 1
@@ -1590,9 +1687,11 @@ func _arrival_run() -> void:
 			"Clearing the exit lets the retained ready work form its second product"):
 		return
 	panel.pickup_button.pressed.emit()
-	if not _expect(opening.model.projection().cargo.P.products == (1 if mode == "arrival-delivery" else 2)
+	if not _expect(opening.model.projection().cargo.P.products == (1 if mode in ["arrival-delivery", "arrival-repeat-delivery"] else 2)
 			and opening.model.projection().dropped_material.is_empty(),
 			"The second formed plate enters finite carried custody through ordinary controls"):
+		return
+	if mode == "arrival-repeat-delivery" and not await _deliver_repeat_arrival_plates(panel, capture_prefix):
 		return
 	facts["press_frame"] = ready.frame
 	facts["final_parts"] = opening.model.projection().placed_components
