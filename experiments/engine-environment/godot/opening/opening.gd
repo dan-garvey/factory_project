@@ -4971,10 +4971,14 @@ func _process(delta: float) -> void:
 		actor_world.set_belt_step_seconds(STEP_SECONDS if auto_advance else 0.0)
 	if auto_advance:
 		elapsed += delta
+		var advanced: Dictionary = {}
 		while elapsed >= STEP_SECONDS:
 			elapsed -= STEP_SECONDS
-			model.advance()
-		_refresh()
+			advanced = model.advance()
+		if advanced.has("context") and advanced.has("revision") and advanced.has("entities"):
+			_refresh_from_projection(advanced)
+		else:
+			_refresh()
 	_refresh_machine_preview()
 	_refresh_placement_options()
 	_refresh_water()
@@ -7279,7 +7283,13 @@ func _redraw_items() -> void:
 	workpiece_item_assets.populate_items(item_root, state, PITCH)
 
 func _refresh() -> void:
-	state = model.projection()
+	_refresh_from_projection(model.projection())
+
+func _refresh_from_projection(known_projection: Dictionary) -> void:
+	# Both model paths return the complete projection from advance(). Reuse the
+	# final accepted tick in this render cut instead of projecting every part
+	# again. A failed tick or a frame without one still reads current authority.
+	state = known_projection
 	_sync_landing_pod_visual()
 	# Shared profiles arrive after presenter creation. Choose this revisable
 	# default once, preserving any pitch already adjusted while connecting.

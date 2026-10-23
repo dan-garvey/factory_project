@@ -1424,6 +1424,12 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
                 tail != std::to_string(serial)) return false;
         }
     }
+    // A large site may have one trusted flow per wheel. Group source rates by
+    // identity once while retaining the exact-match count used for restore.
+    std::unordered_map<std::string_view, std::vector<mechanics::Rate>> source_rates;
+    source_rates.reserve(state.topology.sources.size());
+    for (const auto& source : state.topology.sources)
+        source_rates[source.hub].push_back(source.rate);
     for (const auto& item : state.topology.parts) {
         if (item.wheel_tiles < (item.role == Role::waterwheel ? 3 : 1) || item.wheel_tiles > mechanics::maximum_dimension ||
             (item.role != Role::waterwheel && item.wheel_tiles != 1)) return false;
@@ -1445,10 +1451,11 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
         if (issued == state.issued_entities.end() || issued->second != item.generation ||
             total == totals.end() || !add(total->second, 1)) return false;
         const auto expected_rate = item.role == Role::waterwheel ? wheel_rate(profile, item) : std::nullopt;
-        if (item.role == Role::waterwheel && (!expected_rate || std::count_if(state.topology.sources.begin(),
-            state.topology.sources.end(), [&](const auto& source) {
-                return source.hub == item.geometry.id && source.rate == *expected_rate;
-            }) != 1)) return false;
+        if (item.role == Role::waterwheel) {
+            const auto rates = source_rates.find(item.geometry.id);
+            if (!expected_rate || rates == source_rates.end() ||
+                std::count(rates->second.begin(), rates->second.end(), *expected_rate) != 1) return false;
+        }
     }
     for (const auto& span : state.topology.belt_spans) {
         const auto issued = state.issued_entities.find(span.geometry.id);
@@ -2320,11 +2327,14 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
 Advance World::tick() noexcept {
     return owner_->advance([&](const Snapshot& snapshot) -> std::optional<State> {
         auto candidate = snapshot.state;
-        const auto power = machine_power(profile_, candidate);
+        // Material stepping changes custody, not the placed power graph. Reuse
+        // one graph evaluation for machine work and signed belt movement.
+        const auto drive = drive_power(profile_, candidate);
+        const auto power = machine_power_from(candidate.topology, drive);
         const auto error = materials::step(candidate.material, profile_.material,
             material_path(candidate.topology), power);
         if (error != materials::Error::none) throw error;
-        const auto motion = drive_power(profile_, candidate).mechanical;
+        const auto& motion = drive.mechanical;
         if (!motion.accepted()) throw materials::Error::invalid_path;
         // Only an assembled tray may feed the adjacent belt mouth. A tray is
         // one quarter-grid step from its frame; the belt endpoint is the next

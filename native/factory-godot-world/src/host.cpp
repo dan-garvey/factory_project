@@ -163,6 +163,9 @@ Bounds foundation_bounds(const world::Foundation& foundation) {
 Bounds component_bounds(std::optional<materials::Component> kind, const mechanics::Point& center) {
     const authority::Point at{center[0] * height_step,
         center[1] * height_step + anchor_height, center[2] * height_step};
+    const auto vertical = [&](double low, double high) -> Bounds {
+        return {{at[0], (low + high) / 2, at[2]}, {0.14, (high - low) / 2, 0.14}};
+    };
     if (!kind) return {at, {0.14, 0.14, 0.14}};
     switch (*kind) {
         case materials::Component::wooden_frame:
@@ -170,6 +173,17 @@ Bounds component_bounds(std::optional<materials::Component> kind, const mechanic
             return {{at[0], center[1] * height_step + 0.45, at[2]}, {0.2025, 0.45, 0.2025}};
         case materials::Component::tool_mount:
             return {{at[0], at[1] + 0.10, at[2]}, {0.20, 0.18, 0.19}};
+        case materials::Component::anvil:
+            // The cast pedestal meets the frame's 0.9 m top and carries the
+            // open work seat. The ram begins at its upper face.
+            return vertical(at[1] - height_step + (0.9 - anchor_height),
+                at[1] + height_step * 0.3);
+        case materials::Component::ram_face:
+            return vertical(at[1] - height_step * 0.7, at[1] + height_step * 0.5);
+        case materials::Component::sliding_guide:
+            // The guide meets the ram below and the unchanged tool-mount box
+            // above. All three use the one construction height denominator.
+            return vertical(at[1] - height_step * 0.5, at[1] + height_step - 0.08);
         case materials::Component::cutting_edge:
             return {{at[0], at[1] - 0.015, at[2]}, {0.21, 0.12, 0.18}};
         case materials::Component::receiver_tray:
@@ -1893,6 +1907,15 @@ Value Host::publish_actor(const std::string& actor, const Array& position, Integ
     current = {*at, epoch, true};
     owned_->native_started = true;
     return result(true, "actor_published");
+}
+
+Value Host::actor_projection(const std::string& actor) const {
+    if (!owned_) return result(false, "not_initialized");
+    const auto found = owned_->actors.find(actor);
+    if (found == owned_->actors.end()) return result(false, "unknown_actor");
+    const auto& current = found->second;
+    return Value(Object{{"accepted", Value(true)}, {"ready", Value(current.ready)},
+        {"position", point_value(current.position)}, {"native_epoch", Value(current.epoch)}});
 }
 
 Value Host::invalidate_actor(const std::string& actor) {
