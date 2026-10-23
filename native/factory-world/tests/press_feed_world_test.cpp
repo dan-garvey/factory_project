@@ -449,7 +449,7 @@ void two_placed_presses_advance_distinct_powered_work() {
         harvest.emplace("target", V("tree-branch"));
         run.accept("P", harvest);
     }
-    for (int index = 0; index < 20; ++index) {
+    for (int index = 0; index < 21; ++index) {
         auto harvest = request("P", "two-press-ore-" + std::to_string(index), "harvest_source");
         harvest.emplace("target", V("ore"));
         run.accept("P", harvest);
@@ -578,6 +578,30 @@ void two_placed_presses_advance_distinct_powered_work() {
           run.world->snapshot().state.material.dropped_material.at({-1, 1, 0}) == m::Cargo{0, 1, {}} &&
           w::World::restore("press-feed", source.profile, run.world->snapshot()) != nullptr,
           "A manual crank and a powered tick share the same retained lot and valid checkpoint.");
+    auto clear_manual = pickup;
+    clear_manual.at("request") = V("clear-cranked-powered-exit");
+    run.accept("P", clear_manual);
+    auto feed_recovery = feed_again;
+    feed_recovery.at("request") = V("feed-powered-for-recovery");
+    run.accept("P", feed_recovery);
+    check(run.world->tick().error == w::TransactionError::none,
+          "Power starts the fifth blank before actor recovery.");
+    const auto recoverable = run.world->snapshot().state.material.dropped_material.at({0, 1, 0})
+        .work_lots.front();
+    auto recover = request("P", "recover-powered-partial", "pickup_material");
+    recover.emplace("center", V(point(0, 1, 0)));
+    recover.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{0})},
+        {"work_lots", V(V::Array{V(O{{"id", V(recoverable.id)}, {"recipe_input", V(I{1})},
+            {"cycle_ticks", V(I{2})}, {"remaining", V(recoverable.remaining_ticks)},
+            {"completed_subticks", V(recoverable.completed_subticks)},
+            {"work_remainder", V(recoverable.work_remainder)},
+            {"work_remainder_denominator", V(recoverable.work_remainder_denominator)}})})}}));
+    run.accept("P", recover);
+    check(recoverable.id == 5 &&
+          run.world->snapshot().state.material.cargo.at("P").work_lots.back() == recoverable &&
+          !run.world->snapshot().state.material.dropped_material.contains({0, 1, 0}) &&
+          w::World::restore("press-feed", source.profile, run.world->snapshot()) != nullptr,
+          "Actor recovery returns the exact automatically started partial lot and valid checkpoint.");
 }
 } // namespace
 

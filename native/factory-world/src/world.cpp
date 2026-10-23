@@ -1008,7 +1008,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             bool claimed_product = press_products.erase(*point) != 0;
             if (!claimed_product) {
                 for (auto active = press_work.begin(); active != press_work.end(); ++active) {
-                    if (active->second.id != 0 || active->second.automatic_exit != *point) continue;
+                    if (active->second.automatic_exit != *point) continue;
                     press_work.erase(active);
                     claimed_product = true;
                     break;
