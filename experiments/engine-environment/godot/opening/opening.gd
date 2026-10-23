@@ -4367,6 +4367,14 @@ var component_offset_label: Label
 var landing_pod_visual: Node3D
 var landing_hub_visual: Node3D
 var landing_crank_visual: Node3D
+var arrival_reveal_probe := false
+var arrival_reveal_active := false
+var arrival_reveal_elapsed := 0.0
+var arrival_reveal_pod_anchor := Vector3.ZERO
+var arrival_gameplay_canvas: CanvasLayer
+var arrival_reveal_canvas: CanvasLayer
+var arrival_reveal_caption: Label
+const ARRIVAL_REVEAL_SECONDS := 2.8
 
 func _ready() -> void:
 	for argument in OS.get_cmdline_user_args():
@@ -4408,6 +4416,9 @@ func _ready() -> void:
 		if not _start_character_world():
 			return
 		_start_character_presenter()
+		if model is NativeWorldModel and state.has("landing_pod") and startup_resume_checkpoint.is_empty() \
+				and (auto_advance or arrival_reveal_probe):
+			_maybe_start_arrival_reveal.call_deferred()
 
 func _start_character_world() -> bool:
 	actor_world = ActorWorld.new()
@@ -4470,11 +4481,13 @@ func _actor_failed(actor: String, reason: String) -> void:
 	get_tree().quit(1)
 
 func _can_control_character() -> bool:
-	return not legacy_fixture and not _catalog_open() and not explanation_open and not startup_save_pending and state.get("actors", {}).get(client, {}).get("ready", false)
+	return not legacy_fixture and not arrival_reveal_active and not _catalog_open() and not explanation_open \
+		and not startup_save_pending and state.get("actors", {}).get(client, {}).get("ready", false)
 
 func _can_choose_tool() -> bool:
 	# The catalog holds movement while keeping its own choices available.
-	return not explanation_open and not startup_save_pending and (legacy_fixture or state.get("actors", {}).get(client, {}).get("ready", false))
+	return not arrival_reveal_active and not explanation_open and not startup_save_pending \
+		and (legacy_fixture or state.get("actors", {}).get(client, {}).get("ready", false))
 
 func _native_transmission() -> bool:
 	return not legacy_fixture and state.get("options", {}).get("native", false)
@@ -4971,6 +4984,7 @@ func _process(delta: float) -> void:
 		example_presenter.pan(delta)
 		return
 	_update_camera()
+	_advance_arrival_reveal(delta)
 	if not legacy_fixture:
 		return
 	var pan := Vector2(float(Input.is_physical_key_pressed(KEY_D)) - float(Input.is_physical_key_pressed(KEY_A)),
@@ -5136,6 +5150,12 @@ func _apply_press_pose(rows: Array, travel: float) -> void:
 		row.node.transform = row.parent_inverse * pose
 
 func _input(event: InputEvent) -> void:
+	if arrival_reveal_active:
+		if event is InputEventKey and event.pressed and not event.echo \
+				and event.keycode in [KEY_SPACE, KEY_ESCAPE]:
+			_finish_arrival_reveal()
+		get_viewport().set_input_as_handled()
+		return
 	if explanation_open:
 		if event is InputEventKey:
 			if event.pressed and not event.echo:
@@ -5871,6 +5891,8 @@ func _update_camera() -> void:
 		var footer_anchor := 0.0 if _footer_above_view() else 1.0
 		if not is_equal_approx(status_footer.anchor_top, footer_anchor):
 			_queue_footer_fit()
+	if arrival_reveal_active:
+		_update_arrival_reveal_camera()
 
 func _build_world() -> void:
 	if not legacy_fixture and ProductionEnvironment.Surface != null:
@@ -6077,10 +6099,99 @@ func _sync_landing_pod_visual() -> void:
 	var hub_center: Array = hub.center
 	var hub_world := Vector3(float(position[0]), float(position[1]), float(position[2]))
 	landing_hub_visual.position = hub_world
-	landing_pod_visual.position = hub_world - Vector3(
-		float(hub_center[0] - pod_center[0]) * PITCH, 0,
-		float(hub_center[2] - pod_center[2]) * PITCH)
+	if not arrival_reveal_active:
+		landing_pod_visual.position = hub_world - Vector3(
+			float(hub_center[0] - pod_center[0]) * PITCH, 0,
+			float(hub_center[2] - pod_center[2]) * PITCH)
 	landing_crank_visual.visible = state.get("hand_crank", {}).get("holder", "") == "pod"
+
+func _maybe_start_arrival_reveal() -> void:
+	var deadline := Time.get_ticks_msec() + 30000
+	while is_inside_tree() and get_node_or_null("MachinePreviewWarmup") != null \
+			and Time.get_ticks_msec() < deadline:
+		await get_tree().process_frame
+	if not is_inside_tree() or get_node_or_null("MachinePreviewWarmup") != null \
+			or landing_pod_visual == null or landing_hub_visual == null:
+		return
+	arrival_reveal_pod_anchor = landing_pod_visual.position
+	arrival_reveal_elapsed = 0.0
+	arrival_reveal_active = true
+	if character_presenter != null:
+		character_presenter.visible = false
+	if arrival_gameplay_canvas != null:
+		arrival_gameplay_canvas.visible = false
+	if arrival_reveal_canvas != null:
+		arrival_reveal_canvas.visible = true
+	_refresh_ui()
+	_advance_arrival_reveal(0.0)
+
+func _arrival_fold_amount() -> float:
+	var phase := clampf((arrival_reveal_elapsed - 1.35) / 1.30, 0.0, 1.0)
+	return phase * phase * (3.0 - 2.0 * phase)
+
+func _pose_arrival_reveal() -> void:
+	var descent := clampf(arrival_reveal_elapsed / 1.45, 0.0, 1.0)
+	descent = descent * descent * (3.0 - 2.0 * descent)
+	var fold := _arrival_fold_amount()
+	landing_pod_visual.position = arrival_reveal_pod_anchor + Vector3.UP * (8.0 * (1.0 - descent))
+	landing_pod_visual.rotation.y = 0.18 * (1.0 - descent)
+	for side in [-1.0, 1.0]:
+		var suffix := "Port" if side < 0.0 else "Starboard"
+		var wing := landing_pod_visual.get_node_or_null("OpenedPodShell/" + suffix + "OpenedWing") as Node3D
+		if wing != null:
+			wing.position.x = -side * 0.52 * (1.0 - fold)
+			wing.rotation.y = side * 0.52 * (1.0 - fold)
+	landing_hub_visual.visible = fold > 0.01
+	landing_hub_visual.scale = Vector3(1.0, maxf(0.05, fold), 1.0)
+	if arrival_reveal_caption != null:
+		arrival_reveal_caption.text = "SITE PACKAGE UNFOLDING" if arrival_reveal_elapsed >= 1.45 else "FIELD DESCENT IN PROGRESS"
+	for panel in machine_root.get_children():
+		if not panel.get_meta("arrival_deck_panel", false):
+			continue
+		var deck_panel := panel as Node3D
+		var target: Vector3 = deck_panel.get_meta("arrival_deck_anchor")
+		deck_panel.position = arrival_reveal_pod_anchor.lerp(target, fold)
+		deck_panel.rotation = Vector3.ZERO
+		deck_panel.scale = Vector3(0.22 + 0.78 * fold, 1.0, 0.22 + 0.78 * fold)
+		deck_panel.visible = fold > 0.01
+	_update_arrival_reveal_camera()
+	if character_presenter != null and character_presenter.views.has(client):
+		character_presenter.views[client].visible = false
+
+func _update_arrival_reveal_camera() -> void:
+	var phase := clampf(arrival_reveal_elapsed / ARRIVAL_REVEAL_SECONDS, 0.0, 1.0)
+	phase = phase * phase * (3.0 - 2.0 * phase)
+	var back := Vector3(sin(orbit_yaw) * cos(orbit_pitch), sin(orbit_pitch), cos(orbit_yaw) * cos(orbit_pitch))
+	var settled_eye := focus + back * distance
+	var approach_eye := arrival_reveal_pod_anchor + Vector3(7.0, 17.0, 17.0)
+	camera.position = approach_eye.lerp(settled_eye, phase)
+	var descent := clampf(arrival_reveal_elapsed / 1.45, 0.0, 1.0)
+	var tracked := arrival_reveal_pod_anchor + Vector3.UP * (8.0 * (1.0 - descent) + 0.8)
+	var release := smoothstep(0.72, 1.0, arrival_reveal_elapsed / ARRIVAL_REVEAL_SECONDS)
+	camera.look_at(tracked.lerp(settled_eye - back, release))
+
+func _advance_arrival_reveal(delta: float) -> void:
+	if not arrival_reveal_active:
+		return
+	arrival_reveal_elapsed = minf(ARRIVAL_REVEAL_SECONDS, arrival_reveal_elapsed + maxf(delta, 0.0))
+	_pose_arrival_reveal()
+	if arrival_reveal_elapsed >= ARRIVAL_REVEAL_SECONDS:
+		_finish_arrival_reveal()
+
+func _finish_arrival_reveal() -> void:
+	if not arrival_reveal_active:
+		return
+	arrival_reveal_elapsed = ARRIVAL_REVEAL_SECONDS
+	_pose_arrival_reveal()
+	arrival_reveal_active = false
+	if character_presenter != null:
+		character_presenter.visible = true
+	if arrival_gameplay_canvas != null:
+		arrival_gameplay_canvas.visible = true
+	if arrival_reveal_canvas != null:
+		arrival_reveal_canvas.visible = false
+	_update_camera()
+	_refresh_ui()
 
 func _box(parent: Node, at: Vector3, dimensions: Vector3, color: Color) -> MeshInstance3D:
 	var mesh := MeshInstance3D.new()
@@ -7068,6 +7179,8 @@ func _rebuild_machines() -> void:
 		var surface: Dictionary = state.foundations[id]
 		var anchor := Node3D.new()
 		anchor.position = _entity_position(surface)
+		anchor.set_meta("arrival_deck_panel", str(id).begins_with("pod-floor-"))
+		anchor.set_meta("arrival_deck_anchor", anchor.position)
 		machine_root.add_child(anchor)
 		_assemble_foundation(anchor, foundation_masks[id])
 		var body := StaticBody3D.new()
@@ -8050,11 +8163,41 @@ func _build_interface() -> void:
 	get_window().min_size = Vector2i(1280, 800)
 	var canvas := CanvasLayer.new()
 	add_child(canvas)
+	arrival_gameplay_canvas = canvas
 	var root := Control.new()
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	canvas.add_child(root)
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.theme = ProductionInterface.make_theme()
+	arrival_reveal_canvas = CanvasLayer.new()
+	arrival_reveal_canvas.name = "ArrivalReveal"
+	arrival_reveal_canvas.layer = 50
+	arrival_reveal_canvas.visible = false
+	add_child(arrival_reveal_canvas)
+	var reveal_root := Control.new()
+	reveal_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	reveal_root.theme = root.theme
+	arrival_reveal_canvas.add_child(reveal_root)
+	reveal_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var company := _label(reveal_root, "MERIDIAN COMBINE  /  FIELD PACKAGE 01", 20, Color("f1d7a5"))
+	company.position = Vector2(30, 14)
+	var company_style := LabelSettings.new()
+	company_style.font_size = 20
+	company_style.font_color = Color("f1d7a5")
+	company_style.outline_size = 5
+	company_style.outline_color = Color("102023")
+	company.label_settings = company_style
+	arrival_reveal_caption = _label(reveal_root, "FIELD DESCENT IN PROGRESS", 13, Color("d1ded9"))
+	arrival_reveal_caption.position = Vector2(32, 52)
+	var caption_style := LabelSettings.new()
+	caption_style.font_size = 13
+	caption_style.font_color = Color("d1ded9")
+	caption_style.outline_size = 4
+	caption_style.outline_color = Color("102023")
+	arrival_reveal_caption.label_settings = caption_style
+	var skip_hint := _label(reveal_root, "SPACE / ESC  Skip arrival", 13, Color("d1ded9"))
+	skip_hint.label_settings = caption_style
+	skip_hint.position = Vector2(32, 76)
 	fps_label = _label(root, "FPS --", 13)
 	fps_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	fps_label.set_anchor_and_offset(SIDE_LEFT, 0.0, 16.0)
