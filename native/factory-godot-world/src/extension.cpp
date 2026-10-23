@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 
@@ -20,6 +21,7 @@ std::atomic<int> live_instances{};
 
 struct Instance {
     factory::godot_world::Host host;
+    std::optional<Value> last_view;
     Instance() { ++live_instances; }
     ~Instance() { --live_instances; }
 };
@@ -93,7 +95,7 @@ struct EmptyText {
     void* get() { return storage.data(); }
 };
 
-enum class Method { initialize, initialize_arrival, terrain, command, publish, actor_projection, invalidate, advance, projection, checkpoint, restore, validate };
+enum class Method { initialize, initialize_arrival, terrain, command, publish, actor_projection, invalidate, advance, advance_delta, projection, checkpoint, restore, validate };
 struct Description { const char* name; Method method; std::uint32_t arguments; };
 std::array methods{
     Description{"initialize", Method::initialize, 2},
@@ -102,7 +104,8 @@ std::array methods{
     Description{"configure_terrain", Method::terrain, 1},
     Description{"publish_actor", Method::publish, 3}, Description{"actor_projection", Method::actor_projection, 1},
     Description{"invalidate_actor", Method::invalidate, 1},
-    Description{"advance", Method::advance, 0}, Description{"projection", Method::projection, 0},
+    Description{"advance", Method::advance, 0}, Description{"advance_delta", Method::advance_delta, 0},
+    Description{"projection", Method::projection, 0},
     Description{"checkpoint", Method::checkpoint, 0}, Description{"restore_checkpoint", Method::restore, 1},
     Description{"validate_checkpoint", Method::validate, 1}};
 
@@ -127,12 +130,17 @@ Value with_opening_engineering(Value state) {
     // A derived view only: no command, actor registration, progress flag or
     // checkpoint mutation. Session publishes these same per-actor facts.
     Object root = std::move(state).take_object();
-    root.emplace("opening_engineering", Value(std::move(progress)));
+    root.insert_or_assign("opening_engineering", Value(std::move(progress)));
     return Value(std::move(root));
 }
 
 Value invoke(Instance& instance, Method method, const std::vector<Value>& args) {
     auto& host = instance.host;
+    // All authority mutations invalidate the previous exported view. A refusal
+    // is allowed to do the same: the next tick simply delivers a full view.
+    if (method == Method::initialize || method == Method::initialize_arrival ||
+        method == Method::terrain || method == Method::command || method == Method::publish ||
+        method == Method::invalidate || method == Method::restore) instance.last_view.reset();
     switch (method) {
         case Method::terrain: return host.configure_terrain(typed<Object>(args, 0));
         case Method::initialize:
@@ -151,8 +159,50 @@ Value invoke(Instance& instance, Method method, const std::vector<Value>& args) 
         case Method::publish: return host.publish_actor(typed<std::string>(args, 0), typed<Value::Array>(args, 1), typed<Value::Integer>(args, 2));
         case Method::actor_projection: return host.actor_projection(typed<std::string>(args, 0));
         case Method::invalidate: return host.invalidate_actor(typed<std::string>(args, 0));
-        case Method::advance: return with_opening_engineering(host.advance());
-        case Method::projection: return with_opening_engineering(host.projection());
+        case Method::advance:
+        case Method::projection: {
+            Value view = with_opening_engineering(method == Method::advance ? host.advance() : host.projection());
+            instance.last_view = view;
+            return view;
+        }
+        case Method::advance_delta: {
+            if (!instance.last_view || !std::holds_alternative<Object>(instance.last_view->storage()) ||
+                !std::get<Object>(instance.last_view->storage()).contains("inventories") ||
+                !std::get<Object>(instance.last_view->storage()).contains("opening_engineering")) {
+                Value view = with_opening_engineering(host.advance());
+                instance.last_view = view;
+                return Value(Object{{"full", std::move(view)}});
+            }
+            Value tick = host.advance_tick_fields();
+            const auto* fields = std::get_if<Object>(&tick.storage());
+            if (!fields || !fields->contains("revision")) {
+                instance.last_view.reset();
+                return tick;
+            }
+            Object next = std::move(*instance.last_view).take_object();
+            Object tick_changes = std::move(tick).take_object();
+            Object changes;
+            for (auto& [key, value] : tick_changes) {
+                const auto found = next.find(key);
+                if (found == next.end() || factory::values::typed_difference(found->second, value)) {
+                    changes.emplace(key, value);
+                    next.insert_or_assign(key, std::move(value));
+                }
+            }
+            // Engineering progress reads inventory and machine topology plus
+            // belt contents and loose drops. Tick cannot change the first two.
+            // A wheel-only tick therefore keeps the exact derived value.
+            Value view;
+            if (changes.contains("belt_spans") || changes.contains("dropped_material")) {
+                next.erase("opening_engineering");
+                view = with_opening_engineering(Value(std::move(next)));
+                changes.emplace("opening_engineering", std::get<Object>(view.storage()).at("opening_engineering"));
+            } else {
+                view = Value(std::move(next));
+            }
+            instance.last_view = std::move(view);
+            return Value(Object{{"changes", Value(std::move(changes))}, {"removed", Value(Value::Array{})}});
+        }
         case Method::checkpoint: return host.checkpoint();
         case Method::restore: return host.restore_checkpoint(args.at(0));
         case Method::validate: return host.validate_checkpoint(args.at(0));

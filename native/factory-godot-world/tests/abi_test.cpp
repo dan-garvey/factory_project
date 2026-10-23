@@ -125,6 +125,17 @@ Value edited(const Value& value, const char* key, Value replacement) {
     return Value(std::move(object));
 }
 
+Value merged_tick(const Value& previous, const Value& delivery) {
+    const auto& packet = std::get<Object>(delivery.storage());
+    if (const auto full = packet.find("full"); full != packet.end()) return full->second;
+    auto merged = std::get<Object>(previous.storage());
+    for (const auto& key : field<Array>(delivery, "removed"))
+        merged.erase(std::get<std::string>(key.storage()));
+    for (const auto& [key, value] : field<Object>(delivery, "changes"))
+        merged.insert_or_assign(key, value);
+    return Value(std::move(merged));
+}
+
 void run() {
     check(factory_world_live_instances() == 0, "Library registration must not instantiate a live authority.");
     {
@@ -218,14 +229,33 @@ void run() {
         check(field<bool>(projection, "powered") && field<Integer>(Value(field<Object>(projection, "parts")), "shaft") == 5,
               "The powered line consumes three physical shafts.");
         bool blocked_ready = false;
+        bool active_delta_without_topology = false;
         for (int tick = 0; tick < 500; ++tick) {
-            projection = host.call("advance", {});
+            const auto delivery = host.call("advance_delta", {});
+            const auto next = merged_tick(projection, delivery);
+            const auto fresh = host.call("projection", {});
+            check(!factory::values::typed_difference(next, fresh),
+                  "Every active tick delta must reconstruct the fresh full engine projection.");
+            const bool changed_material = bool(factory::values::typed_difference(
+                Value(field<Object>(projection, "stock")), Value(field<Object>(next, "stock"))));
+            if (const auto* packet = std::get_if<Object>(&delivery.storage())) {
+                const auto found = packet->find("changes");
+                if (found != packet->end()) {
+                    const auto& changes = std::get<Object>(found->second.storage());
+                    active_delta_without_topology |= changed_material &&
+                        !changes.contains("entities") && !changes.contains("transmission_parts") &&
+                        !changes.contains("motion") && !changes.contains("engagements");
+                }
+            }
+            projection = next;
             const auto stock = Value(field<Object>(projection, "stock"));
             if (field<Integer>(stock, "held") > 0 && field<Integer>(stock, "output") > 0) {
                 blocked_ready = true; break;
             }
         }
         check(blocked_ready, "The physical line reaches blocked ready work and completed output.");
+        check(active_delta_without_topology,
+              "The active line changes material while the delta omits unchanged machine topology.");
         at(4.95, 0);
         const auto recover = target("recover", "recover-ready", press);
         const auto recovered = issue(host, recover);
@@ -257,17 +287,27 @@ void run() {
         bad_actors.at("P") = Value(Array{Value(Integer{0}), Value(Integer{1}), Value(Integer{0})});
         check(!accepted(fresh.call("restore_checkpoint", {edited(saved, "actors", Value(std::move(bad_actors)))})),
               "Typed native checkpoint seeds cannot be silently reified from integers.");
+        (void)fresh.call("projection", {});
         check(accepted(fresh.call("restore_checkpoint", {saved})), "A valid complete candidate replaces the fresh host atomically.");
-        const auto restored = fresh.call("projection", {});
+        check(!factory::values::typed_difference(saved, fresh.call("checkpoint", {})),
+              "Every typed quantity, original wire intent, cached outcome, identity and seed survives exactly.");
+        const auto after_restore = fresh.call("advance_delta", {});
+        check(std::get<Object>(after_restore.storage()).contains("full"),
+              "A Store restore invalidates the prior native delta base.");
+        const auto restored = merged_tick(Value(Object{}), after_restore);
+        check(!factory::values::typed_difference(restored, fresh.call("projection", {})),
+              "The first post-restore tick delivers the exact complete view.");
         const auto p = Value(field<Object>(Value(field<Object>(restored, "actors")), "P"));
         check(field<std::string>(restored, "context") == "engine-adapter-fixture" && !field<bool>(p, "ready") &&
               field<Integer>(p, "native_epoch") == 0, "Restoration preserves context but requires fresh producer readiness.");
-        check(!factory::values::typed_difference(saved, fresh.call("checkpoint", {})),
-              "Every typed quantity, original wire intent, cached outcome, identity and seed survives exactly.");
         check(field<bool>(issue(fresh, recover), "duplicate"), "Restored cache lookup works before any new actor observation.");
         check(accepted(publish(fresh, "P", 4.95, 0, 1)) && accepted(publish(fresh, "Q", 4.95, 0, 1)),
               "Restored actors require new process-local observation ordinals.");
         check(!accepted(publish(fresh, "P", 4.95, 0, 1)), "A stale native sample is never admitted.");
+        const auto after_refusal = fresh.call("advance_delta", {});
+        check(std::get<Object>(after_refusal.storage()).contains("full") &&
+              !factory::values::typed_difference(merged_tick(restored, after_refusal), fresh.call("projection", {})),
+              "A refused actor sample discards the old delta base and delivers complete current facts.");
         const auto before_bad_type = fresh.call("projection", {});
         (void)fresh.call("publish_actor", {Value("P"), Value(Array{Value(0.8), Value(1.0), Value(1.65)}), Value(2.0)}, true);
         check(!factory::values::typed_difference(before_bad_type, fresh.call("projection", {})),

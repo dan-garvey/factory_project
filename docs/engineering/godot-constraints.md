@@ -1361,6 +1361,47 @@ export time from 12.497/13.383 ms in adjacent baselines to 10.976 ms. This is
 wheel-only headless conversion evidence; it does not establish a mixed rendered
 scene at 120 FPS.
 
+## GDC-28: static machine cell batches have renderer-specific cost
+
+The pinned Godot 4.7.2 Compatibility renderer responded differently to small
+static machine batches on the two measured paths. On WSL2 X11/D3D12 with the
+RTX 3090 at 1280 by 800, a passive 800-machine close field took 60.285 ms
+median with four-pitch cells and 2,087 draw calls, versus 23.237 ms and 218
+draw calls with whole-field composites. A 400-press animated close field took
+31.917 ms with cells and 26.402 ms when kept whole. The cell version submitted
+fewer primitives in the 800-machine case, but its draw overhead dominated.
+On native Windows/NVIDIA Compatibility, the separate 1,000-static-machine
+close fixture improved from 13.545 to 7.500 ms with the same spatial approach.
+
+The Opening adapter therefore defaults to whole-field static composites on
+non-Windows builds and enables four-pitch cells only for large Windows machine
+fields. The fixture can explicitly override the cell count for comparisons.
+These are local renderer observations, not a platform-wide rule or a claim
+about active native machines. Revisit the default with paired measurements on
+another GPU, renderer or scene layout. Evidence is in `factory-yau.9.25` and
+`factory-yau.9.12.34`.
+
+## GDC-29: batched conveyor phases should update their visible instance
+
+The Opening still wrote hidden per-conveyor `StandardMaterial3D` UV offsets
+after batching. In an exclusive pinned Godot 4.7.2 WSL X11 Compatibility
+400-conveyor close fixture, updating each visible `MultiMesh` custom datum
+directly instead of changing hidden material offsets and copying them later
+reduced whole-frame medians from 26.149 and 26.930 ms in adjacent baselines to
+24.571 and 25.577 ms in the candidate runs. The GDScript motion stage changed
+by only about 0.1 ms; reduced material or render upload work is an inference,
+not a GPU trace. A 400-mixed-machine pair varied more than the candidate effect:
+baseline medians were 31.374 and 33.228 ms versus candidate 32.536 and
+31.546 ms, so no mixed-scene gain is established.
+
+Unbatched conveyors keep their material UV path. The graphical batch fixture
+checks distinct visible phases, no overwrite by other moving batches and
+rebuild catch-up; the separate body-motion fixture checks unbatched behavior.
+Inspected animated close captures retain the authored loop finish, but their
+pixel hashes differ with phase. This is adapter presentation evidence only;
+it does not measure native custody, legal placement or player understanding.
+See `factory-yau.9.26` for exact logs and source revisions.
+
 ## Required follow-through
 
 This first source/API/evidence audit leaves actual backend identification,

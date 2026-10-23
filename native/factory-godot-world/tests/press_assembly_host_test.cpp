@@ -605,9 +605,17 @@ void belt_fed_press_projection() {
     load.emplace("work_id", V(I{0}));
     accepted(host, load);
     bool fed = false;
+    V previous = host.projection();
     for (int n = 0; n < 32 && !fed; ++n) {
-        (void)host.advance();
-        const auto drops = get<A>(host.projection(), "dropped_material");
+        const auto changes = host.advance_tick_fields();
+        O merged = std::get<O>(previous.storage());
+        for (const auto& [key, value] : std::get<O>(changes.storage()))
+            merged.insert_or_assign(key, value);
+        const auto full = host.projection();
+        check(!factory::values::typed_difference(V(std::move(merged)), full),
+              "A live modular belt and press tick must reconstruct the exact full Host view.");
+        previous = full;
+        const auto drops = get<A>(full, "dropped_material");
         fed = std::any_of(drops.begin(), drops.end(), [](const V& drop) {
             return !factory::values::typed_difference(V(get<A>(drop, "center")),
                 V(A{V(I{0}), V(I{5}), V(I{0})})) && get<I>(drop, "raw") == 1;

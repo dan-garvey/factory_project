@@ -328,6 +328,21 @@ argument counts and scalar types. `native_dispatch_check.gd` guards that metadat
 before compiling and invoking a typed native receiver. The old library is rejected
 before that previously unsafe path; this is distinct from physical-body coverage.
 
+The opening's trusted tick reader uses `advance_delta` after it has a complete
+view. A delivery contains either `full` or top-level `changes` and `removed`
+keys. The bridge merges those fields before any scene reader sees the result.
+Authority mutations, including refused commands and actor samples, invalidate
+the native comparison base, so the next delta delivers a complete view. Public
+`advance` and `projection` still deliver full snapshots.
+
+With a complete comparison base, `Host::advance_tick_fields` ticks the same
+World and projects its revision, belt slots and raw count, dropped material,
+stock, remaining work and manual source quantities. The extension merges them
+with the unchanged topology and actor facts. It recomputes the derived opening
+engineering view only when belt contents or loose drops change; actor inventory
+and topology changes invalidate the full base. Any new field changed by
+`World::tick` must join this field builder and its exact full-view fixtures.
+
 ## Shared native profile
 
 The server's explicit `--native-world` option uses the same fixed native profile

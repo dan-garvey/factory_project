@@ -16,6 +16,14 @@ field-work silhouette than the former casual blouse and jeans. The licensed
 source palette is provisional until a human checks the actual character at
 ordinary and eye-level camera distances. Wardrobe is presentation only.
 
+The jacket carries a restrained, provisional Meridian field-package mark on
+its left breast. One small matte mesh follows the source Spine2 bone through
+the existing character presenter; they do not replace the captured garment
+texture, move the actor or add equipment state. Passive front, angled and
+synthetic gait views checked its placement. At ordinary worksite distance it
+reads as a small accent, while the exact symbol and uniform design remain
+open to human art direction.
+
 The converted mesh has 6,029 vertices, 9,284 triangles, three material surfaces
 and 80 skin bindings. Color maps are 1,024 pixels square; normal and alpha maps
 are 512 pixels square. Conversion preserves the skin and mesh level, removes

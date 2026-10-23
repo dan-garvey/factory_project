@@ -4607,6 +4607,7 @@ var packed_preview_templates: Dictionary = {}
 var packed_preview_nodes: Dictionary = {}
 var machine_dynamic_batches: Array[Dictionary] = []
 var machine_conveyor_batches: Array[Dictionary] = []
+var machine_conveyor_batch_slots: Dictionary = {}
 var machine_rotors: Array[Dictionary] = []
 var machine_rotor_cells: Array[Dictionary] = []
 var machine_batched_rotors: Dictionary = {}
@@ -4618,7 +4619,10 @@ var machine_motion_anchors: Array[Node3D] = []
 var machine_batch_finished_meshes: Dictionary = {}
 var machine_batch_rotor_meshes: Dictionary = {}
 var machine_batch_composite_meshes: Dictionary = {}
-var machine_static_spatial_tiles := 4
+# Spatial draws help the measured native Windows renderer at large scale,
+# but overwhelm the WSL Compatibility path even when they cull triangles.
+var machine_static_spatial_tiles: int = 4 if OS.has_feature("windows") else 0
+var machine_batch_static_machine_count := 0
 var transmission_preview_point: Array = []
 var wheel_rotor: Node3D
 var machine_body_context := ""
@@ -4636,7 +4640,9 @@ var goal_label: Label
 var objective_heading: Label
 var manager_log_button: Button
 var manager_log_layer: CanvasLayer
+var manager_log_panel: PanelContainer
 var manager_log_current: Label
+var manager_log_repeat_entry: Label
 var manager_log_open := false
 var lesson_button: Button
 var goal_progress: ProgressBar
@@ -5508,6 +5514,11 @@ func _apply_conveyor_motion(anchor: Node3D, rotation: float) -> void:
 	# rotation carries the top toward -X, so the texture offset increases.
 	var direction := -1.0 if anchor.get_meta("material_rotated", false) else 1.0
 	var offset := fposmod(direction * rotation * ProductionConveyorArt.RADIUS * repeats / length_value, 1.0)
+	var slot: Dictionary = machine_conveyor_batch_slots.get(loop.get_instance_id(), {})
+	if not slot.is_empty():
+		# The visible batch reads custom data; the source material is hidden.
+		slot.mesh.set_instance_custom_data(slot.index, Color(offset, 0, 0))
+		return
 	loop.material_override.uv1_offset = Vector3(offset, 0, 0)
 
 func _sync_machine_body_context() -> void:
@@ -7478,6 +7489,7 @@ func _choose_machine_preview(pooled: Node3D = null) -> void:
 
 const MACHINE_BATCH_THRESHOLD := 12
 const MACHINE_STATIC_SPATIAL_THRESHOLD := 256
+const MACHINE_STATIC_SPATIAL_FIELD_THRESHOLD := 800
 # Paddle joinery ends by 32 m with a 2 m fade margin; the extra room
 # covers the largest authored rim and a camera move between render cuts.
 const WHEEL_DETAIL_UPDATE_RADIUS := 48.0
@@ -7902,10 +7914,11 @@ func _emit_machine_mesh_batches(groups: Dictionary, batches: Node3D, dynamic: bo
 		if group.parts.size() < 2:
 			continue
 		var partitions: Array = [group.parts]
-		# Small mixed fields submit more cell batches than culling saves. Keep
-		# their composites whole; split the larger fields that benefit from it.
+		# Smaller fields submit more cell batches than culling saves. Count only
+		# eligible static machines so wheels and foundations cannot trigger it.
 		if not dynamic and group.get("spatial_composite", false) \
 				and machine_static_spatial_tiles > 0 \
+				and machine_batch_static_machine_count >= MACHINE_STATIC_SPATIAL_FIELD_THRESHOLD \
 				and group.parts.size() >= MACHINE_STATIC_SPATIAL_THRESHOLD:
 			var cells := {}
 			var cell_size := PITCH * float(machine_static_spatial_tiles)
@@ -7962,7 +7975,7 @@ func _emit_machine_mesh_batches(groups: Dictionary, batches: Node3D, dynamic: bo
 			batch_index += 1
 
 func _update_machine_dynamic_batches(visible_rotors_only := false) -> void:
-	if machine_dynamic_batches.is_empty() and machine_conveyor_batches.is_empty():
+	if machine_dynamic_batches.is_empty():
 		return
 	var to_local := machine_root.global_transform.affine_inverse()
 	if visible_rotors_only:
@@ -7994,12 +8007,6 @@ func _update_machine_dynamic_batches(visible_rotors_only := false) -> void:
 			else:
 				motion_pose = to_local * part.node.global_transform
 			mesh.set_instance_transform(index, motion_pose)
-	for group in machine_conveyor_batches:
-		var mesh: MultiMesh = group.mesh
-		for index in group.parts.size():
-			var loop: MeshInstance3D = group.parts[index]
-			mesh.set_instance_custom_data(index, Color(loop.material_override.uv1_offset.x, 0, 0))
-
 func _batch_conveyor_loops(batches: Node3D) -> void:
 	var loops: Array[MeshInstance3D] = []
 	for part in machine_root.find_children("ConveyorLoop", "MeshInstance3D", true, false):
@@ -8036,10 +8043,14 @@ func _batch_conveyor_loops(batches: Node3D) -> void:
 	instance.layers = loops[0].layers
 	batches.add_child(instance)
 	machine_conveyor_batches.append({"mesh": multi, "parts": loops})
+	for index in loops.size():
+		machine_conveyor_batch_slots[loops[index].get_instance_id()] = {"mesh": multi, "index": index}
 
 func _batch_machine_visuals() -> void:
 	machine_dynamic_batches.clear()
 	machine_conveyor_batches.clear()
+	machine_conveyor_batch_slots.clear()
+	machine_batch_static_machine_count = 0
 	machine_batched_rotors.clear()
 	machine_batched_rotor_slots.clear()
 	machine_cutter_batch_slots.clear()
@@ -8049,6 +8060,8 @@ func _batch_machine_visuals() -> void:
 		return
 	var moving := {}
 	for anchor in machine_root.get_children():
+		if anchor.get_meta("machine_kind", "") in ["collector", "belt", "processor"]:
+			machine_batch_static_machine_count += 1
 		for row in anchor.get_meta("motion_meshes", []):
 			moving[row.node.get_instance_id()] = true
 	var static_groups := {}
@@ -8392,6 +8405,15 @@ func _toggle_details() -> void:
 func _refresh_manager_log() -> void:
 	if manager_log_current == null or goal_label == null:
 		return
+	var beacon: Dictionary = state.get("freight_beacon", {})
+	var follow_up: bool = beacon.get("order_complete", false)
+	manager_log_repeat_entry.visible = follow_up
+	if follow_up:
+		manager_log_repeat_entry.text = "03  FOLLOW-UP\n%d / %d plates received. A continuous route can free your hands; the layout is yours." % [
+			int(beacon.get("repeat_order_shipped", 0)), int(beacon.get("repeat_order_target", 3))]
+	var half_height := 240.0 if follow_up else 215.0
+	manager_log_panel.offset_top = -half_height
+	manager_log_panel.offset_bottom = half_height
 	var lines := goal_label.text.split("\n")
 	var current := lines[lines.size() - 1] if not lines.is_empty() else "Inspect the worksite."
 	manager_log_current.text = "CURRENT FIELD CUE\n" + current
@@ -9441,6 +9463,7 @@ func _build_manager_log() -> void:
 	var column := _panel(log_root, Vector2.ZERO, Vector2(550, 480))
 	column.add_theme_constant_override("separation", 8)
 	var panel := column.get_parent() as PanelContainer
+	manager_log_panel = panel
 	panel.anchor_left = 0.5
 	panel.anchor_right = 0.5
 	panel.anchor_top = 0.5
@@ -9455,11 +9478,14 @@ func _build_manager_log() -> void:
 	for entry in [
 		"00  LANDFALL\nLandfall confirmed. Your office is now the part of the planet under your boots.",
 		"01  FIELD KIT\nThe kit makes tools. The tools make a factory. Corporate has provided the kit.",
-		"02  FIRST ORDER\nForm one plate from local stock. Its final destination is outside your pay grade.",
-		"03  FOLLOW-UP\nSend three more plates. A continuous route can free your hands, but the layout is yours."]:
+		"02  FIRST ORDER\nForm one plate from local stock. Its final destination is outside your pay grade."]:
 		var line := _label(column, entry, 15)
 		line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		line.custom_minimum_size.x = 496.0
+	manager_log_repeat_entry = _label(column, "", 15)
+	manager_log_repeat_entry.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	manager_log_repeat_entry.custom_minimum_size.x = 496.0
+	manager_log_repeat_entry.visible = false
 	manager_log_current = _label(column, "CURRENT FIELD CUE\nInspect the worksite.", 15, Color("f1d7a5"))
 	manager_log_current.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var close_log := _button(column, "Return to work  [J / Esc]", _toggle_manager_log)
